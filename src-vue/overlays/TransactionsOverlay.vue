@@ -102,7 +102,7 @@ let unsubscribe: (() => void) | undefined;
 async function loadActivity(): Promise<void> {
   isLoading.value = true;
   const db = await getDbPromise();
-  activities.value = await new WalletActivity(db).fetchByWalletAddress(walletKeys.investmentAddress);
+  activities.value = await new WalletActivity(db).fetchByWalletAddress(walletKeys.defaultArgonAddress);
   isLoading.value = false;
 }
 
@@ -214,7 +214,7 @@ function eventSummary(activity: IWalletActivityRecord): string {
 Vue.onMounted(async () => {
   basicEmitter.on('openTransactionsOverlay', openOverlay);
   unsubscribe = wallets.on('balance-change', async (_entry, walletType) => {
-    if (isOpen.value && walletType === 'investment') {
+    if (isOpen.value && walletType === 'defaultArgon') {
       await loadActivity();
     }
   });

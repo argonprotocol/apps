@@ -2,7 +2,7 @@
   <div class="rounded-md border border-slate-800/20 bg-white px-1 text-base text-slate-800 shadow-lg">
     <div class="mx-2 flex flex-row gap-x-1 border-b border-slate-300 px-1 py-2 text-left font-light">
       <strong class="font-bold">Seat {{ seat.id }}</strong>
-      <span v-if="seat.miner?.isOurs" class="text-slate-400">(OURS)</span>
+      <span v-if="seat.miner?.isOurs" class="text-slate-400">(YOURS)</span>
       <span v-else-if="seat.miner" class="text-slate-400">(OTHER)</span>
       <span v-else class="text-slate-400">(EMPTY)</span>
       <span class="grow text-right italic">{{ percentComplete }}% complete</span>

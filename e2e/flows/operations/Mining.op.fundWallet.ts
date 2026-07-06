@@ -83,16 +83,16 @@ export default new Operation<IMiningFlowContext, IFundWalletState>(import.meta, 
     const walletAddress = await readClipboardWithRetries(
       flow,
       async () => {
-        await flow.click('miningHoldWalletAddress.openMenu()', { timeoutMs: 5_000 });
-        await flow.waitFor('miningHoldWalletAddress.copyContent()', { timeoutMs: 5_000 });
-        await flow.click('miningHoldWalletAddress.copyContent()', { timeoutMs: 5_000 });
+        await flow.click('defaultArgonWalletAddress.openMenu()', { timeoutMs: 5_000 });
+        await flow.waitFor('defaultArgonWalletAddress.copyContent()', { timeoutMs: 5_000 });
+        await flow.click('defaultArgonWalletAddress.copyContent()', { timeoutMs: 5_000 });
       },
       value => isAddress(value),
-      { label: 'mining hold wallet address' },
+      { label: 'default Argon wallet address' },
     );
 
     if (!walletAddress) {
-      throw new Error(`${flowName}: missing mining hold wallet address.`);
+      throw new Error(`${flowName}: missing default Argon wallet address.`);
     }
     if (!microgonsNeededRaw) {
       throw new Error(`${flowName}: missing mining wallet microgons requirement.`);
@@ -182,9 +182,9 @@ async function readFundingState(flow: IMiningFlowContext['flow']): Promise<IFund
       const futureTransactionFeeBudgetMicrogons =
         refs.config.miningSetupStatus === args.finishedSetupStatus ? 0n : 2n * BigInt(args.microgonsPerArgonText);
       const availableMicronots =
-        refs.wallets.miningHoldWallet.availableMicronots + refs.wallets.miningBotWallet.availableMicronots;
+        refs.wallets.defaultArgonWallet.availableMicronots + refs.wallets.miningBotWallet.availableMicronots;
       const reservedMicronots =
-        refs.wallets.miningHoldWallet.reservedMicronots + refs.wallets.miningBotWallet.reservedMicronots;
+        refs.wallets.defaultArgonWallet.reservedMicronots + refs.wallets.miningBotWallet.reservedMicronots;
       const availableMicrogons = refs.wallets.totalMiningMicrogons ?? 0n;
       const requiredMicrogons =
         (refs.config.biddingRules.initialMicrogonRequirement ?? 0n) + futureTransactionFeeBudgetMicrogons;

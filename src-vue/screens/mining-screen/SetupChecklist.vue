@@ -214,11 +214,11 @@ import { getBiddingCalculator } from '../../stores/mainchain.ts';
 import BotReturns from '../../overlays/bot/BotReturns.vue';
 import BotCapital from '../../overlays/bot/BotCapital.vue';
 import BotCreatePanel from '../../panels/BotCreatePanel.vue';
-import { OperationalStepId, TopTab, useOperationsController } from '../../stores/operationsController.ts';
+import { OperationalStepId, useOperationsController } from '../../stores/operationsController.ts';
 import BotCreatePriceChangeOverlay from '../../overlays/BotCreatePriceChangeOverlay.vue';
 import { UnitOfMeasurement } from '../../lib/Currency.ts';
 import { WalletType } from '../../lib/Wallet.ts';
-import { MiningSetupStatus } from '../../interfaces/IConfig.ts';
+import { MiningSetupStatus, TopTab } from '../../interfaces/IConfig.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 import { useBasics } from '../../stores/basics.ts';
 import { getMiningFundingState } from './miningFunding.ts';
@@ -262,15 +262,15 @@ const currentStep = Vue.computed(() => {
 });
 
 const availableMicrogons = Vue.computed(() => {
-  return wallets.miningHoldSpendableMicrogons + wallets.miningBotWallet.availableMicrogons;
+  return wallets.defaultArgonSpendableMicrogons + wallets.miningBotWallet.availableMicrogons;
 });
 
 const reservedMicronots = Vue.computed(() => {
-  return wallets.miningHoldWallet.reservedMicronots + wallets.miningBotWallet.reservedMicronots;
+  return wallets.defaultArgonWallet.reservedMicronots + wallets.miningBotWallet.reservedMicronots;
 });
 
 const availableMicronots = Vue.computed(() => {
-  return wallets.miningHoldWallet.availableMicronots + wallets.miningBotWallet.availableMicronots;
+  return wallets.defaultArgonWallet.availableMicronots + wallets.miningBotWallet.availableMicronots;
 });
 
 const miningMicronotsOnHand = Vue.computed(() => {
@@ -342,7 +342,7 @@ function openBotCreateOverlay() {
 }
 
 function openFundMiningAccountOverlay() {
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.miningHold, showGuidance: true });
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon, showGuidance: true });
 }
 
 function openServerConnectPanel() {
@@ -356,7 +356,7 @@ function openServerConnectPanel() {
 function goBack() {
   config.miningSetupStatus = MiningSetupStatus.None;
   if (controller.backButtonTriggersHome) {
-    controller.setScreenKey(TopTab.Wallets);
+    controller.setTab(TopTab.Wallets);
   }
 }
 

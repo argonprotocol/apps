@@ -54,7 +54,7 @@
                 </div>
                 <div class="text-center">You need your own Argon node before you can start mining or vaulting.</div>
               </div>
-              <NavigationMenuLink v-if="config.showOperationsExtension" class="pt-3! pb-2.5! px-2! focus:bg-transparent! cursor-default!">
+              <NavigationMenuLink v-if="config.hasExtensionOperations" class="pt-3! pb-2.5! px-2! focus:bg-transparent! cursor-default!">
                 <button @click="openServerConnectPanel" class="text-base py-2 px-5 text-white bg-argon-600 border border-argon-700 hover:inner-button-shadow hover:bg-argon-700 rounded-md w-full cursor-pointer">
                   Connect a Cloud Machine
                 </button>

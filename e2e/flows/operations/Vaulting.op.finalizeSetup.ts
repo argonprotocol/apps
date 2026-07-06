@@ -33,8 +33,8 @@ export default new Operation<IVaultingFlowContext, IFinalizeSetupState>(import.m
         refs => {
           const requiredMicrogons = refs.config.vaultingRules?.baseMicrogonCommitment ?? 0n;
           const requiredMicronots = refs.config.vaultingRules?.baseMicronotCommitment ?? 0n;
-          const availableMicrogons = refs.wallets.vaultingWallet.availableMicrogons ?? 0n;
-          const availableMicronots = refs.wallets.vaultingWallet.availableMicronots ?? 0n;
+          const availableMicrogons = refs.wallets.defaultArgonWallet.availableMicrogons ?? 0n;
+          const availableMicronots = refs.wallets.defaultArgonWallet.availableMicronots ?? 0n;
           const hasMiningMachine =
             !!refs.config.serverAdd?.customServer ||
             !!refs.config.serverAdd?.localComputer ||

@@ -110,6 +110,14 @@ pub fn export_private_key_at_path(mnemonic: &str, hd_path: &str) -> Result<Strin
     ))
 }
 
+pub fn export_private_key_at_standard_path(mnemonic: &str, hd_path: &str) -> Result<String> {
+    let hd_key = derive_hd_key_allowing_standard_path(mnemonic, hd_path)?;
+    Ok(format!(
+        "0x{}",
+        hex::encode(hd_key.private_key().to_bytes())
+    ))
+}
+
 pub fn derive_addresses(mnemonic: &str, hd_paths: &[String]) -> Result<Vec<String>> {
     ensure!(
         hd_paths.len() <= 64,
@@ -120,6 +128,29 @@ pub fn derive_addresses(mnemonic: &str, hd_paths: &[String]) -> Result<Vec<Strin
         .iter()
         .map(|hd_path| derive_address_at_path(mnemonic, hd_path))
         .collect()
+}
+
+pub fn derive_standard_addresses(mnemonic: &str, hd_paths: &[String]) -> Result<Vec<String>> {
+    ensure!(
+        hd_paths.len() <= 64,
+        "Ethereum address derivations are limited to 64 paths at a time"
+    );
+
+    hd_paths
+        .iter()
+        .map(|hd_path| {
+            derive_ethereum_address_from_hd_key(derive_hd_key_allowing_standard_path(
+                mnemonic, hd_path,
+            )?)
+        })
+        .collect()
+}
+
+pub fn derive_address_from_private_key(private_key: &str) -> Result<String> {
+    let secret_key = parse_private_key(private_key)?;
+    Ok(to_checksummed_ethereum_address(
+        &derive_ethereum_address_bytes_from_secret_key(&secret_key),
+    ))
 }
 
 fn derive_hd_key_with_path(mnemonic: &str, path: &str) -> Result<XPrv> {
@@ -139,6 +170,17 @@ fn derive_hd_key_with_path(mnemonic: &str, path: &str) -> Result<XPrv> {
     Ok(bip32::XPrv::derive_from_path(seed, &path)?)
 }
 
+fn derive_hd_key_allowing_standard_path(mnemonic: &str, path: &str) -> Result<XPrv> {
+    ensure!(
+        path.starts_with(ETHEREUM_HD_PATH_PREFIX),
+        "Ethereum derivations must use an m/44'/60'/... path"
+    );
+
+    let seed = bip39::Mnemonic::from_str(mnemonic)?.to_seed("");
+    let path = bip32::DerivationPath::from_str(path)?;
+    Ok(bip32::XPrv::derive_from_path(seed, &path)?)
+}
+
 pub fn sign_personal_message_at_path(
     mnemonic: &str,
     hd_path: &str,
@@ -147,8 +189,18 @@ pub fn sign_personal_message_at_path(
     sign_personal_message_with_hd_key(derive_hd_key_with_path(mnemonic, hd_path)?, message)
 }
 
+pub fn sign_personal_message_with_private_key(private_key: &str, message: &str) -> Result<String> {
+    sign_personal_message_with_secret_key(parse_private_key(private_key)?, message)
+}
+
 fn sign_personal_message_with_hd_key(hd_key: XPrv, message: &str) -> Result<String> {
-    let secret_key = SecretKey::from_slice(&hd_key.private_key().to_bytes())?;
+    sign_personal_message_with_secret_key(
+        SecretKey::from_slice(&hd_key.private_key().to_bytes())?,
+        message,
+    )
+}
+
+fn sign_personal_message_with_secret_key(secret_key: SecretKey, message: &str) -> Result<String> {
     let message_bytes = decode_ethereum_message(message)?;
     let digest = ethereum_personal_message_digest(&message_bytes);
     let signature = Secp256k1::new()
@@ -207,6 +259,48 @@ pub fn sign_permit(
     })
 }
 
+pub fn sign_permit_with_private_key(
+    private_key: &str,
+    policy: &EthereumSignerPolicy,
+    request: &EthereumPermitRequest,
+) -> Result<EthereumPermitSignature> {
+    let secret_key = parse_private_key(private_key)?;
+    let token_address = parse_ethereum_address(&request.token_address)?;
+    ensure!(
+        policy
+            .token_addresses
+            .iter()
+            .any(|allowed| allowed == &token_address),
+        "Ethereum permit token is not allowed"
+    );
+
+    let value = parse_u256(&request.value)?;
+    let nonce = parse_u256(&request.nonce)?;
+    let deadline = parse_u256(&request.deadline)?;
+    let domain = Eip712Domain::new(
+        Some(request.token_name.clone().into()),
+        Some("1".into()),
+        Some(U256::from(policy.chain_id)),
+        Some(Address::from(token_address)),
+        None,
+    );
+    let permit = Permit {
+        owner: Address::from(derive_ethereum_address_bytes_from_secret_key(&secret_key)),
+        spender: Address::from(policy.gateway_address),
+        value,
+        nonce,
+        deadline,
+    };
+    let signature =
+        sign_digest_with_secret_key(secret_key, permit.eip712_signing_hash(&domain).into())?;
+
+    Ok(EthereumPermitSignature {
+        v: signature.0,
+        r: signature.1,
+        s: signature.2,
+    })
+}
+
 pub fn set_policy(
     current_policy: &mut Option<EthereumSignerPolicy>,
     request: &EthereumSignerPolicyRequest,
@@ -251,13 +345,37 @@ pub fn sign_transaction(
     sign_transaction_bytes(mnemonic, hd_path, &unsigned_transaction)
 }
 
+pub fn sign_transaction_with_private_key(
+    private_key: &str,
+    policy: &EthereumSignerPolicy,
+    request: &EthereumTransactionRequest,
+) -> Result<EthereumTransactionSignature> {
+    let unsigned_transaction = decode_hex(&request.unsigned_transaction)?;
+    let parsed_transaction = parse_unsigned_eip1559_transaction(&unsigned_transaction)?;
+    ensure!(
+        parsed_transaction.chain_id == policy.chain_id,
+        "Ethereum transaction chain ID does not match the configured signer policy"
+    );
+    validate_ethereum_call(policy, &parsed_transaction.to, &parsed_transaction.data)?;
+    sign_transaction_bytes_with_secret_key(parse_private_key(private_key)?, &unsigned_transaction)
+}
+
 fn sign_transaction_bytes(
     mnemonic: &str,
     hd_path: &str,
     unsigned_transaction: &[u8],
 ) -> Result<EthereumTransactionSignature> {
     let hd_key = derive_hd_key_with_path(mnemonic, hd_path)?;
-    let secret_key = SecretKey::from_slice(&hd_key.private_key().to_bytes())?;
+    sign_transaction_bytes_with_secret_key(
+        SecretKey::from_slice(&hd_key.private_key().to_bytes())?,
+        unsigned_transaction,
+    )
+}
+
+fn sign_transaction_bytes_with_secret_key(
+    secret_key: SecretKey,
+    unsigned_transaction: &[u8],
+) -> Result<EthereumTransactionSignature> {
     let digest = sp_core::hashing::keccak_256(unsigned_transaction);
     let signature = Secp256k1::new()
         .sign_ecdsa_recoverable(&Secp256k1Message::from_digest(digest), &secret_key);
@@ -426,11 +544,22 @@ fn derive_ethereum_address_bytes(mnemonic: &str, hd_path: &str) -> Result<[u8; 2
 fn derive_ethereum_address_bytes_from_hd_key(hd_key: XPrv) -> Result<[u8; 20]> {
     let public_key = hd_key.private_key().verifying_key();
     let encoded = public_key.to_encoded_point(false);
-    let public_key_bytes = encoded.as_bytes();
+    Ok(derive_ethereum_address_bytes_from_encoded_public_key(
+        encoded.as_bytes(),
+    ))
+}
+
+fn derive_ethereum_address_bytes_from_secret_key(secret_key: &SecretKey) -> [u8; 20] {
+    let public_key = secret_key.public_key(&Secp256k1::new());
+    let encoded = public_key.serialize_uncompressed();
+    derive_ethereum_address_bytes_from_encoded_public_key(&encoded)
+}
+
+fn derive_ethereum_address_bytes_from_encoded_public_key(public_key_bytes: &[u8]) -> [u8; 20] {
     let hash = sp_core::hashing::keccak_256(&public_key_bytes[1..]);
     let mut address = [0u8; 20];
     address.copy_from_slice(&hash[12..]);
-    Ok(address)
+    address
 }
 
 fn derive_ethereum_address_from_hd_key(hd_key: XPrv) -> Result<String> {
@@ -463,7 +592,16 @@ fn to_checksummed_ethereum_address(address_bytes: &[u8]) -> String {
 
 fn sign_digest(mnemonic: &str, hd_path: &str, digest: [u8; 32]) -> Result<(u8, String, String)> {
     let hd_key = derive_hd_key_with_path(mnemonic, hd_path)?;
-    let secret_key = SecretKey::from_slice(&hd_key.private_key().to_bytes())?;
+    sign_digest_with_secret_key(
+        SecretKey::from_slice(&hd_key.private_key().to_bytes())?,
+        digest,
+    )
+}
+
+fn sign_digest_with_secret_key(
+    secret_key: SecretKey,
+    digest: [u8; 32],
+) -> Result<(u8, String, String)> {
     let signature = Secp256k1::new()
         .sign_ecdsa_recoverable(&Secp256k1Message::from_digest(digest), &secret_key);
     let (recovery_id, compact) = signature.serialize_compact();
@@ -473,6 +611,12 @@ fn sign_digest(mnemonic: &str, hd_path: &str, digest: [u8; 32]) -> Result<(u8, S
         format!("0x{}", hex::encode(&compact[..32])),
         format!("0x{}", hex::encode(&compact[32..])),
     ))
+}
+
+fn parse_private_key(private_key: &str) -> Result<SecretKey> {
+    let bytes = decode_hex(private_key)?;
+    ensure!(bytes.len() == 32, "Ethereum private key must be 32 bytes");
+    Ok(SecretKey::from_slice(&bytes)?)
 }
 
 #[cfg(test)]

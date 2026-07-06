@@ -44,7 +44,7 @@ const props = withDefaults(
     side?: 'top' | 'right' | 'bottom' | 'left';
   }>(),
   {
-    moveFrom: MoveFrom.MiningHold,
+    moveFrom: MoveFrom.DefaultArgon,
   },
 );
 

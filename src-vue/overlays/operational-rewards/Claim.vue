@@ -151,7 +151,7 @@ import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
 
 dayjs.extend(utc);
 
-type ClaimAccount = 'miningHold' | 'vaulting';
+type ClaimAccount = 'defaultArgon' | 'vaulting';
 
 const props = defineProps<{
   isActive: boolean;
@@ -168,7 +168,7 @@ const transactionTracker = getTransactionTracker();
 
 const { microgonToArgonNm } = createNumeralHelpers(currency);
 
-const claimAccount = Vue.ref<ClaimAccount>('miningHold');
+const claimAccount = Vue.ref<ClaimAccount>('defaultArgon');
 
 const pendingRewards = Vue.ref(0n);
 const treasuryReserves = Vue.ref<bigint>();
@@ -189,13 +189,13 @@ let unsubscribeProgress: (() => void) | undefined;
 let feeEstimateRunId = 0;
 
 const claimAccountOptions = Vue.computed<IOption[]>(() => [
-  { name: 'Mining Account', value: 'miningHold', microgons: wallets.miningHoldWallet.availableMicrogons },
-  { name: 'Vaulting Account', value: 'vaulting', microgons: wallets.vaultingWallet.availableMicrogons },
+  { name: 'Argon Wallet', value: 'defaultArgon', microgons: wallets.defaultArgonWallet.availableMicrogons },
+  { name: 'Vaulting Account', value: 'vaulting', microgons: wallets.defaultArgonWallet.availableMicrogons },
 ]);
 
 const selectedClaimAccount = Vue.computed(() => {
-  if (claimAccount.value === 'vaulting') return wallets.vaultingWallet;
-  return wallets.miningHoldWallet;
+  if (claimAccount.value === 'vaulting') return wallets.defaultArgonWallet;
+  return wallets.defaultArgonWallet;
 });
 
 const hasTreasuryReserveShortfall = Vue.computed(() => {
@@ -313,7 +313,7 @@ Vue.onUnmounted(() => {
 
 async function getClaimSigner() {
   if (claimAccount.value === 'vaulting') return await walletKeys.getVaultingKeypair();
-  return await walletKeys.getMiningHoldKeypair();
+  return await walletKeys.getDefaultArgonKeypair();
 }
 
 async function updateClaimFeeEstimate() {

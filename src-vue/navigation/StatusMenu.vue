@@ -125,7 +125,7 @@
                       {{ microgonToArgonNm(wallets.totalMiningMicrogons).format('0,0.[00]') }}
                     </td>
                     <td class="group-hover:text-argon-600 group-hover:bg-argon-100/20 text-right">
-                      {{ microgonToArgonNm(wallets.vaultingWallet.availableMicrogons).format('0,0.[00]') }}
+                      {{ microgonToArgonNm(wallets.defaultArgonWallet.availableMicrogons).format('0,0.[00]') }}
                     </td>
                   </tr>
                   <tr @click="openFundVaultingAccountOverlay" class="group cursor-pointer">
@@ -134,7 +134,7 @@
                       {{ micronotToArgonotNm(wallets.totalMiningMicronots).format('0,0.[00]') }}
                     </td>
                     <td class="group-hover:text-argon-600 group-hover:bg-argon-100/20 text-right">
-                      {{ micronotToArgonotNm(wallets.vaultingWallet.availableMicronots).format('0,0.[00]') }}
+                      {{ micronotToArgonotNm(wallets.defaultArgonWallet.availableMicronots).format('0,0.[00]') }}
                     </td>
                   </tr>
                 </tbody>
@@ -359,12 +359,12 @@
                   Your account has an extra
                   {{
                     microgonToArgonNm(
-                      wallets.vaultingWallet.availableMicrogons - config.vaultingRules.baseMicrogonCommitment,
+                      wallets.defaultArgonWallet.availableMicrogons - config.vaultingRules.baseMicrogonCommitment,
                     ).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]')
                   }}
                   argon{{
                     microgonToArgonNm(
-                      wallets.vaultingWallet.availableMicrogons - config.vaultingRules.baseMicrogonCommitment,
+                      wallets.defaultArgonWallet.availableMicrogons - config.vaultingRules.baseMicrogonCommitment,
                     ).formatIfElse('< 100', '0,0.[000000]', '0,0.[00]') === '1'
                       ? ''
                       : 's'
@@ -469,7 +469,7 @@ const vaultingStatus = Vue.computed<Status>(() => {
     return Status.WaitingForSetup;
   } else if (
     config.vaultingSetupStatus !== VaultingSetupStatus.Finished &&
-    wallets.vaultingWallet.availableMicrogons === 0n
+    wallets.defaultArgonWallet.availableMicrogons === 0n
   ) {
     return Status.WaitingForFunding;
   }
@@ -510,12 +510,16 @@ function onMouseLeave() {
 
 function openFundMiningAccountOverlay() {
   isOpen.value = false;
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.miningHold });
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
 }
 
 function openFundVaultingAccountOverlay() {
   isOpen.value = false;
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.vaulting });
+  basicEmitter.emit('openWalletOverlay', {
+    walletType: WalletType.defaultArgon,
+    showGuidance: true,
+    guidanceContext: 'vaulting',
+  });
 }
 
 function openBotCreateOverlay() {

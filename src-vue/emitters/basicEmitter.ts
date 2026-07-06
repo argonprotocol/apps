@@ -5,13 +5,16 @@ import { OperationalStepId } from '../stores/operationsController.ts';
 import { ICurrencyKey, MoveTo } from '@argonprotocol/apps-core';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 
+export type IWalletGuidanceContext = 'mining' | 'vaulting';
+
 type IBasicEmitter = {
   openWalletOverlay: {
-    walletType: WalletType.miningHold | WalletType.vaulting | WalletType.investment | WalletType.ethereum;
+    walletType: WalletType.defaultArgon | WalletType.ethereum;
     showGuidance?: boolean;
+    guidanceContext?: IWalletGuidanceContext;
   };
   openMoveCapitalOverlay: {
-    walletType: WalletType.miningHold | WalletType.vaulting;
+    walletType: WalletType.defaultArgon;
     moveTo?: MoveTo;
     maxAmount?: bigint;
   };

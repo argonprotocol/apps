@@ -4,7 +4,8 @@
     <DropdownMenuRoot :openDelay="0" :closeDelay="0" v-model:open="isOpen">
       <DropdownMenuTrigger
         Trigger
-        class="group relative flex h-[22px] w-[22px] cursor-pointer flex-col items-center justify-center gap-y-1 rounded text-slate-400 hover:bg-slate-400/10 hover:text-slate-500 focus:outline-none data-[state=open]:bg-slate-400/10 data-[state=open]:text-slate-500"
+        class="group relative flex  cursor-pointer flex-col items-center justify-center gap-y-[2px] rounded-md text-slate-400 hover:bg-slate-400/10 hover:text-slate-500 focus:outline-none data-[state=open]:bg-slate-400/10 data-[state=open]:text-slate-500"
+        :class="[showBorders ? 'h-[34px] w-[34px] border border-slate-400/60' : 'h-[22px] w-[22px]']"
       >
         <span class="h-1 w-1 rounded-full bg-current" />
         <span class="h-1 w-1 rounded-full bg-current" />
@@ -19,30 +20,34 @@
           :align="'end'"
           :alignOffset="-5"
           :sideOffset="-3"
-          class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade z-[1000] data-[state=open]:transition-all"
+          class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade z-[10000] data-[state=open]:transition-all"
         >
           <div class="bg-argon-menu-bg flex min-w-66 shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-            <DropdownMenuItem MenuItem @click="() => openAboutOverlay()">
-              <header>Open Wallet Overlay</header>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            <template v-if="!props.walletIsOpen">
+              <DropdownMenuItem MenuItem @click="() => openAboutOverlay()">
+                <header>Open Wallet Overlay</header>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            </template>
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger :class="submenuTriggerClass">
+              <DropdownMenuSubTrigger class="relative block w-full cursor-pointer rounded px-4 py-2 pl-10 text-right hover:bg-argon-menu-hover focus:bg-argon-menu-hover focus:outline-none data-[state=open]:bg-argon-menu-hover">
                 <ChevronLeftIcon class="absolute top-1/2 left-0.5 h-5 w-5 -translate-y-1/2 text-gray-400" />
                 <header>Create a Transfer Portal</header>
               </DropdownMenuSubTrigger>
               <DropdownMenuPortal>
                 <DropdownMenuSubContent
+                  @mouseenter="onMouseEnter"
+                  @mouseleave="onMouseLeave"
                   :side="'left'"
                   :sideOffset="4"
-                  class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade z-[1001] data-[state=open]:transition-all"
+                  class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade z-[10001] data-[state=open]:transition-all"
                 >
                   <div class="min-w-50 bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-                    <DropdownMenuItem MenuItem @click="openWallet(WalletType.miningHold)">
+                    <DropdownMenuItem MenuItem @click="openWallet(WalletType.defaultArgon)">
                       <header>Argon to Ethereum</header>
                     </DropdownMenuItem>
                     <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-                    <DropdownMenuItem MenuItem @click="openWallet(WalletType.vaulting)">
+                    <DropdownMenuItem MenuItem @click="openWallet(WalletType.defaultArgon)">
                       <header>Ethereum to Argon</header>
                     </DropdownMenuItem>
                   </div>
@@ -51,7 +56,7 @@
             </DropdownMenuSub>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             <DropdownMenuItem MenuItem @click="() => openProfileOverlay()" >
-              <header>Open Ethereum QR Code</header>
+              <header>View Ethereum QR Code</header>
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             <DropdownMenuItem MenuItem @click="() => openProfileOverlay()" >
@@ -91,12 +96,21 @@ import type { PointerDownOutsideEvent } from 'reka-ui';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { ChevronLeftIcon } from '@heroicons/vue/24/outline';
 import { WalletType } from '../../lib/Wallet.ts';
+import { UnitOfMeasurement } from '@argonprotocol/apps-core';
+
+const props = withDefaults(
+  defineProps<{
+    walletIsOpen?: boolean;
+    showBorders?: boolean;
+  }>(),
+  {
+    walletIsOpen: false,
+    showBorders: true,
+  },
+);
 
 const rootRef = Vue.ref<HTMLElement>();
 const isOpen = Vue.ref(false);
-
-const submenuTriggerClass =
-  'relative block w-full cursor-pointer rounded px-4 py-2 pl-10 text-right hover:bg-argon-menu-hover focus:bg-argon-menu-hover focus:outline-none data-[state=open]:bg-argon-menu-hover';
 
 // Expose the root element to parent components
 defineExpose({

@@ -16,11 +16,10 @@ export const DEFAULT_MEMORY_WALLET_KEYS_ETHEREUM_HD_PREFIXES = {
 export class MemoryWalletKeys extends WalletKeys {
   private readonly substrateSuri: string;
   private readonly masterMnemonic: string;
-  private readonly miningHoldAccount: KeyringPair;
+  private readonly legacyMiningHoldAccount: KeyringPair;
   private readonly miningBotAccount: KeyringPair;
   private readonly miningBidProxyAccount: KeyringPair;
   private readonly vaultingAccount: KeyringPair;
-  private readonly investmentAccount: KeyringPair;
   private readonly operationalAccount: KeyringPair;
   private readonly vaultDelegateAccount: KeyringPair;
   private readonly upstreamOperatorAuthAccount: KeyringPair;
@@ -40,11 +39,10 @@ export class MemoryWalletKeys extends WalletKeys {
     sshPublicKey?: string;
   }) {
     const rootAccount = new Keyring({ type: 'sr25519' }).addFromUri(args.substrateSuri);
-    const miningHoldAccount = rootAccount.derive('//holding');
+    const legacyMiningHoldAccount = rootAccount.derive('//holding');
     const miningBotAccount = rootAccount.derive('//mining');
     const miningBidProxyAccount = miningBotAccount.derive('//proxy');
     const vaultingAccount = rootAccount.derive('//vaulting');
-    const investmentAccount = rootAccount.derive('//investment');
     const operationalAccount = rootAccount.derive('//operational');
     const ethereumHdPrefixes = args.ethereumHdPrefixes ?? DEFAULT_MEMORY_WALLET_KEYS_ETHEREUM_HD_PREFIXES;
     const ethereumAccount = mnemonicToAccount(args.masterMnemonic, {
@@ -54,10 +52,9 @@ export class MemoryWalletKeys extends WalletKeys {
     super(
       {
         sshPublicKey: args.sshPublicKey ?? '',
-        miningHoldAddress: miningHoldAccount.address,
+        miningHoldAddress: legacyMiningHoldAccount.address,
         miningBotAddress: miningBotAccount.address,
         vaultingAddress: vaultingAccount.address,
-        investmentAddress: investmentAccount.address,
         operationalAddress: operationalAccount.address,
         ethereumAddress: ethereumAccount.address,
         ethereumHdPrefixes,
@@ -67,11 +64,10 @@ export class MemoryWalletKeys extends WalletKeys {
 
     this.substrateSuri = args.substrateSuri;
     this.masterMnemonic = args.masterMnemonic;
-    this.miningHoldAccount = miningHoldAccount;
+    this.legacyMiningHoldAccount = legacyMiningHoldAccount;
     this.miningBotAccount = miningBotAccount;
     this.miningBidProxyAccount = miningBidProxyAccount;
     this.vaultingAccount = vaultingAccount;
-    this.investmentAccount = investmentAccount;
     this.operationalAccount = operationalAccount;
     this.vaultDelegateAccount = vaultingAccount.derive('//delegate');
     this.upstreamOperatorAuthAccount = operationalAccount.derive('//upstream-operator-auth');
@@ -97,16 +93,16 @@ export class MemoryWalletKeys extends WalletKeys {
     return miniSecretFromUri(`${this.substrateSuri}//mining//session`);
   }
 
-  public async getMiningHoldKeypair(): Promise<KeyringPair> {
-    return this.miningHoldAccount;
+  public async getDefaultArgonKeypair(): Promise<KeyringPair> {
+    return this.vaultingAccount;
+  }
+
+  public async getLegacyMiningHoldKeypair(): Promise<KeyringPair> {
+    return this.legacyMiningHoldAccount;
   }
 
   public async getVaultingKeypair(): Promise<KeyringPair> {
     return this.vaultingAccount;
-  }
-
-  public async getInvestmentKeypair(): Promise<KeyringPair> {
-    return this.investmentAccount;
   }
 
   public async getOperationalKeypair(): Promise<KeyringPair> {

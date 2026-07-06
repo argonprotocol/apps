@@ -212,7 +212,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
     const activeTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGN,
       amount: 100n,
-      sourceWalletType: WalletType.vaulting,
+      sourceWalletType: WalletType.defaultArgon,
     });
 
     await vi.waitFor(async () => {
@@ -382,7 +382,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
     const activeTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGN,
       amount: 100n,
-      sourceWalletType: WalletType.vaulting,
+      sourceWalletType: WalletType.defaultArgon,
     });
 
     await vi.waitFor(async () => {
@@ -519,7 +519,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
     const activeTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGN,
       amount: 100n,
-      sourceWalletType: WalletType.vaulting,
+      sourceWalletType: WalletType.defaultArgon,
     });
 
     await vi.waitFor(async () => {
@@ -789,7 +789,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       await tracker.startMove({
         moveToken: MoveToken.ARGN,
         amount: 100n,
-        sourceWalletType: WalletType.vaulting,
+        sourceWalletType: WalletType.defaultArgon,
       });
 
       await vi.waitFor(() => {
@@ -894,7 +894,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
     const activeTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGN,
       amount: 100n,
-      sourceWalletType: WalletType.vaulting,
+      sourceWalletType: WalletType.defaultArgon,
     });
 
     await vi.waitFor(async () => {
@@ -1098,7 +1098,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       destinationChain: 'Ethereum',
       token: MoveToken.ARGNOT,
       amount: 10n,
-      argonSourceAddress: walletKeys.miningHoldAddress,
+      argonSourceAddress: walletKeys.defaultArgonAddress,
       destinationAddress: walletKeys.ethereumAddress,
       progressJson: createCrosschainTransferProgress([
         'Finalizing on Argon',
@@ -1260,7 +1260,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
     const activeTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGN,
       amount: 100n,
-      sourceWalletType: WalletType.vaulting,
+      sourceWalletType: WalletType.defaultArgon,
     });
 
     await vi.waitFor(async () => {
@@ -2008,7 +2008,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
         moveToken: MoveToken.ARGNOT,
         amount: 205088571428n,
         availableAmount: 205293660000n,
-        sourceWalletType: WalletType.miningHold,
+        sourceWalletType: WalletType.defaultArgon,
       }),
     ).rejects.toThrow('A small ARGNOT tip is reserved and the account must keep its minimum balance');
   });
@@ -2091,7 +2091,7 @@ function createTransferOutTxInfo(args: {
         localTransferId: args.localTransferId ?? 'outbound-test',
         moveToken: args.moveToken,
         amount: args.amount,
-        sourceWalletType: WalletType.vaulting,
+        sourceWalletType: WalletType.defaultArgon,
         destinationAddress: `0x${'99'.repeat(20)}`,
       },
       blockHeight: args.blockHeight,

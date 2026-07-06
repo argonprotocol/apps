@@ -25,7 +25,7 @@
       @update:model-value="setNavigationMenuValue"
     >
       <NavigationMenuList class="relative flex flex-row items-center space-x-2" @mouseenter="clearNavigationMenuClose">
-        <div v-if="config.showOperationsExtension" :class="[controller.selectedTab === TopTab.MiningOperations && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
+        <div v-if="config.hasExtensionOperations" :class="[controller.selectedTab === TopTab.MiningOperations && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
           <ServerMenu ref="serverMenuRef" />
         </div>
 <!--        <div class="pointer-events-auto">-->
@@ -63,7 +63,8 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { TopTab, useOperationsController } from '../stores/operationsController.ts';
+import { TopTab } from '../interfaces/IConfig.ts';
+import { useOperationsController } from '../stores/operationsController.ts';
 import WindowControls from '../tauri-controls/WindowControls.vue';
 import PortfolioMenu from './PortfolioMenu.vue';
 import AccountMenu from './AccountMenu.vue';

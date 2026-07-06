@@ -39,7 +39,7 @@ export default new Operation<IAppFundWalletFromEthereumContext, IAppFundWalletFr
     {
       key: 'targetWalletType',
       required: true,
-      description: 'Target Argon wallet type: investment, miningHold, or vaulting.',
+      description: 'Target Argon wallet type: defaultArgon.',
     },
     {
       key: 'extraMicrogons',
@@ -280,13 +280,7 @@ async function readEthereumFundingState(flow: IE2EFlowRuntime, targetWalletType:
 }
 
 function parseTargetWalletType(value: unknown): IArgonWalletType | undefined {
-  if (value === WalletType.investment || value === 'investment') {
-    return WalletType.investment;
-  }
-  if (value === WalletType.miningHold || value === 'miningHold') {
-    return WalletType.miningHold;
-  }
-  if (value === WalletType.vaulting || value === 'vaulting') {
-    return WalletType.vaulting;
+  if (value === WalletType.defaultArgon) {
+    return WalletType.defaultArgon;
   }
 }

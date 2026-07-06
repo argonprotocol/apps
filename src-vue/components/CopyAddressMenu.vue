@@ -74,32 +74,6 @@
                 </CopyToClipboard>
               </DropdownMenuItem>
               <DropdownMenuItem
-                v-if="walletType === WalletType.investment && !props.showSingleAddress"
-                @click.capture="closeMenu"
-                class="pt-1 pb-2 border-t border-slate-400/30"
-              >
-                <CopyToClipboard :content="wallets.ethereumWallet.address" class="group relative cursor-pointer">
-                  <div class="flex flex-col text-right">
-                    <div class="text-slate-700 group-hover:text-argon-600">
-                      Ethereum Wallet Address
-                    </div>
-                    <div class="text-slate-600/60 font-mono">
-                      {{ abbreviateAddress(wallets.ethereumWallet.address, 15) }}
-                    </div>
-                  </div>
-                  <template #copying>
-                    <div class="pointer-events-none absolute top-0 left-0 h-full w-full flex flex-col text-right">
-                      <div>
-                        Ethereum Wallet Address
-                      </div>
-                      <div class="font-mono">
-                        {{ abbreviateAddress(wallets.ethereumWallet.address, 15) }}
-                      </div>
-                    </div>
-                  </template>
-                </CopyToClipboard>
-              </DropdownMenuItem>
-              <DropdownMenuItem
                 v-if="walletType === WalletType.ethereum && props.showSingleAddress"
                 @select.prevent="openEthereumPrivateKeyExport"
                 class="flex justify-center border-t border-slate-400/30 py-2"
@@ -129,16 +103,16 @@ import {
   PointerDownOutsideEvent,
 } from 'reka-ui';
 import { ChevronDownIcon } from '@heroicons/vue/24/outline';
-import CopyToClipboard from '../../components/CopyToClipboard.vue';
-import CopyIcon from '../../assets/copy.svg';
-import { abbreviateAddress } from '../../lib/Utils.ts';
-import { IWallet, WalletType } from '../../lib/Wallet.ts';
-import { useWallets } from '../../stores/wallets.ts';
-import basicEmitter from '../../emitters/basicEmitter.ts';
+import CopyToClipboard from './CopyToClipboard.vue';
+import CopyIcon from '../assets/copy.svg';
+import { abbreviateAddress } from '../lib/Utils.ts';
+import { IWallet, WalletType } from '../lib/Wallet.ts';
+import { useWallets } from '../stores/wallets.ts';
+import basicEmitter from '../emitters/basicEmitter.ts';
 import QRCode from 'qrcode';
 
 const props = defineProps<{
-  walletType: WalletType.miningHold | WalletType.vaulting | WalletType.investment | WalletType.ethereum;
+  walletType: WalletType.defaultArgon | WalletType.ethereum;
   showBorder?: boolean;
   showSingleAddress?: boolean;
 }>();
@@ -149,19 +123,13 @@ const isOpen = Vue.ref(false);
 const qrCode = Vue.ref('');
 
 const walletAddressTestId = Vue.computed(() => {
-  if (props.walletType === WalletType.miningHold) return 'miningHoldWalletAddress';
-  if (props.walletType === WalletType.vaulting) return 'vaultingWalletAddress';
-  if (props.walletType === WalletType.investment) return 'investmentWalletAddress';
+  if (props.walletType === WalletType.defaultArgon) return 'defaultArgonWalletAddress';
   return 'ethereumWalletAddress';
 });
 
 const wallet = Vue.computed<IWallet>(() => {
-  if (props.walletType === WalletType.miningHold) {
-    return wallets.miningHoldWallet;
-  } else if (props.walletType === WalletType.vaulting) {
-    return wallets.vaultingWallet;
-  } else if (props.walletType === WalletType.investment) {
-    return wallets.investmentWallet;
+  if (props.walletType === WalletType.defaultArgon) {
+    return wallets.defaultArgonWallet;
   } else if (props.walletType === WalletType.ethereum) {
     return wallets.ethereumWallet;
   }
@@ -232,7 +200,7 @@ Vue.onMounted(() => {
 </script>
 
 <style scoped>
-@reference "../../main.css";
+@reference "../main.css";
 
 [data-reka-collection-item] {
   @apply focus:bg-argon-menu-hover cursor-pointer px-4 focus:outline-none;

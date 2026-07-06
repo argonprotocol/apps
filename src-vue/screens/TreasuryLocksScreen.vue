@@ -331,7 +331,7 @@ async function syncCouponOfferValue() {
 }
 
 function openArgonWallet() {
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.investment });
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
 }
 
 Vue.watch([isLoaded, () => config.upstreamOperator?.vaultId], async () => {

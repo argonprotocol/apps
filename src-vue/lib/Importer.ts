@@ -35,11 +35,11 @@ export default class Importer {
       });
       const finalizedApi = await getFinalizedClient();
       const addresses = [
-        importWalletKeys.miningHoldAddress,
+        importWalletKeys.defaultArgonAddress,
         importWalletKeys.miningBotAddress,
         importWalletKeys.vaultingAddress,
         importWalletKeys.operationalAddress,
-        importWalletKeys.investmentAddress,
+        importWalletKeys.defaultArgonAddress,
       ];
       const balances = await readArgonWalletBalanceValues(finalizedApi, addresses);
 

@@ -1,9 +1,9 @@
 <!-- prettier-ignore -->
 <template>
   <div ref="rootRef" class="flex flex-row items-center">
-    <div v-if="showInstanceMenu" class="pointer-events-auto">
-      <InstanceMenu :instances="instances" />
-    </div>
+<!--    <div v-if="showInstanceMenu" class="pointer-events-auto">-->
+<!--      <InstanceMenu :instances="instances" />-->
+<!--    </div>-->
     <NavigationMenuItem class="pointer-events-auto">
       <NavigationMenuTrigger
         class="h-[30px] group relative cursor-pointer border-slate-400/50 text-sm/6 font-semibold text-argon-600/60 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
@@ -78,12 +78,8 @@
                   </NavigationMenuTrigger>
                   <NavigationMenuContent class="absolute top-0 left-0 w-full sm:w-auto">
                     <ul class="min-w-50 bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-                      <NavigationMenuLink MenuItem @click="openWallet(WalletType.miningHold)">
-                        <header>Argon Mining Wallet</header>
-                      </NavigationMenuLink>
-                      <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-                      <NavigationMenuLink MenuItem @click="openWallet(WalletType.vaulting)">
-                        <header>Argon Vaulting Wallet</header>
+                      <NavigationMenuLink MenuItem @click="openWallet(WalletType.defaultArgon)">
+                        <header>Argon Wallet</header>
                       </NavigationMenuLink>
                       <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
                       <NavigationMenuLink MenuItem @click="openWallet(WalletType.ethereum)">

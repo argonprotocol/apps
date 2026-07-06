@@ -10,6 +10,7 @@
     :walletType="wallet.walletType"
     :pairedWalletType="wallet.pairedWalletType"
     :showGuidance="wallet.showGuidance"
+    :guidanceContext="wallet.guidanceContext"
     :showBackdrop="wallet.showBackdrop"
     :zIndex="wallet.zIndex"
     :position="wallet.position"
@@ -31,18 +32,20 @@ export const openWalletOverlayCount = ref(0);
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import basicEmitter from '../emitters/basicEmitter.ts';
+import basicEmitter, { type IWalletGuidanceContext } from '../emitters/basicEmitter.ts';
 import { WalletType } from '../lib/Wallet.ts';
 import { useBasics } from '../stores/basics.ts';
-import { TopTab, useOperationsController } from '../stores/operationsController.ts';
+import { TopTab } from '../interfaces/IConfig.ts';
+import { useOperationsController } from '../stores/operationsController.ts';
 import { useWallets } from '../stores/wallets.ts';
 import WalletDialog from './WalletDialog.vue';
 
 type IOpenWallet = {
   id: number;
-  walletType: WalletType.miningHold | WalletType.vaulting | WalletType.investment | WalletType.ethereum;
-  pairedWalletType?: WalletType.miningHold | WalletType.vaulting | WalletType.investment | WalletType.ethereum;
+  walletType: WalletType.defaultArgon | WalletType.ethereum;
+  pairedWalletType?: WalletType.defaultArgon | WalletType.ethereum;
   showGuidance: boolean;
+  guidanceContext?: IWalletGuidanceContext;
   showBackdrop: boolean;
   zIndex: number;
   position: { x: number; y: number };
@@ -81,10 +84,7 @@ function closeWallet(id: number) {
   syncOverlayState();
 }
 
-function pairWallet(
-  id: number,
-  pairedWalletType: WalletType.miningHold | WalletType.vaulting | WalletType.investment | WalletType.ethereum,
-) {
+function pairWallet(id: number, pairedWalletType: WalletType.defaultArgon | WalletType.ethereum) {
   const wallet = openWallets.value.find(x => x.id === id);
   if (!wallet || wallet.pairedWalletType) return;
   wallet.pairedWalletType = pairedWalletType;
@@ -246,19 +246,20 @@ function getCombinedBounds(first: DOMRectReadOnly, second: DOMRectReadOnly) {
 }
 
 function canPairWallets(
-  first: WalletType.miningHold | WalletType.vaulting | WalletType.investment | WalletType.ethereum,
-  second: WalletType.miningHold | WalletType.vaulting | WalletType.investment | WalletType.ethereum,
+  first: WalletType.defaultArgon | WalletType.ethereum,
+  second: WalletType.defaultArgon | WalletType.ethereum,
 ) {
   return isArgonWalletType(first) !== isArgonWalletType(second);
 }
 
 function isArgonWalletType(walletType: WalletType) {
-  return [WalletType.vaulting, WalletType.miningHold, WalletType.investment].includes(walletType);
+  return walletType === WalletType.defaultArgon;
 }
 
 const openWalletOverlay = async (payload: {
-  walletType: WalletType.miningHold | WalletType.vaulting | WalletType.investment | WalletType.ethereum;
+  walletType: WalletType.defaultArgon | WalletType.ethereum;
   showGuidance?: boolean;
+  guidanceContext?: IWalletGuidanceContext;
 }) => {
   try {
     await walletStore.load();
@@ -274,6 +275,7 @@ const openWalletOverlay = async (payload: {
   );
   if (existingWallet) {
     existingWallet.showGuidance = payload.showGuidance || false;
+    existingWallet.guidanceContext = payload.guidanceContext;
     focusWallet(existingWallet.id);
     syncOverlayState();
     return;
@@ -283,6 +285,7 @@ const openWalletOverlay = async (payload: {
     id: nextWalletId++,
     walletType: payload.walletType,
     showGuidance: payload.showGuidance || false,
+    guidanceContext: payload.guidanceContext,
     showBackdrop: !isWalletScreenOpen.value,
     zIndex: ++nextZIndex,
     position: getNextPosition(),

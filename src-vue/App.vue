@@ -72,7 +72,8 @@ import SecuritySettingsOverlay from './overlays/SecuritySettingsOverlay.vue';
 import ImportAccountOverlay from './overlays/ImportAccountOverlay.vue';
 import SyncingOverlay from './overlays/SyncingOverlay.vue';
 import TopBar from './navigation/TopBar.vue';
-import { TopTab, useOperationsController } from './stores/operationsController.ts';
+import { TopTab } from './interfaces/IConfig.ts';
+import { useOperationsController } from './stores/operationsController.ts';
 import { getConfig } from './stores/config.ts';
 import { useTour } from './stores/tour.ts';
 import { getBot } from './stores/bot.ts';
@@ -127,17 +128,17 @@ const order = [TopTab.Wallets, TopTab.MiningOperations, TopTab.VaultingOperation
 
 function keydownHandler(event: KeyboardEvent) {
   // Check for CMD+Shift+[ (mining panel)
-  const currentOrder = order.indexOf(controller.selectedTab);
+  const currentOrder = order.indexOf(controller.selectedTab ?? TopTab.Wallets);
   if (event.metaKey && event.shiftKey && event.key === '[') {
     event.preventDefault();
     const left = (currentOrder - 1 + order.length) % order.length;
-    controller.setScreenKey(order[left]);
+    controller.setTab(order[left]);
   }
   // Check for CMD+Shift+] (vaulting panel)
   else if (event.metaKey && event.shiftKey && event.key === ']') {
     event.preventDefault();
     const right = (currentOrder + 1) % order.length;
-    controller.setScreenKey(order[right]);
+    controller.setTab(order[right]);
   }
 }
 

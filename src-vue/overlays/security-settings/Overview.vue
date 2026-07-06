@@ -47,7 +47,8 @@ import EncryptionFileIcon from '../../assets/encryption-file.svg?component';
 import PasswordIcon from '../../assets/password.svg?component';
 import TerminalIcon from '../../assets/terminal.svg?component';
 import ExportIcon from '../../assets/export.svg?component';
-import { OperationalStepId, TopTab, useOperationsController } from '../../stores/operationsController.ts';
+import { TopTab } from '../../interfaces/IConfig.ts';
+import { OperationalStepId, useOperationsController } from '../../stores/operationsController.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 
 const controller = useOperationsController();

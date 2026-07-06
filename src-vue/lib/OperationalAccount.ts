@@ -154,17 +154,17 @@ export async function buildOperatorAccountRegistrationTx(args: {
 
   const upstreamOperator = config.upstreamOperator;
 
-  const [operationalAccount, operationalEncryptionKey, vaultingAccount, miningHoldAccount, miningBotAccount] =
+  const [operationalAccount, operationalEncryptionKey, vaultingAccount, defaultArgonAccount, miningBotAccount] =
     await Promise.all([
       walletKeys.getOperationalKeypair(),
       walletKeys.getOperationalEncryptionKeypair(),
       walletKeys.getVaultingKeypair(),
-      walletKeys.getMiningHoldKeypair(),
+      walletKeys.getDefaultArgonKeypair(),
       walletKeys.getMiningBotKeypair(),
     ]);
   const operationalAddr = operationalAccount.address;
   const vaultingAddr = vaultingAccount.address;
-  const miningHoldAddr = miningHoldAccount.address;
+  const defaultArgonAddr = defaultArgonAccount.address;
   const miningBotAddr = miningBotAccount.address;
 
   const operationalAccountProof = createOwnershipProof(
@@ -180,9 +180,9 @@ export async function buildOperatorAccountRegistrationTx(args: {
     VAULT_ACCOUNT_PROOF_MESSAGE_KEY,
   );
   const miningFundingAccountProof = createOwnershipProof(
-    miningHoldAccount,
+    defaultArgonAccount,
     operationalAddr,
-    miningHoldAddr,
+    defaultArgonAddr,
     MINING_FUNDING_ACCOUNT_PROOF_MESSAGE_KEY,
   );
   const miningBotAccountProof = createOwnershipProof(
@@ -198,7 +198,7 @@ export async function buildOperatorAccountRegistrationTx(args: {
       encryptionPubkey: operationalEncryptionKey,
       operationalAccountProof: { signature: operationalAccountProof.signature },
       vaultAccount: vaultingAddr,
-      miningFundingAccount: miningHoldAddr,
+      miningFundingAccount: defaultArgonAddr,
       miningBotAccount: miningBotAddr,
       vaultAccountProof: { signature: vaultAccountProof.signature },
       miningFundingAccountProof: { signature: miningFundingAccountProof.signature },

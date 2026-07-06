@@ -89,7 +89,7 @@ const financials = useFinancials();
 const currency = getCurrency();
 
 function openArgonWallet() {
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.investment });
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
 }
 </script>
 

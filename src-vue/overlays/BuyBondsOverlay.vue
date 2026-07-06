@@ -29,7 +29,7 @@
     <div v-else class="px-6 py-5">
       <BuyBondsForm
         :vaultId="vaultId"
-        :walletBalance="wallets.investmentWallet.availableMicrogons"
+        :walletBalance="wallets.defaultArgonWallet.availableMicrogons"
         @close="emit('close')"
         @submitted="emit('submitted')"
       />

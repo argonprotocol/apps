@@ -71,7 +71,7 @@ describe
         });
         walletsForArgon.events.on('transfer-in', onTransferIn);
         expect(walletsForArgon.miningBotWallet.totalMicrogons).toBe(0n);
-        expect(walletsForArgon.vaultingWallet.totalMicrogons).toBe(0n);
+        expect(walletsForArgon.defaultArgonWallet.totalMicrogons).toBe(0n);
 
         const alice = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Alice');
         const result = await new TxSubmitter(
@@ -99,7 +99,7 @@ describe
             isInternal: false,
           } as IBalanceTransfer),
         );
-        expect(walletsForArgon.vaultingWallet.totalMicrogons).toBe(0n);
+        expect(walletsForArgon.defaultArgonWallet.totalMicrogons).toBe(0n);
         await result.waitForFinalizedBlock;
         const finalizedBlock = result.blockNumber!;
         if (!walletsForArgon.finalizedBlock || walletsForArgon.finalizedBlock.blockNumber < finalizedBlock) {
@@ -232,10 +232,14 @@ describe
         expect(walletsForArgon.miningBotWallet.balanceHistory[0].availableMicrogons).toBe(
           5_000_000n + 10n * 1_000_000n,
         );
-        expect(walletsForArgon.vaultingWallet.balanceHistory[0].block.blockNumber).toBe(Math.max(...transferBlocks));
-        expect(walletsForArgon.vaultingWallet.balanceHistory[0].availableMicrogons).toBe(0n);
-        expect(walletsForArgon.miningHoldWallet.balanceHistory[0].block.blockNumber).toBe(Math.max(...transferBlocks));
-        expect(walletsForArgon.miningHoldWallet.balanceHistory[0].availableMicrogons).toBe(0n);
+        expect(walletsForArgon.defaultArgonWallet.balanceHistory[0].block.blockNumber).toBe(
+          Math.max(...transferBlocks),
+        );
+        expect(walletsForArgon.defaultArgonWallet.balanceHistory[0].availableMicrogons).toBe(0n);
+        expect(walletsForArgon.defaultArgonWallet.balanceHistory[0].block.blockNumber).toBe(
+          Math.max(...transferBlocks),
+        );
+        expect(walletsForArgon.defaultArgonWallet.balanceHistory[0].availableMicrogons).toBe(0n);
 
         expect(spy).toHaveBeenCalledTimes(1);
         expect(walletsForArgon.miningBotWallet.totalMicrogons).toBeGreaterThan(0n);
@@ -318,10 +322,10 @@ describe
         // nothing will load during resume sync, but it will start at 0 and sync back up after
         expect(walletsForArgon.miningBotWallet.balanceHistory[0].block.blockNumber).toBe(0);
         expect(walletsForArgon.miningBotWallet.balanceHistory[0].availableMicrogons).toBe(0n);
-        expect(walletsForArgon.vaultingWallet.balanceHistory[0].block.blockNumber).toBe(0);
-        expect(walletsForArgon.vaultingWallet.balanceHistory[0].availableMicrogons).toBe(0n);
-        expect(walletsForArgon.miningHoldWallet.balanceHistory[0].block.blockNumber).toBe(0);
-        expect(walletsForArgon.miningHoldWallet.balanceHistory[0].availableMicrogons).toBe(0n);
+        expect(walletsForArgon.defaultArgonWallet.balanceHistory[0].block.blockNumber).toBe(0);
+        expect(walletsForArgon.defaultArgonWallet.balanceHistory[0].availableMicrogons).toBe(0n);
+        expect(walletsForArgon.defaultArgonWallet.balanceHistory[0].block.blockNumber).toBe(0);
+        expect(walletsForArgon.defaultArgonWallet.balanceHistory[0].availableMicrogons).toBe(0n);
 
         await walletsForArgon.loadBalancesAt(blockWatch.bestBlockHeader);
 

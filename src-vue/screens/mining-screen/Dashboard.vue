@@ -72,36 +72,36 @@
       </section>
 
       <section class="flex flex-row gap-x-2.5 grow">
-<!--        <div box class="flex flex-col w-[22.5%] px-2">-->
-<!--          <header class="flex flex-row items-center px-1 border-b border-slate-400/30 pt-2 pb-3 text-[18px] font-bold text-slate-900/80">-->
-<!--            <div class="grow">Mining Assets</div>-->
-<!--            <CopyAddressMenu :walletType="WalletType.miningHold" class="mr-1" />-->
-<!--            <AssetMenu :walletType="WalletType.miningHold" />-->
-<!--          </header>-->
-<!--          <MiningAssetBreakdown />-->
-<!--          <div class="grow border-t border-slate-600/40 flex flex-col items-center justify-center">-->
-<!--            <a target="_blank" href="https://argon.network/docs/mining-operations" class="flex flex-row items-center text-center text-argon-600/60! hover:text-argon-600! cursor-pointer">-->
-<!--              <div>Learn About Mining</div>-->
-<!--              <ArrowTopRightOnSquareIcon class="w-5 ml-2" />-->
-<!--            </a>-->
-<!--          </div>-->
-<!--          <div class="flex flex-row items-end border-t border-slate-600/20 pt-2 text-md">-->
-<!--            <div @click="openPortfolioPanel(PortfolioTab.ProfitAnalysis)" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">-->
-<!--              <RoiIcon class="w-6 h-6 mt-2 inline-block mb-2" />-->
-<!--              <div>Profits</div>-->
-<!--            </div>-->
-<!--            <div class="w-px h-full bg-slate-600/20" />-->
-<!--            <div @click="openPortfolioPanel(PortfolioTab.GrowthProjections)" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">-->
-<!--              <ProjectionsIcon class="w-6 h-6 mt-2 inline-block mb-2" />-->
-<!--              <div>Projections</div>-->
-<!--            </div>-->
-<!--            <div class="w-px h-full bg-slate-600/20" />-->
-<!--            <div @click="openBotEditOverlay" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">-->
-<!--              <ConfigIcon class="w-6 h-6 mt-2 inline-block mb-2" />-->
-<!--              <div>Settings</div>-->
-<!--            </div>-->
-<!--          </div>-->
-<!--        </div>-->
+        <div box class="flex flex-col w-[22.5%] px-2">
+          <header class="flex flex-row items-center px-1 border-b border-slate-400/30 pt-2 pb-3 text-[18px] font-bold text-slate-900/80">
+            <div class="grow">Mining Assets</div>
+            <CopyAddressMenu :walletType="WalletType.defaultArgon" class="mr-1" />
+            <AssetMenu :walletType="WalletType.defaultArgon" />
+          </header>
+          <MiningAssetBreakdown />
+          <div class="grow border-t border-slate-600/40 flex flex-col items-center justify-center">
+            <a target="_blank" href="https://argon.network/docs/mining-operations" class="flex flex-row items-center text-center text-argon-600/60! hover:text-argon-600! cursor-pointer">
+              <div>Learn About Mining</div>
+              <ArrowTopRightOnSquareIcon class="w-5 ml-2" />
+            </a>
+          </div>
+          <div class="flex flex-row items-end border-t border-slate-600/20 pt-2 text-md">
+            <div @click="openPortfolioPanel(PortfolioTab.ProfitAnalysis)" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
+              <RoiIcon class="w-6 h-6 mt-2 inline-block mb-2" />
+              <div>Profits</div>
+            </div>
+            <div class="w-px h-full bg-slate-600/20" />
+            <div @click="openPortfolioPanel(PortfolioTab.GrowthProjections)" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
+              <ProjectionsIcon class="w-6 h-6 mt-2 inline-block mb-2" />
+              <div>Projections</div>
+            </div>
+            <div class="w-px h-full bg-slate-600/20" />
+            <div @click="openBotEditOverlay" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
+              <ConfigIcon class="w-6 h-6 mt-2 inline-block mb-2" />
+              <div>Settings</div>
+            </div>
+          </div>
+        </div>
 
         <div class="flex flex-col grow gap-y-2">
           <section box class="flex flex-col grow text-center px-2">
@@ -289,7 +289,7 @@ import ProjectionsIcon from '../../assets/rocket.svg';
 import RoiIcon from '../../assets/roi.svg';
 import { WalletType } from '../../lib/Wallet.ts';
 import AssetMenu from '../components/AssetMenu.vue';
-import CopyAddressMenu from '../components/CopyAddressMenu.vue';
+import CopyAddressMenu from '../../components/CopyAddressMenu.vue';
 import { botEmitter } from '../../lib/Bot.ts';
 import { getBot } from '../../stores/bot.ts';
 import { OperationalStepId, useOperationsController } from '../../stores/operationsController.ts';

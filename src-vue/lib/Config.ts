@@ -11,6 +11,7 @@ import {
   InstallStepStatus,
   MiningSetupStatus,
   ServerType,
+  TopTab,
   VaultingSetupStatus,
 } from '../interfaces/IConfig';
 import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
@@ -79,10 +80,11 @@ export class Config implements IConfig {
       version: packageJson.version,
       requiresPassword: false,
       showWelcomeOverlay: Config.getDefault(dbFields.showWelcomeOverlay) as IConfig['showWelcomeOverlay'],
-      showTreasuryExtension: Config.getDefault(dbFields.showTreasuryExtension) as IConfig['showTreasuryExtension'],
-      showOperationsExtension: Config.getDefault(
-        dbFields.showOperationsExtension,
-      ) as IConfig['showOperationsExtension'],
+      hasExtensionTreasury: Config.getDefault(dbFields.hasExtensionTreasury) as IConfig['hasExtensionTreasury'],
+      hasExtensionOperations: Config.getDefault(dbFields.hasExtensionOperations) as IConfig['hasExtensionOperations'],
+      selectedTab: Config.getDefault(dbFields.selectedTab) as IConfig['selectedTab'],
+      selectedTreasuryTab: Config.getDefault(dbFields.selectedTreasuryTab) as IConfig['selectedTreasuryTab'],
+      selectedOperationsTab: Config.getDefault(dbFields.selectedOperationsTab) as IConfig['selectedOperationsTab'],
       ethereumBeaconApiUrl: Config.getDefault(dbFields.ethereumBeaconApiUrl) as IConfig['ethereumBeaconApiUrl'],
       ethereumExecutionRpcUrl: Config.getDefault(
         dbFields.ethereumExecutionRpcUrl,
@@ -356,18 +358,39 @@ export class Config implements IConfig {
     this.setField('showWelcomeOverlay', value);
   }
 
-  public get showTreasuryExtension(): IConfig['showTreasuryExtension'] {
-    return this.getField('showTreasuryExtension');
+  public get hasExtensionTreasury(): IConfig['hasExtensionTreasury'] {
+    return this.getField('hasExtensionTreasury');
   }
-  public set showTreasuryExtension(value: IConfig['showTreasuryExtension']) {
-    this.setField('showTreasuryExtension', value);
+  public set hasExtensionTreasury(value: IConfig['hasExtensionTreasury']) {
+    this.setField('hasExtensionTreasury', value);
   }
 
-  public get showOperationsExtension(): IConfig['showOperationsExtension'] {
-    return this.getField('showOperationsExtension');
+  public get hasExtensionOperations(): IConfig['hasExtensionOperations'] {
+    return this.getField('hasExtensionOperations');
   }
-  public set showOperationsExtension(value: IConfig['showOperationsExtension']) {
-    this.setField('showOperationsExtension', value);
+  public set hasExtensionOperations(value: IConfig['hasExtensionOperations']) {
+    this.setField('hasExtensionOperations', value);
+  }
+
+  public get selectedTab(): IConfig['selectedTab'] {
+    return this.getField('selectedTab');
+  }
+  public set selectedTab(value: IConfig['selectedTab']) {
+    this.setField('selectedTab', value);
+  }
+
+  public get selectedTreasuryTab(): IConfig['selectedTreasuryTab'] {
+    return this.getField('selectedTreasuryTab');
+  }
+  public set selectedTreasuryTab(value: IConfig['selectedTreasuryTab']) {
+    this.setField('selectedTreasuryTab', value);
+  }
+
+  public get selectedOperationsTab(): IConfig['selectedOperationsTab'] {
+    return this.getField('selectedOperationsTab');
+  }
+  public set selectedOperationsTab(value: IConfig['selectedOperationsTab']) {
+    this.setField('selectedOperationsTab', value);
   }
 
   public get bootstrapDetails(): IConfig['bootstrapDetails'] {
@@ -686,8 +709,11 @@ const dbFields = {
   vaultingSetupStatus: 'vaultingSetupStatus',
 
   showWelcomeOverlay: 'showWelcomeOverlay',
-  showTreasuryExtension: 'showTreasuryExtension',
-  showOperationsExtension: 'showOperationsExtension',
+  hasExtensionTreasury: 'hasExtensionTreasury',
+  hasExtensionOperations: 'hasExtensionOperations',
+  selectedTab: 'selectedTab',
+  selectedTreasuryTab: 'selectedTreasuryTab',
+  selectedOperationsTab: 'selectedOperationsTab',
 
   requiresPassword: 'requiresPassword',
   ethereumBeaconApiUrl: 'ethereumBeaconApiUrl',
@@ -723,8 +749,11 @@ const defaults: IConfigDefaults = {
   vaultingSetupStatus: () => VaultingSetupStatus.None,
 
   showWelcomeOverlay: () => true,
-  showTreasuryExtension: () => false,
-  showOperationsExtension: () => false,
+  hasExtensionTreasury: () => false,
+  hasExtensionOperations: () => false,
+  selectedTab: () => TopTab.Wallets,
+  selectedTreasuryTab: () => TopTab.Treasury,
+  selectedOperationsTab: () => TopTab.Operations,
 
   requiresPassword: () => false,
   ethereumBeaconApiUrl: () => undefined,
