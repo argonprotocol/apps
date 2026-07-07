@@ -348,33 +348,11 @@ async fn sign_ethereum_permit(
 
 #[tauri::command]
 async fn set_ethereum_signer_policy(
-    app: AppHandle,
     signer_policy: State<'_, EthereumSignerPolicyState>,
     request: ethereum_signer::EthereumSignerPolicyRequest,
 ) -> Result<(), String> {
-    let security = Security::load(&app).map_err(|e| e.to_string())?;
-    let (delegate_pair, _) =
-        Security::sr_derive(&app, "//vaulting//delegate").map_err(|e| e.to_string())?;
-    let allowed_destinations = [
-        security.mining_hold_address,
-        security.mining_bot_address,
-        security.vaulting_address,
-        security.operational_address,
-        delegate_pair.public().to_ss58check(),
-    ]
-    .into_iter()
-    .map(|address| {
-        let account_id =
-            sp_core::crypto::AccountId32::from_ss58check(&address).map_err(|e| e.to_string())?;
-        let mut bytes = [0u8; 32];
-        bytes.copy_from_slice(account_id.as_ref());
-        Ok(bytes)
-    })
-    .collect::<Result<Vec<_>, String>>()?;
-
     let mut current_policy = signer_policy.policy.lock().await;
-    ethereum_signer::set_policy(&mut current_policy, &request, allowed_destinations)
-        .map_err(|e| e.to_string())
+    ethereum_signer::set_policy(&mut current_policy, &request).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -841,6 +819,7 @@ pub fn run() {
                 access: Mutex::new(None),
             });
 
+            security::Security::migrate_legacy_app_dir(handle).map_err(tauri::Error::Anyhow)?;
             init_config_instance_dir(handle, &relative_config_dir)?;
             tauri::async_runtime::block_on(run_db_migrations(handle.clone()))?;
 

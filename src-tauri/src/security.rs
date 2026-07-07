@@ -69,6 +69,33 @@ struct X25519Keypair {
 }
 
 impl Security {
+    pub fn migrate_legacy_app_dir(app: &AppHandle) -> Result<()> {
+        let Some(legacy_app_id) = legacy_operations_app_id(app.config().identifier.as_str()) else {
+            return Ok(());
+        };
+
+        let legacy_config_dir =
+            Utils::get_absolute_config_instance_dir_for_app_id(app, &legacy_app_id);
+        if !legacy_config_dir.exists() {
+            return Ok(());
+        }
+
+        let legacy_wallet_path = legacy_config_dir.join("wallet.json");
+        let legacy_mnemonic_path = legacy_config_dir.join("mnemonic");
+        if legacy_wallet_path.exists() && !legacy_mnemonic_path.exists() {
+            let message = format!(
+                "Legacy operations wallet found at {legacy_config_dir:?}, but the plaintext mnemonic bridge file is missing."
+            );
+            log::error!("{message}");
+            anyhow::bail!("{message}");
+        }
+
+        let config_dir = Utils::get_absolute_config_instance_dir(app);
+        copy_dir_contents_if_missing(&legacy_config_dir, &config_dir)?;
+        log::info!("Migrated missing config files from legacy app dir {legacy_app_id}");
+        Ok(())
+    }
+
     pub fn expose_private_key_openssh(app: &AppHandle) -> anyhow::Result<SecretString> {
         let mnemonic = Self::expose_mnemonic(app)?;
         let (private_key, _public_key) = Self::derive_ssh_key(&mnemonic)?;
@@ -116,17 +143,23 @@ impl Security {
         let use_local_dev_path = false;
 
         let hex_key = if use_local_dev_path {
-            read_or_create_local_dev_wallet_key(&service, &account)?
+            if let Some(existing_key) = read_local_dev_wallet_key(&service, &account)? {
+                existing_key
+            } else {
+                let new_key = generate_wallet_key_hex();
+                write_local_dev_wallet_key(&service, &account, &new_key)?;
+                new_key
+            }
         } else {
             let entry = keyring::Entry::new(&service, &account)?;
             match entry.get_password() {
-                Ok(k) => k,
+                Ok(key) => key,
                 Err(keyring::Error::NoEntry) => {
                     let new_key = generate_wallet_key_hex();
                     entry.set_password(&new_key)?;
                     new_key
                 }
-                Err(e) => return Err(e.into()),
+                Err(error) => return Err(error.into()),
             }
         };
 
@@ -430,13 +463,6 @@ impl Security {
 
         Self::migrate_legacy_mnemonic(app)?;
         if let Some(security) = Self::load_or_migrate_wallet_file(app)? {
-            // Older installs may already have wallet.json but still be missing the bridge file
-            // needed for the next app-id migration.
-            let legacy_path = Self::legacy_mnemonic_path(app);
-            if !legacy_path.exists() {
-                let mnemonic = Self::expose_mnemonic(app)?;
-                write_mnemonic_file_if_missing(&legacy_path, &mnemonic)?;
-            }
             return Ok(security);
         }
 
@@ -491,8 +517,13 @@ fn get_ethereum_hd_path(prefix: &str, index: u32) -> String {
     format!("{prefix}/{index}'")
 }
 
+fn legacy_operations_app_id(app_id: &str) -> Option<String> {
+    let suffix = app_id.strip_prefix("com.argon.desktop")?;
+    Some(format!("com.argon.operations{suffix}"))
+}
+
 #[cfg(all(target_os = "macos", not(argon_signed_build)))]
-fn read_or_create_local_dev_wallet_key(service: &str, account: &str) -> Result<String> {
+fn read_local_dev_wallet_key(service: &str, account: &str) -> Result<Option<String>> {
     let output = Command::new("security")
         .arg("find-generic-password")
         .arg("-a")
@@ -503,15 +534,24 @@ fn read_or_create_local_dev_wallet_key(service: &str, account: &str) -> Result<S
         .output()?;
 
     if output.status.success() {
-        return Ok(String::from_utf8(output.stdout)?.trim().to_string());
+        return Ok(Some(String::from_utf8(output.stdout)?.trim().to_string()));
     }
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    if !stderr.contains("could not be found in the keychain") {
-        anyhow::bail!("Failed to read local keychain entry: {}", stderr.trim());
+    if stderr.contains("could not be found in the keychain") {
+        return Ok(None);
     }
 
-    let hex_key = generate_wallet_key_hex();
+    anyhow::bail!("Failed to read local keychain entry: {}", stderr.trim());
+}
+
+#[cfg(any(not(target_os = "macos"), argon_signed_build))]
+fn read_local_dev_wallet_key(_service: &str, _account: &str) -> Result<Option<String>> {
+    unreachable!("local dev keychain path should not be used in signed or non-mac builds");
+}
+
+#[cfg(all(target_os = "macos", not(argon_signed_build)))]
+fn write_local_dev_wallet_key(service: &str, account: &str, hex_key: &str) -> Result<()> {
     let output = Command::new("security")
         .arg("add-generic-password")
         .arg("-U")
@@ -520,7 +560,7 @@ fn read_or_create_local_dev_wallet_key(service: &str, account: &str) -> Result<S
         .arg("-s")
         .arg(service)
         .arg("-w")
-        .arg(&hex_key)
+        .arg(hex_key)
         .arg("-A")
         .output()?;
 
@@ -530,11 +570,11 @@ fn read_or_create_local_dev_wallet_key(service: &str, account: &str) -> Result<S
         String::from_utf8_lossy(&output.stderr).trim()
     );
 
-    Ok(hex_key)
+    Ok(())
 }
 
 #[cfg(any(not(target_os = "macos"), argon_signed_build))]
-fn read_or_create_local_dev_wallet_key(_service: &str, _account: &str) -> Result<String> {
+fn write_local_dev_wallet_key(_service: &str, _account: &str, _hex_key: &str) -> Result<()> {
     unreachable!("local dev keychain path should not be used in signed or non-mac builds");
 }
 
@@ -542,6 +582,41 @@ fn generate_wallet_key_hex() -> String {
     let mut key = [0u8; 32];
     rand::RngCore::fill_bytes(&mut rand::rng(), &mut key);
     hex::encode(key)
+}
+
+fn copy_dir_contents_if_missing(source_dir: &Path, target_dir: &Path) -> Result<()> {
+    fs::create_dir_all(target_dir)?;
+
+    for entry in walkdir::WalkDir::new(source_dir).into_iter().flatten() {
+        let path = entry.path();
+        if path == source_dir {
+            continue;
+        }
+
+        let relative_path = path.strip_prefix(source_dir)?;
+        if relative_path == Path::new("wallet.json") {
+            continue;
+        }
+
+        let target_path = target_dir.join(relative_path);
+
+        if entry.file_type().is_dir() {
+            fs::create_dir_all(&target_path)?;
+            continue;
+        }
+
+        if target_path.exists() {
+            continue;
+        }
+
+        if let Some(parent) = target_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        fs::copy(path, &target_path)?;
+    }
+
+    Ok(())
 }
 
 fn write_mnemonic_file_if_missing(path: &Path, mnemonic: &str) -> Result<()> {
@@ -564,8 +639,8 @@ fn write_mnemonic_file_if_missing(path: &Path, mnemonic: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        Security, default_ethereum_hd_prefixes, get_ethereum_hd_path,
-        write_mnemonic_file_if_missing,
+        Security, copy_dir_contents_if_missing, default_ethereum_hd_prefixes, get_ethereum_hd_path,
+        legacy_operations_app_id, write_mnemonic_file_if_missing,
     };
     use crate::ethereum_signer;
     use sp_core::Pair;
@@ -785,6 +860,57 @@ mod tests {
         assert_eq!(
             fs::read_to_string(&mnemonic_path).expect("mnemonic file should exist"),
             "existing mnemonic"
+        );
+
+        fs::remove_dir_all(&test_dir).expect("test dir should be removed");
+    }
+
+    #[test]
+    fn maps_desktop_app_ids_to_operations_ids() {
+        assert_eq!(
+            legacy_operations_app_id("com.argon.desktop"),
+            Some("com.argon.operations".to_string())
+        );
+        assert_eq!(
+            legacy_operations_app_id("com.argon.desktop.local"),
+            Some("com.argon.operations.local".to_string())
+        );
+        assert_eq!(
+            legacy_operations_app_id("com.argon.desktop.experimental"),
+            Some("com.argon.operations.experimental".to_string())
+        );
+        assert_eq!(legacy_operations_app_id("com.argon"), None);
+    }
+
+    #[test]
+    fn copies_legacy_config_files_without_copying_wallet_json() {
+        let test_dir = unique_test_dir("copies-legacy-config-files-without-copying-wallet-json");
+        let source_dir = test_dir.join("source");
+        let target_dir = test_dir.join("target");
+        fs::create_dir_all(source_dir.join("nested")).expect("source dir should be created");
+        fs::create_dir_all(&target_dir).expect("target dir should be created");
+        fs::write(source_dir.join("wallet.json"), "legacy wallet")
+            .expect("wallet should be written");
+        fs::write(source_dir.join("mnemonic"), "legacy mnemonic")
+            .expect("mnemonic should be written");
+        fs::write(source_dir.join("nested/config.json"), "legacy config")
+            .expect("config should be written");
+
+        copy_dir_contents_if_missing(&source_dir, &target_dir)
+            .expect("legacy files should be copied");
+
+        assert!(
+            !target_dir.join("wallet.json").exists(),
+            "wallet.json should be recreated from mnemonic, not copied from the legacy app dir"
+        );
+        assert_eq!(
+            fs::read_to_string(target_dir.join("mnemonic")).expect("mnemonic should exist"),
+            "legacy mnemonic"
+        );
+        assert_eq!(
+            fs::read_to_string(target_dir.join("nested/config.json"))
+                .expect("nested config should exist"),
+            "legacy config"
         );
 
         fs::remove_dir_all(&test_dir).expect("test dir should be removed");
