@@ -91,6 +91,21 @@ impl Utils {
             .expect("Failed to resolve config instance directory")
     }
 
+    pub fn get_absolute_config_instance_dir_for_app_id(app: &AppHandle, app_id: &str) -> PathBuf {
+        let current_relative_dir =
+            Self::get_relative_config_instance_dir(app.config().identifier.as_str());
+        let current_instance_dir = Self::get_absolute_config_instance_dir(app);
+        let current_app_config_dir = current_instance_dir
+            .ancestors()
+            .nth(current_relative_dir.components().count())
+            .expect("Failed to resolve app config directory");
+        let app_config_base_dir = current_app_config_dir
+            .parent()
+            .expect("Failed to resolve app config base directory");
+
+        app_config_base_dir.join(app_id).join(current_relative_dir)
+    }
+
     pub fn get_embedded_path(app: &AppHandle, path: impl AsRef<Path>) -> anyhow::Result<PathBuf> {
         let local_base_path = app.path().resolve(
             PathBuf::from("..").join(path),
