@@ -1,4 +1,8 @@
-import { type ArgonClient, type FrameSystemEventRecord } from '@argonprotocol/mainchain';
+import {
+  type ArgonClient,
+  type FrameSystemEventRecord,
+  type PalletTreasuryBondProgramId,
+} from '@argonprotocol/mainchain';
 import {
   type ArgonQueryClient,
   type BlockWatch,
@@ -224,7 +228,16 @@ export async function getTreasuryBondRefreshScope(events: FrameSystemEventRecord
       typeClient.events.treasury.BondLotReleaseScheduled.is(event) ||
       typeClient.events.treasury.BondLotReleased.is(event)
     ) {
-      vaultIds.add(event.data.vaultId.toNumber());
+      const eventData = event.data as typeof event.data & {
+        readonly programId?: PalletTreasuryBondProgramId;
+        readonly vaultId?: PalletTreasuryBondProgramId['asVault']['vaultId'];
+      };
+
+      if (eventData.programId?.isVault) {
+        vaultIds.add(eventData.programId.asVault.vaultId.toNumber());
+      } else if (eventData.vaultId != null) {
+        vaultIds.add(eventData.vaultId.toNumber());
+      }
     }
   }
 

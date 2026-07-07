@@ -260,7 +260,6 @@ const hasProfileName = Vue.computed(() => {
 const canCreateInvite = Vue.computed(() => {
   return controller.inviteSlotProgress.availableReferrals > 0;
 });
-
 const hasUnclaimedRewards = Vue.computed(() => {
   return controller.pendingRewardsAmount > 0n;
 });

@@ -137,13 +137,14 @@ export const useMyBonds = defineStore('myBonds', () => {
   }
 
   function setDisplayVaultId(preferredVaultId: number) {
-    const ownedVaultIds = new Set(bondLots.value.map(lot => lot.vaultId));
+    const ownedVaultIds = new Set(bondLots.value.flatMap(lot => (lot.vaultId == null ? [] : [lot.vaultId])));
     if (preferredVaultId && (!ownedVaultIds.size || ownedVaultIds.has(preferredVaultId))) {
       vaultId.value = preferredVaultId;
       return;
     }
 
-    vaultId.value = bondLots.value[0]?.vaultId ?? preferredVaultId;
+    const firstVaultBond = bondLots.value.find(lot => lot.vaultId != null);
+    vaultId.value = firstVaultBond?.vaultId ?? preferredVaultId;
   }
 
   return {
