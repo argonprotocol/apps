@@ -160,6 +160,7 @@ jobs:
           releaseBody: ${{ env.RELEASE_NOTES }}
           releaseDraft: true
           prerelease: true
+          releaseCommitish: ${{ github.ref_name }}
           args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.operations.conf.json
 
       - name: Upload Operations Symbols
@@ -195,6 +196,7 @@ jobs:
           releaseBody: ${{ env.RELEASE_NOTES }}
           releaseDraft: true
           prerelease: true
+          releaseCommitish: ${{ github.ref_name }}
           args: ${{ matrix.args }} --config ${{ github.workspace }}/src-tauri/tauri.treasury.conf.json
 
       - name: Upload Treasury Symbols
