@@ -17,7 +17,8 @@
         :sideOffset="10"
         :collisionPadding="24"
         :avoidCollisions="true"
-        class="group relative z-[2002] h-140 w-150 rounded-lg border border-gray-300 bg-white text-center text-lg font-bold shadow-lg"
+        :style="floatingZIndex"
+        class="group relative h-140 w-150 rounded-lg border border-gray-300 bg-white text-center text-lg font-bold shadow-lg"
       >
         <PopoverPanelArrow />
         <div class="flex h-full max-w-full flex-col px-6 pt-4 pb-2 text-base">
@@ -87,9 +88,11 @@ import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka
 import { getWalletKeys } from '../stores/wallets.ts';
 import { UnitOfMeasurement } from '../lib/Currency.ts';
 import PopoverPanelArrow from '../components/PopoverPanelArrow.vue';
+import { useFloatingZIndex } from './helpers/OverlayZIndex.ts';
 
 const walletKeys = getWalletKeys();
 const currency = getCurrency();
+const floatingZIndex = useFloatingZIndex();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 

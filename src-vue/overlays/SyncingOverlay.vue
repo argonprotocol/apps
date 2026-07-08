@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <TransitionRoot class="absolute inset-0 z-10 pointer-events-none" :show="isOpen">
+  <TransitionRoot class="absolute inset-0 pointer-events-none" :show="isOpen">
     <TransitionChild
       as="template"
       enter="ease-out duration-300"
@@ -10,10 +10,13 @@
       leave-from="opacity-100"
       leave-to="opacity-0"
     >
-      <BgOverlay :enableTopBar="true" />
+      <BgOverlay :enableTopBar="true" :style="{ zIndex: overlayZIndex.backdropZIndex }" />
     </TransitionChild>
 
-    <div class="absolute inset-0 z-200 overflow-y-auto pt-[1px] flex items-center justify-center pointer-events-none">
+    <div
+      class="absolute inset-0 overflow-y-auto pt-[1px] flex items-center justify-center pointer-events-none"
+      :style="{ zIndex: overlayZIndex.contentZIndex }"
+    >
       <TransitionChild
         as="template"
         enter="ease-out duration-300"
@@ -64,10 +67,12 @@ import ProgressBar from '../components/ProgressBar.vue';
 import AlertIcon from '../assets/alert.svg?component';
 import { getBot } from '../stores/bot.ts';
 import Draggable from './helpers/Draggable.ts';
+import { useOverlayZIndex } from './helpers/OverlayZIndex.ts';
 
 const isOpen = Vue.ref(true);
 const isRetrying = Vue.ref(false);
 const bot = getBot();
+const overlayZIndex = useOverlayZIndex(() => true);
 
 const draggable = Vue.reactive(new Draggable());
 

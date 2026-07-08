@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <OverlayBase :isOpen="isOpen" :showCloseIcon="false" :showGoBack="!!currentStep" @goBack="backToMain" class="w-7/12">
+  <OverlayBase :isOpen="isOpen" :showCloseIcon="false" :showGoBack="!!currentStep" :enableTopBar="true" @goBack="backToMain" class="w-7/12">
     <template #title>
       <DialogTitle class="grow pl-3">
         <template v-if="!currentStep">Welcome to Argon Desktop!</template>

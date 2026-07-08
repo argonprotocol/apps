@@ -9,11 +9,16 @@
             :initial="disableOverlayMotion ? false : { opacity: 0 }"
             :animate="{ opacity: 1 }"
             :exit="{ opacity: 0 }">
-            <BgOverlay @close="clickBackdrop" />
+            <BgOverlay :enableTopBar="props.enableTopBar" :style="{ zIndex: overlayZIndex.backdropZIndex }" @close="clickBackdrop" />
           </Motion>
         </DialogOverlay>
 
-        <DialogContent asChild @escapeKeyDown="handleEscapeKeyDown" :aria-describedby="undefined" class="pointer-events-none" :style="{ zIndex: zIndex + 1000 }">
+        <DialogContent
+          asChild
+          @escapeKeyDown="handleEscapeKeyDown"
+          :aria-describedby="undefined"
+          class="pointer-events-none"
+          :style="{ zIndex: overlayZIndex.contentZIndex }">
           <Motion
             asChild
             :initial="disableOverlayMotion ? false : { opacity: 0 }"
@@ -29,7 +34,7 @@
                 cursor: draggable.isDragging ? 'grabbing' : 'default',
               }"
               :class="twMerge(
-                'absolute z-50 pointer-events-auto min-h-40 w-6/12 focus:outline-none',
+                'absolute pointer-events-auto min-h-40 w-6/12 focus:outline-none',
                 props.leaveBlank ? '' : 'bg-white border border-black/40 rounded-lg shadow-2xl',
                 props.overflowScroll ? 'flex max-h-[85vh] flex-col overflow-hidden' : '',
                 props.class,
@@ -69,10 +74,6 @@
   </DialogRoot>
 </template>
 
-<script lang="ts">
-const openZIndexes = Vue.ref(new Set<number>());
-</script>
-
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { twMerge } from 'tailwind-merge';
@@ -81,9 +82,7 @@ import { AnimatePresence, Motion, MotionGlobalConfig } from 'motion-v';
 import { ChevronLeftIcon, XMarkIcon } from '@heroicons/vue/24/outline';
 import BgOverlay from '../components/BgOverlay.vue';
 import Draggable from './helpers/Draggable.ts';
-import { getConfig } from '../stores/config.ts';
-
-const config = getConfig();
+import { provideOverlayContentZIndex, useOverlayZIndex } from './helpers/OverlayZIndex.ts';
 
 defineOptions({
   inheritAttrs: false,
@@ -101,6 +100,7 @@ const props = withDefaults(
     overflowScroll?: boolean;
     leaveBlank?: boolean;
     hasHeaderBorder?: boolean;
+    enableTopBar?: boolean;
   }>(),
   {
     showCloseIcon: true,
@@ -108,6 +108,7 @@ const props = withDefaults(
     showBg: true,
     overflowScroll: true,
     hasHeaderBorder: true,
+    enableTopBar: false,
   },
 );
 
@@ -119,11 +120,12 @@ const emit = defineEmits<{
   (e: 'goBack'): void;
 }>();
 
-const zIndex = Vue.ref(0);
 const attrs = Vue.useAttrs();
 const disableOverlayMotion = MotionGlobalConfig.skipAnimations || MotionGlobalConfig.instantAnimations;
 
 const draggable = Vue.reactive(new Draggable());
+const overlayZIndex = useOverlayZIndex(() => props.isOpen);
+provideOverlayContentZIndex(Vue.toRef(overlayZIndex, 'contentZIndex'));
 
 function closeOverlay() {
   if (props.disallowClose) {
@@ -150,24 +152,6 @@ function handleEscapeKeyDown() {
   emit('pressEsc');
   closeOverlay();
 }
-
-Vue.watch(
-  () => props.isOpen,
-  isOpen => {
-    if (!isOpen) {
-      openZIndexes.value.delete(zIndex.value);
-      return;
-    }
-
-    zIndex.value = Math.max(...openZIndexes.value, 0) + 1;
-    openZIndexes.value.add(zIndex.value);
-  },
-  { immediate: true },
-);
-
-Vue.onUnmounted(() => {
-  openZIndexes.value.delete(zIndex.value);
-});
 
 defineExpose({
   draggable,

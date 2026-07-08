@@ -12,8 +12,8 @@
           :alignOffset="alignOffset ?? 0"
           :avoidCollisions="true"
           :collisionPadding="30"
-          class="text-md data-[state=delayed-open]:data-[side=top]:animate-slideDownAndFade data-[state=delayed-open]:data-[side=right]:animate-slideLeftAndFade data-[state=delayed-open]:data-[side=left]:animate-slideRightAndFade data-[state=delayed-open]:data-[side=bottom]:animate-slideUpAndFade pointer-events-none z-100 rounded-lg border border-gray-800/20 bg-white px-5 pt-4 pb-2 text-left leading-5.5 text-gray-600 shadow-xl will-change-[transform,opacity]"
-          :style="{ width: props.width }"
+          :style="[floatingZIndex, { width: props.width }]"
+          class="text-md data-[state=delayed-open]:data-[side=top]:animate-slideDownAndFade data-[state=delayed-open]:data-[side=right]:animate-slideLeftAndFade data-[state=delayed-open]:data-[side=left]:animate-slideRightAndFade data-[state=delayed-open]:data-[side=bottom]:animate-slideUpAndFade pointer-events-none rounded-lg border border-gray-800/20 bg-white px-5 pt-4 pb-2 text-left leading-5.5 text-gray-600 shadow-xl will-change-[transform,opacity]"
         >
           <p class="leading-5">
             As the box above shows, you're committing {{ currency.symbol
@@ -126,6 +126,7 @@ import { getVaultCalculator } from '../../stores/mainchain.ts';
 import { getConfig } from '../../stores/config.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
+import { useFloatingZIndex } from '../helpers/OverlayZIndex.ts';
 
 const props = withDefaults(
   defineProps<{
@@ -143,6 +144,7 @@ const calculator = getVaultCalculator();
 const config = getConfig();
 const currency = getCurrency();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
+const floatingZIndex = useFloatingZIndex();
 
 const rules = Vue.computed(() => config.vaultingRules);
 

@@ -18,9 +18,9 @@
 
     <SelectPortal>
       <SelectContent
-        class="bg-white cursor-default data-[side=bottom]:rounded-b-md data-[side=top]:rounded-t-md data-[side=bottom]:border-t-gray-400 data-[side=top]:border-b-gray-400 border border-slate-700/50 shadow-sm will-change-[opacity,transform] data-[side=top]:animate-slideDownAndFade data-[side=right]:animate-slideLeftAndFade data-[side=bottom]:animate-slideUpAndFade data-[side=left]:animate-slideRightAndFade z-[2000]"
+        class="bg-white cursor-default data-[side=bottom]:rounded-b-md data-[side=top]:rounded-t-md data-[side=bottom]:border-t-gray-400 data-[side=top]:border-b-gray-400 border border-slate-700/50 shadow-sm will-change-[opacity,transform] data-[side=top]:animate-slideDownAndFade data-[side=right]:animate-slideLeftAndFade data-[side=bottom]:animate-slideUpAndFade data-[side=left]:animate-slideRightAndFade"
         position="popper"
-        :style="{ minWidth: menuWidth, maxHeight: 'var(--reka-select-content-available-height)' }"
+        :style="[floatingZIndex, { minWidth: menuWidth, maxHeight: 'var(--reka-select-content-available-height)' }]"
         :avoidCollisions="true"
         :bodyLock="true"
         :collisionPadding="10"
@@ -83,6 +83,7 @@ import {
   SelectValue,
   SelectViewport,
 } from 'reka-ui';
+import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 
 const currency = getCurrency();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
@@ -120,6 +121,7 @@ const showMenu = Vue.ref(false);
 const triggerInstance = Vue.ref<any>(null);
 
 const menuWidth = Vue.ref('auto');
+const floatingZIndex = useFloatingZIndex();
 
 const selectedOption: Vue.Ref<IOption | undefined> = Vue.ref(undefined);
 const triggerTestId = Vue.computed(() => props.dataTestid ?? 'input-menu-trigger');
