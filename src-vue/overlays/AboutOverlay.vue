@@ -5,11 +5,11 @@
       <AnimatePresence>
         <DialogOverlay asChild>
           <Motion asChild :initial="{ opacity: 0 }" :animate="{ opacity: 1 }" :exit="{ opacity: 0 }">
-            <BgOverlay @close="closeOverlay" />
+            <BgOverlay :style="{ zIndex: overlayZIndex.backdropZIndex }" @close="closeOverlay" />
           </Motion>
         </DialogOverlay>
 
-        <DialogContent asChild @escapeKeyDown="closeOverlay" :aria-describedby="undefined">
+        <DialogContent asChild @escapeKeyDown="closeOverlay" :aria-describedby="undefined" :style="{ zIndex: overlayZIndex.contentZIndex }">
           <Motion
             :ref="draggable.setModalRef"
             @mousedown="draggable.onMouseDown($event)"
@@ -22,7 +22,7 @@
               transform: 'translate(-50%, -50%)',
               cursor: draggable.isDragging ? 'grabbing' : 'default',
             }"
-            class="absolute z-50 bg-white text-md border border-black/40 px-4 pt-6 pb-4 rounded-lg text-center shadow-xl w-80 overflow-scroll focus:outline-none"
+            class="absolute bg-white text-md border border-black/40 px-4 pt-6 pb-4 rounded-lg text-center shadow-xl w-80 overflow-scroll focus:outline-none"
           >
             <img src="/app-icon.png" class="w-14 h-14 rounded-lg mx-auto" />
             <DialogTitle class="text-lg font-bold mt-4">{{ APP_NAME }}</DialogTitle>
@@ -61,12 +61,14 @@ import { getConfig } from '../stores/config.ts';
 import Draggable from './helpers/Draggable.ts';
 import { platformName, platformVersion } from '../tauri-controls/utils/os.ts';
 import { APP_NAME, INSTANCE_NAME, INSTANCE_PORT, NETWORK_NAME } from '../lib/Env.ts';
+import { useOverlayZIndex } from './helpers/OverlayZIndex.ts';
 
 const config = getConfig();
 
 const isOpen = Vue.ref(false);
 const wasCopied = Vue.ref(false);
 const draggable = Vue.reactive(new Draggable());
+const overlayZIndex = useOverlayZIndex(() => isOpen.value);
 
 basicEmitter.on('openAboutOverlay', async (data: any) => {
   isOpen.value = true;

@@ -16,7 +16,8 @@
         :sideOffset="10"
         :collisionPadding="24"
         :avoidCollisions="true"
-        class="group relative z-[2002] h-120 w-160 rounded-lg border border-gray-300 bg-white text-center text-lg font-bold shadow-lg"
+        :style="floatingZIndex"
+        class="group relative h-120 w-160 rounded-lg border border-gray-300 bg-white text-center text-lg font-bold shadow-lg"
       >
         <PopoverPanelArrow />
         <div class="h-full px-6 pt-5 pb-3 text-base text-center">
@@ -70,6 +71,7 @@ import { createNumeralHelpers } from '../lib/numeral.ts';
 import { TICK_MILLIS } from '../lib/Env.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
 import PopoverPanelArrow from '../components/PopoverPanelArrow.vue';
+import { useFloatingZIndex } from './helpers/OverlayZIndex.ts';
 
 dayjs.extend(utc);
 dayjs.extend(relativeTime);
@@ -88,6 +90,7 @@ const props = withDefaults(
 const stats = getStats();
 const currency = getCurrency();
 const walletKeys = getWalletKeys();
+const floatingZIndex = useFloatingZIndex();
 
 const popoverSide = Vue.computed(() => {
   if (props.position === 'left') {

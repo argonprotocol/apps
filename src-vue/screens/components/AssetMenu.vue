@@ -18,7 +18,8 @@
           :align="'end'"
           :alignOffset="-5"
           :sideOffset="-3"
-          class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade z-50 data-[state=open]:transition-all"
+          :style="floatingZIndex"
+          class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade data-[state=open]:transition-all"
         >
           <div class="bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
             <DropdownMenuItem @click="() => openMoveCapitalOverlay()" class="py-2">
@@ -58,12 +59,14 @@ import {
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { PortfolioTab } from '../../panels/interfaces/IPortfolioTab.ts';
 import { WalletType } from '../../lib/Wallet.ts';
+import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 
 const props = defineProps<{
   walletType: WalletType.defaultArgon;
 }>();
 
 const isOpen = Vue.ref(false);
+const floatingZIndex = useFloatingZIndex();
 
 function openWalletOverlay() {
   basicEmitter.emit('openWalletOverlay', { walletType: props.walletType });

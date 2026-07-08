@@ -3,12 +3,12 @@
   <DialogRoot class="absolute inset-0 z-10" :open="isOpen">
     <DialogPortal>
       <DialogOverlay asChild>
-        <BgOverlay @close="closeOverlay" />
+        <BgOverlay :style="{ zIndex: overlayZIndex.backdropZIndex }" @close="closeOverlay" />
       </DialogOverlay>
 
-      <DialogContent @escapeKeyDown="closeOverlay" :aria-describedby="undefined">
+      <DialogContent asChild @escapeKeyDown="closeOverlay" :aria-describedby="undefined" :style="{ zIndex: overlayZIndex.contentZIndex }">
         <div
-          class="ConnectOverlay inner-input-shadow bg-argon-menu-bg absolute top-[40px] right-3 bottom-3 left-3 z-200 flex flex-col overflow-auto rounded-md border border-black/30 text-left transition-all focus:outline-none"
+          class="ConnectOverlay inner-input-shadow bg-argon-menu-bg absolute top-[40px] right-3 bottom-3 left-3 flex flex-col overflow-auto rounded-md border border-black/30 text-left transition-all focus:outline-none"
           style="box-shadow: 0 -1px 2px 0 rgba(0, 0, 0, 0.1), inset 0 2px 0 rgba(255, 255, 255, 1);"
         >
           <TabsRoot
@@ -144,6 +144,7 @@ import { MiningMachine } from '../lib/MiningMachine.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
 import { MiningSetupStatus } from '../interfaces/IConfig.ts';
 import { getInstaller } from '../stores/installer.ts';
+import { provideOverlayContentZIndex, useOverlayZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 
 const config = getConfig();
 const walletKeys = getWalletKeys();
@@ -152,6 +153,8 @@ const installer = getInstaller();
 const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
 const isSaving = Vue.ref(false);
+const overlayZIndex = useOverlayZIndex(() => isOpen.value);
+provideOverlayContentZIndex(Vue.toRef(overlayZIndex, 'contentZIndex'));
 
 const selectedTab = Vue.ref('digitalOcean');
 const serverAddError = Vue.ref('');

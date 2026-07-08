@@ -2,8 +2,8 @@
 <template>
   <div
     ref="modalElem"
-    class="absolute bg-white border border-slate-500/60 rounded-md shadow-lg z-200 text-base"
-    :style="[positionStyle, { cursor: isDragging ? 'grabbing' : 'default' }]"
+    class="absolute bg-white border border-slate-500/60 rounded-md shadow-lg text-base"
+    :style="[positionStyle, editBoxZIndex, { cursor: isDragging ? 'grabbing' : 'default' }]"
   >
     <div class="flex flex-col">
       <div class="flex flex-row items-center justify-center text-xl font-bold font-sans text-argon-600/70 mx-2 text-center border-b border-slate-400/30 select-none">
@@ -80,6 +80,7 @@ import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import { getConfig } from '../stores/config.ts';
 import { JsonExt } from '@argonprotocol/apps-core';
 import { IBiddingRules } from '@argonprotocol/apps-core';
+import { useFloatingZIndex } from './helpers/OverlayZIndex.ts';
 
 const props = defineProps<{
   id: IEditBoxOverlayType;
@@ -95,6 +96,7 @@ const emit = defineEmits<{
 }>();
 
 const config = getConfig();
+const editBoxZIndex = useFloatingZIndex(2);
 
 const editorInstance = Vue.ref<IEditBoxChildExposed | null>(null);
 const saveButtonLabel = Vue.ref('Save');

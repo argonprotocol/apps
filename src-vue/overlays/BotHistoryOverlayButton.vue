@@ -16,7 +16,8 @@
         :sideOffset="10"
         :collisionPadding="24"
         :avoidCollisions="true"
-        class="group relative z-[2002] w-220 rounded-lg border border-gray-300 bg-white text-center text-lg font-bold shadow-lg"
+        :style="floatingZIndex"
+        class="group relative w-220 rounded-lg border border-gray-300 bg-white text-center text-lg font-bold shadow-lg"
       >
         <PopoverPanelArrow />
         <div class="flex h-full max-w-full flex-col px-6 pt-4 pb-2 text-base">
@@ -90,6 +91,7 @@ import { botEmitter } from '../lib/Bot.ts';
 import { getBot } from '../stores/bot.ts';
 import { getConfig } from '../stores/config.ts';
 import PopoverPanelArrow from '../components/PopoverPanelArrow.vue';
+import { useFloatingZIndex } from './helpers/OverlayZIndex.ts';
 
 dayjs.extend(utc);
 dayjs.extend(relativeTime);
@@ -106,6 +108,7 @@ const props = withDefaults(
 const bot = getBot();
 const config = getConfig();
 const isOpen = Vue.ref(false);
+const floatingZIndex = useFloatingZIndex();
 
 const popoverSide = Vue.computed(() => {
   if (props.position === 'left') {

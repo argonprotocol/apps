@@ -38,6 +38,7 @@ import { useBasics } from '../stores/basics.ts';
 import { TopTab } from '../interfaces/IConfig.ts';
 import { useOperationsController } from '../stores/operationsController.ts';
 import { useWallets } from '../stores/wallets.ts';
+import { releaseOverlayZIndex, reserveOverlayZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 import WalletDialog from './WalletDialog.vue';
 
 type IOpenWallet = {
@@ -61,7 +62,6 @@ const snapPreview = Vue.ref<{
   bounds: { top: number; left: number; width: number; height: number };
 }>();
 let nextWalletId = 1;
-let nextZIndex = 1100;
 
 const operationsController = useOperationsController();
 const isWalletScreenOpen = Vue.computed(() => operationsController?.selectedTab === TopTab.Wallets);
@@ -73,10 +73,15 @@ function syncOverlayState() {
 function focusWallet(id: number) {
   const wallet = openWallets.value.find(x => x.id === id);
   if (!wallet) return;
-  wallet.zIndex = ++nextZIndex;
+  wallet.zIndex = reserveOverlayZIndex(wallet.zIndex);
 }
 
 function closeWallet(id: number) {
+  const wallet = openWallets.value.find(x => x.id === id);
+  if (wallet) {
+    releaseOverlayZIndex(wallet.zIndex);
+  }
+
   openWallets.value = openWallets.value.filter(wallet => wallet.id !== id);
   if (snapPreview.value?.draggedWalletId === id || snapPreview.value?.targetWalletId === id) {
     snapPreview.value = undefined;
@@ -88,7 +93,7 @@ function pairWallet(id: number, pairedWalletType: WalletType.defaultArgon | Wall
   const wallet = openWallets.value.find(x => x.id === id);
   if (!wallet || wallet.pairedWalletType) return;
   wallet.pairedWalletType = pairedWalletType;
-  wallet.zIndex = ++nextZIndex;
+  wallet.zIndex = reserveOverlayZIndex(wallet.zIndex);
 }
 
 function unpairWallet(id: number) {
@@ -100,7 +105,7 @@ function unpairWallet(id: number) {
   const singleWalletWidth = (wallet.rect?.width ?? window.innerWidth * (8 / 12)) * (5 / 8);
   const centerOffset = (singleWalletWidth + 15) / 2;
   wallet.pairedWalletType = undefined;
-  wallet.zIndex = ++nextZIndex;
+  wallet.zIndex = reserveOverlayZIndex(wallet.zIndex);
   wallet.position = {
     x: originalPosition.x + centerOffset,
     y: originalPosition.y,
@@ -111,7 +116,7 @@ function unpairWallet(id: number) {
     walletType: pairedWalletType,
     showGuidance: false,
     showBackdrop: wallet.showBackdrop,
-    zIndex: ++nextZIndex,
+    zIndex: reserveOverlayZIndex(),
     position: {
       x: originalPosition.x - centerOffset,
       y: originalPosition.y,
@@ -171,6 +176,8 @@ function handleDragEnd(id: number, payload: { position: { x: number; y: number }
   const pairedWalletType = draggedIsLeft ? draggedWallet.walletType : targetWallet.walletType;
   const primaryShowGuidance = draggedIsLeft ? targetWallet.showGuidance : draggedWallet.showGuidance;
 
+  releaseOverlayZIndex(draggedWallet.zIndex);
+  releaseOverlayZIndex(targetWallet.zIndex);
   openWallets.value = openWallets.value.filter(
     wallet => wallet.id !== draggedWallet.id && wallet.id !== targetWallet.id,
   );
@@ -180,7 +187,7 @@ function handleDragEnd(id: number, payload: { position: { x: number; y: number }
     pairedWalletType,
     showGuidance: primaryShowGuidance,
     showBackdrop: draggedWallet.showBackdrop || targetWallet.showBackdrop,
-    zIndex: ++nextZIndex,
+    zIndex: reserveOverlayZIndex(),
     position: {
       x: (draggedWallet.position.x + targetWallet.position.x) / 2,
       y: (draggedWallet.position.y + targetWallet.position.y) / 2,
@@ -199,7 +206,7 @@ const snapPreviewStyle = Vue.computed(() => {
     left: `${bounds.left - padding}px`,
     width: `${bounds.width + padding * 2}px`,
     height: `${bounds.height + padding * 2}px`,
-    zIndex: nextZIndex + 1,
+    zIndex: Math.max(...openWallets.value.map(wallet => wallet.zIndex), 0) + 1,
   };
 });
 
@@ -287,7 +294,7 @@ const openWalletOverlay = async (payload: {
     showGuidance: payload.showGuidance || false,
     guidanceContext: payload.guidanceContext,
     showBackdrop: !isWalletScreenOpen.value,
-    zIndex: ++nextZIndex,
+    zIndex: reserveOverlayZIndex(),
     position: getNextPosition(),
   });
   syncOverlayState();
@@ -309,6 +316,7 @@ Vue.watch(
 
 Vue.onUnmounted(() => {
   basicEmitter.off('openWalletOverlay', openWalletOverlay);
+  openWallets.value.forEach(wallet => releaseOverlayZIndex(wallet.zIndex));
   openWalletOverlayCount.value = 0;
 });
 </script>

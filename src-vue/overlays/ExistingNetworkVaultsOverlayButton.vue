@@ -8,7 +8,12 @@
         </span>
       </slot>
     </PopoverButton>
-    <PopoverPanel as="div" :class="panelPositioningClasses" class="absolute w-160 h-120 z-100 text-center text-lg font-bold mt-10 bg-white rounded-lg shadow-lg border border-gray-300 ">
+    <PopoverPanel
+      as="div"
+      :class="panelPositioningClasses"
+      :style="floatingZIndex"
+      class="absolute mt-10 h-120 w-160 rounded-lg border border-gray-300 bg-white text-center text-lg font-bold shadow-lg"
+    >
       <div :class="arrowPositioningClasses" class="absolute w-[30px] h-[15px] overflow-hidden">
         <div class="relative top-[5px] left-[5px] w-[20px] h-[20px] rotate-45 bg-white ring-1 ring-gray-900/20"></div>
       </div>
@@ -47,6 +52,7 @@ import { getCurrency } from '../stores/currency.ts';
 import { Popover, PopoverButton, PopoverPanel } from '@headlessui/vue';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { getVaults } from '../stores/vaults.ts';
+import { useFloatingZIndex } from './helpers/OverlayZIndex.ts';
 
 dayjs.extend(utc);
 dayjs.extend(relativeTime);
@@ -62,6 +68,7 @@ const props = withDefaults(
 
 const vaultStore = getVaults();
 const currency = getCurrency();
+const floatingZIndex = useFloatingZIndex();
 
 const panelPositioningClasses = Vue.computed(() => {
   if (props.position === 'left') {
