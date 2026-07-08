@@ -1,7 +1,11 @@
 <template>
   <PopoverRoot :open="isOpen">
     <PopoverPortal>
-      <PopoverContent ref="boxRef" class="absolute left-0" :style="[floatingZIndex, { top, width: `${props.pos.width}px` }]">
+      <PopoverContent
+        ref="boxRef"
+        class="absolute left-0"
+        :style="[floatingZIndex, { top, width: `${props.pos.width}px` }]"
+      >
         <div Arrow class="absolute top-[calc(50%-4px)] left-[15%] z-1 -translate-y-1/2">
           <svg
             class="relative z-10"

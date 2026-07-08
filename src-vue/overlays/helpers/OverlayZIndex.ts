@@ -1,7 +1,7 @@
 import * as Vue from 'vue';
 
 const OVERLAY_BACKDROP_Z_INDEX = 1000;
-const OVERLAY_Z_INDEX_STEP = 2;
+const OVERLAY_Z_INDEX_STEP = 6;
 const ROOT_FLOATING_Z_INDEX = OVERLAY_BACKDROP_Z_INDEX - OVERLAY_Z_INDEX_STEP;
 const openOverlayZIndexes = new Set<number>();
 const overlayContentZIndexKey = Symbol('overlay-content-z-index') as Vue.InjectionKey<
