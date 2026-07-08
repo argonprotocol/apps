@@ -126,11 +126,7 @@
 
               <div :class="statusClass(invite)" class="text-sm font-medium">{{ extractStatus(invite) }}</div>
 
-              <CopyToClipboard
-                v-if="invite.inviteEnvelope"
-                :content="getTreasuryInviteUrl(invite)"
-                class="cursor-pointer"
-              >
+              <CopyToClipboard :content="getMemberInviteUrl(invite)" class="cursor-pointer">
                 <button type="button" class="text-argon-700 text-sm font-semibold">Copy Link</button>
                 <template #copying>
                   <button type="button" class="text-argon-700 text-sm font-semibold">Copy Link</button>
@@ -147,19 +143,18 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
-import type { ITreasuryUserInvite } from '@argonprotocol/apps-router';
+import type { IMemberInvite } from '@argonprotocol/apps-router';
 import OverlayBase from './OverlayBase.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import InputNumber from '../components/InputNumber.vue';
 import CopyToClipboard from '../components/CopyToClipboard.vue';
 import CountdownClock from '../components/CountdownClock.vue';
-import { getMainchainClient } from '../stores/mainchain.ts';
 import { getMyVault } from '../stores/vaults.ts';
 import { getConfig } from '../stores/config.ts';
 import { InviteEnvelope } from '../lib/InviteEnvelope.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import { getCurrency } from '../stores/currency.ts';
-import { InviteCodes, NetworkConfig, UnitOfMeasurement, UserRole } from '@argonprotocol/apps-core';
+import { NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { BitcoinLock } from '@argonprotocol/mainchain';
 import { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
 import { getServerApiClient } from '../stores/server.ts';
@@ -182,7 +177,7 @@ const errorMessage = Vue.ref<string | null>(null);
 const inviteName = Vue.ref('');
 const maxSatoshisNumber = Vue.ref(100_000_000);
 const maxLockableSatoshis = Vue.ref(100_000_000n);
-const invites = Vue.ref<ITreasuryUserInvite[]>([]);
+const invites = Vue.ref<IMemberInvite[]>([]);
 
 const maxLockableSatoshisNumber = Vue.computed(() => {
   return Number(maxLockableSatoshis.value);
@@ -224,14 +219,14 @@ function updateProfileOverlay() {
   basicEmitter.emit('openProfileOverlay');
 }
 
-function statusClass(invite: ITreasuryUserInvite): string {
+function statusClass(invite: IMemberInvite): string {
   const status = extractStatus(invite);
   if (status.includes('User')) return 'text-green-700';
   if (status.includes('Failed') || status.includes('Expired')) return 'text-red-700';
   return 'text-slate-600';
 }
 
-function extractStatus(invite: ITreasuryUserInvite): string {
+function extractStatus(invite: IMemberInvite): string {
   const bitcoinLock = invite.bitcoinLockCoupon;
   if (bitcoinLock?.status === 'Failed') {
     return 'Bitcoin Lock Failed';
@@ -259,15 +254,18 @@ async function loadInvites() {
   }
 
   try {
-    invites.value = await serverApiClient.getTreasuryAppInvites();
+    invites.value = await serverApiClient.getInvites();
   } catch {
     invites.value = [];
     errorMessage.value = 'Unable to load invites right now. Please try again.';
   }
 }
 
-function getTreasuryInviteUrl(invite: ITreasuryUserInvite): string {
-  return `${NetworkConfig.get().websiteHost}/treasury-invite/${invite.inviteEnvelope}`;
+function getMemberInviteUrl(invite: IMemberInvite): string {
+  return `${NetworkConfig.get().websiteHost}/invite/${InviteEnvelope.encode({
+    ...UpstreamOperatorClient.getInviteEndpoint(config.serverDetails),
+    inviteCode: invite.inviteCode,
+  })}`;
 }
 
 async function loadDelegateSetupState() {
@@ -346,7 +344,6 @@ async function createInvite() {
     await delegateSetupTx?.txResult.waitForInFirstBlock;
 
     const expiresAfterTicks = 10 * NetworkConfig.rewardTicksPerFrame;
-    const { inviteSecret, inviteCode } = InviteCodes.create();
     const vault = myVault.createdVault;
     if (!vault) {
       throw new Error('No vault is available to create an invite.');
@@ -356,18 +353,10 @@ async function createInvite() {
       currency.convertMicrogonTo(vault.calculateBitcoinFee(fullLockAmount), UnitOfMeasurement.USD),
     );
     const btcPctFee = vault.terms.bitcoinAnnualPercentRate.times(100).toNumber();
-    const inviteEnvelope = InviteEnvelope.encode({
-      ...UpstreamOperatorClient.getInviteEndpoint(config.serverDetails),
-      role: UserRole.TreasuryUser,
-      secret: inviteSecret,
-      inviteCode,
-    });
 
-    const invite = await serverApiClient.createTreasuryAppInvite({
+    await serverApiClient.createInvite({
       name,
       fromName: currentVaultName.value,
-      inviteCode,
-      inviteEnvelope,
       vaultId,
       maxSatoshis,
       estimatedGiftUsd,

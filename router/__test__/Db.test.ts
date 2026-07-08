@@ -20,7 +20,7 @@ describe('Db', () => {
     expect(() =>
       testDb.transaction(async () => {
         testDb.usersTable.insertUser({
-          role: UserRole.TreasuryUser,
+          role: UserRole.Member,
           name: 'Casey',
         });
 
@@ -28,6 +28,6 @@ describe('Db', () => {
       }),
     ).toThrowError('Db.transaction callback must be synchronous.');
 
-    expect(testDb.usersTable.fetchByRole(UserRole.TreasuryUser)).toEqual([]);
+    expect(testDb.usersTable.fetchByRole(UserRole.Member)).toEqual([]);
   });
 });

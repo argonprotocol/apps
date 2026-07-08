@@ -60,6 +60,9 @@ export class BitcoinApis {
       for (const peer of peerinfo) {
         mainNodeBlockNumber = Math.max(peer.startingheight, mainNodeBlockNumber);
       }
+      if (!mainNodeBlockNumber) {
+        mainNodeBlockNumber = Math.max(blockchainInfo.headers, blockchainInfo.blocks);
+      }
     }
     const latestBlocks: IBitcoinBlockNumbers & IBlockchainInfo = {
       localNodeBlockNumber: blockchainInfo.blocks,

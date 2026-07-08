@@ -616,7 +616,7 @@ function summarizeAppStartup(tracker: IAppProcessOutputTracker): {
     stage = 'ethereum-chain-config';
   } else if (lastOutputLine?.includes('syncing the Ethereum gateway council to Argon')) {
     stage = 'ethereum-council-sync';
-  } else if (lastOutputLine?.includes('starting the local Ethereum relayer')) {
+  } else if (lastOutputLine?.includes('activating the upstream Ethereum relay')) {
     stage = 'ethereum-relayer-start';
   } else if (joinedTail.includes('bootstrapping the Ethereum verifier on Argon')) {
     stage = 'ethereum-bootstrap';

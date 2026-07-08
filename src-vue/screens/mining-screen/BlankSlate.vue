@@ -108,10 +108,10 @@ import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { ChevronDoubleRightIcon, ArrowTopRightOnSquareIcon } from '@heroicons/vue/24/outline';
 import BlankSlateBlocks from './components/BlankSlateBlocks.vue';
 import { MiningSetupStatus } from '../../interfaces/IConfig.ts';
-import { OperationalStepId, useOperationsController } from '../../stores/operationsController.ts';
+import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 
-const controller = useOperationsController();
+const controller = useCertificationController();
 const miningStats = useMiningStats();
 const currency = getCurrency();
 const config = getConfig();

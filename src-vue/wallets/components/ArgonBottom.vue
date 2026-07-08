@@ -178,7 +178,7 @@ import Checkbox from '../../components/Checkbox.vue';
 import { MiningSetupStatus, VaultingSetupStatus } from '../../interfaces/IConfig.ts';
 import { useWallets } from '../../stores/wallets.ts';
 import { bigIntMax } from '@argonprotocol/apps-core';
-import { OperationalStepId, useOperationsController } from '../../stores/operationsController.ts';
+import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import AlertCalloutButton from '../../components/AlertCalloutButton.vue';
 import { getBiddingCalculator } from '../../stores/mainchain.ts';
 import { getMiningFundingState } from '../../screens/mining-screen/miningFunding.ts';
@@ -196,7 +196,7 @@ const props = defineProps<{
 const config = getConfig();
 const currency = getCurrency();
 const wallets = useWallets();
-const controller = useOperationsController();
+const controller = useCertificationController();
 const calculator = getBiddingCalculator();
 const floatingZIndex = useFloatingZIndex();
 

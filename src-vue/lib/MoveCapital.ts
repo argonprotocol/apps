@@ -15,7 +15,6 @@ import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { WalletKeys } from './WalletKeys.ts';
 import { TransactionTracker, TxAttemptState } from './TransactionTracker.ts';
-import { buildOperatorAccountRegistrationTx } from './OperationalAccount.ts';
 import { ensureMiningBidProxySetup } from './MiningAccount.ts';
 import { Config } from './Config.ts';
 
@@ -252,23 +251,13 @@ export class MoveCapital {
     }
 
     const client = await getMainchainClient(false);
-    const prependedTxs: SubmittableExtrinsic[] = [];
-    const registrationTx = await buildOperatorAccountRegistrationTx({
-      walletKeys,
-      config,
-      client,
-    });
-    if (registrationTx) {
-      prependedTxs.push(registrationTx);
-    }
-
     let fee = await this.calculateFee(
       MoveFrom.DefaultArgon,
       MoveTo.MiningBot,
       assetsToMove,
       wallet,
       this.walletKeys.miningBotAddress,
-      prependedTxs,
+      [],
       client,
     );
     if (this.transactionError) {
@@ -299,7 +288,7 @@ export class MoveCapital {
           finalAssetsToMove,
           wallet,
           this.walletKeys.miningBotAddress,
-          prependedTxs,
+          [],
           client,
         );
         if (this.transactionError) {
@@ -327,7 +316,7 @@ export class MoveCapital {
       MoveTo.MiningBot,
       finalAssetsToMove,
       this.walletKeys.miningBotAddress,
-      prependedTxs,
+      [],
       client,
     );
     const txSigner = await this.getSigner(MoveFrom.DefaultArgon);

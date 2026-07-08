@@ -66,7 +66,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { TopTab } from '../interfaces/IConfig.ts';
-import { useOperationsController } from '../stores/operationsController.ts';
+import { useCertificationController } from '../stores/certificationController.ts';
 import WindowControls from '../tauri-controls/WindowControls.vue';
 import PortfolioMenu from './PortfolioMenu.vue';
 import AccountMenu from './AccountMenu.vue';
@@ -88,7 +88,7 @@ import PortfolioDetailsMenu from './PortfolioDetailsMenu.vue';
 import PortfolioCurrencyMenu from './PortfolioCurrencyMenu.vue';
 import { getConfig } from '../stores/config.ts';
 
-const controller = useOperationsController();
+const controller = useCertificationController();
 const wallets = useWallets();
 const tour = useTour();
 const config = getConfig();

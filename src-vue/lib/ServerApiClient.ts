@@ -7,16 +7,11 @@ import {
   type IEthereumGatewayRelayStatus,
 } from '@argonprotocol/apps-core';
 import type {
-  ICreateOperationalInviteResponse,
-  ICreateTreasuryInviteResponse,
-  IListOperationalInvitesResponse,
-  IOperationalUserInvite,
-  IOperationalUserInviteCreateRequest,
-  IOperationalUserInviteRegenerateRequest,
-  IListTreasuryInvitesResponse,
+  ICreateInviteRequest,
+  IInviteResponse,
+  IListInvitesResponse,
+  IMemberInvite,
   IRouterErrorResponse,
-  ITreasuryUserInvite,
-  ITreasuryUserInviteCreateRequest,
 } from '@argonprotocol/apps-router';
 import { type IConfigServerDetails, ServerType } from '../interfaces/IConfig.ts';
 import {
@@ -106,32 +101,16 @@ export class ServerApiClient {
       .catch(() => false);
   }
 
-  public async getTreasuryAppInvites(): Promise<ITreasuryUserInvite[]> {
-    const body = await this.request<IListTreasuryInvitesResponse>('/treasury-users/invites', {
+  public async getInvites(): Promise<IMemberInvite[]> {
+    const body = await this.request<IListInvitesResponse>('/invites', {
       timeoutMs: 10e3,
       adminOperatorAuth: true,
     });
     return body.invites;
   }
 
-  public async getOperationalInvites(): Promise<IOperationalUserInvite[]> {
-    const body = await this.request<IListOperationalInvitesResponse>('/operational-users/invites', {
-      timeoutMs: 10e3,
-      adminOperatorAuth: true,
-    });
-    return body.invites;
-  }
-
-  public async createTreasuryAppInvite(payload: ITreasuryUserInviteCreateRequest): Promise<ITreasuryUserInvite> {
-    const body = await this.postJson<ICreateTreasuryInviteResponse>('/treasury-users/create', payload, {
-      timeoutMs: 10e3,
-      adminOperatorAuth: true,
-    });
-    return body.invite;
-  }
-
-  public async createOperationalInvite(payload: IOperationalUserInviteCreateRequest): Promise<IOperationalUserInvite> {
-    const body = await this.postJson<ICreateOperationalInviteResponse>('/operational-users/create', payload, {
+  public async createInvite(payload: ICreateInviteRequest): Promise<IMemberInvite> {
+    const body = await this.postJson<IInviteResponse>('/invites/create', payload, {
       timeoutMs: 10e3,
       adminOperatorAuth: true,
     });
@@ -152,21 +131,6 @@ export class ServerApiClient {
       timeoutMs: 10e3,
       adminOperatorAuth: true,
     });
-  }
-
-  public async regenerateOperationalInvite(
-    inviteCode: string,
-    payload: IOperationalUserInviteRegenerateRequest,
-  ): Promise<IOperationalUserInvite> {
-    const body = await this.postJson<ICreateOperationalInviteResponse>(
-      `/operational-users/${encodeURIComponent(inviteCode)}/regenerate`,
-      payload,
-      {
-        timeoutMs: 10e3,
-        adminOperatorAuth: true,
-      },
-    );
-    return body.invite;
   }
 
   private async request<T>(path: string, options: ClientRequestOptions = {}): Promise<T> {

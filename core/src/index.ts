@@ -29,6 +29,7 @@ export * from './JsonExt.js';
 export * from './UserRole.js';
 export * from './InviteCodes.js';
 export * from './RouterAuth.js';
+export * from './CertificationProgress.js';
 export * from './SqliteMigrations.js';
 export * from './SqliteUtils.js';
 export * from './fetch.js';

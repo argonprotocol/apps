@@ -125,11 +125,11 @@ import { getMyVault } from '../stores/vaults.ts';
 import { getStats } from '../stores/stats.ts';
 import { getConfig } from '../stores/config.ts';
 import { TopTab } from '../interfaces/IConfig.ts';
-import { useOperationsController } from '../stores/operationsController.ts';
+import { useCertificationController } from '../stores/certificationController.ts';
 import { usePortfolio } from '../stores/portfolio.ts';
 import { UnitOfMeasurement } from '../lib/Currency.ts';
 
-const controller = useOperationsController();
+const controller = useCertificationController();
 const portfolio = usePortfolio();
 const currency = getCurrency();
 const myMinerStats = getStats();

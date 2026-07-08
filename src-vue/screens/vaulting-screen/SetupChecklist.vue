@@ -175,7 +175,7 @@ import { getVaultCalculator } from '../../stores/mainchain.ts';
 import VaultCapital from '../../overlays/vault/VaultCapital.vue';
 import VaultReturns from '../../overlays/vault/VaultReturns.vue';
 import VaultCreatePanel from '../../panels/VaultCreatePanel.vue';
-import { useOperationsController, OperationalStepId } from '../../stores/operationsController.ts';
+import { useCertificationController, OperationalStepId } from '../../stores/certificationController.ts';
 import { WalletType } from '../../lib/Wallet.ts';
 import { TopTab, VaultingSetupStatus } from '../../interfaces/IConfig.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
@@ -187,7 +187,7 @@ const config = getConfig();
 const basics = useBasics();
 const wallets = useWallets();
 const currency = getCurrency();
-const controller = useOperationsController();
+const controller = useCertificationController();
 const calculator = getVaultCalculator();
 
 const averageAPY = Vue.ref(0);

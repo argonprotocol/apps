@@ -113,7 +113,7 @@ export async function callArgonRpc<T = unknown>(
   });
 
   const localServicePort = rpcUrl.port || (rpcUrl.protocol === 'https:' ? '443' : '80');
-  const localServiceHostHeader = rpcUrl.hostname === 'argon-miner' ? `localhost:${localServicePort}` : undefined;
+  const localServiceHostHeader = rpcUrl.hostname.endsWith('miner') ? `localhost:${localServicePort}` : undefined;
   const request = rpcUrl.protocol === 'https:' ? Https.request : Http.request;
   const path = `${rpcUrl.pathname || '/'}${rpcUrl.search}`;
 

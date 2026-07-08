@@ -1,22 +1,36 @@
-import { Currency, MainchainClients, MiningFrames } from '@argonprotocol/apps-core';
+import {
+  Currency,
+  hasCompletedTreasuryCertificationRequirements,
+  JsonExt,
+  MainchainClients,
+  MiningFrames,
+} from '@argonprotocol/apps-core';
 import { Keyring, MICROGONS_PER_ARGON, TxSubmitter } from '@argonprotocol/mainchain';
 import type { ApiDecoration, ArgonClient, SubmittableExtrinsic } from '@argonprotocol/mainchain';
-import { bip39 } from '@argonprotocol/bitcoin';
-import { wordlist as englishWordlist } from '@scure/bip39/wordlists/english';
+import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
+import { sudo } from '@argonprotocol/testing';
+import type { IInviteResponse, IListInvitesResponse } from '@argonprotocol/apps-router';
 import { DelegateSubmitLane } from '../../bot/src/DelegateSubmitLane.ts';
 import { EthereumGatewayProverService } from '../../bot/src/EthereumGatewayProverService.ts';
 import BitcoinLocks from '../../src-vue/lib/BitcoinLocks.ts';
 import { Config } from '../../src-vue/lib/Config.ts';
 import { loadEthereumChainConfig } from '../../src-vue/lib/EthereumClient.ts';
 import { GlobalCouncil } from '../../src-vue/lib/GlobalCouncil.ts';
-import { MemoryWalletKeys } from '../../src-vue/lib/MemoryWalletKeys.ts';
 import { MintingAuthorities } from '../../src-vue/lib/MintingAuthorities.ts';
 import { DEFAULT_MASTER_XPUB_PATH, MyVault } from '../../src-vue/lib/MyVault.ts';
+import {
+  buildOperatorAccountRegistrationTx,
+  getOperationalChainProgressFromAccount,
+  getOperationalRewardConfig,
+  loadOperationalAccount,
+} from '../../src-vue/lib/OperationalAccount.ts';
 import { TransactionTracker } from '../../src-vue/lib/TransactionTracker.ts';
 import { Vaults } from '../../src-vue/lib/Vaults.ts';
 import { createTestDb } from '../../src-vue/__test__/helpers/db.ts';
 import { getEthereumGatewayPauseReason, setMainchainClients } from '../../src-vue/stores/mainchain.ts';
 import { Db } from '../../src-vue/lib/Db.ts';
+import type { MemoryWalletKeys } from '../../src-vue/lib/MemoryWalletKeys.ts';
+import { ServerAuthClient } from '../../src-vue/lib/ServerAuthClient.ts';
 
 type IEthereumMintingAuthorityWalletSetup = {
   councilSigner: string;
@@ -35,7 +49,7 @@ export type IEthereumMintingAuthorityStatus = IEthereumMintingAuthorityWalletSet
   pendingApprovals: number;
 };
 
-export class VaultActor {
+export class AppVaultOperator {
   public readonly walletKeys: MemoryWalletKeys;
   public readonly config: Config;
   public readonly myVault: MyVault;
@@ -66,21 +80,18 @@ export class VaultActor {
   #miningFrames: MiningFrames;
   #bitcoinLocks: BitcoinLocks;
 
-  public static async load(args: { clients: MainchainClients; mnemonic: string }): Promise<VaultActor> {
-    if (!bip39.validateMnemonic(args.mnemonic, englishWordlist)) {
-      throw new Error('VaultActor requires a valid mnemonic.');
-    }
+  public static async load(args: {
+    clients: MainchainClients;
+    walletKeys: MemoryWalletKeys;
+  }): Promise<AppVaultOperator> {
+    const { clients, walletKeys } = args;
 
-    setMainchainClients(args.clients);
+    setMainchainClients(clients);
 
     const db = await createTestDb();
     const dbPromise = Promise.resolve(db);
-    const walletKeys = new MemoryWalletKeys({
-      substrateSuri: args.mnemonic,
-      masterMnemonic: args.mnemonic,
-    });
-    const miningFrames = new MiningFrames(args.clients);
-    const currency = new Currency(args.clients);
+    const miningFrames = new MiningFrames(clients);
+    const currency = new Currency(clients);
     const transactionTracker = new TransactionTracker(dbPromise, miningFrames.blockWatch);
     const bitcoinLocks = new BitcoinLocks(dbPromise, walletKeys, miningFrames.blockWatch, currency, transactionTracker);
     const globalCouncil = new GlobalCouncil(dbPromise, walletKeys, miningFrames);
@@ -96,11 +107,11 @@ export class VaultActor {
       async () => ({
         serverApiClient: {
           getEthereumRelayStatus: async () => {
-            relaySubmitLane.client = await args.clients.get(false);
+            relaySubmitLane.client = await clients.get(false);
             return await ethereumGatewayProverService.getRelayStatus();
           },
           requestEthereumGatewayCatchUp: async request => {
-            relaySubmitLane.client = await args.clients.get(false);
+            relaySubmitLane.client = await clients.get(false);
             return await ethereumGatewayProverService.runToCheckpoint(request);
           },
         },
@@ -138,7 +149,7 @@ export class VaultActor {
 
     await myVault.load();
 
-    return new VaultActor({
+    return new AppVaultOperator({
       db,
       walletKeys,
       miningFrames,
@@ -182,22 +193,207 @@ export class VaultActor {
       config: this.config,
     });
     await txInfo.waitForPostProcessing;
-    if (this.myVault.createdVault) {
-      return;
-    }
 
     await this.myVault.load(true);
     if (this.myVault.createdVault) {
       return;
     }
 
-    throw new Error(`VaultActor could not recover or create a vault for ${this.walletKeys.vaultingAddress}.`);
+    throw new Error(`AppVaultOperator could not recover or create a vault for ${this.walletKeys.treasuryAddress}.`);
+  }
+
+  public async bootstrapUpstreamOperator(args: { client: ArgonClient; vaultName: string }): Promise<void> {
+    const { client } = args;
+    const vaultName = args.vaultName.trim();
+    if (!vaultName) {
+      throw new Error('A vault name is required to bootstrap the upstream operator.');
+    }
+
+    const requiredVaultingBalance = this.config.vaultingRules.baseMicrogonCommitment + 2n * BigInt(MICROGONS_PER_ARGON);
+
+    await sudoFundWallet({
+      client,
+      address: this.walletKeys.treasuryAddress,
+      microgons: requiredVaultingBalance,
+      micronots: 0n,
+    });
+
+    await this.ensureVaultReady();
+
+    const vault = this.myVault.createdVault;
+    if (!vault) {
+      throw new Error(`AppVaultOperator could not load a vault for ${this.walletKeys.treasuryAddress}.`);
+    }
+
+    const rewardConfig = await getOperationalRewardConfig(client);
+    const existingOperationalAccount = await loadOperationalAccount(this.walletKeys, client);
+    const existingProgress = getOperationalChainProgressFromAccount(existingOperationalAccount, rewardConfig);
+
+    if (vault.delegateAccountId && existingProgress.isOperational && existingProgress.availableUpgradeCodes > 0) {
+      return;
+    }
+
+    if (!vault.delegateAccountId) {
+      const txInfo = await this.myVault.setupVaultInviteProfile(vaultName);
+      await txInfo?.txResult.waitForInFirstBlock;
+      await this.myVault.load(true);
+    }
+
+    const registrationTx = await buildOperatorAccountRegistrationTx({
+      walletKeys: this.walletKeys,
+      config: this.config,
+      client,
+    });
+    if (registrationTx) {
+      const txSigner = await this.walletKeys.getTreasuryKeypair();
+      const txResult = await new TxSubmitter(client, registrationTx, txSigner).submit({
+        useLatestNonce: true,
+      });
+      await txResult.waitForInFirstBlock;
+    }
+
+    let accountBitcoinAmount = rewardConfig.treasuryMinimumBitcoin;
+    if (rewardConfig.bitcoinLockSizeForUpgradeCode > accountBitcoinAmount) {
+      accountBitcoinAmount = rewardConfig.bitcoinLockSizeForUpgradeCode;
+    }
+
+    const forceProgressResult = await new TxSubmitter(
+      client,
+      client.tx.sudo.sudo(
+        client.tx.operationalAccounts.forceSetProgress(
+          this.walletKeys.operationalAddress,
+          {
+            uniswapArgonTransfersInAmount: rewardConfig.operationalMinimumUniswapTransfer,
+            accountBitcoinAmount,
+            accountVaultBondAmount: rewardConfig.treasuryMinimumBonds,
+            vaultCreated: true,
+            vaultBitcoinAmount: rewardConfig.bitcoinLockSizeForUpgradeCode,
+            miningSeatCount: rewardConfig.miningSeatsPerUpgradeCode,
+            isUpgradedToOperations: true,
+          },
+          true,
+        ),
+      ),
+      sudo(),
+    ).submit({
+      useLatestNonce: true,
+    });
+    await forceProgressResult.waitForInFirstBlock;
+
+    const txSigner = await this.walletKeys.getTreasuryKeypair();
+    const activateResult = await new TxSubmitter(client, client.tx.operationalAccounts.activate(), txSigner).submit({
+      useLatestNonce: true,
+    });
+    await activateResult.waitForInFirstBlock;
+
+    const operationalAccount = await loadOperationalAccount(this.walletKeys, client);
+    const progress = getOperationalChainProgressFromAccount(operationalAccount, rewardConfig);
+
+    if (!progress.isOperational) {
+      throw new Error('Upstream operational account did not become operational during bootstrap.');
+    }
+    if (progress.availableUpgradeCodes < 1) {
+      throw new Error('Upstream operational account did not receive an upgrade code during bootstrap.');
+    }
+
+    await this.myVault.load(true);
   }
 
   public async setCommittedArgonots(args: { amount: bigint }): Promise<void> {
     await this.ensureVaultReady();
     const txInfo = await this.myVault.setCommittedArgonots(args.amount);
     await txInfo.waitForPostProcessing;
+  }
+
+  public startOperationsUpgradePoller(args: { client: ArgonClient; routerHost: string; pollMs?: number }): {
+    shutdown(): Promise<void>;
+  } {
+    const { client, routerHost } = args;
+    const pollMs = args.pollMs ?? 5_000;
+    const serverAuthClient = new ServerAuthClient(() => this.walletKeys);
+    let isStopped = false;
+
+    const runPromise = (async () => {
+      const rewardConfig = await getOperationalRewardConfig(client);
+
+      while (!isStopped) {
+        try {
+          const invites = await this.requestRouterJson<IListInvitesResponse>({
+            serverAuthClient,
+            routerHost,
+            path: '/invites',
+          });
+
+          for (const invite of invites.invites) {
+            if (!invite.operationsUpgradeRequestedAt || invite.operationsUpgradedAt) {
+              continue;
+            }
+
+            if (
+              !invite.certificationProgress ||
+              !hasCompletedTreasuryCertificationRequirements(invite.certificationProgress)
+            ) {
+              continue;
+            }
+
+            const downstreamOperationalAccountId = invite.operationalAccountId;
+            if (!downstreamOperationalAccountId) {
+              continue;
+            }
+
+            const operationalAccount =
+              await client.query.operationalAccounts.operationalAccounts(downstreamOperationalAccountId);
+            if (!operationalAccount.isSome) {
+              continue;
+            }
+
+            const operationalProgress = getOperationalChainProgressFromAccount(operationalAccount, rewardConfig);
+            if (!operationalProgress.isUpgradedToOperations) {
+              const txSigner = await this.walletKeys.getOperationalKeypair();
+              const txResult = await new TxSubmitter(
+                client,
+                client.tx.operationalAccounts.upgradeAccount(downstreamOperationalAccountId),
+                txSigner,
+              ).submit({
+                useLatestNonce: true,
+              });
+              await txResult.waitForFinalizedBlock;
+            }
+
+            const refreshedOperationalAccount =
+              await client.query.operationalAccounts.operationalAccounts(downstreamOperationalAccountId);
+            const refreshedProgress = getOperationalChainProgressFromAccount(refreshedOperationalAccount, rewardConfig);
+            if (!refreshedProgress.isUpgradedToOperations) {
+              continue;
+            }
+
+            await this.requestRouterJson<IInviteResponse>({
+              serverAuthClient,
+              routerHost,
+              path: `/invites/${encodeURIComponent(invite.inviteCode)}/mark-operations-upgraded`,
+              init: {
+                method: 'POST',
+              },
+            });
+
+            break;
+          }
+        } catch (error) {
+          console.warn('[dev-upstream] Unable to process requested operations upgrades.', error);
+        }
+
+        if (!isStopped) {
+          await new Promise(resolve => setTimeout(resolve, pollMs));
+        }
+      }
+    })();
+
+    return {
+      shutdown: async () => {
+        isStopped = true;
+        await runPromise.catch(() => undefined);
+      },
+    };
   }
 
   public async registerMintingAuthority(args: {
@@ -349,5 +545,33 @@ export class VaultActor {
       mintingAuthoritySigner,
       vaultingAddress: this.walletKeys.vaultingAddress,
     };
+  }
+
+  private async requestRouterJson<T>(args: {
+    serverAuthClient: ServerAuthClient;
+    routerHost: string;
+    path: string;
+    init?: RequestInit;
+  }): Promise<T> {
+    let hasRetried = false;
+
+    while (true) {
+      const sessionId = await args.serverAuthClient.getAdminOperatorSessionId(args.routerHost);
+      const url = new URL(`${args.routerHost}${args.path}`);
+      url.searchParams.set('sessionId', sessionId);
+
+      const response = await fetch(url, args.init);
+      const rawBody = await response.text();
+      if ((response.status === 401 || response.status === 403) && !hasRetried) {
+        hasRetried = true;
+        args.serverAuthClient.invalidateAdminOperatorSessionId(args.routerHost);
+        continue;
+      }
+      if (!response.ok) {
+        throw new Error(rawBody || `Router request failed (${response.status})`);
+      }
+
+      return JsonExt.parse<T>(rawBody);
+    }
   }
 }

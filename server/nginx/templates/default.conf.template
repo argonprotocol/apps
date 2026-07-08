@@ -36,14 +36,14 @@ server {
 
   location = /_auth_bot {
     internal;
-    proxy_pass http://router:8080/auth/verify/bot?sessionId=$auth_session_id;
+    proxy_pass ${ROUTER_UPSTREAM_URL}/auth/verify/bot?sessionId=$auth_session_id;
     proxy_pass_request_body off;
     proxy_set_header Content-Length "";
   }
 
   location = /_auth_substrate {
     internal;
-    proxy_pass http://router:8080/auth/verify/substrate?sessionId=$auth_session_id;
+    proxy_pass ${ROUTER_UPSTREAM_URL}/auth/verify/substrate?sessionId=$auth_session_id;
     proxy_pass_request_body off;
     proxy_set_header Content-Length "";
   }
@@ -51,7 +51,7 @@ server {
   location /auth/ {
     limit_req zone=http_per_ip burst=60 nodelay;
     limit_req zone=auth_post_per_ip burst=20 nodelay;
-    proxy_pass http://router:8080/auth/;
+    proxy_pass ${ROUTER_UPSTREAM_URL}/auth/;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto https;
@@ -63,11 +63,11 @@ server {
     auth_request /_auth_substrate;
     limit_req zone=ws_handshake_per_ip burst=5 nodelay;
     limit_conn conn_per_ip 20;
-    set $substrate_upstream http://argon-miner:9945;
+    set $substrate_upstream ${SUBSTRATE_UPSTREAM_URL};
     rewrite ^/substrate/?(.*)$ /$1 break;
     proxy_pass $substrate_upstream;
     proxy_http_version 1.1;
-    proxy_set_header Host localhost:9945;
+    proxy_set_header Host ${SUBSTRATE_UPSTREAM_HOST_HEADER};
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection $connection_upgrade;
     proxy_read_timeout 10m;
@@ -85,7 +85,7 @@ server {
     auth_request /_auth_bot;
     limit_req zone=ws_handshake_per_ip burst=5 nodelay;
     limit_conn conn_per_ip 20;
-    set $bot_upstream http://bot:8080;
+    set $bot_upstream ${BOT_UPSTREAM_URL};
     rewrite ^/bot/(.*)$ /$1 break;
     proxy_pass $bot_upstream;
     proxy_http_version 1.1;
@@ -103,7 +103,7 @@ server {
 
   location / {
     limit_req zone=http_per_ip burst=60 nodelay;
-    proxy_pass http://router:8080;
+    proxy_pass ${ROUTER_UPSTREAM_URL};
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header Upgrade $http_upgrade;
