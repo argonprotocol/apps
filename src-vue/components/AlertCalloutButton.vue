@@ -66,13 +66,13 @@ import SparkleFilledIcon from '../assets/sparkle-filled.svg';
 import { twMerge } from 'tailwind-merge';
 import { HoverCardArrow, HoverCardContent, HoverCardPortal, HoverCardRoot, HoverCardTrigger } from 'reka-ui';
 import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
-import { useOperationsController, operationalSteps } from '../stores/operationsController.ts';
+import { useCertificationController, operationalSteps } from '../stores/certificationController.ts';
 
 defineOptions({
   inheritAttrs: false,
 });
 
-const controller = useOperationsController();
+const controller = useCertificationController();
 const isOpen = Vue.ref(false);
 const floatingZIndex = useFloatingZIndex();
 

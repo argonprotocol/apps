@@ -175,7 +175,7 @@ import { useTour } from '../stores/tour.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
 import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
-import { OperationalStepId, useOperationsController } from '../stores/operationsController.ts';
+import { OperationalStepId, useCertificationController } from '../stores/certificationController.ts';
 import { useBasics } from '../stores/basics.ts';
 import { WalletType } from '../lib/Wallet.ts';
 import { appConfigDir } from '@tauri-apps/api/path';
@@ -185,7 +185,7 @@ import InstanceMenu, { type IInstance } from './InstanceMenu.vue';
 
 const tour = useTour();
 const basics = useBasics();
-const controller = useOperationsController();
+const controller = useCertificationController();
 
 const rootRef = Vue.ref<HTMLElement>();
 const walletsMenuValue = Vue.ref('');

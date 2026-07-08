@@ -14,7 +14,7 @@ describe('RouterAuthService', () => {
     db?.close();
   });
 
-  it('creates sessions from valid challenge signatures', () => {
+  it('creates admin sessions from valid challenge signatures', () => {
     const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
     const service = createAuthService(operator.address);
     const challenge = service.createChallenge(operator.address, UserRole.AdminOperator);
@@ -27,6 +27,27 @@ describe('RouterAuthService', () => {
     expect(session.role).toBe(UserRole.AdminOperator);
   });
 
+  it('creates member sessions from claimed invite auth accounts', () => {
+    const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
+    const member = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMember');
+    const memberAuth = member.derive('//downstream-auth');
+    const service = createAuthService(operator.address);
+
+    const user = db!.usersTable.insertUser({
+      role: UserRole.Member,
+      name: 'Casey',
+    });
+    const invite = db!.userInvitesTable.insertInvite(user.id, 'member-invite-1', 'Operator One');
+    db!.userInvitesTable.claimInvite(invite.id, member.address, memberAuth.address);
+
+    const challenge = service.createChallenge(memberAuth.address, UserRole.Member);
+    const signature = signRouterAuthChallenge(memberAuth, challenge);
+    const session = service.createSession({ ...challenge, signature });
+
+    expect(session.accountId).toBe(member.address);
+    expect(session.role).toBe(UserRole.Member);
+  });
+
   it('rejects challenge signatures from the wrong key', () => {
     const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
     const wrongOperator = new Keyring({ type: 'sr25519' }).addFromUri('//WrongRouterOperator');
@@ -35,6 +56,16 @@ describe('RouterAuthService', () => {
     const signature = signRouterAuthChallenge(wrongOperator, challenge);
 
     expect(() => service.createSession({ ...challenge, signature })).toThrowError('Login signature is invalid.');
+  });
+
+  it('rejects member challenges for unclaimed auth accounts', () => {
+    const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
+    const member = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMember');
+    const service = createAuthService(operator.address);
+
+    expect(() => service.createChallenge(member.address, UserRole.Member)).toThrowError(
+      'This auth account is not allowed to access the router.',
+    );
   });
 
   function createAuthService(adminOperatorAccountId: string): RouterAuthService {

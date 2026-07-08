@@ -151,7 +151,7 @@ export function applyEnv(program: ReturnType<typeof buildCli>): string | undefin
   const { env } = program.optsWithGlobals();
   if (env) {
     const envPath = Path.resolve(process.cwd(), env);
-    const res = configDotenv({ path: envPath });
+    const res = configDotenv({ path: envPath, quiet: true });
     if (res.parsed?.ACCOUNT_JSON_PATH) {
       // ensure path is relative to the env file if provided that way
       process.env.ACCOUNT_JSON_PATH = Path.resolve(Path.dirname(envPath), process.env.ACCOUNT_JSON_PATH!);

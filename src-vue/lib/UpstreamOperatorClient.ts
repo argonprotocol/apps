@@ -1,40 +1,34 @@
 import {
   getObjectStringProperty,
-  InviteCodes,
   fetch,
   type IEthereumGatewayCatchUpRequest,
   type IEthereumGatewayCatchUpResponse,
   JsonExt,
   signRouterAuthAccountBinding,
-  UserRole,
 } from '@argonprotocol/apps-core';
 import type { KeyringPair } from '@argonprotocol/mainchain';
 import type {
   BitcoinLockRelayStatus,
   IBitcoinLockCouponStatus,
   IBitcoinLockStatusResponse,
+  IInviteResponse,
   IInitializeBitcoinLockRequest,
   IListBitcoinLockCouponsResponse,
-  IOpenOperationalInviteResponse,
-  IOpenTreasuryInviteResponse,
-  IOperationalUserInvite,
+  IMemberInvite,
+  IOpenInviteResponse,
+  IRequestOperationsUpgradeRequest,
+  IRequestOperationsUpgradeResponse,
   IRouterErrorResponse,
-  ITreasuryUserInvite,
 } from '@argonprotocol/apps-router';
-import type { BootstrapType, IConfig, IConfigServerDetails, IOperationalReferral } from '../interfaces/IConfig.ts';
+import type { BootstrapType, IConfig, IConfigServerDetails } from '../interfaces/IConfig.ts';
 import {
   RequestStatusError,
   isUnauthenticatedServerAuthError,
   type ServerAuthClient,
   type ServerAuthOptions,
 } from './ServerAuthClient.ts';
-import type { WalletKeys } from './WalletKeys.ts';
 
 type ServerInviteDetails = Pick<IConfigServerDetails, 'ipAddress' | 'gatewayPort'>;
-type UpstreamOperatorInviteWalletKeys = Pick<
-  WalletKeys,
-  'getLiquidLockingKeypair' | 'getOperationalKeypair' | 'getUpstreamOperatorAuthKeypair'
->;
 type UpstreamOperatorSessionAuth = {
   getSessionId: () => Promise<string>;
   invalidateSessionId: () => Promise<void>;
@@ -56,22 +50,13 @@ export class UpstreamOperatorClient {
     return buildAuthenticatedUrl(this.requireOperatorHost(), path, sessionId).replace(/^http/i, 'ws');
   }
 
-  public async getTreasurySessionId(options: ServerAuthOptions = {}): Promise<string> {
+  public async getMemberSessionId(options: ServerAuthOptions = {}): Promise<string> {
     const operatorHost = this.requireOperatorHost();
     if (!this.serverAuthClient) {
       throw new Error('No upstream operator auth client configured.');
     }
 
-    return await this.serverAuthClient.getTreasurySessionId(operatorHost, options);
-  }
-
-  public async getOperationalSessionId(options: ServerAuthOptions = {}): Promise<string> {
-    const operatorHost = this.requireOperatorHost();
-    if (!this.serverAuthClient) {
-      throw new Error('No upstream operator auth client configured.');
-    }
-
-    return await this.serverAuthClient.getOperationalSessionId(operatorHost, options);
+    return await this.serverAuthClient.getMemberSessionId(operatorHost, options);
   }
 
   public static getBootstrapHost(bootstrapDetails: IConfig['bootstrapDetails']): string | undefined {
@@ -100,55 +85,28 @@ export class UpstreamOperatorClient {
     };
   }
 
-  public static async claimTreasuryAppInvite(
-    operatorHost: string,
-    inviteSecret: string,
-    walletKeys: UpstreamOperatorInviteWalletKeys,
-  ): Promise<{ fromName: string; invite: ITreasuryUserInvite }> {
-    const accountKeypair = await walletKeys.getLiquidLockingKeypair();
-    const accountId = accountKeypair.address;
-    const inviteCode = InviteCodes.getCode(inviteSecret);
-    const inviteSignature = InviteCodes.signOpen(inviteSecret, UserRole.TreasuryUser, accountId);
-    const auth = createInviteAuthBinding({
-      role: UserRole.TreasuryUser,
-      inviteCode,
-      accountKeypair,
-      authKeypair: await walletKeys.getUpstreamOperatorAuthKeypair(),
-    });
-    const body = await this.postJson<IOpenTreasuryInviteResponse>(
-      operatorHost,
-      `/treasury-users/${encodeURIComponent(inviteCode)}/open`,
-      { accountId, inviteSignature, ...auth },
+  public static async claimInvite(args: {
+    operatorHost: string;
+    inviteCode: string;
+    defaultAccountKeypair: KeyringPair;
+    authKeypair: KeyringPair;
+  }): Promise<{ fromName: string; referrer: string; invite: IMemberInvite }> {
+    const body = await this.postJson<IOpenInviteResponse>(
+      args.operatorHost,
+      `/invites/${encodeURIComponent(args.inviteCode)}/open`,
+      {
+        defaultAccountId: args.defaultAccountKeypair.address,
+        ...createRouterAuthBinding({
+          inviteCode: args.inviteCode,
+          defaultAccountKeypair: args.defaultAccountKeypair,
+          authKeypair: args.authKeypair,
+        }),
+      },
     );
-    return {
-      fromName: body.fromName,
-      invite: body.invite,
-    };
-  }
 
-  public static async claimOperationalInvite(
-    operatorHost: string,
-    inviteSecret: string,
-    operationalReferral: IOperationalReferral,
-    walletKeys: UpstreamOperatorInviteWalletKeys,
-  ): Promise<{ fromName: string; invite: IOperationalUserInvite }> {
-    const accountKeypair = await walletKeys.getOperationalKeypair();
-    const accountId = accountKeypair.address;
-    const inviteCode = InviteCodes.getCode(inviteSecret);
-    const inviteSignature = InviteCodes.signOpen(inviteSecret, UserRole.OperationalPartner, accountId);
-    const auth = createInviteAuthBinding({
-      role: UserRole.OperationalPartner,
-      inviteCode,
-      accountKeypair,
-      authKeypair: await walletKeys.getUpstreamOperatorAuthKeypair(),
-    });
-    const body = await this.postJson<IOpenOperationalInviteResponse>(
-      operatorHost,
-      `/operational-users/${encodeURIComponent(inviteCode)}/open`,
-      { accountId, inviteSignature, ...auth, ...operationalReferral },
-    );
     return {
       fromName: body.fromName,
+      referrer: body.referrer,
       invite: body.invite,
     };
   }
@@ -158,7 +116,7 @@ export class UpstreamOperatorClient {
     payload: IInitializeBitcoinLockRequest,
   ): Promise<IBitcoinLockCouponStatus & { status: BitcoinLockRelayStatus }> {
     const operatorHost = this.requireOperatorHost();
-    const body = await this.requestWithSessionRetry(this.getTreasurySessionAuth(operatorHost), sessionId =>
+    const body = await this.requestWithSessionRetry(this.getMemberSessionAuth(operatorHost), sessionId =>
       UpstreamOperatorClient.postJson<IBitcoinLockStatusResponse>(
         operatorHost,
         `/bitcoin-lock-coupons/${encodeURIComponent(offerCode)}/initialize`,
@@ -170,18 +128,59 @@ export class UpstreamOperatorClient {
     return body.bitcoinLock as IBitcoinLockCouponStatus & { status: BitcoinLockRelayStatus };
   }
 
-  public async getBitcoinLockCoupons(accountId: string): Promise<IBitcoinLockCouponStatus[]> {
+  public async getBitcoinLockCoupons(): Promise<IBitcoinLockCouponStatus[]> {
     const operatorHost = this.requireOperatorHost();
-    const body = await this.requestWithSessionRetry(this.getTreasurySessionAuth(operatorHost), sessionId =>
+    const body = await this.requestWithSessionRetry(this.getMemberSessionAuth(operatorHost), sessionId =>
       UpstreamOperatorClient.request<IListBitcoinLockCouponsResponse>(
         operatorHost,
-        `/treasury-users/${encodeURIComponent(accountId)}/bitcoin-lock-coupons`,
+        '/invites/me/bitcoin-lock-coupons',
         undefined,
         sessionId,
       ),
     );
 
     return body.bitcoinLockCoupons;
+  }
+
+  public async getMemberInvite(): Promise<IMemberInvite> {
+    const operatorHost = this.requireOperatorHost();
+    const body = await this.requestWithSessionRetry(this.getMemberSessionAuth(operatorHost), sessionId =>
+      UpstreamOperatorClient.request<IInviteResponse>(operatorHost, '/invites/me', undefined, sessionId),
+    );
+
+    return body.invite;
+  }
+
+  public async requestOperationsUpgrade(args: {
+    defaultAccountKeypair: KeyringPair;
+    operationalAccountId: string;
+    authKeypair: KeyringPair;
+  }): Promise<Date> {
+    const operatorHost = this.requireOperatorHost();
+    const { authBindingExpiresAt, authBindingSignature } = createRouterAuthBinding({
+      defaultAccountKeypair: args.defaultAccountKeypair,
+      operationalAccountId: args.operationalAccountId,
+      authKeypair: args.authKeypair,
+    });
+    const payload: IRequestOperationsUpgradeRequest = {
+      operationalAccountId: args.operationalAccountId,
+      authBindingExpiresAt,
+      authBindingSignature,
+    };
+    const body = await this.requestWithSessionRetry(this.getMemberSessionAuth(operatorHost), sessionId =>
+      UpstreamOperatorClient.request<IRequestOperationsUpgradeResponse>(
+        operatorHost,
+        '/invites/me/request-operations-upgrade',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JsonExt.stringify(payload),
+        },
+        sessionId,
+      ),
+    );
+
+    return body.operationsUpgradeRequestedAt;
   }
 
   public async requestEthereumGatewayCatchUp(
@@ -193,14 +192,7 @@ export class UpstreamOperatorClient {
       throw new Error('No upstream operator auth client configured.');
     }
 
-    let sessionAuth = this.getTreasurySessionAuth(operatorHost);
-    try {
-      await sessionAuth.getSessionId();
-    } catch {
-      sessionAuth = this.getOperationalSessionAuth(operatorHost);
-    }
-
-    return await this.requestWithSessionRetry(sessionAuth, sessionId =>
+    return await this.requestWithSessionRetry(this.getMemberSessionAuth(operatorHost), sessionId =>
       UpstreamOperatorClient.request<IEthereumGatewayCatchUpResponse>(
         operatorHost,
         '/ethereum-relay-request',
@@ -285,27 +277,15 @@ export class UpstreamOperatorClient {
     );
   }
 
-  private getTreasurySessionAuth(operatorHost: string): UpstreamOperatorSessionAuth {
+  private getMemberSessionAuth(operatorHost: string): UpstreamOperatorSessionAuth {
     const serverAuthClient = this.serverAuthClient;
     if (!serverAuthClient) {
       throw new Error('No upstream operator auth client configured.');
     }
 
     return {
-      getSessionId: () => serverAuthClient.getTreasurySessionId(operatorHost),
-      invalidateSessionId: () => serverAuthClient.invalidateTreasurySessionId(operatorHost),
-    };
-  }
-
-  private getOperationalSessionAuth(operatorHost: string): UpstreamOperatorSessionAuth {
-    const serverAuthClient = this.serverAuthClient;
-    if (!serverAuthClient) {
-      throw new Error('No upstream operator auth client configured.');
-    }
-
-    return {
-      getSessionId: () => serverAuthClient.getOperationalSessionId(operatorHost),
-      invalidateSessionId: () => serverAuthClient.invalidateOperationalSessionId(operatorHost),
+      getSessionId: () => serverAuthClient.getMemberSessionId(operatorHost),
+      invalidateSessionId: () => serverAuthClient.invalidateMemberSessionId(operatorHost),
     };
   }
 
@@ -363,10 +343,10 @@ function normalizeOperatorHost(value: string): string {
   return trimmed;
 }
 
-function createInviteAuthBinding(args: {
-  role: UserRole;
-  inviteCode: string;
-  accountKeypair: KeyringPair;
+function createRouterAuthBinding(args: {
+  inviteCode?: string;
+  defaultAccountKeypair: KeyringPair;
+  operationalAccountId?: string;
   authKeypair: KeyringPair;
 }): {
   authAccountId: string;
@@ -375,8 +355,8 @@ function createInviteAuthBinding(args: {
 } {
   const authBindingExpiresAt = Date.now() + 5 * 60_000;
   const binding = {
-    role: args.role,
-    accountId: args.accountKeypair.address,
+    accountId: args.defaultAccountKeypair.address,
+    operationalAccountId: args.operationalAccountId,
     authAccountId: args.authKeypair.address,
     inviteCode: args.inviteCode,
     expiresAt: authBindingExpiresAt,
@@ -385,6 +365,6 @@ function createInviteAuthBinding(args: {
   return {
     authAccountId: binding.authAccountId,
     authBindingExpiresAt,
-    authBindingSignature: signRouterAuthAccountBinding(args.accountKeypair, binding),
+    authBindingSignature: signRouterAuthAccountBinding(args.defaultAccountKeypair, binding),
   };
 }

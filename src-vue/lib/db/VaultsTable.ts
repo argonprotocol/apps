@@ -25,7 +25,14 @@ export class VaultsTable extends BaseTable {
     operationalFeeMicrogons: bigint,
   ): Promise<IVaultRecord> {
     const result = await this.db.select<IVaultRecord[]>(
-      'INSERT INTO Vaults (id, hdPath, createdAtBlockHeight,operationalFeeMicrogons) VALUES (?, ?, ?, ?) returning *',
+      `INSERT INTO Vaults (id, hdPath, createdAtBlockHeight, operationalFeeMicrogons)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         hdPath = excluded.hdPath,
+         createdAtBlockHeight = excluded.createdAtBlockHeight,
+         operationalFeeMicrogons = excluded.operationalFeeMicrogons,
+         updatedAt = CURRENT_TIMESTAMP
+       RETURNING *`,
       toSqlParams([vaultId, hdPath, updatedAtBlockHeight, operationalFeeMicrogons]),
     );
     if (!result || result.length === 0) {

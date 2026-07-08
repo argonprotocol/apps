@@ -1,15 +1,13 @@
 import type { IRouterAuthChallenge, RouterAuthRole, UserRole } from '@argonprotocol/apps-core';
 import type { IBitcoinLockCouponStatus, IBitcoinLockRelayRequest } from './IBitcoinLockRelay.js';
-import type { IOperationalUserInvite, ITreasuryUserInvite } from './ITreasuryUserInvite.js';
+import type { ITreasuryUserInvite } from './ITreasuryUserInvite.js';
 
 export type IInitializeBitcoinLockRequest = IBitcoinLockRelayRequest;
 export type InviteRole = UserRole;
 
-export interface ITreasuryUserInviteCreateRequest {
+export interface ICreateInviteRequest {
   name: string;
   fromName: string;
-  inviteCode: string;
-  inviteEnvelope: string;
   vaultId: number;
   maxSatoshis: bigint;
   estimatedGiftUsd: number;
@@ -17,27 +15,21 @@ export interface ITreasuryUserInviteCreateRequest {
   expiresAfterTicks: number;
 }
 
-export interface IOperationalUserInviteCreateRequest {
-  name: string;
-  fromName: string;
-  inviteCode: string;
-  inviteEnvelope: string;
-  sponsor: string;
-  expiresAtFrame: number;
-  sponsorSignature: string;
-}
-
-export interface IOperationalUserInviteRegenerateRequest {
-  inviteCode: string;
-  inviteEnvelope: string;
-}
-
-export interface IUserInviteOpenRequest {
-  accountId: string;
+export interface IOpenInviteRequest {
+  defaultAccountId: string;
   authAccountId: string;
   authBindingExpiresAt: number;
   authBindingSignature: string;
-  inviteSignature: string;
+}
+
+export interface IRequestOperationsUpgradeRequest {
+  operationalAccountId: string;
+  authBindingExpiresAt: number;
+  authBindingSignature: string;
+}
+
+export interface IRequestOperationsUpgradeResponse {
+  operationsUpgradeRequestedAt: Date;
 }
 
 export interface IRouterAuthChallengeRequest {
@@ -56,27 +48,20 @@ export interface IRouterAuthSessionResponse {
   role: RouterAuthRole;
 }
 
-export type IOpenTreasuryInviteRequest = IUserInviteOpenRequest;
-export interface IOpenOperationalInviteRequest extends IUserInviteOpenRequest {
-  sponsor: string;
-  expiresAtFrame: number;
-  sponsorSignature: string;
-}
-
 export interface IRouterErrorResponse {
   error: string;
   code?: string;
 }
 
-export interface ICreateTreasuryInviteResponse {
+export interface IInviteResponse {
   invite: ITreasuryUserInvite;
 }
 
-export interface IListTreasuryInvitesResponse {
+export interface IListInvitesResponse {
   invites: ITreasuryUserInvite[];
 }
 
-export interface IPreviewTreasuryInviteResponse {
+export interface IPreviewInviteResponse {
   maxSatoshis: bigint;
   estimatedGiftUsd: number;
   btcPctFee: number;
@@ -84,31 +69,14 @@ export interface IPreviewTreasuryInviteResponse {
   fromName: string;
 }
 
-export interface IPreviewOperationalInviteResponse {
-  fromName: string;
-  expiresAt: Date;
-}
-
-export interface ICreateOperationalInviteResponse {
-  invite: IOperationalUserInvite;
-}
-
-export interface IListOperationalInvitesResponse {
-  invites: IOperationalUserInvite[];
-}
-
 export interface IListBitcoinLockCouponsResponse {
   bitcoinLockCoupons: IBitcoinLockCouponStatus[];
 }
 
-export interface IOpenTreasuryInviteResponse {
+export interface IOpenInviteResponse {
   fromName: string;
+  referrer: string;
   invite: ITreasuryUserInvite;
-}
-
-export interface IOpenOperationalInviteResponse {
-  fromName: string;
-  invite: IOperationalUserInvite;
 }
 
 export interface IBitcoinLockStatusResponse {

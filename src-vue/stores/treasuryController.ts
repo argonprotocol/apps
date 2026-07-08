@@ -97,7 +97,7 @@ export const useTreasuryController = defineStore('treasuryController', () => {
     unsubSelectedVault = undefined;
   });
 
-  load().catch(handleFatalError.bind('useOperationsController'));
+  load().catch(handleFatalError.bind('useTreasuryController'));
 
   return {
     isLoaded,

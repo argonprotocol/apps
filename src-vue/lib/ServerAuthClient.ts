@@ -66,43 +66,23 @@ export class ServerAuthClient {
     this.invalidateSession(cacheKey);
   }
 
-  public async getTreasurySessionId(baseUrl: string, options: ServerAuthOptions = {}): Promise<string> {
+  public async getMemberSessionId(baseUrl: string, options: ServerAuthOptions = {}): Promise<string> {
     const walletKeys = this.getWalletKeys();
     const authKeypair = await walletKeys.getUpstreamOperatorAuthKeypair();
     const session = await this.ensureSession(
       baseUrl,
       authKeypair.address,
-      UserRole.TreasuryUser,
+      UserRole.Member,
       () => Promise.resolve(authKeypair),
       options,
     );
     return session.sessionId;
   }
 
-  public async invalidateTreasurySessionId(baseUrl: string): Promise<void> {
+  public async invalidateMemberSessionId(baseUrl: string): Promise<void> {
     const walletKeys = this.getWalletKeys();
     const authKeypair = await walletKeys.getUpstreamOperatorAuthKeypair();
-    const cacheKey = getCacheKey(baseUrl, authKeypair.address, UserRole.TreasuryUser);
-    this.invalidateSession(cacheKey);
-  }
-
-  public async getOperationalSessionId(baseUrl: string, options: ServerAuthOptions = {}): Promise<string> {
-    const walletKeys = this.getWalletKeys();
-    const authKeypair = await walletKeys.getUpstreamOperatorAuthKeypair();
-    const session = await this.ensureSession(
-      baseUrl,
-      authKeypair.address,
-      UserRole.OperationalPartner,
-      () => Promise.resolve(authKeypair),
-      options,
-    );
-    return session.sessionId;
-  }
-
-  public async invalidateOperationalSessionId(baseUrl: string): Promise<void> {
-    const walletKeys = this.getWalletKeys();
-    const authKeypair = await walletKeys.getUpstreamOperatorAuthKeypair();
-    const cacheKey = getCacheKey(baseUrl, authKeypair.address, UserRole.OperationalPartner);
+    const cacheKey = getCacheKey(baseUrl, authKeypair.address, UserRole.Member);
     this.invalidateSession(cacheKey);
   }
 
@@ -256,8 +236,7 @@ async function verifySession(baseUrl: string, role: ServerAuthRole, sessionId: s
 
 function getVerifyPath(role: ServerAuthRole): string {
   if (role === UserRole.AdminOperator) return '/auth/verify/admin';
-  if (role === UserRole.TreasuryUser) return '/auth/verify/treasury-coupon';
-  return '/auth/verify/operational';
+  return '/auth/verify/member';
 }
 
 function parseError(rawBody: string): string | undefined {

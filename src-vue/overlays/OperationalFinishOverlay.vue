@@ -30,11 +30,11 @@ import * as Vue from 'vue';
 import OverlayBase from './OverlayBase.vue';
 import { DialogTitle } from 'reka-ui';
 import basicEmitter from '../emitters/basicEmitter.ts';
-import { useOperationsController, operationalSteps, OperationalStepId } from '../stores/operationsController.ts';
+import { useCertificationController, operationalSteps, OperationalStepId } from '../stores/certificationController.ts';
 import { useBasics } from '../stores/basics.ts';
 
 const basics = useBasics();
-const controller = useOperationsController();
+const controller = useCertificationController();
 
 const isOpen = Vue.ref(false);
 const currentStepId = Vue.computed(() => {

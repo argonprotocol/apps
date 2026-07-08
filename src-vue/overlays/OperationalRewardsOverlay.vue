@@ -39,7 +39,7 @@ import * as Vue from 'vue';
 import OverlayBase from './OverlayBase.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { getConfig } from '../stores/config.ts';
-import { useOperationsController } from '../stores/operationsController.ts';
+import { useCertificationController } from '../stores/certificationController.ts';
 import Activate from './operational-rewards/Activate.vue';
 import Congratulations from './operational-rewards/Congratulations.vue';
 import Claim from './operational-rewards/Claim.vue';
@@ -49,7 +49,7 @@ type OperationalRewardsScreen = 'activate' | 'congratulations' | 'overview' | 'c
 type OperationalRewardsSection = 'create' | 'unlock' | 'outbound';
 
 const config = getConfig();
-const controller = useOperationsController();
+const controller = useCertificationController();
 
 const isOpen = Vue.ref(false);
 const currentScreen = Vue.ref<OperationalRewardsScreen>('overview');
