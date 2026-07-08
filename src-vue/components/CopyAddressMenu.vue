@@ -37,7 +37,8 @@
             :align="'end'"
             :alignOffset="0"
             :sideOffset="-3"
-            class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade z-[2000] data-[state=open]:transition-all">
+            :style="floatingZIndex"
+            class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade data-[state=open]:transition-all">
             <div class="bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
               <DropdownMenuItem @click.capture="closeMenu" class="pt-1 pb-2">
                 <CopyToClipboard
@@ -110,6 +111,7 @@ import { IWallet, WalletType } from '../lib/Wallet.ts';
 import { useWallets } from '../stores/wallets.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import QRCode from 'qrcode';
+import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 
 const props = defineProps<{
   walletType: WalletType.defaultArgon | WalletType.ethereum;
@@ -121,6 +123,7 @@ const wallets = useWallets();
 
 const isOpen = Vue.ref(false);
 const qrCode = Vue.ref('');
+const floatingZIndex = useFloatingZIndex();
 
 const walletAddressTestId = Vue.computed(() => {
   if (props.walletType === WalletType.defaultArgon) return 'defaultArgonWalletAddress';

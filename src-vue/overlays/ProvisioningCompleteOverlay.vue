@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <TransitionRoot class="absolute inset-0 z-10" :show="isOpen">
+  <TransitionRoot class="absolute inset-0" :show="isOpen">
     <TransitionChild
       as="template"
       enter="ease-out duration-300"
@@ -10,10 +10,13 @@
       leave-from="opacity-100"
       leave-to="opacity-0"
     >
-      <BgOverlay />
+      <BgOverlay :style="{ zIndex: overlayZIndex.backdropZIndex }" />
     </TransitionChild>
 
-    <div class="absolute inset-0 z-100 overflow-y-auto pt-[1px] flex items-center justify-center pointer-events-none">
+    <div
+      class="absolute inset-0 overflow-y-auto pt-[1px] flex items-center justify-center pointer-events-none"
+      :style="{ zIndex: overlayZIndex.contentZIndex }"
+    >
       <TransitionChild
         as="template"
         enter="ease-out duration-300"
@@ -55,9 +58,11 @@ import { TransitionChild, TransitionRoot } from '@headlessui/vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import BgOverlay from '../components/BgOverlay.vue';
 import { getConfig } from '../stores/config.ts';
+import { useOverlayZIndex } from './helpers/OverlayZIndex.ts';
 
 const isOpen = Vue.ref(false);
 const config = getConfig();
+const overlayZIndex = useOverlayZIndex(() => isOpen.value);
 
 basicEmitter.on('openProvisioningCompleteOverlay', () => {
   isOpen.value = true;

@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <div class="relative z-[2501] mr-3 flex grow flex-row items-center pointer-events-none">
+  <div :style="tabSwitcherZIndex" class="relative mr-3 flex grow flex-row items-center pointer-events-none">
     <section
       ref="toggleRef"
       class="relative flex flex-row items-center pointer-events-auto w-fit gap-x-2 ml-1.5 text-center text-slate-600"
@@ -84,10 +84,12 @@ import { MiningSetupStatus, VaultingSetupStatus } from '../interfaces/IConfig.ts
 import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
 import OperationsMenu from './OperationsMenu.vue';
 import TreasuryMenu from './TreasuryMenu.vue';
+import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 
 const tour = useTour();
 const controller = useOperationsController();
 const config = getConfig();
+const tabSwitcherZIndex = useFloatingZIndex();
 
 const toggleRef = Vue.ref<HTMLElement | null>(null);
 

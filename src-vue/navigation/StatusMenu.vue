@@ -94,7 +94,8 @@
           :align="'end'"
           :alignOffset="0"
           :sideOffset="-3"
-          class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade z-50 data-[state=open]:transition-all"
+          :style="floatingZIndex"
+          class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade data-[state=open]:transition-all"
         >
           <div
             class="text-md flex max-w-140 shrink flex-col rounded bg-white p-1 text-gray-900 shadow-lg ring-1 ring-gray-900/20"
@@ -414,6 +415,7 @@ import { getBiddingCalculator } from '../stores/mainchain.ts';
 import { bigIntMax } from '@argonprotocol/apps-core';
 import { WalletType } from '../lib/Wallet.ts';
 import { MiningSetupStatus, VaultingSetupStatus } from '../interfaces/IConfig.ts';
+import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 
 enum Status {
   WaitingForSetup = 'WaitingForSetup',
@@ -440,6 +442,7 @@ const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency
 
 const isOpen = Vue.ref(false);
 const rootRef = Vue.ref<HTMLElement>();
+const floatingZIndex = useFloatingZIndex();
 
 const eyeballsElem = Vue.ref<HTMLElement | null>(null);
 

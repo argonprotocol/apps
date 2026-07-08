@@ -10,10 +10,13 @@
       leave-from="opacity-100"
       leave-to="opacity-0"
     >
-      <BgOverlay :enableTopBar="true" />
+      <BgOverlay :enableTopBar="true" :style="{ zIndex: overlayZIndex.backdropZIndex }" />
     </TransitionChild>
 
-    <div class="absolute inset-0 z-100 overflow-y-auto pt-[1px] flex items-center justify-center pointer-events-none">
+    <div
+      class="absolute inset-0 overflow-y-auto pt-[1px] flex items-center justify-center pointer-events-none"
+      :style="{ zIndex: overlayZIndex.contentZIndex }"
+    >
       <TransitionChild
         as="template"
         enter="ease-out duration-300"
@@ -70,10 +73,12 @@ import Draggable from './helpers/Draggable.ts';
 import { ConfigServerAddSchema, ConfigServerDetailsSchema, IConfig } from '../interfaces/IConfig.ts';
 import { SSH } from '../lib/SSH.ts';
 import { JsonExt } from '@argonprotocol/apps-core';
+import { useOverlayZIndex } from './helpers/OverlayZIndex.ts';
 
 const isOpen = Vue.ref(true);
 const isRetrying = Vue.ref(false);
 const config = getConfig();
+const overlayZIndex = useOverlayZIndex(() => true);
 
 const draggable = Vue.reactive(new Draggable());
 

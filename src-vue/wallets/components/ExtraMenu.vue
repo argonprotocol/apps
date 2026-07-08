@@ -20,7 +20,8 @@
           :align="'end'"
           :alignOffset="-5"
           :sideOffset="-3"
-          class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade z-[10000] data-[state=open]:transition-all"
+          :style="floatingZIndex"
+          class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade data-[state=open]:transition-all"
         >
           <div class="bg-argon-menu-bg flex min-w-66 shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
             <template v-if="!props.walletIsOpen">
@@ -95,6 +96,7 @@ import { WindowIcon, QrCodeIcon, ShieldCheckIcon } from '@heroicons/vue/24/outli
 import CopyIcon from '../../assets/copy.svg';
 import QRCode from 'qrcode';
 import CopyToClipboard from '../../components/CopyToClipboard.vue';
+import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 
 const props = withDefaults(
   defineProps<{
@@ -111,6 +113,7 @@ const props = withDefaults(
 
 const rootRef = Vue.ref<HTMLElement>();
 const isOpen = Vue.ref(false);
+const floatingZIndex = useFloatingZIndex();
 
 const showQrCode = Vue.ref(false);
 const qrCode = Vue.ref('');

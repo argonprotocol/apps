@@ -69,7 +69,8 @@
                   align="start"
                   :sideOffset="-2"
                   :alignOffset="0"
-                  class="data-[state=delayed-open]:data-[side=top]:animate-slideDownAndFade data-[state=delayed-open]:data-[side=right]:animate-slideLeftAndFade data-[state=delayed-open]:data-[side=left]:animate-slideRightAndFade data-[state=delayed-open]:data-[side=bottom]:animate-slideUpAndFade text-md pointer-events-none z-[2000] w-88 rounded-md border border-gray-800/20 bg-white px-4 pt-3 pb-1 text-left leading-5.5 text-gray-600 shadow-xl will-change-[transform,opacity] select-none"
+                  :style="floatingZIndex"
+                  class="data-[state=delayed-open]:data-[side=top]:animate-slideDownAndFade data-[state=delayed-open]:data-[side=right]:animate-slideLeftAndFade data-[state=delayed-open]:data-[side=left]:animate-slideRightAndFade data-[state=delayed-open]:data-[side=bottom]:animate-slideUpAndFade text-md pointer-events-none w-88 rounded-md border border-gray-800/20 bg-white px-4 pt-3 pb-1 text-left leading-5.5 text-gray-600 shadow-xl will-change-[transform,opacity] select-none"
                 >
                   <p>
                     Your {{ guidanceContext === 'vaulting' ? 'vault' : 'mining' }} operations have the following funding
@@ -182,6 +183,7 @@ import AlertCalloutButton from '../../components/AlertCalloutButton.vue';
 import { getBiddingCalculator } from '../../stores/mainchain.ts';
 import { getMiningFundingState } from '../../screens/mining-screen/miningFunding.ts';
 import type { IWalletGuidanceContext } from '../../emitters/basicEmitter.ts';
+import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 
 const props = defineProps<{
   direction: 'from' | 'to';
@@ -196,6 +198,7 @@ const currency = getCurrency();
 const wallets = useWallets();
 const controller = useOperationsController();
 const calculator = getBiddingCalculator();
+const floatingZIndex = useFloatingZIndex();
 
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 const guidanceContext = Vue.computed<IWalletGuidanceContext>(() => props.guidanceContext ?? 'mining');

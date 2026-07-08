@@ -3,10 +3,10 @@
   <DialogRoot class="absolute inset-0 z-10" :open="isOpen">
     <DialogPortal>
       <DialogOverlay asChild>
-        <BgOverlay @close="cancelOverlay" />
+        <BgOverlay :style="{ zIndex: overlayZIndex.backdropZIndex }" @close="cancelOverlay" />
       </DialogOverlay>
 
-      <DialogContent @escapeKeyDown="cancelOverlay" :aria-describedby="undefined">
+      <DialogContent asChild @escapeKeyDown="cancelOverlay" :aria-describedby="undefined" :style="{ zIndex: overlayZIndex.contentZIndex }">
         <div
           :ref="draggable.setModalRef"
           :style="{
@@ -14,10 +14,10 @@
             left: `calc(50% + ${draggable.modalPosition.x}px)`,
             transform: 'translate(-50%, -50%)',
           }"
-          class="BotEditOverlay absolute w-[1000px] min-h-[550px] flex flex-col rounded-md border border-black/30 bg-argon-menu-bg text-left z-200 focus:outline-none"
+          class="BotEditOverlay absolute w-[1000px] min-h-[550px] flex flex-col rounded-md border border-black/30 bg-argon-menu-bg text-left focus:outline-none"
           style="box-shadow: 1px 1px 10px rgba(0, 0, 0, 0.2), inset 2px 2px 0 rgba(255, 255, 255, 1)"
         >
-          <BgOverlay v-if="hasEditBoxOverlay" @close="closeEditBoxOverlay" :showWindowControls="false" rounded="md" class="z-100" />
+          <BgOverlay v-if="hasEditBoxOverlay" @close="closeEditBoxOverlay" :showWindowControls="false" rounded="md" :style="editBoxBackdropZIndex" />
           <div class="flex flex-col h-full w-full grow">
             <h2
               @mousedown="draggable.onMouseDown($event)"
@@ -78,6 +78,7 @@ import BotSettings from '../components/BotSettings.vue';
 import Draggable from './helpers/Draggable.ts';
 import { getBot } from '../stores/bot.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
+import { provideOverlayContentZIndex, useFloatingZIndex, useOverlayZIndex } from './helpers/OverlayZIndex.ts';
 
 const config = getConfig();
 const bot = getBot();
@@ -97,6 +98,9 @@ const isLoaded = Vue.ref(false);
 const isSaving = Vue.ref(false);
 const savingError = Vue.ref<string | null>(null);
 const hasEditBoxOverlay = Vue.ref(false);
+const overlayZIndex = useOverlayZIndex(() => isOpen.value);
+const editBoxBackdropZIndex = useFloatingZIndex();
+provideOverlayContentZIndex(Vue.toRef(overlayZIndex, 'contentZIndex'));
 
 const botSettings = Vue.ref<typeof BotSettings | null>(null);
 const saveButtonElement = Vue.ref<HTMLElement | null>(null);
