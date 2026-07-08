@@ -67,7 +67,7 @@
                   v-if="mode === 'overlay'"
                   class="mb-1.5 flex items-center justify-between gap-3 text-xs font-medium text-slate-500"
                 >
-                  <span>Certification checklist</span>
+                  <span>Treasury certification</span>
                   <span>{{ sentInviteProgressLabel(slot) }}</span>
                 </div>
                 <ProgressBar
@@ -136,7 +136,7 @@
 
           <template v-else-if="mode === 'overlay' && slot.type === 'sent'">
             <CopyToClipboard
-              v-if="slot.inviteLink && !slot.invite?.accountId"
+              v-if="slot.inviteLink && !slot.invite?.defaultAccountId"
               :content="slot.inviteLink"
               class="shrink-0"
               @click.stop
@@ -170,7 +170,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import type { IOperationalUserInvite } from '@argonprotocol/apps-router';
+import type { IMemberInvite } from '@argonprotocol/apps-router';
 import { ArrowPathIcon, ChevronRightIcon, PlusIcon } from '@heroicons/vue/24/outline';
 import CopyToClipboard from './CopyToClipboard.vue';
 import Tooltip from './Tooltip.vue';
@@ -182,11 +182,11 @@ type IInviteSlotSection = 'create' | 'unlock' | 'outbound';
 
 type IInviteRecordStatus = {
   label: string;
-  completedCertificationSteps?: number;
-  certificationStepCount?: number;
+  completedTreasuryCertificationRequirements?: number;
+  treasuryCertificationRequirementCount?: number;
 };
 
-type IInviteRecord = Pick<IOperationalUserInvite, 'inviteCode' | 'name' | 'lastClickedAt' | 'accountId'>;
+type IInviteRecord = Pick<IMemberInvite, 'inviteCode' | 'name' | 'lastClickedAt' | 'defaultAccountId'>;
 
 type IInviteSlot =
   | {
@@ -281,20 +281,23 @@ function hasInviteName(slotNumber: number) {
 
 function canRegenerateLink(slot: Extract<IInviteSlot, { type: 'sent' }>) {
   if (!slot.invite || slot.inviteLink) return false;
-  if (slot.invite.lastClickedAt || slot.invite.accountId) return false;
+  if (slot.invite.lastClickedAt || slot.invite.defaultAccountId) return false;
   return slot.status.label === 'Not opened';
 }
 
 function hasSentInviteChecklistProgress(slot: Extract<IInviteSlot, { type: 'sent' }>) {
-  return slot.status.label === 'Registered' && !!slot.status.certificationStepCount;
+  return slot.status.label === 'Registered' && !!slot.status.treasuryCertificationRequirementCount;
 }
 
 function sentInviteProgressPct(slot: Extract<IInviteSlot, { type: 'sent' }>) {
-  return getCappedPercent(slot.status.completedCertificationSteps ?? 0, slot.status.certificationStepCount ?? 1);
+  return getCappedPercent(
+    slot.status.completedTreasuryCertificationRequirements ?? 0,
+    slot.status.treasuryCertificationRequirementCount ?? 1,
+  );
 }
 
 function sentInviteProgressLabel(slot: Extract<IInviteSlot, { type: 'sent' }>) {
-  return `${slot.status.completedCertificationSteps ?? 0}/${slot.status.certificationStepCount ?? 0} steps`;
+  return `${slot.status.completedTreasuryCertificationRequirements ?? 0}/${slot.status.treasuryCertificationRequirementCount ?? 0} treasury requirements`;
 }
 
 function slotKey(slot: IInviteSlot) {
@@ -311,35 +314,35 @@ function slotSection(slot: IInviteSlot): IInviteSlotSection {
 
 function slotTooltip(slot: IInviteSlot) {
   if (slot.type === 'ready') {
-    return "You've earned a referral code! Click to create an invite and share it with your friends.";
+    return "You've earned another invite. Open Manage Members to create a link and share it.";
   }
   if (slot.type === 'progress') {
-    return 'You can earn another referral code by adding more BTC lock, winning more mining seats, or successful referrals.';
+    return 'You can earn another invite by adding more BTC lock, winning more mining seats, or successful downstream operations.';
   }
   if (slot.status.label === 'Registered') {
     const progress = hasSentInviteChecklistProgress(slot) ? ` They've completed ${sentInviteProgressLabel(slot)}.` : '';
-    return `${slot.invite?.name ?? 'This recruit'} registered from your referral link.${progress} They still need to complete the Argon Operational Certification.`;
+    return `${slot.invite?.name ?? 'This member'} registered from your invite link.${progress} They still need to complete the Argon Operational Certification.`;
   }
   if (slot.status.label === 'Opened' || slot.invite?.lastClickedAt) {
-    return `${slot.invite?.name ?? 'This recruit'} opened the referral link. They still need to complete the Argon Operational Certification.`;
+    return `${slot.invite?.name ?? 'This member'} opened the invite link. They still need to complete the Argon Operational Certification.`;
   }
 
-  return `This referral code is waiting for ${sentInviteName(slot) === 'Sent' ? 'the recruit' : sentInviteName(slot)} to open the link.`;
+  return `This invite is waiting for ${sentInviteName(slot) === 'Sent' ? 'the member' : sentInviteName(slot)} to open the link.`;
 }
 
 function statusClass(label: string) {
   if (label === 'Opened') return 'border border-amber-200 bg-amber-50 text-amber-700';
   if (label === 'Registered') return 'border border-sky-200 bg-sky-50 text-sky-700';
-  if (label === 'Became operational') return 'border border-emerald-200 bg-emerald-50 text-emerald-700';
+  if (label === 'Operationally certified') return 'border border-emerald-200 bg-emerald-50 text-emerald-700';
   if (label === 'Expired') return 'border border-slate-200 bg-slate-100 text-slate-500';
   return 'border border-slate-200 bg-slate-100 text-slate-600';
 }
 
 function buildSlots(): IInviteSlot[] {
-  const slotCount = Math.min(props.rewardConfig.maxAvailableReferrals, 3);
+  const slotCount = Math.min(props.rewardConfig.maxAvailableUpgradeCodes, 3);
   const slots: IInviteSlot[] = [];
   const sentInvites = props.invites.filter(isActiveInvite).slice(0, slotCount);
-  const sentSlotCount = Math.min(Math.max(props.progress.unactivatedReferrals, sentInvites.length), slotCount);
+  const sentSlotCount = Math.min(Math.max(props.progress.unactivatedUpgradeCodes, sentInvites.length), slotCount);
 
   for (let i = 0; i < sentSlotCount; i += 1) {
     const invite = sentInvites[i];
@@ -354,7 +357,7 @@ function buildSlots(): IInviteSlot[] {
     });
   }
 
-  const readySlotCount = Math.min(props.progress.availableReferrals, slotCount - slots.length);
+  const readySlotCount = Math.min(props.progress.availableUpgradeCodes, slotCount - slots.length);
   for (let i = 0; i < readySlotCount; i += 1) {
     slots.push({
       type: 'ready',
@@ -363,9 +366,9 @@ function buildSlots(): IInviteSlot[] {
   }
 
   const progressSources = [
-    getProgressSource(props.progress.bitcoinAccrual, props.rewardConfig.bitcoinLockSizeForReferral),
-    getProgressSource(props.progress.miningSeatAccrual, props.rewardConfig.miningSeatsPerReferral),
-    getProgressSource(props.progress.referralPending ? 1 : 0, 1),
+    getProgressSource(props.progress.bitcoinAccrual, props.rewardConfig.bitcoinLockSizeForUpgradeCode),
+    getProgressSource(props.progress.miningSeatAccrual, props.rewardConfig.miningSeatsPerUpgradeCode),
+    getProgressSource(props.progress.upgradeCodePending ? 1 : 0, 1),
   ].sort((a, b) => b.progressPct - a.progressPct);
 
   while (slots.length < slotCount) {
@@ -393,7 +396,7 @@ function getProgressSource(current: bigint | number, target: bigint | number) {
 }
 
 function getInviteStatus(
-  invite?: Pick<IOperationalUserInvite, 'inviteCode' | 'lastClickedAt' | 'accountId'>,
+  invite?: Pick<IMemberInvite, 'inviteCode' | 'lastClickedAt' | 'defaultAccountId'>,
 ): IInviteRecordStatus {
   if (!invite) {
     return {
@@ -402,9 +405,9 @@ function getInviteStatus(
   }
 
   const status = props.inviteStatusesByCode[invite.inviteCode];
-  if (status?.label === 'Became operational' || status?.label === 'Expired') return status;
+  if (status?.label === 'Operationally certified' || status?.label === 'Expired') return status;
 
-  if (invite.accountId) {
+  if (invite.defaultAccountId) {
     return status ?? { label: 'Registered' };
   }
 
@@ -421,9 +424,9 @@ function getInviteStatus(
   };
 }
 
-function isActiveInvite(invite: Pick<IOperationalUserInvite, 'inviteCode' | 'lastClickedAt'>) {
+function isActiveInvite(invite: Pick<IMemberInvite, 'inviteCode' | 'lastClickedAt'>) {
   const status = props.inviteStatusesByCode[invite.inviteCode]?.label;
-  if (status) return status !== 'Became operational' && status !== 'Expired';
+  if (status) return status !== 'Operationally certified' && status !== 'Expired';
   return true;
 }
 </script>

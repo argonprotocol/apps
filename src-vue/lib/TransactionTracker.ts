@@ -390,7 +390,7 @@ export class TransactionTracker {
     const record = await table.insert({
       extrinsicHash,
       extrinsicMethodJson: txResult.extrinsic.method,
-      metadataJson: metadata,
+      metadataJson: metadata ?? {},
       extrinsicType,
       accountAddress: txResult.extrinsic.accountAddress,
       submittedAtBlockHeight: txResult.extrinsic.submittedAtBlockNumber,

@@ -1,104 +1,76 @@
-import { UserRole } from '@argonprotocol/apps-core';
 import * as pako from 'pako';
-import type { InviteRole } from '@argonprotocol/apps-router';
-import type { IOperationalReferral } from '../interfaces/IConfig.ts';
 
 type IInviteEnvelopePayload = {
-  v: 1;
-  role: InviteRole;
+  v: 2;
   host: string;
   port: string;
-  secret: string;
   inviteCode: string;
-  operationalReferral?: IOperationalReferral;
 };
 
 type IDecodedInviteEnvelope = {
-  role?: InviteRole;
   host?: string;
   ipAddress?: string;
   port?: string;
-  secret?: string;
   inviteCode?: string;
-  operationalReferral?: IOperationalReferral;
   hasError?: boolean;
   isEmpty?: boolean;
 };
 
-const inviteRoles = new Set<InviteRole>([UserRole.TreasuryUser, UserRole.OperationalPartner]);
-
 export class InviteEnvelope {
-  public static encode(args: {
-    host: string;
-    port: string;
-    role: InviteRole;
-    secret: string;
-    inviteCode: string;
-    operationalReferral?: IOperationalReferral;
-  }): string {
-    const payload: IInviteEnvelopePayload = {
-      v: 1,
-      role: args.role,
-      host: args.host,
-      port: args.port,
-      secret: args.secret,
-      inviteCode: args.inviteCode,
-    };
-    if (args.operationalReferral) payload.operationalReferral = args.operationalReferral;
-
-    const out = pako.deflate(JSON.stringify(payload));
-    const hex = Array.from(out, byte => byte.toString(16).padStart(2, '0')).join('');
-    return `0x${hex}`;
+  public static encode(args: { host: string; port: string; inviteCode: string }): string {
+    return Buffer.from(`${args.host}:${args.port}:${args.inviteCode}`, 'utf8')
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/g, '');
   }
 
-  public static decode(hex: string): IDecodedInviteEnvelope {
-    if (!hex) return { isEmpty: true };
+  public static decode(inviteEnvelope: string): IDecodedInviteEnvelope {
+    if (!inviteEnvelope) return { isEmpty: true };
+
+    let decodedInviteEnvelope = inviteEnvelope;
+    if (!inviteEnvelope.includes(':')) {
+      const normalizedBase64 = inviteEnvelope.replace(/-/g, '+').replace(/_/g, '/');
+      const paddedBase64 = normalizedBase64.padEnd(Math.ceil(normalizedBase64.length / 4) * 4, '=');
+      decodedInviteEnvelope = Buffer.from(paddedBase64, 'base64').toString('utf8');
+    }
+
+    const parts = decodedInviteEnvelope.split(':');
+    if (parts.length >= 3) {
+      const inviteCode = parts.at(-1);
+      const port = parts.at(-2);
+      const host = parts.slice(0, -2).join(':');
+
+      if (host && port && inviteCode) {
+        return {
+          host,
+          ipAddress: host,
+          port,
+          inviteCode,
+        };
+      }
+    }
 
     try {
-      const normalizedHex = hex.replace(/^0x/, '');
+      const normalizedHex = inviteEnvelope.replace(/^0x/, '');
       const int = normalizedHex.match(/.{1,2}/g)?.map(h => parseInt(h, 16));
       if (!int) return { hasError: true };
 
       const bytes = Uint8Array.from(int);
       const decoded = pako.inflate(bytes, { to: 'string' });
       const payload = JSON.parse(decoded) as Partial<IInviteEnvelopePayload>;
-      if (
-        payload.v !== 1 ||
-        !payload.host ||
-        !payload.port ||
-        !payload.secret ||
-        !payload.inviteCode ||
-        !payload.role ||
-        !inviteRoles.has(payload.role)
-      ) {
+      if (payload.v !== 2 || !payload.host || !payload.port || !payload.inviteCode) {
         return { hasError: true };
       }
 
-      const result: IDecodedInviteEnvelope = {
-        role: payload.role,
+      return {
         host: payload.host,
         ipAddress: payload.host,
         port: payload.port,
-        secret: payload.secret,
         inviteCode: payload.inviteCode,
       };
-      if (isOperationalReferral(payload.operationalReferral)) {
-        result.operationalReferral = payload.operationalReferral;
-      }
-      return result;
     } catch {
       return { hasError: true };
     }
   }
-}
-
-function isOperationalReferral(value: unknown): value is IOperationalReferral {
-  if (!value || typeof value !== 'object') return false;
-
-  const referral = value as Partial<IOperationalReferral>;
-  return (
-    typeof referral.sponsor === 'string' &&
-    typeof referral.expiresAtFrame === 'number' &&
-    typeof referral.sponsorSignature === 'string'
-  );
 }

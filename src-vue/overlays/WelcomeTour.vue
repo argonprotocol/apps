@@ -22,9 +22,9 @@ import TourStepFour from './welcome-tour/StepFour.vue';
 import TourStepFive from './welcome-tour/StepFive.vue';
 import { getConfig } from '../stores/config.ts';
 import { TopTab } from '../interfaces/IConfig.ts';
-import { useOperationsController } from '../stores/operationsController.ts';
+import { useCertificationController } from '../stores/certificationController.ts';
 
-const controller = useOperationsController();
+const controller = useCertificationController();
 const config = getConfig();
 const tour = useTour();
 

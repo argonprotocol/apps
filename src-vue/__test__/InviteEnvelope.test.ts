@@ -1,52 +1,63 @@
 import { expect, it } from 'vitest';
-import { UserRole } from '@argonprotocol/apps-core';
 import { InviteEnvelope } from '../lib/InviteEnvelope.ts';
 
-it('round-trips an operational invite envelope', () => {
+it('round-trips a member invite envelope', () => {
   const encoded = InviteEnvelope.encode({
     host: '127.0.0.1',
     port: '9944',
-    role: UserRole.OperationalPartner,
-    secret: '0x1234abcd',
-    inviteCode: '0xoperational',
-    operationalReferral: {
-      sponsor: '5F3sa2TJAWMqDhXG6jhV4N8ko9G4vYQ1N1gH1mLNz5nKfY7Y',
-      expiresAtFrame: 1234,
-      sponsorSignature: '0x1234',
-    },
+    inviteCode: 'member-invite-1',
   });
 
+  expect(encoded).toBe('MTI3LjAuMC4xOjk5NDQ6bWVtYmVyLWludml0ZS0x');
   expect(InviteEnvelope.decode(encoded)).toEqual({
-    role: UserRole.OperationalPartner,
     host: '127.0.0.1',
     ipAddress: '127.0.0.1',
     port: '9944',
-    secret: '0x1234abcd',
-    inviteCode: '0xoperational',
-    operationalReferral: {
-      sponsor: '5F3sa2TJAWMqDhXG6jhV4N8ko9G4vYQ1N1gH1mLNz5nKfY7Y',
-      expiresAtFrame: 1234,
-      sponsorSignature: '0x1234',
-    },
+    inviteCode: 'member-invite-1',
   });
 });
 
-it('round-trips a treasury invite envelope', () => {
+it('round-trips a localhost member invite envelope', () => {
   const encoded = InviteEnvelope.encode({
     host: '10.0.0.4',
     port: '443',
-    role: UserRole.TreasuryUser,
-    secret: 'treasury-code',
-    inviteCode: '0xtreasury',
+    inviteCode: 'member-invite-2',
   });
 
   expect(InviteEnvelope.decode(encoded)).toEqual({
-    role: UserRole.TreasuryUser,
     host: '10.0.0.4',
     ipAddress: '10.0.0.4',
     port: '443',
-    secret: 'treasury-code',
-    inviteCode: '0xtreasury',
+    inviteCode: 'member-invite-2',
+  });
+});
+
+it('round-trips a padded member invite envelope without "=" characters', () => {
+  const encoded = InviteEnvelope.encode({
+    host: '1.1.1.1',
+    port: '443',
+    inviteCode: 'x',
+  });
+
+  expect(encoded.includes('=')).toBe(false);
+  expect(InviteEnvelope.decode(encoded)).toEqual({
+    host: '1.1.1.1',
+    ipAddress: '1.1.1.1',
+    port: '443',
+    inviteCode: 'x',
+  });
+});
+
+it('decodes legacy hex invite envelopes', () => {
+  expect(
+    InviteEnvelope.decode(
+      '0x789cab562a53b232d251cac82f2e51b2523234d0034113251da582fc22908889893190939957965992ea9c9f920a14ca4dcd4d4a2dd28588e91a29d502008e021423',
+    ),
+  ).toEqual({
+    host: '10.0.0.4',
+    ipAddress: '10.0.0.4',
+    port: '443',
+    inviteCode: 'member-invite-2',
   });
 });
 

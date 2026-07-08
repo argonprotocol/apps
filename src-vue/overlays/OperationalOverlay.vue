@@ -22,7 +22,7 @@
     <div v-if="!currentStepId">
       <p class="font-light px-5 pt-5">
         Complete the following seven steps, and you'll earn
-        <template v-if="controller.chainProgress.hasSponsor">(along with your sponsor)</template> a ₳500 bonus from the Argon Treasury.
+        <template v-if="controller.chainProgress.hasReferrer">(along with your referrer)</template> a ₳500 bonus from the Argon Treasury.
       </p>
       <ul class="flex flex-col mt-3 mb-1 mx-3 text-base font-semibold divide-y divide-slate-600/15">
         <li
@@ -144,11 +144,11 @@ import { DialogTitle } from 'reka-ui';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import Checkbox from '../components/Checkbox.vue';
 import { ArrowTopRightOnSquareIcon, CheckCircleIcon, ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
-import { useOperationsController, OperationalStepId, operationalSteps } from '../stores/operationsController.ts';
+import { useCertificationController, OperationalStepId, operationalSteps } from '../stores/certificationController.ts';
 import { useBasics } from '../stores/basics.ts';
 
 const basics = useBasics();
-const controller = useOperationsController();
+const controller = useCertificationController();
 
 const isOpen = Vue.ref(false);
 const currentStepId = Vue.ref<OperationalStepId | null>(null);

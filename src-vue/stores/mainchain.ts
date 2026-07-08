@@ -231,14 +231,9 @@ async function connectPrunedClientToConfiguredServer(): Promise<void> {
 
   const upstreamOperatorClient = getUpstreamOperatorClient();
   if (upstreamOperatorClient.operatorHost && config.upstreamOperator) {
-    let sessionId: string | undefined;
-    if (config.hasExtensionTreasury) {
-      sessionId = await upstreamOperatorClient.getTreasurySessionId({ forceVerify: true });
-    } else if (config.hasExtensionOperations) {
-      sessionId = await upstreamOperatorClient.getOperationalSessionId({
-        forceVerify: true,
-      });
-    }
+    const sessionId = await upstreamOperatorClient.getMemberSessionId({
+      forceVerify: true,
+    });
 
     await mainchainClients.setPrunedClient(upstreamOperatorClient.getWebsocketUrl('/substrate', sessionId));
     return;

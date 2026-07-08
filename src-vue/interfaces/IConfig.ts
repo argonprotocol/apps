@@ -146,17 +146,9 @@ export const ConfigBootstrapDetailsSchema = z.object({
   routerHost: HostOrIpSchema,
 });
 
-export const OperationalReferralSchema = z.object({
-  sponsor: z.string(),
-  expiresAtFrame: z.number(),
-  sponsorSignature: z.string(),
-});
-
 export const UpstreamOperatorSchema = z.object({
   name: z.string(),
   vaultId: z.number().optional(),
-  inviteSecret: z.string().optional(),
-  operationalReferral: OperationalReferralSchema.optional(),
   accountId: z.string().optional(),
 });
 
@@ -257,7 +249,6 @@ export type IConfigServerDetails = z.infer<typeof ConfigServerDetailsSchema>;
 export type IConfigServerInstallDetails = z.infer<typeof ConfigServerInstallerSchema>;
 export type IConfigInstallStep = z.infer<typeof ConfigInstallerStep>;
 export type IConfigSyncDetails = z.infer<typeof ConfigSyncDetailsSchema>;
-export type IOperationalReferral = z.infer<typeof OperationalReferralSchema>;
 export type IConfig = z.infer<typeof ConfigSchema>;
 
 export type IConfigStringified = {

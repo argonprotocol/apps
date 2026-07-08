@@ -202,7 +202,7 @@ import PiechartIcon from '../assets/piechart.svg?component';
 import Tooltip from '../components/Tooltip.vue';
 import { ITourPos } from '../stores/tour.ts';
 import BotTour from './bot-create-tour/Base.vue';
-import { useOperationsController } from '../stores/operationsController.ts';
+import { useCertificationController } from '../stores/certificationController.ts';
 import Draggable from '../overlays/helpers/Draggable.ts';
 import { provideOverlayContentZIndex, useFloatingZIndex, useOverlayZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 import BotSettings from '../components/BotSettings.vue';
@@ -220,7 +220,7 @@ let previousBiddingRules: string | null = null;
 const currency = getCurrency();
 const config = getConfig();
 const bot = getBot();
-const controller = useOperationsController();
+const controller = useCertificationController();
 
 const draggable = Vue.reactive(new Draggable());
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);

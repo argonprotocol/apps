@@ -1,12 +1,16 @@
 import express, { type Request, type Response } from 'express';
 import type { Server } from 'node:http';
 import {
+  type ArgonClient,
+  type ICertificationProgress,
   JsonExt,
+  loadCertificationProgress,
   UserRole,
   type IEthereumGatewayCatchUpRequest,
   type IEthereumGatewayCatchUpResponse,
   type IEthereumGatewayRelayStatus,
 } from '@argonprotocol/apps-core';
+import { getClient } from '@argonprotocol/mainchain';
 import { ArgonApis } from './ArgonApis.ts';
 import { BitcoinApis } from './BitcoinApis.ts';
 import { BotUpstreamClient } from './BotUpstreamClient.ts';
@@ -18,23 +22,18 @@ import { UserInviteService } from './UserInviteService.ts';
 import type {
   IBitcoinLockRelayRequest,
   IBitcoinLockStatusResponse,
-  ICreateOperationalInviteResponse,
-  ICreateTreasuryInviteResponse,
+  ICreateInviteRequest,
+  IInviteResponse,
   IListBitcoinLockCouponsResponse,
-  IListOperationalInvitesResponse,
-  IListTreasuryInvitesResponse,
-  IOpenOperationalInviteRequest,
-  IOpenOperationalInviteResponse,
-  IOpenTreasuryInviteRequest,
-  IOpenTreasuryInviteResponse,
-  IOperationalUserInviteCreateRequest,
-  IOperationalUserInviteRegenerateRequest,
-  IPreviewOperationalInviteResponse,
-  IPreviewTreasuryInviteResponse,
+  IListInvitesResponse,
+  IOpenInviteRequest,
+  IOpenInviteResponse,
+  IPreviewInviteResponse,
+  IRequestOperationsUpgradeRequest,
+  IRequestOperationsUpgradeResponse,
   IRouterAuthChallengeRequest,
   IRouterAuthSessionRequest,
   IRouterAuthSessionResponse,
-  ITreasuryUserInviteCreateRequest,
 } from './interfaces/index.ts';
 
 interface IRouterServerOptions {
@@ -49,6 +48,7 @@ interface IRouterServerOptions {
 export class RouterServer {
   private server!: Server;
   private readonly listeningPromise: Promise<void>;
+  private inviteProgressClientPromise?: Promise<ArgonClient>;
   private resolveListening!: () => void;
   private rejectListening!: (error: Error) => void;
 
@@ -64,11 +64,13 @@ export class RouterServer {
     const { botInternalUrl, db } = this.options;
     const botClient = new BotUpstreamClient(botInternalUrl);
     const inviteService = new UserInviteService(db);
+    const inviteProgressNodeUrl = this.options.mainNodeUrl ?? this.options.localNodeUrl;
+    const adminOperatorAccountId = this.options.auth?.adminOperatorAccountId?.trim() || ADMIN_OPERATOR_ACCOUNT_ID?.trim();
     const routerAuth = new RouterAuthService({
       db,
-      adminOperatorAccountId: ADMIN_OPERATOR_ACCOUNT_ID,
       sessionTtlSeconds: ROUTER_AUTH_SESSION_TTL_SECONDS ? Number(ROUTER_AUTH_SESSION_TTL_SECONDS) : undefined,
       ...this.options.auth,
+      adminOperatorAccountId,
     });
     routerAuth.pruneInactiveSessions();
 
@@ -129,15 +131,11 @@ export class RouterServer {
     });
 
     app.get('/auth/verify/substrate', (req, res) => {
-      routerAuth.handleVerify(req, res, [UserRole.AdminOperator, UserRole.TreasuryUser, UserRole.OperationalPartner]);
+      routerAuth.handleVerify(req, res, [UserRole.AdminOperator, UserRole.Member]);
     });
 
-    app.get('/auth/verify/treasury-coupon', (req, res) => {
-      routerAuth.handleVerify(req, res, [UserRole.TreasuryUser]);
-    });
-
-    app.get('/auth/verify/operational', (req, res) => {
-      routerAuth.handleVerify(req, res, [UserRole.OperationalPartner]);
+    app.get('/auth/verify/member', (req, res) => {
+      routerAuth.handleVerify(req, res, [UserRole.Member]);
     });
 
     app.get(
@@ -177,11 +175,11 @@ export class RouterServer {
     );
 
     app.post(
-      '/treasury-users/create',
+      '/invites/create',
       requireAdminOperatorAuth,
       express.text({ type: '*/*' }),
-      safeJsonRoute<ICreateTreasuryInviteResponse>(async req => {
-        const body = requireBody<ITreasuryUserInviteCreateRequest>(req);
+      safeJsonRoute<IInviteResponse>(async req => {
+        const body = requireBody<ICreateInviteRequest>(req);
         if (body.expiresAfterTicks <= 0) {
           throw new RouterError('Invite expiry must be greater than zero.');
         }
@@ -196,17 +194,15 @@ export class RouterServer {
           throw new RouterError('BTC percent fee must be a valid non-negative number.');
         }
 
-        const userInvite = inviteService.createInvite(UserRole.TreasuryUser, {
+        const invite = inviteService.createInvite({
           name: body.name,
           fromName: body.fromName,
-          inviteCode: body.inviteCode,
-          inviteEnvelope: body.inviteEnvelope,
         });
 
         let bitcoinLockCoupon;
         try {
           bitcoinLockCoupon = await botClient.createCoupon({
-            userId: userInvite.id,
+            userId: invite.id,
             vaultId: body.vaultId,
             maxSatoshis: body.maxSatoshis,
             estimatedGiftUsd: body.estimatedGiftUsd,
@@ -215,7 +211,7 @@ export class RouterServer {
           });
         } catch (error) {
           try {
-            inviteService.deleteInvitedUser(userInvite.id);
+            inviteService.deleteInvitedUser(invite.id);
           } catch (cleanupError) {
             console.error('Failed to roll back invite after coupon creation error:', cleanupError);
           }
@@ -225,7 +221,7 @@ export class RouterServer {
 
         return {
           invite: {
-            ...userInvite,
+            ...invite,
             vaultId: body.vaultId,
             bitcoinLockCoupon,
           },
@@ -234,13 +230,13 @@ export class RouterServer {
     );
 
     app.get(
-      '/treasury-users/:inviteCode/preview',
-      safeJsonRoute<IPreviewTreasuryInviteResponse>(async req => {
-        const invite = db.userInvitesTable.fetchByCode(req.params.inviteCode, UserRole.TreasuryUser);
+      '/invites/:inviteCode/preview',
+      safeJsonRoute<IPreviewInviteResponse>(async req => {
+        const invite = db.userInvitesTable.fetchByCode(req.params.inviteCode, UserRole.Member);
         if (!invite) {
           throw new RouterError('Invite not found', 404);
         }
-        if (invite.accountId) {
+        if (invite.defaultAccountId) {
           throw new RouterError('This invite has already been used.', 409, 'ALREADY_USED');
         }
 
@@ -261,38 +257,42 @@ export class RouterServer {
     );
 
     app.post(
-      '/treasury-users/:inviteCode/open',
+      '/invites/:inviteCode/open',
       express.text({ type: '*/*' }),
-      safeJsonRoute<IOpenTreasuryInviteResponse>(async req => {
-        const { accountId, authAccountId, authBindingExpiresAt, authBindingSignature, inviteSignature } =
-          requireBody<IOpenTreasuryInviteRequest>(req);
+      safeJsonRoute<IOpenInviteResponse>(async req => {
+        if (!adminOperatorAccountId) {
+          throw new RouterError('Router operator account is not configured.', 500);
+        }
+
+        const { defaultAccountId, authAccountId, authBindingExpiresAt, authBindingSignature } =
+          requireBody<IOpenInviteRequest>(req);
         const inviteCode = req.params.inviteCode;
-        const userInvite = inviteService.claimInvite({
-          role: UserRole.TreasuryUser,
+
+        const invite = inviteService.claimInvite({
           inviteCode,
-          accountId,
-          inviteSignature,
+          defaultAccountId,
           authBinding: {
-            role: UserRole.TreasuryUser,
-            accountId,
+            accountId: defaultAccountId,
             authAccountId,
             inviteCode,
             expiresAt: authBindingExpiresAt,
           },
           authBindingSignature,
         });
-        if (!userInvite) {
+        if (!invite) {
           throw new RouterError('Invite not found', 404);
         }
+
         const bitcoinLockCoupon = await botClient.activateLatestCoupon({
-          userId: userInvite.id,
-          accountId,
+          userId: invite.id,
+          accountId: defaultAccountId,
         });
 
         return {
-          fromName: userInvite.fromName,
+          fromName: invite.fromName,
+          referrer: adminOperatorAccountId,
           invite: {
-            ...userInvite,
+            ...invite,
             vaultId: bitcoinLockCoupon.coupon.vaultId,
             bitcoinLockCoupon,
           },
@@ -301,112 +301,97 @@ export class RouterServer {
     );
 
     app.get(
-      '/treasury-users/invites',
+      '/invites',
       requireAdminOperatorAuth,
-      safeJsonRoute<IListTreasuryInvitesResponse>(async () => {
+      safeJsonRoute<IListInvitesResponse>(async () => {
         const couponsByUserId = await botClient.listLatestCouponsByUserId();
+        const invites = db.userInvitesTable.fetchByRole(UserRole.Member);
 
         return {
-          invites: db.userInvitesTable.fetchByRole(UserRole.TreasuryUser).map(user => {
-            const bitcoinLockCoupon = couponsByUserId.get(user.id);
-            return {
-              ...user,
-              vaultId: bitcoinLockCoupon?.coupon.vaultId,
-              bitcoinLockCoupon,
-            };
-          }),
-        };
-      }),
-    );
+          invites: await Promise.all(
+            invites.map(async invite => {
+              let certificationProgress: ICertificationProgress | undefined;
+              if (inviteProgressNodeUrl && invite.defaultAccountId) {
+                try {
+                  this.inviteProgressClientPromise ??= getClient(inviteProgressNodeUrl, { throwOnConnect: true });
+                  certificationProgress = await loadCertificationProgress({
+                    client: await this.inviteProgressClientPromise,
+                    defaultAccountId: invite.defaultAccountId,
+                    operationalAccountId: invite.operationalAccountId ?? undefined,
+                  });
+                } catch (error) {
+                  this.inviteProgressClientPromise = undefined;
+                  console.warn('[router] Unable to load invite certification progress.', error);
+                }
+              }
 
-    app.post(
-      '/operational-users/create',
-      requireAdminOperatorAuth,
-      express.text({ type: '*/*' }),
-      safeJsonRoute<ICreateOperationalInviteResponse>(async req => {
-        const body = requireBody<IOperationalUserInviteCreateRequest>(req);
-        const invite = inviteService.createInvite(UserRole.OperationalPartner, {
-          name: body.name,
-          fromName: body.fromName,
-          inviteCode: body.inviteCode,
-          inviteEnvelope: body.inviteEnvelope,
-        });
-        return { invite };
+              return {
+                ...invite,
+                vaultId: couponsByUserId.get(invite.id)?.coupon.vaultId,
+                bitcoinLockCoupon: couponsByUserId.get(invite.id),
+                certificationProgress,
+              };
+            }),
+          ),
+        };
       }),
     );
 
     app.get(
-      '/operational-users/:inviteCode/preview',
-      safeJsonRoute<IPreviewOperationalInviteResponse>(async req => {
-        const invite = db.userInvitesTable.fetchByCode(req.params.inviteCode, UserRole.OperationalPartner);
-        if (!invite) {
-          throw new RouterError('Invite not found', 404);
-        }
-        if (invite.accountId) {
-          throw new RouterError('This invite has already been used.', 409, 'ALREADY_USED');
-        }
-
-        return {
-          fromName: invite.fromName,
-          expiresAt: new Date(invite.createdAt.getTime() + 24 * 60 * 60 * 1000),
-        };
-      }),
-    );
-
-    app.post(
-      '/operational-users/:inviteCode/regenerate',
-      requireAdminOperatorAuth,
-      express.text({ type: '*/*' }),
-      safeJsonRoute<ICreateOperationalInviteResponse>(async req => {
-        const body = requireBody<IOperationalUserInviteRegenerateRequest>(req);
-        const invite = inviteService.regenerateInvite(UserRole.OperationalPartner, {
-          inviteCode: req.params.inviteCode,
-          newInviteCode: body.inviteCode,
-          newInviteEnvelope: body.inviteEnvelope,
-        });
-        return { invite };
-      }),
-    );
-
-    app.post(
-      '/operational-users/:inviteCode/open',
-      express.text({ type: '*/*' }),
-      safeJsonRoute<IOpenOperationalInviteResponse>(async req => {
-        const { accountId, authAccountId, authBindingExpiresAt, authBindingSignature, inviteSignature } =
-          requireBody<IOpenOperationalInviteRequest>(req);
-        const inviteCode = req.params.inviteCode;
-        const invite = inviteService.claimInvite({
-          role: UserRole.OperationalPartner,
-          inviteCode,
-          accountId,
-          inviteSignature,
-          authBinding: {
-            role: UserRole.OperationalPartner,
-            accountId,
-            authAccountId,
-            inviteCode,
-            expiresAt: authBindingExpiresAt,
-          },
-          authBindingSignature,
-        });
+      '/invites/me',
+      safeJsonRoute<IInviteResponse>(async req => {
+        const session = routerAuth.requireMemberSession(req);
+        const invite = db.userInvitesTable.fetchByDefaultAccountId(session.accountId, UserRole.Member);
         if (!invite) {
           throw new RouterError('Invite not found', 404);
         }
 
         return {
-          fromName: invite.fromName,
           invite,
         };
       }),
     );
 
-    app.get(
-      '/operational-users/invites',
-      requireAdminOperatorAuth,
-      safeJsonRoute<IListOperationalInvitesResponse>(async () => {
+    app.post(
+      '/invites/me/request-operations-upgrade',
+      express.text({ type: '*/*' }),
+      safeJsonRoute<IRequestOperationsUpgradeResponse>(async req => {
+        const session = routerAuth.requireMemberSession(req);
+        const invite = db.userInvitesTable.fetchByDefaultAccountId(session.accountId, UserRole.Member);
+        if (!invite?.authAccountId) {
+          throw new RouterError('Invite not found', 404);
+        }
+
+        const { operationalAccountId, authBindingExpiresAt, authBindingSignature } =
+          requireBody<IRequestOperationsUpgradeRequest>(req);
+
+        const requestedInvite = inviteService.requestOperationsUpgrade({
+          defaultAccountId: session.accountId,
+          authBinding: {
+            accountId: session.accountId,
+            operationalAccountId,
+            authAccountId: invite.authAccountId,
+            expiresAt: authBindingExpiresAt,
+          },
+          authBindingSignature,
+        });
+
         return {
-          invites: db.userInvitesTable.fetchByRole(UserRole.OperationalPartner),
+          operationsUpgradeRequestedAt: requestedInvite.operationsUpgradeRequestedAt!,
         };
+      }),
+    );
+
+    app.post(
+      '/invites/:inviteCode/mark-operations-upgraded',
+      requireAdminOperatorAuth,
+      safeJsonRoute<IInviteResponse>(async req => {
+        const invite = inviteService.markOperationsUpgraded(req.params.inviteCode);
+        if (!invite) {
+          throw new RouterError('Invite not found', 404);
+        }
+
+        return { invite };
       }),
     );
 
@@ -434,7 +419,7 @@ export class RouterServer {
       express.text({ type: '*/*' }),
       safeJsonRoute<IBitcoinLockStatusResponse>(async req => {
         const body = requireBody<IBitcoinLockRelayRequest>(req);
-        routerAuth.requireTreasuryUserSession(req, body.ownerAccountId);
+        routerAuth.requireMemberSession(req, body.ownerAccountId);
 
         if (body.microgonsAtTargetPerBtc == null) {
           throw new RouterError('A current bitcoin price quote is required to initialize this bitcoin lock.');
@@ -463,19 +448,24 @@ export class RouterServer {
     );
 
     app.get(
-      '/treasury-users/:accountId/bitcoin-lock-coupons',
+      '/invites/me/bitcoin-lock-coupons',
       safeJsonRoute<IListBitcoinLockCouponsResponse>(async req => {
-        routerAuth.requireTreasuryUserSession(req, req.params.accountId);
+        const session = routerAuth.requireMemberSession(req);
+        if (!session.accountId) {
+          return {
+            bitcoinLockCoupons: [],
+          };
+        }
 
-        const user = db.userInvitesTable.fetchByAccountId(req.params.accountId, UserRole.TreasuryUser);
-        if (!user) {
+        const invite = db.userInvitesTable.fetchByDefaultAccountId(session.accountId, UserRole.Member);
+        if (!invite) {
           return {
             bitcoinLockCoupons: [],
           };
         }
 
         return {
-          bitcoinLockCoupons: await botClient.listCouponsByUserId(user.id),
+          bitcoinLockCoupons: await botClient.listCouponsByUserId(invite.id),
         };
       }),
     );
@@ -483,11 +473,7 @@ export class RouterServer {
     app.get(
       '/ethereum-relay-status',
       safeJsonRoute<IEthereumGatewayRelayStatus>(async req => {
-        routerAuth.requireUserSession(req, [
-          UserRole.AdminOperator,
-          UserRole.TreasuryUser,
-          UserRole.OperationalPartner,
-        ]);
+        routerAuth.requireSession(req, [UserRole.AdminOperator, UserRole.Member]);
 
         return await botClient.getEthereumGatewayRelayStatus().catch(error => {
           if (error instanceof RouterError) {
@@ -505,11 +491,7 @@ export class RouterServer {
       '/ethereum-relay-request',
       express.text({ type: '*/*' }),
       safeJsonRoute<IEthereumGatewayCatchUpResponse>(async req => {
-        routerAuth.requireUserSession(req, [
-          UserRole.AdminOperator,
-          UserRole.TreasuryUser,
-          UserRole.OperationalPartner,
-        ]);
+        routerAuth.requireSession(req, [UserRole.AdminOperator, UserRole.Member]);
 
         return await botClient
           .requestEthereumGatewayCatchUp(requireBody<IEthereumGatewayCatchUpRequest>(req))
@@ -529,14 +511,28 @@ export class RouterServer {
       res.status(404).send('Not Found');
     });
 
-    this.server = app.listen(this.options.port ?? 0, () => {
-      console.log(
-        `Router server is running on port ${(this.server.address() as { port?: number } | null)?.port ?? this.options.port}`,
-      );
-      this.resolveListening();
-    });
-    this.server.once('error', err => {
-      this.rejectListening(err);
+    void (async () => {
+      const migrationNodeUrl = this.options.mainNodeUrl ?? this.options.localNodeUrl;
+      if (migrationNodeUrl) {
+        const client = await getClient(migrationNodeUrl, { throwOnConnect: true });
+        try {
+          await inviteService.migrateMissingOperationalAccountIds(client);
+        } finally {
+          await client.disconnect().catch(() => undefined);
+        }
+      }
+
+      this.server = app.listen(this.options.port ?? 0, () => {
+        console.log(
+          `Router server is running on port ${(this.server.address() as { port?: number } | null)?.port ?? this.options.port}`,
+        );
+        this.resolveListening();
+      });
+      this.server.once('error', err => {
+        this.rejectListening(err);
+      });
+    })().catch(error => {
+      this.rejectListening(error instanceof Error ? error : new Error(String(error)));
     });
   }
 
@@ -555,7 +551,7 @@ export class RouterServer {
   }
 
   public async close(): Promise<void> {
-    return await new Promise<void>((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       this.server.close(err => {
         if (err) {
           reject(err);
@@ -564,6 +560,10 @@ export class RouterServer {
         }
       });
     });
+
+    await this.inviteProgressClientPromise
+      ?.then(client => client.disconnect().catch(() => undefined))
+      .catch(() => undefined);
   }
 }
 

@@ -50,7 +50,6 @@ import { TransactionInfo } from './TransactionInfo.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { computeCollectDeadline } from './VaultDeadlineWatcher.ts';
 import { WalletKeys } from './WalletKeys.ts';
-import { buildOperatorAccountRegistrationTx } from './OperationalAccount.ts';
 import { GlobalCouncil } from './GlobalCouncil.ts';
 import { MintingAuthorities } from './MintingAuthorities.ts';
 import { Config } from './Config.ts';
@@ -1250,7 +1249,7 @@ export class MyVault {
     const deferred = createDeferred<TransactionInfo<{ masterXpubPath: string; masterXpub: string }>>();
     this.#singleRunTransactions.set(ExtrinsicType.VaultCreate, deferred.promise);
     try {
-      const { masterXpubPath, rules, config } = args;
+      const { masterXpubPath, rules } = args;
       const txSigner = await this.walletKeys.getVaultingKeypair();
       console.log('Creating a vault with address', txSigner.address);
       const vaultXpriv = await this.getVaultXpriv(masterXpubPath);
@@ -1280,14 +1279,6 @@ export class MyVault {
       };
 
       const txs: SubmittableExtrinsic[] = [];
-      const registerOperatorAccountTx = await buildOperatorAccountRegistrationTx({
-        walletKeys: this.walletKeys,
-        config,
-        client,
-      });
-      if (registerOperatorAccountTx) {
-        txs.push(registerOperatorAccountTx);
-      }
       txs.push(client.tx.vaults.create(vaultParams));
       const registerCouncilSignerTx = await this.globalCouncil.buildRegisterCouncilSignerTx(client);
       if (registerCouncilSignerTx) txs.push(registerCouncilSignerTx);
@@ -1636,20 +1627,6 @@ export class MyVault {
       postProcessor.reject(error as Error);
       throw error;
     }
-  }
-
-  public async buildTreasuryBondPurchaseTx(bondPurchaseMicrogons: bigint): Promise<SubmittableExtrinsic> {
-    const vaultId = this.createdVault?.vaultId;
-    if (!vaultId) {
-      throw new Error('No vault created to build treasury bond purchase tx');
-    }
-
-    const client = await getMainchainClient(false);
-    return TreasuryBonds.buildBuyBondTx({
-      client,
-      vaultId,
-      bondPurchaseMicrogons,
-    });
   }
 
   public async activateSecuritization(args: {

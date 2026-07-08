@@ -48,10 +48,10 @@ import PasswordIcon from '../../assets/password.svg?component';
 import TerminalIcon from '../../assets/terminal.svg?component';
 import ExportIcon from '../../assets/export.svg?component';
 import { TopTab } from '../../interfaces/IConfig.ts';
-import { OperationalStepId, useOperationsController } from '../../stores/operationsController.ts';
+import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 
-const controller = useOperationsController();
+const controller = useCertificationController();
 
 const emit = defineEmits(['close', 'goTo']);
 

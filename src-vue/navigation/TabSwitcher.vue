@@ -61,37 +61,87 @@
         </div>
       </div>
 
-      <div Item
-        v-if="!config.hasExtensionTreasury"
-      >
-        <div Wrapper class="text-center flex flex-row">
-          <div class="font-bold">
-            <span>Upgrade to Treasury</span>
+      <PopoverRoot v-if="!config.hasExtensionTreasury" v-model:open="isTreasuryInviteOpen">
+        <PopoverTrigger :asChild="true">
+          <div Item :class="{ selected: isTreasuryInviteOpen }">
+            <div Wrapper class="text-center flex flex-row">
+              <div class="font-bold">
+                <span>Upgrade to Treasury</span>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        </PopoverTrigger>
+
+        <PopoverPortal>
+          <PopoverContent
+            as="div"
+            side="bottom"
+            align="center"
+            :sideOffset="1"
+            :collisionPadding="24"
+            class="group relative w-[560px] rounded-lg border border-gray-300 bg-white text-left shadow-lg"
+          >
+            <PopoverPanelArrow />
+            <AdForTreasuryOverlay @claimed="onTreasuryInviteClaimed" />
+          </PopoverContent>
+        </PopoverPortal>
+      </PopoverRoot>
+
+      <PopoverRoot
+        v-if="config.hasExtensionTreasury && !config.hasExtensionOperations"
+        v-model:open="isOperationsUpgradeOpen"
+      >
+        <PopoverTrigger :asChild="true">
+          <div Item :class="{ selected: isOperationsUpgradeOpen }">
+            <div Wrapper class="text-center flex flex-row">
+              <div class="font-bold">
+                <span>Upgrade to Operations</span>
+              </div>
+            </div>
+          </div>
+        </PopoverTrigger>
+
+        <PopoverPortal>
+          <PopoverContent
+            as="div"
+            side="bottom"
+            align="center"
+            :sideOffset="1"
+            :collisionPadding="24"
+            class="group relative w-[560px] rounded-lg border border-gray-300 bg-white text-left shadow-lg"
+          >
+            <PopoverPanelArrow />
+            <AdForOperationsOverlay />
+          </PopoverContent>
+        </PopoverPortal>
+      </PopoverRoot>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui';
 import { TopTab } from '../interfaces/IConfig.ts';
-import { useOperationsController, OperationalStepId } from '../stores/operationsController.ts';
+import { useCertificationController } from '../stores/certificationController.ts';
 import { ITourPos, useTour } from '../stores/tour.ts';
 import { getConfig } from '../stores/config.ts';
 import { MiningSetupStatus, VaultingSetupStatus } from '../interfaces/IConfig.ts';
-import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
+import PopoverPanelArrow from '../components/PopoverPanelArrow.vue';
 import OperationsMenu from './OperationsMenu.vue';
 import TreasuryMenu from './TreasuryMenu.vue';
 import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
+import AdForOperationsOverlay from '../overlays/AdForOperationsOverlay.vue';
+import AdForTreasuryOverlay from '../overlays/AdForTreasuryOverlay.vue';
 
 const tour = useTour();
-const controller = useOperationsController();
+const controller = useCertificationController();
 const config = getConfig();
 const tabSwitcherZIndex = useFloatingZIndex();
 
 const toggleRef = Vue.ref<HTMLElement | null>(null);
+const isTreasuryInviteOpen = Vue.ref(false);
+const isOperationsUpgradeOpen = Vue.ref(false);
 
 function goto(tab: TopTab) {
   if (controller.backButtonTriggersHome) {
@@ -103,6 +153,11 @@ function goto(tab: TopTab) {
     }
   }
   controller.setTab(tab);
+}
+
+function onTreasuryInviteClaimed() {
+  isTreasuryInviteOpen.value = false;
+  goto(controller.selectedTreasuryTab);
 }
 
 tour.registerPositionCheck('miningTab', (): ITourPos => {

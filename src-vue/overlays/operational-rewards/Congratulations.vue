@@ -15,13 +15,13 @@
         <p class="mt-5 text-base leading-7 text-slate-700">
           You've earned one exclusive referral code. Share it with someone you trust. When they complete the Argon
           Operational Certification, you both earn ₳{{
-            microgonToArgonNm(controller.rewardConfig.operationalReferralReward).format('0,0.[00]')
+            microgonToArgonNm(controller.rewardConfig.operationalActivationReward).format('0,0.[00]')
           }}.
         </p>
 
         <div class="text-argon-700 mt-6 text-4xl leading-tight font-bold">
-          Every {{ controller.rewardConfig.referralBonusEveryXOperationalSponsees }} successful referrals earns a ₳{{
-            microgonToArgonNm(controller.rewardConfig.referralBonusReward).format('0,0.[00]')
+          Every {{ controller.rewardConfig.operationalReferralsPerBonusReward }} successful referrals earns a ₳{{
+            microgonToArgonNm(controller.rewardConfig.operationalReferralBonusReward).format('0,0.[00]')
           }}
           bonus.
         </div>
@@ -54,21 +54,21 @@
         <div class="text-argon-700/70 text-xs font-semibold tracking-widest uppercase">Referral Code Unlocked</div>
         <div class="text-argon-700 mt-2 text-4xl font-bold">1</div>
         <div class="mt-2 text-sm leading-6 text-slate-500">
-          You can now sponsor one new operator with a private referral link.
+          You can now invite one new operator with a private invite link.
         </div>
       </div>
     </div>
 
     <div
-      v-if="sponsorRewardName"
+      v-if="referrerRewardName"
       class="border-argon-300/60 bg-argon-600/5 mt-5 rounded-2xl border px-5 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
     >
-      <div class="text-argon-700/70 text-xs font-semibold tracking-widest uppercase">Sponsor Reward</div>
+      <div class="text-argon-700/70 text-xs font-semibold tracking-widest uppercase">Referrer Reward</div>
       <div class="mt-2 text-sm leading-6 text-slate-600">
-        {{ sponsorRewardName }} also received ₳{{
-          microgonToArgonNm(controller.rewardConfig.operationalReferralReward).format('0,0.[00]')
+        {{ referrerRewardName }} also received ₳{{
+          microgonToArgonNm(controller.rewardConfig.operationalActivationReward).format('0,0.[00]')
         }}
-        because you activated your certification through their referral code.
+        because you activated your certification through their invite code.
       </div>
     </div>
 
@@ -93,7 +93,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useOperationsController } from '../../stores/operationsController.ts';
+import { useCertificationController } from '../../stores/certificationController.ts';
 import { getConfig } from '../../stores/config.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
@@ -103,7 +103,7 @@ const emit = defineEmits<{
   goTo: [screen: 'claim' | 'overview', section?: 'create'];
 }>();
 
-const controller = useOperationsController();
+const controller = useCertificationController();
 const config = getConfig();
 const currency = getCurrency();
 
@@ -112,9 +112,9 @@ const { microgonToArgonNm } = createNumeralHelpers(currency);
 const primaryActionLabel = Vue.computed(() => {
   return 'Open Referral Codes';
 });
-const sponsorRewardName = Vue.computed(() => {
+const referrerRewardName = Vue.computed(() => {
   const upstreamOperator = config.upstreamOperator;
-  if (!upstreamOperator?.operationalReferral) return '';
+  if (!upstreamOperator?.name) return '';
 
   return upstreamOperator.name.trim();
 });

@@ -56,15 +56,15 @@ import {
   PointerDownOutsideEvent,
 } from 'reka-ui';
 import { TopTab } from '../interfaces/IConfig.ts';
-import { useOperationsController } from '../stores/operationsController.ts';
 import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
+import { useCertificationController } from '../stores/certificationController.ts';
 
 const isOpen = Vue.ref(false);
 const rootRef = Vue.ref<HTMLElement | null>(null);
 const parentItemWidth = Vue.ref(0);
 const floatingZIndex = useFloatingZIndex();
 
-const controller = useOperationsController();
+const controller = useCertificationController();
 
 function goto(tab: TopTab) {
   controller.setTab(tab);

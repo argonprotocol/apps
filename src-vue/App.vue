@@ -73,7 +73,7 @@ import ImportAccountOverlay from './overlays/ImportAccountOverlay.vue';
 import SyncingOverlay from './overlays/SyncingOverlay.vue';
 import TopBar from './navigation/TopBar.vue';
 import { TopTab } from './interfaces/IConfig.ts';
-import { useOperationsController } from './stores/operationsController.ts';
+import { useCertificationController } from './stores/certificationController.ts';
 import { getConfig } from './stores/config.ts';
 import { useTour } from './stores/tour.ts';
 import { getBot } from './stores/bot.ts';
@@ -112,7 +112,7 @@ import TreasuryBondsScreen from './screens/TreasuryBondsScreen.vue';
 import TreasuryLocksScreen from './screens/TreasuryLocksScreen.vue';
 import OperationsScreen from './screens/OperationsScreen.vue';
 
-const controller = useOperationsController();
+const controller = useCertificationController();
 const config = getConfig();
 const tour = useTour();
 const bot = getBot();

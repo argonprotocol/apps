@@ -68,7 +68,7 @@ import {
   DropdownMenuTrigger,
   PointerDownOutsideEvent,
 } from 'reka-ui';
-import { useOperationsController } from '../stores/operationsController.ts';
+import { useCertificationController } from '../stores/certificationController.ts';
 import { getConfig } from '../stores/config.ts';
 import { MiningSetupStatus, TopTab, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
@@ -78,7 +78,7 @@ const rootRef = Vue.ref<HTMLElement | null>(null);
 const parentItemWidth = Vue.ref(0);
 const floatingZIndex = useFloatingZIndex();
 
-const controller = useOperationsController();
+const controller = useCertificationController();
 const config = getConfig();
 
 function goto(tab: TopTab) {
