@@ -81,7 +81,7 @@ describe('ServerApiClient', () => {
       );
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(client.getTreasuryAppInvites()).resolves.toEqual([]);
+    await expect(client.getInvites()).resolves.toEqual([]);
 
     expect(invalidateAdminOperatorSessionId).toHaveBeenCalledWith('https://203.0.113.10');
     expect(fetchMock.mock.calls.map(([url]) => new URL(String(url)).searchParams.get('sessionId'))).toEqual([

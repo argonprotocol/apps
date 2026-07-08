@@ -313,14 +313,14 @@ import type { IVaultBondState } from '../../lib/BondMarket.ts';
 import TreemapChart, { type TileStatus } from '../../components/TreemapChart.vue';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { TopTab } from '../../interfaces/IConfig.ts';
-import { OperationalStepId, useOperationsController } from '../../stores/operationsController.ts';
+import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 
 dayjs.extend(utc);
 
 const myVault = getMyVault();
 const vaults = getVaults();
-const controller = useOperationsController();
+const controller = useCertificationController();
 const bitcoinLocks = getBitcoinLocks();
 const config = getConfig();
 const currency = getCurrency();

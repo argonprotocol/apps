@@ -14,10 +14,10 @@ export interface IRouterAuthChallenge {
 }
 
 export interface IRouterAuthAccountBinding {
-  role: RouterAuthRole;
   accountId: string;
+  operationalAccountId?: string;
   authAccountId: string;
-  inviteCode: string;
+  inviteCode?: string;
   expiresAt: number;
 }
 
@@ -50,7 +50,7 @@ function getRouterAuthPayloadHash(challenge: IRouterAuthChallenge): Uint8Array {
 function getRouterAuthAccountBindingPayloadHash(binding: IRouterAuthAccountBinding): Uint8Array {
   return blake2AsU8a(
     stringToU8a(
-      `argon_router_auth_account_binding_v1:${binding.role}:${binding.inviteCode}:${binding.accountId}:${binding.authAccountId}:${binding.expiresAt}`,
+      `argon_router_auth_account_binding_v4:${binding.inviteCode ?? ''}:${binding.accountId}:${binding.operationalAccountId ?? ''}:${binding.authAccountId}:${binding.expiresAt}`,
     ),
     256,
   );

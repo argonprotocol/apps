@@ -31,14 +31,14 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { getWalletKeys } from '../../stores/wallets.ts';
-import { OperationalStepId, useOperationsController } from '../../stores/operationsController.ts';
+import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 import { getConfig } from '../../stores/config.ts';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 
 const config = getConfig();
 const walletKeys = getWalletKeys();
-const controller = useOperationsController();
+const controller = useCertificationController();
 
 const isCopied = Vue.ref(false);
 const masterMnemonic = Vue.ref('');

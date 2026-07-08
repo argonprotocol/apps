@@ -120,25 +120,25 @@ describe('ServerAuthClient', () => {
     expect(walletMock.getOperationalKeypair).not.toHaveBeenCalled();
   });
 
-  it('uses the derived upstream auth key for invited sessions', async () => {
+  it('uses the derived upstream auth key for member sessions', async () => {
     const baseUrl = 'https://upstream-session.example';
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(jsonResponse(createChallenge('nonce-1', UserRole.TreasuryUser)))
-      .mockResolvedValueOnce(jsonResponse(createSession(UserRole.TreasuryUser)))
+      .mockResolvedValueOnce(jsonResponse(createChallenge('nonce-1', UserRole.Member)))
+      .mockResolvedValueOnce(jsonResponse(createSession(UserRole.Member)))
       .mockResolvedValueOnce(emptyResponse(204));
     vi.stubGlobal('fetch', fetchMock);
 
-    await serverAuthClient.getTreasurySessionId(baseUrl);
+    await serverAuthClient.getMemberSessionId(baseUrl);
 
-    expect(fetchPaths(fetchMock)).toEqual(['/auth/challenge', '/auth/login', '/auth/verify/treasury-coupon']);
+    expect(fetchPaths(fetchMock)).toEqual(['/auth/challenge', '/auth/login', '/auth/verify/member']);
     expect(fetchPayloads(fetchMock)).toMatchObject([
       {
-        role: UserRole.TreasuryUser,
+        role: UserRole.Member,
         authAccountId: 'upstream-operator-auth-account',
       },
       {
-        role: UserRole.TreasuryUser,
+        role: UserRole.Member,
         authAccountId: 'upstream-operator-auth-account',
       },
     ]);
@@ -174,14 +174,13 @@ function createChallenge(nonce = 'nonce', role = UserRole.AdminOperator) {
 function createSession(role = UserRole.AdminOperator) {
   const sessionIdByRole = {
     [UserRole.AdminOperator]: 'session-admin-operator',
-    [UserRole.TreasuryUser]: 'session-treasury-user',
-    [UserRole.OperationalPartner]: 'session-operational-partner',
+    [UserRole.Member]: 'session-member',
   };
 
   return {
     sessionId: sessionIdByRole[role],
     role,
-    accountId: role === UserRole.AdminOperator ? 'admin-account' : 'treasury-account',
+    accountId: role === UserRole.AdminOperator ? 'admin-account' : 'member-account',
     expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
   };
 }

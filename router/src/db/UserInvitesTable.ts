@@ -6,35 +6,37 @@ import type { Role } from './UsersTable.ts';
 
 export interface IUserInviteRecord {
   id: number;
-  role: Role;
   name: string;
   fromName: string;
   inviteCode: string;
-  inviteEnvelope: string;
   firstClickedAt?: Date | null;
   lastClickedAt?: Date | null;
-  accountId?: string | null;
+  operationsUpgradeRequestedAt?: Date | null;
+  operationsUpgradedAt?: Date | null;
+  operationalAccountId?: string | null;
+  defaultAccountId?: string | null;
   authAccountId?: string | null;
   createdAt: Date;
 }
 
-type SqlUserRow = Record<string, SQLOutputValue>;
+type SqlInviteRow = Record<string, SQLOutputValue>;
 
-const userFieldTypes = {
-  date: ['firstClickedAt', 'lastClickedAt', 'createdAt'],
+const inviteFieldTypes = {
+  date: ['firstClickedAt', 'lastClickedAt', 'operationsUpgradeRequestedAt', 'operationsUpgradedAt', 'createdAt'],
 };
 
 const selectInviteRecord = `
   SELECT
     Users.id AS id,
-    Users.role AS role,
     Users.name AS name,
     UserInvites.fromName AS fromName,
     UserInvites.inviteCode AS inviteCode,
-    UserInvites.inviteEnvelope AS inviteEnvelope,
     UserInvites.firstClickedAt AS firstClickedAt,
     UserInvites.lastClickedAt AS lastClickedAt,
-    Users.accountId AS accountId,
+    UserInvites.operationsUpgradeRequestedAt AS operationsUpgradeRequestedAt,
+    UserInvites.operationsUpgradedAt AS operationsUpgradedAt,
+    Users.operationalAccountId AS operationalAccountId,
+    Users.accountId AS defaultAccountId,
     Users.authAccountId AS authAccountId,
     UserInvites.createdAt AS createdAt
   FROM UserInvites
@@ -46,19 +48,17 @@ export class UserInvitesTable extends BaseTable {
     super(db);
   }
 
-  public insertInvite(userId: number, inviteCode: string, fromName: string, inviteEnvelope = ''): IUserInviteRecord {
+  public insertInvite(userId: number, inviteCode: string, fromName: string): IUserInviteRecord {
     this.db.sql
       .prepare(
         `
         INSERT INTO UserInvites (
           userId,
           inviteCode,
-          inviteEnvelope,
           fromName
         ) VALUES (
           $userId,
           $inviteCode,
-          $inviteEnvelope,
           $fromName
         )
       `,
@@ -67,7 +67,6 @@ export class UserInvitesTable extends BaseTable {
         toSqliteParams({
           userId,
           inviteCode,
-          inviteEnvelope,
           fromName,
         }),
       );
@@ -76,6 +75,7 @@ export class UserInvitesTable extends BaseTable {
     if (!invite) {
       throw new Error(`Invite ${userId} not found after insert.`);
     }
+
     return invite;
   }
 
@@ -89,7 +89,7 @@ export class UserInvitesTable extends BaseTable {
         LIMIT 1
       `,
       )
-      .get({ $inviteCode: inviteCode, $role: role ?? null }) as SqlUserRow | undefined;
+      .get({ $inviteCode: inviteCode, $role: role ?? null }) as SqlInviteRow | undefined;
 
     return record ? this.mapInvite(record) : null;
   }
@@ -103,26 +103,26 @@ export class UserInvitesTable extends BaseTable {
         LIMIT 1
       `,
       )
-      .get({ $id: id }) as SqlUserRow | undefined;
+      .get({ $id: id }) as SqlInviteRow | undefined;
 
     return record ? this.mapInvite(record) : null;
   }
 
-  public fetchByAccountId(accountId: string, role?: Role): IUserInviteRecord | null {
+  public fetchByDefaultAccountId(defaultAccountId: string, role?: Role): IUserInviteRecord | null {
     const record = this.db.sql
       .prepare(
         `
         ${selectInviteRecord}
-        WHERE Users.accountId = $accountId
+        WHERE Users.accountId = $defaultAccountId
           AND ($role IS NULL OR Users.role = $role)
         ORDER BY COALESCE(UserInvites.lastClickedAt, UserInvites.createdAt) DESC, Users.id DESC
         LIMIT 1
       `,
       )
       .get({
-        $accountId: accountId,
+        $defaultAccountId: defaultAccountId,
         $role: role ?? null,
-      }) as SqlUserRow | undefined;
+      }) as SqlInviteRow | undefined;
 
     return record ? this.mapInvite(record) : null;
   }
@@ -137,20 +137,20 @@ export class UserInvitesTable extends BaseTable {
         ORDER BY UserInvites.createdAt DESC, Users.id DESC
       `,
         )
-        .all({ $role: role }) as SqlUserRow[]
+        .all({ $role: role }) as SqlInviteRow[]
     ).map(record => this.mapInvite(record));
   }
 
   public claimInvite(
     id: number,
-    accountId: string,
+    defaultAccountId: string,
     authAccountId: string,
     clickedAt = new Date(),
   ): IUserInviteRecord | null {
-    const user = this.db.usersTable.claimAccount(id, accountId, authAccountId);
+    const user = this.db.usersTable.claimAccount(id, defaultAccountId, authAccountId);
     if (!user) return null;
 
-    const updatedInvite = this.db.sql
+    this.db.sql
       .prepare(
         `
         UPDATE UserInvites
@@ -158,41 +158,16 @@ export class UserInvitesTable extends BaseTable {
           firstClickedAt = COALESCE(firstClickedAt, $clickedAt),
           lastClickedAt = $clickedAt
         WHERE userId = $id
-        RETURNING *
       `,
       )
-      .get(
+      .run(
         toSqliteParams({
           id,
           clickedAt,
         }),
-      ) as SqlUserRow | undefined;
-
-    if (!updatedInvite) {
-      return null;
-    }
+      );
 
     return this.fetchById(id);
-  }
-
-  public updateInviteCode(userId: number, inviteCode: string, inviteEnvelope = ''): IUserInviteRecord | null {
-    this.db.sql
-      .prepare(
-        `
-        UPDATE UserInvites
-        SET
-          inviteCode = $inviteCode,
-          inviteEnvelope = $inviteEnvelope
-        WHERE userId = $userId
-      `,
-      )
-      .run({
-        $userId: userId,
-        $inviteCode: inviteCode,
-        $inviteEnvelope: inviteEnvelope,
-      });
-
-    return this.fetchById(userId);
   }
 
   public deleteByUserId(userId: number): void {
@@ -206,7 +181,45 @@ export class UserInvitesTable extends BaseTable {
       .run({ $userId: userId });
   }
 
-  private mapInvite(record: SqlUserRow): IUserInviteRecord {
-    return convertFromSqliteFields<IUserInviteRecord>(record, userFieldTypes);
+  public requestOperationsUpgrade(id: number, requestedAt = new Date()): IUserInviteRecord | null {
+    this.db.sql
+      .prepare(
+        `
+        UPDATE UserInvites
+        SET operationsUpgradeRequestedAt = COALESCE(operationsUpgradeRequestedAt, $requestedAt)
+        WHERE userId = $id
+      `,
+      )
+      .run(
+        toSqliteParams({
+          id,
+          requestedAt,
+        }),
+      );
+
+    return this.fetchById(id);
+  }
+
+  public markOperationsUpgraded(id: number, upgradedAt = new Date()): IUserInviteRecord | null {
+    this.db.sql
+      .prepare(
+        `
+        UPDATE UserInvites
+        SET operationsUpgradedAt = COALESCE(operationsUpgradedAt, $upgradedAt)
+        WHERE userId = $id
+      `,
+      )
+      .run(
+        toSqliteParams({
+          id,
+          upgradedAt,
+        }),
+      );
+
+    return this.fetchById(id);
+  }
+
+  private mapInvite(record: SqlInviteRow): IUserInviteRecord {
+    return convertFromSqliteFields<IUserInviteRecord>(record, inviteFieldTypes);
   }
 }

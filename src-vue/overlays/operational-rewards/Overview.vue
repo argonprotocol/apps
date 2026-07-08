@@ -11,7 +11,7 @@
     <a @click="updateProfileOverlay" class="cursor-pointer">set your profile name</a>
     before
     <br />
-    creating referral codes.
+    managing member invites.
   </div>
 
   <div v-else class="px-6 text-slate-700">
@@ -30,11 +30,11 @@
           <Tooltip
             asChild
             side="top"
-            :content="`Every ${controller.rewardConfig.referralBonusEveryXOperationalSponsees} referred operators earns this bonus.`"
+            :content="`Every ${controller.rewardConfig.operationalReferralsPerBonusReward} referred operators earns this bonus.`"
           >
             <div StatWrapper class="border-r border-slate-200/70 px-4 py-4">
               <div Stat class="text-4xl! leading-none">
-                ₳{{ microgonToArgonNm(controller.rewardConfig.referralBonusReward).format('0,0.[00]') }}
+                ₳{{ microgonToArgonNm(controller.rewardConfig.operationalReferralBonusReward).format('0,0.[00]') }}
               </div>
               <div class="mt-2 text-xs font-semibold tracking-widest text-slate-400 uppercase">Next Bonus</div>
             </div>
@@ -68,50 +68,46 @@
         </div>
 
         <div v-else class="text-md mt-5 text-slate-500">
-          You receive ₳{{ microgonToArgonNm(controller.rewardConfig.operationalReferralReward).format('0,0.[00]') }}
+          You receive ₳{{ microgonToArgonNm(controller.rewardConfig.operationalActivationReward).format('0,0.[00]') }}
           when someone you refer finishes their operator setup. Every
-          {{ controller.rewardConfig.referralBonusEveryXOperationalSponsees }} successful referrals triggers a ₳{{
-            microgonToArgonNm(controller.rewardConfig.referralBonusReward).format('0,0.[00]')
+          {{ controller.rewardConfig.operationalReferralsPerBonusReward }} successful referrals triggers a ₳{{
+            microgonToArgonNm(controller.rewardConfig.operationalReferralBonusReward).format('0,0.[00]')
           }}
           bonus.
         </div>
       </div>
 
       <div class="mt-5 flex items-center justify-between gap-4 border-t border-slate-300 pt-5">
-        <div class="text-lg font-semibold text-slate-800">Referral Codes</div>
+        <div class="text-lg font-semibold text-slate-800">Member Invites</div>
         <div class="text-sm text-slate-500">{{ controller.activeOperationalInviteCount }} active</div>
       </div>
 
       <div class="pt-2 text-sm text-slate-500">
-        When you create a referral code, you'll be given a personalized link that will bind a recruit to your account.
-        Send it to a recruit any way you like.
+        Create and share invite links from Manage Members. This screen tracks when invited members register and when
+        they later complete operations certification.
       </div>
 
-      <div v-if="errorMessage || infoMessage" class="mt-4 space-y-3">
+      <div v-if="errorMessage" class="mt-4 space-y-3">
         <div v-if="errorMessage" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {{ errorMessage }}
         </div>
-        <div
-          v-if="infoMessage"
-          class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
-        >
-          {{ infoMessage }}
-        </div>
       </div>
 
-      <OperationalInviteSlots
-        v-model:draftNamesBySlot="inviteNamesBySlot"
-        class="mt-4"
-        mode="overlay"
-        :progress="controller.inviteSlotProgress"
-        :rewardConfig="controller.rewardConfig"
-        :invites="controller.operationalInvites"
-        :inviteStatusesByCode="controller.operationalInviteStatusesByCode"
-        :inviteLinksByCode="inviteLinksByCode"
-        :isCreating="isCreatingInvite"
-        @create="createInvite"
-        @regenerate="regenerateInviteLink"
-      />
+      <div class="mt-4 rounded-xl border border-slate-200/70 bg-slate-50/50 px-4 py-4">
+        <div class="flex items-center justify-between gap-4">
+          <div class="text-sm leading-6 text-slate-600">
+            Use the shared member invite list to add people, copy invite links, and track who has completed operations
+            certification.
+          </div>
+          <button
+            type="button"
+            class="text-argon-700 shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold hover:border-slate-400"
+            @click="openManageMembers"
+          >
+            Open Manage Members
+          </button>
+        </div>
+      </div>
     </section>
 
     <section ref="unlockSectionRef" class="mt-5 border-t border-slate-200/70 px-2 pt-4">
@@ -154,8 +150,8 @@
         v-if="historicalInvites.length === 0"
         class="mt-5 rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500"
       >
-        No completed referral history yet. Older referral codes will appear here after they expire or become
-        operational.
+        No completed invite history yet. Older invites will appear here after they expire or complete operations
+        certification.
       </div>
 
       <div v-else class="mt-5 space-y-3">
@@ -192,27 +188,20 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import type { IOperationalUserInvite } from '@argonprotocol/apps-router';
-import { InviteCodes, NetworkConfig, UserRole } from '@argonprotocol/apps-core';
+import type { IMemberInvite } from '@argonprotocol/apps-router';
+import { NetworkConfig } from '@argonprotocol/apps-core';
 import Tooltip from '../../components/Tooltip.vue';
-import OperationalInviteSlots from '../../components/OperationalInviteSlots.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { getConfig } from '../../stores/config.ts';
 import { getMyVault } from '../../stores/vaults.ts';
-import { InviteEnvelope } from '../../lib/InviteEnvelope.ts';
 import {
   type IOperationalInviteStatus,
   type IOperationalInviteStatusLabel,
-  useOperationsController,
-} from '../../stores/operationsController.ts';
+  useCertificationController,
+} from '../../stores/certificationController.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
-import { getMainchainClient } from '../../stores/mainchain.ts';
-import { getServerApiClient } from '../../stores/server.ts';
-import { getWalletKeys } from '../../stores/wallets.ts';
 import { clampProgressValue, getCappedPercent } from '../../lib/Utils.ts';
-import { signReferralSponsorGrant } from '../../lib/OperationalAccount.ts';
-import { UpstreamOperatorClient } from '../../lib/UpstreamOperatorClient.ts';
 
 type OperationalRewardsSection = 'create' | 'unlock' | 'outbound';
 
@@ -228,24 +217,17 @@ const emit = defineEmits<{
 
 const config = getConfig();
 const myVault = getMyVault();
-const controller = useOperationsController();
+const controller = useCertificationController();
 
 const currency = getCurrency();
-const serverApiClient = getServerApiClient();
-const walletKeys = getWalletKeys();
 
 const { microgonToArgonNm } = createNumeralHelpers(currency);
-
-const isCreatingInvite = Vue.ref(false);
 
 const createSectionRef = Vue.ref<HTMLElement>();
 const unlockSectionRef = Vue.ref<HTMLElement>();
 const outboundSectionRef = Vue.ref<HTMLElement>();
 
 const errorMessage = Vue.ref<string | null>(null);
-const infoMessage = Vue.ref<string | null>(null);
-
-const inviteNamesBySlot = Vue.ref<Record<number, string>>({});
 
 let scrollAnimationFrame: number | undefined;
 
@@ -258,25 +240,25 @@ const hasProfileName = Vue.computed(() => {
 });
 
 const canCreateInvite = Vue.computed(() => {
-  return controller.inviteSlotProgress.availableReferrals > 0;
+  return controller.inviteSlotProgress.availableUpgradeCodes > 0;
 });
 const hasUnclaimedRewards = Vue.computed(() => {
   return controller.pendingRewardsAmount > 0n;
 });
 
 const referralBonusProgressLabel = Vue.computed(() => {
-  const bonusEvery = Math.max(controller.rewardConfig.referralBonusEveryXOperationalSponsees, 1);
+  const bonusEvery = Math.max(controller.rewardConfig.operationalReferralsPerBonusReward, 1);
   return `${controller.inviteSlotProgress.operationalReferralsCount % bonusEvery}/${bonusEvery}`;
 });
 
 const progressCards = Vue.computed(() => {
   const btcCurrent = controller.inviteSlotProgress.bitcoinAccrual;
-  const btcTarget = controller.rewardConfig.bitcoinLockSizeForReferral;
+  const btcTarget = controller.rewardConfig.bitcoinLockSizeForUpgradeCode;
 
   const miningCurrent = controller.inviteSlotProgress.miningSeatAccrual;
-  const miningTarget = controller.rewardConfig.miningSeatsPerReferral;
+  const miningTarget = controller.rewardConfig.miningSeatsPerUpgradeCode;
 
-  const referralCurrent = controller.inviteSlotProgress.referralPending ? 1 : 0;
+  const referralCurrent = controller.inviteSlotProgress.upgradeCodePending ? 1 : 0;
 
   return [
     {
@@ -287,7 +269,7 @@ const progressCards = Vue.computed(() => {
       targetMicrogons: btcTarget,
       copy:
         btcCurrent >= btcTarget
-          ? 'Another referral code is ready from BTC lock progress.'
+          ? 'Another upgrade code is ready from BTC lock progress.'
           : 'Lock another ₳5,000 worth of BTC',
       progressPct: getCappedPercent(btcCurrent, btcTarget),
     },
@@ -299,7 +281,7 @@ const progressCards = Vue.computed(() => {
       targetMicrogons: 0n,
       copy:
         miningCurrent >= miningTarget
-          ? 'Another referral code is ready from mining seats.'
+          ? 'Another upgrade code is ready from mining seats.'
           : `Win ${miningTarget} more mining seats`,
       progressPct: getCappedPercent(miningCurrent, miningTarget),
     },
@@ -309,20 +291,12 @@ const progressCards = Vue.computed(() => {
       microgonValue: false,
       currentMicrogons: 0n,
       targetMicrogons: 0n,
-      copy: controller.inviteSlotProgress.referralPending
-        ? 'Another referral code is ready from referrals.'
+      copy: controller.inviteSlotProgress.upgradeCodePending
+        ? 'Another upgrade code is ready from referrals.'
         : 'Get 1 more account fully operational',
       progressPct: getCappedPercent(referralCurrent, 1),
     },
   ];
-});
-
-const inviteLinksByCode = Vue.computed(() => {
-  return Object.fromEntries(
-    controller.operationalInvites
-      .filter(invite => invite.inviteEnvelope)
-      .map(invite => [invite.inviteCode, getOperationsInviteUrl(invite.inviteEnvelope)]),
-  );
 });
 
 const historicalInvites = Vue.computed(() => {
@@ -337,42 +311,42 @@ function openServerOverlay() {
   basicEmitter.emit('openServerOverlay');
 }
 
-function inviteStatus(invite: IOperationalUserInvite): IOperationalInviteStatus {
+function inviteStatus(invite: IMemberInvite): IOperationalInviteStatus {
   const status = controller.operationalInviteStatusesByCode[invite.inviteCode];
-  if (status?.label === 'Became operational' || status?.label === 'Expired') return status;
-  if (invite.accountId) return { label: 'Registered', showRewardNote: false };
+  if (status?.label === 'Operationally certified' || status?.label === 'Expired') return status;
+  if (invite.defaultAccountId) return { label: 'Registered', showRewardNote: false };
   return status ?? { label: 'Not opened', showRewardNote: false };
 }
 
 function inviteStatusClasses(label: IOperationalInviteStatusLabel) {
   if (label === 'Opened') return 'border border-amber-200 bg-amber-50 text-amber-700';
   if (label === 'Registered') return 'border border-sky-200 bg-sky-50 text-sky-700';
-  if (label === 'Became operational') return 'border border-emerald-200 bg-emerald-50 text-emerald-700';
+  if (label === 'Operationally certified') return 'border border-emerald-200 bg-emerald-50 text-emerald-700';
   if (label === 'Expired') return 'border border-slate-200 bg-slate-100 text-slate-500';
   return 'border border-slate-200 bg-slate-100 text-slate-600';
 }
 
-function inviteHistorySummary(invite: IOperationalUserInvite) {
-  if (invite.accountId) return `Registered as ${shortInviteCode(invite.accountId)}`;
+function inviteHistorySummary(invite: IMemberInvite) {
+  if (invite.defaultAccountId) return `Registered as ${shortInviteCode(invite.defaultAccountId)}`;
   if (invite.lastClickedAt) return 'Invite link opened';
   return `Issued as ${shortInviteCode(invite.inviteCode)}`;
 }
 
-function inviteHistoryTooltip(invite: IOperationalUserInvite) {
+function inviteHistoryTooltip(invite: IMemberInvite) {
   const status = inviteStatus(invite).label;
-  if (status === 'Became operational')
-    return `${invite.name} became fully operational, so referral rewards can become claimable.`;
+  if (status === 'Operationally certified')
+    return `${invite.name} completed operations certification, so referral rewards can become claimable.`;
   if (status === 'Registered')
     return `${invite.name} registered from your referral link and still needs to complete the Argon Operational Certification.`;
   if (status === 'Opened')
     return `${invite.name} opened the referral link and still needs to complete the Argon Operational Certification.`;
-  if (status === 'Expired') return `${invite.name}'s referral code is no longer active.`;
+  if (status === 'Expired') return `${invite.name}'s invite is no longer active.`;
   return `${invite.name}'s referral record is kept here for history.`;
 }
 
-function isActiveInvite(invite: IOperationalUserInvite) {
+function isActiveInvite(invite: IMemberInvite) {
   const status = inviteStatus(invite).label;
-  return status !== 'Became operational' && status !== 'Expired';
+  return status !== 'Operationally certified' && status !== 'Expired';
 }
 
 async function loadInvites() {
@@ -386,142 +360,12 @@ async function loadInvites() {
     await controller.loadOperationalInvites();
   } catch {
     controller.setOperationalInvites([]);
-    errorMessage.value = 'Unable to load referral codes right now. Please try again.';
+    errorMessage.value = 'Unable to load member invites right now. Please try again.';
   }
 }
 
-async function createInvite({ slotNumber, name }: { slotNumber: number; name: string }) {
-  if (isCreatingInvite.value) return;
-
-  if (!name) {
-    errorMessage.value = 'Enter a name for the invite.';
-    return;
-  }
-  if (!config.serverDetails.ipAddress) {
-    errorMessage.value = 'No server is available to create an invite.';
-    return;
-  }
-  if (!canCreateInvite.value) {
-    errorMessage.value = 'You do not have a referral code ready to issue yet.';
-    return;
-  }
-
-  try {
-    errorMessage.value = null;
-    infoMessage.value = null;
-    isCreatingInvite.value = true;
-    await myVault.load();
-
-    const fromName = currentVaultName.value.trim();
-    if (!fromName) {
-      throw new Error('Set your profile name before creating referral codes.');
-    }
-
-    const { inviteCode, inviteEnvelope, operationalReferral } = await buildOperationalInviteLink();
-
-    const invite = await serverApiClient.createOperationalInvite({
-      name,
-      fromName,
-      inviteCode,
-      inviteEnvelope,
-      ...operationalReferral,
-    });
-
-    const nextInvites = [invite, ...controller.operationalInvites.filter(x => x.id !== invite.id)];
-    controller.setOperationalInvites(nextInvites);
-
-    await navigator.clipboard.writeText(getOperationsInviteUrl(inviteEnvelope)).catch(() => undefined);
-
-    infoMessage.value = 'Invite link copied.';
-    inviteNamesBySlot.value[slotNumber] = '';
-
-    await loadInvites();
-  } catch (error: any) {
-    errorMessage.value = error?.message ?? 'Unable to create invite.';
-  } finally {
-    isCreatingInvite.value = false;
-  }
-}
-
-async function regenerateInviteLink({ inviteCode }: { inviteCode: string }) {
-  if (isCreatingInvite.value) return;
-
-  if (!config.serverDetails.ipAddress) {
-    errorMessage.value = 'No server is available to regenerate this invite link.';
-    return;
-  }
-
-  const existingInvite = controller.operationalInvites.find(invite => invite.inviteCode === inviteCode);
-  if (!existingInvite || existingInvite.lastClickedAt || existingInvite.accountId) {
-    errorMessage.value = 'This invite link has already been opened.';
-    return;
-  }
-
-  try {
-    errorMessage.value = null;
-    infoMessage.value = null;
-    isCreatingInvite.value = true;
-    await myVault.load();
-
-    const { inviteCode: newInviteCode, inviteEnvelope } = await buildOperationalInviteLink();
-    const invite = await serverApiClient.regenerateOperationalInvite(inviteCode, {
-      inviteCode: newInviteCode,
-      inviteEnvelope,
-    });
-
-    const nextInvites = [invite, ...controller.operationalInvites.filter(x => x.id !== invite.id)];
-    controller.setOperationalInvites(nextInvites);
-
-    await navigator.clipboard.writeText(getOperationsInviteUrl(inviteEnvelope)).catch(() => undefined);
-
-    infoMessage.value = 'Invite link regenerated and copied.';
-
-    await loadInvites();
-  } catch (error: any) {
-    errorMessage.value = error?.message ?? 'Unable to regenerate invite link.';
-  } finally {
-    isCreatingInvite.value = false;
-  }
-}
-
-async function buildOperationalInviteLink() {
-  const client = await getMainchainClient(false);
-  const signer = await walletKeys.getOperationalKeypair();
-  const currentFrameId = (await client.query.miningSlot.nextFrameId()).toNumber() - 1;
-  const expiresAfterFrames = Math.ceil(
-    (10 * 24 * 60 * 60 * 1000) / (NetworkConfig.rewardTicksPerFrame * NetworkConfig.tickMillis),
-  );
-
-  const { inviteSecret, inviteCode } = InviteCodes.create();
-  const expiresAtFrame = currentFrameId + expiresAfterFrames;
-  const sponsorSignature = signReferralSponsorGrant({
-    sponsor: signer,
-    inviteCode,
-    expiresAtFrame,
-  });
-  const operationalReferral = {
-    sponsor: signer.address,
-    expiresAtFrame,
-    sponsorSignature,
-  };
-
-  const inviteEnvelope = InviteEnvelope.encode({
-    ...UpstreamOperatorClient.getInviteEndpoint(config.serverDetails),
-    role: UserRole.OperationalPartner,
-    secret: inviteSecret,
-    inviteCode,
-    operationalReferral,
-  });
-
-  return {
-    inviteCode,
-    inviteEnvelope,
-    operationalReferral,
-  };
-}
-
-function getOperationsInviteUrl(inviteEnvelope: string) {
-  return `${NetworkConfig.get().websiteHost}/operations-invite/${inviteEnvelope}`;
+function openManageMembers() {
+  basicEmitter.emit('openVaultMembersOverlay');
 }
 
 Vue.watch(

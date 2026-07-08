@@ -39,7 +39,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { useOperationsController } from '../../stores/operationsController.ts';
+import { useCertificationController } from '../../stores/certificationController.ts';
 import { getWalletKeys } from '../../stores/wallets.ts';
 
 withDefaults(
@@ -51,7 +51,7 @@ withDefaults(
   },
 );
 
-const controller = useOperationsController();
+const controller = useCertificationController();
 
 const rootRef = Vue.ref<HTMLElement | null>(null);
 const mnemonic = Vue.ref(['', '', '', '', '', '', '', '', '', '', '', '']);

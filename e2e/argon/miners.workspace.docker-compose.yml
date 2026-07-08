@@ -11,7 +11,3 @@ services:
     <<: *cli-workspace
   miner-1-bidder:
     <<: *cli-workspace
-  miner-2-setup:
-    <<: *cli-workspace
-  miner-2-bidder:
-    <<: *cli-workspace
