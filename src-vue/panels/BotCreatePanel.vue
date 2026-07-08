@@ -3,24 +3,25 @@
   <DialogRoot class="absolute inset-0 z-10" :open="true">
     <DialogPortal>
       <DialogOverlay asChild>
-        <BgOverlay @close="cancelPanel" />
+        <BgOverlay :style="{ zIndex: overlayZIndex.backdropZIndex }" @close="cancelPanel" />
       </DialogOverlay>
 
-      <DialogContent @escapeKeyDown="cancelPanel" :aria-describedby="undefined">
-        <BotTour v-if="currentTourStep" @close="closeTour" @changeStep="currentTourStep = $event" :getPositionCheck="getTourPositionCheck" />
-        <div
-          :ref="draggable.setModalRef"
-          :style="{
-            // TODO: Need to fix draggable so it works for this overlay
-            // top: `calc(50% + ${draggable.modalPosition.y}px)`,
-            // left: `calc(50% + ${draggable.modalPosition.x}px)`,
-            // transform: 'translate(-50%, -50%)',
-            // cursor: draggable.isDragging ? 'grabbing' : 'default',
-          }"
-          class="BotCreatePanel absolute top-[40px] left-3 right-3 bottom-3 flex flex-col rounded-md border border-black/30 inner-input-shadow bg-argon-menu-bg text-left z-200 transition-all focus:outline-none"
-          style="box-shadow: 0px -1px 2px 0 rgba(0, 0, 0, 0.1), inset 0 2px 0 rgba(255, 255, 255, 1)"
-        >
-          <BgOverlay v-if="hasEditBoxOverlay" @close="cancelEditOverlay" :showWindowControls="false" rounded="md" class="z-100" />
+      <DialogContent asChild @escapeKeyDown="cancelPanel" :aria-describedby="undefined" :style="{ zIndex: overlayZIndex.contentZIndex }">
+        <div class="pointer-events-none absolute inset-0">
+          <BotTour v-if="currentTourStep" @close="closeTour" @changeStep="currentTourStep = $event" :getPositionCheck="getTourPositionCheck" />
+          <div
+            :ref="draggable.setModalRef"
+            :style="{
+              // TODO: Need to fix draggable so it works for this overlay
+              // top: `calc(50% + ${draggable.modalPosition.y}px)`,
+              // left: `calc(50% + ${draggable.modalPosition.x}px)`,
+              // transform: 'translate(-50%, -50%)',
+              // cursor: draggable.isDragging ? 'grabbing' : 'default',
+            }"
+            class="BotCreatePanel pointer-events-auto absolute top-[40px] left-3 right-3 bottom-3 flex flex-col rounded-md border border-black/30 inner-input-shadow bg-argon-menu-bg text-left transition-all focus:outline-none"
+            style="box-shadow: 0px -1px 2px 0 rgba(0, 0, 0, 0.1), inset 0 2px 0 rgba(255, 255, 255, 1)"
+          >
+          <BgOverlay v-if="hasEditBoxOverlay" @close="cancelEditOverlay" :showWindowControls="false" rounded="md" :style="editBoxBackdropZIndex" />
           <div v-if="isSuggestingTour" class="absolute inset-0 bg-black/20 z-20 rounded-md"></div>
           <div class="flex flex-col h-full w-full">
             <h2
@@ -47,7 +48,7 @@
                     </div>
                   </PopoverTrigger>
                   <PopoverPortal>
-                    <PopoverContent @escapeKeyDown="stopSuggestingTour" side="bottom" class="rounded-lg p-5 -translate-y-1 w-[400px] bg-white shadow-sm border border-slate-800/30 z-1000">
+                    <PopoverContent @escapeKeyDown="stopSuggestingTour" side="bottom" :style="{ zIndex: overlayZIndex.contentZIndex + 1 }" class="rounded-lg p-5 -translate-y-1 w-[400px] bg-white shadow-sm border border-slate-800/30">
                       <p class="text-gray-800 font-light">We recommend first-time miners start with a brief tour of how to use this overlay.</p>
                       <div class="flex flex-row space-x-2 mt-6">
                         <button @click="stopSuggestingTour" tabindex="-1" class="cursor-pointer grow rounded-md border border-slate-500/30 px-4 py-1 focus:outline-none">Not Now</button>
@@ -154,6 +155,7 @@
             </div>
           </div>
         </div>
+      </div>
       </DialogContent>
     </DialogPortal>
   </DialogRoot>
@@ -202,6 +204,7 @@ import { ITourPos } from '../stores/tour.ts';
 import BotTour from './bot-create-tour/Base.vue';
 import { useOperationsController } from '../stores/operationsController.ts';
 import Draggable from '../overlays/helpers/Draggable.ts';
+import { provideOverlayContentZIndex, useFloatingZIndex, useOverlayZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 import BotSettings from '../components/BotSettings.vue';
 import { MiningSetupStatus } from '../interfaces/IConfig.ts';
 
@@ -233,6 +236,9 @@ const isLoaded = Vue.ref(false);
 const isCalculatorReady = Vue.ref(false);
 const isSaving = Vue.ref(false);
 const hasEditBoxOverlay = Vue.ref(false);
+const overlayZIndex = useOverlayZIndex(() => true);
+const editBoxBackdropZIndex = useFloatingZIndex();
+provideOverlayContentZIndex(Vue.toRef(overlayZIndex, 'contentZIndex'));
 
 const capitalToCommitElement = Vue.ref<HTMLElement | null>(null);
 const returnOnCapitalElement = Vue.ref<HTMLElement | null>(null);

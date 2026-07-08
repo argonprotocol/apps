@@ -13,7 +13,8 @@
         :sideOffset="10"
         :collisionPadding="24"
         :avoidCollisions="true"
-        class="group relative z-[2002] w-[560px] rounded-lg border border-gray-300 bg-white text-left text-base shadow-lg"
+        :style="floatingZIndex"
+        class="group relative w-[560px] rounded-lg border border-gray-300 bg-white text-left text-base shadow-lg"
       >
         <PopoverPanelArrow />
         <div class="px-5 pt-4 pb-3 text-slate-700">
@@ -101,6 +102,7 @@ import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka
 import CountupClock from '../components/CountupClock.vue';
 import PopoverPanelArrow from '../components/PopoverPanelArrow.vue';
 import { getBot } from '../stores/bot.ts';
+import { useFloatingZIndex } from './helpers/OverlayZIndex.ts';
 
 const props = withDefaults(
   defineProps<{
@@ -110,6 +112,7 @@ const props = withDefaults(
     position: 'top',
   },
 );
+const floatingZIndex = useFloatingZIndex();
 
 const bot = getBot();
 

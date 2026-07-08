@@ -5,17 +5,17 @@
       <AnimatePresence>
         <DialogOverlay asChild>
           <Motion asChild :initial="{ opacity: 0 }" :animate="{ opacity: 1 }" :exit="{ opacity: 0 }">
-            <BgOverlay @close="closeOverlay" />
+            <BgOverlay :style="{ zIndex: overlayZIndex.backdropZIndex }" @close="closeOverlay" />
           </Motion>
         </DialogOverlay>
 
-        <DialogContent asChild @escapeKeyDown="closeOverlay" :aria-describedby="undefined">
+        <DialogContent asChild @escapeKeyDown="closeOverlay" :aria-describedby="undefined" :style="{ zIndex: overlayZIndex.contentZIndex }">
           <Motion
             :ref="draggable.setModalRef"
             :initial="{ opacity: 0 }"
             :animate="{ opacity: 1 }"
             :exit="{ opacity: 0 }"
-            class="absolute z-50 bg-white border border-black/40 px-3 pt-6 pb-4 rounded-lg shadow-xl w-160 min-h-60 overflow-scroll focus:outline-none"
+            class="absolute bg-white border border-black/40 px-3 pt-6 pb-4 rounded-lg shadow-xl w-160 min-h-60 overflow-scroll focus:outline-none"
             :style="{
               top: `calc(50% + ${draggable.modalPosition.y}px)`,
               left: `calc(50% + ${draggable.modalPosition.x}px)`,
@@ -61,11 +61,13 @@ import { XMarkIcon } from '@heroicons/vue/24/outline';
 import { ChevronLeftIcon } from '@heroicons/vue/24/outline';
 import Draggable from './helpers/Draggable.ts';
 import { ICurrencyKey } from '@argonprotocol/apps-core';
+import { useOverlayZIndex } from './helpers/OverlayZIndex.ts';
 
 const isOpen = Vue.ref(false);
 const currentScreen = Vue.ref<'overview' | 'fixJurisdiction'>('overview');
 const draggable = Vue.reactive(new Draggable());
 const setCurrencyKey = Vue.ref<ICurrencyKey | undefined>(undefined);
+const overlayZIndex = useOverlayZIndex(() => isOpen.value);
 
 const title = Vue.computed(() => {
   if (currentScreen.value === 'overview') {

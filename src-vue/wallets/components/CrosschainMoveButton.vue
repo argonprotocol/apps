@@ -23,7 +23,8 @@
         side="top"
         align="end"
         :sideOffset="12"
-        class="pointer-events-none z-[2000] w-[360px] rounded-md border border-slate-300 bg-white px-5 py-4 text-sm text-slate-700 shadow-2xl"
+        :style="floatingZIndex"
+        class="pointer-events-none w-[360px] rounded-md border border-slate-300 bg-white px-5 py-4 text-sm text-slate-700 shadow-2xl"
       >
         <div class="flex flex-col gap-4">
           <div class="text-xl font-bold">
@@ -120,6 +121,7 @@ import { HoverCardArrow, HoverCardContent, HoverCardPortal, HoverCardRoot, Hover
 import ProgressBar from '../../components/ProgressBar.vue';
 import type { IArgonWalletType, IEthereumMoveToken } from '../../interfaces/IEthereumInboundTransferTracker.ts';
 import type { IEthereumInboundActiveTransfer } from '../../lib/EthereumInboundTransferTracker.ts';
+import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 import MoveArrow from '../../assets/move-arrow.svg';
 import { formatEvmNativeFeeWei } from '../../lib/Utils.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
@@ -153,6 +155,7 @@ const currency = getCurrency();
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const isHovered = Vue.ref(false);
+const floatingZIndex = useFloatingZIndex();
 const hasActiveEthereumTransferConfig = Vue.ref(false);
 const progressNow = Vue.ref(Date.now());
 

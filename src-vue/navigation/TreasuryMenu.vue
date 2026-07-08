@@ -17,8 +17,8 @@
           :align="'end'"
           :alignOffset="-5"
           :sideOffset="-3"
-          :style="{ width: `${parentItemWidth}px` }"
-          class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade z-[1000] data-[state=open]:transition-all"
+          :style="[floatingZIndex, { width: `${parentItemWidth}px` }]"
+          class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade data-[state=open]:transition-all"
         >
           <div
             class="bg-argon-menu-bg flex w-full shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20"
@@ -57,10 +57,12 @@ import {
 } from 'reka-ui';
 import { TopTab } from '../interfaces/IConfig.ts';
 import { useOperationsController } from '../stores/operationsController.ts';
+import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 
 const isOpen = Vue.ref(false);
 const rootRef = Vue.ref<HTMLElement | null>(null);
 const parentItemWidth = Vue.ref(0);
+const floatingZIndex = useFloatingZIndex();
 
 const controller = useOperationsController();
 

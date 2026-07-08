@@ -20,7 +20,8 @@
           :align="'end'"
           :alignOffset="-5"
           :sideOffset="-3"
-          class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade z-[10000] data-[state=open]:transition-all"
+          :style="floatingZIndex"
+          class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade data-[state=open]:transition-all"
         >
           <div class="bg-argon-menu-bg flex min-w-66 shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
             <template v-if="!props.walletIsOpen">
@@ -40,7 +41,8 @@
                   @mouseleave="onMouseLeave"
                   :side="'left'"
                   :sideOffset="4"
-                  class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade z-[10001] data-[state=open]:transition-all"
+                  :style="subFloatingZIndex"
+                  class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade data-[state=open]:transition-all"
                 >
                   <div class="min-w-50 bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
                     <DropdownMenuItem MenuItem @click="openWallet(WalletType.defaultArgon)">
@@ -97,6 +99,7 @@ import basicEmitter from '../../emitters/basicEmitter.ts';
 import { ChevronLeftIcon } from '@heroicons/vue/24/outline';
 import { WalletType } from '../../lib/Wallet.ts';
 import { UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 
 const props = withDefaults(
   defineProps<{
@@ -111,6 +114,8 @@ const props = withDefaults(
 
 const rootRef = Vue.ref<HTMLElement>();
 const isOpen = Vue.ref(false);
+const floatingZIndex = useFloatingZIndex();
+const subFloatingZIndex = useFloatingZIndex(2);
 
 // Expose the root element to parent components
 defineExpose({

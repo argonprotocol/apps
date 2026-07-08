@@ -12,7 +12,8 @@
           :alignOffset="alignOffset ?? 0"
           :avoidCollisions="true"
           :collisionPadding="30"
-          class="text-md data-[state=delayed-open]:data-[side=top]:animate-slideDownAndFade data-[state=delayed-open]:data-[side=right]:animate-slideLeftAndFade data-[state=delayed-open]:data-[side=left]:animate-slideRightAndFade data-[state=delayed-open]:data-[side=bottom]:animate-slideUpAndFade pointer-events-none z-100 w-[800px] rounded-lg border border-gray-800/20 bg-white px-5 pt-4 pb-2 text-left leading-5.5 text-gray-600 shadow-xl will-change-[transform,opacity]"
+          :style="floatingZIndex"
+          class="text-md data-[state=delayed-open]:data-[side=top]:animate-slideDownAndFade data-[state=delayed-open]:data-[side=right]:animate-slideLeftAndFade data-[state=delayed-open]:data-[side=left]:animate-slideRightAndFade data-[state=delayed-open]:data-[side=bottom]:animate-slideUpAndFade pointer-events-none w-[800px] rounded-lg border border-gray-800/20 bg-white px-5 pt-4 pb-2 text-left leading-5.5 text-gray-600 shadow-xl will-change-[transform,opacity]"
         >
           <p>
             Calculating your future return is complex since it's difficult to predict what will happen at auction. For
@@ -101,6 +102,7 @@ import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { TooltipArrow, TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger } from 'reka-ui';
 import { IBiddingRules } from '@argonprotocol/apps-core';
 import { getBiddingCalculator, getBiddingCalculatorData } from '../../stores/mainchain.ts';
+import { useFloatingZIndex } from '../helpers/OverlayZIndex.ts';
 
 const props = defineProps<{
   align?: 'start' | 'end' | 'center';
@@ -113,6 +115,7 @@ const calculatorData = getBiddingCalculatorData();
 const config = getConfig();
 const currency = getCurrency();
 const { microgonToMoneyNm, microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
+const floatingZIndex = useFloatingZIndex();
 
 const rules = Vue.computed(() => config.biddingRules as IBiddingRules);
 

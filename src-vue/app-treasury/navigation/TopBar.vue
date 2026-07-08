@@ -64,7 +64,8 @@
           </div>
         </NavigationMenuList>
         <NavigationMenuIndicator
-          class="pointer-events-none absolute top-full left-0 z-[2001] flex h-[10px] w-[var(--reka-navigation-menu-indicator-size)] translate-x-[var(--reka-navigation-menu-indicator-position)] items-end justify-center transition-[width,transform,opacity] duration-300 data-[state=hidden]:opacity-0 data-[state=visible]:opacity-100"
+          :style="navigationMenuIndicatorZIndex"
+          class="pointer-events-none absolute top-full left-0 flex h-[10px] w-[var(--reka-navigation-menu-indicator-size)] translate-x-[var(--reka-navigation-menu-indicator-position)] items-end justify-center transition-[width,transform,opacity] duration-300 data-[state=hidden]:opacity-0 data-[state=visible]:opacity-100"
         >
           <div
             class="relative top-[-1px] h-0 w-0 border-x-[13px] border-b-[13px] border-x-transparent border-b-gray-900/20"
@@ -76,7 +77,8 @@
         </NavigationMenuIndicator>
         <NavigationMenuViewport
           align="end"
-          class="bg-argon-menu-bg data-[state=closed]:animate-scaleOut data-[state=open]:animate-scaleIn pointer-events-auto absolute top-full left-[var(--reka-navigation-menu-viewport-left)] z-[2000] mt-[8px] h-[var(--reka-navigation-menu-viewport-height)] w-full origin-[top_center] overflow-visible rounded border border-gray-900/20 shadow-lg transition-[left,_width,_height] duration-300 sm:w-[var(--reka-navigation-menu-viewport-width)]"
+          :style="navigationMenuViewportZIndex"
+          class="bg-argon-menu-bg data-[state=closed]:animate-scaleOut data-[state=open]:animate-scaleIn pointer-events-auto absolute top-full left-[var(--reka-navigation-menu-viewport-left)] mt-[8px] h-[var(--reka-navigation-menu-viewport-height)] w-full origin-[top_center] overflow-visible rounded border border-gray-900/20 shadow-lg transition-[left,_width,_height] duration-300 sm:w-[var(--reka-navigation-menu-viewport-width)]"
           @mouseenter="clearNavigationMenuClose"
         />
       </NavigationMenuRoot>
@@ -99,10 +101,13 @@ import basicEmitter from '../../emitters/basicEmitter.ts';
 import PortfolioMenu from './PortfolioMenu.vue';
 import ProfitsMenu from '../../navigation/ProfitsMenu.vue';
 import AccountMenu from './AccountMenu.vue';
+import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 
 const config = getConfig();
 const wallets = useWallets();
 const controller = useTreasuryController();
+const navigationMenuViewportZIndex = useFloatingZIndex();
+const navigationMenuIndicatorZIndex = useFloatingZIndex(2);
 
 const navigationMenuValue = Vue.ref('');
 let navigationMenuCloseTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;

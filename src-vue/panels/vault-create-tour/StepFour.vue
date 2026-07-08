@@ -4,8 +4,8 @@
       <PopoverContent
         @escapeKeyDown="previousStep"
         ref="boxRef"
-        class="absolute z-[2001] -translate-x-full -translate-y-full"
-        :style="{ left, top, width: `${props.pos.width}px` }"
+        class="absolute -translate-x-full -translate-y-full"
+        :style="[floatingZIndex, { left, top, width: `${props.pos.width}px` }]"
       >
         <div Arrow ref="arrowRef" class="absolute bottom-4.5 -left-1.75 z-1 -translate-y-full rotate-90">
           <svg
@@ -71,9 +71,11 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { PopoverContent, PopoverPortal, PopoverRoot } from 'reka-ui';
+import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 import { ITourPos } from '../../stores/tour.ts';
 
 const isOpen = Vue.ref(true);
+const floatingZIndex = useFloatingZIndex();
 
 const props = defineProps<{
   pos: ITourPos;

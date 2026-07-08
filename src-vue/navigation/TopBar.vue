@@ -1,7 +1,7 @@
 <!-- prettier-ignore -->
 <template>
   <div
-    class="bg-white/95 relative z-100 flex min-h-14 w-full flex-row items-center select-none"
+    class="bg-white/95 relative flex min-h-14 w-full flex-row items-center select-none"
     style="border-radius: 10px 10px 0 0; box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2)"
     data-tauri-drag-region
   >
@@ -18,7 +18,7 @@
 
     <NavigationMenuRoot
       v-if="controller.isLoaded && !controller.isImporting"
-      class="relative z-[2501] mr-3 flex w-1/3 grow flex-row items-center justify-end pointer-events-none"
+      class="relative mr-3 flex w-1/3 grow flex-row items-center justify-end pointer-events-none"
       :model-value="navigationMenuValue"
       :delay-duration="0"
       :skip-delay-duration="0"
@@ -46,7 +46,8 @@
         </div>
       </NavigationMenuList>
       <NavigationMenuIndicator
-        class="pointer-events-none absolute top-full left-0 z-[2001] flex h-[10px] w-[var(--reka-navigation-menu-indicator-size)] translate-x-[var(--reka-navigation-menu-indicator-position)] items-end justify-center transition-[width,transform,opacity] duration-300 data-[state=hidden]:opacity-0 data-[state=visible]:opacity-100"
+        :style="navigationMenuIndicatorZIndex"
+        class="pointer-events-none absolute top-full left-0 flex h-[10px] w-[var(--reka-navigation-menu-indicator-size)] translate-x-[var(--reka-navigation-menu-indicator-position)] items-end justify-center transition-[width,transform,opacity] duration-300 data-[state=hidden]:opacity-0 data-[state=visible]:opacity-100"
       >
         <div class="relative top-[-1px] h-0 w-0 border-x-[13px] border-b-[13px] border-x-transparent border-b-gray-900/20">
           <div class="absolute top-[2px] left-[-11px] h-0 w-0 border-x-[11px] border-b-[11px] border-x-transparent border-b-argon-menu-bg" />
@@ -54,7 +55,8 @@
       </NavigationMenuIndicator>
       <NavigationMenuViewport
         align="end"
-        class="pointer-events-auto absolute top-full left-[var(--reka-navigation-menu-viewport-left)] z-[2000] mt-[8px] h-[var(--reka-navigation-menu-viewport-height)] w-full origin-[top_center] overflow-visible rounded border border-gray-900/20 bg-argon-menu-bg shadow-lg transition-[left,_width,_height] duration-300 data-[state=closed]:animate-scaleOut data-[state=open]:animate-scaleIn sm:w-[var(--reka-navigation-menu-viewport-width)]"
+        :style="navigationMenuViewportZIndex"
+        class="pointer-events-auto absolute top-full left-[var(--reka-navigation-menu-viewport-left)] mt-[8px] h-[var(--reka-navigation-menu-viewport-height)] w-full origin-[top_center] overflow-visible rounded border border-gray-900/20 bg-argon-menu-bg shadow-lg transition-[left,_width,_height] duration-300 data-[state=closed]:animate-scaleOut data-[state=open]:animate-scaleIn sm:w-[var(--reka-navigation-menu-viewport-width)]"
         @mouseenter="clearNavigationMenuClose"
       />
     </NavigationMenuRoot>
@@ -80,6 +82,7 @@ import TabSwitcher from './TabSwitcher.vue';
 import ServerMenu from './ServerMenu.vue';
 import OperationalMenu from './OperationalMenu.vue';
 import { NavigationMenuIndicator, NavigationMenuList, NavigationMenuRoot, NavigationMenuViewport } from 'reka-ui';
+import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 import ProfitsMenu from './ProfitsMenu.vue';
 import PortfolioDetailsMenu from './PortfolioDetailsMenu.vue';
 import PortfolioCurrencyMenu from './PortfolioCurrencyMenu.vue';
@@ -90,6 +93,8 @@ const wallets = useWallets();
 const tour = useTour();
 const config = getConfig();
 const bot = getBot();
+const navigationMenuViewportZIndex = useFloatingZIndex();
+const navigationMenuIndicatorZIndex = useFloatingZIndex(2);
 
 const accountMenuRef = Vue.ref<InstanceType<typeof AccountMenu> | null>(null);
 const currencyMenuRef = Vue.ref<InstanceType<typeof PortfolioMenu> | null>(null);
