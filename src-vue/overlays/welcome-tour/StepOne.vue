@@ -1,7 +1,11 @@
 <template>
   <PopoverRoot :open="isOpen">
     <PopoverPortal>
-      <PopoverContent ref="boxRef" class="absolute z-[2001]" :style="{ left, top, width: `${props.pos.width}px` }">
+      <PopoverContent
+        ref="boxRef"
+        class="absolute"
+        :style="[floatingZIndex, { left, top, width: `${props.pos.width}px` }]"
+      >
         <div Arrow ref="arrowRef" class="absolute top-0.5 left-[20%] z-1 -translate-y-full">
           <svg
             class="relative z-10"
@@ -68,11 +72,13 @@ import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import dayjsUtc from 'dayjs/plugin/utc';
 import { PopoverContent, PopoverPortal, PopoverRoot } from 'reka-ui';
+import { useFloatingZIndex } from '../helpers/OverlayZIndex.ts';
 import { ITourPos } from '../../stores/tour.ts';
 
 dayjs.extend(dayjsUtc);
 
 const isOpen = Vue.ref(true);
+const floatingZIndex = useFloatingZIndex();
 
 const props = defineProps<{
   pos: ITourPos;

@@ -4,8 +4,8 @@
       <PopoverContent
         @escapeKeyDown="cancelTour"
         ref="boxRef"
-        class="absolute z-2001"
-        :style="{ left, top, width: `${props.pos.width}px` }"
+        class="absolute"
+        :style="[floatingZIndex, { left, top, width: `${props.pos.width}px` }]"
       >
         <div Arrow ref="arrowRef" class="absolute top-0.5 left-6/12 z-1 -translate-y-full">
           <svg
@@ -72,9 +72,11 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { PopoverContent, PopoverPortal, PopoverRoot } from 'reka-ui';
+import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 import { ITourPos } from '../../stores/tour.ts';
 
 const isOpen = Vue.ref(true);
+const floatingZIndex = useFloatingZIndex();
 
 const props = defineProps<{
   pos: ITourPos;

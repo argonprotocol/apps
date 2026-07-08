@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <TransitionRoot class="absolute inset-0 z-10" :show="isOpen">
+  <TransitionRoot class="absolute inset-0" :show="isOpen">
     <TransitionChild
       as="template"
       enter="ease-out duration-300"
@@ -10,10 +10,13 @@
       leave-from="opacity-100"
       leave-to="opacity-0"
     >
-      <BgOverlay />
+      <BgOverlay :style="{ zIndex: overlayZIndex.backdropZIndex }" />
     </TransitionChild>
 
-    <div class="absolute inset-0 z-100 overflow-y-auto pt-[1px] flex items-center justify-center pointer-events-none">
+    <div
+      class="absolute inset-0 overflow-y-auto pt-[1px] flex items-center justify-center pointer-events-none"
+      :style="{ zIndex: overlayZIndex.contentZIndex }"
+    >
       <TransitionChild
         as="template"
         enter="ease-out duration-300"
@@ -75,12 +78,14 @@ import { type IConfigServerDetails, type IConfigServerInstallDetails, ServerType
 import { SSH } from '../lib/SSH.ts';
 import { invokeWithTimeout } from '../lib/tauriApi.ts';
 import { LocalMachine } from '../lib/LocalMachine.ts';
+import { useOverlayZIndex } from './helpers/OverlayZIndex.ts';
 
 const config = getConfig();
 
 const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
 const isRemoving = Vue.ref(false);
+const overlayZIndex = useOverlayZIndex(() => isOpen.value);
 
 basicEmitter.on('openServerRemoveOverlay', async (data: any) => {
   isOpen.value = true;

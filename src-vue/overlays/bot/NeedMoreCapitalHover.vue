@@ -11,7 +11,8 @@
         :sideOffset="5"
         :collisionPadding="24"
         align="end"
-        class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade text-md z-100 w-[500px] rounded-md border border-gray-800/20 bg-white px-4 pt-4 pb-5 text-left leading-5.5 text-gray-600 shadow-xl select-none data-[state=open]:transition-all"
+        :style="floatingZIndex"
+        class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade text-md w-[500px] rounded-md border border-gray-800/20 bg-white px-4 pt-4 pb-5 text-left leading-5.5 text-gray-600 shadow-xl select-none data-[state=open]:transition-all"
       >
         <p>
           You need a minimum of {{ currency.symbol }}{{ microgonToMoneyNm(idealCapitalCommitment).format('0,0.00') }} in
@@ -50,6 +51,7 @@ import { getConfig } from '../../stores/config.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import IncreaseIcon from '../../assets/increase.svg?component';
+import { useFloatingZIndex } from '../helpers/OverlayZIndex.ts';
 
 const props = defineProps<{
   calculator: BiddingCalculator;
@@ -67,6 +69,7 @@ const currency = getCurrency();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const isOpen = Vue.ref(false);
+const floatingZIndex = useFloatingZIndex();
 const isClickedOpen = Vue.ref(false);
 let wasRecentlyClickedOutside = false;
 

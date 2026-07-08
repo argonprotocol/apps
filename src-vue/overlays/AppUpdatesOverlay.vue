@@ -5,17 +5,17 @@
       <AnimatePresence>
         <DialogOverlay asChild>
           <Motion asChild :initial="{ opacity: 0 }" :animate="{ opacity: 1 }" :exit="{ opacity: 0 }">
-            <BgOverlay @close="closeOverlay" />
+            <BgOverlay :style="{ zIndex: overlayZIndex.backdropZIndex }" @close="closeOverlay" />
           </Motion>
         </DialogOverlay>
 
-        <DialogContent asChild @escapeKeyDown="closeOverlay" :aria-describedby="undefined">
+        <DialogContent asChild @escapeKeyDown="closeOverlay" :aria-describedby="undefined" :style="{ zIndex: overlayZIndex.contentZIndex }">
           <Motion
             :ref="draggable.setModalRef"
             :initial="{ opacity: 0 }"
             :animate="{ opacity: 1 }"
             :exit="{ opacity: 0 }"
-            class="absolute z-50 min-h-60 w-160 overflow-scroll rounded-lg border border-black/40 bg-white px-3 pt-6 pb-4 shadow-xl focus:outline-none"
+            class="absolute min-h-60 w-160 overflow-scroll rounded-lg border border-black/40 bg-white px-3 pt-6 pb-4 shadow-xl focus:outline-none"
             :style="{
               top: `calc(50% + ${draggable.modalPosition.y}px)`,
               left: `calc(50% + ${draggable.modalPosition.x}px)`,
@@ -105,9 +105,11 @@ import { AnimatePresence, Motion } from 'motion-v';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
 import dayjs from 'dayjs';
 import { useAppUpdater } from '../stores/appUpdater.ts';
+import { useOverlayZIndex } from './helpers/OverlayZIndex.ts';
 
 const isOpen = Vue.ref(false);
 const draggable = Vue.reactive(new Draggable());
+const overlayZIndex = useOverlayZIndex(() => isOpen.value);
 const updater = useAppUpdater();
 const { downloadProgress, errorMessage, installedVersion, isChecking, isDownloading, isReadyToInstall, update } =
   storeToRefs(updater);

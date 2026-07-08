@@ -3,10 +3,10 @@
   <DialogRoot class="absolute inset-0 z-10" :open="true">
     <DialogPortal>
       <DialogOverlay asChild>
-        <BgOverlay @close="cancelOverlay" />
+        <BgOverlay :style="{ zIndex: overlayZIndex.backdropZIndex }" @close="cancelOverlay" />
       </DialogOverlay>
 
-      <DialogContent @escapeKeyDown="cancelOverlay" :aria-describedby="undefined">
+      <DialogContent asChild @escapeKeyDown="cancelOverlay" :aria-describedby="undefined" :style="{ zIndex: overlayZIndex.contentZIndex }">
         <div
           :ref="draggable.setModalRef"
           :style="{
@@ -14,10 +14,10 @@
             left: `calc(50% + ${draggable.modalPosition.x}px)`,
             transform: 'translate(-50%, -50%)',
           }"
-          class="VaultEditOverlay absolute w-[1000px] min-h-[400px] flex flex-col rounded-md border border-black/30 inner-input-shadow bg-argon-menu-bg text-left z-50 focus:outline-none"
+          class="VaultEditOverlay absolute w-[1000px] min-h-[400px] flex flex-col rounded-md border border-black/30 inner-input-shadow bg-argon-menu-bg text-left focus:outline-none"
           style="box-shadow: 1px 1px 10px rgba(0, 0, 0, 0.2), inset 2px 2px 0 rgba(255, 255, 255, 1)"
         >
-          <BgOverlay v-if="hasEditBoxOverlay" @close="closeEditBoxOverlay" :showWindowControls="false" rounded="md" class="z-100" />
+          <BgOverlay v-if="hasEditBoxOverlay" @close="closeEditBoxOverlay" :showWindowControls="false" rounded="md" :style="editBoxBackdropZIndex" />
           <div class="flex flex-col h-full w-full grow">
             <h2
               @mousedown="draggable.onMouseDown($event)"
@@ -78,6 +78,7 @@ import Tooltip from '../components/Tooltip.vue';
 import VaultSettings from '../components/VaultSettings.vue';
 import Draggable from './helpers/Draggable.ts';
 import { getMyVault } from '../stores/vaults.ts';
+import { provideOverlayContentZIndex, useFloatingZIndex, useOverlayZIndex } from './helpers/OverlayZIndex.ts';
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -100,6 +101,9 @@ const isLoaded = Vue.ref(false);
 const isSaving = Vue.ref(false);
 const savingError = Vue.ref<string | null>(null);
 const hasEditBoxOverlay = Vue.ref(false);
+const overlayZIndex = useOverlayZIndex(() => true);
+const editBoxBackdropZIndex = useFloatingZIndex();
+provideOverlayContentZIndex(Vue.toRef(overlayZIndex, 'contentZIndex'));
 
 const vaultSettings = Vue.ref<typeof VaultSettings | null>(null);
 const saveButtonElement = Vue.ref<HTMLElement | null>(null);

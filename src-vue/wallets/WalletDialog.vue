@@ -3,7 +3,7 @@
   <DialogRoot :open="true" :modal="props.showBackdrop">
     <DialogPortal>
       <DialogOverlay v-if="props.showBackdrop" asChild>
-        <BgOverlay @close="closeOverlay" />
+        <BgOverlay :style="{ zIndex: getOverlayBackdropZIndex(props.zIndex) }" @close="closeOverlay" />
       </DialogOverlay>
       <DialogContent
         asChild
@@ -21,7 +21,7 @@
           }"
           :class="[
             isSyncMode ? 'w-220' : 'w-110',
-            'absolute z-50 flex min-h-140 flex-col overflow-visible rounded-lg bg-linear-to-b from-[#cccccc] to-[#9f9f9f] shadow-2xl focus:outline-none pointer-events-auto',
+            'absolute flex min-h-140 flex-col overflow-visible rounded-lg bg-linear-to-b from-[#cccccc] to-[#9f9f9f] shadow-2xl focus:outline-none pointer-events-auto',
           ]"
           @mousedown="emit('focus')"
         >
@@ -132,6 +132,7 @@ import * as Vue from 'vue';
 import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
 import BgOverlay from '../components/BgOverlay.vue';
 import Draggable from '../overlays/helpers/Draggable.ts';
+import { getOverlayBackdropZIndex, provideOverlayContentZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 import ArgonBottom from './components/ArgonBottom.vue';
 import EthereumBottom from './components/EthereumBottom.vue';
 import NavHeader, { type IWalletOption } from './components/NavHeader.vue';
@@ -177,6 +178,7 @@ const emit = defineEmits<{
 const walletStore = useWallets();
 const draggable = Vue.reactive(new Draggable({ constrainToViewport: false }));
 const walletRef = Vue.shallowRef<HTMLElement | null>(null);
+provideOverlayContentZIndex(Vue.computed(() => props.zIndex));
 
 const isSyncMode = Vue.computed(() => !!props.pairedWalletType);
 const activeTransferOverlay = Vue.ref<{
