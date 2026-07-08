@@ -58,14 +58,14 @@
               <img v-if="showQrCode" :src="qrCode" class="w-40 max-w-full mt-4" :alt="`QR Code Wallet Address`" />
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-            <DropdownMenuItem MenuItem @click="() => openProfileOverlay()" >
+            <DropdownMenuItem MenuItem @click="() => openRecovery()" >
               <div ItemWrapper>
                 <header>View Recovery Phrase</header>
                 <ShieldCheckIcon class="w-4 h-4" />
               </div>
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-            <DropdownMenuItem MenuItem @click="() => openProfileOverlay()" >
+            <DropdownMenuItem MenuItem @click="() => disconnectWallet()" >
               <div ItemWrapper>
                 <header>Disconnect Wallet from App</header>
               </div>
@@ -137,6 +137,12 @@ async function loadQRCode() {
       light: '#0000',
     },
   });
+}
+
+function disconnectWallet() {}
+
+function openRecovery() {
+  basicEmitter.emit('openSecuritySettingsOverlay', { screen: 'mnemonics' });
 }
 
 function openWallet(walletType: WalletType) {

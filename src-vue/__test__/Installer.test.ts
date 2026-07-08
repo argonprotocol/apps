@@ -106,6 +106,38 @@ it('only uploads bot config files when updating server config', async () => {
   expect(uploadBotConfigFiles).toHaveBeenCalledOnce();
 });
 
+it('uploads the proxy bidder wallet while keeping the mining bot as the funding account', async () => {
+  const dbPromise = createMockedDbPromise({});
+  const walletKeys = createMockWalletKeys();
+  const config = new Config(dbPromise, walletKeys);
+  await config.load();
+
+  const installer = new Installer(config, walletKeys);
+  await installer.load();
+
+  const proxyWalletJson = await walletKeys.exportMiningBidProxyAccountJson('');
+  const server = {
+    createConfigDir: vi.fn().mockResolvedValue(undefined),
+    uploadMiningBotWallet: vi.fn().mockResolvedValue(undefined),
+    uploadVaultDelegateWallet: vi.fn().mockResolvedValue(undefined),
+    uploadBiddingRules: vi.fn().mockResolvedValue(undefined),
+    uploadEnvState: vi.fn().mockResolvedValue(undefined),
+    uploadEnvSecurity: vi.fn().mockResolvedValue(undefined),
+  };
+  // @ts-ignore - keep the test focused on upload payloads
+  installer.getServer = vi.fn().mockResolvedValue(server);
+
+  // @ts-ignore - exercise the upload path directly
+  await installer.uploadBotConfigFiles();
+
+  expect(server.uploadMiningBotWallet).toHaveBeenCalledWith(proxyWalletJson);
+  expect(server.uploadEnvState).toHaveBeenCalledWith(
+    expect.objectContaining({
+      miningFundingAccountId: walletKeys.miningBotAddress,
+    }),
+  );
+});
+
 it('should run through entire install process', async () => {
   const dbPromise = createMockedDbPromise({ serverAdd: '{ "localComputer": {} }' });
   const walletKeys = createMockWalletKeys();

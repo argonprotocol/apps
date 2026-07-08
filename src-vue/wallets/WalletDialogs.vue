@@ -36,7 +36,7 @@ import basicEmitter, { type IWalletGuidanceContext } from '../emitters/basicEmit
 import { WalletType } from '../lib/Wallet.ts';
 import { useBasics } from '../stores/basics.ts';
 import { TopTab } from '../interfaces/IConfig.ts';
-import { useOperationsController } from '../stores/operationsController.ts';
+import { useCertificationController } from '../stores/certificationController.ts';
 import { useWallets } from '../stores/wallets.ts';
 import { releaseOverlayZIndex, reserveOverlayZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 import WalletDialog from './WalletDialog.vue';
@@ -63,8 +63,8 @@ const snapPreview = Vue.ref<{
 }>();
 let nextWalletId = 1;
 
-const operationsController = useOperationsController();
-const isWalletScreenOpen = Vue.computed(() => operationsController?.selectedTab === TopTab.Wallets);
+const certificationController = useCertificationController();
+const isWalletScreenOpen = Vue.computed(() => certificationController?.selectedTab === TopTab.Wallets);
 
 function syncOverlayState() {
   basics.overlayIsOpen = openWallets.value.some(wallet => wallet.showBackdrop);

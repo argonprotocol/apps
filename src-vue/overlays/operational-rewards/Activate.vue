@@ -4,7 +4,7 @@
       <div class="px-5 pt-2 pb-1">
         <div class="text-base leading-6 text-slate-700">
           Your completed Argon Operational Certification has earned you ₳{{
-            microgonToArgonNm(controller.rewardConfig.operationalReferralReward).format('0,0.[00]')
+            microgonToArgonNm(controller.rewardConfig.operationalActivationReward).format('0,0.[00]')
           }}
           ready to claim from the Argon Treasury.*
           <template v-if="hasTreasuryReserveShortfall && claimableNow !== undefined">
@@ -137,7 +137,7 @@ import {
 import { ExtrinsicType } from '../../lib/db/TransactionsTable.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
-import { useOperationsController } from '../../stores/operationsController.ts';
+import { useCertificationController } from '../../stores/certificationController.ts';
 import { getTransactionTracker } from '../../stores/transactions.ts';
 import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
 
@@ -154,7 +154,7 @@ const emit = defineEmits<{
   goTo: [screen: 'activate' | 'congratulations'];
 }>();
 
-const controller = useOperationsController();
+const controller = useCertificationController();
 const currency = getCurrency();
 const wallets = useWallets();
 const walletKeys = getWalletKeys();
@@ -195,7 +195,7 @@ const hasRewardAccountFeeShortfall = Vue.computed(() => {
 
 const hasTreasuryReserveShortfall = Vue.computed(() => {
   return (
-    treasuryReserves.value !== undefined && treasuryReserves.value < controller.rewardConfig.operationalReferralReward
+    treasuryReserves.value !== undefined && treasuryReserves.value < controller.rewardConfig.operationalActivationReward
   );
 });
 
@@ -243,7 +243,7 @@ async function activateAndClaimReward() {
       metadata: {
         rewardAccount: rewardAccount.value,
         vaultLockMicrogons: controller.rewardConfig.operationalMinimumVaultSecuritization,
-        rewardMicrogons: controller.rewardConfig.operationalReferralReward,
+        rewardMicrogons: controller.rewardConfig.operationalActivationReward,
         claimedMicrogons: rewardClaimAmount,
       },
     });
@@ -298,8 +298,8 @@ async function loadAvailability() {
   if (availability.canClaimRewards) {
     availableRewards =
       availability.treasuryReserves === undefined ||
-      availability.treasuryReserves > controller.rewardConfig.operationalReferralReward
-        ? controller.rewardConfig.operationalReferralReward
+      availability.treasuryReserves > controller.rewardConfig.operationalActivationReward
+        ? controller.rewardConfig.operationalActivationReward
         : availability.treasuryReserves;
   }
   const wholeArgon = BigInt(MICROGONS_PER_ARGON);

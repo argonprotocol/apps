@@ -3,7 +3,6 @@ import { MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
 import { MoveCapital } from '../lib/MoveCapital.ts';
 import { existentialDepositMicrogons, defaultArgonOperationalReserveMicrogons } from '../lib/WalletForArgon.ts';
 import { type IWallet } from '../lib/Wallet.ts';
-import { buildOperatorAccountRegistrationTx } from '../lib/OperationalAccount.ts';
 import * as MiningAccount from '../lib/MiningAccount.ts';
 import { Config } from '../lib/Config.ts';
 import { WalletKeys } from '../lib/WalletKeys.ts';
@@ -12,10 +11,6 @@ import { setDbPromise } from '../stores/helpers/dbPromise.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { TxAttemptState } from '../lib/TransactionTracker.ts';
-
-vi.mock('../lib/OperationalAccount.ts', () => ({
-  buildOperatorAccountRegistrationTx: vi.fn().mockResolvedValue(undefined),
-}));
 
 vi.mock('../stores/mainchain.ts', () => ({
   getMainchainClient: vi.fn().mockResolvedValue({}),
@@ -194,7 +189,6 @@ describe('MoveCapital', () => {
         assetsToMove: { ARGNOT: 7n },
       },
     });
-    expect(buildOperatorAccountRegistrationTx).toHaveBeenCalledOnce();
     expect(result).toEqual({ kind: 'submitted', txInfo });
 
     await vi.waitFor(() => expect(MiningAccount.ensureMiningBidProxySetup).toHaveBeenCalledOnce());

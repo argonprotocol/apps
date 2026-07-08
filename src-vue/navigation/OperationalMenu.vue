@@ -56,7 +56,7 @@
             </button>
           </div>
           <p class="text-argon-600 mt-1">
-            A bonus of {{ operationalReferralRewardLabel }} has been set aside in Argon's Treasury for your benefit. It
+            A bonus of {{ operationalActivationRewardLabel }} has been set aside in Argon's Treasury for your benefit. It
             will be claimable once your account becomes fully operational. Open the menu above to learn more.
           </p>
         </div>
@@ -102,7 +102,7 @@
                   <div class="border-b border-slate-300/50 pb-2.5">
                     <div class="text-lg font-bold text-slate-700">Claim your Rewards</div>
                     <div class="mt-0.5 text-sm leading-5 text-slate-500">
-                      You've finished the Argon Operational Certification Process! Open to claim your {{ operationalReferralRewardLabel }} reward.
+                      You've finished the Argon Operational Certification Process! Open to claim your {{ operationalActivationRewardLabel }} reward.
                     </div>
                     <button
                       type="button"
@@ -116,11 +116,11 @@
 
                 <template v-else>
                   <div class="border-b border-slate-300/50 pb-2.5">
-                  <div class="text-lg font-bold text-slate-700">Operator Referrals</div>
+                  <div class="text-lg font-bold text-slate-700">Member Invites</div>
                   <div class="mt-0.5 text-sm text-slate-500">
-                    Earn {{ operationalReferralRewardLabel }} for both you and each referral who completes the operational checklist. Every
-                    {{ controller.rewardConfig.referralBonusEveryXOperationalSponsees }} referred triggers a
-                    {{ referralBonusRewardLabel }} bonus!
+                    Earn {{ operationalActivationRewardLabel }} for both you and each referral who completes the operational checklist. Every
+                    {{ controller.rewardConfig.operationalReferralsPerBonusReward }} referred triggers a
+                    {{ operationalReferralBonusRewardLabel }} bonus!
                   </div>
                 </div>
 
@@ -154,7 +154,7 @@
                   v-if="hasUnclaimedRewards"
                   class="mt-3 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2">
                   <div class="min-w-0">
-                    <div class="text-sm font-semibold text-slate-800">{{ pendingReferralRewardLabel }} unclaimed</div>
+                    <div class="text-sm font-semibold text-slate-800">{{ pendingOperationalRewardLabel }} unclaimed</div>
                     <div class="text-xs text-slate-500">Choose where to send rewards.</div>
                   </div>
                   <button
@@ -170,9 +170,9 @@
                   <button
                     type="button"
                     class="text-argon-700 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold hover:border-slate-400 hover:bg-white"
-                    @click="openInviteHub()"
+                    @click="openManageMembers()"
                   >
-                    Manage Referral Codes
+                    Manage Members
                   </button>
                 </div>
                 </template>
@@ -181,7 +181,7 @@
               <div v-else class="max-w-160 pt-4 pb-2">
                 <p class="font-light px-5 ">
                   Complete the following seven steps, and you'll earn
-                  <template v-if="controller.chainProgress.hasSponsor">(along with your sponsor)</template> a {{ operationalReferralRewardLabel }} bonus from the Argon Treasury.
+                  <template v-if="controller.chainProgress.hasReferrer">(along with your referrer)</template> a {{ operationalActivationRewardLabel }} bonus from the Argon Treasury.
                 </p>
                 <ul class="flex flex-col mt-3 mb-1 text-base font-semibold divide-y divide-slate-600/15 whitespace-nowrap">
                   <li
@@ -242,10 +242,10 @@ import Arrow from '../components/Arrow.vue';
 import Tooltip from '../components/Tooltip.vue';
 import OperationalInviteSlots from '../components/OperationalInviteSlots.vue';
 import { createNumeralHelpers } from '../lib/numeral.ts';
-import { OperationalStepId, operationalSteps, useOperationsController } from '../stores/operationsController.ts';
+import { OperationalStepId, operationalSteps, useCertificationController } from '../stores/certificationController.ts';
 
 const config = getConfig();
-const controller = useOperationsController();
+const controller = useCertificationController();
 const currency = getCurrency();
 
 const { microgonToArgonNm } = createNumeralHelpers(currency);
@@ -266,44 +266,44 @@ const isShowingBonusTooltip = Vue.computed(() => {
   return (
     showBonusTooltip &&
     !isOpen.value &&
-    !!config.upstreamOperator?.inviteSecret &&
+    !!config.upstreamOperator?.name &&
     !completionNoticeStepId.value &&
     !controller.isOperationalRewardsFlowActive
   );
 });
-const operationalReferralRewardLabel = Vue.computed(() => {
-  return formatArgon(controller.rewardConfig.operationalReferralReward);
+const operationalActivationRewardLabel = Vue.computed(() => {
+  return formatArgon(controller.rewardConfig.operationalActivationReward);
 });
-const referralBonusRewardLabel = Vue.computed(() => {
-  return formatArgon(controller.rewardConfig.referralBonusReward);
+const operationalReferralBonusRewardLabel = Vue.computed(() => {
+  return formatArgon(controller.rewardConfig.operationalReferralBonusReward);
 });
-const earnedReferralRewardLabel = Vue.computed(() => {
+const earnedOperationalRewardLabel = Vue.computed(() => {
   return formatArgon(controller.inviteSlotProgress.rewardsEarnedAmount);
 });
-const claimedReferralRewardLabel = Vue.computed(() => {
+const claimedOperationalRewardLabel = Vue.computed(() => {
   return formatArgon(controller.inviteSlotProgress.rewardsCollectedAmount);
 });
-const pendingReferralRewardLabel = Vue.computed(() => {
+const pendingOperationalRewardLabel = Vue.computed(() => {
   return formatArgon(controller.pendingRewardsAmount);
 });
 const hasUnclaimedRewards = Vue.computed(() => {
   return controller.pendingRewardsAmount > 0n;
 });
 const referralBonusProgressLabel = Vue.computed(() => {
-  const bonusEvery = Math.max(controller.rewardConfig.referralBonusEveryXOperationalSponsees, 1);
+  const bonusEvery = Math.max(controller.rewardConfig.operationalReferralsPerBonusReward, 1);
   return `${controller.inviteSlotProgress.operationalReferralsCount % bonusEvery}/${bonusEvery}`;
 });
 const referralStats = Vue.computed(() => {
   return [
     {
       label: 'Earned',
-      value: earnedReferralRewardLabel.value,
-      tooltip: `${claimedReferralRewardLabel.value} has been claimed. ${pendingReferralRewardLabel.value} is unclaimed.`,
+      value: earnedOperationalRewardLabel.value,
+      tooltip: `${claimedOperationalRewardLabel.value} has been claimed. ${pendingOperationalRewardLabel.value} is unclaimed.`,
     },
     {
       label: 'Next Bonus',
-      value: referralBonusRewardLabel.value,
-      tooltip: `Every ${controller.rewardConfig.referralBonusEveryXOperationalSponsees} referred operators earns this bonus.`,
+      value: operationalReferralBonusRewardLabel.value,
+      tooltip: `Every ${controller.rewardConfig.operationalReferralsPerBonusReward} referred operators earns this bonus.`,
     },
     {
       label: 'Bonus Progress',
@@ -315,9 +315,9 @@ const referralStats = Vue.computed(() => {
 const hasInviteMoonBase = Vue.computed(() => {
   return (
     controller.operationalInvites.length > 0 ||
-    controller.inviteSlotProgress.unactivatedReferrals > 0 ||
+    controller.inviteSlotProgress.unactivatedUpgradeCodes > 0 ||
     controller.inviteSlotProgress.operationalReferralsCount > 0 ||
-    controller.inviteSlotProgress.referralPending
+    controller.inviteSlotProgress.upgradeCodePending
   );
 });
 let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
@@ -392,7 +392,17 @@ function openOperationalOverlay(stepId: OperationalStepId) {
 
 function openInviteHub(section?: 'create' | 'unlock' | 'outbound') {
   isOpen.value = false;
+  if (section === 'create') {
+    basicEmitter.emit('openVaultMembersOverlay');
+    return;
+  }
+
   basicEmitter.emit('openOperationalRewardsOverlay', { screen: 'overview', section });
+}
+
+function openManageMembers() {
+  isOpen.value = false;
+  basicEmitter.emit('openVaultMembersOverlay');
 }
 
 function openRewardsClaim() {

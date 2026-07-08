@@ -9,3 +9,6 @@ services:
   miner-2:
     volumes:
       - ./chainspec.raw.json:/chainspec.raw.json:ro
+  upstream-miner:
+    volumes:
+      - ./chainspec.raw.json:/chainspec.raw.json:ro

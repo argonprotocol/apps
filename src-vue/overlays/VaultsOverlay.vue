@@ -73,7 +73,6 @@ async function saveVault() {
   config.upstreamOperator = {
     name: vault.name ?? '',
     vaultId: vault.vaultId,
-    inviteSecret: config.upstreamOperator?.inviteSecret,
     accountId: config.upstreamOperator?.accountId,
   };
   await config.save();

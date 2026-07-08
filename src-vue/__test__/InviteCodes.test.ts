@@ -19,12 +19,12 @@ it('creates mnemonic invite secrets and hex-encoded invite codes', () => {
 it('signs and verifies invite open proofs', () => {
   const { inviteSecret, inviteCode } = InviteCodes.create();
   const accountId = '5F3sa2TJAWMqDhXG6jhV4N8ko9G4vYQ1N1gH1mLNz5nKfY7Y';
-  const signature = InviteCodes.signOpen(inviteSecret, UserRole.OperationalPartner, accountId);
+  const signature = InviteCodes.signOpen(inviteSecret, UserRole.Member, accountId);
 
   expect(
     InviteCodes.verifyOpen({
       inviteCode,
-      role: UserRole.OperationalPartner,
+      role: UserRole.Member,
       accountId,
       signature,
     }),
@@ -33,7 +33,7 @@ it('signs and verifies invite open proofs', () => {
   expect(
     InviteCodes.verifyOpen({
       inviteCode,
-      role: UserRole.OperationalPartner,
+      role: UserRole.Member,
       accountId: '5DAAnrj7VHTz5b2f4m65tQ6X3YfK6Y8sQw1bS8vW6oQ6mG7R',
       signature,
     }),

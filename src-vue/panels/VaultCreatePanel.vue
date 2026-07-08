@@ -181,14 +181,14 @@ import VaultTour from './vault-create-tour/Base.vue';
 import PiechartIcon from '../assets/piechart.svg?component';
 import Tooltip from '../components/Tooltip.vue';
 import { ITourPos } from '../stores/tour.ts';
-import { useOperationsController } from '../stores/operationsController.ts';
 import { provideOverlayContentZIndex, useFloatingZIndex, useOverlayZIndex } from '../overlays/helpers/OverlayZIndex.ts';
+import { useCertificationController } from '../stores/certificationController.ts';
 import VaultSettings from '../components/VaultSettings.vue';
 import { VaultingSetupStatus } from '../interfaces/IConfig.ts';
 
 const config = getConfig();
 const currency = getCurrency();
-const controller = useOperationsController();
+const controller = useCertificationController();
 const { microgonToMoneyNm, microgonToArgonNm } = createNumeralHelpers(currency);
 const emit = defineEmits<{
   (e: 'close'): void;

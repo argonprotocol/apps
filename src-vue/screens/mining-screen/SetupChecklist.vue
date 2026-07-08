@@ -214,7 +214,7 @@ import { getBiddingCalculator } from '../../stores/mainchain.ts';
 import BotReturns from '../../overlays/bot/BotReturns.vue';
 import BotCapital from '../../overlays/bot/BotCapital.vue';
 import BotCreatePanel from '../../panels/BotCreatePanel.vue';
-import { OperationalStepId, useOperationsController } from '../../stores/operationsController.ts';
+import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import BotCreatePriceChangeOverlay from '../../overlays/BotCreatePriceChangeOverlay.vue';
 import { UnitOfMeasurement } from '../../lib/Currency.ts';
 import { WalletType } from '../../lib/Wallet.ts';
@@ -229,7 +229,7 @@ const config = getConfig();
 const basics = useBasics();
 const wallets = useWallets();
 const currency = getCurrency();
-const controller = useOperationsController();
+const controller = useCertificationController();
 const calculator = getBiddingCalculator();
 
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);

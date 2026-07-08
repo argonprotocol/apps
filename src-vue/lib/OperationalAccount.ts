@@ -1,49 +1,51 @@
 import {
   ArgonClient,
   getOfflineRegistry,
-  hexToU8a,
-  Keyring,
   type KeyringPair,
   type Option,
   type PalletOperationalAccountsOperationalAccount,
   type PalletOperationalAccountsRewardsConfig,
   type SubmittableExtrinsic,
-  TxSubmitter,
   u8aToHex,
 } from '@argonprotocol/mainchain';
-import { createDeferred, MICROGONS_PER_ARGON } from '@argonprotocol/apps-core';
+import {
+  createDeferred,
+  getCertificationProgressFromOperationalAccount,
+  getCertificationThresholds,
+  MICROGONS_PER_ARGON,
+} from '@argonprotocol/apps-core';
 import { stringToU8a } from '@polkadot/util';
 import { blake2AsU8a, signatureVerify } from '@polkadot/util-crypto';
 import { Config } from '../stores/config.ts';
-import type { IOperationalReferral } from '../interfaces/IConfig.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
-import { WalletType } from './Wallet.ts';
+import { ExtrinsicType } from './db/TransactionsTable.ts';
+import { type TransactionInfo } from './TransactionInfo.ts';
+import { TransactionTracker, TxAttemptState } from './TransactionTracker.ts';
 import { WalletKeys } from './WalletKeys.ts';
 
 const OPERATIONAL_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_primary_account';
 const VAULT_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_vault_account';
 const MINING_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_mining_account';
-const MINING_FUNDING_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_mining_funding';
-const MINING_BOT_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_mining_bot';
-const REFERRAL_CLAIM_PROOF_MESSAGE_KEY = 'referral_claim';
-const REFERRAL_SPONSOR_GRANT_MESSAGE_KEY = 'referral_sponsor_grant';
 const OPERATIONAL_REWARDS_UPGRADE_ERROR = 'Reward claims cannot be submitted until the next Argon upgrade is active.';
 
 export type IOperationalRewardConfig = {
-  operationalReferralReward: bigint;
-  referralBonusReward: bigint;
-  referralBonusEveryXOperationalSponsees: number;
+  operationalActivationReward: bigint;
+  operationalReferralBonusReward: bigint;
+  operationalReferralsPerBonusReward: number;
   operationalMinimumUniswapTransfer: bigint;
   operationalMinimumVaultLockTicks: bigint;
   operationalMinimumVaultSecuritization: bigint;
+  miningSeatsForOperational: number;
   treasuryMinimumBitcoin: bigint;
   treasuryMinimumBonds: bigint;
-  bitcoinLockSizeForReferral: bigint;
-  miningSeatsPerReferral: number;
-  maxAvailableReferrals: number;
+  treasuryMinimumUniswapTransfer: bigint;
+  bitcoinLockSizeForUpgradeCode: bigint;
+  miningSeatsPerUpgradeCode: number;
+  maxAvailableUpgradeCodes: number;
 };
 
 export type IOperationalChainProgress = {
+  hasOperationalAccount: boolean;
   hasVault: boolean;
   hasUniswapTransfer: boolean;
   hasTreasuryBondParticipation: boolean;
@@ -53,14 +55,15 @@ export type IOperationalChainProgress = {
   bitcoinAccrual: bigint;
   miningSeatAccrual: number;
   operationalReferralsCount: number;
-  referralPending: boolean;
-  availableReferrals: number;
-  unactivatedReferrals: number;
+  upgradeCodePending: boolean;
+  availableUpgradeCodes: number;
+  unactivatedUpgradeCodes: number;
   rewardsEarnedCount: number;
   rewardsEarnedAmount: bigint;
   rewardsCollectedAmount: bigint;
+  isUpgradedToOperations: boolean;
   isOperational: boolean;
-  hasSponsor: boolean;
+  hasReferrer: boolean;
 };
 
 export type IOperationalRewardsClaimAvailability = {
@@ -72,30 +75,30 @@ export type IOperationalRewardsClaimAvailability = {
 };
 
 type LegacyOperationalAccountConsts = {
-  readonly operationalReferralReward?: ArgonClient['consts']['operationalAccounts']['operationalActivationReward'];
-  readonly referralBonusEveryXOperationalSponsees?: ArgonClient['consts']['operationalAccounts']['operationalReferralsPerBonusReward'];
-  readonly bitcoinLockSizeForReferral?: ArgonClient['consts']['operationalAccounts']['bitcoinLockSizeForUpgradeCode'];
-  readonly miningSeatsPerReferral?: ArgonClient['consts']['operationalAccounts']['miningSeatsPerUpgradeCode'];
-  readonly maxAvailableReferrals?: ArgonClient['consts']['operationalAccounts']['maxAvailableUpgradeCodes'];
+  readonly operationalActivationReward?: ArgonClient['consts']['operationalAccounts']['operationalActivationReward'];
+  readonly operationalReferralsPerBonusReward?: ArgonClient['consts']['operationalAccounts']['operationalReferralsPerBonusReward'];
+  readonly bitcoinLockSizeForUpgradeCode?: ArgonClient['consts']['operationalAccounts']['bitcoinLockSizeForUpgradeCode'];
+  readonly miningSeatsPerUpgradeCode?: ArgonClient['consts']['operationalAccounts']['miningSeatsPerUpgradeCode'];
+  readonly maxAvailableUpgradeCodes?: ArgonClient['consts']['operationalAccounts']['maxAvailableUpgradeCodes'];
 };
 
 type LegacyPalletOperationalAccountsOperationalAccount = PalletOperationalAccountsOperationalAccount & {
   readonly hasUniswapTransfer?: PalletOperationalAccountsOperationalAccount['vaultCreated'];
   readonly bitcoinAccrual?: PalletOperationalAccountsOperationalAccount['vaultBitcoinAccrual'];
   readonly bitcoinAppliedTotal?: PalletOperationalAccountsOperationalAccount['vaultBitcoinAppliedTotal'];
-  readonly hasTreasuryPoolParticipation?: PalletOperationalAccountsOperationalAccount['vaultCreated'];
   readonly referralPending?: PalletOperationalAccountsOperationalAccount['upgradeCodePending'];
+  readonly referralAccessCodePending?: PalletOperationalAccountsOperationalAccount['upgradeCodePending'];
   readonly availableReferrals?: PalletOperationalAccountsOperationalAccount['availableUpgradeCodes'];
+  readonly issuableAccessCodes?: PalletOperationalAccountsOperationalAccount['availableUpgradeCodes'];
+  readonly unactivatedAccessCodes?: PalletOperationalAccountsOperationalAccount['availableUpgradeCodes'];
   readonly isOperational?: PalletOperationalAccountsOperationalAccount['isOperationallyCertified'];
   readonly sponsor?: PalletOperationalAccountsOperationalAccount['referrer'];
 };
 
 type LegacyPalletOperationalAccountsRewardsConfig = PalletOperationalAccountsRewardsConfig & {
-  readonly operationalReferralReward?: PalletOperationalAccountsRewardsConfig['operationalActivationReward'];
-  readonly referralBonusReward?: PalletOperationalAccountsRewardsConfig['operationalReferralBonusReward'];
+  readonly operationalActivationReward?: PalletOperationalAccountsRewardsConfig['operationalActivationReward'];
+  readonly operationalReferralBonusReward?: PalletOperationalAccountsRewardsConfig['operationalReferralBonusReward'];
 };
-
-let setupOperatorAccountPromise: Promise<boolean> | undefined;
 
 function createOwnershipProof(account: KeyringPair, ownerAddr: string, accountAddr: string, domain: string) {
   const domainBytes = stringToU8a(domain);
@@ -112,81 +115,25 @@ function createOwnershipProof(account: KeyringPair, ownerAddr: string, accountAd
   };
 }
 
-export function signReferralSponsorGrant(args: {
-  sponsor: KeyringPair;
-  inviteCode: string;
-  expiresAtFrame: number;
-}): string {
-  return u8aToHex(
-    args.sponsor.sign(getReferralSponsorGrantPayloadHash(args.sponsor.address, args.inviteCode, args.expiresAtFrame), {
-      withType: true,
-    }),
-  );
-}
-
-export function verifyReferralSponsorGrant(args: {
-  sponsor: string;
-  inviteCode: string;
-  expiresAtFrame: number;
-  sponsorSignature: string;
-}): boolean {
-  return signatureVerify(
-    getReferralSponsorGrantPayloadHash(args.sponsor, args.inviteCode, args.expiresAtFrame),
-    hexToU8a(args.sponsorSignature),
-    args.sponsor,
-  ).isValid;
-}
-
-export function createReferralProof(args: {
-  inviteSecret: string;
-  accountId: string;
-  operationalReferral: IOperationalReferral;
-}) {
-  const pair = new Keyring({ type: 'sr25519' }).addFromMnemonic(args.inviteSecret);
-  const inviteCode = u8aToHex(pair.publicKey);
-  const { operationalReferral } = args;
-
-  return {
-    referralCode: pair.publicKey,
-    referralSignature: pair.sign(getReferralClaimPayloadHash(inviteCode, args.accountId)),
-    sponsor: operationalReferral.sponsor,
-    expiresAtFrame: operationalReferral.expiresAtFrame,
-    sponsorSignature: hexToU8a(operationalReferral.sponsorSignature),
-  };
-}
-
 export async function buildOperatorAccountRegistrationTx(args: {
   walletKeys: WalletKeys;
   config: Config;
   client?: ArgonClient;
 }): Promise<SubmittableExtrinsic | undefined> {
-  const { config, walletKeys } = args;
+  const { walletKeys, config } = args;
   const client = args.client ?? (await getMainchainClient(false));
   const existing = await loadOperationalAccount(walletKeys, client);
   if (existing.isSome) return;
 
-  const upstreamOperator = config.upstreamOperator;
-
-  const [operationalAccount, operationalEncryptionKey, vaultingAccount, defaultArgonAccount, miningBotAccount] =
-    await Promise.all([
-      walletKeys.getOperationalKeypair(),
-      walletKeys.getOperationalEncryptionKeypair(),
-      walletKeys.getVaultingKeypair(),
-      walletKeys.getDefaultArgonKeypair(),
-      walletKeys.getMiningBotKeypair(),
-    ]);
+  const [operationalAccount, operationalEncryptionKey, vaultingAccount, miningBotAccount] = await Promise.all([
+    walletKeys.getOperationalKeypair(),
+    walletKeys.getOperationalEncryptionKeypair(),
+    walletKeys.getVaultingKeypair(),
+    walletKeys.getMiningBotKeypair(),
+  ]);
   const operationalAddr = operationalAccount.address;
   const vaultingAddr = vaultingAccount.address;
-  const defaultArgonAddr = defaultArgonAccount.address;
   const miningBotAddr = miningBotAccount.address;
-  let referralProof = null;
-  if (upstreamOperator?.inviteSecret && upstreamOperator.operationalReferral) {
-    referralProof = createReferralProof({
-      inviteSecret: upstreamOperator.inviteSecret,
-      accountId: operationalAddr,
-      operationalReferral: upstreamOperator.operationalReferral,
-    });
-  }
 
   const operationalAccountProof = createOwnershipProof(
     operationalAccount,
@@ -200,35 +147,11 @@ export async function buildOperatorAccountRegistrationTx(args: {
     vaultingAddr,
     VAULT_ACCOUNT_PROOF_MESSAGE_KEY,
   );
-  const usesUnifiedMiningAccount =
-    typeof client.query.operationalAccounts.encryptedServerByDownstreamAccount === 'function';
   const miningBotAccountProof = createOwnershipProof(
     miningBotAccount,
     operationalAddr,
     miningBotAddr,
-    usesUnifiedMiningAccount ? MINING_ACCOUNT_PROOF_MESSAGE_KEY : MINING_BOT_ACCOUNT_PROOF_MESSAGE_KEY,
-  );
-
-  if (usesUnifiedMiningAccount) {
-    return client.tx.operationalAccounts.register({
-      V1: {
-        operationalAccount: operationalAddr,
-        encryptionPubkey: operationalEncryptionKey,
-        operationalAccountProof: { signature: operationalAccountProof.signature },
-        vaultAccount: vaultingAddr,
-        miningAccount: miningBotAddr,
-        vaultAccountProof: { signature: vaultAccountProof.signature },
-        miningAccountProof: { signature: miningBotAccountProof.signature },
-        referrer: referralProof?.sponsor ?? null,
-      },
-    });
-  }
-
-  const miningFundingAccountProof = createOwnershipProof(
-    defaultArgonAccount,
-    operationalAddr,
-    defaultArgonAddr,
-    MINING_FUNDING_ACCOUNT_PROOF_MESSAGE_KEY,
+    MINING_ACCOUNT_PROOF_MESSAGE_KEY,
   );
   return client.tx.operationalAccounts.register({
     V1: {
@@ -236,34 +159,59 @@ export async function buildOperatorAccountRegistrationTx(args: {
       encryptionPubkey: operationalEncryptionKey,
       operationalAccountProof: { signature: operationalAccountProof.signature },
       vaultAccount: vaultingAddr,
-      miningFundingAccount: defaultArgonAddr,
-      miningBotAccount: miningBotAddr,
+      miningAccount: miningBotAddr,
       vaultAccountProof: { signature: vaultAccountProof.signature },
-      miningFundingAccountProof: { signature: miningFundingAccountProof.signature },
-      miningBotAccountProof: { signature: miningBotAccountProof.signature },
-      referralProof,
+      miningAccountProof: { signature: miningBotAccountProof.signature },
+      referrer: config.upstreamOperator?.accountId ?? null,
     },
   });
 }
 
-export async function ensureOperatorAccountRegistered(args: {
+export async function ensureOperationalAccountRegistered(args: {
+  transactionTracker: TransactionTracker;
   walletKeys: WalletKeys;
   config: Config;
-  feePayers: WalletType[];
+  availableMicrogons: bigint;
+  followWindowFinalizedBlocks?: number;
   client?: ArgonClient;
-}): Promise<boolean> {
-  if (setupOperatorAccountPromise) {
-    return await setupOperatorAccountPromise;
+}): Promise<TransactionInfo | undefined> {
+  await args.transactionTracker.load();
+
+  const latestRegistrationTxInfo = args.transactionTracker.findLatestTxInfo(txInfo => {
+    return txInfo.tx.extrinsicType === ExtrinsicType.OperationalRegister;
+  });
+  if (latestRegistrationTxInfo) {
+    const txAttemptState = await args.transactionTracker.getTxAttemptState(
+      latestRegistrationTxInfo,
+      args.followWindowFinalizedBlocks ?? 2,
+    );
+    if (txAttemptState === TxAttemptState.Follow) {
+      return latestRegistrationTxInfo;
+    }
   }
 
-  const promise = registerOperatorAccount(args);
-  setupOperatorAccountPromise = promise;
-
-  try {
-    return await promise;
-  } finally {
-    setupOperatorAccountPromise = undefined;
+  const client = args.client ?? (await getMainchainClient(false));
+  const tx = await buildOperatorAccountRegistrationTx({
+    walletKeys: args.walletKeys,
+    config: args.config,
+    client,
+  });
+  if (!tx) {
+    return;
   }
+
+  const txSigner = await args.walletKeys.getTreasuryKeypair();
+  const feeEstimate = await tx.paymentInfo(txSigner.address);
+  if (args.availableMicrogons < feeEstimate.partialFee.toBigInt()) {
+    return;
+  }
+
+  return await args.transactionTracker.submitAndWatch({
+    tx,
+    txSigner,
+    useLatestNonce: true,
+    extrinsicType: ExtrinsicType.OperationalRegister,
+  });
 }
 
 export async function getOperationalRewardConfig(client?: ArgonClient): Promise<IOperationalRewardConfig> {
@@ -272,24 +220,27 @@ export async function getOperationalRewardConfig(client?: ArgonClient): Promise<
   client ??= await getMainchainClient(true);
   const consts = client.consts.operationalAccounts;
   const rewards = await client.query.operationalAccounts.rewards?.();
+  const certificationThresholds = getCertificationThresholds(client);
 
   if (consts.operationalActivationReward) {
     return {
-      operationalReferralReward:
+      operationalActivationReward:
         rewards?.operationalActivationReward?.toBigInt() ?? consts.operationalActivationReward.toBigInt(),
-      referralBonusReward:
+      operationalReferralBonusReward:
         rewards?.operationalReferralBonusReward?.toBigInt() ?? consts.operationalReferralBonusReward.toBigInt(),
-      referralBonusEveryXOperationalSponsees: consts.operationalReferralsPerBonusReward.toNumber(),
+      operationalReferralsPerBonusReward: consts.operationalReferralsPerBonusReward.toNumber(),
       operationalMinimumUniswapTransfer: consts.operationalMinimumUniswapTransfer.toBigInt(),
       operationalMinimumVaultLockTicks: client.consts.vaults.operationalMinimumVaultLockTicks.toBigInt(),
       operationalMinimumVaultSecuritization: (
         consts.operationalMinimumVaultSecuritization ?? client.consts.vaults.operationalMinimumVaultSecuritization
       ).toBigInt(),
-      treasuryMinimumBitcoin: consts.treasuryMinimumBitcoin.toBigInt(),
-      treasuryMinimumBonds: consts.treasuryMinimumBonds.toBigInt(),
-      bitcoinLockSizeForReferral: consts.bitcoinLockSizeForUpgradeCode.toBigInt(),
-      miningSeatsPerReferral: consts.miningSeatsPerUpgradeCode.toNumber(),
-      maxAvailableReferrals: consts.maxAvailableUpgradeCodes.toNumber(),
+      miningSeatsForOperational: consts.miningSeatsForOperational.toNumber(),
+      treasuryMinimumBitcoin: certificationThresholds.treasuryMinimumBitcoin,
+      treasuryMinimumBonds: certificationThresholds.treasuryMinimumBonds,
+      treasuryMinimumUniswapTransfer: certificationThresholds.treasuryMinimumUniswapTransfer,
+      bitcoinLockSizeForUpgradeCode: consts.bitcoinLockSizeForUpgradeCode.toBigInt(),
+      miningSeatsPerUpgradeCode: consts.miningSeatsPerUpgradeCode.toNumber(),
+      maxAvailableUpgradeCodes: consts.maxAvailableUpgradeCodes.toNumber(),
     };
   }
 
@@ -297,21 +248,25 @@ export async function getOperationalRewardConfig(client?: ArgonClient): Promise<
   const legacyRewards = rewards as LegacyPalletOperationalAccountsRewardsConfig | undefined;
 
   return {
-    operationalReferralReward:
-      legacyRewards?.operationalReferralReward?.toBigInt() ?? legacyConsts.operationalReferralReward?.toBigInt() ?? 0n,
-    referralBonusReward:
-      legacyRewards?.referralBonusReward?.toBigInt() ?? consts.operationalReferralBonusReward.toBigInt(),
-    referralBonusEveryXOperationalSponsees: legacyConsts.referralBonusEveryXOperationalSponsees?.toNumber() ?? 0,
+    operationalActivationReward:
+      legacyRewards?.operationalActivationReward?.toBigInt() ??
+      legacyConsts.operationalActivationReward?.toBigInt() ??
+      0n,
+    operationalReferralBonusReward:
+      legacyRewards?.operationalReferralBonusReward?.toBigInt() ?? consts.operationalReferralBonusReward.toBigInt(),
+    operationalReferralsPerBonusReward: legacyConsts.operationalReferralsPerBonusReward?.toNumber() ?? 0,
     operationalMinimumUniswapTransfer: 0n,
     operationalMinimumVaultLockTicks: client.consts.vaults.operationalMinimumVaultLockTicks.toBigInt(),
     operationalMinimumVaultSecuritization: (
       consts.operationalMinimumVaultSecuritization ?? client.consts.vaults.operationalMinimumVaultSecuritization
     ).toBigInt(),
-    treasuryMinimumBitcoin: 0n,
-    treasuryMinimumBonds: 0n,
-    bitcoinLockSizeForReferral: legacyConsts.bitcoinLockSizeForReferral?.toBigInt() ?? 0n,
-    miningSeatsPerReferral: legacyConsts.miningSeatsPerReferral?.toNumber() ?? 0,
-    maxAvailableReferrals: legacyConsts.maxAvailableReferrals?.toNumber() ?? 0,
+    miningSeatsForOperational: 2,
+    treasuryMinimumBitcoin: certificationThresholds.treasuryMinimumBitcoin,
+    treasuryMinimumBonds: certificationThresholds.treasuryMinimumBonds,
+    treasuryMinimumUniswapTransfer: certificationThresholds.treasuryMinimumUniswapTransfer,
+    bitcoinLockSizeForUpgradeCode: legacyConsts.bitcoinLockSizeForUpgradeCode?.toBigInt() ?? 0n,
+    miningSeatsPerUpgradeCode: legacyConsts.miningSeatsPerUpgradeCode?.toNumber() ?? 0,
+    maxAvailableUpgradeCodes: legacyConsts.maxAvailableUpgradeCodes?.toNumber() ?? 0,
   };
 }
 
@@ -404,58 +359,12 @@ export async function loadOperationalAccount(
   return await client.query.operationalAccounts.operationalAccounts(walletKeys.operationalAddress);
 }
 
-async function registerOperatorAccount(args: {
-  walletKeys: WalletKeys;
-  config: Config;
-  feePayers: WalletType[];
-  client?: ArgonClient;
-}): Promise<boolean> {
-  const client = args.client ?? (await getMainchainClient(false));
-  const tx = await buildOperatorAccountRegistrationTx({
-    walletKeys: args.walletKeys,
-    config: args.config,
-    client,
-  });
-  if (!tx) {
-    return false;
-  }
-
-  const uniqueFeePayers = [...new Set(args.feePayers)];
-  let txSigner: KeyringPair | undefined;
-
-  for (const walletType of uniqueFeePayers) {
-    const signer = await args.walletKeys.getWalletKeypair(walletType);
-    const [account, fee] = await Promise.all([
-      client.query.system.account(signer.address),
-      tx.paymentInfo(signer.address),
-    ]);
-
-    if (account.data.free.toBigInt() >= fee.partialFee.toBigInt()) {
-      txSigner = signer;
-      break;
-    }
-  }
-
-  if (!txSigner) {
-    console.info('[OperationalAccount] Skipping startup registration repair; no funded fee payer found.', {
-      feePayers: args.feePayers,
-    });
-    return false;
-  }
-
-  const txResult = await new TxSubmitter(client, tx, txSigner).submit({
-    useLatestNonce: true,
-  });
-  await txResult.waitForInFirstBlock;
-
-  return true;
-}
-
 export function getOperationalChainProgressFromAccount(
   accountRaw: Option<PalletOperationalAccountsOperationalAccount>,
   rewardConfig?: IOperationalRewardConfig,
 ): IOperationalChainProgress {
   const entry: IOperationalChainProgress = {
+    hasOperationalAccount: accountRaw.isSome,
     hasVault: false,
     hasUniswapTransfer: false,
     hasTreasuryBondParticipation: false,
@@ -465,70 +374,62 @@ export function getOperationalChainProgressFromAccount(
     bitcoinAccrual: 0n,
     miningSeatAccrual: 0,
     operationalReferralsCount: 0,
-    referralPending: false,
-    availableReferrals: 0,
-    unactivatedReferrals: 0,
+    upgradeCodePending: false,
+    availableUpgradeCodes: 0,
+    unactivatedUpgradeCodes: 0,
     rewardsEarnedCount: 0,
     rewardsEarnedAmount: 0n,
     rewardsCollectedAmount: 0n,
+    isUpgradedToOperations: false,
     isOperational: false,
-    hasSponsor: false,
+    hasReferrer: false,
   };
 
   if (!accountRaw.isSome) return entry;
 
   const account = accountRaw.unwrap();
   const legacyAccount = account as LegacyPalletOperationalAccountsOperationalAccount;
+  const certificationProgress = getCertificationProgressFromOperationalAccount(accountRaw, rewardConfig);
 
   const operationalMinimumUniswapTransfer = rewardConfig?.operationalMinimumUniswapTransfer ?? 0n;
-  const treasuryMinimumBitcoin = rewardConfig?.treasuryMinimumBitcoin ?? 0n;
-  const treasuryMinimumBonds = rewardConfig?.treasuryMinimumBonds ?? 0n;
 
   const bitcoinAccrual =
     legacyAccount.bitcoinAccrual?.toBigInt() ?? account.vaultBitcoinAccrual?.toBigInt() ?? entry.bitcoinAccrual;
   const bitcoinAppliedTotal =
     legacyAccount.bitcoinAppliedTotal?.toBigInt() ?? account.vaultBitcoinAppliedTotal?.toBigInt() ?? 0n;
   const miningSeatAccrualValue = account.miningSeatAccrual?.toNumber() ?? entry.miningSeatAccrual;
-  const miningSeatAppliedTotalValue = account.miningSeatAppliedTotal?.toNumber() ?? 0;
-  const accountBitcoinAmountValue = account.accountBitcoinAmount?.toBigInt() ?? bitcoinAccrual + bitcoinAppliedTotal;
-  const accountVaultBondAmountValue = account.accountVaultBondAmount?.toBigInt() ?? 0n;
   const uniswapArgonTransfersInAmountValue = account.uniswapArgonTransfersInAmount?.toBigInt() ?? 0n;
 
   return {
-    hasVault: account.vaultCreated?.toPrimitive() ?? entry.hasVault,
+    hasOperationalAccount: certificationProgress.hasOperationalAccount,
+    hasVault: account.vaultCreated?.toPrimitive() ?? false,
     hasUniswapTransfer:
       legacyAccount.hasUniswapTransfer?.toPrimitive() ??
-      (uniswapArgonTransfersInAmountValue > 0n &&
-        uniswapArgonTransfersInAmountValue >= operationalMinimumUniswapTransfer),
-    hasTreasuryBondParticipation:
-      legacyAccount.hasTreasuryPoolParticipation?.toPrimitive() ??
-      (accountVaultBondAmountValue > 0n && accountVaultBondAmountValue >= treasuryMinimumBonds),
-    hasFirstMiningSeat: miningSeatAccrualValue + miningSeatAppliedTotalValue >= 1,
-    hasSecondMiningSeat: miningSeatAccrualValue + miningSeatAppliedTotalValue >= 2,
-    hasBitcoinLock:
-      legacyAccount.bitcoinAccrual !== undefined || legacyAccount.bitcoinAppliedTotal !== undefined
-        ? bitcoinAccrual + bitcoinAppliedTotal > 0n
-        : accountBitcoinAmountValue > 0n && accountBitcoinAmountValue >= treasuryMinimumBitcoin,
+      uniswapArgonTransfersInAmountValue >= operationalMinimumUniswapTransfer,
+    hasTreasuryBondParticipation: certificationProgress.hasTreasuryBonds,
+    hasFirstMiningSeat: miningSeatAccrualValue + (account.miningSeatAppliedTotal?.toNumber() ?? 0) >= 1,
+    hasSecondMiningSeat: miningSeatAccrualValue + (account.miningSeatAppliedTotal?.toNumber() ?? 0) >= 2,
+    hasBitcoinLock: certificationProgress.hasTreasuryBitcoin,
     bitcoinAccrual,
     miningSeatAccrual: miningSeatAccrualValue,
     operationalReferralsCount: account.operationalReferralsCount?.toNumber() ?? entry.operationalReferralsCount,
-    referralPending:
+    upgradeCodePending:
       legacyAccount.referralPending?.toPrimitive() ??
+      legacyAccount.referralAccessCodePending?.toPrimitive() ??
       account.upgradeCodePending?.toPrimitive() ??
-      entry.referralPending,
-    availableReferrals:
+      entry.upgradeCodePending,
+    availableUpgradeCodes:
       legacyAccount.availableReferrals?.toNumber() ??
+      legacyAccount.issuableAccessCodes?.toNumber() ??
       account.availableUpgradeCodes?.toNumber() ??
-      entry.availableReferrals,
-    unactivatedReferrals: entry.unactivatedReferrals,
+      entry.availableUpgradeCodes,
+    unactivatedUpgradeCodes: legacyAccount.unactivatedAccessCodes?.toNumber() ?? entry.unactivatedUpgradeCodes,
     rewardsEarnedCount: account.rewardsEarnedCount?.toNumber() ?? entry.rewardsEarnedCount,
     rewardsEarnedAmount: account.rewardsEarnedAmount?.toBigInt() ?? entry.rewardsEarnedAmount,
     rewardsCollectedAmount: account.rewardsCollectedAmount?.toBigInt() ?? entry.rewardsCollectedAmount,
-    isOperational:
-      legacyAccount.isOperational?.toPrimitive() ??
-      account.isOperationallyCertified?.toPrimitive() ??
-      entry.isOperational,
-    hasSponsor: legacyAccount.sponsor?.isSome ?? account.referrer?.isSome ?? entry.hasSponsor,
+    isUpgradedToOperations: certificationProgress.isUpgradedToOperations,
+    isOperational: certificationProgress.isOperationallyCertified,
+    hasReferrer: legacyAccount.sponsor?.isSome ?? account.referrer?.isSome ?? entry.hasReferrer,
   };
 }
 
@@ -538,26 +439,4 @@ async function getTreasuryReserveBalance(client: ArgonClient): Promise<bigint | 
 
   const account = await client.query.system.account(treasuryReservesAccount.toString());
   return account.data.free.toBigInt();
-}
-
-function getReferralClaimPayloadHash(inviteCode: string, accountId: string): Uint8Array {
-  // The runtime signs fixed byte arrays here, so these are raw SCALE bytes, not length-prefixed Bytes.
-  const payload = getOfflineRegistry()
-    .createType('(Raw,Raw,AccountId)', [u8aToHex(stringToU8a(REFERRAL_CLAIM_PROOF_MESSAGE_KEY)), inviteCode, accountId])
-    .toU8a();
-
-  return blake2AsU8a(payload, 256);
-}
-
-function getReferralSponsorGrantPayloadHash(sponsor: string, inviteCode: string, expiresAtFrame: number): Uint8Array {
-  const payload = getOfflineRegistry()
-    .createType('(Raw,AccountId,Raw,u64)', [
-      u8aToHex(stringToU8a(REFERRAL_SPONSOR_GRANT_MESSAGE_KEY)),
-      sponsor,
-      inviteCode,
-      expiresAtFrame,
-    ])
-    .toU8a();
-
-  return blake2AsU8a(payload, 256);
 }

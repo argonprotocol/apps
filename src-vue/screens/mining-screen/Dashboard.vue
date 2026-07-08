@@ -292,10 +292,10 @@ import AssetMenu from '../components/AssetMenu.vue';
 import CopyAddressMenu from '../../components/CopyAddressMenu.vue';
 import { botEmitter } from '../../lib/Bot.ts';
 import { getBot } from '../../stores/bot.ts';
-import { OperationalStepId, useOperationsController } from '../../stores/operationsController.ts';
+import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import { useWallets } from '../../stores/wallets.ts';
 
-const controller = useOperationsController();
+const controller = useCertificationController();
 const stats = getStats();
 const currency = getCurrency();
 const bot = getBot();

@@ -11,6 +11,7 @@ export interface IUserRecord {
   role: Role;
   name: string;
   accountId?: string | null;
+  operationalAccountId?: string | null;
   authAccountId?: string | null;
   createdAt: Date;
 }
@@ -105,7 +106,11 @@ export class UsersTable extends BaseTable {
     return record ? this.mapUser(record) : null;
   }
 
-  public claimAccount(id: number, accountId: string, authAccountId: string): IUserRecord | null {
+  public claimAccount(
+    id: number,
+    accountId: string,
+    authAccountId: string,
+  ): IUserRecord | null {
     const record = this.db.sql
       .prepare(
         `
@@ -123,6 +128,26 @@ export class UsersTable extends BaseTable {
           id,
           accountId,
           authAccountId,
+        }),
+      ) as SqlUserRow | undefined;
+
+    return record ? this.mapUser(record) : null;
+  }
+
+  public setOperationalAccountId(id: number, operationalAccountId: string): IUserRecord | null {
+    const record = this.db.sql
+      .prepare(
+        `
+        UPDATE Users
+        SET operationalAccountId = COALESCE(operationalAccountId, $operationalAccountId)
+        WHERE id = $id
+        RETURNING *
+      `,
+      )
+      .get(
+        toSqliteParams({
+          id,
+          operationalAccountId,
         }),
       ) as SqlUserRow | undefined;
 

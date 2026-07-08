@@ -311,7 +311,7 @@ async function loadCurrentCoupon() {
     return;
   }
 
-  coupons.value = await upstreamOperatorClient.getBitcoinLockCoupons(walletKeys.liquidLockingAddress);
+  coupons.value = await upstreamOperatorClient.getBitcoinLockCoupons();
   await syncCouponOfferValue();
 }
 

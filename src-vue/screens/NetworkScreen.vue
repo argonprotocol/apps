@@ -369,7 +369,7 @@ import { useVaultingStats } from '../stores/vaultingStats.ts';
 import { useMiningStats } from '../stores/miningStats.ts';
 import { TooltipProvider } from 'reka-ui';
 import { TopTab } from '../interfaces/IConfig.ts';
-import { useOperationsController } from '../stores/operationsController.ts';
+import { useCertificationController } from '../stores/certificationController.ts';
 import { useWallets } from '../stores/wallets.ts';
 import { getStats } from '../stores/stats.ts';
 import { getConfig } from '../stores/config.ts';
@@ -402,7 +402,7 @@ import CopyAddressMenu from '../components/CopyAddressMenu.vue';
 import { usePortfolio } from '../stores/portfolio.ts';
 import { MiningSetupStatus, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 
-const controller = useOperationsController();
+const controller = useCertificationController();
 const vaultingStats = useVaultingStats();
 const miningStats = useMiningStats();
 const tour = useTour();
