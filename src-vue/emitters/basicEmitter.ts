@@ -1,7 +1,7 @@
 import mitt, { type Emitter } from 'mitt';
 import { WalletType } from '../lib/Wallet.ts';
 import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
-import { OperationalStepId } from '../stores/certificationController.ts';
+import type { OperationalStepId } from '../stores/certificationController.ts';
 import { ICurrencyKey, MoveTo } from '@argonprotocol/apps-core';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 
@@ -42,7 +42,6 @@ type IBasicEmitter = {
   openTransactionsOverlay: void;
 
   openVaultCollect: void;
-  openVaultMembersOverlay: void;
   openTreasuryBondsOverlay: void;
   openArgonotCommitmentOverlay: void;
   openMintingAuthorityRequestOverlay: void;
@@ -54,10 +53,7 @@ type IBasicEmitter = {
   openServerOverlay: void;
   openServerSettingsOverlay: void;
   openOperationalOverlay: OperationalStepId;
-  openOperationalRewardsOverlay:
-    | { screen?: 'activate' | 'congratulations' | 'overview' | 'claim'; section?: 'create' | 'unlock' | 'outbound' }
-    | undefined;
-  openOperationalFinishOverlay: void;
+  openOperationalRewardsOverlay: { screen?: 'activate' | 'congratulations' | 'claim' } | undefined;
 };
 
 const basicEmitter: Emitter<IBasicEmitter> = mitt<IBasicEmitter>();

@@ -143,7 +143,7 @@ import { getCurrency } from '../../stores/currency.ts';
 import { BitcoinLock, MICROGONS_PER_ARGON, SATS_PER_BTC, Vault } from '@argonprotocol/mainchain';
 import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 import { useDebounceFn } from '@vueuse/core';
-import { getBitcoinLocks } from '../../stores/bitcoin.ts';
+import { getBitcoinLockCoupons, getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { getConfig } from '../../stores/config.ts';
 import { getVaults } from '../../stores/vaults.ts';
 import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
@@ -163,6 +163,7 @@ const emit = defineEmits<{
 const currency = getCurrency();
 const vaults = getVaults();
 const bitcoinLocks = getBitcoinLocks();
+const bitcoinLockCoupons = getBitcoinLockCoupons();
 const config = getConfig();
 const wallets = useWallets();
 const walletKeys = getWalletKeys();
@@ -353,6 +354,9 @@ async function submitLiquidLock() {
       vault: props.vault,
       operatorCoupon: operatorCoupon.value,
     });
+    if (operatorCoupon.value) {
+      await bitcoinLockCoupons.refresh();
+    }
     const createdLock = bitcoinLocks.data.pendingLocks.at(-1);
     if (createdLock) {
       emit('lockCreated', createdLock);

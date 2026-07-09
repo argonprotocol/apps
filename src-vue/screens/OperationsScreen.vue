@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-row gap-x-5">
+  <div class="flex flex-row justify-center gap-x-5 py-5">
     <section box class="flex min-h-60 w-1/3 flex-col px-2">
       <header class="flex flex-row border-b border-slate-400/30 py-2 text-[18px] font-bold text-slate-900/80 uppercase">
         <span class="grow pl-3">Your Mining Operations</span>
@@ -185,3 +185,11 @@ function setupMining() {
   config.miningSetupStatus = MiningSetupStatus.Checklist;
 }
 </script>
+
+<style scoped>
+@reference "../main.css";
+
+[box] {
+  @apply min-h-20 rounded border-[1px] border-slate-400/30 bg-white py-2 shadow;
+}
+</style>

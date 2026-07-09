@@ -1,5 +1,11 @@
 import { nanoid } from 'nanoid';
-import { UserRole, type IRouterAuthAccountBinding, verifyRouterAuthAccountBinding } from '@argonprotocol/apps-core';
+import {
+  UserRole,
+  type IOperationalAccessProof,
+  type IRouterAuthAccountBinding,
+  verifyOperationalAccessProof,
+  verifyRouterAuthAccountBinding,
+} from '@argonprotocol/apps-core';
 import type { ArgonClient } from '@argonprotocol/mainchain';
 import type { Db } from './Db.ts';
 import { RouterError } from './RouterError.ts';
@@ -187,18 +193,53 @@ export class UserInviteService {
     }
   }
 
-  public markOperationsUpgraded(inviteCode: string): IUserInviteRecord | null {
+  public markOperationsUpgraded(inviteCode: string, accessProof: IOperationalAccessProof): IUserInviteRecord | null {
     const trimmedInviteCode = inviteCode.trim();
     if (!trimmedInviteCode) {
       throw new RouterError('An invite code is required.');
     }
+    if (!accessProof.upstreamAccount.trim()) {
+      throw new RouterError('An upstream account is required.');
+    }
+    if (!accessProof.signature.trim()) {
+      throw new RouterError('An access proof signature is required.');
+    }
 
     const invite = this.db.userInvitesTable.fetchByCode(trimmedInviteCode, UserRole.Member);
-    if (!invite || invite.operationsUpgradedAt) {
+    if (!invite) {
+      return invite;
+    }
+    if (!invite.operationsUpgradeRequestedAt || !invite.operationalAccountId) {
+      throw new RouterError('This invite has not requested an operations upgrade.', 409);
+    }
+    if (
+      invite.operationsAccessProofSignature &&
+      invite.operationsAccessProofSignature !== accessProof.signature.trim()
+    ) {
+      throw new RouterError('This invite already has a different operations access proof.', 409);
+    }
+    if (!verifyOperationalAccessProof(accessProof, invite.operationalAccountId)) {
+      throw new RouterError('The operations access proof signature is invalid.', 403);
+    }
+    if (invite.operationsUpgradedAt) {
       return invite;
     }
 
-    return this.db.userInvitesTable.markOperationsUpgraded(invite.id);
+    return this.db.userInvitesTable.markOperationsUpgraded(invite.id, accessProof.signature.trim());
+  }
+
+  public getInviteAccessProof(
+    invite: IUserInviteRecord,
+    upstreamAccountId?: string,
+  ): IOperationalAccessProof | undefined {
+    if (!upstreamAccountId || !invite.operationsAccessProofSignature) {
+      return;
+    }
+
+    return {
+      upstreamAccount: upstreamAccountId,
+      signature: invite.operationsAccessProofSignature,
+    };
   }
 
   public deleteInvitedUser(userId: number): void {

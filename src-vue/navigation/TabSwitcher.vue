@@ -29,11 +29,12 @@
         </div>
       </div>
 
-      <div Item
-           v-if="config.hasExtensionOperations"
-           @click="goto(controller.selectedOperationsTab)"
-           :class="{ selected: !!controller.selectedTab && [TopTab.Operations, TopTab.MiningOperations, TopTab.VaultingOperations].includes(controller.selectedTab) }"
-           class="pr-0!"
+      <div
+        v-if="config.hasExtensionOperations"
+        Item
+        @click="goto(controller.selectedOperationsTab)"
+        :class="{ selected: !!controller.selectedTab && [TopTab.Operations, TopTab.MiningOperations, TopTab.VaultingOperations].includes(controller.selectedTab) }"
+        class="pr-0!"
       >
         <div Wrapper class="text-center flex flex-row">
           <div class="font-bold border-r border-slate-400/50 pr-2.5">
@@ -45,23 +46,34 @@
         </div>
       </div>
 
-      <div Item
-         v-if="config.hasExtensionTreasury"
-         @click="goto(controller.selectedTreasuryTab)"
-         :class="{ selected: !!controller.selectedTab && [TopTab.Treasury, TopTab.TreasuryBonds, TopTab.TreasuryLocks].includes(controller.selectedTab) }"
-         class="pr-0!"
+      <div
+        v-if="config.hasExtensionTreasury"
+        Item
+        @click="goto(controller.selectedTreasuryTab)"
+        :class="{ selected: !!controller.selectedTab && [TopTab.Treasury, TopTab.TreasuryBonds, TopTab.TreasuryLocks].includes(controller.selectedTab) }"
+        class="pr-0!"
       >
         <div Wrapper class="text-center flex flex-row">
-          <div class="font-bold border-r border-slate-400/50 pr-2.5">
+          <div class="font-bold inline-flex items-center gap-1.5 border-r border-slate-400/50 pr-2.5">
             <span>Treasury</span>
-            <template v-if="controller.selectedTreasuryTab === TopTab.TreasuryBonds"> : Bonds</template>
-            <template v-else-if="controller.selectedTreasuryTab === TopTab.TreasuryLocks"> : Bitcoins</template>
+            <template v-if="controller.selectedTreasuryTab === TopTab.TreasuryBonds">
+              <span>: Bonds</span>
+            </template>
+            <template v-else-if="controller.selectedTreasuryTab === TopTab.TreasuryLocks">
+              <span>: Bitcoins</span>
+            </template>
+            <span
+              v-if="bitcoinLockCoupons.openCouponCount"
+              class="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300/70 bg-white text-[11px] font-semibold text-argon-400/75"
+            >
+              {{ bitcoinLockCoupons.openCouponCount }}
+            </span>
           </div>
           <TreasuryMenu MenuArrow />
         </div>
       </div>
 
-      <PopoverRoot v-if="!config.hasExtensionTreasury" v-model:open="isTreasuryInviteOpen">
+      <PopoverRoot v-else v-model:open="isTreasuryInviteOpen">
         <PopoverTrigger :asChild="true">
           <div Item :class="{ selected: isTreasuryInviteOpen }">
             <div Wrapper class="text-center flex flex-row">
@@ -79,6 +91,7 @@
             align="center"
             :sideOffset="1"
             :collisionPadding="24"
+            :style="tabSwitcherZIndex"
             class="group relative w-[560px] rounded-lg border border-gray-300 bg-white text-left shadow-lg"
           >
             <PopoverPanelArrow />
@@ -87,34 +100,6 @@
         </PopoverPortal>
       </PopoverRoot>
 
-      <PopoverRoot
-        v-if="config.hasExtensionTreasury && !config.hasExtensionOperations"
-        v-model:open="isOperationsUpgradeOpen"
-      >
-        <PopoverTrigger :asChild="true">
-          <div Item :class="{ selected: isOperationsUpgradeOpen }">
-            <div Wrapper class="text-center flex flex-row">
-              <div class="font-bold">
-                <span>Upgrade to Operations</span>
-              </div>
-            </div>
-          </div>
-        </PopoverTrigger>
-
-        <PopoverPortal>
-          <PopoverContent
-            as="div"
-            side="bottom"
-            align="center"
-            :sideOffset="1"
-            :collisionPadding="24"
-            class="group relative w-[560px] rounded-lg border border-gray-300 bg-white text-left shadow-lg"
-          >
-            <PopoverPanelArrow />
-            <AdForOperationsOverlay />
-          </PopoverContent>
-        </PopoverPortal>
-      </PopoverRoot>
     </section>
   </div>
 </template>
@@ -131,17 +116,17 @@ import PopoverPanelArrow from '../components/PopoverPanelArrow.vue';
 import OperationsMenu from './OperationsMenu.vue';
 import TreasuryMenu from './TreasuryMenu.vue';
 import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
-import AdForOperationsOverlay from '../overlays/AdForOperationsOverlay.vue';
 import AdForTreasuryOverlay from '../overlays/AdForTreasuryOverlay.vue';
+import { getBitcoinLockCoupons } from '../stores/bitcoin.ts';
 
 const tour = useTour();
+const bitcoinLockCoupons = getBitcoinLockCoupons();
 const controller = useCertificationController();
 const config = getConfig();
 const tabSwitcherZIndex = useFloatingZIndex();
 
 const toggleRef = Vue.ref<HTMLElement | null>(null);
 const isTreasuryInviteOpen = Vue.ref(false);
-const isOperationsUpgradeOpen = Vue.ref(false);
 
 function goto(tab: TopTab) {
   if (controller.backButtonTriggersHome) {
@@ -157,7 +142,7 @@ function goto(tab: TopTab) {
 
 function onTreasuryInviteClaimed() {
   isTreasuryInviteOpen.value = false;
-  goto(controller.selectedTreasuryTab);
+  goto(TopTab.Treasury);
 }
 
 tour.registerPositionCheck('miningTab', (): ITourPos => {

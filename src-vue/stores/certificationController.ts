@@ -25,12 +25,15 @@ import { getServerApiClient } from './server.ts';
 import { getTransactionTracker } from './transactions.ts';
 import { useMyBonds } from './myBonds.ts';
 import { getStats } from './stats.ts';
+import { getMainchainClient } from './mainchain.ts';
 import { getMyVault } from './vaults.ts';
+import { getUpstreamOperatorClient } from './upstreamOperator.ts';
 import BootstrapToNode from '../overlays/operational/BootstrapToNode.vue';
 import BackupMnemonic from '../overlays/operational/BackupMnemonic.vue';
 import ActivateVault from '../overlays/operational/ActivateVault.vue';
 import LiquidLock from '../overlays/operational/LiquidLock.vue';
 import AcquireBonds from '../overlays/operational/AcquireBonds.vue';
+import TransferArgons from '../overlays/operational/TransferArgons.vue';
 import WinMiningSeats from '../overlays/operational/WinMiningSeats.vue';
 import WinMoreMiningSeats from '../overlays/operational/WinMoreMiningSeats.vue';
 import {
@@ -51,6 +54,8 @@ export enum OperationalStepId {
   ActivateVault = 'ActivateVault',
   LiquidLock = 'LiquidLock',
   AcquireBonds = 'AcquireBonds',
+  TreasuryTransfer = 'TreasuryTransfer',
+  OperationalTransfer = 'OperationalTransfer',
   FirstMiningSeat = 'FirstMiningSeat',
   MoreMiningSeats = 'MoreMiningSeats',
 }
@@ -82,16 +87,24 @@ export const operationalSteps: Record<OperationalStepId, IOperationalStep> = {
     title: 'Liquid Lock a Bitcoin',
     documentationLink: 'https://argon.network/docs/operator-certification/liquid-lock',
     component: LiquidLock,
-    blockedByStepId: OperationalStepId.ActivateVault,
   },
   [OperationalStepId.AcquireBonds]: {
     title: 'Acquire Treasury Bonds',
     documentationLink: 'https://argon.network/docs/operator-certification/acquire-bonds',
     component: AcquireBonds,
-    blockedByStepId: OperationalStepId.ActivateVault,
+  },
+  [OperationalStepId.TreasuryTransfer]: {
+    title: 'Transfer Argons from Uniswap',
+    documentationLink: 'https://argon.network/docs/operator-certification',
+    component: TransferArgons,
+  },
+  [OperationalStepId.OperationalTransfer]: {
+    title: 'Transfer Argons from Uniswap',
+    documentationLink: 'https://argon.network/docs/operator-certification',
+    component: TransferArgons,
   },
   [OperationalStepId.FirstMiningSeat]: {
-    title: 'Win a First Mining Seat',
+    title: 'Win Mining Seats',
     documentationLink: 'https://argon.network/docs/operator-certification/win-first-mining-seat',
     component: WinMiningSeats,
   },
@@ -103,13 +116,29 @@ export const operationalSteps: Record<OperationalStepId, IOperationalStep> = {
   },
 };
 
-const operationalStepIds = Object.keys(operationalSteps) as OperationalStepId[];
+export const treasuryCertificationStepIds = [
+  OperationalStepId.BackupMnemonic,
+  OperationalStepId.LiquidLock,
+  OperationalStepId.TreasuryTransfer,
+  OperationalStepId.AcquireBonds,
+] as const;
+export const operationsCertificationStepIds = [
+  OperationalStepId.OperationalTransfer,
+  OperationalStepId.ActivateVault,
+  OperationalStepId.FirstMiningSeat,
+] as const;
+const allCertificationStepIds: readonly OperationalStepId[] = [
+  ...treasuryCertificationStepIds,
+  ...operationsCertificationStepIds,
+];
 
 type IOperationalStepStatus = 'not_started' | 'underway' | 'complete';
 export type IOperationalInviteStatusLabel =
   | 'Not opened'
   | 'Opened'
   | 'Registered'
+  | 'Upgrade requested'
+  | 'Access granted'
   | 'Operationally certified'
   | 'Expired';
 export type IOperationalInviteStatus = {
@@ -135,6 +164,7 @@ export const useCertificationController = defineStore('certificationController',
   const transactionTracker = getTransactionTracker();
   const walletKeys = getWalletKeys();
   const wallets = useWallets();
+  const upstreamOperatorClient = getUpstreamOperatorClient();
 
   const selectedTab = Vue.ref<TopTab | null>(null);
   const selectedTreasuryTab = Vue.ref<ITreasuryTabs>(TopTab.Treasury);
@@ -147,26 +177,28 @@ export const useCertificationController = defineStore('certificationController',
   const stopSuggestingVaultTour = Vue.ref(true);
 
   const backButtonTriggersHome = Vue.ref(false);
+  const treasuryTransferredInMicrogons = Vue.ref(0n);
   const chainProgress = Vue.ref<IOperationalChainProgress>({
     hasOperationalAccount: false,
     hasVault: false,
     hasUniswapTransfer: false,
+    hasTreasuryUniswapTransfer: false,
     hasTreasuryBondParticipation: false,
     hasFirstMiningSeat: false,
     hasSecondMiningSeat: false,
     hasBitcoinLock: false,
     bitcoinAccrual: 0n,
     miningSeatAccrual: 0,
-    operationalReferralsCount: 0,
-    upgradeCodePending: false,
-    availableUpgradeCodes: 0,
-    unactivatedUpgradeCodes: 0,
+    operationalCertificationsCount: 0,
+    accessCodePending: false,
+    availableAccessCodes: 0,
+    unactivatedAccessCodes: 0,
     rewardsEarnedCount: 0,
     rewardsEarnedAmount: 0n,
     rewardsCollectedAmount: 0n,
     isUpgradedToOperations: false,
     isOperational: false,
-    hasReferrer: false,
+    hasUpstreamAccount: false,
   });
   const rewardConfig = Vue.ref<IOperationalRewardConfig>({
     operationalActivationReward: defaultRewardAmount,
@@ -187,7 +219,7 @@ export const useCertificationController = defineStore('certificationController',
   const operationalInvites = Vue.ref<IMemberInvite[]>([]);
   const operationalInviteStatusesByCode = Vue.ref<Record<string, IOperationalInviteStatus>>({});
 
-  const certificationStepCount = operationalStepIds.length;
+  const certificationStepCount = allCertificationStepIds.length;
   const hasBitcoinFundingSeenOnBitcoin = Vue.computed(() => {
     return Object.values(bitcoinLocks.data.locksByUtxoId).some(lock => {
       const fundingRecord =
@@ -232,8 +264,8 @@ export const useCertificationController = defineStore('certificationController',
     );
   });
   const hasCompletedOwnBitcoinLock = Vue.computed(() => {
-    return Object.values(bitcoinLocks.data.locksByUtxoId).some(lock => {
-      if (lock.lockDetails.ownerAccount !== walletKeys.defaultArgonAddress) return false;
+    const completedOwnBitcoinLockAmount = Object.values(bitcoinLocks.data.locksByUtxoId).reduce((total, lock) => {
+      if (lock.lockDetails.ownerAccount !== walletKeys.defaultArgonAddress) return total;
       if (
         ![
           BitcoinLockStatus.LockedAndIsMinting,
@@ -242,21 +274,30 @@ export const useCertificationController = defineStore('certificationController',
           BitcoinLockStatus.Released,
         ].includes(lock.status)
       ) {
-        return false;
+        return total;
       }
-      return rewardConfig.value.treasuryMinimumBitcoin <= 0n
-        ? true
-        : lock.liquidityPromised >= rewardConfig.value.treasuryMinimumBitcoin;
-    });
+
+      return total + lock.liquidityPromised;
+    }, 0n);
+
+    return rewardConfig.value.treasuryMinimumBitcoin <= 0n
+      ? completedOwnBitcoinLockAmount > 0n
+      : completedOwnBitcoinLockAmount >= rewardConfig.value.treasuryMinimumBitcoin;
   });
   const certificationProgress = Vue.computed(() => {
     if (chainProgress.value.hasOperationalAccount) {
       return {
         hasVault: chainProgress.value.hasVault,
         hasTreasuryBondParticipation: chainProgress.value.hasTreasuryBondParticipation,
+        hasOperationalUniswapTransfer: chainProgress.value.hasUniswapTransfer,
+        hasOperationalMiningSeats:
+          rewardConfig.value.miningSeatsForOperational <= 1
+            ? chainProgress.value.hasFirstMiningSeat
+            : chainProgress.value.hasSecondMiningSeat,
         hasFirstMiningSeat: chainProgress.value.hasFirstMiningSeat,
         hasSecondMiningSeat: chainProgress.value.hasSecondMiningSeat,
         hasBitcoinLock: chainProgress.value.hasBitcoinLock,
+        hasTreasuryUniswapTransfer: chainProgress.value.hasTreasuryUniswapTransfer,
       };
     }
 
@@ -269,17 +310,36 @@ export const useCertificationController = defineStore('certificationController',
         rewardConfig.value.treasuryMinimumBonds <= 0n
           ? activeBondMicrogons > 0n
           : activeBondMicrogons >= rewardConfig.value.treasuryMinimumBonds,
+      hasOperationalUniswapTransfer:
+        rewardConfig.value.operationalMinimumUniswapTransfer <= 0n
+          ? treasuryTransferredInMicrogons.value > 0n
+          : treasuryTransferredInMicrogons.value >= rewardConfig.value.operationalMinimumUniswapTransfer,
+      hasOperationalMiningSeats: seatCount >= rewardConfig.value.miningSeatsForOperational,
       hasFirstMiningSeat: seatCount >= 1,
       hasSecondMiningSeat: seatCount >= 2,
       hasBitcoinLock: hasCompletedOwnBitcoinLock.value,
+      hasTreasuryUniswapTransfer:
+        rewardConfig.value.treasuryMinimumUniswapTransfer <= 0n
+          ? treasuryTransferredInMicrogons.value > 0n
+          : treasuryTransferredInMicrogons.value >= rewardConfig.value.treasuryMinimumUniswapTransfer,
     };
   });
 
   const completedCertificationStepCount = Vue.computed(() => {
-    return operationalStepIds.filter(stepId => isCertificationStepComplete(stepId)).length;
+    return allCertificationStepIds.filter(stepId => isCertificationStepComplete(stepId)).length;
+  });
+  const completedTreasuryCertificationStepCount = Vue.computed(() => {
+    return treasuryCertificationStepIds.filter(stepId => isCertificationStepComplete(stepId)).length;
   });
   const isCertificationChecklistComplete = Vue.computed(() => {
     return completedCertificationStepCount.value === certificationStepCount;
+  });
+  const isTreasuryCertificationFlowActive = Vue.computed(() => {
+    if (!config.hasExtensionTreasury) {
+      return false;
+    }
+
+    return completedTreasuryCertificationStepCount.value < treasuryCertificationStepIds.length;
   });
   const isFullyOperational = Vue.computed(() => {
     return chainProgress.value.isOperational;
@@ -307,13 +367,13 @@ export const useCertificationController = defineStore('certificationController',
   const inviteSlotProgress = Vue.computed<IOperationalChainProgress>(() => {
     return {
       ...chainProgress.value,
-      unactivatedUpgradeCodes: activeOperationalInviteCount.value,
+      unactivatedAccessCodes: activeOperationalInviteCount.value,
     };
   });
   const dismissedCompletionNoticeStepIds = Vue.computed(() => {
     const stepIds = config.certificationDetails?.dismissedCompletionNoticeStepIds ?? [];
     return new Set(
-      stepIds.filter(stepId => operationalStepIds.includes(stepId as OperationalStepId)) as OperationalStepId[],
+      stepIds.filter(stepId => allCertificationStepIds.includes(stepId as OperationalStepId)) as OperationalStepId[],
     );
   });
   const pendingRewardsAmount = Vue.computed(() => {
@@ -339,8 +399,14 @@ export const useCertificationController = defineStore('certificationController',
     if (stepId === OperationalStepId.AcquireBonds) {
       return certificationProgress.value.hasTreasuryBondParticipation;
     }
+    if (stepId === OperationalStepId.TreasuryTransfer) {
+      return certificationProgress.value.hasTreasuryUniswapTransfer;
+    }
+    if (stepId === OperationalStepId.OperationalTransfer) {
+      return certificationProgress.value.hasOperationalUniswapTransfer;
+    }
     if (stepId === OperationalStepId.FirstMiningSeat) {
-      return certificationProgress.value.hasFirstMiningSeat;
+      return certificationProgress.value.hasOperationalMiningSeats;
     }
     if (stepId === OperationalStepId.MoreMiningSeats) {
       return certificationProgress.value.hasSecondMiningSeat;
@@ -379,6 +445,43 @@ export const useCertificationController = defineStore('certificationController',
     return 'Not completed';
   }
 
+  function getCertificationStepRequirementLabel(stepId: OperationalStepId) {
+    const requirement = getCertificationStepRequirementText(stepId);
+    return requirement ? `Need ${requirement}` : null;
+  }
+
+  function getCertificationStepRequirementText(stepId: OperationalStepId) {
+    if (!isLoaded.value) return null;
+
+    if (stepId === OperationalStepId.ActivateVault) {
+      return formatArgonRequirementText(rewardConfig.value.operationalMinimumVaultSecuritization, 'securitization');
+    }
+    if (stepId === OperationalStepId.LiquidLock) {
+      return formatArgonRequirementText(rewardConfig.value.treasuryMinimumBitcoin, 'bitcoin');
+    }
+    if (stepId === OperationalStepId.AcquireBonds) {
+      return formatArgonRequirementText(rewardConfig.value.treasuryMinimumBonds, 'bonds');
+    }
+    if (stepId === OperationalStepId.TreasuryTransfer) {
+      return formatArgonRequirementText(rewardConfig.value.treasuryMinimumUniswapTransfer, 'from Uniswap');
+    }
+    if (stepId === OperationalStepId.OperationalTransfer) {
+      return formatArgonRequirementText(rewardConfig.value.operationalMinimumUniswapTransfer, 'from Uniswap');
+    }
+    if (stepId === OperationalStepId.FirstMiningSeat) {
+      return rewardConfig.value.miningSeatsForOperational > 0
+        ? `${rewardConfig.value.miningSeatsForOperational} seats`
+        : null;
+    }
+    if (stepId === OperationalStepId.MoreMiningSeats) {
+      return rewardConfig.value.miningSeatsForOperational > 0
+        ? `${rewardConfig.value.miningSeatsForOperational} seats`
+        : null;
+    }
+
+    return null;
+  }
+
   function getCertificationBlocker(stepId: OperationalStepId) {
     const blockedByStepId = operationalSteps[stepId].blockedByStepId;
     if (!blockedByStepId || isCertificationStepComplete(blockedByStepId)) return null;
@@ -414,20 +517,23 @@ export const useCertificationController = defineStore('certificationController',
   async function ensureOperationalRegistration() {
     await config.isLoadedPromise;
 
-    if (!config.hasExtensionTreasury || !config.upstreamOperator?.accountId) {
+    if (!config.hasExtensionTreasury) {
+      return;
+    }
+
+    const invite = await upstreamOperatorClient.getMemberInvite().catch(() => null);
+    if (!invite?.accessProof) {
       return;
     }
 
     await wallets.isLoadedPromise;
 
-    const txInfo = await ensureOperationalAccountRegistered({
+    return await ensureOperationalAccountRegistered({
       transactionTracker,
       walletKeys,
-      config: config as Config,
+      accessProof: invite.accessProof,
       availableMicrogons: wallets.defaultArgonWallet.availableMicrogons,
     });
-
-    await txInfo?.txResult.waitForFinalizedBlock;
   }
 
   async function load() {
@@ -444,7 +550,7 @@ export const useCertificationController = defineStore('certificationController',
       x => {
         chainProgress.value = x;
 
-        if (x.isUpgradedToOperations && !config.hasExtensionOperations) {
+        if ((x.isOperational || x.isUpgradedToOperations) && !config.hasExtensionOperations) {
           config.hasExtensionOperations = true;
           void config.save();
         }
@@ -467,12 +573,15 @@ export const useCertificationController = defineStore('certificationController',
     void myBonds.load().catch(error => {
       console.error('[Certification Controller] Unable to load bond progress.', error);
     });
+    void ensureOperationalRegistration().catch(error => {
+      console.error('[Certification Controller] Unable to register the operational account.', error);
+    });
 
     // detect newly completed steps and queue completion notices
     Vue.watch(
       () => {
         return Object.fromEntries(
-          operationalStepIds.map(stepId => [stepId, isCertificationStepComplete(stepId)]),
+          allCertificationStepIds.map(stepId => [stepId, isCertificationStepComplete(stepId)]),
         ) as Record<OperationalStepId, boolean>;
       },
       nextCompletionByStepId => {
@@ -481,7 +590,7 @@ export const useCertificationController = defineStore('certificationController',
           return;
         }
 
-        const newlyCompletedStepIds = operationalStepIds.filter(stepId => {
+        const newlyCompletedStepIds = allCertificationStepIds.filter(stepId => {
           return !previousCompletionByStepId?.[stepId] && nextCompletionByStepId[stepId];
         });
         previousCompletionByStepId = nextCompletionByStepId;
@@ -552,10 +661,24 @@ export const useCertificationController = defineStore('certificationController',
     invite: IMemberInvite,
     previousStatus?: IOperationalInviteStatus,
   ): IOperationalInviteStatus {
-    if (invite.operationsUpgradedAt || previousStatus?.label === 'Operationally certified') {
+    if (invite.certificationProgress?.isOperationallyCertified || previousStatus?.label === 'Operationally certified') {
       return {
         label: 'Operationally certified',
         showRewardNote: true,
+      };
+    }
+
+    if (invite.accessProof || invite.operationsUpgradedAt) {
+      return {
+        label: 'Access granted',
+        showRewardNote: false,
+      };
+    }
+
+    if (invite.operationsUpgradeRequestedAt) {
+      return {
+        label: 'Upgrade requested',
+        showRewardNote: false,
       };
     }
 
@@ -614,6 +737,40 @@ export const useCertificationController = defineStore('certificationController',
     completionNoticeQueue.value = [];
   }
 
+  async function refreshTreasuryTransferTotals() {
+    if (!config.hasExtensionTreasury) {
+      treasuryTransferredInMicrogons.value = 0n;
+      return;
+    }
+
+    const client = await getMainchainClient(false);
+    const transferTotals = await client.query.crosschainTransfer.transferTotalsByAccount(
+      walletKeys.defaultArgonAddress,
+    );
+    treasuryTransferredInMicrogons.value = transferTotals.microgonsIn.toBigInt();
+  }
+
+  Vue.watch(
+    [() => config.hasExtensionTreasury, () => wallets.defaultArgonWallet.availableMicrogons],
+    () => {
+      void refreshTreasuryTransferTotals().catch(error => {
+        console.error('[Certification Controller] Unable to load treasury transfer progress.', error);
+      });
+    },
+    { immediate: true },
+  );
+
+  Vue.watch(
+    () => config.hasExtensionTreasury,
+    (hasExtensionTreasury, hadExtensionTreasury) => {
+      if (!hasExtensionTreasury || hadExtensionTreasury !== false) {
+        return;
+      }
+
+      setTab(TopTab.Treasury);
+    },
+  );
+
   load().catch(handleFatalError.bind('useCertificationController'));
 
   return {
@@ -629,7 +786,9 @@ export const useCertificationController = defineStore('certificationController',
     activeGuideId,
     certificationStepCount,
     completedCertificationStepCount,
+    completedTreasuryCertificationStepCount,
     isCertificationChecklistComplete,
+    isTreasuryCertificationFlowActive,
     chainProgress,
     rewardConfig,
     inviteSlotProgress,
@@ -654,7 +813,28 @@ export const useCertificationController = defineStore('certificationController',
     isCertificationStepUnderway,
     getCertificationStepStatus,
     getCertificationStepStatusLabel,
+    getCertificationStepRequirementLabel,
+    getCertificationStepRequirementText,
     getCertificationBlocker: getCertificationBlocker,
     isCertificationStepUnlocked,
   };
 });
+
+function formatArgonRequirementText(amount: bigint, suffix: string): string | null {
+  if (amount <= 0n) return null;
+
+  return `${formatArgonAmount(amount)} ${suffix}`;
+}
+
+function formatArgonAmount(amount: bigint): string {
+  const wholeArgon = BigInt(MICROGONS_PER_ARGON);
+  const whole = amount / wholeArgon;
+  const remainder = amount % wholeArgon;
+  const wholeLabel = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+  if (remainder === 0n) {
+    return `₳${wholeLabel}`;
+  }
+
+  return `₳${wholeLabel}.${remainder.toString().padStart(6, '0').replace(/0+$/, '')}`;
+}

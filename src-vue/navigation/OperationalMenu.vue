@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <div ref="rootRef">
+  <div v-if="isCertificationMenuVisible" ref="rootRef">
     <div AlertMenu v-if="isShowingCompletionTooltip" class="fixed z-50 pt-[12px]" :style="alertMenuStyle">
       <Arrow
         class="absolute top-0 h-3.5 w-6"
@@ -28,6 +28,89 @@
             <span class="font-semibold">{{ completionNoticeStepTitle }}</span> is now complete. Open the menu above to
             see your updated progress.
           </p>
+        </div>
+      </div>
+    </div>
+
+    <div AlertMenu v-else-if="isShowingActivatedTooltip" class="fixed z-50 pt-[12px]" :style="alertMenuStyle">
+      <Arrow
+        class="absolute top-0 h-3.5 w-6"
+        :style="alertArrowStyle"
+        fill="white"
+      />
+      <Arrow
+        class="absolute top-0 h-3.5 w-6"
+        :style="alertArrowStyle"
+        fill="color-mix(in oklab, var(--color-argon-600) 5%, transparent)"
+      />
+      <div class="rounded border border-argon-400/50 bg-white pt-0.5 pl-0.5 shadow-xl">
+        <div class="relative w-108 rounded bg-argon-600/5 px-5 pt-3 pb-5" style="text-shadow: 1px 1px 0 white">
+          <div class="mb-2 flex items-center justify-between border-b border-argon-300/20 pb-2">
+            <div class="text-xl font-bold text-argon-600">Operations Activated</div>
+            <button
+              @click="dismissActivatedTooltip"
+              class="cursor-pointer rounded-full p-1 text-argon-600/70 hover:bg-white/70 hover:text-argon-800"
+              aria-label="Close tooltip"
+            >
+              <XMarkIcon class="h-5 w-5 stroke-[2.5]" />
+            </button>
+          </div>
+          <p class="mt-1 text-argon-600">
+            Your upstream approved operations access.
+          </p>
+          <p class="mt-3 text-argon-600">
+            Explore the Operations tab next.
+          </p>
+          <div class="mt-4 flex justify-end">
+            <button
+              type="button"
+              class="bg-argon-button hover:bg-argon-button-hover rounded-lg px-4 py-2 text-sm font-semibold text-white"
+              @click="openActivatedAction"
+            >
+              Explore Operations
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div AlertMenu v-else-if="isShowingUpgradeTooltip" class="fixed z-50 pt-[12px]" :style="alertMenuStyle">
+      <Arrow
+        class="absolute top-0 h-3.5 w-6"
+        :style="alertArrowStyle"
+        fill="white"
+      />
+      <Arrow
+        class="absolute top-0 h-3.5 w-6"
+        :style="alertArrowStyle"
+        fill="color-mix(in oklab, var(--color-argon-600) 5%, transparent)"
+      />
+      <div class="rounded border border-argon-400/50 bg-white pt-0.5 pl-0.5 shadow-xl">
+        <div class="relative w-108 rounded bg-argon-600/5 px-5 pt-3 pb-5" style="text-shadow: 1px 1px 0 white">
+          <div class="mb-2 flex items-center justify-between border-b border-argon-300/20 pb-2">
+            <div class="text-xl font-bold text-argon-600">Unlock Operations</div>
+            <button
+              @click="dismissUpgradeTooltip"
+              class="cursor-pointer rounded-full p-1 text-argon-600/70 hover:bg-white/70 hover:text-argon-800"
+              aria-label="Close tooltip"
+            >
+              <XMarkIcon class="h-5 w-5 stroke-[2.5]" />
+            </button>
+          </div>
+          <p class="mt-1 text-argon-600">
+            Treasury certification is complete. Request approval from
+            <span class="font-semibold">{{ upstreamOperatorName }}</span>
+            to unlock mining and vaulting.
+          </p>
+          <div class="mt-4 flex justify-end">
+            <button
+              type="button"
+              class="bg-argon-button hover:bg-argon-button-hover rounded-lg px-4 py-2 text-sm font-semibold text-white"
+              @click="openNetworkTabFromTooltip"
+            >
+              Open Network Tab
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -66,27 +149,14 @@
     <NavigationMenuItem class="pointer-events-auto" @mouseenter="onMenuEnter" @mouseleave="onMenuLeave">
       <NavigationMenuTrigger
         Trigger
-        :aria-label="controller.isOperationalRewardsFlowActive ? 'Operational rewards' : 'Operational progress'"
-        class="flex h-[30px] cursor-pointer flex-row items-center justify-center overflow-hidden rounded-md border border-slate-400/50 text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
-        :class="[
-          controller.isOperationalRewardsFlowActive ? 'w-[42px]' : 'font-mono text-base font-semibold',
-        ]"
+        :aria-label="menuTitle"
+        class="flex h-[30px] cursor-pointer flex-row items-center justify-center overflow-hidden rounded-md border border-slate-400/50 font-mono text-base font-semibold whitespace-nowrap text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
         @focus="onMenuEnter"
       >
-        <template v-if="controller.isOperationalRewardsFlowActive">
-          <div class="relative flex h-full w-full items-center justify-center">
-            <div class="menu-moon">
-              <div class="menu-moon-crater left-[3px] top-[5px]" />
-              <div class="menu-moon-crater h-[2.5px] w-[2.5px] right-[4px] bottom-[5px]" />
-              <div v-if="hasInviteMoonBase" class="menu-moon-base" />
-            </div>
-            <RocketIcon class="menu-moon-rocket" aria-hidden="true" />
-          </div>
-        </template>
-
-        <div v-else class="relative flex flex-row items-center pl-2.5 pr-3 pt-px">
-          <RocketIcon class="h-[17px] relative top-[2px] mr-[5px] -rotate-45" aria-hidden="true" />
-          {{ controller.completedCertificationStepCount }}/{{ controller.certificationStepCount }}
+        <div class="relative flex flex-row items-center gap-1.5 whitespace-nowrap pl-2.5 pr-3 pt-px">
+          <CheckBadgeIcon v-if="!isUnlockTrack" class="relative top-px h-[17px] w-[17px]" aria-hidden="true" />
+          <span>{{ menuTitle }}</span>
+          <span>({{ completedStepCount }}/{{ currentStepIds.length }})</span>
         </div>
       </NavigationMenuTrigger>
 
@@ -95,154 +165,82 @@
         @mouseenter="onMenuEnter"
         @mouseleave="onMenuLeave"
       >
-          <div class="relative">
-            <div class="w-fit bg-argon-menu-bg flex shrink flex-col rounded p-1 text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-              <div v-if="controller.isOperationalRewardsFlowActive" class="w-[26rem] px-4 pt-4 pb-4">
-                <div v-if="controller.isOperationalActivationReady" class="space-y-3">
-                  <div class="border-b border-slate-300/50 pb-2.5">
-                    <div class="text-lg font-bold text-slate-700">Claim your Rewards</div>
-                    <div class="mt-0.5 text-sm leading-5 text-slate-500">
-                      You've finished the Argon Operational Certification Process! Open to claim your {{ operationalActivationRewardLabel }} reward.
-                    </div>
-                    <button
-                      type="button"
-                      class="bg-argon-button hover:bg-argon-button-hover mt-3 rounded-lg px-3 py-1.5 text-sm font-semibold text-white"
-                      @click="openRewardsActivation()"
-                    >
-                      Open
-                    </button>
-                  </div>
-                </div>
-
-                <template v-else>
-                  <div class="border-b border-slate-300/50 pb-2.5">
-                  <div class="text-lg font-bold text-slate-700">Member Invites</div>
-                  <div class="mt-0.5 text-sm text-slate-500">
-                    Earn {{ operationalActivationRewardLabel }} for both you and each referral who completes the operational checklist. Every
-                    {{ controller.rewardConfig.operationalReferralsPerBonusReward }} referred triggers a
-                    {{ operationalReferralBonusRewardLabel }} bonus!
-                  </div>
-                </div>
-
-                <OperationalInviteSlots
-                  class="mt-3"
-                  mode="menu"
-                  :progress="controller.inviteSlotProgress"
-                  :rewardConfig="controller.rewardConfig"
-                  :invites="controller.operationalInvites"
-                  :inviteStatusesByCode="controller.operationalInviteStatusesByCode"
-                  @select="openInviteHub"
-                />
-
-                <div class="mt-4 ">
-                  <div StatsBox box class="mt-2 grid grid-cols-3 overflow-hidden text-center">
-                    <Tooltip
-                      v-for="stat in referralStats"
-                      :key="stat.label"
-                      asChild
-                      side="bottom"
-                      :content="stat.tooltip">
-                      <div StatWrapper class="border-r border-slate-200/70 px-3 py-2.5 last:border-r-0">
-                        <div Stat class="text-2xl! leading-none">{{ stat.value }}</div>
-                        <div class="mt-1.5 text-xs font-semibold tracking-widest text-slate-400 uppercase">{{ stat.label }}</div>
-                      </div>
-                    </Tooltip>
-                  </div>
-                </div>
-
-                <div
-                  v-if="hasUnclaimedRewards"
-                  class="mt-3 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2">
-                  <div class="min-w-0">
-                    <div class="text-sm font-semibold text-slate-800">{{ pendingOperationalRewardLabel }} unclaimed</div>
-                    <div class="text-xs text-slate-500">Choose where to send rewards.</div>
-                  </div>
-                  <button
-                    type="button"
-                    class="text-argon-700 shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold hover:border-slate-400"
-                    @click="openRewardsClaim()"
-                  >
-                    Claim
-                  </button>
-                </div>
-
-                <div class="mt-4 flex items-center justify-end border-t border-slate-300/50 pt-3">
-                  <button
-                    type="button"
-                    class="text-argon-700 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold hover:border-slate-400 hover:bg-white"
-                    @click="openManageMembers()"
-                  >
-                    Manage Members
-                  </button>
-                </div>
-                </template>
-              </div>
-
-              <div v-else class="max-w-160 pt-4 pb-2">
-                <p class="font-light px-5 ">
-                  Complete the following seven steps, and you'll earn
-                  <template v-if="controller.chainProgress.hasReferrer">(along with your referrer)</template> a {{ operationalActivationRewardLabel }} bonus from the Argon Treasury.
+        <div class="relative">
+          <div class="w-fit bg-argon-menu-bg flex shrink flex-col rounded p-1 text-gray-900 shadow-lg ring-1 ring-gray-900/20">
+            <div class="max-w-160 pt-4 pb-2">
+              <div class="border-b border-slate-500/30 px-5 pb-3">
+                <p class="font-light">
+                  {{ checklistDescription }}
                 </p>
-                <ul class="flex flex-col mt-3 mb-1 text-base font-semibold divide-y divide-slate-600/15 whitespace-nowrap">
-                  <li
-                    v-for="[stepId, step] of Object.entries(operationalSteps)"
-                    @click="openOverlay(stepId as OperationalStepId, $event)"
-                    class="flex flex-row items-center gap-x-2 py-3 pl-5 pr-2 cursor-pointer"
-                    :class="controller.isCertificationStepUnlocked(stepId as OperationalStepId) ? 'hover:bg-argon-600/5' : 'bg-slate-50/80 text-slate-500'"
+              </div>
+              <ul class="mt-3 mb-1 flex flex-col divide-y divide-slate-600/15 text-base font-semibold whitespace-nowrap">
+                <li
+                  v-for="stepId in currentStepIds"
+                  :key="stepId"
+                  @click="openStep(stepId, $event)"
+                  class="flex cursor-pointer flex-row items-center gap-x-2 py-3 pl-5 pr-2"
+                  :class="controller.isCertificationStepUnlocked(stepId) ? 'hover:bg-argon-600/5' : 'bg-slate-50/80 text-slate-500'"
+                >
+                  <Checkbox
+                    class="shrink-0"
+                    :size="7"
+                    :isChecked="controller.isCertificationStepComplete(stepId) || controller.isCertificationStepUnderway(stepId)"
+                    :isPulsing="controller.isCertificationStepUnderway(stepId)"
+                  />
+                  <span class="grow pr-3">{{ formatStepTitle(stepId) }}</span>
+                  <span
+                    v-if="controller.isCertificationStepUnderway(stepId)"
+                    class="rounded-full border border-argon-300 bg-argon-50 px-2 py-1 text-xs font-medium text-argon-700"
                   >
-                    <Checkbox
-                      class="shrink-0"
-                      :size="7"
-                      :isChecked="
-                        controller.isCertificationStepComplete(stepId as OperationalStepId) ||
-                        controller.isCertificationStepUnderway(stepId as OperationalStepId)
-                      "
-                      :isPulsing="controller.isCertificationStepUnderway(stepId as OperationalStepId)"
-                    />
-                    <span class="grow">{{ step.title }}</span>
-                    <span
-                      v-if="controller.isCertificationStepUnderway(stepId as OperationalStepId)"
-                      class="rounded-full border border-argon-300 bg-argon-50 px-2 py-1 text-xs font-medium text-argon-700"
-                    >
-                      Underway
-                    </span>
-                    <span
-                      v-if="controller.getCertificationBlocker(stepId as OperationalStepId)"
-                      class="rounded-full border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-500"
-                    >
-                      Requires: {{ controller.getCertificationBlocker(stepId as OperationalStepId)?.title }}
-                    </span>
-                    <a :href="step.documentationLink" target="_blank" class="px-3 text-right text-argon-600 font-light hover:bg-white hover:text-argon-700! rounded-full">Open Docs</a>
-                  </li>
-                </ul>
-                <div class="pt-4 pb-2 px-5 border-t border-slate-500/30">
-                  <a href="https://argon.network/docs/operator-certification" target="_blank" class="text-argon-600 hover:text-argon-700! font-light">
-                    Learn more about the Argon's Operator Certification.
+                    Underway
+                  </span>
+                  <span
+                    v-if="controller.getCertificationBlocker(stepId)"
+                    class="rounded-full border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-500"
+                  >
+                    Requires: {{ controller.getCertificationBlocker(stepId)?.title }}
+                  </span>
+                  <a
+                    :href="operationalSteps[stepId].documentationLink"
+                    target="_blank"
+                    class="rounded-full px-3 text-right font-light text-argon-600 hover:bg-white hover:text-argon-700!"
+                  >
+                    Open Docs
                   </a>
-                </div>
+                </li>
+              </ul>
+              <div class="border-t border-slate-500/30 px-5 pt-4 pb-2">
+                <a href="https://argon.network/docs/operator-certification" target="_blank" class="font-light text-argon-600 hover:text-argon-700!">
+                  Learn more about Argon certification.
+                </a>
               </div>
             </div>
           </div>
-        </NavigationMenuContent>
+        </div>
+      </NavigationMenuContent>
     </NavigationMenuItem>
   </div>
 </template>
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { MICROGONS_PER_ARGON } from '@argonprotocol/apps-core';
 import { NavigationMenuContent, NavigationMenuItem, NavigationMenuTrigger } from 'reka-ui';
-import { XMarkIcon } from '@heroicons/vue/24/outline';
-import RocketIcon from '../assets/rocket.svg?component';
+import { XMarkIcon, CheckBadgeIcon } from '@heroicons/vue/24/outline';
+import { MICROGONS_PER_ARGON } from '@argonprotocol/apps-core';
 import basicEmitter from '../emitters/basicEmitter.ts';
+import { TopTab } from '../interfaces/IConfig.ts';
 import { getConfig } from '../stores/config.ts';
 import { getCurrency } from '../stores/currency.ts';
 import Checkbox from '../components/Checkbox.vue';
 import Arrow from '../components/Arrow.vue';
-import Tooltip from '../components/Tooltip.vue';
-import OperationalInviteSlots from '../components/OperationalInviteSlots.vue';
 import { createNumeralHelpers } from '../lib/numeral.ts';
-import { OperationalStepId, operationalSteps, useCertificationController } from '../stores/certificationController.ts';
+import {
+  OperationalStepId,
+  operationsCertificationStepIds,
+  operationalSteps,
+  treasuryCertificationStepIds,
+  useCertificationController,
+} from '../stores/certificationController.ts';
 
 const config = getConfig();
 const controller = useCertificationController();
@@ -250,77 +248,87 @@ const currency = getCurrency();
 
 const { microgonToArgonNm } = createNumeralHelpers(currency);
 
-const isOpen = Vue.ref(false);
 const rootRef = Vue.ref<HTMLElement>();
 const alertMenuStyle = Vue.ref<Record<string, string>>({});
 const alertArrowStyle = Vue.ref<Record<string, string>>({});
+const isOpen = Vue.ref(false);
+let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
+
 const completionNoticeStepId = Vue.computed(() => controller.pendingCompletionNoticeStepId);
 const completionNoticeStepTitle = Vue.computed(() => {
   return completionNoticeStepId.value ? operationalSteps[completionNoticeStepId.value].title : '';
 });
-const isShowingCompletionTooltip = Vue.computed(() => {
-  return !!completionNoticeStepId.value && !isOpen.value && !controller.isOperationalRewardsFlowActive;
+const isUnlockTrack = Vue.computed(() => {
+  return !controller.chainProgress.isUpgradedToOperations;
 });
-const isShowingBonusTooltip = Vue.computed(() => {
-  const showBonusTooltip = config.certificationDetails?.showBonusTooltip;
+const isCertificationMenuVisible = Vue.computed(() => {
+  return (config.hasExtensionTreasury || config.hasExtensionOperations) && !controller.isOperationalRewardsFlowActive;
+});
+
+const currentStepIds = Vue.computed(() => {
+  return isUnlockTrack.value ? treasuryCertificationStepIds : operationsCertificationStepIds;
+});
+
+const completedStepCount = Vue.computed(() => {
+  return currentStepIds.value.filter(stepId => controller.isCertificationStepComplete(stepId)).length;
+});
+const menuTitle = Vue.computed(() => {
+  return isUnlockTrack.value ? 'Unlock Operations' : 'Certification';
+});
+
+const isShowingCompletionTooltip = Vue.computed(() => {
+  return !!completionNoticeStepId.value && !isOpen.value && isCertificationMenuVisible.value;
+});
+
+const isShowingActivatedTooltip = Vue.computed(() => {
   return (
-    showBonusTooltip &&
+    controller.chainProgress.isUpgradedToOperations &&
+    !controller.chainProgress.isOperational &&
+    !config.certificationDetails?.dismissedOperationsActivatedOverlay &&
     !isOpen.value &&
-    !!config.upstreamOperator?.name &&
     !completionNoticeStepId.value &&
     !controller.isOperationalRewardsFlowActive
   );
 });
+
+const isShowingUpgradeTooltip = Vue.computed(() => {
+  return (
+    config.hasExtensionTreasury &&
+    !controller.chainProgress.isUpgradedToOperations &&
+    controller.completedTreasuryCertificationStepCount === treasuryCertificationStepIds.length &&
+    !config.certificationDetails?.dismissedOperationsUpgradeOverlay &&
+    !isOpen.value &&
+    !completionNoticeStepId.value &&
+    !controller.isOperationalRewardsFlowActive
+  );
+});
+
+const isShowingBonusTooltip = Vue.computed(() => {
+  return (
+    !!config.certificationDetails?.showBonusTooltip &&
+    !isOpen.value &&
+    !!config.upstreamOperator?.name &&
+    !completionNoticeStepId.value &&
+    !isShowingActivatedTooltip.value &&
+    !isShowingUpgradeTooltip.value &&
+    !controller.isOperationalRewardsFlowActive
+  );
+});
+const upstreamOperatorName = Vue.computed(() => {
+  return config.upstreamOperator?.name || 'your upstream operator';
+});
 const operationalActivationRewardLabel = Vue.computed(() => {
   return formatArgon(controller.rewardConfig.operationalActivationReward);
 });
-const operationalReferralBonusRewardLabel = Vue.computed(() => {
-  return formatArgon(controller.rewardConfig.operationalReferralBonusReward);
+
+const checklistDescription = Vue.computed(() => {
+  if (isUnlockTrack.value) {
+    return 'Complete the Treasury Certification steps below to be eligible for your Upstream Operator to upgrade you to the Operations app.';
+  }
+
+  const withUpstream = controller.chainProgress.hasUpstreamAccount ? ' (along with your upstream operator)' : '';
+  return `Complete the following operations steps, and you'll earn${withUpstream} a ${operationalActivationRewardLabel.value} bonus from the Argon Treasury.`;
 });
-const earnedOperationalRewardLabel = Vue.computed(() => {
-  return formatArgon(controller.inviteSlotProgress.rewardsEarnedAmount);
-});
-const claimedOperationalRewardLabel = Vue.computed(() => {
-  return formatArgon(controller.inviteSlotProgress.rewardsCollectedAmount);
-});
-const pendingOperationalRewardLabel = Vue.computed(() => {
-  return formatArgon(controller.pendingRewardsAmount);
-});
-const hasUnclaimedRewards = Vue.computed(() => {
-  return controller.pendingRewardsAmount > 0n;
-});
-const referralBonusProgressLabel = Vue.computed(() => {
-  const bonusEvery = Math.max(controller.rewardConfig.operationalReferralsPerBonusReward, 1);
-  return `${controller.inviteSlotProgress.operationalReferralsCount % bonusEvery}/${bonusEvery}`;
-});
-const referralStats = Vue.computed(() => {
-  return [
-    {
-      label: 'Earned',
-      value: earnedOperationalRewardLabel.value,
-      tooltip: `${claimedOperationalRewardLabel.value} has been claimed. ${pendingOperationalRewardLabel.value} is unclaimed.`,
-    },
-    {
-      label: 'Next Bonus',
-      value: operationalReferralBonusRewardLabel.value,
-      tooltip: `Every ${controller.rewardConfig.operationalReferralsPerBonusReward} referred operators earns this bonus.`,
-    },
-    {
-      label: 'Bonus Progress',
-      value: referralBonusProgressLabel.value,
-      tooltip: 'Your progress toward the next referral bonus.',
-    },
-  ];
-});
-const hasInviteMoonBase = Vue.computed(() => {
-  return (
-    controller.operationalInvites.length > 0 ||
-    controller.inviteSlotProgress.unactivatedUpgradeCodes > 0 ||
-    controller.inviteSlotProgress.operationalReferralsCount > 0 ||
-    controller.inviteSlotProgress.upgradeCodePending
-  );
-});
-let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
 
 function updateAlertMenuPosition() {
   const rect = rootRef.value?.getBoundingClientRect();
@@ -348,6 +356,26 @@ function dismissMessage() {
   void config.save();
 }
 
+function dismissUpgradeTooltip() {
+  config.setCertificationDetails({ dismissedOperationsUpgradeOverlay: true });
+  void config.save();
+}
+
+function dismissActivatedTooltip() {
+  config.setCertificationDetails({ dismissedOperationsActivatedOverlay: true });
+  void config.save();
+}
+
+function openNetworkTabFromTooltip() {
+  dismissUpgradeTooltip();
+  controller.setTab(TopTab.Network);
+}
+
+function openActivatedAction() {
+  dismissActivatedTooltip();
+  controller.setTab(TopTab.Operations);
+}
+
 function onMenuEnter() {
   if (mouseLeaveTimeoutId) {
     clearTimeout(mouseLeaveTimeoutId);
@@ -356,12 +384,6 @@ function onMenuEnter() {
   mouseLeaveTimeoutId = undefined;
   controller.clearCompletionNotices();
   isOpen.value = true;
-
-  if (controller.isOperationalRewardsFlowActive) {
-    void controller.loadOperationalInvites().catch(error => {
-      console.warn('[OperationalMenu] Unable to refresh operational invites.', error);
-    });
-  }
 }
 
 function onMenuLeave() {
@@ -374,64 +396,63 @@ function onMenuLeave() {
   }, 100);
 }
 
-function openOverlay(stepId: OperationalStepId, event: MouseEvent) {
+function openStep(stepId: OperationalStepId, event: MouseEvent) {
   const clickTarget = event.target;
   if (clickTarget instanceof HTMLElement && clickTarget.closest('a')) {
     return;
   }
 
-  openOperationalOverlay(stepId);
-}
-
-function openOperationalOverlay(stepId: OperationalStepId) {
   isOpen.value = false;
   controller.clearCompletionNotices();
   config.setCertificationDetails({ showBonusTooltip: false });
   basicEmitter.emit('openOperationalOverlay', stepId);
 }
 
-function openInviteHub(section?: 'create' | 'unlock' | 'outbound') {
-  isOpen.value = false;
-  if (section === 'create') {
-    basicEmitter.emit('openVaultMembersOverlay');
-    return;
+function formatStepTitle(stepId: OperationalStepId) {
+  const requirement = controller.getCertificationStepRequirementText(stepId);
+  if (!requirement) {
+    return operationalSteps[stepId].title;
   }
 
-  basicEmitter.emit('openOperationalRewardsOverlay', { screen: 'overview', section });
-}
-
-function openManageMembers() {
-  isOpen.value = false;
-  basicEmitter.emit('openVaultMembersOverlay');
-}
-
-function openRewardsClaim() {
-  isOpen.value = false;
-  basicEmitter.emit('openOperationalRewardsOverlay', { screen: 'claim' });
-}
-
-function openRewardsActivation() {
-  isOpen.value = false;
-  basicEmitter.emit('openOperationalRewardsOverlay', { screen: 'activate' });
-}
-
-Vue.watch(isOpen, value => {
-  if (value) {
-    controller.clearCompletionNotices();
-    if (controller.isFullyOperational) {
-      void controller.loadOperationalInvites().catch(() => undefined);
-    }
+  if (stepId === OperationalStepId.LiquidLock) {
+    return `Liquid Lock ${requirement.replace(' bitcoin', ' of Bitcoin')}`;
   }
-});
+  if (stepId === OperationalStepId.ActivateVault) {
+    return `Create a ${requirement.replace(' securitization', '')} Vault`;
+  }
+  if ([OperationalStepId.TreasuryTransfer, OperationalStepId.OperationalTransfer].includes(stepId)) {
+    return `Transfer ${requirement}`;
+  }
+  if (stepId === OperationalStepId.AcquireBonds) {
+    return `Acquire ${requirement.replace(' bonds', ' of Treasury Bonds')}`;
+  }
+  if (stepId === OperationalStepId.FirstMiningSeat) {
+    return `Win ${requirement.replace(' seats', ' Mining Seats').replace(' seat', ' Mining Seat')}`;
+  }
+
+  return operationalSteps[stepId].title;
+}
 
 Vue.watch(
-  () => isShowingCompletionTooltip.value || isShowingBonusTooltip.value,
+  () =>
+    isShowingCompletionTooltip.value ||
+    isShowingActivatedTooltip.value ||
+    isShowingUpgradeTooltip.value ||
+    isShowingBonusTooltip.value,
   isShowingAlert => {
     if (!isShowingAlert) return;
     void Vue.nextTick().then(updateAlertMenuPosition);
   },
   { immediate: true },
 );
+
+Vue.watch(isCertificationMenuVisible, isVisible => {
+  if (isVisible) {
+    return;
+  }
+
+  isOpen.value = false;
+});
 
 Vue.onMounted(() => {
   window.addEventListener('resize', updateAlertMenuPosition);
@@ -464,21 +485,5 @@ defineExpose({
   [ItemWrapper] {
     @apply font-bold whitespace-nowrap text-gray-900;
   }
-}
-
-.menu-moon {
-  @apply relative h-[17px] w-[17px] rounded-full border border-slate-400/40 bg-linear-to-br from-slate-100 to-slate-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)];
-}
-
-.menu-moon-crater {
-  @apply absolute h-[3px] w-[3px] rounded-full bg-slate-500/20;
-}
-
-.menu-moon-base {
-  @apply bg-argon-700/35 absolute bottom-[2px] left-1/2 h-[3px] w-[9px] -translate-x-1/2 rounded-full;
-}
-
-.menu-moon-rocket {
-  @apply text-argon-600 absolute top-[3px] left-1/2 h-[13px] w-[13px] -translate-x-1/2 -rotate-18;
 }
 </style>

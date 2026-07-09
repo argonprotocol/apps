@@ -11,6 +11,9 @@ export const OperationsUpgradeStateMigration: ISqliteMigration = db => {
     ALTER TABLE UserInvites
     ADD COLUMN operationsUpgradedAt TEXT;
 
+    ALTER TABLE UserInvites
+    ADD COLUMN operationsAccessProofSignature TEXT;
+
     CREATE UNIQUE INDEX idx_users_operational_account_id ON Users(operationalAccountId);
   `);
 };

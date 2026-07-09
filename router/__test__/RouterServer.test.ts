@@ -5,6 +5,7 @@ import os from 'node:os';
 import Path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  createOperationalAccessProof,
   JsonExt,
   NetworkConfig,
   signRouterAuthAccountBinding,
@@ -298,6 +299,7 @@ describe('RouterServer', () => {
     expect(body.referrer).toBe(operator.address);
     expect(body.invite.defaultAccountId).toBe(member.address);
     expect(body.invite.operationalAccountId).toBeFalsy();
+    expect(body.invite.accessProof).toBeUndefined();
     expect(body.invite.authAccountId).toBe(memberAuth.address);
     expect(body.invite.vaultId).toBe(12);
     expect(body.invite.bitcoinLockCoupon).toEqual(activatedCoupon);
@@ -594,6 +596,7 @@ describe('RouterServer', () => {
       firstUpgradeBody.operationsUpgradeRequestedAt.toISOString(),
     );
 
+    const accessProof = createOperationalAccessProof(operator, operationalAccount.address);
     const markUpgradedResponse = await fetch(
       withSessionId(
         `http://${started.routerAddress.host}:${started.routerAddress.port}/invites/${encodeURIComponent(invite.inviteCode)}/mark-operations-upgraded`,
@@ -601,16 +604,22 @@ describe('RouterServer', () => {
       ),
       {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JsonExt.stringify({
+          signature: accessProof.signature,
+        }),
       },
     );
     expect(markUpgradedResponse.status).toBe(200);
     const upgradedInvite = JsonExt.parse<IInviteResponse>(await markUpgradedResponse.text()).invite;
     expect(upgradedInvite.operationsUpgradeRequestedAt).toBeTruthy();
     expect(upgradedInvite.operationsUpgradedAt).toBeTruthy();
+    expect(upgradedInvite.accessProof).toEqual(accessProof);
 
     const storedInvite = routerDb.userInvitesTable.fetchByCode(invite.inviteCode);
     expect(storedInvite?.operationsUpgradeRequestedAt).toBeTruthy();
     expect(storedInvite?.operationsUpgradedAt).toBeTruthy();
+    expect(storedInvite?.operationsAccessProofSignature).toBe(accessProof.signature);
   });
 
   it('allows both admin and member sessions to access Ethereum relay routes', async () => {

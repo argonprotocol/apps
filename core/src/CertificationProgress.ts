@@ -5,6 +5,7 @@ import {
   type PalletOperationalAccountsOperationalAccount,
 } from '@argonprotocol/mainchain';
 import { BondLot } from './BondLot.js';
+import type { IBigIntCodec, IBooleanCodec, INumberCodec } from './Codecs.js';
 import { TreasuryBonds } from './TreasuryBonds.js';
 
 export interface ICertificationProgress {
@@ -32,13 +33,26 @@ export interface ICertificationThresholds {
   miningSeatsForOperational: number;
 }
 
-type LegacyCertificationOperationalAccount = PalletOperationalAccountsOperationalAccount & {
-  readonly hasUniswapTransfer?: PalletOperationalAccountsOperationalAccount['vaultCreated'];
-  readonly bitcoinAccrual?: PalletOperationalAccountsOperationalAccount['vaultBitcoinAccrual'];
-  readonly bitcoinAppliedTotal?: PalletOperationalAccountsOperationalAccount['vaultBitcoinAppliedTotal'];
-  readonly hasTreasuryPoolParticipation?: PalletOperationalAccountsOperationalAccount['vaultCreated'];
-  readonly isOperational?: PalletOperationalAccountsOperationalAccount['isOperationallyCertified'];
-};
+// Deployed mainchain v1.4.9 uses this operational_accounts surface at specVersion 155.
+interface ISpec155OperationalAccount extends PalletOperationalAccountsOperationalAccount {
+  readonly hasUniswapTransfer?: IBooleanCodec;
+  readonly bitcoinAccrual?: IBigIntCodec;
+  readonly bitcoinAppliedTotal?: IBigIntCodec;
+  readonly hasTreasuryPoolParticipation?: IBooleanCodec;
+  readonly isOperational?: IBooleanCodec;
+}
+
+interface ICertificationThresholdConsts {
+  readonly minimumBitcoin?: IBigIntCodec;
+  readonly minimumBonds?: IBigIntCodec;
+  readonly minimumUniswapTransfer?: IBigIntCodec;
+  readonly treasuryMinimumBitcoin?: IBigIntCodec;
+  readonly treasuryMinimumBonds?: IBigIntCodec;
+  readonly treasuryMinimumUniswapTransfer?: IBigIntCodec;
+  readonly operationalMinimumUniswapTransfer?: IBigIntCodec;
+  readonly operationalMinimumVaultSecuritization?: IBigIntCodec;
+  readonly miningSeatsForOperational?: INumberCodec;
+}
 
 export function countCompletedTreasuryCertificationRequirements(progress: ICertificationProgress): number {
   return [progress.hasTreasuryBitcoin, progress.hasTreasuryBonds, progress.hasTreasuryUniswapTransfer].filter(Boolean)
@@ -92,13 +106,16 @@ export async function loadCertificationProgress(args: {
   ).reduce((total, amount) => total + amount, 0n);
   const treasuryBondAmount = BondLot.getTotals(bondLots).activeBondMicrogons;
   const treasuryUniswapTransferAmount = transferTotals.microgonsIn.toBigInt();
+  const hasTreasuryBitcoin = treasuryBitcoinAmount >= thresholds.treasuryMinimumBitcoin;
+  const hasTreasuryBonds = treasuryBondAmount >= thresholds.treasuryMinimumBonds;
+  const hasTreasuryUniswapTransfer = treasuryUniswapTransferAmount >= thresholds.treasuryMinimumUniswapTransfer;
 
   return {
     hasOperationalAccount: false,
-    isTreasuryCertified: false,
-    hasTreasuryBitcoin: treasuryBitcoinAmount >= thresholds.treasuryMinimumBitcoin,
-    hasTreasuryBonds: treasuryBondAmount >= thresholds.treasuryMinimumBonds,
-    hasTreasuryUniswapTransfer: treasuryUniswapTransferAmount >= thresholds.treasuryMinimumUniswapTransfer,
+    isTreasuryCertified: hasTreasuryBitcoin && hasTreasuryBonds && hasTreasuryUniswapTransfer,
+    hasTreasuryBitcoin,
+    hasTreasuryBonds,
+    hasTreasuryUniswapTransfer,
     isUpgradedToOperations: false,
     hasOperationalVault: false,
     hasOperationalMiningSeats: false,
@@ -136,58 +153,60 @@ export function getCertificationProgressFromOperationalAccount(
   }
 
   const account = accountRaw.unwrap();
-  const legacyAccount = account as LegacyCertificationOperationalAccount;
-  const bitcoinAccrual = legacyAccount.bitcoinAccrual?.toBigInt() ?? account.vaultBitcoinAccrual?.toBigInt() ?? 0n;
+  const spec155Account = account as ISpec155OperationalAccount;
+  const bitcoinAccrual = spec155Account.bitcoinAccrual?.toBigInt() ?? account.vaultBitcoinAccrual?.toBigInt() ?? 0n;
   const bitcoinAppliedTotal =
-    legacyAccount.bitcoinAppliedTotal?.toBigInt() ?? account.vaultBitcoinAppliedTotal?.toBigInt() ?? 0n;
+    spec155Account.bitcoinAppliedTotal?.toBigInt() ?? account.vaultBitcoinAppliedTotal?.toBigInt() ?? 0n;
   const miningSeatAccrual = account.miningSeatAccrual?.toNumber() ?? 0;
   const miningSeatAppliedTotal = account.miningSeatAppliedTotal?.toNumber() ?? 0;
   const accountBitcoinAmount = account.accountBitcoinAmount?.toBigInt() ?? bitcoinAccrual + bitcoinAppliedTotal;
   const accountVaultBondAmount = account.accountVaultBondAmount?.toBigInt() ?? 0n;
   const uniswapArgonTransfersInAmount = account.uniswapArgonTransfersInAmount?.toBigInt() ?? 0n;
   const operationalVaultSecuritization = bitcoinAccrual + bitcoinAppliedTotal;
+  const spec155HasBitcoinProgress =
+    spec155Account.bitcoinAccrual !== undefined || spec155Account.bitcoinAppliedTotal !== undefined;
+  const spec155HasTreasuryPoolParticipation = spec155Account.hasTreasuryPoolParticipation?.toPrimitive();
+  const spec155HasUniswapTransfer = spec155Account.hasUniswapTransfer?.toPrimitive();
+  const spec155IsOperational = spec155Account.isOperational?.toPrimitive();
+  const hasTreasuryBitcoin = spec155HasBitcoinProgress
+    ? operationalVaultSecuritization > 0n
+    : accountBitcoinAmount >= rewardThresholds.treasuryMinimumBitcoin;
+  const hasTreasuryBonds =
+    spec155HasTreasuryPoolParticipation ?? accountVaultBondAmount >= rewardThresholds.treasuryMinimumBonds;
+  const hasTreasuryUniswapTransfer =
+    spec155HasUniswapTransfer ?? uniswapArgonTransfersInAmount >= rewardThresholds.treasuryMinimumUniswapTransfer;
 
   return {
     hasOperationalAccount: true,
-    isTreasuryCertified: account.isTreasuryCertified?.toPrimitive() ?? false,
-    hasTreasuryBitcoin:
-      legacyAccount.bitcoinAccrual !== undefined || legacyAccount.bitcoinAppliedTotal !== undefined
-        ? bitcoinAccrual + bitcoinAppliedTotal > 0n
-        : accountBitcoinAmount >= rewardThresholds.treasuryMinimumBitcoin,
-    hasTreasuryBonds:
-      legacyAccount.hasTreasuryPoolParticipation?.toPrimitive() ??
-      accountVaultBondAmount >= rewardThresholds.treasuryMinimumBonds,
-    hasTreasuryUniswapTransfer:
-      legacyAccount.hasUniswapTransfer?.toPrimitive() ??
-      uniswapArgonTransfersInAmount >= rewardThresholds.treasuryMinimumUniswapTransfer,
-    isUpgradedToOperations: account.isUpgradedToOperations?.toPrimitive() ?? false,
+    isTreasuryCertified: hasTreasuryBitcoin && hasTreasuryBonds && hasTreasuryUniswapTransfer,
+    hasTreasuryBitcoin,
+    hasTreasuryBonds,
+    hasTreasuryUniswapTransfer,
+    isUpgradedToOperations: account.upstreamAccount?.isSome ?? false,
     hasOperationalVault:
       (account.vaultCreated?.toPrimitive() ?? false) &&
       operationalVaultSecuritization >= rewardThresholds.operationalMinimumVaultSecuritization,
     hasOperationalMiningSeats: miningSeatAccrual + miningSeatAppliedTotal >= rewardThresholds.miningSeatsForOperational,
     hasOperationalUniswapTransfer:
-      legacyAccount.hasUniswapTransfer?.toPrimitive() ??
-      uniswapArgonTransfersInAmount >= rewardThresholds.operationalMinimumUniswapTransfer,
-    isOperationallyCertified:
-      legacyAccount.isOperational?.toPrimitive() ?? account.isOperationallyCertified?.toPrimitive() ?? false,
+      spec155HasUniswapTransfer ?? uniswapArgonTransfersInAmount >= rewardThresholds.operationalMinimumUniswapTransfer,
+    isOperationallyCertified: spec155IsOperational ?? account.isOperationallyCertified?.toPrimitive() ?? false,
   };
 }
 
 export function getCertificationThresholds(client: ArgonClient): ICertificationThresholds {
-  const operationalConsts = client.consts.operationalAccounts as typeof client.consts.operationalAccounts & {
-    treasuryMinimumBitcoin?: { toBigInt(): bigint };
-    treasuryMinimumBonds?: { toBigInt(): bigint };
-    treasuryMinimumUniswapTransfer?: { toBigInt(): bigint };
-    operationalMinimumUniswapTransfer?: { toBigInt(): bigint };
-    operationalMinimumVaultSecuritization?: { toBigInt(): bigint };
-    miningSeatsForOperational?: { toNumber(): number };
-  };
+  const operationalConsts = client.consts.operationalAccounts as typeof client.consts.operationalAccounts &
+    ICertificationThresholdConsts;
 
   return {
-    treasuryMinimumBitcoin: operationalConsts.treasuryMinimumBitcoin?.toBigInt() ?? 0n,
-    treasuryMinimumBonds: operationalConsts.treasuryMinimumBonds?.toBigInt() ?? 0n,
-    treasuryMinimumUniswapTransfer: operationalConsts.treasuryMinimumUniswapTransfer?.toBigInt() ?? 0n,
-    operationalMinimumUniswapTransfer: operationalConsts.operationalMinimumUniswapTransfer?.toBigInt() ?? 0n,
+    treasuryMinimumBitcoin:
+      operationalConsts.minimumBitcoin?.toBigInt() ?? operationalConsts.treasuryMinimumBitcoin?.toBigInt() ?? 1n,
+    treasuryMinimumBonds:
+      operationalConsts.minimumBonds?.toBigInt() ?? operationalConsts.treasuryMinimumBonds?.toBigInt() ?? 1n,
+    treasuryMinimumUniswapTransfer:
+      operationalConsts.minimumUniswapTransfer?.toBigInt() ??
+      operationalConsts.treasuryMinimumUniswapTransfer?.toBigInt() ??
+      1n,
+    operationalMinimumUniswapTransfer: operationalConsts.operationalMinimumUniswapTransfer?.toBigInt() ?? 1n,
     operationalMinimumVaultSecuritization: (
       operationalConsts.operationalMinimumVaultSecuritization ??
       client.consts.vaults.operationalMinimumVaultSecuritization
