@@ -47,11 +47,11 @@
               />
             </div>
 
-            <div v-if="currentCoupon" class="text-argon-600 relative text-xl leading-8 font-bold">
+            <div v-if="bitcoinLockCoupons.currentCoupon" class="text-argon-600 relative text-xl leading-8 font-bold">
               {{ couponProviderLabel }} is gifting your first liquid lock
               <br />
               for free, up to {{ currency.symbol
-              }}{{ microgonToMoneyNm(couponOfferLiquidityMicrogons || 0n).format('0,0') }}!
+              }}{{ microgonToMoneyNm(bitcoinLockCoupons.couponOfferLiquidityMicrogons || 0n).format('0,0') }}!
             </div>
             <div
               v-else-if="financials.savingsTotalReadyToUse"
@@ -155,10 +155,10 @@
 
     <BitcoinLockingOverlay
       v-if="showLockingOverlay"
-      :coupon="currentCoupon"
+      :coupon="bitcoinLockCoupons.currentCoupon"
       :currentTick="currentTick"
       :personalLock="selectedLock?.record"
-      :vault="vault"
+      :vault="couponVault"
       @close="closeLockingOverlay"
     />
 
@@ -186,24 +186,15 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc.js';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { getCurrency } from '../stores/currency.ts';
-import { getVaults } from '../stores/vaults.ts';
-import { getBitcoinLocks } from '../stores/bitcoin.ts';
+import { getBitcoinLockCoupons, getBitcoinLocks } from '../stores/bitcoin.ts';
 import { getConfig } from '../stores/config.ts';
 import { getMiningFrames } from '../stores/mainchain.ts';
-import { getWalletKeys } from '../stores/wallets.ts';
-import { Vault } from '@argonprotocol/mainchain';
 import { type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
-import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
-import BitcoinIcon from '../assets/wallets/bitcoin.svg?component';
-import VaultIcon from '../assets/vault.svg';
 import BitcoinLockingOverlay from '../overlays/BitcoinLockingOverlay.vue';
 import BitcoinLockDetailOverlay from '../overlays/BitcoinLockDetailOverlay.vue';
 import BitcoinUnlockingOverlay from '../overlays/BitcoinUnlockingOverlay.vue';
-import { getUpstreamOperatorClient } from '../stores/upstreamOperator.ts';
 import CurvedArrow from '../components/CurvedArrow.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { WalletType } from '../lib/Wallet.ts';
@@ -211,24 +202,18 @@ import BitcoinRatchetingOverlay from '../overlays/BitcoinRatchetingOverlay.vue';
 import FormattedMoney from '../components/FormattedMoney.vue';
 import { UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { useFinancials, type ILockSummary } from '../stores/financials.ts';
+import { getVaults } from '../stores/vaults.ts';
 import BitcoinRecord from './treasury/components/BitcoinRecord.vue';
 
-dayjs.extend(utc);
-
-const currency = getCurrency();
 const config = getConfig();
-const vaults = getVaults();
+const currency = getCurrency();
 const financials = useFinancials();
 const bitcoinLocks = getBitcoinLocks();
+const bitcoinLockCoupons = getBitcoinLockCoupons();
 const miningFrames = getMiningFrames();
-const walletKeys = getWalletKeys();
+const vaults = getVaults();
 
-const { microgonToMoneyNm, satToBtcNm, satToMoneyNm } = createNumeralHelpers(currency);
-
-const vault = Vue.shallowRef<Vault | undefined>();
-const availableSecuritizationMicrogons = Vue.ref(0n);
-const vaultSecuritizationMicrogons = Vue.ref(0n);
-const coupons = Vue.ref<IBitcoinLockCouponStatus[]>([]);
+const { microgonToMoneyNm } = createNumeralHelpers(currency);
 const currentTick = Vue.ref(0);
 const isLoaded = Vue.ref(false);
 const showLockingOverlay = Vue.ref(false);
@@ -236,20 +221,14 @@ const showDetailOverlay = Vue.ref(false);
 const showUnlockingOverlay = Vue.ref(false);
 const showRatchetingOverlay = Vue.ref(false);
 const selectedLock = Vue.ref<ILockSummary | undefined>();
-const couponOfferLiquidityMicrogons = Vue.ref<bigint>();
-
-const currentCoupon = Vue.computed(() => {
-  return coupons.value.find(
-    coupon => coupon.status === 'Open' && coupon.coupon.vaultId === config.upstreamOperator?.vaultId,
-  );
-});
-
-const couponProviderLabel = Vue.computed(() => {
-  return config.upstreamOperator?.name || 'The vault operator';
+const couponProviderLabel = config.upstreamOperator?.name || 'The vault operator';
+const couponVault = Vue.computed(() => {
+  const vaultId = bitcoinLockCoupons.currentCoupon?.coupon.vaultId;
+  return vaultId ? vaults.vaultsById[vaultId] : undefined;
 });
 
 const canStartLocking = Vue.computed(() => {
-  return financials.savingsTotalReadyToUse > 0n || !!currentCoupon.value;
+  return financials.savingsTotalReadyToUse > 0n || !!bitcoinLockCoupons.currentCoupon;
 });
 
 function openDetail(lock: ILockSummary) {
@@ -293,70 +272,24 @@ async function onRatchetSubmitted() {
   await bitcoinLocks.load();
 }
 
-let unsubVault: (() => void) | undefined;
 let unsubMiningFrames: (() => void) | undefined;
-let couponOfferSyncId = 0;
-
-function updateAvailableSpace(rawVault: Vault) {
-  vault.value = rawVault;
-  vaultSecuritizationMicrogons.value = rawVault.securitization;
-  availableSecuritizationMicrogons.value = rawVault.availableSecuritization();
-  void syncCouponOfferValue();
-}
-
-async function loadCurrentCoupon() {
-  const upstreamOperatorClient = getUpstreamOperatorClient();
-  if (!upstreamOperatorClient.operatorHost || !config.upstreamOperator?.vaultId) {
-    coupons.value = [];
-    return;
-  }
-
-  coupons.value = await upstreamOperatorClient.getBitcoinLockCoupons();
-  await syncCouponOfferValue();
-}
-
-async function syncCouponOfferValue() {
-  const syncId = ++couponOfferSyncId;
-  if (!vault.value || !currentCoupon.value) {
-    couponOfferLiquidityMicrogons.value = undefined;
-    return;
-  }
-
-  const { availableLiquidityMicrogons } = await bitcoinLocks.getLockableBitcoinCapacity({
-    vault: vault.value,
-    maxSatoshis: currentCoupon.value.coupon.maxSatoshis,
-  });
-  if (syncId !== couponOfferSyncId) return;
-  couponOfferLiquidityMicrogons.value = availableLiquidityMicrogons;
-}
 
 function openArgonWallet() {
   basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
 }
 
-Vue.watch([isLoaded, () => config.upstreamOperator?.vaultId], async () => {
-  if (!isLoaded.value) return;
-  await loadCurrentCoupon();
-
-  if (!config.upstreamOperator?.vaultId) return;
-  unsubVault?.();
-  unsubVault = await vaults.subscribeToVault(config.upstreamOperator?.vaultId, updateAvailableSpace);
-});
-
 Vue.onMounted(async () => {
-  await Promise.all([config.isLoadedPromise, currency.isLoadedPromise, bitcoinLocks.load(), miningFrames.load()]);
+  await Promise.all([currency.isLoadedPromise, bitcoinLockCoupons.refresh(), bitcoinLocks.load(), miningFrames.load()]);
 
   currentTick.value = miningFrames.currentTick;
   unsubMiningFrames = miningFrames.onTick(() => {
     currentTick.value = miningFrames.currentTick;
   }).unsubscribe;
 
-  await loadCurrentCoupon();
   isLoaded.value = true;
 });
 
 Vue.onUnmounted(() => {
-  unsubVault?.();
   unsubMiningFrames?.();
 });
 </script>

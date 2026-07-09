@@ -40,9 +40,10 @@
 import * as Vue from 'vue';
 import { ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
 import { getConfig } from '../stores/config.ts';
+import { useCertificationController } from '../stores/certificationController.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
 import AlertIcon from '../assets/alert.svg?component';
-import { BootstrapType } from '../interfaces/IConfig.ts';
+import { BootstrapType, TopTab } from '../interfaces/IConfig.ts';
 import { InviteEnvelope } from '../lib/InviteEnvelope.ts';
 import { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
 
@@ -51,6 +52,7 @@ const emit = defineEmits<{
 }>();
 
 const config = getConfig();
+const controller = useCertificationController();
 const walletKeys = getWalletKeys();
 
 const hasValidInviteCode = Vue.ref(false);
@@ -139,6 +141,7 @@ async function connectToNetwork() {
     };
 
     await config.save();
+    controller.setTab(TopTab.Treasury);
   } catch (error) {
     formError.value =
       error instanceof Error && error.message

@@ -1,13 +1,10 @@
 <template>
   <OverlayBase
     :isOpen="isOpen"
-    :showGoBack="currentScreen === 'claim'"
     :overflowScroll="true"
     @close="closeOverlay"
     @pressEsc="closeOverlay"
-    @goBack="goBack"
-    class="pb-6"
-    :class="currentScreen === 'overview' ? 'w-7/12' : 'w-[680px]'"
+    class="w-[680px] pb-6"
   >
     <template #title>
       <div class="grow text-[30px] leading-none font-bold text-slate-800">{{ title }}</div>
@@ -20,17 +17,9 @@
       @goTo="goTo"
     />
 
-    <Congratulations v-else-if="currentScreen === 'congratulations'" @close="closeOverlay" @goTo="goTo" />
+    <Congratulations v-else-if="currentScreen === 'congratulations'" @close="closeOverlay" />
 
-    <Claim v-else-if="currentScreen === 'claim'" :isActive="isOpen && currentScreen === 'claim'" @goTo="goTo" />
-
-    <Overview
-      v-else
-      :isActive="isOpen && currentScreen === 'overview'"
-      :section="currentSection"
-      :sectionRequestId="sectionRequestId"
-      @goTo="goTo"
-    />
+    <Claim v-else :isActive="isOpen && currentScreen === 'claim'" @close="closeOverlay" />
   </OverlayBase>
 </template>
 
@@ -43,24 +32,19 @@ import { useCertificationController } from '../stores/certificationController.ts
 import Activate from './operational-rewards/Activate.vue';
 import Congratulations from './operational-rewards/Congratulations.vue';
 import Claim from './operational-rewards/Claim.vue';
-import Overview from './operational-rewards/Overview.vue';
 
-type OperationalRewardsScreen = 'activate' | 'congratulations' | 'overview' | 'claim';
-type OperationalRewardsSection = 'create' | 'unlock' | 'outbound';
+type OperationalRewardsScreen = 'activate' | 'congratulations' | 'claim';
 
 const config = getConfig();
 const controller = useCertificationController();
 
 const isOpen = Vue.ref(false);
-const currentScreen = Vue.ref<OperationalRewardsScreen>('overview');
-const currentSection = Vue.ref<OperationalRewardsSection>();
-const sectionRequestId = Vue.ref(0);
+const currentScreen = Vue.ref<OperationalRewardsScreen>('claim');
 
 const title = Vue.computed(() => {
   if (currentScreen.value === 'activate') return 'Activate & Claim Reward';
-  if (currentScreen.value === 'congratulations') return 'Congratulations!';
-  if (currentScreen.value === 'claim') return 'Claim Rewards';
-  return 'Operator Referrals';
+  if (currentScreen.value === 'congratulations') return 'Certification Complete';
+  return 'Claim Rewards';
 });
 
 function closeOverlay() {
@@ -70,11 +54,7 @@ function closeOverlay() {
   isOpen.value = false;
 }
 
-function goBack() {
-  goTo('overview');
-}
-
-function goTo(screen: OperationalRewardsScreen, section?: OperationalRewardsSection) {
+function goTo(screen: OperationalRewardsScreen) {
   let nextScreen = screen;
   if (nextScreen === 'activate' && !controller.isOperationalActivationReady) {
     if (!controller.isFullyOperational) return;
@@ -86,8 +66,6 @@ function goTo(screen: OperationalRewardsScreen, section?: OperationalRewardsSect
   }
 
   currentScreen.value = nextScreen;
-  currentSection.value = section;
-  sectionRequestId.value += 1;
   isOpen.value = true;
 }
 
@@ -135,6 +113,6 @@ basicEmitter.on('openOperationalRewardsOverlay', payload => {
   }
 
   controller.clearCompletionNotices();
-  goTo(payload?.screen ?? (controller.isFullyOperational ? 'congratulations' : 'activate'), payload?.section);
+  goTo(payload?.screen ?? (controller.isFullyOperational ? 'congratulations' : 'activate'));
 });
 </script>

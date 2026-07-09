@@ -75,9 +75,9 @@
         <button
           type="button"
           class="rounded-lg px-4 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-          @click="emit('goTo', 'overview')"
+          @click="emit('close')"
         >
-          Back to Rewards
+          Close
         </button>
         <button
           type="button"
@@ -121,9 +121,9 @@
         <button
           type="button"
           class="bg-argon-button hover:bg-argon-button-hover rounded-lg px-5 py-2.5 text-sm font-semibold text-white"
-          @click="emit('goTo', 'overview')"
+          @click="transactionError ? returnToClaimForm() : emit('close')"
         >
-          Back to Rewards
+          {{ transactionError ? 'Try Again' : 'Close' }}
         </button>
       </div>
     </div>
@@ -158,7 +158,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  goTo: [screen: 'overview'];
+  close: [];
 }>();
 
 const currency = getCurrency();
@@ -224,6 +224,14 @@ const claimProgressTitle = Vue.computed(() => {
   if (isClaimComplete.value) return 'Claim complete';
   return 'Claim submitted';
 });
+
+function returnToClaimForm() {
+  transactionError.value = '';
+  progressPct.value = 0;
+  progressLabel.value = '';
+  isProcessing.value = false;
+  void loadAvailability();
+}
 
 async function loadAvailability() {
   transactionError.value = '';

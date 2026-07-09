@@ -2,7 +2,7 @@ import * as Fs from 'node:fs';
 import os from 'node:os';
 import Path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { signRouterAuthAccountBinding, UserRole } from '@argonprotocol/apps-core';
+import { createOperationalAccessProof, signRouterAuthAccountBinding, UserRole } from '@argonprotocol/apps-core';
 import { Keyring, type ArgonClient, type KeyringPair } from '@argonprotocol/mainchain';
 import { Db } from '../src/Db.ts';
 import { UserInviteService } from '../src/UserInviteService.ts';
@@ -263,6 +263,7 @@ describe('UserInviteService', () => {
       name: 'Casey',
       fromName: 'Operator One',
     });
+    const upstreamOperator = new Keyring({ type: 'sr25519' }).addFromUri('//UpstreamOperator');
     const member = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMember');
     const memberAuth = member.derive('//downstream-auth');
     const operationalAccount = member.derive('//operational');
@@ -272,11 +273,15 @@ describe('UserInviteService', () => {
       createRequestOperationsUpgradeArgs(member, memberAuth, operationalAccount),
     );
 
-    const upgradedInvite = service.markOperationsUpgraded(invite.inviteCode);
+    const upgradedInvite = service.markOperationsUpgraded(
+      invite.inviteCode,
+      createOperationalAccessProof(upstreamOperator, operationalAccount.address),
+    );
 
     expect(upgradedInvite?.operationsUpgradeRequestedAt).toBeTruthy();
     expect(upgradedInvite?.operationalAccountId).toBe(operationalAccount.address);
     expect(upgradedInvite?.operationsUpgradedAt).toBeTruthy();
+    expect(upgradedInvite?.operationsAccessProofSignature).toBeTruthy();
   });
 
   it('migrates missing operational account ids from chain data', async () => {

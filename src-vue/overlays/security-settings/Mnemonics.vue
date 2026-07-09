@@ -34,7 +34,6 @@ import { getWalletKeys } from '../../stores/wallets.ts';
 import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 import { getConfig } from '../../stores/config.ts';
-import basicEmitter from '../../emitters/basicEmitter.ts';
 
 const config = getConfig();
 const walletKeys = getWalletKeys();
@@ -55,7 +54,6 @@ function copyToClipboard() {
     config.setCertificationDetails({ hasSavedMnemonic: true });
     if (controller.activeGuideId === OperationalStepId.BackupMnemonic) {
       emit('close');
-      basicEmitter.emit('openOperationalFinishOverlay');
     }
   }, 2000);
   clearTimeout(clipboardClearTimer);
