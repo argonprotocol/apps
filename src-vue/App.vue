@@ -41,7 +41,6 @@
       <WalletFundingReceivedOverlay />
       <ServerRemoveOverlay />
       <OperationalOverlay />
-      <OperationalFinishOverlay />
       <OperationalRewardsOverlay />
       <SecuritySettingsOverlay />
       <ImportAccountOverlay />
@@ -50,7 +49,6 @@
       <AboutOverlay />
       <ProfileOverlay />
       <JurisdictionOverlay />
-      <VaultMembersOverlay />
       <ServerOverlay />
       <TroubleshootingOverlay />
       <WelcomeTour v-if="tour.currentStep" />
@@ -99,9 +97,7 @@ import MintingAuthorityRequestOverlay from './overlays/MintingAuthorityRequestOv
 import GatewayRelayOverlay from './overlays/GatewayRelayOverlay.vue';
 import ServerSettingsOverlay from './overlays/ServerSettingsOverlay.vue';
 import ServerOverlay from './overlays/ServerOverlay.vue';
-import VaultMembersOverlay from './overlays/VaultMembersOverlay.vue';
 import OperationalOverlay from './overlays/OperationalOverlay.vue';
-import OperationalFinishOverlay from './overlays/OperationalFinishOverlay.vue';
 import OperationalRewardsOverlay from './overlays/OperationalRewardsOverlay.vue';
 import { CloseRequestedEvent, getCurrentWindow } from '@tauri-apps/api/window';
 import ProfileOverlay from './overlays/ProfileOverlay.vue';

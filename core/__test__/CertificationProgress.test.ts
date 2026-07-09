@@ -3,16 +3,17 @@ import {
   countCompletedOperationalCertificationRequirements,
   countCompletedTreasuryCertificationRequirements,
   getCertificationProgressFromOperationalAccount,
+  getCertificationThresholds,
   loadCertificationProgress,
 } from '../src/CertificationProgress.ts';
+import { bigintCodec, boolCodec, numberCodec } from './helpers/codecs.ts';
 
 describe('CertificationProgress', () => {
-  it('uses current operational account fields to determine certification progress', () => {
+  it('uses operational account thresholds and upstream access to determine certification progress', () => {
     const progress = getCertificationProgressFromOperationalAccount(
       some({
         vaultCreated: boolCodec(true),
-        isTreasuryCertified: boolCodec(true),
-        isUpgradedToOperations: boolCodec(true),
+        upstreamAccount: someOption('//UpstreamOperator'),
         isOperationallyCertified: boolCodec(true),
         miningSeatAccrual: numberCodec(1),
         miningSeatAppliedTotal: numberCodec(1),
@@ -46,7 +47,7 @@ describe('CertificationProgress', () => {
     expect(countCompletedOperationalCertificationRequirements(progress)).toBe(3);
   });
 
-  it('uses legacy operational account fields when they are present', () => {
+  it('uses the deployed v1.4.9 operational account fields when they are present', () => {
     const progress = getCertificationProgressFromOperationalAccount(
       some({
         vaultCreated: boolCodec(false),
@@ -71,7 +72,7 @@ describe('CertificationProgress', () => {
     );
 
     expect(progress.hasOperationalAccount).toBe(true);
-    expect(progress.isTreasuryCertified).toBe(false);
+    expect(progress.isTreasuryCertified).toBe(true);
     expect(progress.hasTreasuryBitcoin).toBe(true);
     expect(progress.hasTreasuryBonds).toBe(true);
     expect(progress.hasTreasuryUniswapTransfer).toBe(true);
@@ -82,6 +83,29 @@ describe('CertificationProgress', () => {
     expect(progress.isOperationallyCertified).toBe(true);
     expect(countCompletedTreasuryCertificationRequirements(progress)).toBe(3);
     expect(countCompletedOperationalCertificationRequirements(progress)).toBe(1);
+  });
+
+  it('falls back to the deployed boolean treasury requirements before the runtime upgrade', () => {
+    const client = {
+      consts: {
+        operationalAccounts: {
+          operationalMinimumVaultSecuritization: bigintCodec(12n),
+          miningSeatsForOperational: numberCodec(2),
+        },
+        vaults: {
+          operationalMinimumVaultSecuritization: bigintCodec(12n),
+        },
+      },
+    };
+
+    expect(getCertificationThresholds(client as any)).toEqual({
+      treasuryMinimumBitcoin: 1n,
+      treasuryMinimumBonds: 1n,
+      treasuryMinimumUniswapTransfer: 1n,
+      operationalMinimumUniswapTransfer: 1n,
+      operationalMinimumVaultSecuritization: 12n,
+      miningSeatsForOperational: 2,
+    });
   });
 
   it('loads treasury progress from the default account before operational registration', async () => {
@@ -111,15 +135,12 @@ describe('CertificationProgress', () => {
       },
       consts: {
         operationalAccounts: {
-          treasuryMinimumBitcoin: bigintCodec(10n),
-          treasuryMinimumBonds: bigintCodec(8n),
-          treasuryMinimumUniswapTransfer: bigintCodec(12n),
+          minimumBitcoin: bigintCodec(10n),
+          minimumBonds: bigintCodec(8n),
+          minimumUniswapTransfer: bigintCodec(12n),
           operationalMinimumUniswapTransfer: bigintCodec(13n),
           operationalMinimumVaultSecuritization: bigintCodec(12n),
           miningSeatsForOperational: numberCodec(2),
-        },
-        vaults: {
-          operationalMinimumVaultSecuritization: bigintCodec(12n),
         },
       },
     };
@@ -153,20 +174,9 @@ function none(): any {
   };
 }
 
-function boolCodec(value: boolean) {
+function someOption(value: unknown): any {
   return {
-    toPrimitive: () => value,
-  };
-}
-
-function bigintCodec(value: bigint) {
-  return {
-    toBigInt: () => value,
-  };
-}
-
-function numberCodec(value: number) {
-  return {
-    toNumber: () => value,
+    isSome: true,
+    unwrap: () => value,
   };
 }

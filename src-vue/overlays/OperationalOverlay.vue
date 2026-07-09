@@ -4,7 +4,7 @@
     <template #title>
       <div class="flex flex-row grow items-center gap-x-3 pr-4">
         <DialogTitle>
-          {{ currentStepId ? operationalSteps[currentStepId].title : 'Operator Certification Process' }}
+          {{ currentStepId ? formatStepTitle(currentStepId) : overlayTitle }}
         </DialogTitle>
         <span
           v-if="currentStepId"
@@ -21,51 +21,42 @@
     </template>
     <div v-if="!currentStepId">
       <p class="font-light px-5 pt-5">
-        Complete the following seven steps, and you'll earn
-        <template v-if="controller.chainProgress.hasReferrer">(along with your referrer)</template> a ₳500 bonus from the Argon Treasury.
+        {{ overlayDescription }}
       </p>
       <ul class="flex flex-col mt-3 mb-1 mx-3 text-base font-semibold divide-y divide-slate-600/15">
         <li
-          v-for="[stepId, step] of Object.entries(operationalSteps)"
-          @click="openStep(stepId as OperationalStepId)"
+          v-for="stepId in currentStepIds"
+          :key="stepId"
+          @click="openStep(stepId, $event)"
           class="flex flex-row items-center gap-x-2 py-3 pl-3 pr-2 cursor-pointer"
-          :class="controller.isCertificationStepUnlocked(stepId as OperationalStepId) ? 'hover:bg-argon-600/5' : 'bg-slate-50/80 text-slate-500'"
+          :class="controller.isCertificationStepUnlocked(stepId) ? 'hover:bg-argon-600/5' : 'bg-slate-50/80 text-slate-500'"
         >
           <Checkbox
             class="shrink-0"
             :size="7"
-            :isChecked="
-              controller.isCertificationStepComplete(stepId as OperationalStepId) ||
-              controller.isCertificationStepUnderway(stepId as OperationalStepId)
-            "
-            :isPulsing="controller.isCertificationStepUnderway(stepId as OperationalStepId)"
+            :isChecked="controller.isCertificationStepComplete(stepId) || controller.isCertificationStepUnderway(stepId)"
+            :isPulsing="controller.isCertificationStepUnderway(stepId)"
           />
-          <span class="grow">{{ step.title }}</span>
+          <span class="grow">{{ formatStepTitle(stepId) }}</span>
           <span
-            v-if="controller.isCertificationStepUnderway(stepId as OperationalStepId)"
+            v-if="controller.isCertificationStepUnderway(stepId)"
             class="rounded-full border border-argon-300 bg-argon-50 px-2 py-1 text-xs font-medium text-argon-700"
           >
             Underway
           </span>
           <span
-            v-if="controller.getCertificationBlocker(stepId as OperationalStepId)"
+            v-if="controller.getCertificationBlocker(stepId)"
             class="rounded-full border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-500"
           >
-            Requires: {{ controller.getCertificationBlocker(stepId as OperationalStepId)?.title }}
+            Requires: {{ controller.getCertificationBlocker(stepId)?.title }}
           </span>
-          <a :href="step.documentationLink" target="_blank" class="px-3 text-right text-argon-600 font-light hover:bg-white hover:text-argon-700! rounded-full">Open Docs</a>
+          <a :href="operationalSteps[stepId].documentationLink" target="_blank" class="px-3 text-right text-argon-600 font-light hover:bg-white hover:text-argon-700! rounded-full">Open Docs</a>
         </li>
       </ul>
       <div class="pt-4 pb-4 px-3 mx-3 border-t border-slate-500/30">
         <a href="https://argon.network/docs/operator-certification" target="_blank" class="text-argon-600 hover:text-argon-700! font-light">
           Learn more about the Argon's Operator Certification.
         </a>
-        <button
-          @click="openOperationalInvites()"
-          class="text-argon-600! border border-argon-600 mt-4 inline-flex flex-row items-center justify-center rounded-lg px-6 py-2 font-bold hover:bg-argon-300/10 cursor-pointer"
-        >
-          Manage Invite Codes
-        </button>
       </div>
     </div>
     <div v-else class="px-5 pt-5 pb-6">
@@ -144,20 +135,75 @@ import { DialogTitle } from 'reka-ui';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import Checkbox from '../components/Checkbox.vue';
 import { ArrowTopRightOnSquareIcon, CheckCircleIcon, ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
-import { useCertificationController, OperationalStepId, operationalSteps } from '../stores/certificationController.ts';
+import {
+  useCertificationController,
+  OperationalStepId,
+  operationalSteps,
+  operationsCertificationStepIds,
+  treasuryCertificationStepIds,
+} from '../stores/certificationController.ts';
 import { useBasics } from '../stores/basics.ts';
+import { getConfig } from '../stores/config.ts';
+import { MiningSetupStatus, TopTab, VaultingSetupStatus } from '../interfaces/IConfig.ts';
+import { WalletType } from '../lib/Wallet.ts';
 
 const basics = useBasics();
+const config = getConfig();
 const controller = useCertificationController();
 
 const isOpen = Vue.ref(false);
 const currentStepId = Vue.ref<OperationalStepId | null>(null);
-const currentBlockingStep = Vue.computed(() =>
-  currentStepId.value ? controller.getCertificationBlocker(currentStepId.value) : null,
-);
+const currentTrack = Vue.ref<'treasury' | 'operations'>('treasury');
+const currentStepIds = Vue.computed(() => {
+  return currentTrack.value === 'treasury' ? treasuryCertificationStepIds : operationsCertificationStepIds;
+});
+const currentBlockingStep = Vue.computed(() => {
+  return currentStepId.value ? controller.getCertificationBlocker(currentStepId.value) : null;
+});
+const overlayTitle = Vue.computed(() => {
+  return currentTrack.value === 'treasury' ? 'Treasury Certification' : 'Operations Certification';
+});
+const overlayDescription = Vue.computed(() => {
+  if (currentTrack.value === 'treasury') {
+    return 'Complete the following treasury steps to unlock operations certification.';
+  }
 
-function openStep(key: OperationalStepId) {
-  currentStepId.value = key;
+  const withUpstream = controller.chainProgress.hasUpstreamAccount ? ' (along with your upstream operator)' : '';
+  return `Complete the following operations steps, and you'll earn${withUpstream} a ₳500 bonus from the Argon Treasury.`;
+});
+
+function formatStepTitle(stepId: OperationalStepId) {
+  const requirement = controller.getCertificationStepRequirementText(stepId);
+  if (!requirement) {
+    return operationalSteps[stepId].title;
+  }
+
+  if (stepId === OperationalStepId.LiquidLock) {
+    return `Liquid Lock ${requirement.replace(' bitcoin', ' of Bitcoin')}`;
+  }
+  if (stepId === OperationalStepId.ActivateVault) {
+    return `Create a ${requirement.replace(' securitization', '')} Vault`;
+  }
+  if ([OperationalStepId.TreasuryTransfer, OperationalStepId.OperationalTransfer].includes(stepId)) {
+    return `Transfer ${requirement}`;
+  }
+  if (stepId === OperationalStepId.AcquireBonds) {
+    return `Acquire ${requirement.replace(' bonds', ' of Treasury Bonds')}`;
+  }
+  if (stepId === OperationalStepId.FirstMiningSeat) {
+    return `Win ${requirement.replace(' seats', ' Mining Seats').replace(' seat', ' Mining Seat')}`;
+  }
+
+  return operationalSteps[stepId].title;
+}
+
+function openStep(stepId: OperationalStepId, event?: MouseEvent) {
+  const clickTarget = event?.target;
+  if (clickTarget instanceof HTMLElement && clickTarget.closest('a')) {
+    return;
+  }
+
+  currentStepId.value = stepId;
 }
 
 function goBack(): void {
@@ -166,14 +212,52 @@ function goBack(): void {
 
 function closeOverlay() {
   isOpen.value = false;
+  currentStepId.value = null;
   basics.overlayIsOpen = false;
 }
 
 function startTask() {
-  if (currentBlockingStep.value) return;
+  if (!currentStepId.value || currentBlockingStep.value) return;
+
+  const stepId = currentStepId.value;
   closeOverlay();
+
   setTimeout(() => {
-    controller.activeGuideId = currentStepId.value;
+    controller.activeGuideId = stepId;
+
+    if (stepId === OperationalStepId.BackupMnemonic) {
+      basicEmitter.emit('openSecuritySettingsOverlay', { screen: 'mnemonics' });
+      return;
+    }
+
+    if (stepId === OperationalStepId.ActivateVault) {
+      controller.backButtonTriggersHome = true;
+      config.vaultingSetupStatus = VaultingSetupStatus.Checklist;
+      controller.setTab(TopTab.VaultingOperations);
+      return;
+    }
+
+    if (stepId === OperationalStepId.AcquireBonds) {
+      controller.setTab(TopTab.TreasuryBonds);
+      return;
+    }
+
+    if (stepId === OperationalStepId.LiquidLock) {
+      controller.setTab(TopTab.TreasuryLocks);
+      return;
+    }
+
+    if ([OperationalStepId.TreasuryTransfer, OperationalStepId.OperationalTransfer].includes(stepId)) {
+      controller.setTab(TopTab.Wallets);
+      basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
+      return;
+    }
+
+    controller.backButtonTriggersHome = true;
+    if (config.miningSetupStatus === MiningSetupStatus.None) {
+      config.miningSetupStatus = MiningSetupStatus.Checklist;
+    }
+    controller.setTab(TopTab.MiningOperations);
   });
 }
 
@@ -186,18 +270,14 @@ function openDocumentationLink(link: string) {
   window.open(link, '_blank', 'noopener,noreferrer');
 }
 
-function openOperationalInvites() {
-  closeOverlay();
-  basicEmitter.emit('openOperationalRewardsOverlay', { screen: 'overview' });
-}
-
-basicEmitter.on('openOperationalOverlay', async (stepId: OperationalStepId) => {
+basicEmitter.on('openOperationalOverlay', (stepId: OperationalStepId) => {
   if (controller.isOperationalActivationReady) {
     closeOverlay();
     basicEmitter.emit('openOperationalRewardsOverlay', { screen: 'activate' });
     return;
   }
 
+  currentTrack.value = treasuryCertificationStepIds.some(id => id === stepId) ? 'treasury' : 'operations';
   isOpen.value = true;
   currentStepId.value = stepId;
   basics.overlayIsOpen = true;

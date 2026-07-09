@@ -22,12 +22,11 @@
         </div>
 
         <p class="text-base font-light leading-6 text-slate-900">
-          Set your Vault's name. This name will be visible to people as they search for vaults in Argon and in invites
-          you send to family and friends.
+          Set your Operator name. This name will be visible in the invites you send to family and friends.
         </p>
 
         <div class="mt-4">
-          <label class="text-sm font-medium text-slate-700">Vault Name</label>
+          <label class="text-sm font-medium text-slate-700">Operator Name</label>
           <input
             v-model.trim="vaultName"
             type="text"
@@ -131,7 +130,7 @@ async function saveProfile() {
       return;
     }
     if (!nextVaultName) {
-      errorMessage.value = 'Enter a vault name to continue.';
+      errorMessage.value = 'Enter an Operator name to continue.';
       return;
     }
 

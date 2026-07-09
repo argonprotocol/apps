@@ -19,6 +19,7 @@ import type { Db } from './Db.ts';
 import { RouterError } from './RouterError.ts';
 import { RouterAuthService, type IRouterAuthServiceOptions } from './RouterAuthService.ts';
 import { UserInviteService } from './UserInviteService.ts';
+import type { IUserInviteRecord } from './db/UserInvitesTable.ts';
 import type {
   IBitcoinLockRelayRequest,
   IBitcoinLockStatusResponse,
@@ -26,6 +27,7 @@ import type {
   IInviteResponse,
   IListBitcoinLockCouponsResponse,
   IListInvitesResponse,
+  IMarkOperationsUpgradedRequest,
   IOpenInviteRequest,
   IOpenInviteResponse,
   IPreviewInviteResponse,
@@ -75,6 +77,15 @@ export class RouterServer {
     routerAuth.pruneInactiveSessions();
 
     const requireAdminOperatorAuth = routerAuth.requireAdminOperator();
+    const toTreasuryUserInvite = (invite: IUserInviteRecord) => {
+      const inviteRecord = { ...invite };
+      delete inviteRecord.operationsAccessProofSignature;
+
+      return {
+        ...inviteRecord,
+        accessProof: inviteService.getInviteAccessProof(invite, adminOperatorAccountId),
+      };
+    };
 
     app.use((req, res, next) => {
       const requestOrigin = req.headers.origin;
@@ -292,7 +303,7 @@ export class RouterServer {
           fromName: invite.fromName,
           referrer: adminOperatorAccountId,
           invite: {
-            ...invite,
+            ...toTreasuryUserInvite(invite),
             vaultId: bitcoinLockCoupon.coupon.vaultId,
             bitcoinLockCoupon,
           },
@@ -326,7 +337,7 @@ export class RouterServer {
               }
 
               return {
-                ...invite,
+                ...toTreasuryUserInvite(invite),
                 vaultId: couponsByUserId.get(invite.id)?.coupon.vaultId,
                 bitcoinLockCoupon: couponsByUserId.get(invite.id),
                 certificationProgress,
@@ -347,7 +358,7 @@ export class RouterServer {
         }
 
         return {
-          invite,
+          invite: toTreasuryUserInvite(invite),
         };
       }),
     );
@@ -385,13 +396,22 @@ export class RouterServer {
     app.post(
       '/invites/:inviteCode/mark-operations-upgraded',
       requireAdminOperatorAuth,
+      express.text({ type: '*/*' }),
       safeJsonRoute<IInviteResponse>(async req => {
-        const invite = inviteService.markOperationsUpgraded(req.params.inviteCode);
+        if (!adminOperatorAccountId) {
+          throw new RouterError('Router operator account is not configured.', 500);
+        }
+
+        const body = requireBody<IMarkOperationsUpgradedRequest>(req);
+        const invite = inviteService.markOperationsUpgraded(req.params.inviteCode, {
+          upstreamAccount: adminOperatorAccountId,
+          signature: body.signature,
+        });
         if (!invite) {
           throw new RouterError('Invite not found', 404);
         }
 
-        return { invite };
+        return { invite: toTreasuryUserInvite(invite) };
       }),
     );
 

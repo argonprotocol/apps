@@ -27,7 +27,7 @@
             <DropdownMenuItem
               data-testid="OperationsMenu.goto(OperationsTab.MiningOperations)"
               @click="goto(TopTab.Operations)"
-              class="py-2"
+              class="py-2 pr-4"
             >
               <header>Overview</header>
             </DropdownMenuItem>
@@ -35,7 +35,7 @@
             <DropdownMenuItem
               data-testid="OperationsMenu.goto(OperationsTab.MiningOperations)"
               @click="goto(TopTab.MiningOperations)"
-              class="py-2"
+              class="py-2 pr-4"
             >
               <header>Mining</header>
             </DropdownMenuItem>
@@ -43,7 +43,7 @@
             <DropdownMenuItem
               data-testid="OperationsMenu.goto(OperationsTab.VaultingOperations)"
               @click="goto(TopTab.VaultingOperations)"
-              class="py-2"
+              class="py-2 pr-4"
             >
               <header>Vaulting</header>
             </DropdownMenuItem>

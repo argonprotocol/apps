@@ -10,6 +10,7 @@ import type {
   ICreateInviteRequest,
   IInviteResponse,
   IListInvitesResponse,
+  IMarkOperationsUpgradedRequest,
   IMemberInvite,
   IRouterErrorResponse,
 } from '@argonprotocol/apps-router';
@@ -114,6 +115,21 @@ export class ServerApiClient {
       timeoutMs: 10e3,
       adminOperatorAuth: true,
     });
+    return body.invite;
+  }
+
+  public async markOperationsUpgraded(
+    inviteCode: string,
+    payload: IMarkOperationsUpgradedRequest,
+  ): Promise<IMemberInvite> {
+    const body = await this.postJson<IInviteResponse>(
+      `/invites/${encodeURIComponent(inviteCode)}/mark-operations-upgraded`,
+      payload,
+      {
+        timeoutMs: 10e3,
+        adminOperatorAuth: true,
+      },
+    );
     return body.invite;
   }
 
