@@ -98,24 +98,14 @@
           </article>
           <div class="operational-account-connector" aria-hidden="true" />
         </div>
-        <div class="grow px-12">
-          <table class="w-full text-left">
-            <thead>
-            <tr>
-              <th>Name</th>
-              <th>Current Status</th>
-              <th>Assets In Your Vault</th>
-              <th></th>
-            </tr>
-            </thead>
-            <tbody>
-            <tr>
-              <td colspan="4">You have no invites</td>
-            </tr>
-            </tbody>
-          </table>
+        <div class="grow px-12 pb-6">
+          <MemberInvites />
         </div>
       </template>
+
+      <div v-else-if="config.hasExtensionTreasury && showOperationsUpgrade" class="flex grow items-center justify-center px-8 py-8">
+        <OperationsUpgrade />
+      </div>
 
       <div v-else-if="config.hasExtensionTreasury" class="grow">
         <div class="text-argon-600/60 relative z-10 mt-0">
@@ -137,19 +127,25 @@
 </template>
 
 <script setup lang="ts">
+import * as Vue from 'vue';
 import LockedIcon from '../assets/locked.svg?component';
 import { useNetworkStats } from '../stores/networkStats.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
-import { useVaultingStats } from '../stores/vaultingStats.ts';
-import { useCertificationController } from '../stores/certificationController.ts';
+import MemberInvites from './network-screen/MemberInvites.vue';
+import OperationsUpgrade from './network-screen/OperationsUpgrade.vue';
 import { getConfig } from '../stores/config.ts';
+import { treasuryCertificationStepIds, useCertificationController } from '../stores/certificationController.ts';
 
 const config = getConfig();
 const networkStats = useNetworkStats();
 const currency = getCurrency();
+const controller = useCertificationController();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
+const showOperationsUpgrade = Vue.computed(() => {
+  return controller.completedTreasuryCertificationStepCount === treasuryCertificationStepIds.length;
+});
 </script>
 
 <style scoped>

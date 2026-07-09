@@ -1,4 +1,4 @@
-import type { IRouterAuthChallenge, RouterAuthRole, UserRole } from '@argonprotocol/apps-core';
+import type { IRouterAuthChallenge, RouterAuthRole, UserRole, IOperationalAccessProof  } from '@argonprotocol/apps-core';
 import type { IBitcoinLockCouponStatus, IBitcoinLockRelayRequest } from './IBitcoinLockRelay.js';
 import type { ITreasuryUserInvite } from './ITreasuryUserInvite.js';
 
@@ -30,6 +30,10 @@ export interface IRequestOperationsUpgradeRequest {
 
 export interface IRequestOperationsUpgradeResponse {
   operationsUpgradeRequestedAt: Date;
+}
+
+export interface IMarkOperationsUpgradedRequest {
+  signature: IOperationalAccessProof['signature'];
 }
 
 export interface IRouterAuthChallengeRequest {

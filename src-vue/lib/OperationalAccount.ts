@@ -4,7 +4,6 @@ import {
   type KeyringPair,
   type Option,
   type PalletOperationalAccountsOperationalAccount,
-  type PalletOperationalAccountsRewardsConfig,
   type SubmittableExtrinsic,
   u8aToHex,
 } from '@argonprotocol/mainchain';
@@ -12,11 +11,14 @@ import {
   createDeferred,
   getCertificationProgressFromOperationalAccount,
   getCertificationThresholds,
+  type IBigIntCodec,
+  type IBooleanCodec,
+  type INumberCodec,
+  type IOperationalAccessProof,
   MICROGONS_PER_ARGON,
 } from '@argonprotocol/apps-core';
 import { stringToU8a } from '@polkadot/util';
 import { blake2AsU8a, signatureVerify } from '@polkadot/util-crypto';
-import { Config } from '../stores/config.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { type TransactionInfo } from './TransactionInfo.ts';
@@ -48,22 +50,23 @@ export type IOperationalChainProgress = {
   hasOperationalAccount: boolean;
   hasVault: boolean;
   hasUniswapTransfer: boolean;
+  hasTreasuryUniswapTransfer: boolean;
   hasTreasuryBondParticipation: boolean;
   hasFirstMiningSeat: boolean;
   hasSecondMiningSeat: boolean;
   hasBitcoinLock: boolean;
   bitcoinAccrual: bigint;
   miningSeatAccrual: number;
-  operationalReferralsCount: number;
-  upgradeCodePending: boolean;
-  availableUpgradeCodes: number;
-  unactivatedUpgradeCodes: number;
+  operationalCertificationsCount: number;
+  accessCodePending: boolean;
+  availableAccessCodes: number;
+  unactivatedAccessCodes: number;
   rewardsEarnedCount: number;
   rewardsEarnedAmount: bigint;
   rewardsCollectedAmount: bigint;
   isUpgradedToOperations: boolean;
   isOperational: boolean;
-  hasReferrer: boolean;
+  hasUpstreamAccount: boolean;
 };
 
 export type IOperationalRewardsClaimAvailability = {
@@ -74,31 +77,48 @@ export type IOperationalRewardsClaimAvailability = {
   minimumClaimAmount: bigint;
 };
 
-type LegacyOperationalAccountConsts = {
-  readonly operationalActivationReward?: ArgonClient['consts']['operationalAccounts']['operationalActivationReward'];
-  readonly operationalReferralsPerBonusReward?: ArgonClient['consts']['operationalAccounts']['operationalReferralsPerBonusReward'];
-  readonly bitcoinLockSizeForUpgradeCode?: ArgonClient['consts']['operationalAccounts']['bitcoinLockSizeForUpgradeCode'];
-  readonly miningSeatsPerUpgradeCode?: ArgonClient['consts']['operationalAccounts']['miningSeatsPerUpgradeCode'];
-  readonly maxAvailableUpgradeCodes?: ArgonClient['consts']['operationalAccounts']['maxAvailableUpgradeCodes'];
-};
+// Deployed mainchain v1.4.9 uses this operational_accounts surface at specVersion 155.
+interface ISpec155OperationalAccount extends PalletOperationalAccountsOperationalAccount {
+  readonly sponsor?: Option<any>;
+  readonly hasUniswapTransfer?: IBooleanCodec;
+  readonly bitcoinAccrual?: IBigIntCodec;
+  readonly bitcoinAppliedTotal?: IBigIntCodec;
+  readonly referralPending?: IBooleanCodec;
+  readonly availableReferrals?: INumberCodec;
+  readonly operationalReferralsCount?: INumberCodec;
+  readonly isOperational?: IBooleanCodec;
+}
 
-type LegacyPalletOperationalAccountsOperationalAccount = PalletOperationalAccountsOperationalAccount & {
-  readonly hasUniswapTransfer?: PalletOperationalAccountsOperationalAccount['vaultCreated'];
-  readonly bitcoinAccrual?: PalletOperationalAccountsOperationalAccount['vaultBitcoinAccrual'];
-  readonly bitcoinAppliedTotal?: PalletOperationalAccountsOperationalAccount['vaultBitcoinAppliedTotal'];
-  readonly referralPending?: PalletOperationalAccountsOperationalAccount['upgradeCodePending'];
-  readonly referralAccessCodePending?: PalletOperationalAccountsOperationalAccount['upgradeCodePending'];
-  readonly availableReferrals?: PalletOperationalAccountsOperationalAccount['availableUpgradeCodes'];
-  readonly issuableAccessCodes?: PalletOperationalAccountsOperationalAccount['availableUpgradeCodes'];
-  readonly unactivatedAccessCodes?: PalletOperationalAccountsOperationalAccount['availableUpgradeCodes'];
-  readonly isOperational?: PalletOperationalAccountsOperationalAccount['isOperationallyCertified'];
-  readonly sponsor?: PalletOperationalAccountsOperationalAccount['referrer'];
-};
+interface ISpec155OperationalAccountConsts {
+  readonly operationalMinimumVaultSecuritization?: IBigIntCodec;
+  readonly miningSeatsForOperational?: INumberCodec;
+  readonly operationalReferralReward?: IBigIntCodec;
+  readonly operationalReferralBonusReward?: IBigIntCodec;
+  readonly referralBonusEveryXOperationalSponsees?: INumberCodec;
+  readonly bitcoinLockSizeForReferral?: IBigIntCodec;
+  readonly miningSeatsPerReferral?: INumberCodec;
+  readonly maxAvailableReferrals?: INumberCodec;
+}
 
-type LegacyPalletOperationalAccountsRewardsConfig = PalletOperationalAccountsRewardsConfig & {
-  readonly operationalActivationReward?: PalletOperationalAccountsRewardsConfig['operationalActivationReward'];
-  readonly operationalReferralBonusReward?: PalletOperationalAccountsRewardsConfig['operationalReferralBonusReward'];
-};
+interface ISpec155OperationalRewardsConfig {
+  readonly operationalReferralReward?: IBigIntCodec;
+  readonly referralBonusReward?: IBigIntCodec;
+}
+
+interface IBuildOperatorAccountRegistrationTxArgs {
+  walletKeys: WalletKeys;
+  accessProof: IOperationalAccessProof | null;
+  client?: ArgonClient;
+}
+
+interface IEnsureOperationalAccountRegisteredArgs {
+  transactionTracker: TransactionTracker;
+  walletKeys: WalletKeys;
+  accessProof: IOperationalAccessProof | null;
+  availableMicrogons: bigint;
+  followWindowFinalizedBlocks?: number;
+  client?: ArgonClient;
+}
 
 function createOwnershipProof(account: KeyringPair, ownerAddr: string, accountAddr: string, domain: string) {
   const domainBytes = stringToU8a(domain);
@@ -115,15 +135,14 @@ function createOwnershipProof(account: KeyringPair, ownerAddr: string, accountAd
   };
 }
 
-export async function buildOperatorAccountRegistrationTx(args: {
-  walletKeys: WalletKeys;
-  config: Config;
-  client?: ArgonClient;
-}): Promise<SubmittableExtrinsic | undefined> {
-  const { walletKeys, config } = args;
+export async function buildOperatorAccountRegistrationTx(
+  args: IBuildOperatorAccountRegistrationTxArgs,
+): Promise<SubmittableExtrinsic | undefined> {
+  const { walletKeys, accessProof } = args;
   const client = args.client ?? (await getMainchainClient(false));
   const existing = await loadOperationalAccount(walletKeys, client);
   if (existing.isSome) return;
+  if (!supportsOperationalAccessProofRuntime(client)) return;
 
   const [operationalAccount, operationalEncryptionKey, vaultingAccount, miningBotAccount] = await Promise.all([
     walletKeys.getOperationalKeypair(),
@@ -153,6 +172,7 @@ export async function buildOperatorAccountRegistrationTx(args: {
     miningBotAddr,
     MINING_ACCOUNT_PROOF_MESSAGE_KEY,
   );
+
   return client.tx.operationalAccounts.register({
     V1: {
       operationalAccount: operationalAddr,
@@ -162,19 +182,19 @@ export async function buildOperatorAccountRegistrationTx(args: {
       miningAccount: miningBotAddr,
       vaultAccountProof: { signature: vaultAccountProof.signature },
       miningAccountProof: { signature: miningBotAccountProof.signature },
-      referrer: config.upstreamOperator?.accountId ?? null,
+      accessProof: accessProof
+        ? {
+            upstreamAccount: accessProof.upstreamAccount,
+            signature: accessProof.signature,
+          }
+        : null,
     },
   });
 }
 
-export async function ensureOperationalAccountRegistered(args: {
-  transactionTracker: TransactionTracker;
-  walletKeys: WalletKeys;
-  config: Config;
-  availableMicrogons: bigint;
-  followWindowFinalizedBlocks?: number;
-  client?: ArgonClient;
-}): Promise<TransactionInfo | undefined> {
+export async function ensureOperationalAccountRegistered(
+  args: IEnsureOperationalAccountRegisteredArgs,
+): Promise<TransactionInfo | undefined> {
   await args.transactionTracker.load();
 
   const latestRegistrationTxInfo = args.transactionTracker.findLatestTxInfo(txInfo => {
@@ -193,7 +213,7 @@ export async function ensureOperationalAccountRegistered(args: {
   const client = args.client ?? (await getMainchainClient(false));
   const tx = await buildOperatorAccountRegistrationTx({
     walletKeys: args.walletKeys,
-    config: args.config,
+    accessProof: args.accessProof,
     client,
   });
   if (!tx) {
@@ -222,13 +242,14 @@ export async function getOperationalRewardConfig(client?: ArgonClient): Promise<
   const rewards = await client.query.operationalAccounts.rewards?.();
   const certificationThresholds = getCertificationThresholds(client);
 
-  if (consts.operationalActivationReward) {
+  if (supportsOperationalAccessProofRuntime(client)) {
     return {
       operationalActivationReward:
-        rewards?.operationalActivationReward?.toBigInt() ?? consts.operationalActivationReward.toBigInt(),
+        rewards?.operationalCertificationReward?.toBigInt() ?? consts.operationalCertificationReward.toBigInt(),
       operationalReferralBonusReward:
-        rewards?.operationalReferralBonusReward?.toBigInt() ?? consts.operationalReferralBonusReward.toBigInt(),
-      operationalReferralsPerBonusReward: consts.operationalReferralsPerBonusReward.toNumber(),
+        rewards?.operationalCertificationBonusReward?.toBigInt() ??
+        consts.operationalCertificationBonusReward.toBigInt(),
+      operationalReferralsPerBonusReward: consts.operationalCertificationsPerBonusReward.toNumber(),
       operationalMinimumUniswapTransfer: consts.operationalMinimumUniswapTransfer.toBigInt(),
       operationalMinimumVaultLockTicks: client.consts.vaults.operationalMinimumVaultLockTicks.toBigInt(),
       operationalMinimumVaultSecuritization: (
@@ -238,35 +259,36 @@ export async function getOperationalRewardConfig(client?: ArgonClient): Promise<
       treasuryMinimumBitcoin: certificationThresholds.treasuryMinimumBitcoin,
       treasuryMinimumBonds: certificationThresholds.treasuryMinimumBonds,
       treasuryMinimumUniswapTransfer: certificationThresholds.treasuryMinimumUniswapTransfer,
-      bitcoinLockSizeForUpgradeCode: consts.bitcoinLockSizeForUpgradeCode.toBigInt(),
-      miningSeatsPerUpgradeCode: consts.miningSeatsPerUpgradeCode.toNumber(),
-      maxAvailableUpgradeCodes: consts.maxAvailableUpgradeCodes.toNumber(),
+      bitcoinLockSizeForUpgradeCode: consts.bitcoinLockSizeForAccessCode.toBigInt(),
+      miningSeatsPerUpgradeCode: consts.miningSeatsPerAccessCode.toNumber(),
+      maxAvailableUpgradeCodes: consts.maxAvailableAccessCodes.toNumber(),
     };
   }
 
-  const legacyConsts = consts as typeof consts & LegacyOperationalAccountConsts;
-  const legacyRewards = rewards as LegacyPalletOperationalAccountsRewardsConfig | undefined;
+  const spec155Consts = consts as typeof consts & ISpec155OperationalAccountConsts;
+  const spec155Rewards = rewards as ISpec155OperationalRewardsConfig | undefined;
 
   return {
     operationalActivationReward:
-      legacyRewards?.operationalActivationReward?.toBigInt() ??
-      legacyConsts.operationalActivationReward?.toBigInt() ??
+      spec155Rewards?.operationalReferralReward?.toBigInt() ??
+      spec155Consts.operationalReferralReward?.toBigInt() ??
       0n,
     operationalReferralBonusReward:
-      legacyRewards?.operationalReferralBonusReward?.toBigInt() ?? consts.operationalReferralBonusReward.toBigInt(),
-    operationalReferralsPerBonusReward: legacyConsts.operationalReferralsPerBonusReward?.toNumber() ?? 0,
-    operationalMinimumUniswapTransfer: 0n,
+      spec155Rewards?.referralBonusReward?.toBigInt() ?? spec155Consts.operationalReferralBonusReward?.toBigInt() ?? 0n,
+    operationalReferralsPerBonusReward: spec155Consts.referralBonusEveryXOperationalSponsees?.toNumber() ?? 0,
+    // specVersion 155 tracked Uniswap completion as a boolean on the account.
+    operationalMinimumUniswapTransfer: 1n,
     operationalMinimumVaultLockTicks: client.consts.vaults.operationalMinimumVaultLockTicks.toBigInt(),
     operationalMinimumVaultSecuritization: (
-      consts.operationalMinimumVaultSecuritization ?? client.consts.vaults.operationalMinimumVaultSecuritization
+      spec155Consts.operationalMinimumVaultSecuritization ?? client.consts.vaults.operationalMinimumVaultSecuritization
     ).toBigInt(),
-    miningSeatsForOperational: 2,
+    miningSeatsForOperational: spec155Consts.miningSeatsForOperational?.toNumber() ?? 2,
     treasuryMinimumBitcoin: certificationThresholds.treasuryMinimumBitcoin,
     treasuryMinimumBonds: certificationThresholds.treasuryMinimumBonds,
     treasuryMinimumUniswapTransfer: certificationThresholds.treasuryMinimumUniswapTransfer,
-    bitcoinLockSizeForUpgradeCode: legacyConsts.bitcoinLockSizeForUpgradeCode?.toBigInt() ?? 0n,
-    miningSeatsPerUpgradeCode: legacyConsts.miningSeatsPerUpgradeCode?.toNumber() ?? 0,
-    maxAvailableUpgradeCodes: legacyConsts.maxAvailableUpgradeCodes?.toNumber() ?? 0,
+    bitcoinLockSizeForUpgradeCode: spec155Consts.bitcoinLockSizeForReferral?.toBigInt() ?? 0n,
+    miningSeatsPerUpgradeCode: spec155Consts.miningSeatsPerReferral?.toNumber() ?? 0,
+    maxAvailableUpgradeCodes: spec155Consts.maxAvailableReferrals?.toNumber() ?? 0,
   };
 }
 
@@ -367,36 +389,37 @@ export function getOperationalChainProgressFromAccount(
     hasOperationalAccount: accountRaw.isSome,
     hasVault: false,
     hasUniswapTransfer: false,
+    hasTreasuryUniswapTransfer: false,
     hasTreasuryBondParticipation: false,
     hasFirstMiningSeat: false,
     hasSecondMiningSeat: false,
     hasBitcoinLock: false,
     bitcoinAccrual: 0n,
     miningSeatAccrual: 0,
-    operationalReferralsCount: 0,
-    upgradeCodePending: false,
-    availableUpgradeCodes: 0,
-    unactivatedUpgradeCodes: 0,
+    operationalCertificationsCount: 0,
+    accessCodePending: false,
+    availableAccessCodes: 0,
+    unactivatedAccessCodes: 0,
     rewardsEarnedCount: 0,
     rewardsEarnedAmount: 0n,
     rewardsCollectedAmount: 0n,
     isUpgradedToOperations: false,
     isOperational: false,
-    hasReferrer: false,
+    hasUpstreamAccount: false,
   };
 
   if (!accountRaw.isSome) return entry;
 
   const account = accountRaw.unwrap();
-  const legacyAccount = account as LegacyPalletOperationalAccountsOperationalAccount;
+  const spec155Account = account as ISpec155OperationalAccount;
   const certificationProgress = getCertificationProgressFromOperationalAccount(accountRaw, rewardConfig);
 
   const operationalMinimumUniswapTransfer = rewardConfig?.operationalMinimumUniswapTransfer ?? 0n;
 
   const bitcoinAccrual =
-    legacyAccount.bitcoinAccrual?.toBigInt() ?? account.vaultBitcoinAccrual?.toBigInt() ?? entry.bitcoinAccrual;
+    spec155Account.bitcoinAccrual?.toBigInt() ?? account.vaultBitcoinAccrual?.toBigInt() ?? entry.bitcoinAccrual;
   const bitcoinAppliedTotal =
-    legacyAccount.bitcoinAppliedTotal?.toBigInt() ?? account.vaultBitcoinAppliedTotal?.toBigInt() ?? 0n;
+    spec155Account.bitcoinAppliedTotal?.toBigInt() ?? account.vaultBitcoinAppliedTotal?.toBigInt() ?? 0n;
   const miningSeatAccrualValue = account.miningSeatAccrual?.toNumber() ?? entry.miningSeatAccrual;
   const uniswapArgonTransfersInAmountValue = account.uniswapArgonTransfersInAmount?.toBigInt() ?? 0n;
 
@@ -404,33 +427,39 @@ export function getOperationalChainProgressFromAccount(
     hasOperationalAccount: certificationProgress.hasOperationalAccount,
     hasVault: account.vaultCreated?.toPrimitive() ?? false,
     hasUniswapTransfer:
-      legacyAccount.hasUniswapTransfer?.toPrimitive() ??
+      spec155Account.hasUniswapTransfer?.toPrimitive() ??
       uniswapArgonTransfersInAmountValue >= operationalMinimumUniswapTransfer,
+    hasTreasuryUniswapTransfer: certificationProgress.hasTreasuryUniswapTransfer,
     hasTreasuryBondParticipation: certificationProgress.hasTreasuryBonds,
     hasFirstMiningSeat: miningSeatAccrualValue + (account.miningSeatAppliedTotal?.toNumber() ?? 0) >= 1,
     hasSecondMiningSeat: miningSeatAccrualValue + (account.miningSeatAppliedTotal?.toNumber() ?? 0) >= 2,
     hasBitcoinLock: certificationProgress.hasTreasuryBitcoin,
     bitcoinAccrual,
     miningSeatAccrual: miningSeatAccrualValue,
-    operationalReferralsCount: account.operationalReferralsCount?.toNumber() ?? entry.operationalReferralsCount,
-    upgradeCodePending:
-      legacyAccount.referralPending?.toPrimitive() ??
-      legacyAccount.referralAccessCodePending?.toPrimitive() ??
-      account.upgradeCodePending?.toPrimitive() ??
-      entry.upgradeCodePending,
-    availableUpgradeCodes:
-      legacyAccount.availableReferrals?.toNumber() ??
-      legacyAccount.issuableAccessCodes?.toNumber() ??
-      account.availableUpgradeCodes?.toNumber() ??
-      entry.availableUpgradeCodes,
-    unactivatedUpgradeCodes: legacyAccount.unactivatedAccessCodes?.toNumber() ?? entry.unactivatedUpgradeCodes,
+    operationalCertificationsCount:
+      account.operationalCertificationsCount?.toNumber() ??
+      spec155Account.operationalReferralsCount?.toNumber() ??
+      entry.operationalCertificationsCount,
+    accessCodePending:
+      account.accessCodePending?.toPrimitive() ??
+      spec155Account.referralPending?.toPrimitive() ??
+      entry.accessCodePending,
+    availableAccessCodes:
+      account.availableAccessCodes?.toNumber() ??
+      spec155Account.availableReferrals?.toNumber() ??
+      entry.availableAccessCodes,
+    unactivatedAccessCodes: entry.unactivatedAccessCodes,
     rewardsEarnedCount: account.rewardsEarnedCount?.toNumber() ?? entry.rewardsEarnedCount,
     rewardsEarnedAmount: account.rewardsEarnedAmount?.toBigInt() ?? entry.rewardsEarnedAmount,
     rewardsCollectedAmount: account.rewardsCollectedAmount?.toBigInt() ?? entry.rewardsCollectedAmount,
     isUpgradedToOperations: certificationProgress.isUpgradedToOperations,
     isOperational: certificationProgress.isOperationallyCertified,
-    hasReferrer: legacyAccount.sponsor?.isSome ?? account.referrer?.isSome ?? entry.hasReferrer,
+    hasUpstreamAccount: account.upstreamAccount?.isSome ?? spec155Account.sponsor?.isSome ?? entry.hasUpstreamAccount,
   };
+}
+
+export function supportsOperationalAccessProofRuntime(client: ArgonClient): boolean {
+  return !!client.consts?.operationalAccounts && 'minimumBitcoin' in client.consts.operationalAccounts;
 }
 
 async function getTreasuryReserveBalance(client: ArgonClient): Promise<bigint | undefined> {

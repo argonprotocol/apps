@@ -120,6 +120,8 @@ export const ConfigCertificationDetailsSchema = z.object({
   showBonusTooltip: z.boolean().optional(),
   showRewardsCelebration: z.boolean().optional(),
   dismissedCompletionNoticeStepIds: z.array(z.string()).optional(),
+  dismissedOperationsUpgradeOverlay: z.boolean().optional(),
+  dismissedOperationsActivatedOverlay: z.boolean().optional(),
 });
 
 export const ConfigInstallerStep = z.object({

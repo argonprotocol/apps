@@ -18,13 +18,16 @@
         </p>
         <AlertCalloutButton
           v-if="
-            [OperationalStepId.ActivateVault, OperationalStepId.FirstMiningSeat].includes(
-              controller?.activeGuideId as any,
-            )
+            [
+              OperationalStepId.ActivateVault,
+              OperationalStepId.FirstMiningSeat,
+              OperationalStepId.TreasuryTransfer,
+              OperationalStepId.OperationalTransfer,
+            ].includes(controller?.activeGuideId as any)
           "
           :showArrow="false"
           label="Critical Alert"
-          guidance="In order to count towards your bonus, these funds must originate as a Uniswap or Coinbase transaction from Ethereum. This helps the system limit fraud."
+          guidance="In order to count towards your bonus, these funds must originate from Uniswap on Ethereum. This helps the system limit fraud."
           class="mt-3 inline-block"
         />
       </div>

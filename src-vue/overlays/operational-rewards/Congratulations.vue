@@ -13,8 +13,8 @@
         <div class="text-argon-700 text-5xl leading-none font-bold">So What’s Next?</div>
 
         <p class="mt-5 text-base leading-7 text-slate-700">
-          You've earned one exclusive referral code. Share it with someone you trust. When they complete the Argon
-          Operational Certification, you both earn ₳{{
+          You’ve earned an upgrade code. Use the Network tab to upgrade a treasury user you trust to an operator. When
+          they complete the Argon Operational Certification, you both earn ₳{{
             microgonToArgonNm(controller.rewardConfig.operationalActivationReward).format('0,0.[00]')
           }}.
         </p>
@@ -27,7 +27,7 @@
         </div>
 
         <p class="text-md mt-3 leading-7 text-slate-600">
-          Spread what you learned and bring more operators into Argon. You can unlock more referral codes by adding
+          Spread what you learned and bring more operators into Argon. You can unlock more upgrade codes by adding
           Bitcoin to your vault, earning more mining seats, or onboarding successful operators.
         </p>
       </div>
@@ -51,10 +51,10 @@
       <div
         class="border-argon-300/60 bg-argon-600/5 rounded-2xl border px-5 py-5 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
       >
-        <div class="text-argon-700/70 text-xs font-semibold tracking-widest uppercase">Referral Code Unlocked</div>
-        <div class="text-argon-700 mt-2 text-4xl font-bold">1</div>
+        <div class="text-argon-700/70 text-xs font-semibold tracking-widest uppercase">Upgrade Codes Unlocked</div>
+        <div class="text-argon-700 mt-2 text-4xl font-bold">{{ controller.chainProgress.availableAccessCodes }}</div>
         <div class="mt-2 text-sm leading-6 text-slate-500">
-          You can now invite one new operator with a private invite link.
+          You can now use one upgrade code in the Network tab to upgrade a treasury user to an operator.
         </div>
       </div>
     </div>
@@ -83,9 +83,9 @@
       <button
         type="button"
         class="bg-argon-button hover:bg-argon-button-hover rounded-lg px-5 py-2.5 text-sm font-semibold text-white"
-        @click="goToPrimaryAction"
+        @click="openNetwork"
       >
-        {{ primaryActionLabel }}
+        Open Network Tab
       </button>
     </div>
   </div>
@@ -93,6 +93,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import { TopTab } from '../../interfaces/IConfig.ts';
 import { useCertificationController } from '../../stores/certificationController.ts';
 import { getConfig } from '../../stores/config.ts';
 import { getCurrency } from '../../stores/currency.ts';
@@ -100,7 +101,6 @@ import { createNumeralHelpers } from '../../lib/numeral.ts';
 
 const emit = defineEmits<{
   close: [];
-  goTo: [screen: 'claim' | 'overview', section?: 'create'];
 }>();
 
 const controller = useCertificationController();
@@ -109,9 +109,6 @@ const currency = getCurrency();
 
 const { microgonToArgonNm } = createNumeralHelpers(currency);
 
-const primaryActionLabel = Vue.computed(() => {
-  return 'Open Referral Codes';
-});
 const referrerRewardName = Vue.computed(() => {
   const upstreamOperator = config.upstreamOperator;
   if (!upstreamOperator?.name) return '';
@@ -119,7 +116,8 @@ const referrerRewardName = Vue.computed(() => {
   return upstreamOperator.name.trim();
 });
 
-function goToPrimaryAction() {
-  emit('goTo', 'overview', 'create');
+function openNetwork() {
+  controller.setTab(TopTab.Network);
+  emit('close');
 }
 </script>

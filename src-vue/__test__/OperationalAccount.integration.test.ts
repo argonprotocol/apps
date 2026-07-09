@@ -42,7 +42,7 @@ describe.skipIf(skipE2E).sequential('OperationalAccount integration tests', { ti
 
     const tx = await buildOperatorAccountRegistrationTx({
       walletKeys: wallet.walletKeys,
-      config: { upstreamOperator: null } as any,
+      accessProof: null,
       client: runtimeClient,
     });
 

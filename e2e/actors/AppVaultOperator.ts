@@ -1,11 +1,19 @@
 import {
+  createOperationalAccessProof,
   Currency,
   hasCompletedTreasuryCertificationRequirements,
   JsonExt,
   MainchainClients,
   MiningFrames,
+  TreasuryBonds,
 } from '@argonprotocol/apps-core';
-import { Keyring, MICROGONS_PER_ARGON, TxSubmitter } from '@argonprotocol/mainchain';
+import {
+  createBitcoinAddress,
+  generateBlocks,
+  sendBitcoinToAddress,
+} from '@argonprotocol/apps-core/__test__/helpers/bitcoinCli.ts';
+import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
+import { BitcoinLock, Keyring, MICROGONS_PER_ARGON, TxSubmitter } from '@argonprotocol/mainchain';
 import type { ApiDecoration, ArgonClient, SubmittableExtrinsic } from '@argonprotocol/mainchain';
 import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
 import { sudo } from '@argonprotocol/testing';
@@ -209,7 +217,11 @@ export class AppVaultOperator {
       throw new Error('A vault name is required to bootstrap the upstream operator.');
     }
 
-    const requiredVaultingBalance = this.config.vaultingRules.baseMicrogonCommitment + 2n * BigInt(MICROGONS_PER_ARGON);
+    const rewardConfig = await getOperationalRewardConfig(client);
+    const requiredVaultingBalance =
+      this.config.vaultingRules.baseMicrogonCommitment +
+      rewardConfig.treasuryMinimumBonds +
+      20n * BigInt(MICROGONS_PER_ARGON);
 
     await sudoFundWallet({
       client,
@@ -225,23 +237,88 @@ export class AppVaultOperator {
       throw new Error(`AppVaultOperator could not load a vault for ${this.walletKeys.treasuryAddress}.`);
     }
 
-    const rewardConfig = await getOperationalRewardConfig(client);
     const existingOperationalAccount = await loadOperationalAccount(this.walletKeys, client);
     const existingProgress = getOperationalChainProgressFromAccount(existingOperationalAccount, rewardConfig);
 
-    if (vault.delegateAccountId && existingProgress.isOperational && existingProgress.availableUpgradeCodes > 0) {
+    if (vault.delegateAccountId && existingProgress.isOperational && existingProgress.availableAccessCodes > 0) {
       return;
     }
 
     if (!vault.delegateAccountId) {
       const txInfo = await this.myVault.setupVaultInviteProfile(vaultName);
       await txInfo?.txResult.waitForInFirstBlock;
-      await this.myVault.load(true);
+    }
+
+    if (!existingOperationalAccount.isSome) {
+      const satoshis = await this.#bitcoinLocks.satoshisForArgonLiquidity(rewardConfig.treasuryMinimumBitcoin);
+      const { txInfo } = await this.#bitcoinLocks.initializeLock({
+        vault,
+        satoshis,
+      });
+      if (!txInfo) {
+        throw new Error('Upstream treasury bitcoin bootstrap did not create a lock transaction.');
+      }
+
+      const blockHash = txInfo.tx.blockHash ?? (await txInfo.txResult.waitForInFirstBlock);
+      const apiAt = await client.at(blockHash);
+      const { lock: treasuryLock } = await BitcoinLock.getBitcoinLockFromTxResult(apiAt, txInfo.txResult);
+
+      const fundingAddress = BitcoinLocks.formatP2wshAddress(
+        treasuryLock.p2wshScriptHashHex,
+        this.#bitcoinLocks.bitcoinNetwork,
+      );
+      const minerAddress = createBitcoinAddress();
+      sendBitcoinToAddress(fundingAddress, treasuryLock.satoshis);
+      generateBlocks(8, minerAddress);
+
+      await waitFor(45e3, 'upstream treasury bitcoin funded', async () => {
+        const currentLock = await BitcoinLock.get(client, treasuryLock.utxoId);
+        if (!currentLock?.isFunded) return;
+        return currentLock;
+      });
+
+      if (rewardConfig.treasuryMinimumUniswapTransfer > 0n) {
+        const transferTotalsKey = client.query.crosschainTransfer.transferTotalsByAccount.key(
+          this.walletKeys.treasuryAddress,
+        );
+        const transferTotalsValue = client
+          .createType('PalletCrosschainTransferAccountTransferTotals', {
+            microgonsIn: rewardConfig.treasuryMinimumUniswapTransfer,
+            microgonsOut: 0n,
+            argonTransfersInCount: 1,
+            argonTransfersOutCount: 0,
+            micronotsIn: 0n,
+            micronotsOut: 0n,
+            argonotTransfersInCount: 0,
+            argonotTransfersOutCount: 0,
+          })
+          .toHex();
+
+        const setStorageResult = await new TxSubmitter(
+          client,
+          client.tx.sudo.sudo(client.tx.system.setStorage([[transferTotalsKey, transferTotalsValue]])),
+          sudo(),
+        ).submit({
+          useLatestNonce: true,
+        });
+        await setStorageResult.waitForInFirstBlock;
+      }
+
+      const bondTx = await TreasuryBonds.buildBuyBondTx({
+        client,
+        vaultId: vault.vaultId,
+        bondPurchaseMicrogons: rewardConfig.treasuryMinimumBonds,
+      });
+      const txSigner = await this.walletKeys.getTreasuryKeypair();
+      const txResult = await new TxSubmitter(client, bondTx, txSigner).submit({
+        useLatestNonce: true,
+      });
+      await txResult.waitForInFirstBlock;
     }
 
     const registrationTx = await buildOperatorAccountRegistrationTx({
       walletKeys: this.walletKeys,
-      config: this.config,
+      accessProof: null,
       client,
     });
     if (registrationTx) {
@@ -269,7 +346,6 @@ export class AppVaultOperator {
             vaultCreated: true,
             vaultBitcoinAmount: rewardConfig.bitcoinLockSizeForUpgradeCode,
             miningSeatCount: rewardConfig.miningSeatsPerUpgradeCode,
-            isUpgradedToOperations: true,
           },
           true,
         ),
@@ -292,8 +368,8 @@ export class AppVaultOperator {
     if (!progress.isOperational) {
       throw new Error('Upstream operational account did not become operational during bootstrap.');
     }
-    if (progress.availableUpgradeCodes < 1) {
-      throw new Error('Upstream operational account did not receive an upgrade code during bootstrap.');
+    if (progress.availableAccessCodes < 1) {
+      throw new Error('Upstream operational account did not receive an access code during bootstrap.');
     }
 
     await this.myVault.load(true);
@@ -314,8 +390,6 @@ export class AppVaultOperator {
     let isStopped = false;
 
     const runPromise = (async () => {
-      const rewardConfig = await getOperationalRewardConfig(client);
-
       while (!isStopped) {
         try {
           const invites = await this.requestRouterJson<IListInvitesResponse>({
@@ -325,7 +399,7 @@ export class AppVaultOperator {
           });
 
           for (const invite of invites.invites) {
-            if (!invite.operationsUpgradeRequestedAt || invite.operationsUpgradedAt) {
+            if (!invite.operationsUpgradeRequestedAt || invite.accessProof || !invite.operationalAccountId) {
               continue;
             }
 
@@ -336,36 +410,8 @@ export class AppVaultOperator {
               continue;
             }
 
-            const downstreamOperationalAccountId = invite.operationalAccountId;
-            if (!downstreamOperationalAccountId) {
-              continue;
-            }
-
-            const operationalAccount =
-              await client.query.operationalAccounts.operationalAccounts(downstreamOperationalAccountId);
-            if (!operationalAccount.isSome) {
-              continue;
-            }
-
-            const operationalProgress = getOperationalChainProgressFromAccount(operationalAccount, rewardConfig);
-            if (!operationalProgress.isUpgradedToOperations) {
-              const txSigner = await this.walletKeys.getOperationalKeypair();
-              const txResult = await new TxSubmitter(
-                client,
-                client.tx.operationalAccounts.upgradeAccount(downstreamOperationalAccountId),
-                txSigner,
-              ).submit({
-                useLatestNonce: true,
-              });
-              await txResult.waitForFinalizedBlock;
-            }
-
-            const refreshedOperationalAccount =
-              await client.query.operationalAccounts.operationalAccounts(downstreamOperationalAccountId);
-            const refreshedProgress = getOperationalChainProgressFromAccount(refreshedOperationalAccount, rewardConfig);
-            if (!refreshedProgress.isUpgradedToOperations) {
-              continue;
-            }
+            const operationalKeypair = await this.walletKeys.getOperationalKeypair();
+            const accessProof = createOperationalAccessProof(operationalKeypair, invite.operationalAccountId);
 
             await this.requestRouterJson<IInviteResponse>({
               serverAuthClient,
@@ -373,6 +419,12 @@ export class AppVaultOperator {
               path: `/invites/${encodeURIComponent(invite.inviteCode)}/mark-operations-upgraded`,
               init: {
                 method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JsonExt.stringify({
+                  signature: accessProof.signature,
+                }),
               },
             });
 

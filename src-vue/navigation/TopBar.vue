@@ -28,9 +28,9 @@
         <div v-if="config.hasExtensionOperations" :class="[controller.selectedTab === TopTab.MiningOperations && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
           <ServerMenu ref="serverMenuRef" />
         </div>
-<!--        <div class="pointer-events-auto">-->
-<!--          <OperationalMenu ref="operationalMenuRef" />-->
-<!--        </div>-->
+        <div class="pointer-events-auto">
+          <OperationalMenu />
+        </div>
         <div :class="[controller.selectedTab === TopTab.MiningOperations && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto', wallets.isLoaded ? '' : 'opacity-20']">
           <div ref="currencyMenuRef" class="flex flex-row items-center">
             <PortfolioDetailsMenu />

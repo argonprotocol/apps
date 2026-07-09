@@ -13,6 +13,7 @@ export interface IUserInviteRecord {
   lastClickedAt?: Date | null;
   operationsUpgradeRequestedAt?: Date | null;
   operationsUpgradedAt?: Date | null;
+  operationsAccessProofSignature?: string | null;
   operationalAccountId?: string | null;
   defaultAccountId?: string | null;
   authAccountId?: string | null;
@@ -35,6 +36,7 @@ const selectInviteRecord = `
     UserInvites.lastClickedAt AS lastClickedAt,
     UserInvites.operationsUpgradeRequestedAt AS operationsUpgradeRequestedAt,
     UserInvites.operationsUpgradedAt AS operationsUpgradedAt,
+    UserInvites.operationsAccessProofSignature AS operationsAccessProofSignature,
     Users.operationalAccountId AS operationalAccountId,
     Users.accountId AS defaultAccountId,
     Users.authAccountId AS authAccountId,
@@ -200,12 +202,18 @@ export class UserInvitesTable extends BaseTable {
     return this.fetchById(id);
   }
 
-  public markOperationsUpgraded(id: number, upgradedAt = new Date()): IUserInviteRecord | null {
+  public markOperationsUpgraded(
+    id: number,
+    operationsAccessProofSignature: string,
+    upgradedAt = new Date(),
+  ): IUserInviteRecord | null {
     this.db.sql
       .prepare(
         `
         UPDATE UserInvites
-        SET operationsUpgradedAt = COALESCE(operationsUpgradedAt, $upgradedAt)
+        SET
+          operationsUpgradedAt = COALESCE(operationsUpgradedAt, $upgradedAt),
+          operationsAccessProofSignature = COALESCE(operationsAccessProofSignature, $operationsAccessProofSignature)
         WHERE userId = $id
       `,
       )
@@ -213,6 +221,7 @@ export class UserInvitesTable extends BaseTable {
         toSqliteParams({
           id,
           upgradedAt,
+          operationsAccessProofSignature,
         }),
       );
 
