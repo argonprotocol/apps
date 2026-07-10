@@ -62,7 +62,7 @@
             <p class="mt-2 text-sm leading-6">{{ permissionGrant }}</p>
           </div>
           <div>
-            <h4 class="text-sm font-semibold text-slate-800">Condition</h4>
+            <h4 class="text-sm font-semibold text-slate-800">Conditions</h4>
             <p class="mt-2 text-sm leading-6">{{ licenseCondition }}</p>
           </div>
           <div>
