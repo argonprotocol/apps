@@ -36,10 +36,7 @@ import AcquireBonds from '../overlays/operational/AcquireBonds.vue';
 import TransferArgons from '../overlays/operational/TransferArgons.vue';
 import WinMiningSeats from '../overlays/operational/WinMiningSeats.vue';
 import WinMoreMiningSeats from '../overlays/operational/WinMoreMiningSeats.vue';
-import {
-  TopTab,
-  VaultingSetupStatus,
-} from '../interfaces/IConfig.ts';
+import { TopTab, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { BitcoinLockStatus } from '../interfaces/IBitcoinLockRecord.ts';
 
