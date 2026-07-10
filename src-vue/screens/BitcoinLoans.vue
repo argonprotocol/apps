@@ -90,11 +90,11 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
-import { getCurrency } from '../../stores/currency.ts';
-import { getBitcoinLocks } from '../../stores/bitcoin.ts';
-import FormattedMoney from '../../components/FormattedMoney.vue';
-import DebtRecord from './components/DebtRecord.vue';
-import { useFinancials } from '../../stores/financials.ts';
+import { getCurrency } from '../stores/currency.ts';
+import { getBitcoinLocks } from '../stores/bitcoin.ts';
+import FormattedMoney from '../components/FormattedMoney.vue';
+import DebtRecord from './treasury-screens/components/DebtRecord.vue';
+import { useFinancials } from '../stores/financials.ts';
 
 dayjs.extend(utc);
 
@@ -127,7 +127,7 @@ Vue.onMounted(async () => {
 </script>
 
 <style scoped>
-@reference "../../main.css";
+@reference "../main.css";
 
 td {
   @apply border-t border-slate-400/50 py-2;
