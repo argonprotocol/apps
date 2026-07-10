@@ -74,15 +74,9 @@ import { useCertificationController } from '../stores/certificationController.ts
 import WindowControls from '../tauri-controls/WindowControls.vue';
 import PortfolioMenu from './PortfolioMenu.vue';
 import AccountMenu from './AccountMenu.vue';
-import ArgonLogo from '../assets/resources/argon.svg?component';
-import InstanceMenu, { IInstance } from './InstanceMenu.vue';
 import { useWallets } from '../stores/wallets.ts';
 import { getBot } from '../stores/bot.ts';
 import { useTour } from '../stores/tour.ts';
-import { appConfigDir } from '@tauri-apps/api/path';
-import { readDir } from '@tauri-apps/plugin-fs';
-import { APP_NAME, INSTANCE_NAME, NETWORK_NAME } from '../lib/Env.ts';
-import TabSwitcher from './TabSwitcher.vue';
 import ServerMenu from './ServerMenu.vue';
 import OperationalMenu from './OperationalMenu.vue';
 import { NavigationMenuIndicator, NavigationMenuList, NavigationMenuRoot, NavigationMenuViewport } from 'reka-ui';
@@ -100,8 +94,10 @@ const bot = getBot();
 const navigationMenuViewportZIndex = useFloatingZIndex();
 const navigationMenuIndicatorZIndex = useFloatingZIndex(2);
 
+const serverMenuRef = Vue.ref<InstanceType<typeof ServerMenu> | null>(null);
 const accountMenuRef = Vue.ref<InstanceType<typeof AccountMenu> | null>(null);
 const currencyMenuRef = Vue.ref<InstanceType<typeof PortfolioMenu> | null>(null);
+const returnsMenuRef = Vue.ref<InstanceType<typeof ProfitsMenu> | null>(null);
 
 const navigationMenuValue = Vue.ref('');
 let navigationMenuCloseTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
