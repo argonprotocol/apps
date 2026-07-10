@@ -5,7 +5,7 @@
     <TopBar />
     <div v-if="controller.isLoaded && !controller.isImporting" class="flex flex-row grow gap-x-2 px-2 pb-2 overflow-scroll">
       <LeftBar />
-      <main v-if="controller.isLoaded && !controller.isImporting" class="grow min-h-0 relative flex flex-col overflow-hidden">
+      <main v-if="controller.isLoaded && !controller.isImporting" class="grow min-h-0 relative flex flex-col overflow-hidden pt-2">
         <AlertBars />
         <div class="grow min-h-0 overflow-y-auto overflow-x-hidden">
           <Dashboard v-if="controller.selectedTab === TopTab.Dashboard" />

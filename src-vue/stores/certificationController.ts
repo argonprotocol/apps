@@ -325,7 +325,7 @@ export const useCertificationController = defineStore('certificationController',
     return completedCertificationStepCount.value === certificationStepCount;
   });
   const isTreasuryCertificationFlowActive = Vue.computed(() => {
-    if (!config.hasExtensionTreasury) {
+    if (!config.isLoaded || !config.hasExtensionTreasury) {
       return false;
     }
 
@@ -740,7 +740,7 @@ export const useCertificationController = defineStore('certificationController',
   }
 
   async function refreshTreasuryTransferTotals() {
-    if (!config.hasExtensionTreasury) {
+    if (!config.isLoaded || !config.hasExtensionTreasury) {
       treasuryTransferredInMicrogons.value = 0n;
       return;
     }
