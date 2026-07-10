@@ -46,6 +46,35 @@ it('should skip install if server is not connected', async () => {
   expect(installer.reasonToSkipInstall).toBe('ServerNotConnected');
 });
 
+it('keeps the installer loadable when the configured server health check fails', async () => {
+  const { walletKeys } = createTestWallet('//Alice');
+  const config = new Config(
+    createMockedDbPromise({
+      isServerInstalled: 'true',
+      serverDetails: JSON.stringify({
+        ipAddress: '143.198.226.10',
+        sshPort: 22,
+        sshUser: 'root',
+        type: ServerType.DigitalOcean,
+        workDir: '~',
+      }),
+    }),
+    walletKeys,
+  );
+  await config.load();
+
+  const installer = new Installer(config, walletKeys);
+  vi.spyOn(installer as any, 'getServer').mockRejectedValue(new Error('SSH authentication failed'));
+
+  await expect(installer.load()).resolves.toBeUndefined();
+  await expect(installer.isLoadedPromise).resolves.toBeUndefined();
+  expect(installer.isLoaded).toBe(true);
+  expect(config.serverInstaller).toMatchObject({
+    errorType: InstallStepErrorType.ServerConnect,
+    errorMessage: 'SSH authentication failed',
+  });
+});
+
 it('should skip install if install is already running', async () => {
   const dbPromise = createMockedDbPromise({ miningSetupStatus: `"${MiningSetupStatus.Installing}"` });
   const { walletKeys } = createTestWallet('//Alice');
