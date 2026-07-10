@@ -28,7 +28,7 @@ const controller = useCertificationController();
 const config = getConfig();
 const tour = useTour();
 
-const startingTab = controller.selectedTab ?? TopTab.Wallets;
+const startingTab = controller.selectedTab ?? TopTab.Dashboard;
 
 const stepVars = Vue.ref({});
 const tourPos = Vue.ref<ITourPos>({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 });
@@ -65,11 +65,11 @@ async function loadStep(step: number) {
   if (step === 6) {
     step = 0;
   } else if (step === 1) {
-    controller.setTab(TopTab.MiningOperations);
+    controller.setTab(TopTab.Mining);
   } else if (step === 2) {
-    controller.setTab(TopTab.VaultingOperations);
+    controller.setTab(TopTab.Vaulting);
   } else if (step === 5) {
-    controller.setTab(TopTab.Wallets);
+    controller.setTab(TopTab.Dashboard);
   }
 
   tour.currentStep = step;

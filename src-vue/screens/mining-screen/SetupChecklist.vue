@@ -356,7 +356,7 @@ function openServerConnectPanel() {
 function goBack() {
   config.miningSetupStatus = MiningSetupStatus.None;
   if (controller.backButtonTriggersHome) {
-    controller.setTab(TopTab.Wallets);
+    controller.setTab(TopTab.Dashboard);
   }
 }
 

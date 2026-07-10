@@ -64,7 +64,7 @@ const snapPreview = Vue.ref<{
 let nextWalletId = 1;
 
 const certificationController = useCertificationController();
-const isWalletScreenOpen = Vue.computed(() => certificationController?.selectedTab === TopTab.Wallets);
+const isWalletScreenOpen = Vue.computed(() => certificationController?.selectedTab === TopTab.Dashboard);
 
 function syncOverlayState() {
   basics.overlayIsOpen = openWallets.value.some(wallet => wallet.showBackdrop);

@@ -203,7 +203,7 @@ import FormattedMoney from '../components/FormattedMoney.vue';
 import { UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { useFinancials, type ILockSummary } from '../stores/financials.ts';
 import { getVaults } from '../stores/vaults.ts';
-import BitcoinRecord from './treasury/components/BitcoinRecord.vue';
+import BitcoinRecord from './treasury-screens/components/BitcoinRecord.vue';
 
 const config = getConfig();
 const currency = getCurrency();

@@ -103,7 +103,7 @@ export async function createMenu() {
       {
         id: 'mining-dashboard',
         text: 'Open Mining',
-        action: () => controller.setTab(TopTab.MiningOperations),
+        action: () => controller.setTab(TopTab.Mining),
       },
       {
         id: 'token-transfer-to-mining',
@@ -119,7 +119,7 @@ export async function createMenu() {
       {
         id: 'vaulting-dashboard',
         text: 'Open Vaulting',
-        action: () => controller.setTab(TopTab.VaultingOperations),
+        action: () => controller.setTab(TopTab.Vaulting),
       },
       {
         id: 'token-transfer-to-vaulting',
