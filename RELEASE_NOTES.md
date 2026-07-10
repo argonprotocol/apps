@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add OS details to troubleshooting package
 - Add a restricted-spend mining proxy to the server
 
+## [1.4.2] - 2026-07-10
+- Installer stall issues (NOTE: don't refresh screen on update screen until you are on 1.4.2 or later)
+- Fix zindex of updates window
+
 ## [1.4.1] - 2026-06-26
 - Compatability with 1.4.8 of mainchain
 - Fix beacon sync stall issue
