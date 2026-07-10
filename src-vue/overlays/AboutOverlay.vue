@@ -41,8 +41,16 @@
                 Close
               </button>
             </div>
-            <div class="mt-4 italic text-black/50">
-              Open source. Zero rights reserved.
+            <div class="mt-4 border-t border-black/10 pt-4 text-sm text-black/60">
+              <div>Licensed under the MIT License.</div>
+              <div class="mt-3 flex flex-wrap justify-center gap-2">
+                <button
+                  @click="basicEmitter.emit('openSoftwareInfoOverlay')"
+                  class="cursor-pointer rounded-full border border-slate-900/15 bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200"
+                >
+                  {{ SOFTWARE_INFO_TITLE }}
+                </button>
+              </div>
             </div>
           </Motion>
         </DialogContent>
@@ -61,6 +69,7 @@ import { getConfig } from '../stores/config.ts';
 import Draggable from './helpers/Draggable.ts';
 import { platformName, platformVersion } from '../tauri-controls/utils/os.ts';
 import { APP_NAME, INSTANCE_NAME, INSTANCE_PORT, NETWORK_NAME } from '../lib/Env.ts';
+import { SOFTWARE_INFO_TITLE } from '../lib/SoftwareInfo.ts';
 import { useOverlayZIndex } from './helpers/OverlayZIndex.ts';
 
 const config = getConfig();
