@@ -6,19 +6,25 @@
   </template>
   <div v-else class="h-screen w-screen flex flex-col overflow-hidden cursor-default">
     <TopBar />
-    <main v-if="controller.isLoaded && !controller.isImporting" class="grow min-h-0 relative flex flex-col overflow-hidden">
-      <AlertBars />
-      <div class="grow min-h-0 overflow-y-auto overflow-x-hidden">
-        <WalletsScreen v-if="controller.selectedTab === TopTab.Wallets" />
-        <NetworkScreen v-else-if="controller.selectedTab === TopTab.Network" />
-        <TreasuryScreen v-else-if="controller.selectedTab === TopTab.Treasury" />
-        <TreasuryBondsScreen v-else-if="controller.selectedTab === TopTab.TreasuryBonds" />
-        <TreasuryLocksScreen v-else-if="controller.selectedTab === TopTab.TreasuryLocks" />
-        <OperationsScreen v-else-if="controller.selectedTab === TopTab.Operations" />
-        <MiningOperationsScreen v-else-if="controller.selectedTab === TopTab.MiningOperations" />
-        <VaultingOperationsScreen v-else-if="controller.selectedTab === TopTab.VaultingOperations" />
-      </div>
-    </main>
+    <div v-if="controller.isLoaded && !controller.isImporting" class="flex flex-row grow gap-x-2 px-2 pb-2 overflow-scroll">
+      <LeftBar />
+      <main v-if="controller.isLoaded && !controller.isImporting" class="grow min-h-0 relative flex flex-col overflow-hidden">
+        <AlertBars />
+        <div class="grow min-h-0 overflow-y-auto overflow-x-hidden">
+          <Dashboard v-if="controller.selectedTab === TopTab.Dashboard" />
+          <Network v-else-if="controller.selectedTab === TopTab.Network" />
+
+          <ArgonBonds v-else-if="controller.selectedTab === TopTab.ArgonBonds" />
+          <ArgonotBonds v-else-if="controller.selectedTab === TopTab.ArgonotBonds" />
+          <BitcoinLocks v-else-if="controller.selectedTab === TopTab.BitcoinLocks" />
+          <BitcoinLoans v-else-if="controller.selectedTab === TopTab.BitcoinLoans" />
+          <StableSwaps v-else-if="controller.selectedTab === TopTab.StableSwaps" />
+
+          <Mining v-else-if="controller.selectedTab === TopTab.Mining" />
+          <Vaulting v-else-if="controller.selectedTab === TopTab.Vaulting" />
+        </div>
+      </main>
+    </div>
     <div v-else class="grow relative">
       <div class="flex flex-col items-center justify-center h-full">
         <div class="text-2xl font-bold text-slate-600/40 uppercase">Loading...</div>
@@ -26,7 +32,7 @@
     </div>
     <template v-if="config.isLoaded">
       <Portfolio />
-      <template v-if="controller.selectedTab === TopTab.MiningOperations">
+      <template v-if="controller.selectedTab === TopTab.Mining">
         <SyncingOverlay v-if="bot.isSyncing" />
       </template>
       <BootingOverlay v-if="config.isBootingUpPreviousWalletHistory && !bot.isSyncing" />
@@ -62,10 +68,9 @@
 import './lib/Env.ts'; // load env first
 import * as Vue from 'vue';
 import { createMenu } from './NativeMenu.ts';
-import NetworkScreen from './screens/NetworkScreen.vue';
-import MiningOperationsScreen from './screens/MiningOperationsScreen.vue';
-import TreasuryScreen from './screens/TreasuryScreen.vue';
-import VaultingOperationsScreen from './screens/VaultingOperationsScreen.vue';
+import Network from './screens/Network.vue';
+import Mining from './screens/Mining.vue';
+import Vaulting from './screens/Vaulting.vue';
 import ServerConnectPanel from './panels/ServerConnectPanel.vue';
 import WalletDialogs from './wallets/WalletDialogs.vue';
 import ServerRemoveOverlay from './overlays/ServerRemoveOverlay.vue';
@@ -106,10 +111,13 @@ import RuntimeCompatibilityScreen from './screens/RuntimeCompatibilityScreen.vue
 import { useAppUpdater } from './stores/appUpdater.ts';
 import { useRuntimeCompatibility } from './stores/runtimeCompatibility.ts';
 import { storeToRefs } from 'pinia';
-import WalletsScreen from './screens/WalletsScreen.vue';
-import TreasuryBondsScreen from './screens/TreasuryBondsScreen.vue';
-import TreasuryLocksScreen from './screens/TreasuryLocksScreen.vue';
-import OperationsScreen from './screens/OperationsScreen.vue';
+import ArgonBonds from './screens/ArgonBonds.vue';
+import BitcoinLocks from './screens/BitcoinLocks.vue';
+import LeftBar from './navigation/LeftBar.vue';
+import ArgonotBonds from './screens/ArgonotBonds.vue';
+import StableSwaps from './screens/StableSwaps.vue';
+import BitcoinLoans from './screens/BitcoinLoans.vue';
+import Dashboard from './screens/Dashboard.vue';
 
 const controller = useCertificationController();
 const config = getConfig();
@@ -123,11 +131,11 @@ const { shouldShowCompatibilityScreen } = storeToRefs(runtimeCompatibility);
 updater.start();
 runtimeCompatibility.start();
 
-const order = [TopTab.Wallets, TopTab.MiningOperations, TopTab.VaultingOperations];
+const order = [TopTab.Dashboard, TopTab.Mining, TopTab.Vaulting];
 
 function keydownHandler(event: KeyboardEvent) {
   // Check for CMD+Shift+[ (mining panel)
-  const currentOrder = order.indexOf(controller.selectedTab ?? TopTab.Wallets);
+  const currentOrder = order.indexOf(controller.selectedTab ?? TopTab.Dashboard);
   if (event.metaKey && event.shiftKey && event.key === '[') {
     event.preventDefault();
     const left = (currentOrder - 1 + order.length) % order.length;

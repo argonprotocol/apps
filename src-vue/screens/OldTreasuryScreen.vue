@@ -80,11 +80,11 @@ function onTreasuryInviteClaimed() {
 }
 
 function openBonds() {
-  controller.setTab(TopTab.TreasuryBonds);
+  controller.setTab(TopTab.ArgonBonds);
 }
 
 function openBitcoinLocks() {
-  controller.setTab(TopTab.TreasuryLocks);
+  controller.setTab(TopTab.BitcoinLocks);
 }
 </script>
 

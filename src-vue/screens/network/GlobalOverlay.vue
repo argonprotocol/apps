@@ -515,13 +515,13 @@ function mouseoutCurrencyKey() {
 }
 
 function setupVault() {
-  controller.setTab(TopTab.VaultingOperations);
+  controller.setTab(TopTab.Vaulting);
   controller.backButtonTriggersHome = true;
   config.vaultingSetupStatus = VaultingSetupStatus.Checklist;
 }
 
 function setupMining() {
-  controller.setTab(TopTab.MiningOperations);
+  controller.setTab(TopTab.Mining);
   controller.backButtonTriggersHome = true;
   config.miningSetupStatus = MiningSetupStatus.Checklist;
 }

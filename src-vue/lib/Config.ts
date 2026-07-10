@@ -83,8 +83,6 @@ export class Config implements IConfig {
       hasExtensionTreasury: Config.getDefault(dbFields.hasExtensionTreasury) as IConfig['hasExtensionTreasury'],
       hasExtensionOperations: Config.getDefault(dbFields.hasExtensionOperations) as IConfig['hasExtensionOperations'],
       selectedTab: Config.getDefault(dbFields.selectedTab) as IConfig['selectedTab'],
-      selectedTreasuryTab: Config.getDefault(dbFields.selectedTreasuryTab) as IConfig['selectedTreasuryTab'],
-      selectedOperationsTab: Config.getDefault(dbFields.selectedOperationsTab) as IConfig['selectedOperationsTab'],
       ethereumBeaconApiUrl: Config.getDefault(dbFields.ethereumBeaconApiUrl) as IConfig['ethereumBeaconApiUrl'],
       ethereumExecutionRpcUrl: Config.getDefault(
         dbFields.ethereumExecutionRpcUrl,
@@ -377,20 +375,6 @@ export class Config implements IConfig {
   }
   public set selectedTab(value: IConfig['selectedTab']) {
     this.setField('selectedTab', value);
-  }
-
-  public get selectedTreasuryTab(): IConfig['selectedTreasuryTab'] {
-    return this.getField('selectedTreasuryTab');
-  }
-  public set selectedTreasuryTab(value: IConfig['selectedTreasuryTab']) {
-    this.setField('selectedTreasuryTab', value);
-  }
-
-  public get selectedOperationsTab(): IConfig['selectedOperationsTab'] {
-    return this.getField('selectedOperationsTab');
-  }
-  public set selectedOperationsTab(value: IConfig['selectedOperationsTab']) {
-    this.setField('selectedOperationsTab', value);
   }
 
   public get bootstrapDetails(): IConfig['bootstrapDetails'] {
@@ -712,8 +696,6 @@ const dbFields = {
   hasExtensionTreasury: 'hasExtensionTreasury',
   hasExtensionOperations: 'hasExtensionOperations',
   selectedTab: 'selectedTab',
-  selectedTreasuryTab: 'selectedTreasuryTab',
-  selectedOperationsTab: 'selectedOperationsTab',
 
   requiresPassword: 'requiresPassword',
   ethereumBeaconApiUrl: 'ethereumBeaconApiUrl',
@@ -751,9 +733,7 @@ const defaults: IConfigDefaults = {
   showWelcomeOverlay: () => true,
   hasExtensionTreasury: () => false,
   hasExtensionOperations: () => false,
-  selectedTab: () => TopTab.Wallets,
-  selectedTreasuryTab: () => TopTab.Treasury,
-  selectedOperationsTab: () => TopTab.Operations,
+  selectedTab: () => TopTab.Dashboard,
 
   requiresPassword: () => false,
   ethereumBeaconApiUrl: () => undefined,

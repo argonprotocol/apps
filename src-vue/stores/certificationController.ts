@@ -37,12 +37,7 @@ import TransferArgons from '../overlays/operational/TransferArgons.vue';
 import WinMiningSeats from '../overlays/operational/WinMiningSeats.vue';
 import WinMoreMiningSeats from '../overlays/operational/WinMoreMiningSeats.vue';
 import {
-  IOperationsTabs,
-  ITreasuryTabs,
-  MiningSetupStatus,
-  OperationsTabs,
   TopTab,
-  TreasuryTabs,
   VaultingSetupStatus,
 } from '../interfaces/IConfig.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
@@ -167,8 +162,6 @@ export const useCertificationController = defineStore('certificationController',
   const upstreamOperatorClient = getUpstreamOperatorClient();
 
   const selectedTab = Vue.ref<TopTab | null>(null);
-  const selectedTreasuryTab = Vue.ref<ITreasuryTabs>(TopTab.Treasury);
-  const selectedOperationsTab = Vue.ref<IOperationsTabs>(TopTab.Operations);
 
   const activeGuideId = Vue.ref<OperationalStepId | null>(null);
 
@@ -503,14 +496,6 @@ export const useCertificationController = defineStore('certificationController',
     selectedTab.value = tab;
     config.selectedTab = tab;
 
-    if (TreasuryTabs.includes(tab as ITreasuryTabs)) {
-      selectedTreasuryTab.value = tab as ITreasuryTabs;
-      config.selectedTreasuryTab = tab as ITreasuryTabs;
-    } else if (OperationsTabs.includes(tab as IOperationsTabs)) {
-      console.log('IS OPERATIONS TAB');
-      selectedOperationsTab.value = tab as IOperationsTabs;
-      config.selectedOperationsTab = tab as IOperationsTabs;
-    }
     void config.save();
   }
 
@@ -539,8 +524,6 @@ export const useCertificationController = defineStore('certificationController',
   async function load() {
     await config.isLoadedPromise;
     selectedTab.value = config.selectedTab;
-    selectedTreasuryTab.value = config.selectedTreasuryTab;
-    selectedOperationsTab.value = config.selectedOperationsTab;
 
     if (operationalAccountUnsubscribe) return;
     rewardConfig.value = await getOperationalRewardConfig();
@@ -775,8 +758,6 @@ export const useCertificationController = defineStore('certificationController',
 
   return {
     selectedTab,
-    selectedTreasuryTab,
-    selectedOperationsTab,
     isLoaded,
     isLoadedPromise,
     isImporting,

@@ -233,22 +233,22 @@ function startTask() {
     if (stepId === OperationalStepId.ActivateVault) {
       controller.backButtonTriggersHome = true;
       config.vaultingSetupStatus = VaultingSetupStatus.Checklist;
-      controller.setTab(TopTab.VaultingOperations);
+      controller.setTab(TopTab.Vaulting);
       return;
     }
 
     if (stepId === OperationalStepId.AcquireBonds) {
-      controller.setTab(TopTab.TreasuryBonds);
+      controller.setTab(TopTab.ArgonBonds);
       return;
     }
 
     if (stepId === OperationalStepId.LiquidLock) {
-      controller.setTab(TopTab.TreasuryLocks);
+      controller.setTab(TopTab.BitcoinLocks);
       return;
     }
 
     if ([OperationalStepId.TreasuryTransfer, OperationalStepId.OperationalTransfer].includes(stepId)) {
-      controller.setTab(TopTab.Wallets);
+      controller.setTab(TopTab.Dashboard);
       basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
       return;
     }
@@ -257,7 +257,7 @@ function startTask() {
     if (config.miningSetupStatus === MiningSetupStatus.None) {
       config.miningSetupStatus = MiningSetupStatus.Checklist;
     }
-    controller.setTab(TopTab.MiningOperations);
+    controller.setTab(TopTab.Mining);
   });
 }
 
