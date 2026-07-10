@@ -50,6 +50,7 @@
       <BotEditOverlay />
       <!-- <ProvisioningCompleteOverlay /> -->
       <AboutOverlay />
+      <SoftwareInfoOverlay />
       <ProfileOverlay />
       <JurisdictionOverlay />
       <ServerOverlay />
@@ -82,6 +83,7 @@ import { useTour } from './stores/tour.ts';
 import { getBot } from './stores/bot.ts';
 import { waitForLoad } from '@argonprotocol/mainchain';
 import AboutOverlay from './overlays/AboutOverlay.vue';
+import SoftwareInfoOverlay from './overlays/SoftwareInfoOverlay.vue';
 import JurisdictionOverlay from './overlays/JurisdictionOverlay.vue';
 import TroubleshootingOverlay from './overlays/Troubleshooting.vue';
 import BootingOverlay from './overlays/BootingOverlay.vue';

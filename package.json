@@ -2,6 +2,7 @@
   "name": "argon-apps",
   "private": true,
   "version": "1.4.2",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "preinstall": "husky install",
