@@ -98,9 +98,9 @@ export default class Installer {
     const loadStartedAt = Date.now();
     let stage = 'config.isLoadedPromise';
 
-    try {
-      await this.config.isLoadedPromise;
+    await this.config.isLoadedPromise;
 
+    try {
       if (this.config.isServerAdded && !this.isRunning) {
         const hasServerDetails = !!this.config.serverDetails.ipAddress;
         if (hasServerDetails) {
@@ -158,13 +158,20 @@ export default class Installer {
           await this.run(false);
         }
       }
-
-      this.isLoaded = true;
-      this.isLoadedDeferred.resolve();
     } catch (error) {
       console.error(`[Installer] Load failed at ${stage} after ${Date.now() - loadStartedAt}ms`, error);
-      throw error;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.config.serverInstaller.errorType = InstallStepErrorType.ServerConnect;
+      this.config.serverInstaller.errorMessage = errorMessage;
+      this.config.serverInstaller = this.config.serverInstaller;
+      this.reasonToSkipInstall = ReasonsToSkipInstall.ServerError;
+      this.reasonToSkipInstallData = { errorMessage };
+      this.isReadyToRun = false;
+      await this.config.save().catch(() => undefined);
     }
+
+    this.isLoaded = true;
+    this.isLoadedDeferred.resolve();
   }
 
   public stop(disableWrites = true) {

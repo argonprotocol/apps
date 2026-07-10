@@ -523,6 +523,28 @@ export const useCertificationController = defineStore('certificationController',
     selectedTab.value = config.selectedTab;
 
     if (operationalAccountUnsubscribe) return;
+
+    Vue.watch(
+      [() => config.hasExtensionTreasury, () => wallets.defaultArgonWallet.availableMicrogons],
+      () => {
+        void refreshTreasuryTransferTotals().catch(error => {
+          console.error('[Certification Controller] Unable to load treasury transfer progress.', error);
+        });
+      },
+      { immediate: true },
+    );
+
+    Vue.watch(
+      () => config.hasExtensionTreasury,
+      (hasExtensionTreasury, hadExtensionTreasury) => {
+        if (!hasExtensionTreasury || hadExtensionTreasury !== false) {
+          return;
+        }
+
+        setTab(TopTab.Treasury);
+      },
+    );
+
     rewardConfig.value = await getOperationalRewardConfig();
 
     void subscribeOperationalAccount(
@@ -729,27 +751,6 @@ export const useCertificationController = defineStore('certificationController',
     );
     treasuryTransferredInMicrogons.value = transferTotals.microgonsIn.toBigInt();
   }
-
-  Vue.watch(
-    [() => config.hasExtensionTreasury, () => wallets.defaultArgonWallet.availableMicrogons],
-    () => {
-      void refreshTreasuryTransferTotals().catch(error => {
-        console.error('[Certification Controller] Unable to load treasury transfer progress.', error);
-      });
-    },
-    { immediate: true },
-  );
-
-  Vue.watch(
-    () => config.hasExtensionTreasury,
-    (hasExtensionTreasury, hadExtensionTreasury) => {
-      if (!hasExtensionTreasury || hadExtensionTreasury !== false) {
-        return;
-      }
-
-      setTab(TopTab.Treasury);
-    },
-  );
 
   load().catch(handleFatalError.bind('useCertificationController'));
 
