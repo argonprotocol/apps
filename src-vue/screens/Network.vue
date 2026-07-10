@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <div class="flex h-full grow flex-col justify-stretch gap-y-2 px-2.5 py-2.5">
+  <div class="flex h-full grow flex-col justify-stretch">
     <section box class="flex flex-col h-full">
       <div class="network-map">
         <article class="network-card network-card--wide network-card--row-1 network-card--col-1" />

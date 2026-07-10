@@ -1,5 +1,5 @@
 <template>
-  <div class="relative flex h-full grow flex-col items-center justify-center">
+  <div DashBox class="relative flex h-full grow flex-col items-center justify-center">
     <MoreIcon class="absolute top-4 right-4 h-4 w-4 text-slate-400" />
 
     <div class="mx-auto flex max-w-200 grow flex-col justify-center px-[5%] pb-10">
