@@ -76,8 +76,7 @@ export default new Operation<IActivateVaultingTabContext, IActivateTabState>(imp
       return;
     }
 
-    await flow.click('OperationsMenu.open()', { timeoutMs: 10_000 });
-    await flow.click('OperationsMenu.goto(OperationsTab.VaultingOperations)', { timeoutMs: 10_000 });
+    await flow.click('LeftBar.goto(TopTab.Vaulting)', { timeoutMs: 10_000 });
     await flow.waitFor('VaultingScreen', {
       timeoutMs: 10_000,
     });

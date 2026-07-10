@@ -160,7 +160,7 @@ import basicEmitter from '../emitters/basicEmitter.ts';
 import { WalletType } from '../lib/Wallet.ts';
 import FormattedMoney from '../components/FormattedMoney.vue';
 import { useFinancials } from '../stores/financials.ts';
-import BondRecord from './treasury/components/BondRecord.vue';
+import BondRecord from './treasury-screens/components/BondRecord.vue';
 import BondDetailOverlay from '../app-treasury/overlays/BondDetailOverlay.vue';
 
 dayjs.extend(utc);

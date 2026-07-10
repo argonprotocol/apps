@@ -316,7 +316,7 @@ function openServerConnectPanel() {
 function goBack() {
   config.vaultingSetupStatus = VaultingSetupStatus.None;
   if (controller.backButtonTriggersHome) {
-    controller.setTab(TopTab.Wallets);
+    controller.setTab(TopTab.Dashboard);
   }
 }
 
