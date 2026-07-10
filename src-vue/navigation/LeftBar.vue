@@ -2,22 +2,22 @@
   <div class="Navigation LeftBar z-10 flex h-full max-w-80 min-w-80 flex-col gap-y-1.5 pt-1.5 select-none">
     <section DashBox class="min-h-48 w-full">
       <div class="flex flex-col justify-center px-1">
-        <header class="w-full border-b border-slate-500/20 px-3 py-2">Native Argon Wallet</header>
-        <div class="mt-5 flex flex-row justify-center text-5xl font-bold">
+        <header class="w-full border-b border-slate-500/20">Native Argon Wallet</header>
+        <div class="text-argon-600/50 mt-5 flex flex-row justify-center text-5xl font-bold">
           <FormattedMoney :value="0n" />
         </div>
         <div class="w-full text-center">Total Value</div>
-        <div class="border-y border-slate-500/20 text-left">
-          <div>0 ARGN</div>
-          <div>0 ARGNOT</div>
+        <div class="mt-4 text-left">
+          <div class="border-t border-slate-500/20 px-3 py-2">0 ARGN</div>
+          <div class="border-t border-slate-500/20 px-3 py-2">0 ARGNOT</div>
         </div>
-        <div>3 Other Wallets</div>
+        <div class="border-t border-slate-500/50 px-3 py-2">3 Other Wallets</div>
       </div>
     </section>
 
-    <section DashBox class="w-full grow px-5 py-3">
+    <section DashBox class="w-full grow px-1 pt-4 pb-3">
       <div>
-        <header class="opacity-50">Basics</header>
+        <header>Basics</header>
         <ul>
           <li @click="goto(TopTab.Dashboard)" :class="{ selected: controller.selectedTab === TopTab.Dashboard }">
             Dashboard
@@ -28,8 +28,8 @@
         </ul>
       </div>
 
-      <div class="mt-3">
-        <header class="opacity-50">Treasury</header>
+      <div class="mt-3" v-if="config.isLoaded && config.hasExtensionTreasury">
+        <header>Treasury</header>
         <ul>
           <li @click="goto(TopTab.ArgonBonds)" :class="{ selected: controller.selectedTab === TopTab.ArgonBonds }">
             Argon Bonds
@@ -38,7 +38,7 @@
             Argonot Bonds
           </li>
           <li @click="goto(TopTab.BitcoinLocks)" :class="{ selected: controller.selectedTab === TopTab.BitcoinLocks }">
-            Bitcoin Locks
+            Bitcoin Locks {{ bitcoinLockCoupons.openCouponCount }}
           </li>
           <li @click="goto(TopTab.BitcoinLoans)" :class="{ selected: controller.selectedTab === TopTab.BitcoinLoans }">
             Bitcoin Loans
@@ -49,8 +49,8 @@
         </ul>
       </div>
 
-      <div class="mt-3">
-        <header class="opacity-50">Operations</header>
+      <div class="mt-3" v-if="config.isLoaded && config.hasExtensionOperations">
+        <header>Operations</header>
         <ul>
           <li
             data-testid="LeftBar.goto(TopTab.Mining)"
@@ -77,8 +77,10 @@ import { MiningSetupStatus, TopTab, VaultingSetupStatus } from '../interfaces/IC
 import { useCertificationController } from '../stores/certificationController.ts';
 import { getConfig } from '../stores/config.ts';
 import FormattedMoney from '../components/FormattedMoney.vue';
+import { getBitcoinLockCoupons } from '../stores/bitcoin.ts';
 
 const controller = useCertificationController();
+const bitcoinLockCoupons = getBitcoinLockCoupons();
 const config = getConfig();
 
 function goto(tab: TopTab) {
@@ -97,8 +99,12 @@ function goto(tab: TopTab) {
 <style scoped>
 @reference "../main.css";
 
+header {
+  @apply px-3 py-2 font-bold text-slate-700/40 uppercase;
+}
+
 ul li {
-  @apply cursor-pointer;
+  @apply cursor-pointer border-t border-slate-500/20 px-2 py-2;
   &.selected {
     @apply bg-argon-100/30;
   }
