@@ -75,15 +75,15 @@
 </template>
 
 <script setup lang="ts">
-import { getCurrency } from '../../stores/currency.ts';
-import MoreIcon from '../../assets/more.svg';
-import InfoIcon from '../../assets/info-outline.svg';
-import { WalletType } from '../../lib/Wallet.ts';
-import numeral from '../../lib/numeral.ts';
-import basicEmitter from '../../emitters/basicEmitter.ts';
-import FormattedMoney from '../../components/FormattedMoney.vue';
-import ArrowIcon from '../../assets/arrow.svg';
-import { useFinancials } from '../../stores/financials.ts';
+import { getCurrency } from '../stores/currency.ts';
+import MoreIcon from '../assets/more.svg';
+import InfoIcon from '../assets/info-outline.svg';
+import { WalletType } from '../lib/Wallet.ts';
+import numeral from '../lib/numeral.ts';
+import basicEmitter from '../emitters/basicEmitter.ts';
+import FormattedMoney from '../components/FormattedMoney.vue';
+import ArrowIcon from '../assets/arrow.svg';
+import { useFinancials } from '../stores/financials.ts';
 
 const financials = useFinancials();
 const currency = getCurrency();
@@ -94,5 +94,5 @@ function openArgonWallet() {
 </script>
 
 <style scoped>
-@reference "../../main.css";
+@reference "../main.css";
 </style>

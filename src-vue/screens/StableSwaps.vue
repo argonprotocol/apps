@@ -228,24 +228,24 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
-import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
+import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { formatUnits } from 'viem';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
-import { getCurrency } from '../../stores/currency.ts';
-import { useStableSwaps } from '../../stores/stableSwaps.ts';
-import CurvedArrow from '../../components/CurvedArrow.vue';
-import EthereumIcon from '../../assets/networks/ethereum.svg';
-import ArgonIcon from '../../assets/networks/argon.svg';
-import SwapIcon from '../../assets/swap.svg';
-import basicEmitter from '../../emitters/basicEmitter.ts';
-import { WalletType } from '../../lib/Wallet.ts';
+import { getCurrency } from '../stores/currency.ts';
+import { useStableSwaps } from '../stores/stableSwaps.ts';
+import CurvedArrow from '../components/CurvedArrow.vue';
+import EthereumIcon from '../assets/networks/ethereum.svg';
+import ArgonIcon from '../assets/networks/argon.svg';
+import SwapIcon from '../assets/swap.svg';
+import basicEmitter from '../emitters/basicEmitter.ts';
+import { WalletType } from '../lib/Wallet.ts';
 import { bigIntAbs, ICurrencyKey, UnitOfMeasurement } from '@argonprotocol/apps-core';
-import { getConfig } from '../../stores/config.ts';
+import { getConfig } from '../stores/config.ts';
 import { ArrowTopRightOnSquareIcon, CheckIcon } from '@heroicons/vue/24/outline';
-import Arrow from '../../components/Arrow.vue';
-import FormattedMoney from '../../components/FormattedMoney.vue';
-import { useFinancials } from '../../stores/financials.ts';
-import SwapRecord from './components/SwapRecord.vue';
+import Arrow from '../components/Arrow.vue';
+import FormattedMoney from '../components/FormattedMoney.vue';
+import { useFinancials } from '../stores/financials.ts';
+import SwapRecord from './treasury-screens/components/SwapRecord.vue';
 
 const currency = getCurrency();
 const financials = useFinancials();

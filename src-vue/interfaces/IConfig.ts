@@ -18,21 +18,21 @@ const HostOrIpSchema = z
   .refine(value => value === '' || !/^[a-z]+:\/\//i.test(value), 'Must not include a protocol prefix');
 
 export enum TopTab {
-  Wallets = 'Wallets',
+  // Basics
+  Dashboard = 'Dashboard',
   Network = 'Network',
+
   Treasury = 'Treasury',
-  TreasuryBonds = 'TreasuryBonds',
-  TreasuryLocks = 'TreasuryLocks',
+  ArgonBonds = 'ArgonBonds',
+  ArgonotBonds = 'ArgonotBonds',
+  BitcoinLocks = 'BitcoinLocks',
+  BitcoinLoans = 'BitcoinLoans',
+  StableSwaps = 'StableSwaps',
+
   Operations = 'Operations',
-  MiningOperations = 'MiningOperations',
-  VaultingOperations = 'VaultingOperations',
+  Mining = 'Mining',
+  Vaulting = 'Vaulting',
 }
-
-export const TreasuryTabs = [TopTab.Treasury, TopTab.TreasuryBonds, TopTab.TreasuryLocks] as const;
-export type ITreasuryTabs = (typeof TreasuryTabs)[number];
-
-export const OperationsTabs = [TopTab.Operations, TopTab.MiningOperations, TopTab.VaultingOperations] as const;
-export type IOperationsTabs = (typeof OperationsTabs)[number];
 
 export enum InstallStepKey {
   ServerConnect = 'ServerConnect',
@@ -198,8 +198,6 @@ export const ConfigSchema = z.object({
   hasExtensionTreasury: z.boolean(),
   hasExtensionOperations: z.boolean(),
   selectedTab: z.nativeEnum(TopTab),
-  selectedTreasuryTab: z.enum(TreasuryTabs),
-  selectedOperationsTab: z.enum(OperationsTabs),
 
   serverAdd: ConfigServerAddSchema.optional(),
   serverDetails: ConfigServerDetailsSchema,
@@ -273,8 +271,6 @@ export interface IConfigDefaults {
   hasExtensionTreasury: () => IConfig['hasExtensionTreasury'];
   hasExtensionOperations: () => IConfig['hasExtensionOperations'];
   selectedTab: () => IConfig['selectedTab'];
-  selectedTreasuryTab: () => IConfig['selectedTreasuryTab'];
-  selectedOperationsTab: () => IConfig['selectedOperationsTab'];
 
   serverAdd: () => IConfig['serverAdd'];
   serverDetails: () => IConfig['serverDetails'];
