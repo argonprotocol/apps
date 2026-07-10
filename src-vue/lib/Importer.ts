@@ -4,7 +4,7 @@ import { Db } from './Db';
 import { invokeWithTimeout } from './tauriApi';
 import { ITryServerData, SSH } from './SSH';
 import { BootstrapType, IConfigServerDetails } from '../interfaces/IConfig';
-import { NETWORK_NAME, SECURITY } from './Env.ts';
+import { IS_LOCAL_BUILD, NETWORK_NAME, SECURITY } from './Env.ts';
 import { hasArgonWalletValue } from './WalletForArgon.ts';
 import { WalletKeys } from './WalletKeys.ts';
 import { MemoryWalletKeys } from './MemoryWalletKeys.ts';
@@ -28,7 +28,7 @@ export default class Importer {
   }
 
   public async importFromMnemonic(mnemonic: string) {
-    if (NETWORK_NAME === 'mainnet') {
+    if (NETWORK_NAME === 'mainnet' && !IS_LOCAL_BUILD) {
       const importWalletKeys = new MemoryWalletKeys({
         substrateSuri: mnemonic,
         masterMnemonic: mnemonic,

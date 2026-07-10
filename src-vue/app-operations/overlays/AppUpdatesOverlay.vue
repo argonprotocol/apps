@@ -15,7 +15,7 @@
             :initial="{ opacity: 0 }"
             :animate="{ opacity: 1 }"
             :exit="{ opacity: 0 }"
-            class="absolute z-50 min-h-60 w-160 overflow-scroll rounded-lg border border-black/40 bg-white px-3 pt-6 pb-4 shadow-xl focus:outline-none"
+            class="absolute z-200 min-h-60 w-160 overflow-scroll rounded-lg border border-black/40 bg-white px-3 pt-6 pb-4 shadow-xl focus:outline-none"
             :style="{
               top: `calc(50% + ${draggable.modalPosition.y}px)`,
               left: `calc(50% + ${draggable.modalPosition.x}px)`,

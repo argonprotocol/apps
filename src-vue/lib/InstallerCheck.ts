@@ -86,13 +86,18 @@ export class InstallerCheck {
   }
 
   public getIncompleteSteps(): InstallStepKey[] {
-    const failedSteps: InstallStepKey[] = [];
-    for (const [stepKey, status] of Object.entries(this.cachedInstallStepStatuses)) {
-      if (status !== InstallStepStatusType.Finished) {
-        failedSteps.push(stepKey as unknown as InstallStepKey);
-      }
-    }
-    return failedSteps;
+    if (!this.hasCachedInstallSteps) return [];
+
+    const remoteStepKeys = [
+      InstallStepKey.FileUpload,
+      InstallStepKey.UbuntuCheck,
+      InstallStepKey.DockerInstall,
+      InstallStepKey.BitcoinInstall,
+      InstallStepKey.ArgonInstall,
+      InstallStepKey.MiningLaunch,
+    ];
+
+    return remoteStepKeys.filter(stepKey => this.cachedInstallStepStatuses[stepKey] !== InstallStepStatusType.Finished);
   }
 
   public async updateInstallStatus(bypassSimulatedProgressIfFinished = false): Promise<void> {
@@ -161,7 +166,11 @@ export class InstallerCheck {
         stepNewData.progress = 0;
       }
 
-      if (stepNewData.progress >= 100 && stepNewData.status !== InstallStepStatus.Completed) {
+      if (
+        stepNewData.progress >= 100 &&
+        stepNewData.status !== InstallStepStatus.Completed &&
+        stepNewData.status !== InstallStepStatus.Failed
+      ) {
         stepNewData.status = InstallStepStatus.Completing;
       }
 
