@@ -299,6 +299,9 @@ export class ServerAdmin {
     );
     const existingEnvVars = parseEnv(existingEnv);
     const composeProjectName = existingEnvVars.COMPOSE_PROJECT_NAME?.trim() || DOCKER_COMPOSE_PROJECT_NAME;
+    if (!/^[a-z0-9][a-z0-9_-]*$/.test(composeProjectName)) {
+      throw new Error('Invalid Docker Compose project name in the existing server configuration');
+    }
 
     let prepareEnvCommand =
       `cd ${this.workDir}/server && cp ${DEPLOY_ENV_FILE} .env` +

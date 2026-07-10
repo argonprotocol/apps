@@ -375,15 +375,8 @@ if ! (already_ran "BitcoinInstall"); then
         sleep 1
         ensure_free_disk_space "$HOME_DIR" "$MIN_FREE_DISK_GB" bitcoin-node
         allow_run_command_fail=1
-        if ! command_output=$(read_router_syncstatus "/bitcoin/syncstatus"); then
-          exit 1
-        fi
+        command_output=$(read_router_syncstatus "/bitcoin/syncstatus")
         unset allow_run_command_fail
-
-        if [[ "${command_exit_status:-0}" -eq 52 ]]; then
-          echo "Bitcoin syncstatus transient empty reply (curl exit 52), retrying..."
-          continue
-        fi
 
         # Check if command failed
         if [[ -z "$command_output" ]] || \
@@ -448,15 +441,9 @@ if ! (already_ran "ArgonInstall"); then
         sleep 1
         ensure_free_disk_space "$HOME_DIR" "$MIN_FREE_DISK_GB" argon-miner
         allow_run_command_fail=1
-        if ! command_output=$(read_router_syncstatus "/argon/syncstatus"); then
-          exit 1
-        fi
+        command_output=$(read_router_syncstatus "/argon/syncstatus")
         unset allow_run_command_fail
 
-        if [[ "${command_exit_status:-0}" -eq 52 ]]; then
-          echo "Argon syncstatus transient empty reply (curl exit 52), retrying..."
-          continue
-        fi
         # Check if the response failed
         if [[ -z "$command_output" ]] || \
            ! jq empty <<<"$command_output" >/dev/null 2>&1 || \
@@ -497,16 +484,26 @@ else
   run_compose "sudo docker compose up bot -d"
 fi
 
+bot_readiness_failures=0
 while true; do
     sleep 1
     allow_run_command_fail=1
-    if ! RESPONSE=$(run_compose "sudo docker compose exec -T bot curl -s -w \"\n%{http_code}\" http://127.0.0.1:8080/is-ready"); then
-      exit 1
-    fi
+    RESPONSE=$(run_compose "sudo docker compose exec -T bot curl -s -w \"\n%{http_code}\" http://127.0.0.1:8080/is-ready")
     unset allow_run_command_fail
     echo "$RESPONSE"
     status=${RESPONSE##*$'\n'}        # last line
     json=${RESPONSE%$'\n'*}           # all but last line
+
+    if [[ "$status" != "200" ]]; then
+      bot_readiness_failures=$((bot_readiness_failures + 1))
+      if [[ "$bot_readiness_failures" -ge 10 ]]; then
+        failed "Bot readiness check failed 10 consecutive times"
+      fi
+      echo "Bot readiness check failed ($bot_readiness_failures / 10), retrying..."
+      continue
+    fi
+
+    bot_readiness_failures=0
     if [[ "$status" == "200" && "$json" == "true" ]]; then
       echo "Bot is running"
       break;
@@ -518,9 +515,7 @@ gateway_deadline=$((SECONDS + 120))
 while true; do
     sleep 1
     allow_run_command_fail=1
-    if ! RESPONSE=$(run_compose "sudo docker compose exec -T nginx curl -kfsS --connect-timeout 2 --max-time 5 https://127.0.0.1/"); then
-      exit 1
-    fi
+    RESPONSE=$(run_compose "sudo docker compose exec -T nginx curl -kfsS --connect-timeout 2 --max-time 5 https://127.0.0.1/")
     unset allow_run_command_fail
     if jq -e '.status == "ok"' <<<"$RESPONSE" >/dev/null 2>&1; then
       echo "Server gateway is running"

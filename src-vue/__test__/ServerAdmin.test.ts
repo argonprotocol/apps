@@ -43,3 +43,19 @@ it('preserves the existing Docker Compose project name when restarting the insta
     10e3,
   );
 });
+
+it('rejects an invalid existing Docker Compose project name', async () => {
+  const connection = {
+    isDockerHostProxy: false,
+    runCommandWithTimeout: vi.fn().mockResolvedValueOnce(['COMPOSE_PROJECT_NAME=$(touch /tmp/injected)\n', 0]),
+  };
+  const server = new ServerAdmin(connection as any, {
+    ipAddress: '127.0.0.1',
+    sshUser: 'root',
+    type: ServerType.CustomServer,
+    workDir: '/root',
+  });
+
+  await expect(server.startInstallerScript()).rejects.toThrow('Invalid Docker Compose project name');
+  expect(connection.runCommandWithTimeout).toHaveBeenCalledOnce();
+});
