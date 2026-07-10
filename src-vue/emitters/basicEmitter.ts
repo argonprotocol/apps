@@ -25,6 +25,7 @@ type IBasicEmitter = {
   openServerConnectPanel: void;
   closeAllOverlays: void;
   openAboutOverlay: void;
+  openSoftwareInfoOverlay: void;
   openJurisdictionOverlay: { setCurrencyKey: ICurrencyKey } | undefined;
   openTroubleshootingOverlay: {
     screen: 'server-diagnostics' | 'data-and-log-files' | 'options-for-restart' | 'overview' | 'find-missing-data';

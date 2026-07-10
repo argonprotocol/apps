@@ -253,6 +253,11 @@ export async function createMenu() {
         action: () => void tauriOpenUrl('https://argon.network/faq'),
       },
       {
+        id: 'open-source-software',
+        text: 'Open Source Software',
+        action: () => basicEmitter.emit('openSoftwareInfoOverlay'),
+      },
+      {
         id: 'tour',
         text: 'Take the Tour',
         action: () => tour.start(),
