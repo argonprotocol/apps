@@ -11,8 +11,8 @@
           Add Node
         </div>
         <div v-else-if="config.isServerInstalling" class="relative -top-px flex flex-row pl-2.5 pr-3 pt-1">
-          {{ config.isServerInstalled ? 'Updating' : 'Installing'}}
-          <div class="relative ml-px">
+          {{ serverInstallStatusLabel }}
+          <div v-if="!config.serverInstaller.errorType" class="relative ml-px">
             <span class="text-white">...</span>
             <span class="absolute top-0 left-0 h-full w-full text-left connecting-dots" aria-hidden="true">...</span>
           </div>
@@ -149,6 +149,13 @@ const config = getConfig();
 const stats = getStats();
 
 const rootRef = Vue.ref<HTMLElement>();
+
+const serverInstallStatusLabel = Vue.computed(() => {
+  if (config.serverInstaller.errorType) {
+    return config.isServerInstalled ? 'Update Failed' : 'Install Failed';
+  }
+  return config.isServerInstalled ? 'Updating' : 'Installing';
+});
 
 // Expose the root element to parent components
 defineExpose({

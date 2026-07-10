@@ -6,6 +6,7 @@ import { getWalletKeys } from './wallets.ts';
 import { CloseRequestedEvent } from '@tauri-apps/api/window';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { refreshPrunedClientFromConfig } from './mainchain.ts';
+import { isAppUpdateBlockingServerInstall } from './appUpdater.ts';
 
 let installer: Vue.Reactive<Installer>;
 
@@ -18,6 +19,7 @@ export function getInstaller(): Vue.Reactive<Installer> {
     installer = Vue.reactive(
       new Installer(config as Config, getWalletKeys(), {
         refreshPrunedClient: refreshPrunedClientFromConfig,
+        isAppUpdateBlockingInstall: isAppUpdateBlockingServerInstall,
       }),
     );
     installer.load().catch(handleFatalError.bind('useInstaller'));

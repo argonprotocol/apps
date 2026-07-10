@@ -26,6 +26,7 @@ fi
 if [ -f "$SERVER_DIR/.env" ]; then
   . "$SERVER_DIR/.env"
 fi
+MIN_FREE_DISK_GB=10
 
 # Debug logging
 {
@@ -329,15 +330,30 @@ if ! (already_ran "BitcoinInstall"); then
     echo "-----------------------------------------------------------------"
     echo "RUNNING BITCOIN-DATA CONTAINER"
     echo "- Checking ${BITCOIN_DATA_FOLDER} for existing data"
+    bitcoin_data_image="ghcr.io/argonprotocol/apps/${BITCOIN_DATA_SLUG}:latest"
     # if not regtest and data folder does not exist, run the bitcoin-data container to initialize it
     if [ ! -d "$BITCOIN_DATA_FOLDER" ] && [ "$BITCOIN_CHAIN" != "regtest" ]; then
       echo "Bootstrapping bitcoin-data (first run)"
+      ensure_free_disk_space "$HOME_DIR"
       run_compose "sudo docker compose pull bitcoin-data"
+
+      image_size_bytes=$(run_command "sudo docker image inspect --format '{{.Size}}' $bitcoin_data_image")
+      if [[ ! "$image_size_bytes" =~ ^[0-9]+$ ]]; then
+        failed "Could not determine bitcoin-data image size"
+      fi
+      bytes_per_gib=$((1024 * 1024 * 1024))
+      snapshot_required_gb=$(((image_size_bytes + bytes_per_gib - 1) / bytes_per_gib + MIN_FREE_DISK_GB))
+      ensure_free_disk_space "$HOME_DIR" "$snapshot_required_gb"
+
       run_compose "sudo docker compose run --rm --pull=never bitcoin-data"
-      run_compose "sudo docker rmi -f bitcoin-data:latest || true"
     else
       echo "bitcoin-data already initialized, skipping bootstrap"
     fi
+
+    if sudo docker image inspect "$bitcoin_data_image" >/dev/null 2>&1; then
+      run_command "sudo docker image rm -f $bitcoin_data_image"
+    fi
+    ensure_free_disk_space "$HOME_DIR" "$MIN_FREE_DISK_GB" bitcoin-node
 
     if compose_service_hash_changed bitcoin-node; then
       echo "Bitcoin config changed → recreating container"
@@ -357,8 +373,11 @@ if ! (already_ran "BitcoinInstall"); then
     failures=0
     while true; do
         sleep 1
+        ensure_free_disk_space "$HOME_DIR" "$MIN_FREE_DISK_GB" bitcoin-node
         allow_run_command_fail=1
-        command_output=$(read_router_syncstatus "/bitcoin/syncstatus")
+        if ! command_output=$(read_router_syncstatus "/bitcoin/syncstatus"); then
+          exit 1
+        fi
         unset allow_run_command_fail
 
         if [[ "${command_exit_status:-0}" -eq 52 ]]; then
@@ -399,6 +418,8 @@ if ! (already_ran "ArgonInstall"); then
     echo "-----------------------------------------------------------------"
     echo "BUILDING ARGON-MINER FOR $ARGON_CHAIN"
 
+    ensure_free_disk_space "$HOME_DIR" "$MIN_FREE_DISK_GB" argon-miner
+
     run_command "sudo ufw allow ${ARGON_P2P_PORT}/tcp"
 
     if [[ "$ARGON_VERSION" != "dev" ]]; then
@@ -425,8 +446,11 @@ if ! (already_ran "ArgonInstall"); then
     failures=0
     while true; do
         sleep 1
+        ensure_free_disk_space "$HOME_DIR" "$MIN_FREE_DISK_GB" argon-miner
         allow_run_command_fail=1
-        command_output=$(read_router_syncstatus "/argon/syncstatus")
+        if ! command_output=$(read_router_syncstatus "/argon/syncstatus"); then
+          exit 1
+        fi
         unset allow_run_command_fail
 
         if [[ "${command_exit_status:-0}" -eq 52 ]]; then
@@ -476,7 +500,9 @@ fi
 while true; do
     sleep 1
     allow_run_command_fail=1
-    RESPONSE=$(run_compose "sudo docker compose exec -T bot curl -s -w \"\n%{http_code}\" http://127.0.0.1:8080/is-ready")
+    if ! RESPONSE=$(run_compose "sudo docker compose exec -T bot curl -s -w \"\n%{http_code}\" http://127.0.0.1:8080/is-ready"); then
+      exit 1
+    fi
     unset allow_run_command_fail
     echo "$RESPONSE"
     status=${RESPONSE##*$'\n'}        # last line
@@ -486,6 +512,25 @@ while true; do
       break;
     fi
     echo "Bot is not ready, waiting..."
+done
+
+gateway_deadline=$((SECONDS + 120))
+while true; do
+    sleep 1
+    allow_run_command_fail=1
+    if ! RESPONSE=$(run_compose "sudo docker compose exec -T nginx curl -kfsS --connect-timeout 2 --max-time 5 https://127.0.0.1/"); then
+      exit 1
+    fi
+    unset allow_run_command_fail
+    if jq -e '.status == "ok"' <<<"$RESPONSE" >/dev/null 2>&1; then
+      echo "Server gateway is running"
+      break
+    fi
+
+    if (( SECONDS >= gateway_deadline )); then
+      failed "Server gateway did not become ready after 120 seconds"
+    fi
+    echo "Server gateway is not ready, waiting..."
 done
 
 echo "-----------------------------------------------------------------"

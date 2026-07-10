@@ -293,17 +293,18 @@ export class ServerAdmin {
   public async startInstallerScript(): Promise<void> {
     const remoteScriptPath = this.installerScriptPath;
     const remoteScriptLogPath = `${this.workDir}/logs/installer.log`;
+    const [existingEnv] = await this.connection.runCommandWithTimeout(
+      `cat ${this.workDir}/server/.env 2>/dev/null || true`,
+      10e3,
+    );
+    const existingEnvVars = parseEnv(existingEnv);
+    const composeProjectName = existingEnvVars.COMPOSE_PROJECT_NAME?.trim() || DOCKER_COMPOSE_PROJECT_NAME;
 
     let prepareEnvCommand =
       `cd ${this.workDir}/server && cp ${DEPLOY_ENV_FILE} .env` +
-      ` && echo "COMPOSE_PROJECT_NAME=${DOCKER_COMPOSE_PROJECT_NAME}" >> .env`;
+      ` && echo "COMPOSE_PROJECT_NAME=${composeProjectName}" >> .env`;
 
     if (this.connection.isDockerHostProxy) {
-      const [existingEnv] = await this.connection.runCommandWithTimeout(
-        `cat ${this.workDir}/server/.env 2>/dev/null || true`,
-        10e3,
-      );
-      const existingEnvVars = parseEnv(existingEnv);
       const existingBitcoinP2pPort = Number(existingEnvVars.BITCOIN_P2P_PORT);
       const existingArgonP2pPort = Number(existingEnvVars.ARGON_P2P_PORT);
 
@@ -475,7 +476,7 @@ export class ServerAdmin {
   public async extractInstallStepFailureMessage(stepKey: InstallStepKey): Promise<string> {
     const stepName = InstallStepKey[stepKey];
     const [output, code] = await this.connection.runCommandWithTimeout(
-      `cat ${this.workDir}/logs/step-${stepName}.failed`,
+      `cat ${this.workDir}/logs/step-${stepName}.${InstallStepStatusType.Failed}`,
       10e3,
     );
     if (code === 0) {

@@ -37,12 +37,14 @@ export enum ReasonsToSkipInstall {
   InstallAlreadyRunning = 'InstallAlreadyRunning',
   ServerUpToDate = 'ServerUpToDate',
   UpgradeRequiresApproval = 'UpgradeRequiresApproval',
+  AppUpdateRequiresRestart = 'AppUpdateRequiresRestart',
   ServerError = 'ServerError',
   MinersAreSyncing = 'MinersAreSyncing',
 }
 
 type InstallerFns = {
   refreshPrunedClient?: () => void;
+  isAppUpdateBlockingInstall?: () => boolean | Promise<boolean>;
 };
 
 export default class Installer {
@@ -181,6 +183,7 @@ export default class Installer {
     if (waitForLoaded) {
       await this.isLoadedPromise;
     }
+    if (await this.pauseForAppUpdate()) return;
 
     const hasServerDetails = !!this.config.serverDetails.ipAddress;
     if (hasServerDetails) {
@@ -259,6 +262,7 @@ export default class Installer {
         await this.uploadCoreFiles((totalCount, uploadedCount) => {
           this.fileUploadProgress = 2 + (uploadedCount / totalCount) * 88;
         });
+        if (await this.pauseForAppUpdate()) return;
       }
       if (!this.isFreshInstall && this.config.miningSetupStatus === MiningSetupStatus.Finished) {
         const transactionTracker = getTransactionTracker();
@@ -311,12 +315,14 @@ export default class Installer {
           });
         }
       }
+      if (await this.pauseForAppUpdate()) return;
 
       console.info('Uploading bot config files');
       await this.uploadBotConfigFiles((totalCount, uploadedCount) => {
         const startProgress = this.remoteFilesNeedUpdating ? Math.max(90, this.fileUploadProgress) : 0;
         this.fileUploadProgress = startProgress + (uploadedCount / totalCount) * (99 - startProgress);
       });
+      if (await this.pauseForAppUpdate()) return;
 
       console.info('Starting remote script');
       await server.createLogsDir();
@@ -365,6 +371,7 @@ export default class Installer {
 
   public async runFailedStep(stepKey: InstallStepKey | 'all'): Promise<void> {
     await this.isLoadedPromise;
+    if (await this.pauseForAppUpdate()) return;
 
     if ((this.isRunning ||= await this.calculateIsRunning())) {
       console.log('CANNOT runFailedStep because install is already running');
@@ -402,6 +409,7 @@ export default class Installer {
     options: { progressFn?: (totalCount: number, uploadedCount: number) => void; restartBot?: boolean } = {},
   ): Promise<void> {
     await this.isLoadedPromise;
+    if (await this.pauseForAppUpdate()) return;
 
     await this.uploadBotConfigFiles(options.progressFn, {
       restartBot: options.restartBot ?? this.config.isServerInstalled,
@@ -444,6 +452,7 @@ export default class Installer {
     }
     this.reasonToSkipInstall = '';
     this.reasonToSkipInstallData = {};
+    if (await this.pauseForAppUpdate()) return false;
 
     // We will begin by running through a series of checks to determine if the install process
     // should be started. We don't use serverDetails.isInstalling because the local value could
@@ -458,12 +467,16 @@ export default class Installer {
     const isFreshInstall = tmpInstallChecks.isFreshInstall;
     const isServerInstallComplete = tmpInstallChecks.isServerInstallComplete;
     const remoteFilesNeedUpdating = tmpInstallChecks.remoteFilesNeedUpdating;
+    const incompleteSteps = this.installerCheck.getIncompleteSteps();
+    const server = await this.getServer();
+    const isInstallerRunning = await server.isInstallerScriptRunning();
+    const hasInstallError = this.installerCheck.hasError;
+    const hasAbandonedInstallSteps = incompleteSteps.length > 0 && !hasInstallError && !isInstallerRunning;
 
     this.isFreshInstall = isFreshInstall;
     this.remoteFilesNeedUpdating = remoteFilesNeedUpdating;
 
-    if (isServerInstallComplete && !remoteFilesNeedUpdating) {
-      const server = await this.getServer();
+    if (isServerInstallComplete && !remoteFilesNeedUpdating && !hasAbandonedInstallSteps && !hasInstallError) {
       await this.saveLocalGatewayPortWhenReady(server, { timeoutMs: 5e3, updateExisting: true });
       this.fns.refreshPrunedClient?.();
 
@@ -476,17 +489,16 @@ export default class Installer {
       return false;
     }
 
-    if (remoteFilesNeedUpdating) {
-      const incompleteSteps = this.installerCheck.getIncompleteSteps();
-      // clear out any abandoned steps only if we're not currently running
-      if (!this.isRunning && incompleteSteps.length > 0) {
-        console.info('Clearing stalled step files');
-        const stepsToClear = [InstallStepKey.FileUpload, ...incompleteSteps];
-        await this.clearStepFiles(stepsToClear, { setFirstStepToWorking: true });
-      }
+    if ((remoteFilesNeedUpdating || hasAbandonedInstallSteps) && incompleteSteps.length > 0 && !isInstallerRunning) {
+      console.info('Clearing stalled step files', {
+        incompleteSteps,
+        remoteFilesNeedUpdating,
+      });
+      const stepsToClear = [...new Set([InstallStepKey.FileUpload, ...incompleteSteps])];
+      await this.clearStepFiles(stepsToClear, { setFirstStepToWorking: true });
     }
 
-    if (isFreshInstall || remoteFilesNeedUpdating) {
+    if (isFreshInstall || remoteFilesNeedUpdating || hasAbandonedInstallSteps) {
       // If the server is fresh, we need to reset the install details, and we can't skip the install process
       // even if next two conditions are met.
       this.isReadyToRun = true;
@@ -499,17 +511,17 @@ export default class Installer {
       return true;
     }
 
-    if (this.installerCheck.hasError) {
+    if (hasInstallError) {
       this.isReadyToRun = false;
       this.reasonToSkipInstall = ReasonsToSkipInstall.ServerError;
-      this.reasonToSkipInstallData = { hasInstallError: this.installerCheck.hasError };
+      this.reasonToSkipInstallData = { hasInstallError };
       this.config.isServerInstalling = true;
       await this.config.save();
       return false;
     }
 
     const isWaitingForMinersToSync = this.config.serverInstaller.MiningLaunch.progress > 0.0;
-    if (isWaitingForMinersToSync && !remoteFilesNeedUpdating) {
+    if (isWaitingForMinersToSync && !remoteFilesNeedUpdating && isInstallerRunning) {
       this.isReadyToRun = false;
       this.reasonToSkipInstall = ReasonsToSkipInstall.MinersAreSyncing;
       this.reasonToSkipInstallData = { isWaitingForMinersToSync, remoteFilesNeedUpdating };
@@ -519,6 +531,21 @@ export default class Installer {
 
     this.config.isServerInstalling = remoteFilesNeedUpdating;
     this.isReadyToRun = true;
+    return true;
+  }
+
+  private async pauseForAppUpdate(): Promise<boolean> {
+    const isAppUpdateBlockingInstall = this.fns.isAppUpdateBlockingInstall;
+    if (!isAppUpdateBlockingInstall || !(await isAppUpdateBlockingInstall())) return false;
+
+    this.installerCheck.stop();
+    this.isRunning = false;
+    this.isRunningInBackground = false;
+    this.isReadyToRun = false;
+    this.config.isServerInstalling = false;
+    this.reasonToSkipInstall = ReasonsToSkipInstall.AppUpdateRequiresRestart;
+    this.reasonToSkipInstallData = {};
+    await this.config.save().catch(() => null);
     return true;
   }
 
@@ -548,12 +575,21 @@ export default class Installer {
     const isComplete = this.config.serverInstaller.MiningLaunch.progress >= 100;
     if (!hasProgress || isComplete) return;
 
-    this.isRunning = true;
-    this.config.isServerInstalling = true;
-    this.fns.refreshPrunedClient?.();
-
     const server = await this.getServer();
     this.installerCheck.activateServer(server);
+    const isInstallerRunning = await server.isInstallerScriptRunning();
+    if (!isInstallerRunning) {
+      this.isRunning = false;
+      this.isRunningInBackground = false;
+      this.config.isServerInstalling = this.installerCheck.hasError;
+      await this.config.save();
+      return;
+    }
+
+    this.isRunning = true;
+    this.isRunningInBackground = true;
+    this.config.isServerInstalling = true;
+    this.fns.refreshPrunedClient?.();
     this.installerCheck.start();
     this.installerCheck.shouldUseCachedInstallSteps = false;
 

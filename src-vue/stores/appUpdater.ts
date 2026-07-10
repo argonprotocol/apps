@@ -5,9 +5,27 @@ import { app } from '@tauri-apps/api';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { check } from '@tauri-apps/plugin-updater';
 import { getErrorDiagnostics, getRuntimeDiagnostics } from '@argonprotocol/apps-core';
+import * as semver from 'semver';
 import { ENABLE_AUTO_UPDATE } from '../lib/Env.ts';
 
 type AppUpdate = Awaited<ReturnType<typeof check>>;
+const APP_UPDATE_RELAUNCH_KEY = 'argon-app-update-requires-relaunch';
+
+export async function isAppUpdateBlockingServerInstall(): Promise<boolean> {
+  const targetVersion = sessionStorage.getItem(APP_UPDATE_RELAUNCH_KEY);
+  if (!targetVersion) return false;
+
+  try {
+    if (semver.gte(await app.getVersion(), targetVersion)) {
+      sessionStorage.removeItem(APP_UPDATE_RELAUNCH_KEY);
+      return false;
+    }
+  } catch {
+    // Keep the installer blocked until the running native version can be verified.
+  }
+
+  return true;
+}
 
 export const useAppUpdater = defineStore('appUpdater', () => {
   const installedVersion = Vue.ref('loading');
@@ -112,6 +130,7 @@ export const useAppUpdater = defineStore('appUpdater', () => {
     downloadProgress.value = 0;
 
     try {
+      sessionStorage.setItem(APP_UPDATE_RELAUNCH_KEY, update.value.version);
       let downloaded = 0;
       let contentLength = 0;
 
@@ -135,6 +154,7 @@ export const useAppUpdater = defineStore('appUpdater', () => {
 
       isReadyToInstall.value = true;
     } catch (error) {
+      sessionStorage.removeItem(APP_UPDATE_RELAUNCH_KEY);
       console.error('Error during download', {
         installedVersion: installedVersion.value,
         updateVersion: update.value?.version,

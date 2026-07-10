@@ -110,6 +110,37 @@ parse_json_progress() {
         done
 }
 
+ensure_free_disk_space() {
+    local path="$1"
+    local minimum_gb="${2:-${MIN_FREE_DISK_GB:-10}}"
+    local active_service="${3:-}"
+    local available_kb
+
+    available_kb=$(df -Pk "$path" 2>/dev/null | awk 'NR == 2 { print $4 }')
+    if [[ ! "$available_kb" =~ ^[0-9]+$ ]]; then
+        failed "Could not determine available disk space for $path"
+    fi
+
+    if (( available_kb >= minimum_gb * 1024 * 1024 )); then
+        return
+    fi
+
+    if [ -n "$active_service" ]; then
+        sudo docker compose stop "$active_service" >/dev/null 2>&1 || true
+    fi
+
+    local available_gb=$((available_kb / 1024 / 1024))
+    failed "Server is running out of disk space (${available_gb} GiB available; ${minimum_gb} GiB required). Free disk space and retry."
+}
+
+fail_if_disk_error() {
+    local output_file="$1"
+    if grep -qiE 'no space left on device|disk quota exceeded' "$output_file"; then
+        rm "$output_file"
+        failed "Server ran out of disk space while installing. Free disk space and retry."
+    fi
+}
+
 run_compose() {
     command=$1
      # Log the command being run
@@ -152,6 +183,7 @@ run_compose() {
     fi
 
     command_exit_status=${PIPESTATUS[0]}
+    fail_if_disk_error "$stdout_file"
 
     if [ $command_exit_status -ne 0 ]; then
         if grep -q "no configuration file provided: not found" "$stdout_file"; then
@@ -202,6 +234,7 @@ run_command() {
 
     eval "$command" 2>&1 | tee -a "$logs_dir/step-$akey.log" > "$stdout_file"
     command_exit_status=${PIPESTATUS[0]}
+    fail_if_disk_error "$stdout_file"
 
     if [ $command_exit_status -ne 0 ]; then
        if [[ "$allow_run_command_fail" != "1" ]]; then
