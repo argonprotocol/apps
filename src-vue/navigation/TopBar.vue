@@ -17,9 +17,6 @@
       </div>
     </div>
 
-    <div class="flex w-1/3 pointer-events-none left-1.5">
-    </div>
-
     <NavigationMenuRoot
       v-if="controller.isLoaded && !controller.isImporting"
       class="relative mr-3 flex w-1/3 grow flex-row items-center justify-end pointer-events-none"
@@ -29,7 +26,26 @@
       @update:model-value="setNavigationMenuValue"
     >
       <NavigationMenuList class="relative flex flex-row items-center space-x-2" @mouseenter="clearNavigationMenuClose">
-        <div v-if="config.hasExtensionOperations" :class="[controller.selectedTab === TopTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
+        <NavigationMenuItem v-if="config.isLoaded && !config.hasExtensionTreasury" class="pointer-events-auto">
+          <NavigationMenuTrigger
+            Trigger
+            class="flex h-[30px] cursor-pointer flex-row items-center justify-center rounded-md border border-slate-400/50 px-3 text-base font-semibold whitespace-nowrap text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
+          >
+            Upgrade to Treasury
+          </NavigationMenuTrigger>
+
+          <NavigationMenuContent
+            class="data-[motion=from-start]:animate-enterFromLeft data-[motion=from-end]:animate-enterFromRight data-[motion=to-start]:animate-exitToLeft data-[motion=to-end]:animate-exitToRight absolute top-0 left-0 w-full sm:w-auto"
+          >
+            <div class="w-[560px] rounded bg-argon-menu-bg text-left text-slate-700 shadow-lg ring-1 ring-gray-900/20">
+              <AdForTreasuryOverlay @claimed="onTreasuryInviteClaimed" />
+            </div>
+          </NavigationMenuContent>
+        </NavigationMenuItem>
+        <div
+          v-if="config.isLoaded && config.hasExtensionOperations"
+          :class="[controller.selectedTab === TopTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']"
+        >
           <ServerMenu ref="serverMenuRef" />
         </div>
         <div class="pointer-events-auto">
@@ -79,12 +95,21 @@ import { getBot } from '../stores/bot.ts';
 import { useTour } from '../stores/tour.ts';
 import ServerMenu from './ServerMenu.vue';
 import OperationalMenu from './OperationalMenu.vue';
-import { NavigationMenuIndicator, NavigationMenuList, NavigationMenuRoot, NavigationMenuViewport } from 'reka-ui';
+import {
+  NavigationMenuContent,
+  NavigationMenuIndicator,
+  NavigationMenuItem,
+  NavigationMenuList,
+  NavigationMenuRoot,
+  NavigationMenuTrigger,
+  NavigationMenuViewport,
+} from 'reka-ui';
 import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 import ProfitsMenu from './ProfitsMenu.vue';
 import PortfolioDetailsMenu from './PortfolioDetailsMenu.vue';
 import PortfolioCurrencyMenu from './PortfolioCurrencyMenu.vue';
 import { getConfig } from '../stores/config.ts';
+import AdForTreasuryOverlay from '../overlays/AdForTreasuryOverlay.vue';
 
 const controller = useCertificationController();
 const wallets = useWallets();
@@ -101,6 +126,10 @@ const returnsMenuRef = Vue.ref<InstanceType<typeof ProfitsMenu> | null>(null);
 
 const navigationMenuValue = Vue.ref('');
 let navigationMenuCloseTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
+
+function onTreasuryInviteClaimed() {
+  navigationMenuValue.value = '';
+}
 
 function setNavigationMenuValue(value: string) {
   clearNavigationMenuClose();
