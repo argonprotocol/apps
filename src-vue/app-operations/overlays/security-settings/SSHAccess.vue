@@ -111,14 +111,14 @@ async function refreshStatus() {
 
 async function activateAccess() {
   errorMessage.value = '';
-  await config.isLoadedPromise;
-  const { host, port, username, address } = getServerDetails();
-  if (!host || !username) {
-    errorMessage.value = 'Missing SSH server details.';
-    return;
-  }
   isLoading.value = true;
   try {
+    await config.isLoadedPromise;
+    const { host, port, username, address } = getServerDetails();
+    if (!host || !username) {
+      errorMessage.value = 'Missing SSH server details.';
+      return;
+    }
     status.value = await invokeWithTimeout<SshAccessStatus>(
       'ssh_access_activate',
       {
@@ -127,7 +127,7 @@ async function activateAccess() {
         port,
         username,
       },
-      30e3,
+      60e3,
     );
   } catch (err) {
     errorMessage.value = String(err);
@@ -154,7 +154,7 @@ async function deactivateAccess() {
         port,
         username,
       },
-      30e3,
+      60e3,
     );
   } catch (err) {
     errorMessage.value = String(err);
@@ -165,9 +165,16 @@ async function deactivateAccess() {
 
 Vue.onMounted(() => {
   void (async () => {
-    await refreshStatus();
-    if (!isActive.value) {
-      await activateAccess();
+    isLoading.value = true;
+    try {
+      await refreshStatus();
+      if (!isActive.value) {
+        await activateAccess();
+      }
+    } catch (err) {
+      errorMessage.value = String(err);
+    } finally {
+      isLoading.value = false;
     }
   })();
 });

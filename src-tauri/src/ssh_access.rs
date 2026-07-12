@@ -1,10 +1,12 @@
 use crate::security::Security;
 use crate::ssh;
-use crate::ssh_pool;
 use secrecy::{ExposeSecret, SecretString};
 use sp_core::Pair;
+use std::time::Duration;
 use tauri::{AppHandle, State};
 use tokio::sync::Mutex;
+
+const SSH_ACCESS_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub struct SshAccessState {
     pub access: Mutex<Option<SshAccessSession>>,
@@ -61,14 +63,12 @@ pub async fn ssh_access_activate(
     port: u16,
     username: String,
 ) -> Result<SshAccessStatus, String> {
+    log::debug!("Activating temporary SSH access for {address}");
     if state.access.lock().await.is_some() {
-        let _ = clear_ssh_access(&app, &state, address, host, port, &username).await;
+        clear_ssh_access(&app, &state, address, host, port, &username).await?;
     }
 
-    let private_key = Security::expose_private_key_openssh(&app).map_err(|e| e.to_string())?;
-    let ssh = ssh_pool::open_connection(address, host, port, username, private_key)
-        .await
-        .map_err(|e| e.to_string())?;
+    let ssh = open_access_connection(&app, host, port, &username).await?;
 
     let (pair, _phrase, _seed) = sp_core::ed25519::Pair::generate_with_phrase(None);
     let (private_key_openssh, public_key_openssh) =
@@ -81,12 +81,16 @@ pub async fn ssh_access_activate(
     let add_cmd = format!(
         "grep -q '{public_key_material}' ~/.ssh/authorized_keys || echo '{public_key_with_comment}' >> ~/.ssh/authorized_keys"
     );
-    ssh.run_command(add_cmd).await.map_err(|e| e.to_string())?;
-
-    *state.access.lock().await = Some(SshAccessSession {
+    let access = SshAccessSession {
         private_key: SecretString::new(private_key_openssh.clone().into()),
         public_key: public_key_openssh.clone(),
-    });
+    };
+    let result = ssh.run_command(add_cmd).await;
+    ssh.close().await;
+
+    // An SSH error can occur after the server added the key, so retain it for cleanup on retry.
+    *state.access.lock().await = Some(access);
+    result.map_err(|e| e.to_string())?;
 
     Ok(SshAccessStatus {
         active: true,
@@ -104,7 +108,8 @@ pub async fn ssh_access_deactivate(
     port: u16,
     username: String,
 ) -> Result<SshAccessStatus, String> {
-    let _ = clear_ssh_access(&app, &state, address, host, port, &username).await;
+    log::debug!("Deactivating temporary SSH access for {address}");
+    clear_ssh_access(&app, &state, address, host, port, &username).await?;
     Ok(SshAccessStatus {
         active: false,
         public_key: None,
@@ -120,20 +125,41 @@ async fn clear_ssh_access(
     port: u16,
     username: &str,
 ) -> Result<(), String> {
-    let access = state.access.lock().await.take();
+    log::debug!("Clearing temporary SSH access for {address}");
+    let access = state.access.lock().await.clone();
     if let Some(access) = access {
-        let private_key = Security::expose_private_key_openssh(app).map_err(|e| e.to_string())?;
-        let ssh = ssh_pool::open_connection(address, host, port, username.to_string(), private_key)
-            .await
-            .map_err(|e| e.to_string())?;
+        let ssh = open_access_connection(app, host, port, username).await?;
 
         let remove_cmd = format!(
             "if [ -f ~/.ssh/authorized_keys ]; then grep -v '{key}' ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.tmp && mv ~/.ssh/authorized_keys.tmp ~/.ssh/authorized_keys; fi",
             key = access.public_key.trim()
         );
-        ssh.run_command(remove_cmd)
-            .await
-            .map_err(|e| e.to_string())?;
+        let result = ssh.run_command(remove_cmd).await;
+        ssh.close().await;
+        result.map_err(|e| e.to_string())?;
+
+        let mut current = state.access.lock().await;
+        // Do not clear a replacement session created while the remote cleanup was running.
+        if current
+            .as_ref()
+            .is_some_and(|current| current.public_key == access.public_key)
+        {
+            current.take();
+        }
     }
     Ok(())
+}
+
+async fn open_access_connection(
+    app: &AppHandle,
+    host: &str,
+    port: u16,
+    username: &str,
+) -> Result<ssh::SSH, String> {
+    let private_key = Security::expose_private_key_openssh(app).map_err(|e| e.to_string())?;
+    let config = ssh::SSHConfig::new(host, port, username.to_string(), private_key)
+        .map_err(|e| e.to_string())?;
+    ssh::SSH::connect(&config, SSH_ACCESS_CONNECT_TIMEOUT)
+        .await
+        .map_err(|e| e.to_string())
 }

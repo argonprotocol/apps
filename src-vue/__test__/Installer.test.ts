@@ -330,6 +330,44 @@ it('should run through entire install process', async () => {
   expect(config.serverInstaller.ServerConnect.status).toBe('Completed');
 });
 
+it('persists SSH details before later installation work can fail', async () => {
+  const dbPromise = createMockedDbPromise({ serverAdd: '{ "localComputer": {} }' });
+  const db = await dbPromise;
+  const insertOrReplace = vi.spyOn(db.configTable, 'insertOrReplace');
+  const walletKeys = createMockWalletKeys();
+  const config = new Config(dbPromise, walletKeys);
+  await config.load();
+
+  MiningMachine.setupLocalComputer = vi.fn().mockResolvedValue({
+    type: ServerType.LocalComputer,
+    ipAddress: '127.0.0.1',
+    sshPort: 2222,
+    sshUser: 'argon',
+    workDir: '/app',
+  });
+
+  const installer = new Installer(config, walletKeys);
+  let wereSshDetailsSavedBeforeFailure = false;
+  // @ts-ignore - keep the failure after machine setup and before bot installation
+  installer.getServer = vi.fn().mockImplementation(async () => {
+    wereSshDetailsSavedBeforeFailure = insertOrReplace.mock.calls.some(([data]) =>
+      data.serverDetails?.includes('"sshPort": 2222'),
+    );
+    throw new Error('SSH server unavailable');
+  });
+  // @ts-ignore - avoid background status polling in this focused persistence test
+  installer.installerCheck.start = vi.fn();
+
+  await installer.load();
+
+  expect(wereSshDetailsSavedBeforeFailure).toBe(true);
+  expect(config.serverDetails).toMatchObject({
+    ipAddress: '127.0.0.1',
+    sshPort: 2222,
+    sshUser: 'argon',
+  });
+});
+
 it('does not resume installer polling when the remote installer is no longer running', async () => {
   const dbPromise = createMockedDbPromise({});
   const walletKeys = createMockWalletKeys();

@@ -20,7 +20,7 @@ afterEach(() => {
 });
 
 describe('BiddingCalculatorData best-block recovery', () => {
-  it('loads with the latest readable chain api for current-state bidding data', async () => {
+  it('retries the same frame after a current-state chain api failure', async () => {
     NetworkConfig.setNetwork('dev-docker');
 
     const finalizedApi = {
@@ -37,7 +37,8 @@ describe('BiddingCalculatorData best-block recovery', () => {
         },
       },
     };
-    const getCurrentApi = vi.fn().mockResolvedValue(finalizedApi);
+    const error = new Error('Unable to retrieve header and parent from supplied hash');
+    const getCurrentApi = vi.fn().mockRejectedValueOnce(error).mockResolvedValueOnce(finalizedApi);
     const calculatorData = new BiddingCalculatorData(
       {
         clients: {},
@@ -60,9 +61,10 @@ describe('BiddingCalculatorData best-block recovery', () => {
       } as any,
     );
 
+    await expect(calculatorData.load(15)).rejects.toBe(error);
     await expect(calculatorData.load(15)).resolves.toBeUndefined();
 
-    expect(getCurrentApi).toHaveBeenCalledOnce();
+    expect(getCurrentApi).toHaveBeenCalledTimes(2);
     expect(calculatorData.microgonsInCirculation).toBe(1_000n);
     expect(calculatorData.maximumMicronotsForBid).toBe(36n);
     expect(calculatorData.allowedBidIncrementMicrogons).toBe(10_000n);

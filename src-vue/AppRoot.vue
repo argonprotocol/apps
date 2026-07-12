@@ -1,5 +1,8 @@
 <template>
-  <RuntimeCompatibilityScreen v-if="shouldShowCompatibilityScreen" />
+  <template v-if="shouldShowCompatibilityScreen">
+    <RuntimeCompatibilityScreen />
+    <SecuritySettingsOverlay />
+  </template>
   <AppTreasury v-else-if="IS_TREASURY_APP" />
   <AppOperations v-else />
 </template>
@@ -9,6 +12,7 @@ import { storeToRefs } from 'pinia';
 import AppTreasury from './app-treasury/App.vue';
 import AppOperations from './app-operations/App.vue';
 import RuntimeCompatibilityScreen from './app-shared/screens/RuntimeCompatibilityScreen.vue';
+import SecuritySettingsOverlay from './app-operations/overlays/SecuritySettingsOverlay.vue';
 import { IS_TREASURY_APP } from './lib/Env.ts';
 import { useAppUpdater } from './stores/appUpdater.ts';
 import { useRuntimeCompatibility } from './stores/runtimeCompatibility.ts';
