@@ -1,19 +1,19 @@
 <!-- prettier-ignore -->
 <template>
   <div class="flex h-full grow flex-col justify-stretch">
-    <section box class="flex flex-col h-full">
+    <section box class="grow flex flex-col">
       <div class="network-map">
         <article class="network-card network-card--wide network-card--row-1 network-card--col-1" />
         <article class="network-card network-card--wide network-card--row-1 network-card--col-3" />
 
-        <header class="network-heading">
+        <header class="network-heading opacity-50">
           <h1>Global Argon Network</h1>
           <p>
             Argon Has {{ networkStats.activeNodes.length }} Nodes
             with {{ networkStats.miningNodes.length }} Miners
-            and {{ networkStats.vaultNodes.length }} Vaults
+            and {{ networkStats.vaultNodes.length }} Vault{{networkStats.vaultNodes.length===1 ? '' : 's'}}
           </p>
-          <p>With a Total Economic Value of ${{ microgonToMoneyNm(networkStats.totalEconomicValue).format('0,0') }} and the Stablecoin @ Target</p>
+          <p>With an Economic Value of ${{ microgonToMoneyNm(networkStats.totalEconomicValue).format('0,0') }} and the Stablecoin @ Target</p>
         </header>
 
         <article class="network-card network-card--wide network-card--row-1 network-card--col-13" />
@@ -72,18 +72,7 @@
             <div class="absolute z-10 top-[-200%] left-0 h-[320%] w-full bg-linear-to-b from-transparent to-white"></div>
             <h2>Upstream Network</h2>
           </header>
-          <div class="text-argon-600/60 relative z-10 mt-10">
-            <LockedIcon class="w-14 mx-auto" />
-            <div class="mt-7 text-8xl text-center font-bold">LOCKED</div>
-            <div class="text-center text-3xl leading-normal font-bold text-slate-800/80 border-y border-argon-600/10 w-fit mx-auto mt-6 py-6 px-3">
-              You Must Upgrade to the Treasury App<br />
-              To Unlock Argon’s Upstream Functionality<br />
-
-            </div>
-            <div class="text-center mt-6">
-              <a href="https://argon.network/docs/desktop-app/treasury">Learn more</a>
-            </div>
-          </div>
+          <AdForTreasury class="mt-10 w-7/12 mx-auto" />
         </div>
       </div>
 
@@ -122,7 +111,6 @@
         </div>
       </div>
     </section>
-
   </div>
 </template>
 
@@ -134,6 +122,7 @@ import { getCurrency } from '../stores/currency.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import MemberInvites from './network-screen/MemberInvites.vue';
 import OperationsUpgrade from './network-screen/OperationsUpgrade.vue';
+import AdForTreasury from './network-screen/AdForTreasury.vue';
 import { getConfig } from '../stores/config.ts';
 import { treasuryCertificationStepIds, useCertificationController } from '../stores/certificationController.ts';
 
@@ -158,7 +147,7 @@ const showOperationsUpgrade = Vue.computed(() => {
 .network-map {
   --network-card-bg: theme(colors.fuchsia.50 / 68%);
   --network-card-border: theme(colors.fuchsia.200 / 72%);
-  --network-connector: theme(colors.slate.300 / 68%);
+  --network-connector: #ebeff4;
   --network-grid-gap: theme(spacing.3);
 
   @apply relative grid grid-cols-[repeat(16,minmax(0,1fr))] grid-rows-[repeat(3,56px)_64px] gap-x-3 gap-y-3 overflow-hidden px-3 py-3;
@@ -186,7 +175,6 @@ const showOperationsUpgrade = Vue.computed(() => {
 
 .network-card {
   @apply relative z-10 min-w-0 rounded border;
-  background: var(--network-card-bg);
   border-color: var(--network-card-border);
   box-shadow:
     inset 1px 1px 0 rgb(255, 255, 255),
@@ -206,12 +194,14 @@ const showOperationsUpgrade = Vue.computed(() => {
 }
 
 .network-rail {
-  @apply absolute top-[20px] right-[6.25%] left-[6.25%] h-2;
+  @apply absolute top-[20px] h-2;
+  right: calc(6.25% - 4px);
+  left: calc(6.25% - 4px);
   background: var(--network-connector);
 }
 
 .network-tap {
-  @apply absolute -top-3 h-5 w-2 -translate-x-1/2;
+  @apply absolute top-[-8px] h-8 w-2 -translate-x-1/2;
   background: var(--network-connector);
 }
 

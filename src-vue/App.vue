@@ -3,9 +3,9 @@
   <RuntimeCompatibilityScreen v-if="shouldShowCompatibilityScreen" />
   <div class="h-screen w-screen flex flex-col overflow-hidden cursor-default">
     <TopBar />
-    <div v-if="controller.isLoaded && !controller.isImporting" class="flex flex-row grow gap-x-2 px-2 pb-2 overflow-scroll">
+    <div v-if="controller.isLoaded && !controller.isImporting" class="flex flex-row grow gap-x-2 px-2 pt-2 pb-2 overflow-scroll">
       <LeftBar />
-      <main v-if="controller.isLoaded && !controller.isImporting" class="grow min-h-0 relative flex flex-col overflow-hidden pt-2">
+      <main v-if="controller.isLoaded && !controller.isImporting" class="grow min-h-0 relative flex flex-col overflow-hidden">
         <AlertBars />
         <div class="grow min-h-0 overflow-y-auto overflow-x-hidden">
           <Dashboard v-if="controller.selectedTab === TopTab.Dashboard" />
@@ -56,7 +56,10 @@
       <ServerOverlay />
       <TroubleshootingOverlay />
       <WelcomeTour v-if="tour.currentStep" />
-      <WelcomeOverlay v-else-if="config.showWelcomeOverlay" />
+      <template v-else-if="config.showWelcomeOverlay">
+        <WelcomeOverlay />
+        <WelcomeToTreasuryOverlay />
+      </template>
     </template>
     <AppUpdatesOverlay />
   </div>
@@ -117,6 +120,7 @@ import ArgonotBonds from './screens/ArgonotBonds.vue';
 import StableSwaps from './screens/StableSwaps.vue';
 import BitcoinLoans from './screens/BitcoinLoans.vue';
 import Dashboard from './screens/Dashboard.vue';
+import WelcomeToTreasuryOverlay from './overlays/WelcomeToTreasuryOverlay.vue';
 
 const controller = useCertificationController();
 const config = getConfig();
