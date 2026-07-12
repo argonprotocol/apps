@@ -77,7 +77,7 @@
     "websiteHost": "https://argon.network",
     "ethereumNetwork": {
       "beaconApiUrl": "https://ethereum-beacon-api.publicnode.com",
-      "executionRpcUrl": "https://ethereum-rpc.publicnode.com",
+      "executionRpcUrl": "https://ethereum.publicnode.com",
       "finalityBlocks": 32,
       "usdcTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
     },
