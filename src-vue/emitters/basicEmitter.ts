@@ -7,12 +7,14 @@ import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 
 export type IWalletGuidanceContext = 'mining' | 'vaulting';
 
+export type IWalletOverlayRequest = {
+  walletType: WalletType.defaultArgon | WalletType.ethereum;
+  showGuidance?: boolean;
+  guidanceContext?: IWalletGuidanceContext;
+};
+
 type IBasicEmitter = {
-  openWalletOverlay: {
-    walletType: WalletType.defaultArgon | WalletType.ethereum;
-    showGuidance?: boolean;
-    guidanceContext?: IWalletGuidanceContext;
-  };
+  openWalletOverlay: IWalletOverlayRequest;
   openEthereumWalletImportOverlay: void;
   openMoveCapitalOverlay: {
     walletType: WalletType.defaultArgon;
@@ -55,6 +57,8 @@ type IBasicEmitter = {
   openServerOverlay: void;
   openServerSettingsOverlay: void;
   openOperationalOverlay: OperationalStepId;
+  openCertificationMenu: void;
+  highlightOperationsNavigation: void;
   openOperationalRewardsOverlay: { screen?: 'activate' | 'congratulations' | 'claim' } | undefined;
 };
 

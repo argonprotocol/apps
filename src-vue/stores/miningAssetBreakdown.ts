@@ -105,7 +105,7 @@ export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () =>
   // Total Mining Resources
 
   const totalMiningResources = Vue.computed(() => {
-    return wallets.totalMiningResources;
+    return auctionTotalValue.value + expectedSeatValue.value;
   });
 
   return {

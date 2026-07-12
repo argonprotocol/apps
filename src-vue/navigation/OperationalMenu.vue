@@ -56,10 +56,7 @@
             </button>
           </div>
           <p class="mt-1 text-argon-600">
-            Your upstream approved operations access.
-          </p>
-          <p class="mt-3 text-argon-600">
-            Explore the Operations tab next.
+            Your upstream approved operations access. Mining and Vaulting are now available in the sidebar.
           </p>
           <div class="mt-4 flex justify-end">
             <button
@@ -67,7 +64,7 @@
               class="bg-argon-button hover:bg-argon-button-hover rounded-lg px-4 py-2 text-sm font-semibold text-white"
               @click="openActivatedAction"
             >
-              Explore Operations
+              Show Mining &amp; Vaulting
             </button>
           </div>
         </div>
@@ -146,7 +143,12 @@
       </div>
     </div>
 
-    <NavigationMenuItem class="pointer-events-auto" @mouseenter="onMenuEnter" @mouseleave="onMenuLeave">
+    <NavigationMenuItem
+      value="certification"
+      class="pointer-events-auto"
+      @mouseenter="onMenuEnter"
+      @mouseleave="onMenuLeave"
+    >
       <NavigationMenuTrigger
         Trigger
         :aria-label="menuTitle"
@@ -373,7 +375,7 @@ function openNetworkTabFromTooltip() {
 
 function openActivatedAction() {
   dismissActivatedTooltip();
-  controller.setTab(TopTab.Operations);
+  basicEmitter.emit('highlightOperationsNavigation');
 }
 
 function onMenuEnter() {

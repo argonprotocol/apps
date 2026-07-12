@@ -78,21 +78,78 @@
 
       <template v-if="config.hasExtensionOperations">
         <div class="network-map network-map--operational">
-          <article class="operational-account-card">
-            <h2>Your Operational Account</h2>
-            <div class="operational-account-stats">
-              <strong>$500 Profit Collected</strong>
-              <strong>3 Upgrades to Give</strong>
+          <div class="operational-account-card">
+            <div class="operational-account-header">
+              <div class="flex min-w-0 items-center gap-3">
+                <h2>Your Operational Account</h2>
+                <span
+                  v-if="controller.operationalOverview.isOperationalActivationReady"
+                  class="text-xs font-semibold text-argon-600"
+                >
+                  Ready to activate
+                </span>
+                <span
+                  v-else-if="controller.operationalOverview.isFullyOperational"
+                  class="text-xs font-semibold text-argon-600"
+                >
+                  Operational
+                </span>
+                <span v-else class="text-xs font-semibold text-slate-500">Finishing certification</span>
+              </div>
+
+              <button
+                type="button"
+                class="bg-argon-button hover:bg-argon-button-hover operational-account-action"
+                @click="openOperationalAction"
+              >
+                <span v-if="controller.operationalOverview.isOperationalActivationReady">Activate &amp; Claim Reward</span>
+                <span v-else-if="controller.operationalOverview.isFullyOperational && controller.operationalOverview.hasPendingRewards">Claim Rewards</span>
+                <span v-else-if="controller.operationalOverview.isFullyOperational">View Rewards</span>
+                <span v-else>Open Certification</span>
+              </button>
             </div>
-          </article>
+
+            <p v-if="controller.operationalOverview.isOperationalActivationReady">
+              Certification is complete. Activate it to unlock your reward and begin growing your operator network.
+            </p>
+            <p v-else-if="controller.operationalOverview.isFullyOperational && controller.operationalOverview.hasPendingRewards">
+              Claim available rewards and keep guiding treasury members through certification.
+            </p>
+            <p v-else-if="controller.operationalOverview.isFullyOperational">
+              Manage active invites here. New rewards will appear as they become claimable.
+            </p>
+            <p v-else>
+              Continue from Certification. Guided steps will point to Mining and Vaulting in the sidebar.
+            </p>
+
+            <div class="operational-account-stats">
+              <div class="operational-account-stat">
+                <strong>₳{{ microgonToArgonNm(controller.operationalOverview.pendingRewardsAmount).format('0,0.[00]') }}</strong>
+                <span>Pending rewards</span>
+              </div>
+
+              <div class="operational-account-stat">
+                <strong>{{ controller.operationalOverview.availableUpgradeCodeCount }}</strong>
+                <span>Upgrade codes ready</span>
+              </div>
+
+              <div class="operational-account-stat">
+                <strong>{{ controller.operationalOverview.activeInviteCount }}</strong>
+                <span>Invites in progress</span>
+              </div>
+            </div>
+          </div>
           <div class="operational-account-connector" aria-hidden="true" />
         </div>
-        <div class="grow px-12 pb-6">
+        <div class="grow px-8 pb-5">
           <MemberInvites />
         </div>
       </template>
 
-      <div v-else-if="config.hasExtensionTreasury && showOperationsUpgrade" class="flex grow items-center justify-center px-8 py-8">
+      <div
+        v-else-if="config.hasExtensionTreasury && controller.completedTreasuryCertificationStepCount === treasuryCertificationStepIds.length"
+        class="flex grow items-center justify-center px-8 py-8"
+      >
         <OperationsUpgrade />
       </div>
 
@@ -115,8 +172,8 @@
 </template>
 
 <script setup lang="ts">
-import * as Vue from 'vue';
 import LockedIcon from '../assets/locked.svg?component';
+import basicEmitter from '../emitters/basicEmitter.ts';
 import { useNetworkStats } from '../stores/networkStats.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
@@ -131,10 +188,21 @@ const networkStats = useNetworkStats();
 const currency = getCurrency();
 const controller = useCertificationController();
 
-const { microgonToMoneyNm } = createNumeralHelpers(currency);
-const showOperationsUpgrade = Vue.computed(() => {
-  return controller.completedTreasuryCertificationStepCount === treasuryCertificationStepIds.length;
-});
+const { microgonToArgonNm, microgonToMoneyNm } = createNumeralHelpers(currency);
+
+function openOperationalAction() {
+  if (controller.operationalOverview.isOperationalActivationReady) {
+    basicEmitter.emit('openOperationalRewardsOverlay', { screen: 'activate' });
+    return;
+  }
+
+  if (controller.operationalOverview.isFullyOperational) {
+    basicEmitter.emit('openOperationalRewardsOverlay', { screen: 'claim' });
+    return;
+  }
+
+  basicEmitter.emit('openCertificationMenu');
+}
 </script>
 
 <style scoped>
@@ -158,7 +226,7 @@ const showOperationsUpgrade = Vue.computed(() => {
 }
 
 .network-map--operational {
-  @apply grid-rows-[116px_36px] overflow-visible pt-0;
+  @apply grid-rows-[112px_30px] overflow-visible pt-0;
 }
 
 .network-heading {
@@ -274,7 +342,7 @@ const showOperationsUpgrade = Vue.computed(() => {
 }
 
 .operational-account-card {
-  @apply relative z-10 row-start-1 flex min-w-0 flex-col items-center justify-center rounded border border-fuchsia-200/60 bg-white text-center;
+  @apply relative z-10 row-start-1 flex min-w-0 flex-col justify-center rounded border border-fuchsia-200/60 bg-white px-5 py-3 text-left;
   grid-column: 1 / -1;
   margin-inline: calc((100% - (15 * var(--network-grid-gap))) / 32 + (var(--network-grid-gap) / 4));
   box-shadow:
@@ -282,16 +350,36 @@ const showOperationsUpgrade = Vue.computed(() => {
     1px 1px 1px rgba(0, 0, 0, 0.05);
 
   h2 {
-    @apply mb-4 text-xl leading-none font-bold text-slate-800;
+    @apply text-lg leading-none font-bold text-slate-800;
+  }
+
+  p {
+    @apply mt-1 max-w-4xl text-sm leading-5 text-slate-600;
   }
 }
 
+.operational-account-header {
+  @apply flex items-center justify-between gap-5;
+}
+
 .operational-account-stats {
-  @apply flex items-center justify-center gap-x-16 text-lg leading-none text-fuchsia-400/80;
+  @apply mt-2 flex items-center gap-x-8;
+}
+
+.operational-account-stat {
+  @apply flex min-w-0 items-baseline gap-2;
 
   strong {
-    @apply font-bold;
+    @apply text-argon-600 text-lg leading-none font-bold;
   }
+
+  span {
+    @apply text-xs font-medium text-slate-500;
+  }
+}
+
+.operational-account-action {
+  @apply shrink-0 rounded-lg px-4 py-2 text-sm font-semibold text-white;
 }
 
 .operational-account-connector {
@@ -310,7 +398,7 @@ const showOperationsUpgrade = Vue.computed(() => {
 }
 
 .operational-account-connector::after {
-  @apply top-[116px] h-10;
+  @apply top-[112px] h-8;
 }
 
 .network-card--wide {

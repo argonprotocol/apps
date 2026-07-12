@@ -5,7 +5,7 @@ import { bigIntMax, bigIntMin, BondLot, TreasuryBonds, UnitOfMeasurement } from 
 import { useWallets } from './wallets.ts';
 import { getMyVault } from './vaults.ts';
 import { getCurrency } from './currency.ts';
-import { MyVault } from '../lib/MyVault.ts';
+import { getSpendableDefaultArgonMicrogons } from '../lib/WalletForArgon.ts';
 import { getBondMarket } from './myBonds.ts';
 
 export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', () => {
@@ -17,7 +17,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   // Sidelined
 
   const sidelinedMicrogons = Vue.computed(() => {
-    return bigIntMax(wallets.defaultArgonWallet.availableMicrogons - MyVault.OperationalReserves, 0n);
+    return getSpendableDefaultArgonMicrogons(wallets.defaultArgonWallet.availableMicrogons);
   });
 
   const sidelinedMicronots = Vue.computed(() => 0n);
@@ -131,9 +131,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   // Total Vault
 
   const totalVaultValue = Vue.computed(() => {
-    return (
-      sidelinedTotalValue.value + securityTotalValue.value + treasuryBondMicrogons.value - operationalFeeMicrogons.value
-    );
+    return bigIntMax(0n, securityMicrogons.value + treasuryBondMicrogons.value - operationalFeeMicrogons.value);
   });
 
   return {

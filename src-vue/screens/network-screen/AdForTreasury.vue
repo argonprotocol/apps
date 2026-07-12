@@ -142,8 +142,10 @@ async function connectToNetwork() {
     };
     config.showWelcomeOverlay = true;
 
+    emit('claimed');
+
     await config.save();
-    controller.setTab(TopTab.ArgonBonds);
+    controller.setTab(TopTab.BitcoinLocks);
   } catch (error) {
     formError.value =
       error instanceof Error && error.message

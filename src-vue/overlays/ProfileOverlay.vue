@@ -106,7 +106,7 @@ async function load() {
   clearSetupProgress();
 
   try {
-    await myVault.load();
+    await myVault.load(true);
     vaultName.value = myVault.createdVault?.name ?? '';
   } catch (error: any) {
     vaultName.value = '';
@@ -123,7 +123,7 @@ async function saveProfile() {
   clearSetupProgress();
 
   try {
-    await myVault.load();
+    await myVault.load(true);
     const createdVault = myVault.createdVault;
     if (!createdVault) {
       errorMessage.value = 'You need to create a vault before saving your profile.';

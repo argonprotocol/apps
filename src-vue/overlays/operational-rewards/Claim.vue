@@ -30,15 +30,13 @@
       </div>
 
       <div class="rounded-2xl border border-slate-200 bg-slate-50/50 px-5 py-4">
-        <div class="text-sm font-semibold text-slate-800">Send rewards to</div>
-        <InputMenu v-model="claimAccount" :options="claimAccountOptions" :selectFirst="true" class="mt-3 flex w-full" />
-        <div class="mt-3 text-xs leading-5 text-slate-500">Rewards will be transferred to this account.</div>
+        <div class="text-sm font-semibold text-slate-800">Rewards will be sent to your Argon Wallet.</div>
         <div
           v-if="hasClaimFeeShortfall"
           class="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-5 text-amber-800"
         >
-          This account needs ~₳{{ microgonToArgonNm(claimFeeEstimate ?? 0n).format('0,0.[00]') }} available to pay the
-          network fee. Choose a different account or add funds before claiming.
+          Your Argon Wallet needs ~₳{{ microgonToArgonNm(claimFeeEstimate ?? 0n).format('0,0.[00]') }} available to pay
+          the network fee. Add funds before claiming.
         </div>
       </div>
 
@@ -99,7 +97,7 @@
         transaction.
       </p>
       <p v-else class="mx-auto mt-3 max-w-xl text-center text-sm leading-6 text-slate-500">
-        Your claim finalized. The claimed rewards should now be available in the account you selected.
+        Your claim finalized. The claimed rewards should now be available in your Argon Wallet.
       </p>
 
       <div class="text-argon-700 mt-8 text-center text-4xl font-bold">{{ numeral(progressPct).format('0.00') }}%</div>
@@ -136,7 +134,6 @@ import dayjs, { type Dayjs } from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { MICROGONS_PER_ARGON } from '@argonprotocol/apps-core';
 import CountdownClock from '../../components/CountdownClock.vue';
-import InputMenu, { type IOption } from '../../components/InputMenu.vue';
 import ProgressBar from '../../components/ProgressBar.vue';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import {
@@ -144,14 +141,13 @@ import {
   getOperationalRewardsClaimAvailability,
 } from '../../lib/OperationalAccount.ts';
 import { ExtrinsicType } from '../../lib/db/TransactionsTable.ts';
+import { getSpendableDefaultArgonMicrogons } from '../../lib/WalletForArgon.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
 import { getTransactionTracker } from '../../stores/transactions.ts';
 import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
 
 dayjs.extend(utc);
-
-type ClaimAccount = 'defaultArgon' | 'vaulting';
 
 const props = defineProps<{
   isActive: boolean;
@@ -167,8 +163,6 @@ const walletKeys = getWalletKeys();
 const transactionTracker = getTransactionTracker();
 
 const { microgonToArgonNm } = createNumeralHelpers(currency);
-
-const claimAccount = Vue.ref<ClaimAccount>('defaultArgon');
 
 const pendingRewards = Vue.ref(0n);
 const treasuryReserves = Vue.ref<bigint>();
@@ -188,22 +182,15 @@ const isProcessing = Vue.ref(false);
 let unsubscribeProgress: (() => void) | undefined;
 let feeEstimateRunId = 0;
 
-const claimAccountOptions = Vue.computed<IOption[]>(() => [
-  { name: 'Argon Wallet', value: 'defaultArgon', microgons: wallets.defaultArgonWallet.availableMicrogons },
-  { name: 'Vaulting Account', value: 'vaulting', microgons: wallets.defaultArgonWallet.availableMicrogons },
-]);
-
-const selectedClaimAccount = Vue.computed(() => {
-  if (claimAccount.value === 'vaulting') return wallets.defaultArgonWallet;
-  return wallets.defaultArgonWallet;
-});
-
 const hasTreasuryReserveShortfall = Vue.computed(() => {
   return treasuryReserves.value !== undefined && treasuryReserves.value < pendingRewards.value;
 });
 
 const hasClaimFeeShortfall = Vue.computed(() => {
-  return claimFeeEstimate.value !== undefined && selectedClaimAccount.value.availableMicrogons < claimFeeEstimate.value;
+  return (
+    claimFeeEstimate.value !== undefined &&
+    getSpendableDefaultArgonMicrogons(wallets.defaultArgonWallet.availableMicrogons) < claimFeeEstimate.value
+  );
 });
 
 const canClaim = Vue.computed(() => {
@@ -268,14 +255,13 @@ async function claimRewards() {
 
     const client = await getMainchainClient(false);
     const tx = await buildOperationalRewardsClaimTx(claimableNow.value, client);
-    const signer = await getClaimSigner();
     const txInfo = await transactionTracker.submitAndWatch({
       tx,
-      txSigner: signer,
+      txSigner: await walletKeys.getDefaultArgonKeypair(),
       extrinsicType: ExtrinsicType.OperationalClaimRewards,
       metadata: {
         amount: claimableNow.value,
-        claimAccount: claimAccount.value,
+        claimAccount: 'defaultArgon',
       },
     });
 
@@ -310,7 +296,7 @@ Vue.watch(
   { immediate: true },
 );
 
-Vue.watch([() => props.isActive, claimAccount, claimableNow], () => {
+Vue.watch([() => props.isActive, claimableNow], () => {
   void updateClaimFeeEstimate();
 });
 
@@ -318,11 +304,6 @@ Vue.onUnmounted(() => {
   feeEstimateRunId += 1;
   unsubscribeProgress?.();
 });
-
-async function getClaimSigner() {
-  if (claimAccount.value === 'vaulting') return await walletKeys.getVaultingKeypair();
-  return await walletKeys.getDefaultArgonKeypair();
-}
 
 async function updateClaimFeeEstimate() {
   const runId = ++feeEstimateRunId;
@@ -332,7 +313,7 @@ async function updateClaimFeeEstimate() {
     !props.isActive ||
     !canClaimRewards.value ||
     claimableNow.value < BigInt(MICROGONS_PER_ARGON) ||
-    !selectedClaimAccount.value.address
+    !wallets.defaultArgonWallet.address
   ) {
     return;
   }
@@ -340,7 +321,7 @@ async function updateClaimFeeEstimate() {
   try {
     const client = await getMainchainClient(false);
     const tx = await buildOperationalRewardsClaimTx(claimableNow.value, client);
-    const fee = await tx.paymentInfo(selectedClaimAccount.value.address);
+    const fee = await tx.paymentInfo(wallets.defaultArgonWallet.address);
     if (runId === feeEstimateRunId) {
       claimFeeEstimate.value = fee.partialFee.toBigInt();
     }

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   countCompletedOperationalCertificationRequirements,
   countCompletedTreasuryCertificationRequirements,
@@ -9,6 +9,10 @@ import {
 import { bigintCodec, boolCodec, numberCodec } from './helpers/codecs.ts';
 
 describe('CertificationProgress', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('uses operational account thresholds and upstream access to determine certification progress', () => {
     const progress = getCertificationProgressFromOperationalAccount(
       some({
@@ -38,6 +42,8 @@ describe('CertificationProgress', () => {
     expect(progress.hasTreasuryBitcoin).toBe(true);
     expect(progress.hasTreasuryBonds).toBe(true);
     expect(progress.hasTreasuryUniswapTransfer).toBe(true);
+    expect(progress.treasuryBitcoinAmount).toBe(12n);
+    expect(progress.treasuryBondAmount).toBe(9n);
     expect(progress.isUpgradedToOperations).toBe(true);
     expect(progress.hasOperationalVault).toBe(true);
     expect(progress.hasOperationalMiningSeats).toBe(true);
@@ -76,6 +82,8 @@ describe('CertificationProgress', () => {
     expect(progress.hasTreasuryBitcoin).toBe(true);
     expect(progress.hasTreasuryBonds).toBe(true);
     expect(progress.hasTreasuryUniswapTransfer).toBe(true);
+    expect(progress.treasuryBitcoinAmount).toBe(1n);
+    expect(progress.treasuryBondAmount).toBeUndefined();
     expect(progress.isUpgradedToOperations).toBe(false);
     expect(progress.hasOperationalVault).toBe(false);
     expect(progress.hasOperationalMiningSeats).toBe(false);
@@ -155,6 +163,8 @@ describe('CertificationProgress', () => {
     expect(progress.hasTreasuryBitcoin).toBe(false);
     expect(progress.hasTreasuryBonds).toBe(false);
     expect(progress.hasTreasuryUniswapTransfer).toBe(true);
+    expect(progress.treasuryBitcoinAmount).toBe(0n);
+    expect(progress.treasuryBondAmount).toBe(0n);
     expect(progress.isUpgradedToOperations).toBe(false);
     expect(progress.isOperationallyCertified).toBe(false);
     expect(client.query.crosschainTransfer.transferTotalsByAccount).toHaveBeenCalledWith('5Default');

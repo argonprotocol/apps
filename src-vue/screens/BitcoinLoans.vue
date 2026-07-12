@@ -76,8 +76,8 @@
             :lockSummary="lockSummary"
           />
         </section>
+        <div class="absolute top-0 left-0 h-10 w-full bg-linear-to-b from-white to-transparent" />
       </div>
-      <div class="absolute top-0 left-0 h-10 w-full bg-linear-to-b from-white to-transparent" />
 
       <div class="relative pb-1 pl-0.5 pr-1">
         <img src="/treasury-footers/interest-free-liabilities.png" class="w-full opacity-80" />

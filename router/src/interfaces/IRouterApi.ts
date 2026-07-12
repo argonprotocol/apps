@@ -15,6 +15,8 @@ export interface ICreateInviteRequest {
   expiresAfterTicks: number;
 }
 
+export type IRegenerateInviteRequest = Omit<ICreateInviteRequest, 'name' | 'fromName'>;
+
 export interface IOpenInviteRequest {
   defaultAccountId: string;
   authAccountId: string;

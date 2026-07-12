@@ -27,6 +27,7 @@ export enum ExtrinsicType {
   CrosschainTransferRegisterMintingAuthority = 'CrosschainTransferRegisterMintingAuthority',
 
   TreasuryBuyBonds = 'TreasuryBuyBonds',
+  TreasuryBuyArgonotBonds = 'TreasuryBuyArgonotBonds',
   TreasuryReleaseBondLot = 'TreasuryReleaseBondLot',
 }
 

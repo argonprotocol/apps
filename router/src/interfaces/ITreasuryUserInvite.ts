@@ -8,10 +8,16 @@ export type IUserInvite = Omit<IUserInviteRecord, 'operationsAccessProofSignatur
 
 export type IOperationalUserInvite = IUserInvite;
 
+export interface IInviteVaultContribution {
+  bitcoinAmount: bigint;
+  bondAmount: bigint;
+}
+
 export type ITreasuryUserInvite = IUserInvite & {
   vaultId?: number;
   bitcoinLockCoupon?: IBitcoinLockCouponStatus;
   certificationProgress?: ICertificationProgress;
+  vaultContribution?: IInviteVaultContribution;
 };
 
 export type IMemberInvite = ITreasuryUserInvite;

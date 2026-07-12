@@ -9,17 +9,32 @@
           </button>
         </header>
         <div class="text-argon-600/50 mt-5 flex flex-row justify-center text-5xl font-bold">
-          <FormattedMoney :value="0n" />
+          <span>{{ currency.symbol }}</span>
+          <FormattedMoney
+            :isLoaded="wallets.isLoaded"
+            :value="
+              wallets.defaultArgonWallet.totalMicrogons +
+              currency.convertMicronotTo(wallets.defaultArgonWallet.totalMicronots, UnitOfMeasurement.Microgon)
+            "
+          />
         </div>
         <div class="w-full text-center">Total Value</div>
         <div class="mt-4 text-left text-slate-900/60">
           <div class="flex flex-row border-t border-slate-500/20 px-3 py-2">
-            <div class="grow">0 ARGN</div>
-            <div class="opacity-60">$0.00</div>
+            <div class="grow">
+              {{ microgonToArgonNm(wallets.defaultArgonWallet.totalMicrogons).format('0,0.[00]') }} ARGN
+            </div>
+            <div class="opacity-60">
+              {{ currency.symbol }}{{ microgonToMoneyNm(wallets.defaultArgonWallet.totalMicrogons).format('0,0.00') }}
+            </div>
           </div>
           <div class="flex flex-row border-t border-slate-500/20 px-3 py-2">
-            <div class="grow">0 ARGNOT</div>
-            <div class="opacity-60">$0.00</div>
+            <div class="grow">
+              {{ micronotToArgonotNm(wallets.defaultArgonWallet.totalMicronots).format('0,0.[00]') }} ARGNOT
+            </div>
+            <div class="opacity-60">
+              {{ currency.symbol }}{{ micronotToMoneyNm(wallets.defaultArgonWallet.totalMicronots).format('0,0.00') }}
+            </div>
           </div>
         </div>
         <WalletsMenu />
@@ -37,7 +52,9 @@
           >
             <article TopLevel class="flex flex-row items-center">
               <div class="grow">Dashboard</div>
-              <div><span class="rounded-full bg-slate-600/40 px-2 font-bold text-white">1</span></div>
+              <div class="opacity-60">
+                {{ currency.symbol }}{{ microgonToMoneyNm(financials.savingsTotalValue).format('0,0.00') }}
+              </div>
             </article>
             <div Selector>
               <div ArrowSquare>
@@ -48,7 +65,7 @@
           <li @click="goto(TopTab.Network)" :class="{ Selected: controller.selectedTab === TopTab.Network }">
             <article TopLevel class="flex flex-row items-center">
               <div class="grow">{{ config.hasExtensionTreasury ? 'Network' : 'Treasury Unlock' }}</div>
-              <div class="opacity-30">$0.00</div>
+              <div class="opacity-60">{{ currency.symbol }}0.00</div>
             </article>
             <div Selector>
               <div ArrowSquare>
@@ -82,8 +99,14 @@
           <li @click="goto(TopTab.BitcoinLocks)" :class="{ Selected: controller.selectedTab === TopTab.BitcoinLocks }">
             <article class="flex flex-row items-center">
               <div class="grow">Bitcoin Locks</div>
-              <div>
-                <span class="rounded-full bg-slate-600/40 px-2 font-bold text-white">
+              <div class="flex items-center gap-x-2">
+                <span class="opacity-60">
+                  {{ currency.symbol }}{{ satToMoneyNm(financials.liquidTotalSatoshis).format('0,0.00') }}
+                </span>
+                <span
+                  v-if="bitcoinLockCoupons.openCouponCount"
+                  class="rounded-full bg-slate-600/40 px-2 font-bold text-white"
+                >
                   {{ bitcoinLockCoupons.openCouponCount }}
                 </span>
               </div>
@@ -97,7 +120,9 @@
           <li @click="goto(TopTab.BitcoinLoans)" :class="{ Selected: controller.selectedTab === TopTab.BitcoinLoans }">
             <article class="flex flex-row items-center">
               <div class="grow">Bitcoin Loans</div>
-              <div class="opacity-30">$0.00</div>
+              <div class="opacity-60">
+                {{ currency.symbol }}{{ microgonToMoneyNm(financials.liquidCurrentBitcoinDebt).format('0,0.00') }}
+              </div>
             </article>
             <div Selector>
               <div ArrowSquare>
@@ -108,7 +133,16 @@
           <li @click="goto(TopTab.ArgonBonds)" :class="{ Selected: controller.selectedTab === TopTab.ArgonBonds }">
             <article class="flex flex-row items-center">
               <div class="grow">Argon Bonds</div>
-              <div class="opacity-30">$0.00</div>
+              <div class="opacity-60">
+                {{ currency.symbol
+                }}{{
+                  microgonToMoneyNm(
+                    myBonds.bondLots
+                      .filter(bondLot => bondLot.programType === 'Vault')
+                      .reduce((sum, bondLot) => sum + bondLot.bondMicrogons, 0n),
+                  ).format('0,0.00')
+                }}
+              </div>
             </article>
             <div Selector>
               <div ArrowSquare>
@@ -119,7 +153,16 @@
           <li @click="goto(TopTab.ArgonotBonds)" :class="{ Selected: controller.selectedTab === TopTab.ArgonotBonds }">
             <article class="flex flex-row items-center">
               <div class="grow">Argonot Bonds</div>
-              <div class="opacity-30">$0.00</div>
+              <div class="opacity-60">
+                {{ currency.symbol
+                }}{{
+                  micronotToMoneyNm(
+                    myBonds.bondLots
+                      .filter(bondLot => bondLot.programType === 'Argonot')
+                      .reduce((sum, bondLot) => sum + bondLot.bondMicrogons, 0n),
+                  ).format('0,0.00')
+                }}
+              </div>
             </article>
             <div Selector>
               <div ArrowSquare>
@@ -130,7 +173,9 @@
           <li @click="goto(TopTab.StableSwaps)" :class="{ Selected: controller.selectedTab === TopTab.StableSwaps }">
             <article class="flex flex-row items-center">
               <div class="grow">Stable Swaps</div>
-              <div class="opacity-30">$0.00</div>
+              <div class="opacity-60">
+                {{ currency.symbol }}{{ microgonToMoneyNm(financials.swapsTotalValue).format('0,0.00') }}
+              </div>
             </article>
             <div Selector>
               <div ArrowSquare>
@@ -142,21 +187,74 @@
       </div>
 
       <div class="mt-3" v-if="config.isLoaded && config.hasExtensionOperations">
-        <header>Operations</header>
+        <header class="relative">
+          Operations
+          <ArrowCalloutButton
+            v-if="showOperationsNavigationCallouts"
+            label="New"
+            guidanceTitle="Operations Unlocked"
+            guidance="Mining and Vaulting are now available from the sidebar."
+            :showGuidanceActions="false"
+            class="pointer-events-none absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
+          />
+        </header>
         <ul>
           <li
             data-testid="LeftBar.goto(TopTab.Mining)"
+            class="relative"
             @click="goto(TopTab.Mining)"
-            :class="{ selected: controller.selectedTab === TopTab.Mining }"
+            :class="{
+              Selected: controller.selectedTab === TopTab.Mining,
+              'bg-argon-100/40 ring-argon-400/40 ring-1': showOperationsNavigationCallouts,
+            }"
           >
-            Mining
+            <article class="flex flex-row items-center">
+              <div class="grow">Mining</div>
+              <div class="opacity-60">
+                {{ currency.symbol }}{{ microgonToMoneyNm(miningAssets.totalMiningResources).format('0,0.00') }}
+              </div>
+              <ArrowCalloutButton
+                v-if="
+                  !showOperationsNavigationCallouts &&
+                  controller.selectedTab !== TopTab.Mining &&
+                  (controller.activeGuideId === OperationalStepId.FirstMiningSeat ||
+                    controller.activeGuideId === OperationalStepId.MoreMiningSeats)
+                "
+                guidance="Continue this certification task in Mining."
+                class="pointer-events-none absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
+              />
+            </article>
+            <div Selector>
+              <div ArrowSquare><Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" /></div>
+            </div>
           </li>
           <li
             data-testid="LeftBar.goto(TopTab.Vaulting)"
+            class="relative"
             @click="goto(TopTab.Vaulting)"
-            :class="{ selected: controller.selectedTab === TopTab.Vaulting }"
+            :class="{
+              Selected: controller.selectedTab === TopTab.Vaulting,
+              'bg-argon-100/40 ring-argon-400/40 ring-1': showOperationsNavigationCallouts,
+            }"
           >
-            Vaulting
+            <article class="flex flex-row items-center">
+              <div class="grow">Vaulting</div>
+              <div class="opacity-60">
+                {{ currency.symbol }}{{ microgonToMoneyNm(vaultingAssets.totalVaultValue).format('0,0.00') }}
+              </div>
+              <ArrowCalloutButton
+                v-if="
+                  !showOperationsNavigationCallouts &&
+                  controller.selectedTab !== TopTab.Vaulting &&
+                  controller.activeGuideId === OperationalStepId.ActivateVault
+                "
+                guidance="Continue this certification task in Vaulting."
+                class="pointer-events-none absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
+              />
+            </article>
+            <div Selector>
+              <div ArrowSquare><Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" /></div>
+            </div>
           </li>
         </ul>
       </div>
@@ -165,8 +263,9 @@
 </template>
 
 <script setup lang="ts">
+import * as Vue from 'vue';
 import { MiningSetupStatus, TopTab, VaultingSetupStatus } from '../interfaces/IConfig.ts';
-import { useCertificationController } from '../stores/certificationController.ts';
+import { OperationalStepId, useCertificationController } from '../stores/certificationController.ts';
 import { getConfig } from '../stores/config.ts';
 import FormattedMoney from '../components/FormattedMoney.vue';
 import { getBitcoinLockCoupons } from '../stores/bitcoin.ts';
@@ -175,17 +274,53 @@ import WalletsMenu from './WalletsMenu.vue';
 import Arrow from '../components/Arrow.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { WalletType } from '../lib/Wallet.ts';
+import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
+import { useWallets } from '../stores/wallets.ts';
+import { getCurrency } from '../stores/currency.ts';
+import { createNumeralHelpers } from '../lib/numeral.ts';
+import { UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { useFinancials } from '../stores/financials.ts';
+import { useMyBonds } from '../stores/myBonds.ts';
+import { useMiningAssetBreakdown } from '../stores/miningAssetBreakdown.ts';
+import { useVaultingAssetBreakdown } from '../stores/vaultingAssetBreakdown.ts';
 
 const controller = useCertificationController();
 const bitcoinLockCoupons = getBitcoinLockCoupons();
 const config = getConfig();
+const wallets = useWallets();
+const currency = getCurrency();
+const financials = useFinancials();
+const myBonds = useMyBonds();
+const miningAssets = useMiningAssetBreakdown();
+const vaultingAssets = useVaultingAssetBreakdown();
+
+const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm, micronotToMoneyNm, satToMoneyNm } =
+  createNumeralHelpers(currency);
+
+const showOperationsNavigationCallouts = Vue.ref(false);
 
 function openDefaultArgonWallet() {
   basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
 }
 
 function goto(tab: TopTab) {
-  if (controller.backButtonTriggersHome) {
+  if ([TopTab.Mining, TopTab.Vaulting].includes(tab)) {
+    showOperationsNavigationCallouts.value = false;
+  }
+
+  if (
+    tab === TopTab.Mining &&
+    (controller.activeGuideId === OperationalStepId.FirstMiningSeat ||
+      controller.activeGuideId === OperationalStepId.MoreMiningSeats)
+  ) {
+    controller.backButtonTriggersHome = true;
+    if (config.miningSetupStatus === MiningSetupStatus.None) {
+      config.miningSetupStatus = MiningSetupStatus.Checklist;
+    }
+  } else if (tab === TopTab.Vaulting && controller.activeGuideId === OperationalStepId.ActivateVault) {
+    controller.backButtonTriggersHome = true;
+    config.vaultingSetupStatus = VaultingSetupStatus.Checklist;
+  } else if (controller.backButtonTriggersHome) {
     controller.backButtonTriggersHome = false;
     if (tab === TopTab.Mining) {
       config.miningSetupStatus = MiningSetupStatus.None;
@@ -195,6 +330,16 @@ function goto(tab: TopTab) {
   }
   controller.setTab(tab);
 }
+
+function highlightOperationsNavigation() {
+  showOperationsNavigationCallouts.value = true;
+}
+
+basicEmitter.on('highlightOperationsNavigation', highlightOperationsNavigation);
+
+Vue.onBeforeUnmount(() => {
+  basicEmitter.off('highlightOperationsNavigation', highlightOperationsNavigation);
+});
 </script>
 
 <style scoped>

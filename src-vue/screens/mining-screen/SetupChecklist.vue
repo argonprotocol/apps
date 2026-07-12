@@ -372,13 +372,6 @@ async function launchMiningBot() {
   const biddingRules = config.biddingRules;
   const micronotsAsMicrogons = currency.convertMicronotTo(availableMicronots.value, UnitOfMeasurement.Microgon);
 
-  if (availableMicrogons.value > biddingRules.initialMicrogonRequirement) {
-    biddingRules.initialMicrogonRequirement = availableMicrogons.value;
-  }
-  if (availableMicronots.value > biddingRules.initialMicronotRequirement) {
-    biddingRules.initialMicronotRequirement = availableMicronots.value;
-  }
-
   biddingRules.initialCapitalCommitment = availableMicrogons.value + micronotsAsMicrogons;
 
   try {

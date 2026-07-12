@@ -10,7 +10,18 @@
       <LeftBar />
       <main v-if="controller.isLoaded && !controller.isImporting" class="grow min-h-0 relative flex flex-col overflow-hidden">
         <AlertBars />
-        <div class="grow min-h-0 overflow-y-auto overflow-x-hidden">
+        <div
+          class="grow min-h-0 flex flex-col overflow-y-auto overflow-x-hidden"
+          :class="
+            controller.selectedTab === TopTab.ArgonBonds ||
+            controller.selectedTab === TopTab.ArgonotBonds ||
+            controller.selectedTab === TopTab.BitcoinLocks ||
+            controller.selectedTab === TopTab.BitcoinLoans ||
+            controller.selectedTab === TopTab.StableSwaps
+              ? 'rounded border-[1px] border-slate-400/40 bg-white shadow-md'
+              : ''
+          "
+        >
           <Dashboard v-if="controller.selectedTab === TopTab.Dashboard" />
           <Network v-else-if="controller.selectedTab === TopTab.Network" />
 
@@ -124,6 +135,7 @@ import StableSwaps from './screens/StableSwaps.vue';
 import BitcoinLoans from './screens/BitcoinLoans.vue';
 import Dashboard from './screens/Dashboard.vue';
 import WelcomeToTreasuryOverlay from './overlays/WelcomeToTreasuryOverlay.vue';
+import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 
 const controller = useCertificationController();
 const config = getConfig();
@@ -155,6 +167,16 @@ function keydownHandler(event: KeyboardEvent) {
   }
 }
 
+function externalLinkHandler(event: MouseEvent) {
+  if (event.defaultPrevented || !(event.target instanceof Element)) return;
+
+  const anchor = event.target.closest<HTMLAnchorElement>('a[href]');
+  if (!anchor || !['http:', 'https:'].includes(new URL(anchor.href).protocol)) return;
+
+  event.preventDefault();
+  void tauriOpenUrl(anchor.href);
+}
+
 Vue.onBeforeMount(async () => {
   await waitForLoad();
 });
@@ -162,6 +184,7 @@ Vue.onBeforeMount(async () => {
 Vue.onMounted(async () => {
   // Add keyboard shortcuts for panel switching
   document.addEventListener('keydown', keydownHandler);
+  document.addEventListener('click', externalLinkHandler);
 
   const appWindow = getCurrentWindow();
   await appWindow.onCloseRequested(async (event: CloseRequestedEvent) => {
@@ -174,6 +197,7 @@ Vue.onMounted(async () => {
 
 Vue.onBeforeUnmount(() => {
   document.removeEventListener('keydown', keydownHandler);
+  document.removeEventListener('click', externalLinkHandler);
 });
 
 Vue.onErrorCaptured((error, instance) => {
