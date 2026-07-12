@@ -73,7 +73,8 @@ import ImportAccountFromMnemonic from './import-account/FromMnemonic.vue';
 
 const config = getConfig();
 
-const isOpen = Vue.ref(config.showWelcomeOverlay);
+const isBasicApp = !config.hasExtensionTreasury && !config.hasExtensionOperations;
+const isOpen = Vue.ref(isBasicApp && config.showWelcomeOverlay);
 const importAccountFromMnemonicRef = Vue.ref<InstanceType<typeof ImportAccountFromMnemonic> | null>(null);
 
 const currentStep = Vue.ref<'Create' | 'Import' | 'Import:FromMnemonic' | null>(null);

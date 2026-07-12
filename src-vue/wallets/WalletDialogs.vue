@@ -11,7 +11,6 @@
     :pairedWalletType="wallet.pairedWalletType"
     :showGuidance="wallet.showGuidance"
     :guidanceContext="wallet.guidanceContext"
-    :showBackdrop="wallet.showBackdrop"
     :zIndex="wallet.zIndex"
     :position="wallet.position"
     @focus="focusWallet(wallet.id)"
@@ -22,6 +21,7 @@
     @dragEnd="handleDragEnd(wallet.id, $event)"
     @close="closeWallet(wallet.id)"
   />
+  <EthereumWalletImportOverlay />
 </template>
 
 <script lang="ts">
@@ -35,11 +35,10 @@ import * as Vue from 'vue';
 import basicEmitter, { type IWalletGuidanceContext } from '../emitters/basicEmitter.ts';
 import { WalletType } from '../lib/Wallet.ts';
 import { useBasics } from '../stores/basics.ts';
-import { TopTab } from '../interfaces/IConfig.ts';
-import { useCertificationController } from '../stores/certificationController.ts';
 import { useWallets } from '../stores/wallets.ts';
 import { releaseOverlayZIndex, reserveOverlayZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 import WalletDialog from './WalletDialog.vue';
+import EthereumWalletImportOverlay from './EthereumWalletImportOverlay.vue';
 
 type IOpenWallet = {
   id: number;
@@ -47,7 +46,6 @@ type IOpenWallet = {
   pairedWalletType?: WalletType.defaultArgon | WalletType.ethereum;
   showGuidance: boolean;
   guidanceContext?: IWalletGuidanceContext;
-  showBackdrop: boolean;
   zIndex: number;
   position: { x: number; y: number };
   rect?: DOMRectReadOnly;
@@ -63,11 +61,8 @@ const snapPreview = Vue.ref<{
 }>();
 let nextWalletId = 1;
 
-const certificationController = useCertificationController();
-const isWalletScreenOpen = Vue.computed(() => certificationController?.selectedTab === TopTab.Dashboard);
-
 function syncOverlayState() {
-  basics.overlayIsOpen = openWallets.value.some(wallet => wallet.showBackdrop);
+  basics.overlayIsOpen = openWallets.value.length > 0;
 }
 
 function focusWallet(id: number) {
@@ -115,7 +110,6 @@ function unpairWallet(id: number) {
     id: nextWalletId++,
     walletType: pairedWalletType,
     showGuidance: false,
-    showBackdrop: wallet.showBackdrop,
     zIndex: reserveOverlayZIndex(),
     position: {
       x: originalPosition.x - centerOffset,
@@ -186,7 +180,6 @@ function handleDragEnd(id: number, payload: { position: { x: number; y: number }
     walletType: primaryWalletType,
     pairedWalletType,
     showGuidance: primaryShowGuidance,
-    showBackdrop: draggedWallet.showBackdrop || targetWallet.showBackdrop,
     zIndex: reserveOverlayZIndex(),
     position: {
       x: (draggedWallet.position.x + targetWallet.position.x) / 2,
@@ -275,10 +268,7 @@ const openWalletOverlay = async (payload: {
   }
 
   const existingWallet = openWallets.value.find(
-    wallet =>
-      !wallet.pairedWalletType &&
-      wallet.walletType === payload.walletType &&
-      wallet.showBackdrop === !isWalletScreenOpen.value,
+    wallet => !wallet.pairedWalletType && wallet.walletType === payload.walletType,
   );
   if (existingWallet) {
     existingWallet.showGuidance = payload.showGuidance || false;
@@ -293,7 +283,6 @@ const openWalletOverlay = async (payload: {
     walletType: payload.walletType,
     showGuidance: payload.showGuidance || false,
     guidanceContext: payload.guidanceContext,
-    showBackdrop: !isWalletScreenOpen.value,
     zIndex: reserveOverlayZIndex(),
     position: getNextPosition(),
   });
@@ -301,10 +290,6 @@ const openWalletOverlay = async (payload: {
 };
 
 basicEmitter.on('openWalletOverlay', openWalletOverlay);
-
-Vue.watch(isWalletScreenOpen, () => {
-  syncOverlayState();
-});
 
 Vue.watch(
   () => openWallets.value.length,
