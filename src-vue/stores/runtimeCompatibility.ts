@@ -8,18 +8,20 @@ import { useAppUpdater } from './appUpdater.ts';
 
 export type RuntimeCompatibilityPhase = 'disabled' | 'loading' | 'compatible' | 'paused' | 'upgrade-required';
 
-type CompatibilityInfo = { maxSpecVersion?: number };
+type CompatibilityInfo = { maxSpecVersion?: number; newDownloadRequired?: boolean };
 type Unsubscribe = () => void | Promise<void>;
 type ClientType = 'archive' | 'pruned';
 
 const INITIAL_LOADING_POLL_MILLIS = 5e3;
 const INITIAL_LOADING_TIMEOUT_MILLIS = 15e3;
 const BLOCKED_COMPATIBILITY_POLL_MILLIS = 60e3;
+const COMPATIBLE_COMPATIBILITY_POLL_MILLIS = 60 * 60e3;
 const UPDATE_CHECK_STALE_MILLIS = 60e3;
 
 export const useRuntimeCompatibility = defineStore('runtimeCompatibility', () => {
   const phase = Vue.ref<RuntimeCompatibilityPhase>('disabled');
   const errorMessage = Vue.ref('');
+  const newDownloadRequired = Vue.ref(false);
   const isLoading = Vue.computed(() => phase.value === 'loading');
   const shouldShowCompatibilityScreen = Vue.computed(
     () => isLoading.value || phase.value === 'paused' || phase.value === 'upgrade-required',
@@ -91,6 +93,8 @@ export const useRuntimeCompatibility = defineStore('runtimeCompatibility', () =>
           pollMillis = INITIAL_LOADING_POLL_MILLIS;
         } else if (nextPhase === 'paused' || nextPhase === 'upgrade-required') {
           pollMillis = BLOCKED_COMPATIBILITY_POLL_MILLIS;
+        } else if (nextPhase === 'compatible') {
+          pollMillis = COMPATIBLE_COMPATIBILITY_POLL_MILLIS;
         }
 
         if (!pollMillis) {
@@ -186,6 +190,17 @@ export const useRuntimeCompatibility = defineStore('runtimeCompatibility', () =>
     return refreshQueue.add(async () => {
       try {
         const version = await updater.ensureInstalledVersion();
+        const compatibilityByVersion = await loadCompatibilityByVersion();
+        const compatibility = compatibilityByVersion[version];
+        const newDownloadRequiredForVersion = compatibility?.newDownloadRequired === true;
+        newDownloadRequired.value = newDownloadRequiredForVersion;
+        errorMessage.value = '';
+
+        if (newDownloadRequiredForVersion) {
+          phase.value = 'upgrade-required';
+          return;
+        }
+
         if (!observedSpecVersionByClient.archive) {
           await loadObservedSpecVersion('archive');
         }
@@ -197,10 +212,7 @@ export const useRuntimeCompatibility = defineStore('runtimeCompatibility', () =>
           throw new Error('Unable to determine the current Argon network version');
         }
 
-        const compatibilityByVersion = await loadCompatibilityByVersion();
-        const compatibility = compatibilityByVersion[version];
         const maxSpecVersion = compatibility?.maxSpecVersion;
-        errorMessage.value = '';
 
         if (maxSpecVersion == null || specVersions.every(specVersion => specVersion <= maxSpecVersion)) {
           phase.value = 'compatible';
@@ -233,6 +245,7 @@ export const useRuntimeCompatibility = defineStore('runtimeCompatibility', () =>
   return {
     phase,
     errorMessage,
+    newDownloadRequired,
     isLoading,
     shouldShowCompatibilityScreen,
     start,

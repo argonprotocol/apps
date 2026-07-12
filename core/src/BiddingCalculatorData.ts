@@ -70,10 +70,15 @@ export default class BiddingCalculatorData {
 
   public async load(biddingFrameId: number): Promise<void> {
     if (this.loadingFrameId !== biddingFrameId) {
+      const previousLoad = this.loadedFrameIdPromise;
       this.loadingFrameId = biddingFrameId;
       // wait for any previous load to finish
-      void (await this.loadedFrameIdPromise);
-      this.loadedFrameIdPromise = new Promise<number>(async (resolve, reject) => {
+      try {
+        await previousLoad;
+      } catch {
+        // A failed previous frame load must not prevent the current frame from retrying.
+      }
+      this.loadedFrameIdPromise = (async () => {
         try {
           const mining = this.mining;
           await this.miningFrames.waitForFrameId(biddingFrameId);
@@ -134,14 +139,23 @@ export default class BiddingCalculatorData {
           this.microgonExchangeRateTo = await currency.fetchMainchainRates(api);
           this.maxPossibleMiningSeatCount = maxPossibleMinersInNextEpoch;
           this.allowedBidIncrementMicrogons = api.consts.miningSlot.bidIncrements.toBigInt();
-          resolve(biddingFrameId);
+          return biddingFrameId;
         } catch (error) {
           console.error('Error initializing BiddingCalculatorData', error);
-          reject(error);
+          throw error;
         }
-      });
+      })();
     }
 
-    await this.loadedFrameIdPromise;
+    const loadPromise = this.loadedFrameIdPromise;
+    try {
+      await loadPromise;
+    } catch (error) {
+      if (this.loadedFrameIdPromise === loadPromise && this.loadingFrameId === biddingFrameId) {
+        this.loadingFrameId = undefined;
+        this.loadedFrameIdPromise = undefined;
+      }
+      throw error;
+    }
   }
 }

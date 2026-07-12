@@ -72,6 +72,9 @@
               <p v-if="!config.hasSavedBiddingRules">
                 Decide how much capital you want to commit, your starting bid, maximum bid, and other basic settings.
               </p>
+              <p v-else-if="calculatorLoadError">
+                Live bidding estimates are temporarily unavailable. You can still start mining.
+              </p>
               <p v-else>
                 Your bidding rules expect a
                 <BotCapital align="start" :alignOffset="alignOffsetForBotCapital">
@@ -242,6 +245,7 @@ const alignOffsetForBotCapital = Vue.ref(0);
 const capitalCommitment = Vue.ref(0n);
 const isLaunchingMiningBot = Vue.ref(false);
 const averageAPY = Vue.ref(0);
+const calculatorLoadError = Vue.ref(false);
 
 const serverConnectIsChecked = Vue.computed(() => {
   return wallets.isLoaded && hasMiningMachine.value;
@@ -405,9 +409,14 @@ async function updateAPYs() {
 
 Vue.watch(config.biddingRules, () => updateAPYs(), { deep: true });
 
-Vue.onMounted(async () => {
-  await calculator.load();
-  await updateAPYs();
+Vue.onMounted(() => {
+  void calculator
+    .load()
+    .then(updateAPYs)
+    .catch(error => {
+      calculatorLoadError.value = true;
+      console.error('[SetupChecklist] Failed to load bidding estimates', error);
+    });
 });
 </script>
 

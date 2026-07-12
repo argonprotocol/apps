@@ -86,9 +86,7 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
         throw new Error(`${flowName}: Bitcoin lock entry point is not clickable on the vault dashboard.`);
       }
     }
-    if (!state.uiState.lockStartVisible) {
-      await flow.waitFor('LockStart.submitLiquidLock()', { timeoutMs: 10_000 });
-    }
+    await flow.waitFor('LockStart.submitLiquidLock()', { state: 'enabled', timeoutMs: 10_000 });
 
     if (input.minimumLockMicrogons != null) {
       const argonAmount =

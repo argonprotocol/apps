@@ -583,7 +583,9 @@ Vue.onMounted(async () => {
     requiredMicrogonsForGoal.value = projections.microgonRequirement;
     requiredMicronotsForGoal.value = projections.micronotRequirement;
   });
-  void calculator.load();
+  void calculator.load().catch(error => {
+    console.error('[StatusMenu] Failed to load bidding estimates', error);
+  });
 });
 
 Vue.onUnmounted(() => {
