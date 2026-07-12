@@ -73,7 +73,6 @@ import { createNumeralHelpers } from '../lib/numeral.ts';
 import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
 import { useFinancials } from '../stores/financials.ts';
 import OverviewPie from '../panels/portfolio/OverviewPie.vue';
-import { useWallets } from '../stores/wallets.ts';
 
 const rootRef = Vue.ref<HTMLElement>();
 
@@ -84,7 +83,6 @@ defineExpose({
 
 const currency = getCurrency();
 const financials = useFinancials();
-const wallets = useWallets();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
@@ -92,18 +90,8 @@ const totalNetWorth = Vue.computed(() => {
   if (!currency.isLoaded) {
     return ['--', '--'];
   }
-  const value = microgonToMoneyNm(wallets.totalOperationalResources).format('0,0.00');
-  return value.split('.');
+  return microgonToMoneyNm(financials.totalValue).format('0,0.00').split('.');
 });
-
-// const totalNetWorth = Vue.computed(() => {
-//   if (!currency.isLoaded) {
-//     return ['--', '--'];
-//   }
-//   const rawValue = financials.totalValue;
-//   const value = microgonToMoneyNm(rawValue).format('0,0.00');
-//   return value.split('.');
-// });
 
 function openPortfolioPanel(): void {
   basicEmitter.emit('openPortfolioPanel', PortfolioTab.Overview);

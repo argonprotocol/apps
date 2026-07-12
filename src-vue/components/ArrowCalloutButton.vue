@@ -45,14 +45,17 @@
             class="border-argon-600/40 flex w-100 flex-col gap-2 rounded border shadow-xl"
           >
             <header class="bg-argon-600/10 px-5 py-3 font-bold">
-              Task: {{ controller.activeGuideId ? operationalSteps[controller.activeGuideId]?.title : '' }}
+              <template v-if="props.guidanceTitle">{{ props.guidanceTitle }}</template>
+              <template v-else>
+                Task: {{ controller.activeGuideId ? operationalSteps[controller.activeGuideId]?.title : '' }}
+              </template>
             </header>
 
             <p class="px-5 pt-3">
               {{ props.guidance }}
             </p>
 
-            <div class="flex flex-row gap-x-2 p-5 whitespace-nowrap">
+            <div v-if="props.showGuidanceActions" class="flex flex-row gap-x-2 p-5 whitespace-nowrap">
               <button
                 @click="cancelTask"
                 class="border-argon-600/60 text-argon-600 hover:bg-argon-600/5 grow cursor-pointer rounded border px-5 py-1"
@@ -100,7 +103,9 @@ const props = withDefaults(
     class?: string;
     direction?: 'left' | 'right';
     fillColor?: string;
+    guidanceTitle?: string;
     label?: string;
+    showGuidanceActions?: boolean;
     guidance?: string;
     strokeColor?: string;
     showArrow?: boolean;
@@ -110,6 +115,7 @@ const props = withDefaults(
     direction: 'left',
     fillColor: '#faeff8',
     label: 'Click Here',
+    showGuidanceActions: true,
     strokeColor: '#b100de',
     showArrow: true,
     position: 'bottom',

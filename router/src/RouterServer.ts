@@ -4,7 +4,9 @@ import {
   type ArgonClient,
   type ICertificationProgress,
   JsonExt,
+  loadAccountLocks,
   loadCertificationProgress,
+  TreasuryBonds,
   UserRole,
   type IEthereumGatewayCatchUpRequest,
   type IEthereumGatewayCatchUpResponse,
@@ -31,6 +33,7 @@ import type {
   IOpenInviteRequest,
   IOpenInviteResponse,
   IPreviewInviteResponse,
+  IRegenerateInviteRequest,
   IRequestOperationsUpgradeRequest,
   IRequestOperationsUpgradeResponse,
   IRouterAuthChallengeRequest,
@@ -68,6 +71,14 @@ export class RouterServer {
     const inviteService = new UserInviteService(db);
     const inviteProgressNodeUrl = this.options.mainNodeUrl ?? this.options.localNodeUrl;
     const adminOperatorAccountId = this.options.auth?.adminOperatorAccountId?.trim() || ADMIN_OPERATOR_ACCOUNT_ID?.trim();
+    const getInviteProgressClient = async () => {
+      if (!inviteProgressNodeUrl) {
+        throw new RouterError('A mainchain node is required to approve operations access.', 503);
+      }
+
+      this.inviteProgressClientPromise ??= getClient(inviteProgressNodeUrl, { throwOnConnect: true });
+      return await this.inviteProgressClientPromise;
+    };
     const routerAuth = new RouterAuthService({
       db,
       sessionTtlSeconds: ROUTER_AUTH_SESSION_TTL_SECONDS ? Number(ROUTER_AUTH_SESSION_TTL_SECONDS) : undefined,
@@ -191,19 +202,7 @@ export class RouterServer {
       express.text({ type: '*/*' }),
       safeJsonRoute<IInviteResponse>(async req => {
         const body = requireBody<ICreateInviteRequest>(req);
-        if (body.expiresAfterTicks <= 0) {
-          throw new RouterError('Invite expiry must be greater than zero.');
-        }
-        if (body.vaultId <= 0) {
-          throw new RouterError('A vault is required to create an invite.');
-        }
-        if (!Number.isFinite(body.estimatedGiftUsd) || body.estimatedGiftUsd < 0) {
-          throw new RouterError('Estimated gift USD must be a valid non-negative number.');
-        }
-        const btcPctFee = body.btcPctFee ?? 0;
-        if (!Number.isFinite(btcPctFee) || btcPctFee < 0) {
-          throw new RouterError('BTC percent fee must be a valid non-negative number.');
-        }
+        const btcPctFee = validateInviteCouponRequest(body);
 
         const invite = inviteService.createInvite({
           name: body.name,
@@ -235,6 +234,46 @@ export class RouterServer {
             ...invite,
             vaultId: body.vaultId,
             bitcoinLockCoupon,
+          },
+        };
+      }),
+    );
+
+    app.post(
+      '/invites/:inviteCode/regenerate',
+      requireAdminOperatorAuth,
+      express.text({ type: '*/*' }),
+      safeJsonRoute<IInviteResponse>(async req => {
+        const body = requireBody<IRegenerateInviteRequest>(req);
+        const btcPctFee = validateInviteCouponRequest(body);
+        const inviteCode = req.params.inviteCode;
+        const invite = db.userInvitesTable.fetchByCode(inviteCode, UserRole.Member);
+        if (!invite) {
+          throw new RouterError('Invite not found', 404);
+        }
+
+        const latestCoupon = (await botClient.listLatestCouponsByUserId()).get(invite.id);
+        if (latestCoupon?.status !== 'Expired') {
+          throw new RouterError('Only expired invites can be regenerated.', 409);
+        }
+
+        const regenerated = await inviteService.regenerateInvite({
+          inviteCode,
+          createReplacementCoupon: replacementInvite =>
+            botClient.createCoupon({
+              userId: replacementInvite.id,
+              vaultId: body.vaultId,
+              maxSatoshis: body.maxSatoshis,
+              estimatedGiftUsd: body.estimatedGiftUsd,
+              btcPctFee,
+              expiresAfterTicks: body.expiresAfterTicks,
+            }),
+        });
+
+        return {
+          invite: {
+            ...toTreasuryUserInvite(regenerated.invite),
+            bitcoinLockCoupon: regenerated.coupon,
           },
         };
       }),
@@ -317,19 +356,79 @@ export class RouterServer {
       safeJsonRoute<IListInvitesResponse>(async () => {
         const couponsByUserId = await botClient.listLatestCouponsByUserId();
         const invites = db.userInvitesTable.fetchByRole(UserRole.Member);
+        const vaultBondAmountsByAccountId = new Map<number, Map<string, bigint>>();
+        let inviteProgressClient: ArgonClient | undefined;
+
+        if (inviteProgressNodeUrl) {
+          try {
+            const client = await getInviteProgressClient();
+            const vaultIds = [
+              ...new Set(
+                invites.flatMap(invite => {
+                  const vaultId = couponsByUserId.get(invite.id)?.coupon.vaultId;
+                  return invite.defaultAccountId && vaultId ? [vaultId] : [];
+                }),
+              ),
+            ];
+
+            await Promise.all(
+              vaultIds.map(async vaultId => {
+                const bondAmountsByAccountId = new Map<string, bigint>();
+                const bondLots = await TreasuryBonds.getBondLots(client, vaultId);
+
+                for (const bondLot of bondLots) {
+                  const currentAmount = bondAmountsByAccountId.get(bondLot.accountId) ?? 0n;
+                  bondAmountsByAccountId.set(bondLot.accountId, currentAmount + bondLot.activeBondMicrogons);
+                }
+
+                vaultBondAmountsByAccountId.set(vaultId, bondAmountsByAccountId);
+              }),
+            );
+            inviteProgressClient = client;
+          } catch (error) {
+            this.inviteProgressClientPromise = undefined;
+            console.warn('[router] Unable to load invite certification progress.', error);
+          }
+        }
 
         return {
           invites: await Promise.all(
             invites.map(async invite => {
+              const bitcoinLockCoupon = couponsByUserId.get(invite.id);
               let certificationProgress: ICertificationProgress | undefined;
-              if (inviteProgressNodeUrl && invite.defaultAccountId) {
+              const client = inviteProgressClient;
+              const defaultAccountId = invite.defaultAccountId;
+              if (client && defaultAccountId) {
                 try {
-                  this.inviteProgressClientPromise ??= getClient(inviteProgressNodeUrl, { throwOnConnect: true });
-                  certificationProgress = await loadCertificationProgress({
-                    client: await this.inviteProgressClientPromise,
-                    defaultAccountId: invite.defaultAccountId,
-                    operationalAccountId: invite.operationalAccountId ?? undefined,
-                  });
+                  const accountLocksPromise = loadAccountLocks({ client, defaultAccountId });
+                  const [progress, accountLocks] = await Promise.all([
+                    loadCertificationProgress({
+                      client,
+                      defaultAccountId,
+                      operationalAccountId: invite.operationalAccountId ?? undefined,
+                      accountLocksPromise,
+                    }),
+                    accountLocksPromise,
+                  ]);
+
+                  certificationProgress = progress;
+                  const vaultId = bitcoinLockCoupon?.coupon.vaultId;
+                  const vaultContribution = vaultId
+                    ? {
+                        bitcoinAmount: accountLocks.reduce((total, lock) => {
+                          if (!lock.isFunded || lock.vaultId !== vaultId) return total;
+                          return total + lock.liquidityPromised;
+                        }, 0n),
+                        bondAmount: vaultBondAmountsByAccountId.get(vaultId)?.get(defaultAccountId) ?? 0n,
+                      }
+                    : undefined;
+
+                  return {
+                    ...toTreasuryUserInvite(invite),
+                    bitcoinLockCoupon,
+                    certificationProgress,
+                    vaultContribution,
+                  };
                 } catch (error) {
                   this.inviteProgressClientPromise = undefined;
                   console.warn('[router] Unable to load invite certification progress.', error);
@@ -338,8 +437,7 @@ export class RouterServer {
 
               return {
                 ...toTreasuryUserInvite(invite),
-                vaultId: couponsByUserId.get(invite.id)?.coupon.vaultId,
-                bitcoinLockCoupon: couponsByUserId.get(invite.id),
+                bitcoinLockCoupon,
                 certificationProgress,
               };
             }),
@@ -403,15 +501,71 @@ export class RouterServer {
         }
 
         const body = requireBody<IMarkOperationsUpgradedRequest>(req);
-        const invite = inviteService.markOperationsUpgraded(req.params.inviteCode, {
-          upstreamAccount: adminOperatorAccountId,
-          signature: body.signature,
+        const approvedOperationalAccountIds = db.userInvitesTable
+          .fetchByRole(UserRole.Member)
+          .flatMap(invite =>
+            invite.operationsAccessProofSignature && invite.operationalAccountId ? [invite.operationalAccountId] : [],
+          );
+        const client = await getInviteProgressClient();
+        const operationalAccounts = await client.query.operationalAccounts.operationalAccounts.multi([
+          adminOperatorAccountId,
+          ...approvedOperationalAccountIds,
+        ]);
+        const upstreamAccount = operationalAccounts[0];
+        if (!upstreamAccount?.isSome) {
+          throw new RouterError('The router operator has not registered an operational account.', 409);
+        }
+
+        const registeredOperationalAccountIds = new Set(
+          approvedOperationalAccountIds.filter((_, index) => operationalAccounts[index + 1]?.isSome),
+        );
+        const invite = inviteService.markOperationsUpgraded({
+          inviteCode: req.params.inviteCode,
+          accessProof: {
+            upstreamAccount: adminOperatorAccountId,
+            signature: body.signature,
+          },
+          accessCodeCapacity: {
+            availableAccessCodes: upstreamAccount.unwrap().availableAccessCodes.toNumber(),
+            registeredOperationalAccountIds,
+          },
         });
         if (!invite) {
           throw new RouterError('Invite not found', 404);
         }
 
         return { invite: toTreasuryUserInvite(invite) };
+      }),
+    );
+
+    app.post(
+      '/invites/:inviteCode/reassign-operations-upgrade-code',
+      requireAdminOperatorAuth,
+      safeJsonRoute<IInviteResponse>(async req => {
+        const inviteCode = req.params.inviteCode;
+        const invite = db.userInvitesTable.fetchByCode(inviteCode, UserRole.Member);
+        if (!invite) {
+          throw new RouterError('Invite not found', 404);
+        }
+
+        let isOperationalAccountRegistered = false;
+        if (invite.operationalAccountId) {
+          const client = await getInviteProgressClient();
+          const [operationalAccount] = await client.query.operationalAccounts.operationalAccounts.multi([
+            invite.operationalAccountId,
+          ]);
+          isOperationalAccountRegistered = !!operationalAccount?.isSome;
+        }
+
+        const reassignedInvite = inviteService.reassignOperationsUpgradeCode({
+          inviteCode,
+          isOperationalAccountRegistered,
+        });
+        if (!reassignedInvite) {
+          throw new RouterError('Invite not found', 404);
+        }
+
+        return { invite: toTreasuryUserInvite(reassignedInvite) };
       }),
     );
 
@@ -598,6 +752,25 @@ function requireBody<T>(req: Request): T {
   }
 
   return JsonExt.parse<T>(String(rawBody));
+}
+
+function validateInviteCouponRequest(body: IRegenerateInviteRequest): number {
+  if (body.expiresAfterTicks <= 0) {
+    throw new RouterError('Invite expiry must be greater than zero.');
+  }
+  if (body.vaultId <= 0) {
+    throw new RouterError('A vault is required to create an invite.');
+  }
+  if (!Number.isFinite(body.estimatedGiftUsd) || body.estimatedGiftUsd < 0) {
+    throw new RouterError('Estimated gift USD must be a valid non-negative number.');
+  }
+
+  const btcPctFee = body.btcPctFee ?? 0;
+  if (!Number.isFinite(btcPctFee) || btcPctFee < 0) {
+    throw new RouterError('BTC percent fee must be a valid non-negative number.');
+  }
+
+  return btcPctFee;
 }
 
 function safeJsonRoute<T>(

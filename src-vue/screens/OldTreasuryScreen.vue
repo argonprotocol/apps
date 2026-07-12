@@ -76,7 +76,7 @@ const { microgonToMoneyNm } = createNumeralHelpers(currency);
 const couponProviderLabel = config.upstreamOperator?.name || 'The vault operator';
 
 function onTreasuryInviteClaimed() {
-  controller.setTab(TopTab.Treasury);
+  controller.setTab(TopTab.BitcoinLocks);
 }
 
 function openBonds() {

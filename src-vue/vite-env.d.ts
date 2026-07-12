@@ -26,6 +26,7 @@ declare const __SERVER_ENV_VARS__: {
   BITCOIN_VERSION: string;
   BITCOIN_ADDNODE?: string;
   ARGON_VERSION: string;
+  ETHEREUM_BEACON_API_URL?: string;
   ETHEREUM_FINALITY_MILLIS?: string;
   ETHEREUM_EXECUTION_RPC_URL?: string;
   NOTEBOOK_ARCHIVE_HOSTS?: string;

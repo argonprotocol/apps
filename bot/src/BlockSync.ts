@@ -676,7 +676,8 @@ export class BlockSync {
     }
 
     const [account, fee] = event.data;
-    if (account.toHuman() !== this.accountset.txSubmitterPair.address) {
+    const feePayer = account.toHuman();
+    if (feePayer !== this.accountset.fundingAccountId && feePayer !== this.accountset.txSubmitterPair.address) {
       return 0n;
     }
     const isMiningTx = extrinsicEvents.some(x => {

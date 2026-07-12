@@ -21,7 +21,7 @@ services:
     restart: on-failure
   miner-1-bidder:
     <<: *cli
-    command: mining bid --env=/accounts/bob.json --max-bid=0.5 --run-continuous
+    command: mining bid --env=/accounts/bob.json --max-bid=0.25 --run-continuous
     depends_on:
       miner-1-setup:
         condition: service_completed_successfully

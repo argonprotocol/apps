@@ -15,7 +15,11 @@
           <input
             v-model="executionRpcUrlInput"
             type="text"
-            :placeholder="getDefaultEthereumExecutionRpcUrl() || 'https://rpc.example'"
+            :placeholder="
+              SERVER_ENV_VARS.ETHEREUM_EXECUTION_RPC_URL?.trim() ||
+              getDefaultEthereumExecutionRpcUrl() ||
+              'https://rpc.example'
+            "
             class="focus:border-argon-500 w-full rounded border border-slate-300 px-3 py-2 font-mono text-sm font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none"
           />
           <div class="pt-1 text-xs font-light text-slate-500">
@@ -28,7 +32,11 @@
           <input
             v-model="beaconApiUrlInput"
             type="text"
-            :placeholder="getDefaultEthereumBeaconApiUrl() || 'https://beacon.example'"
+            :placeholder="
+              SERVER_ENV_VARS.ETHEREUM_BEACON_API_URL?.trim() ||
+              getDefaultEthereumBeaconApiUrl() ||
+              'https://beacon.example'
+            "
             class="focus:border-argon-500 w-full rounded border border-slate-300 px-3 py-2 font-mono text-sm font-medium text-slate-700 placeholder:text-slate-400 focus:outline-none"
           />
           <div class="pt-1 text-xs font-light text-slate-500">
@@ -108,6 +116,7 @@ import {
 import { getBot } from '../stores/bot.ts';
 import { getConfig } from '../stores/config.ts';
 import { getInstaller } from '../stores/installer.ts';
+import { SERVER_ENV_VARS } from '../lib/Env.ts';
 
 const bot = getBot();
 const config = getConfig();
@@ -161,7 +170,12 @@ async function saveServerSettings(args: { disableBeaconSync?: boolean } = {}) {
     validateOptionalUrl('Execution RPC URL', savedExecutionRpcUrl);
     validateOptionalUrl('Beacon API URL', args.disableBeaconSync ? undefined : savedBeaconApiUrl);
 
-    if (!args.disableBeaconSync && !getEthereumBeaconApiUrl(savedBeaconApiUrl)) {
+    if (
+      !args.disableBeaconSync &&
+      !savedBeaconApiUrl &&
+      !SERVER_ENV_VARS.ETHEREUM_BEACON_API_URL?.trim() &&
+      !getEthereumBeaconApiUrl()
+    ) {
       throw new Error('A beacon API URL is required to activate syncing.');
     }
 

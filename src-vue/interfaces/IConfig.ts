@@ -22,14 +22,12 @@ export enum TopTab {
   Dashboard = 'Dashboard',
   Network = 'Network',
 
-  Treasury = 'Treasury',
   ArgonBonds = 'ArgonBonds',
   ArgonotBonds = 'ArgonotBonds',
   BitcoinLocks = 'BitcoinLocks',
   BitcoinLoans = 'BitcoinLoans',
   StableSwaps = 'StableSwaps',
 
-  Operations = 'Operations',
   Mining = 'Mining',
   Vaulting = 'Vaulting',
 }

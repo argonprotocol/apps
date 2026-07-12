@@ -797,6 +797,99 @@ describe('MyVault cosign recovery', () => {
     expect(latestTxAttempt).toMatchObject({ txInfo, txAttemptState: TxAttemptState.Replace });
   });
 
+  it('retries completed delegate setup after reload when the vault still needs a delegate', async () => {
+    const completedTxInfo = createTxInfo({
+      status: TransactionStatus.Finalized,
+      extrinsicType: ExtrinsicType.VaultSetBitcoinLockDelegate,
+    });
+    const submittedTxInfo = createTxInfo({
+      id: 2,
+      extrinsicType: ExtrinsicType.VaultSetBitcoinLockDelegate,
+    });
+    const submitAndWatch = vi.fn().mockResolvedValueOnce(completedTxInfo).mockResolvedValueOnce(submittedTxInfo);
+    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({
+      consts: {
+        vaults: {
+          revenueCollectionExpirationFrames: {
+            toNumber: () => 10,
+          },
+        },
+      },
+      tx: {
+        utility: {
+          batchAll: vi.fn(() => ({ kind: 'delegate-setup' })),
+        },
+        vaults: {
+          setName: vi.fn(() => ({ kind: 'set-name' })),
+        },
+      },
+    } as any);
+    const myVault = new MyVault(
+      Promise.resolve({
+        vaultsTable: {
+          get: vi.fn(async () => ({ id: 7, createdAtBlockHeight: 10 })),
+        },
+        transactionsTable: {
+          fetchStatusHistory: vi.fn(async () => []),
+        },
+      } as any),
+      {
+        load: vi.fn(async () => undefined),
+        updateRevenue: vi.fn(async () => undefined),
+        vaultsById: { 7: { vaultId: 7, name: null, delegateAccountId: null } },
+        stats: {
+          synchedToFrame: 1,
+          vaultsById: { 7: { vaultId: 7 } },
+        },
+      } as any,
+      createMockWalletKeys(),
+      {
+        load: vi.fn(async () => undefined),
+        pendingBlockTxInfosAtLoad: [],
+        data: {
+          txInfosByType: {
+            [ExtrinsicType.VaultSetBitcoinLockDelegate]: completedTxInfo,
+          },
+        },
+        submitAndWatch,
+      } as any,
+      {
+        load: vi.fn(async () => undefined),
+      } as any,
+      {
+        load: vi.fn(async () => undefined),
+        currentFrameId: 2,
+      } as any,
+      {
+        load: vi.fn(async () => undefined),
+        data: { pendingApprovals: [] },
+      } as any,
+      {
+        load: vi.fn(async () => undefined),
+        data: {
+          authorities: [],
+          pendingMintingAuthorizations: [],
+          pendingMintingAuthorizeTxInfosByTransferId: new Map(),
+        },
+      } as any,
+    );
+    vi.spyOn(myVault as any, 'refreshExternalLocks').mockResolvedValue(undefined);
+    vi.spyOn(myVault as any, 'buildVaultRelaySetupTxs').mockResolvedValue({
+      needsSetup: true,
+      txs: [{ kind: 'setup' }],
+    });
+
+    myVault.data.createdVault = myVault.vaults.vaultsById[7];
+    await myVault.setupVaultInviteProfile('OperatorOne');
+    await myVault.load(true);
+    const result = await myVault.setupVaultInviteProfile('OperatorOne');
+
+    expect(result).toBe(submittedTxInfo);
+    expect(submitAndWatch).toHaveBeenCalledTimes(2);
+
+    getMainchainClient.mockRestore();
+  });
+
   it('renders ready before load resolves, but still waits for council and authority state', async () => {
     let resolveBitcoinLocksLoad!: () => void;
     let resolveGlobalCouncilLoad!: () => void;

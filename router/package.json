@@ -12,7 +12,7 @@
   "type": "module",
   "dependencies": {
     "@argonprotocol/apps-core": "workspace:*",
-    "@argonprotocol/mainchain": "1.4.9-dev.fab648f5",
+    "@argonprotocol/mainchain": "1.4.9-dev.3a35d811",
     "@polkadot/util": "^14.0.3",
     "@polkadot/util-crypto": "^14.0.3",
     "express": "^5.2.0",

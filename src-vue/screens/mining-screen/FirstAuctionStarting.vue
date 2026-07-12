@@ -63,17 +63,23 @@ import CountdownClock from '../../components/CountdownClock.vue';
 import ConfettiIcon from '../../assets/confetti.svg?component';
 import ActiveBidsOverlayButton from '../../overlays/ActiveBidsOverlayButton.vue';
 import BotHistoryOverlayButton from '../../overlays/BotHistoryOverlayButton.vue';
-import { MiningFrames } from '@argonprotocol/apps-core';
+import { MINING_BID_PROXY_FEE_FLOAT, MiningFrames } from '@argonprotocol/apps-core';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { getBiddingCalculator, getMining } from '../../stores/mainchain.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
+import { useWallets, getWalletKeys } from '../../stores/wallets.ts';
+import { getTransactionTracker } from '../../stores/transactions.ts';
+import { ensureMiningBidProxySetup } from '../../lib/MiningAccount.ts';
 
 dayjs.extend(utc);
 
 const mainchain = getMining();
 const config = getConfig();
 const currency = getCurrency();
+const wallets = useWallets();
+const walletKeys = getWalletKeys();
+const transactionTracker = getTransactionTracker();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
@@ -85,6 +91,7 @@ const maxSeatCount = Vue.ref(0);
 const calculator = getBiddingCalculator();
 
 const maxBidPerSeat = Vue.ref(0n);
+const isEnsuringMiningBidProxy = Vue.ref(false);
 
 function handleAuctionClosingTick(totalSecondsRemaining: number) {
   if (totalSecondsRemaining <= 0) {
@@ -94,6 +101,24 @@ function handleAuctionClosingTick(totalSecondsRemaining: number) {
 
 function openBiddingBudgetOverlay() {
   basicEmitter.emit('openBotEditOverlay');
+}
+
+async function ensureMiningBidProxy() {
+  if (isEnsuringMiningBidProxy.value || wallets.miningBotWallet.availableMicrogons < MINING_BID_PROXY_FEE_FLOAT) {
+    return;
+  }
+
+  isEnsuringMiningBidProxy.value = true;
+  try {
+    const proxySetup = await ensureMiningBidProxySetup({ transactionTracker, walletKeys });
+    if (proxySetup.kind === 'submitted' || proxySetup.kind === 'trackingExisting') {
+      await proxySetup.txInfo.waitForPostProcessing;
+    }
+  } catch (error) {
+    console.warn('[FirstAuctionStarting] Mining bid proxy setup failed', error);
+  } finally {
+    isEnsuringMiningBidProxy.value = false;
+  }
 }
 
 Vue.onMounted(async () => {
@@ -110,6 +135,8 @@ Vue.onMounted(async () => {
     startOfNextCohort.value = dayjs.utc(MiningFrames.getTickDate(tickAtStartOfNextCohort));
   }
 });
+
+Vue.watch(() => wallets.miningBotWallet.availableMicrogons, ensureMiningBidProxy, { immediate: true });
 </script>
 
 <style scoped>

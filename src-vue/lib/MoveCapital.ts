@@ -2,14 +2,20 @@ import { getMainchainClient } from '../stores/mainchain.ts';
 import { ArgonClient, FIXED_U128_DECIMALS, SubmittableExtrinsic, toFixedNumber } from '@argonprotocol/mainchain';
 import {
   bigIntMax,
+  bigIntMin,
   isDefaultArgonMoveFrom,
   isValidArgonAccountAddress,
+  MINING_BID_PROXY_FEE_FLOAT,
   MoveFrom,
   MoveTo,
   MoveToken,
 } from '@argonprotocol/apps-core';
 import { MyVault } from './MyVault.ts';
-import { existentialDepositMicrogons, getSpendableDefaultArgonMicrogons } from './WalletForArgon.ts';
+import {
+  existentialDepositMicrogons,
+  getSpendableDefaultArgonMicrogons,
+  getSpendableMicrogons,
+} from './WalletForArgon.ts';
 import { IWallet, WalletType } from './Wallet.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
@@ -143,7 +149,7 @@ export class MoveCapital {
     }
 
     const assetsToMove: IAssetsToMove = {};
-    const spendableMicrogons = getSpendableDefaultArgonMicrogons(legacyWallet.availableMicrogons);
+    const spendableMicrogons = getSpendableMicrogons(legacyWallet.availableMicrogons, existentialDepositMicrogons);
     if (spendableMicrogons > 0n) {
       assetsToMove[MoveToken.ARGN] = spendableMicrogons;
     }
@@ -233,7 +239,7 @@ export class MoveCapital {
 
     const assetsToMove: IAssetsToMove = {};
     const spendableMicrogons = getSpendableDefaultArgonMicrogons(wallet.availableMicrogons);
-    const requiredMicrogons = config.biddingRules.initialMicrogonRequirement;
+    const requiredMicrogons = config.biddingRules.initialMicrogonRequirement + MINING_BID_PROXY_FEE_FLOAT;
     const requiredMicronots = config.biddingRules.initialMicronotRequirement;
 
     if (spendableMicrogons > 0n && requiredMicrogons > 0n) {
@@ -273,7 +279,8 @@ export class MoveCapital {
     }
 
     let finalAssetsToMove: IAssetsToMove = {};
-    const remainingMicrogons = bigIntMax((assetsToMove[MoveToken.ARGN] ?? 0n) - fee, 0n);
+    const availableMicrogonsAfterFee = bigIntMax(spendableMicrogons - fee, 0n);
+    const remainingMicrogons = bigIntMin(assetsToMove[MoveToken.ARGN] ?? 0n, availableMicrogonsAfterFee);
 
     if (remainingMicrogons >= existentialDepositMicrogons) {
       finalAssetsToMove[MoveToken.ARGN] = remainingMicrogons;

@@ -155,7 +155,7 @@ describe('MoveCapital', () => {
       },
     } as any);
     const wallet = createWallet({
-      availableMicrogons: defaultArgonOperationalReserveMicrogons + 50n,
+      availableMicrogons: 1_000_050n,
       availableMicronots: 7n,
     });
 
@@ -198,6 +198,35 @@ describe('MoveCapital', () => {
 
     await vi.waitFor(() => expect(postProcessor.resolve).toHaveBeenCalledOnce());
     expect(postProcessor.reject).not.toHaveBeenCalled();
+  });
+
+  it('moves the configured minimum mining balance and proxy reserve when the default wallet has more', async () => {
+    const { moveCapital, transactionTracker } = createMoveCapital();
+    vi.spyOn(moveCapital, 'calculateFee').mockResolvedValue(5n);
+    const buildTransactionSpy = vi.spyOn(moveCapital, 'buildTransaction').mockResolvedValue({
+      tx: 'transfer-tx' as any,
+      metadata: {
+        moveFrom: MoveFrom.DefaultArgon,
+        moveTo: MoveTo.MiningBot,
+        assetsToMove: { ARGN: 1_000_000n },
+      },
+    });
+    vi.spyOn(moveCapital as any, 'getSigner').mockResolvedValue('signer');
+    transactionTracker.submitAndWatch.mockResolvedValue({} as any);
+    const wallet = createWallet({
+      availableMicrogons: defaultArgonOperationalReserveMicrogons + 2_000_105n,
+    });
+
+    await moveCapital.moveConfiguredDefaultArgonToBot(wallet, walletKeys, config);
+
+    expect(buildTransactionSpy).toHaveBeenCalledWith(
+      MoveFrom.DefaultArgon,
+      MoveTo.MiningBot,
+      { ARGN: 2_000_000n },
+      'mining-bot-address',
+      [],
+      expect.anything(),
+    );
   });
 
   it('retries the fee calculation without argons when only argonots should move', async () => {
