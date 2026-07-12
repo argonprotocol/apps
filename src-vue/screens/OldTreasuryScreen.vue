@@ -1,7 +1,7 @@
 <template>
   <div v-if="!config.hasExtensionTreasury" class="flex h-full flex-col px-5 py-5">
     <section box class="mx-auto flex w-full max-w-4xl flex-col px-6 py-6">
-      <AdForTreasuryOverlay @claimed="onTreasuryInviteClaimed" />
+      <AdForTreasury @claimed="onTreasuryInviteClaimed" />
     </section>
   </div>
 
@@ -61,7 +61,7 @@ import { ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
 import GiftIcon from '../assets/gift.svg?component';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import { TopTab } from '../interfaces/IConfig.ts';
-import AdForTreasuryOverlay from '../overlays/AdForTreasuryOverlay.vue';
+import AdForTreasury from './network-screen/AdForTreasury.vue';
 import { getConfig } from '../stores/config.ts';
 import { useCertificationController } from '../stores/certificationController.ts';
 import { getCurrency } from '../stores/currency.ts';

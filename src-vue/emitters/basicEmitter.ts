@@ -13,6 +13,7 @@ type IBasicEmitter = {
     showGuidance?: boolean;
     guidanceContext?: IWalletGuidanceContext;
   };
+  openEthereumWalletImportOverlay: void;
   openMoveCapitalOverlay: {
     walletType: WalletType.defaultArgon;
     moveTo?: MoveTo;

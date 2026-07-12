@@ -12,7 +12,7 @@ import { getBot } from './stores/bot.ts';
 import { getConfig } from './stores/config.ts';
 import { useTour } from './stores/tour.ts';
 import { WalletType } from './lib/Wallet.ts';
-import { APP_NAME, IS_LOCAL_BUILD, NETWORK_NAME } from './lib/Env.ts';
+import { IS_LOCAL_BUILD, NETWORK_NAME } from './lib/Env.ts';
 
 function openAboutOverlay() {
   basicEmitter.emit('openAboutOverlay');
@@ -282,8 +282,16 @@ export async function createMenu() {
     ],
   });
 
+  const items = [];
   const menu = await Menu.new({
-    items: [mainMenu, fileMenu, editMenu, miningMenu, vaultingMenu, windowMenu, helpMenu],
+    items: [
+      mainMenu,
+      fileMenu,
+      editMenu,
+      ...(config.hasExtensionOperations ? [miningMenu, vaultingMenu] : []),
+      windowMenu,
+      helpMenu,
+    ],
   });
 
   function updateMiningMenu() {

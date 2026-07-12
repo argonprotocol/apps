@@ -1,5 +1,5 @@
 <template>
-  <div class="flex min-h-0 grow flex-col">
+  <div DashBox class="flex h-full min-h-0 grow flex-col">
     <div v-if="!isLoaded" class="flex grow items-center justify-center text-slate-500">Loading...</div>
 
     <!-- Blank state -->

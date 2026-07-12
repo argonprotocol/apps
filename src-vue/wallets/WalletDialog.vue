@@ -1,8 +1,8 @@
 <!-- prettier-ignore -->
 <template>
-  <DialogRoot :open="true" :modal="props.showBackdrop">
+  <DialogRoot :open="true" :modal="true">
     <DialogPortal>
-      <DialogOverlay v-if="props.showBackdrop" asChild>
+      <DialogOverlay asChild>
         <BgOverlay :style="{ zIndex: getOverlayBackdropZIndex(props.zIndex) }" @close="closeOverlay" />
       </DialogOverlay>
       <DialogContent
@@ -154,13 +154,11 @@ const props = withDefaults(
     pairedWalletType?: WalletType.defaultArgon | WalletType.ethereum;
     showGuidance?: boolean;
     guidanceContext?: IWalletGuidanceContext;
-    showBackdrop?: boolean;
     zIndex: number;
     position?: { x: number; y: number };
   }>(),
   {
     showGuidance: false,
-    showBackdrop: true,
     position: () => ({ x: 0, y: 0 }),
   },
 );
