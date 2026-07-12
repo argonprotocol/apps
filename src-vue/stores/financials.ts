@@ -128,7 +128,12 @@ export const useFinancials = defineStore('financials', () => {
   // Argon Bonds ///////////////////////////////////////////////////////////////////////////////////////////////////////
 
   const bondsTotalValue = Vue.computed(() => {
-    return myBonds.bondLots.reduce((sum, bondLot) => sum + bondLot.bondMicrogons, 0n);
+    return myBonds.bondLots.reduce((sum, bondLot) => {
+      if (bondLot.programType === 'Argonot') {
+        return sum + currency.convertMicronotTo(bondLot.bondMicrogons, UnitOfMeasurement.Microgon);
+      }
+      return sum + bondLot.bondMicrogons;
+    }, 0n);
   });
   const bondsTotalProfits = Vue.computed(() => {
     return myBonds.bondLots.reduce((sum, bondLot) => sum + bondLot.lifetimeEarnings, 0n);

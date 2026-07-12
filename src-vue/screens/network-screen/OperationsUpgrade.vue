@@ -1,47 +1,47 @@
 <template>
-  <div class="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white/90 px-8 py-8 shadow-sm">
-    <div class="text-3xl font-bold text-slate-800">Unlock Operations</div>
+  <div class="w-full max-w-xl px-2">
+    <div class="text-2xl font-bold text-slate-800">Unlock Operations</div>
 
-    <p v-if="canRequestUpgrade" class="mt-4 text-base leading-7 text-slate-500">
+    <p v-if="canRequestUpgrade" class="mt-3 text-base leading-6 text-slate-500">
       Treasury certification is complete. Request approval from
       <strong class="font-semibold text-slate-700">{{ upstreamName }}</strong>
       to unlock mining and vaulting.
     </p>
 
-    <div
-      v-if="formError"
-      class="mt-4 flex flex-row items-center gap-x-2 rounded-lg border border-red-400/50 bg-red-100 px-3 py-1.5 text-red-600"
-    >
+    <div v-if="formError" class="mt-4 flex flex-row items-center gap-x-2 text-sm text-red-600">
       <AlertIcon class="h-4 w-4 shrink-0" />
       <span>{{ formError }}</span>
     </div>
 
-    <div v-else-if="registrationProgressLabel" class="mt-4 rounded-lg border border-slate-200 bg-white px-4 py-4">
-      <div class="text-sm font-semibold text-slate-800">Submitting operations registration</div>
+    <div v-else-if="registrationProgressLabel" class="mt-5 border-t border-slate-200 pt-4">
+      <div class="text-sm font-semibold text-slate-800">Completing operations upgrade</div>
       <ProgressBar :progress="registrationProgressPct" :hasError="!!registrationProgressError" class="mt-3" />
 
       <div class="mt-3 text-sm text-slate-500">
         {{ registrationProgressLabel }}
       </div>
 
-      <div
-        v-if="registrationProgressError"
-        class="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
-      >
-        {{ registrationProgressError }}
+      <div v-if="registrationProgressError" class="mt-3 text-sm text-red-600">
+        <div>{{ registrationProgressError }}</div>
+
+        <button
+          type="button"
+          :disabled="isRegistering"
+          class="border-argon-600 text-argon-600 mt-2 rounded border px-3 py-1.5 text-sm font-semibold disabled:cursor-default disabled:opacity-50"
+          @click="loadRegistrationProgress"
+        >
+          {{ isRegistering ? 'Completing...' : 'Try Again' }}
+        </button>
       </div>
     </div>
 
-    <div
-      v-else-if="invite?.accessProof"
-      class="border-argon-300/60 bg-argon-50 text-argon-700 mt-4 rounded-lg border px-3 py-2"
-    >
+    <div v-else-if="invite?.accessProof" class="border-argon-300 mt-5 border-l-2 pl-3 text-sm text-slate-600">
       Your upstream approved operations access on {{ upgradedAtLabel }}.
     </div>
 
     <div
       v-else-if="invite?.operationsUpgradeRequestedAt"
-      class="mt-4 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-amber-900"
+      class="border-argon-300 mt-5 border-l-2 pl-3 text-sm text-slate-600"
     >
       Upgrade requested on {{ requestedAtLabel }}. We’re waiting for your upstream to approve.
     </div>
@@ -66,21 +66,28 @@ import type { IMemberInvite } from '@argonprotocol/apps-router';
 import dayjs from 'dayjs';
 import AlertIcon from '../../assets/alert.svg?component';
 import ProgressBar from '../../components/ProgressBar.vue';
-import { supportsOperationalAccessProofRuntime } from '../../lib/OperationalAccount.ts';
+import {
+  ensureOperationalAccountRegistered,
+  supportsOperationalAccessProofRuntime,
+} from '../../lib/OperationalAccount.ts';
 import { getConfig } from '../../stores/config.ts';
 import { treasuryCertificationStepIds, useCertificationController } from '../../stores/certificationController.ts';
 import { getMainchainClient } from '../../stores/mainchain.ts';
+import { getTransactionTracker } from '../../stores/transactions.ts';
 import { getUpstreamOperatorClient } from '../../stores/upstreamOperator.ts';
-import { getWalletKeys } from '../../stores/wallets.ts';
+import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
 
 const config = getConfig();
 const controller = useCertificationController();
 const upstreamOperatorClient = getUpstreamOperatorClient();
+const transactionTracker = getTransactionTracker();
 const walletKeys = getWalletKeys();
+const wallets = useWallets();
 
 const invite = Vue.ref<IMemberInvite | null>(null);
 const isLoading = Vue.ref(true);
 const isSubmitting = Vue.ref(false);
+const isRegistering = Vue.ref(false);
 const formError = Vue.ref('');
 const supportsAccessProofRuntime = Vue.ref(false);
 const registrationProgressPct = Vue.ref(0);
@@ -181,27 +188,47 @@ async function loadInvite() {
 }
 
 async function loadRegistrationProgress() {
+  if (!invite.value?.accessProof || !supportsAccessProofRuntime.value || isRegistering.value) {
+    return;
+  }
+
   unsubscribeProgress?.();
   unsubscribeProgress = undefined;
   registrationProgressPct.value = 0;
-  registrationProgressLabel.value = '';
-  registrationProgressError.value = '';
-
-  if (!invite.value?.accessProof || !supportsAccessProofRuntime.value) {
-    return;
-  }
-
-  const txInfo = await controller.ensureOperationalRegistration();
-  if (!txInfo) {
-    return;
-  }
-
   registrationProgressLabel.value = 'Preparing transaction...';
-  unsubscribeProgress = txInfo.subscribeToProgress((args, error) => {
-    registrationProgressPct.value = args.progressPct;
-    registrationProgressLabel.value = args.progressMessage;
-    registrationProgressError.value = error?.message ?? '';
-  });
+  registrationProgressError.value = '';
+  isRegistering.value = true;
+
+  try {
+    const txInfo = await ensureOperationalAccountRegistered({
+      transactionTracker,
+      walletKeys,
+      accessProof: invite.value.accessProof,
+      availableMicrogons: wallets.defaultArgonWallet.availableMicrogons,
+    });
+    if (!txInfo) {
+      registrationProgressLabel.value = '';
+      return;
+    }
+
+    unsubscribeProgress = txInfo.subscribeToProgress((args, error) => {
+      registrationProgressPct.value = args.progressPct;
+      registrationProgressLabel.value = args.progressMessage;
+      registrationProgressError.value = error?.message ?? '';
+
+      if (error || args.progressPct >= 100) {
+        isRegistering.value = false;
+      }
+    });
+  } catch (error) {
+    registrationProgressLabel.value = 'Upgrade needs attention';
+    registrationProgressError.value =
+      error instanceof Error && error.message ? error.message : 'Unable to complete the operations upgrade right now.';
+  } finally {
+    if (!unsubscribeProgress) {
+      isRegistering.value = false;
+    }
+  }
 }
 
 Vue.watch(

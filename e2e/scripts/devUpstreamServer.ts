@@ -44,6 +44,7 @@ export interface DevDockerComposeContext {
 }
 
 export interface IDevUpstreamServerRuntime {
+  operator: AppVaultOperator;
   botPort: string;
   gatewayPort: string;
   routerPort: string;
@@ -231,6 +232,7 @@ export async function startDevUpstreamServer(args: {
     });
 
     return {
+      operator: actor,
       botPort,
       gatewayPort,
       routerPort,

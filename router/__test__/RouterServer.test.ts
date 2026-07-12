@@ -3,7 +3,7 @@ import * as Http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import Path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createOperationalAccessProof,
   JsonExt,
@@ -15,7 +15,7 @@ import {
   type IEthereumGatewayRelayStatus,
   type RouterAuthRole,
 } from '@argonprotocol/apps-core';
-import { Keyring, type KeyringPair } from '@argonprotocol/mainchain';
+import { getOfflineRegistry, Keyring, type KeyringPair } from '@argonprotocol/mainchain';
 import { Db as RouterDb } from '../src/Db.ts';
 import { RouterServer } from '../src/RouterServer.ts';
 import type {
@@ -28,6 +28,15 @@ import type {
   IRouterAuthSessionResponse,
 } from '../src/interfaces/index.ts';
 import type { IRouterAuthServiceOptions } from '../src/RouterAuthService.ts';
+
+const mainchainMocks = vi.hoisted(() => ({
+  getClient: vi.fn(),
+}));
+
+vi.mock('@argonprotocol/mainchain', async importOriginal => ({
+  ...(await importOriginal()),
+  getClient: mainchainMocks.getClient,
+}));
 
 NetworkConfig.setNetwork('dev-docker');
 
@@ -56,6 +65,7 @@ describe('RouterServer', () => {
     await routerServer?.close().catch(() => undefined);
     routerDb?.close();
     await new Promise<void>(resolve => botServer?.close(() => resolve()) ?? resolve());
+    mainchainMocks.getClient.mockReset();
   });
 
   it('rolls back invite rows when coupon creation fails', async () => {
@@ -194,9 +204,231 @@ describe('RouterServer', () => {
 
     const body = JsonExt.parse<IListInvitesResponse>(await response.text());
     expect(body.invites.map(x => x.inviteCode)).toEqual([newerInvite.inviteCode, olderInvite.inviteCode]);
-    expect(body.invites[0].vaultId).toBe(12);
+    expect(body.invites[0].vaultId).toBeUndefined();
     expect(body.invites[0].bitcoinLockCoupon).toEqual(coupon);
     expect(body.invites[1].bitcoinLockCoupon).toBeUndefined();
+  });
+
+  it('loads vault bonds once and reuses each member bitcoin state when listing invite progress', async () => {
+    routerDb = createDb('router-server-list-invite-progress-');
+
+    const memberOne = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMemberOne');
+    const memberTwo = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMemberTwo');
+    const inviteOne = insertMemberInvite(routerDb, {
+      inviteCode: 'member-invite-1',
+      name: 'Casey',
+      fromName: 'Operator One',
+    });
+    const inviteTwo = insertMemberInvite(routerDb, {
+      inviteCode: 'member-invite-2',
+      name: 'Riley',
+      fromName: 'Operator One',
+    });
+    routerDb.userInvitesTable.claimInvite(inviteOne.id, memberOne.address, memberOne.address);
+    routerDb.userInvitesTable.claimInvite(inviteTwo.id, memberTwo.address, memberTwo.address);
+
+    const coupons = [
+      createCouponStatus({
+        userId: inviteOne.id,
+        offerCode: 'offer-code-1',
+        vaultId: 12,
+        maxSatoshis: 25_000n,
+        estimatedGiftUsd: 16.25,
+        btcPctFee: 2.5,
+      }),
+      createCouponStatus({
+        userId: inviteTwo.id,
+        offerCode: 'offer-code-2',
+        vaultId: 12,
+        maxSatoshis: 25_000n,
+        estimatedGiftUsd: 16.25,
+        btcPctFee: 2.5,
+      }),
+    ];
+    const registry = getOfflineRegistry();
+    const bondLots = new Map([
+      [
+        1,
+        registry.createType('PalletTreasuryBondLot', {
+          owner: memberOne.address,
+          program: { Vault: { vaultId: 12, sharingPercent: 0, bonusPercent: 0 } },
+          bonds: 3,
+        }),
+      ],
+      [
+        2,
+        registry.createType('PalletTreasuryBondLot', {
+          owner: memberTwo.address,
+          program: { Vault: { vaultId: 12, sharingPercent: 0, bonusPercent: 0 } },
+          bonds: 5,
+        }),
+      ],
+    ]);
+    const bondLotsByVault = vi.fn().mockResolvedValue([
+      { bondLotId: registry.createType('u64', 1) },
+      { bondLotId: registry.createType('u64', 2) },
+    ]);
+    const bondLotIdsByAccount = vi.fn(async (accountId: string) => {
+      const id = accountId === memberOne.address ? 1 : 2;
+      return [{ args: [null, registry.createType('u64', id)] }];
+    });
+    const utxoIdsByOwnerAccount = vi.fn(async (accountId: string) => {
+      const id = accountId === memberOne.address ? 101 : 102;
+      return [{ args: [null, registry.createType('u64', id)] }];
+    });
+    mainchainMocks.getClient.mockResolvedValue({
+      disconnect: vi.fn().mockResolvedValue(undefined),
+      consts: {
+        operationalAccounts: {
+          minimumBitcoin: registry.createType('u128', 1),
+          minimumBonds: registry.createType('u128', 1),
+          minimumUniswapTransfer: registry.createType('u128', 1),
+          operationalMinimumUniswapTransfer: registry.createType('u128', 1),
+          operationalMinimumVaultSecuritization: registry.createType('u128', 1),
+          miningSeatsForOperational: registry.createType('u32', 2),
+        },
+      },
+      query: {
+        operationalAccounts: {
+          operationalAccountBySubAccount: {
+            multi: vi.fn(async (accountIds: string[]) => accountIds.map(() => ({ isSome: false }))),
+          },
+        },
+        treasury: {
+          bondLotsByVault,
+          bondLotIdsByAccount: { keys: bondLotIdsByAccount },
+          bondLotById: {
+            multi: vi.fn(async (ids: number[]) => {
+              return ids.map(id => ({
+                isSome: true,
+                unwrap: () => bondLots.get(id),
+              }));
+            }),
+          },
+        },
+        bitcoinLocks: {
+          utxoIdsByOwnerAccount: { keys: utxoIdsByOwnerAccount },
+          locksByUtxoId: {
+            multi: vi.fn(async (ids: number[]) => {
+              return ids.map(id => ({
+                isSome: true,
+                unwrap: () => ({
+                  vaultId: registry.createType('u32', 12),
+                  liquidityPromised: registry.createType('u128', id === 101 ? 7 : 11),
+                  isFunded: { toJSON: () => true },
+                }),
+              }));
+            }),
+          },
+        },
+        crosschainTransfer: {
+          transferTotalsByAccount: vi.fn().mockResolvedValue({
+            microgonsIn: registry.createType('u128', 1),
+          }),
+        },
+      },
+    });
+
+    const started = await startRouterServer(
+      routerDb,
+      request => {
+        if (request.method === 'GET' && request.path === '/bitcoin-lock-coupons') {
+          return { status: 200, body: coupons };
+        }
+
+        return { status: 404, body: { error: 'Not Found' } };
+      },
+      { mainNodeUrl: 'ws://mainchain.test' },
+    );
+    routerServer = started.routerServer;
+    botServer = started.botServer;
+
+    const response = await fetch(`http://${started.routerAddress.host}:${started.routerAddress.port}/invites`);
+    expect(response.status).toBe(200);
+
+    const body = JsonExt.parse<IListInvitesResponse>(await response.text());
+    const invitesByCode = new Map(body.invites.map(invite => [invite.inviteCode, invite]));
+    expect(invitesByCode.get(inviteOne.inviteCode)?.vaultContribution).toEqual({
+      bitcoinAmount: 7n,
+      bondAmount: 3n * 1_000_000n,
+    });
+    expect(invitesByCode.get(inviteTwo.inviteCode)?.vaultContribution).toEqual({
+      bitcoinAmount: 11n,
+      bondAmount: 5n * 1_000_000n,
+    });
+    expect(bondLotsByVault).toHaveBeenCalledTimes(1);
+    expect(bondLotIdsByAccount).toHaveBeenCalledTimes(2);
+    expect(utxoIdsByOwnerAccount).toHaveBeenCalledTimes(2);
+  });
+
+  it('regenerates an expired invite in place', async () => {
+    routerDb = createDb('router-server-regenerate-invite-');
+
+    const invite = insertMemberInvite(routerDb, {
+      inviteCode: 'member-invite-1',
+      name: 'Casey',
+      fromName: 'Operator One',
+    });
+    const expiredCoupon = {
+      ...createCouponStatus({
+        userId: invite.id,
+        offerCode: 'expired-offer-code',
+        vaultId: 12,
+        maxSatoshis: 25_000n,
+        estimatedGiftUsd: 16.25,
+        btcPctFee: 2.5,
+      }),
+      status: 'Expired' as const,
+    };
+    let replacementCouponUserId: number | undefined;
+
+    const started = await startRouterServer(routerDb, request => {
+      if (request.method === 'GET' && request.path === '/bitcoin-lock-coupons') {
+        return { status: 200, body: [expiredCoupon] };
+      }
+      if (request.method === 'POST' && request.path === '/bitcoin-lock-coupons') {
+        const body = request.body as { userId: number };
+        replacementCouponUserId = body.userId;
+        return {
+          status: 200,
+          body: createCouponStatus({
+            userId: body.userId,
+            offerCode: 'replacement-offer-code',
+            vaultId: 12,
+            maxSatoshis: 25_000n,
+            estimatedGiftUsd: 16.25,
+            btcPctFee: 2.5,
+          }),
+        };
+      }
+
+      return { status: 404, body: { error: 'Not Found' } };
+    });
+    routerServer = started.routerServer;
+    botServer = started.botServer;
+
+    const response = await requestJson(
+      started.routerAddress,
+      `/invites/${invite.inviteCode}/regenerate`,
+      {
+        vaultId: 12,
+        maxSatoshis: 25_000n,
+        estimatedGiftUsd: 16.25,
+        btcPctFee: 2.5,
+        expiresAfterTicks: 60,
+      },
+    );
+    expect(response.status).toBe(200);
+
+    const regeneratedInvite = JsonExt.parse<IInviteResponse>(await response.text()).invite;
+    expect(regeneratedInvite.id).toBe(invite.id);
+    expect(regeneratedInvite.name).toBe(invite.name);
+    expect(regeneratedInvite.inviteCode).not.toBe(invite.inviteCode);
+    expect(regeneratedInvite.bitcoinLockCoupon?.coupon.offerCode).toBe('replacement-offer-code');
+    expect(replacementCouponUserId).toBe(invite.id);
+    expect(routerDb.userInvitesTable.fetchByCode(invite.inviteCode)).toBeNull();
+    expect(routerDb.userInvitesTable.fetchByCode(regeneratedInvite.inviteCode)?.id).toBe(invite.id);
+    expect(listMemberInvites(routerDb)).toHaveLength(1);
   });
 
   it('previews invite coupon details', async () => {
@@ -533,6 +765,30 @@ describe('RouterServer', () => {
     });
     routerDb.userInvitesTable.claimInvite(invite.id, member.address, memberAuth.address);
 
+    const loadOperationalAccounts = vi.fn(async (accountIds: string[]) => {
+      return accountIds.map((accountId, index) => ({
+        isSome: index === 0 && accountId === operator.address,
+        unwrap: () => ({
+          availableAccessCodes: {
+            toNumber: () => 1,
+          },
+        }),
+      }));
+    });
+    mainchainMocks.getClient.mockResolvedValue({
+      disconnect: vi.fn().mockResolvedValue(undefined),
+      query: {
+        operationalAccounts: {
+          operationalAccountBySubAccount: {
+            multi: vi.fn().mockResolvedValue([{ isSome: false }]),
+          },
+          operationalAccounts: {
+            multi: loadOperationalAccounts,
+          },
+        },
+      },
+    });
+
     const started = await startRouterServer(
       routerDb,
       () => ({
@@ -542,6 +798,7 @@ describe('RouterServer', () => {
       {
         adminOperatorAccountId: operator.address,
         sessionTtlSeconds: 60,
+        mainNodeUrl: 'ws://mainchain.test',
       },
     );
     routerServer = started.routerServer;
@@ -620,6 +877,7 @@ describe('RouterServer', () => {
     expect(storedInvite?.operationsUpgradeRequestedAt).toBeTruthy();
     expect(storedInvite?.operationsUpgradedAt).toBeTruthy();
     expect(storedInvite?.operationsAccessProofSignature).toBe(accessProof.signature);
+    expect(loadOperationalAccounts).toHaveBeenCalledWith([operator.address]);
   });
 
   it('allows both admin and member sessions to access Ethereum relay routes', async () => {
@@ -736,8 +994,9 @@ function createDb(prefix: string): RouterDb {
 async function startRouterServer(
   db: RouterDb,
   handleBotRequest: (request: BotRequest) => BotResponse | Promise<BotResponse>,
-  auth?: IRouterAuthServiceOptions,
+  options?: IRouterAuthServiceOptions & { mainNodeUrl?: string },
 ): Promise<{ routerAddress: IRouterAddress; routerServer: RouterServer; botServer: Http.Server }> {
+  const { mainNodeUrl, ...auth } = options ?? {};
   const botServer = Http.createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) {
@@ -763,7 +1022,8 @@ async function startRouterServer(
     db,
     botInternalUrl: `http://127.0.0.1:${botAddress.port}`,
     port: 0,
-    auth,
+    auth: options ? auth : undefined,
+    mainNodeUrl,
   });
   routerServer.start();
   await routerServer.waitForListening();

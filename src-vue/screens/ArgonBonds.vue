@@ -3,7 +3,7 @@
     <div v-if="!isLoaded" class="flex grow items-center justify-center text-slate-500">Loading…</div>
 
     <!-- Blank state -->
-    <div v-else-if="!myBonds.bondLots.length" class="flex grow flex-col">
+    <div v-else-if="!bondLots.length" class="flex grow flex-col">
       <div class="flex grow flex-col items-center justify-center">
         <div class="flex w-8/12 max-w-200 flex-col items-center py-10">
           <header class="text-argon-600 pb-3 text-xl font-bold">
@@ -88,7 +88,7 @@
         <div class="h-full w-px bg-slate-400/30" />
         <div class="w-1/3 border-b border-slate-400/30 py-5">
           <div class="text-argon-600 text-5xl font-bold">
-            {{ numeral(financials.bondsPerformanceReturn).format('0,0.00') }}%
+            {{ numeral(returnToDate(bondsTotalValue, bondsTotalProfits)).format('0,0.00') }}%
           </div>
           <div>Performance Return</div>
         </div>
@@ -98,7 +98,7 @@
         <div class="flex flex-col overflow-y-auto px-9 pt-10 pb-5">
           <div class="flex flex-row items-center text-slate-800/70">
             <span class="grow">
-              You have {{ myBonds.bondLots.length }} bond transaction{{ myBonds.bondLots.length === 1 ? '' : 's' }}...
+              You have {{ bondLots.length }} bond transaction{{ bondLots.length === 1 ? '' : 's' }}...
             </span>
             <div class="flex flex-row items-stretch gap-x-3">
               <button @click="showBondsOverlay = true" class="text-md text-argon-600 cursor-pointer">
@@ -114,7 +114,7 @@
 
         <section class="flex flex-col gap-y-3 px-9">
           <BondRecord
-            v-for="bondLot in myBonds.bondLots"
+            v-for="bondLot in bondLots"
             :key="bondLot.id"
             :bondLot="bondLot"
             :isReleasing="bondLot.isReleasing"
@@ -122,8 +122,8 @@
             @liquidate="openDetail"
           />
         </section>
+        <div class="absolute top-0 left-0 h-10 w-full bg-linear-to-b from-white to-transparent" />
       </div>
-      <div class="absolute top-0 left-0 h-10 w-full bg-linear-to-b from-white to-transparent" />
       <div class="relative px-0.5 pb-0.5">
         <img src="/treasury-footers/argon-bonds.png" class="w-full opacity-50" />
       </div>
@@ -180,11 +180,12 @@ const showBondsOverlay = Vue.ref(false);
 const showDetailOverlay = Vue.ref(false);
 const vaultTotalCapacity = Vue.ref(0n);
 const selectedBondLot = Vue.ref<BondLot | undefined>();
+const bondLots = Vue.computed(() => myBonds.bondLots.filter(bondLot => bondLot.programType === 'Vault'));
 const bondsTotalValue = Vue.computed(() => {
-  return myBonds.bondLots.reduce((sum, bondLot) => sum + bondLot.bondMicrogons, 0n);
+  return bondLots.value.reduce((sum, bondLot) => sum + bondLot.bondMicrogons, 0n);
 });
 const bondsTotalProfits = Vue.computed(() => {
-  return myBonds.bondLots.reduce((sum, bondLot) => sum + bondLot.lifetimeEarnings, 0n);
+  return bondLots.value.reduce((sum, bondLot) => sum + bondLot.lifetimeEarnings, 0n);
 });
 
 const vaultBondState = Vue.computed(() => bondMarket.data.vaultsById[myBonds.vaultId]);

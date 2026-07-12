@@ -1,4 +1,11 @@
-import { Currency, JsonExt, MainchainClients, NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import {
+  Currency,
+  JsonExt,
+  MainchainClients,
+  MICROGONS_PER_ARGON,
+  NetworkConfig,
+  UnitOfMeasurement,
+} from '@argonprotocol/apps-core';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import { BitcoinLock, Vault } from '@argonprotocol/mainchain';
 import { InviteEnvelope } from 'src-vue/lib/InviteEnvelope.ts';
@@ -37,8 +44,11 @@ try {
   }
 
   const vault = await Vault.get(client, vaultId.unwrap().toNumber());
-  const maxSatoshis =
-    BitcoinLock.satoshisRequiredForRedemptionAmount(currency.priceIndex, vault.availableBitcoinSpace() / 4n) + 5_000n;
+  const inviteLiquidityMicrogons = 1_000n * BigInt(MICROGONS_PER_ARGON);
+  const maxSatoshis = BitcoinLock.satoshisRequiredForRedemptionAmount(
+    currency.priceIndex,
+    inviteLiquidityMicrogons < vault.availableBitcoinSpace() ? inviteLiquidityMicrogons : vault.availableBitcoinSpace(),
+  );
   const fullLockAmount = BitcoinLock.calculateRedemptionAmountFromSatoshis(currency.priceIndex, maxSatoshis);
   const estimatedGiftUsd = Number(
     currency.convertMicrogonTo(vault.calculateBitcoinFee(fullLockAmount), UnitOfMeasurement.USD),

@@ -10,6 +10,7 @@ import { stringToU8a, u8aConcat } from '@polkadot/util';
 import { bigNumberToBigInt } from './utils.js';
 import BigNumber from 'bignumber.js';
 import { BondLot, type IBondLotSource } from './BondLot.js';
+import { MICRONOTS_PER_ARGONOT } from './Currency.js';
 import type { ArgonQueryClient } from './MainchainClients.js';
 
 export interface IFrameBondLot {
@@ -97,6 +98,19 @@ export class TreasuryBonds {
   public static getBondPurchaseCapacity(totalBondCapacityMicrogons: bigint): number {
     if (totalBondCapacityMicrogons <= 0n) return 0;
     return BondLot.microgonsToWholeBonds(totalBondCapacityMicrogons);
+  }
+
+  public static getArgonotBondPurchaseCapacity(args: {
+    totalIssuanceMicronots: bigint;
+    maxBondedPercent: number;
+    totalActiveBonds: number;
+  }): bigint {
+    const { totalIssuanceMicronots, maxBondedPercent, totalActiveBonds } = args;
+    const unitsPerBond = BigInt(MICRONOTS_PER_ARGONOT);
+    const maximumActiveBonds = (totalIssuanceMicronots * BigInt(maxBondedPercent)) / 100n / unitsPerBond;
+    const remainingBonds = maximumActiveBonds - BigInt(totalActiveBonds);
+
+    return remainingBonds > 0n ? remainingBonds * unitsPerBond : 0n;
   }
 
   public static potentialDailyRevenue(args: {

@@ -12,10 +12,6 @@ import {
 } from '../scripts/forceUpdateGlobalIssuanceCouncil.ts';
 import { fundArgonAccount } from '../scripts/fundArgonAccount.ts';
 import { fundDevEthereumAccount } from '../scripts/fundDevEthereumAccount.ts';
-import { MemoryWalletKeys } from 'src-vue/lib/MemoryWalletKeys.ts';
-
-const DEV_ETHEREUM_BACKEND_MINTING_AUTHORITY_MNEMONIC =
-  'legal winner thank year wave sausage worth useful legal winner thank yellow';
 
 export type IDevEthereumMintingAuthorityRuntime = {
   actor: AppVaultOperator;
@@ -26,6 +22,7 @@ export async function startDevEthereumMintingAuthority(args: {
   archiveUrl: string;
   logPrefix?: string;
   executionRpcUrl?: string;
+  operator: AppVaultOperator;
   virtualEnv?: {
     appInstance?: string;
     network?: string;
@@ -50,13 +47,7 @@ export async function startDevEthereumMintingAuthority(args: {
   });
   await updateMintingAuthorityRuntimeState(executionRpcUrl, 'starting');
   const clients = new MainchainClients(args.archiveUrl, () => false);
-  const actor = await AppVaultOperator.load({
-    clients,
-    walletKeys: new MemoryWalletKeys({
-      substrateSuri: DEV_ETHEREUM_BACKEND_MINTING_AUTHORITY_MNEMONIC,
-      masterMnemonic: DEV_ETHEREUM_BACKEND_MINTING_AUTHORITY_MNEMONIC,
-    }),
-  });
+  const actor = args.operator;
   const getClient = async () => await clients.get(false);
 
   let isShutdown = false;
@@ -70,7 +61,6 @@ export async function startDevEthereumMintingAuthority(args: {
     isShutdown = true;
     shouldStopAuthorizing = true;
     await authorizeTransfersPromise?.catch(() => undefined);
-    await actor.dispose();
     await clients.disconnect();
   };
 

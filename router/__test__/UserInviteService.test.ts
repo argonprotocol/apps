@@ -41,6 +41,30 @@ describe('UserInviteService', () => {
     expect(db.usersTable.fetchByRole(UserRole.Member)).toHaveLength(2);
   });
 
+  it('keeps the expired invite code when replacement coupon creation fails', async () => {
+    db = new Db(Path.join(Fs.mkdtempSync(Path.join(os.tmpdir(), 'invite-service-regenerate-rollback-')), 'router.sqlite'));
+    db.migrate();
+
+    const inviteCodes = ['member-invite-1', 'member-invite-2'];
+    const service = new UserInviteService(db, {
+      createInviteCode: () => inviteCodes.shift()!,
+    });
+    const invite = service.createInvite({ name: 'Casey', fromName: 'Operator One' });
+
+    await expect(
+      service.regenerateInvite({
+        inviteCode: invite.inviteCode,
+        createReplacementCoupon: async () => {
+          throw new Error('Bot coupon creation failed.');
+        },
+      }),
+    ).rejects.toThrowError('Bot coupon creation failed.');
+
+    expect(db.userInvitesTable.fetchByCode(invite.inviteCode)?.id).toBe(invite.id);
+    expect(db.userInvitesTable.fetchByCode('member-invite-2')).toBeNull();
+    expect(db.userInvitesTable.fetchByRole(UserRole.Member)).toHaveLength(1);
+  });
+
   it('claims an invite, updates auth binding, and keeps the same member account', () => {
     db = new Db(Path.join(Fs.mkdtempSync(Path.join(os.tmpdir(), 'invite-service-claim-')), 'router.sqlite'));
     db.migrate();
@@ -273,15 +297,168 @@ describe('UserInviteService', () => {
       createRequestOperationsUpgradeArgs(member, memberAuth, operationalAccount),
     );
 
-    const upgradedInvite = service.markOperationsUpgraded(
-      invite.inviteCode,
-      createOperationalAccessProof(upstreamOperator, operationalAccount.address),
-    );
+    const upgradedInvite = service.markOperationsUpgraded({
+      inviteCode: invite.inviteCode,
+      accessProof: createOperationalAccessProof(upstreamOperator, operationalAccount.address),
+      accessCodeCapacity: {
+        availableAccessCodes: 1,
+        registeredOperationalAccountIds: new Set<string>(),
+      },
+    });
 
     expect(upgradedInvite?.operationsUpgradeRequestedAt).toBeTruthy();
     expect(upgradedInvite?.operationalAccountId).toBe(operationalAccount.address);
     expect(upgradedInvite?.operationsUpgradedAt).toBeTruthy();
     expect(upgradedInvite?.operationsAccessProofSignature).toBeTruthy();
+  });
+
+  it('does not grant more outstanding operations proofs than available access codes', () => {
+    db = new Db(Path.join(Fs.mkdtempSync(Path.join(os.tmpdir(), 'invite-service-access-capacity-')), 'router.sqlite'));
+    db.migrate();
+
+    const inviteCodes = ['member-invite-1', 'member-invite-2'];
+    const service = new UserInviteService(db, {
+      createInviteCode: () => inviteCodes.shift()!,
+    });
+    const upstreamOperator = new Keyring({ type: 'sr25519' }).addFromUri('//UpstreamOperator');
+    const firstMember = new Keyring({ type: 'sr25519' }).addFromUri('//FirstInviteMember');
+    const secondMember = new Keyring({ type: 'sr25519' }).addFromUri('//SecondInviteMember');
+    const firstOperationalAccount = firstMember.derive('//operational');
+    const secondOperationalAccount = secondMember.derive('//operational');
+    const firstInvite = service.createInvite({ name: 'Casey', fromName: 'Operator One' });
+    const secondInvite = service.createInvite({ name: 'Riley', fromName: 'Operator One' });
+
+    service.claimInvite(
+      createClaimInviteArgs(firstInvite.inviteCode, firstMember, firstMember.derive('//downstream-auth')),
+    );
+    service.claimInvite(
+      createClaimInviteArgs(secondInvite.inviteCode, secondMember, secondMember.derive('//downstream-auth')),
+    );
+    service.requestOperationsUpgrade(
+      createRequestOperationsUpgradeArgs(firstMember, firstMember.derive('//downstream-auth'), firstOperationalAccount),
+    );
+    service.requestOperationsUpgrade(
+      createRequestOperationsUpgradeArgs(
+        secondMember,
+        secondMember.derive('//downstream-auth'),
+        secondOperationalAccount,
+      ),
+    );
+
+    const accessCodeCapacity = {
+      availableAccessCodes: 1,
+      registeredOperationalAccountIds: new Set<string>(),
+    };
+    const firstAccessProof = createOperationalAccessProof(upstreamOperator, firstOperationalAccount.address);
+
+    service.markOperationsUpgraded({
+      inviteCode: firstInvite.inviteCode,
+      accessProof: firstAccessProof,
+      accessCodeCapacity,
+    });
+
+    expect(() =>
+      service.markOperationsUpgraded({
+        inviteCode: secondInvite.inviteCode,
+        accessProof: createOperationalAccessProof(upstreamOperator, secondOperationalAccount.address),
+        accessCodeCapacity,
+      }),
+    ).toThrowError('No operations access codes are available.');
+    expect(
+      service.markOperationsUpgraded({
+        inviteCode: firstInvite.inviteCode,
+        accessProof: firstAccessProof,
+        accessCodeCapacity: {
+          availableAccessCodes: 0,
+          registeredOperationalAccountIds: new Set<string>(),
+        },
+      })?.operationsAccessProofSignature,
+    ).toBe(firstAccessProof.signature);
+
+    const secondAccessProof = createOperationalAccessProof(upstreamOperator, secondOperationalAccount.address);
+    expect(
+      service.markOperationsUpgraded({
+        inviteCode: secondInvite.inviteCode,
+        accessProof: secondAccessProof,
+        accessCodeCapacity: {
+          availableAccessCodes: 1,
+          registeredOperationalAccountIds: new Set([firstOperationalAccount.address]),
+        },
+      })?.operationsAccessProofSignature,
+    ).toBe(secondAccessProof.signature);
+  });
+
+  it('reassigns an unregistered operations upgrade code so another member can be approved', () => {
+    db = new Db(Path.join(Fs.mkdtempSync(Path.join(os.tmpdir(), 'invite-service-release-access-')), 'router.sqlite'));
+    db.migrate();
+
+    const inviteCodes = ['member-invite-1', 'member-invite-2'];
+    const service = new UserInviteService(db, {
+      createInviteCode: () => inviteCodes.shift()!,
+    });
+    const upstreamOperator = new Keyring({ type: 'sr25519' }).addFromUri('//UpstreamOperator');
+    const firstMember = new Keyring({ type: 'sr25519' }).addFromUri('//FirstInviteMember');
+    const secondMember = new Keyring({ type: 'sr25519' }).addFromUri('//SecondInviteMember');
+    const firstOperationalAccount = firstMember.derive('//operational');
+    const secondOperationalAccount = secondMember.derive('//operational');
+    const firstInvite = service.createInvite({ name: 'Casey', fromName: 'Operator One' });
+    const secondInvite = service.createInvite({ name: 'Riley', fromName: 'Operator One' });
+
+    service.claimInvite(
+      createClaimInviteArgs(firstInvite.inviteCode, firstMember, firstMember.derive('//downstream-auth')),
+    );
+    service.claimInvite(
+      createClaimInviteArgs(secondInvite.inviteCode, secondMember, secondMember.derive('//downstream-auth')),
+    );
+    service.requestOperationsUpgrade(
+      createRequestOperationsUpgradeArgs(firstMember, firstMember.derive('//downstream-auth'), firstOperationalAccount),
+    );
+    service.requestOperationsUpgrade(
+      createRequestOperationsUpgradeArgs(
+        secondMember,
+        secondMember.derive('//downstream-auth'),
+        secondOperationalAccount,
+      ),
+    );
+    service.markOperationsUpgraded({
+      inviteCode: firstInvite.inviteCode,
+      accessProof: createOperationalAccessProof(upstreamOperator, firstOperationalAccount.address),
+      accessCodeCapacity: {
+        availableAccessCodes: 1,
+        registeredOperationalAccountIds: new Set<string>(),
+      },
+    });
+
+    expect(() =>
+      service.reassignOperationsUpgradeCode({
+        inviteCode: firstInvite.inviteCode,
+        isOperationalAccountRegistered: true,
+      }),
+    ).toThrowError('An operations upgrade code cannot be reassigned after the account is registered.');
+
+    const reassignedInvite = service.reassignOperationsUpgradeCode({
+      inviteCode: firstInvite.inviteCode,
+      isOperationalAccountRegistered: false,
+    });
+
+    expect(reassignedInvite).toMatchObject({
+      operationsUpgradeRequestedAt: null,
+      operationsUpgradedAt: null,
+      operationsAccessProofSignature: null,
+      operationalAccountId: firstOperationalAccount.address,
+    });
+
+    const secondAccessProof = createOperationalAccessProof(upstreamOperator, secondOperationalAccount.address);
+    expect(
+      service.markOperationsUpgraded({
+        inviteCode: secondInvite.inviteCode,
+        accessProof: secondAccessProof,
+        accessCodeCapacity: {
+          availableAccessCodes: 1,
+          registeredOperationalAccountIds: new Set<string>(),
+        },
+      })?.operationsAccessProofSignature,
+    ).toBe(secondAccessProof.signature);
   });
 
   it('migrates missing operational account ids from chain data', async () => {

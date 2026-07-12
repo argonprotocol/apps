@@ -9,8 +9,8 @@
 
     <div class="flex min-h-60 w-full flex-col items-center justify-center gap-x-5 px-5 pt-3 pb-5" :class="{ 'flash-overlay': flash }">
       <div v-if="walletType === WalletType.defaultArgon">
-        <strong>{{ fundsReceivedMessage }}</strong> been added to your <strong>mining</strong> wallet.
-        You can choose how to distribute these funds from your Mining tab.
+        <strong>{{ fundsReceivedMessage }}</strong> been added to your <strong>Argon</strong> wallet.
+        You can choose how to distribute these funds from your wallet.
       </div>
       <div v-else>
         <strong>{{ fundsReceivedMessage }}</strong> been added to your <strong>vaulting</strong> wallet.
@@ -28,15 +28,11 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { Config, getConfig } from '../stores/config.ts';
+import { getConfig } from '../stores/config.ts';
 import { getCurrency } from '../stores/currency.ts';
-import { getMyVault } from '../stores/vaults.ts';
-import { getWalletKeys, useWallets } from '../stores/wallets.ts';
-import { getTransactionTracker } from '../stores/transactions.ts';
+import { useWallets } from '../stores/wallets.ts';
 import OverlayBase from './OverlayBase.vue';
-import { MoveCapital } from '../lib/MoveCapital.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
-import type { IWallet } from '../lib/Wallet.ts';
 import { IWalletType, WalletType } from '../lib/Wallet.ts';
 import { MiningSetupStatus, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 
@@ -45,10 +41,6 @@ const isOpen = Vue.computed(() => changes.value.length > 0);
 const currency = getCurrency();
 const config = getConfig();
 const wallets = useWallets();
-const walletKeys = getWalletKeys();
-const myVault = getMyVault();
-const transactionTracker = getTransactionTracker();
-const moveCapital = new MoveCapital(walletKeys, transactionTracker, myVault);
 
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
@@ -87,8 +79,6 @@ const progressPct = Vue.ref(0);
 const progressLabel = Vue.ref('');
 const transactionError = Vue.ref('');
 const flash = Vue.ref(false);
-let isAutoTransferringDefaultArgon = false;
-let shouldRetryAutoTransfer = false;
 const RECENT_TRANSFER_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function closeOverlay() {
@@ -112,35 +102,6 @@ Vue.watch(
   },
 );
 
-async function queueDefaultArgonAutoTransfer(wallet: IWallet) {
-  if (isAutoTransferringDefaultArgon) {
-    shouldRetryAutoTransfer = true;
-    return;
-  }
-
-  isAutoTransferringDefaultArgon = true;
-  try {
-    // If new funds arrive while the sweep tx is still pending, rerun once against the latest balance
-    // after the in-flight transfer settles instead of submitting a second transfer in parallel.
-    do {
-      shouldRetryAutoTransfer = false;
-      const sweepResult = await moveCapital.moveConfiguredDefaultArgonToBot(wallet, walletKeys, config as Config);
-      if (sweepResult.kind === 'submitted' || sweepResult.kind === 'trackingExisting') {
-        await sweepResult.txInfo.waitForPostProcessing.catch(error => {
-          console.error(
-            '[WalletFundingReceivedOverlay] Default Argon mining transfer failed while waiting to retry',
-            error,
-          );
-        });
-      } else if (sweepResult.kind === 'blocked') {
-        console.error('[WalletFundingReceivedOverlay] Default Argon auto-transfer was blocked', sweepResult.error);
-      }
-    } while (shouldRetryAutoTransfer);
-  } finally {
-    isAutoTransferringDefaultArgon = false;
-  }
-}
-
 function isRecentTransfer(blockTime: number): boolean {
   return Date.now() - blockTime <= RECENT_TRANSFER_WINDOW_MS;
 }
@@ -150,19 +111,6 @@ Vue.onMounted(() => {
   const unsub1 = wallets.on('transfer-in', (wallet, balanceChange) => {
     if (!isRecentTransfer(balanceChange.block.blockTime)) {
       console.log('Skipping wallet change - transfer is older than popup window', balanceChange.block);
-      return;
-    }
-
-    if (
-      wallet.type === WalletType.defaultArgon &&
-      config.isServerInstalled &&
-      !config.hasMiningSeats &&
-      config.miningSetupStatus === MiningSetupStatus.Finished &&
-      (balanceChange.microgonsAdded > 0n || balanceChange.micronotsAdded > 0n)
-    ) {
-      void queueDefaultArgonAutoTransfer(wallet).catch(error => {
-        console.error('[WalletFundingReceivedOverlay] Failed to auto-transfer default Argon funds', error);
-      });
       return;
     }
 

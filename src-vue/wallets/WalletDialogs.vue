@@ -21,7 +21,7 @@
     @dragEnd="handleDragEnd(wallet.id, $event)"
     @close="closeWallet(wallet.id)"
   />
-  <EthereumWalletImportOverlay />
+  <EthereumWalletImportOverlay @complete="completeEthereumWalletSetup" />
 </template>
 
 <script lang="ts">
@@ -32,7 +32,7 @@ export const openWalletOverlayCount = ref(0);
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import basicEmitter, { type IWalletGuidanceContext } from '../emitters/basicEmitter.ts';
+import basicEmitter, { type IWalletGuidanceContext, type IWalletOverlayRequest } from '../emitters/basicEmitter.ts';
 import { WalletType } from '../lib/Wallet.ts';
 import { useBasics } from '../stores/basics.ts';
 import { useWallets } from '../stores/wallets.ts';
@@ -54,6 +54,14 @@ type IOpenWallet = {
 const basics = useBasics();
 const walletStore = useWallets();
 const openWallets = Vue.ref<IOpenWallet[]>([]);
+const pendingEthereumWalletAction = Vue.ref<
+  | { type: 'open'; request: IWalletOverlayRequest }
+  | {
+      type: 'pair';
+      walletId: number;
+      pairedWalletType: WalletType.defaultArgon | WalletType.ethereum;
+    }
+>();
 const snapPreview = Vue.ref<{
   draggedWalletId: number;
   targetWalletId: number;
@@ -87,6 +95,16 @@ function closeWallet(id: number) {
 function pairWallet(id: number, pairedWalletType: WalletType.defaultArgon | WalletType.ethereum) {
   const wallet = openWallets.value.find(x => x.id === id);
   if (!wallet || wallet.pairedWalletType) return;
+
+  if (
+    (wallet.walletType === WalletType.ethereum || pairedWalletType === WalletType.ethereum) &&
+    !walletStore.walletRecords.some(record => record.walletType === 'ethereum')
+  ) {
+    pendingEthereumWalletAction.value = { type: 'pair', walletId: id, pairedWalletType };
+    basicEmitter.emit('openEthereumWalletImportOverlay');
+    return;
+  }
+
   wallet.pairedWalletType = pairedWalletType;
   wallet.zIndex = reserveOverlayZIndex(wallet.zIndex);
 }
@@ -256,15 +274,20 @@ function isArgonWalletType(walletType: WalletType) {
   return walletType === WalletType.defaultArgon;
 }
 
-const openWalletOverlay = async (payload: {
-  walletType: WalletType.defaultArgon | WalletType.ethereum;
-  showGuidance?: boolean;
-  guidanceContext?: IWalletGuidanceContext;
-}) => {
+const openWalletOverlay = async (payload: IWalletOverlayRequest) => {
   try {
     await walletStore.load();
   } catch (error) {
     console.error('Failed to refresh wallet balances before opening wallet overlay', error);
+  }
+
+  if (
+    payload.walletType === WalletType.ethereum &&
+    !walletStore.walletRecords.some(record => record.walletType === 'ethereum')
+  ) {
+    pendingEthereumWalletAction.value = { type: 'open', request: payload };
+    basicEmitter.emit('openEthereumWalletImportOverlay');
+    return;
   }
 
   const existingWallet = openWallets.value.find(
@@ -288,6 +311,19 @@ const openWalletOverlay = async (payload: {
   });
   syncOverlayState();
 };
+
+async function completeEthereumWalletSetup() {
+  const action = pendingEthereumWalletAction.value;
+  pendingEthereumWalletAction.value = undefined;
+  if (!action) return;
+
+  if (action.type === 'open') {
+    await openWalletOverlay(action.request);
+    return;
+  }
+
+  pairWallet(action.walletId, action.pairedWalletType);
+}
 
 basicEmitter.on('openWalletOverlay', openWalletOverlay);
 
