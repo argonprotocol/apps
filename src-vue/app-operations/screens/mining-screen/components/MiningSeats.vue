@@ -60,7 +60,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { twMerge } from 'tailwind-merge';
-import { IMiningSeat, IMiningSlot, IMiningSlotBid } from '@argonprotocol/apps-core';
+import { IMiningSeat, IMiningSlot, IMiningSlotBid, normalizeMiningSeatSlots } from '@argonprotocol/apps-core';
 import { getBlockWatch, getMining, getMiningFrames } from '../../../../stores/mainchain.ts';
 import { getWalletKeys, useWallets } from '../../../../stores/wallets.ts';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
@@ -290,7 +290,7 @@ async function updateSeats() {
     }
   }
 
-  slots.value = nextSlots;
+  slots.value = normalizeMiningSeatSlots(nextSlots, currentAuctionSlot.value);
   await refreshSeatTooltipStats();
 }
 
