@@ -70,8 +70,10 @@ export default class BiddingCalculator {
 
   public async load(): Promise<void> {
     await this.data.miningFrames.load();
+    let unsubscribeOnFailure: (() => void) | undefined;
+    let isSubscriptionReady = false;
     this.onFrameSubscription ??= new Promise(async (resolve, reject) => {
-      const { unsubscribe } = this.data.miningFrames.onFrameId(async frameId => {
+      const subscription = this.data.miningFrames.onFrameId(async frameId => {
         try {
           await this.data.load(frameId);
           this.calculateBidAmounts();
@@ -79,12 +81,27 @@ export default class BiddingCalculator {
             callbackFn();
           }
         } catch (err) {
-          reject(err);
+          if (!isSubscriptionReady) {
+            unsubscribeOnFailure?.();
+            reject(err);
+          } else {
+            console.error('Error loading bidding calculator frame', err);
+          }
+          return;
         }
-        resolve({ unsubscribe });
+        if (!isSubscriptionReady) {
+          isSubscriptionReady = true;
+          resolve(subscription);
+        }
       });
+      unsubscribeOnFailure = subscription.unsubscribe;
     });
-    await this.onFrameSubscription;
+    try {
+      await this.onFrameSubscription;
+    } catch (error) {
+      this.onFrameSubscription = null;
+      throw error;
+    }
   }
 
   public get startingBidAmountOverride(): bigint | null {

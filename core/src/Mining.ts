@@ -14,6 +14,7 @@ import { NetworkConfig } from './NetworkConfig.js';
 
 const MAXIMUM_ARGONOT_PRORATA_PERCENT = 0.8;
 const ARGONOTS_PERCENT_ADJUSTMENT_DAMPER = 1.2;
+const MINIMUM_MINING_SEATS_PER_SLOT = 10;
 
 export interface IMiningSeat {
   id: string;
@@ -177,12 +178,14 @@ export class Mining {
     managedByAccount: string,
     api: ApiDecoration<'promise'>,
   ): Promise<IMiningSlot[]> {
-    const [cohorts, bidsForNextSlotCohort, nextCohortSize] = await Promise.all([
+    const [cohorts, bidsForNextSlotCohort, nextCohortSize, nextFrameId] = await Promise.all([
       api.query.miningSlot.minersByCohort.entries(),
       api.query.miningSlot.bidsForNextSlotCohort(),
       api.query.miningSlot.nextCohortSize().then(x => x.toNumber()),
+      api.query.miningSlot.nextFrameId().then(x => x.toNumber()),
     ]);
     const totalSlotCount = 10;
+    const nextAuctionSlotId = nextFrameId % totalSlotCount;
     const bidsBySlotId = new Map<number, IMiningSlotBid[]>();
     for (const bid of bidsForNextSlotCohort) {
       const startingFrameId = bid.startingFrameId.toNumber();
@@ -220,7 +223,8 @@ export class Mining {
 
       const bids = bidsBySlotId.get(slotId) ?? [];
       const alignedSeats: IMiningSeat[] = [];
-      const totalSeats = Math.max(nextCohortSize, seats.length, bids.length);
+      const nextAuctionSeatCount = slotId === nextAuctionSlotId ? nextCohortSize : 0;
+      const totalSeats = Math.max(nextAuctionSeatCount, seats.length, bids.length);
       for (let i = 0; i < totalSeats; i += 1) {
         const existingSeat = seats[i];
         alignedSeats.push({
@@ -240,9 +244,10 @@ export class Mining {
     for (let slotId = 0; slotId < totalSlotCount; slotId += 1) {
       if (processedSlotIds.has(slotId)) continue;
       const bids = bidsBySlotId.get(slotId) ?? [];
+      const nextAuctionSeatCount = slotId === nextAuctionSlotId ? nextCohortSize : 0;
       slots.push({
         slotId,
-        seats: Array.from({ length: Math.max(nextCohortSize, bids.length) }, (_, index) => ({
+        seats: Array.from({ length: Math.max(nextAuctionSeatCount, bids.length) }, (_, index) => ({
           id: `${numericToAlpha(slotId)}${index + 1}`,
           index,
           slotId,
@@ -252,7 +257,8 @@ export class Mining {
       });
     }
 
-    return slots.sort((a, b) => Number(a.slotId) - Number(b.slotId));
+    slots.sort((a, b) => Number(a.slotId) - Number(b.slotId));
+    return normalizeMiningSeatSlots(slots, nextAuctionSlotId);
   }
 
   public static async fetchWinningBids(
@@ -518,4 +524,41 @@ export class Mining {
     const { genesisTick } = NetworkConfig.get();
     return currentTick - genesisTick;
   }
+}
+
+export function normalizeMiningSeatSlots(slots: IMiningSlot[], auctionSlotId: number): IMiningSlot[] {
+  let changed = false;
+  const normalized = slots.map(slot => {
+    let seatCount = Math.max(MINIMUM_MINING_SEATS_PER_SLOT, slot.seats.length);
+    if (slot.slotId !== auctionSlotId) {
+      seatCount = MINIMUM_MINING_SEATS_PER_SLOT;
+      for (let index = slot.seats.length - 1; index >= 0; index -= 1) {
+        if (slot.seats[index].miner || slot.seats[index].bid) {
+          seatCount = Math.max(MINIMUM_MINING_SEATS_PER_SLOT, index + 1);
+          break;
+        }
+      }
+    }
+
+    if (seatCount === slot.seats.length) return slot;
+
+    changed = true;
+
+    return {
+      ...slot,
+      seats: Array.from(
+        { length: seatCount },
+        (_, index) =>
+          slot.seats[index] ?? {
+            id: `${numericToAlpha(slot.slotId)}${index + 1}`,
+            index,
+            slotId: slot.slotId,
+            miner: null,
+            bid: null,
+          },
+      ),
+    };
+  });
+
+  return changed ? normalized : slots;
 }

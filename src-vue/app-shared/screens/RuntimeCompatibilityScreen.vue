@@ -16,6 +16,13 @@
 
       <div class="pointer-events-none relative top-px mr-3 flex w-1/2 grow flex-row items-center justify-end space-x-2">
         <button
+          class="text-argon-600/70 hover:text-argon-600 decoration-argon-600/30 hover:decoration-argon-600/70 pointer-events-auto cursor-pointer px-2 py-2 text-xs font-medium underline underline-offset-4 transition"
+          @click="openMnemonicExport"
+        >
+          Export recovery phrase
+        </button>
+        <button
+          v-if="phase !== 'upgrade-required'"
           class="text-argon-600 border-argon-600/20 hover:border-argon-600/40 hover:bg-argon-600/6 pointer-events-auto cursor-pointer rounded-full border bg-white/70 px-4 py-2 text-sm font-semibold transition disabled:opacity-70"
           :disabled="isLoading"
           @click="runtimeCompatibility.refreshCompatibility('manual')"
@@ -55,7 +62,10 @@
           </div>
 
           <h1 class="text-argon-text-primary mb-4 text-4xl leading-tight font-semibold">
-            <template v-if="phase === 'paused'">
+            <template v-if="isNewDownloadRequired">
+              {{ APP_NAME }} is becoming Argon Desktop. Download the new app to continue.
+            </template>
+            <template v-else-if="phase === 'paused'">
               The Argon Network has been upgraded and needs a new version of {{ APP_NAME }} to work properly.
             </template>
             <template v-else>A new {{ APP_NAME }} version is required before you can continue.</template>
@@ -80,7 +90,17 @@
 
         <div class="flex flex-wrap items-center gap-3">
           <button
-            v-if="update && !isReadyToInstall"
+            v-if="isNewDownloadRequired"
+            class="bg-argon-button hover:bg-argon-button-hover border-argon-button-hover cursor-pointer rounded-full border px-6 py-3 text-sm font-semibold text-white transition"
+            @click="void tauriOpenUrl('https://argon.network/desktop-app')"
+          >
+            <span class="inline-flex items-center gap-2">
+              Download Argon Desktop
+              <ExternalIcon class="h-4 w-4" aria-hidden="true" />
+            </span>
+          </button>
+          <button
+            v-else-if="update && !isReadyToInstall"
             :disabled="isDownloading"
             class="bg-argon-button hover:bg-argon-button-hover border-argon-button-hover cursor-pointer rounded-full border px-6 py-3 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60"
             @click="updater.downloadAndInstallUpdate()"
@@ -95,7 +115,8 @@
             Restart App to Activate Update
           </button>
           <div class="text-argon-text-primary/80 max-w-2xl text-xl leading-7">
-            <template v-if="phase === 'upgrade-required'">Install the latest app update to continue.</template>
+            <template v-if="isNewDownloadRequired">Download Argon Desktop from the Argon website to continue.</template>
+            <template v-else-if="phase === 'upgrade-required'">Install the latest app update to continue.</template>
             <template v-else>Waiting for a compatible app update...</template>
           </div>
         </div>
@@ -109,9 +130,12 @@ import { storeToRefs } from 'pinia';
 import WindowControls from '../../tauri-controls/WindowControls.vue';
 import ProgressBar from '../../components/ProgressBar.vue';
 import Spinner from '../../components/Spinner.vue';
+import basicEmitter from '../../emitters/basicEmitter.ts';
+import ExternalIcon from '../../assets/external.svg';
 import { APP_NAME } from '../../lib/Env.ts';
 import { useAppUpdater } from '../../stores/appUpdater.ts';
 import { useRuntimeCompatibility } from '../../stores/runtimeCompatibility.ts';
+import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 
 const updater = useAppUpdater();
 const runtimeCompatibility = useRuntimeCompatibility();
@@ -122,5 +146,14 @@ const {
   isReadyToInstall,
   update,
 } = storeToRefs(updater);
-const { errorMessage: compatibilityErrorMessage, isLoading, phase } = storeToRefs(runtimeCompatibility);
+const {
+  errorMessage: compatibilityErrorMessage,
+  isLoading,
+  newDownloadRequired: isNewDownloadRequired,
+  phase,
+} = storeToRefs(runtimeCompatibility);
+
+function openMnemonicExport() {
+  basicEmitter.emit('openSecuritySettingsOverlay', { screen: 'mnemonics' });
+}
 </script>

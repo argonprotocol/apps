@@ -4,6 +4,11 @@ import { BotStatus, BotSyncer, type IBotFns } from '../lib/BotSyncer.ts';
 
 type IBotSyncerTestTarget = {
   runSync(state: { isReady: boolean; isSyncing: boolean; serverError: string; currentFrameId?: number }): Promise<void>;
+  syncThePast(
+    progress: number,
+    state: { oldestFrameIdToSync: number; currentFrameId: number; currentTick: number },
+  ): Promise<void>;
+  syncDbFrame(frameId: number): Promise<void>;
   updateBotState(state: { currentFrameId: number }): Promise<void>;
 };
 
@@ -90,6 +95,24 @@ describe('BotSyncer', () => {
 
     expect(botFns.setStatus).toHaveBeenCalledWith(BotStatus.Broken);
   });
+
+  it('owns failures from background historical frame syncs', async () => {
+    const { syncer } = createSyncer();
+    const testSyncer = syncer as unknown as IBotSyncerTestTarget;
+    const error = new Error('Unable to retrieve header and parent from supplied hash');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(testSyncer, 'syncDbFrame').mockRejectedValue(error);
+
+    await testSyncer.syncThePast(0, {
+      oldestFrameIdToSync: 1,
+      currentFrameId: 2,
+      currentTick: 1,
+    });
+
+    await vi.waitFor(() => {
+      expect(warn).toHaveBeenCalledWith('BotSyncer background sync error:', error);
+    });
+  });
 });
 
 function createSyncer(options: { gatewayReady?: boolean } = {}) {
@@ -109,8 +132,8 @@ function createSyncer(options: { gatewayReady?: boolean } = {}) {
   };
 
   const syncer = new BotSyncer(
-    { isServerInstalled: true } as any,
-    {} as any,
+    { isServerInstalled: true, latestFrameIdProcessed: 1 } as any,
+    { framesTable: { fetchLastProcessedFrame: vi.fn().mockResolvedValue(1) } } as any,
     installer as any,
     serverApiClient as any,
     { load: vi.fn() } as any,
