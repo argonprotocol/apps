@@ -399,6 +399,8 @@ async function launchMiningBot() {
 }
 
 async function updateAPYs() {
+  if (calculatorLoadError.value) return;
+
   calculator.updateBiddingRules(config.biddingRules);
   calculator.calculateBidAmounts();
   averageAPY.value = calculator.averageAPY;

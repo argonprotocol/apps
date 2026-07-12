@@ -71,6 +71,7 @@ export default class BiddingCalculator {
   public async load(): Promise<void> {
     await this.data.miningFrames.load();
     let unsubscribeOnFailure: (() => void) | undefined;
+    let isSubscriptionReady = false;
     this.onFrameSubscription ??= new Promise(async (resolve, reject) => {
       const subscription = this.data.miningFrames.onFrameId(async frameId => {
         try {
@@ -80,10 +81,18 @@ export default class BiddingCalculator {
             callbackFn();
           }
         } catch (err) {
-          unsubscribeOnFailure?.();
-          reject(err);
+          if (!isSubscriptionReady) {
+            unsubscribeOnFailure?.();
+            reject(err);
+          } else {
+            console.error('Error loading bidding calculator frame', err);
+          }
+          return;
         }
-        resolve(subscription);
+        if (!isSubscriptionReady) {
+          isSubscriptionReady = true;
+          resolve(subscription);
+        }
       });
       unsubscribeOnFailure = subscription.unsubscribe;
     });
