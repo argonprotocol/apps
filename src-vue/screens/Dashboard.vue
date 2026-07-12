@@ -1,7 +1,21 @@
 <template>
   <div DashBox class="relative flex h-full grow flex-col items-center justify-center">
-    <MoreIcon class="absolute top-4 right-4 h-4 w-4 text-slate-400" />
-
+    <div class="relative w-full px-4 py-3">
+      <div class="text-argon-600/60 relative z-20 flex flex-row">
+        <div class="w-1/3 grow text-left">
+          +{{ numeral(financials.savingsAllTimeReturn).format('0,0.[00]') }}% Buying Power vs
+          {{ financials.savingsAllTimeFiatKey }}
+        </div>
+        <div class="w-1/3 grow text-center">Argon Is 0.002 UNDER $1.06 Target</div>
+        <div class="w-1/3 grow text-right">
+          {{ numeral(financials.savingsRestabilizationPower).formatIfElse('< 10', '0,0.[0]', '0,0') }}:1 Restabilization
+          Power
+        </div>
+      </div>
+      <div
+        class="via-argon-300/30 absolute bottom-0 left-0 h-px w-full bg-gradient-to-r from-transparent to-transparent"
+      />
+    </div>
     <div class="mx-auto flex max-w-200 grow flex-col justify-center px-[5%] pb-10">
       <section class="flex max-h-60 flex-row items-center justify-center py-10">
         <div v-if="financials.savingsTotalPending" class="flex flex-col">
@@ -44,20 +58,6 @@
           as it does today. It's wealth that outlasts time.
         </p>
       </section>
-
-      <ul class="text-argon-700/80 mt-0 inline-grid grid-cols-[1fr_1px_1fr] gap-x-5 text-center whitespace-nowrap">
-        <li class="flex flex-row items-center justify-center border-y border-slate-400/30 px-4 py-4">
-          +{{ numeral(financials.savingsAllTimeReturn).format('0,0.[00]') }}% Buying Power vs
-          {{ financials.savingsAllTimeFiatKey }}
-          <InfoIcon class="ml-2 inline-block h-5 w-5 text-slate-400" />
-        </li>
-        <li class="bg-slate-400/30"></li>
-        <li class="flex flex-row items-center justify-center border-y border-slate-400/30 px-4 py-4">
-          {{ numeral(financials.savingsRestabilizationPower).formatIfElse('< 10', '0,0.[0]', '0,0') }}:1 Restabilization
-          Power
-          <InfoIcon class="ml-2 inline-block h-5 w-5 text-slate-400" />
-        </li>
-      </ul>
 
       <section class="flex flex-row justify-center pt-12">
         <button
