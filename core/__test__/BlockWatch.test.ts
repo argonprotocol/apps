@@ -359,6 +359,80 @@ describe('BlockWatch archive recovery', () => {
     expect(blockWatch.finalizedBlockHeader).toBe(finalizedHeader);
   });
 
+  it('continues the current subscription after an unreadable new-head ancestry', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(BlockWatch, 'readHeader').mockImplementation(readMockHeader);
+
+    try {
+      const finalizedHeader = createHeaderInfo(100, '0x100', '0x099');
+      finalizedHeader.isFinalized = true;
+      const staleHead = createHeaderInfo(102, '0x102-stale', '0x101-stale');
+      const recoveredHeaders = [
+        createHeaderInfo(101, '0x101', '0x100'),
+        createHeaderInfo(102, '0x102', '0x101'),
+        createHeaderInfo(103, '0x103', '0x102'),
+      ];
+      const recoveredHeadersByHash = new Map(recoveredHeaders.map(header => [header.blockHash, header]));
+      const nextHeader = createHeaderInfo(104, '0x104', '0x103');
+      let onNewHead!: (header: unknown) => Promise<void>;
+      const prunedClient = {
+        rpc: {
+          chain: {
+            getFinalizedHead: vi.fn().mockResolvedValue(finalizedHeader.blockHash),
+            getHeader: vi.fn().mockImplementation(async (hash?: string) => {
+              if (!hash || hash === finalizedHeader.blockHash) return { __info: finalizedHeader };
+
+              const recoveredHeader = recoveredHeadersByHash.get(hash);
+              if (recoveredHeader) return { __info: recoveredHeader };
+
+              throw new Error('Unable to retrieve header and parent from supplied hash');
+            }),
+            subscribeNewHeads: vi.fn(async callback => {
+              onNewHead = callback;
+              return vi.fn();
+            }),
+            subscribeFinalizedHeads: vi.fn(async () => vi.fn()),
+          },
+        },
+      };
+      const archiveClient = {
+        rpc: {
+          chain: {
+            getFinalizedHead: vi.fn().mockResolvedValue(finalizedHeader.blockHash),
+            getHeader: vi.fn().mockImplementation(async (hash?: string) => {
+              if (!hash) return { __info: recoveredHeaders.at(-1) };
+              if (hash === finalizedHeader.blockHash) return { __info: finalizedHeader };
+
+              const recoveredHeader = recoveredHeadersByHash.get(hash);
+              if (recoveredHeader) return { __info: recoveredHeader };
+
+              throw new Error('Unable to retrieve header and parent from supplied hash');
+            }),
+            subscribeNewHeads: vi.fn(async () => vi.fn()),
+            subscribeFinalizedHeads: vi.fn(async () => vi.fn()),
+          },
+        },
+      };
+      const blockWatch = new BlockWatch(createClients(prunedClient, archiveClient) as any);
+      const emittedBestBlocks: IBlockHeaderInfo[][] = [];
+      blockWatch.events.on('best-blocks', headers => emittedBestBlocks.push(headers));
+
+      await blockWatch.start('pruned');
+      await onNewHead({ __info: staleHead });
+      await vi.waitFor(() => expect(archiveClient.rpc.chain.getHeader).toHaveBeenCalledWith(staleHead.parentHash));
+      await vi.runAllTimersAsync();
+
+      expect(getInternalBlockWatch(blockWatch).activeSource).toBe('pruned');
+      expect(archiveClient.rpc.chain.subscribeNewHeads).not.toHaveBeenCalled();
+      expect(blockWatch.latestHeaders).toEqual([finalizedHeader]);
+
+      await onNewHead({ __info: nextHeader });
+      await vi.waitFor(() => expect(emittedBestBlocks).toEqual([[...recoveredHeaders, nextHeader]]));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('drops cached block APIs when subscriptions stop', async () => {
     const firstBlockApi = { query: { system: { events: vi.fn() } } };
     const secondBlockApi = { query: { system: { events: vi.fn() } } };

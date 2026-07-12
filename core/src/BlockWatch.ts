@@ -155,11 +155,37 @@ export class BlockWatch {
         if (generation !== this.subscriptionGeneration) {
           return;
         }
+        const announcedHeader = BlockWatch.readHeader(header);
         this.processingQueue.add(async () => {
           if (generation !== this.subscriptionGeneration) {
             return;
           }
-          const gap = await this.fillNewHeadGap(this.finalizedBlockHeader, header);
+          let gap: IBlockHeaderInfo[];
+          try {
+            gap = await this.fillNewHeadGap(this.finalizedBlockHeader, announcedHeader);
+          } catch (error) {
+            const message = String(error).toLowerCase();
+            const isUnreadableHead =
+              message.includes('unable to retrieve header and parent from supplied hash') ||
+              (message.includes('4003') &&
+                (message.includes('state already discarded') || message.includes('unknown block')));
+            if (!isUnreadableHead) {
+              throw error;
+            }
+
+            const finalizedHeader = this.finalizedBlockHeader;
+            console.debug('[BlockWatch]: Ignoring unreadable non-finalized head', {
+              source: this.activeSource,
+              generation,
+              finalizedBlockNumber: finalizedHeader.blockNumber,
+              finalizedBlockHash: finalizedHeader.blockHash,
+              announcedBlockNumber: announcedHeader.blockNumber,
+              announcedBlockHash: announcedHeader.blockHash,
+              announcedParentHash: announcedHeader.parentHash,
+              error: String(error),
+            });
+            return;
+          }
           const newBlocks = gap.filter(x => !this.latestHeaders.some(y => y.blockHash === x.blockHash));
           this.latestHeaders = [this.finalizedBlockHeader, ...gap];
           this.finalizedAheadRecoveryFailures = 0;
