@@ -335,6 +335,10 @@ export class BotSyncer {
 
     if (framesToSync < 2) {
       await syncPromise;
+    } else {
+      void syncPromise.catch(error => {
+        console.warn('BotSyncer background sync error:', error);
+      });
     }
   }
 
