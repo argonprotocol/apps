@@ -26,14 +26,14 @@
       @update:model-value="setNavigationMenuValue"
     >
       <NavigationMenuList class="relative flex flex-row items-center space-x-2" @mouseenter="clearNavigationMenuClose">
+        <div class="pointer-events-auto">
+          <OperationalMenu />
+        </div>
         <div
           v-if="config.isLoaded && config.hasExtensionOperations"
           :class="[controller.selectedTab === TopTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']"
         >
           <ServerMenu ref="serverMenuRef" />
-        </div>
-        <div class="pointer-events-auto">
-          <OperationalMenu />
         </div>
         <div :class="[controller.selectedTab === TopTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto', wallets.isLoaded ? '' : 'opacity-20']">
           <div ref="currencyMenuRef" class="flex flex-row items-center">
