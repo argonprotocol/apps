@@ -9,6 +9,7 @@ import { Operation } from './index.ts';
 import type { IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
 import type { IE2EOperationInspectState, IE2EOperationState } from '../types.ts';
 import bitcoinEnsureMismatchActionPanel from './Bitcoin.op.ensureMismatchActionPanel.ts';
+import { BITCOIN_LOCK_ENTRY_SELECTOR } from './Bitcoin.op.activateTab.ts';
 
 type IFundLockExactChainState = IBitcoinVaultMismatchState;
 
@@ -27,7 +28,7 @@ function createBitcoinFundLockExactOperation(): Operation<IBitcoinFlowContext, I
     async inspect({ flow }) {
       const [panelState, lockingEntryVisible, lockOverlay, fundingBip21] = await Promise.all([
         flow.inspect(bitcoinEnsureMismatchActionPanel),
-        hasDashboardLockEntry(flow),
+        hasBitcoinLockEntry(flow),
         flow.isVisible('BitcoinLockingOverlay'),
         flow.isVisible('fundingBip21.copyContent()'),
       ]);
@@ -125,7 +126,6 @@ function createBitcoinFundLockExactOperation(): Operation<IBitcoinFlowContext, I
   return operation;
 }
 
-async function hasDashboardLockEntry(flow: IBitcoinFlowContext['flow']): Promise<boolean> {
-  return (await flow.isVisible({ selector: '[bitcoinmap] .treemap__tile:not(.treemap__tile--remainder)', index: 0 }))
-    .visible;
+async function hasBitcoinLockEntry(flow: IBitcoinFlowContext['flow']): Promise<boolean> {
+  return (await flow.isVisible({ selector: BITCOIN_LOCK_ENTRY_SELECTOR, index: 0 })).visible;
 }

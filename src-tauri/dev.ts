@@ -326,6 +326,7 @@ type RuntimeNetworkConfigOverride = INetworkConfigOverride;
 
 interface DevDockerComposePorts {
   archivePort: string;
+  archiveRpcPort: string;
   archiveP2pPort: string;
   bitcoinP2pPort: string;
   esploraPort: string;
@@ -337,6 +338,7 @@ interface DevDockerComposePorts {
 async function resolveDevDockerComposePorts(): Promise<DevDockerComposePorts | null> {
   const context = getDevDockerComposeContext();
   let archivePort: string;
+  let archiveRpcPort: string;
   let archiveP2pPort: string;
   let bitcoinP2pPort: string;
   let esploraPort: string;
@@ -348,6 +350,11 @@ async function resolveDevDockerComposePorts(): Promise<DevDockerComposePorts | n
     archivePort = (await readComposePortWithRetry({
       context,
       service: 'archive-node',
+      port: 9944,
+    }))!;
+    archiveRpcPort = (await readComposePortWithRetry({
+      context,
+      service: 'archive-rpc',
       port: 9944,
     }))!;
     archiveP2pPort = (await readComposePortWithRetry({
@@ -399,6 +406,7 @@ async function resolveDevDockerComposePorts(): Promise<DevDockerComposePorts | n
 
   return {
     archivePort,
+    archiveRpcPort,
     archiveP2pPort,
     bitcoinP2pPort,
     esploraPort,
@@ -451,6 +459,7 @@ async function resolveDevDockerNetworkConfigOverride(
   usdcTokenAddress?: string,
 ): Promise<RuntimeNetworkConfigOverride | null> {
   const archiveUrl = `ws://127.0.0.1:${ports.archivePort}`;
+  const archiveRpcUrl = `ws://127.0.0.1:${ports.archiveRpcPort}`;
   let runtimeConfig: RuntimeChainConfig;
   try {
     console.log(`[tauri-dev] Loading runtime chain config from ${archiveUrl}`);
@@ -462,7 +471,7 @@ async function resolveDevDockerNetworkConfigOverride(
 
   const override: RuntimeNetworkConfigOverride = {
     ...runtimeConfig,
-    archiveUrl,
+    archiveUrl: archiveRpcUrl,
     bitcoinBlockMillis: runtimeConfig.tickMillis * 10,
     esploraHost: `http://localhost:${ports.esploraPort}`,
     baseNetwork: {
@@ -553,15 +562,15 @@ function mergeNetworkConfigOverrides(
   }
 
   return {
-    ...inheritedOverride,
     ...dynamicOverride,
+    ...inheritedOverride,
     ethereumNetwork: {
-      ...inheritedOverride.ethereumNetwork,
       ...dynamicOverride.ethereumNetwork,
+      ...inheritedOverride.ethereumNetwork,
     },
     baseNetwork: {
-      ...inheritedOverride.baseNetwork,
       ...dynamicOverride.baseNetwork,
+      ...inheritedOverride.baseNetwork,
     },
   };
 }

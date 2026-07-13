@@ -30,8 +30,8 @@ export const DEV_DOCKER_COMPOSE_FILES = [
   'miners.docker-compose.yml',
   'upstream-server.docker-compose.yml',
   'indexer.docker-compose.yml',
-  'chainspec.docker-compose.yml',
 ] as const;
+const CHAIN_SPEC_COMPOSE_FILE = 'chainspec.docker-compose.yml';
 
 const DEFAULT_COMPOSE_PROFILES = ['all'] as const;
 const UPSTREAM_COMPOSE_PROFILES = ['all', 'upstream'] as const;
@@ -313,11 +313,16 @@ export function readComposeContainerId(args: { context?: DevDockerComposeContext
 }
 
 function getComposeArgs(context: DevDockerComposeContext): string[] {
+  const useChainspec =
+    context.composeEnv.E2E_USE_TEST_NETWORK?.trim() !== '1' ||
+    context.composeEnv.ARGON_CHAIN?.trim() === '/chainspec.raw.json';
+  const composeFiles = useChainspec ? [...DEV_DOCKER_COMPOSE_FILES, CHAIN_SPEC_COMPOSE_FILE] : DEV_DOCKER_COMPOSE_FILES;
+
   return [
     'compose',
     ...context.profiles.flatMap(profile => ['--profile', profile]),
     ...(context.composeProjectName ? ['--project-name', context.composeProjectName] : []),
-    ...DEV_DOCKER_COMPOSE_FILES.flatMap(file => ['-f', file]),
+    ...composeFiles.flatMap(file => ['-f', file]),
   ];
 }
 

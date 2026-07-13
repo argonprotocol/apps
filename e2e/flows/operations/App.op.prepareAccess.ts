@@ -63,7 +63,7 @@ export default new Operation<IAppFlowContext, IPrepareAccessState>(import.meta, 
         } catch (error) {
           if (isRetryableAppConnectionError(error)) {
             sawReloadError = true;
-            return false;
+            return true;
           }
           throw error;
         }

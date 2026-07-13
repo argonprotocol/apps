@@ -5,11 +5,12 @@ import { clickIfVisible, formatUnitsToDecimal, pollEvery, sleep } from '../helpe
 import type { IE2EOperationInspectState, IE2EOperationState } from '../types.ts';
 import bitcoinEnsureMismatchActionPanel from './Bitcoin.op.ensureMismatchActionPanel.ts';
 import { Operation } from './index.ts';
-import vaultingActivateTab from './Vaulting.op.activateTab.ts';
+import bitcoinActivateTab from './Bitcoin.op.activateTab.ts';
 
 const SATOSHIS_PER_BTC = 100_000_000n;
 
 type IStartBitcoinLockUiState = {
+  bitcoinLocksScreenVisible: boolean;
   lockStartEntryVisible: boolean;
   lockOverlayVisible: boolean;
   lockOverlayState: string | null;
@@ -22,12 +23,14 @@ type IStartBitcoinLockState = IE2EOperationInspectState<IBitcoinVaultMismatchSta
 export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import.meta, {
   async inspect({ flow }) {
     const panelState = await flow.inspect(bitcoinEnsureMismatchActionPanel);
-    const [lockStartEntry, lockOverlay, lockStart, fundingBip21] = await Promise.all([
-      flow.isVisible({ selector: '[bitcoinmap] .treemap__tile--remainder' }),
+    const [bitcoinLocksScreen, lockStartEntry, lockOverlay, lockStart, fundingBip21] = await Promise.all([
+      flow.isVisible('BitcoinLocksScreen'),
+      flow.isVisible('BitcoinLocks.openLockingOverlay()'),
       flow.isVisible('BitcoinLockingOverlay'),
       flow.isVisible('LockStart.submitLiquidLock()'),
       flow.isVisible('fundingBip21.copyContent()'),
     ]);
+    const bitcoinLocksScreenVisible = bitcoinLocksScreen.visible;
     const lockStartEntryVisible = lockStartEntry.visible;
     const lockOverlayVisible = lockOverlay.visible;
     const lockOverlayState = lockOverlay.visible
@@ -39,7 +42,7 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
     const canRun =
       !isComplete &&
       !panelState.chainState.hasActiveLock &&
-      (lockStartEntryVisible || lockOverlayVisible || lockStartVisible);
+      (!bitcoinLocksScreenVisible || lockStartEntryVisible || lockOverlayVisible || lockStartVisible);
     let operationState: IE2EOperationState = 'processing';
     if (isComplete) {
       operationState = 'complete';
@@ -59,6 +62,7 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
     return {
       chainState: panelState.chainState,
       uiState: {
+        bitcoinLocksScreenVisible,
         lockStartEntryVisible,
         lockOverlayVisible,
         lockOverlayState,
@@ -80,10 +84,10 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
     if (state.state === 'complete') return;
 
     if (!state.uiState.lockOverlayVisible && !state.uiState.lockStartVisible) {
-      await flow.run(vaultingActivateTab);
-      const opened = await clickDashboardBitcoinRemainder(flow, { timeoutMs: 5_000 });
+      await flow.run(bitcoinActivateTab);
+      const opened = await clickBitcoinLockStart(flow, { timeoutMs: 5_000 });
       if (!opened) {
-        throw new Error(`${flowName}: Bitcoin lock entry point is not clickable on the vault dashboard.`);
+        throw new Error(`${flowName}: Bitcoin lock entry point is not clickable on the Bitcoin Locks tab.`);
       }
     }
     await flow.waitFor('LockStart.submitLiquidLock()', { state: 'enabled', timeoutMs: 10_000 });
@@ -137,9 +141,9 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
   },
 });
 
-async function clickDashboardBitcoinRemainder(
+async function clickBitcoinLockStart(
   flow: IBitcoinFlowContext['flow'],
   options: { timeoutMs?: number } = {},
 ): Promise<boolean> {
-  return await clickIfVisible(flow, { selector: '[bitcoinmap] .treemap__tile--remainder' }, options);
+  return await clickIfVisible(flow, 'BitcoinLocks.openLockingOverlay()', options);
 }
