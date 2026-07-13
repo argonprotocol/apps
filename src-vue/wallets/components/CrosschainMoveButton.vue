@@ -4,15 +4,17 @@
       <button
         :data-testid="getMoveButtonTestId()"
         type="button"
-        :disabled="isMoveDisabled"
-        class="absolute top-1/2 -right-6 h-10 -translate-y-1/2 cursor-pointer disabled:cursor-default disabled:opacity-40"
+        :aria-disabled="isMoveDisabled"
+        :title="isMoveDisabled ? `No ${props.moveToken} available to jump` : `Jump ${props.moveToken}`"
+        class="absolute top-1/2 left-[calc(100%+40px)] z-30 h-10 -translate-x-1/2 -translate-y-1/2 cursor-pointer"
         @mouseenter="isHovered = true"
         @mouseleave="isHovered = false"
         @click="openTransferOverlay"
       >
-        <div class="absolute top-0 left-0 h-full w-9/12 bg-gradient-to-r from-white to-transparent" />
         <div v-if="hasPendingTransfer" spinner class="absolute top-1/2 right-4 h-5 w-5 -translate-y-1/2 border-3" />
-        <div v-else class="text-argon-600 absolute top-1/2 right-4 -translate-y-1/2 text-sm font-bold">MOVE</div>
+        <div v-else class="text-argon-600 absolute inset-0 flex items-center justify-center text-sm font-bold">
+          <span class="relative right-1.5">{{ WALLET_JUMP_LABEL }}</span>
+        </div>
         <MoveArrow class="pointer-events-none h-full" />
       </button>
     </HoverCardTrigger>
@@ -131,6 +133,7 @@ import { getCurrency } from '../../stores/currency.ts';
 import { getEthereumMoveTracker } from '../../stores/moveFromEthereum.ts';
 import { getEthereumOutboundTransferTracker } from '../../stores/moveToEthereum.ts';
 import { loadEthereumChainConfig } from '../../lib/EthereumClient.ts';
+import { WALLET_JUMP_LABEL } from '../walletOverlayState.ts';
 import {
   getCrosschainTransferProgressView,
   isCrosschainTransferVisible,
@@ -249,6 +252,10 @@ Vue.onMounted(() => {
 });
 
 function openTransferOverlay() {
+  if (isMoveDisabled.value) {
+    return;
+  }
+
   isHovered.value = false;
   emit('openTransferOverlay');
 }

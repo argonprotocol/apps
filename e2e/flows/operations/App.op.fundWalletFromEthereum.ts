@@ -120,7 +120,7 @@ export default new Operation<IAppFundWalletFromEthereumContext, IAppFundWalletFr
         micronots: requiredMicronots > 0n ? requiredMicronots : undefined,
       });
 
-      await context.flow.click('NavHeader.triggerSyncMode()', { timeoutMs: 15_000 });
+      await context.flow.click('WalletOverlay.chooseEthereumWallet()', { timeoutMs: 15_000 });
 
       await context.flow.poll<IAppFundWalletFromEthereumState>(
         nextState =>
@@ -151,8 +151,6 @@ export default new Operation<IAppFundWalletFromEthereumContext, IAppFundWalletFr
       requestedMicrogons: requiredMicrogons.toString(),
       requestedMicronots: requiredMicronots.toString(),
     });
-
-    await context.flow.click('NavHeader.close()', { timeoutMs: 8_000 });
 
     const overlayCloseButton = await context.flow.isVisible('OverlayBase.clickClose()');
     if (overlayCloseButton.clickable) {

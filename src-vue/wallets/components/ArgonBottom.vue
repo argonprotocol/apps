@@ -1,20 +1,9 @@
 <template>
   <div class="flex grow flex-col py-4">
     <div class="flex grow flex-col items-center justify-center pb-[5%]">
-      <p v-if="props.isSyncMode" class="text-argon-600/80 mt-5 text-center font-light">
-        Click the Move arrow to transfer tokens {{ props.direction }} the
-        <br />
-        Ethereum Network.
-        <a href="https://argon.network/" target="_blank" class="text-argon-600 underline">Learn more</a>
-        .
-      </p>
-      <div v-else class="mt-5 text-center">
-        <p class="font-light">
-          Click the transfer icon above (
-          <PortalIcon class="relative -top-px inline-block w-4" />
-          ) to move
-          <br />
-          tokens between Argon and Ethereum.
+      <div v-if="props.mode === 'chooser'" class="mt-5 text-center">
+        <p class="text-argon-600/80 font-light">
+          Choose another wallet in the empty slot to view them together or move supported tokens.
         </p>
         <AlertCalloutButton
           v-if="
@@ -169,7 +158,6 @@ import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { open as tauriOpen } from '@tauri-apps/plugin-shell';
 import { CheckBadgeIcon } from '@heroicons/vue/24/outline';
 import { TooltipArrow, TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger } from 'reka-ui';
-import PortalIcon from '../../assets/wallets/swap.svg';
 import ReceiptIcon from '../../assets/receipt.svg';
 import ExternalIcon from '../../assets/external.svg';
 import { IWallet, WalletType } from '../../lib/Wallet.ts';
@@ -189,9 +177,8 @@ import type { IWalletGuidanceContext } from '../../emitters/basicEmitter.ts';
 import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 
 const props = defineProps<{
-  direction: 'from' | 'to';
   walletType: WalletType;
-  isSyncMode?: boolean;
+  mode: 'chooser' | 'transfer';
   showGuidance?: boolean;
   guidanceContext?: IWalletGuidanceContext;
 }>();

@@ -8,12 +8,18 @@
     </template>
 
     <div class="px-3 py-4">
-      <SecuritySettingsOverview v-if="currentScreen === 'overview'" @close="closeOverlay" @goTo="goTo" />
+      <SecuritySettingsOverview
+        v-if="currentScreen === 'overview'"
+        :hasDefaultEthereumWallet="!!defaultEthereumWallet"
+        @close="closeOverlay"
+        @goTo="goTo"
+      />
       <SecuritySettingsMnemonics v-if="currentScreen === 'mnemonics'" @close="closeOverlay" @goTo="goTo" />
       <SecuritySettingsSSHAccess v-if="currentScreen === 'ssh'" @close="closeOverlay" @goTo="goTo" />
       <SecuritySettingsEncrypt v-if="currentScreen === 'encrypt'" @close="closeOverlay" @goTo="goTo" />
       <SecuritySettingsExportEthereumPrivateKey
-        v-if="currentScreen === 'ethereum-export'"
+        v-if="currentScreen === 'ethereum-export' && defaultEthereumWallet"
+        :walletRecord="defaultEthereumWallet"
         @close="closeOverlay"
         @goTo="goTo"
       />
@@ -31,12 +37,17 @@ import SecuritySettingsMnemonics from './security-settings/Mnemonics.vue';
 import SecuritySettingsSSHAccess from './security-settings/SSHAccess.vue';
 import OverlayBase from './OverlayBase.vue';
 import { useBasics } from '../stores/basics.ts';
+import { useWallets } from '../stores/wallets.ts';
 
 const basics = useBasics();
+const wallets = useWallets();
 
 const isOpen = Vue.ref(false);
 const currentScreen = Vue.ref<'overview' | 'mnemonics' | 'ssh' | 'encrypt' | 'ethereum-export'>('overview');
 const overlayWidth = Vue.ref(640);
+const defaultEthereumWallet = Vue.computed(() =>
+  wallets.walletRecords.find(record => record.role === 'defaultEthereum'),
+);
 
 const title = Vue.computed(() => {
   if (currentScreen.value === 'overview') {
@@ -48,14 +59,24 @@ const title = Vue.computed(() => {
   } else if (currentScreen.value === 'mnemonics') {
     return 'Account Recovery Mnemonic';
   } else if (currentScreen.value === 'ethereum-export') {
-    return 'Export Ethereum Private Key';
+    return 'Export Default Ethereum Private Key';
   }
   throw new Error('Invalid screen name');
 });
 
 basicEmitter.on('openSecuritySettingsOverlay', async data => {
+  const requestedScreen = data?.screen ?? 'overview';
+  if (requestedScreen === 'ethereum-export' && !wallets.isLoaded) {
+    try {
+      await wallets.load();
+    } catch (error) {
+      console.error('Failed to load wallet records before opening the Default Ethereum export', error);
+    }
+  }
+
   isOpen.value = true;
-  currentScreen.value = data?.screen ?? 'overview';
+  currentScreen.value =
+    requestedScreen === 'ethereum-export' && !defaultEthereumWallet.value ? 'overview' : requestedScreen;
   basics.overlayIsOpen = true;
 });
 
@@ -69,6 +90,8 @@ function goBack() {
 }
 
 function goTo(screen: 'overview' | 'encrypt' | 'mnemonics' | 'ssh' | 'ethereum-export') {
+  if (screen === 'ethereum-export' && !defaultEthereumWallet.value) return;
+
   currentScreen.value = screen;
   if (screen === 'overview') {
     overlayWidth.value = 640;

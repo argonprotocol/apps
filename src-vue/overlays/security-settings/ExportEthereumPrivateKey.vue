@@ -3,14 +3,14 @@
   <div class="flex flex-col gap-5 px-3">
     <div class="flex flex-col gap-3 text-md leading-6 text-slate-500">
       <p>
-        This exports the private key for your default Ethereum wallet address. Any wallet that imports this key can
-        spend funds from that Ethereum account.
+        This exports the private key for your Default Ethereum wallet. Any wallet that imports this key can spend funds
+        from that Ethereum account.
       </p>
     </div>
 
     <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-      <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Ethereum address</div>
-      <div class="mt-2 break-all font-mono text-sm text-slate-900">{{ walletKeys.ethereumAddress }}</div>
+      <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Default Ethereum address</div>
+      <div class="mt-2 break-all font-mono text-sm text-slate-900">{{ props.walletRecord.address }}</div>
     </div>
 
     <div class="relative rounded-xl border border-red-200 bg-red-50 px-4 py-3">
@@ -47,6 +47,9 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { getWalletKeys } from '../../stores/wallets.ts';
+import type { IWalletRecord } from '../../lib/db/WalletsTable.ts';
+
+const props = defineProps<{ walletRecord: Pick<IWalletRecord, 'address'> }>();
 
 const walletKeys = getWalletKeys();
 

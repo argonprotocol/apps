@@ -43,6 +43,7 @@ export class WalletKeys {
    * Ethereum-compatible address used for EVM/Ethereum integrations tied to this wallet.
    */
   public ethereumAddress: string;
+  public readonly defaultEthereumAddress: string;
   public ethereumHdPrefixes: ISecurity['ethereumHdPrefixes'];
   public ethereumHdPath: `m/44'/60'/${string}`;
   public councilSignerEthereumHdPath: `m/44'/60'/${string}`;
@@ -63,7 +64,8 @@ export class WalletKeys {
     this.miningBotAddress = security.miningBotAddress;
     this.vaultingAddress = this.defaultArgonAddress;
     this.operationalAddress = security.operationalAddress;
-    this.ethereumAddress = security.ethereumAddress.toLowerCase();
+    this.defaultEthereumAddress = security.ethereumAddress.toLowerCase();
+    this.ethereumAddress = this.defaultEthereumAddress;
     this.ethereumHdPrefixes = security.ethereumHdPrefixes;
     this.ethereumHdPath = getEthereumHdPath(this.ethereumHdPrefixes.primary);
     this.councilSignerEthereumHdPath = getEthereumHdPath(this.ethereumHdPrefixes.councilSigner);
@@ -82,9 +84,7 @@ export class WalletKeys {
 
   public configureEthereumWallet(record?: IWalletRecord): void {
     this.activeEthereumWalletRecord = record;
-    if (record?.address) {
-      this.ethereumAddress = record.address.toLowerCase();
-    }
+    this.ethereumAddress = record?.address.toLowerCase() ?? this.defaultEthereumAddress;
   }
 
   public async exportMiningBidProxyAccountJson(passphrase: string): Promise<KeyringPair$Json> {

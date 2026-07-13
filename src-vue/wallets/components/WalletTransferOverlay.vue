@@ -229,6 +229,7 @@
 import * as Vue from 'vue';
 import { bigIntMax, MoveToken } from '@argonprotocol/apps-core';
 import { EvmContracts } from '@argonprotocol/mainchain';
+import { WalletType } from '../../lib/Wallet.ts';
 import InputToken from '../../components/InputToken.vue';
 import ProgressBar from '../../components/ProgressBar.vue';
 import type { IArgonWalletType, IEthereumMoveToken } from '../../interfaces/IEthereumInboundTransferTracker.ts';
@@ -634,8 +635,10 @@ function formatTokenAmount(value: bigint) {
 
 function getArgonWalletLabel(walletType?: IArgonWalletType) {
   switch (walletType) {
-    case 'defaultArgon':
+    case WalletType.defaultArgon:
       return 'Argon wallet';
+    case WalletType.miningBot:
+      return 'Mining wallet';
     default:
       return 'selected wallet';
   }

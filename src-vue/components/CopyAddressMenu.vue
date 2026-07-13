@@ -75,7 +75,7 @@
                 </CopyToClipboard>
               </DropdownMenuItem>
               <DropdownMenuItem
-                v-if="walletType === WalletType.ethereum && props.showSingleAddress"
+                v-if="canExportEthereumPrivateKey"
                 @select.prevent="openEthereumPrivateKeyExport"
                 class="flex justify-center border-t border-slate-400/30 py-2"
               >
@@ -137,6 +137,12 @@ const wallet = Vue.computed<IWallet>(() => {
     return wallets.ethereumWallet;
   }
   throw new Error(`Unknown wallet type: ${props.walletType}`);
+});
+const canExportEthereumPrivateKey = Vue.computed(() => {
+  if (props.walletType !== WalletType.ethereum || !props.showSingleAddress) return false;
+
+  const defaultEthereumWallet = wallets.walletRecords.find(record => record.role === 'defaultEthereum');
+  return defaultEthereumWallet?.address.toLowerCase() === wallet.value.address.toLowerCase();
 });
 
 let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;

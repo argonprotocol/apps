@@ -25,9 +25,9 @@
         class="mt-5 text-center text-lg leading-normal font-light text-slate-800/60"
         style="text-shadow: 1px 1px 0 white"
       >
-        Click any wallet below to open it. Drag any two open wallets
+        Click any wallet below to open it. Choose another wallet in
         <br />
-        together to create a jump portal between them.
+        an empty slot to view or transfer between them.
       </p>
 
       <ul
@@ -349,7 +349,7 @@ function reorderDraggedWallet() {
 }
 
 function openEthereumChoice() {
-  basicEmitter.emit('openEthereumWalletImportOverlay');
+  basicEmitter.emit('openEthereumWalletImportOverlay', 'choice');
 }
 
 Vue.onUnmounted(() => {

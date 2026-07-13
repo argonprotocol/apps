@@ -1,17 +1,7 @@
 <!-- prettier-ignore -->
 <template>
   <TransitionRoot class="absolute inset-0" :show="isOpen">
-    <TransitionChild
-      as="template"
-      enter="ease-out duration-300"
-      enter-from="opacity-0"
-      enter-to="opacity-100"
-      leave="ease-in duration-200"
-      leave-from="opacity-100"
-      leave-to="opacity-0"
-    >
-      <BgOverlay :style="{ zIndex: overlayZIndex.backdropZIndex }" />
-    </TransitionChild>
+    <BgOverlay :style="{ zIndex: overlayZIndex.backdropZIndex }" />
 
     <div
       class="absolute inset-0 overflow-y-auto pt-[1px] flex items-center justify-center pointer-events-none"
