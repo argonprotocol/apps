@@ -64,6 +64,15 @@
                 <ShieldCheckIcon class="w-4 h-4" />
               </div>
             </DropdownMenuItem>
+            <template v-if="props.canExportPrivateKey">
+              <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+              <DropdownMenuItem MenuItem @click="openEthereumPrivateKeyExport">
+                <div ItemWrapper>
+                  <header>Export Private Key</header>
+                  <KeyIcon class="w-4 h-4" />
+                </div>
+              </DropdownMenuItem>
+            </template>
             <template v-if="walletType !== WalletType.defaultArgon">
               <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
               <DropdownMenuItem MenuItem @click="() => disconnectWallet()">
@@ -94,7 +103,7 @@ import {
 import type { PointerDownOutsideEvent } from 'reka-ui';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { WalletType } from '../../lib/Wallet.ts';
-import { WindowIcon, QrCodeIcon, ShieldCheckIcon } from '@heroicons/vue/24/outline';
+import { KeyIcon, WindowIcon, QrCodeIcon, ShieldCheckIcon } from '@heroicons/vue/24/outline';
 import CopyIcon from '../../assets/copy.svg';
 import QRCode from 'qrcode';
 import CopyToClipboard from '../../components/CopyToClipboard.vue';
@@ -105,10 +114,12 @@ const props = withDefaults(
     wallet: { address: string };
     walletType: WalletType;
     walletIsOpen?: boolean;
+    canExportPrivateKey?: boolean;
     showBorders?: boolean;
   }>(),
   {
     walletIsOpen: false,
+    canExportPrivateKey: false,
     showBorders: true,
   },
 );
@@ -145,6 +156,10 @@ function disconnectWallet() {}
 
 function openRecovery() {
   basicEmitter.emit('openSecuritySettingsOverlay', { screen: 'mnemonics' });
+}
+
+function openEthereumPrivateKeyExport() {
+  basicEmitter.emit('openSecuritySettingsOverlay', { screen: 'ethereum-export' });
 }
 
 function openWallet(walletType: WalletType) {

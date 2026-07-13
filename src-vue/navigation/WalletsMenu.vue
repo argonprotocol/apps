@@ -93,7 +93,7 @@ async function openWallet(wallet: IWalletRecord) {
 
 function addWallet() {
   closeMenu();
-  basicEmitter.emit('openEthereumWalletImportOverlay');
+  basicEmitter.emit('openEthereumWalletImportOverlay', 'choice');
 }
 
 function onMouseEnter() {

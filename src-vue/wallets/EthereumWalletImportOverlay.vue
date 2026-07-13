@@ -143,9 +143,13 @@
 import * as Vue from 'vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { useWallets } from '../stores/wallets.ts';
+import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
 
 const wallets = useWallets();
-const emit = defineEmits<{ complete: [] }>();
+const emit = defineEmits<{
+  complete: [walletRecord: IWalletRecord];
+  cancel: [];
+}>();
 
 const ethereumImportStep = Vue.ref<'choice' | 'external' | 'mnemonicAccounts'>();
 const ethereumImportMode = Vue.ref<'privateKey' | 'mnemonic'>('privateKey');
@@ -158,19 +162,23 @@ const mnemonicAccounts = Vue.ref<{ address: string; derivationPath: string; bala
 const selectedMnemonicPath = Vue.ref('');
 const startedFromChoiceStep = Vue.ref(false);
 
-const hasDefaultEthereumWallet = Vue.computed(() =>
-  wallets.walletRecords.some(wallet => wallet.role === 'defaultEthereum'),
-);
+function openEthereumImport(step: 'choice' | 'external') {
+  const hasDefaultEthereumWallet = wallets.walletRecords.some(wallet => wallet.role === 'defaultEthereum');
+  const initialStep = step === 'choice' && hasDefaultEthereumWallet ? 'external' : step;
 
-function openEthereumImport() {
-  startedFromChoiceStep.value = !hasDefaultEthereumWallet.value;
-  ethereumImportStep.value = startedFromChoiceStep.value ? 'choice' : 'external';
+  startedFromChoiceStep.value = initialStep === 'choice';
+  ethereumImportStep.value = initialStep;
   ethereumImportMode.value = 'privateKey';
   ethereumWalletNameInput.value = '';
   ethereumImportError.value = '';
 }
 
 function closeEthereumImport() {
+  resetEthereumImport();
+  emit('cancel');
+}
+
+function resetEthereumImport() {
   ethereumImportStep.value = undefined;
   ethereumSecretInput.value = '';
   ethereumWalletNameInput.value = '';
@@ -181,9 +189,9 @@ function closeEthereumImport() {
 }
 
 async function createDefaultEthereum() {
-  await wallets.createDefaultEthereumWallet();
-  closeEthereumImport();
-  emit('complete');
+  const walletRecord = await wallets.createDefaultEthereumWallet();
+  resetEthereumImport();
+  emit('complete', walletRecord);
 }
 
 async function continueExternalImport() {
@@ -196,12 +204,12 @@ async function continueExternalImport() {
   isImportingEthereum.value = true;
   try {
     if (ethereumImportMode.value === 'privateKey') {
-      await wallets.importExternalEthereumPrivateKey({
+      const walletRecord = await wallets.importExternalEthereumPrivateKey({
         name: walletName,
         privateKey: ethereumSecretInput.value.trim(),
       });
-      closeEthereumImport();
-      emit('complete');
+      resetEthereumImport();
+      emit('complete', walletRecord);
       return;
     }
     mnemonicAccounts.value = await wallets.previewExternalEthereumMnemonic(ethereumSecretInput.value.trim());
@@ -247,14 +255,14 @@ async function importSelectedMnemonicAccount() {
   }
   isImportingEthereum.value = true;
   try {
-    await wallets.importExternalEthereumMnemonic({
+    const walletRecord = await wallets.importExternalEthereumMnemonic({
       name: walletName,
       mnemonic: ethereumSecretInput.value.trim(),
       address: account.address,
       derivationPath: account.derivationPath,
     });
-    closeEthereumImport();
-    emit('complete');
+    resetEthereumImport();
+    emit('complete', walletRecord);
   } catch (error) {
     ethereumImportError.value = error instanceof Error ? error.message : 'Unable to import Ethereum wallet.';
   } finally {

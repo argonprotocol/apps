@@ -112,7 +112,7 @@ export default new Operation<IVaultingFlowContext, ITransferOutToEthereumState>(
             return true;
           }
 
-          await clickIfVisible(flow, 'NavHeader.triggerSyncMode()', { timeoutMs: 1_500 });
+          await clickIfVisible(flow, 'WalletOverlay.chooseEthereumWallet()', { timeoutMs: 1_500 });
           return false;
         },
         {

@@ -380,7 +380,7 @@ export const useFinancials = defineStore('financials', () => {
       UnitOfMeasurement.Microgon,
     );
     const otherTokenValue = wallets.ethereumWallet.otherTokens.reduce((totalValue, token) => {
-      return totalValue + currency.convertOtherToMicrogon(token as IOtherToken);
+      return totalValue + currency.convertOtherToMicrogon(token);
     }, 0n);
 
     return micronotValue + otherTokenValue;
