@@ -9,10 +9,8 @@
 
   <DialogRoot :open="zoomOpen" @update:open="zoomOpen = $event">
     <DialogPortal>
-      <DialogOverlay asChild class="fixed inset-0 bg-black/70 backdrop-blur-sm">
-        <Motion asChild :initial="{ opacity: 0 }" :animate="{ opacity: 1 }" :exit="{ opacity: 0 }">
-          <BgOverlay :style="{ zIndex: overlayZIndex.backdropZIndex }" @close="zoomOpen = false" />
-        </Motion>
+      <DialogOverlay asChild class="fixed inset-0 bg-black/70 backdrop-blur-xs">
+        <BgOverlay :style="{ zIndex: overlayZIndex.backdropZIndex }" @close="zoomOpen = false" />
       </DialogOverlay>
       <DialogContent
         class="fixed inset-0 flex items-center justify-center p-4 focus:outline-none"
@@ -32,7 +30,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { DialogRoot, DialogOverlay, DialogPortal, DialogContent } from 'reka-ui';
-import { Motion } from 'motion-v';
 import BgOverlay from './BgOverlay.vue';
 import { useOverlayZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 

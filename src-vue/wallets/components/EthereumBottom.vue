@@ -1,7 +1,7 @@
 <template>
   <div class="flex flex-col gap-4">
     <div
-      v-if="hasBaseAlert || baseWallet.fetchErrorMsg"
+      v-if="isBaseWalletAddress && (hasBaseAlert || baseWallet.fetchErrorMsg)"
       class="text-md flex flex-row items-start gap-x-3 rounded-lg border border-amber-300 bg-amber-50 p-2 leading-6"
     >
       <AlertIcon class="relative top-1 w-10 text-amber-600" />
@@ -16,9 +16,9 @@
     <!--    <p class="font-light">The following is a list of your non-argon tokens.</p>-->
 
     <div class="pb-1">
-      <OtherTokens :tokens="ethereumWallet.otherTokens" />
-      <p v-if="ethereumWallet.fetchErrorMsg" class="mt-3 text-sm leading-6 text-red-600">
-        {{ ethereumWallet.fetchErrorMsg }}
+      <OtherTokens :tokens="props.wallet.otherTokens" />
+      <p v-if="props.wallet.fetchErrorMsg" class="mt-3 text-sm leading-6 text-red-600">
+        {{ props.wallet.fetchErrorMsg }}
       </p>
     </div>
   </div>
@@ -29,11 +29,15 @@ import * as Vue from 'vue';
 import OtherTokens from './OtherTokens.vue';
 import AlertIcon from '../../assets/alert.svg';
 import { useWallets } from '../../stores/wallets.ts';
+import type { IWallet } from '../../lib/Wallet.ts';
+
+const props = defineProps<{ wallet: IWallet }>();
 
 const wallets = useWallets();
 
-const ethereumWallet = wallets.ethereumWallet;
 const baseWallet = wallets.baseWallet;
+
+const isBaseWalletAddress = Vue.computed(() => props.wallet.address.toLowerCase() === baseWallet.address.toLowerCase());
 
 const hasBaseAlert = Vue.computed(() => {
   const tokensWithValue = baseWallet.otherTokens.filter(x => x.value > 0n);

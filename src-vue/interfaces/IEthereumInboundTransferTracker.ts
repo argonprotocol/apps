@@ -2,7 +2,7 @@ import { MoveToken } from '@argonprotocol/apps-core';
 import type { ICrosschainTransferProgress } from '../lib/CrosschainTransferProgress.ts';
 import { WalletType } from '../lib/Wallet.ts';
 
-export type IArgonWalletType = WalletType.defaultArgon;
+export type IArgonWalletType = WalletType.defaultArgon | WalletType.miningBot;
 
 export type IEthereumMoveToken = MoveToken.ARGN | MoveToken.ARGNOT;
 

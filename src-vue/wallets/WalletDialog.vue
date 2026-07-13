@@ -1,15 +1,18 @@
-<!-- prettier-ignore -->
 <template>
   <DialogRoot :open="true" :modal="true">
     <DialogPortal>
       <DialogOverlay asChild>
-        <BgOverlay :style="{ zIndex: getOverlayBackdropZIndex(props.zIndex) }" @close="closeOverlay" />
+        <BgOverlay
+          class="bg-black/30"
+          :style="{ zIndex: getOverlayBackdropZIndex(props.zIndex) }"
+          @close="emit('close')"
+        />
       </DialogOverlay>
       <DialogContent
         asChild
         :aria-describedby="undefined"
         :style="{ zIndex: props.zIndex }"
-        @escapeKeyDown.prevent="handlePressEsc"
+        @escapeKeyDown.prevent="emit('close')"
       >
         <div
           :ref="setWalletRef"
@@ -17,107 +20,143 @@
             top: `calc(50% + ${draggable.modalPosition.y}px)`,
             left: `calc(50% + ${draggable.modalPosition.x}px)`,
             transform: 'translate(-50%, -50%)',
-            cursor: draggable.isDragging ? 'grabbing' : 'default',
           }"
-          :class="[
-            isSyncMode ? 'w-220' : 'w-110',
-            'absolute flex min-h-140 flex-col overflow-visible rounded-lg bg-linear-to-b from-[#cccccc] to-[#9f9f9f] shadow-2xl focus:outline-none pointer-events-auto',
-          ]"
+          class="pointer-events-auto absolute flex min-h-140 flex-row gap-12 focus:outline-none"
           @mousedown="emit('focus')"
         >
-          <DialogTitle asChild>
+          <DialogTitle class="sr-only">Wallets</DialogTitle>
+
+          <section
+            class="flex min-h-140 w-110 shrink-0 flex-col rounded-lg"
+            :class="
+              props.leftWallet
+                ? 'overflow-visible border border-black/40 bg-white shadow-2xl'
+                : 'overflow-hidden border-2 border-dashed border-slate-400/80 bg-gray-200/95 inset-shadow-sm inset-shadow-slate-300/60'
+            "
+          >
             <h2
-              class="z-20 mx-2 flex shrink-0 select-none flex-row items-center justify-between gap-x-3 px-2 pb-2 pt-3 text-2xl font-bold text-slate-800/70"
-              @dblclick="handleHeaderDoubleClick"
-              @mousedown="startDrag"
+              :style="{ cursor: draggable.isDragging ? 'grabbing' : 'grab' }"
+              class="z-20 mx-2 flex shrink-0 flex-row items-center justify-between gap-x-3 px-2 pt-3 pb-2 text-2xl font-bold text-slate-800/70 select-none"
+              @mousedown="draggable.onMouseDown"
             >
-              <div class="flex grow flex-row items-center">
-                <div v-if="isSyncMode" class="w-1/2 flex flex-row pr-6">
-                  <NavHeader :key="secondWalletKey" :walletType="secondWalletOption.type" :wallet="getWallet(secondWalletOption)" :isSyncMode="isSyncMode" :options="secondWalletOptions" :selectedOption="secondWalletOption" :showClose="true" @selectOption="handleSelectSecondWallet" @triggerSyncMode="triggerSyncMode" @close="closeOverlay" />
-                </div>
-                <div v-if="isSyncMode" class="relative h-[34px] w-[44px]">
-                  <button
-                    data-testid="WalletOverlay.toggleSyncDirection()"
-                    type="button"
-                    class="absolute top-1/2 left-1/2 -translate-1/2 z-10 flex h-[64px] w-[64px] shrink-0 cursor-pointer items-center justify-center rounded-full bg-white border border-slate-500/60 shadow-sm text-slate-500/60 hover:border-slate-500/60 hover:bg-[#f1f3f7] focus:outline-none"
-                    @click="toggleSyncDirection"
-                  >
-                    <PortalIcon class="h-8 w-8" />
-                  </button>
-                </div>
-                <div :class="[isSyncMode ? 'w-1/2 pl-4' : 'w-full']" class="flex flex-row">
-                  <NavHeader :key="firstWalletKey" :walletType="firstWalletOption.type" :wallet="getWallet(firstWalletOption)" :isSyncMode="isSyncMode" :options="firstWalletOptions" :selectedOption="firstWalletOption" :showClose="true" @selectOption="handleSelectFirstWallet" @triggerSyncMode="triggerSyncMode" @close="closeOverlay" />
-                </div>
-              </div>
+              <NavHeader
+                v-if="props.leftWallet"
+                :walletType="props.leftWallet.walletType"
+                :wallet="getWallet(props.leftWallet)"
+                :name="getWalletSelectionName(props.leftWallet)"
+                :canExportPrivateKey="canExportEthereumPrivateKey(props.leftWallet)"
+                :showClose="true"
+                closeSide="left"
+                @close="emit('closeLeft')"
+              />
+              <header v-else class="grow px-2 text-left text-xl font-bold text-slate-600">Choose a Wallet</header>
             </h2>
-          </DialogTitle>
+
+            <WalletPanel
+              v-if="props.leftWallet"
+              :selection="props.leftWallet"
+              :wallet="getWallet(props.leftWallet)"
+              :mode="props.rightWallet ? 'transfer' : 'chooser'"
+              :transferDirection="
+                props.rightWallet ? getTransferDirection(props.leftWallet, props.rightWallet) : undefined
+              "
+              :moveFrom="argonWalletMove?.moveFrom"
+              :moveTo="argonWalletMove?.moveTo"
+              :showGuidance="props.showGuidance"
+              :guidanceContext="props.guidanceContext"
+              class="grow"
+              @openTransferOverlay="
+                props.rightWallet && openTransferOverlay(props.leftWallet, props.rightWallet, $event)
+              "
+            />
+            <WalletChooser
+              v-else
+              :availableWallets="props.availableWallets"
+              :canAddDefaultEthereum="props.canAddDefaultEthereum"
+              class="grow border-t border-dashed border-slate-400/50"
+              @select="emit('selectLeftWallet', $event)"
+              @addDefaultEthereum="emit('addDefaultEthereum', 'left')"
+              @addExternalEthereum="emit('addExternalEthereum', 'left')"
+            />
+          </section>
+
+          <section
+            class="flex min-h-140 w-110 shrink-0 flex-col rounded-lg"
+            :class="
+              props.rightWallet
+                ? 'overflow-visible border border-black/40 bg-white shadow-2xl'
+                : 'overflow-hidden border-2 border-dashed border-slate-400/60 bg-slate-100/90 inset-shadow-sm inset-shadow-slate-300/60'
+            "
+          >
+            <h2
+              :style="{ cursor: draggable.isDragging ? 'grabbing' : 'grab' }"
+              class="z-20 mx-2 flex shrink-0 flex-row items-center justify-between gap-x-3 px-2 pt-3 pb-2 text-2xl font-bold text-slate-800/70 select-none"
+              @mousedown="draggable.onMouseDown"
+            >
+              <NavHeader
+                v-if="props.rightWallet"
+                :walletType="props.rightWallet.walletType"
+                :wallet="getWallet(props.rightWallet)"
+                :name="getWalletSelectionName(props.rightWallet)"
+                :canExportPrivateKey="canExportEthereumPrivateKey(props.rightWallet)"
+                :showClose="true"
+                closeSide="right"
+                @close="emit('closeRight')"
+              />
+              <header v-else class="grow px-2 text-left text-xl font-bold text-slate-600">Choose a Wallet</header>
+            </h2>
+
+            <WalletPanel
+              v-if="props.rightWallet"
+              :selection="props.rightWallet"
+              :wallet="getWallet(props.rightWallet)"
+              :mode="props.leftWallet ? 'transfer' : 'chooser'"
+              :showGuidance="props.showGuidance"
+              :guidanceContext="props.guidanceContext"
+              class="grow"
+            />
+            <WalletChooser
+              v-else
+              :availableWallets="props.availableWallets"
+              :canAddDefaultEthereum="props.canAddDefaultEthereum"
+              class="grow border-t border-dashed border-slate-400/50"
+              @select="emit('selectRightWallet', $event)"
+              @addDefaultEthereum="emit('addDefaultEthereum', 'right')"
+              @addExternalEthereum="emit('addExternalEthereum', 'right')"
+            />
+          </section>
 
           <div
-            :class="[isSyncMode ? 'w-1/2' : 'w-full']"
-            class="absolute left-0 top-0 z-[-1] h-full rounded-lg border border-black/40 bg-white"
-          />
-          <div
-            v-if="isSyncMode"
-            class="absolute right-0 top-0 z-[-1] h-full w-1/2 rounded-lg border border-black/40 bg-white"
-          />
-
-          <div class="flex w-full flex-row text-black/90 px-1 text-7xl font-bold text-center">
-            <div v-if="isSyncMode" class="w-1/2 border-t border-slate-300 px-4 py-6">
-              <FormattedMoney :value="getWallet(secondWalletOption).availableMicrogons" />
-            </div>
-            <div class="border-t border-slate-300 px-4 py-6" :class="[isSyncMode ? 'w-1/2' : 'w-full']">
-              <FormattedMoney :value="getWallet(firstWalletOption).availableMicrogons" />
-            </div>
-          </div>
-
-          <div class="relative flex w-full flex-row" :class="isSyncMode ? 'py-2' : ''">
-            <div v-if="isSyncMode" class="absolute -left-2 top-0 z-[-1] h-full w-[calc(100%+16px)] rounded-t-lg border border-black/30 bg-white shadow-md">
-              <WrapBehindEdge class="absolute bottom-0 right-0 h-2 w-2 translate-y-full" />
-              <WrapBehindEdge class="absolute bottom-0 left-0 h-2 w-2 translate-y-full scale-x-[-1]" />
-            </div>
-            <div v-if="isSyncMode" class="w-1/2 px-4">
-              <ArgonTokens
-                :microgons="getWallet(secondWalletOption).availableMicrogons"
-                :micronots="getWallet(secondWalletOption).availableMicronots"
-                :minimizedLines="true"
-                :moveDirection="getTransferDirection(secondWalletOption, firstWalletOption)"
-                :networkName="getExternalNetworkName(secondWalletOption, firstWalletOption)"
-                :feeTokenSymbol="getExternalFeeTokenSymbol(secondWalletOption, firstWalletOption)"
-                @openTransferOverlay="openTransferOverlay(secondWalletOption, firstWalletOption, $event.moveToken, $event.availableAmount)"
-              />
-            </div>
-            <div class="px-4" :class="[isSyncMode ? 'w-1/2' : 'w-full']">
-              <ArgonTokens
-                :microgons="getWallet(firstWalletOption).availableMicrogons"
-                :micronots="getWallet(firstWalletOption).availableMicronots"
-                :minimizedLines="isSyncMode"
-              />
-            </div>
-          </div>
-
-          <div class="flex w-full grow flex-row">
-            <div v-if="isSyncMode" class="flex w-1/2 flex-col px-4">
-              <ArgonBottom
-                v-if="isArgonWalletType(secondWalletOption.type)"
-                :isSyncMode="isSyncMode"
-                :showGuidance="props.showGuidance"
-                :guidanceContext="props.guidanceContext"
-                :walletType="secondWalletOption.type"
-                direction="to"
-              />
-              <EthereumBottom v-else-if="secondWalletOption.type === 'ethereum'" />
-            </div>
-            <div :class="[isSyncMode ? 'w-1/2' : 'w-full']" class="flex flex-col px-4" >
-              <ArgonBottom
-                v-if="isArgonWalletType(firstWalletOption.type)"
-                :isSyncMode="isSyncMode"
-                :showGuidance="props.showGuidance"
-                :guidanceContext="props.guidanceContext"
-                :walletType="firstWalletOption.type"
-                direction="from"
-              />
-              <EthereumBottom v-else-if="firstWalletOption.type === 'ethereum'" />
-            </div>
+            v-if="props.leftWallet && props.rightWallet"
+            class="absolute top-full left-1/2 mt-4 flex w-max max-w-4xl -translate-x-1/2 items-center gap-3 text-sm text-white drop-shadow-sm"
+          >
+            <button
+              data-testid="WalletOverlay.toggleSyncDirection()"
+              type="button"
+              class="flex shrink-0 cursor-pointer items-center gap-1.5 rounded border border-white/50 bg-white/10 px-3 py-1.5 font-semibold text-white hover:bg-white/20 focus:outline-none"
+              title="Switch direction"
+              @click="emit('flip')"
+            >
+              <ArrowsRightLeftIcon class="h-4 w-4 stroke-2" />
+              Switch direction
+            </button>
+            <p>
+              Use
+              <strong>{{ isCrosschainWalletPair() ? 'JUMP' : 'MOVE' }}</strong>
+              to transfer supported tokens from
+              <strong>{{ getWalletSelectionName(props.leftWallet) }}</strong>
+              to
+              <strong>{{ getWalletSelectionName(props.rightWallet) }}</strong>
+              .
+              <a
+                v-if="isCrosschainWalletPair()"
+                href="https://argon.network/documentation/transfer-guide"
+                target="_blank"
+                class="font-semibold underline"
+              >
+                Learn more
+              </a>
+            </p>
           </div>
 
           <WalletTransferOverlay :request="activeTransferOverlay" @close="activeTransferOverlay = undefined" />
@@ -129,56 +168,56 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
+import { ArrowsRightLeftIcon } from '@heroicons/vue/24/outline';
 import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
-import BgOverlay from '../components/BgOverlay.vue';
-import Draggable from '../overlays/helpers/Draggable.ts';
-import { getOverlayBackdropZIndex, provideOverlayContentZIndex } from '../overlays/helpers/OverlayZIndex.ts';
-import ArgonBottom from './components/ArgonBottom.vue';
-import EthereumBottom from './components/EthereumBottom.vue';
-import NavHeader, { type IWalletOption } from './components/NavHeader.vue';
-import ArgonTokens from './components/ArgonTokens.vue';
-import ArgonIntro from './components/ArgonIntro.vue';
-import PortalIcon from '../assets/wallets/swap.svg';
-import WrapBehindEdge from '../assets/wrap-behind-edge.svg';
-import EthereumIntro from './components/EthereumIntro.vue';
-import WalletTransferOverlay from './components/WalletTransferOverlay.vue';
 import type { IArgonWalletType, IEthereumMoveToken } from '../interfaces/IEthereumInboundTransferTracker.ts';
 import { type IWallet, WalletType } from '../lib/Wallet.ts';
+import Draggable from '../overlays/helpers/Draggable.ts';
+import { getOverlayBackdropZIndex, provideOverlayContentZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 import { useWallets } from '../stores/wallets.ts';
 import type { IWalletGuidanceContext } from '../emitters/basicEmitter.ts';
-import FormattedMoney from '../components/FormattedMoney.vue';
+import BgOverlay from '../components/BgOverlay.vue';
+import NavHeader from './components/NavHeader.vue';
+import WalletChooser from './components/WalletChooser.vue';
+import WalletPanel from './components/WalletPanel.vue';
+import WalletTransferOverlay from './components/WalletTransferOverlay.vue';
+import {
+  getWalletSelectionKey,
+  getWalletSelectionName,
+  isEthereumWalletSelection,
+  type IWalletSelection,
+} from './walletOverlayState.ts';
 
 const props = withDefaults(
   defineProps<{
-    walletType: WalletType.defaultArgon | WalletType.ethereum;
-    pairedWalletType?: WalletType.defaultArgon | WalletType.ethereum;
+    leftWallet?: IWalletSelection;
+    rightWallet?: IWalletSelection;
+    availableWallets: IWalletSelection[];
+    canAddDefaultEthereum: boolean;
     showGuidance?: boolean;
     guidanceContext?: IWalletGuidanceContext;
     zIndex: number;
-    position?: { x: number; y: number };
   }>(),
   {
     showGuidance: false,
-    position: () => ({ x: 0, y: 0 }),
   },
 );
 
 const emit = defineEmits<{
-  (e: 'close'): void;
-  (e: 'focus'): void;
-  (e: 'unpair'): void;
-  (e: 'pair', pairedWalletType: WalletType.defaultArgon | WalletType.ethereum): void;
-  (e: 'dragMove', payload: { position: { x: number; y: number }; rect: DOMRectReadOnly }): void;
-  (e: 'positionChange', payload: { position: { x: number; y: number }; rect: DOMRectReadOnly }): void;
-  (e: 'dragEnd', payload: { position: { x: number; y: number }; rect: DOMRectReadOnly }): void;
+  (event: 'focus'): void;
+  (event: 'selectLeftWallet', wallet: IWalletSelection): void;
+  (event: 'selectRightWallet', wallet: IWalletSelection): void;
+  (event: 'addDefaultEthereum', side: 'left' | 'right'): void;
+  (event: 'addExternalEthereum', side: 'left' | 'right'): void;
+  (event: 'flip'): void;
+  (event: 'closeLeft'): void;
+  (event: 'closeRight'): void;
+  (event: 'close'): void;
 }>();
 
 const walletStore = useWallets();
 const draggable = Vue.reactive(new Draggable({ constrainToViewport: false }));
-const walletRef = Vue.shallowRef<HTMLElement | null>(null);
-provideOverlayContentZIndex(Vue.computed(() => props.zIndex));
-
-const isSyncMode = Vue.computed(() => !!props.pairedWalletType);
 const activeTransferOverlay = Vue.ref<{
   direction: 'transferToArgon' | 'transferOutOfArgon';
   moveToken: IEthereumMoveToken;
@@ -187,250 +226,94 @@ const activeTransferOverlay = Vue.ref<{
   networkName: string;
   feeTokenSymbol: string;
 }>();
-const walletOptions = Vue.ref<IWalletOption[]>([
-  { type: WalletType.defaultArgon as const, name: 'Native Argon Wallet', isArgonNetwork: true },
-  { type: WalletType.ethereum as const, name: 'Native Ethereum Wallet', isArgonNetwork: false },
-]);
-const firstWalletOption = Vue.ref<IWalletOption>(getWalletOption(props.walletType));
-const secondWalletOption = Vue.ref<IWalletOption>(
-  props.pairedWalletType
-    ? getWalletOption(props.pairedWalletType)
-    : walletOptions.value[walletOptions.value.length - 1],
-);
-const firstWalletOptions = Vue.computed(() => getWalletOptionsForSide(secondWalletOption.value));
-const secondWalletOptions = Vue.computed(() => getWalletOptionsForSide(firstWalletOption.value));
-const firstWalletKey = Vue.computed(() => getWalletHeaderKey(firstWalletOption.value, firstWalletOptions.value));
-const secondWalletKey = Vue.computed(() => getWalletHeaderKey(secondWalletOption.value, secondWalletOptions.value));
-
-function isArgonWalletType(walletType: WalletType): walletType is WalletType.defaultArgon {
-  return walletType === WalletType.defaultArgon;
-}
-
-function getWalletOptionsForSide(oppositeOption: IWalletOption) {
-  if (!isSyncMode.value) return walletOptions.value;
-
-  return walletOptions.value.filter(wallet => wallet.isArgonNetwork !== oppositeOption.isArgonNetwork);
-}
-
-function getWalletHeaderKey(selectedOption: IWalletOption, options: IWalletOption[]) {
-  return `${selectedOption.type}:${options.map(wallet => wallet.type).join(',')}`;
-}
-
-function getWalletOption(walletType: WalletType) {
-  const walletOption = walletOptions.value.find(x => x.type === walletType);
-  if (!walletOption) {
-    throw new Error(`Wallet option not supported: ${walletType}`);
-  }
-  return walletOption;
-}
-
-function closeOverlay() {
-  activeTransferOverlay.value = undefined;
-  emit('close');
-}
-
-function handlePressEsc() {
-  if (!isSyncMode.value) {
-    closeOverlay();
+const argonWalletMove = Vue.computed(() => {
+  const sourceWallet = props.leftWallet;
+  const recipientWallet = props.rightWallet;
+  if (
+    !sourceWallet ||
+    !recipientWallet ||
+    isEthereumWalletSelection(sourceWallet) ||
+    isEthereumWalletSelection(recipientWallet)
+  ) {
     return;
   }
 
-  activeTransferOverlay.value = undefined;
-  emit('unpair');
-}
-
-function handleHeaderDoubleClick() {
-  if (!isSyncMode.value) return;
-  activeTransferOverlay.value = undefined;
-  emit('unpair');
-}
-
-function handleSelectFirstWallet(option: IWalletOption) {
-  if (option.type === secondWalletOption.value.type) {
-    secondWalletOption.value = firstWalletOption.value;
+  if (sourceWallet.walletType === WalletType.defaultArgon && recipientWallet.walletType === WalletType.miningBot) {
+    return { moveFrom: MoveFrom.DefaultArgon, moveTo: MoveTo.MiningBot };
   }
-  firstWalletOption.value = option;
-}
 
-function handleSelectSecondWallet(option: IWalletOption) {
-  if (option.type === firstWalletOption.value.type) {
-    firstWalletOption.value = secondWalletOption.value;
+  if (sourceWallet.walletType === WalletType.miningBot && recipientWallet.walletType === WalletType.defaultArgon) {
+    return { moveFrom: MoveFrom.MiningBot, moveTo: MoveTo.DefaultArgon };
   }
-  secondWalletOption.value = option;
-}
+});
 
-function toggleSyncDirection() {
-  activeTransferOverlay.value = undefined;
-  const nextSecondWallet = firstWalletOption.value;
-  firstWalletOption.value = secondWalletOption.value;
-  secondWalletOption.value = nextSecondWallet;
-}
+provideOverlayContentZIndex(Vue.computed(() => props.zIndex));
 
-function triggerSyncMode() {
-  if (isSyncMode.value) return;
-  emit('pair', firstWalletOption.value.isArgonNetwork ? WalletType.ethereum : getDefaultArgonWalletType());
-}
-
-function getDefaultArgonWalletType(): WalletType.defaultArgon {
-  return WalletType.defaultArgon;
-}
-
-function getWallet(option: IWalletOption): IWallet {
-  if (option.type === WalletType.ethereum) {
-    return walletStore.ethereumWallet;
-  } else if (option.type === WalletType.defaultArgon) {
-    return walletStore.defaultArgonWallet;
-  } else {
-    throw new Error(`Wallet not support: ${option.type}`);
+function getWallet(selection: IWalletSelection): IWallet {
+  if (isEthereumWalletSelection(selection)) {
+    return walletStore.getEthereumWalletRecord(selection.walletRecord.id);
   }
+
+  return selection.walletType === WalletType.miningBot ? walletStore.miningBotWallet : walletStore.defaultArgonWallet;
+}
+
+function canExportEthereumPrivateKey(selection: IWalletSelection) {
+  return isEthereumWalletSelection(selection) && selection.walletRecord.role === 'defaultEthereum';
+}
+
+function isCrosschainWalletPair() {
+  if (!props.leftWallet || !props.rightWallet) return false;
+
+  return isEthereumWalletSelection(props.leftWallet) !== isEthereumWalletSelection(props.rightWallet);
 }
 
 function getTransferDirection(
-  currentOption: IWalletOption,
-  oppositeOption: IWalletOption,
+  sourceWallet: IWalletSelection,
+  recipientWallet: IWalletSelection,
 ): 'transferToArgon' | 'transferOutOfArgon' | undefined {
-  if (currentOption.type === WalletType.ethereum && isArgonWalletType(oppositeOption.type)) {
+  if (isEthereumWalletSelection(sourceWallet) && !isEthereumWalletSelection(recipientWallet)) {
     return 'transferToArgon';
   }
 
-  if (oppositeOption.type === WalletType.ethereum && isArgonWalletType(currentOption.type)) {
+  if (!isEthereumWalletSelection(sourceWallet) && isEthereumWalletSelection(recipientWallet)) {
     return 'transferOutOfArgon';
   }
 }
 
-function getExternalNetworkName(currentOption: IWalletOption, oppositeOption: IWalletOption) {
-  if (currentOption.type === WalletType.ethereum) {
-    return currentOption.name.replace(/ Wallet$/, '');
-  }
-
-  if (oppositeOption.type === WalletType.ethereum) {
-    return oppositeOption.name.replace(/ Wallet$/, '');
-  }
-
-  return '';
-}
-
-function getExternalFeeTokenSymbol(currentOption: IWalletOption, oppositeOption: IWalletOption) {
-  if (currentOption.type === WalletType.ethereum || oppositeOption.type === WalletType.ethereum) {
-    return 'ETH';
-  }
-
-  return '';
-}
-
-function openTransferOverlay(
-  currentOption: IWalletOption,
-  oppositeOption: IWalletOption,
-  moveToken: IEthereumMoveToken,
-  availableAmount: bigint,
+async function openTransferOverlay(
+  sourceWallet: IWalletSelection,
+  recipientWallet: IWalletSelection,
+  transfer: { moveToken: IEthereumMoveToken; availableAmount: bigint },
 ) {
-  if (currentOption.type === WalletType.ethereum && isArgonWalletType(oppositeOption.type)) {
-    activeTransferOverlay.value = {
-      direction: 'transferToArgon',
-      moveToken,
-      availableAmount,
-      walletType: oppositeOption.type,
-      networkName: currentOption.name.replace(/ Wallet$/, ''),
-      feeTokenSymbol: 'ETH',
-    };
-    return;
-  }
+  const direction = getTransferDirection(sourceWallet, recipientWallet);
+  if (!direction) return;
 
-  if (oppositeOption.type === WalletType.ethereum && isArgonWalletType(currentOption.type)) {
-    activeTransferOverlay.value = {
-      direction: 'transferOutOfArgon',
-      moveToken,
-      availableAmount,
-      walletType: currentOption.type,
-      networkName: oppositeOption.name.replace(/ Wallet$/, ''),
-      feeTokenSymbol: 'ETH',
-    };
-  }
-}
+  const ethereumWallet = isEthereumWalletSelection(sourceWallet) ? sourceWallet : recipientWallet;
+  const argonWallet = isEthereumWalletSelection(sourceWallet) ? recipientWallet : sourceWallet;
+  if (!isEthereumWalletSelection(ethereumWallet) || isEthereumWalletSelection(argonWallet)) return;
 
-Vue.onMounted(() => {
-  draggable.modalPosition.x = props.position.x;
-  draggable.modalPosition.y = props.position.y;
-  emitPosition();
-});
-
-Vue.watch(
-  () => props.position,
-  position => {
-    if (draggable.isDragging) return;
-    draggable.modalPosition.x = position.x;
-    draggable.modalPosition.y = position.y;
-  },
-  { deep: true },
-);
-
-Vue.watch(() => ({ ...draggable.modalPosition }), emitPosition);
-
-Vue.watch(
-  () => props.walletType,
-  walletType => {
-    firstWalletOption.value = getWalletOption(walletType);
-  },
-);
-
-Vue.watch(
-  () => props.pairedWalletType,
-  pairedWalletType => {
-    if (pairedWalletType) {
-      secondWalletOption.value = getWalletOption(pairedWalletType);
-    }
-  },
-);
-
-function setWalletRef(el: Element | Vue.ComponentPublicInstance | null) {
-  walletRef.value = ((el as any)?.$el || el) as HTMLElement | null;
-  draggable.setModalRef(el);
-}
-
-function startDrag(event: MouseEvent) {
-  draggable.onMouseDown(event);
-
-  if (!draggable.isDragging) return;
-
-  window.addEventListener('mousemove', handleWalletDragMove);
-  window.addEventListener('mouseup', handleWalletDragEnd, { once: true });
-}
-
-function handleWalletDragMove() {
-  const payload = getPositionPayload();
-  if (!payload) return;
-  emit('positionChange', payload);
-  emit('dragMove', payload);
-}
-
-function handleWalletDragEnd() {
-  window.removeEventListener('mousemove', handleWalletDragMove);
-  Vue.nextTick(() => {
-    const payload = getPositionPayload();
-    if (!payload) return;
-    emit('positionChange', payload);
-    emit('dragEnd', payload);
-  });
-}
-
-function emitPosition() {
-  Vue.nextTick(() => {
-    const payload = getPositionPayload();
-    if (payload) {
-      emit('positionChange', payload);
-    }
-  });
-}
-
-function getPositionPayload() {
-  if (!walletRef.value) return;
-  return {
-    position: { ...draggable.modalPosition },
-    rect: walletRef.value.getBoundingClientRect(),
+  await walletStore.selectEthereumWalletRecord(ethereumWallet.walletRecord.id);
+  activeTransferOverlay.value = {
+    direction,
+    moveToken: transfer.moveToken,
+    availableAmount: transfer.availableAmount,
+    walletType: argonWallet.walletType,
+    networkName: 'Ethereum',
+    feeTokenSymbol: 'ETH',
   };
 }
 
-Vue.onUnmounted(() => {
-  window.removeEventListener('mousemove', handleWalletDragMove);
-});
+function setWalletRef(element: Element | Vue.ComponentPublicInstance | null) {
+  draggable.setModalRef(element);
+}
+
+Vue.watch(
+  () => [
+    props.leftWallet ? getWalletSelectionKey(props.leftWallet) : undefined,
+    props.rightWallet ? getWalletSelectionKey(props.rightWallet) : undefined,
+  ],
+  () => {
+    activeTransferOverlay.value = undefined;
+  },
+);
 </script>

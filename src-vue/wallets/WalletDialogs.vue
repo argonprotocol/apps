@@ -1,27 +1,27 @@
 <template>
-  <div
-    v-if="snapPreviewStyle"
-    class="border-argon-500/70 pointer-events-none fixed rounded-xl border-2 shadow-[0_0_0_4px_rgba(183,76,186,0.18),0_0_28px_rgba(183,76,186,0.45)]"
-    :style="snapPreviewStyle"
-  />
   <WalletDialog
-    v-for="wallet in openWallets"
-    :key="wallet.id"
-    :walletType="wallet.walletType"
-    :pairedWalletType="wallet.pairedWalletType"
-    :showGuidance="wallet.showGuidance"
-    :guidanceContext="wallet.guidanceContext"
-    :zIndex="wallet.zIndex"
-    :position="wallet.position"
-    @focus="focusWallet(wallet.id)"
-    @pair="pairWallet(wallet.id, $event)"
-    @unpair="unpairWallet(wallet.id)"
-    @positionChange="updateWalletGeometry(wallet.id, $event)"
-    @dragMove="handleDragMove(wallet.id, $event)"
-    @dragEnd="handleDragEnd(wallet.id, $event)"
-    @close="closeWallet(wallet.id)"
+    v-if="openWallet"
+    :rightWallet="openWallet.rightWallet"
+    :leftWallet="openWallet.leftWallet"
+    :availableWallets="availableWallets"
+    :canAddDefaultEthereum="canAddDefaultEthereum"
+    :showGuidance="openWallet.showGuidance"
+    :guidanceContext="openWallet.guidanceContext"
+    :zIndex="openWallet.zIndex"
+    @focus="focusWallet"
+    @selectLeftWallet="selectWallet('left', $event)"
+    @selectRightWallet="selectWallet('right', $event)"
+    @addDefaultEthereum="addDefaultEthereum"
+    @addExternalEthereum="addExternalEthereum"
+    @flip="flipWallets"
+    @closeLeft="closeWallet('left')"
+    @closeRight="closeWallet('right')"
+    @close="closeOverlay"
   />
-  <EthereumWalletImportOverlay @complete="completeEthereumWalletSetup" />
+  <EthereumWalletImportOverlay
+    @complete="completeEthereumWalletSetup"
+    @cancel="pendingEthereumWalletAction = undefined"
+  />
 </template>
 
 <script lang="ts">
@@ -33,311 +33,216 @@ export const openWalletOverlayCount = ref(0);
 <script setup lang="ts">
 import * as Vue from 'vue';
 import basicEmitter, { type IWalletGuidanceContext, type IWalletOverlayRequest } from '../emitters/basicEmitter.ts';
+import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
 import { WalletType } from '../lib/Wallet.ts';
-import { useBasics } from '../stores/basics.ts';
-import { useWallets } from '../stores/wallets.ts';
 import { releaseOverlayZIndex, reserveOverlayZIndex } from '../overlays/helpers/OverlayZIndex.ts';
-import WalletDialog from './WalletDialog.vue';
+import { useBasics } from '../stores/basics.ts';
+import { getConfig } from '../stores/config.ts';
+import { useWallets } from '../stores/wallets.ts';
 import EthereumWalletImportOverlay from './EthereumWalletImportOverlay.vue';
+import WalletDialog from './WalletDialog.vue';
+import {
+  closeWalletOverlaySide,
+  flipWalletOverlay,
+  getAvailableWalletSelections,
+  getInitialWalletOverlayState,
+  getWalletSelectionKey,
+  isEthereumWalletSelection,
+  type IWalletOverlayState,
+  type IWalletSelection,
+} from './walletOverlayState.ts';
 
-type IOpenWallet = {
-  id: number;
-  walletType: WalletType.defaultArgon | WalletType.ethereum;
-  pairedWalletType?: WalletType.defaultArgon | WalletType.ethereum;
+type IOpenWallet = IWalletOverlayState & {
   showGuidance: boolean;
   guidanceContext?: IWalletGuidanceContext;
   zIndex: number;
-  position: { x: number; y: number };
-  rect?: DOMRectReadOnly;
 };
 
 const basics = useBasics();
+const config = getConfig();
 const walletStore = useWallets();
-const openWallets = Vue.ref<IOpenWallet[]>([]);
+const openWallet = Vue.ref<IOpenWallet>();
 const pendingEthereumWalletAction = Vue.ref<
-  | { type: 'open'; request: IWalletOverlayRequest }
-  | {
-      type: 'pair';
-      walletId: number;
-      pairedWalletType: WalletType.defaultArgon | WalletType.ethereum;
-    }
+  { type: 'open'; request: IWalletOverlayRequest } | { type: 'select'; side: 'left' | 'right' }
 >();
-const snapPreview = Vue.ref<{
-  draggedWalletId: number;
-  targetWalletId: number;
-  bounds: { top: number; left: number; width: number; height: number };
-}>();
-let nextWalletId = 1;
 
-function syncOverlayState() {
-  basics.overlayIsOpen = openWallets.value.length > 0;
-}
+const availableWallets = Vue.computed(() => {
+  if (!openWallet.value) return [];
 
-function focusWallet(id: number) {
-  const wallet = openWallets.value.find(x => x.id === id);
-  if (!wallet) return;
-  wallet.zIndex = reserveOverlayZIndex(wallet.zIndex);
-}
-
-function closeWallet(id: number) {
-  const wallet = openWallets.value.find(x => x.id === id);
-  if (wallet) {
-    releaseOverlayZIndex(wallet.zIndex);
+  const loadedWallets: IWalletSelection[] = [];
+  if (openWallet.value.leftWallet) {
+    loadedWallets.push(openWallet.value.leftWallet);
+  }
+  if (openWallet.value.rightWallet) {
+    loadedWallets.push(openWallet.value.rightWallet);
   }
 
-  openWallets.value = openWallets.value.filter(wallet => wallet.id !== id);
-  if (snapPreview.value?.draggedWalletId === id || snapPreview.value?.targetWalletId === id) {
-    snapPreview.value = undefined;
-  }
-  syncOverlayState();
-}
-
-function pairWallet(id: number, pairedWalletType: WalletType.defaultArgon | WalletType.ethereum) {
-  const wallet = openWallets.value.find(x => x.id === id);
-  if (!wallet || wallet.pairedWalletType) return;
-
-  if (
-    (wallet.walletType === WalletType.ethereum || pairedWalletType === WalletType.ethereum) &&
-    !walletStore.walletRecords.some(record => record.walletType === 'ethereum')
-  ) {
-    pendingEthereumWalletAction.value = { type: 'pair', walletId: id, pairedWalletType };
-    basicEmitter.emit('openEthereumWalletImportOverlay');
-    return;
-  }
-
-  wallet.pairedWalletType = pairedWalletType;
-  wallet.zIndex = reserveOverlayZIndex(wallet.zIndex);
-}
-
-function unpairWallet(id: number) {
-  const wallet = openWallets.value.find(x => x.id === id);
-  if (!wallet?.pairedWalletType) return;
-
-  const pairedWalletType = wallet.pairedWalletType;
-  const originalPosition = { ...wallet.position };
-  const singleWalletWidth = (wallet.rect?.width ?? window.innerWidth * (8 / 12)) * (5 / 8);
-  const centerOffset = (singleWalletWidth + 15) / 2;
-  wallet.pairedWalletType = undefined;
-  wallet.zIndex = reserveOverlayZIndex(wallet.zIndex);
-  wallet.position = {
-    x: originalPosition.x + centerOffset,
-    y: originalPosition.y,
-  };
-
-  openWallets.value.push({
-    id: nextWalletId++,
-    walletType: pairedWalletType,
-    showGuidance: false,
-    zIndex: reserveOverlayZIndex(),
-    position: {
-      x: originalPosition.x - centerOffset,
-      y: originalPosition.y,
-    },
-  });
-  syncOverlayState();
-}
-
-function updateWalletGeometry(id: number, payload: { position: { x: number; y: number }; rect: DOMRectReadOnly }) {
-  const wallet = openWallets.value.find(x => x.id === id);
-  if (!wallet) return;
-
-  wallet.position = payload.position;
-  wallet.rect = payload.rect;
-}
-
-function handleDragMove(id: number, payload: { position: { x: number; y: number }; rect: DOMRectReadOnly }) {
-  updateWalletGeometry(id, payload);
-
-  const draggedWallet = openWallets.value.find(wallet => wallet.id === id);
-  if (!draggedWallet || draggedWallet.pairedWalletType) {
-    snapPreview.value = undefined;
-    return;
-  }
-
-  const targetWallet = findSnapTarget(draggedWallet);
-  if (!targetWallet?.rect || !draggedWallet.rect) {
-    snapPreview.value = undefined;
-    return;
-  }
-
-  snapPreview.value = {
-    draggedWalletId: draggedWallet.id,
-    targetWalletId: targetWallet.id,
-    bounds: getCombinedBounds(draggedWallet.rect, targetWallet.rect),
-  };
-}
-
-function handleDragEnd(id: number, payload: { position: { x: number; y: number }; rect: DOMRectReadOnly }) {
-  updateWalletGeometry(id, payload);
-
-  const draggedWallet = openWallets.value.find(wallet => wallet.id === id);
-  if (!draggedWallet || draggedWallet.pairedWalletType) {
-    snapPreview.value = undefined;
-    return;
-  }
-
-  const previewTargetId = snapPreview.value?.draggedWalletId === id ? snapPreview.value.targetWalletId : undefined;
-  const targetWallet = previewTargetId
-    ? openWallets.value.find(wallet => wallet.id === previewTargetId)
-    : findSnapTarget(draggedWallet);
-  snapPreview.value = undefined;
-  if (!targetWallet || !targetWallet.rect) return;
-
-  const draggedIsLeft = payload.rect.left < targetWallet.rect.left;
-  const primaryWalletType = draggedIsLeft ? targetWallet.walletType : draggedWallet.walletType;
-  const pairedWalletType = draggedIsLeft ? draggedWallet.walletType : targetWallet.walletType;
-  const primaryShowGuidance = draggedIsLeft ? targetWallet.showGuidance : draggedWallet.showGuidance;
-
-  releaseOverlayZIndex(draggedWallet.zIndex);
-  releaseOverlayZIndex(targetWallet.zIndex);
-  openWallets.value = openWallets.value.filter(
-    wallet => wallet.id !== draggedWallet.id && wallet.id !== targetWallet.id,
-  );
-  openWallets.value.push({
-    id: draggedWallet.id,
-    walletType: primaryWalletType,
-    pairedWalletType,
-    showGuidance: primaryShowGuidance,
-    zIndex: reserveOverlayZIndex(),
-    position: {
-      x: (draggedWallet.position.x + targetWallet.position.x) / 2,
-      y: (draggedWallet.position.y + targetWallet.position.y) / 2,
-    },
-  });
-  syncOverlayState();
-}
-
-const snapPreviewStyle = Vue.computed(() => {
-  if (!snapPreview.value) return;
-
-  const padding = 8;
-  const bounds = snapPreview.value.bounds;
-  return {
-    top: `${bounds.top - padding}px`,
-    left: `${bounds.left - padding}px`,
-    width: `${bounds.width + padding * 2}px`,
-    height: `${bounds.height + padding * 2}px`,
-    zIndex: Math.max(...openWallets.value.map(wallet => wallet.zIndex), 0) + 1,
-  };
+  return getAvailableWalletSelections(walletStore.walletRecords, loadedWallets, config.hasExtensionOperations);
 });
 
-function getNextPosition() {
-  const offset = (openWallets.value.length % 5) * 32;
-  return { x: offset, y: offset };
+const canAddDefaultEthereum = Vue.computed(
+  () => !walletStore.walletRecords.some(record => record.role === 'defaultEthereum'),
+);
+
+function focusWallet() {
+  if (!openWallet.value) return;
+  openWallet.value.zIndex = reserveOverlayZIndex(openWallet.value.zIndex);
 }
 
-function findSnapTarget(draggedWallet: IOpenWallet) {
-  if (!draggedWallet.rect) return;
+async function selectWallet(side: 'left' | 'right', wallet: IWalletSelection) {
+  if (!openWallet.value) return;
 
-  return openWallets.value.find(candidate => {
-    if (candidate.id === draggedWallet.id || candidate.pairedWalletType || !candidate.rect) return false;
-    if (!canPairWallets(draggedWallet.walletType, candidate.walletType)) return false;
+  if (isEthereumWalletSelection(wallet)) {
+    await walletStore.selectEthereumWalletRecord(wallet.walletRecord.id);
+  }
 
-    const verticalDistance = Math.abs(getRectCenterY(draggedWallet.rect!) - getRectCenterY(candidate.rect));
-    if (verticalDistance > 120) return false;
+  if (side === 'left') {
+    openWallet.value.leftWallet = wallet;
+  } else {
+    openWallet.value.rightWallet = wallet;
+  }
 
-    const draggedIsLeft = draggedWallet.rect!.left < candidate.rect.left;
-    const horizontalGap = draggedIsLeft
-      ? candidate.rect.left - draggedWallet.rect!.right
-      : draggedWallet.rect!.left - candidate.rect.right;
-
-    return horizontalGap >= -10 && horizontalGap <= 10;
-  });
+  await syncActiveEthereumWallet();
 }
 
-function getRectCenterY(rect: DOMRectReadOnly) {
-  return rect.top + rect.height / 2;
+async function addDefaultEthereum(side: 'left' | 'right') {
+  const walletRecord = await walletStore.createDefaultEthereumWallet();
+  await selectWallet(side, { walletType: WalletType.ethereum, walletRecord });
 }
 
-function getCombinedBounds(first: DOMRectReadOnly, second: DOMRectReadOnly) {
-  const top = Math.min(first.top, second.top);
-  const left = Math.min(first.left, second.left);
-  const right = Math.max(first.right, second.right);
-  const bottom = Math.max(first.bottom, second.bottom);
-
-  return {
-    top,
-    left,
-    width: right - left,
-    height: bottom - top,
-  };
+function addExternalEthereum(side: 'left' | 'right') {
+  pendingEthereumWalletAction.value = { type: 'select', side };
+  basicEmitter.emit('openEthereumWalletImportOverlay', 'external');
 }
 
-function canPairWallets(
-  first: WalletType.defaultArgon | WalletType.ethereum,
-  second: WalletType.defaultArgon | WalletType.ethereum,
-) {
-  return isArgonWalletType(first) !== isArgonWalletType(second);
+function flipWallets() {
+  if (!openWallet.value?.leftWallet || !openWallet.value.rightWallet) return;
+
+  const nextState = flipWalletOverlay(openWallet.value);
+  openWallet.value.leftWallet = nextState.leftWallet;
+  openWallet.value.rightWallet = nextState.rightWallet;
+  void syncActiveEthereumWallet();
 }
 
-function isArgonWalletType(walletType: WalletType) {
-  return walletType === WalletType.defaultArgon;
+function closeWallet(side: 'left' | 'right') {
+  if (!openWallet.value) return;
+
+  const nextState = closeWalletOverlaySide(openWallet.value, side);
+  openWallet.value.leftWallet = nextState.leftWallet;
+  openWallet.value.rightWallet = nextState.rightWallet;
+  void syncActiveEthereumWallet();
 }
 
-const openWalletOverlay = async (payload: IWalletOverlayRequest) => {
+const openWalletOverlay = async (request: IWalletOverlayRequest, ethereumWalletRecord?: IWalletRecord) => {
   try {
     await walletStore.load();
   } catch (error) {
     console.error('Failed to refresh wallet balances before opening wallet overlay', error);
   }
 
-  if (
-    payload.walletType === WalletType.ethereum &&
-    !walletStore.walletRecords.some(record => record.walletType === 'ethereum')
-  ) {
-    pendingEthereumWalletAction.value = { type: 'open', request: payload };
-    basicEmitter.emit('openEthereumWalletImportOverlay');
+  const wallet = getRequestedWallet(request, ethereumWalletRecord);
+  if (!wallet) {
+    pendingEthereumWalletAction.value = { type: 'open', request };
+    basicEmitter.emit('openEthereumWalletImportOverlay', 'choice');
     return;
   }
 
-  const existingWallet = openWallets.value.find(
-    wallet => !wallet.pairedWalletType && wallet.walletType === payload.walletType,
-  );
-  if (existingWallet) {
-    existingWallet.showGuidance = payload.showGuidance || false;
-    existingWallet.guidanceContext = payload.guidanceContext;
-    focusWallet(existingWallet.id);
-    syncOverlayState();
+  if (isEthereumWalletSelection(wallet)) {
+    await walletStore.selectEthereumWalletRecord(wallet.walletRecord.id);
+  }
+
+  if (openWallet.value) {
+    const walletKey = getWalletSelectionKey(wallet);
+    const isAlreadyOpen = [openWallet.value.leftWallet, openWallet.value.rightWallet].some(
+      currentWallet => currentWallet && getWalletSelectionKey(currentWallet) === walletKey,
+    );
+    if (!isAlreadyOpen) {
+      if (!openWallet.value.rightWallet) {
+        openWallet.value.rightWallet = wallet;
+      } else if (!openWallet.value.leftWallet) {
+        openWallet.value.leftWallet = wallet;
+      }
+    }
+    openWallet.value.showGuidance = request.showGuidance ?? false;
+    openWallet.value.guidanceContext = request.guidanceContext;
+    focusWallet();
+    await syncActiveEthereumWallet();
     return;
   }
 
-  openWallets.value.push({
-    id: nextWalletId++,
-    walletType: payload.walletType,
-    showGuidance: payload.showGuidance || false,
-    guidanceContext: payload.guidanceContext,
+  openWallet.value = {
+    ...getInitialWalletOverlayState(wallet),
+    showGuidance: request.showGuidance ?? false,
+    guidanceContext: request.guidanceContext,
     zIndex: reserveOverlayZIndex(),
-    position: getNextPosition(),
-  });
+  };
   syncOverlayState();
 };
 
-async function completeEthereumWalletSetup() {
+async function completeEthereumWalletSetup(walletRecord: IWalletRecord) {
   const action = pendingEthereumWalletAction.value;
   pendingEthereumWalletAction.value = undefined;
   if (!action) return;
 
   if (action.type === 'open') {
-    await openWalletOverlay(action.request);
+    await openWalletOverlay(action.request, walletRecord);
     return;
   }
 
-  pairWallet(action.walletId, action.pairedWalletType);
+  await selectWallet(action.side, { walletType: WalletType.ethereum, walletRecord });
+}
+
+function getRequestedWallet(
+  request: IWalletOverlayRequest,
+  ethereumWalletRecord?: IWalletRecord,
+): IWalletSelection | undefined {
+  if (request.walletType === WalletType.defaultArgon) {
+    return { walletType: WalletType.defaultArgon };
+  }
+
+  const activeWalletRecord = walletStore.walletRecords.find(
+    record => record.id === walletStore.activeEthereumWalletRecordId,
+  );
+  const walletRecord =
+    ethereumWalletRecord ??
+    activeWalletRecord ??
+    walletStore.walletRecords.find(record => record.walletType === 'ethereum');
+  return walletRecord ? { walletType: WalletType.ethereum, walletRecord } : undefined;
+}
+
+async function syncActiveEthereumWallet() {
+  if (!openWallet.value) return;
+
+  const ethereumWallets = [openWallet.value.leftWallet, openWallet.value.rightWallet].filter(
+    (wallet): wallet is Extract<IWalletSelection, { walletType: WalletType.ethereum }> =>
+      !!wallet && isEthereumWalletSelection(wallet),
+  );
+  if (ethereumWallets.length !== 1) return;
+
+  const recordId = ethereumWallets[0].walletRecord.id;
+  if (walletStore.activeEthereumWalletRecordId !== recordId) {
+    await walletStore.selectEthereumWalletRecord(recordId);
+  }
+}
+
+function closeOverlay() {
+  if (openWallet.value) {
+    releaseOverlayZIndex(openWallet.value.zIndex);
+  }
+  openWallet.value = undefined;
+  syncOverlayState();
+}
+
+function syncOverlayState() {
+  const count = openWallet.value ? 1 : 0;
+  basics.overlayIsOpen = count > 0;
+  openWalletOverlayCount.value = count;
 }
 
 basicEmitter.on('openWalletOverlay', openWalletOverlay);
 
-Vue.watch(
-  () => openWallets.value.length,
-  count => {
-    openWalletOverlayCount.value = count;
-  },
-  { immediate: true },
-);
-
 Vue.onUnmounted(() => {
   basicEmitter.off('openWalletOverlay', openWalletOverlay);
-  openWallets.value.forEach(wallet => releaseOverlayZIndex(wallet.zIndex));
-  openWalletOverlayCount.value = 0;
+  closeOverlay();
 });
 </script>

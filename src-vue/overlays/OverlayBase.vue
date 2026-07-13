@@ -4,13 +4,7 @@
     <DialogPortal>
       <AnimatePresence>
         <DialogOverlay asChild v-if="showBg">
-          <Motion
-            asChild
-            :initial="disableOverlayMotion ? false : { opacity: 0 }"
-            :animate="{ opacity: 1 }"
-            :exit="{ opacity: 0 }">
-            <BgOverlay :enableTopBar="props.enableTopBar" :style="{ zIndex: overlayZIndex.backdropZIndex }" @close="clickBackdrop" />
-          </Motion>
+          <BgOverlay :enableTopBar="props.enableTopBar" :style="{ zIndex: overlayZIndex.backdropZIndex }" @close="clickBackdrop" />
         </DialogOverlay>
 
         <DialogContent

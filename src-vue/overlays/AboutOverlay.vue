@@ -4,9 +4,7 @@
     <DialogPortal>
       <AnimatePresence>
         <DialogOverlay asChild>
-          <Motion asChild :initial="{ opacity: 0 }" :animate="{ opacity: 1 }" :exit="{ opacity: 0 }">
-            <BgOverlay :style="{ zIndex: overlayZIndex.backdropZIndex }" @close="closeOverlay" />
-          </Motion>
+          <BgOverlay :style="{ zIndex: overlayZIndex.backdropZIndex }" @close="closeOverlay" />
         </DialogOverlay>
 
         <DialogContent asChild @escapeKeyDown="closeOverlay" :aria-describedby="undefined" :style="{ zIndex: overlayZIndex.contentZIndex }">

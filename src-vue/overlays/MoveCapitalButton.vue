@@ -3,7 +3,14 @@
   <PopoverRoot v-model:open="isOpen">
     <PopoverTrigger :asChild="true">
       <slot>
-        <button :class="twMerge('border-argon-600/50 text-argon-600/80 cursor-pointer rounded border px-3 font-bold', props.class)">
+        <button
+          :class="
+            twMerge(
+              'border-argon-600/50 text-argon-600/80 cursor-pointer rounded border px-3 font-bold',
+              props.class,
+            )
+          "
+        >
           Move
         </button>
       </slot>

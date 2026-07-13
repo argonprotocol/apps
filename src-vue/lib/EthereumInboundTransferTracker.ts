@@ -278,10 +278,8 @@ export class EthereumInboundTransferTracker {
     let targetWalletType: IArgonWalletType | undefined;
     if (record.argonDestinationAddress === this.walletKeys.defaultArgonAddress) {
       targetWalletType = WalletType.defaultArgon;
-    } else if (record.argonDestinationAddress === this.walletKeys.defaultArgonAddress) {
-      targetWalletType = WalletType.defaultArgon;
-    } else if (record.argonDestinationAddress === this.walletKeys.defaultArgonAddress) {
-      targetWalletType = WalletType.defaultArgon;
+    } else if (record.argonDestinationAddress === this.walletKeys.miningBotAddress) {
+      targetWalletType = WalletType.miningBot;
     } else if (record.argonDestinationAddress === this.walletKeys.vaultingAddress) {
       targetWalletType = WalletType.defaultArgon;
     }
