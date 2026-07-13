@@ -179,9 +179,11 @@
     </div>
     <LockStart
       v-else-if="lockStep === LockStep.Start"
+      :canChangeVault="canChangeVault"
       :coupon="props.coupon"
       :currentTick="props.currentTick"
       :vault="vault as Vault"
+      @changeVault="changeVault"
       @close="closeOverlay"
       @lockCreated="onLockCreated" />
     <LockIsProcessingOnArgon v-else-if="lockStep === LockStep.IsProcessingOnArgon" :personalLock="personalLock!" />
@@ -246,11 +248,15 @@ import BitcoinIcon from '../assets/wallets/bitcoin.svg?component';
 import Arrows from '../assets/arrows.svg?component';
 import RoundCap from './bitcoin-locking/components/RoundCap.vue';
 import { getBitcoinLocks } from '../stores/bitcoin.ts';
+import { getConfig } from '../stores/config.ts';
+import { getMyVault } from '../stores/vaults.ts';
 import { Vault } from '@argonprotocol/mainchain';
 import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 import SelectAVault from '../components/SelectAVault.vue';
 
 const bitcoinLocks = getBitcoinLocks();
+const config = getConfig();
+const myVault = getMyVault();
 
 const props = defineProps<{
   coupon?: IBitcoinLockCouponStatus;
@@ -305,6 +311,12 @@ const lockProcessingDetails = Vue.ref({
 const mismatchView = Vue.computed(() => {
   if (!personalLock.value) return undefined;
   return bitcoinLocks.getMismatchViewState(personalLock.value);
+});
+
+const canChangeVault = Vue.computed(() => {
+  const ownVaultId = myVault.vaultId;
+  const upstreamVaultId = config.upstreamOperator?.vaultId;
+  return !personalLock.value && ownVaultId != null && upstreamVaultId != null && ownVaultId !== upstreamVaultId;
 });
 
 const lockStep = Vue.computed<LockStep>(() => {
@@ -439,6 +451,10 @@ function handleVaultSelected(v: Vault) {
 
 function finalizeVaultSelection() {
   vault.value = tmpVault.value;
+}
+
+function changeVault() {
+  vault.value = undefined;
 }
 
 Vue.onMounted(() => {

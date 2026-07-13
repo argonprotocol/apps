@@ -109,6 +109,15 @@
 
     <div class="mt-16 flex flex-row items-center justify-end gap-x-3 border-t border-black/20 pt-4 pr-4">
       <button
+        v-if="props.canChangeVault"
+        data-testid="LockStart.changeVault()"
+        class="text-argon-600 hover:text-argon-700 mr-auto cursor-pointer px-2 py-2 text-sm font-semibold disabled:opacity-40"
+        @click="emit('changeVault')"
+        :disabled="isSaving"
+      >
+        Choose Different Vault
+      </button>
+      <button
         class="border-argon-600/20 cursor-pointer rounded-lg border bg-gray-200 px-10 py-1 text-lg text-black hover:bg-gray-300"
         @click="closeOverlay"
         :disabled="isSaving"
@@ -150,12 +159,14 @@ import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
 import type { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 
 const props = defineProps<{
+  canChangeVault?: boolean;
   coupon?: IBitcoinLockCouponStatus;
   currentTick?: number;
   vault: Vault;
 }>();
 
 const emit = defineEmits<{
+  (e: 'changeVault'): void;
   (e: 'close'): void;
   (e: 'lockCreated', lock: IBitcoinLockRecord): void;
 }>();

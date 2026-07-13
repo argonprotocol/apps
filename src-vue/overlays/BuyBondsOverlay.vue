@@ -51,6 +51,7 @@ import SelectAVault from '../components/SelectAVault.vue';
 import { Vault } from '@argonprotocol/mainchain';
 import type { BondLot } from '@argonprotocol/apps-core';
 import { getConfig } from '../stores/config.ts';
+import { getMyVault } from '../stores/vaults.ts';
 import { useWallets } from '../stores/wallets.ts';
 
 const { programType = 'Vault' } = defineProps<{
@@ -63,16 +64,21 @@ const emit = defineEmits<{
 }>();
 
 const config = getConfig();
+const myVault = getMyVault();
 const wallets = useWallets();
 
-const tmpVaultId = Vue.ref();
-const vaultId = Vue.ref(programType === 'Vault' ? config.upstreamOperator?.vaultId : undefined);
+const tmpVaultId = Vue.ref<number>();
+const selectedVaultId = Vue.ref<number>();
+const vaultId = Vue.computed(() => {
+  if (programType !== 'Vault') return;
+  return selectedVaultId.value ?? myVault.vaultId ?? config.upstreamOperator?.vaultId;
+});
 
 function handleVaultSelected(v: Vault) {
   tmpVaultId.value = v.vaultId;
 }
 
 function selectVault() {
-  vaultId.value = tmpVaultId.value;
+  selectedVaultId.value = tmpVaultId.value;
 }
 </script>
