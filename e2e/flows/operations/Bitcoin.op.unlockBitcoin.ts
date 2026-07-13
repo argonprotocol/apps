@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import { createBitcoinAddress, mineBitcoinSingleBlock } from '@argonprotocol/apps-core/__test__/helpers/bitcoinCli.ts';
 import type { IBitcoinUnlockReleaseState } from '../types/srcVue.ts';
 import { clickIfVisible, pollEvery, sleep } from '../helpers/utils.ts';
+import bitcoinActivateTab, { BITCOIN_LOCK_ENTRY_SELECTOR } from './Bitcoin.op.activateTab.ts';
 import type { IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
 import type { IE2EFlowRuntime, IE2EOperationInspectState, IE2EOperationState } from '../types.ts';
 import appPrepareAccess from './App.op.prepareAccess.ts';
 import { Operation } from './index.ts';
-import vaultingActivateTab from './Vaulting.op.activateTab.ts';
 
 type IUnlockBitcoinUiState = {
   detailOverlayVisible: boolean;
@@ -99,11 +99,7 @@ export default new Operation<IBitcoinFlowContext, IUnlockBitcoinState>(import.me
   },
   async run({ flow, flowName }, state) {
     const latestChainState = await readUnlockBackendReleaseState(flow).catch(() => state.chainState);
-    if (
-      !latestChainState.hasActiveLock &&
-      !(await hasDashboardLockEntry(flow)) &&
-      !state.uiState.detailOverlayVisible
-    ) {
+    if (!latestChainState.hasActiveLock && !(await hasBitcoinLockEntry(flow)) && !state.uiState.detailOverlayVisible) {
       return;
     }
 
@@ -125,9 +121,9 @@ export default new Operation<IBitcoinFlowContext, IUnlockBitcoinState>(import.me
         await flow.run(appPrepareAccess);
         await clickIfVisible(flow, 'WalletFundingReceivedOverlay.closeOverlay()', { timeoutMs: 1_000 });
 
-        const activeTab = await flow.isVisible('VaultingScreen');
+        const activeTab = await flow.isVisible('BitcoinLocksScreen');
         if (!activeTab.visible && !latest.uiState.detailOverlayVisible && !latest.uiState.lockEntryVisible) {
-          await flow.run(vaultingActivateTab).catch(() => undefined);
+          await flow.run(bitcoinActivateTab).catch(() => undefined);
         }
 
         if (latest.uiState.detailOverlayVisible) {
@@ -139,7 +135,7 @@ export default new Operation<IBitcoinFlowContext, IUnlockBitcoinState>(import.me
           return false;
         }
 
-        if (latest.uiState.lockEntryVisible && (await clickDashboardLockEntry(flow, { timeoutMs: 1_000 }))) {
+        if (latest.uiState.lockEntryVisible && (await clickBitcoinLockEntry(flow, { timeoutMs: 1_000 }))) {
           const afterClick = await flow.inspect<IUnlockBitcoinState>();
           if (afterClick.uiState.unlockingOverlayState === 'Start') {
             return true;
@@ -202,7 +198,7 @@ export default new Operation<IBitcoinFlowContext, IUnlockBitcoinState>(import.me
         .getText({ selector: '[role="dialog"][data-state="open"]' }, { timeoutMs: 1_000 })
         .then(text => text.slice(0, 240))
         .catch(() => null),
-      countDashboardLockEntries(flow).catch(() => -1),
+      countBitcoinLockEntries(flow).catch(() => -1),
     ]);
 
     console.error(
@@ -229,7 +225,7 @@ export default new Operation<IBitcoinFlowContext, IUnlockBitcoinState>(import.me
 
 async function readUnlockUiState(flow: IE2EFlowRuntime): Promise<IUnlockBitcoinUiState> {
   const [lockEntryVisible, detailOverlay] = await Promise.all([
-    hasDashboardLockEntry(flow),
+    hasBitcoinLockEntry(flow),
     flow.isVisible('BitcoinLockDetailOverlay'),
   ]);
 
@@ -257,7 +253,7 @@ async function waitForUnlockRequestAccepted(flow: IBitcoinFlowContext['flow']): 
 
     const unlockState = await flow.inspect<IUnlockBitcoinState>();
     const backendRelease = await readUnlockBackendReleaseState(flow);
-    const lockEntryCount = await countDashboardLockEntries(flow);
+    const lockEntryCount = await countBitcoinLockEntries(flow);
 
     if (
       unlockState.uiState.unlockingOverlayState === 'IsProcessing' ||
@@ -313,19 +309,14 @@ export async function readUnlockBackendReleaseState(flow: IE2EFlowRuntime): Prom
   };
 }
 
-async function hasDashboardLockEntry(flow: IE2EFlowRuntime): Promise<boolean> {
-  return (await flow.isVisible({ selector: '[bitcoinmap] .treemap__tile:not(.treemap__tile--remainder)', index: 0 }))
-    .visible;
+async function hasBitcoinLockEntry(flow: IE2EFlowRuntime): Promise<boolean> {
+  return (await flow.isVisible({ selector: BITCOIN_LOCK_ENTRY_SELECTOR, index: 0 })).visible;
 }
 
-async function countDashboardLockEntries(flow: IE2EFlowRuntime): Promise<number> {
-  return await flow.count({ selector: '[bitcoinmap] .treemap__tile:not(.treemap__tile--remainder)' });
+async function countBitcoinLockEntries(flow: IE2EFlowRuntime): Promise<number> {
+  return await flow.count({ selector: BITCOIN_LOCK_ENTRY_SELECTOR });
 }
 
-async function clickDashboardLockEntry(flow: IE2EFlowRuntime, options: { timeoutMs?: number } = {}): Promise<boolean> {
-  return await clickIfVisible(
-    flow,
-    { selector: '[bitcoinmap] .treemap__tile:not(.treemap__tile--remainder)', index: 0 },
-    options,
-  );
+async function clickBitcoinLockEntry(flow: IE2EFlowRuntime, options: { timeoutMs?: number } = {}): Promise<boolean> {
+  return await clickIfVisible(flow, { selector: BITCOIN_LOCK_ENTRY_SELECTOR, index: 0 }, options);
 }

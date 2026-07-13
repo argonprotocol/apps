@@ -3,7 +3,7 @@ import { clickIfVisible } from '../helpers/utils.ts';
 import type { IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
 import type { IE2EOperationInspectState, IE2EOperationState } from '../types.ts';
 import { Operation } from './index.ts';
-import vaultingActivateTab from './Vaulting.op.activateTab.ts';
+import bitcoinActivateTab, { BITCOIN_LOCK_ENTRY_SELECTOR } from './Bitcoin.op.activateTab.ts';
 
 const MISMATCH_INSPECT_TIMEOUT_MS = 20_000;
 type IMismatchChainState = IBitcoinVaultMismatchState;
@@ -80,7 +80,7 @@ export default new Operation<IBitcoinFlowContext, IEnsureMismatchActionPanelStat
         },
       ),
       flow.isVisible('LockFundingMismatch.actionError'),
-      hasDashboardLockEntry(flow),
+      hasBitcoinLockEntry(flow),
       flow.isVisible('LockFundingMismatch'),
       flow.isVisible('LockFundingMismatch.acceptMismatch()'),
       flow.isVisible('LockFundingMismatch.returnDestination'),
@@ -164,29 +164,24 @@ export default new Operation<IBitcoinFlowContext, IEnsureMismatchActionPanelStat
   async run({ flow }, state) {
     if (state.state === 'complete') return;
 
-    const onVaultingScreen = await flow.isVisible('VaultingScreen');
+    const onBitcoinLocksScreen = await flow.isVisible('BitcoinLocksScreen');
     const hasVisibleMismatchUi = state.mismatchPanelVisible || state.lockingEntryVisible || state.returnPanelVisible;
-    if (!onVaultingScreen.visible && !hasVisibleMismatchUi) {
-      await flow.run(vaultingActivateTab).catch(() => undefined);
+    if (!onBitcoinLocksScreen.visible && !hasVisibleMismatchUi) {
+      await flow.run(bitcoinActivateTab).catch(() => undefined);
     }
     if (!state.mismatchPanelVisible && !state.returnPanelVisible) {
-      await clickDashboardLockEntry(flow, { timeoutMs: 5_000 });
+      await clickBitcoinLockEntry(flow, { timeoutMs: 5_000 });
     }
   },
 });
 
-async function hasDashboardLockEntry(flow: IBitcoinFlowContext['flow']): Promise<boolean> {
-  return (await flow.isVisible({ selector: '[bitcoinmap] .treemap__tile:not(.treemap__tile--remainder)', index: 0 }))
-    .visible;
+async function hasBitcoinLockEntry(flow: IBitcoinFlowContext['flow']): Promise<boolean> {
+  return (await flow.isVisible({ selector: BITCOIN_LOCK_ENTRY_SELECTOR, index: 0 })).visible;
 }
 
-async function clickDashboardLockEntry(
+async function clickBitcoinLockEntry(
   flow: IBitcoinFlowContext['flow'],
   options: { timeoutMs?: number } = {},
 ): Promise<boolean> {
-  return await clickIfVisible(
-    flow,
-    { selector: '[bitcoinmap] .treemap__tile:not(.treemap__tile--remainder)', index: 0 },
-    options,
-  );
+  return await clickIfVisible(flow, { selector: BITCOIN_LOCK_ENTRY_SELECTOR, index: 0 }, options);
 }

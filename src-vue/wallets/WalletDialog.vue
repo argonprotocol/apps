@@ -16,6 +16,7 @@
       >
         <div
           :ref="setWalletRef"
+          data-testid="WalletOverlay"
           :style="{
             top: `calc(50% + ${draggable.modalPosition.y}px)`,
             left: `calc(50% + ${draggable.modalPosition.x}px)`,

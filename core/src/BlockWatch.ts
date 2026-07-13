@@ -84,6 +84,9 @@ export class BlockWatch {
       }),
 
       this.clients.events.on('working', (_path, clientType) => {
+        if (!this.isLoaded.isSettled || this.isRestarting) {
+          return;
+        }
         if (clientType !== 'pruned' || this.forcePrunedClientSubscriptions || this.activeSource !== 'archive') {
           return;
         }
@@ -94,7 +97,12 @@ export class BlockWatch {
       }),
 
       this.clients.events.on('on-pruned-client', () => {
-        if (this.forcePrunedClientSubscriptions || this.activeSource === 'pruned') {
+        if (
+          !this.isLoaded.isSettled ||
+          this.isRestarting ||
+          this.forcePrunedClientSubscriptions ||
+          this.activeSource === 'pruned'
+        ) {
           return;
         }
         this.scheduleRestart('pruned', 'Switched to pruned client');

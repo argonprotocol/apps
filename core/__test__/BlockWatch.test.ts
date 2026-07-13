@@ -359,6 +359,46 @@ describe('BlockWatch archive recovery', () => {
     expect(blockWatch.finalizedBlockHeader).toBe(finalizedHeader);
   });
 
+  it('keeps concurrent startup callers attached when the pruned client connects', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(BlockWatch, 'readHeader').mockImplementation(readMockHeader);
+
+    try {
+      const finalizedHeader = createHeaderInfo(100, '0x100', '0x099');
+      const finalizedHead = createDeferredPromise<string>();
+      const archiveClient = createSubscriptionClient(finalizedHeader);
+      archiveClient.rpc.chain.getFinalizedHead.mockImplementation(() => finalizedHead.promise);
+      const prunedClient = createSubscriptionClient(finalizedHeader);
+      let onPrunedClient!: () => void;
+      const clients = {
+        prunedClientPromise: Promise.resolve(prunedClient),
+        archiveClientPromise: Promise.resolve(archiveClient),
+        events: {
+          on: vi.fn((event: string, callback: () => void) => {
+            if (event === 'on-pruned-client') {
+              onPrunedClient = callback;
+            }
+            return () => undefined;
+          }),
+        },
+      };
+      const blockWatch = new BlockWatch(clients as any);
+
+      const firstStart = blockWatch.start('archive');
+      const concurrentStart = blockWatch.start('archive');
+      await vi.waitFor(() => expect(archiveClient.rpc.chain.getFinalizedHead).toHaveBeenCalledOnce());
+
+      onPrunedClient();
+      await vi.advanceTimersByTimeAsync(250);
+      finalizedHead.resolve(finalizedHeader.blockHash);
+
+      await expect(Promise.all([firstStart, concurrentStart])).resolves.toEqual([undefined, undefined]);
+      expect(prunedClient.rpc.chain.getFinalizedHead).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('continues the current subscription after an unreadable new-head ancestry', async () => {
     vi.useFakeTimers();
     vi.spyOn(BlockWatch, 'readHeader').mockImplementation(readMockHeader);

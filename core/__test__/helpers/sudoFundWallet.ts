@@ -1,4 +1,10 @@
-import { getClient, type ArgonClient } from '@argonprotocol/mainchain';
+import {
+  getClient,
+  type ArgonClient,
+  isOutdatedTransactionError,
+  isTxSubmissionError,
+  TxSubmissionErrorCode,
+} from '@argonprotocol/mainchain';
 import { sudo } from '@argonprotocol/testing';
 import { NetworkConfigSettings } from '../../src/NetworkConfig.ts';
 import { submitAndFinalize } from './mainchain.ts';
@@ -23,16 +29,38 @@ export async function sudoFundWallet(input: ISudoFundWalletInput): Promise<ISudo
   const client = input.client ?? (await getClient(resolveArchiveUrl(input.archiveUrl)));
   const ownsClient = !input.client;
   try {
-    const tx = client.tx.sudo.sudo(
-      client.tx.utility.batch([
-        client.tx.balances.forceSetBalance(input.address, input.microgons),
-        client.tx.ownership.forceSetBalance(input.address, input.micronots),
-      ]),
-    );
-    const result = await submitAndFinalize(client, tx, sudo());
+    for (let attempt = 1; ; attempt += 1) {
+      const tx = client.tx.sudo.sudo(
+        client.tx.utility.batch([
+          client.tx.balances.forceSetBalance(input.address, input.microgons),
+          client.tx.ownership.forceSetBalance(input.address, input.micronots),
+        ]),
+      );
 
-    if (result.extrinsicError) {
-      throw result.extrinsicError;
+      try {
+        const result = await submitAndFinalize(client, tx, sudo(), { useLatestNonce: true });
+        if (result.extrinsicError) {
+          throw result.extrinsicError;
+        }
+        break;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const isConcurrentSubmission =
+          isOutdatedTransactionError(error) ||
+          isTxSubmissionError(
+            error,
+            TxSubmissionErrorCode.Dropped,
+            TxSubmissionErrorCode.Invalid,
+            TxSubmissionErrorCode.Usurped,
+          ) ||
+          message.includes('Priority is too low') ||
+          message.includes('Already imported');
+        if (!isConcurrentSubmission || attempt >= 3) {
+          throw error;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, attempt * 500));
+      }
     }
 
     const startedAt = Date.now();

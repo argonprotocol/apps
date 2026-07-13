@@ -1,4 +1,5 @@
 import { LOGGABLE_ARG_KEYS, runCommand } from './commands';
+import { getConfig } from '../stores/config';
 
 const ALLOWED_DRIVER_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 
@@ -48,6 +49,18 @@ function installClipboardShim(): void {
   };
 
   e2eWindow.__ARGON_E2E_CLIPBOARD_PATCHED__ = true;
+}
+
+export async function initializeE2EState(): Promise<void> {
+  const config = getConfig();
+  await config.isLoadedPromise;
+  // Account import recreates the config database and leaves bootstrapDetails as the onboarding marker.
+  if (!config.showWelcomeOverlay || config.bootstrapDetails) {
+    config.showWelcomeOverlay = false;
+    config.hasExtensionTreasury = true;
+    config.hasExtensionOperations = true;
+    await config.save();
+  }
 }
 
 function parseDriverUrl(raw: string): URL | null {
@@ -210,7 +223,7 @@ async function onDriverMessage(socket: WebSocket, data: string, session: string)
   }
 }
 
-export function initE2EClient(): void {
+export async function initE2EClient(): Promise<void> {
   const driverUrl = parseDriverUrl(__ARGON_DRIVER_WS__);
   if (!driverUrl) return;
 
@@ -226,6 +239,7 @@ export function initE2EClient(): void {
   const session = driverUrl.searchParams.get('session');
   if (!session) return;
 
+  await initializeE2EState();
   installClipboardShim();
 
   const socket = new WebSocket(driverUrl.toString());

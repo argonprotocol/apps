@@ -73,8 +73,8 @@ export default new Operation<IMiningFlowContext, IFundWalletState>(import.meta, 
     }
 
     await flow.click('SetupChecklist.openFundMiningAccountOverlay()');
-    await flow.waitFor('WalletOverlay.micronotsNeeded');
-    await flow.waitFor('WalletOverlay.microgonsNeeded');
+    await flow.waitFor('WalletOverlay.micronotsNeeded', { state: 'exists' });
+    await flow.waitFor('WalletOverlay.microgonsNeeded', { state: 'exists' });
 
     const microgonsNeededRaw = await flow.getAttribute('WalletOverlay.microgonsNeeded', 'data-value');
     const micronotsNeededRaw = await flow
@@ -105,7 +105,7 @@ export default new Operation<IMiningFlowContext, IFundWalletState>(import.meta, 
     };
     const fundingNeeded = requiredFunding.microgons > 0n || requiredFunding.micronots > 0n;
     const funding = fundingNeeded ? deriveMiningFunding(flowName, requiredFunding, input.fundingArgons) : undefined;
-    await flow.click('OverlayBase.clickClose()', { timeoutMs: 8_000 });
+    await flow.click('NavHeader.close()', { timeoutMs: 8_000 });
     await pollEvery(250, async () => !(await flow.inspect(this)).uiState.walletOverlayVisible, {
       timeoutMs: 20_000,
       timeoutMessage: `${flowName}: mining wallet overlay did not close after funding.`,
