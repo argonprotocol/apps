@@ -4,7 +4,7 @@ import { pollEvery } from '../helpers/utils.ts';
 import type { IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
 import type { IE2EFlowRuntime, IE2EOperationInspectState, IE2EOperationState } from '../types.ts';
 import { Operation } from './index.ts';
-import vaultingActivateTab from './Vaulting.op.activateTab.ts';
+import bitcoinActivateTab, { BITCOIN_LOCK_ENTRY_SELECTOR } from './Bitcoin.op.activateTab.ts';
 import { readUnlockBackendReleaseState } from './Bitcoin.op.unlockBitcoin.ts';
 
 type IWaitUnlockReadyUiState = {
@@ -17,7 +17,7 @@ type IWaitUnlockReadyState = IE2EOperationInspectState<IBitcoinUnlockReleaseStat
 export default new Operation<IBitcoinFlowContext, IWaitUnlockReadyState>(import.meta, {
   async inspect({ flow }) {
     const [lockEntryVisible, chainState, lockingOverlay] = await Promise.all([
-      hasDashboardLockEntry(flow),
+      hasBitcoinLockEntry(flow),
       readUnlockBackendReleaseState(flow),
       flow.isVisible('BitcoinLockingOverlay'),
     ]);
@@ -64,9 +64,9 @@ export default new Operation<IBitcoinFlowContext, IWaitUnlockReadyState>(import.
     await pollEvery(
       1_000,
       async () => {
-        const activeTab = await flow.isVisible('VaultingScreen');
+        const activeTab = await flow.isVisible('BitcoinLocksScreen');
         if (!activeTab.visible) {
-          await flow.run(vaultingActivateTab).catch(() => undefined);
+          await flow.run(bitcoinActivateTab).catch(() => undefined);
         }
 
         const latest = await flow.inspect<IWaitUnlockReadyState>();
@@ -124,7 +124,6 @@ async function readWaitUnlockDebugState(flow: IE2EFlowRuntime): Promise<IBitcoin
   );
 }
 
-async function hasDashboardLockEntry(flow: IBitcoinFlowContext['flow']): Promise<boolean> {
-  return (await flow.isVisible({ selector: '[bitcoinmap] .treemap__tile:not(.treemap__tile--remainder)', index: 0 }))
-    .visible;
+async function hasBitcoinLockEntry(flow: IBitcoinFlowContext['flow']): Promise<boolean> {
+  return (await flow.isVisible({ selector: BITCOIN_LOCK_ENTRY_SELECTOR, index: 0 })).visible;
 }

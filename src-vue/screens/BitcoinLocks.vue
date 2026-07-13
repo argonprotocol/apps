@@ -1,5 +1,5 @@
 <template>
-  <div DashBox class="flex h-full min-h-0 grow flex-col">
+  <div DashBox data-testid="BitcoinLocksScreen" class="flex h-full min-h-0 grow flex-col">
     <div v-if="!isLoaded" class="flex grow items-center justify-center text-slate-500">Loading...</div>
 
     <!-- Blank state -->
@@ -125,7 +125,7 @@
               }}...
             </span>
             <div class="flex flex-row items-stretch gap-x-3">
-              <button @click="showLockingOverlay = true" class="text-md text-argon-600 cursor-pointer">
+              <button @click="openLockingOverlay" class="text-md text-argon-600 cursor-pointer">
                 Lock Another Bitcoin
               </button>
               <div class="w-px bg-slate-400/50" />
@@ -137,6 +137,7 @@
 
           <section class="mt-4 flex grow flex-col gap-y-3 px-9 pb-10">
             <BitcoinRecord
+              :data-testid="`BitcoinLocks.lockEntry.${lockSummary.uuid}`"
               v-for="lockSummary in financials.liquidVisibleRecords"
               :key="lockSummary.uuid ?? lockSummary.utxoId"
               :lockSummary="lockSummary"

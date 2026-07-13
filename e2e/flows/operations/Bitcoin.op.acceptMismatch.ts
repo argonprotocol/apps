@@ -4,6 +4,7 @@ import type { IE2EOperationInspectState, IE2EOperationState } from '../types.ts'
 import bitcoinEnsureMismatchActionPanel, {
   type IEnsureMismatchActionPanelState,
 } from './Bitcoin.op.ensureMismatchActionPanel.ts';
+import { BITCOIN_LOCK_ENTRY_SELECTOR } from './Bitcoin.op.activateTab.ts';
 import { Operation } from './index.ts';
 
 type IAcceptMismatchChainState = IEnsureMismatchActionPanelState['chainState'];
@@ -73,7 +74,7 @@ export default new Operation<IBitcoinFlowContext, IAcceptMismatchState>(import.m
       throw new Error(`${flowName}: mismatch accept action remained disabled after readiness polling.`);
     }
     if (!panelState.mismatchPanelVisible) {
-      await clickDashboardLockEntry(flow, { timeoutMs: 5_000 });
+      await clickBitcoinLockEntry(flow, { timeoutMs: 5_000 });
     }
     await flow.click('LockFundingMismatch.acceptMismatch()', { timeoutMs: 60_000 });
     await flow.poll(
@@ -93,13 +94,9 @@ export default new Operation<IBitcoinFlowContext, IAcceptMismatchState>(import.m
   },
 });
 
-async function clickDashboardLockEntry(
+async function clickBitcoinLockEntry(
   flow: IBitcoinFlowContext['flow'],
   options: { timeoutMs?: number } = {},
 ): Promise<boolean> {
-  return await clickIfVisible(
-    flow,
-    { selector: '[bitcoinmap] .treemap__tile:not(.treemap__tile--remainder)', index: 0 },
-    options,
-  );
+  return await clickIfVisible(flow, { selector: BITCOIN_LOCK_ENTRY_SELECTOR, index: 0 }, options);
 }

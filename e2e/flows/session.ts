@@ -88,6 +88,7 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
     ...commandEnv,
     ARGON_DRIVER_WS: driverServer.url,
     ARGON_E2E_HEADLESS: process.env.ARGON_E2E_HEADLESS?.trim() || '0',
+    E2E_USE_TEST_NETWORK: useTestNetwork ? '1' : '0',
     ARGON_APP_ENABLE_AUTOUPDATE: '0',
     ...options.appEnv,
   };
@@ -108,7 +109,7 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
         registerTeardown: false,
         composeProjectName,
       });
-      sessionData.sessionArchiveUrl = testNetwork.archiveUrl;
+      sessionData.sessionArchiveUrl = testNetwork.networkConfigOverride.archiveUrl;
       tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE = JSON.stringify(testNetwork.networkConfigOverride);
       process.env.ARGON_NETWORK_CONFIG_OVERRIDE = tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE;
       const composeEnv = testNetwork.composeEnv;
@@ -721,7 +722,7 @@ async function printSessionStartupDiagnostics(options: ISessionStartupDiagnostic
 
   if (options.testNetwork) {
     console.error(
-      `[E2E] Test network endpoints: archive=${options.testNetwork.archiveUrl} notary=${options.testNetwork.notaryUrl} esplora=${options.testNetwork.networkConfigOverride.esploraHost} indexer=${options.testNetwork.networkConfigOverride.indexerHost ?? 'n/a'}`,
+      `[E2E] Test network endpoints: archive-node=${options.testNetwork.archiveUrl} app-rpc=${options.testNetwork.networkConfigOverride.archiveUrl} notary=${options.testNetwork.notaryUrl} esplora=${options.testNetwork.networkConfigOverride.esploraHost} indexer=${options.testNetwork.networkConfigOverride.indexerHost ?? 'n/a'}`,
     );
   } else {
     console.error('[E2E] No test network handle available for this startup failure.');
