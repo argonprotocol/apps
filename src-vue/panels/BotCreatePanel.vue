@@ -135,6 +135,21 @@
 
               <BotSettings ref="botSettingsInstance" @toggleEditBoxOverlay="(x: boolean) => hasEditBoxOverlay = x" @update:data="updateCapitalRequirements" :includeProjections="true" />
             </div>
+            <div v-else-if="loadError" class="grow flex items-center justify-center px-8 text-center">
+              <div class="max-w-[520px]">
+                <div class="text-xl font-bold text-[#672D73]">Unable to load bidding rules</div>
+                <p class="mt-3 text-gray-600 font-light">
+                  The app could not finish loading the latest mining frame data. This can happen briefly while the chain
+                  or RPC connection catches up.
+                </p>
+                <button
+                  @click="initializePanel"
+                  class="mt-6 border border-argon-button/50 hover:border-argon-button text-lg font-bold text-gray-600 px-7 py-1 rounded-md cursor-pointer"
+                >
+                  Try Again
+                </button>
+              </div>
+            </div>
             <div v-else class="grow flex items-center justify-center">Loading...</div>
 
             <div class="flex flex-row justify-end border-t border-slate-300 mx-4 py-4 space-x-4 rounded-b-lg">
@@ -236,6 +251,7 @@ const isLoaded = Vue.ref(false);
 const isCalculatorReady = Vue.ref(false);
 const isSaving = Vue.ref(false);
 const hasEditBoxOverlay = Vue.ref(false);
+const loadError = Vue.ref<string | null>(null);
 const overlayZIndex = useOverlayZIndex(() => true);
 const editBoxBackdropZIndex = useFloatingZIndex();
 provideOverlayContentZIndex(Vue.toRef(overlayZIndex, 'contentZIndex'));
@@ -262,6 +278,8 @@ const minimumCapitalCommitment = Vue.ref(0n);
 const averageAPY = Vue.ref(0);
 const averageEarnings = Vue.ref(0n);
 const epochPercentageYield = Vue.ref(0);
+let rulesWatcherStop: (() => void) | null = null;
+let calculatorLoadSubscription: { unsubscribe: () => void } | null = null;
 
 function getTourPositionCheck(name: string): ITourPos {
   if (name === 'capitalToCommit') {
@@ -462,41 +480,57 @@ function stopSuggestingTour() {
   isSuggestingTour.value = false;
 }
 
-Vue.onMounted(async () => {
+async function initializePanel() {
   isLoaded.value = false;
+  isCalculatorReady.value = false;
+  loadError.value = null;
   isBrandNew.value = !config.hasSavedBiddingRules;
   isSuggestingTour.value = isBrandNew.value && !controller.stopSuggestingBotTour;
 
-  calculator.onLoad(() => updateCapitalRequirements());
-  await calculator.load();
-  isCalculatorReady.value = true;
-  Vue.watch(rules, () => updateAPYs(), { deep: true });
+  try {
+    await calculator.load();
+    isCalculatorReady.value = true;
+    rulesWatcherStop ??= Vue.watch(rules, () => updateAPYs(), { deep: true });
 
-  previousBiddingRules = JsonExt.stringify(config.biddingRules);
+    previousBiddingRules = JsonExt.stringify(config.biddingRules);
 
-  updateAPYs();
-  updateCapitalRequirements();
-  if (!rules.value.initialCapitalCommitment) {
-    acceptMinimumCapitalCommitment();
-  }
-
-  if (isBrandNew.value && startingBidAtFastGrowthAPY.value > 20_000) {
-    /*
-      The default startingBidFormulaType is set at PreviousDayLow, which at least on testnet, is creating a
-      situation where the projected returns are astronomically high (and seemingly unrealistic). In order to
-      create a more realistic projected return, we're setting the startingBidFormulaType to 12% below BreakevenAtSlowGrowth.
-      We might remove this IF block in the future, but it seems a good safety fix for now.
-    */
-    rules.value.startingBidFormulaType = BidAmountFormulaType.BreakevenAtSlowGrowth;
-    rules.value.startingBidAdjustmentType = BidAmountAdjustmentType.Relative;
-    rules.value.startingBidAdjustRelative = -12.0;
     updateAPYs();
     updateCapitalRequirements();
     if (!rules.value.initialCapitalCommitment) {
       acceptMinimumCapitalCommitment();
     }
+
+    if (isBrandNew.value && startingBidAtFastGrowthAPY.value > 20_000) {
+      /*
+        The default startingBidFormulaType is set at PreviousDayLow, which at least on testnet, is creating a
+        situation where the projected returns are astronomically high (and seemingly unrealistic). In order to
+        create a more realistic projected return, we're setting the startingBidFormulaType to 12% below BreakevenAtSlowGrowth.
+        We might remove this IF block in the future, but it seems a good safety fix for now.
+      */
+      rules.value.startingBidFormulaType = BidAmountFormulaType.BreakevenAtSlowGrowth;
+      rules.value.startingBidAdjustmentType = BidAmountAdjustmentType.Relative;
+      rules.value.startingBidAdjustRelative = -12.0;
+      updateAPYs();
+      updateCapitalRequirements();
+      if (!rules.value.initialCapitalCommitment) {
+        acceptMinimumCapitalCommitment();
+      }
+    }
+    isLoaded.value = true;
+  } catch (error) {
+    console.error('Failed to load bidding rules panel:', error);
+    loadError.value = String(error);
   }
-  isLoaded.value = true;
+}
+
+Vue.onMounted(() => {
+  calculatorLoadSubscription = calculator.onLoad(() => updateCapitalRequirements());
+  void initializePanel();
+});
+
+Vue.onUnmounted(() => {
+  rulesWatcherStop?.();
+  calculatorLoadSubscription?.unsubscribe();
 });
 </script>
 
