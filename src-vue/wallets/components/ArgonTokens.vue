@@ -19,8 +19,22 @@
         :moveTo="props.moveTo"
         :moveToken="MoveToken.ARGN"
         side="top"
-        class="absolute top-1/2 left-[calc(100%+40px)] z-30 -translate-x-1/2 -translate-y-1/2 bg-white py-1 text-xs"
-      />
+      >
+        <button
+          type="button"
+          :disabled="!props.microgons"
+          :title="!props.microgons ? 'No ARGN available to move' : 'Move ARGN'"
+          class="absolute top-1/2 left-[calc(100%+40px)] z-30 h-10 -translate-x-1/2 -translate-y-1/2 cursor-pointer disabled:cursor-default"
+        >
+          <div
+            :class="!props.microgons ? 'text-argon-600/40' : 'text-argon-600'"
+            class="absolute inset-0 flex items-center justify-center text-sm font-bold"
+          >
+            <span class="relative right-1.5">MOVE</span>
+          </div>
+          <MoveArrow class="pointer-events-none h-full" />
+        </button>
+      </MoveCapitalButton>
     </li>
     <li class="relative flex flex-row gap-x-2 border-t border-slate-400/50 py-2">
       <ArgonotIcon class="h-6 w-6" />
@@ -41,8 +55,22 @@
         :moveTo="props.moveTo"
         :moveToken="MoveToken.ARGNOT"
         side="top"
-        class="absolute top-1/2 left-[calc(100%+40px)] z-30 -translate-x-1/2 -translate-y-1/2 bg-white py-1 text-xs"
-      />
+      >
+        <button
+          type="button"
+          :disabled="!props.micronots"
+          :title="!props.micronots ? 'No ARGNOT available to move' : 'Move ARGNOT'"
+          class="absolute top-1/2 left-[calc(100%+40px)] z-30 h-10 -translate-x-1/2 -translate-y-1/2 cursor-pointer disabled:cursor-default"
+        >
+          <div
+            :class="!props.micronots ? 'text-argon-600/40' : 'text-argon-600'"
+            class="absolute inset-0 flex items-center justify-center text-sm font-bold"
+          >
+            <span class="relative right-1.5">MOVE</span>
+          </div>
+          <MoveArrow class="pointer-events-none h-full" />
+        </button>
+      </MoveCapitalButton>
     </li>
   </ul>
 </template>
@@ -55,6 +83,7 @@ import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import CrosschainMoveButton from './CrosschainMoveButton.vue';
 import MoveCapitalButton from '../../overlays/MoveCapitalButton.vue';
+import MoveArrow from '../../assets/move-arrow.svg';
 
 const currency = getCurrency();
 

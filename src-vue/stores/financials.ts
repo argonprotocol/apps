@@ -7,12 +7,13 @@ import { useMyBonds } from './myBonds.ts';
 import { calculatePerformanceReturn, IPerformanceReturnInput } from '../lib/PerformanceReturn.ts';
 import { getMiningFrames } from './mainchain.ts';
 import { BitcoinLockStatus, IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
-import { bigIntMax, GlobalVaultingStats, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { bigIntMax, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 import { BitcoinLock, MICROGONS_PER_ARGON, Vault } from '@argonprotocol/mainchain';
 import { getVaults } from './vaults.ts';
 import type { IOtherToken } from '../lib/Wallet.ts';
 import { IBitcoinLockProcessingDetails } from '../lib/BitcoinLocks.ts';
+import { useVaultingStats } from './vaultingStats.ts';
 
 export interface ILockSummary {
   uuid: string;
@@ -48,8 +49,7 @@ export const useFinancials = defineStore('financials', () => {
   const miningFrames = getMiningFrames();
   const currency = getCurrency();
   const vaultStore = getVaults();
-
-  const stats = new GlobalVaultingStats(vaultStore, currency);
+  const vaultingStats = useVaultingStats();
 
   const isLoaded = Vue.ref(false);
 
@@ -91,39 +91,30 @@ export const useFinancials = defineStore('financials', () => {
       return sum + ratchets.reduce((s, r) => s + (r.mintPending ?? 0n), 0n);
     }, 0n);
   });
-  const savingsTotalReadyToUse = Vue.ref(0n);
+  const savingsTotalReadyToUse = Vue.computed(() => wallets.defaultArgonWallet.availableMicrogons);
   const savingsTotalValue = Vue.computed(() => {
     return savingsTotalPending.value + savingsTotalReadyToUse.value;
   });
 
   const savingsInvestments = Vue.ref<IPerformanceReturnInput[]>([]);
   const savingsAllTimeFiatKey = Vue.ref(UnitOfMeasurement.USD);
-  const savingsAllTimeReturn = Vue.ref(0);
-
-  const savingsRestabilizationPower = Vue.ref(1);
-
-  const savingsIsLoaded = Vue.ref(false);
-
-  function loadSavings() {
-    savingsTotalReadyToUse.value = wallets.defaultArgonWallet.availableMicrogons;
-
+  const savingsAllTimeReturn = Vue.computed(() => {
+    if (!currency.usdTarget) return 0;
     const savingsReturnBn = BigNumber(currency.usdTarget - 1)
       .dividedBy(1)
       .multipliedBy(100);
-    savingsAllTimeReturn.value = savingsReturnBn.toNumber();
-
-    void stats.load().then(() => {
-      const microgonValueInVaults = stats.microgonValueOfVaultedBitcoins;
-      const microgonBurnCapacity = BigInt(Math.round(stats.argonBurnCapacity * MICROGONS_PER_ARGON));
-      savingsRestabilizationPower.value = BigNumber(microgonBurnCapacity).dividedBy(microgonValueInVaults).toNumber();
-    });
-
-    savingsIsLoaded.value = true;
-  }
-
-  Vue.watch([wallets.defaultArgonWallet], () => {
-    loadSavings();
+    return savingsReturnBn.toNumber();
   });
+
+  const savingsRestabilizationPower = Vue.computed(() => {
+    const microgonValueInVaults = vaultingStats.microgonValueInVaults;
+    if (!microgonValueInVaults) return 0;
+
+    const microgonBurnCapacity = BigInt(Math.round(vaultingStats.argonBurnCapacity * MICROGONS_PER_ARGON));
+    return BigNumber(microgonBurnCapacity).dividedBy(microgonValueInVaults).toNumber();
+  });
+
+  const savingsIsLoaded = Vue.ref(false);
 
   // Argon Bonds ///////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -402,9 +393,17 @@ export const useFinancials = defineStore('financials', () => {
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
   async function load() {
-    await Promise.all([myBonds.load(), bitcoinLocks.load(), currency.fetchMainchainRates(), vaultStore.load()]);
+    await Promise.all([
+      myBonds.load(),
+      bitcoinLocks.load(),
+      wallets.isLoadedPromise,
+      currency.fetchMainchainRates(),
+      vaultStore.load(),
+      vaultingStats.isLoadedPromise,
+    ]);
 
-    loadSavings();
+    savingsIsLoaded.value = true;
+
     await Promise.all([loadVaults(), loadLocks()]);
     startLockSummaryProgressRefresh();
 

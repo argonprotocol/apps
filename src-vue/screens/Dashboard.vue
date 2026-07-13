@@ -3,13 +3,41 @@
     <div class="relative w-full px-4 py-3">
       <div class="text-argon-600/60 relative z-20 flex flex-row">
         <div class="w-1/3 grow text-left">
-          +{{ numeral(financials.savingsAllTimeReturn).format('0,0.[00]') }}% Buying Power vs
+          <template v-if="financials.savingsIsLoaded">
+            +{{ numeral(financials.savingsAllTimeReturn).format('0,0.[00]') }}%
+          </template>
+          <template v-else>--</template>
+          Buying Power vs
           {{ financials.savingsAllTimeFiatKey }}
         </div>
-        <div class="w-1/3 grow text-center">Argon Is 0.002 UNDER $1.06 Target</div>
+        <div class="w-1/3 grow text-center">
+          <template
+            v-if="
+              currency.priceIndex.argonUsdPrice?.isZero() === false &&
+              currency.priceIndex.argonUsdTargetPrice?.isZero() === false
+            "
+          >
+            <template v-if="currency.targetOffset">
+              Argon Is {{ targetCurrency.symbol
+              }}{{ microgonToNm(targetDiff, UnitOfMeasurement.USD).format('0.00[0]') }}
+              <template v-if="currency.targetOffset > 0">ABOVE</template>
+              <template v-else>BELOW</template>
+              {{ targetCurrency.symbol }}{{ microgonToNm(oneArgon, UnitOfMeasurement.USD).format('0.00') }} Target
+            </template>
+            <template v-else>
+              Argon Is At Its {{ targetCurrency.symbol
+              }}{{ microgonToNm(oneArgon, UnitOfMeasurement.USD).format('0.00') }} Target
+            </template>
+          </template>
+          <template v-else-if="!currency.isLoaded">Loading Argon Price</template>
+          <template v-else>Argon Price Unavailable</template>
+        </div>
         <div class="w-1/3 grow text-right">
-          {{ numeral(financials.savingsRestabilizationPower).formatIfElse('< 10', '0,0.[0]', '0,0') }}:1 Restabilization
-          Power
+          <template v-if="financials.savingsIsLoaded">
+            {{ numeral(financials.savingsRestabilizationPower).formatIfElse('< 10', '0,0.[0]', '0,0') }}:1
+          </template>
+          <template v-else>--</template>
+          Restabilization Power
         </div>
       </div>
       <div
@@ -75,11 +103,12 @@
 </template>
 
 <script setup lang="ts">
+import * as Vue from 'vue';
+import { bigIntAbs, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { getCurrency } from '../stores/currency.ts';
-import MoreIcon from '../assets/more.svg';
-import InfoIcon from '../assets/info-outline.svg';
 import { WalletType } from '../lib/Wallet.ts';
-import numeral from '../lib/numeral.ts';
+import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import FormattedMoney from '../components/FormattedMoney.vue';
 import ArrowIcon from '../assets/arrow.svg';
@@ -87,6 +116,15 @@ import { useFinancials } from '../stores/financials.ts';
 
 const financials = useFinancials();
 const currency = getCurrency();
+
+const oneArgon = BigInt(MICROGONS_PER_ARGON);
+const targetCurrency = currency.recordsByKey[UnitOfMeasurement.USD];
+const { microgonToNm } = createNumeralHelpers(currency);
+
+const targetDiff = Vue.computed(() => {
+  const adjusted = currency.adjustByTargetOffset(oneArgon);
+  return bigIntAbs(adjusted - oneArgon);
+});
 
 function openArgonWallet() {
   basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
