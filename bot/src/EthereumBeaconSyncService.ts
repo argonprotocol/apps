@@ -255,10 +255,26 @@ export class EthereumBeaconSyncService {
 
       try {
         const result = await submitLane.runExclusive(async (client, getNonce) => {
-          return await new TxSubmitter(client, tx, submitLane.keypair).submit({
-            nonce: await getNonce(),
-          });
+          try {
+            return await new TxSubmitter(client, tx, submitLane.keypair).submit({
+              nonce: await getNonce(),
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (message.includes('Priority is too low')) {
+              console.warn(
+                `[EthereumBeaconSyncService] Beacon sync tx already pending in pool; waiting for next sweep: ${message}`,
+              );
+              submitLane.invalidateNonce();
+              return;
+            }
+            throw error;
+          }
         });
+        if (!result) {
+          this.stateData.mode = 'idle';
+          return;
+        }
         this.stateData.lastSubmittedTxHash = result.extrinsic.signedHash;
         const inclusionTimeoutMs = NetworkConfig.tickMillis * SUBMISSION_INCLUSION_BLOCKS;
         const observedInFirstBlock = await raceWithTimeout(
