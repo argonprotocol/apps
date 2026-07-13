@@ -420,13 +420,18 @@ export const useWallets = defineStore('wallets', () => {
     }));
   }
 
-  async function importExternalEthereumPrivateKey(privateKey: string) {
+  async function importExternalEthereumPrivateKey(args: { name: string; privateKey: string }) {
     const [address, encryptedSecret] = await Promise.all([
-      invokeWithTimeout<string>('derive_external_ethereum_address_from_private_key', { privateKey }, 60e3),
-      invokeWithTimeout<string>('encrypt_wallet_secret', { secret: privateKey }, 60e3),
+      invokeWithTimeout<string>(
+        'derive_external_ethereum_address_from_private_key',
+        { privateKey: args.privateKey },
+        60e3,
+      ),
+      invokeWithTimeout<string>('encrypt_wallet_secret', { secret: args.privateKey }, 60e3),
     ]);
     const db = await getDbPromise();
     await db.walletsTable.importExternalEthereum({
+      name: args.name,
       address,
       secretKind: 'privateKey',
       encryptedSecret,
@@ -434,10 +439,16 @@ export const useWallets = defineStore('wallets', () => {
     await refreshWalletRecords();
   }
 
-  async function importExternalEthereumMnemonic(args: { mnemonic: string; address: string; derivationPath: string }) {
+  async function importExternalEthereumMnemonic(args: {
+    name: string;
+    mnemonic: string;
+    address: string;
+    derivationPath: string;
+  }) {
     const encryptedSecret = await invokeWithTimeout<string>('encrypt_wallet_secret', { secret: args.mnemonic }, 60e3);
     const db = await getDbPromise();
     await db.walletsTable.importExternalEthereum({
+      name: args.name,
       address: args.address,
       derivationPath: args.derivationPath,
       secretKind: 'mnemonic',
