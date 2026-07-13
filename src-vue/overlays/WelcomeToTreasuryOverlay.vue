@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <OverlayBase :isOpen="isOpen" :showCloseIcon="false" :enableTopBar="true" class="w-7/12">
+  <OverlayBase :isOpen="isOpen" :showCloseIcon="false" :enableTopBar="true" class="w-6/12">
     <template #title>
       <DialogTitle class="grow pl-3">
         You've Been Upgraded to Treasury!
@@ -9,7 +9,7 @@
     <div class="mx-2 py-5 font-light leading-6">
       <div class="pl-5 pr-10 space-y-3">
         <p>
-          Argon is an inflation-resistant, fiat-independent stablecoin and this app lets you access the
+          Congrats! You can now access the
           yield-generating instruments underlying it. Savings, bonds, bitcoin locks, and stable swaps are all available,
           each with different risk and return profiles.
         </p>

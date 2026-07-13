@@ -48,7 +48,7 @@
         class="flex flex-col justify-start relative"
         :class="[config.hasExtensionOperations ? '' : 'grow']"
       >
-        <div v-if="config.hasExtensionTreasury" class="network-map network-map--upstream w-full">
+        <div class="network-map network-map--upstream w-full">
           <header class="upstream-heading">
             <h2>Upstream Network</h2>
           </header>
@@ -66,13 +66,6 @@
             <div class="upstream-tap upstream-tap--3" />
             <div class="upstream-drop" />
           </div>
-        </div>
-        <div v-else class="w-full">
-          <header class="upstream-heading relative">
-            <div class="absolute z-10 top-[-200%] left-0 h-[320%] w-full bg-linear-to-b from-transparent to-white"></div>
-            <h2>Upstream Network</h2>
-          </header>
-          <AdForTreasury class="mt-10 w-7/12 mx-auto" />
         </div>
       </div>
 
@@ -179,7 +172,6 @@ import { getCurrency } from '../stores/currency.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import MemberInvites from './network-screen/MemberInvites.vue';
 import OperationsUpgrade from './network-screen/OperationsUpgrade.vue';
-import AdForTreasury from './network-screen/AdForTreasury.vue';
 import { getConfig } from '../stores/config.ts';
 import { treasuryCertificationStepIds, useCertificationController } from '../stores/certificationController.ts';
 

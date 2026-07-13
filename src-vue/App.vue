@@ -21,6 +21,7 @@
         >
           <Dashboard v-if="controller.selectedTab === TopTab.Dashboard" />
           <Network v-else-if="controller.selectedTab === TopTab.Network" />
+          <TreasuryUnlock v-else-if="controller.selectedTab === TopTab.TreasuryUnlock" />
 
           <ArgonBonds v-else-if="controller.selectedTab === TopTab.ArgonBonds" />
           <ArgonotBonds v-else-if="controller.selectedTab === TopTab.ArgonotBonds" />
@@ -133,6 +134,7 @@ import BitcoinLoans from './screens/BitcoinLoans.vue';
 import Dashboard from './screens/Dashboard.vue';
 import WelcomeToTreasuryOverlay from './overlays/WelcomeToTreasuryOverlay.vue';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
+import TreasuryUnlock from './screens/TreasuryUnlock.vue';
 
 const controller = useCertificationController();
 const config = getConfig();

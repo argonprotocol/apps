@@ -1,6 +1,6 @@
 <template>
   <div class="Navigation LeftBar z-10 flex h-full max-w-76 min-w-76 flex-col gap-y-1.5 select-none">
-    <section DashBox class="border-argon-600/50! w-full">
+    <section DashBox class="w-full">
       <div class="flex flex-col justify-center px-1">
         <header class="flex w-full flex-row items-center border-b border-slate-500/20">
           <div class="grow">Your Argon Wallet</div>
@@ -8,7 +8,7 @@
             <ExternalIcon class="w-4 opacity-80" />
           </button>
         </header>
-        <div class="text-argon-600/50 mt-5 flex flex-row justify-center text-5xl font-bold">
+        <div class="text-argon-600/70 mt-5 flex flex-row justify-center text-5xl font-bold">
           <span>{{ currency.symbol }}</span>
           <FormattedMoney
             :isLoaded="wallets.isLoaded"
@@ -41,7 +41,7 @@
       </div>
     </section>
 
-    <section DashBox class="w-full grow px-1 pb-3">
+    <section DashBox class="border-argon-600/50! w-full grow px-1 pb-3">
       <div>
         <!--        <header>Basics</header>-->
         <ul>
@@ -51,10 +51,8 @@
             :class="{ Selected: controller.selectedTab === TopTab.Dashboard }"
           >
             <article TopLevel class="flex flex-row items-center">
-              <div class="grow">Dashboard</div>
-              <div class="opacity-60">
-                {{ currency.symbol }}{{ microgonToMoneyNm(financials.savingsTotalValue).format('0,0.00') }}
-              </div>
+              <div class="grow">Account Overview</div>
+              <div><span class="rounded-full bg-slate-600/40 text-white font-bold px-2">0</span></div>
             </article>
             <div Selector>
               <div ArrowSquare>
@@ -62,9 +60,9 @@
               </div>
             </div>
           </li>
-          <li @click="goto(TopTab.Network)" :class="{ Selected: controller.selectedTab === TopTab.Network }">
+          <li v-if="!config.hasExtensionTreasury" @click="goto(TopTab.TreasuryUnlock)" :class="{ Selected: controller.selectedTab === TopTab.TreasuryUnlock }">
             <article TopLevel class="flex flex-row items-center">
-              <div class="grow">{{ config.hasExtensionTreasury ? 'Network' : 'Treasury Unlock' }}</div>
+              <div class="grow">Unlock Treasury</div>
               <div class="opacity-60">{{ currency.symbol }}0.00</div>
             </article>
             <div Selector>
@@ -256,6 +254,17 @@
               <div ArrowSquare><Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" /></div>
             </div>
           </li>
+          <li @click="goto(TopTab.Network)" :class="{ Selected: controller.selectedTab === TopTab.Network }">
+            <article class="flex flex-row items-center">
+              <div class="grow">Network</div>
+              <div class="opacity-60">{{ currency.symbol }}0.00</div>
+            </article>
+            <div Selector>
+              <div ArrowSquare>
+                <Arrow ActiveArrow fill="white" stroke="#000000" :strokeWidth="1" />
+              </div>
+            </div>
+          </li>
         </ul>
       </div>
     </section>
@@ -346,7 +355,7 @@ Vue.onBeforeUnmount(() => {
 @reference "../main.css";
 
 header {
-  @apply px-3 py-3 font-bold text-slate-700/40 uppercase;
+  @apply px-2 py-3 font-bold text-slate-700/40 uppercase;
 }
 
 ul {
@@ -378,7 +387,7 @@ ul li {
     @apply relative z-10 px-2 py-2 text-slate-900/60;
   }
   article[TopLevel] {
-    @apply font-bold text-slate-700/40 uppercase;
+    @apply font-bold text-slate-700/60 uppercase;
   }
   [Selector] {
     @apply border-argon-600 absolute -top-px left-[-5px] hidden h-[calc(100%+2px)] w-[calc(100%+10px)] rounded-l border border-r-0 shadow-lg;

@@ -151,14 +151,13 @@
     >
       <NavigationMenuTrigger
         Trigger
-        :aria-label="menuTitle"
-        class="flex h-[30px] cursor-pointer flex-row items-center justify-center overflow-hidden rounded-md border border-slate-400/50 font-mono text-base font-semibold whitespace-nowrap text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
+        class="flex h-[30px] cursor-pointer flex-row items-center justify-center overflow-hidden rounded-md border border-slate-400/50 text-base font-semibold whitespace-nowrap text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
         @focus="onMenuEnter"
       >
         <div class="relative flex flex-row items-center gap-1.5 whitespace-nowrap pl-2.5 pr-3 pt-px">
           <CheckBadgeIcon v-if="!isUnlockTrack" class="relative top-px h-[17px] w-[17px]" aria-hidden="true" />
-          <span>{{ menuTitle }}</span>
-          <span>({{ completedStepCount }}/{{ currentStepIds.length }})</span>
+          <span>Become {{ isUnlockTrack ? 'Treasury' : 'Operator' }} Certified</span>
+          <span class="font-mono">({{ completedStepCount }}/{{ currentStepIds.length }})</span>
         </div>
       </NavigationMenuTrigger>
 
@@ -273,9 +272,6 @@ const currentStepIds = Vue.computed(() => {
 
 const completedStepCount = Vue.computed(() => {
   return currentStepIds.value.filter(stepId => controller.isCertificationStepComplete(stepId)).length;
-});
-const menuTitle = Vue.computed(() => {
-  return isUnlockTrack.value ? 'Unlock Operations' : 'Certification';
 });
 
 const isShowingCompletionTooltip = Vue.computed(() => {

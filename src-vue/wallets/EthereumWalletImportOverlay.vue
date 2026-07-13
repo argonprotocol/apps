@@ -2,7 +2,10 @@
   <div v-if="ethereumImportStep" class="fixed inset-0 z-[1300] flex items-center justify-center bg-black/30">
     <div class="w-[520px] rounded-lg border border-slate-300 bg-white p-5 shadow-2xl">
       <div class="flex items-center justify-between">
-        <h2 class="text-xl font-bold text-slate-800">Ethereum Wallet</h2>
+        <h2 class="text-xl font-bold text-slate-800">
+          <template v-if="ethereumImportStep === 'external'">Connect External Wallet</template>
+          <template v-else>Add Ethereum Wallet</template>
+        </h2>
         <button type="button" class="text-2xl leading-none text-slate-500" @click="closeEthereumImport">&times;</button>
       </div>
 
@@ -44,6 +47,14 @@
             Mnemonic
           </button>
         </div>
+        <label v-if="ethereumImportMode === 'privateKey'" class="mb-3 block">
+          <span class="mb-1 block text-sm font-semibold text-slate-700">Wallet Name</span>
+          <input
+            v-model="ethereumWalletNameInput"
+            class="focus:border-argon-500 w-full rounded-md border border-slate-300 px-3 py-2 outline-none"
+            placeholder="Name this wallet"
+          />
+        </label>
         <textarea
           v-model="ethereumSecretInput"
           class="focus:border-argon-500 h-28 w-full resize-none rounded-md border border-slate-300 p-3 font-mono text-sm outline-none"
@@ -52,6 +63,7 @@
         <div v-if="ethereumImportError" class="mt-2 text-sm text-red-600">{{ ethereumImportError }}</div>
         <div class="mt-4 flex justify-end gap-2">
           <button
+            v-if="startedFromChoiceStep"
             type="button"
             class="rounded-md border border-slate-300 px-4 py-2"
             @click="ethereumImportStep = 'choice'"
@@ -97,6 +109,14 @@
             </span>
           </button>
         </div>
+        <label class="mt-4 block">
+          <span class="mb-1 block text-sm font-semibold text-slate-700">Wallet Name</span>
+          <input
+            v-model="ethereumWalletNameInput"
+            class="focus:border-argon-500 w-full rounded-md border border-slate-300 px-3 py-2 outline-none"
+            placeholder="Name this wallet"
+          />
+        </label>
         <div class="mt-4 flex justify-end gap-2">
           <button
             type="button"
@@ -130,24 +150,34 @@ const emit = defineEmits<{ complete: [] }>();
 const ethereumImportStep = Vue.ref<'choice' | 'external' | 'mnemonicAccounts'>();
 const ethereumImportMode = Vue.ref<'privateKey' | 'mnemonic'>('privateKey');
 const ethereumSecretInput = Vue.ref('');
+const ethereumWalletNameInput = Vue.ref('');
 const ethereumImportError = Vue.ref('');
 const isImportingEthereum = Vue.ref(false);
 const isScanningBalances = Vue.ref(false);
 const mnemonicAccounts = Vue.ref<{ address: string; derivationPath: string; balanceSummary?: string }[]>([]);
 const selectedMnemonicPath = Vue.ref('');
+const startedFromChoiceStep = Vue.ref(false);
+
+const hasDefaultEthereumWallet = Vue.computed(() =>
+  wallets.walletRecords.some(wallet => wallet.role === 'defaultEthereum'),
+);
 
 function openEthereumImport() {
-  ethereumImportStep.value = 'choice';
+  startedFromChoiceStep.value = !hasDefaultEthereumWallet.value;
+  ethereumImportStep.value = startedFromChoiceStep.value ? 'choice' : 'external';
   ethereumImportMode.value = 'privateKey';
+  ethereumWalletNameInput.value = '';
   ethereumImportError.value = '';
 }
 
 function closeEthereumImport() {
   ethereumImportStep.value = undefined;
   ethereumSecretInput.value = '';
+  ethereumWalletNameInput.value = '';
   ethereumImportError.value = '';
   mnemonicAccounts.value = [];
   selectedMnemonicPath.value = '';
+  startedFromChoiceStep.value = false;
 }
 
 async function createDefaultEthereum() {
@@ -158,10 +188,18 @@ async function createDefaultEthereum() {
 
 async function continueExternalImport() {
   ethereumImportError.value = '';
+  const walletName = ethereumWalletNameInput.value.trim();
+  if (ethereumImportMode.value === 'privateKey' && !walletName) {
+    ethereumImportError.value = 'Enter a wallet name.';
+    return;
+  }
   isImportingEthereum.value = true;
   try {
     if (ethereumImportMode.value === 'privateKey') {
-      await wallets.importExternalEthereumPrivateKey(ethereumSecretInput.value.trim());
+      await wallets.importExternalEthereumPrivateKey({
+        name: walletName,
+        privateKey: ethereumSecretInput.value.trim(),
+      });
       closeEthereumImport();
       emit('complete');
       return;
@@ -202,9 +240,15 @@ async function scanMnemonicBalances() {
 async function importSelectedMnemonicAccount() {
   const account = mnemonicAccounts.value.find(x => x.derivationPath === selectedMnemonicPath.value);
   if (!account) return;
+  const walletName = ethereumWalletNameInput.value.trim();
+  if (!walletName) {
+    ethereumImportError.value = 'Enter a wallet name.';
+    return;
+  }
   isImportingEthereum.value = true;
   try {
     await wallets.importExternalEthereumMnemonic({
+      name: walletName,
       mnemonic: ethereumSecretInput.value.trim(),
       address: account.address,
       derivationPath: account.derivationPath,
