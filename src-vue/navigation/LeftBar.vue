@@ -52,7 +52,7 @@
           >
             <article TopLevel class="flex flex-row items-center">
               <div class="grow">Account Overview</div>
-              <div><span class="rounded-full bg-slate-600/40 text-white font-bold px-2">0</span></div>
+              <div><span class="rounded-full bg-slate-600/40 px-2 font-bold text-white">0</span></div>
             </article>
             <div Selector>
               <div ArrowSquare>
@@ -60,7 +60,11 @@
               </div>
             </div>
           </li>
-          <li v-if="!config.hasExtensionTreasury" @click="goto(TopTab.TreasuryUnlock)" :class="{ Selected: controller.selectedTab === TopTab.TreasuryUnlock }">
+          <li
+            v-if="!config.hasExtensionTreasury"
+            @click="goto(TopTab.TreasuryUnlock)"
+            :class="{ Selected: controller.selectedTab === TopTab.TreasuryUnlock }"
+          >
             <article TopLevel class="flex flex-row items-center">
               <div class="grow">Unlock Treasury</div>
               <div class="opacity-60">{{ currency.symbol }}0.00</div>
