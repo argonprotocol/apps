@@ -12,7 +12,12 @@
           <div v-if="isReleasing" class="text-sm text-amber-700">
             Releasing
             <span class="font-semibold">
-              {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.returningBondMicrogons).format('0,0.00') }}
+              <template v-if="bondLot.programType === 'Argonot'">
+                {{ micronotToArgonotNm(bondLot.returningBondMicrogons).format('0,0.00') }} ARGNOT
+              </template>
+              <template v-else>
+                {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.returningBondMicrogons).format('0,0.00') }}
+              </template>
             </span>
             <CountdownClock
               :time="dayjs.utc(miningFrames.getFrameDate(bondLot.releaseFrame!))"
@@ -45,7 +50,12 @@
         </div>
         <div SecondRow>
           <span>
-            {{ currency.symbol }}{{ microgonToMoneyNm(BigInt(bondLot.bondMicrogons)).format('0,0.00') }} purchase price
+            <template v-if="bondLot.programType === 'Argonot'">
+              {{ micronotToArgonotNm(bondLot.bondMicrogons).format('0,0.00') }} ARGNOT purchase price
+            </template>
+            <template v-else>
+              {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.bondMicrogons).format('0,0.00') }} purchase price
+            </template>
           </span>
           <div class="flex grow flex-row items-stretch justify-center">
             <span class="h-full w-px bg-slate-400/50"></span>
@@ -54,10 +64,10 @@
             {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.lifetimeEarnings).format('0,0.00') }}
             in distributions
           </span>
-          <div class="flex grow flex-row items-stretch justify-center">
+          <div v-if="bondLot.programType === 'Vault'" class="flex grow flex-row items-stretch justify-center">
             <span class="h-full w-px bg-slate-400/50"></span>
           </div>
-          <span>
+          <span v-if="bondLot.programType === 'Vault'">
             {{ numeral(returnToDate(bondLot.bondMicrogons, bondLot.lifetimeEarnings)).format('0,0.00') }}% return
           </span>
           <div class="flex grow flex-row items-stretch justify-center">
@@ -89,7 +99,7 @@ const currency = getCurrency();
 const miningFrames = getMiningFrames();
 const vaults = getVaults();
 
-const { microgonToMoneyNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const props = withDefaults(
   defineProps<{

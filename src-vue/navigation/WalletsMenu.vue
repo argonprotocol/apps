@@ -1,11 +1,11 @@
 <!-- prettier-ignore -->
 <template>
-  <DropdownMenuRoot :openDelay="0" :closeDelay="0" v-model:open="isOpen">
+  <DropdownMenuRoot v-model:open="isOpen" :modal="false">
     <div class="h-px bg-slate-500/50" />
     <DropdownMenuTrigger asChild>
       <button
         type="button"
-        class="flex w-full flex-row items-center px-3 py-2 my-1 text-left text-slate-900/60 hover:text-slate-900 hover:bg-argon-100/30 focus:bg-argon-100/30 focus:outline-none"
+        class="flex my-1 w-full flex-row items-center px-3 py-2 text-left text-slate-900/60 hover:bg-argon-100/30 hover:text-slate-900 focus-visible:bg-argon-100/30 focus:outline-none"
         @mouseenter="onMouseEnter"
         @mouseleave="onMouseLeave"
       >

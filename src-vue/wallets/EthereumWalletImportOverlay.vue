@@ -125,6 +125,7 @@ import basicEmitter from '../emitters/basicEmitter.ts';
 import { useWallets } from '../stores/wallets.ts';
 
 const wallets = useWallets();
+const emit = defineEmits<{ complete: [] }>();
 
 const ethereumImportStep = Vue.ref<'choice' | 'external' | 'mnemonicAccounts'>();
 const ethereumImportMode = Vue.ref<'privateKey' | 'mnemonic'>('privateKey');
@@ -152,6 +153,7 @@ function closeEthereumImport() {
 async function createDefaultEthereum() {
   await wallets.createDefaultEthereumWallet();
   closeEthereumImport();
+  emit('complete');
 }
 
 async function continueExternalImport() {
@@ -161,6 +163,7 @@ async function continueExternalImport() {
     if (ethereumImportMode.value === 'privateKey') {
       await wallets.importExternalEthereumPrivateKey(ethereumSecretInput.value.trim());
       closeEthereumImport();
+      emit('complete');
       return;
     }
     mnemonicAccounts.value = await wallets.previewExternalEthereumMnemonic(ethereumSecretInput.value.trim());
@@ -207,6 +210,7 @@ async function importSelectedMnemonicAccount() {
       derivationPath: account.derivationPath,
     });
     closeEthereumImport();
+    emit('complete');
   } catch (error) {
     ethereumImportError.value = error instanceof Error ? error.message : 'Unable to import Ethereum wallet.';
   } finally {

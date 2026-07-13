@@ -62,14 +62,14 @@
     <div v-else class="px-5 pt-5 pb-6">
       <div
         v-if="currentBlockingStep"
-        class="mb-5 mx-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-950"
+        class="mb-4 border-l-2 border-argon-300 pl-3 text-slate-600"
       >
-        <p class="font-semibold">
+        <p class="text-sm font-semibold">
           Complete {{ currentBlockingStep.title }} before starting this step.
         </p>
         <button
           @click="openStep(currentBlockingStep.id)"
-          class="mt-2 cursor-pointer text-sm font-semibold text-amber-800 underline underline-offset-2 hover:text-amber-900"
+          class="mt-1 cursor-pointer text-sm font-semibold text-argon-600 hover:text-argon-700!"
         >
           Go to {{ currentBlockingStep.title }}
         </button>
@@ -146,6 +146,7 @@ import { useBasics } from '../stores/basics.ts';
 import { getConfig } from '../stores/config.ts';
 import { MiningSetupStatus, TopTab, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 import { WalletType } from '../lib/Wallet.ts';
+import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 
 const basics = useBasics();
 const config = getConfig();
@@ -225,15 +226,11 @@ function startTask() {
   setTimeout(() => {
     controller.activeGuideId = stepId;
 
-    if (stepId === OperationalStepId.BackupMnemonic) {
-      basicEmitter.emit('openSecuritySettingsOverlay', { screen: 'mnemonics' });
-      return;
-    }
-
     if (stepId === OperationalStepId.ActivateVault) {
-      controller.backButtonTriggersHome = true;
-      config.vaultingSetupStatus = VaultingSetupStatus.Checklist;
-      controller.setTab(TopTab.Vaulting);
+      if (controller.selectedTab === TopTab.Vaulting) {
+        controller.backButtonTriggersHome = true;
+        config.vaultingSetupStatus = VaultingSetupStatus.Checklist;
+      }
       return;
     }
 
@@ -253,11 +250,12 @@ function startTask() {
       return;
     }
 
-    controller.backButtonTriggersHome = true;
-    if (config.miningSetupStatus === MiningSetupStatus.None) {
-      config.miningSetupStatus = MiningSetupStatus.Checklist;
+    if (controller.selectedTab === TopTab.Mining) {
+      controller.backButtonTriggersHome = true;
+      if (config.miningSetupStatus === MiningSetupStatus.None) {
+        config.miningSetupStatus = MiningSetupStatus.Checklist;
+      }
     }
-    controller.setTab(TopTab.Mining);
   });
 }
 
@@ -267,7 +265,7 @@ function cancelTask() {
 }
 
 function openDocumentationLink(link: string) {
-  window.open(link, '_blank', 'noopener,noreferrer');
+  void tauriOpenUrl(link);
 }
 
 basicEmitter.on('openOperationalOverlay', (stepId: OperationalStepId) => {

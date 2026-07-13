@@ -12,6 +12,7 @@ import type {
   IListInvitesResponse,
   IMarkOperationsUpgradedRequest,
   IMemberInvite,
+  IRegenerateInviteRequest,
   IRouterErrorResponse,
 } from '@argonprotocol/apps-router';
 import { type IConfigServerDetails, ServerType } from '../interfaces/IConfig.ts';
@@ -118,6 +119,18 @@ export class ServerApiClient {
     return body.invite;
   }
 
+  public async regenerateInvite(inviteCode: string, payload: IRegenerateInviteRequest): Promise<IMemberInvite> {
+    const body = await this.postJson<IInviteResponse>(
+      `/invites/${encodeURIComponent(inviteCode)}/regenerate`,
+      payload,
+      {
+        timeoutMs: 10e3,
+        adminOperatorAuth: true,
+      },
+    );
+    return body.invite;
+  }
+
   public async markOperationsUpgraded(
     inviteCode: string,
     payload: IMarkOperationsUpgradedRequest,
@@ -125,6 +138,18 @@ export class ServerApiClient {
     const body = await this.postJson<IInviteResponse>(
       `/invites/${encodeURIComponent(inviteCode)}/mark-operations-upgraded`,
       payload,
+      {
+        timeoutMs: 10e3,
+        adminOperatorAuth: true,
+      },
+    );
+    return body.invite;
+  }
+
+  public async reassignOperationsUpgradeCode(inviteCode: string): Promise<IMemberInvite> {
+    const body = await this.postJson<IInviteResponse>(
+      `/invites/${encodeURIComponent(inviteCode)}/reassign-operations-upgrade-code`,
+      {},
       {
         timeoutMs: 10e3,
         adminOperatorAuth: true,

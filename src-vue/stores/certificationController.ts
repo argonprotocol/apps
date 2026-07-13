@@ -14,7 +14,6 @@ import {
 import handleFatalError from './helpers/handleFatalError.ts';
 import Importer from '../lib/Importer.ts';
 import {
-  ensureOperationalAccountRegistered,
   getOperationalRewardConfig,
   type IOperationalChainProgress,
   type IOperationalRewardConfig,
@@ -27,7 +26,6 @@ import { useMyBonds } from './myBonds.ts';
 import { getStats } from './stats.ts';
 import { getMainchainClient } from './mainchain.ts';
 import { getMyVault } from './vaults.ts';
-import { getUpstreamOperatorClient } from './upstreamOperator.ts';
 import BootstrapToNode from '../overlays/operational/BootstrapToNode.vue';
 import BackupMnemonic from '../overlays/operational/BackupMnemonic.vue';
 import ActivateVault from '../overlays/operational/ActivateVault.vue';
@@ -156,7 +154,6 @@ export const useCertificationController = defineStore('certificationController',
   const transactionTracker = getTransactionTracker();
   const walletKeys = getWalletKeys();
   const wallets = useWallets();
-  const upstreamOperatorClient = getUpstreamOperatorClient();
 
   const selectedTab = Vue.ref<TopTab | null>(null);
 
@@ -360,15 +357,33 @@ export const useCertificationController = defineStore('certificationController',
       unactivatedAccessCodes: activeOperationalInviteCount.value,
     };
   });
+  const pendingRewardsAmount = Vue.computed(() => {
+    const pendingRewards =
+      inviteSlotProgress.value.rewardsEarnedAmount - inviteSlotProgress.value.rewardsCollectedAmount;
+
+    return pendingRewards > 0n ? pendingRewards : 0n;
+  });
+  const operationalOverview = Vue.computed(() => {
+    const hasOperationsAccess = chainProgress.value.isUpgradedToOperations || isFullyOperational.value;
+
+    return {
+      hasOperationsAccess,
+      isOperationalActivationReady: isOperationalActivationReady.value,
+      isFullyOperational: isFullyOperational.value,
+      needsOperationsSetup: hasOperationsAccess && !isOperationalActivationReady.value && !isFullyOperational.value,
+      availableUpgradeCodeCount: inviteSlotProgress.value.availableAccessCodes,
+      activeInviteCount: activeOperationalInviteCount.value,
+      rewardsEarnedAmount: inviteSlotProgress.value.rewardsEarnedAmount,
+      rewardsCollectedAmount: inviteSlotProgress.value.rewardsCollectedAmount,
+      pendingRewardsAmount: pendingRewardsAmount.value,
+      hasPendingRewards: pendingRewardsAmount.value > 0n,
+    };
+  });
   const dismissedCompletionNoticeStepIds = Vue.computed(() => {
     const stepIds = config.certificationDetails?.dismissedCompletionNoticeStepIds ?? [];
     return new Set(
       stepIds.filter(stepId => allCertificationStepIds.includes(stepId as OperationalStepId)) as OperationalStepId[],
     );
-  });
-  const pendingRewardsAmount = Vue.computed(() => {
-    const pending = inviteSlotProgress.value.rewardsEarnedAmount - inviteSlotProgress.value.rewardsCollectedAmount;
-    return pending > 0n ? pending : 0n;
   });
 
   let operationalAccountUnsubscribe: VoidFunction | undefined;
@@ -496,28 +511,6 @@ export const useCertificationController = defineStore('certificationController',
     void config.save();
   }
 
-  async function ensureOperationalRegistration() {
-    await config.isLoadedPromise;
-
-    if (!config.hasExtensionTreasury) {
-      return;
-    }
-
-    const invite = await upstreamOperatorClient.getMemberInvite().catch(() => null);
-    if (!invite?.accessProof) {
-      return;
-    }
-
-    await wallets.isLoadedPromise;
-
-    return await ensureOperationalAccountRegistered({
-      transactionTracker,
-      walletKeys,
-      accessProof: invite.accessProof,
-      availableMicrogons: wallets.defaultArgonWallet.availableMicrogons,
-    });
-  }
-
   async function load() {
     await config.isLoadedPromise;
     selectedTab.value = config.selectedTab;
@@ -541,7 +534,7 @@ export const useCertificationController = defineStore('certificationController',
           return;
         }
 
-        setTab(TopTab.Treasury);
+        setTab(TopTab.BitcoinLocks);
       },
     );
 
@@ -575,10 +568,6 @@ export const useCertificationController = defineStore('certificationController',
     void myBonds.load().catch(error => {
       console.error('[Certification Controller] Unable to load bond progress.', error);
     });
-    void ensureOperationalRegistration().catch(error => {
-      console.error('[Certification Controller] Unable to register the operational account.', error);
-    });
-
     // detect newly completed steps and queue completion notices
     Vue.watch(
       () => {
@@ -697,6 +686,13 @@ export const useCertificationController = defineStore('certificationController',
       };
     }
 
+    if (invite.bitcoinLockCoupon?.status === 'Expired') {
+      return {
+        label: 'Expired',
+        showRewardNote: false,
+      };
+    }
+
     if (invite.lastClickedAt) {
       return {
         label: 'Opened',
@@ -771,6 +767,7 @@ export const useCertificationController = defineStore('certificationController',
     chainProgress,
     rewardConfig,
     inviteSlotProgress,
+    operationalOverview,
     pendingRewardsAmount,
     operationalInvites,
     operationalInviteStatusesByCode,
@@ -783,7 +780,6 @@ export const useCertificationController = defineStore('certificationController',
     importFromMnemonic,
     dismissCompletionNotice,
     clearCompletionNotices,
-    ensureOperationalRegistration,
     loadOperationalInvites,
     setOperationalInvites,
     refreshOperationalInviteStatuses,

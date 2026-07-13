@@ -303,7 +303,7 @@ it('only uploads bot config files when updating server config', async () => {
   expect(uploadBotConfigFiles).toHaveBeenCalledOnce();
 });
 
-it('uploads the mining bot wallet while keeping the mining bot as the funding account', async () => {
+it('uploads the mining bid proxy wallet while keeping the mining bot as the funding account', async () => {
   const dbPromise = createMockedDbPromise({});
   const walletKeys = createMockWalletKeys();
   const config = new Config(dbPromise, walletKeys);
@@ -312,7 +312,7 @@ it('uploads the mining bot wallet while keeping the mining bot as the funding ac
   const installer = new Installer(config, walletKeys);
   await installer.load();
 
-  const miningBotWalletJson = (await walletKeys.getMiningBotKeypair()).toJson('');
+  const miningBidProxyWalletJson = await walletKeys.exportMiningBidProxyAccountJson('');
   const server = {
     createConfigDir: vi.fn().mockResolvedValue(undefined),
     uploadMiningBotWallet: vi.fn().mockResolvedValue(undefined),
@@ -327,7 +327,7 @@ it('uploads the mining bot wallet while keeping the mining bot as the funding ac
   // @ts-ignore - exercise the upload path directly
   await installer.uploadBotConfigFiles();
 
-  expect(server.uploadMiningBotWallet).toHaveBeenCalledWith(miningBotWalletJson);
+  expect(server.uploadMiningBotWallet).toHaveBeenCalledWith(miningBidProxyWalletJson);
   expect(server.uploadEnvState).toHaveBeenCalledWith(
     expect.objectContaining({
       miningFundingAccountId: walletKeys.miningBotAddress,

@@ -125,9 +125,17 @@
               </div>
             </header>
             <div class="flex min-h-0 grow flex-col">
-              <div class="flex flex-row items-center w-full gap-x-3 text-base my-4 px-2.5">
-                <div class="text-slate-700/80">Grow revenue by expanding your network</div>
-                <div class="grow"></div>
+              <div class="flex flex-row items-center w-full text-base my-4 px-2.5">
+                <div class="flex items-center text-slate-700/80">
+                  Grow revenue by expanding your
+                  <button
+                    type="button"
+                    class="ml-1 flex cursor-pointer flex-row items-center text-argon-600 opacity-70 hover:opacity-100"
+                    @click="openNetworkTab"
+                  >
+                    network
+                  </button>
+                </div>
               </div>
               <div class="flex min-h-0 w-full grow flex-row items-stretch gap-x-2 px-2">
                 <div BitcoinMap class="relative min-h-0 w-1/2">
@@ -287,7 +295,7 @@ import numeral from '../../lib/numeral.ts';
 import { getMyVault, getVaults } from '../../stores/vaults.ts';
 import type { IExternalBitcoinLock } from '../../lib/MyVault.ts';
 import { getConfig } from '../../stores/config.ts';
-import { ArrowTopRightOnSquareIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
+import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import { TICK_MILLIS } from '../../lib/Env.ts';
 import VaultEditOverlay from '../../overlays/VaultEditOverlay.vue';
 import BitcoinLockDetailOverlay from '../../overlays/BitcoinLockDetailOverlay.vue';
@@ -446,10 +454,16 @@ function getLockTileStatus(lock: IBitcoinLockRecord): TileStatus {
   return 'pending';
 }
 
+const localVaultLocks = Vue.computed(() => {
+  const vaultId = myVault.createdVault?.vaultId;
+  if (!vaultId) return [];
+
+  return bitcoinLocks.getActiveLocks().filter(lock => lock.vaultId === vaultId);
+});
+
 const localLocksByUuid = Vue.computed(() => {
   const map: Record<string, IBitcoinLockRecord> = {};
-  const locks = bitcoinLocks.getActiveLocks();
-  for (const lock of locks) {
+  for (const lock of localVaultLocks.value) {
     map[lock.uuid] = lock;
   }
   return map;
@@ -522,8 +536,7 @@ const bitcoinMapItems = Vue.computed((): MapItem[] => {
   // Current frame: per-lock items
   const items: MapItem[] = [];
 
-  const localLocks = bitcoinLocks.getActiveLocks();
-  for (const lock of localLocks) {
+  for (const lock of localVaultLocks.value) {
     const microgons = bitcoinLocks.getDisplayLiquidityPromised(lock);
     const tileStatus = getLockTileStatus(lock);
     items.push({
@@ -757,6 +770,10 @@ function openVaultEditOverlay() {
 
 function openPortfolioPanel(tab: PortfolioTab) {
   basicEmitter.emit('openPortfolioPanel', tab);
+}
+
+function openNetworkTab() {
+  controller.setTab(TopTab.Network);
 }
 
 const miningFrames = getMiningFrames();

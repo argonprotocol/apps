@@ -54,6 +54,7 @@ import { GlobalCouncil } from './GlobalCouncil.ts';
 import { MintingAuthorities } from './MintingAuthorities.ts';
 import { Config } from './Config.ts';
 import { ICollectOrphanCosignMetadata, IVaultCollectMetadata, VaultCollectBuilder } from './VaultCollectBuilder.ts';
+import { getSpendableDefaultArgonMicrogons } from './WalletForArgon.ts';
 import bs58check from 'bs58check';
 
 export const DEFAULT_MASTER_XPUB_PATH = "m/84'/0'/0'";
@@ -223,6 +224,7 @@ export class MyVault {
       };
 
       await this.#transactionTracker.load();
+      this.#singleRunTransactions.delete(ExtrinsicType.VaultSetBitcoinLockDelegate);
 
       for (const txInfo of this.#transactionTracker.pendingBlockTxInfosAtLoad) {
         const { tx } = txInfo;
@@ -261,13 +263,6 @@ export class MyVault {
           this.#singleRunTransactions.set(ExtrinsicType.VaultCreate, Promise.resolve(completedTxInfo));
         }
       }
-      if (!this.#singleRunTransactions.has(ExtrinsicType.VaultSetBitcoinLockDelegate)) {
-        const completedTxInfo = this.#transactionTracker.data.txInfosByType[ExtrinsicType.VaultSetBitcoinLockDelegate];
-        if (completedTxInfo) {
-          this.#singleRunTransactions.set(ExtrinsicType.VaultSetBitcoinLockDelegate, Promise.resolve(completedTxInfo));
-        }
-      }
-
       const vaultId = this.data.metadata?.id;
       if (vaultId) {
         this.data.createdVault = this.vaults.vaultsById[vaultId];
@@ -1191,7 +1186,7 @@ export class MyVault {
             .then(x => x.data.free.toBigInt());
 
           // Make sure the collect amount doesn't drain the account below operational reserves
-          const maxAmountToMove = bigIntMax(0n, balanceAtBlock - MyVault.OperationalReserves);
+          const maxAmountToMove = getSpendableDefaultArgonMicrogons(balanceAtBlock);
           if (maxAmountToMove < 50_000n) {
             throw new Error('The amount requested to move is too low after accounting for operational reserves.');
           }
@@ -1813,8 +1808,6 @@ export class MyVault {
     await db.bitcoinLocksTable.deleteAll();
     await db.walletHdKeysTable.deleteByKeyRole(['councilSigner', 'mintingAuthority']);
   }
-
-  public static OperationalReserves = 1_000_000n;
 
   public static getSecuritizationTarget(rules: IVaultingRules) {
     return bigIntMax(rules.baseMicrogonCommitment, 0n);

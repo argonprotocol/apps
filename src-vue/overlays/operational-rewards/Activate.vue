@@ -27,19 +27,13 @@
       </div>
 
       <div class="px-5">
-        <div class="text-base font-semibold text-slate-800">Send reward to</div>
-        <InputMenu
-          v-model="rewardAccount"
-          :options="rewardAccountOptions"
-          :selectFirst="true"
-          class="mt-3 flex w-full"
-        />
+        <div class="text-base font-semibold text-slate-800">Your reward will be sent to your Argon Wallet.</div>
         <div
           v-if="hasRewardAccountFeeShortfall"
           class="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-5 text-amber-800"
         >
-          This account needs ~₳{{ microgonToArgonNm(rewardFeeEstimate ?? 0n).format('0,0.[00]') }} available to submit
-          the activation. Choose a different account or add funds before activating.
+          Your Argon Wallet needs ~₳{{ microgonToArgonNm(rewardFeeEstimate ?? 0n).format('0,0.[00]') }} available to
+          submit the activation. Add funds before activating.
         </div>
       </div>
 
@@ -89,8 +83,7 @@
         it.
       </p>
       <p v-else class="mx-auto mt-3 max-w-xl text-center text-sm leading-6 text-slate-500">
-        You've activated your Argon Operational Certification. The claimed reward should now be in the account you
-        selected.
+        You've activated your Argon Operational Certification. The claimed reward should now be in your Argon Wallet.
       </p>
 
       <div class="text-argon-700 mt-8 text-center text-4xl font-bold">{{ numeral(progressPct).format('0.00') }}%</div>
@@ -127,7 +120,6 @@ import dayjs, { type Dayjs } from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { MICROGONS_PER_ARGON } from '@argonprotocol/apps-core';
 import CountdownClock from '../../components/CountdownClock.vue';
-import InputMenu, { type IOption } from '../../components/InputMenu.vue';
 import ProgressBar from '../../components/ProgressBar.vue';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import {
@@ -135,6 +127,7 @@ import {
   getOperationalRewardsClaimAvailability,
 } from '../../lib/OperationalAccount.ts';
 import { ExtrinsicType } from '../../lib/db/TransactionsTable.ts';
+import { getSpendableDefaultArgonMicrogons } from '../../lib/WalletForArgon.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
 import { useCertificationController } from '../../stores/certificationController.ts';
@@ -142,8 +135,6 @@ import { getTransactionTracker } from '../../stores/transactions.ts';
 import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
 
 dayjs.extend(utc);
-
-type RewardAccount = 'defaultArgon' | 'vaulting';
 
 const props = defineProps<{
   isActive: boolean;
@@ -162,7 +153,6 @@ const transactionTracker = getTransactionTracker();
 
 const { microgonToArgonNm } = createNumeralHelpers(currency);
 
-const rewardAccount = Vue.ref<RewardAccount>('vaulting');
 const treasuryReserves = Vue.ref<bigint>();
 const claimableNow = Vue.ref<bigint>();
 const canClaimRewards = Vue.ref(true);
@@ -177,19 +167,10 @@ const isProcessing = Vue.ref(false);
 let unsubscribeProgress: (() => void) | undefined;
 let feeEstimateRunId = 0;
 
-const rewardAccountOptions = Vue.computed<IOption[]>(() => [
-  { name: 'Vaulting Account', value: 'vaulting' },
-  { name: 'Argon Wallet', value: 'defaultArgon' },
-]);
-
-const selectedRewardAccount = Vue.computed(() => {
-  if (rewardAccount.value === 'defaultArgon') return wallets.defaultArgonWallet;
-  return wallets.defaultArgonWallet;
-});
-
 const hasRewardAccountFeeShortfall = Vue.computed(() => {
   return (
-    rewardFeeEstimate.value !== undefined && selectedRewardAccount.value.availableMicrogons < rewardFeeEstimate.value
+    rewardFeeEstimate.value !== undefined &&
+    getSpendableDefaultArgonMicrogons(wallets.defaultArgonWallet.availableMicrogons) < rewardFeeEstimate.value
   );
 });
 
@@ -205,7 +186,7 @@ const canSubmitRewardClaim = Vue.computed(() => {
     !isProcessing.value &&
     controller.isOperationalActivationReady &&
     !hasRewardAccountFeeShortfall.value &&
-    !!selectedRewardAccount.value.address &&
+    !!wallets.defaultArgonWallet.address &&
     claimableNow.value !== undefined &&
     claimableNow.value >= BigInt(MICROGONS_PER_ARGON)
   );
@@ -235,13 +216,12 @@ async function activateAndClaimReward() {
 
     const client = await getMainchainClient(false);
     const tx = await buildOperationalActivationRewardClaimTx(rewardClaimAmount, client);
-    const signer = await getRewardSigner();
     const txInfo = await transactionTracker.submitAndWatch({
       tx,
-      txSigner: signer,
+      txSigner: await walletKeys.getDefaultArgonKeypair(),
       extrinsicType: ExtrinsicType.OperationalActivateAndClaim,
       metadata: {
-        rewardAccount: rewardAccount.value,
+        rewardAccount: 'defaultArgon',
         vaultLockMicrogons: controller.rewardConfig.operationalMinimumVaultSecuritization,
         rewardMicrogons: controller.rewardConfig.operationalActivationReward,
         claimedMicrogons: rewardClaimAmount,
@@ -277,7 +257,7 @@ Vue.watch(
   { immediate: true },
 );
 
-Vue.watch([() => props.isActive, rewardAccount, claimableNow], () => {
+Vue.watch([() => props.isActive, claimableNow], () => {
   void updateRewardFeeEstimate();
 });
 
@@ -285,11 +265,6 @@ Vue.onUnmounted(() => {
   feeEstimateRunId += 1;
   unsubscribeProgress?.();
 });
-
-async function getRewardSigner() {
-  if (rewardAccount.value === 'defaultArgon') return await walletKeys.getDefaultArgonKeypair();
-  return await walletKeys.getVaultingKeypair();
-}
 
 async function loadAvailability() {
   transactionError.value = '';
@@ -330,7 +305,7 @@ async function updateRewardFeeEstimate() {
   if (
     !props.isActive ||
     !canClaimRewards.value ||
-    !selectedRewardAccount.value.address ||
+    !wallets.defaultArgonWallet.address ||
     claimableNow.value === undefined ||
     claimableNow.value < BigInt(MICROGONS_PER_ARGON)
   ) {
@@ -340,7 +315,7 @@ async function updateRewardFeeEstimate() {
   try {
     const client = await getMainchainClient(false);
     const tx = await buildOperationalActivationRewardClaimTx(claimableNow.value, client);
-    const fee = await tx.paymentInfo(selectedRewardAccount.value.address);
+    const fee = await tx.paymentInfo(wallets.defaultArgonWallet.address);
     if (runId === feeEstimateRunId) {
       rewardFeeEstimate.value = fee.partialFee.toBigInt();
     }

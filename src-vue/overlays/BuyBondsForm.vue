@@ -26,7 +26,19 @@
         <label class="mb-1.5 block text-sm font-medium text-slate-600">
           Amount to buy
         </label>
+        <InputNumber
+          v-if="props.programType === 'Argonot'"
+          v-model="purchaseBonds"
+          :min="0"
+          :max="maxPurchaseBonds"
+          :dragBy="1"
+          :dragByMin="1"
+          :minDecimals="0"
+          :maxDecimals="0"
+          suffix=" ARGNOT"
+        />
         <InputMoney
+          v-else
           v-model="purchaseAmount"
           :min="0n"
           :max="maxPurchaseAmount"
@@ -36,12 +48,20 @@
           :maxDecimals="0"
         />
         <div class="mt-1 text-xs text-slate-400">
-          Available to buy: {{ currency.symbol }}{{ microgonToMoneyNm(maxPurchaseAmount).format('0,0.00') }}
-          <template v-if="reserveLimitsPurchase">
+          <template v-if="props.programType === 'Argonot'">
+            Available to buy: {{ micronotToArgonotNm(maxPurchaseAmount).format('0,0.00') }} ARGNOT
+          </template>
+          <template v-else>
+            Available to buy: {{ currency.symbol }}{{ microgonToMoneyNm(maxPurchaseAmount).format('0,0.00') }}
+          </template>
+          <template v-if="props.programType === 'Vault' && reserveLimitsPurchase">
             · Keeps {{ currency.symbol }}{{ microgonToMoneyNm(operationalReserveMicrogons).format('0,0.00') }} in wallet for operational reserves
           </template>
-          <template v-else-if="vaultCapacityLimitsPurchase">
+          <template v-else-if="props.programType === 'Vault' && vaultCapacityLimitsPurchase">
             · Vault capacity limits this purchase
+          </template>
+          <template v-else-if="props.programType === 'Argonot' && argonotCapacityLimitsPurchase">
+            · Program capacity limits this purchase
           </template>
         </div>
       </div>
@@ -62,7 +82,9 @@
           :disabled="isSubmitting || purchaseAmount <= 0n"
           class="bg-argon-button hover:bg-argon-button-hover rounded px-5 py-2 text-sm font-semibold text-white disabled:opacity-40"
           @click="submit">
-          {{ isSubmitting ? 'Submitting...' : 'Buy Bonds' }}
+          <template v-if="isSubmitting">Submitting...</template>
+          <template v-else-if="props.programType === 'Argonot'">Buy Argonot Bonds</template>
+          <template v-else>Buy Bonds</template>
         </button>
       </div>
     </template>
@@ -71,10 +93,10 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { MICROGONS_PER_ARGON, TreasuryBonds } from '@argonprotocol/apps-core';
+import { type BondLot, MICROGONS_PER_ARGON, MICRONOTS_PER_ARGONOT, TreasuryBonds } from '@argonprotocol/apps-core';
 import InputMoney from '../components/InputMoney.vue';
+import InputNumber from '../components/InputNumber.vue';
 import ProgressBar from '../components/ProgressBar.vue';
-import { MyVault } from '../lib/MyVault.ts';
 import { type TransactionInfo } from '../lib/TransactionInfo.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
@@ -85,14 +107,21 @@ import { getMainchainClient } from '../stores/mainchain.ts';
 import { getTransactionTracker } from '../stores/transactions.ts';
 import { getVaults } from '../stores/vaults.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
-import { getSpendableMicrogons } from '../lib/WalletForArgon.ts';
+import { getSpendableDefaultArgonMicrogons } from '../lib/WalletForArgon.ts';
 
 const MICROGONS_PER_ARGON_BIGINT = BigInt(MICROGONS_PER_ARGON);
 
-const props = defineProps<{
-  vaultId: number;
-  walletBalance: bigint;
-}>();
+const props = withDefaults(
+  defineProps<{
+    programType?: BondLot['programType'];
+    vaultId?: number;
+    walletBalance: bigint;
+  }>(),
+  {
+    programType: 'Vault',
+  },
+);
+const unitsPerBond = props.programType === 'Argonot' ? BigInt(MICRONOTS_PER_ARGONOT) : MICROGONS_PER_ARGON_BIGINT;
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -105,10 +134,17 @@ const transactionTracker = getTransactionTracker();
 const bondMarket = getBondMarket();
 const vaults = getVaults();
 
-const { microgonToMoneyNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
-const vault = Vue.ref(vaults.vaultsById[props.vaultId]);
+const vault = Vue.ref(props.vaultId ? vaults.vaultsById[props.vaultId] : undefined);
+const argonotBondCapacity = Vue.ref(0n);
 const purchaseAmount = Vue.ref<bigint>(0n);
+const purchaseBonds = Vue.computed({
+  get: () => Number(purchaseAmount.value / unitsPerBond),
+  set: value => {
+    purchaseAmount.value = BigInt(value) * unitsPerBond;
+  },
+});
 const isSubmitting = Vue.ref(false);
 const errorMessage = Vue.ref('');
 
@@ -119,14 +155,18 @@ const progressError = Vue.ref('');
 
 let unsubProgress: (() => void) | undefined;
 
-const vaultBondState = Vue.computed(() => bondMarket.data.vaultsById[props.vaultId]);
+const vaultBondState = Vue.computed(() => {
+  return props.vaultId ? bondMarket.data.vaultsById[props.vaultId] : undefined;
+});
 
 const vaultAvailableCapacity = Vue.computed(() => {
+  if (props.programType === 'Argonot') return argonotBondCapacity.value;
   return vault.value?.availableBondSpace(currency.priceIndex, vaultBondState.value?.bondLots ?? [], true) ?? 0n;
 });
 
 const spendableWalletBalance = Vue.computed(() => {
-  return getSpendableMicrogons(props.walletBalance, MyVault.OperationalReserves);
+  if (props.programType === 'Argonot') return props.walletBalance;
+  return getSpendableDefaultArgonMicrogons(props.walletBalance);
 });
 
 const operationalReserveMicrogons = Vue.computed(() => {
@@ -147,10 +187,16 @@ const vaultCapacityLimitsPurchase = Vue.computed(() => {
   return vaultAvailableCapacity.value < spendableWalletBalance.value;
 });
 
+const argonotCapacityLimitsPurchase = Vue.computed(() => {
+  return props.programType === 'Argonot' && argonotBondCapacity.value < props.walletBalance;
+});
+
 const maxPurchaseAmount = Vue.computed(() => {
   const max = purchaseCapacity.value;
-  return max - (max % MICROGONS_PER_ARGON_BIGINT);
+  return max - (max % unitsPerBond);
 });
+
+const maxPurchaseBonds = Vue.computed(() => Number(maxPurchaseAmount.value / unitsPerBond));
 
 function resetProgress() {
   unsubProgress?.();
@@ -189,21 +235,34 @@ async function submit() {
 
   try {
     const client = await getMainchainClient(false);
-    const signer = await walletKeys.getTreasuryKeypair();
-    const tx = await TreasuryBonds.buildBuyBondTx({
-      client,
-      vaultId: props.vaultId,
-      bondPurchaseMicrogons: purchaseAmount.value,
-    });
+    const signer = await walletKeys.getDefaultArgonKeypair();
+    let tx;
+    let extrinsicType;
+    let metadata;
+
+    if (props.programType === 'Argonot') {
+      tx = client.tx.treasury.buyArgonotBonds(purchaseBonds.value);
+      extrinsicType = ExtrinsicType.TreasuryBuyArgonotBonds;
+      metadata = { bondPurchaseMicronots: purchaseAmount.value };
+    } else {
+      if (!props.vaultId) throw new Error('Select a vault before buying bonds.');
+      tx = await TreasuryBonds.buildBuyBondTx({
+        client,
+        vaultId: props.vaultId,
+        bondPurchaseMicrogons: purchaseAmount.value,
+      });
+      extrinsicType = ExtrinsicType.TreasuryBuyBonds;
+      metadata = {
+        vaultId: props.vaultId,
+        bondPurchaseMicrogons: purchaseAmount.value,
+      };
+    }
 
     const info = await transactionTracker.submitAndWatch({
       tx,
       txSigner: signer,
-      extrinsicType: ExtrinsicType.TreasuryBuyBonds,
-      metadata: {
-        vaultId: props.vaultId,
-        bondPurchaseMicrogons: purchaseAmount.value,
-      },
+      extrinsicType,
+      metadata,
     });
 
     trackTxInfo(info);
@@ -216,21 +275,42 @@ async function submit() {
 let unsubVault: (() => void) | undefined;
 
 Vue.onMounted(async () => {
-  vault.value = vaults.vaultsById[props.vaultId];
-  unsubVault = await vaults.subscribeToVault(props.vaultId, updatedVault => {
-    vault.value = updatedVault;
-  });
+  if (props.programType === 'Argonot') {
+    const client = await getMainchainClient(false);
+    const [totalIssuance, totalActiveBonds] = await Promise.all([
+      client.query.ownership.totalIssuance(),
+      client.query.treasury.totalActiveArgonotBonds(),
+    ]);
+    argonotBondCapacity.value = TreasuryBonds.getArgonotBondPurchaseCapacity({
+      totalIssuanceMicronots: totalIssuance.toBigInt(),
+      maxBondedPercent: client.consts.treasury.maxArgonotBondedPercentOfCirculation.toNumber(),
+      totalActiveBonds: totalActiveBonds.toNumber(),
+    });
+  } else if (props.vaultId) {
+    vault.value = vaults.vaultsById[props.vaultId];
+    unsubVault = await vaults.subscribeToVault(props.vaultId, updatedVault => {
+      vault.value = updatedVault;
+    });
+  }
 
   await transactionTracker.load();
   const pendingBuyTxInfo = transactionTracker.findLatestTxInfo<{
     vaultId?: number;
     bondPurchaseMicrogons?: bigint;
+    bondPurchaseMicronots?: bigint;
   }>(candidate => {
-    if (candidate.tx.extrinsicType !== ExtrinsicType.TreasuryBuyBonds) return false;
-    if (candidate.tx.accountAddress !== walletKeys.treasuryAddress) return false;
-    if (candidate.tx.metadataJson?.vaultId !== props.vaultId) return false;
-    if ((candidate.tx.metadataJson?.bondPurchaseMicrogons ?? 0n) <= 0n) return false;
+    if (candidate.tx.accountAddress !== walletKeys.defaultArgonAddress) return false;
     if (candidate.tx.submissionErrorJson || candidate.tx.blockExtrinsicErrorJson) return false;
+
+    if (props.programType === 'Argonot') {
+      if (candidate.tx.extrinsicType !== ExtrinsicType.TreasuryBuyArgonotBonds) return false;
+      if ((candidate.tx.metadataJson?.bondPurchaseMicronots ?? 0n) <= 0n) return false;
+    } else {
+      if (candidate.tx.extrinsicType !== ExtrinsicType.TreasuryBuyBonds) return false;
+      if (candidate.tx.metadataJson?.vaultId !== props.vaultId) return false;
+      if ((candidate.tx.metadataJson?.bondPurchaseMicrogons ?? 0n) <= 0n) return false;
+    }
+
     return candidate.tx.status === TransactionStatus.Submitted || candidate.tx.status === TransactionStatus.InBlock;
   });
   if (pendingBuyTxInfo) {

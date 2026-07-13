@@ -93,7 +93,7 @@ import ProfitsMenu from './ProfitsMenu.vue';
 import PortfolioDetailsMenu from './PortfolioDetailsMenu.vue';
 import PortfolioCurrencyMenu from './PortfolioCurrencyMenu.vue';
 import { getConfig } from '../stores/config.ts';
-import AdForTreasury from '../screens/network-screen/AdForTreasury.vue';
+import basicEmitter from '../emitters/basicEmitter.ts';
 
 const controller = useCertificationController();
 const wallets = useWallets();
@@ -136,6 +136,11 @@ function clearNavigationMenuClose() {
   navigationMenuCloseTimeoutId = undefined;
 }
 
+function openCertificationMenu() {
+  clearNavigationMenuClose();
+  navigationMenuValue.value = 'certification';
+}
+
 tour.registerPositionCheck('currencyMenu', () => {
   const currencyMenuElem = currencyMenuRef.value?.$el;
   const rect = currencyMenuElem?.getBoundingClientRect().toJSON() || { left: 0, right: 0, top: 0, bottom: 0 };
@@ -154,5 +159,11 @@ tour.registerPositionCheck('accountMenu', () => {
   rect.top -= 7;
   rect.bottom += 7;
   return { ...rect, blur: 5 };
+});
+
+basicEmitter.on('openCertificationMenu', openCertificationMenu);
+
+Vue.onBeforeUnmount(() => {
+  basicEmitter.off('openCertificationMenu', openCertificationMenu);
 });
 </script>

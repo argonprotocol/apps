@@ -33,6 +33,8 @@ export async function createMenu() {
   const bot = getBot();
   const tour = useTour();
 
+  await config.isLoadedPromise;
+
   const mainMenu = await Submenu.new({
     text: 'Argon',
     items: [
@@ -282,7 +284,6 @@ export async function createMenu() {
     ],
   });
 
-  const items = [];
   const menu = await Menu.new({
     items: [
       mainMenu,

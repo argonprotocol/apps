@@ -96,6 +96,32 @@ export class UserInvitesTable extends BaseTable {
     return record ? this.mapInvite(record) : null;
   }
 
+  public replaceInviteCode(args: {
+    id: number;
+    currentInviteCode: string;
+    replacementInviteCode: string;
+  }): IUserInviteRecord | null {
+    const result = this.db.sql
+      .prepare(
+        `
+        UPDATE UserInvites
+        SET inviteCode = $replacementInviteCode
+        WHERE userId = $id
+          AND inviteCode = $currentInviteCode
+          AND firstClickedAt IS NULL
+      `,
+      )
+      .run(
+        toSqliteParams({
+          id: args.id,
+          currentInviteCode: args.currentInviteCode,
+          replacementInviteCode: args.replacementInviteCode,
+        }),
+      );
+
+    return result.changes > 0 ? this.fetchById(args.id) : null;
+  }
+
   public fetchById(id: number): IUserInviteRecord | null {
     const record = this.db.sql
       .prepare(
@@ -224,6 +250,23 @@ export class UserInvitesTable extends BaseTable {
           operationsAccessProofSignature,
         }),
       );
+
+    return this.fetchById(id);
+  }
+
+  public reassignOperationsUpgradeCode(id: number): IUserInviteRecord | null {
+    this.db.sql
+      .prepare(
+        `
+        UPDATE UserInvites
+        SET
+          operationsUpgradeRequestedAt = NULL,
+          operationsUpgradedAt = NULL,
+          operationsAccessProofSignature = NULL
+        WHERE userId = $id
+      `,
+      )
+      .run({ $id: id });
 
     return this.fetchById(id);
   }

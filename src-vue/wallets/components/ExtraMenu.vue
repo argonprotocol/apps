@@ -64,12 +64,14 @@
                 <ShieldCheckIcon class="w-4 h-4" />
               </div>
             </DropdownMenuItem>
-            <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-            <DropdownMenuItem MenuItem @click="() => disconnectWallet()" >
-              <div ItemWrapper>
-                <header>Disconnect Wallet from App</header>
-              </div>
-            </DropdownMenuItem>
+            <template v-if="walletType !== WalletType.defaultArgon">
+              <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+              <DropdownMenuItem MenuItem @click="() => disconnectWallet()">
+                <div ItemWrapper>
+                  <header>Disconnect Wallet from App</header>
+                </div>
+              </DropdownMenuItem>
+            </template>
           </div>
           <DropdownMenuArrow :width="22" :height="12" class="mt-[0px] fill-white stroke-gray-300" />
         </DropdownMenuContent>
@@ -188,7 +190,6 @@ function clickOutside(e: PointerDownOutsideEvent) {
   e.preventDefault();
   return false;
 }
-
 Vue.onMounted(() => {
   void loadQRCode();
 });

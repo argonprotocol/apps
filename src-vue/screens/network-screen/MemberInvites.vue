@@ -1,10 +1,10 @@
 <template>
-  <div class="flex h-full flex-col rounded-2xl border border-slate-200 bg-white/90 px-5 py-5">
-    <div class="flex items-start justify-between gap-4 border-b border-slate-200 pb-4">
+  <div class="flex h-full flex-col">
+    <div class="flex items-start justify-between gap-4 border-b border-slate-200 pb-3">
       <div>
         <div class="text-xl font-bold text-slate-800">Member Invites</div>
-        <p class="mt-1 text-sm leading-6 text-slate-500">
-          Invite people into your vault, track their treasury progress, and approve operations access when they are
+        <p class="mt-1 text-sm leading-5 text-slate-500">
+          Invite people into your vault, track their certification progress, and approve operations access when they are
           ready.
         </p>
       </div>
@@ -33,38 +33,40 @@
       Loading member invites…
     </div>
 
-    <div v-else-if="!hasProfileName" class="my-auto text-center text-sm leading-6 text-slate-500">
-      Set your Operator name before creating member invites.
+    <div v-else-if="!hasProfileName" class="my-auto text-center">
+      <div class="text-sm leading-6 text-slate-500">Set your profile name before sending member invites.</div>
+
+      <button
+        type="button"
+        class="border-argon-600/20 text-argon-600 inner-button-shadow hover:bg-argon-600/10 mt-4 cursor-pointer rounded-md border bg-white px-5 py-2 font-bold focus:outline-none"
+        @click="basicEmitter.emit('openProfileOverlay')"
+      >
+        Set Profile Name
+      </button>
     </div>
 
     <div v-else class="flex min-h-0 grow flex-col">
-      <div v-if="errorMessage || inviteCreationBlockedReason || showRuntimeUpgradeNotice" class="mt-4 space-y-3">
-        <div v-if="errorMessage" class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+      <div v-if="errorMessage || inviteCreationBlockedReason || showRuntimeUpgradeNotice" class="mt-3 space-y-2">
+        <div v-if="errorMessage" class="text-sm text-red-600">
           {{ errorMessage }}
         </div>
 
-        <div
-          v-if="inviteCreationBlockedReason"
-          class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
-        >
+        <div v-if="inviteCreationBlockedReason" class="border-argon-300 border-l-2 pl-3 text-sm text-slate-600">
           {{ inviteCreationBlockedReason }}
         </div>
 
-        <div
-          v-if="showRuntimeUpgradeNotice"
-          class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
-        >
+        <div v-if="showRuntimeUpgradeNotice" class="border-argon-300 border-l-2 pl-3 text-sm text-slate-600">
           Operations approval will unlock here after the next mainchain runtime upgrade is active.
         </div>
       </div>
 
-      <div v-if="isAddingInvite" class="mt-4 rounded-2xl border border-dashed border-slate-300 px-4 py-4">
+      <div v-if="isAddingInvite" class="mt-3 border-b border-slate-200 pb-4">
         <div>
           <label class="text-sm font-medium text-slate-700">Invite name</label>
           <input
             v-model.trim="inviteName"
             type="text"
-            class="focus:border-argon-600 mt-2 w-full rounded-xl border border-slate-300 px-3 py-2.5 focus:ring-0"
+            class="focus:border-argon-600 mt-2 w-full rounded border border-slate-300 px-3 py-2 focus:ring-0"
           />
         </div>
 
@@ -96,69 +98,121 @@
 
       <div
         v-if="!isAddingInvite && !controller.operationalInvites.length"
-        class="my-auto rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500"
+        class="my-auto px-4 py-8 text-center text-sm text-slate-500"
       >
         No invites yet. Create one to share your vault with a new member.
       </div>
 
-      <div v-else class="mt-4 min-h-0 grow overflow-y-auto pr-1">
-        <div
-          v-for="invite in controller.operationalInvites"
-          :key="invite.id"
-          class="mb-3 rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-4 last:mb-0"
-        >
-          <div class="flex items-start justify-between gap-4">
-            <div class="min-w-0">
-              <div class="flex items-center gap-3">
-                <div class="truncate text-base font-semibold text-slate-800">{{ invite.name }}</div>
-                <div class="rounded-full px-2.5 py-1 text-xs font-semibold" :class="inviteStatusClass(invite)">
-                  {{ inviteStatusLabel(invite) }}
-                </div>
-              </div>
+      <div v-else class="mt-3 min-h-0 grow overflow-auto border-y border-slate-200">
+        <table class="w-full min-w-[760px] table-auto bg-white">
+          <thead class="border-b border-slate-200 bg-slate-50/70 text-left text-xs font-semibold text-slate-500">
+            <tr>
+              <th class="px-3 py-2.5">Invitee</th>
+              <th class="px-3 py-2.5">Status</th>
+              <th class="px-3 py-2.5">Step</th>
+              <th class="px-3 py-2.5">Contributed</th>
+              <th class="px-3 py-2.5 text-right">Actions</th>
+            </tr>
+          </thead>
 
-              <div class="mt-1 text-sm text-slate-500">
-                {{ inviteSummary(invite) }}
-              </div>
-            </div>
+          <tbody class="divide-y divide-slate-200">
+            <tr v-for="invite in controller.operationalInvites" :key="invite.id" class="bg-white align-middle">
+              <td class="px-3 py-2.5">
+                <div class="max-w-72 truncate text-sm font-semibold text-slate-800">{{ invite.name }}</div>
+              </td>
 
-            <div class="flex shrink-0 items-center gap-2">
-              <button
-                v-if="canApproveOperationsAccess(invite)"
-                type="button"
-                :disabled="approvingInviteCode === invite.inviteCode"
-                class="bg-argon-button hover:bg-argon-button-hover rounded-lg px-3 py-2 text-sm font-semibold text-white disabled:cursor-default disabled:opacity-50"
-                @click="approveOperationsAccess(invite)"
-              >
-                {{ approvingInviteCode === invite.inviteCode ? 'Approving…' : 'Approve' }}
-              </button>
-
-              <CopyToClipboard v-else :content="getMemberInviteUrl(invite)" class="shrink-0">
-                <button
-                  type="button"
-                  class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
+              <td class="px-3 py-2.5">
+                <span
+                  v-if="
+                    inviteStatus(invite).label === 'Upgrade requested' ||
+                    inviteStatus(invite).label === 'Access granted' ||
+                    inviteStatus(invite).label === 'Operationally certified'
+                  "
+                  class="text-argon-600 text-xs font-semibold whitespace-nowrap"
                 >
-                  Copy Link
-                </button>
-                <template #copying>
-                  <button
-                    type="button"
-                    class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
-                  >
-                    Copied
-                  </button>
-                </template>
-              </CopyToClipboard>
-            </div>
-          </div>
+                  {{ inviteStatus(invite).label }}
+                </span>
+                <span v-else class="text-xs font-semibold whitespace-nowrap text-slate-500">
+                  {{ inviteStatus(invite).label }}
+                </span>
+              </td>
 
-          <div v-if="showTreasuryProgress(invite)" class="mt-4">
-            <div class="mb-1.5 flex items-center justify-between gap-3 text-xs font-medium text-slate-500">
-              <span>Treasury certification</span>
-              <span>{{ inviteProgressLabel(invite) }}</span>
-            </div>
-            <ProgressBar :progress="inviteProgressPct(invite)" :showLabel="false" class="h-2" />
-          </div>
-        </div>
+              <td class="px-3 py-2.5 text-sm font-medium whitespace-nowrap text-slate-700">
+                <template v-if="inviteCurrentStep(invite)">
+                  {{ inviteCurrentStep(invite) }} of {{ totalCertificationRequirementCount }}
+                </template>
+                <template v-else>-</template>
+              </td>
+
+              <td class="px-3 py-2.5 text-sm whitespace-nowrap text-slate-700">
+                <div v-if="hasInviteContributionAmounts(invite)" class="flex flex-wrap gap-x-3 gap-y-1">
+                  <span>
+                    ₳{{ microgonToArgonNm(invite.vaultContribution?.bondAmount ?? 0n).format('0,0.[00]') }} bonds
+                  </span>
+                  <span>
+                    ₳{{ microgonToArgonNm(invite.vaultContribution?.bitcoinAmount ?? 0n).format('0,0.[00]') }} bitcoin
+                  </span>
+                </div>
+                <template v-else>-</template>
+              </td>
+
+              <td class="px-3 py-2.5">
+                <div class="flex justify-end gap-2">
+                  <button
+                    v-if="canApproveOperationsAccess(invite)"
+                    type="button"
+                    :disabled="approvingInviteCode === invite.inviteCode"
+                    class="bg-argon-button hover:bg-argon-button-hover rounded px-3 py-1.5 text-sm font-semibold whitespace-nowrap text-white disabled:cursor-default disabled:opacity-50"
+                    @click="approveOperationsAccess(invite)"
+                  >
+                    {{ approvingInviteCode === invite.inviteCode ? 'Approving…' : 'Approve' }}
+                  </button>
+
+                  <button
+                    v-if="canReassignOperationsUpgradeCode(invite)"
+                    type="button"
+                    :disabled="reassigningInviteCode === invite.inviteCode"
+                    class="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold whitespace-nowrap text-slate-700 disabled:cursor-default disabled:opacity-50"
+                    @click="reassignOperationsUpgradeCode(invite)"
+                  >
+                    {{ reassigningInviteCode === invite.inviteCode ? 'Reassigning…' : 'Reassign Code' }}
+                  </button>
+
+                  <button
+                    v-if="canRegenerateInvite(invite)"
+                    type="button"
+                    :disabled="regeneratingInviteCode === invite.inviteCode"
+                    class="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold whitespace-nowrap text-slate-700 disabled:cursor-default disabled:opacity-50"
+                    @click="regenerateInvite(invite)"
+                  >
+                    {{ regeneratingInviteCode === invite.inviteCode ? 'Regenerating…' : 'Regenerate' }}
+                  </button>
+
+                  <CopyToClipboard
+                    v-if="!canRegenerateInvite(invite)"
+                    :content="getMemberInviteUrl(invite)"
+                    class="shrink-0"
+                  >
+                    <button
+                      type="button"
+                      class="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold whitespace-nowrap text-slate-700"
+                    >
+                      Copy Link
+                    </button>
+                    <template #copying>
+                      <button
+                        type="button"
+                        class="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold whitespace-nowrap text-slate-700"
+                      >
+                        Copied
+                      </button>
+                    </template>
+                  </CopyToClipboard>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -166,20 +220,21 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import dayjs from 'dayjs';
 import type { IMemberInvite } from '@argonprotocol/apps-router';
 import {
+  countCompletedOperationalCertificationRequirements,
   countCompletedTreasuryCertificationRequirements,
   createOperationalAccessProof,
   hasCompletedTreasuryCertificationRequirements,
   NetworkConfig,
+  operationalCertificationRequirementCount,
   treasuryCertificationRequirementCount,
   UnitOfMeasurement,
 } from '@argonprotocol/apps-core';
 import { BitcoinLock } from '@argonprotocol/mainchain';
 import CopyToClipboard from '../../components/CopyToClipboard.vue';
 import InputNumber from '../../components/InputNumber.vue';
-import ProgressBar from '../../components/ProgressBar.vue';
+import basicEmitter from '../../emitters/basicEmitter.ts';
 import { InviteEnvelope } from '../../lib/InviteEnvelope.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { supportsOperationalAccessProofRuntime } from '../../lib/OperationalAccount.ts';
@@ -201,7 +256,9 @@ const serverApiClient = getServerApiClient();
 const bitcoinLocks = getBitcoinLocks();
 const walletKeys = getWalletKeys();
 
-const { satToMoneyNm } = createNumeralHelpers(currency);
+const totalCertificationRequirementCount =
+  treasuryCertificationRequirementCount + operationalCertificationRequirementCount;
+const { microgonToArgonNm } = createNumeralHelpers(currency);
 
 const isAddingInvite = Vue.ref(false);
 const isCreatingInvite = Vue.ref(false);
@@ -212,7 +269,11 @@ const inviteName = Vue.ref('');
 const maxSatoshisNumber = Vue.ref(100_000_000);
 const maxLockableSatoshis = Vue.ref(100_000_000n);
 const approvingInviteCode = Vue.ref<string | null>(null);
+const reassigningInviteCode = Vue.ref<string | null>(null);
+const regeneratingInviteCode = Vue.ref<string | null>(null);
 const supportsAccessProofRuntime = Vue.ref(false);
+
+let loadInvitesPromise: Promise<void> | undefined;
 
 const maxLockableSatoshisNumber = Vue.computed(() => {
   return Number(maxLockableSatoshis.value);
@@ -258,60 +319,34 @@ function inviteStatus(invite: IMemberInvite) {
   );
 }
 
-function inviteStatusLabel(invite: IMemberInvite) {
-  return inviteStatus(invite).label;
-}
+function inviteCurrentStep(invite: IMemberInvite) {
+  if (!invite.certificationProgress) return;
 
-function inviteStatusClass(invite: IMemberInvite) {
-  const label = inviteStatusLabel(invite);
-  if (label === 'Opened' || label === 'Upgrade requested') return 'border border-amber-200 bg-amber-50 text-amber-700';
-  if (label === 'Registered') return 'border border-sky-200 bg-sky-50 text-sky-700';
-  if (label === 'Access granted') return 'border border-argon-200 bg-argon-50 text-argon-700';
-  if (label === 'Operationally certified') return 'border border-emerald-200 bg-emerald-50 text-emerald-700';
-  if (label === 'Expired') return 'border border-slate-200 bg-slate-100 text-slate-500';
-  return 'border border-slate-200 bg-slate-100 text-slate-600';
-}
-
-function showTreasuryProgress(invite: IMemberInvite) {
-  return (
-    !!invite.defaultAccountId &&
-    !!invite.certificationProgress &&
-    !invite.certificationProgress.isOperationallyCertified
-  );
-}
-
-function inviteProgressLabel(invite: IMemberInvite) {
-  if (!invite.certificationProgress) return `0/${treasuryCertificationRequirementCount}`;
-  const completed = countCompletedTreasuryCertificationRequirements(invite.certificationProgress);
-  return `${completed}/${treasuryCertificationRequirementCount}`;
-}
-
-function inviteProgressPct(invite: IMemberInvite) {
-  if (!invite.certificationProgress) return 0;
-  const completed = countCompletedTreasuryCertificationRequirements(invite.certificationProgress);
-  return (completed / treasuryCertificationRequirementCount) * 100;
-}
-
-function inviteSummary(invite: IMemberInvite) {
-  const status = inviteStatusLabel(invite);
-  if (status === 'Upgrade requested') {
-    return 'Waiting for you to approve operations access.';
+  const completedTreasurySteps = countCompletedTreasuryCertificationRequirements(invite.certificationProgress);
+  const completedOperationalSteps = countCompletedOperationalCertificationRequirements(invite.certificationProgress);
+  const completedStepCount = completedTreasurySteps + completedOperationalSteps;
+  if (completedStepCount >= totalCertificationRequirementCount) {
+    return totalCertificationRequirementCount;
   }
-  if (status === 'Access granted') {
-    return 'Operations access has been approved.';
-  }
-  if (status === 'Operationally certified') {
-    return 'This member completed operations certification.';
-  }
-  if (invite.bitcoinLockCoupon?.expiresAt) {
-    return `${satToMoneyNm(invite.bitcoinLockCoupon.coupon.maxSatoshis ?? 0n).format('0,0.00')} in free BTC locking · expires ${dayjs.utc(invite.bitcoinLockCoupon.expiresAt).local().format('M/D/YYYY')}`;
-  }
-  return `${satToMoneyNm(invite.bitcoinLockCoupon?.coupon.maxSatoshis ?? 0n).format('0,0.00')} in free BTC locking`;
+
+  return completedStepCount + 1;
+}
+
+function hasInviteContributionAmounts(invite: IMemberInvite) {
+  const treasuryBitcoinAmount = invite.vaultContribution?.bitcoinAmount;
+  const treasuryBondAmount = invite.vaultContribution?.bondAmount;
+
+  return treasuryBitcoinAmount !== undefined && treasuryBondAmount !== undefined;
 }
 
 function canApproveOperationsAccess(invite: IMemberInvite): boolean {
+  const outstandingAccessProofCount = controller.operationalInvites.filter(member => {
+    return member.accessProof && !member.certificationProgress?.hasOperationalAccount;
+  }).length;
+
   return (
     supportsAccessProofRuntime.value &&
+    controller.chainProgress.availableAccessCodes > outstandingAccessProofCount &&
     !!invite.operationsUpgradeRequestedAt &&
     !invite.accessProof &&
     !!invite.operationalAccountId &&
@@ -320,15 +355,37 @@ function canApproveOperationsAccess(invite: IMemberInvite): boolean {
   );
 }
 
-async function loadInvites() {
-  errorMessage.value = null;
+function canReassignOperationsUpgradeCode(invite: IMemberInvite): boolean {
+  return !!invite.accessProof && !invite.certificationProgress?.hasOperationalAccount;
+}
 
-  try {
-    await controller.loadOperationalInvites();
-  } catch {
-    controller.setOperationalInvites([]);
-    errorMessage.value = 'Unable to load member invites right now. Please try again.';
+function canRegenerateInvite(invite: IMemberInvite): boolean {
+  return inviteStatus(invite).label === 'Expired' && !!invite.bitcoinLockCoupon && !invite.defaultAccountId;
+}
+
+function loadInvites(): Promise<void> {
+  if (loadInvitesPromise) {
+    return loadInvitesPromise;
   }
+
+  errorMessage.value = null;
+  loadInvitesPromise = (async () => {
+    try {
+      await controller.loadOperationalInvites();
+    } catch {
+      controller.setOperationalInvites([]);
+      errorMessage.value = 'Unable to load member invites right now. Please try again.';
+    }
+  })().finally(() => {
+    loadInvitesPromise = undefined;
+  });
+
+  return loadInvitesPromise;
+}
+
+async function refreshInvites(): Promise<void> {
+  await loadInvitesPromise;
+  await loadInvites();
 }
 
 async function approveOperationsAccess(invite: IMemberInvite) {
@@ -347,11 +404,87 @@ async function approveOperationsAccess(invite: IMemberInvite) {
       signature: accessProof.signature,
     });
 
-    await loadInvites();
+    await refreshInvites();
   } catch (error: any) {
     errorMessage.value = error?.message ?? 'Unable to approve operations access right now.';
   } finally {
     approvingInviteCode.value = null;
+  }
+}
+
+async function reassignOperationsUpgradeCode(invite: IMemberInvite) {
+  if (!canReassignOperationsUpgradeCode(invite) || reassigningInviteCode.value) {
+    return;
+  }
+
+  reassigningInviteCode.value = invite.inviteCode;
+  errorMessage.value = null;
+
+  try {
+    await serverApiClient.reassignOperationsUpgradeCode(invite.inviteCode);
+    await refreshInvites();
+  } catch (error: any) {
+    errorMessage.value = error?.message ?? 'Unable to reassign this operations upgrade code right now.';
+  } finally {
+    reassigningInviteCode.value = null;
+  }
+}
+
+async function regenerateInvite(invite: IMemberInvite) {
+  if (!canRegenerateInvite(invite) || regeneratingInviteCode.value || isCreatingInvite.value) {
+    return;
+  }
+  if (!hasProfileName.value) {
+    errorMessage.value = 'Set your Operator name before creating invites.';
+    return;
+  }
+  if (inviteCreationBlockedReason.value) {
+    errorMessage.value = inviteCreationBlockedReason.value;
+    return;
+  }
+
+  const coupon = invite.bitcoinLockCoupon?.coupon;
+  if (!coupon) {
+    errorMessage.value = 'Unable to regenerate this invite right now.';
+    return;
+  }
+
+  try {
+    errorMessage.value = null;
+    regeneratingInviteCode.value = invite.inviteCode;
+
+    await myVault.load();
+    await updateMaxLockableSatoshis();
+
+    if (coupon.maxSatoshis > maxLockableSatoshis.value) {
+      errorMessage.value = 'This vault no longer has enough Bitcoin lock capacity to regenerate that invite.';
+      return;
+    }
+
+    const vaultId = myVault.createdVault?.vaultId;
+    if (!vaultId) {
+      throw new Error('No vault is available to create an invite.');
+    }
+    if (!config.serverDetails.ipAddress) {
+      throw new Error('No server is available to create an invite.');
+    }
+
+    const delegateSetupTx = await myVault.ensureDelegatedBitcoinSigner();
+    await delegateSetupTx?.txResult.waitForInFirstBlock;
+
+    await serverApiClient.regenerateInvite(invite.inviteCode, {
+      vaultId,
+      maxSatoshis: coupon.maxSatoshis,
+      estimatedGiftUsd: coupon.estimatedGiftUsd,
+      btcPctFee: coupon.btcPctFee,
+      expiresAfterTicks: coupon.expiresAfterTicks,
+    });
+
+    await refreshInvites();
+  } catch (error: any) {
+    errorMessage.value = error?.message ?? 'Unable to regenerate invite.';
+  } finally {
+    regeneratingInviteCode.value = null;
   }
 }
 
@@ -460,7 +593,7 @@ async function createInvite() {
       expiresAfterTicks,
     });
 
-    await loadInvites();
+    await refreshInvites();
     toggleAddInvite();
   } catch (error: any) {
     errorMessage.value = error?.message ?? 'Unable to create invite.';
@@ -468,13 +601,6 @@ async function createInvite() {
     isCreatingInvite.value = false;
   }
 }
-
-Vue.onMounted(() => {
-  if (!config.isServerInstalled) return;
-
-  void loadInvites();
-  void loadDelegateSetupState();
-});
 
 Vue.watch(
   [() => config.isServerInstalled, () => config.serverDetails.ipAddress],
@@ -485,6 +611,7 @@ Vue.watch(
     void loadDelegateSetupState();
 
     const interval = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
       void loadInvites();
     }, 5_000);
 

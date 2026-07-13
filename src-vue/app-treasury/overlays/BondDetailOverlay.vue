@@ -12,7 +12,12 @@
       <div class="grow">
         <div class="flex items-baseline gap-2">
           <span class="text-argon-600 font-mono text-2xl font-bold">
-            {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.bondMicrogons).format('0,0.00') }}
+            <template v-if="bondLot.programType === 'Argonot'">
+              {{ micronotToArgonotNm(bondLot.bondMicrogons).format('0,0.00') }} ARGNOT
+            </template>
+            <template v-else>
+              {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.bondMicrogons).format('0,0.00') }}
+            </template>
           </span>
           <span class="text-sm text-slate-500">{{ numeral(bondLot.bonds).format('0,0') }} bonds</span>
         </div>
@@ -40,7 +45,12 @@
           <div>
             <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">Purchase Price</div>
             <div class="mt-1 font-medium text-slate-700">
-              {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.bondMicrogons).format('0,0.00') }}
+              <template v-if="bondLot.programType === 'Argonot'">
+                {{ micronotToArgonotNm(bondLot.bondMicrogons).format('0,0.00') }} ARGNOT
+              </template>
+              <template v-else>
+                {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.bondMicrogons).format('0,0.00') }}
+              </template>
             </div>
           </div>
 
@@ -51,7 +61,7 @@
             </div>
           </div>
 
-          <div>
+          <div v-if="bondLot.programType === 'Vault'">
             <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">Lifetime Return</div>
             <div class="mt-1 font-medium text-slate-700">{{ numeral(lifetimeReturnPct).format('0,0.00') }}%</div>
           </div>
@@ -64,7 +74,12 @@
           <div class="text-amber-700">
             Returning
             <span class="font-semibold">
-              {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.returningBondMicrogons).format('0,0.00') }}
+              <template v-if="bondLot.programType === 'Argonot'">
+                {{ micronotToArgonotNm(bondLot.returningBondMicrogons).format('0,0.00') }} ARGNOT
+              </template>
+              <template v-else>
+                {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.returningBondMicrogons).format('0,0.00') }}
+              </template>
             </span>
             on {{ releaseAtLabel }}
           </div>
@@ -127,7 +142,7 @@ const vaults = getVaults();
 const walletKeys = getWalletKeys();
 const transactionTracker = getTransactionTracker();
 
-const { microgonToMoneyNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const props = defineProps<{
   bondLot: BondLot;

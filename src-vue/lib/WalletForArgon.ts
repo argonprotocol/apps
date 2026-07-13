@@ -1,4 +1,10 @@
-import { bigIntMax, IBalanceTransfer, IExtrinsicEvent, IVaultRevenueEvent } from '@argonprotocol/apps-core';
+import {
+  bigIntMax,
+  IBalanceTransfer,
+  IExtrinsicEvent,
+  IVaultRevenueEvent,
+  MICROGONS_PER_ARGON,
+} from '@argonprotocol/apps-core';
 import { Db } from './Db.ts';
 import { IBlockToProcess } from './WalletsForArgon.ts';
 import { type IWallet, WalletType } from './Wallet.ts';
@@ -18,7 +24,7 @@ export type IBalanceChange = {
 
 export const existentialDepositMicrogons = 10_000n;
 export const existentialDepositMicronots = 10_000n;
-export const defaultArgonOperationalReserveMicrogons = 250_000n;
+export const defaultArgonOperationalReserveMicrogons = BigInt(MICROGONS_PER_ARGON);
 
 export function getSpendableMicrogons(availableMicrogons: bigint, reserveMicrogons = 0n): bigint {
   return bigIntMax(availableMicrogons - reserveMicrogons, 0n);

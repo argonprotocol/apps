@@ -18,7 +18,7 @@
           This is open-source, self-custody software. You are responsible for your keys, backups, and transactions.
           <button
             @click="basicEmitter.emit('openSoftwareInfoOverlay')"
-            class="cursor-pointer text-argon-600 hover:underline focus-visible:underline"
+            class="cursor-pointer text-argon-600 hover:underline focus-visible:underline focus:outline-none"
           >
             What this means
           </button>.

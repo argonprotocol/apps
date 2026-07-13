@@ -63,10 +63,11 @@ async function main(): Promise<void> {
   let startedDevEthereum: IStartDevEthereumResult | undefined;
   let isShuttingDown = false;
   if (network === 'dev-docker') {
-    shouldStartDevEthereumMintingAuthority = ['1', 'true', 'yes', 'on'].includes(
-      readNonEmpty(process.env.ARGON_DEV_ETHEREUM_MINTING_AUTHORITY)?.toLowerCase() ?? '',
-    );
-    shouldStartDevEthereumMintingAuthority = false;
+    const mintingAuthoritySetting = readNonEmpty(
+      process.env.ARGON_DEV_ETHEREUM_MINTING_AUTHORITY,
+    )?.toLowerCase();
+    shouldStartDevEthereumMintingAuthority =
+      !!devEthereumConfig && !['0', 'false', 'no', 'off'].includes(mintingAuthoritySetting ?? '');
     await ensureDevGatewayCerts({ appInstance: argonAppInstance, network });
 
     console.log('[tauri-dev] Resolving dev-docker compose ports');
@@ -134,7 +135,8 @@ async function main(): Promise<void> {
     console.log('[tauri-dev] Enabling e2e features (ARGON_DRIVER_WS detected)');
   }
 
-  let devEthereumSetupPromise: Promise<void> | undefined;
+  let devEthereumRuntimeSetupPromise: Promise<void> | undefined;
+  let devEthereumReadyPromise: Promise<void> | undefined;
   let devUpstreamPromise: Promise<void> | undefined;
   let devUpstreamRuntime: IDevUpstreamServerRuntime | undefined;
   if (devDockerArchiveUrl) {
@@ -156,8 +158,8 @@ async function main(): Promise<void> {
   }
 
   if (devEthereumSetup) {
-    devEthereumSetupPromise = devEthereumSetup
-      .start()
+    devEthereumRuntimeSetupPromise = devEthereumSetup.start();
+    devEthereumReadyPromise = devEthereumRuntimeSetupPromise
       .then(async () => {
         if (!devDockerArchiveUrl || !startedDevEthereum) {
           throw new Error('Dev Ethereum relay activation is missing archive or Ethereum setup details.');
@@ -194,7 +196,7 @@ async function main(): Promise<void> {
         throw error;
       });
 
-    void devEthereumSetupPromise.catch(() => undefined);
+    void devEthereumReadyPromise.catch(() => undefined);
   }
 
   const child = spawn('yarn', tauriArgs, {
@@ -248,8 +250,12 @@ async function main(): Promise<void> {
 
   if (shouldStartDevEthereumMintingAuthority) {
     devEthereumMintingAuthorityPromise = (async () => {
-      if (devEthereumSetupPromise) {
-        await devEthereumSetupPromise;
+      if (devEthereumRuntimeSetupPromise) {
+        await devEthereumRuntimeSetupPromise;
+      }
+      await devUpstreamPromise;
+      if (!devUpstreamRuntime) {
+        throw new Error('Upstream operator did not finish startup before the minting authority.');
       }
       if (isShuttingDown) {
         return;
@@ -260,6 +266,7 @@ async function main(): Promise<void> {
         archiveUrl: devDockerArchiveUrl!,
         executionRpcUrl: devEthereumExecutionRpcUrl,
         logPrefix: 'tauri-dev',
+        operator: devUpstreamRuntime.operator,
         virtualEnv: {
           appInstance: argonAppInstance,
           network,
@@ -281,9 +288,9 @@ async function main(): Promise<void> {
     isShuttingDown = true;
     const shutdownPromise = (async () => {
       await devUpstreamPromise?.catch(() => undefined);
-      await devUpstreamRuntime?.shutdown().catch(() => undefined);
       await devEthereumMintingAuthorityPromise;
       await devEthereumMintingAuthorityRuntime?.shutdown().catch(() => undefined);
+      await devUpstreamRuntime?.shutdown().catch(() => undefined);
     })();
     void shutdownPromise.finally(() => {
       process.exit(code ?? 0);
