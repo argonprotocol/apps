@@ -158,7 +158,7 @@
       :coupon="bitcoinLockCoupons.currentCoupon"
       :currentTick="currentTick"
       :personalLock="selectedLock?.record"
-      :vault="couponVault"
+      :vault="defaultVault"
       @close="closeLockingOverlay"
     />
 
@@ -202,7 +202,7 @@ import BitcoinRatchetingOverlay from '../overlays/BitcoinRatchetingOverlay.vue';
 import FormattedMoney from '../components/FormattedMoney.vue';
 import { UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { useFinancials, type ILockSummary } from '../stores/financials.ts';
-import { getVaults } from '../stores/vaults.ts';
+import { getMyVault, getVaults } from '../stores/vaults.ts';
 import BitcoinRecord from './treasury-screens/components/BitcoinRecord.vue';
 
 const config = getConfig();
@@ -211,6 +211,7 @@ const financials = useFinancials();
 const bitcoinLocks = getBitcoinLocks();
 const bitcoinLockCoupons = getBitcoinLockCoupons();
 const miningFrames = getMiningFrames();
+const myVault = getMyVault();
 const vaults = getVaults();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
@@ -222,9 +223,14 @@ const showUnlockingOverlay = Vue.ref(false);
 const showRatchetingOverlay = Vue.ref(false);
 const selectedLock = Vue.ref<ILockSummary | undefined>();
 const couponProviderLabel = config.upstreamOperator?.name || 'The vault operator';
-const couponVault = Vue.computed(() => {
-  const vaultId = bitcoinLockCoupons.currentCoupon?.coupon.vaultId;
-  return vaultId ? vaults.vaultsById[vaultId] : undefined;
+const defaultVault = Vue.computed(() => {
+  const vaultId = myVault.vaultId;
+  if (vaultId) {
+    return myVault.createdVault ?? vaults.vaultsById[vaultId];
+  }
+
+  const couponVaultId = bitcoinLockCoupons.currentCoupon?.coupon.vaultId;
+  return couponVaultId ? vaults.vaultsById[couponVaultId] : undefined;
 });
 
 const canStartLocking = Vue.computed(() => {
