@@ -5,7 +5,7 @@ import { fundDevEthereumAccount } from '../../scripts/fundDevEthereumAccount.ts'
 import { clickIfVisible } from '../helpers/utils.ts';
 import vaultingOnboarding from './Vaulting.flow.onboarding.ts';
 import vaultingActivateTab from './Vaulting.op.activateTab.ts';
-import vaultingTransferOutToEthereum from './Vaulting.op.transferOutToEthereum.ts';
+import vaultingTransferOutToEthereum, { openVaultingWalletOverlay } from './Vaulting.op.transferOutToEthereum.ts';
 import { OperationalFlow } from './index.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
 
@@ -42,20 +42,56 @@ export default new OperationalFlow<IVaultingFlowContext, ITransferOutToEthereumS
     }
 
     await flow.run(vaultingOnboarding);
-    const { ethereumAddress, executionRpcUrl } = (await flow.queryApp(
-      async refs => {
-        await refs.wallets.load().catch(() => undefined);
-        const tracker = refs.getEthereumOutboundTransferTracker() as any;
+    await openVaultingWalletOverlay(flow);
 
-        return {
-          ethereumAddress: refs.wallets.ethereumWallet.address,
-          executionRpcUrl: tracker.ethereumClient.executionRpcUrl,
-        };
+    let requestedDefaultEthereumWallet = false;
+    const ethereumConnection = await waitFor(
+      15_000,
+      `${context.flowName}: default Ethereum wallet`,
+      async () => {
+        const connection = await flow.queryApp(
+          async refs => {
+            if (!refs.wallets.isLoaded) {
+              await refs.wallets.load().catch(() => undefined);
+            }
+            const tracker = refs.getEthereumOutboundTransferTracker();
+
+            return {
+              ethereumAddress: refs.wallets.ethereumWallet.address,
+              executionRpcUrl: tracker.executionRpcUrl,
+            };
+          },
+          {
+            timeoutMs: 15_000,
+          },
+        );
+
+        if (connection?.ethereumAddress) {
+          return connection;
+        }
+
+        if (!requestedDefaultEthereumWallet) {
+          const addDefaultEthereum = await flow.isVisible('WalletOverlay.addDefaultEthereum()');
+          if (addDefaultEthereum.clickable) {
+            requestedDefaultEthereumWallet = true;
+            await flow.click('WalletOverlay.addDefaultEthereum()', { timeoutMs: 15_000 });
+          }
+        }
       },
       {
-        timeoutMs: 15_000,
+        pollMs: 250,
+        timeoutMessage: `${context.flowName}: missing default Ethereum wallet address.`,
       },
-    )) as { ethereumAddress: string; executionRpcUrl: string };
+    );
+
+    if (!ethereumConnection.executionRpcUrl) {
+      throw new Error(`${context.flowName}: missing Ethereum execution RPC URL.`);
+    }
+    const { ethereumAddress, executionRpcUrl } = ethereumConnection;
+    console.info(`[E2E] ${context.flowName} prepared Ethereum destination`, {
+      ethereumAddress,
+      executionRpcUrl,
+    });
 
     await waitFor(
       DEV_ETHEREUM_BACKEND_MINTING_AUTHORITY_READY_TIMEOUT_MS,

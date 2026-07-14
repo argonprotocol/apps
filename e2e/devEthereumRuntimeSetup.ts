@@ -1,5 +1,16 @@
-import { EvmContracts, MICROGONS_PER_ARGON, type IArgonQueryable } from '@argonprotocol/mainchain';
+import {
+  dispatchErrorToString,
+  type ArgonClient,
+  EvmContracts,
+  getEthereumBeaconSyncBootstrapTx,
+  getEthereumBeaconSyncState,
+  type IArgonQueryable,
+  type KeyringPair,
+  MICROGONS_PER_ARGON,
+  TxSubmitter,
+} from '@argonprotocol/mainchain';
 import { createPublicClient, getAddress, http, type Address, type Hex, type PublicClient } from 'viem';
+import { waitForFinalizedBeaconExecutionAtOrAbove } from '../bot/src/EthereumBeaconSyncService.ts';
 
 // Measured in the mainchain deploy gas harness:
 // `yarn workspace @argonprotocol/ethereum-deploy gas:measure`
@@ -11,6 +22,84 @@ const MIN_DEV_ETHEREUM_WEI_PER_GAS = 1_000_000_000n;
 // Keep isolated e2e deterministic/offline with the same explicit estimate used in
 // mainchain's Ethereum proof e2e.
 const FALLBACK_DEV_ETHEREUM_ESTIMATED_MICROGONS_PER_ETH = 1_000_000n;
+
+export async function ensureDevEthereumBeaconBootstrapped(
+  client: ArgonClient,
+  beaconApiUrl: string,
+  sudoKeypair: KeyringPair,
+  options: {
+    timeoutMs?: number;
+    pollMs?: number;
+    minimumExecutionBlockNumber?: bigint;
+    minimumFinalizedSlot?: bigint;
+  } = {},
+): Promise<void> {
+  const startedAt = Date.now();
+  console.log('[dev-ethereum] Checking beacon bootstrap state');
+  const state = await getEthereumBeaconSyncState(client);
+  if (state.isBootstrapped) {
+    console.log(`[dev-ethereum] Beacon bootstrap already present after ${Date.now() - startedAt}ms`);
+    return;
+  }
+
+  const timeoutMs = options.timeoutMs ?? 5 * 60_000;
+  const pollMs = options.pollMs ?? 1_000;
+  const minimumExecutionBlockNumber = options.minimumExecutionBlockNumber ?? 1n;
+  const minimumFinalizedSlot = options.minimumFinalizedSlot ?? 0n;
+
+  console.log(
+    `[dev-ethereum] Waiting for finalized beacon execution block >= ${minimumExecutionBlockNumber} and slot >= ${minimumFinalizedSlot}`,
+  );
+  await waitForFinalizedBeaconExecutionAtOrAbove(beaconApiUrl, minimumExecutionBlockNumber, {
+    timeoutMs,
+    pollMs,
+    minimumFinalizedSlot,
+  });
+  console.log(`[dev-ethereum] Finalized beacon execution is ready after ${Date.now() - startedAt}ms`);
+
+  const bootstrapTxStartedAt = Date.now();
+  let bootstrapTx;
+  let lastBootstrapError: Error | undefined;
+
+  while (Date.now() - bootstrapTxStartedAt < timeoutMs) {
+    try {
+      bootstrapTx = await getEthereumBeaconSyncBootstrapTx(client, beaconApiUrl);
+      console.log(`[dev-ethereum] Built beacon bootstrap transaction after ${Date.now() - bootstrapTxStartedAt}ms`);
+      break;
+    } catch (error) {
+      if (!(error instanceof Error)) {
+        throw error;
+      }
+
+      lastBootstrapError = error;
+      if (!error.message.includes('/eth/v1/beacon/light_client/bootstrap/') || !error.message.includes('404')) {
+        throw error;
+      }
+      await new Promise(resolve => setTimeout(resolve, pollMs));
+    }
+  }
+
+  if (!bootstrapTx) {
+    const lastErrorSuffix = lastBootstrapError ? ` Last error: ${lastBootstrapError.message}` : '';
+    throw new Error(
+      `Ethereum beacon light-client bootstrap endpoint did not become ready within ${Math.floor(timeoutMs / 1000)}s.${lastErrorSuffix}`,
+    );
+  }
+
+  console.log('[dev-ethereum] Submitting beacon bootstrap sudo transaction');
+  const result = await new TxSubmitter(client, client.tx.sudo.sudo(bootstrapTx), sudoKeypair).submit();
+  await result.waitForInFirstBlock;
+
+  const sudoResultEvent = result.events.find(event => client.events.sudo.Sudid.is(event));
+  if (!sudoResultEvent || !client.events.sudo.Sudid.is(sudoResultEvent)) {
+    throw new Error('Bootstrap transaction did not emit sudo.Sudid.');
+  }
+  if (sudoResultEvent.data.sudoResult.isErr) {
+    throw new Error(`Bootstrap failed: ${dispatchErrorToString(client, sudoResultEvent.data.sudoResult.asErr)}`);
+  }
+
+  console.log(`[dev-ethereum] Beacon bootstrap completed successfully in ${Date.now() - startedAt}ms`);
+}
 
 export async function loadDevEthereumActivationRepaymentPricing(args: {
   finalizedClient: IArgonQueryable;

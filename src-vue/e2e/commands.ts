@@ -760,13 +760,8 @@ async function ensureAppReadyForUi(timeoutMs: number): Promise<void> {
   await waitForAppReady(timeoutMs);
 }
 
-function isVisible(element: HTMLElement): boolean {
+function isRendered(element: HTMLElement): boolean {
   if (!element.isConnected) {
-    return false;
-  }
-
-  const hiddenAncestor = element.closest('[aria-hidden="true"], [inert]');
-  if (hiddenAncestor) {
     return false;
   }
 
@@ -776,6 +771,14 @@ function isVisible(element: HTMLElement): boolean {
   }
   const rect = element.getBoundingClientRect();
   return rect.width > 0 && rect.height > 0;
+}
+
+function isVisible(element: HTMLElement): boolean {
+  if (element.closest('[aria-hidden="true"], [inert]')) {
+    return false;
+  }
+
+  return isRendered(element);
 }
 
 function isEnabled(element: HTMLElement): boolean {
@@ -846,7 +849,7 @@ function isHitWithinElement(element: HTMLElement, hit: Element): boolean {
 }
 
 function getPointerInteractableResult(element: HTMLElement): PointerInteractableResult {
-  if (!isVisible(element)) {
+  if (!isRendered(element) || element.closest('[inert]')) {
     return {
       clickable: false,
       point: null,
@@ -981,7 +984,7 @@ function isStateSatisfied(state: WaitState, element: HTMLElement | null): boolea
     case 'enabled':
       return !!element && isVisible(element) && isEnabled(element);
     case 'clickable':
-      return !!element && isVisible(element) && isEnabled(element) && isPointerInteractable(element);
+      return !!element && isEnabled(element) && getPointerInteractableResult(element).clickable;
     default:
       return false;
   }
@@ -1382,11 +1385,11 @@ async function runCommandInternal(command: string, argsInput: unknown, context: 
     const target = getTarget(args);
     const timeoutMs = getTimeoutMs(args.timeoutMs, 'timeoutMs', DEFAULT_TIMEOUT_MS);
     const startedAt = Date.now();
-    const visibleElement = await waitForState(target, 'visible', timeoutMs, buildProgressEmitter(target, 'visible'));
-    if (!visibleElement) {
+    const existingElement = await waitForState(target, 'exists', timeoutMs, buildProgressEmitter(target, 'exists'));
+    if (!existingElement) {
       throw new CommandError('not_found', `Target ${getTargetLabel(target)} not found`);
     }
-    visibleElement.scrollIntoView({ block: 'center', inline: 'center' });
+    existingElement.scrollIntoView({ block: 'center', inline: 'center' });
     const elapsedMs = Date.now() - startedAt;
     const clickableTimeoutMs = Math.max(150, timeoutMs - elapsedMs);
     const element = await waitForState(

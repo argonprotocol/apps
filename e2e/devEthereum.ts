@@ -29,9 +29,9 @@ import {
   type TransactionReceipt,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { EthereumBeaconSyncService } from '../bot/src/EthereumBeaconSyncService.ts';
 import { waitForQueryableClient } from '../core/__test__/startArgonTestNetwork.ts';
 import {
+  ensureDevEthereumBeaconBootstrapped,
   loadDevEthereumActivationRepaymentPricing,
   syncEthereumGatewayActiveCouncilToArgon,
 } from './devEthereumRuntimeSetup.ts';
@@ -356,7 +356,7 @@ async function ensureDevEthereumBeaconBootstrap(
       console.log(
         `[tauri-dev] Ethereum verifier bootstrap attempt ${attemptNumber}/3: waiting for beacon bootstrap inputs from ${beaconApiUrl}`,
       );
-      await EthereumBeaconSyncService.ensureBootstrapped(client, beaconApiUrl, sudoKeypair, {
+      await ensureDevEthereumBeaconBootstrapped(client, beaconApiUrl, sudoKeypair, {
         minimumFinalizedSlot: MINIMUM_BOOTSTRAP_FINALIZED_SLOT_BY_PRESET[beaconPreset],
       });
       console.log(
@@ -365,10 +365,10 @@ async function ensureDevEthereumBeaconBootstrap(
       return;
     } catch (error) {
       lastError = error as Error;
-      if (attempt === 2 || !isRetryableArchiveBootstrapError(lastError)) {
+      if (attempt === 2 || !isRetryableBootstrapError(lastError)) {
         throw error;
       }
-      console.warn(`[tauri-dev] Retrying Ethereum verifier bootstrap after archive disconnect (${lastError.message})`);
+      console.warn(`[tauri-dev] Retrying Ethereum verifier bootstrap (${lastError.message})`);
       await delay(1_000);
       await waitForQueryableClient(archiveUrl, {
         timeoutMs: 120_000,
@@ -746,9 +746,10 @@ async function delay(ms: number): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function isRetryableArchiveBootstrapError(error: Error): boolean {
+function isRetryableBootstrapError(error: Error): boolean {
   const message = error.message.toLowerCase();
   return (
+    message.includes('priority is too low') ||
     message.includes('fetch failed') ||
     message.includes('disconnected from ws://') ||
     message.includes('abnormal closure')
