@@ -1,16 +1,13 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { NetworkConfig, raceWithTimeout, SingleFileQueue, type IEthereumSyncStatus } from '@argonprotocol/apps-core';
 import {
-  dispatchErrorToString,
   type ArgonClient,
   ExtrinsicError,
-  getEthereumBeaconSyncBootstrapTx,
   getEthereumBeaconSyncState,
   getLatestArgonFinalizedExecutionHeader,
   getNextEthereumBeaconSyncTxs,
   isOutdatedTransactionError,
   isTxSubmissionError,
-  type KeyringPair,
   TxSubmitter,
 } from '@argonprotocol/mainchain';
 import { createPublicClient, http } from 'viem';
@@ -20,13 +17,6 @@ type IEthereumBeaconSyncServiceOptions = {
   beaconApiUrl?: string;
   pollMs?: number;
   submitLane: DelegateSubmitLane;
-};
-
-type IEthereumBeaconBootstrapOptions = {
-  timeoutMs?: number;
-  pollMs?: number;
-  minimumExecutionBlockNumber?: bigint;
-  minimumFinalizedSlot?: bigint;
 };
 
 const DEFAULT_BOOTSTRAP_TIMEOUT_MS = 5 * 60_000;
@@ -88,85 +78,6 @@ export class EthereumBeaconSyncService {
         this.stateData.lastUpdatedAt = new Date();
       }
     }).promise;
-  }
-
-  public static async ensureBootstrapped(
-    client: ArgonClient,
-    beaconApiUrl: string,
-    sudoKeypair: KeyringPair,
-    options: IEthereumBeaconBootstrapOptions = {},
-  ): Promise<void> {
-    const startedAt = Date.now();
-    console.log('[EthereumBeaconSyncService] Checking bootstrap state');
-    const state = await getEthereumBeaconSyncState(client);
-    if (state.isBootstrapped) {
-      console.log(`[EthereumBeaconSyncService] Bootstrap already present after ${Date.now() - startedAt}ms`);
-      return;
-    }
-
-    const timeoutMs = options.timeoutMs ?? DEFAULT_BOOTSTRAP_TIMEOUT_MS;
-    const pollMs = options.pollMs ?? DEFAULT_BOOTSTRAP_POLL_MS;
-    const minimumExecutionBlockNumber = options.minimumExecutionBlockNumber ?? 1n;
-    const minimumFinalizedSlot = options.minimumFinalizedSlot ?? 0n;
-
-    console.log(
-      `[EthereumBeaconSyncService] Waiting for finalized beacon execution block >= ${minimumExecutionBlockNumber} and slot >= ${minimumFinalizedSlot}`,
-    );
-    await waitForFinalizedBeaconExecutionAtOrAbove(beaconApiUrl, minimumExecutionBlockNumber, {
-      timeoutMs,
-      pollMs,
-      minimumFinalizedSlot,
-    });
-    console.log(`[EthereumBeaconSyncService] Finalized beacon execution is ready after ${Date.now() - startedAt}ms`);
-
-    const bootstrapTxStartedAt = Date.now();
-    let bootstrapTx;
-    let lastBootstrapError: Error | undefined;
-
-    while (Date.now() - bootstrapTxStartedAt < timeoutMs) {
-      try {
-        bootstrapTx = await getEthereumBeaconSyncBootstrapTx(client, beaconApiUrl);
-        console.log(
-          `[EthereumBeaconSyncService] Built beacon bootstrap transaction after ${Date.now() - bootstrapTxStartedAt}ms`,
-        );
-        break;
-      } catch (error) {
-        if (!(error instanceof Error)) {
-          throw error;
-        }
-
-        lastBootstrapError = error;
-        if (!isBootstrapEndpointNotReady(error.message)) {
-          throw error;
-        }
-        await sleep(pollMs);
-      }
-    }
-
-    if (!bootstrapTx) {
-      const lastErrorSuffix = lastBootstrapError ? ` Last error: ${lastBootstrapError.message}` : '';
-      throw new Error(
-        `Ethereum beacon light-client bootstrap endpoint did not become ready within ${Math.floor(timeoutMs / 1000)}s.${lastErrorSuffix}`,
-      );
-    }
-
-    console.log('[EthereumBeaconSyncService] Submitting beacon bootstrap sudo transaction');
-    const result = await new TxSubmitter(client, client.tx.sudo.sudo(bootstrapTx), sudoKeypair).submit();
-    console.log('[EthereumBeaconSyncService] Waiting for beacon bootstrap transaction to enter a block');
-    await result.waitForInFirstBlock;
-    console.log(
-      `[EthereumBeaconSyncService] Beacon bootstrap transaction entered a block after ${Date.now() - startedAt}ms`,
-    );
-
-    const sudoResultEvent = result.events.find(event => client.events.sudo.Sudid.is(event));
-    if (!sudoResultEvent || !client.events.sudo.Sudid.is(sudoResultEvent)) {
-      throw new Error('Bootstrap transaction did not emit sudo.Sudid.');
-    }
-    if (sudoResultEvent.data.sudoResult.isErr) {
-      throw new Error(`Bootstrap failed: ${dispatchErrorToString(client, sudoResultEvent.data.sudoResult.asErr)}`);
-    }
-
-    console.log(`[EthereumBeaconSyncService] Beacon bootstrap completed successfully in ${Date.now() - startedAt}ms`);
   }
 
   private get isEnabled(): boolean {
@@ -442,10 +353,6 @@ export async function waitForFinalizedBeaconExecutionAtOrAbove(
   throw new Error(
     `finalized beacon execution block did not reach block >= ${minimumExecutionBlockNumber} and slot >= ${minimumFinalizedSlot} within ${Math.floor(timeoutMs / 1000)}s${lastErrorSuffix}`,
   );
-}
-
-function isBootstrapEndpointNotReady(message: string): boolean {
-  return message.includes('/eth/v1/beacon/light_client/bootstrap/') && message.includes('404');
 }
 
 function isLightClientFinalityUpdateNotReady(error: unknown): boolean {

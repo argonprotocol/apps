@@ -9,6 +9,7 @@ import {
   EthereumClient,
   type IEthereumFinalizeTransferOutOfArgonArgs,
   type IEthereumMoveToken,
+  getEthereumExecutionRpcUrl,
   getEthereumUserErrorMessage,
   loadEthereumChainConfig,
   toEvmRecoverableSignature,
@@ -114,8 +115,12 @@ export class EthereumOutboundTransferTracker {
     private readonly walletKeys: WalletKeys,
     private readonly ethereumClient: IEthereumOutboundTransferClient,
     private readonly mintingAuthorities?: Pick<MintingAuthorities, 'data' | 'refresh' | 'authorize'>,
-    private readonly executionRpcUrl?: string,
+    private readonly configuredExecutionRpcUrl?: string,
   ) {}
+
+  public get executionRpcUrl(): string | undefined {
+    return getEthereumExecutionRpcUrl(this.configuredExecutionRpcUrl);
+  }
 
   public async load(): Promise<void> {
     if (this.#loadPromise) {
@@ -198,7 +203,7 @@ export class EthereumOutboundTransferTracker {
       return;
     }
 
-    const chainConfig = await loadEthereumChainConfig(this.executionRpcUrl);
+    const chainConfig = await loadEthereumChainConfig(this.configuredExecutionRpcUrl);
     if (!chainConfig) {
       throw new Error('Ethereum gateway chain config is not available on this Argon network.');
     }

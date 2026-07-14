@@ -10,6 +10,7 @@ const ETHEREUM_MOVE_TIMEOUT_MS = 6 * 60_000;
 const EMPTY_FUNDING_STATE = {
   ethereumAddress: '',
   archiveUrl: '',
+  ethereumRpcUrl: '',
   ethereumChainConfigReady: false,
   ethereumFetchErrorMsg: '',
   ethereumMicrogons: 0n,
@@ -116,6 +117,7 @@ export default new Operation<IAppFundWalletFromEthereumContext, IAppFundWalletFr
       await fundDevEthereumWallet({
         to: initialState.chainState.ethereumAddress,
         archiveUrl: initialState.chainState.archiveUrl,
+        ethereumRpcUrl: initialState.chainState.ethereumRpcUrl,
         microgons: requiredMicrogons > 0n ? requiredMicrogons : undefined,
         micronots: requiredMicronots > 0n ? requiredMicronots : undefined,
       });
@@ -231,6 +233,7 @@ async function readEthereumFundingState(flow: IE2EFlowRuntime, targetWalletType:
       return {
         ethereumAddress: refs.wallets.ethereumWallet.address,
         archiveUrl,
+        ethereumRpcUrl: refs.getEthereumOutboundTransferTracker().executionRpcUrl ?? '',
         ethereumChainConfigReady,
         ethereumFetchErrorMsg: refs.wallets.ethereumWallet.fetchErrorMsg,
         ethereumMicrogons: refs.wallets.ethereumWallet.availableMicrogons.toString(),
@@ -266,6 +269,7 @@ async function readEthereumFundingState(flow: IE2EFlowRuntime, targetWalletType:
   return {
     ethereumAddress: state.ethereumAddress,
     archiveUrl: state.archiveUrl,
+    ethereumRpcUrl: state.ethereumRpcUrl,
     ethereumChainConfigReady: state.ethereumChainConfigReady,
     ethereumFetchErrorMsg: state.ethereumFetchErrorMsg,
     ethereumMicrogons: BigInt(state.ethereumMicrogons),

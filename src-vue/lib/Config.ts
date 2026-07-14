@@ -643,7 +643,10 @@ export class Config implements IConfig {
         this.hasMiningSeats = true;
       }
       this.miningBotAccountPreviousHistory = miningHistory;
-      this.miningSetupStatus = MiningSetupStatus.Checklist;
+      // Account recovery continues after the initial config load resolves, so onboarding may already be installing.
+      if (this.miningSetupStatus === MiningSetupStatus.None) {
+        this.miningSetupStatus = MiningSetupStatus.Checklist;
+      }
       if (this.serverDetails.ipAddress) {
         this.miningSetupStatus = MiningSetupStatus.Finished;
         this.miningBotAccountPreviousHistory = null;

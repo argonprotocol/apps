@@ -3,14 +3,12 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import {
-  dispatchErrorToString,
   EvmContracts,
   getClient,
   getEthereumBeaconSyncState,
   Keyring,
   MICROGONS_PER_ARGON,
   type KeyringPair,
-  TxSubmitter,
   waitForLoad,
 } from '@argonprotocol/mainchain';
 import { TestEthereum } from '@argonprotocol/testing';
@@ -29,10 +27,11 @@ import {
   type TransactionReceipt,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { EthereumBeaconSyncService } from '../bot/src/EthereumBeaconSyncService.ts';
 import { waitForQueryableClient } from '../core/__test__/startArgonTestNetwork.ts';
 import {
+  ensureDevEthereumBeaconBootstrapped,
   loadDevEthereumActivationRepaymentPricing,
+  submitDevSudoTransaction,
   syncEthereumGatewayActiveCouncilToArgon,
 } from './devEthereumRuntimeSetup.ts';
 
@@ -356,7 +355,7 @@ async function ensureDevEthereumBeaconBootstrap(
       console.log(
         `[tauri-dev] Ethereum verifier bootstrap attempt ${attemptNumber}/3: waiting for beacon bootstrap inputs from ${beaconApiUrl}`,
       );
-      await EthereumBeaconSyncService.ensureBootstrapped(client, beaconApiUrl, sudoKeypair, {
+      await ensureDevEthereumBeaconBootstrapped(client, beaconApiUrl, sudoKeypair, {
         minimumFinalizedSlot: MINIMUM_BOOTSTRAP_FINALIZED_SLOT_BY_PRESET[beaconPreset],
       });
       console.log(
@@ -365,10 +364,10 @@ async function ensureDevEthereumBeaconBootstrap(
       return;
     } catch (error) {
       lastError = error as Error;
-      if (attempt === 2 || !isRetryableArchiveBootstrapError(lastError)) {
+      if (attempt === 2 || !isRetryableBootstrapError(lastError)) {
         throw error;
       }
-      console.warn(`[tauri-dev] Retrying Ethereum verifier bootstrap after archive disconnect (${lastError.message})`);
+      console.warn(`[tauri-dev] Retrying Ethereum verifier bootstrap (${lastError.message})`);
       await delay(1_000);
       await waitForQueryableClient(archiveUrl, {
         timeoutMs: 120_000,
@@ -500,50 +499,41 @@ async function ensureDevEthereumChainConfig(
 
   try {
     const finalizedClient = await client.at(await client.rpc.chain.getFinalizedHead());
-    const currentConfig = await client.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
-    let hasMatchingConfig = false;
-    if (currentConfig.isSome && currentConfig.unwrap().isEvm) {
+    const hasMatchingChainConfig = async () => {
+      const currentConfig = await client.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
+      if (currentConfig.isNone || !currentConfig.unwrap().isEvm) {
+        return false;
+      }
+
       const ethereumConfig = currentConfig.unwrap().asEvm;
-      hasMatchingConfig =
+      return (
         ethereumConfig.gateway.toHex().toLowerCase() === devEthereum.gatewayAddress.toLowerCase() &&
         ethereumConfig.argonToken.toHex().toLowerCase() === devEthereum.argonTokenAddress.toLowerCase() &&
-        ethereumConfig.argonotToken.toHex().toLowerCase() === devEthereum.argonotTokenAddress.toLowerCase();
-    }
+        ethereumConfig.argonotToken.toHex().toLowerCase() === devEthereum.argonotTokenAddress.toLowerCase()
+      );
+    };
 
-    if (!hasMatchingConfig) {
-      const result = await new TxSubmitter(
+    if (!(await hasMatchingChainConfig())) {
+      await submitDevSudoTransaction({
         client,
-        client.tx.sudo.sudo(
-          client.tx.crosschainTransfer.setChainConfig('Ethereum', {
-            Evm: {
-              chainId,
-              gateway: devEthereum.gatewayAddress,
-              argonToken: devEthereum.argonTokenAddress,
-              argonotToken: devEthereum.argonotTokenAddress,
-            },
-          }),
-        ),
+        tx: client.tx.crosschainTransfer.setChainConfig('Ethereum', {
+          Evm: {
+            chainId,
+            gateway: devEthereum.gatewayAddress,
+            argonToken: devEthereum.argonTokenAddress,
+            argonotToken: devEthereum.argonotTokenAddress,
+          },
+        }),
         sudoKeypair,
-      ).submit();
-      await result.waitForInFirstBlock;
-
-      const sudoResultEvent = result.events.find(event => client.events.sudo.Sudid.is(event));
-      if (!sudoResultEvent || !client.events.sudo.Sudid.is(sudoResultEvent)) {
-        throw new Error('Ethereum chain-config transaction did not emit sudo.Sudid.');
-      }
-      if (sudoResultEvent.data.sudoResult.isErr) {
-        throw new Error(
-          `Ethereum chain-config setup failed: ${dispatchErrorToString(client, sudoResultEvent.data.sudoResult.asErr as any)}`,
-        );
-      }
+        isApplied: hasMatchingChainConfig,
+        description: 'Ethereum chain-config setup',
+      });
 
       console.log('[tauri-dev] Configured local Ethereum gateway on Argon');
     } else {
       console.log('[tauri-dev] Ethereum chain config already matches local gateway fixture');
     }
 
-    const currentRepaymentPricing =
-      await client.query.crosschainTransfer.mintingAuthorityActivationRepaymentPricingByDestinationChain('Ethereum');
     console.log('[tauri-dev] Deriving local Ethereum activation repayment pricing');
     const expectedRepaymentPricing = await loadDevEthereumActivationRepaymentPricing({
       finalizedClient,
@@ -551,35 +541,30 @@ async function ensureDevEthereumChainConfig(
     }).catch(error => {
       throw new Error(`Unable to derive local Ethereum activation repayment pricing: ${(error as Error).message}`);
     });
-    const repaymentPricing = currentRepaymentPricing.isSome ? currentRepaymentPricing.unwrap() : undefined;
-    const hasMatchingRepaymentPricing =
-      repaymentPricing?.activationGasCost.toBigInt() === expectedRepaymentPricing.activationGasCost &&
-      repaymentPricing.signatureGasCost.toBigInt() === expectedRepaymentPricing.signatureGasCost &&
-      repaymentPricing.estimatedWeiPerGas.toBigInt() === expectedRepaymentPricing.estimatedWeiPerGas &&
-      repaymentPricing.estimatedMicrogonsPerEth.toBigInt() === expectedRepaymentPricing.estimatedMicrogonsPerEth;
+    const hasMatchingRepaymentPricing = async () => {
+      const currentRepaymentPricing =
+        await client.query.crosschainTransfer.mintingAuthorityActivationRepaymentPricingByDestinationChain('Ethereum');
+      const repaymentPricing = currentRepaymentPricing.isSome ? currentRepaymentPricing.unwrap() : undefined;
 
-    if (!hasMatchingRepaymentPricing) {
-      const result = await new TxSubmitter(
+      return (
+        repaymentPricing?.activationGasCost.toBigInt() === expectedRepaymentPricing.activationGasCost &&
+        repaymentPricing.signatureGasCost.toBigInt() === expectedRepaymentPricing.signatureGasCost &&
+        repaymentPricing.estimatedWeiPerGas.toBigInt() === expectedRepaymentPricing.estimatedWeiPerGas &&
+        repaymentPricing.estimatedMicrogonsPerEth.toBigInt() === expectedRepaymentPricing.estimatedMicrogonsPerEth
+      );
+    };
+
+    if (!(await hasMatchingRepaymentPricing())) {
+      await submitDevSudoTransaction({
         client,
-        client.tx.sudo.sudo(
-          client.tx.crosschainTransfer.setMintingAuthorityActivationRepaymentPricing(
-            'Ethereum',
-            expectedRepaymentPricing,
-          ),
+        tx: client.tx.crosschainTransfer.setMintingAuthorityActivationRepaymentPricing(
+          'Ethereum',
+          expectedRepaymentPricing,
         ),
         sudoKeypair,
-      ).submit();
-      await result.waitForInFirstBlock;
-
-      const sudoResultEvent = result.events.find(event => client.events.sudo.Sudid.is(event));
-      if (!sudoResultEvent || !client.events.sudo.Sudid.is(sudoResultEvent)) {
-        throw new Error('Ethereum activation repayment pricing transaction did not emit sudo.Sudid.');
-      }
-      if (sudoResultEvent.data.sudoResult.isErr) {
-        throw new Error(
-          `Ethereum activation repayment pricing setup failed: ${dispatchErrorToString(client, sudoResultEvent.data.sudoResult.asErr as any)}`,
-        );
-      }
+        isApplied: hasMatchingRepaymentPricing,
+        description: 'Ethereum activation repayment pricing setup',
+      });
 
       console.log('[tauri-dev] Configured local Ethereum activation repayment pricing on Argon');
     } else {
@@ -746,9 +731,10 @@ async function delay(ms: number): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function isRetryableArchiveBootstrapError(error: Error): boolean {
+function isRetryableBootstrapError(error: Error): boolean {
   const message = error.message.toLowerCase();
   return (
+    message.includes('priority is too low') ||
     message.includes('fetch failed') ||
     message.includes('disconnected from ws://') ||
     message.includes('abnormal closure')
