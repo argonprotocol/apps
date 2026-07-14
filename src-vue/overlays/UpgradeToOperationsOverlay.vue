@@ -1,6 +1,14 @@
+<!-- prettier-ignore -->
 <template>
-  <div class="w-full max-w-xl px-2">
-    <div class="text-2xl font-bold text-slate-800">Unlock Operations</div>
+  <OverlayBase
+    :isOpen="isOpen"
+    @close="closeOverlay"
+    @pressEsc="closeOverlay"
+    class="w-7/12"
+  >
+    <template #title>
+      <div class="grow text-2xl font-bold">Upgrade to Operations</div>
+    </template>
 
     <p v-if="canRequestUpgrade" class="mt-3 text-base leading-6 text-slate-500">
       Treasury certification is complete. Request approval from
@@ -57,25 +65,27 @@
       <template v-else-if="isLoading">Loading...</template>
       <template v-else>Request Operations Upgrade</template>
     </button>
-  </div>
+  </OverlayBase>
 </template>
 
 <script setup lang="ts">
 import * as Vue from 'vue';
 import type { IMemberInvite } from '@argonprotocol/apps-router';
 import dayjs from 'dayjs';
-import AlertIcon from '../../assets/alert.svg?component';
-import ProgressBar from '../../components/ProgressBar.vue';
 import {
   ensureOperationalAccountRegistered,
   supportsOperationalAccessProofRuntime,
-} from '../../lib/OperationalAccount.ts';
-import { getConfig } from '../../stores/config.ts';
-import { treasuryCertificationStepIds, useCertificationController } from '../../stores/certificationController.ts';
-import { getMainchainClient } from '../../stores/mainchain.ts';
-import { getTransactionTracker } from '../../stores/transactions.ts';
-import { getUpstreamOperatorClient } from '../../stores/upstreamOperator.ts';
-import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
+} from '../lib/OperationalAccount.ts';
+import { getConfig } from '../stores/config.ts';
+import { treasuryCertificationStepIds, useCertificationController } from '../stores/certificationController.ts';
+import { getMainchainClient } from '../stores/mainchain.ts';
+import { getTransactionTracker } from '../stores/transactions.ts';
+import { getUpstreamOperatorClient } from '../stores/upstreamOperator.ts';
+import { getWalletKeys, useWallets } from '../stores/wallets.ts';
+import OverlayBase from './OverlayBase.vue';
+import AlertIcon from '../assets/alert.svg';
+import ProgressBar from '../components/ProgressBar.vue';
+import basicEmitter from '../emitters/basicEmitter.ts';
 
 const config = getConfig();
 const controller = useCertificationController();
@@ -84,6 +94,7 @@ const transactionTracker = getTransactionTracker();
 const walletKeys = getWalletKeys();
 const wallets = useWallets();
 
+const isOpen = Vue.ref(false);
 const invite = Vue.ref<IMemberInvite | null>(null);
 const isLoading = Vue.ref(true);
 const isSubmitting = Vue.ref(false);
@@ -187,6 +198,10 @@ async function loadInvite() {
   }
 }
 
+function closeOverlay() {
+  isOpen.value = false;
+}
+
 async function loadRegistrationProgress() {
   if (!invite.value?.accessProof || !supportsAccessProofRuntime.value || isRegistering.value) {
     return;
@@ -230,6 +245,10 @@ async function loadRegistrationProgress() {
     }
   }
 }
+
+basicEmitter.on('openUpgradeToOperationsOverlay', () => {
+  isOpen.value = true;
+});
 
 Vue.watch(
   () => controller.chainProgress.isUpgradedToOperations,

@@ -1,11 +1,11 @@
 <!-- prettier-ignore -->
 <template>
   <div data-testid="VaultingDashboard" class="flex flex-col h-full">
-    <div class="flex flex-col h-full px-2.5 py-2.5 gap-y-2 justify-stretch grow">
+    <div class="flex flex-col h-full gap-y-2 justify-stretch grow">
       <TooltipProvider :disableHoverableContent="true">
         <section class="flex flex-row gap-x-2 h-[14%]">
           <TooltipRoot>
-            <TooltipTrigger as="div" box stat-box class="flex flex-col w-2/12 !py-4 group">
+            <TooltipTrigger as="div" box stat-box class="flex flex-col w-[20%] !py-4 group">
               <span>
                 {{ currency.symbol }}{{ microgonToMoneyNm(bitcoinLockedValue).formatIfElse('< 1_000', '0,0.00', '0,0') }}
               </span>
@@ -16,22 +16,22 @@
               <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
             </TooltipContent>
           </TooltipRoot>
+<!--          <TooltipRoot>-->
+<!--            <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">-->
+<!--              <span class="flex flex-row items-center justify-center space-x-3">-->
+<!--                <span>{{ numeral(rules.securitizationRatio).format('0.[00]') }}</span>-->
+<!--                <span class="!font-light">to</span>-->
+<!--                <span>1</span>-->
+<!--              </span>-->
+<!--              <label>Securitization Ratio</label>-->
+<!--            </TooltipTrigger>-->
+<!--            <TooltipContent side="bottom" :sideOffset="-10" align="start" :collisionPadding="9" class="text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">-->
+<!--              The ratio of argon-to-bitcoin that you have committed as securitization collateral.-->
+<!--              <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />-->
+<!--            </TooltipContent>-->
+<!--          </TooltipRoot>-->
           <TooltipRoot>
-            <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
-              <span class="flex flex-row items-center justify-center space-x-3">
-                <span>{{ numeral(rules.securitizationRatio).format('0.[00]') }}</span>
-                <span class="!font-light">to</span>
-                <span>1</span>
-              </span>
-              <label>Securitization Ratio</label>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" :sideOffset="-10" align="start" :collisionPadding="9" class="text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
-              The ratio of argon-to-bitcoin that you have committed as securitization collateral.
-              <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-            </TooltipContent>
-          </TooltipRoot>
-          <TooltipRoot>
-            <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
+            <TooltipTrigger box stat-box class="flex flex-col w-[20%] !py-4 group">
               <span>{{ currency.symbol}}{{ microgonToMoneyNm(externalTreasuryBondMicrogons).format('0,0') }}</span>
               <label>External Treasury Bonds</label>
             </TooltipTrigger>
@@ -41,7 +41,7 @@
             </TooltipContent>
           </TooltipRoot>
           <TooltipRoot>
-            <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
+            <TooltipTrigger box stat-box class="flex flex-col w-[20%] !py-4 group">
               <span>
                 {{ currency.symbol}}{{ microgonToMoneyNm(totalTreasuryBondMicrogons).formatIfElse('< 1_000', '0,0.00', '0,0') }}
               </span>
@@ -53,7 +53,7 @@
             </TooltipContent>
           </TooltipRoot>
           <TooltipRoot>
-            <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
+            <TooltipTrigger box stat-box class="flex flex-col w-[20%] !py-4 group">
               <span>{{ currency.symbol }}{{ microgonToMoneyNm(revenueMicrogons).formatIfElse('< 1_000', '0,0.00', '0,0') }}</span>
               <label>Total Earnings</label>
             </TooltipTrigger>
@@ -63,7 +63,7 @@
             </TooltipContent>
           </TooltipRoot>
           <TooltipRoot>
-            <TooltipTrigger box stat-box class="flex flex-col w-2/12 !py-4 group">
+            <TooltipTrigger box stat-box class="flex flex-col w-[20%] !py-4 group">
               <span>{{ numeral(currentApy).formatIfElseCapped('< 100', '0,0.[00]', '0,0', 9_999) }}%</span>
               <label>Estimated APY</label>
             </TooltipTrigger>
@@ -76,34 +76,34 @@
       </TooltipProvider>
 
       <section class="flex flex-row gap-x-2.5 grow">
-<!--        <div box class="flex flex-col w-[22.5%] px-2">-->
-<!--          <header class="flex flex-row items-center px-1 border-b border-slate-400/30 pt-2 pb-3 text-[18px] font-bold text-slate-900/80">-->
-<!--            <div class="grow">Vaulting Assets</div>-->
-<!--          </header>-->
-<!--          <VaultingAssetBreakdown />-->
-<!--          <div class="grow border-t border-slate-600/40 flex flex-col items-center justify-center">-->
-<!--            <a target="_blank" href="https://argon.network/docs/mining-operations" class="flex flex-row items-center text-center text-argon-600/60! hover:text-argon-600! cursor-pointer">-->
-<!--              <div>Learn About Vaulting</div>-->
-<!--              <ArrowTopRightOnSquareIcon class="w-5 ml-2" />-->
-<!--            </a>-->
-<!--          </div>-->
-<!--          <div class="flex flex-row items-end border-t border-slate-600/20 pt-2 text-md">-->
-<!--            <div @click="openPortfolioPanel(PortfolioTab.ProfitAnalysis)" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">-->
-<!--              <RoiIcon class="w-6 h-6 mt-2 inline-block mb-2" />-->
-<!--              <div>Profits</div>-->
-<!--            </div>-->
-<!--            <div class="w-px h-full bg-slate-600/20" />-->
-<!--            <div @click="openPortfolioPanel(PortfolioTab.GrowthProjections)" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">-->
-<!--              <ProjectionsIcon class="w-6 h-6 mt-2 inline-block mb-2" />-->
-<!--              <div>Projections</div>-->
-<!--            </div>-->
-<!--            <div class="w-px h-full bg-slate-600/20" />-->
-<!--            <div @click="openVaultEditOverlay" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">-->
-<!--              <ConfigIcon class="w-6 h-6 mt-2 inline-block mb-2" />-->
-<!--              <div>Settings</div>-->
-<!--            </div>-->
-<!--          </div>-->
-<!--        </div>-->
+        <div box class="flex flex-col w-[22.5%] px-2">
+          <header class="flex flex-row items-center px-1 border-b border-slate-400/30 pt-2 pb-3 text-[18px] font-bold text-slate-900/80">
+            <div class="grow">Vaulting Assets</div>
+          </header>
+          <VaultingAssetBreakdown />
+          <div class="grow border-t border-slate-600/40 flex flex-col items-center justify-center">
+            <a target="_blank" href="https://argon.network/docs/mining-operations" class="flex flex-row items-center text-center text-argon-600/60! hover:text-argon-600! cursor-pointer">
+              <div>Learn About Vaulting</div>
+              <ArrowTopRightOnSquareIcon class="w-5 ml-2" />
+            </a>
+          </div>
+          <div class="flex flex-row items-end border-t border-slate-600/20 pt-2 text-md">
+            <div @click="openPortfolioPanel(PortfolioTab.ProfitAnalysis)" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
+              <RoiIcon class="w-6 h-6 mt-2 inline-block mb-2" />
+              <div>Profits</div>
+            </div>
+            <div class="w-px h-full bg-slate-600/20" />
+            <div @click="openPortfolioPanel(PortfolioTab.GrowthProjections)" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
+              <ProjectionsIcon class="w-6 h-6 mt-2 inline-block mb-2" />
+              <div>Projections</div>
+            </div>
+            <div class="w-px h-full bg-slate-600/20" />
+            <div @click="openVaultEditOverlay" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
+              <ConfigIcon class="w-6 h-6 mt-2 inline-block mb-2" />
+              <div>Settings</div>
+            </div>
+          </div>
+        </div>
 
         <div class="flex min-h-0 flex-col grow gap-y-2">
           <section box class="flex min-h-0 flex-col grow px-2 text-center">

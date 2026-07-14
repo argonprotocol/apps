@@ -85,7 +85,7 @@
       <div class="rounded border border-argon-400/50 bg-white pt-0.5 pl-0.5 shadow-xl">
         <div class="relative w-108 rounded bg-argon-600/5 px-5 pt-3 pb-5" style="text-shadow: 1px 1px 0 white">
           <div class="mb-2 flex items-center justify-between border-b border-argon-300/20 pb-2">
-            <div class="text-xl font-bold text-argon-600">Unlock Operations</div>
+            <div class="text-xl font-bold text-argon-600">Upgrade to Operations</div>
             <button
               @click="dismissUpgradeTooltip"
               class="cursor-pointer rounded-full p-1 text-argon-600/70 hover:bg-white/70 hover:text-argon-800"
@@ -143,7 +143,27 @@
       </div>
     </div>
 
+    <div
+      v-if="!config.hasExtensionTreasury"
+      class="flex h-[30px] cursor-pointer flex-row items-center justify-center overflow-hidden rounded-md border border-slate-400/50 text-base font-semibold whitespace-nowrap text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
+      @click="openUpgradeToTreasuryOverlay"
+    >
+      <div class="relative flex flex-row items-center gap-1.5 whitespace-nowrap pl-2.5 pr-3 pt-px">
+        <DiamondIcon class="h-5 relative -top-0.5 mr-1 text-argon-600/80" />
+        Upgrade to Treasury
+      </div>
+    </div>
+    <div
+      v-else-if="isShowingUpgradeButton"
+      class="flex h-[30px] cursor-pointer flex-row items-center justify-center overflow-hidden rounded-md border border-slate-400/50 text-base font-semibold whitespace-nowrap text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
+      @click="openUpgradeToOperationsOverlay"
+    >
+      <div class="relative flex flex-row items-center gap-1.5 whitespace-nowrap pl-2.5 pr-3 pt-px">
+        Upgrade to Operations
+      </div>
+    </div>
     <NavigationMenuItem
+      v-else
       value="certification"
       class="pointer-events-auto"
       @mouseenter="onMenuEnter"
@@ -156,7 +176,7 @@
       >
         <div class="relative flex flex-row items-center gap-1.5 whitespace-nowrap pl-2.5 pr-3 pt-px">
           <CheckBadgeIcon v-if="!isUnlockTrack" class="relative top-px h-[17px] w-[17px]" aria-hidden="true" />
-          <span>Become {{ isUnlockTrack ? 'Treasury' : 'Operator' }} Certified</span>
+          <span>{{ isUnlockTrack ? 'Treasury' : 'Operator' }} Certification</span>
           <span class="font-mono">({{ completedStepCount }}/{{ currentStepIds.length }})</span>
         </div>
       </NavigationMenuTrigger>
@@ -242,6 +262,7 @@ import {
   treasuryCertificationStepIds,
   useCertificationController,
 } from '../stores/certificationController.ts';
+import DiamondIcon from '../assets/diamond.svg';
 
 const config = getConfig();
 const controller = useCertificationController();
@@ -263,7 +284,7 @@ const isUnlockTrack = Vue.computed(() => {
   return !controller.chainProgress.isUpgradedToOperations;
 });
 const isCertificationMenuVisible = Vue.computed(() => {
-  return (config.hasExtensionTreasury || config.hasExtensionOperations) && !controller.isOperationalRewardsFlowActive;
+  return !controller.isOperationalRewardsFlowActive;
 });
 
 const currentStepIds = Vue.computed(() => {
@@ -289,15 +310,19 @@ const isShowingActivatedTooltip = Vue.computed(() => {
   );
 });
 
-const isShowingUpgradeTooltip = Vue.computed(() => {
+const isShowingUpgradeButton = Vue.computed(() => {
   return (
     config.hasExtensionTreasury &&
     !controller.chainProgress.isUpgradedToOperations &&
     controller.completedTreasuryCertificationStepCount === treasuryCertificationStepIds.length &&
-    !config.certificationDetails?.dismissedOperationsUpgradeOverlay &&
-    !isOpen.value &&
     !completionNoticeStepId.value &&
     !controller.isOperationalRewardsFlowActive
+  );
+});
+
+const isShowingUpgradeTooltip = Vue.computed(() => {
+  return (
+    isShowingUpgradeButton.value && !config.certificationDetails?.dismissedOperationsUpgradeOverlay && !isOpen.value
   );
 });
 
@@ -372,6 +397,14 @@ function openNetworkTabFromTooltip() {
 function openActivatedAction() {
   dismissActivatedTooltip();
   basicEmitter.emit('highlightOperationsNavigation');
+}
+
+function openUpgradeToOperationsOverlay() {
+  basicEmitter.emit('openUpgradeToOperationsOverlay');
+}
+
+function openUpgradeToTreasuryOverlay() {
+  basicEmitter.emit('openUpgradeToTreasuryOverlay');
 }
 
 function onMenuEnter() {
