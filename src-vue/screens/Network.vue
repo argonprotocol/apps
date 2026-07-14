@@ -139,13 +139,6 @@
         </div>
       </template>
 
-      <div
-        v-else-if="config.hasExtensionTreasury && controller.completedTreasuryCertificationStepCount === treasuryCertificationStepIds.length"
-        class="flex grow items-center justify-center px-8 py-8"
-      >
-        <OperationsUpgrade />
-      </div>
-
       <div v-else-if="config.hasExtensionTreasury" class="grow">
         <div class="text-argon-600/60 relative z-10 mt-0">
           <LockedIcon class="w-10 mx-auto" />
@@ -171,9 +164,8 @@ import { useNetworkStats } from '../stores/networkStats.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import MemberInvites from './network-screen/MemberInvites.vue';
-import OperationsUpgrade from './network-screen/OperationsUpgrade.vue';
 import { getConfig } from '../stores/config.ts';
-import { treasuryCertificationStepIds, useCertificationController } from '../stores/certificationController.ts';
+import { useCertificationController } from '../stores/certificationController.ts';
 
 const config = getConfig();
 const networkStats = useNetworkStats();
