@@ -5,6 +5,7 @@ import type { IMiningFlowContext } from '../contexts/miningContext.ts';
 
 type ICompleteChecklistUiState = {
   checklistVisible: boolean;
+  checklistClickable: boolean;
   botConfigured: boolean;
 };
 
@@ -21,7 +22,7 @@ export default new Operation<IMiningFlowContext, ICompleteChecklistState>(import
     ]);
     const botConfigured = botConfigState?.hasSavedBiddingRules ?? false;
     const isComplete = botConfigured;
-    const canRun = checklistEntry.visible && !botConfigured;
+    const canRun = checklistEntry.clickable && !botConfigured;
     let operationState: 'complete' | 'runnable' | 'processing' = 'processing';
     if (isComplete) {
       operationState = 'complete';
@@ -31,10 +32,14 @@ export default new Operation<IMiningFlowContext, ICompleteChecklistState>(import
 
     const blockers: string[] = [];
     if (!isComplete && !checklistEntry.visible) blockers.push('Mining checklist is not visible.');
+    if (!isComplete && checklistEntry.visible && !checklistEntry.clickable) {
+      blockers.push('Mining checklist is still loading.');
+    }
     return {
       chainState: {},
       uiState: {
         checklistVisible: checklistEntry.visible,
+        checklistClickable: checklistEntry.clickable,
         botConfigured,
       },
       state: operationState,

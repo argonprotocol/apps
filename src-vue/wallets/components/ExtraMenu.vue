@@ -4,6 +4,7 @@
     <DropdownMenuRoot :openDelay="0" :closeDelay="0" v-model:open="isOpen">
       <DropdownMenuTrigger
         Trigger
+        :data-testid="walletAddressTestId ? `${walletAddressTestId}.openMenu()` : undefined"
         class="group relative flex  cursor-pointer flex-col items-center justify-center gap-y-[2px] rounded-md text-slate-400 hover:bg-slate-400/10 hover:text-slate-500 focus:outline-none data-[state=open]:bg-slate-400/10 data-[state=open]:text-slate-500"
         :class="[showBorders ? 'h-[34px] w-[34px] border border-slate-400/60' : 'h-[22px] w-[22px]']"
       >
@@ -33,8 +34,9 @@
               </DropdownMenuItem>
               <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             </template>
-            <DropdownMenuItem MenuItem @click="() => copyEthereumAddress()" >
+            <DropdownMenuItem MenuItem>
               <CopyToClipboard
+                :data-testid="walletAddressTestId"
                 :content="wallet.address"
               >
                 <div ItemWrapper>
@@ -127,6 +129,9 @@ const props = withDefaults(
 const rootRef = Vue.ref<HTMLElement>();
 const isOpen = Vue.ref(false);
 const floatingZIndex = useFloatingZIndex();
+const walletAddressTestId = Vue.computed(() =>
+  props.walletIsOpen && props.walletType === WalletType.defaultArgon ? 'defaultArgonWalletAddress' : undefined,
+);
 
 const showQrCode = Vue.ref(false);
 const qrCode = Vue.ref('');
@@ -165,8 +170,6 @@ function openEthereumPrivateKeyExport() {
 function openWallet(walletType: WalletType) {
   basicEmitter.emit('openWalletOverlay', { walletType: walletType as any });
 }
-
-function copyEthereumAddress() {}
 
 function openProfileOverlay(): void {
   basicEmitter.emit('openProfileOverlay');

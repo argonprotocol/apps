@@ -102,6 +102,7 @@ export async function createBitcoinLocksHarness(args: {
   esploraHost: string;
   network: string;
   vaultRules?: IVaultingRules;
+  walletFundingMicrogons?: bigint;
 }): Promise<BitcoinLocksHarness> {
   const { archiveUrl, esploraHost, network, vaultRules = defaultVaultRules } = args;
   const clientHarness = await createBitcoinLocksClientHarness({
@@ -110,10 +111,11 @@ export async function createBitcoinLocksHarness(args: {
     network,
   });
   const { db, clients, walletKeys, currency, transactionTracker, bitcoinLocks, miningFrames } = clientHarness;
+  const fundingMicrogons = args.walletFundingMicrogons ?? walletFundingMicrogons;
 
   await sudoFundWallet({
     address: walletKeys.vaultingAddress,
-    microgons: walletFundingMicrogons,
+    microgons: fundingMicrogons,
     micronots: 0n,
     archiveUrl,
   });
@@ -125,7 +127,7 @@ export async function createBitcoinLocksHarness(args: {
     const balance = await finalizedClient.query.system
       .account(walletKeys.vaultingAddress)
       .then(x => x.data.free.toBigInt());
-    if (balance < walletFundingMicrogons) return;
+    if (balance < fundingMicrogons) return;
     return balance;
   });
 

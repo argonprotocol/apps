@@ -54,6 +54,7 @@ import { setMainchainClients } from '../stores/mainchain.ts';
 import { createTestDb } from './helpers/db.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
 import {
+  ensureDevEthereumBeaconBootstrapped,
   loadDevEthereumActivationRepaymentPricing,
   syncEthereumGatewayActiveCouncilToArgon,
 } from '../../e2e/devEthereumRuntimeSetup.ts';
@@ -208,7 +209,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       ),
       sudo(),
     );
-    await EthereumBeaconSyncService.ensureBootstrapped(mainchainClient, endpoints.beaconApiUrl, sudo(), {
+    await ensureDevEthereumBeaconBootstrapped(mainchainClient, endpoints.beaconApiUrl, sudo(), {
       minimumFinalizedSlot: 64n,
     });
 
@@ -217,15 +218,10 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
 
     await sudoFundWallet({
       client,
-      address: walletKeys.vaultingAddress,
+      // The collapsed wallet model uses the default Argon account for vaulting.
+      address: walletKeys.defaultArgonAddress,
       microgons: 100_000_000n,
       micronots: 10_000_000n,
-    });
-    await sudoFundWallet({
-      client,
-      address: walletKeys.defaultArgonAddress,
-      microgons: client.consts.balances.existentialDeposit.toBigInt(),
-      micronots: 0n,
     });
 
     const currentTick = await client.query.ticks.currentTick();

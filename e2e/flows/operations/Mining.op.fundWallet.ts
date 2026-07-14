@@ -83,8 +83,11 @@ export default new Operation<IMiningFlowContext, IFundWalletState>(import.meta, 
     const walletAddress = await readClipboardWithRetries(
       flow,
       async () => {
-        await flow.click('defaultArgonWalletAddress.openMenu()', { timeoutMs: 5_000 });
-        await flow.waitFor('defaultArgonWalletAddress.copyContent()', { timeoutMs: 5_000 });
+        const copyAction = await flow.isVisible('defaultArgonWalletAddress.copyContent()');
+        if (!copyAction.clickable) {
+          await flow.click('defaultArgonWalletAddress.openMenu()', { timeoutMs: 5_000 });
+          await flow.waitFor('defaultArgonWalletAddress.copyContent()', { timeoutMs: 5_000 });
+        }
         await flow.click('defaultArgonWalletAddress.copyContent()', { timeoutMs: 5_000 });
       },
       value => isAddress(value),
@@ -105,7 +108,7 @@ export default new Operation<IMiningFlowContext, IFundWalletState>(import.meta, 
     };
     const fundingNeeded = requiredFunding.microgons > 0n || requiredFunding.micronots > 0n;
     const funding = fundingNeeded ? deriveMiningFunding(flowName, requiredFunding, input.fundingArgons) : undefined;
-    await flow.click('NavHeader.close()', { timeoutMs: 8_000 });
+    await flow.click('BgOverlay.close()', { timeoutMs: 8_000 });
     await pollEvery(250, async () => !(await flow.inspect(this)).uiState.walletOverlayVisible, {
       timeoutMs: 20_000,
       timeoutMessage: `${flowName}: mining wallet overlay did not close after funding.`,
