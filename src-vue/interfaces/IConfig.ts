@@ -21,7 +21,6 @@ export enum TopTab {
   // Basics
   Dashboard = 'Dashboard',
   Network = 'Network',
-  TreasuryUnlock = 'TreasuryUnlock',
 
   ArgonBonds = 'ArgonBonds',
   ArgonotBonds = 'ArgonotBonds',

@@ -60,6 +60,9 @@ type IBasicEmitter = {
   openCertificationMenu: void;
   highlightOperationsNavigation: void;
   openOperationalRewardsOverlay: { screen?: 'activate' | 'congratulations' | 'claim' } | undefined;
+
+  openUpgradeToOperationsOverlay: void;
+  openUpgradeToTreasuryOverlay: void;
 };
 
 const basicEmitter: Emitter<IBasicEmitter> = mitt<IBasicEmitter>();

@@ -1,58 +1,13 @@
 <template>
   <div class="Navigation LeftBar z-10 flex h-full max-w-76 min-w-76 flex-col gap-y-1.5 select-none">
-    <section DashBox class="w-full">
-      <div class="flex flex-col justify-center px-1">
-        <header class="flex w-full flex-row items-center border-b border-slate-500/20">
-          <div class="grow">Your Argon Wallet</div>
-          <button type="button" class="cursor-pointer" @click="openDefaultArgonWallet">
-            <ExternalIcon class="w-4 opacity-80" />
-          </button>
-        </header>
-        <div class="text-argon-600/70 mt-5 flex flex-row justify-center text-5xl font-bold">
-          <span>{{ currency.symbol }}</span>
-          <FormattedMoney
-            :isLoaded="wallets.isLoaded"
-            :value="
-              wallets.defaultArgonWallet.totalMicrogons +
-              currency.convertMicronotTo(wallets.defaultArgonWallet.totalMicronots, UnitOfMeasurement.Microgon)
-            "
-          />
-        </div>
-        <div class="w-full text-center">Total Value</div>
-        <div class="mt-4 text-left text-slate-900/60">
-          <div class="flex flex-row border-t border-slate-500/20 px-3 py-2">
-            <div class="grow">
-              {{ microgonToArgonNm(wallets.defaultArgonWallet.totalMicrogons).format('0,0.[00]') }} ARGN
-            </div>
-            <div class="opacity-60">
-              {{ currency.symbol }}{{ microgonToMoneyNm(wallets.defaultArgonWallet.totalMicrogons).format('0,0.00') }}
-            </div>
-          </div>
-          <div class="flex flex-row border-t border-slate-500/20 px-3 py-2">
-            <div class="grow">
-              {{ micronotToArgonotNm(wallets.defaultArgonWallet.totalMicronots).format('0,0.[00]') }} ARGNOT
-            </div>
-            <div class="opacity-60">
-              {{ currency.symbol }}{{ micronotToMoneyNm(wallets.defaultArgonWallet.totalMicronots).format('0,0.00') }}
-            </div>
-          </div>
-        </div>
-        <WalletsMenu />
-      </div>
-    </section>
-
-    <section DashBox class="border-argon-600/50! w-full grow px-1 pb-3">
-      <div>
-        <!--        <header>Basics</header>-->
+    <section DashBox class="border-argon-600/50! w-full px-1">
+      <div class="mt-3">
+        <header>Basic Nav</header>
         <ul>
-          <li
-            @click="goto(TopTab.Dashboard)"
-            class="border-t-0!"
-            :class="{ Selected: controller.selectedTab === TopTab.Dashboard }"
-          >
-            <article TopLevel class="flex flex-row items-center">
+          <li @click="goto(TopTab.Dashboard)" :class="{ Selected: controller.selectedTab === TopTab.Dashboard }">
+            <article class="flex flex-row items-center">
               <div class="grow">Account Overview</div>
-              <div><span class="rounded-full bg-slate-600/40 px-2 font-bold text-white">0</span></div>
+              <!--              <div><span class="rounded-full bg-slate-600/40 px-2 font-bold text-white">0</span></div>-->
             </article>
             <div Selector>
               <div ArrowSquare>
@@ -60,42 +15,23 @@
               </div>
             </div>
           </li>
-          <li
-            v-if="!config.hasExtensionTreasury"
-            @click="goto(TopTab.TreasuryUnlock)"
-            :class="{ Selected: controller.selectedTab === TopTab.TreasuryUnlock }"
-          >
-            <article TopLevel class="flex flex-row items-center">
-              <div class="grow">Unlock Treasury</div>
-              <div class="opacity-60">{{ currency.symbol }}0.00</div>
+          <li @click="goto(TopTab.Network)" :class="{ Selected: controller.selectedTab === TopTab.Network }">
+            <article class="flex flex-row items-center">
+              <div class="grow">Network Economics</div>
+              <!--              <div><span class="rounded-full bg-slate-600/40 px-2 font-bold text-white">0</span></div>-->
             </article>
             <div Selector>
               <div ArrowSquare>
-                <Arrow ActiveArrow fill="white" stroke="#000000" :strokeWidth="1" />
+                <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
               </div>
             </div>
           </li>
         </ul>
-        <div
-          v-if="config.isLoaded && !config.hasExtensionTreasury"
-          class="pointer-events-none relative -top-2 z-20 text-center"
-        >
-          <div class="text-right">
-            <div class="absolute top-[7px] right-[19px] z-10 h-px w-[21px] bg-[#FDF4FF]" />
-            <img src="/arrow.png" class="relative z-20 mr-5 inline-block" />
-          </div>
-          <div class="font-bold">Upgrade Your App</div>
-          <div class="mt-1 text-slate-700/60">
-            Insert an access code to
-            <br />
-            unlock your network’s
-            <br />
-            yield generating assets.
-          </div>
-        </div>
       </div>
+    </section>
 
-      <div class="mt-3" v-if="config.isLoaded && config.hasExtensionTreasury">
+    <section DashBox v-if="config.isLoaded && config.hasExtensionTreasury" class="border-argon-600/50! w-full px-1">
+      <div class="mt-3">
         <header>Treasury</header>
         <ul>
           <li @click="goto(TopTab.BitcoinLocks)" :class="{ Selected: controller.selectedTab === TopTab.BitcoinLocks }">
@@ -119,30 +55,28 @@
               </div>
             </div>
           </li>
-          <li @click="goto(TopTab.BitcoinLoans)" :class="{ Selected: controller.selectedTab === TopTab.BitcoinLoans }">
-            <article class="flex flex-row items-center">
-              <div class="grow">Bitcoin Loans</div>
-              <div class="opacity-60">
-                {{ currency.symbol }}{{ microgonToMoneyNm(financials.liquidCurrentBitcoinDebt).format('0,0.00') }}
-              </div>
-            </article>
-            <div Selector>
-              <div ArrowSquare>
-                <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
-              </div>
-            </div>
-          </li>
+          <!--          <li @click="goto(TopTab.BitcoinLoans)" :class="{ Selected: controller.selectedTab === TopTab.BitcoinLoans }">-->
+          <!--            <article class="flex flex-row items-center">-->
+          <!--              <div class="grow">Bitcoin Loans</div>-->
+          <!--              <div class="opacity-60">-->
+          <!--                {{ currency.symbol }}{{ microgonToMoneyNm(financials.liquidCurrentBitcoinDebt).format('0,0.00') }}-->
+          <!--              </div>-->
+          <!--            </article>-->
+          <!--            <div Selector>-->
+          <!--              <div ArrowSquare>-->
+          <!--                <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />-->
+          <!--              </div>-->
+          <!--            </div>-->
+          <!--          </li>-->
           <li @click="goto(TopTab.ArgonBonds)" :class="{ Selected: controller.selectedTab === TopTab.ArgonBonds }">
             <article class="flex flex-row items-center">
               <div class="grow">Argon Bonds</div>
               <div class="opacity-60">
                 {{ currency.symbol
                 }}{{
-                  microgonToMoneyNm(
-                    myBonds.bondLots
-                      .filter(bondLot => bondLot.programType === 'Vault')
-                      .reduce((sum, bondLot) => sum + bondLot.bondMicrogons, 0n),
-                  ).format('0,0.00')
+                  microgonToMoneyNm(myBonds.bondLots.reduce((sum, bondLot) => sum + bondLot.bondMicrogons, 0n)).format(
+                    '0,0.00',
+                  )
                 }}
               </div>
             </article>
@@ -152,26 +86,26 @@
               </div>
             </div>
           </li>
-          <li @click="goto(TopTab.ArgonotBonds)" :class="{ Selected: controller.selectedTab === TopTab.ArgonotBonds }">
-            <article class="flex flex-row items-center">
-              <div class="grow">Argonot Bonds</div>
-              <div class="opacity-60">
-                {{ currency.symbol
-                }}{{
-                  micronotToMoneyNm(
-                    myBonds.bondLots
-                      .filter(bondLot => bondLot.programType === 'Argonot')
-                      .reduce((sum, bondLot) => sum + bondLot.bondMicrogons, 0n),
-                  ).format('0,0.00')
-                }}
-              </div>
-            </article>
-            <div Selector>
-              <div ArrowSquare>
-                <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />
-              </div>
-            </div>
-          </li>
+          <!--          <li @click="goto(TopTab.ArgonotBonds)" :class="{ Selected: controller.selectedTab === TopTab.ArgonotBonds }">-->
+          <!--            <article class="flex flex-row items-center">-->
+          <!--              <div class="grow">Argonot Bonds</div>-->
+          <!--              <div class="opacity-60">-->
+          <!--                {{ currency.symbol-->
+          <!--                }}{{-->
+          <!--                  micronotToMoneyNm(-->
+          <!--                    myBonds.bondLots-->
+          <!--                      .filter(bondLot => bondLot.programType === 'Argonot')-->
+          <!--                      .reduce((sum, bondLot) => sum + bondLot.bondMicrogons, 0n),-->
+          <!--                  ).format('0,0.00')-->
+          <!--                }}-->
+          <!--              </div>-->
+          <!--            </article>-->
+          <!--            <div Selector>-->
+          <!--              <div ArrowSquare>-->
+          <!--                <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />-->
+          <!--              </div>-->
+          <!--            </div>-->
+          <!--          </li>-->
           <li @click="goto(TopTab.StableSwaps)" :class="{ Selected: controller.selectedTab === TopTab.StableSwaps }">
             <article class="flex flex-row items-center">
               <div class="grow">Stable Swaps</div>
@@ -187,8 +121,10 @@
           </li>
         </ul>
       </div>
+    </section>
 
-      <div class="mt-3" v-if="config.isLoaded && config.hasExtensionOperations">
+    <section DashBox v-if="config.isLoaded && config.hasExtensionOperations" class="border-argon-600/50! w-full px-1">
+      <div class="mt-3">
         <header class="relative">
           Operations
           <ArrowCalloutButton
@@ -239,10 +175,16 @@
               'bg-argon-100/40 ring-argon-400/40 ring-1': showOperationsNavigationCallouts,
             }"
           >
-            <article class="flex flex-row items-center">
-              <div class="grow">Vaulting</div>
-              <div class="opacity-60">
-                {{ currency.symbol }}{{ microgonToMoneyNm(vaultingAssets.totalVaultValue).format('0,0.00') }}
+            <article class="flex flex-col">
+              <div class="flex flex-row items-center">
+                <div class="grow">Vaulting</div>
+                <div class="opacity-60">
+                  {{ currency.symbol }}{{ microgonToMoneyNm(vaultingAssets.totalVaultValue).format('0,0.00') }}
+                </div>
+              </div>
+              <div v-if="controller.selectedTab === TopTab.Vaulting">
+                <div>- Argon Security</div>
+                <div>- Staked Argonots</div>
               </div>
               <ArrowCalloutButton
                 v-if="
@@ -260,7 +202,7 @@
           </li>
           <li @click="goto(TopTab.Network)" :class="{ Selected: controller.selectedTab === TopTab.Network }">
             <article class="flex flex-row items-center">
-              <div class="grow">Network</div>
+              <div class="grow">Invites</div>
               <div class="opacity-60">{{ currency.symbol }}0.00</div>
             </article>
             <div Selector>
@@ -272,13 +214,91 @@
         </ul>
       </div>
     </section>
+
+    <section DashBox class="flex w-full grow flex-col justify-end px-1">
+      <div
+        v-if="config.isLoaded && !config.hasExtensionTreasury"
+        class="relative flex grow flex-col items-center justify-center text-center"
+      >
+        <DiamondsIcon class="text-argon-600/80 mb-2 w-20" />
+        <div
+          class="text-argon-600/70 flex h-[30px] cursor-pointer flex-row items-center justify-center overflow-hidden rounded-md border border-slate-400/50 text-base font-semibold whitespace-nowrap hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
+          @click="openUpgradeToTreasuryOverlay"
+        >
+          <div class="relative flex flex-row items-center gap-1.5 px-5 py-3 whitespace-nowrap">Upgrade to Treasury</div>
+        </div>
+        <div class="relative mt-3 text-slate-700/60">
+          <!--          <img src="/arrow-small.png" class="absolute top-0 right-0 translate-y-[-80%]" />-->
+          Insert an access code to
+          <br />
+          unlock yield generating assets.
+        </div>
+      </div>
+      <!--      <div-->
+      <!--        v-else-if="-->
+      <!--          config.hasExtensionTreasury &&-->
+      <!--          controller.completedTreasuryCertificationStepCount === treasuryCertificationStepIds.length-->
+      <!--        "-->
+      <!--        class="flex grow items-center justify-center px-8 py-8"-->
+      <!--      ></div>-->
+      <section
+        DashBox
+        class="border-argon-600/50! relative -left-2 w-[calc(100%+32px)] rounded-l-none! rounded-r-lg! border-l-0! shadow-xl!"
+      >
+        <div class="flex flex-col justify-center px-1 pt-3">
+          <header class="flex w-full flex-row items-center border-b border-slate-500/20">
+            <div class="grow">Argon Wallet</div>
+            <button type="button" class="cursor-pointer" @click="openDefaultArgonWallet">
+              <ExternalIcon class="w-4 opacity-80" />
+            </button>
+          </header>
+          <div class="text-argon-600/70 mt-5 flex flex-row justify-center text-5xl font-bold">
+            <span>{{ currency.symbol }}</span>
+            <FormattedMoney
+              :isLoaded="wallets.isLoaded"
+              :value="
+                wallets.defaultArgonWallet.totalMicrogons +
+                currency.convertMicronotTo(wallets.defaultArgonWallet.totalMicronots, UnitOfMeasurement.Microgon)
+              "
+            />
+          </div>
+          <div class="mt-2 w-full border-t border-slate-500/30 pt-2 pb-4 text-center opacity-50">
+            {{ currency.symbol }}18.45 Is Locked On Chain
+          </div>
+        </div>
+      </section>
+      <ul class="flex w-full flex-row gap-x-3 px-3 pb-3 text-center">
+        <li class="w-1/2">
+          <div
+            @click="() => void openLink('https://argon.network/docs')"
+            class="text-argon-600/80 hover:text-argon-600/70 flex cursor-pointer flex-col items-center gap-y-1 pt-4 text-center"
+          >
+            <InstructionsIcon class="h-6 w-6" />
+            <div>Docs</div>
+          </div>
+        </li>
+        <li class="w-1/2">
+          <div
+            @click="() => void openLink('https://discord.gg/xDwwDgCYr9')"
+            class="text-argon-600/80 hover:text-argon-600/70 flex cursor-pointer flex-col items-center gap-y-1 pt-4 text-center"
+          >
+            <DiscordIcon class="-mb-1 h-7 w-7" />
+            <div>Community</div>
+          </div>
+        </li>
+      </ul>
+    </section>
   </div>
 </template>
 
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { MiningSetupStatus, TopTab, VaultingSetupStatus } from '../interfaces/IConfig.ts';
-import { OperationalStepId, useCertificationController } from '../stores/certificationController.ts';
+import {
+  OperationalStepId,
+  treasuryCertificationStepIds,
+  useCertificationController,
+} from '../stores/certificationController.ts';
 import { getConfig } from '../stores/config.ts';
 import FormattedMoney from '../components/FormattedMoney.vue';
 import { getBitcoinLockCoupons } from '../stores/bitcoin.ts';
@@ -296,6 +316,10 @@ import { useFinancials } from '../stores/financials.ts';
 import { useMyBonds } from '../stores/myBonds.ts';
 import { useMiningAssetBreakdown } from '../stores/miningAssetBreakdown.ts';
 import { useVaultingAssetBreakdown } from '../stores/vaultingAssetBreakdown.ts';
+import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
+import DiscordIcon from '../assets/discord.svg';
+import InstructionsIcon from '../assets/instructions.svg';
+import DiamondsIcon from '../assets/diamonds.svg?component';
 
 const controller = useCertificationController();
 const bitcoinLockCoupons = getBitcoinLockCoupons();
@@ -314,6 +338,14 @@ const showOperationsNavigationCallouts = Vue.ref(false);
 
 function openDefaultArgonWallet() {
   basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
+}
+
+function openLink(url: string) {
+  void tauriOpenUrl(url);
+}
+
+function openUpgradeToTreasuryOverlay() {
+  basicEmitter.emit('openUpgradeToTreasuryOverlay');
 }
 
 function goto(tab: TopTab) {
@@ -359,21 +391,17 @@ Vue.onBeforeUnmount(() => {
 @reference "../main.css";
 
 header {
-  @apply px-2 py-3 font-bold text-slate-700/40 uppercase;
-}
-
-ul {
-  @apply border-b border-slate-500/20;
+  @apply px-2 pt-1 pb-3 font-bold text-slate-700/40 uppercase;
 }
 
 ul li {
   @apply relative cursor-pointer border-t border-slate-500/20 py-1;
   &.Selected {
     [Selector] {
-      @apply block;
+      @apply hidden;
     }
     article {
-      @apply text-slate-900;
+      @apply bg-argon-300/20 text-slate-900;
     }
     article[TopLevel] {
       @apply text-argon-700/70;
@@ -400,7 +428,7 @@ ul li {
 }
 
 [ArrowSquare] {
-  @apply absolute left-[calc(100%+0px)] z-10 block h-full w-4 overflow-visible;
+  @apply absolute left-[calc(100%+0px)] z-10 block hidden h-full w-4 overflow-visible;
   &::before {
     content: '';
     @apply absolute inset-y-0 left-0 w-full bg-black drop-shadow-[1px_1px_1px_rgb(0_0_0/0.16)];

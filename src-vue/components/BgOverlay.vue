@@ -1,12 +1,12 @@
 <!-- prettier-ignore -->
 <template>
   <div :class="[roundedClass]" class="absolute top-0 left-0 w-full h-full pointer-events-none">
-    <div v-if="enableTopBar" :class="[roundedTopClass]" class="absolute top-0 left-0 w-full h-14 pointer-events-none bg-black/20 backdrop-blur-xs"></div>
+    <div v-if="enableTopBar" :class="[roundedTopClass]" class="absolute top-0 left-0 w-full h-14 pointer-events-none bg-black/40"></div>
     <div
       @click="emitClose"
       @pointerdown="handlePointerDown"
       @pointermove="handlePointerMove"
-      class="absolute bg-black/20 backdrop-blur-xs pointer-events-auto"
+      class="absolute bg-black/40 pointer-events-auto"
       :class="[enableTopBar ? 'top-14 bottom-0 inset-x-0' : 'inset-0', enableTopBar ? roundedBottomClass : roundedClass]"
       data-tauri-drag-region
     >

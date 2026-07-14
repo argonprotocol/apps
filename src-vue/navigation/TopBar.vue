@@ -27,7 +27,7 @@
     >
       <NavigationMenuList class="relative flex flex-row items-center space-x-2" @mouseenter="clearNavigationMenuClose">
         <div class="pointer-events-auto">
-          <OperationalMenu />
+          <CertificationMenu />
         </div>
         <div
           v-if="config.isLoaded && config.hasExtensionOperations"
@@ -78,7 +78,7 @@ import { useWallets } from '../stores/wallets.ts';
 import { getBot } from '../stores/bot.ts';
 import { useTour } from '../stores/tour.ts';
 import ServerMenu from './ServerMenu.vue';
-import OperationalMenu from './OperationalMenu.vue';
+import CertificationMenu from './CertificationMenu.vue';
 import {
   NavigationMenuContent,
   NavigationMenuIndicator,
