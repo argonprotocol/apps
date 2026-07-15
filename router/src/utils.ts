@@ -105,6 +105,9 @@ export async function callArgonRpc<T = unknown>(
   params: any[] = [],
 ): Promise<IJsonRpcResponse<T>> {
   const rpcUrl = new URL(url);
+  if (rpcUrl.protocol === 'ws:') rpcUrl.protocol = 'http:';
+  if (rpcUrl.protocol === 'wss:') rpcUrl.protocol = 'https:';
+
   const body = JSON.stringify({
     jsonrpc: '2.0',
     id: requestId++,
