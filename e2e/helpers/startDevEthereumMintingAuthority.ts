@@ -5,7 +5,7 @@ import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { createPublicClient, getAddress, http } from 'viem';
 import { sudoSubmitAndFinalize } from '../../core/__test__/helpers/mainchain.ts';
 import { AppVaultOperator, type IEthereumMintingAuthorityStatus } from '../actors/AppVaultOperator.ts';
-import { readDevEthereumRuntimeState, resolveDevEthereumRpcUrl, writeDevEthereumRuntimeState } from '../devEthereum.ts';
+import { resolveDevEthereumRpcUrl, updateDevEthereumRuntimeState } from '../devEthereum.ts';
 import {
   collectVaultOperatorsByEffectiveCouncilSigner,
   forceUpdateGlobalIssuanceCouncil,
@@ -332,13 +332,7 @@ async function updateMintingAuthorityRuntimeState(
   executionRpcUrl: string,
   mintingAuthorityStatus: 'starting' | 'ready',
 ): Promise<void> {
-  const runtimeState = await readDevEthereumRuntimeState(executionRpcUrl);
-  if (!runtimeState || runtimeState.executionRpcUrl !== executionRpcUrl) {
-    return;
-  }
-
-  await writeDevEthereumRuntimeState({
-    ...runtimeState,
+  await updateDevEthereumRuntimeState(executionRpcUrl, {
     mintingAuthorityStatus,
   });
 }

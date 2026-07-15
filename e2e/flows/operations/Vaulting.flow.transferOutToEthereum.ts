@@ -88,16 +88,18 @@ export default new OperationalFlow<IVaultingFlowContext, ITransferOutToEthereumS
       throw new Error(`${context.flowName}: missing Ethereum execution RPC URL.`);
     }
     const { ethereumAddress, executionRpcUrl } = ethereumConnection;
+    const runtimeStateDir = flow.getData<string>('devEthereumRuntimeStateDir');
     console.info(`[E2E] ${context.flowName} prepared Ethereum destination`, {
       ethereumAddress,
       executionRpcUrl,
+      runtimeStateDir,
     });
 
     await waitFor(
       DEV_ETHEREUM_BACKEND_MINTING_AUTHORITY_READY_TIMEOUT_MS,
       `${context.flowName}: backend minting authority readiness`,
       async () => {
-        const runtimeState = await readDevEthereumRuntimeState(executionRpcUrl);
+        const runtimeState = await readDevEthereumRuntimeState(executionRpcUrl, runtimeStateDir);
         if (runtimeState?.executionRpcUrl !== executionRpcUrl) {
           return;
         }
@@ -120,6 +122,7 @@ export default new OperationalFlow<IVaultingFlowContext, ITransferOutToEthereumS
     });
 
     await clickIfVisible(flow, 'WalletFundingReceivedOverlay.closeOverlay()', { timeoutMs: 5_000 });
+    await clickIfVisible(flow, 'BgOverlay.close()', { timeoutMs: 5_000 });
 
     if (!(await flow.isVisible('VaultingScreen')).visible) {
       await flow.run(vaultingActivateTab);

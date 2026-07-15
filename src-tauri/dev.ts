@@ -12,7 +12,7 @@ import {
   readDevEthereumRuntimeState,
   resolveDevEthereumRpcUrl,
   startDevEthereum,
-  writeDevEthereumRuntimeState,
+  updateDevEthereumRuntimeState,
 } from '../e2e/devEthereum.ts';
 import {
   startDevEthereumMintingAuthority,
@@ -81,9 +81,9 @@ async function main(): Promise<void> {
         })()
       : undefined;
     if (composePorts) {
-      devDockerArchiveUrl = `ws://127.0.0.1:${composePorts.archivePort}`;
+      devDockerArchiveUrl = `ws://127.0.0.1:${composePorts.archiveRpcPort}`;
       console.log(
-        `[tauri-dev] Resolved compose ports archive=${composePorts.archivePort} archiveP2p=${composePorts.archiveP2pPort} bitcoinP2p=${composePorts.bitcoinP2pPort} esplora=${composePorts.esploraPort}${composePorts.indexerPort ? ` indexer=${composePorts.indexerPort}` : ''} notary=${composePorts.notaryAliasContainerId}`,
+        `[tauri-dev] Resolved compose ports archiveNode=${composePorts.archivePort} archiveRpc=${composePorts.archiveRpcPort} archiveP2p=${composePorts.archiveP2pPort} bitcoinP2p=${composePorts.bitcoinP2pPort} esplora=${composePorts.esploraPort}${composePorts.indexerPort ? ` indexer=${composePorts.indexerPort}` : ''} notary=${composePorts.notaryAliasContainerId}`,
       );
       Object.assign(tauriEnv, getDevDockerServerEnvVars(composePorts));
       if (startedDevEthereum && devEthereumConfig) {
@@ -139,7 +139,7 @@ async function main(): Promise<void> {
   let devEthereumReadyPromise: Promise<void> | undefined;
   let devUpstreamPromise: Promise<void> | undefined;
   let devUpstreamRuntime: IDevUpstreamServerRuntime | undefined;
-  if (devDockerArchiveUrl) {
+  if (devDockerArchiveUrl && (!isE2EAppRun || devEthereumConfig)) {
     devUpstreamPromise = startDevUpstreamServer({
       archiveUrl: devDockerArchiveUrl,
       devEthereum: startedDevEthereum,
@@ -186,8 +186,7 @@ async function main(): Promise<void> {
 
         console.log('[tauri-dev][ethereum-ready] upstream Ethereum relay is ready');
 
-        await writeDevEthereumRuntimeState({
-          ...startedDevEthereum,
+        await updateDevEthereumRuntimeState(startedDevEthereum.executionRpcUrl, {
           setupStatus: 'ready',
         });
       })
@@ -250,10 +249,10 @@ async function main(): Promise<void> {
 
   if (shouldStartDevEthereumMintingAuthority) {
     devEthereumMintingAuthorityPromise = (async () => {
-      if (devEthereumRuntimeSetupPromise) {
-        await devEthereumRuntimeSetupPromise;
+      if (!devEthereumRuntimeSetupPromise || !devUpstreamPromise) {
+        throw new Error('Dev Ethereum or upstream setup did not start before the minting authority.');
       }
-      await devUpstreamPromise;
+      await Promise.all([devEthereumRuntimeSetupPromise, devUpstreamPromise]);
       if (!devUpstreamRuntime) {
         throw new Error('Upstream operator did not finish startup before the minting authority.');
       }
@@ -418,7 +417,7 @@ async function resolveDevDockerComposePorts(): Promise<DevDockerComposePorts | n
 
 function getDevDockerServerEnvVars(ports: DevDockerComposePorts): NodeJS.ProcessEnv {
   return {
-    ARGON_ARCHIVE_NODE: `ws://host.docker.internal:${ports.archivePort}`,
+    ARGON_ARCHIVE_NODE: `ws://host.docker.internal:${ports.archiveRpcPort}`,
     ARGON_BOOTNODES: `--bootnodes=/dns/host.docker.internal/tcp/${ports.archiveP2pPort}/p2p/12D3KooWMdmKGEuFPVvwSd92jCQJgX9aFCp45E8vV2X284HQjwnn`,
     BITCOIN_ADDNODE: `host.docker.internal:${ports.bitcoinP2pPort}`,
     NOTEBOOK_ARCHIVE_HOSTS: ports.notaryArchiveHost,
@@ -458,12 +457,11 @@ async function resolveDevDockerNetworkConfigOverride(
   ethereumExecutionRpcUrl?: string,
   usdcTokenAddress?: string,
 ): Promise<RuntimeNetworkConfigOverride | null> {
-  const archiveUrl = `ws://127.0.0.1:${ports.archivePort}`;
   const archiveRpcUrl = `ws://127.0.0.1:${ports.archiveRpcPort}`;
   let runtimeConfig: RuntimeChainConfig;
   try {
-    console.log(`[tauri-dev] Loading runtime chain config from ${archiveUrl}`);
-    runtimeConfig = await loadRuntimeConfig(archiveUrl);
+    console.log(`[tauri-dev] Loading runtime chain config from ${archiveRpcUrl}`);
+    runtimeConfig = await loadRuntimeConfig(archiveRpcUrl);
   } catch (error) {
     console.warn(`[tauri-dev] Failed to load runtime chain config: ${(error as Error).message}`);
     return null;

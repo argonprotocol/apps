@@ -66,7 +66,7 @@ export async function ensureMiningBidProxySetup(args: {
     };
   }
 
-  const client = args.client ?? (await getMainchainClient(false));
+  const client = args.client ?? (await getMainchainClient(true));
   const { fundingAccount, proxySetup } = await planMiningBidProxySetup({
     walletKeys: args.walletKeys,
     client,
@@ -84,6 +84,7 @@ export async function ensureMiningBidProxySetup(args: {
   }
 
   const txInfo = await args.transactionTracker.submitAndWatch<MiningBidProxySetupMetadata>({
+    client,
     tx: proxySetup.tx,
     txSigner: fundingAccount,
     useLatestNonce: true,

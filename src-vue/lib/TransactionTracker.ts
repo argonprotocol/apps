@@ -1,4 +1,5 @@
 import {
+  type ArgonClient,
   ExtrinsicError,
   type GenericEvent,
   hexToU8a,
@@ -202,15 +203,16 @@ export class TransactionTracker {
 
   public async submitAndWatch<T>(
     args: {
+      client?: ArgonClient;
       tx: SubmittableExtrinsic;
       txSigner: TxSigningAccount;
       extrinsicType: ExtrinsicType;
       metadata?: T;
     } & ISubmittableOptions,
   ): Promise<TransactionInfo<T>> {
-    const { tx, txSigner, extrinsicType, metadata, useLatestNonce, ...apiOptions } = args;
+    const { client: providedClient, tx, txSigner, extrinsicType, metadata, useLatestNonce, ...apiOptions } = args;
     await this.load();
-    const client = await getMainchainClient(false);
+    const client = providedClient ?? (await getMainchainClient(false));
     console.log('[TransactionTracker] SUBMITTING TRANSACTION', extrinsicType);
     const submittedAtBlockHeight = await client.rpc.chain.getHeader().then(x => x.number.toNumber());
     let releaseNonceReservation: VoidFunction | undefined;
@@ -220,12 +222,10 @@ export class TransactionTracker {
       releaseNonceReservation = reservation.release;
     }
 
-    let signedTx: SubmittableExtrinsic;
-    let txResult: TxResult;
     let txInfo: TransactionInfo<T>;
 
     try {
-      signedTx =
+      const signedTx =
         'signer' in txSigner
           ? await tx.signAsync(txSigner.address, { ...apiOptions, signer: txSigner.signer })
           : await tx.signAsync(txSigner, apiOptions);
@@ -238,31 +238,33 @@ export class TransactionTracker {
         submittedTime: new Date(),
         submittedAtBlockNumber: submittedAtBlockHeight,
       };
-      txResult = new TxResult(client, txResultExtrinsic);
-      txInfo = await this.trackTxResult({
+      const txResult = new TxResult(client, txResultExtrinsic);
+      txInfo = await this.registerTxResult({
         txResult,
         extrinsicType,
         metadata,
       });
+
+      await signedTx
+        .send(result => {
+          if (this.#isClosed) {
+            return;
+          }
+          txResult.onSubscriptionResult(result);
+          void this.handleWatchedResult(txInfo.tx, txResult, result);
+        })
+        .catch(async error => {
+          if (this.#isClosed) {
+            return;
+          }
+          txResult.submissionError = error as Error;
+          await this.recordSubmissionError(txInfo.tx, txResult.submissionError);
+        });
     } finally {
       releaseNonceReservation?.();
     }
 
-    await signedTx
-      .send(result => {
-        if (this.#isClosed) {
-          return;
-        }
-        txResult.onSubscriptionResult(result);
-        void this.handleWatchedResult(txInfo.tx, txResult, result);
-      })
-      .catch(async error => {
-        if (this.#isClosed) {
-          return;
-        }
-        txResult.submissionError = error as Error;
-        await this.recordSubmissionError(txInfo.tx, txResult.submissionError);
-      });
+    await this.watchForUpdates();
 
     return txInfo;
   }
@@ -382,6 +384,17 @@ export class TransactionTracker {
     } & ISubmittableOptions,
   ): Promise<TransactionInfo<T>> {
     await this.load();
+    const txInfo = await this.registerTxResult(args);
+    await this.watchForUpdates();
+
+    return txInfo;
+  }
+
+  private async registerTxResult<T>(args: {
+    txResult: TxResult;
+    extrinsicType: ExtrinsicType;
+    metadata?: T;
+  }): Promise<TransactionInfo<T>> {
     const { txResult, extrinsicType, metadata } = args;
     const table = await this.getTable();
     const txNonce = txResult.extrinsic.nonce;
@@ -406,7 +419,6 @@ export class TransactionTracker {
     if (txResult.submissionError) {
       await this.recordSubmissionError(record, txResult.submissionError);
     }
-    await this.watchForUpdates();
 
     return txInfo;
   }

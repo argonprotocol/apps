@@ -30,11 +30,18 @@ jobs:
           node-version: '24'
           cache: 'yarn'
 
-      - name: Configure CI temp paths
+      - name: Configure CI paths
         shell: bash
         run: |
           echo "CI_TEMP_DIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
           echo "E2E_SCREENSHOT_DIR=$RUNNER_TEMP/e2e-screenshots" >> "$GITHUB_ENV"
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            sudo mkdir -p /mnt/target
+            sudo chown -R "$USER:$USER" /mnt/target
+            sudo rm -rf src-tauri/target
+            sudo ln -s /mnt/target src-tauri/target
+            echo "CARGO_TARGET_DIR=/mnt/target" >> "$GITHUB_ENV"
+          fi
 
       - name: Install system dependencies
         if: matrix.platform == 'ubuntu-latest'
