@@ -206,6 +206,11 @@ async function connectPrunedClientToConfiguredServer(): Promise<void> {
     return;
   }
 
+  if (!getBot().isReady) {
+    mainchainClients.clearPrunedClient();
+    return;
+  }
+
   const serverApiClient = getServerApiClient();
   if (config.isServerInstalled && config.serverDetails.ipAddress) {
     if (!(await serverApiClient.isGatewayReady())) {

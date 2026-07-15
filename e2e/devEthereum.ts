@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
@@ -47,6 +48,7 @@ const MINIMUM_BOOTSTRAP_FINALIZED_SLOT_BY_PRESET: Record<DevEthereumBeaconPreset
 };
 const DEV_ETHEREUM_LAUNCH_MAX_ATTEMPTS = 3;
 const DEV_ETHEREUM_LAUNCH_RETRY_DELAY_MS = 1_000;
+let runtimeStateOperation = Promise.resolve();
 export type DevEthereumBeaconPreset = 'mainnet' | 'minimal';
 
 export interface IDevEthereumConfig {
@@ -277,9 +279,10 @@ export async function sendDevEthereumAdminTransaction(args: {
 
 export async function readDevEthereumRuntimeState(
   executionRpcUrl?: string,
+  runtimeStateDir?: string,
 ): Promise<IDevEthereumRuntimeState | undefined> {
   try {
-    const raw = await fs.readFile(getDevEthereumRuntimeStatePath(executionRpcUrl), 'utf8');
+    const raw = await fs.readFile(getDevEthereumRuntimeStatePath(executionRpcUrl, runtimeStateDir), 'utf8');
     return JSON.parse(raw) as IDevEthereumRuntimeState;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -455,7 +458,28 @@ function createDevEthereumChain(chainId: number, rpcUrl: string) {
   });
 }
 
-export async function writeDevEthereumRuntimeState(state: Omit<IDevEthereumRuntimeState, 'updatedAt'>): Promise<void> {
+export function writeDevEthereumRuntimeState(state: Omit<IDevEthereumRuntimeState, 'updatedAt'>): Promise<void> {
+  return queueDevEthereumRuntimeStateOperation(() => writeDevEthereumRuntimeStateNow(state));
+}
+
+export function updateDevEthereumRuntimeState(
+  executionRpcUrl: string,
+  updates: Partial<Pick<IDevEthereumRuntimeState, 'setupStatus' | 'mintingAuthorityStatus'>>,
+): Promise<void> {
+  return queueDevEthereumRuntimeStateOperation(async () => {
+    const runtimeState = await readDevEthereumRuntimeState(executionRpcUrl);
+    if (!runtimeState || runtimeState.executionRpcUrl !== executionRpcUrl) {
+      return;
+    }
+
+    await writeDevEthereumRuntimeStateNow({
+      ...runtimeState,
+      ...updates,
+    });
+  });
+}
+
+async function writeDevEthereumRuntimeStateNow(state: Omit<IDevEthereumRuntimeState, 'updatedAt'>): Promise<void> {
   const runtimeState = {
     ...state,
     updatedAt: new Date().toISOString(),
@@ -469,12 +493,43 @@ export async function writeDevEthereumRuntimeState(state: Omit<IDevEthereumRunti
     fs.mkdir(path.dirname(scopedStatePath), { recursive: true }),
   ]);
   await Promise.all([
-    fs.writeFile(latestStatePath, serialized, 'utf8'),
-    fs.writeFile(scopedStatePath, serialized, 'utf8'),
+    writeFileAtomically(latestStatePath, serialized),
+    writeFileAtomically(scopedStatePath, serialized),
   ]);
 }
 
-function getDevEthereumRuntimeStatePath(executionRpcUrl?: string): string {
+async function queueDevEthereumRuntimeStateOperation<T>(operation: () => Promise<T>): Promise<T> {
+  const result = runtimeStateOperation.then(operation);
+  runtimeStateOperation = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+async function writeFileAtomically(filePath: string, contents: string): Promise<void> {
+  const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
+
+  try {
+    await fs.writeFile(temporaryPath, contents, 'utf8');
+    await fs.rename(temporaryPath, filePath);
+  } finally {
+    await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
+  }
+}
+
+function getDevEthereumRuntimeStatePath(executionRpcUrl?: string, runtimeStateDir?: string): string {
+  const configuredStateDir = runtimeStateDir?.trim() || process.env.ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR?.trim();
+  if (configuredStateDir) {
+    const stateDir = path.resolve(configuredStateDir);
+    if (!executionRpcUrl) {
+      return path.join(stateDir, 'latest.json');
+    }
+
+    const safeExecutionRpcUrl = executionRpcUrl.replace(/[^a-zA-Z0-9_.-]+/g, '_');
+    return path.join(stateDir, `${safeExecutionRpcUrl}.json`);
+  }
+
   if (!executionRpcUrl) {
     return path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'artifacts', 'dev-ethereum.json');
   }

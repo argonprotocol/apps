@@ -68,6 +68,8 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
   let closed = false;
   const previousComposeProjectName = process.env.COMPOSE_PROJECT_NAME;
   const previousNetworkConfigOverride = process.env.ARGON_NETWORK_CONFIG_OVERRIDE;
+  const previousDevEthereumRuntimeStateDir = process.env.ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR;
+  const previousDevUpstreamRootDir = process.env.ARGON_DEV_UPSTREAM_ROOT_DIR;
   const sessionData: Record<string, unknown> = {};
 
   const defaultSessionName = options.sessionName || 'e2e';
@@ -83,18 +85,32 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
     fallbackSessionName: defaultSessionName,
     appPort,
   });
-  const cleanupEnv: NodeJS.ProcessEnv = { ...commandEnv };
+  const isolatedDataEnv: NodeJS.ProcessEnv = {};
+  if (sessionMode === 'isolated') {
+    const testDataDir = Path.join(
+      getAppInstanceDirectory(appConfigId, sessionIdentity.composeNetwork, appInstanceName),
+      'test-data',
+    );
+    const devEthereumRuntimeStateDir = Path.join(testDataDir, 'dev-ethereum');
+    isolatedDataEnv.ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR = devEthereumRuntimeStateDir;
+    isolatedDataEnv.ARGON_DEV_UPSTREAM_ROOT_DIR = Path.join(testDataDir, 'dev-upstream');
+    sessionData.devEthereumRuntimeStateDir = devEthereumRuntimeStateDir;
+  }
+  const cleanupEnv: NodeJS.ProcessEnv = { ...commandEnv, ...isolatedDataEnv };
   const tauriEnv: NodeJS.ProcessEnv = {
     ...commandEnv,
     ARGON_DRIVER_WS: driverServer.url,
     ARGON_E2E_HEADLESS: process.env.ARGON_E2E_HEADLESS?.trim() || '0',
     E2E_USE_TEST_NETWORK: useTestNetwork ? '1' : '0',
     ARGON_APP_ENABLE_AUTOUPDATE: '0',
+    ARGON_DEV_ETHEREUM: '0',
     ...options.appEnv,
+    ...isolatedDataEnv,
   };
 
   // Keep helper commands (btc-cli, funding RPC) pointed at the same compose project as this session.
   process.env.COMPOSE_PROJECT_NAME = composeProjectName;
+  Object.assign(process.env, isolatedDataEnv);
 
   try {
     if (useTestNetwork) {
@@ -114,6 +130,7 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
       process.env.ARGON_NETWORK_CONFIG_OVERRIDE = tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE;
       const composeEnv = testNetwork.composeEnv;
       tauriEnv.JOIN_COMPOSE_NETWORK = composeEnv.COMPOSE_PROJECT_NAME;
+      tauriEnv.RPC_PORT = composeEnv.RPC_PORT;
 
       devDockerProcess = spawn('yarn', ['tauri:dev:docker'], createAppSpawnOptions(repoRoot, tauriEnv, appLogsMode));
     } else {
@@ -135,6 +152,8 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
     }
     restoreComposeProjectName(previousComposeProjectName);
     restoreNetworkConfigOverride(previousNetworkConfigOverride);
+    restoreProcessEnv('ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR', previousDevEthereumRuntimeStateDir);
+    restoreProcessEnv('ARGON_DEV_UPSTREAM_ROOT_DIR', previousDevUpstreamRootDir);
     closeAppProcessOutputTracker(appProcessOutput);
     throw error;
   }
@@ -210,6 +229,8 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
     await driverServer.close();
     restoreComposeProjectName(previousComposeProjectName);
     restoreNetworkConfigOverride(previousNetworkConfigOverride);
+    restoreProcessEnv('ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR', previousDevEthereumRuntimeStateDir);
+    restoreProcessEnv('ARGON_DEV_UPSTREAM_ROOT_DIR', previousDevUpstreamRootDir);
     closeAppProcessOutputTracker(appProcessOutput);
     throw error;
   }
@@ -261,6 +282,8 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
       } finally {
         restoreComposeProjectName(previousComposeProjectName);
         restoreNetworkConfigOverride(previousNetworkConfigOverride);
+        restoreProcessEnv('ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR', previousDevEthereumRuntimeStateDir);
+        restoreProcessEnv('ARGON_DEV_UPSTREAM_ROOT_DIR', previousDevUpstreamRootDir);
         closeAppProcessOutputTracker(appProcessOutput);
       }
     },
@@ -282,13 +305,15 @@ function resolveLocalAppConfigId(): string {
 }
 
 function getServerLogDirectory(appConfigId: string, networkName: string, instanceName: string): string {
-  const appConfigBaseDir = getAppConfigBaseDir();
-  return Path.join(appConfigBaseDir, appConfigId, networkName, instanceName, 'virtual-machine', 'app', 'logs');
+  return Path.join(getServerAppDirectory(appConfigId, networkName, instanceName), 'logs');
 }
 
 function getServerAppDirectory(appConfigId: string, networkName: string, instanceName: string): string {
-  const appConfigBaseDir = getAppConfigBaseDir();
-  return Path.join(appConfigBaseDir, appConfigId, networkName, instanceName, 'virtual-machine', 'app');
+  return Path.join(getAppInstanceDirectory(appConfigId, networkName, instanceName), 'virtual-machine', 'app');
+}
+
+function getAppInstanceDirectory(appConfigId: string, networkName: string, instanceName: string): string {
+  return Path.join(getAppConfigBaseDir(), appConfigId, networkName, instanceName);
 }
 
 function tailText(text: string, lineLimit: number): string {
@@ -948,6 +973,14 @@ function restoreNetworkConfigOverride(previousValue: string | undefined): void {
     return;
   }
   process.env.ARGON_NETWORK_CONFIG_OVERRIDE = previousValue;
+}
+
+function restoreProcessEnv(name: string, previousValue: string | undefined): void {
+  if (previousValue === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = previousValue;
 }
 
 function runCleanDevDocker(repoRoot: string, env: NodeJS.ProcessEnv, reason: string): void {

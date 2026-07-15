@@ -1,11 +1,11 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import Fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { config as loadDotEnv } from 'dotenv';
-import { parseEnv } from 'node:util';
+import { parseEnv, promisify } from 'node:util';
 import {
   MainchainClients,
   minimumVaultDelegateBalance,
@@ -21,6 +21,7 @@ import { MemoryWalletKeys } from 'src-vue/lib/MemoryWalletKeys.ts';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const defaultUpstreamRootDir = path.resolve(__dirname, '..', 'dev-upstream');
+const execFileAsync = promisify(execFile);
 
 export const DEV_UPSTREAM_MASTER_MNEMONIC = 'test test test test test test test test test test test junk';
 export const DEV_UPSTREAM_SUBSTRATE_SURI = '//DevUpstreamOperator';
@@ -174,13 +175,17 @@ export async function startDevUpstreamServer(args: {
   await Fs.writeFile(envStatePath, envLines.join('\n') + '\n');
   await ensureDevGatewayCerts();
 
-  execFileSync('docker', [...getComposeArgs(context), 'build', 'upstream-router', 'upstream-bot', 'upstream-nginx'], {
-    cwd: context.composeDir,
-    encoding: 'utf8',
-    env: context.composeEnv,
-  });
+  await execFileAsync(
+    'docker',
+    [...getComposeArgs(context), 'build', 'upstream-router', 'upstream-bot', 'upstream-nginx'],
+    {
+      cwd: context.composeDir,
+      encoding: 'utf8',
+      env: context.composeEnv,
+    },
+  );
 
-  execFileSync(
+  await execFileAsync(
     'docker',
     [
       ...getComposeArgs(context),
