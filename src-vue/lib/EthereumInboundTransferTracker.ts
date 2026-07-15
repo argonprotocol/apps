@@ -60,6 +60,9 @@ type IEthereumInboundTransferClient = Pick<
   | 'waitForTransactionFinality'
 >;
 
+type ServerRelayClient = Pick<ServerApiClient, 'getEthereumRelayStatus' | 'requestEthereumGatewayCatchUp'>;
+type ServerRelayClientSource = ServerRelayClient | (() => ServerRelayClient | undefined) | undefined;
+
 class InboundTransferInvariantError extends Error {}
 
 export class EthereumInboundTransferTracker {
@@ -83,9 +86,7 @@ export class EthereumInboundTransferTracker {
     private readonly blockWatch: BlockWatch,
     private readonly walletKeys: WalletKeys,
     private readonly ethereumClient: IEthereumInboundTransferClient,
-    private readonly serverApiClient:
-      | Pick<ServerApiClient, 'getEthereumRelayStatus' | 'requestEthereumGatewayCatchUp'>
-      | undefined,
+    private readonly serverApiClientSource: ServerRelayClientSource,
     private readonly upstreamOperatorClient: Pick<
       UpstreamOperatorClient,
       'operatorHost' | 'requestEthereumGatewayCatchUp'
@@ -683,11 +684,13 @@ export class EthereumInboundTransferTracker {
       }
     }
 
+    const serverApiClient =
+      typeof this.serverApiClientSource === 'function' ? this.serverApiClientSource() : this.serverApiClientSource;
     const upstreamOperatorHost = this.upstreamOperatorClient.operatorHost;
-    if (this.serverApiClient || upstreamOperatorHost) {
+    if (serverApiClient || upstreamOperatorHost) {
       const relayResult = await requestEthereumGatewayCatchup({
         throughGatewayActivityNonce,
-        serverApiClient: this.serverApiClient,
+        serverApiClient,
         upstreamOperatorClient: upstreamOperatorHost ? this.upstreamOperatorClient : undefined,
       });
 
