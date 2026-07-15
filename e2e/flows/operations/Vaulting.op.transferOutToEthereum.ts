@@ -273,7 +273,7 @@ async function readOutboundTransferState(flow: IVaultingFlowContext['flow']) {
   };
 }
 
-async function openVaultingWalletOverlay(flow: IVaultingFlowContext['flow']) {
+export async function openVaultingWalletOverlay(flow: IVaultingFlowContext['flow']) {
   await flow.queryApp(
     (refs, args: { walletType: WalletType.defaultArgon }) => {
       refs.openWalletOverlay(args.walletType);

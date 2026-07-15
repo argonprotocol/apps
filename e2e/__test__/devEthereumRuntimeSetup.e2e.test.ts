@@ -1,7 +1,41 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EvmContracts } from '@argonprotocol/mainchain';
 import { getAddress, type Hex, type PublicClient } from 'viem';
-import { syncEthereumGatewayActiveCouncilToArgon } from '../devEthereumRuntimeSetup.ts';
+import { submitDevAdminTransaction, syncEthereumGatewayActiveCouncilToArgon } from '../devEthereumRuntimeSetup.ts';
+
+describe('submitDevAdminTransaction', () => {
+  it('accepts a relocated transaction once its intended state is applied', async () => {
+    let applied = false;
+    const submit = vi.fn(async () => {
+      applied = true;
+      throw new Error('Cannot publish transaction block state before extrinsic index is known');
+    });
+
+    await submitDevAdminTransaction({
+      isApplied: async () => applied,
+      submit,
+    });
+
+    expect(submit).toHaveBeenCalledOnce();
+  });
+
+  it('resubmits once when a relocated transaction was not applied', async () => {
+    let applied = false;
+    const submit = vi.fn(async () => {
+      if (submit.mock.calls.length === 1) {
+        throw new Error('Cannot publish transaction block state before extrinsic index is known');
+      }
+      applied = true;
+    });
+
+    await submitDevAdminTransaction({
+      isApplied: async () => applied,
+      submit,
+    });
+
+    expect(submit).toHaveBeenCalledTimes(2);
+  });
+});
 
 describe('syncEthereumGatewayActiveCouncilToArgon', () => {
   it('resyncs when the gateway only matches an older microgons-per-argonot floor', async () => {

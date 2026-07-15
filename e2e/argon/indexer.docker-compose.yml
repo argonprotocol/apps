@@ -1,5 +1,15 @@
 ---
 services:
+  archive-rpc:
+    entrypoint:
+      - /usr/bin/tini
+      - --
+      - /usr/local/bin/subway
+      - --config
+      - /config/argon-rpc-dev.yml
+    volumes:
+      - ./argon-rpc.dev.yml:/config/argon-rpc-dev.yml:ro
+
   indexer:
     build:
       context: ../../indexer

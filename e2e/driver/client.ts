@@ -327,5 +327,9 @@ function formatFrontendError(payload: UnknownRecord): string {
 
 function isFatalFrontendError(payload: UnknownRecord): boolean {
   const label = typeof payload.label === 'string' ? payload.label : '';
-  return label !== 'console.error';
+  const message = typeof payload.message === 'string' ? payload.message : '';
+  const isBenignResizeObserverNotification =
+    label === 'window.error' && message === 'ResizeObserver loop completed with undelivered notifications.';
+
+  return label !== 'console.error' && !isBenignResizeObserverNotification;
 }

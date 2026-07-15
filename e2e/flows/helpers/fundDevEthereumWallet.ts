@@ -7,6 +7,7 @@ const MIN_DEV_ETHEREUM_GAS_WEI = 10n ** 17n;
 export async function fundDevEthereumWallet(args: {
   to: string;
   archiveUrl?: string;
+  ethereumRpcUrl?: string;
   microgons?: bigint;
   micronots?: bigint;
   minGasWei?: bigint;
@@ -19,6 +20,7 @@ export async function fundDevEthereumWallet(args: {
     const result = await mintDevEthereumTokens({
       to,
       archiveUrl,
+      rpcUrl: args.ethereumRpcUrl,
       argnRuntimeAmount: microgons,
       argnotRuntimeAmount: micronots,
     });

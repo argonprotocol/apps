@@ -128,6 +128,11 @@ function closeWallet(side: 'left' | 'right') {
   if (!openWallet.value) return;
 
   const nextState = closeWalletOverlaySide(openWallet.value, side);
+  if (!nextState.leftWallet && !nextState.rightWallet) {
+    closeOverlay();
+    return;
+  }
+
   openWallet.value.leftWallet = nextState.leftWallet;
   openWallet.value.rightWallet = nextState.rightWallet;
   void syncActiveEthereumWallet();

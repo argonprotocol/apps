@@ -8,6 +8,7 @@
       @pointermove="handlePointerMove"
       class="absolute bg-black/40 pointer-events-auto"
       :class="[enableTopBar ? 'top-14 bottom-0 inset-x-0' : 'inset-0', enableTopBar ? roundedBottomClass : roundedClass]"
+      data-testid="BgOverlay.close()"
       data-tauri-drag-region
     >
       <div
