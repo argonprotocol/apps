@@ -2,6 +2,44 @@ import { describe, expect, it, vi } from 'vitest';
 import { createTestDb } from './helpers/db.ts';
 
 describe('WalletTransfersTable', () => {
+  it('preserves recovered provenance when a later observation omits it', async () => {
+    const db = await createTestDb();
+    const blockTime = new Date('2026-07-15T00:00:00Z');
+    const transfer = {
+      walletAddress: '5default',
+      walletName: 'defaultArgon',
+      amount: 1n,
+      currency: 'argon' as const,
+      otherParty: '5other',
+      tokenGatewayCommitmentHash: '0xcommitment',
+      transferType: 'tokenGateway' as const,
+      isInternal: false,
+      extrinsicIndex: 0,
+      microgonsForArgonot: 2n,
+      microgonsForUsd: 2n,
+      blockNumber: 1,
+      blockHash: '0xblock',
+      blockTime,
+    };
+
+    try {
+      await db.walletTransfersTable.insert(transfer);
+
+      await expect(
+        db.walletTransfersTable.insert({
+          ...transfer,
+          blockTime: undefined,
+          tokenGatewayCommitmentHash: undefined,
+        }),
+      ).resolves.toBeUndefined();
+      await expect(db.walletTransfersTable.fetchAll()).resolves.toEqual([
+        expect.objectContaining({ blockTime, tokenGatewayCommitmentHash: '0xcommitment' }),
+      ]);
+    } finally {
+      await db.close();
+    }
+  });
+
   it('reuses custody queries until the transfer revision changes', async () => {
     const db = await createTestDb();
 

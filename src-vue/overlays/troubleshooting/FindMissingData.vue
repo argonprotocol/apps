@@ -64,7 +64,7 @@ import heading from './components/DiagnosticHeading.vue';
 import { getWalletHistoryRecovery, getWalletKeys, useWallets } from '../../stores/wallets.ts';
 import { getMyVault } from '../../stores/vaults.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
-import { MyVaultRecovery } from '../../lib/recovery/MyVaultDiscovery.ts';
+import { MyVaultRecovery } from '../../lib/recovery/MyVaultRecovery.ts';
 import { getBlockWatch, getMainchainClients, getFinalizedClient } from '../../stores/mainchain.ts';
 import { useFinancials } from '../../stores/financials.ts';
 

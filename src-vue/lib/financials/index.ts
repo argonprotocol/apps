@@ -227,6 +227,9 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
     FinancialGroup,
     IFinancialGroupSummary
   >;
+  const liquidSnapshot = snapshotsByGroup.get('liquid');
+  const hasLiquidSnapshot =
+    liquidSnapshot?.state === 'ready' || (liquidSnapshot?.state === 'stale' && liquidSnapshot.positions.length > 0);
 
   return {
     groups,
@@ -240,7 +243,7 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
     },
     grossAssets,
     grossLiabilities,
-    netWorth: usableGroupCount > 0 ? grossAssets - grossLiabilities : undefined,
+    netWorth: hasLiquidSnapshot ? grossAssets - grossLiabilities : undefined,
     readiness,
     isStale,
   };

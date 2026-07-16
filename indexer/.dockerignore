@@ -3,6 +3,7 @@
 !lib
 !lib/**
 !seeds
+!seeds/.gitkeep
 !seeds/mainnet-activity-v2.db.gz
 !seeds/testnet-activity-v2.db.gz
 !seeds/seed-manifest.json

@@ -84,8 +84,10 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
   }
 
   async function refreshWalletSnapshot(): Promise<void> {
-    if (!marketSnapshot.value) {
+    const walletAddress = wallets.ethereumWallet.address;
+    if (!marketSnapshot.value || !walletAddress) {
       walletSnapshot.value = null;
+      walletError.value = '';
       return;
     }
 
@@ -93,7 +95,7 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
       walletError.value = '';
       walletSnapshot.value = await loadStableSwapWalletSnapshot({
         db: await getDbPromise(),
-        walletAddress: wallets.ethereumWallet.address,
+        walletAddress,
         currentPriceMicrogons: marketSnapshot.value.currentPriceMicrogons,
       });
     } catch (error) {

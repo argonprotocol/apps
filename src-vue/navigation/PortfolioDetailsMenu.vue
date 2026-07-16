@@ -50,6 +50,16 @@
           <li v-if="visibleGroups.length === 0" class="px-3 py-4 text-center font-normal text-slate-500">
             No financial positions yet
           </li>
+
+          <li class="mt-1 border-t border-slate-400/30 px-2 pt-2 pb-1">
+            <button
+              type="button"
+              class="w-full cursor-pointer rounded-md border border-argon-600/50 px-3 py-2 font-semibold whitespace-nowrap text-argon-600/80 hover:bg-argon-600/70 hover:text-white"
+              @click="openTransactionsOverlay"
+            >
+              View Transaction History
+            </button>
+          </li>
         </ul>
       </NavigationMenuContent>
     </NavigationMenuItem>
@@ -66,6 +76,7 @@ import DollarSign from '../assets/currencies/dollar.svg?component';
 import EuroSign from '../assets/currencies/euro.svg?component';
 import PoundSign from '../assets/currencies/pound.svg?component';
 import RupeeSign from '../assets/currencies/rupee.svg?component';
+import basicEmitter from '../emitters/basicEmitter.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import { useFinancials } from '../stores/financials.ts';
 import { financialMenuLabels } from './financialMenuLabels.ts';
@@ -97,5 +108,9 @@ const totalNetWorth = Vue.computed(() => {
 
 function formatValue(value: bigint): string {
   return microgonToMoneyNm(value).format('0,0.00');
+}
+
+function openTransactionsOverlay(): void {
+  basicEmitter.emit('openTransactionsOverlay');
 }
 </script>

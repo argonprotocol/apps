@@ -14,7 +14,7 @@ import { WalletKeys } from '../WalletKeys.ts';
 export class MyVaultRecovery {
   public static rebuildRules(args: {
     feesInMicrogons: bigint;
-    vault: Vault;
+    vault: Pick<Vault, 'securitization' | 'securitizationRatio' | 'terms'>;
     treasuryMicrogons?: bigint;
     bitcoin?: { liquidityPromised: bigint };
   }): IVaultingRules {
@@ -23,21 +23,29 @@ export class MyVaultRecovery {
     const securitization = vault.securitization;
     const securitizationRatio = vault.securitizationRatio;
     const baseMicrogonCommitment = securitization + treasuryMicrogons;
-    const capitalForSecuritizationPct = BigNumber(securitization)
-      .div(securitization + treasuryMicrogons)
-      .times(100)
-      .decimalPlaces(1, BigNumber.ROUND_HALF_EVEN)
-      .toNumber();
+    let capitalForSecuritizationPct = 100;
+    if (baseMicrogonCommitment > 0n) {
+      capitalForSecuritizationPct = BigNumber(securitization)
+        .div(baseMicrogonCommitment)
+        .times(100)
+        .decimalPlaces(1, BigNumber.ROUND_HALF_EVEN)
+        .toNumber();
+    }
+
     const capitalForTreasuryPct = 100 - capitalForSecuritizationPct;
     const profitSharingPct = vault.terms.treasuryProfitSharing.times(100).toNumber();
     const btcFlatFee = vault.terms.bitcoinBaseFee;
     const btcPctFee = vault.terms.bitcoinAnnualPercentRate.times(100).toNumber();
 
-    const personalBtcPct = BigNumber(bitcoin.liquidityPromised)
-      .dividedBy(vault.securitization)
-      .times(100)
-      .integerValue(BigNumber.ROUND_CEIL)
-      .toNumber();
+    let personalBtcPct = 0;
+    if (securitization > 0n) {
+      personalBtcPct = BigNumber(bitcoin.liquidityPromised)
+        .dividedBy(securitization)
+        .times(100)
+        .integerValue(BigNumber.ROUND_CEIL)
+        .toNumber();
+    }
+
     return {
       ...(Config.getDefault('vaultingRules') as IVaultingRules),
       capitalForSecuritizationPct,
