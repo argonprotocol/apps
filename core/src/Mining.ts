@@ -29,6 +29,7 @@ export interface IMiningSeatMiner {
   address: string;
   isOurs: boolean;
   bidAmount: bigint;
+  micronotsStaked?: bigint;
 }
 
 export interface IMiningSlotBid {
@@ -36,6 +37,7 @@ export interface IMiningSlotBid {
   slotId: number;
   address: string;
   bidAmount: bigint;
+  micronotsStaked?: bigint;
 }
 
 export interface IMiningSlot {
@@ -196,6 +198,7 @@ export class Mining {
         slotId,
         address: bid.accountId.toHuman(),
         bidAmount: bid.bid.toBigInt(),
+        micronotsStaked: bid.argonots.toBigInt(),
       });
       bidsBySlotId.set(slotId, bids);
     }
@@ -211,12 +214,13 @@ export class Mining {
         const address = member.accountId.toHuman();
         const isOurs = member.externalFundingAccount.value.toHuman() === managedByAccount;
         const bidAmount = member.bid.toBigInt();
+        const micronotsStaked = member.argonots.toBigInt();
         const id = `${numericToAlpha(slotId)}${index + 1}`;
         seats.push({
           id,
           index,
           slotId,
-          miner: { startingFrameId, address, isOurs, bidAmount },
+          miner: { startingFrameId, address, isOurs, bidAmount, micronotsStaked },
           bid: null,
         });
       }

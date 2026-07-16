@@ -10,7 +10,6 @@ import { FrameBidsTable } from './db/FrameBidsTable';
 import { VaultsTable } from './db/VaultsTable.ts';
 import { BitcoinLocksTable } from './db/BitcoinLocksTable.ts';
 import { TransactionsTable } from './db/TransactionsTable.ts';
-import { WalletLedgerTable } from './db/WalletLedgerTable.ts';
 import { BaseTable } from './db/BaseTable.ts';
 import { VaultRevenueEventsTable } from './db/VaultRevenueEventsTable.ts';
 import { WalletTransfersTable } from './db/WalletTransfersTable.ts';
@@ -22,6 +21,8 @@ import { CrosschainInboundTransfersTable } from './db/CrosschainInboundTransfers
 import { CrosschainOutboundTransfersTable } from './db/CrosschainOutboundTransfersTable.ts';
 import { WalletHdKeysTable } from './db/WalletHdKeysTable.ts';
 import { WalletsTable } from './db/WalletsTable.ts';
+import { BondLotHistoryTable } from './db/BondLotHistoryTable.ts';
+import { VaultCapitalHistoryTable } from './db/VaultCapitalHistoryTable.ts';
 
 export class Db {
   public sql: PluginSql;
@@ -37,7 +38,6 @@ export class Db {
   public vaultsTable: VaultsTable;
   public vaultRevenueEventsTable: VaultRevenueEventsTable;
   public bitcoinLocksTable: BitcoinLocksTable;
-  public walletLedgerTable: WalletLedgerTable;
   public walletTransfersTable: WalletTransfersTable;
   public crosschainInboundTransfersTable: CrosschainInboundTransfersTable;
   public crosschainOutboundTransfersTable: CrosschainOutboundTransfersTable;
@@ -46,6 +46,8 @@ export class Db {
   public bitcoinUtxosTable: BitcoinUtxosTable;
   public stableSwapSyncStateTable: StableSwapSyncStateTable;
   public stableSwapPurchasesTable: StableSwapPurchasesTable;
+  public bondLotHistoryTable: BondLotHistoryTable;
+  public vaultCapitalHistoryTable: VaultCapitalHistoryTable;
 
   constructor(sql: PluginSql, hasMigrationError: boolean) {
     ensureOnlyOneInstance(this.constructor);
@@ -63,7 +65,6 @@ export class Db {
     this.transactionsTable = new TransactionsTable(this);
     this.transactionStatusHistoryTable = new TransactionStatusHistoryTable(this);
     this.bitcoinLocksTable = new BitcoinLocksTable(this);
-    this.walletLedgerTable = new WalletLedgerTable(this);
     this.walletTransfersTable = new WalletTransfersTable(this);
     this.crosschainInboundTransfersTable = new CrosschainInboundTransfersTable(this);
     this.crosschainOutboundTransfersTable = new CrosschainOutboundTransfersTable(this);
@@ -72,6 +73,8 @@ export class Db {
     this.bitcoinUtxosTable = new BitcoinUtxosTable(this);
     this.stableSwapSyncStateTable = new StableSwapSyncStateTable(this);
     this.stableSwapPurchasesTable = new StableSwapPurchasesTable(this);
+    this.bondLotHistoryTable = new BondLotHistoryTable(this);
+    this.vaultCapitalHistoryTable = new VaultCapitalHistoryTable(this);
   }
 
   public static async load(retries: number = 0): Promise<Db> {
@@ -101,7 +104,7 @@ export class Db {
     try {
       return await this.sql.execute(query, bindValues);
     } catch (error) {
-      console.error('Error executing query:', { query, bindValues, error });
+      console.error('Error executing query:', { query, error });
       throw error;
     }
   }
@@ -110,7 +113,7 @@ export class Db {
     try {
       return await this.sql.select<T>(query, bindValues);
     } catch (error) {
-      console.error('Error selecting query:', { query, bindValues, error });
+      console.error('Error selecting query:', { query, error });
       throw error;
     }
   }

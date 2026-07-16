@@ -17,6 +17,7 @@ import BigNumber from 'bignumber.js';
 import mainnetVaultRevenueHistory from './data/vaultRevenue.mainnet.json' with { type: 'json' };
 import testnetVaultRevenueHistory from './data/vaultRevenue.testnet.json' with { type: 'json' };
 import { TreasuryBonds } from './TreasuryBonds.js';
+import { annualizeCompoundedReturn, annualizeSimpleReturn } from './FinancialReturns.js';
 
 export class Vaults {
   public readonly vaultsById: { [id: number]: Vault } = {};
@@ -376,9 +377,7 @@ export class Vaults {
       epochPoolEarningsRatio = BigNumber(epochExternalPoolEarnings).div(epochExternalPoolCapital).toNumber();
     }
 
-    const poolApr = epochPoolEarningsRatio * 36.5;
-
-    return poolApr * 100;
+    return annualizeSimpleReturn(epochPoolEarningsRatio, 10);
   }
 
   private calculateEpochReturns(): [number, number] {
@@ -410,16 +409,16 @@ export class Vaults {
 
   public calculateApr(): number {
     const [epochPoolEarningsRatio, feeApr] = this.calculateEpochReturns();
-    const poolApr = epochPoolEarningsRatio * 36.5;
+    const poolApr = annualizeSimpleReturn(epochPoolEarningsRatio, 10);
 
-    return (poolApr + feeApr) * 100;
+    return poolApr + feeApr * 100;
   }
 
   public calculateApy(): number {
     const [epochPoolEarningsRatio, feeApr] = this.calculateEpochReturns();
-    const poolApy = (1 + epochPoolEarningsRatio) ** 36.5 - 1;
+    const poolApy = annualizeCompoundedReturn(epochPoolEarningsRatio, 10);
 
-    return (poolApy + feeApr) * 100;
+    return poolApy + feeApr * 100;
   }
 
   private calculateEpochReturnsForVault(vaultId: number): [number, number] {
@@ -437,16 +436,16 @@ export class Vaults {
 
   public calculateVaultApr(vaultId: number): number {
     const [epochPoolEarningsRatio, feeApr] = this.calculateEpochReturnsForVault(vaultId);
-    const poolApr = epochPoolEarningsRatio * 36.5;
+    const poolApr = annualizeSimpleReturn(epochPoolEarningsRatio, 10);
 
-    return (poolApr + feeApr) * 100;
+    return poolApr + feeApr * 100;
   }
 
   public calculateVaultApy(vaultId: number): number {
     const [epochPoolEarningsRatio, feeApr] = this.calculateEpochReturnsForVault(vaultId);
-    const poolApy = (1 + epochPoolEarningsRatio) ** 36.5 - 1;
+    const poolApy = annualizeCompoundedReturn(epochPoolEarningsRatio, 10);
 
-    return (poolApy + feeApr) * 100;
+    return poolApy + feeApr * 100;
   }
 
   private async loadStats(): Promise<IAllVaultStats> {

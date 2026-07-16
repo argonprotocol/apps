@@ -47,10 +47,6 @@
             />
           </NavigationMenuLink>
           <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-          <NavigationMenuLink MenuItem @click="() => openPortfolioPanel()" >
-            <header>Portfolio Details</header>
-          </NavigationMenuLink>
-          <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
           <NavigationMenuLink MenuItem @click="() => checkForUpdates()">
             <header>Check for Updates</header>
           </NavigationMenuLink>
@@ -173,7 +169,6 @@ import basicEmitter from '../emitters/basicEmitter.ts';
 import { ChevronLeftIcon } from '@heroicons/vue/24/outline';
 import { useTour } from '../stores/tour.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
-import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
 import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
 import { OperationalStepId, useCertificationController } from '../stores/certificationController.ts';
 import { useBasics } from '../stores/basics.ts';
@@ -233,10 +228,6 @@ function openTroubleshooting() {
 
 function openProfileOverlay(): void {
   basicEmitter.emit('openProfileOverlay');
-}
-
-function openPortfolioPanel(): void {
-  basicEmitter.emit('openPortfolioPanel', PortfolioTab.Overview);
 }
 
 function takeTheTour() {

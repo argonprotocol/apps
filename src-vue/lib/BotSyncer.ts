@@ -5,7 +5,6 @@ import {
   type IBidsFile,
   type IBotState,
   type IBotStateStarting,
-  IEarningsFile,
   type IFrameEarningsRollup,
   type Mining,
   MiningFrames,
@@ -290,9 +289,10 @@ export class BotSyncer {
 
   private async syncCurrentFrame(botState = this.botState): Promise<void> {
     const currentFrameId = botState.currentFrameId;
-    const completedFrames = await this.db.framesTable.fetchExistingCompleteSince(currentFrameId - 10);
+    const firstActiveFrameId = currentFrameId - NetworkConfig.framesPerCohort;
+    const completedFrames = await this.db.framesTable.fetchExistingCompleteSince(firstActiveFrameId);
 
-    for (let frameId = currentFrameId - 10; frameId <= currentFrameId; frameId++) {
+    for (let frameId = firstActiveFrameId; frameId <= currentFrameId; frameId++) {
       if (!completedFrames.includes(frameId)) {
         await this.syncDbFrame(frameId, botState);
       }
@@ -328,6 +328,7 @@ export class BotSyncer {
           progress = await this.calculateDbSyncProgress(botState);
           this.botFns.setDbSyncProgress(progress);
         }
+        this.botFns.onEvent('updated-cohort-history', currentFrameId);
       } finally {
         this.isSyncingThePast = false;
       }
@@ -356,16 +357,21 @@ export class BotSyncer {
     });
 
     console.info('PROCESSING FRAME', frameId, earningsFile);
-    const cohortIdsInDb = await this.db.cohortsTable.fetchCohortIdsSince(frameId - 10);
+    const firstActiveCohortId = frameId - NetworkConfig.framesPerCohort;
+    const cohortIdsInDb = await this.db.cohortsTable.fetchCohortIdsSince(
+      firstActiveCohortId,
+      NetworkConfig.framesPerCohort,
+    );
 
     // Every frame should have a corresponding cohort, even if it has no seats
 
     const earningsByCohortActivationFrameId: { [frameId: number]: IFrameEarningsRollup } = {};
-    for (let i = frameId - 10; i <= frameId; i++) {
+    const missingCohortIds: number[] = [];
+    for (let i = firstActiveCohortId; i <= frameId; i++) {
       if (i < this.config.oldestFrameIdToSync) continue;
       if (i > frameId) continue;
       if (!cohortIdsInDb.includes(i)) {
-        await this.syncDbCohort(i, earningsFile);
+        missingCohortIds.push(i);
       }
       earningsByCohortActivationFrameId[i] = {
         lastBlockMinedAt: '',
@@ -376,6 +382,7 @@ export class BotSyncer {
         micronotsMinedTotal: 0n,
       };
     }
+    await Promise.all(missingCohortIds.map(cohortId => this.syncDbCohort(cohortId)));
 
     let maxBlockNumber = 0;
     let blocksMinedTotal = 0;
@@ -452,13 +459,18 @@ export class BotSyncer {
       isProcessed,
     });
 
+    await this.db.cohortsTable.setArgonotPriceAtCompletion(
+      frameId - NetworkConfig.framesPerCohort,
+      earningsFile.microgonToArgonot[0] ?? 0n,
+    );
+
     if (frameId > this.config.latestFrameIdProcessed) {
       this.config.latestFrameIdProcessed = frameId;
       await this.config.save();
     }
   }
 
-  private async syncDbCohort(cohortActivationFrameId: number, earningsFile: IEarningsFile): Promise<void> {
+  private async syncDbCohort(cohortActivationFrameId: number): Promise<void> {
     const bidsFile = await this.fetchBidsFileFromCache({ cohortActivationFrameId });
     const biddingFrameProgress = this.calculateProgress(bidsFile.biddingFrameRewardTicksRemaining);
     if (biddingFrameProgress < 100.0) {
@@ -483,6 +495,24 @@ export class BotSyncer {
       const transactionFeesTotal = Object.values(bidsFile.transactionFeesByBlock).reduce((acc, fee) => acc + fee, 0n);
       const microgonsBidPerSeat =
         bidsFile.seatCountWon > 0 ? bidsFile.microgonsBidTotal / BigInt(bidsFile.seatCountWon) : 0n;
+      const capturedArgonotPriceAtBid = bidsFile.argonotPriceAtBid;
+      let argonotPriceAtBid = capturedArgonotPriceAtBid;
+      if (!argonotPriceAtBid) {
+        const priceFrames = await this.db.framesTable.fetchArgonotPricesNearFrame(cohortActivationFrameId);
+        let firstPriceAfterBid = 0n;
+
+        for (const frame of priceFrames) {
+          const price = frame.microgonToArgonot.at(-1) ?? 0n;
+          if (!price) continue;
+
+          if (frame.id < cohortActivationFrameId) {
+            argonotPriceAtBid = price;
+          } else if (!firstPriceAfterBid) {
+            firstPriceAfterBid = price;
+          }
+        }
+        argonotPriceAtBid ||= firstPriceAfterBid;
+      }
 
       await this.db.cohortsTable.insertOrUpdate({
         id: cohortActivationFrameId,
@@ -492,6 +522,7 @@ export class BotSyncer {
         seatCountWon: bidsFile.seatCountWon,
         microgonsToBeMinedPerSeat,
         micronotsToBeMinedPerSeat,
+        argonotPriceAtBid,
       });
     } catch (e) {
       console.error('Error syncing cohort:', e);

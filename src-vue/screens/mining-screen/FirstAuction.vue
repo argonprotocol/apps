@@ -12,14 +12,14 @@ import * as Vue from 'vue';
 import FirstAuctionStarting from './FirstAuctionStarting.vue';
 import FirstAuctionWinning from './FirstAuctionWinning.vue';
 import FirstAuctionFailed from './FirstAuctionFailed.vue';
-import { getStats } from '../../stores/stats.ts';
+import { getMyMiningSeats } from '../../stores/myMiningSeats.ts';
 import { getConfig } from '../../stores/config.ts';
 import { getBot } from '../../stores/bot.ts';
 
-const stats = getStats();
+const myMiningSeats = getMyMiningSeats();
 const bot = getBot();
 const config = getConfig();
 
-Vue.onMounted(() => stats.subscribeToActivity());
-Vue.onUnmounted(() => stats.unsubscribeFromActivity());
+Vue.onMounted(() => myMiningSeats.subscribeToActivity());
+Vue.onUnmounted(() => myMiningSeats.unsubscribeFromActivity());
 </script>

@@ -64,11 +64,12 @@
           </TooltipRoot>
           <TooltipRoot>
             <TooltipTrigger box stat-box class="flex flex-col w-[20%] !py-4 group">
-              <span>{{ numeral(currentApy).formatIfElseCapped('< 100', '0,0.[00]', '0,0', 9_999) }}%</span>
-              <label>Estimated APY</label>
+              <span>{{ numeral(realizedApy).formatIfElseCapped('< 100', '0,0.[00]', '0,0', 9_999) }}%</span>
+              <label>Realized APY</label>
             </TooltipTrigger>
             <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
-              Your vault's rolling annual percentage yield based on total capital committed.
+              Your vault's annualized collected earnings to date based on its average deployed capital. This is not
+              Vaulting RTD, which also includes current uncollected revenue and the vault's full capital history.
               <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
             </TooltipContent>
           </TooltipRoot>
@@ -88,16 +89,6 @@
             </a>
           </div>
           <div class="flex flex-row items-end border-t border-slate-600/20 pt-2 text-md">
-            <div @click="openPortfolioPanel(PortfolioTab.ProfitAnalysis)" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
-              <RoiIcon class="w-6 h-6 mt-2 inline-block mb-2" />
-              <div>Profits</div>
-            </div>
-            <div class="w-px h-full bg-slate-600/20" />
-            <div @click="openPortfolioPanel(PortfolioTab.GrowthProjections)" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
-              <ProjectionsIcon class="w-6 h-6 mt-2 inline-block mb-2" />
-              <div>Projections</div>
-            </div>
-            <div class="w-px h-full bg-slate-600/20" />
             <div @click="openVaultEditOverlay" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
               <ConfigIcon class="w-6 h-6 mt-2 inline-block mb-2" />
               <div>Settings</div>
@@ -308,16 +299,13 @@ import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipAr
 import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import VaultingAssetBreakdown from '../components/VaultingAssetBreakdown.vue';
-import RoiIcon from '../../assets/roi.svg';
-import ProjectionsIcon from '../../assets/rocket.svg';
-import { PortfolioTab } from '../../panels/interfaces/IPortfolioTab.ts';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import CopyAddressMenu from '../../components/CopyAddressMenu.vue';
 import { WalletType } from '../../lib/Wallet.ts';
 import { ProfitAnalysis } from '../../lib/ProfitAnalysis.ts';
 import { useVaultingAssetBreakdown } from '../../stores/vaultingAssetBreakdown.ts';
-import { getBondMarket } from '../../stores/myBonds.ts';
-import type { IVaultBondState } from '../../lib/BondMarket.ts';
+import { getArgonBonds } from '../../stores/argonBonds.ts';
+import type { IVaultArgonBondState } from '../../lib/ArgonBonds.ts';
 import TreemapChart, { type TileStatus } from '../../components/TreemapChart.vue';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { TopTab } from '../../interfaces/IConfig.ts';
@@ -332,7 +320,7 @@ const controller = useCertificationController();
 const bitcoinLocks = getBitcoinLocks();
 const config = getConfig();
 const currency = getCurrency();
-const bondMarket = getBondMarket();
+const argonBonds = getArgonBonds();
 
 const vaultingBreakdown = useVaultingAssetBreakdown();
 
@@ -344,15 +332,15 @@ const latestFrameId = Vue.computed(() => {
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
-const vaultBondState = Vue.computed<IVaultBondState | undefined>(() => {
+const vaultBondState = Vue.computed<IVaultArgonBondState | undefined>(() => {
   const vaultId = myVault.vaultId;
-  return vaultId == null ? undefined : bondMarket.data.vaultsById[vaultId];
+  return vaultId == null ? undefined : argonBonds.data.vaultsById[vaultId];
 });
 
 const currentTreasuryBondFrame = Vue.computed(() => ({
-  frameId: vaultBondState.value?.currentFrame.frameId ?? bondMarket.data.currentFrameId,
-  distributableBidPool: bondMarket.data.distributableBidPool,
-  globalBonds: bondMarket.data.totalActiveBonds,
+  frameId: vaultBondState.value?.currentFrame.frameId ?? argonBonds.data.currentFrameId,
+  distributableBidPool: argonBonds.data.distributableBidPool,
+  globalBonds: argonBonds.data.totalActiveBonds,
   vaultBonds: vaultBondState.value?.currentFrame.vaultBonds ?? 0,
   bondLots: vaultBondState.value?.currentFrame.bondLots ?? [],
 }));
@@ -369,7 +357,7 @@ const bitcoinLockedValue = Vue.computed<bigint>(() => {
   return vaultingBreakdown.securityMicrogonsActivated;
 });
 
-const currentApy = Vue.computed(() => {
+const realizedApy = Vue.computed(() => {
   const { earnings, activeFrames, averageCapitalDeployed } = myVault.revenue();
   if (earnings === 0n) return 0;
   return calculateAPY(averageCapitalDeployed, averageCapitalDeployed + earnings, activeFrames);
@@ -717,10 +705,6 @@ const sliderFrameIndex = Vue.computed(() => {
   return Math.min(Math.max(selectedIndex >= 0 ? selectedIndex : lastIndex, 0), lastIndex);
 });
 
-const hasNextFrame = Vue.computed(() => {
-  return sliderFrameIndex.value < frameRecords.value.length - 1;
-});
-
 const hasPrevFrame = Vue.computed(() => {
   return false;
   // return sliderFrameIndex.value > 0;
@@ -768,10 +752,6 @@ function openVaultEditOverlay() {
   showEditOverlay.value = true;
 }
 
-function openPortfolioPanel(tab: PortfolioTab) {
-  basicEmitter.emit('openPortfolioPanel', tab);
-}
-
 function openNetworkTab() {
   controller.setTab(TopTab.Network);
 }
@@ -807,7 +787,7 @@ async function refreshCurrentFrameBonds() {
   if (myVault.vaultId == null || !myVault.createdVault) return;
 
   const client = await getMainchainClient(false);
-  await bondMarket.refreshVault(
+  await argonBonds.refreshVault(
     {
       vaultId: myVault.vaultId,
       operatorAddress: myVault.createdVault.operatorAccountId,
@@ -842,7 +822,7 @@ Vue.onMounted(async () => {
   });
 
   const client = await getMainchainClient(false);
-  await bondMarket.subscribeGlobal(client);
+  await argonBonds.subscribeGlobal(client);
 
   await loadChartData();
   await refreshCurrentFrameBonds();

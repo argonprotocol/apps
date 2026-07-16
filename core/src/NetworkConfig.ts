@@ -20,7 +20,11 @@ export class NetworkConfig {
   }
 
   public static get ticksPerCohort() {
-    return this.rewardTicksPerFrame * 10;
+    return this.rewardTicksPerFrame * this.framesPerCohort;
+  }
+
+  public static get framesPerCohort() {
+    return 10;
   }
 
   public static get rewardTicksPerFrame() {

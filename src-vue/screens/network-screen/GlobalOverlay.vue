@@ -386,7 +386,7 @@ import { useVaultingStats } from '../../stores/vaultingStats.ts';
 import { useMiningStats } from '../../stores/miningStats.ts';
 import { TopTab } from '../../interfaces/IConfig.ts';
 import { useWallets } from '../../stores/wallets.ts';
-import { getStats } from '../../stores/stats.ts';
+import { getMyMiningSeats } from '../../stores/myMiningSeats.ts';
 import { getConfig } from '../../stores/config.ts';
 import { ICurrencyKey, UnitOfMeasurement } from '../../lib/Currency.ts';
 import BigNumber from 'bignumber.js';
@@ -400,7 +400,6 @@ import {
 } from '@argonprotocol/apps-core';
 import { useTour } from '../../stores/tour.ts';
 import basicEmitter from '../../emitters/basicEmitter.ts';
-import { PortfolioTab } from '../../panels/interfaces/IPortfolioTab.ts';
 import { usePortfolio } from '../../stores/portfolio.ts';
 import { MiningSetupStatus, VaultingSetupStatus } from '../../interfaces/IConfig.ts';
 import { useCertificationController } from '../../stores/certificationController.ts';
@@ -413,7 +412,7 @@ const wallets = useWallets();
 const portfolio = usePortfolio();
 const vaults = getVaults();
 const currency = getCurrency();
-const myMinerStats = getStats();
+const myMiningSeats = getMyMiningSeats();
 const myVault = getMyVault();
 const config = getConfig();
 
@@ -446,9 +445,7 @@ const micronotsInCirculation = Vue.ref(0n);
 const liquidityReceived = Vue.ref(0n);
 
 const myMiningEarnings = Vue.computed(() => {
-  const { microgonsMinedTotal, microgonsMintedTotal, micronotsMinedTotal, framedCost } = myMinerStats.global;
-  const microgonValueOfMicronotsMined = currency.convertMicronotTo(micronotsMinedTotal, UnitOfMeasurement.Microgon);
-  return microgonsMintedTotal + microgonsMinedTotal + microgonValueOfMicronotsMined - framedCost;
+  return myMiningSeats.global.microgonValueOfRewards - myMiningSeats.global.framedCost;
 });
 
 const myMiningRoi = Vue.computed(() => {
@@ -460,7 +457,7 @@ const myMiningRoi = Vue.computed(() => {
 
 const myMiningApy = Vue.computed(() => {
   const rewards = portfolio.miningExternalInvested + myMiningEarnings.value;
-  return calculateAPY(portfolio.miningExternalInvested, rewards, myMinerStats.activeFrames);
+  return calculateAPY(portfolio.miningExternalInvested, rewards, myMiningSeats.activeFrames);
 });
 
 const myVaultEarnings = Vue.computed(() => {
@@ -594,10 +591,6 @@ function finishSetCurrencyKey(key: ICurrencyKey) {
   }
 }
 
-function openPortfolio(tab: PortfolioTab) {
-  basicEmitter.emit('openPortfolioPanel', tab);
-}
-
 tour.registerPositionCheck('startButtons', () => {
   const rect = startButtonsRef.value?.getBoundingClientRect().toJSON() || { left: 0, right: 0, top: 0, bottom: 0 };
   rect.left -= 20;
@@ -617,8 +610,8 @@ Vue.onMounted(async () => {
   await loadNetworkStats();
   await myVault.load();
 
-  await myMinerStats.subscribeToDashboard();
-  await myMinerStats.load();
+  await myMiningSeats.subscribeToDashboard();
+  await myMiningSeats.load();
 
   finishSetCurrencyKey(currencyKey.value);
   microgonsPerArgonot.value = currency.microgonsPer.ARGNOT;
@@ -643,7 +636,7 @@ Vue.onMounted(async () => {
 });
 
 Vue.onUnmounted(() => {
-  void myMinerStats.unsubscribeFromDashboard();
+  void myMiningSeats.unsubscribeFromDashboard();
   clearInterval(currencyRotationInterval);
 });
 </script>

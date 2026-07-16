@@ -134,7 +134,7 @@ import PluginSmallIcon from '../assets/plugin-small.svg?component';
 import DesktopIcon from '../assets/desktop.svg?component';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import CountupClock from '../components/CountupClock.vue';
-import { getStats } from '../stores/stats.ts';
+import { getMyMiningSeats } from '../stores/myMiningSeats.ts';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -145,7 +145,7 @@ dayjs.extend(relativeTime);
 dayjs.extend(utc);
 
 const config = getConfig();
-const stats = getStats();
+const myMiningSeats = getMyMiningSeats();
 
 const rootRef = Vue.ref<HTMLElement>();
 
@@ -162,12 +162,12 @@ defineExpose({
 });
 
 const lastBitcoinActivityAt = Vue.computed(() => {
-  const lastActivity = stats.serverState.bitcoinBlocksLastUpdatedAt;
+  const lastActivity = myMiningSeats.serverState.bitcoinBlocksLastUpdatedAt;
   return lastActivity ? dayjs.utc(lastActivity).local() : null;
 });
 
 const lastArgonActivityAt = Vue.computed(() => {
-  const lastActivity = stats.serverState.argonBlocksLastUpdatedAt;
+  const lastActivity = myMiningSeats.serverState.argonBlocksLastUpdatedAt;
   return lastActivity ? dayjs.utc(lastActivity).local() : null;
 });
 

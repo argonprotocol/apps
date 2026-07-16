@@ -43,7 +43,7 @@ import { IVaultRecord, VaultsTable } from './db/VaultsTable.ts';
 import { IVaultingRules } from '../interfaces/IVaultingRules.ts';
 import { Vaults } from './Vaults.ts';
 import BitcoinLocks from './BitcoinLocks.ts';
-import { MyVaultRecovery } from './MyVaultRecovery.ts';
+import { MyVaultRecovery } from './recovery/MyVaultDiscovery.ts';
 import { type IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
 import { TransactionTracker, TxAttemptState } from './TransactionTracker.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
@@ -56,6 +56,7 @@ import { Config } from './Config.ts';
 import { ICollectOrphanCosignMetadata, IVaultCollectMetadata, VaultCollectBuilder } from './VaultCollectBuilder.ts';
 import { getSpendableDefaultArgonMicrogons } from './WalletForArgon.ts';
 import bs58check from 'bs58check';
+import { VaultHistory } from './recovery/MyVault.ts';
 
 export const DEFAULT_MASTER_XPUB_PATH = "m/84'/0'/0'";
 
@@ -137,6 +138,7 @@ export class MyVault {
   #pendingCosignUpdateSeq = 0;
   #externalLocksUpdateSeq = 0;
   public readonly collectBuilder: VaultCollectBuilder;
+  public readonly history: VaultHistory;
 
   constructor(
     private readonly dbPromise: Promise<Db>,
@@ -169,6 +171,7 @@ export class MyVault {
     this.#transactionTracker = transactionTracker;
     bitcoinLocks.myVault = this;
     this.collectBuilder = new VaultCollectBuilder(this);
+    this.history = new VaultHistory(dbPromise, () => walletKeys.defaultArgonAddress);
   }
 
   public async getBitcoinNetwork(): Promise<BitcoinNetwork> {
@@ -1145,22 +1148,33 @@ export class MyVault {
     };
   }
 
-  public async getCollectedAmount(txInfo: TransactionInfo<{ vaultId: number }>): Promise<bigint | undefined> {
-    const { txResult, tx } = txInfo;
-    const { vaultId } = tx.metadataJson;
-    await txResult.waitForInFirstBlock;
-    await this.#transactionTracker.ensureStoredEvents(txInfo);
-    const client = await getMainchainClient(false);
+  public async recordFinalizedVaultCapital(txInfo: TransactionInfo): Promise<void> {
+    try {
+      const finalizedBlockHash = await txInfo.txResult.waitForFinalizedBlock;
+      const vaultId = this.vaultId;
+      if (vaultId === undefined) return;
 
-    for (const event of txResult.events) {
-      if (client.events.vaults.VaultCollected.is(event)) {
-        const { vaultId: eventVaultId, revenue: eventRevenue } = event.data;
-        if (eventVaultId.toNumber() === vaultId) {
-          return eventRevenue.toBigInt();
-        }
-      }
+      const client = await getMainchainClient(true);
+      const api = await client.at(finalizedBlockHash);
+      const [vault, blockNumber] = await Promise.all([Vault.get(api, vaultId), api.query.system.number()]);
+      this.data.createdVault = vault;
+
+      const block = await this.miningFrames.blockWatch.getHeader(blockNumber.toNumber());
+      const db = await this.dbPromise;
+      await db.vaultCapitalHistoryTable.insert({
+        eventType: 'modified',
+        walletAddress: this.walletKeys.defaultArgonAddress,
+        vaultId,
+        securitization: vault.securitization,
+        securitizationTarget: bigIntMax(vault.securitization - vault.getRelockCapacity(), 0n),
+        blockNumber: blockNumber.toNumber(),
+        blockHash: txInfo.tx.blockHash ?? u8aToHex(finalizedBlockHash),
+        blockTime: new Date(block.blockTime),
+        extrinsicIndex: txInfo.tx.blockExtrinsicIndex ?? txInfo.txResult.extrinsicIndex,
+      });
+    } catch (error) {
+      console.warn('Unable to save finalized vault capital history', error);
     }
-    return undefined;
   }
 
   public async onVaultCollect(txInfo: TransactionInfo<IVaultCollectMetadata>): Promise<void> {
@@ -1171,10 +1185,35 @@ export class MyVault {
     try {
       const { txResult } = txInfo;
       const client = await getMainchainClient(false);
-      await txResult.waitForFinalizedBlock;
+      const finalizedBlockHash = await txResult.waitForFinalizedBlock;
       await this.trackTxResultFee(txResult);
+      await this.#transactionTracker.ensureStoredEvents(txInfo);
+      const collectedEvent = txResult.events.find(event => {
+        return client.events.vaults.VaultCollected.is(event) && event.data.vaultId.toNumber() === vaultId;
+      });
+      const revenue =
+        collectedEvent && client.events.vaults.VaultCollected.is(collectedEvent)
+          ? collectedEvent.data.revenue.toBigInt()
+          : undefined;
+      if (revenue !== undefined) {
+        try {
+          const blockNumber = txResult.blockNumber ?? txInfo.tx.blockHeight;
+          if (blockNumber === undefined) throw new Error('Finalized vault collect is missing its block number');
 
-      const revenue = await this.getCollectedAmount(txInfo);
+          const [db, block] = await Promise.all([this.dbPromise, this.miningFrames.blockWatch.getHeader(blockNumber)]);
+          await db.vaultRevenueEventsTable.insert({
+            amount: revenue,
+            source: 'vaultCollect',
+            blockNumber,
+            blockHash: txInfo.tx.blockHash ?? u8aToHex(finalizedBlockHash),
+            blockTime: new Date(block.blockTime),
+            extrinsicIndex: txInfo.tx.blockExtrinsicIndex ?? txResult.extrinsicIndex,
+          });
+        } catch (error) {
+          console.warn('Unable to save finalized vault revenue history', error);
+        }
+      }
+
       if (isDefaultArgonMoveTo(txInfo.tx.metadataJson.moveTo) && revenue && revenue > 0n) {
         const txSigner = await this.walletKeys.getVaultingKeypair();
         const followOnTx = this.#transactionTracker.createIntentForFollowOnTx(txInfo);
@@ -1317,13 +1356,30 @@ export class MyVault {
       if (!vaultId) {
         throw new Error('VaultCreated event not found in transaction events');
       }
-      const vault = await Vault.get(api as any, vaultId);
+      const vault = await Vault.get(api, vaultId);
       await this.recordVault({
         vault,
         createBlockNumber: blockNumber.toNumber(),
         txFee: txResult.finalFee ?? 0n,
         masterXpubPath: tx.metadataJson.masterXpubPath,
       });
+
+      try {
+        const block = await this.miningFrames.blockWatch.getHeader(blockNumber.toNumber());
+        const db = await this.dbPromise;
+        await db.vaultCapitalHistoryTable.insert({
+          eventType: 'created',
+          walletAddress: this.walletKeys.defaultArgonAddress,
+          vaultId,
+          securitization: vault.securitization,
+          blockNumber: blockNumber.toNumber(),
+          blockHash: tx.blockHash ?? u8aToHex(blockHash),
+          blockTime: new Date(block.blockTime),
+          extrinsicIndex: tx.blockExtrinsicIndex ?? txResult.extrinsicIndex,
+        });
+      } catch (error) {
+        console.warn('Unable to save finalized vault creation history', error);
+      }
       postProcessor.resolve();
       return vault;
     } catch (error) {
@@ -1616,6 +1672,7 @@ export class MyVault {
     try {
       await txResult.waitForFinalizedBlock;
       await this.trackTxResultFee(txResult);
+      await this.recordFinalizedVaultCapital(txInfo);
       console.log('Vault settings updated');
       postProcessor.resolve();
     } catch (error) {
@@ -1690,6 +1747,7 @@ export class MyVault {
     try {
       await txResult.waitForFinalizedBlock;
       await this.trackTxResultFee(txResult);
+      await this.recordFinalizedVaultCapital(txInfo);
 
       const { microgonsForSecuritization } = tx.metadataJson;
       console.log('Saving vault updates', {
@@ -1762,6 +1820,7 @@ export class MyVault {
     try {
       await txResult.waitForFinalizedBlock;
       await this.trackTxResultFee(txResult);
+      await this.recordFinalizedVaultCapital(txInfo);
       postProcessor.resolve();
     } catch (error) {
       postProcessor.reject(error as Error);
@@ -1794,7 +1853,7 @@ export class MyVault {
       throw new Error('No metadata available to record fee');
     }
     this.metadata.operationalFeeMicrogons ??= 0n;
-    this.metadata.operationalFeeMicrogons += (txResult.finalFee ?? 0n) + (txResult.finalFeeTip ?? 0n);
+    this.metadata.operationalFeeMicrogons += txResult.finalFee ?? 0n;
   }
 
   private async getTable(): Promise<VaultsTable> {

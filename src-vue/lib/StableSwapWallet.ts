@@ -1,4 +1,3 @@
-import { calculateProfitPct } from '@argonprotocol/apps-core';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 import { PriceIndex } from '@argonprotocol/mainchain';
 import { decodeEventLog, isAddressEqual, type Address, type Hash, type PublicClient } from 'viem';
@@ -19,7 +18,6 @@ import { type IStableSwapSyncStateRecord } from './db/StableSwapSyncStateTable.t
 import {
   createStableSwapSdkPool,
   decimalToFixed18,
-  ETHEREUM_ARGON_DECIMALS,
   FIXED_18,
   fixed18ToMicrogons,
   getStableSwapArgonToken,
@@ -33,6 +31,7 @@ import {
   usdcToMicrogons,
 } from './StableSwapUtils.ts';
 import { loadEthereumChainConfig } from './EthereumClient.ts';
+import { convertEthereumTokenBaseUnitsToRuntimeAmount } from './WalletForEthereum.ts';
 
 export { buildStableSwapReceiptProofs, type StableSwapReceiptProof };
 
@@ -102,6 +101,7 @@ export async function buildStableSwapPurchaseFromTransaction(args: {
     argonPriceCache,
   );
   const costBasisFixed18 = usdcToFixed18(costBasisUsdc);
+  const basisMicrogonsPerUsd = argonPriceSnapshot.microgonsPerUsd ?? microgonsPerUsd;
   const chainConfig = await loadEthereumChainConfig();
   const argonTokenAddress = chainConfig?.argonTokenAddress;
   if (!argonTokenAddress) {
@@ -121,14 +121,14 @@ export async function buildStableSwapPurchaseFromTransaction(args: {
     poolFee: pool.poolFee,
     ethereumArgonAmount,
     costBasisUsdc,
-    costBasisMicrogons: usdcToMicrogons(costBasisUsdc, microgonsPerUsd),
+    costBasisMicrogons: usdcToMicrogons(costBasisUsdc, basisMicrogonsPerUsd),
     effectiveBuyPriceMicrogons: fixed18ToMicrogons(
       (costBasisFixed18 * FIXED_18) / ethereumArgonAmount,
-      microgonsPerUsd,
+      basisMicrogonsPerUsd,
     ),
     uniswapPriceMicrogons: fixed18ToMicrogons(
       stableSwapSdkPriceToFixed18(createStableSwapSdkPool(pool, argonToken, lastPoolState).priceOf(argonToken)),
-      microgonsPerUsd,
+      basisMicrogonsPerUsd,
     ),
     argonBlockNumber: argonPriceSnapshot.argonBlockNumber,
     argonBlockHash: argonPriceSnapshot.argonBlockHash,
@@ -151,7 +151,10 @@ export function hydrateStableSwapWallet(
   }
 
   const hydratedPurchases = purchases.map(purchase => {
-    const currentValueMicrogons = calculateCurrentValueMicrogons(purchase.ethereumArgonAmount, currentPriceMicrogons);
+    const currentValueMicrogons = calculateStableSwapCurrentValueMicrogons(
+      convertEthereumTokenBaseUnitsToRuntimeAmount(purchase.ethereumArgonAmount),
+      currentPriceMicrogons,
+    );
     return {
       ...purchase,
       currentValueMicrogons,
@@ -159,9 +162,19 @@ export function hydrateStableSwapWallet(
     };
   });
 
-  const capitalAppliedMicrogons = hydratedPurchases.reduce((sum, purchase) => sum + purchase.costBasisMicrogons, 0n);
-  const currentValueMicrogons = hydratedPurchases.reduce((sum, purchase) => sum + purchase.currentValueMicrogons, 0n);
-  const currentProfitMicrogons = currentValueMicrogons - capitalAppliedMicrogons;
+  let capitalAppliedMicrogons = 0n;
+  let currentValueMicrogons = 0n;
+  let purchasedNativeAmount = 0n;
+  let hasHistoricalBasis = true;
+  let startedAt: Date | undefined;
+
+  for (const purchase of hydratedPurchases) {
+    capitalAppliedMicrogons += purchase.costBasisMicrogons;
+    currentValueMicrogons += purchase.currentValueMicrogons;
+    purchasedNativeAmount += convertEthereumTokenBaseUnitsToRuntimeAmount(purchase.ethereumArgonAmount);
+    hasHistoricalBasis &&= purchase.argonOracleTargetPriceMicrogons !== undefined;
+    if (!startedAt || purchase.ethereumTimestamp < startedAt) startedAt = purchase.ethereumTimestamp;
+  }
 
   return {
     startedTracking: false,
@@ -171,9 +184,9 @@ export function hydrateStableSwapWallet(
       watchedSinceBlockNumber: syncState.startBlockNumber,
       capitalAppliedMicrogons,
       currentValueMicrogons,
-      currentProfitMicrogons,
-      returnPct: calculateProfitPct(capitalAppliedMicrogons, currentValueMicrogons) * 100,
-      purchaseCount: hydratedPurchases.length,
+      purchasedNativeAmount,
+      hasHistoricalBasis,
+      startedAt,
     },
     syncState,
   };
@@ -223,21 +236,33 @@ export async function syncStableSwapWallet(args: {
       walletAddress,
       startBlockNumber: currentBlockNumber,
       lastScannedBlockNumber: currentBlockNumber,
+      isPurchaseBasisIntact: true,
     }))!;
     startedTracking = true;
     message = 'Tracking this wallet from the current Ethereum block.';
   }
 
   if (syncState.lastScannedBlockNumber < currentBlockNumber) {
-    const transferLogs = await client.getLogs({
-      address: argonTokenAddress,
-      event: STABLE_SWAP_TRANSFER_EVENT,
-      args: {
-        to: walletAddress,
-      },
-      fromBlock: BigInt(syncState.lastScannedBlockNumber + 1),
-      toBlock: BigInt(currentBlockNumber),
-    });
+    const [transferLogs, outgoingTransferLogs] = await Promise.all([
+      client.getLogs({
+        address: argonTokenAddress,
+        event: STABLE_SWAP_TRANSFER_EVENT,
+        args: {
+          to: walletAddress,
+        },
+        fromBlock: BigInt(syncState.lastScannedBlockNumber + 1),
+        toBlock: BigInt(currentBlockNumber),
+      }),
+      client.getLogs({
+        address: argonTokenAddress,
+        event: STABLE_SWAP_TRANSFER_EVENT,
+        args: {
+          from: walletAddress,
+        },
+        fromBlock: BigInt(syncState.lastScannedBlockNumber + 1),
+        toBlock: BigInt(currentBlockNumber),
+      }),
+    ]);
 
     const txHashes = [
       ...new Set(transferLogs.map(log => log.transactionHash).filter((hash): hash is `0x${string}` => Boolean(hash))),
@@ -271,6 +296,7 @@ export async function syncStableSwapWallet(args: {
       walletAddress,
       startBlockNumber: syncState.startBlockNumber,
       lastScannedBlockNumber: currentBlockNumber,
+      isPurchaseBasisIntact: syncState.isPurchaseBasisIntact && outgoingTransferLogs.length === 0,
     }))!;
   }
 
@@ -342,8 +368,11 @@ export async function backfillStableSwapProofs(args: {
   }
 }
 
-function calculateCurrentValueMicrogons(ethereumArgonAmount: bigint, priceMicrogons: bigint): bigint {
-  return (ethereumArgonAmount * priceMicrogons) / 10n ** BigInt(ETHEREUM_ARGON_DECIMALS);
+export function calculateStableSwapCurrentValueMicrogons(
+  nativeAmountMicrogons: bigint,
+  priceMicrogons: bigint,
+): bigint {
+  return (nativeAmountMicrogons * priceMicrogons) / 1_000_000n;
 }
 
 async function getArgonPriceSnapshotAtTimestamp(
@@ -380,15 +409,26 @@ async function getArgonPriceSnapshotAtTimestamp(
   const priceIndex = new PriceIndex();
   await priceIndex.load(clientAt);
 
+  const argonTargetPriceFixed18 = priceIndex.argonUsdTargetPrice
+    ? decimalToFixed18(priceIndex.argonUsdTargetPrice.toString())
+    : undefined;
+  const historicalMicrogonsPerUsd = argonTargetPriceFixed18
+    ? (FIXED_18 * 1_000_000n) / argonTargetPriceFixed18
+    : undefined;
+
   const result = {
     argonBlockNumber: matchedBlockNumber,
     argonBlockHash: header.blockHash,
     argonOraclePriceMicrogons: priceIndex.argonUsdPrice
-      ? fixed18ToMicrogons(decimalToFixed18(priceIndex.argonUsdPrice.toString()), microgonsPerUsd)
+      ? fixed18ToMicrogons(
+          decimalToFixed18(priceIndex.argonUsdPrice.toString()),
+          historicalMicrogonsPerUsd ?? microgonsPerUsd,
+        )
       : undefined,
-    argonOracleTargetPriceMicrogons: priceIndex.argonUsdTargetPrice
-      ? fixed18ToMicrogons(decimalToFixed18(priceIndex.argonUsdTargetPrice.toString()), microgonsPerUsd)
+    argonOracleTargetPriceMicrogons: argonTargetPriceFixed18
+      ? fixed18ToMicrogons(argonTargetPriceFixed18, historicalMicrogonsPerUsd ?? microgonsPerUsd)
       : undefined,
+    microgonsPerUsd: historicalMicrogonsPerUsd,
   };
 
   cache?.set(matchedBlockNumber, result);
