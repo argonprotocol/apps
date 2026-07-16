@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BlockWatch, type IBlockHeaderInfo } from '../src/BlockWatch.ts';
+import { MainchainClients } from '../src/MainchainClients.ts';
 
 type IBlockApi = Awaited<ReturnType<BlockWatch['getApi']>>;
 
@@ -108,6 +109,8 @@ describe('BlockWatch archive recovery', () => {
   });
 
   it('retries block api lookup on archive when pruned cannot decorate the supplied hash', async () => {
+    vi.spyOn(BlockWatch, 'readHeader').mockImplementation(readMockHeader);
+
     const blockApi = { query: { system: { events: vi.fn() } } };
     const prunedClient = {
       at: vi.fn().mockRejectedValue(new Error('Unable to retrieve header and parent from supplied hash')),
@@ -124,6 +127,114 @@ describe('BlockWatch archive recovery', () => {
     expect(prunedClient.at).toHaveBeenCalledWith('0xblock');
     expect(archiveClient.at).toHaveBeenCalledWith('0xblock');
     expect(result).toBe(blockApi);
+  });
+
+  it('does not query archive block state before archive has finalized the requested height', async () => {
+    vi.spyOn(BlockWatch, 'readHeader').mockImplementation(readMockHeader);
+
+    const archiveFinalizedHeader = createHeaderInfo(109, '0xarchive-finalized', '0x108');
+    const error = new Error('Unable to retrieve header and parent from supplied hash');
+    const prunedClient = {
+      at: vi.fn().mockRejectedValue(error),
+    };
+    const archiveClient = {
+      at: vi.fn().mockRejectedValue(error),
+      rpc: {
+        chain: {
+          getFinalizedHead: vi.fn().mockResolvedValue(archiveFinalizedHeader.blockHash),
+          getHeader: vi.fn().mockResolvedValue({ __info: archiveFinalizedHeader }),
+        },
+      },
+    };
+    const blockWatch = new BlockWatch(createClients(prunedClient, archiveClient) as any);
+    blockWatch.latestHeaders = [createHeaderInfo(100, '0xfinalized', '0xfinalized-parent')];
+    getInternalBlockWatch(blockWatch).activeSource = 'pruned';
+
+    await expect(blockWatch.getApi(createHeaderInfo(110, '0xblock', '0xparent'))).rejects.toBe(error);
+
+    expect(archiveClient.rpc.chain.getFinalizedHead).toHaveBeenCalledOnce();
+    expect(archiveClient.rpc.chain.getHeader).toHaveBeenCalledWith(archiveFinalizedHeader.blockHash);
+    expect(archiveClient.at).not.toHaveBeenCalled();
+  });
+
+  it('shares one timeout across archive finality checks', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(BlockWatch, 'readHeader').mockImplementation(readMockHeader);
+
+    try {
+      const error = new Error('Unable to retrieve header and parent from supplied hash');
+      const prunedClient = {
+        at: vi.fn().mockRejectedValue(error),
+      };
+      const archiveClient = {
+        at: vi.fn(),
+        rpc: {
+          chain: {
+            getFinalizedHead: vi.fn(
+              () => new Promise(resolve => setTimeout(() => resolve('0xarchive-finalized'), 80e3)),
+            ),
+            getHeader: vi.fn(() => new Promise(() => undefined)),
+          },
+        },
+      };
+      const blockWatch = new BlockWatch(createClients(prunedClient, archiveClient) as any);
+      blockWatch.latestHeaders = [createHeaderInfo(100, '0xfinalized', '0xfinalized-parent')];
+      getInternalBlockWatch(blockWatch).activeSource = 'pruned';
+
+      const resultPromise = blockWatch.getApi(createHeaderInfo(110, '0xblock', '0xparent'));
+      const resultAssertion = expect(resultPromise).rejects.toBe(error);
+      await vi.advanceTimersByTimeAsync(120e3);
+
+      await resultAssertion;
+      expect(archiveClient.rpc.chain.getFinalizedHead).toHaveBeenCalledOnce();
+      expect(archiveClient.rpc.chain.getHeader).toHaveBeenCalledWith('0xarchive-finalized');
+      expect(archiveClient.at).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('preserves repeated archive state failures after finality is covered', async () => {
+    vi.spyOn(BlockWatch, 'readHeader').mockImplementation(readMockHeader);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const finalizedHeader = createHeaderInfo(110, '0xarchive-finalized', '0x109');
+    const archiveClient = {
+      at: vi.fn(() => Promise.reject(new Error('4003: State already discarded for 0xblock'))),
+      on: vi.fn(),
+      rpc: {
+        chain: {
+          getFinalizedHead: vi.fn().mockResolvedValue(finalizedHeader.blockHash),
+          getHeader: vi.fn().mockResolvedValue({ __info: finalizedHeader }),
+        },
+      },
+    };
+    const prunedClient = {
+      at: vi.fn().mockRejectedValue(new Error('Unable to retrieve header and parent from supplied hash')),
+    };
+    const clients = new MainchainClients('ws://archive', () => false, archiveClient as any);
+    clients.prunedClientPromise = Promise.resolve(prunedClient as any);
+    const degraded = vi.fn();
+    clients.events.on('degraded', degraded);
+
+    const blockWatch = new BlockWatch(clients);
+    blockWatch.latestHeaders = [createHeaderInfo(100, '0xfinalized', '0xfinalized-parent')];
+    getInternalBlockWatch(blockWatch).activeSource = 'pruned';
+
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      await expect(blockWatch.getApi(createHeaderInfo(110, '0xblock', '0xparent'))).rejects.toThrow(
+        'State already discarded',
+      );
+    }
+
+    expect(archiveClient.rpc.chain.getFinalizedHead).toHaveBeenCalledOnce();
+    expect(archiveClient.rpc.chain.getHeader).toHaveBeenCalledOnce();
+    expect(archiveClient.at).toHaveBeenCalledTimes(6);
+    expect(degraded).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('4003') }),
+      'archive',
+    );
   });
 
   it('retries start after an initial startup failure without an explicit stop', async () => {
@@ -242,6 +353,8 @@ describe('BlockWatch archive recovery', () => {
   });
 
   it('retries signed block lookup on archive when the selected client disconnects', async () => {
+    vi.spyOn(BlockWatch, 'readHeader').mockImplementation(readMockHeader);
+
     const signedBlock = { block: { extrinsics: [] } };
     const prunedClient = {
       rpc: {
@@ -459,11 +572,12 @@ describe('BlockWatch archive recovery', () => {
 
       await blockWatch.start('pruned');
       await onNewHead({ __info: staleHead });
-      await vi.waitFor(() => expect(archiveClient.rpc.chain.getHeader).toHaveBeenCalledWith(staleHead.parentHash));
+      await vi.waitFor(() => expect(archiveClient.rpc.chain.getFinalizedHead).toHaveBeenCalledOnce());
       await vi.runAllTimersAsync();
 
       expect(getInternalBlockWatch(blockWatch).activeSource).toBe('pruned');
       expect(archiveClient.rpc.chain.subscribeNewHeads).not.toHaveBeenCalled();
+      expect(archiveClient.rpc.chain.getHeader).not.toHaveBeenCalledWith(staleHead.parentHash);
       expect(blockWatch.latestHeaders).toEqual([finalizedHeader]);
 
       await onNewHead({ __info: nextHeader });
@@ -573,6 +687,21 @@ function createHeaderInfo(blockNumber: number, blockHash: string, parentHash: st
 }
 
 function createClients(prunedClient: unknown, archiveClient: unknown, clientEventUnsubscribes?: Array<() => void>) {
+  const archive = archiveClient as any;
+  archive.rpc ??= {};
+  archive.rpc.chain ??= {};
+  if (!archive.rpc.chain.getFinalizedHead) {
+    const finalizedHash = '0xtest-archive-finalized';
+    const getHeader = archive.rpc.chain.getHeader as ((hash?: string) => Promise<unknown>) | undefined;
+    archive.rpc.chain.getFinalizedHead = vi.fn().mockResolvedValue(finalizedHash);
+    archive.rpc.chain.getHeader = vi.fn(async (hash?: string) => {
+      if (hash === finalizedHash) {
+        return { __info: createHeaderInfo(Number.MAX_SAFE_INTEGER, finalizedHash, '0xparent') };
+      }
+      return getHeader ? await getHeader(hash) : undefined;
+    });
+  }
+
   let unsubscribeIndex = 0;
   return {
     prunedClientPromise: Promise.resolve(prunedClient),
