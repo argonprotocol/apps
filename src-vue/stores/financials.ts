@@ -138,17 +138,22 @@ export const useFinancials = defineStore('financials', () => {
     return promise;
   }
 
-  async function loadEnabledDomainSources(requiredLoads: Promise<unknown>[] = []): Promise<void> {
-    const loads = [...requiredLoads];
+  async function loadEnabledDomainSources(): Promise<void> {
+    const loads: Promise<unknown>[] = [];
     if (config.hasExtensionTreasury) {
       loads.push(argonBonds.load(), bitcoinLocks.load(), vaultStore.load(), getVaultingStatsSource().isLoadedPromise);
     }
     if (config.hasExtensionOperations) {
       loads.push(getMyMiningSeatsSource().isLoadedPromise, myVault.load());
     }
-    await Promise.all(loads);
+    const results = await Promise.allSettled(loads);
 
-    if (config.hasExtensionTreasury) await Promise.all([loadVaults(), loadLocks()]);
+    if (config.hasExtensionTreasury) {
+      results.push(...(await Promise.allSettled([loadVaults(), loadLocks()])));
+    }
+    for (const result of results) {
+      if (result.status === 'rejected') console.error('Unable to load a financial domain', result.reason);
+    }
   }
 
   async function publishWalletPositions(): Promise<void> {
@@ -392,6 +397,10 @@ export const useFinancials = defineStore('financials', () => {
 
   async function publishStableSwapPosition(): Promise<void> {
     const refresh = financialPositionBook.beginRefresh('stableSwaps');
+    if (!config.hasExtensionTreasury) {
+      financialPositionBook.publish(refresh, [], { observedAt: new Date() });
+      return;
+    }
     if (wallets.ethereumWallet.fetchErrorMsg) {
       financialPositionBook.fail(refresh, wallets.ethereumWallet.fetchErrorMsg);
       return;
@@ -412,6 +421,11 @@ export const useFinancials = defineStore('financials', () => {
   }
 
   async function refreshStableSwapPosition(): Promise<void> {
+    if (!config.hasExtensionTreasury) {
+      await publishStableSwapPosition();
+      return;
+    }
+
     try {
       if (stableSwaps.marketSnapshot) {
         await stableSwaps.refreshWalletSnapshot();
@@ -778,7 +792,7 @@ export const useFinancials = defineStore('financials', () => {
 
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-  async function load() {
+  function setFinancialScope(): void {
     const ownedAccounts = [
       wallets.defaultArgonWallet.address,
       wallets.miningBotWallet.address,
@@ -789,8 +803,14 @@ export const useFinancials = defineStore('financials', () => {
     financialPositionBook.setScope({
       ownedAccounts: [...new Set(ownedAccounts)],
     });
+  }
+
+  async function load() {
+    setFinancialScope();
     await config.isLoadedPromise;
-    await loadEnabledDomainSources([wallets.isLoadedPromise, currency.isLoadedPromise]);
+    await Promise.all([wallets.isLoadedPromise, currency.isLoadedPromise]);
+    setFinancialScope();
+    await loadEnabledDomainSources();
 
     savingsIsLoaded.value = true;
 
@@ -798,7 +818,7 @@ export const useFinancials = defineStore('financials', () => {
       vaultsIsLoaded.value = true;
     }
     await refreshAccountSnapshot(getBlockWatch().finalizedBlockHeader);
-    if (config.hasExtensionTreasury || wallets.ethereumWallet.availableMicrogons > 0n) {
+    if (config.hasExtensionTreasury) {
       await refreshStableSwapPosition();
     } else {
       await publishStableSwapPosition();

@@ -10,8 +10,7 @@
     "generate:historical-events": "tsx src/generateHistoricalEventSpecs.ts",
     "sync": "tsx src/syncSeed.ts",
     "extract": "tsx src/seedArtifacts.ts extract",
-    "manifest": "tsx src/createSeedManifest.ts",
-    "testBlock": "tsx src/testBlock.ts"
+    "manifest": "tsx src/createSeedManifest.ts"
   },
   "type": "module",
   "main": "src/index.ts",

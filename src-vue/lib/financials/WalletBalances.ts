@@ -65,7 +65,7 @@ export class WalletFinancials
         : {
             activeLotsByAccount: new Map(),
             completedPositions: [],
-            incompleteAccounts: new Set(args.accounts.map(account => account.address)),
+            incompleteAccounts: new Set<string>(),
           };
 
     return this.createFinancialPositions({

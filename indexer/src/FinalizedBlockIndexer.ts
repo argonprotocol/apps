@@ -79,10 +79,11 @@ export class FinalizedBlockIndexer {
     } as Parameters<LegacyIndexerDb['recordFinalizedBlock']>[0];
 
     for (const { extrinsicEvents, extrinsicIndex } of groupEventsByExtrinsic(events)) {
-      for (const event of extrinsicEvents) {
+      for (const [eventIndex, event] of extrinsicEvents.entries()) {
         const transfer = decodeWalletTransfer({
           extrinsicIndex,
           extrinsicEvents,
+          eventIndex,
           client,
           event,
         });

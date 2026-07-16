@@ -14,6 +14,8 @@ import {
 import { createMockWalletKeys } from './helpers/wallet.ts';
 import { bigintCodec, numberCodec } from '../../core/__test__/helpers/codecs.ts';
 import { Vault } from '@argonprotocol/mainchain';
+import BigNumber from 'bignumber.js';
+import { MyVaultRecovery } from '../lib/recovery/MyVaultRecovery.ts';
 
 type IMyVaultTestTarget = {
   buildPendingOrphanCosignTxs(args: {
@@ -35,6 +37,31 @@ type IMyVaultTestTarget = {
   trackTxResultFee(txResult: unknown): Promise<void>;
   recordFee(txResult: { finalFee?: bigint; finalFeeTip?: bigint }): void;
 };
+
+describe('MyVaultRecovery', () => {
+  it('restores sensible percentages when the vault has no committed capital', () => {
+    const rules = MyVaultRecovery.rebuildRules({
+      feesInMicrogons: 0n,
+      vault: {
+        securitization: 0n,
+        securitizationRatio: 1,
+        terms: {
+          treasuryProfitSharing: BigNumber(0.1),
+          treasuryBonusProfitSharing: BigNumber(0),
+          bitcoinBaseFee: 0n,
+          bitcoinAnnualPercentRate: BigNumber(0.02),
+        },
+      },
+    });
+
+    expect(rules).toMatchObject({
+      baseMicrogonCommitment: 0n,
+      capitalForSecuritizationPct: 100,
+      capitalForTreasuryPct: 0,
+      personalBtcPct: 0,
+    });
+  });
+});
 
 describe('MyVault cosign recovery', () => {
   it('does not add the informational tip to the actual transaction fee twice', () => {

@@ -8,9 +8,10 @@ export function decodeWalletTransfer(args: {
   client: ArgonClient;
   event: GenericEvent;
   extrinsicEvents: readonly GenericEvent[];
+  eventIndex: number;
   extrinsicIndex?: number;
 }): Omit<IWalletTransferRecord, 'blockNumber'> | undefined {
-  const { client, event, extrinsicEvents, extrinsicIndex } = args;
+  const { client, event, extrinsicEvents, eventIndex, extrinsicIndex } = args;
   if (extrinsicIndex === undefined) return;
 
   if (client.events.balances.BalanceSet.is(event)) {
@@ -41,7 +42,7 @@ export function decodeWalletTransfer(args: {
     };
   }
 
-  if (!isUserTransferEventSet(extrinsicEvents)) return;
+  if (!isUserTransferEventSet(extrinsicEvents, eventIndex)) return;
 
   if (client.events.balances.Transfer.is(event)) {
     return {
