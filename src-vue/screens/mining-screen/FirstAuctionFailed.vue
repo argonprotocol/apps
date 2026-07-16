@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <div class="grow relative bg-white rounded border border-[#CCCEDA] shadow text-center m-3">
+  <div class="grow relative bg-white rounded border border-[#CCCEDA] shadow text-center">
     <div class="relative mx-auto inline-block w-6/10">
       <div class="text-5xl font-bold text-gray-600 text-center mt-32 mb-4 whitespace-nowrap border-t border-gray-300 pt-16">
         YOUR BIDDING BOT

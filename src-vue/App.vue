@@ -6,7 +6,7 @@
   </template>
   <div v-else class="h-screen w-screen flex flex-col overflow-hidden cursor-default">
     <TopBar />
-    <div v-if="controller.isLoaded && !controller.isImporting" class="flex flex-row grow gap-x-2 px-2 pt-2 pb-2 overflow-scroll">
+    <div v-if="controller.isLoaded && !controller.isImporting" class="flex flex-row grow gap-x-2 pl-2 pt-2 pb-2 overflow-scroll">
       <LeftBar />
       <main v-if="controller.isLoaded && !controller.isImporting" class="grow min-h-0 relative flex flex-col overflow-hidden">
         <AlertBars />
@@ -33,6 +33,7 @@
 
           <Mining v-else-if="controller.selectedTab === TopTab.Mining" />
           <Vaulting v-else-if="controller.selectedTab === TopTab.Vaulting" />
+          <Invites v-else-if="controller.selectedTab === TopTab.Invites" />
         </div>
       </main>
     </div>
@@ -140,6 +141,7 @@ import WelcomeToTreasuryOverlay from './overlays/WelcomeToTreasuryOverlay.vue';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import UpgradeToOperationsOverlay from './overlays/UpgradeToOperationsOverlay.vue';
 import UpgradeToTreasuryOverlay from './overlays/UpgradeToTreasuryOverlay.vue';
+import Invites from './screens/Invites.vue';
 
 const controller = useCertificationController();
 const config = getConfig();

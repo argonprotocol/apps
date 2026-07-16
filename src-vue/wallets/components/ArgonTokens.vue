@@ -1,6 +1,6 @@
 <template>
   <ul>
-    <li class="relative flex flex-row gap-x-2 border-slate-400/50 py-2">
+    <li class="relative flex flex-row gap-x-2 border-t border-slate-400/50 py-2">
       <ArgonIcon class="h-6 w-6" />
       <div class="grow">{{ microgonToArgonNm(props.microgons).format('0,0.[00]') }} ARGN</div>
       <div>{{ currency.symbol }}{{ microgonToMoneyNm(props.microgons).format('0,0.00') }}</div>
@@ -36,7 +36,7 @@
         </button>
       </MoveCapitalButton>
     </li>
-    <li class="relative flex flex-row gap-x-2 border-t border-slate-400/50 py-2">
+    <li class="relative flex flex-row gap-x-2 border-y border-slate-400/50 py-2">
       <ArgonotIcon class="h-6 w-6" />
       <div class="grow">{{ micronotToArgonotNm(props.micronots).format('0,0.[00]') }} ARGNOT</div>
       <div>{{ currency.symbol }}{{ micronotToMoneyNm(props.micronots).format('0,0.00') }}</div>
