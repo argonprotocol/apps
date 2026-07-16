@@ -8,6 +8,7 @@ import {
   type IAllVaultStats,
   type IDeferred,
   type IVaultFrameStats,
+  type IVaultStats,
   MainchainClients,
   Mining,
   MiningFrames,
@@ -17,7 +18,13 @@ import BigNumber from 'bignumber.js';
 import mainnetVaultRevenueHistory from './data/vaultRevenue.mainnet.json' with { type: 'json' };
 import testnetVaultRevenueHistory from './data/vaultRevenue.testnet.json' with { type: 'json' };
 import { TreasuryBonds } from './TreasuryBonds.js';
-import { annualizeCompoundedReturn, annualizeSimpleReturn } from './FinancialReturns.js';
+import {
+  calculateAggregateReturn,
+  calculateAnnualPercentageRate,
+  calculateAnnualPercentageYield,
+} from './FinancialReturns.js';
+
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1_000;
 
 export class Vaults {
   public readonly vaultsById: { [id: number]: Vault } = {};
@@ -125,6 +132,7 @@ export class Vaults {
         frameId,
         microgonLiquidityAdded: microgonsAdded - microgonsRemoved,
         bitcoinFeeRevenue: revenue.bitcoinLockFeeRevenue.toBigInt(),
+        bitcoinFeeCouponValueUsed: revenue.bitcoinLockFeeCouponValueUsed?.toBigInt(),
         bitcoinLocksCreated: revenue.bitcoinLocksCreated.toNumber(),
         treasuryPool: {
           totalEarnings: (revenue.liquidityPoolTotalEarnings ?? revenue.treasuryTotalEarnings).toBigInt(),
@@ -175,7 +183,7 @@ export class Vaults {
       const oldestFrameToGet = this.stats.synchedToFrame - 10;
       const finalizedHead = this.miningFrames.blockWatch.finalizedBlockHeader;
       const frameIdsSeen = new Set<number>();
-      const vaultIdsSeen = new Set<number>();
+      const vaultFramesSeen = new Set<string>();
 
       await new FrameIterator(clients, this.miningFrames, 'VaultHistory').iterateFramesLimited(
         async (frameId, firstBlockMeta, api, abortController) => {
@@ -195,12 +203,13 @@ export class Vaults {
             const vaultId = vaultIdRaw.args[0].toNumber();
             for (const frameRevenue of frameRevenues) {
               const frameId = frameRevenue.frameId.toNumber();
-              if (!frameIdsSeen.has(frameId) || !vaultIdsSeen.has(vaultId)) {
+              const vaultFrame = `${vaultId}:${frameId}`;
+              if (!vaultFramesSeen.has(vaultFrame)) {
                 await this.updateVaultRevenue(vaultId, [frameRevenue], true);
                 frameIdsSeen.add(frameId);
+                vaultFramesSeen.add(vaultFrame);
               }
             }
-            vaultIdsSeen.add(vaultId);
           }
 
           if (frameId <= oldestFrameToGet) {
@@ -353,104 +362,113 @@ export class Vaults {
   }
 
   public calculateBondsApr(): number {
-    let epochExternalPoolCapital = 0n;
-    let epochExternalPoolEarnings = 0;
+    const frames = this.selectReturnFrames(this.stats);
+    const positions = frames.map(frame => {
+      if (frame.bitcoinFeeCouponValueUsed === undefined) {
+        throw new Error(`Vault frame ${frame.frameId} is missing bitcoin fee coupon usage`);
+      }
 
-    // TODO: We might want to update this once we have enough active Treasury app users
-    for (const vaultIdRaw of Object.keys(this.vaultsById)) {
-      const vaultId = Number(vaultIdRaw);
-      const vault = this.vaultsById[vaultId];
-      const totalPoolEarnings = this.treasuryPoolTotalEarnings(vaultId, 10);
-      const totalPoolCapital = this.contributedTotalTreasuryCapital(vaultId, 10);
-      if (!vault.terms.treasuryProfitSharing) continue;
-      if (!totalPoolEarnings) continue;
-      if (!totalPoolCapital) continue;
+      const externalEarnings = frame.treasuryPool.totalEarnings - frame.treasuryPool.vaultEarnings;
+      return {
+        startingCapital: frame.treasuryPool.externalCapital,
+        endingCapital: frame.treasuryPool.externalCapital + externalEarnings,
+      };
+    });
+    const result = calculateAggregateReturn(positions);
 
-      epochExternalPoolCapital += totalPoolCapital;
-      epochExternalPoolEarnings += BigNumber(totalPoolEarnings)
-        .multipliedBy(vault.terms.treasuryProfitSharing)
-        .toNumber();
-    }
-
-    let epochPoolEarningsRatio = 0;
-    if (epochExternalPoolCapital) {
-      epochPoolEarningsRatio = BigNumber(epochExternalPoolEarnings).div(epochExternalPoolCapital).toNumber();
-    }
-
-    return annualizeSimpleReturn(epochPoolEarningsRatio, 10);
-  }
-
-  private calculateEpochReturns(): [number, number] {
-    let yearFeeRevenue = 0n;
-    let securitization = 0n;
-    let epochPoolCapital = 0n;
-    let epochPoolEarnings = 0n;
-
-    for (const vaultIdRaw of Object.keys(this.vaultsById)) {
-      const vaultId = Number(vaultIdRaw);
-      yearFeeRevenue += this.getTrailingYearFeeRevenue(vaultId);
-      securitization += this.vaultsById[vaultId].securitization;
-      epochPoolCapital += this.contributedInternalTreasuryCapital(vaultId, 10);
-      epochPoolEarnings += this.treasuryPoolInternalEarnings(vaultId, 10);
-    }
-
-    let epochPoolEarningsRatio = 0;
-    if (epochPoolCapital) {
-      epochPoolEarningsRatio = BigNumber(epochPoolEarnings).div(epochPoolCapital).toNumber();
-    }
-
-    let feeApr = 0;
-    if (securitization > 0n) {
-      feeApr = BigNumber(yearFeeRevenue).div(securitization).toNumber();
-    }
-
-    return [epochPoolEarningsRatio, feeApr];
+    return calculateAnnualPercentageRate({
+      startingValue: result.eligibleCapitalInvested,
+      endingValue: result.eligibleCapitalInvested + result.totalProfits,
+      periodDays: this.returnFrameDays,
+    });
   }
 
   public calculateApr(): number {
-    const [epochPoolEarningsRatio, feeApr] = this.calculateEpochReturns();
-    const poolApr = annualizeSimpleReturn(epochPoolEarningsRatio, 10);
+    const result = this.calculateVaultReturn();
 
-    return poolApr + feeApr * 100;
+    return calculateAnnualPercentageRate({
+      startingValue: result.eligibleCapitalInvested,
+      endingValue: result.eligibleCapitalInvested + result.totalProfits,
+      periodDays: this.returnFrameDays,
+    });
   }
 
   public calculateApy(): number {
-    const [epochPoolEarningsRatio, feeApr] = this.calculateEpochReturns();
-    const poolApy = annualizeCompoundedReturn(epochPoolEarningsRatio, 10);
+    const result = this.calculateVaultReturn();
 
-    return poolApy + feeApr * 100;
-  }
-
-  private calculateEpochReturnsForVault(vaultId: number): [number, number] {
-    const vault = this.vaultsById[vaultId];
-
-    const yearFeeRevenue = Number(this.getTrailingYearFeeRevenue(vaultId));
-    const epochPoolCapital = Number(this.contributedInternalTreasuryCapital(vaultId, 10));
-    const epochPoolEarnings = Number(this.treasuryPoolInternalEarnings(vaultId, 10));
-    const epochPoolEarningsRatio = epochPoolCapital ? epochPoolEarnings / epochPoolCapital : 0;
-
-    const feeApr = vault.securitization > 0n ? yearFeeRevenue / Number(vault.securitization) : 0;
-
-    return [epochPoolEarningsRatio, feeApr];
+    return calculateAnnualPercentageYield({
+      startingValue: result.eligibleCapitalInvested,
+      endingValue: result.eligibleCapitalInvested + result.totalProfits,
+      periodDays: this.returnFrameDays,
+    });
   }
 
   public calculateVaultApr(vaultId: number): number {
-    const [epochPoolEarningsRatio, feeApr] = this.calculateEpochReturnsForVault(vaultId);
-    const poolApr = annualizeSimpleReturn(epochPoolEarningsRatio, 10);
+    const result = this.calculateVaultReturn(vaultId);
 
-    return poolApr + feeApr * 100;
+    return calculateAnnualPercentageRate({
+      startingValue: result.eligibleCapitalInvested,
+      endingValue: result.eligibleCapitalInvested + result.totalProfits,
+      periodDays: this.returnFrameDays,
+    });
   }
 
   public calculateVaultApy(vaultId: number): number {
-    const [epochPoolEarningsRatio, feeApr] = this.calculateEpochReturnsForVault(vaultId);
-    const poolApy = annualizeCompoundedReturn(epochPoolEarningsRatio, 10);
+    const result = this.calculateVaultReturn(vaultId);
 
-    return poolApy + feeApr * 100;
+    return calculateAnnualPercentageYield({
+      startingValue: result.eligibleCapitalInvested,
+      endingValue: result.eligibleCapitalInvested + result.totalProfits,
+      periodDays: this.returnFrameDays,
+    });
+  }
+
+  private calculateVaultReturn(vaultId?: number) {
+    const frames = this.selectReturnFrames(this.stats, vaultId);
+    const positions = frames.map(frame => {
+      if (frame.bitcoinFeeCouponValueUsed === undefined) {
+        throw new Error(`Vault frame ${frame.frameId} is missing bitcoin fee coupon usage`);
+      }
+
+      const profits = frame.treasuryPool.vaultEarnings + frame.bitcoinFeeRevenue - frame.bitcoinFeeCouponValueUsed;
+      return {
+        startingCapital: frame.securitization,
+        endingCapital: frame.securitization + profits,
+      };
+    });
+
+    return calculateAggregateReturn(positions);
+  }
+
+  private selectReturnFrames(stats?: IAllVaultStats, vaultId?: number): IVaultFrameStats[] {
+    if (!stats) return [];
+
+    let vaultStats: IVaultStats[] = Object.values(stats.vaultsById);
+    if (vaultId !== undefined) {
+      const selectedVault = stats.vaultsById[vaultId];
+      vaultStats = selectedVault ? [selectedVault] : [];
+    }
+
+    const oldestFrameId = stats.synchedToFrame - NetworkConfig.framesPerCohort + 1;
+    return vaultStats.flatMap(vault => {
+      return vault.changesByFrame.filter(
+        frame => frame.frameId >= oldestFrameId && frame.frameId <= stats.synchedToFrame,
+      );
+    });
+  }
+
+  private get returnFrameDays(): number {
+    return (NetworkConfig.rewardTicksPerFrame * NetworkConfig.tickMillis) / MILLISECONDS_PER_DAY;
   }
 
   private async loadStats(): Promise<IAllVaultStats> {
     const statsFromFile = await this.loadStatsFromFile();
-    if (statsFromFile) return statsFromFile;
+    if (statsFromFile) {
+      const recentFrames = this.selectReturnFrames(statsFromFile);
+      if (recentFrames.length > 0 && recentFrames.every(frame => frame.bitcoinFeeCouponValueUsed !== undefined)) {
+        return statsFromFile;
+      }
+    }
 
     const { synchedToFrame, vaultsById } =
       {
@@ -470,26 +488,30 @@ export class Vaults {
           microgonLiquidityRealized: convertBigIntStringToNumber(baseline.microgonLiquidityRealized as any) ?? 0n,
           satoshis: convertBigIntStringToNumber(baseline.satoshis as any) ?? 0n,
         },
-        changesByFrame: changesByFrame.map(
-          change =>
-            ({
-              frameId: change.frameId,
-              satoshisAdded: convertBigIntStringToNumber(change.satoshisAdded as any) ?? 0n,
-              bitcoinLocksCreated: change.bitcoinLocksCreated,
-              microgonLiquidityAdded: convertBigIntStringToNumber(change.microgonLiquidityAdded as any) ?? 0n,
-              bitcoinFeeRevenue: convertBigIntStringToNumber(change.bitcoinFeeRevenue as any) ?? 0n,
-              securitization: convertBigIntStringToNumber(change.securitization as any) ?? 0n,
-              securitizationRelockable: convertBigIntStringToNumber((change as any).securitizationRelockable) ?? 0n,
-              securitizationActivated: convertBigIntStringToNumber(change.securitizationActivated as any) ?? 0n,
-              treasuryPool: {
-                externalCapital: convertBigIntStringToNumber(change.treasuryPool.externalCapital as any) ?? 0n,
-                vaultCapital: convertBigIntStringToNumber(change.treasuryPool.vaultCapital as any) ?? 0n,
-                totalEarnings: convertBigIntStringToNumber(change.treasuryPool.totalEarnings as any) ?? 0n,
-                vaultEarnings: convertBigIntStringToNumber(change.treasuryPool.vaultEarnings as any) ?? 0n,
-              },
-              uncollectedEarnings: 0n,
-            }) as IVaultFrameStats,
-        ),
+        changesByFrame: changesByFrame.map(change => {
+          const bitcoinFeeCouponValueUsed =
+            'bitcoinFeeCouponValueUsed' in change
+              ? convertBigIntStringToNumber(change.bitcoinFeeCouponValueUsed)
+              : undefined;
+          return {
+            frameId: change.frameId,
+            satoshisAdded: convertBigIntStringToNumber(change.satoshisAdded as any) ?? 0n,
+            bitcoinLocksCreated: change.bitcoinLocksCreated,
+            microgonLiquidityAdded: convertBigIntStringToNumber(change.microgonLiquidityAdded as any) ?? 0n,
+            bitcoinFeeRevenue: convertBigIntStringToNumber(change.bitcoinFeeRevenue as any) ?? 0n,
+            bitcoinFeeCouponValueUsed,
+            securitization: convertBigIntStringToNumber(change.securitization as any) ?? 0n,
+            securitizationRelockable: convertBigIntStringToNumber((change as any).securitizationRelockable) ?? 0n,
+            securitizationActivated: convertBigIntStringToNumber(change.securitizationActivated as any) ?? 0n,
+            treasuryPool: {
+              externalCapital: convertBigIntStringToNumber(change.treasuryPool.externalCapital as any) ?? 0n,
+              vaultCapital: convertBigIntStringToNumber(change.treasuryPool.vaultCapital as any) ?? 0n,
+              totalEarnings: convertBigIntStringToNumber(change.treasuryPool.totalEarnings as any) ?? 0n,
+              vaultEarnings: convertBigIntStringToNumber(change.treasuryPool.vaultEarnings as any) ?? 0n,
+            },
+            uncollectedEarnings: 0n,
+          } as IVaultFrameStats;
+        }),
       };
     }
     for (const vault of Object.values(this.vaultsById)) {

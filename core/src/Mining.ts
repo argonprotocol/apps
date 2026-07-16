@@ -79,26 +79,40 @@ export class Mining {
     micronots: bigint;
   }> {
     const client = api ?? (await this.prunedClientOrArchivePromise);
-    const blockRewards = await client.query.blockRewards.blockRewardsByCohort();
-    const nextCohortId = blockRewards.pop()?.[0].toNumber() ?? 1;
+    const [blockRewards, minersByCohort, activeMiners] = await Promise.all([
+      client.query.blockRewards.blockRewardsByCohort(),
+      client.query.miningSlot.minersByCohort.entries(),
+      this.fetchActiveMinersCount(client),
+    ]);
+    const nextCohortId = blockRewards.at(-1)?.[0].toNumber() ?? 1;
     const currentCohortId = nextCohortId - 1;
 
-    const currentTick = await this.fetchCurrentTick(api);
-    const ticksBetweenFrames = NetworkConfig.rewardTicksPerFrame;
-    const ticksElapsedThisFrame = ticksBetweenFrames - (await this.fetchFrameRewardTicksRemaining(api));
-
     const rewards = { microgons: 0n, micronots: 0n };
+    if (activeMiners === 0) return rewards;
 
-    for (const [cohortId, blockReward] of blockRewards) {
-      const fullRotationsSinceCohortStart = currentCohortId - cohortId.toNumber();
+    const currentTick = await this.fetchCurrentTick(client);
+    const ticksBetweenFrames = NetworkConfig.rewardTicksPerFrame;
+    const ticksElapsedThisFrame = ticksBetweenFrames - (await this.fetchFrameRewardTicksRemaining(client));
+    const blockRewardsByCohort = new Map(blockRewards.map(([cohortId, reward]) => [cohortId.toNumber(), reward]));
+
+    for (const [cohortIdRaw, cohort] of minersByCohort) {
+      const cohortId = cohortIdRaw.args[0].toNumber();
+      const blockReward = blockRewardsByCohort.get(cohortId);
+      if (!blockReward || cohort.length === 0) continue;
+
+      const fullRotationsSinceCohortStart = currentCohortId - cohortId;
       const ticksSinceCohortStart = fullRotationsSinceCohortStart * ticksBetweenFrames + ticksElapsedThisFrame;
       const startingTick = currentTick - ticksSinceCohortStart;
       const endingTick = startingTick + NetworkConfig.ticksPerCohort;
-      const microgonsMinedInCohort = (blockReward.toBigInt() * BigInt(NetworkConfig.ticksPerCohort)) / 10n;
-      const micronotsMinedInCohort =
-        (await this.minimumMicronotsMinedDuringTickRange(startingTick, endingTick, api)) / 10n;
-      rewards.microgons += microgonsMinedInCohort;
-      rewards.micronots += micronotsMinedInCohort;
+      const seatCount = BigInt(cohort.length);
+      const scheduledMicrogons = await this.getMiningRewardCut(
+        blockReward.toBigInt() * BigInt(NetworkConfig.ticksPerCohort),
+        client,
+      );
+      const scheduledMicronots = await this.minimumMicronotsMinedDuringTickRange(startingTick, endingTick, client);
+
+      rewards.microgons += (scheduledMicrogons * seatCount) / BigInt(activeMiners);
+      rewards.micronots += (scheduledMicronots * seatCount) / BigInt(activeMiners);
     }
 
     return rewards;
@@ -393,8 +407,7 @@ export class Mining {
 
   public async fetchActiveMinersCount(api?: ApiDecoration<'promise'>): Promise<number> {
     const client = api ?? (await this.prunedClientOrArchivePromise);
-    const activeMiners = (await client.query.miningSlot.activeMinersCount()).toNumber();
-    return Math.max(activeMiners, 100);
+    return (await client.query.miningSlot.activeMinersCount()).toNumber();
   }
 
   public async fetchAggregateBidCosts(api?: ApiDecoration<'promise'>): Promise<bigint> {
@@ -407,6 +420,15 @@ export class Mining {
     }
 
     return aggregateBidCosts;
+  }
+
+  public async fetchAggregateMicronotsStaked(api?: ApiDecoration<'promise'>): Promise<bigint> {
+    const client = api ?? (await this.prunedClientOrArchivePromise);
+    const minersByCohort = await client.query.miningSlot.minersByCohort.entries();
+
+    return minersByCohort.reduce((total, [_, cohort]) => {
+      return total + cohort.reduce((cohortTotal, miner) => cohortTotal + miner.argonots.toBigInt(), 0n);
+    }, 0n);
   }
 
   public async fetchLastFramesBidCosts(api?: ApiDecoration<'promise'>): Promise<bigint> {
@@ -474,8 +496,8 @@ export class Mining {
     throw new Error(`No block reward found for cohort starting at frame ID ${frameId}`);
   }
 
-  public async getMiningRewardCut(microgons: bigint): Promise<bigint> {
-    const client = await this.prunedClientOrArchivePromise;
+  public async getMiningRewardCut(microgons: bigint, api?: ApiDecoration<'promise'>): Promise<bigint> {
+    const client = api ?? (await this.prunedClientOrArchivePromise);
     const minerPercent = fromFixedNumber(client.consts.blockRewards.minerPayoutPercent.toBigInt(), FIXED_U128_DECIMALS);
     return bigNumberToBigInt(minerPercent.times(microgons));
   }
@@ -521,7 +543,7 @@ export class Mining {
       }
       totalRewards += rewardsPerBlock;
     }
-    return this.getMiningRewardCut(totalRewards);
+    return this.getMiningRewardCut(totalRewards, client);
   }
 
   private getTicksSinceGenesis(currentTick: number): number {
