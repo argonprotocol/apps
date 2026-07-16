@@ -28,9 +28,12 @@ import {
   type TransactionReceipt,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { sudoFundWallet } from '../core/__test__/helpers/sudoFundWallet.ts';
 import { waitForQueryableClient } from '../core/__test__/startArgonTestNetwork.ts';
 import {
+  DEV_ETHEREUM_TOKEN_RESERVE_RUNTIME_AMOUNT,
   ensureDevEthereumBeaconBootstrapped,
+  initializeDevEthereumTokenReserve,
   loadDevEthereumActivationRepaymentPricing,
   submitDevSudoTransaction,
   syncEthereumGatewayActiveCouncilToArgon,
@@ -203,6 +206,41 @@ export function createDevEthereumSetup(
         const fixture = await fixtureDeployer.deployMintingGatewayFixture({
           deployerPrivateKey: DEV_ETHEREUM_ADMIN_ACCOUNT.privateKey,
           initialMicrogonsPerArgonot,
+        });
+
+        setupStep = 'initializing the local Ethereum token reserve';
+        console.log(`[tauri-dev] ${setupStep}`);
+        const publicClient = createPublicClient({
+          transport: http(devEthereum.executionRpcUrl, { retryCount: 1, timeout: 15_000 }),
+        });
+        await initializeDevEthereumTokenReserve({
+          publicClient,
+          gatewayAddress: fixture.gatewayAddress,
+          argonTokenAddress: fixture.argonTokenAddress,
+          argonotTokenAddress: fixture.argonotTokenAddress,
+          rootAccountAddress: DEV_ETHEREUM_ADMIN_ACCOUNT.address,
+          ensureBacking: async () => {
+            const client = await getClient(archiveUrl);
+
+            try {
+              await sudoFundWallet({
+                client,
+                address: client.consts.crosschainTransfer.ethereumBurnAccount.toString(),
+                microgons: DEV_ETHEREUM_TOKEN_RESERVE_RUNTIME_AMOUNT,
+                micronots: DEV_ETHEREUM_TOKEN_RESERVE_RUNTIME_AMOUNT,
+              });
+            } finally {
+              await client.disconnect().catch(() => undefined);
+            }
+          },
+          sendMigration: async data =>
+            (
+              await sendDevEthereumAdminTransaction({
+                rpcUrl: devEthereum.executionRpcUrl,
+                to: fixture.gatewayAddress,
+                data,
+              })
+            ).hash,
         });
 
         setupStep = 'configuring the local Ethereum gateway on Argon';

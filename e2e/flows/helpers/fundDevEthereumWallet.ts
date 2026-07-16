@@ -1,6 +1,6 @@
 import { createPublicClient, http, type Address } from 'viem';
 import { sendDevEthereumAdminTransaction } from '../../devEthereum.ts';
-import { mintDevEthereumTokens } from '../../scripts/mintDevEthereumTokens.ts';
+import { fundDevEthereumTokens } from '../../scripts/fundDevEthereumTokens.ts';
 
 const MIN_DEV_ETHEREUM_GAS_WEI = 10n ** 17n;
 
@@ -17,7 +17,7 @@ export async function fundDevEthereumWallet(args: {
   let rpcUrl: string | undefined;
 
   if ((microgons ?? 0n) > 0n || (micronots ?? 0n) > 0n) {
-    const result = await mintDevEthereumTokens({
+    const result = await fundDevEthereumTokens({
       to,
       archiveUrl,
       rpcUrl: args.ethereumRpcUrl,
