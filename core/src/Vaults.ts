@@ -364,10 +364,6 @@ export class Vaults {
   public calculateBondsApr(): number {
     const frames = this.selectReturnFrames(this.stats);
     const positions = frames.map(frame => {
-      if (frame.bitcoinFeeCouponValueUsed === undefined) {
-        throw new Error(`Vault frame ${frame.frameId} is missing bitcoin fee coupon usage`);
-      }
-
       const externalEarnings = frame.treasuryPool.totalEarnings - frame.treasuryPool.vaultEarnings;
       return {
         startingCapital: frame.treasuryPool.externalCapital,
