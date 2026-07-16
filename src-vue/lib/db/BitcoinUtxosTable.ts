@@ -236,7 +236,7 @@ export class BitcoinUtxosTable extends BaseTable {
     record.releaseToDestinationAddress = args.releaseToDestinationAddress;
     record.releaseBitcoinNetworkFee = args.releaseBitcoinNetworkFee;
     record.statusError = undefined;
-    if (record.status !== BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin) {
+    if (!this.isReleaseStatus(record.status)) {
       record.status = BitcoinUtxoStatus.ReleaseIsProcessingOnArgon;
     }
     await this.db.execute(

@@ -24,10 +24,11 @@ import BitcoinIcon from '../assets/wallets/bitcoin.svg?component';
 import { getBitcoinLocks } from '../stores/bitcoin.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
-import { useFinancials, type ILockSummary } from '../stores/financials.ts';
+import type { IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
+import { useFinancials } from '../stores/financials.ts';
 
 const emit = defineEmits<{
-  (e: 'openDetail', lock: ILockSummary): void;
+  (e: 'openDetail', lock: IBitcoinLockSummary): void;
 }>();
 
 const bitcoinLocks = getBitcoinLocks();
@@ -35,7 +36,7 @@ const currency = getCurrency();
 const financials = useFinancials();
 const { microgonToMoneyNm, satToBtcNm } = createNumeralHelpers(currency);
 
-function openDetail(lock: ILockSummary) {
+function openDetail(lock: IBitcoinLockSummary) {
   emit('openDetail', lock);
 }
 </script>

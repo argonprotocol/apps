@@ -42,6 +42,7 @@ import { BITCOIN_BLOCK_MILLIS, ESPLORA_HOST } from './Env.ts';
 import { UpstreamOperatorClient } from './UpstreamOperatorClient.ts';
 import {
   bigNumberToBigInt,
+  bigIntMax,
   BlockWatch,
   createDeferred,
   Currency as CurrencyBase,
@@ -60,6 +61,8 @@ import { TransactionInfo } from './TransactionInfo.ts';
 import { ExtrinsicType, TransactionStatus } from './db/TransactionsTable.ts';
 import { MyVault } from './MyVault.ts';
 import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from './db/BitcoinUtxosTable.ts';
+import type { IBitcoinLockProcessingDetails, IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
+import { BitcoinLockRecovery } from './recovery/BitcoinLocks.ts';
 
 export type IBitcoinMismatchPhase =
   | 'none'
@@ -124,14 +127,6 @@ export interface IBitcoinRequestLockMetadata {
   };
 }
 
-export interface IBitcoinLockProcessingDetails {
-  progressPct: number;
-  confirmations: number;
-  expectedConfirmations: number;
-  receivedSatoshis?: bigint;
-  isInvalidAmount?: boolean;
-}
-
 interface IAcceptedFundingState {
   record?: IBitcoinUtxoRecord;
   recordId?: number;
@@ -151,7 +146,7 @@ export default class BitcoinLocks {
     mismatchErrorsByLockUtxoId: { [lockUtxoId: number]: string };
     oracleBitcoinBlockHeight: number;
     bitcoinNetwork: BitcoinNetwork;
-    latestArgonBlockHeight: number;
+    latestArgonBlock?: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>;
   };
 
   public get bitcoinNetwork() {
@@ -177,6 +172,7 @@ export default class BitcoinLocks {
 
   public myVault?: MyVault;
   public readonly utxoTracking: BitcoinUtxoTracking;
+  public readonly recovery: BitcoinLockRecovery;
 
   #config!: IBitcoinLockConfig;
 
@@ -209,7 +205,6 @@ export default class BitcoinLocks {
       mismatchErrorsByLockUtxoId: {},
       oracleBitcoinBlockHeight: 0,
       bitcoinNetwork: BitcoinNetwork.Bitcoin,
-      latestArgonBlockHeight: 0,
     };
     this.#mempool = mempool;
     this.utxoTracking = new BitcoinUtxoTracking({
@@ -219,6 +214,17 @@ export default class BitcoinLocks {
       getConfig: () => this.#config,
       getMainchainClient,
       mempool: this.#mempool,
+    });
+    this.recovery = new BitcoinLockRecovery({
+      walletKeys,
+      blockWatch,
+      currency,
+      locksByUtxoId: this.data.locksByUtxoId,
+      utxoTracking: this.utxoTracking,
+      getBitcoinNetwork: () => this.bitcoinNetwork,
+      getTable: () => this.getTable(),
+      getDerivedPubkey: (vaultId, index) => this.getDerivedPubkey(vaultId, index),
+      trackDerivedBitcoinLockKey: (vaultId, derivedPubkey) => this.trackDerivedBitcoinLockKey(vaultId, derivedPubkey),
     });
   }
 
@@ -234,6 +240,63 @@ export default class BitcoinLocks {
     locks.unshift(...this.data.pendingLocks);
     locks.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     return locks;
+  }
+
+  public createLockSummary(lock: IBitcoinLockRecord): IBitcoinLockSummary {
+    const lockProcessingDetails = this.getLockProcessingDetails(lock);
+    const btc = this.#currency.convertSatToBtc(lock.satoshis);
+    const valueOfBtc = this.#currency.convertBtcToMicrogon(btc);
+    const grossFees = lock.ratchets.reduce((total, ratchet) => total + ratchet.txFee + ratchet.securityFee, 0n);
+    // couponFeesPaid is the lock's canonical cumulative reimbursement, so subtract it once rather than per ratchet.
+    const totalFees = bigIntMax(grossFees - (lock.lockDetails?.couponFeesPaid ?? 0n), 0n);
+    const totalLiquidity = lock.ratchets.reduce((total, ratchet) => total + ratchet.mintAmount, 0n);
+    const pendingLiquidity = lock.ratchets.reduce((total, ratchet) => total + ratchet.mintPending, 0n);
+    const burnedLiquidity = lock.ratchets.reduce((total, ratchet) => total + (ratchet.burned ?? 0n), 0n);
+    const receivedLiquidity = totalLiquidity - pendingLiquidity - burnedLiquidity;
+    const startingCapital = lock.ratchets[0]?.lockedTargetPrice ?? lock.lockedTargetPrice;
+    const initialLiquidity = lock.ratchets[0]?.mintAmount ?? lock.liquidityPromised;
+    const valueBeyondLiquidity = bigIntMax(valueOfBtc - lock.lockedTargetPrice, 0n);
+    const returnLiquidity = receivedLiquidity + pendingLiquidity + valueBeyondLiquidity;
+    const unlockAmount =
+      BitcoinLock.calculateRedemptionAmountFromSatoshis(
+        this.#currency.priceIndex,
+        lock.satoshis,
+        lock.lockedTargetPrice,
+      ) || 0n;
+    const endingCapital = startingCapital + returnLiquidity - unlockAmount - totalFees;
+
+    return {
+      uuid: lock.uuid,
+      utxoId: lock.utxoId,
+      status: lock.status,
+      statusDetails: this.readLockStatusDetails(lock, lockProcessingDetails),
+      lockProcessingDetails,
+      lockProcessingError: this.getLockProcessingError(lock),
+      satoshis: lock.satoshis,
+      valueOfBtc,
+      totalLiquidity,
+      pendingLiquidity,
+      receivedLiquidity,
+      valueBeyondLiquidity,
+      startingCapital,
+      endingCapital: lock.ratchets[0] ? endingCapital : initialLiquidity,
+      hodlingReturn: calculateBitcoinReturn(lock.lockedTargetPrice, valueOfBtc),
+      totalReturn: calculateBitcoinReturn(startingCapital, endingCapital),
+      totalFees,
+      unlockAmount,
+      createdAt: lock.createdAt,
+      record: lock,
+    };
+  }
+
+  public refreshLockSummary(summary: IBitcoinLockSummary): void {
+    const lock = summary.record;
+    const lockProcessingDetails = this.getLockProcessingDetails(lock);
+
+    summary.status = lock.status;
+    summary.lockProcessingDetails = lockProcessingDetails;
+    summary.lockProcessingError = this.getLockProcessingError(lock);
+    Object.assign(summary.statusDetails, this.readLockStatusDetails(lock, lockProcessingDetails));
   }
 
   public getLockByUtxoId(utxoId: number): IBitcoinLockRecord | undefined {
@@ -1245,26 +1308,27 @@ export default class BitcoinLocks {
         bitcoinBlockHeight: oracleBitcoinBlockHeight,
         blockHeight,
         lockedTargetPrice,
+        liquidityPromised,
         pendingMint,
         txFee,
       } = await result.getRatchetResult();
 
-      const mintAmount = pendingMint - burned;
       lock.ratchets.push({
-        mintAmount,
+        mintAmount: pendingMint,
         mintPending: pendingMint,
+        liquidityPromised,
         lockedTargetPrice,
         txFee,
         burned,
         securityFee,
         blockHeight,
+        extrinsicIndex: result.txResult.extrinsicIndex,
         oracleBitcoinBlockHeight,
       });
-      const totalLiquidityPromised = lock.liquidityPromised + mintAmount;
 
-      lock.liquidityPromised = totalLiquidityPromised;
+      lock.liquidityPromised = liquidityPromised;
       lock.lockedTargetPrice = lockedTargetPrice;
-      lock.lockDetails.liquidityPromised = totalLiquidityPromised;
+      lock.lockDetails.liquidityPromised = liquidityPromised;
       lock.lockDetails.lockedTargetPrice = lockedTargetPrice;
 
       await table.saveNewRatchet(lock);
@@ -2315,6 +2379,11 @@ export default class BitcoinLocks {
       }
       const requestedReleaseAtTick = await api.query.ticks.currentTick().then(x => x.toNumber());
       const fundingRecord = await this.getFundingRecordOrThrow(lock);
+      const table = await this.getTable();
+      await table.recordReleaseRequest(lock, {
+        releaseRedemptionMicrogons: releaseRequest.redemptionAmount,
+        releaseArgonTxFeeMicrogons: txResult.finalFee ?? txInfo.tx.txFeePlusTip,
+      });
       await this.utxoTracking.setReleaseRequest(fundingRecord, {
         requestedReleaseAtTick,
         releaseToDestinationAddress: releaseRequest.toScriptPubkey,
@@ -2655,12 +2724,11 @@ export default class BitcoinLocks {
       // get stuck retrying a transient best-head hash that the pruned node has already discarded.
       const header = await this.blockWatch.getHeaderByBlockNumber(newestHeader.blockNumber - 1);
 
-      if (header.blockNumber <= this.data.latestArgonBlockHeight) {
+      if (header.blockNumber <= (this.data.latestArgonBlock?.blockNumber ?? 0)) {
         return;
       }
       const table = await this.getTable();
       const archivedBitcoinBlockHeight = this.data.oracleBitcoinBlockHeight;
-      this.data.latestArgonBlockHeight = header.blockNumber;
 
       const clientAt = await this.blockWatch.getApi(header);
 
@@ -2736,6 +2804,10 @@ export default class BitcoinLocks {
         });
       }
       await Promise.allSettled(promises);
+      this.data.latestArgonBlock = {
+        blockNumber: header.blockNumber,
+        blockHash: header.blockHash,
+      };
     } catch (error) {
       console.warn('[BitcoinLocks] Failed to process incoming Argon block, will retry on the next block', {
         blockNumber: newestHeader.blockNumber,
@@ -2759,6 +2831,9 @@ export default class BitcoinLocks {
     const bitcoinLock = new BitcoinLock(lockRecord.lockDetails);
     const chainPendingArray = await bitcoinLock.findPendingMints(clientAt);
     const chainPendingMint = chainPendingArray.reduce((sum, x) => sum + x, 0n);
+    if (chainPendingMint > localPendingMint) {
+      throw new Error(`Bitcoin lock ${lockRecord.utxoId} pending mint exceeds local ratchet history`);
+    }
 
     let amountFulfilled = localPendingMint - chainPendingMint;
     // Account for fulfilled pending mint by walking ratchets oldest -> newest.
@@ -3309,6 +3384,30 @@ export default class BitcoinLocks {
     delete this.data.mismatchErrorsByLockUtxoId[lockUtxoId];
   }
 
+  private readLockStatusDetails(
+    lock: IBitcoinLockRecord,
+    lockProcessingDetails: IBitcoinLockProcessingDetails,
+  ): IBitcoinLockSummary['statusDetails'] {
+    const mismatchView = this.getMismatchViewState(lock);
+    const hasObservedFundingSignal = this.hasObservedFundingSignal(lock);
+    const showMismatchAccept = mismatchView.phase === 'accepting';
+    const showFundingMismatch = ['review', 'returningOnArgon', 'returningOnBitcoin', 'returned', 'error'].includes(
+      mismatchView.phase,
+    );
+
+    return {
+      hasObservedFundingSignal,
+      showMismatchAccept,
+      showFundingMismatch,
+      showReadyForBitcoin:
+        !showFundingMismatch &&
+        !showMismatchAccept &&
+        !hasObservedFundingSignal &&
+        lockProcessingDetails.confirmations < 0,
+      isFundingSeenInMempoolOnly: hasObservedFundingSignal && lockProcessingDetails.confirmations < 0,
+    };
+  }
+
   public static async getFeeRates() {
     const mempool = new BitcoinMempool(ESPLORA_HOST);
     return await mempool.getFeeRates();
@@ -3341,6 +3440,12 @@ export type IBitcoinLocksUnlockReleaseInspect = Pick<
 >;
 export type IBitcoinLocksUnlockDetailsInspect = Pick<BitcoinLocks, 'load' | 'getVaultUnlockStateDetails'>;
 export type IBitcoinLocksVarianceInspect = Pick<BitcoinLocks, 'load' | 'getLockSatoshiAllowedVariance'>;
+
+function calculateBitcoinReturn(investment: bigint, currentValue: bigint): number {
+  if (investment <= 0n) return 0;
+
+  return getPercent(currentValue - investment, investment);
+}
 
 function isBitcoinLockRelayStatus(status: IBitcoinLockCouponStatus['status']): status is BitcoinLockRelayStatus {
   return status === 'Submitted' || status === 'InBlock' || status === 'Finalized' || status === 'Failed';

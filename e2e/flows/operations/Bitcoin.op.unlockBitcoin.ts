@@ -119,7 +119,6 @@ export default new Operation<IBitcoinFlowContext, IUnlockBitcoinState>(import.me
           return false;
         }
         await flow.run(appPrepareAccess);
-        await clickIfVisible(flow, 'WalletFundingReceivedOverlay.closeOverlay()', { timeoutMs: 1_000 });
 
         const activeTab = await flow.isVisible('BitcoinLocksScreen');
         if (!activeTab.visible && !latest.uiState.detailOverlayVisible && !latest.uiState.lockEntryVisible) {
@@ -168,7 +167,6 @@ export default new Operation<IBitcoinFlowContext, IUnlockBitcoinState>(import.me
     const ui = await readUnlockUiState(flow).catch(() => null);
     const [
       welcomeOverlay,
-      walletFundingOverlay,
       vaultingDashboard,
       bitcoinLockDetailOverlay,
       unlockingOverlay,
@@ -180,7 +178,6 @@ export default new Operation<IBitcoinFlowContext, IUnlockBitcoinState>(import.me
       lockEntryCount,
     ] = await Promise.all([
       flow.isVisible({ selector: '[data-testid="WelcomeOverlay"]' }).catch(() => ({ visible: false, exists: false })),
-      flow.isVisible('WalletFundingReceivedOverlay.closeOverlay()').catch(() => ({ visible: false, exists: false })),
       flow.isVisible('VaultingDashboard').catch(() => ({ visible: false, exists: false })),
       flow.isVisible('BitcoinLockDetailOverlay').catch(() => ({ visible: false, exists: false })),
       flow.isVisible('BitcoinUnlockingOverlay').catch(() => ({ visible: false, exists: false })),
@@ -211,7 +208,6 @@ export default new Operation<IBitcoinFlowContext, IUnlockBitcoinState>(import.me
         bitcoinLockDetailOverlayVisible: bitcoinLockDetailOverlay.visible,
         unlockingOverlayVisible: unlockingOverlay.visible,
         welcomeOverlayVisible: welcomeOverlay.visible,
-        walletFundingOverlayVisible: walletFundingOverlay.visible,
         openDialogVisible: openDialog.visible,
         unlockStartErrorText,
         openDialogTestId,

@@ -122,18 +122,16 @@ async function loadTransactionHistory(): Promise<void> {
   });
 }
 
-let unsubscribe: (() => void) | null = null;
+let unsubscribes: VoidFunction[] = [];
 
 Vue.onMounted(async () => {
   await loadTransactionHistory();
-  const balances = getWalletsForArgon();
-  unsubscribe = balances.events.on('transfer-in', async () => {
-    await loadTransactionHistory();
-  });
+  const walletEvents = getWalletsForArgon().events;
+  unsubscribes = [
+    walletEvents.on('transfer-in', loadTransactionHistory),
+    walletEvents.on('history:recovered', loadTransactionHistory),
+  ];
 });
 
-Vue.onBeforeUnmount(() => {
-  unsubscribe?.();
-  unsubscribe = null;
-});
+Vue.onBeforeUnmount(() => unsubscribes.forEach(unsubscribe => unsubscribe()));
 </script>

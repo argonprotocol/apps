@@ -14,7 +14,6 @@
           class="grow min-h-0 flex flex-col overflow-y-auto overflow-x-hidden"
           :class="
             controller.selectedTab === TopTab.ArgonBonds ||
-            controller.selectedTab === TopTab.ArgonotBonds ||
             controller.selectedTab === TopTab.BitcoinLocks ||
             controller.selectedTab === TopTab.BitcoinLoans ||
             controller.selectedTab === TopTab.StableSwaps
@@ -26,7 +25,6 @@
           <Network v-else-if="controller.selectedTab === TopTab.Network" />
 
           <ArgonBonds v-else-if="controller.selectedTab === TopTab.ArgonBonds" />
-          <ArgonotBonds v-else-if="controller.selectedTab === TopTab.ArgonotBonds" />
           <BitcoinLocks v-else-if="controller.selectedTab === TopTab.BitcoinLocks" />
           <BitcoinLoans v-else-if="controller.selectedTab === TopTab.BitcoinLoans" />
           <StableSwaps v-else-if="controller.selectedTab === TopTab.StableSwaps" />
@@ -42,20 +40,19 @@
       </div>
     </div>
     <template v-if="config.isLoaded">
-      <Portfolio />
       <template v-if="controller.selectedTab === TopTab.Mining">
         <SyncingOverlay v-if="bot.isSyncing" />
       </template>
       <BootingOverlay v-if="config.isBootingUpPreviousWalletHistory && !bot.isSyncing" />
       <ServerConnectPanel />
       <WalletDialogs />
+      <TransactionsOverlay />
       <MoveCapitalOverlay />
       <TreasuryBondsOverlay />
       <ArgonotCommitmentOverlay />
       <MintingAuthorityRequestOverlay />
       <GatewayRelayOverlay />
       <ServerSettingsOverlay />
-      <WalletFundingReceivedOverlay />
       <ServerRemoveOverlay />
       <OperationalOverlay />
       <OperationalRewardsOverlay />
@@ -90,6 +87,7 @@ import Mining from './screens/Mining.vue';
 import Vaulting from './screens/Vaulting.vue';
 import ServerConnectPanel from './panels/ServerConnectPanel.vue';
 import WalletDialogs from './wallets/WalletDialogs.vue';
+import TransactionsOverlay from './overlays/TransactionsOverlay.vue';
 import ServerRemoveOverlay from './overlays/ServerRemoveOverlay.vue';
 import SecuritySettingsOverlay from './overlays/SecuritySettingsOverlay.vue';
 import ImportAccountOverlay from './overlays/ImportAccountOverlay.vue';
@@ -111,8 +109,6 @@ import AppUpdatesOverlay from './overlays/AppUpdatesOverlay.vue';
 import AlertBars from './navigation/AlertBars.vue';
 import WelcomeTour from './overlays/WelcomeTour.vue';
 import BotEditOverlay from './overlays/BotEditOverlay.vue';
-import WalletFundingReceivedOverlay from './overlays/WalletFundingReceivedOverlay.vue';
-import Portfolio from './panels/Portfolio.vue';
 import MoveCapitalOverlay from './overlays/MoveCapitalOverlay.vue';
 import TreasuryBondsOverlay from './overlays/TreasuryBondsOverlay.vue';
 import ArgonotCommitmentOverlay from './overlays/ArgonotCommitmentOverlay.vue';
@@ -132,7 +128,6 @@ import { storeToRefs } from 'pinia';
 import ArgonBonds from './screens/ArgonBonds.vue';
 import BitcoinLocks from './screens/BitcoinLocks.vue';
 import LeftBar from './navigation/LeftBar.vue';
-import ArgonotBonds from './screens/ArgonotBonds.vue';
 import StableSwaps from './screens/StableSwaps.vue';
 import BitcoinLoans from './screens/BitcoinLoans.vue';
 import Dashboard from './screens/Dashboard.vue';

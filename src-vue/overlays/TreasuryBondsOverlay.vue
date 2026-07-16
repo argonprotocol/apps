@@ -163,7 +163,7 @@ import OverlayBase from './OverlayBase.vue';
 import BuyBondsForm from './BuyBondsForm.vue';
 import ProgressBar from '../components/ProgressBar.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
-import { getBondMarket } from '../stores/myBonds.ts';
+import { getArgonBonds } from '../stores/argonBonds.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { getTransactionTracker } from '../stores/transactions.ts';
@@ -178,7 +178,7 @@ const currency = getCurrency();
 const wallets = useWallets();
 const walletKeys = getWalletKeys();
 const myVault = getMyVault();
-const bondMarket = getBondMarket();
+const argonBonds = getArgonBonds();
 const transactionTracker = getTransactionTracker();
 const vaultingBreakdown = useVaultingAssetBreakdown();
 
@@ -196,7 +196,7 @@ const liquidationError = Vue.ref('');
 let unsubscribeLiquidationProgress: (() => void) | undefined;
 
 const vaultId = Vue.computed(() => myVault.vaultId ?? 0);
-const vaultBondState = Vue.computed(() => bondMarket.data.vaultsById[vaultId.value]);
+const vaultBondState = Vue.computed(() => argonBonds.data.vaultsById[vaultId.value]);
 const ownBondLots = Vue.computed(() => {
   return (vaultBondState.value?.bondLots ?? []).filter(lot => lot.isOwn);
 });
@@ -287,7 +287,7 @@ async function refreshBondLots() {
   if (!vaultId.value) return;
 
   const client = await getMainchainClient(false);
-  const vaultBonds = bondMarket.getVaultBonds(vaultId.value);
+  const vaultBonds = argonBonds.getVaultBonds(vaultId.value);
   vaultBonds.bondLots = await TreasuryBonds.getBondLots(client, vaultId.value, walletKeys.vaultingAddress);
   vaultBonds.isLoaded = true;
 }

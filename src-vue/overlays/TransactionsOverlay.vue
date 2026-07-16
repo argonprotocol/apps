@@ -32,9 +32,6 @@
                 <div v-if="activity.otherParty" class="mt-0.5 truncate text-xs text-slate-500">
                   {{ activity.amount && activity.amount < 0n ? 'To' : 'From' }} {{ activity.otherParty }}
                 </div>
-                <div v-else-if="activity.events.length" class="mt-0.5 truncate text-xs text-slate-500">
-                  {{ eventSummary(activity) }}
-                </div>
                 <div v-else-if="activity.transaction" class="mt-0.5 truncate text-xs text-slate-500">
                   {{ activity.transaction.extrinsicType }}
                 </div>
@@ -42,9 +39,6 @@
               <td class="px-4 py-3 text-right">
                 <div class="whitespace-nowrap text-sm font-bold" :class="amountClass(activity)">
                   {{ amountLabel(activity) }}
-                </div>
-                <div v-if="ledgerBalanceLabel(activity)" class="mt-0.5 whitespace-nowrap text-xs text-slate-500">
-                  {{ ledgerBalanceLabel(activity) }}
                 </div>
               </td>
               <td class="px-4 py-3">
@@ -125,14 +119,8 @@ function activityTitle(activity: IWalletActivityRecord): string {
       return activity.amount && activity.amount < 0n ? 'Bridged Out' : 'Bridged In';
     case 'faucet':
       return 'Faucet';
-    case 'vaultRevenue':
-      return 'Vault Revenue';
-    case 'fee':
-      return 'Transaction Fee';
     case 'submittedTransaction':
       return 'Submitted Transaction';
-    case 'balanceChange':
-      return 'Balance Change';
     default:
       return 'Wallet Activity';
   }
@@ -143,33 +131,22 @@ function amountLabel(activity: IWalletActivityRecord): string {
     return formatTokenAmount(activity.amount, activity.currency);
   }
 
-  const parts: string[] = [];
-  if (activity.microgonChange !== undefined && activity.microgonChange !== 0n) {
-    parts.push(formatTokenAmount(activity.microgonChange, 'argon'));
-  }
-  if (activity.micronotChange !== undefined && activity.micronotChange !== 0n) {
-    parts.push(formatTokenAmount(activity.micronotChange, 'argonot'));
-  }
-  return parts.join(' / ') || 'Details';
+  return 'Details';
 }
 
 function formatTokenAmount(amount: bigint, token: 'argon' | 'argonot'): string {
-  const prefix = amount > 0n ? '+' : amount < 0n ? '-' : '';
+  let prefix = '';
+  if (amount > 0n) prefix = '+';
+  if (amount < 0n) prefix = '-';
+
   if (token === 'argon') {
     return `${prefix}${microgonToArgonNm(bigIntAbs(amount)).format('0,0.[000000]')} ARGN`;
   }
   return `${prefix}${micronotToArgonotNm(bigIntAbs(amount)).format('0,0.[000000]')} ARGNOT`;
 }
 
-function ledgerBalanceLabel(activity: IWalletActivityRecord): string {
-  if (!activity.ledger) return '';
-  const microgons = microgonToArgonNm(activity.ledger.availableMicrogons).format('0,0.[00]');
-  const micronots = micronotToArgonotNm(activity.ledger.availableMicronots).format('0,0.[00]');
-  return `${microgons} ARGN / ${micronots} ARGNOT`;
-}
-
 function amountClass(activity: IWalletActivityRecord): string {
-  const amount = activity.amount ?? activity.microgonChange ?? activity.micronotChange;
+  const amount = activity.amount;
   if (amount === undefined) return 'text-slate-600';
   if (amount > 0n) return 'text-emerald-700';
   if (amount < 0n) return 'text-rose-700';
@@ -194,21 +171,15 @@ function sourceLabel(activity: IWalletActivityRecord): string {
   switch (activity.source) {
     case 'walletTransfer':
       return 'Transfer';
-    case 'walletLedger':
-      return 'Ledger';
     case 'submittedTransaction':
       return 'Local';
   }
 }
 
 function dateLabel(activity: IWalletActivityRecord): string {
-  const date = activity.transfer?.createdAt ?? activity.ledger?.createdAt ?? activity.transaction?.submittedAtTime;
+  const date = activity.occurredAt;
   if (!date) return '';
   return dayjs.utc(date).local().fromNow();
-}
-
-function eventSummary(activity: IWalletActivityRecord): string {
-  return activity.events.map(event => `${event.pallet}.${event.method}`).join(', ');
 }
 
 Vue.onMounted(async () => {

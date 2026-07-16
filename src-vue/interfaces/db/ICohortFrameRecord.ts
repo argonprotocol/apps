@@ -1,3 +1,5 @@
+import type { ICohortRecord } from './ICohortRecord.ts';
+
 export interface ICohortFrameRecord {
   frameId: number;
   cohortId: number;
@@ -16,3 +18,11 @@ export interface ICohortFrameStats {
   microgonsMinedTotal: bigint;
   microgonsMintedTotal: bigint;
 }
+
+export type IMiningCohortFinancialRecord = ICohortRecord &
+  Pick<
+    ICohortFrameRecord,
+    'micronotsMinedTotal' | 'microgonsMinedTotal' | 'microgonsMintedTotal' | 'microgonFeesCollectedTotal'
+  > & {
+    closingArgonotPrice: bigint;
+  };

@@ -57,7 +57,7 @@ import * as Vue from 'vue';
 import OverlayBase from './OverlayBase.vue';
 import BondDetail from './bitcoin-locking/BondDetail.vue';
 import ProgressBar from '../components/ProgressBar.vue';
-import { type IBondMarketFrame } from '../lib/BondMarket.ts';
+import { type IArgonBondFrame } from '../lib/ArgonBonds.ts';
 import { getMyVault } from '../stores/vaults.ts';
 import { getMiningFrames, getMainchainClient } from '../stores/mainchain.ts';
 import { TreasuryBonds, type IFrameBondLot, type IFrameBondSummary } from '@argonprotocol/apps-core';
@@ -78,7 +78,7 @@ const transactionTracker = getTransactionTracker();
 
 const props = defineProps<{
   bondLot: IFrameBondLot;
-  bondFrame: IBondMarketFrame;
+  bondFrame: IArgonBondFrame;
 }>();
 
 const emit = defineEmits<{

@@ -92,12 +92,18 @@ export class MoveCapital {
       const transaction = await this.buildTransaction(moveFrom, moveTo, assetsToMove, toAddress, prependedTxs, client);
       const { tx, metadata } = transaction;
       const txSigner = await this.getSigner(moveFrom);
-      return await this.transactionTracker.submitAndWatch({
+      const txInfo = await this.transactionTracker.submitAndWatch({
         tx,
         txSigner,
         metadata,
         extrinsicType: ExtrinsicType.Transfer,
       });
+      if (moveFrom === MoveFrom.VaultingSecurity) {
+        void this.myVault.recordFinalizedVaultCapital(txInfo).catch(error => {
+          console.error('[MoveCapital] Failed to record finalized vault capital', error);
+        });
+      }
+      return txInfo;
     }
   }
 

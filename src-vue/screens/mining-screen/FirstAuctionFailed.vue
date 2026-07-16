@@ -57,7 +57,7 @@ import { useWallets } from '../../stores/wallets.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { bigIntMax, bigIntMin } from '@argonprotocol/apps-core';
-import { getStats } from '../../stores/stats.ts';
+import { getMyMiningSeats } from '../../stores/myMiningSeats.ts';
 import { WalletType } from '../../lib/Wallet.ts';
 import { getBot } from '../../stores/bot.ts';
 
@@ -67,7 +67,7 @@ const config = getConfig();
 const calculator = getBiddingCalculator();
 const currency = getCurrency();
 const wallets = useWallets();
-const stats = getStats();
+const myMiningSeats = getMyMiningSeats();
 const bot = getBot();
 
 const { microgonToMoneyNm, microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
@@ -91,7 +91,7 @@ const isArgonotShortage = Vue.computed(() => {
 });
 
 const networkMinimumBid = Vue.computed(() => {
-  return bigIntMin(...stats.allWinningBids.map(x => x.microgonsPerSeat ?? 0n));
+  return bigIntMin(...myMiningSeats.allWinningBids.map(x => x.microgonsPerSeat ?? 0n));
 });
 
 function openBiddingBudgetOverlay() {
@@ -105,7 +105,7 @@ function openWalletFunding() {
 Vue.onMounted(async () => {
   if (!config.biddingRules) return;
   await config.isLoadedPromise;
-  await stats.subscribeToActivity();
+  await myMiningSeats.subscribeToActivity();
 
   const loadSubscription = calculator.onLoad(() => {
     const projections = calculator.runProjections(config.biddingRules, 'maximum');
@@ -117,7 +117,7 @@ Vue.onMounted(async () => {
 
   Vue.onUnmounted(() => {
     loadSubscription.unsubscribe();
-    stats.unsubscribeFromActivity();
+    myMiningSeats.unsubscribeFromActivity();
   });
 
   await calculator.load();

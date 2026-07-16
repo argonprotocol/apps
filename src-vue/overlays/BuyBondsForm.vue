@@ -83,8 +83,7 @@
           class="bg-argon-button hover:bg-argon-button-hover rounded px-5 py-2 text-sm font-semibold text-white disabled:opacity-40"
           @click="submit">
           <template v-if="isSubmitting">Submitting...</template>
-          <template v-else-if="props.programType === 'Argonot'">Buy Argonot Bonds</template>
-          <template v-else>Buy Bonds</template>
+          <template v-else>Buy Argon Bonds</template>
         </button>
       </div>
     </template>
@@ -102,7 +101,7 @@ import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import { generateProgressLabel } from '../lib/Utils.ts';
 import { getCurrency } from '../stores/currency.ts';
-import { getBondMarket } from '../stores/myBonds.ts';
+import { getArgonBonds } from '../stores/argonBonds.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { getTransactionTracker } from '../stores/transactions.ts';
 import { getVaults } from '../stores/vaults.ts';
@@ -131,7 +130,7 @@ const emit = defineEmits<{
 const currency = getCurrency();
 const walletKeys = getWalletKeys();
 const transactionTracker = getTransactionTracker();
-const bondMarket = getBondMarket();
+const argonBonds = getArgonBonds();
 const vaults = getVaults();
 
 const { microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
@@ -156,7 +155,7 @@ const progressError = Vue.ref('');
 let unsubProgress: (() => void) | undefined;
 
 const vaultBondState = Vue.computed(() => {
-  return props.vaultId ? bondMarket.data.vaultsById[props.vaultId] : undefined;
+  return props.vaultId ? argonBonds.data.vaultsById[props.vaultId] : undefined;
 });
 
 const vaultAvailableCapacity = Vue.computed(() => {
@@ -212,8 +211,9 @@ function trackTxInfo(info: TransactionInfo) {
   unsubProgress?.();
   txInfo.value = info;
   isSubmitting.value = false;
+  let didSavePurchase = false;
 
-  unsubProgress = info.subscribeToProgress((args, error) => {
+  unsubProgress = info.subscribeToProgress(async (args, error) => {
     progressPct.value = args.progressPct;
     progressMessage.value = generateProgressLabel(args.confirmations, args.expectedConfirmations);
 
@@ -221,7 +221,13 @@ function trackTxInfo(info: TransactionInfo) {
       progressError.value = error.message ?? 'Transaction failed.';
     }
 
-    if (args.progressPct >= 100 && !error) {
+    if (args.progressPct >= 100 && !error && !didSavePurchase) {
+      didSavePurchase = true;
+      try {
+        await argonBonds.saveBondPurchase(info);
+      } catch (saveError) {
+        console.error('Unable to save finalized bond purchase history', saveError);
+      }
       emit('submitted');
     }
   });
