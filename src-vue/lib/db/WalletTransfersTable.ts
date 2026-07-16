@@ -135,14 +135,20 @@ export class WalletTransfersTable extends BaseTable {
            transferType = excluded.transferType,
            microgonsForArgonot = excluded.microgonsForArgonot,
            microgonsForUsd = excluded.microgonsForUsd,
-           blockTime = excluded.blockTime,
-           tokenGatewayCommitmentHash = excluded.tokenGatewayCommitmentHash
+           blockTime = COALESCE(excluded.blockTime, WalletTransfers.blockTime),
+           tokenGatewayCommitmentHash = COALESCE(
+             excluded.tokenGatewayCommitmentHash,
+             WalletTransfers.tokenGatewayCommitmentHash
+           )
          WHERE WalletTransfers.isInternal IS NOT excluded.isInternal
             OR WalletTransfers.transferType IS NOT excluded.transferType
             OR WalletTransfers.microgonsForArgonot IS NOT excluded.microgonsForArgonot
             OR WalletTransfers.microgonsForUsd IS NOT excluded.microgonsForUsd
-            OR WalletTransfers.blockTime IS NOT excluded.blockTime
-            OR WalletTransfers.tokenGatewayCommitmentHash IS NOT excluded.tokenGatewayCommitmentHash
+            OR WalletTransfers.blockTime IS NOT COALESCE(excluded.blockTime, WalletTransfers.blockTime)
+            OR WalletTransfers.tokenGatewayCommitmentHash IS NOT COALESCE(
+              excluded.tokenGatewayCommitmentHash,
+              WalletTransfers.tokenGatewayCommitmentHash
+            )
          RETURNING *`,
       toSqlParams([
         walletAddress,

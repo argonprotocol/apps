@@ -8,7 +8,11 @@ import {
 } from '@argonprotocol/mainchain';
 import { BondLot } from '@argonprotocol/apps-core';
 import type { IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
-import type { IFinancialObservedGroupSnapshot, IFinancialPosition } from '../interfaces/IFinancialPosition.ts';
+import type {
+  IFinancialGroupSnapshot,
+  IFinancialObservedGroupSnapshot,
+  IFinancialPosition,
+} from '../interfaces/IFinancialPosition.ts';
 import { financialGroups } from '../interfaces/IFinancialPosition.ts';
 import type { IWallet } from '../lib/Wallet.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
@@ -52,6 +56,20 @@ function readySnapshots(positions: IFinancialPosition[] = []): IFinancialObserve
 }
 
 describe('financial position accounting', () => {
+  it('waits for liquid balances before exposing net worth', () => {
+    const snapshots: IFinancialGroupSnapshot[] = readySnapshots();
+    const liquid = snapshots.find(snapshot => snapshot.group === 'liquid')!;
+    liquid.state = 'loading';
+
+    expect(reduceFinancialPositions(snapshots)).toMatchObject({
+      netWorth: undefined,
+      readiness: 'partial',
+    });
+
+    liquid.state = 'ready';
+    expect(reduceFinancialPositions(snapshots).netWorth).toBe(0n);
+  });
+
   it('reduces signed current values into assets, liabilities, and net worth', () => {
     const positions: IFinancialPosition[] = [
       {
@@ -1147,6 +1165,18 @@ describe('financial position accounting', () => {
       ['ARGNOT', 'transferable', 200n],
       ['ARGNOT', 'unattributed-hold', 300n],
     ]);
+  });
+
+  it('does not mark an empty ARGNOT balance unavailable while history catches up', async () => {
+    const account = createArgonAccount({ availableMicrogons: 10n });
+    const positions = await createWalletsForFinancialTest(account.address).loadPositions({
+      accounts: [account],
+      claimedHolds: { treasury: false, miningSlot: false, vaults: false },
+      liveArgonotRateMicrogons: 1_000_000n,
+      hasConfirmedHistoryCoverage: false,
+    });
+
+    expect(positions).not.toContainEqual(expect.objectContaining({ lifecycle: 'unavailable' }));
   });
 
   it('fails the wallet group when holds exceed the free chain balance', async () => {

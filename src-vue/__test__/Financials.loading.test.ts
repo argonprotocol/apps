@@ -27,8 +27,9 @@ const mocks = vi.hoisted(() => {
       refreshLockSummary: vi.fn(),
     },
     blockWatch: {
-      bestBlockHeader: { blockNumber: 1 },
-      finalizedBlockHeader: { blockNumber: 1 },
+      bestBlockHeader: { blockNumber: 1, blockHash: '0x1' },
+      finalizedBlockHeader: { blockNumber: 1, blockHash: '0x1' },
+      getApi: vi.fn(async () => ({})),
     },
     config: {
       isLoadedPromise: Promise.resolve(),
@@ -67,7 +68,7 @@ const mocks = vi.hoisted(() => {
       microgonValueInVaults: 0n,
       argonBurnCapacity: 0,
     },
-    walletHistoryRecovery: { hasCompleteCoverage: vi.fn(async () => true) },
+    walletHistoryRecovery: { hasCompleteCoverage: vi.fn(async () => false) },
     wallets: {
       isLoadedPromise: Promise.resolve(),
       defaultArgonWallet: wallet('5default'),
@@ -81,8 +82,20 @@ const mocks = vi.hoisted(() => {
     walletsForArgon: {
       events: { on: vi.fn() },
       createFinancialPositions: vi.fn(async () => []),
-      readAccountSnapshot: vi.fn(),
+      defaultArgonWallet: { address: '5default' },
+      miningBotWallet: { address: '5miner' },
+      operationalWallet: { address: '5operational' },
+      legacyMiningHoldAddress: '',
+      readAccountSnapshot: vi.fn(async () => ({
+        accounts: [],
+        observation: {
+          observedAt: new Date('2026-07-16T12:00:00Z'),
+          blockNumber: 1,
+          blockHash: '0x1',
+        },
+      })),
     },
+    restoreFinancialHistory: vi.fn(async () => ({ asOfBlock: 1, importedBlockCount: 0 })),
   };
 });
 
@@ -99,14 +112,14 @@ vi.mock('../stores/vaults.ts', () => ({
   getMyVault: () => mocks.myVault,
   getVaults: () => mocks.vaults,
 }));
-vi.mock('../stores/helpers/dbPromise.ts', () => ({ getDbPromise: vi.fn() }));
+vi.mock('../stores/helpers/dbPromise.ts', () => ({ getDbPromise: vi.fn(async () => ({})) }));
 vi.mock('../stores/myMiningSeats.ts', () => ({ getMyMiningSeats: () => mocks.myMiningSeats }));
 vi.mock('../stores/vaultingStats.ts', () => ({ useVaultingStats: () => mocks.vaultingStats }));
 vi.mock('../stores/config.ts', () => ({ getConfig: () => mocks.config }));
 vi.mock('../stores/stableSwaps.ts', () => ({ useStableSwaps: () => mocks.stableSwaps }));
 vi.mock('../lib/recovery/index.ts', () => ({
   getEnabledFinancialHistoryDomains: vi.fn(() => []),
-  restoreFinancialHistory: vi.fn(),
+  restoreFinancialHistory: mocks.restoreFinancialHistory,
 }));
 
 import { useFinancials } from '../stores/financials.ts';
@@ -128,6 +141,9 @@ describe('financials startup failures', () => {
     mocks.bitcoinLocks.load.mockResolvedValue();
     mocks.vaults.load.mockResolvedValue();
     mocks.myVault.load.mockResolvedValue();
+    mocks.stableSwaps.load.mockResolvedValue();
+    mocks.stableSwaps.refreshWalletSnapshot.mockResolvedValue();
+    mocks.restoreFinancialHistory.mockResolvedValue({ asOfBlock: 1, importedBlockCount: 0 });
   });
 
   afterEach(() => {
@@ -150,14 +166,6 @@ describe('financials startup failures', () => {
         mocks.wallets.isLoadedPromise = Promise.reject(new Error('wallet loading failed'));
       },
     },
-    {
-      name: 'an enabled domain',
-      message: 'bond loading failed',
-      fail: () => {
-        mocks.config.hasExtensionTreasury = true;
-        mocks.argonBonds.load.mockRejectedValue(new Error('bond loading failed'));
-      },
-    },
   ])('settles public loading state when $name fails', async ({ fail, message }) => {
     fail();
 
@@ -173,5 +181,17 @@ describe('financials startup failures', () => {
     expect(financials.savingsIsLoaded).toBe(true);
     expect(financials.vaultsIsLoaded).toBe(true);
     expect(financials.financialPositionAggregate.readiness).toBe('error');
+  });
+
+  it('keeps liquid balances available when an enabled domain fails to load', async () => {
+    mocks.config.hasExtensionTreasury = true;
+    mocks.argonBonds.load.mockRejectedValue(new Error('bond loading failed'));
+
+    const financials = useFinancials();
+
+    await vi.waitFor(() => {
+      expect(financials.financialPositionAggregate.groupSummaries.liquid.state).toBe('ready');
+    });
+    expect(financials.financialPositionAggregate.readiness).toBe('partial');
   });
 });

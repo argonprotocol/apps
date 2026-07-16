@@ -43,7 +43,7 @@ import { IVaultRecord, VaultsTable } from './db/VaultsTable.ts';
 import { IVaultingRules } from '../interfaces/IVaultingRules.ts';
 import { Vaults } from './Vaults.ts';
 import BitcoinLocks from './BitcoinLocks.ts';
-import { MyVaultRecovery } from './recovery/MyVaultDiscovery.ts';
+import { MyVaultRecovery } from './recovery/MyVaultRecovery.ts';
 import { type IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
 import { TransactionTracker, TxAttemptState } from './TransactionTracker.ts';
 import { TransactionInfo } from './TransactionInfo.ts';

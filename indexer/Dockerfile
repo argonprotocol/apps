@@ -7,6 +7,6 @@ RUN apt-get update && \
   rm -rf /var/lib/apt/lists/*
 
 COPY lib ./lib
-COPY seeds/mainnet-activity-v2.db.gz seeds/testnet-activity-v2.db.gz seeds/seed-manifest.json ./seeds/
+COPY seeds ./seeds
 
 ENTRYPOINT [ "node", "lib/index.js" ]
