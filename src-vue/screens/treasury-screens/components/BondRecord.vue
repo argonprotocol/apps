@@ -4,7 +4,7 @@
       <BondIcon MainIcon />
       <div ContentWrapper>
         <div FirstRow>
-          <span class="font-semibold">{{ numeral(bondLot.bonds).format('0,0') }} Bonds</span>
+          <span class="font-semibold">{{ numeral(bondLot.bonds).format('0,0') }} Argon Bonds</span>
           <span class="font-light">
             bought
             {{ dayjs.utc(miningFrames.getFrameDate(bondLot.createdFrame)).local().format('M/D/YYYY [at] h:mm a') }}
@@ -42,7 +42,7 @@
             <button
               @click.stop="emit('liquidate', bondLot)"
               :disabled="isReleasing"
-              class="bg-argon-600 border-argon-800 hover:bg-argon-700 cursor-pointer rounded-md border px-5 text-white hover:shadow-lg"
+              class="bg-white border-argon-600 hover:bg-argon-500/20 cursor-pointer rounded-md border px-5 text-argon-600 hover:shadow-lg"
             >
               {{ isReleasing ? 'Liquidating...' : 'Liquidate' }}
             </button>

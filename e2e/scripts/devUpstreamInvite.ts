@@ -54,7 +54,7 @@ try {
     currency.convertMicrogonTo(vault.calculateBitcoinFee(fullLockAmount), UnitOfMeasurement.USD),
   );
   const btcPctFee = vault.terms.bitcoinAnnualPercentRate.times(100).toNumber();
-  const fromName = vault.name || 'NetworkVault';
+  const fromName = vault.name || 'Testing';
 
   const serverAuthClient = new ServerAuthClient(() => walletKeys);
   await waitFor(45e3, 'upstream bot ready', async () => {
