@@ -63,7 +63,7 @@
 
           <div class="text-gray-500">Last Bitcoin Block</div>
           <div class="font-semibold font-mono">
-            #{{ formatBlock(stats.serverState.bitcoinLocalNodeBlockNumber) }}
+            #{{ formatBlock(myMiningSeats.serverState.bitcoinLocalNodeBlockNumber) }}
             <span class="font-light">
               mined
               <CountupClock as="span" :time="lastBitcoinActivityAt" v-slot="{ hours, minutes, seconds, isNull }">
@@ -80,7 +80,7 @@
 
           <div class="text-gray-500">Last Argon Block</div>
           <div class="font-semibold font-mono">
-            #{{ formatBlock(stats.serverState.argonLocalNodeBlockNumber) }}
+            #{{ formatBlock(myMiningSeats.serverState.argonLocalNodeBlockNumber) }}
             <span class="font-light">
               mined
               <CountupClock as="span" :time="lastArgonActivityAt" v-slot="{ hours, minutes, seconds, isNull }">
@@ -179,7 +179,7 @@ import { ServerType } from '../interfaces/IConfig.ts';
 import { getConfig } from '../stores/config.ts';
 import InstallProgress from '../components/InstallProgress.vue';
 import { getInstaller } from '../stores/installer.ts';
-import { getStats } from '../stores/stats.ts';
+import { getMyMiningSeats } from '../stores/myMiningSeats.ts';
 import { getBot } from '../stores/bot.ts';
 import { getEthereumBeaconApiUrl } from '../lib/EthereumClient.ts';
 import ArgonBlocksOverlay from './ArgonBlocksOverlay.vue';
@@ -193,7 +193,7 @@ dayjs.extend(utc);
 
 const config = getConfig();
 const installer = getInstaller();
-const stats = getStats();
+const myMiningSeats = getMyMiningSeats();
 const bot = getBot();
 
 const isOpen = Vue.ref(false);
@@ -232,17 +232,17 @@ const overlayMode = Vue.computed<'loading' | 'installing' | 'installComplete' | 
 });
 
 const lastBitcoinActivityAt = Vue.computed(() => {
-  const lastActivity = stats.serverState.bitcoinBlocksLastUpdatedAt;
+  const lastActivity = myMiningSeats.serverState.bitcoinBlocksLastUpdatedAt;
   return lastActivity ? dayjs.utc(lastActivity).local() : null;
 });
 
 const lastArgonActivityAt = Vue.computed(() => {
-  const lastActivity = stats.serverState.argonBlocksLastUpdatedAt;
+  const lastActivity = myMiningSeats.serverState.argonBlocksLastUpdatedAt;
   return lastActivity ? dayjs.utc(lastActivity).local() : null;
 });
 
 const botActivityLastUpdatedAt = Vue.computed(() => {
-  const lastActivity = stats.serverState.botActivityLastUpdatedAt;
+  const lastActivity = myMiningSeats.serverState.botActivityLastUpdatedAt;
   return lastActivity ? dayjs.utc(lastActivity).local() : null;
 });
 

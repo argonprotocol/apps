@@ -1,6 +1,9 @@
-import { calculateAPR, calculateAPY } from './utils.js';
+import { calculateAnnualPercentageRate, calculateAnnualPercentageYield } from './FinancialReturns.js';
 import { Currency, UnitOfMeasurement } from './Currency.js';
 import type { Mining } from './Mining.js';
+import { NetworkConfig } from './NetworkConfig.js';
+
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1_000;
 
 export class GlobalMiningStats {
   private mining: Mining;
@@ -29,18 +32,42 @@ export class GlobalMiningStats {
 
   public async update() {
     this.activeSeatCount = await this.mining.fetchActiveMinersCount();
+    const miningTermDays = (NetworkConfig.ticksPerCohort * NetworkConfig.tickMillis) / MILLISECONDS_PER_DAY;
+    const framesPerMiningTerm = BigInt(NetworkConfig.framesPerCohort);
 
     const aggregateBlockRewards = await this.mining.fetchAggregateBlockRewards();
     this.aggregatedBidCosts = await this.mining.fetchAggregateBidCosts();
     this.aggregatedBlockRewards = this.calculateBlockRewards(aggregateBlockRewards);
-    this.averageAPR = calculateAPR(this.aggregatedBidCosts, this.aggregatedBlockRewards);
-    this.averageAPY = calculateAPY(this.aggregatedBidCosts, this.aggregatedBlockRewards);
+    this.averageAPR = calculateAnnualPercentageRate({
+      startingValue: this.aggregatedBidCosts,
+      endingValue: this.aggregatedBlockRewards,
+      periodDays: miningTermDays,
+    });
+    this.averageAPY =
+      this.aggregatedBlockRewards === 0n
+        ? 0
+        : calculateAnnualPercentageYield({
+            startingValue: this.aggregatedBidCosts,
+            endingValue: this.aggregatedBlockRewards,
+            periodDays: miningTermDays,
+          });
 
     const lastFrameBlockRewards = await this.mining.fetchLastFrameBlockRewards();
-    this.activeBidCosts = (await this.mining.fetchLastFramesBidCosts()) * 10n;
-    this.activeBlockRewards = this.calculateBlockRewards(lastFrameBlockRewards) * 10n;
-    this.activeAPR = calculateAPR(this.activeBidCosts, this.activeBlockRewards);
-    this.activeAPY = calculateAPY(this.activeBidCosts, this.activeBlockRewards);
+    this.activeBidCosts = (await this.mining.fetchLastFramesBidCosts()) * framesPerMiningTerm;
+    this.activeBlockRewards = this.calculateBlockRewards(lastFrameBlockRewards) * framesPerMiningTerm;
+    this.activeAPR = calculateAnnualPercentageRate({
+      startingValue: this.activeBidCosts,
+      endingValue: this.activeBlockRewards,
+      periodDays: miningTermDays,
+    });
+    this.activeAPY =
+      this.activeBlockRewards === 0n
+        ? 0
+        : calculateAnnualPercentageYield({
+            startingValue: this.activeBidCosts,
+            endingValue: this.activeBlockRewards,
+            periodDays: miningTermDays,
+          });
   }
 
   private calculateBlockRewards(blockRewards: { micronots: bigint; microgons: bigint }): bigint {

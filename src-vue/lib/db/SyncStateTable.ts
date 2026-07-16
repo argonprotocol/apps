@@ -6,11 +6,38 @@ import { type IBlockToProcess } from '../WalletsForArgon.ts';
 export enum SyncStateKeys {
   Server = 'Server',
   Wallet = 'Wallet',
+  WalletHistory = 'WalletHistory',
+  FinancialHistory = 'FinancialHistory',
 }
+
+export type IFinancialHistoryDomain = 'bonds' | 'bitcoin' | 'vaulting';
 
 export interface ISyncSchemas {
   [SyncStateKeys.Server]: IServerStateRecord;
   [SyncStateKeys.Wallet]: IBlockToProcess;
+  [SyncStateKeys.WalletHistory]: {
+    asOfBlock: number;
+    addresses: string[];
+    activityMasks: Record<string, number>;
+    definitionVersion?: number;
+  };
+  [SyncStateKeys.FinancialHistory]: {
+    accountId: string;
+    asOfBlock: number;
+    definitionVersion?: number;
+    recoveryVersions?: Partial<Record<IFinancialHistoryDomain, number>>;
+    domains?: IFinancialHistoryDomain[];
+    domainCheckpoints?: Partial<
+      Record<
+        IFinancialHistoryDomain,
+        {
+          asOfBlock: number;
+          definitionVersion?: number;
+          recoveryVersion?: number;
+        }
+      >
+    >;
+  };
 }
 
 export class SyncStateTable extends BaseTable {

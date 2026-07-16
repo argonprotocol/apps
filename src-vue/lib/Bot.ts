@@ -20,6 +20,7 @@ import type { ServerApiClient } from './ServerApiClient.ts';
 
 export type IBotEmitter = {
   'updated-cohort-data': number;
+  'updated-cohort-history': number;
   'updated-bids-data': IBidsFile['winningBids'];
   'updated-server-state': void;
   'status-changed': BotStatus;

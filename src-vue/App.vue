@@ -14,7 +14,6 @@
           class="grow min-h-0 flex flex-col overflow-y-auto overflow-x-hidden"
           :class="
             controller.selectedTab === TopTab.ArgonBonds ||
-            controller.selectedTab === TopTab.ArgonotBonds ||
             controller.selectedTab === TopTab.BitcoinLocks ||
             controller.selectedTab === TopTab.BitcoinLoans ||
             controller.selectedTab === TopTab.StableSwaps
@@ -26,7 +25,6 @@
           <Network v-else-if="controller.selectedTab === TopTab.Network" />
 
           <ArgonBonds v-else-if="controller.selectedTab === TopTab.ArgonBonds" />
-          <ArgonotBonds v-else-if="controller.selectedTab === TopTab.ArgonotBonds" />
           <BitcoinLocks v-else-if="controller.selectedTab === TopTab.BitcoinLocks" />
           <BitcoinLoans v-else-if="controller.selectedTab === TopTab.BitcoinLoans" />
           <StableSwaps v-else-if="controller.selectedTab === TopTab.StableSwaps" />
@@ -42,7 +40,6 @@
       </div>
     </div>
     <template v-if="config.isLoaded">
-      <Portfolio />
       <template v-if="controller.selectedTab === TopTab.Mining">
         <SyncingOverlay v-if="bot.isSyncing" />
       </template>
@@ -55,7 +52,6 @@
       <MintingAuthorityRequestOverlay />
       <GatewayRelayOverlay />
       <ServerSettingsOverlay />
-      <WalletFundingReceivedOverlay />
       <ServerRemoveOverlay />
       <OperationalOverlay />
       <OperationalRewardsOverlay />
@@ -111,8 +107,6 @@ import AppUpdatesOverlay from './overlays/AppUpdatesOverlay.vue';
 import AlertBars from './navigation/AlertBars.vue';
 import WelcomeTour from './overlays/WelcomeTour.vue';
 import BotEditOverlay from './overlays/BotEditOverlay.vue';
-import WalletFundingReceivedOverlay from './overlays/WalletFundingReceivedOverlay.vue';
-import Portfolio from './panels/Portfolio.vue';
 import MoveCapitalOverlay from './overlays/MoveCapitalOverlay.vue';
 import TreasuryBondsOverlay from './overlays/TreasuryBondsOverlay.vue';
 import ArgonotCommitmentOverlay from './overlays/ArgonotCommitmentOverlay.vue';
@@ -132,7 +126,6 @@ import { storeToRefs } from 'pinia';
 import ArgonBonds from './screens/ArgonBonds.vue';
 import BitcoinLocks from './screens/BitcoinLocks.vue';
 import LeftBar from './navigation/LeftBar.vue';
-import ArgonotBonds from './screens/ArgonotBonds.vue';
 import StableSwaps from './screens/StableSwaps.vue';
 import BitcoinLoans from './screens/BitcoinLoans.vue';
 import Dashboard from './screens/Dashboard.vue';

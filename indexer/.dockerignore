@@ -1,3 +1,8 @@
-node_modules
-__test__
-src
+*
+!Dockerfile
+!lib
+!lib/**
+!seeds
+!seeds/mainnet-activity-v2.db.gz
+!seeds/testnet-activity-v2.db.gz
+!seeds/seed-manifest.json

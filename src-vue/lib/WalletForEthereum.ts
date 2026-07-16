@@ -3,6 +3,8 @@ import { NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { EvmContracts } from '@argonprotocol/mainchain';
 import { defaultWalletData, type IOtherToken, type IOtherTokenDefinition, type IWallet } from './Wallet.ts';
 import { createEthereumPublicClient, type IEthereumChainConfig, loadEthereumChainConfig } from './EthereumClient.ts';
+import type { Currency } from './Currency.ts';
+import { createFinancialPosition, type IWalletBalanceFinancialPosition } from '../interfaces/IFinancialPosition.ts';
 
 type ITokenBalanceClient = {
   readContract(args: {
@@ -62,6 +64,66 @@ export class WalletForEthereum {
 
   constructor(public readonly address: string) {
     this.data.address = address;
+  }
+
+  public createFinancialPositions(currency: Currency): IWalletBalanceFinancialPosition[] {
+    const wallet = this.data;
+    if (wallet.fetchErrorMsg) {
+      return [
+        createFinancialPosition('wallet-balance', {
+          id: `${wallet.address.toLowerCase()}:ethereum:unavailable`,
+          label: 'Ethereum balances unavailable',
+          lifecycle: 'unavailable',
+          wallet,
+          balanceType: 'external',
+          asset: 'ethereum:unavailable',
+        }),
+      ];
+    }
+
+    const positions: IWalletBalanceFinancialPosition[] = [];
+    const micronots = wallet.availableMicronots + wallet.reservedMicronots;
+    const hasArgonotPrice =
+      !!currency.priceIndex.argonotUsdPrice &&
+      !currency.priceIndex.argonotUsdPrice.isZero() &&
+      !!currency.priceIndex.argonUsdTargetPrice &&
+      !currency.priceIndex.argonUsdTargetPrice.isZero();
+    if (micronots > 0n) {
+      positions.push(
+        createFinancialPosition('wallet-balance', {
+          id: `${wallet.address.toLowerCase()}:ethereum:ARGNOT`,
+          label: 'Ethereum ARGNOT',
+          lifecycle: 'available',
+          currentValue: hasArgonotPrice ? currency.convertMicronotTo(micronots, UnitOfMeasurement.Microgon) : undefined,
+          wallet,
+          balanceType: 'external',
+          asset: 'ethereum:ARGNOT',
+        }),
+      );
+    }
+
+    const hasStablecoinPrice =
+      !!currency.priceIndex.argonUsdTargetPrice && !currency.priceIndex.argonUsdTargetPrice.isZero();
+    for (const token of wallet.otherTokens) {
+      if (token.value <= 0n) continue;
+
+      const isStablecoin = [UnitOfMeasurement.USDC, UnitOfMeasurement.USDT, UnitOfMeasurement.USDE].includes(
+        token.unitOfMeasurement,
+      );
+      positions.push(
+        createFinancialPosition('wallet-balance', {
+          id: `${wallet.address.toLowerCase()}:${token.chain}:${token.symbol}`,
+          label: `Ethereum ${token.symbol}`,
+          lifecycle: 'available',
+          currentValue: isStablecoin && hasStablecoinPrice ? currency.convertOtherToMicrogon(token) : undefined,
+          wallet,
+          balanceType: 'external',
+          asset: `${token.chain}:${token.symbol}`,
+        }),
+      );
+    }
+
+    return positions;
   }
 
   public async load(options: { force?: boolean } = {}) {

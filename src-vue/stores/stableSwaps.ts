@@ -2,16 +2,21 @@ import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import { parseUnits } from 'viem';
 import { StableSwaps } from '../lib/StableSwaps.ts';
-import type { IStableSwap, IStableSwapWalletSnapshot } from '../interfaces/IStableSwap.ts';
+import { loadStableSwapWalletSnapshot } from '../lib/StableSwapWallet.ts';
+import type { IStableSwap, IStableSwapMarketSnapshot, IStableSwapWalletSnapshot } from '../interfaces/IStableSwap.ts';
 import { createStableSwapPublicClient } from '../lib/StableSwapPublicClient.ts';
 import { getConfig } from './config.ts';
 import { getCurrency } from './currency.ts';
+import { getDbPromise } from './helpers/dbPromise.ts';
+import { useWallets } from './wallets.ts';
 
 export const useStableSwaps = defineStore('stableSwaps', () => {
   const config = getConfig();
   const currency = getCurrency();
+  const wallets = useWallets();
 
   const swaps = Vue.ref<IStableSwap[]>([]);
+  const marketSnapshot = Vue.ref<IStableSwapMarketSnapshot | null>(null);
 
   const isLoaded = Vue.ref(false);
   const isLoadingMarket = Vue.ref(false);
@@ -35,12 +40,28 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
     loadPromise = (async () => {
       await config.isLoadedPromise;
       await currency.isLoadedPromise;
-      marketError.value = '';
-      isLoadingMarket.value = true;
-      const stableSwaps = await getStableSwaps();
-      const targetPriceFixed18 = getTargetPriceFixed18();
+      await wallets.isLoadedPromise;
+      await refresh();
+      if (marketError.value) throw new Error(marketError.value);
+    })();
 
-      isLoaded.value = true;
+    try {
+      await loadPromise;
+    } catch (error) {
+      loadPromise = undefined;
+      throw new Error('Stable swaps failed to load', { cause: error });
+    }
+  }
+
+  async function refresh(): Promise<void> {
+    await config.isLoadedPromise;
+    await currency.isLoadedPromise;
+    await wallets.isLoadedPromise;
+
+    marketError.value = '';
+    isLoadingMarket.value = true;
+    try {
+      const stableSwaps = await getStableSwaps();
       swaps.value = await stableSwaps.getActive({
         microgonsPerUsd: currency.microgonsPer.USD,
         inputTokenPricesMicrogons: {
@@ -49,19 +70,35 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
           ETH: currency.microgonsPer.ETH,
           ARGNOT: currency.microgonsPer.ARGNOT,
         },
-        targetPriceFixed18,
+        targetPriceFixed18: getTargetPriceFixed18(),
       });
-    })();
-
-    try {
-      await loadPromise;
+      marketSnapshot.value = stableSwaps.marketSnapshot ?? null;
+      await refreshWalletSnapshot();
     } catch (error) {
-      loadPromise = undefined;
       marketError.value = error instanceof Error ? error.message : String(error);
       console.error('Stable swaps failed to load', error);
-      throw new Error('Stable swaps failed to load', { cause: error });
     } finally {
+      isLoaded.value = true;
       isLoadingMarket.value = false;
+    }
+  }
+
+  async function refreshWalletSnapshot(): Promise<void> {
+    if (!marketSnapshot.value) {
+      walletSnapshot.value = null;
+      return;
+    }
+
+    try {
+      walletError.value = '';
+      walletSnapshot.value = await loadStableSwapWalletSnapshot({
+        db: await getDbPromise(),
+        walletAddress: wallets.ethereumWallet.address,
+        currentPriceMicrogons: marketSnapshot.value.currentPriceMicrogons,
+      });
+    } catch (error) {
+      walletSnapshot.value = null;
+      walletError.value = error instanceof Error ? error.message : 'Could not load stable-swap wallet history.';
     }
   }
 
@@ -72,8 +109,11 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
     walletError,
     walletMessage,
     walletSnapshot,
+    marketSnapshot,
     swaps,
     load,
+    refresh,
+    refreshWalletSnapshot,
   };
 });
 

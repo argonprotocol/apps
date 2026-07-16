@@ -5,7 +5,7 @@ import { StableSwapProofStatus } from '../lib/db/StableSwapPurchasesTable.ts';
 describe('StableSwapPurchasesTable', () => {
   it('round-trips large Ethereum-sized amounts and proof payloads', async () => {
     const db = await createTestDb();
-    const inserted = await db.stableSwapPurchasesTable.upsert({
+    const purchase = {
       walletAddress: '0x1234567890123456789012345678901234567890',
       txHash: '0xtransaction',
       blockNumber: 999,
@@ -31,7 +31,8 @@ describe('StableSwapPurchasesTable', () => {
         proof: ['0x01', '0x02'],
       },
       proofError: undefined,
-    });
+    };
+    const inserted = await db.stableSwapPurchasesTable.upsert(purchase);
 
     expect(inserted?.ethereumArgonAmount).toBe(12_345_678_901_234_567_890n);
     expect(inserted?.costBasisUsdc).toBe(9_876_543_210_123_456_789n);
@@ -64,5 +65,46 @@ describe('StableSwapPurchasesTable', () => {
       keyRlp: '0x05',
       proof: ['0x03'],
     });
+
+    await db.stableSwapPurchasesTable.upsert({
+      ...purchase,
+      costBasisMicrogons: 8_765_432_101_234_567_890n,
+    });
+
+    const refreshed = await db.stableSwapPurchasesTable.fetchByWallet('0x1234567890123456789012345678901234567890');
+    expect(refreshed[0].costBasisMicrogons).toBe(8_765_432_101_234_567_890n);
+    expect(refreshed[0].proofStatus).toBe(StableSwapProofStatus.Ready);
+    expect(refreshed[0].proofPayload).toEqual({
+      txHash: '0xtransaction',
+      keyRlp: '0x05',
+      proof: ['0x03'],
+    });
+  });
+
+  it('does not restore invalidated purchase basis on later syncs', async () => {
+    const db = await createTestDb();
+    const walletAddress = '0x1234567890123456789012345678901234567890';
+
+    await db.stableSwapSyncStateTable.upsert({
+      walletAddress,
+      startBlockNumber: 100,
+      lastScannedBlockNumber: 100,
+      isPurchaseBasisIntact: true,
+    });
+    const invalidated = await db.stableSwapSyncStateTable.upsert({
+      walletAddress,
+      startBlockNumber: 100,
+      lastScannedBlockNumber: 110,
+      isPurchaseBasisIntact: false,
+    });
+    const laterSync = await db.stableSwapSyncStateTable.upsert({
+      walletAddress,
+      startBlockNumber: 100,
+      lastScannedBlockNumber: 120,
+      isPurchaseBasisIntact: true,
+    });
+
+    expect(invalidated?.isPurchaseBasisIntact).toBe(false);
+    expect(laterSync?.isPurchaseBasisIntact).toBe(false);
   });
 });
