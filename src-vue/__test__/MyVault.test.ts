@@ -12,6 +12,8 @@ import {
   type ITransactionStatusHistoryRecord,
 } from '../lib/db/TransactionStatusHistoryTable.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
+import { bigintCodec, numberCodec } from '../../core/__test__/helpers/codecs.ts';
+import { Vault } from '@argonprotocol/mainchain';
 
 type IMyVaultTestTarget = {
   buildPendingOrphanCosignTxs(args: {
@@ -31,9 +33,19 @@ type IMyVaultTestTarget = {
   recordPendingCosignUtxos(rawUtxoIds: Iterable<unknown>, updateSeq: number): Promise<void>;
   updateCollectDeadlines(): void;
   trackTxResultFee(txResult: unknown): Promise<void>;
+  recordFee(txResult: { finalFee?: bigint; finalFeeTip?: bigint }): void;
 };
 
 describe('MyVault cosign recovery', () => {
+  it('does not add the informational tip to the actual transaction fee twice', () => {
+    const { myVault } = createVault();
+    myVault.data.metadata = { operationalFeeMicrogons: 10n } as any;
+
+    (myVault as unknown as IMyVaultTestTarget).recordFee({ finalFee: 5n, finalFeeTip: 2n });
+
+    expect(myVault.data.metadata!.operationalFeeMicrogons).toBe(15n);
+  });
+
   it('reuses a recent submitted cosign tx', async () => {
     const txInfo = createTxInfo({
       status: TransactionStatus.Submitted,
@@ -552,7 +564,6 @@ describe('MyVault cosign recovery', () => {
     myVault.data = reactive(myVault.data) as any;
     myVault.data.pendingCollectTxInfo = txInfo;
 
-    vi.spyOn(myVault, 'getCollectedAmount').mockResolvedValue(undefined);
     vi.spyOn(myVault as any, 'updateRevenueStats').mockResolvedValue(undefined);
     vi.spyOn(myVault as unknown as IMyVaultTestTarget, 'trackTxResultFee').mockResolvedValue(undefined);
     const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({} as any);
@@ -983,6 +994,64 @@ describe('MyVault cosign recovery', () => {
 
     getMainchainClient.mockRestore();
   });
+
+  it('records finalized vault capital from the resulting vault state', async () => {
+    const capitalInsert = vi.fn(async () => undefined);
+    const walletKeys = createMockWalletKeys();
+    const api = {
+      query: { system: { number: vi.fn(async () => numberCodec(55)) } },
+    };
+    const client = { at: vi.fn(async () => api) };
+    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
+    const liveVault = {
+      vaultId: 7,
+      securitization: 900n,
+      getRelockCapacity: () => 200n,
+    } as Vault;
+    const getVault = vi.spyOn(Vault, 'get').mockResolvedValue(liveVault);
+    const { myVault } = createVault({
+      db: {
+        vaultCapitalHistoryTable: { insert: capitalInsert },
+      },
+      walletKeys,
+    });
+    myVault.data.metadata = { id: 7 } as any;
+
+    await myVault.recordFinalizedVaultCapital({
+      tx: { blockHeight: 55, blockHash: '0x55', blockExtrinsicIndex: 2 },
+      txResult: { waitForFinalizedBlock: Promise.resolve(new Uint8Array()) },
+    } as any);
+
+    expect(myVault.data.createdVault).toBe(liveVault);
+    expect(capitalInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'modified',
+        securitization: 900n,
+        securitizationTarget: 700n,
+        blockHash: '0x55',
+        extrinsicIndex: 2,
+      }),
+    );
+    getVault.mockRestore();
+    getMainchainClient.mockRestore();
+  });
+
+  it('does not fail a finalized vault transaction when financial history cannot be recorded', async () => {
+    const getMainchainClient = vi
+      .spyOn(mainchainStore, 'getMainchainClient')
+      .mockRejectedValue(new Error('archive unavailable'));
+    const { myVault } = createVault();
+    myVault.data.metadata = { id: 7 } as any;
+
+    await expect(
+      myVault.recordFinalizedVaultCapital({
+        tx: {},
+        txResult: { waitForFinalizedBlock: Promise.resolve(new Uint8Array()) },
+      } as any),
+    ).resolves.toBeUndefined();
+
+    getMainchainClient.mockRestore();
+  });
 });
 
 function createVault(args?: {
@@ -993,6 +1062,9 @@ function createVault(args?: {
   trackTxResult?: ReturnType<typeof vi.fn>;
   createIntentForFollowOnTx?: ReturnType<typeof vi.fn>;
   historyByTxId?: Record<number, Partial<ITransactionStatusHistoryRecord>[]>;
+  db?: Record<string, unknown>;
+  walletKeys?: ReturnType<typeof createMockWalletKeys>;
+  ensureStoredEvents?: ReturnType<typeof vi.fn>;
 }) {
   const blockWatch = {
     finalizedBlockHeader: { blockNumber: args?.finalizedHeight ?? 100 },
@@ -1087,6 +1159,7 @@ function createVault(args?: {
     },
     submitAndWatch,
     trackTxResult,
+    ensureStoredEvents: args?.ensureStoredEvents ?? vi.fn(async () => undefined),
     createIntentForFollowOnTx: args?.createIntentForFollowOnTx ?? vi.fn(),
     findLatestTxInfo: vi.fn((matcher: (txInfo: TransactionInfo) => boolean) => {
       return txInfos.find(matcher);
@@ -1162,9 +1235,10 @@ function createVault(args?: {
       transactionsTable: {
         fetchStatusHistory: vi.fn(async () => []),
       },
+      ...args?.db,
     } as any),
     {} as any,
-    createMockWalletKeys(),
+    args?.walletKeys ?? createMockWalletKeys(),
     transactionTracker,
     bitcoinLocks,
     miningFrames,

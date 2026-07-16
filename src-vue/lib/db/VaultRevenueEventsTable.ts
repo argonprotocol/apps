@@ -1,4 +1,4 @@
-import { BaseTable, IFieldTypes } from './BaseTable';
+import { BaseTable, type IFieldTypes } from './BaseTable';
 import { convertFromSqliteFields, toSqlParams } from '../Utils';
 
 export interface IVaultRevenueEventsRecord {
@@ -7,43 +7,46 @@ export interface IVaultRevenueEventsRecord {
   source: 'vaultCollect' | 'vaultBurn';
   blockNumber: number;
   blockHash: string;
+  blockTime?: Date;
+  extrinsicIndex?: number;
   createdAt: Date;
   updatedAt: Date;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
-type IVaultRevenueEventsRecordKey = keyof IVaultRevenueEventsRecord & string;
 export class VaultRevenueEventsTable extends BaseTable {
-  private bigIntFields: IVaultRevenueEventsRecordKey[] = ['amount'];
-  private dateFields: IVaultRevenueEventsRecordKey[] = ['createdAt', 'updatedAt'];
-  private jsonFields: IVaultRevenueEventsRecordKey[] = [];
-  private booleanFields: IVaultRevenueEventsRecordKey[] = [];
+  public revision = 0;
 
-  private get fields(): IFieldTypes {
-    return {
-      bigint: this.bigIntFields,
-      date: this.dateFields,
-      json: this.jsonFields,
-      boolean: this.booleanFields,
-    };
-  }
+  private fields: IFieldTypes = {
+    bigint: ['amount'],
+    date: ['blockTime', 'createdAt', 'updatedAt'],
+  };
 
   public async insert(
     args: Omit<IVaultRevenueEventsRecord, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<IVaultRevenueEventsRecord | undefined> {
-    const { amount, source, blockNumber, blockHash } = args;
+    const { amount, source, blockNumber, blockHash, blockTime, extrinsicIndex } = args;
     const records = await this.db.select<IVaultRevenueEventsRecord[]>(
       `INSERT INTO VaultRevenueEvents
-        (amount, source, blockNumber, blockHash)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(amount, source, blockHash) DO NOTHING
+        (amount, source, blockNumber, blockHash, blockTime, extrinsicIndex)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT DO UPDATE SET
+          blockTime = COALESCE(VaultRevenueEvents.blockTime, excluded.blockTime),
+          extrinsicIndex = COALESCE(VaultRevenueEvents.extrinsicIndex, excluded.extrinsicIndex)
+        WHERE (VaultRevenueEvents.blockTime IS NULL AND excluded.blockTime IS NOT NULL)
+           OR (VaultRevenueEvents.extrinsicIndex IS NULL AND excluded.extrinsicIndex IS NOT NULL)
         RETURNING *;`,
-      toSqlParams([amount, source, blockNumber, blockHash]),
+      toSqlParams([amount, source, blockNumber, blockHash, blockTime, extrinsicIndex]),
     );
-    return convertFromSqliteFields<IVaultRevenueEventsRecord[]>(records, this.fields)[0];
+    const record = convertFromSqliteFields<IVaultRevenueEventsRecord[]>(records, this.fields)[0];
+    if (record) this.revision += 1;
+    return record;
   }
 
-  public async deleteBlock(blockHash: string): Promise<void> {
-    await this.db.execute(`DELETE FROM VaultRevenueEvents WHERE blockHash = ?`, toSqlParams([blockHash]));
+  public async fetchAll(): Promise<IVaultRevenueEventsRecord[]> {
+    const records = await this.db.select<IVaultRevenueEventsRecord[]>(
+      `SELECT * FROM VaultRevenueEvents
+       ORDER BY blockNumber, id`,
+    );
+    return convertFromSqliteFields<IVaultRevenueEventsRecord[]>(records, this.fields);
   }
 }

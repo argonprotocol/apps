@@ -9,6 +9,7 @@ type IBotSyncerTestTarget = {
     state: { oldestFrameIdToSync: number; currentFrameId: number; currentTick: number },
   ): Promise<void>;
   syncDbFrame(frameId: number): Promise<void>;
+  syncDbCohort(cohortActivationFrameId: number): Promise<void>;
   updateBotState(state: { currentFrameId: number }): Promise<void>;
 };
 
@@ -112,6 +113,86 @@ describe('BotSyncer', () => {
     await vi.waitFor(() => {
       expect(warn).toHaveBeenCalledWith('BotSyncer background sync error:', error);
     });
+  });
+
+  it('announces when historical cohort catch-up completes', async () => {
+    const { syncer, botFns } = createSyncer();
+    const testSyncer = syncer as unknown as IBotSyncerTestTarget;
+    vi.spyOn(testSyncer, 'syncDbFrame').mockResolvedValue(undefined);
+    vi.spyOn(syncer as any, 'calculateDbSyncProgress').mockResolvedValue(100);
+
+    await testSyncer.syncThePast(0, {
+      oldestFrameIdToSync: 1,
+      currentFrameId: 2,
+      currentTick: 1,
+    });
+
+    await vi.waitFor(() => {
+      expect(botFns.onEvent).toHaveBeenCalledWith('updated-cohort-history', 2);
+    });
+  });
+
+  it.each([
+    {
+      name: 'captured with the winning bid',
+      capturedPrice: 2_000_000n,
+      historicalPrices: [],
+      expectedPrice: 2_000_000n,
+      expectedHistoricalReads: 0,
+    },
+    {
+      name: 'from the bidding frame for a legacy bid file',
+      capturedPrice: undefined,
+      historicalPrices: [
+        { id: 9, microgonToArgonot: [3_000_000n] },
+        { id: 10, microgonToArgonot: [] },
+        { id: 11, microgonToArgonot: [0n] },
+        { id: 12, microgonToArgonot: [8_000_000n, 9_000_000n] },
+      ],
+      expectedPrice: 3_000_000n,
+      expectedHistoricalReads: 1,
+    },
+  ])('persists the argonot price $name', async testCase => {
+    const { syncer } = createSyncer();
+    const testSyncer = syncer as unknown as IBotSyncerTestTarget;
+    const insertOrUpdate = vi.fn();
+    const fetchArgonotPricesNearFrame = vi.fn().mockResolvedValue(testCase.historicalPrices);
+    (syncer as any).db = {
+      cohortsTable: { insertOrUpdate },
+      framesTable: { fetchArgonotPricesNearFrame },
+    };
+    (syncer as any).miningFrames = {
+      waitForFrameId: vi.fn().mockResolvedValue(undefined),
+      getTickStart: vi.fn().mockReturnValue(1_000),
+    };
+    (syncer as any).mainchain = {
+      minimumMicronotsMinedDuringTickRange: vi.fn().mockResolvedValue(1_000_000n),
+    };
+    vi.spyOn(syncer as any, 'fetchBidsFileFromCache').mockResolvedValue({
+      biddingFrameRewardTicksRemaining: 0,
+      allMinersCount: 10,
+      microgonsToBeMinedPerBlock: 1_000n,
+      transactionFeesByBlock: {},
+      seatCountWon: 2,
+      microgonsBidTotal: 6_000_000n,
+      micronotsStakedPerSeat: 1_000_000n,
+      argonotPriceAtBid: testCase.capturedPrice,
+      winningBids: [
+        { subAccountIndex: 0, microgonsPerSeat: 1_000_000n },
+        { subAccountIndex: 1, microgonsPerSeat: 5_000_000n },
+      ],
+    });
+
+    await testSyncer.syncDbCohort(12);
+
+    const cohort = insertOrUpdate.mock.calls[0][0];
+    expect(cohort).toEqual(
+      expect.objectContaining({
+        argonotPriceAtBid: testCase.expectedPrice,
+        microgonsBidPerSeat: 3_000_000n,
+      }),
+    );
+    expect(fetchArgonotPricesNearFrame).toHaveBeenCalledTimes(testCase.expectedHistoricalReads);
   });
 });
 

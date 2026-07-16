@@ -93,8 +93,62 @@ describe('BondLot', () => {
     const lot = BondLot.fromRuntime(1, lotCodec, lotCodec.owner.toString());
 
     expect(lot.programType).toBe('Argonot');
+    expect(lot.nativeAsset).toBe('ARGNOT');
+    expect(lot.principalMicronots).toBe(25n * 1_000_000n);
+    expect(lot.principalMicrogons).toBeUndefined();
     expect(lot.vaultId).toBeUndefined();
     expect(lot.bonusPercent).toBe(0);
+  });
+
+  it.each(['UserLiquidation', 'Bumped', 'VaultClosed'] as const)(
+    'retains the %s release reason from runtime state',
+    releaseReason => {
+      const lotCodec = createBondLot({
+        bonds: 25,
+        owner: Alice,
+        releaseFrame: 12,
+        releaseReason,
+      });
+      const lot = BondLot.fromRuntime(1, lotCodec, lotCodec.owner.toString());
+
+      expect(lot.releaseReason).toBe(releaseReason);
+      expect(lot.isReleasing).toBe(true);
+    },
+  );
+
+  it('keeps vault and argonot principal in separate native dimensions', () => {
+    const vaultCodec = createBondLot({ bonds: 10, owner: Alice });
+    const argonotCodec = createBondLot({ bonds: 20, owner: Alice, program: { Argonot: null } });
+    const vaultLot = BondLot.fromRuntime(1, vaultCodec, vaultCodec.owner.toString());
+    const argonotLot = BondLot.fromRuntime(2, argonotCodec, argonotCodec.owner.toString());
+    const totals = BondLot.getTotals([vaultLot, argonotLot]);
+
+    expect(vaultLot.nativeAsset).toBe('ARGN');
+    expect(vaultLot.principalMicrogons).toBe(10n * BigInt(MICROGONS_PER_ARGON));
+    expect(vaultLot.principalMicronots).toBeUndefined();
+    expect(totals.totalBondMicrogons).toBe(10n * BigInt(MICROGONS_PER_ARGON));
+    expect(totals.totalArgonotBondMicronots).toBe(20n * 1_000_000n);
+  });
+
+  it('does not mix raw argonot principal into vault-bond APY', () => {
+    const vaultCodec = createBondLot({
+      bonds: 10,
+      owner: Alice,
+      participatedFrames: 1,
+      cumulativeEarnings: 1_000_000n,
+    });
+    const argonotCodec = createBondLot({
+      bonds: 10,
+      owner: Alice,
+      program: { Argonot: null },
+      participatedFrames: 1,
+      cumulativeEarnings: 100_000_000n,
+    });
+    const vaultLot = BondLot.fromRuntime(1, vaultCodec, vaultCodec.owner.toString());
+    const argonotLot = BondLot.fromRuntime(2, argonotCodec, argonotCodec.owner.toString());
+
+    expect(BondLot.getAPY([vaultLot, argonotLot])).toBe(BondLot.getAPY([vaultLot]));
+    expect(argonotLot.getAPY()).toBe(0);
   });
 });
 
@@ -108,8 +162,14 @@ function createBondLot(args: {
   lastFrameEarningsFrame?: number;
   lastFrameEarnings?: bigint;
   cumulativeEarnings?: bigint;
+  releaseReason?: 'UserLiquidation' | 'Bumped' | 'VaultClosed';
   program?: { Vault: { vaultId: number; sharingPercent: number; bonusPercent: number } } | { Argonot: null };
 }): PalletTreasuryBondLot {
+  let releaseReason = args.releaseReason;
+  if (releaseReason === undefined && args.isReleasing) {
+    releaseReason = 'UserLiquidation';
+  }
+
   return getOfflineRegistry().createType('PalletTreasuryBondLot', {
     owner: args.owner,
     program: args.program ?? { Vault: { vaultId: 1, sharingPercent: 0, bonusPercent: 0 } },
@@ -120,6 +180,6 @@ function createBondLot(args: {
     lastFrameEarnings: args.lastFrameEarnings ?? null,
     cumulativeEarnings: args.cumulativeEarnings ?? 0n,
     releaseFrameId: args.releaseFrame ?? null,
-    releaseReason: args.isReleasing ? 'UserLiquidation' : null,
+    releaseReason: releaseReason ?? null,
   });
 }

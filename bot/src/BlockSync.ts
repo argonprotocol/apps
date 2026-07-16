@@ -355,12 +355,18 @@ export class BlockSync {
 
     // The previous miners earn the rewards for the frame transition.
     const earningsFrameId = Math.max(0, isFrameChange ? currentFrameId - 1 : currentFrameId);
+    let microgonExchangeRateTo = events.some(
+      ({ event, phase }) => phase.isFinalization && client.events.miningSlot.NewMiners.is(event),
+    )
+      ? await this.currency.fetchMainchainRates(api, { updateOffchainRates: false })
+      : undefined;
 
     const { hasMiningBids, hasMiningSeats, transactionFeesTotal } = await this.syncBidding(
       currentFrameId,
       earningsFrameId,
       blockMeta,
       events,
+      microgonExchangeRateTo?.ARGNOT,
     );
     await this.storage.earningsFile(earningsFrameId).mutate(async x => {
       x.frameFirstTick = this.miningFrames.getTickStart(earningsFrameId);
@@ -377,7 +383,7 @@ export class BlockSync {
       if (!checkedExchangeRateThisFrame || !checkedExchangeRateThisHour) {
         this.lastExchangeRateDate = new Date();
         this.lastExchangeRateFrameId = earningsFrameId;
-        const microgonExchangeRateTo = await this.currency.fetchMainchainRates(api);
+        microgonExchangeRateTo ??= await this.currency.fetchMainchainRates(api);
         x.microgonToUsd.push(microgonExchangeRateTo.USD);
         x.microgonToBtc.push(microgonExchangeRateTo.BTC);
         x.microgonToArgonot.push(microgonExchangeRateTo.ARGNOT);
@@ -475,6 +481,7 @@ export class BlockSync {
     biddingFrameId: number,
     block: IBlock,
     events: Vec<FrameSystemEventRecord>,
+    argonotPriceAtBid?: bigint,
   ): Promise<{ hasMiningBids: boolean; hasMiningSeats: boolean; transactionFeesTotal: bigint }> {
     const client = this.getRpcClient(block.number);
     const api = await client.at(block.hash);
@@ -517,10 +524,14 @@ export class BlockSync {
         const activeMiners = await api.query.miningSlot.activeMinersCount().then(x => x.toNumber());
         const lastBidsFile = this.storage.bidsFile(biddingFrameIdOfNewCohort, activationFrameIdOfNewCohort);
         const firstFrameTick = this.miningFrames.getTickStart(biddingFrameIdOfNewCohort);
+        argonotPriceAtBid ??= await this.currency
+          .fetchMainchainRates(api, { updateOffchainRates: false })
+          .then(x => x.ARGNOT);
         const winningBids: (IWinningBid & { micronotsStakedPerSeat: bigint })[] = [];
         await lastBidsFile.mutate(async x => {
           x.seatCountWon = 0;
           x.microgonsBidTotal = 0n;
+          x.argonotPriceAtBid = argonotPriceAtBid;
           x.winningBids = [];
           x.biddingFrameFirstTick = firstFrameTick;
           x.biddingFrameRewardTicksRemaining = 0;

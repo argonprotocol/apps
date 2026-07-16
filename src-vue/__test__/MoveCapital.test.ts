@@ -540,6 +540,7 @@ function createMoveCapital(existingTxInfo?: MockTxInfo) {
   const myVault = {
     increaseVaultSecuritization: vi.fn(),
     buildIncreaseBitcoinSecurityTx: vi.fn(),
+    recordFinalizedVaultCapital: vi.fn(),
   };
   const moveCapitalWalletKeys = {
     miningBotAddress: 'mining-bot-address',

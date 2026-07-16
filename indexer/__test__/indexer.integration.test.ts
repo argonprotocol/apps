@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, expect, it } from 'vitest';
 import { runOnTeardown, teardown } from '@argonprotocol/testing';
 import { getClient, Keyring, TxSubmitter } from '@argonprotocol/mainchain';
 import fs from 'node:fs';
@@ -6,6 +6,7 @@ import os from 'node:os';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import Path from 'path';
 import { IndexerServer } from '../src/IndexerServer.ts';
+import { AccountActivityKind } from '../src/AccountActivity.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
@@ -19,12 +20,13 @@ beforeAll(async () => {
   clientAddress = result.archiveUrl;
 });
 
-it.skipIf(skipE2E)('syncs transfers', async () => {
+it.skipIf(skipE2E)('indexes account activity blocks', async () => {
   const alice = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Alice');
+  const bob = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Bob');
+  const charlie = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Charlie');
 
   const indexerDir = fs.mkdtempSync(Path.join(os.tmpdir(), 'indexer-'));
 
-  const bob = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Bob');
   const client = await getClient(clientAddress);
   const indexer = new IndexerServer({
     port: 0,
@@ -37,42 +39,71 @@ it.skipIf(skipE2E)('syncs transfers', async () => {
     await indexer.stop();
     await fs.promises.rm(indexerDir, { recursive: true, force: true });
   });
-  // @ts-expect-error - private access
-  const insertSpy = vi.spyOn(indexer.db, 'recordFinalizedBlock');
-
   {
-    console.log(`http://localhost:${indexer.port}/transfers/${bob.address}`);
-    const getTransfers = await fetch(`http://localhost:${indexer.port}/transfers/${bob.address}`);
-    expect(getTransfers.ok).toBe(true);
-    const transfers = (await getTransfers.json()) as any;
-    expect(transfers.transfers).toHaveLength(0);
-    expect(transfers.asOfBlock).toBeGreaterThanOrEqual(0);
+    const response = await fetch(`http://localhost:${indexer.port}/v2/activity/${bob.address}`);
+    expect(response.ok).toBe(true);
+    const activity = (await response.json()) as { blocks: unknown[]; asOfBlock: number };
+    expect(activity.blocks).toHaveLength(0);
+    expect(activity.asOfBlock).toBeGreaterThanOrEqual(0);
+
+    const transfersResponse = await fetch(`http://localhost:${indexer.port}/transfers/${bob.address}`);
+    expect(transfersResponse.status).toBe(404);
+
+    const collectsResponse = await fetch(`http://localhost:${indexer.port}/vault-collects/${bob.address}`);
+    expect(collectsResponse.status).toBe(404);
   }
 
   const submitter = new TxSubmitter(client, client.tx.balances.transferAllowDeath(bob.address, 1_000_000n), alice);
   const result = await submitter.submit();
   await result.waitForFinalizedBlock;
 
-  await new Promise(async resolve => {
-    while (true) {
-      const lastCall = insertSpy.mock.calls.at(-1);
-      if (lastCall && lastCall[0] && lastCall[0].blockNumber >= result.blockNumber!) {
-        break;
-      }
-      await new Promise(r => setTimeout(r, 500));
-    }
-    resolve(true);
-  });
-  {
-    const getTransfers = await fetch(`http://localhost:${indexer.port}/transfers/${bob.address}`);
-    expect(getTransfers.ok).toBe(true);
-    const transfers = (await getTransfers.json()) as any;
-    expect(transfers.transfers).toHaveLength(1);
-    expect(transfers.transfers[0]).toEqual(
-      expect.objectContaining({
-        currency: 'argon',
-        source: 'transfer',
-      }),
-    );
+  while (true) {
+    const response = await fetch(`http://localhost:${indexer.port}/v2/activity/${bob.address}`);
+    const activity = (await response.json()) as { asOfBlock: number };
+    if (activity.asOfBlock >= result.blockNumber!) break;
+
+    await new Promise(resolve => setTimeout(resolve, 500));
   }
+  {
+    const response = await fetch(`http://localhost:${indexer.port}/v2/activity/${bob.address}`);
+    expect(response.ok).toBe(true);
+    const activity = (await response.json()) as { blocks: { blockNumber: number; activityMask: number }[] };
+    const transferBlock = activity.blocks.find(block => block.blockNumber === result.blockNumber);
+    expect(transferBlock).toBeDefined();
+    expect((transferBlock?.activityMask ?? 0) & AccountActivityKind.Transfer).toBe(AccountActivityKind.Transfer);
+  }
+
+  const proxySetup = await new TxSubmitter(client, client.tx.proxy.addProxy(bob.address, 'Any', 0), alice).submit();
+  await proxySetup.waitForFinalizedBlock;
+
+  const proxyTransfer = await new TxSubmitter(
+    client,
+    client.tx.proxy.proxy(alice.address, null, client.tx.balances.transferAllowDeath(charlie.address, 1_000_000n)),
+    bob,
+  ).submit();
+  await proxyTransfer.waitForFinalizedBlock;
+
+  while (true) {
+    const response = await fetch(`http://localhost:${indexer.port}/v2/activity/${bob.address}`);
+    const activity = (await response.json()) as { asOfBlock: number };
+    if (activity.asOfBlock >= proxyTransfer.blockNumber!) break;
+
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+
+  const [aliceActivity, bobActivity, charlieActivity] = await Promise.all(
+    [alice, bob, charlie].map(async account => {
+      const response = await fetch(`http://localhost:${indexer.port}/v2/activity/${account.address}`);
+      return (await response.json()) as { blocks: { blockNumber: number; activityMask: number }[] };
+    }),
+  );
+  const proxyBlock = proxyTransfer.blockNumber!;
+  const aliceProxyActivity = aliceActivity.blocks.find(block => block.blockNumber === proxyBlock)?.activityMask ?? 0;
+  const bobProxyActivity = bobActivity.blocks.find(block => block.blockNumber === proxyBlock)?.activityMask ?? 0;
+  const charlieProxyActivity =
+    charlieActivity.blocks.find(block => block.blockNumber === proxyBlock)?.activityMask ?? 0;
+
+  expect(aliceProxyActivity & AccountActivityKind.Transfer).toBe(AccountActivityKind.Transfer);
+  expect(bobProxyActivity & AccountActivityKind.Fee).toBe(AccountActivityKind.Fee);
+  expect(charlieProxyActivity & AccountActivityKind.Transfer).toBe(AccountActivityKind.Transfer);
 });

@@ -1,4 +1,4 @@
-import { BaseTable, IFieldTypes } from './BaseTable.ts';
+import { BaseTable, type IFieldTypes } from './BaseTable.ts';
 import { convertFromSqliteFields, toSqlParams } from '../Utils.ts';
 
 export enum StableSwapProofStatus {
@@ -34,28 +34,20 @@ export interface IStableSwapPurchaseRecord {
   updatedAt: Date;
 }
 
-type IStableSwapPurchaseRecordKey = keyof IStableSwapPurchaseRecord;
-
 export class StableSwapPurchasesTable extends BaseTable {
-  private bigIntFields: IStableSwapPurchaseRecordKey[] = [
-    'ethereumArgonAmount',
-    'costBasisUsdc',
-    'costBasisMicrogons',
-    'effectiveBuyPriceMicrogons',
-    'uniswapPriceMicrogons',
-    'argonOraclePriceMicrogons',
-    'argonOracleTargetPriceMicrogons',
-  ];
-  private dateFields: IStableSwapPurchaseRecordKey[] = ['ethereumTimestamp', 'createdAt', 'updatedAt'];
-  private jsonFields: IStableSwapPurchaseRecordKey[] = ['proofPayload'];
-
-  private get fields(): IFieldTypes {
-    return {
-      bigint: this.bigIntFields,
-      date: this.dateFields,
-      json: this.jsonFields,
-    };
-  }
+  private fields: IFieldTypes = {
+    bigint: [
+      'ethereumArgonAmount',
+      'costBasisUsdc',
+      'costBasisMicrogons',
+      'effectiveBuyPriceMicrogons',
+      'uniswapPriceMicrogons',
+      'argonOraclePriceMicrogons',
+      'argonOracleTargetPriceMicrogons',
+    ] satisfies (keyof IStableSwapPurchaseRecord)[],
+    date: ['ethereumTimestamp', 'createdAt', 'updatedAt'] satisfies (keyof IStableSwapPurchaseRecord)[],
+    json: ['proofPayload'] satisfies (keyof IStableSwapPurchaseRecord)[],
+  };
 
   public async fetchByWallet(walletAddress: string): Promise<IStableSwapPurchaseRecord[]> {
     const records = await this.db.select<IStableSwapPurchaseRecord[]>(
@@ -128,26 +120,15 @@ export class StableSwapPurchasesTable extends BaseTable {
          proofError
        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(walletAddress, txHash) DO UPDATE SET
-         blockNumber = excluded.blockNumber,
-         blockHash = excluded.blockHash,
-         transactionIndex = excluded.transactionIndex,
-         receiptRoot = excluded.receiptRoot,
-         ethereumTimestamp = excluded.ethereumTimestamp,
-         poolAddress = excluded.poolAddress,
-         poolFee = excluded.poolFee,
-         ethereumArgonAmount = excluded.ethereumArgonAmount,
-         costBasisUsdc = excluded.costBasisUsdc,
-         costBasisMicrogons = excluded.costBasisMicrogons,
-         effectiveBuyPriceMicrogons = excluded.effectiveBuyPriceMicrogons,
-         uniswapPriceMicrogons = excluded.uniswapPriceMicrogons,
-         argonBlockNumber = excluded.argonBlockNumber,
-         argonBlockHash = excluded.argonBlockHash,
-         argonOraclePriceMicrogons = excluded.argonOraclePriceMicrogons,
-         argonOracleTargetPriceMicrogons = excluded.argonOracleTargetPriceMicrogons,
-         proofStatus = excluded.proofStatus,
-         proofPayload = excluded.proofPayload,
-         proofError = excluded.proofError,
-         updatedAt = CURRENT_TIMESTAMP
+         (blockNumber, blockHash, transactionIndex, receiptRoot, ethereumTimestamp,
+          poolAddress, poolFee, ethereumArgonAmount, costBasisUsdc, costBasisMicrogons,
+          effectiveBuyPriceMicrogons, uniswapPriceMicrogons, argonBlockNumber, argonBlockHash,
+          argonOraclePriceMicrogons, argonOracleTargetPriceMicrogons, updatedAt) =
+         (excluded.blockNumber, excluded.blockHash, excluded.transactionIndex, excluded.receiptRoot,
+          excluded.ethereumTimestamp, excluded.poolAddress, excluded.poolFee, excluded.ethereumArgonAmount,
+          excluded.costBasisUsdc, excluded.costBasisMicrogons, excluded.effectiveBuyPriceMicrogons,
+          excluded.uniswapPriceMicrogons, excluded.argonBlockNumber, excluded.argonBlockHash,
+          excluded.argonOraclePriceMicrogons, excluded.argonOracleTargetPriceMicrogons, CURRENT_TIMESTAMP)
        RETURNING *`,
       toSqlParams([
         walletAddress,

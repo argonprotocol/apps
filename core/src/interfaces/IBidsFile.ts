@@ -7,6 +7,8 @@ export interface IBidsFile extends ILastModifiedAt {
   biddingFrameRewardTicksRemaining: number;
   lastBlockNumber: number;
   microgonsBidTotal: bigint;
+  // Pre-capture bid files omit this and recover an estimated rate from frame history.
+  argonotPriceAtBid?: bigint;
   transactionFeesByBlock: { [blockNumber: number]: bigint };
   micronotsStakedPerSeat: bigint;
   microgonsToBeMinedPerBlock: bigint;
