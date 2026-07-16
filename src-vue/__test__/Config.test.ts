@@ -25,6 +25,21 @@ it('can load config defaults', async () => {
   expect(config.biddingRules).toBeTruthy();
 });
 
+it('keeps mnemonic-restored accounts eligible for financial history without mining or vault history', async () => {
+  const dbPromise = createMockedDbPromise();
+  const { walletKeys } = createTestWallet('//Alice');
+  vi.spyOn(walletKeys, 'didWalletHavePreviousLife').mockResolvedValueOnce(true);
+  const recoverAccount = vi.fn(async () => ({}));
+  instanceChecks.delete(Config.prototype.constructor);
+  const config = new Config(dbPromise, walletKeys, recoverAccount);
+
+  await config.load();
+
+  expect(recoverAccount).toHaveBeenCalledOnce();
+  expect(config.walletAccountsHadPreviousLife).toBe(true);
+  expect(config.walletPreviousLifeRecovered).toBe(true);
+});
+
 it('can load config from db state', async () => {
   const dbPromise = createMockedDbPromise({ miningSetupStatus: `"${MiningSetupStatus.Finished}"` });
   const { walletKeys } = createTestWallet('//Alice');

@@ -1,0 +1,1527 @@
+import { describe, expect, it, vi } from 'vitest';
+import {
+  BitcoinLock,
+  type FrameSupportTokensMiscIdAmountRuntimeHoldReason,
+  getOfflineRegistry,
+  type PalletTreasuryBondLot,
+  type Vault,
+} from '@argonprotocol/mainchain';
+import { BondLot } from '@argonprotocol/apps-core';
+import type { IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
+import type {
+  IFinancialGroupSnapshot,
+  IFinancialObservedGroupSnapshot,
+  IFinancialPosition,
+} from '../interfaces/IFinancialPosition.ts';
+import { financialGroups } from '../interfaces/IFinancialPosition.ts';
+import type { IWallet } from '../lib/Wallet.ts';
+import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
+import type { Currency } from '../lib/Currency.ts';
+import type { IWalletTransferRecord } from '../lib/db/WalletTransfersTable.ts';
+import { type IArgonAccountBalance, WalletsForArgon } from '../lib/WalletsForArgon.ts';
+import type { IMiningCohortFinancialRecord } from '../interfaces/db/ICohortFrameRecord.ts';
+import BitcoinLocks from '../lib/BitcoinLocks.ts';
+import { BitcoinFinancials } from '../lib/financials/BitcoinLocks.ts';
+import type { IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
+import { ArgonBondsFinancials } from '../lib/financials/ArgonBonds.ts';
+import type { WalletForArgon } from '../lib/WalletForArgon.ts';
+import { MiningFinancials } from '../lib/financials/MyMiningSeats.ts';
+import { FinancialPositionBook, reduceFinancialPositions } from '../lib/financials/index.ts';
+import { WalletFinancials } from '../lib/financials/WalletBalances.ts';
+
+const wallet: IWallet = {
+  address: '5wallet',
+  availableMicrogons: 0n,
+  availableMicronots: 0n,
+  reservedMicrogons: 0n,
+  reservedMicronots: 0n,
+  totalMicrogons: 0n,
+  totalMicronots: 0n,
+  otherTokens: [],
+  fetchErrorMsg: '',
+};
+const miningFinancials = new MiningFinancials({} as any);
+const bondFinancials = new ArgonBondsFinancials({} as any);
+const bitcoinFinancials = new BitcoinFinancials({} as any);
+
+function readySnapshots(positions: IFinancialPosition[] = []): IFinancialObservedGroupSnapshot[] {
+  return financialGroups.map(group => ({
+    group,
+    state: 'ready',
+    positions: positions.filter(position => position.group === group),
+    observation: {
+      observedAt: new Date('2026-07-14T12:00:00Z'),
+    },
+  }));
+}
+
+describe('financial position accounting', () => {
+  it('waits for liquid balances before exposing net worth', () => {
+    const snapshots: IFinancialGroupSnapshot[] = readySnapshots();
+    const liquid = snapshots.find(snapshot => snapshot.group === 'liquid')!;
+    liquid.state = 'loading';
+
+    expect(reduceFinancialPositions(snapshots)).toMatchObject({
+      netWorth: undefined,
+      readiness: 'partial',
+    });
+
+    liquid.state = 'ready';
+    expect(reduceFinancialPositions(snapshots).netWorth).toBe(0n);
+  });
+
+  it('reduces signed current values into assets, liabilities, and net worth', () => {
+    const positions: IFinancialPosition[] = [
+      {
+        id: 'wallet-argon',
+        kind: 'wallet-balance',
+        group: 'liquid',
+        label: 'Available ARGN',
+        lifecycle: 'available',
+
+        currentValue: 100n,
+        wallet,
+        balanceType: 'transferable',
+        asset: 'ARGN',
+      },
+      {
+        id: 'bitcoin-debt-1',
+        kind: 'bitcoin-liability',
+        group: 'bitcoin',
+        label: 'Bitcoin redemption',
+        lifecycle: 'active',
+
+        currentValue: -40n,
+        lock: {} as IBitcoinLockRecord,
+      },
+    ];
+
+    const aggregate = reduceFinancialPositions(readySnapshots(positions));
+
+    expect(aggregate.grossAssets).toBe(100n);
+    expect(aggregate.grossLiabilities).toBe(40n);
+    expect(aggregate.netWorth).toBe(60n);
+    expect(aggregate.accountReturn).toMatchObject({
+      availability: 'not-applicable',
+      eligiblePositionCount: 0,
+      investmentPositionCount: 0,
+    });
+  });
+
+  it('does not invent a return for cash or add paid income and settlement marks to current value', () => {
+    const positions: IFinancialPosition[] = [
+      {
+        id: 'wallet-argon',
+        kind: 'wallet-balance',
+        group: 'liquid',
+        label: 'Available ARGN',
+        lifecycle: 'available',
+
+        currentValue: 50n,
+        wallet,
+        balanceType: 'transferable',
+        asset: 'ARGN',
+      },
+      {
+        id: 'vault-1',
+        kind: 'vault',
+        group: 'vaulting',
+        label: 'Vault 1',
+        vaultId: 1,
+        lifecycle: 'active',
+
+        currentValue: 100n,
+        investedCost: 100n,
+        paidIncome: 5n,
+        settledPrincipalValue: 10n,
+        startedAt: new Date('2026-01-01T00:00:00Z'),
+        vault: {} as Vault,
+        securitization: 100n,
+        uncollectedRevenue: 0n,
+        capitalHistory: [],
+        revenueHistory: [],
+      },
+    ];
+
+    const aggregate = reduceFinancialPositions(readySnapshots(positions));
+    const liquid = aggregate.groupSummaries.liquid;
+    const vaulting = aggregate.groupSummaries.vaulting;
+
+    expect(aggregate.netWorth).toBe(150n);
+    expect(liquid?.returnSummary.availability).toBe('not-applicable');
+    expect(liquid?.returnSummary.percent).toBeUndefined();
+    expect(vaulting?.currentValue).toBe(100n);
+    expect(vaulting?.returnSummary.returnAmount).toBe(15n);
+    expect(vaulting?.returnSummary.percent).toBe(15);
+    expect(aggregate.accountReturn).toMatchObject({
+      availability: 'available',
+      eligiblePositionCount: 1,
+      investmentPositionCount: 1,
+      percent: 15,
+    });
+  });
+
+  it('weights the account return by cost across investment groups', () => {
+    const positions: IFinancialPosition[] = [
+      {
+        id: 'vault-1',
+        kind: 'vault',
+        group: 'vaulting',
+        label: 'Vault 1',
+        vaultId: 1,
+        lifecycle: 'active',
+
+        currentValue: 120n,
+        investedCost: 100n,
+        paidIncome: 0n,
+        settledPrincipalValue: 0n,
+        startedAt: new Date('2026-01-01T00:00:00Z'),
+        vault: {} as Vault,
+        securitization: 120n,
+        uncollectedRevenue: 0n,
+        capitalHistory: [],
+        revenueHistory: [],
+      },
+      {
+        id: 'swap-1',
+        kind: 'stable-swap',
+        group: 'stableSwaps',
+        label: 'Stable swap holdings',
+        lifecycle: 'active',
+
+        currentValue: 330n,
+        investedCost: 300n,
+        paidIncome: 0n,
+        settledPrincipalValue: 0n,
+        startedAt: new Date('2026-01-01T00:00:00Z'),
+        wallet,
+        purchases: [],
+        nativeAmount: 330n,
+        isQuantityReconciled: true,
+      },
+    ];
+
+    const accountReturn = reduceFinancialPositions(readySnapshots(positions)).accountReturn;
+
+    expect(accountReturn).toMatchObject({
+      availability: 'available',
+      eligiblePositionCount: 2,
+      investmentPositionCount: 2,
+      percent: 12.5,
+    });
+  });
+
+  it('keeps an unavailable investment return unavailable instead of reporting zero percent', () => {
+    const positions: IFinancialPosition[] = [
+      {
+        id: 'stable-swap-1',
+        kind: 'stable-swap',
+        group: 'stableSwaps',
+        label: 'Stable swap holdings',
+        lifecycle: 'active',
+
+        currentValue: 100n,
+        paidIncome: 0n,
+        settledPrincipalValue: 0n,
+        startedAt: new Date('2026-01-01T00:00:00Z'),
+        wallet,
+        purchases: [],
+        nativeAmount: 100n,
+        isQuantityReconciled: false,
+      },
+    ];
+
+    const aggregate = reduceFinancialPositions(readySnapshots(positions));
+    const stableSwaps = aggregate.groupSummaries.stableSwaps;
+
+    expect(stableSwaps?.returnSummary.availability).toBe('unavailable');
+    expect(stableSwaps?.returnSummary.percent).toBeUndefined();
+    expect(stableSwaps?.returnSummary.returnAmount).toBeUndefined();
+  });
+
+  it('reports partial ARGNOT holding return when part of the current quantity has no basis', () => {
+    const positions: IFinancialPosition[] = [
+      {
+        id: 'wallet-holding-known',
+        kind: 'wallet-holding',
+        group: 'liquid',
+        label: 'ARGNOT holding',
+        lifecycle: 'active',
+
+        currentValue: 12n,
+        investedCost: 8n,
+        paidIncome: 0n,
+        settledPrincipalValue: 0n,
+        startedAt: new Date('2026-01-01T00:00:00Z'),
+        accountId: '5wallet',
+        nativeAsset: 'ARGNOT',
+        nativeAmount: 4n,
+        entryArgonotRateMicrogons: 2_000_000n,
+      },
+      {
+        id: 'wallet-holding-unknown',
+        kind: 'wallet-holding',
+        group: 'liquid',
+        label: 'ARGNOT holding basis unavailable',
+        lifecycle: 'unavailable',
+
+        paidIncome: 0n,
+        accountId: '5wallet',
+        nativeAsset: 'ARGNOT',
+        nativeAmount: 2n,
+      },
+    ];
+
+    const aggregate = reduceFinancialPositions(readySnapshots(positions));
+
+    expect(aggregate.groupSummaries.liquid.returnSummary).toMatchObject({
+      availability: 'partial',
+      eligiblePositionCount: 1,
+      investmentPositionCount: 2,
+      returnAmount: 4n,
+    });
+    expect(aggregate.accountReturn).toMatchObject({
+      availability: 'partial',
+      eligiblePositionCount: 1,
+      investmentPositionCount: 2,
+    });
+  });
+
+  it('keeps pending mining bids at zero return and does not count reused collateral twice', () => {
+    const cohort = createMiningCohort({
+      progress: 30,
+      transactionFeesTotal: 1_000_000n,
+      microgonsBidPerSeat: 100_000_000n,
+      microgonsToBeMinedPerSeat: 10_000_000n,
+      micronotsToBeMinedPerSeat: 10_000_000n,
+      micronotsMinedTotal: 10_000_000n,
+      microgonsMinedTotal: 10_000_000n,
+      microgonFeesCollectedTotal: 5_000_000n,
+      closingArgonotPrice: 0n,
+      updatedAt: '2026-07-01T00:00:00Z',
+    });
+    const pendingBid = {
+      frameId: 21,
+      confirmedAtBlockNumber: 500,
+      address: '5miner',
+      subAccountIndex: 0,
+      microgonsPerSeat: 50_000_000n,
+      micronotsStakedPerSeat: 10_000_000n,
+      bidPosition: 0,
+      createdAt: '2026-07-14T00:00:00Z',
+      updatedAt: '2026-07-14T00:00:00Z',
+    };
+
+    const positions = miningFinancials.createFinancialPositions({
+      cohorts: [cohort],
+      latestFrameId: 21,
+      pendingBids: [pendingBid],
+      heldMicrogons: 50_000_000n,
+      heldMicronots: 10_000_000n,
+      liveArgonotRateMicrogons: 3_000_000n,
+      miningBotAddress: '5miner',
+      miningBotMicronots: 10_000_000n,
+      frameDates: new Map([[12, new Date('2026-07-01T00:00:00Z')]]),
+    });
+    const active = positions.find(position => position.kind === 'mining-cohort');
+    const custody = positions.find(position => position.kind === 'mining-argonot');
+    const pending = positions.find(position => position.kind === 'mining-bid');
+    const aggregate = reduceFinancialPositions(readySnapshots(positions));
+    const mining = aggregate.groupSummaries.mining;
+
+    expect(positions.filter(position => position.kind === 'mining-argonot')).toHaveLength(1);
+    expect(active).toMatchObject({
+      currentValue: 60_000_000n,
+      investedCost: 101_000_000n,
+      paidIncome: 45_000_000n,
+      remainingGuaranteedValue: 60_000_000n,
+    });
+    expect(custody).toMatchObject({
+      source: 'collateral',
+      lifecycle: 'held',
+      currentValue: 30_000_000n,
+      investedCost: 20_000_000n,
+      micronots: 10_000_000n,
+    });
+    expect(pending).toMatchObject({
+      currentValue: 50_000_000n,
+      investedCost: 50_000_000n,
+      nativeStakedMicronots: 0n,
+    });
+    expect(mining?.currentValue).toBe(140_000_000n);
+    expect(mining?.returnSummary.returnAmount).toBe(14_000_000n);
+  });
+
+  it('does not treat a completed mining stake as lost when its closing ARGNOT mark is missing', () => {
+    const positions = miningFinancials.createFinancialPositions({
+      cohorts: [
+        createMiningCohort({
+          transactionFeesTotal: 1_000_000n,
+          microgonsBidPerSeat: 100_000_000n,
+          microgonsToBeMinedPerSeat: 10_000_000n,
+          micronotsToBeMinedPerSeat: 10_000_000n,
+          closingArgonotPrice: 0n,
+          micronotsMinedTotal: 10_000_000n,
+          microgonsMinedTotal: 100_000_000n,
+        }),
+      ],
+      latestFrameId: 22,
+      pendingBids: [],
+      heldMicrogons: 0n,
+      heldMicronots: 0n,
+      liveArgonotRateMicrogons: 3_000_000n,
+      miningBotAddress: '5miner',
+      miningBotMicronots: 20_000_000n,
+      frameDates: new Map([
+        [12, new Date('2026-07-01T00:00:00Z')],
+        [22, new Date('2026-07-11T00:00:00Z')],
+      ]),
+    });
+    const aggregate = reduceFinancialPositions(readySnapshots(positions));
+    const mining = aggregate.groupSummaries.mining;
+
+    expect(positions[0]).toMatchObject({
+      kind: 'mining-cohort',
+      currentValue: undefined,
+      settledPrincipalValue: 0n,
+    });
+    const collateral = positions.find(
+      position => position.kind === 'mining-argonot' && position.source === 'collateral',
+    );
+    const rewards = positions.find(position => position.kind === 'mining-argonot' && position.source === 'rewards');
+
+    expect(collateral).toMatchObject({
+      lifecycle: 'active',
+      currentValue: 30_000_000n,
+      investedCost: 20_000_000n,
+    });
+    expect(rewards).toMatchObject({ lifecycle: 'active', currentValue: 30_000_000n });
+    expect(rewards?.investedCost).toBeUndefined();
+    expect(mining?.returnSummary.availability).toBe('partial');
+    expect(mining?.returnSummary.returnAmount).toBe(10_000_000n);
+  });
+
+  it('keeps reconstructable mining collateral based and marks only the unknown remainder unavailable', () => {
+    const positions = miningFinancials.createFinancialPositions({
+      cohorts: [
+        createMiningCohort({
+          progress: 30,
+          micronotsStakedPerSeat: 7_000_000n,
+          microgonsBidPerSeat: 100_000_000n,
+          microgonsToBeMinedPerSeat: 10_000_000n,
+          micronotsToBeMinedPerSeat: 10_000_000n,
+          closingArgonotPrice: 0n,
+          microgonsMinedTotal: 10_000_000n,
+          updatedAt: '2026-07-01T00:00:00Z',
+        }),
+      ],
+      latestFrameId: 12,
+      pendingBids: [],
+      heldMicrogons: 0n,
+      heldMicronots: 7_000_000n,
+      liveArgonotRateMicrogons: 3_000_000n,
+      miningBotAddress: '5miner',
+      miningBotMicronots: 10_000_000n,
+      frameDates: new Map([[12, new Date('2026-07-01T00:00:00Z')]]),
+      hasConfirmedHistoryCoverage: false,
+    });
+    const custody = positions.filter(position => position.kind === 'mining-argonot');
+    const mining = reduceFinancialPositions(readySnapshots(positions)).groupSummaries.mining;
+
+    expect(custody).toEqual([
+      expect.objectContaining({
+        source: 'collateral',
+        lifecycle: 'held',
+        currentValue: 21_000_000n,
+        investedCost: 14_000_000n,
+        micronots: 7_000_000n,
+      }),
+      expect.objectContaining({
+        source: 'unattributed',
+        lifecycle: 'active',
+        currentValue: 9_000_000n,
+        investedCost: undefined,
+        micronots: 3_000_000n,
+      }),
+    ]);
+    expect(mining.currentValue).toBe(120_000_000n);
+    expect(mining.returnSummary.availability).toBe('partial');
+  });
+
+  it('does not publish released mining ARGNOT that left without a recovered custody boundary', () => {
+    const positions = miningFinancials.createFinancialPositions({
+      cohorts: [createMiningCohort()],
+      latestFrameId: 22,
+      pendingBids: [],
+      heldMicrogons: 0n,
+      heldMicronots: 0n,
+      liveArgonotRateMicrogons: 4_000_000n,
+      miningBotAddress: '5miner',
+      miningBotMicronots: 0n,
+      frameDates: new Map([
+        [12, new Date('2026-07-01T00:00:00Z')],
+        [22, new Date('2026-07-11T00:00:00Z')],
+      ]),
+    });
+
+    expect(positions.filter(position => position.kind === 'mining-argonot')).toEqual([]);
+  });
+
+  it('preserves return across the ordinary-to-mining ARGNOT handoff', async () => {
+    const receivedAt = new Date('2026-06-20T00:00:00Z');
+    const committedAt = new Date('2026-07-01T00:00:00Z');
+    const transfers: IWalletTransferRecord[] = [
+      createWalletTransfer({
+        id: 1,
+        amount: 10_000_000n,
+        microgonsForArgonot: 2_000_000n,
+        blockNumber: 90,
+        blockTime: receivedAt,
+      }),
+      createWalletTransfer({
+        id: 2,
+        amount: -10_000_000n,
+        otherParty: '5miner',
+        isInternal: true,
+        extrinsicIndex: 2,
+        microgonsForArgonot: 3_000_000n,
+        blockNumber: 100,
+        blockTime: committedAt,
+      }),
+    ];
+    const ordinary = await createWalletsForFinancialTest('5default', transfers).loadPositions({
+      accounts: [createArgonAccount({ address: '5default' })],
+      claimedHolds: { treasury: false, miningSlot: false, vaults: false },
+      liveArgonotRateMicrogons: 4_000_000n,
+    });
+    const mining = miningFinancials.createFinancialPositions({
+      cohorts: [
+        createMiningCohort({
+          argonotPriceAtBid: 3_000_000n,
+        }),
+      ],
+      latestFrameId: 22,
+      pendingBids: [],
+      heldMicrogons: 0n,
+      heldMicronots: 0n,
+      liveArgonotRateMicrogons: 4_000_000n,
+      miningBotAddress: '5miner',
+      miningBotMicronots: 10_000_000n,
+      frameDates: new Map([
+        [12, committedAt],
+        [22, new Date('2026-07-11T00:00:00Z')],
+      ]),
+    });
+
+    const aggregate = reduceFinancialPositions(readySnapshots([...ordinary, ...mining]));
+    expect(aggregate.groupSummaries.liquid.returnSummary.returnAmount).toBe(10_000_000n);
+    expect(aggregate.groupSummaries.mining.returnSummary.returnAmount).toBe(10_000_000n);
+    expect(aggregate.accountReturn).toMatchObject({ availability: 'available', basisPoints: 2_857n });
+  });
+
+  it('keeps uncommitted mining-bot ARGNOT as a basis-bearing mining custody position', () => {
+    const depositedAt = new Date('2026-06-30T00:00:00Z');
+    const bidAt = new Date('2026-07-01T00:00:00Z');
+    const positions = miningFinancials.createFinancialPositions({
+      cohorts: [
+        createMiningCohort({
+          progress: 0,
+          micronotsStakedPerSeat: 7_000_000n,
+          argonotPriceAtBid: 3_000_000n,
+          closingArgonotPrice: 0n,
+          microgonsMinedTotal: 0n,
+          createdAt: bidAt.toISOString(),
+          updatedAt: bidAt.toISOString(),
+        }),
+      ],
+      latestFrameId: 12,
+      pendingBids: [],
+      heldMicrogons: 0n,
+      heldMicronots: 7_000_000n,
+      liveArgonotRateMicrogons: 4_000_000n,
+      miningBotAddress: '5miner',
+      miningBotMicronots: 10_000_000n,
+      frameDates: new Map([
+        [12, bidAt],
+        [22, new Date('2026-07-11T00:00:00Z')],
+      ]),
+      custodyTransfers: [
+        createWalletTransfer({
+          id: 9,
+          amount: -10_000_000n,
+          otherParty: '5miner',
+          isInternal: true,
+          microgonsForArgonot: 2_000_000n,
+          blockNumber: 90,
+          blockTime: depositedAt,
+        }),
+      ],
+    });
+    const custody = positions.filter(position => position.kind === 'mining-argonot');
+
+    expect(custody).toEqual([
+      expect.objectContaining({
+        source: 'custody',
+        lifecycle: 'completed',
+        micronots: 7_000_000n,
+        investedCost: 14_000_000n,
+        settledPrincipalValue: 21_000_000n,
+      }),
+      expect.objectContaining({
+        source: 'custody',
+        lifecycle: 'active',
+        micronots: 3_000_000n,
+        investedCost: 6_000_000n,
+        currentValue: 12_000_000n,
+      }),
+      expect.objectContaining({
+        source: 'collateral',
+        lifecycle: 'held',
+        micronots: 7_000_000n,
+        investedCost: 21_000_000n,
+        currentValue: 28_000_000n,
+      }),
+    ]);
+  });
+
+  it('hands matured mining ARGNOT into the next cohort at one continuous FIFO mark', () => {
+    const firstCohort = createMiningCohort({ id: 1 });
+    const secondCohort = {
+      ...firstCohort,
+      id: 11,
+      progress: 0,
+      microgonsBidPerSeat: 30_000_000n,
+      argonotPriceAtBid: 3_000_000n,
+      closingArgonotPrice: 0n,
+      microgonsMinedTotal: 0n,
+      createdAt: '2026-07-11T00:00:00Z',
+      updatedAt: '2026-07-11T00:00:00Z',
+    };
+
+    const positions = miningFinancials.createFinancialPositions({
+      cohorts: [firstCohort, secondCohort],
+      latestFrameId: 11,
+      pendingBids: [],
+      heldMicrogons: 0n,
+      heldMicronots: 10_000_000n,
+      liveArgonotRateMicrogons: 4_000_000n,
+      miningBotAddress: '5miner',
+      miningBotMicronots: 10_000_000n,
+      frameDates: new Map([
+        [1, new Date('2026-07-01T00:00:00Z')],
+        [11, new Date('2026-07-11T00:00:00Z')],
+        [21, new Date('2026-07-21T00:00:00Z')],
+      ]),
+    });
+    const custody = positions.filter(position => position.kind === 'mining-argonot');
+
+    expect(custody).toEqual([
+      expect.objectContaining({
+        lifecycle: 'completed',
+        investedCost: 20_000_000n,
+        settledPrincipalValue: 30_000_000n,
+        closingArgonotRateMicrogons: 3_000_000n,
+      }),
+      expect.objectContaining({
+        lifecycle: 'held',
+        investedCost: 30_000_000n,
+        currentValue: 40_000_000n,
+        entryArgonotRateMicrogons: 3_000_000n,
+      }),
+    ]);
+  });
+
+  it('closes internal and recorded external FIFO exits from released mining ARGNOT', () => {
+    const blockTime = new Date('2026-07-12T00:00:00Z');
+    const positions = miningFinancials.createFinancialPositions({
+      cohorts: [createMiningCohort({ id: 1 })],
+      latestFrameId: 12,
+      pendingBids: [],
+      heldMicrogons: 0n,
+      heldMicronots: 0n,
+      liveArgonotRateMicrogons: 4_000_000n,
+      frameDates: new Map([
+        [1, new Date('2026-07-01T00:00:00Z')],
+        [11, new Date('2026-07-11T00:00:00Z')],
+      ]),
+      custodyTransfers: [
+        createWalletTransfer({
+          id: 7,
+          amount: 4_000_000n,
+          otherParty: '5miner',
+          isInternal: true,
+          extrinsicIndex: 2,
+          microgonsForArgonot: 3_500_000n,
+          blockNumber: 100,
+          blockTime,
+        }),
+        createWalletTransfer({
+          id: 8,
+          walletAddress: '5miner',
+          walletName: 'miningBot',
+          amount: -2_000_000n,
+          otherParty: '5outside',
+          microgonsForArgonot: 3_600_000n,
+          blockNumber: 101,
+          blockTime: new Date('2026-07-13T00:00:00Z'),
+        }),
+      ],
+      miningBotAddress: '5miner',
+      miningBotMicronots: 4_000_000n,
+    });
+    const custody = positions.filter(position => position.kind === 'mining-argonot');
+
+    expect(custody).toEqual([
+      expect.objectContaining({
+        lifecycle: 'completed',
+        micronots: 4_000_000n,
+        investedCost: 8_000_000n,
+        settledPrincipalValue: 14_000_000n,
+      }),
+      expect.objectContaining({
+        lifecycle: 'completed',
+        micronots: 2_000_000n,
+        investedCost: 4_000_000n,
+        settledPrincipalValue: 7_200_000n,
+      }),
+      expect.objectContaining({
+        lifecycle: 'active',
+        micronots: 4_000_000n,
+        investedCost: 8_000_000n,
+        currentValue: 16_000_000n,
+      }),
+    ]);
+  });
+
+  it('does not invent address-level pending mining collateral when aggregate holds are ambiguous', () => {
+    const pendingBids = [
+      {
+        frameId: 21,
+        confirmedAtBlockNumber: 500,
+        address: '5miner-1',
+        subAccountIndex: 0,
+        microgonsPerSeat: 50_000_000n,
+        micronotsStakedPerSeat: 10_000_000n,
+        bidPosition: 0,
+        createdAt: '2026-07-14T00:00:00Z',
+        updatedAt: '2026-07-14T00:00:00Z',
+      },
+      {
+        frameId: 21,
+        confirmedAtBlockNumber: 500,
+        address: '5miner-2',
+        subAccountIndex: 1,
+        microgonsPerSeat: 50_000_000n,
+        micronotsStakedPerSeat: 10_000_000n,
+        bidPosition: 1,
+        createdAt: '2026-07-14T00:00:00Z',
+        updatedAt: '2026-07-14T00:00:00Z',
+      },
+    ];
+
+    expect(() =>
+      miningFinancials.createFinancialPositions({
+        cohorts: [],
+        latestFrameId: 21,
+        pendingBids,
+        heldMicrogons: 100_000_000n,
+        heldMicronots: 10_000_000n,
+        liveArgonotRateMicrogons: 3_000_000n,
+        miningBotAddress: '5miner',
+        miningBotMicronots: 0n,
+        frameDates: new Map(),
+      }),
+    ).toThrow('ARGNOT MiningSlot holds cannot be attributed across pending mining bids');
+  });
+
+  it('subtracts burned Bitcoin liquidity while keeping ratchets in one lock position', () => {
+    const lock = {
+      uuid: 'lock-1',
+      status: BitcoinLockStatus.LockedAndMinted,
+      satoshis: 10_000n,
+      lockedTargetPrice: 120n,
+      ratchets: [
+        {
+          mintAmount: 30n,
+          mintPending: 10n,
+          lockedTargetPrice: 100n,
+          securityFee: 7n,
+          txFee: 3n,
+          burned: 4n,
+          blockHeight: 1,
+          oracleBitcoinBlockHeight: 1,
+        },
+        {
+          mintAmount: 20n,
+          mintPending: 0n,
+          lockedTargetPrice: 120n,
+          securityFee: 8n,
+          txFee: 2n,
+          burned: 1n,
+          blockHeight: 2,
+          oracleBitcoinBlockHeight: 2,
+        },
+      ],
+      lockDetails: { couponFeesPaid: 5n },
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+    } as unknown as IBitcoinLockRecord;
+    const currency = {
+      priceIndex: {},
+      convertSatToBtc: vi.fn(() => 0.0001),
+      convertBtcToMicrogon: vi.fn(() => 150n),
+    } as unknown as Currency;
+    const bitcoinLocks = new BitcoinLocks(
+      Promise.resolve({} as never),
+      {} as never,
+      {} as never,
+      currency,
+      {} as never,
+      {} as never,
+    );
+    vi.spyOn(bitcoinLocks, 'getMismatchViewState').mockReturnValue({
+      phase: 'none',
+      candidateCount: 0,
+      isFundingExpired: false,
+      candidates: [],
+    });
+    vi.spyOn(bitcoinLocks, 'getLockProcessingDetails').mockReturnValue({ confirmations: 3 } as never);
+    vi.spyOn(bitcoinLocks, 'getLockProcessingError').mockReturnValue('');
+    vi.spyOn(bitcoinLocks, 'hasObservedFundingSignal').mockReturnValue(true);
+    const redemption = vi.spyOn(BitcoinLock, 'calculateRedemptionAmountFromSatoshis').mockReturnValue(60n);
+
+    try {
+      const summary = bitcoinLocks.createLockSummary(lock);
+      const positions = bitcoinFinancials.createFinancialPositions({ summaries: [summary], hasCurrentPrice: true });
+      const aggregate = reduceFinancialPositions(readySnapshots(positions));
+      const bitcoin = aggregate.groupSummaries.bitcoin;
+
+      expect(summary).toMatchObject({
+        valueOfBtc: 150n,
+        totalLiquidity: 50n,
+        pendingLiquidity: 10n,
+        receivedLiquidity: 35n,
+        valueBeyondLiquidity: 30n,
+        startingCapital: 100n,
+        endingCapital: 100n,
+        totalFees: 15n,
+        unlockAmount: 60n,
+        totalReturn: 0,
+      });
+      expect(positions.map(position => position.id)).toEqual([
+        `bitcoin-asset:${lock.uuid}`,
+        `bitcoin-liability:${lock.uuid}`,
+      ]);
+      expect(positions.map(position => [position.kind, position.currentValue])).toEqual([
+        ['bitcoin-asset', 160n],
+        ['bitcoin-liability', -60n],
+      ]);
+      expect(positions.every(position => position.lock.uuid === lock.uuid)).toBe(true);
+      expect(positions[0]).toMatchObject({ investedCost: 100n, paidIncome: 20n });
+      expect(bitcoin).toMatchObject({ grossAssets: 160n, grossLiabilities: 60n, currentValue: 100n });
+      expect(bitcoin?.returnSummary.paidIncome).toBe(20n);
+      expect(bitcoin?.returnSummary.returnAmount).toBe(0n);
+      expect(bitcoin?.returnSummary.percent).toBe(0);
+    } finally {
+      redemption.mockRestore();
+    }
+  });
+
+  it('preserves native Bitcoin quantity while converted values wait for a current price', () => {
+    const lock = {
+      uuid: 'lock-2',
+      status: BitcoinLockStatus.LockedAndMinted,
+      satoshis: 20_000n,
+      ratchets: [],
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+    } as unknown as IBitcoinLockRecord;
+    const summary = {
+      uuid: lock.uuid,
+      status: lock.status,
+      satoshis: lock.satoshis,
+      valueOfBtc: 1n,
+      startingCapital: 100n,
+      totalLiquidity: 30n,
+      pendingLiquidity: 0n,
+      receivedLiquidity: 30n,
+      totalFees: 5n,
+      unlockAmount: 1n,
+      createdAt: lock.createdAt,
+      record: lock,
+    } as IBitcoinLockSummary;
+
+    const positions = bitcoinFinancials.createFinancialPositions({ summaries: [summary], hasCurrentPrice: false });
+    const aggregate = reduceFinancialPositions(readySnapshots(positions));
+
+    expect(positions).toHaveLength(2);
+    expect(positions[0].lock.satoshis).toBe(20_000n);
+    expect(positions[0]).toMatchObject({ investedCost: 100n });
+    expect(positions.every(position => position.currentValue === undefined)).toBe(true);
+    expect(aggregate.readiness).toBe('partial');
+    expect(aggregate.groupSummaries.bitcoin.returnSummary.availability).toBe('unavailable');
+  });
+
+  it('settles a released Bitcoin lock from its durable removal economics', () => {
+    const removedAt = new Date('2026-01-31T12:00:00Z');
+    const lock = {
+      uuid: 'lock-released',
+      status: BitcoinLockStatus.Released,
+      satoshis: 10_000n,
+      lockedTargetPrice: 100n,
+      ratchets: [{ mintPending: 0n }],
+      releaseRedemptionMicrogons: 40n,
+      releaseArgonTxFeeMicrogons: 3n,
+      removalBlockTime: removedAt,
+      removalReason: 'released',
+      btcPriceAtRemovalMicrogons: 1_200_000n,
+      fundingUtxoRecord: { releaseBitcoinNetworkFee: 1_000n },
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      updatedAt: new Date('2026-02-01T00:00:00Z'),
+    } as unknown as IBitcoinLockRecord;
+    const summary = {
+      uuid: lock.uuid,
+      status: lock.status,
+      satoshis: lock.satoshis,
+      valueOfBtc: 999n,
+      startingCapital: 100n,
+      totalLiquidity: 30n,
+      pendingLiquidity: 10n,
+      receivedLiquidity: 30n,
+      totalFees: 5n,
+      unlockAmount: 999n,
+      endingCapital: 999n,
+      createdAt: lock.createdAt,
+      record: lock,
+    } as IBitcoinLockSummary;
+
+    const positions = bitcoinFinancials.createFinancialPositions({
+      summaries: [summary],
+      hasCurrentPrice: true,
+      hasConfirmedHistoryCoverage: true,
+    });
+    const bitcoin = reduceFinancialPositions(readySnapshots(positions)).groupSummaries.bitcoin;
+
+    expect(positions).toEqual([
+      expect.objectContaining({
+        lifecycle: 'completed',
+        currentValue: 10n,
+        investedCost: 100n,
+        paidIncome: 22n,
+        settledPrincipalValue: 68n,
+        performanceEndingCapital: 100n,
+        endedAt: removedAt,
+      }),
+    ]);
+    expect(bitcoin?.currentValue).toBe(10n);
+    expect(bitcoin?.returnSummary.returnAmount).toBe(0n);
+  });
+
+  it('keeps an incomplete released lock visible without inventing a settlement return', () => {
+    const lock = {
+      uuid: 'lock-released-incomplete',
+      status: BitcoinLockStatus.Released,
+      satoshis: 10_000n,
+      lockedTargetPrice: 100n,
+      ratchets: [],
+      releaseRedemptionMicrogons: 40n,
+      releaseArgonTxFeeMicrogons: 3n,
+      removalReason: 'released',
+      removalBlockTime: new Date('2026-02-01T00:00:00Z'),
+      btcPriceAtRemovalMicrogons: 1_200_000n,
+      fundingUtxoRecord: { releaseBitcoinNetworkFee: 1_000n },
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+    } as unknown as IBitcoinLockRecord;
+    const summary = {
+      uuid: lock.uuid,
+      status: lock.status,
+      satoshis: lock.satoshis,
+      valueOfBtc: 999n,
+      startingCapital: 100n,
+      totalLiquidity: 30n,
+      pendingLiquidity: 6n,
+      receivedLiquidity: 30n,
+      totalFees: 5n,
+      unlockAmount: 999n,
+      endingCapital: 999n,
+      createdAt: lock.createdAt,
+      record: lock,
+    } as IBitcoinLockSummary;
+
+    const positions = bitcoinFinancials.createFinancialPositions({ summaries: [summary], hasCurrentPrice: true });
+    const bitcoin = reduceFinancialPositions(readySnapshots(positions)).groupSummaries.bitcoin;
+
+    expect(positions).toEqual([
+      expect.objectContaining({
+        id: `bitcoin-asset:${lock.uuid}`,
+        lifecycle: 'completed',
+        currentValue: 6n,
+        investedCost: undefined,
+        settledPrincipalValue: undefined,
+        performanceEndingCapital: undefined,
+      }),
+    ]);
+    expect(bitcoin?.currentValue).toBe(6n);
+    expect(bitcoin?.returnSummary.availability).toBe('unavailable');
+    expect(bitcoin?.returnSummary.returnAmount).toBeUndefined();
+  });
+
+  it('keeps only recovered pending mint after removed Bitcoin locks stop being live', () => {
+    const lock = {
+      uuid: 'lock-expired-unspent',
+      status: BitcoinLockStatus.Releasing,
+      satoshis: 10_000n,
+      lockedTargetPrice: 100n,
+      ratchets: [{ mintPending: 10n }],
+      removalReason: 'expired',
+      removalBlockTime: new Date('2026-02-01T00:00:00Z'),
+      btcPriceAtRemovalMicrogons: 1_200_000n,
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+    } as unknown as IBitcoinLockRecord;
+    const summary = {
+      uuid: lock.uuid,
+      status: lock.status,
+      satoshis: lock.satoshis,
+      valueOfBtc: 150n,
+      startingCapital: 100n,
+      totalLiquidity: 30n,
+      pendingLiquidity: 10n,
+      receivedLiquidity: 20n,
+      totalFees: 5n,
+      unlockAmount: 40n,
+      endingCapital: 125n,
+      createdAt: lock.createdAt,
+      record: lock,
+    } as IBitcoinLockSummary;
+    const spentLock = {
+      ...lock,
+      uuid: 'lock-spent',
+      status: BitcoinLockStatus.Released,
+      removalReason: 'spent',
+    } as IBitcoinLockRecord;
+    const spentSummary = {
+      ...summary,
+      uuid: spentLock.uuid,
+      status: spentLock.status,
+      valueOfBtc: 999n,
+      pendingLiquidity: 7n,
+      record: spentLock,
+    } as IBitcoinLockSummary;
+
+    const positions = bitcoinFinancials.createFinancialPositions({
+      summaries: [summary, spentSummary],
+      hasCurrentPrice: true,
+    });
+    const bitcoin = reduceFinancialPositions(readySnapshots(positions)).groupSummaries.bitcoin;
+
+    expect(positions).toEqual([
+      expect.objectContaining({
+        id: `bitcoin-asset:${lock.uuid}`,
+        label: 'Expired Bitcoin lock',
+        lifecycle: 'held',
+        currentValue: 160n,
+        investedCost: undefined,
+        settledPrincipalValue: undefined,
+      }),
+      expect.objectContaining({
+        id: `bitcoin-asset:${spentLock.uuid}`,
+        label: 'Spent Bitcoin lock',
+        lifecycle: 'completed',
+        currentValue: 7n,
+        investedCost: undefined,
+        settledPrincipalValue: undefined,
+      }),
+    ]);
+    expect(bitcoin?.grossAssets).toBe(167n);
+    expect(bitcoin?.grossLiabilities).toBe(0n);
+    expect(bitcoin?.returnSummary.availability).toBe('unavailable');
+  });
+
+  it('preserves ARGN bond principal-and-income return and marks ARGNOT from its entry and live rates', async () => {
+    const vaultLot = createBondLot({ id: 1, bonds: 10, cumulativeEarnings: 1_000_000n });
+    const argonotLot = createBondLot({
+      id: 2,
+      bonds: 10,
+      cumulativeEarnings: 4_000_000n,
+      program: { Argonot: null },
+    });
+    const account = createArgonAccount({
+      address: vaultLot.accountId,
+      availableMicrogons: 15_000_000n,
+      reservedMicrogons: 10_000_000n,
+      availableMicronots: 15_000_000n,
+      reservedMicronots: 10_000_000n,
+      microgonTreasuryHold: 10_000_000n,
+      micronotTreasuryHold: 10_000_000n,
+    });
+    const walletPositions = await createWalletsForFinancialTest(account.address).loadPositions({
+      accounts: [account],
+      claimedHolds: { treasury: true, miningSlot: false, vaults: false },
+      liveArgonotRateMicrogons: 3_000_000n,
+    });
+    const bonds = bondFinancials.createFinancialPositions({
+      bondLots: [vaultLot, argonotLot],
+      hasConfirmedBondHistoryCoverage: true,
+      liveArgonotRateMicrogons: 3_000_000n,
+      entryArgonotMarksByLot: new Map([
+        [`${argonotLot.accountId}:${argonotLot.programType}:${argonotLot.id}`, 2_000_000n],
+      ]),
+      frameDates: new Map([[argonotLot.createdFrame, new Date('2026-01-01T00:00:00Z')]]),
+    });
+    const vaultPosition = bonds.find(position => position.bondLot?.id === 1);
+    const argonotPosition = bonds.find(position => position.bondLot?.id === 2);
+
+    expect(vaultPosition).toMatchObject({
+      nativeAsset: 'ARGN',
+      nativePrincipal: 10_000_000n,
+      investedCost: 10_000_000n,
+      currentValue: 10_000_000n,
+      paidIncome: 1_000_000n,
+    });
+    expect(argonotPosition).toMatchObject({
+      nativeAsset: 'ARGNOT',
+      nativePrincipal: 10_000_000n,
+      investedCost: 20_000_000n,
+      currentValue: 30_000_000n,
+      paidIncome: 4_000_000n,
+    });
+
+    const vaultBondGroup = reduceFinancialPositions(readySnapshots([vaultPosition!])).groupSummaries.bonds;
+    expect(vaultBondGroup?.returnSummary).toMatchObject({
+      investedCost: 10_000_000n,
+      paidIncome: 1_000_000n,
+      returnAmount: 1_000_000n,
+      percent: 10,
+    });
+
+    const [operatorBond] = bondFinancials.createFinancialPositions({
+      bondLots: [vaultLot],
+      hasConfirmedBondHistoryCoverage: true,
+      entryArgonotMarksByLot: new Map(),
+      frameDates: new Map([[vaultLot.createdFrame, new Date('2026-01-01T00:00:00Z')]]),
+      ownedVaultId: vaultLot.vaultId,
+    });
+    const operatorAggregate = reduceFinancialPositions(readySnapshots([operatorBond]));
+    expect(operatorAggregate.groupSummaries.bonds.returnSummary.percent).toBe(10);
+    expect(operatorAggregate.accountReturn).toMatchObject({
+      availability: 'not-applicable',
+      eligiblePositionCount: 0,
+      investmentPositionCount: 0,
+    });
+
+    const mixedAggregate = reduceFinancialPositions(readySnapshots([operatorBond, argonotPosition!]));
+    expect(mixedAggregate.groupSummaries.bonds.returnSummary).toMatchObject({
+      investedCost: 30_000_000n,
+      paidIncome: 5_000_000n,
+      percent: 50,
+    });
+    expect(mixedAggregate.accountReturn).toMatchObject({
+      availability: 'available',
+      eligiblePositionCount: 1,
+      investmentPositionCount: 1,
+      percent: 70,
+    });
+
+    const aggregate = reduceFinancialPositions(readySnapshots([...walletPositions, ...bonds]));
+    const bondGroup = aggregate.groupSummaries.bonds;
+
+    expect(bondGroup?.currentValue).toBe(40_000_000n);
+    expect(bondGroup?.returnSummary.paidIncome).toBe(5_000_000n);
+    expect(bondGroup?.returnSummary.returnAmount).toBe(15_000_000n);
+  });
+
+  it('partitions transferable and unattributed Argon balances without double counting named holds', async () => {
+    const registry = getOfflineRegistry();
+    const account = createArgonAccount({
+      availableMicrogons: 30n,
+      reservedMicrogons: 20n,
+      availableMicronots: 300n,
+      reservedMicronots: 200n,
+      microgonHolds: [
+        registry.createType('FrameSupportTokensMiscIdAmountRuntimeHoldReason', {
+          id: { BlockRewards: 'MaturationPeriod' },
+          amount: 10n,
+        }),
+        registry.createType('FrameSupportTokensMiscIdAmountRuntimeHoldReason', {
+          id: { MiningSlot: 'RegisterAsMiner' },
+          amount: 5n,
+        }),
+      ],
+      micronotHolds: [
+        registry.createType('FrameSupportTokensMiscIdAmountRuntimeHoldReason', {
+          id: { CrosschainTransfer: 'TransferOutMintingAuthorityTip' },
+          amount: 100n,
+        }),
+      ],
+    });
+    const result = await createWalletsForFinancialTest(account.address).loadPositions({
+      accounts: [account],
+      claimedHolds: { treasury: false, miningSlot: false, vaults: false },
+      liveArgonotRateMicrogons: 1_000_000n,
+    });
+
+    const balances = result.filter(position => position.kind === 'wallet-balance');
+    expect(balances.map(position => [position.asset, position.balanceType, position.nativeAmount])).toEqual([
+      ['ARGN', 'transferable', 15n],
+      ['ARGN', 'unattributed-hold', 35n],
+      ['ARGNOT', 'transferable', 200n],
+      ['ARGNOT', 'unattributed-hold', 300n],
+    ]);
+  });
+
+  it('does not mark an empty ARGNOT balance unavailable while history catches up', async () => {
+    const account = createArgonAccount({ availableMicrogons: 10n });
+    const positions = await createWalletsForFinancialTest(account.address).loadPositions({
+      accounts: [account],
+      claimedHolds: { treasury: false, miningSlot: false, vaults: false },
+      liveArgonotRateMicrogons: 1_000_000n,
+      hasConfirmedHistoryCoverage: false,
+    });
+
+    expect(positions).not.toContainEqual(expect.objectContaining({ lifecycle: 'unavailable' }));
+  });
+
+  it('fails the wallet group when holds exceed the free chain balance', async () => {
+    const account = createArgonAccount({
+      availableMicrogons: 9n,
+      microgonTreasuryHold: 10n,
+    });
+
+    await expect(
+      createWalletsForFinancialTest(account.address).loadPositions({
+        accounts: [account],
+        claimedHolds: { treasury: false, miningSlot: false, vaults: false },
+        liveArgonotRateMicrogons: 1_000_000n,
+      }),
+    ).rejects.toThrow('ARGN holds exceed free balance');
+  });
+});
+
+describe('financial group snapshots', () => {
+  it('rejects duplicate position ids across financial groups', () => {
+    const book = new FinancialPositionBook();
+    const observation = { observedAt: new Date('2026-07-14T12:00:00Z') };
+    book.setScope({ ownedAccounts: ['5wallet'] });
+    book.publish(
+      book.beginRefresh('liquid'),
+      [
+        {
+          id: 'shared-position',
+          kind: 'wallet-balance',
+          group: 'liquid',
+          label: 'Available ARGN',
+          lifecycle: 'available',
+
+          currentValue: 75n,
+          wallet,
+          balanceType: 'transferable',
+          asset: 'ARGN',
+        },
+      ],
+      observation,
+    );
+
+    expect(() => {
+      book.publish(
+        book.beginRefresh('bitcoin'),
+        [
+          {
+            id: 'shared-position',
+            kind: 'bitcoin-liability',
+            group: 'bitcoin',
+            label: 'Bitcoin redemption',
+            lifecycle: 'active',
+
+            currentValue: -50n,
+            lock: { uuid: 'lock-1' } as IBitcoinLockRecord,
+          },
+        ],
+        observation,
+      );
+    }).toThrow('Financial position id shared-position is already used by liquid');
+  });
+
+  it('does not count a Bitcoin or mining receivable after the wallet crosses its finalized settlement block', () => {
+    const block10 = {
+      observedAt: new Date('2026-07-14T12:00:00Z'),
+      blockNumber: 10,
+      blockHash: '0x10',
+    };
+    const block11 = {
+      observedAt: new Date('2026-07-14T12:01:00Z'),
+      blockNumber: 11,
+      blockHash: '0x11',
+    };
+    const walletPosition = {
+      id: 'wallet-settlement',
+      kind: 'wallet-balance',
+      group: 'liquid',
+      label: 'Available ARGN',
+      lifecycle: 'available',
+
+      currentValue: 100n,
+      wallet,
+      balanceType: 'transferable',
+      asset: 'ARGN',
+    } satisfies IFinancialPosition;
+    const receivables: IFinancialPosition[] = [
+      {
+        id: 'bitcoin-pending-mint',
+        kind: 'bitcoin-asset',
+        group: 'bitcoin',
+        label: 'Pending Bitcoin mint',
+        lifecycle: 'active',
+
+        currentValue: 20n,
+        paidIncome: 0n,
+        settledPrincipalValue: 0n,
+        lock: { uuid: 'lock-1' } as IBitcoinLockRecord,
+      },
+      {
+        id: 'mining-guarantee',
+        kind: 'mining-cohort',
+        group: 'mining',
+        label: 'Remaining mining guarantee',
+        lifecycle: 'active',
+
+        currentValue: 20n,
+        paidIncome: 0n,
+        settledPrincipalValue: 0n,
+        cohort: {} as IMiningCohortFinancialRecord,
+        recoveredValue: 0n,
+        remainingGuaranteedValue: 20n,
+      },
+    ];
+
+    for (const receivable of receivables) {
+      const book = new FinancialPositionBook();
+      book.setScope({ ownedAccounts: ['5wallet'] });
+      book.publish(book.beginRefresh('liquid'), [walletPosition], block10);
+      book.publish(book.beginRefresh(receivable.group), [receivable], block10, block10);
+      expect(reduceFinancialPositions(book.snapshots).netWorth).toBe(120n);
+
+      book.advanceSettlementObservation(block11, ['liquid', receivable.group]);
+      book.publish(book.beginRefresh('liquid'), [{ ...walletPosition, currentValue: 120n }], block11);
+      book.publish(book.beginRefresh(receivable.group), [receivable], block10, block11);
+
+      const aggregate = reduceFinancialPositions(book.snapshots);
+      const group = aggregate.groupSummaries[receivable.group];
+      expect(aggregate.netWorth).toBe(120n);
+      expect(aggregate.readiness).toBe('partial');
+      expect(group).toMatchObject({ state: 'stale', currentValue: 0n });
+
+      book.publish(book.beginRefresh(receivable.group), [], block11, block11);
+      expect(book.snapshots.find(snapshot => snapshot.group === receivable.group)).toMatchObject({
+        state: 'ready',
+        positions: [],
+      });
+    }
+  });
+
+  it('drops prior bond principal or vault revenue when Argon hold reconciliation cannot align', () => {
+    const observation = {
+      observedAt: new Date('2026-07-14T12:10:00Z'),
+      blockNumber: 20,
+      blockHash: '0x20',
+    };
+    const releasedNativeValue = {
+      id: 'wallet-with-unattributed-release',
+      kind: 'wallet-balance',
+      group: 'liquid',
+      label: 'Available and held ARGN',
+      lifecycle: 'available',
+
+      currentValue: 120n,
+      wallet,
+      balanceType: 'unattributed-hold',
+      asset: 'ARGN',
+    } satisfies IFinancialPosition;
+    const positions: IFinancialPosition[] = [
+      {
+        id: 'bond-1',
+        kind: 'bond',
+        group: 'bonds',
+        label: 'Vault bond',
+        lifecycle: 'active',
+
+        currentValue: 20n,
+        paidIncome: 0n,
+        settledPrincipalValue: 0n,
+        bondLot: createBondLot({ id: 1, bonds: 20, cumulativeEarnings: 0n }),
+        nativeAsset: 'ARGN',
+        nativePrincipal: 20n,
+      },
+      {
+        id: 'vault-1',
+        kind: 'vault',
+        group: 'vaulting',
+        label: 'Vault 1',
+        vaultId: 1,
+        lifecycle: 'active',
+
+        currentValue: 20n,
+        paidIncome: 0n,
+        settledPrincipalValue: 0n,
+        vault: {} as Vault,
+        securitization: 0n,
+        uncollectedRevenue: 20n,
+        capitalHistory: [],
+        revenueHistory: [],
+      },
+    ];
+
+    for (const position of positions) {
+      const book = new FinancialPositionBook();
+      book.setScope({ ownedAccounts: ['5wallet'] });
+      book.publish(book.beginRefresh('liquid'), [releasedNativeValue], observation);
+      book.publish(book.beginRefresh(position.group), [position], observation);
+      expect(reduceFinancialPositions(book.snapshots).netWorth).toBe(140n);
+
+      book.invalidate(book.beginRefresh(position.group), observation, 'Native holds do not match domain state');
+
+      const aggregate = reduceFinancialPositions(book.snapshots);
+      expect(aggregate.netWorth).toBe(120n);
+      expect(aggregate.readiness).toBe('partial');
+      expect(aggregate.groupSummaries[position.group]).toMatchObject({
+        state: 'stale',
+        currentValue: 0n,
+      });
+    }
+  });
+});
+
+function createWalletsForFinancialTest(
+  defaultArgonAddress: string,
+  transfers: readonly IWalletTransferRecord[] = [],
+): WalletFinancials {
+  const wallets = new WalletsForArgon({
+    walletKeys: {
+      defaultArgonAddress,
+      miningBotAddress: '5miner',
+      operationalAddress: '5operational',
+      legacyMiningHoldAddress: '5legacy',
+    } as any,
+    dbPromise: Promise.resolve({
+      walletTransfersTable: { revision: 0, fetchArgonotCustody: async () => transfers },
+    } as any),
+    blockWatch: {} as any,
+    currency: {} as any,
+  });
+  return new WalletFinancials(wallets);
+}
+
+function createArgonAccount(
+  values: Partial<
+    Pick<
+      IArgonAccountBalance,
+      | 'availableMicrogons'
+      | 'reservedMicrogons'
+      | 'availableMicronots'
+      | 'reservedMicronots'
+      | 'microgonHolds'
+      | 'micronotHolds'
+    >
+  > & {
+    address?: string;
+    microgonTreasuryHold?: bigint;
+    micronotTreasuryHold?: bigint;
+  },
+): IArgonAccountBalance {
+  const registry = getOfflineRegistry();
+  const microgonHolds = [...(values.microgonHolds ?? [])];
+  const micronotHolds = [...(values.micronotHolds ?? [])];
+
+  if (values.microgonTreasuryHold !== undefined) {
+    microgonHolds.push(
+      registry.createType('FrameSupportTokensMiscIdAmountRuntimeHoldReason', {
+        id: { Treasury: 'ContributedToTreasury' },
+        amount: values.microgonTreasuryHold,
+      }),
+    );
+  }
+  if (values.micronotTreasuryHold !== undefined) {
+    micronotHolds.push(
+      registry.createType('FrameSupportTokensMiscIdAmountRuntimeHoldReason', {
+        id: { Treasury: 'ContributedToTreasury' },
+        amount: values.micronotTreasuryHold,
+      }),
+    );
+  }
+
+  return {
+    address: values.address ?? '5default',
+    wallet: { ...wallet, address: values.address ?? '5default' } as unknown as WalletForArgon,
+    availableMicrogons: values.availableMicrogons ?? 0n,
+    reservedMicrogons: values.reservedMicrogons ?? 0n,
+    availableMicronots: values.availableMicronots ?? 0n,
+    reservedMicronots: values.reservedMicronots ?? 0n,
+    microgonHolds,
+    micronotHolds,
+  };
+}
+
+function createWalletTransfer(
+  values: Pick<IWalletTransferRecord, 'id' | 'amount'> & Partial<IWalletTransferRecord>,
+): IWalletTransferRecord {
+  const blockNumber = values.blockNumber ?? values.id;
+  const blockTime = values.blockTime ?? new Date('2026-07-01T00:00:00Z');
+
+  return {
+    walletAddress: '5default',
+    walletName: 'defaultArgon',
+    currency: 'argonot',
+    transferType: 'transfer',
+    isInternal: false,
+    extrinsicIndex: 1,
+    microgonsForArgonot: 1_000_000n,
+    microgonsForUsd: 1_000_000n,
+    blockHash: `0x${blockNumber}`,
+    ...values,
+    blockNumber,
+    blockTime,
+    createdAt: values.createdAt ?? blockTime,
+    updatedAt: values.updatedAt ?? blockTime,
+  };
+}
+
+function createMiningCohort(values: Partial<IMiningCohortFinancialRecord> = {}): IMiningCohortFinancialRecord {
+  return {
+    id: 12,
+    progress: 100,
+    transactionFeesTotal: 0n,
+    micronotsStakedPerSeat: 10_000_000n,
+    microgonsBidPerSeat: 20_000_000n,
+    seatCountWon: 1,
+    microgonsToBeMinedPerSeat: 0n,
+    micronotsToBeMinedPerSeat: 0n,
+    argonotPriceAtBid: 2_000_000n,
+    closingArgonotPrice: 3_000_000n,
+    micronotsMinedTotal: 0n,
+    microgonsMinedTotal: 20_000_000n,
+    microgonsMintedTotal: 0n,
+    microgonFeesCollectedTotal: 0n,
+    createdAt: '2026-07-01T00:00:00Z',
+    updatedAt: '2026-07-11T00:00:00Z',
+    ...values,
+  };
+}
+
+function createBondLot(args: {
+  id: number;
+  bonds: number;
+  cumulativeEarnings: bigint;
+  program?: { Vault: { vaultId: number; sharingPercent: number; bonusPercent: number } } | { Argonot: null };
+}): BondLot {
+  const lot = getOfflineRegistry().createType<PalletTreasuryBondLot>('PalletTreasuryBondLot', {
+    owner: `0x${'11'.repeat(32)}`,
+    program: args.program ?? { Vault: { vaultId: 1, sharingPercent: 0, bonusPercent: 0 } },
+    bonds: args.bonds,
+    createdFrameId: 7,
+    participatedFrames: 2,
+    lastFrameEarningsFrameId: 8,
+    lastFrameEarnings: args.cumulativeEarnings,
+    cumulativeEarnings: args.cumulativeEarnings,
+    releaseFrameId: null,
+    releaseReason: null,
+  });
+
+  return BondLot.fromRuntime(args.id, lot, lot.owner.toString());
+}

@@ -358,8 +358,8 @@ describe('TransactionTracker', () => {
       blockHash: '0xwatched-block',
       blockTime: new Date('2026-03-20T20:10:00Z').getTime(),
       extrinsicIndex: 2,
-      fee: 1n,
-      tip: 0n,
+      fee: 5n,
+      tip: 2n,
       extrinsicEvents: [],
     });
 
@@ -390,6 +390,8 @@ describe('TransactionTracker', () => {
         blockNumber: 130,
         blockHash: '0xwatched-block',
         extrinsicIndex: 2,
+        feePlusTip: 5n,
+        tip: 2n,
       }),
     );
     expect(table.markFinalized).toHaveBeenCalledWith(tx, expect.objectContaining({ blockNumber: 130 }));

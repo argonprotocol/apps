@@ -1,3 +1,4 @@
+/** Aggregated mining-seat history shown by the operator mining dashboard. */
 export interface IDashboardGlobalStats {
   seatsTotal: number;
   framesCompleted: number;
@@ -8,6 +9,7 @@ export interface IDashboardGlobalStats {
   micronotsMinedTotal: bigint;
   microgonsMinedTotal: bigint;
   microgonsMintedTotal: bigint;
+  microgonValueOfRewards: bigint;
 }
 
 export interface IDashboardFrameStats {
@@ -38,4 +40,5 @@ export interface IDashboardExpectedStats {
   micronotsMinedTotal: bigint;
   microgonsMinedTotal: bigint;
   microgonsMintedTotal: bigint;
+  microgonValueOfRewards: bigint;
 }
