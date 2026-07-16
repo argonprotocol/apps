@@ -69,13 +69,13 @@ import { WatchHandle } from 'vue';
 import numeral from '../lib/numeral.ts';
 import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui';
 import dayjs from 'dayjs';
-import { getStats } from '../stores/stats.ts';
+import { getMyMiningSeats } from '../stores/myMiningSeats.ts';
 import { getBot } from '../stores/bot.ts';
 import { getConfig } from '../stores/config.ts';
 import PopoverPanelArrow from '../components/PopoverPanelArrow.vue';
 import { useFloatingZIndex } from './helpers/OverlayZIndex.ts';
 
-const stats = getStats();
+const myMiningSeats = getMyMiningSeats();
 const bot = getBot();
 const config = getConfig();
 const floatingZIndex = useFloatingZIndex();
@@ -118,7 +118,7 @@ async function load() {
   const client = await bot.getClient();
   blocks.value = await client.fetch('/bitcoin-recent-blocks');
   watcher = Vue.watch(
-    stats.serverState,
+    myMiningSeats.serverState,
     async value => {
       if (value.bitcoinLocalNodeBlockNumber === lastBlockNumber) {
         return;

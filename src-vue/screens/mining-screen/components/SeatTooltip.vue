@@ -5,11 +5,14 @@
       <span v-if="seat.miner?.isOurs" class="text-slate-400">(YOURS)</span>
       <span v-else-if="seat.miner" class="text-slate-400">(OTHER)</span>
       <span v-else class="text-slate-400">(EMPTY)</span>
-      <span class="grow text-right italic">{{ percentComplete }}% complete</span>
+      <span class="grow text-right italic">{{ seatProgressPct }}% complete</span>
     </div>
     <div class="mx-2 border-b border-slate-300 px-1 py-2 text-left font-light italic">
       Mining from {{ startDate?.format('MMMM D, h:mma') || '-----' }} to
       {{ endDate?.format('MMMM D, h:mma') || '-----' }}
+    </div>
+    <div class="mx-2 px-1 pt-2 text-left text-sm font-light text-slate-400">
+      Returns and rewards projected through term end
     </div>
     <table class="mx-2 mt-1 mb-2 whitespace-nowrap">
       <tbody>
@@ -78,21 +81,22 @@ import utc from 'dayjs/plugin/utc';
 import {
   bigNumberToBigInt,
   calculateAPY,
+  calculateMiningRewardProjection,
   calculateProfitPct,
   IMiningSeat,
-  UnitOfMeasurement,
 } from '@argonprotocol/apps-core';
-import { getStats } from '../../../stores/stats.ts';
+import { getMyMiningSeats } from '../../../stores/myMiningSeats.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { getMiningFrames } from '../../../stores/mainchain.ts';
 import { TICK_MILLIS } from '../../../lib/Env.ts';
 import { BigNumber } from 'bignumber.js';
 import { getMiningSeatProgressAtFrame } from '../miningSeatProgress.ts';
+import type { IMiningSeatRewardTerms } from '../../../interfaces/db/ICohortRecord.ts';
 
 dayjs.extend(utc);
 
-const stats = getStats();
+const myMiningSeats = getMyMiningSeats();
 const currency = getCurrency();
 const miningFrames = getMiningFrames();
 
@@ -109,10 +113,7 @@ const props = defineProps<{
   startingFrameId?: number | null;
   ourBidAddresses: Set<string>;
   hasAuction: boolean;
-  tooltipStats?: {
-    microgonsToBeMinedPerSeat: bigint;
-    micronotsToBeMinedPerSeat: bigint;
-  } | null;
+  tooltipStats?: IMiningSeatRewardTerms | null;
 }>();
 
 const seatStartingFrameId = Vue.computed<number | null>(() => {
@@ -130,9 +131,6 @@ const seatProgressPct = Vue.computed(() => {
   );
 });
 
-const percentComplete = Vue.computed(() => {
-  return seatProgressPct.value;
-});
 const isWinningBid = Vue.computed(() => {
   if (!props.seat.bid) return false;
   return props.ourBidAddresses.has(props.seat.bid.address);
@@ -190,17 +188,17 @@ const rewardsToDate = Vue.computed<{
     return null;
   }
 
-  const factorBn = BigNumber(seatProgressPct.value).dividedBy(100);
-  const micronotsEarnedBn = BigNumber(props.tooltipStats.micronotsToBeMinedPerSeat).multipliedBy(factorBn);
-  const microgonsEarnedBn = BigNumber(props.tooltipStats.microgonsToBeMinedPerSeat).multipliedBy(factorBn);
-  const micronotsEarned = bigNumberToBigInt(micronotsEarnedBn);
-  const microgonsEarned = bigNumberToBigInt(microgonsEarnedBn);
-
-  const valueOfMicronots = currency.convertMicronotTo(micronotsEarned, UnitOfMeasurement.Microgon);
+  const projection = calculateMiningRewardProjection({
+    bidPrincipal: props.seat.miner?.bidAmount ?? 0n,
+    microgonsPerTerm: props.tooltipStats.microgonsToBeMinedPerSeat,
+    micronotsPerTerm: props.tooltipStats.micronotsToBeMinedPerSeat,
+    argonotPrice: currency.microgonsPer.ARGNOT || props.tooltipStats.argonotPriceAtBid,
+    percentOfTerm: seatProgressPct.value,
+  });
   return {
-    microgonsEarned,
-    micronotsEarned,
-    revenueGenerated: microgonsEarned + valueOfMicronots,
+    microgonsEarned: projection.microgonsMined + projection.microgonsMinted,
+    micronotsEarned: projection.micronotsMined,
+    revenueGenerated: projection.microgonValue,
   };
 });
 
@@ -239,14 +237,14 @@ const roiAbsolute = Vue.computed(() => {
 });
 
 Vue.watch(
-  () => stats.selectedFrameId,
+  () => myMiningSeats.selectedFrameId,
   () => {
     if (!props.hasAuction) {
       newTickStart.value = 0;
       newTickEnd.value = 0;
       return;
     }
-    const auctionStartingFrameId = stats.selectedFrameId + 1;
+    const auctionStartingFrameId = myMiningSeats.selectedFrameId + 1;
     const auctionEndingFrameId = auctionStartingFrameId + 9;
     newTickStart.value =
       auctionStartingFrameId <= miningFrames.currentFrameId

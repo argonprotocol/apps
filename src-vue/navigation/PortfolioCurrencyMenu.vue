@@ -54,12 +54,10 @@ import { NavigationMenuItem, NavigationMenuTrigger, NavigationMenuContent, Navig
 import { getCurrency } from '../stores/currency.ts';
 import { ChevronDownIcon } from '@heroicons/vue/24/outline';
 import basicEmitter from '../emitters/basicEmitter.ts';
-import { useWallets } from '../stores/wallets.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import { ICurrencyKey, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { CheckIcon } from '@heroicons/vue/20/solid';
 import { getConfig } from '../stores/config.ts';
-import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
 
 const rootRef = Vue.ref<HTMLElement>();
 
@@ -70,9 +68,8 @@ defineExpose({
 
 const config = getConfig();
 const currency = getCurrency();
-const wallets = useWallets();
 
-const { microgonToMoneyNm, microgonToNm, micronotToNm } = createNumeralHelpers(currency);
+const { microgonToNm, micronotToNm } = createNumeralHelpers(currency);
 
 function setCurrencyKey(key: ICurrencyKey) {
   if (key === UnitOfMeasurement.ARGN || config.isValidJurisdiction) {

@@ -200,7 +200,7 @@ import utc from 'dayjs/plugin/utc.js';
 import { BitcoinLockStatus, IBitcoinLockRecord } from '../../../lib/db/BitcoinLocksTable.ts';
 import BitcoinIcon from '../../../assets/wallets/bitcoin.svg?component';
 import BitcoinAlertIcon from '../../../assets/wallets/bitcoin-alert.svg?component';
-import { ILockSummary } from '../../../stores/financials.ts';
+import type { IBitcoinLockSummary } from '../../../interfaces/IBitcoinLockSummary.ts';
 import numeral, { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import { getBitcoinLocks } from '../../../stores/bitcoin.ts';
@@ -215,11 +215,11 @@ const bitcoinLocks = getBitcoinLocks();
 const { microgonToMoneyNm, satToBtcNm, satToMoneyNm } = createNumeralHelpers(currency);
 
 const props = defineProps<{
-  lockSummary: ILockSummary;
+  lockSummary: IBitcoinLockSummary;
 }>();
 
 const emit = defineEmits<{
-  ratchet: [event: MouseEvent, lock: ILockSummary];
+  ratchet: [event: MouseEvent, lock: IBitcoinLockSummary];
   unlock: [event: MouseEvent, lock: IBitcoinLockRecord];
 }>();
 
@@ -241,7 +241,7 @@ function expirationDate(lock: IBitcoinLockRecord) {
   return dayjs.utc(expirationMillis);
 }
 
-function openRatchetingOverlay(event: MouseEvent, lock: ILockSummary) {
+function openRatchetingOverlay(event: MouseEvent, lock: IBitcoinLockSummary) {
   if (!props.lockSummary.hodlingReturn) return;
   emit('ratchet', event, lock);
 }

@@ -133,6 +133,7 @@ import { getTransactionTracker } from '../../stores/transactions.ts';
 import { ExtrinsicType, TransactionStatus } from '../../lib/db/TransactionsTable.ts';
 import { type TransactionInfo } from '../../lib/TransactionInfo.ts';
 import { generateProgressLabel } from '../../lib/Utils.ts';
+import { getArgonBonds } from '../../stores/argonBonds.ts';
 
 dayjs.extend(utc);
 
@@ -141,6 +142,7 @@ const miningFrames = getMiningFrames();
 const vaults = getVaults();
 const walletKeys = getWalletKeys();
 const transactionTracker = getTransactionTracker();
+const argonBonds = getArgonBonds();
 
 const { microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
@@ -172,7 +174,7 @@ const releaseAtLabel = Vue.computed(() => {
 
 const bondProgramLabel = Vue.computed(() => {
   if (props.bondLot.programType === 'Argonot') {
-    return 'Argonot Bond';
+    return 'ARGNOT-backed Argon Bond';
   }
 
   const vaultId = props.bondLot.vaultId;
@@ -198,8 +200,9 @@ const canLiquidate = Vue.computed(() => {
 function trackLiquidationTxInfo(info: TransactionInfo) {
   unsubscribeLiquidationProgress?.();
   isLiquidating.value = true;
+  let didSaveLiquidation = false;
 
-  unsubscribeLiquidationProgress = info.subscribeToProgress((args, error) => {
+  unsubscribeLiquidationProgress = info.subscribeToProgress(async (args, error) => {
     liquidationProgressPct.value = args.progressPct;
     liquidationProgressLabel.value = generateProgressLabel(args.confirmations, args.expectedConfirmations);
 
@@ -209,7 +212,13 @@ function trackLiquidationTxInfo(info: TransactionInfo) {
       return;
     }
 
-    if (args.progressPct >= 100) {
+    if (args.progressPct >= 100 && !didSaveLiquidation) {
+      didSaveLiquidation = true;
+      try {
+        await argonBonds.saveBondLiquidation(props.bondLot, info);
+      } catch (saveError) {
+        console.error('Unable to save finalized bond liquidation history', saveError);
+      }
       emit('submitted');
       emit('close');
     }

@@ -65,7 +65,7 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import { getCurrency } from '../stores/currency.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui';
-import { getStats } from '../stores/stats.ts';
+import { getMyMiningSeats } from '../stores/myMiningSeats.ts';
 import { type IBidsFile, Mining } from '@argonprotocol/apps-core';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import { TICK_MILLIS } from '../lib/Env.ts';
@@ -87,7 +87,7 @@ const props = withDefaults(
   },
 );
 
-const stats = getStats();
+const myMiningSeats = getMyMiningSeats();
 const currency = getCurrency();
 const walletKeys = getWalletKeys();
 const floatingZIndex = useFloatingZIndex();
@@ -102,7 +102,7 @@ const popoverSide = Vue.computed(() => {
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
-const allWinningBids = Vue.computed<IBidsFile['winningBids']>(() => stats.allWinningBids);
+const allWinningBids = Vue.computed<IBidsFile['winningBids']>(() => myMiningSeats.allWinningBids);
 
 function formatMicrogonsBid(microgonsBid: bigint | undefined): string {
   if (!microgonsBid) return '0.00';
@@ -128,7 +128,7 @@ Vue.onMounted(async () => {
         bid.subAccountIndex = accountInfo.index;
       }
     }
-    stats.allWinningBids = allWinningBids;
+    myMiningSeats.allWinningBids = allWinningBids;
   }
 });
 </script>

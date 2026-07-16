@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Mining, normalizeMiningSeatSlots } from '../src/Mining.ts';
+import { bigintCodec } from './helpers/codecs.ts';
 
 describe('Mining seat slot construction', () => {
   it('uses the next cohort size only for the upcoming auction slot', async () => {
@@ -55,6 +56,7 @@ function createMember(address: string) {
     accountId: { toHuman: () => address },
     externalFundingAccount: { value: { toHuman: () => 'managed-account' } },
     bid: { toBigInt: () => 100n },
+    argonots: bigintCodec(50n),
   };
 }
 
@@ -63,5 +65,6 @@ function createBid(startingFrameId: number, address: string) {
     startingFrameId: createNumberLike(startingFrameId),
     accountId: { toHuman: () => address },
     bid: { toBigInt: () => 200n },
+    argonots: bigintCodec(75n),
   };
 }

@@ -53,7 +53,10 @@ export class BlockWatch {
   public isLoaded = createDeferred(false);
   private processingQueue = new SingleFileQueue();
   private apiByBlockHash = new Map<string, Promise<ApiDecoration<'promise'>>>();
-  private eventsByBlockHash = new Map<string, Promise<FrameSystemEventRecord[]>>();
+  private eventsByBlockHash = new Map<
+    string,
+    Promise<{ events: FrameSystemEventRecord[]; specVersion: number; api: ApiDecoration<'promise'> }>
+  >();
 
   public subscriptionClient!: ArgonClient;
 
@@ -389,13 +392,19 @@ export class BlockWatch {
     }
   }
 
-  public async getEvents(
+  public async getEventsWithSpec(
     block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>,
-  ): Promise<FrameSystemEventRecord[]> {
+  ): Promise<{ events: FrameSystemEventRecord[]; specVersion: number; api: ApiDecoration<'promise'> }> {
     const cached = this.eventsByBlockHash.get(block.blockHash);
     if (cached) return await cached;
 
-    const promise = this.getApi(block).then(api => api.query.system.events() as Promise<FrameSystemEventRecord[]>);
+    const promise = (async () => {
+      // ApiPromise.at binds storage reads to this block while selecting the
+      // runtime registry from its parent state, including upgrade blocks.
+      const api = await this.getApi(block);
+      const events = await api.query.system.events();
+      return { events: [...events], specVersion: api.runtimeVersion.specVersion.toNumber(), api };
+    })();
     this.eventsByBlockHash.set(block.blockHash, promise);
     this.trimBlockCaches();
 
@@ -407,6 +416,12 @@ export class BlockWatch {
       }
       throw error;
     }
+  }
+
+  public async getEvents(
+    block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>,
+  ): Promise<FrameSystemEventRecord[]> {
+    return (await this.getEventsWithSpec(block)).events;
   }
 
   public async getBlock(block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>): Promise<SignedBlock> {

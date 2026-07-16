@@ -76,14 +76,7 @@
                 <span class="opacity-50">/</span>
                 ot Bonds
               </div>
-              <div class="opacity-60">
-                {{ currency.symbol
-                }}{{
-                  microgonToMoneyNm(myBonds.bondLots.reduce((sum, bondLot) => sum + bondLot.bondMicrogons, 0n)).format(
-                    '0,0.00',
-                  )
-                }}
-              </div>
+              <div class="opacity-60">{{ currency.symbol }}{{ formatFinancialGroupValue('bonds') }}</div>
             </article>
             <div Selector />
           </li>
@@ -117,7 +110,7 @@
                 {{ currency.symbol
                 }}{{
                   config.hasActivatedStableSwaps
-                    ? microgonToMoneyNm(financials.swapsTotalValue).format('0,0.00')
+                    ? formatFinancialGroupValue('stableSwaps')
                     : '0.00'
                 }}
               </div>
@@ -163,7 +156,7 @@
                   Mining
                 </div>
                 <div class="opacity-60">
-                  {{ currency.symbol }}{{ microgonToMoneyNm(miningAssets.totalMiningResources).format('0,0.00') }}
+                  {{ currency.symbol }}{{ formatFinancialGroupValue('mining') }}
                 </div>
               </div>
               <div v-if="controller.selectedTab === TopTab.Mining" class="text-md -mb-1.5">
@@ -219,7 +212,7 @@
                 </div>
                 <div class="grow">Vaulting</div>
                 <div class="opacity-60">
-                  {{ currency.symbol }}{{ microgonToMoneyNm(vaultingAssets.totalVaultValue).format('0,0.00') }}
+                  {{ currency.symbol }}{{ formatFinancialGroupValue('vaulting') }}
                 </div>
               </div>
               <div v-if="controller.selectedTab === TopTab.Vaulting" class="text-md -mb-1.5">
@@ -407,9 +400,9 @@ import { getCurrency } from '../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { useFinancials } from '../stores/financials.ts';
-import { useMyBonds } from '../stores/myBonds.ts';
 import { useMiningAssetBreakdown } from '../stores/miningAssetBreakdown.ts';
 import { useVaultingAssetBreakdown } from '../stores/vaultingAssetBreakdown.ts';
+import type { FinancialGroup } from '../interfaces/IFinancialPosition.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import DiamondsIcon from '../assets/diamonds.svg?component';
 import { ChevronDownIcon } from '@heroicons/vue/24/outline';
@@ -435,7 +428,6 @@ const config = getConfig();
 const wallets = useWallets();
 const currency = getCurrency();
 const financials = useFinancials();
-const myBonds = useMyBonds();
 const miningAssets = useMiningAssetBreakdown();
 const vaultingAssets = useVaultingAssetBreakdown();
 
@@ -443,6 +435,12 @@ const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm, micronotToMon
   createNumeralHelpers(currency);
 
 const showOperationsNavigationCallouts = Vue.ref(false);
+
+function formatFinancialGroupValue(group: FinancialGroup): string {
+  const summary = financials.financialPositionAggregate.groupSummaries[group];
+  if (summary.state !== 'ready' && !(summary.state === 'stale' && summary.positions.length)) return '--';
+  return microgonToMoneyNm(summary.currentValue).format('0,0.00');
+}
 
 function openDefaultArgonWallet() {
   basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });

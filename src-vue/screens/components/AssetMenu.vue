@@ -31,10 +31,6 @@
               <header>Receive Tokens</header>
             </DropdownMenuItem>
 
-            <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/60" />
-            <DropdownMenuItem @click="() => openPortfolioPanel()" class="py-2">
-              <header>Asset Breakdown</header>
-            </DropdownMenuItem>
           </div>
           <DropdownMenuArrow :width="22" :height="12" class="mt-[0px] fill-white stroke-gray-300" />
         </DropdownMenuContent>
@@ -57,7 +53,6 @@ import {
   PointerDownOutsideEvent,
 } from 'reka-ui';
 import basicEmitter from '../../emitters/basicEmitter.ts';
-import { PortfolioTab } from '../../panels/interfaces/IPortfolioTab.ts';
 import { WalletType } from '../../lib/Wallet.ts';
 import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 
@@ -70,10 +65,6 @@ const floatingZIndex = useFloatingZIndex();
 
 function openWalletOverlay() {
   basicEmitter.emit('openWalletOverlay', { walletType: props.walletType });
-}
-
-function openPortfolioPanel() {
-  basicEmitter.emit('openPortfolioPanel', PortfolioTab.AssetBreakdown);
 }
 
 function openMoveCapitalOverlay() {

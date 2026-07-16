@@ -1,4 +1,4 @@
-import { getPercent, JsonExt, percentOf } from '@argonprotocol/apps-core';
+import { bigIntMin, getPercent, JsonExt, percentOf } from '@argonprotocol/apps-core';
 import { INSTANCE_NAME, IS_TEST, NETWORK_NAME } from './Env.ts';
 import { appConfigDir, join } from '@tauri-apps/api/path';
 import { hexToU8a, u8aToHex } from '@argonprotocol/mainchain';
@@ -63,6 +63,31 @@ export function fromSqliteBoolean(num: number): boolean {
 
 export function clampProgressValue<T extends bigint | number>(current: T, target: T): T {
   return current > target ? target : current;
+}
+
+export function takeFifoLots<T extends { amount: bigint }>(
+  lots: T[],
+  quantity: bigint,
+  isAvailable: (lot: T) => boolean = () => true,
+): T[] {
+  const taken: T[] = [];
+  let remaining = quantity;
+
+  for (let index = 0; index < lots.length && remaining > 0n; ) {
+    const lot = lots[index];
+    if (!isAvailable(lot)) {
+      index += 1;
+      continue;
+    }
+
+    const amount = bigIntMin(lot.amount, remaining);
+    taken.push({ ...lot, amount });
+    lot.amount -= amount;
+    remaining -= amount;
+    if (lot.amount === 0n) lots.splice(index, 1);
+    else index += 1;
+  }
+  return taken;
 }
 
 export function getCappedPercent(current: bigint | number, target: bigint | number): number {

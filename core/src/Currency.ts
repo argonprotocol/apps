@@ -13,9 +13,11 @@ import { createDeferred } from './Deferred.js';
 import type IDeferred from './interfaces/IDeferred.js';
 import { NetworkConfig } from './NetworkConfig.js';
 import type { MainchainClients } from './MainchainClients.ts';
+import type { IBlockHeaderInfo } from './BlockWatch.js';
 import { fetch } from './fetch.js';
 
 const TWENTY_FOUR_HOURS_IN_MILLISECONDS = 24 * 60 * 60e3;
+const HISTORICAL_MAINCHAIN_RATE_CACHE_SIZE = 256;
 
 export const SATOSHIS_PER_BITCOIN = SATS_PER_BTC;
 export const MICRONOTS_PER_ARGONOT = 1_000_000;
@@ -57,6 +59,22 @@ type IRawFiatRates = Record<string, number> | null;
 type IRawEthRates = Record<string, number> | null;
 
 export type IMainchainRates = Record<UnitOfMeasurement.ARGNOT | UnitOfMeasurement.USD | UnitOfMeasurement.BTC, bigint>;
+
+export interface IMiningRewardsAtPrice {
+  microgonsMined: bigint;
+  microgonsMinted: bigint;
+  micronotsMined: bigint;
+  argonotPrice: bigint;
+}
+
+export interface IMiningRewardsWithFloor extends IMiningRewardsAtPrice {
+  microgonFloor: bigint;
+}
+
+export interface IFetchMainchainRatesOptions {
+  ignoreCache?: boolean;
+  updateOffchainRates?: boolean;
+}
 
 type IRawPriceIndex = {
   btcUsdPrice: { toBigInt(): bigint };
@@ -120,6 +138,7 @@ export class Currency {
   private priceIndexSubscriptionPromise?: Promise<void>;
   private lastPriceIndexStorageValue?: string;
   private initialLoadPromise?: Promise<void>;
+  private historicalMainchainRates = new Map<string, Promise<IMainchainRates>>();
 
   constructor(public clients: MainchainClients) {
     this.isLoaded = false;
@@ -149,7 +168,7 @@ export class Currency {
       const loadStartedAt = Date.now();
       let stage = 'fetchMainchainRates';
       try {
-        await this.fetchMainchainRates(undefined, skipCache);
+        await this.fetchMainchainRates(undefined, { ignoreCache: skipCache });
 
         if (!this.isLoaded) {
           this.isLoaded = true;
@@ -190,6 +209,23 @@ export class Currency {
       return bigNumberToBigInt(adjustedValueBn);
     }
     return adjustedValueBn.toNumber();
+  }
+
+  public static convertMicronotToMicrogonAtPrice(micronots: bigint, argonotPriceMicrogons: bigint): bigint {
+    return bigNumberToBigInt(BigNumber(micronots).dividedBy(MICRONOTS_PER_ARGONOT).multipliedBy(argonotPriceMicrogons));
+  }
+
+  public static microgonValueOfMiningRewards(rewards: IMiningRewardsAtPrice): bigint {
+    return (
+      rewards.microgonsMined +
+      rewards.microgonsMinted +
+      this.convertMicronotToMicrogonAtPrice(rewards.micronotsMined, rewards.argonotPrice)
+    );
+  }
+
+  public static microgonsMintedForMiningFloor(rewards: IMiningRewardsWithFloor): bigint {
+    const shortfall = rewards.microgonFloor - this.microgonValueOfMiningRewards(rewards);
+    return shortfall > 0n ? shortfall : 0n;
   }
 
   public convertMicrogonTo(microgons: bigint, to: UnitOfMeasurement.Microgon): bigint;
@@ -275,11 +311,45 @@ export class Currency {
     return (await client.query.mint.mintedBitcoinMicrogons()).toBigInt();
   }
 
-  public async fetchMainchainRates(api?: ApiDecoration<'promise'>, ignoreCache = true): Promise<IMainchainRates> {
+  public async fetchMainchainRates(
+    api?: ApiDecoration<'promise'>,
+    options: IFetchMainchainRatesOptions = {},
+  ): Promise<IMainchainRates> {
     api ??= await this.clients.prunedClientOrArchivePromise;
     const current = await api.query.priceIndex.current();
 
-    return await this.updateMainchainRatesFromPriceIndex(current as IRawPriceIndexOption, ignoreCache);
+    return await this.updateMainchainRatesFromPriceIndex(current as IRawPriceIndexOption, options);
+  }
+
+  public fetchMainchainRatesAtBlock(args: {
+    api: ApiDecoration<'promise'>;
+    block: Pick<IBlockHeaderInfo, 'blockHash'>;
+  }): Promise<IMainchainRates> {
+    const { api, block } = args;
+    const blockHash = block.blockHash.toLowerCase();
+    const cached = this.historicalMainchainRates.get(blockHash);
+    if (cached) {
+      this.historicalMainchainRates.delete(blockHash);
+      this.historicalMainchainRates.set(blockHash, cached);
+      return cached;
+    }
+
+    const ratesPromise = api.query.priceIndex
+      .current()
+      .then(current => this.calculateMainchainRates(current as IRawPriceIndexOption));
+    this.historicalMainchainRates.set(blockHash, ratesPromise);
+
+    if (this.historicalMainchainRates.size > HISTORICAL_MAINCHAIN_RATE_CACHE_SIZE) {
+      const oldestBlockHash = this.historicalMainchainRates.keys().next().value;
+      if (oldestBlockHash) this.historicalMainchainRates.delete(oldestBlockHash);
+    }
+
+    void ratesPromise.catch(() => {
+      if (this.historicalMainchainRates.get(blockHash) === ratesPromise) {
+        this.historicalMainchainRates.delete(blockHash);
+      }
+    });
+    return ratesPromise;
   }
 
   private async subscribeToPriceIndex(client?: ArgonClient): Promise<void> {
@@ -314,7 +384,7 @@ export class Currency {
       const storageValue = this.getPriceIndexStorageValue(current as IRawPriceIndexOption);
       if (storageValue && storageValue === this.lastPriceIndexStorageValue) return;
 
-      void this.updateMainchainRatesFromPriceIndex(current as IRawPriceIndexOption, false).catch(e =>
+      void this.updateMainchainRatesFromPriceIndex(current as IRawPriceIndexOption, { ignoreCache: false }).catch(e =>
         console.error('[Currency] Error updating subscribed price index', e),
       );
     });
@@ -327,26 +397,20 @@ export class Currency {
 
   private async updateMainchainRatesFromPriceIndex(
     current: IRawPriceIndexOption,
-    ignoreCache = true,
+    options: IFetchMainchainRatesOptions = {},
   ): Promise<IMainchainRates> {
+    const { ignoreCache = true, updateOffchainRates = true } = options;
+    const mainchainRates = this.calculateMainchainRates(current);
     this.loadPriceIndex(current);
 
     if (this.priceIndex.argonUsdTargetPrice) {
-      // These exchange rates should be relative to the argon
-      const usdTargetForArgonBn = this.priceIndex.argonUsdTargetPrice;
-      const btcUsdPriceBn = this.priceIndex.btcUsdPrice!;
-      const argonotUsdPriceBn = this.priceIndex.argonotUsdPrice!;
+      this.microgonsPer.USD = mainchainRates.USD;
+      this.microgonsPer.BTC = mainchainRates.BTC;
+      this.microgonsPer.ARGNOT = mainchainRates.ARGNOT;
 
-      this.microgonsPer.USD = this.calculateExchangeRateInMicrogons(BigNumber(1), usdTargetForArgonBn);
-      this.microgonsPer.BTC = this.calculateExchangeRateInMicrogons(btcUsdPriceBn, usdTargetForArgonBn);
-      this.microgonsPer.ARGNOT = this.calculateExchangeRateInMicrogons(argonotUsdPriceBn, usdTargetForArgonBn);
-
-      const networkIsLocal = NetworkConfig.networkName === 'dev-docker' || NetworkConfig.networkName === 'localnet';
-      if (argonotUsdPriceBn === BigNumber(0) && networkIsLocal) {
-        this.microgonsPer.ARGNOT = this.microgonsPer.ARGNOT / 10n;
+      if (updateOffchainRates) {
+        await Promise.all([this.updateFiatRates(ignoreCache), this.updateEthTokenPrices(ignoreCache)]);
       }
-
-      await Promise.all([this.updateFiatRates(ignoreCache), this.updateEthTokenPrices(ignoreCache)]);
       this.updateFiatStablecoinPrices();
       this.updateTargetOffset(this.priceIndex.argonUsdPrice, this.priceIndex.argonUsdTargetPrice);
     }
@@ -356,6 +420,29 @@ export class Currency {
       BTC: this.microgonsPer.BTC,
       USD: this.microgonsPer.USD,
     };
+  }
+
+  private calculateMainchainRates(current: IRawPriceIndexOption): IMainchainRates {
+    const rates = {
+      ARGNOT: BigInt(MICROGONS_PER_ARGON),
+      BTC: BigInt(MICROGONS_PER_ARGON),
+      USD: BigInt(MICROGONS_PER_ARGON),
+    };
+    if (!current.isSome) return rates;
+
+    const priceIndex = current.unwrap();
+    const argonUsdTargetPrice = fromFixedNumber(priceIndex.argonUsdTargetPrice.toBigInt(), FIXED_U128_DECIMALS);
+    const argonotUsdPrice = fromFixedNumber(priceIndex.argonotUsdPrice.toBigInt(), FIXED_U128_DECIMALS);
+    rates.USD = this.calculateExchangeRateInMicrogons(BigNumber(1), argonUsdTargetPrice);
+    rates.BTC = this.calculateExchangeRateInMicrogons(
+      fromFixedNumber(priceIndex.btcUsdPrice.toBigInt(), FIXED_U128_DECIMALS),
+      argonUsdTargetPrice,
+    );
+    rates.ARGNOT = this.calculateExchangeRateInMicrogons(argonotUsdPrice, argonUsdTargetPrice);
+
+    const networkIsLocal = NetworkConfig.networkName === 'dev-docker' || NetworkConfig.networkName === 'localnet';
+    if (argonotUsdPrice.isZero() && networkIsLocal) rates.ARGNOT /= 10n;
+    return rates;
   }
 
   private loadPriceIndex(current: IRawPriceIndexOption): void {
@@ -390,7 +477,9 @@ export class Currency {
   private scheduleOffchainRatesRefresh(): void {
     clearTimeout(this.offchainRatesTimeout);
     this.offchainRatesTimeout = setTimeout(() => {
-      void this.fetchMainchainRates(undefined, false).finally(() => this.scheduleOffchainRatesRefresh());
+      void this.fetchMainchainRates(undefined, { ignoreCache: false }).finally(() =>
+        this.scheduleOffchainRatesRefresh(),
+      );
     }, TWENTY_FOUR_HOURS_IN_MILLISECONDS) as unknown as number;
   }
 

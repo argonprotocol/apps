@@ -69,11 +69,7 @@ import SeatTooltip from './SeatTooltip.vue';
 import { botEmitter } from '../../../lib/Bot.ts';
 import MinerIcon from '../../../assets/miner.svg?component';
 import { getMiningSeatProgressAtFrame } from '../miningSeatProgress.ts';
-
-type ISeatTooltipStats = {
-  microgonsToBeMinedPerSeat: bigint;
-  micronotsToBeMinedPerSeat: bigint;
-};
+import type { IMiningSeatRewardTerms } from '../../../interfaces/db/ICohortRecord.ts';
 
 type IMiningDisplaySeat = IMiningSeat & {
   startingFrameId?: number | null;
@@ -110,7 +106,7 @@ const slots = Vue.ref<IMiningDisplaySlot[]>([]);
 
 const ourBidAddresses = Vue.ref<Set<string>>(new Set());
 const hoveredSlotId = Vue.ref<number | null>(null);
-const seatTooltipStatsByStartingFrameId = Vue.ref<Record<number, ISeatTooltipStats | null>>({});
+const seatTooltipStatsByStartingFrameId = Vue.ref<Record<number, IMiningSeatRewardTerms | null>>({});
 
 let clearHoveredSlotIdTimeout: ReturnType<typeof setTimeout> | null = null;
 let stopBlockWatchSubscription: (() => void) | null = null;
@@ -398,6 +394,7 @@ async function refreshSeatTooltipStats(): Promise<void> {
         tooltipStatsByStartingFrameId[cohort.id] = {
           microgonsToBeMinedPerSeat: cohort.microgonsToBeMinedPerSeat,
           micronotsToBeMinedPerSeat: cohort.micronotsToBeMinedPerSeat,
+          argonotPriceAtBid: cohort.argonotPriceAtBid,
         };
       }
 
