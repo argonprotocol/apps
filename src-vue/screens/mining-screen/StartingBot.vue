@@ -17,16 +17,16 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { getStats } from '../../stores/stats.ts';
+import { getMyMiningSeats } from '../../stores/myMiningSeats.ts';
 import { getBot } from '../../stores/bot.ts';
 import { getInstaller } from '../../stores/installer.ts';
 
-const stats = getStats();
+const myMiningSeats = getMyMiningSeats();
 const bot = getBot();
 const installer = getInstaller();
 
-Vue.onMounted(() => stats.subscribeToActivity());
-Vue.onUnmounted(() => stats.unsubscribeFromActivity());
+Vue.onMounted(() => myMiningSeats.subscribeToActivity());
+Vue.onUnmounted(() => myMiningSeats.unsubscribeFromActivity());
 </script>
 
 <style scoped>

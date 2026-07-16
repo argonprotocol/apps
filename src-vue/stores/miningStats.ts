@@ -2,7 +2,7 @@ import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import { getMining } from './mainchain.ts';
 import { getCurrency } from './currency.ts';
-import { calculateAPY, GlobalMiningStats } from '@argonprotocol/apps-core';
+import { GlobalMiningStats } from '@argonprotocol/apps-core';
 
 export const useMiningStats = defineStore('miningStats', () => {
   let hasLoaded = false;
@@ -39,7 +39,7 @@ export const useMiningStats = defineStore('miningStats', () => {
 
       activeBidCosts.value = stats.activeBidCosts;
       activeBlockRewards.value = stats.activeBlockRewards;
-      averageAPY.value = calculateAPY(stats.activeBidCosts, stats.activeBlockRewards);
+      averageAPY.value = stats.activeAPY;
     })();
 
     try {

@@ -1,15 +1,15 @@
-import { ITuple, Option, u8aEq, U8aFixed, u8aToHex, Vault } from '@argonprotocol/mainchain';
-import { IVaultingRules } from '../interfaces/IVaultingRules.ts';
+import { ITuple, Option, U8aFixed, u8aToHex, Vault } from '@argonprotocol/mainchain';
+import { IVaultingRules } from '../../interfaces/IVaultingRules.ts';
 import BigNumber from 'bignumber.js';
-import BitcoinLocks from './BitcoinLocks.ts';
+import BitcoinLocks from '../BitcoinLocks.ts';
 import { MainchainClients, StorageFinder, TransactionEvents } from '@argonprotocol/apps-core';
-import { TICK_MILLIS } from './Env.ts';
-import { Config } from './Config.ts';
+import { TICK_MILLIS } from '../Env.ts';
+import { Config } from '../Config.ts';
 import bs58check from 'bs58check';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
-import { BitcoinLocksTable, BitcoinLockStatus, IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
-import { DEFAULT_MASTER_XPUB_PATH } from './MyVault.ts';
-import { WalletKeys } from './WalletKeys.ts';
+import type { IBitcoinLockRecord } from '../db/BitcoinLocksTable.ts';
+import { DEFAULT_MASTER_XPUB_PATH } from '../MyVault.ts';
+import { WalletKeys } from '../WalletKeys.ts';
 
 export class MyVaultRecovery {
   public static rebuildRules(args: {
@@ -67,7 +67,6 @@ export class MyVaultRecovery {
     if (vaultRaw.isNone) throw new Error(`Vault with id ${vaultId} not found`);
     const vault = new Vault(vaultId, vaultRaw.value, TICK_MILLIS);
 
-    // verify this has the right xpub path
     const storedXpubMaybe = await client.query.vaults.vaultXPubById(vaultId);
     const masterXpubPath = await this.recoverXpubPath({
       vaultId,
@@ -121,99 +120,63 @@ export class MyVaultRecovery {
     const vaultId = vault.vaultId;
     const client = await mainchainClients.archiveClientPromise;
     const bitcoins = await client.query.bitcoinLocks.locksByUtxoId.entries();
-    const myBitcoins = bitcoins.filter(([_id, lockMaybe]) => {
+    const myBitcoins = bitcoins.filter(([, lockMaybe]) => {
       if (!lockMaybe.isSome) return false;
       if (lockMaybe.value.vaultId.toNumber() !== vaultId) return false;
       return lockMaybe.value.ownerAccount.toHuman() === vaultingAddress;
     });
 
-    async function findPubkey(ownerPubkey: Uint8Array, maxTries = 100) {
-      for (let i = 0; i < maxTries; i++) {
-        const next = await bitcoinLocks.getDerivedPubkey(vaultId, i);
-        if (u8aEq(ownerPubkey, next.ownerBitcoinPubkey)) {
-          await bitcoinLocks.trackDerivedBitcoinLockKey(vaultId, next);
-          return next;
-        }
-      }
-      return undefined;
-    }
-
     const records: (IBitcoinLockRecord & { initializedAtBlockNumber: number })[] = [];
     const table = await bitcoinLocks.getTable();
 
-    for (const [utxoId, utxoMaybe] of myBitcoins) {
-      const utxo = utxoMaybe.unwrap();
-      if (utxo.ownerAccount.toHuman() === vaultingAddress) {
-        const ownerPubkey = utxo.ownerPubkey;
-
-        const existingInDb = await table.getByUtxoId(utxoId.args[0].toNumber());
-        if (existingInDb) {
-          records.push({ ...existingInDb, initializedAtBlockNumber: existingInDb.ratchets[0].blockHeight });
-          continue;
-        }
-
-        const thisHdPath = await findPubkey(ownerPubkey);
-        if (!thisHdPath) {
-          console.warn('Unable to recover the hd path of this personal bitcoin');
-          continue;
-        }
-
-        const lock = await bitcoinLocks.getFromApi(utxoId.args[0].toNumber());
-        let bitcoinTxAddition: { blockHash: Uint8Array; blockNumber: number } | undefined;
-        if (lock.createdAtArgonBlock > 0) {
-          bitcoinTxAddition = {
-            blockNumber: lock.createdAtArgonBlock,
-            blockHash: await client.rpc.chain.getBlockHash(lock.createdAtArgonBlock),
-          };
-        } else {
-          const bitcoinTxKey = client.query.bitcoinLocks.locksByUtxoId.key(lock.utxoId);
-          bitcoinTxAddition = await StorageFinder.binarySearchForStorageAddition(
-            mainchainClients,
-            bitcoinTxKey,
-            vaultSetupBlockNumber,
-          ).catch(err => {
-            console.warn('Unable to find bitcoin lock creation block:', err);
-            return undefined;
-          });
-        }
-        const addedAtBlockNumber = bitcoinTxAddition?.blockNumber ?? 0;
-        let bitcoinTxFee = 0n;
-        if (bitcoinTxAddition) {
-          const result = await TransactionEvents.findFromFeePaidEvent({
-            client,
-            blockHash: bitcoinTxAddition.blockHash,
-            isMatchingEvent: ev => {
-              if (client.events.bitcoinLocks.BitcoinLockCreated.is(ev)) {
-                return ev.data.utxoId.toNumber() === lock.utxoId;
-              }
-              return false;
-            },
-            accountAddress: vaultingAddress,
-          });
-          bitcoinTxFee = result?.fee ?? 0n;
-        }
-
-        let record = await table.findLockByHdPath(thisHdPath.hdPath);
-        if (!record) {
-          const uuid = BitcoinLocksTable.createUuid();
-          record = await bitcoinLocks.insertPending({
-            uuid,
-            vaultId,
-            satoshis: lock.satoshis,
-            hdPath: thisHdPath.hdPath,
-          });
-        }
-
-        if (record.status === BitcoinLockStatus.LockIsProcessingOnArgon) {
-          record = await table.finalizePending({
-            uuid: record.uuid,
-            lock,
-            createdAtArgonBlockHeight: addedAtBlockNumber,
-            finalFee: bitcoinTxFee,
-          });
-        }
-        records.push({ ...record, initializedAtBlockNumber: addedAtBlockNumber });
+    for (const [utxoId] of myBitcoins) {
+      const existingInDb = await table.getByUtxoId(utxoId.args[0].toNumber());
+      if (existingInDb) {
+        records.push({ ...existingInDb, initializedAtBlockNumber: existingInDb.ratchets[0].blockHeight });
+        continue;
       }
+
+      const lock = await bitcoinLocks.getFromApi(utxoId.args[0].toNumber());
+      let bitcoinTxAddition: { blockHash: Uint8Array; blockNumber: number } | undefined;
+      if (lock.createdAtArgonBlock > 0) {
+        bitcoinTxAddition = {
+          blockNumber: lock.createdAtArgonBlock,
+          blockHash: await client.rpc.chain.getBlockHash(lock.createdAtArgonBlock),
+        };
+      } else {
+        const bitcoinTxKey = client.query.bitcoinLocks.locksByUtxoId.key(lock.utxoId);
+        bitcoinTxAddition = await StorageFinder.binarySearchForStorageAddition(
+          mainchainClients,
+          bitcoinTxKey,
+          vaultSetupBlockNumber,
+        ).catch(err => {
+          console.warn('Unable to find bitcoin lock creation block:', err);
+          return undefined;
+        });
+      }
+      const addedAtBlockNumber = bitcoinTxAddition?.blockNumber ?? 0;
+      let bitcoinTxFee = 0n;
+      if (bitcoinTxAddition) {
+        const result = await TransactionEvents.findFromFeePaidEvent({
+          client,
+          blockHash: bitcoinTxAddition.blockHash,
+          isMatchingEvent: ev => {
+            if (client.events.bitcoinLocks.BitcoinLockCreated.is(ev)) {
+              return ev.data.utxoId.toNumber() === lock.utxoId;
+            }
+            return false;
+          },
+          accountAddress: vaultingAddress,
+        });
+        bitcoinTxFee = result?.fee ?? 0n;
+      }
+
+      const record = await bitcoinLocks.recovery.recoverLock({
+        lock,
+        createdAtArgonBlockHeight: addedAtBlockNumber,
+        finalFee: bitcoinTxFee,
+      });
+      records.push({ ...record, initializedAtBlockNumber: addedAtBlockNumber });
     }
     records.sort((a, b) => {
       return b.initializedAtBlockNumber - a.initializedAtBlockNumber;

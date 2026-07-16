@@ -1,16 +1,9 @@
 <template>
   <div ref="containerRef" class="flex min-h-[90%] flex-col gap-4 overflow-x-hidden overflow-y-auto pt-3 pr-7 pb-5 pl-4">
-    <DiagnosticStep ref="step1" :run="() => checkWalletTransfers()">
-      <heading>Searching for Missing Wallet Transfers</heading>
-      <success v-slot="{ data }">
-        <template v-if="data.isUnchanged">Your wallet is already up to date.</template>
-        <template v-else>
-          We were able to recover {{ data.recoveredTransfers }} missing wallet transfer{{
-            data.recoveredTransfers === 1 ? '' : 's'
-          }}.
-        </template>
-      </success>
-      <failure>No wallet transfers were found.</failure>
+    <DiagnosticStep ref="step1" :run="() => checkWalletHistory()">
+      <heading>Searching for Missing Wallet History</heading>
+      <success>Your wallet history is up to date.</success>
+      <failure>Unable to restore wallet history.</failure>
     </DiagnosticStep>
 
     <DiagnosticStep ref="step2" :run="() => checkVault()">
@@ -50,6 +43,15 @@
       </success>
       <failure>Unable to recover minting authorities.</failure>
     </DiagnosticStep>
+
+    <DiagnosticStep ref="step5" :run="() => checkFinancialHistory()">
+      <heading>Restoring Investment History</heading>
+      <success v-slot="{ data }">
+        <template v-if="data.isUnchanged">Your investment history is already up to date.</template>
+        <template v-else>Recovered {{ data.recoveredBlocks }} investment history blocks.</template>
+      </success>
+      <failure>Unable to restore complete investment history.</failure>
+    </DiagnosticStep>
   </div>
 </template>
 
@@ -59,18 +61,18 @@ import DiagnosticStep from './components/DiagnosticStep.vue';
 import success from './components/DiagnosticSuccess.vue';
 import failure from './components/DiagnosticFailure.vue';
 import heading from './components/DiagnosticHeading.vue';
-import { getWalletsForArgon, getWalletKeys } from '../../stores/wallets.ts';
+import { getWalletHistoryRecovery, getWalletKeys, useWallets } from '../../stores/wallets.ts';
 import { getMyVault } from '../../stores/vaults.ts';
-import { getDbPromise } from '../../stores/helpers/dbPromise.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
-import { MyVaultRecovery } from '../../lib/MyVaultRecovery.ts';
-import { getMainchainClients, getFinalizedClient } from '../../stores/mainchain.ts';
+import { MyVaultRecovery } from '../../lib/recovery/MyVaultDiscovery.ts';
+import { getBlockWatch, getMainchainClients, getFinalizedClient } from '../../stores/mainchain.ts';
+import { useFinancials } from '../../stores/financials.ts';
 
-const walletsForArgon = getWalletsForArgon();
+const wallets = useWallets();
 const walletKeys = getWalletKeys();
 const myVault = getMyVault();
-const dbPromise = getDbPromise();
 const bitcoinLocks = getBitcoinLocks();
+const financials = useFinancials();
 
 const containerRef = Vue.ref<HTMLElement>();
 
@@ -78,6 +80,7 @@ const step1 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
 const step2 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
 const step3 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
 const step4 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
+const step5 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
 
 function scrollToBottom() {
   if (containerRef.value) {
@@ -85,30 +88,11 @@ function scrollToBottom() {
   }
 }
 
-async function checkWalletTransfers() {
-  const db = await dbPromise;
-  await walletsForArgon.load();
-  const transfers = await db.walletTransfersTable.fetchAll();
-  const blockNumbersNeeded = new Set<number>();
-
-  for (const wallet of walletsForArgon.addresses) {
-    await walletsForArgon.lookupTransferOrClaimBlocks(wallet, blockNumbersNeeded, [0, Number.MAX_SAFE_INTEGER]);
-  }
-  const newBlocks = new Set<number>();
-  for (const block of blockNumbersNeeded) {
-    if (!transfers.find(t => t.blockNumber === block)) {
-      newBlocks.add(block);
-    }
-  }
-  for (const block of newBlocks) {
-    await walletsForArgon.resyncBlock(block);
-  }
-  const isUnchanged = newBlocks.size === 0;
-
-  return {
-    isUnchanged,
-    recoveredTransfers: newBlocks.size,
-  };
+async function checkWalletHistory() {
+  await wallets.isLoadedPromise;
+  const walletHistoryRecovery = getWalletHistoryRecovery();
+  await walletHistoryRecovery.prepare();
+  await walletHistoryRecovery.recoverNow(getBlockWatch().finalizedBlockHeader.blockNumber, true);
 }
 
 async function checkVault() {
@@ -155,6 +139,7 @@ async function checkBitcoins() {
 
   return {
     isUnchanged: newlyFound.length === 0,
+    isNotFound: bitcoins.length === 0,
     foundBitcoins: newlyFound.length,
   };
 }
@@ -191,11 +176,23 @@ async function checkMintingAuthorities() {
   };
 }
 
+async function checkFinancialHistory() {
+  await financials.restoreFinancialHistory(true);
+  if (financials.historyRecovery.state === 'error') {
+    throw new Error(financials.historyRecovery.message ?? 'Unable to restore investment history');
+  }
+
+  return {
+    isUnchanged: financials.historyRecovery.recoveredBlockCount === 0,
+    recoveredBlocks: financials.historyRecovery.recoveredBlockCount,
+  };
+}
+
 async function findMissingData() {
   await myVault.load();
   await Vue.nextTick();
 
-  const steps = [step1.value, step2.value, step3.value, step4.value].filter(Boolean);
+  const steps = [step1.value, step2.value, step3.value, step4.value, step5.value].filter(Boolean);
   for (const step of steps) {
     if (step && typeof step.run === 'function') {
       await step.run();

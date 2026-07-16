@@ -33,7 +33,7 @@
       </div>
       <div class="flex flex-col items-center justify-center min-h-[75px] fade-in-out">
         <div v-if="bidPositions.length" :class="[priceTextSize, 'text-center text-argon-600 font-bold']">
-          {{ currency.symbol }}{{ microgonToMoneyNm(stats.myMiningBids.microgonsBidTotal).format('0,0.00') }}
+          {{ currency.symbol }}{{ microgonToMoneyNm(myMiningSeats.pendingBids.microgonsBidTotal).format('0,0.00') }}
         </div>
         <div v-else class="text-center text-7xl text-argon-600 font-bold">{{ currency.symbol }}--.--</div>
       </div>
@@ -87,7 +87,7 @@ import ConfettiIcon from '../../assets/confetti.svg?component';
 import ActiveBidsOverlayButton from '../../overlays/ActiveBidsOverlayButton.vue';
 import BotHistoryOverlayButton from '../../overlays/BotHistoryOverlayButton.vue';
 import { getBiddingCalculator, getMining } from '../../stores/mainchain.ts';
-import { getStats } from '../../stores/stats.ts';
+import { getMyMiningSeats } from '../../stores/myMiningSeats.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { useWallets } from '../../stores/wallets.ts';
 import { bigIntMin } from '@argonprotocol/apps-core/src/utils.ts';
@@ -98,7 +98,7 @@ dayjs.extend(utc);
 const mainchain = getMining();
 
 const wallets = useWallets();
-const stats = getStats();
+const myMiningSeats = getMyMiningSeats();
 const config = getConfig();
 
 const currency = getCurrency();
@@ -109,12 +109,12 @@ const auctionIsClosing = Vue.ref(false);
 const maxPossibleBiddingBudget = Vue.ref(0n);
 
 const totalBiddingBudget = Vue.computed(() => {
-  const availableMicrogons = wallets.miningBotWallet.availableMicrogons + stats.myMiningBids.microgonsBidTotal;
+  const availableMicrogons = wallets.miningBotWallet.availableMicrogons + myMiningSeats.pendingBids.microgonsBidTotal;
   return bigIntMin(maxPossibleBiddingBudget.value, availableMicrogons);
 });
 
 const bidPositions = Vue.computed(() => {
-  const myBids = stats.allWinningBids.filter((bid: IWinningBid) => typeof bid.subAccountIndex === 'number');
+  const myBids = myMiningSeats.allWinningBids.filter((bid: IWinningBid) => typeof bid.subAccountIndex === 'number');
   return myBids.map((bid: IWinningBid) => (bid.bidPosition ?? 0) + 1).sort((a, b) => a - b);
 });
 

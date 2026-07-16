@@ -1,17 +1,10 @@
-import { ICohortFrameRecord, ICohortFrameStats } from '../../interfaces/db/ICohortFrameRecord';
+import { ICohortFrameRecord } from '../../interfaces/db/ICohortFrameRecord';
 import { BaseTable } from './BaseTable';
-import { convertSqliteBigInts, fromSqliteBigInt, toSqliteBigInt } from '../Utils';
+import { toSqliteBigInt } from '../Utils';
 import { LRU } from 'tiny-lru';
 
 export class CohortFramesTable extends BaseTable {
   private cache = new LRU<Partial<ICohortFrameRecord>>(25);
-  private bigIntFields: string[] = [
-    'micronotsMinedTotal',
-    'microgonsMinedTotal',
-    'microgonsMintedTotal',
-    'microgonFeesCollectedTotal',
-  ];
-
   public async insertOrUpdate(args: {
     frameId: number;
     cohortActivationFrameId: number;
@@ -74,29 +67,5 @@ export class CohortFramesTable extends BaseTable {
         toSqliteBigInt(microgonFeesCollectedTotal),
       ],
     );
-  }
-
-  public async fetchActiveCohortFrames(currentFrameId: number): Promise<ICohortFrameRecord[]> {
-    const records = await this.db.select<ICohortFrameRecord[]>('SELECT * FROM CohortFrames WHERE frameId > ?', [
-      currentFrameId - 10,
-    ]);
-    return convertSqliteBigInts(records, this.bigIntFields);
-  }
-
-  public async fetchGlobalStats(): Promise<Omit<ICohortFrameStats, 'blocksMinedTotal'>> {
-    const [rawResults] = await this.db.select<[any]>(
-      `SELECT 
-        COALESCE(sum(micronotsMinedTotal), 0) as micronotsMinedTotal,
-        COALESCE(sum(microgonsMinedTotal), 0) as microgonsMinedTotal,
-        COALESCE(sum(microgonsMintedTotal), 0) as microgonsMintedTotal
-      FROM CohortFrames`,
-    );
-
-    const results = rawResults;
-    return {
-      micronotsMinedTotal: fromSqliteBigInt(results.micronotsMinedTotal),
-      microgonsMinedTotal: fromSqliteBigInt(results.microgonsMinedTotal),
-      microgonsMintedTotal: fromSqliteBigInt(results.microgonsMintedTotal),
-    };
   }
 }

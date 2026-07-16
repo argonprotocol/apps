@@ -18,7 +18,7 @@ import { Vaults } from '../lib/Vaults.ts';
 import { Config } from '../lib/Config.ts';
 import type { IVaultingRules } from '../interfaces/IVaultingRules.ts';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
-import { MyVaultRecovery } from '../lib/MyVaultRecovery.ts';
+import { MyVaultRecovery } from '../lib/recovery/MyVaultDiscovery.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
 import { Db } from '../lib/Db.ts';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';

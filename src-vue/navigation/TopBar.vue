@@ -72,22 +72,13 @@ import * as Vue from 'vue';
 import { TopTab } from '../interfaces/IConfig.ts';
 import { useCertificationController } from '../stores/certificationController.ts';
 import WindowControls from '../tauri-controls/WindowControls.vue';
-import PortfolioMenu from './PortfolioMenu.vue';
 import AccountMenu from './AccountMenu.vue';
 import { useWallets } from '../stores/wallets.ts';
 import { getBot } from '../stores/bot.ts';
 import { useTour } from '../stores/tour.ts';
 import ServerMenu from './ServerMenu.vue';
 import CertificationMenu from './CertificationMenu.vue';
-import {
-  NavigationMenuContent,
-  NavigationMenuIndicator,
-  NavigationMenuItem,
-  NavigationMenuList,
-  NavigationMenuRoot,
-  NavigationMenuTrigger,
-  NavigationMenuViewport,
-} from 'reka-ui';
+import { NavigationMenuIndicator, NavigationMenuList, NavigationMenuRoot, NavigationMenuViewport } from 'reka-ui';
 import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 import ProfitsMenu from './ProfitsMenu.vue';
 import PortfolioDetailsMenu from './PortfolioDetailsMenu.vue';
@@ -105,7 +96,7 @@ const navigationMenuIndicatorZIndex = useFloatingZIndex(2);
 
 const serverMenuRef = Vue.ref<InstanceType<typeof ServerMenu> | null>(null);
 const accountMenuRef = Vue.ref<InstanceType<typeof AccountMenu> | null>(null);
-const currencyMenuRef = Vue.ref<InstanceType<typeof PortfolioMenu> | null>(null);
+const currencyMenuRef = Vue.ref<HTMLElement | null>(null);
 const returnsMenuRef = Vue.ref<InstanceType<typeof ProfitsMenu> | null>(null);
 
 const navigationMenuValue = Vue.ref('');
@@ -142,7 +133,7 @@ function openCertificationMenu() {
 }
 
 tour.registerPositionCheck('currencyMenu', () => {
-  const currencyMenuElem = currencyMenuRef.value?.$el;
+  const currencyMenuElem = currencyMenuRef.value;
   const rect = currencyMenuElem?.getBoundingClientRect().toJSON() || { left: 0, right: 0, top: 0, bottom: 0 };
   rect.left -= 10;
   rect.right += 10;

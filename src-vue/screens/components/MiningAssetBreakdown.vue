@@ -102,12 +102,12 @@
         Seats ({{ numeral(breakdown.seatActiveCount).format('0,0') }})
         <template #icon><MiningSeatIcon class="h-7 w-7" /></template>
         <template #value>
-          {{ currency.symbol }}{{ microgonToMoneyNm(breakdown.expectedSeatValue).format('0,0.00') }}
+          {{ currency.symbol }}{{ microgonToMoneyNm(breakdown.currentSeatValue).format('0,0.00') }}
         </template>
         <template #tooltip>
           <p class="break-words whitespace-normal">
             You have a total of {{ numeral(breakdown.seatActiveCount).format('0,0') }} active mining seats. You won
-            them using a combination of argons and argonots. They have an estimated value of
+            them using a combination of argons and argonots. Their current guaranteed floor and staked ARGNOT are worth
             {{ currency.symbol }}{{ microgonToMoneyNm(wallets.miningSeatValue).format('0,0.00') }}.
           </p>
           <p class="mt-3 break-words whitespace-normal">
@@ -185,8 +185,7 @@ import SubItem from '../../components/asset-breakdown/SubItem.vue';
 import Expenses from '../../components/asset-breakdown/Expenses.vue';
 import Total from '../../components/asset-breakdown/Total.vue';
 import { TooltipProvider } from 'reka-ui';
-import { MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
-import { getConfig } from '../../stores/config.ts';
+import { MoveFrom, MoveToken } from '@argonprotocol/apps-core';
 import { useWallets } from '../../stores/wallets.ts';
 
 const props = withDefaults(
@@ -204,7 +203,6 @@ const props = withDefaults(
 
 const currency = getCurrency();
 const breakdown = useMiningAssetBreakdown();
-const config = getConfig();
 const wallets = useWallets();
 
 const { microgonToMoneyNm, microgonToArgonNm } = createNumeralHelpers(currency);

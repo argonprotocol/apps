@@ -6,12 +6,12 @@ import { useWallets } from './wallets.ts';
 import { getMyVault } from './vaults.ts';
 import { getCurrency } from './currency.ts';
 import { getSpendableDefaultArgonMicrogons } from '../lib/WalletForArgon.ts';
-import { getBondMarket } from './myBonds.ts';
+import { getArgonBonds } from './argonBonds.ts';
 
 export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', () => {
   const wallets = useWallets();
   const myVault = getMyVault();
-  const bondMarket = getBondMarket();
+  const argonBonds = getArgonBonds();
   const currency = getCurrency();
 
   // Sidelined
@@ -72,7 +72,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
 
   const vaultBondState = Vue.computed(() => {
     const vaultId = myVault.vaultId;
-    return vaultId == null ? undefined : bondMarket.data.vaultsById[vaultId];
+    return vaultId == null ? undefined : argonBonds.data.vaultsById[vaultId];
   });
 
   const treasuryBondTotals = Vue.computed(() => {
