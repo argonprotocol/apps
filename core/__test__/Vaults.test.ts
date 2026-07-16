@@ -167,9 +167,16 @@ describe('Vault and bond network returns', () => {
     expect(Number.isFinite(vaults.calculateBondsApr())).toBe(true);
 
     const incompleteVaults = createVaults();
-    incompleteVaults.stats = createStats([createFrame({ bitcoinFeeRevenue: 100n })]);
+    incompleteVaults.stats = createStats([
+      createFrame({
+        bitcoinFeeRevenue: 100n,
+        externalCapital: 1_000n,
+        totalEarnings: 100n,
+        vaultEarnings: 40n,
+      }),
+    ]);
     expect(() => incompleteVaults.calculateApr()).toThrow('coupon');
-    expect(() => incompleteVaults.calculateBondsApr()).toThrow('coupon');
+    expect(incompleteVaults.calculateBondsApr()).toBeCloseTo(2_190);
   });
 
   it('does not manufacture returns from zero-capital frames', () => {
