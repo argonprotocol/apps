@@ -122,9 +122,6 @@ export async function initializeDevEthereumTokenReserve(args: {
   const reserveBaseUnits =
     DEV_ETHEREUM_TOKEN_RESERVE_RUNTIME_AMOUNT * EvmContracts.MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE;
 
-  // The backing must be finalized on Argon before Ethereum exposes the migrated supply.
-  await args.ensureBacking();
-
   const migrationCompleted = await publicClient.readContract({
     address: gatewayAddress,
     abi: EvmContracts.mintingGatewayAbi,
@@ -132,6 +129,9 @@ export async function initializeDevEthereumTokenReserve(args: {
   });
 
   if (!migrationCompleted) {
+    // The backing must be finalized on Argon before Ethereum exposes the migrated supply.
+    await args.ensureBacking();
+
     const hash = await args.sendMigration(
       encodeFunctionData({
         abi: EvmContracts.mintingGatewayAbi,
@@ -171,7 +171,7 @@ export async function initializeDevEthereumTokenReserve(args: {
 
   if (argonBalance < reserveBaseUnits || argonotBalance < reserveBaseUnits) {
     throw new Error(
-      `Dev Ethereum root reserve is below 10,000 tokens after migration (ARGN=${argonBalance}, ARGNOT=${argonotBalance}).`,
+      `Dev Ethereum root reserve is below 10,000 tokens after migration (ERC-20 base units: ARGN=${argonBalance}, ARGNOT=${argonotBalance}).`,
     );
   }
 }
