@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  calculateAggregateReturn,
   calculateAnnualPercentageRate,
   calculateAnnualPercentageYield,
   calculatePerformanceReturn,
@@ -7,6 +8,20 @@ import {
 import { calculateAPY, calculateProfitPct } from '../src/utils.ts';
 
 describe('FinancialReturns', () => {
+  it('aggregates undated positions by total capital instead of averaging participant returns', () => {
+    expect(
+      calculateAggregateReturn([
+        { startingCapital: 100n, endingCapital: 200n },
+        { startingCapital: 900n, endingCapital: 900n },
+      ]),
+    ).toEqual({
+      basisPoints: 1_000n,
+      percent: 10,
+      eligibleCapitalInvested: 1_000n,
+      totalProfits: 100n,
+    });
+  });
+
   it('aggregates realized income and current position value against invested capital', () => {
     const result = calculatePerformanceReturn([
       {
@@ -63,5 +78,30 @@ describe('FinancialReturns', () => {
       eligibleCapitalInvested: 0n,
       totalProfits: 0n,
     });
+  });
+
+  it('preserves minimum-age filtering before reducing dated positions', () => {
+    const result = calculatePerformanceReturn(
+      [
+        {
+          startingDate: new Date('2026-01-01T00:00:00Z'),
+          startingCapital: 1_000n,
+          endingCapital: 1_100n,
+        },
+        {
+          startingDate: new Date('2026-01-09T00:00:00Z'),
+          startingCapital: 9_000n,
+          endingCapital: 18_000n,
+        },
+      ],
+      {
+        minimumAgeMs: 5 * 24 * 60 * 60 * 1_000,
+        now: new Date('2026-01-10T00:00:00Z'),
+      },
+    );
+
+    expect(result.eligibleCapitalInvested).toBe(1_000n);
+    expect(result.totalProfits).toBe(100n);
+    expect(result.percent).toBe(10);
   });
 });

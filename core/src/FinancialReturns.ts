@@ -7,6 +7,8 @@ export type IPerformanceReturnInput = {
   endingCapital: bigint;
 };
 
+export type IAggregateReturnInput = Pick<IPerformanceReturnInput, 'startingCapital' | 'endingCapital'>;
+
 export type IPerformanceReturnOptions = {
   /**
    * Exclude investments younger than this amount of time.
@@ -62,15 +64,23 @@ export function calculatePerformanceReturn(
   const nowMs = BigInt((options.now ?? new Date()).getTime());
   const minimumAgeMs = BigInt(options.minimumAgeMs ?? 0);
 
+  const eligibleInvestments = investments.filter(investment => {
+    if (investment.startingCapital <= 0n) return false;
+
+    const startMs = toDateMs(investment.startingDate);
+    const endMs = investment.endingDate ? toDateMs(investment.endingDate) : nowMs;
+    return endMs - startMs >= minimumAgeMs;
+  });
+
+  return calculateAggregateReturn(eligibleInvestments);
+}
+
+export function calculateAggregateReturn(investments: readonly IAggregateReturnInput[]): IPerformanceReturnResult {
   let eligibleCapitalInvested = 0n;
   let totalProfits = 0n;
 
   for (const investment of investments) {
     if (investment.startingCapital <= 0n) continue;
-
-    const startMs = toDateMs(investment.startingDate);
-    const endMs = investment.endingDate ? toDateMs(investment.endingDate) : nowMs;
-    if (endMs - startMs < minimumAgeMs) continue;
 
     eligibleCapitalInvested += investment.startingCapital;
     totalProfits += investment.endingCapital - investment.startingCapital;
