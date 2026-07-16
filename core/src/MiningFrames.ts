@@ -7,9 +7,9 @@ import FramesHistoryTestnet from './data/frames.testnet.json' with { type: 'json
 import FramesHistoryMainnet from './data/frames.mainnet.json' with { type: 'json' };
 import type { MainchainClients } from './MainchainClients.js';
 import { createDeferred } from './Deferred.js';
-import { createTypedEventEmitter, getPercent } from './utils.js';
+import { createTypedEventEmitter, getPercent, raceWithTimeout } from './utils.js';
 import { SingleFileQueue } from './SingleFileQueue.js';
-import { BlockWatch, type IBlockHeaderInfo } from './BlockWatch.js';
+import { BlockWatch, isUnreadableBlockError, type IBlockHeaderInfo } from './BlockWatch.js';
 
 dayjs.extend(utc);
 
@@ -152,6 +152,49 @@ export class MiningFrames {
 
   public async clientAt(block: { blockHash: string; blockNumber: number }): Promise<ApiDecoration<'promise'>> {
     return await this.blockWatch.getApi(block);
+  }
+
+  public async getFrameStart(frameId: number): Promise<{ frame: IFrameHistory; api: ApiDecoration<'promise'> }> {
+    const frame = this.framesById[frameId];
+    if (!frame?.firstBlockHash || frame.firstBlockNumber == null) {
+      throw new Error(`No starting block for frame ${frameId}`);
+    }
+
+    const resolvedFrame = { ...frame };
+    const initialBlock = {
+      blockHash: frame.firstBlockHash,
+      blockNumber: frame.firstBlockNumber,
+    };
+    try {
+      const api = await this.clientAt(initialBlock);
+      return { frame: resolvedFrame, api };
+    } catch (error) {
+      if (!isUnreadableBlockError(error)) {
+        throw error;
+      }
+
+      const refresh = this.updateQueue.add(() => this.checkForFrameChange([...this.blockWatch.latestHeaders], frameId));
+      await raceWithTimeout(refresh.promise, 120e3, () => {
+        throw error;
+      });
+
+      const refreshedFrame = this.framesById[frameId];
+      if (
+        !refreshedFrame?.firstBlockHash ||
+        refreshedFrame.firstBlockNumber == null ||
+        (refreshedFrame.firstBlockHash === initialBlock.blockHash &&
+          refreshedFrame.firstBlockNumber === initialBlock.blockNumber)
+      ) {
+        throw error;
+      }
+
+      const resolvedFrame = { ...refreshedFrame };
+      const api = await this.clientAt({
+        blockHash: refreshedFrame.firstBlockHash,
+        blockNumber: refreshedFrame.firstBlockNumber,
+      });
+      return { frame: resolvedFrame, api };
+    }
   }
 
   private async onBestBlocks(headers: IBlockHeaderInfo[]): Promise<void> {
@@ -403,22 +446,22 @@ export class MiningFrames {
     }
   }
 
-  private async checkForFrameChange(headers: IBlockHeaderInfo[]): Promise<void> {
-    let hasNewFrame = false;
+  private async checkForFrameChange(headers: IBlockHeaderInfo[], throughFrameId?: number): Promise<void> {
+    let shouldCheckFrames = throughFrameId !== undefined;
 
     for (const header of headers) {
       if (header.frameId === undefined) {
-        hasNewFrame = true;
+        shouldCheckFrames = true;
       } else {
         if (header.frameId > this.currentFrameId) {
-          hasNewFrame = true;
+          shouldCheckFrames = true;
         } else if (this.framesById[header.frameId]?.firstBlockHash !== header.blockHash) {
-          hasNewFrame = true;
+          shouldCheckFrames = true;
         }
       }
     }
 
-    if (!hasNewFrame) {
+    if (!shouldCheckFrames) {
       return;
     }
 
@@ -446,24 +489,31 @@ export class MiningFrames {
           header.frameId ?? (await api.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1));
 
         const existing = this.framesById[frameId];
-        if (existing && existing.firstBlockHash === blockHash) {
+        const matchesExisting = existing?.firstBlockHash === blockHash && existing.firstBlockNumber === blockNumber;
+        if (matchesExisting && (throughFrameId === undefined || frameId <= throughFrameId)) {
           break;
         }
 
-        const startingTick = header.tick;
-        const isChanged = this.setFrameHistory({
-          frameId,
-          frameStartTick: startingTick,
-          dateStart: MiningFrames.getTickDate(startingTick),
-          firstBlockNumber: blockNumber,
-          firstBlockHash: blockHash,
-          firstBlockTick: startingTick,
-          firstBlockSpecVersion: api.runtimeVersion.specVersion.toNumber(),
-        });
-        if (isChanged) {
-          this.events.emit('on-frame', { frameId, blockNumber, blockHash });
-          this.events.emit('on-tick', startingTick);
-          hasChanges = true;
+        if (!matchesExisting) {
+          const startingTick = header.tick;
+          const isChanged = this.setFrameHistory({
+            frameId,
+            frameStartTick: startingTick,
+            dateStart: MiningFrames.getTickDate(startingTick),
+            firstBlockNumber: blockNumber,
+            firstBlockHash: blockHash,
+            firstBlockTick: startingTick,
+            firstBlockSpecVersion: api.runtimeVersion.specVersion.toNumber(),
+          });
+          if (isChanged) {
+            this.events.emit('on-frame', { frameId, blockNumber, blockHash });
+            this.events.emit('on-tick', startingTick);
+            hasChanges = true;
+          }
+        }
+
+        if (throughFrameId !== undefined && frameId <= throughFrameId) {
+          break;
         }
 
         if (queue.length === 0) {
