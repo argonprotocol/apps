@@ -12,6 +12,7 @@ import { getFlow, runFlow } from './index.ts';
 import {
   resolveTestSessionIdentity,
   resolveTestSessionCommandEnv,
+  resolveTestSessionDataDir,
   startArgonTestNetwork,
   type StartedArgonTestNetwork,
 } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.ts';
@@ -87,10 +88,10 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
   });
   const isolatedDataEnv: NodeJS.ProcessEnv = {};
   if (sessionMode === 'isolated') {
-    const testDataDir = Path.join(
-      getAppInstanceDirectory(appConfigId, sessionIdentity.composeNetwork, appInstanceName),
-      'test-data',
-    );
+    const testDataDir = resolveTestSessionDataDir({
+      rootDir: process.env.CI_TEMP_DIR?.trim() || os.tmpdir(),
+      sessionId: driverServer.session,
+    });
     const devEthereumRuntimeStateDir = Path.join(testDataDir, 'dev-ethereum');
     isolatedDataEnv.ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR = devEthereumRuntimeStateDir;
     isolatedDataEnv.ARGON_DEV_UPSTREAM_ROOT_DIR = Path.join(testDataDir, 'dev-upstream');

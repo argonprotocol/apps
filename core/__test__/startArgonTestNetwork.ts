@@ -65,6 +65,10 @@ export interface ResolvedTestSessionCommandEnv {
   appEnv: NodeJS.ProcessEnv;
 }
 
+export function resolveTestSessionDataDir(args: { rootDir: string; sessionId: string }): string {
+  return Path.join(args.rootDir, 'argon-e2e', args.sessionId);
+}
+
 export interface TestSessionCommandEnvOptions extends TestSessionIdentityOptions {
   appPort: number;
   baseEnv?: NodeJS.ProcessEnv;
