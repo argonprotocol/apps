@@ -7,13 +7,10 @@
     <div class="px-10 pb-8">
       <div class="mt-6 mb-5 space-y-3 text-[17px]/7 leading-normal font-light">
         <p>
-          Argon's yield-generating instruments require an access code to use. Only operators of the network are able to distribute
-          them. If you know someone who is an operator, ask if they have an extra invite.
+          Argon's yield-generating instruments require an access code to use. Only operators of the network are able to
+          distribute them. If you know someone who is an operator, ask if they have an extra invite.
         </p>
-        <p>
-          If you don't know anyone, you might want to try the
-          Argon Community on Discord.
-        </p>
+        <p>If you don't know anyone, you might want to try the Argon Community on Discord.</p>
       </div>
 
       <div
