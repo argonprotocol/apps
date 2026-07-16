@@ -76,68 +76,30 @@
       </TooltipProvider>
 
       <section class="flex flex-row gap-x-2.5 grow">
-        <div box class="flex flex-col w-[22.5%] px-2">
-          <header class="flex flex-row items-center px-1 border-b border-slate-400/30 pt-2 pb-3 text-[18px] font-bold text-slate-900/80">
-            <div class="grow">Vaulting Assets</div>
-          </header>
-          <VaultingAssetBreakdown />
-          <div class="grow border-t border-slate-600/40 flex flex-col items-center justify-center">
-            <a target="_blank" href="https://argon.network/docs/mining-operations" class="flex flex-row items-center text-center text-argon-600/60! hover:text-argon-600! cursor-pointer">
-              <div>Learn About Vaulting</div>
-              <ArrowTopRightOnSquareIcon class="w-5 ml-2" />
-            </a>
-          </div>
-          <div class="flex flex-row items-end border-t border-slate-600/20 pt-2 text-md">
-            <div @click="openPortfolioPanel(PortfolioTab.ProfitAnalysis)" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
-              <RoiIcon class="w-6 h-6 mt-2 inline-block mb-2" />
-              <div>Profits</div>
-            </div>
-            <div class="w-px h-full bg-slate-600/20" />
-            <div @click="openPortfolioPanel(PortfolioTab.GrowthProjections)" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
-              <ProjectionsIcon class="w-6 h-6 mt-2 inline-block mb-2" />
-              <div>Projections</div>
-            </div>
-            <div class="w-px h-full bg-slate-600/20" />
-            <div @click="openVaultEditOverlay" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
-              <ConfigIcon class="w-6 h-6 mt-2 inline-block mb-2" />
-              <div>Settings</div>
-            </div>
-          </div>
-        </div>
-
         <div class="flex min-h-0 flex-col grow gap-y-2">
           <section box class="flex min-h-0 flex-col grow px-2 text-center">
             <header class="flex flex-row justify-between text-xl font-bold py-2 text-slate-900/80 border-b border-slate-400/30 select-none">
-              <div @click="goToPrevFrame" :class="hasPrevFrame ? 'opacity-60' : 'opacity-20 pointer-events-none'" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
-                <ChevronLeftIcon class="w-6 h-6 opacity-50 mx-1 group-hover:opacity-80" />
-                PREV
-              </div>
               <span class="flex flex-row items-center" :title="'Frame #' + currentFrame.id">
                 <span>{{ currentFrameStartDate }} to {{ currentFrameEndDate }}</span>
                 <span v-if="currentFrameIsActive" class="inline-block rounded-full bg-green-500/80 w-2.5 h-2.5 ml-2"></span>
               </span>
-              <div v-if="currentFrame.progress >= 100" @click="goToNextFrame" class="flex flex-row opacity-60 items-center font-light text-base cursor-pointer group hover:opacity-80">
-                NEXT
-                <ChevronRightIcon class="w-6 h-6 opacity-50 mx-1 group-hover:opacity-80" />
-              </div>
-              <div v-else class="flex flex-row opacity-60 items-center font-light text-base group px-2">
-                {{ numeral(currentFrame.progress).format('0.0') }}%
+              <div class="flex flex-row items-center divide-x gap-x-2">
+                <button @click="openVaultEditOverlay" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
+                  Settings
+                </button>
+                <button class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
+                  Securitization
+                </button>
+                <button class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
+                  Staking
+                </button>
+                <button @click="openNetworkTab" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
+                  Members
+                </button>
               </div>
             </header>
             <div class="flex min-h-0 grow flex-col">
-              <div class="flex flex-row items-center w-full text-base my-4 px-2.5">
-                <div class="flex items-center text-slate-700/80">
-                  Grow revenue by expanding your
-                  <button
-                    type="button"
-                    class="ml-1 flex cursor-pointer flex-row items-center text-argon-600 opacity-70 hover:opacity-100"
-                    @click="openNetworkTab"
-                  >
-                    network
-                  </button>
-                </div>
-              </div>
-              <div class="flex min-h-0 w-full grow flex-row items-stretch gap-x-2 px-2">
+              <div class="flex min-h-0 w-full grow flex-row items-stretch gap-x-2 px-2 pt-4">
                 <div BitcoinMap class="relative min-h-0 w-1/2">
                   <TreemapChart
                     :total="bitcoinMapTotal"

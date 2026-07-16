@@ -1,10 +1,10 @@
 <!-- prettier-ignore -->
 <template>
-  <div class="flex flex-col h-full">
+  <div DashBox class="flex flex-col h-full">
     <div class="flex flex-col items-center grow justify-center">
       <section class="flex flex-col items-center">
         <div style="text-shadow: 1px 1px 0 white">
-          <div class="text-5xl leading-tight font-bold text-center mt-20 text-argon-text-primary">
+          <div class="text-5xl leading-tight font-bold text-center text-argon-text-primary">
             Earn Argons and Argonots
             <div>By Running Your Own Mining Node</div>
           </div>
@@ -43,55 +43,6 @@
         </div>
       </section>
     </div>
-    <div class="flex-grow flex flex-row items-end w-full">
-      <div class="flex flex-col w-full px-5 pb-5">
-        <ul
-          class="flex flex-row text-center text-sm text-argon-text-primary w-full py-7 border-t border-b border-slate-300 mb-5"
-        >
-          <li class="w-1/4">
-            <div class="text-4xl font-bold">
-              {{ miningStats.activeMiningSeatCount ? numeral(miningStats.activeMiningSeatCount).format('0,0') : '---' }}
-            </div>
-            <div>Mining Seats</div>
-          </li>
-          <li style="width: 1px" class="bg-slate-300"></li>
-          <li class="w-1/4">
-            <div class="text-4xl font-bold">
-              <template v-if="isLoaded">
-                <span :class="[currency.symbol === '₳' ? 'font-semibold' : 'font-bold']">
-                  {{ currency.symbol }}
-                </span>
-                <span>{{ microgonToMoneyNm(miningStats.activeBidCosts).formatIfElse('< 1_000', '0,0.00', '0,0') }}</span>
-              </template>
-              <template v-else>---</template>
-            </div>
-            <div>Active Seat Costs</div>
-          </li>
-          <li style="width: 1px" class="bg-slate-300"></li>
-          <li class="w-1/4">
-            <div class="text-4xl font-bold">
-              <template v-if="isLoaded">
-                <span :class="[currency.symbol === '₳' ? 'font-semibold' : 'font-bold']">
-                  {{ currency.symbol }}
-                </span>
-                <span>{{ microgonToMoneyNm(miningStats.activeBlockRewards).formatIfElse('< 1_000', '0,0.00', '0,0') }}</span>
-              </template>
-              <template v-else>---</template>
-            </div>
-            <div>Active Seat Rewards</div>
-          </li>
-          <li style="width: 1px" class="bg-slate-300"></li>
-          <li class="w-1/4">
-            <div class="text-4xl font-bold">
-              <template v-if="isLoaded">{{ numeral(miningStats.averageAPY).formatCapped('0,0', 9_999) }}%</template>
-              <template v-else>---</template>
-            </div>
-            <div>Average Mining APY</div>
-          </li>
-        </ul>
-        <BlankSlateBlocks />
-      </div>
-    </div>
   </div>
 </template>
 
@@ -106,7 +57,7 @@ import { getConfig } from '../../stores/config.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { ChevronDoubleRightIcon, ArrowTopRightOnSquareIcon } from '@heroicons/vue/24/outline';
-import BlankSlateBlocks from './components/BlankSlateBlocks.vue';
+import BlankSlateBlocks from '../network-screen/BlankSlateBlocks.vue';
 import { MiningSetupStatus } from '../../interfaces/IConfig.ts';
 import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';

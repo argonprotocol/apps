@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <div class="flex flex-col h-full w-full relative">
+  <div DashBox class="flex flex-col h-full w-full relative">
     <div @click="goBack" class="absolute flex flex-row gap-x-2 z-10 top-3 pb-3 pr-10 left-5 items-center text-slate-400/50 hover:text-slate-600 cursor-pointer">
       <ArrowLeftIcon class="size-4 " />
       <div>

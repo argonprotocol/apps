@@ -57,7 +57,7 @@
 </template>
 
 <script lang="ts">
-import { IBlock as IBlockchainBlock } from '../../../stores/blockchain.ts';
+import { IBlock as IBlockchainBlock } from '../../stores/blockchain.ts';
 
 interface IBlock extends IBlockchainBlock {
   isMining?: boolean;
@@ -69,10 +69,10 @@ const blocks = Vue.ref<IBlock[]>([]);
 
 <script lang="ts" setup>
 import * as Vue from 'vue';
-import { getCurrency } from '../../../stores/currency.ts';
-import { createNumeralHelpers } from '../../../lib/numeral.ts';
+import { getCurrency } from '../../stores/currency.ts';
+import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { storeToRefs } from 'pinia';
-import { useBlockchainStore } from '../../../stores/blockchain.ts';
+import { useBlockchainStore } from '../../stores/blockchain.ts';
 import dayjs, { Dayjs } from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { Motion } from 'motion-v';
@@ -212,7 +212,7 @@ Vue.onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-@reference "../../../main.css";
+@reference "../../main.css";
 
 @keyframes pulseHighlight {
   0%,
