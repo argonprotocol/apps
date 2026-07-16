@@ -6,4 +6,6 @@ dist
 .gitignore
 bun.lockb
 data
+e2e/dev-upstream/config
+e2e/dev-upstream/data
 **/target

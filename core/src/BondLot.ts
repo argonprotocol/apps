@@ -1,18 +1,20 @@
-import BigNumber from 'bignumber.js';
 import {
   fromFixedNumber,
   MICROGONS_PER_ARGON,
   type PalletTreasuryBondLot,
+  type PalletTreasuryBondReleaseReason,
   PERMILL_DECIMALS,
 } from '@argonprotocol/mainchain';
 
-import { compoundXTimes } from './utils.js';
+import { MICRONOTS_PER_ARGONOT } from './Currency.js';
+import { calculateAnnualPercentageYield } from './FinancialReturns.js';
 
 export interface IBondLotSource {
   id: number;
   lot: PalletTreasuryBondLot;
 }
 
+// Spec version 155 stored vault terms directly on the lot before the program field was added.
 type LegacyPalletTreasuryBondLot = PalletTreasuryBondLot &
   Pick<PalletTreasuryBondLot['program']['asVault'], 'vaultId' | 'sharingPercent' | 'bonusPercent'>;
 
@@ -25,6 +27,7 @@ export type IBondLotTotals = {
   returningBondMicrogons: bigint;
   returningBondFrame: number | null;
   lifetimeEarnings: bigint;
+  totalArgonotBondMicronots: bigint;
 };
 
 type IBondLotModel = {
@@ -42,6 +45,7 @@ type IBondLotModel = {
   sharingPercent?: number;
   bonusPercent: number;
   releaseFrame: number | null;
+  releaseReason?: PalletTreasuryBondReleaseReason['type'];
   isReleasing: boolean;
   isOwn: boolean;
   canRelease: boolean;
@@ -50,6 +54,7 @@ type IBondLotModel = {
 export class BondLot {
   public readonly id: number;
   public readonly programType: 'Vault' | 'Argonot';
+  public readonly nativeAsset: 'ARGN' | 'ARGNOT';
   public readonly accountId: string;
   public readonly vaultId?: number;
   public readonly bonds: number;
@@ -62,6 +67,7 @@ export class BondLot {
   public sharingPercent?: number;
   public readonly bonusPercent: number;
   public readonly releaseFrame: number | null;
+  public readonly releaseReason?: PalletTreasuryBondReleaseReason['type'];
   public readonly isReleasing: boolean;
   public readonly isOwn: boolean;
   public readonly canRelease: boolean;
@@ -69,6 +75,7 @@ export class BondLot {
   constructor(model: IBondLotModel) {
     this.id = model.id;
     this.programType = model.programType;
+    this.nativeAsset = model.programType === 'Vault' ? 'ARGN' : 'ARGNOT';
     this.accountId = model.accountId;
     this.vaultId = model.vaultId;
     this.bonds = model.bonds;
@@ -81,6 +88,7 @@ export class BondLot {
     this.sharingPercent = model.sharingPercent;
     this.bonusPercent = model.bonusPercent;
     this.releaseFrame = model.releaseFrame;
+    this.releaseReason = model.releaseReason;
     this.isReleasing = model.isReleasing;
     this.isOwn = model.isOwn;
     this.canRelease = model.canRelease;
@@ -113,10 +121,12 @@ export class BondLot {
       lastEarningsFrame: lot.lastFrameEarningsFrameId.isSome ? lot.lastFrameEarningsFrameId.unwrap().toNumber() : null,
       lastEarnings: lot.lastFrameEarnings.isSome ? lot.lastFrameEarnings.unwrap().toBigInt() : 0n,
       lifetimeEarnings: lot.cumulativeEarnings.toBigInt(),
-      lifetimeBondedFrameMicrogons: BondLot.bondsToMicrogons(bonds) * BigInt(participatedFrames),
+      lifetimeBondedFrameMicrogons:
+        programType === 'Vault' ? BondLot.bondsToMicrogons(bonds) * BigInt(participatedFrames) : 0n,
       sharingPercent,
       bonusPercent,
       releaseFrame: lot.releaseFrameId.isSome ? lot.releaseFrameId.unwrap().toNumber() : null,
+      releaseReason: lot.releaseReason.isSome ? lot.releaseReason.unwrap().type : undefined,
       isReleasing: lot.releaseReason.isSome,
       isOwn: accountId === ownAddress,
       canRelease: accountId === ownAddress,
@@ -135,6 +145,16 @@ export class BondLot {
     return BondLot.bondsToMicrogons(this.bonds);
   }
 
+  public get principalMicrogons(): bigint | undefined {
+    if (this.programType !== 'Vault') return;
+    return BondLot.bondsToMicrogons(this.bonds);
+  }
+
+  public get principalMicronots(): bigint | undefined {
+    if (this.programType !== 'Argonot') return;
+    return BigInt(this.bonds) * BigInt(MICRONOTS_PER_ARGONOT);
+  }
+
   public get activeBondMicrogons(): bigint {
     return BondLot.bondsToMicrogons(this.activeBonds);
   }
@@ -148,18 +168,19 @@ export class BondLot {
   }
 
   public static getAPY(lots: BondLot[]): number {
-    const lifetimeEarnings = lots.reduce((sum, lot) => sum + lot.lifetimeEarnings, 0n);
-    const lifetimeBondedFrameAmount = lots.reduce((sum, lot) => {
+    const vaultLots = lots.filter(lot => lot.programType === 'Vault');
+    const lifetimeEarnings = vaultLots.reduce((sum, lot) => sum + lot.lifetimeEarnings, 0n);
+    const lifetimeBondedFrameAmount = vaultLots.reduce((sum, lot) => {
       return sum + lot.lifetimeBondedFrameMicrogons;
     }, 0n);
 
     if (lifetimeBondedFrameAmount <= 0n) return 0;
 
-    const perFrameReturn = BigNumber(lifetimeEarnings.toString())
-      .dividedBy(lifetimeBondedFrameAmount.toString())
-      .toNumber();
-
-    return compoundXTimes(perFrameReturn, 365) * 100;
+    return calculateAnnualPercentageYield({
+      startingValue: lifetimeBondedFrameAmount,
+      endingValue: lifetimeBondedFrameAmount + lifetimeEarnings,
+      periodDays: 1,
+    });
   }
 
   public static getTotals(lots: BondLot[]): IBondLotTotals {
@@ -168,11 +189,15 @@ export class BondLot {
         totalBonds: totals.totalBonds + lot.bonds,
         activeBonds: totals.activeBonds + lot.activeBonds,
         returningBonds: totals.returningBonds + lot.returningBonds,
-        totalBondMicrogons: totals.totalBondMicrogons + lot.bondMicrogons,
-        activeBondMicrogons: totals.activeBondMicrogons + lot.activeBondMicrogons,
-        returningBondMicrogons: totals.returningBondMicrogons + lot.returningBondMicrogons,
+        totalBondMicrogons: totals.totalBondMicrogons + (lot.principalMicrogons ?? 0n),
+        activeBondMicrogons:
+          totals.activeBondMicrogons + (lot.programType === 'Vault' ? BondLot.bondsToMicrogons(lot.activeBonds) : 0n),
+        returningBondMicrogons:
+          totals.returningBondMicrogons +
+          (lot.programType === 'Vault' ? BondLot.bondsToMicrogons(lot.returningBonds) : 0n),
         returningBondFrame: BondLot.getEarliestFrame(totals.returningBondFrame, lot.releaseFrame),
         lifetimeEarnings: totals.lifetimeEarnings + lot.lifetimeEarnings,
+        totalArgonotBondMicronots: totals.totalArgonotBondMicronots + (lot.principalMicronots ?? 0n),
       }),
       {
         totalBonds: 0,
@@ -183,6 +208,7 @@ export class BondLot {
         returningBondMicrogons: 0n,
         returningBondFrame: null,
         lifetimeEarnings: 0n,
+        totalArgonotBondMicronots: 0n,
       },
     );
   }

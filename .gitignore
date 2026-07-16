@@ -42,7 +42,11 @@ server/.env
 ./target
 /indexer/lib
 /indexer/seeds/*-old.db
+/indexer/seeds/*-activity-v2.db*
+/indexer/seeds/.*-seed-target.json
+/indexer/seeds/seed-manifest.json
 /e2e/argon/chainspec*.json
 /e2e/artifacts
 /.superpowers/
 /docs/superpowers
+/docs/plans

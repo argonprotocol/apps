@@ -7,7 +7,10 @@
     "start": "tsx src/server.ts",
     "build": "tsup",
     "watch": "tsup --watch",
+    "generate:historical-events": "tsx src/generateHistoricalEventSpecs.ts",
     "sync": "tsx src/syncSeed.ts",
+    "extract": "tsx src/seedArtifacts.ts extract",
+    "manifest": "tsx src/createSeedManifest.ts",
     "testBlock": "tsx src/testBlock.ts"
   },
   "type": "module",
