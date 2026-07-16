@@ -1,10 +1,10 @@
 import { TransactionEvents } from '@argonprotocol/apps-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { numberCodec } from '../../core/__test__/helpers/codecs.ts';
 import { TxAttemptState, TransactionTracker } from '../lib/TransactionTracker.ts';
 import { ExtrinsicType, type ITransactionRecord, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { TransactionHistorySource, TransactionHistoryStatus } from '../lib/db/TransactionStatusHistoryTable.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
-import { TransactionInfo } from '../lib/TransactionInfo.ts';
 
 vi.mock('../stores/mainchain.ts', () => ({
   getMainchainClient: vi.fn(async () => ({})),
@@ -12,6 +12,7 @@ vi.mock('../stores/mainchain.ts', () => ({
 
 type ITransactionTrackerTestApi = {
   updatePendingStatuses: (bestBlockInfo: { blockNumber: number }) => Promise<void>;
+  watchForUpdates: () => Promise<void>;
 };
 
 describe('TransactionTracker', () => {
@@ -438,10 +439,10 @@ describe('TransactionTracker', () => {
     vi.mocked(getMainchainClient).mockResolvedValue({
       rpc: {
         chain: {
-          getHeader: vi.fn(async () => ({ number: { toNumber: () => 125 } })),
+          getHeader: vi.fn(async () => ({ number: numberCodec(125) })),
         },
         system: {
-          accountNextIndex: vi.fn(async () => ({ toNumber: () => 7 })),
+          accountNextIndex: vi.fn(async () => numberCodec(7)),
         },
       },
     } as any);
@@ -459,30 +460,6 @@ describe('TransactionTracker', () => {
       ],
       finalizedHeight: 125,
     });
-    vi.spyOn(tracker, 'trackTxResult').mockImplementation(async ({ txResult, extrinsicType, metadata }) => {
-      const txInfo = new TransactionInfo({
-        tx: createTransaction({
-          id: tracker.data.txInfos.length + 20,
-          status: TransactionStatus.Submitted,
-          txNonce: txResult.extrinsic.nonce,
-          accountAddress: txResult.extrinsic.accountAddress,
-          extrinsicType,
-          metadataJson: metadata ?? {},
-          submittedAtBlockHeight: txResult.extrinsic.submittedAtBlockNumber,
-          submittedAtTime: txResult.extrinsic.submittedTime,
-          blockHeight: undefined,
-          blockHash: undefined,
-          blockTime: undefined,
-          blockExtrinsicIndex: undefined,
-          blockExtrinsicEventsJson: undefined,
-          isFinalized: false,
-        }),
-        txResult,
-      });
-      tracker.data.txInfos.unshift(txInfo);
-      return txInfo;
-    });
-
     let releaseFirstSign!: () => void;
     const firstSign = new Promise<void>(resolve => {
       releaseFirstSign = resolve;
@@ -491,7 +468,7 @@ describe('TransactionTracker', () => {
     const createSignedTx = (nonce: number, hash: string) => ({
       hash: { toHex: () => hash },
       method: { toHuman: () => ({ section: 'balances', method: 'transferKeepAlive' }) },
-      nonce: { toNumber: () => nonce },
+      nonce: numberCodec(nonce),
       send: vi.fn(async () => undefined),
     });
 
@@ -529,6 +506,77 @@ describe('TransactionTracker', () => {
 
     expect(usedNonces).toEqual([8, 9]);
   });
+
+  it('uses a provided client for transaction submission and result tracking', async () => {
+    const { tracker } = await createTracker({
+      txs: [],
+      finalizedHeight: 125,
+    });
+    const client = {
+      rpc: {
+        chain: {
+          getHeader: vi.fn(async () => ({ number: numberCodec(126) })),
+        },
+      },
+    };
+    const signedTx = {
+      hash: { toHex: () => '0xsubmitted' },
+      method: { toHuman: () => ({ section: 'proxy', method: 'addProxy' }) },
+      nonce: numberCodec(4),
+      send: vi.fn(async () => undefined),
+    };
+    const tx = {
+      signAsync: vi.fn().mockResolvedValue(signedTx),
+    };
+    vi.mocked(getMainchainClient).mockClear();
+
+    const txInfo = await tracker.submitAndWatch({
+      client: client as any,
+      tx: tx as any,
+      txSigner: { address: '5Alice' } as any,
+      extrinsicType: ExtrinsicType.MiningBidProxySetup,
+    });
+
+    expect(getMainchainClient).not.toHaveBeenCalled();
+    expect(client.rpc.chain.getHeader).toHaveBeenCalledOnce();
+    expect((txInfo.txResult as unknown as { client: unknown }).client).toBe(client);
+  });
+
+  it('submits a signed transaction before scanning pending transaction statuses', async () => {
+    const { tracker } = await createTracker({
+      txs: [],
+      finalizedHeight: 125,
+    });
+    let finishStatusScan!: () => void;
+    const statusScan = new Promise<void>(resolve => {
+      finishStatusScan = resolve;
+    });
+    const trackerApi = tracker as unknown as ITransactionTrackerTestApi;
+    vi.mocked(trackerApi.watchForUpdates).mockImplementationOnce(async () => await statusScan);
+
+    const signedTx = {
+      hash: { toHex: () => '0xsubmitted' },
+      method: { toHuman: () => ({ section: 'bitcoinLocks', method: 'initialize' }) },
+      nonce: numberCodec(4),
+      send: vi.fn(async () => undefined),
+    };
+    const submission = tracker.submitAndWatch({
+      client: {
+        rpc: {
+          chain: {
+            getHeader: vi.fn(async () => ({ number: numberCodec(126) })),
+          },
+        },
+      } as any,
+      tx: { signAsync: vi.fn().mockResolvedValue(signedTx) } as any,
+      txSigner: { address: '5Alice' } as any,
+      extrinsicType: ExtrinsicType.BitcoinRequestLock,
+    });
+
+    await vi.waitFor(() => expect(signedTx.send).toHaveBeenCalledOnce());
+    finishStatusScan();
+    await submission;
+  });
 });
 
 async function createTracker(args: {
@@ -537,8 +585,20 @@ async function createTracker(args: {
   latestHistoryByTxId?: Map<number, any>;
   headerByHeight?: Record<number, string>;
 }) {
+  let insertedId = Math.max(0, ...args.txs.map(tx => tx.id));
   const table = {
     fetchAll: vi.fn().mockResolvedValue(args.txs),
+    insert: vi.fn(async (record: Partial<ITransactionRecord>) =>
+      createTransaction({
+        ...record,
+        id: ++insertedId,
+        status: TransactionStatus.Submitted,
+        blockHeight: undefined,
+        blockHash: undefined,
+        blockTime: undefined,
+        isFinalized: false,
+      }),
+    ),
     markFinalized: vi.fn(async (record: ITransactionRecord) => record),
     recordInBlock: vi.fn(async (record: ITransactionRecord) => record),
     markExpiredWaitingForBlock: vi.fn(async (record: ITransactionRecord) => record),
