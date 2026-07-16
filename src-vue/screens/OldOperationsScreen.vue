@@ -122,26 +122,23 @@ import AssetMenu from './components/AssetMenu.vue';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { getMyVault } from '../stores/vaults.ts';
-import { getStats } from '../stores/stats.ts';
+import { getMyMiningSeats } from '../stores/myMiningSeats.ts';
 import { getConfig } from '../stores/config.ts';
 import { TopTab } from '../interfaces/IConfig.ts';
 import { useCertificationController } from '../stores/certificationController.ts';
 import { usePortfolio } from '../stores/portfolio.ts';
-import { UnitOfMeasurement } from '../lib/Currency.ts';
 
 const controller = useCertificationController();
 const portfolio = usePortfolio();
 const currency = getCurrency();
-const myMinerStats = getStats();
+const myMiningSeats = getMyMiningSeats();
 const myVault = getMyVault();
 const config = getConfig();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const myMiningEarnings = Vue.computed(() => {
-  const { microgonsMinedTotal, microgonsMintedTotal, micronotsMinedTotal, framedCost } = myMinerStats.global;
-  const microgonValueOfMicronotsMined = currency.convertMicronotTo(micronotsMinedTotal, UnitOfMeasurement.Microgon);
-  return microgonsMintedTotal + microgonsMinedTotal + microgonValueOfMicronotsMined - framedCost;
+  return myMiningSeats.global.microgonValueOfRewards - myMiningSeats.global.framedCost;
 });
 
 const myMiningRoi = Vue.computed(() => {
@@ -153,7 +150,7 @@ const myMiningRoi = Vue.computed(() => {
 
 const myMiningApy = Vue.computed(() => {
   const rewards = portfolio.miningExternalInvested + myMiningEarnings.value;
-  return calculateAPY(portfolio.miningExternalInvested, rewards, myMinerStats.activeFrames);
+  return calculateAPY(portfolio.miningExternalInvested, rewards, myMiningSeats.activeFrames);
 });
 
 const myVaultEarnings = Vue.computed(() => {

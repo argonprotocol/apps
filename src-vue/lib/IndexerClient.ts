@@ -1,62 +1,106 @@
-import { fetch, IIndexerSpec, NetworkConfig } from '@argonprotocol/apps-core';
+import { AccountActivityKind, fetch, type IIndexerSpec, NetworkConfig } from '@argonprotocol/apps-core';
 import { LOG_DEBUG } from './Env.ts';
 
-export async function findAddressTransferBlocks(
+const financialHistoryMask =
+  AccountActivityKind.VaultPosition |
+  AccountActivityKind.VaultRevenue |
+  AccountActivityKind.BondPosition |
+  AccountActivityKind.BitcoinLock |
+  AccountActivityKind.BitcoinMint;
+type IActivityRequest = {
+  api: string;
+  address: string;
+  afterBlock: number;
+  toBlock: number;
+  activityMask: number;
+  expiresAt?: number;
+  response: Promise<IIndexerSpec['/v2/activity/:address']['responseType']>;
+};
+const activityRequests = new Map<string, IActivityRequest>();
+
+export async function findAddressActivity(
   address: string,
-): Promise<IIndexerSpec['/transfer/:address']['responseType']> {
+  filters: IIndexerSpec['/v2/activity/:address']['requestQuery'] = {},
+): Promise<IIndexerSpec['/v2/activity/:address']['responseType']> {
   const api = NetworkConfig.get().indexerHost;
-  const response = await Promise.race([
-    fetch(`${api}/transfers/${address}`),
-    new Promise<Response>((_, reject) =>
-      setTimeout(() => reject(new Error(`Timeout fetching transfers for address ${address}`)), 10e3),
-    ),
-  ]);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch transfers for address ${address}: ${response.status} ${response.statusText}`);
+  const requestedMask = filters.activityMask ?? 0x7fffffff;
+  const canShareHistoryRequest = filters.toBlock !== undefined;
+  const queryMask = requestedMask | (requestedMask & AccountActivityKind.AccountBalance ? financialHistoryMask : 0);
+  const queryFilters = {
+    ...filters,
+    activityMask: queryMask,
+  };
+  const cacheKey = canShareHistoryRequest
+    ? `${api}:${address}:${filters.afterBlock ?? 0}:${filters.toBlock}:${queryMask}`
+    : undefined;
+  const now = Date.now();
+
+  for (const [key, request] of activityRequests) {
+    if (request.expiresAt !== undefined && request.expiresAt <= now) activityRequests.delete(key);
   }
 
-  const responseJson = await response.json();
-  console.info(`['${api}/transfers/${address}'] response`, formatIndexerResponseForLog(responseJson));
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-  return responseJson;
+  let request = cacheKey ? activityRequests.get(cacheKey) : undefined;
+  if (!request && canShareHistoryRequest) {
+    request = [...activityRequests.values()].find(candidate => {
+      return (
+        candidate.api === api &&
+        candidate.address === address &&
+        candidate.afterBlock === (filters.afterBlock ?? 0) &&
+        candidate.toBlock === filters.toBlock &&
+        (candidate.activityMask & queryMask) === queryMask
+      );
+    });
+  }
+  if (!request) {
+    const createdRequest: IActivityRequest = {
+      api,
+      address,
+      afterBlock: filters.afterBlock ?? 0,
+      toBlock: filters.toBlock ?? Number.MAX_SAFE_INTEGER,
+      activityMask: queryMask,
+      response: fetchAddressActivity(api, address, queryFilters),
+    };
+    request = createdRequest;
+    if (cacheKey) {
+      activityRequests.set(cacheKey, createdRequest);
+      void createdRequest.response.then(
+        () => {
+          createdRequest.expiresAt = Date.now() + 5_000;
+        },
+        () => {
+          if (activityRequests.get(cacheKey) === createdRequest) activityRequests.delete(cacheKey);
+        },
+      );
+    }
+  }
+
+  const activity = await request.response;
+
+  return {
+    ...activity,
+    blocks: activity.blocks.filter(block => (block.activityMask & requestedMask) !== 0),
+  };
 }
 
-export async function findAddressVaultCollects(
+async function fetchAddressActivity(
+  api: string,
   address: string,
-): Promise<IIndexerSpec['/vault-collects/:address']['responseType']> {
-  const api = NetworkConfig.get().indexerHost;
-  const response = await Promise.race([
-    fetch(`${api}/vault-collects/${address}`),
-    new Promise<Response>((_, reject) =>
-      setTimeout(() => reject(new Error(`Timeout fetching vault collects for address ${address}`)), 10e3),
-    ),
-  ]);
+  filters: IIndexerSpec['/v2/activity/:address']['requestQuery'],
+): Promise<IIndexerSpec['/v2/activity/:address']['responseType']> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined) query.set(key, String(value));
+  }
+
+  const queryString = query.toString();
+  const url = `${api}/v2/activity/${address}${queryString ? `?${queryString}` : ''}`;
+  const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
   if (!response.ok) {
-    throw new Error(`Failed to fetch vault collects for address ${address}: ${response.status} ${response.statusText}`);
+    throw new Error(`Failed to fetch activity for address ${address}: ${response.status} ${response.statusText}`);
   }
 
-  const responseJson = await response.json();
-  console.info(`['${api}/vault-collects/${address}'] response`, formatIndexerResponseForLog(responseJson));
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+  const responseJson = (await response.json()) as IIndexerSpec['/v2/activity/:address']['responseType'];
+  const logValue = !import.meta.env.PROD || LOG_DEBUG ? responseJson : { blockCount: responseJson.blocks.length };
+  console.info(`['${url}'] response`, logValue);
   return responseJson;
-}
-
-function formatIndexerResponseForLog(responseJson: unknown): unknown {
-  if (!import.meta.env.PROD || LOG_DEBUG) {
-    return responseJson;
-  }
-
-  return summarizeIndexerResponse(responseJson);
-}
-
-function summarizeIndexerResponse(responseJson: unknown): string | Record<string, unknown> {
-  if (Array.isArray(responseJson)) {
-    return { count: responseJson.length };
-  }
-
-  if (responseJson && typeof responseJson === 'object') {
-    return { keys: Object.keys(responseJson).slice(0, 10) };
-  }
-
-  return String(responseJson);
 }

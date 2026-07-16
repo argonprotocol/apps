@@ -1,14 +1,14 @@
 <!-- prettier-ignore -->
 <template>
   <TooltipProvider :disableHoverableContent="true" class="flex flex-col h-full">
-    <div data-testid="MiningDashboard" :class="stats.isLoaded ? '' : 'opacity-30 pointer-events-none'" class="flex flex-col h-full px-2.5 py-2.5 gap-y-2 justify-stretch grow">
+    <div data-testid="MiningDashboard" :class="myMiningSeats.isLoaded ? '' : 'opacity-30 pointer-events-none'" class="flex flex-col h-full px-2.5 py-2.5 gap-y-2 justify-stretch grow">
       <span data-testid="TotalBlocksMined" :data-value="totalBlocksMined" class="sr-only">{{ totalBlocksMined }}</span>
 
       <section class="flex flex-row gap-x-2 h-[14%]">
         <TooltipRoot>
           <TooltipTrigger as="div" box stat-box class="flex flex-col w-2/12 !py-4 group">
-            <span>{{ stats.global.seatsTotal || 0 }}</span>
-            <label>Total Mining Seat{{ stats.global.seatsTotal === 1 ? '' : 's' }}</label>
+            <span>{{ myMiningSeats.global.seatsTotal || 0 }}</span>
+            <label>Total Mining Seat{{ myMiningSeats.global.seatsTotal === 1 ? '' : 's' }}</label>
           </TooltipTrigger>
           <TooltipContent side="bottom" :sideOffset="-10" align="start" :collisionPadding="9" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
             The number of mining seats you've controlled over the previous year.
@@ -17,8 +17,8 @@
         </TooltipRoot>
         <TooltipRoot>
           <TooltipTrigger as="div" box stat-box class="flex flex-col w-2/12 !py-4 group">
-            <span>{{ numeral(stats.global.framesCompleted).format('0,0.[00]') }}</span>
-            <label>Frame{{ stats.global.framesCompleted === 1 ? '' : 's' }} Completed</label>
+            <span>{{ numeral(myMiningSeats.global.framesCompleted).format('0,0.[00]') }}</span>
+            <label>Frame{{ myMiningSeats.global.framesCompleted === 1 ? '' : 's' }} Completed</label>
           </TooltipTrigger>
           <TooltipContent side="bottom" :sideOffset="-10" align="start" :collisionPadding="9" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
             The number of frames that you've mined over the previous year.
@@ -27,8 +27,8 @@
         </TooltipRoot>
         <TooltipRoot>
           <TooltipTrigger as="div" box stat-box class="flex flex-col w-2/12 !py-4 group">
-            <span>{{ numeral(stats.global.framesRemaining).format('0,0.[00]') }}</span>
-            <label>Frame{{ stats.global.framesRemaining === 1 ? '' : 's' }} Remaining</label>
+            <span>{{ numeral(myMiningSeats.global.framesRemaining).format('0,0.[00]') }}</span>
+            <label>Frame{{ myMiningSeats.global.framesRemaining === 1 ? '' : 's' }} Remaining</label>
           </TooltipTrigger>
           <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
             The number of future frames for which you own mining rights.
@@ -38,7 +38,7 @@
         <TooltipRoot>
           <TooltipTrigger as="div" box stat-box class="flex flex-col w-2/12 !py-4 group">
             <span>
-              {{ currency.symbol }}{{ microgonToMoneyNm(globalMicrogonsInvested).formatIfElse('< 100', '0.00', '0,0') }}
+              {{ currency.symbol }}{{ microgonToMoneyNm(myMiningSeats.global.framedCost).formatIfElse('< 100', '0.00', '0,0') }}
             </span>
             <label>Relative Total Cost</label>
           </TooltipTrigger>
@@ -50,7 +50,7 @@
         <TooltipRoot>
           <TooltipTrigger as="div" box stat-box class="flex flex-col w-2/12 !py-4 group">
             <span>
-              {{ currency.symbol }}{{ microgonToMoneyNm(globalMicrogonsEarned).formatIfElse('< 100', '0.00', '0,0') }}
+              {{ currency.symbol }}{{ microgonToMoneyNm(myMiningSeats.global.microgonValueOfRewards).formatIfElse('< 100', '0.00', '0,0') }}
             </span>
             <label>Relative Total Earnings</label>
           </TooltipTrigger>
@@ -61,11 +61,11 @@
         </TooltipRoot>
         <TooltipRoot>
           <TooltipTrigger as="div" box stat-box class="flex flex-col w-2/12 !py-4 group">
-            <span>{{ numeral(globalROI).formatIfElseCapped('< 100', '0.[00]', '0,0', 9_999) }}%</span>
+            <span>{{ numeral(elapsedMiningReturn).formatIfElseCapped('< 100', '0.[00]', '0,0', 9_999) }}%</span>
             <label>Current Profit</label>
           </TooltipTrigger>
           <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
-            Your annual percentage yield based on frames that have been completed.
+            Your current profit based on the portion of your mining frames completed so far.
             <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
           </TooltipContent>
         </TooltipRoot>
@@ -86,16 +86,6 @@
             </a>
           </div>
           <div class="flex flex-row items-end border-t border-slate-600/20 pt-2 text-md">
-            <div @click="openPortfolioPanel(PortfolioTab.ProfitAnalysis)" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
-              <RoiIcon class="w-6 h-6 mt-2 inline-block mb-2" />
-              <div>Profits</div>
-            </div>
-            <div class="w-px h-full bg-slate-600/20" />
-            <div @click="openPortfolioPanel(PortfolioTab.GrowthProjections)" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
-              <ProjectionsIcon class="w-6 h-6 mt-2 inline-block mb-2" />
-              <div>Projections</div>
-            </div>
-            <div class="w-px h-full bg-slate-600/20" />
             <div @click="openBotEditOverlay" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
               <ConfigIcon class="w-6 h-6 mt-2 inline-block mb-2" />
               <div>Settings</div>
@@ -112,7 +102,7 @@
               </div>
               <span class="flex flex-row items-center" :title="'Frame #' + currentFrame.id">
                 <span>{{ currentFrameStartDate }} to {{ currentFrameEndDate }}</span>
-                <span v-if="stats.selectedFrameId > stats.latestFrameId - 10" class="inline-block rounded-full bg-green-500/80 w-2.5 h-2.5 ml-2"></span>
+                <span v-if="myMiningSeats.selectedFrameId > myMiningSeats.latestFrameId - 10" class="inline-block rounded-full bg-green-500/80 w-2.5 h-2.5 ml-2"></span>
                 <span
                   v-if="isFrameDetailLoading"
                   class="ml-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500/55 animate-pulse">
@@ -138,7 +128,7 @@
               >
                 <div class="flex w-full grow pt-4 px-2">
                   <MiningSeats
-                    :isLiveFrame="currentFrame.id === stats.latestFrameId"
+                    :isLiveFrame="currentFrame.id === myMiningSeats.latestFrameId"
                     :frameId="currentFrame.id"
                     :lastBlockMinerAddress="lastBlockMinerAddress"
                     :frameSlots="frameSlots" />
@@ -218,7 +208,7 @@
 <script lang="ts">
 import * as Vue from 'vue';
 import type { IMiningFrameDetail } from '@argonprotocol/apps-core';
-import { IDashboardFrameStats } from '../../interfaces/IStats.ts';
+import { IDashboardFrameStats } from '../../interfaces/IMiningSeatStats.ts';
 import type { IChartItem } from '../../interfaces/IChartItem.ts';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -253,6 +243,7 @@ const currentFrame = Vue.ref<IDashboardFrameStats>({
     micronotsMinedTotal: 0n,
     microgonsMinedTotal: 0n,
     microgonsMintedTotal: 0n,
+    microgonValueOfRewards: 0n,
   },
 });
 const chartItems = Vue.ref<IChartItem[]>([]);
@@ -270,7 +261,7 @@ dayjs.extend(utc);
 <script setup lang="ts">
 import { BigNumber } from 'bignumber.js';
 import { calculateProfitPct, Mining } from '@argonprotocol/apps-core';
-import { getStats } from '../../stores/stats.ts';
+import { getMyMiningSeats } from '../../stores/myMiningSeats.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { ArrowTopRightOnSquareIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
@@ -283,10 +274,6 @@ import CountdownClock from '../../components/CountdownClock.vue';
 import MiningAssetBreakdown from '../components/MiningAssetBreakdown.vue';
 import MiningSeats from './components/MiningSeats.vue';
 import { getBlockWatch, getMainchainClient, getMining, getMiningFrames } from '../../stores/mainchain.ts';
-import { UnitOfMeasurement } from '../../lib/Currency.ts';
-import { PortfolioTab } from '../../panels/interfaces/IPortfolioTab.ts';
-import ProjectionsIcon from '../../assets/rocket.svg';
-import RoiIcon from '../../assets/roi.svg';
 import { WalletType } from '../../lib/Wallet.ts';
 import AssetMenu from '../components/AssetMenu.vue';
 import CopyAddressMenu from '../../components/CopyAddressMenu.vue';
@@ -296,7 +283,7 @@ import { OperationalStepId, useCertificationController } from '../../stores/cert
 import { useWallets } from '../../stores/wallets.ts';
 
 const controller = useCertificationController();
-const stats = getStats();
+const myMiningSeats = getMyMiningSeats();
 const currency = getCurrency();
 const bot = getBot();
 const blockWatch = getBlockWatch();
@@ -314,15 +301,15 @@ let foregroundRefreshPromise: Promise<void> | null = null;
 let stopBestBlockSubscription: (() => void) | null = null;
 
 const sliderFrameIndex = Vue.computed(() => {
-  const lastIndex = Math.max(stats.frames.length - 1, 0);
-  const selectedIndex = stats.frames.findIndex(frame => frame.id === stats.selectedFrameId);
+  const lastIndex = Math.max(myMiningSeats.frames.length - 1, 0);
+  const selectedIndex = myMiningSeats.frames.findIndex(frame => frame.id === myMiningSeats.selectedFrameId);
   return Math.min(Math.max(selectedIndex >= 0 ? selectedIndex : lastIndex, 0), lastIndex);
 });
 const isSelectedLiveFrame = Vue.computed(() => {
-  return currentFrame.value.id === stats.latestFrameId;
+  return currentFrame.value.id === myMiningSeats.latestFrameId;
 });
 const isTargetingLiveFrame = Vue.computed(() => {
-  return stats.selectedFrameId === stats.latestFrameId;
+  return myMiningSeats.selectedFrameId === myMiningSeats.latestFrameId;
 });
 const isFrameDetailLoading = Vue.computed(() => {
   return !isSelectedLiveFrame.value && loadingFrameId.value === currentFrame.value.id;
@@ -334,7 +321,10 @@ const currentFrameDetail = Vue.computed(() => {
   if (frameDetail.value?.frameId === currentFrame.value.id) {
     return frameDetail.value;
   }
-  if (currentFrame.value.id === stats.latestFrameId && latestLiveFrameDetail.value?.frameId === currentFrame.value.id) {
+  if (
+    currentFrame.value.id === myMiningSeats.latestFrameId &&
+    latestLiveFrameDetail.value?.frameId === currentFrame.value.id
+  ) {
     return latestLiveFrameDetail.value;
   }
 
@@ -343,7 +333,7 @@ const currentFrameDetail = Vue.computed(() => {
 
 const auctionBids = Vue.computed(() => {
   if (isSelectedLiveFrame.value) {
-    return stats.allWinningBids ?? [];
+    return myMiningSeats.allWinningBids ?? [];
   }
 
   return currentFrameDetail.value?.winningBids ?? [];
@@ -449,50 +439,12 @@ function formatBidAmount(microgons: bigint | null): string {
   return `${currency.symbol}${microgonToMoneyNm(microgons).formatIfElse('<100', '0,0.00', '0,0')}`;
 }
 
-const globalMicrogonsEarned = Vue.computed(() => {
-  const {
-    microgonsMinedTotal: totalMicrogonsMined,
-    microgonsMintedTotal: totalMicrogonsMinted,
-    micronotsMinedTotal: totalMicronotsMined,
-  } = stats.global;
-  return (
-    totalMicrogonsMined +
-    totalMicrogonsMinted +
-    currency.convertMicronotTo(totalMicronotsMined, UnitOfMeasurement.Microgon)
-  );
-});
-
-const globalMicrogonsInvested = Vue.computed(() => {
-  return stats.global.framedCost;
-});
-
-const globalROI = Vue.computed(() => {
-  return calculateProfitPct(globalMicrogonsInvested.value, globalMicrogonsEarned.value) * 100;
+const elapsedMiningReturn = Vue.computed(() => {
+  return calculateProfitPct(myMiningSeats.global.framedCost, myMiningSeats.global.microgonValueOfRewards) * 100;
 });
 
 const totalBlocksMined = Vue.computed(() => {
-  return stats.frames.reduce((sum, frame) => sum + frame.blocksMinedTotal, 0);
-});
-
-const currentFrameEarnings = Vue.computed(() => {
-  if (!currentFrame.value.seatCountActive) return 0n;
-
-  const { microgonsMinedTotal, microgonsMintedTotal, micronotsMinedTotal } = currentFrame.value;
-  const microgons = microgonsMinedTotal + microgonsMintedTotal;
-  return microgons + currency.convertMicronotTo(micronotsMinedTotal, UnitOfMeasurement.Microgon);
-});
-
-const expectedFrameEarnings = Vue.computed(() => {
-  if (!currentFrame.value.seatCountActive) return 0n;
-
-  const { expected } = currentFrame.value;
-  const microgons = expected.microgonsMinedTotal + expected.microgonsMintedTotal;
-  return microgons + currency.convertMicronotTo(expected.micronotsMinedTotal, UnitOfMeasurement.Microgon);
-});
-
-const currentFrameCost = Vue.computed(() => {
-  if (!currentFrame.value.seatCountActive) return 0n;
-  return currentFrame.value.seatCostTotalFramed;
+  return myMiningSeats.frames.reduce((sum, frame) => sum + frame.blocksMinedTotal, 0);
 });
 
 const currentFrameStartDate = Vue.computed(() => {
@@ -512,10 +464,6 @@ const currentFrameEndDate = Vue.computed(() => {
   return date.local().add(1, 'minute').format('MMMM D, h:mm A');
 });
 
-const hasNextFrame = Vue.computed(() => {
-  return sliderFrameIndex.value < stats.frames.length - 1;
-});
-
 const hasPrevFrame = Vue.computed(() => {
   return sliderFrameIndex.value > 0;
 });
@@ -532,14 +480,10 @@ function openBotEditOverlay() {
   basicEmitter.emit('openBotEditOverlay');
 }
 
-function openPortfolioPanel(tab: PortfolioTab) {
-  basicEmitter.emit('openPortfolioPanel', tab);
-}
-
 function loadChartData() {
   let isFiller = true;
   const items: IChartItem[] = [];
-  for (const [index, frame] of stats.frames.entries()) {
+  for (const [index, frame] of myMiningSeats.frames.entries()) {
     if (isFiller && frame.seatCountActive > 0) {
       const previousItem = items[index - 1];
       previousItem && (previousItem.isFiller = false);
@@ -583,11 +527,11 @@ async function refreshDashboardFromForeground() {
         }
       }
 
-      await stats.refresh();
+      await myMiningSeats.refresh();
 
       await updateSliderFrame(sliderFrameIndex.value);
 
-      if (currentFrame.value.id === stats.latestFrameId) {
+      if (currentFrame.value.id === myMiningSeats.latestFrameId) {
         await refreshLiveAuctionCloseTick(currentFrame.value.id);
         await refreshLiveFrameDetail();
       } else {
@@ -608,7 +552,7 @@ async function refreshLiveAuctionCloseTick(frameId: number): Promise<void> {
     const client = await getMainchainClient(true);
     const tick = await mining.fetchTickAtStartOfAuctionClosing(client);
 
-    if (frameId !== stats.latestFrameId || currentFrame.value?.id !== frameId) {
+    if (frameId !== myMiningSeats.latestFrameId || currentFrame.value?.id !== frameId) {
       return;
     }
 
@@ -631,7 +575,7 @@ function onVisibilityChange() {
 }
 
 async function loadFrameDetail(frameId: number): Promise<IMiningFrameDetail> {
-  const canCacheFrame = frameId < stats.latestFrameId && frameId <= finalizedFrameId.value;
+  const canCacheFrame = frameId < myMiningSeats.latestFrameId && frameId <= finalizedFrameId.value;
   const cached = canCacheFrame ? historicalFrameDetailByFrameId.get(frameId) : null;
   if (cached) return cached;
 
@@ -673,7 +617,7 @@ async function loadLiveFrameDetailFromChain(frameId: number): Promise<IMiningFra
 }
 
 function prefetchHistoricalFrameDetail(frameId: number) {
-  if (frameId < 1 || frameId >= stats.latestFrameId) {
+  if (frameId < 1 || frameId >= myMiningSeats.latestFrameId) {
     return;
   }
 
@@ -687,17 +631,17 @@ function prefetchHistoricalFrameDetail(frameId: number) {
 }
 
 async function updateSliderFrame(newFrameIndex: number) {
-  const lastIndex = Math.max(stats.frames.length - 1, 0);
+  const lastIndex = Math.max(myMiningSeats.frames.length - 1, 0);
   const nextFrameIndex = Math.min(Math.max(newFrameIndex, 0), lastIndex);
-  const nextFrame = stats.frames[nextFrameIndex];
+  const nextFrame = myMiningSeats.frames[nextFrameIndex];
   if (!nextFrame) return;
 
   currentFrame.value = nextFrame;
   const frameId = currentFrame.value.id;
 
-  stats.selectFrameId(frameId, true);
+  myMiningSeats.selectFrameId(frameId, true);
 
-  if (frameId === stats.latestFrameId) {
+  if (frameId === myMiningSeats.latestFrameId) {
     loadingFrameId.value = null;
     if (latestLiveFrameDetail.value?.frameId === frameId) {
       frameDetail.value = latestLiveFrameDetail.value;
@@ -710,7 +654,7 @@ async function updateSliderFrame(newFrameIndex: number) {
 }
 
 Vue.watch(
-  () => stats.frames,
+  () => myMiningSeats.frames,
   () => {
     loadChartData();
     void updateSliderFrame(sliderFrameIndex.value);
@@ -720,7 +664,7 @@ Vue.watch(
 
 async function refreshLiveFrameDetail() {
   if (!isSelectedLiveFrame.value) return;
-  const frameId = stats.latestFrameId;
+  const frameId = myMiningSeats.latestFrameId;
   const requestId = ++frameDetailRequestId;
   let hasFallbackDetail = false;
 
@@ -762,7 +706,7 @@ async function refreshLiveFrameDetail() {
 
 async function refreshPendingHistoricalFrameDetail() {
   const frameId = currentFrame.value.id;
-  if (frameId >= stats.latestFrameId) return;
+  if (frameId >= myMiningSeats.latestFrameId) return;
 
   await loadHistoricalFrameDetail(frameId);
 }
@@ -807,8 +751,8 @@ Vue.watch(isSelectedLiveFrame, isLiveFrame => {
 });
 
 Vue.onMounted(() => {
-  void stats.subscribeToDashboard();
-  void stats.subscribeToActivity();
+  void myMiningSeats.subscribeToDashboard();
+  void myMiningSeats.subscribeToActivity();
   loadChartData();
   void updateSliderFrame(sliderFrameIndex.value);
 
@@ -836,8 +780,8 @@ Vue.onMounted(() => {
 });
 
 Vue.onUnmounted(() => {
-  stats.unsubscribeFromDashboard();
-  stats.unsubscribeFromActivity();
+  myMiningSeats.unsubscribeFromDashboard();
+  myMiningSeats.unsubscribeFromActivity();
   stopBestBlockSubscription?.();
   botEmitter.off('updated-bids-data', refreshLiveFrameDetail);
   botEmitter.off('updated-cohort-data', refreshLiveFrameDetail);

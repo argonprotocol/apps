@@ -2,16 +2,14 @@ import * as Vue from 'vue';
 import { defineStore } from 'pinia';
 import { useWallets } from './wallets.ts';
 import { getCurrency } from './currency.ts';
-import { getConfig } from './config.ts';
-import { getStats } from './stats.ts';
+import { getMyMiningSeats } from './myMiningSeats.ts';
 import { UnitOfMeasurement } from '../lib/Currency.ts';
 import BigNumber from 'bignumber.js';
 
 export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () => {
-  const config = getConfig();
   const wallets = useWallets();
   const currency = getCurrency();
-  const stats = getStats();
+  const myMiningSeats = getMyMiningSeats();
 
   // Sidelined
 
@@ -30,7 +28,7 @@ export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () =>
   // Auction
 
   const auctionBidCount = Vue.computed(() => {
-    return stats.myMiningBids.bidCount;
+    return myMiningSeats.pendingBids.bidCount;
   });
 
   const auctionMicrogonsTotal = Vue.computed(() => {
@@ -79,10 +77,10 @@ export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () =>
   // Mining Seats
 
   const seatActiveCount = Vue.computed(() => {
-    return stats.myMiningSeats.seatCount;
+    return myMiningSeats.activeSeats.seatCount;
   });
 
-  const expectedSeatValue = Vue.computed(() => {
+  const currentSeatValue = Vue.computed(() => {
     return wallets.miningSeatValue;
   });
 
@@ -99,13 +97,13 @@ export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () =>
   // Transaction Fees
 
   const transactionFeesTotal = Vue.computed(() => {
-    return stats.global.transactionFeesTotal;
+    return myMiningSeats.global.transactionFeesTotal;
   });
 
   // Total Mining Resources
 
   const totalMiningResources = Vue.computed(() => {
-    return auctionTotalValue.value + expectedSeatValue.value;
+    return auctionTotalValue.value + currentSeatValue.value;
   });
 
   return {
@@ -129,7 +127,7 @@ export const useMiningAssetBreakdown = defineStore('miningAssetBreakdown', () =>
 
     seatActiveCount,
     stakedSeatMicronots,
-    expectedSeatValue,
+    currentSeatValue,
     expectedSeatMicrogons,
     expectedSeatMicronots,
     transactionFeesTotal,

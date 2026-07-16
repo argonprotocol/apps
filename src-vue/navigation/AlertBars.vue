@@ -256,7 +256,7 @@ import { getMainchainClient, getMainchainClients } from '../stores/mainchain.ts'
 import { getBitcoinLocks } from '../stores/bitcoin.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { getMyVault } from '../stores/vaults.ts';
-import { getBondMarket } from '../stores/myBonds.ts';
+import { getArgonBonds } from '../stores/argonBonds.ts';
 import BitcoinIcon from '../assets/wallets/bitcoin.svg?component';
 import VaultCollectOverlay from '../overlays/VaultCollectOverlay.vue';
 import BitcoinLockingOverlay from '../overlays/BitcoinLockingOverlay.vue';
@@ -274,7 +274,7 @@ const clients = getMainchainClients();
 const myVault = getMyVault();
 const bitcoinLocks = getBitcoinLocks();
 const currency = getCurrency();
-const bondMarket = getBondMarket();
+const argonBonds = getArgonBonds();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const isRestarting = Vue.ref(false);
@@ -287,7 +287,7 @@ const selectedBitcoinLock = Vue.ref<IBitcoinLockRecord | undefined>(undefined);
 const selectedUnlockLock = Vue.ref<IBitcoinLockRecord | undefined>(undefined);
 const resumedFundingByLockUtxoId = Vue.ref<{ [lockUtxoId: number]: true }>({});
 
-let unsubscribeBondMarketVault: VoidFunction | undefined;
+let unsubscribeArgonBondVault: VoidFunction | undefined;
 
 const vaultAlert = Vue.computed(() => myVault.collectBuilder.getNotice());
 const bitcoinAlerts = Vue.computed(() => getBitcoinAlertNotices(bitcoinLocks));
@@ -430,16 +430,16 @@ async function loadAttentionData() {
   }
 }
 
-async function subscribeBondMarketVault() {
+async function subscribeArgonBondVault() {
   const vault = myVault.createdVault;
   const vaultId = myVault.vaultId;
   if (!vault || vaultId == null) return;
 
   const client = await getMainchainClient(false);
-  await bondMarket.subscribeGlobal(client);
+  await argonBonds.subscribeGlobal(client);
 
-  unsubscribeBondMarketVault?.();
-  unsubscribeBondMarketVault = await bondMarket.subscribeVault(
+  unsubscribeArgonBondVault?.();
+  unsubscribeArgonBondVault = await argonBonds.subscribeVault(
     {
       vaultId,
       operatorAddress: vault.operatorAccountId,
@@ -454,7 +454,7 @@ Vue.watch(
   vaultId => {
     if (!vaultId) return;
     void myVault.subscribe().catch(() => undefined);
-    void subscribeBondMarketVault().catch(() => undefined);
+    void subscribeArgonBondVault().catch(() => undefined);
   },
   { immediate: true },
 );
@@ -501,7 +501,7 @@ Vue.onMounted(() => {
 });
 
 Vue.onUnmounted(() => {
-  unsubscribeBondMarketVault?.();
+  unsubscribeArgonBondVault?.();
 
   basicEmitter.off('openVaultCollect', openVaultCollect);
   basicEmitter.off('openBitcoinLock', openBitcoinLock);

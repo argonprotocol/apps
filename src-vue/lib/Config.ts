@@ -623,8 +623,9 @@ export class Config implements IConfig {
       this._walletPreviousHistoryLoadPct = pct;
     });
     if (!miningHistory?.length && !vaultingRules) {
-      console.warn('Config: No previous history found');
-      this.walletAccountsHadPreviousLife = false;
+      console.warn('Config: No previous mining or vault history found');
+      this.walletPreviousLifeRecovered = true;
+      await this.save();
       return;
     }
     if (miningHistory) {

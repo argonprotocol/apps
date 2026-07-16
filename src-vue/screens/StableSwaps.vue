@@ -102,8 +102,11 @@
         </div>
         <div class="h-full w-px bg-slate-400/30" />
         <div class="w-1/3 border-b border-slate-400/30 pb-5">
-          <div class="text-argon-600 text-5xl font-bold">{{ numeral(totalSwapReturn).format('0,0.[00]') }}%</div>
-          <div>Total Swap Profits</div>
+          <div class="text-argon-600 text-5xl font-bold">
+            <template v-if="totalSwapReturn !== undefined">{{ numeral(totalSwapReturn).format('0,0.[00]') }}%</template>
+            <template v-else>--</template>
+          </div>
+          <div>Return to Date</div>
         </div>
       </section>
 
@@ -116,7 +119,7 @@
               }}...
             </span>
             <div class="flex flex-row items-stretch gap-x-3">
-              <button class="text-md text-argon-600 cursor-pointer">Refresh List</button>
+              <button class="text-md text-argon-600 cursor-pointer" @click="stableSwaps.refresh()">Refresh List</button>
               <div class="w-px bg-slate-400/50" />
               <a href="https://argon.network/" target="_blank" class="text-md text-argon-600 cursor-pointer">
                 View Docs
@@ -257,15 +260,12 @@ const { microgonToMoneyNm, microgonToNm } = createNumeralHelpers(currency);
 const isLoaded = Vue.ref(false);
 
 const currencyKey = Vue.ref<ICurrencyKey>(UnitOfMeasurement.USD);
+const currencySymbol = Vue.computed(() => currency.recordsByKey[currencyKey.value].symbol);
 const oneArgonInMicrogons = 1000000n;
 const zeroMicrogons = 0n;
 
-const currencySymbol = Vue.computed(() => {
-  return currency.recordsByKey[currencyKey.value].symbol;
-});
-
 const totalSwapReturn = Vue.computed(() => {
-  return stableSwaps.walletSnapshot?.summary.returnPct ?? 0;
+  return financials.financialPositionAggregate.groupSummaries.stableSwaps.returnSummary.percent;
 });
 
 async function openPurchaseTx(txHash: string) {

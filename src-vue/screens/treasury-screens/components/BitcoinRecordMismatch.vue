@@ -72,7 +72,7 @@ import ProgressBar from '../../../components/ProgressBar.vue';
 import { generateProgressLabel } from '../../../lib/Utils.ts';
 import { getBitcoinLocks } from '../../../stores/bitcoin.ts';
 import { getCurrency } from '../../../stores/currency.ts';
-import type { ILockSummary } from '../../../stores/financials.ts';
+import type { IBitcoinLockSummary } from '../../../interfaces/IBitcoinLockSummary.ts';
 
 const bitcoinLocks = getBitcoinLocks();
 const currency = getCurrency();
@@ -80,7 +80,7 @@ const currency = getCurrency();
 const { satToBtcNm } = createNumeralHelpers(currency);
 
 const props = defineProps<{
-  lockSummary: ILockSummary;
+  lockSummary: IBitcoinLockSummary;
 }>();
 
 const lockRecord = Vue.computed(() => props.lockSummary.record);

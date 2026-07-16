@@ -71,14 +71,7 @@
           <li @click="goto(TopTab.ArgonBonds)" :class="{ Selected: controller.selectedTab === TopTab.ArgonBonds }">
             <article class="flex flex-row items-center">
               <div class="grow">Argon Bonds</div>
-              <div class="opacity-60">
-                {{ currency.symbol
-                }}{{
-                  microgonToMoneyNm(myBonds.bondLots.reduce((sum, bondLot) => sum + bondLot.bondMicrogons, 0n)).format(
-                    '0,0.00',
-                  )
-                }}
-              </div>
+              <div class="opacity-60">{{ currency.symbol }}{{ formatFinancialGroupValue('bonds') }}</div>
             </article>
             <div Selector>
               <div ArrowSquare>
@@ -86,32 +79,10 @@
               </div>
             </div>
           </li>
-          <!--          <li @click="goto(TopTab.ArgonotBonds)" :class="{ Selected: controller.selectedTab === TopTab.ArgonotBonds }">-->
-          <!--            <article class="flex flex-row items-center">-->
-          <!--              <div class="grow">Argonot Bonds</div>-->
-          <!--              <div class="opacity-60">-->
-          <!--                {{ currency.symbol-->
-          <!--                }}{{-->
-          <!--                  micronotToMoneyNm(-->
-          <!--                    myBonds.bondLots-->
-          <!--                      .filter(bondLot => bondLot.programType === 'Argonot')-->
-          <!--                      .reduce((sum, bondLot) => sum + bondLot.bondMicrogons, 0n),-->
-          <!--                  ).format('0,0.00')-->
-          <!--                }}-->
-          <!--              </div>-->
-          <!--            </article>-->
-          <!--            <div Selector>-->
-          <!--              <div ArrowSquare>-->
-          <!--                <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />-->
-          <!--              </div>-->
-          <!--            </div>-->
-          <!--          </li>-->
           <li @click="goto(TopTab.StableSwaps)" :class="{ Selected: controller.selectedTab === TopTab.StableSwaps }">
             <article class="flex flex-row items-center">
               <div class="grow">Stable Swaps</div>
-              <div class="opacity-60">
-                {{ currency.symbol }}{{ microgonToMoneyNm(financials.swapsTotalValue).format('0,0.00') }}
-              </div>
+              <div class="opacity-60">{{ currency.symbol }}{{ formatFinancialGroupValue('stableSwaps') }}</div>
             </article>
             <div Selector>
               <div ArrowSquare>
@@ -148,9 +119,7 @@
           >
             <article class="flex flex-row items-center">
               <div class="grow">Mining</div>
-              <div class="opacity-60">
-                {{ currency.symbol }}{{ microgonToMoneyNm(miningAssets.totalMiningResources).format('0,0.00') }}
-              </div>
+              <div class="opacity-60">{{ currency.symbol }}{{ formatFinancialGroupValue('mining') }}</div>
               <ArrowCalloutButton
                 v-if="
                   !showOperationsNavigationCallouts &&
@@ -175,17 +144,9 @@
               'bg-argon-100/40 ring-argon-400/40 ring-1': showOperationsNavigationCallouts,
             }"
           >
-            <article class="flex flex-col">
-              <div class="flex flex-row items-center">
-                <div class="grow">Vaulting</div>
-                <div class="opacity-60">
-                  {{ currency.symbol }}{{ microgonToMoneyNm(vaultingAssets.totalVaultValue).format('0,0.00') }}
-                </div>
-              </div>
-              <div v-if="controller.selectedTab === TopTab.Vaulting">
-                <div>- Argon Security</div>
-                <div>- Staked Argonots</div>
-              </div>
+            <article class="flex flex-row items-center">
+              <div class="grow">Vaulting</div>
+              <div class="opacity-60">{{ currency.symbol }}{{ formatFinancialGroupValue('vaulting') }}</div>
               <ArrowCalloutButton
                 v-if="
                   !showOperationsNavigationCallouts &&
@@ -313,9 +274,7 @@ import { getCurrency } from '../stores/currency.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import { UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { useFinancials } from '../stores/financials.ts';
-import { useMyBonds } from '../stores/myBonds.ts';
-import { useMiningAssetBreakdown } from '../stores/miningAssetBreakdown.ts';
-import { useVaultingAssetBreakdown } from '../stores/vaultingAssetBreakdown.ts';
+import type { FinancialGroup } from '../interfaces/IFinancialPosition.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import DiscordIcon from '../assets/discord.svg';
 import InstructionsIcon from '../assets/instructions.svg';
@@ -327,14 +286,15 @@ const config = getConfig();
 const wallets = useWallets();
 const currency = getCurrency();
 const financials = useFinancials();
-const myBonds = useMyBonds();
-const miningAssets = useMiningAssetBreakdown();
-const vaultingAssets = useVaultingAssetBreakdown();
 
 const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm, micronotToMoneyNm, satToMoneyNm } =
   createNumeralHelpers(currency);
 
 const showOperationsNavigationCallouts = Vue.ref(false);
+
+function formatFinancialGroupValue(group: FinancialGroup): string {
+  return microgonToMoneyNm(financials.financialPositionAggregate.groupSummaries[group].currentValue).format('0,0.00');
+}
 
 function openDefaultArgonWallet() {
   basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
