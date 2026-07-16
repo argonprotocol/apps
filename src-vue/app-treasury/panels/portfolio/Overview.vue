@@ -97,7 +97,12 @@
     </div>
     <section class="mx-2 flex flex-row gap-x-2 text-center mt-5 mb-2 border-t border-argon-300/30">
       <div StatWrapper class="w-1/3">
-        <div Stat>{{ numeral(portfolio.originalCapitalRoi).format('0,0.[00]') }}%</div>
+        <div Stat>
+          <template v-if="financials.financialPositionAggregate.accountReturn.percent !== undefined">
+            {{ numeral(financials.financialPositionAggregate.accountReturn.percent).format('0,0.[00]') }}%
+          </template>
+          <template v-else>--</template>
+        </div>
         <label>ROI To-Date</label>
       </div>
       <div class="w-px h-full bg-argon-300/30" />
@@ -147,6 +152,7 @@ import BigNumber from 'bignumber.js';
 import TwoSlicePie from '../../../components/TwoSlicePie.vue';
 import numeral, { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { usePortfolio } from '../../../stores/portfolio.ts';
+import { useFinancials } from '../../../stores/financials.ts';
 import { getWalletsForArgon, useWallets } from '../../../stores/wallets.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import { getDbPromise } from '../../../stores/helpers/dbPromise.ts';
@@ -160,6 +166,7 @@ import { PortfolioTab } from '../../interfaces/IPortfolioTab.ts';
 dayjs.extend(utc);
 
 const portfolio = usePortfolio();
+const financials = useFinancials();
 const wallets = useWallets();
 const vaultingAssets = useVaultingAssetBreakdown();
 const miningAssets = useMiningAssetBreakdown();
@@ -210,7 +217,7 @@ const miningMoveWithin24Hours = Vue.computed(() => {
 });
 
 const miningMoveWithin10Days = Vue.computed(() => {
-  return miningAssets.expectedSeatValue;
+  return miningAssets.currentSeatValue;
 });
 
 const vaultingMoveInstantaneously = Vue.computed(() => {
@@ -266,26 +273,22 @@ async function loadTransactionHistory(): Promise<void> {
   });
 }
 
-let unsubscribe: (() => void) | null = null;
+let unsubscribes: VoidFunction[] = [];
 
 Vue.onMounted(async () => {
   await loadTransactionHistory();
-  const balances = getWalletsForArgon();
-  unsubscribe = balances.events.on('transfer-in', async () => {
-    await loadTransactionHistory();
-  });
+  const walletEvents = getWalletsForArgon().events;
+  unsubscribes = [
+    walletEvents.on('transfer-in', loadTransactionHistory),
+    walletEvents.on('history:recovered', loadTransactionHistory),
+  ];
 
   setTimeout(() => {
     shouldAnimateChart.value = false;
   }, 1e3);
 });
 
-Vue.onBeforeUnmount(() => {
-  if (unsubscribe) {
-    unsubscribe();
-    unsubscribe = null;
-  }
-});
+Vue.onBeforeUnmount(() => unsubscribes.forEach(unsubscribe => unsubscribe()));
 </script>
 
 <style scoped>

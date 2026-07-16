@@ -16,4 +16,5 @@ it('can autobid and store stats', async () => {
   await expect(storage.version).resolves.toBe(0);
   await expect(storage.migrate()).resolves.toBeUndefined();
   await expect(storage.version).resolves.toBe(1);
+  await expect(storage.bidsFile(1, 2).get()).resolves.toMatchObject({ argonotPriceAtBid: 0n });
 });

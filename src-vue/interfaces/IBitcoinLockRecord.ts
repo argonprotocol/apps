@@ -3,13 +3,17 @@ import type { BitcoinLockRelayStatus } from '@argonprotocol/apps-router';
 import type { IBitcoinUtxoRecord } from './IBitcoinUtxoRecord.ts';
 
 export interface IRatchet {
+  /** Gross liquidity submitted to the mint queue by this ratchet. */
   mintAmount: bigint;
   mintPending: bigint;
+  /** Post-ratchet liquidity promised by the lock. Older records predate this field. */
+  liquidityPromised?: bigint;
   lockedTargetPrice: bigint;
   securityFee: bigint;
   txFee: bigint;
   burned: bigint;
   blockHeight: number;
+  extrinsicIndex?: number;
   oracleBitcoinBlockHeight: number;
 }
 
@@ -62,6 +66,15 @@ export interface IBitcoinLockRecord {
   vaultId: number;
   relayMetadataJson?: IBitcoinLockRelayMetadata | null;
   blockExtrinsicErrorJson?: IBitcoinLockBlockExtrinsicError | null;
+  releaseRedemptionMicrogons?: bigint;
+  releaseArgonTxFeeMicrogons?: bigint;
+  releaseCompensationMicrogons?: bigint;
+  removalBlockNumber?: number;
+  removalBlockHash?: string;
+  removalBlockTime?: Date;
+  removalExtrinsicIndex?: number;
+  removalReason?: 'released' | 'spent' | 'expired';
+  btcPriceAtRemovalMicrogons?: bigint;
   createdAt: Date;
   updatedAt: Date;
 }

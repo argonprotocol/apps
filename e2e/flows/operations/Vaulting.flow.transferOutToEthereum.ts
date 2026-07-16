@@ -2,7 +2,6 @@ import { createVaultingFlowContext, type IVaultingFlowContext } from '../context
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import { readDevEthereumRuntimeState } from '../../devEthereum.ts';
 import { fundDevEthereumAccount } from '../../scripts/fundDevEthereumAccount.ts';
-import { clickIfVisible } from '../helpers/utils.ts';
 import vaultingOnboarding from './Vaulting.flow.onboarding.ts';
 import vaultingActivateTab from './Vaulting.op.activateTab.ts';
 import vaultingTransferOutToEthereum, { openVaultingWalletOverlay } from './Vaulting.op.transferOutToEthereum.ts';
@@ -120,9 +119,6 @@ export default new OperationalFlow<IVaultingFlowContext, ITransferOutToEthereumS
       rpcUrl: executionRpcUrl,
       amountBaseUnits: DEV_ETHEREUM_TRANSFER_GAS_BUFFER_WEI,
     });
-
-    await clickIfVisible(flow, 'WalletFundingReceivedOverlay.closeOverlay()', { timeoutMs: 5_000 });
-    await clickIfVisible(flow, 'BgOverlay.close()', { timeoutMs: 5_000 });
 
     if (!(await flow.isVisible('VaultingScreen')).visible) {
       await flow.run(vaultingActivateTab);

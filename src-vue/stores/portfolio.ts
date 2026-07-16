@@ -4,15 +4,14 @@ import handleFatalError from './helpers/handleFatalError.ts';
 import {
   bigNumberToBigInt,
   calculateAPY,
-  calculateProfitPct,
   createDeferred,
   MICRONOTS_PER_ARGONOT,
   UnitOfMeasurement,
 } from '@argonprotocol/apps-core';
-import { getStats } from './stats.ts';
+import { getMyMiningSeats } from './myMiningSeats.ts';
 import { getCurrency } from './currency.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
-import { getWalletsForArgon, getWalletKeys, useWallets } from './wallets.ts';
+import { getWalletKeys, getWalletsForArgon, useWallets } from './wallets.ts';
 import BigNumber from 'bignumber.js';
 
 export const usePortfolio = defineStore('portfolio', () => {
@@ -20,10 +19,10 @@ export const usePortfolio = defineStore('portfolio', () => {
   const wallets = useWallets();
   const dbPromise = getDbPromise();
   const walletKeys = getWalletKeys();
+  const myMiningSeats = getMyMiningSeats();
   const walletsForArgon = getWalletsForArgon();
-  const myMinerStats = getStats();
 
-  let unsubscribe: (() => void) | undefined;
+  let unsubscribes: VoidFunction[] = [];
 
   const isLoaded = Vue.ref(false);
   const { promise: isLoadedPromise, resolve: isLoadedResolve, reject: isLoadedReject } = createDeferred<void>();
@@ -31,16 +30,12 @@ export const usePortfolio = defineStore('portfolio', () => {
   const vaultingExternalInvested = Vue.ref(0n);
   const miningExternalInvested = Vue.ref(0n);
 
-  const originalCapitalRoi = Vue.computed(() => {
-    return calculateProfitPct(originalCapitalInvested.value, wallets.totalOperationalResources) * 100;
-  });
-
   const originalCapitalInvested = Vue.computed(() => {
     return vaultingExternalInvested.value + miningExternalInvested.value;
   });
 
   const projectedApy = Vue.computed(() => {
-    return calculateAPY(originalCapitalInvested.value, wallets.totalOperationalResources, myMinerStats.activeFrames);
+    return calculateAPY(originalCapitalInvested.value, wallets.totalOperationalResources, myMiningSeats.activeFrames);
   });
 
   async function updateExternalFunding() {
@@ -71,12 +66,13 @@ export const usePortfolio = defineStore('portfolio', () => {
   }
 
   async function load() {
-    await myMinerStats.load();
+    await myMiningSeats.load();
     await updateExternalFunding();
-    if (unsubscribe) unsubscribe();
-    unsubscribe = walletsForArgon.events.on('transfer-in', async () => {
-      await updateExternalFunding();
-    });
+    for (const unsubscribe of unsubscribes) unsubscribe();
+    unsubscribes = [
+      walletsForArgon.events.on('transfer-in', updateExternalFunding),
+      walletsForArgon.events.on('history:recovered', updateExternalFunding),
+    ];
 
     isLoadedResolve();
     isLoaded.value = true;
@@ -95,7 +91,6 @@ export const usePortfolio = defineStore('portfolio', () => {
     vaultingExternalInvested,
     miningExternalInvested,
 
-    originalCapitalRoi,
     originalCapitalInvested,
 
     projectedApy,

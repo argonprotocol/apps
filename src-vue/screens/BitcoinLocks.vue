@@ -202,7 +202,8 @@ import { WalletType } from '../lib/Wallet.ts';
 import BitcoinRatchetingOverlay from '../overlays/BitcoinRatchetingOverlay.vue';
 import FormattedMoney from '../components/FormattedMoney.vue';
 import { UnitOfMeasurement } from '@argonprotocol/apps-core';
-import { useFinancials, type ILockSummary } from '../stores/financials.ts';
+import type { IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
+import { useFinancials } from '../stores/financials.ts';
 import { getMyVault, getVaults } from '../stores/vaults.ts';
 import BitcoinRecord from './treasury-screens/components/BitcoinRecord.vue';
 
@@ -222,7 +223,7 @@ const showLockingOverlay = Vue.ref(false);
 const showDetailOverlay = Vue.ref(false);
 const showUnlockingOverlay = Vue.ref(false);
 const showRatchetingOverlay = Vue.ref(false);
-const selectedLock = Vue.ref<ILockSummary | undefined>();
+const selectedLock = Vue.ref<IBitcoinLockSummary>();
 const couponProviderLabel = config.upstreamOperator?.name || 'The vault operator';
 const defaultVault = Vue.computed(() => {
   const vaultId = myVault.vaultId;
@@ -238,7 +239,7 @@ const canStartLocking = Vue.computed(() => {
   return financials.savingsTotalReadyToUse > 0n || !!bitcoinLockCoupons.currentCoupon;
 });
 
-function openDetail(lock: ILockSummary) {
+function openDetail(lock: IBitcoinLockSummary) {
   selectedLock.value = lock;
   if (bitcoinLocks.isLockedStatus(lock.record) || bitcoinLocks.isFinishedStatus(lock.record)) {
     showDetailOverlay.value = true;
@@ -256,18 +257,18 @@ function closeLockingOverlay() {
   selectedLock.value = undefined;
 }
 
-async function openUnlockingOverlay(eventOrLock: MouseEvent | IBitcoinLockRecord, maybeLock?: IBitcoinLockRecord) {
+function openUnlockingOverlay(eventOrLock: MouseEvent | IBitcoinLockRecord, maybeLock?: IBitcoinLockRecord) {
   const lockRecord = maybeLock ?? (eventOrLock as IBitcoinLockRecord);
   if (eventOrLock instanceof MouseEvent) {
     eventOrLock.stopPropagation();
   }
 
-  selectedLock.value = await financials.convertLockRecordToSummary(lockRecord);
+  selectedLock.value = bitcoinLocks.createLockSummary(lockRecord);
   showDetailOverlay.value = false;
   showUnlockingOverlay.value = true;
 }
 
-function openRatchetingOverlay(event: MouseEvent, lock: ILockSummary) {
+function openRatchetingOverlay(event: MouseEvent, lock: IBitcoinLockSummary) {
   event.stopPropagation();
   showDetailOverlay.value = false;
   selectedLock.value = lock;

@@ -1,4 +1,9 @@
 import BigNumber from 'bignumber.js';
+import {
+  calculateAnnualPercentageRate,
+  calculateAnnualPercentageYield,
+  calculatePeriodReturn,
+} from './FinancialReturns.js';
 import { isEthereumAddress, isEthereumChecksum } from '@polkadot/util-crypto';
 import { decodeAddress, encodeAddress } from '@argonprotocol/mainchain';
 
@@ -145,10 +150,7 @@ export function percentOf(value: bigint | number, percentOf100: number | bigint,
 }
 
 export function calculateProfitPct(costs: bigint, rewards: bigint): number {
-  if (costs === 0n && rewards > 0n) return 100_000_000;
-  if (costs === 0n) return 0;
-
-  return Number(((rewards - costs) * 100_000n) / costs) / 100_000;
+  return calculatePeriodReturn(costs, rewards);
 }
 
 export function compoundXTimes(rate: number, times: number): number {
@@ -156,11 +158,7 @@ export function compoundXTimes(rate: number, times: number): number {
 }
 
 export function calculateAPR(costs: bigint, rewards: bigint): number {
-  const tenDayRate = calculateProfitPct(costs, rewards);
-
-  // Compound APR over 36.5 cycles (10-day periods in a year)
-  const apr = tenDayRate * 36.5 * 100;
-  return Math.max(apr, -100);
+  return calculateAnnualPercentageRate({ startingValue: costs, endingValue: rewards, periodDays: 10 });
 }
 
 /**
@@ -171,11 +169,12 @@ export function calculateAPR(costs: bigint, rewards: bigint): number {
  */
 export function calculateAPY(costs: bigint, rewards: bigint, activeDays?: number): number {
   if (rewards === 0n) return 0;
-  const roi = calculateProfitPct(costs, rewards);
-  const elapsedDenominator = activeDays ? activeDays : 1;
-  const dailyRate = Math.pow(1 + roi, 1 / elapsedDenominator) - 1;
 
-  return compoundXTimes(dailyRate, 365) * 100;
+  return calculateAnnualPercentageYield({
+    startingValue: costs,
+    endingValue: rewards,
+    periodDays: activeDays ?? 1,
+  });
 }
 
 export function createTypedEventEmitter<Events extends EventsMap = DefaultEvents>(): TypedEmitter<Events> {

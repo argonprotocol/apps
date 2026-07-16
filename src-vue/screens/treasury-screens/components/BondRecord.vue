@@ -118,7 +118,7 @@ const emit = defineEmits<{
 const isActionHovered = Vue.ref(false);
 const vaultLabel = Vue.computed(() => {
   if (props.bondLot.programType === 'Argonot') {
-    return 'Argonot Bond';
+    return 'ARGNOT-backed Argon Bond';
   }
 
   const vaultId = props.bondLot.vaultId;

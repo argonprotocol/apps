@@ -2,34 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { buildWalletActivity } from '../lib/WalletActivity.ts';
 import { TransactionStatus, ExtrinsicType } from '../lib/db/TransactionsTable.ts';
 import type { ITransactionRecord } from '../lib/db/TransactionsTable.ts';
-import type { IWalletLedgerRecord } from '../lib/db/WalletLedgerTable.ts';
 import type { IWalletTransferRecord } from '../lib/db/WalletTransfersTable.ts';
 
 const walletAddress = '5GrwvaEF5zXb26Fz9rcQpDWSxY4CcdkNAW4rNBWb7xGg';
-
-function createLedger(overrides: Partial<IWalletLedgerRecord> = {}): IWalletLedgerRecord {
-  return {
-    id: 1,
-    walletAddress,
-    walletName: 'defaultArgon',
-    availableMicrogons: 100n,
-    availableMicronots: 0n,
-    reservedMicrogons: 0n,
-    reservedMicronots: 0n,
-    microgonChange: 25n,
-    micronotChange: 0n,
-    microgonsForUsd: 1n,
-    microgonsForArgonot: 1n,
-    inboundTransfersJson: [],
-    extrinsicEventsJson: [[3, { pallet: 'balances', method: 'Transfer', data: {} }]],
-    blockNumber: 10,
-    blockHash: '0xblock',
-    isFinalized: true,
-    createdAt: new Date('2026-03-20T20:00:00Z'),
-    updatedAt: new Date('2026-03-20T20:00:00Z'),
-    ...overrides,
-  };
-}
 
 function createTransfer(overrides: Partial<IWalletTransferRecord> = {}): IWalletTransferRecord {
   return {
@@ -63,7 +38,7 @@ function createTransaction(overrides: Partial<ITransactionRecord> = {}): ITransa
     accountAddress: walletAddress,
     submittedAtTime: new Date('2026-03-20T20:00:00Z'),
     submittedAtBlockHeight: 8,
-    submissionErrorJson: undefined,
+    submissionErrorJson: null,
     txTip: undefined,
     txFeePlusTip: undefined,
     blockHeight: undefined,
@@ -82,9 +57,8 @@ function createTransaction(overrides: Partial<ITransactionRecord> = {}): ITransa
 }
 
 describe('WalletActivity', () => {
-  it('uses matching transfers as primary activity rows', () => {
+  it('links a persisted transfer to its submitted transaction', () => {
     const [activity] = buildWalletActivity({
-      ledgerRecords: [createLedger()],
       transfers: [createTransfer()],
       transactions: [
         createTransaction({
@@ -100,34 +74,11 @@ describe('WalletActivity', () => {
     expect(activity.source).toBe('walletTransfer');
     expect(activity.activityType).toBe('transfer');
     expect(activity.amount).toBe(25n);
-    expect(activity.ledger?.id).toBe(1);
     expect(activity.transaction?.id).toBe(1);
   });
 
-  it('breaks ledger event groups into ledger activity when no transfer matches', () => {
-    const activities = buildWalletActivity({
-      ledgerRecords: [
-        createLedger({
-          extrinsicEventsJson: [
-            [2, { pallet: 'transactionPayment', method: 'TransactionFeePaid', data: {} }],
-            [3, { pallet: 'balances', method: 'Deposit', data: {} }],
-          ],
-        }),
-      ],
-      transfers: [],
-    });
-
-    expect(activities).toHaveLength(2);
-    expect(activities.map(x => x.activityType)).toEqual(['balanceChange', 'fee']);
-    expect(activities.every(x => x.microgonChange === undefined)).toBe(true);
-  });
-
-  it('keeps pending submitted transactions without ledger rows', () => {
-    const [activity] = buildWalletActivity({
-      ledgerRecords: [],
-      transfers: [],
-      transactions: [createTransaction()],
-    });
+  it('keeps pending submitted transactions without matching transfers', () => {
+    const [activity] = buildWalletActivity({ transfers: [], transactions: [createTransaction()] });
 
     expect(activity.source).toBe('submittedTransaction');
     expect(activity.blockNumber).toBe(8);

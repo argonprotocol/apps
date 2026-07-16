@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import BigNumber from 'bignumber.js';
+import { bigintCodec, numberCodec } from '../../core/__test__/helpers/codecs.ts';
 import { Currency, UnitOfMeasurement } from '../lib/Currency.ts';
 
 describe('Currency', () => {
@@ -74,6 +76,60 @@ describe('Currency', () => {
     await Promise.all([firstLoad, secondLoad]);
 
     expect(current).toHaveBeenCalledTimes(2);
+  });
+
+  it('values argonots at a fixed historical price', () => {
+    expect(Currency.convertMicronotToMicrogonAtPrice(1_500_000n, 2_000_000n)).toBe(3_000_000n);
+  });
+
+  it('calculates the argons minted to guarantee the mining floor', () => {
+    expect(
+      Currency.microgonsMintedForMiningFloor({
+        microgonsMined: 1_000_000n,
+        microgonsMinted: 0n,
+        micronotsMined: 1_000_000n,
+        argonotPrice: 2_000_000n,
+        microgonFloor: 5_000_000n,
+      }),
+    ).toBe(2_000_000n);
+  });
+
+  it('shares historical rate reads by block hash without changing current rates', async () => {
+    const option = {
+      isSome: true,
+      unwrap: () => ({
+        btcUsdPrice: bigintCodec(20_000_000_000_000_000_000n),
+        argonotUsdPrice: bigintCodec(4_000_000_000_000_000_000n),
+        argonUsdPrice: bigintCodec(2_000_000_000_000_000_000n),
+        argonUsdTargetPrice: bigintCodec(2_000_000_000_000_000_000n),
+        argonTimeWeightedAverageLiquidity: bigintCodec(0n),
+        tick: numberCodec(1),
+      }),
+    };
+    const current = vi.fn(async () => option);
+    const currency = new Currency(
+      { events: { on: vi.fn() } } as any,
+      { isLoadedPromise: Promise.resolve(), defaultCurrencyKey: UnitOfMeasurement.USD } as any,
+    );
+    currency.microgonsPer = {
+      ...currency.microgonsPer,
+      ARGNOT: 9n,
+      BTC: 8n,
+      USD: 7n,
+    };
+    currency.priceIndex.argonotUsdPrice = BigNumber(9);
+
+    const api = { query: { priceIndex: { current } } } as any;
+    const first = currency.fetchMainchainRatesAtBlock({ api, block: { blockHash: '0x01' } });
+    const second = currency.fetchMainchainRatesAtBlock({ api, block: { blockHash: '0x01' } });
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { ARGNOT: 2_000_000n, BTC: 10_000_000n, USD: 500_000n },
+      { ARGNOT: 2_000_000n, BTC: 10_000_000n, USD: 500_000n },
+    ]);
+    expect(current).toHaveBeenCalledOnce();
+    expect(currency.microgonsPer).toMatchObject({ ARGNOT: 9n, BTC: 8n, USD: 7n });
+    expect(currency.priceIndex.argonotUsdPrice?.toNumber()).toBe(9);
   });
 });
 

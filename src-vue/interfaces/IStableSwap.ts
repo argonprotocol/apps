@@ -64,9 +64,9 @@ export interface IStableSwapAddressSummary {
   watchedSinceBlockNumber?: number;
   capitalAppliedMicrogons: bigint;
   currentValueMicrogons: bigint;
-  currentProfitMicrogons: bigint;
-  returnPct: number;
-  purchaseCount: number;
+  purchasedNativeAmount: bigint;
+  hasHistoricalBasis: boolean;
+  startedAt?: Date;
 }
 
 export interface IStableSwapWalletSnapshot {
@@ -81,6 +81,7 @@ export type IStableSwapArgonPriceSnapshot = {
   argonBlockHash?: string;
   argonOraclePriceMicrogons?: bigint;
   argonOracleTargetPriceMicrogons?: bigint;
+  microgonsPerUsd?: bigint;
 };
 
 export type IStableSwapPurchaseBuildResult = Omit<IStableSwapPurchaseRow, 'id' | 'createdAt' | 'updatedAt'>;

@@ -22,8 +22,8 @@ import {
 import { getBitcoinLocks } from './bitcoin.ts';
 import { getServerApiClient } from './server.ts';
 import { getTransactionTracker } from './transactions.ts';
-import { useMyBonds } from './myBonds.ts';
-import { getStats } from './stats.ts';
+import { getArgonBonds } from './argonBonds.ts';
+import { getMyMiningSeats } from './myMiningSeats.ts';
 import { getMainchainClient } from './mainchain.ts';
 import { getMyVault } from './vaults.ts';
 import BootstrapToNode from '../overlays/operational/BootstrapToNode.vue';
@@ -148,9 +148,9 @@ export const useCertificationController = defineStore('certificationController',
   const dbPromise = getDbPromise();
   const config = getConfig();
   const bitcoinLocks = getBitcoinLocks();
-  const myBonds = useMyBonds();
+  const argonBonds = getArgonBonds();
   const myVault = getMyVault();
-  const stats = getStats();
+  const myMiningSeats = getMyMiningSeats();
   const transactionTracker = getTransactionTracker();
   const walletKeys = getWalletKeys();
   const wallets = useWallets();
@@ -288,8 +288,8 @@ export const useCertificationController = defineStore('certificationController',
       };
     }
 
-    const seatCount = stats.myMiningSeats.seatCount;
-    const activeBondMicrogons = myBonds.bondTotals.activeBondMicrogons;
+    const seatCount = myMiningSeats.activeSeats.seatCount;
+    const activeBondMicrogons = argonBonds.bondTotals.activeBondMicrogons;
 
     return {
       hasVault: Boolean(myVault.createdVault),
@@ -565,7 +565,7 @@ export const useCertificationController = defineStore('certificationController',
     void myVault.load().catch(error => {
       console.error('[Certification Controller] Unable to load vault progress.', error);
     });
-    void myBonds.load().catch(error => {
+    void argonBonds.load().catch(error => {
       console.error('[Certification Controller] Unable to load bond progress.', error);
     });
     // detect newly completed steps and queue completion notices
