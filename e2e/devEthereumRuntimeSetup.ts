@@ -9,8 +9,19 @@ import {
   MICROGONS_PER_ARGON,
   TxSubmitter,
 } from '@argonprotocol/mainchain';
-import { createPublicClient, getAddress, http, type Address, type Hex, type PublicClient } from 'viem';
+import {
+  createPublicClient,
+  encodeFunctionData,
+  erc20Abi,
+  getAddress,
+  http,
+  type Address,
+  type Hex,
+  type PublicClient,
+} from 'viem';
 import { waitForFinalizedBeaconExecutionAtOrAbove } from '../bot/src/EthereumBeaconSyncService.ts';
+
+export const DEV_ETHEREUM_TOKEN_RESERVE_RUNTIME_AMOUNT = 10_000n * BigInt(MICROGONS_PER_ARGON);
 
 // Measured in the mainchain deploy gas harness:
 // `yarn workspace @argonprotocol/ethereum-deploy gas:measure`
@@ -96,6 +107,73 @@ export async function ensureDevEthereumBeaconBootstrapped(
   });
 
   console.log(`[dev-ethereum] Beacon bootstrap completed successfully in ${Date.now() - startedAt}ms`);
+}
+
+export async function initializeDevEthereumTokenReserve(args: {
+  publicClient: Pick<PublicClient, 'readContract' | 'waitForTransactionReceipt'>;
+  gatewayAddress: Address;
+  argonTokenAddress: Address;
+  argonotTokenAddress: Address;
+  rootAccountAddress: Address;
+  ensureBacking: () => Promise<void>;
+  sendMigration: (data: Hex) => Promise<Hex>;
+}): Promise<void> {
+  const { publicClient, gatewayAddress, argonTokenAddress, argonotTokenAddress, rootAccountAddress } = args;
+  const reserveBaseUnits =
+    DEV_ETHEREUM_TOKEN_RESERVE_RUNTIME_AMOUNT * EvmContracts.MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE;
+
+  // The backing must be finalized on Argon before Ethereum exposes the migrated supply.
+  await args.ensureBacking();
+
+  const migrationCompleted = await publicClient.readContract({
+    address: gatewayAddress,
+    abi: EvmContracts.mintingGatewayAbi,
+    functionName: 'migrationCompleted',
+  });
+
+  if (!migrationCompleted) {
+    const hash = await args.sendMigration(
+      encodeFunctionData({
+        abi: EvmContracts.mintingGatewayAbi,
+        functionName: 'migrate',
+        args: [
+          {
+            recipients: [rootAccountAddress],
+            amounts: [reserveBaseUnits],
+          },
+          {
+            recipients: [rootAccountAddress],
+            amounts: [reserveBaseUnits],
+          },
+        ],
+      }),
+    );
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    if (receipt.status !== 'success') {
+      throw new Error(`Dev Ethereum token reserve migration failed: ${hash}`);
+    }
+  }
+
+  const [argonBalance, argonotBalance] = await Promise.all([
+    publicClient.readContract({
+      address: argonTokenAddress,
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [rootAccountAddress],
+    }),
+    publicClient.readContract({
+      address: argonotTokenAddress,
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [rootAccountAddress],
+    }),
+  ]);
+
+  if (argonBalance < reserveBaseUnits || argonotBalance < reserveBaseUnits) {
+    throw new Error(
+      `Dev Ethereum root reserve is below 10,000 tokens after migration (ARGN=${argonBalance}, ARGNOT=${argonotBalance}).`,
+    );
+  }
 }
 
 export async function loadDevEthereumActivationRepaymentPricing(args: {
