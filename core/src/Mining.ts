@@ -490,7 +490,7 @@ export class Mining {
     const microgonsPerBlockByCohort = await api.query.blockRewards.blockRewardsByCohort();
     for (const [cohortFrameActivationId, blockReward] of microgonsPerBlockByCohort) {
       if (cohortFrameActivationId.toNumber() === frameId) {
-        return this.getMiningRewardCut(blockReward.toBigInt());
+        return this.getMiningRewardCut(blockReward.toBigInt(), api);
       }
     }
     throw new Error(`No block reward found for cohort starting at frame ID ${frameId}`);
