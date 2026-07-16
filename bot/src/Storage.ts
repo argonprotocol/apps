@@ -174,6 +174,7 @@ export class Storage {
           seatCountWon: 0,
           allMinersCount: 0,
           microgonsBidTotal: 0n,
+          argonotPriceAtBid: 0n,
           transactionFeesByBlock: {},
           micronotsStakedPerSeat: 0n,
           microgonsToBeMinedPerBlock: 0n,

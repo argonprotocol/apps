@@ -17,7 +17,17 @@ export default tseslint.config(
   tseslint.configs.recommendedTypeChecked,
   importX.flatConfigs.recommended,
   importX.flatConfigs.typescript,
-  { ignores: ['**/node_modules/**', '**/lib/**/*.js', '**/target', 'e2e/scripts/**/*.mjs', 'vite.config.ts'] },
+  {
+    ignores: [
+      '**/node_modules/**',
+      '**/lib/**/*.js',
+      '**/target',
+      'e2e/dev-upstream/config/**',
+      'e2e/dev-upstream/data/**',
+      'e2e/scripts/**/*.mjs',
+      'vite.config.ts',
+    ],
+  },
   {
     plugins: {
       argon: argonRules,
