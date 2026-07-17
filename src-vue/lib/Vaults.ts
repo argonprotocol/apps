@@ -9,8 +9,18 @@ import { BaseDirectory, mkdir, readTextFile, rename, writeTextFile } from '@taur
 import { getMainchainClients } from '../stores/mainchain.ts';
 import { INSTANCE_NAME, NETWORK_NAME } from './Env.ts';
 
+export interface IVaultStatsStorage {
+  read(): Promise<string | null>;
+  write(data: string): Promise<void>;
+}
+
 export class Vaults extends VaultsBase {
-  constructor(network = NETWORK_NAME, currency: CurrencyBase, miningFrames: MiningFrames) {
+  constructor(
+    network = NETWORK_NAME,
+    currency: CurrencyBase,
+    miningFrames: MiningFrames,
+    private readonly statsStorage?: IVaultStatsStorage,
+  ) {
     const clients = getMainchainClients();
     super(network, currency, miningFrames, clients);
   }
@@ -27,13 +37,17 @@ export class Vaults extends VaultsBase {
   }
 
   protected async saveStats(): Promise<void> {
-    // Vitest integration runs in Node, so keep vault stats in memory instead of calling Tauri fs.
-    if (typeof window === 'undefined') return;
     if (!this.stats) return;
     if (this.isSavingStats) return;
+    if (!this.statsStorage && typeof window === 'undefined') return;
     this.isSavingStats = true;
     try {
       const statsJson = JsonExt.stringify(this.stats, 2);
+      if (this.statsStorage) {
+        await this.statsStorage.write(statsJson);
+        return;
+      }
+
       await mkdir(this.statsDirectory(), { baseDir: BaseDirectory.AppConfig, recursive: true }).catch(() => null);
       await writeTextFile(this.statsFile() + '.tmp', statsJson, {
         baseDir: BaseDirectory.AppConfig,
@@ -52,7 +66,12 @@ export class Vaults extends VaultsBase {
   }
 
   protected async loadStatsFromFile(): Promise<IAllVaultStats | void> {
+    if (this.statsStorage) {
+      const state = await this.statsStorage.read();
+      return state ? JsonExt.parse(state) : undefined;
+    }
     if (typeof window === 'undefined') return;
+
     console.log('load stats from file', this.statsFile());
     const state = await readTextFile(this.statsFile(), {
       baseDir: BaseDirectory.AppConfig,

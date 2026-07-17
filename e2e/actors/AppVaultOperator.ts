@@ -125,7 +125,13 @@ export class AppVaultOperator {
         },
       }),
     );
-    const vaults = new Vaults('dev-docker', currency, miningFrames);
+    let vaultStats: string | null = null;
+    const vaults = new Vaults('dev-docker', currency, miningFrames, {
+      read: async () => vaultStats,
+      write: async data => {
+        vaultStats = data;
+      },
+    });
     const myVault = new MyVault(
       dbPromise,
       vaults,
