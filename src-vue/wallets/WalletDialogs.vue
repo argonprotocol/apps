@@ -204,6 +204,9 @@ function getRequestedWallet(
   if (request.walletType === WalletType.defaultArgon) {
     return { walletType: WalletType.defaultArgon };
   }
+  if (request.walletType === WalletType.miningBot) {
+    return { walletType: WalletType.miningBot };
+  }
 
   const activeWalletRecord = walletStore.walletRecords.find(
     record => record.id === walletStore.activeEthereumWalletRecordId,
