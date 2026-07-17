@@ -150,15 +150,15 @@
             <button
               @click.stop="openRatchetingOverlay($event, lockSummary)"
               :class="[
-                lockSummary.hodlingReturn
+                lockSummary.ratchetPercent
                   ? 'bg-argon-600 border-argon-800 hover:bg-argon-700 text-white hover:shadow-lg'
                   : 'cursor-default border-slate-800/20 text-slate-600/40',
               ]"
               class="cursor-pointer rounded-md border px-2"
             >
-              <span v-if="lockSummary.hodlingReturn">
-                Ratchet {{ lockSummary.hodlingReturn > 0 ? '+' : ''
-                }}{{ numeral(lockSummary.hodlingReturn).format('0,0.[00]') }}%
+              <span v-if="lockSummary.ratchetPercent">
+                Ratchet {{ lockSummary.ratchetPercent > 0 ? '+' : ''
+                }}{{ numeral(lockSummary.ratchetPercent).format('0,0.[00]') }}%
               </span>
               <template v-else>Price Is at Par</template>
             </button>
@@ -243,7 +243,7 @@ function expirationDate(lock: IBitcoinLockRecord) {
 }
 
 function openRatchetingOverlay(event: MouseEvent, lock: IBitcoinLockSummary) {
-  if (!props.lockSummary.hodlingReturn) return;
+  if (!props.lockSummary.ratchetPercent) return;
   emit('ratchet', event, lock);
 }
 
