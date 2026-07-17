@@ -1,9 +1,8 @@
+import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-const fsState = vi.hoisted(() => ({
-  files: new Map<string, string>(),
-}));
 const runtimeState = {
   beaconPreset: 'minimal',
   enclaveName: 'argon-eth-test',
@@ -16,37 +15,6 @@ const runtimeState = {
   setupStatus: 'starting',
 } as const;
 
-vi.mock('node:fs/promises', () => ({
-  default: {
-    mkdir: vi.fn(async () => undefined),
-    readFile: vi.fn(async (filePath: string) => {
-      const contents = fsState.files.get(String(filePath));
-      if (contents !== undefined) {
-        return contents;
-      }
-
-      const error = new Error(`Missing file: ${String(filePath)}`) as NodeJS.ErrnoException;
-      error.code = 'ENOENT';
-      throw error;
-    }),
-    rename: vi.fn(async (sourcePath: string, destinationPath: string) => {
-      const contents = fsState.files.get(String(sourcePath));
-      if (contents === undefined) {
-        throw new Error(`Missing temporary file: ${String(sourcePath)}`);
-      }
-
-      fsState.files.set(String(destinationPath), contents);
-      fsState.files.delete(String(sourcePath));
-    }),
-    rm: vi.fn(async (filePath: string) => {
-      fsState.files.delete(String(filePath));
-    }),
-    writeFile: vi.fn(async (filePath: string, contents: string) => {
-      fsState.files.set(String(filePath), String(contents));
-    }),
-  },
-}));
-
 import {
   readDevEthereumRuntimeState,
   updateDevEthereumRuntimeState,
@@ -55,17 +23,20 @@ import {
 
 describe('dev Ethereum runtime state', () => {
   const previousRuntimeStateDir = process.env.ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR;
+  let runtimeStateDir: string;
 
-  beforeEach(() => {
-    fsState.files.clear();
+  beforeEach(async () => {
+    runtimeStateDir = await fs.mkdtemp(path.join(os.tmpdir(), 'argon-dev-ethereum-runtime-state-'));
+    process.env.ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR = runtimeStateDir;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     if (previousRuntimeStateDir === undefined) {
       delete process.env.ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR;
     } else {
       process.env.ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR = previousRuntimeStateDir;
     }
+    await fs.rm(runtimeStateDir, { recursive: true, force: true });
   });
 
   it('preserves concurrent setup and minting authority updates', async () => {
@@ -82,28 +53,24 @@ describe('dev Ethereum runtime state', () => {
       setupStatus: 'ready',
       mintingAuthorityStatus: 'ready',
     });
-    expect([...fsState.files.keys()].filter(filePath => filePath.endsWith('.tmp'))).toEqual([]);
+    expect((await fs.readdir(runtimeStateDir)).filter(filePath => filePath.endsWith('.tmp'))).toEqual([]);
   });
 
   it('stores state in the isolated test directory when configured', async () => {
-    const runtimeStateDir = path.resolve('/isolated/session/test-data/dev-ethereum');
-    process.env.ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR = runtimeStateDir;
-
     await writeDevEthereumRuntimeState(runtimeState);
 
-    expect([...fsState.files.keys()]).toHaveLength(2);
-    expect([...fsState.files.keys()].every(filePath => filePath.startsWith(`${runtimeStateDir}${path.sep}`))).toBe(
-      true,
-    );
+    const stateFiles = await fs.readdir(runtimeStateDir);
+    expect(stateFiles).toHaveLength(2);
+    expect(stateFiles).toContain('latest.json');
   });
 
   it('reads from the flow session directory instead of ambient process state', async () => {
-    const runtimeStateDir = path.resolve('/isolated/session/test-data/dev-ethereum');
-    process.env.ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR = path.resolve('/different/session/dev-ethereum');
-    const scopedStatePath = path.join(runtimeStateDir, 'http_127.0.0.1_32003.json');
-    fsState.files.set(scopedStatePath, JSON.stringify(runtimeState));
+    const flowRuntimeStateDir = path.join(runtimeStateDir, 'flow');
+    process.env.ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR = path.join(runtimeStateDir, 'ambient');
+    await fs.mkdir(flowRuntimeStateDir);
+    await fs.writeFile(path.join(flowRuntimeStateDir, 'http_127.0.0.1_32003.json'), JSON.stringify(runtimeState));
 
-    expect(await readDevEthereumRuntimeState(runtimeState.executionRpcUrl, runtimeStateDir)).toMatchObject(
+    expect(await readDevEthereumRuntimeState(runtimeState.executionRpcUrl, flowRuntimeStateDir)).toMatchObject(
       runtimeState,
     );
   });
