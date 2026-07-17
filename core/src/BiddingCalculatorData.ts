@@ -84,20 +84,14 @@ export default class BiddingCalculatorData {
           await this.miningFrames.waitForFrameId(biddingFrameId);
 
           let api = await this.miningFrames.blockWatch.getCurrentApi();
+          let biddingFrame = this.miningFrames.framesById[biddingFrameId];
 
           const nextFrameId = await this.mining.fetchNextFrameId(api);
           if (biddingFrameId !== nextFrameId - 1) {
             // need to go back to the start of the bidding frame
-            const frame = this.miningFrames.framesById[biddingFrameId];
-            const frameStartBlockHash = frame.firstBlockHash;
-            const frameStartBlockNumber = frame.firstBlockNumber;
-            if (!frameStartBlockHash || frameStartBlockNumber == null) {
-              throw new Error(`No starting block for frame ${biddingFrameId}`);
-            }
-            api = await this.miningFrames.clientAt({
-              blockHash: frameStartBlockHash,
-              blockNumber: frameStartBlockNumber,
-            });
+            const frameStart = await this.miningFrames.getFrameStart(biddingFrameId);
+            biddingFrame = frameStart.frame;
+            api = frameStart.api;
           }
 
           const currency = new Currency(mining.clients);
@@ -120,8 +114,7 @@ export default class BiddingCalculatorData {
           this.microgonsInCirculation = await currency.fetchMicrogonsInCirculation(api);
 
           const biddingFrameSpecVersion =
-            this.miningFrames.framesById[biddingFrameId]?.firstBlockSpecVersion ??
-            api.runtimeVersion.specVersion.toNumber();
+            biddingFrame?.firstBlockSpecVersion ?? api.runtimeVersion.specVersion.toNumber();
           this.currentMicronotsForBid = await mining.fetchCurrentMicronotsForBid(api);
           if (biddingFrameSpecVersion >= MINING_BID_COLLATERAL_MULTIPLE_SPEC_VERSION) {
             this.maximumMicronotsForBid = percentOf(this.currentMicronotsForBid, 120, true);

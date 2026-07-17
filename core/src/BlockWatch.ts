@@ -66,6 +66,8 @@ export class BlockWatch {
   private pendingRestart: { reason: string; source: ISubscriptionSource; delayMs?: number } | undefined;
   private isRestarting: boolean = false;
   private readonly failedRestartDelayMs = 2_500;
+  private archiveFinalityClient?: ArgonClient;
+  private archiveFinalizedBlockNumber = -1;
 
   constructor(
     public clients: MainchainClients,
@@ -172,12 +174,7 @@ export class BlockWatch {
           try {
             gap = await this.fillNewHeadGap(this.finalizedBlockHeader, announcedHeader);
           } catch (error) {
-            const message = String(error).toLowerCase();
-            const isUnreadableHead =
-              message.includes('unable to retrieve header and parent from supplied hash') ||
-              (message.includes('4003') &&
-                (message.includes('state already discarded') || message.includes('unknown block')));
-            if (!isUnreadableHead) {
+            if (!isUnreadableBlockError(error)) {
               throw error;
             }
 
@@ -455,7 +452,7 @@ export class BlockWatch {
           client,
           `getBestHeader(${finalizedNumber})`,
           selectedClient => selectedClient.rpc.chain.getHeader(),
-          { finalizedNumber },
+          { blockNumber: finalizedNumber, finalizedNumber },
         );
         // presume our old finalized is still valid, fill in the gap to the new best
         const bestTail = await this.fillNewHeadGap(this.finalizedBlockHeader, bestHeader);
@@ -538,7 +535,7 @@ export class BlockWatch {
     client: ArgonClient,
     label: string,
     query: (client: ArgonClient) => Promise<T>,
-    details: Record<string, unknown>,
+    details: Record<string, unknown> & { blockNumber: number },
   ): Promise<T> {
     try {
       return await this.runQueryWithTimeout(label, query(client));
@@ -552,11 +549,54 @@ export class BlockWatch {
         throw error;
       }
 
+      if (this.archiveFinalityClient !== archiveClient) {
+        this.archiveFinalityClient = archiveClient;
+        this.archiveFinalizedBlockNumber = -1;
+      }
+
+      const archiveDeadline = Date.now() + BlockWatch.queryTimeoutMs;
+      const runArchiveQuery = async <R>(archiveLabel: string, archiveQuery: () => Promise<R>): Promise<R> => {
+        const timeoutMs = archiveDeadline - Date.now();
+        if (timeoutMs <= 0) {
+          throw new Error(`[BlockWatch] Query timed out after ${BlockWatch.queryTimeoutMs}ms (${archiveLabel})`);
+        }
+        return await this.runQueryWithTimeout(archiveLabel, archiveQuery(), timeoutMs);
+      };
+
+      if (this.archiveFinalizedBlockNumber < details.blockNumber) {
+        try {
+          const archiveFinalizedHash = await runArchiveQuery(`${label}.archiveFinalizedHash`, () =>
+            archiveClient.rpc.chain.getFinalizedHead(),
+          );
+          const archiveFinalizedHeader = await runArchiveQuery(`${label}.archiveFinalizedHeader`, () =>
+            archiveClient.rpc.chain.getHeader(archiveFinalizedHash),
+          );
+          const finalizedBlockNumber = BlockWatch.readHeader(archiveFinalizedHeader, true).blockNumber;
+          this.archiveFinalizedBlockNumber = Math.max(this.archiveFinalizedBlockNumber, finalizedBlockNumber);
+        } catch (archiveError) {
+          console.warn(`[BlockWatch]: ${label} could not verify archive finality`, {
+            ...details,
+            error: String(error),
+            archiveError: String(archiveError),
+          });
+          throw error;
+        }
+      }
+
+      if (this.archiveFinalizedBlockNumber < details.blockNumber) {
+        console.warn(`[BlockWatch]: ${label} archive fallback is behind requested block`, {
+          ...details,
+          archiveFinalizedBlockNumber: this.archiveFinalizedBlockNumber,
+          error: String(error),
+        });
+        throw error;
+      }
+
       console.warn(`[BlockWatch]: ${label} failed on selected client, retrying on archive`, {
         ...details,
         error: String(error),
       });
-      return await this.runQueryWithTimeout(label, query(archiveClient));
+      return await runArchiveQuery(label, () => query(archiveClient));
     }
   }
 
@@ -564,9 +604,7 @@ export class BlockWatch {
     const message = String(error).toLowerCase();
     return (
       (message.includes('blockwatch') && message.includes('query timed out')) ||
-      (message.includes('4003') &&
-        (message.includes('state already discarded') || message.includes('unknown block'))) ||
-      message.includes('unable to retrieve header and parent from supplied hash') ||
+      isUnreadableBlockError(error) ||
       message.includes('websocket is not connected') ||
       message.includes('no response received from rpc endpoint') ||
       message.includes('abnormal closure') ||
@@ -575,12 +613,16 @@ export class BlockWatch {
     );
   }
 
-  private async runQueryWithTimeout<T>(label: string, promise: Promise<T>): Promise<T> {
+  private async runQueryWithTimeout<T>(
+    label: string,
+    promise: Promise<T>,
+    timeoutMs = BlockWatch.queryTimeoutMs,
+  ): Promise<T> {
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<never>((_, reject) => {
       timeoutHandle = setTimeout(() => {
-        reject(new Error(`[BlockWatch] Query timed out after ${BlockWatch.queryTimeoutMs}ms (${label})`));
-      }, BlockWatch.queryTimeoutMs);
+        reject(new Error(`[BlockWatch] Query timed out after ${timeoutMs}ms (${label})`));
+      }, timeoutMs);
     });
 
     try {
@@ -711,4 +753,12 @@ export class BlockWatch {
       isNewFrame: frameInfo?.isNewFrame,
     };
   }
+}
+
+export function isUnreadableBlockError(error: unknown): boolean {
+  const message = String(error).toLowerCase();
+  return (
+    message.includes('unable to retrieve header and parent from supplied hash') ||
+    (message.includes('4003') && (message.includes('state already discarded') || message.includes('unknown block')))
+  );
 }
