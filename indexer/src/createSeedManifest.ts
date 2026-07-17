@@ -114,7 +114,7 @@ for (const network of networks) {
       schemaVersion: schema.version,
       blockCount: blocks.count,
       accountBlockCount: accountBlocks.count,
-      caughtUp: seedState.blockNumber === targetBlockNumber,
+      caughtUp: seedState.blockNumber >= targetBlockNumber,
       targetBlockNumber,
       targetBlockHash,
     };

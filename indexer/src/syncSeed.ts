@@ -50,9 +50,6 @@ for (const seed of seeds.filter(seed => !requestedNetworks.size || requestedNetw
     if (indexer.coverageGap) {
       throw new Error(`Unable to complete ${seed.network} seed: ${indexer.coverageGap.reason}`);
     }
-    if (db.latestSyncedBlock > targetBlock) {
-      throw new Error(`Invalid ${seed.network} seed: indexed ${db.latestSyncedBlock}, target ${targetBlock}`);
-    }
 
     const checkpointBlock = db.latestSyncedBlock;
     const checkpointHash = (await client.rpc.chain.getBlockHash(checkpointBlock)).toHex();
@@ -71,11 +68,11 @@ for (const seed of seeds.filter(seed => !requestedNetworks.size || requestedNetw
       })}\n`,
     );
 
-    if (checkpointBlock !== targetBlock && !maxSyncMinutes) {
+    if (checkpointBlock < targetBlock && !maxSyncMinutes) {
       throw new Error(`Incomplete ${seed.network} seed: indexed ${db.latestSyncedBlock}, expected ${targetBlock}`);
     }
 
-    const result = checkpointBlock === targetBlock ? 'Completed' : 'Checkpointed';
+    const result = checkpointBlock >= targetBlock ? 'Completed' : 'Checkpointed';
     console.log(`${result} ${seed.network} seed at block ${checkpointBlock} of ${targetBlock}`);
   } finally {
     db.close();
