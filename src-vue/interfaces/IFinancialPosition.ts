@@ -9,7 +9,7 @@ import type { IFrameBidRecord } from './db/IFrameBidRecord.ts';
 import type { IVaultCapitalHistoryRecord } from '../lib/db/VaultCapitalHistoryTable.ts';
 import type { IVaultRevenueEventsRecord } from '../lib/db/VaultRevenueEventsTable.ts';
 
-export const financialGroups = ['liquid', 'ethereum', 'mining', 'vaulting', 'bonds', 'bitcoin'] as const;
+export const financialGroups = ['liquid', 'ethereum', 'base', 'mining', 'vaulting', 'bonds', 'bitcoin'] as const;
 
 export type FinancialGroup = (typeof financialGroups)[number];
 type FinancialGroupState = 'loading' | 'ready' | 'stale' | 'error';
@@ -53,7 +53,7 @@ export interface IWalletBalanceFinancialPosition extends IFinancialPositionBase 
   kind: 'wallet-balance';
   group: 'liquid';
   wallet: IWallet;
-  balanceType: 'transferable' | 'unattributed-hold' | 'external';
+  balanceType: 'transferable' | 'unattributed-hold';
   asset: string;
   accountId?: string;
   nativeAmount?: bigint;
@@ -75,6 +75,13 @@ export interface IEthereumWalletFinancialPosition extends IFinancialPositionBase
   wallet: IWallet;
   asset: string;
   nativeAmount?: bigint;
+}
+
+export interface IBaseWalletFinancialPosition extends IFinancialPositionBase {
+  kind: 'base-wallet-balance';
+  group: 'base';
+  wallet: IWallet;
+  asset: string;
 }
 
 export interface IMiningBidFinancialPosition extends IFinancialInvestmentPositionBase {
@@ -185,6 +192,7 @@ export type IFinancialInvestmentPosition =
 export type IFinancialPosition =
   | IWalletBalanceFinancialPosition
   | IEthereumWalletFinancialPosition
+  | IBaseWalletFinancialPosition
   | IMiningBalanceFinancialPosition
   | IVaultBalanceFinancialPosition
   | IFinancialInvestmentPosition
@@ -204,6 +212,7 @@ const financialGroupByPositionKind = {
   'wallet-balance': 'liquid',
   'wallet-holding': 'liquid',
   'ethereum-wallet-balance': 'ethereum',
+  'base-wallet-balance': 'base',
   'mining-balance': 'mining',
   'mining-bid': 'mining',
   'mining-cohort': 'mining',

@@ -52,7 +52,8 @@
                 v-if="group.isStale || group.returnSummary.availability !== 'available'"
                 class="text-xs font-normal text-slate-500"
               >
-                <span v-if="group.isStale" class="inline-flex items-center gap-1">
+                <span v-if="group.group === 'liquid' && !argonWalletHasReturnPosition">No return yet</span>
+                <span v-else-if="group.isStale" class="inline-flex items-center gap-1">
                   Stale
                   <Tooltip
                     as-child
@@ -81,7 +82,7 @@
               </div>
             </div>
             <div class="font-mono font-semibold text-slate-700">
-              {{ formatPercent(group.returnSummary.percent) }}
+              {{ group.group === 'liquid' && !argonWalletHasReturnPosition ? '0%' : formatPercent(group.returnSummary.percent) }}
             </div>
           </li>
 
@@ -130,11 +131,17 @@ defineExpose({
 const financials = useFinancials();
 const config = getConfig();
 const { financialPositionAggregate: aggregate, historyRecovery } = storeToRefs(financials);
+const argonWalletHasReturnPosition = Vue.computed(() => {
+  return aggregate.value.groupSummaries.liquid.positions.some(
+    position => position.kind === 'wallet-holding' && position.nativeAmount > 0n,
+  );
+});
 const returnGroups = Vue.computed(() => {
   if (!config.isLoaded) return [];
 
   return aggregate.value.groups.filter(group => {
     if (group.group === 'liquid') return true;
+    if (group.returnSummary.investmentPositionCount === 0) return false;
     if (group.group === 'mining' || group.group === 'vaulting') return config.hasExtensionOperations;
     if (group.group === 'ethereum') return config.hasActivatedStableSwaps;
     return config.hasExtensionTreasury;

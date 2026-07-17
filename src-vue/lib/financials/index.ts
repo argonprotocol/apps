@@ -279,6 +279,7 @@ export function calculatePositionReturn(
     if (
       position.kind === 'wallet-balance' ||
       position.kind === 'ethereum-wallet-balance' ||
+      position.kind === 'base-wallet-balance' ||
       position.kind === 'mining-balance' ||
       position.kind === 'vault-balance' ||
       position.kind === 'bitcoin-liability'

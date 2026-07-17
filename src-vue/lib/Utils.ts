@@ -33,6 +33,27 @@ export function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+export function logStartupTiming({
+  milestone,
+  startedAt,
+  details = {},
+}: {
+  milestone: string;
+  startedAt?: number;
+  details?: Record<string, unknown>;
+}): void {
+  if (IS_TEST) return;
+
+  const measuredAt = performance.now();
+  const timing: Record<string, unknown> = {
+    milestone,
+    sinceNavigationMs: Math.round(measuredAt),
+    ...details,
+  };
+  if (startedAt !== undefined) timing.durationMs = Math.round(measuredAt - startedAt);
+  console.info('[StartupTiming]', timing);
+}
+
 export function toSqlParams(
   params: (bigint | number | string | Uint8Array | Date | boolean | object | null | undefined)[],
 ): (string | number | Uint8Array | null | Date)[] {

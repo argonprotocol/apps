@@ -22,6 +22,7 @@ import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
 import { MoveCapital } from '../lib/MoveCapital.ts';
 import { getTransactionTracker } from './transactions.ts';
 import { WalletHistoryRecovery } from '../lib/recovery/WalletHistory.ts';
+import { logStartupTiming } from '../lib/Utils.ts';
 
 const DEFAULT_ETHEREUM_HD_PATH = "m/44'/60'/0'/0'/0'";
 const EXTERNAL_ETHEREUM_HD_PREFIX = "m/44'/60'/0'/0";
@@ -78,6 +79,7 @@ export const useWallets = defineStore('wallets', () => {
   const currency = getCurrency();
   const config = getConfig();
   const walletKeys = getWalletKeys();
+  const externalWalletBalanceCache = getDbPromise().then(db => db.externalWalletBalanceCacheTable);
 
   const isLoaded = Vue.ref(false);
   const { promise: isLoadedPromise, resolve: isLoadedResolve, reject: isLoadedReject } = createDeferred<void>();
@@ -85,7 +87,7 @@ export const useWallets = defineStore('wallets', () => {
   const walletsForArgon = getWalletsForArgon();
   let walletHistoryRecovery: WalletHistoryRecovery | undefined;
   const ethereumWalletLoaders = new Map<number, WalletForEthereum>();
-  const walletForBase = new WalletForBase(walletKeys.defaultEthereumAddress);
+  const walletForBase = new WalletForBase(walletKeys.defaultEthereumAddress, externalWalletBalanceCache);
   const walletRecords = Vue.ref<IWalletRecord[]>([]);
   const activeEthereumWalletRecordId = Vue.ref<number>();
 
@@ -338,6 +340,7 @@ export const useWallets = defineStore('wallets', () => {
   });
 
   async function load() {
+    const loadStartedAt = performance.now();
     for (let i = 0; i < 2; i++) {
       const attempt = i + 1;
       const attemptStartedAt = Date.now();
@@ -345,13 +348,8 @@ export const useWallets = defineStore('wallets', () => {
         await config.isLoadedPromise;
         await ensureWalletRecordsLoaded();
         walletHistoryRecovery ??= getWalletHistoryRecovery();
-        const activeEthereumWallet = await ensureActiveEthereumWallet();
 
-        const loadPromises: Promise<unknown>[] = [walletsForArgon.load(), walletForBase.load()];
-        if (activeEthereumWallet) {
-          loadPromises.push(activeEthereumWallet.load());
-        }
-        await Promise.all(loadPromises);
+        await walletsForArgon.load();
         queueWalletHistoryRecovery(
           walletsForArgon.finalizedBlock?.blockNumber ?? getBlockWatch().finalizedBlockHeader.blockNumber,
         );
@@ -372,6 +370,14 @@ export const useWallets = defineStore('wallets', () => {
         await Promise.all([myMiningSeats.isLoadedPromise, currency.isLoadedPromise]);
         isLoadedResolve();
         isLoaded.value = true;
+        logStartupTiming({
+          milestone: 'native-wallets-ready',
+          startedAt: loadStartedAt,
+          details: { attempt },
+        });
+        void loadExternalWallets().catch(error => {
+          console.error('Unable to load external wallet balances', error);
+        });
         return;
       } catch (error) {
         console.error(`[useWallets] Load attempt ${attempt} failed after ${Date.now() - attemptStartedAt}ms`, error);
@@ -414,7 +420,6 @@ export const useWallets = defineStore('wallets', () => {
       walletsForArgon.configureDefaultArgonWallet(defaultArgon.address);
     }
 
-    await seedLegacyDefaultEthereumIfNeeded();
     walletRecords.value = await db.walletsTable.fetchAll();
     const currentDefaultArgon = await db.walletsTable.getDefaultArgon();
     if (currentDefaultArgon) {
@@ -423,12 +428,10 @@ export const useWallets = defineStore('wallets', () => {
   }
 
   async function seedLegacyDefaultEthereumIfNeeded() {
-    const db = await getDbPromise();
-    const existingEthereumWallets = await db.walletsTable.fetchEthereumWallets();
-    if (existingEthereumWallets.length) return;
+    if (walletRecords.value.some(record => record.walletType === 'ethereum')) return;
     if (!walletKeys.defaultEthereumAddress) return;
 
-    const legacyWallet = new WalletForEthereum(walletKeys.defaultEthereumAddress);
+    const legacyWallet = new WalletForEthereum(walletKeys.defaultEthereumAddress, externalWalletBalanceCache);
     await legacyWallet.load().catch(error => {
       console.warn('Unable to inspect legacy default Ethereum wallet during wallet seeding', error);
     });
@@ -437,20 +440,54 @@ export const useWallets = defineStore('wallets', () => {
       legacyWallet.data.availableMicronots > 0n ||
       legacyWallet.data.otherTokens.some(token => token.value > 0n)
     ) {
-      await db.walletsTable.createDefaultEthereum({
+      const db = await getDbPromise();
+      return db.walletsTable.createDefaultEthereum({
         address: walletKeys.defaultEthereumAddress,
         derivationPath: DEFAULT_ETHEREUM_HD_PATH,
       });
     }
   }
 
-  async function ensureActiveEthereumWallet(preferredRecordId = activeEthereumWalletRecordId.value) {
-    const db = await getDbPromise();
-    const defaultEthereum = await db.walletsTable.getDefaultEthereum();
-    const ethereumWallets = await db.walletsTable.fetchEthereumWallets();
+  async function loadExternalWallets(): Promise<void> {
+    const externalLoadStartedAt = performance.now();
+    const ethereumLoad = (async () => {
+      const seededWallet = await seedLegacyDefaultEthereumIfNeeded();
+      if (seededWallet) {
+        const db = await getDbPromise();
+        walletRecords.value = await db.walletsTable.fetchAll();
+      }
+      const wallet = ensureActiveEthereumWallet();
+      await wallet?.load();
+      logStartupTiming({
+        milestone: 'ethereum-wallet-refresh-finished',
+        startedAt: externalLoadStartedAt,
+        details: {
+          hasWallet: !!wallet,
+          usedCache: !!wallet?.data.balanceIsCached,
+          error: wallet?.data.fetchErrorMsg || undefined,
+        },
+      });
+    })();
+    const baseLoad = walletForBase.load().then(() => {
+      logStartupTiming({
+        milestone: 'base-wallet-refresh-finished',
+        startedAt: externalLoadStartedAt,
+        details: {
+          usedCache: !!walletForBase.data.balanceIsCached,
+          error: walletForBase.data.fetchErrorMsg || undefined,
+        },
+      });
+    });
+
+    await Promise.all([baseLoad, ethereumLoad]);
+  }
+
+  function ensureActiveEthereumWallet(preferredRecordId = activeEthereumWalletRecordId.value) {
+    const ethereumWallets = walletRecords.value.filter(record => record.walletType === 'ethereum');
     const preferredEthereum = preferredRecordId
       ? ethereumWallets.find(record => record.id === preferredRecordId)
       : undefined;
+    const defaultEthereum = ethereumWallets.find(record => record.role === 'defaultEthereum');
     const activeEthereum = preferredEthereum ?? defaultEthereum ?? ethereumWallets[0];
     activeEthereumWalletRecordId.value = activeEthereum?.id;
     walletKeys.configureEthereumWallet(activeEthereum);
@@ -460,11 +497,11 @@ export const useWallets = defineStore('wallets', () => {
   async function refreshWalletRecords() {
     const db = await getDbPromise();
     walletRecords.value = await db.walletsTable.fetchAll();
-    await ensureActiveEthereumWallet();
+    ensureActiveEthereumWallet();
   }
 
   async function selectEthereumWalletRecord(recordId: number) {
-    const selectedWallet = await ensureActiveEthereumWallet(recordId);
+    const selectedWallet = ensureActiveEthereumWallet(recordId);
     await selectedWallet?.load();
   }
 
@@ -604,7 +641,7 @@ export const useWallets = defineStore('wallets', () => {
       return existingWallet;
     }
 
-    const wallet = new WalletForEthereum(record.address);
+    const wallet = new WalletForEthereum(record.address, externalWalletBalanceCache);
     wallet.data = Vue.reactive<IWallet>(wallet.data);
     ethereumWalletLoaders.set(record.id, wallet);
     return wallet;

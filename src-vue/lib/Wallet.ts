@@ -26,6 +26,8 @@ export type IWallet = {
   totalMicronots: bigint;
   otherTokens: IOtherToken[];
   fetchErrorMsg: string;
+  balanceUpdatedAt?: Date;
+  balanceIsCached?: boolean;
 };
 
 export enum WalletType {

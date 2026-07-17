@@ -42,6 +42,7 @@ import type { MyMiningSeats } from '../lib/MyMiningSeats.ts';
 import { useVaultingStats } from './vaultingStats.ts';
 import { getConfig } from './config.ts';
 import { useStableSwaps } from './stableSwaps.ts';
+import { logStartupTiming } from '../lib/Utils.ts';
 
 export const useFinancials = defineStore('financials', () => {
   const wallets = useWallets();
@@ -119,13 +120,20 @@ export const useFinancials = defineStore('financials', () => {
 
     const refresh = financialPositionBook.beginRefresh('liquid');
     const observedAt = new Date();
-    financialPositionBook.publish(refresh, [...walletPositions.value, ...wallets.baseFinancialPositions], {
+    financialPositionBook.publish(refresh, walletPositions.value, {
       ...walletObservation.value,
       observedAt,
     });
   }
 
   function publishEthereumWallet(): void {
+    if (!wallets.ethereumWallet.address) {
+      financialPositionBook.publish(financialPositionBook.beginRefresh('ethereum'), [], { observedAt: new Date() });
+      return;
+    }
+    if (!wallets.ethereumWallet.balanceUpdatedAt && !wallets.ethereumWallet.fetchErrorMsg) return;
+
+    const refresh = financialPositionBook.beginRefresh('ethereum');
     const positions: IFinancialPosition[] = [...wallets.ethereumFinancialPositions];
 
     if (config.hasActivatedStableSwaps && !wallets.ethereumWallet.fetchErrorMsg) {
@@ -141,9 +149,22 @@ export const useFinancials = defineStore('financials', () => {
       }
     }
 
-    financialPositionBook.publish(financialPositionBook.beginRefresh('ethereum'), positions, {
+    financialPositionBook.publish(refresh, positions, {
       observedAt: new Date(),
     });
+    if (wallets.ethereumWallet.balanceIsCached) {
+      financialPositionBook.fail(refresh, 'Refreshing cached Ethereum balances');
+    }
+  }
+
+  function publishBaseWallet(): void {
+    if (!wallets.baseWallet.balanceUpdatedAt && !wallets.baseWallet.fetchErrorMsg) return;
+
+    const refresh = financialPositionBook.beginRefresh('base');
+    financialPositionBook.publish(refresh, wallets.baseFinancialPositions, { observedAt: new Date() });
+    if (wallets.baseWallet.balanceIsCached) {
+      financialPositionBook.fail(refresh, 'Refreshing cached Base balances');
+    }
   }
 
   function getMyMiningSeatsSource() {
@@ -599,22 +620,16 @@ export const useFinancials = defineStore('financials', () => {
   );
 
   Vue.watch(
-    () => [wallets.ethereumWallet, wallets.baseWallet],
+    () => wallets.ethereumWallet,
     () => {
       if (!isLoaded.value) return;
-      publishLiquidHoldings();
       publishEthereumWallet();
     },
     { deep: true },
   );
 
   Vue.watch(
-    () => [
-      wallets.ethereumWallet.address,
-      wallets.ethereumWallet.availableMicrogons,
-      wallets.ethereumWallet.reservedMicrogons,
-      wallets.ethereumWallet.fetchErrorMsg,
-    ],
+    () => [wallets.ethereumWallet.address, wallets.ethereumWallet.availableMicrogons],
     ([address], [previousAddress]) => {
       if (!isLoaded.value) return;
       if (!config.hasActivatedStableSwaps) return;
@@ -623,11 +638,17 @@ export const useFinancials = defineStore('financials', () => {
         (!stableSwaps.marketSnapshot && wallets.ethereumWallet.availableMicrogons > 0n)
       ) {
         void refreshStableSwapPosition();
-        return;
       }
-
-      publishEthereumWallet();
     },
+  );
+
+  Vue.watch(
+    () => wallets.baseWallet,
+    () => {
+      if (!isLoaded.value) return;
+      publishBaseWallet();
+    },
+    { deep: true },
   );
 
   Vue.watch(
@@ -811,22 +832,38 @@ export const useFinancials = defineStore('financials', () => {
   }
 
   async function load() {
+    const loadStartedAt = performance.now();
     setFinancialScope();
     await config.isLoadedPromise;
+    const configReadyAt = performance.now();
     if (!config.walletAccountsHadPreviousLife) {
       hasConfirmedFinancialHistoryCoverage = true;
       historyRecovery.value = { state: 'ready', recoveredBlockCount: 0 };
     }
     await Promise.all([wallets.isLoadedPromise, currency.isLoadedPromise]);
+    const walletSourcesReadyAt = performance.now();
     setFinancialScope();
     await loadEnabledDomainSources();
+    const domainSourcesReadyAt = performance.now();
 
     if (!config.hasExtensionTreasury) {
       vaultsIsLoaded.value = true;
     }
     await refreshAccountSnapshot(getBlockWatch().finalizedBlockHeader);
+    const defaultArgonReadyAt = performance.now();
+    logStartupTiming({
+      milestone: 'default-argon-financials-ready',
+      startedAt: loadStartedAt,
+      details: {
+        configMs: Math.round(configReadyAt - loadStartedAt),
+        walletSourcesMs: Math.round(walletSourcesReadyAt - configReadyAt),
+        domainSourcesMs: Math.round(domainSourcesReadyAt - walletSourcesReadyAt),
+        accountSnapshotMs: Math.round(defaultArgonReadyAt - domainSourcesReadyAt),
+      },
+    });
     savingsIsLoaded.value = true;
-    await refreshStableSwapPosition();
+    publishBaseWallet();
+    void refreshStableSwapPosition();
     if (config.hasExtensionTreasury) startLockSummaryProgressRefresh();
 
     isLoaded.value = true;

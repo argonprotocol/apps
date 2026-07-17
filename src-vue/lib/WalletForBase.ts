@@ -4,33 +4,40 @@ import { fetch, NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-cor
 import { defaultWalletData, IOtherTokenDefinition, type IWallet } from './Wallet.ts';
 import { loadTokens } from './WalletForEthereum.ts';
 import type { Currency } from './Currency.ts';
-import { createFinancialPosition, type IWalletBalanceFinancialPosition } from '../interfaces/IFinancialPosition.ts';
+import { createFinancialPosition, type IBaseWalletFinancialPosition } from '../interfaces/IFinancialPosition.ts';
+import {
+  cacheExternalWalletBalances,
+  restoreCachedExternalWalletBalances,
+  type ExternalWalletBalanceCacheTable,
+} from './db/ExternalWalletBalanceCacheTable.ts';
 
 export class WalletForBase {
   public data: IWallet = {
     ...defaultWalletData,
   };
 
-  constructor(public readonly address: string) {
+  constructor(
+    public readonly address: string,
+    private readonly balanceCache?: Promise<ExternalWalletBalanceCacheTable>,
+  ) {
     this.data.address = address;
   }
 
-  public createFinancialPositions(currency: Currency): IWalletBalanceFinancialPosition[] {
+  public createFinancialPositions(currency: Currency): IBaseWalletFinancialPosition[] {
     const wallet = this.data;
-    if (wallet.fetchErrorMsg) {
+    if (wallet.fetchErrorMsg && !wallet.balanceIsCached) {
       return [
-        createFinancialPosition('wallet-balance', {
+        createFinancialPosition('base-wallet-balance', {
           id: `${wallet.address.toLowerCase()}:base:unavailable`,
           label: 'Base balances unavailable',
           lifecycle: 'unavailable',
           wallet,
-          balanceType: 'external',
           asset: 'base:unavailable',
         }),
       ];
     }
 
-    const positions: IWalletBalanceFinancialPosition[] = [];
+    const positions: IBaseWalletFinancialPosition[] = [];
     const hasStablecoinPrice =
       !!currency.priceIndex.argonUsdTargetPrice && !currency.priceIndex.argonUsdTargetPrice.isZero();
     for (const token of wallet.otherTokens) {
@@ -40,13 +47,12 @@ export class WalletForBase {
         token.unitOfMeasurement,
       );
       positions.push(
-        createFinancialPosition('wallet-balance', {
+        createFinancialPosition('base-wallet-balance', {
           id: `${wallet.address.toLowerCase()}:${token.chain}:${token.symbol}`,
           label: `Base ${token.symbol}`,
           lifecycle: 'available',
           currentValue: isStablecoin && hasStablecoinPrice ? currency.convertOtherToMicrogon(token) : undefined,
           wallet,
-          balanceType: 'external',
           asset: `${token.chain}:${token.symbol}`,
         }),
       );
@@ -55,6 +61,7 @@ export class WalletForBase {
   }
 
   public async load(): Promise<void> {
+    await restoreCachedExternalWalletBalances(this.balanceCache, 'base', this.data);
     const { baseNetwork } = NetworkConfig.get();
     const chain = getBaseChain(baseNetwork.chainId);
     const rpcUrl = baseNetwork.rpcUrl.trim();
@@ -62,6 +69,8 @@ export class WalletForBase {
     if (!rpcUrl || !chain) {
       this.data.fetchErrorMsg = '';
       this.data.otherTokens = [];
+      this.data.balanceUpdatedAt = new Date();
+      this.data.balanceIsCached = false;
       return;
     }
 
@@ -82,6 +91,9 @@ export class WalletForBase {
         getAddress(this.data.address),
         getTrackedBaseTokens(baseNetwork.usdcTokenAddress),
       );
+      this.data.balanceUpdatedAt = new Date();
+      this.data.balanceIsCached = false;
+      await cacheExternalWalletBalances(this.balanceCache, 'base', this.data);
     } catch (error) {
       console.error('Base wallet balance load failed', {
         address: this.address,
@@ -89,7 +101,7 @@ export class WalletForBase {
         error,
       });
       this.data.fetchErrorMsg = 'Unable to load Base token balances.';
-      this.data.otherTokens = [];
+      if (!this.data.balanceIsCached) this.data.otherTokens = [];
     }
   }
 }
