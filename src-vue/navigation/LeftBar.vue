@@ -71,7 +71,11 @@
               <div class="mr-1 w-6">
                 <BondIcon class="w-5.5 opacity-70" />
               </div>
-              <div class="grow">Argon<span class="opacity-50">/</span>ot Bonds</div>
+              <div class="grow">
+                Argon
+                <span class="opacity-50">/</span>
+                ot Bonds
+              </div>
               <div class="opacity-60">
                 {{ currency.symbol
                 }}{{
@@ -105,7 +109,7 @@
           <!--          </li>-->
           <li @click="goto(TopTab.StableSwaps)" :class="{ Selected: controller.selectedTab === TopTab.StableSwaps }">
             <article class="flex flex-row items-center">
-              <div class="w-6 mr-1">
+              <div class="mr-1 w-6">
                 <SwapIcon class="w-5.5 opacity-90" />
               </div>
               <div class="grow">Stable Swaps</div>
@@ -164,10 +168,12 @@
               </div>
               <div v-if="controller.selectedTab === TopTab.Mining" class="text-md -mb-1.5">
                 <div class="flex flex-row">
-                  <div class="flex grow flex-row items-center mt-0.5">
+                  <div class="mt-0.5 flex grow flex-row items-center">
                     <div class="Connector" />
                     <div class="flex grow flex-row items-center border-t border-slate-400/30">
-                      <div class="grow py-1 text-slate-600/80">{{ numeral(miningAssets.auctionBidCount).format('0,0') }} Current Bids</div>
+                      <div class="grow py-1 text-slate-600/80">
+                        {{ numeral(miningAssets.auctionBidCount).format('0,0') }} Current Bids
+                      </div>
                       <AuctionIcon class="w-5" />
                     </div>
                   </div>
@@ -176,7 +182,9 @@
                   <div class="flex grow flex-row items-center">
                     <div class="Connector" />
                     <div class="flex grow flex-row items-center border-t border-slate-400/30">
-                      <div class="grow py-1 text-slate-600/80">{{ numeral(miningAssets.seatActiveCount).format('0,0') }} Active Seats</div>
+                      <div class="grow py-1 text-slate-600/80">
+                        {{ numeral(miningAssets.seatActiveCount).format('0,0') }} Active Seats
+                      </div>
                       <ViewIcon class="w-5" />
                     </div>
                   </div>
@@ -216,11 +224,13 @@
               </div>
               <div v-if="controller.selectedTab === TopTab.Vaulting" class="text-md -mb-1.5">
                 <div class="flex flex-row">
-                  <div class="flex grow flex-row items-center mt-0.5">
+                  <div class="mt-0.5 flex grow flex-row items-center">
                     <div class="Connector" />
                     <div class="flex grow flex-row items-center border-t border-slate-400/30">
-                      <div class="grow py-1 text-slate-600/80">{{ microgonToArgonNm(vaultingAssets.securityMicrogons).format('0,0.[00]') }} Argons Securitized</div>
-                      <EditIcon class="w-5 opacity-60" />
+                      <div class="grow py-1 text-slate-600/80">
+                        {{ microgonToArgonNm(vaultingAssets.securityMicrogons).format('0,0.[00]') }} Argons Securitized
+                      </div>
+                      <EditIcon class="w-4.5 opacity-50" />
                     </div>
                   </div>
                 </div>
@@ -228,8 +238,10 @@
                   <div class="flex grow flex-row items-center">
                     <div class="Connector" />
                     <div class="flex grow flex-row items-center border-t border-slate-400/30">
-                      <div class="grow py-1 text-slate-600/80">{{ micronotToArgonotNm(vaultingAssets.securityMicronots).format('0,0.[00]') }} Argonots Staked</div>
-                      <EditIcon class="w-5 opacity-60" />
+                      <div class="grow py-1 text-slate-600/80">
+                        {{ micronotToArgonotNm(vaultingAssets.securityMicronots).format('0,0.[00]') }} Argonots Staked
+                      </div>
+                      <EditIcon class="w-4.5 opacity-50" />
                     </div>
                   </div>
                 </div>
@@ -243,6 +255,36 @@
                 guidance="Continue this certification task in Vaulting."
                 class="pointer-events-none absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
               />
+            </article>
+            <div Selector />
+          </li>
+          <li @click="goto(TopTab.Invites)" :class="{ Selected: controller.selectedTab === TopTab.Invites }">
+            <article class="relative flex flex-col">
+              <div class="relative flex flex-row items-center">
+                <div class="mr-1 w-6">
+                  <OnboardingIcon class="w-5.5 opacity-70" />
+                </div>
+                <div class="grow">Onboarding</div>
+                <div class="opacity-60">{{ currency.symbol }}0.00</div>
+              </div>
+              <div v-if="controller.selectedTab === TopTab.Invites" class="text-md -mb-1.5">
+                <div class="flex flex-row">
+                  <div class="mt-0.5 flex grow flex-row items-center">
+                    <div class="Connector" />
+                    <div class="flex grow flex-row items-center border-t border-slate-400/30">
+                      <div class="grow py-1 text-slate-600/80">0 Pending Invites</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="flex flex-row">
+                  <div class="flex grow flex-row items-center">
+                    <div class="Connector" />
+                    <div class="flex grow flex-row items-center border-t border-slate-400/30">
+                      <div class="grow py-1 text-slate-600/80">0 Active Members</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </article>
             <div Selector LastSelector />
           </li>
@@ -332,8 +374,8 @@
                 />
               </div>
               <div class="mx-auto mt-2 w-fit border-t border-slate-500/30 pt-2 text-center opacity-50">
-                {{ currency.symbol }}{{ microgonToMoneyNm(financials.savingsTotalPending).format('0,0.00') }} Is Tmp Locked
-                On Chain
+                {{ currency.symbol }}{{ microgonToMoneyNm(financials.savingsTotalPending).format('0,0.00') }} Is Waiting
+                to Mint
               </div>
             </div>
           </div>
@@ -382,7 +424,7 @@ import OverviewIcon from '../assets/overview.svg';
 import SwapIcon from '../assets/swap.svg';
 import VaultIcon from '../assets/vault-small.svg';
 import WorldNetworkIcon from '../assets/world-network.svg';
-import PeopleIcon from '../assets/people.svg';
+import OnboardingIcon from '../assets/onboarding.svg';
 
 const controller = useCertificationController();
 const bitcoinLockCoupons = getBitcoinLockCoupons();
@@ -504,7 +546,7 @@ ul li {
       content: '';
     }
     &:after {
-      @apply absolute bg-linear-to-r from-white to-transparent -top-px left-0 h-[calc(100%+2px)] w-[50%];
+      @apply absolute -top-px left-0 h-[calc(100%+2px)] w-[50%] bg-linear-to-r from-white to-transparent;
       content: '';
     }
     &[LastSelector] {
