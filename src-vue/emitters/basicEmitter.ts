@@ -9,6 +9,7 @@ export type IWalletGuidanceContext = 'mining' | 'vaulting';
 
 export type IWalletOverlayRequest = {
   walletType: WalletType.defaultArgon | WalletType.miningBot | WalletType.ethereum;
+  ethereumWalletRecordId?: number;
   showGuidance?: boolean;
   guidanceContext?: IWalletGuidanceContext;
 };

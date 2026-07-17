@@ -334,60 +334,22 @@
           <div class="absolute top-0 left-0 h-full w-5 rounded-bl-lg bg-linear-to-r from-slate-600/10 to-transparent" />
           <div class="flex flex-col justify-center pt-3 pr-3 pl-3">
             <header class="flex w-full flex-row items-center border-b border-slate-500/20">
-              <DropdownMenuRoot v-model:open="walletMenuIsOpen">
-                <DropdownMenuTrigger
-                  data-testid="LeftBar.walletMenu.open()"
-                  class="hover:text-argon-700 flex cursor-pointer items-center focus:outline-none"
-                >
-                  <span>{{ selectedWalletName }}</span>
-                  <ChevronDownIcon class="ml-1.5 w-4" />
-                </DropdownMenuTrigger>
-
-                <DropdownMenuPortal>
-                  <DropdownMenuContent
-                    align="start"
-                    side="top"
-                    :sideOffset="8"
-                    :style="walletMenuZIndex"
-                    class="bg-argon-menu-bg min-w-64 rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20"
-                  >
-                    <DropdownMenuItem
-                      v-for="wallet in walletSelections"
-                      :key="getWalletSelectionKey(wallet)"
-                      :data-testid="`LeftBar.walletMenu.select(${getWalletSelectionKey(wallet)})`"
-                      class="focus:bg-argon-menu-hover flex cursor-pointer items-center rounded px-3 py-2 focus:outline-none"
-                      @select="selectWallet(wallet)"
-                    >
-                      <CheckIcon
-                        class="mr-2 h-4 w-4 shrink-0"
-                        :class="getWalletSelectionKey(wallet) === selectedWalletKey ? 'visible' : 'invisible'"
-                      />
-                      <span class="min-w-0 grow">
-                        <strong class="block truncate text-slate-800">{{ getWalletName(wallet) }}</strong>
-                        <span class="block font-mono text-xs font-normal text-slate-500">
-                          {{ abbreviateAddress(getWalletAddress(wallet), 8) }}
-                        </span>
-                      </span>
-                    </DropdownMenuItem>
-                    <DropdownMenuArrow :width="18" :height="10" class="fill-white stroke-gray-300" />
-                  </DropdownMenuContent>
-                </DropdownMenuPortal>
-              </DropdownMenuRoot>
-              <div class="flex grow flex-row justify-end gap-x-3.5 pr-1">
-                <CopyToClipboard
-                  :content="selectedWalletData.address"
-                  :data-testid="selectedWalletAddressTestId"
-                  class="cursor-pointer"
-                >
-                  <CopyIcon class="h-4 opacity-80" />
-                  <template #copying>
-                    <CopyIcon class="h-4 opacity-100" />
-                  </template>
-                </CopyToClipboard>
-                <button type="button" class="cursor-pointer" @click="openSelectedWallet">
-                  <MoreIcon class="h-4 opacity-80" />
-                </button>
-              </div>
+              <WalletSelector
+                :selectedWallet="selectedWallet"
+                :walletSelections="walletSelections"
+                :getName="getWalletName"
+                testIdPrefix="LeftBar.walletMenu"
+                side="top"
+                class="hover:text-argon-700"
+                @select="selectWallet"
+              />
+              <WalletActions
+                :selection="selectedWallet"
+                :wallet="selectedWalletData"
+                :walletAddressTestId="selectedWalletAddressTestId"
+                :canExportPrivateKey="selectedWalletCanExportPrivateKey"
+                class="grow justify-end pr-1"
+              />
             </header>
             <div class="flex cursor-pointer flex-col justify-center py-7" @click="openSelectedWallet">
               <div class="text-argon-600/70 flex flex-row justify-center text-5xl font-bold">
@@ -437,19 +399,8 @@ import { useMiningAssetBreakdown } from '../stores/miningAssetBreakdown.ts';
 import { useVaultingAssetBreakdown } from '../stores/vaultingAssetBreakdown.ts';
 import type { FinancialGroup } from '../interfaces/IFinancialPosition.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
-import {
-  DropdownMenuArrow,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuPortal,
-  DropdownMenuRoot,
-  DropdownMenuTrigger,
-} from 'reka-ui';
-import { CheckIcon } from '@heroicons/vue/20/solid';
 import DiamondsIcon from '../assets/diamonds.svg?component';
-import { ChevronDownIcon } from '@heroicons/vue/24/outline';
 import MoreIcon from '../assets/more.svg';
-import CopyIcon from '../assets/copy.svg';
 import GiftIcon from '../assets/gift.svg';
 import EditIcon from '../assets/edit.svg';
 import BitcoinIcon from '../assets/wallets/bitcoin.svg';
@@ -463,15 +414,14 @@ import VaultIcon from '../assets/vault-small.svg';
 import WorldNetworkIcon from '../assets/world-network.svg';
 import OnboardingIcon from '../assets/onboarding.svg';
 import ExternalIcon from '../assets/external.svg';
-import CopyToClipboard from '../components/CopyToClipboard.vue';
-import { abbreviateAddress } from '../lib/Utils.ts';
 import {
   getAvailableWalletSelections,
   getWalletSelectionKey,
   isEthereumWalletSelection,
   type IWalletSelection,
 } from '../wallets/walletOverlayState.ts';
-import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
+import WalletSelector from '../wallets/components/WalletSelector.vue';
+import WalletActions from '../wallets/components/WalletActions.vue';
 
 const controller = useCertificationController();
 const bitcoinLockCoupons = getBitcoinLockCoupons();
@@ -481,13 +431,10 @@ const currency = getCurrency();
 const financials = useFinancials();
 const miningAssets = useMiningAssetBreakdown();
 const vaultingAssets = useVaultingAssetBreakdown();
-const walletMenuZIndex = useFloatingZIndex();
-
 const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm, micronotToMoneyNm, satToMoneyNm } =
   createNumeralHelpers(currency);
 
 const showOperationsNavigationCallouts = Vue.ref(false);
-const walletMenuIsOpen = Vue.ref(false);
 const selectedWallet = Vue.ref<IWalletSelection>({ walletType: WalletType.defaultArgon });
 const selectedWalletIsRefreshing = Vue.ref(false);
 
@@ -504,8 +451,12 @@ const selectedWalletData = Vue.computed<IWallet>(() => {
     : wallets.defaultArgonWallet;
 });
 
-const selectedWalletName = Vue.computed(() => getWalletName(selectedWallet.value));
 const selectedWalletKey = Vue.computed(() => getWalletSelectionKey(selectedWallet.value));
+const selectedWalletCanExportPrivateKey = Vue.computed(() => {
+  return (
+    isEthereumWalletSelection(selectedWallet.value) && selectedWallet.value.walletRecord.role === 'defaultEthereum'
+  );
+});
 const selectedWalletAddressTestId = Vue.computed(() => {
   return `LeftBar.${selectedWalletKey.value}Address`;
 });
@@ -530,7 +481,6 @@ const selectedWalletBalance = Vue.computed(() => {
 
 async function selectWallet(wallet: IWalletSelection) {
   selectedWallet.value = wallet;
-  walletMenuIsOpen.value = false;
   if (!isEthereumWalletSelection(wallet)) return;
 
   selectedWalletIsRefreshing.value = true;
@@ -542,19 +492,20 @@ async function selectWallet(wallet: IWalletSelection) {
 }
 
 function openSelectedWallet() {
+  if (isEthereumWalletSelection(selectedWallet.value)) {
+    basicEmitter.emit('openWalletOverlay', {
+      walletType: WalletType.ethereum,
+      ethereumWalletRecordId: selectedWallet.value.walletRecord.id,
+    });
+    return;
+  }
+
   basicEmitter.emit('openWalletOverlay', { walletType: selectedWallet.value.walletType });
 }
 
 function getWalletName(wallet: IWalletSelection): string {
   if (isEthereumWalletSelection(wallet)) return wallet.walletRecord.name;
   return wallet.walletType === WalletType.miningBot ? 'Mining Bot Wallet' : 'Argon Wallet';
-}
-
-function getWalletAddress(wallet: IWalletSelection): string {
-  if (isEthereumWalletSelection(wallet)) return wallet.walletRecord.address;
-  return wallet.walletType === WalletType.miningBot
-    ? wallets.miningBotWallet.address
-    : wallets.defaultArgonWallet.address;
 }
 
 function formatFinancialGroupValue(group: FinancialGroup): string {

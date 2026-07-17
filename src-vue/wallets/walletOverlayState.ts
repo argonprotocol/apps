@@ -57,6 +57,25 @@ export function closeWalletOverlaySide(state: IWalletOverlayState, side: 'left' 
   return state.leftWallet ? { leftWallet: state.leftWallet } : {};
 }
 
+export function selectWalletOverlaySide(
+  state: IWalletOverlayState,
+  side: 'left' | 'right',
+  wallet: IWalletSelection,
+): IWalletOverlayState {
+  const walletKey = getWalletSelectionKey(wallet);
+  if (side === 'left') {
+    if (state.rightWallet && getWalletSelectionKey(state.rightWallet) === walletKey) {
+      return { leftWallet: wallet };
+    }
+    return state.rightWallet ? { leftWallet: wallet, rightWallet: state.rightWallet } : { leftWallet: wallet };
+  }
+
+  if (state.leftWallet && getWalletSelectionKey(state.leftWallet) === walletKey) {
+    return { rightWallet: wallet };
+  }
+  return state.leftWallet ? { leftWallet: state.leftWallet, rightWallet: wallet } : { rightWallet: wallet };
+}
+
 export function getWalletSelectionKey(wallet: IWalletSelection): string {
   if (wallet.walletType === WalletType.ethereum) {
     return `ethereum:${wallet.walletRecord.id}`;

@@ -4,12 +4,20 @@
       <div class="text-7xl font-bold">
         <FormattedMoney :isLoaded="walletValueIsLoaded" :value="walletTotalValue" />
       </div>
-      <div
-        v-if="props.selection.walletType === WalletType.defaultArgon"
-        class="mx-auto mt-2 w-fit border-t border-slate-500/30 pt-2 text-sm opacity-50"
-      >
-        Includes {{ currency.symbol }}{{ microgonToMoneyNm(financials.savingsTotalPending).format('0,0.00') }} waiting
-        to mint
+      <div class="mt-2 h-[29px] shrink-0">
+        <div
+          v-if="props.selection.walletType === WalletType.defaultArgon"
+          class="mx-auto w-fit border-t border-slate-500/30 pt-2 text-sm opacity-50"
+        >
+          Includes {{ currency.symbol }}{{ microgonToMoneyNm(financials.savingsTotalPending).format('0,0.00') }} waiting
+          to mint
+        </div>
+        <div
+          v-else-if="props.selection.walletType === WalletType.ethereum"
+          class="mx-auto w-fit border-t border-slate-500/30 pt-2 text-sm opacity-50"
+        >
+          {{ currency.symbol }}{{ microgonToMoneyNm(nonNativeTokenValue).format('0,0.00') }} non-native tokens
+        </div>
       </div>
     </div>
 
@@ -82,5 +90,8 @@ const walletValueIsLoaded = Vue.computed(() => {
 const walletTotalValue = Vue.computed(() => {
   if (props.selection.walletType === WalletType.defaultArgon) return financials.savingsTotalValue;
   return getWalletTotalValue(props.wallet, currency);
+});
+const nonNativeTokenValue = Vue.computed(() => {
+  return props.wallet.otherTokens.reduce((total, token) => total + currency.convertOtherToMicrogon(token), 0n);
 });
 </script>

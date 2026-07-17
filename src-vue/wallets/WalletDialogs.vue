@@ -3,6 +3,7 @@
     v-if="openWallet"
     :rightWallet="openWallet.rightWallet"
     :leftWallet="openWallet.leftWallet"
+    :walletSelections="walletSelections"
     :availableWallets="availableWallets"
     :canAddDefaultEthereum="canAddDefaultEthereum"
     :showGuidance="openWallet.showGuidance"
@@ -48,6 +49,7 @@ import {
   getInitialWalletOverlayState,
   getWalletSelectionKey,
   isEthereumWalletSelection,
+  selectWalletOverlaySide,
   type IWalletOverlayState,
   type IWalletSelection,
 } from './walletOverlayState.ts';
@@ -65,6 +67,10 @@ const openWallet = Vue.ref<IOpenWallet>();
 const pendingEthereumWalletAction = Vue.ref<
   { type: 'open'; request: IWalletOverlayRequest } | { type: 'select'; side: 'left' | 'right' }
 >();
+
+const walletSelections = Vue.computed(() => {
+  return getAvailableWalletSelections(walletStore.walletRecords, [], config.hasExtensionOperations);
+});
 
 const availableWallets = Vue.computed(() => {
   if (!openWallet.value) return [];
@@ -96,11 +102,9 @@ async function selectWallet(side: 'left' | 'right', wallet: IWalletSelection) {
     await walletStore.selectEthereumWalletRecord(wallet.walletRecord.id);
   }
 
-  if (side === 'left') {
-    openWallet.value.leftWallet = wallet;
-  } else {
-    openWallet.value.rightWallet = wallet;
-  }
+  const nextState = selectWalletOverlaySide(openWallet.value, side, wallet);
+  openWallet.value.leftWallet = nextState.leftWallet;
+  openWallet.value.rightWallet = nextState.rightWallet;
 
   await syncActiveEthereumWallet();
 }
@@ -211,8 +215,12 @@ function getRequestedWallet(
   const activeWalletRecord = walletStore.walletRecords.find(
     record => record.id === walletStore.activeEthereumWalletRecordId,
   );
+  const requestedWalletRecord = walletStore.walletRecords.find(
+    record => record.walletType === 'ethereum' && record.id === request.ethereumWalletRecordId,
+  );
   const walletRecord =
     ethereumWalletRecord ??
+    requestedWalletRecord ??
     activeWalletRecord ??
     walletStore.walletRecords.find(record => record.walletType === 'ethereum');
   return walletRecord ? { walletType: WalletType.ethereum, walletRecord } : undefined;
