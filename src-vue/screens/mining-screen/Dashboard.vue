@@ -1,7 +1,7 @@
 <!-- prettier-ignore -->
 <template>
   <TooltipProvider :disableHoverableContent="true" class="flex flex-col h-full">
-    <div data-testid="MiningDashboard" :class="stats.isLoaded ? '' : 'opacity-30 pointer-events-none'" class="flex flex-col h-full px-2.5 py-2.5 gap-y-2 justify-stretch grow">
+    <div data-testid="MiningDashboard" :class="stats.isLoaded ? '' : 'opacity-30 pointer-events-none'" class="flex flex-col h-full pr-2.5 gap-y-2 justify-stretch grow">
       <span data-testid="TotalBlocksMined" :data-value="totalBlocksMined" class="sr-only">{{ totalBlocksMined }}</span>
 
       <section class="flex flex-row gap-x-2 h-[14%]">
@@ -72,44 +72,9 @@
       </section>
 
       <section class="flex flex-row gap-x-2.5 grow">
-        <div box class="flex flex-col w-[22.5%] px-2">
-          <header class="flex flex-row items-center px-1 border-b border-slate-400/30 pt-2 pb-3 text-[18px] font-bold text-slate-900/80">
-            <div class="grow">Mining Assets</div>
-            <CopyAddressMenu :walletType="WalletType.defaultArgon" class="mr-1" />
-            <AssetMenu :walletType="WalletType.defaultArgon" />
-          </header>
-          <MiningAssetBreakdown />
-          <div class="grow border-t border-slate-600/40 flex flex-col items-center justify-center">
-            <a target="_blank" href="https://argon.network/docs/mining-operations" class="flex flex-row items-center text-center text-argon-600/60! hover:text-argon-600! cursor-pointer">
-              <div>Learn About Mining</div>
-              <ArrowTopRightOnSquareIcon class="w-5 ml-2" />
-            </a>
-          </div>
-          <div class="flex flex-row items-end border-t border-slate-600/20 pt-2 text-md">
-            <div @click="openPortfolioPanel(PortfolioTab.ProfitAnalysis)" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
-              <RoiIcon class="w-6 h-6 mt-2 inline-block mb-2" />
-              <div>Profits</div>
-            </div>
-            <div class="w-px h-full bg-slate-600/20" />
-            <div @click="openPortfolioPanel(PortfolioTab.GrowthProjections)" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
-              <ProjectionsIcon class="w-6 h-6 mt-2 inline-block mb-2" />
-              <div>Projections</div>
-            </div>
-            <div class="w-px h-full bg-slate-600/20" />
-            <div @click="openBotEditOverlay" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
-              <ConfigIcon class="w-6 h-6 mt-2 inline-block mb-2" />
-              <div>Settings</div>
-            </div>
-          </div>
-        </div>
-
         <div class="flex flex-col grow gap-y-2">
           <section box class="flex flex-col grow text-center px-2">
-            <header class="flex flex-row justify-between text-xl font-bold py-2 text-slate-900/80 border-b border-slate-400/30 select-none">
-              <div @click="goToPrevFrame" :class="hasPrevFrame ? 'opacity-60' : 'opacity-20 pointer-events-none'" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
-                <ChevronLeftIcon class="w-6 h-6 opacity-50 mx-1 group-hover:opacity-80" />
-                PREV
-              </div>
+            <header class="flex flex-row justify-between text-xl font-bold py-2 px-2 text-slate-900/80 border-b border-slate-400/30 select-none">
               <span class="flex flex-row items-center" :title="'Frame #' + currentFrame.id">
                 <span>{{ currentFrameStartDate }} to {{ currentFrameEndDate }}</span>
                 <span v-if="stats.selectedFrameId > stats.latestFrameId - 10" class="inline-block rounded-full bg-green-500/80 w-2.5 h-2.5 ml-2"></span>
@@ -119,12 +84,18 @@
                   Updating
                 </span>
               </span>
-              <div v-if="currentFrame.progress >= 100" @click="goToNextFrame" class="flex flex-row opacity-60 items-center font-light text-base cursor-pointer group hover:opacity-80">
-                NEXT
-                <ChevronRightIcon class="w-6 h-6 opacity-50 mx-1 group-hover:opacity-80" />
-              </div>
-              <div v-else class="flex flex-row opacity-60 items-center font-light text-base group px-2">
-                {{ numeral(currentFrame.progress).format('0.0') }}%
+              <div class="flex flex-row items-center gap-x-3">
+                <button @click="openBotEditOverlay" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
+                  Settings
+                </button>
+                <div class="w-px h-8/12 bg-slate-600/30" />
+                <button class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
+                  Bidding Bot
+                </button>
+                <div class="w-px h-8/12 bg-slate-600/30" />
+                <button class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
+                  Active Seats
+                </button>
               </div>
             </header>
             <div class="relative flex flex-col h-full grow" :aria-busy="isFrameDetailLoading">

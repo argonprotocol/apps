@@ -78,23 +78,26 @@
       <section class="flex flex-row gap-x-2.5 grow">
         <div class="flex min-h-0 flex-col grow gap-y-2">
           <section box class="flex min-h-0 flex-col grow px-2 text-center">
-            <header class="flex flex-row justify-between text-xl font-bold py-2 text-slate-900/80 border-b border-slate-400/30 select-none">
+            <header class="flex flex-row justify-between text-xl font-bold py-2 px-2 text-slate-900/80 border-b border-slate-400/30 select-none">
               <span class="flex flex-row items-center" :title="'Frame #' + currentFrame.id">
                 <span>{{ currentFrameStartDate }} to {{ currentFrameEndDate }}</span>
                 <span v-if="currentFrameIsActive" class="inline-block rounded-full bg-green-500/80 w-2.5 h-2.5 ml-2"></span>
               </span>
-              <div class="flex flex-row items-center divide-x gap-x-2">
+              <div class="flex flex-row items-center gap-x-3">
                 <button @click="openVaultEditOverlay" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
                   Settings
                 </button>
+                <div class="w-px h-8/12 bg-slate-600/30" />
                 <button class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
                   Securitization
                 </button>
+                <div class="w-px h-8/12 bg-slate-600/30" />
                 <button class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
                   Staking
                 </button>
+                <div class="w-px h-8/12 bg-slate-600/30" />
                 <button @click="openNetworkTab" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
-                  Members
+                  Users
                 </button>
               </div>
             </header>

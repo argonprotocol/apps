@@ -174,7 +174,7 @@
                       <div class="grow py-1 text-slate-600/80">
                         {{ numeral(miningAssets.auctionBidCount).format('0,0') }} Current Bids
                       </div>
-                      <AuctionIcon class="w-5" />
+                      <ExternalIcon class="w-3.5 opacity-50" />
                     </div>
                   </div>
                 </div>
@@ -185,7 +185,7 @@
                       <div class="grow py-1 text-slate-600/80">
                         {{ numeral(miningAssets.seatActiveCount).format('0,0') }} Active Seats
                       </div>
-                      <ViewIcon class="w-5" />
+                      <ExternalIcon class="w-3.5 opacity-50" />
                     </div>
                   </div>
                 </div>
@@ -214,8 +214,8 @@
           >
             <article class="flex flex-col">
               <div class="relative flex flex-row items-center">
-                <div class="mr-1 w-6">
-                  <VaultIcon class="relative w-5.5 opacity-70" />
+                <div class="mr-1 w-6 text-center">
+                  <VaultIcon class="relative inline-block w-5.5 opacity-90" />
                 </div>
                 <div class="grow">Vaulting</div>
                 <div class="opacity-60">
@@ -230,7 +230,7 @@
                       <div class="grow py-1 text-slate-600/80">
                         {{ microgonToArgonNm(vaultingAssets.securityMicrogons).format('0,0.[00]') }} Argons Securitized
                       </div>
-                      <EditIcon class="w-4.5 opacity-50" />
+                      <ExternalIcon class="w-3.5 opacity-50" />
                     </div>
                   </div>
                 </div>
@@ -241,7 +241,7 @@
                       <div class="grow py-1 text-slate-600/80">
                         {{ micronotToArgonotNm(vaultingAssets.securityMicronots).format('0,0.[00]') }} Argonots Staked
                       </div>
-                      <EditIcon class="w-4.5 opacity-50" />
+                      <ExternalIcon class="w-3.5 opacity-50" />
                     </div>
                   </div>
                 </div>
@@ -273,6 +273,7 @@
                     <div class="Connector" />
                     <div class="flex grow flex-row items-center border-t border-slate-400/30">
                       <div class="grow py-1 text-slate-600/80">0 Pending Invites</div>
+                      <ExternalIcon class="w-3.5 opacity-50" />
                     </div>
                   </div>
                 </div>
@@ -281,6 +282,7 @@
                     <div class="Connector" />
                     <div class="flex grow flex-row items-center border-t border-slate-400/30">
                       <div class="grow py-1 text-slate-600/80">0 Active Members</div>
+                      <ExternalIcon class="w-3.5 opacity-50" />
                     </div>
                   </div>
                 </div>
@@ -425,6 +427,7 @@ import SwapIcon from '../assets/swap.svg';
 import VaultIcon from '../assets/vault-small.svg';
 import WorldNetworkIcon from '../assets/world-network.svg';
 import OnboardingIcon from '../assets/onboarding.svg';
+import ExternalIcon from '../assets/external.svg';
 
 const controller = useCertificationController();
 const bitcoinLockCoupons = getBitcoinLockCoupons();
