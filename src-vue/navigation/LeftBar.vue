@@ -330,36 +330,44 @@
         <div
           class="border-argon-400 absolute -top-5 -left-px h-5 w-2.5 rounded-l-full border border-t-transparent border-r-transparent"
         />
-        <div
-          @click="openDefaultArgonWallet"
-          class="bg-argon-100/20 hover:bg-argon-100/30 h-full w-full cursor-pointer"
-          style="text-shadow: 1px 1px 0 white"
-        >
+        <div class="bg-argon-100/20 h-full w-full" style="text-shadow: 1px 1px 0 white">
           <div class="absolute top-0 left-0 h-full w-5 rounded-bl-lg bg-linear-to-r from-slate-600/10 to-transparent" />
           <div class="flex flex-col justify-center pt-3 pr-3 pl-3">
             <header class="flex w-full flex-row items-center border-b border-slate-500/20">
-              <div>Argon Wallet</div>
-              <ChevronDownIcon class="ml-1.5 w-4" />
-              <div class="flex grow flex-row justify-end gap-x-3.5 pr-1">
-                <button type="button" class="cursor-pointer" @click="openDefaultArgonWallet">
-                  <CopyIcon class="h-4 opacity-80" />
-                </button>
-                <button type="button" class="cursor-pointer" @click="openDefaultArgonWallet">
-                  <MoreIcon class="h-4 opacity-80" />
-                </button>
-              </div>
+              <WalletSelector
+                :selectedWallet="selectedWallet"
+                :walletSelections="walletSelections"
+                :getName="getWalletName"
+                testIdPrefix="LeftBar.walletMenu"
+                side="top"
+                class="hover:text-argon-700"
+                @select="selectWallet"
+              />
+              <WalletActions
+                :selection="selectedWallet"
+                :wallet="selectedWalletData"
+                :walletAddressTestId="selectedWalletAddressTestId"
+                :canExportPrivateKey="selectedWalletCanExportPrivateKey"
+                class="grow justify-end pr-1"
+              />
             </header>
-            <div class="flex flex-col justify-center py-7">
+            <div class="flex cursor-pointer flex-col justify-center py-7" @click="openSelectedWallet">
               <div class="text-argon-600/70 flex flex-row justify-center text-5xl font-bold">
                 <span>{{ currency.symbol }}</span>
-                <FormattedMoney :isLoaded="financials.savingsIsLoaded" :value="financials.savingsTotalValue" />
+                <FormattedMoney :isLoaded="selectedWalletBalanceIsLoaded" :value="selectedWalletBalance" />
               </div>
               <div
-                v-if="financials.savingsTotalPending"
+                v-if="selectedWallet.walletType === WalletType.defaultArgon"
                 class="mx-auto mt-2 w-fit border-t border-slate-500/30 pt-2 text-center opacity-50"
               >
-                {{ currency.symbol }}{{ microgonToMoneyNm(financials.savingsTotalPending).format('0,0.00') }} Is Waiting
-                to Mint
+                Includes {{ currency.symbol
+                }}{{ microgonToMoneyNm(financials.savingsTotalPending).format('0,0.00') }} waiting to mint
+              </div>
+              <div
+                v-else-if="isEthereumWalletSelection(selectedWallet)"
+                class="mx-auto mt-2 flex w-fit gap-x-2 border-t border-slate-500/30 pt-2 text-center opacity-50"
+              >
+                {{ currency.symbol }}{{ microgonToMoneyNm(selectedOtherTokenValue).format('0,0.00') }} non-native tokens
               </div>
             </div>
           </div>
@@ -380,9 +388,8 @@ import {
 import { getConfig } from '../stores/config.ts';
 import FormattedMoney from '../components/FormattedMoney.vue';
 import { getBitcoinLockCoupons } from '../stores/bitcoin.ts';
-import WalletsMenu from './WalletsMenu.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
-import { WalletType } from '../lib/Wallet.ts';
+import { getWalletTotalValue, type IWallet, WalletType } from '../lib/Wallet.ts';
 import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
 import { useWallets } from '../stores/wallets.ts';
 import { getCurrency } from '../stores/currency.ts';
@@ -393,9 +400,7 @@ import { useVaultingAssetBreakdown } from '../stores/vaultingAssetBreakdown.ts';
 import type { FinancialGroup } from '../interfaces/IFinancialPosition.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import DiamondsIcon from '../assets/diamonds.svg?component';
-import { ChevronDownIcon } from '@heroicons/vue/24/outline';
 import MoreIcon from '../assets/more.svg';
-import CopyIcon from '../assets/copy.svg';
 import GiftIcon from '../assets/gift.svg';
 import EditIcon from '../assets/edit.svg';
 import BitcoinIcon from '../assets/wallets/bitcoin.svg';
@@ -409,6 +414,14 @@ import VaultIcon from '../assets/vault-small.svg';
 import WorldNetworkIcon from '../assets/world-network.svg';
 import OnboardingIcon from '../assets/onboarding.svg';
 import ExternalIcon from '../assets/external.svg';
+import {
+  getAvailableWalletSelections,
+  getWalletSelectionKey,
+  isEthereumWalletSelection,
+  type IWalletSelection,
+} from '../wallets/walletOverlayState.ts';
+import WalletSelector from '../wallets/components/WalletSelector.vue';
+import WalletActions from '../wallets/components/WalletActions.vue';
 
 const controller = useCertificationController();
 const bitcoinLockCoupons = getBitcoinLockCoupons();
@@ -418,11 +431,82 @@ const currency = getCurrency();
 const financials = useFinancials();
 const miningAssets = useMiningAssetBreakdown();
 const vaultingAssets = useVaultingAssetBreakdown();
-
 const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm, micronotToMoneyNm, satToMoneyNm } =
   createNumeralHelpers(currency);
 
 const showOperationsNavigationCallouts = Vue.ref(false);
+const selectedWallet = Vue.ref<IWalletSelection>({ walletType: WalletType.defaultArgon });
+const selectedWalletIsRefreshing = Vue.ref(false);
+
+const walletSelections = Vue.computed(() => {
+  return getAvailableWalletSelections(wallets.walletRecords, [], config.hasExtensionOperations);
+});
+
+const selectedWalletData = Vue.computed<IWallet>(() => {
+  if (isEthereumWalletSelection(selectedWallet.value)) {
+    return wallets.getEthereumWalletRecord(selectedWallet.value.walletRecord.id);
+  }
+  return selectedWallet.value.walletType === WalletType.miningBot
+    ? wallets.miningBotWallet
+    : wallets.defaultArgonWallet;
+});
+
+const selectedWalletKey = Vue.computed(() => getWalletSelectionKey(selectedWallet.value));
+const selectedWalletCanExportPrivateKey = Vue.computed(() => {
+  return (
+    isEthereumWalletSelection(selectedWallet.value) && selectedWallet.value.walletRecord.role === 'defaultEthereum'
+  );
+});
+const selectedWalletAddressTestId = Vue.computed(() => {
+  return `LeftBar.${selectedWalletKey.value}Address`;
+});
+const selectedWalletBalanceIsLoaded = Vue.computed(() => {
+  if (selectedWalletIsRefreshing.value) return false;
+  if (selectedWallet.value.walletType === WalletType.defaultArgon) return financials.savingsIsLoaded;
+  return wallets.isLoaded;
+});
+const selectedOtherTokenValue = Vue.computed(() => {
+  return selectedWalletData.value.otherTokens.reduce((total, token) => {
+    return total + currency.convertOtherToMicrogon(token);
+  }, 0n);
+});
+const selectedWalletBalance = Vue.computed(() => {
+  if (selectedWallet.value.walletType === WalletType.defaultArgon) {
+    return financials.savingsTotalValue;
+  }
+
+  const wallet = selectedWalletData.value;
+  return getWalletTotalValue(wallet, currency);
+});
+
+async function selectWallet(wallet: IWalletSelection) {
+  selectedWallet.value = wallet;
+  if (!isEthereumWalletSelection(wallet)) return;
+
+  selectedWalletIsRefreshing.value = true;
+  try {
+    await wallets.selectEthereumWalletRecord(wallet.walletRecord.id);
+  } finally {
+    selectedWalletIsRefreshing.value = false;
+  }
+}
+
+function openSelectedWallet() {
+  if (isEthereumWalletSelection(selectedWallet.value)) {
+    basicEmitter.emit('openWalletOverlay', {
+      walletType: WalletType.ethereum,
+      ethereumWalletRecordId: selectedWallet.value.walletRecord.id,
+    });
+    return;
+  }
+
+  basicEmitter.emit('openWalletOverlay', { walletType: selectedWallet.value.walletType });
+}
+
+function getWalletName(wallet: IWalletSelection): string {
+  if (isEthereumWalletSelection(wallet)) return wallet.walletRecord.name;
+  return wallet.walletType === WalletType.miningBot ? 'Mining Bot Wallet' : 'Argon Wallet';
+}
 
 function formatFinancialGroupValue(group: FinancialGroup): string {
   const summary = financials.financialPositionAggregate.groupSummaries[group];

@@ -42,12 +42,13 @@
             >
               <NavHeader
                 v-if="props.leftWallet"
-                :walletType="props.leftWallet.walletType"
+                :selection="props.leftWallet"
+                :walletSelections="props.walletSelections"
                 :wallet="getWallet(props.leftWallet)"
-                :name="getWalletSelectionName(props.leftWallet)"
                 :canExportPrivateKey="canExportEthereumPrivateKey(props.leftWallet)"
                 :showClose="true"
                 closeSide="left"
+                @select="emit('selectLeftWallet', $event)"
                 @close="emit('closeLeft')"
               />
               <header v-else class="grow px-2 text-left text-xl font-bold text-slate-600">Choose a Wallet</header>
@@ -96,12 +97,13 @@
             >
               <NavHeader
                 v-if="props.rightWallet"
-                :walletType="props.rightWallet.walletType"
+                :selection="props.rightWallet"
+                :walletSelections="props.walletSelections"
                 :wallet="getWallet(props.rightWallet)"
-                :name="getWalletSelectionName(props.rightWallet)"
                 :canExportPrivateKey="canExportEthereumPrivateKey(props.rightWallet)"
                 :showClose="true"
                 closeSide="right"
+                @select="emit('selectRightWallet', $event)"
                 @close="emit('closeRight')"
               />
               <header v-else class="grow px-2 text-left text-xl font-bold text-slate-600">Choose a Wallet</header>
@@ -194,6 +196,7 @@ const props = withDefaults(
   defineProps<{
     leftWallet?: IWalletSelection;
     rightWallet?: IWalletSelection;
+    walletSelections: IWalletSelection[];
     availableWallets: IWalletSelection[];
     canAddDefaultEthereum: boolean;
     showGuidance?: boolean;

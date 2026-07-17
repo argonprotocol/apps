@@ -8,7 +8,8 @@ import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 export type IWalletGuidanceContext = 'mining' | 'vaulting';
 
 export type IWalletOverlayRequest = {
-  walletType: WalletType.defaultArgon | WalletType.ethereum;
+  walletType: WalletType.defaultArgon | WalletType.miningBot | WalletType.ethereum;
+  ethereumWalletRecordId?: number;
   showGuidance?: boolean;
   guidanceContext?: IWalletGuidanceContext;
 };

@@ -81,7 +81,7 @@
               <div class="grow">{{ wallet.name }}</div>
               <ExtraMenu
                 v-if="!wallet.isPlaceholder && !hasOpenedWallet"
-                :walletType="wallet.type"
+                :selection="getWalletSelection(wallet)"
                 :wallet="wallet.wallet"
                 :showBorders="false"
                 @click.stop
@@ -118,6 +118,7 @@ import numeral from '../lib/numeral.ts';
 import ExtraMenu from '../wallets/components/ExtraMenu.vue';
 import { useWallets } from '../stores/wallets.ts';
 import type { IWalletRecord as IDbWalletRecord } from '../lib/db/WalletsTable.ts';
+import type { IWalletSelection } from '../wallets/walletOverlayState.ts';
 
 const financials = useFinancials();
 const wallets = useWallets();
@@ -350,6 +351,13 @@ function reorderDraggedWallet() {
 
 function openEthereumChoice() {
   basicEmitter.emit('openEthereumWalletImportOverlay', 'choice');
+}
+
+function getWalletSelection(wallet: IWalletRecord): IWalletSelection {
+  if (wallet.record?.walletType === 'ethereum') {
+    return { walletType: WalletType.ethereum, walletRecord: wallet.record };
+  }
+  return { walletType: WalletType.defaultArgon };
 }
 
 Vue.onUnmounted(() => {

@@ -1,5 +1,6 @@
 import { UnitOfMeasurement } from '@argonprotocol/apps-core';
 import type { Address } from 'viem';
+import type { Currency } from './Currency.ts';
 
 type IOtherChain = 'ethereum' | 'base';
 
@@ -47,3 +48,11 @@ export const defaultWalletData: IWallet = {
   otherTokens: [],
   fetchErrorMsg: '',
 };
+
+export function getWalletTotalValue(wallet: IWallet, currency: Currency): bigint {
+  const micronotValue = currency.convertMicronotTo(wallet.totalMicronots, UnitOfMeasurement.Microgon);
+  const otherTokenValue = wallet.otherTokens.reduce((total, token) => {
+    return total + currency.convertOtherToMicrogon(token);
+  }, 0n);
+  return wallet.totalMicrogons + micronotValue + otherTokenValue;
+}

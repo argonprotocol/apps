@@ -8,6 +8,7 @@ import {
   getInitialWalletOverlayState,
   getWalletSelectionKey,
   getWalletSelectionName,
+  selectWalletOverlaySide,
   type IWalletOverlayState,
   WALLET_JUMP_LABEL,
 } from '../wallets/walletOverlayState.ts';
@@ -85,6 +86,15 @@ describe('wallet overlay state', () => {
   it('swaps source and recipient', () => {
     expect(flipWalletOverlay(openPair)).toEqual({
       leftWallet: openPair.rightWallet,
+      rightWallet: openPair.leftWallet,
+    });
+  });
+
+  it('closes the opposite panel when selecting its wallet', () => {
+    expect(selectWalletOverlaySide(openPair, 'left', openPair.rightWallet)).toEqual({
+      leftWallet: openPair.rightWallet,
+    });
+    expect(selectWalletOverlaySide(openPair, 'right', openPair.leftWallet)).toEqual({
       rightWallet: openPair.leftWallet,
     });
   });

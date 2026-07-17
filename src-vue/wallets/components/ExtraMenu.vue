@@ -4,13 +4,23 @@
     <DropdownMenuRoot :openDelay="0" :closeDelay="0" v-model:open="isOpen">
       <DropdownMenuTrigger
         Trigger
-        :data-testid="walletAddressTestId ? `${walletAddressTestId}.openMenu()` : undefined"
-        class="group relative flex  cursor-pointer flex-col items-center justify-center gap-y-[2px] rounded-md text-slate-400 hover:bg-slate-400/10 hover:text-slate-500 focus:outline-none data-[state=open]:bg-slate-400/10 data-[state=open]:text-slate-500"
-        :class="[showBorders ? 'h-[34px] w-[34px] border border-slate-400/60' : 'h-[22px] w-[22px]']"
+        :data-testid="props.testIdPrefix ? `${props.testIdPrefix}.openMenu()` : undefined"
+        class="focus:outline-none"
+        :class="
+          $slots.trigger
+            ? 'cursor-pointer'
+            : [
+                'group relative flex cursor-pointer flex-col items-center justify-center gap-y-[2px] rounded-md text-slate-400 hover:bg-slate-400/10 hover:text-slate-500 data-[state=open]:bg-slate-400/10 data-[state=open]:text-slate-500',
+                props.showBorders ? 'h-[34px] w-[34px] border border-slate-400/60' : 'h-[22px] w-[22px]',
+              ]
+        "
       >
-        <span class="h-1 w-1 rounded-full bg-current" />
-        <span class="h-1 w-1 rounded-full bg-current" />
-        <span class="h-1 w-1 rounded-full bg-current" />
+        <slot v-if="$slots.trigger" name="trigger" />
+        <template v-else>
+          <span class="h-1 w-1 rounded-full bg-current" />
+          <span class="h-1 w-1 rounded-full bg-current" />
+          <span class="h-1 w-1 rounded-full bg-current" />
+        </template>
       </DropdownMenuTrigger>
 
       <DropdownMenuPortal>
@@ -26,7 +36,7 @@
         >
           <div class="bg-argon-menu-bg flex min-w-66 shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
             <template v-if="!props.walletIsOpen">
-              <DropdownMenuItem MenuItem @click="() => openWallet(walletType)">
+              <DropdownMenuItem MenuItem @click="openWallet">
                 <div ItemWrapper>
                   <header>Open Wallet Overlay</header>
                   <WindowIcon class="w-4 h-4" />
@@ -34,24 +44,6 @@
               </DropdownMenuItem>
               <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             </template>
-            <DropdownMenuItem MenuItem>
-              <CopyToClipboard
-                :data-testid="walletAddressTestId"
-                :content="wallet.address"
-              >
-                <div ItemWrapper>
-                  <header>Copy Wallet Address</header>
-                  <CopyIcon class="w-4 h-4" />
-                </div>
-                <template #copying>
-                  <div ItemWrapper class="absolute top-0 left-0 w-full h-full">
-                    <header>Copy Wallet Address</header>
-                    <CopyIcon class="w-4 h-4" />
-                  </div>
-                </template>
-              </CopyToClipboard>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             <DropdownMenuItem MenuItem @select="toggleQRCode" >
               <div ItemWrapper>
                 <header>View Wallet QR Code</header>
@@ -75,11 +67,12 @@
                 </div>
               </DropdownMenuItem>
             </template>
-            <template v-if="walletType !== WalletType.defaultArgon">
+            <template v-if="props.selection.walletType !== WalletType.defaultArgon">
               <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
               <DropdownMenuItem MenuItem @click="() => disconnectWallet()">
                 <div ItemWrapper>
                   <header>Disconnect Wallet from App</header>
+                  <LinkSlashIcon class="h-4 w-4" />
                 </div>
               </DropdownMenuItem>
             </template>
@@ -105,18 +98,18 @@ import {
 import type { PointerDownOutsideEvent } from 'reka-ui';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { WalletType } from '../../lib/Wallet.ts';
-import { KeyIcon, WindowIcon, QrCodeIcon, ShieldCheckIcon } from '@heroicons/vue/24/outline';
-import CopyIcon from '../../assets/copy.svg';
+import { KeyIcon, LinkSlashIcon, WindowIcon, QrCodeIcon, ShieldCheckIcon } from '@heroicons/vue/24/outline';
 import QRCode from 'qrcode';
-import CopyToClipboard from '../../components/CopyToClipboard.vue';
 import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
+import { isEthereumWalletSelection, type IWalletSelection } from '../walletOverlayState.ts';
 
 const props = withDefaults(
   defineProps<{
+    selection: IWalletSelection;
     wallet: { address: string };
-    walletType: WalletType;
     walletIsOpen?: boolean;
     canExportPrivateKey?: boolean;
+    testIdPrefix?: string;
     showBorders?: boolean;
   }>(),
   {
@@ -129,10 +122,6 @@ const props = withDefaults(
 const rootRef = Vue.ref<HTMLElement>();
 const isOpen = Vue.ref(false);
 const floatingZIndex = useFloatingZIndex();
-const walletAddressTestId = Vue.computed(() =>
-  props.walletIsOpen && props.walletType === WalletType.defaultArgon ? 'defaultArgonWalletAddress' : undefined,
-);
-
 const showQrCode = Vue.ref(false);
 const qrCode = Vue.ref('');
 
@@ -167,8 +156,16 @@ function openEthereumPrivateKeyExport() {
   basicEmitter.emit('openSecuritySettingsOverlay', { screen: 'ethereum-export' });
 }
 
-function openWallet(walletType: WalletType) {
-  basicEmitter.emit('openWalletOverlay', { walletType: walletType as any });
+function openWallet() {
+  if (isEthereumWalletSelection(props.selection)) {
+    basicEmitter.emit('openWalletOverlay', {
+      walletType: WalletType.ethereum,
+      ethereumWalletRecordId: props.selection.walletRecord.id,
+    });
+    return;
+  }
+
+  basicEmitter.emit('openWalletOverlay', { walletType: props.selection.walletType });
 }
 
 function openProfileOverlay(): void {
