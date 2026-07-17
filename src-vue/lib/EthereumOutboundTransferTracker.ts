@@ -54,7 +54,7 @@ type IEthereumOutboundTransferClient = Pick<
 > &
   Partial<Pick<EthereumClient, 'estimateLikelyFinalizeTransferOutOfArgonFee'>>;
 
-type ICrosschainTransferOutMetadata = {
+export type ICrosschainTransferOutMetadata = {
   actionType: 'transferOutToEthereum';
   localTransferId: string;
   moveToken: IEthereumMoveToken;

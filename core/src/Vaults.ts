@@ -472,7 +472,7 @@ export class Vaults {
         mainnet: mainnetVaultRevenueHistory,
       }[this.network]! ?? {};
 
-    const stats: (typeof this)['stats'] = { synchedToFrame, vaultsById: {} };
+    const stats: (typeof this)['stats'] = { synchedToFrame: synchedToFrame ?? 0, vaultsById: {} };
     for (const [vaultId, entry] of Object.entries(vaultsById ?? {})) {
       const { changesByFrame, openedTick, baseline } = entry;
       const id = parseInt(vaultId, 10);

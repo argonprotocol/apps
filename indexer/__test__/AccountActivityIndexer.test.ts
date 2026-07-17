@@ -135,6 +135,32 @@ it('keeps draining after a transient sync error', async () => {
   }
 });
 
+it('starts syncing when the first finalized block arrives after genesis startup', async () => {
+  const directory = fs.mkdtempSync(Path.join(os.tmpdir(), 'activity-genesis-start-'));
+  const db = new IndexerDb(Path.join(directory, 'test.db'));
+  const runtime = eventApi(156, new Map([['0x01', []]]), ['0x01']);
+  const runtimeClient = activityClient({
+    latestBlock: 0,
+    specVersions: new Map([['0x01', 156]]),
+    apis: new Map([['0x00', runtime.api]]),
+  });
+  const readHeader = vi.spyOn(BlockWatch, 'readHeader').mockReturnValueOnce(header(0)).mockReturnValueOnce(header(1));
+  const indexer = new AccountActivityIndexer(db);
+
+  try {
+    await indexer.start(runtimeClient.client);
+    const finalizedHeadListener = vi.mocked(runtimeClient.client.rpc.chain.subscribeFinalizedHeads).mock.calls[0][0];
+    finalizedHeadListener({} as never);
+    await indexer.close({ drain: true });
+
+    expect(db.latestSyncedBlock).toBe(1);
+  } finally {
+    readHeader.mockRestore();
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 function transferEvent(from: string, to: string): GenericEvent {
   return {
     section: 'balances',

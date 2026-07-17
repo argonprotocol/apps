@@ -33,6 +33,15 @@ export type IArgonBondFrame = {
   globalBonds: number;
 } & IVaultArgonBondState['currentFrame'];
 
+export type IBuyVaultBondMetadata = {
+  vaultId: number;
+  bondPurchaseMicrogons: bigint;
+};
+
+export type IBuyArgonotBondMetadata = {
+  bondPurchaseMicronots: bigint;
+};
+
 type IVaultBondSubscription = {
   vaultId: number;
   operatorAddress: string;
@@ -53,6 +62,7 @@ export class ArgonBonds {
   };
 
   private blockSubscription?: VoidFunction;
+  private finalizedHistorySubscription?: VoidFunction;
   private loadPromise?: Promise<void>;
   private isGlobalSubscribed = false;
   private readonly vaultSubscriptionArgs = new Map<number, IVaultBondSubscription>();
@@ -66,7 +76,13 @@ export class ArgonBonds {
     private readonly walletKeys: WalletKeys,
     private readonly transactionTracker: TransactionTracker,
   ) {
-    this.historyRecovery = new ArgonBondsRecovery({ dbPromise, currency, miningFrames, walletKeys });
+    this.historyRecovery = new ArgonBondsRecovery({
+      dbPromise,
+      currency,
+      miningFrames,
+      walletKeys,
+      transactionTracker,
+    });
   }
 
   public get completedBondHistory(): IBondLotHistoryRecord[] {
@@ -107,6 +123,12 @@ export class ArgonBonds {
 
       this.ensureBlockSubscription();
       this.data.isLoaded = true;
+      void this.historyRecovery
+        .repairLocalPurchases()
+        .then(async didRepair => {
+          if (didRepair) await this.refreshHistory();
+        })
+        .catch(error => console.warn('[ArgonBonds] Unable to restore purchase history from local transactions', error));
     })().catch(error => {
       this.loadPromise = undefined;
       throw error;
@@ -121,15 +143,35 @@ export class ArgonBonds {
     this.setDisplayVaultId(this.config.upstreamOperator?.vaultId ?? this.data.vaultId);
   }
 
-  public async saveBondPurchase(info: TransactionInfo): Promise<void> {
-    await this.transactionTracker.ensureStoredEvents(info);
-    await this.recordFinalizedPurchase(info);
-    await Promise.all([this.refreshHistory(), this.refreshBondLots()]);
+  public saveBondPurchase(info: TransactionInfo): void {
+    if (!info.isPostProcessed) return;
+    const postProcessor = info.createPostProcessor();
+    void (async () => {
+      try {
+        await this.transactionTracker.ensureStoredEvents(info);
+        await this.recordFinalizedPurchase(info);
+        await Promise.all([this.refreshHistory(), this.refreshBondLots()]);
+        postProcessor.resolve();
+      } catch (error) {
+        console.error('Unable to save finalized bond purchase history', error);
+        postProcessor.reject(error as Error);
+      }
+    })();
   }
 
-  public async saveBondLiquidation(lotAtSubmission: BondLot, info: TransactionInfo): Promise<void> {
-    await this.recordFinalizedLiquidation(lotAtSubmission, info);
-    await Promise.all([this.refreshHistory(), this.refreshBondLots()]);
+  public saveBondLiquidation(lotAtSubmission: BondLot, info: TransactionInfo): void {
+    if (!info.isPostProcessed) return;
+    const postProcessor = info.createPostProcessor();
+    void (async () => {
+      try {
+        await this.recordFinalizedLiquidation(lotAtSubmission, info);
+        await Promise.all([this.refreshHistory(), this.refreshBondLots()]);
+        postProcessor.resolve();
+      } catch (error) {
+        console.error('Unable to save finalized bond liquidation history', error);
+        postProcessor.reject(error as Error);
+      }
+    })();
   }
 
   public async refreshHistory(): Promise<void> {
@@ -203,6 +245,22 @@ export class ArgonBonds {
     this.blockSubscription ??= this.miningFrames.blockWatch.events.on('best-blocks', blocks => {
       void this.onNewBestBlocks(blocks).catch(error => console.error('Error refreshing Argon bonds', error));
     });
+    this.finalizedHistorySubscription ??= this.miningFrames.blockWatch.events.on('finalized', blocks => {
+      void this.importFinalizedFrameHistory(blocks).catch(error => {
+        console.error('Error recording finalized Argon bond history', error);
+      });
+    });
+  }
+
+  private async importFinalizedFrameHistory(blocks: IBlockHeaderInfo[]): Promise<void> {
+    const frameBlocks = blocks.filter(block => block.isNewFrame);
+    if (!frameBlocks.length) return;
+
+    for (const block of frameBlocks) {
+      const events = await this.miningFrames.blockWatch.getEvents(block);
+      await this.historyRecovery.importBlock(block, events);
+    }
+    await this.refreshHistory();
   }
 
   private async onNewBestBlocks(blocks: IBlockHeaderInfo[]): Promise<void> {

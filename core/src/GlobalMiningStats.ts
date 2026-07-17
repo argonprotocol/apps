@@ -16,6 +16,8 @@ export class GlobalMiningStats {
   public activeSeatCount = 0;
   public aggregatedBidCosts = 0n;
   public aggregatedBlockRewards = 0n;
+  public investedCapital = 0n;
+  public projectedProfit = 0n;
   public averageAPR: number = 0;
   public averageAPY: number = 0;
 
@@ -65,6 +67,8 @@ export class GlobalMiningStats {
     this.activeSeatCount = activeSeatCount;
     this.aggregatedBidCosts = aggregateBidCosts;
     this.aggregatedBlockRewards = aggregateRewards;
+    this.investedCapital = aggregateReturn.eligibleCapitalInvested;
+    this.projectedProfit = aggregateReturn.totalProfits;
     this.averageAPR = calculateAnnualPercentageRate(annualizedInput);
     this.averageAPY = calculateAnnualPercentageYield(annualizedInput);
 

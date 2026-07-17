@@ -22,8 +22,10 @@ export class BitcoinPrices {
   }
 
   public getDateRange(startingDate: string, endingDate: string): IBitcoinPriceRecord[] {
-    const startingIndex = this.indexByDate[startingDate];
-    const endingIndex = this.indexByDate[endingDate];
+    const startingIndex = this.indexByDate[startingDate] ?? this.prices.findIndex(row => row.date >= startingDate);
+    const endingIndex = this.indexByDate[endingDate] ?? this.prices.findLastIndex(row => row.date <= endingDate);
+    if (startingIndex < 0 || endingIndex < startingIndex) return [];
+
     return this.prices.slice(startingIndex, endingIndex + 1);
   }
 

@@ -265,7 +265,7 @@ const oneArgonInMicrogons = 1000000n;
 const zeroMicrogons = 0n;
 
 const totalSwapReturn = Vue.computed(() => {
-  return financials.financialPositionAggregate.groupSummaries.stableSwaps.returnSummary.percent;
+  return financials.stableSwapPerformanceReturn;
 });
 
 async function openPurchaseTx(txHash: string) {
@@ -309,10 +309,12 @@ function finishSetCurrencyKey(key: ICurrencyKey) {
 }
 
 Vue.onMounted(async () => {
-  try {
-    await stableSwaps.load();
-  } catch {
-    // The store exposes the underlying marketError for this screen.
+  if (config.hasActivatedStableSwaps) {
+    try {
+      await stableSwaps.load();
+    } catch {
+      // The store exposes the underlying marketError for this screen.
+    }
   }
 
   finishSetCurrencyKey(currencyKey.value);

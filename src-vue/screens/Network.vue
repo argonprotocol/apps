@@ -17,7 +17,7 @@
 
         <div StatWrapper class="col-span-1 xl:col-span-2 flex flex-col h-full border-b border-slate-400/50">
             <span class="text-5xl! sm:text-5xl! md:text-6xl! ">
-              {{ data.vaultingAPR ? numeral(data.vaultingAPR).formatIfElseCapped('< 1_000', '0,0.[0]', '0,0', 9_999) : '---' }}%
+              {{ data.vaultingAPR ? numeral(data.vaultingAPR).formatIfElseCapped('< 1_000', '0,0.[0]', '0,0', 9_999) : '0' }}%
             </span>
           <label>Current Vaulting APR</label>
         </div>
@@ -125,12 +125,16 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
-import BigNumber from 'bignumber.js';
-import { BitcoinPrices } from '@argonprotocol/apps-core';
+import {
+  BitcoinPrices,
+  calculateBitcoinRatchetReturn,
+  calculateRestabilizationLeverage,
+} from '@argonprotocol/apps-core';
 import { getCurrency } from '../stores/currency.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { useMiningStats } from '../stores/miningStats.ts';
 import { useVaultingStats } from '../stores/vaultingStats.ts';
+import { getVaults } from '../stores/vaults.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { UnitOfMeasurement } from '../lib/Currency.ts';
 import BlankSlateBlocks from './network-screen/BlankSlateBlocks.vue';
@@ -146,22 +150,31 @@ const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency
 const currentBlockNumber = Vue.ref(0);
 const microgonsInCirculation = Vue.ref(0n);
 const micronotsInCirculation = Vue.ref(0n);
-const bitcoinAPR = calculateBitcoinAPR();
+const bitcoinPrices = new BitcoinPrices().getDateRange(
+  dayjs.utc().subtract(1, 'year').format('YYYY-MM-DD'),
+  dayjs.utc().format('YYYY-MM-DD'),
+);
+const bitcoinAPR = calculateBitcoinRatchetReturn({
+  prices: bitcoinPrices,
+  flatFee: 2,
+  percentageFee: 5,
+  ratchetThreshold: 0.1,
+}).percent;
 
 const data = Vue.computed(() => {
   const microgonValueOfArgonots = currency.convertMicronotTo(micronotsInCirculation.value, UnitOfMeasurement.Microgon);
   const totalEconomicValue = microgonsInCirculation.value + microgonValueOfArgonots;
-  const argonsInCirculation = BigNumber(microgonsInCirculation.value.toString()).dividedBy(1_000_000);
-  const restabilizationLeverage = argonsInCirculation.isZero()
-    ? 0
-    : BigNumber(vaultingStats.argonBurnCapacity).dividedBy(argonsInCirculation).decimalPlaces(1).toNumber();
+  const restabilizationLeverage = calculateRestabilizationLeverage({
+    argonBurnCapacity: vaultingStats.argonBurnCapacity,
+    microgonsInCirculation: microgonsInCirculation.value,
+  });
 
   return {
     totalMarketValueUsd: currency.isLoaded ? currency.convertMicrogonTo(totalEconomicValue, UnitOfMeasurement.USD) : 0,
-    miningAPR: Math.min(Math.max(miningStats.averageAPR, 0), 618.2),
-    vaultingAPR: Math.max(vaultingStats.averageAPR, 0),
+    miningAPR: miningStats.averageAPR,
+    vaultingAPR: vaultingStats.averageAPR,
     bitcoinAPR,
-    bondsAPR: Math.max(vaultingStats.bondsAPR, 0),
+    bondsAPR: vaultingStats.bondsAPR,
     usdTargetForArgon: currency.priceIndex.argonUsdTargetPrice?.toNumber() ?? 0,
     usdForArgonot: currency.priceIndex.argonotUsdPrice?.toNumber() ?? 0,
     usdForBtc: currency.priceIndex.btcUsdPrice?.toNumber() ?? 0,
@@ -200,40 +213,14 @@ async function loadData() {
     currentBlockNumber.value = blockNumber.toNumber();
     microgonsInCirculation.value = microgons;
     micronotsInCirculation.value = micronots;
+
+    void getVaults()
+      .updateRevenue()
+      .then(() => vaultingStats.update())
+      .catch(error => console.warn('[Network] Unable to refresh vault revenue statistics', error));
   } catch (error) {
     console.error('[Network] Unable to load live network statistics', error);
   }
-}
-
-function calculateBitcoinAPR(): number {
-  const prices = new BitcoinPrices().getDateRange(
-    dayjs.utc().subtract(1, 'year').format('YYYY-MM-DD'),
-    dayjs.utc().format('YYYY-MM-DD'),
-  );
-  if (!prices.length) return 0;
-
-  const flatFee = 2;
-  const percentFee = 0.05;
-  const ratchetThreshold = 0.1;
-  const startingPrice = prices[0].price;
-  let lockPrice = startingPrice;
-  let argonsReceived = startingPrice;
-  let argonFees = flatFee + startingPrice * percentFee;
-
-  for (const priceRow of prices.slice(1)) {
-    const priceDifference = priceRow.price - lockPrice;
-    if (Math.abs(priceDifference / lockPrice) < ratchetThreshold) continue;
-
-    argonFees += flatFee;
-    if (priceDifference > 0) {
-      argonFees += priceDifference * percentFee;
-      argonsReceived += priceDifference;
-    }
-    lockPrice = priceRow.price;
-  }
-
-  const cost = startingPrice + argonFees;
-  return ((argonsReceived - cost) / cost) * 100;
 }
 
 Vue.onMounted(loadData);

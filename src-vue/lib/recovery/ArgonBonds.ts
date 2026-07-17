@@ -3,28 +3,87 @@ import { BondLot, type Currency, type IBlockHeaderInfo, type MiningFrames } from
 import type { Db } from '../Db.ts';
 import { readRequiredEventField, readRequiredEventNumber } from './index.ts';
 import type { WalletKeys } from '../WalletKeys.ts';
+import type { TransactionTracker } from '../TransactionTracker.ts';
+import { ExtrinsicType } from '../db/TransactionsTable.ts';
 
 export class ArgonBondsRecovery {
   private readonly dbPromise: Promise<Db>;
   private readonly currency: Pick<Currency, 'fetchMainchainRatesAtBlock'>;
   private readonly miningFrames: MiningFrames;
   private readonly walletKeys: WalletKeys;
+  private readonly transactionTracker: TransactionTracker;
 
   constructor({
     dbPromise,
     currency,
     miningFrames,
     walletKeys,
+    transactionTracker,
   }: {
     dbPromise: Promise<Db>;
     currency: Pick<Currency, 'fetchMainchainRatesAtBlock'>;
     miningFrames: MiningFrames;
     walletKeys: WalletKeys;
+    transactionTracker: TransactionTracker;
   }) {
     this.dbPromise = dbPromise;
     this.currency = currency;
     this.miningFrames = miningFrames;
     this.walletKeys = walletKeys;
+    this.transactionTracker = transactionTracker;
+  }
+
+  public async repairLocalPurchases(): Promise<boolean> {
+    const history = await (await this.dbPromise).bondLotHistoryTable.fetchAll(this.walletKeys.defaultArgonAddress);
+    const missingBondLotIds = new Set(
+      history.flatMap(record => {
+        const lacksPurchase = !record.purchaseBlockHash;
+        const lacksArgonotPrice = record.programType === 'Argonot' && record.entryArgonotRateMicrogons == null;
+        return lacksPurchase || lacksArgonotPrice ? [record.bondLotId] : [];
+      }),
+    );
+    if (!missingBondLotIds.size) return false;
+
+    await this.transactionTracker.load();
+    let didRepair = false;
+
+    for (const txInfo of this.transactionTracker.data.txInfos) {
+      const { tx } = txInfo;
+      const isBondPurchase =
+        tx.extrinsicType === ExtrinsicType.TreasuryBuyBonds ||
+        tx.extrinsicType === ExtrinsicType.TreasuryBuyArgonotBonds;
+      if (!isBondPurchase || tx.accountAddress !== this.walletKeys.defaultArgonAddress || !tx.isFinalized) continue;
+      if (tx.submissionErrorJson || tx.blockExtrinsicErrorJson || tx.blockHeight === undefined || !tx.blockHash)
+        continue;
+
+      try {
+        await this.transactionTracker.ensureStoredEvents(txInfo);
+        const block = await this.miningFrames.blockWatch.getHeader(tx.blockHeight);
+        if (block.blockHash.toLowerCase() !== tx.blockHash.toLowerCase()) {
+          throw new Error(`stored transaction hash does not match finalized block ${tx.blockHeight}`);
+        }
+
+        for (const event of txInfo.txResult.events) {
+          if (event.section !== 'treasury' || event.method !== 'BondLotPurchased') continue;
+          if (readRequiredEventField(event, 'accountId', block).toString() !== this.walletKeys.defaultArgonAddress) {
+            continue;
+          }
+
+          const bondLotId = readRequiredEventNumber(event, 'bondLotId', block);
+          if (!missingBondLotIds.has(bondLotId)) continue;
+
+          await this.recordPurchase(block, bondLotId, tx.blockExtrinsicIndex);
+          missingBondLotIds.delete(bondLotId);
+          didRepair = true;
+        }
+      } catch (error) {
+        console.warn(`[ArgonBonds] Unable to restore purchase history from local transaction #${tx.id}`, error);
+      }
+
+      if (!missingBondLotIds.size) break;
+    }
+
+    return didRepair;
   }
 
   public async importBlock(block: IBlockHeaderInfo, events: readonly FrameSystemEventRecord[]): Promise<void> {

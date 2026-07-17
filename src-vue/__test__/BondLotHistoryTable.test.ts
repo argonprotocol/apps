@@ -10,6 +10,12 @@ const accountId = getOfflineRegistry()
 describe('BondLotHistoryTable', () => {
   it('enriches a first observation with finalized purchase and release provenance', async () => {
     const db = await createTestDb();
+    const activeLot = createBondLot({
+      id: 7,
+      bonds: 10,
+      program: 'Argonot',
+      cumulativeEarnings: 1_000_000n,
+    });
     const lot = createBondLot({
       id: 7,
       bonds: 10,
@@ -19,12 +25,21 @@ describe('BondLotHistoryTable', () => {
     });
 
     await db.bondLotHistoryTable.recordObservation({
-      lot,
+      lot: activeLot,
       blockNumber: 100,
       blockHash: '0xobserved',
     });
     await db.bondLotHistoryTable.recordObservation({
-      lot,
+      lot: activeLot,
+      blockNumber: 90,
+      blockHash: '0xpurchased',
+      purchase: {
+        blockTime: new Date('2026-07-01T12:00:00Z'),
+        extrinsicIndex: 2,
+      },
+    });
+    await db.bondLotHistoryTable.recordObservation({
+      lot: activeLot,
       blockNumber: 90,
       blockHash: '0xpurchased',
       purchase: {
@@ -33,6 +48,29 @@ describe('BondLotHistoryTable', () => {
         entryArgonotRateMicrogons: 2_000_000n,
       },
     });
+    await db.bondLotHistoryTable.recordObservation({
+      lot,
+      blockNumber: 110,
+      blockHash: '0xscheduled',
+    });
+    await db.bondLotHistoryTable.recordObservation({
+      lot: activeLot,
+      blockNumber: 90,
+      blockHash: '0xpurchased',
+      purchase: {
+        blockTime: new Date('2026-07-01T12:00:00Z'),
+        extrinsicIndex: 2,
+      },
+    });
+
+    const [scheduledRecord] = await db.bondLotHistoryTable.fetchAll(accountId);
+    expect(scheduledRecord).toMatchObject({
+      releaseFrame: 20,
+      releaseReason: 'UserLiquidation',
+      cumulativeEarningsMicrogons: 4_000_000n,
+      entryArgonotRateMicrogons: 2_000_000n,
+    });
+
     await db.bondLotHistoryTable.recordRelease({
       lot,
       parentBlockNumber: 119,
@@ -109,7 +147,7 @@ function createBondLot(args: {
   id: number;
   bonds: number;
   program: 'Vault' | 'Argonot';
-  releaseFrame: number;
+  releaseFrame?: number;
   cumulativeEarnings?: bigint;
 }): BondLot {
   const program =
@@ -123,8 +161,8 @@ function createBondLot(args: {
     lastFrameEarningsFrameId: 11,
     lastFrameEarnings: 1_000_000n,
     cumulativeEarnings: args.cumulativeEarnings ?? 0n,
-    releaseFrameId: args.releaseFrame,
-    releaseReason: 'UserLiquidation',
+    releaseFrameId: args.releaseFrame ?? null,
+    releaseReason: args.releaseFrame === undefined ? null : 'UserLiquidation',
   });
   return BondLot.fromRuntime(args.id, codec, accountId);
 }

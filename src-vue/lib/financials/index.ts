@@ -179,7 +179,13 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
       positions.push(...groupPositions);
 
       for (const position of groupPositions) {
-        if (position.lifecycle === 'unavailable' || position.currentValue === undefined) {
+        if (position.currentValue === undefined) {
+          hasUnavailableValue = true;
+          continue;
+        }
+        // Unknown wallet basis is a return-only marker; its value is already in
+        // the residual wallet-balance position.
+        if (position.lifecycle === 'unavailable' && position.kind !== 'wallet-holding') {
           hasUnavailableValue = true;
           continue;
         }
@@ -194,16 +200,22 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
 
     grossAssets += groupAssets;
     grossLiabilities += groupLiabilities;
+    // Mining RTD describes mining terms. Pending bids have not started, and
+    // ARGNOT custody lots are tracked separately without repeatedly adding
+    // internal collateral transitions to the term-return denominator.
+    const returnPositions =
+      group === 'mining' ? groupPositions.filter(position => position.kind === 'mining-cohort') : groupPositions;
     groups.push({
       group,
       state: snapshot.state,
       isStale: snapshot.state === 'stale',
+      positions: groupPositions,
       currentValue: groupAssets - groupLiabilities,
       grossAssets: groupAssets,
       grossLiabilities: groupLiabilities,
       observation: snapshot.observation,
       message: snapshot.message,
-      returnSummary: calculatePositionReturn(groupPositions),
+      returnSummary: calculatePositionReturn(returnPositions),
     });
   }
 
@@ -259,12 +271,20 @@ function doesObservationCover(observation: IFinancialObservation, required: IFin
   return true;
 }
 
-function calculatePositionReturn(
+export function calculatePositionReturn(
   positions: readonly IFinancialPosition[],
   isAccountReturn = false,
 ): IFinancialReturnSummary {
   const investments = positions.filter((position): position is IFinancialInvestmentPosition => {
-    if (position.kind === 'wallet-balance' || position.kind === 'bitcoin-liability') return false;
+    if (
+      position.kind === 'wallet-balance' ||
+      position.kind === 'ethereum-wallet-balance' ||
+      position.kind === 'mining-balance' ||
+      position.kind === 'vault-balance' ||
+      position.kind === 'bitcoin-liability'
+    ) {
+      return false;
+    }
     return !isAccountReturn || position.kind !== 'bond' || !position.excludeFromAccountReturn;
   });
   if (investments.length === 0) {

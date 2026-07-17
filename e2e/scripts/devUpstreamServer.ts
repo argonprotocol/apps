@@ -7,15 +7,23 @@ import { fileURLToPath } from 'node:url';
 import { config as loadDotEnv } from 'dotenv';
 import { parseEnv, promisify } from 'node:util';
 import {
+  BidAmountFormulaType,
+  type IEthereumGatewayRelayStatus,
+  JsonExt,
   MainchainClients,
+  MICROGONS_PER_ARGON,
+  MICRONOTS_PER_ARGONOT,
   minimumVaultDelegateBalance,
   NetworkConfig,
-  type IEthereumGatewayRelayStatus,
+  SeatGoalType,
 } from '@argonprotocol/apps-core';
+import { getClient } from '@argonprotocol/mainchain';
 import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
 import type { IDevEthereumConfig, IStartDevEthereumResult } from '../devEthereum.ts';
 import { AppVaultOperator } from '../actors/AppVaultOperator.ts';
 import { ensureDevGatewayCerts } from '../../scripts/devGatewayCerts.ts';
+import type { IConfig } from 'src-vue/interfaces/IConfig.ts';
+import { Config } from 'src-vue/lib/Config.ts';
 import { MemoryWalletKeys } from 'src-vue/lib/MemoryWalletKeys.ts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -125,6 +133,7 @@ export async function startDevUpstreamServer(args: {
   const configDir = path.join(upstreamRootDir, 'config');
   const dataDir = path.join(upstreamRootDir, 'data');
   const envStatePath = path.join(configDir, '.env.state');
+  const biddingRulesPath = path.join(configDir, 'biddingRules.json');
   const miningBotWalletPath = path.join(configDir, 'walletMiningBot.json');
   const vaultDelegateWalletPath = path.join(configDir, 'walletVaultDelegate.json');
 
@@ -136,8 +145,16 @@ export async function startDevUpstreamServer(args: {
     walletKeys.getVaultDelegateKeypair(),
     walletKeys.getMiningSessionMiniSecret(),
   ]);
+  const biddingRules = {
+    ...(Config.getDefault('biddingRules') as IConfig['biddingRules']),
+    seatGoalType: SeatGoalType.Min,
+    seatGoalCount: 1,
+    maximumBidFormulaType: BidAmountFormulaType.Custom,
+    maximumBidCustom: 2_000_000n,
+  };
 
   await Promise.all([
+    Fs.writeFile(biddingRulesPath, JsonExt.stringify(biddingRules, 2) + '\n'),
     Fs.writeFile(miningBotWalletPath, JSON.stringify(miningBotKeypair.toJson(''), null, 2) + '\n'),
     Fs.writeFile(vaultDelegateWalletPath, JSON.stringify(vaultDelegateKeypair.toJson(''), null, 2) + '\n'),
   ]);
@@ -174,6 +191,22 @@ export async function startDevUpstreamServer(args: {
 
   await Fs.writeFile(envStatePath, envLines.join('\n') + '\n');
   await ensureDevGatewayCerts();
+
+  const miningCapital = {
+    microgons: 100_000_000n * BigInt(MICROGONS_PER_ARGON),
+    micronots: 100_000_000n * BigInt(MICRONOTS_PER_ARGONOT),
+  };
+  const fundingClient = await getClient(args.archiveUrl);
+  try {
+    await sudoFundWallet({
+      client: fundingClient,
+      address: miningBotKeypair.address,
+      microgons: miningCapital.microgons,
+      micronots: miningCapital.micronots,
+    });
+  } finally {
+    await fundingClient.disconnect();
+  }
 
   await execFileAsync(
     'docker',

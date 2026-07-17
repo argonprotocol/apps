@@ -7,6 +7,7 @@ export { type ArgonClient, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain'
 
 export * from './interfaces/index.js';
 export * from './FinancialReturns.js';
+export * from './BitcoinLockReturns.js';
 export * from './FinancialPositions.js';
 export * from './MainchainClients.js';
 export * from './FrameIterator.js';
