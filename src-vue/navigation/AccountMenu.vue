@@ -1,13 +1,9 @@
 <!-- prettier-ignore -->
 <template>
   <div ref="rootRef" class="flex flex-row items-center">
-<!--    <div v-if="showInstanceMenu" class="pointer-events-auto">-->
-<!--      <InstanceMenu :instances="instances" />-->
-<!--    </div>-->
     <NavigationMenuItem class="pointer-events-auto">
       <NavigationMenuTrigger
-        class="h-[30px] group relative cursor-pointer border-slate-400/50 text-sm/6 font-semibold text-argon-600/60 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
-        :class="[showInstanceMenu ? 'rounded-r-md border border-l-0' : 'rounded-md border']"
+        class="h-[30px] group relative cursor-pointer rounded-md border border-slate-400/50 text-sm/6 font-semibold text-argon-600/60 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
       >
         <div class="w-[38px] h-full flex flex-row items-center justify-center">
           <ConfigIcon class="h-5 w-5" />
@@ -173,10 +169,6 @@ import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
 import { OperationalStepId, useCertificationController } from '../stores/certificationController.ts';
 import { useBasics } from '../stores/basics.ts';
 import { WalletType } from '../lib/Wallet.ts';
-import { appConfigDir } from '@tauri-apps/api/path';
-import { readDir } from '@tauri-apps/plugin-fs';
-import { INSTANCE_NAME, NETWORK_NAME } from '../lib/Env.ts';
-import InstanceMenu, { type IInstance } from './InstanceMenu.vue';
 
 const tour = useTour();
 const basics = useBasics();
@@ -195,8 +187,6 @@ const submenuTriggerClass =
 defineExpose({
   $el: rootRef,
 });
-
-const showInstanceMenu = Vue.computed(() => NETWORK_NAME !== 'mainnet' || instances.value.length > 1);
 
 function openLink(url: string) {
   void tauriOpenUrl(url);
@@ -291,32 +281,6 @@ function closeResourcesMenu() {
   resourcesMenuValue.value = '';
   resourcesMenuCloseTimeoutId = undefined;
 }
-
-const instances = Vue.ref<IInstance[]>([]);
-
-async function fetchInstances() {
-  try {
-    const configDir = await appConfigDir();
-    const entries = await readDir(`${configDir}/${NETWORK_NAME}`);
-    instances.value = entries
-      .filter(entry => entry.isDirectory)
-      .map(entry => ({
-        name: entry.name,
-        isSelected: entry.name === INSTANCE_NAME,
-      }));
-  } catch {
-    instances.value = [
-      {
-        name: INSTANCE_NAME,
-        isSelected: true,
-      },
-    ];
-  }
-}
-
-Vue.onMounted(async () => {
-  await fetchInstances();
-});
 </script>
 
 <style scoped>
