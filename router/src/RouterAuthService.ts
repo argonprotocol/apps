@@ -18,6 +18,11 @@ export interface IRouterAuthServiceOptions {
   challengeTtlMs?: number;
 }
 
+export interface IAuthenticatedRouterSession {
+  role: RouterAuthRole;
+  accountId: string;
+}
+
 const DEFAULT_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_SESSION_TTL_SECONDS = 12 * 60 * 60;
 
@@ -31,7 +36,6 @@ export class RouterAuthService {
   constructor(options: IRouterAuthServiceOptions = {}) {
     this.db = options.db;
     this.adminOperatorAccountId = options.adminOperatorAccountId?.trim() || undefined;
-
     this.sessionTtlSeconds = options.sessionTtlSeconds ?? DEFAULT_SESSION_TTL_SECONDS;
     this.challengeTtlMs = options.challengeTtlMs ?? DEFAULT_CHALLENGE_TTL_MS;
     this.ensureAdminOperatorUser();
@@ -48,12 +52,13 @@ export class RouterAuthService {
   public createChallenge(authAccountId: string, role: RouterAuthRole = UserRole.AdminOperator): IRouterAuthChallenge {
     this.assertEnabled();
 
+    const normalizedRole = normalizeRole(role);
     const trimmedAuthAccountId = authAccountId.trim();
-    this.getUserForAuth(trimmedAuthAccountId, role);
+    this.getUserForAuth(trimmedAuthAccountId, normalizedRole);
     this.pruneExpiredChallenges();
 
     const challenge = {
-      role,
+      role: normalizedRole,
       authAccountId: trimmedAuthAccountId,
       nonce: nanoid(),
       expiresAt: Date.now() + this.challengeTtlMs,
@@ -78,12 +83,11 @@ export class RouterAuthService {
     if (challenge.authAccountId !== request.authAccountId) {
       throw new RouterError('Login challenge does not match this auth account.', 401);
     }
-
     if (!verifyRouterAuthChallenge(challenge, request.signature)) {
       throw new RouterError('Login signature is invalid.', 403);
     }
-    const user = this.getUserForAuth(challenge.authAccountId, challenge.role);
 
+    const user = this.getUserForAuth(challenge.authAccountId, challenge.role);
     const sessionId = nanoid();
     this.db!.sessionsTable.deleteInactiveSessions();
 
@@ -97,7 +101,7 @@ export class RouterAuthService {
       sessionId,
       expiresAt: session.expiresAt.toISOString(),
       accountId: user.accountId!,
-      role: user.role,
+      role: normalizeRole(user.role),
     };
   }
 
@@ -123,23 +127,41 @@ export class RouterAuthService {
     };
   }
 
-  public requireTreasuryUserSession(req: Request, accountId: string): void {
-    this.requireUserSession(req, [UserRole.TreasuryUser], accountId);
+  public requireMemberSession(req: Request, accountId?: string): IAuthenticatedRouterSession {
+    return this.requireUserSession(req, [UserRole.Member], accountId);
   }
 
-  public requireUserSession(req: Request, allowedRoles: readonly RouterAuthRole[], accountId?: string): void {
-    if (!this.isEnabled) return;
+  public requireSession(req: Request, allowedRoles: readonly RouterAuthRole[], accountId?: string): IAuthenticatedRouterSession {
+    return this.requireUserSession(req, allowedRoles, accountId);
+  }
+
+  public requireUserSession(
+    req: Request,
+    allowedRoles: readonly RouterAuthRole[],
+    accountId?: string,
+  ): IAuthenticatedRouterSession {
+    if (!this.isEnabled) {
+      return {
+        role: allowedRoles[0] ?? UserRole.Member,
+        accountId: accountId ?? '',
+      };
+    }
 
     const user = this.getRequestUser(req);
     if (!user) {
       throw new RouterError('Unauthorized', 401);
     }
-    if (!allowedRoles.includes(user.role)) {
+    if (!allowedRoles.includes(normalizeRole(user.role))) {
       throw new RouterError('Forbidden', 403);
     }
     if (accountId && user.accountId !== accountId) {
       throw new RouterError('Forbidden', 403);
     }
+
+    return {
+      role: normalizeRole(user.role),
+      accountId: user.accountId!,
+    };
   }
 
   public handleVerify(req: Request, res: Response, allowedRoles: readonly RouterAuthRole[]): void {
@@ -153,7 +175,7 @@ export class RouterAuthService {
       sendAuthError(res);
       return;
     }
-    if (!allowedRoles.includes(user.role)) {
+    if (!allowedRoles.includes(normalizeRole(user.role))) {
       res.status(403).send('Forbidden');
       return;
     }
@@ -163,7 +185,7 @@ export class RouterAuthService {
     }
 
     res.setHeader('X-User-Id', user.accountId!);
-    res.setHeader('X-User-Role', user.role);
+    res.setHeader('X-User-Role', normalizeRole(user.role));
     res.sendStatus(204);
   }
 
@@ -183,22 +205,30 @@ export class RouterAuthService {
   }
 
   private getUserForAuth(authAccountId: string, role: RouterAuthRole): IUserRecord {
-    if (role !== UserRole.AdminOperator && !isInviteRole(role)) {
+    const normalizedRole = normalizeRole(role);
+    if (normalizedRole !== UserRole.AdminOperator && normalizedRole !== UserRole.Member) {
       throw new RouterError('This router auth role is not supported.', 400);
     }
     if (!authAccountId) {
       throw new RouterError('An auth account id is required.', 400);
     }
-    if (role === UserRole.AdminOperator && authAccountId !== this.adminOperatorAccountId) {
-      throw new RouterError('This account is not allowed to manage the router.', 403);
+    if (normalizedRole === UserRole.AdminOperator) {
+      if (authAccountId !== this.adminOperatorAccountId) {
+        throw new RouterError('This account is not allowed to manage the router.', 403);
+      }
     }
 
-    const user = this.db!.usersTable.fetchByAuthAccountId(authAccountId, role);
+    const user = this.db!.usersTable.fetchByAuthAccountId(authAccountId, normalizedRole);
     if (!user) {
       throw new RouterError('This auth account is not allowed to access the router.', 403);
     }
     if (!user.accountId) {
-      throw new RouterError('This auth account is not linked to a user account.', 403);
+      throw new RouterError(
+        normalizedRole === UserRole.Member
+          ? 'This auth account is not linked to a member account.'
+          : 'This auth account is not linked to a user account.',
+        403,
+      );
     }
 
     return user;
@@ -255,6 +285,10 @@ function sendAuthError(res: Response): void {
   res.status(401).send('Unauthorized');
 }
 
-function isInviteRole(role: unknown): role is UserRole {
-  return role === UserRole.TreasuryUser || role === UserRole.OperationalPartner;
+function normalizeRole(role: RouterAuthRole): RouterAuthRole {
+  if (role === UserRole.AdminOperator) {
+    return UserRole.AdminOperator;
+  }
+
+  return UserRole.Member;
 }

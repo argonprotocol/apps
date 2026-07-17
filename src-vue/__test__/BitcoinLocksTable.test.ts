@@ -46,81 +46,66 @@ describe('BitcoinLocksTable', () => {
     expect(first.utxoId).toBe(7);
     expect(second.utxoId).toBe(7);
     expect(second.status).toBe(BitcoinLockStatus.LockPendingFunding);
+    expect(second.ratchets[0]).toEqual(expect.objectContaining({ blockHeight: 12 }));
   });
 
-  it('setLockPendingFunding updates lock status', async () => {
-    const { table, lock } = await createPendingLock({ uuid: 'pending-funding' });
-
-    await table.setLockPendingFunding(lock);
-
-    const updated = (await table.fetchAll()).find(x => x.uuid === lock.uuid)!;
-    expect(updated.status).toBe(BitcoinLockStatus.LockPendingFunding);
-  });
-
-  it('updateMintState transitions pending funding to minting and minted', async () => {
+  it('persists release economics separately from the terminal removal mark', async () => {
     const { table, lock } = await createPendingLock({
-      uuid: 'mint-state',
-      status: BitcoinLockStatus.LockPendingFunding,
+      uuid: 'release-financials',
+      status: BitcoinLockStatus.LockedAndMinted,
     });
 
-    lock.ratchets = [
-      {
-        mintAmount: 10n,
-        mintPending: 5n,
-        lockedTargetPrice: 1n,
-        securityFee: 0n,
-        txFee: 0n,
-        burned: 0n,
-        blockHeight: 1,
-        oracleBitcoinBlockHeight: 1,
-      },
-    ];
-
-    await table.updateMintState(lock);
-    expect(lock.status).toBe(BitcoinLockStatus.LockedAndIsMinting);
-
-    lock.ratchets[0].mintPending = 0n;
-    await table.updateMintState(lock);
-
-    const updated = (await table.fetchAll()).find(x => x.uuid === lock.uuid)!;
-    expect(updated.status).toBe(BitcoinLockStatus.LockedAndMinted);
-  });
-
-  it('can mark locks as released, expired, acknowledged, and resume-ready', async () => {
-    const { table, lock } = await createPendingLock({
-      uuid: 'release-expire',
-      status: BitcoinLockStatus.LockPendingFunding,
+    await table.recordReleaseRequest(lock, {
+      releaseRedemptionMicrogons: 500n,
+      releaseArgonTxFeeMicrogons: undefined,
+    });
+    await table.recordReleaseRequest(lock, {
+      releaseRedemptionMicrogons: 600n,
+      releaseArgonTxFeeMicrogons: 7n,
+    });
+    await table.recordReleaseCompensation(lock, 11n);
+    await table.recordRemoval(lock, BitcoinLockStatus.Released, {
+      removalBlockNumber: 120,
+      removalBlockHash: undefined,
+      removalBlockTime: new Date('2026-07-16T12:00:00Z'),
+      removalExtrinsicIndex: 3,
+      removalReason: 'released',
+      btcPriceAtRemovalMicrogons: 4_000_000n,
+    });
+    await table.recordReleaseRequest(lock, {
+      releaseRedemptionMicrogons: 700n,
+      releaseArgonTxFeeMicrogons: 8n,
+    });
+    await table.recordReleaseCompensation(lock, 12n);
+    await table.recordRemoval(lock, BitcoinLockStatus.Released, {
+      removalBlockNumber: 121,
+      removalBlockHash: '0x120',
+      removalBlockTime: new Date('2026-07-16T12:01:00Z'),
+      removalExtrinsicIndex: 4,
+      removalReason: 'released',
+      btcPriceAtRemovalMicrogons: 5_000_000n,
+    });
+    await table.recordRemoval(lock, BitcoinLockStatus.Releasing, {
+      removalBlockNumber: 122,
+      removalBlockHash: '0x121',
+      removalBlockTime: new Date('2026-07-16T12:02:00Z'),
+      removalExtrinsicIndex: 5,
+      removalReason: 'expired',
+      btcPriceAtRemovalMicrogons: 5_000_000n,
     });
 
-    await table.setLockExpiredWaitingForFunding(lock);
-    expect(lock.status).toBe(BitcoinLockStatus.LockExpiredWaitingForFunding);
-
-    await table.setLockExpiredWaitingForFundingAcknowledged(lock);
-    expect(lock.status).toBe(BitcoinLockStatus.LockExpiredWaitingForFundingAcknowledged);
-
-    await table.setLockFundingReadyToResume(lock);
-    expect(lock.status).toBe(BitcoinLockStatus.LockFundingReadyToResume);
-
-    await table.setReleased(lock);
-    const updated = (await table.fetchAll()).find(x => x.uuid === lock.uuid)!;
-    expect(updated.status).toBe(BitcoinLockStatus.Released);
-  });
-
-  it('setLockFailed persists failed status and block extrinsic error', async () => {
-    const { table, lock } = await createPendingLock({ uuid: 'failed-lock' });
-
-    await table.setLockFailed(lock, {
-      errorCode: 'bitcoinLocks.InsufficientVaultFunds',
-      details: 'bitcoinLocks.InsufficientVaultFunds',
-      message: 'bitcoinLocks.InsufficientVaultFunds',
-    });
-
-    const updated = (await table.fetchAll()).find(x => x.uuid === lock.uuid)!;
-    expect(updated.status).toBe(BitcoinLockStatus.LockFailed);
-    expect(updated.blockExtrinsicErrorJson).toEqual({
-      errorCode: 'bitcoinLocks.InsufficientVaultFunds',
-      details: 'bitcoinLocks.InsufficientVaultFunds',
-      message: 'bitcoinLocks.InsufficientVaultFunds',
+    const updated = (await table.fetchAll()).find(record => record.uuid === lock.uuid)!;
+    expect(updated).toMatchObject({
+      status: BitcoinLockStatus.Released,
+      releaseRedemptionMicrogons: 500n,
+      releaseArgonTxFeeMicrogons: 7n,
+      releaseCompensationMicrogons: 11n,
+      removalBlockNumber: 120,
+      removalBlockHash: '0x120',
+      removalBlockTime: new Date('2026-07-16T12:00:00Z'),
+      removalExtrinsicIndex: 3,
+      removalReason: 'released',
+      btcPriceAtRemovalMicrogons: 4_000_000n,
     });
   });
 });

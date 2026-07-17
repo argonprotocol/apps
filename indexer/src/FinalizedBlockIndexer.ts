@@ -1,17 +1,20 @@
-import { type IndexerDb, WalletTransferCurrency, WalletTransferSource } from './IndexerDb.js';
-import { AccountEventsFilter, BlockWatch, type IBlockHeaderInfo } from '@argonprotocol/apps-core';
 import type { ArgonClient } from '@argonprotocol/mainchain';
+import { BlockWatch, type IBlockHeaderInfo } from '@argonprotocol/apps-core';
+import type { LegacyIndexerDb } from './LegacyIndexerDb.js';
+import { decodeWalletTransfer, groupEventsByExtrinsic } from './WalletTransferEvents.js';
 
 export class FinalizedBlockIndexer {
-  private vaultOwners = new Map<number, string>();
-  private unsubscribes: (() => void)[] = [];
+  private readonly vaultOwners = new Map<number, string>();
+  private readonly unsubscribes: (() => void)[] = [];
   private latestFinalizedHeader: IBlockHeaderInfo | null = null;
   private syncInProgress?: Promise<void>;
+  private isClosed = false;
 
-  constructor(private readonly db: IndexerDb) {}
+  constructor(private readonly db: LegacyIndexerDb) {}
 
-  public async start(client: ArgonClient) {
-    const unsub1 = await client.query.vaults.nextVaultId(async () => {
+  public async start(client: ArgonClient): Promise<void> {
+    this.isClosed = false;
+    const unsubscribeVaults = await client.query.vaults.nextVaultId(async () => {
       const operators = await client.query.vaults.vaultIdByOperator.entries();
       for (const [key, vaultId] of operators) {
         const operator = key.args[0].toString();
@@ -22,94 +25,79 @@ export class FinalizedBlockIndexer {
     const finalizedHeader = await client.rpc.chain.getHeader(finalized);
     this.latestFinalizedHeader = BlockWatch.readHeader(finalizedHeader, true);
     this.syncInProgress = this.syncLatestHeaders(client);
-    await this.syncInProgress;
-    const unsub2 = await client.rpc.chain.subscribeFinalizedHeads(header => {
+
+    const unsubscribeFinalized = await client.rpc.chain.subscribeFinalizedHeads(header => {
       this.latestFinalizedHeader = BlockWatch.readHeader(header, true);
-      // only queue if there's not already a task queued that will grab latest
       this.syncInProgress ??= this.syncLatestHeaders(client);
     });
-    this.unsubscribes.push(unsub1, unsub2);
+    this.unsubscribes.push(unsubscribeVaults, unsubscribeFinalized);
   }
 
-  public async close() {
-    for (const unsub of this.unsubscribes) {
-      unsub();
-    }
+  public async close(): Promise<void> {
+    for (const unsubscribe of this.unsubscribes) unsubscribe();
+    this.isClosed = true;
     await this.syncInProgress;
   }
 
-  private async syncLatestHeaders(client: ArgonClient) {
+  private async syncLatestHeaders(client: ArgonClient): Promise<void> {
+    let shouldContinue = false;
+
     try {
-      const lastSynchedNumber = this.db.latestSyncedBlock + 1;
-      const latestBlockNumber = this.latestFinalizedHeader!.blockNumber;
-      const blockChunks: number[][] = [];
-      let latestChunk: number[] = [];
-      blockChunks.push(latestChunk);
-      for (let i = lastSynchedNumber; i <= latestBlockNumber; i++) {
-        latestChunk.push(i);
-        if (latestChunk.length >= 100) {
-          latestChunk = [];
-          blockChunks.push(latestChunk);
-        }
-      }
+      const firstBlock = this.db.latestSyncedBlock + 1;
+      const latestBlock = this.latestFinalizedHeader!.blockNumber;
 
-      for (const chunk of blockChunks) {
-        if (!chunk.length) {
-          continue;
-        }
-        console.log(`Syncing finalized blocks ${chunk[0]} to ${chunk.at(-1)}...`);
-        const blockDatasPromise = chunk.map(async i => {
-          const currentHash = await client.rpc.chain.getBlockHash(i);
-          const events = await client.query.system.events.at(currentHash);
-          const groupedEvents = AccountEventsFilter.groupEventsByExtrinsic(events);
-          const blockData = { blockNumber: i, transfers: [], vaultCollects: [] } as Parameters<
-            IndexerDb['recordFinalizedBlock']
-          >[0];
-          for (const { extrinsicEvents, extrinsicIndex } of groupedEvents) {
-            for (const event of extrinsicEvents) {
-              const transfer = AccountEventsFilter.isTransfer({
-                extrinsicIndex,
-                extrinsicEvents,
-                client,
-                event,
-              });
-              if (transfer) {
-                blockData.transfers.push({
-                  currency: { argonot: WalletTransferCurrency.Argonot, argon: WalletTransferCurrency.Argon }[
-                    transfer.currency
-                  ],
-                  source: {
-                    transfer: WalletTransferSource.Transfer,
-                    tokenGateway: WalletTransferSource.TokenGateway,
-                    faucet: WalletTransferSource.Faucet,
-                    ethereum: WalletTransferSource.Ethereum,
-                  }[transfer.transferType],
-                  toAddress: transfer.to,
-                  fromAddress: transfer.from ?? null,
-                });
-              }
-              if (client.events.vaults.VaultCollected.is(event)) {
-                const [vaultId, _amount] = event.data;
-                const owner = this.vaultOwners.get(vaultId.toNumber()) ?? 'unknown';
-                blockData.vaultCollects.push({
-                  vaultAddress: owner,
-                });
-              }
-            }
-          }
-          return blockData;
-        });
-
-        const blockDatas = await Promise.all(blockDatasPromise);
-        for (const blockData of blockDatas) {
-          this.db.recordFinalizedBlock(blockData);
-        }
+      for (let chunkStart = firstBlock; !this.isClosed && chunkStart <= latestBlock; chunkStart += 100) {
+        const chunkEnd = Math.min(chunkStart + 99, latestBlock);
+        console.log(`Syncing finalized blocks ${chunkStart} to ${chunkEnd}...`);
+        const blocks = await Promise.all(
+          Array.from({ length: chunkEnd - chunkStart + 1 }, (_, offset) =>
+            this.decodeBlock(client, chunkStart + offset),
+          ),
+        );
+        for (const block of blocks) this.db.recordFinalizedBlock(block);
       }
-    } catch (err) {
-      console.error(`Error syncing blocks`, err);
+      shouldContinue = this.db.latestSyncedBlock < this.latestFinalizedHeader!.blockNumber;
+    } catch (error) {
+      console.error('Error syncing blocks', error);
     } finally {
       await new Promise(setImmediate);
       this.syncInProgress = undefined;
+      if (!this.isClosed && shouldContinue) this.syncInProgress = this.syncLatestHeaders(client);
     }
+  }
+
+  private async decodeBlock(
+    client: ArgonClient,
+    blockNumber: number,
+  ): Promise<Parameters<LegacyIndexerDb['recordFinalizedBlock']>[0]> {
+    const blockHash = await client.rpc.chain.getBlockHash(blockNumber);
+    const events = await client.query.system.events.at(blockHash);
+    const block = {
+      blockNumber,
+      transfers: [],
+      vaultCollects: [],
+    } as Parameters<LegacyIndexerDb['recordFinalizedBlock']>[0];
+
+    for (const { extrinsicEvents, extrinsicIndex } of groupEventsByExtrinsic(events)) {
+      for (const [eventIndex, event] of extrinsicEvents.entries()) {
+        const transfer = decodeWalletTransfer({
+          extrinsicIndex,
+          extrinsicEvents,
+          eventIndex,
+          client,
+          event,
+        });
+        if (transfer) block.transfers.push(transfer);
+
+        if (client.events.vaults.VaultCollected.is(event)) {
+          const [vaultId] = event.data;
+          block.vaultCollects.push({
+            vaultAddress: this.vaultOwners.get(vaultId.toNumber()) ?? 'unknown',
+          });
+        }
+      }
+    }
+
+    return block;
   }
 }

@@ -28,11 +28,9 @@ export type IWallet = {
 };
 
 export enum WalletType {
-  miningHold = 'miningHold',
+  defaultArgon = 'defaultArgon',
   miningBot = 'miningBot',
-  vaulting = 'vaulting',
   operational = 'operational',
-  investment = 'investment',
   ethereum = 'ethereum',
 }
 

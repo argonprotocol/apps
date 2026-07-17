@@ -4,7 +4,7 @@ import { version as packageVersion } from '../package.json';
 import { readReleaseNotes } from './utils.ts';
 
 (async () => {
-  for (const app of ['operations', 'treasury']) {
+  for (const app of ['desktop']) {
     updateFile('src-tauri/tauri.conf.json');
     updateFile(`src-tauri/tauri.${app}.experimental.conf.json`);
   }

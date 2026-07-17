@@ -510,6 +510,42 @@ describe('EthereumBeaconSyncService', () => {
     expect(service.state().lastError).toBeUndefined();
   });
 
+  it('waits for the next sweep when an equal-priority transaction is already pending', async () => {
+    const txs: IMockTx[] = [{ id: 'tx-1' }, { id: 'tx-2' }];
+    const client = createClient(12);
+
+    mainchainMock.getEthereumBeaconSyncState.mockResolvedValue({
+      isBootstrapped: true,
+      hasNextSyncCommittee: true,
+      latestFinalizedBlockRoot: '0xabc',
+      latestFinalizedSlot: 800n,
+      nextRecommendedFinalizedSlot: 832n,
+      latestSyncCommitteeUpdatePeriod: 12n,
+      headerInterval: 32n,
+    });
+    mainchainMock.getNextEthereumBeaconSyncTxs.mockResolvedValue(txs);
+    submissionMock.submitWithTerminalStatusWatch.mockRejectedValue(
+      new Error(
+        '1014: Priority is too low: (115 vs 115): The transaction has too low priority to replace another transaction already in the pool.',
+      ),
+    );
+
+    const service = new EthereumBeaconSyncService(client, {
+      beaconApiUrl: 'https://beacon.example',
+      submitLane: createSubmitLane(client),
+    });
+
+    await service.runOnce();
+
+    expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(1);
+    expect(service.state()).toMatchObject({
+      latestFinalizedSlot: 800n,
+      latestSyncCommitteeUpdatePeriod: 12n,
+      mode: 'idle',
+    });
+    expect(service.state().lastError).toBeUndefined();
+  });
+
   it('continues when the submit error is retryable after the node drops it', async () => {
     const txs: IMockTx[] = [{ id: 'tx-1' }, { id: 'tx-2' }];
     const droppedError = new TxSubmissionError(

@@ -54,6 +54,7 @@ import { setMainchainClients } from '../stores/mainchain.ts';
 import { createTestDb } from './helpers/db.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
 import {
+  ensureDevEthereumBeaconBootstrapped,
   loadDevEthereumActivationRepaymentPricing,
   syncEthereumGatewayActiveCouncilToArgon,
 } from '../../e2e/devEthereumRuntimeSetup.ts';
@@ -208,7 +209,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       ),
       sudo(),
     );
-    await EthereumBeaconSyncService.ensureBootstrapped(mainchainClient, endpoints.beaconApiUrl, sudo(), {
+    await ensureDevEthereumBeaconBootstrapped(mainchainClient, endpoints.beaconApiUrl, sudo(), {
       minimumFinalizedSlot: 64n,
     });
 
@@ -217,15 +218,10 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
 
     await sudoFundWallet({
       client,
-      address: walletKeys.vaultingAddress,
+      // The collapsed wallet model uses the default Argon account for vaulting.
+      address: walletKeys.defaultArgonAddress,
       microgons: 100_000_000n,
       micronots: 10_000_000n,
-    });
-    await sudoFundWallet({
-      client,
-      address: walletKeys.investmentAddress,
-      microgons: client.consts.balances.existentialDeposit.toBigInt(),
-      micronots: 0n,
     });
 
     const currentTick = await client.query.ticks.currentTick();
@@ -422,7 +418,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
         throw new Error('Run the whole EthereumCrosschain integration suite. Phase 1 must complete before phase 2.');
       }
 
-      const collectTx = await myVault.collect({ moveTo: MoveTo.VaultingHold });
+      const collectTx = await myVault.collect({ moveTo: MoveTo.DefaultArgon });
       await collectTx.txResult.waitForFinalizedBlock;
       await collectTx.waitForPostProcessing;
       expect(collectTx.tx.extrinsicType).toBe('CrosschainTransferApproveCouncil');
@@ -673,12 +669,12 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
 
       const amountBaseUnits = 250n * EvmContracts.MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE;
       const startingBalance = await submitLane.client.query.system
-        .account(walletKeys.investmentAddress)
+        .account(walletKeys.defaultArgonAddress)
         .then(x => x.data.free.toBigInt());
       const transfer = await tracker.startMove({
         moveToken: MoveToken.ARGN,
         amountBaseUnits,
-        targetWalletType: WalletType.investment,
+        targetWalletType: WalletType.defaultArgon,
       });
       expect(transfer).toBeDefined();
 
@@ -703,7 +699,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
         expect(persisted).toMatchObject({
           id: transfer!.id,
           token: MoveToken.ARGN,
-          argonDestinationAddress: walletKeys.investmentAddress,
+          argonDestinationAddress: walletKeys.defaultArgonAddress,
           status: CrosschainInboundTransferStatus.ArgonFinalized,
         });
         expect(persisted?.sourceTxHash).toBeTruthy();
@@ -713,7 +709,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
 
       await vi.waitFor(async () => {
         const balance = await submitLane.client.query.system
-          .account(walletKeys.investmentAddress)
+          .account(walletKeys.defaultArgonAddress)
           .then(x => x.data.free.toBigInt());
         expect(balance).toBe(startingBalance + 250n);
       }, 30_000);
@@ -721,7 +717,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       const transferState = tracker.getTransferStateForToken(MoveToken.ARGN);
       expect(transferState.isSubmitting).toBe(false);
       expect(transferState.hasPersistedTransfer).toBe(false);
-      expect(transferState.targetWalletType).toBe(WalletType.investment);
+      expect(transferState.targetWalletType).toBe(WalletType.defaultArgon);
       expect(transferState.progress.overallProgressPct).toBe(100);
       expect(transferState.error).toBe('');
     },

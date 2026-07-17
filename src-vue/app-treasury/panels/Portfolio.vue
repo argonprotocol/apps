@@ -3,12 +3,12 @@
   <DialogRoot class="absolute inset-0 z-10" :open="isOpen">
     <DialogPortal>
       <DialogOverlay asChild>
-        <BgOverlay @close="closePanel" />
+        <BgOverlay :style="{ zIndex: overlayZIndex.backdropZIndex }" @close="closePanel" />
       </DialogOverlay>
 
-      <DialogContent @escapeKeyDown="closePanel" :aria-describedby="undefined">
+      <DialogContent asChild @escapeKeyDown="closePanel" :aria-describedby="undefined" :style="{ zIndex: overlayZIndex.contentZIndex }">
         <div
-          class="Portfolio Panel inner-input-shadow bg-argon-menu-bg absolute top-[50px] right-2 bottom-2 left-2 z-50 flex flex-col rounded-md border border-black/30 text-left transition-all focus:outline-none overflow-x-scroll"
+          class="Portfolio Panel inner-input-shadow bg-argon-menu-bg absolute top-[50px] right-2 bottom-2 left-2 flex flex-col rounded-md border border-black/30 text-left transition-all focus:outline-none overflow-x-scroll"
           style="
             box-shadow:
               0 -1px 2px 0 rgba(0, 0, 0, 0.1),
@@ -77,15 +77,18 @@ import { XMarkIcon } from '@heroicons/vue/24/outline';
 import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui';
 import { PortfolioTab } from '../interfaces/IPortfolioTab.ts';
-import { PortfolioTab as EmitterPortfolioTab } from '../../app-operations/panels/interfaces/IPortfolioTab.ts';
+import { PortfolioTab as EmitterPortfolioTab } from '../../panels/interfaces/IPortfolioTab.ts';
 import Overview from './portfolio/Overview.vue';
 import AssetBreakdown from './portfolio/AssetBreakdown.vue';
 import ProfitAnalysis from './portfolio/ProfitAnalysis.vue';
 import TransactionHistory from './portfolio/TransactionHistory.vue';
+import { provideOverlayContentZIndex, useOverlayZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 
 const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
 const selectedTab = Vue.ref<PortfolioTab>(PortfolioTab.Overview);
+const overlayZIndex = useOverlayZIndex(() => isOpen.value);
+provideOverlayContentZIndex(Vue.toRef(overlayZIndex, 'contentZIndex'));
 
 function closePanel() {
   isOpen.value = false;

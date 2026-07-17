@@ -1,6 +1,13 @@
-import { calculateAPR, calculateAPY } from './utils.js';
+import {
+  calculateAggregateReturn,
+  calculateAnnualPercentageRate,
+  calculateAnnualPercentageYield,
+} from './FinancialReturns.js';
 import { Currency, UnitOfMeasurement } from './Currency.js';
 import type { Mining } from './Mining.js';
+import { NetworkConfig } from './NetworkConfig.js';
+
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1_000;
 
 export class GlobalMiningStats {
   private mining: Mining;
@@ -9,6 +16,8 @@ export class GlobalMiningStats {
   public activeSeatCount = 0;
   public aggregatedBidCosts = 0n;
   public aggregatedBlockRewards = 0n;
+  public investedCapital = 0n;
+  public projectedProfit = 0n;
   public averageAPR: number = 0;
   public averageAPY: number = 0;
 
@@ -28,23 +37,44 @@ export class GlobalMiningStats {
   }
 
   public async update() {
-    this.activeSeatCount = await this.mining.fetchActiveMinersCount();
+    const miningTermDays = (NetworkConfig.ticksPerCohort * NetworkConfig.tickMillis) / MILLISECONDS_PER_DAY;
+    const client = await this.mining.prunedClientOrArchivePromise;
+    const api = await client.at(await client.rpc.chain.getFinalizedHead());
+    const [activeSeatCount, aggregateBlockRewards, aggregateBidCosts, aggregateMicronotsStaked] = await Promise.all([
+      this.mining.fetchActiveMinersCount(api),
+      this.mining.fetchAggregateBlockRewards(api),
+      this.mining.fetchAggregateBidCosts(api),
+      this.mining.fetchAggregateMicronotsStaked(api),
+    ]);
+    const markedStake = this.currency.convertMicronotTo(aggregateMicronotsStaked, UnitOfMeasurement.Microgon);
+    const valueOfMicronots = this.currency.convertMicronotTo(
+      aggregateBlockRewards.micronots,
+      UnitOfMeasurement.Microgon,
+    );
+    const aggregateRewards = aggregateBlockRewards.microgons + valueOfMicronots;
+    const aggregateReturn = calculateAggregateReturn([
+      {
+        startingCapital: aggregateBidCosts + markedStake,
+        endingCapital: markedStake + aggregateRewards,
+      },
+    ]);
+    const annualizedInput = {
+      startingValue: aggregateReturn.eligibleCapitalInvested,
+      endingValue: aggregateReturn.eligibleCapitalInvested + aggregateReturn.totalProfits,
+      periodDays: miningTermDays,
+    };
 
-    const aggregateBlockRewards = await this.mining.fetchAggregateBlockRewards();
-    this.aggregatedBidCosts = await this.mining.fetchAggregateBidCosts();
-    this.aggregatedBlockRewards = this.calculateBlockRewards(aggregateBlockRewards);
-    this.averageAPR = calculateAPR(this.aggregatedBidCosts, this.aggregatedBlockRewards);
-    this.averageAPY = calculateAPY(this.aggregatedBidCosts, this.aggregatedBlockRewards);
+    this.activeSeatCount = activeSeatCount;
+    this.aggregatedBidCosts = aggregateBidCosts;
+    this.aggregatedBlockRewards = aggregateRewards;
+    this.investedCapital = aggregateReturn.eligibleCapitalInvested;
+    this.projectedProfit = aggregateReturn.totalProfits;
+    this.averageAPR = calculateAnnualPercentageRate(annualizedInput);
+    this.averageAPY = calculateAnnualPercentageYield(annualizedInput);
 
-    const lastFrameBlockRewards = await this.mining.fetchLastFrameBlockRewards();
-    this.activeBidCosts = (await this.mining.fetchLastFramesBidCosts()) * 10n;
-    this.activeBlockRewards = this.calculateBlockRewards(lastFrameBlockRewards) * 10n;
-    this.activeAPR = calculateAPR(this.activeBidCosts, this.activeBlockRewards);
-    this.activeAPY = calculateAPY(this.activeBidCosts, this.activeBlockRewards);
-  }
-
-  private calculateBlockRewards(blockRewards: { micronots: bigint; microgons: bigint }): bigint {
-    const valueOfMicronots = this.currency.convertMicronotTo(blockRewards.micronots, UnitOfMeasurement.Microgon);
-    return blockRewards.microgons + valueOfMicronots;
+    this.activeBidCosts = this.aggregatedBidCosts;
+    this.activeBlockRewards = this.aggregatedBlockRewards;
+    this.activeAPR = this.averageAPR;
+    this.activeAPY = this.averageAPY;
   }
 }

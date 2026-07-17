@@ -12,7 +12,12 @@
       <div class="grow">
         <div class="flex items-baseline gap-2">
           <span class="text-argon-600 font-mono text-2xl font-bold">
-            {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.bondMicrogons).format('0,0.00') }}
+            <template v-if="bondLot.programType === 'Argonot'">
+              {{ micronotToArgonotNm(bondLot.bondMicrogons).format('0,0.00') }} ARGNOT
+            </template>
+            <template v-else>
+              {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.bondMicrogons).format('0,0.00') }}
+            </template>
           </span>
           <span class="text-sm text-slate-500">{{ numeral(bondLot.bonds).format('0,0') }} bonds</span>
         </div>
@@ -21,8 +26,8 @@
 
         <div class="mt-4 grid grid-cols-3 gap-4 rounded-lg bg-slate-50 px-4 py-3 text-sm">
           <div>
-            <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">Vault</div>
-            <div class="mt-1 text-slate-700">{{ vaultLabel }}</div>
+            <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">Program</div>
+            <div class="mt-1 text-slate-700">{{ bondProgramLabel }}</div>
           </div>
 
           <div>
@@ -40,7 +45,12 @@
           <div>
             <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">Purchase Price</div>
             <div class="mt-1 font-medium text-slate-700">
-              {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.bondMicrogons).format('0,0.00') }}
+              <template v-if="bondLot.programType === 'Argonot'">
+                {{ micronotToArgonotNm(bondLot.bondMicrogons).format('0,0.00') }} ARGNOT
+              </template>
+              <template v-else>
+                {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.bondMicrogons).format('0,0.00') }}
+              </template>
             </div>
           </div>
 
@@ -52,8 +62,11 @@
           </div>
 
           <div>
-            <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">Lifetime Return</div>
-            <div class="mt-1 font-medium text-slate-700">{{ numeral(lifetimeReturnPct).format('0,0.00') }}%</div>
+            <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">Return to Date</div>
+            <div class="mt-1 font-medium text-slate-700">
+              <template v-if="returnPercent !== undefined">{{ numeral(returnPercent).format('0,0.00') }}%</template>
+              <template v-else>--</template>
+            </div>
           </div>
         </div>
 
@@ -64,7 +77,12 @@
           <div class="text-amber-700">
             Returning
             <span class="font-semibold">
-              {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.returningBondMicrogons).format('0,0.00') }}
+              <template v-if="bondLot.programType === 'Argonot'">
+                {{ micronotToArgonotNm(bondLot.returningBondMicrogons).format('0,0.00') }} ARGNOT
+              </template>
+              <template v-else>
+                {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.returningBondMicrogons).format('0,0.00') }}
+              </template>
             </span>
             on {{ releaseAtLabel }}
           </div>
@@ -105,19 +123,19 @@ import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
-import OverlayBase from '../../app-shared/overlays/OverlayBase.vue';
+import OverlayBase from '../../overlays/OverlayBase.vue';
 import ProgressBar from '../../components/ProgressBar.vue';
 import BondIcon from '../../assets/bond.svg?component';
 import { getCurrency } from '../../stores/currency.ts';
 import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
 import { getVaults } from '../../stores/vaults.ts';
 import { BondLot, TreasuryBonds } from '@argonprotocol/apps-core';
-import BigNumber from 'bignumber.js';
 import { getWalletKeys } from '../../stores/wallets.ts';
 import { getTransactionTracker } from '../../stores/transactions.ts';
 import { ExtrinsicType, TransactionStatus } from '../../lib/db/TransactionsTable.ts';
 import { type TransactionInfo } from '../../lib/TransactionInfo.ts';
 import { generateProgressLabel } from '../../lib/Utils.ts';
+import { getArgonBonds } from '../../stores/argonBonds.ts';
 
 dayjs.extend(utc);
 
@@ -126,11 +144,13 @@ const miningFrames = getMiningFrames();
 const vaults = getVaults();
 const walletKeys = getWalletKeys();
 const transactionTracker = getTransactionTracker();
+const argonBonds = getArgonBonds();
 
-const { microgonToMoneyNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const props = defineProps<{
   bondLot: BondLot;
+  returnPercent?: number;
 }>();
 
 const emit = defineEmits<{
@@ -155,16 +175,19 @@ const releaseAtLabel = Vue.computed(() => {
   return dayjs.utc(miningFrames.getFrameDate(props.bondLot.releaseFrame)).local().format('M/D/YYYY [at] h:mm a');
 });
 
-const vaultLabel = Vue.computed(() => {
-  const vault = vaults.vaultsById[props.bondLot.vaultId];
+const bondProgramLabel = Vue.computed(() => {
+  if (props.bondLot.programType === 'Argonot') {
+    return 'Argonot Bond';
+  }
+
+  const vaultId = props.bondLot.vaultId;
+  if (vaultId == null) {
+    return 'Vault Bond';
+  }
+
+  const vault = vaults.vaultsById[vaultId];
   const name = vault?.name?.trim();
-  return name ? `${name} Vault` : `Vault #${props.bondLot.vaultId}`;
-});
-
-const lifetimeReturnPct = Vue.computed(() => {
-  if (props.bondLot.bondMicrogons <= 0n) return 0;
-
-  return BigNumber(props.bondLot.lifetimeEarnings).dividedBy(props.bondLot.bondMicrogons).multipliedBy(100).toNumber();
+  return name ? `${name} Vault` : `Vault #${vaultId}`;
 });
 
 const canLiquidate = Vue.computed(() => {
@@ -174,6 +197,7 @@ const canLiquidate = Vue.computed(() => {
 function trackLiquidationTxInfo(info: TransactionInfo) {
   unsubscribeLiquidationProgress?.();
   isLiquidating.value = true;
+  argonBonds.saveBondLiquidation(props.bondLot, info);
 
   unsubscribeLiquidationProgress = info.subscribeToProgress((args, error) => {
     liquidationProgressPct.value = args.progressPct;
@@ -202,7 +226,7 @@ async function liquidateBondLot() {
 
   try {
     const client = await getMainchainClient(false);
-    const signer = await walletKeys.getInvestmentKeypair();
+    const signer = await walletKeys.getDefaultArgonKeypair();
     const tx = await TreasuryBonds.buildReleaseBondLotTx({ client, bondLotId: props.bondLot.id });
     const info = await transactionTracker.submitAndWatch({
       tx,
@@ -230,7 +254,7 @@ Vue.onMounted(async () => {
     releasedBondMicrogons?: bigint;
   }>(candidate => {
     if (candidate.tx.extrinsicType !== ExtrinsicType.TreasuryReleaseBondLot) return false;
-    if (candidate.tx.accountAddress !== walletKeys.investmentAddress) return false;
+    if (candidate.tx.accountAddress !== walletKeys.defaultArgonAddress) return false;
     if (candidate.tx.metadataJson?.bondLotId !== props.bondLot.id) return false;
     if ((candidate.tx.metadataJson?.releasedBondMicrogons ?? 0n) <= 0n) return false;
     if (candidate.tx.submissionErrorJson || candidate.tx.blockExtrinsicErrorJson) return false;

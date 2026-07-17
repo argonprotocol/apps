@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
-import { execFileSync, spawn } from 'child_process';
-import { config as loadDotEnv } from 'dotenv';
+import { spawn } from 'child_process';
 import { type INetworkConfigOverride, NetworkConfig } from '@argonprotocol/apps-core';
 import { getClient } from '@argonprotocol/mainchain';
 import { ensureDevGatewayCerts } from '../scripts/devGatewayCerts.ts';
@@ -13,11 +12,20 @@ import {
   readDevEthereumRuntimeState,
   resolveDevEthereumRpcUrl,
   startDevEthereum,
+  updateDevEthereumRuntimeState,
 } from '../e2e/devEthereum.ts';
 import {
   startDevEthereumMintingAuthority,
   type IDevEthereumMintingAuthorityRuntime,
 } from '../e2e/helpers/startDevEthereumMintingAuthority.ts';
+import {
+  getDevDockerComposeContext,
+  type IDevUpstreamServerRuntime,
+  readComposeContainerId,
+  readComposePortWithRetry,
+  startDevUpstreamServer,
+  waitForDevUpstreamEthereumRelayReady,
+} from '../e2e/scripts/devUpstreamServer.ts';
 import fs from 'fs';
 import path from 'path';
 import process from 'process';
@@ -25,7 +33,6 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const COMPOSE_FILES = ['docker-compose.yml', 'indexer.docker-compose.yml'];
 
 void main().catch(error => {
   console.error(`[tauri-dev] Failed to start: ${(error as Error).message}`);
@@ -35,13 +42,10 @@ void main().catch(error => {
 async function main(): Promise<void> {
   const network = process.env.ARGON_NETWORK_NAME || 'testnet';
   const argonAppInstance = process.env.ARGON_APP_INSTANCE || '';
-  const app = process.env.ARGON_APP || 'operations';
-  console.log(
-    `[tauri-dev] Starting Tauri dev for app="${app}" on network="${network}" with instance="${argonAppInstance}"`,
-  );
+  console.log(`[tauri-dev] Starting Tauri dev for network="${network}" with instance="${argonAppInstance}"`);
 
-  const tauriPort = getTauriPort(argonAppInstance, app);
-  const configFileName = `tauri.${app}.local.${network.replace('dev-docker', 'docknet')}.conf.json`;
+  const tauriPort = getTauriPort(argonAppInstance);
+  const configFileName = `tauri.desktop.local.${network.replace('dev-docker', 'docknet')}.conf.json`;
   const configFilePath = path.resolve(__dirname, configFileName);
   const baseConfig = loadBaseConfig(configFileName, configFilePath);
   baseConfig.build ??= {};
@@ -51,23 +55,24 @@ async function main(): Promise<void> {
   const tauriEnv: NodeJS.ProcessEnv = { ...process.env };
   const devEthereumConfig = readDevEthereumConfigFromEnv();
   let shouldStartDevEthereumMintingAuthority = false;
-  let devEthereumRuntime: { shutdown(): Promise<void> } | undefined;
   let devEthereumMintingAuthorityRuntime: IDevEthereumMintingAuthorityRuntime | undefined;
   let devEthereumMintingAuthorityPromise: Promise<void> | undefined;
   let devEthereumSetup: IDevEthereumSetup | undefined;
   let devDockerArchiveUrl: string | undefined;
   let devEthereumExecutionRpcUrl: string | undefined;
+  let startedDevEthereum: IStartDevEthereumResult | undefined;
   let isShuttingDown = false;
   if (network === 'dev-docker') {
-    shouldStartDevEthereumMintingAuthority = ['1', 'true', 'yes', 'on'].includes(
-      readNonEmpty(process.env.ARGON_DEV_ETHEREUM_MINTING_AUTHORITY)?.toLowerCase() ?? '',
-    );
-    if (app.startsWith('treasury')) shouldStartDevEthereumMintingAuthority = false;
-    await ensureDevGatewayCerts({ app, appInstance: argonAppInstance, network });
+    const mintingAuthoritySetting = readNonEmpty(
+      process.env.ARGON_DEV_ETHEREUM_MINTING_AUTHORITY,
+    )?.toLowerCase();
+    shouldStartDevEthereumMintingAuthority =
+      !!devEthereumConfig && !['0', 'false', 'no', 'off'].includes(mintingAuthoritySetting ?? '');
+    await ensureDevGatewayCerts({ appInstance: argonAppInstance, network });
 
     console.log('[tauri-dev] Resolving dev-docker compose ports');
     const composePorts = await resolveDevDockerComposePorts();
-    const devEthereum = devEthereumConfig
+    startedDevEthereum = devEthereumConfig
       ? await (async () => {
           console.log(
             `[tauri-dev] Launching local dev Ethereum (preset=${devEthereumConfig.beaconPreset}, secondsPerSlot=${devEthereumConfig.secondsPerSlot})`,
@@ -76,13 +81,13 @@ async function main(): Promise<void> {
         })()
       : undefined;
     if (composePorts) {
-      devDockerArchiveUrl = `ws://127.0.0.1:${composePorts.archivePort}`;
+      devDockerArchiveUrl = `ws://127.0.0.1:${composePorts.archiveRpcPort}`;
       console.log(
-        `[tauri-dev] Resolved compose ports archive=${composePorts.archivePort} archiveP2p=${composePorts.archiveP2pPort} bitcoinP2p=${composePorts.bitcoinP2pPort} esplora=${composePorts.esploraPort}${composePorts.indexerPort ? ` indexer=${composePorts.indexerPort}` : ''} notary=${composePorts.notaryAliasContainerId}`,
+        `[tauri-dev] Resolved compose ports archiveNode=${composePorts.archivePort} archiveRpc=${composePorts.archiveRpcPort} archiveP2p=${composePorts.archiveP2pPort} bitcoinP2p=${composePorts.bitcoinP2pPort} esplora=${composePorts.esploraPort}${composePorts.indexerPort ? ` indexer=${composePorts.indexerPort}` : ''} notary=${composePorts.notaryAliasContainerId}`,
       );
       Object.assign(tauriEnv, getDevDockerServerEnvVars(composePorts));
-      if (devEthereum && devEthereumConfig) {
-        devEthereumSetup = createDevEthereumSetup(devDockerArchiveUrl, devEthereum, devEthereumConfig);
+      if (startedDevEthereum && devEthereumConfig) {
+        devEthereumSetup = createDevEthereumSetup(devDockerArchiveUrl, startedDevEthereum, devEthereumConfig);
         Object.assign(tauriEnv, devEthereumSetup.env);
       }
     } else {
@@ -93,11 +98,14 @@ async function main(): Promise<void> {
     const inheritedRuntimeOverride: RuntimeNetworkConfigOverride | undefined = inheritedOverride
       ? JSON.parse(inheritedOverride)
       : undefined;
-    const ethereumExecutionRpcUrl = await resolveRuntimeEthereumExecutionRpcUrl(devEthereum, inheritedRuntimeOverride);
+    const ethereumExecutionRpcUrl = await resolveRuntimeEthereumExecutionRpcUrl(
+      startedDevEthereum,
+      inheritedRuntimeOverride,
+    );
     devEthereumExecutionRpcUrl = ethereumExecutionRpcUrl;
     const ethereumUsdcTokenAddress = await resolveRuntimeEthereumUsdcTokenAddress(
       ethereumExecutionRpcUrl,
-      devEthereum,
+      startedDevEthereum,
       inheritedRuntimeOverride,
     );
     const runtimeOverride = composePorts
@@ -119,8 +127,7 @@ async function main(): Promise<void> {
   }
 
   console.log(baseConfig);
-  const configArg =
-    process.platform === 'win32' ? `"${configJson.replace(/"/g, '\\"')}"` : configJson;
+  const configArg = process.platform === 'win32' ? `"${configJson.replace(/"/g, '\\"')}"` : configJson;
   const tauriArgs = ['tauri', 'dev', '--config', configArg];
   const isE2EAppRun = Boolean(readNonEmpty(tauriEnv.ARGON_DRIVER_WS));
   if (isE2EAppRun) {
@@ -128,37 +135,126 @@ async function main(): Promise<void> {
     console.log('[tauri-dev] Enabling e2e features (ARGON_DRIVER_WS detected)');
   }
 
-  let devEthereumSetupPromise: Promise<void> | undefined;
-  if (devEthereumSetup) {
-    devEthereumSetupPromise = devEthereumSetup
-      .start()
+  let devEthereumRuntimeSetupPromise: Promise<void> | undefined;
+  let devEthereumReadyPromise: Promise<void> | undefined;
+  let devUpstreamPromise: Promise<void> | undefined;
+  let devUpstreamRuntime: IDevUpstreamServerRuntime | undefined;
+  if (devDockerArchiveUrl && (!isE2EAppRun || devEthereumConfig)) {
+    devUpstreamPromise = startDevUpstreamServer({
+      archiveUrl: devDockerArchiveUrl,
+      devEthereum: startedDevEthereum,
+      devEthereumConfig,
+    })
       .then(runtime => {
-        devEthereumRuntime = runtime;
-        console.log('[tauri-dev][ethereum-ready] local Ethereum relayer is ready');
+        devUpstreamRuntime = runtime;
+        console.log('[tauri-dev][upstream-ready] upstream server is ready');
+      })
+      .catch(error => {
+        console.error(`[tauri-dev] Failed to start upstream server: ${(error as Error).message}`);
+        throw error;
+      });
+
+    void devUpstreamPromise.catch(() => undefined);
+  }
+
+  if (devEthereumSetup) {
+    devEthereumRuntimeSetupPromise = devEthereumSetup.start();
+    devEthereumReadyPromise = devEthereumRuntimeSetupPromise
+      .then(async () => {
+        if (!devDockerArchiveUrl || !startedDevEthereum) {
+          throw new Error('Dev Ethereum relay activation is missing archive or Ethereum setup details.');
+        }
+        if (isShuttingDown) {
+          return;
+        }
+
+        await devUpstreamPromise;
+        if (!devUpstreamRuntime) {
+          throw new Error('Upstream server did not finish startup before Ethereum relay activation.');
+        }
+        if (isShuttingDown) {
+          return;
+        }
+
+        await waitForDevUpstreamEthereumRelayReady({
+          archiveUrl: devDockerArchiveUrl,
+          botPort: devUpstreamRuntime.botPort,
+        });
+        if (isShuttingDown) {
+          return;
+        }
+
+        console.log('[tauri-dev][ethereum-ready] upstream Ethereum relay is ready');
+
+        await updateDevEthereumRuntimeState(startedDevEthereum.executionRpcUrl, {
+          setupStatus: 'ready',
+        });
       })
       .catch(error => {
         console.error(`[tauri-dev] Failed to finish local Ethereum setup: ${(error as Error).message}`);
         throw error;
       });
 
-    void devEthereumSetupPromise.catch(() => undefined);
+    void devEthereumReadyPromise.catch(() => undefined);
   }
 
   const child = spawn('yarn', tauriArgs, {
     env: tauriEnv,
     stdio: 'inherit',
+    detached: process.platform !== 'win32',
     shell: process.platform === 'win32',
   });
+
+  const killChildTree = (signal: NodeJS.Signals) => {
+    if (child.exitCode !== null) {
+      return;
+    }
+
+    if (process.platform !== 'win32' && child.pid) {
+      try {
+        process.kill(-child.pid, signal);
+        return;
+      } catch {
+        // Fall back to the direct child if the process group is already gone.
+      }
+    }
+
+    child.kill(signal);
+  };
 
   child.on('error', err => {
     console.error('[tauri-dev] Failed to start child process.', err);
     process.exit(1);
   });
 
+  process.once('SIGINT', () => {
+    isShuttingDown = true;
+    killChildTree('SIGINT');
+    setTimeout(() => {
+      if (child.exitCode === null) {
+        killChildTree('SIGKILL');
+      }
+    }, 5_000).unref();
+  });
+
+  process.once('SIGTERM', () => {
+    isShuttingDown = true;
+    killChildTree('SIGTERM');
+    setTimeout(() => {
+      if (child.exitCode === null) {
+        killChildTree('SIGKILL');
+      }
+    }, 5_000).unref();
+  });
+
   if (shouldStartDevEthereumMintingAuthority) {
     devEthereumMintingAuthorityPromise = (async () => {
-      if (devEthereumSetupPromise) {
-        await devEthereumSetupPromise;
+      if (!devEthereumRuntimeSetupPromise || !devUpstreamPromise) {
+        throw new Error('Dev Ethereum or upstream setup did not start before the minting authority.');
+      }
+      await Promise.all([devEthereumRuntimeSetupPromise, devUpstreamPromise]);
+      if (!devUpstreamRuntime) {
+        throw new Error('Upstream operator did not finish startup before the minting authority.');
       }
       if (isShuttingDown) {
         return;
@@ -169,8 +265,8 @@ async function main(): Promise<void> {
         archiveUrl: devDockerArchiveUrl!,
         executionRpcUrl: devEthereumExecutionRpcUrl,
         logPrefix: 'tauri-dev',
+        operator: devUpstreamRuntime.operator,
         virtualEnv: {
-          app,
           appInstance: argonAppInstance,
           network,
           serverEnvVars: tauriEnv,
@@ -190,9 +286,10 @@ async function main(): Promise<void> {
   child.on('exit', code => {
     isShuttingDown = true;
     const shutdownPromise = (async () => {
+      await devUpstreamPromise?.catch(() => undefined);
       await devEthereumMintingAuthorityPromise;
       await devEthereumMintingAuthorityRuntime?.shutdown().catch(() => undefined);
-      await devEthereumRuntime?.shutdown().catch(() => undefined);
+      await devUpstreamRuntime?.shutdown().catch(() => undefined);
     })();
     void shutdownPromise.finally(() => {
       process.exit(code ?? 0);
@@ -200,13 +297,13 @@ async function main(): Promise<void> {
   });
 }
 
-function getTauriPort(argonAppInstance: string, app: string): string {
+function getTauriPort(argonAppInstance: string): string {
   if (argonAppInstance.includes(':')) {
     const parts = argonAppInstance.split(':');
     const port = parts[parts.length - 1];
     if (port) return port;
   }
-  return app.startsWith('treasury') ? '1430' : '1420';
+  return '1420';
 }
 
 function loadBaseConfig(configFileName: string, configFilePath: string): any {
@@ -228,6 +325,7 @@ type RuntimeNetworkConfigOverride = INetworkConfigOverride;
 
 interface DevDockerComposePorts {
   archivePort: string;
+  archiveRpcPort: string;
   archiveP2pPort: string;
   bitcoinP2pPort: string;
   esploraPort: string;
@@ -237,17 +335,9 @@ interface DevDockerComposePorts {
 }
 
 async function resolveDevDockerComposePorts(): Promise<DevDockerComposePorts | null> {
-  const composeDir = path.resolve(__dirname, '..', 'e2e', 'argon');
-  const dotenvPath = path.join(composeDir, '.env');
-  const dotenvEnv = loadDotEnv({ path: dotenvPath }).parsed ?? {};
-  const joinComposeNetwork =
-    readNonEmpty(process.env.JOIN_COMPOSE_NETWORK) ?? readNonEmpty(dotenvEnv.COMPOSE_PROJECT_NAME);
-  const composeEnv: NodeJS.ProcessEnv = { ...dotenvEnv, ...process.env };
-  delete composeEnv.COMPOSE_PROJECT_NAME;
-  if (joinComposeNetwork) {
-    composeEnv.COMPOSE_PROJECT_NAME = joinComposeNetwork;
-  }
+  const context = getDevDockerComposeContext();
   let archivePort: string;
+  let archiveRpcPort: string;
   let archiveP2pPort: string;
   let bitcoinP2pPort: string;
   let esploraPort: string;
@@ -256,35 +346,51 @@ async function resolveDevDockerComposePorts(): Promise<DevDockerComposePorts | n
   let notaryArchiveHost: string | undefined;
 
   try {
-    archivePort = (await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'archive-node', 9944))!;
-    archiveP2pPort = (await readComposePortWithRetry(
-      composeDir,
-      composeEnv,
-      joinComposeNetwork,
-      'archive-node',
-      30334,
-    ))!;
-    bitcoinP2pPort = (await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'bitcoin', 18444))!;
-    esploraPort = (await readComposePortWithRetry(
-      composeDir,
-      composeEnv,
-      joinComposeNetwork,
-      'bitcoin-electrs',
-      3002,
-    ))!;
-    indexerPort = await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'indexer', 3262, {
+    archivePort = (await readComposePortWithRetry({
+      context,
+      service: 'archive-node',
+      port: 9944,
+    }))!;
+    archiveRpcPort = (await readComposePortWithRetry({
+      context,
+      service: 'archive-rpc',
+      port: 9944,
+    }))!;
+    archiveP2pPort = (await readComposePortWithRetry({
+      context,
+      service: 'archive-node',
+      port: 30334,
+    }))!;
+    bitcoinP2pPort = (await readComposePortWithRetry({
+      context,
+      service: 'bitcoin',
+      port: 18444,
+    }))!;
+    esploraPort = (await readComposePortWithRetry({
+      context,
+      service: 'bitcoin-electrs',
+      port: 3002,
+    }))!;
+    indexerPort = await readComposePortWithRetry({
+      context,
+      service: 'indexer',
+      port: 3262,
       optional: true,
     });
-    notaryAliasContainerId = readComposeContainerId(composeDir, composeEnv, joinComposeNetwork, 'notary');
-    const notebookArchivePort = (await readComposePortWithRetry(
-      composeDir,
-      composeEnv,
-      joinComposeNetwork,
-      'minio',
-      9000,
-    ))!;
-    const notaryPort = (await readComposePortWithRetry(composeDir, composeEnv, joinComposeNetwork, 'notary', 9925))!;
-    // then after resolving ports:
+    notaryAliasContainerId = readComposeContainerId({
+      context,
+      service: 'notary',
+    });
+    const notebookArchivePort = (await readComposePortWithRetry({
+      context,
+      service: 'minio',
+      port: 9000,
+    }))!;
+    const notaryPort = (await readComposePortWithRetry({
+      context,
+      service: 'notary',
+      port: 9925,
+    }))!;
     console.log(
       `[tauri-dev] Resolving notary archive host via ws://127.0.0.1:${notaryPort} with MinIO port ${notebookArchivePort}`,
     );
@@ -299,6 +405,7 @@ async function resolveDevDockerComposePorts(): Promise<DevDockerComposePorts | n
 
   return {
     archivePort,
+    archiveRpcPort,
     archiveP2pPort,
     bitcoinP2pPort,
     esploraPort,
@@ -310,7 +417,7 @@ async function resolveDevDockerComposePorts(): Promise<DevDockerComposePorts | n
 
 function getDevDockerServerEnvVars(ports: DevDockerComposePorts): NodeJS.ProcessEnv {
   return {
-    ARGON_ARCHIVE_NODE: `ws://host.docker.internal:${ports.archivePort}`,
+    ARGON_ARCHIVE_NODE: `ws://host.docker.internal:${ports.archiveRpcPort}`,
     ARGON_BOOTNODES: `--bootnodes=/dns/host.docker.internal/tcp/${ports.archiveP2pPort}/p2p/12D3KooWMdmKGEuFPVvwSd92jCQJgX9aFCp45E8vV2X284HQjwnn`,
     BITCOIN_ADDNODE: `host.docker.internal:${ports.bitcoinP2pPort}`,
     NOTEBOOK_ARCHIVE_HOSTS: ports.notaryArchiveHost,
@@ -349,13 +456,12 @@ async function resolveDevDockerNetworkConfigOverride(
   ports: DevDockerComposePorts,
   ethereumExecutionRpcUrl?: string,
   usdcTokenAddress?: string,
-  relayerUrl?: string,
 ): Promise<RuntimeNetworkConfigOverride | null> {
-  const archiveUrl = `ws://127.0.0.1:${ports.archivePort}`;
+  const archiveRpcUrl = `ws://127.0.0.1:${ports.archiveRpcPort}`;
   let runtimeConfig: RuntimeChainConfig;
   try {
-    console.log(`[tauri-dev] Loading runtime chain config from ${archiveUrl}`);
-    runtimeConfig = await loadRuntimeConfig(archiveUrl);
+    console.log(`[tauri-dev] Loading runtime chain config from ${archiveRpcUrl}`);
+    runtimeConfig = await loadRuntimeConfig(archiveRpcUrl);
   } catch (error) {
     console.warn(`[tauri-dev] Failed to load runtime chain config: ${(error as Error).message}`);
     return null;
@@ -363,7 +469,7 @@ async function resolveDevDockerNetworkConfigOverride(
 
   const override: RuntimeNetworkConfigOverride = {
     ...runtimeConfig,
-    archiveUrl,
+    archiveUrl: archiveRpcUrl,
     bitcoinBlockMillis: runtimeConfig.tickMillis * 10,
     esploraHost: `http://localhost:${ports.esploraPort}`,
     baseNetwork: {
@@ -428,98 +534,6 @@ async function resolveRuntimeEthereumUsdcTokenAddress(
   }
 }
 
-async function readComposePortWithRetry(
-  composeDir: string,
-  composeEnv: NodeJS.ProcessEnv,
-  composeProjectName: string | undefined,
-  service: string,
-  port: number,
-  options: { optional?: boolean; timeoutMs?: number } = {},
-): Promise<string | undefined> {
-  const timeoutMs = options.timeoutMs ?? 30_000;
-  const startedAt = Date.now();
-  let lastError: unknown;
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      return readComposePort(composeDir, composeEnv, composeProjectName, service, port);
-    } catch (error) {
-      lastError = error;
-      await sleep(1_000);
-    }
-  }
-
-  if (options.optional) {
-    console.warn(`[tauri-dev] Skipping ${service}:${port} after ${timeoutMs}ms: ${String(lastError)}`);
-    return undefined;
-  }
-  throw new Error(
-    `Unable to resolve docker compose port for ${service}:${port} after ${timeoutMs}ms: ${String(lastError)}`,
-  );
-}
-
-function readComposePort(
-  composeDir: string,
-  composeEnv: NodeJS.ProcessEnv,
-  composeProjectName: string | undefined,
-  service: string,
-  port: number,
-): string {
-  const args = [
-    'compose',
-    ...(composeProjectName ? ['--project-name', composeProjectName] : []),
-    ...COMPOSE_FILES.flatMap(file => ['-f', file]),
-    'port',
-    service,
-    String(port),
-  ];
-
-  const output = execFileSync('docker', args, {
-    cwd: composeDir,
-    encoding: 'utf-8',
-    env: composeEnv,
-  }).trim();
-
-  const endpoint = output
-    .split('\n')
-    .map(x => x.trim())
-    .filter(Boolean)
-    .at(-1);
-  if (!endpoint) {
-    throw new Error(`No docker compose port output for ${service}:${port}`);
-  }
-  const matchedPort = endpoint.match(/:(\d+)\s*$/)?.[1];
-  if (!matchedPort) {
-    throw new Error(`Could not parse mapped port from "${endpoint}" for ${service}:${port}`);
-  }
-  return matchedPort;
-}
-
-function readComposeContainerId(
-  composeDir: string,
-  composeEnv: NodeJS.ProcessEnv,
-  composeProjectName: string | undefined,
-  service: string,
-): string {
-  const args = [
-    'compose',
-    ...(composeProjectName ? ['--project-name', composeProjectName] : []),
-    ...COMPOSE_FILES.flatMap(file => ['-f', file]),
-    'ps',
-    '-q',
-    service,
-  ];
-
-  const containerId = execFileSync('docker', args, {
-    cwd: composeDir,
-    encoding: 'utf-8',
-    env: composeEnv,
-  }).trim();
-  if (!containerId) {
-    throw new Error(`No docker compose container id found for ${service}`);
-  }
-  return containerId;
-}
-
 async function loadRuntimeConfig(archiveUrl: string): Promise<RuntimeChainConfig> {
   const client = await getClient(archiveUrl);
   try {
@@ -546,15 +560,15 @@ function mergeNetworkConfigOverrides(
   }
 
   return {
-    ...inheritedOverride,
     ...dynamicOverride,
+    ...inheritedOverride,
     ethereumNetwork: {
-      ...inheritedOverride.ethereumNetwork,
       ...dynamicOverride.ethereumNetwork,
+      ...inheritedOverride.ethereumNetwork,
     },
     baseNetwork: {
-      ...inheritedOverride.baseNetwork,
       ...dynamicOverride.baseNetwork,
+      ...inheritedOverride.baseNetwork,
     },
   };
 }

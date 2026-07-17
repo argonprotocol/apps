@@ -46,6 +46,35 @@ it('should skip install if server is not connected', async () => {
   expect(installer.reasonToSkipInstall).toBe('ServerNotConnected');
 });
 
+it('keeps the installer loadable when the configured server health check fails', async () => {
+  const { walletKeys } = createTestWallet('//Alice');
+  const config = new Config(
+    createMockedDbPromise({
+      isServerInstalled: 'true',
+      serverDetails: JSON.stringify({
+        ipAddress: '143.198.226.10',
+        sshPort: 22,
+        sshUser: 'root',
+        type: ServerType.DigitalOcean,
+        workDir: '~',
+      }),
+    }),
+    walletKeys,
+  );
+  await config.load();
+
+  const installer = new Installer(config, walletKeys);
+  vi.spyOn(installer as any, 'getServer').mockRejectedValue(new Error('SSH authentication failed'));
+
+  await expect(installer.load()).resolves.toBeUndefined();
+  await expect(installer.isLoadedPromise).resolves.toBeUndefined();
+  expect(installer.isLoaded).toBe(true);
+  expect(config.serverInstaller).toMatchObject({
+    errorType: InstallStepErrorType.ServerConnect,
+    errorMessage: 'SSH authentication failed',
+  });
+});
+
 it('should skip install if install is already running', async () => {
   const dbPromise = createMockedDbPromise({ miningSetupStatus: `"${MiningSetupStatus.Installing}"` });
   const { walletKeys } = createTestWallet('//Alice');
@@ -272,6 +301,38 @@ it('only uploads bot config files when updating server config', async () => {
   await installer.updateServerConfig();
 
   expect(uploadBotConfigFiles).toHaveBeenCalledOnce();
+});
+
+it('uploads the mining bid proxy wallet while keeping the mining bot as the funding account', async () => {
+  const dbPromise = createMockedDbPromise({});
+  const walletKeys = createMockWalletKeys();
+  const config = new Config(dbPromise, walletKeys);
+  await config.load();
+
+  const installer = new Installer(config, walletKeys);
+  await installer.load();
+
+  const miningBidProxyWalletJson = await walletKeys.exportMiningBidProxyAccountJson('');
+  const server = {
+    createConfigDir: vi.fn().mockResolvedValue(undefined),
+    uploadMiningBotWallet: vi.fn().mockResolvedValue(undefined),
+    uploadVaultDelegateWallet: vi.fn().mockResolvedValue(undefined),
+    uploadBiddingRules: vi.fn().mockResolvedValue(undefined),
+    uploadEnvState: vi.fn().mockResolvedValue(undefined),
+    uploadEnvSecurity: vi.fn().mockResolvedValue(undefined),
+  };
+  // @ts-ignore - keep the test focused on upload payloads
+  installer.getServer = vi.fn().mockResolvedValue(server);
+
+  // @ts-ignore - exercise the upload path directly
+  await installer.uploadBotConfigFiles();
+
+  expect(server.uploadMiningBotWallet).toHaveBeenCalledWith(miningBidProxyWalletJson);
+  expect(server.uploadEnvState).toHaveBeenCalledWith(
+    expect.objectContaining({
+      miningFundingAccountId: walletKeys.miningBotAddress,
+    }),
+  );
 });
 
 it('should run through entire install process', async () => {

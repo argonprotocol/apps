@@ -1,5 +1,6 @@
 import type { Vaults } from './Vaults.js';
 import { SATOSHIS_PER_BITCOIN, UnitOfMeasurement, type Currency } from './Currency.js';
+import BigNumber from 'bignumber.js';
 
 export class GlobalVaultingStats {
   private vaults: Vaults;
@@ -76,4 +77,19 @@ export class GlobalVaultingStats {
       return (1 / r) * (0.576 * r + 0.4);
     }
   }
+}
+
+export function calculateRestabilizationLeverage({
+  argonBurnCapacity,
+  microgonsInCirculation,
+}: {
+  argonBurnCapacity: number;
+  microgonsInCirculation: bigint;
+}): number {
+  if (microgonsInCirculation <= 0n) return 0;
+
+  return BigNumber(argonBurnCapacity)
+    .dividedBy(BigNumber(microgonsInCirculation.toString()).dividedBy(1_000_000))
+    .decimalPlaces(1)
+    .toNumber();
 }

@@ -3,31 +3,57 @@ import * as Http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import Path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  InviteCodes,
+  createOperationalAccessProof,
   JsonExt,
   NetworkConfig,
-  type RouterAuthRole,
   signRouterAuthAccountBinding,
   signRouterAuthChallenge,
   UserRole,
+  type IEthereumGatewayCatchUpResponse,
+  type IEthereumGatewayRelayStatus,
+  type RouterAuthRole,
 } from '@argonprotocol/apps-core';
-import { Keyring, type KeyringPair } from '@argonprotocol/mainchain';
+import { getOfflineRegistry, Keyring, type KeyringPair } from '@argonprotocol/mainchain';
 import { Db as RouterDb } from '../src/Db.ts';
 import { RouterServer } from '../src/RouterServer.ts';
 import type {
-  IPreviewOperationalInviteResponse,
-  IPreviewTreasuryInviteResponse,
+  IBitcoinLockCouponStatus,
+  IInviteResponse,
+  IListBitcoinLockCouponsResponse,
+  IListInvitesResponse,
+  IOpenInviteResponse,
+  IPreviewInviteResponse,
   IRouterAuthSessionResponse,
 } from '../src/interfaces/index.ts';
 import type { IRouterAuthServiceOptions } from '../src/RouterAuthService.ts';
+
+const mainchainMocks = vi.hoisted(() => ({
+  getClient: vi.fn(),
+}));
+
+vi.mock('@argonprotocol/mainchain', async importOriginal => ({
+  ...(await importOriginal()),
+  getClient: mainchainMocks.getClient,
+}));
 
 NetworkConfig.setNetwork('dev-docker');
 
 type IRouterAddress = {
   host: string;
   port: number;
+};
+
+type BotRequest = {
+  method: string;
+  path: string;
+  body: unknown;
+};
+
+type BotResponse = {
+  status: number;
+  body: unknown;
 };
 
 describe('RouterServer', () => {
@@ -39,26 +65,31 @@ describe('RouterServer', () => {
     await routerServer?.close().catch(() => undefined);
     routerDb?.close();
     await new Promise<void>(resolve => botServer?.close(() => resolve()) ?? resolve());
+    mainchainMocks.getClient.mockReset();
   });
 
   it('rolls back invite rows when coupon creation fails', async () => {
-    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-test-'));
-    routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));
-    routerDb.migrate();
+    routerDb = createDb('router-server-create-rollback-');
 
-    const started = await startRouterServer(routerDb, {
-      status: 500,
-      body: { error: 'Bot coupon creation failed.' },
+    const started = await startRouterServer(routerDb, request => {
+      if (request.method === 'POST' && request.path === '/bitcoin-lock-coupons') {
+        return {
+          status: 500,
+          body: { error: 'Bot coupon creation failed.' },
+        };
+      }
+
+      return {
+        status: 404,
+        body: { error: 'Not Found' },
+      };
     });
     routerServer = started.routerServer;
     botServer = started.botServer;
-    const { routerAddress } = started;
-    const { inviteCode } = InviteCodes.create();
-    const response = await requestJson(routerAddress, '/treasury-users/create', {
+
+    const response = await requestJson(started.routerAddress, '/invites/create', {
       name: 'Casey',
-      fromName: 'OperatorOne',
-      inviteCode,
-      inviteEnvelope: 'treasury-envelope',
+      fromName: 'Operator One',
       vaultId: 12,
       maxSatoshis: 25_000n,
       estimatedGiftUsd: 16.25,
@@ -67,29 +98,22 @@ describe('RouterServer', () => {
     });
 
     expect(response.status).toBe(500);
-    expect(routerDb.userInvitesTable.fetchByCode(inviteCode)).toBeNull();
-    expect(routerDb.usersTable.fetchByRole(UserRole.TreasuryUser)).toEqual([]);
+    expect(listMemberInvites(routerDb)).toEqual([]);
   });
 
-  it('validates treasury invite payload before creating an invite', async () => {
-    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-treasury-validation-test-'));
-    routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));
-    routerDb.migrate();
+  it('validates invite payload before creating an invite', async () => {
+    routerDb = createDb('router-server-create-validation-');
 
-    const started = await startRouterServer(routerDb, {
+    const started = await startRouterServer(routerDb, () => ({
       status: 200,
       body: { status: 'ok' },
-    });
+    }));
     routerServer = started.routerServer;
     botServer = started.botServer;
-    const { routerAddress } = started;
-    const { inviteCode } = InviteCodes.create();
 
-    const invalidVaultResponse = await requestJson(routerAddress, '/treasury-users/create', {
+    const invalidVaultResponse = await requestJson(started.routerAddress, '/invites/create', {
       name: 'Casey',
-      fromName: 'OperatorOne',
-      inviteCode,
-      inviteEnvelope: 'treasury-envelope',
+      fromName: 'Operator One',
       vaultId: 0,
       maxSatoshis: 25_000n,
       estimatedGiftUsd: 16.25,
@@ -98,11 +122,9 @@ describe('RouterServer', () => {
     expect(invalidVaultResponse.status).toBe(400);
     expect(await invalidVaultResponse.text()).toContain('A vault is required to create an invite.');
 
-    const invalidExpiryResponse = await requestJson(routerAddress, '/treasury-users/create', {
+    const invalidExpiryResponse = await requestJson(started.routerAddress, '/invites/create', {
       name: 'Casey',
-      fromName: 'OperatorOne',
-      inviteCode,
-      inviteEnvelope: 'treasury-envelope',
+      fromName: 'Operator One',
       vaultId: 12,
       maxSatoshis: 25_000n,
       estimatedGiftUsd: 16.25,
@@ -111,11 +133,9 @@ describe('RouterServer', () => {
     expect(invalidExpiryResponse.status).toBe(400);
     expect(await invalidExpiryResponse.text()).toContain('Invite expiry must be greater than zero.');
 
-    const invalidEstimatedGiftUsdResponse = await requestJson(routerAddress, '/treasury-users/create', {
+    const invalidEstimatedGiftUsdResponse = await requestJson(started.routerAddress, '/invites/create', {
       name: 'Casey',
-      fromName: 'OperatorOne',
-      inviteCode,
-      inviteEnvelope: 'treasury-envelope',
+      fromName: 'Operator One',
       vaultId: 12,
       maxSatoshis: 25_000n,
       estimatedGiftUsd: -1,
@@ -126,11 +146,9 @@ describe('RouterServer', () => {
       'Estimated gift USD must be a valid non-negative number.',
     );
 
-    const invalidBtcPctFeeResponse = await requestJson(routerAddress, '/treasury-users/create', {
+    const invalidBtcPctFeeResponse = await requestJson(started.routerAddress, '/invites/create', {
       name: 'Casey',
-      fromName: 'OperatorOne',
-      inviteCode,
-      inviteEnvelope: 'treasury-envelope',
+      fromName: 'Operator One',
       vaultId: 12,
       maxSatoshis: 25_000n,
       estimatedGiftUsd: 16.25,
@@ -139,202 +157,402 @@ describe('RouterServer', () => {
     });
     expect(invalidBtcPctFeeResponse.status).toBe(400);
     expect(await invalidBtcPctFeeResponse.text()).toContain('BTC percent fee must be a valid non-negative number.');
-    expect(routerDb.usersTable.fetchByRole(UserRole.TreasuryUser)).toEqual([]);
+    expect(listMemberInvites(routerDb)).toEqual([]);
   });
 
-  it('previews treasury invite coupon details', async () => {
-    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-treasury-preview-test-'));
-    routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));
-    routerDb.migrate();
+  it('lists unified invites with their latest bitcoin coupon', async () => {
+    routerDb = createDb('router-server-list-invites-');
 
-    const { inviteCode } = InviteCodes.create();
-    const user = routerDb.usersTable.insertUser({
-      role: UserRole.TreasuryUser,
+    const olderInvite = insertMemberInvite(routerDb, {
+      inviteCode: 'member-invite-1',
       name: 'Casey',
+      fromName: 'Operator One',
     });
-    const invite = routerDb.userInvitesTable.insertInvite(user.id, inviteCode, 'OperatorOne');
-    const createdAt = new Date('2026-06-20T12:00:00.000Z');
-    const expiresAfterTicks = 60;
+    const newerInvite = insertMemberInvite(routerDb, {
+      inviteCode: 'member-invite-2',
+      name: 'Riley',
+      fromName: 'Operator One',
+    });
 
-    const started = await startRouterServer(routerDb, {
-      status: 200,
-      body: [
-        {
-          coupon: {
-            id: 1,
-            userId: invite.id,
-            offerCode: 'offer-code',
+    const coupon = createCouponStatus({
+      userId: newerInvite.id,
+      offerCode: 'offer-code-2',
+      vaultId: 12,
+      maxSatoshis: 25_000n,
+      estimatedGiftUsd: 16.25,
+      btcPctFee: 2.5,
+    });
+
+    const started = await startRouterServer(routerDb, request => {
+      if (request.method === 'GET' && request.path === '/bitcoin-lock-coupons') {
+        return {
+          status: 200,
+          body: [coupon],
+        };
+      }
+
+      return {
+        status: 404,
+        body: { error: 'Not Found' },
+      };
+    });
+    routerServer = started.routerServer;
+    botServer = started.botServer;
+
+    const response = await fetch(`http://${started.routerAddress.host}:${started.routerAddress.port}/invites`);
+    expect(response.status).toBe(200);
+
+    const body = JsonExt.parse<IListInvitesResponse>(await response.text());
+    expect(body.invites.map(x => x.inviteCode)).toEqual([newerInvite.inviteCode, olderInvite.inviteCode]);
+    expect(body.invites[0].vaultId).toBeUndefined();
+    expect(body.invites[0].bitcoinLockCoupon).toEqual(coupon);
+    expect(body.invites[1].bitcoinLockCoupon).toBeUndefined();
+  });
+
+  it('loads vault bonds once and reuses each member bitcoin state when listing invite progress', async () => {
+    routerDb = createDb('router-server-list-invite-progress-');
+
+    const memberOne = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMemberOne');
+    const memberTwo = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMemberTwo');
+    const inviteOne = insertMemberInvite(routerDb, {
+      inviteCode: 'member-invite-1',
+      name: 'Casey',
+      fromName: 'Operator One',
+    });
+    const inviteTwo = insertMemberInvite(routerDb, {
+      inviteCode: 'member-invite-2',
+      name: 'Riley',
+      fromName: 'Operator One',
+    });
+    routerDb.userInvitesTable.claimInvite(inviteOne.id, memberOne.address, memberOne.address);
+    routerDb.userInvitesTable.claimInvite(inviteTwo.id, memberTwo.address, memberTwo.address);
+
+    const coupons = [
+      createCouponStatus({
+        userId: inviteOne.id,
+        offerCode: 'offer-code-1',
+        vaultId: 12,
+        maxSatoshis: 25_000n,
+        estimatedGiftUsd: 16.25,
+        btcPctFee: 2.5,
+      }),
+      createCouponStatus({
+        userId: inviteTwo.id,
+        offerCode: 'offer-code-2',
+        vaultId: 12,
+        maxSatoshis: 25_000n,
+        estimatedGiftUsd: 16.25,
+        btcPctFee: 2.5,
+      }),
+    ];
+    const registry = getOfflineRegistry();
+    const bondLots = new Map([
+      [
+        1,
+        registry.createType('PalletTreasuryBondLot', {
+          owner: memberOne.address,
+          program: { Vault: { vaultId: 12, sharingPercent: 0, bonusPercent: 0 } },
+          bonds: 3,
+        }),
+      ],
+      [
+        2,
+        registry.createType('PalletTreasuryBondLot', {
+          owner: memberTwo.address,
+          program: { Vault: { vaultId: 12, sharingPercent: 0, bonusPercent: 0 } },
+          bonds: 5,
+        }),
+      ],
+    ]);
+    const bondLotsByVault = vi.fn().mockResolvedValue([
+      { bondLotId: registry.createType('u64', 1) },
+      { bondLotId: registry.createType('u64', 2) },
+    ]);
+    const bondLotIdsByAccount = vi.fn(async (accountId: string) => {
+      const id = accountId === memberOne.address ? 1 : 2;
+      return [{ args: [null, registry.createType('u64', id)] }];
+    });
+    const utxoIdsByOwnerAccount = vi.fn(async (accountId: string) => {
+      const id = accountId === memberOne.address ? 101 : 102;
+      return [{ args: [null, registry.createType('u64', id)] }];
+    });
+    mainchainMocks.getClient.mockResolvedValue({
+      disconnect: vi.fn().mockResolvedValue(undefined),
+      consts: {
+        operationalAccounts: {
+          minimumBitcoin: registry.createType('u128', 1),
+          minimumBonds: registry.createType('u128', 1),
+          minimumUniswapTransfer: registry.createType('u128', 1),
+          operationalMinimumUniswapTransfer: registry.createType('u128', 1),
+          operationalMinimumVaultSecuritization: registry.createType('u128', 1),
+          miningSeatsForOperational: registry.createType('u32', 2),
+        },
+      },
+      query: {
+        operationalAccounts: {
+          operationalAccountBySubAccount: {
+            multi: vi.fn(async (accountIds: string[]) => accountIds.map(() => ({ isSome: false }))),
+          },
+        },
+        treasury: {
+          bondLotsByVault,
+          bondLotIdsByAccount: { keys: bondLotIdsByAccount },
+          bondLotById: {
+            multi: vi.fn(async (ids: number[]) => {
+              return ids.map(id => ({
+                isSome: true,
+                unwrap: () => bondLots.get(id),
+              }));
+            }),
+          },
+        },
+        bitcoinLocks: {
+          utxoIdsByOwnerAccount: { keys: utxoIdsByOwnerAccount },
+          locksByUtxoId: {
+            multi: vi.fn(async (ids: number[]) => {
+              return ids.map(id => ({
+                isSome: true,
+                unwrap: () => ({
+                  vaultId: registry.createType('u32', 12),
+                  liquidityPromised: registry.createType('u128', id === 101 ? 7 : 11),
+                  isFunded: { toJSON: () => true },
+                }),
+              }));
+            }),
+          },
+        },
+        crosschainTransfer: {
+          transferTotalsByAccount: vi.fn().mockResolvedValue({
+            microgonsIn: registry.createType('u128', 1),
+          }),
+        },
+      },
+    });
+
+    const started = await startRouterServer(
+      routerDb,
+      request => {
+        if (request.method === 'GET' && request.path === '/bitcoin-lock-coupons') {
+          return { status: 200, body: coupons };
+        }
+
+        return { status: 404, body: { error: 'Not Found' } };
+      },
+      { mainNodeUrl: 'ws://mainchain.test' },
+    );
+    routerServer = started.routerServer;
+    botServer = started.botServer;
+
+    const response = await fetch(`http://${started.routerAddress.host}:${started.routerAddress.port}/invites`);
+    expect(response.status).toBe(200);
+
+    const body = JsonExt.parse<IListInvitesResponse>(await response.text());
+    const invitesByCode = new Map(body.invites.map(invite => [invite.inviteCode, invite]));
+    expect(invitesByCode.get(inviteOne.inviteCode)?.vaultContribution).toEqual({
+      bitcoinAmount: 7n,
+      bondAmount: 3n * 1_000_000n,
+    });
+    expect(invitesByCode.get(inviteTwo.inviteCode)?.vaultContribution).toEqual({
+      bitcoinAmount: 11n,
+      bondAmount: 5n * 1_000_000n,
+    });
+    expect(bondLotsByVault).toHaveBeenCalledTimes(1);
+    expect(bondLotIdsByAccount).toHaveBeenCalledTimes(2);
+    expect(utxoIdsByOwnerAccount).toHaveBeenCalledTimes(2);
+  });
+
+  it('regenerates an expired invite in place', async () => {
+    routerDb = createDb('router-server-regenerate-invite-');
+
+    const invite = insertMemberInvite(routerDb, {
+      inviteCode: 'member-invite-1',
+      name: 'Casey',
+      fromName: 'Operator One',
+    });
+    const expiredCoupon = {
+      ...createCouponStatus({
+        userId: invite.id,
+        offerCode: 'expired-offer-code',
+        vaultId: 12,
+        maxSatoshis: 25_000n,
+        estimatedGiftUsd: 16.25,
+        btcPctFee: 2.5,
+      }),
+      status: 'Expired' as const,
+    };
+    let replacementCouponUserId: number | undefined;
+
+    const started = await startRouterServer(routerDb, request => {
+      if (request.method === 'GET' && request.path === '/bitcoin-lock-coupons') {
+        return { status: 200, body: [expiredCoupon] };
+      }
+      if (request.method === 'POST' && request.path === '/bitcoin-lock-coupons') {
+        const body = request.body as { userId: number };
+        replacementCouponUserId = body.userId;
+        return {
+          status: 200,
+          body: createCouponStatus({
+            userId: body.userId,
+            offerCode: 'replacement-offer-code',
             vaultId: 12,
             maxSatoshis: 25_000n,
             estimatedGiftUsd: 16.25,
             btcPctFee: 2.5,
-            expiresAfterTicks,
-            createdAt,
-            updatedAt: createdAt,
-          },
-          status: 'Open',
-        },
-      ],
+          }),
+        };
+      }
+
+      return { status: 404, body: { error: 'Not Found' } };
+    });
+    routerServer = started.routerServer;
+    botServer = started.botServer;
+
+    const response = await requestJson(
+      started.routerAddress,
+      `/invites/${invite.inviteCode}/regenerate`,
+      {
+        vaultId: 12,
+        maxSatoshis: 25_000n,
+        estimatedGiftUsd: 16.25,
+        btcPctFee: 2.5,
+        expiresAfterTicks: 60,
+      },
+    );
+    expect(response.status).toBe(200);
+
+    const regeneratedInvite = JsonExt.parse<IInviteResponse>(await response.text()).invite;
+    expect(regeneratedInvite.id).toBe(invite.id);
+    expect(regeneratedInvite.name).toBe(invite.name);
+    expect(regeneratedInvite.inviteCode).not.toBe(invite.inviteCode);
+    expect(regeneratedInvite.bitcoinLockCoupon?.coupon.offerCode).toBe('replacement-offer-code');
+    expect(replacementCouponUserId).toBe(invite.id);
+    expect(routerDb.userInvitesTable.fetchByCode(invite.inviteCode)).toBeNull();
+    expect(routerDb.userInvitesTable.fetchByCode(regeneratedInvite.inviteCode)?.id).toBe(invite.id);
+    expect(listMemberInvites(routerDb)).toHaveLength(1);
+  });
+
+  it('previews invite coupon details', async () => {
+    routerDb = createDb('router-server-preview-invite-');
+
+    const invite = insertMemberInvite(routerDb, {
+      inviteCode: 'member-invite-1',
+      name: 'Casey',
+      fromName: 'Operator One',
+    });
+    const createdAt = new Date('2026-06-20T12:00:00.000Z');
+    const coupon = createCouponStatus({
+      userId: invite.id,
+      offerCode: 'offer-code-1',
+      vaultId: 12,
+      maxSatoshis: 25_000n,
+      estimatedGiftUsd: 16.25,
+      btcPctFee: 2.5,
+      createdAt,
+    });
+
+    const started = await startRouterServer(routerDb, request => {
+      if (request.method === 'GET' && request.path === `/bitcoin-lock-coupons/by-user/${invite.id}`) {
+        return {
+          status: 200,
+          body: [coupon],
+        };
+      }
+
+      return {
+        status: 404,
+        body: { error: 'Not Found' },
+      };
     });
     routerServer = started.routerServer;
     botServer = started.botServer;
 
     const response = await fetch(
-      `http://${started.routerAddress.host}:${started.routerAddress.port}/treasury-users/${encodeURIComponent(inviteCode)}/preview`,
+      `http://${started.routerAddress.host}:${started.routerAddress.port}/invites/${encodeURIComponent(invite.inviteCode)}/preview`,
     );
     expect(response.status).toBe(200);
 
-    const body = JsonExt.parse<IPreviewTreasuryInviteResponse>(await response.text());
+    const body = JsonExt.parse<IPreviewInviteResponse>(await response.text());
     expect(body).toEqual({
       maxSatoshis: 25_000n,
       estimatedGiftUsd: 16.25,
       btcPctFee: 2.5,
       expiresAt: new Date(createdAt.getTime() + 24 * 60 * 60 * 1000),
-      fromName: 'OperatorOne',
+      fromName: 'Operator One',
     });
   });
 
-  it('reports when a treasury invite preview has already been used', async () => {
-    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-treasury-used-preview-test-'));
-    routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));
-    routerDb.migrate();
+  it('opens an invite using auth account binding and activates the coupon', async () => {
+    routerDb = createDb('router-server-open-invite-');
 
-    const { inviteCode } = InviteCodes.create();
-    const user = routerDb.usersTable.insertUser({
-      role: UserRole.TreasuryUser,
+    const invite = insertMemberInvite(routerDb, {
+      inviteCode: 'member-invite-1',
       name: 'Casey',
+      fromName: 'Operator One',
     });
-    const invite = routerDb.userInvitesTable.insertInvite(user.id, inviteCode, 'OperatorOne');
-    routerDb.userInvitesTable.claimInvite(invite.id, 'treasury-account', 'treasury-auth-account');
+    const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
+    const member = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMember');
+    const memberAuth = member.derive('//downstream-auth');
+    const activatedCoupon = createCouponStatus({
+      userId: invite.id,
+      offerCode: 'offer-code-1',
+      vaultId: 12,
+      maxSatoshis: 25_000n,
+      estimatedGiftUsd: 16.25,
+      btcPctFee: 2.5,
+    });
 
-    const started = await startRouterServer(routerDb, {
-      status: 200,
-      body: [],
+    const started = await startRouterServer(routerDb, request => {
+      if (request.method === 'POST' && request.path === '/bitcoin-lock-coupons/activate') {
+        return {
+          status: 200,
+          body: activatedCoupon,
+        };
+      }
+
+      return {
+        status: 404,
+        body: { error: 'Not Found' },
+      };
+    }, {
+      adminOperatorAccountId: operator.address,
     });
     routerServer = started.routerServer;
     botServer = started.botServer;
 
-    const response = await fetch(
-      `http://${started.routerAddress.host}:${started.routerAddress.port}/treasury-users/${encodeURIComponent(inviteCode)}/preview`,
-    );
-    expect(response.status).toBe(409);
-
-    expect(JsonExt.parse(await response.text())).toEqual({
-      error: 'This invite has already been used.',
-      code: 'ALREADY_USED',
-    });
-  });
-
-  it('previews operational invite details', async () => {
-    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-operational-preview-test-'));
-    routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));
-    routerDb.migrate();
-
-    const { inviteCode } = InviteCodes.create();
-    const user = routerDb.usersTable.insertUser({
-      role: UserRole.OperationalPartner,
-      name: 'Casey',
-    });
-    const invite = routerDb.userInvitesTable.insertInvite(user.id, inviteCode, 'OperatorOne');
-
-    const started = await startRouterServer(routerDb, {
-      status: 200,
-      body: { status: 'ok' },
-    });
-    routerServer = started.routerServer;
-    botServer = started.botServer;
-
-    const response = await fetch(
-      `http://${started.routerAddress.host}:${started.routerAddress.port}/operational-users/${encodeURIComponent(inviteCode)}/preview`,
+    const response = await requestJson(
+      started.routerAddress,
+      `/invites/${encodeURIComponent(invite.inviteCode)}/open`,
+      createOpenInviteBody(invite.inviteCode, member, memberAuth),
     );
     expect(response.status).toBe(200);
 
-    const body = JsonExt.parse<IPreviewOperationalInviteResponse>(await response.text());
-    expect(body).toEqual({
-      fromName: 'OperatorOne',
-      expiresAt: new Date(invite.createdAt.getTime() + 24 * 60 * 60 * 1000),
-    });
+    const body = JsonExt.parse<IOpenInviteResponse>(await response.text());
+    expect(body.fromName).toBe('Operator One');
+    expect(body.referrer).toBe(operator.address);
+    expect(body.invite.defaultAccountId).toBe(member.address);
+    expect(body.invite.operationalAccountId).toBeFalsy();
+    expect(body.invite.accessProof).toBeUndefined();
+    expect(body.invite.authAccountId).toBe(memberAuth.address);
+    expect(body.invite.vaultId).toBe(12);
+    expect(body.invite.bitcoinLockCoupon).toEqual(activatedCoupon);
+
+    const claimedInvite = routerDb.userInvitesTable.fetchByCode(invite.inviteCode);
+    expect(claimedInvite?.defaultAccountId).toBe(member.address);
+    expect(claimedInvite?.operationalAccountId).toBeFalsy();
+    expect(claimedInvite?.authAccountId).toBe(memberAuth.address);
+    expect(claimedInvite?.lastClickedAt).toBeTruthy();
   });
 
-  it('reports when an operational invite preview has already been used', async () => {
-    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-operational-used-preview-test-'));
-    routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));
-    routerDb.migrate();
-
-    const { inviteCode } = InviteCodes.create();
-    const user = routerDb.usersTable.insertUser({
-      role: UserRole.OperationalPartner,
-      name: 'Casey',
-    });
-    const invite = routerDb.userInvitesTable.insertInvite(user.id, inviteCode, 'OperatorOne');
-    routerDb.userInvitesTable.claimInvite(invite.id, 'operational-account', 'operational-auth-account');
-
-    const started = await startRouterServer(routerDb, {
-      status: 200,
-      body: { status: 'ok' },
-    });
-    routerServer = started.routerServer;
-    botServer = started.botServer;
-
-    const response = await fetch(
-      `http://${started.routerAddress.host}:${started.routerAddress.port}/operational-users/${encodeURIComponent(inviteCode)}/preview`,
-    );
-    expect(response.status).toBe(409);
-
-    expect(JsonExt.parse(await response.text())).toEqual({
-      error: 'This invite has already been used.',
-      code: 'ALREADY_USED',
-    });
-  });
-
-  it('tracks operational invite open state', async () => {
-    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-operational-test-'));
-    routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));
-    routerDb.migrate();
-
-    const started = await startRouterServer(routerDb, {
-      status: 200,
-      body: { status: 'ok' },
-    });
-    routerServer = started.routerServer;
-    botServer = started.botServer;
-    const { routerAddress } = started;
-    const { inviteSecret, inviteCode } = InviteCodes.create();
-    const operationalUser = new Keyring({ type: 'sr25519' }).addFromUri('//OperationalUser');
-    const authAccount = operationalUser.derive('//upstream-operator-auth');
-
-    const createResponse = await requestJson(routerAddress, '/operational-users/create', {
-      name: 'Casey',
-      fromName: 'Operator One',
-      inviteCode,
-      inviteEnvelope: 'operational-envelope',
-    });
-
-    expect(createResponse.status).toBe(200);
-
-    const openResponse = await requestJson(routerAddress, `/operational-users/${encodeURIComponent(inviteCode)}/open`, {
-      ...createOpenInviteBody(UserRole.OperationalPartner, inviteCode, inviteSecret, operationalUser, authAccount),
-    });
-    expect(openResponse.status).toBe(200);
-
-    const invite = routerDb.userInvitesTable.fetchByCode(inviteCode, UserRole.OperationalPartner);
-    expect(invite?.lastClickedAt).toBeTruthy();
-    expect(invite?.accountId).toBe(operationalUser.address);
-    expect(invite?.authAccountId).toBe(authAccount.address);
-  });
-
-  it('requires admin operator auth for management routes when auth is configured', async () => {
-    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-auth-test-'));
-    routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));
-    routerDb.migrate();
+  it('requires admin operator auth for invite management routes when auth is configured', async () => {
+    routerDb = createDb('router-server-admin-auth-');
 
     const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
     const started = await startRouterServer(
       routerDb,
-      {
+      () => ({
         status: 200,
-        body: { status: 'ok' },
-      },
+        body: [],
+      }),
       {
         adminOperatorAccountId: operator.address,
         sessionTtlSeconds: 60,
@@ -342,212 +560,141 @@ describe('RouterServer', () => {
     );
     routerServer = started.routerServer;
     botServer = started.botServer;
-    const { routerAddress } = started;
 
-    const { inviteCode } = InviteCodes.create();
-    const unauthenticatedResponse = await requestJson(routerAddress, '/operational-users/create', {
+    const unauthenticatedResponse = await requestJson(started.routerAddress, '/invites/create', {
       name: 'Casey',
       fromName: 'Operator One',
-      inviteCode,
+      vaultId: 12,
+      maxSatoshis: 25_000n,
+      estimatedGiftUsd: 16.25,
+      expiresAfterTicks: 60,
     });
     expect(unauthenticatedResponse.status).toBe(401);
 
-    const { session } = await login(routerAddress, operator);
-    expect(session.sessionId).toBeTruthy();
-
-    const authenticatedResponse = await requestJson(
-      routerAddress,
-      `/operational-users/create?sessionId=${encodeURIComponent(session.sessionId)}`,
-      {
-        name: 'Casey',
-        fromName: 'Operator One',
-        inviteCode,
-        inviteEnvelope: 'operational-envelope',
-      },
+    const { session } = await login(started.routerAddress, operator);
+    const authenticatedResponse = await fetch(
+      withSessionId(`http://${started.routerAddress.host}:${started.routerAddress.port}/invites`, session.sessionId),
     );
     expect(authenticatedResponse.status).toBe(200);
 
     const verifyResponse = await fetch(
-      `http://${routerAddress.host}:${routerAddress.port}/auth/verify/admin?sessionId=${encodeURIComponent(session.sessionId)}`,
+      withSessionId(`http://${started.routerAddress.host}:${started.routerAddress.port}/auth/verify/admin`, session.sessionId),
     );
     expect(verifyResponse.status).toBe(204);
     expect(verifyResponse.headers.get('x-user-id')).toBe(operator.address);
     expect(verifyResponse.headers.get('x-user-role')).toBe(UserRole.AdminOperator);
   });
 
-  it('keeps router sessions valid across router restarts', async () => {
-    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-session-restart-test-'));
-    routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));
-    routerDb.migrate();
+  it('accepts claimed members at member verifier routes without granting admin access', async () => {
+    routerDb = createDb('router-server-member-auth-');
 
     const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
-    const auth = {
-      adminOperatorAccountId: operator.address,
-      sessionTtlSeconds: 60,
-    };
-    const started = await startRouterServer(
-      routerDb,
-      {
-        status: 200,
-        body: { status: 'ok' },
-      },
-      auth,
-    );
-    routerServer = started.routerServer;
-    botServer = started.botServer;
-
-    const { session } = await login(started.routerAddress, operator);
-    await routerServer.close();
-    routerServer = undefined;
-    await new Promise<void>(resolve => botServer?.close(() => resolve()) ?? resolve());
-    botServer = undefined;
-
-    const restarted = await startRouterServer(
-      routerDb,
-      {
-        status: 200,
-        body: { status: 'ok' },
-      },
-      auth,
-    );
-    routerServer = restarted.routerServer;
-    botServer = restarted.botServer;
-
-    const verifyResponse = await fetch(
-      `http://${restarted.routerAddress.host}:${restarted.routerAddress.port}/auth/verify/admin?sessionId=${encodeURIComponent(session.sessionId)}`,
-    );
-    expect(verifyResponse.status).toBe(204);
-    expect(verifyResponse.headers.get('x-user-id')).toBe(operator.address);
-    expect(verifyResponse.headers.get('x-user-role')).toBe(UserRole.AdminOperator);
-  });
-
-  it('prunes inactive router sessions on startup', async () => {
-    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-session-startup-prune-test-'));
-    routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));
-    routerDb.migrate();
-
-    const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
-    const now = Date.now();
-    const adminUser = routerDb.usersTable.insertUser({
-      role: UserRole.AdminOperator,
-      name: 'Admin Operator',
-    });
-    routerDb.usersTable.claimAccount(adminUser.id, operator.address, operator.address);
-
-    routerDb.sessionsTable.insertSession({
-      sessionId: 'expired-session-id',
-      userId: adminUser.id,
-      expiresAt: new Date(now - 1_000),
-    });
-    const revokedSession = routerDb.sessionsTable.insertSession({
-      sessionId: 'revoked-session-id',
-      userId: adminUser.id,
-      expiresAt: new Date(now + 60_000),
-    });
-    routerDb.sessionsTable.revoke(revokedSession.id, new Date(now - 1_000));
-    routerDb.sessionsTable.insertSession({
-      sessionId: 'active-session-id',
-      userId: adminUser.id,
-      expiresAt: new Date(now + 60_000),
-    });
-
-    const started = await startRouterServer(
-      routerDb,
-      {
-        status: 200,
-        body: { status: 'ok' },
-      },
-      {
-        adminOperatorAccountId: operator.address,
-        sessionTtlSeconds: 60,
-      },
-    );
-    routerServer = started.routerServer;
-    botServer = started.botServer;
-
-    expect(routerDb.sessionsTable.fetchBySessionId('expired-session-id')).toBeNull();
-    expect(routerDb.sessionsTable.fetchBySessionId('revoked-session-id')).toBeNull();
-    expect(routerDb.sessionsTable.fetchBySessionId('active-session-id')?.userId).toBe(adminUser.id);
-  });
-
-  it('accepts claimed treasury users at the router verifier without granting management access', async () => {
-    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-treasury-auth-test-'));
-    routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));
-    routerDb.migrate();
-
-    const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
-    const treasuryUser = new Keyring({ type: 'sr25519' }).addFromUri('//TreasuryUser');
-    const treasuryAuth = treasuryUser.derive('//upstream-operator-auth');
-    const started = await startRouterServer(
-      routerDb,
-      {
-        status: 200,
-        body: { status: 'ok' },
-      },
-      {
-        adminOperatorAccountId: operator.address,
-        sessionTtlSeconds: 60,
-      },
-    );
-    routerServer = started.routerServer;
-    botServer = started.botServer;
-    const { routerAddress } = started;
-    const { inviteCode } = InviteCodes.create();
-    const user = routerDb.usersTable.insertUser({
-      role: UserRole.TreasuryUser,
+    const member = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMember');
+    const memberAuth = member.derive('//downstream-auth');
+    const invite = insertMemberInvite(routerDb, {
+      inviteCode: 'member-invite-1',
       name: 'Casey',
+      fromName: 'Operator One',
     });
-    routerDb.userInvitesTable.insertInvite(user.id, inviteCode, 'Operator One');
-    routerDb.userInvitesTable.claimInvite(user.id, treasuryUser.address, treasuryAuth.address);
+    routerDb.userInvitesTable.claimInvite(invite.id, member.address, memberAuth.address);
 
-    const { session } = await login(routerAddress, treasuryUser, UserRole.TreasuryUser, treasuryAuth);
-    const verifyResponse = await fetch(withSessionId(`http://${routerAddress.host}:${routerAddress.port}/auth/verify/substrate`, session.sessionId));
-    expect(verifyResponse.status).toBe(204);
-    expect(verifyResponse.headers.get('x-user-id')).toBe(treasuryUser.address);
-    expect(verifyResponse.headers.get('x-user-role')).toBe(UserRole.TreasuryUser);
-
-    const treasuryCouponVerifyResponse = await fetch(
-      withSessionId(`http://${routerAddress.host}:${routerAddress.port}/auth/verify/treasury-coupon`, session.sessionId),
-    );
-    expect(treasuryCouponVerifyResponse.status).toBe(204);
-
-    const botVerifyResponse = await fetch(
-      withSessionId(`http://${routerAddress.host}:${routerAddress.port}/auth/verify/bot`, session.sessionId),
-    );
-    expect(botVerifyResponse.status).toBe(403);
-
-    const operationalVerifyResponse = await fetch(
-      withSessionId(`http://${routerAddress.host}:${routerAddress.port}/auth/verify/operational`, session.sessionId),
-    );
-    expect(operationalVerifyResponse.status).toBe(403);
-
-    const managementResponse = await requestJson(
-      routerAddress,
-      withSessionId('/operational-users/create', session.sessionId),
-      {
-        name: 'Riley',
-        fromName: 'Operator One',
-        inviteCode: InviteCodes.create().inviteCode,
-      },
-    );
-    expect(managementResponse.status).toBe(403);
-  });
-
-  it('requires matching treasury sessions for treasury coupon routes', async () => {
-    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-treasury-coupon-auth-test-'));
-    routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));
-    routerDb.migrate();
-
-    const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
-    const treasuryUser = new Keyring({ type: 'sr25519' }).addFromUri('//TreasuryUser');
-    const otherTreasuryUser = new Keyring({ type: 'sr25519' }).addFromUri('//OtherTreasuryUser');
-    const treasuryAuth = treasuryUser.derive('//upstream-operator-auth');
-    const otherTreasuryAuth = otherTreasuryUser.derive('//upstream-operator-auth');
     const started = await startRouterServer(
       routerDb,
-      {
+      () => ({
         status: 200,
         body: [],
+      }),
+      {
+        adminOperatorAccountId: operator.address,
+        sessionTtlSeconds: 60,
+      },
+    );
+    routerServer = started.routerServer;
+    botServer = started.botServer;
+
+    const { session } = await login(started.routerAddress, member, UserRole.Member, memberAuth);
+    const substrateVerifyResponse = await fetch(
+      withSessionId(`http://${started.routerAddress.host}:${started.routerAddress.port}/auth/verify/substrate`, session.sessionId),
+    );
+    expect(substrateVerifyResponse.status).toBe(204);
+    expect(substrateVerifyResponse.headers.get('x-user-id')).toBe(member.address);
+    expect(substrateVerifyResponse.headers.get('x-user-role')).toBe(UserRole.Member);
+
+    const memberVerifyResponse = await fetch(
+      withSessionId(`http://${started.routerAddress.host}:${started.routerAddress.port}/auth/verify/member`, session.sessionId),
+    );
+    expect(memberVerifyResponse.status).toBe(204);
+
+    const adminVerifyResponse = await fetch(
+      withSessionId(`http://${started.routerAddress.host}:${started.routerAddress.port}/auth/verify/admin`, session.sessionId),
+    );
+    expect(adminVerifyResponse.status).toBe(403);
+
+    const listResponse = await fetch(
+      withSessionId(`http://${started.routerAddress.host}:${started.routerAddress.port}/invites`, session.sessionId),
+    );
+    expect(listResponse.status).toBe(403);
+  });
+
+  it('requires a matching member session for member coupon routes', async () => {
+    routerDb = createDb('router-server-member-coupon-auth-');
+
+    const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
+    const member = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMember');
+    const otherMember = new Keyring({ type: 'sr25519' }).addFromUri('//OtherInviteMember');
+    const memberAuth = member.derive('//downstream-auth');
+    const otherMemberAuth = otherMember.derive('//downstream-auth');
+    const invite = insertMemberInvite(routerDb, {
+      inviteCode: 'member-invite-1',
+      name: 'Casey',
+      fromName: 'Operator One',
+    });
+    routerDb.userInvitesTable.claimInvite(invite.id, member.address, memberAuth.address);
+
+    const otherInvite = insertMemberInvite(routerDb, {
+      inviteCode: 'member-invite-2',
+      name: 'Riley',
+      fromName: 'Operator One',
+    });
+    routerDb.userInvitesTable.claimInvite(otherInvite.id, otherMember.address, otherMemberAuth.address);
+
+    const listedCoupon = createCouponStatus({
+      userId: invite.id,
+      offerCode: 'offer-code-1',
+      vaultId: 12,
+      maxSatoshis: 25_000n,
+      estimatedGiftUsd: 16.25,
+      btcPctFee: 2.5,
+    });
+    const initializedCoupon = createCouponStatus({
+      userId: invite.id,
+      offerCode: 'offer-code-1',
+      vaultId: 12,
+      maxSatoshis: 10_000n,
+      estimatedGiftUsd: 6.5,
+      btcPctFee: 2.5,
+    });
+
+    const started = await startRouterServer(
+      routerDb,
+      request => {
+        if (request.method === 'GET' && request.path === `/bitcoin-lock-coupons/by-user/${invite.id}`) {
+          return {
+            status: 200,
+            body: [listedCoupon],
+          };
+        }
+        if (request.method === 'POST' && request.path === '/bitcoin-lock-coupons/initialize') {
+          return {
+            status: 200,
+            body: initializedCoupon,
+          };
+        }
+
+        return {
+          status: 404,
+          body: { error: 'Not Found' },
+        };
       },
       {
         adminOperatorAccountId: operator.address,
@@ -556,91 +703,232 @@ describe('RouterServer', () => {
     );
     routerServer = started.routerServer;
     botServer = started.botServer;
-    const { routerAddress } = started;
 
-    const user = routerDb.usersTable.insertUser({
-      role: UserRole.TreasuryUser,
-      name: 'Casey',
-    });
-    routerDb.userInvitesTable.insertInvite(user.id, InviteCodes.create().inviteCode, 'Operator One');
-    routerDb.userInvitesTable.claimInvite(user.id, treasuryUser.address, treasuryAuth.address);
-
-    const otherUser = routerDb.usersTable.insertUser({
-      role: UserRole.TreasuryUser,
-      name: 'Riley',
-    });
-    routerDb.userInvitesTable.insertInvite(otherUser.id, InviteCodes.create().inviteCode, 'Operator One');
-    routerDb.userInvitesTable.claimInvite(otherUser.id, otherTreasuryUser.address, otherTreasuryAuth.address);
-
-    const { session } = await login(routerAddress, treasuryUser, UserRole.TreasuryUser, treasuryAuth);
+    const { session } = await login(started.routerAddress, member, UserRole.Member, memberAuth);
     const { session: otherSession } = await login(
-      routerAddress,
-      otherTreasuryUser,
-      UserRole.TreasuryUser,
-      otherTreasuryAuth,
+      started.routerAddress,
+      otherMember,
+      UserRole.Member,
+      otherMemberAuth,
     );
 
-    const listUrl = `http://${routerAddress.host}:${routerAddress.port}/treasury-users/${encodeURIComponent(treasuryUser.address)}/bitcoin-lock-coupons`;
+    const listUrl = `http://${started.routerAddress.host}:${started.routerAddress.port}/invites/me/bitcoin-lock-coupons`;
     const unauthenticatedListResponse = await fetch(listUrl);
     expect(unauthenticatedListResponse.status).toBe(401);
 
-    const mismatchedListResponse = await fetch(withSessionId(listUrl, otherSession.sessionId));
-    expect(mismatchedListResponse.status).toBe(403);
-
     const authenticatedListResponse = await fetch(withSessionId(listUrl, session.sessionId));
     expect(authenticatedListResponse.status).toBe(200);
+    expect(JsonExt.parse<IListBitcoinLockCouponsResponse>(await authenticatedListResponse.text())).toEqual({
+      bitcoinLockCoupons: [listedCoupon],
+    });
 
-    const initializePath = '/bitcoin-lock-coupons/offer-code/initialize';
+    const initializePath = '/bitcoin-lock-coupons/offer-code-1/initialize';
     const initializeBody = {
       requestedSatoshis: 10_000n,
-      ownerAccountId: treasuryUser.address,
+      ownerAccountId: member.address,
       ownerBitcoinPubkey: '03b28f34af9b5e623aa640f82bf9f09ffcc287d5826ac7ef84b96eddb71543fdae',
       microgonsAtTargetPerBtc: 125_000_000n,
     };
 
-    const unauthenticatedInitializeResponse = await requestJson(routerAddress, initializePath, initializeBody);
+    const unauthenticatedInitializeResponse = await requestJson(started.routerAddress, initializePath, initializeBody);
     expect(unauthenticatedInitializeResponse.status).toBe(401);
 
     const mismatchedInitializeResponse = await requestJson(
-      routerAddress,
+      started.routerAddress,
       withSessionId(initializePath, otherSession.sessionId),
       initializeBody,
     );
     expect(mismatchedInitializeResponse.status).toBe(403);
 
     const authenticatedInitializeResponse = await requestJson(
-      routerAddress,
+      started.routerAddress,
       withSessionId(initializePath, session.sessionId),
       initializeBody,
     );
     expect(authenticatedInitializeResponse.status).toBe(200);
+    expect(JsonExt.parse(await authenticatedInitializeResponse.text())).toEqual({
+      bitcoinLock: initializedCoupon,
+    });
   });
 
-  it('allows admin, treasury, and operational sessions to trigger Ethereum gateway catch-up through router pass-through', async () => {
-    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-ethereum-gateway-catch-up-auth-test-'));
-    routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));
-    routerDb.migrate();
+  it('lets a member request an operations upgrade once and lets the operator mark it complete', async () => {
+    routerDb = createDb('router-server-operations-upgrade-request-');
 
     const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
-    const treasuryUser = new Keyring({ type: 'sr25519' }).addFromUri('//TreasuryRelayUser');
-    const operationalUser = new Keyring({ type: 'sr25519' }).addFromUri('//OperationalRelayUser');
-    const treasuryAuth = treasuryUser.derive('//upstream-operator-auth');
-    const operationalAuth = operationalUser.derive('//upstream-operator-auth');
+    const member = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMember');
+    const memberAuth = member.derive('//downstream-auth');
+    const operationalAccount = member.derive('//operational');
+    const invite = insertMemberInvite(routerDb, {
+      inviteCode: 'member-invite-1',
+      name: 'Casey',
+      fromName: 'Operator One',
+    });
+    routerDb.userInvitesTable.claimInvite(invite.id, member.address, memberAuth.address);
+
+    const loadOperationalAccounts = vi.fn(async (accountIds: string[]) => {
+      return accountIds.map((accountId, index) => ({
+        isSome: index === 0 && accountId === operator.address,
+        unwrap: () => ({
+          availableAccessCodes: {
+            toNumber: () => 1,
+          },
+        }),
+      }));
+    });
+    mainchainMocks.getClient.mockResolvedValue({
+      disconnect: vi.fn().mockResolvedValue(undefined),
+      query: {
+        operationalAccounts: {
+          operationalAccountBySubAccount: {
+            multi: vi.fn().mockResolvedValue([{ isSome: false }]),
+          },
+          operationalAccounts: {
+            multi: loadOperationalAccounts,
+          },
+        },
+      },
+    });
+
     const started = await startRouterServer(
       routerDb,
-      {
+      () => ({
         status: 200,
-        body: {
-          outcome: 'Submitted',
-          delegateAddress: '5RelayDelegate',
-          argonTxHash: '0xrelaytx',
-          extrinsicMethodJson: { section: 'crosschainTransfer', method: 'proveGatewayActivity' },
-          txNonce: 3,
-          txSubmittedAtBlockHeight: 44,
-          txSubmittedAtTime: new Date('2026-05-13T16:00:00.000Z'),
-          estimatedFee: 5n,
-          throughGatewayActivityNonce: 7n,
-        },
+        body: [],
+      }),
+      {
+        adminOperatorAccountId: operator.address,
+        sessionTtlSeconds: 60,
+        mainNodeUrl: 'ws://mainchain.test',
+      },
+    );
+    routerServer = started.routerServer;
+    botServer = started.botServer;
+
+    const { session: adminSession } = await login(started.routerAddress, operator);
+    const { session: memberSession } = await login(started.routerAddress, member, UserRole.Member, memberAuth);
+
+    const inviteResponse = await fetch(
+      withSessionId(`http://${started.routerAddress.host}:${started.routerAddress.port}/invites/me`, memberSession.sessionId),
+    );
+    expect(inviteResponse.status).toBe(200);
+    expect(JsonExt.parse<IInviteResponse>(await inviteResponse.text()).invite.inviteCode).toBe(invite.inviteCode);
+
+    const requestUpgradeUrl = withSessionId(
+      `http://${started.routerAddress.host}:${started.routerAddress.port}/invites/me/request-operations-upgrade`,
+      memberSession.sessionId,
+    );
+    const firstUpgradeRequest = await fetch(requestUpgradeUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JsonExt.stringify(
+        createRequestOperationsUpgradeBody(member, memberAuth, operationalAccount),
+      ),
+    });
+    expect(firstUpgradeRequest.status).toBe(200);
+    const firstUpgradeBody = JsonExt.parse<{ operationsUpgradeRequestedAt: Date }>(await firstUpgradeRequest.text());
+    expect(firstUpgradeBody.operationsUpgradeRequestedAt).toBeTruthy();
+
+    const firstInviteState = routerDb.userInvitesTable.fetchByCode(invite.inviteCode)!;
+    expect(firstInviteState.operationalAccountId).toBe(operationalAccount.address);
+    expect(firstInviteState.operationsUpgradeRequestedAt?.toISOString()).toBe(
+      firstUpgradeBody.operationsUpgradeRequestedAt.toISOString(),
+    );
+    expect(firstInviteState.operationsUpgradedAt).toBeFalsy();
+
+    const secondUpgradeRequest = await fetch(requestUpgradeUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JsonExt.stringify(
+        createRequestOperationsUpgradeBody(member, memberAuth, operationalAccount),
+      ),
+    });
+    expect(secondUpgradeRequest.status).toBe(200);
+    const secondUpgradeBody = JsonExt.parse<{ operationsUpgradeRequestedAt: Date }>(await secondUpgradeRequest.text());
+
+    const secondInviteState = routerDb.userInvitesTable.fetchByCode(invite.inviteCode)!;
+    expect(secondUpgradeBody.operationsUpgradeRequestedAt.toISOString()).toBe(
+      firstUpgradeBody.operationsUpgradeRequestedAt.toISOString(),
+    );
+    expect(secondInviteState.operationsUpgradeRequestedAt?.toISOString()).toBe(
+      firstUpgradeBody.operationsUpgradeRequestedAt.toISOString(),
+    );
+
+    const accessProof = createOperationalAccessProof(operator, operationalAccount.address);
+    const markUpgradedResponse = await fetch(
+      withSessionId(
+        `http://${started.routerAddress.host}:${started.routerAddress.port}/invites/${encodeURIComponent(invite.inviteCode)}/mark-operations-upgraded`,
+        adminSession.sessionId,
+      ),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JsonExt.stringify({
+          signature: accessProof.signature,
+        }),
+      },
+    );
+    expect(markUpgradedResponse.status).toBe(200);
+    const upgradedInvite = JsonExt.parse<IInviteResponse>(await markUpgradedResponse.text()).invite;
+    expect(upgradedInvite.operationsUpgradeRequestedAt).toBeTruthy();
+    expect(upgradedInvite.operationsUpgradedAt).toBeTruthy();
+    expect(upgradedInvite.accessProof).toEqual(accessProof);
+
+    const storedInvite = routerDb.userInvitesTable.fetchByCode(invite.inviteCode);
+    expect(storedInvite?.operationsUpgradeRequestedAt).toBeTruthy();
+    expect(storedInvite?.operationsUpgradedAt).toBeTruthy();
+    expect(storedInvite?.operationsAccessProofSignature).toBe(accessProof.signature);
+    expect(loadOperationalAccounts).toHaveBeenCalledWith([operator.address]);
+  });
+
+  it('allows both admin and member sessions to access Ethereum relay routes', async () => {
+    routerDb = createDb('router-server-ethereum-relay-auth-');
+
+    const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
+    const member = new Keyring({ type: 'sr25519' }).addFromUri('//RelayMember');
+    const memberAuth = member.derive('//downstream-auth');
+    const invite = insertMemberInvite(routerDb, {
+      inviteCode: 'member-invite-1',
+      name: 'Relay Member',
+      fromName: 'Operator One',
+    });
+    routerDb.userInvitesTable.claimInvite(invite.id, member.address, memberAuth.address);
+
+    const relayStatus: IEthereumGatewayRelayStatus = {
+      isReady: false,
+      reason: 'Vault delegate cannot afford Ethereum gateway relay.',
+    };
+    const relayCatchUp: IEthereumGatewayCatchUpResponse = {
+      outcome: 'Submitted',
+      delegateAddress: '5RelayDelegate',
+      argonTxHash: '0xrelaytx',
+      extrinsicMethodJson: { section: 'crosschainTransfer', method: 'proveGatewayActivity' },
+      txNonce: 3,
+      txSubmittedAtBlockHeight: 44,
+      txSubmittedAtTime: new Date('2026-05-13T16:00:00.000Z'),
+      estimatedFee: 5n,
+      throughGatewayActivityNonce: 7n,
+    };
+
+    const started = await startRouterServer(
+      routerDb,
+      request => {
+        if (request.method === 'GET' && request.path === '/ethereum-relay-status') {
+          return {
+            status: 200,
+            body: relayStatus,
+          };
+        }
+        if (request.method === 'POST' && request.path === '/ethereum-relay-request') {
+          return {
+            status: 200,
+            body: relayCatchUp,
+          };
+        }
+
+        return {
+          status: 404,
+          body: { error: 'Not Found' },
+        };
       },
       {
         adminOperatorAccountId: operator.address,
@@ -649,194 +937,83 @@ describe('RouterServer', () => {
     );
     routerServer = started.routerServer;
     botServer = started.botServer;
-    const { routerAddress } = started;
 
-    const treasuryRecord = routerDb.usersTable.insertUser({
-      role: UserRole.TreasuryUser,
-      name: 'Treasury Relay',
-    });
-    routerDb.userInvitesTable.insertInvite(treasuryRecord.id, InviteCodes.create().inviteCode, 'Operator One');
-    routerDb.userInvitesTable.claimInvite(treasuryRecord.id, treasuryUser.address, treasuryAuth.address);
+    const { session: adminSession } = await login(started.routerAddress, operator);
+    const { session: memberSession } = await login(started.routerAddress, member, UserRole.Member, memberAuth);
 
-    const operationalRecord = routerDb.usersTable.insertUser({
-      role: UserRole.OperationalPartner,
-      name: 'Operational Relay',
-    });
-    routerDb.userInvitesTable.insertInvite(operationalRecord.id, InviteCodes.create().inviteCode, 'Operator One');
-    routerDb.userInvitesTable.claimInvite(operationalRecord.id, operationalUser.address, operationalAuth.address);
-
-    const { session: adminSession } = await login(routerAddress, operator);
-    const { session: treasurySession } = await login(routerAddress, treasuryUser, UserRole.TreasuryUser, treasuryAuth);
-    const { session: operationalSession } = await login(
-      routerAddress,
-      operationalUser,
-      UserRole.OperationalPartner,
-      operationalAuth,
+    const unauthenticatedStatusResponse = await fetch(
+      `http://${started.routerAddress.host}:${started.routerAddress.port}/ethereum-relay-status`,
     );
+    expect(unauthenticatedStatusResponse.status).toBe(401);
 
-    const relayPath = '/ethereum-relay-request';
+    const adminStatusResponse = await fetch(
+      withSessionId(`http://${started.routerAddress.host}:${started.routerAddress.port}/ethereum-relay-status`, adminSession.sessionId),
+    );
+    expect(adminStatusResponse.status).toBe(200);
+    expect(JsonExt.parse(await adminStatusResponse.text())).toEqual(relayStatus);
+
+    const memberStatusResponse = await fetch(
+      withSessionId(`http://${started.routerAddress.host}:${started.routerAddress.port}/ethereum-relay-status`, memberSession.sessionId),
+    );
+    expect(memberStatusResponse.status).toBe(200);
+    expect(JsonExt.parse(await memberStatusResponse.text())).toEqual(relayStatus);
+
     const relayBody = {
       sourceChain: 'Ethereum',
       throughGatewayActivityNonce: 7n,
     };
 
-    const unauthenticatedResponse = await requestJson(routerAddress, relayPath, relayBody);
-    expect(unauthenticatedResponse.status).toBe(401);
+    const unauthenticatedRequestResponse = await requestJson(started.routerAddress, '/ethereum-relay-request', relayBody);
+    expect(unauthenticatedRequestResponse.status).toBe(401);
 
-    const adminResponse = await requestJson(routerAddress, withSessionId(relayPath, adminSession.sessionId), relayBody);
-    expect(adminResponse.status).toBe(200);
-    expect(JsonExt.parse(await adminResponse.text())).toEqual({
-      outcome: 'Submitted',
-      delegateAddress: '5RelayDelegate',
-      argonTxHash: '0xrelaytx',
-      extrinsicMethodJson: { section: 'crosschainTransfer', method: 'proveGatewayActivity' },
-      txNonce: 3,
-      txSubmittedAtBlockHeight: 44,
-      txSubmittedAtTime: new Date('2026-05-13T16:00:00.000Z'),
-      estimatedFee: 5n,
-      throughGatewayActivityNonce: 7n,
-    });
-
-    const treasuryResponse = await requestJson(
-      routerAddress,
-      withSessionId(relayPath, treasurySession.sessionId),
+    const adminRequestResponse = await requestJson(
+      started.routerAddress,
+      withSessionId('/ethereum-relay-request', adminSession.sessionId),
       relayBody,
     );
-    expect(treasuryResponse.status).toBe(200);
-    expect(JsonExt.parse(await treasuryResponse.text())).toEqual({
-      outcome: 'Submitted',
-      delegateAddress: '5RelayDelegate',
-      argonTxHash: '0xrelaytx',
-      extrinsicMethodJson: { section: 'crosschainTransfer', method: 'proveGatewayActivity' },
-      txNonce: 3,
-      txSubmittedAtBlockHeight: 44,
-      txSubmittedAtTime: new Date('2026-05-13T16:00:00.000Z'),
-      estimatedFee: 5n,
-      throughGatewayActivityNonce: 7n,
-    });
+    expect(adminRequestResponse.status).toBe(200);
+    expect(JsonExt.parse(await adminRequestResponse.text())).toEqual(relayCatchUp);
 
-    const operationalResponse = await requestJson(
-      routerAddress,
-      withSessionId(relayPath, operationalSession.sessionId),
+    const memberRequestResponse = await requestJson(
+      started.routerAddress,
+      withSessionId('/ethereum-relay-request', memberSession.sessionId),
       relayBody,
     );
-    expect(operationalResponse.status).toBe(200);
-    expect(JsonExt.parse(await operationalResponse.text())).toEqual({
-      outcome: 'Submitted',
-      delegateAddress: '5RelayDelegate',
-      argonTxHash: '0xrelaytx',
-      extrinsicMethodJson: { section: 'crosschainTransfer', method: 'proveGatewayActivity' },
-      txNonce: 3,
-      txSubmittedAtBlockHeight: 44,
-      txSubmittedAtTime: new Date('2026-05-13T16:00:00.000Z'),
-      estimatedFee: 5n,
-      throughGatewayActivityNonce: 7n,
-    });
-  });
-
-  it('allows an admin session to read Ethereum relay readiness through router pass-through', async () => {
-    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-ethereum-relay-status-auth-test-'));
-    routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));
-    routerDb.migrate();
-
-    const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
-    const started = await startRouterServer(
-      routerDb,
-      {
-        status: 200,
-        body: {
-          isReady: false,
-          reason: 'Vault delegate cannot afford Ethereum gateway relay.',
-        },
-      },
-      {
-        adminOperatorAccountId: operator.address,
-        sessionTtlSeconds: 60,
-      },
-    );
-    routerServer = started.routerServer;
-    botServer = started.botServer;
-    const { routerAddress } = started;
-
-    const { session } = await login(routerAddress, operator);
-
-    const unauthenticatedResponse = await fetch(
-      `http://${routerAddress.host}:${routerAddress.port}/ethereum-relay-status`,
-    );
-    expect(unauthenticatedResponse.status).toBe(401);
-
-    const authenticatedResponse = await fetch(
-      withSessionId(`http://${routerAddress.host}:${routerAddress.port}/ethereum-relay-status`, session.sessionId),
-    );
-    expect(authenticatedResponse.status).toBe(200);
-    expect(JsonExt.parse(await authenticatedResponse.text())).toEqual({
-      isReady: false,
-      reason: 'Vault delegate cannot afford Ethereum gateway relay.',
-    });
-  });
-
-  it('accepts claimed operational users without granting treasury or bot access', async () => {
-    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-server-operational-auth-test-'));
-    routerDb = new RouterDb(Path.join(tempDir, 'router.sqlite'));
-    routerDb.migrate();
-
-    const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
-    const operationalUser = new Keyring({ type: 'sr25519' }).addFromUri('//OperationalUser');
-    const operationalAuth = operationalUser.derive('//upstream-operator-auth');
-    const started = await startRouterServer(
-      routerDb,
-      {
-        status: 200,
-        body: { status: 'ok' },
-      },
-      {
-        adminOperatorAccountId: operator.address,
-        sessionTtlSeconds: 60,
-      },
-    );
-    routerServer = started.routerServer;
-    botServer = started.botServer;
-    const { routerAddress } = started;
-    const { inviteCode } = InviteCodes.create();
-    const user = routerDb.usersTable.insertUser({
-      role: UserRole.OperationalPartner,
-      name: 'Riley',
-    });
-    routerDb.userInvitesTable.insertInvite(user.id, inviteCode, 'Operator One');
-    routerDb.userInvitesTable.claimInvite(user.id, operationalUser.address, operationalAuth.address);
-
-    const { session } = await login(routerAddress, operationalUser, UserRole.OperationalPartner, operationalAuth);
-    const substrateVerifyResponse = await fetch(
-      withSessionId(`http://${routerAddress.host}:${routerAddress.port}/auth/verify/substrate`, session.sessionId),
-    );
-    expect(substrateVerifyResponse.status).toBe(204);
-
-    const operationalVerifyResponse = await fetch(
-      withSessionId(`http://${routerAddress.host}:${routerAddress.port}/auth/verify/operational`, session.sessionId),
-    );
-    expect(operationalVerifyResponse.status).toBe(204);
-
-    const treasuryCouponVerifyResponse = await fetch(
-      withSessionId(`http://${routerAddress.host}:${routerAddress.port}/auth/verify/treasury-coupon`, session.sessionId),
-    );
-    expect(treasuryCouponVerifyResponse.status).toBe(403);
-
-    const botVerifyResponse = await fetch(
-      withSessionId(`http://${routerAddress.host}:${routerAddress.port}/auth/verify/bot`, session.sessionId),
-    );
-    expect(botVerifyResponse.status).toBe(403);
+    expect(memberRequestResponse.status).toBe(200);
+    expect(JsonExt.parse(await memberRequestResponse.text())).toEqual(relayCatchUp);
   });
 });
 
+function createDb(prefix: string): RouterDb {
+  const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), prefix));
+  const db = new RouterDb(Path.join(tempDir, 'router.sqlite'));
+  db.migrate();
+  return db;
+}
+
 async function startRouterServer(
   db: RouterDb,
-  botResponse: { status: number; body: unknown },
-  auth?: IRouterAuthServiceOptions,
+  handleBotRequest: (request: BotRequest) => BotResponse | Promise<BotResponse>,
+  options?: IRouterAuthServiceOptions & { mainNodeUrl?: string },
 ): Promise<{ routerAddress: IRouterAddress; routerServer: RouterServer; botServer: Http.Server }> {
-  const botServer = Http.createServer((_, res) => {
-    res.statusCode = botResponse.status;
+  const { mainNodeUrl, ...auth } = options ?? {};
+  const botServer = Http.createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+
+    const rawBody = Buffer.concat(chunks).toString('utf8');
+    const body = rawBody ? JsonExt.parse(rawBody) : undefined;
+    const response = await handleBotRequest({
+      method: req.method ?? 'GET',
+      path: req.url ?? '/',
+      body,
+    });
+
+    res.statusCode = response.status;
     res.setHeader('Content-Type', 'application/json');
-    res.end(JsonExt.stringify(botResponse.body));
+    res.end(JsonExt.stringify(response.body));
   });
   await new Promise<void>(resolve => botServer.listen(0, resolve));
   const botAddress = botServer.address() as AddressInfo;
@@ -845,7 +1022,8 @@ async function startRouterServer(
     db,
     botInternalUrl: `http://127.0.0.1:${botAddress.port}`,
     port: 0,
-    auth,
+    auth: options ? auth : undefined,
+    mainNodeUrl,
   });
   routerServer.start();
   await routerServer.waitForListening();
@@ -889,27 +1067,87 @@ async function login(
 }
 
 function createOpenInviteBody(
-  role: RouterAuthRole,
   inviteCode: string,
-  inviteSecret: string,
-  account: KeyringPair,
+  member: KeyringPair,
   authAccount: KeyringPair,
 ) {
   const authBindingExpiresAt = Date.now() + 60_000;
   const binding = {
-    role,
-    accountId: account.address,
-    authAccountId: authAccount.address,
     inviteCode,
+    accountId: member.address,
+    authAccountId: authAccount.address,
     expiresAt: authBindingExpiresAt,
   };
 
   return {
-    accountId: account.address,
+    defaultAccountId: member.address,
     authAccountId: authAccount.address,
     authBindingExpiresAt,
-    authBindingSignature: signRouterAuthAccountBinding(account, binding),
-    inviteSignature: InviteCodes.signOpen(inviteSecret, role, account.address),
+    authBindingSignature: signRouterAuthAccountBinding(member, binding),
+  };
+}
+
+function createRequestOperationsUpgradeBody(member: KeyringPair, authAccount: KeyringPair, operationalAccount: KeyringPair) {
+  const authBindingExpiresAt = Date.now() + 60_000;
+  const binding = {
+    accountId: member.address,
+    operationalAccountId: operationalAccount.address,
+    authAccountId: authAccount.address,
+    expiresAt: authBindingExpiresAt,
+  };
+
+  return {
+    operationalAccountId: operationalAccount.address,
+    authBindingExpiresAt,
+    authBindingSignature: signRouterAuthAccountBinding(member, binding),
+  };
+}
+
+function insertMemberInvite(
+  db: RouterDb,
+  args: {
+    inviteCode: string;
+    name: string;
+    fromName: string;
+  },
+) {
+  const user = db.usersTable.insertUser({
+    role: UserRole.Member,
+    name: args.name,
+  });
+
+  return db.userInvitesTable.insertInvite(user.id, args.inviteCode, args.fromName);
+}
+
+function listMemberInvites(db: RouterDb) {
+  return db.userInvitesTable.fetchByRole(UserRole.Member);
+}
+
+function createCouponStatus(args: {
+  userId: number;
+  offerCode: string;
+  vaultId: number;
+  maxSatoshis: bigint;
+  estimatedGiftUsd: number;
+  btcPctFee: number;
+  createdAt?: Date;
+}): IBitcoinLockCouponStatus {
+  const createdAt = args.createdAt ?? new Date('2026-06-20T12:00:00.000Z');
+
+  return {
+    coupon: {
+      id: 1,
+      userId: args.userId,
+      offerCode: args.offerCode,
+      vaultId: args.vaultId,
+      maxSatoshis: args.maxSatoshis,
+      estimatedGiftUsd: args.estimatedGiftUsd,
+      btcPctFee: args.btcPctFee,
+      expiresAfterTicks: 60,
+      createdAt,
+      updatedAt: createdAt,
+    },
+    status: 'Open',
   };
 }
 

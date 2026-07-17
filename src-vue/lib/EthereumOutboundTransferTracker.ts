@@ -9,6 +9,7 @@ import {
   EthereumClient,
   type IEthereumFinalizeTransferOutOfArgonArgs,
   type IEthereumMoveToken,
+  getEthereumExecutionRpcUrl,
   getEthereumUserErrorMessage,
   loadEthereumChainConfig,
   toEvmRecoverableSignature,
@@ -53,7 +54,7 @@ type IEthereumOutboundTransferClient = Pick<
 > &
   Partial<Pick<EthereumClient, 'estimateLikelyFinalizeTransferOutOfArgonFee'>>;
 
-type ICrosschainTransferOutMetadata = {
+export type ICrosschainTransferOutMetadata = {
   actionType: 'transferOutToEthereum';
   localTransferId: string;
   moveToken: IEthereumMoveToken;
@@ -114,8 +115,12 @@ export class EthereumOutboundTransferTracker {
     private readonly walletKeys: WalletKeys,
     private readonly ethereumClient: IEthereumOutboundTransferClient,
     private readonly mintingAuthorities?: Pick<MintingAuthorities, 'data' | 'refresh' | 'authorize'>,
-    private readonly executionRpcUrl?: string,
+    private readonly configuredExecutionRpcUrl?: string,
   ) {}
+
+  public get executionRpcUrl(): string | undefined {
+    return getEthereumExecutionRpcUrl(this.configuredExecutionRpcUrl);
+  }
 
   public async load(): Promise<void> {
     if (this.#loadPromise) {
@@ -198,7 +203,7 @@ export class EthereumOutboundTransferTracker {
       return;
     }
 
-    const chainConfig = await loadEthereumChainConfig(this.executionRpcUrl);
+    const chainConfig = await loadEthereumChainConfig(this.configuredExecutionRpcUrl);
     if (!chainConfig) {
       throw new Error('Ethereum gateway chain config is not available on this Argon network.');
     }
@@ -1221,7 +1226,7 @@ export class EthereumOutboundTransferTracker {
 
     this.#pendingArgonProgressByTransferId.set(transferId, { txId: txInfo.tx.id, unsubscribe });
 
-    void txInfo.waitForPostProcessing.finally(() => {
+    const clearPendingProgress = () => {
       const tracked = this.#pendingArgonProgressByTransferId.get(transferId);
       if (tracked?.txId !== txInfo.tx.id) {
         return;
@@ -1229,7 +1234,9 @@ export class EthereumOutboundTransferTracker {
 
       tracked.unsubscribe();
       this.#pendingArgonProgressByTransferId.delete(transferId);
-    });
+    };
+
+    void txInfo.waitForPostProcessing.then(clearPendingProgress, clearPendingProgress);
   }
 
   private async failTransfer(error: unknown, id: string, fallbackMessage?: string) {
@@ -1409,14 +1416,17 @@ function getSourceWalletTypeForAddress(
   walletKeys: WalletKeys,
   argonSourceAddress: string,
 ): IArgonWalletType | undefined {
-  if (argonSourceAddress === walletKeys.investmentAddress) {
-    return WalletType.investment;
+  if (argonSourceAddress === walletKeys.defaultArgonAddress) {
+    return WalletType.defaultArgon;
   }
-  if (argonSourceAddress === walletKeys.miningHoldAddress) {
-    return WalletType.miningHold;
+  if (argonSourceAddress === walletKeys.defaultArgonAddress) {
+    return WalletType.defaultArgon;
+  }
+  if (argonSourceAddress === walletKeys.defaultArgonAddress) {
+    return WalletType.defaultArgon;
   }
   if (argonSourceAddress === walletKeys.vaultingAddress) {
-    return WalletType.vaulting;
+    return WalletType.defaultArgon;
   }
 }
 

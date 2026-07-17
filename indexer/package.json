@@ -7,14 +7,16 @@
     "start": "tsx src/server.ts",
     "build": "tsup",
     "watch": "tsup --watch",
+    "generate:historical-events": "tsx src/generateHistoricalEventSpecs.ts",
     "sync": "tsx src/syncSeed.ts",
-    "testBlock": "tsx src/testBlock.ts"
+    "extract": "tsx src/seedArtifacts.ts extract",
+    "manifest": "tsx src/createSeedManifest.ts"
   },
   "type": "module",
   "main": "src/index.ts",
   "dependencies": {
     "@argonprotocol/apps-core": "workspace:*",
-    "@argonprotocol/mainchain": "1.4.9",
+    "@argonprotocol/mainchain": "1.4.10",
     "bignumber.js": "^9.3.1",
     "cors": "^2.8.5",
     "express": "^5.2.0",
@@ -23,7 +25,7 @@
     "tsx": "^4.20.5"
   },
   "devDependencies": {
-    "@argonprotocol/testing": "1.4.9",
+    "@argonprotocol/testing": "1.4.10",
     "@types/express": "^5.0.3",
     "tsup": "^8.5.0",
     "typescript": "^5.9.2"

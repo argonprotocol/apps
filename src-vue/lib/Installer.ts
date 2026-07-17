@@ -18,7 +18,7 @@ import { ServerAdmin } from './ServerAdmin';
 import { invokeWithTimeout } from './tauriApi.ts';
 import { MiningMachine } from './MiningMachine.ts';
 import { WalletKeys } from './WalletKeys.ts';
-import { IS_LOCAL_BUILD, NETWORK_NAME, TICK_MILLIS } from './Env.ts';
+import { IS_LOCAL_BUILD, NETWORK_NAME, SERVER_ENV_VARS, TICK_MILLIS } from './Env.ts';
 import * as semver from 'semver';
 import { getEthereumBeaconApiUrl, getEthereumExecutionRpcUrl } from './EthereumClient.ts';
 import { MyVault } from './MyVault.ts';
@@ -100,9 +100,9 @@ export default class Installer {
     const loadStartedAt = Date.now();
     let stage = 'config.isLoadedPromise';
 
-    try {
-      await this.config.isLoadedPromise;
+    await this.config.isLoadedPromise;
 
+    try {
       if (this.config.isServerAdded && !this.isRunning) {
         const hasServerDetails = !!this.config.serverDetails.ipAddress;
         if (hasServerDetails) {
@@ -160,13 +160,20 @@ export default class Installer {
           await this.run(false);
         }
       }
-
-      this.isLoaded = true;
-      this.isLoadedDeferred.resolve();
     } catch (error) {
       console.error(`[Installer] Load failed at ${stage} after ${Date.now() - loadStartedAt}ms`, error);
-      throw error;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.config.serverInstaller.errorType = InstallStepErrorType.ServerConnect;
+      this.config.serverInstaller.errorMessage = errorMessage;
+      this.config.serverInstaller = this.config.serverInstaller;
+      this.reasonToSkipInstall = ReasonsToSkipInstall.ServerError;
+      this.reasonToSkipInstallData = { errorMessage };
+      this.isReadyToRun = false;
+      await this.config.save().catch(() => undefined);
     }
+
+    this.isLoaded = true;
+    this.isLoadedDeferred.resolve();
   }
 
   public stop(disableWrites = true) {
@@ -743,18 +750,19 @@ export default class Installer {
     const server = await this.getServer();
     const delegateKeypair = await this.walletKeys.getVaultDelegateKeypair();
     const ethereumBeaconApiUrl =
-      this.config.ethereumBeaconApiUrl === '' ? '' : getEthereumBeaconApiUrl(this.config.ethereumBeaconApiUrl);
-    const ethereumExecutionRpcUrl = getEthereumExecutionRpcUrl(this.config.ethereumExecutionRpcUrl);
+      this.config.ethereumBeaconApiUrl === ''
+        ? ''
+        : getEthereumBeaconApiUrl(this.config.ethereumBeaconApiUrl?.trim() || SERVER_ENV_VARS.ETHEREUM_BEACON_API_URL);
+    const ethereumExecutionRpcUrl = getEthereumExecutionRpcUrl(
+      this.config.ethereumExecutionRpcUrl?.trim() || SERVER_ENV_VARS.ETHEREUM_EXECUTION_RPC_URL,
+    );
 
     await server.createConfigDir();
 
     const totalCount = 5;
 
-    // Enable this when we're ready to upload the proxy wallet to the bot.
-    // const miningBidProxyAccount = await this.walletKeys.exportMiningBidProxyAccountJson('');
-    // await server.uploadMiningBotWallet(miningBidProxyAccount);
-    const miningBotKeypair = await this.walletKeys.getMiningBotKeypair();
-    await server.uploadMiningBotWallet(miningBotKeypair.toJson(''));
+    const miningBidProxyAccount = await this.walletKeys.exportMiningBidProxyAccountJson('');
+    await server.uploadMiningBotWallet(miningBidProxyAccount);
     progressFn?.(totalCount, 1);
 
     await server.uploadVaultDelegateWallet(delegateKeypair.toJson(''));

@@ -17,6 +17,21 @@ const HostOrIpSchema = z
   .string()
   .refine(value => value === '' || !/^[a-z]+:\/\//i.test(value), 'Must not include a protocol prefix');
 
+export enum TopTab {
+  // Basics
+  Dashboard = 'Dashboard',
+  Network = 'Network',
+
+  ArgonBonds = 'ArgonBonds',
+  BitcoinLocks = 'BitcoinLocks',
+  BitcoinLoans = 'BitcoinLoans',
+  StableSwaps = 'StableSwaps',
+
+  Mining = 'Mining',
+  Vaulting = 'Vaulting',
+  Invites = 'Invites',
+}
+
 export enum InstallStepKey {
   ServerConnect = 'ServerConnect',
   FileUpload = 'FileUpload',
@@ -103,6 +118,8 @@ export const ConfigCertificationDetailsSchema = z.object({
   showBonusTooltip: z.boolean().optional(),
   showRewardsCelebration: z.boolean().optional(),
   dismissedCompletionNoticeStepIds: z.array(z.string()).optional(),
+  dismissedOperationsUpgradeOverlay: z.boolean().optional(),
+  dismissedOperationsActivatedOverlay: z.boolean().optional(),
 });
 
 export const ConfigInstallerStep = z.object({
@@ -129,17 +146,9 @@ export const ConfigBootstrapDetailsSchema = z.object({
   routerHost: HostOrIpSchema,
 });
 
-export const OperationalReferralSchema = z.object({
-  sponsor: z.string(),
-  expiresAtFrame: z.number(),
-  sponsorSignature: z.string(),
-});
-
 export const UpstreamOperatorSchema = z.object({
   name: z.string(),
   vaultId: z.number().optional(),
-  inviteSecret: z.string().optional(),
-  operationalReferral: OperationalReferralSchema.optional(),
   accountId: z.string().optional(),
 });
 
@@ -182,6 +191,11 @@ export const ConfigSchema = z.object({
 
   miningSetupStatus: z.nativeEnum(MiningSetupStatus),
   vaultingSetupStatus: z.nativeEnum(VaultingSetupStatus),
+
+  showWelcomeOverlay: z.boolean(),
+  hasExtensionTreasury: z.boolean(),
+  hasExtensionOperations: z.boolean(),
+  selectedTab: z.nativeEnum(TopTab),
 
   serverAdd: ConfigServerAddSchema.optional(),
   serverDetails: ConfigServerDetailsSchema,
@@ -233,7 +247,6 @@ export type IConfigServerDetails = z.infer<typeof ConfigServerDetailsSchema>;
 export type IConfigServerInstallDetails = z.infer<typeof ConfigServerInstallerSchema>;
 export type IConfigInstallStep = z.infer<typeof ConfigInstallerStep>;
 export type IConfigSyncDetails = z.infer<typeof ConfigSyncDetailsSchema>;
-export type IOperationalReferral = z.infer<typeof OperationalReferralSchema>;
 export type IConfig = z.infer<typeof ConfigSchema>;
 
 export type IConfigStringified = {
@@ -251,6 +264,11 @@ export interface IConfigDefaults {
 
   miningSetupStatus: () => IConfig['miningSetupStatus'];
   vaultingSetupStatus: () => IConfig['vaultingSetupStatus'];
+
+  showWelcomeOverlay: () => IConfig['showWelcomeOverlay'];
+  hasExtensionTreasury: () => IConfig['hasExtensionTreasury'];
+  hasExtensionOperations: () => IConfig['hasExtensionOperations'];
+  selectedTab: () => IConfig['selectedTab'];
 
   serverAdd: () => IConfig['serverAdd'];
   serverDetails: () => IConfig['serverDetails'];

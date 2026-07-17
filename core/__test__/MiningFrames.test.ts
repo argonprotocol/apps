@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MiningFrames, NetworkConfig } from '../src/index.ts';
+import { createDeferred, MiningFrames, NetworkConfig } from '../src/index.ts';
 import type { IBlockHeaderInfo } from '../src/BlockWatch.ts';
 
 describe('MiningFrames frame refresh recovery', () => {
@@ -52,6 +52,91 @@ describe('MiningFrames frame refresh recovery', () => {
     expect(getApi).toHaveBeenNthCalledWith(2, frameHeader);
     expect(miningFrames.framesById[18]).toMatchObject({
       frameId: 18,
+      firstBlockNumber: 181,
+      firstBlockHash: '0xframe',
+      firstBlockTick: 1_810,
+      firstBlockSpecVersion: 153,
+    });
+  });
+
+  it('refreshes and retries a stale persisted frame behind a valid newer frame', async () => {
+    NetworkConfig.setNetwork('dev-docker');
+
+    const latestHeader = createHeaderInfo(192, '0xlatest', '0x191', 19, 1_920);
+    const newerFrameHeader = createHeaderInfo(191, '0xnewer-frame', '0x190', 19, 1_910);
+    const frameHeader = createHeaderInfo(181, '0xframe', '0x180', 18, 1_810);
+    const unreadableError = new Error('Unable to retrieve header and parent from supplied hash');
+    const currentApi = {
+      query: {
+        miningSlot: {
+          frameStartBlockNumbers: vi.fn().mockResolvedValue([createNumberLike(191), createNumberLike(181)]),
+        },
+      },
+    };
+    const frameApi = {
+      query: {
+        miningSlot: {
+          frameStartBlockNumbers: vi.fn().mockResolvedValue([createNumberLike(181)]),
+        },
+      },
+      runtimeVersion: {
+        specVersion: createNumberLike(153),
+      },
+    };
+    const pendingFrameApi = createDeferred<typeof frameApi>();
+    let frameApiCalls = 0;
+    const getApi = vi.fn(async ({ blockHash }: IBlockHeaderInfo) => {
+      if (blockHash === '0xstale') throw unreadableError;
+      if (blockHash === latestHeader.blockHash) return currentApi;
+      if (blockHash === newerFrameHeader.blockHash) return frameApi;
+      if (blockHash === frameHeader.blockHash) {
+        frameApiCalls += 1;
+        return frameApiCalls === 1 ? frameApi : await pendingFrameApi.promise;
+      }
+      throw new Error(`Unexpected block hash ${blockHash}`);
+    });
+    const blockWatch = {
+      latestHeaders: [latestHeader],
+      getApi,
+      getHeader: vi.fn(async (blockNumber: number) => {
+        if (blockNumber === newerFrameHeader.blockNumber) return newerFrameHeader;
+        if (blockNumber === frameHeader.blockNumber) return frameHeader;
+        throw new Error(`Unexpected block number ${blockNumber}`);
+      }),
+      events: { on: vi.fn() },
+    };
+    const miningFrames = new MiningFrames({} as any, blockWatch as any);
+    miningFrames.framesById[18] = {
+      frameId: 18,
+      frameStartTick: 1_800,
+      dateStart: new Date(1_800_000),
+      firstBlockNumber: 21_101,
+      firstBlockHash: '0xstale',
+      firstBlockTick: 1_800,
+      firstBlockSpecVersion: 152,
+    };
+    miningFrames.framesById[19] = {
+      frameId: 19,
+      frameStartTick: 1_910,
+      dateStart: new Date(1_910_000),
+      firstBlockNumber: 191,
+      firstBlockHash: '0xnewer-frame',
+      firstBlockTick: 1_910,
+      firstBlockSpecVersion: 153,
+    };
+
+    const frameStartPromise = miningFrames.getFrameStart(18);
+    await vi.waitFor(() => expect(frameApiCalls).toBe(2));
+
+    Object.assign(miningFrames.framesById[18], {
+      firstBlockNumber: 182,
+      firstBlockHash: '0xnext-frame',
+    });
+    pendingFrameApi.resolve(frameApi);
+    const frameStart = await frameStartPromise;
+
+    expect(frameStart.api).toBe(frameApi);
+    expect(frameStart.frame).toMatchObject({
       firstBlockNumber: 181,
       firstBlockHash: '0xframe',
       firstBlockTick: 1_810,

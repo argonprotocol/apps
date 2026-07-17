@@ -9,6 +9,7 @@ import { Operation } from './index.ts';
 import type { IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
 import type { IE2EFlowRuntime, IE2EOperationInspectState, IE2EOperationState } from '../types.ts';
 import bitcoinEnsureMismatchActionPanel from './Bitcoin.op.ensureMismatchActionPanel.ts';
+import { BITCOIN_LOCK_ENTRY_SELECTOR } from './Bitcoin.op.activateTab.ts';
 
 const DEFAULT_MISMATCH_OFFSET_SATOSHIS = 25_000n;
 const LOCK_VARIANCE_INSPECT_TIMEOUT_MS = 20_000;
@@ -137,7 +138,7 @@ async function readFundLockMismatchUiState(flow: IE2EFlowRuntime): Promise<{
   mismatchPanelVisible: boolean;
 }> {
   const [lockingEntryVisible, lockOverlay, fundingBip21, mismatchPanel] = await Promise.all([
-    hasDashboardLockEntry(flow),
+    hasBitcoinLockEntry(flow),
     flow.isVisible('BitcoinLockingOverlay'),
     flow.isVisible('fundingBip21.copyContent()'),
     flow.isVisible('LockFundingMismatch'),
@@ -180,7 +181,6 @@ function calculateMismatchedAmount(
   return lowerAmount > 0n ? lowerAmount : expectedAmountSatoshis + mismatchOffsetSatoshis;
 }
 
-async function hasDashboardLockEntry(flow: IE2EFlowRuntime): Promise<boolean> {
-  return (await flow.isVisible({ selector: '[bitcoinmap] .treemap__tile:not(.treemap__tile--remainder)', index: 0 }))
-    .visible;
+async function hasBitcoinLockEntry(flow: IE2EFlowRuntime): Promise<boolean> {
+  return (await flow.isVisible({ selector: BITCOIN_LOCK_ENTRY_SELECTOR, index: 0 })).visible;
 }

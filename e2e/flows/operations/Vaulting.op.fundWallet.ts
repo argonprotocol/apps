@@ -48,8 +48,8 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
               ? 0n
               : futureTransactionFeeBudgetMicrogons + treasuryBondSuggestionMicrogons);
           const requiredMicronots = refs.config.vaultingRules?.baseMicronotCommitment ?? 0n;
-          const availableMicrogons = refs.wallets.vaultingWallet.availableMicrogons ?? 0n;
-          const availableMicronots = refs.wallets.vaultingWallet.availableMicronots ?? 0n;
+          const availableMicrogons = refs.wallets.defaultArgonWallet.availableMicrogons ?? 0n;
+          const availableMicronots = refs.wallets.defaultArgonWallet.availableMicronots ?? 0n;
 
           return {
             walletIsFullyFunded: availableMicrogons >= requiredMicrogons && availableMicronots >= requiredMicronots,
@@ -106,14 +106,13 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
     }
 
     await flow.click('SetupChecklist.openFundVaultingAccountOverlay()');
-    await flow.waitFor('WalletOverlay.micronotsNeeded');
-    await flow.waitFor('WalletOverlay.microgonsNeeded');
+    await flow.waitFor('WalletOverlay.microgonsNeeded', { state: 'exists', timeoutMs: 30_000 });
 
     const microgonsNeededRaw = await flow.getAttribute('WalletOverlay.microgonsNeeded', 'data-value');
     const micronotsNeededRaw = await flow
       .getAttribute('WalletOverlay.micronotsNeeded', 'data-value', { timeoutMs: 1_000 })
       .catch(() => null);
-    const walletAddress = await flow.queryApp(refs => refs.wallets.vaultingWallet.address, {
+    const walletAddress = await flow.queryApp(refs => refs.wallets.defaultArgonWallet.address, {
       timeoutMs: 10_000,
     });
 
@@ -133,7 +132,7 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
     const requiredMicronots = BigInt(micronotsNeededRaw ?? '0');
     const fundingNeeded = requiredMicrogons > 0n || requiredMicronots > 0n;
 
-    await flow.click('OverlayBase.clickClose()', { timeoutMs: 8_000 });
+    await flow.click('WalletOverlay.closeRight()', { timeoutMs: 8_000 });
     await pollEvery(250, async () => !(await flow.inspect(this)).uiState.walletOverlayVisible, {
       timeoutMs: 20_000,
       timeoutMessage: `${flowName}: vaulting wallet overlay did not close after funding.`,
@@ -144,6 +143,7 @@ export default new Operation<IVaultingFlowContext, IFundVaultingWalletState>(imp
         address: walletAddress,
         microgons: requiredMicrogons + extraMicrogons,
         micronots: requiredMicronots,
+        archiveUrl: flow.getData<string>('sessionArchiveUrl'),
       });
 
       console.info(`[E2E] ${flowName} funded wallet`, {

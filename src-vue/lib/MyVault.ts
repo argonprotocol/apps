@@ -1,12 +1,14 @@
 import {
   ApiDecoration,
   ArgonClient,
+  type ArgonPrimitivesVaultVaultArgonotCommitment,
   BitcoinLock,
   FIXED_U128_DECIMALS,
   hexToU8a,
   IBitcoinLock,
   ITxProgressCallback,
   PalletVaultsVaultFrameRevenue,
+  type Option,
   PERMILL_DECIMALS,
   SubmittableExtrinsic,
   toFixedNumber,
@@ -28,6 +30,7 @@ import {
   IBlockHeaderInfo,
   IDeferred,
   IVaultStats,
+  isDefaultArgonMoveTo,
   minimumVaultDelegateBalance,
   MiningFrames,
   MoveFrom,
@@ -42,19 +45,20 @@ import { IVaultRecord, VaultsTable } from './db/VaultsTable.ts';
 import { IVaultingRules } from '../interfaces/IVaultingRules.ts';
 import { Vaults } from './Vaults.ts';
 import BitcoinLocks from './BitcoinLocks.ts';
-import { MyVaultRecovery } from './MyVaultRecovery.ts';
+import { MyVaultRecovery } from './recovery/MyVaultRecovery.ts';
 import { type IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
 import { TransactionTracker, TxAttemptState } from './TransactionTracker.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { computeCollectDeadline } from './VaultDeadlineWatcher.ts';
 import { WalletKeys } from './WalletKeys.ts';
-import { buildOperatorAccountRegistrationTx } from './OperationalAccount.ts';
 import { GlobalCouncil } from './GlobalCouncil.ts';
 import { MintingAuthorities } from './MintingAuthorities.ts';
 import { Config } from './Config.ts';
 import { ICollectOrphanCosignMetadata, IVaultCollectMetadata, VaultCollectBuilder } from './VaultCollectBuilder.ts';
+import { getSpendableDefaultArgonMicrogons } from './WalletForArgon.ts';
 import bs58check from 'bs58check';
+import { VaultHistory } from './recovery/MyVault.ts';
 
 export const DEFAULT_MASTER_XPUB_PATH = "m/84'/0'/0'";
 
@@ -71,6 +75,21 @@ export interface IExternalBitcoinLock {
   isReleasing: boolean;
   lockDetails: IBitcoinLock;
 }
+
+export type IVaultInitialAllocateMetadata = {
+  microgonsForSecuritization: bigint;
+  vaultId: number;
+};
+
+export type IVaultIncreaseAllocationMetadata = {
+  addedSecuritizationMicrogons: bigint;
+  vaultId: number;
+};
+
+export type IVaultCommittedArgonotsMetadata = {
+  committedMicronots: bigint;
+  vaultId: number;
+};
 
 // Keep following a submitted/reorged cosign attempt briefly before retrying it.
 const COSIGN_ATTEMPT_FOLLOW_WINDOW_FINALIZED_BLOCKS = 2;
@@ -90,6 +109,10 @@ export class MyVault {
     createdVault: Vault | null;
     metadata: IVaultRecord | null;
     stats: IVaultStats | null;
+    argonotCommitment: {
+      committedMicronots: bigint;
+      encumberedMicronots: bigint;
+    };
     pendingCollectRevenue: bigint;
     pendingCosignUtxosById: Map<number, IPendingCosignUtxo>;
     releasedExternalUtxoIds: Set<number>;
@@ -101,10 +124,7 @@ export class MyVault {
     currentFrameId: number;
     pendingCollectTxInfo: TransactionInfo<IVaultCollectMetadata> | null;
     externalLocks: { [utxoId: number]: IExternalBitcoinLock };
-    pendingAllocateTxInfo: TransactionInfo<{
-      addedSecuritizationMicrogons: bigint;
-      vaultId: number;
-    }> | null;
+    pendingAllocateTxInfo: TransactionInfo<IVaultIncreaseAllocationMetadata> | null;
   };
 
   public get vaultId(): number | undefined {
@@ -136,6 +156,7 @@ export class MyVault {
   #pendingCosignUpdateSeq = 0;
   #externalLocksUpdateSeq = 0;
   public readonly collectBuilder: VaultCollectBuilder;
+  public readonly history: VaultHistory;
 
   constructor(
     private readonly dbPromise: Promise<Db>,
@@ -152,6 +173,10 @@ export class MyVault {
       createdVault: null,
       metadata: null,
       stats: null,
+      argonotCommitment: {
+        committedMicronots: 0n,
+        encumberedMicronots: 0n,
+      },
       pendingCollectRevenue: 0n,
       pendingCollectTxInfo: null,
       pendingAllocateTxInfo: null,
@@ -168,6 +193,7 @@ export class MyVault {
     this.#transactionTracker = transactionTracker;
     bitcoinLocks.myVault = this;
     this.collectBuilder = new VaultCollectBuilder(this);
+    this.history = new VaultHistory(dbPromise, () => walletKeys.defaultArgonAddress);
   }
 
   public async getBitcoinNetwork(): Promise<BitcoinNetwork> {
@@ -223,6 +249,7 @@ export class MyVault {
       };
 
       await this.#transactionTracker.load();
+      this.#singleRunTransactions.delete(ExtrinsicType.VaultSetBitcoinLockDelegate);
 
       for (const txInfo of this.#transactionTracker.pendingBlockTxInfosAtLoad) {
         const { tx } = txInfo;
@@ -261,17 +288,15 @@ export class MyVault {
           this.#singleRunTransactions.set(ExtrinsicType.VaultCreate, Promise.resolve(completedTxInfo));
         }
       }
-      if (!this.#singleRunTransactions.has(ExtrinsicType.VaultSetBitcoinLockDelegate)) {
-        const completedTxInfo = this.#transactionTracker.data.txInfosByType[ExtrinsicType.VaultSetBitcoinLockDelegate];
-        if (completedTxInfo) {
-          this.#singleRunTransactions.set(ExtrinsicType.VaultSetBitcoinLockDelegate, Promise.resolve(completedTxInfo));
-        }
-      }
-
       const vaultId = this.data.metadata?.id;
+      this.data.argonotCommitment = {
+        committedMicronots: 0n,
+        encumberedMicronots: 0n,
+      };
       if (vaultId) {
         this.data.createdVault = this.vaults.vaultsById[vaultId];
         this.data.stats = this.vaults.stats?.vaultsById[vaultId] ?? null;
+        this.updateArgonotCommitment(await client.query.vaults.argonotCommitmentByVaultId(vaultId));
 
         void this.refreshExternalLocks().catch(error => {
           console.warn('[MyVault] Error refreshing external locks during load', error);
@@ -345,19 +370,22 @@ export class MyVault {
       const sub4 = await client.query.vaults.lastCollectFrameByVaultId(vaultId, () => {
         this.updateCollectDeadlines();
       });
+      const sub5 = await client.query.vaults.argonotCommitmentByVaultId(vaultId, commitment => {
+        this.updateArgonotCommitment(commitment);
+      });
 
-      const { unsubscribe: sub5 } = this.miningFrames.onFrameId(frameId => {
+      const { unsubscribe: sub6 } = this.miningFrames.onFrameId(frameId => {
         this.data.currentFrameId = frameId;
         this.updateCollectDeadlines();
       });
 
-      const sub6 = this.miningFrames.blockWatch.events.on('best-blocks', headers => {
+      const sub7 = this.miningFrames.blockWatch.events.on('best-blocks', headers => {
         void this.refreshExternalLocksFromBlockEvents(headers).catch(x =>
           console.error(`Error updating external locks from block events`, x),
         );
       });
 
-      const sub7 = clients.events.on('on-pruned-client', () => {
+      const sub8 = clients.events.on('on-pruned-client', () => {
         if (client.clientType === 'archive') {
           this.unsubscribe();
           void this.subscribe();
@@ -372,10 +400,26 @@ export class MyVault {
 
       await Promise.all([this.globalCouncil.subscribe(), this.mintingAuthorities.subscribe()]);
 
-      this.#subscriptions.push(sub, sub2, sub3, sub4, sub5, sub6, sub7);
+      this.#subscriptions.push(sub, sub2, sub3, sub4, sub5, sub6, sub7, sub8);
     } finally {
       this.#isSubscribing = false;
     }
+  }
+
+  private updateArgonotCommitment(commitment: Option<ArgonPrimitivesVaultVaultArgonotCommitment>): void {
+    if (commitment.isNone) {
+      this.data.argonotCommitment = {
+        committedMicronots: 0n,
+        encumberedMicronots: 0n,
+      };
+      return;
+    }
+
+    const value = commitment.unwrap();
+    this.data.argonotCommitment = {
+      committedMicronots: value.committedMicronots.toBigInt(),
+      encumberedMicronots: value.encumberedMicronots.toBigInt(),
+    };
   }
 
   private async refreshExternalLocksFromBlockEvents(headers: IBlockHeaderInfo[]): Promise<void> {
@@ -660,7 +704,7 @@ export class MyVault {
 
   public async setCommittedArgonots(
     committedMicronots: bigint,
-  ): Promise<TransactionInfo<{ vaultId: number; committedMicronots: bigint }>> {
+  ): Promise<TransactionInfo<IVaultCommittedArgonotsMetadata>> {
     if (!this.createdVault) {
       throw new Error('Create your vault before setting an Argonot commitment.');
     }
@@ -1150,22 +1194,33 @@ export class MyVault {
     };
   }
 
-  public async getCollectedAmount(txInfo: TransactionInfo<{ vaultId: number }>): Promise<bigint | undefined> {
-    const { txResult, tx } = txInfo;
-    const { vaultId } = tx.metadataJson;
-    await txResult.waitForInFirstBlock;
-    await this.#transactionTracker.ensureStoredEvents(txInfo);
-    const client = await getMainchainClient(false);
+  public async recordFinalizedVaultCapital(txInfo: TransactionInfo): Promise<void> {
+    try {
+      const finalizedBlockHash = await txInfo.txResult.waitForFinalizedBlock;
+      const vaultId = this.vaultId;
+      if (vaultId === undefined) return;
 
-    for (const event of txResult.events) {
-      if (client.events.vaults.VaultCollected.is(event)) {
-        const { vaultId: eventVaultId, revenue: eventRevenue } = event.data;
-        if (eventVaultId.toNumber() === vaultId) {
-          return eventRevenue.toBigInt();
-        }
-      }
+      const client = await getMainchainClient(true);
+      const api = await client.at(finalizedBlockHash);
+      const [vault, blockNumber] = await Promise.all([Vault.get(api, vaultId), api.query.system.number()]);
+      this.data.createdVault = vault;
+
+      const block = await this.miningFrames.blockWatch.getHeader(blockNumber.toNumber());
+      const db = await this.dbPromise;
+      await db.vaultCapitalHistoryTable.insert({
+        eventType: 'modified',
+        walletAddress: this.walletKeys.defaultArgonAddress,
+        vaultId,
+        securitization: vault.securitization,
+        securitizationTarget: bigIntMax(vault.securitization - vault.getRelockCapacity(), 0n),
+        blockNumber: blockNumber.toNumber(),
+        blockHash: txInfo.tx.blockHash ?? u8aToHex(finalizedBlockHash),
+        blockTime: new Date(block.blockTime),
+        extrinsicIndex: txInfo.tx.blockExtrinsicIndex ?? txInfo.txResult.extrinsicIndex,
+      });
+    } catch (error) {
+      console.warn('Unable to save finalized vault capital history', error);
     }
-    return undefined;
   }
 
   public async onVaultCollect(txInfo: TransactionInfo<IVaultCollectMetadata>): Promise<void> {
@@ -1176,11 +1231,36 @@ export class MyVault {
     try {
       const { txResult } = txInfo;
       const client = await getMainchainClient(false);
-      await txResult.waitForFinalizedBlock;
+      const finalizedBlockHash = await txResult.waitForFinalizedBlock;
       await this.trackTxResultFee(txResult);
+      await this.#transactionTracker.ensureStoredEvents(txInfo);
+      const collectedEvent = txResult.events.find(event => {
+        return client.events.vaults.VaultCollected.is(event) && event.data.vaultId.toNumber() === vaultId;
+      });
+      const revenue =
+        collectedEvent && client.events.vaults.VaultCollected.is(collectedEvent)
+          ? collectedEvent.data.revenue.toBigInt()
+          : undefined;
+      if (revenue !== undefined) {
+        try {
+          const blockNumber = txResult.blockNumber ?? txInfo.tx.blockHeight;
+          if (blockNumber === undefined) throw new Error('Finalized vault collect is missing its block number');
 
-      const revenue = await this.getCollectedAmount(txInfo);
-      if (txInfo.tx.metadataJson.moveTo === MoveTo.MiningHold && revenue && revenue > 0n) {
+          const [db, block] = await Promise.all([this.dbPromise, this.miningFrames.blockWatch.getHeader(blockNumber)]);
+          await db.vaultRevenueEventsTable.insert({
+            amount: revenue,
+            source: 'vaultCollect',
+            blockNumber,
+            blockHash: txInfo.tx.blockHash ?? u8aToHex(finalizedBlockHash),
+            blockTime: new Date(block.blockTime),
+            extrinsicIndex: txInfo.tx.blockExtrinsicIndex ?? txResult.extrinsicIndex,
+          });
+        } catch (error) {
+          console.warn('Unable to save finalized vault revenue history', error);
+        }
+      }
+
+      if (isDefaultArgonMoveTo(txInfo.tx.metadataJson.moveTo) && revenue && revenue > 0n) {
         const txSigner = await this.walletKeys.getVaultingKeypair();
         const followOnTx = this.#transactionTracker.createIntentForFollowOnTx(txInfo);
         try {
@@ -1191,7 +1271,7 @@ export class MyVault {
             .then(x => x.data.free.toBigInt());
 
           // Make sure the collect amount doesn't drain the account below operational reserves
-          const maxAmountToMove = bigIntMax(0n, balanceAtBlock - MyVault.OperationalReserves);
+          const maxAmountToMove = getSpendableDefaultArgonMicrogons(balanceAtBlock);
           if (maxAmountToMove < 50_000n) {
             throw new Error('The amount requested to move is too low after accounting for operational reserves.');
           }
@@ -1201,11 +1281,11 @@ export class MyVault {
           }
 
           const transferTxInfo = await this.#transactionTracker.submitAndWatch({
-            tx: client.tx.balances.transferKeepAlive(this.walletKeys.miningHoldAddress, amountToMove),
+            tx: client.tx.balances.transferKeepAlive(this.walletKeys.defaultArgonAddress, amountToMove),
             txSigner,
             extrinsicType: ExtrinsicType.Transfer,
             metadata: {
-              moveFrom: MoveFrom.VaultingHold,
+              moveFrom: MoveFrom.DefaultArgon,
               moveTo: txInfo.tx.metadataJson.moveTo,
               amount: amountToMove,
             },
@@ -1249,7 +1329,7 @@ export class MyVault {
     const deferred = createDeferred<TransactionInfo<{ masterXpubPath: string; masterXpub: string }>>();
     this.#singleRunTransactions.set(ExtrinsicType.VaultCreate, deferred.promise);
     try {
-      const { masterXpubPath, rules, config } = args;
+      const { masterXpubPath, rules } = args;
       const txSigner = await this.walletKeys.getVaultingKeypair();
       console.log('Creating a vault with address', txSigner.address);
       const vaultXpriv = await this.getVaultXpriv(masterXpubPath);
@@ -1279,14 +1359,6 @@ export class MyVault {
       };
 
       const txs: SubmittableExtrinsic[] = [];
-      const registerOperatorAccountTx = await buildOperatorAccountRegistrationTx({
-        walletKeys: this.walletKeys,
-        config,
-        client,
-      });
-      if (registerOperatorAccountTx) {
-        txs.push(registerOperatorAccountTx);
-      }
       txs.push(client.tx.vaults.create(vaultParams));
       const registerCouncilSignerTx = await this.globalCouncil.buildRegisterCouncilSignerTx(client);
       if (registerCouncilSignerTx) txs.push(registerCouncilSignerTx);
@@ -1330,13 +1402,30 @@ export class MyVault {
       if (!vaultId) {
         throw new Error('VaultCreated event not found in transaction events');
       }
-      const vault = await Vault.get(api as any, vaultId);
+      const vault = await Vault.get(api, vaultId);
       await this.recordVault({
         vault,
         createBlockNumber: blockNumber.toNumber(),
         txFee: txResult.finalFee ?? 0n,
         masterXpubPath: tx.metadataJson.masterXpubPath,
       });
+
+      try {
+        const block = await this.miningFrames.blockWatch.getHeader(blockNumber.toNumber());
+        const db = await this.dbPromise;
+        await db.vaultCapitalHistoryTable.insert({
+          eventType: 'created',
+          walletAddress: this.walletKeys.defaultArgonAddress,
+          vaultId,
+          securitization: vault.securitization,
+          blockNumber: blockNumber.toNumber(),
+          blockHash: tx.blockHash ?? u8aToHex(blockHash),
+          blockTime: new Date(block.blockTime),
+          extrinsicIndex: tx.blockExtrinsicIndex ?? txResult.extrinsicIndex,
+        });
+      } catch (error) {
+        console.warn('Unable to save finalized vault creation history', error);
+      }
       postProcessor.resolve();
       return vault;
     } catch (error) {
@@ -1629,26 +1718,13 @@ export class MyVault {
     try {
       await txResult.waitForFinalizedBlock;
       await this.trackTxResultFee(txResult);
+      await this.recordFinalizedVaultCapital(txInfo);
       console.log('Vault settings updated');
       postProcessor.resolve();
     } catch (error) {
       postProcessor.reject(error as Error);
       throw error;
     }
-  }
-
-  public async buildTreasuryBondPurchaseTx(bondPurchaseMicrogons: bigint): Promise<SubmittableExtrinsic> {
-    const vaultId = this.createdVault?.vaultId;
-    if (!vaultId) {
-      throw new Error('No vault created to build treasury bond purchase tx');
-    }
-
-    const client = await getMainchainClient(false);
-    return TreasuryBonds.buildBuyBondTx({
-      client,
-      vaultId,
-      bondPurchaseMicrogons,
-    });
   }
 
   public async activateSecuritization(args: {
@@ -1707,16 +1783,14 @@ export class MyVault {
   }
 
   private async onInitialVaultAllocate(
-    txInfo: TransactionInfo<{
-      microgonsForSecuritization: bigint;
-      vaultId: number;
-    }>,
+    txInfo: TransactionInfo<IVaultInitialAllocateMetadata>,
   ): Promise<{ txResult: TxResult }> {
     const { tx, txResult } = txInfo;
     const postProcessor = txInfo.createPostProcessor();
     try {
       await txResult.waitForFinalizedBlock;
       await this.trackTxResultFee(txResult);
+      await this.recordFinalizedVaultCapital(txInfo);
 
       const { microgonsForSecuritization } = tx.metadataJson;
       console.log('Saving vault updates', {
@@ -1789,6 +1863,7 @@ export class MyVault {
     try {
       await txResult.waitForFinalizedBlock;
       await this.trackTxResultFee(txResult);
+      await this.recordFinalizedVaultCapital(txInfo);
       postProcessor.resolve();
     } catch (error) {
       postProcessor.reject(error as Error);
@@ -1821,7 +1896,7 @@ export class MyVault {
       throw new Error('No metadata available to record fee');
     }
     this.metadata.operationalFeeMicrogons ??= 0n;
-    this.metadata.operationalFeeMicrogons += (txResult.finalFee ?? 0n) + (txResult.finalFeeTip ?? 0n);
+    this.metadata.operationalFeeMicrogons += txResult.finalFee ?? 0n;
   }
 
   private async getTable(): Promise<VaultsTable> {
@@ -1835,8 +1910,6 @@ export class MyVault {
     await db.bitcoinLocksTable.deleteAll();
     await db.walletHdKeysTable.deleteByKeyRole(['councilSigner', 'mintingAuthority']);
   }
-
-  public static OperationalReserves = 1_000_000n;
 
   public static getSecuritizationTarget(rules: IVaultingRules) {
     return bigIntMax(rules.baseMicrogonCommitment, 0n);

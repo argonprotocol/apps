@@ -8,7 +8,7 @@ import {
   MiningFrames,
 } from '@argonprotocol/apps-core';
 import { ApiDecoration } from '@argonprotocol/mainchain';
-import { INSTANCE_NAME, IS_OPERATIONS_APP, IS_TREASURY_APP, LOG_DEBUG, NETWORK_NAME, NETWORK_URL } from '../lib/Env.ts';
+import { INSTANCE_NAME, LOG_DEBUG, NETWORK_NAME, NETWORK_URL } from '../lib/Env.ts';
 import { getConfig } from './config';
 import { botEmitter } from '../lib/Bot.ts';
 import { BotStatus } from '../lib/BotSyncer.ts';
@@ -206,6 +206,11 @@ async function connectPrunedClientToConfiguredServer(): Promise<void> {
     return;
   }
 
+  if (!getBot().isReady) {
+    mainchainClients.clearPrunedClient();
+    return;
+  }
+
   const serverApiClient = getServerApiClient();
   if (config.isServerInstalled && config.serverDetails.ipAddress) {
     if (!(await serverApiClient.isGatewayReady())) {
@@ -231,14 +236,9 @@ async function connectPrunedClientToConfiguredServer(): Promise<void> {
 
   const upstreamOperatorClient = getUpstreamOperatorClient();
   if (upstreamOperatorClient.operatorHost && config.upstreamOperator) {
-    let sessionId: string | undefined;
-    if (IS_TREASURY_APP) {
-      sessionId = await upstreamOperatorClient.getTreasurySessionId({ forceVerify: true });
-    } else if (IS_OPERATIONS_APP) {
-      sessionId = await upstreamOperatorClient.getOperationalSessionId({
-        forceVerify: true,
-      });
-    }
+    const sessionId = await upstreamOperatorClient.getMemberSessionId({
+      forceVerify: true,
+    });
 
     await mainchainClients.setPrunedClient(upstreamOperatorClient.getWebsocketUrl('/substrate', sessionId));
     return;

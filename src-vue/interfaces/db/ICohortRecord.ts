@@ -7,6 +7,12 @@ export interface ICohortRecord {
   seatCountWon: number;
   microgonsToBeMinedPerSeat: bigint;
   micronotsToBeMinedPerSeat: bigint;
+  argonotPriceAtBid: bigint;
   createdAt: string;
   updatedAt: string;
 }
+
+export type IMiningSeatRewardTerms = Pick<
+  ICohortRecord,
+  'microgonsToBeMinedPerSeat' | 'micronotsToBeMinedPerSeat' | 'argonotPriceAtBid'
+>;

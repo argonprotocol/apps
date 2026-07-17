@@ -5,19 +5,19 @@ import { bigIntMax, bigIntMin, BondLot, TreasuryBonds, UnitOfMeasurement } from 
 import { useWallets } from './wallets.ts';
 import { getMyVault } from './vaults.ts';
 import { getCurrency } from './currency.ts';
-import { MyVault } from '../lib/MyVault.ts';
-import { getBondMarket } from './myBonds.ts';
+import { getSpendableDefaultArgonMicrogons } from '../lib/WalletForArgon.ts';
+import { getArgonBonds } from './argonBonds.ts';
 
 export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', () => {
   const wallets = useWallets();
   const myVault = getMyVault();
-  const bondMarket = getBondMarket();
+  const argonBonds = getArgonBonds();
   const currency = getCurrency();
 
   // Sidelined
 
   const sidelinedMicrogons = Vue.computed(() => {
-    return bigIntMax(wallets.vaultingWallet.availableMicrogons - MyVault.OperationalReserves, 0n);
+    return getSpendableDefaultArgonMicrogons(wallets.defaultArgonWallet.availableMicrogons);
   });
 
   const sidelinedMicronots = Vue.computed(() => 0n);
@@ -53,10 +53,12 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
     return pctBn.multipliedBy(100).toNumber();
   });
 
-  const securityMicronots = Vue.computed(() => wallets.vaultingWallet.totalMicronots);
-  const securityMicronotsUnused = Vue.computed(() => wallets.vaultingWallet.availableMicronots);
+  const securityMicronots = Vue.computed(() => myVault.data.argonotCommitment.committedMicronots);
+  const securityMicronotsUnused = Vue.computed(() => {
+    return bigIntMax(0n, securityMicronots.value - myVault.data.argonotCommitment.encumberedMicronots);
+  });
   const securityMicronotsPending = Vue.computed(() => 0n);
-  const securityMicronotsActivated = Vue.computed(() => wallets.vaultingWallet.reservedMicronots);
+  const securityMicronotsActivated = Vue.computed(() => myVault.data.argonotCommitment.encumberedMicronots);
   const securityMicronotsActivatedPct = Vue.computed<number>(() => {
     if (securityMicronots.value <= 0n) return 0;
 
@@ -72,7 +74,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
 
   const vaultBondState = Vue.computed(() => {
     const vaultId = myVault.vaultId;
-    return vaultId == null ? undefined : bondMarket.data.vaultsById[vaultId];
+    return vaultId == null ? undefined : argonBonds.data.vaultsById[vaultId];
   });
 
   const treasuryBondTotals = Vue.computed(() => {
@@ -131,9 +133,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   // Total Vault
 
   const totalVaultValue = Vue.computed(() => {
-    return (
-      sidelinedTotalValue.value + securityTotalValue.value + treasuryBondMicrogons.value - operationalFeeMicrogons.value
-    );
+    return bigIntMax(0n, securityMicrogons.value + treasuryBondMicrogons.value - operationalFeeMicrogons.value);
   });
 
   return {

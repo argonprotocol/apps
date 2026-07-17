@@ -10,8 +10,8 @@
           :sideOffset="-5"
           :avoidCollisions="true"
           :collisionPadding="30"
-          :style="{ width: width, maxWidth: maxWidth }"
-          class="data-[state=delayed-open]:data-[side=top]:animate-slideDownAndFade data-[state=delayed-open]:data-[side=right]:animate-slideLeftAndFade data-[state=delayed-open]:data-[side=left]:animate-slideRightAndFade data-[state=delayed-open]:data-[side=bottom]:animate-slideUpAndFade text-md pointer-events-none z-[10000] rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 text-gray-600 shadow-xl will-change-[transform,opacity] select-none"
+          :style="[floatingZIndex, { width: width, maxWidth: maxWidth }]"
+          class="data-[state=delayed-open]:data-[side=top]:animate-slideDownAndFade data-[state=delayed-open]:data-[side=right]:animate-slideLeftAndFade data-[state=delayed-open]:data-[side=left]:animate-slideRightAndFade data-[state=delayed-open]:data-[side=bottom]:animate-slideUpAndFade text-md pointer-events-none rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 text-gray-600 shadow-xl will-change-[transform,opacity] select-none"
         >
           {{ content }}
           <TooltipArrow :width="24" :height="12" class="fill-white stroke-gray-400/30 shadow-xl/50" />
@@ -33,6 +33,7 @@ import {
   TooltipTrigger,
   useForwardPropsEmits,
 } from 'reka-ui';
+import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 
 const props = defineProps<
   TooltipRootProps & {
@@ -46,6 +47,7 @@ const emits = defineEmits<TooltipRootEmits>();
 
 const width = Vue.ref('fit-content');
 const maxWidth = Vue.ref();
+const floatingZIndex = useFloatingZIndex();
 
 function handleOpen(isOpen: boolean) {
   if (!isOpen) return;

@@ -64,6 +64,8 @@ type StableSwapsOptions = {
 };
 
 export class StableSwaps {
+  public marketSnapshot: IStableSwapMarketSnapshot | undefined;
+
   private argonTokenPromise: Promise<Token> | undefined;
   private chainIdPromise: Promise<number> | undefined;
 
@@ -84,6 +86,7 @@ export class StableSwaps {
       pool: activePool,
       ...args,
     });
+    this.marketSnapshot = snapshot;
     if (snapshot.discountedEthereumArgonAmount <= 0n || snapshot.costToTargetMicrogons <= 0n) {
       return [];
     }

@@ -4,8 +4,8 @@ import type { ArgonClient } from '@argonprotocol/mainchain';
 import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { createPublicClient, getAddress, http } from 'viem';
 import { sudoSubmitAndFinalize } from '../../core/__test__/helpers/mainchain.ts';
-import type { IEthereumMintingAuthorityStatus, VaultActor } from '../actors/VaultActor.ts';
-import { readDevEthereumRuntimeState, resolveDevEthereumRpcUrl, writeDevEthereumRuntimeState } from '../devEthereum.ts';
+import { AppVaultOperator, type IEthereumMintingAuthorityStatus } from '../actors/AppVaultOperator.ts';
+import { resolveDevEthereumRpcUrl, updateDevEthereumRuntimeState } from '../devEthereum.ts';
 import {
   collectVaultOperatorsByEffectiveCouncilSigner,
   forceUpdateGlobalIssuanceCouncil,
@@ -13,11 +13,8 @@ import {
 import { fundArgonAccount } from '../scripts/fundArgonAccount.ts';
 import { fundDevEthereumAccount } from '../scripts/fundDevEthereumAccount.ts';
 
-const DEV_ETHEREUM_BACKEND_MINTING_AUTHORITY_MNEMONIC =
-  'legal winner thank year wave sausage worth useful legal winner thank yellow';
-
 export type IDevEthereumMintingAuthorityRuntime = {
-  actor: VaultActor;
+  actor: AppVaultOperator;
   shutdown(): Promise<void>;
 };
 
@@ -25,8 +22,8 @@ export async function startDevEthereumMintingAuthority(args: {
   archiveUrl: string;
   logPrefix?: string;
   executionRpcUrl?: string;
+  operator: AppVaultOperator;
   virtualEnv?: {
-    app?: string;
     appInstance?: string;
     network?: string;
     serverEnvVars?: NodeJS.ProcessEnv;
@@ -49,12 +46,8 @@ export async function startDevEthereumMintingAuthority(args: {
     network: args.virtualEnv?.network ?? 'dev-docker',
   });
   await updateMintingAuthorityRuntimeState(executionRpcUrl, 'starting');
-  const { VaultActor } = await import('../actors/VaultActor.ts');
   const clients = new MainchainClients(args.archiveUrl, () => false);
-  const actor = await VaultActor.load({
-    clients,
-    mnemonic: DEV_ETHEREUM_BACKEND_MINTING_AUTHORITY_MNEMONIC,
-  });
+  const actor = args.operator;
   const getClient = async () => await clients.get(false);
 
   let isShutdown = false;
@@ -68,7 +61,6 @@ export async function startDevEthereumMintingAuthority(args: {
     isShutdown = true;
     shouldStopAuthorizing = true;
     await authorizeTransfersPromise?.catch(() => undefined);
-    await actor.dispose();
     await clients.disconnect();
   };
 
@@ -126,7 +118,7 @@ export async function startDevEthereumMintingAuthority(args: {
 }
 
 async function activateDevEthereumMintingAuthority(args: {
-  actor: VaultActor;
+  actor: AppVaultOperator;
   archiveUrl: string;
   client: ArgonClient;
   executionRpcUrl: string;
@@ -340,19 +332,13 @@ async function updateMintingAuthorityRuntimeState(
   executionRpcUrl: string,
   mintingAuthorityStatus: 'starting' | 'ready',
 ): Promise<void> {
-  const runtimeState = await readDevEthereumRuntimeState(executionRpcUrl);
-  if (!runtimeState || runtimeState.executionRpcUrl !== executionRpcUrl) {
-    return;
-  }
-
-  await writeDevEthereumRuntimeState({
-    ...runtimeState,
+  await updateDevEthereumRuntimeState(executionRpcUrl, {
     mintingAuthorityStatus,
   });
 }
 
 async function refreshMintingAuthorityActivation(args: {
-  actor: VaultActor;
+  actor: AppVaultOperator;
   client: ArgonClient;
   logPrefix: string;
 }): Promise<IEthereumMintingAuthorityStatus> {
@@ -429,14 +415,12 @@ async function ensureMinimumMintingAuthorityValue(client: ArgonClient) {
 }
 
 function seedVirtualFrontendGlobals(args?: {
-  app?: string;
   appInstance?: string;
   network?: string;
   serverEnvVars?: NodeJS.ProcessEnv;
 }) {
-  const app = args?.app ?? process.env.ARGON_APP ?? 'operations';
-  const appId = `com.argon.${app}`;
-  const appName = app === 'treasury' ? 'Argon Treasury' : 'Argon Operations';
+  const appId = `com.argon.desktop`;
+  const appName = 'Argon Desktop';
   const globals = {
     __ARGON_APP_ID__: appId,
     __ARGON_APP_INSTANCE__: args?.appInstance ?? process.env.ARGON_APP_INSTANCE ?? '',

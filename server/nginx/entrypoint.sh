@@ -1,6 +1,12 @@
 #!/bin/sh
 set -eu
 
+: "${SUBSTRATE_UPSTREAM_URL:=http://argon-miner:9945}"
+: "${SUBSTRATE_UPSTREAM_HOST_HEADER:=localhost:9945}"
+: "${ROUTER_UPSTREAM_URL:=http://router:8080}"
+: "${BOT_UPSTREAM_URL:=http://bot:8080}"
+export SUBSTRATE_UPSTREAM_URL SUBSTRATE_UPSTREAM_HOST_HEADER ROUTER_UPSTREAM_URL BOT_UPSTREAM_URL
+
 cert_fingerprint() {
   sha256sum /etc/nginx/certs/fullchain.pem /etc/nginx/certs/privkey.pem 2>/dev/null || true
 }

@@ -69,8 +69,8 @@ import { getCurrency } from '../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { abbreviateAddress } from '../lib/Utils.ts';
 import { Vault } from '@argonprotocol/mainchain';
-import { useFinancials } from '../app-treasury/stores/financials.ts';
-import { getBondMarket } from '../stores/myBonds.ts';
+import { useFinancials } from '../stores/financials.ts';
+import { getArgonBonds } from '../stores/argonBonds.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 
 const emit = defineEmits<{
@@ -89,7 +89,7 @@ const props = withDefaults(
 
 const currency = getCurrency();
 const financials = useFinancials();
-const bondMarket = getBondMarket();
+const argonBonds = getArgonBonds();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
@@ -98,7 +98,7 @@ const selectedVaultId = Vue.ref<number | null>(null);
 const vaultBondSubscriptions: VoidFunction[] = [];
 
 function availableBondSpace(vault: Vault): bigint {
-  const bondState = bondMarket.data.vaultsById[vault.vaultId];
+  const bondState = argonBonds.data.vaultsById[vault.vaultId];
   return vault.availableBondSpace(currency.priceIndex, bondState?.bondLots ?? [], true);
 }
 
@@ -127,10 +127,10 @@ async function loadVaultBondState(vaults: Vault[]) {
   unsubscribeVaultBonds();
 
   const client = await getMainchainClient(false);
-  await bondMarket.subscribeGlobal(client);
+  await argonBonds.subscribeGlobal(client);
   const subscriptions = await Promise.all(
     vaults.map(vault =>
-      bondMarket.subscribeVault(
+      argonBonds.subscribeVault(
         {
           vaultId: vault.vaultId,
           operatorAddress: vault.operatorAccountId,

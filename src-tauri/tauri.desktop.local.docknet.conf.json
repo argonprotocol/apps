@@ -1,0 +1,37 @@
+{
+  "identifier": "com.argon.desktop.local",
+  "productName": "Docknet Argon",
+  "bundle": {
+    "icon": [
+      "icons-desktop/local/docknet/32x32.png",
+      "icons-desktop/local/docknet/128x128.png",
+      "icons-desktop/local/docknet/128x128@2x.png",
+      "icons-desktop/local/docknet/icon.icns",
+      "icons-desktop/local/docknet/icon.ico"
+    ]
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Argon",
+        "devtools": true,
+        "hiddenTitle": true,
+        "width": 1400,
+        "height": 1000,
+        "decorations": false,
+        "resizable": true,
+        "alwaysOnTop": false,
+        "backgroundThrottling": "disabled",
+        "center": true,
+        "maximized": false,
+        "minWidth": 1000,
+        "minHeight": 800,
+        "shadow": true,
+        "transparent": true
+      }
+    ],
+    "security": {
+      "capabilities": ["default", "dev"]
+    }
+  }
+}

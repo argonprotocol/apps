@@ -1,5 +1,6 @@
 import { BaseTable, IFieldTypes } from './BaseTable';
 import { convertFromSqliteFields, toSqlParams } from '../Utils';
+import { LRU } from 'tiny-lru';
 
 export interface IWalletTransferRecord {
   id: number;
@@ -16,6 +17,7 @@ export interface IWalletTransferRecord {
   microgonsForUsd: bigint;
   blockNumber: number;
   blockHash: string;
+  blockTime?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -23,8 +25,14 @@ export interface IWalletTransferRecord {
 // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
 type IWalletTransferRecordKey = keyof IWalletTransferRecord & string;
 export class WalletTransfersTable extends BaseTable {
+  public revision = 0;
+  public argonotCustodyRevision = 0;
+  private argonotCustodyCache = new LRU<{
+    revision: number;
+    promise: Promise<IWalletTransferRecord[]>;
+  }>(10);
   private bigIntFields: IWalletTransferRecordKey[] = ['amount', 'microgonsForArgonot', 'microgonsForUsd'];
-  private dateFields: IWalletTransferRecordKey[] = ['createdAt', 'updatedAt'];
+  private dateFields: IWalletTransferRecordKey[] = ['blockTime', 'createdAt', 'updatedAt'];
   private jsonFields: IWalletTransferRecordKey[] = [];
   private booleanFields: IWalletTransferRecordKey[] = ['isInternal'];
 
@@ -48,6 +56,34 @@ export class WalletTransfersTable extends BaseTable {
       toSqlParams([address]),
     );
     return convertFromSqliteFields(records, this.fields);
+  }
+
+  public async fetchArgonotCustody(addresses: readonly string[]): Promise<IWalletTransferRecord[]> {
+    if (!addresses.length) return [];
+
+    const scope = [...new Set(addresses)].sort();
+    return this.loadArgonotCustody(`wallets:${scope.join(',')}`, async () => {
+      const placeholders = scope.map(() => '?').join(', ');
+      const records = await this.db.select<any[]>(
+        `SELECT * FROM WalletTransfers
+         WHERE currency = 'argonot' AND walletAddress IN (${placeholders})
+         ORDER BY blockNumber ASC, extrinsicIndex ASC, id ASC`,
+        toSqlParams(scope),
+      );
+      return convertFromSqliteFields(records, this.fields);
+    });
+  }
+
+  public async fetchArgonotCustodyBoundaries(address: string): Promise<IWalletTransferRecord[]> {
+    return this.loadArgonotCustody(`boundaries:${address}`, async () => {
+      const records = await this.db.select<any[]>(
+        `SELECT * FROM WalletTransfers
+         WHERE currency = 'argonot' AND (walletAddress = ? OR otherParty = ?)
+         ORDER BY blockNumber ASC, extrinsicIndex ASC, id ASC`,
+        toSqlParams([address, address]),
+      );
+      return convertFromSqliteFields(records, this.fields);
+    });
   }
 
   public async firstTransferBlockNumber(address: string): Promise<number | null> {
@@ -81,17 +117,38 @@ export class WalletTransfersTable extends BaseTable {
       extrinsicIndex,
       isInternal,
       otherParty,
+      tokenGatewayCommitmentHash,
       transferType,
       microgonsForArgonot,
       microgonsForUsd,
       blockNumber,
       blockHash,
+      blockTime,
     } = args;
     const records = await this.db.select<IWalletTransferRecord[]>(
       `INSERT INTO WalletTransfers (walletAddress, walletName, amount, currency, extrinsicIndex, isInternal,
-                                    microgonsForArgonot, microgonsForUsd, otherParty, transferType, blockNumber, blockHash)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(walletAddress, otherParty, extrinsicIndex, amount, currency, blockHash) DO NOTHING
+                                    microgonsForArgonot, microgonsForUsd, otherParty, tokenGatewayCommitmentHash,
+                                    transferType, blockNumber, blockHash, blockTime)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT DO UPDATE SET
+           isInternal = excluded.isInternal,
+           transferType = excluded.transferType,
+           microgonsForArgonot = excluded.microgonsForArgonot,
+           microgonsForUsd = excluded.microgonsForUsd,
+           blockTime = COALESCE(excluded.blockTime, WalletTransfers.blockTime),
+           tokenGatewayCommitmentHash = COALESCE(
+             excluded.tokenGatewayCommitmentHash,
+             WalletTransfers.tokenGatewayCommitmentHash
+           )
+         WHERE WalletTransfers.isInternal IS NOT excluded.isInternal
+            OR WalletTransfers.transferType IS NOT excluded.transferType
+            OR WalletTransfers.microgonsForArgonot IS NOT excluded.microgonsForArgonot
+            OR WalletTransfers.microgonsForUsd IS NOT excluded.microgonsForUsd
+            OR WalletTransfers.blockTime IS NOT COALESCE(excluded.blockTime, WalletTransfers.blockTime)
+            OR WalletTransfers.tokenGatewayCommitmentHash IS NOT COALESCE(
+              excluded.tokenGatewayCommitmentHash,
+              WalletTransfers.tokenGatewayCommitmentHash
+            )
          RETURNING *`,
       toSqlParams([
         walletAddress,
@@ -103,15 +160,33 @@ export class WalletTransfersTable extends BaseTable {
         microgonsForArgonot,
         microgonsForUsd,
         otherParty,
+        tokenGatewayCommitmentHash,
         transferType,
         blockNumber,
         blockHash,
+        blockTime,
       ]),
     );
-    return convertFromSqliteFields<IWalletTransferRecord[]>(records, this.fields)[0];
+    const record = convertFromSqliteFields<IWalletTransferRecord[]>(records, this.fields)[0];
+    if (record) {
+      this.revision += 1;
+      if (record.currency === 'argonot') this.argonotCustodyRevision += 1;
+    }
+    return record;
   }
 
-  public async deleteBlock(blockHash: string): Promise<void> {
-    await this.db.execute(`DELETE FROM WalletTransfers WHERE blockHash = ?`, toSqlParams([blockHash]));
+  private loadArgonotCustody(
+    key: string,
+    load: () => Promise<IWalletTransferRecord[]>,
+  ): Promise<IWalletTransferRecord[]> {
+    const cached = this.argonotCustodyCache.get(key);
+    if (cached?.revision === this.argonotCustodyRevision) return cached.promise;
+
+    const promise = load();
+    this.argonotCustodyCache.set(key, { revision: this.argonotCustodyRevision, promise });
+    void promise.catch(() => {
+      if (this.argonotCustodyCache.get(key)?.promise === promise) this.argonotCustodyCache.delete(key);
+    });
+    return promise;
   }
 }

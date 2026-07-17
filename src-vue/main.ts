@@ -1,13 +1,11 @@
 import './polyfills.ts';
 import './configureFetch.ts';
-import './lib/patchTxResult.ts';
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import { MotionGlobalConfig } from 'motion-v';
 import './lib/LogForwarding.ts';
-import AppRoot from './AppRoot.vue';
+import App from './App.vue';
 import './main.css';
-import { IS_TREASURY_APP } from './lib/Env.ts';
 import { getVersion } from '@tauri-apps/api/app';
 
 window.addEventListener('unhandledrejection', error => {
@@ -38,10 +36,8 @@ if (isE2EHeadless || isE2EScreenshotCaptureEnabled) {
   document.documentElement.dataset.e2eNoMotion = '1';
 }
 
-const appName = IS_TREASURY_APP ? 'Treasury' : 'Operations';
-
-console.log(`[Bootstrap] Creating Argon ${appName} Vue app`);
-const app = createApp(AppRoot);
+console.log(`[Bootstrap] Creating Argon Desktop Vue app`);
+const app = createApp(App);
 app.config.errorHandler = (error, instance, info) => {
   console.error(`[Vue] ${info}`, {
     component: instance?.$options.name ?? '<anonymous>',
@@ -60,7 +56,7 @@ try {
 }
 
 void getVersion().then(version => {
-  console.log(`Starting Argon ${appName} App v${version}`);
+  console.log(`Starting Argon Desktop App v${version}`);
 });
 
 if (isE2E) {
@@ -68,7 +64,7 @@ if (isE2E) {
   void import('./e2e/init')
     .then(({ initE2EClient }) => {
       console.info('[E2E] Driver client module loaded');
-      initE2EClient();
+      return initE2EClient();
     })
     .catch(error => {
       console.error('[E2E] Failed to initialize driver client', error);

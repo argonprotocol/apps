@@ -21,30 +21,11 @@ services:
     restart: on-failure
   miner-1-bidder:
     <<: *cli
-    command: mining bid --env=/accounts/bob.json --max-bid=0.5 --run-continuous
+    command: mining bid --env=/accounts/bob.json --max-bid=0.25 --run-continuous
     depends_on:
       miner-1-setup:
         condition: service_completed_successfully
     volumes:
       - miner1-data:/accounts
-  miner-2-setup:
-    <<: *cli
-    command: accounts create --path=/accounts/dave.json --register-keys-to=http://miner-2:9944 --account-suri=//Dave -s 0-60
-    depends_on:
-      miner-2:
-        condition: service_healthy
-    volumes:
-      - miner2-data:/accounts
-    restart: on-failure
-  miner-2-bidder:
-    <<: *cli
-    command: mining bid --env=/accounts/dave.json --max-bid=2 --max-seats=6 --bid-delay=2 --run-continuous
-    depends_on:
-      miner-2-setup:
-        condition: service_completed_successfully
-    volumes:
-      - miner2-data:/accounts
-
 volumes:
   miner1-data:
-  miner2-data:

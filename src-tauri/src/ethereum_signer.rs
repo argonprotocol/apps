@@ -1,6 +1,6 @@
 use alloy_primitives::{Address, Bytes, U256};
 use alloy_rlp::{Decodable, RlpDecodable};
-use alloy_sol_types::{Eip712Domain, SolCall, SolStruct, sol};
+use alloy_sol_types::{Eip712Domain, SolStruct, sol};
 use anyhow::{Result, ensure};
 use bip32::XPrv;
 use secp256k1::{Message as Secp256k1Message, Secp256k1, SecretKey};
@@ -63,7 +63,6 @@ pub struct EthereumSignerPolicy {
     pub chain_id: u64,
     pub gateway_address: [u8; 20],
     pub token_addresses: Vec<[u8; 20]>,
-    pub allowed_destinations: Vec<[u8; 32]>,
 }
 
 #[derive(serde::Deserialize)]
@@ -110,6 +109,14 @@ pub fn export_private_key_at_path(mnemonic: &str, hd_path: &str) -> Result<Strin
     ))
 }
 
+pub fn export_private_key_at_standard_path(mnemonic: &str, hd_path: &str) -> Result<String> {
+    let hd_key = derive_hd_key_allowing_standard_path(mnemonic, hd_path)?;
+    Ok(format!(
+        "0x{}",
+        hex::encode(hd_key.private_key().to_bytes())
+    ))
+}
+
 pub fn derive_addresses(mnemonic: &str, hd_paths: &[String]) -> Result<Vec<String>> {
     ensure!(
         hd_paths.len() <= 64,
@@ -120,6 +127,29 @@ pub fn derive_addresses(mnemonic: &str, hd_paths: &[String]) -> Result<Vec<Strin
         .iter()
         .map(|hd_path| derive_address_at_path(mnemonic, hd_path))
         .collect()
+}
+
+pub fn derive_standard_addresses(mnemonic: &str, hd_paths: &[String]) -> Result<Vec<String>> {
+    ensure!(
+        hd_paths.len() <= 64,
+        "Ethereum address derivations are limited to 64 paths at a time"
+    );
+
+    hd_paths
+        .iter()
+        .map(|hd_path| {
+            derive_ethereum_address_from_hd_key(derive_hd_key_allowing_standard_path(
+                mnemonic, hd_path,
+            )?)
+        })
+        .collect()
+}
+
+pub fn derive_address_from_private_key(private_key: &str) -> Result<String> {
+    let secret_key = parse_private_key(private_key)?;
+    Ok(to_checksummed_ethereum_address(
+        &derive_ethereum_address_bytes_from_secret_key(&secret_key),
+    ))
 }
 
 fn derive_hd_key_with_path(mnemonic: &str, path: &str) -> Result<XPrv> {
@@ -139,6 +169,17 @@ fn derive_hd_key_with_path(mnemonic: &str, path: &str) -> Result<XPrv> {
     Ok(bip32::XPrv::derive_from_path(seed, &path)?)
 }
 
+fn derive_hd_key_allowing_standard_path(mnemonic: &str, path: &str) -> Result<XPrv> {
+    ensure!(
+        path.starts_with(ETHEREUM_HD_PATH_PREFIX),
+        "Ethereum derivations must use an m/44'/60'/... path"
+    );
+
+    let seed = bip39::Mnemonic::from_str(mnemonic)?.to_seed("");
+    let path = bip32::DerivationPath::from_str(path)?;
+    Ok(bip32::XPrv::derive_from_path(seed, &path)?)
+}
+
 pub fn sign_personal_message_at_path(
     mnemonic: &str,
     hd_path: &str,
@@ -147,8 +188,18 @@ pub fn sign_personal_message_at_path(
     sign_personal_message_with_hd_key(derive_hd_key_with_path(mnemonic, hd_path)?, message)
 }
 
+pub fn sign_personal_message_with_private_key(private_key: &str, message: &str) -> Result<String> {
+    sign_personal_message_with_secret_key(parse_private_key(private_key)?, message)
+}
+
 fn sign_personal_message_with_hd_key(hd_key: XPrv, message: &str) -> Result<String> {
-    let secret_key = SecretKey::from_slice(&hd_key.private_key().to_bytes())?;
+    sign_personal_message_with_secret_key(
+        SecretKey::from_slice(&hd_key.private_key().to_bytes())?,
+        message,
+    )
+}
+
+fn sign_personal_message_with_secret_key(secret_key: SecretKey, message: &str) -> Result<String> {
     let message_bytes = decode_ethereum_message(message)?;
     let digest = ethereum_personal_message_digest(&message_bytes);
     let signature = Secp256k1::new()
@@ -207,10 +258,51 @@ pub fn sign_permit(
     })
 }
 
+pub fn sign_permit_with_private_key(
+    private_key: &str,
+    policy: &EthereumSignerPolicy,
+    request: &EthereumPermitRequest,
+) -> Result<EthereumPermitSignature> {
+    let secret_key = parse_private_key(private_key)?;
+    let token_address = parse_ethereum_address(&request.token_address)?;
+    ensure!(
+        policy
+            .token_addresses
+            .iter()
+            .any(|allowed| allowed == &token_address),
+        "Ethereum permit token is not allowed"
+    );
+
+    let value = parse_u256(&request.value)?;
+    let nonce = parse_u256(&request.nonce)?;
+    let deadline = parse_u256(&request.deadline)?;
+    let domain = Eip712Domain::new(
+        Some(request.token_name.clone().into()),
+        Some("1".into()),
+        Some(U256::from(policy.chain_id)),
+        Some(Address::from(token_address)),
+        None,
+    );
+    let permit = Permit {
+        owner: Address::from(derive_ethereum_address_bytes_from_secret_key(&secret_key)),
+        spender: Address::from(policy.gateway_address),
+        value,
+        nonce,
+        deadline,
+    };
+    let signature =
+        sign_digest_with_secret_key(secret_key, permit.eip712_signing_hash(&domain).into())?;
+
+    Ok(EthereumPermitSignature {
+        v: signature.0,
+        r: signature.1,
+        s: signature.2,
+    })
+}
+
 pub fn set_policy(
     current_policy: &mut Option<EthereumSignerPolicy>,
     request: &EthereumSignerPolicyRequest,
-    allowed_destinations: Vec<[u8; 32]>,
 ) -> Result<()> {
     let mut token_addresses = request
         .token_addresses
@@ -220,15 +312,10 @@ pub fn set_policy(
     token_addresses.sort_unstable();
     token_addresses.dedup();
 
-    let mut allowed_destinations = allowed_destinations;
-    allowed_destinations.sort_unstable();
-    allowed_destinations.dedup();
-
     let next_policy = EthereumSignerPolicy {
         chain_id: request.chain_id,
         gateway_address: parse_ethereum_address(&request.gateway_address)?,
         token_addresses,
-        allowed_destinations,
     };
 
     *current_policy = Some(next_policy);
@@ -247,8 +334,21 @@ pub fn sign_transaction(
         parsed_transaction.chain_id == policy.chain_id,
         "Ethereum transaction chain ID does not match the configured signer policy"
     );
-    validate_ethereum_call(policy, &parsed_transaction.to, &parsed_transaction.data)?;
     sign_transaction_bytes(mnemonic, hd_path, &unsigned_transaction)
+}
+
+pub fn sign_transaction_with_private_key(
+    private_key: &str,
+    policy: &EthereumSignerPolicy,
+    request: &EthereumTransactionRequest,
+) -> Result<EthereumTransactionSignature> {
+    let unsigned_transaction = decode_hex(&request.unsigned_transaction)?;
+    let parsed_transaction = parse_unsigned_eip1559_transaction(&unsigned_transaction)?;
+    ensure!(
+        parsed_transaction.chain_id == policy.chain_id,
+        "Ethereum transaction chain ID does not match the configured signer policy"
+    );
+    sign_transaction_bytes_with_secret_key(parse_private_key(private_key)?, &unsigned_transaction)
 }
 
 fn sign_transaction_bytes(
@@ -257,7 +357,16 @@ fn sign_transaction_bytes(
     unsigned_transaction: &[u8],
 ) -> Result<EthereumTransactionSignature> {
     let hd_key = derive_hd_key_with_path(mnemonic, hd_path)?;
-    let secret_key = SecretKey::from_slice(&hd_key.private_key().to_bytes())?;
+    sign_transaction_bytes_with_secret_key(
+        SecretKey::from_slice(&hd_key.private_key().to_bytes())?,
+        unsigned_transaction,
+    )
+}
+
+fn sign_transaction_bytes_with_secret_key(
+    secret_key: SecretKey,
+    unsigned_transaction: &[u8],
+) -> Result<EthereumTransactionSignature> {
     let digest = sp_core::hashing::keccak_256(unsigned_transaction);
     let signature = Secp256k1::new()
         .sign_ecdsa_recoverable(&Secp256k1Message::from_digest(digest), &secret_key);
@@ -270,61 +379,8 @@ fn sign_transaction_bytes(
     })
 }
 
-fn validate_ethereum_call(policy: &EthereumSignerPolicy, to: &[u8; 20], data: &[u8]) -> Result<()> {
-    if *to == policy.gateway_address {
-        if let Ok(transfer_call) = startTransferToArgonCall::abi_decode_validate(data) {
-            ensure!(
-                policy
-                    .token_addresses
-                    .iter()
-                    .any(|allowed| allowed.as_slice() == transfer_call.token.as_slice()),
-                "Ethereum startTransferToArgon token is not allowed"
-            );
-            ensure!(
-                policy
-                    .allowed_destinations
-                    .iter()
-                    .any(|allowed| allowed.as_slice() == transfer_call.argonAccountId.as_slice()),
-                "Ethereum startTransferToArgon destination is not one of this wallet's Argon accounts"
-            );
-            return Ok(());
-        }
-
-        if let Ok(update_call) = applyGatewayUpdatesCall::abi_decode_validate(data) {
-            ensure!(
-                policy
-                    .allowed_destinations
-                    .iter()
-                    .any(|allowed| allowed.as_slice()
-                        == update_call.relayerArgonAccountId.as_slice()),
-                "Ethereum applyGatewayUpdates relayer is not one of this wallet's Argon accounts"
-            );
-            return Ok(());
-        }
-
-        if let Ok(finalize_call) = finalizeTransferOutOfArgonCall::abi_decode_validate(data) {
-            ensure!(
-                policy
-                    .token_addresses
-                    .iter()
-                    .any(|allowed| allowed.as_slice() == finalize_call.request.token.as_slice()),
-                "Ethereum finalizeTransferOutOfArgon token is not allowed"
-            );
-            return Ok(());
-        }
-
-        anyhow::bail!(
-            "Ethereum signer only allows startTransferToArgon, applyGatewayUpdates, or finalizeTransferOutOfArgon on the gateway contract"
-        );
-    }
-
-    anyhow::bail!("Ethereum signer does not allow this contract address")
-}
-
 struct ParsedUnsignedTransaction {
     chain_id: u64,
-    to: [u8; 20],
-    data: Vec<u8>,
 }
 
 #[derive(RlpDecodable)]
@@ -334,10 +390,10 @@ struct DecodedUnsignedTransaction {
     _max_priority_fee_per_gas: Bytes,
     _max_fee_per_gas: Bytes,
     _gas: Bytes,
-    to: Bytes,
-    value: Bytes,
-    data: Bytes,
-    access_list: Vec<DecodedAccessListItem>,
+    _to: Bytes,
+    _value: Bytes,
+    _data: Bytes,
+    _access_list: Vec<DecodedAccessListItem>,
 }
 
 #[derive(RlpDecodable)]
@@ -362,26 +418,9 @@ fn parse_unsigned_eip1559_transaction(
         payload.is_empty(),
         "Unsigned Ethereum transaction had trailing bytes"
     );
-    ensure!(
-        decoded.to.len() == 20,
-        "Ethereum transaction destination must be 20 bytes"
-    );
-    ensure!(
-        decoded.value.iter().all(|byte| *byte == 0),
-        "Ethereum signer only allows zero-value contract calls"
-    );
-    ensure!(
-        decoded.access_list.is_empty(),
-        "Ethereum signer only allows empty access lists"
-    );
-
-    let mut to_bytes = [0u8; 20];
-    to_bytes.copy_from_slice(decoded.to.as_ref());
 
     Ok(ParsedUnsignedTransaction {
         chain_id: decoded.chain_id,
-        to: to_bytes,
-        data: decoded.data.to_vec(),
     })
 }
 
@@ -426,11 +465,22 @@ fn derive_ethereum_address_bytes(mnemonic: &str, hd_path: &str) -> Result<[u8; 2
 fn derive_ethereum_address_bytes_from_hd_key(hd_key: XPrv) -> Result<[u8; 20]> {
     let public_key = hd_key.private_key().verifying_key();
     let encoded = public_key.to_encoded_point(false);
-    let public_key_bytes = encoded.as_bytes();
+    Ok(derive_ethereum_address_bytes_from_encoded_public_key(
+        encoded.as_bytes(),
+    ))
+}
+
+fn derive_ethereum_address_bytes_from_secret_key(secret_key: &SecretKey) -> [u8; 20] {
+    let public_key = secret_key.public_key(&Secp256k1::new());
+    let encoded = public_key.serialize_uncompressed();
+    derive_ethereum_address_bytes_from_encoded_public_key(&encoded)
+}
+
+fn derive_ethereum_address_bytes_from_encoded_public_key(public_key_bytes: &[u8]) -> [u8; 20] {
     let hash = sp_core::hashing::keccak_256(&public_key_bytes[1..]);
     let mut address = [0u8; 20];
     address.copy_from_slice(&hash[12..]);
-    Ok(address)
+    address
 }
 
 fn derive_ethereum_address_from_hd_key(hd_key: XPrv) -> Result<String> {
@@ -463,7 +513,16 @@ fn to_checksummed_ethereum_address(address_bytes: &[u8]) -> String {
 
 fn sign_digest(mnemonic: &str, hd_path: &str, digest: [u8; 32]) -> Result<(u8, String, String)> {
     let hd_key = derive_hd_key_with_path(mnemonic, hd_path)?;
-    let secret_key = SecretKey::from_slice(&hd_key.private_key().to_bytes())?;
+    sign_digest_with_secret_key(
+        SecretKey::from_slice(&hd_key.private_key().to_bytes())?,
+        digest,
+    )
+}
+
+fn sign_digest_with_secret_key(
+    secret_key: SecretKey,
+    digest: [u8; 32],
+) -> Result<(u8, String, String)> {
     let signature = Secp256k1::new()
         .sign_ecdsa_recoverable(&Secp256k1Message::from_digest(digest), &secret_key);
     let (recovery_id, compact) = signature.serialize_compact();
@@ -473,6 +532,12 @@ fn sign_digest(mnemonic: &str, hd_path: &str, digest: [u8; 32]) -> Result<(u8, S
         format!("0x{}", hex::encode(&compact[..32])),
         format!("0x{}", hex::encode(&compact[32..])),
     ))
+}
+
+fn parse_private_key(private_key: &str) -> Result<SecretKey> {
+    let bytes = decode_hex(private_key)?;
+    ensure!(bytes.len() == 32, "Ethereum private key must be 32 bytes");
+    Ok(SecretKey::from_slice(&bytes)?)
 }
 
 #[cfg(test)]
@@ -491,12 +556,7 @@ mod tests {
             ],
         };
 
-        set_policy(
-            &mut current_policy,
-            &first_request,
-            vec![[2u8; 32], [1u8; 32], [2u8; 32]],
-        )
-        .unwrap();
+        set_policy(&mut current_policy, &first_request).unwrap();
 
         let reordered_request = EthereumSignerPolicyRequest {
             chain_id: 1,
@@ -508,12 +568,7 @@ mod tests {
             ],
         };
 
-        set_policy(
-            &mut current_policy,
-            &reordered_request,
-            vec![[1u8; 32], [2u8; 32]],
-        )
-        .unwrap();
+        set_policy(&mut current_policy, &reordered_request).unwrap();
     }
 
     #[test]
@@ -525,128 +580,8 @@ mod tests {
             token_addresses: vec!["0x2222222222222222222222222222222222222222".to_string()],
         };
 
-        set_policy(&mut current_policy, &request, vec![[1u8; 32]]).unwrap();
-        set_policy(&mut current_policy, &request, vec![[9u8; 32]]).unwrap();
-
-        assert_eq!(
-            current_policy.unwrap().allowed_destinations,
-            vec![[9u8; 32]]
-        );
-    }
-
-    #[test]
-    fn validate_apply_gateway_updates_allows_known_relayer() {
-        let policy = EthereumSignerPolicy {
-            chain_id: 1,
-            gateway_address: [0x11; 20],
-            token_addresses: vec![],
-            allowed_destinations: vec![[0x22; 32]],
-        };
-        let call = applyGatewayUpdatesCall {
-            currentCouncil: CouncilSnapshot {
-                signers: vec![],
-                weights: vec![],
-            },
-            updates: vec![],
-            relayerArgonAccountId: [0x22; 32].into(),
-        };
-
-        validate_ethereum_call(&policy, &policy.gateway_address, &call.abi_encode())
-            .expect("known relayer should be allowed");
-    }
-
-    #[test]
-    fn validate_apply_gateway_updates_rejects_unknown_relayer() {
-        let policy = EthereumSignerPolicy {
-            chain_id: 1,
-            gateway_address: [0x11; 20],
-            token_addresses: vec![],
-            allowed_destinations: vec![[0x22; 32]],
-        };
-        let call = applyGatewayUpdatesCall {
-            currentCouncil: CouncilSnapshot {
-                signers: vec![],
-                weights: vec![],
-            },
-            updates: vec![],
-            relayerArgonAccountId: [0x33; 32].into(),
-        };
-
-        let err = validate_ethereum_call(&policy, &policy.gateway_address, &call.abi_encode())
-            .expect_err("unknown relayer should be rejected");
-
-        assert_eq!(
-            err.to_string(),
-            "Ethereum applyGatewayUpdates relayer is not one of this wallet's Argon accounts"
-        );
-    }
-
-    #[test]
-    fn validate_finalize_transfer_out_allows_known_token() {
-        let policy = EthereumSignerPolicy {
-            chain_id: 1,
-            gateway_address: [0x11; 20],
-            token_addresses: vec![[0x44; 20]],
-            allowed_destinations: vec![],
-        };
-        let call = finalizeTransferOutOfArgonCall {
-            request: TransferOutOfArgonRequest {
-                argonAccountId: [0x22; 32].into(),
-                argonTransferNonce: 1,
-                chainId: 1,
-                microgonsPerArgonot: 7,
-                recipient: Address::from([0x55; 20]),
-                validUntilBlock: 10,
-                token: Address::from([0x44; 20]),
-                amount: 25,
-                mintingAuthorityTip: 1,
-            },
-            proof: TransferOutOfArgonProof {
-                authorizations: vec![],
-            },
-        };
-
-        validate_ethereum_call(&policy, &policy.gateway_address, &call.abi_encode())
-            .expect("known finalize token should be allowed");
-    }
-
-    #[test]
-    fn validate_finalize_transfer_out_allows_current_viem_calldata() {
-        let policy = EthereumSignerPolicy {
-            chain_id: 1,
-            gateway_address: [0x11; 20],
-            token_addresses: vec![[0x44; 20]],
-            allowed_destinations: vec![],
-        };
-        let calldata = finalizeTransferOutOfArgonCall {
-            request: TransferOutOfArgonRequest {
-                argonAccountId: [0x22; 32].into(),
-                argonTransferNonce: 1,
-                chainId: 1,
-                microgonsPerArgonot: 7,
-                recipient: Address::from([0x55; 20]),
-                validUntilBlock: 10,
-                token: Address::from([0x44; 20]),
-                amount: 25,
-                mintingAuthorityTip: 1,
-            },
-            proof: TransferOutOfArgonProof {
-                authorizations: vec![MintingAuthorization {
-                    microgonCollateral: 16,
-                    micronotCollateral: 0,
-                    signature: Bytes::from(vec![0x33; 65]),
-                }],
-            },
-        }
-        .abi_encode();
-
-        assert_eq!(
-            format!("0x{}", hex::encode(&calldata)),
-            "0x138f878122222222222222222222222222222222222222222222222222222222222222220000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000070000000000000000000000005555555555555555555555555555555555555555000000000000000000000000000000000000000000000000000000000000000a00000000000000000000000044444444444444444444444444444444444444440000000000000000000000000000000000000000000000000000000000000019000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000001400000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000041333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333300000000000000000000000000000000000000000000000000000000000000"
-        );
-
-        validate_ethereum_call(&policy, &policy.gateway_address, &calldata)
-            .expect("current viem finalize calldata should be allowed");
+        set_policy(&mut current_policy, &request).unwrap();
+        set_policy(&mut current_policy, &request).unwrap();
     }
 
     #[test]
@@ -685,7 +620,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_viem_unsigned_eip1559_approve_transaction() {
+    fn parses_viem_unsigned_eip1559_transaction_chain_id() {
         let unsigned_transaction = decode_hex(
             "0x02f8678330282480010982db70949fe46736679d2d9a65f0992f2272de9f3c7fa6e080b844095ea7b3000000000000000000000000e7f1725e7734ce288f8367e1bb143e90eeb172480000000000000000000000000000000000000000000000000000000000000001c0",
         )
@@ -694,16 +629,28 @@ mod tests {
         let parsed = parse_unsigned_eip1559_transaction(&unsigned_transaction).unwrap();
 
         assert_eq!(parsed.chain_id, 3_156_004);
-        assert_eq!(
-            parsed.to,
-            parse_ethereum_address("0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0").unwrap()
-        );
-        assert_eq!(
-            parsed.data,
-            decode_hex(
-                "0x095ea7b3000000000000000000000000e7f1725e7734ce288f8367e1bb143e90eeb172480000000000000000000000000000000000000000000000000000000000000001",
-            )
-            .unwrap()
-        );
+    }
+
+    #[test]
+    fn sign_transaction_rejects_chain_id_mismatch() {
+        let mnemonic = "test test test test test test test test test test test junk";
+        let policy = EthereumSignerPolicy {
+            chain_id: 1,
+            gateway_address: [0x11; 20],
+            token_addresses: vec![],
+        };
+        let request = EthereumTransactionRequest {
+            unsigned_transaction: "0x02f8678330282480010982db70949fe46736679d2d9a65f0992f2272de9f3c7fa6e080b844095ea7b3000000000000000000000000e7f1725e7734ce288f8367e1bb143e90eeb172480000000000000000000000000000000000000000000000000000000000000001c0".to_string(),
+        };
+
+        match sign_transaction(mnemonic, "m/44'/60'/0'/0'/0'", &policy, &request) {
+            Ok(_) => panic!("mismatched chain id should fail"),
+            Err(error) => {
+                assert_eq!(
+                    error.to_string(),
+                    "Ethereum transaction chain ID does not match the configured signer policy"
+                );
+            }
+        }
     }
 }

@@ -4,13 +4,13 @@ import {
   fromFixedNumber,
   type PalletTreasuryFrameVaultCapital,
   type PalletTreasuryVaultCapital,
-  PERMILL_DECIMALS,
   type SubmittableExtrinsic,
 } from '@argonprotocol/mainchain';
 import { stringToU8a, u8aConcat } from '@polkadot/util';
 import { bigNumberToBigInt } from './utils.js';
 import BigNumber from 'bignumber.js';
 import { BondLot, type IBondLotSource } from './BondLot.js';
+import { MICRONOTS_PER_ARGONOT } from './Currency.js';
 import type { ArgonQueryClient } from './MainchainClients.js';
 
 export interface IFrameBondLot {
@@ -100,6 +100,19 @@ export class TreasuryBonds {
     return BondLot.microgonsToWholeBonds(totalBondCapacityMicrogons);
   }
 
+  public static getArgonotBondPurchaseCapacity(args: {
+    totalIssuanceMicronots: bigint;
+    maxBondedPercent: number;
+    totalActiveBonds: number;
+  }): bigint {
+    const { totalIssuanceMicronots, maxBondedPercent, totalActiveBonds } = args;
+    const unitsPerBond = BigInt(MICRONOTS_PER_ARGONOT);
+    const maximumActiveBonds = (totalIssuanceMicronots * BigInt(maxBondedPercent)) / 100n / unitsPerBond;
+    const remainingBonds = maximumActiveBonds - BigInt(totalActiveBonds);
+
+    return remainingBonds > 0n ? remainingBonds * unitsPerBond : 0n;
+  }
+
   public static potentialDailyRevenue(args: {
     distributableBidPool: bigint;
     globalActiveBonds: number;
@@ -144,7 +157,10 @@ export class TreasuryBonds {
 
     return ids.flatMap(id => {
       const lot = lotsById.get(id);
-      return lot?.vaultId.toNumber() === vaultId ? [BondLot.fromRuntime(id, lot, ownAddress)] : [];
+      if (!lot) return [];
+
+      const bondLot = BondLot.fromRuntime(id, lot, ownAddress);
+      return bondLot.vaultId === vaultId ? [bondLot] : [];
     });
   }
 
@@ -182,14 +198,6 @@ export class TreasuryBonds {
     const totalActiveBonds = vaultCapital.eligibleBonds.toNumber();
     const bondLotIds = vaultCapital.bondLotAllocations.map(allocation => allocation.bondLotId.toNumber());
     const bondLotsById = await TreasuryBonds.getBondLotsById(client, bondLotIds);
-    const vaultCapitalWithSharingPercent = vaultCapital as PalletTreasuryVaultCapital & {
-      vaultSharingPercent?: { toBigInt(): bigint };
-    };
-    const sharingPercent = vaultCapitalWithSharingPercent.vaultSharingPercent
-      ? fromFixedNumber(vaultCapitalWithSharingPercent.vaultSharingPercent.toBigInt(), PERMILL_DECIMALS)
-          .times(100)
-          .toNumber()
-      : undefined;
 
     for (const allocation of vaultCapital.bondLotAllocations) {
       const bondLotId = allocation.bondLotId.toNumber();
@@ -207,7 +215,6 @@ export class TreasuryBonds {
         isOperator: accountId === operatorAddress,
         details: BondLot.fromRuntime(bondLotId, lot, operatorAddress),
       };
-      entry.details.sharingPercent ??= sharingPercent;
       bondLots.push(entry);
     }
 
@@ -268,10 +275,6 @@ export class TreasuryBonds {
   }): Promise<SubmittableExtrinsic> {
     const { client, vaultId } = args;
     const bonds = BondLot.microgonsToBonds(args.bondPurchaseMicrogons);
-    if (client.runtimeVersion.specVersion.toNumber() <= 153) {
-      // @ts-expect-error - backward compat
-      return client.tx.treasury.buyBonds(vaultId, bonds);
-    }
     return client.tx.treasury.buyBonds(vaultId, bonds, null);
   }
 

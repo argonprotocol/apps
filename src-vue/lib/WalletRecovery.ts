@@ -1,9 +1,16 @@
 import { IMiningAccountPreviousHistoryBid, IMiningAccountPreviousHistoryRecord } from '../interfaces/IConfig.ts';
 import type { IVaultingRules } from '../interfaces/IVaultingRules.ts';
-import { ArgonClient, FrameIterator, MainchainClients, MiningFrames } from '@argonprotocol/apps-core';
+import {
+  AccountActivityKind,
+  ArgonClient,
+  FrameIterator,
+  MainchainClients,
+  MiningFrames,
+} from '@argonprotocol/apps-core';
 import { MyVault } from './MyVault.ts';
 import { WalletKeys } from './WalletKeys.ts';
 import { WalletsForArgon } from './WalletsForArgon.ts';
+import { findAddressActivity } from './IndexerClient.ts';
 
 export type WalletRecoveryFn = WalletRecovery['findHistory'];
 
@@ -24,7 +31,7 @@ export class WalletRecovery {
     await walletsForArgon.load();
     await this.miningFrames.load();
 
-    const hasVaultHistory = walletsForArgon.vaultingWallet.hasValue();
+    const hasVaultHistory = walletsForArgon.defaultArgonWallet.hasValue();
     const hasMiningHistory = walletsForArgon.miningBotWallet.hasValue();
 
     let vaultProgress = hasVaultHistory ? 0 : 100;
@@ -62,15 +69,22 @@ export class WalletRecovery {
     onProgress: (progressPct: number) => void,
   ): Promise<IMiningAccountPreviousHistoryRecord[] | undefined> {
     const dataByFrameId: Record<string, IMiningAccountPreviousHistoryRecord> = {};
-    const minerFirstFundedBlock = await this.walletsForArgon.miningBotWallet.firstFundingBlockNumber(
-      this.walletKeys.miningBotAddress,
-    );
+    const miningActivity = await findAddressActivity(this.walletKeys.miningBotAddress, {
+      activityMask: AccountActivityKind.MiningBid,
+    });
+    if (miningActivity.coverage.gaps.length) {
+      const firstGap = miningActivity.coverage.gaps[0];
+      throw new Error(
+        `Mining history index has a coverage gap from block ${firstGap.fromBlock.toLocaleString()} to ${firstGap.toBlock.toLocaleString()}: ${firstGap.reason}`,
+      );
+    }
+    const minerFirstBidBlock = miningActivity.blocks.at(0)?.blockNumber ?? null;
     const accountSubaccounts = await this.walletKeys.getMiningBotSubaccounts();
 
     const currentFrameBids: IMiningAccountPreviousHistoryBid[] = [];
     const latestFrameId = this.miningFrames.currentFrameId;
-    const earliestFundingFrameId = minerFirstFundedBlock
-      ? await this.miningFrames.getForBlock(minerFirstFundedBlock)
+    const earliestFundingFrameId = minerFirstBidBlock
+      ? await this.miningFrames.getForBlock(minerFirstBidBlock)
       : latestFrameId - 1;
 
     const bidsRaw = await liveClient.query.miningSlot.bidsForNextSlotCohort();

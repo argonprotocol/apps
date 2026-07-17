@@ -8,6 +8,7 @@ export enum ExtrinsicType {
   VaultSetBitcoinLockDelegate = 'VaultSetBitcoinLockDelegate',
   VaultTopUpBitcoinLockDelegate = 'VaultTopUpBitcoinLockDelegate',
   MiningBidProxySetup = 'MiningBidProxySetup',
+  OperationalRegister = 'OperationalRegister',
   OperationalActivateAndClaim = 'OperationalActivateAndClaim',
   OperationalClaimRewards = 'OperationalClaimRewards',
 
@@ -26,6 +27,7 @@ export enum ExtrinsicType {
   CrosschainTransferRegisterMintingAuthority = 'CrosschainTransferRegisterMintingAuthority',
 
   TreasuryBuyBonds = 'TreasuryBuyBonds',
+  TreasuryBuyArgonotBonds = 'TreasuryBuyArgonotBonds',
   TreasuryReleaseBondLot = 'TreasuryReleaseBondLot',
 }
 

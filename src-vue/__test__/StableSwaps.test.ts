@@ -15,9 +15,13 @@ import {
   stableSwapSdkPriceToFixed18,
 } from '../lib/StableSwapUtils.ts';
 import { hydrateStableSwapWallet } from '../lib/StableSwapWallet.ts';
+import { StableSwapFinancials } from '../lib/financials/StableSwaps.ts';
+
+const stableSwapFinancials = new StableSwapFinancials({} as any);
 import { type IStableSwapPurchaseRecord, StableSwapProofStatus } from '../lib/db/StableSwapPurchasesTable.ts';
 import { type IStableSwapSyncStateRecord } from '../lib/db/StableSwapSyncStateTable.ts';
 import { NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { defaultWalletData } from '../lib/Wallet.ts';
 
 const NOW = new Date('2026-04-06T12:00:00Z');
 
@@ -26,6 +30,7 @@ function createSyncState(overrides: Partial<IStableSwapSyncStateRecord> = {}): I
     walletAddress: overrides.walletAddress ?? '0x1234567890123456789012345678901234567890',
     startBlockNumber: overrides.startBlockNumber ?? 101,
     lastScannedBlockNumber: overrides.lastScannedBlockNumber ?? 101,
+    isPurchaseBasisIntact: overrides.isPurchaseBasisIntact ?? true,
     createdAt: overrides.createdAt ?? NOW,
     updatedAt: overrides.updatedAt ?? NOW,
   };
@@ -61,7 +66,7 @@ function createPurchase(overrides: Partial<IStableSwapPurchaseRecord> = {}): ISt
 }
 
 describe('StableSwaps', () => {
-  it('hydrates wallet summary and per-purchase P/L from the current market price', () => {
+  it('hydrates wallet capital and per-purchase P/L from the current market price', () => {
     const syncState = createSyncState();
     const purchases = [
       createPurchase(),
@@ -79,10 +84,28 @@ describe('StableSwaps', () => {
 
     expect(wallet.summary.capitalAppliedMicrogons).toBe(2_870_000n);
     expect(wallet.summary.currentValueMicrogons).toBe(3_000_000n);
-    expect(wallet.summary.currentProfitMicrogons).toBe(130_000n);
-    expect(wallet.summary.returnPct).toBeCloseTo(4.53, 2);
     expect(wallet.purchases[0].currentProfitMicrogons).toBe(30_000n);
     expect(wallet.purchases[1].currentProfitMicrogons).toBe(100_000n);
+  });
+
+  it('does not reuse purchase basis after ARGN custody is no longer intact', () => {
+    const syncState = createSyncState({ isPurchaseBasisIntact: false });
+    const walletSnapshot = hydrateStableSwapWallet(syncState.walletAddress, [createPurchase()], 800_000n, syncState);
+    const [position] = stableSwapFinancials.createFinancialPositions({
+      wallet: {
+        ...defaultWalletData,
+        address: syncState.walletAddress,
+        availableMicrogons: 1_000_000n,
+      },
+      walletSnapshot,
+      currentPriceMicrogons: 800_000n,
+    });
+
+    expect(position.id).toBe(`${syncState.walletAddress.toLowerCase()}:ethereum:ARGN`);
+    expect(position.group).toBe('ethereum');
+    expect(position.currentValue).toBe(800_000n);
+    expect(position.isQuantityReconciled).toBe(true);
+    expect(position.investedCost).toBeUndefined();
   });
 
   it('builds a Uniswap output-prefill link with Argon and ETH prefilled', async () => {
@@ -190,6 +213,7 @@ describe('StableSwaps', () => {
 
     expect(swaps).toHaveLength(4);
     expect(swaps.map(swap => swap.inputToken)).toEqual(['USDC', 'USDT', 'ETH', 'ARGNOT']);
+    expect(stableSwaps.marketSnapshot?.currentPriceMicrogons).toBe(swaps[0].currentPriceMicrogons);
     for (const swap of swaps) {
       expect(swap.outputToken).toBe('ARGN');
       expect(swap.poolFee).toBe(500);

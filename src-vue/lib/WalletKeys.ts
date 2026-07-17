@@ -11,17 +11,21 @@ import {
 import type { Hex, Signature } from 'viem';
 import ISecurity from '../interfaces/ISecurity.ts';
 import { invokeWithTimeout } from './tauriApi.ts';
-import { IS_TREASURY_APP, NETWORK_NAME } from './Env.ts';
+import { NETWORK_NAME } from './Env.ts';
 import { WalletType } from './Wallet.ts';
+import type { IWalletRecord } from './db/WalletsTable.ts';
 
 export type EthereumHdPathPrefix = `m/44'/60'/${string}`;
 
 export class WalletKeys {
   public sshPublicKey: string;
   /**
-   * Mining address for sidelined storage of funds.
+   * Default Argon wallet used for user capital.
    */
-  public miningHoldAddress: string;
+  public defaultArgonAddress: string;
+  public defaultArgonKeyReference: string;
+  public legacyMiningHoldAddress: string;
+  public legacyVaultingAddress: string;
   /**
    * Address used for mining bidding, rewards and transaction fees.
    */
@@ -32,10 +36,6 @@ export class WalletKeys {
   public vaultingAddress: string;
 
   /**
-   * Investment account for liquid locking and external treasury management.
-   */
-  public investmentAddress: string;
-  /**
    * Operational account for ongoing app operations.
    */
   public operationalAddress: string;
@@ -43,9 +43,11 @@ export class WalletKeys {
    * Ethereum-compatible address used for EVM/Ethereum integrations tied to this wallet.
    */
   public ethereumAddress: string;
+  public readonly defaultEthereumAddress: string;
   public ethereumHdPrefixes: ISecurity['ethereumHdPrefixes'];
   public ethereumHdPath: `m/44'/60'/${string}`;
   public councilSignerEthereumHdPath: `m/44'/60'/${string}`;
+  private activeEthereumWalletRecord?: IWalletRecord;
 
   public miningBotSubaccountsCache: { [address: string]: { index: number } } = {};
   private upstreamOperatorAuthKeypair?: KeyringPair;
@@ -55,12 +57,15 @@ export class WalletKeys {
     public didWalletHavePreviousLife: () => Promise<boolean>,
   ) {
     this.sshPublicKey = security.sshPublicKey;
-    this.miningHoldAddress = security.miningHoldAddress;
+    this.defaultArgonAddress = security.vaultingAddress;
+    this.defaultArgonKeyReference = '//vaulting';
+    this.legacyMiningHoldAddress = security.miningHoldAddress;
+    this.legacyVaultingAddress = security.vaultingAddress;
     this.miningBotAddress = security.miningBotAddress;
-    this.vaultingAddress = security.vaultingAddress;
-    this.investmentAddress = security.investmentAddress;
+    this.vaultingAddress = this.defaultArgonAddress;
     this.operationalAddress = security.operationalAddress;
-    this.ethereumAddress = security.ethereumAddress.toLowerCase();
+    this.defaultEthereumAddress = security.ethereumAddress.toLowerCase();
+    this.ethereumAddress = this.defaultEthereumAddress;
     this.ethereumHdPrefixes = security.ethereumHdPrefixes;
     this.ethereumHdPath = getEthereumHdPath(this.ethereumHdPrefixes.primary);
     this.councilSignerEthereumHdPath = getEthereumHdPath(this.ethereumHdPrefixes.councilSigner);
@@ -75,6 +80,11 @@ export class WalletKeys {
 
   public async exportEthereumPrivateKey(): Promise<Hex> {
     return await invokeWithTimeout<Hex>('export_default_ethereum_private_key', {}, 60e3);
+  }
+
+  public configureEthereumWallet(record?: IWalletRecord): void {
+    this.activeEthereumWalletRecord = record;
+    this.ethereumAddress = record?.address.toLowerCase() ?? this.defaultEthereumAddress;
   }
 
   public async exportMiningBidProxyAccountJson(passphrase: string): Promise<KeyringPair$Json> {
@@ -100,21 +110,34 @@ export class WalletKeys {
   }
 
   // TODO: move signing to backend instead of passing around key
-  public async getMiningHoldKeypair(): Promise<KeyringPair> {
+  public async getDefaultArgonKeypair(): Promise<KeyringPair> {
+    const account = await invokeWithTimeout<Uint8Array>(
+      'derive_sr25519_seed',
+      { suri: this.defaultArgonKeyReference },
+      60e3,
+    );
+    return new Keyring({ type: 'sr25519' }).addFromSeed(account);
+  }
+
+  public async getLegacyMiningHoldKeypair(): Promise<KeyringPair> {
     const account = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//holding` }, 60e3);
     return new Keyring({ type: 'sr25519' }).addFromSeed(account);
   }
 
   // TODO: move signing to backend instead of passing around key
   public async getVaultingKeypair(): Promise<KeyringPair> {
-    const account = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//vaulting` }, 60e3);
+    const account = await invokeWithTimeout<Uint8Array>(
+      'derive_sr25519_seed',
+      { suri: this.defaultArgonKeyReference },
+      60e3,
+    );
     return new Keyring({ type: 'sr25519' }).addFromSeed(account);
   }
 
-  // TODO: move signing to backend instead of passing around key
-  public async getInvestmentKeypair(): Promise<KeyringPair> {
-    const account = await invokeWithTimeout<Uint8Array>('derive_sr25519_seed', { suri: `//investment` }, 60e3);
-    return new Keyring({ type: 'sr25519' }).addFromSeed(account);
+  public configureDefaultArgonWallet(args: { address: string; keyReference: string }): void {
+    this.defaultArgonAddress = args.address;
+    this.defaultArgonKeyReference = args.keyReference;
+    this.vaultingAddress = args.address;
   }
 
   // TODO: move signing to backend instead of passing around key
@@ -158,11 +181,23 @@ export class WalletKeys {
     hdPath?: string,
     format: 'ethereum' | 'argon' = 'ethereum',
   ): Promise<Hex> {
-    const signature = await invokeWithTimeout<Hex>(
-      'sign_ethereum_personal_message',
-      { hdPath: hdPath ?? this.ethereumHdPath, message },
-      60e3,
-    );
+    const signature =
+      !hdPath && this.canUseExternalEthereumSigner()
+        ? await invokeWithTimeout<Hex>(
+            'sign_external_ethereum_personal_message',
+            {
+              encryptedSecret: this.activeEthereumWalletRecord!.encryptedSecret,
+              secretKind: this.activeEthereumWalletRecord!.secretKind,
+              hdPath: this.activeEthereumWalletRecord!.derivationPath,
+              message,
+            },
+            60e3,
+          )
+        : await invokeWithTimeout<Hex>(
+            'sign_ethereum_personal_message',
+            { hdPath: hdPath ?? this.ethereumHdPath, message },
+            60e3,
+          );
     if (format === 'ethereum') {
       return signature;
     }
@@ -184,6 +219,18 @@ export class WalletKeys {
   }
 
   public async signEthereumTransaction(unsignedTransaction: Hex, hdPath = this.ethereumHdPath): Promise<Signature> {
+    if (hdPath === this.ethereumHdPath && this.canUseExternalEthereumSigner()) {
+      return await invokeWithTimeout<Signature>(
+        'sign_external_ethereum_transaction',
+        {
+          encryptedSecret: this.activeEthereumWalletRecord!.encryptedSecret,
+          secretKind: this.activeEthereumWalletRecord!.secretKind,
+          hdPath: this.activeEthereumWalletRecord!.derivationPath,
+          request: { unsignedTransaction },
+        },
+        60e3,
+      );
+    }
     return await invokeWithTimeout<Signature>(
       'sign_ethereum_transaction',
       { hdPath, request: { unsignedTransaction } },
@@ -198,17 +245,30 @@ export class WalletKeys {
     nonce: bigint;
     deadline: bigint;
   }): Promise<{ v: number; r: string; s: string }> {
+    const request = {
+      tokenAddress: args.tokenAddress,
+      tokenName: args.tokenName,
+      value: args.value.toString(),
+      nonce: args.nonce.toString(),
+      deadline: args.deadline.toString(),
+    };
+    if (this.canUseExternalEthereumSigner()) {
+      return await invokeWithTimeout<{ v: number; r: string; s: string }>(
+        'sign_external_ethereum_permit',
+        {
+          encryptedSecret: this.activeEthereumWalletRecord!.encryptedSecret,
+          secretKind: this.activeEthereumWalletRecord!.secretKind,
+          hdPath: this.activeEthereumWalletRecord!.derivationPath,
+          request,
+        },
+        60e3,
+      );
+    }
     return await invokeWithTimeout<{ v: number; r: string; s: string }>(
       'sign_ethereum_permit',
       {
         hdPath: this.ethereumHdPath,
-        request: {
-          tokenAddress: args.tokenAddress,
-          tokenName: args.tokenName,
-          value: args.value.toString(),
-          nonce: args.nonce.toString(),
-          deadline: args.deadline.toString(),
-        },
+        request,
       },
       60e3,
     );
@@ -245,16 +305,12 @@ export class WalletKeys {
 
   public getWalletAddress(walletType: WalletType): string {
     switch (walletType) {
-      case WalletType.miningHold:
-        return this.miningHoldAddress;
+      case WalletType.defaultArgon:
+        return this.defaultArgonAddress;
       case WalletType.miningBot:
         return this.miningBotAddress;
-      case WalletType.vaulting:
-        return this.vaultingAddress;
       case WalletType.operational:
         return this.operationalAddress;
-      case WalletType.investment:
-        return this.investmentAddress;
       case WalletType.ethereum:
         return this.ethereumAddress;
     }
@@ -264,16 +320,12 @@ export class WalletKeys {
 
   public async getWalletKeypair(walletType: WalletType): Promise<KeyringPair> {
     switch (walletType) {
-      case WalletType.miningHold:
-        return await this.getMiningHoldKeypair();
+      case WalletType.defaultArgon:
+        return await this.getDefaultArgonKeypair();
       case WalletType.miningBot:
         return await this.getMiningBotKeypair();
-      case WalletType.vaulting:
-        return await this.getVaultingKeypair();
       case WalletType.operational:
         return await this.getOperationalKeypair();
-      case WalletType.investment:
-        return await this.getInvestmentKeypair();
       case WalletType.ethereum:
         throw new Error('Ethereum wallets do not have an Argon keypair.');
     }
@@ -282,19 +334,19 @@ export class WalletKeys {
   }
 
   public get liquidLockingAddress(): string {
-    return IS_TREASURY_APP ? this.investmentAddress : this.vaultingAddress;
+    return this.defaultArgonAddress;
   }
 
   public async getLiquidLockingKeypair(): Promise<KeyringPair> {
-    return IS_TREASURY_APP ? this.getInvestmentKeypair() : this.getVaultingKeypair();
+    return this.getDefaultArgonKeypair();
   }
 
   public get treasuryAddress(): string {
-    return IS_TREASURY_APP ? this.investmentAddress : this.vaultingAddress;
+    return this.defaultArgonAddress;
   }
 
   public async getTreasuryKeypair(): Promise<KeyringPair> {
-    return IS_TREASURY_APP ? this.getInvestmentKeypair() : this.getVaultingKeypair();
+    return this.getDefaultArgonKeypair();
   }
 
   public async getBitcoinChildXpriv(xpubPath: string, network: BitcoinNetwork): Promise<HDKey> {
@@ -308,6 +360,14 @@ export class WalletKeys {
       60e3,
     );
     return HDKey.fromExtendedKey(extendedKey, bip32Version);
+  }
+
+  private canUseExternalEthereumSigner(): boolean {
+    return (
+      this.activeEthereumWalletRecord?.role === 'externalEthereum' &&
+      !!this.activeEthereumWalletRecord.encryptedSecret &&
+      !!this.activeEthereumWalletRecord.secretKind
+    );
   }
 }
 

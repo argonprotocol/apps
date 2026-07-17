@@ -9,3 +9,5 @@ tmp
 *.log
 
 src-tauri/target
+e2e/dev-upstream/config/**
+e2e/dev-upstream/data/**

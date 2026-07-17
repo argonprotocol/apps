@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import Path from 'node:path';
 import process from 'node:process';
@@ -10,7 +10,7 @@ import { stripNetworkPrefix, toComposeProjectName } from '../core/src/utils.ts';
 
 const scriptDir = Path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = Path.resolve(scriptDir, '..');
-const appIds = ['com.argon.operations.local', 'com.argon.treasury.local'];
+const appIds = ['com.argon.desktop.local'];
 const kurtosisEthereumEnclavePrefix = 'argon-eth-';
 
 const networkName = readNonEmptyEnv('ARGON_NETWORK_NAME') ?? 'dev-docker';
@@ -26,6 +26,7 @@ console.info(
 bringDownArgonComposeProject();
 removeConflictingComposeNetwork(composeProjectName);
 bringDownLocalMachineComposeProjects();
+removeDevUpstreamFixtureData();
 removeDevEthereumRelayers();
 removeDevEthereumEnclaves();
 
@@ -88,6 +89,8 @@ function bringDownArgonComposeProject(): void {
     'docker-compose.yml',
     '-f',
     'miners.docker-compose.yml',
+    '-f',
+    'upstream-server.docker-compose.yml',
     '-f',
     'indexer.docker-compose.yml',
     '-f',
@@ -172,6 +175,23 @@ function bringDownLocalMachineComposeProjects(): void {
     } catch (error) {
       console.warn(`[clean:dev:docker] Failed to remove directory ${instanceDir}: ${(error as Error).message}`);
     }
+  }
+}
+
+function removeDevUpstreamFixtureData(): void {
+  const upstreamRootDir = process.env.ARGON_DEV_UPSTREAM_ROOT_DIR?.trim()
+    ? Path.resolve(process.env.ARGON_DEV_UPSTREAM_ROOT_DIR)
+    : Path.join(repoRoot, 'e2e', 'dev-upstream');
+  const upstreamDataDir = Path.join(upstreamRootDir, 'data');
+
+  try {
+    if (existsSync(upstreamDataDir)) {
+      rmSync(upstreamDataDir, { recursive: true, force: true });
+      mkdirSync(upstreamDataDir, { recursive: true });
+      console.info(`[clean:dev:docker] Reset upstream fixture data at ${upstreamDataDir}`);
+    }
+  } catch (error) {
+    console.warn(`[clean:dev:docker] Failed to reset upstream fixture data: ${(error as Error).message}`);
   }
 }
 

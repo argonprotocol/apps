@@ -1,20 +1,45 @@
 import { teardown } from '@argonprotocol/testing';
-import { createDeferred, IBalanceTransfer, MainchainClients, NetworkConfig } from '@argonprotocol/apps-core';
+import {
+  AccountActivityKind,
+  createDeferred,
+  Currency,
+  MainchainClients,
+  NetworkConfig,
+} from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { createTestDb } from './helpers/db.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
 import Path from 'path';
 import { WalletsForArgon } from '../lib/WalletsForArgon.ts';
+import { type IIndexedWalletActivityBlock, WalletHistoryRecovery } from '../lib/recovery/WalletHistory.ts';
 import { createTestWallet } from './helpers/wallet.ts';
 import { Keyring, TxResult, TxSubmitter } from '@argonprotocol/mainchain';
-import { WalletLedgerTable } from '../lib/db/WalletLedgerTable.ts';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
-import { WalletTransfersTable } from '../lib/db/WalletTransfersTable.ts';
 import { SyncStateKeys } from '../lib/db/SyncStateTable.ts';
+import { WalletForArgon } from '../lib/WalletForArgon.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 const REORG_DELETION_WAIT_MS = 10_000;
+const custodyFlowActivityMask = AccountActivityKind.Transfer | AccountActivityKind.Crosschain;
+const defaultWalletActivityMask = custodyFlowActivityMask | AccountActivityKind.AccountBalance;
+
+async function addIndexedBlocks(
+  blockWatch: BlockWatch,
+  indexedBlocks: Map<number, IIndexedWalletActivityBlock>,
+  blockNumbers: number[],
+): Promise<void> {
+  for (const blockNumber of blockNumbers) {
+    const header = await blockWatch.getHeader(blockNumber);
+    const api = await blockWatch.getApi(header);
+    indexedBlocks.set(blockNumber, {
+      blockNumber,
+      blockHash: header.blockHash,
+      specVersion: api.runtimeVersion.specVersion.toNumber(),
+      activityMask: AccountActivityKind.Transfer,
+    });
+  }
+}
 
 describe
   .skipIf(skipE2E)
@@ -22,8 +47,7 @@ describe
     let clients: MainchainClients;
     let mainchainUrl: string;
     let transferBlocks: number[] = [];
-    let transferCount = 0;
-    const { walletKeys, miningBotAccount } = createTestWallet('//Alice');
+    const { walletKeys, operationalAccount } = createTestWallet('//Alice');
 
     beforeAll(async () => {
       const network = await startArgonTestNetwork(Path.basename(import.meta.filename), {
@@ -47,59 +71,44 @@ describe
       const client = await clients.get(false);
       const db = await createTestDb();
       const blockWatch = new BlockWatch(clients);
-      const walletsForArgon = new WalletsForArgon(walletKeys, Promise.resolve(db), blockWatch, undefined);
+      const walletsForArgon = new WalletsForArgon({
+        walletKeys,
+        dbPromise: Promise.resolve(db),
+        blockWatch,
+        currency: new Currency(clients),
+      });
       try {
         await walletsForArgon.load();
         const onBalanceChange = vi.fn();
-        const onTransferIn = vi.fn();
         const onBlockDeleted = vi.fn();
         const didBlockGetDeleted = createDeferred<string>();
-        let blocksDeleted = 0;
-        let balanceChanges = 0;
         walletsForArgon.events.on('block-deleted', block => {
           console.log('Block deleted:', block);
           didBlockGetDeleted.resolve(block.blockHash);
           onBlockDeleted(block);
-          blocksDeleted++;
         });
         const didGetBalanceChange = createDeferred();
         walletsForArgon.events.on('balance-change', (balanceChange, type) => {
           console.log('Balance Change:', balanceChange);
           onBalanceChange(type);
           didGetBalanceChange.resolve();
-          balanceChanges++;
         });
-        walletsForArgon.events.on('transfer-in', onTransferIn);
-        expect(walletsForArgon.miningBotWallet.totalMicrogons).toBe(0n);
-        expect(walletsForArgon.vaultingWallet.totalMicrogons).toBe(0n);
+        expect(walletsForArgon.operationalWallet.totalMicrogons).toBe(0n);
+        expect(walletsForArgon.defaultArgonWallet.totalMicrogons).toBe(0n);
 
         const alice = new Keyring({ type: 'sr25519' }).addFromMnemonic('//Alice');
         const result = await new TxSubmitter(
           client,
-          client.tx.balances.transferKeepAlive(miningBotAccount.address, 5_000_000n),
+          client.tx.balances.transferKeepAlive(operationalAccount.address, 5_000_000n),
           alice,
         ).submit();
         await result.waitForInFirstBlock;
         await expect(didGetBalanceChange.promise).resolves.toBeUndefined();
-        expect(walletsForArgon.miningBotWallet.availableMicrogons).toBe(5_000_000n);
-        expect(walletsForArgon.miningBotWallet.finalizedBalance?.availableMicrogons ?? 0n).toBe(0n);
+        expect(walletsForArgon.operationalWallet.availableMicrogons).toBe(5_000_000n);
+        expect(walletsForArgon.operationalWallet.finalizedBalance?.availableMicrogons ?? 0n).toBe(0n);
         expect(onBalanceChange).toHaveBeenCalledTimes(1 + onBlockDeleted.mock.calls.length);
-        expect(onBalanceChange).toHaveBeenCalledWith('miningBot');
-        expect(onTransferIn).toHaveBeenCalledTimes(1);
-        expect(onTransferIn.mock.calls[0][1].microgonsAdded).toBe(5_000_000n);
-        expect(onTransferIn.mock.calls[0][1].block.blockTime).toBeGreaterThan(0);
-        expect(onTransferIn.mock.calls[0][1].transfers).toHaveLength(1);
-        expect(onTransferIn.mock.calls[0][1].transfers[0]).toMatchObject(
-          expect.objectContaining({
-            to: miningBotAccount.address,
-            from: alice.address,
-            amount: 5_000_000n,
-            isInbound: true,
-            transferType: 'transfer',
-            isInternal: false,
-          } as IBalanceTransfer),
-        );
-        expect(walletsForArgon.vaultingWallet.totalMicrogons).toBe(0n);
+        expect(onBalanceChange).toHaveBeenCalledWith('operational');
+        expect(walletsForArgon.defaultArgonWallet.totalMicrogons).toBe(0n);
         await result.waitForFinalizedBlock;
         const finalizedBlock = result.blockNumber!;
         if (!walletsForArgon.finalizedBlock || walletsForArgon.finalizedBlock.blockNumber < finalizedBlock) {
@@ -112,7 +121,7 @@ describe
             });
           });
         }
-        expect(walletsForArgon.miningBotWallet.finalizedBalance?.availableMicrogons ?? 0n).toBe(5_000_000n);
+        expect(walletsForArgon.operationalWallet.finalizedBalance?.availableMicrogons ?? 0n).toBe(5_000_000n);
         // send a bunch of transfers
         let nextNonce = (await client.rpc.system.accountNextIndex(alice.address)).toNumber();
         let finalizedTxs = 0;
@@ -136,7 +145,7 @@ describe
           txSubmissions++;
           const txResult = await new TxSubmitter(
             client,
-            client.tx.balances.transferKeepAlive(miningBotAccount.address, 1_000_000n),
+            client.tx.balances.transferKeepAlive(operationalAccount.address, 1_000_000n),
             alice,
           ).submit({ nonce: nextNonce++ });
           txResults.push(txResult);
@@ -170,7 +179,7 @@ describe
           });
         }
         if (deletedBlockHash) {
-          expect(walletsForArgon.miningBotWallet.balanceHistory.map(x => x.block.blockHash)).not.toContain(
+          expect(walletsForArgon.operationalWallet.balanceHistory.map(x => x.block.blockHash)).not.toContain(
             deletedBlockHash,
           );
         } else {
@@ -179,22 +188,20 @@ describe
           );
         }
 
-        const table = new WalletTransfersTable(db);
-        const entries = await table.fetchAll();
-        const inboundTransfers = entries.length;
-        console.log(`1. Total TransfersIn - ${inboundTransfers}`, {
-          entries,
-          callbacks: { balanceChanges, blocksDeleted },
-        });
-        // should have cleaned up duplicate entries from reorgs
-
-        transferBlocks = Array.from(new Set(entries.map(x => x.blockNumber)));
-        transferCount = entries.length;
-        const walletLedger = new WalletLedgerTable(db);
-        const ledgerEntries = await walletLedger.fetchAll();
-        console.log('1. Total Ledger Entries - ', ledgerEntries.length, ledgerEntries);
-        expect(ledgerEntries.length).toBeLessThanOrEqual(transferBlocks.length);
-        expect(ledgerEntries.every(x => x.isFinalized)).toBe(true);
+        const transfers = await db.walletTransfersTable.fetchAll();
+        transferBlocks = Array.from(new Set(transfers.map(entry => entry.blockNumber)));
+        expect(transfers.length).toBeGreaterThan(0);
+        expect(transfers).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              walletAddress: walletKeys.operationalAddress,
+              amount: 1_000_000n,
+              currency: 'argon',
+              transferType: 'transfer',
+              isInternal: false,
+            }),
+          ]),
+        );
       } finally {
         await walletsForArgon.close();
         blockWatch.stop();
@@ -203,53 +210,79 @@ describe
     });
 
     it.sequential('should recover wallet balances on restart', async () => {
-      // 1. Test that it will fill gap from last synced to latest block
       const db = await createTestDb();
       const blockWatch = new BlockWatch(clients);
-      const walletsForArgon = new WalletsForArgon(walletKeys, Promise.resolve(db), blockWatch, undefined);
+      const currency = new Currency(clients);
+      const walletsForArgon = new WalletsForArgon({
+        walletKeys,
+        dbPromise: Promise.resolve(db),
+        blockWatch,
+        currency,
+      });
+      const legacyMiningHoldWallet = new WalletForArgon(
+        walletKeys.legacyMiningHoldAddress,
+        'miningBot',
+        Promise.resolve(db),
+      );
+      const onRecovered = vi.fn();
+      const walletHistoryRecovery = new WalletHistoryRecovery({
+        dbPromise: Promise.resolve(db),
+        blockWatch,
+        currency,
+        recoveryWallets: [
+          walletsForArgon.defaultArgonWallet,
+          legacyMiningHoldWallet,
+          walletsForArgon.operationalWallet,
+        ],
+        ownedAddresses: [...walletsForArgon.addresses, walletKeys.legacyMiningHoldAddress],
+        onRecovered,
+      });
+      const fetchMainchainRatesAtBlock = vi.spyOn(Currency.prototype, 'fetchMainchainRatesAtBlock');
       try {
         const spy = vi
-          .spyOn(walletsForArgon, 'lookupTransferOrClaimBlocks')
+          .spyOn(walletHistoryRecovery, 'findActivityBlocks')
           .mockImplementation(async (address, blocks) => {
-            const mostRecentBlock = Math.max(...transferBlocks);
-            for (const block of transferBlocks) {
-              if (address === walletKeys.miningBotAddress) {
-                blocks.add(block);
-              }
-            }
-            return { asOfBlock: mostRecentBlock };
+            if (address === walletKeys.operationalAddress) await addIndexedBlocks(blockWatch, blocks, transferBlocks);
+            return { asOfBlock: blockWatch.finalizedBlockHeader.blockNumber, definitionVersion: 1 };
           });
-        // @ts-expect-error set a small backlog to force using indexer
-        walletsForArgon.blockBacklogBeforeUsingIndexer = 10;
         await blockWatch.start();
-        await walletsForArgon.resumeWalletSync();
-        // @ts-expect-error - private
-        expect(walletsForArgon.blockHistory).toHaveLength(1);
-        // @ts-expect-error - private
-        expect(walletsForArgon.blockHistory[0].blockNumber).toBe(Math.max(...transferBlocks));
-        expect(walletsForArgon.miningBotWallet.balanceHistory).toHaveLength(1);
-        expect(walletsForArgon.miningBotWallet.balanceHistory[0].block.blockNumber).toBe(Math.max(...transferBlocks));
-        expect(walletsForArgon.miningBotWallet.balanceHistory[0].availableMicrogons).toBe(
-          5_000_000n + 10n * 1_000_000n,
+        await walletHistoryRecovery.prepare();
+        await walletHistoryRecovery.recoverNow(blockWatch.finalizedBlockHeader.blockNumber);
+
+        expect(spy).toHaveBeenCalledTimes(3);
+        await expect(db.syncStateTable.get(SyncStateKeys.WalletHistory)).resolves.toEqual({
+          asOfBlock: blockWatch.finalizedBlockHeader.blockNumber,
+          addresses: [...new Set([...walletsForArgon.addresses, walletKeys.legacyMiningHoldAddress])].sort(),
+          activityMasks: {
+            [walletKeys.defaultArgonAddress]: defaultWalletActivityMask,
+            [walletKeys.legacyMiningHoldAddress]: custodyFlowActivityMask,
+            [walletKeys.operationalAddress]: custodyFlowActivityMask,
+          },
+          definitionVersion: 1,
+        });
+        const transfers = await db.walletTransfersTable.fetchAll();
+        expect(transfers.length).toBeGreaterThan(0);
+        expect(onRecovered).toHaveBeenCalledOnce();
+        expect(onRecovered).toHaveBeenCalledWith({
+          transfers: db.walletTransfersTable.revision,
+          argonotCustody: db.walletTransfersTable.argonotCustodyRevision,
+          asOfBlock: blockWatch.finalizedBlockHeader.blockNumber,
+        });
+        expect(transfers).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              walletAddress: walletKeys.operationalAddress,
+              amount: 1_000_000n,
+              currency: 'argon',
+              transferType: 'transfer',
+              isInternal: false,
+            }),
+          ]),
         );
-        expect(walletsForArgon.vaultingWallet.balanceHistory[0].block.blockNumber).toBe(Math.max(...transferBlocks));
-        expect(walletsForArgon.vaultingWallet.balanceHistory[0].availableMicrogons).toBe(0n);
-        expect(walletsForArgon.miningHoldWallet.balanceHistory[0].block.blockNumber).toBe(Math.max(...transferBlocks));
-        expect(walletsForArgon.miningHoldWallet.balanceHistory[0].availableMicrogons).toBe(0n);
-
-        expect(spy).toHaveBeenCalledTimes(1);
-        expect(walletsForArgon.miningBotWallet.totalMicrogons).toBeGreaterThan(0n);
-        expect(walletsForArgon.miningBotWallet.balanceHistory.length).toBeGreaterThan(0);
-        const walletLedger = new WalletLedgerTable(db);
-        const ledgerEntries = await walletLedger.fetchAll();
-        console.log('2. Total Ledger Entries - ', ledgerEntries.length, ledgerEntries);
-        expect(ledgerEntries.length).toBeLessThanOrEqual(transferBlocks.length); // some transfers may be in same block
-        expect(ledgerEntries.every(x => x.isFinalized)).toBe(true);
-
-        const transfers = await new WalletTransfersTable(db).fetchAll();
-        console.log('2. Total Transfer Entries - ', transfers.length, transfers);
-        expect(transfers).toHaveLength(transferCount);
+        expect(fetchMainchainRatesAtBlock).toHaveBeenCalled();
       } finally {
+        fetchMainchainRatesAtBlock.mockRestore();
+        await walletHistoryRecovery.close();
         await walletsForArgon.close();
         blockWatch.stop();
         await db.close();
@@ -259,118 +292,205 @@ describe
     it.sequential('should keep the current wallet balance visible while catching up history', async () => {
       const db = await createTestDb();
       const blockWatch = new BlockWatch(clients);
-      const walletsForArgon = new WalletsForArgon(walletKeys, Promise.resolve(db), blockWatch, undefined);
+      const currency = new Currency(clients);
+      const walletsForArgon = new WalletsForArgon({
+        walletKeys,
+        dbPromise: Promise.resolve(db),
+        blockWatch,
+        currency,
+      });
+      const legacyMiningHoldWallet = new WalletForArgon(
+        walletKeys.legacyMiningHoldAddress,
+        'miningBot',
+        Promise.resolve(db),
+      );
+      const walletHistoryRecovery = new WalletHistoryRecovery({
+        dbPromise: Promise.resolve(db),
+        blockWatch,
+        currency,
+        recoveryWallets: [
+          walletsForArgon.defaultArgonWallet,
+          legacyMiningHoldWallet,
+          walletsForArgon.operationalWallet,
+        ],
+        ownedAddresses: [...walletsForArgon.addresses, walletKeys.legacyMiningHoldAddress],
+      });
+      const resumeRecovery = createDeferred<void>();
       try {
         const spy = vi
-          .spyOn(walletsForArgon, 'lookupTransferOrClaimBlocks')
+          .spyOn(walletHistoryRecovery, 'findActivityBlocks')
           .mockImplementation(async (address, blocks) => {
-            const mostRecentBlock = Math.max(...transferBlocks);
-            for (const block of transferBlocks) {
-              if (address === walletKeys.miningBotAddress) {
-                blocks.add(block);
-              }
-            }
-            return { asOfBlock: mostRecentBlock };
+            await resumeRecovery.promise;
+            if (address === walletKeys.operationalAddress) await addIndexedBlocks(blockWatch, blocks, transferBlocks);
+            return { asOfBlock: blockWatch.finalizedBlockHeader.blockNumber, definitionVersion: 1 };
           });
-        const visibleMiningBotBalances: bigint[] = [];
+        const visibleOperationalBalances: bigint[] = [];
         walletsForArgon.events.on('balance-change', (balanceChange, type) => {
-          if (type === 'miningBot') {
-            visibleMiningBotBalances.push(balanceChange.availableMicrogons);
+          if (type === 'operational') {
+            visibleOperationalBalances.push(balanceChange.availableMicrogons);
           }
         });
 
-        // @ts-expect-error set a small backlog to force using indexer
-        walletsForArgon.blockBacklogBeforeUsingIndexer = 10;
         await walletsForArgon.load();
+        await walletHistoryRecovery.prepare();
+        void walletHistoryRecovery.recoverNow(blockWatch.finalizedBlockHeader.blockNumber);
 
-        expect(spy).toHaveBeenCalledTimes(1);
-        expect(visibleMiningBotBalances).toEqual([15_000_000n]);
+        await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(3));
+        expect(visibleOperationalBalances).toEqual([15_000_000n]);
+        expect(walletsForArgon.operationalWallet.totalMicrogons).toBe(15_000_000n);
 
-        const replayedMiningBotBalances = walletsForArgon
+        resumeRecovery.resolve();
+        await vi.waitFor(async () => {
+          const state = await db.syncStateTable.get(SyncStateKeys.WalletHistory);
+          expect(state?.asOfBlock).toBe(blockWatch.finalizedBlockHeader.blockNumber);
+        });
+        const visibleHistory = walletsForArgon
           .getLoadEvents('balance-change')
-          .filter(([, type]) => type === 'miningBot')
-          .map(([balanceChange]) => balanceChange.availableMicrogons);
-        expect(replayedMiningBotBalances.length).toBeGreaterThan(1);
-        expect(replayedMiningBotBalances).toContain(5_000_000n);
-        expect(walletsForArgon.miningBotWallet.totalMicrogons).toBe(15_000_000n);
+          .filter(([, type]) => type === 'operational');
+        expect(visibleHistory).toHaveLength(1);
       } finally {
+        resumeRecovery.resolve();
+        await walletHistoryRecovery.close();
         await walletsForArgon.close();
         blockWatch.stop();
         await db.close();
       }
     });
 
-    it.sequential('should recover wallet balances on restart without indexer', async () => {
-      // 1. Test that it will fill gap from last synced to latest block
+    it.sequential('keeps current balances ready and retries a failed wallet history range', async () => {
       const db = await createTestDb();
       const blockWatch = new BlockWatch(clients);
-      const walletsForArgon = new WalletsForArgon(walletKeys, Promise.resolve(db), blockWatch, undefined);
+      const currency = new Currency(clients);
+      const walletsForArgon = new WalletsForArgon({
+        walletKeys,
+        dbPromise: Promise.resolve(db),
+        blockWatch,
+        currency,
+      });
+      const legacyMiningHoldWallet = new WalletForArgon(
+        walletKeys.legacyMiningHoldAddress,
+        'miningBot',
+        Promise.resolve(db),
+      );
+      const walletHistoryRecovery = new WalletHistoryRecovery({
+        dbPromise: Promise.resolve(db),
+        blockWatch,
+        currency,
+        recoveryWallets: [
+          walletsForArgon.defaultArgonWallet,
+          legacyMiningHoldWallet,
+          walletsForArgon.operationalWallet,
+        ],
+        ownedAddresses: [...walletsForArgon.addresses, walletKeys.legacyMiningHoldAddress],
+      });
       try {
-        // @ts-expect-error set a small backlog to force using indexer
-        walletsForArgon.blockBacklogBeforeUsingIndexer = 1000;
-        await blockWatch.start();
-        await walletsForArgon.resumeWalletSync();
-        // @ts-expect-error - private
-        expect(walletsForArgon.blockHistory).toHaveLength(1);
-        // @ts-expect-error - private
-        expect(walletsForArgon.blockHistory[0].blockNumber).toBe(0);
-        expect(walletsForArgon.miningBotWallet.balanceHistory).toHaveLength(1);
-        // nothing will load during resume sync, but it will start at 0 and sync back up after
-        expect(walletsForArgon.miningBotWallet.balanceHistory[0].block.blockNumber).toBe(0);
-        expect(walletsForArgon.miningBotWallet.balanceHistory[0].availableMicrogons).toBe(0n);
-        expect(walletsForArgon.vaultingWallet.balanceHistory[0].block.blockNumber).toBe(0);
-        expect(walletsForArgon.vaultingWallet.balanceHistory[0].availableMicrogons).toBe(0n);
-        expect(walletsForArgon.miningHoldWallet.balanceHistory[0].block.blockNumber).toBe(0);
-        expect(walletsForArgon.miningHoldWallet.balanceHistory[0].availableMicrogons).toBe(0n);
-
-        await walletsForArgon.loadBalancesAt(blockWatch.bestBlockHeader);
-
-        expect(walletsForArgon.miningBotWallet.totalMicrogons).toBe(15_000_000n);
-        const walletLedger = new WalletLedgerTable(db);
-        const ledgerEntries = await walletLedger.fetchAll();
-        console.log('3. Total Ledger Entries - ', ledgerEntries.length, ledgerEntries);
-        expect(ledgerEntries.length).toBeLessThanOrEqual(transferBlocks.length); // some transfers may be in same block
-        expect(ledgerEntries.every(x => x.isFinalized)).toBe(true);
-
-        const transfers = await new WalletTransfersTable(db).fetchAll();
-        console.log('3. Total Transfer Entries - ', transfers.length, transfers);
-        expect(transfers).toHaveLength(transferCount);
-      } finally {
-        await walletsForArgon.close();
-        blockWatch.stop();
-        await db.close();
-      }
-    });
-
-    it.sequential('should skip stale empty indexer gaps on restart', async () => {
-      const db = await createTestDb();
-      const blockWatch = new BlockWatch(clients);
-      const walletsForArgon = new WalletsForArgon(walletKeys, Promise.resolve(db), blockWatch, undefined);
-      try {
-        await blockWatch.start();
-        const staleBlock = Math.max(blockWatch.finalizedBlockHeader.blockNumber - 2, 0);
-        const staleHeader = await blockWatch.getHeader(staleBlock);
-
-        await db.syncStateTable.upsert(SyncStateKeys.Wallet, {
-          blockNumber: staleHeader.blockNumber,
-          blockHash: staleHeader.blockHash,
-          blockTime: staleHeader.blockTime,
-          parentHash: staleHeader.parentHash,
-          isFinalized: true,
-          isProcessed: true,
+        let shouldFail = true;
+        const lookup = vi.spyOn(walletHistoryRecovery, 'findActivityBlocks').mockImplementation(async address => {
+          if (shouldFail && address === walletKeys.operationalAddress) throw new Error('indexer unavailable');
+          return { asOfBlock: blockWatch.finalizedBlockHeader.blockNumber, definitionVersion: 1 };
         });
 
-        vi.spyOn(walletsForArgon, 'lookupTransferOrClaimBlocks').mockResolvedValue({ asOfBlock: staleBlock });
-        // @ts-expect-error set a small backlog to force using indexer
-        walletsForArgon.blockBacklogBeforeUsingIndexer = 1;
+        await walletsForArgon.load();
+        await walletHistoryRecovery.prepare();
+        const targetBlock = blockWatch.finalizedBlockHeader.blockNumber;
+        await expect(walletHistoryRecovery.recoverNow(targetBlock)).rejects.toThrow('indexer unavailable');
 
-        await walletsForArgon.resumeWalletSync();
+        expect(walletsForArgon.operationalWallet.totalMicrogons).toBe(15_000_000n);
+        expect(lookup.mock.calls.map(([, , blockRange]) => blockRange)).toEqual([
+          [0, targetBlock],
+          [0, targetBlock],
+          [0, targetBlock],
+        ]);
+        await expect(db.syncStateTable.get(SyncStateKeys.WalletHistory)).resolves.toEqual({
+          asOfBlock: 0,
+          addresses: [...new Set([...walletsForArgon.addresses, walletKeys.legacyMiningHoldAddress])].sort(),
+          activityMasks: {
+            [walletKeys.defaultArgonAddress]: defaultWalletActivityMask,
+            [walletKeys.legacyMiningHoldAddress]: custodyFlowActivityMask,
+            [walletKeys.operationalAddress]: custodyFlowActivityMask,
+          },
+        });
 
-        // @ts-expect-error - private
-        expect(walletsForArgon.blockHistory).toHaveLength(1);
-        // @ts-expect-error - private
-        expect(walletsForArgon.blockHistory[0].blockNumber).toBe(blockWatch.finalizedBlockHeader.blockNumber);
+        shouldFail = false;
+        await walletHistoryRecovery.recoverNow(targetBlock, true);
+
+        expect(lookup.mock.calls.slice(3).map(([, , blockRange]) => blockRange)).toEqual([
+          [0, targetBlock],
+          [0, targetBlock],
+          [0, targetBlock],
+        ]);
+        await expect(db.syncStateTable.get(SyncStateKeys.WalletHistory)).resolves.toEqual({
+          asOfBlock: targetBlock,
+          addresses: [...new Set([...walletsForArgon.addresses, walletKeys.legacyMiningHoldAddress])].sort(),
+          activityMasks: {
+            [walletKeys.defaultArgonAddress]: defaultWalletActivityMask,
+            [walletKeys.legacyMiningHoldAddress]: custodyFlowActivityMask,
+            [walletKeys.operationalAddress]: custodyFlowActivityMask,
+          },
+          definitionVersion: 1,
+        });
       } finally {
+        await walletHistoryRecovery.close();
+        await walletsForArgon.close();
+        blockWatch.stop();
+        await db.close();
+      }
+    });
+
+    it.sequential('uses the lowest safe indexer checkpoint across owned accounts', async () => {
+      const db = await createTestDb();
+      const blockWatch = new BlockWatch(clients);
+      const currency = new Currency(clients);
+      const walletsForArgon = new WalletsForArgon({
+        walletKeys,
+        dbPromise: Promise.resolve(db),
+        blockWatch,
+        currency,
+      });
+      const legacyMiningHoldWallet = new WalletForArgon(
+        walletKeys.legacyMiningHoldAddress,
+        'miningBot',
+        Promise.resolve(db),
+      );
+      const walletHistoryRecovery = new WalletHistoryRecovery({
+        dbPromise: Promise.resolve(db),
+        blockWatch,
+        currency,
+        recoveryWallets: [
+          walletsForArgon.defaultArgonWallet,
+          legacyMiningHoldWallet,
+          walletsForArgon.operationalWallet,
+        ],
+        ownedAddresses: [...walletsForArgon.addresses, walletKeys.legacyMiningHoldAddress],
+      });
+      try {
+        await blockWatch.start();
+        const targetBlock = blockWatch.finalizedBlockHeader.blockNumber;
+        const safeBlocks = new Map([
+          [walletKeys.defaultArgonAddress, targetBlock],
+          [walletKeys.operationalAddress, targetBlock - 1],
+          [walletKeys.legacyMiningHoldAddress, targetBlock - 2],
+        ]);
+        const lookup = vi.spyOn(walletHistoryRecovery, 'findActivityBlocks').mockImplementation(async address => {
+          return { asOfBlock: safeBlocks.get(address)!, definitionVersion: 1 };
+        });
+
+        await walletHistoryRecovery.prepare();
+        await walletHistoryRecovery.recoverNow(targetBlock);
+
+        expect(lookup).toHaveBeenCalledTimes(3);
+        await expect(db.syncStateTable.get(SyncStateKeys.WalletHistory)).resolves.toEqual({
+          asOfBlock: targetBlock - 2,
+          addresses: [...new Set([...walletsForArgon.addresses, walletKeys.legacyMiningHoldAddress])].sort(),
+          activityMasks: {
+            [walletKeys.defaultArgonAddress]: defaultWalletActivityMask,
+            [walletKeys.legacyMiningHoldAddress]: custodyFlowActivityMask,
+            [walletKeys.operationalAddress]: custodyFlowActivityMask,
+          },
+          definitionVersion: 1,
+        });
+      } finally {
+        await walletHistoryRecovery.close();
         await walletsForArgon.close();
         blockWatch.stop();
         await db.close();

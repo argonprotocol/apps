@@ -31,17 +31,21 @@ export class FrameIterator {
 
     let frameId = this.miningFrames.currentFrameId;
     do {
-      const { firstBlockSpecVersion, firstBlockNumber, firstBlockHash, firstBlockTick } =
-        this.miningFrames.framesById[frameId];
-      if (firstBlockHash) {
+      const frame = this.miningFrames.framesById[frameId];
+      if (!frame) {
+        throw new Error(`Frame ID ${frameId} is not present in frame history`);
+      }
+
+      if (frame.firstBlockHash) {
+        const { frame: resolvedFrame, api } = await this.miningFrames.getFrameStart(frameId);
+        const { firstBlockSpecVersion, firstBlockNumber, firstBlockHash, firstBlockTick } = resolvedFrame;
         console.log(`[${this.name}] Exploring epoch frame ${frameId} (blockNumber = ${firstBlockNumber})`);
         const meta = {
           specVersion: firstBlockSpecVersion!,
           blockNumber: firstBlockNumber!,
-          blockHash: firstBlockHash,
+          blockHash: firstBlockHash!,
           blockTick: firstBlockTick!,
         };
-        const api = await this.miningFrames.clientAt({ blockHash: firstBlockHash, blockNumber: firstBlockNumber! });
         await callback(frameId, meta, api, abortController);
       }
 
@@ -63,21 +67,18 @@ export class FrameIterator {
     const frameIds = this.miningFrames.frameIds;
     frameIds.sort((a, b) => b - a); // Descending order
     for (const frameId of frameIds) {
-      const { firstBlockSpecVersion, firstBlockNumber, firstBlockHash, firstBlockTick } =
-        this.miningFrames.framesById[frameId];
-      if (firstBlockHash) {
+      const frame = this.miningFrames.framesById[frameId];
+      if (frame.firstBlockHash) {
+        const { frame: resolvedFrame, api } = await this.miningFrames.getFrameStart(frameId);
+        const { firstBlockSpecVersion, firstBlockNumber, firstBlockHash, firstBlockTick } = resolvedFrame;
         console.log(`[${this.name}] Exploring frame ${frameId} (blockNumber = ${firstBlockNumber})`);
 
         const firstBlockMeta = {
           specVersion: firstBlockSpecVersion!,
           blockNumber: firstBlockNumber!,
-          blockHash: firstBlockHash,
+          blockHash: firstBlockHash!,
           blockTick: firstBlockTick!,
         };
-        const api = await this.miningFrames.clientAt({
-          blockHash: firstBlockHash,
-          blockNumber: firstBlockNumber!,
-        });
         const result = await callback(frameId, firstBlockMeta, api, abortController);
         results.push(result);
       }

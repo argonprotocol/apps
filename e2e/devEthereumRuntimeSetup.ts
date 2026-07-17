@@ -1,5 +1,27 @@
-import { EvmContracts, MICROGONS_PER_ARGON, type IArgonQueryable } from '@argonprotocol/mainchain';
-import { createPublicClient, getAddress, http, type Address, type Hex, type PublicClient } from 'viem';
+import {
+  dispatchErrorToString,
+  type ArgonClient,
+  EvmContracts,
+  getEthereumBeaconSyncBootstrapTx,
+  getEthereumBeaconSyncState,
+  type IArgonQueryable,
+  type KeyringPair,
+  MICROGONS_PER_ARGON,
+  TxSubmitter,
+} from '@argonprotocol/mainchain';
+import {
+  createPublicClient,
+  encodeFunctionData,
+  erc20Abi,
+  getAddress,
+  http,
+  type Address,
+  type Hex,
+  type PublicClient,
+} from 'viem';
+import { waitForFinalizedBeaconExecutionAtOrAbove } from '../bot/src/EthereumBeaconSyncService.ts';
+
+export const DEV_ETHEREUM_TOKEN_RESERVE_RUNTIME_AMOUNT = 10_000n * BigInt(MICROGONS_PER_ARGON);
 
 // Measured in the mainchain deploy gas harness:
 // `yarn workspace @argonprotocol/ethereum-deploy gas:measure`
@@ -11,6 +33,148 @@ const MIN_DEV_ETHEREUM_WEI_PER_GAS = 1_000_000_000n;
 // Keep isolated e2e deterministic/offline with the same explicit estimate used in
 // mainchain's Ethereum proof e2e.
 const FALLBACK_DEV_ETHEREUM_ESTIMATED_MICROGONS_PER_ETH = 1_000_000n;
+
+export async function ensureDevEthereumBeaconBootstrapped(
+  client: ArgonClient,
+  beaconApiUrl: string,
+  sudoKeypair: KeyringPair,
+  options: {
+    timeoutMs?: number;
+    pollMs?: number;
+    minimumExecutionBlockNumber?: bigint;
+    minimumFinalizedSlot?: bigint;
+  } = {},
+): Promise<void> {
+  const startedAt = Date.now();
+  console.log('[dev-ethereum] Checking beacon bootstrap state');
+  const state = await getEthereumBeaconSyncState(client);
+  if (state.isBootstrapped) {
+    console.log(`[dev-ethereum] Beacon bootstrap already present after ${Date.now() - startedAt}ms`);
+    return;
+  }
+
+  const timeoutMs = options.timeoutMs ?? 5 * 60_000;
+  const pollMs = options.pollMs ?? 1_000;
+  const minimumExecutionBlockNumber = options.minimumExecutionBlockNumber ?? 1n;
+  const minimumFinalizedSlot = options.minimumFinalizedSlot ?? 0n;
+
+  console.log(
+    `[dev-ethereum] Waiting for finalized beacon execution block >= ${minimumExecutionBlockNumber} and slot >= ${minimumFinalizedSlot}`,
+  );
+  await waitForFinalizedBeaconExecutionAtOrAbove(beaconApiUrl, minimumExecutionBlockNumber, {
+    timeoutMs,
+    pollMs,
+    minimumFinalizedSlot,
+  });
+  console.log(`[dev-ethereum] Finalized beacon execution is ready after ${Date.now() - startedAt}ms`);
+
+  const bootstrapTxStartedAt = Date.now();
+  let bootstrapTx;
+  let lastBootstrapError: Error | undefined;
+
+  while (Date.now() - bootstrapTxStartedAt < timeoutMs) {
+    try {
+      bootstrapTx = await getEthereumBeaconSyncBootstrapTx(client, beaconApiUrl);
+      console.log(`[dev-ethereum] Built beacon bootstrap transaction after ${Date.now() - bootstrapTxStartedAt}ms`);
+      break;
+    } catch (error) {
+      if (!(error instanceof Error)) {
+        throw error;
+      }
+
+      lastBootstrapError = error;
+      if (!error.message.includes('/eth/v1/beacon/light_client/bootstrap/') || !error.message.includes('404')) {
+        throw error;
+      }
+      await new Promise(resolve => setTimeout(resolve, pollMs));
+    }
+  }
+
+  if (!bootstrapTx) {
+    const lastErrorSuffix = lastBootstrapError ? ` Last error: ${lastBootstrapError.message}` : '';
+    throw new Error(
+      `Ethereum beacon light-client bootstrap endpoint did not become ready within ${Math.floor(timeoutMs / 1000)}s.${lastErrorSuffix}`,
+    );
+  }
+
+  console.log('[dev-ethereum] Submitting beacon bootstrap sudo transaction');
+  await submitDevSudoTransaction({
+    client,
+    tx: bootstrapTx,
+    sudoKeypair,
+    isApplied: async () => (await getEthereumBeaconSyncState(client)).isBootstrapped,
+    description: 'Bootstrap',
+  });
+
+  console.log(`[dev-ethereum] Beacon bootstrap completed successfully in ${Date.now() - startedAt}ms`);
+}
+
+export async function initializeDevEthereumTokenReserve(args: {
+  publicClient: Pick<PublicClient, 'readContract' | 'waitForTransactionReceipt'>;
+  gatewayAddress: Address;
+  argonTokenAddress: Address;
+  argonotTokenAddress: Address;
+  rootAccountAddress: Address;
+  ensureBacking: () => Promise<void>;
+  sendMigration: (data: Hex) => Promise<Hex>;
+}): Promise<void> {
+  const { publicClient, gatewayAddress, argonTokenAddress, argonotTokenAddress, rootAccountAddress } = args;
+  const reserveBaseUnits =
+    DEV_ETHEREUM_TOKEN_RESERVE_RUNTIME_AMOUNT * EvmContracts.MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE;
+
+  const migrationCompleted = await publicClient.readContract({
+    address: gatewayAddress,
+    abi: EvmContracts.mintingGatewayAbi,
+    functionName: 'migrationCompleted',
+  });
+
+  if (!migrationCompleted) {
+    // The backing must be finalized on Argon before Ethereum exposes the migrated supply.
+    await args.ensureBacking();
+
+    const hash = await args.sendMigration(
+      encodeFunctionData({
+        abi: EvmContracts.mintingGatewayAbi,
+        functionName: 'migrate',
+        args: [
+          {
+            recipients: [rootAccountAddress],
+            amounts: [reserveBaseUnits],
+          },
+          {
+            recipients: [rootAccountAddress],
+            amounts: [reserveBaseUnits],
+          },
+        ],
+      }),
+    );
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    if (receipt.status !== 'success') {
+      throw new Error(`Dev Ethereum token reserve migration failed: ${hash}`);
+    }
+  }
+
+  const [argonBalance, argonotBalance] = await Promise.all([
+    publicClient.readContract({
+      address: argonTokenAddress,
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [rootAccountAddress],
+    }),
+    publicClient.readContract({
+      address: argonotTokenAddress,
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [rootAccountAddress],
+    }),
+  ]);
+
+  if (argonBalance < reserveBaseUnits || argonotBalance < reserveBaseUnits) {
+    throw new Error(
+      `Dev Ethereum root reserve is below 10,000 tokens after migration (ERC-20 base units: ARGN=${argonBalance}, ARGNOT=${argonotBalance}).`,
+    );
+  }
+}
 
 export async function loadDevEthereumActivationRepaymentPricing(args: {
   finalizedClient: IArgonQueryable;
@@ -82,6 +246,68 @@ export async function syncEthereumGatewayActiveCouncilToArgon(args: {
   const hash = await sendCurrentCouncil(currentCouncil, nextMicrogonsPerArgonot);
   await publicClient.waitForTransactionReceipt({ hash });
   return { status: 'synced', hash };
+}
+
+export async function submitDevAdminTransaction(args: {
+  isApplied: () => Promise<boolean>;
+  submit: () => Promise<void>;
+}): Promise<void> {
+  let relocationError: unknown;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (await args.isApplied()) {
+      return;
+    }
+
+    try {
+      await args.submit();
+      return;
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        error.message !== 'Cannot publish transaction block state before extrinsic index is known'
+      ) {
+        throw error;
+      }
+      relocationError = error;
+    }
+  }
+
+  if (await args.isApplied()) {
+    return;
+  }
+
+  throw relocationError;
+}
+
+export async function submitDevSudoTransaction(args: {
+  client: ArgonClient;
+  tx: ConstructorParameters<typeof TxSubmitter>[1];
+  sudoKeypair: KeyringPair;
+  isApplied: () => Promise<boolean>;
+  description: string;
+}): Promise<void> {
+  const { client, tx, sudoKeypair, isApplied, description } = args;
+
+  await submitDevAdminTransaction({
+    isApplied,
+    submit: async () => {
+      const result = await new TxSubmitter(client, client.tx.sudo.sudo(tx), sudoKeypair).submit({
+        useLatestNonce: true,
+      });
+      await result.waitForInFirstBlock;
+
+      const sudoResultEvent = result.events.find(event => client.events.sudo.Sudid.is(event));
+      if (!sudoResultEvent || !client.events.sudo.Sudid.is(sudoResultEvent)) {
+        throw new Error(`${description} transaction did not emit sudo.Sudid.`);
+      }
+      if (sudoResultEvent.data.sudoResult.isErr) {
+        throw new Error(
+          `${description} failed: ${dispatchErrorToString(client, sudoResultEvent.data.sudoResult.asErr)}`,
+        );
+      }
+    },
+  });
 }
 
 async function deriveEstimatedMicrogonsPerEth(finalizedClient: IArgonQueryable) {

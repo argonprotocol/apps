@@ -1,20 +1,18 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { NetworkConfig } from '@argonprotocol/apps-core';
 import {
-  dispatchErrorToString,
   EvmContracts,
   getClient,
   getEthereumBeaconSyncState,
   Keyring,
   MICROGONS_PER_ARGON,
   type KeyringPair,
-  TxSubmitter,
   waitForLoad,
 } from '@argonprotocol/mainchain';
-import { syncEthereumVerifierUntilAnchorCovers, TestEthereum } from '@argonprotocol/testing';
+import { TestEthereum } from '@argonprotocol/testing';
 import erc20PresetFixedSupplyArtifact from '@openzeppelin/contracts/build/contracts/ERC20PresetFixedSupply.json' with { type: 'json' };
 import {
   createPublicClient,
@@ -30,13 +28,14 @@ import {
   type TransactionReceipt,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { DelegateSubmitLane } from '../bot/src/DelegateSubmitLane.ts';
-import { EthereumBeaconSyncService } from '../bot/src/EthereumBeaconSyncService.ts';
-import { EthereumGatewayProverService } from '../bot/src/EthereumGatewayProverService.ts';
-import { configureNetwork } from '../bot/src/configureNetwork.ts';
+import { sudoFundWallet } from '../core/__test__/helpers/sudoFundWallet.ts';
 import { waitForQueryableClient } from '../core/__test__/startArgonTestNetwork.ts';
 import {
+  DEV_ETHEREUM_TOKEN_RESERVE_RUNTIME_AMOUNT,
+  ensureDevEthereumBeaconBootstrapped,
+  initializeDevEthereumTokenReserve,
   loadDevEthereumActivationRepaymentPricing,
+  submitDevSudoTransaction,
   syncEthereumGatewayActiveCouncilToArgon,
 } from './devEthereumRuntimeSetup.ts';
 
@@ -52,6 +51,7 @@ const MINIMUM_BOOTSTRAP_FINALIZED_SLOT_BY_PRESET: Record<DevEthereumBeaconPreset
 };
 const DEV_ETHEREUM_LAUNCH_MAX_ATTEMPTS = 3;
 const DEV_ETHEREUM_LAUNCH_RETRY_DELAY_MS = 1_000;
+let runtimeStateOperation = Promise.resolve();
 export type DevEthereumBeaconPreset = 'mainnet' | 'minimal';
 
 export interface IDevEthereumConfig {
@@ -59,7 +59,6 @@ export interface IDevEthereumConfig {
   secondsPerSlot: number;
   finalityMillis: number;
   finalityBlocks: number;
-  relayerPollMs: number;
 }
 
 export interface IStartDevEthereumResult {
@@ -89,7 +88,7 @@ export interface IDevEthereumRuntimeState {
 
 export interface IDevEthereumSetup {
   env: NodeJS.ProcessEnv;
-  start(): Promise<{ shutdown(): Promise<void> }>;
+  start(): Promise<void>;
 }
 
 export function readDevEthereumConfigFromEnv(): IDevEthereumConfig | undefined {
@@ -108,7 +107,6 @@ export function readDevEthereumConfigFromEnv(): IDevEthereumConfig | undefined {
     secondsPerSlot,
     finalityMillis,
     finalityBlocks,
-    relayerPollMs: Math.max(1_000, Math.floor(finalityMillis / finalityBlocks)),
   };
 }
 
@@ -176,11 +174,11 @@ export async function startDevEthereum(config: IDevEthereumConfig): Promise<ISta
 export function createDevEthereumSetup(
   archiveUrl: string,
   devEthereum: IStartDevEthereumResult,
-  config: Pick<IDevEthereumConfig, 'finalityBlocks' | 'finalityMillis' | 'relayerPollMs'>,
+  config: Pick<IDevEthereumConfig, 'finalityMillis'>,
 ): IDevEthereumSetup {
   console.log(`[tauri-dev] Ethereum execution RPC (app): ${devEthereum.executionRpcUrl}`);
   console.log(`[tauri-dev] Ethereum beacon API (app): ${devEthereum.beaconApiUrl}`);
-  console.log(`[tauri-dev] Add this beacon URL in server config: ${devEthereum.serverBeaconApiUrl}`);
+  console.log(`[tauri-dev] Upstream relay beacon API: ${devEthereum.serverBeaconApiUrl}`);
 
   return {
     env: {
@@ -188,13 +186,12 @@ export function createDevEthereumSetup(
       ETHEREUM_EXECUTION_RPC_URL: devEthereum.serverExecutionRpcUrl,
       ETHEREUM_FINALITY_MILLIS: String(config.finalityMillis),
     },
-    async start(): Promise<{ shutdown(): Promise<void> }> {
+    async start(): Promise<void> {
       let setupStep = 'waiting for Polkadot crypto load';
 
       try {
         await waitForLoad();
         const alice = new Keyring({ type: 'sr25519' }).createFromUri('//Alice');
-        const relayer = new Keyring({ type: 'sr25519' }).createFromUri('//Charlie');
 
         setupStep = 'bootstrapping the Ethereum verifier on Argon';
         console.log(`[tauri-dev] ${setupStep}`);
@@ -211,6 +208,41 @@ export function createDevEthereumSetup(
           initialMicrogonsPerArgonot,
         });
 
+        setupStep = 'initializing the local Ethereum token reserve';
+        console.log(`[tauri-dev] ${setupStep}`);
+        const publicClient = createPublicClient({
+          transport: http(devEthereum.executionRpcUrl, { retryCount: 1, timeout: 15_000 }),
+        });
+        await initializeDevEthereumTokenReserve({
+          publicClient,
+          gatewayAddress: fixture.gatewayAddress,
+          argonTokenAddress: fixture.argonTokenAddress,
+          argonotTokenAddress: fixture.argonotTokenAddress,
+          rootAccountAddress: DEV_ETHEREUM_ADMIN_ACCOUNT.address,
+          ensureBacking: async () => {
+            const client = await getClient(archiveUrl);
+
+            try {
+              await sudoFundWallet({
+                client,
+                address: client.consts.crosschainTransfer.ethereumBurnAccount.toString(),
+                microgons: DEV_ETHEREUM_TOKEN_RESERVE_RUNTIME_AMOUNT,
+                micronots: DEV_ETHEREUM_TOKEN_RESERVE_RUNTIME_AMOUNT,
+              });
+            } finally {
+              await client.disconnect().catch(() => undefined);
+            }
+          },
+          sendMigration: async data =>
+            (
+              await sendDevEthereumAdminTransaction({
+                rpcUrl: devEthereum.executionRpcUrl,
+                to: fixture.gatewayAddress,
+                data,
+              })
+            ).hash,
+        });
+
         setupStep = 'configuring the local Ethereum gateway on Argon';
         console.log(`[tauri-dev] ${setupStep}`);
         await ensureDevEthereumChainConfig(
@@ -224,24 +256,6 @@ export function createDevEthereumSetup(
         setupStep = 'syncing the Ethereum gateway council to Argon';
         console.log(`[tauri-dev] ${setupStep}`);
         await ensureDevEthereumGatewayActiveCouncil(archiveUrl, devEthereum.executionRpcUrl, fixture);
-
-        setupStep = 'starting the local Ethereum relayer';
-        console.log(`[tauri-dev] ${setupStep}`);
-        const runtime = await startDevEthereumRelayer({
-          archiveUrl,
-          beaconApiUrl: devEthereum.beaconApiUrl,
-          executionRpcUrl: devEthereum.executionRpcUrl,
-          usdcTokenAddress: devEthereum.usdcTokenAddress,
-          finalityMillis: config.finalityMillis,
-          finalityBlocks: config.finalityBlocks,
-          relayerPollMs: config.relayerPollMs,
-          syncKeypair: relayer,
-        });
-        await writeDevEthereumRuntimeState({
-          ...devEthereum,
-          setupStatus: 'ready',
-        });
-        return runtime;
       } catch (error) {
         throw new Error(`Failed while ${setupStep}: ${(error as Error).message}`);
       }
@@ -303,9 +317,10 @@ export async function sendDevEthereumAdminTransaction(args: {
 
 export async function readDevEthereumRuntimeState(
   executionRpcUrl?: string,
+  runtimeStateDir?: string,
 ): Promise<IDevEthereumRuntimeState | undefined> {
   try {
-    const raw = await fs.readFile(getDevEthereumRuntimeStatePath(executionRpcUrl), 'utf8');
+    const raw = await fs.readFile(getDevEthereumRuntimeStatePath(executionRpcUrl, runtimeStateDir), 'utf8');
     return JSON.parse(raw) as IDevEthereumRuntimeState;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -381,7 +396,7 @@ async function ensureDevEthereumBeaconBootstrap(
       console.log(
         `[tauri-dev] Ethereum verifier bootstrap attempt ${attemptNumber}/3: waiting for beacon bootstrap inputs from ${beaconApiUrl}`,
       );
-      await EthereumBeaconSyncService.ensureBootstrapped(client, beaconApiUrl, sudoKeypair, {
+      await ensureDevEthereumBeaconBootstrapped(client, beaconApiUrl, sudoKeypair, {
         minimumFinalizedSlot: MINIMUM_BOOTSTRAP_FINALIZED_SLOT_BY_PRESET[beaconPreset],
       });
       console.log(
@@ -390,10 +405,10 @@ async function ensureDevEthereumBeaconBootstrap(
       return;
     } catch (error) {
       lastError = error as Error;
-      if (attempt === 2 || !isRetryableArchiveBootstrapError(lastError)) {
+      if (attempt === 2 || !isRetryableBootstrapError(lastError)) {
         throw error;
       }
-      console.warn(`[tauri-dev] Retrying Ethereum verifier bootstrap after archive disconnect (${lastError.message})`);
+      console.warn(`[tauri-dev] Retrying Ethereum verifier bootstrap (${lastError.message})`);
       await delay(1_000);
       await waitForQueryableClient(archiveUrl, {
         timeoutMs: 120_000,
@@ -406,69 +421,6 @@ async function ensureDevEthereumBeaconBootstrap(
   }
 
   throw lastError ?? new Error('Ethereum verifier bootstrap failed without an error.');
-}
-
-async function startDevEthereumRelayer(args: {
-  archiveUrl: string;
-  beaconApiUrl: string;
-  executionRpcUrl: string;
-  usdcTokenAddress: Address;
-  finalityMillis: number;
-  finalityBlocks: number;
-  relayerPollMs: number;
-  syncKeypair: KeyringPair;
-}): Promise<{ shutdown(): Promise<void> }> {
-  const previousArgonChain = process.env.ARGON_CHAIN;
-  const previousEthereumFinalityMillis = process.env.ETHEREUM_FINALITY_MILLIS;
-  process.env.ARGON_CHAIN = 'dev-docker';
-  process.env.ETHEREUM_FINALITY_MILLIS = String(args.finalityMillis);
-  await configureNetwork(args.archiveUrl);
-  NetworkConfig.setRuntimeOverride('dev-docker', {
-    ethereumNetwork: {
-      executionRpcUrl: args.executionRpcUrl,
-      finalityBlocks: args.finalityBlocks,
-      usdcTokenAddress: args.usdcTokenAddress,
-    },
-  });
-
-  const client = await getClient(args.archiveUrl);
-  const submitLane = new DelegateSubmitLane(args.syncKeypair);
-  submitLane.client = client;
-
-  const ethereumBeaconSyncService = new EthereumBeaconSyncService(client, {
-    beaconApiUrl: args.beaconApiUrl,
-    pollMs: args.relayerPollMs,
-    submitLane,
-  });
-  const ethereumGatewayProverService = new EthereumGatewayProverService(submitLane, {
-    backgroundSweepMs: args.relayerPollMs,
-    shouldApplySharedRelayStagger: false,
-  });
-
-  try {
-    await syncEthereumVerifierUntilAnchorCovers(client, args.syncKeypair, args.beaconApiUrl, 1n);
-    await ethereumBeaconSyncService.start();
-    await ethereumGatewayProverService.start();
-  } catch (error) {
-    await client.disconnect().catch(() => undefined);
-    NetworkConfig.clearRuntimeOverride('dev-docker');
-    process.env.ARGON_CHAIN = previousArgonChain;
-    restoreEnvVar('ETHEREUM_FINALITY_MILLIS', previousEthereumFinalityMillis);
-    throw error;
-  }
-
-  console.log(`[tauri-dev] Started local Ethereum relayer with //Charlie on ${args.executionRpcUrl}`);
-
-  return {
-    async shutdown(): Promise<void> {
-      await ethereumGatewayProverService.shutdown().catch(() => undefined);
-      await ethereumBeaconSyncService.shutdown().catch(() => undefined);
-      await client.disconnect().catch(() => undefined);
-      NetworkConfig.clearRuntimeOverride('dev-docker');
-      process.env.ARGON_CHAIN = previousArgonChain;
-      restoreEnvVar('ETHEREUM_FINALITY_MILLIS', previousEthereumFinalityMillis);
-    },
-  };
 }
 
 async function deployDevEthereumUsdc(args: { executionRpcUrl: string; chainId: string }): Promise<Address> {
@@ -544,7 +496,28 @@ function createDevEthereumChain(chainId: number, rpcUrl: string) {
   });
 }
 
-export async function writeDevEthereumRuntimeState(state: Omit<IDevEthereumRuntimeState, 'updatedAt'>): Promise<void> {
+export function writeDevEthereumRuntimeState(state: Omit<IDevEthereumRuntimeState, 'updatedAt'>): Promise<void> {
+  return queueDevEthereumRuntimeStateOperation(() => writeDevEthereumRuntimeStateNow(state));
+}
+
+export function updateDevEthereumRuntimeState(
+  executionRpcUrl: string,
+  updates: Partial<Pick<IDevEthereumRuntimeState, 'setupStatus' | 'mintingAuthorityStatus'>>,
+): Promise<void> {
+  return queueDevEthereumRuntimeStateOperation(async () => {
+    const runtimeState = await readDevEthereumRuntimeState(executionRpcUrl);
+    if (!runtimeState || runtimeState.executionRpcUrl !== executionRpcUrl) {
+      return;
+    }
+
+    await writeDevEthereumRuntimeStateNow({
+      ...runtimeState,
+      ...updates,
+    });
+  });
+}
+
+async function writeDevEthereumRuntimeStateNow(state: Omit<IDevEthereumRuntimeState, 'updatedAt'>): Promise<void> {
   const runtimeState = {
     ...state,
     updatedAt: new Date().toISOString(),
@@ -558,12 +531,43 @@ export async function writeDevEthereumRuntimeState(state: Omit<IDevEthereumRunti
     fs.mkdir(path.dirname(scopedStatePath), { recursive: true }),
   ]);
   await Promise.all([
-    fs.writeFile(latestStatePath, serialized, 'utf8'),
-    fs.writeFile(scopedStatePath, serialized, 'utf8'),
+    writeFileAtomically(latestStatePath, serialized),
+    writeFileAtomically(scopedStatePath, serialized),
   ]);
 }
 
-function getDevEthereumRuntimeStatePath(executionRpcUrl?: string): string {
+async function queueDevEthereumRuntimeStateOperation<T>(operation: () => Promise<T>): Promise<T> {
+  const result = runtimeStateOperation.then(operation);
+  runtimeStateOperation = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+async function writeFileAtomically(filePath: string, contents: string): Promise<void> {
+  const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
+
+  try {
+    await fs.writeFile(temporaryPath, contents, 'utf8');
+    await fs.rename(temporaryPath, filePath);
+  } finally {
+    await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
+  }
+}
+
+function getDevEthereumRuntimeStatePath(executionRpcUrl?: string, runtimeStateDir?: string): string {
+  const configuredStateDir = runtimeStateDir?.trim() || process.env.ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR?.trim();
+  if (configuredStateDir) {
+    const stateDir = path.resolve(configuredStateDir);
+    if (!executionRpcUrl) {
+      return path.join(stateDir, 'latest.json');
+    }
+
+    const safeExecutionRpcUrl = executionRpcUrl.replace(/[^a-zA-Z0-9_.-]+/g, '_');
+    return path.join(stateDir, `${safeExecutionRpcUrl}.json`);
+  }
+
   if (!executionRpcUrl) {
     return path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'artifacts', 'dev-ethereum.json');
   }
@@ -588,50 +592,41 @@ async function ensureDevEthereumChainConfig(
 
   try {
     const finalizedClient = await client.at(await client.rpc.chain.getFinalizedHead());
-    const currentConfig = await client.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
-    let hasMatchingConfig = false;
-    if (currentConfig.isSome && currentConfig.unwrap().isEvm) {
+    const hasMatchingChainConfig = async () => {
+      const currentConfig = await client.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
+      if (currentConfig.isNone || !currentConfig.unwrap().isEvm) {
+        return false;
+      }
+
       const ethereumConfig = currentConfig.unwrap().asEvm;
-      hasMatchingConfig =
+      return (
         ethereumConfig.gateway.toHex().toLowerCase() === devEthereum.gatewayAddress.toLowerCase() &&
         ethereumConfig.argonToken.toHex().toLowerCase() === devEthereum.argonTokenAddress.toLowerCase() &&
-        ethereumConfig.argonotToken.toHex().toLowerCase() === devEthereum.argonotTokenAddress.toLowerCase();
-    }
+        ethereumConfig.argonotToken.toHex().toLowerCase() === devEthereum.argonotTokenAddress.toLowerCase()
+      );
+    };
 
-    if (!hasMatchingConfig) {
-      const result = await new TxSubmitter(
+    if (!(await hasMatchingChainConfig())) {
+      await submitDevSudoTransaction({
         client,
-        client.tx.sudo.sudo(
-          client.tx.crosschainTransfer.setChainConfig('Ethereum', {
-            Evm: {
-              chainId,
-              gateway: devEthereum.gatewayAddress,
-              argonToken: devEthereum.argonTokenAddress,
-              argonotToken: devEthereum.argonotTokenAddress,
-            },
-          }),
-        ),
+        tx: client.tx.crosschainTransfer.setChainConfig('Ethereum', {
+          Evm: {
+            chainId,
+            gateway: devEthereum.gatewayAddress,
+            argonToken: devEthereum.argonTokenAddress,
+            argonotToken: devEthereum.argonotTokenAddress,
+          },
+        }),
         sudoKeypair,
-      ).submit();
-      await result.waitForInFirstBlock;
-
-      const sudoResultEvent = result.events.find(event => client.events.sudo.Sudid.is(event));
-      if (!sudoResultEvent || !client.events.sudo.Sudid.is(sudoResultEvent)) {
-        throw new Error('Ethereum chain-config transaction did not emit sudo.Sudid.');
-      }
-      if (sudoResultEvent.data.sudoResult.isErr) {
-        throw new Error(
-          `Ethereum chain-config setup failed: ${dispatchErrorToString(client, sudoResultEvent.data.sudoResult.asErr as any)}`,
-        );
-      }
+        isApplied: hasMatchingChainConfig,
+        description: 'Ethereum chain-config setup',
+      });
 
       console.log('[tauri-dev] Configured local Ethereum gateway on Argon');
     } else {
       console.log('[tauri-dev] Ethereum chain config already matches local gateway fixture');
     }
 
-    const currentRepaymentPricing =
-      await client.query.crosschainTransfer.mintingAuthorityActivationRepaymentPricingByDestinationChain('Ethereum');
     console.log('[tauri-dev] Deriving local Ethereum activation repayment pricing');
     const expectedRepaymentPricing = await loadDevEthereumActivationRepaymentPricing({
       finalizedClient,
@@ -639,35 +634,30 @@ async function ensureDevEthereumChainConfig(
     }).catch(error => {
       throw new Error(`Unable to derive local Ethereum activation repayment pricing: ${(error as Error).message}`);
     });
-    const repaymentPricing = currentRepaymentPricing.isSome ? currentRepaymentPricing.unwrap() : undefined;
-    const hasMatchingRepaymentPricing =
-      repaymentPricing?.activationGasCost.toBigInt() === expectedRepaymentPricing.activationGasCost &&
-      repaymentPricing.signatureGasCost.toBigInt() === expectedRepaymentPricing.signatureGasCost &&
-      repaymentPricing.estimatedWeiPerGas.toBigInt() === expectedRepaymentPricing.estimatedWeiPerGas &&
-      repaymentPricing.estimatedMicrogonsPerEth.toBigInt() === expectedRepaymentPricing.estimatedMicrogonsPerEth;
+    const hasMatchingRepaymentPricing = async () => {
+      const currentRepaymentPricing =
+        await client.query.crosschainTransfer.mintingAuthorityActivationRepaymentPricingByDestinationChain('Ethereum');
+      const repaymentPricing = currentRepaymentPricing.isSome ? currentRepaymentPricing.unwrap() : undefined;
 
-    if (!hasMatchingRepaymentPricing) {
-      const result = await new TxSubmitter(
+      return (
+        repaymentPricing?.activationGasCost.toBigInt() === expectedRepaymentPricing.activationGasCost &&
+        repaymentPricing.signatureGasCost.toBigInt() === expectedRepaymentPricing.signatureGasCost &&
+        repaymentPricing.estimatedWeiPerGas.toBigInt() === expectedRepaymentPricing.estimatedWeiPerGas &&
+        repaymentPricing.estimatedMicrogonsPerEth.toBigInt() === expectedRepaymentPricing.estimatedMicrogonsPerEth
+      );
+    };
+
+    if (!(await hasMatchingRepaymentPricing())) {
+      await submitDevSudoTransaction({
         client,
-        client.tx.sudo.sudo(
-          client.tx.crosschainTransfer.setMintingAuthorityActivationRepaymentPricing(
-            'Ethereum',
-            expectedRepaymentPricing,
-          ),
+        tx: client.tx.crosschainTransfer.setMintingAuthorityActivationRepaymentPricing(
+          'Ethereum',
+          expectedRepaymentPricing,
         ),
         sudoKeypair,
-      ).submit();
-      await result.waitForInFirstBlock;
-
-      const sudoResultEvent = result.events.find(event => client.events.sudo.Sudid.is(event));
-      if (!sudoResultEvent || !client.events.sudo.Sudid.is(sudoResultEvent)) {
-        throw new Error('Ethereum activation repayment pricing transaction did not emit sudo.Sudid.');
-      }
-      if (sudoResultEvent.data.sudoResult.isErr) {
-        throw new Error(
-          `Ethereum activation repayment pricing setup failed: ${dispatchErrorToString(client, sudoResultEvent.data.sudoResult.asErr as any)}`,
-        );
-      }
+        isApplied: hasMatchingRepaymentPricing,
+        description: 'Ethereum activation repayment pricing setup',
+      });
 
       console.log('[tauri-dev] Configured local Ethereum activation repayment pricing on Argon');
     } else {
@@ -834,9 +824,10 @@ async function delay(ms: number): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function isRetryableArchiveBootstrapError(error: Error): boolean {
+function isRetryableBootstrapError(error: Error): boolean {
   const message = error.message.toLowerCase();
   return (
+    message.includes('priority is too low') ||
     message.includes('fetch failed') ||
     message.includes('disconnected from ws://') ||
     message.includes('abnormal closure')
@@ -880,13 +871,4 @@ function readPositiveIntEnv(name: string): number | undefined {
 function readNonEmpty(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
-}
-
-function restoreEnvVar(name: string, value: string | undefined): void {
-  if (value === undefined) {
-    delete process.env[name];
-    return;
-  }
-
-  process.env[name] = value;
 }

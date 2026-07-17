@@ -19,6 +19,7 @@ export interface IVaultStats {
 export interface IVaultFrameStats {
   frameId: number;
   bitcoinFeeRevenue: bigint;
+  bitcoinFeeCouponValueUsed?: bigint;
   satoshisAdded: bigint;
   bitcoinLocksCreated: number;
   microgonLiquidityAdded: bigint;

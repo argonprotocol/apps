@@ -20,7 +20,7 @@
       </div>
     </HoverCardTrigger>
     <HoverCardPortal>
-      <HoverCardContent side="bottom" :sideOffset="-6" class="z-[5000]">
+      <HoverCardContent side="bottom" :sideOffset="-6" :style="floatingZIndex">
         <div
           v-if="props.guidance"
           :style="{ backgroundColor: props.fillColor }"
@@ -65,14 +65,16 @@ import SparkleOutlineIcon from '../assets/sparkle-outline.svg';
 import SparkleFilledIcon from '../assets/sparkle-filled.svg';
 import { twMerge } from 'tailwind-merge';
 import { HoverCardArrow, HoverCardContent, HoverCardPortal, HoverCardRoot, HoverCardTrigger } from 'reka-ui';
-import { useOperationsController, operationalSteps } from '../app-operations/stores/controller.ts';
+import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
+import { useCertificationController, operationalSteps } from '../stores/certificationController.ts';
 
 defineOptions({
   inheritAttrs: false,
 });
 
-const controller = useOperationsController();
+const controller = useCertificationController();
 const isOpen = Vue.ref(false);
+const floatingZIndex = useFloatingZIndex();
 
 const props = withDefaults(
   defineProps<{

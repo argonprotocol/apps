@@ -65,6 +65,10 @@ export interface ResolvedTestSessionCommandEnv {
   appEnv: NodeJS.ProcessEnv;
 }
 
+export function resolveTestSessionDataDir(args: { rootDir: string; sessionId: string }): string {
+  return Path.join(args.rootDir, 'argon-e2e', args.sessionId);
+}
+
 export interface TestSessionCommandEnvOptions extends TestSessionIdentityOptions {
   appPort: number;
   baseEnv?: NodeJS.ProcessEnv;
@@ -178,6 +182,11 @@ export async function startArgonTestNetwork(
     cwd: COMPOSE_DIR,
     env: composeEnv,
   });
+  const archiveRpcPortResult = await docker.port('archive-rpc', '9944', {
+    config: COMPOSE_CONFIG,
+    cwd: COMPOSE_DIR,
+    env: composeEnv,
+  });
   const esploraPortResult = await docker.port('bitcoin-electrs', '3002', {
     config: COMPOSE_CONFIG,
     cwd: COMPOSE_DIR,
@@ -197,6 +206,7 @@ export async function startArgonTestNetwork(
   });
   const port = portResult.data.port;
   const archiveUrl = `ws://127.0.0.1:${port}`;
+  const archiveRpcUrl = `ws://127.0.0.1:${archiveRpcPortResult.data.port}`;
   const client = await getClient(archiveUrl);
   await waitForFirstMainchainBlock(client, archiveUrl, {
     timeoutMs: Number.isFinite(options.chainStartTimeoutMs ?? NaN)
@@ -208,6 +218,11 @@ export async function startArgonTestNetwork(
     composeProjectName:
       options.composeProjectName ??
       toComposeProjectName(uniqueTestName, process.env.ARGON_NETWORK_NAME ?? 'dev-docker'),
+  });
+  await waitForQueryableClient(archiveRpcUrl, {
+    timeoutMs: options.chainStartTimeoutMs ?? DEFAULT_CHAIN_START_TIMEOUT_MS,
+    pollMs: options.chainStartPollMs ?? DEFAULT_CHAIN_START_POLL_MS,
+    label: `archive RPC ${archiveRpcUrl}`,
   });
 
   try {
@@ -227,7 +242,7 @@ export async function startArgonTestNetwork(
     return {
       archiveUrl,
       networkConfigOverride: {
-        archiveUrl,
+        archiveUrl: archiveRpcUrl,
         bitcoinBlockMillis: updatedConfig.bitcoinBlockMillis as number,
         esploraHost: updatedConfig.esploraHost as string,
         ...(updatedConfig.indexerHost ? { indexerHost: updatedConfig.indexerHost as string } : {}),

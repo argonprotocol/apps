@@ -105,6 +105,9 @@ export async function callArgonRpc<T = unknown>(
   params: any[] = [],
 ): Promise<IJsonRpcResponse<T>> {
   const rpcUrl = new URL(url);
+  if (rpcUrl.protocol === 'ws:') rpcUrl.protocol = 'http:';
+  if (rpcUrl.protocol === 'wss:') rpcUrl.protocol = 'https:';
+
   const body = JSON.stringify({
     jsonrpc: '2.0',
     id: requestId++,
@@ -113,7 +116,7 @@ export async function callArgonRpc<T = unknown>(
   });
 
   const localServicePort = rpcUrl.port || (rpcUrl.protocol === 'https:' ? '443' : '80');
-  const localServiceHostHeader = rpcUrl.hostname === 'argon-miner' ? `localhost:${localServicePort}` : undefined;
+  const localServiceHostHeader = rpcUrl.hostname.endsWith('miner') ? `localhost:${localServicePort}` : undefined;
   const request = rpcUrl.protocol === 'https:' ? Https.request : Http.request;
   const path = `${rpcUrl.pathname || '/'}${rpcUrl.search}`;
 

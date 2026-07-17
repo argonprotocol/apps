@@ -10,6 +10,7 @@ const ETHEREUM_MOVE_TIMEOUT_MS = 6 * 60_000;
 const EMPTY_FUNDING_STATE = {
   ethereumAddress: '',
   archiveUrl: '',
+  ethereumRpcUrl: '',
   ethereumChainConfigReady: false,
   ethereumFetchErrorMsg: '',
   ethereumMicrogons: 0n,
@@ -39,7 +40,7 @@ export default new Operation<IAppFundWalletFromEthereumContext, IAppFundWalletFr
     {
       key: 'targetWalletType',
       required: true,
-      description: 'Target Argon wallet type: investment, miningHold, or vaulting.',
+      description: 'Target Argon wallet type: defaultArgon.',
     },
     {
       key: 'extraMicrogons',
@@ -116,11 +117,12 @@ export default new Operation<IAppFundWalletFromEthereumContext, IAppFundWalletFr
       await fundDevEthereumWallet({
         to: initialState.chainState.ethereumAddress,
         archiveUrl: initialState.chainState.archiveUrl,
+        ethereumRpcUrl: initialState.chainState.ethereumRpcUrl,
         microgons: requiredMicrogons > 0n ? requiredMicrogons : undefined,
         micronots: requiredMicronots > 0n ? requiredMicronots : undefined,
       });
 
-      await context.flow.click('NavHeader.triggerSyncMode()', { timeoutMs: 15_000 });
+      await context.flow.click('WalletOverlay.chooseEthereumWallet()', { timeoutMs: 15_000 });
 
       await context.flow.poll<IAppFundWalletFromEthereumState>(
         nextState =>
@@ -151,8 +153,6 @@ export default new Operation<IAppFundWalletFromEthereumContext, IAppFundWalletFr
       requestedMicrogons: requiredMicrogons.toString(),
       requestedMicronots: requiredMicronots.toString(),
     });
-
-    await context.flow.click('NavHeader.close()', { timeoutMs: 8_000 });
 
     const overlayCloseButton = await context.flow.isVisible('OverlayBase.clickClose()');
     if (overlayCloseButton.clickable) {
@@ -233,6 +233,7 @@ async function readEthereumFundingState(flow: IE2EFlowRuntime, targetWalletType:
       return {
         ethereumAddress: refs.wallets.ethereumWallet.address,
         archiveUrl,
+        ethereumRpcUrl: refs.getEthereumOutboundTransferTracker().executionRpcUrl ?? '',
         ethereumChainConfigReady,
         ethereumFetchErrorMsg: refs.wallets.ethereumWallet.fetchErrorMsg,
         ethereumMicrogons: refs.wallets.ethereumWallet.availableMicrogons.toString(),
@@ -268,6 +269,7 @@ async function readEthereumFundingState(flow: IE2EFlowRuntime, targetWalletType:
   return {
     ethereumAddress: state.ethereumAddress,
     archiveUrl: state.archiveUrl,
+    ethereumRpcUrl: state.ethereumRpcUrl,
     ethereumChainConfigReady: state.ethereumChainConfigReady,
     ethereumFetchErrorMsg: state.ethereumFetchErrorMsg,
     ethereumMicrogons: BigInt(state.ethereumMicrogons),
@@ -280,13 +282,7 @@ async function readEthereumFundingState(flow: IE2EFlowRuntime, targetWalletType:
 }
 
 function parseTargetWalletType(value: unknown): IArgonWalletType | undefined {
-  if (value === WalletType.investment || value === 'investment') {
-    return WalletType.investment;
-  }
-  if (value === WalletType.miningHold || value === 'miningHold') {
-    return WalletType.miningHold;
-  }
-  if (value === WalletType.vaulting || value === 'vaulting') {
-    return WalletType.vaulting;
+  if (value === WalletType.defaultArgon) {
+    return WalletType.defaultArgon;
   }
 }
