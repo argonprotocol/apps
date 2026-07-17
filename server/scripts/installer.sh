@@ -148,7 +148,7 @@ if ! (already_ran "UbuntuCheck"); then
 
     run_command "sudo apt update"
 
-    run_command "sudo apt install -y ufw curl jq bc"
+    run_command "sudo apt install -y ufw curl jq bc rsync"
 
     command_output=$(run_command "sudo ufw app list | sudo grep -q '^OpenSSH$' && echo 'OpenSSH found' || echo 'OpenSSH not found'")
     if echo "$command_output" | grep -q 'OpenSSH found'; then

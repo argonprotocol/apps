@@ -94,8 +94,9 @@ export class ServerAdmin {
     totalProgress += 20;
     onProgress(totalProgress);
     const filename = file[1].trim();
+    const localFilename = filename.split('/').pop() || 'troubleshooting.tar.gz';
     const tmp = await tempDir();
-    const downloadPath = await join(tmp, filename);
+    const downloadPath = await join(tmp, localFilename);
     console.info(`Downloading troubleshooting package: ${filename} to ${tmp}`);
     await this.connection.downloadFileWithTimeout(
       file[1],
