@@ -30,6 +30,7 @@ export enum TopTab {
 
   Mining = 'Mining',
   Vaulting = 'Vaulting',
+  Invites = 'Invites',
 }
 
 export enum InstallStepKey {

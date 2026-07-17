@@ -12,8 +12,9 @@
 
     <div class="flex flex-row items-center w-1/3 pointer-events-none relative top-px">
       <WindowControls />
-      <div class="relative top-px text-[19px] font-bold whitespace-nowrap">
+      <div class="relative top-px text-[19px] font-bold whitespace-nowrap flex flex-row items-center">
         Argon Desktop
+        <span class="bg-slate-600/60 text-white rounded-full ml-2 px-2 border border-slate-600 inset-shadow text-sm">Alpha</span>
       </div>
     </div>
 

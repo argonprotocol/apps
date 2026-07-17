@@ -5,12 +5,6 @@
     </div>
 
     <div class="relative py-2">
-      <div
-        class="absolute top-0 -left-2 h-full w-[calc(100%+16px)] rounded-t-lg border border-black/30 bg-white shadow-md"
-      >
-        <WrapBehindEdge class="absolute right-0 bottom-0 h-2 w-2 translate-y-full" />
-        <WrapBehindEdge class="absolute bottom-0 left-0 h-2 w-2 translate-y-full scale-x-[-1]" />
-      </div>
       <div class="relative px-4">
         <ArgonTokens
           :microgons="props.wallet.availableMicrogons"
@@ -44,7 +38,6 @@ import type { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
 import { type IWallet, WalletType } from '../../lib/Wallet.ts';
 import type { IWalletGuidanceContext } from '../../emitters/basicEmitter.ts';
 import FormattedMoney from '../../components/FormattedMoney.vue';
-import WrapBehindEdge from '../../assets/wrap-behind-edge.svg';
 import ArgonBottom from './ArgonBottom.vue';
 import ArgonTokens from './ArgonTokens.vue';
 import EthereumBottom from './EthereumBottom.vue';

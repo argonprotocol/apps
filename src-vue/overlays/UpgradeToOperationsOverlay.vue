@@ -10,61 +10,63 @@
       <div class="grow text-2xl font-bold">Upgrade to Operations</div>
     </template>
 
-    <p v-if="canRequestUpgrade" class="mt-3 text-base leading-6 text-slate-500">
-      Treasury certification is complete. Request approval from
-      <strong class="font-semibold text-slate-700">{{ upstreamName }}</strong>
-      to unlock mining and vaulting.
-    </p>
+    <div class="px-10 pb-8">
+      <p v-if="canRequestUpgrade" class="mt-3 text-base leading-6 text-slate-500">
+        Treasury certification is complete. Request approval from
+        <strong class="font-semibold text-slate-700">{{ upstreamName }}</strong>
+        to unlock mining and vaulting.
+      </p>
 
-    <div v-if="formError" class="mt-4 flex flex-row items-center gap-x-2 text-sm text-red-600">
-      <AlertIcon class="h-4 w-4 shrink-0" />
-      <span>{{ formError }}</span>
-    </div>
-
-    <div v-else-if="registrationProgressLabel" class="mt-5 border-t border-slate-200 pt-4">
-      <div class="text-sm font-semibold text-slate-800">Completing operations upgrade</div>
-      <ProgressBar :progress="registrationProgressPct" :hasError="!!registrationProgressError" class="mt-3" />
-
-      <div class="mt-3 text-sm text-slate-500">
-        {{ registrationProgressLabel }}
+      <div v-if="formError" class="mt-4 flex flex-row items-center gap-x-2 text-sm text-red-600">
+        <AlertIcon class="h-4 w-4 shrink-0" />
+        <span>{{ formError }}</span>
       </div>
 
-      <div v-if="registrationProgressError" class="mt-3 text-sm text-red-600">
-        <div>{{ registrationProgressError }}</div>
+      <div v-else-if="registrationProgressLabel" class="mt-5 border-t border-slate-200 pt-4">
+        <div class="text-sm font-semibold text-slate-800">Completing operations upgrade</div>
+        <ProgressBar :progress="registrationProgressPct" :hasError="!!registrationProgressError" class="mt-3" />
 
-        <button
-          type="button"
-          :disabled="isRegistering"
-          class="border-argon-600 text-argon-600 mt-2 rounded border px-3 py-1.5 text-sm font-semibold disabled:cursor-default disabled:opacity-50"
-          @click="loadRegistrationProgress"
-        >
-          {{ isRegistering ? 'Completing...' : 'Try Again' }}
-        </button>
+        <div class="mt-3 text-sm text-slate-500">
+          {{ registrationProgressLabel }}
+        </div>
+
+        <div v-if="registrationProgressError" class="mt-3 text-sm text-red-600">
+          <div>{{ registrationProgressError }}</div>
+
+          <button
+            type="button"
+            :disabled="isRegistering"
+            class="border-argon-600 text-argon-600 mt-2 rounded border px-3 py-1.5 text-sm font-semibold disabled:cursor-default disabled:opacity-50"
+            @click="loadRegistrationProgress"
+          >
+            {{ isRegistering ? 'Completing...' : 'Try Again' }}
+          </button>
+        </div>
       </div>
-    </div>
 
-    <div v-else-if="invite?.accessProof" class="border-argon-300 mt-5 border-l-2 pl-3 text-sm text-slate-600">
-      Your upstream approved operations access on {{ upgradedAtLabel }}.
-    </div>
+      <div v-else-if="invite?.accessProof" class="border-argon-300 mt-5 border-l-2 pl-3 text-sm text-slate-600">
+        Your upstream approved operations access on {{ upgradedAtLabel }}.
+      </div>
 
-    <div
-      v-else-if="invite?.operationsUpgradeRequestedAt"
-      class="border-argon-300 mt-5 border-l-2 pl-3 text-sm text-slate-600"
-    >
-      Upgrade requested on {{ requestedAtLabel }}. We’re waiting for your upstream to approve.
-    </div>
+      <div
+        v-else-if="invite?.operationsUpgradeRequestedAt"
+        class="border-argon-300 mt-5 border-l-2 pl-3 text-sm text-slate-600"
+      >
+        Upgrade requested on {{ requestedAtLabel }}. We’re waiting for your upstream to approve.
+      </div>
 
-    <button
-      v-else-if="canRequestUpgrade"
-      type="button"
-      :disabled="isLoading || isSubmitting"
-      class="bg-argon-button hover:bg-argon-button-hover mt-6 rounded-lg px-5 py-2.5 text-sm font-semibold text-white disabled:cursor-default disabled:opacity-50"
-      @click="requestUpgrade"
-    >
-      <template v-if="isSubmitting">Requesting Upgrade...</template>
-      <template v-else-if="isLoading">Loading...</template>
-      <template v-else>Request Operations Upgrade</template>
-    </button>
+      <button
+        v-else-if="canRequestUpgrade"
+        type="button"
+        :disabled="isLoading || isSubmitting"
+        class="bg-argon-button hover:bg-argon-button-hover mt-6 rounded-lg px-5 py-2.5 text-sm font-semibold text-white disabled:cursor-default disabled:opacity-50"
+        @click="requestUpgrade"
+      >
+        <template v-if="isSubmitting">Requesting Upgrade...</template>
+        <template v-else-if="isLoading">Loading...</template>
+        <template v-else>Request Operations Upgrade</template>
+      </button>
+    </div>
   </OverlayBase>
 </template>
 

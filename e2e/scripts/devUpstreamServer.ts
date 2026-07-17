@@ -227,7 +227,7 @@ export async function startDevUpstreamServer(args: {
     const client = await clients.get(false);
     await actor.bootstrapUpstreamOperator({
       client,
-      vaultName: 'NetworkVault',
+      vaultName: 'Testing',
     });
 
     const { botPort, gatewayPort, routerPort } = await readDevUpstreamServerPorts(context);
