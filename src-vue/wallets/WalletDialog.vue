@@ -136,12 +136,19 @@
             <button
               data-testid="WalletOverlay.toggleSyncDirection()"
               type="button"
-              class="flex shrink-0 cursor-pointer items-center gap-1.5 rounded border border-white/50 bg-white/10 px-3 py-1.5 font-semibold text-white hover:bg-white/20 focus:outline-none"
+              class="relative flex shrink-0 cursor-pointer items-center gap-1.5 rounded border border-white/50 bg-white/10 px-3 py-1.5 font-semibold text-white hover:bg-white/20 focus:outline-none"
               title="Switch direction"
               @click="emit('flip')"
             >
               <ArrowsRightLeftIcon class="h-4 w-4 stroke-2" />
               Switch direction
+              <ArrowCalloutButton
+                v-if="showInboundTransferDirectionGuide"
+                guidance="Switch direction so ARGN moves from Ethereum into Argon."
+                class="absolute left-1/2 top-0 z-50 -translate-x-1/2 -translate-y-[calc(100%+0.75rem)]"
+                position="top"
+                :showArrow="false"
+              />
             </button>
             <p>
               Use
@@ -191,6 +198,8 @@ import {
   isEthereumWalletSelection,
   type IWalletSelection,
 } from './walletOverlayState.ts';
+import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
+import { useCertificationController } from '../stores/certificationController.ts';
 
 const props = withDefaults(
   defineProps<{
@@ -221,6 +230,7 @@ const emit = defineEmits<{
 }>();
 
 const walletStore = useWallets();
+const controller = useCertificationController();
 const draggable = Vue.reactive(new Draggable({ constrainToViewport: false }));
 const activeTransferOverlay = Vue.ref<{
   direction: 'transferToArgon' | 'transferOutOfArgon';
@@ -249,6 +259,13 @@ const argonWalletMove = Vue.computed(() => {
   if (sourceWallet.walletType === WalletType.miningBot && recipientWallet.walletType === WalletType.defaultArgon) {
     return { moveFrom: MoveFrom.MiningBot, moveTo: MoveTo.DefaultArgon };
   }
+});
+const showInboundTransferDirectionGuide = Vue.computed(() => {
+  if (!controller.isTransferGuideActive || !props.leftWallet || !props.rightWallet) {
+    return false;
+  }
+
+  return !isEthereumWalletSelection(props.leftWallet) && isEthereumWalletSelection(props.rightWallet);
 });
 
 provideOverlayContentZIndex(Vue.computed(() => props.zIndex));

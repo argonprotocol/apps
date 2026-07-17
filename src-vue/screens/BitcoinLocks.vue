@@ -29,6 +29,11 @@
             >
               Liquid Lock Your Bitcoin
             </button>
+            <ArrowCalloutButton
+              v-if="controller.activeGuideId === OperationalStepId.LiquidLock && canStartLocking"
+              guidance="Start your liquid lock here."
+              class="absolute right-0 top-1/2 z-50 -translate-y-1/2 translate-x-[calc(100%+0.75rem)]"
+            />
             <CurvedArrow class="pointer-events-none absolute top-14 left-full h-22 translate-y-1 text-slate-400/80" />
           </span>
           <div class="relative mt-14 text-center">
@@ -125,9 +130,16 @@
               }}...
             </span>
             <div class="flex flex-row items-stretch gap-x-3">
-              <button @click="openLockingOverlay" class="text-md text-argon-600 cursor-pointer">
-                Lock Another Bitcoin
-              </button>
+              <span class="relative">
+                <button @click="openLockingOverlay" class="text-md text-argon-600 cursor-pointer">
+                  Lock Another Bitcoin
+                </button>
+                <ArrowCalloutButton
+                  v-if="controller.activeGuideId === OperationalStepId.LiquidLock"
+                  guidance="Start your next liquid lock here."
+                  class="absolute right-0 top-1/2 z-50 -translate-y-1/2 translate-x-[calc(100%+0.75rem)]"
+                />
+              </span>
               <div class="w-px bg-slate-400/50" />
               <a href="https://argon.network/" target="_blank" class="text-md text-argon-600 cursor-pointer">
                 View Docs
@@ -206,8 +218,11 @@ import type { IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
 import { useFinancials } from '../stores/financials.ts';
 import { getMyVault, getVaults } from '../stores/vaults.ts';
 import BitcoinRecord from './treasury-screens/components/BitcoinRecord.vue';
+import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
+import { OperationalStepId, useCertificationController } from '../stores/certificationController.ts';
 
 const config = getConfig();
+const controller = useCertificationController();
 const currency = getCurrency();
 const financials = useFinancials();
 const bitcoinLocks = getBitcoinLocks();

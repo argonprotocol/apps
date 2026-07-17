@@ -16,6 +16,11 @@
           <span class="relative right-1.5">{{ WALLET_JUMP_LABEL }}</span>
         </div>
         <MoveArrow class="pointer-events-none h-full" />
+        <ArrowCalloutButton
+          v-if="showInboundArgonGuide"
+          guidance="Click JUMP to move your Uniswap ARGN into this Argon wallet."
+          class="absolute left-full top-1/2 z-50 ml-3 -translate-y-1/2"
+        />
       </button>
     </HoverCardTrigger>
 
@@ -140,6 +145,8 @@ import {
   isCrosschainTransferPending,
   type ITransferProgressView,
 } from './crosschainTransferView.ts';
+import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
+import { useCertificationController } from '../../stores/certificationController.ts';
 
 const props = defineProps<{
   moveToken: IEthereumMoveToken;
@@ -149,6 +156,7 @@ const props = defineProps<{
   feeTokenSymbol: string;
 }>();
 const config = getConfig();
+const controller = useCertificationController();
 
 const emit = defineEmits<{
   (e: 'openTransferOverlay'): void;
@@ -223,6 +231,11 @@ const isMoveDisabled = Vue.computed(() => {
     !transferState.hasPersistedTransfer &&
     !transferState.isSubmitting &&
     props.availableAmount <= 0n
+  );
+});
+const showInboundArgonGuide = Vue.computed(() => {
+  return (
+    props.direction === 'transferToArgon' && props.moveToken === MoveToken.ARGN && controller.isTransferGuideActive
   );
 });
 const progressView = Vue.computed(() => {

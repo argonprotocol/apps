@@ -27,6 +27,11 @@
           <strong class="block truncate text-sm text-slate-800">{{ getWalletSelectionName(wallet) }}</strong>
           <span class="block truncate text-xs text-slate-500">{{ getWalletAddress(wallet) }}</span>
         </span>
+        <ArrowCalloutButton
+          v-if="controller.isTransferGuideActive && getWalletSelectionKey(wallet) === guidedEthereumWalletKey"
+          guidance="Choose the Ethereum wallet holding the ARGN you acquired through Uniswap."
+          class="absolute right-0 top-1/2 z-50 -translate-y-1/2 translate-x-[calc(100%+0.75rem)]"
+        />
       </button>
     </div>
 
@@ -43,16 +48,22 @@
       <button
         data-testid="WalletOverlay.addExternalEthereum()"
         type="button"
-        class="rounded-md border border-slate-400/60 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:border-slate-500/60 hover:bg-slate-200/60"
+        class="relative rounded-md border border-slate-400/60 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:border-slate-500/60 hover:bg-slate-200/60"
         @click="emit('addExternalEthereum')"
       >
         Add External Ethereum
+        <ArrowCalloutButton
+          v-if="controller.isTransferGuideActive && !guidedEthereumWalletKey"
+          guidance="Import the Ethereum wallet holding the ARGN you acquired through Uniswap."
+          class="absolute right-0 top-1/2 z-50 -translate-y-1/2 translate-x-[calc(100%+0.75rem)]"
+        />
       </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import * as Vue from 'vue';
 import { abbreviateAddress } from '../../lib/Utils.ts';
 import { WalletType } from '../../lib/Wallet.ts';
 import { useWallets } from '../../stores/wallets.ts';
@@ -64,6 +75,8 @@ import {
   isEthereumWalletSelection,
   type IWalletSelection,
 } from '../walletOverlayState.ts';
+import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
+import { useCertificationController } from '../../stores/certificationController.ts';
 
 const props = defineProps<{
   availableWallets: IWalletSelection[];
@@ -77,6 +90,14 @@ const emit = defineEmits<{
 }>();
 
 const wallets = useWallets();
+const controller = useCertificationController();
+const guidedEthereumWalletKey = Vue.computed(() => {
+  const ethereumWallets = props.availableWallets.filter(isEthereumWalletSelection);
+  const activeWallet = ethereumWallets.find(wallet => wallet.walletRecord.id === wallets.activeEthereumWalletRecordId);
+  const guidedWallet = activeWallet ?? ethereumWallets[0];
+
+  return guidedWallet ? getWalletSelectionKey(guidedWallet) : undefined;
+});
 
 function getWalletAddress(wallet: IWalletSelection) {
   let address = wallets.defaultArgonWallet.address;

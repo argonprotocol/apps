@@ -145,7 +145,6 @@ import {
 import { useBasics } from '../stores/basics.ts';
 import { getConfig } from '../stores/config.ts';
 import { MiningSetupStatus, TopTab, VaultingSetupStatus } from '../interfaces/IConfig.ts';
-import { WalletType } from '../lib/Wallet.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 
 const basics = useBasics();
@@ -234,19 +233,14 @@ function startTask() {
       return;
     }
 
-    if (stepId === OperationalStepId.AcquireBonds) {
-      controller.setTab(TopTab.ArgonBonds);
-      return;
-    }
-
-    if (stepId === OperationalStepId.LiquidLock) {
-      controller.setTab(TopTab.BitcoinLocks);
-      return;
-    }
-
-    if ([OperationalStepId.TreasuryTransfer, OperationalStepId.OperationalTransfer].includes(stepId)) {
-      controller.setTab(TopTab.Dashboard);
-      basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
+    if (
+      [
+        OperationalStepId.AcquireBonds,
+        OperationalStepId.LiquidLock,
+        OperationalStepId.TreasuryTransfer,
+        OperationalStepId.OperationalTransfer,
+      ].includes(stepId)
+    ) {
       return;
     }
 
