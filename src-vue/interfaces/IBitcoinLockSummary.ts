@@ -29,7 +29,7 @@ export interface IBitcoinLockSummary {
   valueBeyondLiquidity: bigint;
   startingCapital: bigint;
   endingCapital: bigint;
-  hodlingReturn: number;
+  ratchetPercent: number;
   totalReturn: number;
   totalFees: bigint;
   unlockAmount: bigint;

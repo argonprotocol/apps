@@ -42,7 +42,6 @@ import { BITCOIN_BLOCK_MILLIS, ESPLORA_HOST } from './Env.ts';
 import { UpstreamOperatorClient } from './UpstreamOperatorClient.ts';
 import {
   bigNumberToBigInt,
-  bigIntMax,
   BlockWatch,
   createDeferred,
   Currency as CurrencyBase,
@@ -63,6 +62,7 @@ import { MyVault } from './MyVault.ts';
 import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from './db/BitcoinUtxosTable.ts';
 import type { IBitcoinLockProcessingDetails, IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
 import { BitcoinLockRecovery } from './recovery/BitcoinLocks.ts';
+import { calculateBitcoinLockValuation, calculateBitcoinReturn } from './financials/BitcoinLocks.ts';
 
 export type IBitcoinMismatchPhase =
   | 'none'
@@ -252,26 +252,7 @@ export default class BitcoinLocks {
 
   public createLockSummary(lock: IBitcoinLockRecord): IBitcoinLockSummary {
     const lockProcessingDetails = this.getLockProcessingDetails(lock);
-    const btc = this.#currency.convertSatToBtc(lock.satoshis);
-    const valueOfBtc = this.#currency.convertBtcToMicrogon(btc);
-    const grossFees = lock.ratchets.reduce((total, ratchet) => total + ratchet.txFee + ratchet.securityFee, 0n);
-    // couponFeesPaid is the lock's canonical cumulative reimbursement, so subtract it once rather than per ratchet.
-    const totalFees = bigIntMax(grossFees - (lock.lockDetails?.couponFeesPaid ?? 0n), 0n);
-    const totalLiquidity = lock.ratchets.reduce((total, ratchet) => total + ratchet.mintAmount, 0n);
-    const pendingLiquidity = lock.ratchets.reduce((total, ratchet) => total + ratchet.mintPending, 0n);
-    const burnedLiquidity = lock.ratchets.reduce((total, ratchet) => total + (ratchet.burned ?? 0n), 0n);
-    const receivedLiquidity = totalLiquidity - pendingLiquidity - burnedLiquidity;
-    const startingCapital = lock.ratchets[0]?.lockedTargetPrice ?? lock.lockedTargetPrice;
-    const initialLiquidity = lock.ratchets[0]?.mintAmount ?? lock.liquidityPromised;
-    const valueBeyondLiquidity = bigIntMax(valueOfBtc - lock.lockedTargetPrice, 0n);
-    const returnLiquidity = receivedLiquidity + pendingLiquidity + valueBeyondLiquidity;
-    const unlockAmount =
-      BitcoinLock.calculateRedemptionAmountFromSatoshis(
-        this.#currency.priceIndex,
-        lock.satoshis,
-        lock.lockedTargetPrice,
-      ) || 0n;
-    const endingCapital = startingCapital + returnLiquidity - unlockAmount - totalFees;
+    const valuation = calculateBitcoinLockValuation({ lock, currency: this.#currency });
 
     return {
       uuid: lock.uuid,
@@ -281,17 +262,8 @@ export default class BitcoinLocks {
       lockProcessingDetails,
       lockProcessingError: this.getLockProcessingError(lock),
       satoshis: lock.satoshis,
-      valueOfBtc,
-      totalLiquidity,
-      pendingLiquidity,
-      receivedLiquidity,
-      valueBeyondLiquidity,
-      startingCapital,
-      endingCapital: lock.ratchets[0] ? endingCapital : initialLiquidity,
-      hodlingReturn: calculateBitcoinReturn(lock.lockedTargetPrice, valueOfBtc),
-      totalReturn: calculateBitcoinReturn(startingCapital, endingCapital),
-      totalFees,
-      unlockAmount,
+      ...valuation,
+      ratchetPercent: calculateBitcoinReturn(lock.lockedTargetPrice, valuation.valueOfBtc),
       createdAt: lock.createdAt,
       record: lock,
     };
@@ -3448,12 +3420,6 @@ export type IBitcoinLocksUnlockReleaseInspect = Pick<
 >;
 export type IBitcoinLocksUnlockDetailsInspect = Pick<BitcoinLocks, 'load' | 'getVaultUnlockStateDetails'>;
 export type IBitcoinLocksVarianceInspect = Pick<BitcoinLocks, 'load' | 'getLockSatoshiAllowedVariance'>;
-
-function calculateBitcoinReturn(investment: bigint, currentValue: bigint): number {
-  if (investment <= 0n) return 0;
-
-  return getPercent(currentValue - investment, investment);
-}
 
 function isBitcoinLockRelayStatus(status: IBitcoinLockCouponStatus['status']): status is BitcoinLockRelayStatus {
   return status === 'Submitted' || status === 'InBlock' || status === 'Finalized' || status === 'Failed';
