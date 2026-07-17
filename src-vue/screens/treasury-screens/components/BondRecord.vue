@@ -42,7 +42,7 @@
             <button
               @click.stop="emit('liquidate', bondLot)"
               :disabled="isReleasing"
-              class="bg-white border-argon-600 hover:bg-argon-500/20 cursor-pointer rounded-md border px-5 text-argon-600 hover:shadow-lg"
+              class="border-argon-600 hover:bg-argon-500/20 text-argon-600 cursor-pointer rounded-md border bg-white px-5 hover:shadow-lg"
             >
               {{ isReleasing ? 'Liquidating...' : 'Liquidate' }}
             </button>
