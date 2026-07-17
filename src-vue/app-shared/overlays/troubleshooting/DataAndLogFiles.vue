@@ -200,6 +200,9 @@ async function copyDirectorySnapshot(sourceDir: string, destinationDir: string, 
     if (!entry.name) {
       continue;
     }
+    if (entry.name === '.DS_Store') {
+      continue;
+    }
     if (!includeMnemonic && entry.name === 'mnemonic') {
       continue;
     }
