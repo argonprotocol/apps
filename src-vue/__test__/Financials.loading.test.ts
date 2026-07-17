@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => {
       isLoadedPromise: Promise.resolve(),
       hasExtensionTreasury: false,
       hasExtensionOperations: false,
+      hasActivatedStableSwaps: false,
       walletAccountsHadPreviousLife: false,
     },
     currency: {
@@ -52,7 +53,13 @@ const mocks = vi.hoisted(() => {
     },
     myVault: {
       createdVault: undefined,
-      data: { pendingCollectRevenue: 0n },
+      data: {
+        pendingCollectRevenue: 0n,
+        argonotCommitment: {
+          committedMicronots: 0n,
+          encumberedMicronots: 0n,
+        },
+      },
       history: {},
       load: vi.fn<() => Promise<void>>(),
     },
@@ -76,11 +83,18 @@ const mocks = vi.hoisted(() => {
       operationalWallet: wallet('5operational'),
       ethereumWallet: wallet('0xethereum'),
       baseWallet: wallet('0xbase'),
-      externalFinancialPositions: [],
+      ethereumFinancialPositions: [],
+      baseFinancialPositions: [],
       on: vi.fn(),
     },
     walletsForArgon: {
       events: { on: vi.fn() },
+      dbPromise: Promise.resolve({
+        walletTransfersTable: {
+          argonotCustodyRevision: 0,
+          fetchArgonotCustody: vi.fn(async () => []),
+        },
+      }),
       createFinancialPositions: vi.fn(async () => []),
       defaultArgonWallet: { address: '5default' },
       miningBotWallet: { address: '5miner' },
@@ -135,6 +149,7 @@ describe('financials startup failures', () => {
     mocks.config.isLoadedPromise = Promise.resolve();
     mocks.config.hasExtensionTreasury = false;
     mocks.config.hasExtensionOperations = false;
+    mocks.config.hasActivatedStableSwaps = false;
     mocks.wallets.isLoadedPromise = Promise.resolve();
     mocks.currency.isLoadedPromise = Promise.resolve();
     mocks.argonBonds.load.mockResolvedValue();
@@ -142,8 +157,11 @@ describe('financials startup failures', () => {
     mocks.vaults.load.mockResolvedValue();
     mocks.myVault.load.mockResolvedValue();
     mocks.stableSwaps.load.mockResolvedValue();
+    mocks.stableSwaps.load.mockClear();
     mocks.stableSwaps.refreshWalletSnapshot.mockResolvedValue();
     mocks.restoreFinancialHistory.mockResolvedValue({ asOfBlock: 1, importedBlockCount: 0 });
+    mocks.restoreFinancialHistory.mockClear();
+    mocks.walletHistoryRecovery.hasCompleteCoverage.mockClear();
   });
 
   afterEach(() => {
@@ -193,5 +211,37 @@ describe('financials startup failures', () => {
       expect(financials.financialPositionAggregate.groupSummaries.liquid.state).toBe('ready');
     });
     expect(financials.financialPositionAggregate.readiness).toBe('partial');
+  });
+
+  it('does not load stable swaps before the feature is activated', async () => {
+    mocks.config.hasExtensionTreasury = true;
+
+    const financials = useFinancials();
+
+    await vi.waitFor(() => {
+      expect(financials.financialPositionAggregate.groupSummaries.ethereum.state).toBe('ready');
+    });
+    expect(mocks.stableSwaps.load).not.toHaveBeenCalled();
+  });
+
+  it('uses locally recorded wallet history for an account created in this app session', async () => {
+    const financials = useFinancials();
+
+    await vi.waitFor(() => {
+      expect(financials.financialPositionAggregate.groupSummaries.liquid.state).toBe('ready');
+    });
+    expect(mocks.walletHistoryRecovery.hasCompleteCoverage).not.toHaveBeenCalled();
+  });
+
+  it('keeps locally complete financial history ready while the indexer trails the finalized head', async () => {
+    mocks.config.hasExtensionTreasury = true;
+    mocks.restoreFinancialHistory.mockResolvedValue({ asOfBlock: 0, importedBlockCount: 0 });
+
+    const financials = useFinancials();
+
+    await vi.waitFor(() => {
+      expect(mocks.restoreFinancialHistory).toHaveBeenCalled();
+    });
+    expect(financials.historyRecovery.state).toBe('ready');
   });
 });

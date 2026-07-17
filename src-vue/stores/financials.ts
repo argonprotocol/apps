@@ -19,7 +19,6 @@ import {
   financialGroups,
   type IFinancialObservation,
   type IFinancialPosition,
-  type IVaultFinancialPosition,
   type IWalletBalanceFinancialPosition,
   type IWalletHoldingFinancialPosition,
 } from '../interfaces/IFinancialPosition.ts';
@@ -30,7 +29,7 @@ import {
 } from '../lib/recovery/index.ts';
 import { FinalizedHistoryScheduler } from '../lib/recovery/Scheduler.ts';
 import { getMyMiningSeats } from './myMiningSeats.ts';
-import { FinancialPositionBook, reduceFinancialPositions } from '../lib/financials/index.ts';
+import { calculatePositionReturn, FinancialPositionBook, reduceFinancialPositions } from '../lib/financials/index.ts';
 import { BitcoinFinancials } from '../lib/financials/BitcoinLocks.ts';
 import type { IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
 import { VaultFinancials } from '../lib/financials/MyVault.ts';
@@ -72,17 +71,34 @@ export const useFinancials = defineStore('financials', () => {
   const walletPositions = Vue.shallowRef<Array<IWalletBalanceFinancialPosition | IWalletHoldingFinancialPosition>>();
   const walletObservation = Vue.shallowRef<IFinancialObservation>();
   const accountSnapshot = Vue.shallowRef<IArgonAccountSnapshot>();
+  const liquidNativeBalances = Vue.computed(() => {
+    let microgons = 0n;
+    let micronots = 0n;
+
+    for (const position of walletPositions.value ?? []) {
+      if (position.kind === 'wallet-holding') {
+        if (position.lifecycle === 'active') micronots += position.nativeAmount;
+        continue;
+      }
+      if (position.lifecycle === 'unavailable' || position.nativeAmount === undefined) continue;
+
+      if (position.asset === 'ARGN') microgons += position.nativeAmount;
+      if (position.asset === 'ARGNOT') micronots += position.nativeAmount;
+    }
+
+    return { microgons, micronots };
+  });
   const historyRecovery = Vue.ref<{
     state: 'checking' | 'restoring' | 'waiting' | 'ready' | 'error';
     recoveredBlockCount: number;
     message?: string;
   }>({ state: 'checking', recoveredBlockCount: 0 });
+  let hasConfirmedFinancialHistoryCoverage = false;
   let queuedAccountHeader: IBlockHeaderInfo | undefined;
   let accountRefreshPromise: Promise<void> | undefined;
   let pendingSettlementBlockNumber = 0;
   let treasuryHoldsAreClaimed = false;
   let miningClaimsHolds = false;
-  let miningCustodyClaimedMicronots = 0n;
   let vaultClaimsHolds = false;
   let walletPositionGeneration = 0;
   let lastCoveredWalletSnapshotBlock = 0;
@@ -102,11 +118,31 @@ export const useFinancials = defineStore('financials', () => {
     if (!walletPositions.value || !walletObservation.value) return;
 
     const refresh = financialPositionBook.beginRefresh('liquid');
-    const externalPositions = wallets.externalFinancialPositions;
     const observedAt = new Date();
-    financialPositionBook.publish(refresh, [...walletPositions.value, ...externalPositions], {
+    financialPositionBook.publish(refresh, [...walletPositions.value, ...wallets.baseFinancialPositions], {
       ...walletObservation.value,
       observedAt,
+    });
+  }
+
+  function publishEthereumWallet(): void {
+    const positions: IFinancialPosition[] = [...wallets.ethereumFinancialPositions];
+
+    if (config.hasActivatedStableSwaps && !wallets.ethereumWallet.fetchErrorMsg) {
+      const [stableSwapPosition] = stableSwapFinancials.createFinancialPositions({
+        wallet: wallets.ethereumWallet,
+        walletSnapshot: stableSwaps.walletSnapshot,
+        currentPriceMicrogons: stableSwaps.marketSnapshot?.currentPriceMicrogons,
+      });
+      if (stableSwapPosition?.currentValue !== undefined) {
+        const argonPositionIndex = positions.findIndex(position => position.id === stableSwapPosition.id);
+        if (argonPositionIndex === -1) positions.push(stableSwapPosition);
+        else positions[argonPositionIndex] = stableSwapPosition;
+      }
+    }
+
+    financialPositionBook.publish(financialPositionBook.beginRefresh('ethereum'), positions, {
+      observedAt: new Date(),
     });
   }
 
@@ -123,6 +159,7 @@ export const useFinancials = defineStore('financials', () => {
   }
 
   function hasWalletHistoryCoverage(blockNumber: number): Promise<boolean> {
+    if (!config.walletAccountsHadPreviousLife) return Promise.resolve(true);
     if (walletHistoryCoverage?.blockNumber === blockNumber) return walletHistoryCoverage.promise;
 
     const promise = getWalletHistoryRecovery()
@@ -164,14 +201,20 @@ export const useFinancials = defineStore('financials', () => {
     try {
       const blockNumber = snapshot.observation.blockNumber;
       const hasConfirmedHistoryCoverage = blockNumber !== undefined && (await hasWalletHistoryCoverage(blockNumber));
+      const accounts = config.hasExtensionOperations
+        ? snapshot.accounts.filter(account => account.address !== wallets.miningBotWallet.address)
+        : snapshot.accounts;
       const positions = await walletFinancials.loadPositions({
         ...snapshot,
+        accounts,
         claimedHolds: {
           treasury: treasuryHoldsAreClaimed,
           miningSlot: miningClaimsHolds,
           vaults: vaultClaimsHolds,
         },
-        claimedMicronotsByAccount: new Map([[wallets.miningBotWallet.address, miningCustodyClaimedMicronots]]),
+        claimedMicronotsByAccount: vaultClaimsHolds
+          ? new Map([[wallets.defaultArgonWallet.address, myVault.data.argonotCommitment.committedMicronots]])
+          : undefined,
         liveArgonotRateMicrogons: currency.microgonsPer.ARGNOT,
         hasConfirmedHistoryCoverage,
       });
@@ -203,7 +246,7 @@ export const useFinancials = defineStore('financials', () => {
 
       const positions = await bondFinancials.loadPositions({
         account,
-        hasConfirmedBondHistoryCoverage: historyRecovery.value.state === 'ready',
+        hasConfirmedBondHistoryCoverage: hasConfirmedFinancialHistoryCoverage,
         liveArgonotRateMicrogons: currency.microgonsPer.ARGNOT,
         ownedVaultId: myVault.createdVault?.vaultId,
       });
@@ -225,13 +268,11 @@ export const useFinancials = defineStore('financials', () => {
     const refresh = financialPositionBook.beginRefresh('mining');
     if (!config.hasExtensionOperations) {
       miningClaimsHolds = false;
-      miningCustodyClaimedMicronots = 0n;
       financialPositionBook.publish(refresh, [], snapshot.observation);
       return;
     }
 
     try {
-      const seats = getMyMiningSeatsSource();
       const blockNumber = snapshot.observation.blockNumber;
       const hasConfirmedHistoryCoverage = blockNumber !== undefined && (await hasWalletHistoryCoverage(blockNumber));
       const positions = await getMiningFinancialsSource().loadPositions({
@@ -239,48 +280,16 @@ export const useFinancials = defineStore('financials', () => {
         miningBotAddress: wallets.miningBotWallet.address,
         hasConfirmedHistoryCoverage,
       });
-      const miningBotAccount = snapshot.accounts.find(account => account.address === wallets.miningBotWallet.address)!;
-      const miningBotHeldMicronots = miningBotAccount.micronotHolds
-        .filter(hold => hold.id.isMiningSlot)
-        .reduce((sum, hold) => sum + hold.amount.toBigInt(), 0n);
-      const activeCustodyMicronots = positions.reduce((sum, position) => {
-        return position.kind === 'mining-argonot' && position.lifecycle !== 'completed'
-          ? sum + position.micronots
-          : sum;
-      }, 0n);
-      const claimedCustodyMicronots = bigIntMax(activeCustodyMicronots - miningBotHeldMicronots, 0n);
-      if (positions.length === 0) {
-        const didPublish = financialPositionBook.publish(refresh, positions, snapshot.observation);
-        if (didPublish) {
-          miningClaimsHolds = true;
-          miningCustodyClaimedMicronots = claimedCustodyMicronots;
-        }
-        return;
-      }
 
-      const sourceBlockNumber = seats.serverState.argonLocalNodeBlockNumber;
-      const sourceObservation: IFinancialObservation = {
-        observedAt: seats.serverState.argonBlocksLastUpdatedAt ?? snapshot.observation.observedAt,
-        ...(sourceBlockNumber ? { blockNumber: sourceBlockNumber } : {}),
-        ...(sourceBlockNumber === snapshot.observation.blockNumber
-          ? { blockHash: snapshot.observation.blockHash }
-          : {}),
-      };
-      const didPublish = financialPositionBook.publish(refresh, positions, sourceObservation, snapshot.observation);
-      if (didPublish) {
-        miningClaimsHolds = true;
-        miningCustodyClaimedMicronots = claimedCustodyMicronots;
-      }
+      // Cohort data changes on its own revision schedule; the current account
+      // snapshot supplies the live custody and hold values used by positions.
+      const didPublish = financialPositionBook.publish(refresh, positions, snapshot.observation);
+      if (didPublish) miningClaimsHolds = true;
     } catch (error) {
-      const didFail = financialPositionBook.invalidate(
+      financialPositionBook.fail(
         refresh,
-        snapshot.observation,
         error instanceof Error ? error.message : 'Unable to publish mining financial positions',
       );
-      if (didFail) {
-        miningClaimsHolds = false;
-        miningCustodyClaimedMicronots = 0n;
-      }
     }
   }
 
@@ -291,13 +300,14 @@ export const useFinancials = defineStore('financials', () => {
     const refresh = financialPositionBook.beginRefresh('vaulting');
     try {
       const account = snapshot.accounts.find(entry => entry.address === wallets.defaultArgonWallet.address);
-      let positions: IVaultFinancialPosition[] = [];
+      let positions: IFinancialPosition[] = [];
       if (config.hasExtensionOperations) {
         if (!account) throw new Error('Vault operator account is missing from the Argon wallet snapshot');
 
         positions = await vaultFinancials.loadPositions({
           account,
-          hasConfirmedHistoryCoverage: historyRecovery.value.state === 'ready',
+          liveArgonotRateMicrogons: currency.microgonsPer.ARGNOT,
+          hasConfirmedHistoryCoverage: hasConfirmedFinancialHistoryCoverage,
         });
       }
 
@@ -322,13 +332,9 @@ export const useFinancials = defineStore('financials', () => {
           header,
           includeHolds: config.hasExtensionTreasury || config.hasExtensionOperations,
         });
-        financialPositionBook.advanceSettlementObservation(accountSnapshot.value.observation, [
-          'liquid',
-          'mining',
-          'vaulting',
-          'bonds',
-          'bitcoin',
-        ]);
+        // Pending Bitcoin mint can move into the wallet at finalization. Other
+        // domains reconcile their holds against this same account snapshot.
+        financialPositionBook.advanceSettlementObservation(accountSnapshot.value.observation, ['bitcoin']);
       }
       await Promise.all([publishMiningPositions(), publishVaultPosition(), publishBondPositions()]);
       await publishWalletPositions();
@@ -363,7 +369,10 @@ export const useFinancials = defineStore('financials', () => {
       return;
     }
 
-    pendingSettlementBlockNumber = Math.max(pendingSettlementBlockNumber, blockNumber);
+    // Latch the first pending observation so finalized state can catch it. Mining
+    // revisions may advance every best block; continually moving this target
+    // forward would prevent the account snapshot from ever refreshing.
+    pendingSettlementBlockNumber ||= blockNumber;
   }
 
   async function publishBitcoinLocks(summaries?: readonly IBitcoinLockSummary[]): Promise<void> {
@@ -377,7 +386,7 @@ export const useFinancials = defineStore('financials', () => {
     const positions = bitcoinFinancials.createFinancialPositions({
       summaries: summaries ?? bitcoinLocks.getAllLocks().map(lock => bitcoinLocks.createLockSummary(lock)),
       hasCurrentPrice,
-      hasConfirmedHistoryCoverage: historyRecovery.value.state === 'ready',
+      hasConfirmedHistoryCoverage: hasConfirmedFinancialHistoryCoverage,
     });
     if (positions.length === 0 && accountSnapshot.value) {
       financialPositionBook.publish(refresh, positions, accountSnapshot.value.observation);
@@ -395,34 +404,9 @@ export const useFinancials = defineStore('financials', () => {
     );
   }
 
-  async function publishStableSwapPosition(): Promise<void> {
-    const refresh = financialPositionBook.beginRefresh('stableSwaps');
-    if (!config.hasExtensionTreasury) {
-      financialPositionBook.publish(refresh, [], { observedAt: new Date() });
-      return;
-    }
-    if (wallets.ethereumWallet.fetchErrorMsg) {
-      financialPositionBook.fail(refresh, wallets.ethereumWallet.fetchErrorMsg);
-      return;
-    }
-
-    try {
-      const positions = await stableSwapFinancials.loadPositions({
-        wallet: wallets.ethereumWallet,
-      });
-      const observedAt = new Date();
-      financialPositionBook.publish(refresh, positions, {
-        observedAt,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to load stable swap history';
-      financialPositionBook.fail(refresh, message);
-    }
-  }
-
   async function refreshStableSwapPosition(): Promise<void> {
-    if (!config.hasExtensionTreasury) {
-      await publishStableSwapPosition();
+    if (!config.hasExtensionTreasury || !config.hasActivatedStableSwaps) {
+      publishEthereumWallet();
       return;
     }
 
@@ -430,15 +414,12 @@ export const useFinancials = defineStore('financials', () => {
       if (stableSwaps.marketSnapshot) {
         await stableSwaps.refreshWalletSnapshot();
       } else {
-        await stableSwaps.load();
+        await stableSwapFinancials.loadPositions({ wallet: wallets.ethereumWallet });
       }
-      if (!isLoaded.value) await publishStableSwapPosition();
     } catch (error) {
-      financialPositionBook.fail(
-        financialPositionBook.beginRefresh('stableSwaps'),
-        error instanceof Error ? error.message : 'Unable to load stable swap history',
-      );
+      console.error('Unable to load stable swap history', error);
     }
+    publishEthereumWallet();
   }
 
   // Vaults ////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -476,9 +457,12 @@ export const useFinancials = defineStore('financials', () => {
   });
   const savingsTotalReadyToUse = Vue.computed(() => wallets.defaultArgonWallet.availableMicrogons);
   const savingsTotalValue = Vue.computed(() => {
-    const bitcoinSnapshot = financialPositionBook.snapshots.find(snapshot => snapshot.group === 'bitcoin');
-    const alignedPendingMint = bitcoinSnapshot?.state === 'ready' ? savingsTotalPending.value : 0n;
-    return alignedPendingMint + savingsTotalReadyToUse.value;
+    let total = savingsTotalPending.value;
+    for (const position of walletPositions.value ?? []) {
+      if (position.accountId !== wallets.defaultArgonWallet.address || position.lifecycle === 'completed') continue;
+      total += position.currentValue ?? 0n;
+    }
+    return total;
   });
 
   const savingsAllTimeFiatKey = Vue.ref(UnitOfMeasurement.USD);
@@ -619,6 +603,7 @@ export const useFinancials = defineStore('financials', () => {
     () => {
       if (!isLoaded.value) return;
       publishLiquidHoldings();
+      publishEthereumWallet();
     },
     { deep: true },
   );
@@ -632,6 +617,7 @@ export const useFinancials = defineStore('financials', () => {
     ],
     ([address], [previousAddress]) => {
       if (!isLoaded.value) return;
+      if (!config.hasActivatedStableSwaps) return;
       if (
         address !== previousAddress ||
         (!stableSwaps.marketSnapshot && wallets.ethereumWallet.availableMicrogons > 0n)
@@ -640,28 +626,31 @@ export const useFinancials = defineStore('financials', () => {
         return;
       }
 
-      void publishStableSwapPosition();
+      publishEthereumWallet();
+    },
+  );
+
+  Vue.watch(
+    () => config.isLoaded && config.hasActivatedStableSwaps,
+    () => {
+      if (!isLoaded.value) return;
+      void refreshStableSwapPosition();
     },
   );
 
   Vue.watch(
     () => [stableSwaps.walletSnapshot, stableSwaps.marketSnapshot],
     () => {
-      if (!isLoaded.value) return;
-      void publishStableSwapPosition();
+      if (!isLoaded.value || !config.hasActivatedStableSwaps) return;
+      publishEthereumWallet();
     },
   );
 
   wallets.on('balance-change', entry => {
     if (!isLoaded.value) return;
-    financialPositionBook.advanceSettlementObservation(
-      {
-        observedAt: new Date(entry.block.blockTime),
-        blockNumber: entry.block.blockNumber,
-        blockHash: entry.block.blockHash,
-      },
-      ['mining', 'bitcoin'],
-    );
+    // Live wallet balances can precede the finalized domain records. Keep the
+    // last finalized financial view intact until sync:finalized refreshes all
+    // positions at one observation.
     requestSettlementObservation(entry.block.blockNumber);
   });
 
@@ -718,14 +707,19 @@ export const useFinancials = defineStore('financials', () => {
   Vue.watch(
     () => [argonBonds.data.bondLots, argonBonds.data.bondHistory],
     () => {
-      if (!isLoaded.value || !config.hasExtensionTreasury) return;
+      if (!config.hasExtensionTreasury) return;
       requestSettlementObservation(getBlockWatch().bestBlockHeader.blockNumber);
       void publishBondPositions().then(() => publishWalletPositions());
     },
   );
 
   Vue.watch(
-    () => [myVault.createdVault, myVault.data.pendingCollectRevenue],
+    () => [
+      myVault.createdVault,
+      myVault.data.pendingCollectRevenue,
+      myVault.data.argonotCommitment.committedMicronots,
+      myVault.data.argonotCommitment.encumberedMicronots,
+    ],
     () => {
       if (!isLoaded.value || !config.hasExtensionOperations) return;
       requestSettlementObservation(getBlockWatch().bestBlockHeader.blockNumber);
@@ -737,7 +731,9 @@ export const useFinancials = defineStore('financials', () => {
     () => currency.microgonsPer.ARGNOT,
     () => {
       if (!isLoaded.value) return;
-      void Promise.all([publishBondPositions(), publishMiningPositions()]).then(() => publishWalletPositions());
+      void Promise.all([publishBondPositions(), publishMiningPositions(), publishVaultPosition()]).then(() =>
+        publishWalletPositions(),
+      );
     },
   );
 
@@ -745,9 +741,10 @@ export const useFinancials = defineStore('financials', () => {
     () => (config.isLoaded && config.hasExtensionOperations ? getMyMiningSeatsSource().financialRevision : 0),
     () => {
       if (!isLoaded.value || !config.hasExtensionOperations) return;
-      requestSettlementObservation(
-        getMyMiningSeatsSource().serverState.argonLocalNodeBlockNumber || getBlockWatch().bestBlockHeader.blockNumber,
-      );
+      const sourceBlockNumber = getMyMiningSeatsSource().serverState.argonLocalNodeBlockNumber;
+      requestSettlementObservation(sourceBlockNumber || getBlockWatch().bestBlockHeader.blockNumber);
+      if (sourceBlockNumber && sourceBlockNumber > (accountSnapshot.value?.observation.blockNumber ?? 0)) return;
+
       void publishMiningPositions().then(() => publishWalletPositions());
     },
   );
@@ -762,6 +759,7 @@ export const useFinancials = defineStore('financials', () => {
         if (config.hasExtensionTreasury) {
           startLockSummaryProgressRefresh();
         }
+        await refreshStableSwapPosition();
 
         // The basic app snapshot omits hold details. Reload the same finalized
         // block when a domain activates so its positions can claim those holds.
@@ -790,6 +788,13 @@ export const useFinancials = defineStore('financials', () => {
     return wallets.ethereumWallet.availableMicrogons + micronotValue + otherTokenValue;
   });
 
+  const stableSwapPerformanceReturn = Vue.computed(() => {
+    const positions = financialPositionAggregate.value.groupSummaries.ethereum.positions.filter(position => {
+      return position.kind === 'stable-swap';
+    });
+    return calculatePositionReturn(positions).percent;
+  });
+
   //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
   function setFinancialScope(): void {
@@ -808,21 +813,20 @@ export const useFinancials = defineStore('financials', () => {
   async function load() {
     setFinancialScope();
     await config.isLoadedPromise;
+    if (!config.walletAccountsHadPreviousLife) {
+      hasConfirmedFinancialHistoryCoverage = true;
+      historyRecovery.value = { state: 'ready', recoveredBlockCount: 0 };
+    }
     await Promise.all([wallets.isLoadedPromise, currency.isLoadedPromise]);
     setFinancialScope();
     await loadEnabledDomainSources();
-
-    savingsIsLoaded.value = true;
 
     if (!config.hasExtensionTreasury) {
       vaultsIsLoaded.value = true;
     }
     await refreshAccountSnapshot(getBlockWatch().finalizedBlockHeader);
-    if (config.hasExtensionTreasury) {
-      await refreshStableSwapPosition();
-    } else {
-      await publishStableSwapPosition();
-    }
+    savingsIsLoaded.value = true;
+    await refreshStableSwapPosition();
     if (config.hasExtensionTreasury) startLockSummaryProgressRefresh();
 
     isLoaded.value = true;
@@ -830,8 +834,6 @@ export const useFinancials = defineStore('financials', () => {
       void restoreFinancialHistory().catch(() => undefined);
     } else if (config.walletAccountsHadPreviousLife) {
       void restoreFinancialHistory(true).catch(() => undefined);
-    } else {
-      historyRecovery.value = { state: 'ready', recoveredBlockCount: 0 };
     }
   }
 
@@ -841,6 +843,8 @@ export const useFinancials = defineStore('financials', () => {
   }
 
   async function runFinancialHistoryRecovery(force: boolean, targetBlock: number): Promise<number> {
+    const shouldShowRecovery = force || !hasConfirmedFinancialHistoryCoverage;
+
     try {
       const db = await getDbPromise();
       const enabledDomains = getEnabledFinancialHistoryDomains({
@@ -865,35 +869,40 @@ export const useFinancials = defineStore('financials', () => {
         force,
         minimumAsOfBlock: targetBlock,
         onCheckStart() {
+          if (!shouldShowRecovery) return;
           historyRecovery.value = { state: 'checking', recoveredBlockCount: 0 };
         },
         onProgress(recoveredBlockCount) {
+          if (!shouldShowRecovery) return;
           historyRecovery.value = {
             state: 'restoring',
             recoveredBlockCount,
           };
         },
       });
-      historyRecovery.value = {
-        state: result.asOfBlock >= targetBlock ? 'ready' : 'waiting',
-        recoveredBlockCount: result.importedBlockCount,
-        ...(result.asOfBlock < targetBlock
-          ? {
-              message: `Investment history is indexed through block ${result.asOfBlock.toLocaleString()} and is still catching up`,
-            }
-          : {}),
-      };
+      if (result.asOfBlock >= targetBlock) {
+        hasConfirmedFinancialHistoryCoverage = true;
+        historyRecovery.value = { state: 'ready', recoveredBlockCount: result.importedBlockCount };
+      } else if (shouldShowRecovery) {
+        historyRecovery.value = {
+          state: 'waiting',
+          recoveredBlockCount: result.importedBlockCount,
+          message: `Investment history is indexed through block ${result.asOfBlock.toLocaleString()} and is still catching up`,
+        };
+      }
       await Promise.all([publishVaultPosition(), publishBondPositions()]);
       await publishWalletPositions();
       const summaries = await loadLocks();
       await publishBitcoinLocks(summaries);
       return result.asOfBlock;
     } catch (error) {
-      historyRecovery.value = {
-        state: 'error',
-        recoveredBlockCount: historyRecovery.value.recoveredBlockCount,
-        message: error instanceof Error ? error.message : 'Unable to restore investment history',
-      };
+      if (shouldShowRecovery) {
+        historyRecovery.value = {
+          state: 'error',
+          recoveredBlockCount: historyRecovery.value.recoveredBlockCount,
+          message: error instanceof Error ? error.message : 'Unable to restore investment history',
+        };
+      }
       throw error;
     }
   }
@@ -938,8 +947,10 @@ export const useFinancials = defineStore('financials', () => {
     liquidHodlingReturn,
 
     swapsTotalValue,
+    stableSwapPerformanceReturn,
 
     financialPositionAggregate,
+    liquidNativeBalances,
     historyRecovery,
     restoreFinancialHistory,
   };

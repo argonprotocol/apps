@@ -127,6 +127,14 @@ export interface IBitcoinRequestLockMetadata {
   };
 }
 
+export interface IBitcoinOrphanedUtxoFundingMetadata {
+  utxoId: number;
+  utxoRecordId: number;
+  utxoRef: { txid: string; vout: number };
+  receivedSatoshis: bigint;
+  increaseSatoshis?: bigint;
+}
+
 interface IAcceptedFundingState {
   record?: IBitcoinUtxoRecord;
   recordId?: number;
@@ -2161,7 +2169,7 @@ export default class BitcoinLocks {
         utxoRef: { txid: candidateRecord.txid, vout: candidateRecord.vout },
         receivedSatoshis,
         increaseSatoshis,
-      },
+      } satisfies IBitcoinOrphanedUtxoFundingMetadata,
     });
   }
 

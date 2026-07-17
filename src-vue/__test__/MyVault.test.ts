@@ -12,7 +12,7 @@ import {
   type ITransactionStatusHistoryRecord,
 } from '../lib/db/TransactionStatusHistoryTable.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
-import { bigintCodec, numberCodec } from '../../core/__test__/helpers/codecs.ts';
+import { bigintCodec, numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts';
 import { Vault } from '@argonprotocol/mainchain';
 import BigNumber from 'bignumber.js';
 import { MyVaultRecovery } from '../lib/recovery/MyVaultRecovery.ts';
@@ -853,6 +853,11 @@ describe('MyVault cosign recovery', () => {
           },
         },
       },
+      query: {
+        vaults: {
+          argonotCommitmentByVaultId: vi.fn(async () => optionCodec()),
+        },
+      },
       tx: {
         utility: {
           batchAll: vi.fn(() => ({ kind: 'delegate-setup' })),
@@ -950,6 +955,16 @@ describe('MyVault cosign recovery', () => {
           },
         },
       },
+      query: {
+        vaults: {
+          argonotCommitmentByVaultId: vi.fn(async () =>
+            optionCodec({
+              committedMicronots: bigintCodec(25n),
+              encumberedMicronots: bigintCodec(10n),
+            }),
+          ),
+        },
+      },
     } as any);
     const myVault = new MyVault(
       Promise.resolve({
@@ -1006,6 +1021,10 @@ describe('MyVault cosign recovery', () => {
 
     await vi.waitFor(() => {
       expect(myVault.data.isReady).toBe(true);
+    });
+    expect(myVault.data.argonotCommitment).toEqual({
+      committedMicronots: 25n,
+      encumberedMicronots: 10n,
     });
     expect(isResolved).toBe(false);
 

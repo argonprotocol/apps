@@ -13,6 +13,7 @@ describe('FinancialHistoryImporter', () => {
       accountId: '5owner',
       asOfBlock: 100,
       definitionVersion: 2,
+      recoveryVersions: { bonds: 1 },
       domains: ['bonds'] as const,
     }));
     const onCheckStart = vi.fn();
@@ -43,7 +44,7 @@ describe('FinancialHistoryImporter', () => {
               asOfBlock: 100,
               domains: ['bonds', 'vaulting'],
               domainCheckpoints: {
-                bonds: { asOfBlock: 110, definitionVersion: 2 },
+                bonds: { asOfBlock: 110, definitionVersion: 2, recoveryVersion: 1 },
                 vaulting: { asOfBlock: 100, definitionVersion: 2 },
               },
             })),
@@ -77,6 +78,7 @@ describe('FinancialHistoryImporter', () => {
             accountId: '5owner',
             asOfBlock: 100,
             definitionVersion: 2,
+            recoveryVersions: { bonds: 1 },
             domains: ['bonds'],
           })),
           upsert,
@@ -106,7 +108,7 @@ describe('FinancialHistoryImporter', () => {
       SyncStateKeys.FinancialHistory,
       expect.objectContaining({
         domainCheckpoints: {
-          bonds: { asOfBlock: 100, definitionVersion: 2 },
+          bonds: { asOfBlock: 100, definitionVersion: 2, recoveryVersion: 1 },
           vaulting: { asOfBlock: 100, definitionVersion: 2 },
         },
       }),
@@ -174,7 +176,7 @@ describe('FinancialHistoryImporter', () => {
     expect(upsert).toHaveBeenCalledWith(
       SyncStateKeys.FinancialHistory,
       expect.objectContaining({
-        domainCheckpoints: { bonds: { asOfBlock: 10, definitionVersion: 2 } },
+        domainCheckpoints: { bonds: { asOfBlock: 10, definitionVersion: 2, recoveryVersion: 1 } },
       }),
     );
   });

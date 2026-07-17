@@ -54,7 +54,10 @@ const earliestSupportedSpecVersions: Record<IFinancialHistoryDomain, number> = {
   bitcoin: 130,
   vaulting: 116,
 };
-const bitcoinHistoryRecoveryVersion = 1;
+const historyRecoveryVersions: Partial<Record<IFinancialHistoryDomain, number>> = {
+  bitcoin: 1,
+  bonds: 1,
+};
 
 export async function restoreFinancialHistory(args: {
   db: Db;
@@ -94,8 +97,8 @@ export async function restoreFinancialHistory(args: {
 
   const domainsToRestore = enabledDomains.filter(domain => {
     const checkpoint = domainCheckpoints[domain];
-    const recoveryVersionChanged =
-      domain === 'bitcoin' && checkpoint?.recoveryVersion !== bitcoinHistoryRecoveryVersion;
+    const recoveryVersion = historyRecoveryVersions[domain];
+    const recoveryVersionChanged = recoveryVersion !== undefined && checkpoint?.recoveryVersion !== recoveryVersion;
     return args.force || !checkpoint || checkpoint.asOfBlock < targetBlock || recoveryVersionChanged;
   });
   if (!domainsToRestore.length) {
@@ -132,7 +135,11 @@ export async function restoreFinancialHistory(args: {
       const enabledCheckpoints = enabledDomains.map(enabledDomain => domainCheckpoints[enabledDomain]);
       const aggregateAsOfBlock = Math.min(...enabledCheckpoints.map(saved => saved?.asOfBlock ?? 0));
       const aggregateCheckpoint = enabledCheckpoints.find(saved => saved?.asOfBlock === aggregateAsOfBlock);
-      const bitcoinRecoveryVersion = domainCheckpoints.bitcoin?.recoveryVersion;
+      const recoveryVersions: Partial<Record<IFinancialHistoryDomain, number>> = {};
+      for (const enabledDomain of enabledDomains) {
+        const recoveryVersion = domainCheckpoints[enabledDomain]?.recoveryVersion;
+        if (recoveryVersion !== undefined) recoveryVersions[enabledDomain] = recoveryVersion;
+      }
 
       await db.syncStateTable.upsert(SyncStateKeys.FinancialHistory, {
         accountId,
@@ -140,7 +147,7 @@ export async function restoreFinancialHistory(args: {
         ...(aggregateCheckpoint?.definitionVersion !== undefined
           ? { definitionVersion: aggregateCheckpoint.definitionVersion }
           : {}),
-        ...(bitcoinRecoveryVersion !== undefined ? { recoveryVersions: { bitcoin: bitcoinRecoveryVersion } } : {}),
+        ...(Object.keys(recoveryVersions).length ? { recoveryVersions } : {}),
         domains: enabledDomains,
         domainCheckpoints,
       });
@@ -301,7 +308,7 @@ async function restoreFinancialHistoryDomain(args: {
   onProgress?: (importedBlockCount: number) => void;
 }): Promise<{ checkpoint: IFinancialHistoryCheckpoint; importedBlockCount: number }> {
   const { db, blockWatch, accountId, argonBonds, bitcoinLockRecovery, vaultHistory, domain, checkpoint } = args;
-  const recoveryVersion = domain === 'bitcoin' ? bitcoinHistoryRecoveryVersion : undefined;
+  const recoveryVersion = historyRecoveryVersions[domain];
   const recoveryVersionChanged = recoveryVersion !== undefined && checkpoint?.recoveryVersion !== recoveryVersion;
   let afterBlock = args.force || !checkpoint || recoveryVersionChanged ? 0 : checkpoint.asOfBlock;
   let indexedHistory = await findAddressActivity(accountId, {

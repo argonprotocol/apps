@@ -1,4 +1,3 @@
-import type { Db } from './Db.ts';
 import type { ITransactionRecord } from './db/TransactionsTable.ts';
 import type { IWalletTransferRecord } from './db/WalletTransfersTable.ts';
 
@@ -22,19 +21,6 @@ export interface IWalletActivityRecord {
   transfer?: IWalletTransferRecord;
   transaction?: ITransactionRecord;
   occurredAt?: Date;
-}
-
-export class WalletActivity {
-  constructor(private readonly db: Db) {}
-
-  public async fetchByWalletAddress(walletAddress: string): Promise<IWalletActivityRecord[]> {
-    const [transfers, transactions] = await Promise.all([
-      this.db.walletTransfersTable.fetchByWalletAddress(walletAddress),
-      this.db.transactionsTable.fetchByAccountAddress(walletAddress),
-    ]);
-
-    return buildWalletActivity({ transfers, transactions });
-  }
 }
 
 export function buildWalletActivity(args: {

@@ -61,9 +61,12 @@
             </div>
           </div>
 
-          <div v-if="bondLot.programType === 'Vault'">
-            <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">Lifetime Return</div>
-            <div class="mt-1 font-medium text-slate-700">{{ numeral(lifetimeReturnPct).format('0,0.00') }}%</div>
+          <div>
+            <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">Return to Date</div>
+            <div class="mt-1 font-medium text-slate-700">
+              <template v-if="returnPercent !== undefined">{{ numeral(returnPercent).format('0,0.00') }}%</template>
+              <template v-else>--</template>
+            </div>
           </div>
         </div>
 
@@ -127,7 +130,6 @@ import { getCurrency } from '../../stores/currency.ts';
 import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
 import { getVaults } from '../../stores/vaults.ts';
 import { BondLot, TreasuryBonds } from '@argonprotocol/apps-core';
-import BigNumber from 'bignumber.js';
 import { getWalletKeys } from '../../stores/wallets.ts';
 import { getTransactionTracker } from '../../stores/transactions.ts';
 import { ExtrinsicType, TransactionStatus } from '../../lib/db/TransactionsTable.ts';
@@ -148,6 +150,7 @@ const { microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency
 
 const props = defineProps<{
   bondLot: BondLot;
+  returnPercent?: number;
 }>();
 
 const emit = defineEmits<{
@@ -174,7 +177,7 @@ const releaseAtLabel = Vue.computed(() => {
 
 const bondProgramLabel = Vue.computed(() => {
   if (props.bondLot.programType === 'Argonot') {
-    return 'ARGNOT-backed Argon Bond';
+    return 'Argonot Bond';
   }
 
   const vaultId = props.bondLot.vaultId;
@@ -187,12 +190,6 @@ const bondProgramLabel = Vue.computed(() => {
   return name ? `${name} Vault` : `Vault #${vaultId}`;
 });
 
-const lifetimeReturnPct = Vue.computed(() => {
-  if (props.bondLot.bondMicrogons <= 0n) return 0;
-
-  return BigNumber(props.bondLot.lifetimeEarnings).dividedBy(props.bondLot.bondMicrogons).multipliedBy(100).toNumber();
-});
-
 const canLiquidate = Vue.computed(() => {
   return props.bondLot.isOwn && props.bondLot.canRelease && !props.bondLot.isReleasing;
 });
@@ -200,9 +197,9 @@ const canLiquidate = Vue.computed(() => {
 function trackLiquidationTxInfo(info: TransactionInfo) {
   unsubscribeLiquidationProgress?.();
   isLiquidating.value = true;
-  let didSaveLiquidation = false;
+  argonBonds.saveBondLiquidation(props.bondLot, info);
 
-  unsubscribeLiquidationProgress = info.subscribeToProgress(async (args, error) => {
+  unsubscribeLiquidationProgress = info.subscribeToProgress((args, error) => {
     liquidationProgressPct.value = args.progressPct;
     liquidationProgressLabel.value = generateProgressLabel(args.confirmations, args.expectedConfirmations);
 
@@ -212,13 +209,7 @@ function trackLiquidationTxInfo(info: TransactionInfo) {
       return;
     }
 
-    if (args.progressPct >= 100 && !didSaveLiquidation) {
-      didSaveLiquidation = true;
-      try {
-        await argonBonds.saveBondLiquidation(props.bondLot, info);
-      } catch (saveError) {
-        console.error('Unable to save finalized bond liquidation history', saveError);
-      }
+    if (args.progressPct >= 100) {
       emit('submitted');
       emit('close');
     }

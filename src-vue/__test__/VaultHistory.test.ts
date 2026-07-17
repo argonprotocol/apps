@@ -109,7 +109,11 @@ describe('VaultHistory financial positions', () => {
     });
 
     expect(positions).toHaveLength(1);
-    expect(positions[0]).toMatchObject({
+    const position = positions[0];
+    expect(position.kind).toBe('vault');
+    if (position.kind !== 'vault') throw new Error('Expected a vault investment position');
+
+    expect(position).toMatchObject({
       id: 'vault:7',
       lifecycle: 'completed',
       currentValue: 0n,
@@ -119,6 +123,6 @@ describe('VaultHistory financial positions', () => {
       startedAt,
       endedAt,
     });
-    expect(positions[0].revenueHistory).toEqual(revenue);
+    expect(position.revenueHistory).toEqual(revenue);
   });
 });

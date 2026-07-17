@@ -107,6 +107,7 @@ import { getTransactionTracker } from '../stores/transactions.ts';
 import { getVaults } from '../stores/vaults.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
 import { getSpendableDefaultArgonMicrogons } from '../lib/WalletForArgon.ts';
+import type { IBuyArgonotBondMetadata, IBuyVaultBondMetadata } from '../lib/ArgonBonds.ts';
 
 const MICROGONS_PER_ARGON_BIGINT = BigInt(MICROGONS_PER_ARGON);
 
@@ -211,9 +212,9 @@ function trackTxInfo(info: TransactionInfo) {
   unsubProgress?.();
   txInfo.value = info;
   isSubmitting.value = false;
-  let didSavePurchase = false;
+  argonBonds.saveBondPurchase(info);
 
-  unsubProgress = info.subscribeToProgress(async (args, error) => {
+  unsubProgress = info.subscribeToProgress((args, error) => {
     progressPct.value = args.progressPct;
     progressMessage.value = generateProgressLabel(args.confirmations, args.expectedConfirmations);
 
@@ -221,15 +222,7 @@ function trackTxInfo(info: TransactionInfo) {
       progressError.value = error.message ?? 'Transaction failed.';
     }
 
-    if (args.progressPct >= 100 && !error && !didSavePurchase) {
-      didSavePurchase = true;
-      try {
-        await argonBonds.saveBondPurchase(info);
-      } catch (saveError) {
-        console.error('Unable to save finalized bond purchase history', saveError);
-      }
-      emit('submitted');
-    }
+    if (args.progressPct >= 100 && !error) emit('submitted');
   });
 }
 
@@ -249,7 +242,7 @@ async function submit() {
     if (props.programType === 'Argonot') {
       tx = client.tx.treasury.buyArgonotBonds(purchaseBonds.value);
       extrinsicType = ExtrinsicType.TreasuryBuyArgonotBonds;
-      metadata = { bondPurchaseMicronots: purchaseAmount.value };
+      metadata = { bondPurchaseMicronots: purchaseAmount.value } satisfies IBuyArgonotBondMetadata;
     } else {
       if (!props.vaultId) throw new Error('Select a vault before buying bonds.');
       tx = await TreasuryBonds.buildBuyBondTx({
@@ -261,7 +254,7 @@ async function submit() {
       metadata = {
         vaultId: props.vaultId,
         bondPurchaseMicrogons: purchaseAmount.value,
-      };
+      } satisfies IBuyVaultBondMetadata;
     }
 
     const info = await transactionTracker.submitAndWatch({

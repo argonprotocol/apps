@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { GlobalVaultingStats } from '../src/GlobalVaultingStats.ts';
+import { calculateRestabilizationLeverage } from '../src/GlobalVaultingStats.ts';
 import type { IAllVaultStats, IVaultFrameStats, IVaultStats } from '../src/interfaces/IVaultStats.ts';
 import { NetworkConfig } from '../src/NetworkConfig.ts';
 import { Vaults } from '../src/Vaults.ts';
@@ -35,6 +35,7 @@ describe('Vaults load retry', () => {
     expect(mainchainClients.get).toHaveBeenCalledTimes(2);
     expect(miningFrames.load).toHaveBeenCalledTimes(2);
     expect(client.query.vaults.vaultsById.entries).toHaveBeenCalledOnce();
+    expect(vaults.stats?.synchedToFrame).toBe(0);
   });
 });
 
@@ -196,11 +197,18 @@ describe('Vault and bond network returns', () => {
   });
 
   it('calculates restabilization leverage from caller-supplied circulation', () => {
-    const stats = new GlobalVaultingStats({} as any, {} as any);
-    stats.argonBurnCapacity = 25;
-
-    expect(stats.calculateRestabilizationLeverage(10_000_000n)).toBe(2.5);
-    expect(stats.calculateRestabilizationLeverage(0n)).toBe(0);
+    expect(
+      calculateRestabilizationLeverage({
+        argonBurnCapacity: 25,
+        microgonsInCirculation: 10_000_000n,
+      }),
+    ).toBe(2.5);
+    expect(
+      calculateRestabilizationLeverage({
+        argonBurnCapacity: 25,
+        microgonsInCirculation: 0n,
+      }),
+    ).toBe(0);
   });
 });
 

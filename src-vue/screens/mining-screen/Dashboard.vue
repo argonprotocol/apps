@@ -38,34 +38,39 @@
         <TooltipRoot>
           <TooltipTrigger as="div" box stat-box class="flex flex-col w-2/12 !py-4 group">
             <span>
-              {{ currency.symbol }}{{ microgonToMoneyNm(myMiningSeats.global.framedCost).formatIfElse('< 100', '0.00', '0,0') }}
+              {{ currency.symbol
+              }}{{ microgonToMoneyNm(miningReturnSummary.investedCost).formatIfElse('< 100', '0.00', '0,0') }}
             </span>
-            <label>Relative Total Cost</label>
+            <label>Invested Cost</label>
           </TooltipTrigger>
           <TooltipContent side="bottom" :sideOffset="-10" align="center" :collisionPadding="9" class="text-center bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
-            Your total cost for mining frames that have already completed.
+            The bid costs and transaction fees for the mining terms included in Mining RTD.
             <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
           </TooltipContent>
         </TooltipRoot>
         <TooltipRoot>
           <TooltipTrigger as="div" box stat-box class="flex flex-col w-2/12 !py-4 group">
             <span>
-              {{ currency.symbol }}{{ microgonToMoneyNm(myMiningSeats.global.microgonValueOfRewards).formatIfElse('< 100', '0.00', '0,0') }}
+              {{ currency.symbol
+              }}{{ microgonToMoneyNm(miningReturnSummary.returnAmount ?? 0n).formatIfElse('< 100', '0.00', '0,0') }}
             </span>
-            <label>Relative Total Earnings</label>
+            <label>Profit to Date</label>
           </TooltipTrigger>
           <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
-            The total amount you've earned from completed mining frames.
+            Value and income earned to date, less invested cost, for the mining terms included in Mining RTD.
             <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
           </TooltipContent>
         </TooltipRoot>
         <TooltipRoot>
           <TooltipTrigger as="div" box stat-box class="flex flex-col w-2/12 !py-4 group">
-            <span>{{ numeral(elapsedMiningReturn).formatIfElseCapped('< 100', '0.[00]', '0,0', 9_999) }}%</span>
-            <label>Current Profit</label>
+            <span v-if="miningReturnSummary.percent !== undefined">
+              {{ numeral(miningReturnSummary.percent).formatIfElseCapped('< 100', '0.[00]', '0,0', 9_999) }}%
+            </span>
+            <span v-else>--</span>
+            <label>Mining RTD</label>
           </TooltipTrigger>
           <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
-            Your current profit based on the portion of your mining frames completed so far.
+            Your return to date across mining terms and mining ARGNOT positions.
             <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
           </TooltipContent>
         </TooltipRoot>
@@ -241,20 +246,21 @@ dayjs.extend(utc);
 
 <script setup lang="ts">
 import { BigNumber } from 'bignumber.js';
-import { calculateProfitPct, Mining } from '@argonprotocol/apps-core';
+import { Mining } from '@argonprotocol/apps-core';
 import { getMyMiningSeats } from '../../stores/myMiningSeats.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { TICK_MILLIS } from '../../lib/Env.ts';
+import basicEmitter from '../../emitters/basicEmitter.ts';
 import FrameSlider from '../../components/FrameSlider.vue';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
-import basicEmitter from '../../emitters/basicEmitter.ts';
 import CountdownClock from '../../components/CountdownClock.vue';
 import MiningSeats from './components/MiningSeats.vue';
 import { getBlockWatch, getMainchainClient, getMining, getMiningFrames } from '../../stores/mainchain.ts';
 import { botEmitter } from '../../lib/Bot.ts';
 import { getBot } from '../../stores/bot.ts';
 import { useWallets } from '../../stores/wallets.ts';
+import { useFinancials } from '../../stores/financials.ts';
 
 const myMiningSeats = getMyMiningSeats();
 const currency = getCurrency();
@@ -263,6 +269,7 @@ const blockWatch = getBlockWatch();
 const mining = getMining();
 const miningFrames = getMiningFrames();
 const wallets = useWallets();
+const financials = useFinancials();
 
 const { microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
@@ -412,8 +419,8 @@ function formatBidAmount(microgons: bigint | null): string {
   return `${currency.symbol}${microgonToMoneyNm(microgons).formatIfElse('<100', '0,0.00', '0,0')}`;
 }
 
-const elapsedMiningReturn = Vue.computed(() => {
-  return calculateProfitPct(myMiningSeats.global.framedCost, myMiningSeats.global.microgonValueOfRewards) * 100;
+const miningReturnSummary = Vue.computed(() => {
+  return financials.financialPositionAggregate.groupSummaries.mining.returnSummary;
 });
 
 const totalBlocksMined = Vue.computed(() => {

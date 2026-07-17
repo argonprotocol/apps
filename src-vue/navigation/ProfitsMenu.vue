@@ -22,7 +22,17 @@
               <div class="text-xs font-normal text-slate-500">
                 <template v-if="aggregate.accountReturn.availability === 'not-applicable'">No positions yet</template>
                 <template v-else-if="aggregate.accountReturn.availability === 'unavailable'">Not available yet</template>
-                <template v-else-if="aggregate.accountReturn.availability === 'partial'">Partial</template>
+                <span v-else-if="aggregate.accountReturn.availability === 'partial'" class="inline-flex items-center gap-1">
+                  Partial
+                  <Tooltip
+                    as-child
+                    content="This percentage includes only positions with known cost basis and history."
+                  >
+                    <span class="cursor-help text-slate-400 hover:text-slate-600">
+                      <InformationCircleIcon class="size-3.5" />
+                    </span>
+                  </Tooltip>
+                </span>
                 <template v-else>Return to date</template>
               </div>
             </div>
@@ -35,13 +45,38 @@
 
           <li v-for="group in returnGroups" :key="group.group" class="flex items-center justify-between gap-6 px-3 py-2">
             <div>
-              <div class="font-semibold text-slate-700">{{ financialMenuLabels[group.group] }}</div>
+              <div class="font-semibold text-slate-700">
+                {{ group.group === 'ethereum' ? 'Stable swaps' : financialMenuLabels[group.group] }}
+              </div>
               <div
                 v-if="group.isStale || group.returnSummary.availability !== 'available'"
                 class="text-xs font-normal text-slate-500"
               >
-                <template v-if="group.isStale">Stale</template>
-                <template v-else-if="group.returnSummary.availability === 'partial'">Partial</template>
+                <span v-if="group.isStale" class="inline-flex items-center gap-1">
+                  Stale
+                  <Tooltip
+                    as-child
+                    :content="group.message ?? 'This position is waiting for newer finalized account data.'"
+                  >
+                    <span class="cursor-help text-slate-400 hover:text-slate-600">
+                      <InformationCircleIcon class="size-3.5" />
+                    </span>
+                  </Tooltip>
+                </span>
+                <span
+                  v-else-if="group.returnSummary.availability === 'partial'"
+                  class="inline-flex items-center gap-1"
+                >
+                  Partial
+                  <Tooltip
+                    as-child
+                    content="This percentage includes only positions with known cost basis and history."
+                  >
+                    <span class="cursor-help text-slate-400 hover:text-slate-600">
+                      <InformationCircleIcon class="size-3.5" />
+                    </span>
+                  </Tooltip>
+                </span>
                 <template v-else>Return unavailable</template>
               </div>
             </div>
@@ -79,8 +114,11 @@
 import * as Vue from 'vue';
 import { storeToRefs } from 'pinia';
 import { NavigationMenuContent, NavigationMenuItem, NavigationMenuTrigger } from 'reka-ui';
+import { InformationCircleIcon } from '@heroicons/vue/20/solid';
 import numeral from '../lib/numeral.ts';
+import Tooltip from '../components/Tooltip.vue';
 import { useFinancials } from '../stores/financials.ts';
+import { getConfig } from '../stores/config.ts';
 import { financialMenuLabels } from './financialMenuLabels.ts';
 
 const rootRef = Vue.ref<HTMLElement>();
@@ -90,10 +128,19 @@ defineExpose({
 });
 
 const financials = useFinancials();
+const config = getConfig();
 const { financialPositionAggregate: aggregate, historyRecovery } = storeToRefs(financials);
 const returnGroups = Vue.computed(() => {
-  return aggregate.value.groups.filter(group => group.returnSummary.availability !== 'not-applicable');
+  if (!config.isLoaded) return [];
+
+  return aggregate.value.groups.filter(group => {
+    if (group.group === 'liquid') return true;
+    if (group.group === 'mining' || group.group === 'vaulting') return config.hasExtensionOperations;
+    if (group.group === 'ethereum') return config.hasActivatedStableSwaps;
+    return config.hasExtensionTreasury;
+  });
 });
+
 function formatPercent(percent?: number): string {
   if (percent === undefined) return '--';
   return `${numeral(percent).format('0,0.[00]')}%`;

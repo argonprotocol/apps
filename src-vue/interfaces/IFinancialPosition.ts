@@ -9,7 +9,7 @@ import type { IFrameBidRecord } from './db/IFrameBidRecord.ts';
 import type { IVaultCapitalHistoryRecord } from '../lib/db/VaultCapitalHistoryTable.ts';
 import type { IVaultRevenueEventsRecord } from '../lib/db/VaultRevenueEventsTable.ts';
 
-export const financialGroups = ['liquid', 'mining', 'vaulting', 'bonds', 'bitcoin', 'stableSwaps'] as const;
+export const financialGroups = ['liquid', 'ethereum', 'mining', 'vaulting', 'bonds', 'bitcoin'] as const;
 
 export type FinancialGroup = (typeof financialGroups)[number];
 type FinancialGroupState = 'loading' | 'ready' | 'stale' | 'error';
@@ -69,6 +69,14 @@ export interface IWalletHoldingFinancialPosition extends IFinancialInvestmentPos
   closingArgonotRateMicrogons?: bigint;
 }
 
+export interface IEthereumWalletFinancialPosition extends IFinancialPositionBase {
+  kind: 'ethereum-wallet-balance';
+  group: 'ethereum';
+  wallet: IWallet;
+  asset: string;
+  nativeAmount?: bigint;
+}
+
 export interface IMiningBidFinancialPosition extends IFinancialInvestmentPositionBase {
   kind: 'mining-bid';
   group: 'mining';
@@ -76,6 +84,14 @@ export interface IMiningBidFinancialPosition extends IFinancialInvestmentPositio
   nativeStakedMicronots: bigint;
   entryArgonotRateMicrogons?: bigint;
   currentArgonotRateMicrogons?: bigint;
+}
+
+export interface IMiningBalanceFinancialPosition extends IFinancialPositionBase {
+  kind: 'mining-balance';
+  group: 'mining';
+  accountId: string;
+  asset: 'ARGN' | 'ARGNOT';
+  amount: bigint;
 }
 
 export interface IMiningCohortFinancialPosition extends IFinancialInvestmentPositionBase {
@@ -98,11 +114,7 @@ interface IMiningArgonotFinancialPositionBase extends IFinancialInvestmentPositi
 }
 
 export type IMiningArgonotFinancialPosition = IMiningArgonotFinancialPositionBase &
-  (
-    | { source: 'collateral' | 'rewards'; cohort: IMiningCohortFinancialRecord }
-    | { source: 'custody'; cohort?: never }
-    | { source: 'unattributed'; cohort?: never }
-  );
+  ({ source: 'collateral' | 'rewards'; cohort: IMiningCohortFinancialRecord } | { source: 'custody'; cohort?: never });
 
 interface IBondFinancialPositionBase extends IFinancialInvestmentPositionBase {
   kind: 'bond';
@@ -130,6 +142,13 @@ export interface IVaultFinancialPosition extends IFinancialInvestmentPositionBas
   revenueHistory: readonly IVaultRevenueEventsRecord[];
 }
 
+export interface IVaultBalanceFinancialPosition extends IFinancialPositionBase {
+  kind: 'vault-balance';
+  group: 'vaulting';
+  asset: 'ARGNOT';
+  amount: bigint;
+}
+
 export interface IBitcoinAssetFinancialPosition extends IFinancialInvestmentPositionBase {
   kind: 'bitcoin-asset';
   group: 'bitcoin';
@@ -146,7 +165,7 @@ export interface IBitcoinLiabilityFinancialPosition extends IFinancialPositionBa
 
 export interface IStableSwapFinancialPosition extends IFinancialInvestmentPositionBase {
   kind: 'stable-swap';
-  group: 'stableSwaps';
+  group: 'ethereum';
   wallet: IWallet;
   purchases: readonly IStableSwapPurchaseRecord[];
   nativeAmount: bigint;
@@ -165,6 +184,9 @@ export type IFinancialInvestmentPosition =
 
 export type IFinancialPosition =
   | IWalletBalanceFinancialPosition
+  | IEthereumWalletFinancialPosition
+  | IMiningBalanceFinancialPosition
+  | IVaultBalanceFinancialPosition
   | IFinancialInvestmentPosition
   | IBitcoinLiabilityFinancialPosition;
 
@@ -181,14 +203,17 @@ type FinancialPositionKind = keyof IFinancialPositionByKind;
 const financialGroupByPositionKind = {
   'wallet-balance': 'liquid',
   'wallet-holding': 'liquid',
+  'ethereum-wallet-balance': 'ethereum',
+  'mining-balance': 'mining',
   'mining-bid': 'mining',
   'mining-cohort': 'mining',
   'mining-argonot': 'mining',
   bond: 'bonds',
   vault: 'vaulting',
+  'vault-balance': 'vaulting',
   'bitcoin-asset': 'bitcoin',
   'bitcoin-liability': 'bitcoin',
-  'stable-swap': 'stableSwaps',
+  'stable-swap': 'ethereum',
 } as const satisfies { [Kind in FinancialPositionKind]: IFinancialPositionByKind[Kind]['group'] };
 
 type FinancialInvestmentPositionKind = IFinancialInvestmentPosition['kind'];
@@ -270,6 +295,7 @@ export interface IFinancialGroupSummary {
   group: FinancialGroup;
   state: FinancialGroupState;
   isStale: boolean;
+  positions: readonly IFinancialPosition[];
   currentValue: bigint;
   grossAssets: bigint;
   grossLiabilities: bigint;

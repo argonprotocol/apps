@@ -26,12 +26,12 @@ export class AccountActivityIndexer {
     const finalized = await client.rpc.chain.getFinalizedHead();
     const finalizedHeader = await client.rpc.chain.getHeader(finalized);
     this.latestFinalizedHeader = BlockWatch.readHeader(finalizedHeader, true);
-    this.syncInProgress = this.syncLatestHeaders(client);
+    this.queueSync(client);
 
     this.unsubscribe = await client.rpc.chain.subscribeFinalizedHeads(header => {
       this.latestFinalizedHeader = BlockWatch.readHeader(header, true);
       if (this.coverageGap) this.coverageGap.toBlock = this.latestFinalizedHeader.blockNumber;
-      if (!this.coverageGap) this.syncInProgress ??= this.syncLatestHeaders(client);
+      this.queueSync(client);
     });
   }
 
@@ -85,6 +85,9 @@ export class AccountActivityIndexer {
       }
     } catch (error) {
       if (error instanceof AccountActivityCoverageError) {
+        // Coverage is contiguous: advancing the checkpoint here would make every
+        // response after this block look trustworthy even though activity may be
+        // missing. A process restart retries this block after decoder/spec updates.
         this.coverageGap = {
           fromBlock: this.db.latestSyncedBlock + 1,
           toBlock: this.latestFinalizedHeader!.blockNumber,
@@ -99,9 +102,18 @@ export class AccountActivityIndexer {
       if (retryDelayMs) await new Promise(resolve => setTimeout(resolve, retryDelayMs));
       this.syncInProgress = undefined;
       if (!this.isClosed && !this.coverageGap && this.db.latestSyncedBlock < this.latestFinalizedHeader!.blockNumber) {
-        this.syncInProgress = this.syncLatestHeaders(client);
+        this.queueSync(client);
       }
     }
+  }
+
+  private queueSync(client: ArgonClient): void {
+    if (this.isClosed || this.coverageGap || this.syncInProgress) return;
+
+    // Assign the pending promise before syncLatestHeaders can take its synchronous
+    // no-work path. Otherwise a genesis startup leaves the resolved promise set
+    // and later finalized-head notifications cannot start the first real sync.
+    this.syncInProgress = Promise.resolve().then(() => this.syncLatestHeaders(client));
   }
 
   private async decodeBlocks(

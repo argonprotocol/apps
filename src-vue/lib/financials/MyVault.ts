@@ -1,8 +1,9 @@
 import { type Vault } from '@argonprotocol/mainchain';
-import { calculateVaultPositionValue } from '@argonprotocol/apps-core';
+import { calculateVaultPositionValue, Currency } from '@argonprotocol/apps-core';
 import {
   createFinancialPosition,
   type IFinancialPositionSource,
+  type IVaultBalanceFinancialPosition,
   type IVaultFinancialPosition,
   withInvestmentBasis,
 } from '../../interfaces/IFinancialPosition.ts';
@@ -14,12 +15,15 @@ import type { MyVault } from '../MyVault.ts';
 type VaultFinancialPositionArgs = {
   hasConfirmedHistoryCoverage: boolean;
   account: IArgonAccountBalance;
+  liveArgonotRateMicrogons: bigint;
 };
 
-export class VaultFinancials implements IFinancialPositionSource<VaultFinancialPositionArgs, IVaultFinancialPosition> {
+type VaultPosition = IVaultFinancialPosition | IVaultBalanceFinancialPosition;
+
+export class VaultFinancials implements IFinancialPositionSource<VaultFinancialPositionArgs, VaultPosition> {
   constructor(private readonly vault: MyVault) {}
 
-  public async loadPositions(args: VaultFinancialPositionArgs): Promise<IVaultFinancialPosition[]> {
+  public async loadPositions(args: VaultFinancialPositionArgs): Promise<VaultPosition[]> {
     await this.vault.load();
 
     const history = await this.vault.history.loadPositionHistory();
@@ -28,6 +32,7 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
     return this.createFinancialPositions({
       ...args,
       liveVault,
+      committedMicronots: liveVault ? this.vault.data.argonotCommitment.committedMicronots : 0n,
       uncollectedRevenue: liveVault ? this.vault.data.pendingCollectRevenue : 0n,
       capitalHistory: history.capital,
       revenueHistory: history.revenue,
@@ -35,14 +40,16 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
   }
 
   public createFinancialPositions(
-    args: Omit<VaultFinancialPositionArgs, 'account'> & {
+    args: Omit<VaultFinancialPositionArgs, 'account' | 'liveArgonotRateMicrogons'> & {
       account?: IArgonAccountBalance;
       liveVault?: Vault;
+      liveArgonotRateMicrogons?: bigint;
+      committedMicronots?: bigint;
       uncollectedRevenue?: bigint;
       capitalHistory?: readonly IVaultCapitalHistoryRecord[];
       revenueHistory?: readonly IVaultRevenueEventsRecord[];
     },
-  ): IVaultFinancialPosition[] {
+  ): VaultPosition[] {
     if (args.liveVault) {
       if (!args.account) throw new Error('Vault operator account is missing from the Argon wallet snapshot');
       validateVaultHolds(args.account, args.liveVault, args.uncollectedRevenue ?? 0n);
@@ -73,7 +80,7 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
 
     const created = vaultCapitalHistory.find(record => record.eventType === 'created');
     const finalCapitalEvent = vaultCapitalHistory.at(-1);
-    return [
+    const positions: VaultPosition[] = [
       createFinancialPosition(
         'vault',
         {
@@ -92,6 +99,25 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
         withInvestmentBasis(value, args.hasConfirmedHistoryCoverage),
       ),
     ];
+
+    const committedMicronots = args.liveVault ? (args.committedMicronots ?? 0n) : 0n;
+    if (committedMicronots > 0n) {
+      positions.push(
+        createFinancialPosition('vault-balance', {
+          id: `vault:${vaultId}:committed-argonot`,
+          label: 'Staked ARGNOT',
+          lifecycle: 'held',
+          currentValue:
+            (args.liveArgonotRateMicrogons ?? 0n) > 0n
+              ? Currency.convertMicronotToMicrogonAtPrice(committedMicronots, args.liveArgonotRateMicrogons ?? 0n)
+              : undefined,
+          asset: 'ARGNOT',
+          amount: committedMicronots,
+        }),
+      );
+    }
+
+    return positions;
   }
 }
 
