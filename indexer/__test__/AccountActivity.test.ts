@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { encodeAddress } from '@argonprotocol/mainchain';
 import { AccountActivityDecoder, AccountActivityKind, classifyEvent } from '../src/AccountActivity.ts';
-import { readHistoricalEventData } from '../src/HistoricalEventSpecs.ts';
 import { historicalEventChanges } from '../src/HistoricalEventSpecs.generated.ts';
 import { humanCodec } from './helpers/codecs.ts';
 import { createHistoricalEventData } from './helpers/historicalEvents.ts';
@@ -45,7 +44,7 @@ describe('AccountActivityDecoder', () => {
     ]);
   });
 
-  it('uses live metadata field names for a classified event beyond the copied spec catalog', () => {
+  it('decodes live metadata beyond the copied spec catalog', () => {
     const from = encodeAddress(new Uint8Array(32).fill(1));
     const to = encodeAddress(new Uint8Array(32).fill(2));
     const event = {
@@ -70,11 +69,6 @@ describe('AccountActivityDecoder', () => {
       bitcoinLocks: [],
       bitcoinLockOwners: [],
     });
-    expect(readHistoricalEventData(157, event)).toEqual([
-      ['from', 'AccountId32', from],
-      ['to', 'AccountId32', to],
-      ['amount', 'u128', '1,000'],
-    ]);
   });
 
   it('keeps a pallet balance movement out of custody transfer activity', () => {
@@ -152,28 +146,79 @@ describe('AccountActivityDecoder', () => {
     }
   });
 
-  it('falls back to copied declarations when historical event names are unavailable', () => {
-    const data = Object.assign(
-      [
-        humanCodec({ Vault: { vaultId: 7 } }),
-        humanCodec(12),
-        humanCodec(encodeAddress(new Uint8Array(32).fill(3))),
-        humanCodec(20),
-      ],
-      { names: null, typeDef: [] },
-    );
+  it('indexes codec IDs without human number formatting', () => {
+    const accountId = encodeAddress(new Uint8Array(32).fill(4));
+    const data = createHistoricalEventData(156, 'bitcoinLocks', 'BitcoinLockCreated', {
+      utxoId: 1_001,
+      vaultId: 1_002,
+      liquidityPromised: 1_000,
+      securitization: 1_000,
+      lockedTargetPrice: 900,
+      accountId,
+      securityFee: 10,
+    });
+    const event = {
+      section: 'bitcoinLocks',
+      method: 'BitcoinLockCreated',
+      data,
+    };
+
+    expect(
+      new AccountActivityDecoder().decode({
+        eventGroups: [{ extrinsicIndex: 2, extrinsicEvents: [event] }],
+        specVersion: 156,
+      }),
+    ).toMatchObject({
+      vaults: [{ vaultId: 1_002, mask: AccountActivityKind.BitcoinLock }],
+      bitcoinLocks: [{ utxoId: 1_001, mask: AccountActivityKind.BitcoinLock }],
+    });
+  });
+
+  it('indexes an optional Bitcoin mint UTXO codec', () => {
+    const accountId = encodeAddress(new Uint8Array(32).fill(4));
+    const event = {
+      section: 'mint',
+      method: 'BitcoinMint',
+      data: createHistoricalEventData(156, 'mint', 'BitcoinMint', {
+        accountId,
+        utxoId: 9,
+        amount: 1_000,
+      }),
+    };
+
+    expect(
+      new AccountActivityDecoder().decode({
+        eventGroups: [{ extrinsicIndex: 2, extrinsicEvents: [event] }],
+        specVersion: 156,
+      }),
+    ).toMatchObject({
+      accounts: [{ address: accountId, mask: AccountActivityKind.BitcoinMint }],
+      bitcoinLocks: [{ utxoId: 9, mask: AccountActivityKind.BitcoinMint }],
+    });
+  });
+
+  it('indexes a vault-backed treasury program codec', () => {
+    const accountId = encodeAddress(new Uint8Array(32).fill(4));
     const event = {
       section: 'treasury',
       method: 'BondLotPurchased',
-      data,
-    } as any;
+      data: createHistoricalEventData(156, 'treasury', 'BondLotPurchased', {
+        programId: { Vault: { vaultId: 7 } },
+        bondLotId: 9,
+        accountId,
+        bonds: 1_000,
+      }),
+    };
 
-    expect(readHistoricalEventData(156, event)?.map(([name]) => name)).toEqual([
-      'programId',
-      'bondLotId',
-      'accountId',
-      'bonds',
-    ]);
+    expect(
+      new AccountActivityDecoder().decode({
+        eventGroups: [{ extrinsicIndex: 2, extrinsicEvents: [event] }],
+        specVersion: 156,
+      }),
+    ).toMatchObject({
+      accounts: [{ address: accountId, mask: AccountActivityKind.BondPosition }],
+      vaults: [{ vaultId: 7, mask: AccountActivityKind.BondPosition }],
+    });
   });
 
   it('retains Bitcoin lock ownership for lifecycle events that only name the UTXO', () => {

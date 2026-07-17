@@ -24,6 +24,7 @@ export function createHistoricalEventData(
   Object.defineProperties(data, {
     names: { value: fields.map(([name]) => name) },
     typeDef: { value: fields.map(([, type]) => getTypeDef(type)) },
+    ...Object.fromEntries(fields.map(([name], index) => [name, { value: data[index] }])),
   });
   return data;
 }

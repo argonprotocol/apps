@@ -22,7 +22,6 @@ services:
       archive-node:
         condition: service_healthy
     command: >
-      --eve
       --compute-miners=0
       --port=30337
       --unsafe-force-node-key-generation
