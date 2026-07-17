@@ -64,12 +64,14 @@
           </TooltipRoot>
           <TooltipRoot>
             <TooltipTrigger box stat-box class="flex flex-col w-[20%] !py-4 group">
-              <span>{{ numeral(realizedApy).formatIfElseCapped('< 100', '0,0.[00]', '0,0', 9_999) }}%</span>
-              <label>Realized APY</label>
+              <span v-if="vaultingReturnToDate !== undefined">
+                {{ numeral(vaultingReturnToDate).formatIfElseCapped('< 100', '0,0.[00]', '0,0', 9_999) }}%
+              </span>
+              <span v-else>--</span>
+              <label>Vaulting RTD</label>
             </TooltipTrigger>
             <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
-              Your vault's annualized collected earnings to date based on its average deployed capital. This is not
-              Vaulting RTD, which also includes current uncollected revenue and the vault's full capital history.
+              Your return to date across the vault's capital, collected earnings, and uncollected revenue.
               <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
             </TooltipContent>
           </TooltipRoot>
@@ -77,25 +79,6 @@
       </TooltipProvider>
 
       <section class="flex flex-row gap-x-2.5 grow">
-        <div box class="flex flex-col w-[22.5%] px-2">
-          <header class="flex flex-row items-center px-1 border-b border-slate-400/30 pt-2 pb-3 text-[18px] font-bold text-slate-900/80">
-            <div class="grow">Vaulting Assets</div>
-          </header>
-          <VaultingAssetBreakdown />
-          <div class="grow border-t border-slate-600/40 flex flex-col items-center justify-center">
-            <a target="_blank" href="https://argon.network/docs/mining-operations" class="flex flex-row items-center text-center text-argon-600/60! hover:text-argon-600! cursor-pointer">
-              <div>Learn About Vaulting</div>
-              <ArrowTopRightOnSquareIcon class="w-5 ml-2" />
-            </a>
-          </div>
-          <div class="flex flex-row items-end border-t border-slate-600/20 pt-2 text-md">
-            <div @click="openVaultEditOverlay" class="grow relative text-center text-argon-600 opacity-70 hover:opacity-100 cursor-pointer">
-              <ConfigIcon class="w-6 h-6 mt-2 inline-block mb-2" />
-              <div>Settings</div>
-            </div>
-          </div>
-        </div>
-
         <div class="flex min-h-0 flex-col grow gap-y-2">
           <section box class="flex min-h-0 flex-col grow px-2 text-center">
             <header class="flex flex-row justify-between text-xl font-bold py-2 px-2 text-slate-900/80 border-b border-slate-400/30 select-none">
@@ -285,17 +268,12 @@ import { TICK_MILLIS } from '../../lib/Env.ts';
 import VaultEditOverlay from '../../overlays/VaultEditOverlay.vue';
 import BitcoinLockDetailOverlay from '../../overlays/BitcoinLockDetailOverlay.vue';
 import BondDetailOverlay from '../../overlays/BondDetailOverlay.vue';
-import AssetMenu from '../components/AssetMenu.vue';
-import ConfigIcon from '../../assets/config.svg?component';
-import { BondLot, NetworkConfig, calculateAPY, TreasuryBonds, type IFrameBondLot } from '@argonprotocol/apps-core';
+import { BondLot, NetworkConfig, TreasuryBonds, type IFrameBondLot } from '@argonprotocol/apps-core';
 import { BigNumber } from 'bignumber.js';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
 import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
-import VaultingAssetBreakdown from '../components/VaultingAssetBreakdown.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
-import CopyAddressMenu from '../../components/CopyAddressMenu.vue';
-import { WalletType } from '../../lib/Wallet.ts';
 import { ProfitAnalysis } from '../../lib/ProfitAnalysis.ts';
 import { useVaultingAssetBreakdown } from '../../stores/vaultingAssetBreakdown.ts';
 import { getArgonBonds } from '../../stores/argonBonds.ts';
@@ -305,6 +283,7 @@ import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../lib/db/Bitcoin
 import { TopTab } from '../../interfaces/IConfig.ts';
 import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
+import { useFinancials } from '../../stores/financials.ts';
 
 dayjs.extend(utc);
 
@@ -315,6 +294,7 @@ const bitcoinLocks = getBitcoinLocks();
 const config = getConfig();
 const currency = getCurrency();
 const argonBonds = getArgonBonds();
+const financials = useFinancials();
 
 const vaultingBreakdown = useVaultingAssetBreakdown();
 
@@ -351,10 +331,8 @@ const bitcoinLockedValue = Vue.computed<bigint>(() => {
   return vaultingBreakdown.securityMicrogonsActivated;
 });
 
-const realizedApy = Vue.computed(() => {
-  const { earnings, activeFrames, averageCapitalDeployed } = myVault.revenue();
-  if (earnings === 0n) return 0;
-  return calculateAPY(averageCapitalDeployed, averageCapitalDeployed + earnings, activeFrames);
+const vaultingReturnToDate = Vue.computed(() => {
+  return financials.financialPositionAggregate.groupSummaries.vaulting.returnSummary.percent;
 });
 
 const revenueMicrogons = Vue.computed(() => {

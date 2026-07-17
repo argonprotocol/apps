@@ -11,11 +11,9 @@
           <p
             class="w-0 min-w-full border-y border-slate-400/50 py-4 text-justify text-[17px]/7 font-light whitespace-normal"
           >
-            Argon Bonds give you direct exposure to the profit returns of Argon's Stabilization Vaults. These bonds are
-            backed by on-chain mechanics that make it impossible for a loan to default. This means your principal is
-            always protected. You can also commit ARGNOT to the mining auction, where the backing asset remains yours
-            while it is bonded and earnings are distributed in ARGN. The only question becomes: how much will your bond
-            earn?
+            Argon Bonds give you direct exposure to the profit returns of the growth of Argon Mining Auction pools.
+            These bonds are backed by on-chain mechanics that make it impossible for a bond to default. This means your
+            principal is always protected. The only question becomes: how much will your bond earn?
           </p>
 
           <div class="mt-12 flex gap-x-3">
@@ -112,6 +110,7 @@
               >
                 Buy with ARGN
               </button>
+              <div class="w-px bg-slate-400/50" />
               <button
                 v-if="supportsArgnotBacking"
                 type="button"
@@ -135,6 +134,7 @@
             :key="bondLot.id"
             :bondLot="bondLot"
             :isReleasing="bondLot.isReleasing"
+            :returnPercent="bondReturnsByLotId.get(bondLot.id)"
             @click="openDetail(bondLot)"
             @liquidate="openDetail"
           />
@@ -150,13 +150,14 @@
       v-if="showBondsOverlay"
       :programType="purchaseProgramType"
       @close="showBondsOverlay = false"
-      @submitted="onSubmitted"
+      @submitted="onPurchaseSubmitted"
     />
     <BondDetailOverlay
       v-if="showDetailOverlay && selectedBondLot"
       :bondLot="selectedBondLot"
+      :returnPercent="bondReturnsByLotId.get(selectedBondLot.id)"
       @close="closeDetail"
-      @submitted="onSubmitted"
+      @submitted="onLiquidationSubmitted"
     />
   </div>
 </template>
@@ -167,7 +168,7 @@ import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { getVaults } from '../stores/vaults.ts';
 import { getWalletKeys, useWallets } from '../stores/wallets.ts';
-import { getMainchainClient, getMiningFrames } from '../stores/mainchain.ts';
+import { getMainchainClient } from '../stores/mainchain.ts';
 import { getConfig } from '../stores/config.ts';
 import type { BondLot } from '@argonprotocol/apps-core';
 import { getArgonBonds } from '../stores/argonBonds.ts';
@@ -176,6 +177,7 @@ import basicEmitter from '../emitters/basicEmitter.ts';
 import { WalletType } from '../lib/Wallet.ts';
 import FormattedMoney from '../components/FormattedMoney.vue';
 import { useFinancials } from '../stores/financials.ts';
+import { calculatePositionReturn } from '../lib/financials/index.ts';
 import BondRecord from './treasury-screens/components/BondRecord.vue';
 import BondDetailOverlay from '../app-treasury/overlays/BondDetailOverlay.vue';
 
@@ -184,7 +186,6 @@ const financials = useFinancials();
 const vaults = getVaults();
 const walletKeys = getWalletKeys();
 const wallets = useWallets();
-const miningFrames = getMiningFrames();
 const config = getConfig();
 const argonBonds = getArgonBonds();
 
@@ -200,6 +201,18 @@ const bondLots = Vue.computed(() => argonBonds.data.bondLots);
 const bondsSummary = Vue.computed(() => {
   return financials.financialPositionAggregate.groupSummaries.bonds;
 });
+const bondReturnsByLotId = Vue.computed(() => {
+  const returns = new Map<number, number>();
+
+  for (const position of bondsSummary.value.positions) {
+    if (position.kind !== 'bond' || !position.bondLot) continue;
+
+    const percent = calculatePositionReturn([position]).percent;
+    if (percent !== undefined) returns.set(position.bondLot.id, percent);
+  }
+
+  return returns;
+});
 const isSummaryReady = Vue.computed(() => {
   return bondsSummary.value?.state === 'ready' || bondsSummary.value?.state === 'stale';
 });
@@ -213,10 +226,13 @@ function openBondsOverlay(programType: BondLot['programType']) {
   showBondsOverlay.value = true;
 }
 
-async function onSubmitted() {
+async function onPurchaseSubmitted() {
   showBondsOverlay.value = false;
-  await argonBonds.refreshBondLots();
-  await refreshMarketData();
+  if (purchaseProgramType.value === 'Vault') await refreshMarketData();
+}
+
+async function onLiquidationSubmitted() {
+  if (selectedBondLot.value?.programType === 'Vault') await refreshMarketData();
 }
 
 function openDetail(bondLot: BondLot) {
@@ -252,7 +268,6 @@ function openArgonWallet() {
 }
 
 let unsubVault: (() => void) | undefined;
-let unsubFrameId: { unsubscribe: () => void } | undefined;
 let vaultBondSubscription: (() => void) | undefined;
 
 Vue.onMounted(async () => {
@@ -264,7 +279,7 @@ Vue.onMounted(async () => {
 
   if (argonBonds.data.vaultId) {
     unsubVault = await vaults.subscribeToVault(argonBonds.data.vaultId, () => {
-      void refreshMarketData();
+      if (isLoaded.value) void refreshMarketData();
     });
   }
 
@@ -272,14 +287,10 @@ Vue.onMounted(async () => {
   await refreshMarketData();
 
   isLoaded.value = true;
-  unsubFrameId = miningFrames.onFrameId(() => {
-    void refreshMarketData();
-  });
 });
 
 Vue.onUnmounted(() => {
   unsubVault?.();
   vaultBondSubscription?.();
-  unsubFrameId?.unsubscribe();
 });
 </script>

@@ -101,6 +101,8 @@ describe('StableSwaps', () => {
       currentPriceMicrogons: 800_000n,
     });
 
+    expect(position.id).toBe(`${syncState.walletAddress.toLowerCase()}:ethereum:ARGN`);
+    expect(position.group).toBe('ethereum');
     expect(position.currentValue).toBe(800_000n);
     expect(position.isQuantityReconciled).toBe(true);
     expect(position.investedCost).toBeUndefined();

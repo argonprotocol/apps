@@ -4,7 +4,10 @@
       <BondIcon MainIcon />
       <div ContentWrapper>
         <div FirstRow>
-          <span class="font-semibold">{{ numeral(bondLot.bonds).format('0,0') }} Argon Bonds</span>
+          <span class="font-semibold">
+            {{ numeral(bondLot.bonds).format('0,0') }}
+            {{ bondLot.programType === 'Argonot' ? 'Argonot Bonds' : 'Argon Bonds' }}
+          </span>
           <span class="font-light">
             bought
             {{ dayjs.utc(miningFrames.getFrameDate(bondLot.createdFrame)).local().format('M/D/YYYY [at] h:mm a') }}
@@ -64,16 +67,20 @@
             {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.lifetimeEarnings).format('0,0.00') }}
             in distributions
           </span>
-          <div v-if="bondLot.programType === 'Vault'" class="flex grow flex-row items-stretch justify-center">
-            <span class="h-full w-px bg-slate-400/50"></span>
-          </div>
-          <span v-if="bondLot.programType === 'Vault'">
-            {{ numeral(returnToDate(bondLot.bondMicrogons, bondLot.lifetimeEarnings)).format('0,0.00') }}% return
-          </span>
           <div class="flex grow flex-row items-stretch justify-center">
             <span class="h-full w-px bg-slate-400/50"></span>
           </div>
-          <span>{{ vaultLabel }}</span>
+          <span>
+            <template v-if="returnPercent === undefined">--</template>
+            <template v-else>{{ numeral(returnPercent).format('0,0.00') }}%</template>
+            return
+          </span>
+          <template v-if="vaultLabel">
+            <div class="flex grow flex-row items-stretch justify-center">
+              <span class="h-full w-px bg-slate-400/50"></span>
+            </div>
+            <span>{{ vaultLabel }}</span>
+          </template>
         </div>
       </div>
     </section>
@@ -91,7 +98,6 @@ import CountdownClock from '../../../components/CountdownClock.vue';
 import { BondLot } from '@argonprotocol/apps-core';
 import { getMiningFrames } from '../../../stores/mainchain.ts';
 import { getVaults } from '../../../stores/vaults.ts';
-import BigNumber from 'bignumber.js';
 
 dayjs.extend(utc);
 
@@ -105,6 +111,7 @@ const props = withDefaults(
   defineProps<{
     bondLot: BondLot;
     isReleasing?: boolean;
+    returnPercent?: number;
   }>(),
   {
     isReleasing: false,
@@ -117,9 +124,7 @@ const emit = defineEmits<{
 
 const isActionHovered = Vue.ref(false);
 const vaultLabel = Vue.computed(() => {
-  if (props.bondLot.programType === 'Argonot') {
-    return 'ARGNOT-backed Argon Bond';
-  }
+  if (props.bondLot.programType === 'Argonot') return;
 
   const vaultId = props.bondLot.vaultId;
   if (vaultId == null) {
@@ -130,11 +135,6 @@ const vaultLabel = Vue.computed(() => {
   const name = vault?.name?.trim();
   return name ? `${name} Vault` : `Vault #${vaultId}`;
 });
-
-function returnToDate(investment: bigint, earnings: bigint): number {
-  const pctBn = BigNumber(earnings).dividedBy(investment);
-  return pctBn.multipliedBy(100).toNumber();
-}
 </script>
 
 <style>

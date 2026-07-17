@@ -53,10 +53,12 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
     return pctBn.multipliedBy(100).toNumber();
   });
 
-  const securityMicronots = Vue.computed(() => wallets.defaultArgonWallet.totalMicronots);
-  const securityMicronotsUnused = Vue.computed(() => wallets.defaultArgonWallet.availableMicronots);
+  const securityMicronots = Vue.computed(() => myVault.data.argonotCommitment.committedMicronots);
+  const securityMicronotsUnused = Vue.computed(() => {
+    return bigIntMax(0n, securityMicronots.value - myVault.data.argonotCommitment.encumberedMicronots);
+  });
   const securityMicronotsPending = Vue.computed(() => 0n);
-  const securityMicronotsActivated = Vue.computed(() => wallets.defaultArgonWallet.reservedMicronots);
+  const securityMicronotsActivated = Vue.computed(() => myVault.data.argonotCommitment.encumberedMicronots);
   const securityMicronotsActivatedPct = Vue.computed<number>(() => {
     if (securityMicronots.value <= 0n) return 0;
 

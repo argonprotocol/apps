@@ -26,7 +26,7 @@ import type { IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
 import { ArgonBondsFinancials } from '../lib/financials/ArgonBonds.ts';
 import type { WalletForArgon } from '../lib/WalletForArgon.ts';
 import { MiningFinancials } from '../lib/financials/MyMiningSeats.ts';
-import { FinancialPositionBook, reduceFinancialPositions } from '../lib/financials/index.ts';
+import { calculatePositionReturn, FinancialPositionBook, reduceFinancialPositions } from '../lib/financials/index.ts';
 import { WalletFinancials } from '../lib/financials/WalletBalances.ts';
 
 const wallet: IWallet = {
@@ -185,7 +185,7 @@ describe('financial position accounting', () => {
       {
         id: 'swap-1',
         kind: 'stable-swap',
-        group: 'stableSwaps',
+        group: 'ethereum',
         label: 'Stable swap holdings',
         lifecycle: 'active',
 
@@ -216,7 +216,7 @@ describe('financial position accounting', () => {
       {
         id: 'stable-swap-1',
         kind: 'stable-swap',
-        group: 'stableSwaps',
+        group: 'ethereum',
         label: 'Stable swap holdings',
         lifecycle: 'active',
 
@@ -232,7 +232,7 @@ describe('financial position accounting', () => {
     ];
 
     const aggregate = reduceFinancialPositions(readySnapshots(positions));
-    const stableSwaps = aggregate.groupSummaries.stableSwaps;
+    const stableSwaps = aggregate.groupSummaries.ethereum;
 
     expect(stableSwaps?.returnSummary.availability).toBe('unavailable');
     expect(stableSwaps?.returnSummary.percent).toBeUndefined();
@@ -265,6 +265,7 @@ describe('financial position accounting', () => {
         label: 'ARGNOT holding basis unavailable',
         lifecycle: 'unavailable',
 
+        currentValue: 0n,
         paidIncome: 0n,
         accountId: '5wallet',
         nativeAsset: 'ARGNOT',
@@ -274,6 +275,7 @@ describe('financial position accounting', () => {
 
     const aggregate = reduceFinancialPositions(readySnapshots(positions));
 
+    expect(aggregate.readiness).toBe('ready');
     expect(aggregate.groupSummaries.liquid.returnSummary).toMatchObject({
       availability: 'partial',
       eligiblePositionCount: 1,
@@ -287,7 +289,7 @@ describe('financial position accounting', () => {
     });
   });
 
-  it('keeps pending mining bids at zero return and does not count reused collateral twice', () => {
+  it('counts newly held pending mining collateral once without diluting term RTD', () => {
     const cohort = createMiningCohort({
       progress: 30,
       transactionFeesTotal: 1_000_000n,
@@ -316,11 +318,10 @@ describe('financial position accounting', () => {
       cohorts: [cohort],
       latestFrameId: 21,
       pendingBids: [pendingBid],
-      heldMicrogons: 50_000_000n,
-      heldMicronots: 10_000_000n,
+      heldMicronots: 20_000_000n,
       liveArgonotRateMicrogons: 3_000_000n,
       miningBotAddress: '5miner',
-      miningBotMicronots: 10_000_000n,
+      miningBotMicronots: 20_000_000n,
       frameDates: new Map([[12, new Date('2026-07-01T00:00:00Z')]]),
     });
     const active = positions.find(position => position.kind === 'mining-cohort');
@@ -344,12 +345,126 @@ describe('financial position accounting', () => {
       micronots: 10_000_000n,
     });
     expect(pending).toMatchObject({
-      currentValue: 50_000_000n,
-      investedCost: 50_000_000n,
-      nativeStakedMicronots: 0n,
+      currentValue: 80_000_000n,
+      investedCost: 80_000_000n,
+      nativeStakedMicronots: 10_000_000n,
     });
-    expect(mining?.currentValue).toBe(140_000_000n);
-    expect(mining?.returnSummary.returnAmount).toBe(14_000_000n);
+    expect(mining?.currentValue).toBe(170_000_000n);
+    expect(mining?.returnSummary).toMatchObject({
+      investedCost: 101_000_000n,
+      returnAmount: 4_000_000n,
+      percent: 3.96,
+    });
+  });
+
+  it('uses actual holds when available mining custody exceeds the amount reused by bids', () => {
+    const pendingBids = [0, 1].map(subAccountIndex => ({
+      frameId: 21,
+      confirmedAtBlockNumber: 500,
+      address: `5miner-${subAccountIndex}`,
+      subAccountIndex,
+      microgonsPerSeat: 50_000_000n,
+      micronotsStakedPerSeat: 5_000_000n,
+      bidPosition: subAccountIndex,
+      createdAt: '2026-07-14T00:00:00Z',
+      updatedAt: '2026-07-14T00:00:00Z',
+    }));
+    const positions = miningFinancials.createFinancialPositions({
+      cohorts: [],
+      latestFrameId: 21,
+      pendingBids,
+      heldMicronots: 4_000_000n,
+      liveArgonotRateMicrogons: 3_000_000n,
+      miningBotAddress: '5miner',
+      miningBotMicronots: 10_000_000n,
+      frameDates: new Map(),
+      custodyTransfers: [
+        createWalletTransfer({
+          id: 9,
+          amount: -10_000_000n,
+          otherParty: '5miner',
+          isInternal: true,
+          microgonsForArgonot: 2_000_000n,
+        }),
+      ],
+    });
+
+    expect(
+      positions.filter(position => position.kind === 'mining-bid').map(position => position.nativeStakedMicronots),
+    ).toEqual([0n, 4_000_000n]);
+    expect(reduceFinancialPositions(readySnapshots(positions)).groupSummaries.mining.currentValue).toBe(130_000_000n);
+  });
+
+  it('counts idle mining ARGN without treating it as an investment return', () => {
+    const args = {
+      cohorts: [],
+      latestFrameId: 21,
+      pendingBids: [],
+      heldMicronots: 0n,
+      liveArgonotRateMicrogons: 3_000_000n,
+      miningBotAddress: '5miner',
+      miningBotMicrogons: 2_000_000n,
+      miningBotMicronots: 0n,
+      frameDates: new Map<number, Date>(),
+    };
+
+    const positions = miningFinancials.createFinancialPositions(args);
+    const mining = reduceFinancialPositions(readySnapshots(positions)).groupSummaries.mining;
+
+    expect(positions).toContainEqual(
+      expect.objectContaining({
+        kind: 'mining-balance',
+        asset: 'ARGN',
+        currentValue: 2_000_000n,
+      }),
+    );
+    expect(mining.returnSummary.availability).toBe('not-applicable');
+  });
+
+  it('does not count held bid ARGN again as an idle mining balance', async () => {
+    const registry = getOfflineRegistry();
+    const account = createArgonAccount({
+      address: '5miner',
+      availableMicrogons: 100n,
+      microgonHolds: [
+        registry.createType('FrameSupportTokensMiscIdAmountRuntimeHoldReason', {
+          id: { MiningSlot: 'RegisterAsMiner' },
+          amount: 40n,
+        }),
+      ],
+    });
+    const financials = new MiningFinancials({
+      load: vi.fn(),
+      miningCohorts: [],
+      latestFrameId: 21,
+      currentFrameBids: [
+        {
+          frameId: 21,
+          confirmedAtBlockNumber: 500,
+          address: '5miner-0',
+          subAccountIndex: 0,
+          microgonsPerSeat: 40n,
+          micronotsStakedPerSeat: 0n,
+          bidPosition: 0,
+          createdAt: '2026-07-14T00:00:00Z',
+          updatedAt: '2026-07-14T00:00:00Z',
+        },
+      ],
+      currency: { microgonsPer: { ARGNOT: 0n } },
+      miningFrames: { getFrameDate: vi.fn() },
+    } as any);
+
+    const positions = await financials.loadPositions({
+      accounts: [account],
+      miningBotAddress: '5miner',
+      hasConfirmedHistoryCoverage: false,
+    });
+
+    expect(positions.find(position => position.kind === 'mining-balance')).toMatchObject({
+      asset: 'ARGN',
+      currentValue: 60n,
+    });
+    expect(reduceFinancialPositions(readySnapshots(positions)).groupSummaries.mining.currentValue).toBe(100n);
   });
 
   it('does not treat a completed mining stake as lost when its closing ARGNOT mark is missing', () => {
@@ -367,7 +482,6 @@ describe('financial position accounting', () => {
       ],
       latestFrameId: 22,
       pendingBids: [],
-      heldMicrogons: 0n,
       heldMicronots: 0n,
       liveArgonotRateMicrogons: 3_000_000n,
       miningBotAddress: '5miner',
@@ -395,13 +509,16 @@ describe('financial position accounting', () => {
       currentValue: 30_000_000n,
       investedCost: 20_000_000n,
     });
-    expect(rewards).toMatchObject({ lifecycle: 'active', currentValue: 30_000_000n });
-    expect(rewards?.investedCost).toBeUndefined();
-    expect(mining?.returnSummary.availability).toBe('partial');
-    expect(mining?.returnSummary.returnAmount).toBe(10_000_000n);
+    expect(rewards).toMatchObject({
+      lifecycle: 'active',
+      currentValue: 30_000_000n,
+      investedCost: undefined,
+    });
+    expect(mining?.returnSummary.availability).toBe('unavailable');
+    expect(mining?.returnSummary.returnAmount).toBeUndefined();
   });
 
-  it('keeps reconstructable mining collateral based and marks only the unknown remainder unavailable', () => {
+  it('keeps unbased mining ARGNOT in net worth without making the investment return partial', () => {
     const positions = miningFinancials.createFinancialPositions({
       cohorts: [
         createMiningCohort({
@@ -417,7 +534,6 @@ describe('financial position accounting', () => {
       ],
       latestFrameId: 12,
       pendingBids: [],
-      heldMicrogons: 0n,
       heldMicronots: 7_000_000n,
       liveArgonotRateMicrogons: 3_000_000n,
       miningBotAddress: '5miner',
@@ -426,6 +542,9 @@ describe('financial position accounting', () => {
       hasConfirmedHistoryCoverage: false,
     });
     const custody = positions.filter(position => position.kind === 'mining-argonot');
+    const unbasedBalance = positions.find(position => {
+      return position.kind === 'mining-balance' && position.asset === 'ARGNOT';
+    });
     const mining = reduceFinancialPositions(readySnapshots(positions)).groupSummaries.mining;
 
     expect(custody).toEqual([
@@ -436,16 +555,14 @@ describe('financial position accounting', () => {
         investedCost: 14_000_000n,
         micronots: 7_000_000n,
       }),
-      expect.objectContaining({
-        source: 'unattributed',
-        lifecycle: 'active',
-        currentValue: 9_000_000n,
-        investedCost: undefined,
-        micronots: 3_000_000n,
-      }),
     ]);
+    expect(unbasedBalance).toMatchObject({
+      lifecycle: 'available',
+      currentValue: 9_000_000n,
+      amount: 3_000_000n,
+    });
     expect(mining.currentValue).toBe(120_000_000n);
-    expect(mining.returnSummary.availability).toBe('partial');
+    expect(mining.returnSummary.availability).toBe('available');
   });
 
   it('does not publish released mining ARGNOT that left without a recovered custody boundary', () => {
@@ -453,7 +570,6 @@ describe('financial position accounting', () => {
       cohorts: [createMiningCohort()],
       latestFrameId: 22,
       pendingBids: [],
-      heldMicrogons: 0n,
       heldMicronots: 0n,
       liveArgonotRateMicrogons: 4_000_000n,
       miningBotAddress: '5miner',
@@ -502,7 +618,6 @@ describe('financial position accounting', () => {
       ],
       latestFrameId: 22,
       pendingBids: [],
-      heldMicrogons: 0n,
       heldMicronots: 0n,
       liveArgonotRateMicrogons: 4_000_000n,
       miningBotAddress: '5miner',
@@ -515,7 +630,7 @@ describe('financial position accounting', () => {
 
     const aggregate = reduceFinancialPositions(readySnapshots([...ordinary, ...mining]));
     expect(aggregate.groupSummaries.liquid.returnSummary.returnAmount).toBe(10_000_000n);
-    expect(aggregate.groupSummaries.mining.returnSummary.returnAmount).toBe(10_000_000n);
+    expect(aggregate.groupSummaries.mining.returnSummary.returnAmount).toBe(0n);
     expect(aggregate.accountReturn).toMatchObject({ availability: 'available', basisPoints: 2_857n });
   });
 
@@ -536,7 +651,6 @@ describe('financial position accounting', () => {
       ],
       latestFrameId: 12,
       pendingBids: [],
-      heldMicrogons: 0n,
       heldMicronots: 7_000_000n,
       liveArgonotRateMicrogons: 4_000_000n,
       miningBotAddress: '5miner',
@@ -602,7 +716,6 @@ describe('financial position accounting', () => {
       cohorts: [firstCohort, secondCohort],
       latestFrameId: 11,
       pendingBids: [],
-      heldMicrogons: 0n,
       heldMicronots: 10_000_000n,
       liveArgonotRateMicrogons: 4_000_000n,
       miningBotAddress: '5miner',
@@ -637,7 +750,6 @@ describe('financial position accounting', () => {
       cohorts: [createMiningCohort({ id: 1 })],
       latestFrameId: 12,
       pendingBids: [],
-      heldMicrogons: 0n,
       heldMicronots: 0n,
       liveArgonotRateMicrogons: 4_000_000n,
       frameDates: new Map([
@@ -724,14 +836,13 @@ describe('financial position accounting', () => {
         cohorts: [],
         latestFrameId: 21,
         pendingBids,
-        heldMicrogons: 100_000_000n,
         heldMicronots: 10_000_000n,
         liveArgonotRateMicrogons: 3_000_000n,
         miningBotAddress: '5miner',
         miningBotMicronots: 0n,
         frameDates: new Map(),
       }),
-    ).toThrow('ARGNOT MiningSlot holds cannot be attributed across pending mining bids');
+    ).toThrow('ARGNOT MiningSlot holds exceed the mining account balance');
   });
 
   it('subtracts burned Bitcoin liquidity while keeping ratchets in one lock position', () => {
@@ -1082,6 +1193,12 @@ describe('financial position accounting', () => {
       investedCost: 20_000_000n,
       currentValue: 30_000_000n,
       paidIncome: 4_000_000n,
+    });
+    expect(calculatePositionReturn([argonotPosition!])).toMatchObject({
+      investedCost: 20_000_000n,
+      paidIncome: 4_000_000n,
+      returnAmount: 14_000_000n,
+      percent: 70,
     });
 
     const vaultBondGroup = reduceFinancialPositions(readySnapshots([vaultPosition!])).groupSummaries.bonds;

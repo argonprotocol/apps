@@ -270,6 +270,31 @@ describe('WalletsForArgon live balance tracking', () => {
 });
 
 describe('WalletsForArgon ARGNOT holdings', () => {
+  it('uses the recorded receipt price as the basis for faucet ARGNOT', async () => {
+    const faucet = {
+      ...transfer(1, '5default', 5n, false, undefined, 2_000_000n),
+      transferType: 'faucet' as const,
+    };
+    const fetchArgonotCustody = vi.fn().mockResolvedValue([faucet]);
+    const wallets = createWallets({ walletTransfersTable: { revision: 1, fetchArgonotCustody } });
+
+    const positions = await new WalletFinancials(wallets).loadPositions({
+      accounts: [account(wallets.defaultArgonWallet, 5n)],
+      claimedHolds: { treasury: false, miningSlot: false, vaults: false },
+      liveArgonotRateMicrogons: 3_000_000n,
+    });
+
+    expect(positions).toEqual([
+      expect.objectContaining({
+        kind: 'wallet-holding',
+        lifecycle: 'active',
+        nativeAmount: 5n,
+        investedCost: 10n,
+        currentValue: 15n,
+      }),
+    ]);
+  });
+
   it('marks ARGNOT outside known FIFO lots as unavailable holding basis', async () => {
     const fetchArgonotCustody = vi.fn().mockResolvedValue([transfer(1, '5default', 4n, false, undefined, 2_000_000n)]);
     const wallets = createWallets({ walletTransfersTable: { revision: 1, fetchArgonotCustody } });
@@ -298,6 +323,28 @@ describe('WalletsForArgon ARGNOT holdings', () => {
         kind: 'wallet-holding',
         lifecycle: 'unavailable',
         nativeAmount: 2n,
+        currentValue: 0n,
+      }),
+    ]);
+  });
+
+  it('keeps the remaining receipt basis when some ARGNOT has left the liquid balance', async () => {
+    const fetchArgonotCustody = vi.fn().mockResolvedValue([transfer(1, '5default', 5n, false, undefined, 2_000_000n)]);
+    const wallets = createWallets({ walletTransfersTable: { revision: 1, fetchArgonotCustody } });
+
+    const positions = await new WalletFinancials(wallets).loadPositions({
+      accounts: [account(wallets.defaultArgonWallet, 3n)],
+      claimedHolds: { treasury: true, miningSlot: false, vaults: false },
+      liveArgonotRateMicrogons: 3_000_000n,
+    });
+
+    expect(positions).toEqual([
+      expect.objectContaining({
+        kind: 'wallet-holding',
+        lifecycle: 'active',
+        nativeAmount: 3n,
+        investedCost: 6n,
+        currentValue: 9n,
       }),
     ]);
   });
@@ -374,7 +421,7 @@ describe('WalletsForArgon ARGNOT holdings', () => {
       ['active', '5default', 4n, 12n, 16n, 0n],
       ['active', '5operational', 2n, 4n, 8n, 0n],
       ['active', '5operational', 2n, 6n, 8n, 0n],
-      ['unavailable', '5miner', 5n, undefined, undefined, undefined],
+      ['unavailable', '5miner', 5n, undefined, 0n, undefined],
     ]);
     expect(
       positions
@@ -409,6 +456,27 @@ describe('WalletsForArgon ARGNOT holdings', () => {
         nativeAmount: 5n,
         investedCost: 10n,
         currentValue: 15n,
+      }),
+    ]);
+  });
+
+  it('removes vault-staked ARGNOT from ordinary wallet holdings', async () => {
+    const fetchArgonotCustody = vi.fn().mockResolvedValue([transfer(1, '5default', 5n, false, undefined, 2_000_000n)]);
+    const wallets = createWallets({ walletTransfersTable: { revision: 1, fetchArgonotCustody } });
+
+    const positions = await new WalletFinancials(wallets).loadPositions({
+      accounts: [account(wallets.defaultArgonWallet, 5n)],
+      claimedHolds: { treasury: false, miningSlot: false, vaults: true },
+      claimedMicronotsByAccount: new Map([['5default', 3n]]),
+      liveArgonotRateMicrogons: 3_000_000n,
+    });
+
+    expect(positions).toEqual([
+      expect.objectContaining({
+        kind: 'wallet-holding',
+        accountId: '5default',
+        nativeAmount: 2n,
+        currentValue: 6n,
       }),
     ]);
   });
@@ -466,21 +534,6 @@ describe('WalletsForArgon ARGNOT holdings', () => {
         currentValue: 20n,
       }),
     ]);
-  });
-
-  it('removes all modeled mining custody from the mining bot liquid residual', async () => {
-    const wallets = createWallets({
-      walletTransfersTable: { revision: 1, fetchArgonotCustody: vi.fn().mockResolvedValue([]) },
-    });
-
-    const positions = await new WalletFinancials(wallets).loadPositions({
-      accounts: [account(wallets.miningBotWallet, 10n)],
-      claimedHolds: { treasury: false, miningSlot: false, vaults: false },
-      claimedMicronotsByAccount: new Map([['5miner', 10n]]),
-      liveArgonotRateMicrogons: 3_000_000n,
-    });
-
-    expect(positions).toEqual([]);
   });
 });
 

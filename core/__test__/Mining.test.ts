@@ -152,6 +152,8 @@ describe('Mining network returns', () => {
     expect(stats.activeSeatCount).toBe(4);
     expect(stats.aggregatedBidCosts).toBe(1_000n);
     expect(stats.aggregatedBlockRewards).toBe(1_875n);
+    expect(stats.investedCapital).toBe(1_400n);
+    expect(stats.projectedProfit).toBe(875n);
     expect(stats.activeBidCosts).toBe(stats.aggregatedBidCosts);
     expect(stats.activeBlockRewards).toBe(stats.aggregatedBlockRewards);
     expect(stats.averageAPR).toBeCloseTo(2_281.25);

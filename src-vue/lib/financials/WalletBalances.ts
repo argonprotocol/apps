@@ -110,11 +110,15 @@ export class WalletFinancials
       if (transfer.amount === 0n) continue;
 
       if (transfer.amount > 0n) {
+        // Matching owned-account credits are moved by their debit row below. A
+        // mining-bot credit is a new wallet position at the custody handoff mark.
         const isBasisCredit = !transfer.isInternal || transfer.otherParty === miningBotAddress;
         if (!isBasisCredit) continue;
 
-        const acceptsTransferType = transfer.isInternal || transfer.transferType !== 'faucet';
-        if (!transfer.blockTime || transfer.microgonsForArgonot <= 0n || !acceptsTransferType) {
+        // Local ingestion and historical recovery both enrich receipts with the
+        // block time and ARGNOT rate. Preserve the asset but withhold its return
+        // if an older row still could not be enriched.
+        if (!transfer.blockTime || transfer.microgonsForArgonot <= 0n) {
           if (trackedAddresses.has(transfer.walletAddress)) incompleteAccounts.add(transfer.walletAddress);
           continue;
         }
@@ -232,8 +236,8 @@ function createResidualWalletBalancePositions(args: {
   accounts: readonly IArgonAccountBalance[];
   balancesByAccount: ReadonlyMap<string, ReturnType<typeof getBalanceBuckets>>;
   holdingPositions: readonly IWalletHoldingFinancialPosition[];
-  claimedMicronotsByAccount?: ReadonlyMap<string, bigint>;
   liveArgonotRateMicrogons: bigint;
+  claimedMicronotsByAccount?: ReadonlyMap<string, bigint>;
 }): IWalletBalanceFinancialPosition[] {
   const positions: IWalletBalanceFinancialPosition[] = [];
   const trackedMicronotsByAccount = new Map<string, bigint>();
@@ -248,22 +252,28 @@ function createResidualWalletBalancePositions(args: {
 
   for (const account of args.accounts) {
     const balances = args.balancesByAccount.get(account.address)!;
-    let trackedMicronots =
-      (trackedMicronotsByAccount.get(account.address) ?? 0n) +
-      (args.claimedMicronotsByAccount?.get(account.address) ?? 0n);
+    let trackedMicronots = trackedMicronotsByAccount.get(account.address) ?? 0n;
 
     for (const balance of balances) {
       const asset = balance.asset;
       let transferable = balance.transferable;
       let unattributed = balance.unattributed;
-      if (asset === 'ARGNOT' && trackedMicronots > 0n) {
-        const claimedTransferable = bigIntMin(transferable, trackedMicronots);
+      if (asset === 'ARGNOT') {
+        let claimedMicronots = args.claimedMicronotsByAccount?.get(account.address) ?? 0n;
+        const claimedTransferable = bigIntMin(transferable, claimedMicronots);
         transferable -= claimedTransferable;
-        trackedMicronots -= claimedTransferable;
+        claimedMicronots -= claimedTransferable;
 
-        const claimedUnattributed = bigIntMin(unattributed, trackedMicronots);
+        const claimedUnattributed = bigIntMin(unattributed, claimedMicronots);
         unattributed -= claimedUnattributed;
-        trackedMicronots -= claimedUnattributed;
+
+        const trackedTransferable = bigIntMin(transferable, trackedMicronots);
+        transferable -= trackedTransferable;
+        trackedMicronots -= trackedTransferable;
+
+        const trackedUnattributed = bigIntMin(unattributed, trackedMicronots);
+        unattributed -= trackedUnattributed;
+        trackedMicronots -= trackedUnattributed;
       }
 
       for (const [balanceType, amount] of [
@@ -334,52 +344,53 @@ function createArgonotHoldingPositions(args: {
   holdingBasis: ArgonotHoldingBasis;
   accounts: readonly IArgonAccountBalance[];
   balancesByAccount: ReadonlyMap<string, ReturnType<typeof getBalanceBuckets>>;
-  claimedMicronotsByAccount?: ReadonlyMap<string, bigint>;
   liveArgonotRateMicrogons: bigint;
+  claimedMicronotsByAccount?: ReadonlyMap<string, bigint>;
 }): IWalletHoldingFinancialPosition[] {
   const active: IWalletHoldingFinancialPosition[] = [];
   const unavailableQuantities = new Map<string, bigint>();
   for (const account of args.accounts) {
-    const lots = args.holdingBasis.activeLotsByAccount.get(account.address) ?? [];
+    const lots = (args.holdingBasis.activeLotsByAccount.get(account.address) ?? []).map(lot => ({ ...lot }));
     const balances = args.balancesByAccount.get(account.address);
     const argonot = balances?.find(balance => balance.asset === 'ARGNOT');
-    const availableQuantity = (argonot?.transferable ?? 0n) + (argonot?.unattributed ?? 0n);
-    const claimedQuantity = args.claimedMicronotsByAccount?.get(account.address) ?? 0n;
-    const holdingQuantity = bigIntMax(availableQuantity - claimedQuantity, 0n);
+    const walletQuantity = (argonot?.transferable ?? 0n) + (argonot?.unattributed ?? 0n);
+    const claimedQuantity = bigIntMin(walletQuantity, args.claimedMicronotsByAccount?.get(account.address) ?? 0n);
+    const availableQuantity = walletQuantity - claimedQuantity;
+    const holdingQuantity = availableQuantity;
     const trackedQuantity = lots.reduce((sum, lot) => sum + lot.amount, 0n);
 
-    if (trackedQuantity <= holdingQuantity) {
-      for (const lot of lots) {
-        const value = calculatePrincipalPositionValue({
-          nativeAsset: 'ARGNOT',
-          nativePrincipal: lot.amount,
-          cumulativeEarnings: 0n,
-          lifecycle: 'active',
-          entryArgonotPrice: lot.entryRate,
-          currentArgonotPrice: args.liveArgonotRateMicrogons || undefined,
-        });
+    takeFifoLots(lots, bigIntMax(trackedQuantity - holdingQuantity, 0n));
+    for (const lot of lots) {
+      const value = calculatePrincipalPositionValue({
+        nativeAsset: 'ARGNOT',
+        nativePrincipal: lot.amount,
+        cumulativeEarnings: 0n,
+        lifecycle: 'active',
+        entryArgonotPrice: lot.entryRate,
+        currentArgonotPrice: args.liveArgonotRateMicrogons || undefined,
+      });
 
-        active.push(
-          createFinancialPosition(
-            'wallet-holding',
-            {
-              id: `wallet-holding:${lot.id}:${account.address}:active`,
-              label: 'ARGNOT holding',
-              lifecycle: 'active',
-              startedAt: lot.startedAt,
-              accountId: account.address,
-              nativeAsset: 'ARGNOT',
-              nativeAmount: lot.amount,
-              entryArgonotRateMicrogons: lot.entryRate,
-            },
-            value,
-          ),
-        );
-      }
+      active.push(
+        createFinancialPosition(
+          'wallet-holding',
+          {
+            id: `wallet-holding:${lot.id}:${account.address}:active`,
+            label: 'ARGNOT holding',
+            lifecycle: 'active',
+            startedAt: lot.startedAt,
+            accountId: account.address,
+            nativeAsset: 'ARGNOT',
+            nativeAmount: lot.amount,
+            entryArgonotRateMicrogons: lot.entryRate,
+          },
+          value,
+        ),
+      );
     }
 
-    if (trackedQuantity !== holdingQuantity || args.holdingBasis.incompleteAccounts.has(account.address)) {
-      const unknownQuantity = trackedQuantity < holdingQuantity ? holdingQuantity - trackedQuantity : holdingQuantity;
+    const basedQuantity = lots.reduce((sum, lot) => sum + lot.amount, 0n);
+    if (basedQuantity < holdingQuantity || args.holdingBasis.incompleteAccounts.has(account.address)) {
+      const unknownQuantity = bigIntMax(holdingQuantity - basedQuantity, 0n);
       unavailableQuantities.set(account.address, unknownQuantity);
     }
   }
@@ -399,7 +410,9 @@ function createArgonotHoldingPositions(args: {
           nativeAsset: 'ARGNOT',
           nativeAmount,
         },
-        { paidIncome: 0n },
+        // The residual wallet-balance position already carries this quantity's
+        // current value. This marker withholds only its return basis.
+        { currentValue: 0n, paidIncome: 0n },
       ),
     );
   }

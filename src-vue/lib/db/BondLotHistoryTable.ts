@@ -66,6 +66,19 @@ export class BondLotHistoryTable extends BaseTable {
     const { lot, blockNumber, blockHash, purchase } = args;
     const nativePrincipal = lot.principalMicrogons ?? lot.principalMicronots;
     if (nativePrincipal === undefined) return;
+    const updateFields = purchase
+      ? `purchaseBlockNumber = excluded.purchaseBlockNumber,
+         purchaseBlockHash = excluded.purchaseBlockHash,
+         purchaseBlockTime = excluded.purchaseBlockTime,
+         purchaseExtrinsicIndex = excluded.purchaseExtrinsicIndex,
+         entryArgonotRateMicrogons = COALESCE(
+           excluded.entryArgonotRateMicrogons,
+           BondLotHistory.entryArgonotRateMicrogons
+         )`
+      : `releaseFrame = excluded.releaseFrame,
+         releaseReason = excluded.releaseReason,
+         participatedFrames = excluded.participatedFrames,
+         cumulativeEarningsMicrogons = excluded.cumulativeEarningsMicrogons`;
 
     const records = await this.db.select<IBondLotHistoryRecord[]>(
       `INSERT INTO BondLotHistory (
@@ -89,12 +102,8 @@ export class BondLotHistoryTable extends BaseTable {
          cumulativeEarningsMicrogons
        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(accountId, programType, bondLotId) DO UPDATE SET
-         (purchaseBlockNumber, purchaseBlockHash, purchaseBlockTime, purchaseExtrinsicIndex,
-          entryArgonotRateMicrogons, updatedAt) =
-         (excluded.purchaseBlockNumber, excluded.purchaseBlockHash, excluded.purchaseBlockTime,
-          excluded.purchaseExtrinsicIndex, excluded.entryArgonotRateMicrogons, CURRENT_TIMESTAMP)
-       WHERE BondLotHistory.purchaseBlockNumber IS NULL
-         AND excluded.purchaseBlockNumber IS NOT NULL
+         ${updateFields},
+         updatedAt = CURRENT_TIMESTAMP
       RETURNING *`,
       toSqlParams([
         lot.accountId,

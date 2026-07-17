@@ -1,12 +1,14 @@
 import {
   ApiDecoration,
   ArgonClient,
+  type ArgonPrimitivesVaultVaultArgonotCommitment,
   BitcoinLock,
   FIXED_U128_DECIMALS,
   hexToU8a,
   IBitcoinLock,
   ITxProgressCallback,
   PalletVaultsVaultFrameRevenue,
+  type Option,
   PERMILL_DECIMALS,
   SubmittableExtrinsic,
   toFixedNumber,
@@ -74,6 +76,21 @@ export interface IExternalBitcoinLock {
   lockDetails: IBitcoinLock;
 }
 
+export type IVaultInitialAllocateMetadata = {
+  microgonsForSecuritization: bigint;
+  vaultId: number;
+};
+
+export type IVaultIncreaseAllocationMetadata = {
+  addedSecuritizationMicrogons: bigint;
+  vaultId: number;
+};
+
+export type IVaultCommittedArgonotsMetadata = {
+  committedMicronots: bigint;
+  vaultId: number;
+};
+
 // Keep following a submitted/reorged cosign attempt briefly before retrying it.
 const COSIGN_ATTEMPT_FOLLOW_WINDOW_FINALIZED_BLOCKS = 2;
 
@@ -92,6 +109,10 @@ export class MyVault {
     createdVault: Vault | null;
     metadata: IVaultRecord | null;
     stats: IVaultStats | null;
+    argonotCommitment: {
+      committedMicronots: bigint;
+      encumberedMicronots: bigint;
+    };
     pendingCollectRevenue: bigint;
     pendingCosignUtxosById: Map<number, IPendingCosignUtxo>;
     releasedExternalUtxoIds: Set<number>;
@@ -103,10 +124,7 @@ export class MyVault {
     currentFrameId: number;
     pendingCollectTxInfo: TransactionInfo<IVaultCollectMetadata> | null;
     externalLocks: { [utxoId: number]: IExternalBitcoinLock };
-    pendingAllocateTxInfo: TransactionInfo<{
-      addedSecuritizationMicrogons: bigint;
-      vaultId: number;
-    }> | null;
+    pendingAllocateTxInfo: TransactionInfo<IVaultIncreaseAllocationMetadata> | null;
   };
 
   public get vaultId(): number | undefined {
@@ -155,6 +173,10 @@ export class MyVault {
       createdVault: null,
       metadata: null,
       stats: null,
+      argonotCommitment: {
+        committedMicronots: 0n,
+        encumberedMicronots: 0n,
+      },
       pendingCollectRevenue: 0n,
       pendingCollectTxInfo: null,
       pendingAllocateTxInfo: null,
@@ -267,9 +289,14 @@ export class MyVault {
         }
       }
       const vaultId = this.data.metadata?.id;
+      this.data.argonotCommitment = {
+        committedMicronots: 0n,
+        encumberedMicronots: 0n,
+      };
       if (vaultId) {
         this.data.createdVault = this.vaults.vaultsById[vaultId];
         this.data.stats = this.vaults.stats?.vaultsById[vaultId] ?? null;
+        this.updateArgonotCommitment(await client.query.vaults.argonotCommitmentByVaultId(vaultId));
 
         void this.refreshExternalLocks().catch(error => {
           console.warn('[MyVault] Error refreshing external locks during load', error);
@@ -343,19 +370,22 @@ export class MyVault {
       const sub4 = await client.query.vaults.lastCollectFrameByVaultId(vaultId, () => {
         this.updateCollectDeadlines();
       });
+      const sub5 = await client.query.vaults.argonotCommitmentByVaultId(vaultId, commitment => {
+        this.updateArgonotCommitment(commitment);
+      });
 
-      const { unsubscribe: sub5 } = this.miningFrames.onFrameId(frameId => {
+      const { unsubscribe: sub6 } = this.miningFrames.onFrameId(frameId => {
         this.data.currentFrameId = frameId;
         this.updateCollectDeadlines();
       });
 
-      const sub6 = this.miningFrames.blockWatch.events.on('best-blocks', headers => {
+      const sub7 = this.miningFrames.blockWatch.events.on('best-blocks', headers => {
         void this.refreshExternalLocksFromBlockEvents(headers).catch(x =>
           console.error(`Error updating external locks from block events`, x),
         );
       });
 
-      const sub7 = clients.events.on('on-pruned-client', () => {
+      const sub8 = clients.events.on('on-pruned-client', () => {
         if (client.clientType === 'archive') {
           this.unsubscribe();
           void this.subscribe();
@@ -370,10 +400,26 @@ export class MyVault {
 
       await Promise.all([this.globalCouncil.subscribe(), this.mintingAuthorities.subscribe()]);
 
-      this.#subscriptions.push(sub, sub2, sub3, sub4, sub5, sub6, sub7);
+      this.#subscriptions.push(sub, sub2, sub3, sub4, sub5, sub6, sub7, sub8);
     } finally {
       this.#isSubscribing = false;
     }
+  }
+
+  private updateArgonotCommitment(commitment: Option<ArgonPrimitivesVaultVaultArgonotCommitment>): void {
+    if (commitment.isNone) {
+      this.data.argonotCommitment = {
+        committedMicronots: 0n,
+        encumberedMicronots: 0n,
+      };
+      return;
+    }
+
+    const value = commitment.unwrap();
+    this.data.argonotCommitment = {
+      committedMicronots: value.committedMicronots.toBigInt(),
+      encumberedMicronots: value.encumberedMicronots.toBigInt(),
+    };
   }
 
   private async refreshExternalLocksFromBlockEvents(headers: IBlockHeaderInfo[]): Promise<void> {
@@ -658,7 +704,7 @@ export class MyVault {
 
   public async setCommittedArgonots(
     committedMicronots: bigint,
-  ): Promise<TransactionInfo<{ vaultId: number; committedMicronots: bigint }>> {
+  ): Promise<TransactionInfo<IVaultCommittedArgonotsMetadata>> {
     if (!this.createdVault) {
       throw new Error('Create your vault before setting an Argonot commitment.');
     }
@@ -1737,10 +1783,7 @@ export class MyVault {
   }
 
   private async onInitialVaultAllocate(
-    txInfo: TransactionInfo<{
-      microgonsForSecuritization: bigint;
-      vaultId: number;
-    }>,
+    txInfo: TransactionInfo<IVaultInitialAllocateMetadata>,
   ): Promise<{ txResult: TxResult }> {
     const { tx, txResult } = txInfo;
     const postProcessor = txInfo.createPostProcessor();

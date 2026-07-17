@@ -71,11 +71,7 @@
               <div class="mr-1 w-6">
                 <BondIcon class="w-5.5 opacity-70" />
               </div>
-              <div class="grow">
-                Argon
-                <span class="opacity-50">/</span>
-                ot Bonds
-              </div>
+              <div class="grow">Argon(ot) Bonds</div>
               <div class="opacity-60">{{ currency.symbol }}{{ formatFinancialGroupValue('bonds') }}</div>
             </article>
             <div Selector />
@@ -110,7 +106,7 @@
                 {{ currency.symbol
                 }}{{
                   config.hasActivatedStableSwaps
-                    ? formatFinancialGroupValue('stableSwaps')
+                    ? microgonToMoneyNm(financials.swapsTotalValue).format('0,0.00')
                     : '0.00'
                 }}
               </div>
@@ -155,9 +151,7 @@
                   </div>
                   Mining
                 </div>
-                <div class="opacity-60">
-                  {{ currency.symbol }}{{ formatFinancialGroupValue('mining') }}
-                </div>
+                <div class="opacity-60">{{ currency.symbol }}{{ formatFinancialGroupValue('mining') }}</div>
               </div>
               <div v-if="controller.selectedTab === TopTab.Mining" class="text-md -mb-1.5">
                 <div class="flex flex-row">
@@ -211,9 +205,7 @@
                   <VaultIcon class="relative inline-block w-5.5 opacity-90" />
                 </div>
                 <div class="grow">Vaulting</div>
-                <div class="opacity-60">
-                  {{ currency.symbol }}{{ formatFinancialGroupValue('vaulting') }}
-                </div>
+                <div class="opacity-60">{{ currency.symbol }}{{ formatFinancialGroupValue('vaulting') }}</div>
               </div>
               <div v-if="controller.selectedTab === TopTab.Vaulting" class="text-md -mb-1.5">
                 <div class="flex flex-row">
@@ -360,15 +352,12 @@
             <div class="flex flex-col justify-center py-7">
               <div class="text-argon-600/70 flex flex-row justify-center text-5xl font-bold">
                 <span>{{ currency.symbol }}</span>
-                <FormattedMoney
-                  :isLoaded="wallets.isLoaded"
-                  :value="
-                    wallets.defaultArgonWallet.totalMicrogons +
-                    currency.convertMicronotTo(wallets.defaultArgonWallet.totalMicronots, UnitOfMeasurement.Microgon)
-                  "
-                />
+                <FormattedMoney :isLoaded="financials.savingsIsLoaded" :value="financials.savingsTotalValue" />
               </div>
-              <div class="mx-auto mt-2 w-fit border-t border-slate-500/30 pt-2 text-center opacity-50">
+              <div
+                v-if="financials.savingsTotalPending"
+                class="mx-auto mt-2 w-fit border-t border-slate-500/30 pt-2 text-center opacity-50"
+              >
                 {{ currency.symbol }}{{ microgonToMoneyNm(financials.savingsTotalPending).format('0,0.00') }} Is Waiting
                 to Mint
               </div>
@@ -398,7 +387,6 @@ import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
 import { useWallets } from '../stores/wallets.ts';
 import { getCurrency } from '../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
-import { UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { useFinancials } from '../stores/financials.ts';
 import { useMiningAssetBreakdown } from '../stores/miningAssetBreakdown.ts';
 import { useVaultingAssetBreakdown } from '../stores/vaultingAssetBreakdown.ts';

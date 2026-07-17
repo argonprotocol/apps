@@ -53,7 +53,9 @@ export class StableSwapFinancials
       createFinancialPosition(
         'stable-swap',
         {
-          id: `stable-swap:${wallet.address.toLowerCase()}:ARGN`,
+          // This matches the ordinary Ethereum ARGN position so the book can
+          // never publish both representations of the same asset.
+          id: `${wallet.address.toLowerCase()}:ethereum:ARGN`,
           label: 'Ethereum ARGN',
           lifecycle: 'active',
           startedAt: walletSnapshot?.summary.startedAt,

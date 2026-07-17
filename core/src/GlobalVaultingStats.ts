@@ -77,13 +77,19 @@ export class GlobalVaultingStats {
       return (1 / r) * (0.576 * r + 0.4);
     }
   }
+}
 
-  public calculateRestabilizationLeverage(microgonsInCirculation: bigint): number {
-    if (microgonsInCirculation <= 0n) return 0;
+export function calculateRestabilizationLeverage({
+  argonBurnCapacity,
+  microgonsInCirculation,
+}: {
+  argonBurnCapacity: number;
+  microgonsInCirculation: bigint;
+}): number {
+  if (microgonsInCirculation <= 0n) return 0;
 
-    return BigNumber(this.argonBurnCapacity)
-      .dividedBy(BigNumber(microgonsInCirculation.toString()).dividedBy(1_000_000))
-      .decimalPlaces(1)
-      .toNumber();
-  }
+  return BigNumber(argonBurnCapacity)
+    .dividedBy(BigNumber(microgonsInCirculation.toString()).dividedBy(1_000_000))
+    .decimalPlaces(1)
+    .toNumber();
 }

@@ -166,14 +166,15 @@
           </div>
         </div>
         <div SecondRow>
-          <span>{{ currency.symbol }}{{ satToMoneyNm(lockSummary.satoshis).format('0,0.00') }} market value</span>
+          <span>{{ currency.symbol }}{{ satToMoneyNm(lockSummary.satoshis).format('0,0.00') }} locked BTC</span>
           <div class="flex grow flex-row items-stretch justify-center">
             <span class="h-full w-px bg-slate-400/50"></span>
           </div>
           <span>
-            {{ currency.symbol
-            }}{{ microgonToMoneyNm(bitcoinLocks.getDisplayLiquidityPromised(lockSummary.record)).format('0,0.00') }}
-            issued
+            {{ currency.symbol }}{{ microgonToMoneyNm(lockSummary.receivedLiquidity).format('0,0.00') }} received
+            <template v-if="lockSummary.pendingLiquidity">
+              · {{ currency.symbol }}{{ microgonToMoneyNm(lockSummary.pendingLiquidity).format('0,0.00') }} pending
+            </template>
           </span>
           <div class="flex grow flex-row items-stretch justify-center">
             <span class="h-full w-px bg-slate-400/50"></span>

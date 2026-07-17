@@ -149,12 +149,10 @@ export const useWallets = defineStore('wallets', () => {
   });
   const baseWallet = Vue.reactive<IWallet>(walletForBase.data);
   walletForBase.data = baseWallet;
-  const externalFinancialPositions = Vue.computed(() => {
-    return [
-      ...(activeEthereumWallet.value?.createFinancialPositions(currency) ?? []),
-      ...walletForBase.createFinancialPositions(currency),
-    ];
+  const ethereumFinancialPositions = Vue.computed(() => {
+    return activeEthereumWallet.value?.createFinancialPositions(currency) ?? [];
   });
+  const baseFinancialPositions = Vue.computed(() => walletForBase.createFinancialPositions(currency));
 
   const liquidLockingWallet = Vue.computed(() => {
     return defaultArgonWallet;
@@ -639,7 +637,8 @@ export const useWallets = defineStore('wallets', () => {
     operationalWallet,
     ethereumWallet,
     baseWallet,
-    externalFinancialPositions,
+    ethereumFinancialPositions,
+    baseFinancialPositions,
     liquidLockingWallet,
 
     defaultArgonSpendableMicrogons,
