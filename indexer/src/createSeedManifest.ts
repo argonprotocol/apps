@@ -74,12 +74,7 @@ for (const network of networks) {
     }
     const targetBlockNumber = seedState.targetBlockNumber ?? seedState.blockNumber;
     const targetBlockHash = seedState.targetBlockHash ?? seedState.blockHash;
-    if (
-      seedState.blockNumber === targetBlockNumber &&
-      seedState.blockHash.toLowerCase() !== targetBlockHash.toLowerCase()
-    ) {
-      throw new Error(`${databaseFile} caught-up checkpoint does not match its captured finalized target hash`);
-    }
+    const caughtUp = seedState.blockNumber >= targetBlockNumber;
 
     const schema = database.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM SchemaVersion').get() as {
       version: number;
@@ -93,14 +88,22 @@ for (const network of networks) {
       );
     }
 
-    const checkpointBlock = database
-      .prepare('SELECT blockHash FROM Blocks WHERE blockNumber = ?')
-      .get(sync.blockNumber) as { blockHash: Uint8Array } | undefined;
+    const blockHashQuery = database.prepare('SELECT blockHash FROM Blocks WHERE blockNumber = ?');
+    const checkpointBlock = blockHashQuery.get(sync.blockNumber) as { blockHash: Uint8Array } | undefined;
     const checkpointHash = checkpointBlock ? `0x${Buffer.from(checkpointBlock.blockHash).toString('hex')}` : undefined;
     if (checkpointHash?.toLowerCase() !== seedState.blockHash.toLowerCase()) {
       throw new Error(
         `${databaseFile} checkpoint hash ${checkpointHash ?? 'missing'} does not match captured seed hash ${seedState.blockHash}`,
       );
+    }
+    if (caughtUp) {
+      const targetBlock = blockHashQuery.get(targetBlockNumber) as { blockHash: Uint8Array } | undefined;
+      const databaseTargetHash = targetBlock ? `0x${Buffer.from(targetBlock.blockHash).toString('hex')}` : undefined;
+      if (databaseTargetHash?.toLowerCase() !== targetBlockHash.toLowerCase()) {
+        throw new Error(
+          `${databaseFile} target hash ${databaseTargetHash ?? 'missing'} does not match captured finalized target hash ${targetBlockHash}`,
+        );
+      }
     }
 
     const accountBlocks = database.prepare('SELECT COUNT(*) AS count FROM AccountBlocks').get() as { count: number };
@@ -114,7 +117,7 @@ for (const network of networks) {
       schemaVersion: schema.version,
       blockCount: blocks.count,
       accountBlockCount: accountBlocks.count,
-      caughtUp: seedState.blockNumber >= targetBlockNumber,
+      caughtUp,
       targetBlockNumber,
       targetBlockHash,
     };
