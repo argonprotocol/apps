@@ -14,7 +14,31 @@
       <WindowControls />
       <div class="relative top-px text-[19px] font-bold whitespace-nowrap flex flex-row items-center">
         Argon Desktop
-        <span class="bg-slate-600/60 text-white rounded-full ml-2 px-2 border border-slate-600 inset-shadow text-sm">Alpha</span>
+        <NavigationMenuRoot
+          v-if="instances.length > 1 && controller.isLoaded && !controller.isImporting"
+          class="relative ml-2 pointer-events-auto"
+          :delay-duration="0"
+          :skip-delay-duration="0"
+        >
+          <NavigationMenuList>
+            <InstanceMenu
+              :instances="instances"
+            />
+          </NavigationMenuList>
+          <NavigationMenuIndicator
+            :style="navigationMenuIndicatorZIndex"
+            class="pointer-events-none absolute top-full left-0 flex h-[10px] w-[var(--reka-navigation-menu-indicator-size)] translate-x-[var(--reka-navigation-menu-indicator-position)] items-end justify-center transition-[width,transform,opacity] duration-300 data-[state=hidden]:opacity-0 data-[state=visible]:opacity-100"
+          >
+            <div class="relative top-[-1px] h-0 w-0 border-x-[13px] border-b-[13px] border-x-transparent border-b-gray-900/20">
+              <div class="absolute top-[2px] left-[-11px] h-0 w-0 border-x-[11px] border-b-[11px] border-x-transparent border-b-argon-menu-bg" />
+            </div>
+          </NavigationMenuIndicator>
+          <NavigationMenuViewport
+            :style="navigationMenuViewportZIndex"
+            class="pointer-events-auto absolute top-full left-0 mt-2 h-[var(--reka-navigation-menu-viewport-height)] w-[var(--reka-navigation-menu-viewport-width)] origin-[top_center] overflow-visible transition-[width,_height] duration-300 data-[state=closed]:animate-scaleOut data-[state=open]:animate-scaleIn"
+          />
+        </NavigationMenuRoot>
+        <span v-else class="bg-slate-600/60 text-white rounded-full ml-2 px-2 border border-slate-600 inset-shadow text-sm">Alpha</span>
       </div>
     </div>
 
@@ -46,7 +70,7 @@
         <div class="pointer-events-auto">
           <ProfitsMenu ref="returnsMenuRef" />
         </div>
-        <div :class="[controller.selectedTab === TopTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']">
+        <div class="pointer-events-auto">
           <AccountMenu ref="accountMenuRef" />
         </div>
       </NavigationMenuList>
@@ -86,6 +110,10 @@ import PortfolioDetailsMenu from './PortfolioDetailsMenu.vue';
 import PortfolioCurrencyMenu from './PortfolioCurrencyMenu.vue';
 import { getConfig } from '../stores/config.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
+import InstanceMenu, { type IInstance } from './InstanceMenu.vue';
+import { appConfigDir } from '@tauri-apps/api/path';
+import { readDir } from '@tauri-apps/plugin-fs';
+import { INSTANCE_NAME, NETWORK_NAME } from '../lib/Env.ts';
 
 const controller = useCertificationController();
 const wallets = useWallets();
@@ -99,9 +127,30 @@ const serverMenuRef = Vue.ref<InstanceType<typeof ServerMenu> | null>(null);
 const accountMenuRef = Vue.ref<InstanceType<typeof AccountMenu> | null>(null);
 const currencyMenuRef = Vue.ref<HTMLElement | null>(null);
 const returnsMenuRef = Vue.ref<InstanceType<typeof ProfitsMenu> | null>(null);
+const instances = Vue.ref<IInstance[]>([]);
 
 const navigationMenuValue = Vue.ref('');
 let navigationMenuCloseTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
+
+async function fetchInstances() {
+  try {
+    const configDir = await appConfigDir();
+    const entries = await readDir(`${configDir}/${NETWORK_NAME}`);
+    instances.value = entries
+      .filter(entry => entry.isDirectory)
+      .map(entry => ({
+        name: entry.name,
+        isSelected: entry.name === INSTANCE_NAME,
+      }));
+  } catch {
+    instances.value = [
+      {
+        name: INSTANCE_NAME,
+        isSelected: true,
+      },
+    ];
+  }
+}
 
 function onTreasuryInviteClaimed() {
   navigationMenuValue.value = '';
@@ -154,6 +203,10 @@ tour.registerPositionCheck('accountMenu', () => {
 });
 
 basicEmitter.on('openCertificationMenu', openCertificationMenu);
+
+Vue.onMounted(async () => {
+  await fetchInstances();
+});
 
 Vue.onBeforeUnmount(() => {
   basicEmitter.off('openCertificationMenu', openCertificationMenu);
