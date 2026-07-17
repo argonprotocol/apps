@@ -370,10 +370,40 @@ const treasuryVaultRevenueEvents = new Set([
   'CouldNotDistributeBidPool',
   'CouldNotFundTreasury',
 ]);
+
 function collectEventAccounts(event: HistoricalEvent): string[] {
-  return event.data.flatMap((value, index) => {
+  const accounts = event.data.flatMap((value, index) => {
     return event.data.typeDef[index].type.includes('AccountId') ? [value.toString()] : [];
   });
+
+  if (event.section === 'miningSlot' && event.method === 'NewMiners') {
+    for (const miner of event.data.newMiners) {
+      accounts.push(miner.accountId.toString());
+
+      if ('externalFundingAccount' in miner && miner.externalFundingAccount.isSome) {
+        accounts.push(miner.externalFundingAccount.unwrap().toString());
+      }
+      if ('rewardDestination' in miner && miner.rewardDestination.isAccount) {
+        accounts.push(miner.rewardDestination.asAccount.toString());
+      }
+      if ('rewardSharing' in miner && miner.rewardSharing.isSome) {
+        accounts.push(miner.rewardSharing.unwrap().accountId.toString());
+      }
+    }
+  }
+
+  if (
+    event.section === 'blockRewards' &&
+    (event.method === 'RewardCreated' || event.method === 'RewardUnlocked')
+  ) {
+    accounts.push(...event.data.rewards.map(reward => reward.accountId.toString()));
+  }
+
+  if (event.section === 'crosschainTransfer' && event.method === 'TransferToArgonSettled') {
+    accounts.push(event.data.transfer.to.toString());
+  }
+
+  return accounts;
 }
 
 function collectEventVaultIds(event: HistoricalEvent): number[] {

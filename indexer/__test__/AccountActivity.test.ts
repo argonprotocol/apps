@@ -221,6 +221,82 @@ describe('AccountActivityDecoder', () => {
     });
   });
 
+  it('indexes accounts nested in aggregate event codecs', () => {
+    const minerAccount = encodeAddress(new Uint8Array(32).fill(1));
+    const fundingAccount = encodeAddress(new Uint8Array(32).fill(2));
+    const rewardAccount = encodeAddress(new Uint8Array(32).fill(3));
+    const transferAccount = encodeAddress(new Uint8Array(32).fill(4));
+    const newMiners = {
+      section: 'miningSlot',
+      method: 'NewMiners',
+      data: createHistoricalEventData(156, 'miningSlot', 'NewMiners', {
+        newMiners: [
+          {
+            accountId: minerAccount,
+            externalFundingAccount: fundingAccount,
+            bid: 1_000,
+            argonots: 2_000,
+            authorityKeys: {
+              grandpa: `0x${'11'.repeat(32)}`,
+              blockSealAuthority: `0x${'22'.repeat(32)}`,
+            },
+            startingFrameId: 10,
+            bidAtTick: 20,
+          },
+        ],
+        releasedMiners: 0,
+        frameId: 10,
+      }),
+    };
+    const rewardCreated = {
+      section: 'blockRewards',
+      method: 'RewardCreated',
+      data: createHistoricalEventData(115, 'blockRewards', 'RewardCreated', {
+        maturationBlock: 10,
+        rewards: [
+          {
+            accountId: rewardAccount,
+            ownership: 100,
+            argons: 200,
+            rewardType: 'Miner',
+            blockSealAuthority: null,
+          },
+        ],
+      }),
+    };
+    const transferSettled = {
+      section: 'crosschainTransfer',
+      method: 'TransferToArgonSettled',
+      data: createHistoricalEventData(156, 'crosschainTransfer', 'TransferToArgonSettled', {
+        sourceChain: 'Ethereum',
+        transfer: {
+          gatewayActivityNonce: 1,
+          from: `0x${'33'.repeat(20)}`,
+          asset: 'Argon',
+          to: transferAccount,
+          amount: 1_000,
+        },
+      }),
+    };
+
+    expect(
+      new AccountActivityDecoder().decode({
+        eventGroups: [{ extrinsicEvents: [newMiners] }, { extrinsicEvents: [transferSettled] }],
+        specVersion: 156,
+      }).accounts,
+    ).toEqual([
+      { address: minerAccount, mask: AccountActivityKind.MiningSeat },
+      { address: fundingAccount, mask: AccountActivityKind.MiningSeat },
+      { address: transferAccount, mask: AccountActivityKind.Crosschain },
+    ]);
+    expect(
+      new AccountActivityDecoder().decode({
+        eventGroups: [{ extrinsicEvents: [rewardCreated] }],
+        specVersion: 115,
+      }).accounts,
+    ).toEqual([{ address: rewardAccount, mask: AccountActivityKind.MiningSeat }]);
+  });
+
   it('retains Bitcoin lock ownership for lifecycle events that only name the UTXO', () => {
     const accountId = encodeAddress(new Uint8Array(32).fill(4));
     const created = {
