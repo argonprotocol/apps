@@ -239,7 +239,11 @@
               </div>
               <div v-if="controller.selectedTab === TopTab.Vaulting" class="text-md -mb-1.5">
                 <div class="flex flex-row">
-                  <div class="mt-0.5 flex grow flex-row items-center">
+                  <button
+                    type="button"
+                    @click.stop="openSecuritization"
+                    class="mt-0.5 flex grow cursor-pointer flex-row items-center text-left"
+                  >
                     <div class="Connector" />
                     <div class="flex grow flex-row items-center border-t border-slate-400/30">
                       <div class="grow py-1 text-slate-600/80">
@@ -247,7 +251,7 @@
                       </div>
                       <ExternalIcon class="w-3.5 opacity-50" />
                     </div>
-                  </div>
+                  </button>
                 </div>
                 <div class="flex flex-row">
                   <div class="flex grow flex-row items-center">
@@ -280,7 +284,11 @@
                   <OnboardingIcon class="w-5.5 opacity-70" />
                 </div>
                 <div class="grow">Onboarding</div>
-                <div class="opacity-60">{{ currency.symbol }}0.00</div>
+                <div v-if="currency.isLoaded" class="opacity-60">
+                  {{
+                    `${currency.symbol}${microgonToMoneyNm(controller.operationalOverview.rewardsEarnedAmount).format('0,0.00')}`
+                  }}
+                </div>
               </div>
               <div v-if="controller.selectedTab === TopTab.Invites" class="text-md -mb-1.5">
                 <div class="flex flex-row">
@@ -409,6 +417,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import { MoveTo } from '@argonprotocol/apps-core';
 import { MiningSetupStatus, TopTab, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 import {
   OperationalStepId,
@@ -552,6 +561,13 @@ function formatFinancialGroupValue(group: FinancialGroup): string {
 
 function openDefaultArgonWallet() {
   basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
+}
+
+function openSecuritization() {
+  basicEmitter.emit('openMoveCapitalOverlay', {
+    walletType: WalletType.defaultArgon,
+    moveTo: MoveTo.VaultingSecurity,
+  });
 }
 
 function openLink(url: string) {
