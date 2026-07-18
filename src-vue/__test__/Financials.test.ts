@@ -27,7 +27,12 @@ import { ArgonBondsFinancials } from '../lib/financials/ArgonBonds.ts';
 import type { WalletForArgon } from '../lib/WalletForArgon.ts';
 import { MiningFinancials } from '../lib/financials/MyMiningSeats.ts';
 import { VaultFinancials } from '../lib/financials/MyVault.ts';
-import { calculatePositionReturn, FinancialPositionBook, reduceFinancialPositions } from '../lib/financials/index.ts';
+import {
+  calculateAccountValue,
+  calculatePositionReturn,
+  FinancialPositionBook,
+  reduceFinancialPositions,
+} from '../lib/financials/index.ts';
 import { WalletFinancials } from '../lib/financials/WalletBalances.ts';
 
 const wallet: IWallet = {
@@ -108,6 +113,59 @@ describe('financial position accounting', () => {
       eligiblePositionCount: 0,
       investmentPositionCount: 0,
     });
+  });
+
+  it('keeps EVM balances in assets but outside account RTD', () => {
+    const positions: IFinancialPosition[] = [
+      {
+        id: 'argon-wallet',
+        kind: 'wallet-balance',
+        group: 'liquid',
+        label: 'Available ARGN',
+        lifecycle: 'available',
+        currentValue: 100n,
+        wallet,
+        balanceType: 'transferable',
+        asset: 'ARGN',
+      },
+      {
+        id: 'base-wallet',
+        kind: 'base-wallet-balance',
+        group: 'base',
+        label: 'Base ARGN',
+        lifecycle: 'available',
+        currentValue: 200n,
+        wallet,
+        asset: 'base:ARGN',
+      },
+      {
+        id: 'ethereum-wallet',
+        kind: 'ethereum-wallet-balance',
+        group: 'ethereum',
+        label: 'Ethereum ARGN',
+        lifecycle: 'available',
+        currentValue: 300n,
+        wallet,
+        asset: 'ethereum:ARGN',
+      },
+      {
+        id: 'bitcoin-debt',
+        kind: 'bitcoin-liability',
+        group: 'bitcoin',
+        label: 'Bitcoin redemption',
+        lifecycle: 'active',
+        currentValue: -40n,
+        lock: {} as IBitcoinLockRecord,
+      },
+    ];
+
+    const snapshots = readySnapshots(positions);
+    const aggregate = reduceFinancialPositions(snapshots);
+
+    expect(calculateAccountValue(snapshots)).toBe(60n);
+    expect(aggregate.grossAssets).toBe(600n);
+    expect(aggregate.grossLiabilities).toBe(40n);
+    expect(aggregate.netWorth).toBe(560n);
   });
 
   it('does not invent a return for cash or add paid income and settlement marks to current value', () => {

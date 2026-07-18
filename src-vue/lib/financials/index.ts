@@ -261,6 +261,31 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
   };
 }
 
+export function calculateAccountValue(
+  snapshots: readonly IFinancialGroupSnapshot[],
+  requiredObservation?: IFinancialObservation,
+): bigint | undefined {
+  let accountValue = 0n;
+
+  for (const snapshot of snapshots) {
+    // EVM balances remain in gross assets and net worth; they are only outside
+    // the flow-adjusted Argon account RTD boundary.
+    if (snapshot.group === 'ethereum' || snapshot.group === 'base') continue;
+    if (snapshot.state !== 'ready') return;
+    if (requiredObservation && !doesObservationCover(snapshot.observation, requiredObservation)) return;
+
+    for (const position of snapshot.positions) {
+      if (position.kind === 'bond' && position.excludeFromAccountReturn) continue;
+      if (position.lifecycle === 'unavailable' && position.kind !== 'wallet-holding') continue;
+      if (position.currentValue === undefined) return;
+
+      accountValue += position.currentValue;
+    }
+  }
+
+  return accountValue;
+}
+
 function doesObservationCover(observation: IFinancialObservation, required: IFinancialObservation): boolean {
   if (observation.blockNumber === undefined || required.blockNumber === undefined) return false;
   if (observation.blockNumber !== required.blockNumber) return observation.blockNumber > required.blockNumber;

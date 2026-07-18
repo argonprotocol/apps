@@ -315,7 +315,7 @@ export interface IFinancialGroupSummary {
   returnSummary: IFinancialReturnSummary;
 }
 
-type IFinancialAccountReturnSummary = Pick<
+export type IFinancialAccountReturnSummary = Pick<
   IFinancialReturnSummary,
   'availability' | 'basisPoints' | 'percent' | 'eligiblePositionCount' | 'investmentPositionCount'
 >;

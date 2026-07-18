@@ -3,6 +3,7 @@ import {
   calculateAggregateReturn,
   calculateAnnualPercentageRate,
   calculateAnnualPercentageYield,
+  calculateModifiedDietzReturn,
   calculatePerformanceReturn,
 } from '../src/FinancialReturns.ts';
 import { calculateAPY, calculateProfitPct } from '../src/utils.ts';
@@ -42,6 +43,27 @@ describe('FinancialReturns', () => {
       percent: 6.67,
       eligibleCapitalInvested: 3_000n,
       totalProfits: 200n,
+    });
+  });
+
+  it('weights external cash flows by how long they were invested', () => {
+    const result = calculateModifiedDietzReturn({
+      startingValue: 0n,
+      endingValue: 180n,
+      startingDate: new Date('2026-01-01T00:00:00Z'),
+      endingDate: new Date('2026-01-11T00:00:00Z'),
+      cashFlows: [
+        { amount: 100n, occurredAt: new Date('2026-01-01T00:00:00Z') },
+        { amount: 100n, occurredAt: new Date('2026-01-06T00:00:00Z') },
+        { amount: -50n, occurredAt: new Date('2026-01-11T00:00:00Z') },
+      ],
+    });
+
+    expect(result).toEqual({
+      basisPoints: 2_000n,
+      percent: 20,
+      eligibleCapitalInvested: 150n,
+      totalProfits: 30n,
     });
   });
 

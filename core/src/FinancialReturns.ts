@@ -9,6 +9,19 @@ export type IPerformanceReturnInput = {
 
 export type IAggregateReturnInput = Pick<IPerformanceReturnInput, 'startingCapital' | 'endingCapital'>;
 
+export type IAccountCashFlow = {
+  amount: bigint;
+  occurredAt: Date | number | string;
+};
+
+export type IModifiedDietzReturnInput = {
+  startingValue: bigint;
+  endingValue: bigint;
+  startingDate: Date | number | string;
+  endingDate: Date | number | string;
+  cashFlows: readonly IAccountCashFlow[];
+};
+
 export type IPerformanceReturnOptions = {
   /**
    * Exclude investments younger than this amount of time.
@@ -86,6 +99,39 @@ export function calculateAggregateReturn(investments: readonly IAggregateReturnI
     totalProfits += investment.endingCapital - investment.startingCapital;
   }
 
+  const basisPoints = divideAndRound(totalProfits * BASIS_POINTS_PER_100_PERCENT, eligibleCapitalInvested);
+
+  return {
+    basisPoints,
+    percent: Number(basisPoints) / 100,
+    eligibleCapitalInvested,
+    totalProfits,
+  };
+}
+
+export function calculateModifiedDietzReturn(input: IModifiedDietzReturnInput): IPerformanceReturnResult {
+  const startingMs = toDateMs(input.startingDate);
+  const endingMs = toDateMs(input.endingDate);
+  const durationMs = endingMs > startingMs ? endingMs - startingMs : 0n;
+  let netCashFlows = 0n;
+  let contributedCapital = 0n;
+  let weightedCapitalMs = input.startingValue * durationMs;
+
+  for (const cashFlow of input.cashFlows) {
+    const occurredAtMs = toDateMs(cashFlow.occurredAt);
+    const boundedOccurredAtMs = occurredAtMs < startingMs ? startingMs : occurredAtMs;
+    const remainingMs = boundedOccurredAtMs < endingMs ? endingMs - boundedOccurredAtMs : 0n;
+
+    netCashFlows += cashFlow.amount;
+    if (cashFlow.amount > 0n) contributedCapital += cashFlow.amount;
+    weightedCapitalMs += cashFlow.amount * remainingMs;
+  }
+
+  const totalProfits = input.endingValue - input.startingValue - netCashFlows;
+  let eligibleCapitalInvested =
+    durationMs > 0n ? divideAndRound(weightedCapitalMs, durationMs) : input.startingValue + contributedCapital;
+  if (eligibleCapitalInvested <= 0n) eligibleCapitalInvested = input.startingValue + contributedCapital;
+  if (eligibleCapitalInvested <= 0n) eligibleCapitalInvested = 0n;
   const basisPoints = divideAndRound(totalProfits * BASIS_POINTS_PER_100_PERCENT, eligibleCapitalInvested);
 
   return {

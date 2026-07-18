@@ -8,8 +8,8 @@ import { createFinancialPosition, type IBaseWalletFinancialPosition } from '../i
 import {
   cacheExternalWalletBalances,
   restoreCachedExternalWalletBalances,
-  type ExternalWalletBalanceCacheTable,
-} from './db/ExternalWalletBalanceCacheTable.ts';
+  type FinancialCacheTable,
+} from './db/FinancialCacheTable.ts';
 
 export class WalletForBase {
   public data: IWallet = {
@@ -18,7 +18,7 @@ export class WalletForBase {
 
   constructor(
     public readonly address: string,
-    private readonly balanceCache?: Promise<ExternalWalletBalanceCacheTable>,
+    private readonly financialCache?: Promise<FinancialCacheTable>,
   ) {
     this.data.address = address;
   }
@@ -61,7 +61,7 @@ export class WalletForBase {
   }
 
   public async load(): Promise<void> {
-    await restoreCachedExternalWalletBalances(this.balanceCache, 'base', this.data);
+    await restoreCachedExternalWalletBalances(this.financialCache, 'base', this.data);
     const { baseNetwork } = NetworkConfig.get();
     const chain = getBaseChain(baseNetwork.chainId);
     const rpcUrl = baseNetwork.rpcUrl.trim();
@@ -93,7 +93,7 @@ export class WalletForBase {
       );
       this.data.balanceUpdatedAt = new Date();
       this.data.balanceIsCached = false;
-      await cacheExternalWalletBalances(this.balanceCache, 'base', this.data);
+      await cacheExternalWalletBalances(this.financialCache, 'base', this.data);
     } catch (error) {
       console.error('Base wallet balance load failed', {
         address: this.address,

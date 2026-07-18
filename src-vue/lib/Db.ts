@@ -23,7 +23,7 @@ import { WalletHdKeysTable } from './db/WalletHdKeysTable.ts';
 import { WalletsTable } from './db/WalletsTable.ts';
 import { BondLotHistoryTable } from './db/BondLotHistoryTable.ts';
 import { VaultCapitalHistoryTable } from './db/VaultCapitalHistoryTable.ts';
-import { ExternalWalletBalanceCacheTable } from './db/ExternalWalletBalanceCacheTable.ts';
+import { FinancialCacheTable } from './db/FinancialCacheTable.ts';
 
 export class Db {
   public sql: PluginSql;
@@ -49,7 +49,7 @@ export class Db {
   public stableSwapPurchasesTable: StableSwapPurchasesTable;
   public bondLotHistoryTable: BondLotHistoryTable;
   public vaultCapitalHistoryTable: VaultCapitalHistoryTable;
-  public externalWalletBalanceCacheTable: ExternalWalletBalanceCacheTable;
+  public financialCacheTable: FinancialCacheTable;
 
   constructor(sql: PluginSql, hasMigrationError: boolean) {
     ensureOnlyOneInstance(this.constructor);
@@ -77,7 +77,7 @@ export class Db {
     this.stableSwapPurchasesTable = new StableSwapPurchasesTable(this);
     this.bondLotHistoryTable = new BondLotHistoryTable(this);
     this.vaultCapitalHistoryTable = new VaultCapitalHistoryTable(this);
-    this.externalWalletBalanceCacheTable = new ExternalWalletBalanceCacheTable(this);
+    this.financialCacheTable = new FinancialCacheTable(this);
   }
 
   public static async load(retries: number = 0): Promise<Db> {

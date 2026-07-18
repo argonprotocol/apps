@@ -59,16 +59,20 @@ export function getWalletHistoryRecovery() {
   const wallets = getWalletsForArgon();
   const keys = getWalletKeys();
   const legacyMiningHoldWallet = new WalletForArgon(keys.legacyMiningHoldAddress, 'miningBot', dbPromise);
-  const recoveryWallets = [wallets.defaultArgonWallet, legacyMiningHoldWallet, wallets.operationalWallet]
+  const recoveryWallets = [
+    wallets.defaultArgonWallet,
+    wallets.miningBotWallet,
+    legacyMiningHoldWallet,
+    wallets.operationalWallet,
+  ]
     .filter(wallet => wallet.address)
     .filter((wallet, index, all) => all.findIndex(candidate => candidate.address === wallet.address) === index);
-  const ownedAddresses = [...wallets.addresses, keys.legacyMiningHoldAddress].filter(Boolean);
   walletHistoryRecoveryInstance = new WalletHistoryRecovery({
     dbPromise,
     blockWatch: getBlockWatch(),
     currency: getCurrency(),
     recoveryWallets,
-    ownedAddresses,
+    ownedAddresses: wallets.ownedAddresses,
     onRecovered: revision => wallets.events.emit('history:recovered', revision),
   });
   return walletHistoryRecoveryInstance;
@@ -79,7 +83,7 @@ export const useWallets = defineStore('wallets', () => {
   const currency = getCurrency();
   const config = getConfig();
   const walletKeys = getWalletKeys();
-  const externalWalletBalanceCache = getDbPromise().then(db => db.externalWalletBalanceCacheTable);
+  const financialCache = getDbPromise().then(db => db.financialCacheTable);
 
   const isLoaded = Vue.ref(false);
   const { promise: isLoadedPromise, resolve: isLoadedResolve, reject: isLoadedReject } = createDeferred<void>();
@@ -87,7 +91,7 @@ export const useWallets = defineStore('wallets', () => {
   const walletsForArgon = getWalletsForArgon();
   let walletHistoryRecovery: WalletHistoryRecovery | undefined;
   const ethereumWalletLoaders = new Map<number, WalletForEthereum>();
-  const walletForBase = new WalletForBase(walletKeys.defaultEthereumAddress, externalWalletBalanceCache);
+  const walletForBase = new WalletForBase(walletKeys.defaultEthereumAddress, financialCache);
   const walletRecords = Vue.ref<IWalletRecord[]>([]);
   const activeEthereumWalletRecordId = Vue.ref<number>();
 
@@ -366,13 +370,10 @@ export const useWallets = defineStore('wallets', () => {
         await walletsForArgon.load();
         const argonBalancesReadyAt = performance.now();
 
-        if (config.walletAccountsHadPreviousLife) {
-          queueWalletHistoryRecovery({
-            blockNumber:
-              walletsForArgon.finalizedBlock?.blockNumber ?? getBlockWatch().finalizedBlockHeader.blockNumber,
-            onlyIfIncomplete: true,
-          });
-        }
+        queueWalletHistoryRecovery({
+          blockNumber: walletsForArgon.finalizedBlock?.blockNumber ?? getBlockWatch().finalizedBlockHeader.blockNumber,
+          onlyIfIncomplete: true,
+        });
         await ensureLegacyMiningHoldCleanup().catch(error => {
           console.warn('Legacy mining hold cleanup failed', error);
         });
@@ -459,7 +460,7 @@ export const useWallets = defineStore('wallets', () => {
     if (walletRecords.value.some(record => record.walletType === 'ethereum')) return;
     if (!walletKeys.defaultEthereumAddress) return;
 
-    const legacyWallet = new WalletForEthereum(walletKeys.defaultEthereumAddress, externalWalletBalanceCache);
+    const legacyWallet = new WalletForEthereum(walletKeys.defaultEthereumAddress, financialCache);
     await legacyWallet.load().catch(error => {
       console.warn('Unable to inspect legacy default Ethereum wallet during wallet seeding', error);
     });
@@ -669,7 +670,7 @@ export const useWallets = defineStore('wallets', () => {
       return existingWallet;
     }
 
-    const wallet = new WalletForEthereum(record.address, externalWalletBalanceCache);
+    const wallet = new WalletForEthereum(record.address, financialCache);
     wallet.data = Vue.reactive<IWallet>(wallet.data);
     ethereumWalletLoaders.set(record.id, wallet);
     return wallet;

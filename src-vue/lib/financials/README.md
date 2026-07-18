@@ -1,10 +1,14 @@
 # Financial positions
 
-Financials separates **net worth** from **investment return**. Net worth sums each current asset and liability once. Return compares eligible positions using:
+Financials separates **net worth** from **investment return**. Net worth sums each current asset and liability once. Domain returns compare eligible positions using:
 
 `current value + returned principal + paid income - invested cost`
 
 Wallet balances and liabilities affect net worth but are not themselves investment returns. If historical cost basis or a required price is missing, we keep the current value when possible and mark the return partial or unavailable instead of guessing.
+
+Account RTD uses the finalized value inside the Argon, mining, vaulting, bond, and Bitcoin boundary. External wallet and Bitcoin flows change invested capital, while transfers between owned wallets, protocol earnings, rollovers, and collateral recommitments are capital-neutral. The percentage uses Modified Dietz weighting so a contribution only affects the period for which it was invested. Ethereum and Base balances are outside this account-return boundary.
+
+While history catches up, the last finalized RTD remains visible. If there is no prior RTD, the current finalized account value provides a provisional zero-return baseline; that baseline is rebuilt from recovered cash flows once history is complete.
 
 Each domain class implements the same `IFinancialPositionSource` contract. Its primary method identifies the domain records, lifecycle, and native amounts; `createFinancialPosition` adds the shared position fields and takes calculated investment value separately. `FinancialPositionBook` rejects duplicate IDs and positions published into the wrong group.
 
@@ -22,7 +26,7 @@ Recommitting available ARGNOT closes the prior holding and opens the next mining
 - **Mining bids and terms:** A pending bid reserves its ARGN bid and any newly supplied ARGNOT collateral. Each won cohort then becomes a mining-term position whose cost is the bid plus transaction fees. The seat is valued at the bid price amortized over the completed percentage of its term. Mining RTD uses realized income against cost and does not include the seat's current asset value.
 - **Mining ARGNOT:** ARGNOT entering the mining bot opens a custody lot at the transfer rate, including amounts not yet committed to a cohort. A bid closes the committed FIFO quantity and opens collateral at the bid-time rate. During a cohort, earned ARGNOT is live-valued as part of mining net worth but remains ineligible for a separate holding return. When the cohort ends, its total earned ARGNOT becomes one reward lot at the closing rate; rewards are not split per block. Custody, collateral, and rewards stay live-valued until recommitted or transferred out. The full mining balance is excluded from generic wallet holdings, so the term-close handoff must replace the unbased quantity rather than add another asset.
 - **Vaulting:** One position tracks the operator's securitization, uncollected revenue, collected revenue, released principal, and capital loss. Increases add cost basis; released capital becomes returned principal. A return needs capital history beginning with vault creation and reconciling to the live vault.
-- **Bonds:** Each treasury bond lot is a position, although the UI can combine them. ARGN principal remains at face value; ARGNOT principal uses its purchase, current, and release marks. Distributed earnings are income and released principal settles the position. A bond into the user's own vault remains visible in Bonds but is excluded from the blended account return to avoid overlap with the vault position.
+- **Bonds:** Each treasury bond lot is a position, although the UI can combine them. ARGN principal remains at face value; ARGNOT principal uses its purchase, current, and release marks. Distributed earnings are income and released principal settles the position. A bond into the user's own vault remains visible in Bonds but is excluded from account RTD to avoid overlap with the vault position.
 - **Bitcoin locks:** One position follows a lock across ratchets. Live BTC and pending mint use the current mark, while received liquidity excludes pending and burned mint. A completed release settles from its removal-time BTC mark, recorded redemption, Argon and Bitcoin fees, compensation, and removal time. Until settlement recovery completes, the observable value remains visible but its return is unavailable. An expired unspent UTXO is not presented as a live lock or returned BTC.
 - **Stable swaps:** The Ethereum wallet owns its ARGN asset. Once Stable Swaps is activated, the same position is marked at the current pool price and enriched with purchase basis; no second swap asset is added. Return is unavailable when purchase history does not reconcile to the wallet quantity.
 
@@ -30,7 +34,6 @@ Historical recovery is asynchronous. Until wallet, bond, vault, and Bitcoin hist
 
 ## Known deficiencies
 
-- **Blended RTD is not time-weighted:** The account percentage combines eligible profit and invested cost across positions. It is not an IRR or time-weighted return, so it does not normalize deposits, withdrawals, or positions held for different lengths of time.
-- **Mining ARGNOT attribution is incomplete:** Active mining rewards are included in net worth and mining income but have no separate holding return until the cohort closes. That handoff does not duplicate the asset, but the blended RTD can then count the successor holding basis in addition to the mining term basis. Custody-to-collateral transitions have the same denominator problem, and a direct historical transfer from the mining bot can lack its closing boundary.
+- **Mining ARGNOT attribution is incomplete:** Active mining rewards are included in net worth and mining income but have no separate holding return until the cohort closes. This affects mining-group attribution, while account RTD treats the custody and collateral handoffs as capital-neutral.
 - **Transaction fees are incomplete:** Mining cohort fees and Bitcoin operation fees are included where their domain records carry them. Vault, bond, stable-swap, and general wallet transaction fees are not yet assigned consistently to investment positions.
 - **Reopened vaults are not supported:** Financial history assumes an operator account has one vault lifecycle.

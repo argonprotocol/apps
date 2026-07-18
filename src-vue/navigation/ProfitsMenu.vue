@@ -91,7 +91,17 @@
           </li>
 
           <li
-            v-if="
+            v-if="historyRecovery.state === 'error'"
+            class="mt-1 border-t border-slate-400/30 px-3 py-2 text-xs"
+          >
+            <button class="font-semibold text-argon-600 hover:text-argon-700" type="button" @click="financials.restoreFinancialHistory()">
+              History incomplete · Retry
+            </button>
+          </li>
+          <li
+            v-else-if="
+              accountReturnSyncState === 'loading' ||
+              accountReturnSyncState === 'updating' ||
               historyRecovery.state === 'checking' ||
               historyRecovery.state === 'restoring' ||
               historyRecovery.state === 'waiting'
@@ -100,10 +110,11 @@
           >
             History catching up
           </li>
-          <li v-else-if="historyRecovery.state === 'error'" class="mt-1 border-t border-slate-400/30 px-3 py-2 text-xs">
-            <button class="font-semibold text-argon-600 hover:text-argon-700" type="button" @click="financials.restoreFinancialHistory()">
-              History incomplete · Retry
-            </button>
+          <li
+            v-else-if="accountReturnSyncState === 'error'"
+            class="mt-1 border-t border-slate-400/30 px-3 py-2 text-xs font-normal text-slate-500"
+          >
+            Showing last finalized RTD
           </li>
         </ul>
       </NavigationMenuContent>
@@ -130,7 +141,7 @@ defineExpose({
 
 const financials = useFinancials();
 const config = getConfig();
-const { financialPositionAggregate: aggregate, historyRecovery } = storeToRefs(financials);
+const { financialPositionAggregate: aggregate, historyRecovery, accountReturnSyncState } = storeToRefs(financials);
 const argonWalletHasReturnPosition = Vue.computed(() => {
   return aggregate.value.groupSummaries.liquid.positions.some(
     position => position.kind === 'wallet-holding' && position.nativeAmount > 0n,

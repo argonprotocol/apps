@@ -197,3 +197,12 @@ ON WalletTransfers (
 
 CREATE INDEX idxWalletTransfersCounterparty
 ON WalletTransfers (otherParty, currency, blockNumber);
+
+CREATE TABLE FinancialCache (
+  type TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  state JSON NOT NULL,
+  createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (type, scope)
+);

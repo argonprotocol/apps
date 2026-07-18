@@ -106,6 +106,31 @@ export class WalletTransfersTable extends BaseTable {
     return convertFromSqliteFields<IWalletTransferRecord[]>(rows, this.fields);
   }
 
+  public async fetchExternalFlows({
+    walletAddresses,
+    afterBlock,
+    throughBlock,
+  }: {
+    walletAddresses: readonly string[];
+    afterBlock: number;
+    throughBlock: number;
+  }): Promise<IWalletTransferRecord[]> {
+    if (!walletAddresses.length) return [];
+
+    const addresses = [...new Set(walletAddresses)];
+    const placeholders = addresses.map(() => '?').join(', ');
+    const rows = await this.db.select<IWalletTransferRecord[]>(
+      `SELECT * FROM WalletTransfers
+       WHERE isInternal = 0
+         AND walletAddress IN (${placeholders})
+         AND blockNumber > ?
+         AND blockNumber <= ?
+       ORDER BY blockNumber ASC, extrinsicIndex ASC, id ASC`,
+      toSqlParams([...addresses, afterBlock, throughBlock]),
+    );
+    return convertFromSqliteFields<IWalletTransferRecord[]>(rows, this.fields);
+  }
+
   public async insert(
     args: Omit<IWalletTransferRecord, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<IWalletTransferRecord | undefined> {

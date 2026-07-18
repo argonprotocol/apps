@@ -81,6 +81,10 @@ export class WalletsForArgon {
     return this.wallets.map(wallet => wallet.address);
   }
 
+  public get ownedAddresses(): string[] {
+    return [...new Set([...this.addresses, this.legacyMiningHoldAddress].filter(Boolean))];
+  }
+
   public get totalWalletMicrogons(): bigint {
     return this.wallets.reduce((sum, w) => sum + w.totalMicrogons, 0n);
   }
@@ -308,11 +312,10 @@ export class WalletsForArgon {
   private async processFinalizedBlock(block: IBlockHeaderInfo): Promise<void> {
     const wallets = this.wallets;
     const addresses = this.addresses;
-    const ownedAddresses = [...new Set([...addresses, this.legacyMiningHoldAddress].filter(Boolean))];
     const { events, api } = await this.blockWatch.getEventsWithSpec(block);
     const transfersByWallet: IWalletBalanceTransfer[][] = [];
     for (let index = 0; index < wallets.length; index += 1) {
-      const filter = new AccountEventsFilter(wallets[index].address, ownedAddresses);
+      const filter = new AccountEventsFilter(wallets[index].address, this.ownedAddresses);
       filter.process(api, events);
       transfersByWallet.push(filter.transfers);
     }
