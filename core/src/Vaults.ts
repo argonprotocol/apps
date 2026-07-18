@@ -371,9 +371,10 @@ export class Vaults {
     const frames = this.selectReturnFrames(this.stats);
     const positions = frames.map(frame => {
       const externalEarnings = frame.treasuryPool.totalEarnings - frame.treasuryPool.vaultEarnings;
+      const startingCapital = frame.treasuryPool.externalCapital + frame.treasuryPool.vaultCapital;
       return {
-        startingCapital: frame.treasuryPool.externalCapital,
-        endingCapital: frame.treasuryPool.externalCapital + externalEarnings,
+        startingCapital,
+        endingCapital: startingCapital + externalEarnings,
       };
     });
     const result = calculateAggregateReturn(positions);
