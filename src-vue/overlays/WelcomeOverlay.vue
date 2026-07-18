@@ -77,7 +77,6 @@ const config = getConfig();
 
 const isBasicApp = !config.hasExtensionTreasury && !config.hasExtensionOperations;
 const isOpen = Vue.ref(isBasicApp && config.showWelcomeOverlay);
-console.log('IS BASIC APP = ', isBasicApp, 'IS OPEN = ', isOpen.value);
 const importAccountFromMnemonicRef = Vue.ref<InstanceType<typeof ImportAccountFromMnemonic> | null>(null);
 
 const currentStep = Vue.ref<'Create' | 'Import' | 'Import:FromMnemonic' | null>(null);
