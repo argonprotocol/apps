@@ -314,7 +314,10 @@ export function calculatePositionReturn(
     if (position.settledPrincipalValue === undefined) continue;
 
     let endingCapital = currentValue + position.settledPrincipalValue + positionIncome;
-    if (position.kind === 'bitcoin-asset' && position.performanceEndingCapital !== undefined) {
+    if (position.kind === 'mining-cohort') {
+      if (position.performanceEndingCapital === undefined) continue;
+      endingCapital = position.performanceEndingCapital;
+    } else if (position.kind === 'bitcoin-asset' && position.performanceEndingCapital !== undefined) {
       endingCapital = position.performanceEndingCapital;
     }
 

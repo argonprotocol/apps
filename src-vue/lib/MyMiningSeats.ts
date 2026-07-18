@@ -419,7 +419,7 @@ export class MyMiningSeats {
       microgonsToBeMinted += remainingRewards.microgonsToBeMinted;
       micronotsToBeMined += remainingRewards.micronotsToBeMined;
 
-      microgonValueRemaining += position.remainingGuaranteedValue;
+      microgonValueRemaining += position.remainingSeatValue;
     }
 
     return {

@@ -137,7 +137,13 @@ function activityLabel(activity: IWalletActivityRecord): string {
 
 function transferLabel(activity: IWalletActivityRecord, fallback: string): string {
   const wallet = activity.walletName ? Vue.capitalize(activity.walletName) : 'Argon Wallet';
-  const otherParty = activity.otherParty ? formatAddress(activity.otherParty) : fallback;
+  let otherParty = fallback;
+  if (activity.otherPartyName) {
+    otherParty = Vue.capitalize(activity.otherPartyName);
+  } else if (activity.otherParty) {
+    otherParty = formatAddress(activity.otherParty);
+  }
+
   return activity.amount !== undefined && activity.amount < 0n
     ? `${wallet} -> ${otherParty}`
     : `${otherParty} -> ${wallet}`;

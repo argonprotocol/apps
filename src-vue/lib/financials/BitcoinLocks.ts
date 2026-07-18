@@ -60,7 +60,7 @@ function createBitcoinLockPositions(
     const releaseArgonTxFee = record.releaseArgonTxFeeMicrogons;
     const releaseCompensation = hasConfirmedHistoryCoverage
       ? (record.releaseCompensationMicrogons ?? 0n)
-      : record.releaseCompensationMicrogons;
+      : (record.releaseCompensationMicrogons ?? undefined);
     const releasePaidIncome =
       releaseArgonTxFee !== undefined && releaseCompensation !== undefined
         ? paidIncome - releaseArgonTxFee + releaseCompensation

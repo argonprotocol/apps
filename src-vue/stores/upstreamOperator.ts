@@ -6,7 +6,10 @@ let upstreamOperatorClient: UpstreamOperatorClient | undefined;
 
 export function getUpstreamOperatorClient(): UpstreamOperatorClient {
   upstreamOperatorClient ??= new UpstreamOperatorClient(getServerAuthClient(), () => {
-    return UpstreamOperatorClient.getBootstrapHost(getConfig().bootstrapDetails);
+    const config = getConfig();
+    if (!config.upstreamOperator) return;
+
+    return UpstreamOperatorClient.getBootstrapHost(config.bootstrapDetails);
   });
   return upstreamOperatorClient;
 }

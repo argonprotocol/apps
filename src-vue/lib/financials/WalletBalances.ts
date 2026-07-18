@@ -194,11 +194,11 @@ function getBalanceBuckets(
 ) {
   const totalMicrogonHolds = account.microgonHolds.reduce((sum, hold) => sum + hold.amount.toBigInt(), 0n);
   const totalMicronotHolds = account.micronotHolds.reduce((sum, hold) => sum + hold.amount.toBigInt(), 0n);
-  if (totalMicrogonHolds > account.availableMicrogons) {
-    throw new Error(`ARGN holds exceed free balance for ${account.address}`);
+  if (totalMicrogonHolds > account.reservedMicrogons) {
+    throw new Error(`ARGN holds exceed reserved balance for ${account.address}`);
   }
-  if (totalMicronotHolds > account.availableMicronots) {
-    throw new Error(`ARGNOT holds exceed free balance for ${account.address}`);
+  if (totalMicronotHolds > account.reservedMicronots) {
+    throw new Error(`ARGNOT holds exceed reserved balance for ${account.address}`);
   }
 
   const claimedMicrogons = account.microgonHolds.reduce((sum, hold) => {
@@ -211,13 +211,15 @@ function getBalanceBuckets(
   return [
     {
       asset: 'ARGN' as const,
-      transferable: account.availableMicrogons - totalMicrogonHolds,
-      unattributed: account.reservedMicrogons + totalMicrogonHolds - claimedMicrogons,
+      transferable: account.availableMicrogons,
+      unattributed: account.reservedMicrogons - claimedMicrogons,
+      claimed: claimedMicrogons,
     },
     {
       asset: 'ARGNOT' as const,
-      transferable: account.availableMicronots - totalMicronotHolds,
-      unattributed: account.reservedMicronots + totalMicronotHolds - claimedMicronots,
+      transferable: account.availableMicronots,
+      unattributed: account.reservedMicronots - claimedMicronots,
+      claimed: claimedMicronots,
     },
   ];
 }
@@ -259,7 +261,10 @@ function createResidualWalletBalancePositions(args: {
       let transferable = balance.transferable;
       let unattributed = balance.unattributed;
       if (asset === 'ARGNOT') {
-        let claimedMicronots = args.claimedMicronotsByAccount?.get(account.address) ?? 0n;
+        let claimedMicronots = bigIntMax(
+          (args.claimedMicronotsByAccount?.get(account.address) ?? 0n) - balance.claimed,
+          0n,
+        );
         const claimedTransferable = bigIntMin(transferable, claimedMicronots);
         transferable -= claimedTransferable;
         claimedMicronots -= claimedTransferable;
