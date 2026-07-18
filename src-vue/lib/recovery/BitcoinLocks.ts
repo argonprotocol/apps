@@ -1,4 +1,3 @@
-import { BitcoinNetwork } from '@argonprotocol/bitcoin';
 import {
   BitcoinLock,
   u8aEq,
@@ -22,7 +21,9 @@ export class BitcoinLockRecovery {
     'getAcceptedFundingRecordForLock' | 'setAcceptedFundingRecordForLock' | 'setReleaseRequest' | 'upsertUtxoRecord'
   >;
   private readonly replayedLockIds = new Set<number>();
-  private readonly getBitcoinNetwork: () => BitcoinNetwork;
+  private readonly insertPending: (
+    details: Pick<IBitcoinLockRecord, 'uuid' | 'satoshis' | 'vaultId' | 'hdPath'>,
+  ) => Promise<IBitcoinLockRecord>;
   private readonly getTable: () => Promise<BitcoinLocksTable>;
   private readonly getDerivedPubkey: (vaultId: number, index: number) => ReturnType<typeof deriveBitcoinLockHdKey>;
   private readonly trackDerivedBitcoinLockKey: (
@@ -36,7 +37,7 @@ export class BitcoinLockRecovery {
     currency: Pick<Currency, 'fetchMainchainRatesAtBlock'>;
     locksByUtxoId: Record<number, IBitcoinLockRecord>;
     utxoTracking: BitcoinLockRecovery['utxoTracking'];
-    getBitcoinNetwork: () => BitcoinNetwork;
+    insertPending: BitcoinLockRecovery['insertPending'];
     getTable: () => Promise<BitcoinLocksTable>;
     getDerivedPubkey: BitcoinLockRecovery['getDerivedPubkey'];
     trackDerivedBitcoinLockKey: BitcoinLockRecovery['trackDerivedBitcoinLockKey'];
@@ -46,7 +47,7 @@ export class BitcoinLockRecovery {
     this.currency = args.currency;
     this.locksByUtxoId = args.locksByUtxoId;
     this.utxoTracking = args.utxoTracking;
-    this.getBitcoinNetwork = args.getBitcoinNetwork;
+    this.insertPending = args.insertPending;
     this.getTable = args.getTable;
     this.getDerivedPubkey = args.getDerivedPubkey;
     this.trackDerivedBitcoinLockKey = args.trackDerivedBitcoinLockKey;
@@ -90,9 +91,9 @@ export class BitcoinLockRecovery {
         if (readRequiredEventField(event, 'accountId', block).toString() !== this.walletKeys.vaultingAddress) continue;
 
         // Restart replay from durable state rather than a stale in-memory observation.
-        const existing = (await table.getByUtxoId(utxoId)) ?? this.locksByUtxoId[utxoId];
+        const persistedRecord = await table.getByUtxoId(utxoId);
+        const existing = persistedRecord ? this.applyRecoveredRecord(persistedRecord) : this.locksByUtxoId[utxoId];
         if (existing) {
-          this.locksByUtxoId[utxoId] = existing;
           if (existing.ratchets.length) {
             const creationRatchetIndex = existing.ratchets.findIndex(
               ratchet => ratchet.blockHeight === block.blockNumber,
@@ -127,7 +128,7 @@ export class BitcoinLockRecovery {
               recovered.ratchets[creationRatchetIndex].mintPending = creationRatchet.mintAmount;
               recovered.ratchets[creationRatchetIndex].extrinsicIndex = extrinsicIndex;
               await table.saveRecoveredHistory(recovered, new Date(block.blockTime));
-              this.locksByUtxoId[utxoId] = recovered;
+              this.applyRecoveredRecord(recovered);
             }
             this.replayedLockIds.add(utxoId);
             continue;
@@ -166,20 +167,19 @@ export class BitcoinLockRecovery {
         ];
         this.assertSafePendingMint(recovered);
         await table.saveRecoveredHistory(recovered, new Date(block.blockTime));
-        this.locksByUtxoId[utxoId] = recovered;
+        this.applyRecoveredRecord(recovered);
         this.replayedLockIds.add(utxoId);
         continue;
       }
 
-      const record = this.locksByUtxoId[utxoId] ?? (await table.getByUtxoId(utxoId));
+      const persistedRecord = this.locksByUtxoId[utxoId] ? undefined : await table.getByUtxoId(utxoId);
+      const record = persistedRecord ? this.applyRecoveredRecord(persistedRecord) : this.locksByUtxoId[utxoId];
       if (!record) {
         // Release events only identify a UTXO, and the indexer returns the full block selected for this account.
         // An unrelated account's release can therefore appear beside owned activity without an ownership field.
         if (!isBitcoinMint && event.method !== 'BitcoinLockRatcheted') continue;
         throw new Error(`Bitcoin lock ${utxoId} history is missing its creation record`);
       }
-      this.locksByUtxoId[utxoId] = record;
-
       if (event.method === 'BitcoinLockRatcheted') {
         await this.importRatchet(record, block, eventRecords, eventIndex, api, table);
       } else if (isBitcoinMint) {
@@ -213,17 +213,17 @@ export class BitcoinLockRecovery {
             releaseBitcoinNetworkFee: releaseRequest.bitcoinNetworkFee,
           });
         }
-        this.locksByUtxoId[utxoId] = recovered;
+        this.applyRecoveredRecord(recovered);
       } else if (event.method === 'BitcoinUtxoCosigned') {
         if (record.status !== BitcoinLockStatus.Releasing && record.status !== BitcoinLockStatus.Released) {
           const recovered = this.createDetachedRecord(record);
           await table.setStatus(recovered, BitcoinLockStatus.Releasing);
-          this.locksByUtxoId[utxoId] = recovered;
+          this.applyRecoveredRecord(recovered);
         }
       } else if (event.method === 'BitcoinCosignPastDue') {
         const recovered = this.createDetachedRecord(record);
         await table.recordReleaseCompensation(recovered, readRequiredEventBigInt(event, ['compensationAmount'], block));
-        this.locksByUtxoId[utxoId] = recovered;
+        this.applyRecoveredRecord(recovered);
       } else if (event.method === 'BitcoinSpentAfterRelease' || event.method === 'BitcoinLockBurned') {
         let removalReason: NonNullable<IBitcoinLockRecord['removalReason']> = 'released';
         let status = BitcoinLockStatus.Released;
@@ -244,7 +244,7 @@ export class BitcoinLockRecovery {
           removalReason,
           btcPriceAtRemovalMicrogons: rates.BTC,
         });
-        this.locksByUtxoId[utxoId] = recovered;
+        this.applyRecoveredRecord(recovered);
       }
     }
   }
@@ -257,8 +257,7 @@ export class BitcoinLockRecovery {
     const table = await this.getTable();
     const existing = await table.getByUtxoId(args.lock.utxoId);
     if (existing) {
-      this.locksByUtxoId[args.lock.utxoId] = existing;
-      return existing;
+      return this.applyRecoveredRecord(existing);
     }
 
     const derivedPubkey = await this.findDerivedPubkeyForOwner(args.lock.vaultId, args.lock.ownerPubkey);
@@ -266,14 +265,11 @@ export class BitcoinLockRecovery {
 
     let record = await table.findLockByHdPath(derivedPubkey.hdPath);
     if (!record) {
-      record = await table.insertPending({
+      record = await this.insertPending({
         uuid: BitcoinLocksTable.createUuid(),
-        status: BitcoinLockStatus.LockIsProcessingOnArgon,
         vaultId: args.lock.vaultId,
         satoshis: args.lock.satoshis,
         hdPath: derivedPubkey.hdPath,
-        cosignVersion: 'v1',
-        network: String(this.getBitcoinNetwork()),
       });
     }
     if (record.status === BitcoinLockStatus.LockIsProcessingOnArgon) {
@@ -284,8 +280,7 @@ export class BitcoinLockRecovery {
         finalFee: args.finalFee,
       });
     }
-    this.locksByUtxoId[args.lock.utxoId] = record;
-    return record;
+    return this.applyRecoveredRecord(record);
   }
 
   public async findMissingActiveLockIds(api: ApiDecoration<'promise'>): Promise<number[]> {
@@ -421,7 +416,7 @@ export class BitcoinLockRecovery {
     }
     this.assertSafePendingMint(recovered);
     await table.saveRecoveredHistory(recovered);
-    this.locksByUtxoId[record.utxoId!] = recovered;
+    this.applyRecoveredRecord(recovered);
   }
 
   private createDetachedRecord(record: IBitcoinLockRecord): IBitcoinLockRecord {
@@ -429,6 +424,18 @@ export class BitcoinLockRecovery {
       ...record,
       ratchets: record.ratchets.map(ratchet => ({ ...ratchet })),
     };
+  }
+
+  private applyRecoveredRecord(recovered: IBitcoinLockRecord): IBitcoinLockRecord {
+    const current = this.locksByUtxoId[recovered.utxoId!];
+    if (current) {
+      recovered.fundingUtxoRecord ??= current.fundingUtxoRecord;
+      Object.assign(current, recovered);
+      return current;
+    }
+
+    this.locksByUtxoId[recovered.utxoId!] = recovered;
+    return recovered;
   }
 
   private hasCompleteRatchetEconomics(
@@ -579,7 +586,7 @@ export class BitcoinLockRecovery {
 
     this.assertSafePendingMint(recovered);
     await table.updateMintState(recovered);
-    this.locksByUtxoId[record.utxoId!] = recovered;
+    this.applyRecoveredRecord(recovered);
   }
 
   private async reconcilePendingMint(
@@ -606,7 +613,7 @@ export class BitcoinLockRecovery {
     }
     this.assertSafePendingMint(recovered);
     await table.updateMintState(recovered);
-    this.locksByUtxoId[record.utxoId!] = recovered;
+    this.applyRecoveredRecord(recovered);
   }
 }
 

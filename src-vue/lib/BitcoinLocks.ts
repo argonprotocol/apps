@@ -229,7 +229,7 @@ export default class BitcoinLocks {
       currency,
       locksByUtxoId: this.data.locksByUtxoId,
       utxoTracking: this.utxoTracking,
-      getBitcoinNetwork: () => this.bitcoinNetwork,
+      insertPending: this.insertPending.bind(this),
       getTable: () => this.getTable(),
       getDerivedPubkey: (vaultId, index) => this.getDerivedPubkey(vaultId, index),
       trackDerivedBitcoinLockKey: (vaultId, derivedPubkey) => this.trackDerivedBitcoinLockKey(vaultId, derivedPubkey),
