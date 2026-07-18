@@ -91,7 +91,7 @@
                   Settings
                 </button>
                 <div class="w-px h-8/12 bg-slate-600/30" />
-                <button class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
+                <button @click="openSecuritization" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
                   Securitization
                 </button>
                 <div class="w-px h-8/12 bg-slate-600/30" />
@@ -99,7 +99,7 @@
                   Staking
                 </button>
                 <div class="w-px h-8/12 bg-slate-600/30" />
-                <button @click="openNetworkTab" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
+                <button @click="controller.setTab(TopTab.Invites)" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
                   Users
                 </button>
               </div>
@@ -268,7 +268,7 @@ import { TICK_MILLIS } from '../../lib/Env.ts';
 import VaultEditOverlay from '../../overlays/VaultEditOverlay.vue';
 import BitcoinLockDetailOverlay from '../../overlays/BitcoinLockDetailOverlay.vue';
 import BondDetailOverlay from '../../overlays/BondDetailOverlay.vue';
-import { BondLot, NetworkConfig, TreasuryBonds, type IFrameBondLot } from '@argonprotocol/apps-core';
+import { BondLot, MoveTo, NetworkConfig, TreasuryBonds, type IFrameBondLot } from '@argonprotocol/apps-core';
 import { BigNumber } from 'bignumber.js';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
 import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
@@ -284,6 +284,7 @@ import { TopTab } from '../../interfaces/IConfig.ts';
 import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 import { useFinancials } from '../../stores/financials.ts';
+import { WalletType } from '../../lib/Wallet.ts';
 
 dayjs.extend(utc);
 
@@ -724,8 +725,11 @@ function openVaultEditOverlay() {
   showEditOverlay.value = true;
 }
 
-function openNetworkTab() {
-  controller.setTab(TopTab.Network);
+function openSecuritization() {
+  basicEmitter.emit('openMoveCapitalOverlay', {
+    walletType: WalletType.defaultArgon,
+    moveTo: MoveTo.VaultingSecurity,
+  });
 }
 
 const miningFrames = getMiningFrames();
