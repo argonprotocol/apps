@@ -245,8 +245,8 @@ describe
         void walletHistoryRecovery.recoverNow(blockWatch.finalizedBlockHeader.blockNumber);
 
         await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(3));
-        expect(visibleOperationalBalances).toEqual([15_000_000n]);
-        expect(walletsForArgon.operationalWallet.totalMicrogons).toBe(15_000_000n);
+        expect(visibleOperationalBalances).toEqual([5_000_000n]);
+        expect(walletsForArgon.operationalWallet.totalMicrogons).toBe(5_000_000n);
 
         resumeRecovery.resolve();
         await vi.waitFor(async () => {
@@ -304,7 +304,7 @@ describe
         const targetBlock = blockWatch.finalizedBlockHeader.blockNumber;
         await expect(walletHistoryRecovery.recoverNow(targetBlock)).rejects.toThrow('indexer unavailable');
 
-        expect(walletsForArgon.operationalWallet.totalMicrogons).toBe(15_000_000n);
+        expect(walletsForArgon.operationalWallet.totalMicrogons).toBe(5_000_000n);
         expect(lookup.mock.calls.map(([, , blockRange]) => blockRange)).toEqual([
           [0, targetBlock],
           [0, targetBlock],
