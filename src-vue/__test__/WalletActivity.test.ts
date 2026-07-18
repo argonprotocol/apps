@@ -84,4 +84,53 @@ describe('WalletActivity', () => {
     expect(activity.blockNumber).toBe(8);
     expect(activity.isFinalized).toBe(false);
   });
+
+  it('preserves the amount from direct submitted transfers', () => {
+    const transaction = createTransaction({
+      status: TransactionStatus.Error,
+      metadataJson: {
+        moveFrom: 'HoldingArgon',
+        moveTo: 'Mining',
+        amount: 25_704_390_000n,
+      },
+    });
+
+    const [activity] = buildWalletActivity({ transfers: [], transactions: [transaction] });
+
+    expect(activity.amount).toBe(25_704_390_000n);
+    expect(activity.currency).toBe('argon');
+  });
+
+  it('collapses both wallet perspectives of an internal transfer', () => {
+    const sourceAddress = '5Source';
+    const destinationAddress = '5Destination';
+    const activities = buildWalletActivity({
+      transfers: [
+        createTransfer({
+          id: 2,
+          walletAddress: destinationAddress,
+          walletName: 'vaulting',
+          amount: 25n,
+          otherParty: sourceAddress,
+          isInternal: true,
+        }),
+        createTransfer({
+          walletAddress: sourceAddress,
+          walletName: 'miningBot',
+          amount: -25n,
+          otherParty: destinationAddress,
+          isInternal: true,
+        }),
+      ],
+    });
+
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({
+      walletAddress: sourceAddress,
+      walletName: 'miningBot',
+      amount: -25n,
+      otherParty: destinationAddress,
+      otherPartyName: 'vaulting',
+    });
+  });
 });

@@ -124,6 +124,7 @@ export function calculateVaultPositionValue(args: {
 
 export function calculateMiningPositionValue(args: {
   isActive: boolean;
+  percentComplete?: number;
   bidPrincipal: bigint;
   nativeStakedMicronots: bigint;
   microgonsMined: bigint;
@@ -136,7 +137,8 @@ export function calculateMiningPositionValue(args: {
   closingArgonotPrice?: bigint;
 }): IInvestmentPositionValue & {
   recoveredValue: bigint;
-  remainingGuaranteedValue: bigint;
+  remainingSeatValue: bigint;
+  performanceEndingCapital?: bigint;
 } {
   const term = calculateMiningTermPositionValue(args);
   const entryStakeValue = valueMicronots(args.nativeStakedMicronots, args.entryArgonotPrice);
@@ -157,6 +159,7 @@ export function calculateMiningPositionValue(args: {
 
 export function calculateMiningTermPositionValue(args: {
   isActive: boolean;
+  percentComplete?: number;
   bidPrincipal: bigint;
   microgonsMined: bigint;
   microgonsMinted: bigint;
@@ -167,24 +170,27 @@ export function calculateMiningTermPositionValue(args: {
   closingArgonotPrice?: bigint;
 }): IInvestmentPositionValue & {
   recoveredValue: bigint;
-  remainingGuaranteedValue: bigint;
+  remainingSeatValue: bigint;
+  performanceEndingCapital?: bigint;
 } {
   const microgonIncome = args.microgonsMined + args.microgonsMinted;
   const performanceArgonotPrice = args.isActive ? args.currentArgonotPrice : args.closingArgonotPrice;
   const performanceArgonotIncome = valueMicronots(args.micronotsMined, performanceArgonotPrice);
   const hasRewardValue = performanceArgonotIncome !== undefined;
   const recoveredPerformanceValue = microgonIncome + (performanceArgonotIncome ?? 0n);
-  // The runtime's mint floor values all rewards at the current mark, so the
-  // outstanding receivable must use that same value rather than the bid mark.
-  const remainingGuaranteedValue = bigIntMax(args.bidPrincipal - recoveredPerformanceValue, 0n);
+  const defaultPercentComplete = args.isActive ? 0 : 100;
+  const percentComplete = Math.max(0, Math.min(args.percentComplete ?? defaultPercentComplete, 100));
+  const remainingSeatValue = percentOf(args.bidPrincipal, 100 - percentComplete);
+  const paidIncome = recoveredPerformanceValue + args.feeIncome;
 
   return {
-    currentValue: hasRewardValue ? remainingGuaranteedValue : undefined,
+    currentValue: remainingSeatValue,
     investedCost: args.bidPrincipal + args.transactionFees,
-    paidIncome: recoveredPerformanceValue + args.feeIncome,
+    paidIncome,
     settledPrincipalValue: 0n,
-    recoveredValue: recoveredPerformanceValue + args.feeIncome,
-    remainingGuaranteedValue,
+    recoveredValue: paidIncome,
+    remainingSeatValue,
+    performanceEndingCapital: hasRewardValue ? paidIncome : undefined,
   };
 }
 

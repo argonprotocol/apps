@@ -25,9 +25,10 @@ describe('FinancialPositions', () => {
     });
   });
 
-  it('keeps an active mining bid as guaranteed remaining value instead of an immediate loss', () => {
+  it('amortizes the mining seat from its bid value as the term completes', () => {
     const value = calculateMiningPositionValue({
       isActive: true,
+      percentComplete: 60,
       bidPrincipal: 1_000n,
       nativeStakedMicronots: 1_000_000n,
       microgonsMined: 200n,
@@ -42,14 +43,16 @@ describe('FinancialPositions', () => {
     expect(value).toMatchObject({
       investedCost: 3_005n,
       paidIncome: 610n,
-      remainingGuaranteedValue: 400n,
+      remainingSeatValue: 400n,
+      performanceEndingCapital: 610n,
       currentValue: 3_400n,
     });
   });
 
-  it('uses the current ARGNOT mark when measuring how much of the mining floor has been fulfilled', () => {
+  it('keeps the seat mark separate from the current value of earned ARGNOT', () => {
     const appreciated = calculateMiningPositionValue({
       isActive: true,
+      percentComplete: 30,
       bidPrincipal: 1_000n,
       nativeStakedMicronots: 0n,
       microgonsMined: 0n,
@@ -62,6 +65,7 @@ describe('FinancialPositions', () => {
     });
     const depreciated = calculateMiningPositionValue({
       isActive: true,
+      percentComplete: 30,
       bidPrincipal: 1_000n,
       nativeStakedMicronots: 0n,
       microgonsMined: 0n,
@@ -75,17 +79,19 @@ describe('FinancialPositions', () => {
 
     expect(appreciated).toMatchObject({
       paidIncome: 300n,
-      remainingGuaranteedValue: 700n,
+      remainingSeatValue: 700n,
+      performanceEndingCapital: 300n,
       currentValue: 700n,
     });
     expect(depreciated).toMatchObject({
       paidIncome: 100n,
-      remainingGuaranteedValue: 900n,
-      currentValue: 900n,
+      remainingSeatValue: 700n,
+      performanceEndingCapital: 100n,
+      currentValue: 700n,
     });
   });
 
-  it('uses the closing ARGNOT mark and keeps the unpaid floor receivable after the term ends', () => {
+  it('uses the closing ARGNOT mark and retires the seat value after the term ends', () => {
     const value = calculateMiningPositionValue({
       isActive: false,
       bidPrincipal: 1_000n,
@@ -102,8 +108,9 @@ describe('FinancialPositions', () => {
     expect(value).toMatchObject({
       investedCost: 3_005n,
       paidIncome: 710n,
-      remainingGuaranteedValue: 300n,
-      currentValue: 300n,
+      remainingSeatValue: 0n,
+      performanceEndingCapital: 710n,
+      currentValue: 0n,
       settledPrincipalValue: 4_000n,
     });
   });
@@ -122,12 +129,13 @@ describe('FinancialPositions', () => {
     });
 
     expect(value).toEqual({
-      currentValue: 300n,
+      currentValue: 0n,
       investedCost: 1_005n,
       paidIncome: 710n,
       settledPrincipalValue: 0n,
       recoveredValue: 710n,
-      remainingGuaranteedValue: 300n,
+      remainingSeatValue: 0n,
+      performanceEndingCapital: 710n,
     });
   });
 

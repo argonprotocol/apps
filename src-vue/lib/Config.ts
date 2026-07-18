@@ -245,6 +245,25 @@ export class Config implements IConfig {
         loadedData.isServerInstalled ||
         loadedData.miningSetupStatus !== MiningSetupStatus.None ||
         loadedData.vaultingSetupStatus !== VaultingSetupStatus.None;
+      const hasRunningOperations =
+        loadedData.miningSetupStatus === MiningSetupStatus.Finished ||
+        loadedData.vaultingSetupStatus === VaultingSetupStatus.Finished;
+
+      if (loadedData.bootstrapDetails && loadedData.showWelcomeOverlay) {
+        loadedData.showWelcomeOverlay = false;
+        fieldsToSave.add(dbFields.showWelcomeOverlay);
+        rawData[dbFields.showWelcomeOverlay] = JsonExt.stringify(loadedData.showWelcomeOverlay, 2);
+      }
+
+      if (hasRunningOperations && (!loadedData.hasExtensionTreasury || !loadedData.hasExtensionOperations)) {
+        loadedData.hasExtensionTreasury = true;
+        loadedData.hasExtensionOperations = true;
+
+        fieldsToSave.add(dbFields.hasExtensionTreasury);
+        fieldsToSave.add(dbFields.hasExtensionOperations);
+        rawData[dbFields.hasExtensionTreasury] = JsonExt.stringify(loadedData.hasExtensionTreasury, 2);
+        rawData[dbFields.hasExtensionOperations] = JsonExt.stringify(loadedData.hasExtensionOperations, 2);
+      }
 
       if (!loadedData.bootstrapDetails && hasLegacyAccountState) {
         loadedData.bootstrapDetails = {

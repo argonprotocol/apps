@@ -748,9 +748,13 @@ export const useCertificationController = defineStore('certificationController',
     }
 
     const client = await getMainchainClient(false);
-    const transferTotals = await client.query.crosschainTransfer.transferTotalsByAccount(
-      walletKeys.defaultArgonAddress,
-    );
+    const transferTotalsByAccount = client.query.crosschainTransfer.transferTotalsByAccount;
+    if (!transferTotalsByAccount) {
+      treasuryTransferredInMicrogons.value = 0n;
+      return;
+    }
+
+    const transferTotals = await transferTotalsByAccount(walletKeys.defaultArgonAddress);
     treasuryTransferredInMicrogons.value = transferTotals.microgonsIn.toBigInt();
   }
 

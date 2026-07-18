@@ -50,9 +50,10 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
       revenueHistory?: readonly IVaultRevenueEventsRecord[];
     },
   ): VaultPosition[] {
+    const committedMicronots = args.liveVault ? (args.committedMicronots ?? 0n) : 0n;
     if (args.liveVault) {
       if (!args.account) throw new Error('Vault operator account is missing from the Argon wallet snapshot');
-      validateVaultHolds(args.account, args.liveVault, args.uncollectedRevenue ?? 0n);
+      validateVaultHolds(args.account, args.liveVault, args.uncollectedRevenue ?? 0n, committedMicronots);
     }
 
     const capitalHistory = args.capitalHistory ?? [];
@@ -100,7 +101,6 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
       ),
     ];
 
-    const committedMicronots = args.liveVault ? (args.committedMicronots ?? 0n) : 0n;
     if (committedMicronots > 0n) {
       positions.push(
         createFinancialPosition('vault-balance', {
@@ -121,7 +121,12 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
   }
 }
 
-function validateVaultHolds(account: IArgonAccountBalance, vault: Vault, uncollectedRevenue: bigint): void {
+function validateVaultHolds(
+  account: IArgonAccountBalance,
+  vault: Vault,
+  uncollectedRevenue: bigint,
+  committedMicronots: bigint,
+): void {
   const enterVaultHolds = account.microgonHolds
     .filter(hold => hold.id.isVaults && hold.id.asVaults.isEnterVault)
     .reduce((sum, hold) => sum + hold.amount.toBigInt(), 0n);
@@ -135,7 +140,7 @@ function validateVaultHolds(account: IArgonAccountBalance, vault: Vault, uncolle
   if (enterVaultHolds !== vault.securitization) {
     throw new Error('Vault capital holds do not match current securitization');
   }
-  if (pendingCollectHolds !== uncollectedRevenue || micronotVaultHolds !== 0n) {
+  if (pendingCollectHolds !== uncollectedRevenue || micronotVaultHolds !== committedMicronots) {
     throw new Error('Vault revenue holds do not match pending collect revenue');
   }
 }

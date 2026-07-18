@@ -106,7 +106,9 @@ export interface IMiningCohortFinancialPosition extends IFinancialInvestmentPosi
   group: 'mining';
   cohort: IMiningCohortFinancialRecord;
   recoveredValue: bigint;
-  remainingGuaranteedValue: bigint;
+  remainingSeatValue: bigint;
+  // Mining RTD uses realized income rather than the seat's current asset value.
+  performanceEndingCapital?: bigint;
   currentArgonotRateMicrogons?: bigint;
   closingArgonotRateMicrogons?: bigint;
 }

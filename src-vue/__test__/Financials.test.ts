@@ -26,6 +26,7 @@ import type { IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
 import { ArgonBondsFinancials } from '../lib/financials/ArgonBonds.ts';
 import type { WalletForArgon } from '../lib/WalletForArgon.ts';
 import { MiningFinancials } from '../lib/financials/MyMiningSeats.ts';
+import { VaultFinancials } from '../lib/financials/MyVault.ts';
 import { calculatePositionReturn, FinancialPositionBook, reduceFinancialPositions } from '../lib/financials/index.ts';
 import { WalletFinancials } from '../lib/financials/WalletBalances.ts';
 
@@ -43,6 +44,7 @@ const wallet: IWallet = {
 const miningFinancials = new MiningFinancials({} as any);
 const bondFinancials = new ArgonBondsFinancials({} as any);
 const bitcoinFinancials = new BitcoinFinancials({} as any);
+const vaultFinancials = new VaultFinancials({} as any);
 
 function readySnapshots(positions: IFinancialPosition[] = []): IFinancialObservedGroupSnapshot[] {
   return financialGroups.map(group => ({
@@ -332,10 +334,11 @@ describe('financial position accounting', () => {
 
     expect(positions.filter(position => position.kind === 'mining-argonot')).toHaveLength(1);
     expect(active).toMatchObject({
-      currentValue: 60_000_000n,
+      currentValue: 70_000_000n,
       investedCost: 101_000_000n,
       paidIncome: 45_000_000n,
-      remainingGuaranteedValue: 60_000_000n,
+      remainingSeatValue: 70_000_000n,
+      performanceEndingCapital: 45_000_000n,
     });
     expect(custody).toMatchObject({
       source: 'collateral',
@@ -349,11 +352,11 @@ describe('financial position accounting', () => {
       investedCost: 80_000_000n,
       nativeStakedMicronots: 10_000_000n,
     });
-    expect(mining?.currentValue).toBe(170_000_000n);
+    expect(mining?.currentValue).toBe(180_000_000n);
     expect(mining?.returnSummary).toMatchObject({
       investedCost: 101_000_000n,
-      returnAmount: 4_000_000n,
-      percent: 3.96,
+      returnAmount: -56_000_000n,
+      percent: -55.45,
     });
   });
 
@@ -467,7 +470,7 @@ describe('financial position accounting', () => {
     expect(reduceFinancialPositions(readySnapshots(positions)).groupSummaries.mining.currentValue).toBe(100n);
   });
 
-  it('does not treat a completed mining stake as lost when its closing ARGNOT mark is missing', () => {
+  it('retires a completed mining seat while withholding RTD when its closing ARGNOT mark is missing', () => {
     const positions = miningFinancials.createFinancialPositions({
       cohorts: [
         createMiningCohort({
@@ -496,7 +499,7 @@ describe('financial position accounting', () => {
 
     expect(positions[0]).toMatchObject({
       kind: 'mining-cohort',
-      currentValue: undefined,
+      currentValue: 0n,
       settledPrincipalValue: 0n,
     });
     const collateral = positions.find(
@@ -561,7 +564,7 @@ describe('financial position accounting', () => {
       currentValue: 9_000_000n,
       amount: 3_000_000n,
     });
-    expect(mining.currentValue).toBe(120_000_000n);
+    expect(mining.currentValue).toBe(100_000_000n);
     expect(mining.returnSummary.availability).toBe('available');
   });
 
@@ -1360,11 +1363,40 @@ describe('financial position accounting', () => {
 
     const balances = result.filter(position => position.kind === 'wallet-balance');
     expect(balances.map(position => [position.asset, position.balanceType, position.nativeAmount])).toEqual([
-      ['ARGN', 'transferable', 15n],
-      ['ARGN', 'unattributed-hold', 35n],
-      ['ARGNOT', 'transferable', 200n],
-      ['ARGNOT', 'unattributed-hold', 300n],
+      ['ARGN', 'transferable', 30n],
+      ['ARGN', 'unattributed-hold', 20n],
+      ['ARGNOT', 'transferable', 300n],
+      ['ARGNOT', 'unattributed-hold', 200n],
     ]);
+  });
+
+  it('does not remove a claimed vault commitment from the free ARGNOT balance twice', async () => {
+    const registry = getOfflineRegistry();
+    const account = createArgonAccount({
+      availableMicronots: 7n,
+      reservedMicronots: 10n,
+      micronotHolds: [
+        registry.createType('FrameSupportTokensMiscIdAmountRuntimeHoldReason', {
+          id: { Vaults: 'EnterVault' },
+          amount: 10n,
+        }),
+      ],
+    });
+    const result = await createWalletsForFinancialTest(account.address).loadPositions({
+      accounts: [account],
+      claimedHolds: { treasury: false, miningSlot: false, vaults: true },
+      claimedMicronotsByAccount: new Map([[account.address, 10n]]),
+      liveArgonotRateMicrogons: 1_000_000n,
+    });
+
+    expect(result).toContainEqual(
+      expect.objectContaining({
+        kind: 'wallet-balance',
+        asset: 'ARGNOT',
+        balanceType: 'transferable',
+        nativeAmount: 7n,
+      }),
+    );
   });
 
   it('does not mark an empty ARGNOT balance unavailable while history catches up', async () => {
@@ -1379,9 +1411,9 @@ describe('financial position accounting', () => {
     expect(positions).not.toContainEqual(expect.objectContaining({ lifecycle: 'unavailable' }));
   });
 
-  it('fails the wallet group when holds exceed the free chain balance', async () => {
+  it('fails the wallet group when holds exceed the reserved chain balance', async () => {
     const account = createArgonAccount({
-      availableMicrogons: 9n,
+      reservedMicrogons: 9n,
       microgonTreasuryHold: 10n,
     });
 
@@ -1391,7 +1423,43 @@ describe('financial position accounting', () => {
         claimedHolds: { treasury: false, miningSlot: false, vaults: false },
         liveArgonotRateMicrogons: 1_000_000n,
       }),
-    ).rejects.toThrow('ARGN holds exceed free balance');
+    ).rejects.toThrow('ARGN holds exceed reserved balance');
+  });
+
+  it('accepts the live vault ARGNOT hold as its committed stake', () => {
+    const registry = getOfflineRegistry();
+    const account = createArgonAccount({
+      reservedMicrogons: 8n,
+      reservedMicronots: 400n,
+      microgonHolds: [
+        registry.createType('FrameSupportTokensMiscIdAmountRuntimeHoldReason', {
+          id: { Vaults: 'EnterVault' },
+          amount: 8n,
+        }),
+      ],
+      micronotHolds: [
+        registry.createType('FrameSupportTokensMiscIdAmountRuntimeHoldReason', {
+          id: { Vaults: 'EnterVault' },
+          amount: 400n,
+        }),
+      ],
+    });
+    const positions = vaultFinancials.createFinancialPositions({
+      hasConfirmedHistoryCoverage: false,
+      account,
+      liveVault: { vaultId: 10, securitization: 8n, isClosed: false } as Vault,
+      committedMicronots: 400n,
+      uncollectedRevenue: 0n,
+      liveArgonotRateMicrogons: 1_000_000n,
+    });
+
+    expect(positions).toContainEqual(
+      expect.objectContaining({
+        kind: 'vault-balance',
+        asset: 'ARGNOT',
+        amount: 400n,
+      }),
+    );
   });
 });
 
@@ -1476,10 +1544,10 @@ describe('financial group snapshots', () => {
         lock: { uuid: 'lock-1' } as IBitcoinLockRecord,
       },
       {
-        id: 'mining-guarantee',
+        id: 'mining-seat',
         kind: 'mining-cohort',
         group: 'mining',
-        label: 'Remaining mining guarantee',
+        label: 'Remaining mining seat',
         lifecycle: 'active',
 
         currentValue: 20n,
@@ -1487,7 +1555,7 @@ describe('financial group snapshots', () => {
         settledPrincipalValue: 0n,
         cohort: {} as IMiningCohortFinancialRecord,
         recoveredValue: 0n,
-        remainingGuaranteedValue: 20n,
+        remainingSeatValue: 20n,
       },
     ];
 

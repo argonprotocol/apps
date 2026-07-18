@@ -252,6 +252,7 @@ export function createMiningCohortFinancialPosition({
   const closingArgonotRateMicrogons = isActive ? undefined : cohort.closingArgonotPrice || undefined;
   const value = calculateMiningTermPositionValue({
     isActive,
+    percentComplete: cohort.progress,
     bidPrincipal: cohort.microgonsBidPerSeat * seatCount,
     microgonsMined: cohort.microgonsMinedTotal,
     microgonsMinted: cohort.microgonsMintedTotal,
@@ -261,9 +262,7 @@ export function createMiningCohortFinancialPosition({
     currentArgonotPrice: currentArgonotRateMicrogons,
     closingArgonotPrice: closingArgonotRateMicrogons,
   });
-  let lifecycle: IMiningCohortFinancialPosition['lifecycle'] = 'completed';
-  if (isActive) lifecycle = 'active';
-  else if (value.remainingGuaranteedValue > 0n) lifecycle = 'releasing';
+  const lifecycle: IMiningCohortFinancialPosition['lifecycle'] = isActive ? 'active' : 'completed';
 
   return createFinancialPosition(
     'mining-cohort',
@@ -275,7 +274,8 @@ export function createMiningCohortFinancialPosition({
       endedAt: isActive ? undefined : frameDates.get(cohort.id + NetworkConfig.framesPerCohort),
       cohort,
       recoveredValue: value.recoveredValue,
-      remainingGuaranteedValue: value.remainingGuaranteedValue,
+      remainingSeatValue: value.remainingSeatValue,
+      performanceEndingCapital: value.performanceEndingCapital,
       currentArgonotRateMicrogons,
       closingArgonotRateMicrogons,
     },
