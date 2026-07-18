@@ -10,5 +10,14 @@
       into your vault, or invite friends to download the Argon Treasury app and lock their Bitcoin into it as well. The
       more Bitcoin locked into a vault, the more mining auction proceeds that vault can earn from the network.
     </p>
+    <p class="text-md mt-4 leading-7">
+      When you start this task, Argon will point you to
+      <code>Bitcoin Locks</code>
+      in the Treasury sidebar. Open it, then click
+      <code>Liquid Lock Your Bitcoin</code>
+      or
+      <code>Lock Another Bitcoin</code>
+      and follow the prompts.
+    </p>
   </div>
 </template>

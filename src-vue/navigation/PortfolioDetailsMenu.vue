@@ -58,6 +58,9 @@
               <div v-else-if="group.group === 'ethereum'" class="text-xs font-normal text-slate-500">
                 {{ ethereumAssetLabels.length ? ethereumAssetLabels.join(' · ') : 'No assets' }}
               </div>
+              <div v-else-if="group.group === 'base'" class="text-xs font-normal text-slate-500">
+                {{ baseAssetLabels.join(' · ') }}
+              </div>
               <div v-else-if="group.group === 'mining'" class="text-xs font-normal text-slate-500">
                 <div>
                   Seats {{ currency.symbol }}{{ formatValue(miningPositionBreakdown.seats) }} · Bids {{ currency.symbol
@@ -93,7 +96,10 @@
             </div>
           </li>
 
-          <li v-if="visibleGroups.length === 0" class="px-3 py-4 text-center font-normal text-slate-500">
+          <li
+            v-if="visibleGroups.length === 0 && aggregate.readiness !== 'loading'"
+            class="px-3 py-4 text-center font-normal text-slate-500"
+          >
             No financial positions yet
           </li>
 
@@ -117,7 +123,6 @@ import * as Vue from 'vue';
 import { storeToRefs } from 'pinia';
 import { NavigationMenuContent, NavigationMenuItem, NavigationMenuTrigger } from 'reka-ui';
 import { InformationCircleIcon } from '@heroicons/vue/20/solid';
-import { formatUnits } from 'viem';
 import { getCurrency } from '../stores/currency.ts';
 import ArgonSign from '../assets/currencies/argon.svg?component';
 import DollarSign from '../assets/currencies/dollar.svg?component';
@@ -126,7 +131,7 @@ import PoundSign from '../assets/currencies/pound.svg?component';
 import RupeeSign from '../assets/currencies/rupee.svg?component';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import Tooltip from '../components/Tooltip.vue';
-import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
+import { createNumeralHelpers } from '../lib/numeral.ts';
 import { useFinancials } from '../stores/financials.ts';
 import { useWallets } from '../stores/wallets.ts';
 import { financialMenuLabels } from './financialMenuLabels.ts';
@@ -140,12 +145,14 @@ defineExpose({
 const currency = getCurrency();
 const financials = useFinancials();
 const wallets = useWallets();
-const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
+const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm, otherTokenNm } = createNumeralHelpers(currency);
 const { financialPositionAggregate: aggregate, liquidLockedRecords, liquidNativeBalances } = storeToRefs(financials);
 
 const visibleGroups = Vue.computed(() => {
   return aggregate.value.groups.filter(group => {
+    if (group.state === 'loading') return false;
     if (group.group === 'ethereum') return !!wallets.ethereumWallet.address;
+    if (group.group === 'base') return group.positions.some(position => position.lifecycle !== 'unavailable');
     return group.state !== 'ready' || group.grossAssets !== 0n || group.grossLiabilities !== 0n;
   });
 });
@@ -159,10 +166,15 @@ const ethereumAssetLabels = Vue.computed(() => {
 
   for (const token of wallets.ethereumWallet.otherTokens) {
     if (token.value <= 0n) continue;
-    labels.push(`${numeral(formatUnits(token.value, token.decimals)).format('0,0.[000000]')} ${token.symbol}`);
+    labels.push(`${otherTokenNm(token).format('0,0.[000000]')} ${token.symbol}`);
   }
 
   return labels;
+});
+const baseAssetLabels = Vue.computed(() => {
+  return wallets.baseWallet.otherTokens
+    .filter(token => token.value > 0n)
+    .map(token => `${otherTokenNm(token).format('0,0.[000000]')} ${token.symbol}`);
 });
 const miningPositionBreakdown = Vue.computed(() => {
   const mining = aggregate.value.groupSummaries.mining;

@@ -146,15 +146,6 @@ async function checkBitcoins() {
 
 async function checkMintingAuthorities() {
   await myVault.load();
-  const recoveredAuthorityCountOnLoad = myVault.mintingAuthorities.recoveredAuthorityCountOnLoad;
-  if (recoveredAuthorityCountOnLoad > 0) {
-    return {
-      isUnchanged: false,
-      isNotFound: false,
-      recoveredAuthorities: recoveredAuthorityCountOnLoad,
-    };
-  }
-
   const previousAuthorityKeys = new Set(
     myVault.mintingAuthorities.data.authorities.map(authority => {
       return `${authority.authorityIndex ?? 'missing'}:${authority.signer.toLowerCase()}`;

@@ -1,4 +1,5 @@
 export interface IAllVaultStats {
+  formatVersion?: number;
   synchedToFrame: number;
   vaultsById: {
     [vaultId: number]: IVaultStats;

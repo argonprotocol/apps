@@ -5,23 +5,16 @@ import {
   Currency,
   type IIndexerSpec,
 } from '@argonprotocol/apps-core';
-import type { ApiDecoration } from '@argonprotocol/mainchain';
 import type { Db } from '../Db.ts';
 import { FinalizedHistoryScheduler } from './Scheduler.ts';
 import { findAddressActivity } from '../IndexerClient.ts';
-import { type IBalanceChange, WalletForArgon } from '../WalletForArgon.ts';
-import { type IWalletHistoryRevisions, readArgonWalletBalances } from '../WalletsForArgon.ts';
+import { WalletForArgon } from '../WalletForArgon.ts';
+import { type IWalletHistoryRevisions } from '../WalletsForArgon.ts';
 import { type ISyncSchemas, SyncStateKeys } from '../db/SyncStateTable.ts';
 
 export type IIndexedWalletActivityBlock = IIndexerSpec['/v2/activity/:address']['responseType']['blocks'][number];
 
 const custodyFlowActivityMask = AccountActivityKind.Transfer | AccountActivityKind.Crosschain;
-// Faucet BalanceSet events do not carry the credited amount, so the default
-// account still needs sparse before/after balance reads to recover that transfer.
-// These snapshots are recovery inputs only; WalletLedger no longer persists them.
-const defaultWalletActivityMask = custodyFlowActivityMask | AccountActivityKind.AccountBalance;
-const balanceActivityMask = AccountActivityKind.AccountBalance;
-const eventActivityMask = custodyFlowActivityMask;
 const archivePrefetchSize = 10;
 
 export class WalletHistoryRecovery {
@@ -72,10 +65,10 @@ export class WalletHistoryRecovery {
     });
   }
 
-  public async prepare(): Promise<void> {
+  public async prepare(): Promise<boolean> {
     const db = await this.dbPromise;
     const walletHistory = await db.syncStateTable.get(SyncStateKeys.WalletHistory);
-    if (this.hasMatchingScope(walletHistory)) return;
+    if (this.hasMatchingScope(walletHistory)) return false;
 
     const activityMasks = this.getActivityMasks();
     const addresses = [...new Set(this.ownedAddresses)].sort();
@@ -87,6 +80,7 @@ export class WalletHistoryRecovery {
       addresses,
       activityMasks,
     });
+    return true;
   }
 
   public async hasCompleteCoverage(targetBlock: number): Promise<boolean> {
@@ -198,38 +192,6 @@ export class WalletHistoryRecovery {
       return recoveredThroughBlock;
     }
 
-    const needsBalanceRecovery = backlog.some(indexedBlock => (indexedBlock.activityMask & balanceActivityMask) !== 0);
-    const recoveryWallets = this.recoveryWallets.map(wallet => {
-      return new WalletForArgon(wallet.address, wallet.type, this.dbPromise);
-    });
-    const balanceAddresses = recoveryWallets.map(wallet => wallet.address);
-    const startingBlock = await this.blockWatch.getHeader(afterBlock);
-    if (needsBalanceRecovery) {
-      const { balances } = await this.readBalances(balanceAddresses, {
-        ...startingBlock,
-        isFinalized: true,
-      });
-      for (let index = 0; index < recoveryWallets.length; index += 1) {
-        recoveryWallets[index].balanceHistory = [balances[index]];
-      }
-    } else {
-      for (const wallet of recoveryWallets) {
-        wallet.balanceHistory = [
-          {
-            block: { ...startingBlock, isFinalized: true },
-            availableMicrogons: 0n,
-            reservedMicrogons: 0n,
-            availableMicronots: 0n,
-            reservedMicronots: 0n,
-            microgonsAdded: 0n,
-            micronotsAdded: 0n,
-            transfers: [],
-            extrinsicEvents: [],
-          },
-        ];
-      }
-    }
-
     for (let offset = 0; offset < backlog.length; offset += archivePrefetchSize) {
       const chunk = backlog.slice(offset, offset + archivePrefetchSize);
       const prefetchedBlocks = await Promise.all(
@@ -241,62 +203,34 @@ export class WalletHistoryRecovery {
             );
           }
 
-          const [balanceSnapshot, eventSnapshot] = await Promise.all([
-            indexedBlock.activityMask & balanceActivityMask
-              ? this.readBalances(balanceAddresses, { ...block, isFinalized: true })
-              : undefined,
-            indexedBlock.activityMask & eventActivityMask ? this.blockWatch.getEventsWithSpec(block) : undefined,
-          ]);
-          const specVersion = eventSnapshot?.specVersion ?? balanceSnapshot?.api.runtimeVersion.specVersion.toNumber();
-          if (specVersion !== indexedBlock.specVersion) {
+          const eventSnapshot = await this.blockWatch.getEventsWithSpec(block);
+          if (eventSnapshot.specVersion !== indexedBlock.specVersion) {
             throw new Error(
-              `Wallet history index runtime mismatch at block ${indexedBlock.blockNumber.toLocaleString()}: expected spec ${indexedBlock.specVersion}, received ${specVersion}`,
+              `Wallet history index runtime mismatch at block ${indexedBlock.blockNumber.toLocaleString()}: expected spec ${indexedBlock.specVersion}, received ${eventSnapshot.specVersion}`,
             );
           }
 
-          return { balanceSnapshot, block, eventSnapshot };
+          return { block, eventSnapshot };
         }),
       );
 
-      // Archive reads are parallel within a small window, while balance deltas
-      // and database writes remain ordered exactly as they occurred on chain.
-      for (const { balanceSnapshot, block, eventSnapshot } of prefetchedBlocks) {
-        for (let index = 0; index < recoveryWallets.length; index += 1) {
-          const wallet = recoveryWallets[index];
-          const previousBalance = wallet.latestBalanceChange;
-          if (!previousBalance) throw new Error(`Wallet history has no starting balance for ${wallet.address}`);
+      // Archive reads are parallel within a small window, while database writes
+      // remain ordered exactly as they occurred on chain.
+      for (const { block, eventSnapshot } of prefetchedBlocks) {
+        let prices: { USD: bigint; ARGNOT: bigint } | undefined;
+        for (const wallet of this.recoveryWallets) {
+          const filter = new AccountEventsFilter(wallet.address, this.ownedAddresses);
+          filter.process(eventSnapshot.api, eventSnapshot.events);
+          if (!filter.transfers.length) continue;
 
-          const balance = balanceSnapshot?.balances[index] ?? {
-            block: { ...block, isFinalized: true },
-            availableMicrogons: previousBalance.availableMicrogons,
-            reservedMicrogons: previousBalance.reservedMicrogons,
-            availableMicronots: previousBalance.availableMicronots,
-            reservedMicronots: previousBalance.reservedMicronots,
-            microgonsAdded: 0n,
-            micronotsAdded: 0n,
-            transfers: [],
-            extrinsicEvents: [],
-          };
-          if (eventSnapshot) {
-            const filter = new AccountEventsFilter(wallet.address, this.ownedAddresses);
-            filter.process(eventSnapshot.api, eventSnapshot.events);
-            balance.transfers = filter.transfers;
-            balance.extrinsicEvents = filter.eventsByExtrinsic;
-          }
-          if (!wallet.addDiffs(balance) && !balance.transfers.length) continue;
-
-          const ratesApi = balanceSnapshot?.api ?? eventSnapshot?.api;
-          if (balance.transfers.length && !ratesApi) {
-            throw new Error(`Wallet transfer block ${block.blockNumber.toLocaleString()} has no event or balance API`);
-          }
-          let prices: { USD: bigint; ARGNOT: bigint } | undefined;
-          if (balance.transfers.length && ratesApi) {
-            prices = await this.currency.fetchMainchainRatesAtBlock({
-              api: ratesApi,
-              block,
-            });
-          }
-          await wallet.onBalanceChange(balance, prices);
+          prices ??= await this.currency.fetchMainchainRatesAtBlock({
+            api: eventSnapshot.api,
+            block,
+          });
+          await wallet.saveFinalizedTransfers(
+            { block: { ...block, isFinalized: true }, transfers: filter.transfers },
+            prices,
+          );
         }
       }
 
@@ -316,8 +250,7 @@ export class WalletHistoryRecovery {
   private getActivityMasks(): Record<string, number> {
     const activityMasks: Record<string, number> = {};
     for (const wallet of this.recoveryWallets) {
-      const activityMask = wallet.type === 'defaultArgon' ? defaultWalletActivityMask : custodyFlowActivityMask;
-      activityMasks[wallet.address] = (activityMasks[wallet.address] ?? 0) | activityMask;
+      activityMasks[wallet.address] = (activityMasks[wallet.address] ?? 0) | custodyFlowActivityMask;
     }
     return Object.fromEntries(Object.entries(activityMasks).sort());
   }
@@ -336,14 +269,5 @@ export class WalletHistoryRecovery {
       addresses.length === storedAddresses.length &&
       addresses.every((address, index) => address === storedAddresses[index])
     );
-  }
-
-  private async readBalances(
-    addresses: string[],
-    block: IBalanceChange['block'],
-  ): Promise<{ balances: IBalanceChange[]; api: ApiDecoration<'promise'> }> {
-    const api = await this.blockWatch.getApi(block);
-    const balances = await readArgonWalletBalances(api, addresses, block);
-    return { balances, api };
   }
 }

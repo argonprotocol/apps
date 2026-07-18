@@ -33,6 +33,26 @@ export function getEnabledFinancialHistoryDomains(args: {
   return enabledDomains;
 }
 
+export async function needsFinancialHistoryRecovery(args: {
+  db: Db;
+  accountId: string;
+  enabledDomains: readonly IFinancialHistoryDomain[];
+  targetBlock: number;
+}): Promise<boolean> {
+  const savedState = await args.db.syncStateTable.get(SyncStateKeys.FinancialHistory);
+  const domainCheckpoints = getDomainCheckpoints(savedState, args.accountId);
+
+  return args.enabledDomains.some(domain => {
+    const checkpoint = domainCheckpoints[domain];
+    const recoveryVersion = historyRecoveryVersions[domain];
+    return (
+      !checkpoint ||
+      checkpoint.asOfBlock < args.targetBlock ||
+      (recoveryVersion !== undefined && checkpoint.recoveryVersion !== recoveryVersion)
+    );
+  });
+}
+
 export type IFinancialHistoryImportResult = {
   importedBlockCount: number;
   domainErrors: Partial<Record<IFinancialHistoryDomain, string>>;
@@ -78,22 +98,7 @@ export async function restoreFinancialHistory(args: {
   if (!enabledDomains.length) return { importedBlockCount: 0, asOfBlock: targetBlock, targetBlock };
 
   const savedState = await db.syncStateTable.get(SyncStateKeys.FinancialHistory);
-  const checkpointMatchesAccount = savedState?.accountId === accountId;
-  const domainCheckpoints = checkpointMatchesAccount ? { ...savedState?.domainCheckpoints } : {};
-
-  if (checkpointMatchesAccount && savedState?.domains) {
-    for (const domain of savedState.domains) {
-      if (domainCheckpoints[domain]) continue;
-
-      domainCheckpoints[domain] = {
-        asOfBlock: savedState.asOfBlock,
-        ...(savedState.definitionVersion !== undefined ? { definitionVersion: savedState.definitionVersion } : {}),
-        ...(savedState.recoveryVersions?.[domain] !== undefined
-          ? { recoveryVersion: savedState.recoveryVersions[domain] }
-          : {}),
-      };
-    }
-  }
+  const domainCheckpoints = getDomainCheckpoints(savedState, accountId);
 
   const domainsToRestore = enabledDomains.filter(domain => {
     const checkpoint = domainCheckpoints[domain];
@@ -418,6 +423,27 @@ function hasMissingBondPurchases(
       return record.programType === lot.programType && record.bondLotId === lot.id && !!record.purchaseBlockHash;
     });
   });
+}
+
+function getDomainCheckpoints(
+  savedState: ISyncSchemas[SyncStateKeys.FinancialHistory] | null,
+  accountId: string,
+): NonNullable<ISyncSchemas[SyncStateKeys.FinancialHistory]['domainCheckpoints']> {
+  if (savedState?.accountId !== accountId) return {};
+
+  const domainCheckpoints = { ...savedState.domainCheckpoints };
+  for (const domain of savedState.domains ?? []) {
+    if (domainCheckpoints[domain]) continue;
+
+    domainCheckpoints[domain] = {
+      asOfBlock: savedState.asOfBlock,
+      ...(savedState.definitionVersion !== undefined ? { definitionVersion: savedState.definitionVersion } : {}),
+      ...(savedState.recoveryVersions?.[domain] !== undefined
+        ? { recoveryVersion: savedState.recoveryVersions[domain] }
+        : {}),
+    };
+  }
+  return domainCheckpoints;
 }
 
 export function readRequiredEventField(

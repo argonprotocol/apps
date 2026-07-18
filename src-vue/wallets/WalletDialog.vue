@@ -133,16 +133,25 @@
             v-if="props.leftWallet && props.rightWallet"
             class="absolute top-full left-1/2 mt-4 flex w-max max-w-4xl -translate-x-1/2 items-center gap-3 text-sm text-white drop-shadow-sm"
           >
-            <button
-              data-testid="WalletOverlay.toggleSyncDirection()"
-              type="button"
-              class="flex shrink-0 cursor-pointer items-center gap-1.5 rounded border border-white/50 bg-white/10 px-3 py-1.5 font-semibold text-white hover:bg-white/20 focus:outline-none"
-              title="Switch direction"
-              @click="emit('flip')"
-            >
-              <ArrowsRightLeftIcon class="h-4 w-4 stroke-2" />
-              Switch direction
-            </button>
+            <div class="relative flex shrink-0">
+              <button
+                data-testid="WalletOverlay.toggleSyncDirection()"
+                type="button"
+                class="flex cursor-pointer items-center gap-1.5 rounded border border-white/50 bg-white/10 px-3 py-1.5 font-semibold text-white hover:bg-white/20 focus:outline-none"
+                title="Switch direction"
+                @click="emit('flip')"
+              >
+                <ArrowsRightLeftIcon class="h-4 w-4 stroke-2" />
+                Switch direction
+              </button>
+              <ArrowCalloutButton
+                v-if="showInboundTransferDirectionGuide"
+                guidance="Switch direction so ARGN moves from Ethereum into Argon."
+                class="absolute top-0 left-1/2 z-50 -translate-x-1/2 -translate-y-[calc(100%+0.75rem)]"
+                position="top"
+                :showArrow="false"
+              />
+            </div>
             <p>
               Use
               <strong>{{ isCrosschainWalletPair() ? 'JUMP' : 'MOVE' }}</strong>
@@ -191,6 +200,8 @@ import {
   isEthereumWalletSelection,
   type IWalletSelection,
 } from './walletOverlayState.ts';
+import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
+import { useCertificationController } from '../stores/certificationController.ts';
 
 const props = withDefaults(
   defineProps<{
@@ -221,6 +232,7 @@ const emit = defineEmits<{
 }>();
 
 const walletStore = useWallets();
+const controller = useCertificationController();
 const draggable = Vue.reactive(new Draggable({ constrainToViewport: false }));
 const activeTransferOverlay = Vue.ref<{
   direction: 'transferToArgon' | 'transferOutOfArgon';
@@ -249,6 +261,13 @@ const argonWalletMove = Vue.computed(() => {
   if (sourceWallet.walletType === WalletType.miningBot && recipientWallet.walletType === WalletType.defaultArgon) {
     return { moveFrom: MoveFrom.MiningBot, moveTo: MoveTo.DefaultArgon };
   }
+});
+const showInboundTransferDirectionGuide = Vue.computed(() => {
+  if (!controller.isTransferGuideActive || !props.leftWallet || !props.rightWallet) {
+    return false;
+  }
+
+  return !isEthereumWalletSelection(props.leftWallet) && isEthereumWalletSelection(props.rightWallet);
 });
 
 provideOverlayContentZIndex(Vue.computed(() => props.zIndex));

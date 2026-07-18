@@ -158,6 +158,12 @@ export const useCertificationController = defineStore('certificationController',
   const selectedTab = Vue.ref<TopTab | null>(null);
 
   const activeGuideId = Vue.ref<OperationalStepId | null>(null);
+  const isTransferGuideActive = Vue.computed(() => {
+    return (
+      activeGuideId.value === OperationalStepId.TreasuryTransfer ||
+      activeGuideId.value === OperationalStepId.OperationalTransfer
+    );
+  });
 
   const isImporting = Vue.ref(false);
   const stopSuggestingBotTour = Vue.ref(true);
@@ -759,6 +765,7 @@ export const useCertificationController = defineStore('certificationController',
     stopSuggestingVaultTour,
     backButtonTriggersHome,
     activeGuideId,
+    isTransferGuideActive,
     certificationStepCount,
     completedCertificationStepCount,
     completedTreasuryCertificationStepCount,

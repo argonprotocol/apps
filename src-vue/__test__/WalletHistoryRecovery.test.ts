@@ -16,7 +16,7 @@ describe('WalletHistoryRecovery', () => {
     NetworkConfig.setRuntimeOverride('dev-docker', { indexerHost: 'https://indexer.test' });
     setFetchImplementation(async input => {
       const address = new URL(String(input)).pathname.split('/').at(-1);
-      const activityMask = address === '5default' ? AccountActivityKind.AccountBalance : AccountActivityKind.Transfer;
+      const activityMask = address === '5default' ? AccountActivityKind.Transfer : AccountActivityKind.Crosschain;
       return new Response(
         JSON.stringify({
           blocks: [{ blockNumber: 10, blockHash: '0x10', specVersion: 141, activityMask }],
@@ -42,11 +42,11 @@ describe('WalletHistoryRecovery', () => {
     await recovery.findActivityBlocks('5default', blocks, [0, 10]);
     await recovery.findActivityBlocks('5operational', blocks, [0, 10]);
 
-    expect(blocks.get(10)?.activityMask).toBe(AccountActivityKind.AccountBalance | AccountActivityKind.Transfer);
+    expect(blocks.get(10)?.activityMask).toBe(AccountActivityKind.Transfer | AccountActivityKind.Crosschain);
     await recovery.close();
   });
 
-  it('recovers an account-balance block without loading its events', async () => {
+  it('advances the checkpoint when the indexer reports no transfer blocks', async () => {
     const state = new Map<string, unknown>();
     const db = {
       syncStateTable: {
@@ -55,30 +55,8 @@ describe('WalletHistoryRecovery', () => {
       },
       walletTransfersTable: { revision: 0 },
     };
-    const api = {
-      runtimeVersion: { specVersion: numberCodec(141) },
-      query: {
-        system: {
-          account: {
-            multi: vi.fn(async () => [{ data: { free: bigintCodec(0n), reserved: bigintCodec(0n) } }]),
-          },
-        },
-        ownership: {
-          account: {
-            multi: vi.fn(async () => [{ free: bigintCodec(0n), reserved: bigintCodec(0n) }]),
-          },
-        },
-      },
-    };
     const blockWatch = {
       clients: { events: { on: vi.fn() } },
-      getHeader: vi.fn(async blockNumber => ({
-        blockNumber,
-        blockHash: `0x${blockNumber}`,
-        blockTime: blockNumber,
-        parentHash: `0x${Math.max(0, blockNumber - 1)}`,
-      })),
-      getApi: vi.fn(async () => api),
       getEventsWithSpec: vi.fn(),
     };
     const dbPromise = Promise.resolve(db as any);
@@ -92,23 +70,18 @@ describe('WalletHistoryRecovery', () => {
       ownedAddresses: ['5default'],
       onRecovered,
     });
-    vi.spyOn(recovery, 'findActivityBlocks').mockImplementation(async (_address, blocks) => {
-      blocks.set(1, {
-        blockNumber: 1,
-        blockHash: '0x1',
-        specVersion: 141,
-        activityMask: AccountActivityKind.AccountBalance,
-      });
+    vi.spyOn(recovery, 'findActivityBlocks').mockImplementation(async () => {
       return { asOfBlock: 1, definitionVersion: 1 };
     });
 
-    await recovery.prepare();
+    await expect(recovery.prepare()).resolves.toBe(true);
     await recovery.recoverNow(1);
 
     expect(blockWatch.getEventsWithSpec).not.toHaveBeenCalled();
     expect(fetchMainchainRatesAtBlock).not.toHaveBeenCalled();
     expect(onRecovered).toHaveBeenCalledWith({ transfers: 0, argonotCustody: 0, asOfBlock: 1 });
     expect(state.get(SyncStateKeys.WalletHistory)).toMatchObject({ asOfBlock: 1, definitionVersion: 1 });
+    await expect(recovery.prepare()).resolves.toBe(false);
     await expect(recovery.hasCompleteCoverage(1)).resolves.toBe(true);
     await expect(recovery.hasCompleteCoverage(2)).resolves.toBe(false);
 

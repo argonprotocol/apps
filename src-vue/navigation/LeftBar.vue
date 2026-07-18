@@ -31,13 +31,20 @@
       <div class="mt-3">
         <header class="relative flex flex-row items-center">
           <div class="grow">Treasury</div>
-          <button type="button" class="cursor-pointer" @click="openDefaultArgonWallet">
-            <MoreIcon class="h-4 opacity-80" />
-          </button>
+          <div class="relative flex">
+            <button type="button" class="cursor-pointer" @click="openDefaultArgonWallet">
+              <MoreIcon class="h-4 opacity-80" />
+            </button>
+            <ArrowCalloutButton
+              v-if="controller.activeGuideId === OperationalStepId.TreasuryTransfer && !basics.overlayIsOpen"
+              guidance="Open your Argon wallet."
+              class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
+            />
+          </div>
         </header>
         <ul>
           <li @click="goto(TopTab.BitcoinLocks)" :class="{ Selected: controller.selectedTab === TopTab.BitcoinLocks }">
-            <article class="flex flex-row items-center">
+            <article class="relative flex flex-row items-center">
               <div class="flex grow flex-row items-center">
                 <div class="mr-1 w-6">
                   <BitcoinIcon class="w-6" />
@@ -46,10 +53,18 @@
                 <GiftIcon v-if="bitcoinLockCoupons.openCouponCount" class="text-argon-800/50 ml-2 w-4" />
               </div>
               <div class="flex items-center gap-x-2">
-                <span class="opacity-60">
+                <span v-if="currency.isLoaded" class="opacity-60">
                   {{ currency.symbol }}{{ satToMoneyNm(financials.liquidTotalSatoshis).format('0,0.00') }}
                 </span>
               </div>
+              <ArrowCalloutButton
+                v-if="
+                  controller.activeGuideId === OperationalStepId.LiquidLock &&
+                  controller.selectedTab !== TopTab.BitcoinLocks
+                "
+                guidance="Open Bitcoin Locks to continue this task."
+                class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
+              />
             </article>
             <div Selector />
           </li>
@@ -67,12 +82,20 @@
           <!--            </div>-->
           <!--          </li>-->
           <li @click="goto(TopTab.ArgonBonds)" :class="{ Selected: controller.selectedTab === TopTab.ArgonBonds }">
-            <article class="flex flex-row items-center">
+            <article class="relative flex flex-row items-center">
               <div class="mr-1 w-6">
                 <BondIcon class="w-5.5 opacity-70" />
               </div>
               <div class="grow">Argon(ot) Bonds</div>
               <div class="opacity-60">{{ currency.symbol }}{{ formatFinancialGroupValue('bonds') }}</div>
+              <ArrowCalloutButton
+                v-if="
+                  controller.activeGuideId === OperationalStepId.AcquireBonds &&
+                  controller.selectedTab !== TopTab.ArgonBonds
+                "
+                guidance="Open Argon(ot) Bonds to continue this task."
+                class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
+              />
             </article>
             <div Selector />
           </li>
@@ -102,7 +125,7 @@
                 <SwapIcon class="w-5.5 opacity-90" />
               </div>
               <div class="grow">Stable Swaps</div>
-              <div class="opacity-60">
+              <div v-if="currency.isLoaded" class="opacity-60">
                 {{ currency.symbol
                 }}{{
                   config.hasActivatedStableSwaps
@@ -121,9 +144,16 @@
       <div class="mt-3">
         <header class="relative flex flex-row items-center">
           <div class="grow">Operations</div>
-          <button type="button" class="cursor-pointer" @click="openDefaultArgonWallet">
-            <MoreIcon class="h-4 opacity-80" />
-          </button>
+          <div class="relative flex">
+            <button type="button" class="cursor-pointer" @click="openDefaultArgonWallet">
+              <MoreIcon class="h-4 opacity-80" />
+            </button>
+            <ArrowCalloutButton
+              v-if="controller.activeGuideId === OperationalStepId.OperationalTransfer && !basics.overlayIsOpen"
+              guidance="Open your Argon wallet."
+              class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
+            />
+          </div>
           <ArrowCalloutButton
             v-if="showOperationsNavigationCallouts"
             label="New"
@@ -357,14 +387,14 @@
                 <FormattedMoney :isLoaded="selectedWalletBalanceIsLoaded" :value="selectedWalletBalance" />
               </div>
               <div
-                v-if="selectedWallet.walletType === WalletType.defaultArgon"
+                v-if="currency.isLoaded && selectedWallet.walletType === WalletType.defaultArgon"
                 class="mx-auto mt-2 w-fit border-t border-slate-500/30 pt-2 text-center opacity-50"
               >
                 Includes {{ currency.symbol
                 }}{{ microgonToMoneyNm(financials.savingsTotalPending).format('0,0.00') }} waiting to mint
               </div>
               <div
-                v-else-if="isEthereumWalletSelection(selectedWallet)"
+                v-else-if="currency.isLoaded && isEthereumWalletSelection(selectedWallet)"
                 class="mx-auto mt-2 flex w-fit gap-x-2 border-t border-slate-500/30 pt-2 text-center opacity-50"
               >
                 {{ currency.symbol }}{{ microgonToMoneyNm(selectedOtherTokenValue).format('0,0.00') }} non-native tokens
@@ -397,6 +427,7 @@ import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { useFinancials } from '../stores/financials.ts';
 import { useMiningAssetBreakdown } from '../stores/miningAssetBreakdown.ts';
 import { useVaultingAssetBreakdown } from '../stores/vaultingAssetBreakdown.ts';
+import { useBasics } from '../stores/basics.ts';
 import type { FinancialGroup } from '../interfaces/IFinancialPosition.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import DiamondsIcon from '../assets/diamonds.svg?component';
@@ -424,6 +455,7 @@ import WalletSelector from '../wallets/components/WalletSelector.vue';
 import WalletActions from '../wallets/components/WalletActions.vue';
 
 const controller = useCertificationController();
+const basics = useBasics();
 const bitcoinLockCoupons = getBitcoinLockCoupons();
 const config = getConfig();
 const wallets = useWallets();
@@ -471,6 +503,8 @@ const selectedOtherTokenValue = Vue.computed(() => {
   }, 0n);
 });
 const selectedWalletBalance = Vue.computed(() => {
+  if (!currency.isLoaded) return 0n;
+
   if (selectedWallet.value.walletType === WalletType.defaultArgon) {
     return financials.savingsTotalValue;
   }
@@ -509,6 +543,8 @@ function getWalletName(wallet: IWalletSelection): string {
 }
 
 function formatFinancialGroupValue(group: FinancialGroup): string {
+  if (!currency.isLoaded) return '--';
+
   const summary = financials.financialPositionAggregate.groupSummaries[group];
   if (summary.state !== 'ready' && !(summary.state === 'stale' && summary.positions.length)) return '--';
   return microgonToMoneyNm(summary.currentValue).format('0,0.00');

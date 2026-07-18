@@ -8,20 +8,11 @@ import {
   SingleFileQueue,
 } from '@argonprotocol/apps-core';
 import { WalletKeys } from './WalletKeys.ts';
-import { IArgonWalletType, IBalanceChange, WalletForArgon } from './WalletForArgon.ts';
+import { IArgonWalletType, IBalanceChange, type IWalletBalanceTransfer, WalletForArgon } from './WalletForArgon.ts';
 import { Db } from './Db.ts';
 import { ApiDecoration, type FrameSupportTokensMiscIdAmountRuntimeHoldReason } from '@argonprotocol/mainchain';
 import { SyncStateKeys } from './db/SyncStateTable.ts';
 import { type IFinancialObservation } from '../interfaces/IFinancialPosition.ts';
-
-export interface IBlockToProcess {
-  blockNumber: number;
-  blockHash: string;
-  blockTime: number;
-  parentHash: string;
-  isFinalized: boolean;
-  isProcessed: boolean;
-}
 
 export type IWalletHistoryRevisions = {
   transfers: number;
@@ -31,10 +22,9 @@ export type IWalletHistoryRevisions = {
 
 export interface IWalletEvents {
   'balance-change': (balanceChange: IBalanceChange, type: IArgonWalletType) => void;
-  'transfer-in': (wallet: WalletForArgon, balanceChange: IBalanceChange) => void;
-  'block-deleted': (block: IBlockToProcess) => void;
+  'transfer-in': (wallet: WalletForArgon) => void;
+  'history:gap': (gap: { afterBlock: number; toBlock: number }) => void;
   'history:recovered': (revisions: IWalletHistoryRevisions) => void;
-  'sync:best-block': (block: IBlockHeaderInfo) => void;
   'sync:finalized': (block: IBlockHeaderInfo) => void;
 }
 
@@ -53,7 +43,7 @@ export interface IArgonAccountSnapshot {
 type IWalletEventKeys = keyof IWalletEvents;
 type IWalletFlatList<T extends IWalletEventKeys = IWalletEventKeys> = Parameters<IWalletEvents[T]>;
 
-/** Tracks live wallet balances across the current best-chain window and reorgs. */
+/** Publishes current wallet balances and records finalized wallet transfers. */
 export class WalletsForArgon {
   public deferredLoading = createDeferred<void>(false);
   public events = createTypedEventEmitter<IWalletEvents>();
@@ -70,17 +60,17 @@ export class WalletsForArgon {
   } = {
     'balance-change': [],
     'transfer-in': [],
-    'block-deleted': [],
+    'history:gap': [],
     'history:recovered': [],
-    'sync:best-block': [],
     'sync:finalized': [],
   };
   private isClosed = false;
-  private bestChainWindow: IBlockToProcess[] = [];
   private blockQueue = new SingleFileQueue();
+  private finalizedBlockQueue = new SingleFileQueue();
   private blockWatch: BlockWatch;
   private readonly currency: CurrencyBase;
-  private unsubscribe?: () => void;
+  private finalizedHistoryBlock?: IBlockHeaderInfo;
+  private unsubscribes: VoidFunction[] = [];
   public readonly legacyMiningHoldAddress: string;
 
   public get wallets(): WalletForArgon[] {
@@ -138,16 +128,9 @@ export class WalletsForArgon {
       return all.findIndex(candidate => candidate.address === wallet.address) === index;
     });
     const addresses = wallets.map(wallet => wallet.address);
-    const finalizedBalances = wallets.map(wallet => {
-      const balance = wallet.finalizedBalance;
-      return balance?.block.blockHash === header.blockHash ? balance : undefined;
-    });
-    const balancesPromise = finalizedBalances.every(balance => balance !== undefined)
-      ? Promise.resolve(finalizedBalances.filter((balance): balance is IBalanceChange => balance !== undefined))
-      : readArgonWalletBalanceValues(api, addresses);
     const emptyHolds = addresses.map(() => [] as FrameSupportTokensMiscIdAmountRuntimeHoldReason[]);
     const [balances, microgonHolds, micronotHolds] = await Promise.all([
-      balancesPromise,
+      readArgonWalletBalanceValues(api, addresses),
       includeHolds ? api.query.balances.holds.multi(addresses) : Promise.resolve(emptyHolds),
       includeHolds ? api.query.ownership.holds.multi(addresses) : Promise.resolve(emptyHolds),
     ]);
@@ -183,23 +166,47 @@ export class WalletsForArgon {
     const loadStartedAt = Date.now();
     let stage: string | undefined;
     try {
+      const db = await this.dbPromise;
+      const savedWalletSync = await db.syncStateTable.get(SyncStateKeys.Wallet);
+
       stage = 'blockWatch.start';
       await this.blockWatch.start();
 
-      stage = 'initializeCurrentBalances';
-      await this.initializeCurrentBalances();
+      const initialFinalizedBlock = this.blockWatch.finalizedBlockHeader;
+      if (savedWalletSync && savedWalletSync.blockNumber < initialFinalizedBlock.blockNumber) {
+        this.emitHistoryGap(savedWalletSync.blockNumber, initialFinalizedBlock.blockNumber);
+      }
+      this.finalizedBlock = initialFinalizedBlock;
+      this.finalizedHistoryBlock = initialFinalizedBlock;
 
       stage = 'subscribe';
+      this.unsubscribes = [
+        this.blockWatch.events.on('best-blocks', (blocks: IBlockHeaderInfo[]) => {
+          const latestBlock = blocks[blocks.length - 1];
+          void this.loadBalancesAt(latestBlock).catch(error => {
+            if (this.canIgnoreLoadError(error)) return;
+            console.error('[WalletsForArgon] Failed to load current balances', error);
+          });
+        }),
+        this.blockWatch.events.on('finalized', headers => {
+          void this.processFinalizedBlocks(headers).catch(error => {
+            if (this.canIgnoreLoadError(error)) return;
+            console.error('[WalletsForArgon] Failed to record finalized wallet transfers', error);
+          });
+        }),
+      ];
+
+      stage = 'loadCurrentBalances';
       await this.loadBalancesAt(this.blockWatch.bestBlockHeader);
-      this.unsubscribe = this.blockWatch.events.on('best-blocks', (blocks: IBlockHeaderInfo[]) => {
-        const latestBlock = blocks[blocks.length - 1];
-        void this.loadBalancesAt(latestBlock).catch(error => {
-          if (this.canIgnoreLoadError(error)) {
-            return;
-          }
-          console.error('[WalletsForArgon] Failed to load balances at best block', error);
+      void db.syncStateTable
+        .upsert(SyncStateKeys.Wallet, {
+          ...initialFinalizedBlock,
+          isFinalized: true,
+          isProcessed: true,
+        })
+        .catch(error => {
+          console.error('[WalletsForArgon] Failed to save the finalized wallet cursor', error);
         });
-      });
       this.deferredLoading.resolve();
     } catch (err) {
       console.error(
@@ -213,9 +220,9 @@ export class WalletsForArgon {
 
   public async close() {
     this.isClosed = true;
-    this.unsubscribe?.();
-    this.unsubscribe = undefined;
-    await this.blockQueue.stop(true);
+    for (const unsubscribe of this.unsubscribes) unsubscribe();
+    this.unsubscribes.length = 0;
+    await Promise.all([this.blockQueue.stop(true), this.finalizedBlockQueue.stop(true)]);
   }
 
   public didWalletHavePreviousLife() {
@@ -235,179 +242,60 @@ export class WalletsForArgon {
       if (this.isClosed) {
         return;
       }
-      const finalizedBlock = this.blockWatch.finalizedBlockHeader;
-      const finalizedBlockNumber = finalizedBlock.blockNumber;
+      const isCurrentBestTreeHash = this.blockWatch.latestHeaders.some(x => x.blockHash === header.blockHash);
+      const currentHeader = header.isFinalized || isCurrentBestTreeHash ? header : this.blockWatch.bestBlockHeader;
+      const { balances } = await this.readBalances(this.addresses, currentHeader);
 
-      const latestTrackedBlock = this.bestChainWindow.at(-1);
-      if (
-        !latestTrackedBlock ||
-        latestTrackedBlock.blockNumber < finalizedBlockNumber ||
-        (latestTrackedBlock.blockNumber === finalizedBlockNumber &&
-          latestTrackedBlock.blockHash !== finalizedBlock.blockHash)
-      ) {
-        // Nothing in the retained live window can still reorg once finality has passed it.
-        // Re-anchor here; finalized wallet history is recovered separately from sparse indexed blocks.
-        await this.initializeCurrentBalances(finalizedBlock);
-      }
-
-      const oldestBlock = Math.min(...this.bestChainWindow.map(x => x.blockNumber), finalizedBlockNumber);
-
-      let currentHeader = header;
-      const isCurrentBestTreeHash = this.blockWatch.latestHeaders.some(x => x.blockHash === currentHeader.blockHash);
-      if (!currentHeader.isFinalized && !isCurrentBestTreeHash) {
-        // Live balance tracking only needs a stable best-chain header at this height.
-        // If a non-finalized hash has already fallen off the watched best tree,
-        // normalize it up front instead of retrying later while mutating history.
-        currentHeader = await this.blockWatch.getHeaderByBlockNumber(currentHeader.blockNumber);
-      }
-      let bestChainHeader = currentHeader;
-      for (let blockNumber = currentHeader.blockNumber; blockNumber >= oldestBlock; blockNumber--) {
-        if (bestChainHeader.blockNumber !== blockNumber) {
-          throw new Error(
-            `Inconsistent block numbers when loading live wallet balances. (Expected=${blockNumber}, actual=${bestChainHeader.blockNumber})`,
-          );
-        }
-        const entry = {
-          blockNumber,
-          blockHash: bestChainHeader.blockHash,
-          blockTime: bestChainHeader.blockTime,
-          isFinalized: blockNumber <= finalizedBlockNumber,
-          isProcessed: false,
-          parentHash: bestChainHeader.parentHash,
-        };
-        const existingBlock = this.bestChainWindow.find(b => b.blockNumber === entry.blockNumber);
-
-        if (existingBlock?.blockHash === entry.blockHash) break;
-        if (existingBlock) this.rollbackBlock(existingBlock);
-        const index = this.bestChainWindow.findIndex(b => b.blockNumber > entry.blockNumber);
-        if (index >= 0) {
-          this.bestChainWindow.splice(index, 0, entry);
-        } else {
-          this.bestChainWindow.push(entry);
-        }
-        if (blockNumber === 0) {
-          break;
-        }
-        bestChainHeader = await this.blockWatch.getParentHeader(bestChainHeader);
-      }
-
-      let firstBlockNeeded = 0;
-      const db = await this.dbPromise;
-      for (let i = 0; i < this.bestChainWindow.length; i++) {
-        const block = this.bestChainWindow[i];
-        block.isFinalized = block.blockNumber <= finalizedBlockNumber;
-        if (block.blockHash === finalizedBlock.blockHash) {
-          firstBlockNeeded = i;
-          break;
+      for (let index = 0; index < this.wallets.length; index += 1) {
+        const wallet = this.wallets[index];
+        const balance = balances[index];
+        const previousBalance = wallet.latestBalanceChange;
+        const didBalanceChange = previousBalance ? wallet.hasDiff(previousBalance, balance) : undefined;
+        wallet.balanceHistory = [balance];
+        if (didBalanceChange ?? wallet.hasValue()) {
+          this.events.emit('balance-change', balance, wallet.type);
+          if (!this.deferredLoading.isSettled) {
+            this.loadEvents['balance-change'].push([balance, wallet.type]);
+          }
         }
       }
-      for (const block of this.bestChainWindow) {
-        if (!block.isProcessed) {
-          await this.processBlock(block);
-        }
-        if (this.isClosed) break;
-      }
-      if (this.isClosed) {
-        return;
-      }
 
-      await this.finalizePendingTransfers(finalizedBlockNumber);
-      await db.syncStateTable.upsert(SyncStateKeys.Wallet, {
-        blockNumber: finalizedBlock.blockNumber,
-        blockHash: finalizedBlock.blockHash,
-        blockTime: finalizedBlock.blockTime,
-        parentHash: finalizedBlock.parentHash,
-        isFinalized: true,
-        isProcessed: true,
-      });
-      if (firstBlockNeeded > 0) {
-        this.bestChainWindow.splice(0, firstBlockNeeded);
-      }
-      for (const wallet of this.wallets) {
-        wallet.trimToFinalizedBlock(finalizedBlock);
-      }
       this.bestBlock = currentHeader;
-      this.finalizedBlock = finalizedBlock;
-      this.events.emit('sync:best-block', currentHeader);
-      this.events.emit('sync:finalized', finalizedBlock);
     }).promise;
   }
 
-  private async initializeCurrentBalances(finalizedBlock = this.blockWatch.finalizedBlockHeader): Promise<void> {
-    const { balances } = await this.readBalances(this.addresses, finalizedBlock);
-    for (let i = 0; i < this.wallets.length; i++) {
-      const wallet = this.wallets[i];
-      const balance = balances[i];
-      const previousBalance = wallet.latestBalanceChange;
-      const didBalanceChange = previousBalance ? wallet.hasDiff(previousBalance, balance) : undefined;
-      wallet.balanceHistory = [balance];
-      if (didBalanceChange ?? wallet.hasValue()) {
-        this.events.emit('balance-change', balance, wallet.type);
-        if (!this.deferredLoading.isSettled) {
-          this.loadEvents['balance-change'].push([balance, wallet.type]);
+  private async processFinalizedBlocks(headers: IBlockHeaderInfo[]): Promise<void> {
+    await this.finalizedBlockQueue.add(async () => {
+      if (this.isClosed) return;
+
+      const previousFinalizedBlock = this.finalizedHistoryBlock;
+      const newHeaders = headers.filter(header => header.blockNumber > (previousFinalizedBlock?.blockNumber ?? -1));
+      if (!newHeaders.length) return;
+
+      const latestHeader = newHeaders.at(-1)!;
+      if (!previousFinalizedBlock || newHeaders[0].blockNumber !== previousFinalizedBlock.blockNumber + 1) {
+        if (previousFinalizedBlock) this.emitHistoryGap(previousFinalizedBlock.blockNumber, latestHeader.blockNumber);
+      } else {
+        for (const header of newHeaders) {
+          await this.processFinalizedBlock(header);
         }
       }
-    }
-    this.bestChainWindow = [
-      {
-        blockNumber: finalizedBlock.blockNumber,
-        blockHash: finalizedBlock.blockHash,
-        blockTime: finalizedBlock.blockTime,
-        parentHash: finalizedBlock.parentHash,
+      this.finalizedHistoryBlock = latestHeader;
+
+      const db = await this.dbPromise;
+      await db.syncStateTable.upsert(SyncStateKeys.Wallet, {
+        ...latestHeader,
         isFinalized: true,
         isProcessed: true,
-      },
-    ];
-    this.finalizedBlock = finalizedBlock;
-  }
-
-  private async finalizePendingTransfers(finalizedBlockNumber: number): Promise<void> {
-    // Transfers first observed on the best chain become query-visible only after finality.
-    // Historical recovery is handled separately by WalletHistoryRecovery.
-    const ratesByBlockHash = new Map<string, ReturnType<CurrencyBase['fetchMainchainRatesAtBlock']>>();
-    for (const wallet of this.wallets) {
-      for (const balance of wallet.balanceHistory) {
-        if (balance.block.isFinalized || balance.block.blockNumber > finalizedBlockNumber) continue;
-
-        if (!balance.transfers.length) {
-          balance.block.isFinalized = true;
-          continue;
-        }
-
-        let ratesPromise = ratesByBlockHash.get(balance.block.blockHash);
-        if (!ratesPromise) {
-          ratesPromise = this.blockWatch.getApi(balance.block).then(api => {
-            return this.currency.fetchMainchainRatesAtBlock({ api, block: balance.block });
-          });
-          ratesByBlockHash.set(balance.block.blockHash, ratesPromise);
-        }
-        await wallet.saveFinalizedTransfers(
-          {
-            ...balance,
-            block: { ...balance.block, isFinalized: true },
-          },
-          await ratesPromise,
-        );
-        balance.block.isFinalized = true;
-        this.emitTransferIn(wallet, balance);
-      }
-    }
-  }
-
-  private rollbackBlock(block: IBlockToProcess) {
-    const index = this.bestChainWindow.findIndex(b => b.blockNumber === block.blockNumber);
-    if (index >= 0) {
-      this.bestChainWindow.splice(index, 1);
-    }
-    for (const wallet of this.wallets) {
-      wallet.dropBlock(block.blockHash);
-    }
-    this.events.emit('block-deleted', block);
+      });
+      this.finalizedBlock = latestHeader;
+      this.events.emit('sync:finalized', latestHeader);
+    }).promise;
   }
 
   private async readBalances(
     addresses: string[],
-    block: Pick<IBlockToProcess, 'blockNumber' | 'blockHash' | 'blockTime' | 'isFinalized'>,
+    block: IBalanceChange['block'],
   ): Promise<{
     balances: IBalanceChange[];
     api: ApiDecoration<'promise'>;
@@ -417,51 +305,46 @@ export class WalletsForArgon {
     return { balances, api };
   }
 
-  private async processBlock(block: IBlockToProcess) {
+  private async processFinalizedBlock(block: IBlockHeaderInfo): Promise<void> {
     const wallets = this.wallets;
     const addresses = this.addresses;
     const ownedAddresses = [...new Set([...addresses, this.legacyMiningHoldAddress].filter(Boolean))];
-    const { balances, api } = await this.readBalances(addresses, block);
-    const hasChanges = balances.map((entry, index) => wallets[index].addDiffs(entry));
-    // Cross-chain sends move funds onto a hold without necessarily changing
-    // free or reserved balances, so live transfer capture must inspect events
-    // even when the balance snapshot itself is unchanged.
-    const { events, api: eventApi } = await this.blockWatch.getEventsWithSpec(block);
+    const { events, api } = await this.blockWatch.getEventsWithSpec(block);
+    const transfersByWallet: IWalletBalanceTransfer[][] = [];
     for (let index = 0; index < wallets.length; index += 1) {
       const filter = new AccountEventsFilter(wallets[index].address, ownedAddresses);
-      filter.process(eventApi, events);
-      balances[index].transfers = filter.transfers;
-      balances[index].extrinsicEvents = filter.eventsByExtrinsic;
+      filter.process(api, events);
+      transfersByWallet.push(filter.transfers);
     }
 
-    for (let i = 0; i < addresses.length; i++) {
-      const wallet = wallets[i];
-      const entry: IBalanceChange = balances[i];
+    if (!transfersByWallet.some(transfers => transfers.length)) return;
 
-      if (hasChanges[i] || entry.transfers.length) {
-        const prices =
-          entry.block.isFinalized && entry.transfers.length
-            ? await this.currency.fetchMainchainRatesAtBlock({ api, block: entry.block })
-            : undefined;
-        const changed = await wallet.onBalanceChange(entry, prices);
-        if (changed) {
-          this.events.emit('balance-change', entry, wallet.type);
-          if (!this.deferredLoading.isSettled) {
-            this.loadEvents['balance-change'].push([entry, wallet.type]);
-          }
-          if (entry.block.isFinalized) this.emitTransferIn(wallet, entry);
-        }
-      }
+    const prices = await this.currency.fetchMainchainRatesAtBlock({ api, block });
+    for (let index = 0; index < wallets.length; index += 1) {
+      const transfers = transfersByWallet[index];
+      if (!transfers.length) continue;
+
+      await wallets[index].saveFinalizedTransfers({ block: { ...block, isFinalized: true }, transfers }, prices);
+      this.emitTransferIn(wallets[index], transfers);
     }
-    block.isProcessed = true;
   }
 
-  private emitTransferIn(wallet: WalletForArgon, balance: IBalanceChange): void {
-    if (!balance.transfers.some(transfer => transfer.isInbound)) return;
+  private emitTransferIn(wallet: WalletForArgon, transfers: IWalletBalanceTransfer[]): void {
+    if (!transfers.some(transfer => transfer.isInbound)) return;
 
-    this.events.emit('transfer-in', wallet, balance);
+    this.events.emit('transfer-in', wallet);
     if (!this.deferredLoading.isSettled) {
-      this.loadEvents['transfer-in'].push([wallet, balance]);
+      this.loadEvents['transfer-in'].push([wallet]);
+    }
+  }
+
+  private emitHistoryGap(afterBlock: number, toBlock: number): void {
+    if (afterBlock >= toBlock) return;
+
+    const gap = { afterBlock, toBlock };
+    this.events.emit('history:gap', gap);
+    if (!this.deferredLoading.isSettled) {
+      this.loadEvents['history:gap'].push([gap]);
     }
   }
 

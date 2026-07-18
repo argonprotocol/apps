@@ -5,6 +5,11 @@ import { defaultWalletData, type IOtherToken, type IOtherTokenDefinition, type I
 import { createEthereumPublicClient, type IEthereumChainConfig, loadEthereumChainConfig } from './EthereumClient.ts';
 import type { Currency } from './Currency.ts';
 import { createFinancialPosition, type IEthereumWalletFinancialPosition } from '../interfaces/IFinancialPosition.ts';
+import {
+  cacheExternalWalletBalances,
+  restoreCachedExternalWalletBalances,
+  type ExternalWalletBalanceCacheTable,
+} from './db/ExternalWalletBalanceCacheTable.ts';
 
 type ITokenBalanceClient = {
   readContract(args: {
@@ -62,13 +67,16 @@ export class WalletForEthereum {
     chainConfig?: IEthereumChainConfig;
   }>;
 
-  constructor(public readonly address: string) {
+  constructor(
+    public readonly address: string,
+    private readonly balanceCache?: Promise<ExternalWalletBalanceCacheTable>,
+  ) {
     this.data.address = address;
   }
 
   public createFinancialPositions(currency: Currency): IEthereumWalletFinancialPosition[] {
     const wallet = this.data;
-    if (wallet.fetchErrorMsg) {
+    if (wallet.fetchErrorMsg && !wallet.balanceIsCached) {
       return [
         createFinancialPosition('ethereum-wallet-balance', {
           id: `${wallet.address.toLowerCase()}:ethereum:unavailable`,
@@ -135,6 +143,7 @@ export class WalletForEthereum {
   }
 
   public async load(options: { force?: boolean } = {}) {
+    await restoreCachedExternalWalletBalances(this.balanceCache, 'ethereum', this.data);
     await this.loadBalances({ force: options.force ?? true });
     this.startBalanceRefresh();
   }
@@ -169,6 +178,9 @@ export class WalletForEthereum {
         : 0n;
       this.data.totalMicrogons = this.data.availableMicrogons + this.data.reservedMicrogons;
       this.data.totalMicronots = this.data.availableMicronots + this.data.reservedMicronots;
+      this.data.balanceUpdatedAt = new Date();
+      this.data.balanceIsCached = false;
+      await cacheExternalWalletBalances(this.balanceCache, 'ethereum', this.data);
     } catch (error) {
       console.error('Ethereum wallet balance load failed', {
         address: this.address,

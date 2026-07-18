@@ -17,23 +17,38 @@
           </p>
 
           <div class="mt-12 flex gap-x-3">
-            <button
-              type="button"
-              :disabled="!canBuyWithArgn"
-              class="bg-argon-button hover:bg-argon-button-hover cursor-pointer rounded-md px-8 py-3 text-lg font-bold text-white disabled:pointer-events-none disabled:bg-white disabled:text-gray-500 disabled:opacity-40"
-              @click="openBondsOverlay('Vault')"
-            >
-              Purchase with ARGN
-            </button>
-            <button
-              v-if="supportsArgnotBacking"
-              type="button"
-              :disabled="!canBuyWithArgnot"
-              class="bg-argon-button hover:bg-argon-button-hover cursor-pointer rounded-md px-8 py-3 text-lg font-bold text-white disabled:pointer-events-none disabled:bg-white disabled:text-gray-500 disabled:opacity-40"
-              @click="openBondsOverlay('Argonot')"
-            >
-              Purchase with ARGNOT
-            </button>
+            <span class="relative">
+              <button
+                type="button"
+                :disabled="!canBuyWithArgn"
+                class="bg-argon-button hover:bg-argon-button-hover cursor-pointer rounded-md px-8 py-3 text-lg font-bold text-white disabled:pointer-events-none disabled:bg-white disabled:text-gray-500 disabled:opacity-40"
+                @click="openBondsOverlay('Vault')"
+              >
+                Purchase with ARGN
+              </button>
+              <ArrowCalloutButton
+                v-if="controller.activeGuideId === OperationalStepId.AcquireBonds && canBuyWithArgn"
+                guidance="Purchase the required Treasury Bonds here."
+                class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
+              />
+            </span>
+            <span v-if="supportsArgnotBacking" class="relative">
+              <button
+                type="button"
+                :disabled="!canBuyWithArgnot"
+                class="bg-argon-button hover:bg-argon-button-hover cursor-pointer rounded-md px-8 py-3 text-lg font-bold text-white disabled:pointer-events-none disabled:bg-white disabled:text-gray-500 disabled:opacity-40"
+                @click="openBondsOverlay('Argonot')"
+              >
+                Purchase with ARGNOT
+              </button>
+              <ArrowCalloutButton
+                v-if="
+                  controller.activeGuideId === OperationalStepId.AcquireBonds && !canBuyWithArgn && canBuyWithArgnot
+                "
+                guidance="Purchase the required Treasury Bonds here."
+                class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
+              />
+            </span>
           </div>
 
           <div class="text-argon-600 relative mt-14 text-center text-xl leading-8 font-bold">
@@ -102,24 +117,39 @@
               You have {{ bondLots.length }} Argon Bond transaction{{ bondLots.length === 1 ? '' : 's' }}...
             </span>
             <div class="flex flex-row items-stretch gap-x-3">
-              <button
-                type="button"
-                :disabled="!canBuyWithArgn"
-                class="text-md text-argon-600 cursor-pointer disabled:cursor-default disabled:opacity-40"
-                @click="openBondsOverlay('Vault')"
-              >
-                Buy with ARGN
-              </button>
+              <span class="relative">
+                <button
+                  type="button"
+                  :disabled="!canBuyWithArgn"
+                  class="text-md text-argon-600 cursor-pointer disabled:cursor-default disabled:opacity-40"
+                  @click="openBondsOverlay('Vault')"
+                >
+                  Buy with ARGN
+                </button>
+                <ArrowCalloutButton
+                  v-if="controller.activeGuideId === OperationalStepId.AcquireBonds && canBuyWithArgn"
+                  guidance="Purchase the required Treasury Bonds here."
+                  class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
+                />
+              </span>
               <div class="w-px bg-slate-400/50" />
-              <button
-                v-if="supportsArgnotBacking"
-                type="button"
-                :disabled="!canBuyWithArgnot"
-                class="text-md text-argon-600 cursor-pointer disabled:cursor-default disabled:opacity-40"
-                @click="openBondsOverlay('Argonot')"
-              >
-                Buy with ARGNOT
-              </button>
+              <span v-if="supportsArgnotBacking" class="relative">
+                <button
+                  type="button"
+                  :disabled="!canBuyWithArgnot"
+                  class="text-md text-argon-600 cursor-pointer disabled:cursor-default disabled:opacity-40"
+                  @click="openBondsOverlay('Argonot')"
+                >
+                  Buy with ARGNOT
+                </button>
+                <ArrowCalloutButton
+                  v-if="
+                    controller.activeGuideId === OperationalStepId.AcquireBonds && !canBuyWithArgn && canBuyWithArgnot
+                  "
+                  guidance="Purchase the required Treasury Bonds here."
+                  class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
+                />
+              </span>
               <div class="w-px bg-slate-400/50" />
               <a href="https://argon.network/" target="_blank" class="text-md text-argon-600 cursor-pointer">
                 View Docs
@@ -180,8 +210,11 @@ import { useFinancials } from '../stores/financials.ts';
 import { calculatePositionReturn } from '../lib/financials/index.ts';
 import BondRecord from './treasury-screens/components/BondRecord.vue';
 import BondDetailOverlay from '../app-treasury/overlays/BondDetailOverlay.vue';
+import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
+import { OperationalStepId, useCertificationController } from '../stores/certificationController.ts';
 
 const currency = getCurrency();
+const controller = useCertificationController();
 const financials = useFinancials();
 const vaults = getVaults();
 const walletKeys = getWalletKeys();
@@ -191,7 +224,7 @@ const argonBonds = getArgonBonds();
 
 const { microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
-const isLoaded = Vue.ref(false);
+const isLoaded = Vue.computed(() => argonBonds.data.isLoaded);
 const supportsArgnotBacking = Vue.ref(false);
 const showBondsOverlay = Vue.ref(false);
 const showDetailOverlay = Vue.ref(false);
@@ -279,14 +312,12 @@ Vue.onMounted(async () => {
 
   if (argonBonds.data.vaultId) {
     unsubVault = await vaults.subscribeToVault(argonBonds.data.vaultId, () => {
-      if (isLoaded.value) void refreshMarketData();
+      if (vaultBondSubscription) void refreshMarketData();
     });
   }
 
   await argonBonds.subscribeGlobal(client);
   await refreshMarketData();
-
-  isLoaded.value = true;
 });
 
 Vue.onUnmounted(() => {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AccountActivityKind } from '@argonprotocol/apps-core';
-import { restoreFinancialHistory } from '../lib/recovery/index.ts';
+import { needsFinancialHistoryRecovery, restoreFinancialHistory } from '../lib/recovery/index.ts';
 import { findAddressActivity } from '../lib/IndexerClient.ts';
 import { SyncStateKeys } from '../lib/db/SyncStateTable.ts';
 import { optionCodec } from '../../core/__test__/helpers/codecs.ts';
@@ -8,6 +8,38 @@ import { optionCodec } from '../../core/__test__/helpers/codecs.ts';
 vi.mock('../lib/IndexerClient.ts', () => ({ findAddressActivity: vi.fn() }));
 
 describe('FinancialHistoryImporter', () => {
+  it('initializes recovery when an enabled domain trails the finalized target', async () => {
+    const db = {
+      syncStateTable: {
+        get: vi.fn(async () => ({
+          accountId: '5owner',
+          asOfBlock: 99,
+          domains: ['bonds'],
+          domainCheckpoints: {
+            bonds: { asOfBlock: 99, definitionVersion: 2, recoveryVersion: 1 },
+          },
+        })),
+      },
+    } as any;
+
+    await expect(
+      needsFinancialHistoryRecovery({
+        db,
+        accountId: '5owner',
+        enabledDomains: ['bonds'],
+        targetBlock: 100,
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      needsFinancialHistoryRecovery({
+        db,
+        accountId: '5owner',
+        enabledDomains: ['bonds'],
+        targetBlock: 99,
+      }),
+    ).resolves.toBe(false);
+  });
+
   it('skips the v2 activity lookup when the saved checkpoint already covers finalized progress', async () => {
     const getCheckpoint = vi.fn(async () => ({
       accountId: '5owner',

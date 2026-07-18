@@ -1,7 +1,7 @@
 import { IServerStateRecord } from '../../interfaces/db/IServerStateRecord.ts';
 import { BaseTable, IFieldTypes } from './BaseTable.ts';
 import { convertFromSqliteFields, toSqlParams } from '../Utils.ts';
-import { type IBlockToProcess } from '../WalletsForArgon.ts';
+import type { IBlockHeaderInfo } from '@argonprotocol/apps-core';
 
 export enum SyncStateKeys {
   Server = 'Server',
@@ -12,9 +12,16 @@ export enum SyncStateKeys {
 
 export type IFinancialHistoryDomain = 'bonds' | 'bitcoin' | 'vaulting';
 
+type IWalletSyncState = Pick<
+  IBlockHeaderInfo,
+  'blockNumber' | 'blockHash' | 'blockTime' | 'parentHash' | 'isFinalized'
+> & {
+  isProcessed: boolean;
+};
+
 export interface ISyncSchemas {
   [SyncStateKeys.Server]: IServerStateRecord;
-  [SyncStateKeys.Wallet]: IBlockToProcess;
+  [SyncStateKeys.Wallet]: IWalletSyncState;
   [SyncStateKeys.WalletHistory]: {
     asOfBlock: number;
     addresses: string[];
