@@ -29,7 +29,7 @@
               <ArrowCalloutButton
                 v-if="controller.activeGuideId === OperationalStepId.AcquireBonds && canBuyWithArgn"
                 guidance="Purchase the required Treasury Bonds here."
-                class="absolute right-0 top-1/2 z-50 -translate-y-1/2 translate-x-[calc(100%+0.75rem)]"
+                class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
               />
             </span>
             <span v-if="supportsArgnotBacking" class="relative">
@@ -46,7 +46,7 @@
                   controller.activeGuideId === OperationalStepId.AcquireBonds && !canBuyWithArgn && canBuyWithArgnot
                 "
                 guidance="Purchase the required Treasury Bonds here."
-                class="absolute right-0 top-1/2 z-50 -translate-y-1/2 translate-x-[calc(100%+0.75rem)]"
+                class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
               />
             </span>
           </div>
@@ -129,7 +129,7 @@
                 <ArrowCalloutButton
                   v-if="controller.activeGuideId === OperationalStepId.AcquireBonds && canBuyWithArgn"
                   guidance="Purchase the required Treasury Bonds here."
-                  class="absolute right-0 top-1/2 z-50 -translate-y-1/2 translate-x-[calc(100%+0.75rem)]"
+                  class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
                 />
               </span>
               <div class="w-px bg-slate-400/50" />
@@ -147,7 +147,7 @@
                     controller.activeGuideId === OperationalStepId.AcquireBonds && !canBuyWithArgn && canBuyWithArgnot
                   "
                   guidance="Purchase the required Treasury Bonds here."
-                  class="absolute right-0 top-1/2 z-50 -translate-y-1/2 translate-x-[calc(100%+0.75rem)]"
+                  class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
                 />
               </span>
               <div class="w-px bg-slate-400/50" />

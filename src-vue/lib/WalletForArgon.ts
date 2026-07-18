@@ -1,9 +1,4 @@
-import {
-  bigIntMax,
-  MICROGONS_PER_ARGON,
-  type IBlockHeaderInfo,
-  type IExtrinsicEvent,
-} from '@argonprotocol/apps-core';
+import { bigIntMax, MICROGONS_PER_ARGON, type IBlockHeaderInfo, type IExtrinsicEvent } from '@argonprotocol/apps-core';
 import { Db } from './Db.ts';
 import { type IWallet, WalletType } from './Wallet.ts';
 

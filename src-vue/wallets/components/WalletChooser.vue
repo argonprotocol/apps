@@ -30,7 +30,7 @@
         <ArrowCalloutButton
           v-if="controller.isTransferGuideActive && getWalletSelectionKey(wallet) === guidedEthereumWalletKey"
           guidance="Choose the Ethereum wallet holding the ARGN you acquired through Uniswap."
-          class="absolute right-0 top-1/2 z-50 -translate-y-1/2 translate-x-[calc(100%+0.75rem)]"
+          class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
         />
       </button>
     </div>
@@ -55,7 +55,7 @@
         <ArrowCalloutButton
           v-if="controller.isTransferGuideActive && !guidedEthereumWalletKey"
           guidance="Import the Ethereum wallet holding the ARGN you acquired through Uniswap."
-          class="absolute right-0 top-1/2 z-50 -translate-y-1/2 translate-x-[calc(100%+0.75rem)]"
+          class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
         />
       </button>
     </div>

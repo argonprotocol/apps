@@ -180,10 +180,9 @@ export class MyMiningSeats {
 
     this.loadPromise = (async () => {
       const loadStartedAt = performance.now();
-      let stage: string | undefined;
+      let stage = 'config.isLoadedPromise';
 
       try {
-        stage = 'config.isLoadedPromise';
         await this.config.isLoadedPromise;
         const configReadyAt = performance.now();
 
@@ -265,7 +264,7 @@ export class MyMiningSeats {
       } catch (error) {
         this.isLoadedDeferred.reject(error as Error);
         console.error(
-          `[MyMiningSeats] Load failed at ${stage ?? 'start'} after ${Math.round(performance.now() - loadStartedAt)}ms`,
+          `[MyMiningSeats] Load failed at ${stage} after ${Math.round(performance.now() - loadStartedAt)}ms`,
           error,
         );
         throw error;

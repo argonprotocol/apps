@@ -198,13 +198,15 @@ export class WalletsForArgon {
 
       stage = 'loadCurrentBalances';
       await this.loadBalancesAt(this.blockWatch.bestBlockHeader);
-      void db.syncStateTable.upsert(SyncStateKeys.Wallet, {
-        ...initialFinalizedBlock,
-        isFinalized: true,
-        isProcessed: true,
-      }).catch(error => {
-        console.error('[WalletsForArgon] Failed to save the finalized wallet cursor', error);
-      });
+      void db.syncStateTable
+        .upsert(SyncStateKeys.Wallet, {
+          ...initialFinalizedBlock,
+          isFinalized: true,
+          isProcessed: true,
+        })
+        .catch(error => {
+          console.error('[WalletsForArgon] Failed to save the finalized wallet cursor', error);
+        });
       this.deferredLoading.resolve();
     } catch (err) {
       console.error(

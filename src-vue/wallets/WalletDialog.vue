@@ -145,7 +145,7 @@
               <ArrowCalloutButton
                 v-if="showInboundTransferDirectionGuide"
                 guidance="Switch direction so ARGN moves from Ethereum into Argon."
-                class="absolute left-1/2 top-0 z-50 -translate-x-1/2 -translate-y-[calc(100%+0.75rem)]"
+                class="absolute top-0 left-1/2 z-50 -translate-x-1/2 -translate-y-[calc(100%+0.75rem)]"
                 position="top"
                 :showArrow="false"
               />

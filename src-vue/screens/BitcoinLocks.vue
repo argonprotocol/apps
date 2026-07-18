@@ -32,7 +32,7 @@
             <ArrowCalloutButton
               v-if="controller.activeGuideId === OperationalStepId.LiquidLock && canStartLocking"
               guidance="Start your liquid lock here."
-              class="absolute right-0 top-1/2 z-50 -translate-y-1/2 translate-x-[calc(100%+0.75rem)]"
+              class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
             />
             <CurvedArrow class="pointer-events-none absolute top-14 left-full h-22 translate-y-1 text-slate-400/80" />
           </span>
@@ -137,7 +137,7 @@
                 <ArrowCalloutButton
                   v-if="controller.activeGuideId === OperationalStepId.LiquidLock"
                   guidance="Start your next liquid lock here."
-                  class="absolute right-0 top-1/2 z-50 -translate-y-1/2 translate-x-[calc(100%+0.75rem)]"
+                  class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
                 />
               </span>
               <div class="w-px bg-slate-400/50" />

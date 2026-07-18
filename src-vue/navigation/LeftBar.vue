@@ -36,7 +36,7 @@
             <ArrowCalloutButton
               v-if="controller.activeGuideId === OperationalStepId.TreasuryTransfer && !basics.overlayIsOpen"
               guidance="Open your Argon wallet."
-              class="absolute right-0 top-1/2 z-50 -translate-y-1/2 translate-x-[calc(100%+0.75rem)]"
+              class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
             />
           </button>
         </header>
@@ -61,7 +61,7 @@
                   controller.selectedTab !== TopTab.BitcoinLocks
                 "
                 guidance="Open Bitcoin Locks to continue this task."
-                class="absolute right-0 top-1/2 z-50 -translate-y-1/2 translate-x-[calc(100%+0.75rem)]"
+                class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
               />
             </article>
             <div Selector />
@@ -92,7 +92,7 @@
                   controller.selectedTab !== TopTab.ArgonBonds
                 "
                 guidance="Open Argon(ot) Bonds to continue this task."
-                class="absolute right-0 top-1/2 z-50 -translate-y-1/2 translate-x-[calc(100%+0.75rem)]"
+                class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
               />
             </article>
             <div Selector />
@@ -124,8 +124,11 @@
               </div>
               <div class="grow">Stable Swaps</div>
               <div v-if="currency.isLoaded" class="opacity-60">
-                {{ currency.symbol }}{{
-                  config.hasActivatedStableSwaps ? microgonToMoneyNm(financials.swapsTotalValue).format('0,0.00') : '0.00'
+                {{ currency.symbol
+                }}{{
+                  config.hasActivatedStableSwaps
+                    ? microgonToMoneyNm(financials.swapsTotalValue).format('0,0.00')
+                    : '0.00'
                 }}
               </div>
             </article>
@@ -144,7 +147,7 @@
             <ArrowCalloutButton
               v-if="controller.activeGuideId === OperationalStepId.OperationalTransfer && !basics.overlayIsOpen"
               guidance="Open your Argon wallet."
-              class="absolute right-0 top-1/2 z-50 -translate-y-1/2 translate-x-[calc(100%+0.75rem)]"
+              class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
             />
           </button>
           <ArrowCalloutButton
