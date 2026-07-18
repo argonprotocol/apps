@@ -193,6 +193,7 @@ export const ConfigSchema = z.object({
   vaultingSetupStatus: z.nativeEnum(VaultingSetupStatus),
 
   showWelcomeOverlay: z.boolean(),
+  wasImportedFromLegacy: z.boolean(),
   hasExtensionTreasury: z.boolean(),
   hasExtensionOperations: z.boolean(),
   selectedTab: z.nativeEnum(TopTab),
@@ -266,6 +267,7 @@ export interface IConfigDefaults {
   vaultingSetupStatus: () => IConfig['vaultingSetupStatus'];
 
   showWelcomeOverlay: () => IConfig['showWelcomeOverlay'];
+  wasImportedFromLegacy: () => IConfig['wasImportedFromLegacy'];
   hasExtensionTreasury: () => IConfig['hasExtensionTreasury'];
   hasExtensionOperations: () => IConfig['hasExtensionOperations'];
   selectedTab: () => IConfig['selectedTab'];

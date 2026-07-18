@@ -69,21 +69,21 @@ struct X25519Keypair {
 }
 
 impl Security {
-    pub fn migrate_legacy_app_dir(app: &AppHandle) -> Result<()> {
+    pub fn migrate_legacy_app_dir(app: &AppHandle) -> Result<bool> {
         let Some(legacy_app_id) = legacy_operations_app_id(app.config().identifier.as_str()) else {
-            return Ok(());
+            return Ok(false);
         };
 
         let legacy_config_dir =
             Utils::get_absolute_config_instance_dir_for_app_id(app, &legacy_app_id);
         if !legacy_config_dir.exists() {
-            return Ok(());
+            return Ok(false);
         }
 
         let config_dir = Utils::get_absolute_config_instance_dir(app);
         let migration_marker = config_dir.join(".legacy-migration-in-progress");
         if Self::wallet_path(app).exists() && !migration_marker.exists() {
-            return Ok(());
+            return Ok(false);
         }
 
         fs::create_dir_all(&config_dir)?;
@@ -106,7 +106,7 @@ impl Security {
             }
         }
         log::info!("Migrated missing config files from legacy app dir {legacy_app_id}");
-        Ok(())
+        Ok(true)
     }
 
     pub fn expose_private_key_openssh(app: &AppHandle) -> anyhow::Result<SecretString> {

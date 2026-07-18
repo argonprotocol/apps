@@ -329,10 +329,15 @@
         >
           <div class="relative flex flex-row items-center gap-1.5 px-5 py-3 whitespace-nowrap">Upgrade to Treasury</div>
         </div>
-        <div class="relative mt-3 text-slate-700/60">
+        <div class="relative mt-4 text-slate-700/60">
           Insert an access code to
           <br />
           unlock yield generating assets.
+        </div>
+        <div class="text-argon-600 mt-2 flex flex-row items-center justify-center gap-x-2">
+          <a class="cursor-pointer opacity-50 hover:opacity-100">Learn More</a>
+          <span class="text-slate-600/40">or</span>
+          <a class="cursor-pointer opacity-50 hover:opacity-100">Join Discord</a>
         </div>
       </div>
       <div
