@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { calculateRestabilizationLeverage } from '../src/GlobalVaultingStats.ts';
 import type { IAllVaultStats, IVaultFrameStats, IVaultStats } from '../src/interfaces/IVaultStats.ts';
 import { NetworkConfig } from '../src/NetworkConfig.ts';
-import { Vaults } from '../src/Vaults.ts';
+import { VAULT_STATS_FORMAT_VERSION, Vaults } from '../src/Vaults.ts';
 import { bigintCodec, numberCodec } from './helpers/codecs.ts';
 
 beforeEach(() => {
@@ -36,6 +36,27 @@ describe('Vaults load retry', () => {
     expect(miningFrames.load).toHaveBeenCalledTimes(2);
     expect(client.query.vaults.vaultsById.entries).toHaveBeenCalledOnce();
     expect(vaults.stats?.synchedToFrame).toBe(0);
+  });
+
+  it('replaces an old local cache with the published stats version', async () => {
+    const miningFrames = {
+      load: vi.fn().mockResolvedValue(undefined),
+    };
+    const client = {
+      query: {
+        vaults: {
+          vaultsById: { entries: vi.fn().mockResolvedValue([]) },
+        },
+      },
+    };
+    const mainchainClients = { get: vi.fn().mockResolvedValue(client) };
+    const cachedStats = createStats([createFrame({ frameId: 20 })]);
+    const vaults = new CachedVaults(cachedStats, miningFrames, mainchainClients);
+
+    await vaults.load();
+
+    expect(vaults.stats).not.toBe(cachedStats);
+    expect(vaults.stats?.formatVersion).toBe(VAULT_STATS_FORMAT_VERSION);
   });
 });
 
@@ -134,39 +155,7 @@ describe('Vault and bond network returns', () => {
     expect(vaults.stats?.vaultsById[1].changesByFrame[1].bitcoinFeeCouponValueUsed).toBeUndefined();
   });
 
-  it('falls back when an old cache has no selected frames and decodes bundled coupon data', async () => {
-    const cachedStats = createStats([createFrame({ frameId: 10, bitcoinFeeRevenue: 100n })]);
-    const miningFrames = {
-      load: vi.fn().mockResolvedValue(undefined),
-    };
-    const client = {
-      query: {
-        vaults: {
-          vaultsById: {
-            entries: vi.fn().mockResolvedValue([]),
-          },
-        },
-      },
-    };
-    const mainchainClients = {
-      get: vi.fn().mockResolvedValue(client),
-    };
-    const vaults = new CachedVaults(cachedStats, miningFrames as any, mainchainClients as any);
-
-    await vaults.load();
-
-    expect(vaults.stats).not.toBe(cachedStats);
-    const oldestFrameId = vaults.stats!.synchedToFrame - NetworkConfig.framesPerCohort + 1;
-    const selectedFrames = Object.values(vaults.stats!.vaultsById).flatMap(vault => {
-      return vault.changesByFrame.filter(
-        frame => frame.frameId >= oldestFrameId && frame.frameId <= vaults.stats!.synchedToFrame,
-      );
-    });
-    expect(selectedFrames.length).toBeGreaterThan(0);
-    expect(selectedFrames.every(frame => typeof frame.bitcoinFeeCouponValueUsed === 'bigint')).toBe(true);
-    expect(Number.isFinite(vaults.calculateApr())).toBe(true);
-    expect(Number.isFinite(vaults.calculateBondsApr())).toBe(true);
-
+  it('rejects vault returns with missing coupon usage without affecting bond returns', () => {
     const incompleteVaults = createVaults();
     incompleteVaults.stats = createStats([
       createFrame({

@@ -1,8 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { AccountEventsFilter } from '@argonprotocol/apps-core';
 import type { ApiDecoration, FrameSystemEventRecord, GenericEvent } from '@argonprotocol/mainchain';
 import { bigintCodec, hexCodec, humanCodec, numberCodec } from '../../core/__test__/helpers/codecs.ts';
-import { WalletForArgon } from '../lib/WalletForArgon.ts';
 import { createTestDb } from './helpers/db.ts';
 
 const api = {
@@ -225,59 +224,6 @@ describe('wallet transfer parsing', () => {
         tokenGatewayCommitmentHash: '0xcommitment',
       }),
     ]);
-  });
-
-  it('stores the finalized BalanceSet delta instead of its absolute free balance', async () => {
-    const insertTransfer = vi.fn(async () => undefined);
-    const wallet = new WalletForArgon(
-      '5default',
-      'defaultArgon',
-      Promise.resolve({
-        walletTransfersTable: { insert: insertTransfer },
-      } as any),
-    );
-    wallet.balanceHistory = [
-      {
-        block: { blockNumber: 1, blockHash: '0x1', blockTime: 1, isFinalized: true },
-        availableMicrogons: 100n,
-        reservedMicrogons: 0n,
-        availableMicronots: 0n,
-        reservedMicronots: 0n,
-        microgonsAdded: 100n,
-        micronotsAdded: 0n,
-        extrinsicEvents: [],
-        transfers: [],
-      },
-    ];
-    const balance = {
-      block: { blockNumber: 2, blockHash: '0x2', blockTime: 2, isFinalized: false },
-      availableMicrogons: 150n,
-      reservedMicrogons: 0n,
-      availableMicronots: 0n,
-      reservedMicronots: 0n,
-      microgonsAdded: 0n,
-      micronotsAdded: 0n,
-      extrinsicEvents: [],
-      transfers: [
-        {
-          to: '5default',
-          transferType: 'faucet' as const,
-          currency: 'argon' as const,
-          isInternal: false,
-          isInbound: true,
-          amount: 150n,
-          extrinsicIndex: 2,
-        },
-      ],
-    };
-
-    wallet.addDiffs(balance);
-    await wallet.onBalanceChange(balance, { USD: 1n, ARGNOT: 1n });
-    expect(insertTransfer).not.toHaveBeenCalled();
-
-    balance.block.isFinalized = true;
-    await wallet.saveFinalizedTransfers(balance, { USD: 1n, ARGNOT: 1n });
-    expect(insertTransfer).toHaveBeenCalledWith(expect.objectContaining({ amount: 50n }));
   });
 
   it('updates recovered transfer classification without duplicating a missing counterparty', async () => {

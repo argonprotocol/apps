@@ -15,7 +15,7 @@ import { ICohortRecord } from '../interfaces/db/ICohortRecord';
 import type { IMiningCohortFinancialRecord } from '../interfaces/db/ICohortFrameRecord.ts';
 import type { IFrameBidRecord } from '../interfaces/db/IFrameBidRecord.ts';
 import { botEmitter } from './Bot';
-import { ensureOnlyOneInstance, getPercent, percentOf } from './Utils';
+import { ensureOnlyOneInstance, getPercent, logStartupTiming, percentOf } from './Utils';
 import { IServerStateRecord } from '../interfaces/db/IServerStateRecord.ts';
 import { Currency } from './Currency.ts';
 import { SyncStateKeys } from './db/SyncStateTable.ts';
@@ -179,22 +179,27 @@ export class MyMiningSeats {
     }
 
     this.loadPromise = (async () => {
-      const loadStartedAt = Date.now();
+      const loadStartedAt = performance.now();
       let stage: string | undefined;
 
       try {
         stage = 'config.isLoadedPromise';
         await this.config.isLoadedPromise;
+        const configReadyAt = performance.now();
 
         stage = 'dbPromise';
         this.db = await this.dbPromise;
+        const dbReadyAt = performance.now();
 
         stage = 'currency.load';
         await this.currency.load();
+        const currencyReadyAt = performance.now();
 
         const initialFrameId = this.latestFrameId;
         stage = 'miningFrames.load';
         await this.miningFrames.load();
+        const miningFramesReadyAt = performance.now();
+
         this.latestFrameId = this.miningFrames.currentFrameId;
         if (this.selectedFrameId === initialFrameId) {
           this.selectedFrameId = this.latestFrameId;
@@ -246,10 +251,21 @@ export class MyMiningSeats {
 
         this.isLoaded = true;
         this.isLoadedDeferred.resolve();
+        logStartupTiming({
+          milestone: 'mining-seats-ready',
+          startedAt: loadStartedAt,
+          details: {
+            configMs: Math.round(configReadyAt - loadStartedAt),
+            dbMs: Math.round(dbReadyAt - configReadyAt),
+            currencyMs: Math.round(currencyReadyAt - dbReadyAt),
+            miningFramesMs: Math.round(miningFramesReadyAt - currencyReadyAt),
+            positionsMs: Math.round(performance.now() - miningFramesReadyAt),
+          },
+        });
       } catch (error) {
         this.isLoadedDeferred.reject(error as Error);
         console.error(
-          `[MyMiningSeats] Load failed at ${stage ?? 'start'} after ${Date.now() - loadStartedAt}ms`,
+          `[MyMiningSeats] Load failed at ${stage ?? 'start'} after ${Math.round(performance.now() - loadStartedAt)}ms`,
           error,
         );
         throw error;

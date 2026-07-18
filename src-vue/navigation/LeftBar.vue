@@ -51,7 +51,7 @@
                 <GiftIcon v-if="bitcoinLockCoupons.openCouponCount" class="text-argon-800/50 ml-2 w-4" />
               </div>
               <div class="flex items-center gap-x-2">
-                <span class="opacity-60">
+                <span v-if="currency.isLoaded" class="opacity-60">
                   {{ currency.symbol }}{{ satToMoneyNm(financials.liquidTotalSatoshis).format('0,0.00') }}
                 </span>
               </div>
@@ -123,12 +123,9 @@
                 <SwapIcon class="w-5.5 opacity-90" />
               </div>
               <div class="grow">Stable Swaps</div>
-              <div class="opacity-60">
-                {{ currency.symbol
-                }}{{
-                  config.hasActivatedStableSwaps
-                    ? microgonToMoneyNm(financials.swapsTotalValue).format('0,0.00')
-                    : '0.00'
+              <div v-if="currency.isLoaded" class="opacity-60">
+                {{ currency.symbol }}{{
+                  config.hasActivatedStableSwaps ? microgonToMoneyNm(financials.swapsTotalValue).format('0,0.00') : '0.00'
                 }}
               </div>
             </article>
@@ -383,14 +380,14 @@
                 <FormattedMoney :isLoaded="selectedWalletBalanceIsLoaded" :value="selectedWalletBalance" />
               </div>
               <div
-                v-if="selectedWallet.walletType === WalletType.defaultArgon"
+                v-if="currency.isLoaded && selectedWallet.walletType === WalletType.defaultArgon"
                 class="mx-auto mt-2 w-fit border-t border-slate-500/30 pt-2 text-center opacity-50"
               >
                 Includes {{ currency.symbol
                 }}{{ microgonToMoneyNm(financials.savingsTotalPending).format('0,0.00') }} waiting to mint
               </div>
               <div
-                v-else-if="isEthereumWalletSelection(selectedWallet)"
+                v-else-if="currency.isLoaded && isEthereumWalletSelection(selectedWallet)"
                 class="mx-auto mt-2 flex w-fit gap-x-2 border-t border-slate-500/30 pt-2 text-center opacity-50"
               >
                 {{ currency.symbol }}{{ microgonToMoneyNm(selectedOtherTokenValue).format('0,0.00') }} non-native tokens
@@ -499,6 +496,8 @@ const selectedOtherTokenValue = Vue.computed(() => {
   }, 0n);
 });
 const selectedWalletBalance = Vue.computed(() => {
+  if (!currency.isLoaded) return 0n;
+
   if (selectedWallet.value.walletType === WalletType.defaultArgon) {
     return financials.savingsTotalValue;
   }
@@ -537,6 +536,8 @@ function getWalletName(wallet: IWalletSelection): string {
 }
 
 function formatFinancialGroupValue(group: FinancialGroup): string {
+  if (!currency.isLoaded) return '--';
+
   const summary = financials.financialPositionAggregate.groupSummaries[group];
   if (summary.state !== 'ready' && !(summary.state === 'stale' && summary.positions.length)) return '--';
   return microgonToMoneyNm(summary.currentValue).format('0,0.00');

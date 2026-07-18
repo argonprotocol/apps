@@ -14,15 +14,13 @@ import Path from 'path';
 import { WalletsForArgon } from '../lib/WalletsForArgon.ts';
 import { type IIndexedWalletActivityBlock, WalletHistoryRecovery } from '../lib/recovery/WalletHistory.ts';
 import { createTestWallet } from './helpers/wallet.ts';
-import { Keyring, TxResult, TxSubmitter } from '@argonprotocol/mainchain';
+import { Keyring, TxSubmitter } from '@argonprotocol/mainchain';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 import { SyncStateKeys } from '../lib/db/SyncStateTable.ts';
 import { WalletForArgon } from '../lib/WalletForArgon.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
-const REORG_DELETION_WAIT_MS = 10_000;
 const custodyFlowActivityMask = AccountActivityKind.Transfer | AccountActivityKind.Crosschain;
-const defaultWalletActivityMask = custodyFlowActivityMask | AccountActivityKind.AccountBalance;
 
 async function addIndexedBlocks(
   blockWatch: BlockWatch,
@@ -80,13 +78,6 @@ describe
       try {
         await walletsForArgon.load();
         const onBalanceChange = vi.fn();
-        const onBlockDeleted = vi.fn();
-        const didBlockGetDeleted = createDeferred<string>();
-        walletsForArgon.events.on('block-deleted', block => {
-          console.log('Block deleted:', block);
-          didBlockGetDeleted.resolve(block.blockHash);
-          onBlockDeleted(block);
-        });
         const didGetBalanceChange = createDeferred();
         walletsForArgon.events.on('balance-change', (balanceChange, type) => {
           console.log('Balance Change:', balanceChange);
@@ -105,103 +96,21 @@ describe
         await result.waitForInFirstBlock;
         await expect(didGetBalanceChange.promise).resolves.toBeUndefined();
         expect(walletsForArgon.operationalWallet.availableMicrogons).toBe(5_000_000n);
-        expect(walletsForArgon.operationalWallet.finalizedBalance?.availableMicrogons ?? 0n).toBe(0n);
-        expect(onBalanceChange).toHaveBeenCalledTimes(1 + onBlockDeleted.mock.calls.length);
         expect(onBalanceChange).toHaveBeenCalledWith('operational');
         expect(walletsForArgon.defaultArgonWallet.totalMicrogons).toBe(0n);
         await result.waitForFinalizedBlock;
-        const finalizedBlock = result.blockNumber!;
-        if (!walletsForArgon.finalizedBlock || walletsForArgon.finalizedBlock.blockNumber < finalizedBlock) {
+        transferBlocks = [result.blockNumber!];
+        if (!walletsForArgon.finalizedBlock || walletsForArgon.finalizedBlock.blockNumber < result.blockNumber!) {
           await new Promise(resolve => {
             const unsub = walletsForArgon.events.on('sync:finalized', h => {
-              if (h.blockNumber >= finalizedBlock) {
+              if (h.blockNumber >= result.blockNumber!) {
                 resolve(null);
                 unsub();
               }
             });
           });
         }
-        expect(walletsForArgon.operationalWallet.finalizedBalance?.availableMicrogons ?? 0n).toBe(5_000_000n);
-        // send a bunch of transfers
-        let nextNonce = (await client.rpc.system.accountNextIndex(alice.address)).toNumber();
-        let finalizedTxs = 0;
-        const waitForTxs = createDeferred();
-        const txResults: TxResult[] = [];
-        let txSubmissions = 0;
-        let lastBlockNumber = 0;
-        let lastTxBlockNumber = 0;
-        const unsubscribe = await client.rpc.chain.subscribeNewHeads(async h => {
-          const blockNumber = h.number.toNumber();
-          if (blockNumber <= lastBlockNumber) return;
-          lastBlockNumber = blockNumber;
-
-          if (waitForTxs.isSettled) {
-            return;
-          }
-          await Promise.all(txResults.map(txResult => txResult.waitForInFirstBlock));
-          if (txSubmissions >= 10) {
-            return;
-          }
-          txSubmissions++;
-          const txResult = await new TxSubmitter(
-            client,
-            client.tx.balances.transferKeepAlive(operationalAccount.address, 1_000_000n),
-            alice,
-          ).submit({ nonce: nextNonce++ });
-          txResults.push(txResult);
-          await txResult.waitForFinalizedBlock;
-          lastTxBlockNumber = Math.max(txResult.blockNumber!, lastTxBlockNumber);
-          finalizedTxs++;
-
-          if (finalizedTxs >= 10) {
-            unsubscribe();
-            waitForTxs.resolve();
-          }
-        });
-
-        await waitForTxs.promise;
-
-        const deletedBlockHash = await Promise.race([
-          didBlockGetDeleted.promise,
-          new Promise<string | null>(resolve => {
-            setTimeout(() => resolve(null), REORG_DELETION_WAIT_MS);
-          }),
-        ]);
-
-        if (!walletsForArgon.finalizedBlock || walletsForArgon.finalizedBlock.blockNumber < lastTxBlockNumber) {
-          await new Promise(resolve => {
-            const unsub = walletsForArgon.events.on('sync:finalized', h => {
-              if (h.blockNumber >= lastTxBlockNumber) {
-                resolve(null);
-                unsub();
-              }
-            });
-          });
-        }
-        if (deletedBlockHash) {
-          expect(walletsForArgon.operationalWallet.balanceHistory.map(x => x.block.blockHash)).not.toContain(
-            deletedBlockHash,
-          );
-        } else {
-          console.log(
-            '[WalletsForArgon] No block deletion observed before assertions; skipping reorg cleanup assertion',
-          );
-        }
-
-        const transfers = await db.walletTransfersTable.fetchAll();
-        transferBlocks = Array.from(new Set(transfers.map(entry => entry.blockNumber)));
-        expect(transfers.length).toBeGreaterThan(0);
-        expect(transfers).toEqual(
-          expect.arrayContaining([
-            expect.objectContaining({
-              walletAddress: walletKeys.operationalAddress,
-              amount: 1_000_000n,
-              currency: 'argon',
-              transferType: 'transfer',
-              isInternal: false,
-            }),
-          ]),
-        );
+        expect(walletsForArgon.operationalWallet.availableMicrogons).toBe(5_000_000n);
       } finally {
         await walletsForArgon.close();
         blockWatch.stop();
@@ -254,7 +163,7 @@ describe
           asOfBlock: blockWatch.finalizedBlockHeader.blockNumber,
           addresses: [...new Set([...walletsForArgon.addresses, walletKeys.legacyMiningHoldAddress])].sort(),
           activityMasks: {
-            [walletKeys.defaultArgonAddress]: defaultWalletActivityMask,
+            [walletKeys.defaultArgonAddress]: custodyFlowActivityMask,
             [walletKeys.legacyMiningHoldAddress]: custodyFlowActivityMask,
             [walletKeys.operationalAddress]: custodyFlowActivityMask,
           },
@@ -272,7 +181,7 @@ describe
           expect.arrayContaining([
             expect.objectContaining({
               walletAddress: walletKeys.operationalAddress,
-              amount: 1_000_000n,
+              amount: 5_000_000n,
               currency: 'argon',
               transferType: 'transfer',
               isInternal: false,
@@ -405,7 +314,7 @@ describe
           asOfBlock: 0,
           addresses: [...new Set([...walletsForArgon.addresses, walletKeys.legacyMiningHoldAddress])].sort(),
           activityMasks: {
-            [walletKeys.defaultArgonAddress]: defaultWalletActivityMask,
+            [walletKeys.defaultArgonAddress]: custodyFlowActivityMask,
             [walletKeys.legacyMiningHoldAddress]: custodyFlowActivityMask,
             [walletKeys.operationalAddress]: custodyFlowActivityMask,
           },
@@ -423,7 +332,7 @@ describe
           asOfBlock: targetBlock,
           addresses: [...new Set([...walletsForArgon.addresses, walletKeys.legacyMiningHoldAddress])].sort(),
           activityMasks: {
-            [walletKeys.defaultArgonAddress]: defaultWalletActivityMask,
+            [walletKeys.defaultArgonAddress]: custodyFlowActivityMask,
             [walletKeys.legacyMiningHoldAddress]: custodyFlowActivityMask,
             [walletKeys.operationalAddress]: custodyFlowActivityMask,
           },
@@ -483,7 +392,7 @@ describe
           asOfBlock: targetBlock - 2,
           addresses: [...new Set([...walletsForArgon.addresses, walletKeys.legacyMiningHoldAddress])].sort(),
           activityMasks: {
-            [walletKeys.defaultArgonAddress]: defaultWalletActivityMask,
+            [walletKeys.defaultArgonAddress]: custodyFlowActivityMask,
             [walletKeys.legacyMiningHoldAddress]: custodyFlowActivityMask,
             [walletKeys.operationalAddress]: custodyFlowActivityMask,
           },

@@ -1,6 +1,10 @@
-import { bigIntMax, MICROGONS_PER_ARGON, type IExtrinsicEvent } from '@argonprotocol/apps-core';
+import {
+  bigIntMax,
+  MICROGONS_PER_ARGON,
+  type IBlockHeaderInfo,
+  type IExtrinsicEvent,
+} from '@argonprotocol/apps-core';
 import { Db } from './Db.ts';
-import type { IBlockToProcess } from './WalletsForArgon.ts';
 import { type IWallet, WalletType } from './Wallet.ts';
 
 export type IWalletBalanceTransfer = {
@@ -16,7 +20,7 @@ export type IWalletBalanceTransfer = {
 };
 
 export type IBalanceChange = {
-  block: Pick<IBlockToProcess, 'blockNumber' | 'blockHash' | 'blockTime' | 'isFinalized'>;
+  block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash' | 'blockTime' | 'isFinalized'>;
   microgonsAdded: bigint;
   micronotsAdded: bigint;
   availableMicrogons: bigint;
@@ -68,10 +72,6 @@ export class WalletForArgon implements IWallet {
     this.balanceHistory = [];
   }
 
-  public get finalizedBalance(): IBalanceChange | undefined {
-    return this.balanceHistory.at(0);
-  }
-
   public get latestBalanceChange(): IBalanceChange | undefined {
     return this.balanceHistory.at(-1);
   }
@@ -104,56 +104,6 @@ export class WalletForArgon implements IWallet {
     return hasArgonWalletValue(this);
   }
 
-  public trimToFinalizedBlock(finalizedBlock: { blockNumber: number; blockHash: string }) {
-    const { blockNumber: finalizedBlockNumber } = finalizedBlock;
-    const newHistory: IBalanceChange[] = [];
-    for (const history of this.balanceHistory) {
-      history.block.isFinalized = history.block.blockNumber <= finalizedBlockNumber;
-      if (history.block.blockNumber >= finalizedBlockNumber) {
-        newHistory.push(history);
-      }
-    }
-    if (newHistory.length === 0 || !newHistory.some(x => x.block.isFinalized)) {
-      // need at least one finalized entry
-      let finalized: IBalanceChange | undefined;
-      for (let i = this.balanceHistory.length - 1; i >= 0; i--) {
-        if (this.balanceHistory[i].block.isFinalized) {
-          finalized = this.balanceHistory[i];
-          break;
-        }
-      }
-      if (finalized) {
-        newHistory.unshift(finalized);
-      }
-      if (!newHistory.length) {
-        console.warn(
-          'Cannot trim wallet balance history, no finalized block found',
-          { block: finalizedBlock, wallet: this.address },
-          this.balanceHistory,
-        );
-        throw new Error(
-          `Cannot trim wallet ${this.address} balance history to block ${finalizedBlockNumber}, no finalized block found`,
-        );
-      }
-    }
-    this.balanceHistory = newHistory;
-  }
-
-  public dropBlock(blockHash: string) {
-    const index = this.balanceHistory.findIndex(b => b.block.blockHash === blockHash);
-    if (index === -1) {
-      return;
-    }
-    this.balanceHistory.splice(index, 1);
-  }
-
-  public addDiffs(newBalance: IBalanceChange): boolean {
-    const last = this.latestBalanceChange;
-    newBalance.microgonsAdded = newBalance.availableMicrogons + newBalance.reservedMicrogons - this.totalMicrogons;
-    newBalance.micronotsAdded = newBalance.availableMicronots + newBalance.reservedMicronots - this.totalMicronots;
-    return !last || this.hasDiff(last, newBalance);
-  }
-
   public hasDiff(balance1: IBalanceChange, balance2: IBalanceChange): boolean {
     return (
       balance1.availableMicrogons !== balance2.availableMicrogons ||
@@ -163,70 +113,30 @@ export class WalletForArgon implements IWallet {
     );
   }
 
-  public async onBalanceChange(newBalance: IBalanceChange, prices?: { USD: bigint; ARGNOT: bigint }): Promise<boolean> {
-    const prev = this.latestBalanceChange;
-    let hasChange = true;
-    if (prev) {
-      if (
-        prev.block.blockHash === newBalance.block.blockHash ||
-        prev.block.blockNumber >= newBalance.block.blockNumber
-      ) {
-        return false;
-      }
-      hasChange = this.hasDiff(prev, newBalance);
-    }
-
-    if (newBalance.block.isFinalized && newBalance.transfers.length) {
-      if (!prices) throw new Error('Finalized wallet transfers require the rates from their block');
-      await this.saveFinalizedTransfers(newBalance, prices);
-    }
-    this.balanceHistory.push(newBalance);
-    if (!hasChange) return false;
-    // skip writing to db if this is an empty account
-    if (
-      !prev &&
-      newBalance.availableMicrogons === 0n &&
-      newBalance.availableMicronots === 0n &&
-      newBalance.reservedMicrogons === 0n &&
-      newBalance.reservedMicronots === 0n
-    ) {
-      // no change from zero balance
-      return false;
-    }
-
-    return true;
-  }
-
-  public async saveFinalizedTransfers(balance: IBalanceChange, prices: { USD: bigint; ARGNOT: bigint }): Promise<void> {
-    if (!balance.block.isFinalized) throw new Error('Cannot persist transfers from an unfinalized block');
-    if (!balance.transfers.length) return;
+  public async saveFinalizedTransfers(
+    historyEntry: Pick<IBalanceChange, 'block' | 'transfers'>,
+    prices: { USD: bigint; ARGNOT: bigint },
+  ): Promise<void> {
+    if (!historyEntry.block.isFinalized) throw new Error('Cannot persist transfers from an unfinalized block');
+    if (!historyEntry.transfers.length) return;
 
     const database = await this.db;
-    for (const transfer of balance.transfers) {
-      let amount = transfer.amount;
-      let isInbound = transfer.isInbound;
-      if (transfer.transferType === 'faucet') {
-        const balanceChange = transfer.currency === 'argon' ? balance.microgonsAdded : balance.micronotsAdded;
-        if (balanceChange === 0n) continue;
-
-        isInbound = balanceChange > 0n;
-        amount = isInbound ? balanceChange : -balanceChange;
-      }
+    for (const transfer of historyEntry.transfers) {
       await database.walletTransfersTable.insert({
         walletAddress: this.address,
         walletName: this.type,
-        amount: isInbound ? amount : -amount,
+        amount: transfer.isInbound ? transfer.amount : -transfer.amount,
         isInternal: transfer.isInternal,
         currency: transfer.currency,
         microgonsForArgonot: prices.ARGNOT,
         microgonsForUsd: prices.USD,
         extrinsicIndex: transfer.extrinsicIndex,
-        otherParty: isInbound ? transfer.from : transfer.to,
+        otherParty: transfer.isInbound ? transfer.from : transfer.to,
         transferType: transfer.transferType,
         tokenGatewayCommitmentHash: transfer.tokenGatewayCommitmentHash,
-        blockNumber: balance.block.blockNumber,
-        blockHash: balance.block.blockHash,
-        blockTime: new Date(balance.block.blockTime),
+        blockNumber: historyEntry.block.blockNumber,
+        blockHash: historyEntry.block.blockHash,
+        blockTime: new Date(historyEntry.block.blockTime),
       });
     }
   }

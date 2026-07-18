@@ -15,6 +15,92 @@ import { mnemonicToAccount } from 'viem/accounts';
 const TEST_MNEMONIC = 'test test test test test test test test test test test junk';
 
 describe('MintingAuthorities', () => {
+  it('only scans missing signer indexes for a council account after its unrecognized registration', async () => {
+    const db = await createTestDb();
+    const walletKeys = createWalletKeysStub();
+    const signer = (await walletKeys.getEthereumAddresses([walletKeys.getMintingAuthorityEthereumHdPath(0)]))[0];
+    const deriveAuthoritySigners = vi.spyOn(walletKeys, 'getEthereumAddresses');
+    deriveAuthoritySigners.mockClear();
+    const councilSignerByDestinationChainAndAccountId = vi.fn(async () => ({ isNone: true }));
+    const finalizedClient = {
+      events: {
+        crosschainTransfer: {
+          MintingAuthorityRegistered: {
+            is: (event: { method: string }) => event.method === 'MintingAuthorityRegistered',
+          },
+        },
+      },
+      query: {
+        crosschainTransfer: {
+          councilSignerByDestinationChainAndAccountId,
+          mintingAuthoritiesBySigner: {
+            multi: vi.fn(async (signers: string[]) =>
+              signers.map(candidate =>
+                candidate === signer ? someAuthority(walletKeys.vaultingAddress, candidate) : noneAuthority(),
+              ),
+            ),
+          },
+        },
+      },
+    };
+    let onFinalized = (_headers: Array<{ blockNumber: number; blockHash: string }>) => undefined;
+    const blockWatch = {
+      start: vi.fn(async () => undefined),
+      getFinalizedApi: vi.fn(async () => finalizedClient),
+      getEventsWithSpec: vi.fn(async () => ({
+        api: finalizedClient,
+        events: [
+          {
+            event: {
+              section: 'crosschainTransfer',
+              method: 'MintingAuthorityRegistered',
+              data: {
+                destinationChain: { isEthereum: true },
+                accountId: { toString: () => walletKeys.vaultingAddress },
+                destinationSigningKey: { toHex: () => signer },
+              },
+            },
+          },
+        ],
+      })),
+      events: {
+        on: vi.fn((_eventName, callback) => {
+          onFinalized = callback;
+          return vi.fn();
+        }),
+      },
+    };
+    const mintingAuthorities = new MintingAuthorities(
+      Promise.resolve(db),
+      walletKeys as unknown as WalletKeys,
+      { blockWatch } as any,
+      {
+        pendingBlockTxInfosAtLoad: [],
+        data: { txInfos: [] },
+      } as any,
+    );
+
+    await mintingAuthorities.load();
+    expect(deriveAuthoritySigners).not.toHaveBeenCalled();
+
+    await mintingAuthorities.subscribe();
+    onFinalized([{ blockNumber: 1, blockHash: '0x01' }]);
+
+    await vi.waitFor(() => expect(councilSignerByDestinationChainAndAccountId).toHaveBeenCalledOnce());
+    expect(councilSignerByDestinationChainAndAccountId).toHaveBeenCalledWith(
+      'Ethereum',
+      walletKeys.defaultArgonAddress,
+    );
+    expect(deriveAuthoritySigners).not.toHaveBeenCalled();
+
+    councilSignerByDestinationChainAndAccountId.mockResolvedValue({ isNone: false });
+    onFinalized([{ blockNumber: 2, blockHash: '0x02' }]);
+
+    await vi.waitFor(() => expect(mintingAuthorities.data.authorities).toHaveLength(1), { timeout: 5_000 });
+    expect(mintingAuthorities.data.authorities[0]).toMatchObject({ signer, authorityIndex: 0 });
+    expect(deriveAuthoritySigners).toHaveBeenCalled();
+  });
+
   it('reuses recovered sparse authority indexes when a deactivated authority can no longer be restored', async () => {
     const db = await createTestDb();
     const walletKeys = createWalletKeysStub();
@@ -584,6 +670,7 @@ function createWalletKeysStub() {
     councilSignerEthereumHdPath: getEthereumHdPath(DEFAULT_MEMORY_WALLET_KEYS_ETHEREUM_HD_PREFIXES.councilSigner),
     ethereumAddress,
     ethereumHdPrefixes: DEFAULT_MEMORY_WALLET_KEYS_ETHEREUM_HD_PREFIXES,
+    defaultArgonAddress: '5VaultingAddress',
     vaultingAddress: '5VaultingAddress',
     getMintingAuthorityEthereumHdPath(hdIndex: number): `m/44'/60'/${string}` {
       return getEthereumHdPath(DEFAULT_MEMORY_WALLET_KEYS_ETHEREUM_HD_PREFIXES.mintingAuthority, hdIndex);

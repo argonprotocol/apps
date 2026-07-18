@@ -293,8 +293,14 @@ export const useWallets = defineStore('wallets', () => {
     operational: operationalWallet,
   } satisfies Record<IArgonWalletType, IWallet>;
 
-  let walletHistoryPreparation: Promise<void> | undefined;
-  function queueWalletHistoryRecovery(blockNumber: number): void {
+  let walletHistoryPreparation: Promise<boolean> | undefined;
+  function queueWalletHistoryRecovery({
+    blockNumber,
+    onlyIfIncomplete = false,
+  }: {
+    blockNumber: number;
+    onlyIfIncomplete?: boolean;
+  }): void {
     const recovery = walletHistoryRecovery;
     if (!recovery) return;
 
@@ -303,7 +309,11 @@ export const useWallets = defineStore('wallets', () => {
       throw error;
     });
     void walletHistoryPreparation
-      .then(() => recovery.queue(blockNumber))
+      .then(async needsInitialization => {
+        if (onlyIfIncomplete && !needsInitialization && (await recovery.hasCompleteCoverage(blockNumber))) return;
+
+        recovery.queue(blockNumber);
+      })
       .catch(error => console.warn('Wallet history recovery preparation failed', error));
   }
 
@@ -322,13 +332,13 @@ export const useWallets = defineStore('wallets', () => {
       totalWalletMicronots.value += currentWallet.totalMicronots;
     }
   });
-  const unsubscribeFinalized = walletsForArgon.events.on('sync:finalized', header => {
-    queueWalletHistoryRecovery(header.blockNumber);
+  const unsubscribeHistoryGap = walletsForArgon.events.on('history:gap', gap => {
+    queueWalletHistoryRecovery({ blockNumber: gap.toBlock });
   });
 
   Vue.onScopeDispose(() => {
     unsubscribeBalanceChanges();
-    unsubscribeFinalized();
+    unsubscribeHistoryGap();
     if (walletHistoryRecovery && walletHistoryRecoveryInstance === walletHistoryRecovery) {
       walletHistoryRecoveryInstance = undefined;
     }
@@ -346,16 +356,27 @@ export const useWallets = defineStore('wallets', () => {
       const attemptStartedAt = Date.now();
       try {
         await config.isLoadedPromise;
+        const configReadyAt = performance.now();
+
         await ensureWalletRecordsLoaded();
+        const walletRecordsReadyAt = performance.now();
+
         walletHistoryRecovery ??= getWalletHistoryRecovery();
 
         await walletsForArgon.load();
-        queueWalletHistoryRecovery(
-          walletsForArgon.finalizedBlock?.blockNumber ?? getBlockWatch().finalizedBlockHeader.blockNumber,
-        );
+        const argonBalancesReadyAt = performance.now();
+
+        if (config.walletAccountsHadPreviousLife) {
+          queueWalletHistoryRecovery({
+            blockNumber:
+              walletsForArgon.finalizedBlock?.blockNumber ?? getBlockWatch().finalizedBlockHeader.blockNumber,
+            onlyIfIncomplete: true,
+          });
+        }
         await ensureLegacyMiningHoldCleanup().catch(error => {
           console.warn('Legacy mining hold cleanup failed', error);
         });
+        const legacyCleanupReadyAt = performance.now();
 
         totalWalletMicrogons.value = walletsForArgon.totalWalletMicrogons;
         totalWalletMicronots.value = walletsForArgon.totalWalletMicronots;
@@ -367,13 +388,20 @@ export const useWallets = defineStore('wallets', () => {
           wallet.totalMicrogons = walletEntry.totalMicrogons;
           wallet.totalMicronots = walletEntry.totalMicronots;
         }
-        await Promise.all([myMiningSeats.isLoadedPromise, currency.isLoadedPromise]);
+        await currency.isLoadedPromise;
         isLoadedResolve();
         isLoaded.value = true;
         logStartupTiming({
           milestone: 'native-wallets-ready',
           startedAt: loadStartedAt,
-          details: { attempt },
+          details: {
+            attempt,
+            configMs: Math.round(configReadyAt - loadStartedAt),
+            walletRecordsMs: Math.round(walletRecordsReadyAt - configReadyAt),
+            argonBalancesMs: Math.round(argonBalancesReadyAt - walletRecordsReadyAt),
+            legacyCleanupMs: Math.round(legacyCleanupReadyAt - argonBalancesReadyAt),
+            currencyMs: Math.round(performance.now() - legacyCleanupReadyAt),
+          },
         });
         void loadExternalWallets().catch(error => {
           console.error('Unable to load external wallet balances', error);
@@ -441,10 +469,14 @@ export const useWallets = defineStore('wallets', () => {
       legacyWallet.data.otherTokens.some(token => token.value > 0n)
     ) {
       const db = await getDbPromise();
-      return db.walletsTable.createDefaultEthereum({
+      const record = await db.walletsTable.createDefaultEthereum({
         address: walletKeys.defaultEthereumAddress,
         derivationPath: DEFAULT_ETHEREUM_HD_PATH,
       });
+      walletRecords.value.push(record);
+      legacyWallet.data = Vue.reactive<IWallet>(legacyWallet.data);
+      ethereumWalletLoaders.set(record.id, legacyWallet);
+      return legacyWallet;
     }
   }
 
@@ -452,12 +484,8 @@ export const useWallets = defineStore('wallets', () => {
     const externalLoadStartedAt = performance.now();
     const ethereumLoad = (async () => {
       const seededWallet = await seedLegacyDefaultEthereumIfNeeded();
-      if (seededWallet) {
-        const db = await getDbPromise();
-        walletRecords.value = await db.walletsTable.fetchAll();
-      }
       const wallet = ensureActiveEthereumWallet();
-      await wallet?.load();
+      if (wallet !== seededWallet) await wallet?.load();
       logStartupTiming({
         milestone: 'ethereum-wallet-refresh-finished',
         startedAt: externalLoadStartedAt,

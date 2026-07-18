@@ -25,6 +25,7 @@ import {
 import { getDbPromise } from './helpers/dbPromise.ts';
 import {
   getEnabledFinancialHistoryDomains,
+  needsFinancialHistoryRecovery,
   restoreFinancialHistory as restoreFinancialHistoryFromIndex,
 } from '../lib/recovery/index.ts';
 import { FinalizedHistoryScheduler } from '../lib/recovery/Scheduler.ts';
@@ -109,7 +110,8 @@ export const useFinancials = defineStore('financials', () => {
   let walletHistoryCoverage: { blockNumber: number; promise: Promise<boolean> } | undefined;
   let walletHistoryRefreshPromise: Promise<void> | undefined;
   const finalizedHistoryScheduler = new FinalizedHistoryScheduler(async (finalizedBlockNumber, force) => {
-    if (!isLoaded.value || (!force && !config.hasExtensionTreasury && !config.hasExtensionOperations)) {
+    if (!isLoaded.value) return 0;
+    if (!force && !config.hasExtensionTreasury && !config.hasExtensionOperations) {
       return finalizedBlockNumber;
     }
     return runFinancialHistoryRecovery(force, finalizedBlockNumber);
@@ -681,16 +683,12 @@ export const useFinancials = defineStore('financials', () => {
       pendingSettlementBlockNumber = 0;
       queueAccountRefresh(header);
     }
-    if (
-      getEnabledFinancialHistoryDomains({
-        force: false,
-        hasExtensionTreasury: config.hasExtensionTreasury,
-        hasExtensionOperations: config.hasExtensionOperations,
-        walletAccountsHadPreviousLife: config.walletAccountsHadPreviousLife,
-      }).length
-    ) {
-      finalizedHistoryScheduler.queue(header.blockNumber);
-    }
+  });
+
+  walletsForArgon.events.on('history:gap', gap => {
+    if (!config.hasExtensionTreasury && !config.hasExtensionOperations) return;
+
+    void restoreFinancialHistory(false, gap.toBlock).catch(() => undefined);
   });
 
   walletsForArgon.events.on('history:recovered', revisions => {
@@ -786,8 +784,8 @@ export const useFinancials = defineStore('financials', () => {
         // block when a domain activates so its positions can claim those holds.
         accountSnapshot.value = undefined;
         await refreshAccountSnapshot(getBlockWatch().finalizedBlockHeader);
-        if (config.hasExtensionTreasury || config.hasExtensionOperations) {
-          void restoreFinancialHistory().catch(() => undefined);
+        if (config.walletAccountsHadPreviousLife && (config.hasExtensionTreasury || config.hasExtensionOperations)) {
+          void initializeFinancialHistoryRecovery().catch(() => undefined);
         }
       } catch (error) {
         console.error('Unable to activate financial positions', error);
@@ -867,11 +865,33 @@ export const useFinancials = defineStore('financials', () => {
     if (config.hasExtensionTreasury) startLockSummaryProgressRefresh();
 
     isLoaded.value = true;
-    if (config.hasExtensionTreasury || config.hasExtensionOperations) {
-      void restoreFinancialHistory().catch(() => undefined);
-    } else if (config.walletAccountsHadPreviousLife) {
-      void restoreFinancialHistory(true).catch(() => undefined);
+    if (config.walletAccountsHadPreviousLife && (config.hasExtensionTreasury || config.hasExtensionOperations)) {
+      void initializeFinancialHistoryRecovery().catch(() => undefined);
     }
+  }
+
+  async function initializeFinancialHistoryRecovery(): Promise<void> {
+    const enabledDomains = getEnabledFinancialHistoryDomains({
+      force: false,
+      hasExtensionTreasury: config.hasExtensionTreasury,
+      hasExtensionOperations: config.hasExtensionOperations,
+      walletAccountsHadPreviousLife: config.walletAccountsHadPreviousLife,
+    });
+    const db = await getDbPromise();
+    const targetBlock = getBlockWatch().finalizedBlockHeader.blockNumber;
+    const needsRecovery = await needsFinancialHistoryRecovery({
+      db,
+      accountId: wallets.defaultArgonWallet.address,
+      enabledDomains,
+      targetBlock,
+    });
+    if (needsRecovery) {
+      await restoreFinancialHistory(false, targetBlock);
+      return;
+    }
+
+    hasConfirmedFinancialHistoryCoverage = true;
+    historyRecovery.value = { state: 'ready', recoveredBlockCount: 0 };
   }
 
   function restoreFinancialHistory(force = false, minimumAsOfBlock?: number): Promise<void> {

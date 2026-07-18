@@ -110,6 +110,7 @@ const mocks = vi.hoisted(() => {
       })),
     },
     restoreFinancialHistory: vi.fn(async () => ({ asOfBlock: 1, importedBlockCount: 0 })),
+    needsFinancialHistoryRecovery: vi.fn(async () => true),
   };
 });
 
@@ -133,6 +134,7 @@ vi.mock('../stores/config.ts', () => ({ getConfig: () => mocks.config }));
 vi.mock('../stores/stableSwaps.ts', () => ({ useStableSwaps: () => mocks.stableSwaps }));
 vi.mock('../lib/recovery/index.ts', () => ({
   getEnabledFinancialHistoryDomains: vi.fn(() => []),
+  needsFinancialHistoryRecovery: mocks.needsFinancialHistoryRecovery,
   restoreFinancialHistory: mocks.restoreFinancialHistory,
 }));
 
@@ -150,6 +152,7 @@ describe('financials startup failures', () => {
     mocks.config.hasExtensionTreasury = false;
     mocks.config.hasExtensionOperations = false;
     mocks.config.hasActivatedStableSwaps = false;
+    mocks.config.walletAccountsHadPreviousLife = false;
     mocks.wallets.isLoadedPromise = Promise.resolve();
     mocks.currency.isLoadedPromise = Promise.resolve();
     mocks.argonBonds.load.mockResolvedValue();
@@ -161,7 +164,10 @@ describe('financials startup failures', () => {
     mocks.stableSwaps.refreshWalletSnapshot.mockResolvedValue();
     mocks.restoreFinancialHistory.mockResolvedValue({ asOfBlock: 1, importedBlockCount: 0 });
     mocks.restoreFinancialHistory.mockClear();
+    mocks.needsFinancialHistoryRecovery.mockResolvedValue(true);
+    mocks.needsFinancialHistoryRecovery.mockClear();
     mocks.walletHistoryRecovery.hasCompleteCoverage.mockClear();
+    mocks.walletsForArgon.events.on.mockClear();
   });
 
   afterEach(() => {
@@ -224,24 +230,61 @@ describe('financials startup failures', () => {
     expect(mocks.stableSwaps.load).not.toHaveBeenCalled();
   });
 
-  it('uses locally recorded wallet history for an account created in this app session', async () => {
+  it('does not request recovery for an account created in this app session', async () => {
+    mocks.config.hasExtensionTreasury = true;
+
     const financials = useFinancials();
 
     await vi.waitFor(() => {
       expect(financials.financialPositionAggregate.groupSummaries.liquid.state).toBe('ready');
     });
     expect(mocks.walletHistoryRecovery.hasCompleteCoverage).not.toHaveBeenCalled();
+    expect(mocks.restoreFinancialHistory).not.toHaveBeenCalled();
   });
 
-  it('keeps locally complete financial history ready while the indexer trails the finalized head', async () => {
+  it('does not poll the indexer when imported-account recovery was already initialized', async () => {
     mocks.config.hasExtensionTreasury = true;
-    mocks.restoreFinancialHistory.mockResolvedValue({ asOfBlock: 0, importedBlockCount: 0 });
+    mocks.config.walletAccountsHadPreviousLife = true;
+    mocks.needsFinancialHistoryRecovery.mockResolvedValue(false);
 
     const financials = useFinancials();
 
     await vi.waitFor(() => {
-      expect(mocks.restoreFinancialHistory).toHaveBeenCalled();
+      expect(financials.financialPositionAggregate.groupSummaries.liquid.state).toBe('ready');
     });
-    expect(financials.historyRecovery.state).toBe('ready');
+    await vi.waitFor(() => expect(mocks.needsFinancialHistoryRecovery).toHaveBeenCalled());
+    expect(mocks.restoreFinancialHistory).not.toHaveBeenCalled();
+  });
+
+  it('requests recovery when live wallet tracking reports a history gap', async () => {
+    mocks.config.hasExtensionTreasury = true;
+
+    const financials = useFinancials();
+
+    await vi.waitFor(() => {
+      expect(financials.financialPositionAggregate.groupSummaries.liquid.state).toBe('ready');
+    });
+    const gapListener = mocks.walletsForArgon.events.on.mock.calls.find(([event]) => event === 'history:gap')?.[1] as
+      | ((gap: { afterBlock: number; toBlock: number }) => void)
+      | undefined;
+    expect(gapListener).toBeDefined();
+
+    gapListener!({ afterBlock: 1, toBlock: 10 });
+
+    await vi.waitFor(() => expect(mocks.restoreFinancialHistory).toHaveBeenCalled());
+    expect(mocks.restoreFinancialHistory).toHaveBeenCalledWith(expect.objectContaining({ minimumAsOfBlock: 10 }));
+  });
+
+  it('keeps local positions available while recovery is unavailable', async () => {
+    mocks.config.hasExtensionTreasury = true;
+    mocks.config.walletAccountsHadPreviousLife = true;
+    mocks.restoreFinancialHistory.mockRejectedValue(new Error('indexer unavailable'));
+
+    const financials = useFinancials();
+
+    await vi.waitFor(() => {
+      expect(financials.historyRecovery.state).toBe('error');
+    });
+    expect(financials.financialPositionAggregate.groupSummaries.liquid.state).toBe('ready');
   });
 });

@@ -71,8 +71,6 @@ export class MintingAuthorities {
     pendingMintingAuthorizations: IMintingAuthorityAuthorization[];
     pendingMintingAuthorizeTxInfosByTransferId: Map<string, TransactionInfo<IMintingAuthorityAuthorizeMetadata>>;
   };
-  public recoveredAuthorityCountOnLoad = 0;
-
   #subscriptions: VoidFunction[] = [];
   #isSubscribing = false;
   #waitForLoad?: IDeferred;
@@ -109,17 +107,9 @@ export class MintingAuthorities {
       this.#waitForLoad ??= createDeferred();
     }
     try {
-      this.recoveredAuthorityCountOnLoad = 0;
       await this.miningFrames.blockWatch.start();
       const finalizedClient = await this.miningFrames.blockWatch.getFinalizedApi();
       await this.refresh(finalizedClient);
-      if (!this.data.authorities.length) {
-        const restoredAuthorities = await this.restoreSignerIndexes(finalizedClient);
-        this.recoveredAuthorityCountOnLoad = restoredAuthorities.length;
-        if (restoredAuthorities.length) {
-          await this.refresh(finalizedClient);
-        }
-      }
       for (const txInfo of this.transactionTracker.pendingBlockTxInfosAtLoad) {
         if (txInfo.tx.extrinsicType === ExtrinsicType.CrosschainTransferAuthorize) {
           void this.onAuthorize(txInfo as TransactionInfo<IMintingAuthorityAuthorizeMetadata>);
@@ -169,6 +159,14 @@ export class MintingAuthorities {
     finalizedClient: ApiDecoration<'promise'>,
     updateSeq = ++this.#updateSeq,
   ): Promise<IEthereumMintingAuthority[]> {
+    const councilSigner = await finalizedClient.query.crosschainTransfer.councilSignerByDestinationChainAndAccountId(
+      'Ethereum',
+      this.walletKeys.defaultArgonAddress,
+    );
+    if (councilSigner.isNone) {
+      return this.data.authorities;
+    }
+
     const db = await this.dbPromise;
     const authorities = await restoreOwnedEthereumMintingAuthorities(
       finalizedClient,
@@ -195,18 +193,29 @@ export class MintingAuthorities {
       const sub = this.miningFrames.blockWatch.events.on('finalized', headers => {
         void (async () => {
           const hasPendingActivation = this.data.authorities.some(authority => authority.isPendingActivation);
-          let latestMatchingHeader;
+          let latestMatchingClient: ApiDecoration<'promise'> | undefined;
+          const registeredSigners = new Set<string>();
           for (const header of headers) {
-            const events = await this.miningFrames.blockWatch.getEvents(header);
+            const { api, events } = await this.miningFrames.blockWatch.getEventsWithSpec(header);
             for (const { event } of events) {
               if (event.section !== 'crosschainTransfer') continue;
-              latestMatchingHeader = header;
-              break;
+              latestMatchingClient = api;
+              if (
+                api.events.crosschainTransfer.MintingAuthorityRegistered.is(event) &&
+                event.data.destinationChain.isEthereum &&
+                event.data.accountId.toString() === this.walletKeys.vaultingAddress
+              ) {
+                registeredSigners.add(event.data.destinationSigningKey.toHex().toLowerCase());
+              }
             }
           }
 
-          if (latestMatchingHeader) {
-            await this.refresh(await this.miningFrames.blockWatch.getApi(latestMatchingHeader), ++this.#updateSeq);
+          if (latestMatchingClient) {
+            await this.refresh(latestMatchingClient, ++this.#updateSeq);
+            const recognizedSigners = new Set(this.data.authorities.map(authority => authority.signer.toLowerCase()));
+            if ([...registeredSigners].some(signer => !recognizedSigners.has(signer))) {
+              await this.restoreSignerIndexes(latestMatchingClient);
+            }
             return;
           }
           if (!hasPendingActivation) return;

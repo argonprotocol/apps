@@ -224,7 +224,7 @@ const argonBonds = getArgonBonds();
 
 const { microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
-const isLoaded = Vue.ref(false);
+const isLoaded = Vue.computed(() => argonBonds.data.isLoaded);
 const supportsArgnotBacking = Vue.ref(false);
 const showBondsOverlay = Vue.ref(false);
 const showDetailOverlay = Vue.ref(false);
@@ -312,14 +312,12 @@ Vue.onMounted(async () => {
 
   if (argonBonds.data.vaultId) {
     unsubVault = await vaults.subscribeToVault(argonBonds.data.vaultId, () => {
-      if (isLoaded.value) void refreshMarketData();
+      if (vaultBondSubscription) void refreshMarketData();
     });
   }
 
   await argonBonds.subscribeGlobal(client);
   await refreshMarketData();
-
-  isLoaded.value = true;
 });
 
 Vue.onUnmounted(() => {
