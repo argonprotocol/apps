@@ -80,6 +80,7 @@ export class Config implements IConfig {
       version: packageJson.version,
       requiresPassword: false,
       showWelcomeOverlay: Config.getDefault(dbFields.showWelcomeOverlay) as IConfig['showWelcomeOverlay'],
+      wasImportedFromLegacy: Config.getDefault(dbFields.wasImportedFromLegacy) as IConfig['wasImportedFromLegacy'],
       hasExtensionTreasury: Config.getDefault(dbFields.hasExtensionTreasury) as IConfig['hasExtensionTreasury'],
       hasExtensionOperations: Config.getDefault(dbFields.hasExtensionOperations) as IConfig['hasExtensionOperations'],
       selectedTab: Config.getDefault(dbFields.selectedTab) as IConfig['selectedTab'],
@@ -197,6 +198,7 @@ export class Config implements IConfig {
             rawValue = JsonExt.stringify(data, 2);
             fieldsToSave.add(key);
           }
+
           const isValid = schemaField.safeParse(data);
           if (!isValid?.success) {
             console.warn(`ConfigSchema validation error: ${key}`);
@@ -249,7 +251,7 @@ export class Config implements IConfig {
         loadedData.miningSetupStatus === MiningSetupStatus.Finished ||
         loadedData.vaultingSetupStatus === VaultingSetupStatus.Finished;
 
-      if (loadedData.bootstrapDetails && loadedData.showWelcomeOverlay) {
+      if (loadedData.bootstrapDetails && loadedData.showWelcomeOverlay && !loadedData.wasImportedFromLegacy) {
         loadedData.showWelcomeOverlay = false;
         fieldsToSave.add(dbFields.showWelcomeOverlay);
         rawData[dbFields.showWelcomeOverlay] = JsonExt.stringify(loadedData.showWelcomeOverlay, 2);
@@ -373,6 +375,13 @@ export class Config implements IConfig {
   }
   public set showWelcomeOverlay(value: IConfig['showWelcomeOverlay']) {
     this.setField('showWelcomeOverlay', value);
+  }
+
+  public get wasImportedFromLegacy(): IConfig['wasImportedFromLegacy'] {
+    return this.getField('wasImportedFromLegacy');
+  }
+  public set wasImportedFromLegacy(value: IConfig['wasImportedFromLegacy']) {
+    this.setField('wasImportedFromLegacy', value);
   }
 
   public get hasExtensionTreasury(): IConfig['hasExtensionTreasury'] {
@@ -716,6 +725,7 @@ const dbFields = {
   vaultingSetupStatus: 'vaultingSetupStatus',
 
   showWelcomeOverlay: 'showWelcomeOverlay',
+  wasImportedFromLegacy: 'wasImportedFromLegacy',
   hasExtensionTreasury: 'hasExtensionTreasury',
   hasExtensionOperations: 'hasExtensionOperations',
   selectedTab: 'selectedTab',
@@ -754,6 +764,7 @@ const defaults: IConfigDefaults = {
   vaultingSetupStatus: () => VaultingSetupStatus.None,
 
   showWelcomeOverlay: () => true,
+  wasImportedFromLegacy: () => false,
   hasExtensionTreasury: () => false,
   hasExtensionOperations: () => false,
   selectedTab: () => TopTab.Dashboard,
