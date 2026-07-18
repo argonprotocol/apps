@@ -1,11 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+import { getTypeDef } from '@polkadot/types-create';
 import {
   getHistoricalEventFieldAlternatives,
   getHistoricalEventFields,
+  hasNamedEventData,
   historicalEventSpecSources,
   supportedHistoricalEventSpecs,
+  type HistoricalEvent,
 } from '../src/HistoricalEventSpecs.ts';
 import { historicalEventChanges } from '../src/HistoricalEventSpecs.generated.ts';
+import { createHistoricalEventData } from './helpers/historicalEvents.ts';
+
+type HistoricalBondCreated = Extract<HistoricalEvent, { section: 'bonds'; method: 'BondCreated' }>;
+expectTypeOf<HistoricalBondCreated['data']['bondType']['isBitcoin']>().toEqualTypeOf<boolean>();
+expectTypeOf<HistoricalBondCreated['data']['expiration']['asBitcoinBlock']['toNumber']>().toEqualTypeOf<() => number>();
 
 describe('HistoricalEventSpecs', () => {
   it('covers every published-chain runtime spec', () => {
@@ -103,6 +111,19 @@ describe('HistoricalEventSpecs', () => {
       'accountId',
       'bonds',
     ]);
+  });
+
+  it('accepts live codec type changes when named metadata is complete', () => {
+    const data = createHistoricalEventData(156, 'balances', 'Transfer', {
+      from: new Uint8Array(32).fill(1),
+      to: new Uint8Array(32).fill(2),
+      amount: 1_000,
+    });
+    data.typeDef[2] = getTypeDef('u64');
+
+    expect(
+      hasNamedEventData({ section: 'balances', method: 'Transfer', data }, { section: 'balances', method: 'Transfer' }),
+    ).toBe(true);
   });
 
   it('rejects runtime specs outside the copied catalog', () => {

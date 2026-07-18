@@ -3,6 +3,2717 @@
 // which was not published separately and is read from its fixed mainchain commit.
 // A spec emits only event tuples changed from the preceding spec. Null fields remove an event.
 
+import type {
+  AccountId32,
+  Bytes,
+  Compact,
+  Enum,
+  H160,
+  H256,
+  Option,
+  Struct,
+  U256,
+  U8aFixed,
+  Vec,
+  bool,
+  i128,
+  u128,
+  u32,
+  u64,
+  u8,
+} from '@argonprotocol/mainchain';
+
+interface ArgonPrimitivesBitcoinBitcoinRejectedReasonSpec100 extends Enum {
+  readonly isSatoshisMismatch: boolean;
+  readonly isSpent: boolean;
+  readonly isLookupExpired: boolean;
+  readonly isDuplicateUtxo: boolean;
+  readonly type: 'SatoshisMismatch' | 'Spent' | 'LookupExpired' | 'DuplicateUtxo';
+}
+
+interface ArgonPrimitivesBitcoinBitcoinRejectedReasonSpec151 extends Enum {
+  readonly isSatoshisOutsideAcceptedRange: boolean;
+  readonly isSpent: boolean;
+  readonly isVerificationExpired: boolean;
+  readonly isAlreadyVerified: boolean;
+  readonly type: 'SatoshisOutsideAcceptedRange' | 'Spent' | 'VerificationExpired' | 'AlreadyVerified';
+}
+
+type ArgonPrimitivesBitcoinBitcoinRejectedReason =
+  | ArgonPrimitivesBitcoinBitcoinRejectedReasonSpec100
+  | ArgonPrimitivesBitcoinBitcoinRejectedReasonSpec151;
+
+interface ArgonPrimitivesBitcoinH256Le extends U8aFixed {}
+
+interface ArgonPrimitivesBitcoinUtxoRef extends Struct {
+  readonly txid: ArgonPrimitivesBitcoinH256Le;
+  readonly outputIndex: Compact<u32>;
+}
+
+interface ArgonPrimitivesBlockSealAppPublic extends U8aFixed {}
+
+interface ArgonPrimitivesBlockSealBlockPayout extends Struct {
+  readonly accountId: AccountId32;
+  readonly ownership: Compact<u128>;
+  readonly argons: Compact<u128>;
+  readonly rewardType: ArgonPrimitivesBlockSealBlockRewardType;
+  readonly blockSealAuthority: Option<ArgonPrimitivesBlockSealAppPublic>;
+}
+
+interface ArgonPrimitivesBlockSealBlockRewardType extends Enum {
+  readonly isMiner: boolean;
+  readonly isVoter: boolean;
+  readonly isProfitShare: boolean;
+  readonly type: 'Miner' | 'Voter' | 'ProfitShare';
+}
+
+interface ArgonPrimitivesBlockSealMiningRegistrationSpec100 extends Struct {
+  readonly accountId: AccountId32;
+  readonly rewardDestination: ArgonPrimitivesBlockSealRewardDestination;
+  readonly bondId: Option<u64>;
+  readonly bondAmount: Compact<u128>;
+  readonly ownershipTokens: Compact<u128>;
+  readonly rewardSharing: Option<ArgonPrimitivesBlockSealRewardSharing>;
+  readonly authorityKeys: ArgonRuntimeSessionKeys;
+}
+
+interface ArgonPrimitivesBlockSealMiningRegistrationSpec110 extends Struct {
+  readonly accountId: AccountId32;
+  readonly rewardDestination: ArgonPrimitivesBlockSealRewardDestination;
+  readonly obligationId: Option<u64>;
+  readonly bondedArgons: Compact<u128>;
+  readonly argonots: Compact<u128>;
+  readonly rewardSharing: Option<ArgonPrimitivesBlockSealRewardSharing>;
+  readonly authorityKeys: ArgonRuntimeSessionKeys;
+  readonly slotId: Compact<u64>;
+}
+
+interface ArgonPrimitivesBlockSealMiningRegistrationSpec112 extends Struct {
+  readonly accountId: AccountId32;
+  readonly rewardDestination: ArgonPrimitivesBlockSealRewardDestination;
+  readonly obligationId: Option<u64>;
+  readonly bondedArgons: Compact<u128>;
+  readonly argonots: Compact<u128>;
+  readonly rewardSharing: Option<ArgonPrimitivesBlockSealRewardSharing>;
+  readonly authorityKeys: ArgonRuntimeSessionKeys;
+  readonly cohortId: Compact<u64>;
+}
+
+interface ArgonPrimitivesBlockSealMiningRegistrationSpec116 extends Struct {
+  readonly accountId: AccountId32;
+  readonly externalFundingAccount: Option<AccountId32>;
+  readonly rewardDestination: ArgonPrimitivesBlockSealRewardDestination;
+  readonly bid: Compact<u128>;
+  readonly argonots: Compact<u128>;
+  readonly authorityKeys: ArgonRuntimeSessionKeys;
+  readonly cohortId: Compact<u64>;
+}
+
+interface ArgonPrimitivesBlockSealMiningRegistrationSpec124 extends Struct {
+  readonly accountId: AccountId32;
+  readonly externalFundingAccount: Option<AccountId32>;
+  readonly bid: Compact<u128>;
+  readonly argonots: Compact<u128>;
+  readonly authorityKeys: ArgonRuntimeSessionKeys;
+  readonly cohortFrameId: Compact<u64>;
+  readonly bidAtTick: Compact<u64>;
+}
+
+interface ArgonPrimitivesBlockSealMiningRegistrationSpec151 extends Struct {
+  readonly accountId: AccountId32;
+  readonly externalFundingAccount: Option<AccountId32>;
+  readonly bid: Compact<u128>;
+  readonly argonots: Compact<u128>;
+  readonly authorityKeys: ArgonRuntimeSessionKeys;
+  readonly startingFrameId: Compact<u64>;
+  readonly bidAtTick: Compact<u64>;
+}
+
+type ArgonPrimitivesBlockSealMiningRegistration =
+  | ArgonPrimitivesBlockSealMiningRegistrationSpec100
+  | ArgonPrimitivesBlockSealMiningRegistrationSpec110
+  | ArgonPrimitivesBlockSealMiningRegistrationSpec112
+  | ArgonPrimitivesBlockSealMiningRegistrationSpec116
+  | ArgonPrimitivesBlockSealMiningRegistrationSpec124
+  | ArgonPrimitivesBlockSealMiningRegistrationSpec151;
+
+interface ArgonPrimitivesBlockSealRewardDestination extends Enum {
+  readonly isOwner: boolean;
+  readonly isAccount: boolean;
+  readonly asAccount: AccountId32;
+  readonly type: 'Owner' | 'Account';
+}
+
+interface ArgonPrimitivesBlockSealRewardSharing extends Struct {
+  readonly accountId: AccountId32;
+  readonly percentTake: Compact<u128>;
+}
+
+interface ArgonPrimitivesBondBondExpiration extends Enum {
+  readonly isArgonBlock: boolean;
+  readonly asArgonBlock: Compact<u32>;
+  readonly isBitcoinBlock: boolean;
+  readonly asBitcoinBlock: Compact<u64>;
+  readonly type: 'ArgonBlock' | 'BitcoinBlock';
+}
+
+interface ArgonPrimitivesBondBondType extends Enum {
+  readonly isMining: boolean;
+  readonly isBitcoin: boolean;
+  readonly type: 'Mining' | 'Bitcoin';
+}
+
+interface ArgonPrimitivesProvidersOperationalRewardKindSpec151 extends Enum {
+  readonly isActivation: boolean;
+  readonly isReferralBonus: boolean;
+  readonly type: 'Activation' | 'ReferralBonus';
+}
+
+interface ArgonPrimitivesProvidersOperationalRewardKindSpec156 extends Enum {
+  readonly isCertification: boolean;
+  readonly isOperationalCertificationBonus: boolean;
+  readonly type: 'Certification' | 'OperationalCertificationBonus';
+}
+
+type ArgonPrimitivesProvidersOperationalRewardKind =
+  | ArgonPrimitivesProvidersOperationalRewardKindSpec151
+  | ArgonPrimitivesProvidersOperationalRewardKindSpec156;
+
+interface ArgonPrimitivesVaultFundTypeSpec110 extends Enum {
+  readonly isBondedArgons: boolean;
+  readonly isBitcoin: boolean;
+  readonly type: 'BondedArgons' | 'Bitcoin';
+}
+
+interface ArgonPrimitivesVaultFundTypeSpec116 extends Enum {
+  readonly isLockedBitcoin: boolean;
+  readonly isBondedBitcoin: boolean;
+  readonly type: 'LockedBitcoin' | 'BondedBitcoin';
+}
+
+interface ArgonPrimitivesVaultFundTypeSpec116Alternative2 extends Enum {
+  readonly isLockedBitcoin: boolean;
+  readonly type: 'LockedBitcoin';
+}
+
+type ArgonPrimitivesVaultFundType =
+  | ArgonPrimitivesVaultFundTypeSpec110
+  | ArgonPrimitivesVaultFundTypeSpec116
+  | ArgonPrimitivesVaultFundTypeSpec116Alternative2;
+
+interface ArgonPrimitivesVaultObligationExpiration extends Enum {
+  readonly isAtTick: boolean;
+  readonly asAtTick: Compact<u64>;
+  readonly isBitcoinBlock: boolean;
+  readonly asBitcoinBlock: Compact<u64>;
+  readonly type: 'AtTick' | 'BitcoinBlock';
+}
+
+interface ArgonRuntimeRuntimeHoldReasonSpec100 extends Enum {
+  readonly isMiningSlot: boolean;
+  readonly asMiningSlot: PalletMiningSlotHoldReason;
+  readonly isVaults: boolean;
+  readonly asVaults: PalletVaultsHoldReason;
+  readonly isBonds: boolean;
+  readonly asBonds: PalletBondHoldReason;
+  readonly isBlockRewards: boolean;
+  readonly asBlockRewards: PalletBlockRewardsHoldReason;
+  readonly type: 'MiningSlot' | 'Vaults' | 'Bonds' | 'BlockRewards';
+}
+
+interface ArgonRuntimeRuntimeHoldReasonSpec110 extends Enum {
+  readonly isMiningSlot: boolean;
+  readonly asMiningSlot: PalletMiningSlotHoldReason;
+  readonly isVaults: boolean;
+  readonly asVaults: PalletVaultsHoldReason;
+  readonly isBitcoinLocks: boolean;
+  readonly asBitcoinLocks: PalletBitcoinLocksHoldReason;
+  readonly isBlockRewards: boolean;
+  readonly asBlockRewards: PalletBlockRewardsHoldReason;
+  readonly type: 'MiningSlot' | 'Vaults' | 'BitcoinLocks' | 'BlockRewards';
+}
+
+interface ArgonRuntimeRuntimeHoldReasonSpec116 extends Enum {
+  readonly isMiningSlot: boolean;
+  readonly asMiningSlot: PalletMiningSlotHoldReason;
+  readonly isVaults: boolean;
+  readonly asVaults: PalletVaultsHoldReason;
+  readonly isBitcoinLocks: boolean;
+  readonly asBitcoinLocks: PalletBitcoinLocksHoldReason;
+  readonly isBlockRewards: boolean;
+  readonly asBlockRewards: PalletBlockRewardsHoldReason;
+  readonly isLiquidityPools: boolean;
+  readonly asLiquidityPools: PalletLiquidityPoolsHoldReason;
+  readonly type: 'MiningSlot' | 'Vaults' | 'BitcoinLocks' | 'BlockRewards' | 'LiquidityPools';
+}
+
+interface ArgonRuntimeRuntimeHoldReasonSpec151 extends Enum {
+  readonly isMiningSlot: boolean;
+  readonly asMiningSlot: PalletMiningSlotHoldReason;
+  readonly isVaults: boolean;
+  readonly asVaults: PalletVaultsHoldReason;
+  readonly isBitcoinLocks: boolean;
+  readonly asBitcoinLocks: PalletBitcoinLocksHoldReason;
+  readonly isBlockRewards: boolean;
+  readonly asBlockRewards: PalletBlockRewardsHoldReason;
+  readonly isTreasury: boolean;
+  readonly asTreasury: PalletTreasuryHoldReason;
+  readonly isCrosschainTransfer: boolean;
+  readonly asCrosschainTransfer: PalletCrosschainTransferHoldReason;
+  readonly type: 'MiningSlot' | 'Vaults' | 'BitcoinLocks' | 'BlockRewards' | 'Treasury' | 'CrosschainTransfer';
+}
+
+type ArgonRuntimeRuntimeHoldReason =
+  | ArgonRuntimeRuntimeHoldReasonSpec100
+  | ArgonRuntimeRuntimeHoldReasonSpec110
+  | ArgonRuntimeRuntimeHoldReasonSpec116
+  | ArgonRuntimeRuntimeHoldReasonSpec151;
+
+interface ArgonRuntimeSessionKeys extends Struct {
+  readonly grandpa: SpConsensusGrandpaAppPublic;
+  readonly blockSealAuthority: ArgonPrimitivesBlockSealAppPublic;
+}
+
+interface FrameSupportTokensMiscBalanceStatus extends Enum {
+  readonly isFree: boolean;
+  readonly isReserved: boolean;
+  readonly type: 'Free' | 'Reserved';
+}
+
+interface IsmpHostStateMachine extends Enum {
+  readonly isEvm: boolean;
+  readonly asEvm: u32;
+  readonly isPolkadot: boolean;
+  readonly asPolkadot: u32;
+  readonly isKusama: boolean;
+  readonly asKusama: u32;
+  readonly isSubstrate: boolean;
+  readonly asSubstrate: U8aFixed;
+  readonly isTendermint: boolean;
+  readonly asTendermint: U8aFixed;
+  readonly type: 'Evm' | 'Polkadot' | 'Kusama' | 'Substrate' | 'Tendermint';
+}
+
+interface PalletBalancesUnexpectedKind extends Enum {
+  readonly isBalanceUpdated: boolean;
+  readonly isFailedToMutateAccount: boolean;
+  readonly type: 'BalanceUpdated' | 'FailedToMutateAccount';
+}
+
+interface PalletBitcoinLocksHoldReason extends Enum {
+  readonly isReleaseBitcoinLock: boolean;
+  readonly type: 'ReleaseBitcoinLock';
+}
+
+interface PalletBlockRewardsHoldReason extends Enum {
+  readonly isMaturationPeriod: boolean;
+  readonly type: 'MaturationPeriod';
+}
+
+interface PalletBondHoldReason extends Enum {
+  readonly isUnlockingBitcoin: boolean;
+  readonly type: 'UnlockingBitcoin';
+}
+
+interface PalletCrosschainTransferAssetKind extends Enum {
+  readonly isArgon: boolean;
+  readonly isArgonot: boolean;
+  readonly type: 'Argon' | 'Argonot';
+}
+
+interface PalletCrosschainTransferCouncilApprovalTargetId extends Enum {
+  readonly isMintingAuthorityActivation: boolean;
+  readonly asMintingAuthorityActivation: H160;
+  readonly isMintingAuthorityDeactivation: boolean;
+  readonly asMintingAuthorityDeactivation: H160;
+  readonly isGlobalIssuanceCouncilRotation: boolean;
+  readonly asGlobalIssuanceCouncilRotation: H256;
+  readonly type: 'MintingAuthorityActivation' | 'MintingAuthorityDeactivation' | 'GlobalIssuanceCouncilRotation';
+}
+
+interface PalletCrosschainTransferGatewayState extends Struct {
+  readonly gatewayActivityNonce: Compact<u64>;
+  readonly argonApprovalsNonce: Compact<u64>;
+  readonly argonCirculation: u128;
+  readonly argonotCirculation: u128;
+}
+
+interface PalletCrosschainTransferGatewaySyncPause extends Struct {
+  readonly lastGoodGatewayActivityNonce: Compact<u64>;
+  readonly failedGatewayActivityNonce: Compact<u64>;
+  readonly reason: PalletCrosschainTransferGatewaySyncPauseReason;
+}
+
+interface PalletCrosschainTransferGatewaySyncPauseReason extends Enum {
+  readonly isManual: boolean;
+  readonly isMalformedGatewayActivity: boolean;
+  readonly isUnsupportedToken: boolean;
+  readonly isMintingAuthorityNotFound: boolean;
+  readonly isUnexpectedMintingAuthorityState: boolean;
+  readonly isMintingAuthorityMismatch: boolean;
+  readonly isMissingMintingAuthorityActivationRepaymentPricing: boolean;
+  readonly isMintingAuthorityActivationRepaymentMismatch: boolean;
+  readonly isGlobalIssuanceCouncilNotFound: boolean;
+  readonly isGatewayStateDrift: boolean;
+  readonly type:
+    | 'Manual'
+    | 'MalformedGatewayActivity'
+    | 'UnsupportedToken'
+    | 'MintingAuthorityNotFound'
+    | 'UnexpectedMintingAuthorityState'
+    | 'MintingAuthorityMismatch'
+    | 'MissingMintingAuthorityActivationRepaymentPricing'
+    | 'MintingAuthorityActivationRepaymentMismatch'
+    | 'GlobalIssuanceCouncilNotFound'
+    | 'GatewayStateDrift';
+}
+
+interface PalletCrosschainTransferHoldReason extends Enum {
+  readonly isTransferOutMintingAuthorityTip: boolean;
+  readonly isMintingAuthorityActivationRepayment: boolean;
+  readonly type: 'TransferOutMintingAuthorityTip' | 'MintingAuthorityActivationRepayment';
+}
+
+interface PalletCrosschainTransferSourceChain extends Enum {
+  readonly isEthereum: boolean;
+  readonly type: 'Ethereum';
+}
+
+interface PalletCrosschainTransferTransferToArgonActivity extends Struct {
+  readonly gatewayActivityNonce: Compact<u64>;
+  readonly from: H160;
+  readonly asset: PalletCrosschainTransferAssetKind;
+  readonly to: AccountId32;
+  readonly amount: Compact<u128>;
+}
+
+interface PalletLiquidityPoolsHoldReason extends Enum {
+  readonly isContributedToLiquidityPool: boolean;
+  readonly type: 'ContributedToLiquidityPool';
+}
+
+interface PalletMiningSlotHoldReason extends Enum {
+  readonly isRegisterAsMiner: boolean;
+  readonly type: 'RegisterAsMiner';
+}
+
+interface PalletMintMintType extends Enum {
+  readonly isBitcoin: boolean;
+  readonly isMining: boolean;
+  readonly type: 'Bitcoin' | 'Mining';
+}
+
+interface PalletTreasuryBondProgramId extends Enum {
+  readonly isVault: boolean;
+  readonly asVault: {
+    readonly vaultId: Compact<u32>;
+  } & Struct;
+  readonly isArgonot: boolean;
+  readonly type: 'Vault' | 'Argonot';
+}
+
+interface PalletTreasuryBondReleaseReason extends Enum {
+  readonly isUserLiquidation: boolean;
+  readonly isBumped: boolean;
+  readonly isVaultClosed: boolean;
+  readonly type: 'UserLiquidation' | 'Bumped' | 'VaultClosed';
+}
+
+interface PalletTreasuryHoldReason extends Enum {
+  readonly isContributedToTreasury: boolean;
+  readonly type: 'ContributedToTreasury';
+}
+
+interface PalletVaultsHoldReasonSpec100 extends Enum {
+  readonly isEnterVault: boolean;
+  readonly isBondFee: boolean;
+  readonly type: 'EnterVault' | 'BondFee';
+}
+
+interface PalletVaultsHoldReasonSpec110 extends Enum {
+  readonly isEnterVault: boolean;
+  readonly isObligationFee: boolean;
+  readonly type: 'EnterVault' | 'ObligationFee';
+}
+
+interface PalletVaultsHoldReasonSpec151 extends Enum {
+  readonly isEnterVault: boolean;
+  readonly isObligationFee: boolean;
+  readonly isPendingCollect: boolean;
+  readonly type: 'EnterVault' | 'ObligationFee' | 'PendingCollect';
+}
+
+type PalletVaultsHoldReason =
+  | PalletVaultsHoldReasonSpec100
+  | PalletVaultsHoldReasonSpec110
+  | PalletVaultsHoldReasonSpec151;
+
+interface SpArithmeticArithmeticError extends Enum {
+  readonly isUnderflow: boolean;
+  readonly isOverflow: boolean;
+  readonly isDivisionByZero: boolean;
+  readonly type: 'Underflow' | 'Overflow' | 'DivisionByZero';
+}
+
+interface SpConsensusGrandpaAppPublic extends U8aFixed {}
+
+interface SpRuntimeDispatchErrorSpec100 extends Enum {
+  readonly isOther: boolean;
+  readonly isCannotLookup: boolean;
+  readonly isBadOrigin: boolean;
+  readonly isModule: boolean;
+  readonly asModule: SpRuntimeModuleError;
+  readonly isConsumerRemaining: boolean;
+  readonly isNoProviders: boolean;
+  readonly isTooManyConsumers: boolean;
+  readonly isToken: boolean;
+  readonly asToken: SpRuntimeTokenError;
+  readonly isArithmetic: boolean;
+  readonly asArithmetic: SpArithmeticArithmeticError;
+  readonly isTransactional: boolean;
+  readonly asTransactional: SpRuntimeTransactionalError;
+  readonly isExhausted: boolean;
+  readonly isCorruption: boolean;
+  readonly isUnavailable: boolean;
+  readonly isRootNotAllowed: boolean;
+  readonly type:
+    | 'Other'
+    | 'CannotLookup'
+    | 'BadOrigin'
+    | 'Module'
+    | 'ConsumerRemaining'
+    | 'NoProviders'
+    | 'TooManyConsumers'
+    | 'Token'
+    | 'Arithmetic'
+    | 'Transactional'
+    | 'Exhausted'
+    | 'Corruption'
+    | 'Unavailable'
+    | 'RootNotAllowed';
+}
+
+interface SpRuntimeDispatchErrorSpec124 extends Enum {
+  readonly isOther: boolean;
+  readonly isCannotLookup: boolean;
+  readonly isBadOrigin: boolean;
+  readonly isModule: boolean;
+  readonly asModule: SpRuntimeModuleError;
+  readonly isConsumerRemaining: boolean;
+  readonly isNoProviders: boolean;
+  readonly isTooManyConsumers: boolean;
+  readonly isToken: boolean;
+  readonly asToken: SpRuntimeTokenError;
+  readonly isArithmetic: boolean;
+  readonly asArithmetic: SpArithmeticArithmeticError;
+  readonly isTransactional: boolean;
+  readonly asTransactional: SpRuntimeTransactionalError;
+  readonly isExhausted: boolean;
+  readonly isCorruption: boolean;
+  readonly isUnavailable: boolean;
+  readonly isRootNotAllowed: boolean;
+  readonly isTrie: boolean;
+  readonly asTrie: SpRuntimeProvingTrieTrieError;
+  readonly type:
+    | 'Other'
+    | 'CannotLookup'
+    | 'BadOrigin'
+    | 'Module'
+    | 'ConsumerRemaining'
+    | 'NoProviders'
+    | 'TooManyConsumers'
+    | 'Token'
+    | 'Arithmetic'
+    | 'Transactional'
+    | 'Exhausted'
+    | 'Corruption'
+    | 'Unavailable'
+    | 'RootNotAllowed'
+    | 'Trie';
+}
+
+type SpRuntimeDispatchError = SpRuntimeDispatchErrorSpec100 | SpRuntimeDispatchErrorSpec124;
+
+interface SpRuntimeModuleError extends Struct {
+  readonly index: u8;
+  readonly error: U8aFixed;
+}
+
+interface SpRuntimeProvingTrieTrieError extends Enum {
+  readonly isInvalidStateRoot: boolean;
+  readonly isIncompleteDatabase: boolean;
+  readonly isValueAtIncompleteKey: boolean;
+  readonly isDecoderError: boolean;
+  readonly isInvalidHash: boolean;
+  readonly isDuplicateKey: boolean;
+  readonly isExtraneousNode: boolean;
+  readonly isExtraneousValue: boolean;
+  readonly isExtraneousHashReference: boolean;
+  readonly isInvalidChildReference: boolean;
+  readonly isValueMismatch: boolean;
+  readonly isIncompleteProof: boolean;
+  readonly isRootMismatch: boolean;
+  readonly isDecodeError: boolean;
+  readonly type:
+    | 'InvalidStateRoot'
+    | 'IncompleteDatabase'
+    | 'ValueAtIncompleteKey'
+    | 'DecoderError'
+    | 'InvalidHash'
+    | 'DuplicateKey'
+    | 'ExtraneousNode'
+    | 'ExtraneousValue'
+    | 'ExtraneousHashReference'
+    | 'InvalidChildReference'
+    | 'ValueMismatch'
+    | 'IncompleteProof'
+    | 'RootMismatch'
+    | 'DecodeError';
+}
+
+interface SpRuntimeTokenError extends Enum {
+  readonly isFundsUnavailable: boolean;
+  readonly isOnlyProvider: boolean;
+  readonly isBelowMinimum: boolean;
+  readonly isCannotCreate: boolean;
+  readonly isUnknownAsset: boolean;
+  readonly isFrozen: boolean;
+  readonly isUnsupported: boolean;
+  readonly isCannotCreateHold: boolean;
+  readonly isNotExpendable: boolean;
+  readonly isBlocked: boolean;
+  readonly type:
+    | 'FundsUnavailable'
+    | 'OnlyProvider'
+    | 'BelowMinimum'
+    | 'CannotCreate'
+    | 'UnknownAsset'
+    | 'Frozen'
+    | 'Unsupported'
+    | 'CannotCreateHold'
+    | 'NotExpendable'
+    | 'Blocked';
+}
+
+interface SpRuntimeTransactionalError extends Enum {
+  readonly isLimitReached: boolean;
+  readonly isNoLayer: boolean;
+  readonly type: 'LimitReached' | 'NoLayer';
+}
+
+export type HistoricalEventDeclaration =
+  | {
+      readonly section: 'balances';
+      readonly method: 'BalanceSet';
+      readonly fields: { readonly who: AccountId32; readonly free: u128 };
+    }
+  | {
+      readonly section: 'balances';
+      readonly method: 'Burned';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'balances';
+      readonly method: 'Deposit';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'balances';
+      readonly method: 'DustLost';
+      readonly fields: { readonly account: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'balances';
+      readonly method: 'Endowed';
+      readonly fields: { readonly account: AccountId32; readonly freeBalance: u128 };
+    }
+  | {
+      readonly section: 'balances';
+      readonly method: 'Frozen';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | { readonly section: 'balances'; readonly method: 'Issued'; readonly fields: { readonly amount: u128 } }
+  | {
+      readonly section: 'balances';
+      readonly method: 'Locked';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'balances';
+      readonly method: 'Minted';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | { readonly section: 'balances'; readonly method: 'Rescinded'; readonly fields: { readonly amount: u128 } }
+  | {
+      readonly section: 'balances';
+      readonly method: 'Reserved';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'balances';
+      readonly method: 'ReserveRepatriated';
+      readonly fields: {
+        readonly from: AccountId32;
+        readonly to: AccountId32;
+        readonly amount: u128;
+        readonly destinationStatus: FrameSupportTokensMiscBalanceStatus;
+      };
+    }
+  | {
+      readonly section: 'balances';
+      readonly method: 'Restored';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'balances';
+      readonly method: 'Slashed';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'balances';
+      readonly method: 'Suspended';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'balances';
+      readonly method: 'Thawed';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'balances';
+      readonly method: 'TotalIssuanceForced';
+      readonly fields: { readonly old: u128; readonly new_: u128 };
+    }
+  | {
+      readonly section: 'balances';
+      readonly method: 'Transfer';
+      readonly fields: { readonly from: AccountId32; readonly to: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'balances';
+      readonly method: 'Unlocked';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'balances';
+      readonly method: 'Unreserved';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | { readonly section: 'balances'; readonly method: 'Upgraded'; readonly fields: { readonly who: AccountId32 } }
+  | {
+      readonly section: 'balances';
+      readonly method: 'Withdraw';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'bitcoinUtxos';
+      readonly method: 'UtxoExpiredError';
+      readonly fields: { readonly utxoRef: ArgonPrimitivesBitcoinUtxoRef; readonly error: SpRuntimeDispatchError };
+    }
+  | {
+      readonly section: 'bitcoinUtxos';
+      readonly method: 'UtxoRejected';
+      readonly fields: { readonly utxoId: u64; readonly rejectedReason: ArgonPrimitivesBitcoinBitcoinRejectedReason };
+    }
+  | {
+      readonly section: 'bitcoinUtxos';
+      readonly method: 'UtxoRejectedError';
+      readonly fields: { readonly utxoId: u64; readonly error: SpRuntimeDispatchError };
+    }
+  | {
+      readonly section: 'bitcoinUtxos';
+      readonly method: 'UtxoSpent';
+      readonly fields: { readonly utxoId: u64; readonly blockHeight: u64 };
+    }
+  | {
+      readonly section: 'bitcoinUtxos';
+      readonly method: 'UtxoSpentError';
+      readonly fields: { readonly utxoId: u64; readonly error: SpRuntimeDispatchError };
+    }
+  | { readonly section: 'bitcoinUtxos'; readonly method: 'UtxoUnwatched'; readonly fields: { readonly utxoId: u64 } }
+  | { readonly section: 'bitcoinUtxos'; readonly method: 'UtxoVerified'; readonly fields: { readonly utxoId: u64 } }
+  | {
+      readonly section: 'bitcoinUtxos';
+      readonly method: 'UtxoVerifiedError';
+      readonly fields: { readonly utxoId: u64; readonly error: SpRuntimeDispatchError };
+    }
+  | {
+      readonly section: 'blockRewards';
+      readonly method: 'RewardCreated';
+      readonly fields: { readonly maturationBlock: u32; readonly rewards: Vec<ArgonPrimitivesBlockSealBlockPayout> };
+    }
+  | {
+      readonly section: 'blockRewards';
+      readonly method: 'RewardCreateError';
+      readonly fields: {
+        readonly accountId: AccountId32;
+        readonly argons: Option<u128>;
+        readonly ownership: Option<u128>;
+        readonly error: SpRuntimeDispatchError;
+      };
+    }
+  | {
+      readonly section: 'blockRewards';
+      readonly method: 'RewardUnlocked';
+      readonly fields: { readonly rewards: Vec<ArgonPrimitivesBlockSealBlockPayout> };
+    }
+  | {
+      readonly section: 'blockRewards';
+      readonly method: 'RewardUnlockError';
+      readonly fields: {
+        readonly accountId: AccountId32;
+        readonly argons: Option<u128>;
+        readonly ownership: Option<u128>;
+        readonly error: SpRuntimeDispatchError;
+      };
+    }
+  | {
+      readonly section: 'bonds';
+      readonly method: 'BitcoinBondBurned';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly bondId: u64;
+        readonly utxoId: u64;
+        readonly amountBurned: u128;
+        readonly amountHeld: u128;
+        readonly wasUtxoSpent: bool;
+      };
+    }
+  | {
+      readonly section: 'bonds';
+      readonly method: 'BitcoinCosignPastDue';
+      readonly fields: {
+        readonly bondId: u64;
+        readonly vaultId: u32;
+        readonly utxoId: u64;
+        readonly compensationAmount: u128;
+        readonly compensationStillOwed: u128;
+        readonly compensatedAccountId: AccountId32;
+      };
+    }
+  | {
+      readonly section: 'bonds';
+      readonly method: 'BitcoinUtxoCosigned';
+      readonly fields: { readonly bondId: u64; readonly vaultId: u32; readonly utxoId: u64; readonly signature: Bytes };
+    }
+  | {
+      readonly section: 'bonds';
+      readonly method: 'BitcoinUtxoCosignRequested';
+      readonly fields: { readonly bondId: u64; readonly vaultId: u32; readonly utxoId: u64 };
+    }
+  | {
+      readonly section: 'bonds';
+      readonly method: 'BondCanceled';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly bondId: u64;
+        readonly bondedAccountId: AccountId32;
+        readonly bondType: ArgonPrimitivesBondBondType;
+        readonly returnedFee: u128;
+      };
+    }
+  | {
+      readonly section: 'bonds';
+      readonly method: 'BondCompleted';
+      readonly fields: { readonly vaultId: u32; readonly bondId: u64 };
+    }
+  | {
+      readonly section: 'bonds';
+      readonly method: 'BondCompletionError';
+      readonly fields: { readonly bondId: u64; readonly error: SpRuntimeDispatchError };
+    }
+  | {
+      readonly section: 'bonds';
+      readonly method: 'BondCreated';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly bondId: u64;
+        readonly bondType: ArgonPrimitivesBondBondType;
+        readonly bondedAccountId: AccountId32;
+        readonly utxoId: Option<u64>;
+        readonly amount: u128;
+        readonly expiration: ArgonPrimitivesBondBondExpiration;
+      };
+    }
+  | {
+      readonly section: 'bonds';
+      readonly method: 'CosignOverdueError';
+      readonly fields: { readonly utxoId: u64; readonly error: SpRuntimeDispatchError };
+    }
+  | {
+      readonly section: 'chainTransfer';
+      readonly method: 'PossibleInvalidLocalchainTransferAllowed';
+      readonly fields: { readonly transferId: u32; readonly notaryId: u32; readonly notebookNumber: u32 };
+    }
+  | {
+      readonly section: 'chainTransfer';
+      readonly method: 'TaxationError';
+      readonly fields: {
+        readonly notaryId: u32;
+        readonly notebookNumber: u32;
+        readonly tax: u128;
+        readonly error: SpRuntimeDispatchError;
+      };
+    }
+  | {
+      readonly section: 'chainTransfer';
+      readonly method: 'TransferFromLocalchain';
+      readonly fields: { readonly accountId: AccountId32; readonly amount: u128; readonly notaryId: u32 };
+    }
+  | {
+      readonly section: 'chainTransfer';
+      readonly method: 'TransferFromLocalchainError';
+      readonly fields: {
+        readonly accountId: AccountId32;
+        readonly amount: u128;
+        readonly notaryId: u32;
+        readonly notebookNumber: u32;
+        readonly error: SpRuntimeDispatchError;
+      };
+    }
+  | {
+      readonly section: 'chainTransfer';
+      readonly method: 'TransferToLocalchain';
+      readonly fields: {
+        readonly accountId: AccountId32;
+        readonly amount: u128;
+        readonly transferId: u32;
+        readonly notaryId: u32;
+        readonly expirationTick: u64;
+      };
+    }
+  | {
+      readonly section: 'chainTransfer';
+      readonly method: 'TransferToLocalchainExpired';
+      readonly fields: { readonly accountId: AccountId32; readonly transferId: u32; readonly notaryId: u32 };
+    }
+  | {
+      readonly section: 'chainTransfer';
+      readonly method: 'TransferToLocalchainRefundError';
+      readonly fields: {
+        readonly accountId: AccountId32;
+        readonly transferId: u32;
+        readonly notaryId: u32;
+        readonly notebookNumber: u32;
+        readonly error: SpRuntimeDispatchError;
+      };
+    }
+  | {
+      readonly section: 'miningSlot';
+      readonly method: 'NewMiners';
+      readonly fields: {
+        readonly startIndex: u32;
+        readonly newMiners: Vec<ArgonPrimitivesBlockSealMiningRegistration>;
+      };
+    }
+  | {
+      readonly section: 'miningSlot';
+      readonly method: 'SlotBidderAdded';
+      readonly fields: { readonly accountId: AccountId32; readonly bidAmount: u128; readonly index: u32 };
+    }
+  | {
+      readonly section: 'miningSlot';
+      readonly method: 'SlotBidderReplaced';
+      readonly fields: {
+        readonly accountId: AccountId32;
+        readonly bondId: Option<u64>;
+        readonly keptOwnershipBond: bool;
+      };
+    }
+  | {
+      readonly section: 'miningSlot';
+      readonly method: 'UnbondedMiner';
+      readonly fields: {
+        readonly accountId: AccountId32;
+        readonly bondId: Option<u64>;
+        readonly keptOwnershipBond: bool;
+      };
+    }
+  | {
+      readonly section: 'miningSlot';
+      readonly method: 'UnbondMinerError';
+      readonly fields: {
+        readonly accountId: AccountId32;
+        readonly bondId: Option<u64>;
+        readonly error: SpRuntimeDispatchError;
+      };
+    }
+  | {
+      readonly section: 'mint';
+      readonly method: 'ArgonsMinted';
+      readonly fields: {
+        readonly mintType: PalletMintMintType;
+        readonly accountId: AccountId32;
+        readonly utxoId: Option<u64>;
+        readonly amount: u128;
+      };
+    }
+  | {
+      readonly section: 'mint';
+      readonly method: 'MintError';
+      readonly fields: {
+        readonly mintType: PalletMintMintType;
+        readonly accountId: AccountId32;
+        readonly utxoId: Option<u64>;
+        readonly amount: u128;
+        readonly error: SpRuntimeDispatchError;
+      };
+    }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'BalanceSet';
+      readonly fields: { readonly who: AccountId32; readonly free: u128 };
+    }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'Burned';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'Deposit';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'DustLost';
+      readonly fields: { readonly account: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'Endowed';
+      readonly fields: { readonly account: AccountId32; readonly freeBalance: u128 };
+    }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'Frozen';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | { readonly section: 'ownership'; readonly method: 'Issued'; readonly fields: { readonly amount: u128 } }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'Locked';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'Minted';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | { readonly section: 'ownership'; readonly method: 'Rescinded'; readonly fields: { readonly amount: u128 } }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'Reserved';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'ReserveRepatriated';
+      readonly fields: {
+        readonly from: AccountId32;
+        readonly to: AccountId32;
+        readonly amount: u128;
+        readonly destinationStatus: FrameSupportTokensMiscBalanceStatus;
+      };
+    }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'Restored';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'Slashed';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'Suspended';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'Thawed';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'TotalIssuanceForced';
+      readonly fields: { readonly old: u128; readonly new_: u128 };
+    }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'Transfer';
+      readonly fields: { readonly from: AccountId32; readonly to: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'Unlocked';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'Unreserved';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | { readonly section: 'ownership'; readonly method: 'Upgraded'; readonly fields: { readonly who: AccountId32 } }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'Withdraw';
+      readonly fields: { readonly who: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'tokenGateway';
+      readonly method: 'AssetReceived';
+      readonly fields: {
+        readonly beneficiary: AccountId32;
+        readonly amount: u128;
+        readonly source: IsmpHostStateMachine;
+      };
+    }
+  | {
+      readonly section: 'tokenGateway';
+      readonly method: 'AssetRefunded';
+      readonly fields: {
+        readonly beneficiary: AccountId32;
+        readonly amount: u128;
+        readonly source: IsmpHostStateMachine;
+      };
+    }
+  | {
+      readonly section: 'tokenGateway';
+      readonly method: 'AssetTeleported';
+      readonly fields: {
+        readonly from: AccountId32;
+        readonly to: H256;
+        readonly amount: u128;
+        readonly dest: IsmpHostStateMachine;
+        readonly commitment: H256;
+      };
+    }
+  | {
+      readonly section: 'tokenGateway';
+      readonly method: 'ERC6160AssetRegistrationDispatched';
+      readonly fields: { readonly commitment: H256 };
+    }
+  | {
+      readonly section: 'transactionPayment';
+      readonly method: 'TransactionFeePaid';
+      readonly fields: { readonly who: AccountId32; readonly actualFee: u128; readonly tip: u128 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultBitcoinXpubChange';
+      readonly fields: { readonly vaultId: u32 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultClosed';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly bitcoinAmountStillBonded: u128;
+        readonly miningAmountStillBonded: u128;
+        readonly securitizationStillBonded: u128;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultCreated';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly bitcoinArgons: u128;
+        readonly miningArgons: u128;
+        readonly securitizationPercent: u128;
+        readonly operatorAccountId: AccountId32;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultModified';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly bitcoinArgons: u128;
+        readonly miningArgons: u128;
+        readonly securitizationPercent: u128;
+      };
+    }
+  | { readonly section: 'vaults'; readonly method: 'VaultTermsChanged'; readonly fields: { readonly vaultId: u32 } }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultTermsChangeScheduled';
+      readonly fields: { readonly vaultId: u32; readonly changeBlock: u32 };
+    }
+  | {
+      readonly section: 'bonds';
+      readonly method: 'BondModified';
+      readonly fields: { readonly vaultId: u32; readonly bondId: u64; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultMiningBondsChangeScheduled';
+      readonly fields: { readonly vaultId: u32; readonly changeBlock: u32 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultMiningBondsIncreased';
+      readonly fields: { readonly vaultId: u32; readonly miningArgons: u128 };
+    }
+  | {
+      readonly section: 'miningSlot';
+      readonly method: 'MiningConfigurationUpdated';
+      readonly fields: {
+        readonly blocksBeforeBidEndForVrfClose: u32;
+        readonly blocksBetweenSlots: u32;
+        readonly slotBiddingStartAfterTicks: u64;
+      };
+    }
+  | {
+      readonly section: 'miningSlot';
+      readonly method: 'MiningConfigurationUpdated';
+      readonly fields: {
+        readonly ticksBeforeBidEndForVrfClose: u64;
+        readonly ticksBetweenSlots: u64;
+        readonly slotBiddingStartAfterTicks: u64;
+      };
+    }
+  | {
+      readonly section: 'miningSlot';
+      readonly method: 'SlotBidderReplaced';
+      readonly fields: {
+        readonly accountId: AccountId32;
+        readonly obligationId: Option<u64>;
+        readonly preservedArgonotHold: bool;
+      };
+    }
+  | {
+      readonly section: 'miningSlot';
+      readonly method: 'ReleasedMinerSeat';
+      readonly fields: {
+        readonly accountId: AccountId32;
+        readonly obligationId: Option<u64>;
+        readonly preservedArgonotHold: bool;
+      };
+    }
+  | {
+      readonly section: 'miningSlot';
+      readonly method: 'ReleaseMinerSeatError';
+      readonly fields: {
+        readonly accountId: AccountId32;
+        readonly obligationId: Option<u64>;
+        readonly error: SpRuntimeDispatchError;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultClosed';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly bitcoinAmountStillReserved: u128;
+        readonly miningAmountStillReserved: u128;
+        readonly securitizationStillReserved: u128;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultCreated';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly bitcoinArgons: u128;
+        readonly bondedArgons: u128;
+        readonly addedSecuritizationPercent: u128;
+        readonly operatorAccountId: AccountId32;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultModified';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly bitcoinArgons: u128;
+        readonly bondedArgons: u128;
+        readonly addedSecuritizationPercent: u128;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultTermsChangeScheduled';
+      readonly fields: { readonly vaultId: u32; readonly changeTick: u64 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'ObligationCanceled';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly obligationId: u64;
+        readonly beneficiary: AccountId32;
+        readonly fundType: ArgonPrimitivesVaultFundType;
+        readonly returnedFee: u128;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'ObligationCompleted';
+      readonly fields: { readonly vaultId: u32; readonly obligationId: u64 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'ObligationCompletionError';
+      readonly fields: { readonly obligationId: u64; readonly error: SpRuntimeDispatchError };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'ObligationCreated';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly obligationId: u64;
+        readonly fundType: ArgonPrimitivesVaultFundType;
+        readonly beneficiary: AccountId32;
+        readonly amount: u128;
+        readonly expiration: ArgonPrimitivesVaultObligationExpiration;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'ObligationModified';
+      readonly fields: { readonly vaultId: u32; readonly obligationId: u64; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultBondedArgonsChangeScheduled';
+      readonly fields: { readonly vaultId: u32; readonly changeTick: u64 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultBondedArgonsIncreased';
+      readonly fields: { readonly vaultId: u32; readonly bondedArgons: u128 };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'BitcoinCosignPastDue';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly obligationId: u64;
+        readonly vaultId: u32;
+        readonly compensationAmount: u128;
+        readonly compensationStillOwed: u128;
+        readonly compensatedAccountId: AccountId32;
+      };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'BitcoinLockBurned';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly vaultId: u32;
+        readonly obligationId: u64;
+        readonly amountBurned: u128;
+        readonly amountHeld: u128;
+        readonly wasUtxoSpent: bool;
+      };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'BitcoinLockCreated';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly vaultId: u32;
+        readonly obligationId: u64;
+        readonly lockPrice: u128;
+        readonly accountId: AccountId32;
+      };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'BitcoinUtxoCosigned';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly obligationId: u64;
+        readonly vaultId: u32;
+        readonly signature: Bytes;
+      };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'BitcoinUtxoCosignRequested';
+      readonly fields: { readonly utxoId: u64; readonly obligationId: u64; readonly vaultId: u32 };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'CosignOverdueError';
+      readonly fields: { readonly utxoId: u64; readonly error: SpRuntimeDispatchError };
+    }
+  | {
+      readonly section: 'miningSlot';
+      readonly method: 'NewMiners';
+      readonly fields: {
+        readonly startIndex: u32;
+        readonly newMiners: Vec<ArgonPrimitivesBlockSealMiningRegistration>;
+        readonly cohortId: u64;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultCreated';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly bitcoinArgons: u128;
+        readonly bondedArgons: u128;
+        readonly addedSecuritizationPercent: u128;
+        readonly operatorAccountId: AccountId32;
+        readonly activationTick: u64;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'ObligationBaseFeeMaturationError';
+      readonly fields: {
+        readonly obligationId: u64;
+        readonly baseFee: u128;
+        readonly vaultId: u32;
+        readonly error: SpRuntimeDispatchError;
+      };
+    }
+  | { readonly section: 'miningSlot'; readonly method: 'MiningBidsClosed'; readonly fields: { readonly cohortId: u64 } }
+  | {
+      readonly section: 'miningSlot';
+      readonly method: 'ReleaseBidError';
+      readonly fields: {
+        readonly accountId: AccountId32;
+        readonly obligationId: Option<u64>;
+        readonly error: SpRuntimeDispatchError;
+      };
+    }
+  | {
+      readonly section: 'miningSlot';
+      readonly method: 'SlotBidderDropped';
+      readonly fields: {
+        readonly accountId: AccountId32;
+        readonly obligationId: Option<u64>;
+        readonly preservedArgonotHold: bool;
+      };
+    }
+  | {
+      readonly section: 'miningSlot';
+      readonly method: 'SlotBidderOut';
+      readonly fields: {
+        readonly accountId: AccountId32;
+        readonly bidAmount: u128;
+        readonly obligationId: Option<u64>;
+      };
+    }
+  | {
+      readonly section: 'blockRewards';
+      readonly method: 'RewardCreated';
+      readonly fields: { readonly rewards: Vec<ArgonPrimitivesBlockSealBlockPayout> };
+    }
+  | {
+      readonly section: 'miningSlot';
+      readonly method: 'NewMiners';
+      readonly fields: {
+        readonly startIndex: u32;
+        readonly newMiners: Vec<ArgonPrimitivesBlockSealMiningRegistration>;
+        readonly releasedMiners: u32;
+        readonly cohortId: u64;
+      };
+    }
+  | {
+      readonly section: 'miningSlot';
+      readonly method: 'ReleaseBidError';
+      readonly fields: { readonly accountId: AccountId32; readonly error: SpRuntimeDispatchError };
+    }
+  | {
+      readonly section: 'miningSlot';
+      readonly method: 'ReleaseMinerSeatError';
+      readonly fields: { readonly accountId: AccountId32; readonly error: SpRuntimeDispatchError };
+    }
+  | {
+      readonly section: 'miningSlot';
+      readonly method: 'SlotBidderDropped';
+      readonly fields: { readonly accountId: AccountId32; readonly preservedArgonotHold: bool };
+    }
+  | {
+      readonly section: 'mint';
+      readonly method: 'BitcoinMint';
+      readonly fields: { readonly accountId: AccountId32; readonly utxoId: Option<u64>; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'mint';
+      readonly method: 'MiningMint';
+      readonly fields: { readonly amount: U256; readonly argonCpi: i128; readonly liquidity: u128 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'ObligationCompleted';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly obligationId: u64;
+        readonly returnedFee: u128;
+        readonly releasedFee: u128;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultClosed';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly lockedBitcoinAmountStillReserved: u128;
+        readonly bondedBitcoinAmountStillReserved: u128;
+        readonly securitizationStillReserved: u128;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultClosed';
+      readonly fields: { readonly vaultId: u32; readonly remainingSecuritization: u128; readonly released: u128 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultCreated';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly lockedBitcoinArgons: u128;
+        readonly bondedBitcoinArgons: u128;
+        readonly addedSecuritizationPercent: u128;
+        readonly operatorAccountId: AccountId32;
+        readonly activationTick: u64;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultCreated';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly securitization: u128;
+        readonly securitizationRatio: u128;
+        readonly operatorAccountId: AccountId32;
+        readonly openedTick: u64;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultModified';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly lockedBitcoinArgons: u128;
+        readonly bondedBitcoinArgons: u128;
+        readonly addedSecuritizationPercent: u128;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultModified';
+      readonly fields: { readonly vaultId: u32; readonly securitization: u128; readonly securitizationRatio: u128 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'BidPoolDistributed';
+      readonly fields: {
+        readonly cohortId: u64;
+        readonly bidPoolDistributed: u128;
+        readonly bidPoolBurned: u128;
+        readonly bidPoolEntrants: u32;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'CouldNotAllocateNextBidPool';
+      readonly fields: { readonly cohortId: u64; readonly dispatchError: SpRuntimeDispatchError };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'CouldNotBurnBidPool';
+      readonly fields: {
+        readonly cohortId: u64;
+        readonly amount: u128;
+        readonly dispatchError: SpRuntimeDispatchError;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'CouldNotDistributeBidPool';
+      readonly fields: {
+        readonly cohortId: u64;
+        readonly vaultId: u32;
+        readonly amount: u128;
+        readonly dispatchError: SpRuntimeDispatchError;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'NextBidPoolAllocated';
+      readonly fields: { readonly bondedBitcoinPool: u128; readonly bidPoolEntrants: u32 };
+    }
+  | {
+      readonly section: 'mint';
+      readonly method: 'MiningMint';
+      readonly fields: {
+        readonly amount: U256;
+        readonly perMiner: u128;
+        readonly argonCpi: i128;
+        readonly liquidity: u128;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultClosed';
+      readonly fields: { readonly vaultId: u32; readonly remainingSecuritization: u128; readonly released: u128 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultCreated';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly securitization: u128;
+        readonly securitizationRatio: u128;
+        readonly operatorAccountId: AccountId32;
+        readonly openedTick: u64;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultModified';
+      readonly fields: { readonly vaultId: u32; readonly securitization: u128; readonly securitizationRatio: u128 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'ObligationCompleted';
+      readonly fields: { readonly vaultId: u32; readonly obligationId: u64; readonly wasCanceled: bool };
+    }
+  | {
+      readonly section: 'miningSlot';
+      readonly method: 'MiningBidsClosed';
+      readonly fields: { readonly cohortFrameId: u64 };
+    }
+  | {
+      readonly section: 'miningSlot';
+      readonly method: 'NewMiners';
+      readonly fields: {
+        readonly startIndex: u32;
+        readonly newMiners: Vec<ArgonPrimitivesBlockSealMiningRegistration>;
+        readonly releasedMiners: u32;
+        readonly cohortFrameId: u64;
+      };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'BitcoinCosignPastDue';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly vaultId: u32;
+        readonly compensationAmount: u128;
+        readonly compensatedAccountId: AccountId32;
+      };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'BitcoinLockBurned';
+      readonly fields: { readonly utxoId: u64; readonly vaultId: u32; readonly wasUtxoSpent: bool };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'BitcoinLockCreated';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly vaultId: u32;
+        readonly lockPrice: u128;
+        readonly accountId: AccountId32;
+      };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'BitcoinUtxoCosigned';
+      readonly fields: { readonly utxoId: u64; readonly vaultId: u32; readonly signature: Bytes };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'BitcoinUtxoCosignRequested';
+      readonly fields: { readonly utxoId: u64; readonly vaultId: u32 };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'BitcoinLockRatcheted';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly vaultId: u32;
+        readonly originalLockPrice: u128;
+        readonly newLockPrice: u128;
+        readonly amountBurned: u128;
+        readonly accountId: AccountId32;
+      };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'LockExpirationError';
+      readonly fields: { readonly utxoId: u64; readonly error: SpRuntimeDispatchError };
+    }
+  | { readonly section: 'miningSlot'; readonly method: 'MiningBidsClosed'; readonly fields: { readonly frameId: u64 } }
+  | {
+      readonly section: 'miningSlot';
+      readonly method: 'NewMiners';
+      readonly fields: {
+        readonly newMiners: Vec<ArgonPrimitivesBlockSealMiningRegistration>;
+        readonly releasedMiners: u32;
+        readonly frameId: u64;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultClosed';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly securitizationRemaining: u128;
+        readonly securitizationReleased: u128;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'FundLockCanceled';
+      readonly fields: { readonly vaultId: u32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'FundsLocked';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly locker: AccountId32;
+        readonly amount: u128;
+        readonly isRatchet: bool;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'FundsReleased';
+      readonly fields: { readonly vaultId: u32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'FundsReleasedError';
+      readonly fields: { readonly vaultId: u32; readonly error: SpRuntimeDispatchError };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'FundsScheduledForRelease';
+      readonly fields: { readonly vaultId: u32; readonly amount: u128; readonly releaseHeight: u64 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'LostBitcoinCompensated';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly beneficiary: AccountId32;
+        readonly toBeneficiary: u128;
+        readonly burned: u128;
+      };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'BitcoinLockCreated';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly vaultId: u32;
+        readonly lockPrice: u128;
+        readonly accountId: AccountId32;
+        readonly securityFee: u128;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'FundsLocked';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly locker: AccountId32;
+        readonly amount: u128;
+        readonly isRatchet: bool;
+        readonly feeRevenue: u128;
+      };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'BitcoinLockRatcheted';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly vaultId: u32;
+        readonly originalLockPrice: u128;
+        readonly securityFee: u128;
+        readonly newLockPrice: u128;
+        readonly amountBurned: u128;
+        readonly accountId: AccountId32;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'LiquidityPoolRecordingError';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly frameId: u64;
+        readonly vaultEarnings: u128;
+        readonly error: SpRuntimeDispatchError;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultCollected';
+      readonly fields: { readonly vaultId: u32; readonly revenue: u128 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultRevenueUncollected';
+      readonly fields: { readonly vaultId: u32; readonly frameId: u64; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'BitcoinLockCreated';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly vaultId: u32;
+        readonly liquidityPromised: u128;
+        readonly peggedPrice: u128;
+        readonly accountId: AccountId32;
+        readonly securityFee: u128;
+      };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'BitcoinLockRatcheted';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly vaultId: u32;
+        readonly liquidityPromised: u128;
+        readonly originalPeggedPrice: u128;
+        readonly securityFee: u128;
+        readonly newPeggedPrice: u128;
+        readonly amountBurned: u128;
+        readonly accountId: AccountId32;
+      };
+    }
+  | {
+      readonly section: 'tokenGateway';
+      readonly method: 'AssetRegisteredLocally';
+      readonly fields: { readonly localId: u32; readonly assetId: H256 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'TreasuryRecordingError';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly frameId: u64;
+        readonly vaultEarnings: u128;
+        readonly error: SpRuntimeDispatchError;
+      };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'BidPoolDistributed';
+      readonly fields: {
+        readonly frameId: u64;
+        readonly bidPoolDistributed: u128;
+        readonly bidPoolBurned: u128;
+        readonly bidPoolShares: u32;
+      };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'CouldNotBurnBidPool';
+      readonly fields: { readonly frameId: u64; readonly amount: u128; readonly dispatchError: SpRuntimeDispatchError };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'CouldNotDistributeBidPool';
+      readonly fields: {
+        readonly accountId: AccountId32;
+        readonly frameId: u64;
+        readonly vaultId: u32;
+        readonly amount: u128;
+        readonly dispatchError: SpRuntimeDispatchError;
+        readonly isForVault: bool;
+      };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'ErrorRefundingTreasuryCapital';
+      readonly fields: {
+        readonly frameId: u64;
+        readonly vaultId: u32;
+        readonly amount: u128;
+        readonly accountId: AccountId32;
+        readonly dispatchError: SpRuntimeDispatchError;
+      };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'NextBidPoolCapitalLocked';
+      readonly fields: {
+        readonly frameId: u64;
+        readonly totalActivatedCapital: u128;
+        readonly participatingVaults: u32;
+      };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'RefundedTreasuryCapital';
+      readonly fields: {
+        readonly frameId: u64;
+        readonly vaultId: u32;
+        readonly amount: u128;
+        readonly accountId: AccountId32;
+      };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'VaultOperatorPrebond';
+      readonly fields: { readonly vaultId: u32; readonly accountId: AccountId32; readonly amountPerFrame: u128 };
+    }
+  | {
+      readonly section: 'mint';
+      readonly method: 'MiningMint';
+      readonly fields: {
+        readonly amount: u128;
+        readonly perMiner: u128;
+        readonly argonCpi: i128;
+        readonly liquidity: u128;
+      };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'BitcoinLockCreated';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly vaultId: u32;
+        readonly liquidityPromised: u128;
+        readonly lockedMarketRate: u128;
+        readonly accountId: AccountId32;
+        readonly securityFee: u128;
+      };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'BitcoinLockRatcheted';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly vaultId: u32;
+        readonly liquidityPromised: u128;
+        readonly originalMarketRate: u128;
+        readonly securityFee: u128;
+        readonly newLockedMarketRate: u128;
+        readonly amountBurned: u128;
+        readonly accountId: AccountId32;
+      };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'OrphanedUtxoCosigned';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly utxoRef: ArgonPrimitivesBitcoinUtxoRef;
+        readonly vaultId: u32;
+        readonly signature: Bytes;
+      };
+    }
+  | {
+      readonly section: 'bitcoinUtxos';
+      readonly method: 'UtxoRejected';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly rejectedReason: ArgonPrimitivesBitcoinBitcoinRejectedReason;
+        readonly satoshisReceived: u64;
+      };
+    }
+  | {
+      readonly section: 'bitcoinUtxos';
+      readonly method: 'UtxoVerified';
+      readonly fields: { readonly utxoId: u64; readonly satoshisReceived: u64 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'FundsLocked';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly locker: AccountId32;
+        readonly amount: u128;
+        readonly isRatchet: bool;
+        readonly feeRevenue: u128;
+        readonly didUseFeeCoupon: bool;
+      };
+    }
+  | { readonly section: 'balances'; readonly method: 'BurnedDebt'; readonly fields: { readonly amount: u128 } }
+  | {
+      readonly section: 'balances';
+      readonly method: 'BurnedHeld';
+      readonly fields: {
+        readonly reason: ArgonRuntimeRuntimeHoldReason;
+        readonly who: AccountId32;
+        readonly amount: u128;
+      };
+    }
+  | {
+      readonly section: 'balances';
+      readonly method: 'Held';
+      readonly fields: {
+        readonly reason: ArgonRuntimeRuntimeHoldReason;
+        readonly who: AccountId32;
+        readonly amount: u128;
+      };
+    }
+  | { readonly section: 'balances'; readonly method: 'MintedCredit'; readonly fields: { readonly amount: u128 } }
+  | {
+      readonly section: 'balances';
+      readonly method: 'Released';
+      readonly fields: {
+        readonly reason: ArgonRuntimeRuntimeHoldReason;
+        readonly who: AccountId32;
+        readonly amount: u128;
+      };
+    }
+  | {
+      readonly section: 'balances';
+      readonly method: 'TransferAndHold';
+      readonly fields: {
+        readonly reason: ArgonRuntimeRuntimeHoldReason;
+        readonly source: AccountId32;
+        readonly dest: AccountId32;
+        readonly transferred: u128;
+      };
+    }
+  | {
+      readonly section: 'balances';
+      readonly method: 'TransferOnHold';
+      readonly fields: {
+        readonly reason: ArgonRuntimeRuntimeHoldReason;
+        readonly source: AccountId32;
+        readonly dest: AccountId32;
+        readonly amount: u128;
+      };
+    }
+  | {
+      readonly section: 'balances';
+      readonly method: 'Unexpected';
+      readonly fields: { readonly '0': PalletBalancesUnexpectedKind };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'BitcoinLockCreated';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly vaultId: u32;
+        readonly liquidityPromised: u128;
+        readonly securitization: u128;
+        readonly lockedMarketRate: u128;
+        readonly accountId: AccountId32;
+        readonly securityFee: u128;
+      };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'OrphanedUtxoCosigned';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly utxoRef: ArgonPrimitivesBitcoinUtxoRef;
+        readonly vaultId: u32;
+        readonly accountId: AccountId32;
+        readonly signature: Bytes;
+      };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'OrphanedUtxoReceived';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly utxoRef: ArgonPrimitivesBitcoinUtxoRef;
+        readonly vaultId: u32;
+        readonly satoshis: u64;
+      };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'OrphanedUtxoReleaseRequested';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly utxoRef: ArgonPrimitivesBitcoinUtxoRef;
+        readonly vaultId: u32;
+        readonly accountId: AccountId32;
+      };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'SecuritizationIncreased';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly vaultId: u32;
+        readonly newSatoshis: u64;
+        readonly accountId: AccountId32;
+      };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'UtxoFundedFromCandidate';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly utxoRef: ArgonPrimitivesBitcoinUtxoRef;
+        readonly vaultId: u32;
+        readonly accountId: AccountId32;
+      };
+    }
+  | {
+      readonly section: 'bitcoinUtxos';
+      readonly method: 'UtxoRejected';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly utxoRef: ArgonPrimitivesBitcoinUtxoRef;
+        readonly rejectedReason: ArgonPrimitivesBitcoinBitcoinRejectedReason;
+        readonly satoshisReceived: u64;
+      };
+    }
+  | { readonly section: 'ownership'; readonly method: 'BurnedDebt'; readonly fields: { readonly amount: u128 } }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'BurnedHeld';
+      readonly fields: {
+        readonly reason: ArgonRuntimeRuntimeHoldReason;
+        readonly who: AccountId32;
+        readonly amount: u128;
+      };
+    }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'Held';
+      readonly fields: {
+        readonly reason: ArgonRuntimeRuntimeHoldReason;
+        readonly who: AccountId32;
+        readonly amount: u128;
+      };
+    }
+  | { readonly section: 'ownership'; readonly method: 'MintedCredit'; readonly fields: { readonly amount: u128 } }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'Released';
+      readonly fields: {
+        readonly reason: ArgonRuntimeRuntimeHoldReason;
+        readonly who: AccountId32;
+        readonly amount: u128;
+      };
+    }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'TransferAndHold';
+      readonly fields: {
+        readonly reason: ArgonRuntimeRuntimeHoldReason;
+        readonly source: AccountId32;
+        readonly dest: AccountId32;
+        readonly transferred: u128;
+      };
+    }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'TransferOnHold';
+      readonly fields: {
+        readonly reason: ArgonRuntimeRuntimeHoldReason;
+        readonly source: AccountId32;
+        readonly dest: AccountId32;
+        readonly amount: u128;
+      };
+    }
+  | {
+      readonly section: 'ownership';
+      readonly method: 'Unexpected';
+      readonly fields: { readonly '0': PalletBalancesUnexpectedKind };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'BidPoolDistributed';
+      readonly fields: {
+        readonly frameId: u64;
+        readonly bidPoolDistributed: u128;
+        readonly treasuryReserves: u128;
+        readonly bidPoolShares: u32;
+      };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'CouldNotFundTreasury';
+      readonly fields: { readonly frameId: u64; readonly amount: u128; readonly dispatchError: SpRuntimeDispatchError };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'VaultFunderAllocation';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly accountId: AccountId32;
+        readonly amount: u128;
+        readonly previousAmount: Option<u128>;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'FundsLocked';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly locker: AccountId32;
+        readonly liquidityPromised: u128;
+        readonly isRatchet: bool;
+        readonly feeRevenue: u128;
+        readonly didUseFeeCoupon: bool;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'FundsReleased';
+      readonly fields: { readonly vaultId: u32; readonly securitization: u128 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'FundsScheduledForRelease';
+      readonly fields: { readonly vaultId: u32; readonly securitization: u128; readonly releaseHeight: u64 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultModified';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly securitization: u128;
+        readonly securitizationTarget: u128;
+        readonly securitizationRatio: u128;
+      };
+    }
+  | {
+      readonly section: 'operationalAccounts';
+      readonly method: 'AccountWentOperational';
+      readonly fields: { readonly account: AccountId32 };
+    }
+  | {
+      readonly section: 'operationalAccounts';
+      readonly method: 'OperationalAccountRegistered';
+      readonly fields: {
+        readonly account: AccountId32;
+        readonly vaultAccount: AccountId32;
+        readonly miningFundingAccount: AccountId32;
+        readonly miningBotAccount: AccountId32;
+        readonly sponsor: Option<AccountId32>;
+      };
+    }
+  | {
+      readonly section: 'operationalAccounts';
+      readonly method: 'OperationalRewardEarned';
+      readonly fields: {
+        readonly account: AccountId32;
+        readonly rewardKind: ArgonPrimitivesProvidersOperationalRewardKind;
+        readonly amount: u128;
+      };
+    }
+  | {
+      readonly section: 'operationalAccounts';
+      readonly method: 'OperationalRewardEnqueueFailed';
+      readonly fields: {
+        readonly account: AccountId32;
+        readonly rewardKind: ArgonPrimitivesProvidersOperationalRewardKind;
+        readonly amount: u128;
+      };
+    }
+  | {
+      readonly section: 'operationalAccounts';
+      readonly method: 'RewardsConfigUpdated';
+      readonly fields: { readonly operationalReferralReward: u128; readonly referralBonusReward: u128 };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'BitcoinSpentAfterRelease';
+      readonly fields: { readonly utxoId: u64; readonly vaultId: u32 };
+    }
+  | {
+      readonly section: 'operationalAccounts';
+      readonly method: 'OperationalAccountRegistered';
+      readonly fields: {
+        readonly operationalAccount: AccountId32;
+        readonly vaultAccount: AccountId32;
+        readonly miningFundingAccount: AccountId32;
+        readonly miningBotAccount: AccountId32;
+        readonly sponsor: Option<AccountId32>;
+      };
+    }
+  | {
+      readonly section: 'operationalAccounts';
+      readonly method: 'EncryptedServerUpdated';
+      readonly fields: { readonly sponsor: AccountId32; readonly sponsee: AccountId32 };
+    }
+  | {
+      readonly section: 'operationalAccounts';
+      readonly method: 'OperationalProgressForced';
+      readonly fields: {
+        readonly account: AccountId32;
+        readonly updateOperationalProgress: bool;
+        readonly hasUniswapTransfer: bool;
+        readonly vaultCreated: bool;
+        readonly hasTreasuryPoolParticipation: bool;
+        readonly observedBitcoinTotal: u128;
+        readonly observedMiningSeatTotal: u32;
+      };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'BitcoinLockCreated';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly vaultId: u32;
+        readonly liquidityPromised: u128;
+        readonly securitization: u128;
+        readonly lockedTargetPrice: u128;
+        readonly accountId: AccountId32;
+        readonly securityFee: u128;
+      };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'BitcoinLockRatcheted';
+      readonly fields: {
+        readonly utxoId: u64;
+        readonly vaultId: u32;
+        readonly liquidityPromised: u128;
+        readonly oldTargetPrice: u128;
+        readonly securityFee: u128;
+        readonly newTargetPrice: u128;
+        readonly amountBurned: u128;
+        readonly accountId: AccountId32;
+      };
+    }
+  | {
+      readonly section: 'operationalAccounts';
+      readonly method: 'OperationalRewardsClaimed';
+      readonly fields: {
+        readonly operationalAccount: AccountId32;
+        readonly claimant: AccountId32;
+        readonly amount: u128;
+        readonly remainingPending: u128;
+      };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'BondLotPurchased';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly bondLotId: u64;
+        readonly accountId: AccountId32;
+        readonly bonds: u32;
+      };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'BondLotReleased';
+      readonly fields: {
+        readonly frameId: u64;
+        readonly vaultId: u32;
+        readonly bondLotId: u64;
+        readonly accountId: AccountId32;
+        readonly bonds: u32;
+      };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'BondLotReleaseScheduled';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly bondLotId: u64;
+        readonly accountId: AccountId32;
+        readonly bonds: u32;
+        readonly releaseFrameId: u64;
+        readonly reason: PalletTreasuryBondReleaseReason;
+      };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'CouldNotDistributeEarningsToBondLot';
+      readonly fields: {
+        readonly frameId: u64;
+        readonly vaultId: u32;
+        readonly bondLotId: u64;
+        readonly accountId: AccountId32;
+        readonly amount: u128;
+        readonly dispatchError: SpRuntimeDispatchError;
+      };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'CouldNotReleaseBondLot';
+      readonly fields: {
+        readonly frameId: u64;
+        readonly vaultId: u32;
+        readonly bondLotId: u64;
+        readonly amount: u128;
+        readonly accountId: AccountId32;
+        readonly dispatchError: SpRuntimeDispatchError;
+      };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'CouldNotTransferToTreasuryReserves';
+      readonly fields: { readonly frameId: u64; readonly amount: u128; readonly dispatchError: SpRuntimeDispatchError };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'EncumberedBondMicrogonsBurned';
+      readonly fields: { readonly accountId: AccountId32; readonly burnedAmount: u128; readonly releasedAmount: u128 };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'FrameEarningsDistributed';
+      readonly fields: {
+        readonly frameId: u64;
+        readonly bidPoolDistributed: u128;
+        readonly treasuryReserves: u128;
+        readonly participatingVaults: u32;
+      };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'FrameVaultCapitalLocked';
+      readonly fields: { readonly frameId: u64; readonly totalEligibleBonds: u128; readonly participatingVaults: u32 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'CommittedArgonotsSet';
+      readonly fields: { readonly vaultId: u32; readonly operatorAccountId: AccountId32; readonly amount: u128 };
+    }
+  | {
+      readonly section: 'crosschainTransfer';
+      readonly method: 'CouncilSignerRegistered';
+      readonly fields: {
+        readonly destinationChain: PalletCrosschainTransferSourceChain;
+        readonly accountId: AccountId32;
+        readonly signer: H160;
+      };
+    }
+  | {
+      readonly section: 'crosschainTransfer';
+      readonly method: 'CouncilSignerRotationQueued';
+      readonly fields: {
+        readonly destinationChain: PalletCrosschainTransferSourceChain;
+        readonly accountId: AccountId32;
+        readonly signer: H160;
+      };
+    }
+  | {
+      readonly section: 'crosschainTransfer';
+      readonly method: 'GatewayStateAdvanced';
+      readonly fields: {
+        readonly sourceChain: PalletCrosschainTransferSourceChain;
+        readonly gatewayState: PalletCrosschainTransferGatewayState;
+      };
+    }
+  | {
+      readonly section: 'crosschainTransfer';
+      readonly method: 'GatewaySyncPaused';
+      readonly fields: {
+        readonly sourceChain: PalletCrosschainTransferSourceChain;
+        readonly pause: PalletCrosschainTransferGatewaySyncPause;
+      };
+    }
+  | {
+      readonly section: 'crosschainTransfer';
+      readonly method: 'GatewayUnpaused';
+      readonly fields: { readonly sourceChain: PalletCrosschainTransferSourceChain };
+    }
+  | {
+      readonly section: 'crosschainTransfer';
+      readonly method: 'GlobalIssuanceCouncilForced';
+      readonly fields: { readonly destinationChain: PalletCrosschainTransferSourceChain; readonly councilHash: H256 };
+    }
+  | {
+      readonly section: 'crosschainTransfer';
+      readonly method: 'MinimumMintingAuthorityValueSet';
+      readonly fields: { readonly destinationChain: PalletCrosschainTransferSourceChain; readonly minimumValue: u128 };
+    }
+  | {
+      readonly section: 'crosschainTransfer';
+      readonly method: 'MintingAuthorityActivationCompleted';
+      readonly fields: {
+        readonly destinationChain: PalletCrosschainTransferSourceChain;
+        readonly destinationSigningKey: H160;
+        readonly relayerArgonAccountId: AccountId32;
+        readonly repaymentAmount: u128;
+      };
+    }
+  | {
+      readonly section: 'crosschainTransfer';
+      readonly method: 'MintingAuthorityActivationFinalized';
+      readonly fields: {
+        readonly sourceChain: PalletCrosschainTransferSourceChain;
+        readonly destinationSigningKey: H160;
+      };
+    }
+  | {
+      readonly section: 'crosschainTransfer';
+      readonly method: 'MintingAuthorityActivationRepaymentPricingSet';
+      readonly fields: { readonly destinationChain: PalletCrosschainTransferSourceChain };
+    }
+  | {
+      readonly section: 'crosschainTransfer';
+      readonly method: 'MintingAuthorityDeactivationFinalized';
+      readonly fields: {
+        readonly sourceChain: PalletCrosschainTransferSourceChain;
+        readonly destinationSigningKey: H160;
+      };
+    }
+  | {
+      readonly section: 'crosschainTransfer';
+      readonly method: 'MintingAuthorityDeactivationQueued';
+      readonly fields: {
+        readonly destinationChain: PalletCrosschainTransferSourceChain;
+        readonly destinationSigningKey: H160;
+        readonly approvalQueueNonce: u64;
+      };
+    }
+  | {
+      readonly section: 'crosschainTransfer';
+      readonly method: 'MintingAuthorityRegistered';
+      readonly fields: {
+        readonly destinationChain: PalletCrosschainTransferSourceChain;
+        readonly destinationSigningKey: H160;
+        readonly accountId: AccountId32;
+        readonly approvalQueueNonce: u64;
+      };
+    }
+  | {
+      readonly section: 'crosschainTransfer';
+      readonly method: 'QueueEntryApprovalReady';
+      readonly fields: {
+        readonly destinationChain: PalletCrosschainTransferSourceChain;
+        readonly target: PalletCrosschainTransferCouncilApprovalTargetId;
+        readonly approvalQueueNonce: u64;
+      };
+    }
+  | {
+      readonly section: 'crosschainTransfer';
+      readonly method: 'QueueEntryApprovalRecorded';
+      readonly fields: {
+        readonly destinationChain: PalletCrosschainTransferSourceChain;
+        readonly target: PalletCrosschainTransferCouncilApprovalTargetId;
+        readonly approvalQueueNonce: u64;
+      };
+    }
+  | {
+      readonly section: 'crosschainTransfer';
+      readonly method: 'TransferCollateralInvalidated';
+      readonly fields: { readonly transferId: H256; readonly destinationSigningKey: H160 };
+    }
+  | {
+      readonly section: 'crosschainTransfer';
+      readonly method: 'TransferCollateralized';
+      readonly fields: {
+        readonly transferId: H256;
+        readonly destinationSigningKey: H160;
+        readonly microgonCollateral: u128;
+        readonly micronotCollateral: u128;
+      };
+    }
+  | {
+      readonly section: 'crosschainTransfer';
+      readonly method: 'TransferOutCanceled';
+      readonly fields: { readonly sourceChain: PalletCrosschainTransferSourceChain; readonly transferId: H256 };
+    }
+  | {
+      readonly section: 'crosschainTransfer';
+      readonly method: 'TransferOutFinalized';
+      readonly fields: { readonly sourceChain: PalletCrosschainTransferSourceChain; readonly transferId: H256 };
+    }
+  | {
+      readonly section: 'crosschainTransfer';
+      readonly method: 'TransferOutReady';
+      readonly fields: { readonly transferId: H256 };
+    }
+  | {
+      readonly section: 'crosschainTransfer';
+      readonly method: 'TransferOutStarted';
+      readonly fields: {
+        readonly destinationChain: PalletCrosschainTransferSourceChain;
+        readonly transferId: H256;
+        readonly accountId: AccountId32;
+        readonly asset: PalletCrosschainTransferAssetKind;
+        readonly amount: u128;
+        readonly mintingAuthorityTip: u128;
+      };
+    }
+  | {
+      readonly section: 'crosschainTransfer';
+      readonly method: 'TransferToArgonSettled';
+      readonly fields: {
+        readonly sourceChain: PalletCrosschainTransferSourceChain;
+        readonly transfer: PalletCrosschainTransferTransferToArgonActivity;
+      };
+    }
+  | {
+      readonly section: 'localchainTransfer';
+      readonly method: 'PossibleInvalidLocalchainTransferAllowed';
+      readonly fields: { readonly transferId: u32; readonly notaryId: u32; readonly notebookNumber: u32 };
+    }
+  | {
+      readonly section: 'localchainTransfer';
+      readonly method: 'TaxationError';
+      readonly fields: {
+        readonly notaryId: u32;
+        readonly notebookNumber: u32;
+        readonly tax: u128;
+        readonly error: SpRuntimeDispatchError;
+      };
+    }
+  | {
+      readonly section: 'localchainTransfer';
+      readonly method: 'TransferFromLocalchain';
+      readonly fields: { readonly accountId: AccountId32; readonly amount: u128; readonly notaryId: u32 };
+    }
+  | {
+      readonly section: 'localchainTransfer';
+      readonly method: 'TransferFromLocalchainError';
+      readonly fields: {
+        readonly accountId: AccountId32;
+        readonly amount: u128;
+        readonly notaryId: u32;
+        readonly notebookNumber: u32;
+        readonly error: SpRuntimeDispatchError;
+      };
+    }
+  | {
+      readonly section: 'localchainTransfer';
+      readonly method: 'TransferToLocalchain';
+      readonly fields: {
+        readonly accountId: AccountId32;
+        readonly amount: u128;
+        readonly transferId: u32;
+        readonly notaryId: u32;
+        readonly expirationTick: u64;
+      };
+    }
+  | {
+      readonly section: 'localchainTransfer';
+      readonly method: 'TransferToLocalchainExpired';
+      readonly fields: { readonly accountId: AccountId32; readonly transferId: u32; readonly notaryId: u32 };
+    }
+  | {
+      readonly section: 'localchainTransfer';
+      readonly method: 'TransferToLocalchainRefundError';
+      readonly fields: {
+        readonly accountId: AccountId32;
+        readonly transferId: u32;
+        readonly notaryId: u32;
+        readonly notebookNumber: u32;
+        readonly error: SpRuntimeDispatchError;
+      };
+    }
+  | {
+      readonly section: 'operationalAccounts';
+      readonly method: 'EncryptedServerUpdated';
+      readonly fields: { readonly upstreamAccount: AccountId32; readonly downstreamAccount: AccountId32 };
+    }
+  | {
+      readonly section: 'operationalAccounts';
+      readonly method: 'OperationalAccountRegistered';
+      readonly fields: {
+        readonly operationalAccount: AccountId32;
+        readonly vaultAccount: AccountId32;
+        readonly miningAccount: AccountId32;
+        readonly upstreamAccount: Option<AccountId32>;
+      };
+    }
+  | {
+      readonly section: 'operationalAccounts';
+      readonly method: 'OperationalProgressForced';
+      readonly fields: {
+        readonly account: AccountId32;
+        readonly updateOperationalProgress: bool;
+        readonly meetsMinimums: bool;
+        readonly uniswapArgonTransfersInAmount: u128;
+        readonly accountBitcoinAmount: u128;
+        readonly accountVaultBondAmount: u128;
+        readonly vaultCreated: bool;
+        readonly operatorVaultBitcoinAmount: u128;
+        readonly miningSeatCount: u32;
+      };
+    }
+  | {
+      readonly section: 'operationalAccounts';
+      readonly method: 'RewardsConfigUpdated';
+      readonly fields: {
+        readonly operationalCertificationReward: u128;
+        readonly operationalCertificationBonusReward: u128;
+      };
+    }
+  | {
+      readonly section: 'operationalAccounts';
+      readonly method: 'AccountMeetsMinimums';
+      readonly fields: { readonly account: AccountId32 };
+    }
+  | {
+      readonly section: 'operationalAccounts';
+      readonly method: 'AccountOperationallyCertified';
+      readonly fields: { readonly account: AccountId32 };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'BondLotPurchased';
+      readonly fields: {
+        readonly programId: PalletTreasuryBondProgramId;
+        readonly bondLotId: u64;
+        readonly accountId: AccountId32;
+        readonly bonds: u32;
+      };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'BondLotReleased';
+      readonly fields: {
+        readonly frameId: u64;
+        readonly programId: PalletTreasuryBondProgramId;
+        readonly bondLotId: u64;
+        readonly accountId: AccountId32;
+        readonly bonds: u32;
+      };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'BondLotReleaseScheduled';
+      readonly fields: {
+        readonly programId: PalletTreasuryBondProgramId;
+        readonly bondLotId: u64;
+        readonly accountId: AccountId32;
+        readonly bonds: u32;
+        readonly releaseFrameId: u64;
+        readonly reason: PalletTreasuryBondReleaseReason;
+      };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'CouldNotReleaseBondLot';
+      readonly fields: {
+        readonly frameId: u64;
+        readonly programId: PalletTreasuryBondProgramId;
+        readonly bondLotId: u64;
+        readonly amount: u128;
+        readonly accountId: AccountId32;
+        readonly dispatchError: SpRuntimeDispatchError;
+      };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'FrameEarningsDistributed';
+      readonly fields: {
+        readonly frameId: u64;
+        readonly bidPoolDistributed: u128;
+        readonly argonotBondPoolDistributed: u128;
+        readonly vaultBidPoolDistributed: u128;
+        readonly treasuryRefunds: u128;
+        readonly treasuryReserves: u128;
+        readonly participatingVaults: u32;
+      };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'CouldNotDistributeEarningsToArgonotBondLot';
+      readonly fields: {
+        readonly frameId: u64;
+        readonly bondLotId: u64;
+        readonly accountId: AccountId32;
+        readonly amount: u128;
+        readonly dispatchError: SpRuntimeDispatchError;
+      };
+    };
+
 export const historicalEventSpecSources = {
   '100': '@argonprotocol/mainchain@0.0.25',
   '101': '@argonprotocol/mainchain@1.0.0',

@@ -1,13 +1,33 @@
-import type { GenericEvent } from '@argonprotocol/mainchain';
+import type { Codec, GenericEvent } from '@argonprotocol/mainchain';
 import {
   historicalEventChanges as generatedEventChanges,
   historicalEventSpecSources as generatedSpecSources,
 } from './HistoricalEventSpecs.generated.js';
+import type { HistoricalEventDeclaration } from './HistoricalEventSpecs.generated.js';
 
 type HistoricalEventFields = Readonly<Record<string, string>>;
 type HistoricalEventVersion = { spec: number; fields: HistoricalEventFields[] };
+type HistoricalEventData<Fields extends Readonly<Record<string, Codec>>> = GenericEvent['data'] & {
+  readonly [Field in keyof Fields]: Fields[Field];
+};
+type HistoricalEventFromDeclaration<Declaration> = Declaration extends {
+  section: infer Section extends string;
+  method: infer Method extends string;
+  fields: infer Fields extends Readonly<Record<string, Codec>>;
+}
+  ? {
+      readonly section: Section;
+      readonly method: Method;
+      readonly data: HistoricalEventData<Fields>;
+    }
+  : never;
 
-export type HistoricalEventData = readonly [name: string, type: string, value: unknown][];
+export type HistoricalEvent = HistoricalEventFromDeclaration<HistoricalEventDeclaration>;
+type HistoricalEventSection = HistoricalEvent['section'];
+type HistoricalEventMethod<Section extends HistoricalEventSection> = Extract<
+  HistoricalEvent,
+  { section: Section }
+>['method'];
 
 export class AccountActivityCoverageError extends Error {}
 
@@ -44,52 +64,27 @@ export function getHistoricalEventFieldAlternatives(
   return getEventDeclarations(specVersion, section, method);
 }
 
-export function readHistoricalEventData(
-  specVersion: number,
+export function hasNamedEventData<
+  Section extends HistoricalEventSection,
+  Method extends HistoricalEventMethod<Section>,
+>(
   event: Pick<GenericEvent, 'data' | 'method' | 'section'>,
-): HistoricalEventData | undefined {
-  if (!historicalEventSpecSources[specVersion]) {
-    const names = event.data.names;
-    const typeDefs = event.data.typeDef;
-    if (names?.length === event.data.length && typeDefs.length === event.data.length) {
-      return names.map((name, index) => [name, typeDefs[index].type, event.data[index].toHuman()]);
-    }
+  selector: { section: Section; method: Method },
+): event is Pick<GenericEvent, 'data' | 'method' | 'section'> &
+  Extract<HistoricalEvent, { section: Section; method: Method }>;
+export function hasNamedEventData(
+  event: Pick<GenericEvent, 'data' | 'method' | 'section'>,
+): event is Pick<GenericEvent, 'data' | 'method' | 'section'> & HistoricalEvent;
+export function hasNamedEventData(
+  event: Pick<GenericEvent, 'data' | 'method' | 'section'>,
+  selector?: { section: string; method: string },
+): boolean {
+  const section = selector?.section ?? event.section;
+  const method = selector?.method ?? event.method;
+  if (event.section !== section || event.method !== method) return false;
 
-    throw new AccountActivityCoverageError(
-      `${event.section}.${event.method} at runtime spec ${specVersion} does not expose complete live field metadata and has no copied declaration fallback`,
-    );
-  }
-
-  const declarations = getEventDeclarations(specVersion, event.section, event.method);
-  if (!declarations.length) return;
-
-  const eventFieldNames = event.data.names;
-  const matchingDeclarations = declarations.filter(fields => {
-    const fieldNames = Object.keys(fields);
-    if (eventFieldNames?.length) {
-      return (
-        fieldNames.length === eventFieldNames.length &&
-        fieldNames.every((name, index) => eventFieldNames[index] === name)
-      );
-    }
-    return fieldNames.length === event.data.length;
-  });
-  if (matchingDeclarations.length !== 1) {
-    const source = historicalEventSpecSources[specVersion];
-    throw new AccountActivityCoverageError(
-      `${event.section}.${event.method} at runtime spec ${specVersion} does not uniquely match the declarations copied from ${source}`,
-    );
-  }
-
-  const entries = Object.entries(matchingDeclarations[0]);
-  if (entries.length !== event.data.length) {
-    const source = historicalEventSpecSources[specVersion];
-    throw new AccountActivityCoverageError(
-      `${event.section}.${event.method} at runtime spec ${specVersion} has ${event.data.length} fields; ${source} declares ${entries.length}`,
-    );
-  }
-
-  return entries.map(([name, type], index) => [name, type, event.data[index].toHuman()]);
+  const names = event.data.names;
+  return names?.length === event.data.length && event.data.typeDef.length === event.data.length;
 }
 
 function getEventDeclarations(specVersion: number, section: string, method: string): readonly HistoricalEventFields[] {

@@ -1,15 +1,11 @@
-import type { GenericEvent } from '@argonprotocol/mainchain';
+import { Option, type GenericEvent } from '@argonprotocol/mainchain';
 import {
   AccountActivityKind,
   groupEventsByExtrinsic,
   isUserTransferEventSet,
   readEventField,
 } from '@argonprotocol/apps-core';
-import {
-  AccountActivityCoverageError,
-  readHistoricalEventData,
-  type HistoricalEventData,
-} from './HistoricalEventSpecs.js';
+import { AccountActivityCoverageError, hasNamedEventData, type HistoricalEvent } from './HistoricalEventSpecs.js';
 
 export { AccountActivityKind };
 
@@ -119,32 +115,31 @@ export class AccountActivityDecoder {
     specVersion: number,
     isCustodyTransfer: boolean,
   ): IDecodedAccountActivityEvent {
-    const mask = classifyEvent(event, isCustodyTransfer);
+    const mask = classifyEvent(event, { isCustodyTransfer });
     if (!mask) {
       return { mask, accounts: [], vaultIds: [], bitcoinLockIds: [] };
     }
-
-    const eventData = readHistoricalEventData(specVersion, event);
-    if (!eventData) {
+    if (!hasNamedEventData(event)) {
       throw new AccountActivityCoverageError(
-        `No copied ${event.section}.${event.method} declaration for runtime spec ${specVersion}`,
+        `${event.section}.${event.method} at runtime spec ${specVersion} does not expose complete named metadata`,
       );
     }
 
     return {
       mask,
-      accounts: collectEventAccounts(eventData),
-      vaultIds: collectEventVaultIds(eventData),
-      bitcoinLockIds: collectEventBitcoinLockIds(eventData),
+      accounts: collectEventAccounts(event),
+      vaultIds: collectEventVaultIds(event),
+      bitcoinLockIds: collectEventBitcoinLockIds(event),
     };
   }
 }
 
 export function classifyEvent(
   event: Pick<GenericEvent, 'data' | 'method' | 'section'>,
-  isCustodyTransfer = false,
+  options: { isCustodyTransfer?: boolean } = {},
 ): number {
   const { section, method } = event;
+  const { isCustodyTransfer = false } = options;
 
   // Fee is separate from the operation category because proxy execution can make
   // the effective account and the fee-paying account different.
@@ -191,10 +186,13 @@ export function classifyEvent(
   if (section === 'blockRewards') return AccountActivityKind.MiningSeat;
 
   if (section === 'mint') {
-    // ArgonsMinted carried both sources before the runtime split the event. Its
-    // first codec is the historical MintType enum in every copied declaration.
+    // ArgonsMinted carried both sources before the runtime split the event.
     if (method === 'ArgonsMinted') {
-      const mintType = event.data[0]?.toString().toLowerCase();
+      if (!hasNamedEventData(event, { section: 'mint', method: 'ArgonsMinted' })) {
+        return AccountActivityKind.AccountBalance;
+      }
+
+      const mintType = event.data.mintType.toString().toLowerCase();
       if (mintType?.includes('bitcoin')) return AccountActivityKind.BitcoinMint;
       if (mintType?.includes('mining')) return AccountActivityKind.MiningSeat;
       return AccountActivityKind.AccountBalance;
@@ -347,7 +345,7 @@ const vaultPositionEvents = new Set([
 ]);
 // Treasury bond lots begin at spec 151. Spec 156 replaces the event's vaultId
 // with programId so one lifecycle can cover vault-backed and ARGNOT-backed lots;
-// the copied declaration resolves that shape change before account collection.
+// the block's runtime metadata resolves that shape change before account collection.
 const treasuryBondPositionEvents = new Set([
   'BondLotPurchased',
   'BondLotReleased',
@@ -372,73 +370,54 @@ const treasuryVaultRevenueEvents = new Set([
   'CouldNotDistributeBidPool',
   'CouldNotFundTreasury',
 ]);
-const accountFieldNames = new Set([
-  'account',
-  'accountId',
-  'beneficiary',
-  'compensatedAccountId',
-  'from',
-  'operatorAccountId',
-  'owner',
-  'to',
-  'vaultAccount',
-  'who',
-]);
 
-function collectEventAccounts(fields: HistoricalEventData): string[] {
-  return fields.flatMap(([name, type, value]) => {
-    if (type.includes('AccountId')) return collectStringValues(value);
-    if (value && typeof value === 'object') return collectNestedEventAccounts(value, name);
-    return [];
+function collectEventAccounts(event: HistoricalEvent): string[] {
+  const accounts = event.data.flatMap((value, index) => {
+    return event.data.typeDef[index].type.includes('AccountId') ? [value.toString()] : [];
   });
-}
 
-function collectNestedEventAccounts(value: unknown, fieldName?: string): string[] {
-  if (typeof value === 'string') {
-    return fieldName && accountFieldNames.has(fieldName) ? [value] : [];
+  if (event.section === 'miningSlot' && event.method === 'NewMiners') {
+    for (const miner of event.data.newMiners) {
+      accounts.push(miner.accountId.toString());
+
+      if ('externalFundingAccount' in miner && miner.externalFundingAccount.isSome) {
+        accounts.push(miner.externalFundingAccount.unwrap().toString());
+      }
+      if ('rewardDestination' in miner && miner.rewardDestination.isAccount) {
+        accounts.push(miner.rewardDestination.asAccount.toString());
+      }
+      if ('rewardSharing' in miner && miner.rewardSharing.isSome) {
+        accounts.push(miner.rewardSharing.unwrap().accountId.toString());
+      }
+    }
   }
-  if (Array.isArray(value)) {
-    return value.flatMap(item => collectNestedEventAccounts(item, fieldName));
+
+  if (
+    event.section === 'blockRewards' &&
+    (event.method === 'RewardCreated' || event.method === 'RewardUnlocked')
+  ) {
+    accounts.push(...event.data.rewards.map(reward => reward.accountId.toString()));
   }
-  if (!value || typeof value !== 'object') return [];
 
-  return Object.entries(value).flatMap(([key, item]) => collectNestedEventAccounts(item, key));
-}
-
-function collectStringValues(value: unknown): string[] {
-  if (typeof value === 'string') return [value];
-  if (Array.isArray(value)) return value.flatMap(collectStringValues);
-  if (!value || typeof value !== 'object') return [];
-
-  return Object.values(value).flatMap(collectStringValues);
-}
-
-function collectEventVaultIds(fields: HistoricalEventData): number[] {
-  return fields.flatMap(([name, _type, value]) => collectNestedEventVaultIds(value, name));
-}
-
-function collectNestedEventVaultIds(value: unknown, fieldName?: string): number[] {
-  if ((typeof value === 'number' || typeof value === 'string') && fieldName === 'vaultId') {
-    const vaultId = Number(value);
-    return Number.isSafeInteger(vaultId) ? [vaultId] : [];
+  if (event.section === 'crosschainTransfer' && event.method === 'TransferToArgonSettled') {
+    accounts.push(event.data.transfer.to.toString());
   }
-  if (Array.isArray(value)) {
-    return value.flatMap(item => collectNestedEventVaultIds(item, fieldName));
-  }
-  if (!value || typeof value !== 'object') return [];
 
-  return Object.entries(value).flatMap(([key, item]) => collectNestedEventVaultIds(item, key));
+  return accounts;
 }
 
-function collectEventBitcoinLockIds(fields: HistoricalEventData): number[] {
-  return fields.flatMap(([name, _type, value]) => {
-    if (name !== 'utxoId') return [];
+function collectEventVaultIds(event: HistoricalEvent): number[] {
+  const { data } = event;
+  if ('vaultId' in data) return [data.vaultId.toNumber()];
+  if ('programId' in data && data.programId.isVault) return [data.programId.asVault.vaultId.toNumber()];
+  return [];
+}
 
-    const values = collectStringValues(value);
-    if (typeof value === 'number') values.push(value.toString());
-    return values.flatMap(item => {
-      const utxoId = Number(item);
-      return Number.isSafeInteger(utxoId) ? [utxoId] : [];
-    });
-  });
+function collectEventBitcoinLockIds(event: HistoricalEvent): number[] {
+  const { data } = event;
+  if (!('utxoId' in data)) return [];
+
+  const { utxoId } = data;
+  if (utxoId instanceof Option) return utxoId.isSome ? [utxoId.unwrap().toNumber()] : [];
+  return [utxoId.toNumber()];
 }

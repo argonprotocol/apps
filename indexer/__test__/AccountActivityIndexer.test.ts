@@ -71,22 +71,25 @@ it('resumes on an upgrade block with the preceding runtime registry', async () =
   }
 });
 
-it('records a coverage gap instead of advancing through an undecodable future spec', async () => {
+it('stops before activity without complete named metadata instead of advancing coverage', async () => {
   const directory = fs.mkdtempSync(Path.join(os.tmpdir(), 'activity-gap-'));
   const db = new IndexerDb(Path.join(directory, 'test.db'));
-  const event = {
-    section: 'balances',
-    method: 'Transfer',
-    data: Object.assign([], { names: null, typeDef: [] }),
-  } as unknown as GenericEvent;
+  const data = createHistoricalEventData(156, 'balances', 'Transfer', {
+    from: encodeAddress(new Uint8Array(32).fill(1)),
+    to: encodeAddress(new Uint8Array(32).fill(2)),
+    amount: 1_000,
+  });
+  data.names!.pop();
+  const event = { section: 'balances', method: 'Transfer', data } as GenericEvent;
   const events = new Map([['0x01', [appliedEvent(event, 0)]]]);
-  const runtime = eventApi(157, events, ['0x01']);
+  const runtime = eventApi(156, events, ['0x01']);
   const runtimeClient = activityClient({
     latestBlock: 1,
-    specVersions: new Map([['0x01', 157]]),
+    specVersions: new Map([['0x01', 156]]),
     apis: new Map([['0x00', runtime.api]]),
   });
   const readHeader = vi.spyOn(BlockWatch, 'readHeader').mockReturnValue(header(1));
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
   const indexer = new AccountActivityIndexer(db);
 
   try {
@@ -97,9 +100,10 @@ it('records a coverage gap instead of advancing through an undecodable future sp
     expect(indexer.coverageGap).toMatchObject({
       fromBlock: 1,
       toBlock: 1,
-      reason: expect.stringContaining('does not expose complete live field metadata'),
+      reason: expect.stringContaining('does not expose complete named metadata'),
     });
   } finally {
+    consoleError.mockRestore();
     readHeader.mockRestore();
     db.close();
     fs.rmSync(directory, { recursive: true, force: true });
