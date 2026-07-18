@@ -284,9 +284,10 @@
                   <OnboardingIcon class="w-5.5 opacity-70" />
                 </div>
                 <div class="grow">Onboarding</div>
-                <div class="opacity-60">
-                  {{ currency.symbol
-                  }}{{ microgonToMoneyNm(controller.operationalOverview.rewardsEarnedAmount).format('0,0.00') }}
+                <div v-if="currency.isLoaded" class="opacity-60">
+                  {{
+                    `${currency.symbol}${microgonToMoneyNm(controller.operationalOverview.rewardsEarnedAmount).format('0,0.00')}`
+                  }}
                 </div>
               </div>
               <div v-if="controller.selectedTab === TopTab.Invites" class="text-md -mb-1.5">
