@@ -163,6 +163,7 @@ describe('BitcoinLocks getActiveLocks', () => {
       createdAt: '2026-01-01T00:00:00Z',
     });
     record.lockDetails = createdLock;
+    store.data.locksByUtxoId[7] = record;
     const table = {
       getByUtxoId: vi.fn().mockResolvedValueOnce(undefined).mockResolvedValue(record),
       saveRecoveredHistory: vi.fn(async () => undefined),
@@ -281,6 +282,7 @@ describe('BitcoinLocks getActiveLocks', () => {
     ]);
 
     const recovered = store.data.locksByUtxoId[7];
+    expect(recovered).toBe(record);
     expect(recovered.ratchets).toEqual([
       expect.objectContaining({ mintAmount: 1_000n, mintPending: 0n, txFee: 11n, extrinsicIndex: 2 }),
       expect.objectContaining({ mintAmount: 200n, mintPending: 0n, burned: 50n, txFee: 13n, extrinsicIndex: 2 }),
