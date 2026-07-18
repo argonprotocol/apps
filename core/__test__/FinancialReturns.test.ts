@@ -67,6 +67,23 @@ describe('FinancialReturns', () => {
     });
   });
 
+  it('ignores cash flows after the return period', () => {
+    const result = calculateModifiedDietzReturn({
+      startingValue: 100n,
+      endingValue: 110n,
+      startingDate: new Date('2026-01-01T00:00:00Z'),
+      endingDate: new Date('2026-01-11T00:00:00Z'),
+      cashFlows: [{ amount: 50n, occurredAt: new Date('2026-01-12T00:00:00Z') }],
+    });
+
+    expect(result).toEqual({
+      basisPoints: 1_000n,
+      percent: 10,
+      eligibleCapitalInvested: 100n,
+      totalProfits: 10n,
+    });
+  });
+
   it('keeps projected APR and APY explicit about their measurement period', () => {
     const input = { startingValue: 1_000n, endingValue: 1_100n, periodDays: 10 };
 

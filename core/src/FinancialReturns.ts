@@ -119,6 +119,8 @@ export function calculateModifiedDietzReturn(input: IModifiedDietzReturnInput): 
 
   for (const cashFlow of input.cashFlows) {
     const occurredAtMs = toDateMs(cashFlow.occurredAt);
+    if (occurredAtMs > endingMs) continue;
+
     const boundedOccurredAtMs = occurredAtMs < startingMs ? startingMs : occurredAtMs;
     const remainingMs = boundedOccurredAtMs < endingMs ? endingMs - boundedOccurredAtMs : 0n;
 
