@@ -215,7 +215,20 @@ export class BitcoinLockRecovery {
         }
         this.applyRecoveredRecord(recovered);
       } else if (event.method === 'BitcoinUtxoCosigned') {
-        if (record.status !== BitcoinLockStatus.Releasing && record.status !== BitcoinLockStatus.Released) {
+        if (record.status === BitcoinLockStatus.Released && !record.removalReason) {
+          const recovered = this.createDetachedRecord(record);
+          const rates = await this.currency.fetchMainchainRatesAtBlock({ api, block });
+          const phase = eventRecords[eventIndex].phase;
+          await table.recordRemoval(recovered, BitcoinLockStatus.Released, {
+            removalBlockNumber: block.blockNumber,
+            removalBlockHash: block.blockHash,
+            removalBlockTime: new Date(block.blockTime),
+            removalExtrinsicIndex: phase.isApplyExtrinsic ? phase.asApplyExtrinsic.toNumber() : undefined,
+            removalReason: 'released',
+            btcPriceAtRemovalMicrogons: rates.BTC,
+          });
+          this.applyRecoveredRecord(recovered);
+        } else if (record.status !== BitcoinLockStatus.Releasing && record.status !== BitcoinLockStatus.Released) {
           const recovered = this.createDetachedRecord(record);
           await table.setStatus(recovered, BitcoinLockStatus.Releasing);
           this.applyRecoveredRecord(recovered);

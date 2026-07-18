@@ -47,19 +47,12 @@ const release = await github.rest.repos.getRelease({
 
 const releaseId = release.data.id;
 const notes = release.data.body || '';
-
-function createFileContent() {
-  return {
-    version,
-    notes,
-    pub_date: new Date().toISOString(),
-    platforms: {},
-  } as VersionContent;
-}
-
-const files: { [str: string]: VersionContent } = {
-  desktop_stable: createFileContent(),
-  // desktop_experimental: createFileContent(),
+const fileName = 'desktop-stable.json';
+const stableChannel: VersionContent = {
+  version,
+  notes,
+  pub_date: new Date().toISOString(),
+  platforms: {},
 };
 
 const existingAssets = await github.rest.repos.listReleaseAssets({
@@ -71,8 +64,16 @@ const existingAssets = await github.rest.repos.listReleaseAssets({
 
 for (const data of existingAssets.data) {
   const { name, browser_download_url } = data;
-  if (!name) continue;
-  if (!name.endsWith('.sig')) continue;
+  if (!name?.endsWith('.sig')) continue;
+  if (name.includes('-debug')) {
+    console.warn(`Skipping debug asset in release channel: ${name}`);
+    continue;
+  }
+  if (name.includes('Experimental')) {
+    console.warn(`Experimental builds are temporarily disabled: ${name}`);
+    continue;
+  }
+
   const sigdata = await github.request('GET /repos/{owner}/{repo}/releases/assets/{asset_id}', {
     owner,
     repo,
@@ -82,31 +83,13 @@ for (const data of existingAssets.data) {
     },
   });
   const signature = Buffer.from(sigdata.data as unknown as Uint8Array).toString('utf-8');
-  const isExperimental = name.includes('Experimental');
-  if (name.includes('-debug')) {
-    console.warn(`Skipping debug asset in release channels: ${name}`);
-    continue;
-  }
-  const appType = (name.match(/Argon\.(Desktop)/)?.[1] || '').toLowerCase();
-  const fileKey = `${appType}_${isExperimental ? 'experimental' : 'stable'}`;
-  const file = files[fileKey];
   const downloadUrl = browser_download_url
     .replace(/\/download\/(untagged-[^/]+)\//, `/download/${encodeURIComponent(tagName)}/`)
     .replace('.sig', '');
 
-  if (isExperimental) {
-    console.warn(`Experimental builds are temporarily disabled: ${fileKey}`);
-    continue;
-  }
-
-  if (!file) {
-    console.warn(`No version found for ${fileKey}`);
-    continue;
-  }
-
   if (name.includes('x64-setup')) {
     for (const key of ['windows-x86_64', 'windows-x86_64-nsis']) {
-      file.platforms[key] = {
+      stableChannel.platforms[key] = {
         signature,
         url: downloadUrl,
       };
@@ -120,20 +103,20 @@ for (const data of existingAssets.data) {
       'darwin-aarch64-app',
       'darwin-x86_64-app',
     ]) {
-      file.platforms[key] = {
+      stableChannel.platforms[key] = {
         signature,
         url: downloadUrl,
       };
     }
   } else if (name.includes('.AppImage')) {
     for (const key of ['linux-x86_64', 'linux-x86_64-appimage']) {
-      file.platforms[key] = {
+      stableChannel.platforms[key] = {
         signature,
         url: downloadUrl,
       };
     }
   } else if (name.match(/amd64\.deb/g)) {
-    file.platforms['linux-x86_64-deb'] = {
+    stableChannel.platforms['linux-x86_64-deb'] = {
       signature,
       url: downloadUrl,
     };
@@ -142,24 +125,21 @@ for (const data of existingAssets.data) {
   }
 }
 
-for (const [fileKey, file] of Object.entries(files)) {
-  const fileName = `${fileKey.replace('_', '-')}.json`;
-  const rawRecord = JSON.stringify(file, null, 2);
-  const headers = {
-    'content-type': 'application/json',
-    'content-length': Buffer.from(rawRecord).byteLength,
-  };
+const rawRecord = JSON.stringify(stableChannel, null, 2);
+const headers = {
+  'content-type': 'application/json',
+  'content-length': Buffer.from(rawRecord).byteLength,
+};
 
-  const existingAsset = existingAssets.data.find(a => a.label === fileName);
+const existingAsset = existingAssets.data.find(a => a.label === fileName);
 
-  if (process.env.READONLY) {
-    console.log(`READONLY mode: Skipping upload of ${fileName}`, {
-      existingAsset: existingAsset ? 'exists' : 'not found',
-      headers,
-      rawRecord,
-    });
-    continue;
-  }
+if (process.env.READONLY) {
+  console.log(`READONLY mode: Skipping upload of ${fileName}`, {
+    existingAsset: existingAsset ? 'exists' : 'not found',
+    headers,
+    rawRecord,
+  });
+} else {
   if (existingAsset) {
     console.log(`Deleting existing ${fileName}...`);
     await github.rest.repos.deleteReleaseAsset({
