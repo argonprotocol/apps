@@ -114,4 +114,57 @@ describe('WalletTransfersTable', () => {
       await db.close();
     }
   });
+
+  it('loads only external flows inside the owned-wallet boundary', async () => {
+    const db = await createTestDb();
+    const baseTransfer = {
+      walletName: 'defaultArgon',
+      currency: 'argon' as const,
+      transferType: 'transfer' as const,
+      extrinsicIndex: 0,
+      microgonsForArgonot: 2n,
+      microgonsForUsd: 2n,
+      blockTime: new Date('2026-07-15T00:00:00Z'),
+    };
+
+    try {
+      await db.walletTransfersTable.insert({
+        ...baseTransfer,
+        walletAddress: '5default',
+        otherParty: '5outside',
+        amount: 100n,
+        isInternal: false,
+        blockNumber: 10,
+        blockHash: '0xexternal',
+      });
+      await db.walletTransfersTable.insert({
+        ...baseTransfer,
+        walletAddress: '5default',
+        otherParty: '5miner',
+        amount: -50n,
+        isInternal: true,
+        blockNumber: 11,
+        blockHash: '0xinternal',
+      });
+      await db.walletTransfersTable.insert({
+        ...baseTransfer,
+        walletAddress: '5unowned',
+        otherParty: '5outside',
+        amount: 75n,
+        isInternal: false,
+        blockNumber: 12,
+        blockHash: '0xunowned',
+      });
+
+      await expect(
+        db.walletTransfersTable.fetchExternalFlows({
+          walletAddresses: ['5default', '5miner'],
+          afterBlock: 0,
+          throughBlock: 12,
+        }),
+      ).resolves.toEqual([expect.objectContaining({ blockNumber: 10, amount: 100n, isInternal: false })]);
+    } finally {
+      await db.close();
+    }
+  });
 });

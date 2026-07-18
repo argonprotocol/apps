@@ -224,7 +224,7 @@ export function calculateBitcoinReturn(investment: bigint, currentValue: bigint)
   return getPercent(currentValue - investment, investment);
 }
 
-function valueSatoshisAtRate(satoshis?: bigint, microgonsPerBitcoin?: bigint): bigint | undefined {
+export function valueSatoshisAtRate(satoshis?: bigint, microgonsPerBitcoin?: bigint): bigint | undefined {
   if (satoshis === undefined || microgonsPerBitcoin === undefined || microgonsPerBitcoin <= 0n) return;
 
   return (satoshis * microgonsPerBitcoin) / SATOSHIS_PER_BITCOIN;

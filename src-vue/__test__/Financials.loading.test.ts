@@ -27,8 +27,8 @@ const mocks = vi.hoisted(() => {
       refreshLockSummary: vi.fn(),
     },
     blockWatch: {
-      bestBlockHeader: { blockNumber: 1, blockHash: '0x1' },
-      finalizedBlockHeader: { blockNumber: 1, blockHash: '0x1' },
+      bestBlockHeader: { blockNumber: 1, blockHash: '0x1', blockTime: Date.parse('2026-07-16T12:00:00Z') },
+      finalizedBlockHeader: { blockNumber: 1, blockHash: '0x1', blockTime: Date.parse('2026-07-16T12:00:00Z') },
       getApi: vi.fn(async () => ({})),
     },
     config: {
@@ -76,6 +76,15 @@ const mocks = vi.hoisted(() => {
       argonBurnCapacity: 0,
     },
     walletHistoryRecovery: { hasCompleteCoverage: vi.fn(async () => false) },
+    db: {
+      financialCacheTable: {
+        get: vi.fn(async () => undefined),
+        upsert: vi.fn(async () => undefined),
+      },
+      walletTransfersTable: {
+        fetchExternalFlows: vi.fn(async () => []),
+      },
+    },
     wallets: {
       isLoadedPromise: Promise.resolve(),
       defaultArgonWallet: wallet('5default'),
@@ -100,6 +109,7 @@ const mocks = vi.hoisted(() => {
       miningBotWallet: { address: '5miner' },
       operationalWallet: { address: '5operational' },
       legacyMiningHoldAddress: '',
+      ownedAddresses: ['5default', '5miner', '5operational'],
       readAccountSnapshot: vi.fn(async () => ({
         accounts: [],
         observation: {
@@ -127,7 +137,7 @@ vi.mock('../stores/vaults.ts', () => ({
   getMyVault: () => mocks.myVault,
   getVaults: () => mocks.vaults,
 }));
-vi.mock('../stores/helpers/dbPromise.ts', () => ({ getDbPromise: vi.fn(async () => ({})) }));
+vi.mock('../stores/helpers/dbPromise.ts', () => ({ getDbPromise: vi.fn(async () => mocks.db) }));
 vi.mock('../stores/myMiningSeats.ts', () => ({ getMyMiningSeats: () => mocks.myMiningSeats }));
 vi.mock('../stores/vaultingStats.ts', () => ({ useVaultingStats: () => mocks.vaultingStats }));
 vi.mock('../stores/config.ts', () => ({ getConfig: () => mocks.config }));
@@ -147,6 +157,7 @@ describe('financials startup failures', () => {
     pinia = createPinia();
     setActivePinia(pinia);
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     mocks.config.isLoadedPromise = Promise.resolve();
     mocks.config.hasExtensionTreasury = false;
@@ -167,6 +178,11 @@ describe('financials startup failures', () => {
     mocks.needsFinancialHistoryRecovery.mockResolvedValue(true);
     mocks.needsFinancialHistoryRecovery.mockClear();
     mocks.walletHistoryRecovery.hasCompleteCoverage.mockClear();
+    mocks.db.financialCacheTable.get.mockResolvedValue(undefined);
+    mocks.db.financialCacheTable.get.mockClear();
+    mocks.db.financialCacheTable.upsert.mockResolvedValue(undefined);
+    mocks.db.financialCacheTable.upsert.mockClear();
+    mocks.db.walletTransfersTable.fetchExternalFlows.mockClear();
     mocks.walletsForArgon.events.on.mockClear();
   });
 
@@ -230,16 +246,38 @@ describe('financials startup failures', () => {
     expect(mocks.stableSwaps.load).not.toHaveBeenCalled();
   });
 
-  it('does not request recovery for an account created in this app session', async () => {
-    mocks.config.hasExtensionTreasury = true;
+  it('baselines RTD while wallet history catches up for an account created in this app session', async () => {
+    const financials = useFinancials();
+
+    await vi.waitFor(() => {
+      expect(financials.financialPositionAggregate.groupSummaries.liquid.state).toBe('ready');
+    });
+    expect(mocks.walletHistoryRecovery.hasCompleteCoverage).toHaveBeenCalledWith(1);
+    await vi.waitFor(() => {
+      expect(mocks.db.financialCacheTable.upsert).toHaveBeenCalledWith(
+        'AccountReturn',
+        '5default,5miner,5operational',
+        expect.objectContaining({
+          startingBlock: 1,
+          startingValue: 0n,
+          asOfBlock: 1,
+          basisPoints: 0n,
+          isProvisional: true,
+        }),
+      );
+    });
+    expect(financials.accountReturnSyncState).toBe('updating');
+    expect(mocks.restoreFinancialHistory).not.toHaveBeenCalled();
+  });
+
+  it('keeps loading live positions when the saved RTD cannot be read', async () => {
+    mocks.db.financialCacheTable.get.mockRejectedValueOnce(new Error('cache unavailable'));
 
     const financials = useFinancials();
 
     await vi.waitFor(() => {
       expect(financials.financialPositionAggregate.groupSummaries.liquid.state).toBe('ready');
     });
-    expect(mocks.walletHistoryRecovery.hasCompleteCoverage).not.toHaveBeenCalled();
-    expect(mocks.restoreFinancialHistory).not.toHaveBeenCalled();
   });
 
   it('does not poll the indexer when imported-account recovery was already initialized', async () => {

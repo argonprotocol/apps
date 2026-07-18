@@ -8,8 +8,8 @@ import { createFinancialPosition, type IEthereumWalletFinancialPosition } from '
 import {
   cacheExternalWalletBalances,
   restoreCachedExternalWalletBalances,
-  type ExternalWalletBalanceCacheTable,
-} from './db/ExternalWalletBalanceCacheTable.ts';
+  type FinancialCacheTable,
+} from './db/FinancialCacheTable.ts';
 
 type ITokenBalanceClient = {
   readContract(args: {
@@ -69,7 +69,7 @@ export class WalletForEthereum {
 
   constructor(
     public readonly address: string,
-    private readonly balanceCache?: Promise<ExternalWalletBalanceCacheTable>,
+    private readonly financialCache?: Promise<FinancialCacheTable>,
   ) {
     this.data.address = address;
   }
@@ -143,7 +143,7 @@ export class WalletForEthereum {
   }
 
   public async load(options: { force?: boolean } = {}) {
-    await restoreCachedExternalWalletBalances(this.balanceCache, 'ethereum', this.data);
+    await restoreCachedExternalWalletBalances(this.financialCache, 'ethereum', this.data);
     await this.loadBalances({ force: options.force ?? true });
     this.startBalanceRefresh();
   }
@@ -180,7 +180,7 @@ export class WalletForEthereum {
       this.data.totalMicronots = this.data.availableMicronots + this.data.reservedMicronots;
       this.data.balanceUpdatedAt = new Date();
       this.data.balanceIsCached = false;
-      await cacheExternalWalletBalances(this.balanceCache, 'ethereum', this.data);
+      await cacheExternalWalletBalances(this.financialCache, 'ethereum', this.data);
     } catch (error) {
       console.error('Ethereum wallet balance load failed', {
         address: this.address,
