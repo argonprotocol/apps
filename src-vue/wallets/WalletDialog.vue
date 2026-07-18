@@ -133,15 +133,17 @@
             v-if="props.leftWallet && props.rightWallet"
             class="absolute top-full left-1/2 mt-4 flex w-max max-w-4xl -translate-x-1/2 items-center gap-3 text-sm text-white drop-shadow-sm"
           >
-            <button
-              data-testid="WalletOverlay.toggleSyncDirection()"
-              type="button"
-              class="relative flex shrink-0 cursor-pointer items-center gap-1.5 rounded border border-white/50 bg-white/10 px-3 py-1.5 font-semibold text-white hover:bg-white/20 focus:outline-none"
-              title="Switch direction"
-              @click="emit('flip')"
-            >
-              <ArrowsRightLeftIcon class="h-4 w-4 stroke-2" />
-              Switch direction
+            <div class="relative flex shrink-0">
+              <button
+                data-testid="WalletOverlay.toggleSyncDirection()"
+                type="button"
+                class="flex cursor-pointer items-center gap-1.5 rounded border border-white/50 bg-white/10 px-3 py-1.5 font-semibold text-white hover:bg-white/20 focus:outline-none"
+                title="Switch direction"
+                @click="emit('flip')"
+              >
+                <ArrowsRightLeftIcon class="h-4 w-4 stroke-2" />
+                Switch direction
+              </button>
               <ArrowCalloutButton
                 v-if="showInboundTransferDirectionGuide"
                 guidance="Switch direction so ARGN moves from Ethereum into Argon."
@@ -149,7 +151,7 @@
                 position="top"
                 :showArrow="false"
               />
-            </button>
+            </div>
             <p>
               Use
               <strong>{{ isCrosschainWalletPair() ? 'JUMP' : 'MOVE' }}</strong>

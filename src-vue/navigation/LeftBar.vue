@@ -31,14 +31,16 @@
       <div class="mt-3">
         <header class="relative flex flex-row items-center">
           <div class="grow">Treasury</div>
-          <button type="button" class="relative cursor-pointer" @click="openDefaultArgonWallet">
-            <MoreIcon class="h-4 opacity-80" />
+          <div class="relative flex">
+            <button type="button" class="cursor-pointer" @click="openDefaultArgonWallet">
+              <MoreIcon class="h-4 opacity-80" />
+            </button>
             <ArrowCalloutButton
               v-if="controller.activeGuideId === OperationalStepId.TreasuryTransfer && !basics.overlayIsOpen"
               guidance="Open your Argon wallet."
               class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
             />
-          </button>
+          </div>
         </header>
         <ul>
           <li @click="goto(TopTab.BitcoinLocks)" :class="{ Selected: controller.selectedTab === TopTab.BitcoinLocks }">
@@ -142,14 +144,16 @@
       <div class="mt-3">
         <header class="relative flex flex-row items-center">
           <div class="grow">Operations</div>
-          <button type="button" class="relative cursor-pointer" @click="openDefaultArgonWallet">
-            <MoreIcon class="h-4 opacity-80" />
+          <div class="relative flex">
+            <button type="button" class="cursor-pointer" @click="openDefaultArgonWallet">
+              <MoreIcon class="h-4 opacity-80" />
+            </button>
             <ArrowCalloutButton
               v-if="controller.activeGuideId === OperationalStepId.OperationalTransfer && !basics.overlayIsOpen"
               guidance="Open your Argon wallet."
               class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
             />
-          </button>
+          </div>
           <ArrowCalloutButton
             v-if="showOperationsNavigationCallouts"
             label="New"

@@ -1,28 +1,32 @@
 <template>
   <HoverCardRoot :open="isHovered && !!activeTransfer" :openDelay="0">
-    <HoverCardTrigger :asChild="true">
-      <button
-        :data-testid="getMoveButtonTestId()"
-        type="button"
-        :aria-disabled="isMoveDisabled"
-        :title="isMoveDisabled ? `No ${props.moveToken} available to jump` : `Jump ${props.moveToken}`"
-        class="absolute top-1/2 left-[calc(100%+40px)] z-30 h-10 -translate-x-1/2 -translate-y-1/2 cursor-pointer"
-        @mouseenter="isHovered = true"
-        @mouseleave="isHovered = false"
-        @click="openTransferOverlay"
-      >
-        <div v-if="hasPendingTransfer" spinner class="absolute top-1/2 right-4 h-5 w-5 -translate-y-1/2 border-3" />
-        <div v-else class="text-argon-600 absolute inset-0 flex items-center justify-center text-sm font-bold">
-          <span class="relative right-1.5">{{ WALLET_JUMP_LABEL }}</span>
-        </div>
-        <MoveArrow class="pointer-events-none h-full" />
+    <div class="absolute top-1/2 left-[calc(100%+40px)] z-30 -translate-x-1/2 -translate-y-1/2">
+      <div class="relative h-10">
+        <HoverCardTrigger :asChild="true">
+          <button
+            :data-testid="getMoveButtonTestId()"
+            type="button"
+            :aria-disabled="isMoveDisabled"
+            :title="isMoveDisabled ? `No ${props.moveToken} available to jump` : `Jump ${props.moveToken}`"
+            class="h-full cursor-pointer"
+            @mouseenter="isHovered = true"
+            @mouseleave="isHovered = false"
+            @click="openTransferOverlay"
+          >
+            <div v-if="hasPendingTransfer" spinner class="absolute top-1/2 right-4 h-5 w-5 -translate-y-1/2 border-3" />
+            <div v-else class="text-argon-600 absolute inset-0 flex items-center justify-center text-sm font-bold">
+              <span class="relative right-1.5">{{ WALLET_JUMP_LABEL }}</span>
+            </div>
+            <MoveArrow class="pointer-events-none h-full" />
+          </button>
+        </HoverCardTrigger>
         <ArrowCalloutButton
           v-if="showInboundArgonGuide"
           guidance="Click JUMP to move your Uniswap ARGN into this Argon wallet."
           class="absolute top-1/2 left-full z-50 ml-3 -translate-y-1/2"
         />
-      </button>
-    </HoverCardTrigger>
+      </div>
+    </div>
 
     <HoverCardPortal>
       <HoverCardContent
