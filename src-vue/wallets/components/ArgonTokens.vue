@@ -1,17 +1,21 @@
 <template>
   <ul>
-    <li class="relative flex flex-row gap-x-2 border-t border-slate-400/50 py-2">
+    <li
+      class="relative flex flex-row gap-x-2 border-t border-slate-400/50 py-2"
+      :class="[props.indentLeft ? 'pl-10' : '', props.indentRight ? 'pr-10' : '']"
+    >
       <ArgonIcon class="h-6 w-6" />
       <div class="grow">{{ microgonToArgonNm(props.microgons).format('0,0.[00]') }} ARGN</div>
       <div>{{ currency.symbol }}{{ microgonToMoneyNm(props.microgons).format('0,0.00') }}</div>
       <CrosschainMoveButton
         v-if="props.moveDirection"
         :moveToken="MoveToken.ARGN"
-        :availableAmount="props.microgons"
+        :availableAmount="moveMicrogons"
         :direction="props.moveDirection"
         :networkName="props.networkName"
         :feeTokenSymbol="props.feeTokenSymbol"
-        @openTransferOverlay="openTransferOverlay(MoveToken.ARGN, props.microgons)"
+        :placement="props.movePlacement"
+        @openTransferOverlay="openTransferOverlay(MoveToken.ARGN, moveMicrogons)"
       />
       <MoveCapitalButton
         v-else-if="props.moveFrom !== undefined && props.moveTo !== undefined"
@@ -22,12 +26,13 @@
       >
         <button
           type="button"
-          :disabled="!props.microgons"
-          :title="!props.microgons ? 'No ARGN available to move' : 'Move ARGN'"
-          class="absolute top-1/2 left-[calc(100%+40px)] z-30 h-10 -translate-x-1/2 -translate-y-1/2 cursor-pointer disabled:cursor-default"
+          :disabled="!moveMicrogons"
+          :title="!moveMicrogons ? 'No ARGN available to move' : 'Move ARGN'"
+          class="absolute top-1/2 z-40 h-[45.6px] -translate-x-1/2 -translate-y-1/2 cursor-pointer disabled:cursor-default"
+          :class="props.movePlacement === 'left' ? '-left-1' : 'left-[calc(100%+4px)]'"
         >
           <div
-            :class="!props.microgons ? 'text-argon-600/40' : 'text-argon-600'"
+            :class="!moveMicrogons ? 'text-slate-500 opacity-30' : 'text-argon-600'"
             class="absolute inset-0 flex items-center justify-center text-sm font-bold"
           >
             <span class="relative right-1.5">MOVE</span>
@@ -36,18 +41,22 @@
         </button>
       </MoveCapitalButton>
     </li>
-    <li class="relative flex flex-row gap-x-2 border-y border-slate-400/50 py-2">
+    <li
+      class="relative flex flex-row gap-x-2 border-y border-slate-400/50 py-2"
+      :class="[props.indentLeft ? 'pl-10' : '', props.indentRight ? 'pr-10' : '']"
+    >
       <ArgonotIcon class="h-6 w-6" />
       <div class="grow">{{ micronotToArgonotNm(props.micronots).format('0,0.[00]') }} ARGNOT</div>
       <div>{{ currency.symbol }}{{ micronotToMoneyNm(props.micronots).format('0,0.00') }}</div>
       <CrosschainMoveButton
         v-if="props.moveDirection"
         :moveToken="MoveToken.ARGNOT"
-        :availableAmount="props.micronots"
+        :availableAmount="moveMicronots"
         :direction="props.moveDirection"
         :networkName="props.networkName"
         :feeTokenSymbol="props.feeTokenSymbol"
-        @openTransferOverlay="openTransferOverlay(MoveToken.ARGNOT, props.micronots)"
+        :placement="props.movePlacement"
+        @openTransferOverlay="openTransferOverlay(MoveToken.ARGNOT, moveMicronots)"
       />
       <MoveCapitalButton
         v-else-if="props.moveFrom !== undefined && props.moveTo !== undefined"
@@ -58,12 +67,13 @@
       >
         <button
           type="button"
-          :disabled="!props.micronots"
-          :title="!props.micronots ? 'No ARGNOT available to move' : 'Move ARGNOT'"
-          class="absolute top-1/2 left-[calc(100%+40px)] z-30 h-10 -translate-x-1/2 -translate-y-1/2 cursor-pointer disabled:cursor-default"
+          :disabled="!moveMicronots"
+          :title="!moveMicronots ? 'No ARGNOT available to move' : 'Move ARGNOT'"
+          class="absolute top-1/2 z-40 h-[45.6px] -translate-x-1/2 -translate-y-1/2 cursor-pointer disabled:cursor-default"
+          :class="props.movePlacement === 'left' ? '-left-1' : 'left-[calc(100%+4px)]'"
         >
           <div
-            :class="!props.micronots ? 'text-argon-600/40' : 'text-argon-600'"
+            :class="!moveMicronots ? 'text-slate-500 opacity-30' : 'text-argon-600'"
             class="absolute inset-0 flex items-center justify-center text-sm font-bold"
           >
             <span class="relative right-1.5">MOVE</span>
@@ -75,6 +85,7 @@
   </ul>
 </template>
 <script setup lang="ts">
+import { computed } from 'vue';
 import { MoveToken } from '@argonprotocol/apps-core';
 import type { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
 import ArgonotIcon from '../../assets/resources/argonot.svg';
@@ -93,6 +104,11 @@ const props = withDefaults(
   defineProps<{
     microgons?: bigint;
     micronots?: bigint;
+    moveMicrogons?: bigint;
+    moveMicronots?: bigint;
+    movePlacement?: 'left' | 'right';
+    indentLeft?: boolean;
+    indentRight?: boolean;
     moveDirection?: 'transferToArgon' | 'transferOutOfArgon';
     moveFrom?: MoveFrom;
     moveTo?: MoveTo;
@@ -104,8 +120,12 @@ const props = withDefaults(
     micronots: () => 0n,
     networkName: '',
     feeTokenSymbol: '',
+    movePlacement: 'right',
   },
 );
+
+const moveMicrogons = computed(() => props.moveMicrogons ?? props.microgons);
+const moveMicronots = computed(() => props.moveMicronots ?? props.micronots);
 
 const emit = defineEmits<{
   (

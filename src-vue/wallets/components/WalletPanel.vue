@@ -1,7 +1,7 @@
 <template>
   <div class="flex h-full flex-col text-black/90">
     <div class="mx-1 border-t border-slate-300 px-4 py-6 text-center">
-      <div class="text-7xl font-bold">
+      <div class="text-7xl font-bold text-argon-700/70">
         <FormattedMoney :isLoaded="walletValueIsLoaded" :value="walletTotalValue" />
       </div>
       <div class="mt-2 h-[29px] shrink-0">
@@ -31,6 +31,8 @@
           :moveTo="props.moveTo"
           :networkName="props.transferDirection ? 'Ethereum' : ''"
           :feeTokenSymbol="props.transferDirection ? 'ETH' : ''"
+          :indentLeft="props.indentTokensLeft"
+          :indentRight="props.indentTokensRight"
           @openTransferOverlay="emit('openTransferOverlay', $event)"
         />
       </div>
@@ -71,6 +73,8 @@ const props = defineProps<{
   transferDirection?: 'transferToArgon' | 'transferOutOfArgon';
   moveFrom?: MoveFrom;
   moveTo?: MoveTo;
+  indentTokensLeft?: boolean;
+  indentTokensRight?: boolean;
   showGuidance?: boolean;
   guidanceContext?: IWalletGuidanceContext;
 }>();
