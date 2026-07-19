@@ -51,13 +51,17 @@
         </div>
         <div class="mt-2 h-[29px] shrink-0 text-sm opacity-50">
           <div
-            v-if="
-              [WalletType.defaultArgon, WalletType.miningBot].includes(props.walletSelection?.walletType as WalletType)
-            "
+            v-if="props.walletSelection?.walletType === WalletType.defaultArgon"
             class="border-t border-slate-500/30 pt-2"
           >
             Includes {{ currency.symbol }}{{ microgonToMoneyNm(financials.savingsTotalPending).format('0,0.00') }}
             waiting to mint
+          </div>
+          <div
+            v-if="props.walletSelection?.walletType === WalletType.miningBot"
+            class="border-t border-slate-500/30 pt-2"
+          >
+            Includes {{ currency.symbol }}0.00 waiting to mint
           </div>
           <div
             v-else-if="props.walletSelection?.walletType === WalletType.ethereum"

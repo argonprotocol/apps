@@ -188,10 +188,12 @@ async function openAddWalletPanel(
   showGuidance = false,
   guidanceContext?: IWalletGuidanceContext,
 ) {
-  try {
-    await walletStore.load();
-  } catch (error) {
-    console.error('Failed to load wallets before opening Add Wallet', error);
+  if (!walletStore.isLoaded) {
+    try {
+      await walletStore.load();
+    } catch (error) {
+      console.error('Failed to load wallets before opening Add Wallet', error);
+    }
   }
   if (openWallet.value) {
     openWallet.value.primaryWallet = undefined;
