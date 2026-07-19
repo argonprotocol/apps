@@ -35,7 +35,7 @@
         </HoverCardTrigger>
         <ArrowCalloutButton
           v-if="showInboundArgonGuide"
-          guidance="Click JUMP to move your Uniswap ARGN into this Argon wallet."
+          guidance="Click MOVE to transfer your Uniswap ARGN into this Argon wallet."
           class="absolute top-1/2 left-full z-50 ml-3 -translate-y-1/2"
         />
       </div>
