@@ -281,7 +281,10 @@ export class EthereumInboundTransferTracker {
       targetWalletType = WalletType.defaultArgon;
     } else if (record.argonDestinationAddress === this.walletKeys.miningBotAddress) {
       targetWalletType = WalletType.miningBot;
-    } else if (record.argonDestinationAddress === this.walletKeys.vaultingAddress) {
+    } else if (
+      record.argonDestinationAddress === this.walletKeys.vaultingAddress ||
+      record.argonDestinationAddress === this.walletKeys.legacyVaultingAddress
+    ) {
       targetWalletType = WalletType.defaultArgon;
     }
     transfer.persistedRecord = record;

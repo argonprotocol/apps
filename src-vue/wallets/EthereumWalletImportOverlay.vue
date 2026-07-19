@@ -1,139 +1,131 @@
 <template>
-  <div v-if="ethereumImportStep" class="fixed inset-0 z-[1300] flex items-center justify-center bg-black/30">
-    <div class="w-[520px] rounded-lg border border-slate-300 bg-white p-5 shadow-2xl">
-      <div class="flex items-center justify-between">
-        <h2 class="text-xl font-bold text-slate-800">
-          <template v-if="ethereumImportStep === 'external'">Connect External Wallet</template>
-          <template v-else>Add Ethereum Wallet</template>
-        </h2>
-        <button type="button" class="text-2xl leading-none text-slate-500" @click="closeEthereumImport">&times;</button>
-      </div>
+  <div class="h-full overflow-y-auto p-5 text-left">
+    <div v-if="ethereumImportStep === 'choice'" class="mt-5 grid grid-cols-2 gap-3">
+      <button
+        data-testid="WalletOverlay.createDefaultEthereum()"
+        type="button"
+        class="rounded-md border border-slate-300 px-4 py-3 text-left hover:bg-slate-50"
+        @click="createDefaultEthereum"
+      >
+        <div class="font-bold">Create Native Wallet</div>
+        <div class="mt-1 text-sm text-slate-500">Use the Ethereum wallet from this app's core account.</div>
+      </button>
+      <button
+        data-testid="WalletOverlay.connectExternalEthereum()"
+        type="button"
+        class="rounded-md border border-slate-300 px-4 py-3 text-left hover:bg-slate-50"
+        @click="ethereumImportStep = 'external'"
+      >
+        <div class="font-bold">Connect External Wallet</div>
+        <div class="mt-1 text-sm text-slate-500">Import by private key or mnemonic.</div>
+      </button>
+    </div>
 
-      <div v-if="ethereumImportStep === 'choice'" class="mt-5 grid grid-cols-2 gap-3">
+    <div v-else-if="ethereumImportStep === 'external'" class="mt-5">
+      <div class="mb-3 flex gap-2">
         <button
           type="button"
-          class="rounded-md border border-slate-300 px-4 py-3 text-left hover:bg-slate-50"
-          @click="createDefaultEthereum"
+          class="rounded-md border px-3 py-1.5"
+          :class="ethereumImportMode === 'privateKey' ? 'border-argon-500 bg-argon-50' : 'border-slate-300'"
+          @click="ethereumImportMode = 'privateKey'"
         >
-          <div class="font-bold">Create Native Wallet</div>
-          <div class="mt-1 text-sm text-slate-500">Use the Ethereum wallet from this app's core account.</div>
+          Private Key
         </button>
         <button
           type="button"
-          class="rounded-md border border-slate-300 px-4 py-3 text-left hover:bg-slate-50"
+          class="rounded-md border px-3 py-1.5"
+          :class="ethereumImportMode === 'mnemonic' ? 'border-argon-500 bg-argon-50' : 'border-slate-300'"
+          @click="ethereumImportMode = 'mnemonic'"
+        >
+          Mnemonic
+        </button>
+      </div>
+      <label v-if="ethereumImportMode === 'privateKey'" class="mb-3 block">
+        <span class="mb-1 block text-sm font-semibold text-slate-700">Wallet Name</span>
+        <input
+          v-model="ethereumWalletNameInput"
+          class="focus:border-argon-500 w-full rounded-md border border-slate-300 px-3 py-2 outline-none"
+          placeholder="Name this wallet"
+        />
+      </label>
+      <textarea
+        v-model="ethereumSecretInput"
+        class="focus:border-argon-500 h-28 w-full resize-none rounded-md border border-slate-300 p-3 font-mono text-sm outline-none"
+        :placeholder="ethereumImportMode === 'privateKey' ? 'Paste private key' : 'Paste mnemonic'"
+      />
+      <div v-if="ethereumImportError" class="mt-2 text-sm text-red-600">{{ ethereumImportError }}</div>
+      <div class="mt-4 flex justify-end gap-2">
+        <button
+          v-if="startedFromChoiceStep"
+          type="button"
+          class="rounded-md border border-slate-300 px-4 py-2"
+          @click="ethereumImportStep = 'choice'"
+        >
+          Back
+        </button>
+        <button
+          type="button"
+          class="bg-argon-600 rounded-md px-4 py-2 font-bold text-white disabled:opacity-50"
+          :disabled="isImportingEthereum"
+          @click="continueExternalImport"
+        >
+          {{ ethereumImportMode === 'privateKey' ? 'Import' : 'Preview Accounts' }}
+        </button>
+      </div>
+    </div>
+
+    <div v-else-if="ethereumImportStep === 'mnemonicAccounts'" class="mt-5">
+      <div class="mb-3 flex items-center justify-between">
+        <div class="font-bold">Select an account</div>
+        <button
+          type="button"
+          class="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
+          :disabled="isScanningBalances"
+          @click="scanMnemonicBalances"
+        >
+          {{ isScanningBalances ? 'Scanning...' : 'Scan Balances' }}
+        </button>
+      </div>
+      <div class="max-h-72 overflow-y-auto rounded-md border border-slate-200">
+        <button
+          v-for="account in mnemonicAccounts"
+          :key="account.derivationPath"
+          type="button"
+          class="flex w-full flex-col border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-slate-50"
+          :class="selectedMnemonicPath === account.derivationPath ? 'bg-argon-50' : ''"
+          @click="selectedMnemonicPath = account.derivationPath"
+        >
+          <span class="font-mono text-sm">{{ account.address }}</span>
+          <span class="text-xs text-slate-500">
+            {{ account.derivationPath }}
+            <template v-if="account.balanceSummary">· {{ account.balanceSummary }}</template>
+          </span>
+        </button>
+      </div>
+      <label class="mt-4 block">
+        <span class="mb-1 block text-sm font-semibold text-slate-700">Wallet Name</span>
+        <input
+          v-model="ethereumWalletNameInput"
+          class="focus:border-argon-500 w-full rounded-md border border-slate-300 px-3 py-2 outline-none"
+          placeholder="Name this wallet"
+        />
+      </label>
+      <div class="mt-4 flex justify-end gap-2">
+        <button
+          type="button"
+          class="rounded-md border border-slate-300 px-4 py-2"
           @click="ethereumImportStep = 'external'"
         >
-          <div class="font-bold">Connect External Wallet</div>
-          <div class="mt-1 text-sm text-slate-500">Import by private key or mnemonic.</div>
+          Back
         </button>
-      </div>
-
-      <div v-else-if="ethereumImportStep === 'external'" class="mt-5">
-        <div class="mb-3 flex gap-2">
-          <button
-            type="button"
-            class="rounded-md border px-3 py-1.5"
-            :class="ethereumImportMode === 'privateKey' ? 'border-argon-500 bg-argon-50' : 'border-slate-300'"
-            @click="ethereumImportMode = 'privateKey'"
-          >
-            Private Key
-          </button>
-          <button
-            type="button"
-            class="rounded-md border px-3 py-1.5"
-            :class="ethereumImportMode === 'mnemonic' ? 'border-argon-500 bg-argon-50' : 'border-slate-300'"
-            @click="ethereumImportMode = 'mnemonic'"
-          >
-            Mnemonic
-          </button>
-        </div>
-        <label v-if="ethereumImportMode === 'privateKey'" class="mb-3 block">
-          <span class="mb-1 block text-sm font-semibold text-slate-700">Wallet Name</span>
-          <input
-            v-model="ethereumWalletNameInput"
-            class="focus:border-argon-500 w-full rounded-md border border-slate-300 px-3 py-2 outline-none"
-            placeholder="Name this wallet"
-          />
-        </label>
-        <textarea
-          v-model="ethereumSecretInput"
-          class="focus:border-argon-500 h-28 w-full resize-none rounded-md border border-slate-300 p-3 font-mono text-sm outline-none"
-          :placeholder="ethereumImportMode === 'privateKey' ? 'Paste private key' : 'Paste mnemonic'"
-        />
-        <div v-if="ethereumImportError" class="mt-2 text-sm text-red-600">{{ ethereumImportError }}</div>
-        <div class="mt-4 flex justify-end gap-2">
-          <button
-            v-if="startedFromChoiceStep"
-            type="button"
-            class="rounded-md border border-slate-300 px-4 py-2"
-            @click="ethereumImportStep = 'choice'"
-          >
-            Back
-          </button>
-          <button
-            type="button"
-            class="bg-argon-600 rounded-md px-4 py-2 font-bold text-white disabled:opacity-50"
-            :disabled="isImportingEthereum"
-            @click="continueExternalImport"
-          >
-            {{ ethereumImportMode === 'privateKey' ? 'Import' : 'Preview Accounts' }}
-          </button>
-        </div>
-      </div>
-
-      <div v-else-if="ethereumImportStep === 'mnemonicAccounts'" class="mt-5">
-        <div class="mb-3 flex items-center justify-between">
-          <div class="font-bold">Select an account</div>
-          <button
-            type="button"
-            class="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-            :disabled="isScanningBalances"
-            @click="scanMnemonicBalances"
-          >
-            {{ isScanningBalances ? 'Scanning...' : 'Scan Balances' }}
-          </button>
-        </div>
-        <div class="max-h-72 overflow-y-auto rounded-md border border-slate-200">
-          <button
-            v-for="account in mnemonicAccounts"
-            :key="account.derivationPath"
-            type="button"
-            class="flex w-full flex-col border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-slate-50"
-            :class="selectedMnemonicPath === account.derivationPath ? 'bg-argon-50' : ''"
-            @click="selectedMnemonicPath = account.derivationPath"
-          >
-            <span class="font-mono text-sm">{{ account.address }}</span>
-            <span class="text-xs text-slate-500">
-              {{ account.derivationPath }}
-              <template v-if="account.balanceSummary">· {{ account.balanceSummary }}</template>
-            </span>
-          </button>
-        </div>
-        <label class="mt-4 block">
-          <span class="mb-1 block text-sm font-semibold text-slate-700">Wallet Name</span>
-          <input
-            v-model="ethereumWalletNameInput"
-            class="focus:border-argon-500 w-full rounded-md border border-slate-300 px-3 py-2 outline-none"
-            placeholder="Name this wallet"
-          />
-        </label>
-        <div class="mt-4 flex justify-end gap-2">
-          <button
-            type="button"
-            class="rounded-md border border-slate-300 px-4 py-2"
-            @click="ethereumImportStep = 'external'"
-          >
-            Back
-          </button>
-          <button
-            type="button"
-            class="bg-argon-600 rounded-md px-4 py-2 font-bold text-white disabled:opacity-50"
-            :disabled="!selectedMnemonicPath || isImportingEthereum"
-            @click="importSelectedMnemonicAccount"
-          >
-            Import Selected
-          </button>
-        </div>
+        <button
+          type="button"
+          class="bg-argon-600 rounded-md px-4 py-2 font-bold text-white disabled:opacity-50"
+          :disabled="!selectedMnemonicPath || isImportingEthereum"
+          @click="importSelectedMnemonicAccount"
+        >
+          Import Selected
+        </button>
       </div>
     </div>
   </div>
@@ -141,14 +133,15 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import basicEmitter from '../emitters/basicEmitter.ts';
 import { useWallets } from '../stores/wallets.ts';
 import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
 
 const wallets = useWallets();
+const props = defineProps<{
+  initialStep: 'choice' | 'external';
+}>();
 const emit = defineEmits<{
   complete: [walletRecord: IWalletRecord];
-  cancel: [];
 }>();
 
 const ethereumImportStep = Vue.ref<'choice' | 'external' | 'mnemonicAccounts'>();
@@ -171,11 +164,6 @@ function openEthereumImport(step: 'choice' | 'external') {
   ethereumImportMode.value = 'privateKey';
   ethereumWalletNameInput.value = '';
   ethereumImportError.value = '';
-}
-
-function closeEthereumImport() {
-  resetEthereumImport();
-  emit('cancel');
 }
 
 function resetEthereumImport() {
@@ -270,9 +258,5 @@ async function importSelectedMnemonicAccount() {
   }
 }
 
-basicEmitter.on('openEthereumWalletImportOverlay', openEthereumImport);
-
-Vue.onUnmounted(() => {
-  basicEmitter.off('openEthereumWalletImportOverlay', openEthereumImport);
-});
+Vue.watch(() => props.initialStep, openEthereumImport, { immediate: true });
 </script>

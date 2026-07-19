@@ -2,6 +2,7 @@
   <WalletDialog
     v-if="openWallet"
     :primaryWallet="openWallet.primaryWallet"
+    :primaryAddWalletStep="openWallet.primaryAddWalletStep"
     :transferIn="openWallet.transferIn"
     :transferOut="openWallet.transferOut"
     :walletSelections="walletSelections"
@@ -18,11 +19,8 @@
     @addNewWallet="addNewWallet"
     @addDefaultEthereum="addDefaultEthereum"
     @addExternalEthereum="addExternalEthereum"
+    @completeAddWallet="completeAddWallet"
     @close="closeOverlay"
-  />
-  <EthereumWalletImportOverlay
-    @complete="completeEthereumWalletSetup"
-    @cancel="pendingEthereumWalletAction = undefined"
   />
 </template>
 
@@ -41,16 +39,17 @@ import { releaseOverlayZIndex, reserveOverlayZIndex } from '../overlays/helpers/
 import { useBasics } from '../stores/basics.ts';
 import { getConfig } from '../stores/config.ts';
 import { useWallets } from '../stores/wallets.ts';
-import EthereumWalletImportOverlay from './EthereumWalletImportOverlay.vue';
 import WalletDialog from './WalletDialog.vue';
 import {
   getAvailableWalletSelections,
+  getInitialAddWalletOverlayState,
   getInitialWalletOverlayState,
   getWalletSelectionKey,
   isEthereumWalletSelection,
   returnToTransferWalletChooser as getChooserState,
   selectPrimaryWallet,
   selectTransferWallet,
+  showAddWalletOnTransferSide,
   toggleWalletTransferDirection,
   type IWalletOverlayState,
   type IWalletSelection,
@@ -67,15 +66,12 @@ const basics = useBasics();
 const config = getConfig();
 const walletStore = useWallets();
 const openWallet = Vue.ref<IOpenWallet>();
-const pendingEthereumWalletAction = Vue.ref<
-  { type: 'open'; request: IWalletOverlayRequest } | { type: 'transfer'; direction: IWalletTransferDirection }
->();
 
 const walletSelections = Vue.computed(() =>
   getAvailableWalletSelections(walletStore.walletRecords, [], config.hasExtensionOperations),
 );
 const availableWallets = Vue.computed(() => {
-  if (!openWallet.value) return [];
+  if (!openWallet.value?.primaryWallet) return [];
   return getAvailableWalletSelections(
     walletStore.walletRecords,
     [openWallet.value.primaryWallet],
@@ -95,6 +91,7 @@ async function setPrimaryWallet(wallet: IWalletSelection) {
   if (!openWallet.value) return;
   await activateEthereumWallet(wallet);
   Object.assign(openWallet.value, selectPrimaryWallet(openWallet.value, wallet));
+  openWallet.value.primaryAddWalletStep = undefined;
   openWallet.value.transferIn = undefined;
   openWallet.value.transferOut = undefined;
 }
@@ -127,16 +124,18 @@ async function addDefaultEthereum(direction: IWalletTransferDirection) {
 }
 
 function addExternalEthereum(direction: IWalletTransferDirection) {
-  pendingEthereumWalletAction.value = { type: 'transfer', direction };
-  basicEmitter.emit('openEthereumWalletImportOverlay', 'external');
+  showSidecarAddWallet(direction, 'external');
 }
 
 function addNewWallet(direction: IWalletTransferDirection) {
-  if (canAddDefaultEthereum.value) {
-    void addDefaultEthereum(direction);
-    return;
-  }
-  addExternalEthereum(direction);
+  showSidecarAddWallet(direction, canAddDefaultEthereum.value ? 'choice' : 'external');
+}
+
+function showSidecarAddWallet(direction: IWalletTransferDirection, initialStep: 'choice' | 'external') {
+  if (!openWallet.value) return;
+  const nextState = showAddWalletOnTransferSide(openWallet.value, direction, initialStep);
+  openWallet.value.transferIn = nextState.transferIn;
+  openWallet.value.transferOut = nextState.transferOut;
 }
 
 const openWalletOverlay = async (request: IWalletOverlayRequest, ethereumWalletRecord?: IWalletRecord) => {
@@ -148,14 +147,16 @@ const openWalletOverlay = async (request: IWalletOverlayRequest, ethereumWalletR
 
   const wallet = getRequestedWallet(request, ethereumWalletRecord);
   if (!wallet) {
-    pendingEthereumWalletAction.value = { type: 'open', request };
-    basicEmitter.emit('openEthereumWalletImportOverlay', 'choice');
+    await openAddWalletPanel('choice', request.showGuidance ?? false, request.guidanceContext);
     return;
   }
 
   await activateEthereumWallet(wallet);
   if (openWallet.value) {
-    if (getWalletSelectionKey(openWallet.value.primaryWallet) !== getWalletSelectionKey(wallet)) {
+    if (
+      !openWallet.value.primaryWallet ||
+      getWalletSelectionKey(openWallet.value.primaryWallet) !== getWalletSelectionKey(wallet)
+    ) {
       await setPrimaryWallet(wallet);
     }
     openWallet.value.showGuidance = request.showGuidance ?? false;
@@ -173,15 +174,44 @@ const openWalletOverlay = async (request: IWalletOverlayRequest, ethereumWalletR
   syncOverlayState();
 };
 
-async function completeEthereumWalletSetup(walletRecord: IWalletRecord) {
-  const action = pendingEthereumWalletAction.value;
-  pendingEthereumWalletAction.value = undefined;
-  if (!action) return;
-  if (action.type === 'open') {
-    await openWalletOverlay(action.request, walletRecord);
-  } else {
-    await setTransferWallet(action.direction, { walletType: WalletType.ethereum, walletRecord });
+async function completeAddWallet(target: 'primary' | IWalletTransferDirection, walletRecord: IWalletRecord) {
+  const wallet = { walletType: WalletType.ethereum, walletRecord } as const;
+  if (target === 'primary') {
+    await setPrimaryWallet(wallet);
+    return;
   }
+  await setTransferWallet(target, wallet);
+}
+
+async function openAddWalletPanel(
+  initialStep: 'choice' | 'external',
+  showGuidance = false,
+  guidanceContext?: IWalletGuidanceContext,
+) {
+  if (!walletStore.isLoaded) {
+    try {
+      await walletStore.load();
+    } catch (error) {
+      console.error('Failed to load wallets before opening Add Wallet', error);
+    }
+  }
+  if (openWallet.value) {
+    openWallet.value.primaryWallet = undefined;
+    openWallet.value.primaryAddWalletStep = initialStep;
+    openWallet.value.transferIn = undefined;
+    openWallet.value.transferOut = undefined;
+    openWallet.value.showGuidance = showGuidance;
+    openWallet.value.guidanceContext = guidanceContext;
+    focusWallet();
+    return;
+  }
+  openWallet.value = {
+    ...getInitialAddWalletOverlayState(initialStep),
+    showGuidance,
+    guidanceContext,
+    zIndex: reserveOverlayZIndex(),
+  };
+  syncOverlayState();
 }
 
 function getRequestedWallet(
@@ -218,8 +248,10 @@ function syncOverlayState() {
 }
 
 basicEmitter.on('openWalletOverlay', openWalletOverlay);
+basicEmitter.on('openEthereumWalletImportOverlay', openAddWalletPanel);
 Vue.onUnmounted(() => {
   basicEmitter.off('openWalletOverlay', openWalletOverlay);
+  basicEmitter.off('openEthereumWalletImportOverlay', openAddWalletPanel);
   closeOverlay();
 });
 </script>

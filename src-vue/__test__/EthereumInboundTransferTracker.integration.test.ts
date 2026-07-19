@@ -844,9 +844,14 @@ describe('EthereumInboundTransferTracker integration', () => {
     expect(activeTransfer?.transferState.progress.currentStepHint).toBeUndefined();
   });
 
-  it('finalizes a resumed transfer once another runner has already proven the gateway activity', async () => {
+  it('resumes a transfer to the legacy Native Argon address after the default wallet address changes', async () => {
     const db = await createTestDb();
     const walletKeys = createMockWalletKeys();
+    const legacyNativeArgonAddress = walletKeys.legacyVaultingAddress;
+    walletKeys.configureDefaultArgonWallet({
+      address: 'current-native-argon-address',
+      keyReference: '//default',
+    });
     const mainchainClient = createMainchainClient({
       getProvenNonce: () => 9n,
     });
@@ -854,7 +859,7 @@ describe('EthereumInboundTransferTracker integration', () => {
     const persistedRecord = await insertTransferRecord(db, walletKeys.ethereumAddress, {
       id: 'eth-transfer-1',
       token: MoveToken.ARGNOT,
-      argonDestinationAddress: walletKeys.vaultingAddress,
+      argonDestinationAddress: legacyNativeArgonAddress,
       sourceTxHash: `0x${'55'.repeat(32)}`,
       sourceBlockNumber: 54,
       sourceBlockHash: `0x${'66'.repeat(32)}`,

@@ -336,7 +336,7 @@
         </div>
         <div class="text-argon-600 mt-2 flex flex-row items-center justify-center gap-x-2">
           <a
-            href="http://localhost:5173/docs/desktop-app/access-and-upgrades"
+            href="https://argon.network/docs/desktop-app/access-and-upgrades"
             target="_blank"
             class="cursor-pointer opacity-50 hover:opacity-100"
           >
@@ -365,7 +365,7 @@
         </div>
         <div class="text-argon-600 mt-2 flex flex-row items-center justify-center gap-x-2">
           <a
-            href="http://localhost:5173/docs/desktop-app/access-and-upgrades"
+            href="https://argon.network/docs/desktop-app/access-and-upgrades"
             target="_blank"
             class="cursor-pointer opacity-50 hover:opacity-100"
           >
@@ -380,7 +380,7 @@
       <div v-else class="relative flex grow flex-col items-center justify-center text-center text-slate-700/30">
         <div class="relative flex flex-row items-center text-center whitespace-nowrap">Explore</div>
         <div class="relative mt-px">
-          <a href="http://localhost:5173/docs" target="_blank" class="cursor-pointer opacity-50 hover:opacity-100">
+          <a href="https://argon.network/docs" target="_blank" class="cursor-pointer opacity-50 hover:opacity-100">
             Docs
           </a>
           <span class="text-slate-600/40">and</span>

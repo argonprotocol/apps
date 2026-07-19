@@ -3,12 +3,14 @@ import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
 import { WalletType } from '../lib/Wallet.ts';
 import {
   getAvailableWalletSelections,
+  getInitialAddWalletOverlayState,
   getInitialWalletOverlayState,
   getWalletSelectionKey,
   getWalletSelectionName,
   returnToTransferWalletChooser,
   selectPrimaryWallet,
   selectTransferWallet,
+  showAddWalletOnTransferSide,
   toggleWalletTransferDirection,
   type IWalletOverlayState,
   type IWalletSelection,
@@ -70,6 +72,10 @@ describe('wallet overlay state', () => {
     expect(getInitialWalletOverlayState(primaryWallet)).toEqual({ primaryWallet });
   });
 
+  it('opens Add Wallet as the main panel without a primary wallet', () => {
+    expect(getInitialAddWalletOverlayState('choice')).toEqual({ primaryAddWalletStep: 'choice' });
+  });
+
   it('opens and closes a transfer direction without changing the primary wallet', () => {
     const open = toggleWalletTransferDirection({ primaryWallet }, 'out');
     expect(open).toEqual({ primaryWallet, transferOut: {} });
@@ -97,6 +103,15 @@ describe('wallet overlay state', () => {
     expect(returnToTransferWalletChooser({ primaryWallet, transferIn: { wallet: transferWallet } }, 'in')).toEqual({
       primaryWallet,
       transferIn: {},
+    });
+  });
+
+  it('replaces one sidecar chooser with Add Wallet without changing the other side', () => {
+    const state = { primaryWallet, transferIn: {}, transferOut: { wallet: transferWallet } };
+    expect(showAddWalletOnTransferSide(state, 'in', 'external')).toEqual({
+      primaryWallet,
+      transferIn: { addWalletStep: 'external' },
+      transferOut: { wallet: transferWallet },
     });
   });
 
