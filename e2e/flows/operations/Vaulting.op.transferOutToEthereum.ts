@@ -101,43 +101,19 @@ export default new Operation<IVaultingFlowContext, ITransferOutToEthereumState>(
         await flow.waitFor('WalletOverlay', { timeoutMs: 30_000 });
       }
 
+      await clickIfVisible(flow, 'WalletOverlay.toggleTransferOut()', { timeoutMs: 5_000 });
       await pollEvery(
         1_000,
         async () => {
-          const [moveToEthereumButton, directionToggle] = await Promise.all([
-            flow.isVisible(moveToEthereumTarget),
-            flow.isVisible('WalletOverlay.toggleSyncDirection()'),
-          ]);
-          if (moveToEthereumButton.visible || directionToggle.clickable) {
-            return true;
-          }
-
+          if ((await flow.isVisible(moveToEthereumTarget)).visible) return true;
           await clickIfVisible(flow, 'WalletOverlay.chooseEthereumWallet()', { timeoutMs: 1_500 });
           return false;
         },
         {
           timeoutMs: UI_TRANSITION_TIMEOUT_MS,
-          timeoutMessage: `${flowName}: wallet sync mode did not open Ethereum transfer actions.`,
+          timeoutMessage: `${flowName}: Transfer Out did not open Ethereum transfer actions.`,
         },
       );
-
-      if (!(await flow.isVisible(moveToEthereumTarget)).visible) {
-        await pollEvery(
-          1_000,
-          async () => {
-            if ((await flow.isVisible(moveToEthereumTarget)).visible) {
-              return true;
-            }
-
-            await clickIfVisible(flow, 'WalletOverlay.toggleSyncDirection()', { timeoutMs: 1_500 });
-            return false;
-          },
-          {
-            timeoutMs: UI_TRANSITION_TIMEOUT_MS,
-            timeoutMessage: `${flowName}: wallet sync mode never switched to Ethereum transfer direction.`,
-          },
-        );
-      }
 
       await pollEvery(
         1_000,

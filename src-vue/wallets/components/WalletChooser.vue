@@ -1,11 +1,18 @@
 <template>
-  <div class="flex h-full flex-col px-4 pt-3 pb-5 text-left">
+  <div class="flex h-full flex-col text-left" :class="props.compact ? 'px-5 pb-5' : 'px-4 pt-3 pb-5'">
     <div class="mt-3 flex max-h-80 flex-col gap-2 overflow-y-auto pr-1">
       <div v-for="wallet in props.availableWallets" :key="getWalletSelectionKey(wallet)" class="relative">
         <button
           :data-wallet-key="getWalletSelectionKey(wallet)"
           type="button"
-          class="relative flex min-h-16 w-full cursor-pointer items-center rounded-md border border-slate-300 bg-white/80 px-3 py-2 text-left shadow-sm hover:border-slate-400 hover:bg-white"
+          class="relative flex w-full cursor-pointer items-center px-3 py-2 text-left"
+          :class="
+            props.compact
+              ? props.dark
+                ? 'min-h-14 border-b border-white/20 bg-transparent text-white/70 hover:bg-white/10'
+                : 'min-h-14 border-b border-slate-300 bg-transparent hover:bg-slate-100'
+              : 'min-h-16 rounded-md border border-slate-300 bg-white/80 shadow-sm hover:border-slate-400 hover:bg-white'
+          "
           @click="emit('select', wallet)"
         >
           <span
@@ -23,8 +30,12 @@
           <EthereumLogo v-if="isEthereumWalletSelection(wallet)" class="h-8 w-8 shrink-0" />
           <ArgonLogo v-else class="h-8 w-8 shrink-0" />
           <span class="ml-3 min-w-0">
-            <strong class="block truncate text-sm text-slate-800">{{ getWalletSelectionName(wallet) }}</strong>
-            <span class="block truncate text-xs text-slate-500">{{ getWalletAddress(wallet) }}</span>
+            <strong class="block truncate text-sm" :class="props.dark ? 'text-white/75' : 'text-slate-800'">
+              {{ getWalletSelectionName(wallet) }}
+            </strong>
+            <span class="block truncate text-xs" :class="props.dark ? 'text-white/50' : 'text-slate-500'">
+              {{ getWalletAddress(wallet) }}
+            </span>
           </span>
         </button>
         <ArrowCalloutButton
@@ -35,9 +46,22 @@
       </div>
     </div>
 
-    <div class="mt-auto grid gap-2 pt-4">
+    <div
+      class="mt-auto grid gap-2 pt-4"
+      :class="props.compact ? (props.dark ? 'border-t border-white/20' : 'border-t border-slate-300') : ''"
+    >
       <button
-        v-if="props.canAddDefaultEthereum"
+        v-if="props.compact"
+        data-testid="WalletOverlay.addNewWallet()"
+        type="button"
+        class="rounded-md px-3 py-2 text-left text-lg font-semibold"
+        :class="props.dark ? 'text-white/70 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200/60'"
+        @click="emit('addNewWallet')"
+      >
+        + Add New Wallet
+      </button>
+      <button
+        v-if="!props.compact && props.canAddDefaultEthereum"
         data-testid="WalletOverlay.addDefaultEthereum()"
         type="button"
         class="rounded-md border border-slate-400/60 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:border-slate-500/60 hover:bg-slate-200/60"
@@ -45,7 +69,7 @@
       >
         Add Default Ethereum
       </button>
-      <div class="relative">
+      <div v-if="!props.compact" class="relative">
         <button
           data-testid="WalletOverlay.addExternalEthereum()"
           type="button"
@@ -83,10 +107,13 @@ import { useCertificationController } from '../../stores/certificationController
 const props = defineProps<{
   availableWallets: IWalletSelection[];
   canAddDefaultEthereum: boolean;
+  compact?: boolean;
+  dark?: boolean;
 }>();
 
 const emit = defineEmits<{
   (event: 'select', wallet: IWalletSelection): void;
+  (event: 'addNewWallet'): void;
   (event: 'addDefaultEthereum'): void;
   (event: 'addExternalEthereum'): void;
 }>();

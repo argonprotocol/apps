@@ -1,5 +1,5 @@
 <template>
-  <div class="flex min-w-0 grow flex-row items-center gap-x-3.5">
+  <div class="flex min-w-0 grow flex-row items-center gap-x-2.5">
     <WalletSelector
       :selectedWallet="props.selection"
       :walletSelections="props.walletSelections"
@@ -14,6 +14,7 @@
       :selection="props.selection"
       :wallet="props.wallet"
       :walletIsOpen="true"
+      :showBorders="true"
       :canExportPrivateKey="props.canExportPrivateKey"
       :walletAddressTestId="walletAddressTestId"
       class="h-[34px] shrink-0"

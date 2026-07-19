@@ -22,154 +22,115 @@
             left: `calc(50% + ${draggable.modalPosition.x}px)`,
             transform: 'translate(-50%, -50%)',
           }"
-          class="pointer-events-auto absolute flex min-h-140 flex-row gap-12 focus:outline-none"
+          class="pointer-events-auto absolute flex min-h-140 items-stretch focus:outline-none"
           @mousedown="emit('focus')"
         >
-          <DialogTitle class="sr-only">Wallets</DialogTitle>
+          <DialogTitle class="sr-only">Wallet</DialogTitle>
 
-          <section
-            class="flex min-h-140 w-110 shrink-0 flex-col rounded-lg"
-            :class="
-              props.leftWallet
-                ? 'overflow-visible border border-black/40 bg-white shadow-2xl'
-                : 'overflow-hidden border-2 border-dashed border-slate-400/80 bg-gray-200/95 inset-shadow-sm inset-shadow-slate-300/60'
-            "
-          >
-            <h2
-              :style="{ cursor: draggable.isDragging ? 'grabbing' : 'grab' }"
-              class="z-20 mx-2 flex shrink-0 flex-row items-center justify-between gap-x-3 px-2 pt-3 pb-2 text-2xl font-bold text-slate-800/70 select-none"
-              @mousedown="draggable.onMouseDown"
-            >
-              <NavHeader
-                v-if="props.leftWallet"
-                :selection="props.leftWallet"
-                :walletSelections="props.walletSelections"
-                :wallet="getWallet(props.leftWallet)"
-                :canExportPrivateKey="canExportEthereumPrivateKey(props.leftWallet)"
-                :showClose="true"
-                closeSide="left"
-                @select="emit('selectLeftWallet', $event)"
-                @close="emit('closeLeft')"
-              />
-              <header v-else class="grow px-2 text-left text-xl font-bold text-slate-600">Choose a Wallet</header>
-            </h2>
-
-            <WalletPanel
-              v-if="props.leftWallet"
-              :selection="props.leftWallet"
-              :wallet="getWallet(props.leftWallet)"
-              :mode="props.rightWallet ? 'transfer' : 'chooser'"
-              :transferDirection="
-                props.rightWallet ? getTransferDirection(props.leftWallet, props.rightWallet) : undefined
-              "
-              :moveFrom="argonWalletMove?.moveFrom"
-              :moveTo="argonWalletMove?.moveTo"
-              :showGuidance="props.showGuidance"
-              :guidanceContext="props.guidanceContext"
-              class="grow"
-              @openTransferOverlay="
-                props.rightWallet && openTransferOverlay(props.leftWallet, props.rightWallet, $event)
-              "
-            />
-            <WalletChooser
-              v-else
+          <Transition name="wallet-sidecar-left">
+            <WalletTransferSidecar
+              v-if="props.transferIn"
+              direction="in"
+              :walletSelection="props.transferIn.wallet"
+              :wallet="props.transferIn.wallet ? getWallet(props.transferIn.wallet) : undefined"
               :availableWallets="props.availableWallets"
               :canAddDefaultEthereum="props.canAddDefaultEthereum"
-              class="grow border-t border-dashed border-slate-400/50"
-              @select="emit('selectLeftWallet', $event)"
-              @addDefaultEthereum="emit('addDefaultEthereum', 'left')"
-              @addExternalEthereum="emit('addExternalEthereum', 'left')"
+              :isSource="true"
+              :transferDirection="transferInConfig?.crosschainDirection"
+              :moveFrom="transferInConfig?.moveFrom"
+              :moveTo="transferInConfig?.moveTo"
+              class="relative mt-7 -mr-px mb-7"
+              @select="emit('selectTransferWallet', 'in', $event)"
+              @closeWallet="emit('returnToTransferWalletChooser', 'in')"
+              @minimize="emit('toggleTransferDirection', 'in')"
+              @addNewWallet="emit('addNewWallet', 'in')"
+              @addDefaultEthereum="emit('addDefaultEthereum', 'in')"
+              @addExternalEthereum="emit('addExternalEthereum', 'in')"
+              @openTransferOverlay="
+                props.transferIn.wallet && openTransferOverlay(props.transferIn.wallet, props.primaryWallet, $event)
+              "
             />
-          </section>
+          </Transition>
 
           <section
-            class="flex min-h-140 w-110 shrink-0 flex-col rounded-lg"
-            :class="
-              props.rightWallet
-                ? 'overflow-visible border border-black/40 bg-white shadow-2xl'
-                : 'overflow-hidden border-2 border-dashed border-slate-400/60 bg-slate-100/90 inset-shadow-sm inset-shadow-slate-300/60'
-            "
+            class="relative z-20 flex min-h-140 w-120 shrink-0 flex-col overflow-visible rounded-lg border border-black/40 bg-white shadow-2xl"
           >
+            <button
+              v-if="!props.transferIn"
+              data-testid="WalletOverlay.toggleTransferIn()"
+              type="button"
+              class="absolute top-24 right-full flex h-76 w-14 cursor-pointer flex-col items-center justify-between rounded-l-lg border border-r-0 border-black/50 bg-gray-900/70 py-10 text-lg font-bold text-white/60 shadow-lg hover:bg-gray-900/90 focus:outline-none"
+              @click="emit('toggleTransferDirection', 'in')"
+            >
+              <ArrowLeftIcon class="h-7 w-7" />
+              <span class="rotate-180 [writing-mode:vertical-rl]">TRANSFER IN</span>
+              <ArrowLeftIcon class="h-7 w-7" />
+            </button>
+            <button
+              v-if="!props.transferOut"
+              data-testid="WalletOverlay.toggleTransferOut()"
+              type="button"
+              class="absolute top-24 left-full flex h-76 w-14 cursor-pointer flex-col items-center justify-between rounded-r-lg border border-l-0 border-black/50 bg-gray-900/70 py-10 text-lg font-bold text-white/60 shadow-lg hover:bg-gray-900/90 focus:outline-none"
+              @click="emit('toggleTransferDirection', 'out')"
+            >
+              <ArrowRightIcon class="h-7 w-7" />
+              <span class="[writing-mode:vertical-rl]">TRANSFER OUT</span>
+              <ArrowRightIcon class="h-7 w-7" />
+            </button>
+
             <h2
               :style="{ cursor: draggable.isDragging ? 'grabbing' : 'grab' }"
-              class="z-20 mx-2 flex shrink-0 flex-row items-center justify-between gap-x-3 px-2 pt-3 pb-2 text-2xl font-bold text-slate-800/70 select-none"
+              class="z-20 mx-2 flex shrink-0 items-center px-2 pt-3 pb-2 text-2xl font-bold text-slate-800/70 select-none"
               @mousedown="draggable.onMouseDown"
             >
               <NavHeader
-                v-if="props.rightWallet"
-                :selection="props.rightWallet"
+                :selection="props.primaryWallet"
                 :walletSelections="props.walletSelections"
-                :wallet="getWallet(props.rightWallet)"
-                :canExportPrivateKey="canExportEthereumPrivateKey(props.rightWallet)"
+                :wallet="getWallet(props.primaryWallet)"
+                :canExportPrivateKey="canExportEthereumPrivateKey(props.primaryWallet)"
                 :showClose="true"
                 closeSide="right"
-                @select="emit('selectRightWallet', $event)"
-                @close="emit('closeRight')"
+                @select="emit('selectPrimaryWallet', $event)"
+                @close="emit('close')"
               />
-              <header v-else class="grow px-2 text-left text-xl font-bold text-slate-600">Choose a Wallet</header>
             </h2>
-
             <WalletPanel
-              v-if="props.rightWallet"
-              :selection="props.rightWallet"
-              :wallet="getWallet(props.rightWallet)"
-              :mode="props.leftWallet ? 'transfer' : 'chooser'"
+              :selection="props.primaryWallet"
+              :wallet="getWallet(props.primaryWallet)"
+              :mode="props.transferOut?.wallet ? 'transfer' : 'chooser'"
               :showGuidance="props.showGuidance"
               :guidanceContext="props.guidanceContext"
+              :indentTokensLeft="!!props.transferIn?.wallet"
+              :indentTokensRight="!!props.transferOut?.wallet"
               class="grow"
-            />
-            <WalletChooser
-              v-else
-              :availableWallets="props.availableWallets"
-              :canAddDefaultEthereum="props.canAddDefaultEthereum"
-              class="grow border-t border-dashed border-slate-400/50"
-              @select="emit('selectRightWallet', $event)"
-              @addDefaultEthereum="emit('addDefaultEthereum', 'right')"
-              @addExternalEthereum="emit('addExternalEthereum', 'right')"
             />
           </section>
 
-          <div
-            v-if="props.leftWallet && props.rightWallet"
-            class="absolute top-full left-1/2 mt-4 flex w-max max-w-4xl -translate-x-1/2 items-center gap-3 text-sm text-white drop-shadow-sm"
-          >
-            <div class="relative flex shrink-0">
-              <button
-                data-testid="WalletOverlay.toggleSyncDirection()"
-                type="button"
-                class="flex cursor-pointer items-center gap-1.5 rounded border border-white/50 bg-white/10 px-3 py-1.5 font-semibold text-white hover:bg-white/20 focus:outline-none"
-                title="Switch direction"
-                @click="emit('flip')"
-              >
-                <ArrowsRightLeftIcon class="h-4 w-4 stroke-2" />
-                Switch direction
-              </button>
-              <ArrowCalloutButton
-                v-if="showInboundTransferDirectionGuide"
-                guidance="Switch direction so ARGN moves from Ethereum into Argon."
-                class="absolute top-0 left-1/2 z-50 -translate-x-1/2 -translate-y-[calc(100%+0.75rem)]"
-                position="top"
-                :showArrow="false"
-              />
-            </div>
-            <p>
-              Use
-              <strong>{{ isCrosschainWalletPair() ? 'JUMP' : 'MOVE' }}</strong>
-              to transfer supported tokens from
-              <strong>{{ getWalletSelectionName(props.leftWallet) }}</strong>
-              to
-              <strong>{{ getWalletSelectionName(props.rightWallet) }}</strong>
-              .
-              <a
-                v-if="isCrosschainWalletPair()"
-                href="https://argon.network/documentation/transfer-guide"
-                target="_blank"
-                class="font-semibold underline"
-              >
-                Learn more
-              </a>
-            </p>
-          </div>
+          <Transition name="wallet-sidecar-right">
+            <WalletTransferSidecar
+              v-if="props.transferOut"
+              direction="out"
+              :walletSelection="props.transferOut.wallet"
+              :wallet="props.transferOut.wallet ? getWallet(props.transferOut.wallet) : undefined"
+              :moveWallet="getWallet(props.primaryWallet)"
+              :availableWallets="props.availableWallets"
+              :canAddDefaultEthereum="props.canAddDefaultEthereum"
+              :isSource="false"
+              :transferDirection="transferOutConfig?.crosschainDirection"
+              :moveFrom="transferOutConfig?.moveFrom"
+              :moveTo="transferOutConfig?.moveTo"
+              class="relative mt-7 mb-7 -ml-px"
+              @select="emit('selectTransferWallet', 'out', $event)"
+              @closeWallet="emit('returnToTransferWalletChooser', 'out')"
+              @minimize="emit('toggleTransferDirection', 'out')"
+              @addNewWallet="emit('addNewWallet', 'out')"
+              @addDefaultEthereum="emit('addDefaultEthereum', 'out')"
+              @addExternalEthereum="emit('addExternalEthereum', 'out')"
+              @openTransferOverlay="
+                props.transferOut.wallet && openTransferOverlay(props.primaryWallet, props.transferOut.wallet, $event)
+              "
+            />
+          </Transition>
 
           <WalletTransferOverlay :request="activeTransferOverlay" @close="activeTransferOverlay = undefined" />
         </div>
@@ -181,7 +142,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
-import { ArrowsRightLeftIcon } from '@heroicons/vue/24/outline';
+import { ArrowLeftIcon, ArrowRightIcon } from '@heroicons/vue/24/outline';
 import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
 import type { IArgonWalletType, IEthereumMoveToken } from '../interfaces/IEthereumInboundTransferTracker.ts';
 import { type IWallet, WalletType } from '../lib/Wallet.ts';
@@ -191,48 +152,42 @@ import { useWallets } from '../stores/wallets.ts';
 import type { IWalletGuidanceContext } from '../emitters/basicEmitter.ts';
 import BgOverlay from '../components/BgOverlay.vue';
 import NavHeader from './components/NavHeader.vue';
-import WalletChooser from './components/WalletChooser.vue';
 import WalletPanel from './components/WalletPanel.vue';
 import WalletTransferOverlay from './components/WalletTransferOverlay.vue';
+import WalletTransferSidecar from './components/WalletTransferSidecar.vue';
 import {
   getWalletSelectionKey,
-  getWalletSelectionName,
   isEthereumWalletSelection,
   type IWalletSelection,
+  type IWalletTransferSideState,
+  type IWalletTransferDirection,
 } from './walletOverlayState.ts';
-import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
-import { useCertificationController } from '../stores/certificationController.ts';
 
-const props = withDefaults(
-  defineProps<{
-    leftWallet?: IWalletSelection;
-    rightWallet?: IWalletSelection;
-    walletSelections: IWalletSelection[];
-    availableWallets: IWalletSelection[];
-    canAddDefaultEthereum: boolean;
-    showGuidance?: boolean;
-    guidanceContext?: IWalletGuidanceContext;
-    zIndex: number;
-  }>(),
-  {
-    showGuidance: false,
-  },
-);
+const props = defineProps<{
+  primaryWallet: IWalletSelection;
+  transferIn?: IWalletTransferSideState;
+  transferOut?: IWalletTransferSideState;
+  walletSelections: IWalletSelection[];
+  availableWallets: IWalletSelection[];
+  canAddDefaultEthereum: boolean;
+  showGuidance?: boolean;
+  guidanceContext?: IWalletGuidanceContext;
+  zIndex: number;
+}>();
 
 const emit = defineEmits<{
   (event: 'focus'): void;
-  (event: 'selectLeftWallet', wallet: IWalletSelection): void;
-  (event: 'selectRightWallet', wallet: IWalletSelection): void;
-  (event: 'addDefaultEthereum', side: 'left' | 'right'): void;
-  (event: 'addExternalEthereum', side: 'left' | 'right'): void;
-  (event: 'flip'): void;
-  (event: 'closeLeft'): void;
-  (event: 'closeRight'): void;
+  (event: 'selectPrimaryWallet', wallet: IWalletSelection): void;
+  (event: 'toggleTransferDirection', direction: IWalletTransferDirection): void;
+  (event: 'selectTransferWallet', direction: IWalletTransferDirection, wallet: IWalletSelection): void;
+  (event: 'returnToTransferWalletChooser', direction: IWalletTransferDirection): void;
+  (event: 'addNewWallet', direction: IWalletTransferDirection): void;
+  (event: 'addDefaultEthereum', direction: IWalletTransferDirection): void;
+  (event: 'addExternalEthereum', direction: IWalletTransferDirection): void;
   (event: 'close'): void;
 }>();
 
 const walletStore = useWallets();
-const controller = useCertificationController();
 const draggable = Vue.reactive(new Draggable({ constrainToViewport: false }));
 const activeTransferOverlay = Vue.ref<{
   direction: 'transferToArgon' | 'transferOutOfArgon';
@@ -242,41 +197,34 @@ const activeTransferOverlay = Vue.ref<{
   networkName: string;
   feeTokenSymbol: string;
 }>();
-const argonWalletMove = Vue.computed(() => {
-  const sourceWallet = props.leftWallet;
-  const recipientWallet = props.rightWallet;
-  if (
-    !sourceWallet ||
-    !recipientWallet ||
-    isEthereumWalletSelection(sourceWallet) ||
-    isEthereumWalletSelection(recipientWallet)
-  ) {
-    return;
-  }
 
-  if (sourceWallet.walletType === WalletType.defaultArgon && recipientWallet.walletType === WalletType.miningBot) {
+const transferInConfig = Vue.computed(() =>
+  props.transferIn?.wallet ? getTransferConfig(props.transferIn.wallet, props.primaryWallet) : undefined,
+);
+const transferOutConfig = Vue.computed(() =>
+  props.transferOut?.wallet ? getTransferConfig(props.primaryWallet, props.transferOut.wallet) : undefined,
+);
+
+function getTransferConfig(source: IWalletSelection, recipient: IWalletSelection) {
+  if (isEthereumWalletSelection(source) && !isEthereumWalletSelection(recipient)) {
+    return { crosschainDirection: 'transferToArgon' as const };
+  }
+  if (!isEthereumWalletSelection(source) && isEthereumWalletSelection(recipient)) {
+    return { crosschainDirection: 'transferOutOfArgon' as const };
+  }
+  if (isEthereumWalletSelection(source) || isEthereumWalletSelection(recipient)) return;
+  if (source.walletType === WalletType.defaultArgon && recipient.walletType === WalletType.miningBot) {
     return { moveFrom: MoveFrom.DefaultArgon, moveTo: MoveTo.MiningBot };
   }
-
-  if (sourceWallet.walletType === WalletType.miningBot && recipientWallet.walletType === WalletType.defaultArgon) {
+  if (source.walletType === WalletType.miningBot && recipient.walletType === WalletType.defaultArgon) {
     return { moveFrom: MoveFrom.MiningBot, moveTo: MoveTo.DefaultArgon };
   }
-});
-const showInboundTransferDirectionGuide = Vue.computed(() => {
-  if (!controller.isTransferGuideActive || !props.leftWallet || !props.rightWallet) {
-    return false;
-  }
-
-  return !isEthereumWalletSelection(props.leftWallet) && isEthereumWalletSelection(props.rightWallet);
-});
+}
 
 provideOverlayContentZIndex(Vue.computed(() => props.zIndex));
 
 function getWallet(selection: IWalletSelection): IWallet {
-  if (isEthereumWalletSelection(selection)) {
-    return walletStore.getEthereumWalletRecord(selection.walletRecord.id);
-  }
-
+  if (isEthereumWalletSelection(selection)) return walletStore.getEthereumWalletRecord(selection.walletRecord.id);
   return selection.walletType === WalletType.miningBot ? walletStore.miningBotWallet : walletStore.defaultArgonWallet;
 }
 
@@ -284,37 +232,16 @@ function canExportEthereumPrivateKey(selection: IWalletSelection) {
   return isEthereumWalletSelection(selection) && selection.walletRecord.role === 'defaultEthereum';
 }
 
-function isCrosschainWalletPair() {
-  if (!props.leftWallet || !props.rightWallet) return false;
-
-  return isEthereumWalletSelection(props.leftWallet) !== isEthereumWalletSelection(props.rightWallet);
-}
-
-function getTransferDirection(
-  sourceWallet: IWalletSelection,
-  recipientWallet: IWalletSelection,
-): 'transferToArgon' | 'transferOutOfArgon' | undefined {
-  if (isEthereumWalletSelection(sourceWallet) && !isEthereumWalletSelection(recipientWallet)) {
-    return 'transferToArgon';
-  }
-
-  if (!isEthereumWalletSelection(sourceWallet) && isEthereumWalletSelection(recipientWallet)) {
-    return 'transferOutOfArgon';
-  }
-}
-
 async function openTransferOverlay(
   sourceWallet: IWalletSelection,
   recipientWallet: IWalletSelection,
   transfer: { moveToken: IEthereumMoveToken; availableAmount: bigint },
 ) {
-  const direction = getTransferDirection(sourceWallet, recipientWallet);
+  const direction = getTransferConfig(sourceWallet, recipientWallet)?.crosschainDirection;
   if (!direction) return;
-
   const ethereumWallet = isEthereumWalletSelection(sourceWallet) ? sourceWallet : recipientWallet;
   const argonWallet = isEthereumWalletSelection(sourceWallet) ? recipientWallet : sourceWallet;
   if (!isEthereumWalletSelection(ethereumWallet) || isEthereumWalletSelection(argonWallet)) return;
-
   await walletStore.selectEthereumWalletRecord(ethereumWallet.walletRecord.id);
   activeTransferOverlay.value = {
     direction,
@@ -332,11 +259,35 @@ function setWalletRef(element: Element | Vue.ComponentPublicInstance | null) {
 
 Vue.watch(
   () => [
-    props.leftWallet ? getWalletSelectionKey(props.leftWallet) : undefined,
-    props.rightWallet ? getWalletSelectionKey(props.rightWallet) : undefined,
+    getWalletSelectionKey(props.primaryWallet),
+    props.transferIn?.wallet ? getWalletSelectionKey(props.transferIn.wallet) : undefined,
+    props.transferOut?.wallet ? getWalletSelectionKey(props.transferOut.wallet) : undefined,
   ],
   () => {
     activeTransferOverlay.value = undefined;
   },
 );
 </script>
+
+<style scoped>
+.wallet-sidecar-left-enter-active,
+.wallet-sidecar-left-leave-active,
+.wallet-sidecar-right-enter-active,
+.wallet-sidecar-right-leave-active {
+  transition:
+    transform 180ms ease,
+    opacity 180ms ease;
+}
+
+.wallet-sidecar-left-enter-from,
+.wallet-sidecar-left-leave-to {
+  transform: translateX(60px);
+  opacity: 0;
+}
+
+.wallet-sidecar-right-enter-from,
+.wallet-sidecar-right-leave-to {
+  transform: translateX(-60px);
+  opacity: 0;
+}
+</style>

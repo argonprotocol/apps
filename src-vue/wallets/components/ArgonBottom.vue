@@ -2,9 +2,6 @@
   <div class="flex grow flex-col py-4">
     <div class="flex grow flex-col items-center justify-center pb-[5%]">
       <div v-if="props.mode === 'chooser'" class="mt-5 text-center">
-        <p class="text-argon-600/80 font-light">
-          Choose another wallet in the empty slot to view them together or move supported tokens.
-        </p>
         <AlertCalloutButton
           v-if="
             [

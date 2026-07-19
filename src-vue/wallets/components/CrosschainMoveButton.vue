@@ -1,28 +1,41 @@
 <template>
   <HoverCardRoot :open="isHovered && !!activeTransfer" :openDelay="0">
-    <div class="absolute top-1/2 left-[calc(100%+40px)] z-30 -translate-x-1/2 -translate-y-1/2">
-      <div class="relative h-10">
+    <div
+      class="absolute top-1/2 z-40 -translate-x-1/2 -translate-y-1/2"
+      :class="props.placement === 'left' ? '-left-1' : 'left-[calc(100%+4px)]'"
+    >
+      <div class="absolute top-1 left-0 z-10 h-[calc(100%-8px)] w-[15%] bg-linear-to-r from-white to-transparent" />
+      <div class="relative h-[45.6px]">
         <HoverCardTrigger :asChild="true">
           <button
             :data-testid="getMoveButtonTestId()"
             type="button"
             :aria-disabled="isMoveDisabled"
-            :title="isMoveDisabled ? `No ${props.moveToken} available to jump` : `Jump ${props.moveToken}`"
-            class="h-full cursor-pointer"
+            :title="isMoveDisabled ? `No ${props.moveToken} available to move` : `Move ${props.moveToken}`"
+            class="h-full"
+            :class="isMoveDisabled ? 'cursor-default' : 'cursor-pointer'"
             @mouseenter="isHovered = true"
             @mouseleave="isHovered = false"
             @click="openTransferOverlay"
           >
-            <div v-if="hasPendingTransfer" spinner class="absolute top-1/2 right-4 h-5 w-5 -translate-y-1/2 border-3" />
-            <div v-else class="text-argon-600 absolute inset-0 flex items-center justify-center text-sm font-bold">
-              <span class="relative right-1.5">{{ WALLET_JUMP_LABEL }}</span>
+            <div
+              v-if="hasPendingTransfer"
+              spinner
+              class="absolute top-1/2 right-4 z-20 h-5 w-5 -translate-y-1/2 border-3"
+            />
+            <div
+              v-else
+              class="absolute inset-0 flex items-center justify-center text-sm font-bold"
+              :class="isMoveDisabled ? 'text-slate-500 opacity-30' : 'text-argon-600'"
+            >
+              <span class="relative right-1.5 z-20">{{ WALLET_MOVE_LABEL }}</span>
             </div>
             <MoveArrow class="pointer-events-none h-full" />
           </button>
         </HoverCardTrigger>
         <ArrowCalloutButton
           v-if="showInboundArgonGuide"
-          guidance="Click JUMP to move your Uniswap ARGN into this Argon wallet."
+          guidance="Click MOVE to transfer your Uniswap ARGN into this Argon wallet."
           class="absolute top-1/2 left-full z-50 ml-3 -translate-y-1/2"
         />
       </div>
@@ -142,7 +155,7 @@ import { getCurrency } from '../../stores/currency.ts';
 import { getEthereumMoveTracker } from '../../stores/moveFromEthereum.ts';
 import { getEthereumOutboundTransferTracker } from '../../stores/moveToEthereum.ts';
 import { loadEthereumChainConfig } from '../../lib/EthereumClient.ts';
-import { WALLET_JUMP_LABEL } from '../walletOverlayState.ts';
+import { WALLET_MOVE_LABEL } from '../walletOverlayState.ts';
 import {
   getCrosschainTransferProgressView,
   isCrosschainTransferVisible,
@@ -158,6 +171,7 @@ const props = defineProps<{
   direction: 'transferToArgon' | 'transferOutOfArgon';
   networkName: string;
   feeTokenSymbol: string;
+  placement?: 'left' | 'right';
 }>();
 const config = getConfig();
 const controller = useCertificationController();
