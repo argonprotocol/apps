@@ -367,7 +367,11 @@ async function restoreFinancialHistoryDomain(args: {
   if (afterBlock === 0 && recoveredThroughBlock >= args.targetBlock) {
     if (domain === 'bonds') {
       const bondHistory = await db.bondLotHistoryTable.fetchAll(accountId);
-      if (hasMissingBondPurchases(argonBonds.data.bondLots, bondHistory)) {
+      const activeBondLots = argonBonds.data.bondLots;
+      const earliestEventBackedBondFrame = activeBondLots.length
+        ? argonBonds.miningFrames.earliestWithSpec(earliestSupportedSpecVersions.bonds)
+        : 0;
+      if (hasMissingBondPurchases(activeBondLots, bondHistory, earliestEventBackedBondFrame)) {
         throw new Error('The indexer has not restored all active bond purchases yet');
       }
     }
@@ -417,8 +421,13 @@ function describeDomainError(domain: 'bitcoin' | 'bond' | 'vault', blockNumber: 
 function hasMissingBondPurchases(
   activeBondLots: readonly BondLot[],
   history: readonly { programType: string; bondLotId: number; purchaseBlockHash?: string }[],
+  earliestEventBackedBondFrame: number,
 ): boolean {
   return activeBondLots.some(lot => {
+    // Pre-bond treasury allocations were migrated into Vault lots without a
+    // BondLotPurchased event. Their created frame supplies the ARGN basis date.
+    if (lot.programType === 'Vault' && lot.createdFrame < earliestEventBackedBondFrame) return false;
+
     return !history.some(record => {
       return record.programType === lot.programType && record.bondLotId === lot.id && !!record.purchaseBlockHash;
     });

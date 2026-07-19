@@ -82,7 +82,7 @@
               </div>
             </div>
             <div class="font-mono font-semibold text-slate-700">
-              {{ group.group === 'liquid' && !argonWalletHasReturnPosition ? '0%' : formatPercent(group.returnSummary.percent) }}
+              {{ formatPercent(group.returnSummary.percent) }}
             </div>
           </li>
 

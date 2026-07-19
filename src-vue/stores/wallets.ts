@@ -337,12 +337,17 @@ export const useWallets = defineStore('wallets', () => {
     }
   });
   const unsubscribeHistoryGap = walletsForArgon.events.on('history:gap', gap => {
+    walletHistoryRecovery?.markLiveGap(gap);
     queueWalletHistoryRecovery({ blockNumber: gap.toBlock });
+  });
+  const unsubscribeFinalizedSync = walletsForArgon.events.on('sync:finalized', block => {
+    walletHistoryRecovery?.advanceLiveCoverage(block.blockNumber);
   });
 
   Vue.onScopeDispose(() => {
     unsubscribeBalanceChanges();
     unsubscribeHistoryGap();
+    unsubscribeFinalizedSync();
     if (walletHistoryRecovery && walletHistoryRecoveryInstance === walletHistoryRecovery) {
       walletHistoryRecoveryInstance = undefined;
     }

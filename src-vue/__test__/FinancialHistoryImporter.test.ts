@@ -301,7 +301,8 @@ describe('FinancialHistoryImporter', () => {
         } as any,
         accountId: '5owner',
         argonBonds: {
-          data: { bondLots: [{ id: 7, programType: 'Vault' }], bondHistory: [] },
+          data: { bondLots: [{ id: 7, programType: 'Argonot' }], bondHistory: [] },
+          miningFrames: { earliestWithSpec: vi.fn(() => 0) },
           refreshHistory: vi.fn(),
         } as any,
         vaultHistory: {} as any,

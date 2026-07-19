@@ -139,7 +139,7 @@
 import { isDefaultArgonMoveFrom, isDefaultArgonMoveTo, MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
 
 const moveFromName = {
-  [MoveFrom.DefaultArgon]: 'Inflation-Free Savings',
+  [MoveFrom.DefaultArgon]: 'Argon Wallet',
   [MoveFrom.MiningBot]: 'Mining Bids',
   [MoveFrom.VaultingSecurity]: 'Bitcoin Security',
 };
@@ -147,7 +147,7 @@ const moveFromName = {
 const moveToName = {
   [MoveTo.VaultingSecurity]: 'Bitcoin Security',
   [MoveTo.MiningBot]: 'Mining Bids',
-  [MoveTo.DefaultArgon]: 'Inflation-Free Savings',
+  [MoveTo.DefaultArgon]: 'Argon Wallet',
   [MoveTo.External]: 'External Address',
 };
 
@@ -275,7 +275,7 @@ const moveFromWalletType = Vue.computed(() => {
 const moveFromOptions = Vue.computed(() => {
   if (moveFromWalletType.value === WalletType.defaultArgon || moveFromWalletType.value === WalletType.miningBot) {
     return [
-      { name: 'Inflation-Free Savings', value: MoveFrom.DefaultArgon },
+      { name: 'Argon Wallet', value: MoveFrom.DefaultArgon },
       { name: 'Mining Bids', value: MoveFrom.MiningBot },
     ];
   } else if (moveFromWalletType.value === 'vaulting') {
@@ -312,9 +312,9 @@ function getMoveToOptions(moveFromValue: MoveFrom) {
     options.push({ name: 'Mining Bids', value: MoveTo.MiningBot });
     options.push({ name: 'Bitcoin Security', value: MoveTo.VaultingSecurity });
   } else if (walletFrom === WalletType.miningBot) {
-    options.push({ name: 'Inflation-Free Savings', value: MoveTo.DefaultArgon });
+    options.push({ name: 'Argon Wallet', value: MoveTo.DefaultArgon });
   } else if (moveFromValue === MoveFrom.VaultingSecurity) {
-    options.push({ name: 'Inflation-Free Savings', value: MoveTo.DefaultArgon });
+    options.push({ name: 'Argon Wallet', value: MoveTo.DefaultArgon });
   }
 
   if (walletFrom !== WalletType.defaultArgon && walletFrom !== WalletType.miningBot) {

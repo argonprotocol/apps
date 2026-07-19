@@ -85,6 +85,13 @@ describe('WalletHistoryRecovery', () => {
     await expect(recovery.hasCompleteCoverage(1)).resolves.toBe(true);
     await expect(recovery.hasCompleteCoverage(2)).resolves.toBe(false);
 
+    recovery.advanceLiveCoverage(2);
+    await expect(recovery.hasCompleteCoverage(2)).resolves.toBe(true);
+
+    recovery.markLiveGap({ afterBlock: 2, toBlock: 4 });
+    recovery.advanceLiveCoverage(4);
+    await expect(recovery.hasCompleteCoverage(4)).resolves.toBe(false);
+
     state.set(SyncStateKeys.WalletHistory, {
       ...(state.get(SyncStateKeys.WalletHistory) as object),
       addresses: ['5other'],

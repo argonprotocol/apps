@@ -133,8 +133,8 @@ interface IBondFinancialPositionBase extends IFinancialInvestmentPositionBase {
   entryArgonotRateMicrogons?: bigint;
   currentArgonotRateMicrogons?: bigint;
   closingArgonotRateMicrogons?: bigint;
-  // Operator bonds are visible here but already represented by the owned vault position.
-  excludeFromAccountReturn?: boolean;
+  // The owned vault already carries this bond's principal at the account level.
+  excludeFromAccountAggregate?: boolean;
 }
 
 export type IBondFinancialPosition = IBondFinancialPositionBase &
