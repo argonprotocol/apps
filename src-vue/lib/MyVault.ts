@@ -1447,7 +1447,7 @@ export class MyVault {
         .then(x => x.data.free.toBigInt());
       if (vaultBalance < targetVaultDelegateBalance + vaultDelegateFeeBuffer) {
         throw new Error(
-          `Your vault account must have a minimum of ${
+          `Your Argon wallet must have a minimum of ${
             targetVaultDelegateBalance + vaultDelegateFeeBuffer
           } balance to activate the vault delegate.`,
         );

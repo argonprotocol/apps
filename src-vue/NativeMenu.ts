@@ -125,13 +125,8 @@ export async function createMenu() {
       },
       {
         id: 'token-transfer-to-vaulting',
-        text: 'Open Vaulting Wallet',
-        action: () =>
-          basicEmitter.emit('openWalletOverlay', {
-            walletType: WalletType.defaultArgon,
-            showGuidance: true,
-            guidanceContext: 'vaulting',
-          }),
+        text: 'Open Argon Wallet',
+        action: () => basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon }),
       },
       await PredefinedMenuItem.new({ item: 'Separator' }),
       await Submenu.new({
