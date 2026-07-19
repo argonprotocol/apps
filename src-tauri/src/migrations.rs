@@ -107,7 +107,7 @@ pub async fn run_db_migrations(
              ('showWelcomeOverlay', 'true'), \
              ('wasImportedFromLegacy', 'true'), \
              ('walletAccountsHadPreviousLife', 'true'), \
-             ('walletPreviousLifeRecovered', 'false') \
+             ('walletPreviousLifeRecovered', 'true') \
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         )
         .execute(&pool)

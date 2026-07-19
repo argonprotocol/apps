@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => {
   return {
     argonBonds: {
       data: { bondLots: [], bondHistory: [] },
+      bondTotals: { totalBondMicrogons: 0n, totalArgonotBondMicronots: 0n },
       load: vi.fn<() => Promise<void>>(),
       createFinancialPositions: vi.fn(() => []),
     },
@@ -30,6 +31,11 @@ const mocks = vi.hoisted(() => {
       bestBlockHeader: { blockNumber: 1, blockHash: '0x1', blockTime: Date.parse('2026-07-16T12:00:00Z') },
       finalizedBlockHeader: { blockNumber: 1, blockHash: '0x1', blockTime: Date.parse('2026-07-16T12:00:00Z') },
       getApi: vi.fn(async () => ({})),
+      getHeaderByBlockNumber: vi.fn(async (blockNumber: number) => ({
+        blockNumber,
+        blockHash: `0x${blockNumber}`,
+        blockTime: Date.parse('2026-07-16T12:00:00Z') + (blockNumber - 1) * 60_000,
+      })),
     },
     config: {
       isLoadedPromise: Promise.resolve(),
@@ -50,6 +56,9 @@ const mocks = vi.hoisted(() => {
       isLoadedPromise: Promise.resolve(),
       financialRevision: 0,
       serverState: { argonLocalNodeBlockNumber: 0 },
+    },
+    miningFinancials: {
+      loadPositions: vi.fn(async () => []),
     },
     myVault: {
       createdVault: undefined,
@@ -111,7 +120,18 @@ const mocks = vi.hoisted(() => {
       legacyMiningHoldAddress: '',
       ownedAddresses: ['5default', '5miner', '5operational'],
       readAccountSnapshot: vi.fn(async () => ({
-        accounts: [],
+        accounts: [
+          {
+            address: '5default',
+            wallet: { address: '5default' },
+            availableMicrogons: 0n,
+            reservedMicrogons: 0n,
+            availableMicronots: 0n,
+            reservedMicronots: 0n,
+            microgonHolds: [],
+            micronotHolds: [],
+          },
+        ],
         observation: {
           observedAt: new Date('2026-07-16T12:00:00Z'),
           blockNumber: 1,
@@ -139,6 +159,11 @@ vi.mock('../stores/vaults.ts', () => ({
 }));
 vi.mock('../stores/helpers/dbPromise.ts', () => ({ getDbPromise: vi.fn(async () => mocks.db) }));
 vi.mock('../stores/myMiningSeats.ts', () => ({ getMyMiningSeats: () => mocks.myMiningSeats }));
+vi.mock('../lib/financials/MyMiningSeats.ts', () => ({
+  MiningFinancials: class {
+    loadPositions = mocks.miningFinancials.loadPositions;
+  },
+}));
 vi.mock('../stores/vaultingStats.ts', () => ({ useVaultingStats: () => mocks.vaultingStats }));
 vi.mock('../stores/config.ts', () => ({ getConfig: () => mocks.config }));
 vi.mock('../stores/stableSwaps.ts', () => ({ useStableSwaps: () => mocks.stableSwaps }));
@@ -170,6 +195,8 @@ describe('financials startup failures', () => {
     mocks.bitcoinLocks.load.mockResolvedValue();
     mocks.vaults.load.mockResolvedValue();
     mocks.myVault.load.mockResolvedValue();
+    mocks.miningFinancials.loadPositions.mockResolvedValue([]);
+    mocks.miningFinancials.loadPositions.mockClear();
     mocks.stableSwaps.load.mockResolvedValue();
     mocks.stableSwaps.load.mockClear();
     mocks.stableSwaps.refreshWalletSnapshot.mockResolvedValue();
@@ -177,6 +204,17 @@ describe('financials startup failures', () => {
     mocks.restoreFinancialHistory.mockClear();
     mocks.needsFinancialHistoryRecovery.mockResolvedValue(true);
     mocks.needsFinancialHistoryRecovery.mockClear();
+    mocks.blockWatch.bestBlockHeader = {
+      blockNumber: 1,
+      blockHash: '0x1',
+      blockTime: Date.parse('2026-07-16T12:00:00Z'),
+    };
+    mocks.blockWatch.finalizedBlockHeader = {
+      blockNumber: 1,
+      blockHash: '0x1',
+      blockTime: Date.parse('2026-07-16T12:00:00Z'),
+    };
+    mocks.blockWatch.getHeaderByBlockNumber.mockClear();
     mocks.walletHistoryRecovery.hasCompleteCoverage.mockClear();
     mocks.db.financialCacheTable.get.mockResolvedValue(undefined);
     mocks.db.financialCacheTable.get.mockClear();
@@ -233,6 +271,20 @@ describe('financials startup failures', () => {
       expect(financials.financialPositionAggregate.groupSummaries.liquid.state).toBe('ready');
     });
     expect(financials.financialPositionAggregate.readiness).toBe('partial');
+  });
+
+  it('keeps transient mining reconciliation unavailable without reporting an error', async () => {
+    mocks.config.hasExtensionOperations = true;
+    mocks.miningFinancials.loadPositions.mockRejectedValueOnce(new Error('Mining details are still loading'));
+
+    const financials = useFinancials();
+
+    await vi.waitFor(() => {
+      expect(financials.financialPositionAggregate.groupSummaries.mining.state).toBe('stale');
+    });
+    expect(financials.financialPositionAggregate.groupSummaries.mining.message).toBe(
+      'Mining details are still loading',
+    );
   });
 
   it('does not load stable swaps before the feature is activated', async () => {
@@ -311,6 +363,52 @@ describe('financials startup failures', () => {
 
     await vi.waitFor(() => expect(mocks.restoreFinancialHistory).toHaveBeenCalled());
     expect(mocks.restoreFinancialHistory).toHaveBeenCalledWith(expect.objectContaining({ minimumAsOfBlock: 10 }));
+  });
+
+  it('finalizes recovered RTD at the covered account snapshot instead of a newer head', async () => {
+    mocks.config.hasExtensionTreasury = true;
+    mocks.config.walletAccountsHadPreviousLife = true;
+    mocks.needsFinancialHistoryRecovery.mockResolvedValue(false);
+    mocks.walletHistoryRecovery.hasCompleteCoverage.mockResolvedValue(false);
+
+    useFinancials();
+
+    await vi.waitFor(() => expect(mocks.needsFinancialHistoryRecovery).toHaveBeenCalled());
+    await vi.waitFor(() => {
+      expect(mocks.db.financialCacheTable.upsert).toHaveBeenCalledWith(
+        'AccountReturn',
+        '5default,5miner,5operational',
+        expect.objectContaining({ asOfBlock: 1, isProvisional: true }),
+      );
+    });
+    mocks.db.financialCacheTable.upsert.mockClear();
+    mocks.walletHistoryRecovery.hasCompleteCoverage.mockResolvedValue(true);
+    mocks.blockWatch.finalizedBlockHeader = {
+      blockNumber: 2,
+      blockHash: '0x2',
+      blockTime: Date.parse('2026-07-16T12:01:00Z'),
+    };
+
+    const recoveredListener = mocks.walletsForArgon.events.on.mock.calls.find(
+      ([event]) => event === 'history:recovered',
+    )?.[1] as ((revisions: { transfers: number; argonotCustody: number; asOfBlock: number }) => void) | undefined;
+    expect(recoveredListener).toBeDefined();
+
+    recoveredListener!({ transfers: 0, argonotCustody: 0, asOfBlock: 1 });
+
+    await vi.waitFor(() => {
+      expect(mocks.db.financialCacheTable.upsert).toHaveBeenCalledWith(
+        'AccountReturn',
+        '5default,5miner,5operational',
+        expect.objectContaining({ asOfBlock: 1 }),
+      );
+      expect(mocks.db.financialCacheTable.upsert).toHaveBeenCalledWith(
+        'AccountReturn',
+        '5default,5miner,5operational',
+        expect.not.objectContaining({ isProvisional: true }),
+      );
+    });
+    expect(mocks.blockWatch.getHeaderByBlockNumber).toHaveBeenCalledWith(1);
   });
 
   it('keeps local positions available while recovery is unavailable', async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ArgonClient } from '@argonprotocol/mainchain';
+import { BitcoinLock, type ArgonClient } from '@argonprotocol/mainchain';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
@@ -10,6 +10,7 @@ vi.mock('../stores/mainchain.ts', () => ({
 }));
 
 type IBitcoinLocksTestTarget = {
+  checkForMissingBitcoinLockState(lock: IBitcoinLockRecord): Promise<void>;
   onBitcoinLockFinalized(txInfo: {
     createPostProcessor: () => { resolve: () => void };
     tx: { metadataJson: { bitcoin: { uuid: string } } };
@@ -171,6 +172,34 @@ describe('BitcoinLocks Argon cosign gating', () => {
     });
     expect(ensureLockReleaseProcessing).toHaveBeenCalledTimes(1);
   });
+
+  it('preserves recovered self-lock fee reimbursement when refreshing chain state', async () => {
+    const defaultAccount = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+    const lock = createLock({
+      lockDetails: {
+        ...createLock().lockDetails,
+        ownerAccount: defaultAccount,
+        securityFees: 148_296_012n,
+        couponFeesPaid: 148_296_012n,
+      },
+    });
+    const latestLock = new BitcoinLock({
+      ...lock.lockDetails,
+      couponFeesPaid: 0n,
+    });
+    vi.spyOn(BitcoinLock, 'get').mockResolvedValue(latestLock);
+
+    const store = Object.assign(Object.create(BitcoinLocks.prototype), {
+      walletKeys: { defaultArgonAddress: defaultAccount },
+      utxoTracking: { getAcceptedFundingRecordForLock: vi.fn() },
+      getTable: vi.fn().mockResolvedValue({}),
+      syncLockReleaseArgonRequest: vi.fn().mockResolvedValue(undefined),
+    }) as BitcoinLocks;
+
+    await (store as unknown as IBitcoinLocksTestTarget).checkForMissingBitcoinLockState(lock);
+
+    expect(lock.lockDetails.couponFeesPaid).toBe(148_296_012n);
+  });
 });
 
 function createLock(overrides: Partial<IBitcoinLockRecord> = {}): IBitcoinLockRecord {
@@ -183,12 +212,14 @@ function createLock(overrides: Partial<IBitcoinLockRecord> = {}): IBitcoinLockRe
     lockedTargetPrice: 0n,
     ratchets: [],
     cosignVersion: 'v1',
-    lockDetails: {
-      p2wshScriptHashHex: `0020${'00'.repeat(32)}`,
-      ownerAccount: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
-      createdAtHeight: 100,
-      vaultClaimHeight: 200,
-    } as IBitcoinLockRecord['lockDetails'],
+    lockDetails:
+      overrides.lockDetails ??
+      ({
+        p2wshScriptHashHex: `0020${'00'.repeat(32)}`,
+        ownerAccount: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+        createdAtHeight: 100,
+        vaultClaimHeight: 200,
+      } as IBitcoinLockRecord['lockDetails']),
     fundingUtxoRecordId: 1,
     fundingUtxoRecord: undefined,
     network: 'testnet',

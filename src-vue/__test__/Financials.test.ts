@@ -975,6 +975,7 @@ describe('financial position accounting', () => {
         valueBeyondLiquidity: 30n,
         startingCapital: 100n,
         endingCapital: 120n,
+        securityFees: 10n,
         totalFees: 15n,
         unlockAmount: 60n,
         totalReturn: 20,
@@ -1362,6 +1363,10 @@ describe('financial position accounting', () => {
     });
     const operatorAggregate = reduceFinancialPositions(readySnapshots([operatorBond]));
     expect(operatorAggregate.groupSummaries.bonds.returnSummary.percent).toBe(10);
+    expect(operatorAggregate.groupSummaries.bonds.currentValue).toBe(10_000_000n);
+    expect(operatorAggregate.grossAssets).toBe(0n);
+    expect(operatorAggregate.netWorth).toBe(0n);
+    expect(calculateAccountValue(readySnapshots([operatorBond]))).toBe(0n);
     expect(operatorAggregate.accountReturn).toMatchObject({
       availability: 'not-applicable',
       eligiblePositionCount: 0,
@@ -1380,6 +1385,8 @@ describe('financial position accounting', () => {
       investmentPositionCount: 1,
       percent: 70,
     });
+    expect(mixedAggregate.grossAssets).toBe(30_000_000n);
+    expect(mixedAggregate.netWorth).toBe(30_000_000n);
 
     const aggregate = reduceFinancialPositions(readySnapshots([...walletPositions, ...bonds]));
     const bondGroup = aggregate.groupSummaries.bonds;
@@ -1440,7 +1447,9 @@ describe('financial position accounting', () => {
         }),
       ],
     });
-    const result = await createWalletsForFinancialTest(account.address).loadPositions({
+    const result = await createWalletsForFinancialTest(account.address, [
+      createWalletTransfer({ id: 1, amount: 17n, walletAddress: account.address }),
+    ]).loadPositions({
       accounts: [account],
       claimedHolds: { treasury: false, miningSlot: false, vaults: true },
       claimedMicronotsByAccount: new Map([[account.address, 10n]]),
@@ -1449,10 +1458,10 @@ describe('financial position accounting', () => {
 
     expect(result).toContainEqual(
       expect.objectContaining({
-        kind: 'wallet-balance',
-        asset: 'ARGNOT',
-        balanceType: 'transferable',
+        kind: 'wallet-holding',
         nativeAmount: 7n,
+        investedCost: 7n,
+        currentValue: 7n,
       }),
     );
   });

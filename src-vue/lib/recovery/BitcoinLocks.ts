@@ -5,7 +5,7 @@ import {
   type FrameSystemEventRecord,
   type GenericEvent,
 } from '@argonprotocol/mainchain';
-import { bigIntMin, type BlockWatch, type Currency, type IBlockHeaderInfo } from '@argonprotocol/apps-core';
+import { bigIntMax, bigIntMin, type BlockWatch, type Currency, type IBlockHeaderInfo } from '@argonprotocol/apps-core';
 import { BitcoinLocksTable, BitcoinLockStatus, type IBitcoinLockRecord } from '../db/BitcoinLocksTable.ts';
 import type BitcoinUtxoTracking from '../BitcoinUtxoTracking.ts';
 import type { deriveBitcoinLockHdKey, WalletKeys } from '../WalletKeys.ts';
@@ -90,6 +90,10 @@ export class BitcoinLockRecovery {
       if (event.method === 'BitcoinLockCreated') {
         if (readRequiredEventField(event, 'accountId', block).toString() !== this.walletKeys.vaultingAddress) continue;
 
+        const chainLock = await BitcoinLock.get(api, utxoId);
+        if (!chainLock) throw new Error(`Bitcoin lock ${utxoId} is unavailable at its creation block`);
+        chainLock.couponFeesPaid = bigIntMax(chainLock.couponFeesPaid, this.readUnchargedSecurityFee(event, block));
+
         // Restart replay from durable state rather than a stale in-memory observation.
         const persistedRecord = await table.getByUtxoId(utxoId);
         const existing = persistedRecord ? this.applyRecoveredRecord(persistedRecord) : this.locksByUtxoId[utxoId];
@@ -122,11 +126,13 @@ export class BitcoinLockRecovery {
             if (
               creationRatchet.mintPending !== creationRatchet.mintAmount ||
               creationRatchet.extrinsicIndex !== extrinsicIndex ||
-              existing.createdAt.getTime() !== block.blockTime
+              existing.createdAt.getTime() !== block.blockTime ||
+              (existing.lockDetails?.couponFeesPaid ?? 0n) !== chainLock.couponFeesPaid
             ) {
               const recovered = this.createDetachedRecord(existing);
               recovered.ratchets[creationRatchetIndex].mintPending = creationRatchet.mintAmount;
               recovered.ratchets[creationRatchetIndex].extrinsicIndex = extrinsicIndex;
+              recovered.lockDetails = chainLock;
               await table.saveRecoveredHistory(recovered, new Date(block.blockTime));
               this.applyRecoveredRecord(recovered);
             }
@@ -134,9 +140,6 @@ export class BitcoinLockRecovery {
             continue;
           }
         }
-
-        const chainLock = await BitcoinLock.get(api, utxoId);
-        if (!chainLock) throw new Error(`Bitcoin lock ${utxoId} is unavailable at its creation block`);
 
         const transactionFee = this.readTransactionFee(eventRecords, eventIndex, block) ?? 0n;
         const record = await this.recoverLock({
@@ -425,6 +428,10 @@ export class BitcoinLockRecovery {
     if (followsCurrentState || matchesCurrentState) {
       recovered.lockedTargetPrice = lockedTargetPrice;
       recovered.liquidityPromised = cumulativeLiquidity;
+      chainLock.couponFeesPaid = bigIntMax(
+        chainLock.couponFeesPaid,
+        (record.lockDetails?.couponFeesPaid ?? 0n) + this.readUnchargedSecurityFee(event, block),
+      );
       recovered.lockDetails = chainLock;
     }
     this.assertSafePendingMint(recovered);
@@ -563,6 +570,14 @@ export class BitcoinLockRecovery {
       this.walletKeys.operationalAddress,
     ]);
     return ownedAccounts.has(payer) ? readRequiredEventBigInt(feeEvent, ['actualFee'], block) : 0n;
+  }
+
+  private readUnchargedSecurityFee(event: BitcoinRecoveryEventRecord['event'], block: IBlockHeaderInfo): bigint {
+    const lockAccount = readRequiredEventField(event, 'accountId', block).toString();
+    if (lockAccount !== this.walletKeys.defaultArgonAddress) return 0n;
+
+    // The app's default account is its vault operator, so it does not charge itself the lock's security fee.
+    return readRequiredEventBigInt(event, ['securityFee'], block);
   }
 
   private async applyScopedMint(

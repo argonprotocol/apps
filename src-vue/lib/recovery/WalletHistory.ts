@@ -25,6 +25,8 @@ export class WalletHistoryRecovery {
   private readonly recoveryWallets: readonly WalletForArgon[];
   private readonly ownedAddresses: readonly string[];
   private readonly onRecovered?: (revisions: IWalletHistoryRevisions) => void;
+  private liveCoverageThroughBlock = 0;
+  private pendingLiveGapThroughBlock = 0;
 
   constructor({
     dbPromise,
@@ -51,6 +53,8 @@ export class WalletHistoryRecovery {
       try {
         const db = await this.dbPromise;
         const recoveredBlock = await this.recover(targetBlock, force);
+        this.liveCoverageThroughBlock = Math.max(this.liveCoverageThroughBlock, recoveredBlock);
+        if (recoveredBlock >= this.pendingLiveGapThroughBlock) this.pendingLiveGapThroughBlock = 0;
         const revisions: IWalletHistoryRevisions = {
           transfers: db.walletTransfersTable.revision,
           argonotCustody: db.walletTransfersTable.argonotCustodyRevision ?? 0,
@@ -86,11 +90,23 @@ export class WalletHistoryRecovery {
   public async hasCompleteCoverage(targetBlock: number): Promise<boolean> {
     const db = await this.dbPromise;
     const walletHistory = await db.syncStateTable.get(SyncStateKeys.WalletHistory);
-    return (
-      !!walletHistory?.definitionVersion &&
-      walletHistory.asOfBlock >= targetBlock &&
-      this.hasMatchingScope(walletHistory)
-    );
+    if (!walletHistory?.definitionVersion || !this.hasMatchingScope(walletHistory)) {
+      this.liveCoverageThroughBlock = 0;
+      return false;
+    }
+
+    this.liveCoverageThroughBlock = Math.max(this.liveCoverageThroughBlock, walletHistory.asOfBlock);
+    return this.liveCoverageThroughBlock >= targetBlock;
+  }
+
+  public advanceLiveCoverage(blockNumber: number): void {
+    if (this.pendingLiveGapThroughBlock > this.liveCoverageThroughBlock) return;
+    this.liveCoverageThroughBlock = Math.max(this.liveCoverageThroughBlock, blockNumber);
+  }
+
+  public markLiveGap({ afterBlock, toBlock }: { afterBlock: number; toBlock: number }): void {
+    this.liveCoverageThroughBlock = Math.min(this.liveCoverageThroughBlock, afterBlock);
+    this.pendingLiveGapThroughBlock = Math.max(this.pendingLiveGapThroughBlock, toBlock);
   }
 
   public queue(targetBlock: number): void {

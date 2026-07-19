@@ -53,11 +53,12 @@ function createBitcoinLockPositions(
 
   if (record.removalReason || summary.status === BitcoinLockStatus.Released) {
     const isReleased = record.removalReason === 'released';
-    const removalBtcValue = valueSatoshisAtRate(record.satoshis, record.btcPriceAtRemovalMicrogons);
-    const bitcoinNetworkFee = record.fundingUtxoRecord?.releaseBitcoinNetworkFee;
-    const bitcoinNetworkFeeValue = valueSatoshisAtRate(bitcoinNetworkFee, record.btcPriceAtRemovalMicrogons);
-    const releaseRedemption = record.releaseRedemptionMicrogons;
-    const releaseArgonTxFee = record.releaseArgonTxFeeMicrogons;
+    const removalBtcPrice = record.btcPriceAtRemovalMicrogons ?? undefined;
+    const removalBtcValue = valueSatoshisAtRate(record.satoshis, removalBtcPrice);
+    const bitcoinNetworkFee = record.fundingUtxoRecord?.releaseBitcoinNetworkFee ?? undefined;
+    const bitcoinNetworkFeeValue = valueSatoshisAtRate(bitcoinNetworkFee, removalBtcPrice);
+    const releaseRedemption = record.releaseRedemptionMicrogons ?? undefined;
+    const releaseArgonTxFee = record.releaseArgonTxFeeMicrogons ?? undefined;
     const releaseCompensation = hasConfirmedHistoryCoverage
       ? (record.releaseCompensationMicrogons ?? 0n)
       : (record.releaseCompensationMicrogons ?? undefined);
@@ -165,9 +166,11 @@ export function calculateBitcoinLockValuation({ lock, currency }: { lock: IBitco
   const valueOfBtc = currency.convertBtcToMicrogon(btc);
   const unlockAmount =
     BitcoinLock.calculateRedemptionAmountFromSatoshis(currency.priceIndex, lock.satoshis, lock.lockedTargetPrice) || 0n;
-  const grossFees = lock.ratchets.reduce((total, ratchet) => total + ratchet.txFee + ratchet.securityFee, 0n);
-  // couponFeesPaid is the lock's canonical cumulative reimbursement, so subtract it once rather than per ratchet.
-  const totalFees = bigIntMax(grossFees - (lock.lockDetails?.couponFeesPaid ?? 0n), 0n);
+  const grossSecurityFees = lock.ratchets.reduce((total, ratchet) => total + ratchet.securityFee, 0n);
+  // couponFeesPaid is the lock's canonical cumulative reimbursement for security fees.
+  const securityFees = bigIntMax(grossSecurityFees - (lock.lockDetails?.couponFeesPaid ?? 0n), 0n);
+  const transactionFees = lock.ratchets.reduce((total, ratchet) => total + ratchet.txFee, 0n);
+  const totalFees = securityFees + transactionFees;
   const totalLiquidity = lock.ratchets.reduce((total, ratchet) => total + ratchet.mintAmount, 0n);
   const pendingLiquidity = lock.ratchets.reduce((total, ratchet) => total + ratchet.mintPending, 0n);
   const burnedLiquidity = lock.ratchets.reduce((total, ratchet) => total + (ratchet.burned ?? 0n), 0n);
@@ -192,6 +195,7 @@ export function calculateBitcoinLockValuation({ lock, currency }: { lock: IBitco
     valueBeyondLiquidity,
     startingCapital,
     endingCapital,
+    securityFees,
     totalFees,
     unlockAmount,
     totalReturn: calculateBitcoinReturn(startingCapital, endingCapital),

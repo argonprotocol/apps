@@ -344,6 +344,7 @@
         v-else-if="
           config.isLoaded &&
           config.hasExtensionTreasury &&
+          !controller.chainProgress.isUpgradedToOperations &&
           controller.completedTreasuryCertificationStepCount !== treasuryCertificationStepIds.length
         "
         class="relative flex grow flex-col items-center justify-center text-center"

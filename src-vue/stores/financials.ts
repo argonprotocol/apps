@@ -330,8 +330,9 @@ export const useFinancials = defineStore('financials', () => {
       const didPublish = financialPositionBook.publish(refresh, positions, snapshot.observation);
       if (didPublish) miningClaimsHolds = true;
     } catch (error) {
-      financialPositionBook.fail(
+      financialPositionBook.invalidate(
         refresh,
+        snapshot.observation,
         error instanceof Error ? error.message : 'Unable to publish mining financial positions',
       );
     }
@@ -871,7 +872,13 @@ export const useFinancials = defineStore('financials', () => {
       lastCoveredWalletSnapshotBlock >= snapshotBlock &&
       lastPublishedArgonotCustodyRevision >= revisions.argonotCustody
     ) {
-      queueAccountReturnRefresh({ force: true });
+      void getBlockWatch()
+        .getHeaderByBlockNumber(snapshotBlock)
+        .then(header => queueAccountReturnRefresh({ header, force: true }))
+        .catch(error => {
+          accountReturnSyncState.value = 'error';
+          console.warn('Unable to refresh recovered account RTD', error);
+        });
       return;
     }
 
@@ -892,7 +899,14 @@ export const useFinancials = defineStore('financials', () => {
           if (refreshBlock === queuedWalletHistoryBlock && refreshRevision === queuedArgonotCustodyRevision) return;
         }
       })
-      .then(() => queueAccountReturnRefresh({ force: true }))
+      .then(async () => {
+        const header = await getBlockWatch().getHeaderByBlockNumber(snapshotBlock);
+        queueAccountReturnRefresh({ header, force: true });
+      })
+      .catch(error => {
+        accountReturnSyncState.value = 'error';
+        console.warn('Unable to refresh recovered account RTD', error);
+      })
       .finally(() => {
         walletHistoryRefreshPromise = undefined;
       });

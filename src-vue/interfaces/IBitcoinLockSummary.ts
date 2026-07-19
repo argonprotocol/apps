@@ -31,6 +31,7 @@ export interface IBitcoinLockSummary {
   endingCapital: bigint;
   ratchetPercent: number;
   totalReturn: number;
+  securityFees: bigint;
   totalFees: bigint;
   unlockAmount: bigint;
   createdAt: Date;

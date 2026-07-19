@@ -159,7 +159,7 @@ export class FinancialPositionBook {
 export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnapshot[]): IFinancialAggregate {
   const snapshotsByGroup = new Map(snapshots.map(snapshot => [snapshot.group, snapshot]));
   const groups: IFinancialGroupSummary[] = [];
-  const positions: IFinancialPosition[] = [];
+  const accountPositions: IFinancialPosition[] = [];
 
   let grossAssets = 0n;
   let grossLiabilities = 0n;
@@ -176,9 +176,11 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
 
     if (isUsable) {
       usableGroupCount += 1;
-      positions.push(...groupPositions);
 
       for (const position of groupPositions) {
+        const excludeFromAccountAggregate = position.kind === 'bond' && position.excludeFromAccountAggregate === true;
+        if (!excludeFromAccountAggregate) accountPositions.push(position);
+
         if (position.currentValue === undefined) {
           hasUnavailableValue = true;
           continue;
@@ -192,14 +194,14 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
 
         if (position.currentValue >= 0n) {
           groupAssets += position.currentValue;
+          if (!excludeFromAccountAggregate) grossAssets += position.currentValue;
         } else {
           groupLiabilities -= position.currentValue;
+          if (!excludeFromAccountAggregate) grossLiabilities -= position.currentValue;
         }
       }
     }
 
-    grossAssets += groupAssets;
-    grossLiabilities += groupLiabilities;
     // Mining RTD describes mining terms. Pending bids have not started, and
     // ARGNOT custody lots are tracked separately without repeatedly adding
     // internal collateral transitions to the term-return denominator.
@@ -232,7 +234,7 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
     readiness = hasUnavailableGroup || hasUnavailableValue ? 'partial' : 'ready';
   }
 
-  const accountReturn = calculatePositionReturn(positions, true);
+  const accountReturn = calculatePositionReturn(accountPositions);
   const accountReturnAvailability =
     readiness === 'partial' && accountReturn.availability === 'available' ? 'partial' : accountReturn.availability;
   const groupSummaries = Object.fromEntries(groups.map(summary => [summary.group, summary])) as Record<
@@ -275,7 +277,7 @@ export function calculateAccountValue(
     if (requiredObservation && !doesObservationCover(snapshot.observation, requiredObservation)) return;
 
     for (const position of snapshot.positions) {
-      if (position.kind === 'bond' && position.excludeFromAccountReturn) continue;
+      if (position.kind === 'bond' && position.excludeFromAccountAggregate) continue;
       if (position.lifecycle === 'unavailable' && position.kind !== 'wallet-holding') continue;
       if (position.currentValue === undefined) return;
 
@@ -296,10 +298,7 @@ function doesObservationCover(observation: IFinancialObservation, required: IFin
   return true;
 }
 
-export function calculatePositionReturn(
-  positions: readonly IFinancialPosition[],
-  isAccountReturn = false,
-): IFinancialReturnSummary {
+export function calculatePositionReturn(positions: readonly IFinancialPosition[]): IFinancialReturnSummary {
   const investments = positions.filter((position): position is IFinancialInvestmentPosition => {
     if (
       position.kind === 'wallet-balance' ||
@@ -311,7 +310,7 @@ export function calculatePositionReturn(
     ) {
       return false;
     }
-    return !isAccountReturn || position.kind !== 'bond' || !position.excludeFromAccountReturn;
+    return true;
   });
   if (investments.length === 0) {
     return {
