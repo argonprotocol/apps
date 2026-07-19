@@ -335,9 +335,17 @@
           unlock yield generating assets.
         </div>
         <div class="text-argon-600 mt-2 flex flex-row items-center justify-center gap-x-2">
-          <a class="cursor-pointer opacity-50 hover:opacity-100">Learn More</a>
+          <a
+            href="http://localhost:5173/docs/desktop-app/access-and-upgrades"
+            target="_blank"
+            class="cursor-pointer opacity-50 hover:opacity-100"
+          >
+            Learn More
+          </a>
           <span class="text-slate-600/40">or</span>
-          <a class="cursor-pointer opacity-50 hover:opacity-100">Join Discord</a>
+          <a href="https://discord.gg/xDwwDgCYr9" target="_blank" class="cursor-pointer opacity-50 hover:opacity-100">
+            Join Discord
+          </a>
         </div>
       </div>
       <div
@@ -355,13 +363,30 @@
           <br />
           to be eligible for the next level!
         </div>
+        <div class="text-argon-600 mt-2 flex flex-row items-center justify-center gap-x-2">
+          <a
+            href="http://localhost:5173/docs/desktop-app/access-and-upgrades"
+            target="_blank"
+            class="cursor-pointer opacity-50 hover:opacity-100"
+          >
+            Learn More
+          </a>
+          <span class="text-slate-600/40">or</span>
+          <a href="https://discord.gg/xDwwDgCYr9" target="_blank" class="cursor-pointer opacity-50 hover:opacity-100">
+            Join Discord
+          </a>
+        </div>
       </div>
       <div v-else class="relative flex grow flex-col items-center justify-center text-center text-slate-700/30">
         <div class="relative flex flex-row items-center text-center whitespace-nowrap">Explore</div>
         <div class="relative mt-px">
-          <a class="cursor-pointer opacity-40 hover:opacity-100">Docs</a>
-          and
-          <a class="cursor-pointer opacity-40 hover:opacity-100">Community</a>
+          <a href="http://localhost:5173/docs" target="_blank" class="cursor-pointer opacity-50 hover:opacity-100">
+            Docs
+          </a>
+          <span class="text-slate-600/40">and</span>
+          <a href="https://discord.gg/xDwwDgCYr9" target="_blank" class="cursor-pointer opacity-50 hover:opacity-100">
+            Community
+          </a>
         </div>
       </div>
       <section
