@@ -44,13 +44,16 @@
     </header>
 
     <template v-if="props.wallet">
-      <div class="flex h-[136px] shrink-0 flex-col items-center justify-center">
-        <div class="text-argon-700/70 text-6xl font-bold">
+      <div class="flex h-[120px] shrink-0 flex-col items-center justify-center">
+        <div class="text-argon-700/70 text-5xl font-bold">
+          {{ currency.symbol }}
           <FormattedMoney :isLoaded="walletValueIsLoaded" :value="walletTotalValue" />
         </div>
         <div class="mt-2 h-[29px] shrink-0 text-sm opacity-50">
           <div
-            v-if="props.walletSelection?.walletType === WalletType.defaultArgon"
+            v-if="
+              [WalletType.defaultArgon, WalletType.miningBot].includes(props.walletSelection?.walletType as WalletType)
+            "
             class="border-t border-slate-500/30 pt-2"
           >
             Includes {{ currency.symbol }}{{ microgonToMoneyNm(financials.savingsTotalPending).format('0,0.00') }}
