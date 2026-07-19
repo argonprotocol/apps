@@ -563,7 +563,9 @@ async fn load_instance(app: AppHandle, name: String) -> Result<(), String> {
     unsafe {
         std::env::set_var("ARGON_APP_INSTANCE", &name);
     }
-    run_db_migrations(app.clone()).await?;
+    let imported_from_legacy =
+        security::Security::migrate_legacy_app_dir(&app).map_err(|e| e.to_string())?;
+    run_db_migrations_after_legacy_import(app.clone(), imported_from_legacy).await?;
     let window = app
         .get_webview_window("main")
         .ok_or("Main window not found")?;

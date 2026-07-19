@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Argon",
+  "productName": "Argon Desktop",
   "identifier": "com.argon.desktop",
   "bundle": {
     "icon": [

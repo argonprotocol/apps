@@ -3,6 +3,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-07-18
+- Combined Treasury and Operations into a single Argon Desktop app.
+- Added clearer portfolio history and returns across mining, vaulting, bonds, Bitcoin, and stable swaps.
+- Added Argonot bonds and improved operational certification, onboarding, rewards, and invitations.
+- Improved startup speed, balance accuracy, Bitcoin returns, and overall reliability.
+
 ## [1.4.3] - 2026-07-10
 - Installer stall issues (NOTE: don't refresh screen on update screen until you are on 1.4.2 or later)
 - Fix zindex of updates window

@@ -84,7 +84,7 @@ describe('CertificationProgress', () => {
     expect(progress.hasTreasuryUniswapTransfer).toBe(true);
     expect(progress.treasuryBitcoinAmount).toBe(1n);
     expect(progress.treasuryBondAmount).toBeUndefined();
-    expect(progress.isUpgradedToOperations).toBe(false);
+    expect(progress.isUpgradedToOperations).toBe(true);
     expect(progress.hasOperationalVault).toBe(false);
     expect(progress.hasOperationalMiningSeats).toBe(false);
     expect(progress.hasOperationalUniswapTransfer).toBe(true);

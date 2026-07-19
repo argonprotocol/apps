@@ -192,7 +192,7 @@ export function getCertificationProgressFromOperationalAccount(
     hasTreasuryBonds,
     treasuryBondAmount,
     hasTreasuryUniswapTransfer,
-    isUpgradedToOperations: account.upstreamAccount?.isSome ?? false,
+    isUpgradedToOperations: true,
     hasOperationalVault:
       (account.vaultCreated?.toPrimitive() ?? false) &&
       operationalVaultSecuritization >= rewardThresholds.operationalMinimumVaultSecuritization,

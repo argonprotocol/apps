@@ -42,6 +42,7 @@ import { BITCOIN_BLOCK_MILLIS, ESPLORA_HOST } from './Env.ts';
 import { UpstreamOperatorClient } from './UpstreamOperatorClient.ts';
 import {
   bigNumberToBigInt,
+  bigIntMax,
   BlockWatch,
   createDeferred,
   Currency as CurrencyBase,
@@ -510,7 +511,7 @@ export default class BitcoinLocks {
     const archiveClient = await getMainchainClient(true);
     const bitcoinLock = await BitcoinLock.get(archiveClient, lock.utxoId);
     if (bitcoinLock) {
-      lock.lockDetails = bitcoinLock;
+      this.applyLatestLockDetails(lock, bitcoinLock);
       await this.tryUpdateFundingUtxo(lock, archiveClient);
       await this.syncLockReleaseArgonRequest(lock, archiveClient);
     } else {
@@ -2854,7 +2855,7 @@ export default class BitcoinLocks {
     if (latestBitcoinLock.utxoSatoshis) {
       lock.satoshis = latestBitcoinLock.satoshis;
     }
-    lock.lockDetails = latestBitcoinLock;
+    this.applyLatestLockDetails(lock, latestBitcoinLock);
     lock.lockedTargetPrice = latestBitcoinLock.lockedTargetPrice;
     lock.liquidityPromised = latestBitcoinLock.liquidityPromised;
     lock.ratchets[0].lockedTargetPrice = latestBitcoinLock.lockedTargetPrice;
@@ -2872,6 +2873,15 @@ export default class BitcoinLocks {
     await this.utxoTracking.setAcceptedFundingRecordForLock(lock, fundingRecord);
     const table = await this.getTable();
     await table.setLockedAndIsMinting(lock);
+  }
+
+  private applyLatestLockDetails(lock: IBitcoinLockRecord, latestBitcoinLock: BitcoinLock): void {
+    latestBitcoinLock.couponFeesPaid = bigIntMax(
+      latestBitcoinLock.couponFeesPaid,
+      lock.lockDetails?.couponFeesPaid ?? 0n,
+      latestBitcoinLock.ownerAccount === this.walletKeys.defaultArgonAddress ? latestBitcoinLock.securityFees : 0n,
+    );
+    lock.lockDetails = latestBitcoinLock;
   }
 
   private async ensureFundingUtxoRecordPointer(lock: IBitcoinLockRecord): Promise<void> {

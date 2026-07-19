@@ -359,7 +359,11 @@ function createArgonotHoldingPositions(args: {
     const balances = args.balancesByAccount.get(account.address);
     const argonot = balances?.find(balance => balance.asset === 'ARGNOT');
     const walletQuantity = (argonot?.transferable ?? 0n) + (argonot?.unattributed ?? 0n);
-    const claimedQuantity = bigIntMin(walletQuantity, args.claimedMicronotsByAccount?.get(account.address) ?? 0n);
+    const unclaimedCommitment = bigIntMax(
+      (args.claimedMicronotsByAccount?.get(account.address) ?? 0n) - (argonot?.claimed ?? 0n),
+      0n,
+    );
+    const claimedQuantity = bigIntMin(walletQuantity, unclaimedCommitment);
     const availableQuantity = walletQuantity - claimedQuantity;
     const holdingQuantity = availableQuantity;
     const trackedQuantity = lots.reduce((sum, lot) => sum + lot.amount, 0n);

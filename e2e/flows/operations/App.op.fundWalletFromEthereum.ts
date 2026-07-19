@@ -122,6 +122,7 @@ export default new Operation<IAppFundWalletFromEthereumContext, IAppFundWalletFr
         micronots: requiredMicronots > 0n ? requiredMicronots : undefined,
       });
 
+      await context.flow.click('WalletOverlay.toggleTransferIn()', { timeoutMs: 15_000 });
       await context.flow.click('WalletOverlay.chooseEthereumWallet()', { timeoutMs: 15_000 });
 
       await context.flow.poll<IAppFundWalletFromEthereumState>(

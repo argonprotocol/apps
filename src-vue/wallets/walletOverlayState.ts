@@ -1,15 +1,19 @@
 import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
 import { WalletType } from '../lib/Wallet.ts';
 
-export const WALLET_JUMP_LABEL = 'JUMP';
+export const WALLET_MOVE_LABEL = 'MOVE';
 
 export type IWalletSelection =
   | { walletType: WalletType.defaultArgon | WalletType.miningBot }
   | { walletType: WalletType.ethereum; walletRecord: IWalletRecord };
 
+export type IWalletTransferDirection = 'in' | 'out';
+export type IWalletTransferSideState = { wallet?: IWalletSelection };
+
 export type IWalletOverlayState = {
-  leftWallet?: IWalletSelection;
-  rightWallet?: IWalletSelection;
+  primaryWallet: IWalletSelection;
+  transferIn?: IWalletTransferSideState;
+  transferOut?: IWalletTransferSideState;
 };
 
 export function getAvailableWalletSelections(
@@ -32,48 +36,40 @@ export function getAvailableWalletSelections(
 }
 
 export function getInitialWalletOverlayState(requestedWallet: IWalletSelection): IWalletOverlayState {
-  const rightWallet: IWalletSelection = { walletType: WalletType.defaultArgon };
-  if (requestedWallet.walletType === WalletType.defaultArgon) {
-    return { rightWallet };
-  }
-
-  return { leftWallet: requestedWallet, rightWallet };
+  return { primaryWallet: requestedWallet };
 }
 
-export function flipWalletOverlay(state: IWalletOverlayState): IWalletOverlayState {
-  if (!state.leftWallet || !state.rightWallet) return state;
-
-  return {
-    leftWallet: state.rightWallet,
-    rightWallet: state.leftWallet,
-  };
+export function selectPrimaryWallet(state: IWalletOverlayState, wallet: IWalletSelection): IWalletOverlayState {
+  return { primaryWallet: wallet };
 }
 
-export function closeWalletOverlaySide(state: IWalletOverlayState, side: 'left' | 'right'): IWalletOverlayState {
-  if (side === 'left') {
-    return state.rightWallet ? { rightWallet: state.rightWallet } : {};
-  }
-
-  return state.leftWallet ? { leftWallet: state.leftWallet } : {};
-}
-
-export function selectWalletOverlaySide(
+export function toggleWalletTransferDirection(
   state: IWalletOverlayState,
-  side: 'left' | 'right',
+  direction: IWalletTransferDirection,
+): IWalletOverlayState {
+  const key = direction === 'in' ? 'transferIn' : 'transferOut';
+  return { ...state, [key]: state[key] ? undefined : {} };
+}
+
+export function selectTransferWallet(
+  state: IWalletOverlayState,
+  direction: IWalletTransferDirection,
   wallet: IWalletSelection,
 ): IWalletOverlayState {
-  const walletKey = getWalletSelectionKey(wallet);
-  if (side === 'left') {
-    if (state.rightWallet && getWalletSelectionKey(state.rightWallet) === walletKey) {
-      return { leftWallet: wallet };
-    }
-    return state.rightWallet ? { leftWallet: wallet, rightWallet: state.rightWallet } : { leftWallet: wallet };
+  const key = direction === 'in' ? 'transferIn' : 'transferOut';
+  if (!state[key] || getWalletSelectionKey(state.primaryWallet) === getWalletSelectionKey(wallet)) {
+    return state;
   }
 
-  if (state.leftWallet && getWalletSelectionKey(state.leftWallet) === walletKey) {
-    return { rightWallet: wallet };
-  }
-  return state.leftWallet ? { leftWallet: state.leftWallet, rightWallet: wallet } : { rightWallet: wallet };
+  return { ...state, [key]: { wallet } };
+}
+
+export function returnToTransferWalletChooser(
+  state: IWalletOverlayState,
+  direction: IWalletTransferDirection,
+): IWalletOverlayState {
+  const key = direction === 'in' ? 'transferIn' : 'transferOut';
+  return state[key] ? { ...state, [key]: {} } : state;
 }
 
 export function getWalletSelectionKey(wallet: IWalletSelection): string {

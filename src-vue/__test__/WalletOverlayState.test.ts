@@ -2,15 +2,17 @@ import { describe, expect, it } from 'vitest';
 import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
 import { WalletType } from '../lib/Wallet.ts';
 import {
-  closeWalletOverlaySide,
-  flipWalletOverlay,
   getAvailableWalletSelections,
   getInitialWalletOverlayState,
   getWalletSelectionKey,
   getWalletSelectionName,
-  selectWalletOverlaySide,
+  returnToTransferWalletChooser,
+  selectPrimaryWallet,
+  selectTransferWallet,
+  toggleWalletTransferDirection,
   type IWalletOverlayState,
-  WALLET_JUMP_LABEL,
+  type IWalletSelection,
+  WALLET_MOVE_LABEL,
 } from '../wallets/walletOverlayState.ts';
 
 const defaultArgonRecord = {
@@ -41,18 +43,15 @@ const ethereumB = {
   address: '0x0000000000000000000000000000000000000002',
 } satisfies IWalletRecord;
 
-const openPair = {
-  leftWallet: { walletType: WalletType.ethereum, walletRecord: ethereumA },
-  rightWallet: { walletType: WalletType.defaultArgon },
-} satisfies IWalletOverlayState;
+const primaryWallet = {
+  walletType: WalletType.ethereum,
+  walletRecord: ethereumA,
+} satisfies IWalletSelection;
+const transferWallet = { walletType: WalletType.defaultArgon } satisfies IWalletSelection;
 
 describe('wallet overlay state', () => {
-  it('lists built-in wallets and each unopened Ethereum record', () => {
-    const available = getAvailableWalletSelections(
-      [defaultArgonRecord, ethereumA, ethereumB],
-      [openPair.leftWallet],
-      true,
-    );
+  it('lists built-in wallets and each wallet other than the primary wallet', () => {
+    const available = getAvailableWalletSelections([defaultArgonRecord, ethereumA, ethereumB], [primaryWallet], true);
 
     expect(available.map(getWalletSelectionKey)).toEqual([
       WalletType.defaultArgon,
@@ -67,50 +66,51 @@ describe('wallet overlay state', () => {
     expect(available.map(getWalletSelectionKey)).toEqual([WalletType.defaultArgon, `ethereum:${ethereumA.id}`]);
   });
 
-  it('empties only the left slot when the left wallet closes', () => {
-    expect(closeWalletOverlaySide(openPair, 'left')).toEqual({
-      rightWallet: openPair.rightWallet,
+  it('opens with only the requested primary wallet', () => {
+    expect(getInitialWalletOverlayState(primaryWallet)).toEqual({ primaryWallet });
+  });
+
+  it('opens and closes a transfer direction without changing the primary wallet', () => {
+    const open = toggleWalletTransferDirection({ primaryWallet }, 'out');
+    expect(open).toEqual({ primaryWallet, transferOut: {} });
+    expect(toggleWalletTransferDirection(open, 'out')).toEqual({ primaryWallet });
+  });
+
+  it('opens both transfer sides without clearing either one', () => {
+    const state = { primaryWallet, transferOut: { wallet: transferWallet } } satisfies IWalletOverlayState;
+    expect(toggleWalletTransferDirection(state, 'in')).toEqual({
+      primaryWallet,
+      transferIn: {},
+      transferOut: { wallet: transferWallet },
     });
   });
 
-  it('empties only the right slot when the right wallet closes', () => {
-    expect(closeWalletOverlaySide(openPair, 'right')).toEqual({
-      leftWallet: openPair.leftWallet,
+  it('selects a transfer wallet only while a direction is open', () => {
+    expect(selectTransferWallet({ primaryWallet }, 'out', transferWallet)).toEqual({ primaryWallet });
+    expect(selectTransferWallet({ primaryWallet, transferOut: {} }, 'out', transferWallet)).toEqual({
+      primaryWallet,
+      transferOut: { wallet: transferWallet },
     });
   });
 
-  it('leaves two empty slots after the final wallet closes', () => {
-    expect(closeWalletOverlaySide({ rightWallet: openPair.rightWallet }, 'right')).toEqual({});
-  });
-
-  it('swaps source and recipient', () => {
-    expect(flipWalletOverlay(openPair)).toEqual({
-      leftWallet: openPair.rightWallet,
-      rightWallet: openPair.leftWallet,
+  it('returns from a transfer wallet to its chooser', () => {
+    expect(returnToTransferWalletChooser({ primaryWallet, transferIn: { wallet: transferWallet } }, 'in')).toEqual({
+      primaryWallet,
+      transferIn: {},
     });
   });
 
-  it('closes the opposite panel when selecting its wallet', () => {
-    expect(selectWalletOverlaySide(openPair, 'left', openPair.rightWallet)).toEqual({
-      leftWallet: openPair.rightWallet,
-    });
-    expect(selectWalletOverlaySide(openPair, 'right', openPair.leftWallet)).toEqual({
-      rightWallet: openPair.leftWallet,
-    });
+  it('replacing the primary wallet closes both transfer sidecars', () => {
+    expect(
+      selectPrimaryWallet({ primaryWallet, transferIn: {}, transferOut: { wallet: transferWallet } }, transferWallet),
+    ).toEqual({ primaryWallet: transferWallet });
   });
 
   it('keeps the established default Argon wallet name', () => {
-    expect(getWalletSelectionName({ walletType: WalletType.defaultArgon })).toBe('Native Argon Wallet');
+    expect(getWalletSelectionName(transferWallet)).toBe('Native Argon Wallet');
   });
 
-  it('loads Native Argon on the right when another wallet is requested', () => {
-    expect(getInitialWalletOverlayState(openPair.leftWallet)).toEqual({
-      leftWallet: openPair.leftWallet,
-      rightWallet: { walletType: WalletType.defaultArgon },
-    });
-  });
-
-  it('labels transfers between loaded wallets as jumps', () => {
-    expect(WALLET_JUMP_LABEL).toBe('JUMP');
+  it('labels cross-network transfers as moves', () => {
+    expect(WALLET_MOVE_LABEL).toBe('MOVE');
   });
 });

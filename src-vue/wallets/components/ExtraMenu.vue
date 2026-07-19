@@ -44,17 +44,18 @@
               </DropdownMenuItem>
               <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             </template>
-            <DropdownMenuItem MenuItem @select="toggleQRCode" >
-              <div ItemWrapper>
-                <header>View Wallet QR Code</header>
+            <DropdownMenuItem MenuItem @select="toggleQRCode" class="pl-0!">
+              <div v-if="!showQrCode" ItemWrapper>
+                <header>{{ showQrCode ? 'Hide' : 'Show' }} Wallet QR Code</header>
                 <QrCodeIcon class="w-4 h-4" />
               </div>
-              <img v-if="showQrCode" :src="qrCode" class="w-40 max-w-full mt-4" :alt="`QR Code Wallet Address`" />
+<!--              <DropdownMenuSeparator v-if="showQrCode" divider class="my-1 h-[1px] w-full bg-slate-400/30" />-->
+              <img v-if="showQrCode" :src="qrCode" class="w-40 max-w-full mt-1.5" :alt="`QR Code Wallet Address`" />
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             <DropdownMenuItem MenuItem @click="() => openRecovery()" >
               <div ItemWrapper>
-                <header>View Recovery Phrase</header>
+                <header>Open Recovery Phrase</header>
                 <ShieldCheckIcon class="w-4 h-4" />
               </div>
             </DropdownMenuItem>

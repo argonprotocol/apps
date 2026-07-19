@@ -1,9 +1,18 @@
 <template>
-  <div class="flex flex-row items-center gap-x-3.5">
-    <CopyToClipboard :content="props.wallet.address" :data-testid="props.walletAddressTestId" class="cursor-pointer">
-      <CopyIcon class="h-4 opacity-80" />
+  <div class="flex flex-row items-center gap-x-2.5">
+    <CopyToClipboard
+      :content="props.wallet.address"
+      :data-testid="props.walletAddressTestId"
+      class="flex cursor-pointer items-center justify-center text-slate-500/60"
+      :class="
+        props.showBorders
+          ? 'h-[34px] w-[34px] rounded-md border border-slate-400/60 hover:border-slate-500/60 hover:bg-[#f1f3f7]'
+          : 'h-4 w-4'
+      "
+    >
+      <CopyIcon class="h-4" />
       <template #copying>
-        <CopyIcon class="h-4 opacity-100" />
+        <CopyIcon class="h-4" />
       </template>
     </CopyToClipboard>
     <ExtraMenu
@@ -14,7 +23,16 @@
       :testIdPrefix="props.walletAddressTestId"
     >
       <template #trigger>
-        <MoreIcon class="h-4 opacity-80" />
+        <span
+          class="flex items-center justify-center text-slate-500/60"
+          :class="
+            props.showBorders
+              ? 'h-[34px] w-[34px] rounded-md border border-slate-400/60 hover:border-slate-500/60 hover:bg-[#f1f3f7]'
+              : 'h-4 w-4'
+          "
+        >
+          <MoreIcon class="h-4" />
+        </span>
       </template>
     </ExtraMenu>
   </div>
@@ -34,5 +52,6 @@ const props = defineProps<{
   walletAddressTestId: string;
   walletIsOpen?: boolean;
   canExportPrivateKey?: boolean;
+  showBorders?: boolean;
 }>();
 </script>

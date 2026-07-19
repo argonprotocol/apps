@@ -103,7 +103,11 @@ pub async fn run_db_migrations(
 
     if imported_from_legacy {
         sqlx::query(
-            "INSERT INTO Config (key, value) VALUES ('showWelcomeOverlay', 'true'), ('wasImportedFromLegacy', 'true') \
+            "INSERT INTO Config (key, value) VALUES \
+             ('showWelcomeOverlay', 'true'), \
+             ('wasImportedFromLegacy', 'true'), \
+             ('walletAccountsHadPreviousLife', 'true'), \
+             ('walletPreviousLifeRecovered', 'true') \
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         )
         .execute(&pool)

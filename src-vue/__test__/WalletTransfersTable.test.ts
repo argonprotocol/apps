@@ -155,7 +155,6 @@ describe('WalletTransfersTable', () => {
         blockNumber: 12,
         blockHash: '0xunowned',
       });
-
       await expect(
         db.walletTransfersTable.fetchExternalFlows({
           walletAddresses: ['5default', '5miner'],

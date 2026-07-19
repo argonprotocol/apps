@@ -50,10 +50,10 @@
               </span>
             </Tooltip>
           </div>
-          <div v-if="totalFees > 0n" class="text-slate-500">
+          <div v-if="vaultFees > 0n" class="text-slate-500">
             <Tooltip :asChild="true" content="The fee charged by the vault operator for securing this bitcoin lock.">
               <span class="cursor-help">
-                Vault fee: {{ currency.symbol }}{{ microgonToMoneyNm(totalFees).format('0,0.[00]') }}
+                Vault fee: {{ currency.symbol }}{{ microgonToMoneyNm(vaultFees).format('0,0.[00]') }}
               </span>
             </Tooltip>
           </div>
@@ -240,11 +240,8 @@ const mintedPct = Vue.computed(() => {
   return bitcoinLocks.getMintPercent(localLock.value);
 });
 
-const totalFees = Vue.computed(() => {
-  const ratchet = localLock.value?.ratchets?.[0];
-  if (ratchet) {
-    return (ratchet.securityFee ?? 0n) + (ratchet.txFee ?? 0n);
-  }
+const vaultFees = Vue.computed(() => {
+  if (localLock.value) return bitcoinLocks.createLockSummary(localLock.value).securityFees;
   return props.lock.lockDetails?.securityFees ?? 0n;
 });
 
