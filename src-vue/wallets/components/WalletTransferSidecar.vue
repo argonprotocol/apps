@@ -40,7 +40,7 @@
 
     <template v-if="props.wallet">
       <div class="flex h-[136px] shrink-0 flex-col items-center justify-center">
-        <div class="text-6xl font-bold text-argon-700/70">
+        <div class="text-argon-700/70 text-6xl font-bold">
           <FormattedMoney :isLoaded="walletValueIsLoaded" :value="walletTotalValue" />
         </div>
         <div class="mt-2 h-[29px] shrink-0 text-sm opacity-50">
@@ -76,6 +76,11 @@
           @openTransferOverlay="emit('openTransferOverlay', $event)"
         />
       </div>
+      <EthereumBottom
+        v-if="props.walletSelection?.walletType === WalletType.ethereum"
+        :wallet="props.wallet"
+        class="px-5"
+      />
     </template>
     <WalletChooser
       v-else
@@ -107,6 +112,7 @@ import { createNumeralHelpers } from '../../lib/numeral.ts';
 import type { IWalletSelection, IWalletTransferDirection } from '../walletOverlayState.ts';
 import ArgonTokens from './ArgonTokens.vue';
 import WalletChooser from './WalletChooser.vue';
+import EthereumBottom from './EthereumBottom.vue';
 
 const props = defineProps<{
   direction: IWalletTransferDirection;

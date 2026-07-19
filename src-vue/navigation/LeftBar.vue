@@ -391,7 +391,7 @@
                 :wallet="selectedWalletData"
                 :walletAddressTestId="selectedWalletAddressTestId"
                 :canExportPrivateKey="selectedWalletCanExportPrivateKey"
-                class="grow justify-end pr-1"
+                class="grow justify-end gap-x-3.5 pr-1"
               />
             </header>
             <div class="flex cursor-pointer flex-col justify-center py-7" @click="openSelectedWallet">

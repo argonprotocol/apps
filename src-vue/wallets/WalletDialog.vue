@@ -59,7 +59,7 @@
               v-if="!props.transferIn"
               data-testid="WalletOverlay.toggleTransferIn()"
               type="button"
-              class="absolute top-24 right-full flex h-76 w-14 cursor-pointer flex-col items-center justify-between rounded-l-lg border border-r-0 border-black/50 bg-gray-900/70 py-10 text-lg font-bold text-white/60 shadow-lg hover:bg-gray-900/90"
+              class="absolute top-24 right-full flex h-76 w-14 cursor-pointer flex-col items-center justify-between rounded-l-lg border border-r-0 border-black/50 bg-gray-900/70 py-10 text-lg font-bold text-white/60 shadow-lg hover:bg-gray-900/90 focus:outline-none"
               @click="emit('toggleTransferDirection', 'in')"
             >
               <ArrowLeftIcon class="h-7 w-7" />
@@ -70,7 +70,7 @@
               v-if="!props.transferOut"
               data-testid="WalletOverlay.toggleTransferOut()"
               type="button"
-              class="absolute top-24 left-full flex h-76 w-14 cursor-pointer flex-col items-center justify-between rounded-r-lg border border-l-0 border-black/50 bg-gray-900/70 py-10 text-lg font-bold text-white/60 shadow-lg hover:bg-gray-900/90"
+              class="absolute top-24 left-full flex h-76 w-14 cursor-pointer flex-col items-center justify-between rounded-r-lg border border-l-0 border-black/50 bg-gray-900/70 py-10 text-lg font-bold text-white/60 shadow-lg hover:bg-gray-900/90 focus:outline-none"
               @click="emit('toggleTransferDirection', 'out')"
             >
               <ArrowRightIcon class="h-7 w-7" />
