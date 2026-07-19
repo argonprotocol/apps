@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Argon Desktop",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "identifier": "com.argon.desktop",
   "build": {
     "beforeDevCommand": "yarn run dev",
