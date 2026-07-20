@@ -394,6 +394,7 @@ export const useCertificationController = defineStore('certificationController',
 
   let operationalAccountUnsubscribe: VoidFunction | undefined;
   let previousCompletionByStepId: Record<OperationalStepId, boolean> | undefined;
+  let hasLoadedInitialOperationalProgress = false;
 
   function isCertificationStepComplete(stepId: OperationalStepId) {
     if (stepId === OperationalStepId.BootstrapFromNode) return true;
@@ -536,7 +537,7 @@ export const useCertificationController = defineStore('certificationController',
     Vue.watch(
       () => config.hasExtensionTreasury,
       (hasExtensionTreasury, hadExtensionTreasury) => {
-        if (!hasExtensionTreasury || hadExtensionTreasury !== false) {
+        if (!hasExtensionTreasury || hadExtensionTreasury !== false || chainProgress.value.hasOperationalAccount) {
           return;
         }
 
@@ -549,10 +550,30 @@ export const useCertificationController = defineStore('certificationController',
     void subscribeOperationalAccount(
       walletKeys,
       x => {
+        const isInitialOperationalProgress = !hasLoadedInitialOperationalProgress;
+        hasLoadedInitialOperationalProgress = true;
         chainProgress.value = x;
 
-        if ((x.isOperational || x.isUpgradedToOperations) && !config.hasExtensionOperations) {
-          config.hasExtensionOperations = true;
+        let shouldSaveConfig = false;
+        if (x.hasOperationalAccount) {
+          if (!config.hasExtensionTreasury) {
+            config.hasExtensionTreasury = true;
+            shouldSaveConfig = true;
+          }
+          if (!config.hasExtensionOperations) {
+            config.hasExtensionOperations = true;
+            shouldSaveConfig = true;
+          }
+          if (config.certificationDetails?.showBonusTooltip !== false) {
+            config.setCertificationDetails({ showBonusTooltip: false });
+            shouldSaveConfig = true;
+          }
+          if (isInitialOperationalProgress) {
+            completionNoticeQueue.value = [];
+            previousCompletionByStepId = getCertificationCompletionByStepId();
+          }
+        }
+        if (shouldSaveConfig) {
           void config.save();
         }
       },
@@ -576,11 +597,7 @@ export const useCertificationController = defineStore('certificationController',
     });
     // detect newly completed steps and queue completion notices
     Vue.watch(
-      () => {
-        return Object.fromEntries(
-          allCertificationStepIds.map(stepId => [stepId, isCertificationStepComplete(stepId)]),
-        ) as Record<OperationalStepId, boolean>;
-      },
+      getCertificationCompletionByStepId,
       nextCompletionByStepId => {
         if (!previousCompletionByStepId) {
           previousCompletionByStepId = nextCompletionByStepId;
@@ -594,6 +611,12 @@ export const useCertificationController = defineStore('certificationController',
         if (!newlyCompletedStepIds.length) return;
 
         for (const stepId of newlyCompletedStepIds) {
+          if (
+            chainProgress.value.hasOperationalAccount &&
+            (treasuryCertificationStepIds as readonly OperationalStepId[]).includes(stepId)
+          ) {
+            continue;
+          }
           if (dismissedCompletionNoticeStepIds.value.has(stepId)) continue;
           if (activeGuideId.value === stepId) {
             activeGuideId.value = null;
@@ -739,6 +762,12 @@ export const useCertificationController = defineStore('certificationController',
   function clearCompletionNotices() {
     acknowledgeCompletionNoticeSteps(completionNoticeQueue.value);
     completionNoticeQueue.value = [];
+  }
+
+  function getCertificationCompletionByStepId() {
+    return Object.fromEntries(
+      allCertificationStepIds.map(stepId => [stepId, isCertificationStepComplete(stepId)]),
+    ) as Record<OperationalStepId, boolean>;
   }
 
   async function refreshTreasuryTransferTotals() {
