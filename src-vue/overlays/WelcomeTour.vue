@@ -28,7 +28,7 @@ const controller = useCertificationController();
 const config = getConfig();
 const tour = useTour();
 
-const startingTab = controller.selectedTab ?? TopTab.Dashboard;
+const startingTab = controller.selectedTab ?? TopTab.Home;
 
 const stepVars = Vue.ref({});
 const tourPos = Vue.ref<ITourPos>({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 });
@@ -69,7 +69,7 @@ async function loadStep(step: number) {
   } else if (step === 2) {
     controller.setTab(TopTab.Vaulting);
   } else if (step === 5) {
-    controller.setTab(TopTab.Dashboard);
+    controller.setTab(TopTab.Home);
   }
 
   tour.currentStep = step;

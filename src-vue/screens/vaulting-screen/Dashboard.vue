@@ -99,7 +99,7 @@
                   Staking
                 </button>
                 <div class="w-px h-8/12 bg-slate-600/30" />
-                <button @click="controller.setTab(TopTab.Invites)" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
+                <button @click="controller.setTab(TopTab.Onboarding)" class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
                   Users
                 </button>
               </div>

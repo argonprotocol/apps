@@ -1,10 +1,15 @@
 <template>
   <div class="Navigation LeftBar z-10 flex h-full max-w-76 min-w-76 flex-col gap-y-1.5 select-none">
-    <section DashBox class="border-argon-600/50! w-full px-1">
+    <section DashBox class="w-full px-1">
       <div class="mt-3">
         <header>Basic Nav</header>
         <ul>
-          <li @click="goto(TopTab.Dashboard)" :class="{ Selected: controller.selectedTab === TopTab.Dashboard }">
+          <li
+            @click="goto(TopTab.Home)"
+            :class="{
+              Selected: controller.selectedTab === TopTab.Home || controller.selectedTab === ('Dashboard' as TopTab),
+            }"
+          >
             <article class="flex flex-row items-center">
               <div class="mr-1 w-6">
                 <OverviewIcon class="w-5.5" />
@@ -27,7 +32,7 @@
       </div>
     </section>
 
-    <section DashBox v-if="config.isLoaded && config.hasExtensionTreasury" class="border-argon-600/50! w-full px-1">
+    <section DashBox v-if="config.isLoaded && config.hasExtensionTreasury" class="w-full px-1">
       <div class="mt-3">
         <header class="relative flex flex-row items-center">
           <div class="grow">Treasury</div>
@@ -68,19 +73,6 @@
             </article>
             <div Selector />
           </li>
-          <!--          <li @click="goto(TopTab.BitcoinLoans)" :class="{ Selected: controller.selectedTab === TopTab.BitcoinLoans }">-->
-          <!--            <article class="flex flex-row items-center">-->
-          <!--              <div class="grow">Bitcoin Loans</div>-->
-          <!--              <div class="opacity-60">-->
-          <!--                {{ currency.symbol }}{{ microgonToMoneyNm(financials.liquidCurrentBitcoinDebt).format('0,0.00') }}-->
-          <!--              </div>-->
-          <!--            </article>-->
-          <!--            <div Selector>-->
-          <!--              <div ArrowSquare>-->
-          <!--                <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />-->
-          <!--              </div>-->
-          <!--            </div>-->
-          <!--          </li>-->
           <li @click="goto(TopTab.ArgonBonds)" :class="{ Selected: controller.selectedTab === TopTab.ArgonBonds }">
             <article class="relative flex flex-row items-center">
               <div class="mr-1 w-6">
@@ -99,26 +91,6 @@
             </article>
             <div Selector />
           </li>
-          <!--          <li @click="goto(TopTab.ArgonotBonds)" :class="{ Selected: controller.selectedTab === TopTab.ArgonotBonds }">-->
-          <!--            <article class="flex flex-row items-center">-->
-          <!--              <div class="grow">Argonot Bonds</div>-->
-          <!--              <div class="opacity-60">-->
-          <!--                {{ currency.symbol-->
-          <!--                }}{{-->
-          <!--                  micronotToMoneyNm(-->
-          <!--                    myBonds.bondLots-->
-          <!--                      .filter(bondLot => bondLot.programType === 'Argonot')-->
-          <!--                      .reduce((sum, bondLot) => sum + bondLot.bondMicrogons, 0n),-->
-          <!--                  ).format('0,0.00')-->
-          <!--                }}-->
-          <!--              </div>-->
-          <!--            </article>-->
-          <!--            <div Selector>-->
-          <!--              <div ArrowSquare>-->
-          <!--                <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />-->
-          <!--              </div>-->
-          <!--            </div>-->
-          <!--          </li>-->
           <li @click="goto(TopTab.StableSwaps)" :class="{ Selected: controller.selectedTab === TopTab.StableSwaps }">
             <article class="flex flex-row items-center">
               <div class="mr-1 w-6">
@@ -140,7 +112,7 @@
       </div>
     </section>
 
-    <section DashBox v-if="config.isLoaded && config.hasExtensionOperations" class="border-argon-600/50! w-full px-1">
+    <section DashBox v-if="config.isLoaded && config.hasExtensionOperations" class="w-full px-1">
       <div class="mt-3">
         <header class="relative flex flex-row items-center">
           <div class="grow">Operations</div>
@@ -277,7 +249,13 @@
             </article>
             <div Selector />
           </li>
-          <li @click="goto(TopTab.Invites)" :class="{ Selected: controller.selectedTab === TopTab.Invites }">
+          <li
+            @click="goto(TopTab.Onboarding)"
+            :class="{
+              Selected:
+                controller.selectedTab === TopTab.Onboarding || controller.selectedTab === ('Invites' as TopTab),
+            }"
+          >
             <article class="relative flex flex-col">
               <div class="relative flex flex-row items-center">
                 <div class="mr-1 w-6">
@@ -290,7 +268,7 @@
                   }}
                 </div>
               </div>
-              <div v-if="controller.selectedTab === TopTab.Invites" class="text-md -mb-1.5">
+              <div v-if="controller.selectedTab === TopTab.Onboarding" class="text-md -mb-1.5">
                 <div class="flex flex-row">
                   <div class="mt-0.5 flex grow flex-row items-center">
                     <div class="Connector" />
@@ -399,7 +377,11 @@
         <div
           class="border-argon-400 absolute -top-5 -left-px h-5 w-2.5 rounded-l-full border border-t-transparent border-r-transparent"
         />
-        <div class="bg-argon-100/20 h-full w-full" style="text-shadow: 1px 1px 0 white">
+        <div
+          @click="openSelectedWallet"
+          class="wallet-summary bg-argon-100/15 h-full w-full cursor-pointer"
+          style="text-shadow: 1px 1px 0 white"
+        >
           <div class="absolute top-0 left-0 h-full w-5 rounded-bl-lg bg-linear-to-r from-slate-600/10 to-transparent" />
           <div class="flex flex-col justify-center pt-3 pr-3 pl-3">
             <header class="flex w-full flex-row items-center border-b border-slate-500/20">
@@ -409,34 +391,37 @@
                 :getName="getWalletName"
                 testIdPrefix="LeftBar.walletMenu"
                 side="top"
-                class="hover:text-argon-700"
+                class="hover:text-argon-700 relative -left-2"
                 @select="selectWallet"
               />
+              <div class="grow" />
               <WalletActions
                 :selection="selectedWallet"
                 :wallet="selectedWalletData"
                 :walletAddressTestId="selectedWalletAddressTestId"
                 :canExportPrivateKey="selectedWalletCanExportPrivateKey"
-                class="grow justify-end gap-x-3.5 pr-1"
+                class="wallet-summary-actions justify-end gap-x-0! pr-0"
               />
             </header>
-            <div class="flex cursor-pointer flex-col justify-center py-7" @click="openSelectedWallet">
-              <div class="text-argon-600/70 flex flex-row justify-center text-5xl font-bold">
+            <div class="flex flex-col justify-center py-7">
+              <div class="wallet-summary-total text-argon-600/70 flex flex-row justify-center text-5xl font-bold">
                 <span>{{ currency.symbol }}</span>
                 <FormattedMoney :isLoaded="selectedWalletBalanceIsLoaded" :value="selectedWalletBalance" />
               </div>
               <div
-                v-if="currency.isLoaded && selectedWallet.walletType === WalletType.defaultArgon"
+                v-if="selectedWalletBalanceIsLoaded && selectedWallet.walletType === WalletType.defaultArgon"
                 class="mx-auto mt-2 w-fit border-t border-slate-500/30 pt-2 text-center opacity-50"
               >
-                Includes {{ currency.symbol
-                }}{{ microgonToMoneyNm(financials.savingsTotalPending).format('0,0.00') }} waiting to mint
+                {{ currency.symbol
+                }}{{ microgonToMoneyNm(selectedWalletBalance - financials.savingsTotalPending).format('0,0.00') }} is
+                immediately usable
               </div>
               <div
-                v-else-if="currency.isLoaded && isEthereumWalletSelection(selectedWallet)"
+                v-else-if="selectedWalletBalanceIsLoaded && isEthereumWalletSelection(selectedWallet)"
                 class="mx-auto mt-2 flex w-fit gap-x-2 border-t border-slate-500/30 pt-2 text-center opacity-50"
               >
-                {{ currency.symbol }}{{ microgonToMoneyNm(selectedOtherTokenValue).format('0,0.00') }} non-native tokens
+                {{ currency.symbol }}{{ microgonToMoneyNm(selectedOtherTokenValue).format('0,0.00') }} is in non-native
+                tokens
               </div>
             </div>
           </div>
@@ -473,11 +458,8 @@ import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import DiamondsIcon from '../assets/diamonds.svg?component';
 import MoreIcon from '../assets/more.svg';
 import GiftIcon from '../assets/gift.svg';
-import EditIcon from '../assets/edit.svg';
 import BitcoinIcon from '../assets/wallets/bitcoin.svg';
 import BondIcon from '../assets/bond.svg';
-import AuctionIcon from '../assets/auction.svg';
-import ViewIcon from '../assets/view.svg';
 import MiningOilIcon from '../assets/mining-oil.svg';
 import OverviewIcon from '../assets/overview.svg';
 import SwapIcon from '../assets/swap.svg';
@@ -653,6 +635,22 @@ Vue.onBeforeUnmount(() => {
 
 header {
   @apply px-2 pt-1 pb-3 font-bold text-slate-700/40 uppercase;
+}
+
+.wallet-summary:hover {
+  @apply bg-argon-100/25;
+
+  .wallet-summary-total {
+    @apply text-argon-600;
+  }
+}
+
+.wallet-summary:has(.wallet-summary-actions:hover) {
+  @apply bg-argon-100/15;
+
+  .wallet-summary-total {
+    @apply text-argon-600/70;
+  }
 }
 
 .Connector {

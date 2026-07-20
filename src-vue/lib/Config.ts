@@ -80,6 +80,7 @@ export class Config implements IConfig {
       version: packageJson.version,
       requiresPassword: false,
       showWelcomeOverlay: Config.getDefault(dbFields.showWelcomeOverlay) as IConfig['showWelcomeOverlay'],
+      postWelcomeLaunchCount: Config.getDefault(dbFields.postWelcomeLaunchCount) as IConfig['postWelcomeLaunchCount'],
       wasImportedFromLegacy: Config.getDefault(dbFields.wasImportedFromLegacy) as IConfig['wasImportedFromLegacy'],
       hasExtensionTreasury: Config.getDefault(dbFields.hasExtensionTreasury) as IConfig['hasExtensionTreasury'],
       hasExtensionOperations: Config.getDefault(dbFields.hasExtensionOperations) as IConfig['hasExtensionOperations'],
@@ -375,6 +376,13 @@ export class Config implements IConfig {
   }
   public set showWelcomeOverlay(value: IConfig['showWelcomeOverlay']) {
     this.setField('showWelcomeOverlay', value);
+  }
+
+  public get postWelcomeLaunchCount(): IConfig['postWelcomeLaunchCount'] {
+    return this.getField('postWelcomeLaunchCount');
+  }
+  public set postWelcomeLaunchCount(value: IConfig['postWelcomeLaunchCount']) {
+    this.setField('postWelcomeLaunchCount', value);
   }
 
   public get wasImportedFromLegacy(): IConfig['wasImportedFromLegacy'] {
@@ -725,6 +733,7 @@ const dbFields = {
   vaultingSetupStatus: 'vaultingSetupStatus',
 
   showWelcomeOverlay: 'showWelcomeOverlay',
+  postWelcomeLaunchCount: 'postWelcomeLaunchCount',
   wasImportedFromLegacy: 'wasImportedFromLegacy',
   hasExtensionTreasury: 'hasExtensionTreasury',
   hasExtensionOperations: 'hasExtensionOperations',
@@ -764,10 +773,11 @@ const defaults: IConfigDefaults = {
   vaultingSetupStatus: () => VaultingSetupStatus.None,
 
   showWelcomeOverlay: () => true,
+  postWelcomeLaunchCount: () => 0,
   wasImportedFromLegacy: () => false,
   hasExtensionTreasury: () => false,
   hasExtensionOperations: () => false,
-  selectedTab: () => TopTab.Dashboard,
+  selectedTab: () => TopTab.Home,
 
   requiresPassword: () => false,
   ethereumBeaconApiUrl: () => undefined,

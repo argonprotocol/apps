@@ -32,7 +32,13 @@ type IBasicEmitter = {
   openSoftwareInfoOverlay: void;
   openJurisdictionOverlay: { setCurrencyKey: ICurrencyKey } | undefined;
   openTroubleshootingOverlay: {
-    screen: 'server-diagnostics' | 'data-and-log-files' | 'options-for-restart' | 'overview' | 'find-missing-data';
+    screen:
+      | 'server-diagnostics'
+      | 'data-and-logs-dir'
+      | 'debug-package'
+      | 'options-for-restart'
+      | 'overview'
+      | 'missing-data-scanner';
   };
   openCheckForAppUpdatesOverlay: void;
   openWelcomeOverlay: void;

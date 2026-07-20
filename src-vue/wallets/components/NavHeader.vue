@@ -4,12 +4,13 @@
       :selectedWallet="props.selection"
       :walletSelections="props.walletSelections"
       :testIdPrefix="`WalletOverlay.${props.closeSide}WalletMenu`"
-      class="min-w-0 grow px-2 text-left text-xl font-bold text-slate-800/70"
+      class="min-w-0 px-2 text-left text-xl font-bold text-slate-800/70"
       @click.stop
       @pointerdown.stop
       @mousedown.stop
       @select="emit('select', $event)"
     />
+    <div class="grow" />
     <WalletActions
       :selection="props.selection"
       :wallet="props.wallet"

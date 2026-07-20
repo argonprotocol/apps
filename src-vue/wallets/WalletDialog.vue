@@ -57,14 +57,12 @@
             />
           </Transition>
 
-          <section
-            class="relative z-20 flex min-h-140 w-120 shrink-0 flex-col overflow-visible rounded-lg border border-black/40 bg-white shadow-2xl"
-          >
+          <div class="relative z-20 flex w-120 shrink-0">
             <button
               v-if="props.primaryWallet && !props.transferIn"
               data-testid="WalletOverlay.toggleTransferIn()"
               type="button"
-              class="absolute top-24 right-full flex h-76 w-14 cursor-pointer flex-col items-center justify-between rounded-l-lg border border-r-0 border-dashed border-white/60 bg-gray-900/70 py-10 text-lg font-bold text-white/60 shadow-lg hover:bg-gray-900/90 focus:outline-none"
+              class="absolute top-24 right-full flex h-76 w-14 cursor-pointer flex-col items-center justify-between rounded-l-lg border border-r-0 border-black/80 bg-gray-300/80 py-10 text-lg font-bold text-black/40 shadow-lg hover:bg-gray-300 focus:outline-none"
               @click="emit('toggleTransferDirection', 'in')"
             >
               <ArrowLeftIcon class="h-7 w-7" />
@@ -75,7 +73,7 @@
               v-if="props.primaryWallet && !props.transferOut"
               data-testid="WalletOverlay.toggleTransferOut()"
               type="button"
-              class="absolute top-24 left-full flex h-76 w-14 cursor-pointer flex-col items-center justify-between rounded-r-lg border border-l-0 border-dashed border-white/60 bg-gray-900/70 py-10 text-lg font-bold text-white/60 shadow-lg hover:bg-gray-900/90 focus:outline-none"
+              class="absolute top-24 left-full flex h-76 w-14 cursor-pointer flex-col items-center justify-between rounded-r-lg border border-l-0 border-black/80 bg-gray-300/80 py-10 text-lg font-bold text-black/40 shadow-lg hover:bg-gray-300 focus:outline-none"
               @click="emit('toggleTransferDirection', 'out')"
             >
               <ArrowRightIcon class="h-7 w-7" />
@@ -83,51 +81,55 @@
               <ArrowRightIcon class="h-7 w-7" />
             </button>
 
-            <h2
-              :style="{ cursor: draggable.isDragging ? 'grabbing' : 'grab' }"
-              class="z-20 mx-2 flex shrink-0 items-center px-2 pt-3 pb-2 text-2xl font-bold text-slate-800/70 select-none"
-              @mousedown="draggable.onMouseDown"
+            <section
+              class="relative z-20 flex min-h-140 w-full flex-col overflow-visible rounded-lg border border-black/60 bg-white shadow-2xl"
             >
-              <NavHeader
+              <h2
+                :style="{ cursor: draggable.isDragging ? 'grabbing' : 'grab' }"
+                class="z-20 mx-2 flex shrink-0 items-center px-2 pt-3 pb-2 text-2xl font-bold text-slate-800/70 select-none"
+                @mousedown="draggable.onMouseDown"
+              >
+                <NavHeader
+                  v-if="props.primaryWallet"
+                  :selection="props.primaryWallet"
+                  :walletSelections="props.walletSelections"
+                  :wallet="getWallet(props.primaryWallet)"
+                  :canExportPrivateKey="canExportEthereumPrivateKey(props.primaryWallet)"
+                  :showClose="true"
+                  closeSide="right"
+                  @select="emit('selectPrimaryWallet', $event)"
+                  @close="emit('close')"
+                />
+                <div v-else class="flex min-w-0 grow items-center gap-x-2.5 px-2">
+                  <span class="min-w-0 grow truncate text-left text-xl font-bold text-slate-800/70">Add Wallet</span>
+                  <button
+                    type="button"
+                    class="relative z-10 flex h-[34px] w-[34px] shrink-0 cursor-pointer items-center justify-center rounded-md border border-slate-400/60 hover:border-slate-500/60 hover:bg-[#f1f3f7] focus:outline-none"
+                    @click="emit('close')"
+                  >
+                    <XMarkIcon class="pointer-events-none h-5 w-5 stroke-2 text-slate-500/60" />
+                  </button>
+                </div>
+              </h2>
+              <WalletPanel
                 v-if="props.primaryWallet"
                 :selection="props.primaryWallet"
-                :walletSelections="props.walletSelections"
                 :wallet="getWallet(props.primaryWallet)"
-                :canExportPrivateKey="canExportEthereumPrivateKey(props.primaryWallet)"
-                :showClose="true"
-                closeSide="right"
-                @select="emit('selectPrimaryWallet', $event)"
-                @close="emit('close')"
+                :mode="props.transferOut?.wallet ? 'transfer' : 'chooser'"
+                :showGuidance="props.showGuidance"
+                :guidanceContext="props.guidanceContext"
+                :indentTokensLeft="!!props.transferIn?.wallet"
+                :indentTokensRight="!!props.transferOut?.wallet"
+                class="grow"
               />
-              <div v-else class="flex min-w-0 grow items-center gap-x-2.5 px-2">
-                <span class="min-w-0 grow truncate text-left text-xl font-bold text-slate-800/70">Add Wallet</span>
-                <button
-                  type="button"
-                  class="relative z-10 flex h-[34px] w-[34px] shrink-0 cursor-pointer items-center justify-center rounded-md border border-slate-400/60 hover:border-slate-500/60 hover:bg-[#f1f3f7] focus:outline-none"
-                  @click="emit('close')"
-                >
-                  <XMarkIcon class="pointer-events-none h-5 w-5 stroke-2 text-slate-500/60" />
-                </button>
-              </div>
-            </h2>
-            <WalletPanel
-              v-if="props.primaryWallet"
-              :selection="props.primaryWallet"
-              :wallet="getWallet(props.primaryWallet)"
-              :mode="props.transferOut?.wallet ? 'transfer' : 'chooser'"
-              :showGuidance="props.showGuidance"
-              :guidanceContext="props.guidanceContext"
-              :indentTokensLeft="!!props.transferIn?.wallet"
-              :indentTokensRight="!!props.transferOut?.wallet"
-              class="grow"
-            />
-            <EthereumWalletSetup
-              v-else
-              :initialStep="props.primaryAddWalletStep ?? 'choice'"
-              class="min-h-0 grow border-t border-slate-300"
-              @complete="emit('completeAddWallet', 'primary', $event)"
-            />
-          </section>
+              <EthereumWalletSetup
+                v-else
+                :initialStep="props.primaryAddWalletStep ?? 'choice'"
+                class="min-h-0 grow border-t border-slate-300"
+                @complete="emit('completeAddWallet', 'primary', $event)"
+              />
+            </section>
+          </div>
 
           <Transition name="wallet-sidecar-right">
             <WalletTransferSidecar

@@ -360,7 +360,7 @@ function openServerConnectPanel() {
 function goBack() {
   config.miningSetupStatus = MiningSetupStatus.None;
   if (controller.backButtonTriggersHome) {
-    controller.setTab(TopTab.Dashboard);
+    controller.setTab(TopTab.Home);
   }
 }
 

@@ -3,8 +3,12 @@
     <DropdownMenuTrigger
       v-bind="$attrs"
       :data-testid="`${props.testIdPrefix}.open()`"
-      class="flex min-w-0 cursor-pointer items-center focus:outline-none"
+      class="hover:bg-argon-600/5 flex h-[34px] min-w-0 cursor-pointer flex-row items-center rounded-md px-2 focus:outline-none"
     >
+      <div class="relative mr-1 w-4.5 border-r border-slate-300 pr-1">
+        <ArgonNetworkLogo v-if="selectedWallet.walletType === WalletType.defaultArgon" class="h-full" />
+        <EthereumNetworkLogo v-else-if="selectedWallet.walletType === WalletType.ethereum" class="h-full" />
+      </div>
       <span class="truncate">{{ getWalletName(props.selectedWallet) }}</span>
       <ChevronDownIcon class="ml-1.5 w-4 shrink-0" />
     </DropdownMenuTrigger>
@@ -63,6 +67,8 @@ import {
   isEthereumWalletSelection,
   type IWalletSelection,
 } from '../walletOverlayState.ts';
+import ArgonNetworkLogo from '../../assets/wallets/networks/argon.svg';
+import EthereumNetworkLogo from '../../assets/wallets/networks/ethereum.svg';
 
 defineOptions({ inheritAttrs: false });
 

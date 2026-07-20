@@ -16,29 +16,38 @@
       <DialogTitle v-else-if="activeScreen === 'server-diagnostics'" class="grow text-2xl font-bold">
         Server Diagnostics
       </DialogTitle>
-      <DialogTitle v-else-if="activeScreen === 'find-missing-data'" class="grow text-2xl font-bold">
-        Find Missing Data
+      <DialogTitle v-else-if="activeScreen === 'missing-data-scanner'" class="grow text-2xl font-bold">
+        Missing Data Scanner
       </DialogTitle>
-      <DialogTitle v-else-if="activeScreen === 'data-and-log-files'" class="grow text-2xl font-bold">
+      <DialogTitle v-else-if="activeScreen === 'data-and-logs-dir'" class="grow text-2xl font-bold">
         Data and Logging
+      </DialogTitle>
+      <DialogTitle v-else-if="activeScreen === 'debug-package'" class="grow text-2xl font-bold">
+        Debugging Package
       </DialogTitle>
       <DialogTitle v-else-if="activeScreen === 'options-for-restart'" class="grow text-2xl font-bold">
         Advanced Restart
       </DialogTitle>
     </template>
     <div v-if="activeScreen === 'overview'">
-      <ul class="mt-6 flex flex-col px-3">
+      <ul class="mt-3 flex flex-col px-3">
         <li
-          @click="goTo('find-missing-data')"
+          @click="goTo('missing-data-scanner')"
           class="group hover:text-argon-600 hover:to-argon-menu-hover/70 flex cursor-pointer flex-row items-center rounded-md py-4 hover:bg-gradient-to-r hover:from-transparent">
-          <MagnifyingGlassIcon class="group-hover:text-argon-600 mr-2 h-5 w-5 text-slate-600 opacity-70" />
-          Find Missing Data
+          <ScannerIcon class="group-hover:text-argon-600 mr-2 h-5 w-5 text-slate-600 opacity-70" />
+          Missing Data Scanner
         </li>
         <li
-          @click="goTo('data-and-log-files')"
+          @click="goTo('data-and-logs-dir')"
           class="group hover:text-argon-600 hover:to-argon-menu-hover/70 flex cursor-pointer flex-row items-center rounded-md py-4 hover:bg-gradient-to-r hover:from-transparent">
           <LogsIcon class="group-hover:text-argon-600 mr-2 h-5 w-5 opacity-70" />
-          View Data and Logs
+          Data and Logs Dir
+        </li>
+        <li
+          @click="goTo('debug-package')"
+          class="group hover:text-argon-600 hover:to-argon-menu-hover/70 flex cursor-pointer flex-row items-center rounded-md py-4 hover:bg-gradient-to-r hover:from-transparent">
+          <DebugIcon class="group-hover:text-argon-600 mr-2 h-5 w-5 opacity-70" />
+          Debugging Package
         </li>
         <li
           @click="goTo('server-diagnostics')"
@@ -65,8 +74,9 @@
       </ul>
     </div>
     <ServerDiagnostics v-else-if="activeScreen === 'server-diagnostics'" />
-    <DataAndLogFiles v-else-if="activeScreen === 'data-and-log-files'" />
-    <FindMissingData v-else-if="activeScreen === 'find-missing-data'" />
+    <DataAndLogFiles v-else-if="activeScreen === 'data-and-logs-dir'" />
+    <DebugPackage v-else-if="activeScreen === 'debug-package'" />
+    <MissingDataScanner v-else-if="activeScreen === 'missing-data-scanner'" />
     <AdvancedRestart v-else-if="activeScreen === 'options-for-restart'" />
   </OverlayBase>
 </template>
@@ -77,14 +87,17 @@ import { DialogTitle } from 'reka-ui';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import ServerDiagnostics from './troubleshooting/ServerDiagnostics.vue';
 import DataAndLogFiles from './troubleshooting/DataAndLogFiles.vue';
+import DebugPackage from './troubleshooting/DebugPackage.vue';
 import AdvancedRestart from './troubleshooting/AdvancedRestart.vue';
-import { ChevronLeftIcon, MagnifyingGlassIcon, CommandLineIcon } from '@heroicons/vue/24/outline';
+import { ChevronLeftIcon, CommandLineIcon } from '@heroicons/vue/24/outline';
 import DiagnosticIcon from '../assets/diagnostics.svg?component';
 import LogsIcon from '../assets/logs.svg?component';
 import RestartIcon from '../assets/restart.svg?component';
+import DebugIcon from '../assets/debug.svg?component';
+import ScannerIcon from '../assets/scanner.svg?component';
 import OverlayBase from './OverlayBase.vue';
 import { getConfig } from '../stores/config.ts';
-import FindMissingData from './troubleshooting/FindMissingData.vue';
+import MissingDataScanner from './troubleshooting/MissingDataScanner.vue';
 
 const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
@@ -93,7 +106,13 @@ const config = getConfig();
 const activeScreen = Vue.ref('overview');
 
 function goTo(
-  screen: 'overview' | 'server-diagnostics' | 'data-and-log-files' | 'options-for-restart' | 'find-missing-data',
+  screen:
+    | 'overview'
+    | 'server-diagnostics'
+    | 'data-and-logs-dir'
+    | 'debug-package'
+    | 'options-for-restart'
+    | 'missing-data-scanner',
 ) {
   activeScreen.value = screen;
 }

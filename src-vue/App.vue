@@ -21,7 +21,7 @@
               : ''
           "
         >
-          <Dashboard v-if="controller.selectedTab === TopTab.Dashboard" />
+          <Home v-if="controller.selectedTab === TopTab.Home || controller.selectedTab === 'Dashboard' as TopTab" />
           <Network v-else-if="controller.selectedTab === TopTab.Network" />
 
           <ArgonBonds v-else-if="controller.selectedTab === TopTab.ArgonBonds" />
@@ -31,7 +31,8 @@
 
           <Mining v-else-if="controller.selectedTab === TopTab.Mining" />
           <Vaulting v-else-if="controller.selectedTab === TopTab.Vaulting" />
-          <Invites v-else-if="controller.selectedTab === TopTab.Invites" />
+          <Onboarding v-else-if="controller.selectedTab === TopTab.Onboarding || controller.selectedTab === 'Invites' as TopTab" />
+          <Home v-else />
         </div>
       </main>
     </div>
@@ -127,12 +128,12 @@ import BitcoinLocks from './screens/BitcoinLocks.vue';
 import LeftBar from './navigation/LeftBar.vue';
 import StableSwaps from './screens/StableSwaps.vue';
 import BitcoinLoans from './screens/BitcoinLoans.vue';
-import Dashboard from './screens/Dashboard.vue';
+import Home from './screens/Home.vue';
 import WelcomeToTreasuryOverlay from './overlays/WelcomeToTreasuryOverlay.vue';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import UpgradeToOperationsOverlay from './overlays/UpgradeToOperationsOverlay.vue';
 import UpgradeToTreasuryOverlay from './overlays/UpgradeToTreasuryOverlay.vue';
-import Invites from './screens/Invites.vue';
+import Onboarding from './screens/Onboarding.vue';
 
 const controller = useCertificationController();
 const config = getConfig();
@@ -146,11 +147,11 @@ const { shouldShowCompatibilityScreen } = storeToRefs(runtimeCompatibility);
 updater.start();
 runtimeCompatibility.start();
 
-const order = [TopTab.Dashboard, TopTab.Mining, TopTab.Vaulting];
+const order = [TopTab.Home, TopTab.Mining, TopTab.Vaulting];
 
 function keydownHandler(event: KeyboardEvent) {
   // Check for CMD+Shift+[ (mining panel)
-  const currentOrder = order.indexOf(controller.selectedTab ?? TopTab.Dashboard);
+  const currentOrder = order.indexOf(controller.selectedTab ?? TopTab.Home);
   if (event.metaKey && event.shiftKey && event.key === '[') {
     event.preventDefault();
     const left = (currentOrder - 1 + order.length) % order.length;
