@@ -1,7 +1,8 @@
 <template>
   <div class="flex h-full flex-col text-black/90">
     <div class="mx-1 border-t border-slate-300 px-4 py-6 text-center">
-      <div class="text-argon-700/70 text-7xl font-bold">
+      <div class="text-argon-700/70 text-6xl font-bold">
+        {{ currency.symbol }}
         <FormattedMoney :isLoaded="walletValueIsLoaded" :value="walletTotalValue" />
       </div>
       <div class="mt-2 h-[29px] shrink-0">

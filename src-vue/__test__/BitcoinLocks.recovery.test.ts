@@ -6,12 +6,15 @@ import type { TransactionTracker } from '../lib/TransactionTracker.ts';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import { BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
+import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { BitcoinLock, hexToU8a, type IBitcoinLock } from '@argonprotocol/mainchain';
 import { createHistoricalEventData } from '../../indexer/__test__/helpers/historicalEvents.ts';
 import { bigintCodec, numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts';
 import { encodeAddress } from '@polkadot/util-crypto';
 
-function createStore(options: { blockWatch?: BlockWatch; walletKeys?: WalletKeys } = {}) {
+function createStore(
+  options: { blockWatch?: BlockWatch; transactionTracker?: TransactionTracker; walletKeys?: WalletKeys } = {},
+) {
   const blockWatch =
     options.blockWatch ??
     (Object.assign(Object.create(null), {
@@ -21,16 +24,18 @@ function createStore(options: { blockWatch?: BlockWatch; walletKeys?: WalletKeys
     }) as BlockWatch);
   const currency = Object.assign(Object.create(null), {
     load: async () => undefined,
-    priceIndex: {},
+    priceIndex: { getSatoshiPriceInTargetMicrogons: () => 2_000n },
     convertSatToBtc: () => 0,
     convertBtcToMicrogon: () => 0n,
     fetchMainchainRatesAtBlock: async () => ({ BTC: 4_000_000n, ARGNOT: 1_000_000n, USD: 1_000_000n }),
   }) as CurrencyBase;
-  const transactionTracker = Object.assign(Object.create(null), {
-    load: async () => undefined,
-    pendingBlockTxInfosAtLoad: [],
-    data: { txInfos: [], txInfosByType: {} },
-  }) as TransactionTracker;
+  const transactionTracker =
+    options.transactionTracker ??
+    (Object.assign(Object.create(null), {
+      load: async () => undefined,
+      pendingBlockTxInfosAtLoad: [],
+      data: { txInfos: [], txInfosByType: {} },
+    }) as TransactionTracker);
 
   return new BitcoinLocks(
     Promise.resolve(Object.create(null) as Db),
@@ -719,5 +724,82 @@ describe('BitcoinLocks getActiveLocks', () => {
     expect(summary.receivedLiquidity).toBe(1_000n);
     expect(summary.record).not.toBe(record);
     expect(record.ratchets[0].mintPending).toBe(1_000n);
+  });
+});
+
+describe('BitcoinLocks ratchet transaction tracking', () => {
+  it('reuses a stored pending ratchet instead of submitting another transaction', async () => {
+    const pendingTxInfo = {
+      tx: {
+        extrinsicType: ExtrinsicType.BitcoinRatchet,
+        metadataJson: { utxoId: 7 },
+        status: TransactionStatus.Finalized,
+      },
+      txResult: {},
+      isPostProcessed: false,
+    };
+    const transactionTracker = Object.assign(Object.create(null), {
+      findLatestTxInfo: vi.fn((matches: (candidate: typeof pendingTxInfo) => boolean) => {
+        return matches(pendingTxInfo) ? pendingTxInfo : undefined;
+      }),
+    }) as TransactionTracker;
+    const store = createStore({ transactionTracker });
+    const lock = createLock({
+      uuid: 'pending-ratchet',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockedAndMinted,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+
+    await expect(store.ratchet(lock, { address: 'owner' } as never)).resolves.toBe(pendingTxInfo);
+
+    pendingTxInfo.isPostProcessed = true;
+    expect(store.getPendingRatchetTxInfo(lock)).toBeUndefined();
+  });
+
+  it('returns after tracked submission without waiting for finalization', async () => {
+    const waitForFinalizedBlock = new Promise<Uint8Array>(() => undefined);
+    const txResult = { waitForFinalizedBlock };
+    const getRatchetResult = vi.fn(() => waitForFinalizedBlock);
+    const ratchet = vi.fn(async () => ({ txResult, getRatchetResult }));
+    const txInfo = {
+      tx: { id: 12 },
+      txResult,
+      createPostProcessor: () => ({ resolve: vi.fn(), reject: vi.fn() }),
+    };
+    const trackTxResult = vi.fn(async () => txInfo);
+    const transactionTracker = Object.assign(Object.create(null), {
+      data: { txInfos: [], txInfosByType: {} },
+      findLatestTxInfo: vi.fn(() => undefined),
+      trackTxResult,
+    }) as TransactionTracker;
+    const store = createStore({ transactionTracker });
+    const lock = createLock({
+      uuid: 'ratchet-submit',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockedAndMinted,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    const getRatchetContext = vi.fn(async () => ({
+      bitcoinLock: { ratchet },
+      client: {},
+      vault: {},
+    }));
+    Object.assign(store, { getRatchetContext });
+    vi.spyOn(store, 'getRatchetPreview').mockResolvedValue({ canRatchet: true } as never);
+
+    await expect(store.ratchet(lock, { address: 'owner' } as never)).resolves.toBe(txInfo);
+    expect(ratchet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        disableAutomaticTxTracking: true,
+        microgonsAtTargetPerBtc: 2_000n,
+      }),
+    );
+    expect(trackTxResult).toHaveBeenCalledWith({
+      txResult,
+      extrinsicType: ExtrinsicType.BitcoinRatchet,
+      metadata: { utxoId: 7 },
+    });
+    expect(getRatchetResult).not.toHaveBeenCalled();
   });
 });

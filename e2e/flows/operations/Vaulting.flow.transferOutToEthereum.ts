@@ -76,6 +76,7 @@ export default new OperationalFlow<IVaultingFlowContext, ITransferOutToEthereumS
           if (addDefaultEthereum.clickable) {
             requestedDefaultEthereumWallet = true;
             await flow.click('WalletOverlay.addNewWallet()', { timeoutMs: 15_000 });
+            await flow.click('WalletOverlay.createDefaultEthereum()', { timeoutMs: 15_000 });
           }
         }
       },

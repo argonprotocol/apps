@@ -25,10 +25,16 @@
             <header>About This App</header>
           </NavigationMenuLink>
           <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-          <NavigationMenuLink MenuItem @click="() => openProfileOverlay()" >
-            <header>Personal Profile</header>
+          <NavigationMenuLink MenuItem @click="() => checkForUpdates()">
+            <header>Check for Updates</header>
           </NavigationMenuLink>
           <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+          <template v-if="config.hasExtensionOperations">
+            <NavigationMenuLink MenuItem @click="() => openOperationalProfileOverlay()" >
+              <header>Operational Profile</header>
+            </NavigationMenuLink>
+            <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+          </template>
           <NavigationMenuLink MenuItem @click="() => openJurisdictionOverlay()" >
             <header>Default Jurisdiction</header>
           </NavigationMenuLink>
@@ -41,10 +47,6 @@
               guidance="Open the overlay."
               direction="right"
             />
-          </NavigationMenuLink>
-          <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-          <NavigationMenuLink MenuItem @click="() => checkForUpdates()">
-            <header>Check for Updates</header>
           </NavigationMenuLink>
           <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
           <NavigationMenuLink MenuItem @click="() => openImportAccountOverlay()">
@@ -169,9 +171,11 @@ import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
 import { OperationalStepId, useCertificationController } from '../stores/certificationController.ts';
 import { useBasics } from '../stores/basics.ts';
 import { WalletType } from '../lib/Wallet.ts';
+import { getConfig } from '../stores/config.ts';
 
 const tour = useTour();
 const basics = useBasics();
+const config = getConfig();
 const controller = useCertificationController();
 
 const rootRef = Vue.ref<HTMLElement>();
@@ -216,8 +220,8 @@ function openTroubleshooting() {
   basicEmitter.emit('openTroubleshootingOverlay', { screen: 'overview' });
 }
 
-function openProfileOverlay(): void {
-  basicEmitter.emit('openProfileOverlay');
+function openOperationalProfileOverlay(): void {
+  basicEmitter.emit('openOperationalProfileOverlay');
 }
 
 function takeTheTour() {

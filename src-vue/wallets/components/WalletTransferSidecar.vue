@@ -3,16 +3,19 @@
     class="flex h-auto w-90 shrink-0 flex-col overflow-visible border border-black/40 shadow-2xl transition-colors duration-150"
     :class="[
       props.direction === 'in' ? 'rounded-l-lg' : 'rounded-r-lg',
-      props.wallet ? 'bg-white' : 'bg-gray-900/70 text-white/70',
+      props.wallet || props.addWalletStep ? 'bg-white' : 'bg-gray-900/70 text-white/70',
     ]"
     :data-testid="`WalletOverlay.transfer${capitalizedDirection}Panel`"
   >
     <header
       class="mx-1 flex h-14 shrink-0 items-center gap-x-2.5 border-b px-3"
-      :class="props.wallet ? 'border-slate-300' : 'border-white/25'"
+      :class="props.wallet || props.addWalletStep ? 'border-slate-300' : 'border-white/25'"
     >
       <div class="min-w-0 grow" :class="props.direction === 'in' ? 'order-3 text-right' : 'order-1 text-left'">
-        <div class="truncate text-xl font-bold" :class="props.wallet ? 'text-slate-800/70' : 'text-white/70'">
+        <div
+          class="truncate text-xl font-bold"
+          :class="props.wallet || props.addWalletStep ? 'text-slate-800/70' : 'text-white/70'"
+        >
           {{ headerTitle }}
         </div>
       </div>
@@ -29,18 +32,21 @@
       <button
         :data-testid="`WalletOverlay.transfer${capitalizedDirection}Minimize()`"
         type="button"
-        :title="props.wallet ? 'Close wallet' : 'Minimize transfer panel'"
+        :title="
+          props.wallet ? 'Close wallet' : props.addWalletStep ? 'Cancel adding wallet' : 'Minimize transfer panel'
+        "
         class="hover:bg-argon-300/10 relative z-10 flex h-[34px] w-[34px] shrink-0 cursor-pointer items-center justify-center rounded-md border border-slate-400/60 text-sm/6 font-semibold hover:border-slate-500/60 focus:outline-none"
         :class="props.direction === 'in' ? 'order-1' : 'order-3'"
-        @click="props.wallet ? emit('closeWallet') : emit('minimize')"
+        @click="props.wallet ? emit('closeWallet') : props.addWalletStep ? emit('cancelAddWallet') : emit('minimize')"
       >
         <XMarkIcon class="pointer-events-none h-5 w-5 stroke-2 text-slate-400/80" />
       </button>
     </header>
 
     <template v-if="props.wallet">
-      <div class="flex h-[136px] shrink-0 flex-col items-center justify-center">
-        <div class="text-argon-700/70 text-6xl font-bold">
+      <div class="flex h-[120px] shrink-0 flex-col items-center justify-center">
+        <div class="text-argon-700/70 text-5xl font-bold">
+          {{ currency.symbol }}
           <FormattedMoney :isLoaded="walletValueIsLoaded" :value="walletTotalValue" />
         </div>
         <div class="mt-2 h-[29px] shrink-0 text-sm opacity-50">
@@ -50,6 +56,12 @@
           >
             Includes {{ currency.symbol }}{{ microgonToMoneyNm(financials.savingsTotalPending).format('0,0.00') }}
             waiting to mint
+          </div>
+          <div
+            v-if="props.walletSelection?.walletType === WalletType.miningBot"
+            class="border-t border-slate-500/30 pt-2"
+          >
+            Includes {{ currency.symbol }}0.00 waiting to mint
           </div>
           <div
             v-else-if="props.walletSelection?.walletType === WalletType.ethereum"
@@ -82,6 +94,12 @@
         class="px-5"
       />
     </template>
+    <EthereumWalletSetup
+      v-else-if="props.addWalletStep"
+      :initialStep="props.addWalletStep"
+      class="min-h-0 grow"
+      @complete="emit('completeAddWallet', $event)"
+    />
     <WalletChooser
       v-else
       :availableWallets="props.availableWallets"
@@ -102,6 +120,7 @@ import { computed } from 'vue';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
 import type { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
 import type { IEthereumMoveToken } from '../../interfaces/IEthereumInboundTransferTracker.ts';
+import type { IWalletRecord } from '../../lib/db/WalletsTable.ts';
 import { getWalletTotalValue, WalletType, type IWallet } from '../../lib/Wallet.ts';
 import CopyIcon from '../../assets/copy.svg';
 import CopyToClipboard from '../../components/CopyToClipboard.vue';
@@ -109,14 +128,16 @@ import FormattedMoney from '../../components/FormattedMoney.vue';
 import { getCurrency } from '../../stores/currency.ts';
 import { useFinancials } from '../../stores/financials.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
-import type { IWalletSelection, IWalletTransferDirection } from '../walletOverlayState.ts';
+import type { IWalletSelection, IWalletSetupStep, IWalletTransferDirection } from '../walletOverlayState.ts';
 import ArgonTokens from './ArgonTokens.vue';
 import WalletChooser from './WalletChooser.vue';
 import EthereumBottom from './EthereumBottom.vue';
+import EthereumWalletSetup from '../EthereumWalletImportOverlay.vue';
 
 const props = defineProps<{
   direction: IWalletTransferDirection;
   walletSelection?: IWalletSelection;
+  addWalletStep?: IWalletSetupStep;
   wallet?: IWallet;
   moveWallet?: IWallet;
   availableWallets: IWalletSelection[];
@@ -131,6 +152,8 @@ const emit = defineEmits<{
   (event: 'select', wallet: IWalletSelection): void;
   (event: 'minimize'): void;
   (event: 'closeWallet'): void;
+  (event: 'cancelAddWallet'): void;
+  (event: 'completeAddWallet', walletRecord: IWalletRecord): void;
   (event: 'addNewWallet'): void;
   (event: 'addDefaultEthereum'): void;
   (event: 'addExternalEthereum'): void;
@@ -154,7 +177,11 @@ const nonNativeTokenValue = computed(
   () => props.wallet?.otherTokens.reduce((total, token) => total + currency.convertOtherToMicrogon(token), 0n) ?? 0n,
 );
 const headerTitle = computed(() =>
-  props.walletSelection ? getName(props.walletSelection) : `TRANSFER ${props.direction.toUpperCase()}`,
+  props.addWalletStep
+    ? 'Add Wallet'
+    : props.walletSelection
+      ? getName(props.walletSelection)
+      : `TRANSFER ${props.direction.toUpperCase()}`,
 );
 
 function getName(selection: IWalletSelection) {

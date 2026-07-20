@@ -108,6 +108,10 @@ export interface IBitcoinRatchetPreview {
   shortfall: bigint;
   vaultId: number;
 }
+
+export interface IBitcoinRatchetMetadata {
+  utxoId: number;
+}
 export type { IBitcoinUnlockReleaseState, IBitcoinVaultMismatchState, IBitcoinVaultUnlockStateDetails };
 
 export interface IOperatorBitcoinLockCouponRoute {
@@ -421,7 +425,8 @@ export default class BitcoinLocks {
       await this.#transactionTracker.load();
       await this.syncFailedBitcoinRequestLocksFromTransactions();
       await this.migrateLegacyBitcoinLockHdKeys();
-      for (const txInfo of this.#transactionTracker.pendingBlockTxInfosAtLoad) {
+      const pendingTxInfosOldestFirst = [...this.#transactionTracker.pendingBlockTxInfosAtLoad].reverse();
+      for (const txInfo of pendingTxInfosOldestFirst) {
         const { tx } = txInfo;
         if (tx.extrinsicType === ExtrinsicType.BitcoinRequestLock) {
           const result = await this.onBitcoinLockFinalized(txInfo);
@@ -432,6 +437,12 @@ export default class BitcoinLocks {
           const { utxoId } = tx.metadataJson!;
           const lock = this.locksByUtxoId[utxoId];
           await this.onRequestedReleaseInBlock(lock, txInfo);
+        } else if (tx.extrinsicType === ExtrinsicType.BitcoinRatchet) {
+          const { utxoId } = tx.metadataJson;
+          const lock = this.locksByUtxoId[utxoId];
+          if (lock) {
+            await this.onRatchetFinalized(lock, txInfo);
+          }
         }
       }
 
@@ -1270,7 +1281,9 @@ export default class BitcoinLocks {
 
   public async ratchet(lock: IBitcoinLockRecord, txSigner: TxSigningAccount, tip = 0n) {
     return await this.runInQueueForUtxo(lock, 180e3, async () => {
-      const table = await this.getTable();
+      const existingTxInfo = this.getPendingRatchetTxInfo(lock);
+      if (existingTxInfo) return existingTxInfo;
+
       if (!this.isLockedStatus(lock)) {
         throw new Error(`Lock with ID ${lock.utxoId} is not verified.`);
       }
@@ -1294,39 +1307,68 @@ export default class BitcoinLocks {
         txSigner,
         tip,
         vault,
+        disableAutomaticTxTracking: true,
       });
 
-      const {
-        burned,
-        securityFee,
-        bitcoinBlockHeight: oracleBitcoinBlockHeight,
-        blockHeight,
-        lockedTargetPrice,
-        liquidityPromised,
-        pendingMint,
-        txFee,
-      } = await result.getRatchetResult();
-
-      lock.ratchets.push({
-        mintAmount: pendingMint,
-        mintPending: pendingMint,
-        liquidityPromised,
-        lockedTargetPrice,
-        txFee,
-        burned,
-        securityFee,
-        blockHeight,
-        extrinsicIndex: result.txResult.extrinsicIndex,
-        oracleBitcoinBlockHeight,
+      const txInfo = await this.#transactionTracker.trackTxResult<IBitcoinRatchetMetadata>({
+        txResult: result.txResult,
+        extrinsicType: ExtrinsicType.BitcoinRatchet,
+        metadata: { utxoId: lock.utxoId! },
       });
 
-      lock.liquidityPromised = liquidityPromised;
-      lock.lockedTargetPrice = lockedTargetPrice;
-      lock.lockDetails.liquidityPromised = liquidityPromised;
-      lock.lockDetails.lockedTargetPrice = lockedTargetPrice;
-
-      await table.saveNewRatchet(lock);
+      void this.onRatchetFinalized(lock, txInfo).catch(error => {
+        console.error(`[BitcoinLocks] Error processing ratchet transaction #${txInfo.tx.id}`, error);
+      });
+      return txInfo;
     });
+  }
+
+  public getPendingRatchetTxInfo(
+    lock: Pick<IBitcoinLockRecord, 'utxoId'>,
+  ): TransactionInfo<IBitcoinRatchetMetadata> | undefined {
+    if (lock.utxoId === undefined) return undefined;
+
+    return this.#transactionTracker.findLatestTxInfo<IBitcoinRatchetMetadata>(txInfo => {
+      if (txInfo.tx.extrinsicType !== ExtrinsicType.BitcoinRatchet) return false;
+      if (txInfo.tx.metadataJson.utxoId !== lock.utxoId) return false;
+      if (this.getTxFailureMessage(txInfo)) return false;
+      return !txInfo.isPostProcessed;
+    });
+  }
+
+  private async onRatchetFinalized(
+    lock: IBitcoinLockRecord,
+    txInfo: TransactionInfo<IBitcoinRatchetMetadata>,
+  ): Promise<void> {
+    if (!txInfo.isPostProcessed) return;
+
+    const postProcessor = txInfo.createPostProcessor();
+    try {
+      const blockHash = await txInfo.txResult.waitForFinalizedBlock.catch(error => {
+        if (!txInfo.txResult.extrinsicError) throw error;
+      });
+      if (!blockHash || txInfo.txResult.extrinsicError) {
+        postProcessor.resolve();
+        return;
+      }
+
+      const blockHeight = txInfo.txResult.blockNumber ?? txInfo.tx.blockHeight;
+      if (blockHeight === undefined) {
+        throw new Error(`Ratchet transaction #${txInfo.tx.id} finalized without a block height`);
+      }
+
+      const block = await this.blockWatch.getHeaderByBlockNumber(blockHeight);
+      if (block.blockHash.toLowerCase() !== u8aToHex(blockHash).toLowerCase()) {
+        throw new Error(`Ratchet transaction #${txInfo.tx.id} finalized in an unexpected block`);
+      }
+
+      const events = await this.blockWatch.getEvents(block);
+      await this.recovery.recoverBlock(block, events);
+      postProcessor.resolve();
+    } catch (error) {
+      postProcessor.reject(error as Error);
+      throw error;
+    }
   }
 
   private async ownerCosignAndSendToBitcoin(lock: IBitcoinLockRecord): Promise<void> {

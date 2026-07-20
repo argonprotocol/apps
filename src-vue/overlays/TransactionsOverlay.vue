@@ -181,6 +181,8 @@ function transactionLabel(transaction: ITransactionRecord): string {
       return 'Claimed Operational Rewards';
     case ExtrinsicType.BitcoinRequestLock:
       return 'Created Bitcoin Lock';
+    case ExtrinsicType.BitcoinRatchet:
+      return 'Ratcheted Bitcoin Lock';
     case ExtrinsicType.BitcoinRequestRelease:
       return 'Requested Bitcoin Release';
     case ExtrinsicType.VaultCosignBitcoinRelease:

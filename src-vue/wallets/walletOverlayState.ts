@@ -8,10 +8,15 @@ export type IWalletSelection =
   | { walletType: WalletType.ethereum; walletRecord: IWalletRecord };
 
 export type IWalletTransferDirection = 'in' | 'out';
-export type IWalletTransferSideState = { wallet?: IWalletSelection };
+export type IWalletSetupStep = 'choice' | 'external';
+export type IWalletTransferSideState = {
+  wallet?: IWalletSelection;
+  addWalletStep?: IWalletSetupStep;
+};
 
 export type IWalletOverlayState = {
-  primaryWallet: IWalletSelection;
+  primaryWallet?: IWalletSelection;
+  primaryAddWalletStep?: IWalletSetupStep;
   transferIn?: IWalletTransferSideState;
   transferOut?: IWalletTransferSideState;
 };
@@ -43,11 +48,16 @@ export function selectPrimaryWallet(state: IWalletOverlayState, wallet: IWalletS
   return { primaryWallet: wallet };
 }
 
+export function getInitialAddWalletOverlayState(initialStep: IWalletSetupStep): IWalletOverlayState {
+  return { primaryAddWalletStep: initialStep };
+}
+
 export function toggleWalletTransferDirection(
   state: IWalletOverlayState,
   direction: IWalletTransferDirection,
 ): IWalletOverlayState {
   const key = direction === 'in' ? 'transferIn' : 'transferOut';
+  if (!state.primaryWallet) return state;
   return { ...state, [key]: state[key] ? undefined : {} };
 }
 
@@ -57,7 +67,11 @@ export function selectTransferWallet(
   wallet: IWalletSelection,
 ): IWalletOverlayState {
   const key = direction === 'in' ? 'transferIn' : 'transferOut';
-  if (!state[key] || getWalletSelectionKey(state.primaryWallet) === getWalletSelectionKey(wallet)) {
+  if (
+    !state.primaryWallet ||
+    !state[key] ||
+    getWalletSelectionKey(state.primaryWallet) === getWalletSelectionKey(wallet)
+  ) {
     return state;
   }
 
@@ -70,6 +84,15 @@ export function returnToTransferWalletChooser(
 ): IWalletOverlayState {
   const key = direction === 'in' ? 'transferIn' : 'transferOut';
   return state[key] ? { ...state, [key]: {} } : state;
+}
+
+export function showAddWalletOnTransferSide(
+  state: IWalletOverlayState,
+  direction: IWalletTransferDirection,
+  initialStep: IWalletSetupStep,
+): IWalletOverlayState {
+  const key = direction === 'in' ? 'transferIn' : 'transferOut';
+  return state[key] ? { ...state, [key]: { addWalletStep: initialStep } } : state;
 }
 
 export function getWalletSelectionKey(wallet: IWalletSelection): string {
