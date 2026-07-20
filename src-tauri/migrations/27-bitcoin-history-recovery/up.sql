@@ -1,0 +1,1 @@
+ALTER TABLE BitcoinLocks ADD COLUMN isHistoryRecoveryPending BOOLEAN NOT NULL DEFAULT 0;

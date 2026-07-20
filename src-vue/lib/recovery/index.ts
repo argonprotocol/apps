@@ -75,7 +75,7 @@ const earliestSupportedSpecVersions: Record<IFinancialHistoryDomain, number> = {
   vaulting: 116,
 };
 const historyRecoveryVersions: Partial<Record<IFinancialHistoryDomain, number>> = {
-  bitcoin: 1,
+  bitcoin: 2,
   bonds: 1,
 };
 
@@ -119,8 +119,11 @@ export async function restoreFinancialHistory(args: {
   args.onProgress?.(0);
   for (const domain of domainsToRestore) {
     const checkpoint = domainCheckpoints[domain];
+    const isBitcoinReplay = domain === 'bitcoin' && !!bitcoinLockRecovery;
 
     try {
+      if (isBitcoinReplay) bitcoinLockRecovery.beginHistoryReplay();
+
       const result = await restoreFinancialHistoryDomain({
         db,
         blockWatch,
@@ -146,6 +149,9 @@ export async function restoreFinancialHistory(args: {
         if (recoveryVersion !== undefined) recoveryVersions[enabledDomain] = recoveryVersion;
       }
 
+      if (isBitcoinReplay) {
+        await bitcoinLockRecovery.commitHistoryReplay(result.checkpoint.asOfBlock >= targetBlock);
+      }
       await db.syncStateTable.upsert(SyncStateKeys.FinancialHistory, {
         accountId,
         asOfBlock: aggregateAsOfBlock,
@@ -157,6 +163,7 @@ export async function restoreFinancialHistory(args: {
         domainCheckpoints,
       });
     } catch (error) {
+      if (isBitcoinReplay) bitcoinLockRecovery.cancelHistoryReplay();
       recoveryErrors.push(error instanceof Error ? error.message : `Unable to restore ${domain} history`);
     }
   }

@@ -214,7 +214,7 @@ export const useCertificationController = defineStore('certificationController',
 
   const certificationStepCount = allCertificationStepIds.length;
   const hasBitcoinFundingSeenOnBitcoin = Vue.computed(() => {
-    return Object.values(bitcoinLocks.data.locksByUtxoId).some(lock => {
+    return bitcoinLocks.getAllLocks().some(lock => {
       const fundingRecord =
         bitcoinLocks.getAcceptedFundingRecord(lock) ??
         lock.fundingUtxoRecord ??
@@ -257,7 +257,7 @@ export const useCertificationController = defineStore('certificationController',
     );
   });
   const hasCompletedOwnBitcoinLock = Vue.computed(() => {
-    const completedOwnBitcoinLockAmount = Object.values(bitcoinLocks.data.locksByUtxoId).reduce((total, lock) => {
+    const completedOwnBitcoinLockAmount = bitcoinLocks.getAllLocks().reduce((total, lock) => {
       if (lock.lockDetails.ownerAccount !== walletKeys.defaultArgonAddress) return total;
       if (
         ![

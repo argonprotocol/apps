@@ -114,7 +114,7 @@ export async function createBitcoinLocksHarness(args: {
   const fundingMicrogons = args.walletFundingMicrogons ?? walletFundingMicrogons;
 
   await sudoFundWallet({
-    address: walletKeys.vaultingAddress,
+    address: walletKeys.defaultArgonAddress,
     microgons: fundingMicrogons,
     micronots: 0n,
     archiveUrl,
@@ -125,7 +125,7 @@ export async function createBitcoinLocksHarness(args: {
     const finalizedHead = await archiveClient.rpc.chain.getFinalizedHead();
     const finalizedClient = await archiveClient.at(finalizedHead);
     const balance = await finalizedClient.query.system
-      .account(walletKeys.vaultingAddress)
+      .account(walletKeys.defaultArgonAddress)
       .then(x => x.data.free.toBigInt());
     if (balance < fundingMicrogons) return;
     return balance;

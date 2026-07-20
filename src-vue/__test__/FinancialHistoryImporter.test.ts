@@ -149,6 +149,12 @@ describe('FinancialHistoryImporter', () => {
 
   it('preserves a successful domain checkpoint when another domain fails', async () => {
     const upsert = vi.fn(async () => undefined);
+    const beginHistoryReplay = vi.fn();
+    const recoverBlock = vi.fn(async () => {
+      throw new Error('archive unavailable');
+    });
+    const commitHistoryReplay = vi.fn();
+    const cancelHistoryReplay = vi.fn();
     vi.mocked(findAddressActivity)
       .mockResolvedValueOnce({
         asOfBlock: 10,
@@ -195,9 +201,10 @@ describe('FinancialHistoryImporter', () => {
           refreshHistory: vi.fn(async () => undefined),
         } as any,
         bitcoinLockRecovery: {
-          recoverBlock: vi.fn(async () => {
-            throw new Error('archive unavailable');
-          }),
+          beginHistoryReplay,
+          recoverBlock,
+          commitHistoryReplay,
+          cancelHistoryReplay,
         } as any,
         vaultHistory: {} as any,
         enabledDomains: ['bonds', 'bitcoin'],
@@ -211,11 +218,19 @@ describe('FinancialHistoryImporter', () => {
         domainCheckpoints: { bonds: { asOfBlock: 10, definitionVersion: 2, recoveryVersion: 1 } },
       }),
     );
+    expect(beginHistoryReplay).toHaveBeenCalledOnce();
+    expect(commitHistoryReplay).not.toHaveBeenCalled();
+    expect(cancelHistoryReplay).toHaveBeenCalledOnce();
+    expect(beginHistoryReplay.mock.invocationCallOrder[0]).toBeLessThan(recoverBlock.mock.invocationCallOrder[0]);
+    expect(recoverBlock.mock.invocationCallOrder[0]).toBeLessThan(cancelHistoryReplay.mock.invocationCallOrder[0]);
   });
 
   it('replays only index-selected Bitcoin blocks when its app recovery version changes', async () => {
+    const beginHistoryReplay = vi.fn();
     const recoverBlock = vi.fn(async () => undefined);
     const upsert = vi.fn(async () => undefined);
+    const commitHistoryReplay = vi.fn();
+    const cancelHistoryReplay = vi.fn();
     vi.mocked(findAddressActivity).mockResolvedValueOnce({
       asOfBlock: 100,
       definitionVersion: 2,
@@ -238,6 +253,9 @@ describe('FinancialHistoryImporter', () => {
             asOfBlock: 100,
             definitionVersion: 2,
             domains: ['bitcoin'],
+            domainCheckpoints: {
+              bitcoin: { asOfBlock: 100, definitionVersion: 2, recoveryVersion: 1 },
+            },
           })),
           upsert,
         },
@@ -250,7 +268,13 @@ describe('FinancialHistoryImporter', () => {
       } as any,
       accountId: '5owner',
       argonBonds: {} as any,
-      bitcoinLockRecovery: { recoverBlock, findMissingActiveLockIds: vi.fn(async () => []) } as any,
+      bitcoinLockRecovery: {
+        beginHistoryReplay,
+        recoverBlock,
+        findMissingActiveLockIds: vi.fn(async () => []),
+        commitHistoryReplay,
+        cancelHistoryReplay,
+      } as any,
       vaultHistory: {} as any,
       enabledDomains: ['bitcoin'],
       minimumAsOfBlock: 100,
@@ -266,12 +290,19 @@ describe('FinancialHistoryImporter', () => {
       SyncStateKeys.FinancialHistory,
       expect.objectContaining({
         asOfBlock: 100,
-        recoveryVersions: { bitcoin: 1 },
+        recoveryVersions: { bitcoin: 2 },
         domainCheckpoints: {
-          bitcoin: { asOfBlock: 100, definitionVersion: 2, recoveryVersion: 1 },
+          bitcoin: { asOfBlock: 100, definitionVersion: 2, recoveryVersion: 2 },
         },
       }),
     );
+    expect(beginHistoryReplay).toHaveBeenCalledOnce();
+    expect(commitHistoryReplay).toHaveBeenCalledOnce();
+    expect(commitHistoryReplay).toHaveBeenCalledWith(true);
+    expect(cancelHistoryReplay).not.toHaveBeenCalled();
+    expect(beginHistoryReplay.mock.invocationCallOrder[0]).toBeLessThan(recoverBlock.mock.invocationCallOrder[0]);
+    expect(recoverBlock.mock.invocationCallOrder[0]).toBeLessThan(commitHistoryReplay.mock.invocationCallOrder[0]);
+    expect(commitHistoryReplay.mock.invocationCallOrder[0]).toBeLessThan(upsert.mock.invocationCallOrder[0]);
   });
 
   it('does not let another account checkpoint hide missing active bond history', async () => {

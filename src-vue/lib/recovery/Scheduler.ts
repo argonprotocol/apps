@@ -84,9 +84,9 @@ export class FinalizedHistoryScheduler {
           Math.min(reachedBlockNumber, finalizedBlockNumber),
         );
       } catch (error) {
-        if (this.retryAttempts < 3 && isRetryableHistoryRecoveryError(error)) {
+        if (isRetryableHistoryRecoveryError(error)) {
           this.retryAttempts += 1;
-          nextDelayMs = this.delayMs * 2 ** (this.retryAttempts - 1);
+          nextDelayMs = this.delayMs * 2 ** Math.min(this.retryAttempts - 1, 2);
         }
         if (surfaceError) throw error;
       } finally {
