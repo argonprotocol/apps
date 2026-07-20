@@ -3,7 +3,7 @@
   <OverlayBase :isOpen="isOpen" @close="closeOverlay" @pressEsc="closeOverlay" class="w-6/12">
     <template #title>
       <div class="text-2xl font-bold inline-block relative">
-        Your Profile
+        Your Operational Profile
       </div>
     </template>
 
@@ -187,7 +187,7 @@ function closeOverlay() {
   basics.overlayIsOpen = false;
 }
 
-basicEmitter.on('openProfileOverlay', async () => {
+basicEmitter.on('openOperationalProfileOverlay', async () => {
   await load();
   isOpen.value = true;
   isLoaded.value = true;

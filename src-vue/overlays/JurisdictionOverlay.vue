@@ -59,13 +59,14 @@ import { XMarkIcon } from '@heroicons/vue/24/outline';
 import { ChevronLeftIcon } from '@heroicons/vue/24/outline';
 import Draggable from './helpers/Draggable.ts';
 import { ICurrencyKey } from '@argonprotocol/apps-core';
-import { useOverlayZIndex } from './helpers/OverlayZIndex.ts';
+import { provideOverlayContentZIndex, useOverlayZIndex } from './helpers/OverlayZIndex.ts';
 
 const isOpen = Vue.ref(false);
 const currentScreen = Vue.ref<'overview' | 'fixJurisdiction'>('overview');
 const draggable = Vue.reactive(new Draggable());
 const setCurrencyKey = Vue.ref<ICurrencyKey | undefined>(undefined);
 const overlayZIndex = useOverlayZIndex(() => isOpen.value);
+provideOverlayContentZIndex(Vue.toRef(overlayZIndex, 'contentZIndex'));
 
 const title = Vue.computed(() => {
   if (currentScreen.value === 'overview') {

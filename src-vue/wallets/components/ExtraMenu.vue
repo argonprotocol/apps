@@ -169,10 +169,6 @@ function openWallet() {
   basicEmitter.emit('openWalletOverlay', { walletType: props.selection.walletType });
 }
 
-function openProfileOverlay(): void {
-  basicEmitter.emit('openProfileOverlay');
-}
-
 let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
 
 function onMouseEnter() {

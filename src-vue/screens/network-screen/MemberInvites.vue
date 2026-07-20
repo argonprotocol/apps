@@ -39,7 +39,7 @@
       <button
         type="button"
         class="border-argon-600/20 text-argon-600 inner-button-shadow hover:bg-argon-600/10 mt-4 cursor-pointer rounded-md border bg-white px-5 py-2 font-bold focus:outline-none"
-        @click="basicEmitter.emit('openProfileOverlay')"
+        @click="basicEmitter.emit('openOperationalProfileOverlay')"
       >
         Set Profile Name
       </button>
