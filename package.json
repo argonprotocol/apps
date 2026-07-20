@@ -202,7 +202,8 @@
     "@polkadot/util": "14.0.3",
     "@polkadot/util-crypto": "14.0.3",
     "@openzeppelin/contracts@npm:3.4.1-solc-0.7-2": "npm:3.4.2-solc-0.7",
-    "axios": "^1.15.0",
+    "axios": "^1.18.0",
+    "ws": "^8.21.0",
     "@argonprotocol/testing": "1.4.10"
   },
   "resolutions_disabled": {
