@@ -16,11 +16,15 @@ export class BitcoinLockRecovery {
   private readonly blockWatch: BlockWatch;
   private readonly currency: Pick<Currency, 'fetchMainchainRatesAtBlock'>;
   private readonly locksByUtxoId: Record<number, IBitcoinLockRecord>;
+  private readonly pendingLocks: IBitcoinLockRecord[];
+  private readonly waitForLockIdle: (lock: IBitcoinLockRecord) => Promise<void>;
+  private readonly onHistoryRecoveryComplete: (locks: IBitcoinLockRecord[]) => void;
   private readonly utxoTracking: Pick<
     BitcoinUtxoTracking,
     'getAcceptedFundingRecordForLock' | 'setAcceptedFundingRecordForLock' | 'setReleaseRequest' | 'upsertUtxoRecord'
   >;
-  private readonly replayedLockIds = new Set<number>();
+  private historyReplayLocksByUtxoId?: Record<number, IBitcoinLockRecord>;
+  private readonly historyRecoveryPendingUtxoIds = new Set<number>();
   private readonly insertPending: (
     details: Pick<IBitcoinLockRecord, 'uuid' | 'satoshis' | 'vaultId' | 'hdPath'>,
   ) => Promise<IBitcoinLockRecord>;
@@ -36,6 +40,9 @@ export class BitcoinLockRecovery {
     blockWatch: BlockWatch;
     currency: Pick<Currency, 'fetchMainchainRatesAtBlock'>;
     locksByUtxoId: Record<number, IBitcoinLockRecord>;
+    pendingLocks: IBitcoinLockRecord[];
+    waitForLockIdle: BitcoinLockRecovery['waitForLockIdle'];
+    onHistoryRecoveryComplete: BitcoinLockRecovery['onHistoryRecoveryComplete'];
     utxoTracking: BitcoinLockRecovery['utxoTracking'];
     insertPending: BitcoinLockRecovery['insertPending'];
     getTable: () => Promise<BitcoinLocksTable>;
@@ -46,6 +53,9 @@ export class BitcoinLockRecovery {
     this.blockWatch = args.blockWatch;
     this.currency = args.currency;
     this.locksByUtxoId = args.locksByUtxoId;
+    this.pendingLocks = args.pendingLocks;
+    this.waitForLockIdle = args.waitForLockIdle;
+    this.onHistoryRecoveryComplete = args.onHistoryRecoveryComplete;
     this.utxoTracking = args.utxoTracking;
     this.insertPending = args.insertPending;
     this.getTable = args.getTable;
@@ -53,9 +63,57 @@ export class BitcoinLockRecovery {
     this.trackDerivedBitcoinLockKey = args.trackDerivedBitcoinLockKey;
   }
 
+  public beginHistoryReplay(): void {
+    if (this.historyReplayLocksByUtxoId) throw new Error('Bitcoin lock history replay is already running');
+
+    this.historyReplayLocksByUtxoId = {};
+    for (const lock of Object.values(this.locksByUtxoId)) {
+      if (lock.isHistoryRecoveryPending && lock.utxoId !== undefined) {
+        this.historyRecoveryPendingUtxoIds.add(lock.utxoId);
+      }
+    }
+  }
+
+  public async commitHistoryReplay(isComplete = true): Promise<void> {
+    const stagedLocks = this.historyReplayLocksByUtxoId;
+    if (!stagedLocks) return;
+
+    if (!isComplete) {
+      this.historyReplayLocksByUtxoId = undefined;
+      for (const recovered of Object.values(stagedLocks)) this.applyRecoveredRecord(recovered);
+      return;
+    }
+
+    const recoveredLocks = [...this.historyRecoveryPendingUtxoIds]
+      .map(utxoId => stagedLocks[utxoId] ?? this.locksByUtxoId[utxoId])
+      .filter(lock => !!lock);
+    const table = await this.getTable();
+    await Promise.all(recoveredLocks.map(lock => table.setHistoryRecoveryPending(lock.uuid, false)));
+
+    this.historyReplayLocksByUtxoId = undefined;
+    for (const recovered of Object.values(stagedLocks)) this.applyRecoveredRecord(recovered);
+    const completedLocks: IBitcoinLockRecord[] = [];
+    for (const lock of recoveredLocks) {
+      const liveLock = this.locksByUtxoId[lock.utxoId!];
+      if (!liveLock) continue;
+
+      const pendingIndex = this.pendingLocks.findIndex(pending => pending.uuid === liveLock.uuid);
+      if (pendingIndex >= 0) this.pendingLocks.splice(pendingIndex, 1);
+      delete liveLock.isHistoryRecoveryPending;
+      completedLocks.push(liveLock);
+    }
+    this.historyRecoveryPendingUtxoIds.clear();
+    this.onHistoryRecoveryComplete(completedLocks);
+  }
+
+  public cancelHistoryReplay(): void {
+    this.historyReplayLocksByUtxoId = undefined;
+  }
+
   public async recoverBlock(
     block: IBlockHeaderInfo,
     eventRecords: readonly BitcoinRecoveryEventRecord[],
+    options: { lockQueueOwnerUuid?: string } = {},
   ): Promise<void> {
     const api = await this.blockWatch.getApi(block);
     const table = await this.getTable();
@@ -70,33 +128,39 @@ export class BitcoinLockRecovery {
 
       const utxoId = this.readUtxoId(event, block);
       if (isBitcoinMint && utxoId === undefined) {
-        if (readRequiredEventField(event, 'accountId', block).toString() !== this.walletKeys.vaultingAddress) continue;
+        if (readRequiredEventField(event, 'accountId', block).toString() !== this.walletKeys.defaultArgonAddress)
+          continue;
 
-        const candidateIds = new Set([...this.replayedLockIds, ...Object.keys(this.locksByUtxoId).map(Number)]);
+        const candidateIds = new Set([
+          ...Object.keys(this.locksByUtxoId).map(Number),
+          ...Object.keys(this.historyReplayLocksByUtxoId ?? {}).map(Number),
+        ]);
         for (const recoveryId of candidateIds) {
-          const record = this.locksByUtxoId[recoveryId];
-          if (record) await this.reconcilePendingMint(record, api, table);
+          const record = this.getRecoveryLock(recoveryId);
+          if (record) await this.reconcilePendingMint(record, api, table, options.lockQueueOwnerUuid);
         }
         continue;
       }
       if (utxoId === undefined) continue;
       if (
-        (isBitcoinMint || event.method === 'BitcoinLockRatcheted') &&
-        readRequiredEventField(event, 'accountId', block).toString() !== this.walletKeys.vaultingAddress
+        (isBitcoinMint || event.method === 'BitcoinLockCreated' || event.method === 'BitcoinLockRatcheted') &&
+        readRequiredEventField(event, 'accountId', block).toString() !== this.walletKeys.defaultArgonAddress
       ) {
         continue;
       }
 
-      if (event.method === 'BitcoinLockCreated') {
-        if (readRequiredEventField(event, 'accountId', block).toString() !== this.walletKeys.vaultingAddress) continue;
+      const liveRecord = this.locksByUtxoId[utxoId];
+      if (liveRecord) await this.prepareHistoryRecoveryLock(liveRecord, options.lockQueueOwnerUuid);
 
+      if (event.method === 'BitcoinLockCreated') {
         const chainLock = await BitcoinLock.get(api, utxoId);
         if (!chainLock) throw new Error(`Bitcoin lock ${utxoId} is unavailable at its creation block`);
         chainLock.couponFeesPaid = bigIntMax(chainLock.couponFeesPaid, this.readUnchargedSecurityFee(event, block));
 
         // Restart replay from durable state rather than a stale in-memory observation.
         const persistedRecord = await table.getByUtxoId(utxoId);
-        const existing = persistedRecord ? this.applyRecoveredRecord(persistedRecord) : this.locksByUtxoId[utxoId];
+        if (persistedRecord) await this.prepareHistoryRecoveryLock(persistedRecord, options.lockQueueOwnerUuid);
+        const existing = persistedRecord ? this.applyRecoveredRecord(persistedRecord) : this.getRecoveryLock(utxoId);
         if (existing) {
           if (existing.ratchets.length) {
             const creationRatchetIndex = existing.ratchets.findIndex(
@@ -136,7 +200,6 @@ export class BitcoinLockRecovery {
               await table.saveRecoveredHistory(recovered, new Date(block.blockTime));
               this.applyRecoveredRecord(recovered);
             }
-            this.replayedLockIds.add(utxoId);
             continue;
           }
         }
@@ -146,6 +209,7 @@ export class BitcoinLockRecovery {
           lock: chainLock,
           createdAtArgonBlockHeight: block.blockNumber,
           finalFee: transactionFee,
+          lockQueueOwnerUuid: options.lockQueueOwnerUuid,
         });
         const recovered = this.createDetachedRecord(record);
         recovered.status = BitcoinLockStatus.LockPendingFunding;
@@ -171,12 +235,12 @@ export class BitcoinLockRecovery {
         this.assertSafePendingMint(recovered);
         await table.saveRecoveredHistory(recovered, new Date(block.blockTime));
         this.applyRecoveredRecord(recovered);
-        this.replayedLockIds.add(utxoId);
         continue;
       }
 
-      const persistedRecord = this.locksByUtxoId[utxoId] ? undefined : await table.getByUtxoId(utxoId);
-      const record = persistedRecord ? this.applyRecoveredRecord(persistedRecord) : this.locksByUtxoId[utxoId];
+      const persistedRecord = this.getRecoveryLock(utxoId) ? undefined : await table.getByUtxoId(utxoId);
+      if (persistedRecord) await this.prepareHistoryRecoveryLock(persistedRecord, options.lockQueueOwnerUuid);
+      const record = persistedRecord ? this.applyRecoveredRecord(persistedRecord) : this.getRecoveryLock(utxoId);
       if (!record) {
         // Release events only identify a UTXO, and the indexer returns the full block selected for this account.
         // An unrelated account's release can therefore appear beside owned activity without an ownership field.
@@ -269,10 +333,17 @@ export class BitcoinLockRecovery {
     lock: BitcoinLock;
     createdAtArgonBlockHeight: number;
     finalFee: bigint;
+    lockQueueOwnerUuid?: string;
   }): Promise<IBitcoinLockRecord> {
+    const liveRecord = this.locksByUtxoId[args.lock.utxoId];
+    if (this.historyReplayLocksByUtxoId && liveRecord) {
+      await this.prepareHistoryRecoveryLock(liveRecord, args.lockQueueOwnerUuid);
+    }
+
     const table = await this.getTable();
     const existing = await table.getByUtxoId(args.lock.utxoId);
     if (existing) {
+      await this.prepareHistoryRecoveryLock(existing, args.lockQueueOwnerUuid);
       return this.applyRecoveredRecord(existing);
     }
 
@@ -296,6 +367,7 @@ export class BitcoinLockRecovery {
         finalFee: args.finalFee,
       });
     }
+    await this.prepareHistoryRecoveryLock(record, args.lockQueueOwnerUuid);
     return this.applyRecoveredRecord(record);
   }
 
@@ -304,11 +376,11 @@ export class BitcoinLockRecovery {
     const missing: number[] = [];
 
     for (const [storageKey, lockOption] of chainLocks) {
-      if (lockOption.isNone || lockOption.unwrap().ownerAccount.toString() !== this.walletKeys.vaultingAddress)
+      if (lockOption.isNone || lockOption.unwrap().ownerAccount.toString() !== this.walletKeys.defaultArgonAddress)
         continue;
 
       const utxoId = storageKey.args[0].toNumber();
-      const record = this.locksByUtxoId[utxoId];
+      const record = this.getRecoveryLock(utxoId);
       const chainLock = lockOption.unwrap();
       if (
         !record ||
@@ -447,15 +519,45 @@ export class BitcoinLockRecovery {
   }
 
   private applyRecoveredRecord(recovered: IBitcoinLockRecord): IBitcoinLockRecord {
-    const current = this.locksByUtxoId[recovered.utxoId!];
+    const utxoId = recovered.utxoId!;
+    const stagedLocks = this.historyReplayLocksByUtxoId;
+    if (stagedLocks) {
+      recovered.isHistoryRecoveryPending = true;
+      this.historyRecoveryPendingUtxoIds.add(utxoId);
+    }
+    const liveRecord = this.locksByUtxoId[utxoId];
+    const current =
+      stagedLocks?.[utxoId] ?? (stagedLocks && liveRecord ? this.createDetachedRecord(liveRecord) : liveRecord);
     if (current) {
       recovered.fundingUtxoRecord ??= current.fundingUtxoRecord;
       Object.assign(current, recovered);
+      if (stagedLocks) stagedLocks[utxoId] = current;
       return current;
     }
 
-    this.locksByUtxoId[recovered.utxoId!] = recovered;
+    if (stagedLocks) stagedLocks[utxoId] = recovered;
+    else this.locksByUtxoId[utxoId] = recovered;
     return recovered;
+  }
+
+  private getRecoveryLock(utxoId: number): IBitcoinLockRecord | undefined {
+    return this.historyReplayLocksByUtxoId?.[utxoId] ?? this.locksByUtxoId[utxoId];
+  }
+
+  private async prepareHistoryRecoveryLock(lock: IBitcoinLockRecord, lockQueueOwnerUuid?: string): Promise<void> {
+    if (!this.historyReplayLocksByUtxoId) return;
+
+    const utxoId = lock.utxoId;
+    if (utxoId === undefined || this.historyRecoveryPendingUtxoIds.has(utxoId)) return;
+
+    const table = await this.getTable();
+    await table.setHistoryRecoveryPending(lock.uuid, true);
+
+    lock.isHistoryRecoveryPending = true;
+    const pendingLock = this.pendingLocks.find(record => record.uuid === lock.uuid);
+    if (pendingLock) pendingLock.isHistoryRecoveryPending = true;
+    this.historyRecoveryPendingUtxoIds.add(utxoId);
+    if (lock.uuid !== lockQueueOwnerUuid) await this.waitForLockIdle(lock);
   }
 
   private hasCompleteRatchetEconomics(
@@ -565,7 +667,6 @@ export class BitcoinLockRecovery {
     const payer = readRequiredEventField(feeEvent, 'who', block).toString();
     const ownedAccounts = new Set([
       this.walletKeys.defaultArgonAddress,
-      this.walletKeys.vaultingAddress,
       this.walletKeys.miningBotAddress,
       this.walletKeys.operationalAddress,
     ]);
@@ -621,17 +722,20 @@ export class BitcoinLockRecovery {
     record: IBitcoinLockRecord,
     api: ApiDecoration<'promise'>,
     table: BitcoinLocksTable,
+    lockQueueOwnerUuid?: string,
   ): Promise<void> {
     const recovered = this.createDetachedRecord(record);
     const chainPendingMints = await new BitcoinLock(recovered.lockDetails).findPendingMints(api);
     const chainPendingMint = chainPendingMints.reduce((sum, amount) => sum + amount, 0n);
     const recoveredPendingMint = recovered.ratchets.reduce((sum, ratchet) => sum + ratchet.mintPending, 0n);
     if (chainPendingMint > recoveredPendingMint) {
+      await this.prepareHistoryRecoveryLock(record, lockQueueOwnerUuid);
       throw new Error(`Bitcoin lock ${record.utxoId} pending mint exceeds recovered history`);
     }
     this.assertSafePendingMint(recovered);
     if (chainPendingMint === recoveredPendingMint) return;
 
+    await this.prepareHistoryRecoveryLock(record, lockQueueOwnerUuid);
     let fulfilled = recoveredPendingMint - chainPendingMint;
     for (const ratchet of recovered.ratchets) {
       if (fulfilled <= 0n) break;

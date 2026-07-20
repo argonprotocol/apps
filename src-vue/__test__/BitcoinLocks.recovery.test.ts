@@ -11,6 +11,8 @@ import { BitcoinLock, hexToU8a, type IBitcoinLock } from '@argonprotocol/maincha
 import { createHistoricalEventData } from '../../indexer/__test__/helpers/historicalEvents.ts';
 import { bigintCodec, numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts';
 import { encodeAddress } from '@polkadot/util-crypto';
+import { getBitcoinAlertNotices } from '../lib/Alerts.ts';
+import { BitcoinFinancials } from '../lib/financials/BitcoinLocks.ts';
 
 function createStore(
   options: { blockWatch?: BlockWatch; transactionTracker?: TransactionTracker; walletKeys?: WalletKeys } = {},
@@ -137,7 +139,247 @@ function historyEvent(
   };
 }
 
-describe('BitcoinLocks getActiveLocks', () => {
+describe('BitcoinLocks recovery', () => {
+  it('quarantines only recovering locks while regular locks remain active and syncable', async () => {
+    const store = createStore();
+    const record = createLock({
+      uuid: 'interim-release',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockPendingFunding,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    record.fundingUtxoRecord = {
+      status: BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin,
+      statusError: 'PSBT finalize error',
+    } as never;
+    record.isHistoryRecoveryPending = true;
+    store.data.locksByUtxoId[7] = record;
+    expect(getBitcoinAlertNotices(store)).toEqual([]);
+
+    const regularRecord = createLock({
+      uuid: 'regular-lock',
+      utxoId: 8,
+      status: BitcoinLockStatus.LockPendingFunding,
+      createdAt: '2026-02-01T00:00:00Z',
+    });
+    store.data.locksByUtxoId[8] = regularRecord;
+    const setStatus = vi.fn(async (lock: IBitcoinLockRecord, status: BitcoinLockStatus) => {
+      lock.status = status;
+    });
+    vi.spyOn(store, 'getTable').mockResolvedValue({ setStatus } as never);
+
+    expect(store.getActiveLocks()).toEqual([regularRecord]);
+    expect(store.getAllLocks()).toEqual([regularRecord]);
+    expect(store.getLockByUtxoId(7)).toBeUndefined();
+    expect(store.getLockByUtxoId(8)).toBe(regularRecord);
+    await expect(store.acknowledgeFailed(record)).rejects.toThrow('Bitcoin history recovery is still in progress');
+
+    const releasingRecord = { status: BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin } as never;
+    await store.syncLockReleaseStatusFromFundingRecord(record, releasingRecord);
+    await store.syncLockReleaseStatusFromFundingRecord(regularRecord, releasingRecord);
+
+    expect(record.status).toBe(BitcoinLockStatus.LockPendingFunding);
+    expect(regularRecord.status).toBe(BitcoinLockStatus.Releasing);
+    expect(setStatus).toHaveBeenCalledOnce();
+    expect(setStatus).toHaveBeenCalledWith(regularRecord, BitcoinLockStatus.Releasing);
+
+    vi.spyOn(store, 'load').mockResolvedValue();
+    const regularSummary = {
+      record: regularRecord,
+      status: regularRecord.status,
+      unlockAmount: 0n,
+    } as ReturnType<typeof store.createLockSummary>;
+    const createLockSummaryAt = vi.spyOn(store, 'createLockSummaryAt').mockResolvedValue(regularSummary);
+    const financials = await new BitcoinFinancials(store).loadSnapshot({
+      clientAt: Object.create(null),
+      hasCurrentPrice: false,
+    });
+
+    expect(createLockSummaryAt).toHaveBeenCalledOnce();
+    expect(createLockSummaryAt).toHaveBeenCalledWith(regularRecord, expect.anything());
+    expect(financials.summaries).toEqual([regularSummary]);
+
+    delete record.isHistoryRecoveryPending;
+    expect(store.getAllLocks()).toEqual([regularRecord, record]);
+  });
+
+  it('serializes history replay with the affected lock queue without yielding or waiting behind itself', async () => {
+    const store = createStore();
+    const record = createLock({
+      uuid: 'queue-owned-recovery',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockedAndMinted,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    store.data.locksByUtxoId[7] = record;
+    const setHistoryRecoveryPending = vi.fn();
+    vi.spyOn(store, 'getTable').mockResolvedValue({
+      getByUtxoId: vi.fn(async () => record),
+      setHistoryRecoveryPending,
+    } as never);
+
+    const runInQueueForUtxo = Reflect.get(store, 'runInQueueForUtxo') as (
+      lock: IBitcoinLockRecord,
+      timeoutMs: number,
+      task: () => Promise<IBitcoinLockRecord>,
+      options: { waitForHistoryRecovery: boolean },
+    ) => Promise<IBitcoinLockRecord>;
+    let started = false;
+    const admitted = runInQueueForUtxo.call(
+      store,
+      record,
+      1_000,
+      async () => {
+        started = true;
+        return record;
+      },
+      { waitForHistoryRecovery: true },
+    );
+
+    expect(started).toBe(true);
+    await admitted;
+
+    store.recovery.beginHistoryReplay();
+    await expect(
+      runInQueueForUtxo.call(
+        store,
+        record,
+        1_000,
+        async () => {
+          return await store.recovery.recoverLock({
+            lock: { utxoId: 7 } as BitcoinLock,
+            createdAtArgonBlockHeight: 1,
+            finalFee: 0n,
+            lockQueueOwnerUuid: record.uuid,
+          });
+        },
+        { waitForHistoryRecovery: true },
+      ),
+    ).resolves.toMatchObject({ uuid: record.uuid });
+    await store.recovery.commitHistoryReplay();
+
+    expect(setHistoryRecoveryPending).toHaveBeenCalledWith(record.uuid, true);
+    expect(setHistoryRecoveryPending).toHaveBeenCalledWith(record.uuid, false);
+  });
+
+  it('resumes one-shot relay work after the affected lock finishes recovery', async () => {
+    const store = createStore();
+    const record = createLock({
+      uuid: 'relay-recovery',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockPendingFunding,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    record.isHistoryRecoveryPending = true;
+    record.relayMetadataJson = { operatorHost: 'http://relay.test', offerCode: 'offer-1', status: 'Submitted' };
+    store.data.locksByUtxoId[7] = record;
+    const setHistoryRecoveryPending = vi.fn();
+    const setRelayMetadata = vi.fn();
+    vi.spyOn(store, 'getTable').mockResolvedValue({ setHistoryRecoveryPending, setRelayMetadata } as never);
+    vi.spyOn(store as any, 'runPendingLoadReconciliation').mockResolvedValue(undefined);
+
+    const syncRelayBackedPendingLock = Reflect.get(store, 'syncRelayBackedPendingLock') as (
+      lock: IBitcoinLockRecord,
+      relay: object,
+    ) => Promise<void>;
+    const relaySync = syncRelayBackedPendingLock.call(store, record, {
+      status: 'Failed',
+      coupon: { offerCode: 'offer-1' },
+    });
+
+    expect(setRelayMetadata).not.toHaveBeenCalled();
+
+    store.recovery.beginHistoryReplay();
+    await store.recovery.commitHistoryReplay();
+    await relaySync;
+    expect(setRelayMetadata).toHaveBeenCalledOnce();
+  });
+
+  it('keeps recovered expired locks in history without processing them as active', async () => {
+    const store = createStore();
+    const record = createLock({
+      uuid: 'expired-lock',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockPendingFunding,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    record.removalReason = 'expired';
+    store.data.locksByUtxoId[7] = record;
+
+    expect(store.getActiveLocks()).toEqual([]);
+    expect(store.getAllLocks()).toEqual([record]);
+    expect(store.getLockByUtxoId(7)).toBe(record);
+    const setStatus = vi.fn();
+    vi.spyOn(store, 'getTable').mockResolvedValue({ setStatus } as never);
+
+    await store.syncLockReleaseStatusFromFundingRecord(record, {
+      status: BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin,
+    } as never);
+
+    expect(setStatus).not.toHaveBeenCalled();
+    expect(record.status).toBe(BitcoinLockStatus.LockPendingFunding);
+  });
+
+  it('publishes existing and out-of-order locks only after history replay is committed', async () => {
+    const store = createStore();
+    const record = createLock({
+      uuid: 'settled-lock',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockedAndMinted,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    const pending = createLock({
+      uuid: 'out-of-order-lock',
+      status: BitcoinLockStatus.LockIsProcessingOnArgon,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    const recoveredRecord = { ...record, status: BitcoinLockStatus.LockPendingFunding };
+    const recoveredPending = { ...pending, utxoId: 8, status: BitcoinLockStatus.LockPendingFunding };
+    store.data.locksByUtxoId[7] = record;
+    store.data.pendingLocks.push(pending);
+    const setHistoryRecoveryPending = vi.fn();
+    vi.spyOn(store, 'getTable').mockResolvedValue({
+      getByUtxoId: vi.fn(async utxoId => (utxoId === 7 ? recoveredRecord : recoveredPending)),
+      setHistoryRecoveryPending,
+    } as never);
+
+    store.recovery.beginHistoryReplay();
+    await store.recovery.recoverLock({
+      lock: { utxoId: 7 } as BitcoinLock,
+      createdAtArgonBlockHeight: 1,
+      finalFee: 0n,
+    });
+    await store.recovery.recoverLock({
+      lock: { utxoId: 8 } as BitcoinLock,
+      createdAtArgonBlockHeight: 1,
+      finalFee: 0n,
+    });
+
+    expect(record.status).toBe(BitcoinLockStatus.LockedAndMinted);
+    expect(record.isHistoryRecoveryPending).toBe(true);
+    expect(pending.isHistoryRecoveryPending).toBe(true);
+    expect(store.getAllLocks()).toEqual([]);
+
+    await store.recovery.commitHistoryReplay(false);
+
+    expect(record.status).toBe(BitcoinLockStatus.LockPendingFunding);
+    expect(store.data.pendingLocks).toEqual([pending]);
+    expect(store.getAllLocks()).toEqual([]);
+
+    store.recovery.beginHistoryReplay();
+    await store.recovery.commitHistoryReplay();
+
+    expect(setHistoryRecoveryPending).toHaveBeenCalledWith(record.uuid, true);
+    expect(setHistoryRecoveryPending).toHaveBeenCalledWith(record.uuid, false);
+    expect(setHistoryRecoveryPending).toHaveBeenCalledWith(pending.uuid, true);
+    expect(setHistoryRecoveryPending).toHaveBeenCalledWith(pending.uuid, false);
+    expect(record.isHistoryRecoveryPending).toBeUndefined();
+    expect(store.data.locksByUtxoId[7]).toBe(record);
+    expect(store.data.pendingLocks).toEqual([]);
+    expect(store.data.locksByUtxoId[8].isHistoryRecoveryPending).toBeUndefined();
+    expect(store.getAllLocks()).toHaveLength(2);
+  });
+
   it('replays creation, ratchet, mint, and release with historical codec events', async () => {
     const accountId = encodeAddress(new Uint8Array(32).fill(0x33));
     const getApi = vi.fn();
@@ -149,7 +391,6 @@ describe('BitcoinLocks getActiveLocks', () => {
       blockWatch,
       walletKeys: {
         defaultArgonAddress: accountId,
-        vaultingAddress: accountId,
         miningBotAddress: encodeAddress(new Uint8Array(32).fill(0x44)),
         operationalAddress: encodeAddress(new Uint8Array(32).fill(0x55)),
       } as WalletKeys,
@@ -357,7 +598,7 @@ describe('BitcoinLocks getActiveLocks', () => {
     };
     const store = createStore({
       blockWatch: { getApi: vi.fn(async () => api) } as unknown as BlockWatch,
-      walletKeys: { vaultingAddress: accountId } as WalletKeys,
+      walletKeys: { defaultArgonAddress: accountId } as WalletKeys,
     });
     store.data.locksByUtxoId[7] = record;
     const saveRecoveredHistory = vi.fn();
@@ -440,7 +681,7 @@ describe('BitcoinLocks getActiveLocks', () => {
     };
     const store = createStore({
       blockWatch: { getApi: vi.fn(async () => ({})) } as unknown as BlockWatch,
-      walletKeys: { vaultingAddress: accountId } as WalletKeys,
+      walletKeys: { defaultArgonAddress: accountId } as WalletKeys,
     });
     vi.spyOn(store, 'getTable').mockResolvedValue(table as never);
     vi.spyOn(store, 'getDerivedPubkey').mockResolvedValue({
@@ -502,7 +743,7 @@ describe('BitcoinLocks getActiveLocks', () => {
     const updateMintState = vi.fn(async () => undefined);
     const store = createStore({
       blockWatch: { getApi: vi.fn(async () => ({})) } as unknown as BlockWatch,
-      walletKeys: { vaultingAddress: accountId } as WalletKeys,
+      walletKeys: { defaultArgonAddress: accountId } as WalletKeys,
     });
     vi.spyOn(store, 'getTable').mockResolvedValue({
       getByUtxoId: vi.fn(async () => record),
@@ -552,7 +793,7 @@ describe('BitcoinLocks getActiveLocks', () => {
     const updateMintState = vi.fn(async () => undefined);
     const store = createStore({
       blockWatch: { getApi: vi.fn(async () => ({})) } as unknown as BlockWatch,
-      walletKeys: { vaultingAddress: accountId } as WalletKeys,
+      walletKeys: { defaultArgonAddress: accountId } as WalletKeys,
     });
     store.data.locksByUtxoId[7] = record;
     vi.spyOn(store, 'getTable').mockResolvedValue({ updateMintState } as never);
@@ -591,7 +832,7 @@ describe('BitcoinLocks getActiveLocks', () => {
     const updateMintState = vi.fn(async () => undefined);
     const store = createStore({
       blockWatch: { getApi: vi.fn(async () => ({})) } as unknown as BlockWatch,
-      walletKeys: { vaultingAddress: accountId } as WalletKeys,
+      walletKeys: { defaultArgonAddress: accountId } as WalletKeys,
     });
     store.data.locksByUtxoId[7] = record;
     vi.spyOn(store, 'getTable').mockResolvedValue({ getByUtxoId, updateMintState } as never);
@@ -646,22 +887,44 @@ describe('BitcoinLocks getActiveLocks', () => {
         oracleBitcoinBlockHeight: 500,
       },
     ];
+    const untouchedRecord = createLock({
+      uuid: 'unrelated-pending-mint',
+      utxoId: 8,
+      status: BitcoinLockStatus.LockedAndIsMinting,
+      createdAt: '2026-01-02T00:00:00Z',
+    });
+    untouchedRecord.ratchets = record.ratchets.map(ratchet => ({ ...ratchet }));
     const blockWatch = { getApi: vi.fn(async () => ({})) } as unknown as BlockWatch;
     const store = createStore({
       blockWatch,
-      walletKeys: { vaultingAddress: accountId } as WalletKeys,
+      walletKeys: { defaultArgonAddress: accountId } as WalletKeys,
     });
     store.data.locksByUtxoId[7] = record;
-    vi.spyOn(store, 'getTable').mockResolvedValue({ updateMintState: vi.fn() } as never);
-    const findPendingMints = vi.spyOn(BitcoinLock.prototype, 'findPendingMints').mockResolvedValue([]);
+    store.data.locksByUtxoId[8] = untouchedRecord;
+    vi.spyOn(store, 'getTable').mockResolvedValue({
+      setHistoryRecoveryPending: vi.fn(),
+      updateMintState: vi.fn(),
+    } as never);
+    const findPendingMints = vi
+      .spyOn(BitcoinLock.prototype, 'findPendingMints')
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([1_000n]);
     findPendingMints.mockClear();
 
+    store.recovery.beginHistoryReplay();
     await store.recovery.recoverBlock(historyBlock(153), [
       historyEvent(153, 'mint', 'BitcoinMint', { accountId, utxoId: null, amount: 1_000n }),
     ]);
 
-    expect(findPendingMints).toHaveBeenCalledOnce();
+    expect(findPendingMints).toHaveBeenCalledTimes(2);
+    expect(store.data.locksByUtxoId[7].ratchets[0].mintPending).toBe(1_000n);
+    expect(record.isHistoryRecoveryPending).toBe(true);
+    expect(untouchedRecord.isHistoryRecoveryPending).toBeUndefined();
+
+    await store.recovery.commitHistoryReplay(false);
+
     expect(store.data.locksByUtxoId[7].ratchets[0].mintPending).toBe(0n);
+    expect(record.isHistoryRecoveryPending).toBe(true);
   });
 
   it('reads active pending mint state at the supplied financial block without advancing the settled record', async () => {

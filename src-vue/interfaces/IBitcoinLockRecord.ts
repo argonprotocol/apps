@@ -75,6 +75,7 @@ export interface IBitcoinLockRecord {
   removalExtrinsicIndex?: number;
   removalReason?: 'released' | 'spent' | 'expired';
   btcPriceAtRemovalMicrogons?: bigint;
+  isHistoryRecoveryPending?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

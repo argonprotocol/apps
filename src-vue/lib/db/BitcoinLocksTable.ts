@@ -29,6 +29,7 @@ export class BitcoinLocksTable extends BaseTable {
       'releaseCompensationMicrogons',
       'btcPriceAtRemovalMicrogons',
     ],
+    boolean: ['isHistoryRecoveryPending'],
     json: ['lockDetails', 'ratchets', 'relayMetadataJson', 'blockExtrinsicErrorJson'],
     date: ['removalBlockTime', 'createdAt', 'updatedAt'],
   };
@@ -179,6 +180,13 @@ export class BitcoinLocksTable extends BaseTable {
     );
     if (rawRecords.length === 0) return undefined;
     return this.toLockRecord(rawRecords[0]);
+  }
+
+  public async setHistoryRecoveryPending(uuid: string, isPending: boolean): Promise<void> {
+    await this.db.execute(
+      'UPDATE BitcoinLocks SET isHistoryRecoveryPending = ? WHERE uuid = ?',
+      toSqlParams([isPending, uuid]),
+    );
   }
 
   public async fetchAll(): Promise<IBitcoinLockRecord[]> {

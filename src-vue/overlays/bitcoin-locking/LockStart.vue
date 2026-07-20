@@ -196,7 +196,7 @@ const securityFee = Vue.ref(0n);
 const hasEditedAmounts = Vue.ref(false);
 
 const isVaultOperator = Vue.computed(() => {
-  return walletKeys.vaultingAddress === props.vault.operatorAccountId;
+  return walletKeys.defaultArgonAddress === props.vault.operatorAccountId;
 });
 
 const hasCouponForVault = Vue.computed(() => {

@@ -37,15 +37,15 @@ describe('FinalizedHistoryScheduler', () => {
     await scheduler.close();
   });
 
-  it('stops retrying an unavailable source after three attempts', async () => {
+  it('keeps retrying an unavailable source with capped backoff', async () => {
     vi.useFakeTimers();
     const refresh = vi.fn().mockRejectedValue(new Error('indexer unavailable'));
     const scheduler = new FinalizedHistoryScheduler(refresh, 10);
 
     scheduler.queue(12);
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(120);
 
-    expect(refresh).toHaveBeenCalledTimes(4);
+    expect(refresh).toHaveBeenCalledTimes(5);
     await scheduler.close();
   });
 });
