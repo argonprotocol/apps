@@ -29,6 +29,10 @@
             <header>Check for Updates</header>
           </NavigationMenuLink>
           <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+          <NavigationMenuLink MenuItem @click="() => openImportAccountOverlay()">
+            <header>Import Account</header>
+          </NavigationMenuLink>
+          <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
           <template v-if="config.hasExtensionOperations">
             <NavigationMenuLink MenuItem @click="() => openOperationalProfileOverlay()" >
               <header>Operational Profile</header>
@@ -39,6 +43,10 @@
             <header>Default Jurisdiction</header>
           </NavigationMenuLink>
           <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+          <NavigationMenuLink MenuItem @click="() => openTroubleshooting()">
+            <header>Troubleshooting Tools</header>
+          </NavigationMenuLink>
+          <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
           <NavigationMenuLink MenuItem @click="() => openSecuritySettingsOverlay()" class="relative">
             <header>Security and Backups</header>
             <ArrowCalloutButton
@@ -47,10 +55,6 @@
               guidance="Open the overlay."
               direction="right"
             />
-          </NavigationMenuLink>
-          <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-          <NavigationMenuLink MenuItem @click="() => openImportAccountOverlay()">
-            <header>Import Account</header>
           </NavigationMenuLink>
           <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
           <li>
@@ -109,10 +113,6 @@
                   </NavigationMenuTrigger>
                   <NavigationMenuContent class="absolute top-0 left-0 w-full sm:w-auto">
                     <ul class="min-w-56 bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-                      <NavigationMenuLink MenuItem @click="() => openTroubleshooting()">
-                        <header>Troubleshooting</header>
-                      </NavigationMenuLink>
-                      <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
                       <NavigationMenuLink MenuItem @click="() => void openLink('https://argon.network/docs')">
                         <header>Documentation</header>
                       </NavigationMenuLink>

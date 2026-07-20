@@ -19,7 +19,7 @@ const HostOrIpSchema = z
 
 export enum TopTab {
   // Basics
-  Dashboard = 'Dashboard',
+  Home = 'Home',
   Network = 'Network',
 
   ArgonBonds = 'ArgonBonds',
@@ -29,7 +29,7 @@ export enum TopTab {
 
   Mining = 'Mining',
   Vaulting = 'Vaulting',
-  Invites = 'Invites',
+  Onboarding = 'Onboarding',
 }
 
 export enum InstallStepKey {
@@ -193,6 +193,7 @@ export const ConfigSchema = z.object({
   vaultingSetupStatus: z.nativeEnum(VaultingSetupStatus),
 
   showWelcomeOverlay: z.boolean(),
+  postWelcomeLaunchCount: z.number().int().nonnegative(),
   wasImportedFromLegacy: z.boolean(),
   hasExtensionTreasury: z.boolean(),
   hasExtensionOperations: z.boolean(),
@@ -267,6 +268,7 @@ export interface IConfigDefaults {
   vaultingSetupStatus: () => IConfig['vaultingSetupStatus'];
 
   showWelcomeOverlay: () => IConfig['showWelcomeOverlay'];
+  postWelcomeLaunchCount: () => IConfig['postWelcomeLaunchCount'];
   wasImportedFromLegacy: () => IConfig['wasImportedFromLegacy'];
   hasExtensionTreasury: () => IConfig['hasExtensionTreasury'];
   hasExtensionOperations: () => IConfig['hasExtensionOperations'];

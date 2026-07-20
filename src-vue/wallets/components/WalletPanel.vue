@@ -10,21 +10,25 @@
           v-if="props.selection.walletType === WalletType.defaultArgon"
           class="mx-auto w-fit border-t border-slate-500/30 pt-2 text-sm opacity-50"
         >
-          Includes {{ currency.symbol }}{{ microgonToMoneyNm(financials.savingsTotalPending).format('0,0.00') }} waiting
-          to mint
+          {{ currency.symbol
+          }}{{ microgonToMoneyNm(walletTotalValue - financials.savingsTotalPending).format('0,0.00') }} is immediately
+          usable
         </div>
         <div
           v-else-if="props.selection.walletType === WalletType.ethereum"
           class="mx-auto w-fit border-t border-slate-500/30 pt-2 text-sm opacity-50"
         >
-          {{ currency.symbol }}{{ microgonToMoneyNm(nonNativeTokenValue).format('0,0.00') }} non-native tokens
+          {{ currency.symbol }}{{ microgonToMoneyNm(nonNativeTokenValue).format('0,0.00') }} is in non-native tokens
         </div>
       </div>
     </div>
 
-    <div class="relative py-2">
+    <div class="relative pt-1 pb-2">
       <div class="relative px-4">
         <ArgonTokens
+          :microgonsToMint="
+            props.selection?.walletType === WalletType.defaultArgon ? financials.savingsTotalPending : 0n
+          "
           :microgons="props.wallet.availableMicrogons"
           :micronots="props.wallet.availableMicronots"
           :moveDirection="props.transferDirection"

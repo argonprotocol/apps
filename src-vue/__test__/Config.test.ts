@@ -23,6 +23,7 @@ it('can load config defaults', async () => {
   expect(config.hasMiningSeats).toBe(false);
   expect(config.hasMiningBids).toBe(false);
   expect(config.biddingRules).toBeTruthy();
+  expect(config.postWelcomeLaunchCount).toBe(0);
 });
 
 it('keeps mnemonic-restored accounts eligible for financial history without mining or vault history', async () => {
@@ -41,12 +42,16 @@ it('keeps mnemonic-restored accounts eligible for financial history without mini
 });
 
 it('can load config from db state', async () => {
-  const dbPromise = createMockedDbPromise({ miningSetupStatus: `"${MiningSetupStatus.Finished}"` });
+  const dbPromise = createMockedDbPromise({
+    miningSetupStatus: `"${MiningSetupStatus.Finished}"`,
+    postWelcomeLaunchCount: '4',
+  });
   const { walletKeys } = createTestWallet('//Alice');
   instanceChecks.delete(Config.prototype.constructor);
   const config = new Config(dbPromise, walletKeys);
   await config.load();
   expect(config.miningSetupStatus).toBe(MiningSetupStatus.Finished);
+  expect(config.postWelcomeLaunchCount).toBe(4);
 });
 
 it('migrates old server port field to sshPort', async () => {

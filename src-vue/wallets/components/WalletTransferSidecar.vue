@@ -3,18 +3,18 @@
     class="flex h-auto w-90 shrink-0 flex-col overflow-visible border border-black/40 shadow-2xl transition-colors duration-150"
     :class="[
       props.direction === 'in' ? 'rounded-l-lg' : 'rounded-r-lg',
-      props.wallet || props.addWalletStep ? 'bg-white' : 'bg-gray-900/70 text-white/70',
+      props.wallet || props.addWalletStep ? 'bg-white' : 'bg-gray-300/80 text-black/60',
     ]"
     :data-testid="`WalletOverlay.transfer${capitalizedDirection}Panel`"
   >
     <header
       class="mx-1 flex h-14 shrink-0 items-center gap-x-2.5 border-b px-3"
-      :class="props.wallet || props.addWalletStep ? 'border-slate-300' : 'border-white/25'"
+      :class="props.wallet || props.addWalletStep ? 'border-slate-300' : 'border-black/25'"
     >
       <div class="min-w-0 grow" :class="props.direction === 'in' ? 'order-3 text-right' : 'order-1 text-left'">
         <div
           class="truncate text-xl font-bold"
-          :class="props.wallet || props.addWalletStep ? 'text-slate-800/70' : 'text-white/70'"
+          :class="props.wallet || props.addWalletStep ? 'text-slate-800/70' : 'text-black/60'"
         >
           {{ headerTitle }}
         </div>
@@ -54,25 +54,29 @@
             v-if="props.walletSelection?.walletType === WalletType.defaultArgon"
             class="border-t border-slate-500/30 pt-2"
           >
-            Includes {{ currency.symbol }}{{ microgonToMoneyNm(financials.savingsTotalPending).format('0,0.00') }}
-            waiting to mint
+            {{ currency.symbol
+            }}{{ microgonToMoneyNm(walletTotalValue - financials.savingsTotalPending).format('0,0.00') }} is immediately
+            usable
           </div>
           <div
             v-if="props.walletSelection?.walletType === WalletType.miningBot"
             class="border-t border-slate-500/30 pt-2"
           >
-            Includes {{ currency.symbol }}0.00 waiting to mint
+            {{ currency.symbol }}{{ microgonToMoneyNm(walletTotalValue).format('0,0.00') }} is immediately usable
           </div>
           <div
             v-else-if="props.walletSelection?.walletType === WalletType.ethereum"
             class="border-t border-slate-500/30 pt-2"
           >
-            {{ currency.symbol }}{{ microgonToMoneyNm(nonNativeTokenValue).format('0,0.00') }} non-native tokens
+            {{ currency.symbol }}{{ microgonToMoneyNm(nonNativeTokenValue).format('0,0.00') }} is in non-native tokens
           </div>
         </div>
       </div>
       <div :class="props.direction === 'in' ? 'pr-1 pl-5' : 'pr-5 pl-1'">
         <ArgonTokens
+          :microgonsToMint="
+            props.walletSelection?.walletType === WalletType.defaultArgon ? financials.savingsTotalPending : 0n
+          "
           :microgons="props.wallet.availableMicrogons"
           :micronots="props.wallet.availableMicronots"
           :moveMicrogons="props.moveWallet?.availableMicrogons"

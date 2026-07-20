@@ -11,9 +11,10 @@
     <div v-if="!currentStep" class="mx-2 py-5 font-light leading-6">
       <div class="pl-5 pr-10 space-y-3">
         <p>
-          Argon is the world’s first inflation-resistant, fiat-independent stablecoin. Although the Argon stablecoin can
-          be used in any standard crypto wallet, this app is your gateway into the broader, underlying ecosystem. It gives
-          you access to mining, vaulting, minting authorities, and the many yield-generating assets of the network.
+          Argon is the world’s first inflation-resistant, fiat-independent stablecoin. It can be used in any standard
+          crypto wallet without any need for this app. But this app is special. It's your gateway into the broader,
+          underlying ecosystem. It gives you access into the mining, vaulting, minting authorities, and the many
+          yield-generating assets of the network. Welcome!
         </p>
         <p>
           Note: this is open-source, self-custody software, meaning you are responsible for your keys, backups, and transactions.

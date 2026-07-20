@@ -9,7 +9,7 @@
           :class="
             props.compact
               ? props.dark
-                ? 'min-h-14 border-b border-white/20 bg-transparent text-white/70 hover:bg-white/10'
+                ? 'min-h-14 border-b border-black/20 bg-transparent text-black/70 hover:bg-white/10'
                 : 'min-h-14 border-b border-slate-300 bg-transparent hover:bg-slate-100'
               : 'min-h-16 rounded-md border border-slate-300 bg-white/80 shadow-sm hover:border-slate-400 hover:bg-white'
           "
@@ -30,10 +30,10 @@
           <EthereumLogo v-if="isEthereumWalletSelection(wallet)" class="h-8 w-8 shrink-0" />
           <ArgonLogo v-else class="h-8 w-8 shrink-0" />
           <span class="ml-3 min-w-0">
-            <strong class="block truncate text-sm" :class="props.dark ? 'text-white/75' : 'text-slate-800'">
+            <strong class="block truncate text-sm" :class="props.dark ? 'text-black/70' : 'text-slate-800'">
               {{ getWalletSelectionName(wallet) }}
             </strong>
-            <span class="block truncate text-xs" :class="props.dark ? 'text-white/50' : 'text-slate-500'">
+            <span class="block truncate text-xs" :class="props.dark ? 'text-black/50' : 'text-slate-500'">
               {{ getWalletAddress(wallet) }}
             </span>
           </span>
@@ -48,14 +48,14 @@
 
     <div
       class="mt-auto grid gap-2 pt-4"
-      :class="props.compact ? (props.dark ? 'border-t border-white/20' : 'border-t border-slate-300') : ''"
+      :class="props.compact ? (props.dark ? 'border-t border-black/20' : 'border-t border-slate-300') : ''"
     >
       <button
         v-if="props.compact"
         data-testid="WalletOverlay.addNewWallet()"
         type="button"
         class="rounded-md px-3 py-2 text-left text-lg font-semibold"
-        :class="props.dark ? 'text-white/70 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200/60'"
+        :class="props.dark ? 'text-black/70 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200/60'"
         @click="emit('addNewWallet')"
       >
         + Add New Wallet

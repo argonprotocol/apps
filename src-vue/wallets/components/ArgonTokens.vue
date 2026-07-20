@@ -82,6 +82,11 @@
         </button>
       </MoveCapitalButton>
     </li>
+    <li v-if="props.microgonsToMint" class="relative flex flex-row gap-x-2 border-y border-slate-400/50 py-2">
+      <ArgonIcon class="h-6 w-6" />
+      <div class="grow">{{ microgonToArgonNm(props.microgonsToMint).format('0,0.[00]') }} ARGN waiting to mint</div>
+      <div>{{ currency.symbol }}{{ microgonToMoneyNm(props.microgonsToMint).format('0,0.00') }}</div>
+    </li>
   </ul>
 </template>
 <script setup lang="ts">
@@ -102,6 +107,7 @@ const { microgonToMoneyNm, microgonToArgonNm, micronotToMoneyNm, micronotToArgon
 
 const props = withDefaults(
   defineProps<{
+    microgonsToMint?: bigint;
     microgons?: bigint;
     micronots?: bigint;
     moveMicrogons?: bigint;
@@ -116,6 +122,7 @@ const props = withDefaults(
     feeTokenSymbol?: string;
   }>(),
   {
+    microgonsToMint: () => 0n,
     microgons: () => 0n,
     micronots: () => 0n,
     networkName: '',

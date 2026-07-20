@@ -31,6 +31,13 @@ if (import.meta.hot) {
 export { NETWORK_NAME };
 export { type Config };
 
+export async function recordPostWelcomeLaunch(loadedConfig: Config): Promise<void> {
+  if (loadedConfig.showWelcomeOverlay) return;
+
+  loadedConfig.postWelcomeLaunchCount += 1;
+  await loadedConfig.save();
+}
+
 export function getConfig(): Vue.Reactive<Config> {
   if (!config) {
     console.log('Initializing config');
@@ -48,7 +55,9 @@ export function getConfig(): Vue.Reactive<Config> {
     );
     config
       .load()
-      .then(() => {
+      .then(async () => {
+        await recordPostWelcomeLaunch(config as Config);
+
         // Ensure any unsaved changes are saved when the window is closed
         console.info('Config loaded');
         void getCurrentWindow().onCloseRequested(async () => {

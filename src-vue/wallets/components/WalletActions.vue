@@ -3,11 +3,11 @@
     <CopyToClipboard
       :content="props.wallet.address"
       :data-testid="props.walletAddressTestId"
-      class="flex cursor-pointer items-center justify-center text-slate-500/60"
+      class="flex h-[34px] w-[34px] cursor-pointer items-center justify-center rounded-md border text-slate-500/60 hover:bg-[#f1f3f7]"
       :class="
         props.showBorders
-          ? 'h-[34px] w-[34px] rounded-md border border-slate-400/60 hover:border-slate-500/60 hover:bg-[#f1f3f7]'
-          : 'h-4 w-4'
+          ? 'border-slate-400/60 hover:border-slate-500/60'
+          : 'border-transparent hover:border-slate-500/30'
       "
     >
       <CopyIcon class="h-4" />
@@ -24,11 +24,11 @@
     >
       <template #trigger>
         <span
-          class="flex items-center justify-center text-slate-500/60"
+          class="flex h-[34px] w-[34px] cursor-pointer items-center justify-center rounded-md border text-slate-500/60 hover:bg-[#f1f3f7]"
           :class="
             props.showBorders
-              ? 'h-[34px] w-[34px] rounded-md border border-slate-400/60 hover:border-slate-500/60 hover:bg-[#f1f3f7]'
-              : 'h-4 w-4'
+              ? 'border-slate-400/60 hover:border-slate-500/60'
+              : 'border-transparent hover:border-slate-500/30'
           "
         >
           <MoreIcon class="h-4" />

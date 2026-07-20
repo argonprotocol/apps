@@ -200,7 +200,7 @@ export async function createMenu() {
   });
 
   const troubleshootingMenu = await Submenu.new({
-    text: 'Troubleshooting',
+    text: 'Troubleshooting Tools',
     items: [
       {
         id: 'ssh',
@@ -209,14 +209,19 @@ export async function createMenu() {
         action: () => basicEmitter.emit('openSecuritySettingsOverlay', { screen: 'ssh' }),
       },
       {
-        id: 'find-data',
-        text: 'Find Missing Data',
-        action: () => basicEmitter.emit('openTroubleshootingOverlay', { screen: 'find-missing-data' }),
+        id: 'missing-data-scanner',
+        text: 'Missing Data Scanner',
+        action: () => basicEmitter.emit('openTroubleshootingOverlay', { screen: 'missing-data-scanner' }),
       },
       {
-        id: 'data-and-log-files',
-        text: 'View Data and Logs',
-        action: () => basicEmitter.emit('openTroubleshootingOverlay', { screen: 'data-and-log-files' }),
+        id: 'debugging-package',
+        text: 'Debugging Package',
+        action: () => basicEmitter.emit('openTroubleshootingOverlay', { screen: 'debug-package' }),
+      },
+      {
+        id: 'data-and-logs-dir',
+        text: 'Data and Logs Dir',
+        action: () => basicEmitter.emit('openTroubleshootingOverlay', { screen: 'data-and-logs-dir' }),
       },
       {
         id: 'server-diagnostics',
