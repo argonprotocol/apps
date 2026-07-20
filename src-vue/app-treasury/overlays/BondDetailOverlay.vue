@@ -43,14 +43,19 @@
           </div>
 
           <div>
-            <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">Purchase Price</div>
+            <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">Principal Basis</div>
             <div class="mt-1 font-medium text-slate-700">
-              <template v-if="bondLot.programType === 'Argonot'">
-                {{ micronotToArgonotNm(bondLot.bondMicrogons).format('0,0.00') }} ARGNOT
+              <template v-if="position?.investedCost !== undefined">
+                {{ currency.symbol }}{{ microgonToMoneyNm(position.investedCost).format('0,0.00') }}
               </template>
-              <template v-else>
-                {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.bondMicrogons).format('0,0.00') }}
-              </template>
+              <template v-else>--</template>
+              <div
+                v-if="bondLot.programType === 'Argonot' && position?.currentArgonotRateMicrogons !== undefined"
+                class="mt-0.5 text-xs font-normal text-slate-400"
+              >
+                ARGNOT price {{ currency.symbol
+                }}{{ microgonToMoneyNm(position.currentArgonotRateMicrogons).format('0,0.00') }}
+              </div>
             </div>
           </div>
 
@@ -136,6 +141,7 @@ import { ExtrinsicType, TransactionStatus } from '../../lib/db/TransactionsTable
 import { type TransactionInfo } from '../../lib/TransactionInfo.ts';
 import { generateProgressLabel } from '../../lib/Utils.ts';
 import { getArgonBonds } from '../../stores/argonBonds.ts';
+import type { IBondFinancialPosition } from '../../interfaces/IFinancialPosition.ts';
 
 dayjs.extend(utc);
 
@@ -150,6 +156,7 @@ const { microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency
 
 const props = defineProps<{
   bondLot: BondLot;
+  position?: IBondFinancialPosition;
   returnPercent?: number;
 }>();
 

@@ -34,8 +34,9 @@
 
           <li divider class="my-1 h-px w-full bg-slate-400/30" />
 
-          <li v-for="group in visibleGroups" :key="group.group" class="flex items-center justify-between gap-6 px-3 py-2">
-            <div>
+          <li v-for="group in visibleGroups" :key="group.group" class="px-3 py-2">
+            <div class="flex items-start justify-between gap-6">
+              <div>
               <div class="font-semibold text-slate-700">{{ financialMenuLabels[group.group] }}</div>
               <div v-if="group.state !== 'ready' && group.state !== 'stale'" class="text-xs font-normal text-slate-500 capitalize">
                 {{ group.state }}
@@ -79,6 +80,9 @@
                   {{ micronotToArgonotNm(vaultPositionBreakdown.committedMicronots).format('0,0.[00]') }} ARGNOT staked
                 </div>
               </div>
+              <div v-else-if="group.group === 'bonds' && bondAssetDetails" class="text-xs font-normal text-slate-500">
+                {{ bondAssetDetails }}
+              </div>
               <div v-else-if="group.group === 'bitcoin'" class="text-xs font-normal text-slate-500">
                 Locked BTC {{ currency.symbol }}{{ formatValue(bitcoinPositionBreakdown.lockedBtc) }}
                 <template v-if="bitcoinPositionBreakdown.pendingMint">
@@ -90,9 +94,10 @@
                 Assets {{ currency.symbol }}{{ formatValue(group.grossAssets) }} · Liabilities {{ currency.symbol
                 }}{{ formatValue(group.grossLiabilities) }}
               </div>
-            </div>
-            <div class="font-mono font-semibold text-slate-700">
-              {{ group.state === 'ready' || (group.state === 'stale' && group.positions.length) ? `${currency.symbol}${formatValue(group.currentValue)}` : '--' }}
+              </div>
+              <div class="font-mono font-semibold text-slate-700">
+                {{ group.state === 'ready' || (group.state === 'stale' && group.positions.length) ? `${currency.symbol}${formatValue(group.currentValue)}` : '--' }}
+              </div>
             </div>
           </li>
 
@@ -134,7 +139,7 @@ import Tooltip from '../components/Tooltip.vue';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import { useFinancials } from '../stores/financials.ts';
 import { useWallets } from '../stores/wallets.ts';
-import { financialMenuLabels } from './financialMenuLabels.ts';
+import { bondAssetMenuItems, financialMenuLabels } from './financialMenuLabels.ts';
 
 const rootRef = Vue.ref<HTMLElement>();
 
@@ -146,7 +151,21 @@ const currency = getCurrency();
 const financials = useFinancials();
 const wallets = useWallets();
 const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm, otherTokenNm } = createNumeralHelpers(currency);
-const { financialPositionAggregate: aggregate, liquidLockedRecords, liquidNativeBalances } = storeToRefs(financials);
+const {
+  financialPositionAggregate: aggregate,
+  liquidLockedRecords,
+  liquidNativeBalances,
+  bondSummariesByAsset,
+} = storeToRefs(financials);
+const bondAssetDetails = Vue.computed(() => {
+  return bondAssetMenuItems
+    .flatMap(({ asset, label }) => {
+      const currentValue = bondSummariesByAsset.value[asset].currentValue;
+      if (!currentValue) return [];
+      return `${label} ${currency.symbol}${formatValue(currentValue)}`;
+    })
+    .join(' · ');
+});
 
 const visibleGroups = Vue.computed(() => {
   return aggregate.value.groups.filter(group => {

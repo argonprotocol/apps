@@ -3,7 +3,6 @@ import { BaseTable, type IFieldTypes } from './BaseTable.ts';
 import { convertFromSqliteFields, logStartupTiming, toSqlParams } from '../Utils.ts';
 
 export enum FinancialCacheTypes {
-  AccountReturn = 'AccountReturn',
   ExternalWalletBalance = 'ExternalWalletBalance',
 }
 
@@ -19,14 +18,6 @@ export type IExternalWalletBalanceCacheRecord = Pick<
 };
 
 export interface IFinancialCacheSchemas {
-  [FinancialCacheTypes.AccountReturn]: {
-    startingBlock: number;
-    startingTime: number;
-    startingValue: bigint;
-    asOfBlock: number;
-    basisPoints: bigint;
-    isProvisional?: boolean;
-  };
   [FinancialCacheTypes.ExternalWalletBalance]: IExternalWalletBalanceCacheRecord;
 }
 

@@ -1,4 +1,4 @@
-import { BondLot, calculatePrincipalPositionValue } from '@argonprotocol/apps-core';
+import { type ArgonQueryClient, BondLot, calculatePrincipalPositionValue } from '@argonprotocol/apps-core';
 import {
   createFinancialPosition,
   type IBondFinancialPosition,
@@ -11,6 +11,7 @@ import type { IArgonAccountBalance } from '../WalletsForArgon.ts';
 
 type ArgonBondFinancialPositionArgs = {
   account: IArgonAccountBalance;
+  clientAt: ArgonQueryClient;
   hasConfirmedBondHistoryCoverage: boolean;
   liveArgonotRateMicrogons?: bigint;
   ownedVaultId?: number;
@@ -34,13 +35,16 @@ export class ArgonBondsFinancials
   public async loadPositions(args: ArgonBondFinancialPositionArgs): Promise<IBondFinancialPosition[]> {
     await this.bonds.load();
 
+    const { clientAt, ...positionArgs } = args;
+    const bondLots = await this.bonds.getOwnBondLots(clientAt);
+
     const treasuryMicrogons = args.account.microgonHolds
       .filter(hold => hold.id.isTreasury)
       .reduce((sum, hold) => sum + hold.amount.toBigInt(), 0n);
     const treasuryMicronots = args.account.micronotHolds
       .filter(hold => hold.id.isTreasury)
       .reduce((sum, hold) => sum + hold.amount.toBigInt(), 0n);
-    const totals = this.bonds.bondTotals;
+    const totals = BondLot.getTotals(bondLots);
     if (treasuryMicrogons !== totals.totalBondMicrogons) {
       throw new Error(`ARGN Treasury holds do not match live bond principal for ${args.account.address}`);
     }
@@ -49,7 +53,7 @@ export class ArgonBondsFinancials
     }
 
     const frameIds = new Set<number>();
-    for (const lot of this.bonds.data.bondLots) frameIds.add(lot.createdFrame);
+    for (const lot of bondLots) frameIds.add(lot.createdFrame);
     for (const record of this.bonds.data.bondHistory) frameIds.add(record.createdFrame);
     const frameDates = new Map(
       [...frameIds].map(frameId => [frameId, this.bonds.miningFrames.getFrameDate(frameId)] as const),
@@ -64,8 +68,8 @@ export class ArgonBondsFinancials
     );
 
     return this.createFinancialPositions({
-      ...args,
-      bondLots: this.bonds.data.bondLots,
+      ...positionArgs,
+      bondLots,
       completedRecords: this.bonds.completedBondHistory,
       entryArgonotMarksByLot,
       frameDates,

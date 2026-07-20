@@ -27,12 +27,7 @@ import { ArgonBondsFinancials } from '../lib/financials/ArgonBonds.ts';
 import type { WalletForArgon } from '../lib/WalletForArgon.ts';
 import { MiningFinancials } from '../lib/financials/MyMiningSeats.ts';
 import { VaultFinancials } from '../lib/financials/MyVault.ts';
-import {
-  calculateAccountValue,
-  calculatePositionReturn,
-  FinancialPositionBook,
-  reduceFinancialPositions,
-} from '../lib/financials/index.ts';
+import { calculatePositionReturn, FinancialPositionBook, reduceFinancialPositions } from '../lib/financials/index.ts';
 import { WalletFinancials } from '../lib/financials/WalletBalances.ts';
 
 const wallet: IWallet = {
@@ -48,7 +43,7 @@ const wallet: IWallet = {
 };
 const miningFinancials = new MiningFinancials({} as any);
 const bondFinancials = new ArgonBondsFinancials({} as any);
-const bitcoinFinancials = new BitcoinFinancials({} as any);
+const bitcoinFinancials = new BitcoinFinancials({} as BitcoinLocks);
 const vaultFinancials = new VaultFinancials({} as any);
 
 function readySnapshots(positions: IFinancialPosition[] = []): IFinancialObservedGroupSnapshot[] {
@@ -115,7 +110,7 @@ describe('financial position accounting', () => {
     });
   });
 
-  it('keeps EVM balances in assets but outside account RTD', () => {
+  it('keeps EVM balances in assets without treating wallet balances as investments', () => {
     const positions: IFinancialPosition[] = [
       {
         id: 'argon-wallet',
@@ -162,7 +157,6 @@ describe('financial position accounting', () => {
     const snapshots = readySnapshots(positions);
     const aggregate = reduceFinancialPositions(snapshots);
 
-    expect(calculateAccountValue(snapshots)).toBe(60n);
     expect(aggregate.grossAssets).toBe(600n);
     expect(aggregate.grossLiabilities).toBe(40n);
     expect(aggregate.netWorth).toBe(560n);
@@ -299,7 +293,7 @@ describe('financial position accounting', () => {
     expect(stableSwaps?.returnSummary.returnAmount).toBeUndefined();
   });
 
-  it('reports partial ARGNOT holding return when part of the current quantity has no basis', () => {
+  it('values wallet ARGNOT without reporting it as an investment return', () => {
     const positions: IFinancialPosition[] = [
       {
         id: 'wallet-holding-known',
@@ -337,16 +331,16 @@ describe('financial position accounting', () => {
 
     expect(aggregate.readiness).toBe('ready');
     expect(aggregate.groupSummaries.liquid.returnSummary).toMatchObject({
-      availability: 'partial',
-      eligiblePositionCount: 1,
-      investmentPositionCount: 2,
-      returnAmount: 4n,
+      availability: 'not-applicable',
+      eligiblePositionCount: 0,
+      investmentPositionCount: 0,
     });
     expect(aggregate.accountReturn).toMatchObject({
-      availability: 'partial',
-      eligiblePositionCount: 1,
-      investmentPositionCount: 2,
+      availability: 'not-applicable',
+      eligiblePositionCount: 0,
+      investmentPositionCount: 0,
     });
+    expect(aggregate.netWorth).toBe(12n);
   });
 
   it('counts newly held pending mining collateral once without diluting term RTD', () => {
@@ -416,6 +410,39 @@ describe('financial position accounting', () => {
       returnAmount: -56_000_000n,
       percent: -55.45,
     });
+  });
+
+  it('keeps newly activated collateral held while cohort details catch up', () => {
+    const positions = miningFinancials.createFinancialPositions({
+      cohorts: [
+        createMiningCohort({
+          id: 12,
+          progress: 30,
+          micronotsStakedPerSeat: 7_000_000n,
+          closingArgonotPrice: 0n,
+        }),
+      ],
+      latestFrameId: 12,
+      pendingBids: [],
+      heldMicronots: 12_000_000n,
+      liveArgonotRateMicrogons: 3_000_000n,
+      miningBotAddress: '5miner',
+      miningBotMicronots: 12_000_000n,
+      frameDates: new Map([[12, new Date('2026-07-01T00:00:00Z')]]),
+    });
+
+    expect(positions).toContainEqual(
+      expect.objectContaining({
+        kind: 'mining-balance',
+        lifecycle: 'held',
+        asset: 'ARGNOT',
+        amount: 5_000_000n,
+        currentValue: 15_000_000n,
+      }),
+    );
+    expect(positions.filter(position => position.kind === 'mining-argonot' && position.lifecycle === 'held')).toEqual([
+      expect.objectContaining({ micronots: 7_000_000n }),
+    ]);
   });
 
   it('uses actual holds when available mining custody exceeds the amount reused by bids', () => {
@@ -644,7 +671,48 @@ describe('financial position accounting', () => {
     expect(positions.filter(position => position.kind === 'mining-argonot')).toEqual([]);
   });
 
-  it('preserves return across the ordinary-to-mining ARGNOT handoff', async () => {
+  it('preserves active collateral when available mining custody left without a recovered boundary', () => {
+    const positions = miningFinancials.createFinancialPositions({
+      cohorts: [
+        createMiningCohort({
+          id: 12,
+          progress: 30,
+          micronotsStakedPerSeat: 7_000_000n,
+          closingArgonotPrice: 0n,
+        }),
+      ],
+      latestFrameId: 12,
+      pendingBids: [],
+      heldMicronots: 7_000_000n,
+      liveArgonotRateMicrogons: 4_000_000n,
+      miningBotAddress: '5miner',
+      miningBotMicronots: 7_000_000n,
+      frameDates: new Map([
+        [12, new Date('2026-07-01T00:00:00Z')],
+        [22, new Date('2026-07-11T00:00:00Z')],
+      ]),
+      custodyTransfers: [
+        createWalletTransfer({
+          id: 9,
+          amount: -5_000_000n,
+          otherParty: '5miner',
+          isInternal: true,
+          microgonsForArgonot: 3_000_000n,
+          blockTime: new Date('2026-07-02T00:00:00Z'),
+        }),
+      ],
+    });
+
+    expect(positions.filter(position => position.kind === 'mining-argonot')).toEqual([
+      expect.objectContaining({
+        source: 'collateral',
+        lifecycle: 'held',
+        micronots: 7_000_000n,
+      }),
+    ]);
+  });
+
+  it('starts return tracking at the ordinary-to-mining ARGNOT handoff', async () => {
     const receivedAt = new Date('2026-06-20T00:00:00Z');
     const committedAt = new Date('2026-07-01T00:00:00Z');
     const transfers: IWalletTransferRecord[] = [
@@ -690,9 +758,16 @@ describe('financial position accounting', () => {
     });
 
     const aggregate = reduceFinancialPositions(readySnapshots([...ordinary, ...mining]));
-    expect(aggregate.groupSummaries.liquid.returnSummary.returnAmount).toBe(10_000_000n);
+    expect(aggregate.groupSummaries.liquid.returnSummary).toMatchObject({
+      availability: 'not-applicable',
+      investmentPositionCount: 0,
+    });
     expect(aggregate.groupSummaries.mining.returnSummary.returnAmount).toBe(0n);
-    expect(aggregate.accountReturn).toMatchObject({ availability: 'available', basisPoints: 2_857n });
+    expect(aggregate.accountReturn).toMatchObject({
+      availability: 'available',
+      basisPoints: 0n,
+      investmentPositionCount: 1,
+    });
   });
 
   it('keeps uncommitted mining-bot ARGNOT as a basis-bearing mining custody position', () => {
@@ -1291,7 +1366,7 @@ describe('financial position accounting', () => {
     expect(bitcoin?.returnSummary.availability).toBe('unavailable');
   });
 
-  it('preserves ARGN bond principal-and-income return and marks ARGNOT from its entry and live rates', async () => {
+  it('excludes ARGNOT principal price movement from bond and account returns', async () => {
     const vaultLot = createBondLot({ id: 1, bonds: 10, cumulativeEarnings: 1_000_000n });
     const argonotLot = createBondLot({
       id: 2,
@@ -1342,10 +1417,9 @@ describe('financial position accounting', () => {
     expect(calculatePositionReturn([argonotPosition!])).toMatchObject({
       investedCost: 20_000_000n,
       paidIncome: 4_000_000n,
-      returnAmount: 14_000_000n,
-      percent: 70,
+      returnAmount: 4_000_000n,
+      percent: 20,
     });
-
     const vaultBondGroup = reduceFinancialPositions(readySnapshots([vaultPosition!])).groupSummaries.bonds;
     expect(vaultBondGroup?.returnSummary).toMatchObject({
       investedCost: 10_000_000n,
@@ -1366,7 +1440,6 @@ describe('financial position accounting', () => {
     expect(operatorAggregate.groupSummaries.bonds.currentValue).toBe(10_000_000n);
     expect(operatorAggregate.grossAssets).toBe(0n);
     expect(operatorAggregate.netWorth).toBe(0n);
-    expect(calculateAccountValue(readySnapshots([operatorBond]))).toBe(0n);
     expect(operatorAggregate.accountReturn).toMatchObject({
       availability: 'not-applicable',
       eligiblePositionCount: 0,
@@ -1377,13 +1450,14 @@ describe('financial position accounting', () => {
     expect(mixedAggregate.groupSummaries.bonds.returnSummary).toMatchObject({
       investedCost: 30_000_000n,
       paidIncome: 5_000_000n,
-      percent: 50,
+      returnAmount: 5_000_000n,
+      percent: 16.67,
     });
     expect(mixedAggregate.accountReturn).toMatchObject({
       availability: 'available',
       eligiblePositionCount: 1,
       investmentPositionCount: 1,
-      percent: 70,
+      percent: 20,
     });
     expect(mixedAggregate.grossAssets).toBe(30_000_000n);
     expect(mixedAggregate.netWorth).toBe(30_000_000n);
@@ -1393,7 +1467,7 @@ describe('financial position accounting', () => {
 
     expect(bondGroup?.currentValue).toBe(40_000_000n);
     expect(bondGroup?.returnSummary.paidIncome).toBe(5_000_000n);
-    expect(bondGroup?.returnSummary.returnAmount).toBe(15_000_000n);
+    expect(bondGroup?.returnSummary.returnAmount).toBe(5_000_000n);
   });
 
   it('partitions transferable and unattributed Argon balances without double counting named holds', async () => {
@@ -1574,7 +1648,7 @@ describe('financial group snapshots', () => {
     }).toThrow('Financial position id shared-position is already used by liquid');
   });
 
-  it('does not count a Bitcoin or mining receivable after the wallet crosses its finalized settlement block', () => {
+  it('retains a coherent receivable handoff until every group covers the required observation', () => {
     const block10 = {
       observedAt: new Date('2026-07-14T12:00:00Z'),
       blockNumber: 10,
@@ -1633,17 +1707,44 @@ describe('financial group snapshots', () => {
       book.publish(book.beginRefresh(receivable.group), [receivable], block10, block10);
       expect(reduceFinancialPositions(book.snapshots).netWorth).toBe(120n);
 
-      book.advanceSettlementObservation(block11, ['liquid', receivable.group]);
-      book.publish(book.beginRefresh('liquid'), [{ ...walletPosition, currentValue: 120n }], block11);
-      book.publish(book.beginRefresh(receivable.group), [receivable], block10, block11);
+      const didCommit = book.commit([
+        {
+          refresh: book.beginRefresh('liquid'),
+          positions: [{ ...walletPosition, currentValue: 120n }],
+          observation: block11,
+        },
+        {
+          refresh: book.beginRefresh(receivable.group),
+          positions: [receivable],
+          observation: block10,
+          requiredObservation: block11,
+        },
+      ]);
 
+      expect(didCommit).toBe(false);
       const aggregate = reduceFinancialPositions(book.snapshots);
       const group = aggregate.groupSummaries[receivable.group];
       expect(aggregate.netWorth).toBe(120n);
       expect(aggregate.readiness).toBe('partial');
-      expect(group).toMatchObject({ state: 'stale', currentValue: 0n });
+      expect(aggregate.groupSummaries.liquid).toMatchObject({ state: 'stale', currentValue: 100n });
+      expect(group).toMatchObject({ state: 'stale', currentValue: 20n });
 
-      book.publish(book.beginRefresh(receivable.group), [], block11, block11);
+      const revisionBeforeCompletion = book.revision;
+      const didComplete = book.commit([
+        {
+          refresh: book.beginRefresh('liquid'),
+          positions: [{ ...walletPosition, currentValue: 120n }],
+          observation: block11,
+        },
+        {
+          refresh: book.beginRefresh(receivable.group),
+          positions: [],
+          observation: block11,
+          requiredObservation: block11,
+        },
+      ]);
+      expect(didComplete).toBe(true);
+      expect(book.revision).toBe(revisionBeforeCompletion + 1);
       expect(book.snapshots.find(snapshot => snapshot.group === receivable.group)).toMatchObject({
         state: 'ready',
         positions: [],
@@ -1651,7 +1752,7 @@ describe('financial group snapshots', () => {
     }
   });
 
-  it('drops prior bond principal or vault revenue when Argon hold reconciliation cannot align', () => {
+  it('keeps prior bond principal or vault revenue when hold reconciliation cannot align', () => {
     const observation = {
       observedAt: new Date('2026-07-14T12:10:00Z'),
       blockNumber: 20,
@@ -1710,14 +1811,18 @@ describe('financial group snapshots', () => {
       book.publish(book.beginRefresh(position.group), [position], observation);
       expect(reduceFinancialPositions(book.snapshots).netWorth).toBe(140n);
 
-      book.invalidate(book.beginRefresh(position.group), observation, 'Native holds do not match domain state');
+      book.fail(
+        [book.beginRefresh('liquid'), book.beginRefresh(position.group)],
+        'Native holds do not match domain state',
+      );
 
       const aggregate = reduceFinancialPositions(book.snapshots);
-      expect(aggregate.netWorth).toBe(120n);
+      expect(aggregate.netWorth).toBe(140n);
       expect(aggregate.readiness).toBe('partial');
+      expect(aggregate.groupSummaries.liquid).toMatchObject({ state: 'stale', currentValue: 120n });
       expect(aggregate.groupSummaries[position.group]).toMatchObject({
         state: 'stale',
-        currentValue: 0n,
+        currentValue: 20n,
       });
     }
   });

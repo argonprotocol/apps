@@ -6,12 +6,12 @@
       <div class="flex grow flex-col items-center justify-center">
         <div class="flex w-8/12 max-w-200 flex-col items-center py-10">
           <header class="text-argon-600 pb-3 text-xl font-bold">
-            Argon Bonds Tap Into the Upside Growth of the Network
+            Argon(ot) Bonds Tap Into the Upside Growth of the Network
           </header>
           <p
             class="w-0 min-w-full border-y border-slate-400/50 py-4 text-justify text-[17px]/7 font-light whitespace-normal"
           >
-            Argon Bonds give you direct exposure to the profit returns of the growth of Argon Mining Auction pools.
+            Argon(ot) Bonds give you direct exposure to the profit returns of the growth of Argon Mining Auction pools.
             These bonds are backed by on-chain mechanics that make it impossible for a bond to default. This means your
             principal is always protected. The only question becomes: how much will your bond earn?
           </p>
@@ -24,7 +24,7 @@
                 class="bg-argon-button hover:bg-argon-button-hover cursor-pointer rounded-md px-8 py-3 text-lg font-bold text-white disabled:pointer-events-none disabled:bg-white disabled:text-gray-500 disabled:opacity-40"
                 @click="openBondsOverlay('Vault')"
               >
-                Purchase with ARGN
+                Purchase Argon Bonds
               </button>
               <ArrowCalloutButton
                 v-if="controller.activeGuideId === OperationalStepId.AcquireBonds && canBuyWithArgn"
@@ -39,7 +39,7 @@
                 class="bg-argon-button hover:bg-argon-button-hover cursor-pointer rounded-md px-8 py-3 text-lg font-bold text-white disabled:pointer-events-none disabled:bg-white disabled:text-gray-500 disabled:opacity-40"
                 @click="openBondsOverlay('Argonot')"
               >
-                Purchase with ARGNOT
+                Purchase Argonot Bonds
               </button>
               <ArrowCalloutButton
                 v-if="
@@ -114,7 +114,7 @@
         <div class="flex flex-col overflow-y-auto px-9 pt-10 pb-5">
           <div class="flex flex-row items-center text-slate-800/70">
             <span class="grow">
-              You have {{ bondLots.length }} Argon Bond transaction{{ bondLots.length === 1 ? '' : 's' }}...
+              You have {{ bondLots.length }} bond transaction{{ bondLots.length === 1 ? '' : 's' }}...
             </span>
             <div class="flex flex-row items-stretch gap-x-3">
               <span class="relative">
@@ -124,7 +124,7 @@
                   class="text-md text-argon-600 cursor-pointer disabled:cursor-default disabled:opacity-40"
                   @click="openBondsOverlay('Vault')"
                 >
-                  Buy with ARGN
+                  Buy Argon Bonds
                 </button>
                 <ArrowCalloutButton
                   v-if="controller.activeGuideId === OperationalStepId.AcquireBonds && canBuyWithArgn"
@@ -140,7 +140,7 @@
                   class="text-md text-argon-600 cursor-pointer disabled:cursor-default disabled:opacity-40"
                   @click="openBondsOverlay('Argonot')"
                 >
-                  Buy with ARGNOT
+                  Buy Argonot Bonds
                 </button>
                 <ArrowCalloutButton
                   v-if="
@@ -164,6 +164,7 @@
             :key="bondLot.id"
             :bondLot="bondLot"
             :isReleasing="bondLot.isReleasing"
+            :position="bondPositionsByLotId.get(bondLot.id)"
             :returnPercent="bondReturnsByLotId.get(bondLot.id)"
             @click="openDetail(bondLot)"
             @liquidate="openDetail"
@@ -185,6 +186,7 @@
     <BondDetailOverlay
       v-if="showDetailOverlay && selectedBondLot"
       :bondLot="selectedBondLot"
+      :position="bondPositionsByLotId.get(selectedBondLot.id)"
       :returnPercent="bondReturnsByLotId.get(selectedBondLot.id)"
       @close="closeDetail"
       @submitted="onLiquidationSubmitted"
@@ -212,6 +214,7 @@ import BondRecord from './treasury-screens/components/BondRecord.vue';
 import BondDetailOverlay from '../app-treasury/overlays/BondDetailOverlay.vue';
 import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
 import { OperationalStepId, useCertificationController } from '../stores/certificationController.ts';
+import type { IBondFinancialPosition } from '../interfaces/IFinancialPosition.ts';
 
 const currency = getCurrency();
 const controller = useCertificationController();
@@ -234,14 +237,23 @@ const bondLots = Vue.computed(() => argonBonds.data.bondLots);
 const bondsSummary = Vue.computed(() => {
   return financials.financialPositionAggregate.groupSummaries.bonds;
 });
-const bondReturnsByLotId = Vue.computed(() => {
-  const returns = new Map<number, number>();
+const bondPositionsByLotId = Vue.computed(() => {
+  const positions = new Map<number, IBondFinancialPosition>();
 
   for (const position of bondsSummary.value.positions) {
     if (position.kind !== 'bond' || !position.bondLot) continue;
 
+    positions.set(position.bondLot.id, position);
+  }
+
+  return positions;
+});
+const bondReturnsByLotId = Vue.computed(() => {
+  const returns = new Map<number, number>();
+
+  for (const [bondLotId, position] of bondPositionsByLotId.value) {
     const percent = calculatePositionReturn([position]).percent;
-    if (percent !== undefined) returns.set(position.bondLot.id, percent);
+    if (percent !== undefined) returns.set(bondLotId, percent);
   }
 
   return returns;

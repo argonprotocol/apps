@@ -53,12 +53,10 @@
         </div>
         <div SecondRow>
           <span>
-            <template v-if="bondLot.programType === 'Argonot'">
-              {{ micronotToArgonotNm(bondLot.bondMicrogons).format('0,0.00') }} ARGNOT purchase price
+            <template v-if="position?.investedCost !== undefined">
+              {{ currency.symbol }}{{ microgonToMoneyNm(position.investedCost).format('0,0.00') }} principal basis
             </template>
-            <template v-else>
-              {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.bondMicrogons).format('0,0.00') }} purchase price
-            </template>
+            <template v-else>Principal basis unavailable</template>
           </span>
           <div class="flex grow flex-row items-stretch justify-center">
             <span class="h-full w-px bg-slate-400/50"></span>
@@ -98,6 +96,7 @@ import CountdownClock from '../../../components/CountdownClock.vue';
 import { BondLot } from '@argonprotocol/apps-core';
 import { getMiningFrames } from '../../../stores/mainchain.ts';
 import { getVaults } from '../../../stores/vaults.ts';
+import type { IBondFinancialPosition } from '../../../interfaces/IFinancialPosition.ts';
 
 dayjs.extend(utc);
 
@@ -111,6 +110,7 @@ const props = withDefaults(
   defineProps<{
     bondLot: BondLot;
     isReleasing?: boolean;
+    position?: IBondFinancialPosition;
     returnPercent?: number;
   }>(),
   {
