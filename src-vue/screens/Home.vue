@@ -63,7 +63,7 @@
           Once you're Treasury Certified, you'll be eligible to apply for the final level of Operator.
         </p>
         <p v-else>
-          This app has three levels of features. You’re currently approved for the first. This means you have full
+          This app has three levels of features. You’re currently approved for level one. This means you have full
           access to Argon's cross-chain wallet functionality and bridgeless transfers. Click a wallet below to explore,
           or click Upgrade to Treasury to jump to level two.
         </p>
