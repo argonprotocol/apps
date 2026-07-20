@@ -278,6 +278,8 @@ export default class BitcoinLocks {
     lock: IBitcoinLockRecord,
     clientAt: ApiDecoration<'promise'>,
   ): Promise<IBitcoinLockSummary> {
+    // Financial balances use the best block while persisted lock state intentionally settles one block behind.
+    // Reconcile a clone so completed mint is not counted in both the wallet and pending liquidity.
     const lockAtBlock = {
       ...lock,
       ratchets: lock.ratchets.map(ratchet => ({ ...ratchet })),

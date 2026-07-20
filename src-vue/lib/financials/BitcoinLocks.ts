@@ -36,13 +36,14 @@ export class BitcoinFinancials {
   }> {
     await this.locks.load();
 
-    const summaries: IBitcoinLockSummary[] = [];
+    const summaries = await Promise.all(
+      this.locks.getAllLocks().map(lock => this.locks.createLockSummaryAt(lock, args.clientAt)),
+    );
     const hodlingInvestments: IPerformanceReturnInput[] = [];
     let currentBitcoinDebt = 0n;
 
-    for (const lock of this.locks.getAllLocks()) {
-      const summary = await this.locks.createLockSummaryAt(lock, args.clientAt);
-      summaries.push(summary);
+    for (const summary of summaries) {
+      const lock = summary.record;
 
       if (this.locks.isLockedStatus(lock)) currentBitcoinDebt += summary.unlockAmount;
       if ((this.locks.isLockedStatus(lock) || this.locks.isReleaseStatus(lock)) && lock.ratchets[0]) {
