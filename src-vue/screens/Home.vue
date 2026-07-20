@@ -124,7 +124,7 @@
           >
             +
           </span>
-          <span>{{ wallets.walletRecords.length < 1 ? 'Add' : 'Add Another' }}</span>
+          <span>{{ wallets.walletRecords.length <= 1 ? 'Connect' : 'Add Another' }}</span>
           <span>Ethereum Wallet</span>
         </article>
       </section>
