@@ -63,7 +63,7 @@
       <!-- <ProvisioningCompleteOverlay /> -->
       <AboutOverlay />
       <SoftwareInfoOverlay />
-      <ProfileOverlay />
+      <OperationalProfileOverlay />
       <JurisdictionOverlay />
       <ServerOverlay />
       <TroubleshootingOverlay />
@@ -120,7 +120,7 @@ import ServerOverlay from './overlays/ServerOverlay.vue';
 import OperationalOverlay from './overlays/OperationalOverlay.vue';
 import OperationalRewardsOverlay from './overlays/OperationalRewardsOverlay.vue';
 import { CloseRequestedEvent, getCurrentWindow } from '@tauri-apps/api/window';
-import ProfileOverlay from './overlays/ProfileOverlay.vue';
+import OperationalProfileOverlay from './overlays/OperationalProfileOverlay.vue';
 import { checkInstallerIfCloseAllowed } from './stores/installer.ts';
 import RuntimeCompatibilityScreen from './screens/RuntimeCompatibilityScreen.vue';
 import { useAppUpdater } from './stores/appUpdater.ts';

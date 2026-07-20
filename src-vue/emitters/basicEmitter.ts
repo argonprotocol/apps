@@ -41,7 +41,7 @@ type IBasicEmitter = {
 
   openImportAccountOverlay: void;
 
-  openProfileOverlay: void;
+  openOperationalProfileOverlay: void;
 
   openVaultsOverlay: void;
   openTransactionsOverlay: void;
