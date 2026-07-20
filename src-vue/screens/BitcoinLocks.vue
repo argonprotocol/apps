@@ -192,7 +192,7 @@
       v-if="showRatchetingOverlay && selectedLock"
       :personalLock="selectedLock.record"
       @close="showRatchetingOverlay = false"
-      @submitted="onRatchetSubmitted"
+      @completed="onRatchetCompleted"
     />
   </div>
 </template>
@@ -290,7 +290,7 @@ function openRatchetingOverlay(event: MouseEvent, lock: IBitcoinLockSummary) {
   showRatchetingOverlay.value = true;
 }
 
-async function onRatchetSubmitted() {
+async function onRatchetCompleted() {
   showRatchetingOverlay.value = false;
   await bitcoinLocks.load();
 }

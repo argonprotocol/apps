@@ -150,13 +150,17 @@
             <button
               @click.stop="openRatchetingOverlay($event, lockSummary)"
               :class="[
-                lockSummary.ratchetPercent
+                lockSummary.ratchetPercent || isRatchetPending
                   ? 'bg-argon-600 border-argon-800 hover:bg-argon-700 text-white hover:shadow-lg'
                   : 'cursor-default border-slate-800/20 text-slate-600/40',
               ]"
-              class="cursor-pointer rounded-md border px-2"
+              class="inline-flex cursor-pointer items-center rounded-md border px-2"
             >
-              <span v-if="lockSummary.ratchetPercent">
+              <template v-if="isRatchetPending">
+                <Spinner class="mr-1.5 h-3 min-h-3 w-3 min-w-3" />
+                Ratcheting...
+              </template>
+              <span v-else-if="lockSummary.ratchetPercent">
                 Ratchet {{ lockSummary.ratchetPercent > 0 ? '+' : ''
                 }}{{ numeral(lockSummary.ratchetPercent).format('0,0.[00]') }}%
               </span>
@@ -207,6 +211,7 @@ import { getCurrency } from '../../../stores/currency.ts';
 import { getBitcoinLocks } from '../../../stores/bitcoin.ts';
 import ProgressBar from '../../../components/ProgressBar.vue';
 import BitcoinRecordMismatch from './BitcoinRecordMismatch.vue';
+import Spinner from '../../../components/Spinner.vue';
 
 dayjs.extend(utc);
 
@@ -226,6 +231,7 @@ const emit = defineEmits<{
 
 const isActionHovered = Vue.ref(false);
 const lockRecord = Vue.computed(() => props.lockSummary.record);
+const isRatchetPending = Vue.computed(() => !!bitcoinLocks.getPendingRatchetTxInfo(lockRecord.value));
 const mismatchAcceptProgress = Vue.computed(() => {
   if (!lockRecord.value.utxoId) {
     return { progressPct: 0, error: '' };
@@ -243,7 +249,7 @@ function expirationDate(lock: IBitcoinLockRecord) {
 }
 
 function openRatchetingOverlay(event: MouseEvent, lock: IBitcoinLockSummary) {
-  if (!props.lockSummary.ratchetPercent) return;
+  if (!props.lockSummary.ratchetPercent && !isRatchetPending.value) return;
   emit('ratchet', event, lock);
 }
 

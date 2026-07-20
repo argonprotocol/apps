@@ -13,6 +13,7 @@ export enum ExtrinsicType {
   OperationalClaimRewards = 'OperationalClaimRewards',
 
   BitcoinRequestLock = 'BitcoinRequestLock', // LockIsProcessingOnArgon
+  BitcoinRatchet = 'BitcoinRatchet',
   BitcoinRequestRelease = 'BitcoinRequestRelease', // funding UTXO enters release lifecycle on Argon
   VaultCosignBitcoinRelease = 'VaultCosignBitcoinRelease', // vault cosigns release request before bitcoin broadcast
   VaultCosignOrphanedUtxoRelease = 'VaultCosignOrphanedUtxoRelease',

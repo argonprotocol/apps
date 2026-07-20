@@ -43,11 +43,16 @@
     </div>
 
     <div class="px-5 py-5">
+      <div v-if="txInfo" class="mb-4 space-y-2">
+        <ProgressBar :progress="progressPct" :hasError="!!errorMessage" :showLabel="false" class="h-4" />
+        <div class="text-sm text-slate-500">{{ progressLabel }}</div>
+      </div>
       <button
         @click="submitRatchet"
         :disabled="isSubmitting || isLoadingPreview || !ratchetPreview?.canRatchet"
-        class="bg-argon-600 px-5 py-1 text-white border border-argon-800 rounded disabled:opacity-50 cursor-pointer"
+        class="bg-argon-600 inline-flex items-center px-5 py-1 text-white border border-argon-800 rounded disabled:opacity-50 cursor-pointer"
       >
+        <Spinner v-if="isSubmitting" class="mr-2 h-4 min-h-4 w-4 min-w-4" />
         {{ isSubmitting ? 'Ratchet pending...' : 'Finish Ratchet' }}
       </button>
       <div v-if="errorMessage" class="mt-3 text-sm text-red-600">{{ errorMessage }}</div>
@@ -64,7 +69,10 @@ import { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { getBitcoinLocks } from '../stores/bitcoin.ts';
-import type { IBitcoinRatchetPreview } from '../lib/BitcoinLocks.ts';
+import type { IBitcoinRatchetMetadata, IBitcoinRatchetPreview } from '../lib/BitcoinLocks.ts';
+import type { TransactionInfo } from '../lib/TransactionInfo.ts';
+import ProgressBar from '../components/ProgressBar.vue';
+import Spinner from '../components/Spinner.vue';
 
 const currency = getCurrency();
 const bitcoinLocks = getBitcoinLocks();
@@ -74,6 +82,10 @@ const isSubmitting = Vue.ref(false);
 const isLoadingPreview = Vue.ref(true);
 const errorMessage = Vue.ref('');
 const ratchetPreview = Vue.ref<IBitcoinRatchetPreview>();
+const txInfo = Vue.shallowRef<TransactionInfo<IBitcoinRatchetMetadata>>();
+const progressPct = Vue.ref(0);
+const progressLabel = Vue.ref('');
+let unsubscribeProgress: (() => void) | undefined;
 
 const props = defineProps<{
   personalLock: IBitcoinLockRecord;
@@ -81,7 +93,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void;
-  (e: 'submitted'): void;
+  (e: 'completed'): void;
 }>();
 
 async function loadRatchetPreview() {
@@ -106,17 +118,63 @@ async function submitRatchet() {
 
   try {
     const txSigner = await walletKeys.getLiquidLockingKeypair();
-    await bitcoinLocks.ratchet(props.personalLock, txSigner);
-    emit('submitted');
-    emit('close');
+    const info = await bitcoinLocks.ratchet(props.personalLock, txSigner);
+    trackTransaction(info);
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : 'Unable to ratchet this Bitcoin lock.';
-  } finally {
     isSubmitting.value = false;
   }
 }
 
-Vue.onMounted(() => {
-  void loadRatchetPreview();
+function trackTransaction(info: TransactionInfo<IBitcoinRatchetMetadata>) {
+  unsubscribeProgress?.();
+  txInfo.value = info;
+  isSubmitting.value = true;
+
+  const status = info.getStatus();
+  progressPct.value = status.progressPct;
+  progressLabel.value = status.isFinalized ? 'Finalizing ratchet details...' : 'Waiting for transaction status...';
+
+  unsubscribeProgress = info.subscribeToProgress((progress, error) => {
+    progressPct.value = progress.progressPct;
+    progressLabel.value = progress.progressMessage;
+    if (error) {
+      errorMessage.value = error.message;
+    }
+  });
+
+  void info.waitForPostProcessing.then(
+    () => {
+      const error = info.getStatus().error;
+      if (error) {
+        errorMessage.value = error.message;
+        isSubmitting.value = false;
+        return;
+      }
+
+      progressPct.value = 100;
+      emit('completed');
+    },
+    error => {
+      errorMessage.value = error instanceof Error ? error.message : 'Unable to save the completed ratchet.';
+      isSubmitting.value = false;
+    },
+  );
+}
+
+Vue.onMounted(async () => {
+  await bitcoinLocks.load();
+  const pendingTxInfo = bitcoinLocks.getPendingRatchetTxInfo(props.personalLock);
+  if (pendingTxInfo) {
+    isLoadingPreview.value = false;
+    trackTransaction(pendingTxInfo);
+    return;
+  }
+
+  await loadRatchetPreview();
+});
+
+Vue.onUnmounted(() => {
+  unsubscribeProgress?.();
 });
 </script>
