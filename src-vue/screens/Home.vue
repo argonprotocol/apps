@@ -128,6 +128,17 @@
           <span>Ethereum Wallet</span>
         </article>
       </section>
+      <div class="relative -top-2 flex flex-row items-start justify-end gap-x-3 pr-[24%]">
+        <div class="relative top-[75%] text-slate-900/40">
+          You must connect an Ethereum wallet
+          <br />
+          to use Argon’s bridgeless transfer.
+        </div>
+        <div class="relative">
+          <div class="absolute top-[6px] right-[-3px] h-1 w-6 bg-white" />
+          <img src="/arrow.png" class="relative z-10" />
+        </div>
+      </div>
     </div>
     <div class="relative px-0.5 pb-0.5">
       <img src="/treasury-footers/inflation-free-savings.png" class="w-full opacity-50" />

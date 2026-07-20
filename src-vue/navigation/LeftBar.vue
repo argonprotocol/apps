@@ -4,7 +4,12 @@
       <div class="mt-3">
         <header>Basic Nav</header>
         <ul>
-          <li @click="goto(TopTab.Home)" :class="{ Selected: controller.selectedTab === TopTab.Home }">
+          <li
+            @click="goto(TopTab.Home)"
+            :class="{
+              Selected: controller.selectedTab === TopTab.Home || controller.selectedTab === ('Dashboard' as TopTab),
+            }"
+          >
             <article class="flex flex-row items-center">
               <div class="mr-1 w-6">
                 <OverviewIcon class="w-5.5" />
@@ -68,19 +73,6 @@
             </article>
             <div Selector />
           </li>
-          <!--          <li @click="goto(TopTab.BitcoinLoans)" :class="{ Selected: controller.selectedTab === TopTab.BitcoinLoans }">-->
-          <!--            <article class="flex flex-row items-center">-->
-          <!--              <div class="grow">Bitcoin Loans</div>-->
-          <!--              <div class="opacity-60">-->
-          <!--                {{ currency.symbol }}{{ microgonToMoneyNm(financials.liquidCurrentBitcoinDebt).format('0,0.00') }}-->
-          <!--              </div>-->
-          <!--            </article>-->
-          <!--            <div Selector>-->
-          <!--              <div ArrowSquare>-->
-          <!--                <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />-->
-          <!--              </div>-->
-          <!--            </div>-->
-          <!--          </li>-->
           <li @click="goto(TopTab.ArgonBonds)" :class="{ Selected: controller.selectedTab === TopTab.ArgonBonds }">
             <article class="relative flex flex-row items-center">
               <div class="mr-1 w-6">
@@ -99,26 +91,6 @@
             </article>
             <div Selector />
           </li>
-          <!--          <li @click="goto(TopTab.ArgonotBonds)" :class="{ Selected: controller.selectedTab === TopTab.ArgonotBonds }">-->
-          <!--            <article class="flex flex-row items-center">-->
-          <!--              <div class="grow">Argonot Bonds</div>-->
-          <!--              <div class="opacity-60">-->
-          <!--                {{ currency.symbol-->
-          <!--                }}{{-->
-          <!--                  micronotToMoneyNm(-->
-          <!--                    myBonds.bondLots-->
-          <!--                      .filter(bondLot => bondLot.programType === 'Argonot')-->
-          <!--                      .reduce((sum, bondLot) => sum + bondLot.bondMicrogons, 0n),-->
-          <!--                  ).format('0,0.00')-->
-          <!--                }}-->
-          <!--              </div>-->
-          <!--            </article>-->
-          <!--            <div Selector>-->
-          <!--              <div ArrowSquare>-->
-          <!--                <Arrow ActiveArrow fill="white" stroke="#D3D9E3" :strokeWidth="1" />-->
-          <!--              </div>-->
-          <!--            </div>-->
-          <!--          </li>-->
           <li @click="goto(TopTab.StableSwaps)" :class="{ Selected: controller.selectedTab === TopTab.StableSwaps }">
             <article class="flex flex-row items-center">
               <div class="mr-1 w-6">
@@ -277,7 +249,13 @@
             </article>
             <div Selector />
           </li>
-          <li @click="goto(TopTab.Onboarding)" :class="{ Selected: controller.selectedTab === TopTab.Onboarding }">
+          <li
+            @click="goto(TopTab.Onboarding)"
+            :class="{
+              Selected:
+                controller.selectedTab === TopTab.Onboarding || controller.selectedTab === ('Invites' as TopTab),
+            }"
+          >
             <article class="relative flex flex-col">
               <div class="relative flex flex-row items-center">
                 <div class="mr-1 w-6">

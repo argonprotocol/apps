@@ -21,7 +21,7 @@
               : ''
           "
         >
-          <Home v-if="controller.selectedTab === TopTab.Home" />
+          <Home v-if="controller.selectedTab === TopTab.Home || controller.selectedTab === 'Dashboard' as TopTab" />
           <Network v-else-if="controller.selectedTab === TopTab.Network" />
 
           <ArgonBonds v-else-if="controller.selectedTab === TopTab.ArgonBonds" />
@@ -31,7 +31,8 @@
 
           <Mining v-else-if="controller.selectedTab === TopTab.Mining" />
           <Vaulting v-else-if="controller.selectedTab === TopTab.Vaulting" />
-          <Onboarding v-else-if="controller.selectedTab === TopTab.Onboarding" />
+          <Onboarding v-else-if="controller.selectedTab === TopTab.Onboarding || controller.selectedTab === 'Invites' as TopTab" />
+          <Home v-else />
         </div>
       </main>
     </div>
