@@ -23,7 +23,8 @@
 8. Push the branch to the remote repository.
    ```bash
    git push origin v<new-version>
-   ```
+   ``` 
 9. This will trigger the CI/CD pipeline to create a new release.
 10. Once you are happy with the release, publish it via GitHub. This will create a tag and update it as the latest stable or experimental release.
 11. Merge the version branch back into `main`.
+12. 
