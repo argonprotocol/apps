@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AccountEventsFilter, type IBlockHeaderInfo } from '@argonprotocol/apps-core';
+import { AccountEventsFilter, createDeferred, type IBlockHeaderInfo } from '@argonprotocol/apps-core';
 import { WalletsForArgon } from '../lib/WalletsForArgon.ts';
 import { WalletForArgon } from '../lib/WalletForArgon.ts';
 import { SyncStateKeys } from '../lib/db/SyncStateTable.ts';
@@ -11,33 +11,20 @@ describe('WalletsForArgon live balance tracking', () => {
     const finalized = blockHeader(0, 'finalized');
     const interim = blockHeader(1, 'interim');
     const best = blockHeader(2, 'best');
-    const apiFor = (blockNumber: number) => ({
-      query: {
-        system: {
-          account: {
-            multi: async (addresses: string[]) =>
-              addresses.map((_, index) => ({
-                data: { free: bigintCodec(index === 0 ? BigInt(blockNumber) : 0n), reserved: bigintCodec(0n) },
-              })),
-          },
-        },
-        ownership: {
-          account: {
-            multi: async (addresses: string[]) =>
-              addresses.map(() => ({ free: bigintCodec(0n), reserved: bigintCodec(0n) })),
-          },
-        },
-      },
-    });
+    const nextBest = blockHeader(3, 'next-best');
     const blockWatch = {
       finalizedBlockHeader: finalized,
+      bestBlockHeader: best,
       latestHeaders: [finalized, interim, best],
-      getApi: vi.fn(async (block: IBlockHeaderInfo) => apiFor(block.blockNumber)),
+      getApi: vi.fn(async (block: IBlockHeaderInfo) => {
+        const balance = block.blockHash === nextBest.blockHash ? 2n : BigInt(block.blockNumber);
+        return balanceApi(balance);
+      }),
       getParentHeader: vi.fn(async (header: IBlockHeaderInfo) =>
         header.blockHash === best.blockHash ? interim : finalized,
       ),
       getEventsWithSpec: vi.fn(async (block: IBlockHeaderInfo) => ({
-        api: apiFor(block.blockNumber),
+        api: balanceApi(BigInt(block.blockNumber)),
         events: [],
       })),
     };
@@ -46,16 +33,75 @@ describe('WalletsForArgon live balance tracking', () => {
       fetchMainchainRatesAtBlock: vi.fn(),
     });
     for (const wallet of wallets.wallets) wallet.balanceHistory = [walletBalance(finalized, 0n)];
+    const balanceHashes: string[] = [];
+    wallets.events.on('balance-change', balance => balanceHashes.push(balance.block.blockHash));
 
     await wallets.loadBalancesAt(best);
 
     expect(wallets.defaultArgonWallet.availableMicrogons).toBe(2n);
     expect(wallets.defaultArgonWallet.balanceHistory.map(balance => balance.block.blockNumber)).toEqual([2]);
+    expect(wallets.bestBlock).toEqual(best);
+    expect(balanceHashes).toEqual([best.blockHash]);
     expect(blockWatch.getApi).toHaveBeenCalledOnce();
     expect(blockWatch.getApi).toHaveBeenCalledWith(best);
     expect(blockWatch.getParentHeader).not.toHaveBeenCalled();
     expect(blockWatch.getEventsWithSpec).not.toHaveBeenCalled();
     expect(upsert).not.toHaveBeenCalled();
+
+    blockWatch.bestBlockHeader = nextBest;
+    blockWatch.latestHeaders = [finalized, interim, best, nextBest];
+    await wallets.loadBalancesAt(nextBest);
+
+    expect(wallets.defaultArgonWallet.availableMicrogons).toBe(2n);
+    expect(wallets.defaultArgonWallet.balanceHistory.map(balance => balance.block.blockHash)).toEqual([
+      nextBest.blockHash,
+    ]);
+    expect(wallets.bestBlock).toEqual(nextBest);
+    expect(balanceHashes).toEqual([best.blockHash, nextBest.blockHash]);
+    expect(blockWatch.getApi).toHaveBeenCalledTimes(2);
+  });
+
+  it('publishes only the accepted replacement when best changes during a slow read', async () => {
+    const finalized = blockHeader(0, 'finalized');
+    const firstBest = blockHeader(2, 'same-height-a');
+    const replacementBest = blockHeader(2, 'same-height-b');
+    const latestBest = blockHeader(3, 'latest-best');
+    const releaseFirstRead = createDeferred<void>();
+    const blockWatch = {
+      bestBlockHeader: firstBest,
+      latestHeaders: [finalized, firstBest],
+      getApi: vi.fn(async (header: IBlockHeaderInfo) => {
+        if (header.blockHash === firstBest.blockHash) await releaseFirstRead.promise;
+        return balanceApi(BigInt(header.blockNumber));
+      }),
+    };
+    const wallets = createWallets({}, blockWatch);
+    for (const wallet of wallets.wallets) wallet.balanceHistory = [walletBalance(finalized, 0n)];
+    const balanceHashes: string[] = [];
+    wallets.events.on('balance-change', balance => balanceHashes.push(balance.block.blockHash));
+
+    const firstLoad = wallets.loadBalancesAt(firstBest);
+    await vi.waitFor(() => expect(blockWatch.getApi).toHaveBeenCalledWith(firstBest));
+
+    blockWatch.bestBlockHeader = replacementBest;
+    blockWatch.latestHeaders = [finalized, replacementBest];
+    const replacementLoad = wallets.loadBalancesAt(replacementBest);
+    blockWatch.bestBlockHeader = latestBest;
+    blockWatch.latestHeaders = [finalized, latestBest];
+    const latestLoad = wallets.loadBalancesAt(latestBest);
+    releaseFirstRead.resolve();
+    await Promise.all([firstLoad, replacementLoad, latestLoad]);
+
+    expect(blockWatch.getApi.mock.calls.map(([header]) => header.blockHash)).toEqual([
+      firstBest.blockHash,
+      latestBest.blockHash,
+    ]);
+    expect(wallets.defaultArgonWallet.availableMicrogons).toBe(3n);
+    expect(wallets.defaultArgonWallet.balanceHistory.map(balance => balance.block.blockHash)).toEqual([
+      latestBest.blockHash,
+    ]);
+    expect(wallets.bestBlock).toEqual(latestBest);
+    expect(balanceHashes).toEqual([latestBest.blockHash]);
   });
 
   it('reports finalized blocks missed since the persisted wallet cursor', async () => {
@@ -572,5 +618,29 @@ function walletBalance(block: IBlockHeaderInfo, availableMicrogons: bigint) {
     micronotsAdded: 0n,
     extrinsicEvents: [],
     transfers: [],
+  };
+}
+
+function balanceApi(defaultAvailableMicrogons: bigint) {
+  return {
+    query: {
+      system: {
+        account: {
+          multi: async (addresses: string[]) =>
+            addresses.map((_, index) => ({
+              data: {
+                free: bigintCodec(index === 0 ? defaultAvailableMicrogons : 0n),
+                reserved: bigintCodec(0n),
+              },
+            })),
+        },
+      },
+      ownership: {
+        account: {
+          multi: async (addresses: string[]) =>
+            addresses.map(() => ({ free: bigintCodec(0n), reserved: bigintCodec(0n) })),
+        },
+      },
+    },
   };
 }

@@ -61,87 +61,68 @@ export class FinancialPositionBook {
     observation: IFinancialObservation,
     requiredObservation?: IFinancialObservation,
   ): boolean {
-    if (!this.isCurrent(refresh)) return false;
+    return this.commit([{ refresh, positions, observation, requiredObservation }]);
+  }
 
-    const positionIds = new Map<string, FinancialGroup>();
-    for (const snapshot of this.groupSnapshots.values()) {
-      if (snapshot.group === refresh.group) continue;
-      for (const position of snapshot.positions) positionIds.set(position.id, snapshot.group);
-    }
-    for (const position of positions) {
-      if (position.group !== refresh.group) {
-        throw new Error(`Cannot publish ${position.group} position ${position.id} into ${refresh.group}`);
-      }
-      const conflictingGroup = positionIds.get(position.id);
-      if (conflictingGroup) {
-        throw new Error(`Financial position id ${position.id} is already used by ${conflictingGroup}`);
-      }
-      positionIds.set(position.id, refresh.group);
-    }
+  public commit(
+    updates: readonly {
+      refresh: IFinancialRefreshToken;
+      positions: readonly IFinancialPosition[];
+      observation: IFinancialObservation;
+      requiredObservation?: IFinancialObservation;
+    }[],
+  ): boolean {
+    if (updates.length === 0 || updates.some(({ refresh }) => !this.isCurrent(refresh))) return false;
 
-    if (requiredObservation && !doesObservationCover(observation, requiredObservation)) {
-      return this.invalidate(
-        refresh,
-        observation,
-        `Waiting for finalized ${refresh.group} state at block ${requiredObservation.blockNumber ?? 'unknown'}`,
+    const incompleteUpdate = updates.find(
+      ({ observation, requiredObservation }) =>
+        requiredObservation && !doesObservationCover(observation, requiredObservation),
+    );
+    if (incompleteUpdate) {
+      const blockNumber = incompleteUpdate.requiredObservation?.blockNumber ?? 'unknown';
+      this.fail(
+        updates.map(({ refresh }) => refresh),
+        `Waiting for ${incompleteUpdate.refresh.group} state at block ${blockNumber}`,
       );
+      return false;
     }
 
-    this.groupSnapshots.set(refresh.group, {
-      group: refresh.group,
-      state: 'ready',
-      positions: Object.freeze([...positions]),
-      observation,
-    });
-    this.revision += 1;
-    return true;
-  }
-
-  public fail(refresh: IFinancialRefreshToken, message: string): boolean {
-    if (!this.isCurrent(refresh)) return false;
-
-    const snapshot = this.groupSnapshots.get(refresh.group);
-    if ((snapshot?.state === 'error' || snapshot?.state === 'stale') && snapshot.message === message) return false;
-
-    if (snapshot && (snapshot.state === 'ready' || snapshot.state === 'stale')) {
-      this.groupSnapshots.set(refresh.group, { ...snapshot, state: 'stale', message });
-    } else {
-      this.groupSnapshots.set(refresh.group, { group: refresh.group, state: 'error', positions: [], message });
-    }
-    this.revision += 1;
-    return true;
-  }
-
-  public invalidate(refresh: IFinancialRefreshToken, observation: IFinancialObservation, message: string): boolean {
-    if (!this.isCurrent(refresh)) return false;
-
-    this.groupSnapshots.set(refresh.group, {
-      group: refresh.group,
-      state: 'stale',
-      positions: [],
-      observation,
-      message,
-    });
-    this.revision += 1;
-    return true;
-  }
-
-  public advanceSettlementObservation(observation: IFinancialObservation, groups: readonly FinancialGroup[]): void {
-    for (const group of groups) {
-      const snapshot = this.groupSnapshots.get(group);
-      if (!snapshot || snapshot.state === 'loading' || snapshot.state === 'error') continue;
-      const previousObservation = snapshot.observation;
-      if (!previousObservation || doesObservationCover(previousObservation, observation)) continue;
-
-      this.groupSnapshots.set(group, {
-        group,
-        state: 'stale',
-        positions: [],
-        observation: previousObservation,
-        message: `Waiting for finalized ${group} state at block ${observation.blockNumber ?? 'unknown'}`,
+    const nextSnapshots = new Map(this.groupSnapshots);
+    for (const { refresh, positions, observation } of updates) {
+      nextSnapshots.set(refresh.group, {
+        group: refresh.group,
+        state: 'ready',
+        positions: Object.freeze([...positions]),
+        observation,
       });
-      this.revision += 1;
     }
+    validatePositionOwnership(nextSnapshots.values());
+
+    this.groupSnapshots.clear();
+    for (const [group, snapshot] of nextSnapshots) this.groupSnapshots.set(group, snapshot);
+    this.revision += 1;
+    return true;
+  }
+
+  public fail(refreshes: IFinancialRefreshToken | readonly IFinancialRefreshToken[], message: string): boolean {
+    const refreshList = Array.isArray(refreshes) ? refreshes : [refreshes];
+    const currentRefreshes = refreshList.filter(refresh => this.isCurrent(refresh));
+    if (currentRefreshes.length !== refreshList.length) return false;
+
+    let didChange = false;
+    for (const refresh of currentRefreshes) {
+      const snapshot = this.groupSnapshots.get(refresh.group);
+      if ((snapshot?.state === 'error' || snapshot?.state === 'stale') && snapshot.message === message) continue;
+
+      if (snapshot && (snapshot.state === 'ready' || snapshot.state === 'stale')) {
+        this.groupSnapshots.set(refresh.group, { ...snapshot, state: 'stale', message });
+      } else {
+        this.groupSnapshots.set(refresh.group, { group: refresh.group, state: 'error', positions: [], message });
+      }
+      didChange = true;
+    }
+    if (didChange) this.revision += 1;
+    return didChange;
   }
 
   private isCurrent(refresh: IFinancialRefreshToken): boolean {
@@ -152,6 +133,22 @@ export class FinancialPositionBook {
     this.groupSnapshots.clear();
     for (const group of financialGroups) {
       this.groupSnapshots.set(group, { group, state: 'loading', positions: [] });
+    }
+  }
+}
+
+function validatePositionOwnership(snapshots: Iterable<IFinancialGroupSnapshot>): void {
+  const positionIds = new Map<string, FinancialGroup>();
+  for (const snapshot of snapshots) {
+    for (const position of snapshot.positions) {
+      if (position.group !== snapshot.group) {
+        throw new Error(`Cannot publish ${position.group} position ${position.id} into ${snapshot.group}`);
+      }
+      const conflictingGroup = positionIds.get(position.id);
+      if (conflictingGroup) {
+        throw new Error(`Financial position id ${position.id} is already used by ${conflictingGroup}`);
+      }
+      positionIds.set(position.id, snapshot.group);
     }
   }
 }
@@ -207,6 +204,7 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
     // internal collateral transitions to the term-return denominator.
     const returnPositions =
       group === 'mining' ? groupPositions.filter(position => position.kind === 'mining-cohort') : groupPositions;
+    const returnSummary = calculatePositionReturn(returnPositions);
     groups.push({
       group,
       state: snapshot.state,
@@ -217,7 +215,7 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
       grossLiabilities: groupLiabilities,
       observation: snapshot.observation,
       message: snapshot.message,
-      returnSummary: calculatePositionReturn(returnPositions),
+      returnSummary,
     });
   }
 
@@ -263,31 +261,6 @@ export function reduceFinancialPositions(snapshots: readonly IFinancialGroupSnap
   };
 }
 
-export function calculateAccountValue(
-  snapshots: readonly IFinancialGroupSnapshot[],
-  requiredObservation?: IFinancialObservation,
-): bigint | undefined {
-  let accountValue = 0n;
-
-  for (const snapshot of snapshots) {
-    // EVM balances remain in gross assets and net worth; they are only outside
-    // the flow-adjusted Argon account RTD boundary.
-    if (snapshot.group === 'ethereum' || snapshot.group === 'base') continue;
-    if (snapshot.state !== 'ready') return;
-    if (requiredObservation && !doesObservationCover(snapshot.observation, requiredObservation)) return;
-
-    for (const position of snapshot.positions) {
-      if (position.kind === 'bond' && position.excludeFromAccountAggregate) continue;
-      if (position.lifecycle === 'unavailable' && position.kind !== 'wallet-holding') continue;
-      if (position.currentValue === undefined) return;
-
-      accountValue += position.currentValue;
-    }
-  }
-
-  return accountValue;
-}
-
 function doesObservationCover(observation: IFinancialObservation, required: IFinancialObservation): boolean {
   if (observation.blockNumber === undefined || required.blockNumber === undefined) return false;
   if (observation.blockNumber !== required.blockNumber) return observation.blockNumber > required.blockNumber;
@@ -300,17 +273,13 @@ function doesObservationCover(observation: IFinancialObservation, required: IFin
 
 export function calculatePositionReturn(positions: readonly IFinancialPosition[]): IFinancialReturnSummary {
   const investments = positions.filter((position): position is IFinancialInvestmentPosition => {
-    if (
-      position.kind === 'wallet-balance' ||
-      position.kind === 'ethereum-wallet-balance' ||
-      position.kind === 'base-wallet-balance' ||
-      position.kind === 'mining-balance' ||
-      position.kind === 'vault-balance' ||
-      position.kind === 'bitcoin-liability'
-    ) {
-      return false;
-    }
-    return true;
+    return (
+      position.kind === 'mining-cohort' ||
+      position.kind === 'vault' ||
+      position.kind === 'bond' ||
+      position.kind === 'bitcoin-asset' ||
+      position.kind === 'stable-swap'
+    );
   });
   if (investments.length === 0) {
     return {
@@ -332,11 +301,23 @@ export function calculatePositionReturn(positions: readonly IFinancialPosition[]
     paidIncome += positionIncome;
     settledPrincipalValue += position.settledPrincipalValue ?? 0n;
 
-    const { currentValue, investedCost } = position;
+    const { investedCost } = position;
     if (position.lifecycle === 'unavailable') continue;
-    if (position.startedAt === undefined || currentValue === undefined) continue;
+    if (position.startedAt === undefined) continue;
     if (investedCost === undefined || investedCost <= 0n) continue;
-    if (position.settledPrincipalValue === undefined) continue;
+
+    if (position.kind === 'bond') {
+      eligibleInvestments.push({
+        startingDate: position.startedAt,
+        startingCapital: investedCost,
+        endingDate: position.endedAt,
+        endingCapital: investedCost + positionIncome,
+      });
+      continue;
+    }
+
+    const { currentValue } = position;
+    if (currentValue === undefined || position.settledPrincipalValue === undefined) continue;
 
     let endingCapital = currentValue + position.settledPrincipalValue + positionIncome;
     if (position.kind === 'mining-cohort') {

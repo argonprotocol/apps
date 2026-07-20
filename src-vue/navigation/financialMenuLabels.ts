@@ -9,3 +9,8 @@ export const financialMenuLabels: Record<FinancialGroup, string> = {
   bonds: 'Argon(ot) Bonds',
   bitcoin: 'Bitcoin locks',
 };
+
+export const bondAssetMenuItems = [
+  { asset: 'ARGN', label: 'Argon' },
+  { asset: 'ARGNOT', label: 'Argonot' },
+] as const;

@@ -5,6 +5,7 @@ import type { Db } from '../lib/Db.ts';
 import type { TransactionTracker } from '../lib/TransactionTracker.ts';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
+import { BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { BitcoinLock, hexToU8a, type IBitcoinLock } from '@argonprotocol/mainchain';
 import { createHistoricalEventData } from '../../indexer/__test__/helpers/historicalEvents.ts';
@@ -24,6 +25,8 @@ function createStore(
   const currency = Object.assign(Object.create(null), {
     load: async () => undefined,
     priceIndex: { getSatoshiPriceInTargetMicrogons: () => 2_000n },
+    convertSatToBtc: () => 0,
+    convertBtcToMicrogon: () => 0n,
     fetchMainchainRatesAtBlock: async () => ({ BTC: 4_000_000n, ARGNOT: 1_000_000n, USD: 1_000_000n }),
   }) as CurrencyBase;
   const transactionTracker =
@@ -659,6 +662,68 @@ describe('BitcoinLocks getActiveLocks', () => {
 
     expect(findPendingMints).toHaveBeenCalledOnce();
     expect(store.data.locksByUtxoId[7].ratchets[0].mintPending).toBe(0n);
+  });
+
+  it('reads active pending mint state at the supplied financial block without advancing the settled record', async () => {
+    const blockApi = { query: {} };
+    const blockWatch = { getApi: vi.fn(async () => blockApi) } as unknown as BlockWatch;
+    const store = createStore({ blockWatch });
+    const record = createLock({
+      uuid: 'active-financial-lock',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockedAndIsMinting,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    record.ratchets = [
+      {
+        mintAmount: 1_000n,
+        mintPending: 1_000n,
+        lockedTargetPrice: 1_000n,
+        securityFee: 0n,
+        txFee: 0n,
+        burned: 0n,
+        blockHeight: 151,
+        oracleBitcoinBlockHeight: 500,
+      },
+    ];
+    const fundingRecord = {
+      id: 1,
+      lockUtxoId: 7,
+      txid: 'a'.repeat(64),
+      vout: 0,
+      satoshis: record.satoshis,
+      network: 'testnet',
+      status: BitcoinUtxoStatus.FundingUtxo,
+      firstSeenAt: new Date('2026-01-01T00:00:00Z'),
+      firstSeenBitcoinHeight: 500,
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      updatedAt: new Date('2026-01-01T00:00:00Z'),
+    };
+    vi.spyOn(store.utxoTracking, 'getAcceptedFundingRecordForLock').mockReturnValue(fundingRecord);
+    const findPendingMints = vi.spyOn(BitcoinLock.prototype, 'findPendingMints').mockResolvedValue([]);
+    vi.spyOn(store, 'getMismatchViewState').mockReturnValue({
+      phase: 'none',
+      candidateCount: 0,
+      isFundingExpired: false,
+      candidates: [],
+    });
+    vi.spyOn(store, 'getLockProcessingDetails').mockReturnValue({
+      progressPct: 100,
+      confirmations: 3,
+      expectedConfirmations: 3,
+    });
+    vi.spyOn(store, 'getLockProcessingError').mockReturnValue('');
+    vi.spyOn(store, 'hasObservedFundingSignal').mockReturnValue(true);
+    vi.spyOn(BitcoinLock, 'calculateRedemptionAmountFromSatoshis').mockReturnValue(0n);
+    const clientAt = await blockWatch.getApi(historyBlock(152));
+
+    const summary = await store.createLockSummaryAt(record, clientAt);
+
+    expect(findPendingMints).toHaveBeenCalledWith(blockApi);
+    expect(summary.pendingLiquidity).toBe(0n);
+    expect(summary.receivedLiquidity).toBe(1_000n);
+    expect(summary.record).not.toBe(record);
+    expect(record.ratchets[0].mintPending).toBe(1_000n);
   });
 });
 

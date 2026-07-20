@@ -1,5 +1,6 @@
 import {
   bigIntAbs,
+  bigIntMax,
   bigIntMin,
   calculateMiningPositionValue,
   calculateMiningTermPositionValue,
@@ -162,12 +163,12 @@ export class MiningFinancials
 
     const pendingMicronotHolds = heldMicronots - activeCollateralMicronots;
     const requestedPendingMicronots = pendingBids.reduce((sum, bid) => sum + bid.micronotsStakedPerSeat, 0n);
-    if (pendingMicronotHolds > requestedPendingMicronots) {
-      throw new Error('ARGNOT MiningSlot holds do not match active and pending mining collateral');
-    }
     if (pendingMicronotHolds > miningBotMicronots) {
       throw new Error('ARGNOT MiningSlot holds exceed the mining account balance');
     }
+    const attributedPendingMicronots = bigIntMin(pendingMicronotHolds, requestedPendingMicronots);
+    const newlyActivatedMicronots = pendingMicronotHolds - attributedPendingMicronots;
+    const currentArgonotRate = liveArgonotRateMicrogons || undefined;
 
     const custodyPositions = createMiningArgonotPositions({
       cohorts,
@@ -180,6 +181,21 @@ export class MiningFinancials
       hasConfirmedHistoryCoverage,
     });
     positions.push(...custodyPositions);
+    if (newlyActivatedMicronots > 0n) {
+      positions.push(
+        createFinancialPosition('mining-balance', {
+          id: `mining-balance:${miningBotAddress}:ARGNOT:held`,
+          label: 'Held mining ARGNOT',
+          lifecycle: 'held',
+          currentValue: currentArgonotRate
+            ? Currency.convertMicronotToMicrogonAtPrice(newlyActivatedMicronots, currentArgonotRate)
+            : undefined,
+          accountId: miningBotAddress,
+          asset: 'ARGNOT',
+          amount: newlyActivatedMicronots,
+        }),
+      );
+    }
 
     const modeledActiveCollateralMicronots = custodyPositions.reduce((sum, position) => {
       return position.kind === 'mining-argonot' && position.lifecycle === 'held' ? sum + position.micronots : sum;
@@ -188,11 +204,10 @@ export class MiningFinancials
       throw new Error('Mining account balance does not cover active ARGNOT collateral');
     }
 
-    const currentArgonotRate = liveArgonotRateMicrogons || undefined;
     const availableMiningMicronots = custodyPositions.reduce((sum, position) => {
       return position.kind === 'mining-argonot' && position.lifecycle === 'active' ? sum + position.micronots : sum;
     }, 0n);
-    let reusedMiningMicronots = requestedPendingMicronots - pendingMicronotHolds;
+    let reusedMiningMicronots = requestedPendingMicronots - attributedPendingMicronots;
     if (reusedMiningMicronots > availableMiningMicronots) {
       throw new Error('Released mining custody does not cover pending mining collateral');
     }
@@ -434,11 +449,16 @@ function createMiningArgonotPositions({
   }
 
   const openMicronots = openLots.reduce((sum, lot) => sum + lot.amount, 0n);
+  const heldMicronots = openLots.reduce((sum, lot) => {
+    return lot.releaseFrame > latestFrameId ? sum + lot.amount : sum;
+  }, 0n);
+  const availableMicronots = openMicronots - heldMicronots;
+  const availableBalance = bigIntMax(miningBotMicronots - heldMicronots, 0n);
   let unreconciledMicronots = 0n;
-  if (openMicronots > miningBotMicronots) {
-    takeFifoLots(openLots, openMicronots - miningBotMicronots);
-  } else if (openMicronots < miningBotMicronots) {
-    unreconciledMicronots = miningBotMicronots - openMicronots;
+  if (availableMicronots > availableBalance) {
+    takeFifoLots(openLots, availableMicronots - availableBalance, lot => lot.releaseFrame <= latestFrameId);
+  } else if (availableMicronots < availableBalance) {
+    unreconciledMicronots = availableBalance - availableMicronots;
   }
 
   const currentRate = liveArgonotRateMicrogons || undefined;

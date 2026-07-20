@@ -41,9 +41,6 @@
       </div>
     </div>
     <template v-if="config.isLoaded">
-      <template v-if="controller.selectedTab === TopTab.Mining">
-        <SyncingOverlay v-if="bot.isSyncing" />
-      </template>
       <BootingOverlay v-if="config.isBootingUpPreviousWalletHistory && !bot.isSyncing" />
       <ServerConnectPanel />
       <WalletDialogs />
@@ -92,7 +89,6 @@ import TransactionsOverlay from './overlays/TransactionsOverlay.vue';
 import ServerRemoveOverlay from './overlays/ServerRemoveOverlay.vue';
 import SecuritySettingsOverlay from './overlays/SecuritySettingsOverlay.vue';
 import ImportAccountOverlay from './overlays/ImportAccountOverlay.vue';
-import SyncingOverlay from './overlays/SyncingOverlay.vue';
 import TopBar from './navigation/TopBar.vue';
 import { TopTab } from './interfaces/IConfig.ts';
 import { useCertificationController } from './stores/certificationController.ts';

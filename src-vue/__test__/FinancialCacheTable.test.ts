@@ -25,14 +25,6 @@ describe('FinancialCacheTable', () => {
       ],
       observedAt,
     });
-    await db.financialCacheTable.upsert(FinancialCacheTypes.AccountReturn, '5default,5mining', {
-      startingBlock: 10,
-      startingTime: observedAt.getTime(),
-      startingValue: 1_000n,
-      asOfBlock: 20,
-      basisPoints: 1_234n,
-    });
-
     await expect(
       db.financialCacheTable.get(FinancialCacheTypes.ExternalWalletBalance, 'base:0xabcdef'),
     ).resolves.toEqual({
@@ -51,13 +43,6 @@ describe('FinancialCacheTable', () => {
         },
       ],
       observedAt,
-    });
-    await expect(db.financialCacheTable.get(FinancialCacheTypes.AccountReturn, '5default,5mining')).resolves.toEqual({
-      startingBlock: 10,
-      startingTime: observedAt.getTime(),
-      startingValue: 1_000n,
-      asOfBlock: 20,
-      basisPoints: 1_234n,
     });
   });
 });

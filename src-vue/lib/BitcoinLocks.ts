@@ -274,6 +274,21 @@ export default class BitcoinLocks {
     };
   }
 
+  public async createLockSummaryAt(
+    lock: IBitcoinLockRecord,
+    clientAt: ApiDecoration<'promise'>,
+  ): Promise<IBitcoinLockSummary> {
+    // Financial balances use the best block while persisted lock state intentionally settles one block behind.
+    // Reconcile a clone so completed mint is not counted in both the wallet and pending liquidity.
+    const lockAtBlock = {
+      ...lock,
+      ratchets: lock.ratchets.map(ratchet => ({ ...ratchet })),
+    };
+    await this.reconcileMintPendingState(lockAtBlock, clientAt);
+
+    return this.createLockSummary(lockAtBlock);
+  }
+
   public refreshLockSummary(summary: IBitcoinLockSummary): void {
     const lock = summary.record;
     const lockProcessingDetails = this.getLockProcessingDetails(lock);
@@ -2845,11 +2860,23 @@ export default class BitcoinLocks {
     table: BitcoinLocksTable,
     clientAt: ApiDecoration<'promise'>,
   ): Promise<void> {
+    const didChange = await this.reconcileMintPendingState(lockRecord, clientAt);
+    if (!didChange) return;
+
+    await table.updateMintState(lockRecord).catch(err => {
+      console.warn(`[BitcoinLocks] Error updating mint state for utxo ${lockRecord.uuid}`, err);
+    });
+  }
+
+  private async reconcileMintPendingState(
+    lockRecord: IBitcoinLockRecord,
+    clientAt: ApiDecoration<'promise'>,
+  ): Promise<boolean> {
     const localPendingMint = lockRecord.ratchets.reduce((sum, ratchet) => sum + ratchet.mintPending, 0n);
-    if (localPendingMint <= 0n) return;
+    if (localPendingMint <= 0n) return false;
 
     const fundingRecord = this.utxoTracking.getAcceptedFundingRecordForLock(lockRecord);
-    if (!fundingRecord) return;
+    if (!fundingRecord) return false;
 
     const bitcoinLock = new BitcoinLock(lockRecord.lockDetails);
     const chainPendingArray = await bitcoinLock.findPendingMints(clientAt);
@@ -2857,6 +2884,7 @@ export default class BitcoinLocks {
     if (chainPendingMint > localPendingMint) {
       throw new Error(`Bitcoin lock ${lockRecord.utxoId} pending mint exceeds local ratchet history`);
     }
+    if (chainPendingMint === localPendingMint) return false;
 
     let amountFulfilled = localPendingMint - chainPendingMint;
     // Account for fulfilled pending mint by walking ratchets oldest -> newest.
@@ -2877,9 +2905,7 @@ export default class BitcoinLocks {
       }
     }
 
-    await table.updateMintState(lockRecord).catch(err => {
-      console.warn(`[BitcoinLocks] Error updating mint state for utxo ${lockRecord.uuid}`, err);
-    });
+    return true;
   }
 
   private async tryUpdateFundingUtxo(

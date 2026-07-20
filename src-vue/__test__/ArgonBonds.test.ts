@@ -339,6 +339,7 @@ describe('ArgonBonds', () => {
     );
     argonBonds.data.bondLots = [BondLot.fromRuntime(7, lot, accountId)];
     argonBonds.data.isLoaded = true;
+    vi.spyOn(argonBonds, 'getOwnBondLots').mockResolvedValue(argonBonds.data.bondLots);
     const account = {
       address: accountId,
       wallet: { address: accountId } as WalletForArgon,
@@ -358,6 +359,7 @@ describe('ArgonBonds', () => {
     await expect(
       new ArgonBondsFinancials(argonBonds).loadPositions({
         account: account as any,
+        clientAt: {} as any,
         hasConfirmedBondHistoryCoverage: true,
       }),
     ).rejects.toThrow(`ARGN Treasury holds do not match live bond principal for ${accountId}`);

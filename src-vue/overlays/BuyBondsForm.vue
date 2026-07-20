@@ -24,7 +24,7 @@
     <template v-else>
       <div>
         <label class="mb-1.5 block text-sm font-medium text-slate-600">
-          Amount to buy
+          {{ props.programType === 'Argonot' ? 'Argonot Bonds to buy' : 'Argon Bonds to buy' }}
         </label>
         <InputNumber
           v-if="props.programType === 'Argonot'"
@@ -49,10 +49,10 @@
         />
         <div class="mt-1 text-xs text-slate-400">
           <template v-if="props.programType === 'Argonot'">
-            Available to buy: {{ micronotToArgonotNm(maxPurchaseAmount).format('0,0.00') }} ARGNOT
+            Available balance: {{ micronotToArgonotNm(maxPurchaseAmount).format('0,0.00') }} ARGNOT
           </template>
           <template v-else>
-            Available to buy: {{ currency.symbol }}{{ microgonToMoneyNm(maxPurchaseAmount).format('0,0.00') }}
+            Available balance: {{ currency.symbol }}{{ microgonToMoneyNm(maxPurchaseAmount).format('0,0.00') }}
           </template>
           <template v-if="props.programType === 'Vault' && reserveLimitsPurchase">
             · Keeps {{ currency.symbol }}{{ microgonToMoneyNm(operationalReserveMicrogons).format('0,0.00') }} in wallet for operational reserves
@@ -83,6 +83,7 @@
           class="bg-argon-button hover:bg-argon-button-hover rounded px-5 py-2 text-sm font-semibold text-white disabled:opacity-40"
           @click="submit">
           <template v-if="isSubmitting">Submitting...</template>
+          <template v-else-if="props.programType === 'Argonot'">Buy Argonot Bonds</template>
           <template v-else>Buy Argon Bonds</template>
         </button>
       </div>

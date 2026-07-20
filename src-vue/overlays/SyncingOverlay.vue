@@ -1,7 +1,7 @@
 <!-- prettier-ignore -->
 <template>
   <TransitionRoot class="absolute inset-0 pointer-events-none" :show="isOpen">
-    <BgOverlay :enableTopBar="true" :style="{ zIndex: overlayZIndex.backdropZIndex }" />
+    <BgOverlay :showWindowControls="false" :style="{ zIndex: overlayZIndex.backdropZIndex }" />
 
     <div
       class="absolute inset-0 overflow-y-auto pt-[1px] flex items-center justify-center pointer-events-none"

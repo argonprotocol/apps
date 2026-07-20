@@ -3,13 +3,18 @@ import {
   createFinancialPosition,
   type IBitcoinAssetFinancialPosition,
   type IBitcoinLiabilityFinancialPosition,
-  type IFinancialPositionSource,
 } from '../../interfaces/IFinancialPosition.ts';
 import type { IBitcoinLockSummary } from '../../interfaces/IBitcoinLockSummary.ts';
 import type { IBitcoinLockRecord } from '../../interfaces/IBitcoinLockRecord.ts';
 import type BitcoinLocks from '../BitcoinLocks.ts';
-import { BitcoinLock } from '@argonprotocol/mainchain';
-import { bigIntMax, getPercent, SATOSHIS_PER_BITCOIN, type Currency } from '@argonprotocol/apps-core';
+import { type ApiDecoration, BitcoinLock } from '@argonprotocol/mainchain';
+import {
+  bigIntMax,
+  getPercent,
+  SATOSHIS_PER_BITCOIN,
+  type Currency,
+  type IPerformanceReturnInput,
+} from '@argonprotocol/apps-core';
 
 const activeBitcoinLockStatuses = [BitcoinLockStatus.LockedAndIsMinting, BitcoinLockStatus.LockedAndMinted];
 
@@ -20,18 +25,43 @@ type BitcoinFinancialPositionArgs = {
   hasConfirmedHistoryCoverage?: boolean;
 };
 
-export class BitcoinFinancials
-  implements IFinancialPositionSource<BitcoinFinancialPositionArgs, BitcoinFinancialPosition>
-{
+export class BitcoinFinancials {
   constructor(private readonly locks: BitcoinLocks) {}
 
-  public async loadPositions(args: BitcoinFinancialPositionArgs): Promise<BitcoinFinancialPosition[]> {
+  public async loadSnapshot(args: BitcoinFinancialPositionArgs & { clientAt: ApiDecoration<'promise'> }): Promise<{
+    positions: BitcoinFinancialPosition[];
+    summaries: IBitcoinLockSummary[];
+    hodlingInvestments: IPerformanceReturnInput[];
+    currentBitcoinDebt: bigint;
+  }> {
     await this.locks.load();
 
-    return this.createFinancialPositions({
-      ...args,
-      summaries: this.locks.getAllLocks().map(lock => this.locks.createLockSummary(lock)),
-    });
+    const summaries = await Promise.all(
+      this.locks.getAllLocks().map(lock => this.locks.createLockSummaryAt(lock, args.clientAt)),
+    );
+    const hodlingInvestments: IPerformanceReturnInput[] = [];
+    let currentBitcoinDebt = 0n;
+
+    for (const summary of summaries) {
+      const lock = summary.record;
+
+      if (this.locks.isLockedStatus(lock)) currentBitcoinDebt += summary.unlockAmount;
+      if ((this.locks.isLockedStatus(lock) || this.locks.isReleaseStatus(lock)) && lock.ratchets[0]) {
+        hodlingInvestments.push({
+          startingDate: lock.createdAt,
+          startingCapital: summary.startingCapital,
+          endingDate: new Date(),
+          endingCapital: summary.valueOfBtc,
+        });
+      }
+    }
+
+    return {
+      positions: this.createFinancialPositions({ ...args, summaries }),
+      summaries,
+      hodlingInvestments,
+      currentBitcoinDebt,
+    };
   }
 
   public createFinancialPositions(

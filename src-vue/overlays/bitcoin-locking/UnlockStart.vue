@@ -10,7 +10,7 @@
             <strong>{{ numeral(currency.convertSatToBtc(fundingUtxoRecord?.satoshis ?? personalLock.satoshis)).format('0,0.[00000000]') }} of Bitcoin</strong>,
             which requires
             <strong>{{ microgonToArgonNm(releasePrice).format('0,0.[000000]') }} argons to unlock</strong>.
-            These funds will be pulled directly from available capital in your vaulting wallet.
+            These funds will be pulled directly from available capital in your Argon wallet.
           </p>
 
           <p>

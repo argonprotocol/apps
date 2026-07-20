@@ -18,7 +18,7 @@
         <ul class="bg-argon-menu-bg min-w-72 rounded p-1 text-sm text-gray-900 shadow-lg ring-1 ring-gray-900/20">
           <li class="flex items-center justify-between gap-6 px-3 py-2.5">
             <div>
-              <div class="font-semibold text-slate-700">Account return</div>
+              <div class="font-semibold text-slate-700">Return on Capital</div>
               <div class="text-xs font-normal text-slate-500">
                 <template v-if="aggregate.accountReturn.availability === 'not-applicable'">No positions yet</template>
                 <template v-else-if="aggregate.accountReturn.availability === 'unavailable'">Not available yet</template>
@@ -33,7 +33,17 @@
                     </span>
                   </Tooltip>
                 </span>
-                <template v-else>Return to date</template>
+                <span v-else class="inline-flex items-center gap-1">
+                  Return to date
+                  <Tooltip
+                    as-child
+                    content="A capital-weighted measure of returns on capital deployed to network assets. Undeployed wallet balances are excluded."
+                  >
+                    <span class="cursor-help text-slate-400 hover:text-slate-600">
+                      <InformationCircleIcon class="size-3.5" />
+                    </span>
+                  </Tooltip>
+                </span>
               </div>
             </div>
             <div class="font-mono text-lg font-bold text-argon-700/80">
@@ -43,50 +53,51 @@
 
           <li divider class="my-1 h-px w-full bg-slate-400/30" />
 
-          <li v-for="group in returnGroups" :key="group.group" class="flex items-center justify-between gap-6 px-3 py-2">
-            <div>
-              <div class="font-semibold text-slate-700">
-                {{ group.group === 'ethereum' ? 'Stable swaps' : financialMenuLabels[group.group] }}
-              </div>
-              <div
-                v-if="group.isStale || group.returnSummary.availability !== 'available'"
-                class="text-xs font-normal text-slate-500"
-              >
-                <span v-if="group.group === 'liquid' && !argonWalletHasReturnPosition">No return yet</span>
-                <span v-else-if="group.isStale" class="inline-flex items-center gap-1">
-                  Stale
-                  <Tooltip
-                    as-child
-                    :content="group.message ?? 'This position is waiting for newer finalized account data.'"
-                  >
-                    <span class="cursor-help text-slate-400 hover:text-slate-600">
-                      <InformationCircleIcon class="size-3.5" />
-                    </span>
-                  </Tooltip>
-                </span>
-                <span
-                  v-else-if="group.returnSummary.availability === 'partial'"
-                  class="inline-flex items-center gap-1"
+          <li v-for="group in returnRows" :key="group.key" class="px-3 py-2">
+            <div class="flex items-start justify-between gap-6">
+              <div>
+                <div class="font-semibold text-slate-700">
+                  {{ group.label }}
+                </div>
+                <div
+                  v-if="group.isStale || group.returnSummary.availability !== 'available'"
+                  class="text-xs font-normal text-slate-500"
                 >
-                  Partial
-                  <Tooltip
-                    as-child
-                    content="This percentage includes only positions with known cost basis and history."
+                  <span v-if="group.isStale" class="inline-flex items-center gap-1">
+                    Stale
+                    <Tooltip
+                      as-child
+                      :content="group.message ?? 'This position is waiting for newer finalized account data.'"
+                    >
+                      <span class="cursor-help text-slate-400 hover:text-slate-600">
+                        <InformationCircleIcon class="size-3.5" />
+                      </span>
+                    </Tooltip>
+                  </span>
+                  <span
+                    v-else-if="group.returnSummary.availability === 'partial'"
+                    class="inline-flex items-center gap-1"
                   >
-                    <span class="cursor-help text-slate-400 hover:text-slate-600">
-                      <InformationCircleIcon class="size-3.5" />
-                    </span>
-                  </Tooltip>
-                </span>
-                <template v-else>Return unavailable</template>
+                    Partial
+                    <Tooltip
+                      as-child
+                      content="This percentage includes only positions with known cost basis and history."
+                    >
+                      <span class="cursor-help text-slate-400 hover:text-slate-600">
+                        <InformationCircleIcon class="size-3.5" />
+                      </span>
+                    </Tooltip>
+                  </span>
+                  <template v-else>Return unavailable</template>
+                </div>
               </div>
-            </div>
-            <div class="font-mono font-semibold text-slate-700">
-              {{ formatPercent(group.returnSummary.percent) }}
+              <div class="font-mono font-semibold text-slate-700">
+                {{ formatPercent(group.returnSummary.percent) }}
+              </div>
             </div>
           </li>
 
-          <li v-if="returnGroups.length === 0" class="px-3 py-4 text-center font-normal text-slate-500">
+          <li v-if="returnRows.length === 0" class="px-3 py-4 text-center font-normal text-slate-500">
             No investment returns yet
           </li>
 
@@ -100,8 +111,6 @@
           </li>
           <li
             v-else-if="
-              accountReturnSyncState === 'loading' ||
-              accountReturnSyncState === 'updating' ||
               historyRecovery.state === 'checking' ||
               historyRecovery.state === 'restoring' ||
               historyRecovery.state === 'waiting'
@@ -109,12 +118,6 @@
             class="mt-1 border-t border-slate-400/30 px-3 py-2 text-xs font-normal text-slate-500"
           >
             History catching up
-          </li>
-          <li
-            v-else-if="accountReturnSyncState === 'error'"
-            class="mt-1 border-t border-slate-400/30 px-3 py-2 text-xs font-normal text-slate-500"
-          >
-            Showing last finalized RTD
           </li>
         </ul>
       </NavigationMenuContent>
@@ -131,7 +134,7 @@ import numeral from '../lib/numeral.ts';
 import Tooltip from '../components/Tooltip.vue';
 import { useFinancials } from '../stores/financials.ts';
 import { getConfig } from '../stores/config.ts';
-import { financialMenuLabels } from './financialMenuLabels.ts';
+import { bondAssetMenuItems, financialMenuLabels } from './financialMenuLabels.ts';
 
 const rootRef = Vue.ref<HTMLElement>();
 
@@ -141,21 +144,26 @@ defineExpose({
 
 const financials = useFinancials();
 const config = getConfig();
-const { financialPositionAggregate: aggregate, historyRecovery, accountReturnSyncState } = storeToRefs(financials);
-const argonWalletHasReturnPosition = Vue.computed(() => {
-  return aggregate.value.groupSummaries.liquid.positions.some(
-    position => position.kind === 'wallet-holding' && position.nativeAmount > 0n,
-  );
-});
-const returnGroups = Vue.computed(() => {
+const { financialPositionAggregate: aggregate, historyRecovery, bondSummariesByAsset } = storeToRefs(financials);
+const returnRows = Vue.computed(() => {
   if (!config.isLoaded) return [];
 
-  return aggregate.value.groups.filter(group => {
-    if (group.group === 'liquid') return true;
-    if (group.returnSummary.investmentPositionCount === 0) return false;
-    if (group.group === 'mining' || group.group === 'vaulting') return config.hasExtensionOperations;
-    if (group.group === 'ethereum') return config.hasActivatedStableSwaps;
-    return config.hasExtensionTreasury;
+  return aggregate.value.groups.flatMap(group => {
+    if (group.returnSummary.investmentPositionCount === 0) return [];
+    if ((group.group === 'mining' || group.group === 'vaulting') && !config.hasExtensionOperations) return [];
+    if (group.group === 'ethereum' && !config.hasActivatedStableSwaps) return [];
+    if (!['mining', 'vaulting', 'ethereum'].includes(group.group) && !config.hasExtensionTreasury) return [];
+
+    if (group.group === 'bonds') {
+      return bondAssetMenuItems.flatMap(({ asset, label }) => {
+        const returnSummary = bondSummariesByAsset.value[asset].returnSummary;
+        if (!returnSummary.investmentPositionCount) return [];
+        return [{ ...group, key: `bonds-${asset}`, label: `${label} Bonds`, returnSummary }];
+      });
+    }
+
+    const label = group.group === 'ethereum' ? 'Stable swaps' : financialMenuLabels[group.group];
+    return [{ ...group, key: group.group, label }];
   });
 });
 

@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <div data-testid="MiningScreen" class="h-full">
+  <div data-testid="MiningScreen" class="relative h-full w-full">
     <BlankSlate v-if="config.miningSetupStatus === MiningSetupStatus.None && !config.miningBotAccountPreviousHistory" />
     <SetupChecklist v-else-if="config.miningSetupStatus === MiningSetupStatus.Checklist" />
     <SetupInstalling v-else-if="config.miningSetupStatus === MiningSetupStatus.Installing" />
@@ -9,6 +9,7 @@
       <Dashboard v-else-if="config.hasMiningSeats" />
       <FirstAuction v-else />
     </template>
+    <SyncingOverlay v-if="bot.isSyncing" />
   </div>
 </template>
 
@@ -19,6 +20,7 @@ import SetupInstalling from './mining-screen/SetupInstalling.vue';
 import FirstAuction from './mining-screen/FirstAuction.vue';
 import Dashboard from './mining-screen/Dashboard.vue';
 import StartingBot from './mining-screen/StartingBot.vue';
+import SyncingOverlay from '../overlays/SyncingOverlay.vue';
 import { getConfig } from '../stores/config.ts';
 import { getBot } from '../stores/bot.ts';
 import { MiningSetupStatus } from '../interfaces/IConfig.ts';

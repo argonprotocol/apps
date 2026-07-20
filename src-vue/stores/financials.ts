@@ -6,11 +6,8 @@ import { getCurrency } from './currency.ts';
 import { getArgonBonds } from './argonBonds.ts';
 import { getBlockWatch } from './mainchain.ts';
 import {
-  bigIntMax,
-  calculateModifiedDietzReturn,
+  type ArgonQueryClient,
   calculatePerformanceReturn,
-  Currency as CoreCurrency,
-  type IAccountCashFlow,
   type IBlockHeaderInfo,
   type IPerformanceReturnInput,
   UnitOfMeasurement,
@@ -20,11 +17,8 @@ import { MICROGONS_PER_ARGON, Vault } from '@argonprotocol/mainchain';
 import { getVaults, getMyVault } from './vaults.ts';
 import {
   financialGroups,
-  type IFinancialAccountReturnSummary,
   type IFinancialObservation,
   type IFinancialPosition,
-  type IWalletBalanceFinancialPosition,
-  type IWalletHoldingFinancialPosition,
 } from '../interfaces/IFinancialPosition.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
 import {
@@ -34,13 +28,8 @@ import {
 } from '../lib/recovery/index.ts';
 import { FinalizedHistoryScheduler } from '../lib/recovery/Scheduler.ts';
 import { getMyMiningSeats } from './myMiningSeats.ts';
-import {
-  calculateAccountValue,
-  calculatePositionReturn,
-  FinancialPositionBook,
-  reduceFinancialPositions,
-} from '../lib/financials/index.ts';
-import { BitcoinFinancials, valueSatoshisAtRate } from '../lib/financials/BitcoinLocks.ts';
+import { calculatePositionReturn, FinancialPositionBook, reduceFinancialPositions } from '../lib/financials/index.ts';
+import { BitcoinFinancials } from '../lib/financials/BitcoinLocks.ts';
 import type { IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
 import { VaultFinancials } from '../lib/financials/MyVault.ts';
 import type { IArgonAccountSnapshot } from '../lib/WalletsForArgon.ts';
@@ -53,7 +42,8 @@ import { useVaultingStats } from './vaultingStats.ts';
 import { getConfig } from './config.ts';
 import { useStableSwaps } from './stableSwaps.ts';
 import { logStartupTiming } from '../lib/Utils.ts';
-import { FinancialCacheTypes, type IFinancialCacheSchemas } from '../lib/db/FinancialCacheTable.ts';
+
+const mainchainFinancialGroups = ['liquid', 'mining', 'vaulting', 'bonds', 'bitcoin'] as const;
 
 export const useFinancials = defineStore('financials', () => {
   const wallets = useWallets();
@@ -76,25 +66,17 @@ export const useFinancials = defineStore('financials', () => {
 
   const isLoaded = Vue.ref(false);
   const financialPositionBook = Vue.shallowReactive(new FinancialPositionBook());
-  const finalizedAccountReturn = Vue.shallowRef<IFinancialAccountReturnSummary>({
-    availability: 'not-applicable',
-    basisPoints: 0n,
-    eligiblePositionCount: 0,
-    investmentPositionCount: 0,
-  });
   const financialPositionAggregate = Vue.computed(() => {
     void financialPositionBook.revision;
-    const aggregate = reduceFinancialPositions(financialPositionBook.snapshots);
-    return { ...aggregate, accountReturn: finalizedAccountReturn.value };
+    return reduceFinancialPositions(financialPositionBook.snapshots);
   });
-  const walletPositions = Vue.shallowRef<Array<IWalletBalanceFinancialPosition | IWalletHoldingFinancialPosition>>();
-  const walletObservation = Vue.shallowRef<IFinancialObservation>();
   const accountSnapshot = Vue.shallowRef<IArgonAccountSnapshot>();
   const liquidNativeBalances = Vue.computed(() => {
     let microgons = 0n;
     let micronots = 0n;
 
-    for (const position of walletPositions.value ?? []) {
+    for (const position of financialPositionAggregate.value.groupSummaries.liquid.positions) {
+      if (position.kind !== 'wallet-balance' && position.kind !== 'wallet-holding') continue;
       if (position.kind === 'wallet-holding') {
         if (position.lifecycle === 'active') micronots += position.nativeAmount;
         continue;
@@ -112,19 +94,13 @@ export const useFinancials = defineStore('financials', () => {
     recoveredBlockCount: number;
     message?: string;
   }>({ state: 'checking', recoveredBlockCount: 0 });
-  const accountReturnSyncState = Vue.ref<'loading' | 'updating' | 'ready' | 'error'>('loading');
-  let accountReturnCheckpoint: IFinancialCacheSchemas[FinancialCacheTypes.AccountReturn] | undefined;
-  let queuedAccountReturnHeader: IBlockHeaderInfo | undefined;
-  let activeAccountReturnBlock = 0;
-  let accountReturnRefreshPromise: Promise<void> | undefined;
   let hasConfirmedFinancialHistoryCoverage = false;
   let queuedAccountHeader: IBlockHeaderInfo | undefined;
+  let queuedAccountReconciliation = false;
+  let activeAccountHash = '';
   let accountRefreshPromise: Promise<void> | undefined;
-  let pendingSettlementBlockNumber = 0;
-  let treasuryHoldsAreClaimed = false;
-  let miningClaimsHolds = false;
-  let vaultClaimsHolds = false;
-  let walletPositionGeneration = 0;
+  let accountRefreshRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  let accountRefreshRetryAttempts = 0;
   let lastCoveredWalletSnapshotBlock = 0;
   let lastPublishedArgonotCustodyRevision = 0;
   let queuedWalletHistoryBlock = 0;
@@ -138,17 +114,9 @@ export const useFinancials = defineStore('financials', () => {
     }
     return runFinancialHistoryRecovery(force, finalizedBlockNumber);
   });
-
-  function publishLiquidHoldings() {
-    if (!walletPositions.value || !walletObservation.value) return;
-
-    const refresh = financialPositionBook.beginRefresh('liquid');
-    const observedAt = new Date();
-    financialPositionBook.publish(refresh, walletPositions.value, {
-      ...walletObservation.value,
-      observedAt,
-    });
-  }
+  Vue.onScopeDispose(() => {
+    resetAccountRefreshRetry();
+  });
 
   function publishEthereumWallet(): void {
     if (!wallets.ethereumWallet.address) {
@@ -230,375 +198,296 @@ export const useFinancials = defineStore('financials', () => {
     const results = await Promise.allSettled(loads);
 
     if (config.hasExtensionTreasury) {
-      results.push(...(await Promise.allSettled([loadVaults(), loadLocks()])));
+      results.push(...(await Promise.allSettled([loadVaults()])));
     }
     for (const result of results) {
       if (result.status === 'rejected') console.error('Unable to load a financial domain', result.reason);
     }
   }
 
-  async function publishWalletPositions(): Promise<void> {
-    const snapshot = accountSnapshot.value;
-    if (!snapshot) return;
-    const generation = ++walletPositionGeneration;
+  async function prepareWalletPositions({
+    snapshot,
+    treasuryHoldsAreClaimed,
+    miningClaimsHolds,
+    vaultClaimsHolds,
+  }: {
+    snapshot: IArgonAccountSnapshot;
+    treasuryHoldsAreClaimed: boolean;
+    miningClaimsHolds: boolean;
+    vaultClaimsHolds: boolean;
+  }) {
+    const historyCutoff = getBlockWatch().finalizedBlockHeader.blockNumber;
+    const hasConfirmedHistoryCoverage = await hasWalletHistoryCoverage(historyCutoff);
+    const accounts = config.hasExtensionOperations
+      ? snapshot.accounts.filter(account => account.address !== wallets.miningBotWallet.address)
+      : snapshot.accounts;
 
-    try {
-      const blockNumber = snapshot.observation.blockNumber;
-      const hasConfirmedHistoryCoverage = blockNumber !== undefined && (await hasWalletHistoryCoverage(blockNumber));
-      const accounts = config.hasExtensionOperations
-        ? snapshot.accounts.filter(account => account.address !== wallets.miningBotWallet.address)
-        : snapshot.accounts;
-      const positions = await walletFinancials.loadPositions({
-        ...snapshot,
-        accounts,
-        claimedHolds: {
-          treasury: treasuryHoldsAreClaimed,
-          miningSlot: miningClaimsHolds,
-          vaults: vaultClaimsHolds,
-        },
-        claimedMicronotsByAccount: vaultClaimsHolds
-          ? new Map([[wallets.defaultArgonWallet.address, myVault.data.argonotCommitment.committedMicronots]])
-          : undefined,
-        liveArgonotRateMicrogons: currency.microgonsPer.ARGNOT,
-        hasConfirmedHistoryCoverage,
-      });
-      if (generation !== walletPositionGeneration) return;
-      walletPositions.value = positions;
-      walletObservation.value = snapshot.observation;
-      publishLiquidHoldings();
-    } catch (error) {
-      if (generation !== walletPositionGeneration) return;
-      const message = error instanceof Error ? error.message : 'Unable to publish Argon wallet balances';
-      financialPositionBook.fail(financialPositionBook.beginRefresh('liquid'), message);
-    }
+    return walletFinancials.loadPositions({
+      ...snapshot,
+      accounts,
+      claimedHolds: {
+        treasury: treasuryHoldsAreClaimed,
+        miningSlot: miningClaimsHolds,
+        vaults: vaultClaimsHolds,
+      },
+      claimedMicronotsByAccount: vaultClaimsHolds
+        ? new Map([[wallets.defaultArgonWallet.address, myVault.data.argonotCommitment.committedMicronots]])
+        : undefined,
+      liveArgonotRateMicrogons: currency.microgonsPer.ARGNOT,
+      hasConfirmedHistoryCoverage,
+    });
   }
 
-  async function publishBondPositions(): Promise<void> {
-    const snapshot = accountSnapshot.value;
-    if (!snapshot) return;
-
-    const refresh = financialPositionBook.beginRefresh('bonds');
+  async function prepareBondPositions(snapshot: IArgonAccountSnapshot, clientAt: ArgonQueryClient) {
     if (!config.hasExtensionTreasury) {
-      treasuryHoldsAreClaimed = false;
-      financialPositionBook.publish(refresh, [], snapshot.observation);
-      return;
+      return { positions: [], claimsHolds: false };
     }
 
-    try {
-      const account = snapshot.accounts.find(entry => entry.address === wallets.defaultArgonWallet.address);
-      if (!account) throw new Error('Default Argon account is missing from the wallet snapshot');
+    const account = snapshot.accounts.find(entry => entry.address === wallets.defaultArgonWallet.address);
+    if (!account) throw new Error('Default Argon account is missing from the wallet snapshot');
 
-      const positions = await bondFinancials.loadPositions({
-        account,
-        hasConfirmedBondHistoryCoverage: hasConfirmedFinancialHistoryCoverage,
-        liveArgonotRateMicrogons: currency.microgonsPer.ARGNOT,
-        ownedVaultId: myVault.createdVault?.vaultId,
-      });
-      const didPublish = financialPositionBook.publish(refresh, positions, snapshot.observation);
-      if (didPublish) treasuryHoldsAreClaimed = true;
-    } catch (error) {
-      const didFail = financialPositionBook.invalidate(
-        refresh,
-        snapshot.observation,
-        error instanceof Error ? error.message : 'Unable to publish bond financial positions',
-      );
-      if (didFail) treasuryHoldsAreClaimed = false;
-    }
+    const positions = await bondFinancials.loadPositions({
+      account,
+      clientAt,
+      hasConfirmedBondHistoryCoverage: hasConfirmedFinancialHistoryCoverage,
+      liveArgonotRateMicrogons: currency.microgonsPer.ARGNOT,
+      ownedVaultId: myVault.createdVault?.vaultId,
+    });
+    return { positions, claimsHolds: true };
   }
 
-  async function publishMiningPositions(): Promise<void> {
-    const snapshot = accountSnapshot.value;
-    if (!snapshot) return;
-    const refresh = financialPositionBook.beginRefresh('mining');
+  async function prepareMiningPositions(snapshot: IArgonAccountSnapshot) {
     if (!config.hasExtensionOperations) {
-      miningClaimsHolds = false;
-      financialPositionBook.publish(refresh, [], snapshot.observation);
-      return;
+      return { positions: [], claimsHolds: false };
     }
 
-    try {
-      const blockNumber = snapshot.observation.blockNumber;
-      const hasConfirmedHistoryCoverage = blockNumber !== undefined && (await hasWalletHistoryCoverage(blockNumber));
-      const positions = await getMiningFinancialsSource().loadPositions({
-        accounts: snapshot.accounts,
-        miningBotAddress: wallets.miningBotWallet.address,
-        hasConfirmedHistoryCoverage,
-      });
+    const historyCutoff = getBlockWatch().finalizedBlockHeader.blockNumber;
+    const hasConfirmedHistoryCoverage = await hasWalletHistoryCoverage(historyCutoff);
+    const positions = await getMiningFinancialsSource().loadPositions({
+      accounts: snapshot.accounts,
+      miningBotAddress: wallets.miningBotWallet.address,
+      hasConfirmedHistoryCoverage,
+    });
 
-      // Cohort data changes on its own revision schedule; the current account
-      // snapshot supplies the live custody and hold values used by positions.
-      const didPublish = financialPositionBook.publish(refresh, positions, snapshot.observation);
-      if (didPublish) miningClaimsHolds = true;
-    } catch (error) {
-      financialPositionBook.invalidate(
-        refresh,
-        snapshot.observation,
-        error instanceof Error ? error.message : 'Unable to publish mining financial positions',
-      );
-    }
+    return { positions, claimsHolds: true };
   }
 
-  async function publishVaultPosition(): Promise<void> {
-    const snapshot = accountSnapshot.value;
-    if (!snapshot) return;
+  async function prepareVaultPositions(snapshot: IArgonAccountSnapshot) {
+    if (!config.hasExtensionOperations) return { positions: [], claimsHolds: false };
 
-    const refresh = financialPositionBook.beginRefresh('vaulting');
-    try {
-      const account = snapshot.accounts.find(entry => entry.address === wallets.defaultArgonWallet.address);
-      let positions: IFinancialPosition[] = [];
-      if (config.hasExtensionOperations) {
-        if (!account) throw new Error('Vault operator account is missing from the Argon wallet snapshot');
+    const account = snapshot.accounts.find(entry => entry.address === wallets.defaultArgonWallet.address);
+    if (!account) throw new Error('Vault operator account is missing from the Argon wallet snapshot');
 
-        positions = await vaultFinancials.loadPositions({
-          account,
-          liveArgonotRateMicrogons: currency.microgonsPer.ARGNOT,
-          hasConfirmedHistoryCoverage: hasConfirmedFinancialHistoryCoverage,
-        });
-      }
-
-      const didPublish = financialPositionBook.publish(refresh, positions, snapshot.observation);
-      if (didPublish) vaultClaimsHolds = Boolean(myVault.createdVault);
-    } catch (error) {
-      const didFail = financialPositionBook.invalidate(
-        refresh,
-        snapshot.observation,
-        error instanceof Error ? error.message : 'Unable to publish vault financial position',
-      );
-      if (didFail) vaultClaimsHolds = false;
-    }
+    const positions = await vaultFinancials.loadPositions({
+      account,
+      liveArgonotRateMicrogons: currency.microgonsPer.ARGNOT,
+      hasConfirmedHistoryCoverage: hasConfirmedFinancialHistoryCoverage,
+    });
+    return { positions, claimsHolds: Boolean(myVault.createdVault) };
   }
 
-  async function refreshAccountSnapshot(header: IBlockHeaderInfo): Promise<void> {
+  async function refreshAccountSnapshot(header: IBlockHeaderInfo, force = false): Promise<void> {
+    let refreshes: ReturnType<FinancialPositionBook['beginRefresh']>[] = [];
+
     try {
-      if (accountSnapshot.value?.observation.blockHash !== header.blockHash) {
-        const api = await getBlockWatch().getApi(header);
-        accountSnapshot.value = await walletsForArgon.readAccountSnapshot({
-          api,
+      const bestHeader = getBlockWatch().bestBlockHeader;
+      if (!isSameBlock(header, bestHeader)) header = bestHeader;
+
+      const clientAt = await getBlockWatch().getApi(header);
+      let candidate = accountSnapshot.value;
+      if (!candidate || candidate.observation.blockHash !== header.blockHash || force) {
+        candidate = await walletsForArgon.readAccountSnapshot({
+          api: clientAt,
           header,
           includeHolds: config.hasExtensionTreasury || config.hasExtensionOperations,
         });
-        // Pending Bitcoin mint can move into the wallet at finalization. Other
-        // domains reconcile their holds against this same account snapshot.
-        financialPositionBook.advanceSettlementObservation(accountSnapshot.value.observation, ['bitcoin']);
       }
-      await Promise.all([publishMiningPositions(), publishVaultPosition(), publishBondPositions()]);
-      await publishWalletPositions();
-      await publishBitcoinLocks();
-      if (isLoaded.value) queueAccountReturnRefresh({ header });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to refresh Argon wallet balances';
-      for (const group of ['liquid', 'mining', 'vaulting', 'bonds'] as const) {
-        financialPositionBook.fail(financialPositionBook.beginRefresh(group), message);
-      }
-    }
-  }
-
-  function queueAccountRefresh(header = getBlockWatch().finalizedBlockHeader): void {
-    if (accountSnapshot.value?.observation.blockHash === header.blockHash && !accountRefreshPromise) return;
-
-    queuedAccountHeader = header;
-    accountRefreshPromise ??= (async () => {
-      while (queuedAccountHeader) {
-        const nextHeader = queuedAccountHeader;
-        queuedAccountHeader = undefined;
-        await refreshAccountSnapshot(nextHeader);
-      }
-    })().finally(() => {
-      accountRefreshPromise = undefined;
-    });
-  }
-
-  function queueAccountReturnRefresh({
-    header = getBlockWatch().finalizedBlockHeader,
-    force = false,
-  }: { header?: IBlockHeaderInfo; force?: boolean } = {}): void {
-    if (
-      !force &&
-      (accountReturnCheckpoint?.asOfBlock === header.blockNumber ||
-        queuedAccountReturnHeader?.blockNumber === header.blockNumber ||
-        activeAccountReturnBlock === header.blockNumber)
-    ) {
-      return;
-    }
-
-    queuedAccountReturnHeader = header;
-    accountReturnSyncState.value = 'updating';
-    accountReturnRefreshPromise ??= (async () => {
-      while (queuedAccountReturnHeader) {
-        const nextHeader = queuedAccountReturnHeader;
-        queuedAccountReturnHeader = undefined;
-        activeAccountReturnBlock = nextHeader.blockNumber;
-        try {
-          await refreshAccountReturn(nextHeader);
-        } finally {
-          activeAccountReturnBlock = 0;
-        }
-      }
-    })()
-      .catch(error => {
-        accountReturnSyncState.value = 'error';
-        console.warn('Unable to refresh account RTD', error);
-      })
-      .finally(() => {
-        accountReturnRefreshPromise = undefined;
-        if (queuedAccountReturnHeader) {
-          queueAccountReturnRefresh({ header: queuedAccountReturnHeader, force: true });
-        }
-      });
-  }
-
-  async function refreshAccountReturn(header: IBlockHeaderInfo): Promise<void> {
-    const requiredObservation = {
-      observedAt: new Date(header.blockTime),
-      blockNumber: header.blockNumber,
-      blockHash: header.blockHash,
-    };
-    const accountValue = calculateAccountValue(financialPositionBook.snapshots, requiredObservation);
-    if (accountValue === undefined) return;
-
-    const db = await getDbPromise();
-    const addresses = getAccountReturnAddresses();
-    const savedCheckpoint = accountReturnCheckpoint;
-    const hasCompleteWalletHistory = await hasWalletHistoryCoverage(header.blockNumber);
-    const hasCompleteDomainHistory =
-      (!config.hasExtensionTreasury && !config.hasExtensionOperations) || hasConfirmedFinancialHistoryCoverage;
-    if (!hasCompleteWalletHistory || !hasCompleteDomainHistory) {
-      if (savedCheckpoint) {
-        publishFinalizedAccountReturn(savedCheckpoint);
+      if (!isSameBlock(header, getBlockWatch().bestBlockHeader)) {
+        void queueAccountRefresh({ force: true });
         return;
       }
 
-      const baselineCheckpoint = {
-        startingBlock: header.blockNumber,
-        startingTime: header.blockTime,
-        startingValue: accountValue,
-        asOfBlock: header.blockNumber,
-        basisPoints: 0n,
-        isProvisional: true,
-      };
-      await db.financialCacheTable.upsert(FinancialCacheTypes.AccountReturn, addresses.join(','), baselineCheckpoint);
-      publishFinalizedAccountReturn(baselineCheckpoint);
-      return;
-    }
-
-    const checkpoint = savedCheckpoint?.isProvisional ? undefined : savedCheckpoint;
-    let startingBlock = checkpoint?.startingBlock ?? 0;
-    let startingTime = checkpoint?.startingTime ?? header.blockTime;
-    let startingValue = checkpoint?.startingValue ?? 0n;
-    const transfers = await db.walletTransfersTable.fetchExternalFlows({
-      walletAddresses: addresses,
-      afterBlock: startingBlock,
-      throughBlock: header.blockNumber,
-    });
-    let cashFlows: IAccountCashFlow[] = transfers.map(transfer => ({
-      amount:
-        transfer.currency === 'argon'
-          ? transfer.amount
-          : CoreCurrency.convertMicronotToMicrogonAtPrice(
-              transfer.amount,
-              transfer.microgonsForArgonot || currency.microgonsPer.ARGNOT,
-            ),
-      occurredAt: transfer.blockTime ?? transfer.createdAt,
-    }));
-
-    const bitcoinSnapshot = financialPositionBook.snapshots.find(snapshot => snapshot.group === 'bitcoin');
-    for (const position of bitcoinSnapshot?.positions ?? []) {
-      if (position.kind !== 'bitcoin-asset') continue;
-
-      if (position.startedAt !== undefined && position.investedCost !== undefined && position.investedCost > 0n) {
-        cashFlows.push({ amount: position.investedCost, occurredAt: position.startedAt });
+      const [miningResult, vaultingResult, bondsResult, bitcoinResult] = await Promise.allSettled([
+        prepareMiningPositions(candidate),
+        prepareVaultPositions(candidate),
+        prepareBondPositions(candidate, clientAt),
+        prepareBitcoinPositions(candidate, header),
+      ]);
+      const currentGroups = financialPositionAggregate.value.groupSummaries;
+      const [liquidResult] = await Promise.allSettled([
+        prepareWalletPositions({
+          snapshot: candidate,
+          treasuryHoldsAreClaimed:
+            bondsResult.status === 'fulfilled'
+              ? bondsResult.value.claimsHolds
+              : currentGroups.bonds.positions.length > 0,
+          miningClaimsHolds:
+            miningResult.status === 'fulfilled'
+              ? miningResult.value.claimsHolds
+              : currentGroups.mining.positions.length > 0,
+          vaultClaimsHolds:
+            vaultingResult.status === 'fulfilled'
+              ? vaultingResult.value.claimsHolds
+              : currentGroups.vaulting.positions.length > 0,
+        }),
+      ]);
+      if (!isSameBlock(header, getBlockWatch().bestBlockHeader)) {
+        void queueAccountRefresh({ force: true });
+        return;
       }
 
-      const { lock } = position;
-      const didLeaveAccount = lock.removalReason === 'released' || lock.removalReason === 'spent';
-      if (!didLeaveAccount || !position.endedAt || !lock.btcPriceAtRemovalMicrogons) continue;
+      refreshes = mainchainFinancialGroups.map(group => financialPositionBook.beginRefresh(group));
+      const [liquidRefresh, miningRefresh, vaultingRefresh, bondsRefresh, bitcoinRefresh] = refreshes;
+      const updates: Parameters<FinancialPositionBook['commit']>[0][number][] = [];
+      if (liquidResult.status === 'fulfilled') {
+        updates.push({ refresh: liquidRefresh, positions: liquidResult.value, observation: candidate.observation });
+      }
+      if (miningResult.status === 'fulfilled') {
+        updates.push({
+          refresh: miningRefresh,
+          positions: miningResult.value.positions,
+          observation: candidate.observation,
+        });
+      }
+      if (vaultingResult.status === 'fulfilled') {
+        updates.push({
+          refresh: vaultingRefresh,
+          positions: vaultingResult.value.positions,
+          observation: candidate.observation,
+        });
+      }
+      if (bondsResult.status === 'fulfilled') {
+        updates.push({
+          refresh: bondsRefresh,
+          positions: bondsResult.value.positions,
+          observation: candidate.observation,
+        });
+      }
+      if (bitcoinResult.status === 'fulfilled') {
+        updates.push({
+          refresh: bitcoinRefresh,
+          positions: bitcoinResult.value.positions,
+          observation: bitcoinResult.value.observation,
+          requiredObservation: candidate.observation,
+        });
+      }
+      const didCommit = updates.length === 0 || financialPositionBook.commit(updates);
+      if (didCommit) {
+        accountSnapshot.value = candidate;
+        if (bitcoinResult.status === 'fulfilled') {
+          liquidAllRecords.value = bitcoinResult.value.summaries;
+          liquidHodlingInvestments.value = bitcoinResult.value.hodlingInvestments;
+          liquidCurrentBitcoinDebt.value = bitcoinResult.value.currentBitcoinDebt;
+        }
 
-      const bitcoinNetworkFee = lock.fundingUtxoRecord?.releaseBitcoinNetworkFee ?? 0n;
-      const releasedSatoshis = bigIntMax(lock.satoshis - bitcoinNetworkFee, 0n);
-      const releasedValue = valueSatoshisAtRate(releasedSatoshis, lock.btcPriceAtRemovalMicrogons);
-      if (releasedValue === undefined) continue;
+        const results = [
+          { refresh: liquidRefresh, result: liquidResult, fallback: 'Unable to refresh wallet balances' },
+          { refresh: miningRefresh, result: miningResult, fallback: 'Unable to refresh mining positions' },
+          { refresh: vaultingRefresh, result: vaultingResult, fallback: 'Unable to refresh vault positions' },
+          { refresh: bondsRefresh, result: bondsResult, fallback: 'Unable to refresh bond positions' },
+          { refresh: bitcoinRefresh, result: bitcoinResult, fallback: 'Unable to refresh Bitcoin positions' },
+        ];
+        for (const { refresh, result, fallback } of results) {
+          if (result.status !== 'rejected') continue;
 
-      cashFlows.push({
-        amount: -releasedValue,
-        occurredAt: position.endedAt,
-      });
-    }
+          console.error(fallback, result.reason);
+          financialPositionBook.fail(refresh, getErrorMessage(result.reason, fallback));
+        }
 
-    if (checkpoint) {
-      cashFlows = cashFlows.filter(flow => getCashFlowTime(flow) >= startingTime);
-    } else {
-      cashFlows.sort((left, right) => getCashFlowTime(left) - getCashFlowTime(right));
-      const firstContribution = cashFlows.find(flow => flow.amount > 0n);
-      if (!firstContribution) {
-        startingBlock = header.blockNumber;
-        startingTime = header.blockTime;
-        startingValue = accountValue;
-        cashFlows.length = 0;
+        if (results.some(({ result }) => result.status === 'rejected')) scheduleAccountRefreshRetry();
+        else resetAccountRefreshRetry();
       } else {
-        startingTime = getCashFlowTime(firstContribution);
-        cashFlows = cashFlows.filter(flow => getCashFlowTime(flow) >= startingTime);
+        scheduleAccountRefreshRetry();
       }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to refresh Argon wallet balances';
+      if (refreshes.length === 0) {
+        refreshes = mainchainFinancialGroups.map(group => financialPositionBook.beginRefresh(group));
+      }
+      financialPositionBook.fail(refreshes, message);
+      scheduleAccountRefreshRetry();
+    }
+  }
+
+  function queueAccountRefresh({
+    header = getBlockWatch().bestBlockHeader,
+    force = false,
+  }: { header?: IBlockHeaderInfo; force?: boolean } = {}): Promise<void> {
+    const bestHeader = getBlockWatch().bestBlockHeader;
+    if (!isSameBlock(header, bestHeader)) header = bestHeader;
+    const blockHash = header.blockHash.toLowerCase();
+    const hasCurrentSnapshot = accountSnapshot.value?.observation.blockHash?.toLowerCase() === blockHash;
+    const isQueued = queuedAccountHeader?.blockHash.toLowerCase() === blockHash;
+    if (!force && (hasCurrentSnapshot || activeAccountHash === blockHash || isQueued)) {
+      return accountRefreshPromise ?? Promise.resolve();
     }
 
-    const result = calculateModifiedDietzReturn({
-      startingValue,
-      endingValue: accountValue,
-      startingDate: startingTime,
-      endingDate: header.blockTime,
-      cashFlows,
+    queuedAccountHeader = header;
+    queuedAccountReconciliation ||= force;
+    accountRefreshPromise ??= (async () => {
+      while (queuedAccountHeader) {
+        const nextHeader = queuedAccountHeader;
+        const shouldForce = queuedAccountReconciliation;
+        queuedAccountHeader = undefined;
+        queuedAccountReconciliation = false;
+        activeAccountHash = nextHeader.blockHash.toLowerCase();
+        try {
+          await refreshAccountSnapshot(nextHeader, shouldForce);
+        } finally {
+          activeAccountHash = '';
+        }
+      }
+    })().finally(() => {
+      accountRefreshPromise = undefined;
+      if (queuedAccountHeader) void queueAccountRefresh({ force: queuedAccountReconciliation });
     });
-    const nextCheckpoint = {
-      startingBlock,
-      startingTime,
-      startingValue,
-      asOfBlock: header.blockNumber,
-      basisPoints: result.basisPoints,
-    };
-    await db.financialCacheTable.upsert(FinancialCacheTypes.AccountReturn, addresses.join(','), nextCheckpoint);
-
-    publishFinalizedAccountReturn(nextCheckpoint);
+    return accountRefreshPromise;
   }
 
-  function requestSettlementObservation(blockNumber: number): void {
-    const finalizedHeader = getBlockWatch().finalizedBlockHeader;
-    if (blockNumber <= finalizedHeader.blockNumber) {
-      queueAccountRefresh(finalizedHeader);
-      return;
+  function scheduleAccountRefreshRetry(): void {
+    if (accountRefreshRetryTimer || accountRefreshRetryAttempts >= 3) return;
+
+    const retryDelayMs = 1_000 * 2 ** accountRefreshRetryAttempts;
+    accountRefreshRetryAttempts += 1;
+    accountRefreshRetryTimer = setTimeout(() => {
+      accountRefreshRetryTimer = undefined;
+      void queueAccountRefresh({ force: true });
+    }, retryDelayMs);
+  }
+
+  function resetAccountRefreshRetry(): void {
+    accountRefreshRetryAttempts = 0;
+    if (!accountRefreshRetryTimer) return;
+
+    clearTimeout(accountRefreshRetryTimer);
+    accountRefreshRetryTimer = undefined;
+  }
+
+  async function prepareBitcoinPositions(snapshot: IArgonAccountSnapshot, header: IBlockHeaderInfo) {
+    if (!config.hasExtensionTreasury) {
+      return {
+        positions: [],
+        observation: snapshot.observation,
+        summaries: [],
+        hodlingInvestments: [],
+        currentBitcoinDebt: 0n,
+      };
     }
 
-    // Latch the first pending observation so finalized state can catch it. Mining
-    // revisions may advance every best block; continually moving this target
-    // forward would prevent the account snapshot from ever refreshing.
-    pendingSettlementBlockNumber ||= blockNumber;
-  }
-
-  async function publishBitcoinLocks(summaries?: readonly IBitcoinLockSummary[]): Promise<void> {
-    const refresh = financialPositionBook.beginRefresh('bitcoin');
     const btcPrice = currency.priceIndex.btcUsdPrice;
     const argonTargetPrice = currency.priceIndex.argonUsdTargetPrice;
     const hasCurrentPrice = !!btcPrice && !btcPrice.isZero() && !!argonTargetPrice && !argonTargetPrice.isZero();
-    const observedAt = new Date();
-    const sourceBlock = bitcoinLocks.data.latestArgonBlock;
-    await bitcoinLocks.load();
-    const positions = bitcoinFinancials.createFinancialPositions({
-      summaries: summaries ?? bitcoinLocks.getAllLocks().map(lock => bitcoinLocks.createLockSummary(lock)),
+    const clientAt = await getBlockWatch().getApi(header);
+    const bitcoin = await bitcoinFinancials.loadSnapshot({
+      clientAt,
       hasCurrentPrice,
       hasConfirmedHistoryCoverage: hasConfirmedFinancialHistoryCoverage,
     });
-    if (positions.length === 0 && accountSnapshot.value) {
-      financialPositionBook.publish(refresh, positions, accountSnapshot.value.observation);
-      return;
-    }
 
-    financialPositionBook.publish(
-      refresh,
-      positions,
-      {
-        observedAt,
-        ...(sourceBlock ?? {}),
-      },
-      accountSnapshot.value?.observation,
-    );
+    return {
+      ...bitcoin,
+      observation: snapshot.observation,
+    };
   }
 
   async function refreshStableSwapPosition(): Promise<void> {
@@ -655,7 +544,8 @@ export const useFinancials = defineStore('financials', () => {
   const savingsTotalReadyToUse = Vue.computed(() => wallets.defaultArgonWallet.availableMicrogons);
   const savingsTotalValue = Vue.computed(() => {
     let total = savingsTotalPending.value;
-    for (const position of walletPositions.value ?? []) {
+    for (const position of financialPositionAggregate.value.groupSummaries.liquid.positions) {
+      if (position.kind !== 'wallet-balance' && position.kind !== 'wallet-holding') continue;
       if (position.accountId !== wallets.defaultArgonWallet.address || position.lifecycle === 'completed') continue;
       total += position.currentValue ?? 0n;
     }
@@ -686,6 +576,24 @@ export const useFinancials = defineStore('financials', () => {
 
   // Argon Bonds ///////////////////////////////////////////////////////////////////////////////////////////////////////
 
+  const bondSummariesByAsset = Vue.computed(() => {
+    const positions = financialPositionAggregate.value.groupSummaries.bonds.positions.filter(position => {
+      return position.kind === 'bond';
+    });
+    const argonPositions = positions.filter(position => position.nativeAsset === 'ARGN');
+    const argonotPositions = positions.filter(position => position.nativeAsset === 'ARGNOT');
+
+    return {
+      ARGN: {
+        currentValue: argonPositions.reduce((total, position) => total + (position.currentValue ?? 0n), 0n),
+        returnSummary: calculatePositionReturn(argonPositions),
+      },
+      ARGNOT: {
+        currentValue: argonotPositions.reduce((total, position) => total + (position.currentValue ?? 0n), 0n),
+        returnSummary: calculatePositionReturn(argonotPositions),
+      },
+    };
+  });
   const bondsTotalValue = Vue.computed(() => {
     return financialPositionAggregate.value.groupSummaries.bonds.currentValue;
   });
@@ -721,36 +629,6 @@ export const useFinancials = defineStore('financials', () => {
   const liquidCurrentBitcoinDebt = Vue.ref(0n);
   let lockSummaryProgressInterval: ReturnType<typeof setInterval> | undefined;
 
-  async function loadLocks(): Promise<IBitcoinLockSummary[]> {
-    const tmpHodlingInvestments: IPerformanceReturnInput[] = [];
-    const lockSummaries: IBitcoinLockSummary[] = [];
-
-    let currentBitcoinDebt = 0n;
-
-    for (const lock of bitcoinLocks.getAllLocks()) {
-      const summary = bitcoinLocks.createLockSummary(lock);
-      lockSummaries.push(summary);
-
-      if (bitcoinLocks.isLockedStatus(lock)) {
-        currentBitcoinDebt += summary.unlockAmount;
-      }
-
-      if ((bitcoinLocks.isLockedStatus(lock) || bitcoinLocks.isReleaseStatus(lock)) && lock.ratchets[0]) {
-        tmpHodlingInvestments.push({
-          startingDate: lock.createdAt,
-          startingCapital: summary.startingCapital,
-          endingDate: new Date(),
-          endingCapital: summary.valueOfBtc,
-        });
-      }
-    }
-
-    liquidCurrentBitcoinDebt.value = currentBitcoinDebt;
-    liquidAllRecords.value = lockSummaries;
-    liquidHodlingInvestments.value = tmpHodlingInvestments;
-    return lockSummaries;
-  }
-
   function refreshLockSummaryProgress() {
     for (const summary of liquidAllRecords.value) {
       bitcoinLocks.refreshLockSummary(summary);
@@ -766,10 +644,7 @@ export const useFinancials = defineStore('financials', () => {
     () => [bitcoinLocks.data.locksByUtxoId, bitcoinLocks.data.pendingLocks],
     () => {
       if (!isLoaded.value) return;
-      requestSettlementObservation(
-        bitcoinLocks.data.latestArgonBlock?.blockNumber ?? getBlockWatch().bestBlockHeader.blockNumber,
-      );
-      void loadLocks().then(publishBitcoinLocks);
+      void queueAccountRefresh({ force: true });
     },
     { deep: true },
   );
@@ -780,7 +655,7 @@ export const useFinancials = defineStore('financials', () => {
       if (!isLoaded.value) return;
       const bitcoinSnapshot = financialPositionBook.snapshots.find(snapshot => snapshot.group === 'bitcoin');
       if (bitcoinSnapshot?.state !== 'stale') return;
-      void loadLocks().then(publishBitcoinLocks);
+      void queueAccountRefresh({ force: true });
     },
   );
 
@@ -788,10 +663,7 @@ export const useFinancials = defineStore('financials', () => {
     () => [currency.priceIndex.btcUsdPrice?.toString(), currency.priceIndex.argonUsdTargetPrice?.toString()],
     () => {
       if (!isLoaded.value) return;
-      void loadLocks().then(async summaries => {
-        await publishBitcoinLocks(summaries);
-        publishLiquidHoldings();
-      });
+      void queueAccountRefresh({ force: true });
     },
   );
 
@@ -843,20 +715,9 @@ export const useFinancials = defineStore('financials', () => {
     },
   );
 
-  wallets.on('balance-change', entry => {
+  wallets.on('balance-change', () => {
     if (!isLoaded.value) return;
-    // Live wallet balances can precede the finalized domain records. Keep the
-    // last finalized financial view intact until sync:finalized refreshes all
-    // positions at one observation.
-    requestSettlementObservation(entry.block.blockNumber);
-  });
-
-  walletsForArgon.events.on('sync:finalized', header => {
-    if (!isLoaded.value) return;
-    if (pendingSettlementBlockNumber && header.blockNumber >= pendingSettlementBlockNumber) {
-      pendingSettlementBlockNumber = 0;
-      queueAccountRefresh(header);
-    }
+    void queueAccountRefresh();
   });
 
   walletsForArgon.events.on('history:gap', gap => {
@@ -866,19 +727,13 @@ export const useFinancials = defineStore('financials', () => {
   });
 
   walletsForArgon.events.on('history:recovered', revisions => {
-    const snapshotBlock = accountSnapshot.value?.observation.blockNumber;
-    if (!isLoaded.value || !snapshotBlock || revisions.asOfBlock < snapshotBlock) return;
+    const historyCutoff = getBlockWatch().finalizedBlockHeader.blockNumber;
+    if (!isLoaded.value || revisions.asOfBlock < historyCutoff) return;
     if (
-      lastCoveredWalletSnapshotBlock >= snapshotBlock &&
+      lastCoveredWalletSnapshotBlock >= historyCutoff &&
       lastPublishedArgonotCustodyRevision >= revisions.argonotCustody
     ) {
-      void getBlockWatch()
-        .getHeaderByBlockNumber(snapshotBlock)
-        .then(header => queueAccountReturnRefresh({ header, force: true }))
-        .catch(error => {
-          accountReturnSyncState.value = 'error';
-          console.warn('Unable to refresh recovered account RTD', error);
-        });
+      void queueAccountRefresh({ force: true });
       return;
     }
 
@@ -890,22 +745,16 @@ export const useFinancials = defineStore('financials', () => {
         while (true) {
           const refreshBlock = queuedWalletHistoryBlock;
           const refreshRevision = queuedArgonotCustodyRevision;
-          const currentSnapshotBlock = accountSnapshot.value?.observation.blockNumber;
-          if (!currentSnapshotBlock || refreshBlock < currentSnapshotBlock) return;
+          const currentHistoryCutoff = getBlockWatch().finalizedBlockHeader.blockNumber;
+          if (refreshBlock < currentHistoryCutoff) return;
 
-          if (config.hasExtensionOperations) await publishMiningPositions();
-          await publishWalletPositions();
+          await queueAccountRefresh({ force: true });
           lastPublishedArgonotCustodyRevision = refreshRevision;
           if (refreshBlock === queuedWalletHistoryBlock && refreshRevision === queuedArgonotCustodyRevision) return;
         }
       })
-      .then(async () => {
-        const header = await getBlockWatch().getHeaderByBlockNumber(snapshotBlock);
-        queueAccountReturnRefresh({ header, force: true });
-      })
       .catch(error => {
-        accountReturnSyncState.value = 'error';
-        console.warn('Unable to refresh recovered account RTD', error);
+        console.warn('Unable to refresh recovered financial positions', error);
       })
       .finally(() => {
         walletHistoryRefreshPromise = undefined;
@@ -915,9 +764,8 @@ export const useFinancials = defineStore('financials', () => {
   Vue.watch(
     () => [argonBonds.data.bondLots, argonBonds.data.bondHistory],
     () => {
-      if (!config.hasExtensionTreasury) return;
-      requestSettlementObservation(getBlockWatch().bestBlockHeader.blockNumber);
-      void publishBondPositions().then(() => publishWalletPositions());
+      if (!isLoaded.value || !config.hasExtensionTreasury) return;
+      void queueAccountRefresh({ force: true });
     },
   );
 
@@ -930,8 +778,7 @@ export const useFinancials = defineStore('financials', () => {
     ],
     () => {
       if (!isLoaded.value || !config.hasExtensionOperations) return;
-      requestSettlementObservation(getBlockWatch().bestBlockHeader.blockNumber);
-      void publishVaultPosition().then(() => publishWalletPositions());
+      void queueAccountRefresh({ force: true });
     },
   );
 
@@ -939,9 +786,7 @@ export const useFinancials = defineStore('financials', () => {
     () => currency.microgonsPer.ARGNOT,
     () => {
       if (!isLoaded.value) return;
-      void Promise.all([publishBondPositions(), publishMiningPositions(), publishVaultPosition()]).then(() =>
-        publishWalletPositions(),
-      );
+      void queueAccountRefresh({ force: true });
     },
   );
 
@@ -950,10 +795,9 @@ export const useFinancials = defineStore('financials', () => {
     () => {
       if (!isLoaded.value || !config.hasExtensionOperations) return;
       const sourceBlockNumber = getMyMiningSeatsSource().serverState.argonLocalNodeBlockNumber;
-      requestSettlementObservation(sourceBlockNumber || getBlockWatch().bestBlockHeader.blockNumber);
       if (sourceBlockNumber && sourceBlockNumber > (accountSnapshot.value?.observation.blockNumber ?? 0)) return;
 
-      void publishMiningPositions().then(() => publishWalletPositions());
+      void queueAccountRefresh({ force: true });
     },
   );
 
@@ -969,10 +813,10 @@ export const useFinancials = defineStore('financials', () => {
         }
         await refreshStableSwapPosition();
 
-        // The basic app snapshot omits hold details. Reload the same finalized
+        // The basic app snapshot omits hold details. Reload the current best
         // block when a domain activates so its positions can claim those holds.
         accountSnapshot.value = undefined;
-        await refreshAccountSnapshot(getBlockWatch().finalizedBlockHeader);
+        await queueAccountRefresh({ force: true });
         if (config.walletAccountsHadPreviousLife && (config.hasExtensionTreasury || config.hasExtensionOperations)) {
           void initializeFinancialHistoryRecovery().catch(() => undefined);
         }
@@ -1018,34 +862,6 @@ export const useFinancials = defineStore('financials', () => {
     });
   }
 
-  function getAccountReturnAddresses(): string[] {
-    return [...walletsForArgon.ownedAddresses].sort();
-  }
-
-  async function loadAccountReturnCheckpoint(): Promise<void> {
-    const addresses = getAccountReturnAddresses();
-    const checkpoint = await (
-      await getDbPromise()
-    ).financialCacheTable.get(FinancialCacheTypes.AccountReturn, addresses.join(','));
-    if (!checkpoint) return;
-
-    if (checkpoint.asOfBlock > getBlockWatch().finalizedBlockHeader.blockNumber) return;
-
-    publishFinalizedAccountReturn(checkpoint);
-  }
-
-  function publishFinalizedAccountReturn(checkpoint: IFinancialCacheSchemas[FinancialCacheTypes.AccountReturn]): void {
-    accountReturnCheckpoint = checkpoint;
-    finalizedAccountReturn.value = {
-      availability: 'available',
-      basisPoints: checkpoint.basisPoints,
-      percent: Number(checkpoint.basisPoints) / 100,
-      eligiblePositionCount: 0,
-      investmentPositionCount: 0,
-    };
-    accountReturnSyncState.value = checkpoint.isProvisional ? 'updating' : 'ready';
-  }
-
   async function load() {
     const loadStartedAt = performance.now();
     setFinancialScope();
@@ -1058,16 +874,13 @@ export const useFinancials = defineStore('financials', () => {
     await Promise.all([wallets.isLoadedPromise, currency.isLoadedPromise]);
     const walletSourcesReadyAt = performance.now();
     setFinancialScope();
-    await loadAccountReturnCheckpoint().catch(error => {
-      console.warn('Unable to restore finalized account RTD', error);
-    });
     await loadEnabledDomainSources();
     const domainSourcesReadyAt = performance.now();
 
     if (!config.hasExtensionTreasury) {
       vaultsIsLoaded.value = true;
     }
-    await refreshAccountSnapshot(getBlockWatch().finalizedBlockHeader);
+    await queueAccountRefresh({ force: true });
     const defaultArgonReadyAt = performance.now();
     logStartupTiming({
       milestone: 'default-argon-financials-ready',
@@ -1085,7 +898,6 @@ export const useFinancials = defineStore('financials', () => {
     if (config.hasExtensionTreasury) startLockSummaryProgressRefresh();
 
     isLoaded.value = true;
-    queueAccountReturnRefresh({ force: accountReturnCheckpoint?.isProvisional });
     if (config.walletAccountsHadPreviousLife && (config.hasExtensionTreasury || config.hasExtensionOperations)) {
       void initializeFinancialHistoryRecovery().catch(() => undefined);
     }
@@ -1113,7 +925,6 @@ export const useFinancials = defineStore('financials', () => {
 
     hasConfirmedFinancialHistoryCoverage = true;
     historyRecovery.value = { state: 'ready', recoveredBlockCount: 0 };
-    queueAccountReturnRefresh({ force: true });
   }
 
   function restoreFinancialHistory(force = false, minimumAsOfBlock?: number): Promise<void> {
@@ -1169,11 +980,7 @@ export const useFinancials = defineStore('financials', () => {
           message: `Investment history is indexed through block ${result.asOfBlock.toLocaleString()} and is still catching up`,
         };
       }
-      await Promise.all([publishVaultPosition(), publishBondPositions()]);
-      await publishWalletPositions();
-      const summaries = await loadLocks();
-      await publishBitcoinLocks(summaries);
-      queueAccountReturnRefresh({ header: getBlockWatch().finalizedBlockHeader, force: true });
+      await queueAccountRefresh({ force: true });
       return result.asOfBlock;
     } catch (error) {
       if (shouldShowRecovery) {
@@ -1216,6 +1023,7 @@ export const useFinancials = defineStore('financials', () => {
     savingsIsLoaded,
 
     bondsTotalValue,
+    bondSummariesByAsset,
 
     liquidAllRecords,
     liquidVisibleRecords,
@@ -1232,13 +1040,14 @@ export const useFinancials = defineStore('financials', () => {
     financialPositionAggregate,
     liquidNativeBalances,
     historyRecovery,
-    accountReturnSyncState,
     restoreFinancialHistory,
   };
 });
 
-function getCashFlowTime(cashFlow: IAccountCashFlow): number {
-  if (cashFlow.occurredAt instanceof Date) return cashFlow.occurredAt.getTime();
-  if (typeof cashFlow.occurredAt === 'number') return cashFlow.occurredAt;
-  return new Date(cashFlow.occurredAt).getTime();
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function isSameBlock(left: Pick<IBlockHeaderInfo, 'blockHash'>, right: Pick<IBlockHeaderInfo, 'blockHash'>): boolean {
+  return left.blockHash.toLowerCase() === right.blockHash.toLowerCase();
 }

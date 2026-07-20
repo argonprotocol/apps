@@ -328,7 +328,7 @@ export class ArgonBonds {
     );
   }
 
-  private async getOwnBondLots(client: ArgonQueryClient): Promise<BondLot[]> {
+  public async getOwnBondLots(client: ArgonQueryClient): Promise<BondLot[]> {
     const accountId = this.walletKeys.defaultArgonAddress;
     const accountLots = await TreasuryBonds.getBondLotsByAccount(client, accountId);
     if (accountLots.length || !this.config.upstreamOperator?.vaultId) {

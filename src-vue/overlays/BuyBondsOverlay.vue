@@ -2,9 +2,9 @@
 <template>
   <OverlayBase :isOpen="true" @close="emit('close')" @pressEsc="emit('close')" class="w-240">
     <template #title>
-      <div v-if="programType === 'Argonot'" class="grow text-2xl font-bold">Buy Argon Bonds with ARGNOT</div>
+      <div v-if="programType === 'Argonot'" class="grow text-2xl font-bold">Buy Argonot Bonds</div>
       <div v-else-if="!vaultId" class="grow text-2xl font-bold">Select Vault for Argon Bonds</div>
-      <div v-else class="grow text-2xl font-bold">Buy Argon Bonds with ARGN</div>
+      <div v-else class="grow text-2xl font-bold">Buy Argon Bonds</div>
     </template>
 
     <div v-if="programType === 'Vault' && !vaultId" class="px-6 pt-2 pb-7">

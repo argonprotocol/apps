@@ -37,15 +37,11 @@
                   {{ currency.symbol
                   }}{{ microgonToMoneyNm(myVault.data.expiringCollectAmount).formatIfElse('< 1_000', '0,0.00', '0,0') }}
                 </strong>
-                will be lost forever. Where should this capital be placed?
+                will be lost forever.
               </template>
             </CountdownClock>
+            Collected revenue will be deposited into your Argon Wallet.
           </p>
-
-          <InputMenu
-            v-model="moveTo"
-            :options="[{ name: 'Argon Wallet', value: MoveTo.DefaultArgon }]"
-            class="mt-5 flex max-w-2/3" />
         </div>
 
         <p v-if="manualPendingCosignCount">
@@ -195,7 +191,6 @@ import { getCurrency } from '../stores/currency.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import ProgressBar from '../components/ProgressBar.vue';
 import OverlayBase from './OverlayBase.vue';
-import InputMenu from '../components/InputMenu.vue';
 import { MoveTo } from '@argonprotocol/apps-core';
 import { TransactionInfo } from '../lib/TransactionInfo.ts';
 import type { IMintingAuthorityAuthorizeMetadata } from '../lib/MintingAuthorities.ts';
@@ -212,7 +207,6 @@ const currency = getCurrency();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const isOpen = Vue.ref(true);
-const moveTo = Vue.ref<MoveTo>(MoveTo.DefaultArgon);
 
 const collectRevenue = Vue.ref(0n);
 const councilApprovalCount = Vue.ref(0);
@@ -409,7 +403,7 @@ async function submitCollect() {
   collectProgressLabel.value = 'Preparing transaction...';
 
   try {
-    await myVault.collect({ moveTo: moveTo.value });
+    await myVault.collect({ moveTo: MoveTo.DefaultArgon });
   } catch (error) {
     collectError.value = error instanceof Error ? error.message : `${error}`;
     isSubmittingCollect.value = false;
