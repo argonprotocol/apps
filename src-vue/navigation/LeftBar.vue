@@ -392,6 +392,7 @@
                 testIdPrefix="LeftBar.walletMenu"
                 side="top"
                 class="hover:text-argon-700 relative -left-2"
+                @click.stop
                 @select="selectWallet"
               />
               <div class="grow" />
