@@ -7,7 +7,7 @@
       </div>
       <div class="mt-2 h-[29px] shrink-0">
         <div
-          v-if="props.selection.walletType === WalletType.defaultArgon"
+          v-if="walletValueIsLoaded && props.selection.walletType === WalletType.defaultArgon"
           class="mx-auto w-fit border-t border-slate-500/30 pt-2 text-sm opacity-50"
         >
           {{ currency.symbol
@@ -15,7 +15,7 @@
           usable
         </div>
         <div
-          v-else-if="props.selection.walletType === WalletType.ethereum"
+          v-else-if="walletValueIsLoaded && props.selection.walletType === WalletType.ethereum"
           class="mx-auto w-fit border-t border-slate-500/30 pt-2 text-sm opacity-50"
         >
           {{ currency.symbol }}{{ microgonToMoneyNm(nonNativeTokenValue).format('0,0.00') }} is in non-native tokens

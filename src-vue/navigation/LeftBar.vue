@@ -409,7 +409,7 @@
                 <FormattedMoney :isLoaded="selectedWalletBalanceIsLoaded" :value="selectedWalletBalance" />
               </div>
               <div
-                v-if="currency.isLoaded && selectedWallet.walletType === WalletType.defaultArgon"
+                v-if="selectedWalletBalanceIsLoaded && selectedWallet.walletType === WalletType.defaultArgon"
                 class="mx-auto mt-2 w-fit border-t border-slate-500/30 pt-2 text-center opacity-50"
               >
                 {{ currency.symbol
@@ -417,7 +417,7 @@
                 immediately usable
               </div>
               <div
-                v-else-if="currency.isLoaded && isEthereumWalletSelection(selectedWallet)"
+                v-else-if="selectedWalletBalanceIsLoaded && isEthereumWalletSelection(selectedWallet)"
                 class="mx-auto mt-2 flex w-fit gap-x-2 border-t border-slate-500/30 pt-2 text-center opacity-50"
               >
                 {{ currency.symbol }}{{ microgonToMoneyNm(selectedOtherTokenValue).format('0,0.00') }} is in non-native

@@ -97,7 +97,7 @@
               <FormattedMoney :isLoaded="walletBalanceIsLoaded(wallet)" :value="getWalletBalance(wallet)" />
             </div>
             <div
-              v-if="currency.isLoaded && wallet.walletType === 'argon'"
+              v-if="walletBalanceIsLoaded(wallet) && wallet.walletType === 'argon'"
               class="mx-auto mt-2 w-fit border-t border-slate-500/30 pt-2 text-center opacity-50"
             >
               {{ currency.symbol
@@ -105,7 +105,7 @@
               is immediately usable
             </div>
             <div
-              v-else-if="currency.isLoaded && wallet.walletType === 'ethereum'"
+              v-else-if="walletBalanceIsLoaded(wallet) && wallet.walletType === 'ethereum'"
               class="mx-auto mt-2 flex w-fit gap-x-2 border-t border-slate-500/30 pt-2 text-center opacity-50"
             >
               {{ currency.symbol }}{{ microgonToMoneyNm(getOtherTokenValue(wallet)).format('0,0.00') }} is in non-native
@@ -156,7 +156,6 @@ import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import FormattedMoney from '../components/FormattedMoney.vue';
-import ArrowIcon from '../assets/arrow.svg';
 import type { IWalletSelection } from '../wallets/walletOverlayState.ts';
 import { useFinancials } from '../stores/financials.ts';
 import { getConfig } from '../stores/config.ts';

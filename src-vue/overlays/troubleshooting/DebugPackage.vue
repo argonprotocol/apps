@@ -37,7 +37,6 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { Db } from '../../lib/Db.ts';
 import { appConfigDir, appLogDir, join, tempDir } from '@tauri-apps/api/path';
 import { listen } from '@tauri-apps/api/event';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
@@ -55,7 +54,6 @@ const config = getConfig();
 const walletKeys = getWalletKeys();
 
 const diagnostics = new Diagnostics(config as Config, walletKeys);
-const localDataDir = Vue.ref('');
 const localLogDir = Vue.ref('');
 const troubleshootingProgress = Vue.ref(0);
 const isCreatingTroubleshootingPackage = Vue.ref(false);
@@ -177,8 +175,6 @@ async function copyDirectorySnapshot(sourceDir: string, destinationDir: string, 
 }
 
 Vue.onMounted(async () => {
-  const dataDir = await appConfigDir();
-  localDataDir.value = `${dataDir}/${Db.relativeDir}`;
   localLogDir.value = await appLogDir();
 });
 </script>

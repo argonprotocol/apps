@@ -49,7 +49,7 @@
           {{ currency.symbol }}
           <FormattedMoney :isLoaded="walletValueIsLoaded" :value="walletTotalValue" />
         </div>
-        <div class="mt-2 h-[29px] shrink-0 text-sm opacity-50">
+        <div v-if="walletValueIsLoaded" class="mt-2 h-[29px] shrink-0 text-sm opacity-50">
           <div
             v-if="props.walletSelection?.walletType === WalletType.defaultArgon"
             class="border-t border-slate-500/30 pt-2"
