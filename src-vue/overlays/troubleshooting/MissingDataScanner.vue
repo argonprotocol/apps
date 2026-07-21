@@ -1,15 +1,17 @@
 <template>
   <div ref="containerRef" class="flex min-h-[90%] flex-col gap-4 overflow-x-hidden overflow-y-auto pt-3 pr-7 pb-5 pl-4">
-    <p class="mt-2">
-      Click the button below to begin searching the blockchain for missing data in your account. This process takes a
-      few minutes. Do not close this overlay until it finishes.
-    </p>
-    <button
-      @click="startScanning"
-      class="bg-argon-600 border-argon-700 mt-3 rounded-md border py-3 font-bold text-white"
-    >
-      Start Scanning
-    </button>
+    <div v-if="!hasStarted">
+      <p class="mt-2">
+        Click the button below to begin searching the blockchain for missing data in your account. This process takes a
+        few minutes. Do not close this overlay until it finishes.
+      </p>
+      <button
+        @click="startScanning"
+        class="bg-argon-600 border-argon-700 mt-3 rounded-md border py-3 font-bold text-white"
+      >
+        Start Scanning
+      </button>
+    </div>
 
     <DiagnosticStep ref="step1" :run="() => checkWalletHistory()">
       <heading>Searching for Missing Wallet History</heading>
@@ -87,6 +89,7 @@ const financials = useFinancials();
 
 const containerRef = Vue.ref<HTMLElement>();
 
+const hasStarted = Vue.ref(false);
 const step1 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
 const step2 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
 const step3 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
@@ -191,6 +194,7 @@ async function checkFinancialHistory() {
 }
 
 async function startScanning() {
+  hasStarted.value = true;
   await myVault.load();
   await Vue.nextTick();
 
