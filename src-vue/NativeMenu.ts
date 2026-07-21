@@ -305,9 +305,10 @@ export async function createMenu() {
     if (!config.isLoaded) return;
 
     const isCreated = !!config.serverDetails?.ipAddress && config.serverDetails.ipAddress !== '0.0.0.0';
-    const items = await troubleshootingMenu.items();
-    void (items[0] as MenuItem)?.setEnabled(isCreated);
-    void (items[3] as MenuItem)?.setEnabled(isCreated);
+    const sshMenuItem = (await troubleshootingMenu.get('ssh')) as MenuItem | null;
+    const serverDiagnosticsMenuItem = (await troubleshootingMenu.get('server-diagnostics')) as MenuItem | null;
+    void sshMenuItem?.setEnabled(isCreated);
+    void serverDiagnosticsMenuItem?.setEnabled(isCreated);
 
     if (!isWatchingServerDetails) {
       isWatchingServerDetails = true;

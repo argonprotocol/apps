@@ -54,6 +54,7 @@ export class SSHConnection {
           !this.isDestroyed &&
           (error instanceof InvokeTimeout ||
             errorString.includes('connection refused') ||
+            errorString.includes('disconnected') ||
             errorString.includes('host unreachable') ||
             errorString.includes('timed out'));
         if (shouldRetry) {

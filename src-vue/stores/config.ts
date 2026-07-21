@@ -71,8 +71,11 @@ export function getConfig(): Vue.Reactive<Config> {
         });
       })
       .catch(handleFatalError.bind('useConfig'));
-    SSH.setConfig(config as Config);
   }
+
+  // Config survives Vite HMR, but SSH's static state may not. Reconnect them whenever
+  // a consumer retrieves the retained singleton.
+  SSH.setConfig(config as Config);
 
   return config;
 }

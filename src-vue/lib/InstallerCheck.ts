@@ -76,12 +76,12 @@ export class InstallerCheck {
 
   public get isServerInstallComplete(): boolean {
     return (
-      this.config.serverInstaller.UbuntuCheck.progress >= 100 &&
-      this.config.serverInstaller.FileUpload.progress >= 100 &&
-      this.config.serverInstaller.DockerInstall.progress >= 100 &&
-      this.config.serverInstaller.BitcoinInstall.progress >= 100 &&
-      this.config.serverInstaller.ArgonInstall.progress >= 100 &&
-      this.config.serverInstaller.MiningLaunch.progress >= 100
+      this.config.serverInstaller.UbuntuCheck.status === InstallStepStatus.Completed &&
+      this.config.serverInstaller.FileUpload.status === InstallStepStatus.Completed &&
+      this.config.serverInstaller.DockerInstall.status === InstallStepStatus.Completed &&
+      this.config.serverInstaller.BitcoinInstall.status === InstallStepStatus.Completed &&
+      this.config.serverInstaller.ArgonInstall.status === InstallStepStatus.Completed &&
+      this.config.serverInstaller.MiningLaunch.status === InstallStepStatus.Completed
     );
   }
 
@@ -168,6 +168,7 @@ export class InstallerCheck {
 
       if (
         stepNewData.progress >= 100 &&
+        filenameStatus === InstallStepStatusType.Finished &&
         stepNewData.status !== InstallStepStatus.Completed &&
         stepNewData.status !== InstallStepStatus.Failed
       ) {
@@ -247,6 +248,20 @@ export class InstallerCheck {
         await this.installer.refreshLocalGatewayPort().catch(() => undefined);
         return stepPending.progress;
       });
+    }
+
+    if (stepName === InstallStepKey.MiningLaunch) {
+      const startDate = dayjs.utc(stepPending.startDate);
+      // Reserve the first 5% for the expected 12-second container startup. Only a Finished marker reaches 100%.
+      const startupProgress = InstallerCheck.calculateStepProgress(startDate, estimatedMinutes) * 0.05;
+      const syncProgress = this.config.serverDetails.ipAddress
+        ? await ServerApiClient.getBotInstallProgress(this.config.serverDetails).catch(async () => {
+            await this.installer.refreshLocalGatewayPort().catch(() => undefined);
+            return undefined;
+          })
+        : undefined;
+
+      return Math.min(Math.max(stepPending.progress, startupProgress, syncProgress ?? 0), 99);
     }
 
     const startDate = dayjs.utc(stepPending.startDate);

@@ -4,6 +4,7 @@ import {
   type IEthereumGatewayCatchUpRequest,
   type IEthereumGatewayCatchUpResponse,
   type IEthereumGatewayRelayStatus,
+  type IBotStateStarting,
 } from '@argonprotocol/apps-core';
 import type {
   IActivateBitcoinLockCouponRequest,
@@ -83,6 +84,10 @@ export class BotUpstreamClient {
 
   public async getEthereumGatewayRelayStatus(): Promise<IEthereumGatewayRelayStatus> {
     return await this.request('/ethereum-relay-status');
+  }
+
+  public async getSyncStatus(): Promise<Pick<IBotStateStarting, 'isReady' | 'isSyncing' | 'syncProgress'>> {
+    return await this.request('/sync-status');
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {

@@ -68,6 +68,25 @@ describe('RouterServer', () => {
     mainchainMocks.getClient.mockReset();
   });
 
+  it('publicly exposes the bot sync status', async () => {
+    routerDb = createDb('router-server-bot-sync-status-');
+    const botSyncStatus = {
+      isReady: false,
+      isSyncing: true,
+      syncProgress: 42.5,
+    };
+    const handleBotRequest = vi.fn(() => ({ status: 200, body: botSyncStatus }));
+    const started = await startRouterServer(routerDb, handleBotRequest);
+    routerServer = started.routerServer;
+    botServer = started.botServer;
+
+    const response = await fetch(`http://${started.routerAddress.host}:${started.routerAddress.port}/bot-sync-status`);
+
+    expect(response.status).toBe(200);
+    expect(JsonExt.parse(await response.text())).toEqual(botSyncStatus);
+    expect(handleBotRequest).toHaveBeenCalledWith({ method: 'GET', path: '/sync-status', body: undefined });
+  });
+
   it('rolls back invite rows when coupon creation fails', async () => {
     routerDb = createDb('router-server-create-rollback-');
 
@@ -264,10 +283,9 @@ describe('RouterServer', () => {
         }),
       ],
     ]);
-    const bondLotsByVault = vi.fn().mockResolvedValue([
-      { bondLotId: registry.createType('u64', 1) },
-      { bondLotId: registry.createType('u64', 2) },
-    ]);
+    const bondLotsByVault = vi
+      .fn()
+      .mockResolvedValue([{ bondLotId: registry.createType('u64', 1) }, { bondLotId: registry.createType('u64', 2) }]);
     const bondLotIdsByAccount = vi.fn(async (accountId: string) => {
       const id = accountId === memberOne.address ? 1 : 2;
       return [{ args: [null, registry.createType('u64', id)] }];
@@ -407,17 +425,13 @@ describe('RouterServer', () => {
     routerServer = started.routerServer;
     botServer = started.botServer;
 
-    const response = await requestJson(
-      started.routerAddress,
-      `/invites/${invite.inviteCode}/regenerate`,
-      {
-        vaultId: 12,
-        maxSatoshis: 25_000n,
-        estimatedGiftUsd: 16.25,
-        btcPctFee: 2.5,
-        expiresAfterTicks: 60,
-      },
-    );
+    const response = await requestJson(started.routerAddress, `/invites/${invite.inviteCode}/regenerate`, {
+      vaultId: 12,
+      maxSatoshis: 25_000n,
+      estimatedGiftUsd: 16.25,
+      btcPctFee: 2.5,
+      expiresAfterTicks: 60,
+    });
     expect(response.status).toBe(200);
 
     const regeneratedInvite = JsonExt.parse<IInviteResponse>(await response.text()).invite;
@@ -501,21 +515,25 @@ describe('RouterServer', () => {
       btcPctFee: 2.5,
     });
 
-    const started = await startRouterServer(routerDb, request => {
-      if (request.method === 'POST' && request.path === '/bitcoin-lock-coupons/activate') {
-        return {
-          status: 200,
-          body: activatedCoupon,
-        };
-      }
+    const started = await startRouterServer(
+      routerDb,
+      request => {
+        if (request.method === 'POST' && request.path === '/bitcoin-lock-coupons/activate') {
+          return {
+            status: 200,
+            body: activatedCoupon,
+          };
+        }
 
-      return {
-        status: 404,
-        body: { error: 'Not Found' },
-      };
-    }, {
-      adminOperatorAccountId: operator.address,
-    });
+        return {
+          status: 404,
+          body: { error: 'Not Found' },
+        };
+      },
+      {
+        adminOperatorAccountId: operator.address,
+      },
+    );
     routerServer = started.routerServer;
     botServer = started.botServer;
 
@@ -578,7 +596,10 @@ describe('RouterServer', () => {
     expect(authenticatedResponse.status).toBe(200);
 
     const verifyResponse = await fetch(
-      withSessionId(`http://${started.routerAddress.host}:${started.routerAddress.port}/auth/verify/admin`, session.sessionId),
+      withSessionId(
+        `http://${started.routerAddress.host}:${started.routerAddress.port}/auth/verify/admin`,
+        session.sessionId,
+      ),
     );
     expect(verifyResponse.status).toBe(204);
     expect(verifyResponse.headers.get('x-user-id')).toBe(operator.address);
@@ -614,19 +635,28 @@ describe('RouterServer', () => {
 
     const { session } = await login(started.routerAddress, member, UserRole.Member, memberAuth);
     const substrateVerifyResponse = await fetch(
-      withSessionId(`http://${started.routerAddress.host}:${started.routerAddress.port}/auth/verify/substrate`, session.sessionId),
+      withSessionId(
+        `http://${started.routerAddress.host}:${started.routerAddress.port}/auth/verify/substrate`,
+        session.sessionId,
+      ),
     );
     expect(substrateVerifyResponse.status).toBe(204);
     expect(substrateVerifyResponse.headers.get('x-user-id')).toBe(member.address);
     expect(substrateVerifyResponse.headers.get('x-user-role')).toBe(UserRole.Member);
 
     const memberVerifyResponse = await fetch(
-      withSessionId(`http://${started.routerAddress.host}:${started.routerAddress.port}/auth/verify/member`, session.sessionId),
+      withSessionId(
+        `http://${started.routerAddress.host}:${started.routerAddress.port}/auth/verify/member`,
+        session.sessionId,
+      ),
     );
     expect(memberVerifyResponse.status).toBe(204);
 
     const adminVerifyResponse = await fetch(
-      withSessionId(`http://${started.routerAddress.host}:${started.routerAddress.port}/auth/verify/admin`, session.sessionId),
+      withSessionId(
+        `http://${started.routerAddress.host}:${started.routerAddress.port}/auth/verify/admin`,
+        session.sessionId,
+      ),
     );
     expect(adminVerifyResponse.status).toBe(403);
 
@@ -705,12 +735,7 @@ describe('RouterServer', () => {
     botServer = started.botServer;
 
     const { session } = await login(started.routerAddress, member, UserRole.Member, memberAuth);
-    const { session: otherSession } = await login(
-      started.routerAddress,
-      otherMember,
-      UserRole.Member,
-      otherMemberAuth,
-    );
+    const { session: otherSession } = await login(started.routerAddress, otherMember, UserRole.Member, otherMemberAuth);
 
     const listUrl = `http://${started.routerAddress.host}:${started.routerAddress.port}/invites/me/bitcoin-lock-coupons`;
     const unauthenticatedListResponse = await fetch(listUrl);
@@ -808,7 +833,10 @@ describe('RouterServer', () => {
     const { session: memberSession } = await login(started.routerAddress, member, UserRole.Member, memberAuth);
 
     const inviteResponse = await fetch(
-      withSessionId(`http://${started.routerAddress.host}:${started.routerAddress.port}/invites/me`, memberSession.sessionId),
+      withSessionId(
+        `http://${started.routerAddress.host}:${started.routerAddress.port}/invites/me`,
+        memberSession.sessionId,
+      ),
     );
     expect(inviteResponse.status).toBe(200);
     expect(JsonExt.parse<IInviteResponse>(await inviteResponse.text()).invite.inviteCode).toBe(invite.inviteCode);
@@ -820,9 +848,7 @@ describe('RouterServer', () => {
     const firstUpgradeRequest = await fetch(requestUpgradeUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JsonExt.stringify(
-        createRequestOperationsUpgradeBody(member, memberAuth, operationalAccount),
-      ),
+      body: JsonExt.stringify(createRequestOperationsUpgradeBody(member, memberAuth, operationalAccount)),
     });
     expect(firstUpgradeRequest.status).toBe(200);
     const firstUpgradeBody = JsonExt.parse<{ operationsUpgradeRequestedAt: Date }>(await firstUpgradeRequest.text());
@@ -838,9 +864,7 @@ describe('RouterServer', () => {
     const secondUpgradeRequest = await fetch(requestUpgradeUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JsonExt.stringify(
-        createRequestOperationsUpgradeBody(member, memberAuth, operationalAccount),
-      ),
+      body: JsonExt.stringify(createRequestOperationsUpgradeBody(member, memberAuth, operationalAccount)),
     });
     expect(secondUpgradeRequest.status).toBe(200);
     const secondUpgradeBody = JsonExt.parse<{ operationsUpgradeRequestedAt: Date }>(await secondUpgradeRequest.text());
@@ -947,13 +971,19 @@ describe('RouterServer', () => {
     expect(unauthenticatedStatusResponse.status).toBe(401);
 
     const adminStatusResponse = await fetch(
-      withSessionId(`http://${started.routerAddress.host}:${started.routerAddress.port}/ethereum-relay-status`, adminSession.sessionId),
+      withSessionId(
+        `http://${started.routerAddress.host}:${started.routerAddress.port}/ethereum-relay-status`,
+        adminSession.sessionId,
+      ),
     );
     expect(adminStatusResponse.status).toBe(200);
     expect(JsonExt.parse(await adminStatusResponse.text())).toEqual(relayStatus);
 
     const memberStatusResponse = await fetch(
-      withSessionId(`http://${started.routerAddress.host}:${started.routerAddress.port}/ethereum-relay-status`, memberSession.sessionId),
+      withSessionId(
+        `http://${started.routerAddress.host}:${started.routerAddress.port}/ethereum-relay-status`,
+        memberSession.sessionId,
+      ),
     );
     expect(memberStatusResponse.status).toBe(200);
     expect(JsonExt.parse(await memberStatusResponse.text())).toEqual(relayStatus);
@@ -963,7 +993,11 @@ describe('RouterServer', () => {
       throughGatewayActivityNonce: 7n,
     };
 
-    const unauthenticatedRequestResponse = await requestJson(started.routerAddress, '/ethereum-relay-request', relayBody);
+    const unauthenticatedRequestResponse = await requestJson(
+      started.routerAddress,
+      '/ethereum-relay-request',
+      relayBody,
+    );
     expect(unauthenticatedRequestResponse.status).toBe(401);
 
     const adminRequestResponse = await requestJson(
@@ -1066,11 +1100,7 @@ async function login(
   return { session };
 }
 
-function createOpenInviteBody(
-  inviteCode: string,
-  member: KeyringPair,
-  authAccount: KeyringPair,
-) {
+function createOpenInviteBody(inviteCode: string, member: KeyringPair, authAccount: KeyringPair) {
   const authBindingExpiresAt = Date.now() + 60_000;
   const binding = {
     inviteCode,
@@ -1087,7 +1117,11 @@ function createOpenInviteBody(
   };
 }
 
-function createRequestOperationsUpgradeBody(member: KeyringPair, authAccount: KeyringPair, operationalAccount: KeyringPair) {
+function createRequestOperationsUpgradeBody(
+  member: KeyringPair,
+  authAccount: KeyringPair,
+  operationalAccount: KeyringPair,
+) {
   const authBindingExpiresAt = Date.now() + 60_000;
   const binding = {
     accountId: member.address,

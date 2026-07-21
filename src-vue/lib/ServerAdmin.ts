@@ -32,6 +32,8 @@ const DEV_DOCKER_SERVER_ENV_KEYS = [
   'BITCOIN_ADDNODE',
   'NOTEBOOK_ARCHIVE_HOSTS',
 ] as const;
+const TROUBLESHOOTING_COLLECTION_EXPECTED_MS = 30e3;
+const TROUBLESHOOTING_COLLECTION_TIMEOUT_MS = 180e3;
 
 export class ServerAdmin {
   private readonly connection: SSHConnection;
@@ -82,16 +84,30 @@ export class ServerAdmin {
   public async downloadTroubleshootingPackage(onProgress: (progress: number) => void): Promise<string> {
     let totalProgress = 5;
     onProgress(totalProgress);
-    const [output] = await this.connection.runCommandWithTimeout(
-      `sudo ${this.workDir}/server/scripts/create_troubleshooting_gz.sh`,
-      20e3,
-    );
+    const collectionStartedAt = Date.now();
+    const collectionProgressTimer = setInterval(() => {
+      const elapsedRatio = (Date.now() - collectionStartedAt) / TROUBLESHOOTING_COLLECTION_EXPECTED_MS;
+      totalProgress = 5 + 18 * (1 - Math.exp(-elapsedRatio));
+      onProgress(totalProgress);
+    }, 1e3);
+    let output = '';
+
+    try {
+      [output] = await this.connection.runCommandWithTimeout(
+        `sudo ${this.workDir}/server/scripts/create_troubleshooting_gz.sh`,
+        TROUBLESHOOTING_COLLECTION_TIMEOUT_MS,
+        0,
+      );
+    } finally {
+      clearInterval(collectionProgressTimer);
+    }
+
     const file = output.match(/Bundle ready: (.+\.tar\.gz)/);
     if (!file || !file[1]) {
       console.error('Failed to create troubleshooting package:', output);
-      throw new Error('Failed to create troubleshooting package');
+      throw new Error(`Failed to create troubleshooting package: ${output.trim() || 'No script output was returned'}`);
     }
-    totalProgress += 20;
+    totalProgress = 25;
     onProgress(totalProgress);
     const filename = file[1].trim();
     const localFilename = filename.split('/').pop() || 'troubleshooting.tar.gz';

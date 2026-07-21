@@ -718,7 +718,10 @@ export class BlockSync {
 
   private calculateProgress(tick: number | undefined, tickRange: [number, number] | undefined): number {
     if (!tick || !tickRange) return 0;
-    const progress = tick ? (tick - tickRange[0]) / (tickRange[1] - tickRange[0]) : 0;
+    const [startTick, endTick] = tickRange;
+    if (endTick <= startTick) return tick >= endTick ? 100 : 0;
+
+    const progress = Math.min(Math.max((tick - startTick) / (endTick - startTick), 0), 1);
     return Math.round(progress * 10000) / 100;
   }
 }

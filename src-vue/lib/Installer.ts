@@ -119,6 +119,12 @@ export default class Installer {
             );
             await tauriExit(0);
           }
+          if (this.config.serverInstaller.errorType === InstallStepErrorType.ServerConnect) {
+            this.config.serverInstaller.errorType = null;
+            this.config.serverInstaller.errorMessage = null;
+            this.config.serverInstaller = this.config.serverInstaller;
+            await this.config.save();
+          }
 
           stage = 'calculateIsReadyToRun';
           const isReadyToRun = await this.calculateIsReadyToRun(false, accountAddressOnServer);
@@ -579,7 +585,7 @@ export default class Installer {
     }
 
     const hasProgress = this.config.serverInstaller.ServerConnect.progress > 0.0;
-    const isComplete = this.config.serverInstaller.MiningLaunch.progress >= 100;
+    const isComplete = this.installerCheck.isServerInstallComplete;
     if (!hasProgress || isComplete) return;
 
     const server = await this.getServer();
