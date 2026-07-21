@@ -19,7 +19,7 @@ async function createPendingLock(overrides: Partial<IBitcoinLockRecord> = {}) {
 }
 
 describe('BitcoinLocksTable', () => {
-  it('treats repeated finalizePending for the same utxo as idempotent', async () => {
+  it('finalizes idempotently and finds a new pending lock that reuses the owner key', async () => {
     const { table, lock } = await createPendingLock({ uuid: 'finalize-idempotent' });
 
     const bitcoinLock = {
@@ -42,11 +42,21 @@ describe('BitcoinLocksTable', () => {
       createdAtArgonBlockHeight: 12,
       finalFee: 2n,
     });
+    const next = await table.insertPending({
+      uuid: 'same-owner-next-lock',
+      status: BitcoinLockStatus.LockIsProcessingOnArgon,
+      satoshis: lock.satoshis,
+      cosignVersion: lock.cosignVersion,
+      network: lock.network,
+      hdPath: lock.hdPath,
+      vaultId: lock.vaultId,
+    });
 
     expect(first.utxoId).toBe(7);
     expect(second.utxoId).toBe(7);
     expect(second.status).toBe(BitcoinLockStatus.LockPendingFunding);
     expect(second.ratchets[0]).toEqual(expect.objectContaining({ blockHeight: 12 }));
+    expect(await table.findPendingByHdPath(lock.hdPath)).toMatchObject({ uuid: next.uuid, utxoId: null });
   });
 
   it('persists release economics separately from the terminal removal mark', async () => {

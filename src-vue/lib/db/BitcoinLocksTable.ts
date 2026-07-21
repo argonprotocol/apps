@@ -64,9 +64,9 @@ export class BitcoinLocksTable extends BaseTable {
     return nanoid(5);
   }
 
-  public async findLockByHdPath(hdPath: string): Promise<IBitcoinLockRecord | undefined> {
+  public async findPendingByHdPath(hdPath: string): Promise<IBitcoinLockRecord | undefined> {
     const rawRecords = await this.db.select<IBitcoinLockRecord[]>(
-      'SELECT * FROM BitcoinLocks WHERE hdPath = ?',
+      'SELECT * FROM BitcoinLocks WHERE hdPath = ? AND utxoId IS NULL',
       toSqlParams([hdPath]),
     );
     if (rawRecords.length === 0) return undefined;

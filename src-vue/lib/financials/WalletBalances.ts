@@ -143,7 +143,18 @@ export class WalletFinancials
       }
 
       if (!transfer.isInternal || transfer.otherParty === miningBotAddress) {
-        for (const lot of lots) completedPositions.push(createCompletedWalletHoldingPosition(lot, transfer));
+        const completedLotsById = new Map<string, ArgonotHoldingLot>();
+        for (const lot of lots) {
+          const existing = completedLotsById.get(lot.id);
+          if (existing) {
+            existing.amount += lot.amount;
+          } else {
+            completedLotsById.set(lot.id, { ...lot });
+          }
+        }
+        for (const lot of completedLotsById.values()) {
+          completedPositions.push(createCompletedWalletHoldingPosition(lot, transfer));
+        }
         continue;
       }
 

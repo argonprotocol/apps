@@ -725,12 +725,29 @@ describe('financial position accounting', () => {
       }),
       createWalletTransfer({
         id: 2,
+        amount: -5_000_000n,
+        otherParty: '5legacy',
+        isInternal: true,
+        blockNumber: 100,
+        blockTime: committedAt,
+      }),
+      createWalletTransfer({
+        id: 3,
+        amount: -5_000_000n,
+        otherParty: '5legacy',
+        isInternal: true,
+        blockNumber: 101,
+        blockTime: committedAt,
+      }),
+      createWalletTransfer({
+        id: 4,
+        walletAddress: '5legacy',
         amount: -10_000_000n,
         otherParty: '5miner',
         isInternal: true,
         extrinsicIndex: 2,
         microgonsForArgonot: 3_000_000n,
-        blockNumber: 100,
+        blockNumber: 102,
         blockTime: committedAt,
       }),
     ];
@@ -758,6 +775,12 @@ describe('financial position accounting', () => {
     });
 
     const aggregate = reduceFinancialPositions(readySnapshots([...ordinary, ...mining]));
+    expect(ordinary).toContainEqual(
+      expect.objectContaining({
+        id: 'wallet-holding:transfer:1:exit:4',
+        nativeAmount: 10_000_000n,
+      }),
+    );
     expect(aggregate.groupSummaries.liquid.returnSummary).toMatchObject({
       availability: 'not-applicable',
       investmentPositionCount: 0,
@@ -1567,7 +1590,7 @@ describe('financial position accounting', () => {
     ).rejects.toThrow('ARGN holds exceed reserved balance');
   });
 
-  it('accepts the live vault ARGNOT hold as its committed stake', () => {
+  it('uses live vault holds while subscription data catches up', async () => {
     const registry = getOfflineRegistry();
     const account = createArgonAccount({
       reservedMicrogons: 8n,
@@ -1585,21 +1608,36 @@ describe('financial position accounting', () => {
         }),
       ],
     });
-    const positions = vaultFinancials.createFinancialPositions({
-      hasConfirmedHistoryCoverage: false,
+    const source = new VaultFinancials({
+      load: vi.fn(async () => undefined),
+      createdVault: { vaultId: 10, securitization: 8n, isClosed: false } as Vault,
+      data: {
+        pendingCollectRevenue: 100n,
+        argonotCommitment: { committedMicronots: 500n },
+      },
+      history: {
+        loadPositionHistory: vi.fn(async () => ({ capital: [], revenue: [] })),
+      },
+    } as any);
+    const positions = await source.loadPositions({
+      hasConfirmedHistoryCoverage: true,
       account,
-      liveVault: { vaultId: 10, securitization: 8n, isClosed: false } as Vault,
-      committedMicronots: 400n,
-      uncollectedRevenue: 0n,
       liveArgonotRateMicrogons: 1_000_000n,
     });
 
-    expect(positions).toContainEqual(
-      expect.objectContaining({
-        kind: 'vault-balance',
-        asset: 'ARGNOT',
-        amount: 400n,
-      }),
+    expect(positions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'vault-balance',
+          asset: 'ARGNOT',
+          amount: 400n,
+        }),
+        expect.objectContaining({
+          kind: 'vault',
+          id: 'vault:10',
+          uncollectedRevenue: 0n,
+        }),
+      ]),
     );
   });
 });

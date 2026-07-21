@@ -411,7 +411,22 @@ describe('BitcoinLocks recovery', () => {
       status: BitcoinLockStatus.LockPendingFunding,
       createdAt: '2026-01-01T00:00:00Z',
     });
-    record.lockDetails = createdLock;
+    record.lockDetails = new BitcoinLock({
+      ...createHistoricalLock({ accountId, liquidityPromised: 9_000n }),
+      utxoId: 41,
+    });
+    record.ratchets = [
+      {
+        mintAmount: 9_000n,
+        mintPending: 9_000n,
+        lockedTargetPrice: 1_000n,
+        securityFee: 20n,
+        txFee: 56_584n,
+        burned: 0n,
+        blockHeight: 583_481,
+        oracleBitcoinBlockHeight: 500,
+      },
+    ];
     store.data.locksByUtxoId[7] = record;
     const table = {
       getByUtxoId: vi.fn().mockResolvedValueOnce(undefined).mockResolvedValue(record),
@@ -532,6 +547,7 @@ describe('BitcoinLocks recovery', () => {
 
     const recovered = store.data.locksByUtxoId[7];
     expect(recovered).toBe(record);
+    expect(recovered.lockDetails.utxoId).toBe(7);
     expect(recovered.ratchets).toEqual([
       expect.objectContaining({ mintAmount: 1_000n, mintPending: 0n, txFee: 11n, extrinsicIndex: 2 }),
       expect.objectContaining({ mintAmount: 200n, mintPending: 0n, burned: 50n, txFee: 13n, extrinsicIndex: 2 }),
@@ -649,7 +665,7 @@ describe('BitcoinLocks recovery', () => {
     let saveAttempt = 0;
     const table = {
       getByUtxoId: vi.fn(async () => durable),
-      findLockByHdPath: vi.fn(async () => pending),
+      findPendingByHdPath: vi.fn(async () => pending),
       finalizePending: vi.fn(async () => {
         durable = {
           ...pending,

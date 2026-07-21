@@ -160,7 +160,11 @@ export class BitcoinLockRecovery {
         // Restart replay from durable state rather than a stale in-memory observation.
         const persistedRecord = await table.getByUtxoId(utxoId);
         if (persistedRecord) await this.prepareHistoryRecoveryLock(persistedRecord, options.lockQueueOwnerUuid);
-        const existing = persistedRecord ? this.applyRecoveredRecord(persistedRecord) : this.getRecoveryLock(utxoId);
+        let existing = persistedRecord ? this.applyRecoveredRecord(persistedRecord) : this.getRecoveryLock(utxoId);
+        if (existing?.lockDetails.utxoId !== undefined && existing.lockDetails.utxoId !== utxoId) {
+          existing = this.createDetachedRecord(existing);
+          existing.ratchets = [];
+        }
         if (existing) {
           if (existing.ratchets.length) {
             const creationRatchetIndex = existing.ratchets.findIndex(
@@ -205,12 +209,14 @@ export class BitcoinLockRecovery {
         }
 
         const transactionFee = this.readTransactionFee(eventRecords, eventIndex, block) ?? 0n;
-        const record = await this.recoverLock({
-          lock: chainLock,
-          createdAtArgonBlockHeight: block.blockNumber,
-          finalFee: transactionFee,
-          lockQueueOwnerUuid: options.lockQueueOwnerUuid,
-        });
+        const record =
+          existing ??
+          (await this.recoverLock({
+            lock: chainLock,
+            createdAtArgonBlockHeight: block.blockNumber,
+            finalFee: transactionFee,
+            lockQueueOwnerUuid: options.lockQueueOwnerUuid,
+          }));
         const recovered = this.createDetachedRecord(record);
         recovered.status = BitcoinLockStatus.LockPendingFunding;
         recovered.satoshis = chainLock.satoshis;
@@ -350,7 +356,7 @@ export class BitcoinLockRecovery {
     const derivedPubkey = await this.findDerivedPubkeyForOwner(args.lock.vaultId, args.lock.ownerPubkey);
     if (!derivedPubkey) throw new Error(`Unable to recover the HD path for Bitcoin lock ${args.lock.utxoId}`);
 
-    let record = await table.findLockByHdPath(derivedPubkey.hdPath);
+    let record = await table.findPendingByHdPath(derivedPubkey.hdPath);
     if (!record) {
       record = await this.insertPending({
         uuid: BitcoinLocksTable.createUuid(),
