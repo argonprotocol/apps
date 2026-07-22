@@ -20,13 +20,14 @@
    git checkout -b v<new-version>
    ```
 7. Commit the changes, including the generated data and synchronized Tauri configuration files.
+   ```bash
+   git add -A
+   git commit -m "v<new-version>"
+   ```
 8. Push the branch to the remote repository.
    ```bash
-   git add .
-   git commit -m "v<new-version>"
    git push origin v<new-version>
-   ``` 
+   ```
 9. This will trigger the CI/CD pipeline to create a new release.
 10. Once you are happy with the release, publish it via GitHub. This will create a tag and update it as the latest stable or experimental release.
 11. Merge the version branch back into `main`.
-12. 
