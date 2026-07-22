@@ -10,6 +10,9 @@
       <span v-if="troubleshootingError" class="text-sm text-red-500">
         {{ troubleshootingError }}
       </span>
+      <span v-if="troubleshootingWarning" class="text-sm text-amber-600">
+        {{ troubleshootingWarning }}
+      </span>
       <div class="mt-5 flex flex-row items-center gap-2">
         <button
           @click="downloadTroubleshooting"
@@ -58,54 +61,79 @@ const localLogDir = Vue.ref('');
 const troubleshootingProgress = Vue.ref(0);
 const isCreatingTroubleshootingPackage = Vue.ref(false);
 const troubleshootingError = Vue.ref('');
+const troubleshootingWarning = Vue.ref('');
 const includeWalletMnemonics = Vue.ref(false);
 
 async function downloadTroubleshooting() {
   isCreatingTroubleshootingPackage.value = true;
   troubleshootingProgress.value = 0;
   troubleshootingError.value = '';
+  troubleshootingWarning.value = '';
   const removeOnFinish: { path: string; recursive?: boolean }[] = [];
   let unsubZipProgress: (() => void) | undefined;
 
   try {
-    let zipPath = `argon_${INSTANCE_NAME}_troubleshooting_${Date.now()}.zip`;
+    const timestamp = Date.now();
+    const troubleshootingRoot = await join(await tempDir(), `argon_${INSTANCE_NAME}_troubleshooting_${timestamp}`);
+    const dataSnapshotDir = await join(troubleshootingRoot, 'data');
+    const osProfilePath = await join(troubleshootingRoot, 'os-profile.json');
+    const collectionErrorsPath = await join(troubleshootingRoot, 'collection-errors.txt');
+    const collectionErrors: string[] = [];
+    let zipPath = await join(await tempDir(), `argon_${INSTANCE_NAME}_troubleshooting_${timestamp}.zip`);
     let serverPackagePath: string | undefined;
+    let hasOsProfile = false;
+
+    removeOnFinish.push({ path: troubleshootingRoot, recursive: true });
+    await mkdir(dataSnapshotDir, { recursive: true });
 
     if (diagnostics.hasServer()) {
-      await diagnostics.load();
-      const downloadPath = await diagnostics.downloadTroubleshootingPackage(x => {
-        troubleshootingProgress.value = Math.min(60, x);
-      });
-      serverPackagePath = downloadPath;
-      removeOnFinish.push({ path: downloadPath });
-      zipPath = downloadPath.replace('.tar.gz', '.zip');
+      try {
+        await diagnostics.load();
+        const downloadPath = await diagnostics.downloadTroubleshootingPackage(x => {
+          troubleshootingProgress.value = Math.min(60, x);
+        });
+        serverPackagePath = downloadPath;
+        removeOnFinish.push({ path: downloadPath });
+        zipPath = downloadPath.replace('.tar.gz', '.zip');
+      } catch (error) {
+        console.warn('Unable to include server troubleshooting package:', error);
+        collectionErrors.push(`Server troubleshooting package: ${String(error)}`);
+        troubleshootingWarning.value = 'Server diagnostics failed. The downloaded package contains local diagnostics.';
+        troubleshootingProgress.value = Math.max(troubleshootingProgress.value, 15);
+      }
     } else {
-      zipPath = await join(await tempDir(), zipPath);
       troubleshootingProgress.value = 15;
     }
 
-    const troubleshootingRoot = await join(await tempDir(), `argon_${INSTANCE_NAME}_troubleshooting_${Date.now()}`);
-    const dataSnapshotDir = await join(troubleshootingRoot, 'data');
-    const osProfilePath = await join(troubleshootingRoot, 'os-profile.json');
-
-    removeOnFinish.push({ path: troubleshootingRoot, recursive: true });
-
-    await mkdir(dataSnapshotDir, { recursive: true });
-    await copyDirectorySnapshot(await getInstanceConfigDir(), dataSnapshotDir, includeWalletMnemonics.value);
+    await copyDirectorySnapshot(
+      await getInstanceConfigDir(),
+      dataSnapshotDir,
+      includeWalletMnemonics.value,
+      collectionErrors,
+    );
     troubleshootingProgress.value = Math.max(troubleshootingProgress.value, 75);
 
-    const osProfile = await invokeWithTimeout<string>('collect_troubleshooting_os_profile', {}, 15e3);
-    await writeTextFile(osProfilePath, osProfile);
+    try {
+      const osProfile = await invokeWithTimeout<string>('collect_troubleshooting_os_profile', {}, 15e3);
+      await writeTextFile(osProfilePath, osProfile);
+      hasOsProfile = true;
+    } catch (error) {
+      collectionErrors.push(`Local OS profile: ${String(error)}`);
+    }
     troubleshootingProgress.value = Math.max(troubleshootingProgress.value, 85);
 
     const pathsWithPrefixes: [string, string][] = [
       ['logs', localLogDir.value],
       ['data', dataSnapshotDir],
-      ['profile', osProfilePath],
     ];
 
+    if (hasOsProfile) pathsWithPrefixes.push(['profile', osProfilePath]);
     if (serverPackagePath) {
       pathsWithPrefixes.push(['server', serverPackagePath]);
+    }
+    if (collectionErrors.length) {
+      await writeTextFile(collectionErrorsPath, collectionErrors.join('\n\n'));
+      pathsWithPrefixes.push(['errors', collectionErrorsPath]);
     }
 
     const zipProgressEventKey = `troubleshooting_zip_progress_${Date.now()}`;
@@ -147,17 +175,32 @@ async function downloadTroubleshooting() {
   }
 }
 
-async function copyDirectorySnapshot(sourceDir: string, destinationDir: string, includeMnemonic: boolean) {
-  await mkdir(destinationDir, { recursive: true });
+async function copyDirectorySnapshot(
+  sourceDir: string,
+  destinationDir: string,
+  includeMnemonic: boolean,
+  collectionErrors: string[],
+) {
+  await mkdir(destinationDir, { recursive: true }).catch(error => {
+    collectionErrors.push(`Create local snapshot directory ${destinationDir}: ${String(error)}`);
+  });
 
-  for (const entry of await readDir(sourceDir)) {
+  const entries = await readDir(sourceDir).catch(error => {
+    collectionErrors.push(`Read local data directory ${sourceDir}: ${String(error)}`);
+    return [];
+  });
+
+  for (const entry of entries) {
     if (!entry.name) {
       continue;
     }
     if (entry.name === '.DS_Store') {
       continue;
     }
-    if (!includeMnemonic && entry.name === 'mnemonic') {
+    if (entry.isDirectory && entry.name === 'virtual-machine') {
+      continue;
+    }
+    if (!includeMnemonic && entry.name.toLowerCase().startsWith('mnemonic')) {
       continue;
     }
 
@@ -165,11 +208,13 @@ async function copyDirectorySnapshot(sourceDir: string, destinationDir: string, 
     const destinationPath = await join(destinationDir, entry.name);
 
     if (entry.isDirectory) {
-      await copyDirectorySnapshot(sourcePath, destinationPath, includeMnemonic);
+      await copyDirectorySnapshot(sourcePath, destinationPath, includeMnemonic, collectionErrors);
       continue;
     }
     if (entry.isFile) {
-      await copyFile(sourcePath, destinationPath);
+      await copyFile(sourcePath, destinationPath).catch(error => {
+        collectionErrors.push(`Copy local data file ${sourcePath}: ${String(error)}`);
+      });
     }
   }
 }

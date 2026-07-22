@@ -67,6 +67,14 @@ export class BotServer {
       sendJson(res, bot.isReady);
     });
 
+    app.get('/sync-status', async (_req, res) => {
+      sendJson(res, {
+        isReady: bot.isReady,
+        isSyncing: bot.isSyncing,
+        syncProgress: bot.blockSync?.calculateSyncProgress() ?? 0,
+      });
+    });
+
     app.post('/bitcoin-lock-coupons', express.text({ type: '*/*' }), async (req, res) => {
       await safeJsonRoute(res, async () => {
         const request = requireBody<ICreateBitcoinLockCouponRequest>(req.body);

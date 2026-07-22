@@ -1,7 +1,7 @@
 <!-- prettier-ignore -->
 <template>
   <TransitionRoot class="absolute inset-0 pointer-events-none" :show="isOpen">
-    <BgOverlay :showWindowControls="false" :style="{ zIndex: overlayZIndex.backdropZIndex }" />
+    <BgOverlay :showWindowControls="false" :style="{ zIndex: topBarMenuZIndex.zIndex - 1 }" />
 
     <div
       class="absolute inset-0 overflow-y-auto pt-[1px] flex items-center justify-center pointer-events-none"
@@ -57,12 +57,13 @@ import ProgressBar from '../components/ProgressBar.vue';
 import AlertIcon from '../assets/alert.svg?component';
 import { getBot } from '../stores/bot.ts';
 import Draggable from './helpers/Draggable.ts';
-import { useOverlayZIndex } from './helpers/OverlayZIndex.ts';
+import { useFloatingZIndex, useOverlayZIndex } from './helpers/OverlayZIndex.ts';
 
 const isOpen = Vue.ref(true);
 const isRetrying = Vue.ref(false);
 const bot = getBot();
 const overlayZIndex = useOverlayZIndex(() => true);
+const topBarMenuZIndex = useFloatingZIndex();
 
 const draggable = Vue.reactive(new Draggable());
 

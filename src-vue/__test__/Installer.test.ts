@@ -6,6 +6,7 @@ import Installer, { ReasonsToSkipInstall, resetInstaller } from '../lib/Installe
 import { createMockedDbPromise } from './helpers/db';
 import { IInstallStepStatuses, InstallStepStatusType } from '../lib/ServerAdmin';
 import {
+  type IConfigInstallStep,
   InstallStepErrorType,
   InstallStepKey,
   InstallStepStatus,
@@ -19,6 +20,7 @@ import { WalletKeys } from '../lib/WalletKeys.ts';
 import { getTransactionTracker } from '../stores/transactions.ts';
 import { createMockWalletKeys, createTestWallet } from './helpers/wallet.ts';
 import { TICK_MILLIS } from '../lib/Env.ts';
+import { ServerApiClient } from '../lib/ServerApiClient.ts';
 
 vi.mock('../stores/transactions.ts', () => ({
   getTransactionTracker: vi.fn(),
@@ -46,7 +48,7 @@ it('should skip install if server is not connected', async () => {
   expect(installer.reasonToSkipInstall).toBe('ServerNotConnected');
 });
 
-it('keeps the installer loadable when the configured server health check fails', async () => {
+it('keeps the installer loadable when a server check fails and clears the error after reconnecting', async () => {
   const { walletKeys } = createTestWallet('//Alice');
   const config = new Config(
     createMockedDbPromise({
@@ -64,7 +66,9 @@ it('keeps the installer loadable when the configured server health check fails',
   await config.load();
 
   const installer = new Installer(config, walletKeys);
-  vi.spyOn(installer as any, 'getServer').mockRejectedValue(new Error('SSH authentication failed'));
+  const getServer = vi
+    .spyOn(installer as any, 'getServer')
+    .mockRejectedValueOnce(new Error('SSH authentication failed'));
 
   await expect(installer.load()).resolves.toBeUndefined();
   await expect(installer.isLoadedPromise).resolves.toBeUndefined();
@@ -73,6 +77,17 @@ it('keeps the installer loadable when the configured server health check fails',
     errorType: InstallStepErrorType.ServerConnect,
     errorMessage: 'SSH authentication failed',
   });
+
+  getServer.mockResolvedValue({
+    downloadAccountAddress: vi.fn().mockResolvedValue(walletKeys.miningBotAddress),
+  });
+  vi.spyOn(installer as any, 'calculateIsReadyToRun').mockResolvedValue(false);
+  vi.spyOn(installer as any, 'calculateIsRunning').mockResolvedValue(false);
+
+  await installer.load();
+
+  expect(config.serverInstaller.errorType).toBeNull();
+  expect(config.serverInstaller.errorMessage).toBeNull();
 });
 
 it('should skip install if install is already running', async () => {
@@ -391,6 +406,46 @@ it('should run through entire install process', async () => {
   expect(config.serverInstaller.ServerConnect.status).toBe('Completed');
 });
 
+it('uses a brief startup estimate until bot sync progress is available', async () => {
+  const walletKeys = createMockWalletKeys();
+  const config = new Config(createMockedDbPromise({}), walletKeys);
+  await config.load();
+  config.serverDetails = {
+    ...config.serverDetails,
+    ipAddress: '127.0.0.1',
+  };
+  config.serverInstaller.MiningLaunch.startDate = new Date(Date.now() - 60 * 60 * 1000);
+
+  const installer = new Installer(config, walletKeys);
+  const installerCheck = Reflect.get(installer, 'installerCheck') as InstallerCheck;
+  const calculateWorkingStepProgress = Reflect.get(installerCheck, 'calculateWorkingStepProgress') as (
+    stepName: InstallStepKey,
+    stepPending: IConfigInstallStep,
+    estimatedMinutes: number,
+  ) => Promise<number>;
+  vi.spyOn(ServerApiClient, 'getBotInstallProgress')
+    .mockRejectedValueOnce(new Error('Bot gateway is starting'))
+    .mockResolvedValue(37.5);
+  vi.spyOn(installer, 'refreshLocalGatewayPort').mockResolvedValue(undefined);
+
+  await expect(
+    calculateWorkingStepProgress.call(
+      installerCheck,
+      InstallStepKey.MiningLaunch,
+      config.serverInstaller.MiningLaunch,
+      0.2,
+    ),
+  ).resolves.toBe(5);
+  await expect(
+    calculateWorkingStepProgress.call(
+      installerCheck,
+      InstallStepKey.MiningLaunch,
+      config.serverInstaller.MiningLaunch,
+      0.2,
+    ),
+  ).resolves.toBe(37.5);
+});
+
 it('persists SSH details before later installation work can fail', async () => {
   const dbPromise = createMockedDbPromise({ serverAdd: '{ "localComputer": {} }' });
   const db = await dbPromise;
@@ -463,6 +518,36 @@ it('does not resume installer polling when the remote installer is no longer run
   expect(installerCheck.start).not.toHaveBeenCalled();
   expect(installer.isRunning).toBe(false);
   expect(config.isServerInstalling).toBe(false);
+});
+
+it('resumes installer polling when cached progress is 100 but the final step is still working', async () => {
+  const walletKeys = createMockWalletKeys();
+  const config = new Config(createMockedDbPromise({}), walletKeys);
+  await config.load();
+
+  const installer = new Installer(config, walletKeys);
+  config.serverDetails = {
+    ...config.serverDetails,
+    ipAddress: '127.0.0.1',
+  };
+  config.serverInstaller.ServerConnect.progress = 100;
+  config.serverInstaller.MiningLaunch.progress = 100;
+  config.serverInstaller.MiningLaunch.status = InstallStepStatus.Working;
+  config.isServerInstalling = true;
+
+  const server = {
+    isInstallerScriptRunning: vi.fn().mockResolvedValue(true),
+  };
+  const installerCheck = (installer as any).installerCheck as InstallerCheck;
+  const start = vi.spyOn(installerCheck, 'start').mockImplementation(() => undefined);
+  vi.spyOn(installerCheck, 'noThrowWaitForInstallToComplete').mockResolvedValue(undefined);
+  vi.spyOn(installer as any, 'getServer').mockResolvedValue(server);
+  vi.spyOn(installer as any, 'saveLocalGatewayPortWhenReady').mockResolvedValue(undefined);
+
+  // @ts-expect-error - test private method
+  await installer.activateInstallerCheck(false);
+
+  expect(start).toHaveBeenCalledOnce();
 });
 
 it('keeps installer failures visible when the remote installer is no longer running', async () => {

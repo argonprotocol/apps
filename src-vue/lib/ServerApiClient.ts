@@ -2,6 +2,7 @@ import {
   getObjectStringProperty,
   JsonExt,
   fetch,
+  type IBotStateStarting,
   type IEthereumGatewayCatchUpRequest,
   type IEthereumGatewayCatchUpResponse,
   type IEthereumGatewayRelayStatus,
@@ -307,6 +308,13 @@ export class ServerApiClient {
   public static async getArgonInstallProgress(serverDetails: ServerGatewayDetails): Promise<number> {
     const result = await this.request<ISyncStatus>(serverDetails, '/argon/syncstatus', { timeoutMs: 30e3 });
     return result?.syncPercent ?? 0;
+  }
+
+  public static async getBotInstallProgress(serverDetails: ServerGatewayDetails): Promise<number> {
+    const result = await this.request<Pick<IBotStateStarting, 'syncProgress'>>(serverDetails, '/bot-sync-status', {
+      timeoutMs: 30e3,
+    });
+    return result.syncProgress;
   }
 
   private static async request<T>(

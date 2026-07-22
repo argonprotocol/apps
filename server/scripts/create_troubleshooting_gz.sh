@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail
 # set -x
 # Point this to your install logs directory (override with env if needed)
 DIRNAME="$(dirname "$0")"
@@ -10,7 +10,16 @@ STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 HOST="$(hostname -s || echo host)"
 OUTROOT="/tmp/troubleshooting-${HOST}-${STAMP}"
 OUT="${OUTROOT}"
-mkdir -p "${OUT}"/{docker,install,logs}
+mkdir -p "${OUT}"/{data,docker,install,logs}
+COLLECTION_ERRORS="${OUT}/collection-errors.txt"
+: > "$COLLECTION_ERRORS"
+exec 3>&2
+exec 2> >(tee -a "$COLLECTION_ERRORS" >&3)
+COLLECTION_ERRORS_TEE_PID=$!
+
+record_collection_error() {
+  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*" >&2
+}
 
 # --- System snapshots ---
 {
@@ -196,10 +205,31 @@ SINCE="$(date -u -d '48 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -v -4
 
 # Data folders
 echo "[*] Copying data folders"
-rsync -a --delete "$ROOT_DIR"/data/argon/bot* "$OUT/data" | true
+shopt -s nullglob
+bot_data_paths=("$ROOT_DIR"/data/argon/bot*)
+shopt -u nullglob
+
+if (( ${#bot_data_paths[@]} )); then
+  if ! rsync -a --delete "${bot_data_paths[@]}" "$OUT/data"; then
+    record_collection_error "Some bot data files could not be copied. Continuing with a partial bundle."
+  fi
+else
+  record_collection_error "No bot data paths matched $ROOT_DIR/data/argon/bot*. Continuing without bot data."
+fi
+
+exec 2>&3
+wait "$COLLECTION_ERRORS_TEE_PID"
+exec 3>&-
+
+if [[ ! -s "$COLLECTION_ERRORS" ]]; then
+  echo "No collection errors." > "$COLLECTION_ERRORS"
+fi
 
 echo "[*] Creating archive"
 ARCHIVE="${OUTROOT}.tar.gz"
-tar -C "$(dirname "$OUTROOT")" -czf "$ARCHIVE" "$(basename "$OUTROOT")"
+if ! tar -C "$(dirname "$OUTROOT")" -czf "$ARCHIVE" "$(basename "$OUTROOT")"; then
+  echo "[x] Failed to create archive: $ARCHIVE" >&2
+  exit 1
+fi
 
 echo "[✓] Bundle ready: $ARCHIVE"

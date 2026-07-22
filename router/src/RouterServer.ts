@@ -70,7 +70,8 @@ export class RouterServer {
     const botClient = new BotUpstreamClient(botInternalUrl);
     const inviteService = new UserInviteService(db);
     const inviteProgressNodeUrl = this.options.mainNodeUrl ?? this.options.localNodeUrl;
-    const adminOperatorAccountId = this.options.auth?.adminOperatorAccountId?.trim() || ADMIN_OPERATOR_ACCOUNT_ID?.trim();
+    const adminOperatorAccountId =
+      this.options.auth?.adminOperatorAccountId?.trim() || ADMIN_OPERATOR_ACCOUNT_ID?.trim();
     const getInviteProgressClient = async () => {
       if (!inviteProgressNodeUrl) {
         throw new RouterError('A mainchain node is required to approve operations access.', 503);
@@ -189,9 +190,16 @@ export class RouterServer {
       safeJsonRoute(async () => BitcoinApis.syncStatus()),
     );
     app.get(
+      '/bot-sync-status',
+      safeJsonRoute(async () => botClient.getSyncStatus()),
+    );
+    app.get(
       '/bitcoin/recentblocks',
       safeJsonRoute(async req => {
-        const blockCount = Number(String(req.query.blockCount ?? '10'));
+        const requestedBlockCount = Number(String(req.query.blockCount ?? '10'));
+        const blockCount = Number.isFinite(requestedBlockCount)
+          ? Math.min(Math.max(Math.floor(requestedBlockCount), 1), 100)
+          : 10;
         return BitcoinApis.recentBlocks(blockCount);
       }),
     );
@@ -651,10 +659,7 @@ export class RouterServer {
 
         return await botClient.getEthereumGatewayRelayStatus().catch(error => {
           if (error instanceof RouterError) {
-            throw new RouterError(
-              error.message || 'Bot request failed to load Ethereum relay status.',
-              error.status,
-            );
+            throw new RouterError(error.message || 'Bot request failed to load Ethereum relay status.', error.status);
           }
           throw error;
         });
