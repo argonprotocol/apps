@@ -406,6 +406,59 @@ it('should run through entire install process', async () => {
   expect(config.serverInstaller.ServerConnect.status).toBe('Completed');
 });
 
+it('preserves the remote Docker Compose project name across a core file replacement', async () => {
+  const dbPromise = createMockedDbPromise({});
+  const walletKeys = createMockWalletKeys();
+  const config = new Config(dbPromise, walletKeys);
+  await config.load();
+
+  config.serverDetails = {
+    ...config.serverDetails,
+    ipAddress: '127.0.0.1',
+  };
+
+  const installer = new Installer(config, walletKeys);
+  await installer.load();
+
+  const server = {
+    downloadAccountAddress: vi.fn().mockResolvedValue(walletKeys.miningBotAddress),
+    getComposeProjectName: vi.fn().mockResolvedValue('mainnet-default'),
+    uploadAccountAddress: vi.fn().mockResolvedValue(undefined),
+    createLogsDir: vi.fn().mockResolvedValue(undefined),
+    startInstallerScript: vi.fn().mockResolvedValue(undefined),
+  };
+  const uploadCoreFiles = vi.spyOn(installer as any, 'uploadCoreFiles').mockResolvedValue(undefined);
+
+  // @ts-ignore - exercise the upgrade path directly
+  installer.calculateIsRunning = vi.fn().mockResolvedValue(false);
+  // @ts-ignore - exercise the upgrade path directly
+  installer.calculateIsReadyToRun = vi.fn().mockResolvedValue(true);
+  // @ts-ignore - avoid real server setup in this unit test
+  installer.getServer = vi.fn().mockResolvedValue(server);
+  // @ts-ignore - avoid remote config uploads in this unit test
+  installer.uploadBotConfigFiles = vi.fn().mockResolvedValue(undefined);
+  // @ts-ignore - avoid port polling in this unit test
+  installer.saveLocalGatewayPortWhenReady = vi.fn().mockResolvedValue(undefined);
+  // @ts-ignore - drive the upload branch directly
+  installer.remoteFilesNeedUpdating = true;
+  // @ts-ignore - avoid log cleanup in this unit test
+  installer.clearStepFiles = vi.fn().mockResolvedValue(undefined);
+  // @ts-ignore - avoid background polling in this unit test
+  installer.installerCheck.start = vi.fn();
+  // @ts-ignore - avoid background polling in this unit test
+  installer.installerCheck.activateServer = vi.fn();
+  // @ts-ignore - avoid background polling in this unit test
+  installer.installerCheck.noThrowWaitForInstallToComplete = vi.fn().mockResolvedValue(undefined);
+
+  await installer.run(false);
+
+  expect(server.getComposeProjectName).toHaveBeenCalledOnce();
+  expect(server.getComposeProjectName.mock.invocationCallOrder[0]).toBeLessThan(
+    uploadCoreFiles.mock.invocationCallOrder[0],
+  );
+  expect(server.startInstallerScript).toHaveBeenCalledWith({ composeProjectName: 'mainnet-default' });
+});
+
 it('uses a brief startup estimate until bot sync progress is available', async () => {
   const walletKeys = createMockWalletKeys();
   const config = new Config(createMockedDbPromise({}), walletKeys);
@@ -676,6 +729,7 @@ it('shows file-upload progress between 90 and 96 while waiting for proxy setup i
 
   const server = {
     downloadAccountAddress: vi.fn().mockResolvedValue(walletKeys.miningBotAddress),
+    getComposeProjectName: vi.fn().mockResolvedValue('mainnet-default'),
     uploadAccountAddress: vi.fn().mockResolvedValue(undefined),
     createLogsDir: vi.fn().mockResolvedValue(undefined),
     startInstallerScript: vi.fn().mockResolvedValue(undefined),
@@ -787,6 +841,7 @@ it('does not start the remote installer after an app update is installed', async
 
   const server = {
     downloadAccountAddress: vi.fn().mockResolvedValue(walletKeys.miningBotAddress),
+    getComposeProjectName: vi.fn().mockResolvedValue('mainnet-default'),
     uploadAccountAddress: vi.fn().mockResolvedValue(undefined),
     createLogsDir: vi.fn().mockResolvedValue(undefined),
     startInstallerScript: vi.fn().mockResolvedValue(undefined),

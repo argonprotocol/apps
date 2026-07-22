@@ -102,6 +102,21 @@ it('preserves the existing Docker Compose project name when restarting the insta
   );
 });
 
+it('reads the Docker Compose project name from the remote server', async () => {
+  const connection = {
+    runCommandWithTimeout: vi.fn().mockResolvedValue(['COMPOSE_PROJECT_NAME=mainnet-existing\n', 0]),
+  };
+  const server = new ServerAdmin(connection as any, {
+    ipAddress: '127.0.0.1',
+    sshUser: 'root',
+    type: ServerType.CustomServer,
+    workDir: '/root',
+  });
+
+  await expect(server.getComposeProjectName()).resolves.toBe('mainnet-existing');
+  expect(connection.runCommandWithTimeout).toHaveBeenCalledWith('cat /root/server/.env 2>/dev/null || true', 10e3);
+});
+
 it('rejects an invalid existing Docker Compose project name', async () => {
   const connection = {
     isDockerHostProxy: false,
@@ -116,4 +131,71 @@ it('rejects an invalid existing Docker Compose project name', async () => {
 
   await expect(server.startInstallerScript()).rejects.toThrow('Invalid Docker Compose project name');
   expect(connection.runCommandWithTimeout).toHaveBeenCalledOnce();
+});
+
+it('resyncs only the Argon chain data directory', async () => {
+  const connection = {
+    runCommandWithTimeout: vi.fn().mockResolvedValueOnce(['/root/data/argon\n', 0]).mockResolvedValue(['', 0]),
+  };
+  const server = new ServerAdmin(connection as any, {
+    ipAddress: '127.0.0.1',
+    sshUser: 'root',
+    type: ServerType.CustomServer,
+    workDir: '/root',
+  });
+
+  await server.resyncMiner();
+
+  expect(connection.runCommandWithTimeout).toHaveBeenCalledWith(
+    'cd /root/server && sudo docker compose stop argon-miner',
+    60e3,
+  );
+  expect(connection.runCommandWithTimeout).toHaveBeenCalledWith(
+    'set -euo pipefail && sudo find "/root/data/argon/chains" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +',
+    60e3,
+  );
+  expect(connection.runCommandWithTimeout).toHaveBeenCalledWith(
+    'cd /root/server && sudo docker compose up argon-miner -d',
+    60e3,
+  );
+  expect(connection.runCommandWithTimeout).not.toHaveBeenCalledWith(
+    expect.stringContaining('"/root/data/argon"/*'),
+    expect.any(Number),
+  );
+});
+
+it('rejects contaminated Docker Compose output before an Argon resync', async () => {
+  const connection = {
+    runCommandWithTimeout: vi
+      .fn()
+      .mockResolvedValue(['time="2026-07-22T18:11:05Z" level=warning msg="UID is not set"\n/root/data/argon\n', 0]),
+  };
+  const server = new ServerAdmin(connection as any, {
+    ipAddress: '127.0.0.1',
+    sshUser: 'root',
+    type: ServerType.CustomServer,
+    workDir: '/root',
+  });
+
+  await expect(server.resyncMiner()).rejects.toThrow('Invalid data directory returned for argon-miner');
+  expect(connection.runCommandWithTimeout).toHaveBeenCalledOnce();
+});
+
+it('fails a directory cleanup when files remain', async () => {
+  const connection = {
+    runCommandWithTimeout: vi
+      .fn()
+      .mockResolvedValueOnce(['', 0])
+      .mockResolvedValueOnce(['/root/data/argon/chains/argon/db/full\n', 0]),
+  };
+  const server = new ServerAdmin(connection as any, {
+    ipAddress: '127.0.0.1',
+    sshUser: 'root',
+    type: ServerType.CustomServer,
+    workDir: '/root',
+  });
+
+  await expect(server.cleanDirectory('/root/data/argon/chains')).rejects.toThrow(
+    'Directory was not fully cleaned: /root/data/argon/chains',
+  );
 });

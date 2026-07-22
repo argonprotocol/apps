@@ -266,7 +266,11 @@ export default class Installer {
       this.serverConnectProgress = 100;
 
       installPhase = InstallStepErrorType.FileUpload;
+      let composeProjectName: string | undefined;
       if (this.remoteFilesNeedUpdating) {
+        // Core file upload replaces the remote server directory, including the .env that identifies its Compose project.
+        composeProjectName = await server.getComposeProjectName();
+
         console.info('Uploading account address');
         await server.uploadAccountAddress(this.walletKeys.miningBotAddress);
         this.fileUploadProgress = 2;
@@ -339,7 +343,7 @@ export default class Installer {
 
       console.info('Starting remote script');
       await server.createLogsDir();
-      await server.startInstallerScript();
+      await server.startInstallerScript({ composeProjectName });
       installPhase = undefined;
       this.fileUploadProgress = 99;
       this.isRunningInBackground = true;
