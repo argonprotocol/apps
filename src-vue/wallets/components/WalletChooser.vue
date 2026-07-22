@@ -54,20 +54,11 @@
         v-if="props.compact"
         data-testid="WalletOverlay.addNewWallet()"
         type="button"
-        class="rounded-md px-3 py-2 text-left text-lg font-semibold"
+        class="cursor-pointer rounded-md px-3 py-2 text-left text-lg font-semibold"
         :class="props.dark ? 'text-black/70 hover:bg-white/10' : 'text-slate-700 hover:bg-slate-200/60'"
         @click="emit('addNewWallet')"
       >
-        + Add New Wallet
-      </button>
-      <button
-        v-if="!props.compact && props.canAddDefaultEthereum"
-        data-testid="WalletOverlay.addDefaultEthereum()"
-        type="button"
-        class="rounded-md border border-slate-400/60 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:border-slate-500/60 hover:bg-slate-200/60"
-        @click="emit('addDefaultEthereum')"
-      >
-        Add Default Ethereum
+        + Add Ethereum Wallet
       </button>
       <div v-if="!props.compact" class="relative">
         <button
@@ -106,7 +97,6 @@ import { useCertificationController } from '../../stores/certificationController
 
 const props = defineProps<{
   availableWallets: IWalletSelection[];
-  canAddDefaultEthereum: boolean;
   compact?: boolean;
   dark?: boolean;
 }>();
@@ -114,7 +104,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: 'select', wallet: IWalletSelection): void;
   (event: 'addNewWallet'): void;
-  (event: 'addDefaultEthereum'): void;
   (event: 'addExternalEthereum'): void;
 }>();
 

@@ -1,6 +1,6 @@
 {
   "identifier": "com.argon.desktop.local",
-  "productName": "Docknet Argon",
+  "productName": "Argon Desktop [DevDocker]",
   "bundle": {
     "icon": [
       "icons-desktop/local/docknet/32x32.png",

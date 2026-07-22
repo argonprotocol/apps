@@ -421,8 +421,8 @@
                 v-else-if="selectedWalletBalanceIsLoaded && isEthereumWalletSelection(selectedWallet)"
                 class="mx-auto mt-2 flex w-fit gap-x-2 border-t border-slate-500/30 pt-2 text-center opacity-50"
               >
-                {{ currency.symbol }}{{ microgonToMoneyNm(selectedOtherTokenValue).format('0,0.00') }} is in non-native
-                tokens
+                {{ currency.symbol }}{{ microgonToMoneyNm(selectedOtherTokenValue).format('0,0.00') }} is in eth or
+                other tokens
               </div>
             </div>
           </div>

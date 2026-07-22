@@ -45,7 +45,10 @@
       />
     </div>
 
-    <div class="mx-auto flex max-w-200 grow flex-col justify-center px-[5%] pb-10">
+    <div
+      :class="[wallets.walletRecords.length === 1 ? 'pb-10' : 'pb-0']"
+      class="mx-auto flex max-w-200 grow flex-col justify-center px-[5%]"
+    >
       <h1 class="text-argon-600/80 text-4xl font-bold">
         {{ config.postWelcomeLaunchCount > 0 ? 'Welcome Back to Argon Desktop!' : 'Welcome to Argon Desktop!' }}
       </h1>
@@ -108,14 +111,14 @@
               v-else-if="walletBalanceIsLoaded(wallet) && wallet.walletType === 'ethereum'"
               class="mx-auto mt-2 flex w-fit gap-x-2 border-t border-slate-500/30 pt-2 text-center opacity-50"
             >
-              {{ currency.symbol }}{{ microgonToMoneyNm(getOtherTokenValue(wallet)).format('0,0.00') }} is in non-native
-              tokens
+              {{ currency.symbol }}{{ microgonToMoneyNm(getOtherTokenValue(wallet)).format('0,0.00') }} is in eth or
+              other tokens
             </div>
           </div>
         </article>
         <article
           @click="openAddEthereumWallet"
-          :class="[wallets.walletRecords.length % 2 === 0 ? 'col-span-2 flex-row' : 'flex-col']"
+          :class="[wallets.walletRecords.length % 2 === 0 ? 'col-span-2 flex-row gap-x-1' : 'flex-col']"
           class="hover:text-argon-600 hover:bg-argon-300/5 flex cursor-pointer items-center justify-center rounded-lg border border-dashed border-slate-500/40 py-5 font-bold text-slate-800/40"
         >
           <span
@@ -223,7 +226,7 @@ function openWallet(walletRecord: IWalletRecord) {
 }
 
 function openAddEthereumWallet() {
-  basicEmitter.emit('openEthereumWalletImportOverlay', 'choice');
+  basicEmitter.emit('openEthereumWalletImportOverlay', 'external');
 }
 </script>
 

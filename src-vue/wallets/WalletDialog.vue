@@ -35,7 +35,6 @@
               :addWalletStep="props.transferIn.addWalletStep"
               :wallet="props.transferIn.wallet ? getWallet(props.transferIn.wallet) : undefined"
               :availableWallets="props.availableWallets"
-              :canAddDefaultEthereum="props.canAddDefaultEthereum"
               :isSource="true"
               :transferDirection="transferInConfig?.crosschainDirection"
               :moveFrom="transferInConfig?.moveFrom"
@@ -47,7 +46,6 @@
               @completeAddWallet="emit('completeAddWallet', 'in', $event)"
               @minimize="emit('toggleTransferDirection', 'in')"
               @addNewWallet="emit('addNewWallet', 'in')"
-              @addDefaultEthereum="emit('addDefaultEthereum', 'in')"
               @addExternalEthereum="emit('addExternalEthereum', 'in')"
               @openTransferOverlay="
                 props.transferIn.wallet &&
@@ -62,22 +60,22 @@
               v-if="props.primaryWallet && !props.transferIn"
               data-testid="WalletOverlay.toggleTransferIn()"
               type="button"
-              class="absolute top-24 right-full flex h-76 w-14 cursor-pointer flex-col items-center justify-between rounded-l-lg border border-r-0 border-black/80 bg-gray-300/80 py-10 text-lg font-bold text-black/40 shadow-lg hover:bg-gray-300 focus:outline-none"
+              class="absolute top-24 right-full flex h-84 w-14 cursor-pointer flex-col items-center justify-between gap-y-3 rounded-l-lg border border-r-0 border-black/80 bg-gray-300/80 py-10 text-lg font-bold text-black/40 shadow-lg hover:bg-gray-300 focus:outline-none"
               @click="emit('toggleTransferDirection', 'in')"
             >
-              <ArrowLeftIcon class="h-7 w-7" />
-              <span class="rotate-180 [writing-mode:vertical-rl]">TRANSFER IN</span>
-              <ArrowLeftIcon class="h-7 w-7" />
+              <ArrowRightIcon class="h-7 w-7" />
+              <span class="rotate-180 [writing-mode:vertical-rl]">CLICK TO MOVE IN</span>
+              <ArrowRightIcon class="h-7 w-7" />
             </button>
             <button
               v-if="props.primaryWallet && !props.transferOut"
               data-testid="WalletOverlay.toggleTransferOut()"
               type="button"
-              class="absolute top-24 left-full flex h-76 w-14 cursor-pointer flex-col items-center justify-between rounded-r-lg border border-l-0 border-black/80 bg-gray-300/80 py-10 text-lg font-bold text-black/40 shadow-lg hover:bg-gray-300 focus:outline-none"
+              class="absolute top-24 left-full flex h-84 w-14 cursor-pointer flex-col items-center justify-center gap-y-3 rounded-r-lg border border-l-0 border-black/80 bg-gray-300/80 text-lg font-bold text-black/40 shadow-lg hover:bg-gray-300 focus:outline-none"
               @click="emit('toggleTransferDirection', 'out')"
             >
               <ArrowRightIcon class="h-7 w-7" />
-              <span class="[writing-mode:vertical-rl]">TRANSFER OUT</span>
+              <span class="[writing-mode:vertical-rl]">CLICK TO MOVE OUT</span>
               <ArrowRightIcon class="h-7 w-7" />
             </button>
 
@@ -100,8 +98,10 @@
                   @select="emit('selectPrimaryWallet', $event)"
                   @close="emit('close')"
                 />
-                <div v-else class="flex min-w-0 grow items-center gap-x-2.5 px-2">
-                  <span class="min-w-0 grow truncate text-left text-xl font-bold text-slate-800/70">Add Wallet</span>
+                <div v-else class="flex min-w-0 grow items-center gap-x-2.5 pl-1.5">
+                  <span class="min-w-0 grow truncate text-left text-xl font-bold text-slate-800/70">
+                    Add Ethereum Wallet
+                  </span>
                   <button
                     type="button"
                     class="relative z-10 flex h-[34px] w-[34px] shrink-0 cursor-pointer items-center justify-center rounded-md border border-slate-400/60 hover:border-slate-500/60 hover:bg-[#f1f3f7] focus:outline-none"
@@ -124,7 +124,7 @@
               />
               <EthereumWalletSetup
                 v-else
-                :initialStep="props.primaryAddWalletStep ?? 'choice'"
+                :initialStep="props.primaryAddWalletStep ?? 'external'"
                 class="min-h-0 grow border-t border-slate-300"
                 @complete="emit('completeAddWallet', 'primary', $event)"
               />
@@ -140,7 +140,6 @@
               :wallet="props.transferOut.wallet ? getWallet(props.transferOut.wallet) : undefined"
               :moveWallet="props.primaryWallet ? getWallet(props.primaryWallet) : undefined"
               :availableWallets="props.availableWallets"
-              :canAddDefaultEthereum="props.canAddDefaultEthereum"
               :isSource="false"
               :transferDirection="transferOutConfig?.crosschainDirection"
               :moveFrom="transferOutConfig?.moveFrom"
@@ -152,7 +151,6 @@
               @completeAddWallet="emit('completeAddWallet', 'out', $event)"
               @minimize="emit('toggleTransferDirection', 'out')"
               @addNewWallet="emit('addNewWallet', 'out')"
-              @addDefaultEthereum="emit('addDefaultEthereum', 'out')"
               @addExternalEthereum="emit('addExternalEthereum', 'out')"
               @openTransferOverlay="
                 props.transferOut.wallet &&
@@ -172,7 +170,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
-import { ArrowLeftIcon, ArrowRightIcon, XMarkIcon } from '@heroicons/vue/24/outline';
+import { ArrowRightIcon, XMarkIcon } from '@heroicons/vue/24/outline';
 import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
 import type { IArgonWalletType, IEthereumMoveToken } from '../interfaces/IEthereumInboundTransferTracker.ts';
 import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
@@ -203,7 +201,6 @@ const props = defineProps<{
   transferOut?: IWalletTransferSideState;
   walletSelections: IWalletSelection[];
   availableWallets: IWalletSelection[];
-  canAddDefaultEthereum: boolean;
   showGuidance?: boolean;
   guidanceContext?: IWalletGuidanceContext;
   zIndex: number;
@@ -216,7 +213,6 @@ const emit = defineEmits<{
   (event: 'selectTransferWallet', direction: IWalletTransferDirection, wallet: IWalletSelection): void;
   (event: 'returnToTransferWalletChooser', direction: IWalletTransferDirection): void;
   (event: 'addNewWallet', direction: IWalletTransferDirection): void;
-  (event: 'addDefaultEthereum', direction: IWalletTransferDirection): void;
   (event: 'addExternalEthereum', direction: IWalletTransferDirection): void;
   (event: 'completeAddWallet', target: 'primary' | IWalletTransferDirection, walletRecord: IWalletRecord): void;
   (event: 'close'): void;

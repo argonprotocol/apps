@@ -1,6 +1,6 @@
 {
   "identifier": "com.argon.desktop.local",
-  "productName": "Mainnet Argon",
+  "productName": "Argon Desktop [Mainnet]",
   "bundle": {
     "icon": [
       "icons-desktop/local/mainnet/32x32.png",

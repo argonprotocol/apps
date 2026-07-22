@@ -44,7 +44,6 @@ export default new OperationalFlow<IVaultingFlowContext, ITransferOutToEthereumS
     await flow.run(vaultingOnboarding);
     await openVaultingWalletOverlay(flow);
 
-    let requestedDefaultEthereumWallet = false;
     const ethereumConnection = await waitFor(
       15_000,
       `${context.flowName}: default Ethereum wallet`,
@@ -71,14 +70,12 @@ export default new OperationalFlow<IVaultingFlowContext, ITransferOutToEthereumS
           return connection;
         }
 
-        if (!requestedDefaultEthereumWallet) {
-          const addDefaultEthereum = await flow.isVisible('WalletOverlay.addNewWallet()');
-          if (addDefaultEthereum.clickable) {
-            requestedDefaultEthereumWallet = true;
-            await flow.click('WalletOverlay.addNewWallet()', { timeoutMs: 15_000 });
-            await flow.click('WalletOverlay.createDefaultEthereum()', { timeoutMs: 15_000 });
-          }
-        }
+        await flow.queryApp(async refs => {
+          const wallets = refs.wallets as typeof refs.wallets & {
+            createDefaultEthereumWallet(): Promise<unknown>;
+          };
+          await wallets.createDefaultEthereumWallet();
+        });
       },
       {
         pollMs: 250,
