@@ -4,6 +4,7 @@ import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
 import type { OperationalStepId } from '../stores/certificationController.ts';
 import { ICurrencyKey, MoveTo } from '@argonprotocol/apps-core';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
+import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
 
 export type IWalletGuidanceContext = 'mining' | 'vaulting';
 
@@ -16,6 +17,8 @@ export type IWalletOverlayRequest = {
 
 type IBasicEmitter = {
   openWalletOverlay: IWalletOverlayRequest;
+  openWalletDisconnectOverlay: IWalletRecord;
+  ethereumWalletDisconnected: { walletRecordId: number };
   openEthereumWalletImportOverlay: 'choice' | 'external';
   openMoveCapitalOverlay: {
     walletType: WalletType.defaultArgon;

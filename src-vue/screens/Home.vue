@@ -79,7 +79,7 @@
           class="group hover:bg-argon-300/5 cursor-pointer rounded-lg border border-slate-500/30 has-[.wallet-actions:hover]:bg-transparent"
           @click="openWallet(wallet)"
         >
-          <div class="mx-2 flex flex-row items-center border-b border-slate-500/20 py-2 pr-1 pl-2">
+          <div class="mx-2 flex flex-row items-center border-b border-slate-500/20 py-1 pr-1 pl-2">
             <div class="mr-1 w-4.5 border-r border-slate-500/30 pr-1 opacity-70">
               <ArgonNetworkLogo v-if="wallet.walletType === 'argon'" class="relative -top-px h-full" />
               <EthereumNetworkLogo v-else-if="wallet.walletType === 'ethereum'" class="h-full" />

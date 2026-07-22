@@ -661,6 +661,33 @@ export const useWallets = defineStore('wallets', () => {
     await refreshWalletRecords();
   }
 
+  async function disconnectEthereumWalletRecord(recordId: number) {
+    const record = walletRecords.value.find(wallet => wallet.id === recordId && wallet.walletType === 'ethereum');
+    if (!record) throw new Error('Ethereum wallet not found.');
+
+    const loader = ensureEthereumWalletLoader(record);
+    if (record.role === 'defaultEthereum') {
+      await loader.load({ force: true });
+      if (loader.data.fetchErrorMsg) {
+        throw new Error('Unable to verify that the Default Ethereum wallet is empty. Please try again.');
+      }
+      const hasTokens =
+        loader.data.availableMicrogons > 0n ||
+        loader.data.reservedMicrogons > 0n ||
+        loader.data.availableMicronots > 0n ||
+        loader.data.reservedMicronots > 0n ||
+        loader.data.otherTokens.some(token => token.value > 0n);
+      if (hasTokens) throw new Error('The Default Ethereum wallet must be empty before it can be disconnected.');
+    }
+
+    const db = await getDbPromise();
+    await db.financialCacheTable.deleteExternalWalletBalance('ethereum', record.address);
+    await db.walletsTable.deleteEthereumWallet(recordId);
+    loader.dispose();
+    ethereumWalletLoaders.delete(recordId);
+    await refreshWalletRecords();
+  }
+
   function getEthereumWalletRecord(recordId: number): IWallet {
     const record = walletRecords.value.find(wallet => wallet.id === recordId && wallet.walletType === 'ethereum');
     if (!record) {
@@ -702,6 +729,7 @@ export const useWallets = defineStore('wallets', () => {
     importExternalEthereumMnemonic,
     scanEthereumWalletBalances,
     updateWalletRecordSortOrder,
+    disconnectEthereumWalletRecord,
 
     defaultArgonWallet,
     miningBotWallet,

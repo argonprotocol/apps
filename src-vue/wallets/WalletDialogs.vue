@@ -238,9 +238,11 @@ function syncOverlayState() {
 
 basicEmitter.on('openWalletOverlay', openWalletOverlay);
 basicEmitter.on('openEthereumWalletImportOverlay', openAddWalletPanel);
+basicEmitter.on('ethereumWalletDisconnected', closeOverlay);
 Vue.onUnmounted(() => {
   basicEmitter.off('openWalletOverlay', openWalletOverlay);
   basicEmitter.off('openEthereumWalletImportOverlay', openAddWalletPanel);
+  basicEmitter.off('ethereumWalletDisconnected', closeOverlay);
   closeOverlay();
 });
 </script>

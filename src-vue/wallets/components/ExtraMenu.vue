@@ -68,9 +68,9 @@
                 </div>
               </DropdownMenuItem>
             </template>
-            <template v-if="props.selection.walletType !== WalletType.defaultArgon">
+            <template v-if="isEthereumWalletSelection(props.selection)">
               <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-              <DropdownMenuItem MenuItem @click="() => disconnectWallet()">
+              <DropdownMenuItem MenuItem @click="disconnectWallet">
                 <div ItemWrapper>
                   <header>Disconnect Wallet from App</header>
                   <LinkSlashIcon class="h-4 w-4" />
@@ -147,7 +147,11 @@ async function loadQRCode() {
   });
 }
 
-function disconnectWallet() {}
+function disconnectWallet() {
+  if (!isEthereumWalletSelection(props.selection)) return;
+  isOpen.value = false;
+  basicEmitter.emit('openWalletDisconnectOverlay', props.selection.walletRecord);
+}
 
 function openRecovery() {
   basicEmitter.emit('openSecuritySettingsOverlay', { screen: 'mnemonics' });
