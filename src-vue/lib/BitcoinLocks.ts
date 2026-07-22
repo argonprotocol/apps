@@ -1323,15 +1323,11 @@ export default class BitcoinLocks {
   }
 
   private async getRatchetContext(lock: IBitcoinLockRecord) {
-    const vaults = getVaults();
-    await vaults.load();
-    const vault = vaults.vaultsById[lock.vaultId];
-    if (!vault) {
-      throw new Error(`Vault #${lock.vaultId} could not be loaded for this Bitcoin lock.`);
-    }
-
     const client = await getMainchainClient(false);
-    const liveBitcoinLock = lock.utxoId === undefined ? undefined : await BitcoinLock.get(client, lock.utxoId);
+    const [vault, liveBitcoinLock] = await Promise.all([
+      Vault.get(client, lock.vaultId, NetworkConfig.tickMillis),
+      lock.utxoId === undefined ? undefined : BitcoinLock.get(client, lock.utxoId),
+    ]);
     const bitcoinLock = new BitcoinLock(liveBitcoinLock ?? lock.lockDetails);
 
     return { bitcoinLock, client, vault };
