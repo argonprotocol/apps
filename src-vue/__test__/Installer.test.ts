@@ -90,6 +90,80 @@ it('keeps the installer loadable when a server check fails and clears the error 
   expect(config.serverInstaller.errorMessage).toBeNull();
 });
 
+it('ensures the mining bid proxy is funded when an existing miner starts', async () => {
+  const walletKeys = createMockWalletKeys();
+  const config = new Config(
+    createMockedDbPromise({
+      miningSetupStatus: `"${MiningSetupStatus.Finished}"`,
+      isServerInstalled: 'true',
+    }),
+    walletKeys,
+  );
+  await config.load();
+  for (const stepKey of Object.values(InstallStepKey)) {
+    config.serverInstaller[stepKey].status = InstallStepStatus.Completed;
+  }
+  config.serverInstaller = config.serverInstaller;
+
+  const installer = new Installer(config, walletKeys);
+  const runSpy = vi.spyOn(installer, 'run').mockResolvedValue(undefined);
+  const transactionTracker = {
+    load: vi.fn().mockResolvedValue(undefined),
+  };
+  vi.mocked(getTransactionTracker).mockReturnValue(transactionTracker as any);
+  let resolveProxySetupInBlock: () => void = () => undefined;
+  const proxySetupInBlock = new Promise<void>(resolve => {
+    resolveProxySetupInBlock = resolve;
+  });
+  const proxySetupSpy = vi.spyOn(MiningAccount, 'ensureMiningBidProxySetup').mockResolvedValue({
+    kind: 'submitted',
+    txInfo: {
+      txResult: {
+        waitForInFirstBlock: proxySetupInBlock,
+      },
+      waitForPostProcessing: Promise.resolve(),
+    },
+  } as any);
+
+  const loadPromise = installer.load();
+
+  await vi.waitFor(() => expect(proxySetupSpy).toHaveBeenCalledOnce());
+
+  expect(transactionTracker.load).toHaveBeenCalledOnce();
+  expect(proxySetupSpy).toHaveBeenCalledWith({ transactionTracker, walletKeys });
+  expect(runSpy).not.toHaveBeenCalled();
+
+  resolveProxySetupInBlock();
+  await loadPromise;
+
+  expect(runSpy).toHaveBeenCalledOnce();
+});
+
+it('does not fund the mining bid proxy while the final mining install step is still running', async () => {
+  const walletKeys = createMockWalletKeys();
+  const config = new Config(
+    createMockedDbPromise({
+      miningSetupStatus: `"${MiningSetupStatus.Finished}"`,
+      isServerInstalled: 'true',
+    }),
+    walletKeys,
+  );
+  await config.load();
+  for (const stepKey of Object.values(InstallStepKey)) {
+    config.serverInstaller[stepKey].status = InstallStepStatus.Completed;
+  }
+  config.serverInstaller.MiningLaunch.status = InstallStepStatus.Working;
+  config.serverInstaller = config.serverInstaller;
+
+  const installer = new Installer(config, walletKeys);
+  installer.isRunning = true;
+  const proxySetupSpy = vi.spyOn(MiningAccount, 'ensureMiningBidProxySetup');
+
+  await installer.load();
+
+  expect(proxySetupSpy).not.toHaveBeenCalled();
+});
+
 it('should skip install if install is already running', async () => {
   const dbPromise = createMockedDbPromise({ miningSetupStatus: `"${MiningSetupStatus.Installing}"` });
   const { walletKeys } = createTestWallet('//Alice');
@@ -738,9 +812,14 @@ it('shows file-upload progress between 90 and 96 while waiting for proxy setup i
   const uploadBotConfigFilesPromise = new Promise<void>(resolve => {
     resolveUploadBotConfigFiles = resolve;
   });
-  const uploadBotConfigFiles = vi
-    .spyOn(installer as any, 'uploadBotConfigFiles')
-    .mockImplementation(async () => await uploadBotConfigFilesPromise);
+  let resolveUploadBotConfigFilesStarted: () => void = () => undefined;
+  const uploadBotConfigFilesStarted = new Promise<void>(resolve => {
+    resolveUploadBotConfigFilesStarted = resolve;
+  });
+  const uploadBotConfigFiles = vi.spyOn(installer as any, 'uploadBotConfigFiles').mockImplementation(async () => {
+    resolveUploadBotConfigFilesStarted();
+    await uploadBotConfigFilesPromise;
+  });
   let resolveUploadReachedNinety: () => void = () => undefined;
   const uploadReachedNinety = new Promise<void>(resolve => {
     resolveUploadReachedNinety = resolve;
@@ -809,8 +888,7 @@ it('shows file-upload progress between 90 and 96 while waiting for proxy setup i
     expect(uploadBotConfigFiles).not.toHaveBeenCalled();
 
     resolveProxySetupInBlock();
-    await Promise.resolve();
-    await Promise.resolve();
+    await uploadBotConfigFilesStarted;
 
     expect(installer.fileUploadProgress).toBe(96);
     expect(uploadBotConfigFiles).toHaveBeenCalledOnce();

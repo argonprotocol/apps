@@ -66,6 +66,7 @@ export default class Installer {
 
   private isFreshInstall: boolean = true;
   private remoteFilesNeedUpdating: boolean = false;
+  private miningBidProxyIsReady: boolean = false;
 
   private isLoadedDeferred!: IDeferred<void>;
   private installerCheck: InstallerCheck;
@@ -103,6 +104,21 @@ export default class Installer {
     await this.config.isLoadedPromise;
 
     try {
+      if (
+        this.config.miningSetupStatus === MiningSetupStatus.Finished &&
+        this.config.isServerInstalled &&
+        !this.config.isServerInstalling &&
+        this.installerCheck.isServerInstallComplete
+      ) {
+        try {
+          await this.ensureMiningBidProxyIsReady();
+        } catch (error) {
+          console.warn('[Installer] Unable to ensure the mining bid proxy during startup', {
+            error: getErrorDiagnostics(error),
+          });
+        }
+      }
+
       if (this.config.isServerAdded && !this.isRunning) {
         const hasServerDetails = !!this.config.serverDetails.ipAddress;
         if (hasServerDetails) {
@@ -282,55 +298,7 @@ export default class Installer {
         if (await this.pauseForAppUpdate()) return;
       }
       if (!this.isFreshInstall && this.config.miningSetupStatus === MiningSetupStatus.Finished) {
-        const transactionTracker = getTransactionTracker();
-        await transactionTracker.load();
-
-        const proxySetup = await ensureMiningBidProxySetup({
-          transactionTracker,
-          walletKeys: this.walletKeys,
-        });
-
-        if (proxySetup.kind === 'insufficientFunds') {
-          console.warn(
-            '[Installer] Skipping mining bid proxy migration until the mining funding account is topped up',
-            {
-              error: proxySetup.error,
-            },
-          );
-        } else if (proxySetup.kind === 'submitted' || proxySetup.kind === 'trackingExisting') {
-          let uploadProgressInterval: ReturnType<typeof setInterval> | undefined;
-          if (this.remoteFilesNeedUpdating) {
-            const waitForBlockStartedAt = Date.now();
-            const updateWaitProgress = () => {
-              const elapsed = Date.now() - waitForBlockStartedAt;
-              const progressRatio = Math.min(1, Math.max(0, elapsed / (TICK_MILLIS * 2)));
-              this.fileUploadProgress = Math.max(this.fileUploadProgress, 90 + progressRatio * 5);
-            };
-
-            updateWaitProgress();
-            uploadProgressInterval = setInterval(
-              updateWaitProgress,
-              Math.min(1000, Math.max(100, Math.ceil(TICK_MILLIS / 60))),
-            );
-          }
-
-          // The bot already holds off bidding until the mining bid proxy is ready, so first inclusion is
-          // enough to let the installer continue without waiting for full finality here.
-          try {
-            await proxySetup.txInfo.txResult.waitForInFirstBlock;
-          } finally {
-            if (uploadProgressInterval) clearInterval(uploadProgressInterval);
-            if (this.remoteFilesNeedUpdating) {
-              this.fileUploadProgress = Math.max(this.fileUploadProgress, 96);
-            }
-          }
-
-          void proxySetup.txInfo.waitForPostProcessing.catch(error => {
-            console.warn('[Installer] Mining bid proxy setup is still pending finalization', {
-              error: getErrorDiagnostics(error),
-            });
-          });
-        }
+        await this.ensureMiningBidProxyIsReady();
       }
       if (await this.pauseForAppUpdate()) return;
 
@@ -441,6 +409,64 @@ export default class Installer {
       this._server = new ServerAdmin(connection, this.config.serverDetails);
     }
     return this._server;
+  }
+
+  private async ensureMiningBidProxyIsReady(): Promise<void> {
+    if (this.miningBidProxyIsReady) return;
+
+    const transactionTracker = getTransactionTracker();
+    await transactionTracker.load();
+
+    const proxySetup = await ensureMiningBidProxySetup({
+      transactionTracker,
+      walletKeys: this.walletKeys,
+    });
+
+    if (proxySetup.kind === 'insufficientFunds') {
+      console.warn('[Installer] Skipping mining bid proxy migration until the mining funding account is topped up', {
+        error: proxySetup.error,
+      });
+      return;
+    }
+
+    if (proxySetup.kind === 'ready') {
+      this.miningBidProxyIsReady = true;
+      return;
+    }
+
+    let uploadProgressInterval: ReturnType<typeof setInterval> | undefined;
+    if (this.remoteFilesNeedUpdating) {
+      const waitForBlockStartedAt = Date.now();
+      const updateWaitProgress = () => {
+        const elapsed = Date.now() - waitForBlockStartedAt;
+        const progressRatio = Math.min(1, Math.max(0, elapsed / (TICK_MILLIS * 2)));
+        this.fileUploadProgress = Math.max(this.fileUploadProgress, 90 + progressRatio * 5);
+      };
+
+      updateWaitProgress();
+      uploadProgressInterval = setInterval(
+        updateWaitProgress,
+        Math.min(1000, Math.max(100, Math.ceil(TICK_MILLIS / 60))),
+      );
+    }
+
+    // The bot already holds off bidding until the mining bid proxy is ready, so first inclusion is
+    // enough to let the installer continue without waiting for full finality here.
+    try {
+      await proxySetup.txInfo.txResult.waitForInFirstBlock;
+      this.miningBidProxyIsReady = true;
+    } finally {
+      if (uploadProgressInterval) clearInterval(uploadProgressInterval);
+      if (this.remoteFilesNeedUpdating) {
+        this.fileUploadProgress = Math.max(this.fileUploadProgress, 96);
+      }
+    }
+
+    void proxySetup.txInfo.waitForPostProcessing.catch(error => {
+      console.warn('[Installer] Mining bid proxy setup is still pending finalization', {
+        error: getErrorDiagnostics(error),
+      });
+    });
   }
 
   private async saveLocalGatewayPortWhenReady(
