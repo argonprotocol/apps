@@ -244,6 +244,33 @@ export class Config implements IConfig {
         await this._injectFirstTimeAppData(loadedData, rawData, fieldsToSave);
       }
 
+      if (
+        (loadedData.miningSetupStatus === MiningSetupStatus.Checklist ||
+          loadedData.miningSetupStatus === MiningSetupStatus.Installing) &&
+        loadedData.isServerInstalled &&
+        !loadedData.isServerInstalling &&
+        loadedData.serverInstaller.MiningLaunch.status === InstallStepStatus.Completed &&
+        rawData[dbFields.biddingRules] &&
+        loadedData.biddingRules.initialCapitalCommitment !== undefined
+      ) {
+        loadedData.miningSetupStatus = MiningSetupStatus.Finished;
+        fieldsToSave.add(dbFields.miningSetupStatus);
+        rawData[dbFields.miningSetupStatus] = JsonExt.stringify(loadedData.miningSetupStatus, 2);
+      }
+
+      if (
+        (loadedData.vaultingSetupStatus === VaultingSetupStatus.Checklist ||
+          loadedData.vaultingSetupStatus === VaultingSetupStatus.Installing) &&
+        rawData[dbFields.vaultingRules]
+      ) {
+        const savedVault = await db.vaultsTable.get();
+        if (savedVault && !savedVault.isClosed) {
+          loadedData.vaultingSetupStatus = VaultingSetupStatus.Finished;
+          fieldsToSave.add(dbFields.vaultingSetupStatus);
+          rawData[dbFields.vaultingSetupStatus] = JsonExt.stringify(loadedData.vaultingSetupStatus, 2);
+        }
+      }
+
       const hasLegacyAccountState =
         loadedData.isServerInstalled ||
         loadedData.miningSetupStatus !== MiningSetupStatus.None ||

@@ -138,5 +138,8 @@ export async function createMockedDbPromise(allAsObject: { [key: string]: string
       fetchAllAsObject: async () => allAsObject,
       insertOrReplace: async (obj: Partial<IConfigStringified>) => {},
     },
+    vaultsTable: {
+      get: async () => undefined,
+    },
   }) as Db;
 }
