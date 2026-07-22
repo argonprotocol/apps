@@ -32,8 +32,6 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
     return this.createFinancialPositions({
       ...args,
       liveVault,
-      committedMicronots: liveVault ? this.vault.data.argonotCommitment.committedMicronots : 0n,
-      uncollectedRevenue: liveVault ? this.vault.data.pendingCollectRevenue : 0n,
       capitalHistory: history.capital,
       revenueHistory: history.revenue,
     });
@@ -44,16 +42,25 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
       account?: IArgonAccountBalance;
       liveVault?: Vault;
       liveArgonotRateMicrogons?: bigint;
-      committedMicronots?: bigint;
-      uncollectedRevenue?: bigint;
       capitalHistory?: readonly IVaultCapitalHistoryRecord[];
       revenueHistory?: readonly IVaultRevenueEventsRecord[];
     },
   ): VaultPosition[] {
-    const committedMicronots = args.liveVault ? (args.committedMicronots ?? 0n) : 0n;
+    let securitization = args.liveVault?.securitization;
+    let committedMicronots = 0n;
+    let uncollectedRevenue = 0n;
     if (args.liveVault) {
       if (!args.account) throw new Error('Vault operator account is missing from the Argon wallet snapshot');
-      validateVaultHolds(args.account, args.liveVault, args.uncollectedRevenue ?? 0n, committedMicronots);
+
+      securitization = args.account.microgonHolds
+        .filter(hold => hold.id.isVaults && hold.id.asVaults.isEnterVault)
+        .reduce((sum, hold) => sum + hold.amount.toBigInt(), 0n);
+      uncollectedRevenue = args.account.microgonHolds
+        .filter(hold => hold.id.isVaults && hold.id.asVaults.isPendingCollect)
+        .reduce((sum, hold) => sum + hold.amount.toBigInt(), 0n);
+      committedMicronots = args.account.micronotHolds
+        .filter(hold => hold.id.isVaults && (hold.id.asVaults.isEnterVault || hold.id.asVaults.isPendingCollect))
+        .reduce((sum, hold) => sum + hold.amount.toBigInt(), 0n);
     }
 
     const capitalHistory = args.capitalHistory ?? [];
@@ -65,9 +72,8 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
     if (!args.liveVault && !hasClosed) return [];
 
     const revenueHistory = args.revenueHistory ?? [];
-    const uncollectedRevenue = args.liveVault ? (args.uncollectedRevenue ?? 0n) : 0n;
     const value = calculateVaultPositionValue({
-      securitization: args.liveVault?.securitization,
+      securitization,
       uncollectedRevenue,
       capitalHistory: vaultCapitalHistory,
       collectedRevenue: revenueHistory,
@@ -92,7 +98,7 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
           endedAt: lifecycle === 'completed' ? finalCapitalEvent?.blockTime : undefined,
           vaultId,
           vault: args.liveVault,
-          securitization: args.liveVault?.securitization ?? value.remainingPrincipal,
+          securitization: securitization ?? value.remainingPrincipal,
           uncollectedRevenue,
           capitalHistory: vaultCapitalHistory,
           revenueHistory,
@@ -118,29 +124,5 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
     }
 
     return positions;
-  }
-}
-
-function validateVaultHolds(
-  account: IArgonAccountBalance,
-  vault: Vault,
-  uncollectedRevenue: bigint,
-  committedMicronots: bigint,
-): void {
-  const enterVaultHolds = account.microgonHolds
-    .filter(hold => hold.id.isVaults && hold.id.asVaults.isEnterVault)
-    .reduce((sum, hold) => sum + hold.amount.toBigInt(), 0n);
-  const pendingCollectHolds = account.microgonHolds
-    .filter(hold => hold.id.isVaults && hold.id.asVaults.isPendingCollect)
-    .reduce((sum, hold) => sum + hold.amount.toBigInt(), 0n);
-  const micronotVaultHolds = account.micronotHolds
-    .filter(hold => hold.id.isVaults && (hold.id.asVaults.isEnterVault || hold.id.asVaults.isPendingCollect))
-    .reduce((sum, hold) => sum + hold.amount.toBigInt(), 0n);
-
-  if (enterVaultHolds !== vault.securitization) {
-    throw new Error('Vault capital holds do not match current securitization');
-  }
-  if (pendingCollectHolds !== uncollectedRevenue || micronotVaultHolds !== committedMicronots) {
-    throw new Error('Vault revenue holds do not match pending collect revenue');
   }
 }

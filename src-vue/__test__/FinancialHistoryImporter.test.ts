@@ -290,9 +290,9 @@ describe('FinancialHistoryImporter', () => {
       SyncStateKeys.FinancialHistory,
       expect.objectContaining({
         asOfBlock: 100,
-        recoveryVersions: { bitcoin: 2 },
+        recoveryVersions: { bitcoin: 3 },
         domainCheckpoints: {
-          bitcoin: { asOfBlock: 100, definitionVersion: 2, recoveryVersion: 2 },
+          bitcoin: { asOfBlock: 100, definitionVersion: 2, recoveryVersion: 3 },
         },
       }),
     );

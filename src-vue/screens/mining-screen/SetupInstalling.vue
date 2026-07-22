@@ -236,11 +236,11 @@ async function ensureTrackedSetupTransfer(force = false) {
   lastEnsureSetupTransferAt = now;
 
   try {
-    const sweepResult = await moveCapital.moveConfiguredDefaultArgonToBot(
-      wallets.defaultArgonWallet,
-      walletKeys,
-      config as Config,
-    );
+    const sweepResult = await moveCapital.moveConfiguredDefaultArgonToBot({
+      defaultWallet: wallets.defaultArgonWallet,
+      miningBotWallet: wallets.miningBotWallet,
+      config: config as Config,
+    });
     if (sweepResult.kind === 'submitted' || sweepResult.kind === 'trackingExisting') {
       trackTxInfo(sweepResult.txInfo);
       return;

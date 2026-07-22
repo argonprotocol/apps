@@ -13,6 +13,7 @@ import {
 import { MyVault } from './MyVault.ts';
 import {
   existentialDepositMicrogons,
+  existentialDepositMicronots,
   getSpendableDefaultArgonMicrogons,
   getSpendableMicrogons,
 } from './WalletForArgon.ts';
@@ -108,15 +109,13 @@ export class MoveCapital {
   }
 
   public async moveConfiguredDefaultArgonToBot(
-    wallet: IWallet,
-    walletKeys: WalletKeys,
-    config: Config,
+    args: DefaultArgonMiningTransferArgs,
   ): Promise<DefaultArgonMiningTransferResult> {
     if (pendingDefaultArgonMiningTransferPromise) {
       return await pendingDefaultArgonMiningTransferPromise;
     }
 
-    const sweepPromise = this.moveConfiguredDefaultArgonToBotInner(wallet, walletKeys, config);
+    const sweepPromise = this.moveConfiguredDefaultArgonToBotInner(args);
     pendingDefaultArgonMiningTransferPromise = sweepPromise;
 
     try {
@@ -208,10 +207,10 @@ export class MoveCapital {
   }
 
   private async moveConfiguredDefaultArgonToBotInner(
-    wallet: IWallet,
-    walletKeys: WalletKeys,
-    config: Config,
+    args: DefaultArgonMiningTransferArgs,
   ): Promise<DefaultArgonMiningTransferResult> {
+    const { defaultWallet: wallet, miningBotWallet, config } = args;
+
     await this.transactionTracker.load();
     this.transactionError = '';
 
@@ -245,8 +244,14 @@ export class MoveCapital {
 
     const assetsToMove: IAssetsToMove = {};
     const spendableMicrogons = getSpendableDefaultArgonMicrogons(wallet.availableMicrogons);
-    const requiredMicrogons = config.biddingRules.initialMicrogonRequirement + MINING_BID_PROXY_FEE_FLOAT;
-    const requiredMicronots = config.biddingRules.initialMicronotRequirement;
+    const spendableMicronots = bigIntMax(wallet.availableMicronots - existentialDepositMicronots, 0n);
+    const miningBotMicrogons = miningBotWallet.availableMicrogons + miningBotWallet.reservedMicrogons;
+    const miningBotMicronots = miningBotWallet.availableMicronots + miningBotWallet.reservedMicronots;
+    const requiredMicrogons = bigIntMax(
+      config.biddingRules.initialMicrogonRequirement + MINING_BID_PROXY_FEE_FLOAT - miningBotMicrogons,
+      0n,
+    );
+    const requiredMicronots = bigIntMax(config.biddingRules.initialMicronotRequirement - miningBotMicronots, 0n);
 
     if (spendableMicrogons > 0n && requiredMicrogons > 0n) {
       assetsToMove[MoveToken.ARGN] = bigIntMax(
@@ -254,9 +259,8 @@ export class MoveCapital {
         0n,
       );
     }
-    if (wallet.availableMicronots > 0n && requiredMicronots > 0n) {
-      assetsToMove[MoveToken.ARGNOT] =
-        requiredMicronots < wallet.availableMicronots ? requiredMicronots : wallet.availableMicronots;
+    if (spendableMicronots > 0n && requiredMicronots > 0n) {
+      assetsToMove[MoveToken.ARGNOT] = requiredMicronots < spendableMicronots ? requiredMicronots : spendableMicronots;
     }
     if (!assetsToMove[MoveToken.ARGN] && !assetsToMove[MoveToken.ARGNOT]) {
       return { kind: 'noSpendableFundsToSweep' };
@@ -548,6 +552,12 @@ export interface ITransactionMoveMetadata {
   externalAddress?: string;
   assetsToMove: IAssetsToMove;
 }
+
+type DefaultArgonMiningTransferArgs = {
+  defaultWallet: IWallet;
+  miningBotWallet: IWallet;
+  config: Config;
+};
 
 export type DefaultArgonMiningTransferResult =
   | {
