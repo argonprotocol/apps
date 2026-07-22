@@ -445,7 +445,7 @@ describe('financial position accounting', () => {
     ]);
   });
 
-  it('uses actual holds when available mining custody exceeds the amount reused by bids', () => {
+  it('uses live pending holds without requiring custody attribution', () => {
     const pendingBids = [0, 1].map(subAccountIndex => ({
       frameId: 21,
       confirmedAtBlockNumber: 500,
@@ -479,8 +479,38 @@ describe('financial position accounting', () => {
 
     expect(
       positions.filter(position => position.kind === 'mining-bid').map(position => position.nativeStakedMicronots),
-    ).toEqual([0n, 4_000_000n]);
+    ).toEqual([4_000_000n, 0n]);
     expect(reduceFinancialPositions(readySnapshots(positions)).groupSummaries.mining.currentValue).toBe(130_000_000n);
+  });
+
+  it('does not require released ARGNOT custody for a pending bid', () => {
+    const positions = miningFinancials.createFinancialPositions({
+      cohorts: [],
+      latestFrameId: 21,
+      pendingBids: [
+        {
+          frameId: 21,
+          confirmedAtBlockNumber: 500,
+          address: '5miner',
+          subAccountIndex: 0,
+          microgonsPerSeat: 50_000_000n,
+          micronotsStakedPerSeat: 10_000_000n,
+          bidPosition: 0,
+          createdAt: '2026-07-14T00:00:00Z',
+          updatedAt: '2026-07-14T00:00:00Z',
+        },
+      ],
+      heldMicronots: 0n,
+      liveArgonotRateMicrogons: 3_000_000n,
+      miningBotAddress: '5miner',
+      miningBotMicronots: 0n,
+      frameDates: new Map(),
+    });
+
+    expect(positions.find(position => position.kind === 'mining-bid')).toMatchObject({
+      currentValue: 50_000_000n,
+      investedCost: 50_000_000n,
+    });
   });
 
   it('counts idle mining ARGN without treating it as an investment return', () => {

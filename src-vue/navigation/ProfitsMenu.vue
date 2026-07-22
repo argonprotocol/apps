@@ -7,7 +7,7 @@
         class="flex h-[30px] cursor-pointer flex-row items-center justify-center rounded-md border border-slate-400/50 px-3.5 font-mono text-[17px] font-semibold text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
       >
         <div class="relative top-px -mr-0.5 ml-[3px] whitespace-nowrap">
-          <template v-if="aggregate.accountReturn.percent === undefined">0.0% RTD</template>
+          <template v-if="aggregate.accountReturn.percent === undefined">0.00% RTD</template>
           <template v-else>{{ formatPercent(aggregate.accountReturn.percent) }} RTD</template>
         </div>
       </NavigationMenuTrigger>
@@ -169,6 +169,6 @@ const returnRows = Vue.computed(() => {
 
 function formatPercent(percent?: number): string {
   if (percent === undefined) return '--';
-  return `${numeral(percent).format('0,0.[00]')}%`;
+  return `${numeral(percent).format('0,0.00')}%`;
 }
 </script>

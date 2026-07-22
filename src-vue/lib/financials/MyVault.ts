@@ -1,5 +1,5 @@
 import { type Vault } from '@argonprotocol/mainchain';
-import { calculateVaultPositionValue, Currency } from '@argonprotocol/apps-core';
+import { calculateVaultPositionValue, Currency, type ICapitalFlow } from '@argonprotocol/apps-core';
 import {
   createFinancialPosition,
   type IFinancialPositionSource,
@@ -81,6 +81,20 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
 
     const created = vaultCapitalHistory.find(record => record.eventType === 'created');
     const finalCapitalEvent = vaultCapitalHistory.at(-1);
+    const endedAt = lifecycle === 'completed' ? finalCapitalEvent?.blockTime : undefined;
+    const hasCompleteLifecycleTiming = lifecycle !== 'completed' || endedAt !== undefined;
+    const capitalFlows: ICapitalFlow[] = [];
+    let hasCompleteCapitalTiming = true;
+    for (const [index, amount] of value.capitalDeltas.entries()) {
+      if (amount === 0n) continue;
+
+      const occurredAt = vaultCapitalHistory[index]?.blockTime;
+      if (occurredAt) {
+        capitalFlows.push({ amount, occurredAt });
+      } else {
+        hasCompleteCapitalTiming = false;
+      }
+    }
     const positions: VaultPosition[] = [
       createFinancialPosition(
         'vault',
@@ -88,8 +102,9 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
           id: `vault:${vaultId}`,
           label: args.liveVault?.name ?? `Vault ${vaultId}`,
           lifecycle,
-          startedAt: created?.blockTime ?? args.liveVault?.openedDate,
-          endedAt: lifecycle === 'completed' ? finalCapitalEvent?.blockTime : undefined,
+          startedAt: hasCompleteLifecycleTiming ? (created?.blockTime ?? args.liveVault?.openedDate) : undefined,
+          endedAt,
+          capitalFlows: hasCompleteCapitalTiming && hasCompleteLifecycleTiming ? capitalFlows : undefined,
           vaultId,
           vault: args.liveVault,
           securitization: args.liveVault?.securitization ?? value.remainingPrincipal,

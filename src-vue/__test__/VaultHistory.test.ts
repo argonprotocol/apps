@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { VaultHistory } from '../lib/recovery/MyVault.ts';
 import { VaultFinancials } from '../lib/financials/MyVault.ts';
+import { calculatePositionReturn } from '../lib/financials/index.ts';
 
 const vaultFinancials = new VaultFinancials({} as any);
 
@@ -122,7 +123,76 @@ describe('VaultHistory financial positions', () => {
       settledPrincipalValue: 100n,
       startedAt,
       endedAt,
+      capitalFlows: [
+        { amount: 100n, occurredAt: startedAt },
+        { amount: -60n, occurredAt: new Date('2026-07-02T00:00:00Z') },
+        { amount: -40n, occurredAt: endedAt },
+      ],
     });
     expect(position.revenueHistory).toEqual(revenue);
+  });
+
+  it('keeps lost capital in the return exposure instead of treating it as withdrawn', () => {
+    const startedAt = new Date('2026-07-01T00:00:00Z');
+    const endedAt = new Date('2026-07-31T00:00:00Z');
+    const positions = vaultFinancials.createFinancialPositions({
+      hasConfirmedHistoryCoverage: true,
+      capitalHistory: [
+        {
+          vaultId: 7,
+          eventType: 'created',
+          securitization: 100n,
+          blockTime: startedAt,
+        },
+        {
+          vaultId: 7,
+          eventType: 'capitalLost',
+          amount: 20n,
+          blockTime: new Date('2026-07-10T00:00:00Z'),
+        },
+        {
+          vaultId: 7,
+          eventType: 'closed',
+          securitizationRemaining: 0n,
+          securitizationReleased: 80n,
+          blockTime: endedAt,
+        },
+      ] as any,
+      revenueHistory: [],
+    });
+
+    expect(positions[0]).toMatchObject({
+      capitalFlows: [
+        { amount: 100n, occurredAt: startedAt },
+        { amount: -80n, occurredAt: endedAt },
+      ],
+    });
+    expect(calculatePositionReturn(positions).percent).toBe(-20);
+  });
+
+  it('excludes a completed vault until its closing time is known', () => {
+    const positions = vaultFinancials.createFinancialPositions({
+      hasConfirmedHistoryCoverage: true,
+      capitalHistory: [
+        {
+          vaultId: 7,
+          eventType: 'created',
+          securitization: 100n,
+          blockTime: new Date('2026-07-01T00:00:00Z'),
+        },
+        {
+          vaultId: 7,
+          eventType: 'closed',
+          securitizationRemaining: 0n,
+          securitizationReleased: 100n,
+        },
+      ] as any,
+      revenueHistory: [],
+    });
+
+    expect(calculatePositionReturn(positions)).toMatchObject({
+      availability: 'unavailable',
+      eligiblePositionCount: 0,
+    });
   });
 });

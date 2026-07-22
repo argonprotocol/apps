@@ -170,6 +170,7 @@ describe('FinancialPositions', () => {
       settledPrincipalValue: 40n,
       hasCompleteCapitalHistory: true,
       remainingPrincipal: 160n,
+      capitalDeltas: [100n, 0n, 0n, -40n, 100n],
     });
   });
 
@@ -220,6 +221,7 @@ describe('FinancialPositions', () => {
       settledPrincipalValue: 20n,
       hasCompleteCapitalHistory: true,
       remainingPrincipal: 80n,
+      capitalDeltas: [100n, -20n],
     });
   });
 
@@ -248,6 +250,7 @@ describe('FinancialPositions', () => {
       settledPrincipalValue: 40n,
       hasCompleteCapitalHistory: true,
       remainingPrincipal: 60n,
+      capitalDeltas: [100n, -20n, 0n, -20n],
     });
   });
 
@@ -269,6 +272,7 @@ describe('FinancialPositions', () => {
       settledPrincipalValue: 0n,
       hasCompleteCapitalHistory: true,
       remainingPrincipal: 80n,
+      capitalDeltas: [100n, 0n],
     });
   });
 
@@ -296,6 +300,7 @@ describe('FinancialPositions', () => {
       settledPrincipalValue: 0n,
       hasCompleteCapitalHistory: true,
       remainingPrincipal: 100n,
+      capitalDeltas: [100n, 0n, 20n],
     });
   });
 
@@ -317,6 +322,7 @@ describe('FinancialPositions', () => {
       settledPrincipalValue: undefined,
       hasCompleteCapitalHistory: false,
       remainingPrincipal: 80n,
+      capitalDeltas: [100n, 0n],
     });
   });
 

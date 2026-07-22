@@ -204,18 +204,11 @@ export class MiningFinancials
       throw new Error('Mining account balance does not cover active ARGNOT collateral');
     }
 
-    const availableMiningMicronots = custodyPositions.reduce((sum, position) => {
-      return position.kind === 'mining-argonot' && position.lifecycle === 'active' ? sum + position.micronots : sum;
-    }, 0n);
-    let reusedMiningMicronots = requestedPendingMicronots - attributedPendingMicronots;
-    if (reusedMiningMicronots > availableMiningMicronots) {
-      throw new Error('Released mining custody does not cover pending mining collateral');
-    }
-
+    // Live holds fund pending bids; released custody remains a separate current-value position.
+    let remainingPendingMicronots = attributedPendingMicronots;
     for (const bid of pendingBids) {
-      const reusedMicronots = bigIntMin(reusedMiningMicronots, bid.micronotsStakedPerSeat);
-      reusedMiningMicronots -= reusedMicronots;
-      const nativeStakedMicronots = bid.micronotsStakedPerSeat - reusedMicronots;
+      const nativeStakedMicronots = bigIntMin(remainingPendingMicronots, bid.micronotsStakedPerSeat);
+      remainingPendingMicronots -= nativeStakedMicronots;
       const value = calculateMiningPositionValue({
         isActive: true,
         bidPrincipal: bid.microgonsPerSeat,

@@ -108,6 +108,28 @@ describe('StableSwaps', () => {
     expect(position.investedCost).toBeUndefined();
   });
 
+  it('retains purchase timing for return weighting', () => {
+    const syncState = createSyncState();
+    const purchases = [
+      createPurchase({ ethereumTimestamp: new Date('2026-04-01T00:00:00Z') }),
+      createPurchase({ id: 2, txHash: '0xdef', ethereumTimestamp: new Date('2026-04-06T11:55:00Z') }),
+    ];
+    const [position] = stableSwapFinancials.createFinancialPositions({
+      wallet: {
+        ...defaultWalletData,
+        address: syncState.walletAddress,
+        availableMicrogons: 2_000_000n,
+      },
+      walletSnapshot: hydrateStableSwapWallet(syncState.walletAddress, purchases, 1_000_000n, syncState),
+      currentPriceMicrogons: 1_000_000n,
+    });
+
+    expect(position.capitalFlows).toEqual([
+      { amount: 970_000n, occurredAt: purchases[0].ethereumTimestamp },
+      { amount: 970_000n, occurredAt: purchases[1].ethereumTimestamp },
+    ]);
+  });
+
   it('builds a Uniswap output-prefill link with Argon and ETH prefilled', async () => {
     const url = await StableSwaps.buildStableSwapUniswapUrl(12_340_000n, 'ETH', {
       argonTokenAddress: STABLE_SWAP_FIXTURE_ARGON_TOKEN_ADDRESS,

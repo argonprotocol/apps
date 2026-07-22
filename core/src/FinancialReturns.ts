@@ -5,21 +5,24 @@ export type IPerformanceReturnInput = {
   startingCapital: bigint;
   endingDate?: Date | number | string | null;
   endingCapital: bigint;
+  capitalFlows?: readonly ICapitalFlow[];
 };
 
 export type IAggregateReturnInput = Pick<IPerformanceReturnInput, 'startingCapital' | 'endingCapital'>;
 
-export type IAccountCashFlow = {
+export type ICapitalFlow = {
   amount: bigint;
   occurredAt: Date | number | string;
 };
+
+export type IAccountCashFlow = ICapitalFlow;
 
 export type IModifiedDietzReturnInput = {
   startingValue: bigint;
   endingValue: bigint;
   startingDate: Date | number | string;
   endingDate: Date | number | string;
-  cashFlows: readonly IAccountCashFlow[];
+  cashFlows: readonly ICapitalFlow[];
 };
 
 export type IPerformanceReturnOptions = {
@@ -76,16 +79,41 @@ export function calculatePerformanceReturn(
 ): IPerformanceReturnResult {
   const nowMs = BigInt((options.now ?? new Date()).getTime());
   const minimumAgeMs = BigInt(options.minimumAgeMs ?? 0);
+  let eligibleCapitalInvested = 0n;
+  let totalProfits = 0n;
+  let weightedCapitalMs = 0n;
+  let weightedProfitMs = 0n;
 
-  const eligibleInvestments = investments.filter(investment => {
-    if (investment.startingCapital <= 0n) return false;
+  for (const investment of investments) {
+    if (investment.startingCapital <= 0n) continue;
 
     const startMs = toDateMs(investment.startingDate);
     const endMs = investment.endingDate ? toDateMs(investment.endingDate) : nowMs;
-    return endMs - startMs >= minimumAgeMs;
-  });
+    const durationMs = endMs - startMs;
+    if (durationMs < minimumAgeMs) continue;
 
-  return calculateAggregateReturn(eligibleInvestments);
+    const profit = investment.endingCapital - investment.startingCapital;
+    const capitalMs = investment.capitalFlows
+      ? calculateCapitalTime(investment.capitalFlows, startMs, endMs)
+      : investment.startingCapital * durationMs;
+
+    eligibleCapitalInvested += investment.startingCapital;
+    totalProfits += profit;
+    if (durationMs <= 0n || capitalMs <= 0n) continue;
+
+    // Normalize each position over its own active duration, then combine positions by their capital-time exposure.
+    weightedCapitalMs += capitalMs;
+    weightedProfitMs += profit * durationMs;
+  }
+
+  const basisPoints = divideAndRound(weightedProfitMs * BASIS_POINTS_PER_100_PERCENT, weightedCapitalMs);
+
+  return {
+    basisPoints,
+    percent: Number(basisPoints) / 100,
+    eligibleCapitalInvested,
+    totalProfits,
+  };
 }
 
 export function calculateAggregateReturn(investments: readonly IAggregateReturnInput[]): IPerformanceReturnResult {
@@ -121,13 +149,10 @@ export function calculateModifiedDietzReturn(input: IModifiedDietzReturnInput): 
     const occurredAtMs = toDateMs(cashFlow.occurredAt);
     if (occurredAtMs > endingMs) continue;
 
-    const boundedOccurredAtMs = occurredAtMs < startingMs ? startingMs : occurredAtMs;
-    const remainingMs = boundedOccurredAtMs < endingMs ? endingMs - boundedOccurredAtMs : 0n;
-
     netCashFlows += cashFlow.amount;
     if (cashFlow.amount > 0n) contributedCapital += cashFlow.amount;
-    weightedCapitalMs += cashFlow.amount * remainingMs;
   }
+  weightedCapitalMs += calculateCapitalTime(input.cashFlows, startingMs, endingMs);
 
   const totalProfits = input.endingValue - input.startingValue - netCashFlows;
   let eligibleCapitalInvested =
@@ -182,6 +207,21 @@ function toDateMs(value: Date | number | string): bigint {
   if (value instanceof Date) return BigInt(value.getTime());
   if (typeof value === 'number') return BigInt(value);
   return BigInt(new Date(value).getTime());
+}
+
+function calculateCapitalTime(capitalFlows: readonly ICapitalFlow[], startingMs: bigint, endingMs: bigint): bigint {
+  let capitalMs = 0n;
+
+  for (const flow of capitalFlows) {
+    const occurredAtMs = toDateMs(flow.occurredAt);
+    if (occurredAtMs > endingMs) continue;
+
+    const boundedOccurredAtMs = occurredAtMs < startingMs ? startingMs : occurredAtMs;
+    const remainingMs = boundedOccurredAtMs < endingMs ? endingMs - boundedOccurredAtMs : 0n;
+    capitalMs += flow.amount * remainingMs;
+  }
+
+  return capitalMs;
 }
 
 function divideAndRound(numerator: bigint, denominator: bigint): bigint {
