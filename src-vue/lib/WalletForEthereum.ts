@@ -146,10 +146,12 @@ export class WalletForEthereum {
     return positions;
   }
 
-  public async load(options: { force?: boolean } = {}) {
+  public async load(options: { force?: boolean; startRefresh?: boolean } = {}) {
     await restoreCachedExternalWalletBalances(this.financialCache, 'ethereum', this.data);
     await this.loadBalances({ force: options.force ?? true });
-    this.startBalanceRefresh();
+    if (options.startRefresh ?? true) {
+      this.startBalanceRefresh();
+    }
   }
 
   public dispose() {

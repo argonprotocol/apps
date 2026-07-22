@@ -150,7 +150,7 @@ async function loadQRCode() {
 function disconnectWallet() {
   if (!isEthereumWalletSelection(props.selection)) return;
   isOpen.value = false;
-  basicEmitter.emit('openWalletDisconnectOverlay', props.selection.walletRecord);
+  basicEmitter.emit('openWalletDisconnectOverlay', { walletRecordId: props.selection.walletRecord.id });
 }
 
 function openRecovery() {

@@ -58,8 +58,10 @@ const walletRecord = Vue.ref<IWalletRecord>();
 const isDisconnecting = Vue.ref(false);
 const errorMessage = Vue.ref('');
 
-function openOverlay(record: IWalletRecord) {
-  walletRecord.value = record;
+function openOverlay({ walletRecordId }: { walletRecordId: number }) {
+  walletRecord.value = wallets.walletRecords.find(
+    record => record.id === walletRecordId && record.walletType === 'ethereum',
+  );
   errorMessage.value = '';
   isDisconnecting.value = false;
 }

@@ -605,7 +605,7 @@ export const useWallets = defineStore('wallets', () => {
     return await Promise.all(
       addresses.map(async address => {
         const wallet = new WalletForEthereum(address);
-        await wallet.load().catch(() => undefined);
+        await wallet.load({ startRefresh: false }).catch(() => undefined);
         return {
           address,
           wallet: wallet.data,
