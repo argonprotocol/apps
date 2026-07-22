@@ -1,6 +1,6 @@
 {
   "identifier": "com.argon.desktop.local",
-  "productName": "Testnet Argon",
+  "productName": "Argon Desktop [Testnet]",
   "bundle": {
     "icon": [
       "icons-desktop/local/testnet/32x32.png",

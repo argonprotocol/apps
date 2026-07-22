@@ -4,19 +4,19 @@
     <section box class="grow flex flex-col p-3  overflow-y-scroll">
 
       <div StatWrapper class="w-full flex flex-col h-full border-b border-slate-400/50">
-        <span class="text-5xl! sm:text-5xl! md:text-6xl! ">${{ data.totalMarketValueUsd ? numeral(data.totalMarketValueUsd).format('0,0') : '---' }}</span>
+        <span>${{ data.totalMarketValueUsd ? numeral(data.totalMarketValueUsd).format('0,0') : '---' }}</span>
         <label>Current Global Market Value of Network</label>
       </div>
 
       <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 w-full grow gap-2 divide-x divide-slate-500/30">
 
         <div StatWrapper class="col-span-1 xl:col-span-2 flex flex-col h-full border-b border-slate-400/50">
-          <span class="text-5xl! sm:text-5xl! md:text-6xl! ">{{ data.miningAPR ? numeral(data.miningAPR).formatCapped('0,0.[0]', 9_999) : '---' }}%</span>
+          <span>{{ data.miningAPR ? numeral(data.miningAPR).formatCapped('0,0.[0]', 9_999) : '---' }}%</span>
           <label>Current Mining APR</label>
         </div>
 
         <div StatWrapper class="col-span-1 xl:col-span-2 flex flex-col h-full border-b border-slate-400/50">
-            <span class="text-5xl! sm:text-5xl! md:text-6xl! ">
+            <span>
               {{ data.vaultingAPR ? numeral(data.vaultingAPR).formatIfElseCapped('< 1_000', '0,0.[0]', '0,0', 9_999) : '0' }}%
             </span>
           <label>Current Vaulting APR</label>

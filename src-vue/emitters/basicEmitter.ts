@@ -16,6 +16,8 @@ export type IWalletOverlayRequest = {
 
 type IBasicEmitter = {
   openWalletOverlay: IWalletOverlayRequest;
+  openWalletDisconnectOverlay: { walletRecordId: number };
+  ethereumWalletDisconnected: { walletRecordId: number };
   openEthereumWalletImportOverlay: 'choice' | 'external';
   openMoveCapitalOverlay: {
     walletType: WalletType.defaultArgon;

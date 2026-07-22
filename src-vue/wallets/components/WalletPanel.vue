@@ -1,7 +1,7 @@
 <template>
   <div class="flex h-full flex-col text-black/90">
     <div class="mx-1 border-t border-slate-300 px-4 py-6 text-center">
-      <div class="text-argon-700/70 text-6xl font-bold">
+      <div class="text-argon-700/70 flex flex-row justify-center text-6xl font-bold">
         {{ currency.symbol }}
         <FormattedMoney :isLoaded="walletValueIsLoaded" :value="walletTotalValue" />
       </div>
@@ -18,12 +18,12 @@
           v-else-if="walletValueIsLoaded && props.selection.walletType === WalletType.ethereum"
           class="mx-auto w-fit border-t border-slate-500/30 pt-2 text-sm opacity-50"
         >
-          {{ currency.symbol }}{{ microgonToMoneyNm(nonNativeTokenValue).format('0,0.00') }} is in non-native tokens
+          {{ currency.symbol }}{{ microgonToMoneyNm(nonNativeTokenValue).format('0,0.00') }} is in eth or other tokens
         </div>
       </div>
     </div>
 
-    <div class="relative pt-1 pb-2">
+    <div class="relative pt-1">
       <div class="relative px-4">
         <ArgonTokens
           :microgonsToMint="

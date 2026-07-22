@@ -68,7 +68,7 @@
             v-else-if="props.walletSelection?.walletType === WalletType.ethereum"
             class="border-t border-slate-500/30 pt-2"
           >
-            {{ currency.symbol }}{{ microgonToMoneyNm(nonNativeTokenValue).format('0,0.00') }} is in non-native tokens
+            {{ currency.symbol }}{{ microgonToMoneyNm(nonNativeTokenValue).format('0,0.00') }} is in eth or other tokens
           </div>
         </div>
       </div>
@@ -107,13 +107,11 @@
     <WalletChooser
       v-else
       :availableWallets="props.availableWallets"
-      :canAddDefaultEthereum="props.canAddDefaultEthereum"
       :compact="true"
       :dark="true"
       class="min-h-0 grow"
       @select="emit('select', $event)"
       @addNewWallet="emit('addNewWallet')"
-      @addDefaultEthereum="emit('addDefaultEthereum')"
       @addExternalEthereum="emit('addExternalEthereum')"
     />
   </section>
@@ -145,7 +143,6 @@ const props = defineProps<{
   wallet?: IWallet;
   moveWallet?: IWallet;
   availableWallets: IWalletSelection[];
-  canAddDefaultEthereum: boolean;
   isSource: boolean;
   transferDirection?: 'transferToArgon' | 'transferOutOfArgon';
   moveFrom?: MoveFrom;
@@ -159,7 +156,6 @@ const emit = defineEmits<{
   (event: 'cancelAddWallet'): void;
   (event: 'completeAddWallet', walletRecord: IWalletRecord): void;
   (event: 'addNewWallet'): void;
-  (event: 'addDefaultEthereum'): void;
   (event: 'addExternalEthereum'): void;
   (event: 'openTransferOverlay', transfer: { moveToken: IEthereumMoveToken; availableAmount: bigint }): void;
 }>();

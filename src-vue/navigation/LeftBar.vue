@@ -383,8 +383,8 @@
           style="text-shadow: 1px 1px 0 white"
         >
           <div class="absolute top-0 left-0 h-full w-5 rounded-bl-lg bg-linear-to-r from-slate-600/10 to-transparent" />
-          <div class="flex flex-col justify-center pt-3 pr-3 pl-3">
-            <header class="flex w-full flex-row items-center border-b border-slate-500/20">
+          <div class="flex flex-col justify-center pt-1 pr-3 pl-3">
+            <header class="flex w-full flex-row items-center border-b border-slate-500/20 pb-1.5!">
               <WalletSelector
                 :selectedWallet="selectedWallet"
                 :walletSelections="walletSelections"
@@ -402,6 +402,7 @@
                 :walletAddressTestId="selectedWalletAddressTestId"
                 :canExportPrivateKey="selectedWalletCanExportPrivateKey"
                 class="wallet-summary-actions justify-end gap-x-0! pr-0"
+                @click.stop
               />
             </header>
             <div class="flex flex-col justify-center py-7">
@@ -421,8 +422,8 @@
                 v-else-if="selectedWalletBalanceIsLoaded && isEthereumWalletSelection(selectedWallet)"
                 class="mx-auto mt-2 flex w-fit gap-x-2 border-t border-slate-500/30 pt-2 text-center opacity-50"
               >
-                {{ currency.symbol }}{{ microgonToMoneyNm(selectedOtherTokenValue).format('0,0.00') }} is in non-native
-                tokens
+                {{ currency.symbol }}{{ microgonToMoneyNm(selectedOtherTokenValue).format('0,0.00') }} is in eth or
+                other tokens
               </div>
             </div>
           </div>
@@ -560,6 +561,12 @@ function openSelectedWallet() {
   basicEmitter.emit('openWalletOverlay', { walletType: selectedWallet.value.walletType });
 }
 
+function onEthereumWalletDisconnected({ walletRecordId }: { walletRecordId: number }) {
+  if (isEthereumWalletSelection(selectedWallet.value) && selectedWallet.value.walletRecord.id === walletRecordId) {
+    selectedWallet.value = { walletType: WalletType.defaultArgon };
+  }
+}
+
 function getWalletName(wallet: IWalletSelection): string {
   if (isEthereumWalletSelection(wallet)) return wallet.walletRecord.name;
   return wallet.walletType === WalletType.miningBot ? 'Mining Bot Wallet' : 'Argon Wallet';
@@ -625,9 +632,11 @@ function highlightOperationsNavigation() {
 }
 
 basicEmitter.on('highlightOperationsNavigation', highlightOperationsNavigation);
+basicEmitter.on('ethereumWalletDisconnected', onEthereumWalletDisconnected);
 
 Vue.onBeforeUnmount(() => {
   basicEmitter.off('highlightOperationsNavigation', highlightOperationsNavigation);
+  basicEmitter.off('ethereumWalletDisconnected', onEthereumWalletDisconnected);
 });
 </script>
 

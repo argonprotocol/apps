@@ -145,6 +145,10 @@ export class WalletsTable extends BaseTable {
     }
   }
 
+  public async deleteEthereumWallet(id: number): Promise<void> {
+    await this.db.execute(`DELETE FROM Wallets WHERE id = ? AND walletType = 'ethereum'`, toSqlParams([id]));
+  }
+
   private toRecord(record: IWalletRecord): IWalletRecord {
     return convertFromSqliteFields<IWalletRecord>(record, this.fieldTypes);
   }

@@ -19,6 +19,8 @@ import { createNumeralHelpers } from '../../lib/numeral.ts';
 import type { IOtherToken } from '../../lib/Wallet.ts';
 import EthIcon from '../../assets/wallets/tokens/ethereum.svg?component';
 import UsdcIcon from '../../assets/wallets/tokens/usdc.svg?component';
+import UsdeIcon from '../../assets/wallets/tokens/usde.svg?component';
+import UsdtIcon from '../../assets/wallets/tokens/usdt.svg?component';
 
 const currency = getCurrency();
 
@@ -38,6 +40,10 @@ function getTokenLogo(token: IOtherToken) {
     return Vue.markRaw(EthIcon);
   } else if (token.symbol === 'USDC') {
     return Vue.markRaw(UsdcIcon);
+  } else if (token.symbol === 'USDE') {
+    return Vue.markRaw(UsdeIcon);
+  } else if (token.symbol === 'USDT') {
+    return Vue.markRaw(UsdtIcon);
   }
 }
 </script>

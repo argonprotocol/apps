@@ -60,12 +60,16 @@ export class WalletForEthereum {
 
   private lastBalanceLoadAt = 0;
   private balanceRefreshIsStarted = false;
+  private balanceRefreshIntervalId?: number;
   private isLoadingBalances = false;
   private readonly balanceLoadIntervalMs = 60_000;
   private argonTokensPromise?: Promise<{
     argonTokens: IOtherTokenDefinition[];
     chainConfig?: IEthereumChainConfig;
   }>;
+  private readonly onWindowFocus = () => {
+    void this.loadBalances();
+  };
 
   constructor(
     public readonly address: string,
@@ -142,10 +146,20 @@ export class WalletForEthereum {
     return positions;
   }
 
-  public async load(options: { force?: boolean } = {}) {
+  public async load(options: { force?: boolean; startRefresh?: boolean } = {}) {
     await restoreCachedExternalWalletBalances(this.financialCache, 'ethereum', this.data);
     await this.loadBalances({ force: options.force ?? true });
-    this.startBalanceRefresh();
+    if (options.startRefresh ?? true) {
+      this.startBalanceRefresh();
+    }
+  }
+
+  public dispose() {
+    if (!this.balanceRefreshIsStarted || typeof window === 'undefined') return;
+    window.removeEventListener('focus', this.onWindowFocus);
+    if (this.balanceRefreshIntervalId !== undefined) window.clearInterval(this.balanceRefreshIntervalId);
+    this.balanceRefreshIntervalId = undefined;
+    this.balanceRefreshIsStarted = false;
   }
 
   private async loadBalances(options: { force?: boolean } = {}) {
@@ -199,11 +213,9 @@ export class WalletForEthereum {
 
     this.balanceRefreshIsStarted = true;
 
-    window.addEventListener('focus', () => {
-      void this.loadBalances();
-    });
+    window.addEventListener('focus', this.onWindowFocus);
 
-    window.setInterval(() => {
+    this.balanceRefreshIntervalId = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return;
       void this.loadBalances();
     }, this.balanceLoadIntervalMs);

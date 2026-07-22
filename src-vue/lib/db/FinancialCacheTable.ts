@@ -49,6 +49,13 @@ export class FinancialCacheTable extends BaseTable {
       toSqlParams([type, scope, state]),
     );
   }
+
+  public async deleteExternalWalletBalance(chain: ExternalWalletChain, address: string): Promise<void> {
+    await this.db.execute(
+      `DELETE FROM FinancialCache WHERE type = ? AND scope = ?`,
+      toSqlParams([FinancialCacheTypes.ExternalWalletBalance, `${chain}:${address.toLowerCase()}`]),
+    );
+  }
 }
 
 export async function restoreCachedExternalWalletBalances(

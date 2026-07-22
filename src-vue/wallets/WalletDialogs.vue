@@ -7,7 +7,6 @@
     :transferOut="openWallet.transferOut"
     :walletSelections="walletSelections"
     :availableWallets="availableWallets"
-    :canAddDefaultEthereum="canAddDefaultEthereum"
     :showGuidance="openWallet.showGuidance"
     :guidanceContext="openWallet.guidanceContext"
     :zIndex="openWallet.zIndex"
@@ -17,7 +16,6 @@
     @selectTransferWallet="setTransferWallet"
     @returnToTransferWalletChooser="returnToTransferWalletChooser"
     @addNewWallet="addNewWallet"
-    @addDefaultEthereum="addDefaultEthereum"
     @addExternalEthereum="addExternalEthereum"
     @completeAddWallet="completeAddWallet"
     @close="closeOverlay"
@@ -78,10 +76,6 @@ const availableWallets = Vue.computed(() => {
     config.hasExtensionOperations,
   );
 });
-const canAddDefaultEthereum = Vue.computed(
-  () => !walletStore.walletRecords.some(record => record.role === 'defaultEthereum'),
-);
-
 function focusWallet() {
   if (!openWallet.value) return;
   openWallet.value.zIndex = reserveOverlayZIndex(openWallet.value.zIndex);
@@ -118,17 +112,12 @@ function returnToTransferWalletChooser(direction: IWalletTransferDirection) {
   openWallet.value.transferOut = nextState.transferOut;
 }
 
-async function addDefaultEthereum(direction: IWalletTransferDirection) {
-  const walletRecord = await walletStore.createDefaultEthereumWallet();
-  await setTransferWallet(direction, { walletType: WalletType.ethereum, walletRecord });
-}
-
 function addExternalEthereum(direction: IWalletTransferDirection) {
   showSidecarAddWallet(direction, 'external');
 }
 
 function addNewWallet(direction: IWalletTransferDirection) {
-  showSidecarAddWallet(direction, canAddDefaultEthereum.value ? 'choice' : 'external');
+  showSidecarAddWallet(direction, 'external');
 }
 
 function showSidecarAddWallet(direction: IWalletTransferDirection, initialStep: 'choice' | 'external') {
@@ -147,7 +136,7 @@ const openWalletOverlay = async (request: IWalletOverlayRequest, ethereumWalletR
 
   const wallet = getRequestedWallet(request, ethereumWalletRecord);
   if (!wallet) {
-    await openAddWalletPanel('choice', request.showGuidance ?? false, request.guidanceContext);
+    await openAddWalletPanel('external', request.showGuidance ?? false, request.guidanceContext);
     return;
   }
 
@@ -249,9 +238,11 @@ function syncOverlayState() {
 
 basicEmitter.on('openWalletOverlay', openWalletOverlay);
 basicEmitter.on('openEthereumWalletImportOverlay', openAddWalletPanel);
+basicEmitter.on('ethereumWalletDisconnected', closeOverlay);
 Vue.onUnmounted(() => {
   basicEmitter.off('openWalletOverlay', openWalletOverlay);
   basicEmitter.off('openEthereumWalletImportOverlay', openAddWalletPanel);
+  basicEmitter.off('ethereumWalletDisconnected', closeOverlay);
   closeOverlay();
 });
 </script>

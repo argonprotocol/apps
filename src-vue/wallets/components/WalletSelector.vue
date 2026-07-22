@@ -19,7 +19,7 @@
         :side="props.side"
         :sideOffset="8"
         :style="floatingZIndex"
-        class="bg-argon-menu-bg min-w-64 rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20"
+        class="bg-argon-menu-bg min-w-72 rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20"
       >
         <DropdownMenuItem
           v-for="wallet in props.walletSelections"
@@ -34,10 +34,19 @@
           />
           <span class="min-w-0 grow">
             <strong class="block truncate text-slate-800">{{ getWalletName(wallet) }}</strong>
-            <span class="block font-mono text-xs font-normal text-slate-500">
-              {{ abbreviateAddress(getWalletAddress(wallet), 8) }}
+            <span class="flex items-center justify-between gap-4 font-mono text-xs font-normal">
+              <span class="truncate text-slate-500">{{ abbreviateAddress(getWalletAddress(wallet), 8) }}</span>
+              <span class="shrink-0 text-right text-slate-600">{{ getWalletTotal(wallet) }}</span>
             </span>
           </span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator class="mx-2 my-1 h-px bg-slate-300" />
+        <DropdownMenuItem
+          :data-testid="`${props.testIdPrefix}.addNewWallet()`"
+          class="focus:bg-argon-menu-hover flex cursor-pointer items-center rounded py-2 pr-3 pl-9 text-slate-700 focus:outline-none"
+          @select="addNewWallet"
+        >
+          + Add Ethereum Wallet
         </DropdownMenuItem>
         <DropdownMenuArrow :width="18" :height="10" class="fill-white stroke-gray-300" />
       </DropdownMenuContent>
@@ -54,13 +63,18 @@ import {
   DropdownMenuItem,
   DropdownMenuPortal,
   DropdownMenuRoot,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from 'reka-ui';
 import { computed } from 'vue';
 import { abbreviateAddress } from '../../lib/Utils.ts';
-import { WalletType } from '../../lib/Wallet.ts';
+import { getWalletTotalValue, WalletType } from '../../lib/Wallet.ts';
 import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 import { useWallets } from '../../stores/wallets.ts';
+import { getCurrency } from '../../stores/currency.ts';
+import { useFinancials } from '../../stores/financials.ts';
+import { createNumeralHelpers } from '../../lib/numeral.ts';
+import basicEmitter from '../../emitters/basicEmitter.ts';
 import {
   getWalletSelectionKey,
   getWalletSelectionName,
@@ -90,6 +104,9 @@ const emit = defineEmits<{
 }>();
 
 const wallets = useWallets();
+const currency = getCurrency();
+const financials = useFinancials();
+const { microgonToMoneyNm } = createNumeralHelpers(currency);
 const floatingZIndex = useFloatingZIndex();
 const selectedWalletKey = computed(() => getWalletSelectionKey(props.selectedWallet));
 
@@ -102,5 +119,27 @@ function getWalletAddress(wallet: IWalletSelection) {
   return wallet.walletType === WalletType.miningBot
     ? wallets.miningBotWallet.address
     : wallets.defaultArgonWallet.address;
+}
+
+function getWalletTotal(wallet: IWalletSelection) {
+  const isLoaded =
+    currency.isLoaded &&
+    (wallet.walletType === WalletType.defaultArgon ? financials.savingsIsLoaded : wallets.isLoaded);
+  if (!isLoaded) return '--';
+
+  const total =
+    wallet.walletType === WalletType.defaultArgon
+      ? financials.savingsTotalValue
+      : getWalletTotalValue(
+          isEthereumWalletSelection(wallet)
+            ? wallets.getEthereumWalletRecord(wallet.walletRecord.id)
+            : wallets.miningBotWallet,
+          currency,
+        );
+  return `${currency.symbol}${microgonToMoneyNm(total).format('0,0.00')}`;
+}
+
+function addNewWallet() {
+  basicEmitter.emit('openEthereumWalletImportOverlay', 'external');
 }
 </script>
