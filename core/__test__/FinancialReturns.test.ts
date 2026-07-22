@@ -23,20 +23,34 @@ describe('FinancialReturns', () => {
     });
   });
 
-  it('aggregates realized income and current position value against invested capital', () => {
-    const result = calculatePerformanceReturn([
-      {
-        startingDate: new Date('2026-01-01T00:00:00Z'),
-        startingCapital: 1_000n,
-        endingCapital: 1_100n,
-      },
-      {
-        startingDate: new Date('2026-01-02T00:00:00Z'),
-        startingCapital: 2_000n,
-        endingDate: new Date('2026-01-12T00:00:00Z'),
-        endingCapital: 2_100n,
-      },
-    ]);
+  it('aggregates realized income and current position value against eligible invested capital', () => {
+    const now = new Date('2026-01-11T00:00:00Z');
+    const result = calculatePerformanceReturn(
+      [
+        {
+          startingDate: new Date('2026-01-01T00:00:00Z'),
+          startingCapital: 1_000n,
+          endingCapital: 1_100n,
+        },
+        {
+          startingDate: new Date('2026-01-01T00:00:00Z'),
+          startingCapital: 2_000n,
+          endingCapital: 2_100n,
+        },
+        {
+          startingDate: now,
+          startingCapital: 2_000n,
+          endingCapital: 0n,
+        },
+        {
+          startingDate: new Date('2026-01-01T00:00:00Z'),
+          startingCapital: 3_000n,
+          endingCapital: 0n,
+          capitalFlows: [{ amount: 3_000n, occurredAt: now }],
+        },
+      ],
+      { now },
+    );
 
     expect(result).toEqual({
       basisPoints: 667n,
@@ -44,6 +58,45 @@ describe('FinancialReturns', () => {
       eligibleCapitalInvested: 3_000n,
       totalProfits: 200n,
     });
+  });
+
+  it('gives newly invested capital only the weight of the time it has been deployed', () => {
+    const result = calculatePerformanceReturn(
+      [
+        {
+          startingDate: new Date('2026-01-01T00:00:00Z'),
+          startingCapital: 1_000n,
+          endingCapital: 1_100n,
+        },
+        {
+          startingDate: new Date('2026-01-28T00:00:00Z'),
+          startingCapital: 1_000n,
+          endingCapital: 1_000n,
+        },
+      ],
+      { now: new Date('2026-01-31T00:00:00Z') },
+    );
+
+    expect(result.percent).toBe(9.09);
+  });
+
+  it('time weights later capital additions within one investment', () => {
+    const result = calculatePerformanceReturn(
+      [
+        {
+          startingDate: new Date('2026-01-01T00:00:00Z'),
+          startingCapital: 2_000n,
+          endingCapital: 2_100n,
+          capitalFlows: [
+            { amount: 1_000n, occurredAt: new Date('2026-01-01T00:00:00Z') },
+            { amount: 1_000n, occurredAt: new Date('2026-01-28T00:00:00Z') },
+          ],
+        },
+      ],
+      { now: new Date('2026-01-31T00:00:00Z') },
+    );
+
+    expect(result.percent).toBe(9.09);
   });
 
   it('weights external cash flows by how long they were invested', () => {

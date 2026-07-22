@@ -312,6 +312,7 @@ export function calculatePositionReturn(positions: readonly IFinancialPosition[]
         startingCapital: investedCost,
         endingDate: position.endedAt,
         endingCapital: investedCost + positionIncome,
+        capitalFlows: position.capitalFlows,
       });
       continue;
     }
@@ -332,6 +333,7 @@ export function calculatePositionReturn(positions: readonly IFinancialPosition[]
       startingCapital: investedCost,
       endingDate: position.endedAt,
       endingCapital,
+      capitalFlows: position.capitalFlows,
     });
   }
 

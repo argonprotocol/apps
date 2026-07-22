@@ -75,13 +75,20 @@ export function calculateVaultPositionValue(args: {
   uncollectedRevenue: bigint;
   capitalHistory: readonly IVaultCapitalEvent[];
   collectedRevenue: readonly { amount: bigint }[];
-}): IInvestmentPositionValue & { hasCompleteCapitalHistory: boolean; remainingPrincipal: bigint } {
+}): IInvestmentPositionValue & {
+  hasCompleteCapitalHistory: boolean;
+  remainingPrincipal: bigint;
+  capitalDeltas: readonly bigint[];
+} {
   let observedSecuritization = 0n;
   let securitizationTarget = 0n;
   let investedCost = 0n;
   let settledPrincipalValue = 0n;
+  const capitalDeltas: bigint[] = [];
 
   for (const event of args.capitalHistory) {
+    const previousSecuritization = observedSecuritization;
+
     if (event.eventType === 'created') {
       observedSecuritization = event.securitization;
       securitizationTarget = event.securitization;
@@ -106,6 +113,8 @@ export function calculateVaultPositionValue(args: {
     } else if (event.eventType === 'capitalLost') {
       observedSecuritization = bigIntMax(observedSecuritization - event.amount, 0n);
     }
+
+    capitalDeltas.push(event.eventType === 'capitalLost' ? 0n : observedSecuritization - previousSecuritization);
   }
 
   const currentSecuritization = args.securitization ?? observedSecuritization;
@@ -119,6 +128,7 @@ export function calculateVaultPositionValue(args: {
     settledPrincipalValue: hasCompleteCapitalHistory ? settledPrincipalValue : undefined,
     hasCompleteCapitalHistory,
     remainingPrincipal: observedSecuritization,
+    capitalDeltas,
   };
 }
 
@@ -190,7 +200,7 @@ export function calculateMiningTermPositionValue(args: {
     settledPrincipalValue: 0n,
     recoveredValue: paidIncome,
     remainingSeatValue,
-    performanceEndingCapital: hasRewardValue ? paidIncome : undefined,
+    performanceEndingCapital: hasRewardValue ? paidIncome + remainingSeatValue : undefined,
   };
 }
 

@@ -1,4 +1,4 @@
-import type { BondLot, IInvestmentPositionValue } from '@argonprotocol/apps-core';
+import type { BondLot, ICapitalFlow, IInvestmentPositionValue } from '@argonprotocol/apps-core';
 import type { Vault } from '@argonprotocol/mainchain';
 import type { IWallet } from '../lib/Wallet.ts';
 import type { IStableSwapPurchaseRecord } from '../lib/db/StableSwapPurchasesTable.ts';
@@ -47,6 +47,7 @@ interface IFinancialInvestmentPositionBase
     Pick<IInvestmentPositionValue, 'investedCost' | 'paidIncome' | 'settledPrincipalValue'> {
   startedAt?: Date | number | string;
   endedAt?: Date | number | string;
+  capitalFlows?: readonly ICapitalFlow[];
 }
 
 export interface IWalletBalanceFinancialPosition extends IFinancialPositionBase {

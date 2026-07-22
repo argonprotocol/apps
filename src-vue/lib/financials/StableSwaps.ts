@@ -59,6 +59,10 @@ export class StableSwapFinancials
           label: 'Ethereum ARGN',
           lifecycle: 'active',
           startedAt: walletSnapshot?.summary.startedAt,
+          capitalFlows: purchases.map(purchase => ({
+            amount: purchase.costBasisMicrogons,
+            occurredAt: purchase.ethereumTimestamp,
+          })),
           wallet,
           purchases,
           nativeAmount,
