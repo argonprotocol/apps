@@ -23,7 +23,8 @@ describe('FinancialReturns', () => {
     });
   });
 
-  it('aggregates realized income and current position value against invested capital', () => {
+  it('aggregates realized income and current position value against eligible invested capital', () => {
+    const now = new Date('2026-01-11T00:00:00Z');
     const result = calculatePerformanceReturn(
       [
         {
@@ -36,8 +37,19 @@ describe('FinancialReturns', () => {
           startingCapital: 2_000n,
           endingCapital: 2_100n,
         },
+        {
+          startingDate: now,
+          startingCapital: 2_000n,
+          endingCapital: 0n,
+        },
+        {
+          startingDate: new Date('2026-01-01T00:00:00Z'),
+          startingCapital: 3_000n,
+          endingCapital: 0n,
+          capitalFlows: [{ amount: 3_000n, occurredAt: now }],
+        },
       ],
-      { now: new Date('2026-01-11T00:00:00Z') },
+      { now },
     );
 
     expect(result).toEqual({

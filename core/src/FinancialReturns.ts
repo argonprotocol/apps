@@ -97,9 +97,10 @@ export function calculatePerformanceReturn(
       ? calculateCapitalTime(investment.capitalFlows, startMs, endMs)
       : investment.startingCapital * durationMs;
 
+    if (durationMs <= 0n || capitalMs <= 0n) continue;
+
     eligibleCapitalInvested += investment.startingCapital;
     totalProfits += profit;
-    if (durationMs <= 0n || capitalMs <= 0n) continue;
 
     // Normalize each position over its own active duration, then combine positions by their capital-time exposure.
     weightedCapitalMs += capitalMs;

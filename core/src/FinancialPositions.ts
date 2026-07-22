@@ -200,7 +200,7 @@ export function calculateMiningTermPositionValue(args: {
     settledPrincipalValue: 0n,
     recoveredValue: paidIncome,
     remainingSeatValue,
-    performanceEndingCapital: hasRewardValue ? paidIncome : undefined,
+    performanceEndingCapital: hasRewardValue ? paidIncome + remainingSeatValue : undefined,
   };
 }
 

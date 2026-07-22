@@ -390,7 +390,7 @@ describe('financial position accounting', () => {
       investedCost: 101_000_000n,
       paidIncome: 45_000_000n,
       remainingSeatValue: 70_000_000n,
-      performanceEndingCapital: 45_000_000n,
+      performanceEndingCapital: 115_000_000n,
     });
     expect(custody).toMatchObject({
       source: 'collateral',
@@ -407,8 +407,8 @@ describe('financial position accounting', () => {
     expect(mining?.currentValue).toBe(180_000_000n);
     expect(mining?.returnSummary).toMatchObject({
       investedCost: 101_000_000n,
-      returnAmount: -56_000_000n,
-      percent: -55.45,
+      returnAmount: 14_000_000n,
+      percent: 13.86,
     });
   });
 

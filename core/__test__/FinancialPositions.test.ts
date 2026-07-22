@@ -44,8 +44,28 @@ describe('FinancialPositions', () => {
       investedCost: 3_005n,
       paidIncome: 610n,
       remainingSeatValue: 400n,
-      performanceEndingCapital: 610n,
+      performanceEndingCapital: 1_010n,
       currentValue: 3_400n,
+    });
+  });
+
+  it('keeps an unexpired mining seat neutral before it earns income', () => {
+    const value = calculateMiningTermPositionValue({
+      isActive: true,
+      percentComplete: 0,
+      bidPrincipal: 1_000n,
+      microgonsMined: 0n,
+      microgonsMinted: 0n,
+      micronotsMined: 0n,
+      feeIncome: 0n,
+      transactionFees: 0n,
+      currentArgonotPrice: 3_000n,
+    });
+
+    expect(value).toMatchObject({
+      paidIncome: 0n,
+      remainingSeatValue: 1_000n,
+      performanceEndingCapital: 1_000n,
     });
   });
 
@@ -80,13 +100,13 @@ describe('FinancialPositions', () => {
     expect(appreciated).toMatchObject({
       paidIncome: 300n,
       remainingSeatValue: 700n,
-      performanceEndingCapital: 300n,
+      performanceEndingCapital: 1_000n,
       currentValue: 700n,
     });
     expect(depreciated).toMatchObject({
       paidIncome: 100n,
       remainingSeatValue: 700n,
-      performanceEndingCapital: 100n,
+      performanceEndingCapital: 800n,
       currentValue: 700n,
     });
   });
