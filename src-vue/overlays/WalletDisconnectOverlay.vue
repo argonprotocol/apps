@@ -7,7 +7,7 @@
     @pressEsc="closeOverlay"
   >
     <template #title>
-      <div class="grow text-2xl font-bold">Disconnect{{ walletRecord ? '' : 'ing'}} {{ walletRecord?.name }}?</div>
+      <div class="grow text-2xl font-bold">Disconnect{{ walletRecord ? '' : 'ing' }} {{ walletRecord?.name }}?</div>
     </template>
 
     <div v-if="walletRecord" class="px-6 py-5 text-gray-700">
