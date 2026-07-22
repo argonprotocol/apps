@@ -22,6 +22,8 @@
 7. Commit the changes, including the generated data and synchronized Tauri configuration files.
 8. Push the branch to the remote repository.
    ```bash
+   git add .
+   git commit -m "v<new-version>"
    git push origin v<new-version>
    ``` 
 9. This will trigger the CI/CD pipeline to create a new release.

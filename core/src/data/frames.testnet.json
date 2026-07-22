@@ -4921,5 +4921,23 @@
     "firstBlockSpecVersion": 156,
     "frameStartTick": 29741028,
     "dateStart": "2026-07-19T11:48:00.000Z"
+  },
+  {
+    "frameId": 535,
+    "firstBlockNumber": 878052,
+    "firstBlockHash": "0xbac304c01f1cc2080a1dd7b1c83f0592c057f5563bb5429001211a2dbc72a200",
+    "firstBlockTick": 29742468,
+    "firstBlockSpecVersion": 156,
+    "frameStartTick": 29742468,
+    "dateStart": "2026-07-20T11:48:00.000Z"
+  },
+  {
+    "frameId": 536,
+    "firstBlockNumber": 879492,
+    "firstBlockHash": "0x8d9412dbfd76647b6e0bd0199ef4f2d2a3f3b4598475bd14a2fa618d0629cdb3",
+    "firstBlockTick": 29743908,
+    "firstBlockSpecVersion": 156,
+    "frameStartTick": 29743908,
+    "dateStart": "2026-07-21T11:48:00.000Z"
   }
 ]
