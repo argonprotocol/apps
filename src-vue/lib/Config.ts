@@ -244,14 +244,40 @@ export class Config implements IConfig {
         await this._injectFirstTimeAppData(loadedData, rawData, fieldsToSave);
       }
 
-      if (
+      let hasMiningSeats = loadedData.hasMiningSeats;
+      let hasMiningBids = loadedData.hasMiningBids || hasMiningSeats;
+      if (!hasMiningSeats) {
+        const [savedMiningActivity] = await db.select<[{ hasMiningBids: number; hasMiningSeats: number }]>(`
+          SELECT
+            EXISTS(SELECT 1 FROM FrameBids WHERE json_array_length(bidsJson) > 0) AS hasMiningBids,
+            EXISTS(SELECT 1 FROM Cohorts WHERE seatCountWon > 0) AS hasMiningSeats
+        `);
+        hasMiningSeats = !!savedMiningActivity?.hasMiningSeats;
+        hasMiningBids ||= !!savedMiningActivity?.hasMiningBids || hasMiningSeats;
+      }
+      if (hasMiningSeats !== loadedData.hasMiningSeats) {
+        loadedData.hasMiningSeats = hasMiningSeats;
+        fieldsToSave.add(dbFields.hasMiningSeats);
+        rawData[dbFields.hasMiningSeats] = JsonExt.stringify(hasMiningSeats, 2);
+      }
+      if (hasMiningBids !== loadedData.hasMiningBids) {
+        loadedData.hasMiningBids = hasMiningBids;
+        fieldsToSave.add(dbFields.hasMiningBids);
+        rawData[dbFields.hasMiningBids] = JsonExt.stringify(hasMiningBids, 2);
+      }
+
+      if (hasMiningBids && loadedData.miningSetupStatus !== MiningSetupStatus.Finished) {
+        loadedData.miningSetupStatus = MiningSetupStatus.Finished;
+        fieldsToSave.add(dbFields.miningSetupStatus);
+        rawData[dbFields.miningSetupStatus] = JsonExt.stringify(loadedData.miningSetupStatus, 2);
+      } else if (
         (loadedData.miningSetupStatus === MiningSetupStatus.Checklist ||
           loadedData.miningSetupStatus === MiningSetupStatus.Installing) &&
         loadedData.isServerInstalled &&
         !loadedData.isServerInstalling &&
         loadedData.serverInstaller.MiningLaunch.status === InstallStepStatus.Completed &&
         rawData[dbFields.biddingRules] &&
-        loadedData.biddingRules.initialCapitalCommitment !== undefined
+        (loadedData.biddingRules.initialCapitalCommitment ?? 0n) > 0n
       ) {
         loadedData.miningSetupStatus = MiningSetupStatus.Finished;
         fieldsToSave.add(dbFields.miningSetupStatus);

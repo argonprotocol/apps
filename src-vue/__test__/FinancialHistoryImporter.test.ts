@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AccountActivityKind } from '@argonprotocol/apps-core';
 import { needsFinancialHistoryRecovery, restoreFinancialHistory } from '../lib/recovery/index.ts';
 import { findAddressActivity } from '../lib/IndexerClient.ts';
@@ -6,6 +6,8 @@ import { SyncStateKeys } from '../lib/db/SyncStateTable.ts';
 import { optionCodec } from '../../core/__test__/helpers/codecs.ts';
 
 vi.mock('../lib/IndexerClient.ts', () => ({ findAddressActivity: vi.fn() }));
+
+afterEach(() => vi.mocked(findAddressActivity).mockReset());
 
 describe('FinancialHistoryImporter', () => {
   it('initializes recovery when an enabled domain trails the finalized target', async () => {
@@ -40,6 +42,31 @@ describe('FinancialHistoryImporter', () => {
     ).resolves.toBe(false);
   });
 
+  it('initializes Bitcoin recovery when a loaded lock is still quarantined', async () => {
+    const db = {
+      syncStateTable: {
+        get: vi.fn(async () => ({
+          accountId: '5owner',
+          asOfBlock: 100,
+          domains: ['bitcoin'],
+          domainCheckpoints: {
+            bitcoin: { asOfBlock: 100, definitionVersion: 2, recoveryVersion: 3 },
+          },
+        })),
+      },
+    } as any;
+
+    await expect(
+      needsFinancialHistoryRecovery({
+        db,
+        accountId: '5owner',
+        enabledDomains: ['bitcoin'],
+        targetBlock: 100,
+        bitcoinLockRecovery: { hasPendingHistoryRecovery: true } as any,
+      }),
+    ).resolves.toBe(true);
+  });
+
   it('skips the v2 activity lookup when the saved checkpoint already covers finalized progress', async () => {
     const getCheckpoint = vi.fn(async () => ({
       accountId: '5owner',
@@ -64,6 +91,59 @@ describe('FinancialHistoryImporter', () => {
     ).resolves.toEqual({ importedBlockCount: 0, asOfBlock: 100, targetBlock: 100 });
     expect(getCheckpoint).toHaveBeenCalledOnce();
     expect(onCheckStart).not.toHaveBeenCalled();
+  });
+
+  it('replays a loaded Bitcoin recovery even when its checkpoint is current', async () => {
+    const upsert = vi.fn(async () => undefined);
+    const beginHistoryReplay = vi.fn();
+    const commitHistoryReplay = vi.fn();
+    vi.mocked(findAddressActivity).mockResolvedValueOnce({
+      asOfBlock: 100,
+      definitionVersion: 2,
+      blocks: [],
+      coverage: { fromBlock: 100, toBlock: 100, gaps: [] },
+    });
+
+    await restoreFinancialHistory({
+      db: {
+        syncStateTable: {
+          get: vi.fn(async () => ({
+            accountId: '5owner',
+            asOfBlock: 100,
+            domains: ['bitcoin'],
+            domainCheckpoints: {
+              bitcoin: { asOfBlock: 100, definitionVersion: 2, recoveryVersion: 3 },
+            },
+          })),
+          upsert,
+        },
+      } as any,
+      blockWatch: {
+        finalizedBlockHeader: { blockNumber: 100 },
+        getFinalizedApi: vi.fn(async () => ({})),
+      } as any,
+      accountId: '5owner',
+      argonBonds: {} as any,
+      bitcoinLockRecovery: {
+        hasPendingHistoryRecovery: true,
+        beginHistoryReplay,
+        findMissingActiveLockIds: vi.fn(async () => []),
+        commitHistoryReplay,
+        cancelHistoryReplay: vi.fn(),
+      } as any,
+      vaultHistory: {} as any,
+      enabledDomains: ['bitcoin'],
+      minimumAsOfBlock: 100,
+    });
+
+    expect(findAddressActivity).toHaveBeenCalledWith('5owner', {
+      afterBlock: 0,
+      toBlock: 100,
+      activityMask: AccountActivityKind.BitcoinLock | AccountActivityKind.BitcoinMint,
+    });
+    expect(beginHistoryReplay).toHaveBeenCalledWith({ recoverExistingLocks: true });
+    expect(commitHistoryReplay).toHaveBeenCalledWith(true);
+    expect(upsert).toHaveBeenCalledOnce();
   });
 
   it('returns the minimum safe checkpoint across enabled financial domains', async () => {
@@ -297,6 +377,7 @@ describe('FinancialHistoryImporter', () => {
       }),
     );
     expect(beginHistoryReplay).toHaveBeenCalledOnce();
+    expect(beginHistoryReplay).toHaveBeenCalledWith({ recoverExistingLocks: true });
     expect(commitHistoryReplay).toHaveBeenCalledOnce();
     expect(commitHistoryReplay).toHaveBeenCalledWith(true);
     expect(cancelHistoryReplay).not.toHaveBeenCalled();

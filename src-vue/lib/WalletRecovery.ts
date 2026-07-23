@@ -32,10 +32,9 @@ export class WalletRecovery {
     await this.miningFrames.load();
 
     const hasVaultHistory = walletsForArgon.defaultArgonWallet.hasValue();
-    const hasMiningHistory = walletsForArgon.miningBotWallet.hasValue();
 
     let vaultProgress = hasVaultHistory ? 0 : 100;
-    let miningProgress = hasMiningHistory ? 0 : 100;
+    let miningProgress = 0;
     onLoadHistoryProgress?.(0);
     const onProgress = (source: 'miner' | 'vault', progressPct: number) => {
       if (source === 'miner') miningProgress = progressPct;
@@ -43,11 +42,8 @@ export class WalletRecovery {
       onLoadHistoryProgress?.(Math.round(100 * ((vaultProgress + miningProgress) / 2)) / 100);
     };
 
-    let miningHistoryPromise: Promise<IMiningAccountPreviousHistoryRecord[] | undefined> = Promise.resolve(undefined);
-    if (hasMiningHistory) {
-      const liveClient = await this.clients.archiveClientPromise;
-      miningHistoryPromise = this.loadMiningHistory(liveClient, pct => onProgress('miner', pct));
-    }
+    const liveClient = await this.clients.archiveClientPromise;
+    const miningHistoryPromise = this.loadMiningHistory(liveClient, pct => onProgress('miner', pct));
 
     let vaultingHistoryPromise: Promise<IVaultingRules | undefined> = Promise.resolve(undefined);
     if (hasVaultHistory) {

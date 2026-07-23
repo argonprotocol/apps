@@ -1,6 +1,20 @@
 <template>
   <div class="BitcoinRecord Component flex flex-col">
-    <section PendingRecord v-if="lockSummary.status === BitcoinLockStatus.LockIsProcessingOnArgon">
+    <section RecoveryRecord v-if="lockSummary.record.isHistoryRecoveryPending">
+      <BitcoinIcon MainIcon class="bitcoin-spin" />
+      <div ContentWrapper>
+        <div FirstRow>
+          <header>{{ satToBtcNm(lockSummary.satoshis).format('0,0.[00000000]') }} of BTC</header>
+          <span class="inline-flex items-center gap-2 font-semibold text-slate-500">
+            <Spinner class="h-4 w-4" />
+            Syncing...
+          </span>
+        </div>
+        <div SecondRow>Restoring this Bitcoin transaction from chain history.</div>
+      </div>
+    </section>
+
+    <section PendingRecord v-else-if="lockSummary.status === BitcoinLockStatus.LockIsProcessingOnArgon">
       <BitcoinIcon MainIcon class="bitcoin-spin" />
       <div ContentWrapper>
         <div FirstRow>
@@ -267,6 +281,10 @@ async function acknowledgeExpiredNotice() {
 @reference "../../../main.css";
 
 .BitcoinRecord.Component {
+  section[RecoveryRecord] {
+    @apply flex cursor-wait flex-row items-center gap-2.5 rounded border border-slate-900/20 bg-slate-100 px-3.5 py-2 opacity-60;
+  }
+
   section[PendingRecord] {
     @apply flex cursor-pointer flex-row items-center gap-2.5 rounded border-[1.5px] border-dashed border-slate-900/30 bg-white px-3.5 py-2 hover:bg-slate-50/50;
     [MainIcon] {

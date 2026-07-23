@@ -188,12 +188,11 @@ function trackTxInfo(txInfo: TransactionInfo) {
     txProgressLabel.value = `Submitted to Argon Miners: ${args.progressMessage}`;
     txProgressPct.value = Math.max(txProgressPct.value, args.progressPct);
 
-    if (args.progressPct === 100) {
-      if (error) {
-        transactionErrorMessage.value = error.message;
-      }
-      void ensureTrackedSetupTransfer();
+    if (args.progressPct === 100 && error) {
+      transactionErrorMessage.value = error.message;
     }
+
+    void ensureTrackedSetupTransfer();
   });
 
   void txInfo.waitForPostProcessing

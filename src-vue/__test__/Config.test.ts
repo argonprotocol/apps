@@ -1,7 +1,7 @@
 import './helpers/mocks.ts';
 import { beforeAll, expect, it, vi } from 'vitest';
 import { Config } from '../lib/Config';
-import { createMockedDbPromise } from './helpers/db';
+import { createMockedDbPromise, createTestDb } from './helpers/db';
 import { instanceChecks } from '../lib/Utils.js';
 import { WalletKeys } from '../lib/WalletKeys.ts';
 import { createTestWallet } from './helpers/wallet.ts';
@@ -59,6 +59,92 @@ it('can load config from db state', async () => {
   await config.load();
   expect(config.miningSetupStatus).toBe(MiningSetupStatus.Finished);
   expect(config.postWelcomeLaunchCount).toBe(4);
+});
+
+it('trusts saved mining seats without querying cached activity', async () => {
+  const dbPromise = createMockedDbPromise({
+    miningSetupStatus: `"${MiningSetupStatus.Finished}"`,
+    hasMiningBids: 'false',
+    hasMiningSeats: 'true',
+  });
+  const db = await dbPromise;
+  vi.spyOn(db, 'select').mockRejectedValue(new Error('cached mining activity should not be queried'));
+  const { walletKeys } = createTestWallet('//Alice');
+  instanceChecks.delete(Config.prototype.constructor);
+  const config = new Config(dbPromise, walletKeys);
+
+  await config.load();
+
+  expect(config.hasMiningBids).toBe(true);
+  expect(config.hasMiningSeats).toBe(true);
+});
+
+it('restores established mining flags from cached activity on app restart', async () => {
+  const db = await createTestDb();
+  const biddingRules = Config.getDefault('biddingRules') as IConfig['biddingRules'];
+  biddingRules.initialCapitalCommitment = 1n;
+  await db.configTable.insertOrReplace({
+    miningSetupStatus: `"${MiningSetupStatus.Installing}"`,
+    isServerInstalled: 'true',
+    isServerInstalling: 'true',
+    hasMiningBids: 'false',
+    hasMiningSeats: 'false',
+    biddingRules: JsonExt.stringify(biddingRules),
+  });
+  await db.frameBidsTable.insertOrUpdate(20, 200, [
+    {
+      address: '5cachedBid',
+      subAccountIndex: 1,
+      microgonsPerSeat: 10n,
+      micronotsStakedPerSeat: 20n,
+      bidPosition: 0,
+      lastBidAtTick: 100,
+    },
+  ]);
+  await db.framesTable.insertOrUpdate({
+    id: 19,
+    firstTick: 1,
+    rewardTicksRemaining: 0,
+    firstBlockNumber: 100,
+    lastBlockNumber: 199,
+    microgonToUsd: [],
+    microgonToBtc: [],
+    microgonToArgonot: [],
+    accruedMicrogonProfits: 0n,
+    accruedMicronotProfits: 0n,
+    progress: 100,
+  });
+  await db.cohortsTable.insertOrUpdate({
+    id: 19,
+    transactionFeesTotal: 0n,
+    micronotsStakedPerSeat: 20n,
+    microgonsBidPerSeat: 10n,
+    seatCountWon: 1,
+    microgonsToBeMinedPerSeat: 30n,
+    micronotsToBeMinedPerSeat: 40n,
+    argonotPriceAtBid: 50n,
+  });
+  const { walletKeys } = createTestWallet('//Alice');
+  instanceChecks.delete(Config.prototype.constructor);
+  const config = new Config(Promise.resolve(db), walletKeys);
+
+  try {
+    await config.load();
+
+    expect(config.miningSetupStatus).toBe(MiningSetupStatus.Finished);
+    expect(config.hasMiningBids).toBe(true);
+    expect(config.hasMiningSeats).toBe(true);
+    await expect(db.configTable.fetchAllAsObject()).resolves.toEqual(
+      expect.objectContaining({
+        miningSetupStatus: `"${MiningSetupStatus.Finished}"`,
+        hasMiningBids: 'true',
+        hasMiningSeats: 'true',
+      }),
+    );
+  } finally {
+    await db.close();
+    instanceChecks.delete(db.constructor);
+  }
 });
 
 it('migrates old server port field to sshPort', async () => {
@@ -161,12 +247,17 @@ it.each([VaultingSetupStatus.Checklist, VaultingSetupStatus.Installing])(
 );
 
 it('keeps interrupted setup active without durable evidence that creation finished', async () => {
+  const biddingRules = Config.getDefault('biddingRules') as IConfig['biddingRules'];
+  biddingRules.initialCapitalCommitment = 0n;
+  const serverInstaller = Config.getDefault('serverInstaller') as IConfig['serverInstaller'];
+  serverInstaller.MiningLaunch.status = InstallStepStatus.Completed;
   const dbPromise = createMockedDbPromise({
     miningSetupStatus: `"${MiningSetupStatus.Checklist}"`,
     isServerInstalled: 'true',
     vaultingSetupStatus: `"${VaultingSetupStatus.Installing}"`,
-    biddingRules: JsonExt.stringify(Config.getDefault('biddingRules')),
+    biddingRules: JsonExt.stringify(biddingRules),
     vaultingRules: JsonExt.stringify(Config.getDefault('vaultingRules')),
+    serverInstaller: JsonExt.stringify(serverInstaller),
   });
   const { walletKeys } = createTestWallet('//Alice');
   instanceChecks.delete(Config.prototype.constructor);

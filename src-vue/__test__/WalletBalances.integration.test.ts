@@ -78,11 +78,12 @@ describe
       try {
         await walletsForArgon.load();
         const onBalanceChange = vi.fn();
-        const didGetBalanceChange = createDeferred();
+        const didGetOperationalBalance = createDeferred();
         walletsForArgon.events.on('balance-change', (balanceChange, type) => {
-          console.log('Balance Change:', balanceChange);
           onBalanceChange(type);
-          didGetBalanceChange.resolve();
+          if (type === 'operational' && balanceChange.availableMicrogons === 5_000_000n) {
+            didGetOperationalBalance.resolve();
+          }
         });
         expect(walletsForArgon.operationalWallet.totalMicrogons).toBe(0n);
         expect(walletsForArgon.defaultArgonWallet.totalMicrogons).toBe(0n);
@@ -94,12 +95,12 @@ describe
           alice,
         ).submit();
         await result.waitForInFirstBlock;
-        await expect(didGetBalanceChange.promise).resolves.toBeUndefined();
+        transferBlocks = [result.blockNumber!];
+        await expect(didGetOperationalBalance.promise).resolves.toBeUndefined();
         expect(walletsForArgon.operationalWallet.availableMicrogons).toBe(5_000_000n);
         expect(onBalanceChange).toHaveBeenCalledWith('operational');
         expect(walletsForArgon.defaultArgonWallet.totalMicrogons).toBe(0n);
         await result.waitForFinalizedBlock;
-        transferBlocks = [result.blockNumber!];
         if (!walletsForArgon.finalizedBlock || walletsForArgon.finalizedBlock.blockNumber < result.blockNumber!) {
           await new Promise(resolve => {
             const unsub = walletsForArgon.events.on('sync:finalized', h => {

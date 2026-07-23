@@ -134,6 +134,7 @@ function toNodeSqliteParams(bindValues?: unknown[]): (string | number | Uint8Arr
 
 export async function createMockedDbPromise(allAsObject: { [key: string]: string } = {}): Promise<Db> {
   return Object.assign(Object.create(Db.prototype), {
+    select: async () => [{ hasMiningBids: 0, hasMiningSeats: 0 }],
     configTable: {
       fetchAllAsObject: async () => allAsObject,
       insertOrReplace: async (obj: Partial<IConfigStringified>) => {},

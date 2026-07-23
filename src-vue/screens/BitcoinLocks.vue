@@ -3,7 +3,7 @@
     <div v-if="!isLoaded" class="flex grow items-center justify-center text-slate-500">Loading...</div>
 
     <!-- Blank state -->
-    <div v-else-if="!financials.liquidAllRecords.length" class="flex grow flex-col">
+    <div v-else-if="!financials.bitcoinLockDisplayRecords.length" class="flex grow flex-col">
       <div class="flex grow flex-col items-center justify-center">
         <div class="flex w-8/12 max-w-200 flex-col items-center py-10">
           <header class="text-argon-600 pb-3 text-xl font-bold">
@@ -125,8 +125,8 @@
         <div class="flex grow flex-col overflow-y-auto pt-10">
           <div class="flex flex-row items-center px-9 text-slate-800/70">
             <span class="grow">
-              You have {{ financials.liquidVisibleRecords.length }} BTC transaction{{
-                financials.liquidVisibleRecords.length === 1 ? '' : 's'
+              You have {{ financials.bitcoinLockDisplayRecords.length }} BTC transaction{{
+                financials.bitcoinLockDisplayRecords.length === 1 ? '' : 's'
               }}...
             </span>
             <div class="flex flex-row items-stretch gap-x-3">
@@ -150,7 +150,7 @@
           <section class="mt-4 flex grow flex-col gap-y-3 px-9 pb-10">
             <BitcoinRecord
               :data-testid="`BitcoinLocks.lockEntry.${lockSummary.uuid}`"
-              v-for="lockSummary in financials.liquidVisibleRecords"
+              v-for="lockSummary in financials.bitcoinLockDisplayRecords"
               :key="lockSummary.uuid ?? lockSummary.utxoId"
               :lockSummary="lockSummary"
               @click="openDetail(lockSummary)"
@@ -255,6 +255,8 @@ const canStartLocking = Vue.computed(() => {
 });
 
 function openDetail(lock: IBitcoinLockSummary) {
+  if (lock.record.isHistoryRecoveryPending) return;
+
   selectedLock.value = lock;
   if (bitcoinLocks.isLockedStatus(lock.record) || bitcoinLocks.isFinishedStatus(lock.record)) {
     showDetailOverlay.value = true;
