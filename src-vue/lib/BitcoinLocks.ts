@@ -253,11 +253,13 @@ export default class BitcoinLocks {
     return this.getAllLocks().filter(lock => !this.isInactiveForVaultDisplay(lock));
   }
 
-  public getAllLocks(): IBitcoinLockRecord[] {
+  public getAllLocks({
+    includeHistoryRecoveryPending = false,
+  }: { includeHistoryRecoveryPending?: boolean } = {}): IBitcoinLockRecord[] {
     const locks = Object.values(this.data.locksByUtxoId);
     locks.unshift(...this.data.pendingLocks);
     return locks
-      .filter(lock => !lock.isHistoryRecoveryPending)
+      .filter(lock => includeHistoryRecoveryPending || !lock.isHistoryRecoveryPending)
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   }
 

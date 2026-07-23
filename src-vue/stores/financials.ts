@@ -606,7 +606,20 @@ export const useFinancials = defineStore('financials', () => {
   });
 
   const liquidVisibleRecords = Vue.computed<IBitcoinLockSummary[]>(() => {
-    return liquidAllRecords.value.filter(l => !bitcoinLocks.isInactiveForVaultDisplay(l.record));
+    return liquidAllRecords.value.filter(
+      lock => !lock.record.isHistoryRecoveryPending && !bitcoinLocks.isInactiveForVaultDisplay(lock.record),
+    );
+  });
+
+  const bitcoinLockDisplayRecords = Vue.computed<IBitcoinLockSummary[]>(() => {
+    const recoveringRecords = bitcoinLocks
+      .getAllLocks({ includeHistoryRecoveryPending: true })
+      .filter(lock => lock.isHistoryRecoveryPending && !bitcoinLocks.isInactiveForVaultDisplay(lock))
+      .map(lock => bitcoinLocks.createLockSummary(lock));
+
+    return [...liquidVisibleRecords.value, ...recoveringRecords].sort(
+      (left, right) => right.createdAt.getTime() - left.createdAt.getTime(),
+    );
   });
 
   const liquidLockedRecords = Vue.computed(() => {
@@ -917,6 +930,7 @@ export const useFinancials = defineStore('financials', () => {
       accountId: wallets.defaultArgonWallet.address,
       enabledDomains,
       targetBlock,
+      bitcoinLockRecovery: bitcoinLocks.recovery,
     });
     if (needsRecovery) {
       await restoreFinancialHistory(false, targetBlock);
@@ -1026,6 +1040,7 @@ export const useFinancials = defineStore('financials', () => {
     bondSummariesByAsset,
 
     liquidAllRecords,
+    bitcoinLockDisplayRecords,
     liquidVisibleRecords,
     liquidInvisibleRecords,
     liquidLockedRecords,

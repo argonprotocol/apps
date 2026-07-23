@@ -35,6 +35,7 @@ import { getTransactionTracker } from '../../stores/transactions.ts';
 import { MoveCapital, type ITransactionMoveMetadata } from '../../lib/MoveCapital.ts';
 import { ExtrinsicType } from '../../lib/db/TransactionsTable.ts';
 import type { TransactionInfo } from '../../lib/TransactionInfo.ts';
+import { TxAttemptState } from '../../lib/TransactionTracker.ts';
 import { getMyVault } from '../../stores/vaults.ts';
 import type { Config } from '../../lib/Config.ts';
 import { getMiningFundingState } from './miningFunding.ts';
@@ -222,12 +223,18 @@ async function finalizeMiningSetup() {
 }
 
 async function ensureTrackedSetupTransfer(force = false) {
+  if (!hasEnteredTransactionPhase.value) return;
+
   const txInfo = findLatestSetupTxInfo();
   if (txInfo) {
-    trackTxInfo(txInfo);
+    const txAttemptState = await transactionTracker.getTxAttemptState(txInfo, 2);
+    if (txAttemptState === TxAttemptState.Follow) {
+      trackTxInfo(txInfo);
+      return;
+    }
   }
 
-  if (!hasEnteredTransactionPhase.value || !wallets.isLoaded || isEnsuringSetupTransfer.value) return;
+  if (!wallets.isLoaded || isEnsuringSetupTransfer.value) return;
 
   const now = Date.now();
   if (!force && now - lastEnsureSetupTransferAt < 3_000) return;

@@ -210,23 +210,37 @@ export class ServerAdmin {
   }
 
   public async getDataDir(service: string): Promise<string> {
-    const [dataDir] = await this.runComposeCommand(
-      `config ${service} --format json | jq -r '.services.["${service}"].volumes[0].source'`,
+    const [output, code] = await this.runComposeCommand(
+      `config ${service} --format json 2>/dev/null | jq -er '.services.["${service}"].volumes[0].source'`,
       10e3,
     );
-    return dataDir.trim();
+    const dataDir = output.trim();
+    if (code !== 0 || !dataDir.startsWith('/') || dataDir.includes('\n') || dataDir.includes('\r')) {
+      throw new Error(`Invalid data directory returned for ${service}`);
+    }
+    return dataDir;
   }
 
   public async cleanDirectory(directory: string): Promise<void> {
-    if (!directory || directory === '/') {
+    if (!directory.startsWith('/') || directory === '/' || directory.includes('\n') || directory.includes('\r')) {
       throw new Error('Invalid directory to clean');
     }
     console.info(`Cleaning directory: ${directory}`);
-    await this.connection.runCommandWithTimeout(`set -euo pipefail && sudo rm -rf -- "${directory}"/*`, 10e3);
+    await this.connection.runCommandWithTimeout(
+      `set -euo pipefail && sudo find "${directory}" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +`,
+      60e3,
+    );
+    const [remainingFiles, code] = await this.connection.runCommandWithTimeout(
+      `sudo find "${directory}" -mindepth 1 -maxdepth 1 -print -quit`,
+      10e3,
+    );
+    if (code !== 0 || remainingFiles.trim()) {
+      throw new Error(`Directory was not fully cleaned: ${directory}`);
+    }
   }
 
   public async stopMiningDockers(): Promise<void> {
-    await this.runComposeCommand(`stop argon-miner `);
+    await this.runComposeCommand(`stop argon-miner`);
   }
 
   public async startMiningDockers(): Promise<void> {
@@ -234,12 +248,11 @@ export class ServerAdmin {
   }
 
   public async resyncMiner(): Promise<void> {
-    const dataDir = await this.getDataDir('argon-miner').catch(() => null);
-    if (dataDir) {
-      await this.stopMiningDockers();
-      console.info(`Wiping Argon Miner data directory: ${dataDir}`);
-      await this.cleanDirectory(dataDir);
-    }
+    const dataDir = await this.getDataDir('argon-miner');
+    const chainDataDir = `${dataDir}/chains`;
+    await this.stopMiningDockers();
+    console.info(`Wiping Argon chain data directory: ${chainDataDir}`);
+    await this.cleanDirectory(chainDataDir);
     await this.removeLogStep(InstallStepKey.ArgonInstall);
     await this.startMiningDockers();
   }
@@ -253,12 +266,10 @@ export class ServerAdmin {
   }
 
   public async resyncBitcoin(): Promise<void> {
-    const dataDir = await this.getDataDir('bitcoin-node').catch(() => null);
-    if (dataDir) {
-      await this.stopBitcoinDocker();
-      console.info(`Wiping Bitcoin data directory: ${dataDir}`);
-      await this.cleanDirectory(dataDir);
-    }
+    const dataDir = await this.getDataDir('bitcoin-node');
+    await this.stopBitcoinDocker();
+    console.info(`Wiping Bitcoin data directory: ${dataDir}`);
+    await this.cleanDirectory(dataDir);
     await this.removeLogStep(InstallStepKey.BitcoinInstall);
     await this.startBitcoinDocker();
   }
@@ -307,7 +318,20 @@ export class ServerAdmin {
     await this.connection.runCommandWithTimeout(`rm -rf ${this.workDir}/logs/step-${stepKey}.*`, 60e3);
   }
 
-  public async startInstallerScript(): Promise<void> {
+  public async getComposeProjectName(): Promise<string> {
+    const [existingEnv] = await this.connection.runCommandWithTimeout(
+      `cat ${this.workDir}/server/.env 2>/dev/null || true`,
+      10e3,
+    );
+    const composeProjectName = parseEnv(existingEnv).COMPOSE_PROJECT_NAME?.trim() || DOCKER_COMPOSE_PROJECT_NAME;
+    if (!/^[a-z0-9][a-z0-9_-]*$/.test(composeProjectName)) {
+      throw new Error('Invalid Docker Compose project name in the existing server configuration');
+    }
+
+    return composeProjectName;
+  }
+
+  public async startInstallerScript(options: { composeProjectName?: string } = {}): Promise<void> {
     const remoteScriptPath = this.installerScriptPath;
     const remoteScriptLogPath = `${this.workDir}/logs/installer.log`;
     const [existingEnv] = await this.connection.runCommandWithTimeout(
@@ -315,7 +339,8 @@ export class ServerAdmin {
       10e3,
     );
     const existingEnvVars = parseEnv(existingEnv);
-    const composeProjectName = existingEnvVars.COMPOSE_PROJECT_NAME?.trim() || DOCKER_COMPOSE_PROJECT_NAME;
+    const composeProjectName =
+      options.composeProjectName?.trim() || existingEnvVars.COMPOSE_PROJECT_NAME?.trim() || DOCKER_COMPOSE_PROJECT_NAME;
     if (!/^[a-z0-9][a-z0-9_-]*$/.test(composeProjectName)) {
       throw new Error('Invalid Docker Compose project name in the existing server configuration');
     }
