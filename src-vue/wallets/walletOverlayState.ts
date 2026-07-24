@@ -116,3 +116,13 @@ export function isEthereumWalletSelection(
 ): wallet is Extract<IWalletSelection, { walletType: WalletType.ethereum }> {
   return wallet.walletType === WalletType.ethereum;
 }
+
+export function shouldLoadEthereumWalletSelection(
+  wallet: IWalletSelection,
+  activeEthereumWalletRecordId: number | undefined,
+  balanceUpdatedAt: Date | undefined,
+): wallet is Extract<IWalletSelection, { walletType: WalletType.ethereum }> {
+  return (
+    isEthereumWalletSelection(wallet) && (activeEthereumWalletRecordId !== wallet.walletRecord.id || !balanceUpdatedAt)
+  );
+}

@@ -56,6 +56,7 @@ const mocks = vi.hoisted(() => {
       })),
     },
     config: {
+      isLoaded: true,
       isLoadedPromise: Promise.resolve(),
       hasExtensionTreasury: false,
       hasExtensionOperations: false,
@@ -67,6 +68,7 @@ const mocks = vi.hoisted(() => {
       microgonsPer: { ARGNOT: 0n },
       priceIndex: {},
       usdTarget: 0,
+      fetchMicrogonsInCirculation: vi.fn(async () => 0n),
       convertMicronotTo: vi.fn(() => 0n),
       convertOtherToMicrogon: vi.fn(() => 0n),
     },
@@ -200,6 +202,7 @@ describe('financials store lifecycle', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     mocks.config.isLoadedPromise = Promise.resolve();
+    mocks.config.isLoaded = true;
     mocks.config.hasExtensionTreasury = false;
     mocks.config.hasExtensionOperations = false;
     mocks.config.hasActivatedStableSwaps = false;
@@ -207,6 +210,8 @@ describe('financials store lifecycle', () => {
     mocks.wallets.isLoadedPromise = Promise.resolve();
     mocks.currency.isLoadedPromise = Promise.resolve();
     mocks.currency.microgonsPer.ARGNOT = 0n;
+    mocks.currency.fetchMicrogonsInCirculation.mockResolvedValue(0n);
+    mocks.currency.fetchMicrogonsInCirculation.mockClear();
     mocks.argonBonds.load.mockResolvedValue();
     mocks.argonBonds.data.bondLots = [];
     mocks.argonBonds.data.bondHistory = [];
@@ -224,6 +229,8 @@ describe('financials store lifecycle', () => {
     mocks.bitcoinLocks.isLockedStatus.mockReturnValue(true);
     mocks.bitcoinLocks.isReleaseStatus.mockReturnValue(false);
     mocks.vaults.load.mockResolvedValue();
+    mocks.vaultingStats.argonBurnCapacity = 0;
+    mocks.vaultingStats.microgonValueInVaults = 0n;
     mocks.myVault.load.mockResolvedValue();
     mocks.miningFinancials.loadPositions.mockResolvedValue([]);
     mocks.miningFinancials.loadPositions.mockClear();
@@ -265,6 +272,20 @@ describe('financials store lifecycle', () => {
     vi.useRealTimers();
     disposePinia(pinia);
     vi.restoreAllMocks();
+  });
+
+  it('calculates savings restabilization power from circulating ARGN without Treasury access', async () => {
+    mocks.currency.fetchMicrogonsInCirculation.mockResolvedValue(10_000_000n);
+    mocks.vaultingStats.argonBurnCapacity = 25;
+
+    const financials = useFinancials();
+
+    await vi.waitFor(() => expect(financials.savingsIsLoaded).toBe(true));
+    expect(financials.savingsRestabilizationPower).toBe(2.5);
+    expect(mocks.currency.fetchMicrogonsInCirculation).toHaveBeenCalledOnce();
+    expect(mocks.argonBonds.load).not.toHaveBeenCalled();
+    expect(mocks.bitcoinLocks.load).not.toHaveBeenCalled();
+    expect(mocks.vaults.load).not.toHaveBeenCalled();
   });
 
   it.each([

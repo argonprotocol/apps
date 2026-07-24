@@ -11,6 +11,7 @@ import {
   selectPrimaryWallet,
   selectTransferWallet,
   showAddWalletOnTransferSide,
+  shouldLoadEthereumWalletSelection,
   toggleWalletTransferDirection,
   type IWalletOverlayState,
   type IWalletSelection,
@@ -52,6 +53,24 @@ const primaryWallet = {
 const transferWallet = { walletType: WalletType.defaultArgon } satisfies IWalletSelection;
 
 describe('wallet overlay state', () => {
+  describe('Ethereum wallet loading', () => {
+    it('loads the first wallet when it is already active but has no balance observation', () => {
+      expect(shouldLoadEthereumWalletSelection(primaryWallet, ethereumA.id, undefined)).toBe(true);
+    });
+
+    it('does not reload an already-active wallet with a balance observation', () => {
+      expect(shouldLoadEthereumWalletSelection(primaryWallet, ethereumA.id, new Date('2026-07-22T12:00:00Z'))).toBe(
+        false,
+      );
+    });
+
+    it('loads a different Ethereum wallet', () => {
+      expect(shouldLoadEthereumWalletSelection(primaryWallet, ethereumB.id, new Date('2026-07-22T12:00:00Z'))).toBe(
+        true,
+      );
+    });
+  });
+
   it('lists built-in wallets and each wallet other than the primary wallet', () => {
     const available = getAvailableWalletSelections([defaultArgonRecord, ethereumA, ethereumB], [primaryWallet], true);
 

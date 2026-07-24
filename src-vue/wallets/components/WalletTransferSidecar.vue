@@ -46,7 +46,7 @@
     <template v-if="props.wallet">
       <div class="flex h-[120px] shrink-0 flex-col items-center justify-center">
         <div class="text-argon-700/70 text-5xl font-bold">
-          {{ currency.symbol }}
+          <span>{{ currency.symbol }}</span>
           <FormattedMoney :isLoaded="walletValueIsLoaded" :value="walletTotalValue" />
         </div>
         <div v-if="walletValueIsLoaded" class="mt-2 h-[29px] shrink-0 text-sm opacity-50">

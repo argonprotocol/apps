@@ -7,13 +7,14 @@ import { getArgonBonds } from './argonBonds.ts';
 import { getBlockWatch } from './mainchain.ts';
 import {
   type ArgonQueryClient,
+  calculateRestabilizationLeverage,
   calculatePerformanceReturn,
   type IBlockHeaderInfo,
   type IPerformanceReturnInput,
   UnitOfMeasurement,
 } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
-import { MICROGONS_PER_ARGON, Vault } from '@argonprotocol/mainchain';
+import { Vault } from '@argonprotocol/mainchain';
 import { getVaults, getMyVault } from './vaults.ts';
 import {
   financialGroups,
@@ -63,6 +64,7 @@ export const useFinancials = defineStore('financials', () => {
   let myMiningSeats: ReturnType<typeof getMyMiningSeats> | undefined;
   let miningFinancials: MiningFinancials | undefined;
   let vaultingStats: ReturnType<typeof useVaultingStats> | undefined;
+  const microgonsInCirculation = Vue.ref(0n);
 
   const isLoaded = Vue.ref(false);
   const financialPositionBook = Vue.shallowReactive(new FinancialPositionBook());
@@ -195,9 +197,14 @@ export const useFinancials = defineStore('financials', () => {
   }
 
   async function loadEnabledDomainSources(): Promise<void> {
-    const loads: Promise<unknown>[] = [];
+    const loads: Promise<unknown>[] = [
+      getVaultingStatsSource().isLoadedPromise,
+      currency.fetchMicrogonsInCirculation().then(value => {
+        microgonsInCirculation.value = value;
+      }),
+    ];
     if (config.hasExtensionTreasury) {
-      loads.push(argonBonds.load(), bitcoinLocks.load(), vaultStore.load(), getVaultingStatsSource().isLoadedPromise);
+      loads.push(argonBonds.load(), bitcoinLocks.load(), vaultStore.load());
     }
     if (config.hasExtensionOperations) {
       loads.push(getMyMiningSeatsSource().isLoadedPromise, myVault.load());
@@ -569,14 +576,21 @@ export const useFinancials = defineStore('financials', () => {
   });
 
   const savingsRestabilizationPower = Vue.computed(() => {
-    if (!config.isLoaded || !config.hasExtensionTreasury) return 0;
+    if (!config.isLoaded) return 0;
 
     const source = getVaultingStatsSource();
-    const microgonValueInVaults = source.microgonValueInVaults;
-    if (!microgonValueInVaults) return 0;
-
-    const microgonBurnCapacity = BigInt(Math.round(source.argonBurnCapacity * MICROGONS_PER_ARGON));
-    return BigNumber(microgonBurnCapacity).dividedBy(microgonValueInVaults).toNumber();
+    console.log('CALCULATING savingsRestabilizationPower', {
+      argonBurnCapacity: source.argonBurnCapacity,
+      microgonsInCirculation: microgonsInCirculation.value,
+      power: calculateRestabilizationLeverage({
+        argonBurnCapacity: source.argonBurnCapacity,
+        microgonsInCirculation: microgonsInCirculation.value,
+      }),
+    });
+    return calculateRestabilizationLeverage({
+      argonBurnCapacity: source.argonBurnCapacity,
+      microgonsInCirculation: microgonsInCirculation.value,
+    });
   });
 
   const savingsIsLoaded = Vue.ref(false);

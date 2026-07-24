@@ -76,14 +76,32 @@
           <li @click="goto(TopTab.ArgonBonds)" :class="{ Selected: controller.selectedTab === TopTab.ArgonBonds }">
             <article class="relative flex flex-row items-center">
               <div class="mr-1 w-6">
-                <BondIcon class="w-5.5 opacity-70" />
+                <ArgonBondIcon class="w-5.5 opacity-70" />
               </div>
-              <div class="grow">Argon(ot) Bonds</div>
+              <div class="grow">Argon Bonds</div>
               <div class="opacity-60">{{ currency.symbol }}{{ formatFinancialGroupValue('bonds') }}</div>
               <ArrowCalloutButton
                 v-if="
                   controller.activeGuideId === OperationalStepId.AcquireBonds &&
                   controller.selectedTab !== TopTab.ArgonBonds
+                "
+                guidance="Open Argon(ot) Bonds to continue this task."
+                class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
+              />
+            </article>
+            <div Selector />
+          </li>
+          <li @click="goto(TopTab.ArgonotBonds)" :class="{ Selected: controller.selectedTab === TopTab.ArgonotBonds }">
+            <article class="relative flex flex-row items-center">
+              <div class="mr-1 w-6">
+                <ArgonotBondIcon class="w-5.5 opacity-70" />
+              </div>
+              <div class="grow">Argonot Staking</div>
+              <div class="opacity-60">{{ currency.symbol }}{{ formatFinancialGroupValue('bonds') }}</div>
+              <ArrowCalloutButton
+                v-if="
+                  controller.activeGuideId === OperationalStepId.AcquireBonds &&
+                  controller.selectedTab !== TopTab.ArgonotBonds
                 "
                 guidance="Open Argon(ot) Bonds to continue this task."
                 class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
@@ -461,7 +479,8 @@ import DiamondsIcon from '../assets/diamonds.svg?component';
 import MoreIcon from '../assets/more.svg';
 import GiftIcon from '../assets/gift.svg';
 import BitcoinIcon from '../assets/wallets/bitcoin.svg';
-import BondIcon from '../assets/bond.svg';
+import ArgonBondIcon from '../assets/wallets/tokens/argon.svg';
+import ArgonotBondIcon from '../assets/wallets/tokens/argonot.svg';
 import MiningOilIcon from '../assets/mining-oil.svg';
 import OverviewIcon from '../assets/overview.svg';
 import SwapIcon from '../assets/swap.svg';

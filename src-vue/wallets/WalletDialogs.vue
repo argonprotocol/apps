@@ -48,6 +48,7 @@ import {
   selectPrimaryWallet,
   selectTransferWallet,
   showAddWalletOnTransferSide,
+  shouldLoadEthereumWalletSelection,
   toggleWalletTransferDirection,
   type IWalletOverlayState,
   type IWalletSelection,
@@ -219,7 +220,10 @@ function getRequestedWallet(
 }
 
 async function activateEthereumWallet(wallet: IWalletSelection) {
-  if (isEthereumWalletSelection(wallet) && walletStore.activeEthereumWalletRecordId !== wallet.walletRecord.id) {
+  const balanceUpdatedAt = isEthereumWalletSelection(wallet)
+    ? walletStore.getEthereumWalletRecord(wallet.walletRecord.id).balanceUpdatedAt
+    : undefined;
+  if (shouldLoadEthereumWalletSelection(wallet, walletStore.activeEthereumWalletRecordId, balanceUpdatedAt)) {
     await walletStore.selectEthereumWalletRecord(wallet.walletRecord.id);
   }
 }

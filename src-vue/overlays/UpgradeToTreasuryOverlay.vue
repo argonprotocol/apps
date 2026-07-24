@@ -1,40 +1,120 @@
 <template>
-  <OverlayBase :isOpen="isOpen" @close="closeOverlay" @pressEsc="closeOverlay" class="w-7/12">
+  <OverlayBase :isOpen="isOpen" @close="closeOverlay" @pressEsc="closeOverlay" :hasHeaderBorder="false" class="w-7/12">
     <template #title>
-      <div class="grow text-2xl font-bold">Upgrade to Treasury</div>
+      <div class="border-b-none relative top-2 ml-6 grow text-2xl font-bold">Put Your Assets to Work</div>
     </template>
 
-    <div class="px-10 pb-8">
-      <div class="mt-6 mb-5 space-y-3 text-[17px]/7 leading-normal font-light">
+    <div class="mt-2 px-10 pb-8">
+      <div class="mb-5 space-y-3 text-[17px]/7 leading-normal font-light">
         <p>
-          Argon's yield-generating instruments require an access code to use. Only operators of the network are able to
-          distribute them. If you know someone who is an operator, ask if they have an extra invite.
+          Treasury is the next level of Argon Desktop. It’s where the network's yield-generating instruments live, where
+          your assets can help grow and stabilize the currency. Here’s a snapshot into the network’s current APYs:
         </p>
-        <p>If you don't know anyone, you might want to try the Argon Community on Discord.</p>
+
+        <ul class="mt-6 grid grid-cols-2 gap-3">
+          <li class="border-argon-300/30 bg-argon-100/30 flex items-center justify-between rounded border px-3 py-2">
+            <div class="leading-tight">
+              <header class="font-bold">Argon Bonds</header>
+              <span class="text-base opacity-80">Secure the Vaults</span>
+            </div>
+            <div class="bg-argon-100 rounded px-3 py-2 text-2xl leading-none font-bold">187%</div>
+          </li>
+          <li class="border-argon-300/30 bg-argon-100/30 flex items-center justify-between rounded border px-3 py-2">
+            <div class="leading-tight">
+              <header class="font-bold">Argonot Bonds</header>
+              <span class="text-base opacity-80">Secure the Mining</span>
+            </div>
+            <div class="bg-argon-100 rounded px-3 py-2 text-2xl leading-none font-bold">
+              {{ numeral(vaultingStats.bondsAPR).formatIfElseCapped('< 100', '0.0', '0', 999) }}%
+            </div>
+          </li>
+          <li class="flex items-center justify-between rounded border border-orange-300/40 bg-orange-100/40 px-3 py-2">
+            <div class="leading-tight">
+              <header class="font-bold">Bitcoin Locks</header>
+              <span class="text-base opacity-80">Stabilize the Currency</span>
+            </div>
+            <div class="rounded bg-orange-100 px-3 py-2 text-2xl leading-none font-bold">187%</div>
+          </li>
+          <li class="flex items-center justify-between rounded border border-blue-300/30 bg-blue-100/30 px-3 py-2">
+            <div class="leading-tight">
+              <header class="font-bold">Stable Swaps</header>
+              <span class="text-base opacity-80">Arbitrage the Swings</span>
+            </div>
+            <div class="rounded bg-blue-100 px-3 py-2 text-2xl leading-none font-bold">
+              {{ numeral(vaultingStats.bondsAPR).formatIfElseCapped('< 100', '0.0', '0', 999) }}%
+            </div>
+          </li>
+        </ul>
+
+        <div
+          class="mt-4 rounded border border-slate-600/10 px-4 py-2"
+          :class="showingExtraDetails ? '' : 'hover:bg-argon-100/10'"
+        >
+          <div @click="showingExtraDetails = !showingExtraDetails" class="flex cursor-pointer flex-row gap-x-1.5">
+            <InfoIcon class="text-argon-600 w-4" />
+            <div class="text-argon-600 grow">How are these rates possible?</div>
+            <MinusIcon v-if="showingExtraDetails" class="w-4 cursor-pointer text-slate-900/60" />
+            <PlusIcon v-else class="w-4 text-slate-900/60" />
+          </div>
+          <div v-if="showingExtraDetails" class="text-md mt-2 flex flex-col gap-y-2">
+            <p>
+              First off, these rates float. The numbers shown above are simply what the network is paying right now. The
+              strong returns are a combination of Argon's economic design paired with the fact that we're very early in
+              its growth stage. Although these rates are guaranteed to drop down substantially over time, for now, they
+              reflect the value these assets are adding to the network.
+            </p>
+
+            <p>
+              <strong>Argon Bonds</strong>
+              support the network's stabilization vaults. As demand for Argon grows, the new stablecoins must be
+              stabilized.
+            </p>
+
+            <p>
+              <strong>Argonot Staking</strong>
+              support the network's mining efforts. The network needs continual mining and processing, which are secured
+              by argonots.
+            </p>
+
+            <p>
+              <strong>Bitcoin Locks</strong>
+              earn fees for providing the collateral backing the massive shorts applied against Argon's peg.
+            </p>
+            <p>
+              <strong>Stable Swaps</strong>
+              provide short-term liquidity for whenever Argon diviates from its peg.
+            </p>
+          </div>
+        </div>
       </div>
 
+      <div class="mb-2 font-bold">Have An Access Code?</div>
+      <div class="flex flex-row gap-x-3">
+        <input
+          v-model="inviteCode"
+          type="text"
+          placeholder="Paste access code"
+          class="text-md focus:border-argon-500 focus:ring-argon-500/15 grow rounded-lg border border-slate-400/70 bg-white px-2.5 py-2.5 text-lg font-normal text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] transition outline-none focus:ring-2"
+        />
+
+        <button
+          @click="connectToNetwork"
+          class="bg-argon-button border-argon-button-hover hover:bg-argon-button-hover inner-button-shadow flex cursor-pointer flex-row items-center justify-center space-x-2 rounded-md border px-12 py-3 font-bold whitespace-nowrap text-white focus:outline-none"
+          tabindex="0"
+        >
+          Activate Upgrade
+        </button>
+      </div>
       <div
         v-if="formError"
-        class="mt-4 flex flex-row items-center gap-x-2 rounded-lg border border-red-400/50 bg-red-100 px-3 py-1.5 text-red-600"
+        class="mt-2 flex flex-row items-center gap-x-2 rounded-lg border border-red-400/50 bg-red-100 px-3 py-1.5 text-red-600"
       >
         <AlertIcon class="h-4 w-4 shrink-0" />
         <span>{{ formError }}</span>
       </div>
-
-      <input
-        v-model="inviteCode"
-        type="text"
-        placeholder="Paste access code"
-        class="text-md focus:border-argon-500 focus:ring-argon-500/15 mt-5 w-full rounded-lg border border-slate-400/70 bg-white px-2.5 py-2.5 text-lg font-normal text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] transition outline-none focus:ring-2"
-      />
-
-      <button
-        @click="connectToNetwork"
-        class="bg-argon-button border-argon-button-hover hover:bg-argon-button-hover inner-button-shadow mt-4 flex w-full cursor-pointer flex-row items-center justify-center space-x-2 rounded-md border px-12 py-3 font-bold text-white focus:outline-none"
-        tabindex="0"
-      >
-        Connect
-      </button>
+      <div class="text-md mt-2 italic opacity-60">
+        Upgrades to Treasury are invite-only, distributed by network operators.
+      </div>
     </div>
   </OverlayBase>
 </template>
@@ -48,21 +128,27 @@ import AlertIcon from '../assets/alert.svg?component';
 import { BootstrapType, TopTab } from '../interfaces/IConfig.ts';
 import { InviteEnvelope } from '../lib/InviteEnvelope.ts';
 import { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
+import numeral from '../lib/numeral.ts';
 import OverlayBase from './OverlayBase.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
+import { useVaultingStats } from '../stores/vaultingStats.ts';
+import InfoIcon from '../assets/info-outline.svg';
+import { PlusIcon, MinusIcon } from '@heroicons/vue/20/solid';
 
 const emit = defineEmits<{
   (e: 'claimed'): void;
 }>();
 
 const config = getConfig();
-const controller = useCertificationController();
 const walletKeys = getWalletKeys();
+const controller = useCertificationController();
+const vaultingStats = useVaultingStats();
 
 const isOpen = Vue.ref(false);
 const hasValidInviteCode = Vue.ref(false);
 const inviteCode = Vue.ref<string>('');
 const formError = Vue.ref('');
+const showingExtraDetails = Vue.ref(false);
 
 function extractInviteCodeFromUrl(input: string): string {
   const trimmed = input.trim();
@@ -93,6 +179,7 @@ if (typeof window !== 'undefined') {
 
 function closeOverlay() {
   isOpen.value = false;
+  showingExtraDetails.value = false;
 }
 
 async function connectToNetwork() {

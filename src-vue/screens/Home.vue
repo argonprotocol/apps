@@ -25,7 +25,7 @@
               {{ targetCurrency.symbol }}{{ microgonToNm(oneArgon, UnitOfMeasurement.USD).format('0.00') }} Target
             </template>
             <template v-else>
-              Argon Is At Its {{ targetCurrency.symbol
+              Argon Is @ {{ targetCurrency.symbol
               }}{{ microgonToNm(oneArgon, UnitOfMeasurement.USD).format('0.00') }} Target
             </template>
           </template>
@@ -34,7 +34,9 @@
         </div>
         <div class="w-1/3 grow text-right">
           <template v-if="financials.savingsIsLoaded">
-            {{ numeral(financials.savingsRestabilizationPower).formatIfElse('< 10', '0,0.[0]', '0,0') }}:1
+            {{ numeral(financials.savingsRestabilizationPower).formatIfElse('< 100', '0,0.[0]', '0,0') }}
+            <span class="relative text-xs">TO</span>
+            1
           </template>
           <template v-else>--</template>
           Restabilization Power

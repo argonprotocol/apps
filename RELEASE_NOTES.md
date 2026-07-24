@@ -8,11 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix for recovering operator accounts and server upgrades safely
 
 ## [2.1.0] - 2026-07-21
-- Redesigned the flow for adding an Ethereum wallet
-- Added ability to remove Ethereum wallets
-- Removed the ability to add a "Default Ethereum Wallet"
+- Redesigned the flow for connecting an Ethereum wallet
+- Added ability to disconnect Ethereum wallets
+- Removed the ability to connect a "Default Ethereum Wallet"
 - Fixed Operator account reloading issues
-- Fixed bitcoin display issues
+- Fixed bitcoin liquid locking display issues
 
 ## [2.0.2] - 2026-07-20
 - Fixed bitcoin ratcheting UI bugs
