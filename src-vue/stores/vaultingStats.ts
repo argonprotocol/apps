@@ -1,8 +1,9 @@
 import * as Vue from 'vue';
 import { getVaults } from './vaults.ts';
 import { defineStore } from 'pinia';
-import { GlobalVaultingStats } from '@argonprotocol/apps-core';
+import { BitcoinPrices, calculateBitcoinRatchetReturn, GlobalVaultingStats } from '@argonprotocol/apps-core';
 import { getCurrency } from './currency.ts';
+import dayjs from 'dayjs';
 
 export const useVaultingStats = defineStore('vaultingStats', () => {
   let hasLoaded = false;
@@ -19,10 +20,21 @@ export const useVaultingStats = defineStore('vaultingStats', () => {
   const epochEarnings = Vue.ref(0n);
   const averageAPR = Vue.ref(0);
   const averageAPY = Vue.ref(0);
-  const bondsAPR = Vue.ref(0);
+  const argonBondsAPR = Vue.ref(0);
 
   const argonBurnCapacity = Vue.ref(0);
   const finalPriceAfterTerraCollapse = Vue.ref(0n);
+
+  const bitcoinPrices = new BitcoinPrices().getDateRange(
+    dayjs.utc().subtract(1, 'year').format('YYYY-MM-DD'),
+    dayjs.utc().format('YYYY-MM-DD'),
+  );
+  const bitcoinAPR = calculateBitcoinRatchetReturn({
+    prices: bitcoinPrices,
+    flatFee: 2,
+    percentageFee: 5,
+    ratchetThreshold: 0.1,
+  }).percent;
 
   async function update() {
     if (updatePromise) return await updatePromise;
@@ -41,7 +53,7 @@ export const useVaultingStats = defineStore('vaultingStats', () => {
       epochEarnings.value = stats.epochEarnings;
       averageAPR.value = stats.activeAPR;
       averageAPY.value = stats.activeAPY;
-      bondsAPR.value = stats.bondsAPR;
+      argonBondsAPR.value = stats.argonBondsAPR;
       argonBurnCapacity.value = stats.argonBurnCapacity;
       finalPriceAfterTerraCollapse.value = stats.finalPriceAfterTerraCollapse;
     })();
@@ -59,9 +71,10 @@ export const useVaultingStats = defineStore('vaultingStats', () => {
     vaultCount,
     microgonValueInVaults,
     bitcoinLocked,
+    bitcoinAPR,
     averageAPR,
     averageAPY,
-    bondsAPR,
+    argonBondsAPR,
     epochEarnings,
     argonBurnCapacity,
     finalPriceAfterTerraCollapse,

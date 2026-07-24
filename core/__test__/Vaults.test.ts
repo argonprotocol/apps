@@ -93,7 +93,7 @@ describe('Vault and bond network returns', () => {
     expect(vaults.calculateApy()).toBeCloseTo((1.1 ** 365 - 1) * 100);
     expect(vaults.calculateVaultApr(1)).toBeCloseTo(3_650);
     expect(vaults.calculateVaultApy(1)).toBeCloseTo((1.1 ** 365 - 1) * 100);
-    expect(vaults.calculateBondsApr()).toBeCloseTo(2_190);
+    expect(vaults.calculateArgonBondsApr()).toBeCloseTo(2_190);
   });
 
   it('weights global and single-vault returns by recorded frame capital', () => {
@@ -166,7 +166,7 @@ describe('Vault and bond network returns', () => {
       }),
     ]);
     expect(() => incompleteVaults.calculateApr()).toThrow('coupon');
-    expect(incompleteVaults.calculateBondsApr()).toBeCloseTo(2_190);
+    expect(incompleteVaults.calculateArgonBondsApr()).toBeCloseTo(2_190);
   });
 
   it('does not manufacture returns from zero-capital frames', () => {
@@ -182,7 +182,7 @@ describe('Vault and bond network returns', () => {
 
     expect(vaults.calculateApr()).toBe(0);
     expect(vaults.calculateApy()).toBe(0);
-    expect(vaults.calculateBondsApr()).toBe(0);
+    expect(vaults.calculateArgonBondsApr()).toBe(0);
   });
 
   it('calculates restabilization leverage from caller-supplied circulation', () => {

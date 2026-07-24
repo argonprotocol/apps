@@ -12,7 +12,7 @@ export class GlobalVaultingStats {
   public activeAPR: number = 0;
   public activeAPY: number = 0;
 
-  public bondsAPR: number = 0;
+  public argonBondsAPR: number = 0;
 
   public bitcoinLocked: number = 0;
   public argonBurnCapacity: number = 0;
@@ -50,7 +50,7 @@ export class GlobalVaultingStats {
     this.activeAPR = this.vaults.calculateApr();
     this.activeAPY = this.vaults.calculateApy();
 
-    this.bondsAPR = this.vaults.calculateBondsApr();
+    this.argonBondsAPR = this.vaults.calculateArgonBondsApr();
 
     const dollarValueOfVaultedBitcoin = this.currency.convertMicrogonTo(
       this.microgonValueOfVaultedBitcoins,

@@ -17,15 +17,17 @@
               <header class="font-bold">Argon Bonds</header>
               <span class="text-base opacity-80">Secure the Vaults</span>
             </div>
-            <div class="bg-argon-100 rounded px-3 py-2 text-2xl leading-none font-bold">187%</div>
+            <div class="bg-argon-100 rounded px-3 py-2 text-2xl leading-none font-bold">
+              {{ numeral(vaultingStats.argonBondsAPR).formatIfElseCapped('< 100', '0.0', '0', 999) }}%
+            </div>
           </li>
           <li class="border-argon-300/30 bg-argon-100/30 flex items-center justify-between rounded border px-3 py-2">
             <div class="leading-tight">
-              <header class="font-bold">Argonot Bonds</header>
+              <header class="font-bold">Argonot Staking</header>
               <span class="text-base opacity-80">Secure the Mining</span>
             </div>
             <div class="bg-argon-100 rounded px-3 py-2 text-2xl leading-none font-bold">
-              {{ numeral(vaultingStats.bondsAPR).formatIfElseCapped('< 100', '0.0', '0', 999) }}%
+              {{ numeral(vaultingStats.argonBondsAPR).formatIfElseCapped('< 100', '0.0', '0', 999) }}%
             </div>
           </li>
           <li class="flex items-center justify-between rounded border border-orange-300/40 bg-orange-100/40 px-3 py-2">
@@ -33,7 +35,9 @@
               <header class="font-bold">Bitcoin Locks</header>
               <span class="text-base opacity-80">Stabilize the Currency</span>
             </div>
-            <div class="rounded bg-orange-100 px-3 py-2 text-2xl leading-none font-bold">187%</div>
+            <div class="rounded bg-orange-100 px-3 py-2 text-2xl leading-none font-bold">
+              {{ numeral(vaultingStats.bitcoinAPR).formatIfElseCapped('< 100', '0.0', '0', 999) }}%
+            </div>
           </li>
           <li class="flex items-center justify-between rounded border border-blue-300/30 bg-blue-100/30 px-3 py-2">
             <div class="leading-tight">
@@ -41,7 +45,7 @@
               <span class="text-base opacity-80">Arbitrage the Swings</span>
             </div>
             <div class="rounded bg-blue-100 px-3 py-2 text-2xl leading-none font-bold">
-              {{ numeral(vaultingStats.bondsAPR).formatIfElseCapped('< 100', '0.0', '0', 999) }}%
+              13.9%
             </div>
           </li>
         </ul>
