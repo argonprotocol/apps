@@ -171,7 +171,7 @@
               class="inline-flex cursor-pointer items-center rounded-md border px-2"
             >
               <template v-if="isRatchetPending">
-                <Spinner class="mr-1.5 h-3 min-h-3 w-3 min-w-3" />
+                <Spinner class="Inverse mr-1.5 h-3 min-h-3 w-3 min-w-3" />
                 Ratcheting...
               </template>
               <span v-else-if="lockSummary.ratchetPercent">

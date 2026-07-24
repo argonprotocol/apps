@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BlockWatch, Currency as CurrencyBase } from '@argonprotocol/apps-core';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import type { Db } from '../lib/Db.ts';
@@ -7,7 +7,7 @@ import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import { BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
-import { BitcoinLock, hexToU8a, type IBitcoinLock } from '@argonprotocol/mainchain';
+import { BitcoinLock, hexToU8a, TxSubmitter, type IBitcoinLock } from '@argonprotocol/mainchain';
 import { createHistoricalEventData } from '../../indexer/__test__/helpers/historicalEvents.ts';
 import { bigintCodec, numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts';
 import { encodeAddress } from '@polkadot/util-crypto';
@@ -457,10 +457,16 @@ describe('BitcoinLocks recovery', () => {
         operationalAddress: encodeAddress(new Uint8Array(32).fill(0x55)),
       } as WalletKeys,
     });
-    const fundingRecord = { id: 1 } as never;
+    const fundingRecord = { id: 1, status: BitcoinUtxoStatus.ReleaseComplete } as never;
     vi.spyOn(store.utxoTracking, 'getAcceptedFundingRecordForLock').mockReturnValue(fundingRecord);
-    const setReleaseRequest = vi.spyOn(store.utxoTracking, 'setReleaseRequest').mockResolvedValue();
+    const setReleaseRequest = vi.spyOn(store.utxoTracking, 'setReleaseRequest').mockImplementation(async funding => {
+      funding.status = BitcoinUtxoStatus.ReleaseIsProcessingOnArgon;
+    });
     const createdLock = new BitcoinLock(createHistoricalLock({ accountId, liquidityPromised: 1_000n }));
+    const verifiedLock = new BitcoinLock({
+      ...createHistoricalLock({ accountId, liquidityPromised: 900n, lockedTargetPrice: 900n }),
+      utxoSatoshis: 9_900n,
+    });
     const ratchetedLock = new BitcoinLock(
       createHistoricalLock({ accountId, liquidityPromised: 1_200n, lockedTargetPrice: 1_300n }),
     );
@@ -511,8 +517,10 @@ describe('BitcoinLocks recovery', () => {
     vi.spyOn(store.recovery, 'recoverLock').mockResolvedValue(record);
     vi.spyOn(BitcoinLock, 'get')
       .mockResolvedValueOnce(createdLock)
+      .mockResolvedValueOnce(verifiedLock)
       .mockResolvedValueOnce(ratchetedLock)
       .mockResolvedValueOnce(twiceRatchetedLock);
+    vi.spyOn(BitcoinLock.prototype, 'getFundingUtxoRef').mockResolvedValue(undefined);
     vi.spyOn(BitcoinLock.prototype, 'findPendingMints').mockResolvedValueOnce([]).mockResolvedValue([100n]);
     vi.spyOn(BitcoinLock.prototype, 'getReleaseRequest').mockResolvedValue({
       toScriptPubkey: '0x0014',
@@ -521,11 +529,26 @@ describe('BitcoinLocks recovery', () => {
       vaultId: 1,
       redemptionAmount: 900n,
     });
+    const ownerLockKeys = vi.fn(async () => [{ args: [{}, numberCodec(7)] }, { args: [{}, numberCodec(8)] }]);
+    const activeLocks = vi.fn(async () => [
+      optionCodec({
+        liquidityPromised: bigintCodec(1_400n),
+        lockedTargetPrice: bigintCodec(1_500n),
+      }),
+      optionCodec({
+        liquidityPromised: bigintCodec(2_000n),
+        lockedTargetPrice: bigintCodec(2_000n),
+      }),
+    ]);
     const api = {
       query: {
         ticks: { currentTick: vi.fn(async () => numberCodec(700)) },
         bitcoinUtxos: {
           confirmedBitcoinBlockTip: vi.fn(async () => optionCodec({ blockHeight: numberCodec(600) })),
+        },
+        bitcoinLocks: {
+          utxoIdsByOwnerAccount: { keys: ownerLockKeys },
+          locksByUtxoId: { multi: activeLocks },
         },
       },
     };
@@ -548,14 +571,18 @@ describe('BitcoinLocks recovery', () => {
       }),
     ]);
     await store.recovery.recoverBlock(historyBlock(152), [
-      historyEvent(152, 'mint', 'BitcoinMint', { accountId, utxoId: 7, amount: 1_000n }),
+      historyEvent(152, 'bitcoinUtxos', 'UtxoVerified', {
+        utxoId: 7,
+        satoshisReceived: 9_900n,
+      }),
+      historyEvent(152, 'mint', 'BitcoinMint', { accountId, utxoId: 7, amount: 900n }),
     ]);
     await store.recovery.recoverBlock(historyBlock(153), [
       historyEvent(152, 'bitcoinLocks', 'BitcoinLockRatcheted', {
         utxoId: 7,
         vaultId: 1,
         liquidityPromised: 1_200n,
-        oldTargetPrice: 1_000n,
+        oldTargetPrice: 900n,
         securityFee: 25n,
         newTargetPrice: 1_300n,
         amountBurned: 50n,
@@ -595,7 +622,7 @@ describe('BitcoinLocks recovery', () => {
       ),
     ]);
     await store.recovery.recoverBlock(historyBlock(154), [
-      historyEvent(153, 'mint', 'BitcoinMint', { accountId, utxoId: 7, amount: 300n }),
+      historyEvent(153, 'mint', 'BitcoinMint', { accountId, utxoId: 7, amount: 400n }),
     ]);
     await store.recovery.recoverBlock(historyBlock(155), [
       historyEvent(154, 'bitcoinLocks', 'BitcoinUtxoCosignRequested', { utxoId: 7, vaultId: 1 }),
@@ -604,15 +631,20 @@ describe('BitcoinLocks recovery', () => {
         actualFee: 19n,
         tip: 0n,
       }),
-      historyEvent(154, 'bitcoinLocks', 'BitcoinSpentAfterRelease', { utxoId: 7, vaultId: 1 }),
+      historyEvent(154, 'bitcoinLocks', 'BitcoinUtxoCosigned', {
+        utxoId: 7,
+        vaultId: 1,
+        signature: '0x11',
+      }),
     ]);
 
     const recovered = store.data.locksByUtxoId[7];
     expect(recovered).toBe(record);
     expect(recovered.lockDetails.utxoId).toBe(7);
+    expect(recovered.satoshis).toBe(9_900n);
     expect(recovered.ratchets).toEqual([
-      expect.objectContaining({ mintAmount: 1_000n, mintPending: 0n, txFee: 11n, extrinsicIndex: 2 }),
-      expect.objectContaining({ mintAmount: 200n, mintPending: 0n, burned: 50n, txFee: 13n, extrinsicIndex: 2 }),
+      expect.objectContaining({ mintAmount: 900n, mintPending: 0n, txFee: 11n, extrinsicIndex: 2 }),
+      expect.objectContaining({ mintAmount: 300n, mintPending: 0n, burned: 50n, txFee: 13n, extrinsicIndex: 2 }),
       expect.objectContaining({ mintAmount: 200n, mintPending: 100n, burned: 25n, txFee: 17n, extrinsicIndex: 3 }),
     ]);
     expect(recovered.status).toBe(BitcoinLockStatus.Released);
@@ -621,17 +653,17 @@ describe('BitcoinLocks recovery', () => {
       releaseArgonTxFeeMicrogons: 19n,
       removalBlockNumber: 155,
       removalBlockHash: '0x155',
+      removalBlockTime: new Date(historyBlock(155).blockTime),
       removalExtrinsicIndex: 2,
       removalReason: 'released',
       btcPriceAtRemovalMicrogons: 4_000_000n,
     });
-    expect(setReleaseRequest).toHaveBeenCalledWith(fundingRecord, {
-      requestedReleaseAtTick: 700,
-      releaseToDestinationAddress: '0x0014',
-      releaseBitcoinNetworkFee: 8n,
-    });
-    expect(table.saveRecoveredHistory).toHaveBeenCalledTimes(3);
+    expect(setReleaseRequest).not.toHaveBeenCalled();
+    expect(table.saveRecoveredHistory).toHaveBeenCalledTimes(4);
     expect(table.updateMintState).toHaveBeenCalledTimes(2);
+    await expect(store.recovery.findMissingActiveLockIds(api as never)).resolves.toEqual([8]);
+    expect(ownerLockKeys).toHaveBeenCalledWith(accountId);
+    expect(activeLocks).toHaveBeenCalledWith([7, 8]);
   });
 
   it('recovers a down-ratchet as a full remint at the new cumulative liquidity', async () => {
@@ -1066,9 +1098,112 @@ describe('BitcoinLocks recovery', () => {
     expect(summary.record).not.toBe(record);
     expect(record.ratchets[0].mintPending).toBe(1_000n);
   });
+
+  it('continues settling pending liquidity after a Bitcoin lock is released', async () => {
+    const clientAt = {
+      query: {
+        bitcoinUtxos: {
+          confirmedBitcoinBlockTip: vi.fn(async () => optionCodec({ blockHeight: numberCodec(600) })),
+        },
+      },
+    };
+    const blockWatch = {
+      getHeaderByBlockNumber: vi.fn(async () => historyBlock(152)),
+      getApi: vi.fn(async () => clientAt),
+    } as unknown as BlockWatch;
+    const store = createStore({ blockWatch });
+    const record = createLock({
+      uuid: 'released-with-pending-liquidity',
+      utxoId: 7,
+      status: BitcoinLockStatus.Released,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    record.removalReason = 'released';
+    record.ratchets = [
+      {
+        mintAmount: 1_000n,
+        mintPending: 1_000n,
+        lockedTargetPrice: 1_000n,
+        securityFee: 0n,
+        txFee: 0n,
+        burned: 0n,
+        blockHeight: 151,
+        oracleBitcoinBlockHeight: 500,
+      },
+    ];
+    store.data.locksByUtxoId[7] = record;
+    store.data.oracleBitcoinBlockHeight = 600;
+    const updateMintState = vi.fn(async () => undefined);
+    vi.spyOn(store, 'getTable').mockResolvedValue({ updateMintState } as never);
+    vi.spyOn(store.utxoTracking, 'getAcceptedFundingRecordForLock').mockReturnValue({
+      id: 1,
+      status: BitcoinUtxoStatus.ReleaseComplete,
+    } as never);
+    vi.spyOn(BitcoinLock.prototype, 'findPendingMints').mockResolvedValue([400n]);
+
+    await (
+      store as unknown as {
+        checkIncomingArgonBlock: (header: ReturnType<typeof historyBlock>) => Promise<void>;
+      }
+    ).checkIncomingArgonBlock(historyBlock(153));
+
+    expect(record.ratchets[0].mintPending).toBe(400n);
+    expect(updateMintState).toHaveBeenCalledOnce();
+  });
+});
+
+describe('BitcoinLocks ratchet preview', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each([
+    { operatorAccountId: 'vault-owner', expectedFee: 50n },
+    { operatorAccountId: 'bitcoin-owner', expectedFee: 0n },
+  ])('calculates costs for vault operator $operatorAccountId', async ({ operatorAccountId, expectedFee }) => {
+    const store = createStore();
+    const lock = createLock({
+      uuid: 'ratchet-preview',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockedAndMinted,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    lock.lockedTargetPrice = 3_000n;
+
+    const client = {
+      query: {
+        bitcoinLocks: {
+          locksByUtxoId: vi.fn(async () => ({ isSome: false })),
+        },
+      },
+    };
+    const vault = {
+      operatorAccountId,
+      availableSecuritization: () => 10_000n,
+    };
+    const calculateRatchetingCosts = vi.fn(async () => ({ burnAmount: 1_500n, ratchetingFee: 50n }));
+    Object.assign(store, {
+      getRatchetContext: async () => ({
+        bitcoinLock: {
+          lockedTargetPrice: 3_000n,
+          liquidityPromised: 3_000n,
+          ownerAccount: 'bitcoin-owner',
+          calculateRatchetingCosts,
+        },
+        client,
+        vault,
+      }),
+    });
+    vi.spyOn(BitcoinLock, 'calculateRedemptionAmount').mockReturnValue(2_000n);
+
+    const preview = await store.getRatchetPreview(lock);
+
+    expect(calculateRatchetingCosts).toHaveBeenCalledWith(client, expect.anything(), vault, 2_000n);
+    expect(preview.ratchetingFee).toBe(expectedFee);
+  });
 });
 
 describe('BitcoinLocks ratchet transaction tracking', () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it('reuses a stored pending ratchet instead of submitting another transaction', async () => {
     const pendingTxInfo = {
       tx: {
@@ -1098,11 +1233,9 @@ describe('BitcoinLocks ratchet transaction tracking', () => {
     expect(store.getPendingRatchetTxInfo(lock)).toBeUndefined();
   });
 
-  it('returns after tracked submission without waiting for finalization', async () => {
+  it('submits using the preview balance without waiting for finalization', async () => {
     const waitForFinalizedBlock = new Promise<Uint8Array>(() => undefined);
     const txResult = { waitForFinalizedBlock };
-    const getRatchetResult = vi.fn(() => waitForFinalizedBlock);
-    const ratchet = vi.fn(async () => ({ txResult, getRatchetResult }));
     const txInfo = {
       tx: { id: 12 },
       txResult,
@@ -1121,26 +1254,58 @@ describe('BitcoinLocks ratchet transaction tracking', () => {
       status: BitcoinLockStatus.LockedAndMinted,
       createdAt: '2026-01-01T00:00:00Z',
     });
+    const ratchetTx = {};
+    const client = {
+      query: {
+        bitcoinLocks: {
+          locksByUtxoId: vi.fn(async () => ({
+            isSome: true,
+            unwrap: () => ({ securitizationRatio: { toBigInt: () => 0n } }),
+          })),
+        },
+      },
+      tx: {
+        bitcoinLocks: {
+          ratchet: vi.fn(() => ratchetTx),
+        },
+      },
+    };
+    const calculateRatchetingCosts = vi.fn(async () => ({ burnAmount: 400n, ratchetingFee: 0n }));
     const getRatchetContext = vi.fn(async () => ({
-      bitcoinLock: { ratchet },
-      client: {},
-      vault: {},
+      bitcoinLock: {
+        calculateRatchetingCosts,
+        liquidityPromised: 1_000n,
+        lockedTargetPrice: 1_000n,
+        ownerAccount: 'owner',
+      },
+      client,
+      vault: {
+        availableSecuritization: () => 1_000n,
+        operatorAccountId: 'owner',
+      },
     }));
     Object.assign(store, { getRatchetContext });
-    vi.spyOn(store, 'getRatchetPreview').mockResolvedValue({ canRatchet: true } as never);
+    vi.spyOn(BitcoinLock, 'calculateRedemptionAmount').mockReturnValue(1_000n);
+    const canAfford = vi.spyOn(TxSubmitter.prototype, 'canAfford').mockResolvedValue({
+      canAfford: true,
+      availableBalance: 500n,
+      txFee: 1n,
+    });
+    vi.spyOn(TxSubmitter.prototype, 'submit').mockResolvedValue(txResult as never);
 
     await expect(store.ratchet(lock, { address: 'owner' } as never)).resolves.toBe(txInfo);
-    expect(ratchet).toHaveBeenCalledWith(
-      expect.objectContaining({
-        disableAutomaticTxTracking: true,
-        microgonsAtTargetPerBtc: 2_000n,
-      }),
-    );
+    expect(client.tx.bitcoinLocks.ratchet).toHaveBeenCalledWith(7, {
+      V1: { microgonsAtTargetPerBtc: 2_000n },
+    });
+    expect(canAfford).toHaveBeenCalledWith({
+      tip: 0n,
+      unavailableBalance: 400n,
+    });
+    expect(getRatchetContext).toHaveBeenCalledOnce();
     expect(trackTxResult).toHaveBeenCalledWith({
       txResult,
       extrinsicType: ExtrinsicType.BitcoinRatchet,
       metadata: { utxoId: 7 },
     });
-    expect(getRatchetResult).not.toHaveBeenCalled();
   });
 });

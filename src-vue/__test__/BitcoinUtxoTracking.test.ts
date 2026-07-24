@@ -174,7 +174,7 @@ describe('BitcoinUtxoTracking', () => {
     expect(details.expectedConfirmations).toBe(9);
   });
 
-  it('tracks release lifecycle on the funding record', async () => {
+  it('tracks the release lifecycle and restores a missing funding-record pointer', async () => {
     const db = await createTestDb();
     const tracking = createTracking(db);
     const lock = createLock({ status: BitcoinLockStatus.LockedAndMinted });
@@ -202,6 +202,13 @@ describe('BitcoinUtxoTracking', () => {
 
     await tracking.setReleaseComplete(fundingRecord, 220);
     expect(tracking.isReleaseCompleteStatus(fundingRecord.status)).toBe(true);
+
+    lock.status = BitcoinLockStatus.Released;
+    lock.fundingUtxoRecordId = null;
+    lock.fundingUtxoRecord = undefined;
+
+    expect(tracking.getAcceptedFundingRecordForLock(lock)).toBe(fundingRecord);
+    expect(lock.fundingUtxoRecordId).toBe(fundingRecord.id);
   });
 
   it('hydrates on-chain candidates into the local table from the provided client', async () => {

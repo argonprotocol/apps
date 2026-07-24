@@ -41,6 +41,7 @@ export interface ISyncSchemas {
           asOfBlock: number;
           definitionVersion?: number;
           recoveryVersion?: number;
+          partialRecovery?: boolean;
         }
       >
     >;

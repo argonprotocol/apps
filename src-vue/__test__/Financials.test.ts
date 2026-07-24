@@ -21,7 +21,7 @@ import type { IWalletTransferRecord } from '../lib/db/WalletTransfersTable.ts';
 import { type IArgonAccountBalance, WalletsForArgon } from '../lib/WalletsForArgon.ts';
 import type { IMiningCohortFinancialRecord } from '../interfaces/db/ICohortFrameRecord.ts';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
-import { BitcoinFinancials } from '../lib/financials/BitcoinLocks.ts';
+import { BitcoinFinancials, calculateBitcoinLockValuation } from '../lib/financials/BitcoinLocks.ts';
 import type { IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
 import { ArgonBondsFinancials } from '../lib/financials/ArgonBonds.ts';
 import type { WalletForArgon } from '../lib/WalletForArgon.ts';
@@ -1101,12 +1101,12 @@ describe('financial position accounting', () => {
         pendingLiquidity: 10n,
         receivedLiquidity: 35n,
         valueBeyondLiquidity: 30n,
-        startingCapital: 100n,
-        endingCapital: 120n,
+        startingCapital: 45n,
+        endingCapital: 45n,
         securityFees: 10n,
         totalFees: 15n,
         unlockAmount: 60n,
-        totalReturn: 20,
+        totalReturn: 0,
       });
       expect(positions.map(position => position.id)).toEqual([
         `bitcoin-asset:${lock.uuid}`,
@@ -1117,17 +1117,113 @@ describe('financial position accounting', () => {
         ['bitcoin-liability', -60n],
       ]);
       expect(positions.every(position => position.lock.uuid === lock.uuid)).toBe(true);
-      expect(positions[0]).toMatchObject({ investedCost: 100n, paidIncome: 20n });
+      expect(positions[0]).toMatchObject({ investedCost: 45n, paidIncome: 20n });
       expect(bitcoin).toMatchObject({ grossAssets: 160n, grossLiabilities: 60n, currentValue: 100n });
       expect(bitcoin?.returnSummary.paidIncome).toBe(20n);
-      expect(bitcoin?.returnSummary.returnAmount).toBe(20n);
-      expect(bitcoin?.returnSummary.percent).toBe(20);
+      expect(bitcoin?.returnSummary.returnAmount).toBe(0n);
+      expect(bitcoin?.returnSummary.percent).toBe(0);
     } finally {
       redemption.mockRestore();
     }
   });
 
-  it('keeps total Bitcoin return at breakeven after a down-ratchet offsets the price loss', () => {
+  it('keeps Hodling Returns based on the BTC lock value', async () => {
+    const lock = {
+      uuid: 'lock-return-bases',
+      status: BitcoinLockStatus.LockedAndMinted,
+      ratchets: [{ lockedTargetPrice: 100n }],
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+    } as IBitcoinLockRecord;
+    const summary = {
+      uuid: lock.uuid,
+      status: lock.status,
+      satoshis: 10_000n,
+      valueOfBtc: 90n,
+      startingCapital: 80n,
+      endingCapital: 88n,
+      pendingLiquidity: 0n,
+      receivedLiquidity: 80n,
+      totalFees: 0n,
+      unlockAmount: 72n,
+      record: lock,
+    } as IBitcoinLockSummary;
+    const financials = new BitcoinFinancials({
+      load: vi.fn(),
+      getAllLocks: () => [lock],
+      createLockSummaryAt: async () => summary,
+      isLockedStatus: () => true,
+    } as unknown as BitcoinLocks);
+
+    const snapshot = await financials.loadSnapshot({
+      clientAt: {} as never,
+      hasCurrentPrice: true,
+    });
+
+    expect(snapshot.positions[0]).toMatchObject({ investedCost: 80n });
+    expect(snapshot.hodlingInvestments[0]).toMatchObject({
+      startingCapital: 100n,
+      endingCapital: 90n,
+    });
+  });
+
+  it('keeps historical fees separate from the current Bitcoin value', () => {
+    const lock = {
+      satoshis: 10_000_000n,
+      lockedTargetPrice: 8_000n,
+      ratchets: [
+        {
+          mintAmount: 8_500n,
+          mintPending: 0n,
+          lockedTargetPrice: 9_000n,
+          securityFee: 10n,
+          txFee: 5n,
+          burned: 0n,
+        },
+        {
+          mintAmount: 0n,
+          mintPending: 0n,
+          lockedTargetPrice: 8_000n,
+          securityFee: 0n,
+          txFee: 0n,
+          burned: 0n,
+        },
+      ],
+      lockDetails: { couponFeesPaid: 0n },
+      releaseArgonTxFeeMicrogons: 3n,
+      btcPriceAtRemovalMicrogons: 60_000n,
+      fundingUtxoRecord: { releaseBitcoinNetworkFee: 100_000n },
+    } as unknown as IBitcoinLockRecord;
+    const currency = {
+      priceIndex: {},
+      convertSatToBtc: () => 0.1,
+      convertBtcToMicrogon: () => 7_000n,
+    } as unknown as Currency;
+    const redemption = vi.spyOn(BitcoinLock, 'calculateRedemptionAmountFromSatoshis').mockReturnValue(8_000n);
+
+    try {
+      const valuation = calculateBitcoinLockValuation({ lock, currency });
+
+      expect(valuation).toMatchObject({
+        valueOfBtc: 7_000n,
+        securityFees: 10n,
+        transactionFees: 5n,
+        totalFees: 15n,
+        historicalTransactionFees: 68n,
+        historicalTotalFees: 78n,
+      });
+
+      lock.fundingUtxoRecord = undefined;
+
+      expect(calculateBitcoinLockValuation({ lock, currency })).toMatchObject({
+        historicalTransactionFees: 8n,
+        historicalTotalFees: 18n,
+      });
+    } finally {
+      redemption.mockRestore();
+    }
+  });
+
+  it('reports retained down-ratchet liquidity as Bitcoin locking profit', () => {
     const lock = {
       uuid: 'down-ratchet',
       status: BitcoinLockStatus.LockedAndIsMinting,
@@ -1194,8 +1290,8 @@ describe('financial position accounting', () => {
         pendingLiquidity: 100n,
         receivedLiquidity: 20n,
         startingCapital: 120n,
-        endingCapital: 120n,
-        totalReturn: 0,
+        endingCapital: 140n,
+        totalReturn: 16.666666666666668,
       });
       expect(bitcoin).toMatchObject({
         grossAssets: 200n,
@@ -1205,8 +1301,8 @@ describe('financial position accounting', () => {
       expect(bitcoin.returnSummary).toMatchObject({
         investedCost: 120n,
         paidIncome: 20n,
-        returnAmount: 0n,
-        percent: 0,
+        returnAmount: 20n,
+        percent: 16.67,
       });
     } finally {
       redemption.mockRestore();
@@ -1274,6 +1370,7 @@ describe('financial position accounting', () => {
       pendingLiquidity: 10n,
       receivedLiquidity: 30n,
       totalFees: 5n,
+      historicalTotalFees: 20n,
       unlockAmount: 999n,
       endingCapital: 999n,
       record: lock,
@@ -1293,12 +1390,58 @@ describe('financial position accounting', () => {
         investedCost: 100n,
         paidIncome: 22n,
         settledPrincipalValue: 68n,
-        performanceEndingCapital: 100n,
+        performanceEndingCapital: 80n,
         endedAt: removedAt,
       }),
     ]);
     expect(bitcoin?.currentValue).toBe(10n);
-    expect(bitcoin?.returnSummary.returnAmount).toBe(0n);
+    expect(bitcoin?.returnSummary.returnAmount).toBe(-20n);
+  });
+
+  it('reports the liquidity retained after release as Bitcoin locking profit', () => {
+    const lock = {
+      uuid: 'lock-released-profit',
+      status: BitcoinLockStatus.Released,
+      satoshis: 13_146_391n,
+      lockedTargetPrice: 9_103_964_854n,
+      ratchets: [{ mintPending: 0n }],
+      releaseRedemptionMicrogons: 7_597_981_840n,
+      releaseArgonTxFeeMicrogons: 1_361n,
+      removalBlockTime: new Date('2026-07-02T20:51:01Z'),
+      removalReason: 'released',
+      btcPriceAtRemovalMicrogons: 58_105_590_350n,
+      fundingUtxoRecord: { releaseBitcoinNetworkFee: 847n },
+      createdAt: new Date('2026-06-11T00:00:00Z'),
+    } as unknown as IBitcoinLockRecord;
+    const summary = {
+      uuid: lock.uuid,
+      status: lock.status,
+      satoshis: lock.satoshis,
+      valueOfBtc: 7_638_788_100n,
+      startingCapital: 8_672_857_884n,
+      totalLiquidity: 8_672_857_884n,
+      pendingLiquidity: 0n,
+      receivedLiquidity: 8_672_857_884n,
+      totalFees: 56_794n,
+      historicalTotalFees: 550_309n,
+      unlockAmount: 7_597_981_840n,
+      endingCapital: 9_747_183_619n,
+      record: lock,
+    } as IBitcoinLockSummary;
+
+    const positions = bitcoinFinancials.createFinancialPositions({
+      summaries: [summary],
+      hasCurrentPrice: true,
+      hasConfirmedHistoryCoverage: true,
+    });
+    const bitcoin = reduceFinancialPositions(readySnapshots(positions)).groupSummaries.bitcoin;
+
+    expect(positions[0]).toMatchObject({
+      investedCost: 8_672_857_884n,
+      performanceEndingCapital: 9_747_183_619n,
+    });
+    expect(bitcoin?.returnSummary.returnAmount).toBe(1_074_325_735n);
+    expect(bitcoin?.returnSummary.percent).toBe(12.39);
   });
 
   it('keeps an incomplete released lock visible without inventing a settlement return', () => {

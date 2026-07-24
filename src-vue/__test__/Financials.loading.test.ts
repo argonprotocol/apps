@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => {
       recovery: {},
       load: vi.fn<() => Promise<void>>(),
       getAllLocks: vi.fn((): object[] => []),
+      createLockSummary: vi.fn((_lock: object) => createBitcoinSummary(0n)),
       createLockSummaryAt: vi.fn(async (_lock: object, _api: object) => createBitcoinSummary(0n)),
       isLockedStatus: vi.fn(() => true),
       isReleaseStatus: vi.fn(() => false),
@@ -216,6 +217,8 @@ describe('financials store lifecycle', () => {
     mocks.bitcoinLocks.load.mockClear();
     mocks.bitcoinLocks.getAllLocks.mockReturnValue([]);
     mocks.bitcoinLocks.getAllLocks.mockClear();
+    mocks.bitcoinLocks.createLockSummary.mockImplementation(() => createBitcoinSummary(0n));
+    mocks.bitcoinLocks.createLockSummary.mockClear();
     mocks.bitcoinLocks.createLockSummaryAt.mockImplementation(async () => createBitcoinSummary(0n));
     mocks.bitcoinLocks.createLockSummaryAt.mockClear();
     mocks.bitcoinLocks.isLockedStatus.mockReturnValue(true);
@@ -551,7 +554,45 @@ describe('financials store lifecycle', () => {
       expect(financials.financialPositionAggregate.groupSummaries.liquid.state).toBe('ready');
     });
     await vi.waitFor(() => expect(mocks.needsFinancialHistoryRecovery).toHaveBeenCalled());
+    expect(financials.historyRecovery.state).toBe('ready');
     expect(mocks.restoreFinancialHistory).not.toHaveBeenCalled();
+  });
+
+  it('exposes persisted Bitcoin rows and settled performance before the complete financial snapshot is ready', () => {
+    const cachedSummary = createBitcoinSummary(0n);
+    const persistedSummary = {
+      ...cachedSummary,
+      status: 'Released',
+      receivedLiquidity: 30n,
+      historicalTotalFees: 20n,
+      record: {
+        ...cachedSummary.record,
+        status: 'Released',
+        removalReason: 'released',
+        removalBlockTime: new Date('2026-07-17T12:00:00Z'),
+        releaseRedemptionMicrogons: 40n,
+        releaseArgonTxFeeMicrogons: 3n,
+        releaseCompensationMicrogons: 0n,
+        btcPriceAtRemovalMicrogons: 1_200_000n,
+        isHistoryRecoveryPending: false,
+        fundingUtxoRecord: {
+          releaseBitcoinNetworkFee: 1_000n,
+        },
+      },
+    };
+    mocks.config.hasExtensionTreasury = true;
+    mocks.wallets.isLoadedPromise = new Promise(() => undefined);
+    mocks.bitcoinLocks.getAllLocks.mockReturnValue([persistedSummary.record]);
+    mocks.bitcoinLocks.createLockSummary.mockReturnValue(persistedSummary);
+
+    const financials = useFinancials();
+
+    expect(financials.bitcoinLockDisplayRecords).toEqual([persistedSummary]);
+    expect(financials.bitcoinLockPerformanceByUuid[persistedSummary.uuid]).toEqual({
+      profit: -30n,
+      percent: -30,
+    });
+    expect(financials.savingsIsLoaded).toBe(false);
   });
 
   it('requests recovery when live wallet tracking reports a history gap', async () => {

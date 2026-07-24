@@ -286,13 +286,22 @@ export class BlockWatch {
     );
   }
 
-  public async getHeader(blockNumber: number): Promise<IBlockHeaderInfo> {
+  public async getHeader(
+    block: number | Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>,
+  ): Promise<IBlockHeaderInfo> {
+    const blockNumber = typeof block === 'number' ? block : block.blockNumber;
     if (blockNumber < 0) {
       throw new Error(`[BlockWatch] getHeader called with negative blockNumber (${blockNumber})`);
     }
     const best = this.latestHeaders.find(x => x.blockNumber === blockNumber);
-    if (best) {
+    if (best && (typeof block === 'number' || best.blockHash.toLowerCase() === block.blockHash.toLowerCase())) {
       return best;
+    }
+    if (typeof block !== 'number') {
+      const header = await this.readWithArchiveRetry(blockNumber, `getHeader(${blockNumber})`, client =>
+        client.rpc.chain.getHeader(block.blockHash),
+      );
+      return BlockWatch.readHeader(header, blockNumber <= this.finalizedBlockHeader.blockNumber);
     }
     return await this.getHeaderByBlockNumber(blockNumber);
   }

@@ -8,10 +8,35 @@
     <div class="grow">
       <div class="flex items-baseline gap-2">
         <span class="text-argon-600 font-mono text-2xl font-bold">{{ formattedBtc }} BTC</span>
-        <span class="text-sm text-slate-500">
+        <span v-if="isOwnLock && isReleased" class="text-sm text-slate-500">
+          <span>
+            {{ currency.symbol }}{{ microgonToMoneyNm(localLock!.liquidityPromised).format('0,0.[00]') }} liquidity
+          </span>
+          ·
+          <Tooltip :asChild="true" content="The Argons returned to unlock and release this bitcoin.">
+            <span class="cursor-help">
+              {{
+                localLock?.releaseRedemptionMicrogons === undefined
+                  ? 'release cost unavailable'
+                  : `${currency.symbol}${microgonToMoneyNm(localLock.releaseRedemptionMicrogons).format('0,0.[00]')} release cost`
+              }}
+            </span>
+          </Tooltip>
+          ·
+          <span class="font-medium text-slate-700">
+            <template v-if="settledPerformance">
+              {{ currency.symbol }}{{ microgonToMoneyNm(settledPerformance.profit).format('0,0.[00]') }} profit ({{
+                numeral(settledPerformance.percent).format('0,0.[00]')
+              }}%)
+            </template>
+            <template v-else-if="isReturnLoading">return loading...</template>
+            <template v-else>return unavailable</template>
+          </span>
+        </span>
+        <span v-else class="text-sm text-slate-500">
           <Tooltip :asChild="true" content="The current market value of this bitcoin based on the latest oracle price.">
             <span class="cursor-help">
-              {{ currency.symbol }}{{ satToMoneyNm(fundingSatoshis).format('0,0.[00]') }} market
+              {{ currency.symbol }}{{ satToMoneyNm(fundingSatoshis).format('0,0.[00]') }} current market
             </span>
           </Tooltip>
           ·
@@ -35,7 +60,63 @@
         </a>
       </div>
 
-      <div class="mt-4 flex flex-row items-start gap-6">
+      <div v-if="isOwnLock && isReleased" class="mt-4 flex items-stretch border-t border-slate-200 pt-3 text-sm">
+        <div v-if="localSummary?.pendingLiquidity" class="w-32 shrink-0 text-center">
+          <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">Pending</div>
+          <div class="mt-0.5 font-medium text-slate-700">
+            {{ currency.symbol }}{{ microgonToMoneyNm(localSummary.pendingLiquidity).format('0,0.[00]') }}
+          </div>
+        </div>
+        <div
+          class="min-w-0 grow px-3 text-center"
+          :class="{ 'border-l border-slate-200': localSummary?.pendingLiquidity }"
+        >
+          <Tooltip :asChild="true" content="The fee charged by the vault operator for securing this bitcoin lock.">
+            <div class="cursor-help">
+              <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">Vault fees</div>
+              <div class="mt-0.5 font-medium text-slate-700">
+                {{ currency.symbol }}{{ microgonToMoneyNm(vaultFees).format('0,0.[00]') }}
+              </div>
+            </div>
+          </Tooltip>
+        </div>
+        <div class="min-w-0 grow border-l border-slate-200 px-3 text-center">
+          <Tooltip
+            :asChild="true"
+            content="The Bitcoin network fee deducted from the bitcoin returned to your wallet, valued at its release price."
+          >
+            <div class="cursor-help">
+              <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">BTC unlock fee</div>
+              <div class="mt-0.5 font-medium text-slate-700">
+                {{
+                  bitcoinUnlockCost === undefined
+                    ? 'Unavailable'
+                    : `${currency.symbol}${microgonToMoneyNm(bitcoinUnlockCost).format('0,0.[00]')}`
+                }}
+              </div>
+            </div>
+          </Tooltip>
+        </div>
+        <div class="min-w-0 grow border-l border-slate-200 px-3 text-center">
+          <Tooltip
+            :asChild="true"
+            content="Argon transaction fees paid to initialize, ratchet, and release this bitcoin lock."
+          >
+            <div class="cursor-help">
+              <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">Argon transaction fees</div>
+              <div class="mt-0.5 font-medium text-slate-700">
+                {{
+                  argonTransactionCost === undefined
+                    ? 'Unavailable'
+                    : `${currency.symbol}${microgonToMoneyNm(argonTransactionCost).format('0,0.[00]')}`
+                }}
+              </div>
+            </div>
+          </Tooltip>
+        </div>
+      </div>
+
+      <div v-else class="mt-4 flex flex-row items-start gap-6">
         <div class="space-y-1.5 text-sm text-slate-600">
           <div v-if="!isPendingFunding && isOwnLock && unlockPrice > 0n">
             <Tooltip
@@ -53,7 +134,20 @@
           <div v-if="vaultFees > 0n" class="text-slate-500">
             <Tooltip :asChild="true" content="The fee charged by the vault operator for securing this bitcoin lock.">
               <span class="cursor-help">
-                Vault fee: {{ currency.symbol }}{{ microgonToMoneyNm(vaultFees).format('0,0.[00]') }}
+                Vault fees
+                <span class="font-semibold">
+                  {{ currency.symbol }}{{ microgonToMoneyNm(vaultFees).format('0,0.[00]') }}
+                </span>
+              </span>
+            </Tooltip>
+          </div>
+          <div v-if="transactionFees > 0n" class="text-slate-500">
+            <Tooltip :asChild="true" content="Argon transaction fees paid to initialize and ratchet this bitcoin lock.">
+              <span class="cursor-help">
+                Argon transaction fees
+                <span class="font-semibold">
+                  {{ currency.symbol }}{{ microgonToMoneyNm(transactionFees).format('0,0.[000000]') }}
+                </span>
               </span>
             </Tooltip>
           </div>
@@ -128,6 +222,7 @@ import { getConfig } from '../../stores/config.ts';
 import { getMiningFrames } from '../../stores/mainchain.ts';
 import { getVaults } from '../../stores/vaults.ts';
 import { getWalletKeys } from '../../stores/wallets.ts';
+import { useFinancials } from '../../stores/financials.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { ArrowTopRightOnSquareIcon } from '@heroicons/vue/24/outline';
 import BitcoinMempool from '../../lib/BitcoinMempool.ts';
@@ -137,6 +232,7 @@ import VaultIcon from '../../assets/wallets/vault.svg?component';
 import Tooltip from '../../components/Tooltip.vue';
 import CountdownClock from '../../components/CountdownClock.vue';
 import type { IExternalBitcoinLock } from '../../lib/MyVault.ts';
+import { valueSatoshisAtRate } from '../../lib/financials/BitcoinLocks.ts';
 
 dayjs.extend(utc);
 
@@ -145,6 +241,7 @@ const bitcoinLocks = getBitcoinLocks();
 const config = getConfig();
 const miningFrames = getMiningFrames();
 const vaults = getVaults();
+const financials = useFinancials();
 const { microgonToMoneyNm, satToMoneyNm } = createNumeralHelpers(currency);
 
 const props = defineProps<{
@@ -183,6 +280,21 @@ const isReleased = Vue.computed(() => {
   return !!props.isReleased;
 });
 
+const settledPerformance = Vue.computed(() => {
+  const uuid = localLock.value?.uuid;
+  if (!uuid) return;
+  return financials.bitcoinLockPerformanceByUuid[uuid];
+});
+
+const isReturnLoading = Vue.computed(() => {
+  return !!localLock.value?.isHistoryRecoveryPending || financials.isHistoryRecoveryInProgress;
+});
+
+const localSummary = Vue.computed(() => {
+  if (!localLock.value) return;
+  return bitcoinLocks.createLockSummary(localLock.value);
+});
+
 const vaultLabel = Vue.computed(() => {
   const upstreamOperator = config.upstreamOperator;
   if (config.hasExtensionTreasury && upstreamOperator) {
@@ -197,7 +309,13 @@ const vaultLabel = Vue.computed(() => {
 const statusMessage = Vue.computed(() => {
   if (isReleased.value) {
     if (isOwnLock.value) {
-      return 'Your bitcoin has been unlocked and returned to your wallet.';
+      const releasedOn = localLock.value?.removalBlockTime
+        ? ` on ${dayjs(localLock.value.removalBlockTime).format('MMM D, YYYY')}`
+        : '';
+      if (localSummary.value?.pendingLiquidity) {
+        return `Your bitcoin was unlocked and returned to your wallet${releasedOn}. The remaining argons will continue minting to your wallet.`;
+      }
+      return `Your bitcoin was unlocked and returned to your wallet${releasedOn}.`;
     }
     return 'This bitcoin has been unlocked and returned to the owner.';
   }
@@ -241,8 +359,30 @@ const mintedPct = Vue.computed(() => {
 });
 
 const vaultFees = Vue.computed(() => {
-  if (localLock.value) return bitcoinLocks.createLockSummary(localLock.value).securityFees;
+  if (localSummary.value) return localSummary.value.securityFees;
   return props.lock.lockDetails?.securityFees ?? 0n;
+});
+
+const transactionFees = Vue.computed(() => {
+  const summary = localSummary.value;
+  if (!summary) return 0n;
+  return summary.transactionFees;
+});
+
+const bitcoinUnlockCost = Vue.computed(() => {
+  const lock = localLock.value;
+  if (!lock) return;
+
+  return valueSatoshisAtRate(
+    lock.fundingUtxoRecord?.releaseBitcoinNetworkFee,
+    lock.btcPriceAtRemovalMicrogons ?? undefined,
+  );
+});
+
+const argonTransactionCost = Vue.computed(() => {
+  const lock = localLock.value;
+  if (!lock || lock.releaseArgonTxFeeMicrogons === undefined) return;
+  return transactionFees.value + lock.releaseArgonTxFeeMicrogons;
 });
 
 const timerLabel = Vue.computed(() => {

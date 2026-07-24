@@ -105,7 +105,9 @@ export default class BitcoinUtxoTracking {
     }
     if (!lock.utxoId) return undefined;
     const records = this.data.utxosByLockUtxoId[lock.utxoId] ?? [];
-    const record = records.find(x => x.status === BitcoinUtxoStatus.FundingUtxo);
+    const record =
+      records.find(x => x.status === BitcoinUtxoStatus.FundingUtxo) ??
+      records.find(x => this.isReleaseStatus(x.status) && x.satoshis === lock.satoshis);
     lock.fundingUtxoRecordId = record?.id ?? null;
     lock.fundingUtxoRecord = record;
     return record;

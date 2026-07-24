@@ -90,7 +90,7 @@ describe('financial history spec boundaries', () => {
       ],
     ]);
     const blockWatch = {
-      getHeader: vi.fn(async (blockNumber: number) => ({
+      getHeader: vi.fn(async ({ blockNumber }: { blockNumber: number }) => ({
         blockNumber,
         blockHash: `0x${blockNumber}`,
         blockTime: new Date('2026-01-01T00:00:00Z'),

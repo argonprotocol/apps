@@ -253,10 +253,11 @@ export class BitcoinLocksTable extends BaseTable {
       lock.status = BitcoinLockStatus.LockedAndIsMinting;
     }
     await this.db.execute(
-      `UPDATE BitcoinLocks SET status = ?, fundingUtxoRecordId = ?, lockDetails = ?, lockedTargetPrice = ?, liquidityPromised = ?, ratchets = ?
+      `UPDATE BitcoinLocks SET status = ?, satoshis = ?, fundingUtxoRecordId = ?, lockDetails = ?, lockedTargetPrice = ?, liquidityPromised = ?, ratchets = ?
        WHERE uuid = ?`,
       toSqlParams([
         lock.status,
+        lock.satoshis,
         lock.fundingUtxoRecordId,
         lock.lockDetails,
         lock.lockedTargetPrice,
