@@ -21,7 +21,12 @@ export class BitcoinLockRecovery {
   private readonly onHistoryRecoveryComplete: (locks: IBitcoinLockRecord[]) => void;
   private readonly utxoTracking: Pick<
     BitcoinUtxoTracking,
-    'getAcceptedFundingRecordForLock' | 'setAcceptedFundingRecordForLock' | 'setReleaseRequest' | 'upsertUtxoRecord'
+    | 'getAcceptedFundingRecordForLock'
+    | 'isReleaseCompleteStatus'
+    | 'isReleaseStatus'
+    | 'setAcceptedFundingRecordForLock'
+    | 'setReleaseRequest'
+    | 'upsertUtxoRecord'
   >;
   private historyReplayLocksByUtxoId?: Record<number, IBitcoinLockRecord>;
   private readonly historyRecoveryPendingUtxoIds = new Set<number>();
@@ -135,7 +140,8 @@ export class BitcoinLockRecovery {
     for (let eventIndex = 0; eventIndex < eventRecords.length; eventIndex += 1) {
       const { event } = eventRecords[eventIndex];
       const isBitcoinMint = event.section === 'mint' && event.method === 'BitcoinMint';
-      if (event.section !== 'bitcoinLocks' && !isBitcoinMint) continue;
+      const isBitcoinUtxoVerified = event.section === 'bitcoinUtxos' && event.method === 'UtxoVerified';
+      if (event.section !== 'bitcoinLocks' && !isBitcoinMint && !isBitcoinUtxoVerified) continue;
       if (event.section === 'bitcoinLocks' && !bitcoinRecoveryEventMethods.has(event.method)) {
         continue;
       }
@@ -195,25 +201,25 @@ export class BitcoinLockRecovery {
               ['lockedTargetPrice', 'lockedMarketRate', 'peggedPrice', 'lockPrice'],
               block,
             );
-            if (
-              creationRatchet.mintAmount !== creationLiquidity ||
-              creationRatchet.lockedTargetPrice !== creationTargetPrice
-            ) {
-              throw new Error(`Bitcoin lock ${utxoId} has invalid creation ratchet economics`);
-            }
-
             const extrinsicIndex = eventRecords[eventIndex].phase.isApplyExtrinsic
               ? eventRecords[eventIndex].phase.asApplyExtrinsic.toNumber()
               : undefined;
             if (
+              creationRatchet.mintAmount !== creationLiquidity ||
+              creationRatchet.lockedTargetPrice !== creationTargetPrice ||
               creationRatchet.mintPending !== creationRatchet.mintAmount ||
               creationRatchet.extrinsicIndex !== extrinsicIndex ||
               existing.createdAt.getTime() !== block.blockTime ||
               (existing.lockDetails?.couponFeesPaid ?? 0n) !== chainLock.couponFeesPaid
             ) {
               const recovered = this.createDetachedRecord(existing);
-              recovered.ratchets[creationRatchetIndex].mintPending = creationRatchet.mintAmount;
-              recovered.ratchets[creationRatchetIndex].extrinsicIndex = extrinsicIndex;
+              recovered.ratchets[creationRatchetIndex] = {
+                ...creationRatchet,
+                mintAmount: creationLiquidity,
+                mintPending: creationLiquidity,
+                lockedTargetPrice: creationTargetPrice,
+                extrinsicIndex,
+              };
               recovered.lockDetails = chainLock;
               await table.saveRecoveredHistory(recovered, new Date(block.blockTime));
               this.applyRecoveredRecord(recovered);
@@ -267,7 +273,44 @@ export class BitcoinLockRecovery {
         if (!isBitcoinMint && event.method !== 'BitcoinLockRatcheted') continue;
         throw new Error(`Bitcoin lock ${utxoId} history is missing its creation record`);
       }
-      if (event.method === 'BitcoinLockRatcheted') {
+      if (isBitcoinUtxoVerified) {
+        const chainLock = await BitcoinLock.get(api, utxoId);
+        if (!chainLock) throw new Error(`Bitcoin lock ${utxoId} is unavailable after funding verification`);
+
+        const recovered = this.createDetachedRecord(record);
+        const creationRatchet = recovered.ratchets[0];
+        if (!creationRatchet) throw new Error(`Bitcoin lock ${utxoId} is missing its creation ratchet`);
+
+        // Older UtxoVerified events did not include the received amount, so use the archived post-event state.
+        const verifiedSatoshis = chainLock.utxoSatoshis ?? chainLock.satoshis;
+        chainLock.couponFeesPaid = bigIntMax(chainLock.couponFeesPaid, recovered.lockDetails?.couponFeesPaid ?? 0n);
+        recovered.satoshis = verifiedSatoshis;
+        recovered.liquidityPromised = chainLock.liquidityPromised;
+        recovered.lockedTargetPrice = chainLock.lockedTargetPrice;
+        recovered.lockDetails = chainLock;
+        creationRatchet.mintAmount = chainLock.liquidityPromised;
+        creationRatchet.mintPending = chainLock.liquidityPromised;
+        creationRatchet.lockedTargetPrice = chainLock.lockedTargetPrice;
+        if (recovered.status === BitcoinLockStatus.LockPendingFunding) {
+          recovered.status = BitcoinLockStatus.LockedAndIsMinting;
+        }
+
+        const utxoRef = await chainLock.getFundingUtxoRef(api);
+        let fundingRecord;
+        if (utxoRef) {
+          fundingRecord = await this.utxoTracking.upsertUtxoRecord(
+            recovered,
+            { txid: utxoRef.txid, vout: utxoRef.vout, satoshis: verifiedSatoshis },
+            { markFundingUtxo: true },
+          );
+          await this.utxoTracking.setAcceptedFundingRecordForLock(recovered, fundingRecord);
+        }
+
+        this.assertSafePendingMint(recovered);
+        await table.saveRecoveredHistory(recovered);
+        if (fundingRecord) await table.setFundingUtxoRecordId(recovered, fundingRecord.id);
+        this.applyRecoveredRecord(recovered);
+      } else if (event.method === 'BitcoinLockRatcheted') {
         await this.importRatchet(record, block, eventRecords, eventIndex, api, table);
       } else if (isBitcoinMint) {
         await this.applyScopedMint(record, readRequiredEventBigInt(event, ['amount'], block), api, table);
@@ -293,7 +336,7 @@ export class BitcoinLockRecovery {
             await this.utxoTracking.setAcceptedFundingRecordForLock(recovered, fundingRecord);
           }
         }
-        if (fundingRecord) {
+        if (fundingRecord && !this.utxoTracking.isReleaseStatus(fundingRecord.status)) {
           await this.utxoTracking.setReleaseRequest(fundingRecord, {
             requestedReleaseAtTick: await api.query.ticks.currentTick().then(tick => tick.toNumber()),
             releaseToDestinationAddress: releaseRequest.toScriptPubkey,
@@ -302,7 +345,11 @@ export class BitcoinLockRecovery {
         }
         this.applyRecoveredRecord(recovered);
       } else if (event.method === 'BitcoinUtxoCosigned') {
-        if (record.status === BitcoinLockStatus.Released && !record.removalReason) {
+        const fundingRecord = this.utxoTracking.getAcceptedFundingRecordForLock(record);
+        const releaseIsComplete =
+          record.status === BitcoinLockStatus.Released ||
+          this.utxoTracking.isReleaseCompleteStatus(fundingRecord?.status);
+        if (releaseIsComplete && !record.removalReason) {
           const recovered = this.createDetachedRecord(record);
           const rates = await this.currency.fetchMainchainRatesAtBlock({ api, block });
           const phase = eventRecords[eventIndex].phase;
@@ -392,14 +439,16 @@ export class BitcoinLockRecovery {
   }
 
   public async findMissingActiveLockIds(api: ApiDecoration<'promise'>): Promise<number[]> {
-    const chainLocks = await api.query.bitcoinLocks.locksByUtxoId.entries();
+    const ownerKeys = await api.query.bitcoinLocks.utxoIdsByOwnerAccount.keys(this.walletKeys.defaultArgonAddress);
+    const utxoIds = ownerKeys.map(key => key.args[1].toNumber());
+    const chainLocks = await api.query.bitcoinLocks.locksByUtxoId.multi(utxoIds);
     const missing: number[] = [];
 
-    for (const [storageKey, lockOption] of chainLocks) {
-      if (lockOption.isNone || lockOption.unwrap().ownerAccount.toString() !== this.walletKeys.defaultArgonAddress)
-        continue;
+    for (let index = 0; index < utxoIds.length; index += 1) {
+      const lockOption = chainLocks[index];
+      if (!lockOption?.isSome) continue;
 
-      const utxoId = storageKey.args[0].toNumber();
+      const utxoId = utxoIds[index];
       const record = this.getRecoveryLock(utxoId);
       const chainLock = lockOption.unwrap();
       if (

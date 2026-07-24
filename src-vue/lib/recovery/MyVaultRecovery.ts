@@ -2,14 +2,16 @@ import { ITuple, Option, U8aFixed, u8aToHex, Vault } from '@argonprotocol/mainch
 import { IVaultingRules } from '../../interfaces/IVaultingRules.ts';
 import BigNumber from 'bignumber.js';
 import BitcoinLocks from '../BitcoinLocks.ts';
-import { MainchainClients, StorageFinder, TransactionEvents } from '@argonprotocol/apps-core';
+import { AccountActivityKind, MainchainClients, StorageFinder, TransactionEvents } from '@argonprotocol/apps-core';
 import { TICK_MILLIS } from '../Env.ts';
 import { Config } from '../Config.ts';
 import bs58check from 'bs58check';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
+import { hexToU8a } from '@polkadot/util';
 import type { IBitcoinLockRecord } from '../db/BitcoinLocksTable.ts';
 import { DEFAULT_MASTER_XPUB_PATH } from '../MyVault.ts';
 import { WalletKeys } from '../WalletKeys.ts';
+import { findAddressActivity } from '../IndexerClient.ts';
 
 export class MyVaultRecovery {
   public static rebuildRules(args: {
@@ -84,31 +86,59 @@ export class MyVaultRecovery {
     });
     console.log('Recovered vault xpub path:', masterXpubPath);
 
-    const vaultCreateKey = client.query.vaults.vaultsById.key(vaultId);
-    const vaultStartBlock = await StorageFinder.binarySearchForStorageAddition(mainchainClients, vaultCreateKey).catch(
-      err => {
-        console.warn('Unable to find vault creation block:', err);
-        return undefined;
-      },
-    );
-    console.log('Look for vault create at block:', vaultStartBlock?.blockNumber ?? 'not found');
-    const vaultCreateBlockNumber = vaultStartBlock?.blockNumber ?? 0;
-    let vaultCreateFee = 0n;
-    if (vaultStartBlock) {
-      const result = await TransactionEvents.findFromFeePaidEvent({
+    const findVaultCreation = (blockHash: Uint8Array) => {
+      return TransactionEvents.findFromFeePaidEvent({
         client,
         accountAddress: vaultingAddress,
-        blockHash: vaultStartBlock.blockHash,
-        isMatchingEvent: ev => {
-          if (client.events.vaults.VaultCreated.is(ev)) {
-            const { vaultId: vaultIdRaw } = ev.data;
-            return vaultIdRaw.toNumber() === vaultId;
-          }
-          return false;
+        blockHash,
+        isMatchingEvent(event) {
+          if (!client.events.vaults.VaultCreated.is(event)) return false;
+          return event.data.vaultId.toNumber() === vaultId;
         },
       });
-      vaultCreateFee = result?.fee ?? 0n;
+    };
+
+    let vaultStartBlock: { blockNumber: number; blockHash: Uint8Array } | undefined;
+    let vaultCreateFee = 0n;
+    try {
+      const indexedActivity = await findAddressActivity(vaultingAddress, {
+        activityMask: AccountActivityKind.VaultPosition,
+      });
+      if (indexedActivity.coverage.gaps.length) {
+        throw new Error(indexedActivity.coverage.gaps[0].reason);
+      }
+
+      const indexedCreation = indexedActivity.blocks.at(0);
+      if (indexedCreation) {
+        const candidate = {
+          blockNumber: indexedCreation.blockNumber,
+          blockHash: hexToU8a(indexedCreation.blockHash),
+        };
+        const result = await findVaultCreation(candidate.blockHash);
+        if (result) {
+          vaultStartBlock = candidate;
+          vaultCreateFee = result.fee;
+        }
+      }
+    } catch (error) {
+      console.warn('Unable to find indexed vault creation block:', error);
     }
+
+    if (!vaultStartBlock) {
+      const vaultCreateKey = client.query.vaults.vaultsById.key(vaultId);
+      vaultStartBlock = await StorageFinder.binarySearchForStorageAddition(mainchainClients, vaultCreateKey).catch(
+        error => {
+          console.warn('Unable to find vault creation block:', error);
+          return undefined;
+        },
+      );
+      if (vaultStartBlock) {
+        vaultCreateFee = (await findVaultCreation(vaultStartBlock.blockHash))?.fee ?? 0n;
+      }
+    }
+
+    console.log('Look for vault create at block:', vaultStartBlock?.blockNumber ?? 'not found');
+    const vaultCreateBlockNumber = vaultStartBlock?.blockNumber ?? 0;
     return {
       masterXpubPath,
       createBlockNumber: vaultCreateBlockNumber,

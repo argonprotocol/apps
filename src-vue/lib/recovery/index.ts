@@ -37,7 +37,6 @@ export async function needsFinancialHistoryRecovery(args: {
   db: Db;
   accountId: string;
   enabledDomains: readonly IFinancialHistoryDomain[];
-  targetBlock: number;
   bitcoinLockRecovery?: Pick<BitcoinLockRecovery, 'hasPendingHistoryRecovery'>;
 }): Promise<boolean> {
   const savedState = await args.db.syncStateTable.get(SyncStateKeys.FinancialHistory);
@@ -50,7 +49,7 @@ export async function needsFinancialHistoryRecovery(args: {
     const recoveryVersion = historyRecoveryVersions[domain];
     return (
       !checkpoint ||
-      checkpoint.asOfBlock < args.targetBlock ||
+      checkpoint.partialRecovery ||
       (recoveryVersion !== undefined && checkpoint.recoveryVersion !== recoveryVersion)
     );
   });
@@ -59,6 +58,7 @@ export async function needsFinancialHistoryRecovery(args: {
 export type IFinancialHistoryImportResult = {
   importedBlockCount: number;
   domainErrors: Partial<Record<IFinancialHistoryDomain, string>>;
+  failedAtBlock?: number;
 };
 
 export type IFinancialHistoryRestoreResult = {
@@ -78,7 +78,7 @@ const earliestSupportedSpecVersions: Record<IFinancialHistoryDomain, number> = {
   vaulting: 116,
 };
 const historyRecoveryVersions: Partial<Record<IFinancialHistoryDomain, number>> = {
-  bitcoin: 3,
+  bitcoin: 5,
   bonds: 1,
 };
 
@@ -120,6 +120,32 @@ export async function restoreFinancialHistory(args: {
 
   let importedBlockCount = 0;
   const recoveryErrors: string[] = [];
+  const saveDomainCheckpoint = async (
+    domain: IFinancialHistoryDomain,
+    checkpoint: IFinancialHistoryCheckpoint,
+  ): Promise<void> => {
+    domainCheckpoints[domain] = checkpoint;
+
+    const enabledCheckpoints = enabledDomains.map(enabledDomain => domainCheckpoints[enabledDomain]);
+    const aggregateAsOfBlock = Math.min(...enabledCheckpoints.map(saved => saved?.asOfBlock ?? 0));
+    const aggregateCheckpoint = enabledCheckpoints.find(saved => saved?.asOfBlock === aggregateAsOfBlock);
+    const recoveryVersions: Partial<Record<IFinancialHistoryDomain, number>> = {};
+    for (const enabledDomain of enabledDomains) {
+      const recoveryVersion = domainCheckpoints[enabledDomain]?.recoveryVersion;
+      if (recoveryVersion !== undefined) recoveryVersions[enabledDomain] = recoveryVersion;
+    }
+
+    await db.syncStateTable.upsert(SyncStateKeys.FinancialHistory, {
+      accountId,
+      asOfBlock: aggregateAsOfBlock,
+      ...(aggregateCheckpoint?.definitionVersion !== undefined
+        ? { definitionVersion: aggregateCheckpoint.definitionVersion }
+        : {}),
+      ...(Object.keys(recoveryVersions).length ? { recoveryVersions } : {}),
+      domains: enabledDomains,
+      domainCheckpoints,
+    });
+  };
 
   args.onProgress?.(0);
   for (const domain of domainsToRestore) {
@@ -139,32 +165,15 @@ export async function restoreFinancialHistory(args: {
         force: args.force,
         targetBlock,
         onProgress: count => args.onProgress?.(importedBlockCount + count),
+        onCheckpoint: checkpoint => saveDomainCheckpoint(domain, checkpoint),
       });
       importedBlockCount += result.importedBlockCount;
-      domainCheckpoints[domain] = result.checkpoint;
-
-      const enabledCheckpoints = enabledDomains.map(enabledDomain => domainCheckpoints[enabledDomain]);
-      const aggregateAsOfBlock = Math.min(...enabledCheckpoints.map(saved => saved?.asOfBlock ?? 0));
-      const aggregateCheckpoint = enabledCheckpoints.find(saved => saved?.asOfBlock === aggregateAsOfBlock);
-      const recoveryVersions: Partial<Record<IFinancialHistoryDomain, number>> = {};
-      for (const enabledDomain of enabledDomains) {
-        const recoveryVersion = domainCheckpoints[enabledDomain]?.recoveryVersion;
-        if (recoveryVersion !== undefined) recoveryVersions[enabledDomain] = recoveryVersion;
-      }
 
       if (isBitcoinReplay) {
-        await bitcoinLockRecovery.commitHistoryReplay(result.checkpoint.asOfBlock >= targetBlock);
+        await bitcoinLockRecovery.commitHistoryReplay(!result.error && result.checkpoint.asOfBlock >= targetBlock);
       }
-      await db.syncStateTable.upsert(SyncStateKeys.FinancialHistory, {
-        accountId,
-        asOfBlock: aggregateAsOfBlock,
-        ...(aggregateCheckpoint?.definitionVersion !== undefined
-          ? { definitionVersion: aggregateCheckpoint.definitionVersion }
-          : {}),
-        ...(Object.keys(recoveryVersions).length ? { recoveryVersions } : {}),
-        domains: enabledDomains,
-        domainCheckpoints,
-      });
+      await saveDomainCheckpoint(domain, result.checkpoint);
+      if (result.error) throw new Error(result.error);
     } catch (error) {
       if (isBitcoinReplay) bitcoinLockRecovery.cancelHistoryReplay();
       recoveryErrors.push(error instanceof Error ? error.message : `Unable to restore ${domain} history`);
@@ -206,7 +215,10 @@ export class FinancialHistoryImporter {
 
   public async importBlocks(
     indexedBlocks: readonly IIndexedActivityBlock[],
-    onProgress?: (importedBlockCount: number) => void,
+    options: {
+      onProgress?: (importedBlockCount: number) => void;
+      onCheckpoint?: (blockNumber: number) => Promise<void>;
+    } = {},
   ): Promise<IFinancialHistoryImportResult> {
     const activityMask = this.enabledDomains.reduce((mask, domain) => mask | domainActivityMasks[domain], 0);
     const blocksByNumber = new Map(
@@ -214,6 +226,7 @@ export class FinancialHistoryImporter {
     );
     const backlog = [...blocksByNumber.values()].sort((left, right) => left.blockNumber - right.blockNumber);
     const domainErrors: Partial<Record<IFinancialHistoryDomain, string>> = {};
+    let failedAtBlock: number | undefined;
     let importedBlockCount = 0;
 
     for (const indexedBlock of backlog) {
@@ -225,9 +238,14 @@ export class FinancialHistoryImporter {
         domainErrors[domain] ??=
           `Block ${indexedBlock.blockNumber.toLocaleString()} uses unsupported runtime spec ${indexedBlock.specVersion}; ` +
           `earliest supported for ${domain} is ${earliestSupportedSpecVersion}`;
+        if (this.enabledDomains.length === 1) {
+          failedAtBlock =
+            failedAtBlock === undefined ? indexedBlock.blockNumber : Math.min(failedAtBlock, indexedBlock.blockNumber);
+        }
       }
     }
     const supportedBacklog = backlog.filter(indexedBlock => {
+      if (failedAtBlock !== undefined && indexedBlock.blockNumber >= failedAtBlock) return false;
       return this.enabledDomains.some(domain => {
         return (
           (indexedBlock.activityMask & domainActivityMasks[domain]) !== 0 &&
@@ -237,21 +255,59 @@ export class FinancialHistoryImporter {
     });
 
     for (let start = 0; start < supportedBacklog.length; start += 8) {
-      const loadedBlocks = await Promise.all(
-        supportedBacklog.slice(start, start + 8).map(indexedBlock => this.loadBlock(indexedBlock)),
-      );
-      for (const loadedBlock of loadedBlocks) {
+      const batch = supportedBacklog.slice(start, start + 8);
+      const loadedBlocks = await Promise.allSettled(batch.map(indexedBlock => this.loadBlock(indexedBlock)));
+      let lastImportedBlockNumber: number | undefined;
+      for (let index = 0; index < loadedBlocks.length; index += 1) {
+        const loadedResult = loadedBlocks[index];
+        const indexedBlock = batch[index];
+        if (loadedResult.status === 'rejected') {
+          const detail =
+            loadedResult.reason instanceof Error ? loadedResult.reason.message : 'Unable to load historical block';
+          for (const domain of this.enabledDomains) {
+            if (!(indexedBlock.activityMask & domainActivityMasks[domain])) continue;
+
+            let label: 'bitcoin' | 'bond' | 'vault' = 'vault';
+            if (domain === 'bonds') label = 'bond';
+            if (domain === 'bitcoin') label = 'bitcoin';
+            domainErrors[domain] ??= describeDomainError(label, indexedBlock.blockNumber, detail);
+          }
+          return {
+            importedBlockCount,
+            domainErrors,
+            failedAtBlock: indexedBlock.blockNumber,
+          };
+        }
+
+        const loadedBlock = loadedResult.value;
+        const domainsWithErrors = new Set(Object.keys(domainErrors));
         await this.importBlock(loadedBlock, domainErrors);
+        const hasNewError = this.enabledDomains.some(domain => {
+          return !domainsWithErrors.has(domain) && domainErrors[domain] !== undefined;
+        });
+        if (hasNewError && this.enabledDomains.length === 1) {
+          return {
+            importedBlockCount,
+            domainErrors,
+            failedAtBlock: loadedBlock.indexedBlock.blockNumber,
+          };
+        }
         importedBlockCount += 1;
-        onProgress?.(importedBlockCount);
+        lastImportedBlockNumber = loadedBlock.indexedBlock.blockNumber;
+        options.onProgress?.(importedBlockCount);
       }
+      if (lastImportedBlockNumber !== undefined) await options.onCheckpoint?.(lastImportedBlockNumber);
     }
 
-    return { importedBlockCount, domainErrors };
+    return {
+      importedBlockCount,
+      domainErrors,
+      ...(failedAtBlock !== undefined ? { failedAtBlock } : {}),
+    };
   }
 
   private async loadBlock(indexedBlock: IIndexedActivityBlock) {
-    const block = await this.blockWatch.getHeader(indexedBlock.blockNumber);
+    const block = await this.blockWatch.getHeader(indexedBlock);
     if (block.blockHash.toLowerCase() !== indexedBlock.blockHash.toLowerCase()) {
       throw new Error(
         `Indexer hash mismatch at block ${indexedBlock.blockNumber.toLocaleString()}: expected ${indexedBlock.blockHash}, received ${block.blockHash}`,
@@ -321,13 +377,17 @@ async function restoreFinancialHistoryDomain(args: {
   force?: boolean;
   targetBlock: number;
   onProgress?: (importedBlockCount: number) => void;
-}): Promise<{ checkpoint: IFinancialHistoryCheckpoint; importedBlockCount: number }> {
+  onCheckpoint?: (checkpoint: IFinancialHistoryCheckpoint) => Promise<void>;
+}): Promise<{ checkpoint: IFinancialHistoryCheckpoint; importedBlockCount: number; error?: string }> {
   const { db, blockWatch, accountId, argonBonds, bitcoinLockRecovery, vaultHistory, domain, checkpoint } = args;
   const recoveryVersion = historyRecoveryVersions[domain];
   const recoveryVersionChanged = recoveryVersion !== undefined && checkpoint?.recoveryVersion !== recoveryVersion;
   const hasIncompleteBitcoinRecovery = domain === 'bitcoin' && bitcoinLockRecovery?.hasPendingHistoryRecovery;
+  const canResumeBitcoinRecovery = hasIncompleteBitcoinRecovery && checkpoint?.partialRecovery;
   let afterBlock =
-    args.force || !checkpoint || recoveryVersionChanged || hasIncompleteBitcoinRecovery ? 0 : checkpoint.asOfBlock;
+    args.force || !checkpoint || recoveryVersionChanged || (hasIncompleteBitcoinRecovery && !canResumeBitcoinRecovery)
+      ? 0
+      : checkpoint.asOfBlock;
   let indexedHistory = await findAddressActivity(accountId, {
     afterBlock,
     toBlock: args.targetBlock,
@@ -368,11 +428,32 @@ async function restoreFinancialHistoryDomain(args: {
       vaultHistory,
       enabledDomains: [domain],
       bitcoinLockRecovery,
-    }).importBlocks(backlog, args.onProgress);
+    }).importBlocks(backlog, {
+      onProgress: args.onProgress,
+      async onCheckpoint(blockNumber) {
+        await args.onCheckpoint?.({
+          asOfBlock: blockNumber,
+          definitionVersion: indexedHistory.definitionVersion,
+          ...(recoveryVersion !== undefined ? { recoveryVersion } : {}),
+          partialRecovery: true,
+        });
+      },
+    });
     importedBlockCount = result.importedBlockCount;
 
     const domainError = result.domainErrors[domain];
-    if (domainError) throw new Error(domainError);
+    if (domainError) {
+      return {
+        importedBlockCount,
+        error: domainError,
+        checkpoint: {
+          asOfBlock: Math.max(afterBlock, (result.failedAtBlock ?? afterBlock + 1) - 1),
+          definitionVersion: indexedHistory.definitionVersion,
+          ...(recoveryVersion !== undefined ? { recoveryVersion } : {}),
+          partialRecovery: true,
+        },
+      };
+    }
   }
 
   const recoveredThroughBlock = Math.min(indexedHistory.asOfBlock, args.targetBlock);
@@ -422,12 +503,15 @@ async function restoreFinancialHistoryDomain(args: {
       asOfBlock: recoveredThroughBlock,
       definitionVersion: indexedHistory.definitionVersion,
       ...(recoveryVersion !== undefined ? { recoveryVersion } : {}),
+      ...(recoveredThroughBlock < args.targetBlock ? { partialRecovery: true } : {}),
     },
   };
 }
 
 function describeDomainError(domain: 'bitcoin' | 'bond' | 'vault', blockNumber: number, error: unknown): string {
-  const detail = error instanceof Error ? error.message : `Unable to decode ${domain} history`;
+  let detail = `Unable to decode ${domain} history`;
+  if (error instanceof Error) detail = error.message;
+  if (typeof error === 'string') detail = error;
   let label = 'Vault';
   if (domain === 'bond') label = 'Bond';
   if (domain === 'bitcoin') label = 'Bitcoin lock';

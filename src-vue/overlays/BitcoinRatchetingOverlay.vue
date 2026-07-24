@@ -52,7 +52,7 @@
         :disabled="isSubmitting || isLoadingPreview || !ratchetPreview?.canRatchet"
         class="bg-argon-600 inline-flex items-center px-5 py-1 text-white border border-argon-800 rounded disabled:opacity-50 cursor-pointer"
       >
-        <Spinner v-if="isSubmitting" class="mr-2 h-4 min-h-4 w-4 min-w-4" />
+        <Spinner v-if="isSubmitting" class="Inverse mr-2 h-4 min-h-4 w-4 min-w-4" />
         {{ isSubmitting ? 'Ratchet pending...' : 'Finish Ratchet' }}
       </button>
       <div v-if="errorMessage" class="mt-3 text-sm text-red-600">{{ errorMessage }}</div>

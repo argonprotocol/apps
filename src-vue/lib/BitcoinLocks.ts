@@ -18,6 +18,7 @@ import {
   type IBitcoinLockConfig,
   type SubmittableExtrinsic,
   TxResult,
+  TxSubmitter,
   type TxSigningAccount,
   u8aToHex,
   Vault,
@@ -1277,19 +1278,98 @@ export default class BitcoinLocks {
   }
 
   public async getRatchetPreview(lock: IBitcoinLockRecord): Promise<IBitcoinRatchetPreview> {
-    const { bitcoinLock, client, vault } = await this.getRatchetContext(lock);
-    const { burnAmount, ratchetingFee } = await bitcoinLock.calculateRatchetingCosts(
+    const context = await this.getRatchetContext(lock);
+    return await this.calculateRatchetPreview(lock, context);
+  }
+
+  private async getRatchetContext(lock: IBitcoinLockRecord) {
+    const client = await getMainchainClient(false);
+    const [vault, liveBitcoinLock] = await Promise.all([
+      Vault.get(client, lock.vaultId, NetworkConfig.tickMillis),
+      lock.utxoId === undefined ? undefined : BitcoinLock.get(client, lock.utxoId),
+    ]);
+    const bitcoinLock = new BitcoinLock(liveBitcoinLock ?? lock.lockDetails);
+
+    return { bitcoinLock, client, vault };
+  }
+
+  private async getLockSecuritizationRatio(client: ArgonClient, lock: IBitcoinLockRecord): Promise<bigint | undefined> {
+    if (lock.utxoId === undefined) return undefined;
+
+    const rawLock = await client.query.bitcoinLocks.locksByUtxoId(lock.utxoId);
+    if (!rawLock?.isSome) return undefined;
+
+    return rawLock.unwrap().securitizationRatio.toBigInt();
+  }
+
+  public async ratchet(lock: IBitcoinLockRecord, txSigner: TxSigningAccount, tip = 0n) {
+    return await this.runInQueueForUtxo(lock, 180e3, async () => {
+      const existingTxInfo = this.getPendingRatchetTxInfo(lock);
+      if (existingTxInfo) return existingTxInfo;
+
+      if (!this.isLockedStatus(lock)) {
+        throw new Error(`Lock with ID ${lock.utxoId} is not verified.`);
+      }
+
+      const context = await this.getRatchetContext(lock);
+      const { client } = context;
+      const preview = await this.calculateRatchetPreview(lock, context);
+      if (!preview.canRatchet) {
+        if (preview.shortfall > 0n) {
+          throw new Error(`Vault #${lock.vaultId} needs ${formatArgons(preview.shortfall)} more to ratchet this lock.`);
+        }
+        throw new Error('No ratcheting is available for this Bitcoin lock.');
+      }
+
+      // Use whatever is loaded into the price index at this time. NOTE: this could be old, but is likely what the user has seen
+      const microgonsAtTargetPerBtc = this.#currency.priceIndex.getSatoshiPriceInTargetMicrogons(SATOSHIS_PER_BITCOIN);
+
+      const tx = client.tx.bitcoinLocks.ratchet(lock.utxoId!, {
+        V1: { microgonsAtTargetPerBtc },
+      });
+      const txSubmitter = new TxSubmitter(client, tx, txSigner);
+      const requiredBalance = preview.burnAmount + preview.ratchetingFee;
+      const affordability = await txSubmitter.canAfford({
+        tip,
+        unavailableBalance: requiredBalance,
+      });
+      if (!affordability.canAfford) {
+        throw new Error(
+          `Insufficient funds to ratchet lock. Available: ${formatArgons(affordability.availableBalance)}, Required: ${formatArgons(requiredBalance)}`,
+        );
+      }
+      const txResult = await txSubmitter.submit({ tip, disableAutomaticTxTracking: true });
+
+      const txInfo = await this.#transactionTracker.trackTxResult<IBitcoinRatchetMetadata>({
+        txResult,
+        extrinsicType: ExtrinsicType.BitcoinRatchet,
+        metadata: { utxoId: lock.utxoId! },
+      });
+
+      void this.onRatchetFinalized(lock, txInfo).catch(error => {
+        console.error(`[BitcoinLocks] Error processing ratchet transaction #${txInfo.tx.id}`, error);
+      });
+      return txInfo;
+    });
+  }
+
+  private async calculateRatchetPreview(
+    lock: IBitcoinLockRecord,
+    { bitcoinLock, client, vault }: Awaited<ReturnType<BitcoinLocks['getRatchetContext']>>,
+  ): Promise<IBitcoinRatchetPreview> {
+    const microgonsAtTargetPerBtc = this.#currency.priceIndex.getSatoshiPriceInTargetMicrogons(SATOSHIS_PER_BITCOIN);
+    const { burnAmount, ratchetingFee: grossRatchetingFee } = await bitcoinLock.calculateRatchetingCosts(
       client,
       this.#currency.priceIndex,
       vault,
-      lock.lockedTargetPrice,
+      microgonsAtTargetPerBtc,
     );
+    const ratchetingFee = bitcoinLock.ownerAccount === vault.operatorAccountId ? 0n : grossRatchetingFee;
 
     const oldTargetPrice = bitcoinLock.lockedTargetPrice;
     const newTargetPrice = this.#currency.priceIndex.getSatoshiPriceInTargetMicrogons(lock.satoshis);
     const lockSecuritizationRatio = await this.getLockSecuritizationRatio(client, lock);
     const availableVaultFunds = vault.availableSecuritization();
-
     const isUpRatchet = newTargetPrice > oldTargetPrice;
 
     let newLiquidityPromised: bigint;
@@ -1322,70 +1402,6 @@ export default class BitcoinLocks {
       shortfall,
       vaultId: lock.vaultId,
     };
-  }
-
-  private async getRatchetContext(lock: IBitcoinLockRecord) {
-    const client = await getMainchainClient(false);
-    const [vault, liveBitcoinLock] = await Promise.all([
-      Vault.get(client, lock.vaultId, NetworkConfig.tickMillis),
-      lock.utxoId === undefined ? undefined : BitcoinLock.get(client, lock.utxoId),
-    ]);
-    const bitcoinLock = new BitcoinLock(liveBitcoinLock ?? lock.lockDetails);
-
-    return { bitcoinLock, client, vault };
-  }
-
-  private async getLockSecuritizationRatio(client: ArgonClient, lock: IBitcoinLockRecord): Promise<bigint | undefined> {
-    if (lock.utxoId === undefined) return undefined;
-
-    const rawLock = await client.query.bitcoinLocks.locksByUtxoId(lock.utxoId);
-    if (!rawLock?.isSome) return undefined;
-
-    return rawLock.unwrap().securitizationRatio.toBigInt();
-  }
-
-  public async ratchet(lock: IBitcoinLockRecord, txSigner: TxSigningAccount, tip = 0n) {
-    return await this.runInQueueForUtxo(lock, 180e3, async () => {
-      const existingTxInfo = this.getPendingRatchetTxInfo(lock);
-      if (existingTxInfo) return existingTxInfo;
-
-      if (!this.isLockedStatus(lock)) {
-        throw new Error(`Lock with ID ${lock.utxoId} is not verified.`);
-      }
-
-      const { bitcoinLock, client, vault } = await this.getRatchetContext(lock);
-      const preview = await this.getRatchetPreview(lock);
-      if (!preview.canRatchet) {
-        if (preview.shortfall > 0n) {
-          throw new Error(`Vault #${lock.vaultId} needs ${formatArgons(preview.shortfall)} more to ratchet this lock.`);
-        }
-        throw new Error('No ratcheting is available for this Bitcoin lock.');
-      }
-
-      // Use whatever is loaded into the price index at this time. NOTE: this could be old, but is likely what the user has seen
-      const microgonsAtTargetPerBtc = this.#currency.priceIndex.getSatoshiPriceInTargetMicrogons(SATOSHIS_PER_BITCOIN);
-
-      const result = await bitcoinLock.ratchet({
-        client,
-        priceIndex: this.#currency.priceIndex,
-        microgonsAtTargetPerBtc,
-        txSigner,
-        tip,
-        vault,
-        disableAutomaticTxTracking: true,
-      });
-
-      const txInfo = await this.#transactionTracker.trackTxResult<IBitcoinRatchetMetadata>({
-        txResult: result.txResult,
-        extrinsicType: ExtrinsicType.BitcoinRatchet,
-        metadata: { utxoId: lock.utxoId! },
-      });
-
-      void this.onRatchetFinalized(lock, txInfo).catch(error => {
-        console.error(`[BitcoinLocks] Error processing ratchet transaction #${txInfo.tx.id}`, error);
-      });
-      return txInfo;
-    });
   }
 
   public getPendingRatchetTxInfo(
@@ -2916,8 +2932,20 @@ export default class BitcoinLocks {
 
       const promises = Object.values(this.data.locksByUtxoId)
         .map(lockRecord => {
-          if (this.isHistoryRecoveryPendingForLock(lockRecord) || this.isTerminalLock(lockRecord)) {
+          if (this.isHistoryRecoveryPendingForLock(lockRecord)) {
             return undefined;
+          }
+          if (this.isTerminalLock(lockRecord)) {
+            if (!lockRecord.ratchets.some(ratchet => ratchet.mintPending > 0n)) return undefined;
+
+            return this.runInQueueForUtxo(
+              lockRecord,
+              30e3,
+              () => this.syncMintPendingState(lockRecord, table, clientAt),
+              { waitForHistoryRecovery: true },
+            ).catch(err => {
+              console.warn(`[BitcoinLocks] Error syncing pending liquidity for utxo ${lockRecord.uuid}`, err);
+            });
           }
           if (lockRecord.status === BitcoinLockStatus.LockIsProcessingOnArgon) {
             // waiting for a utxo to be found
@@ -3061,8 +3089,8 @@ export default class BitcoinLocks {
     const utxoRef = await latestBitcoinLock.getFundingUtxoRef(apiClient);
     if (!utxoRef) return;
 
-    if (latestBitcoinLock.utxoSatoshis) {
-      lock.satoshis = latestBitcoinLock.satoshis;
+    if (latestBitcoinLock.utxoSatoshis !== undefined) {
+      lock.satoshis = latestBitcoinLock.utxoSatoshis;
     }
     this.applyLatestLockDetails(lock, latestBitcoinLock);
     lock.lockedTargetPrice = latestBitcoinLock.lockedTargetPrice;

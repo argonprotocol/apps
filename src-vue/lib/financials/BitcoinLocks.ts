@@ -49,7 +49,8 @@ export class BitcoinFinancials {
       if ((this.locks.isLockedStatus(lock) || this.locks.isReleaseStatus(lock)) && lock.ratchets[0]) {
         hodlingInvestments.push({
           startingDate: lock.createdAt,
-          startingCapital: summary.startingCapital,
+          // Hodling compares BTC market movement; this is not the Bitcoin locking profit basis.
+          startingCapital: lock.ratchets[0].lockedTargetPrice,
           endingDate: new Date(),
           endingCapital: summary.valueOfBtc,
         });
@@ -89,6 +90,7 @@ function createBitcoinLockPositions(
     const bitcoinNetworkFeeValue = valueSatoshisAtRate(bitcoinNetworkFee, removalBtcPrice);
     const releaseRedemption = record.releaseRedemptionMicrogons ?? undefined;
     const releaseArgonTxFee = record.releaseArgonTxFeeMicrogons ?? undefined;
+    const historicalTotalFees = summary.historicalTotalFees;
     const releaseCompensation = hasConfirmedHistoryCoverage
       ? (record.releaseCompensationMicrogons ?? 0n)
       : (record.releaseCompensationMicrogons ?? undefined);
@@ -108,16 +110,17 @@ function createBitcoinLockPositions(
       releaseRedemption !== undefined &&
       releaseArgonTxFee !== undefined &&
       releaseCompensation !== undefined &&
-      bitcoinNetworkFeeValue !== undefined
+      bitcoinNetworkFeeValue !== undefined &&
+      historicalTotalFees !== undefined
     ) {
       hasCompleteReleaseHistory = true;
       settledPrincipalValue = removalBtcValue - releaseRedemption - bitcoinNetworkFeeValue;
       performanceEndingCapital = calculateBitcoinEndingCapital({
-        bitcoinValue: removalBtcValue,
+        bitcoinValue: summary.startingCapital,
         receivedLiquidity: summary.receivedLiquidity,
         pendingLiquidity: summary.pendingLiquidity,
         redemptionAmount: releaseRedemption,
-        fees: summary.totalFees + releaseArgonTxFee + bitcoinNetworkFeeValue,
+        fees: historicalTotalFees,
         compensation: releaseCompensation,
       });
     }
@@ -201,15 +204,26 @@ export function calculateBitcoinLockValuation({ lock, currency }: { lock: IBitco
   const securityFees = bigIntMax(grossSecurityFees - (lock.lockDetails?.couponFeesPaid ?? 0n), 0n);
   const transactionFees = lock.ratchets.reduce((total, ratchet) => total + ratchet.txFee, 0n);
   const totalFees = securityFees + transactionFees;
+  const releaseBitcoinNetworkFeeValue = valueSatoshisAtRate(
+    lock.fundingUtxoRecord?.releaseBitcoinNetworkFee,
+    lock.btcPriceAtRemovalMicrogons,
+  );
+  const hasHistoricalTransactionFees =
+    lock.releaseArgonTxFeeMicrogons !== undefined || releaseBitcoinNetworkFeeValue !== undefined;
+  const historicalTransactionFees = hasHistoricalTransactionFees
+    ? transactionFees + (lock.releaseArgonTxFeeMicrogons ?? 0n) + (releaseBitcoinNetworkFeeValue ?? 0n)
+    : undefined;
+  const historicalTotalFees =
+    historicalTransactionFees === undefined ? undefined : securityFees + historicalTransactionFees;
   const totalLiquidity = lock.ratchets.reduce((total, ratchet) => total + ratchet.mintAmount, 0n);
   const pendingLiquidity = lock.ratchets.reduce((total, ratchet) => total + ratchet.mintPending, 0n);
   const burnedLiquidity = lock.ratchets.reduce((total, ratchet) => total + (ratchet.burned ?? 0n), 0n);
   const receivedLiquidity = totalLiquidity - pendingLiquidity - burnedLiquidity;
-  const startingCapital = lock.ratchets[0]?.lockedTargetPrice ?? lock.lockedTargetPrice;
   const initialLiquidity = lock.ratchets[0]?.mintAmount ?? lock.liquidityPromised;
+  const startingCapital = lock.ratchets[0] ? receivedLiquidity + pendingLiquidity : initialLiquidity;
   const valueBeyondLiquidity = bigIntMax(valueOfBtc - lock.lockedTargetPrice, 0n);
   const currentEndingCapital = calculateBitcoinEndingCapital({
-    bitcoinValue: valueOfBtc,
+    bitcoinValue: startingCapital + valueBeyondLiquidity,
     receivedLiquidity,
     pendingLiquidity,
     redemptionAmount: unlockAmount,
@@ -226,7 +240,10 @@ export function calculateBitcoinLockValuation({ lock, currency }: { lock: IBitco
     startingCapital,
     endingCapital,
     securityFees,
+    transactionFees,
     totalFees,
+    historicalTransactionFees,
+    historicalTotalFees,
     unlockAmount,
     totalReturn: calculateBitcoinReturn(startingCapital, endingCapital),
   };

@@ -93,7 +93,14 @@ export const useFinancials = defineStore('financials', () => {
     state: 'checking' | 'restoring' | 'waiting' | 'ready' | 'error';
     recoveredBlockCount: number;
     message?: string;
-  }>({ state: 'checking', recoveredBlockCount: 0 });
+  }>({ state: 'ready', recoveredBlockCount: 0 });
+  const isHistoryRecoveryInProgress = Vue.computed(() => {
+    return (
+      historyRecovery.value.state === 'checking' ||
+      historyRecovery.value.state === 'restoring' ||
+      historyRecovery.value.state === 'waiting'
+    );
+  });
   let hasConfirmedFinancialHistoryCoverage = false;
   let queuedAccountHeader: IBlockHeaderInfo | undefined;
   let queuedAccountReconciliation = false;
@@ -601,25 +608,70 @@ export const useFinancials = defineStore('financials', () => {
 
   const liquidAllRecords = Vue.ref<IBitcoinLockSummary[]>([]);
 
+  const bitcoinLockSummaries = Vue.computed<IBitcoinLockSummary[]>(() => {
+    const summariesByUuid = new Map(liquidAllRecords.value.map(summary => [summary.uuid, summary]));
+    for (const lock of bitcoinLocks.getAllLocks({ includeHistoryRecoveryPending: true })) {
+      if (!summariesByUuid.has(lock.uuid)) {
+        summariesByUuid.set(lock.uuid, bitcoinLocks.createLockSummary(lock));
+      }
+    }
+    return [...summariesByUuid.values()];
+  });
+
   const liquidInvisibleRecords = Vue.computed<IBitcoinLockSummary[]>(() => {
-    return liquidAllRecords.value.filter(l => bitcoinLocks.isInactiveForVaultDisplay(l.record));
+    return bitcoinLockSummaries.value.filter(lock => bitcoinLocks.isInactiveForVaultDisplay(lock.record));
   });
 
   const liquidVisibleRecords = Vue.computed<IBitcoinLockSummary[]>(() => {
-    return liquidAllRecords.value.filter(
+    return bitcoinLockSummaries.value.filter(
       lock => !lock.record.isHistoryRecoveryPending && !bitcoinLocks.isInactiveForVaultDisplay(lock.record),
     );
   });
 
   const bitcoinLockDisplayRecords = Vue.computed<IBitcoinLockSummary[]>(() => {
-    const recoveringRecords = bitcoinLocks
-      .getAllLocks({ includeHistoryRecoveryPending: true })
-      .filter(lock => lock.isHistoryRecoveryPending && !bitcoinLocks.isInactiveForVaultDisplay(lock))
-      .map(lock => bitcoinLocks.createLockSummary(lock));
+    return bitcoinLockSummaries.value
+      .filter(lock => !bitcoinLocks.isInactiveForVaultDisplay(lock.record))
+      .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime());
+  });
 
-    return [...liquidVisibleRecords.value, ...recoveringRecords].sort(
-      (left, right) => right.createdAt.getTime() - left.createdAt.getTime(),
-    );
+  const bitcoinLockPerformanceByUuid = Vue.computed(() => {
+    const performanceByUuid: Record<string, { profit: bigint; percent: number }> = {};
+    for (const position of financialPositionAggregate.value.groupSummaries.bitcoin.positions) {
+      if (position.kind !== 'bitcoin-asset') continue;
+
+      const performance = calculatePositionReturn([position]);
+      if (performance.returnAmount === undefined || performance.percent === undefined) continue;
+
+      performanceByUuid[position.lock.uuid] = {
+        profit: performance.returnAmount,
+        percent: performance.percent,
+      };
+    }
+
+    const persistedPositions = bitcoinFinancials.createFinancialPositions({
+      summaries: bitcoinLockSummaries.value.filter(summary => {
+        return (
+          !performanceByUuid[summary.uuid] &&
+          summary.record.removalReason === 'released' &&
+          summary.record.isHistoryRecoveryPending === false
+        );
+      }),
+      hasCurrentPrice: false,
+      hasConfirmedHistoryCoverage: true,
+    });
+    for (const position of persistedPositions) {
+      if (position.kind !== 'bitcoin-asset') continue;
+
+      const performance = calculatePositionReturn([position]);
+      if (performance.returnAmount === undefined || performance.percent === undefined) continue;
+
+      performanceByUuid[position.lock.uuid] = {
+        profit: performance.returnAmount,
+        percent: performance.percent,
+      };
+    }
+
+    return performanceByUuid;
   });
 
   const liquidLockedRecords = Vue.computed(() => {
@@ -831,7 +883,9 @@ export const useFinancials = defineStore('financials', () => {
         accountSnapshot.value = undefined;
         await queueAccountRefresh({ force: true });
         if (config.walletAccountsHadPreviousLife && (config.hasExtensionTreasury || config.hasExtensionOperations)) {
-          void initializeFinancialHistoryRecovery().catch(() => undefined);
+          void initializeFinancialHistoryRecovery().catch(error => {
+            console.error('[FinancialHistory] Unable to initialize recovery', error);
+          });
         }
       } catch (error) {
         console.error('Unable to activate financial positions', error);
@@ -912,7 +966,9 @@ export const useFinancials = defineStore('financials', () => {
 
     isLoaded.value = true;
     if (config.walletAccountsHadPreviousLife && (config.hasExtensionTreasury || config.hasExtensionOperations)) {
-      void initializeFinancialHistoryRecovery().catch(() => undefined);
+      void initializeFinancialHistoryRecovery().catch(error => {
+        console.error('[FinancialHistory] Unable to initialize recovery', error);
+      });
     }
   }
 
@@ -929,7 +985,6 @@ export const useFinancials = defineStore('financials', () => {
       db,
       accountId: wallets.defaultArgonWallet.address,
       enabledDomains,
-      targetBlock,
       bitcoinLockRecovery: bitcoinLocks.recovery,
     });
     if (needsRecovery) {
@@ -1041,6 +1096,7 @@ export const useFinancials = defineStore('financials', () => {
 
     liquidAllRecords,
     bitcoinLockDisplayRecords,
+    bitcoinLockPerformanceByUuid,
     liquidVisibleRecords,
     liquidInvisibleRecords,
     liquidLockedRecords,
@@ -1055,6 +1111,7 @@ export const useFinancials = defineStore('financials', () => {
     financialPositionAggregate,
     liquidNativeBalances,
     historyRecovery,
+    isHistoryRecoveryInProgress,
     restoreFinancialHistory,
   };
 });

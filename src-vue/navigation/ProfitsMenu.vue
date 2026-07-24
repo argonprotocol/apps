@@ -110,11 +110,7 @@
             </button>
           </li>
           <li
-            v-else-if="
-              historyRecovery.state === 'checking' ||
-              historyRecovery.state === 'restoring' ||
-              historyRecovery.state === 'waiting'
-            "
+            v-else-if="isHistoryRecoveryInProgress"
             class="mt-1 border-t border-slate-400/30 px-3 py-2 text-xs font-normal text-slate-500"
           >
             History catching up
@@ -144,7 +140,12 @@ defineExpose({
 
 const financials = useFinancials();
 const config = getConfig();
-const { financialPositionAggregate: aggregate, historyRecovery, bondSummariesByAsset } = storeToRefs(financials);
+const {
+  financialPositionAggregate: aggregate,
+  historyRecovery,
+  isHistoryRecoveryInProgress,
+  bondSummariesByAsset,
+} = storeToRefs(financials);
 const returnRows = Vue.computed(() => {
   if (!config.isLoaded) return [];
 

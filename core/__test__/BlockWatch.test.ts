@@ -70,6 +70,26 @@ describe('BlockWatch archive recovery', () => {
     expect(result).toBe(historicalHeader);
   });
 
+  it('uses a known historical block hash without looking it up again', async () => {
+    vi.spyOn(BlockWatch, 'readHeader').mockImplementation(readMockHeader);
+
+    const historicalHeader = createHeaderInfo(108, '0x108', '0x107');
+    const archiveClient = {
+      rpc: {
+        chain: {
+          getBlockHash: vi.fn(),
+          getHeader: vi.fn().mockResolvedValue({ __info: historicalHeader }),
+        },
+      },
+    };
+    const blockWatch = new BlockWatch(createClients(archiveClient, archiveClient) as any);
+    blockWatch.latestHeaders = [createHeaderInfo(100, '0xfinalized', '0xfinalized-parent')];
+
+    await expect(blockWatch.getHeader({ blockNumber: 108, blockHash: '0x108' })).resolves.toBe(historicalHeader);
+    expect(archiveClient.rpc.chain.getBlockHash).not.toHaveBeenCalled();
+    expect(archiveClient.rpc.chain.getHeader).toHaveBeenCalledWith('0x108');
+  });
+
   it('retries historical header lookup on archive when the selected client query times out', async () => {
     vi.useFakeTimers();
     vi.spyOn(BlockWatch, 'readHeader').mockImplementation(readMockHeader);

@@ -1,9 +1,14 @@
 <template>
   <div DashBox data-testid="BitcoinLocksScreen" class="flex h-full min-h-0 grow flex-col">
-    <div v-if="!isLoaded" class="flex grow items-center justify-center text-slate-500">Loading...</div>
+    <div
+      v-if="!pageSourcesAreLoaded && !hasBitcoinRecords"
+      class="flex grow items-center justify-center text-slate-500"
+    >
+      Loading...
+    </div>
 
     <!-- Blank state -->
-    <div v-else-if="!financials.bitcoinLockDisplayRecords.length" class="flex grow flex-col">
+    <div v-else-if="!hasBitcoinRecords" class="flex grow flex-col">
       <div class="flex grow flex-col items-center justify-center">
         <div class="flex w-8/12 max-w-200 flex-col items-center py-10">
           <header class="text-argon-600 pb-3 text-xl font-bold">
@@ -157,6 +162,7 @@
               @ratchet="openRatchetingOverlay"
               @unlock="openUnlockingOverlay"
             />
+            <BitcoinsReleasedOverlay v-if="financials.liquidInvisibleRecords.length" @open-detail="openDetail" />
           </section>
           <div class="relative px-0.5 pb-0.5">
             <img src="/treasury-footers/bitcoin-locks.png" class="w-full opacity-50" />
@@ -218,6 +224,7 @@ import type { IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
 import { useFinancials } from '../stores/financials.ts';
 import { getMyVault, getVaults } from '../stores/vaults.ts';
 import BitcoinRecord from './treasury-screens/components/BitcoinRecord.vue';
+import BitcoinsReleasedOverlay from '../overlays/BitcoinsReleasedOverlay.vue';
 import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
 import { OperationalStepId, useCertificationController } from '../stores/certificationController.ts';
 
@@ -233,13 +240,16 @@ const vaults = getVaults();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 const currentTick = Vue.ref(0);
-const isLoaded = Vue.ref(false);
+const pageSourcesAreLoaded = Vue.ref(false);
 const showLockingOverlay = Vue.ref(false);
 const showDetailOverlay = Vue.ref(false);
 const showUnlockingOverlay = Vue.ref(false);
 const showRatchetingOverlay = Vue.ref(false);
 const selectedLock = Vue.ref<IBitcoinLockSummary>();
 const couponProviderLabel = config.upstreamOperator?.name || 'The vault operator';
+const hasBitcoinRecords = Vue.computed(() => {
+  return financials.bitcoinLockDisplayRecords.length > 0 || financials.liquidInvisibleRecords.length > 0;
+});
 const defaultVault = Vue.computed(() => {
   const vaultId = myVault.vaultId;
   if (vaultId) {
@@ -304,14 +314,17 @@ function openArgonWallet() {
 }
 
 Vue.onMounted(async () => {
-  await Promise.all([currency.isLoadedPromise, bitcoinLockCoupons.refresh(), bitcoinLocks.load(), miningFrames.load()]);
+  void bitcoinLockCoupons.refresh().catch(error => {
+    console.error('Unable to refresh Bitcoin lock coupons', error);
+  });
+  await Promise.all([currency.isLoadedPromise, bitcoinLocks.load(), miningFrames.load()]);
 
   currentTick.value = miningFrames.currentTick;
   unsubMiningFrames = miningFrames.onTick(() => {
     currentTick.value = miningFrames.currentTick;
   }).unsubscribe;
 
-  isLoaded.value = true;
+  pageSourcesAreLoaded.value = true;
 });
 
 Vue.onUnmounted(() => {

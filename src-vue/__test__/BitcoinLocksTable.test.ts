@@ -19,7 +19,7 @@ async function createPendingLock(overrides: Partial<IBitcoinLockRecord> = {}) {
 }
 
 describe('BitcoinLocksTable', () => {
-  it('finalizes idempotently and finds a new pending lock that reuses the owner key', async () => {
+  it('finalizes idempotently, persists the verified amount, and allows the owner key to be reused', async () => {
     const { table, lock } = await createPendingLock({ uuid: 'finalize-idempotent' });
 
     const bitcoinLock = {
@@ -57,6 +57,14 @@ describe('BitcoinLocksTable', () => {
     expect(second.status).toBe(BitcoinLockStatus.LockPendingFunding);
     expect(second.ratchets[0]).toEqual(expect.objectContaining({ blockHeight: 12 }));
     expect(await table.findPendingByHdPath(lock.hdPath)).toMatchObject({ uuid: next.uuid, utxoId: null });
+
+    second.satoshis = 900n;
+    await table.setLockedAndIsMinting(second);
+
+    expect((await table.fetchAll()).find(record => record.uuid === second.uuid)).toMatchObject({
+      satoshis: 900n,
+      status: BitcoinLockStatus.LockedAndIsMinting,
+    });
   });
 
   it('persists release economics separately from the terminal removal mark', async () => {

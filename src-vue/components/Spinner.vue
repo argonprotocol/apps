@@ -15,6 +15,10 @@
   animation: rotation 1s linear infinite;
 }
 
+.Spinner.Inverse {
+  border-color: rgba(255, 255, 255, 0.25) rgba(255, 255, 255, 0.45) rgba(255, 255, 255, 0.65) rgba(255, 255, 255, 0.9);
+}
+
 @keyframes rotation {
   0% {
     transform: rotate(0deg);
