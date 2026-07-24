@@ -34,6 +34,7 @@ describe('Vaults stats storage', () => {
     });
     const stats: IAllVaultStats = {
       synchedToFrame: 1,
+      argonotStakingByFrame: [],
       vaultsById: {},
     };
 

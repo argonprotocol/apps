@@ -8,26 +8,29 @@
       <div class="mb-5 space-y-3 text-[17px]/7 leading-normal font-light">
         <p>
           Treasury is the next level of Argon Desktop. It’s where the network's yield-generating instruments live, where
-          your assets can help grow and stabilize the currency. Here’s a snapshot into the network’s current APYs:
+          your assets help grow and stabilize the currency. Here’s a snapshot into the network’s current APYs:
         </p>
 
         <ul class="mt-6 grid grid-cols-2 gap-3">
-          <li class="border-argon-300/30 bg-argon-100/30 flex items-center justify-between rounded border px-3 py-2">
+          <li class="border-argon-300/20 bg-argon-100/20 flex items-center justify-between rounded border px-3 py-2">
             <div class="leading-tight">
               <header class="font-bold">Argon Bonds</header>
               <span class="text-base opacity-80">Secure the Vaults</span>
             </div>
-            <div class="bg-argon-100 rounded px-3 py-2 text-2xl leading-none font-bold">
+            <div class="bg-argon-100/50 rounded px-3 py-2 text-2xl leading-none font-bold">
               {{ numeral(vaultingStats.argonBondsAPR).formatIfElseCapped('< 100', '0.0', '0', 999) }}%
             </div>
           </li>
-          <li class="border-argon-300/30 bg-argon-100/30 flex items-center justify-between rounded border px-3 py-2">
+          <li class="border-argon-300/20 bg-argon-100/20 flex items-center justify-between rounded border px-3 py-2">
             <div class="leading-tight">
               <header class="font-bold">Argonot Staking</header>
               <span class="text-base opacity-80">Secure the Mining</span>
             </div>
-            <div class="bg-argon-100 rounded px-3 py-2 text-2xl leading-none font-bold">
-              {{ numeral(vaultingStats.argonBondsAPR).formatIfElseCapped('< 100', '0.0', '0', 999) }}%
+            <div class="bg-argon-100/50 rounded px-3 py-2 text-2xl leading-none font-bold">
+              <template v-if="isArgonotStakingAprReady">
+                {{ numeral(vaultingStats.argonotStakingAPR).formatIfElseCapped('< 100', '0.0', '0', 999) }}%
+              </template>
+              <template v-else>---%</template>
             </div>
           </li>
           <li class="flex items-center justify-between rounded border border-orange-300/40 bg-orange-100/40 px-3 py-2">
@@ -35,7 +38,7 @@
               <header class="font-bold">Bitcoin Locks</header>
               <span class="text-base opacity-80">Stabilize the Currency</span>
             </div>
-            <div class="rounded bg-orange-100 px-3 py-2 text-2xl leading-none font-bold">
+            <div class="rounded bg-orange-100/90 px-3 py-2 text-2xl leading-none font-bold">
               {{ numeral(vaultingStats.bitcoinAPR).formatIfElseCapped('< 100', '0.0', '0', 999) }}%
             </div>
           </li>
@@ -44,9 +47,7 @@
               <header class="font-bold">Stable Swaps</header>
               <span class="text-base opacity-80">Arbitrage the Swings</span>
             </div>
-            <div class="rounded bg-blue-100 px-3 py-2 text-2xl leading-none font-bold">
-              13.9%
-            </div>
+            <div class="rounded bg-blue-100/80 px-3 py-2 text-2xl leading-none font-bold">13.9%</div>
           </li>
         </ul>
 
@@ -63,8 +64,8 @@
           <div v-if="showingExtraDetails" class="text-md mt-2 flex flex-col gap-y-2">
             <p>
               First off, these rates float. The numbers shown above are simply what the network is paying right now. The
-              strong returns are a combination of Argon's economic design paired with the fact that we're very early in
-              its growth stage. Although these rates are guaranteed to drop down substantially over time, for now, they
+              strong returns are a combination of Argon's economic design paired with the fact that the network is in its
+              very early growth stage -- these rates are guaranteed to drop down substantially over time. For now, they
               reflect the value these assets are adding to the network.
             </p>
 
@@ -136,6 +137,7 @@ import numeral from '../lib/numeral.ts';
 import OverlayBase from './OverlayBase.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { useVaultingStats } from '../stores/vaultingStats.ts';
+import { getVaults } from '../stores/vaults.ts';
 import InfoIcon from '../assets/info-outline.svg';
 import { PlusIcon, MinusIcon } from '@heroicons/vue/20/solid';
 
@@ -147,12 +149,25 @@ const config = getConfig();
 const walletKeys = getWalletKeys();
 const controller = useCertificationController();
 const vaultingStats = useVaultingStats();
+const vaults = getVaults();
 
 const isOpen = Vue.ref(false);
 const hasValidInviteCode = Vue.ref(false);
 const inviteCode = Vue.ref<string>('');
 const formError = Vue.ref('');
 const showingExtraDetails = Vue.ref(false);
+const isArgonotStakingAprReady = Vue.ref(false);
+
+async function refreshArgonotStakingApr(): Promise<void> {
+  isArgonotStakingAprReady.value = false;
+  try {
+    await vaults.updateRevenue();
+    await vaultingStats.update();
+    isArgonotStakingAprReady.value = Boolean(vaults.stats?.argonotStakingByFrame.length);
+  } catch (error) {
+    console.warn('[UpgradeToTreasuryOverlay] Unable to refresh Argonot staking APR', error);
+  }
+}
 
 function extractInviteCodeFromUrl(input: string): string {
   const trimmed = input.trim();
@@ -256,6 +271,7 @@ async function connectToNetwork() {
 
 basicEmitter.on('openUpgradeToTreasuryOverlay', () => {
   isOpen.value = true;
+  void refreshArgonotStakingApr();
 });
 
 Vue.watch(

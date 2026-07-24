@@ -100,6 +100,7 @@ describe('Vault and bond network returns', () => {
     const vaults = createVaults();
     vaults.stats = {
       synchedToFrame: 20,
+      argonotStakingByFrame: [],
       vaultsById: {
         1: createVaultStats([
           createFrame({
@@ -185,6 +186,56 @@ describe('Vault and bond network returns', () => {
     expect(vaults.calculateArgonBondsApr()).toBe(0);
   });
 
+  it('calculates Argonot staking APR from historical frame rewards and price-valued capital', () => {
+    const vaults = createVaults();
+    vaults.stats = {
+      formatVersion: VAULT_STATS_FORMAT_VERSION,
+      synchedToFrame: 20,
+      argonotStakingByFrame: [
+        {
+          frameId: 20,
+          poolDistributed: 100n,
+          participatingBonds: 10,
+          microgonsPerArgonot: 100n,
+        },
+        {
+          frameId: 19,
+          poolDistributed: 900n,
+          participatingBonds: 10,
+          microgonsPerArgonot: 900n,
+        },
+        {
+          frameId: 10,
+          poolDistributed: 1_000_000n,
+          participatingBonds: 1,
+          microgonsPerArgonot: 1n,
+        },
+      ],
+      vaultsById: {},
+    };
+
+    expect(vaults.calculateArgonotStakingApr()).toBeCloseTo(3_650);
+  });
+
+  it('returns zero Argonot staking APR without price-valued participating capital', () => {
+    const vaults = createVaults();
+    vaults.stats = {
+      formatVersion: VAULT_STATS_FORMAT_VERSION,
+      synchedToFrame: 20,
+      argonotStakingByFrame: [
+        {
+          frameId: 20,
+          poolDistributed: 100n,
+          participatingBonds: 0,
+          microgonsPerArgonot: 100n,
+        },
+      ],
+      vaultsById: {},
+    };
+
+    expect(vaults.calculateArgonotStakingApr()).toBe(0);
+  });
+
   it('calculates restabilization leverage from caller-supplied circulation', () => {
     expect(
       calculateRestabilizationLeverage({
@@ -222,6 +273,7 @@ function createVaults(): Vaults {
 function createStats(frames: IVaultFrameStats[]): IAllVaultStats {
   return {
     synchedToFrame: 20,
+    argonotStakingByFrame: [],
     vaultsById: {
       1: createVaultStats(frames),
     },

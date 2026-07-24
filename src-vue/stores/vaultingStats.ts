@@ -21,6 +21,7 @@ export const useVaultingStats = defineStore('vaultingStats', () => {
   const averageAPR = Vue.ref(0);
   const averageAPY = Vue.ref(0);
   const argonBondsAPR = Vue.ref(0);
+  const argonotStakingAPR = Vue.ref(0);
 
   const argonBurnCapacity = Vue.ref(0);
   const finalPriceAfterTerraCollapse = Vue.ref(0n);
@@ -54,6 +55,7 @@ export const useVaultingStats = defineStore('vaultingStats', () => {
       averageAPR.value = stats.activeAPR;
       averageAPY.value = stats.activeAPY;
       argonBondsAPR.value = stats.argonBondsAPR;
+      argonotStakingAPR.value = stats.argonotStakingAPR;
       argonBurnCapacity.value = stats.argonBurnCapacity;
       finalPriceAfterTerraCollapse.value = stats.finalPriceAfterTerraCollapse;
     })();
@@ -75,6 +77,7 @@ export const useVaultingStats = defineStore('vaultingStats', () => {
     averageAPR,
     averageAPY,
     argonBondsAPR,
+    argonotStakingAPR,
     epochEarnings,
     argonBurnCapacity,
     finalPriceAfterTerraCollapse,

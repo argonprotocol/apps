@@ -45,7 +45,14 @@
             <span>
               {{ data.argonBondsAPR ? numeral(data.argonBondsAPR).formatIfElseCapped('< 1_000', '0,0.[0]', '0,0', 9_999) : '---' }}%
             </span>
-          <label>Current Treasury Bond APR</label>
+          <label>Current Argon Bond APR</label>
+        </div>
+
+        <div StatWrapper class="flex flex-col h-full border-b border-slate-400/50">
+            <span>
+              {{ data.argonotStakingAPR ? numeral(data.argonotStakingAPR).formatIfElseCapped('< 1_000', '0,0.[0]', '0,0', 9_999) : '---' }}%
+            </span>
+          <label>Current Argonot Staking APR</label>
         </div>
 
         <div StatWrapper class="flex flex-col h-full border-b border-slate-400/50">
@@ -125,9 +132,7 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
-import {
-  calculateRestabilizationLeverage,
-} from '@argonprotocol/apps-core';
+import { calculateRestabilizationLeverage } from '@argonprotocol/apps-core';
 import { getCurrency } from '../stores/currency.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { useMiningStats } from '../stores/miningStats.ts';
@@ -163,6 +168,7 @@ const data = Vue.computed(() => {
     vaultingAPR: vaultingStats.averageAPR,
     bitcoinAPR: vaultingStats.bitcoinAPR,
     argonBondsAPR: vaultingStats.argonBondsAPR,
+    argonotStakingAPR: vaultingStats.argonotStakingAPR,
     usdTargetForArgon: currency.priceIndex.argonUsdTargetPrice?.toNumber() ?? 0,
     usdForArgonot: currency.priceIndex.argonotUsdPrice?.toNumber() ?? 0,
     usdForBtc: currency.priceIndex.btcUsdPrice?.toNumber() ?? 0,

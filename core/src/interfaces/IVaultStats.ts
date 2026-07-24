@@ -1,9 +1,17 @@
 export interface IAllVaultStats {
   formatVersion?: number;
   synchedToFrame: number;
+  argonotStakingByFrame: IArgonotStakingFrameStats[];
   vaultsById: {
     [vaultId: number]: IVaultStats;
   };
+}
+
+export interface IArgonotStakingFrameStats {
+  frameId: number;
+  poolDistributed: bigint;
+  participatingBonds: number;
+  microgonsPerArgonot: bigint;
 }
 
 export interface IVaultStats {
