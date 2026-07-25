@@ -91,8 +91,8 @@
         <div v-if="showCollectProgress" class="rounded-md border border-slate-200 bg-slate-50 px-4 py-4">
           <div class="mb-3 text-sm font-semibold text-slate-700">
             {{
-              activeCollectTransactionCount === 1
-                ? 'Submitting...'
+              activeCollectTransactionCount <= 1
+                ? 'Submitting 1 transaction...'
                 : `Submitting ${activeCollectTransactionCount} transactions...`
             }}
           </div>
