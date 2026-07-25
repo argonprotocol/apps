@@ -73,6 +73,7 @@
         <span class="mt-4 mb-1 block text-sm font-semibold text-slate-700">Wallet Name</span>
         <input
           v-model="ethereumWalletNameInput"
+          maxlength="18"
           class="focus:border-argon-500 w-full rounded-md border border-slate-300 px-3 py-2 outline-none"
           placeholder="Name this wallet"
         />
@@ -147,6 +148,7 @@
         <span class="mb-1 block text-sm font-semibold text-slate-700">Wallet Name</span>
         <input
           v-model="ethereumWalletNameInput"
+          maxlength="18"
           class="focus:border-argon-500 w-full rounded-md border border-slate-300 px-3 py-2 outline-none"
           placeholder="Name this wallet"
         />

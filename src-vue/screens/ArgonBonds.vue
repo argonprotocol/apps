@@ -35,19 +35,25 @@
             />
           </span>
 
-          <div class="relative text-argon-600 mt-14 text-center text-xl leading-8 font-bold">
+          <div class="text-argon-600 relative mt-14 text-center text-xl leading-8 font-bold">
             <CurvedArrowRadialGradient />
             <div class="relative">
               <template v-if="canBuyWithArgn">
-                <div data-curved-arrow-start class="w-fit mx-auto px-1">
-                  Your account has {{ microgonToArgonNm(wallets.defaultArgonWallet.availableMicrogons).formatIfElse('< 1000', '0,0.00', '0,0') }} in ARGN
+                <div data-curved-arrow-start class="mx-auto w-fit px-1">
+                  Your account has
+                  {{
+                    microgonToArgonNm(wallets.defaultArgonWallet.availableMicrogons).formatIfElse(
+                      '< 1000',
+                      '0,0.00',
+                      '0,0',
+                    )
+                  }}
+                  in ARGN
                 </div>
                 that is ready for immediate deployment.
               </template>
               <template v-else>
-                <div data-curved-arrow-start class="w-fit mx-auto">
-                  This feature is disabled until your
-                </div>
+                <div data-curved-arrow-start class="mx-auto w-fit">This feature is disabled until your</div>
                 <span @click="openArgonWallet" class="hover:text-argon-600/80 inline-block cursor-pointer underline">
                   internal app wallet
                 </span>

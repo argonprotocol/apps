@@ -91,7 +91,10 @@
             </article>
             <div Selector />
           </li>
-          <li @click="goto(TopTab.ArgonotStaking)" :class="{ Selected: controller.selectedTab === TopTab.ArgonotStaking }">
+          <li
+            @click="goto(TopTab.ArgonotStaking)"
+            :class="{ Selected: controller.selectedTab === TopTab.ArgonotStaking }"
+          >
             <article class="relative flex flex-row items-center">
               <div class="mr-1 w-6">
                 <ArgonotBondIcon class="w-5.5 opacity-70" />
@@ -355,9 +358,9 @@
       >
         <div class="relative flex flex-row items-center text-center font-bold whitespace-nowrap">Next Steps</div>
         <div class="relative mt-1 text-slate-700/60">
-          Finish Treasury certification
+          Become Treasury certified
           <br />
-          to be eligible for the next level!
+          to reach the next level!
         </div>
         <div class="text-argon-600 mt-2 flex flex-row items-center justify-center gap-x-2">
           <a
@@ -395,11 +398,7 @@
         <div
           class="border-argon-400 absolute -top-5 -left-px h-5 w-2.5 rounded-l-full border border-t-transparent border-r-transparent"
         />
-        <div
-          @click="openSelectedWallet"
-          class="wallet-summary bg-argon-100/15 h-full w-full cursor-pointer"
-          style="text-shadow: 1px 1px 0 white"
-        >
+        <div class="bg-argon-100/15 h-full w-full" style="text-shadow: 1px 1px 0 white">
           <div class="absolute top-0 left-0 h-full w-5 rounded-bl-lg bg-linear-to-r from-slate-600/10 to-transparent" />
           <div class="flex flex-col justify-center pt-1 pr-3 pl-3">
             <header class="flex w-full flex-row items-center border-b border-slate-500/20 pb-1.5!">
@@ -407,6 +406,8 @@
                 :selectedWallet="selectedWallet"
                 :walletSelections="walletSelections"
                 :getName="getWalletName"
+                :showSelectedIndicator="false"
+                :sideOffset="4"
                 testIdPrefix="LeftBar.walletMenu"
                 side="top"
                 class="hover:text-argon-700 relative -left-2"
@@ -419,11 +420,14 @@
                 :wallet="selectedWalletData"
                 :walletAddressTestId="selectedWalletAddressTestId"
                 :canExportPrivateKey="selectedWalletCanExportPrivateKey"
-                class="wallet-summary-actions justify-end gap-x-0! pr-0"
+                class="wallet-summary-actions relative -right-2 justify-end gap-x-0! pr-0"
                 @click.stop
               />
             </header>
-            <div class="flex flex-col justify-center py-7">
+            <div
+              @click="openSelectedWallet"
+              class="wallet-summary my-2 flex cursor-pointer flex-col justify-center rounded py-5"
+            >
               <div class="wallet-summary-total text-argon-600/70 flex flex-row justify-center text-5xl font-bold">
                 <span>{{ currency.symbol }}</span>
                 <FormattedMoney :isLoaded="selectedWalletBalanceIsLoaded" :value="selectedWalletBalance" />
@@ -464,7 +468,7 @@ import { getConfig } from '../stores/config.ts';
 import FormattedMoney from '../components/FormattedMoney.vue';
 import { getBitcoinLockCoupons } from '../stores/bitcoin.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
-import { getWalletTotalValue, type IWallet, WalletType } from '../lib/Wallet.ts';
+import { getEthereumWalletDisplayName, getWalletTotalValue, type IWallet, WalletType } from '../lib/Wallet.ts';
 import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
 import { useWallets } from '../stores/wallets.ts';
 import { getCurrency } from '../stores/currency.ts';
@@ -511,7 +515,6 @@ const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm, micronotToMon
 
 const showOperationsNavigationCallouts = Vue.ref(false);
 const selectedWallet = Vue.ref<IWalletSelection>({ walletType: WalletType.defaultArgon });
-const selectedWalletIsRefreshing = Vue.ref(false);
 
 const walletSelections = Vue.computed(() => {
   return getAvailableWalletSelections(wallets.walletRecords, [], config.hasExtensionOperations);
@@ -536,7 +539,6 @@ const selectedWalletAddressTestId = Vue.computed(() => {
   return `LeftBar.${selectedWalletKey.value}Address`;
 });
 const selectedWalletBalanceIsLoaded = Vue.computed(() => {
-  if (selectedWalletIsRefreshing.value) return false;
   if (selectedWallet.value.walletType === WalletType.defaultArgon) return financials.savingsIsLoaded;
   return wallets.isLoaded;
 });
@@ -556,16 +558,16 @@ const selectedWalletBalance = Vue.computed(() => {
   return getWalletTotalValue(wallet, currency);
 });
 
-async function selectWallet(wallet: IWalletSelection) {
-  selectedWallet.value = wallet;
-  if (!isEthereumWalletSelection(wallet)) return;
-
-  selectedWalletIsRefreshing.value = true;
-  try {
-    await wallets.selectEthereumWalletRecord(wallet.walletRecord.id);
-  } finally {
-    selectedWalletIsRefreshing.value = false;
+function selectWallet(wallet: IWalletSelection) {
+  if (isEthereumWalletSelection(wallet)) {
+    basicEmitter.emit('openWalletOverlay', {
+      walletType: WalletType.ethereum,
+      ethereumWalletRecordId: wallet.walletRecord.id,
+    });
+    return;
   }
+
+  basicEmitter.emit('openWalletOverlay', { walletType: wallet.walletType });
 }
 
 function openSelectedWallet() {
@@ -580,14 +582,8 @@ function openSelectedWallet() {
   basicEmitter.emit('openWalletOverlay', { walletType: selectedWallet.value.walletType });
 }
 
-function onEthereumWalletDisconnected({ walletRecordId }: { walletRecordId: number }) {
-  if (isEthereumWalletSelection(selectedWallet.value) && selectedWallet.value.walletRecord.id === walletRecordId) {
-    selectedWallet.value = { walletType: WalletType.defaultArgon };
-  }
-}
-
 function getWalletName(wallet: IWalletSelection): string {
-  if (isEthereumWalletSelection(wallet)) return wallet.walletRecord.name;
+  if (isEthereumWalletSelection(wallet)) return getEthereumWalletDisplayName(wallet.walletRecord.name);
   return wallet.walletType === WalletType.miningBot ? 'Mining Bot Wallet' : 'Internal App Wallet';
 }
 
@@ -651,11 +647,9 @@ function highlightOperationsNavigation() {
 }
 
 basicEmitter.on('highlightOperationsNavigation', highlightOperationsNavigation);
-basicEmitter.on('ethereumWalletDisconnected', onEthereumWalletDisconnected);
 
 Vue.onBeforeUnmount(() => {
   basicEmitter.off('highlightOperationsNavigation', highlightOperationsNavigation);
-  basicEmitter.off('ethereumWalletDisconnected', onEthereumWalletDisconnected);
 });
 </script>
 

@@ -28,19 +28,22 @@
               Activate Stable Swaps
             </button>
           </span>
-          <div data-curved-arrow-start class="relative text-argon-600 mt-14 text-center text-xl leading-8 font-bold">
+          <div data-curved-arrow-start class="text-argon-600 relative mt-14 text-center text-xl leading-8 font-bold">
             <CurvedArrowRadialGradient />
             <div class="relative">
               <template v-if="financials.swapsTotalValue">
                 Your account has {{ currency.symbol
-                }}{{ microgonToMoneyNm(financials.swapsTotalValue).formatIfElse('< 1000', '0,0.00', '0,0') }} on ethereum that
+                }}{{ microgonToMoneyNm(financials.swapsTotalValue).formatIfElse('< 1000', '0,0.00', '0,0') }} on
+                ethereum that
                 <br />
                 is ready for immediate deployment.
               </template>
               <template v-else>
                 This feature is disabled until your
                 <br />
-                <span @click="openEthereumWallet" class="hover:text-argon-600/80 cursor-pointer underline">ethereum wallet</span>
+                <span @click="openEthereumWallet" class="hover:text-argon-600/80 cursor-pointer underline">
+                  ethereum wallet
+                </span>
                 is funded.
               </template>
             </div>

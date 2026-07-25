@@ -128,11 +128,11 @@ export const useFinancials = defineStore('financials', () => {
   });
 
   function publishEthereumWallet(): void {
-    if (!wallets.ethereumWallet.address) {
+    if (!wallets.ethereumWallets.length) {
       financialPositionBook.publish(financialPositionBook.beginRefresh('ethereum'), [], { observedAt: new Date() });
       return;
     }
-    if (!wallets.ethereumWallet.balanceUpdatedAt && !wallets.ethereumWallet.fetchErrorMsg) return;
+    if (wallets.ethereumWallets.some(({ wallet }) => !wallet.balanceUpdatedAt && !wallet.fetchErrorMsg)) return;
 
     const refresh = financialPositionBook.beginRefresh('ethereum');
     const positions: IFinancialPosition[] = [...wallets.ethereumFinancialPositions];
@@ -153,19 +153,14 @@ export const useFinancials = defineStore('financials', () => {
     financialPositionBook.publish(refresh, positions, {
       observedAt: new Date(),
     });
-    if (wallets.ethereumWallet.balanceIsCached) {
+    if (wallets.ethereumWallets.some(({ wallet }) => wallet.balanceIsCached)) {
       financialPositionBook.fail(refresh, 'Refreshing cached Ethereum balances');
     }
   }
 
-  function publishBaseWallet(): void {
-    if (!wallets.baseWallet.balanceUpdatedAt && !wallets.baseWallet.fetchErrorMsg) return;
-
+  function publishEmptyBaseGroup(): void {
     const refresh = financialPositionBook.beginRefresh('base');
-    financialPositionBook.publish(refresh, wallets.baseFinancialPositions, { observedAt: new Date() });
-    if (wallets.baseWallet.balanceIsCached) {
-      financialPositionBook.fail(refresh, 'Refreshing cached Base balances');
-    }
+    financialPositionBook.publish(refresh, [], { observedAt: new Date() });
   }
 
   function getMyMiningSeatsSource() {
@@ -747,7 +742,7 @@ export const useFinancials = defineStore('financials', () => {
   );
 
   Vue.watch(
-    () => wallets.ethereumWallet,
+    () => wallets.ethereumWallets,
     () => {
       if (!isLoaded.value) return;
       publishEthereumWallet();
@@ -767,15 +762,6 @@ export const useFinancials = defineStore('financials', () => {
         void refreshStableSwapPosition();
       }
     },
-  );
-
-  Vue.watch(
-    () => wallets.baseWallet,
-    () => {
-      if (!isLoaded.value) return;
-      publishBaseWallet();
-    },
-    { deep: true },
   );
 
   Vue.watch(
@@ -935,8 +921,7 @@ export const useFinancials = defineStore('financials', () => {
       wallets.defaultArgonWallet.address,
       wallets.miningBotWallet.address,
       wallets.operationalWallet.address,
-      wallets.ethereumWallet.address,
-      wallets.baseWallet.address,
+      ...wallets.ethereumWallets.map(({ wallet }) => wallet.address),
     ].filter(Boolean);
     financialPositionBook.setScope({
       ownedAccounts: [...new Set(ownedAccounts)],
@@ -974,7 +959,7 @@ export const useFinancials = defineStore('financials', () => {
       },
     });
     savingsIsLoaded.value = true;
-    publishBaseWallet();
+    publishEmptyBaseGroup();
     void refreshStableSwapPosition();
     if (config.hasExtensionTreasury) startLockSummaryProgressRefresh();
 

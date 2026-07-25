@@ -153,12 +153,21 @@ export const useWallets = defineStore('wallets', () => {
   const ethereumWallet = Vue.computed(() => {
     return activeEthereumWallet.value?.data ?? emptyEthereumWallet;
   });
+  const ethereumWallets = Vue.computed(() => {
+    return walletRecords.value
+      .filter(record => record.walletType === 'ethereum')
+      .map(record => ({
+        record,
+        wallet: ensureEthereumWalletLoader(record).data,
+      }));
+  });
   const baseWallet = Vue.reactive<IWallet>(walletForBase.data);
   walletForBase.data = baseWallet;
   const ethereumFinancialPositions = Vue.computed(() => {
-    return activeEthereumWallet.value?.createFinancialPositions(currency) ?? [];
+    return ethereumWallets.value.flatMap(({ record }) =>
+      ensureEthereumWalletLoader(record).createFinancialPositions(currency),
+    );
   });
-  const baseFinancialPositions = Vue.computed(() => walletForBase.createFinancialPositions(currency));
 
   const liquidLockingWallet = Vue.computed(() => {
     return defaultArgonWallet;
@@ -490,15 +499,18 @@ export const useWallets = defineStore('wallets', () => {
     const externalLoadStartedAt = performance.now();
     const ethereumLoad = (async () => {
       const seededWallet = await seedLegacyDefaultEthereumIfNeeded();
-      const wallet = ensureActiveEthereumWallet();
-      if (wallet !== seededWallet) await wallet?.load();
+      ensureActiveEthereumWallet();
+      const ethereumWallets = walletRecords.value
+        .filter(record => record.walletType === 'ethereum')
+        .map(record => ensureEthereumWalletLoader(record));
+      await Promise.all(ethereumWallets.filter(wallet => wallet !== seededWallet).map(wallet => wallet.load()));
       logStartupTiming({
         milestone: 'ethereum-wallet-refresh-finished',
         startedAt: externalLoadStartedAt,
         details: {
-          hasWallet: !!wallet,
-          usedCache: !!wallet?.data.balanceIsCached,
-          error: wallet?.data.fetchErrorMsg || undefined,
+          walletCount: ethereumWallets.length,
+          cachedWalletCount: ethereumWallets.filter(wallet => wallet.data.balanceIsCached).length,
+          failedWalletCount: ethereumWallets.filter(wallet => wallet.data.fetchErrorMsg).length,
         },
       });
     })();
@@ -735,9 +747,9 @@ export const useWallets = defineStore('wallets', () => {
     miningBotWallet,
     operationalWallet,
     ethereumWallet,
+    ethereumWallets,
     baseWallet,
     ethereumFinancialPositions,
-    baseFinancialPositions,
     liquidLockingWallet,
 
     defaultArgonSpendableMicrogons,

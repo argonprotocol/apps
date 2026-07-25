@@ -7,6 +7,15 @@
           <BgOverlay :enableTopBar="props.enableTopBar" :style="{ zIndex: overlayZIndex.backdropZIndex }" @close="clickBackdrop" />
         </DialogOverlay>
 
+        <div
+          v-if="$slots.overlayEffects"
+          class="pointer-events-none fixed inset-0 overflow-hidden"
+          :style="{ zIndex: overlayZIndex.contentZIndex - 1 }"
+          aria-hidden="true"
+        >
+          <slot name="overlayEffects" />
+        </div>
+
         <DialogContent
           asChild
           @escapeKeyDown="handleEscapeKeyDown"

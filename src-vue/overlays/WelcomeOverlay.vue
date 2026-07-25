@@ -5,25 +5,52 @@
       <DialogTitle class="grow pl-3">
         <template v-if="currentStep?.startsWith('Import')">Import Existing Account</template>
         <template v-else-if="config.wasImportedFromLegacy">We Successfully Imported Your Operations Account!</template>
-        <template v-else>Congrats, You Outsmarted Inflation!</template>
+        <template v-else>Welcome to Argon Desktop!</template>
       </DialogTitle>
     </template>
     <div v-if="!currentStep" class="mx-2 py-5 font-light leading-6">
       <div class="pl-5 pr-10 space-y-3">
         <p>
-          Argon is the world’s first inflation-resistant, fiat-independent stablecoin. It can be used in any standard
-          crypto wallet without any need for this app. But this app is special. It's your gateway into the broader,
-          underlying ecosystem. It gives you access into the mining, vaulting, minting authorities, and the many
-          yield-generating assets of the network. Welcome!
+          Argon is the world’s first inflation-resistant, fiat-independent stablecoin. This app gives you everything you
+          need to deploy assets, invest in the ecosystem and power the network.
         </p>
+
+        <ul class="flex flex-row gap-x-10 py-3">
+          <li class="w-1/3 bg-argon-100/30 rounded-md text-center py-3 px-2">
+            <div class="flex flex-row gap-x-2 text-argon-400 justify-center">
+              <SwapIcon class="h-5" />
+            </div>
+            <header class="font-bold text-argon-600 my-1.5">1. Save and Move</header>
+            <p class="text-md">Hold inflation-resistant money and move it across chains without bridges.</p>
+          </li>
+          <li class="w-1/3 bg-argon-100/30 rounded-md text-center py-3 px-2">
+            <div class="flex flex-row gap-x-2 text-argon-400 justify-center">
+              <BitcoinIcon class="h-5" />
+              <ArgonIcon class="h-5 opacity-70" />
+              <ArgonotIcon class="h-5 opacity-70" />
+            </div>
+            <header class="font-bold text-argon-600 my-1.5">2. Deploy Capital</header>
+            <p>Access bonds, staking, bitcoins locks, and other opportunities.</p>
+          </li>
+          <li class="w-1/3 bg-argon-100/30 rounded-md text-center py-3 px-2">
+            <div class="flex flex-row gap-x-2 text-argon-400 justify-center">
+              <MiningIcon class="h-5" />
+              <VaultingIcon class="h-5" />
+            </div>
+            <header class="font-bold text-argon-600 my-1.5">3. Become an Operator</header>
+            <p>Operate mining and vaulting infrastructure to keep Argon running.</p>
+          </li>
+        </ul>
+
         <p>
-          Note: this is open-source, self-custody software, meaning you are responsible for your keys, backups, and transactions.
-          <button
+          <strong class="font-bold">Remember, you're in control</strong>. This is open-source, self-custody software, meaning you are responsible
+          for your keys, backups, and transactions.
+          <a
             @click="basicEmitter.emit('openSoftwareInfoOverlay')"
             class="cursor-pointer text-argon-600 hover:underline focus-visible:underline focus:outline-none"
           >
             Learn more about self-custody
-          </button>.
+          </a>.
         </p>
       </div>
 
@@ -39,7 +66,7 @@
           @click="closeOverlay"
           class="mt-5 w-full flex flex-row items-center justify-center space-x-2 bg-argon-button border border-argon-button-hover hover:bg-argon-button-hover text-white font-bold inner-button-shadow px-6 py-2 rounded-md cursor-pointer focus:outline-none"
         >
-          Let's Go!
+          Start With New Account
         </button>
       </div>
     </div>
@@ -73,6 +100,12 @@ import basicEmitter from '../emitters/basicEmitter.ts';
 import OverlayBase from './OverlayBase.vue';
 import { getConfig } from '../stores/config.ts';
 import ImportAccountFromMnemonic from './import-account/FromMnemonic.vue';
+import MiningIcon from '../assets/mining-oil.svg';
+import SwapIcon from '../assets/swap.svg';
+import VaultingIcon from '../assets/vault-small.svg';
+import BitcoinIcon from '../assets/wallets/bitcoin.svg';
+import ArgonIcon from '../assets/wallets/tokens/argon.svg';
+import ArgonotIcon from '../assets/wallets/tokens/argonot.svg';
 
 const config = getConfig();
 

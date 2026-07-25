@@ -12,8 +12,8 @@
             class="w-0 min-w-full border-y border-slate-400/50 py-4 text-justify text-[17px]/7 font-light whitespace-normal"
           >
             Argonot Staking give you direct exposure to the profit returns of the growth of Argon Mining Auction pools.
-            These stakes are backed by on-chain mechanics that make it impossible for a stake to default. This means your
-            principal is always protected. The only question becomes: how much will your stake earn?
+            These stakes are backed by on-chain mechanics that make it impossible for a stake to default. This means
+            your principal is always protected. The only question becomes: how much will your stake earn?
           </p>
           <span class="relative">
             <button
@@ -34,18 +34,25 @@
               class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
             />
           </span>
-          <div class="relative text-argon-600 mt-14 text-center text-xl leading-8 font-bold">
+          <div class="text-argon-600 relative mt-14 text-center text-xl leading-8 font-bold">
             <CurvedArrowRadialGradient />
             <div class="relative">
               <template v-if="canBuyWithArgnot">
-                <div data-curved-arrow-start class="w-fit mx-auto px-1">
+                <div data-curved-arrow-start class="mx-auto w-fit px-1">
                   Your account has
-                  {{ micronotToArgonotNm(wallets.defaultArgonWallet.availableMicronots).formatIfElse('< 1000', '0,0.00', '0,0') }} ARGNOT
+                  {{
+                    micronotToArgonotNm(wallets.defaultArgonWallet.availableMicronots).formatIfElse(
+                      '< 1000',
+                      '0,0.00',
+                      '0,0',
+                    )
+                  }}
+                  ARGNOT
                 </div>
                 that is ready for immediate deployment.
               </template>
               <template v-else>
-                <div data-curved-arrow-start class="w-fit mx-auto">This feature is disabled until your</div>
+                <div data-curved-arrow-start class="mx-auto w-fit">This feature is disabled until your</div>
                 <span @click="openArgonWallet" class="hover:text-argon-600/80 inline-block cursor-pointer underline">
                   internal app wallet
                 </span>

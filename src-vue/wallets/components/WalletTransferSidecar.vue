@@ -130,7 +130,12 @@ import FormattedMoney from '../../components/FormattedMoney.vue';
 import { getCurrency } from '../../stores/currency.ts';
 import { useFinancials } from '../../stores/financials.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
-import type { IWalletSelection, IWalletSetupStep, IWalletTransferDirection } from '../walletOverlayState.ts';
+import {
+  getWalletSelectionName,
+  type IWalletSelection,
+  type IWalletSetupStep,
+  type IWalletTransferDirection,
+} from '../walletOverlayState.ts';
 import ArgonTokens from './ArgonTokens.vue';
 import WalletChooser from './WalletChooser.vue';
 import EthereumBottom from './EthereumBottom.vue';
@@ -185,7 +190,6 @@ const headerTitle = computed(() =>
 );
 
 function getName(selection: IWalletSelection) {
-  if (selection.walletType === 'ethereum') return selection.walletRecord.name;
-  return selection.walletType === 'miningBot' ? 'Mining Wallet' : 'Internal App Wallet';
+  return getWalletSelectionName(selection);
 }
 </script>

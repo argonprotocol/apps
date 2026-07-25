@@ -35,8 +35,8 @@
           v-if="hasClaimFeeShortfall"
           class="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-5 text-amber-800"
         >
-          Your Internal App Wallet needs ~₳{{ microgonToArgonNm(claimFeeEstimate ?? 0n).format('0,0.[00]') }} available to pay
-          the network fee. Add funds before claiming.
+          Your Internal App Wallet needs ~₳{{ microgonToArgonNm(claimFeeEstimate ?? 0n).format('0,0.[00]') }} available
+          to pay the network fee. Add funds before claiming.
         </div>
       </div>
 

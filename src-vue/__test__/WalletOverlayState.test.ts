@@ -144,6 +144,16 @@ describe('wallet overlay state', () => {
     expect(getWalletSelectionName(transferWallet)).toBe('Internal App Wallet');
   });
 
+  it('appends Wallet to Ethereum display names without duplicating the suffix', () => {
+    expect(getWalletSelectionName(primaryWallet)).toBe('Default Ethereum Wallet');
+    expect(
+      getWalletSelectionName({
+        walletType: WalletType.ethereum,
+        walletRecord: { ...ethereumA, name: 'Trading Wallet' },
+      }),
+    ).toBe('Trading Wallet');
+  });
+
   it('labels cross-network transfers as moves', () => {
     expect(WALLET_MOVE_LABEL).toBe('MOVE');
   });

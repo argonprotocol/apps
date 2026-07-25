@@ -41,7 +41,7 @@
               class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
             />
           </span>
-          <div data-curved-arrow-start class="relative text-argon-600 mt-14 text-center text-xl leading-8 font-bold">
+          <div data-curved-arrow-start class="text-argon-600 relative mt-14 text-center text-xl leading-8 font-bold">
             <CurvedArrowRadialGradient />
             <div class="relative">
               <template v-if="bitcoinLockCoupons.currentCoupon">

@@ -108,7 +108,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { WalletType } from '../lib/Wallet.ts';
+import { getEthereumWalletDisplayName, WalletType } from '../lib/Wallet.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import EthereumLogo from '../assets/wallets/networks/ethereum.svg?component';
 import ArgonLogo from '../assets/wallets/networks/argon.svg?component';
@@ -142,7 +142,7 @@ const walletRecords = Vue.computed<IDisplayWalletRecord[]>(() => {
     id: record.id,
     record,
     type: record.walletType === 'argon' ? WalletType.defaultArgon : WalletType.ethereum,
-    name: record.name,
+    name: record.walletType === 'ethereum' ? getEthereumWalletDisplayName(record.name) : record.name,
     summary: getWalletRecordSummary(record),
     wallet: { address: record.address },
     logo: Vue.markRaw(record.walletType === 'argon' ? ArgonLogo : EthereumLogo),

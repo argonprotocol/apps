@@ -305,11 +305,12 @@ export class Config implements IConfig {
         loadedData.miningSetupStatus === MiningSetupStatus.Finished ||
         loadedData.vaultingSetupStatus === VaultingSetupStatus.Finished;
 
-      if (loadedData.bootstrapDetails && loadedData.showWelcomeOverlay && !loadedData.wasImportedFromLegacy) {
-        loadedData.showWelcomeOverlay = false;
-        fieldsToSave.add(dbFields.showWelcomeOverlay);
-        rawData[dbFields.showWelcomeOverlay] = JsonExt.stringify(loadedData.showWelcomeOverlay, 2);
-      }
+      // if (loadedData.bootstrapDetails && loadedData.showWelcomeOverlay && !loadedData.wasImportedFromLegacy) {
+      //   console.log('SETTING SHOW WELCOME')
+      //   loadedData.showWelcomeOverlay = false;
+      //   fieldsToSave.add(dbFields.showWelcomeOverlay);
+      //   rawData[dbFields.showWelcomeOverlay] = JsonExt.stringify(loadedData.showWelcomeOverlay, 2);
+      // }
 
       if (hasRunningOperations && (!loadedData.hasExtensionTreasury || !loadedData.hasExtensionOperations)) {
         loadedData.hasExtensionTreasury = true;

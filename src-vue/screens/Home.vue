@@ -52,7 +52,7 @@
       class="mx-auto flex max-w-200 grow flex-col justify-center px-[5%]"
     >
       <h1 class="text-argon-600/80 text-4xl font-bold">
-        {{ config.postWelcomeLaunchCount > 0 ? 'Welcome Back to Argon Desktop!' : 'Welcome to Argon Desktop!' }}
+        {{ config.postWelcomeLaunchCount > 0 ? 'Welcome Back to Argon Desktop!' : 'Your Gateway to Argon' }}
       </h1>
 
       <section class="mx-auto max-w-220 py-3 text-base font-light whitespace-normal opacity-80">
@@ -62,15 +62,15 @@
           infrastructure. Use the navbar on the left to explore your options.
         </p>
         <p v-else-if="config.hasExtensionTreasury">
-          You've been upgraded to Treasury, which is the second of three app levels. You still have access to the same
-          wallet and cross-chain transfer capabilities as before, but now you can access the main yield-generating
-          assets of Argon Network. Click a wallet below to open, or use the navbar on the left to explore your options.
-          Once you're Treasury Certified, you'll be eligible to apply for the final level of Operator.
+          You've been upgraded to Treasury, which is the second of three app levels! You still have access to the same
+          wallet and cross-chain transfer capabilities as before, but now you can access the awesome yield-generating
+          assets of the network. You'll also want to explore becoming Treasury Certified, which makes you eligible for
+          the final level of Operator.
         </p>
         <p v-else>
-          This app has three levels of features. You’re currently approved for level one. This means you have full
-          access to Argon's cross-chain wallet functionality and bridgeless transfers. Click a wallet below to explore,
-          or click Upgrade to Treasury to jump to level two.
+          This app has three levels of features. You’re currently approved for level one. This means you have full use
+          of Argon's cross-chain wallet functionality and bridgeless transfers. Click the Upgrade to Treasury button
+          above to access level two, or click a wallet below to open.
         </p>
       </section>
 
@@ -86,7 +86,9 @@
               <ArgonNetworkLogo v-if="wallet.walletType === 'argon'" class="relative -top-px h-full" />
               <EthereumNetworkLogo v-else-if="wallet.walletType === 'ethereum'" class="h-full" />
             </div>
-            <span class="grow font-bold opacity-40">{{ wallet.name }}</span>
+            <span class="grow font-bold opacity-40">
+              {{ wallet.walletType === 'ethereum' ? getEthereumWalletDisplayName(wallet.name) : wallet.name }}
+            </span>
             <WalletActions
               :selection="getWalletSelection(wallet)"
               :wallet="getWalletData(wallet)"
@@ -133,7 +135,10 @@
           <span>Ethereum Wallet</span>
         </article>
       </section>
-      <div class="relative -top-2 flex flex-row items-start justify-end gap-x-3 pr-[24%]">
+      <div
+        v-if="wallets.walletRecords.length <= 1"
+        class="relative -top-2 flex flex-row items-start justify-end gap-x-3 pr-[24%]"
+      >
         <div class="relative top-[75%] text-slate-900/40">
           You must connect an Ethereum wallet
           <br />
@@ -156,7 +161,7 @@ import * as Vue from 'vue';
 import { bigIntAbs, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { getCurrency } from '../stores/currency.ts';
-import { getWalletTotalValue, WalletType, type IWallet } from '../lib/Wallet.ts';
+import { getEthereumWalletDisplayName, getWalletTotalValue, WalletType, type IWallet } from '../lib/Wallet.ts';
 import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';

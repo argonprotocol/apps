@@ -1,5 +1,5 @@
 import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
-import { WalletType } from '../lib/Wallet.ts';
+import { getEthereumWalletDisplayName, WalletType } from '../lib/Wallet.ts';
 
 export const WALLET_MOVE_LABEL = 'MOVE';
 
@@ -105,7 +105,7 @@ export function getWalletSelectionKey(wallet: IWalletSelection): string {
 
 export function getWalletSelectionName(wallet: IWalletSelection): string {
   if (wallet.walletType === WalletType.ethereum) {
-    return wallet.walletRecord.name;
+    return getEthereumWalletDisplayName(wallet.walletRecord.name);
   }
 
   return wallet.walletType === WalletType.miningBot ? 'Mining Wallet' : 'Internal App Wallet';
