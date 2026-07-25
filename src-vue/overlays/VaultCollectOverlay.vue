@@ -40,7 +40,7 @@
                 will be lost forever.
               </template>
             </CountdownClock>
-            Collected revenue will be deposited into your Argon Wallet.
+            Collected revenue will be deposited into your Internal App Wallet.
           </p>
         </div>
 

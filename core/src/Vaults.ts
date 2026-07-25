@@ -197,10 +197,7 @@ export class Vaults {
       const frameIdsSeen = new Set<number>();
       const vaultFramesSeen = new Set<string>();
       const argonotPoolsByFrame = new Map<number, bigint>();
-      const argonotCapitalByFrame = new Map<
-        number,
-        { participatingBonds: number; microgonsPerArgonot: bigint }
-      >();
+      const argonotCapitalByFrame = new Map<number, { participatingBonds: number; microgonsPerArgonot: bigint }>();
       let newestFinalizedFrameSeen = 0;
 
       await new FrameIterator(clients, this.miningFrames, 'VaultHistory').iterateFramesLimited(

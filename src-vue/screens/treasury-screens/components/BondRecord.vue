@@ -1,12 +1,13 @@
 <template>
   <div class="BondRecord Component flex flex-col">
     <section ActiveRecord :class="isActionHovered ? '' : 'hover:bg-slate-50'">
-      <BondIcon MainIcon />
+      <StakeIcon v-if="bondLot.programType === 'Argonot'" MainIcon />
+      <BondIcon v-else MainIcon />
       <div ContentWrapper>
         <div FirstRow>
           <span class="font-semibold">
             {{ numeral(bondLot.bonds).format('0,0') }}
-            {{ bondLot.programType === 'Argonot' ? 'Argonot Bonds' : 'Argon Bonds' }}
+            {{ bondLot.programType === 'Argonot' ? 'Argonot Stakes' : 'Argon Bonds' }}
           </span>
           <span class="font-light">
             bought
@@ -90,6 +91,7 @@ import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import BondIcon from '../../../assets/bond.svg?component';
+import StakeIcon from '../../../assets/stake.svg?component';
 import numeral, { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import CountdownClock from '../../../components/CountdownClock.vue';

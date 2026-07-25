@@ -186,6 +186,6 @@ const headerTitle = computed(() =>
 
 function getName(selection: IWalletSelection) {
   if (selection.walletType === 'ethereum') return selection.walletRecord.name;
-  return selection.walletType === 'miningBot' ? 'Mining Wallet' : 'Argon Wallet';
+  return selection.walletType === 'miningBot' ? 'Mining Wallet' : 'Internal App Wallet';
 }
 </script>

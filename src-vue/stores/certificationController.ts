@@ -43,7 +43,8 @@ export enum OperationalStepId {
   BackupMnemonic = 'BackupMnemonic',
   ActivateVault = 'ActivateVault',
   LiquidLock = 'LiquidLock',
-  AcquireBonds = 'AcquireBonds',
+  AcquireArgonBonds = 'AcquireArgonBonds',
+  AcquireArgonotStakes = 'AcquireArgonotStakes',
   TreasuryTransfer = 'TreasuryTransfer',
   OperationalTransfer = 'OperationalTransfer',
   FirstMiningSeat = 'FirstMiningSeat',
@@ -78,8 +79,13 @@ export const operationalSteps: Record<OperationalStepId, IOperationalStep> = {
     documentationLink: 'https://argon.network/docs/operator-certification/liquid-lock',
     component: LiquidLock,
   },
-  [OperationalStepId.AcquireBonds]: {
-    title: 'Acquire Treasury Bonds',
+  [OperationalStepId.AcquireArgonBonds]: {
+    title: 'Acquire Argon Bonds',
+    documentationLink: 'https://argon.network/docs/operator-certification/acquire-bonds',
+    component: AcquireBonds,
+  },
+  [OperationalStepId.AcquireArgonotStakes]: {
+    title: 'Acquire Argonot Stakes',
     documentationLink: 'https://argon.network/docs/operator-certification/acquire-bonds',
     component: AcquireBonds,
   },
@@ -110,7 +116,8 @@ export const treasuryCertificationStepIds = [
   OperationalStepId.BackupMnemonic,
   OperationalStepId.LiquidLock,
   OperationalStepId.TreasuryTransfer,
-  OperationalStepId.AcquireBonds,
+  OperationalStepId.AcquireArgonBonds,
+  OperationalStepId.AcquireArgonotStakes,
 ] as const;
 export const operationsCertificationStepIds = [
   OperationalStepId.OperationalTransfer,
@@ -408,7 +415,7 @@ export const useCertificationController = defineStore('certificationController',
     if (stepId === OperationalStepId.LiquidLock) {
       return certificationProgress.value.hasBitcoinLock;
     }
-    if (stepId === OperationalStepId.AcquireBonds) {
+    if (stepId === OperationalStepId.AcquireArgonBonds) {
       return certificationProgress.value.hasTreasuryBondParticipation;
     }
     if (stepId === OperationalStepId.TreasuryTransfer) {
@@ -437,7 +444,7 @@ export const useCertificationController = defineStore('certificationController',
     if (stepId === OperationalStepId.LiquidLock) {
       return hasBitcoinFundingSeenOnBitcoin.value;
     }
-    if (stepId === OperationalStepId.AcquireBonds) {
+    if (stepId === OperationalStepId.AcquireArgonBonds) {
       return hasBondsUnderway.value;
     }
 
@@ -457,11 +464,6 @@ export const useCertificationController = defineStore('certificationController',
     return 'Not completed';
   }
 
-  function getCertificationStepRequirementLabel(stepId: OperationalStepId) {
-    const requirement = getCertificationStepRequirementText(stepId);
-    return requirement ? `Need ${requirement}` : null;
-  }
-
   function getCertificationStepRequirementText(stepId: OperationalStepId) {
     if (!isLoaded.value) return null;
 
@@ -471,8 +473,11 @@ export const useCertificationController = defineStore('certificationController',
     if (stepId === OperationalStepId.LiquidLock) {
       return formatArgonRequirementText(rewardConfig.value.treasuryMinimumBitcoin, 'bitcoin');
     }
-    if (stepId === OperationalStepId.AcquireBonds) {
+    if (stepId === OperationalStepId.AcquireArgonBonds) {
       return formatArgonRequirementText(rewardConfig.value.treasuryMinimumBonds, 'bonds');
+    }
+    if (stepId === OperationalStepId.AcquireArgonotStakes) {
+      return formatArgonRequirementText(rewardConfig.value.treasuryMinimumBonds, 'stakes');
     }
     if (stepId === OperationalStepId.TreasuryTransfer) {
       return formatArgonRequirementText(rewardConfig.value.treasuryMinimumUniswapTransfer, 'from Uniswap');
@@ -828,7 +833,6 @@ export const useCertificationController = defineStore('certificationController',
     isCertificationStepUnderway,
     getCertificationStepStatus,
     getCertificationStepStatusLabel,
-    getCertificationStepRequirementLabel,
     getCertificationStepRequirementText,
     getCertificationBlocker: getCertificationBlocker,
     isCertificationStepUnlocked,

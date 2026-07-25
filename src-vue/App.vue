@@ -25,6 +25,7 @@
           <Network v-else-if="controller.selectedTab === TopTab.Network" />
 
           <ArgonBonds v-else-if="controller.selectedTab === TopTab.ArgonBonds" />
+          <ArgonotStakes v-else-if="controller.selectedTab === TopTab.ArgonotStaking" />
           <BitcoinLocks v-else-if="controller.selectedTab === TopTab.BitcoinLocks" />
           <BitcoinLoans v-else-if="controller.selectedTab === TopTab.BitcoinLoans" />
           <StableSwaps v-else-if="controller.selectedTab === TopTab.StableSwaps" />
@@ -136,6 +137,7 @@ import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import UpgradeToOperationsOverlay from './overlays/UpgradeToOperationsOverlay.vue';
 import UpgradeToTreasuryOverlay from './overlays/UpgradeToTreasuryOverlay.vue';
 import Onboarding from './screens/Onboarding.vue';
+import ArgonotStakes from './screens/ArgonotStakes.vue';
 
 const controller = useCertificationController();
 const config = getConfig();

@@ -27,12 +27,12 @@
       </div>
 
       <div class="px-5">
-        <div class="text-base font-semibold text-slate-800">Your reward will be sent to your Argon Wallet.</div>
+        <div class="text-base font-semibold text-slate-800">Your reward will be sent to your Internal App Wallet.</div>
         <div
           v-if="hasRewardAccountFeeShortfall"
           class="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-5 text-amber-800"
         >
-          Your Argon Wallet needs ~₳{{ microgonToArgonNm(rewardFeeEstimate ?? 0n).format('0,0.[00]') }} available to
+          Your Internal App Wallet needs ~₳{{ microgonToArgonNm(rewardFeeEstimate ?? 0n).format('0,0.[00]') }} available to
           submit the activation. Add funds before activating.
         </div>
       </div>
@@ -83,7 +83,7 @@
         it.
       </p>
       <p v-else class="mx-auto mt-3 max-w-xl text-center text-sm leading-6 text-slate-500">
-        You've activated your Argon Operational Certification. The claimed reward should now be in your Argon Wallet.
+        You've activated your Argon Operational Certification. The claimed reward should now be in your Internal App Wallet.
       </p>
 
       <div class="text-argon-700 mt-8 text-center text-4xl font-bold">{{ numeral(progressPct).format('0.00') }}%</div>

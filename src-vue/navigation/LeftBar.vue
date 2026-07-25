@@ -82,7 +82,7 @@
               <div class="opacity-60">{{ currency.symbol }}{{ formatFinancialGroupValue('bonds') }}</div>
               <ArrowCalloutButton
                 v-if="
-                  controller.activeGuideId === OperationalStepId.AcquireBonds &&
+                  controller.activeGuideId === OperationalStepId.AcquireArgonBonds &&
                   controller.selectedTab !== TopTab.ArgonBonds
                 "
                 guidance="Open Argon(ot) Bonds to continue this task."
@@ -91,17 +91,17 @@
             </article>
             <div Selector />
           </li>
-          <li @click="goto(TopTab.ArgonotBonds)" :class="{ Selected: controller.selectedTab === TopTab.ArgonotBonds }">
+          <li @click="goto(TopTab.ArgonotStaking)" :class="{ Selected: controller.selectedTab === TopTab.ArgonotStaking }">
             <article class="relative flex flex-row items-center">
               <div class="mr-1 w-6">
                 <ArgonotBondIcon class="w-5.5 opacity-70" />
               </div>
-              <div class="grow">Argonot Staking</div>
+              <div class="grow">Argonot Stakes</div>
               <div class="opacity-60">{{ currency.symbol }}{{ formatFinancialGroupValue('bonds') }}</div>
               <ArrowCalloutButton
                 v-if="
-                  controller.activeGuideId === OperationalStepId.AcquireBonds &&
-                  controller.selectedTab !== TopTab.ArgonotBonds
+                  controller.activeGuideId === OperationalStepId.AcquireArgonBonds &&
+                  controller.selectedTab !== TopTab.ArgonotStaking
                 "
                 guidance="Open Argon(ot) Bonds to continue this task."
                 class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
@@ -588,7 +588,7 @@ function onEthereumWalletDisconnected({ walletRecordId }: { walletRecordId: numb
 
 function getWalletName(wallet: IWalletSelection): string {
   if (isEthereumWalletSelection(wallet)) return wallet.walletRecord.name;
-  return wallet.walletType === WalletType.miningBot ? 'Mining Bot Wallet' : 'Argon Wallet';
+  return wallet.walletType === WalletType.miningBot ? 'Mining Bot Wallet' : 'Internal App Wallet';
 }
 
 function formatFinancialGroupValue(group: FinancialGroup): string {

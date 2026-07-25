@@ -108,7 +108,7 @@ export function getWalletSelectionName(wallet: IWalletSelection): string {
     return wallet.walletRecord.name;
   }
 
-  return wallet.walletType === WalletType.miningBot ? 'Mining Wallet' : 'Native Argon Wallet';
+  return wallet.walletType === WalletType.miningBot ? 'Mining Wallet' : 'Internal App Wallet';
 }
 
 export function isEthereumWalletSelection(

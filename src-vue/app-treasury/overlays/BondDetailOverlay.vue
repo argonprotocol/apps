@@ -1,7 +1,7 @@
 <template>
   <OverlayBase :isOpen="true" class="BondDetailOverlay min-h-48 w-180" @close="emit('close')" @pressEsc="emit('close')">
     <template #title>
-      <span class="text-xl font-bold text-slate-800/80">Bond Details</span>
+      <span class="text-xl font-bold text-slate-800/80">{{ bondLot.programType === 'Argonot' ? 'Stake' : 'Bond' }} Details</span>
     </template>
 
     <div class="flex flex-row gap-8 px-10 pt-6 pb-8">
@@ -19,7 +19,7 @@
               {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.bondMicrogons).format('0,0.00') }}
             </template>
           </span>
-          <span class="text-sm text-slate-500">{{ numeral(bondLot.bonds).format('0,0') }} bonds</span>
+          <span class="text-sm text-slate-500">{{ numeral(bondLot.bonds).format('0,0') }} {{ bondLot.programType === 'Argonot' ? 'stakes' : 'bonds' }}</span>
         </div>
 
         <div class="mt-1 text-sm font-light text-slate-400">Purchased {{ purchasedAtLabel }}</div>
@@ -99,13 +99,13 @@
       v-if="canLiquidate && !isLiquidating"
       class="flex items-start justify-between gap-4 border-t border-slate-200 px-10 py-4"
     >
-      <div class="text-sm text-slate-500">Liquidate this bond lot to schedule its return from Treasury Bonds.</div>
+      <div class="text-sm text-slate-500">Liquidate this {{ bondLot.programType === 'Argonot' ? 'stake' : 'bond' }} lot to schedule its return.</div>
       <button
         type="button"
         class="bg-argon-button hover:bg-argon-button-hover shrink-0 rounded px-5 py-2 text-sm font-semibold text-white"
         @click="liquidateBondLot"
       >
-        Liquidate Bond Lot
+        Liquidate {{ bondLot.programType === 'Argonot' ? 'Stake' : 'Bond' }} Lot
       </button>
     </div>
 
@@ -116,7 +116,7 @@
     </div>
 
     <div v-if="isLiquidating" class="space-y-3 border-t border-slate-200 px-10 py-5">
-      <div class="text-sm font-medium text-slate-600">Liquidating bond lot...</div>
+      <div class="text-sm font-medium text-slate-600">Liquidating {{ bondLot.programType === 'Argonot' ? 'stake' : 'bond' }} lot...</div>
       <ProgressBar :progress="liquidationProgressPct" :hasError="!!liquidationError" />
       <div class="text-xs text-slate-500">{{ liquidationProgressLabel }}</div>
     </div>
@@ -184,7 +184,7 @@ const releaseAtLabel = Vue.computed(() => {
 
 const bondProgramLabel = Vue.computed(() => {
   if (props.bondLot.programType === 'Argonot') {
-    return 'Argonot Bond';
+    return 'Argonot Stake';
   }
 
   const vaultId = props.bondLot.vaultId;

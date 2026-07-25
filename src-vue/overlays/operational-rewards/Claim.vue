@@ -30,12 +30,12 @@
       </div>
 
       <div class="rounded-2xl border border-slate-200 bg-slate-50/50 px-5 py-4">
-        <div class="text-sm font-semibold text-slate-800">Rewards will be sent to your Argon Wallet.</div>
+        <div class="text-sm font-semibold text-slate-800">Rewards will be sent to your Internal App Wallet.</div>
         <div
           v-if="hasClaimFeeShortfall"
           class="mt-3 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-5 text-amber-800"
         >
-          Your Argon Wallet needs ~₳{{ microgonToArgonNm(claimFeeEstimate ?? 0n).format('0,0.[00]') }} available to pay
+          Your Internal App Wallet needs ~₳{{ microgonToArgonNm(claimFeeEstimate ?? 0n).format('0,0.[00]') }} available to pay
           the network fee. Add funds before claiming.
         </div>
       </div>
@@ -97,7 +97,7 @@
         transaction.
       </p>
       <p v-else class="mx-auto mt-3 max-w-xl text-center text-sm leading-6 text-slate-500">
-        Your claim finalized. The claimed rewards should now be available in your Argon Wallet.
+        Your claim finalized. The claimed rewards should now be available in your Internal App Wallet.
       </p>
 
       <div class="text-argon-700 mt-8 text-center text-4xl font-bold">{{ numeral(progressPct).format('0.00') }}%</div>

@@ -346,7 +346,7 @@ const operationalActivationRewardLabel = Vue.computed(() => {
 
 const checklistDescription = Vue.computed(() => {
   if (isUnlockTrack.value) {
-    return 'Complete the Treasury Certification steps below to be eligible for your Upstream Operator to upgrade you to the Operations app.';
+    return 'Complete the Treasury Certification steps below to be eligible for the final upgrade to Operations.';
   }
 
   const withUpstream = controller.chainProgress.hasUpstreamAccount ? ' (along with your upstream operator)' : '';
@@ -446,7 +446,7 @@ function formatStepTitle(stepId: OperationalStepId) {
   }
 
   if (stepId === OperationalStepId.LiquidLock) {
-    return `Liquid Lock ${requirement.replace(' bitcoin', ' of Bitcoin')}`;
+    return `Liquid Lock ${requirement.replace(' bitcoin', ' Worth of Bitcoin')}`;
   }
   if (stepId === OperationalStepId.ActivateVault) {
     return `Create a ${requirement.replace(' securitization', '')} Vault`;
@@ -454,8 +454,11 @@ function formatStepTitle(stepId: OperationalStepId) {
   if ([OperationalStepId.TreasuryTransfer, OperationalStepId.OperationalTransfer].includes(stepId)) {
     return `Transfer ${requirement}`;
   }
-  if (stepId === OperationalStepId.AcquireBonds) {
-    return `Acquire ${requirement.replace(' bonds', ' of Treasury Bonds')}`;
+  if (stepId === OperationalStepId.AcquireArgonBonds) {
+    return `Acquire ${requirement.replace(' bonds', ' of Argon Bonds')}`;
+  }
+  if (stepId === OperationalStepId.AcquireArgonotStakes) {
+    return `Acquire ${requirement.replace(' stakes', ' of Argon Stakes')}`;
   }
   if (stepId === OperationalStepId.FirstMiningSeat) {
     return `Win ${requirement.replace(' seats', ' Mining Seats').replace(' seat', ' Mining Seat')}`;

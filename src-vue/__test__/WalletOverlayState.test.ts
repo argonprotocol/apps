@@ -22,7 +22,7 @@ const defaultArgonRecord = {
   id: 1,
   walletType: 'argon',
   role: 'defaultArgon',
-  name: 'Argon Wallet',
+  name: 'Internal App Wallet',
   address: 'argon-address',
   sortOrder: 0,
   createdAt: new Date(),
@@ -141,7 +141,7 @@ describe('wallet overlay state', () => {
   });
 
   it('keeps the established default Argon wallet name', () => {
-    expect(getWalletSelectionName(transferWallet)).toBe('Native Argon Wallet');
+    expect(getWalletSelectionName(transferWallet)).toBe('Internal App Wallet');
   });
 
   it('labels cross-network transfers as moves', () => {

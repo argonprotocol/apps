@@ -33,6 +33,7 @@ const props = withDefaults(
   defineProps<{
     class?: string;
     color?: string;
+    dynamic?: boolean;
     strokeWidth?: number;
   }>(),
   {
@@ -43,8 +44,19 @@ const props = withDefaults(
 
 const svgEl = Vue.ref<SVGSVGElement | null>(null);
 const size = Vue.ref({ width: 74, height: 92 });
+const dynamicPoints = Vue.ref<{
+  start: { x: number; y: number };
+  end: { x: number; y: number };
+}>();
 
 const curvePath = Vue.computed(() => {
+  if (dynamicPoints.value) {
+    const { start, end } = dynamicPoints.value;
+    const controlX = Math.max(start.x, end.x) + Math.max(Math.abs(start.y - end.y) * 0.35, 28);
+
+    return `M${start.x} ${start.y}C${controlX} ${start.y - 24} ${controlX} ${end.y} ${end.x} ${end.y}`;
+  }
+
   const width = size.value.width;
   const height = size.value.height;
   const inset = Math.max(props.strokeWidth / 2 + 1, 2);
@@ -62,6 +74,13 @@ const curvePath = Vue.computed(() => {
 });
 
 const arrowHeadPath = Vue.computed(() => {
+  if (dynamicPoints.value) {
+    const { end } = dynamicPoints.value;
+    const headSize = Math.max(props.strokeWidth * 2.5, 8);
+
+    return `M${end.x + headSize} ${end.y - headSize}L${end.x} ${end.y}L${end.x + headSize} ${end.y + headSize}`;
+  }
+
   const width = size.value.width;
   const height = size.value.height;
   const inset = Math.max(props.strokeWidth / 2 + 1, 2);
@@ -81,6 +100,30 @@ function updateSize() {
   const { width, height } = svgEl.value.getBoundingClientRect();
   if (!width || !height) return;
   size.value = { width, height };
+
+  if (!props.dynamic) {
+    dynamicPoints.value = undefined;
+    return;
+  }
+
+  const container = svgEl.value.parentElement;
+  const startElement = container?.querySelector<HTMLElement>('[data-curved-arrow-start]');
+  const endElement = container?.querySelector<HTMLElement>('[data-curved-arrow-end]');
+  if (!startElement || !endElement) return;
+
+  const svgRect = svgEl.value.getBoundingClientRect();
+  const startRect = startElement.getBoundingClientRect();
+  const endRect = endElement.getBoundingClientRect();
+  dynamicPoints.value = {
+    start: {
+      x: startRect.right - svgRect.left + 8,
+      y: startRect.top - svgRect.top + 4,
+    },
+    end: {
+      x: endRect.right - svgRect.left + 12,
+      y: endRect.top - svgRect.top + endRect.height / 2,
+    },
+  };
 }
 
 let resizeObserver: ResizeObserver | undefined;
@@ -93,6 +136,15 @@ Vue.onMounted(() => {
     updateSize();
   });
   resizeObserver.observe(svgEl.value);
+
+  if (props.dynamic) {
+    const container = svgEl.value.parentElement;
+    const startElement = container?.querySelector<HTMLElement>('[data-curved-arrow-start]');
+    const endElement = container?.querySelector<HTMLElement>('[data-curved-arrow-end]');
+    if (container) resizeObserver.observe(container);
+    if (startElement) resizeObserver.observe(startElement);
+    if (endElement) resizeObserver.observe(endElement);
+  }
 });
 
 Vue.onUnmounted(() => {

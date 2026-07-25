@@ -64,9 +64,9 @@
           <div v-if="showingExtraDetails" class="text-md mt-2 flex flex-col gap-y-2">
             <p>
               First off, these rates float. The numbers shown above are simply what the network is paying right now. The
-              strong returns are a combination of Argon's economic design paired with the fact that the network is in its
-              very early growth stage -- these rates are guaranteed to drop down substantially over time. For now, they
-              reflect the value these assets are adding to the network.
+              strong returns are a combination of Argon's economic design paired with the fact that the network is in
+              its very early growth stage -- these rates are guaranteed to drop down substantially over time. For now,
+              they reflect the value these assets are adding to the network.
             </p>
 
             <p>

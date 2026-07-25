@@ -187,7 +187,7 @@ function formatStepTitle(stepId: OperationalStepId) {
   if ([OperationalStepId.TreasuryTransfer, OperationalStepId.OperationalTransfer].includes(stepId)) {
     return `Transfer ${requirement}`;
   }
-  if (stepId === OperationalStepId.AcquireBonds) {
+  if (stepId === OperationalStepId.AcquireArgonBonds) {
     return `Acquire ${requirement.replace(' bonds', ' of Treasury Bonds')}`;
   }
   if (stepId === OperationalStepId.FirstMiningSeat) {
@@ -235,7 +235,7 @@ function startTask() {
 
     if (
       [
-        OperationalStepId.AcquireBonds,
+        OperationalStepId.AcquireArgonBonds,
         OperationalStepId.LiquidLock,
         OperationalStepId.TreasuryTransfer,
         OperationalStepId.OperationalTransfer,

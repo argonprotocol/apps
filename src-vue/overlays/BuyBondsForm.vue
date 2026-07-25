@@ -3,7 +3,7 @@
   <div class="space-y-5">
     <template v-if="txInfo">
       <div class="space-y-3">
-        <div class="text-sm font-medium text-slate-600">Buying bonds...</div>
+        <div class="text-sm font-medium text-slate-600">Buying {{ props.programType === 'Argonot' ? 'Stakes' : 'Bonds' }}...</div>
         <ProgressBar :progress="progressPct" :hasError="!!progressError" />
         <div class="text-xs text-slate-500">{{ progressMessage }}</div>
         <div v-if="progressError" class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -24,7 +24,7 @@
     <template v-else>
       <div>
         <label class="mb-1.5 block text-sm font-medium text-slate-600">
-          {{ props.programType === 'Argonot' ? 'Argonot Bonds to buy' : 'Argon Bonds to buy' }}
+          {{ props.programType === 'Argonot' ? 'Argonot Stakes to buy' : 'Argon Bonds to buy' }}
         </label>
         <InputNumber
           v-if="props.programType === 'Argonot'"
@@ -83,7 +83,7 @@
           class="bg-argon-button hover:bg-argon-button-hover rounded px-5 py-2 text-sm font-semibold text-white disabled:opacity-40"
           @click="submit">
           <template v-if="isSubmitting">Submitting...</template>
-          <template v-else-if="props.programType === 'Argonot'">Buy Argonot Bonds</template>
+          <template v-else-if="props.programType === 'Argonot'">Buy Argonot Stakes</template>
           <template v-else>Buy Argon Bonds</template>
         </button>
       </div>

@@ -139,7 +139,7 @@
 import { isDefaultArgonMoveFrom, isDefaultArgonMoveTo, MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
 
 const moveFromName = {
-  [MoveFrom.DefaultArgon]: 'Argon Wallet',
+  [MoveFrom.DefaultArgon]: 'Internal App Wallet',
   [MoveFrom.MiningBot]: 'Mining Bids',
   [MoveFrom.VaultingSecurity]: 'Bitcoin Security',
 };
@@ -147,7 +147,7 @@ const moveFromName = {
 const moveToName = {
   [MoveTo.VaultingSecurity]: 'Bitcoin Security',
   [MoveTo.MiningBot]: 'Mining Bids',
-  [MoveTo.DefaultArgon]: 'Argon Wallet',
+  [MoveTo.DefaultArgon]: 'Internal App Wallet',
   [MoveTo.External]: 'External Address',
 };
 
@@ -275,7 +275,7 @@ const moveFromWalletType = Vue.computed(() => {
 const moveFromOptions = Vue.computed(() => {
   if (moveFromWalletType.value === WalletType.defaultArgon || moveFromWalletType.value === WalletType.miningBot) {
     return [
-      { name: 'Argon Wallet', value: MoveFrom.DefaultArgon },
+      { name: 'Internal App Wallet', value: MoveFrom.DefaultArgon },
       { name: 'Mining Bids', value: MoveFrom.MiningBot },
     ];
   } else if (moveFromWalletType.value === 'vaulting') {
@@ -312,13 +312,13 @@ function getMoveToOptions(moveFromValue: MoveFrom) {
     options.push({ name: 'Mining Bids', value: MoveTo.MiningBot });
     options.push({ name: 'Bitcoin Security', value: MoveTo.VaultingSecurity });
   } else if (walletFrom === WalletType.miningBot) {
-    options.push({ name: 'Argon Wallet', value: MoveTo.DefaultArgon });
+    options.push({ name: 'Internal App Wallet', value: MoveTo.DefaultArgon });
   } else if (moveFromValue === MoveFrom.VaultingSecurity) {
-    options.push({ name: 'Argon Wallet', value: MoveTo.DefaultArgon });
+    options.push({ name: 'Internal App Wallet', value: MoveTo.DefaultArgon });
   }
 
   if (walletFrom !== WalletType.defaultArgon && walletFrom !== WalletType.miningBot) {
-    options.push({ name: 'Argon Wallet', value: MoveTo.DefaultArgon, divider: true });
+    options.push({ name: 'Internal App Wallet', value: MoveTo.DefaultArgon, divider: true });
   }
 
   options.push({ name: 'External Account', value: MoveTo.External });

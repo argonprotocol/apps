@@ -10,7 +10,7 @@
     <!-- Blank state -->
     <div v-else-if="!hasBitcoinRecords" class="flex grow flex-col">
       <div class="flex grow flex-col items-center justify-center">
-        <div class="flex w-8/12 max-w-200 flex-col items-center py-10">
+        <div class="relative flex w-8/12 max-w-200 flex-col items-center py-10">
           <header class="text-argon-600 pb-3 text-xl font-bold">
             Argon Converts Your Bitcoin Into An Income Producing Asset
           </header>
@@ -24,6 +24,7 @@
           </p>
           <span class="relative">
             <button
+              data-curved-arrow-end
               @click="openLockingOverlay"
               :class="
                 canStartLocking
@@ -39,48 +40,35 @@
               guidance="Start your liquid lock here."
               class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
             />
-            <CurvedArrow class="pointer-events-none absolute top-14 left-full h-22 translate-y-1 text-slate-400/80" />
           </span>
-          <div class="relative mt-14 text-center">
-            <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div
-                class="h-24 w-80 rounded-full opacity-95 blur-lg"
-                style="
-                  background: radial-gradient(
-                    ellipse at center,
-                    #fffedc 0%,
-                    #fffedc 42%,
-                    rgba(255, 254, 220, 0.45) 62%,
-                    rgba(255, 255, 255, 0) 78%
-                  );
-                "
-              />
-            </div>
-
-            <div v-if="bitcoinLockCoupons.currentCoupon" class="text-argon-600 relative text-xl leading-8 font-bold">
-              {{ couponProviderLabel }} is gifting your first liquid lock
-              <br />
-              for free, up to {{ currency.symbol
-              }}{{ microgonToMoneyNm(bitcoinLockCoupons.couponOfferLiquidityMicrogons || 0n).format('0,0') }}!
-            </div>
-            <div
-              v-else-if="financials.savingsTotalReadyToUse"
-              class="text-argon-600 relative text-xl leading-8 font-bold"
-            >
-              Your account has {{ currency.symbol
-              }}{{ microgonToMoneyNm(financials.savingsTotalReadyToUse).format('0,0.00') }} in savings that is
-              <br />
-              ready for immediate deployment.
-            </div>
-            <div v-else class="text-argon-600 relative text-xl leading-8 font-bold">
-              This feature is disabled until your
-              <br />
-              <span @click="openArgonWallet" class="hover:text-argon-600/80 inline-block cursor-pointer underline">
-                argon wallet
-              </span>
-              is funded.
+          <div data-curved-arrow-start class="relative text-argon-600 mt-14 text-center text-xl leading-8 font-bold">
+            <CurvedArrowRadialGradient />
+            <div class="relative">
+              <template v-if="bitcoinLockCoupons.currentCoupon">
+                {{ couponProviderLabel }} is gifting your first liquid lock
+                <br />
+                for free, up to {{ currency.symbol
+                }}{{ microgonToMoneyNm(bitcoinLockCoupons.couponOfferLiquidityMicrogons || 0n).format('0,0') }} in fees!
+              </template>
+              <template v-else-if="financials.savingsTotalReadyToUse">
+                Your account has enough capital to
+                <br />
+                lock your first bitcoin!
+              </template>
+              <template v-else>
+                This feature is disabled until your
+                <br />
+                <span @click="openArgonWallet" class="hover:text-argon-600/80 inline-block cursor-pointer underline">
+                  internal app wallet
+                </span>
+                is funded.
+              </template>
             </div>
           </div>
+          <CurvedArrow
+            dynamic
+            class="pointer-events-none absolute inset-0 h-full w-full overflow-visible text-slate-400/80"
+          />
         </div>
       </div>
       <div class="relative px-0.5 pb-0.5">
@@ -215,6 +203,7 @@ import BitcoinLockingOverlay from '../overlays/BitcoinLockingOverlay.vue';
 import BitcoinLockDetailOverlay from '../overlays/BitcoinLockDetailOverlay.vue';
 import BitcoinUnlockingOverlay from '../overlays/BitcoinUnlockingOverlay.vue';
 import CurvedArrow from '../components/CurvedArrow.vue';
+import CurvedArrowRadialGradient from '../components/CurvedArrowRadialGradient.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { WalletType } from '../lib/Wallet.ts';
 import BitcoinRatchetingOverlay from '../overlays/BitcoinRatchetingOverlay.vue';

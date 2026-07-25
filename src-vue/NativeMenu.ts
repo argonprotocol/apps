@@ -125,7 +125,7 @@ export async function createMenu() {
       },
       {
         id: 'token-transfer-to-vaulting',
-        text: 'Open Argon Wallet',
+        text: 'Open Internal App Wallet',
         action: () => basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon }),
       },
       await PredefinedMenuItem.new({ item: 'Separator' }),
