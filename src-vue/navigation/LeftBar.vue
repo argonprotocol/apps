@@ -356,7 +356,9 @@
         "
         class="relative flex grow flex-col items-center justify-center text-center"
       >
-        <div class="relative flex flex-row items-center text-center font-bold whitespace-nowrap">Next Steps</div>
+        <div class="relative flex flex-row items-center text-center font-bold whitespace-nowrap">
+          <CertificationIcon class="text-argon-600/60 pointer-events-none relative -top-2 w-10" />
+        </div>
         <div class="relative mt-1 text-slate-700/60">
           Become Treasury certified
           <br />
@@ -504,6 +506,7 @@ import {
 } from '../wallets/walletOverlayState.ts';
 import WalletSelector from '../wallets/components/WalletSelector.vue';
 import WalletActions from '../wallets/components/WalletActions.vue';
+import CertificationIcon from '../assets/certification.svg';
 
 const controller = useCertificationController();
 const basics = useBasics();

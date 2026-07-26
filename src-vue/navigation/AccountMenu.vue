@@ -29,8 +29,14 @@
             <header>Check for Updates</header>
           </NavigationMenuLink>
           <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+          <template v-if="config.isLoaded && config.upstreamOperator">
+            <NavigationMenuLink MenuItem @click="() => openJurisdictionOverlay()" >
+              <header>View Sponsor Details</header>
+            </NavigationMenuLink>
+            <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+          </template>
           <NavigationMenuLink MenuItem @click="() => openImportAccountOverlay()">
-            <header>Import Account</header>
+            <header>Import Existing Account</header>
           </NavigationMenuLink>
           <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
           <template v-if="config.hasExtensionOperations">
@@ -40,7 +46,7 @@
             <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
           </template>
           <NavigationMenuLink MenuItem @click="() => openJurisdictionOverlay()" >
-            <header>Default Jurisdiction</header>
+            <header>Manage Default Jurisdiction</header>
           </NavigationMenuLink>
           <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
           <NavigationMenuLink MenuItem @click="() => openTroubleshooting()">

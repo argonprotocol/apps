@@ -167,12 +167,6 @@
       v-if="showVaultCollectOverlay"
       @close="showVaultCollectOverlay = false" />
 
-    <BitcoinLockingOverlay
-      v-if="showBitcoinLockingOverlay && myVault.createdVault"
-      :personalLock="selectedBitcoinLock"
-      :vault="myVault.createdVault"
-      @close="closeBitcoinLockingOverlay" />
-
     <BitcoinUnlockingOverlay
       v-if="showBitcoinUnlockingOverlay && selectedUnlockLock"
       :personalLock="selectedUnlockLock"
@@ -259,7 +253,6 @@ import { getMyVault } from '../stores/vaults.ts';
 import { getArgonBonds } from '../stores/argonBonds.ts';
 import BitcoinIcon from '../assets/wallets/bitcoin.svg?component';
 import VaultCollectOverlay from '../overlays/VaultCollectOverlay.vue';
-import BitcoinLockingOverlay from '../overlays/BitcoinLockingOverlay.vue';
 import BitcoinUnlockingOverlay from '../overlays/BitcoinUnlockingOverlay.vue';
 import AlertBarRow from '../alerts/AlertBarRow.vue';
 import BitcoinAlert from '../alerts/BitcoinAlert.vue';
@@ -281,9 +274,7 @@ const isRestarting = Vue.ref(false);
 const isApiClientDegraded = Vue.ref(!clients.hasConnectedClient());
 const isExpanded = Vue.ref(false);
 const showVaultCollectOverlay = Vue.ref(false);
-const showBitcoinLockingOverlay = Vue.ref(false);
 const showBitcoinUnlockingOverlay = Vue.ref(false);
-const selectedBitcoinLock = Vue.ref<IBitcoinLockRecord | undefined>(undefined);
 const selectedUnlockLock = Vue.ref<IBitcoinLockRecord | undefined>(undefined);
 const resumedFundingByLockUtxoId = Vue.ref<{ [lockUtxoId: number]: true }>({});
 
@@ -355,9 +346,7 @@ async function restartBot() {
 
 function closeSharedOverlays() {
   showVaultCollectOverlay.value = false;
-  showBitcoinLockingOverlay.value = false;
   showBitcoinUnlockingOverlay.value = false;
-  selectedBitcoinLock.value = undefined;
   selectedUnlockLock.value = undefined;
 }
 
@@ -372,14 +361,12 @@ function openBitcoinLock(args?: { lock?: IBitcoinLockRecord }) {
   isExpanded.value = false;
   closeSharedOverlays();
   selectedUnlockLock.value = undefined;
-  selectedBitcoinLock.value = args?.lock;
-  showBitcoinLockingOverlay.value = true;
+  basicEmitter.emit('openBitcoinLock', args);
 }
 
 function openBitcoinUnlock(lock: IBitcoinLockRecord) {
   isExpanded.value = false;
   closeSharedOverlays();
-  selectedBitcoinLock.value = undefined;
   selectedUnlockLock.value = lock;
   showBitcoinUnlockingOverlay.value = true;
 }
@@ -397,19 +384,6 @@ function openSingleBitcoinAlert() {
   }
 
   openBitcoinUnlock(singleBitcoinAlert.value.lock);
-}
-
-function closeBitcoinLockingOverlay(shouldStartNewLocking: boolean) {
-  showBitcoinLockingOverlay.value = false;
-  selectedBitcoinLock.value = undefined;
-
-  if (!shouldStartNewLocking || !myVault.createdVault) {
-    return;
-  }
-
-  Vue.nextTick(() => {
-    openBitcoinLock();
-  });
 }
 
 function closeBitcoinUnlockingOverlay() {
@@ -494,7 +468,6 @@ Vue.onMounted(() => {
   void loadAttentionData();
 
   basicEmitter.on('openVaultCollect', openVaultCollect);
-  basicEmitter.on('openBitcoinLock', openBitcoinLock);
   basicEmitter.on('openBitcoinUnlock', openBitcoinUnlock);
   basicEmitter.on('closeAllOverlays', closeSharedOverlays);
   basicEmitter.on('resumeBitcoinFunding', markResumedFunding);
@@ -504,7 +477,6 @@ Vue.onUnmounted(() => {
   unsubscribeArgonBondVault?.();
 
   basicEmitter.off('openVaultCollect', openVaultCollect);
-  basicEmitter.off('openBitcoinLock', openBitcoinLock);
   basicEmitter.off('openBitcoinUnlock', openBitcoinUnlock);
   basicEmitter.off('closeAllOverlays', closeSharedOverlays);
   basicEmitter.off('resumeBitcoinFunding', markResumedFunding);

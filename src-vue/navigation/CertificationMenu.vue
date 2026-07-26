@@ -171,13 +171,14 @@
     >
       <NavigationMenuTrigger
         Trigger
-        class="flex h-[30px] cursor-pointer flex-row items-center justify-center overflow-hidden rounded-md border border-slate-400/50 text-base font-semibold whitespace-nowrap text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
+        class="flex h-[30px] cursor-pointer flex-row items-center justify-center rounded-md border border-slate-400/50 text-base font-semibold whitespace-nowrap text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
         @focus="onMenuEnter"
       >
-        <div class="relative flex flex-row items-center gap-1.5 whitespace-nowrap pl-2.5 pr-3 pt-px">
+        <div class="relative flex flex-row items-center whitespace-nowrap pl-2.5 pr-3 pt-px">
           <CheckBadgeIcon v-if="!isUnlockTrack" class="relative top-px h-[17px] w-[17px]" aria-hidden="true" />
-          <span>{{ isUnlockTrack ? 'Treasury' : 'Operator' }} Certification</span>
-          <span class="font-mono">({{ completedStepCount }}/{{ currentStepIds.length }})</span>
+          <CertificationIcon v-else class="relative w-[24px] top-1.5 -left-px pointer-events-none" />
+          <span class="ml-0.5">{{ isUnlockTrack ? 'Treasury' : 'Operator' }} Certification</span>
+          <span class="font-mono ml-1">({{ completedStepCount }}/{{ currentStepIds.length }})</span>
         </div>
       </NavigationMenuTrigger>
 
@@ -263,6 +264,7 @@ import {
   useCertificationController,
 } from '../stores/certificationController.ts';
 import DiamondIcon from '../assets/diamond.svg';
+import CertificationIcon from '../assets/certification.svg';
 
 const config = getConfig();
 const controller = useCertificationController();

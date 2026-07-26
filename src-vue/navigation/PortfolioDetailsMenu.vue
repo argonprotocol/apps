@@ -18,14 +18,14 @@
       </NavigationMenuTrigger>
 
       <NavigationMenuContent class="absolute top-0 left-0 w-full data-[motion=from-start]:animate-enterFromLeft data-[motion=from-end]:animate-enterFromRight data-[motion=to-start]:animate-exitToLeft data-[motion=to-end]:animate-exitToRight sm:w-auto">
-        <ul class="bg-argon-menu-bg w-96 rounded p-1 text-sm text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-          <li v-if="aggregate.readiness !== 'ready'" class="flex items-center justify-between gap-6 px-3 py-2.5">
-            <div v-if="aggregate.isStale" class="text-xs font-normal text-slate-500">Updating</div>
-            <div v-else-if="aggregate.readiness === 'loading'" class="text-xs font-normal text-slate-500">Loading</div>
-            <div v-else-if="aggregate.readiness === 'partial'" class="text-xs font-normal text-slate-500">
+        <ul class="bg-argon-menu-bg w-96 rounded p-1 text-md text-gray-900 shadow-lg ring-1 ring-gray-900/20">
+          <li v-if="aggregate.readiness !== 'ready'" class="flex text-sm items-center justify-between gap-6 px-3 py-2.5">
+            <div v-if="aggregate.isStale" class="font-normal text-slate-500">Updating</div>
+            <div v-else-if="aggregate.readiness === 'loading'" class="font-normal text-slate-500">Loading</div>
+            <div v-else-if="aggregate.readiness === 'partial'" class="font-normal text-slate-500">
               Some values unavailable
             </div>
-            <div v-else-if="aggregate.readiness === 'error'" class="text-xs font-normal text-slate-500">Unavailable</div>
+            <div v-else-if="aggregate.readiness === 'error'" class="font-normal text-slate-500">Unavailable</div>
           </li>
 
           <li v-if="aggregate.readiness !== 'ready'" divider class="my-1 h-px w-full bg-slate-400/30" />
@@ -61,11 +61,11 @@
                     </div>
                     <div
                       v-if="group.state !== 'ready' && group.state !== 'stale'"
-                      class="text-xs font-normal text-slate-500 capitalize"
+                      class="text-sm font-normal text-slate-500 capitalize"
                     >
                       {{ group.state }}
                     </div>
-                    <div v-else-if="group.isStale" class="text-xs font-normal text-slate-500">Stale</div>
+                    <div v-else-if="group.isStale" class="text-sm font-normal text-slate-500">Stale</div>
                   </div>
                 </div>
                 <div class="font-mono font-semibold text-slate-700">
@@ -73,7 +73,7 @@
                 </div>
               </div>
               <div v-if="ethereumWalletsAreExpanded" class="mt-1 ml-2 border-l border-slate-300/70 pl-2">
-                <div v-if="ethereumWalletRows.length === 0" class="py-1 text-xs font-normal text-slate-500">
+                <div v-if="ethereumWalletRows.length === 0" class="py-1 text-sm font-normal text-slate-500">
                   No Ethereum wallets connected
                 </div>
                 <div
@@ -105,11 +105,11 @@
                   </div>
                   <div
                     v-if="group.state !== 'ready' && group.state !== 'stale'"
-                    class="text-xs font-normal text-slate-500 capitalize"
+                    class="text-sm font-normal text-slate-500 capitalize"
                   >
                     {{ group.state }}
                   </div>
-                  <div v-else-if="group.isStale" class="text-xs font-normal text-slate-500">Stale</div>
+                  <div v-else-if="group.isStale" class="text-sm font-normal text-slate-500">Stale</div>
                 </div>
                 <div class="font-mono font-semibold text-slate-700">
                   {{ group.state === 'ready' || (group.state === 'stale' && group.positions.length) ? `${currency.symbol}${formatValue(group.currentValue)}` : '--' }}
@@ -150,11 +150,11 @@
                     </div>
                     <div
                       v-if="group.state !== 'ready' && group.state !== 'stale'"
-                      class="text-xs font-normal text-slate-500 capitalize"
+                      class="text-sm font-normal text-slate-500 capitalize"
                     >
                       {{ group.state }}
                     </div>
-                    <div v-else-if="group.isStale" class="text-xs font-normal text-slate-500">Stale</div>
+                    <div v-else-if="group.isStale" class="text-sm font-normal text-slate-500">Stale</div>
                   </div>
                   <div class="font-mono font-semibold text-slate-700">
                     {{
@@ -166,7 +166,7 @@
                 </div>
                 <div
                   v-if="bond.expanded.value"
-                  class="mt-1 ml-2 border-l border-slate-300/70 py-1 pl-2 text-xs font-normal text-slate-500"
+                  class="mt-1 ml-2 border-l border-slate-300/70 py-1 pl-2 text-sm font-normal text-slate-500"
                 >
                   {{ bond.count }} {{ bond.count === 1 ? bond.singularLabel : bond.pluralLabel }}
                 </div>
@@ -189,11 +189,11 @@
                   </div>
                   <div
                     v-if="group.state !== 'ready' && group.state !== 'stale'"
-                    class="text-xs font-normal text-slate-500 capitalize"
+                    class="text-sm font-normal text-slate-500 capitalize"
                   >
                     {{ group.state }}
                   </div>
-                  <div v-else-if="group.isStale" class="text-xs font-normal text-slate-500">Stale</div>
+                  <div v-else-if="group.isStale" class="text-sm font-normal text-slate-500">Stale</div>
                 </div>
                 <div class="font-mono font-semibold text-slate-700">
                   {{ group.state === 'ready' || (group.state === 'stale' && group.positions.length) ? `${currency.symbol}${formatValue(group.currentValue)}` : '--' }}
@@ -217,10 +217,10 @@
             <div v-else class="flex items-start justify-between gap-6">
               <div>
               <div class="font-semibold text-slate-700">{{ financialMenuLabels[group.group] }}</div>
-              <div v-if="group.state !== 'ready' && group.state !== 'stale'" class="text-xs font-normal text-slate-500 capitalize">
+              <div v-if="group.state !== 'ready' && group.state !== 'stale'" class="text-sm font-normal text-slate-500 capitalize">
                 {{ group.state }}
               </div>
-              <div v-else-if="group.isStale" class="inline-flex items-center gap-1 text-xs font-normal text-slate-500">
+              <div v-else-if="group.isStale" class="inline-flex items-center gap-1 text-sm font-normal text-slate-500">
                 Stale
                 <Tooltip
                   as-child
@@ -231,7 +231,7 @@
                   </span>
                 </Tooltip>
               </div>
-              <div v-else-if="group.group === 'mining'" class="text-xs font-normal text-slate-500">
+              <div v-else-if="group.group === 'mining'" class="text-sm font-normal text-slate-500">
                 <div>
                   Seats {{ currency.symbol }}{{ formatValue(miningPositionBreakdown.seats) }} · Bids {{ currency.symbol
                   }}{{ formatValue(miningPositionBreakdown.bids) }}
@@ -241,7 +241,7 @@
                   {{ micronotToArgonotNm(miningPositionBreakdown.micronots).format('0,0.[00]') }} ARGNOT
                 </div>
               </div>
-              <div v-else-if="group.group === 'vaulting'" class="text-xs font-normal text-slate-500">
+              <div v-else-if="group.group === 'vaulting'" class="text-sm font-normal text-slate-500">
                 <div>
                   {{ microgonToArgonNm(vaultPositionBreakdown.securitization).format('0,0.[00]') }} ARGN securitized
                 </div>
@@ -249,7 +249,7 @@
                   {{ micronotToArgonotNm(vaultPositionBreakdown.committedMicronots).format('0,0.[00]') }} ARGNOT staked
                 </div>
               </div>
-              <div v-else-if="group.grossLiabilities" class="text-xs font-normal text-slate-500">
+              <div v-else-if="group.grossLiabilities" class="text-sm font-normal text-slate-500">
                 Assets {{ currency.symbol }}{{ formatValue(group.grossAssets) }} · Liabilities {{ currency.symbol
                 }}{{ formatValue(group.grossLiabilities) }}
               </div>

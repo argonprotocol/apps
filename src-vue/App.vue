@@ -27,7 +27,7 @@
           <ArgonBonds v-else-if="controller.selectedTab === TopTab.ArgonBonds" />
           <ArgonotStakes v-else-if="controller.selectedTab === TopTab.ArgonotStaking" />
           <BitcoinLocks v-else-if="controller.selectedTab === TopTab.BitcoinLocks" />
-          <BitcoinLoans v-else-if="controller.selectedTab === TopTab.BitcoinLoans" />
+          <OldBitcoinLoans v-else-if="controller.selectedTab === TopTab.BitcoinLoans" />
           <StableSwaps v-else-if="controller.selectedTab === TopTab.StableSwaps" />
 
           <Mining v-else-if="controller.selectedTab === TopTab.Mining" />
@@ -60,6 +60,7 @@
       <SecuritySettingsOverlay />
       <ImportAccountOverlay />
       <BotEditOverlay />
+      <SponsorOverlay />
       <!-- <ProvisioningCompleteOverlay /> -->
       <AboutOverlay />
       <SoftwareInfoOverlay />
@@ -74,6 +75,8 @@
       </template>
       <UpgradeToOperationsOverlay />
       <UpgradeToTreasuryOverlay />
+      <GlobalBitcoinLockingOverlay />
+      <GlobalBuyBondsOverlay />
     </template>
     <AppUpdatesOverlay />
   </div>
@@ -130,7 +133,7 @@ import ArgonBonds from './screens/ArgonBonds.vue';
 import BitcoinLocks from './screens/BitcoinLocks.vue';
 import LeftBar from './navigation/LeftBar.vue';
 import StableSwaps from './screens/StableSwaps.vue';
-import BitcoinLoans from './screens/BitcoinLoans.vue';
+import OldBitcoinLoans from './screens/OldBitcoinLoans.vue';
 import Home from './screens/Home.vue';
 import WelcomeToTreasuryOverlay from './overlays/WelcomeToTreasuryOverlay.vue';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
@@ -138,6 +141,9 @@ import UpgradeToOperationsOverlay from './overlays/UpgradeToOperationsOverlay.vu
 import UpgradeToTreasuryOverlay from './overlays/UpgradeToTreasuryOverlay.vue';
 import Onboarding from './screens/Onboarding.vue';
 import ArgonotStakes from './screens/ArgonotStakes.vue';
+import GlobalBitcoinLockingOverlay from './overlays/GlobalBitcoinLockingOverlay.vue';
+import GlobalBuyBondsOverlay from './overlays/GlobalBuyBondsOverlay.vue';
+import SponsorOverlay from './overlays/SponsorOverlay.vue';
 
 const controller = useCertificationController();
 const config = getConfig();
