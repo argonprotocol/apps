@@ -1,5 +1,5 @@
 <template>
-  <div DashBox data-testid="ArgonBondsScreen" class="flex h-full min-h-0 grow flex-col">
+  <div DashBox data-testid="ArgonotStakesScreen" class="flex h-full min-h-0 grow flex-col">
     <div v-if="!isLoaded" class="flex grow items-center justify-center text-slate-500">Loading…</div>
 
     <div v-else-if="!stakeLots.length" class="flex grow flex-col">
@@ -11,7 +11,7 @@
           <p
             class="w-0 min-w-full border-y border-slate-400/50 py-4 text-justify text-[17px]/7 font-light whitespace-normal"
           >
-            Argonot Staking give you direct exposure to the profit returns of the growth of Argon Mining Auction pools.
+            Argonot Staking gives you direct exposure to the profit returns of the growth of Argon Mining Auction pools.
             These stakes are backed by on-chain mechanics that make it impossible for a stake to default. This means
             your principal is always protected. The only question becomes: how much will your stake earn?
           </p>

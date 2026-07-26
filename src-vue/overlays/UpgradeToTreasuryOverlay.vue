@@ -55,12 +55,12 @@
           class="mt-4 rounded border border-slate-600/10 px-4 py-2"
           :class="showingExtraDetails ? '' : 'hover:bg-argon-100/10'"
         >
-          <div @click="showingExtraDetails = !showingExtraDetails" class="flex cursor-pointer flex-row gap-x-1.5">
+          <button @click="showingExtraDetails = !showingExtraDetails" class="flex cursor-pointer flex-row gap-x-1.5">
             <InfoIcon class="text-argon-600 w-4" />
             <div class="text-argon-600 grow">How are these rates possible?</div>
             <MinusIcon v-if="showingExtraDetails" class="w-4 cursor-pointer text-slate-900/60" />
             <PlusIcon v-else class="w-4 text-slate-900/60" />
-          </div>
+          </button>
           <div v-if="showingExtraDetails" class="text-md mt-2 flex flex-col gap-y-2">
             <p>
               First off, these rates float. The numbers shown above are simply what the network is paying right now. The
@@ -87,7 +87,7 @@
             </p>
             <p>
               <strong>Stable Swaps</strong>
-              provide short-term liquidity for whenever Argon diviates from its peg.
+              provide short-term liquidity for whenever Argon deviates from its peg.
             </p>
           </div>
         </div>

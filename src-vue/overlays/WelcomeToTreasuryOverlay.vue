@@ -51,7 +51,6 @@ const config = getConfig();
 
 const isTreasuryApp = config.hasExtensionTreasury && !config.hasExtensionOperations;
 const isOpen = Vue.ref(isTreasuryApp && config.showWelcomeOverlay);
-console.log('IS TREASURY APP: ', isTreasuryApp, isOpen);
 const confettiContainer = Vue.ref<HTMLElement>();
 const confettiColors = ['#9e3fb2', '#b000c8', '#c47bce', '#d899df', '#d7a83e', '#8a909d'];
 const confettiPieces = Array.from(

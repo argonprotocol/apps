@@ -574,14 +574,6 @@ export const useFinancials = defineStore('financials', () => {
     if (!config.isLoaded) return 0;
 
     const source = getVaultingStatsSource();
-    console.log('CALCULATING savingsRestabilizationPower', {
-      argonBurnCapacity: source.argonBurnCapacity,
-      microgonsInCirculation: microgonsInCirculation.value,
-      power: calculateRestabilizationLeverage({
-        argonBurnCapacity: source.argonBurnCapacity,
-        microgonsInCirculation: microgonsInCirculation.value,
-      }),
-    });
     return calculateRestabilizationLeverage({
       argonBurnCapacity: source.argonBurnCapacity,
       microgonsInCirculation: microgonsInCirculation.value,

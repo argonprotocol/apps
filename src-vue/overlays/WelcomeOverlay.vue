@@ -30,7 +30,7 @@
               <ArgonotIcon class="h-5 opacity-70" />
             </div>
             <header class="font-bold text-argon-600 my-1.5">2. Deploy Capital</header>
-            <p>Access bonds, staking, bitcoins locks, and other opportunities.</p>
+            <p>Access bonds, staking, bitcoin locks, and other opportunities.</p>
           </li>
           <li class="w-1/3 bg-argon-100/30 rounded-md text-center py-3 px-2">
             <div class="flex flex-row gap-x-2 text-argon-400 justify-center">
@@ -45,12 +45,12 @@
         <p>
           <strong class="font-bold">Remember, you're in control</strong>. This is open-source, self-custody software, meaning you are responsible
           for your keys, backups, and transactions.
-          <a
+          <button
             @click="basicEmitter.emit('openSoftwareInfoOverlay')"
             class="cursor-pointer text-argon-600 hover:underline focus-visible:underline focus:outline-none"
           >
             Learn more about self-custody
-          </a>.
+          </button>.
         </p>
       </div>
 
@@ -100,12 +100,12 @@ import basicEmitter from '../emitters/basicEmitter.ts';
 import OverlayBase from './OverlayBase.vue';
 import { getConfig } from '../stores/config.ts';
 import ImportAccountFromMnemonic from './import-account/FromMnemonic.vue';
-import MiningIcon from '../assets/mining-oil.svg';
-import SwapIcon from '../assets/swap.svg';
-import VaultingIcon from '../assets/vault-small.svg';
-import BitcoinIcon from '../assets/wallets/bitcoin.svg';
-import ArgonIcon from '../assets/wallets/tokens/argon.svg';
-import ArgonotIcon from '../assets/wallets/tokens/argonot.svg';
+import MiningIcon from '../assets/mining-oil.svg?component';
+import SwapIcon from '../assets/swap.svg?component';
+import VaultingIcon from '../assets/vault-small.svg?component';
+import BitcoinIcon from '../assets/wallets/bitcoin.svg?component';
+import ArgonIcon from '../assets/wallets/tokens/argon.svg?component';
+import ArgonotIcon from '../assets/wallets/tokens/argonot.svg?component';
 
 const config = getConfig();
 

@@ -4,6 +4,9 @@ import { defineStore } from 'pinia';
 import { BitcoinPrices, calculateBitcoinRatchetReturn, GlobalVaultingStats } from '@argonprotocol/apps-core';
 import { getCurrency } from './currency.ts';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc.js';
+
+dayjs.extend(utc);
 
 export const useVaultingStats = defineStore('vaultingStats', () => {
   let hasLoaded = false;
