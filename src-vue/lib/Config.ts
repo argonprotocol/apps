@@ -138,6 +138,7 @@ export class Config implements IConfig {
       'serverDetails',
       'biddingRules',
       'vaultingRules',
+      'vaultingSetupStatus',
       'oldestFrameIdToSync',
       'defaultCurrencyKey',
       'requiresPassword',
@@ -284,11 +285,7 @@ export class Config implements IConfig {
         rawData[dbFields.miningSetupStatus] = JsonExt.stringify(loadedData.miningSetupStatus, 2);
       }
 
-      if (
-        (loadedData.vaultingSetupStatus === VaultingSetupStatus.Checklist ||
-          loadedData.vaultingSetupStatus === VaultingSetupStatus.Installing) &&
-        rawData[dbFields.vaultingRules]
-      ) {
+      if (loadedData.vaultingSetupStatus !== VaultingSetupStatus.Finished && rawData[dbFields.vaultingRules]) {
         const savedVault = await db.vaultsTable.get();
         if (savedVault && !savedVault.isClosed) {
           loadedData.vaultingSetupStatus = VaultingSetupStatus.Finished;

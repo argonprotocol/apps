@@ -13,6 +13,7 @@ import {
   VaultingSetupStatus,
 } from '../interfaces/IConfig.ts';
 import { JsonExt } from '@argonprotocol/apps-core';
+import type PluginSql from '@tauri-apps/plugin-sql';
 
 beforeAll(() => {
   WalletKeys.prototype.didWalletHavePreviousLife = vi.fn().mockResolvedValue(false);
@@ -216,8 +217,8 @@ it('keeps mining setup active while the final server install step is still runni
   expect(config.miningSetupStatus).toBe(MiningSetupStatus.Installing);
 });
 
-it.each([VaultingSetupStatus.Checklist, VaultingSetupStatus.Installing])(
-  'finishes interrupted vault setup from %s when vaulting rules and a vault were already saved',
+it.each([VaultingSetupStatus.None, VaultingSetupStatus.Checklist, VaultingSetupStatus.Installing])(
+  'recovers completed vault setup from %s when vaulting rules and an open vault were saved',
   async vaultingSetupStatus => {
     const dbPromise = createMockedDbPromise({
       vaultingSetupStatus: `"${vaultingSetupStatus}"`,
@@ -245,6 +246,20 @@ it.each([VaultingSetupStatus.Checklist, VaultingSetupStatus.Installing])(
     );
   },
 );
+
+it('preserves completed vaulting setup when recreating the local database', async () => {
+  const dbPromise = createMockedDbPromise({
+    vaultingSetupStatus: `"${VaultingSetupStatus.Finished}"`,
+  });
+  const { walletKeys } = createTestWallet('//Alice');
+  instanceChecks.delete(Config.prototype.constructor);
+  const config = new Config(dbPromise, walletKeys);
+  await config.load();
+
+  await config.restoreToConnection({} as PluginSql);
+
+  expect(config.vaultingSetupStatus).toBe(VaultingSetupStatus.Finished);
+});
 
 it('keeps interrupted setup active without durable evidence that creation finished', async () => {
   const biddingRules = Config.getDefault('biddingRules') as IConfig['biddingRules'];
