@@ -548,6 +548,13 @@ export class Vaults {
     if (statsFromFile?.formatVersion === VAULT_STATS_FORMAT_VERSION) {
       return statsFromFile;
     }
+    if (statsFromFile?.formatVersion === 1) {
+      return {
+        ...statsFromFile,
+        formatVersion: VAULT_STATS_FORMAT_VERSION,
+        argonotStakingByFrame: [],
+      };
+    }
 
     const { synchedToFrame, vaultsById } =
       {

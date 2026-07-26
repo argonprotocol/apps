@@ -38,7 +38,7 @@ describe('Vaults load retry', () => {
     expect(vaults.stats?.synchedToFrame).toBe(0);
   });
 
-  it('replaces an old local cache with the published stats version', async () => {
+  it('migrates a v1 local cache and preserves locally collected vault history', async () => {
     const miningFrames = {
       load: vi.fn().mockResolvedValue(undefined),
     };
@@ -51,12 +51,15 @@ describe('Vaults load retry', () => {
     };
     const mainchainClients = { get: vi.fn().mockResolvedValue(client) };
     const cachedStats = createStats([createFrame({ frameId: 20 })]);
+    cachedStats.formatVersion = 1;
     const vaults = new CachedVaults(cachedStats, miningFrames, mainchainClients);
 
     await vaults.load();
 
     expect(vaults.stats).not.toBe(cachedStats);
     expect(vaults.stats?.formatVersion).toBe(VAULT_STATS_FORMAT_VERSION);
+    expect(vaults.stats?.vaultsById).toBe(cachedStats.vaultsById);
+    expect(vaults.stats?.argonotStakingByFrame).toEqual([]);
   });
 });
 

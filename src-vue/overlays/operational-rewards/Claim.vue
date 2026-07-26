@@ -97,7 +97,7 @@
         transaction.
       </p>
       <p v-else class="mx-auto mt-3 max-w-xl text-center text-sm leading-6 text-slate-500">
-        Your claim finalized. The claimed rewards should now be available in your Internal App Wallet.
+        Your claim is finalized. The claimed rewards should now be available in your Internal App Wallet.
       </p>
 
       <div class="text-argon-700 mt-8 text-center text-4xl font-bold">{{ numeral(progressPct).format('0.00') }}%</div>
