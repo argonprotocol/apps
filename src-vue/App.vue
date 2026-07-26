@@ -66,7 +66,7 @@
       <OperationalProfileOverlay />
       <JurisdictionOverlay />
       <ServerOverlay />
-      <TroubleshootingOverlay />
+      <TroubleshootingToolsOverlayOverlay />
       <WelcomeTour v-if="tour.currentStep" />
       <template v-else-if="config.showWelcomeOverlay">
         <WelcomeOverlay />
@@ -103,7 +103,7 @@ import { waitForLoad } from '@argonprotocol/mainchain';
 import AboutOverlay from './overlays/AboutOverlay.vue';
 import SoftwareInfoOverlay from './overlays/SoftwareInfoOverlay.vue';
 import JurisdictionOverlay from './overlays/JurisdictionOverlay.vue';
-import TroubleshootingOverlay from './overlays/Troubleshooting.vue';
+import TroubleshootingToolsOverlayOverlay from './overlays/TroubleshootingToolsOverlay.vue';
 import BootingOverlay from './overlays/BootingOverlay.vue';
 import WelcomeOverlay from './overlays/WelcomeOverlay.vue';
 import AppUpdatesOverlay from './overlays/AppUpdatesOverlay.vue';

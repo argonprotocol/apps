@@ -203,31 +203,31 @@ export async function createMenu() {
     text: 'Troubleshooting Tools',
     items: [
       {
-        id: 'ssh',
-        text: 'Connect to Mining Machine',
-        enabled: config.isLoaded && !!config.serverDetails.ipAddress && !!config.serverDetails.sshUser,
-        action: () => basicEmitter.emit('openSecuritySettingsOverlay', { screen: 'ssh' }),
-      },
-      {
-        id: 'missing-data-scanner',
-        text: 'Missing Data Scanner',
-        action: () => basicEmitter.emit('openTroubleshootingOverlay', { screen: 'missing-data-scanner' }),
-      },
-      {
-        id: 'debugging-package',
-        text: 'Debugging Package',
-        action: () => basicEmitter.emit('openTroubleshootingOverlay', { screen: 'debug-package' }),
-      },
-      {
         id: 'data-and-logs-dir',
-        text: 'Data and Logs Dir',
+        text: 'View Data and Logs Dir',
         action: () => basicEmitter.emit('openTroubleshootingOverlay', { screen: 'data-and-logs-dir' }),
       },
       {
+        id: 'debugging-package',
+        text: 'Download Debugging Package',
+        action: () => basicEmitter.emit('openTroubleshootingOverlay', { screen: 'debug-package' }),
+      },
+      {
+        id: 'missing-data-scanner',
+        text: 'Run Missing Data Scanner',
+        action: () => basicEmitter.emit('openTroubleshootingOverlay', { screen: 'missing-data-scanner' }),
+      },
+      {
         id: 'server-diagnostics',
-        text: 'Server Diagnostics',
+        text: 'Run Server Diagnostics',
         enabled: config.isLoaded && config.isServerAdded,
         action: () => basicEmitter.emit('openTroubleshootingOverlay', { screen: 'server-diagnostics' }),
+      },
+      {
+        id: 'ssh',
+        text: 'Open SSH to Mining Machine',
+        enabled: config.isLoaded && !!config.serverDetails.ipAddress && !!config.serverDetails.sshUser,
+        action: () => basicEmitter.emit('openTroubleshootingOverlay', { screen: 'ssh' }),
       },
       await PredefinedMenuItem.new({ item: 'Separator' }),
       {

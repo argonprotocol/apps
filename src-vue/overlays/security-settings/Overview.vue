@@ -17,14 +17,6 @@
     </li>
     <li class="h-[1px] border-t border-slate-300 border-dashed my-4" />
     <li
-      @click="goTo('ssh')"
-      class="group flex flex-row items-center cursor-pointer hover:text-argon-600 hover:bg-gradient-to-r hover:from-transparent hover:to-argon-menu-hover/70 rounded-md py-4"
-    >
-      <TerminalIcon class="w-5 h-5 mr-2 opacity-70 group-hover:text-argon-600" />
-      Connect to Mining Machine
-    </li>
-    <li class="h-[1px] border-t border-slate-300 border-dashed my-4" />
-    <li
       @click="goTo('encrypt')"
       class="group flex flex-row items-center cursor-pointer hover:text-argon-600 hover:bg-gradient-to-r hover:from-transparent hover:to-argon-menu-hover/70 rounded-md py-4"
     >
@@ -47,9 +39,7 @@
 <script setup lang="ts">
 import EncryptionFileIcon from '../../assets/encryption-file.svg?component';
 import PasswordIcon from '../../assets/password.svg?component';
-import TerminalIcon from '../../assets/terminal.svg?component';
 import ExportIcon from '../../assets/export.svg?component';
-import { TopTab } from '../../interfaces/IConfig.ts';
 import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 
@@ -58,7 +48,7 @@ const props = defineProps<{ hasDefaultEthereumWallet: boolean }>();
 
 const emit = defineEmits(['close', 'goTo']);
 
-function goTo(screen: 'encrypt' | 'mnemonics' | 'ssh' | 'ethereum-export') {
+function goTo(screen: 'encrypt' | 'mnemonics' | 'ethereum-export') {
   emit('goTo', screen);
 }
 </script>

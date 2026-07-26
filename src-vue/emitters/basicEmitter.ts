@@ -26,7 +26,7 @@ type IBasicEmitter = {
   };
   openBotEditOverlay: void;
   openServerRemoveOverlay: void;
-  openSecuritySettingsOverlay: { screen: 'overview' | 'mnemonics' | 'ssh' | 'encrypt' | 'ethereum-export' } | undefined;
+  openSecuritySettingsOverlay: { screen: 'overview' | 'mnemonics' | 'encrypt' | 'ethereum-export' } | undefined;
   openProvisioningCompleteOverlay: void;
   openServerConnectPanel: void;
   closeAllOverlays: void;
@@ -40,6 +40,7 @@ type IBasicEmitter = {
       | 'debug-package'
       | 'options-for-restart'
       | 'overview'
+      | 'ssh'
       | 'missing-data-scanner';
   };
   openCheckForAppUpdatesOverlay: void;

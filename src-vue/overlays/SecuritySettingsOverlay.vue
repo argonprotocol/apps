@@ -15,7 +15,6 @@
         @goTo="goTo"
       />
       <SecuritySettingsMnemonics v-if="currentScreen === 'mnemonics'" @close="closeOverlay" @goTo="goTo" />
-      <SecuritySettingsSSHAccess v-if="currentScreen === 'ssh'" @close="closeOverlay" @goTo="goTo" />
       <SecuritySettingsEncrypt v-if="currentScreen === 'encrypt'" @close="closeOverlay" @goTo="goTo" />
       <SecuritySettingsExportEthereumPrivateKey
         v-if="currentScreen === 'ethereum-export' && defaultEthereumWallet"
@@ -34,7 +33,7 @@ import SecuritySettingsOverview from './security-settings/Overview.vue';
 import SecuritySettingsEncrypt from './security-settings/Encrypt.vue';
 import SecuritySettingsExportEthereumPrivateKey from './security-settings/ExportEthereumPrivateKey.vue';
 import SecuritySettingsMnemonics from './security-settings/Mnemonics.vue';
-import SecuritySettingsSSHAccess from './security-settings/SSHAccess.vue';
+import SecuritySettingsSSHAccess from './troubleshooting/SSHAccess.vue';
 import OverlayBase from './OverlayBase.vue';
 import { useBasics } from '../stores/basics.ts';
 import { useWallets } from '../stores/wallets.ts';
@@ -43,7 +42,7 @@ const basics = useBasics();
 const wallets = useWallets();
 
 const isOpen = Vue.ref(false);
-const currentScreen = Vue.ref<'overview' | 'mnemonics' | 'ssh' | 'encrypt' | 'ethereum-export'>('overview');
+const currentScreen = Vue.ref<'overview' | 'mnemonics' | 'encrypt' | 'ethereum-export'>('overview');
 const overlayWidth = Vue.ref(640);
 const defaultEthereumWallet = Vue.computed(() =>
   wallets.walletRecords.find(record => record.role === 'defaultEthereum'),
@@ -54,8 +53,6 @@ const title = Vue.computed(() => {
     return 'Security and Backup';
   } else if (currentScreen.value === 'encrypt') {
     return 'Encryption Passphrase';
-  } else if (currentScreen.value === 'ssh') {
-    return 'Connect to Mining Machine';
   } else if (currentScreen.value === 'mnemonics') {
     return 'Account Recovery Mnemonic';
   } else if (currentScreen.value === 'ethereum-export') {
@@ -89,7 +86,7 @@ function goBack() {
   currentScreen.value = 'overview';
 }
 
-function goTo(screen: 'overview' | 'encrypt' | 'mnemonics' | 'ssh' | 'ethereum-export') {
+function goTo(screen: 'overview' | 'encrypt' | 'mnemonics' | 'ethereum-export') {
   if (screen === 'ethereum-export' && !defaultEthereumWallet.value) return;
 
   currentScreen.value = screen;
@@ -99,7 +96,7 @@ function goTo(screen: 'overview' | 'encrypt' | 'mnemonics' | 'ssh' | 'ethereum-e
     overlayWidth.value = 640;
   } else if (screen === 'mnemonics') {
     overlayWidth.value = 740;
-  } else if (screen === 'ssh' || screen === 'ethereum-export') {
+  } else if (screen === 'ethereum-export') {
     overlayWidth.value = 740;
   }
 }

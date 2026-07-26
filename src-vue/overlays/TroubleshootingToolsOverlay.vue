@@ -25,6 +25,9 @@
       <DialogTitle v-else-if="activeScreen === 'debug-package'" class="grow text-2xl font-bold">
         Debugging Package
       </DialogTitle>
+      <DialogTitle v-else-if="activeScreen === 'ssh'" class="grow text-2xl font-bold">
+        Open SSH to Mining Machine
+      </DialogTitle>
       <DialogTitle v-else-if="activeScreen === 'options-for-restart'" class="grow text-2xl font-bold">
         Advanced Restart
       </DialogTitle>
@@ -32,37 +35,38 @@
     <div v-if="activeScreen === 'overview'">
       <ul class="mt-3 flex flex-col px-3">
         <li
-          @click="goTo('missing-data-scanner')"
-          class="group hover:text-argon-600 hover:to-argon-menu-hover/70 flex cursor-pointer flex-row items-center rounded-md py-4 hover:bg-gradient-to-r hover:from-transparent">
-          <ScannerIcon class="group-hover:text-argon-600 mr-2 h-5 w-5 text-slate-600 opacity-70" />
-          Missing Data Scanner
-        </li>
-        <li
           @click="goTo('data-and-logs-dir')"
           class="group hover:text-argon-600 hover:to-argon-menu-hover/70 flex cursor-pointer flex-row items-center rounded-md py-4 hover:bg-gradient-to-r hover:from-transparent">
           <LogsIcon class="group-hover:text-argon-600 mr-2 h-5 w-5 opacity-70" />
-          Data and Logs Dir
+          View Data and Logs Dir
         </li>
         <li
           @click="goTo('debug-package')"
           class="group hover:text-argon-600 hover:to-argon-menu-hover/70 flex cursor-pointer flex-row items-center rounded-md py-4 hover:bg-gradient-to-r hover:from-transparent">
           <DebugIcon class="group-hover:text-argon-600 mr-2 h-5 w-5 opacity-70" />
-          Debugging Package
+          Download Debugging Package
+        </li>
+        <li
+          @click="goTo('missing-data-scanner')"
+          class="group hover:text-argon-600 hover:to-argon-menu-hover/70 flex cursor-pointer flex-row items-center rounded-md py-4 hover:bg-gradient-to-r hover:from-transparent">
+          <ScannerIcon class="group-hover:text-argon-600 mr-2 h-5 w-5 text-slate-600 opacity-70" />
+          Run Missing Data Scanner
         </li>
         <li
           @click="goTo('server-diagnostics')"
           class="group hover:text-argon-600 hover:to-argon-menu-hover/70 flex cursor-pointer flex-row items-center rounded-md py-4 hover:bg-gradient-to-r hover:from-transparent"
-          v-if="config.isServerAdded"
+          :class="config.isServerAdded ? '' : 'opacity-50 pointer-events-none'"
         >
           <DiagnosticIcon class="group-hover:text-argon-600 mr-2 h-5 w-5 opacity-70" />
-          Server Diagnostics
+          Run Server Diagnostics
         </li>
         <li
-          @click="openSshAccess"
+          @click="goTo('ssh')"
           class="group hover:text-argon-600 hover:to-argon-menu-hover/70 flex cursor-pointer flex-row items-center rounded-md py-4 hover:bg-gradient-to-r hover:from-transparent"
-          v-if="config.isServerAdded">
+          :class="config.isServerAdded ? '' : 'opacity-50 pointer-events-none'"
+        >
           <CommandLineIcon class="group-hover:text-argon-600 mr-2 h-5 w-5 opacity-70" />
-          Temporary SSH Access
+          Open SSH to Mining Machine
         </li>
         <li class="my-4 h-[1px] border-t border-dashed border-slate-300" />
         <li
@@ -76,6 +80,7 @@
     <ServerDiagnostics v-else-if="activeScreen === 'server-diagnostics'" />
     <DataAndLogFiles v-else-if="activeScreen === 'data-and-logs-dir'" />
     <DebugPackage v-else-if="activeScreen === 'debug-package'" />
+    <SSHAccess v-if="activeScreen === 'ssh'" />
     <MissingDataScanner v-else-if="activeScreen === 'missing-data-scanner'" />
     <AdvancedRestart v-else-if="activeScreen === 'options-for-restart'" />
   </OverlayBase>
@@ -98,6 +103,7 @@ import ScannerIcon from '../assets/scanner.svg?component';
 import OverlayBase from './OverlayBase.vue';
 import { getConfig } from '../stores/config.ts';
 import MissingDataScanner from './troubleshooting/MissingDataScanner.vue';
+import SSHAccess from './troubleshooting/SSHAccess.vue';
 
 const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
@@ -112,7 +118,8 @@ function goTo(
     | 'data-and-logs-dir'
     | 'debug-package'
     | 'options-for-restart'
-    | 'missing-data-scanner',
+    | 'missing-data-scanner'
+    | 'ssh',
 ) {
   activeScreen.value = screen;
 }
@@ -127,9 +134,5 @@ basicEmitter.on('openTroubleshootingOverlay', async (data: any) => {
 function closeOverlay() {
   isOpen.value = false;
   isLoaded.value = false;
-}
-
-function openSshAccess() {
-  basicEmitter.emit('openSecuritySettingsOverlay', { screen: 'ssh' });
 }
 </script>
