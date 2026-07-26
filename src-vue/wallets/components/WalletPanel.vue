@@ -34,11 +34,13 @@
           :moveDirection="props.transferDirection"
           :moveFrom="props.moveFrom"
           :moveTo="props.moveTo"
+          :externalAddress="props.externalAddress"
           :networkName="props.transferDirection ? 'Ethereum' : ''"
           :feeTokenSymbol="props.transferDirection ? 'ETH' : ''"
           :indentLeft="props.indentTokensLeft"
           :indentRight="props.indentTokensRight"
           @openTransferOverlay="emit('openTransferOverlay', $event)"
+          @customTransferStarted="emit('customTransferStarted')"
         />
       </div>
     </div>
@@ -78,6 +80,7 @@ const props = defineProps<{
   transferDirection?: 'transferToArgon' | 'transferOutOfArgon';
   moveFrom?: MoveFrom;
   moveTo?: MoveTo;
+  externalAddress?: string;
   indentTokensLeft?: boolean;
   indentTokensRight?: boolean;
   showGuidance?: boolean;
@@ -86,6 +89,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (event: 'openTransferOverlay', transfer: { moveToken: IEthereumMoveToken; availableAmount: bigint }): void;
+  (event: 'customTransferStarted'): void;
 }>();
 
 const financials = useFinancials();

@@ -28,7 +28,9 @@
           :moveFrom="moveFrom"
           :moveTo="moveTo"
           :moveToken="moveToken"
+          :externalAddress="externalAddress"
           @close="close"
+          @transactionPending="emit('transactionPending', $event)"
         />
         <PopoverArrow :width="26" :height="12" class="stroke-argon-600/15 -mt-px fill-white" />
       </PopoverContent>
@@ -50,6 +52,7 @@ const props = withDefaults(
     moveFrom?: MoveFrom;
     moveTo?: MoveTo;
     moveToken?: MoveToken;
+    externalAddress?: string;
     side?: 'top' | 'right' | 'bottom' | 'left';
   }>(),
   {
@@ -59,6 +62,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'updatedOpen', value: boolean): void;
+  (e: 'transactionPending', value: boolean): void;
 }>();
 
 const isOpen = Vue.ref(false);
