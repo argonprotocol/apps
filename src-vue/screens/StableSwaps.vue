@@ -116,7 +116,11 @@
             <div class="flex flex-row items-stretch gap-x-3">
               <button class="text-md text-argon-600 cursor-pointer" @click="stableSwaps.refresh()">Refresh List</button>
               <div class="w-px bg-slate-400/50" />
-              <a href="https://argon.network/" target="_blank" class="text-md text-argon-600 cursor-pointer">
+              <a
+                :href="`${NetworkConfig.websiteHost}/docs`"
+                target="_blank"
+                class="text-md text-argon-600 cursor-pointer"
+              >
                 View Docs
               </a>
             </div>
@@ -237,7 +241,7 @@ import ArgonIcon from '../assets/networks/argon.svg';
 import SwapIcon from '../assets/swap.svg';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { WalletType } from '../lib/Wallet.ts';
-import { bigIntAbs, ICurrencyKey, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { bigIntAbs, ICurrencyKey, NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { getConfig } from '../stores/config.ts';
 import { ArrowTopRightOnSquareIcon, CheckIcon } from '@heroicons/vue/24/outline';
 import Arrow from '../components/Arrow.vue';

@@ -18,7 +18,7 @@
         <p class="text-argon-text-primary leading-7 mt-6 mb-8">
           Setting up your mining operation only takes a few minutes. This page walks you through the entire process. We recommend
           completing each item in the order they're listed, but you're free to do as you please.
-          <a target="_blank" href="https://argon.network/docs/mining-operations">Learn more about mining</a>.
+          <a target="_blank" :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/mining-operations`">Learn more about mining</a>.
         </p>
 
         <div class="h-px w-full bg-[#CCCEDA]" />
@@ -225,6 +225,7 @@ import { MiningSetupStatus, TopTab } from '../../interfaces/IConfig.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 import { useBasics } from '../../stores/basics.ts';
 import { getMiningFundingState } from './miningFunding.ts';
+import { NetworkConfig } from '@argonprotocol/apps-core';
 
 dayjs.extend(utc);
 

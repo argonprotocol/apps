@@ -165,7 +165,7 @@ import CheckboxGray from '../../components/CheckboxGray.vue';
 import Checkbox from '../../components/Checkbox.vue';
 import { MiningSetupStatus, VaultingSetupStatus } from '../../interfaces/IConfig.ts';
 import { useWallets } from '../../stores/wallets.ts';
-import { bigIntMax } from '@argonprotocol/apps-core';
+import { bigIntMax, NetworkConfig } from '@argonprotocol/apps-core';
 import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import AlertCalloutButton from '../../components/AlertCalloutButton.vue';
 import { getBiddingCalculator } from '../../stores/mainchain.ts';
@@ -352,7 +352,7 @@ const baseMinimumMicrogonsNeeded = Vue.computed(() => {
 });
 
 async function openTransferGuide() {
-  await tauriOpen('https://argon.network/documentation/transfer-guide');
+  await tauriOpen(`${NetworkConfig.websiteHost}/docs/bridgeless-transfers/open-a-transfer-portal`);
 }
 
 function getNeededDisplayAmount(amountNeeded: bigint, walletAllocated: bigint, remainingNeeded: bigint) {

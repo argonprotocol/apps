@@ -98,9 +98,9 @@
       <p class="mt-1 mb-3 font-light opacity-80">
         You'll need to input your server's IP address and SSH user below. The default SSH user for Ubuntu servers is
         usually
-        <code>ubuntu</code>
+        <strong>ubuntu</strong>
         or
-        <code>root</code>
+        <strong>root</strong>
         .
       </p>
     </div>

@@ -52,7 +52,7 @@
     >
       <NavigationMenuList class="relative flex flex-row items-center space-x-2" @mouseenter="clearNavigationMenuClose">
         <div class="pointer-events-auto">
-          <CertificationMenu />
+          <CertificationMenu @close="closeNavigationMenu" />
         </div>
         <div
           v-if="config.isLoaded && config.hasExtensionOperations"
@@ -175,6 +175,11 @@ function clearNavigationMenuClose() {
     clearTimeout(navigationMenuCloseTimeoutId);
   }
   navigationMenuCloseTimeoutId = undefined;
+}
+
+function closeNavigationMenu() {
+  clearNavigationMenuClose();
+  navigationMenuValue.value = '';
 }
 
 function openCertificationMenu() {

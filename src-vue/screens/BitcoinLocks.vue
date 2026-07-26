@@ -134,7 +134,7 @@
                 />
               </span>
               <div class="w-px bg-slate-400/50" />
-              <a href="https://argon.network/" target="_blank" class="text-md text-argon-600 cursor-pointer">
+              <a :href="`${NetworkConfig.websiteHost}/`" target="_blank" class="text-md text-argon-600 cursor-pointer">
                 View Docs
               </a>
             </div>
@@ -208,7 +208,7 @@ import basicEmitter from '../emitters/basicEmitter.ts';
 import { WalletType } from '../lib/Wallet.ts';
 import BitcoinRatchetingOverlay from '../overlays/BitcoinRatchetingOverlay.vue';
 import FormattedMoney from '../components/FormattedMoney.vue';
-import { UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import type { IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
 import { useFinancials } from '../stores/financials.ts';
 import { getMyVault, getVaults } from '../stores/vaults.ts';

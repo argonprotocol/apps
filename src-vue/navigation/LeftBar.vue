@@ -85,7 +85,7 @@
                   controller.activeGuideId === OperationalStepId.AcquireArgonBonds &&
                   controller.selectedTab !== TopTab.ArgonBonds
                 "
-                guidance="Open Argon(ot) Bonds to continue this task."
+                guidance="Open Argon Bonds to continue this task."
                 class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
               />
             </article>
@@ -101,14 +101,14 @@
               </div>
               <div class="grow">Argonot Stakes</div>
               <div class="opacity-60">{{ currency.symbol }}{{ formatFinancialGroupValue('bonds') }}</div>
-              <ArrowCalloutButton
-                v-if="
-                  controller.activeGuideId === OperationalStepId.AcquireArgonBonds &&
-                  controller.selectedTab !== TopTab.ArgonotStaking
-                "
-                guidance="Open Argon(ot) Bonds to continue this task."
-                class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
-              />
+              <!--              <ArrowCalloutButton-->
+              <!--                v-if="-->
+              <!--                  controller.activeGuideId === OperationalStepId.AcquireArgonotStakes &&-->
+              <!--                  controller.selectedTab !== TopTab.ArgonotStaking-->
+              <!--                "-->
+              <!--                guidance="Open Argonot Stakes to continue this task."-->
+              <!--                class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"-->
+              <!--              />-->
             </article>
             <div Selector />
           </li>
@@ -335,7 +335,7 @@
         </div>
         <div class="text-argon-600 mt-2 flex flex-row items-center justify-center gap-x-2">
           <a
-            href="https://argon.network/docs/desktop-app/access-and-upgrades"
+            :href="`${NetworkConfig.websiteHost}/docs/desktop-app/access-codes`"
             target="_blank"
             class="cursor-pointer opacity-50 hover:opacity-100"
           >
@@ -364,7 +364,7 @@
         </div>
         <div class="text-argon-600 mt-2 flex flex-row items-center justify-center gap-x-2">
           <a
-            href="https://argon.network/docs/desktop-app/access-and-upgrades"
+            :href="`${NetworkConfig.websiteHost}/docs/desktop-app/access-codes`"
             target="_blank"
             class="cursor-pointer opacity-50 hover:opacity-100"
           >
@@ -379,11 +379,15 @@
       <div v-else class="relative flex grow flex-col items-center justify-center text-center text-slate-700/30">
         <div class="relative flex flex-row items-center text-center whitespace-nowrap">Explore</div>
         <div class="relative mt-px">
-          <a href="https://argon.network/docs" target="_blank" class="cursor-pointer opacity-50 hover:opacity-100">
+          <a
+            :href="`${NetworkConfig.websiteHost}/docs`"
+            target="_blank"
+            class="cursor-pointer opacity-50 hover:opacity-100"
+          >
             Docs
           </a>
           <span class="text-slate-600/40">and</span>
-          <a href="https://discord.gg/xDwwDgCYr9" target="_blank" class="cursor-pointer opacity-50 hover:opacity-100">
+          <a href="https://discord.gg/argonnetwork" target="_blank" class="cursor-pointer opacity-50 hover:opacity-100">
             Community
           </a>
         </div>
@@ -457,7 +461,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { MoveTo } from '@argonprotocol/apps-core';
+import { MoveTo, NetworkConfig } from '@argonprotocol/apps-core';
 import { MiningSetupStatus, TopTab, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 import {
   OperationalStepId,

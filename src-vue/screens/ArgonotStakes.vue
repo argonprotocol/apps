@@ -28,11 +28,11 @@
             >
               Buy Argonot Stakes
             </button>
-            <ArrowCalloutButton
-              v-if="controller.activeGuideId === OperationalStepId.AcquireArgonotStakes && canBuyWithArgnot"
-              guidance="Purchase the required Argonot Stakes here."
-              class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
-            />
+            <!--            <ArrowCalloutButton-->
+            <!--              v-if="controller.activeGuideId === OperationalStepId.AcquireArgonotStakes && canBuyWithArgnot"-->
+            <!--              guidance="Purchase the required Argonot Stakes here."-->
+            <!--              class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"-->
+            <!--            />-->
           </span>
           <div class="text-argon-600 relative mt-14 text-center text-xl leading-8 font-bold">
             <CurvedArrowRadialGradient />
@@ -118,14 +118,14 @@
                 >
                   Buy Argonot Stakes
                 </button>
-                <ArrowCalloutButton
-                  v-if="controller.activeGuideId === OperationalStepId.AcquireArgonotStakes"
-                  guidance="Purchase the required Argonot Stakes here."
-                  class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
-                />
+                <!--                <ArrowCalloutButton-->
+                <!--                  v-if="controller.activeGuideId === OperationalStepId.AcquireArgonotStakes"-->
+                <!--                  guidance="Purchase the required Argonot Stakes here."-->
+                <!--                  class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"-->
+                <!--                />-->
               </span>
               <div class="w-px bg-slate-400/50" />
-              <a href="https://argon.network/" target="_blank" class="text-md text-argon-600 cursor-pointer">
+              <a :href="`${NetworkConfig.websiteHost}/`" target="_blank" class="text-md text-argon-600 cursor-pointer">
                 View Docs
               </a>
             </div>
@@ -176,7 +176,7 @@ import { getVaults } from '../stores/vaults.ts';
 import { getWalletKeys, useWallets } from '../stores/wallets.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { getConfig } from '../stores/config.ts';
-import type { BondLot } from '@argonprotocol/apps-core';
+import { BondLot, NetworkConfig } from '@argonprotocol/apps-core';
 import { getArgonBonds } from '../stores/argonBonds.ts';
 import BuyBondsOverlay from '../overlays/BuyBondsOverlay.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';

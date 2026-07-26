@@ -80,6 +80,10 @@ export class NetworkConfig {
     return this.runtimeOverrides[this.networkName] ?? (config as INetworkConfig);
   }
 
+  public static get websiteHost(): string {
+    return this.get().websiteHost;
+  }
+
   public static async updateConfig(client: ArgonClient): Promise<void> {
     if (!this.networkName) {
       throw new Error(`Network name must be defined prior to loading configs`);

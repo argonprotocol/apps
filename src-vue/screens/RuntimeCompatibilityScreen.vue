@@ -92,7 +92,7 @@
           <button
             v-if="isNewDownloadRequired"
             class="bg-argon-button hover:bg-argon-button-hover border-argon-button-hover cursor-pointer rounded-full border px-6 py-3 text-sm font-semibold text-white transition"
-            @click="void tauriOpenUrl('https://argon.network/desktop-app')"
+            @click="void tauriOpenUrl(`${NetworkConfig.websiteHost}/desktop-app`)"
           >
             <span class="inline-flex items-center gap-2">
               Download Argon Desktop
@@ -136,6 +136,7 @@ import { APP_NAME } from '../lib/Env.ts';
 import { useAppUpdater } from '../stores/appUpdater.ts';
 import { useRuntimeCompatibility } from '../stores/runtimeCompatibility.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
+import { NetworkConfig } from '@argonprotocol/apps-core';
 
 const updater = useAppUpdater();
 const runtimeCompatibility = useRuntimeCompatibility();

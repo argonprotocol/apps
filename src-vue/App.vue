@@ -55,7 +55,7 @@
       <GatewayRelayOverlay />
       <ServerSettingsOverlay />
       <ServerRemoveOverlay />
-      <OperationalOverlay />
+      <CertificationOverlay />
       <OperationalRewardsOverlay />
       <SecuritySettingsOverlay />
       <ImportAccountOverlay />
@@ -117,7 +117,7 @@ import MintingAuthorityRequestOverlay from './overlays/MintingAuthorityRequestOv
 import GatewayRelayOverlay from './overlays/GatewayRelayOverlay.vue';
 import ServerSettingsOverlay from './overlays/ServerSettingsOverlay.vue';
 import ServerOverlay from './overlays/ServerOverlay.vue';
-import OperationalOverlay from './overlays/OperationalOverlay.vue';
+import CertificationOverlay from './overlays/CertificationOverlay.vue';
 import OperationalRewardsOverlay from './overlays/OperationalRewardsOverlay.vue';
 import { CloseRequestedEvent, getCurrentWindow } from '@tauri-apps/api/window';
 import OperationalProfileOverlay from './overlays/OperationalProfileOverlay.vue';

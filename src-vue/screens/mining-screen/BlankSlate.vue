@@ -19,7 +19,7 @@
         <div class="flex flex-row items-center text-2xl mt-10 w-full justify-center gap-x-6">
           <a
             target="_blank"
-            href="https://argon.network/docs/mining-operations"
+            :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/mining-operations`"
             class="flex flex-row items-center cursor-pointer bg-white/10 hover:bg-argon-600/10 border border-argon-800/30 inner-button-shadow font-bold! !text-argon-600 visited:!text-argon-600 hover:!text-argon-600 no-underline hover:no-underline [text-shadow:1px_1px_0_rgba(255,255,255,0.5)] px-12 py-2 rounded-md"
           >
             Learn How Mining Works
@@ -61,6 +61,7 @@ import BlankSlateBlocks from '../network-screen/BlankSlateBlocks.vue';
 import { MiningSetupStatus } from '../../interfaces/IConfig.ts';
 import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
+import { NetworkConfig } from '@argonprotocol/apps-core';
 
 const controller = useCertificationController();
 const miningStats = useMiningStats();

@@ -4,7 +4,12 @@
     <template #title>
       <div class="flex flex-row grow items-center gap-x-3 pr-4">
         <DialogTitle>
-          {{ currentStepId ? formatStepTitle(currentStepId) : overlayTitle }}
+          <template v-if="currentStepId">
+            {{ formatStepTitle(currentStepId) }}
+          </template>
+          <template v-else>
+            {{ currentTrack === 'treasury' ? 'Treasury' : 'Operations' }} Certification
+          </template>
         </DialogTitle>
         <span
           v-if="currentStepId"
@@ -50,12 +55,12 @@
           >
             Requires: {{ controller.getCertificationBlocker(stepId)?.title }}
           </span>
-          <a :href="operationalSteps[stepId].documentationLink" target="_blank" class="px-3 text-right text-argon-600 font-light hover:bg-white hover:text-argon-700! rounded-full">Open Docs</a>
+<!--          <a :href="operationalSteps[stepId].documentationLink" target="_blank" class="px-3 text-right text-argon-600 font-light hover:bg-white hover:text-argon-700! rounded-full">Open Docs</a>-->
         </li>
       </ul>
       <div class="pt-4 pb-4 px-3 mx-3 border-t border-slate-500/30">
-        <a href="https://argon.network/docs/operator-certification" target="_blank" class="text-argon-600 hover:text-argon-700! font-light">
-          Learn more about the Argon's Operator Certification.
+        <a :href="`${NetworkConfig.websiteHost}/docs/${currentTrack === 'treasury' ? 'treasury' : 'operations'}-certification`" target="_blank" class="text-argon-600 hover:text-argon-700! font-light">
+          Learn more about {{ currentTrack === 'treasury' ? 'Treasury' : 'Operations' }} Certification.
         </a>
       </div>
     </div>
@@ -76,17 +81,17 @@
       </div>
       <component :is="operationalSteps[currentStepId].component" />
       <div class="flex flex-row items-center gap-x-3 whitespace-nowrap mt-3">
-        <button
-          @click="openDocumentationLink(operationalSteps[currentStepId].documentationLink)"
-          :class="[controller.activeGuideId === currentStepId ? 'grow' : 'w-1/2']"
-          class="text-argon-600! border border-argon-600 mt-5 inline-flex flex-row items-center justify-center rounded-lg px-8 py-2 font-bold ml-1 hover:bg-argon-300/10 cursor-pointer"
-        >
-          <ArrowTopRightOnSquareIcon class="mr-2 w-5" />
-          View Documentation
-        </button>
+<!--        <button-->
+<!--          @click="openDocumentationLink(operationalSteps[currentStepId].documentationLink)"-->
+<!--          :class="[controller.activeGuideId === currentStepId ? 'grow' : 'w-1/2']"-->
+<!--          class="text-argon-600! border border-argon-600 mt-5 inline-flex flex-row items-center justify-center rounded-lg px-8 py-2 font-bold ml-1 hover:bg-argon-300/10 cursor-pointer"-->
+<!--        >-->
+<!--          <ArrowTopRightOnSquareIcon class="mr-2 w-5" />-->
+<!--          View Documentation-->
+<!--        </button>-->
         <button
           v-if="controller.isCertificationStepComplete(currentStepId)"
-          class="w-1/2 border border-slate-300 bg-slate-100 mt-5 inline-flex flex-row items-center justify-center rounded-lg px-8 py-2 font-bold text-slate-500/40 ml-1 cursor-not-allowed"
+          class="w-full border border-slate-300 bg-slate-100 mt-5 inline-flex flex-row items-center justify-center rounded-lg px-8 py-2 font-bold text-slate-500/40 ml-1 cursor-not-allowed"
           disabled
         >
           <CheckCircleIcon class="size-5 mr-2 relative" />
@@ -103,7 +108,7 @@
           </button>
           <button
             v-else-if="controller.isCertificationStepUnderway(currentStepId)"
-            class="w-1/2 border border-argon-300 bg-argon-50 mt-5 inline-flex flex-row items-center justify-center rounded-lg px-8 py-2 font-bold text-argon-700 ml-1 cursor-not-allowed"
+            class="w-full border border-argon-300 bg-argon-50 mt-5 inline-flex flex-row items-center justify-center rounded-lg px-8 py-2 font-bold text-argon-700 ml-1 cursor-not-allowed"
             disabled
           >
             <CheckCircleIcon class="size-5 mr-2 relative" />
@@ -114,7 +119,7 @@
             @click="startTask()"
             :class="[currentBlockingStep ? 'cursor-not-allowed border-slate-300 bg-slate-100 text-slate-400!' : 'cursor-pointer border-argon-700 bg-argon-600 text-white! hover:bg-argon-700']"
             :disabled="!!currentBlockingStep"
-            class="mt-5 inline-flex w-1/2 flex-row items-center justify-center rounded-lg border px-8 py-2 font-bold ml-1"
+            class="mt-5 inline-flex w-full flex-row items-center justify-center rounded-lg border px-8 py-2 font-bold ml-1"
           >
             <template v-if="currentBlockingStep">Complete Required Step First</template>
             <template v-else>
@@ -146,6 +151,7 @@ import { useBasics } from '../stores/basics.ts';
 import { getConfig } from '../stores/config.ts';
 import { MiningSetupStatus, TopTab, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
+import { NetworkConfig } from '@argonprotocol/apps-core';
 
 const basics = useBasics();
 const config = getConfig();
@@ -160,16 +166,13 @@ const currentStepIds = Vue.computed(() => {
 const currentBlockingStep = Vue.computed(() => {
   return currentStepId.value ? controller.getCertificationBlocker(currentStepId.value) : null;
 });
-const overlayTitle = Vue.computed(() => {
-  return currentTrack.value === 'treasury' ? 'Treasury Certification' : 'Operations Certification';
-});
 const overlayDescription = Vue.computed(() => {
   if (currentTrack.value === 'treasury') {
-    return 'Complete the following treasury steps to unlock operations certification.';
+    return 'Complete the following steps to unlock the next level features of this app.';
   }
 
   const withUpstream = controller.chainProgress.hasUpstreamAccount ? ' (along with your upstream operator)' : '';
-  return `Complete the following operations steps, and you'll earn${withUpstream} a ₳500 bonus from the Argon Treasury.`;
+  return `Complete the following steps, and you'll earn${withUpstream} a ₳500 bonus from the Argon Network.`;
 });
 
 function formatStepTitle(stepId: OperationalStepId) {

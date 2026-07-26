@@ -40,7 +40,7 @@
       </fieldset>
       <a
         v-if="ethereumImportMode === 'privateKey'"
-        href="https://argon.network/docs/bridgeless-transfers/metamask-wallet"
+        :href="`${NetworkConfig.websiteHost}/docs/bridgeless-transfers/connect-a-metamask-wallet`"
         target="_blank"
         rel="noopener noreferrer"
         class="text-argon-600 hover:text-argon-700 mb-3 inline-block text-sm"
@@ -49,7 +49,7 @@
       </a>
       <a
         v-else
-        href="https://argon.network/docs/bridgeless-transfers/uniswap-wallet"
+        :href="`${NetworkConfig.websiteHost}/docs/bridgeless-transfers/connect-a-uniswap-wallet`"
         target="_blank"
         rel="noopener noreferrer"
         class="text-argon-600 hover:text-argon-700 mb-3 inline-block text-sm"
@@ -183,6 +183,7 @@ import type { IWallet } from '../lib/Wallet.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import { getCurrency } from '../stores/currency.ts';
 import Unicon from '../components/Unicon.vue';
+import { NetworkConfig } from '@argonprotocol/apps-core';
 
 const wallets = useWallets();
 const currency = getCurrency();

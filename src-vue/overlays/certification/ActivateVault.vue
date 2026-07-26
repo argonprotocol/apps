@@ -8,7 +8,7 @@
     </p>
     <p class="text-md mt-4 leading-7">
       To complete this step, choose Vaulting from the sidebar, select
-      <code>Activate Vault</code>
+      <strong>Activate Vault</strong>
       , and follow the prompts. After the transaction is confirmed, your vault becomes active and can begin earning
       revenue as it provides stabilization services for newly issued stablecoins.
     </p>
