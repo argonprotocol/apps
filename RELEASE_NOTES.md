@@ -3,6 +3,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-07-26
+- Improved the Treasury upgrade, welcome, onboarding, and certification experiences.
+- Separated Argon Bonds and Argonot Stakes into distinct screens
+- Improved wallet UX and added option for sending to custom argon address
+- Fixed several UI issues around bitcoin locks
+
 ## [2.1.1] - 2026-07-23
 - Fix for recovering completed mining and vault setup
 - Fix for recovering operator accounts and server upgrades safely
