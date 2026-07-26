@@ -19,23 +19,202 @@
 
       <NavigationMenuContent class="absolute top-0 left-0 w-full data-[motion=from-start]:animate-enterFromLeft data-[motion=from-end]:animate-enterFromRight data-[motion=to-start]:animate-exitToLeft data-[motion=to-end]:animate-exitToRight sm:w-auto">
         <ul class="bg-argon-menu-bg w-96 rounded p-1 text-sm text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-          <li class="flex items-center justify-between gap-6 px-3 py-2.5">
-            <div>
-              <div class="font-semibold text-slate-700">Net worth</div>
-              <div v-if="aggregate.isStale" class="text-xs font-normal text-slate-500">Updating</div>
-              <div v-else-if="aggregate.readiness === 'loading'" class="text-xs font-normal text-slate-500">Loading</div>
-              <div v-else-if="aggregate.readiness === 'partial'" class="text-xs font-normal text-slate-500">
-                Some values unavailable
-              </div>
-              <div v-else-if="aggregate.readiness === 'error'" class="text-xs font-normal text-slate-500">Unavailable</div>
+          <li v-if="aggregate.readiness !== 'ready'" class="flex items-center justify-between gap-6 px-3 py-2.5">
+            <div v-if="aggregate.isStale" class="text-xs font-normal text-slate-500">Updating</div>
+            <div v-else-if="aggregate.readiness === 'loading'" class="text-xs font-normal text-slate-500">Loading</div>
+            <div v-else-if="aggregate.readiness === 'partial'" class="text-xs font-normal text-slate-500">
+              Some values unavailable
             </div>
-            <div class="font-mono text-lg font-bold text-argon-700/80">{{ currency.symbol }}{{ formattedNetWorth }}</div>
+            <div v-else-if="aggregate.readiness === 'error'" class="text-xs font-normal text-slate-500">Unavailable</div>
           </li>
 
-          <li divider class="my-1 h-px w-full bg-slate-400/30" />
+          <li v-if="aggregate.readiness !== 'ready'" divider class="my-1 h-px w-full bg-slate-400/30" />
 
-          <li v-for="group in visibleGroups" :key="group.group" class="px-3 py-2">
-            <div class="flex items-start justify-between gap-6">
+          <li
+            v-for="(group, groupIndex) in visibleGroups"
+            :key="group.group"
+            :class="[
+              group.group === 'bonds' ? '' : 'px-3 py-2',
+              groupIndex < visibleGroups.length - 1 ? 'border-b border-slate-400/20' : '',
+            ]"
+          >
+            <template v-if="group.group === 'ethereum'">
+              <div
+                class="flex items-start justify-between gap-6"
+              >
+                <div>
+                  <div>
+                    <div class="flex items-center font-semibold text-slate-700">
+                      External Ethereum Wallets
+                      <button
+                        type="button"
+                        class="ml-1 flex cursor-pointer items-center text-slate-500 hover:text-slate-700"
+                        :aria-expanded="ethereumWalletsAreExpanded"
+                        aria-label="Toggle individual Ethereum wallets"
+                        @click.stop="ethereumWalletsAreExpanded = !ethereumWalletsAreExpanded"
+                      >
+                        (<MinusIcon v-if="ethereumWalletsAreExpanded" class="size-3" /><PlusIcon
+                          v-else
+                          class="size-3"
+                        />)
+                      </button>
+                    </div>
+                    <div
+                      v-if="group.state !== 'ready' && group.state !== 'stale'"
+                      class="text-xs font-normal text-slate-500 capitalize"
+                    >
+                      {{ group.state }}
+                    </div>
+                    <div v-else-if="group.isStale" class="text-xs font-normal text-slate-500">Stale</div>
+                  </div>
+                </div>
+                <div class="font-mono font-semibold text-slate-700">
+                  {{ group.state === 'ready' || (group.state === 'stale' && group.positions.length) ? `${currency.symbol}${formatValue(group.currentValue)}` : '--' }}
+                </div>
+              </div>
+              <div v-if="ethereumWalletsAreExpanded" class="mt-1 ml-2 border-l border-slate-300/70 pl-2">
+                <div v-if="ethereumWalletRows.length === 0" class="py-1 text-xs font-normal text-slate-500">
+                  No Ethereum wallets connected
+                </div>
+                <div
+                  v-for="entry in ethereumWalletRows"
+                  :key="entry.record.id"
+                  class="flex items-start justify-between gap-6 py-1"
+                >
+                  <div class="font-normal text-slate-600">{{ getEthereumWalletDisplayName(entry.record.name) }}</div>
+                  <div class="font-mono font-normal text-slate-600">
+                    {{ entry.isLoaded ? `${currency.symbol}${formatValue(entry.totalValue)}` : '--' }}
+                  </div>
+                </div>
+              </div>
+            </template>
+            <template v-else-if="group.group === 'liquid'">
+              <div class="flex items-start justify-between gap-6">
+                <div>
+                  <div class="flex items-center font-semibold text-slate-700">
+                    Internal App Wallet
+                    <button
+                      type="button"
+                      class="ml-1 flex cursor-pointer items-center text-slate-500 hover:text-slate-700"
+                      :aria-expanded="internalWalletIsExpanded"
+                      aria-label="Toggle Internal App Wallet tokens"
+                      @click.stop="internalWalletIsExpanded = !internalWalletIsExpanded"
+                    >
+                      (<MinusIcon v-if="internalWalletIsExpanded" class="size-3" /><PlusIcon v-else class="size-3" />)
+                    </button>
+                  </div>
+                  <div
+                    v-if="group.state !== 'ready' && group.state !== 'stale'"
+                    class="text-xs font-normal text-slate-500 capitalize"
+                  >
+                    {{ group.state }}
+                  </div>
+                  <div v-else-if="group.isStale" class="text-xs font-normal text-slate-500">Stale</div>
+                </div>
+                <div class="font-mono font-semibold text-slate-700">
+                  {{ group.state === 'ready' || (group.state === 'stale' && group.positions.length) ? `${currency.symbol}${formatValue(group.currentValue)}` : '--' }}
+                </div>
+              </div>
+              <div v-if="internalWalletIsExpanded" class="mt-1 ml-2 border-l border-slate-300/70 pl-2">
+                <div
+                  v-for="token in internalWalletTokenRows"
+                  :key="token.symbol"
+                  class="flex items-start justify-between gap-6 py-1"
+                >
+                  <div class="font-normal text-slate-600">{{ token.nativeAmount }} {{ token.symbol }}</div>
+                  <div class="font-mono font-normal text-slate-600">
+                    {{ currency.symbol }}{{ formatValue(token.value) }}
+                  </div>
+                </div>
+              </div>
+            </template>
+            <template v-else-if="group.group === 'bonds'">
+              <div
+                v-for="bond in bondAssetRows"
+                :key="bond.asset"
+                class="border-b border-slate-400/20 px-3 py-2 last:border-b-0"
+              >
+                <div class="flex items-start justify-between gap-6">
+                  <div>
+                    <div class="flex items-center font-semibold text-slate-700">
+                      {{ bond.label }}
+                      <button
+                        type="button"
+                        class="ml-1 flex cursor-pointer items-center text-slate-500 hover:text-slate-700"
+                        :aria-expanded="bond.expanded.value"
+                        :aria-label="`Toggle ${bond.label} details`"
+                        @click.stop="bond.expanded.value = !bond.expanded.value"
+                      >
+                        (<MinusIcon v-if="bond.expanded.value" class="size-3" /><PlusIcon v-else class="size-3" />)
+                      </button>
+                    </div>
+                    <div
+                      v-if="group.state !== 'ready' && group.state !== 'stale'"
+                      class="text-xs font-normal text-slate-500 capitalize"
+                    >
+                      {{ group.state }}
+                    </div>
+                    <div v-else-if="group.isStale" class="text-xs font-normal text-slate-500">Stale</div>
+                  </div>
+                  <div class="font-mono font-semibold text-slate-700">
+                    {{
+                      group.state === 'ready' || group.state === 'stale'
+                        ? `${currency.symbol}${formatValue(bond.currentValue)}`
+                        : '--'
+                    }}
+                  </div>
+                </div>
+                <div
+                  v-if="bond.expanded.value"
+                  class="mt-1 ml-2 border-l border-slate-300/70 py-1 pl-2 text-xs font-normal text-slate-500"
+                >
+                  {{ bond.count }} {{ bond.count === 1 ? bond.singularLabel : bond.pluralLabel }}
+                </div>
+              </div>
+            </template>
+            <template v-else-if="group.group === 'bitcoin'">
+              <div class="flex items-start justify-between gap-6">
+                <div>
+                  <div class="flex items-center font-semibold text-slate-700">
+                    {{ financialMenuLabels[group.group] }}
+                    <button
+                      type="button"
+                      class="ml-1 flex cursor-pointer items-center text-slate-500 hover:text-slate-700"
+                      :aria-expanded="bitcoinLocksAreExpanded"
+                      aria-label="Toggle Bitcoin lock details"
+                      @click.stop="bitcoinLocksAreExpanded = !bitcoinLocksAreExpanded"
+                    >
+                      (<MinusIcon v-if="bitcoinLocksAreExpanded" class="size-3" /><PlusIcon v-else class="size-3" />)
+                    </button>
+                  </div>
+                  <div
+                    v-if="group.state !== 'ready' && group.state !== 'stale'"
+                    class="text-xs font-normal text-slate-500 capitalize"
+                  >
+                    {{ group.state }}
+                  </div>
+                  <div v-else-if="group.isStale" class="text-xs font-normal text-slate-500">Stale</div>
+                </div>
+                <div class="font-mono font-semibold text-slate-700">
+                  {{ group.state === 'ready' || (group.state === 'stale' && group.positions.length) ? `${currency.symbol}${formatValue(group.currentValue)}` : '--' }}
+                </div>
+              </div>
+              <div v-if="bitcoinLocksAreExpanded" class="mt-1 ml-2 border-l border-slate-300/70 pl-2">
+                <div class="flex items-center justify-between gap-6 py-1">
+                  <div class="font-normal text-slate-600">Locked BTC</div>
+                  <div class="font-mono font-normal text-slate-600">
+                    {{ currency.symbol }}{{ formatValue(bitcoinPositionBreakdown.lockedBtc) }}
+                  </div>
+                </div>
+                <div class="flex items-center justify-between gap-6 py-1">
+                  <div class="font-normal text-slate-600">Debt</div>
+                  <div class="font-mono font-normal text-slate-600">
+                    {{ currency.symbol }}{{ formatValue(bitcoinPositionBreakdown.debt) }}
+                  </div>
+                </div>
+              </div>
+            </template>
+            <div v-else class="flex items-start justify-between gap-6">
               <div>
               <div class="font-semibold text-slate-700">{{ financialMenuLabels[group.group] }}</div>
               <div v-if="group.state !== 'ready' && group.state !== 'stale'" class="text-xs font-normal text-slate-500 capitalize">
@@ -51,16 +230,6 @@
                     <InformationCircleIcon class="size-3.5" />
                   </span>
                 </Tooltip>
-              </div>
-              <div v-else-if="group.group === 'liquid'" class="text-xs font-normal text-slate-500">
-                {{ microgonToArgonNm(liquidNativeBalances.microgons).format('0,0.[00]') }} ARGN ·
-                {{ micronotToArgonotNm(liquidNativeBalances.micronots).format('0,0.[00]') }} ARGNOT
-              </div>
-              <div v-else-if="group.group === 'ethereum'" class="text-xs font-normal text-slate-500">
-                {{ ethereumAssetLabels.length ? ethereumAssetLabels.join(' · ') : 'No assets' }}
-              </div>
-              <div v-else-if="group.group === 'base'" class="text-xs font-normal text-slate-500">
-                {{ baseAssetLabels.join(' · ') }}
               </div>
               <div v-else-if="group.group === 'mining'" class="text-xs font-normal text-slate-500">
                 <div>
@@ -80,16 +249,6 @@
                   {{ micronotToArgonotNm(vaultPositionBreakdown.committedMicronots).format('0,0.[00]') }} ARGNOT staked
                 </div>
               </div>
-              <div v-else-if="group.group === 'bonds' && bondAssetDetails" class="text-xs font-normal text-slate-500">
-                {{ bondAssetDetails }}
-              </div>
-              <div v-else-if="group.group === 'bitcoin'" class="text-xs font-normal text-slate-500">
-                Locked BTC {{ currency.symbol }}{{ formatValue(bitcoinPositionBreakdown.lockedBtc) }}
-                <template v-if="bitcoinPositionBreakdown.pendingMint">
-                  + pending mint {{ currency.symbol }}{{ formatValue(bitcoinPositionBreakdown.pendingMint) }}
-                </template>
-                − debt {{ currency.symbol }}{{ formatValue(bitcoinPositionBreakdown.debt) }}
-              </div>
               <div v-else-if="group.grossLiabilities" class="text-xs font-normal text-slate-500">
                 Assets {{ currency.symbol }}{{ formatValue(group.grossAssets) }} · Liabilities {{ currency.symbol
                 }}{{ formatValue(group.grossLiabilities) }}
@@ -108,7 +267,7 @@
             No financial positions yet
           </li>
 
-          <li class="mt-1 border-t border-slate-400/30 px-2 pt-2 pb-1">
+          <li class="mt-3 border-t border-slate-400/30 px-2 pt-2 pb-1">
             <button
               type="button"
               class="w-full cursor-pointer rounded-md border border-argon-600/50 px-3 py-2 font-semibold whitespace-nowrap text-argon-600/80 hover:bg-argon-600/70 hover:text-white"
@@ -125,10 +284,12 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import { UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { storeToRefs } from 'pinia';
 import { NavigationMenuContent, NavigationMenuItem, NavigationMenuTrigger } from 'reka-ui';
-import { InformationCircleIcon } from '@heroicons/vue/20/solid';
+import { InformationCircleIcon, MinusIcon, PlusIcon } from '@heroicons/vue/20/solid';
 import { getCurrency } from '../stores/currency.ts';
+import { getConfig } from '../stores/config.ts';
 import ArgonSign from '../assets/currencies/argon.svg?component';
 import DollarSign from '../assets/currencies/dollar.svg?component';
 import EuroSign from '../assets/currencies/euro.svg?component';
@@ -137,9 +298,10 @@ import RupeeSign from '../assets/currencies/rupee.svg?component';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import Tooltip from '../components/Tooltip.vue';
 import { createNumeralHelpers } from '../lib/numeral.ts';
+import { getEthereumWalletDisplayName, getWalletTotalValue } from '../lib/Wallet.ts';
 import { useFinancials } from '../stores/financials.ts';
 import { useWallets } from '../stores/wallets.ts';
-import { bondAssetMenuItems, financialMenuLabels } from './financialMenuLabels.ts';
+import { financialMenuLabels } from './financialMenuLabels.ts';
 
 const rootRef = Vue.ref<HTMLElement>();
 
@@ -148,53 +310,77 @@ defineExpose({
 });
 
 const currency = getCurrency();
+const config = getConfig();
 const financials = useFinancials();
 const wallets = useWallets();
-const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm, otherTokenNm } = createNumeralHelpers(currency);
+const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
+const ethereumWalletsAreExpanded = Vue.ref(false);
+const internalWalletIsExpanded = Vue.ref(false);
+const argonBondsAreExpanded = Vue.ref(false);
+const argonotStakesAreExpanded = Vue.ref(false);
+const bitcoinLocksAreExpanded = Vue.ref(false);
 const {
   financialPositionAggregate: aggregate,
   liquidLockedRecords,
   liquidNativeBalances,
   bondSummariesByAsset,
 } = storeToRefs(financials);
-const bondAssetDetails = Vue.computed(() => {
-  return bondAssetMenuItems
-    .flatMap(({ asset, label }) => {
-      const currentValue = bondSummariesByAsset.value[asset].currentValue;
-      if (!currentValue) return [];
-      return `${label} ${currency.symbol}${formatValue(currentValue)}`;
-    })
-    .join(' · ');
+const bondAssetRows = Vue.computed(() => {
+  const bondPositions = aggregate.value.groupSummaries.bonds.positions.filter(position => position.kind === 'bond');
+  const positions = bondPositions.filter(position => position.lifecycle !== 'completed');
+
+  return [
+    {
+      asset: 'ARGN',
+      label: 'Argon Bonds',
+      singularLabel: 'bond',
+      pluralLabel: 'bonds',
+      currentValue: bondSummariesByAsset.value.ARGN.currentValue,
+      count: positions.filter(position => position.nativeAsset === 'ARGN').length,
+      expanded: argonBondsAreExpanded,
+    },
+    {
+      asset: 'ARGNOT',
+      label: 'Argonot Stakes',
+      singularLabel: 'stake',
+      pluralLabel: 'stakes',
+      currentValue: bondSummariesByAsset.value.ARGNOT.currentValue,
+      count: positions.filter(position => position.nativeAsset === 'ARGNOT').length,
+      expanded: argonotStakesAreExpanded,
+    },
+  ];
 });
 
 const visibleGroups = Vue.computed(() => {
   return aggregate.value.groups.filter(group => {
     if (group.state === 'loading') return false;
-    if (group.group === 'ethereum') return !!wallets.ethereumWallet.address;
-    if (group.group === 'base') return group.positions.some(position => position.lifecycle !== 'unavailable');
+    if (group.group === 'base') return false;
+    if (group.group === 'liquid') return true;
+    if (group.group === 'ethereum') return true;
+    if (config.hasExtensionTreasury && (group.group === 'bonds' || group.group === 'bitcoin')) return true;
     return group.state !== 'ready' || group.grossAssets !== 0n || group.grossLiabilities !== 0n;
   });
 });
-const ethereumAssetLabels = Vue.computed(() => {
-  const labels: string[] = [];
-  const microgons = wallets.ethereumWallet.availableMicrogons + wallets.ethereumWallet.reservedMicrogons;
-  const micronots = wallets.ethereumWallet.availableMicronots + wallets.ethereumWallet.reservedMicronots;
-
-  if (microgons > 0n) labels.push(`${microgonToArgonNm(microgons).format('0,0.[00]')} ARGN`);
-  if (micronots > 0n) labels.push(`${micronotToArgonotNm(micronots).format('0,0.[00]')} ARGNOT`);
-
-  for (const token of wallets.ethereumWallet.otherTokens) {
-    if (token.value <= 0n) continue;
-    labels.push(`${otherTokenNm(token).format('0,0.[000000]')} ${token.symbol}`);
-  }
-
-  return labels;
+const ethereumWalletRows = Vue.computed(() => {
+  return wallets.ethereumWallets.map(({ record, wallet }) => ({
+    record,
+    wallet,
+    totalValue: getWalletTotalValue(wallet, currency),
+    isLoaded: !!wallet.balanceUpdatedAt,
+  }));
 });
-const baseAssetLabels = Vue.computed(() => {
-  return wallets.baseWallet.otherTokens
-    .filter(token => token.value > 0n)
-    .map(token => `${otherTokenNm(token).format('0,0.[000000]')} ${token.symbol}`);
-});
+const internalWalletTokenRows = Vue.computed(() => [
+  {
+    symbol: 'ARGN',
+    nativeAmount: microgonToArgonNm(liquidNativeBalances.value.microgons).format('0,0.[00]'),
+    value: liquidNativeBalances.value.microgons,
+  },
+  {
+    symbol: 'ARGNOT',
+    nativeAmount: micronotToArgonotNm(liquidNativeBalances.value.micronots).format('0,0.[00]'),
+    value: currency.convertMicronotTo(liquidNativeBalances.value.micronots, UnitOfMeasurement.Microgon),
+  },
+]);
 const miningPositionBreakdown = Vue.computed(() => {
   const mining = aggregate.value.groupSummaries.mining;
 

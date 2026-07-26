@@ -26,14 +26,14 @@ import { getArgonBonds } from './argonBonds.ts';
 import { getMyMiningSeats } from './myMiningSeats.ts';
 import { getMainchainClient } from './mainchain.ts';
 import { getMyVault } from './vaults.ts';
-import BootstrapToNode from '../overlays/operational/BootstrapToNode.vue';
-import BackupMnemonic from '../overlays/operational/BackupMnemonic.vue';
-import ActivateVault from '../overlays/operational/ActivateVault.vue';
-import LiquidLock from '../overlays/operational/LiquidLock.vue';
-import AcquireBonds from '../overlays/operational/AcquireBonds.vue';
-import TransferArgons from '../overlays/operational/TransferArgons.vue';
-import WinMiningSeats from '../overlays/operational/WinMiningSeats.vue';
-import WinMoreMiningSeats from '../overlays/operational/WinMoreMiningSeats.vue';
+import BootstrapToNode from '../overlays/certification/BootstrapToNode.vue';
+import BackupMnemonic from '../overlays/certification/BackupMnemonic.vue';
+import ActivateVault from '../overlays/certification/ActivateVault.vue';
+import LiquidLock from '../overlays/certification/LiquidLock.vue';
+import AcquireBonds from '../overlays/certification/AcquireBonds.vue';
+import TransferArgons from '../overlays/certification/TransferArgons.vue';
+import WinMiningSeats from '../overlays/certification/WinMiningSeats.vue';
+import WinMoreMiningSeats from '../overlays/certification/WinMoreMiningSeats.vue';
 import { TopTab, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { BitcoinLockStatus } from '../interfaces/IBitcoinLockRecord.ts';
@@ -43,7 +43,8 @@ export enum OperationalStepId {
   BackupMnemonic = 'BackupMnemonic',
   ActivateVault = 'ActivateVault',
   LiquidLock = 'LiquidLock',
-  AcquireBonds = 'AcquireBonds',
+  AcquireArgonBonds = 'AcquireArgonBonds',
+  // AcquireArgonotStakes = 'AcquireArgonotStakes',
   TreasuryTransfer = 'TreasuryTransfer',
   OperationalTransfer = 'OperationalTransfer',
   FirstMiningSeat = 'FirstMiningSeat',
@@ -78,11 +79,16 @@ export const operationalSteps: Record<OperationalStepId, IOperationalStep> = {
     documentationLink: 'https://argon.network/docs/operator-certification/liquid-lock',
     component: LiquidLock,
   },
-  [OperationalStepId.AcquireBonds]: {
-    title: 'Acquire Treasury Bonds',
+  [OperationalStepId.AcquireArgonBonds]: {
+    title: 'Acquire Argon Bonds',
     documentationLink: 'https://argon.network/docs/operator-certification/acquire-bonds',
     component: AcquireBonds,
   },
+  // [OperationalStepId.AcquireArgonotStakes]: {
+  //   title: 'Acquire Argonot Stakes',
+  //   documentationLink: 'https://argon.network/docs/operator-certification/acquire-bonds',
+  //   component: AcquireBonds,
+  // },
   [OperationalStepId.TreasuryTransfer]: {
     title: 'Transfer Argons from Uniswap',
     documentationLink: 'https://argon.network/docs/operator-certification',
@@ -110,7 +116,8 @@ export const treasuryCertificationStepIds = [
   OperationalStepId.BackupMnemonic,
   OperationalStepId.LiquidLock,
   OperationalStepId.TreasuryTransfer,
-  OperationalStepId.AcquireBonds,
+  OperationalStepId.AcquireArgonBonds,
+  // OperationalStepId.AcquireArgonotStakes,
 ] as const;
 export const operationsCertificationStepIds = [
   OperationalStepId.OperationalTransfer,
@@ -408,7 +415,7 @@ export const useCertificationController = defineStore('certificationController',
     if (stepId === OperationalStepId.LiquidLock) {
       return certificationProgress.value.hasBitcoinLock;
     }
-    if (stepId === OperationalStepId.AcquireBonds) {
+    if (stepId === OperationalStepId.AcquireArgonBonds) {
       return certificationProgress.value.hasTreasuryBondParticipation;
     }
     if (stepId === OperationalStepId.TreasuryTransfer) {
@@ -437,7 +444,7 @@ export const useCertificationController = defineStore('certificationController',
     if (stepId === OperationalStepId.LiquidLock) {
       return hasBitcoinFundingSeenOnBitcoin.value;
     }
-    if (stepId === OperationalStepId.AcquireBonds) {
+    if (stepId === OperationalStepId.AcquireArgonBonds) {
       return hasBondsUnderway.value;
     }
 
@@ -457,11 +464,6 @@ export const useCertificationController = defineStore('certificationController',
     return 'Not completed';
   }
 
-  function getCertificationStepRequirementLabel(stepId: OperationalStepId) {
-    const requirement = getCertificationStepRequirementText(stepId);
-    return requirement ? `Need ${requirement}` : null;
-  }
-
   function getCertificationStepRequirementText(stepId: OperationalStepId) {
     if (!isLoaded.value) return null;
 
@@ -471,14 +473,17 @@ export const useCertificationController = defineStore('certificationController',
     if (stepId === OperationalStepId.LiquidLock) {
       return formatArgonRequirementText(rewardConfig.value.treasuryMinimumBitcoin, 'bitcoin');
     }
-    if (stepId === OperationalStepId.AcquireBonds) {
+    if (stepId === OperationalStepId.AcquireArgonBonds) {
       return formatArgonRequirementText(rewardConfig.value.treasuryMinimumBonds, 'bonds');
     }
+    // if (stepId === OperationalStepId.AcquireArgonotStakes) {
+    //   return formatArgonRequirementText(rewardConfig.value.treasuryMinimumBonds, 'stakes');
+    // }
     if (stepId === OperationalStepId.TreasuryTransfer) {
-      return formatArgonRequirementText(rewardConfig.value.treasuryMinimumUniswapTransfer, 'from Uniswap');
+      return formatArgonRequirementText(rewardConfig.value.treasuryMinimumUniswapTransfer, 'from Uniswap', false);
     }
     if (stepId === OperationalStepId.OperationalTransfer) {
-      return formatArgonRequirementText(rewardConfig.value.operationalMinimumUniswapTransfer, 'from Uniswap');
+      return formatArgonRequirementText(rewardConfig.value.operationalMinimumUniswapTransfer, 'from Uniswap', false);
     }
     if (stepId === OperationalStepId.FirstMiningSeat) {
       return rewardConfig.value.miningSeatsForOperational > 0
@@ -828,17 +833,20 @@ export const useCertificationController = defineStore('certificationController',
     isCertificationStepUnderway,
     getCertificationStepStatus,
     getCertificationStepStatusLabel,
-    getCertificationStepRequirementLabel,
     getCertificationStepRequirementText,
     getCertificationBlocker: getCertificationBlocker,
     isCertificationStepUnlocked,
   };
 });
 
-function formatArgonRequirementText(amount: bigint, suffix: string): string | null {
+function formatArgonRequirementText(amount: bigint, suffix: string, convertToMoney = true): string | null {
   if (amount <= 0n) return null;
 
-  return `${formatArgonAmount(amount)} ${suffix}`;
+  if (convertToMoney) {
+    return `₳${formatArgonAmount(amount)} ${suffix}`;
+  } else {
+    return `${formatArgonAmount(amount)} ARGN ${suffix}`;
+  }
 }
 
 function formatArgonAmount(amount: bigint): string {
@@ -848,8 +856,8 @@ function formatArgonAmount(amount: bigint): string {
   const wholeLabel = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
   if (remainder === 0n) {
-    return `₳${wholeLabel}`;
+    return `${wholeLabel}`;
   }
 
-  return `₳${wholeLabel}.${remainder.toString().padStart(6, '0').replace(/0+$/, '')}`;
+  return `${wholeLabel}.${remainder.toString().padStart(6, '0').replace(/0+$/, '')}`;
 }

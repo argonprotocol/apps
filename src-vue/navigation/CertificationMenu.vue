@@ -194,12 +194,12 @@
                   {{ checklistDescription }}
                 </p>
               </div>
-              <ul class="mt-3 mb-1 flex flex-col divide-y divide-slate-600/15 text-base font-semibold whitespace-nowrap">
+              <ul class="mb-1 flex flex-col divide-y divide-slate-600/15 text-base font-semibold whitespace-nowrap">
                 <li
                   v-for="stepId in currentStepIds"
                   :key="stepId"
                   @click="openStep(stepId, $event)"
-                  class="flex cursor-pointer flex-row items-center gap-x-2 py-3 pl-5 pr-2"
+                  class="flex cursor-pointer flex-row items-center gap-x-2 py-3 pl-5 pr-16"
                   :class="controller.isCertificationStepUnlocked(stepId) ? 'hover:bg-argon-600/5' : 'bg-slate-50/80 text-slate-500'"
                 >
                   <Checkbox
@@ -221,18 +221,18 @@
                   >
                     Requires: {{ controller.getCertificationBlocker(stepId)?.title }}
                   </span>
-                  <a
-                    :href="operationalSteps[stepId].documentationLink"
-                    target="_blank"
-                    class="rounded-full px-3 text-right font-light text-argon-600 hover:bg-white hover:text-argon-700!"
-                  >
-                    Open Docs
-                  </a>
+<!--                  <a-->
+<!--                    :href="operationalSteps[stepId].documentationLink"-->
+<!--                    target="_blank"-->
+<!--                    class="rounded-full px-3 text-right font-light text-argon-600 hover:bg-white hover:text-argon-700!"-->
+<!--                  >-->
+<!--                    Open Docs-->
+<!--                  </a>-->
                 </li>
               </ul>
               <div class="border-t border-slate-500/30 px-5 pt-4 pb-2">
-                <a href="https://argon.network/docs/operator-certification" target="_blank" class="font-light text-argon-600 hover:text-argon-700!">
-                  Learn more about Argon certification.
+                <a :href="`${NetworkConfig.websiteHost}/docs/desktop-app/${ isUnlockTrack ? 'treasury' : 'operations' }-certification`" target="_blank" class="font-light text-argon-600 hover:text-argon-700!">
+                  Learn more about {{ isUnlockTrack ? 'Treasury' : 'Operations' }} Certification.
                 </a>
               </div>
             </div>
@@ -247,7 +247,7 @@
 import * as Vue from 'vue';
 import { NavigationMenuContent, NavigationMenuItem, NavigationMenuTrigger } from 'reka-ui';
 import { XMarkIcon, CheckBadgeIcon } from '@heroicons/vue/24/outline';
-import { MICROGONS_PER_ARGON } from '@argonprotocol/apps-core';
+import { MICROGONS_PER_ARGON, NetworkConfig } from '@argonprotocol/apps-core';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { TopTab } from '../interfaces/IConfig.ts';
 import { getConfig } from '../stores/config.ts';
@@ -267,6 +267,9 @@ import DiamondIcon from '../assets/diamond.svg';
 const config = getConfig();
 const controller = useCertificationController();
 const currency = getCurrency();
+const emit = defineEmits<{
+  close: [];
+}>();
 
 const { microgonToArgonNm } = createNumeralHelpers(currency);
 
@@ -346,7 +349,7 @@ const operationalActivationRewardLabel = Vue.computed(() => {
 
 const checklistDescription = Vue.computed(() => {
   if (isUnlockTrack.value) {
-    return 'Complete the Treasury Certification steps below to be eligible for your Upstream Operator to upgrade you to the Operations app.';
+    return 'Complete the following steps to unlock the next level features of this app.';
   }
 
   const withUpstream = controller.chainProgress.hasUpstreamAccount ? ' (along with your upstream operator)' : '';
@@ -436,6 +439,7 @@ function openStep(stepId: OperationalStepId, event: MouseEvent) {
   isOpen.value = false;
   controller.clearCompletionNotices();
   config.setCertificationDetails({ showBonusTooltip: false });
+  emit('close');
   basicEmitter.emit('openOperationalOverlay', stepId);
 }
 
@@ -446,7 +450,7 @@ function formatStepTitle(stepId: OperationalStepId) {
   }
 
   if (stepId === OperationalStepId.LiquidLock) {
-    return `Liquid Lock ${requirement.replace(' bitcoin', ' of Bitcoin')}`;
+    return `Liquid Lock ${requirement.replace(' bitcoin', ' Worth of Bitcoin')}`;
   }
   if (stepId === OperationalStepId.ActivateVault) {
     return `Create a ${requirement.replace(' securitization', '')} Vault`;
@@ -454,9 +458,12 @@ function formatStepTitle(stepId: OperationalStepId) {
   if ([OperationalStepId.TreasuryTransfer, OperationalStepId.OperationalTransfer].includes(stepId)) {
     return `Transfer ${requirement}`;
   }
-  if (stepId === OperationalStepId.AcquireBonds) {
-    return `Acquire ${requirement.replace(' bonds', ' of Treasury Bonds')}`;
+  if (stepId === OperationalStepId.AcquireArgonBonds) {
+    return `Acquire ${requirement.replace(' bonds', ' of Argon Bonds')}`;
   }
+  // if (stepId === OperationalStepId.AcquireArgonotStakes) {
+  //   return `Acquire ${requirement.replace(' stakes', ' of Argonot Stakes')}`;
+  // }
   if (stepId === OperationalStepId.FirstMiningSeat) {
     return `Win ${requirement.replace(' seats', ' Mining Seats').replace(' seat', ' Mining Seat')}`;
   }

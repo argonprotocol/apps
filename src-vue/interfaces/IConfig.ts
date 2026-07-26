@@ -23,6 +23,7 @@ export enum TopTab {
   Network = 'Network',
 
   ArgonBonds = 'ArgonBonds',
+  ArgonotStaking = 'ArgonotStaking',
   BitcoinLocks = 'BitcoinLocks',
   BitcoinLoans = 'BitcoinLoans',
   StableSwaps = 'StableSwaps',

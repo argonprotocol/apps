@@ -56,6 +56,7 @@ const mocks = vi.hoisted(() => {
       })),
     },
     config: {
+      isLoaded: true,
       isLoadedPromise: Promise.resolve(),
       hasExtensionTreasury: false,
       hasExtensionOperations: false,
@@ -67,6 +68,7 @@ const mocks = vi.hoisted(() => {
       microgonsPer: { ARGNOT: 0n },
       priceIndex: {},
       usdTarget: 0,
+      fetchMicrogonsInCirculation: vi.fn(async () => 0n),
       convertMicronotTo: vi.fn(() => 0n),
       convertOtherToMicrogon: vi.fn(() => 0n),
     },
@@ -112,9 +114,13 @@ const mocks = vi.hoisted(() => {
       miningBotWallet: wallet('5miner'),
       operationalWallet: wallet('5operational'),
       ethereumWallet: { ...wallet('0xethereum'), balanceUpdatedAt: new Date('2026-07-17T12:00:00Z') },
+      ethereumWallets: [
+        {
+          wallet: { ...wallet('0xethereum'), balanceUpdatedAt: new Date('2026-07-17T12:00:00Z') },
+        },
+      ],
       baseWallet: { ...wallet('0xbase'), balanceUpdatedAt: new Date('2026-07-17T12:00:00Z') },
-      ethereumFinancialPositions: [],
-      baseFinancialPositions: [],
+      ethereumFinancialPositions: [] as IFinancialPosition[],
       on: vi.fn(),
     },
     walletsForArgon: {
@@ -200,6 +206,7 @@ describe('financials store lifecycle', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     mocks.config.isLoadedPromise = Promise.resolve();
+    mocks.config.isLoaded = true;
     mocks.config.hasExtensionTreasury = false;
     mocks.config.hasExtensionOperations = false;
     mocks.config.hasActivatedStableSwaps = false;
@@ -207,6 +214,8 @@ describe('financials store lifecycle', () => {
     mocks.wallets.isLoadedPromise = Promise.resolve();
     mocks.currency.isLoadedPromise = Promise.resolve();
     mocks.currency.microgonsPer.ARGNOT = 0n;
+    mocks.currency.fetchMicrogonsInCirculation.mockResolvedValue(0n);
+    mocks.currency.fetchMicrogonsInCirculation.mockClear();
     mocks.argonBonds.load.mockResolvedValue();
     mocks.argonBonds.data.bondLots = [];
     mocks.argonBonds.data.bondHistory = [];
@@ -224,6 +233,8 @@ describe('financials store lifecycle', () => {
     mocks.bitcoinLocks.isLockedStatus.mockReturnValue(true);
     mocks.bitcoinLocks.isReleaseStatus.mockReturnValue(false);
     mocks.vaults.load.mockResolvedValue();
+    mocks.vaultingStats.argonBurnCapacity = 0;
+    mocks.vaultingStats.microgonValueInVaults = 0n;
     mocks.myVault.load.mockResolvedValue();
     mocks.miningFinancials.loadPositions.mockResolvedValue([]);
     mocks.miningFinancials.loadPositions.mockClear();
@@ -257,6 +268,15 @@ describe('financials store lifecycle', () => {
     mocks.walletsForArgon.fetchArgonotCustody.mockResolvedValue([]);
     mocks.walletsForArgon.fetchArgonotCustody.mockClear();
     mocks.wallets.on.mockClear();
+    mocks.wallets.ethereumWallets = [
+      {
+        wallet: {
+          ...mocks.wallets.ethereumWallet,
+          balanceUpdatedAt: new Date('2026-07-17T12:00:00Z'),
+        },
+      },
+    ];
+    mocks.wallets.ethereumFinancialPositions = [];
     mocks.myVault.history.loadPositionHistory.mockResolvedValue({ capital: [], revenue: [] });
     mocks.myVault.history.loadPositionHistory.mockClear();
   });
@@ -265,6 +285,69 @@ describe('financials store lifecycle', () => {
     vi.useRealTimers();
     disposePinia(pinia);
     vi.restoreAllMocks();
+  });
+
+  it('includes every Ethereum wallet in the financial aggregate', async () => {
+    const firstWallet = {
+      ...mocks.wallets.ethereumWallet,
+      address: '0xethereum1',
+      totalMicrogons: 0n,
+      totalMicronots: 0n,
+      balanceUpdatedAt: new Date('2026-07-17T12:00:00Z'),
+    };
+    const secondWallet = {
+      ...mocks.wallets.ethereumWallet,
+      address: '0xethereum2',
+      totalMicrogons: 0n,
+      totalMicronots: 0n,
+      balanceUpdatedAt: new Date('2026-07-17T12:00:00Z'),
+    };
+    mocks.wallets.ethereumWallets = [{ wallet: firstWallet }, { wallet: secondWallet }];
+    mocks.wallets.ethereumFinancialPositions = [
+      {
+        id: '0xethereum1:ethereum:ARGN',
+        kind: 'ethereum-wallet-balance',
+        group: 'ethereum',
+        label: 'Ethereum ARGN',
+        lifecycle: 'available',
+        currentValue: 100n,
+        wallet: firstWallet,
+        asset: 'ethereum:ARGN',
+        nativeAmount: 100n,
+      },
+      {
+        id: '0xethereum2:ethereum:ARGN',
+        kind: 'ethereum-wallet-balance',
+        group: 'ethereum',
+        label: 'Ethereum ARGN',
+        lifecycle: 'available',
+        currentValue: 200n,
+        wallet: secondWallet,
+        asset: 'ethereum:ARGN',
+        nativeAmount: 200n,
+      },
+    ];
+
+    const financials = useFinancials();
+
+    await vi.waitFor(() => {
+      expect(financials.financialPositionAggregate.groupSummaries.ethereum.currentValue).toBe(300n);
+    });
+    expect(financials.financialPositionAggregate.netWorth).toBe(300n);
+  });
+
+  it('calculates savings restabilization power from circulating ARGN without Treasury access', async () => {
+    mocks.currency.fetchMicrogonsInCirculation.mockResolvedValue(10_000_000n);
+    mocks.vaultingStats.argonBurnCapacity = 25;
+
+    const financials = useFinancials();
+
+    await vi.waitFor(() => expect(financials.savingsIsLoaded).toBe(true));
+    expect(financials.savingsRestabilizationPower).toBe(2.5);
+    expect(mocks.currency.fetchMicrogonsInCirculation).toHaveBeenCalledOnce();
+    expect(mocks.argonBonds.load).not.toHaveBeenCalled();
+    expect(mocks.bitcoinLocks.load).not.toHaveBeenCalled();
+    expect(mocks.vaults.load).not.toHaveBeenCalled();
   });
 
   it.each([

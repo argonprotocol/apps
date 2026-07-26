@@ -1,6 +1,19 @@
 <template>
   <div class="flex h-full flex-col text-left" :class="props.compact ? 'px-5 pb-5' : 'px-4 pt-3 pb-5'">
     <div class="mt-3 flex max-h-80 flex-col gap-2 overflow-y-auto pr-1">
+      <button
+        v-if="props.showCustomArgonAddress"
+        data-testid="WalletOverlay.chooseCustomArgonAddress()"
+        type="button"
+        class="relative flex min-h-14 w-full cursor-pointer items-center border-b border-black/20 px-3 py-2 text-left text-black/70 hover:bg-white/10"
+        @click="emit('selectCustomArgonAddress')"
+      >
+        <ArgonLogo class="h-8 w-8 shrink-0" />
+        <span class="ml-3 min-w-0">
+          <strong class="block truncate text-sm text-black/70">Custom Argon Address</strong>
+          <span class="block truncate text-xs text-black/50">Send to any Argon address</span>
+        </span>
+      </button>
       <div v-for="wallet in props.availableWallets" :key="getWalletSelectionKey(wallet)" class="relative">
         <button
           :data-wallet-key="getWalletSelectionKey(wallet)"
@@ -99,12 +112,14 @@ const props = defineProps<{
   availableWallets: IWalletSelection[];
   compact?: boolean;
   dark?: boolean;
+  showCustomArgonAddress?: boolean;
 }>();
 
 const emit = defineEmits<{
   (event: 'select', wallet: IWalletSelection): void;
   (event: 'addNewWallet'): void;
   (event: 'addExternalEthereum'): void;
+  (event: 'selectCustomArgonAddress'): void;
 }>();
 
 const wallets = useWallets();

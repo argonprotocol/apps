@@ -6,17 +6,13 @@
       short against the Argon stablecoin, which helps prevent Argon from falling below its target price.
     </p>
     <p class="text-md mt-4 leading-7">
-      There is no minimum lock duration, and Bitcoin can be unlocked whenever you choose. You can lock your own Bitcoin
-      into your vault, or invite friends to download the Argon Treasury app and lock their Bitcoin into it as well. The
-      more Bitcoin locked into a vault, the more mining auction proceeds that vault can earn from the network.
+      There is no minimum lock duration, and Bitcoin can be unlocked whenever you choose.
     </p>
     <p class="text-md mt-4 leading-7">
       When you start this task, Argon will point you to
-      <code>Bitcoin Locks</code>
+      <strong>Bitcoin Locks</strong>
       in the Treasury sidebar. Open it, then click
-      <code>Liquid Lock Your Bitcoin</code>
-      or
-      <code>Lock Another Bitcoin</code>
+      <strong>Liquid Lock Your Bitcoin</strong>
       and follow the prompts.
     </p>
   </div>

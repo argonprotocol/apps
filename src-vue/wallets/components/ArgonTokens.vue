@@ -22,23 +22,16 @@
         :moveFrom="props.moveFrom"
         :moveTo="props.moveTo"
         :moveToken="MoveToken.ARGN"
+        :externalAddress="props.externalAddress"
         side="top"
+        @transactionPending="updateTransferPending(MoveToken.ARGN, $event)"
       >
-        <button
-          type="button"
-          :disabled="!moveMicrogons"
-          :title="!moveMicrogons ? 'No ARGN available to move' : 'Move ARGN'"
-          class="absolute top-1/2 z-40 h-[45.6px] -translate-x-1/2 -translate-y-1/2 cursor-pointer disabled:cursor-default"
-          :class="props.movePlacement === 'left' ? '-left-1' : 'left-[calc(100%+4px)]'"
-        >
-          <div
-            :class="!moveMicrogons ? 'text-slate-500 opacity-30' : 'text-argon-600'"
-            class="absolute inset-0 flex items-center justify-center text-sm font-bold"
-          >
-            <span class="relative right-1.5">MOVE</span>
-          </div>
-          <MoveArrow class="pointer-events-none h-full" />
-        </button>
+        <MoveArrowButton
+          :disabled="!moveMicrogons || !canMoveToDestination"
+          :pending="argonTransferPending"
+          :placement="props.movePlacement"
+          :title="argonMoveTitle"
+        />
       </MoveCapitalButton>
     </li>
     <li
@@ -63,23 +56,16 @@
         :moveFrom="props.moveFrom"
         :moveTo="props.moveTo"
         :moveToken="MoveToken.ARGNOT"
+        :externalAddress="props.externalAddress"
         side="top"
+        @transactionPending="updateTransferPending(MoveToken.ARGNOT, $event)"
       >
-        <button
-          type="button"
-          :disabled="!moveMicronots"
-          :title="!moveMicronots ? 'No ARGNOT available to move' : 'Move ARGNOT'"
-          class="absolute top-1/2 z-40 h-[45.6px] -translate-x-1/2 -translate-y-1/2 cursor-pointer disabled:cursor-default"
-          :class="props.movePlacement === 'left' ? '-left-1' : 'left-[calc(100%+4px)]'"
-        >
-          <div
-            :class="!moveMicronots ? 'text-slate-500 opacity-30' : 'text-argon-600'"
-            class="absolute inset-0 flex items-center justify-center text-sm font-bold"
-          >
-            <span class="relative right-1.5">MOVE</span>
-          </div>
-          <MoveArrow class="pointer-events-none h-full" />
-        </button>
+        <MoveArrowButton
+          :disabled="!moveMicronots || !canMoveToDestination"
+          :pending="argonotTransferPending"
+          :placement="props.movePlacement"
+          :title="argonotMoveTitle"
+        />
       </MoveCapitalButton>
     </li>
     <li v-if="props.microgonsToMint" class="relative flex flex-row gap-x-2 border-y border-slate-400/50 py-2">
@@ -90,16 +76,15 @@
   </ul>
 </template>
 <script setup lang="ts">
-import { computed } from 'vue';
-import { MoveToken } from '@argonprotocol/apps-core';
-import type { MoveFrom, MoveTo } from '@argonprotocol/apps-core';
+import { computed, ref } from 'vue';
+import { isValidArgonAccountAddress, MoveTo, MoveToken, type MoveFrom } from '@argonprotocol/apps-core';
 import ArgonotIcon from '../../assets/resources/argonot.svg';
 import ArgonIcon from '../../assets/resources/argon.svg';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import CrosschainMoveButton from './CrosschainMoveButton.vue';
 import MoveCapitalButton from '../../overlays/MoveCapitalButton.vue';
-import MoveArrow from '../../assets/move-arrow.svg';
+import MoveArrowButton from './MoveArrowButton.vue';
 
 const currency = getCurrency();
 
@@ -118,6 +103,7 @@ const props = withDefaults(
     moveDirection?: 'transferToArgon' | 'transferOutOfArgon';
     moveFrom?: MoveFrom;
     moveTo?: MoveTo;
+    externalAddress?: string;
     networkName?: string;
     feeTokenSymbol?: string;
   }>(),
@@ -133,6 +119,25 @@ const props = withDefaults(
 
 const moveMicrogons = computed(() => props.moveMicrogons ?? props.microgons);
 const moveMicronots = computed(() => props.moveMicronots ?? props.micronots);
+const argonTransferPending = ref(false);
+const argonotTransferPending = ref(false);
+const canMoveToDestination = computed(
+  () => props.moveTo !== MoveTo.External || isValidArgonAccountAddress(props.externalAddress?.trim() ?? ''),
+);
+const argonMoveTitle = computed(() =>
+  !moveMicrogons.value
+    ? 'No ARGN available to move'
+    : canMoveToDestination.value
+      ? 'Move ARGN'
+      : 'Enter a valid Argon address',
+);
+const argonotMoveTitle = computed(() =>
+  !moveMicronots.value
+    ? 'No ARGNOT available to move'
+    : canMoveToDestination.value
+      ? 'Move ARGNOT'
+      : 'Enter a valid Argon address',
+);
 
 const emit = defineEmits<{
   (
@@ -142,7 +147,19 @@ const emit = defineEmits<{
       availableAmount: bigint;
     },
   ): void;
+  (e: 'customTransferStarted'): void;
 }>();
+
+function updateTransferPending(moveToken: MoveToken, isPending: boolean) {
+  if (moveToken === MoveToken.ARGN) {
+    argonTransferPending.value = isPending;
+  } else {
+    argonotTransferPending.value = isPending;
+  }
+  if (isPending && props.moveTo === MoveTo.External) {
+    emit('customTransferStarted');
+  }
+}
 
 function openTransferOverlay(moveToken: MoveToken.ARGN | MoveToken.ARGNOT, availableAmount: bigint) {
   if (!props.moveDirection) {

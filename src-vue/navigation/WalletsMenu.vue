@@ -31,7 +31,7 @@
               @select.prevent="openWallet(wallet)"
             >
               <div class="flex flex-col">
-                <header>{{ wallet.name }}</header>
+                <header>{{ getEthereumWalletDisplayName(wallet.name) }}</header>
                 <p>{{ abbreviateAddress(wallet.address, 8) }}</p>
               </div>
             </DropdownMenuItem>
@@ -72,7 +72,7 @@ import {
   DropdownMenuTrigger,
 } from 'reka-ui';
 import { useWallets } from '../stores/wallets.ts';
-import { WalletType } from '../lib/Wallet.ts';
+import { getEthereumWalletDisplayName, WalletType } from '../lib/Wallet.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { abbreviateAddress } from '../lib/Utils.ts';
 import type { IWalletRecord } from '../lib/db/WalletsTable.ts';

@@ -649,10 +649,6 @@ function getExternalFeeBalanceWei(networkName?: string) {
     return wallets.ethereumWallet.otherTokens.find(x => x.symbol === 'ETH')?.value ?? 0n;
   }
 
-  if (networkName === 'Base') {
-    return wallets.baseWallet.otherTokens.find(x => x.symbol === 'ETH')?.value ?? 0n;
-  }
-
   return 0n;
 }
 

@@ -17,6 +17,7 @@
     @returnToTransferWalletChooser="returnToTransferWalletChooser"
     @addNewWallet="addNewWallet"
     @addExternalEthereum="addExternalEthereum"
+    @selectCustomArgonAddress="selectCustomArgonAddress"
     @completeAddWallet="completeAddWallet"
     @close="closeOverlay"
   />
@@ -48,6 +49,8 @@ import {
   selectPrimaryWallet,
   selectTransferWallet,
   showAddWalletOnTransferSide,
+  showCustomArgonAddressOnTransferSide,
+  shouldLoadEthereumWalletSelection,
   toggleWalletTransferDirection,
   type IWalletOverlayState,
   type IWalletSelection,
@@ -118,6 +121,12 @@ function addExternalEthereum(direction: IWalletTransferDirection) {
 
 function addNewWallet(direction: IWalletTransferDirection) {
   showSidecarAddWallet(direction, 'external');
+}
+
+function selectCustomArgonAddress(direction: IWalletTransferDirection) {
+  if (!openWallet.value || direction !== 'out') return;
+  const nextState = showCustomArgonAddressOnTransferSide(openWallet.value, direction);
+  openWallet.value.transferOut = nextState.transferOut;
 }
 
 function showSidecarAddWallet(direction: IWalletTransferDirection, initialStep: 'choice' | 'external') {
@@ -219,7 +228,10 @@ function getRequestedWallet(
 }
 
 async function activateEthereumWallet(wallet: IWalletSelection) {
-  if (isEthereumWalletSelection(wallet) && walletStore.activeEthereumWalletRecordId !== wallet.walletRecord.id) {
+  const balanceUpdatedAt = isEthereumWalletSelection(wallet)
+    ? walletStore.getEthereumWalletRecord(wallet.walletRecord.id).balanceUpdatedAt
+    : undefined;
+  if (shouldLoadEthereumWalletSelection(wallet, walletStore.activeEthereumWalletRecordId, balanceUpdatedAt)) {
     await walletStore.selectEthereumWalletRecord(wallet.walletRecord.id);
   }
 }

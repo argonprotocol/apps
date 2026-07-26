@@ -16,7 +16,7 @@
         class="absolute top-0 left-0 w-full text-slate-700/50 data-[motion=from-start]:animate-enterFromLeft data-[motion=from-end]:animate-enterFromRight data-[motion=to-start]:animate-exitToLeft data-[motion=to-end]:animate-exitToRight sm:w-auto"
       >
         <ul class="bg-argon-menu-bg min-w-72 rounded p-1 text-sm text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-          <li class="flex items-center justify-between gap-6 px-3 py-2.5">
+          <li v-if="returnRows.length > 0" class="flex items-center justify-between gap-6 px-3 py-2.5">
             <div>
               <div class="font-semibold text-slate-700">Return on Capital</div>
               <div class="text-xs font-normal text-slate-500">
@@ -51,7 +51,7 @@
             </div>
           </li>
 
-          <li divider class="my-1 h-px w-full bg-slate-400/30" />
+          <li v-if="returnRows.length > 0" divider class="my-1 h-px w-full bg-slate-400/30" />
 
           <li v-for="group in returnRows" :key="group.key" class="px-3 py-2">
             <div class="flex items-start justify-between gap-6">

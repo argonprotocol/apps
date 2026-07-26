@@ -11,6 +11,8 @@ import {
   selectPrimaryWallet,
   selectTransferWallet,
   showAddWalletOnTransferSide,
+  showCustomArgonAddressOnTransferSide,
+  shouldLoadEthereumWalletSelection,
   toggleWalletTransferDirection,
   type IWalletOverlayState,
   type IWalletSelection,
@@ -21,7 +23,7 @@ const defaultArgonRecord = {
   id: 1,
   walletType: 'argon',
   role: 'defaultArgon',
-  name: 'Argon Wallet',
+  name: 'Internal App Wallet',
   address: 'argon-address',
   sortOrder: 0,
   createdAt: new Date(),
@@ -52,6 +54,24 @@ const primaryWallet = {
 const transferWallet = { walletType: WalletType.defaultArgon } satisfies IWalletSelection;
 
 describe('wallet overlay state', () => {
+  describe('Ethereum wallet loading', () => {
+    it('loads the first wallet when it is already active but has no balance observation', () => {
+      expect(shouldLoadEthereumWalletSelection(primaryWallet, ethereumA.id, undefined)).toBe(true);
+    });
+
+    it('does not reload an already-active wallet with a balance observation', () => {
+      expect(shouldLoadEthereumWalletSelection(primaryWallet, ethereumA.id, new Date('2026-07-22T12:00:00Z'))).toBe(
+        false,
+      );
+    });
+
+    it('loads a different Ethereum wallet', () => {
+      expect(shouldLoadEthereumWalletSelection(primaryWallet, ethereumB.id, new Date('2026-07-22T12:00:00Z'))).toBe(
+        true,
+      );
+    });
+  });
+
   it('lists built-in wallets and each wallet other than the primary wallet', () => {
     const available = getAvailableWalletSelections([defaultArgonRecord, ethereumA, ethereumB], [primaryWallet], true);
 
@@ -115,6 +135,13 @@ describe('wallet overlay state', () => {
     });
   });
 
+  it('opens a custom Argon address on an active transfer side', () => {
+    expect(showCustomArgonAddressOnTransferSide({ primaryWallet, transferOut: {} }, 'out')).toEqual({
+      primaryWallet,
+      transferOut: { customArgonAddress: true },
+    });
+  });
+
   it('replacing the primary wallet closes both transfer sidecars', () => {
     expect(
       selectPrimaryWallet({ primaryWallet, transferIn: {}, transferOut: { wallet: transferWallet } }, transferWallet),
@@ -122,7 +149,17 @@ describe('wallet overlay state', () => {
   });
 
   it('keeps the established default Argon wallet name', () => {
-    expect(getWalletSelectionName(transferWallet)).toBe('Native Argon Wallet');
+    expect(getWalletSelectionName(transferWallet)).toBe('Internal App Wallet');
+  });
+
+  it('appends Wallet to Ethereum display names without duplicating the suffix', () => {
+    expect(getWalletSelectionName(primaryWallet)).toBe('Default Ethereum Wallet');
+    expect(
+      getWalletSelectionName({
+        walletType: WalletType.ethereum,
+        walletRecord: { ...ethereumA, name: 'Trading Wallet' },
+      }),
+    ).toBe('Trading Wallet');
   });
 
   it('labels cross-network transfers as moves', () => {

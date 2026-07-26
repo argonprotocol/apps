@@ -58,3 +58,8 @@ export function getWalletTotalValue(wallet: IWallet, currency: Currency): bigint
   }, 0n);
   return wallet.totalMicrogons + micronotValue + otherTokenValue;
 }
+
+export function getEthereumWalletDisplayName(name: string): string {
+  const trimmedName = name.trim();
+  return /(?:^|\s)wallet$/i.test(trimmedName) ? trimmedName : `${trimmedName} Wallet`;
+}

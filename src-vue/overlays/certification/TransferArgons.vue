@@ -11,7 +11,7 @@
       When you start this task, Argon will point you to the wallet button in the sidebar. Open your Argon wallet, choose
       the Ethereum wallet holding the ARGN you acquired through Uniswap, set the direction from Ethereum to Argon, then
       click
-      <code>JUMP</code>
+      <strong>Move</strong>
       next to ARGN and follow the transfer prompts.
     </p>
   </div>

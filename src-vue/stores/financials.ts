@@ -7,13 +7,14 @@ import { getArgonBonds } from './argonBonds.ts';
 import { getBlockWatch } from './mainchain.ts';
 import {
   type ArgonQueryClient,
+  calculateRestabilizationLeverage,
   calculatePerformanceReturn,
   type IBlockHeaderInfo,
   type IPerformanceReturnInput,
   UnitOfMeasurement,
 } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
-import { MICROGONS_PER_ARGON, Vault } from '@argonprotocol/mainchain';
+import { Vault } from '@argonprotocol/mainchain';
 import { getVaults, getMyVault } from './vaults.ts';
 import {
   financialGroups,
@@ -63,6 +64,7 @@ export const useFinancials = defineStore('financials', () => {
   let myMiningSeats: ReturnType<typeof getMyMiningSeats> | undefined;
   let miningFinancials: MiningFinancials | undefined;
   let vaultingStats: ReturnType<typeof useVaultingStats> | undefined;
+  const microgonsInCirculation = Vue.ref(0n);
 
   const isLoaded = Vue.ref(false);
   const financialPositionBook = Vue.shallowReactive(new FinancialPositionBook());
@@ -126,11 +128,11 @@ export const useFinancials = defineStore('financials', () => {
   });
 
   function publishEthereumWallet(): void {
-    if (!wallets.ethereumWallet.address) {
+    if (!wallets.ethereumWallets.length) {
       financialPositionBook.publish(financialPositionBook.beginRefresh('ethereum'), [], { observedAt: new Date() });
       return;
     }
-    if (!wallets.ethereumWallet.balanceUpdatedAt && !wallets.ethereumWallet.fetchErrorMsg) return;
+    if (wallets.ethereumWallets.some(({ wallet }) => !wallet.balanceUpdatedAt && !wallet.fetchErrorMsg)) return;
 
     const refresh = financialPositionBook.beginRefresh('ethereum');
     const positions: IFinancialPosition[] = [...wallets.ethereumFinancialPositions];
@@ -151,19 +153,14 @@ export const useFinancials = defineStore('financials', () => {
     financialPositionBook.publish(refresh, positions, {
       observedAt: new Date(),
     });
-    if (wallets.ethereumWallet.balanceIsCached) {
+    if (wallets.ethereumWallets.some(({ wallet }) => wallet.balanceIsCached)) {
       financialPositionBook.fail(refresh, 'Refreshing cached Ethereum balances');
     }
   }
 
-  function publishBaseWallet(): void {
-    if (!wallets.baseWallet.balanceUpdatedAt && !wallets.baseWallet.fetchErrorMsg) return;
-
+  function publishEmptyBaseGroup(): void {
     const refresh = financialPositionBook.beginRefresh('base');
-    financialPositionBook.publish(refresh, wallets.baseFinancialPositions, { observedAt: new Date() });
-    if (wallets.baseWallet.balanceIsCached) {
-      financialPositionBook.fail(refresh, 'Refreshing cached Base balances');
-    }
+    financialPositionBook.publish(refresh, [], { observedAt: new Date() });
   }
 
   function getMyMiningSeatsSource() {
@@ -195,9 +192,14 @@ export const useFinancials = defineStore('financials', () => {
   }
 
   async function loadEnabledDomainSources(): Promise<void> {
-    const loads: Promise<unknown>[] = [];
+    const loads: Promise<unknown>[] = [
+      getVaultingStatsSource().isLoadedPromise,
+      currency.fetchMicrogonsInCirculation().then(value => {
+        microgonsInCirculation.value = value;
+      }),
+    ];
     if (config.hasExtensionTreasury) {
-      loads.push(argonBonds.load(), bitcoinLocks.load(), vaultStore.load(), getVaultingStatsSource().isLoadedPromise);
+      loads.push(argonBonds.load(), bitcoinLocks.load(), vaultStore.load());
     }
     if (config.hasExtensionOperations) {
       loads.push(getMyMiningSeatsSource().isLoadedPromise, myVault.load());
@@ -569,14 +571,13 @@ export const useFinancials = defineStore('financials', () => {
   });
 
   const savingsRestabilizationPower = Vue.computed(() => {
-    if (!config.isLoaded || !config.hasExtensionTreasury) return 0;
+    if (!config.isLoaded) return 0;
 
     const source = getVaultingStatsSource();
-    const microgonValueInVaults = source.microgonValueInVaults;
-    if (!microgonValueInVaults) return 0;
-
-    const microgonBurnCapacity = BigInt(Math.round(source.argonBurnCapacity * MICROGONS_PER_ARGON));
-    return BigNumber(microgonBurnCapacity).dividedBy(microgonValueInVaults).toNumber();
+    return calculateRestabilizationLeverage({
+      argonBurnCapacity: source.argonBurnCapacity,
+      microgonsInCirculation: microgonsInCirculation.value,
+    });
   });
 
   const savingsIsLoaded = Vue.ref(false);
@@ -733,7 +734,7 @@ export const useFinancials = defineStore('financials', () => {
   );
 
   Vue.watch(
-    () => wallets.ethereumWallet,
+    () => wallets.ethereumWallets,
     () => {
       if (!isLoaded.value) return;
       publishEthereumWallet();
@@ -753,15 +754,6 @@ export const useFinancials = defineStore('financials', () => {
         void refreshStableSwapPosition();
       }
     },
-  );
-
-  Vue.watch(
-    () => wallets.baseWallet,
-    () => {
-      if (!isLoaded.value) return;
-      publishBaseWallet();
-    },
-    { deep: true },
   );
 
   Vue.watch(
@@ -921,8 +913,7 @@ export const useFinancials = defineStore('financials', () => {
       wallets.defaultArgonWallet.address,
       wallets.miningBotWallet.address,
       wallets.operationalWallet.address,
-      wallets.ethereumWallet.address,
-      wallets.baseWallet.address,
+      ...wallets.ethereumWallets.map(({ wallet }) => wallet.address),
     ].filter(Boolean);
     financialPositionBook.setScope({
       ownedAccounts: [...new Set(ownedAccounts)],
@@ -960,7 +951,7 @@ export const useFinancials = defineStore('financials', () => {
       },
     });
     savingsIsLoaded.value = true;
-    publishBaseWallet();
+    publishEmptyBaseGroup();
     void refreshStableSwapPosition();
     if (config.hasExtensionTreasury) startLockSummaryProgressRefresh();
 

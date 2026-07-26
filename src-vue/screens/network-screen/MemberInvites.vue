@@ -489,7 +489,7 @@ async function regenerateInvite(invite: IMemberInvite) {
 }
 
 function getMemberInviteUrl(invite: IMemberInvite): string {
-  return `${NetworkConfig.get().websiteHost}/invite/${InviteEnvelope.encode({
+  return `${NetworkConfig.websiteHost}/invite/${InviteEnvelope.encode({
     ...UpstreamOperatorClient.getInviteEndpoint(config.serverDetails),
     inviteCode: invite.inviteCode,
   })}`;

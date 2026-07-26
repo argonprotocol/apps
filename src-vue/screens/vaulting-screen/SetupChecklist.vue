@@ -18,7 +18,7 @@
         <p class="text-argon-text-primary leading-7 mt-6 mb-8">
           Creating a new Stabilization Vault is easy. This page walks you through the entire process. The biggest
           task is figuring out how much capital you want to commit, which you'll do in Vault Settings (the second item on
-          this checklist). <a target="_blank" href="https://argon.network/docs/vaulting-operations">Learn more about
+          this checklist). <a target="_blank" :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/vaulting-operations`">Learn more about
           vaulting</a>.
         </p>
 
@@ -163,7 +163,7 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
-import { MICROGONS_PER_ARGON } from '@argonprotocol/apps-core';
+import { MICROGONS_PER_ARGON, NetworkConfig } from '@argonprotocol/apps-core';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { getConfig } from '../../stores/config.ts';
 import { useWallets } from '../../stores/wallets.ts';

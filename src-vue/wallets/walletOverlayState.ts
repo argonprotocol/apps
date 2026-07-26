@@ -1,5 +1,5 @@
 import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
-import { WalletType } from '../lib/Wallet.ts';
+import { getEthereumWalletDisplayName, WalletType } from '../lib/Wallet.ts';
 
 export const WALLET_MOVE_LABEL = 'MOVE';
 
@@ -12,6 +12,7 @@ export type IWalletSetupStep = 'choice' | 'external';
 export type IWalletTransferSideState = {
   wallet?: IWalletSelection;
   addWalletStep?: IWalletSetupStep;
+  customArgonAddress?: boolean;
 };
 
 export type IWalletOverlayState = {
@@ -95,6 +96,14 @@ export function showAddWalletOnTransferSide(
   return state[key] ? { ...state, [key]: { addWalletStep: initialStep } } : state;
 }
 
+export function showCustomArgonAddressOnTransferSide(
+  state: IWalletOverlayState,
+  direction: IWalletTransferDirection,
+): IWalletOverlayState {
+  const key = direction === 'in' ? 'transferIn' : 'transferOut';
+  return state[key] ? { ...state, [key]: { customArgonAddress: true } } : state;
+}
+
 export function getWalletSelectionKey(wallet: IWalletSelection): string {
   if (wallet.walletType === WalletType.ethereum) {
     return `ethereum:${wallet.walletRecord.id}`;
@@ -105,14 +114,24 @@ export function getWalletSelectionKey(wallet: IWalletSelection): string {
 
 export function getWalletSelectionName(wallet: IWalletSelection): string {
   if (wallet.walletType === WalletType.ethereum) {
-    return wallet.walletRecord.name;
+    return getEthereumWalletDisplayName(wallet.walletRecord.name);
   }
 
-  return wallet.walletType === WalletType.miningBot ? 'Mining Wallet' : 'Native Argon Wallet';
+  return wallet.walletType === WalletType.miningBot ? 'Mining Wallet' : 'Internal App Wallet';
 }
 
 export function isEthereumWalletSelection(
   wallet: IWalletSelection,
 ): wallet is Extract<IWalletSelection, { walletType: WalletType.ethereum }> {
   return wallet.walletType === WalletType.ethereum;
+}
+
+export function shouldLoadEthereumWalletSelection(
+  wallet: IWalletSelection,
+  activeEthereumWalletRecordId: number | undefined,
+  balanceUpdatedAt: Date | undefined,
+): wallet is Extract<IWalletSelection, { walletType: WalletType.ethereum }> {
+  return (
+    isEthereumWalletSelection(wallet) && (activeEthereumWalletRecordId !== wallet.walletRecord.id || !balanceUpdatedAt)
+  );
 }

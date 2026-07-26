@@ -1,45 +1,23 @@
 <template>
   <HoverCardRoot :open="isHovered && !!activeTransfer" :openDelay="0">
-    <div
-      class="absolute top-1/2 z-40 -translate-x-1/2 -translate-y-1/2"
-      :class="props.placement === 'left' ? '-left-1' : 'left-[calc(100%+4px)]'"
-    >
-      <div class="absolute top-1 left-0 z-10 h-[calc(100%-8px)] w-[15%] bg-linear-to-r from-white to-transparent" />
-      <div class="relative h-[45.6px]">
-        <HoverCardTrigger :asChild="true">
-          <button
-            :data-testid="getMoveButtonTestId()"
-            type="button"
-            :aria-disabled="isMoveDisabled"
-            :title="isMoveDisabled ? `No ${props.moveToken} available to move` : `Move ${props.moveToken}`"
-            class="h-full"
-            :class="isMoveDisabled ? 'cursor-default' : 'cursor-pointer'"
-            @mouseenter="isHovered = true"
-            @mouseleave="isHovered = false"
-            @click="openTransferOverlay"
-          >
-            <div
-              v-if="hasPendingTransfer"
-              spinner
-              class="absolute top-1/2 right-4 z-20 h-5 w-5 -translate-y-1/2 border-3"
-            />
-            <div
-              v-else
-              class="absolute inset-0 flex items-center justify-center text-sm font-bold"
-              :class="isMoveDisabled ? 'text-slate-500 opacity-30' : 'text-argon-600'"
-            >
-              <span class="relative right-1.5 z-20">{{ WALLET_MOVE_LABEL }}</span>
-            </div>
-            <MoveArrow class="pointer-events-none h-full" />
-          </button>
-        </HoverCardTrigger>
+    <HoverCardTrigger :asChild="true">
+      <MoveArrowButton
+        :disabled="isMoveDisabled"
+        :pending="hasPendingTransfer"
+        :placement="props.placement"
+        :testId="getMoveButtonTestId()"
+        :title="isMoveDisabled ? `No ${props.moveToken} available to move` : `Move ${props.moveToken}`"
+        @mouseenter="isHovered = true"
+        @mouseleave="isHovered = false"
+        @click="openTransferOverlay"
+      >
         <ArrowCalloutButton
           v-if="showInboundArgonGuide"
           guidance="Click MOVE to transfer your Uniswap ARGN into this Argon wallet."
           class="absolute top-1/2 left-full z-50 ml-3 -translate-y-1/2"
         />
-      </div>
-    </div>
+      </MoveArrowButton>
+    </HoverCardTrigger>
 
     <HoverCardPortal>
       <HoverCardContent
@@ -146,7 +124,6 @@ import ProgressBar from '../../components/ProgressBar.vue';
 import type { IArgonWalletType, IEthereumMoveToken } from '../../interfaces/IEthereumInboundTransferTracker.ts';
 import type { IEthereumInboundActiveTransfer } from '../../lib/EthereumInboundTransferTracker.ts';
 import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
-import MoveArrow from '../../assets/move-arrow.svg';
 import { formatEvmNativeFeeWei } from '../../lib/Utils.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import numeral from '../../lib/numeral.ts';
@@ -155,7 +132,6 @@ import { getCurrency } from '../../stores/currency.ts';
 import { getEthereumMoveTracker } from '../../stores/moveFromEthereum.ts';
 import { getEthereumOutboundTransferTracker } from '../../stores/moveToEthereum.ts';
 import { loadEthereumChainConfig } from '../../lib/EthereumClient.ts';
-import { WALLET_MOVE_LABEL } from '../walletOverlayState.ts';
 import {
   getCrosschainTransferProgressView,
   isCrosschainTransferVisible,
@@ -164,6 +140,7 @@ import {
 } from './crosschainTransferView.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 import { useCertificationController } from '../../stores/certificationController.ts';
+import MoveArrowButton from './MoveArrowButton.vue';
 
 const props = defineProps<{
   moveToken: IEthereumMoveToken;
@@ -321,22 +298,3 @@ function getArgonWalletLabel(walletType?: IArgonWalletType) {
   }
 }
 </script>
-
-<style>
-[spinner] {
-  border-radius: 50%;
-  display: block;
-  border-style: solid;
-  border-color: rgba(166, 0, 212, 0.15) rgba(166, 0, 212, 0.25) rgba(166, 0, 212, 0.35) rgba(166, 0, 212, 0.5);
-  animation: rotation 1s linear infinite;
-}
-
-@keyframes rotation {
-  0% {
-    transform: translateY(-50%) rotate(0deg);
-  }
-  100% {
-    transform: translateY(-50%) rotate(360deg);
-  }
-}
-</style>

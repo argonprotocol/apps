@@ -77,7 +77,7 @@
                   <NavigationMenuContent class="absolute top-0 left-0 w-full sm:w-auto">
                     <ul class="min-w-50 bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
                       <NavigationMenuLink MenuItem @click="openWallet(WalletType.defaultArgon)">
-                        <header>Argon Wallet</header>
+                        <header>Internal App Wallet</header>
                       </NavigationMenuLink>
                       <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
                       <NavigationMenuLink MenuItem @click="openWallet(WalletType.ethereum)">
@@ -113,11 +113,11 @@
                   </NavigationMenuTrigger>
                   <NavigationMenuContent class="absolute top-0 left-0 w-full sm:w-auto">
                     <ul class="min-w-56 bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-                      <NavigationMenuLink MenuItem @click="() => void openLink('https://argon.network/docs')">
+                      <NavigationMenuLink MenuItem @click="() => void openLink(`${NetworkConfig.websiteHost}/docs`)">
                         <header>Documentation</header>
                       </NavigationMenuLink>
-                      <NavigationMenuLink MenuItem @click="() => void openLink('https://argon.network/faq')">
-                        <header>Frequently Asked Questions</header>
+                      <NavigationMenuLink MenuItem @click="() => void openLink(`${NetworkConfig.websiteHost}/docs/getting-started/frequent-questions`)">
+                        <header>Frequent Questions</header>
                       </NavigationMenuLink>
                       <NavigationMenuLink
                         MenuItem
@@ -172,6 +172,7 @@ import { OperationalStepId, useCertificationController } from '../stores/certifi
 import { useBasics } from '../stores/basics.ts';
 import { WalletType } from '../lib/Wallet.ts';
 import { getConfig } from '../stores/config.ts';
+import { NetworkConfig } from '@argonprotocol/apps-core';
 
 const tour = useTour();
 const basics = useBasics();

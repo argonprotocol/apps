@@ -38,7 +38,7 @@ describe('Vaults load retry', () => {
     expect(vaults.stats?.synchedToFrame).toBe(0);
   });
 
-  it('replaces an old local cache with the published stats version', async () => {
+  it('migrates a v1 local cache and preserves locally collected vault history', async () => {
     const miningFrames = {
       load: vi.fn().mockResolvedValue(undefined),
     };
@@ -51,12 +51,15 @@ describe('Vaults load retry', () => {
     };
     const mainchainClients = { get: vi.fn().mockResolvedValue(client) };
     const cachedStats = createStats([createFrame({ frameId: 20 })]);
+    cachedStats.formatVersion = 1;
     const vaults = new CachedVaults(cachedStats, miningFrames, mainchainClients);
 
     await vaults.load();
 
     expect(vaults.stats).not.toBe(cachedStats);
     expect(vaults.stats?.formatVersion).toBe(VAULT_STATS_FORMAT_VERSION);
+    expect(vaults.stats?.vaultsById).toBe(cachedStats.vaultsById);
+    expect(vaults.stats?.argonotStakingByFrame).toEqual([]);
   });
 });
 
@@ -93,13 +96,14 @@ describe('Vault and bond network returns', () => {
     expect(vaults.calculateApy()).toBeCloseTo((1.1 ** 365 - 1) * 100);
     expect(vaults.calculateVaultApr(1)).toBeCloseTo(3_650);
     expect(vaults.calculateVaultApy(1)).toBeCloseTo((1.1 ** 365 - 1) * 100);
-    expect(vaults.calculateBondsApr()).toBeCloseTo(2_190);
+    expect(vaults.calculateArgonBondsApr()).toBeCloseTo(2_190);
   });
 
   it('weights global and single-vault returns by recorded frame capital', () => {
     const vaults = createVaults();
     vaults.stats = {
       synchedToFrame: 20,
+      argonotStakingByFrame: [],
       vaultsById: {
         1: createVaultStats([
           createFrame({
@@ -166,7 +170,7 @@ describe('Vault and bond network returns', () => {
       }),
     ]);
     expect(() => incompleteVaults.calculateApr()).toThrow('coupon');
-    expect(incompleteVaults.calculateBondsApr()).toBeCloseTo(2_190);
+    expect(incompleteVaults.calculateArgonBondsApr()).toBeCloseTo(2_190);
   });
 
   it('does not manufacture returns from zero-capital frames', () => {
@@ -182,7 +186,57 @@ describe('Vault and bond network returns', () => {
 
     expect(vaults.calculateApr()).toBe(0);
     expect(vaults.calculateApy()).toBe(0);
-    expect(vaults.calculateBondsApr()).toBe(0);
+    expect(vaults.calculateArgonBondsApr()).toBe(0);
+  });
+
+  it('calculates Argonot staking APR from historical frame rewards and price-valued capital', () => {
+    const vaults = createVaults();
+    vaults.stats = {
+      formatVersion: VAULT_STATS_FORMAT_VERSION,
+      synchedToFrame: 20,
+      argonotStakingByFrame: [
+        {
+          frameId: 20,
+          poolDistributed: 100n,
+          participatingBonds: 10,
+          microgonsPerArgonot: 100n,
+        },
+        {
+          frameId: 19,
+          poolDistributed: 900n,
+          participatingBonds: 10,
+          microgonsPerArgonot: 900n,
+        },
+        {
+          frameId: 10,
+          poolDistributed: 1_000_000n,
+          participatingBonds: 1,
+          microgonsPerArgonot: 1n,
+        },
+      ],
+      vaultsById: {},
+    };
+
+    expect(vaults.calculateArgonotStakingApr()).toBeCloseTo(3_650);
+  });
+
+  it('returns zero Argonot staking APR without price-valued participating capital', () => {
+    const vaults = createVaults();
+    vaults.stats = {
+      formatVersion: VAULT_STATS_FORMAT_VERSION,
+      synchedToFrame: 20,
+      argonotStakingByFrame: [
+        {
+          frameId: 20,
+          poolDistributed: 100n,
+          participatingBonds: 0,
+          microgonsPerArgonot: 100n,
+        },
+      ],
+      vaultsById: {},
+    };
+
+    expect(vaults.calculateArgonotStakingApr()).toBe(0);
   });
 
   it('calculates restabilization leverage from caller-supplied circulation', () => {
@@ -222,6 +276,7 @@ function createVaults(): Vaults {
 function createStats(frames: IVaultFrameStats[]): IAllVaultStats {
   return {
     synchedToFrame: 20,
+    argonotStakingByFrame: [],
     vaultsById: {
       1: createVaultStats(frames),
     },

@@ -2,7 +2,7 @@
   <div class="flex h-full flex-col text-black/90">
     <div class="mx-1 border-t border-slate-300 px-4 py-6 text-center">
       <div class="text-argon-700/70 flex flex-row justify-center text-6xl font-bold">
-        {{ currency.symbol }}
+        <span>{{ currency.symbol }}</span>
         <FormattedMoney :isLoaded="walletValueIsLoaded" :value="walletTotalValue" />
       </div>
       <div class="mt-2 h-[29px] shrink-0">
@@ -34,11 +34,13 @@
           :moveDirection="props.transferDirection"
           :moveFrom="props.moveFrom"
           :moveTo="props.moveTo"
+          :externalAddress="props.externalAddress"
           :networkName="props.transferDirection ? 'Ethereum' : ''"
           :feeTokenSymbol="props.transferDirection ? 'ETH' : ''"
           :indentLeft="props.indentTokensLeft"
           :indentRight="props.indentTokensRight"
           @openTransferOverlay="emit('openTransferOverlay', $event)"
+          @customTransferStarted="emit('customTransferStarted')"
         />
       </div>
     </div>
@@ -78,6 +80,7 @@ const props = defineProps<{
   transferDirection?: 'transferToArgon' | 'transferOutOfArgon';
   moveFrom?: MoveFrom;
   moveTo?: MoveTo;
+  externalAddress?: string;
   indentTokensLeft?: boolean;
   indentTokensRight?: boolean;
   showGuidance?: boolean;
@@ -86,6 +89,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (event: 'openTransferOverlay', transfer: { moveToken: IEthereumMoveToken; availableAmount: bigint }): void;
+  (event: 'customTransferStarted'): void;
 }>();
 
 const financials = useFinancials();

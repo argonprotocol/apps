@@ -108,7 +108,7 @@
 
           </div>
           <div class="text-center mt-6">
-            <a href="https://argon.network/docs/desktop-app/treasury">Learn more</a>
+            <a :href="`${NetworkConfig.websiteHost}/docs/desktop-app/treasury-extension`">Learn more</a>
           </div>
         </div>
       </div>
@@ -125,6 +125,7 @@ import { createNumeralHelpers } from '../lib/numeral.ts';
 import MemberInvites from './network-screen/MemberInvites.vue';
 import { getConfig } from '../stores/config.ts';
 import { useCertificationController } from '../stores/certificationController.ts';
+import { NetworkConfig } from '@argonprotocol/apps-core';
 
 const config = getConfig();
 const networkStats = useNetworkStats();

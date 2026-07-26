@@ -17,7 +17,7 @@
       <DropdownMenuContent
         align="start"
         :side="props.side"
-        :sideOffset="8"
+        :sideOffset="props.sideOffset"
         :style="floatingZIndex"
         class="bg-argon-menu-bg min-w-72 rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20"
       >
@@ -29,6 +29,7 @@
           @select="emit('select', wallet)"
         >
           <CheckIcon
+            v-if="props.showSelectedIndicator"
             class="mr-2 h-4 w-4 shrink-0"
             :class="getWalletSelectionKey(wallet) === selectedWalletKey ? 'visible' : 'invisible'"
           />
@@ -43,7 +44,8 @@
         <DropdownMenuSeparator class="mx-2 my-1 h-px bg-slate-300" />
         <DropdownMenuItem
           :data-testid="`${props.testIdPrefix}.addNewWallet()`"
-          class="focus:bg-argon-menu-hover flex cursor-pointer items-center rounded py-2 pr-3 pl-9 text-slate-700 focus:outline-none"
+          class="focus:bg-argon-menu-hover flex cursor-pointer items-center rounded py-2 pr-3 text-slate-700 focus:outline-none"
+          :class="props.showSelectedIndicator ? 'pl-9' : 'pl-3'"
           @select="addNewWallet"
         >
           + Add Ethereum Wallet
@@ -92,10 +94,14 @@ const props = withDefaults(
     walletSelections: IWalletSelection[];
     testIdPrefix: string;
     side?: 'top' | 'right' | 'bottom' | 'left';
+    sideOffset?: number;
     getName?: (wallet: IWalletSelection) => string;
+    showSelectedIndicator?: boolean;
   }>(),
   {
     side: 'bottom',
+    sideOffset: 8,
+    showSelectedIndicator: true,
   },
 );
 

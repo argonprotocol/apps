@@ -4600,6 +4600,7 @@ __metadata:
     eslint-import-resolver-typescript: "npm:^4.4.4"
     eslint-plugin-import-x: "npm:4.16.1"
     events: "npm:^3.3.0"
+    gsap: "npm:^3.15.0"
     husky: "npm:^9.1.7"
     jsbi: "npm:^4.3.2"
     mitt: "npm:^3.0.1"
@@ -6812,6 +6813,13 @@ __metadata:
   version: 1.4.0
   resolution: "graphemer@npm:1.4.0"
   checksum: 10c0/e951259d8cd2e0d196c72ec711add7115d42eb9a8146c8eeda5b8d3ac91e5dd816b9cd68920726d9fd4490368e7ed86e9c423f40db87e2d8dfafa00fa17c3a31
+  languageName: node
+  linkType: hard
+
+"gsap@npm:^3.15.0":
+  version: 3.15.0
+  resolution: "gsap@npm:3.15.0"
+  checksum: 10c0/5d86de72cb0bd6b20502c34c329a83a7d679979731bb465164407b7a5225aa61d612beee740eea36258622897c116cd2ca35320d530b7cf68bad62522361fcf7
   languageName: node
   linkType: hard
 

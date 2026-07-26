@@ -76,18 +76,39 @@
           <li @click="goto(TopTab.ArgonBonds)" :class="{ Selected: controller.selectedTab === TopTab.ArgonBonds }">
             <article class="relative flex flex-row items-center">
               <div class="mr-1 w-6">
-                <BondIcon class="w-5.5 opacity-70" />
+                <ArgonBondIcon class="w-5.5 opacity-70" />
               </div>
-              <div class="grow">Argon(ot) Bonds</div>
+              <div class="grow">Argon Bonds</div>
               <div class="opacity-60">{{ currency.symbol }}{{ formatFinancialGroupValue('bonds') }}</div>
               <ArrowCalloutButton
                 v-if="
-                  controller.activeGuideId === OperationalStepId.AcquireBonds &&
+                  controller.activeGuideId === OperationalStepId.AcquireArgonBonds &&
                   controller.selectedTab !== TopTab.ArgonBonds
                 "
-                guidance="Open Argon(ot) Bonds to continue this task."
+                guidance="Open Argon Bonds to continue this task."
                 class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
               />
+            </article>
+            <div Selector />
+          </li>
+          <li
+            @click="goto(TopTab.ArgonotStaking)"
+            :class="{ Selected: controller.selectedTab === TopTab.ArgonotStaking }"
+          >
+            <article class="relative flex flex-row items-center">
+              <div class="mr-1 w-6">
+                <ArgonotBondIcon class="w-5.5 opacity-70" />
+              </div>
+              <div class="grow">Argonot Stakes</div>
+              <div class="opacity-60">{{ currency.symbol }}{{ formatFinancialGroupValue('bonds') }}</div>
+              <!--              <ArrowCalloutButton-->
+              <!--                v-if="-->
+              <!--                  controller.activeGuideId === OperationalStepId.AcquireArgonotStakes &&-->
+              <!--                  controller.selectedTab !== TopTab.ArgonotStaking-->
+              <!--                "-->
+              <!--                guidance="Open Argonot Stakes to continue this task."-->
+              <!--                class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"-->
+              <!--              />-->
             </article>
             <div Selector />
           </li>
@@ -314,7 +335,7 @@
         </div>
         <div class="text-argon-600 mt-2 flex flex-row items-center justify-center gap-x-2">
           <a
-            href="https://argon.network/docs/desktop-app/access-and-upgrades"
+            :href="`${NetworkConfig.websiteHost}/docs/desktop-app/access-codes`"
             target="_blank"
             class="cursor-pointer opacity-50 hover:opacity-100"
           >
@@ -337,13 +358,13 @@
       >
         <div class="relative flex flex-row items-center text-center font-bold whitespace-nowrap">Next Steps</div>
         <div class="relative mt-1 text-slate-700/60">
-          Finish Treasury certification
+          Become Treasury certified
           <br />
-          to be eligible for the next level!
+          to reach the next level!
         </div>
         <div class="text-argon-600 mt-2 flex flex-row items-center justify-center gap-x-2">
           <a
-            href="https://argon.network/docs/desktop-app/access-and-upgrades"
+            :href="`${NetworkConfig.websiteHost}/docs/desktop-app/access-codes`"
             target="_blank"
             class="cursor-pointer opacity-50 hover:opacity-100"
           >
@@ -358,11 +379,15 @@
       <div v-else class="relative flex grow flex-col items-center justify-center text-center text-slate-700/30">
         <div class="relative flex flex-row items-center text-center whitespace-nowrap">Explore</div>
         <div class="relative mt-px">
-          <a href="https://argon.network/docs" target="_blank" class="cursor-pointer opacity-50 hover:opacity-100">
+          <a
+            :href="`${NetworkConfig.websiteHost}/docs`"
+            target="_blank"
+            class="cursor-pointer opacity-50 hover:opacity-100"
+          >
             Docs
           </a>
           <span class="text-slate-600/40">and</span>
-          <a href="https://discord.gg/xDwwDgCYr9" target="_blank" class="cursor-pointer opacity-50 hover:opacity-100">
+          <a href="https://discord.gg/argonnetwork" target="_blank" class="cursor-pointer opacity-50 hover:opacity-100">
             Community
           </a>
         </div>
@@ -377,11 +402,7 @@
         <div
           class="border-argon-400 absolute -top-5 -left-px h-5 w-2.5 rounded-l-full border border-t-transparent border-r-transparent"
         />
-        <div
-          @click="openSelectedWallet"
-          class="wallet-summary bg-argon-100/15 h-full w-full cursor-pointer"
-          style="text-shadow: 1px 1px 0 white"
-        >
+        <div class="bg-argon-100/15 h-full w-full" style="text-shadow: 1px 1px 0 white">
           <div class="absolute top-0 left-0 h-full w-5 rounded-bl-lg bg-linear-to-r from-slate-600/10 to-transparent" />
           <div class="flex flex-col justify-center pt-1 pr-3 pl-3">
             <header class="flex w-full flex-row items-center border-b border-slate-500/20 pb-1.5!">
@@ -389,6 +410,8 @@
                 :selectedWallet="selectedWallet"
                 :walletSelections="walletSelections"
                 :getName="getWalletName"
+                :showSelectedIndicator="false"
+                :sideOffset="4"
                 testIdPrefix="LeftBar.walletMenu"
                 side="top"
                 class="hover:text-argon-700 relative -left-2"
@@ -401,11 +424,14 @@
                 :wallet="selectedWalletData"
                 :walletAddressTestId="selectedWalletAddressTestId"
                 :canExportPrivateKey="selectedWalletCanExportPrivateKey"
-                class="wallet-summary-actions justify-end gap-x-0! pr-0"
+                class="wallet-summary-actions relative -right-2 justify-end gap-x-0! pr-0"
                 @click.stop
               />
             </header>
-            <div class="flex flex-col justify-center py-7">
+            <div
+              @click="openSelectedWallet"
+              class="wallet-summary my-2 flex cursor-pointer flex-col justify-center rounded py-5"
+            >
               <div class="wallet-summary-total text-argon-600/70 flex flex-row justify-center text-5xl font-bold">
                 <span>{{ currency.symbol }}</span>
                 <FormattedMoney :isLoaded="selectedWalletBalanceIsLoaded" :value="selectedWalletBalance" />
@@ -435,7 +461,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { MoveTo } from '@argonprotocol/apps-core';
+import { MoveTo, NetworkConfig } from '@argonprotocol/apps-core';
 import { MiningSetupStatus, TopTab, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 import {
   OperationalStepId,
@@ -446,7 +472,7 @@ import { getConfig } from '../stores/config.ts';
 import FormattedMoney from '../components/FormattedMoney.vue';
 import { getBitcoinLockCoupons } from '../stores/bitcoin.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
-import { getWalletTotalValue, type IWallet, WalletType } from '../lib/Wallet.ts';
+import { getEthereumWalletDisplayName, getWalletTotalValue, type IWallet, WalletType } from '../lib/Wallet.ts';
 import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
 import { useWallets } from '../stores/wallets.ts';
 import { getCurrency } from '../stores/currency.ts';
@@ -461,7 +487,8 @@ import DiamondsIcon from '../assets/diamonds.svg?component';
 import MoreIcon from '../assets/more.svg';
 import GiftIcon from '../assets/gift.svg';
 import BitcoinIcon from '../assets/wallets/bitcoin.svg';
-import BondIcon from '../assets/bond.svg';
+import ArgonBondIcon from '../assets/wallets/tokens/argon.svg';
+import ArgonotBondIcon from '../assets/wallets/tokens/argonot.svg';
 import MiningOilIcon from '../assets/mining-oil.svg';
 import OverviewIcon from '../assets/overview.svg';
 import SwapIcon from '../assets/swap.svg';
@@ -492,7 +519,6 @@ const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm, micronotToMon
 
 const showOperationsNavigationCallouts = Vue.ref(false);
 const selectedWallet = Vue.ref<IWalletSelection>({ walletType: WalletType.defaultArgon });
-const selectedWalletIsRefreshing = Vue.ref(false);
 
 const walletSelections = Vue.computed(() => {
   return getAvailableWalletSelections(wallets.walletRecords, [], config.hasExtensionOperations);
@@ -517,7 +543,6 @@ const selectedWalletAddressTestId = Vue.computed(() => {
   return `LeftBar.${selectedWalletKey.value}Address`;
 });
 const selectedWalletBalanceIsLoaded = Vue.computed(() => {
-  if (selectedWalletIsRefreshing.value) return false;
   if (selectedWallet.value.walletType === WalletType.defaultArgon) return financials.savingsIsLoaded;
   return wallets.isLoaded;
 });
@@ -537,16 +562,16 @@ const selectedWalletBalance = Vue.computed(() => {
   return getWalletTotalValue(wallet, currency);
 });
 
-async function selectWallet(wallet: IWalletSelection) {
-  selectedWallet.value = wallet;
-  if (!isEthereumWalletSelection(wallet)) return;
-
-  selectedWalletIsRefreshing.value = true;
-  try {
-    await wallets.selectEthereumWalletRecord(wallet.walletRecord.id);
-  } finally {
-    selectedWalletIsRefreshing.value = false;
+function selectWallet(wallet: IWalletSelection) {
+  if (isEthereumWalletSelection(wallet)) {
+    basicEmitter.emit('openWalletOverlay', {
+      walletType: WalletType.ethereum,
+      ethereumWalletRecordId: wallet.walletRecord.id,
+    });
+    return;
   }
+
+  basicEmitter.emit('openWalletOverlay', { walletType: wallet.walletType });
 }
 
 function openSelectedWallet() {
@@ -561,15 +586,9 @@ function openSelectedWallet() {
   basicEmitter.emit('openWalletOverlay', { walletType: selectedWallet.value.walletType });
 }
 
-function onEthereumWalletDisconnected({ walletRecordId }: { walletRecordId: number }) {
-  if (isEthereumWalletSelection(selectedWallet.value) && selectedWallet.value.walletRecord.id === walletRecordId) {
-    selectedWallet.value = { walletType: WalletType.defaultArgon };
-  }
-}
-
 function getWalletName(wallet: IWalletSelection): string {
-  if (isEthereumWalletSelection(wallet)) return wallet.walletRecord.name;
-  return wallet.walletType === WalletType.miningBot ? 'Mining Bot Wallet' : 'Argon Wallet';
+  if (isEthereumWalletSelection(wallet)) return getEthereumWalletDisplayName(wallet.walletRecord.name);
+  return wallet.walletType === WalletType.miningBot ? 'Mining Bot Wallet' : 'Internal App Wallet';
 }
 
 function formatFinancialGroupValue(group: FinancialGroup): string {
@@ -632,11 +651,9 @@ function highlightOperationsNavigation() {
 }
 
 basicEmitter.on('highlightOperationsNavigation', highlightOperationsNavigation);
-basicEmitter.on('ethereumWalletDisconnected', onEthereumWalletDisconnected);
 
 Vue.onBeforeUnmount(() => {
   basicEmitter.off('highlightOperationsNavigation', highlightOperationsNavigation);
-  basicEmitter.off('ethereumWalletDisconnected', onEthereumWalletDisconnected);
 });
 </script>
 

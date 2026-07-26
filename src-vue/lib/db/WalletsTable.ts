@@ -77,7 +77,7 @@ export class WalletsTable extends BaseTable {
         sortOrder = excluded.sortOrder,
         keyReference = excluded.keyReference
       RETURNING *`,
-      toSqlParams([args.name ?? 'Argon Wallet', args.address, args.sortOrder ?? 0, args.keyReference]),
+      toSqlParams([args.name ?? 'Internal App Wallet', args.address, args.sortOrder ?? 0, args.keyReference]),
     );
     return this.toRecord(rows[0]);
   }

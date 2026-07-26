@@ -25,6 +25,7 @@
           <Network v-else-if="controller.selectedTab === TopTab.Network" />
 
           <ArgonBonds v-else-if="controller.selectedTab === TopTab.ArgonBonds" />
+          <ArgonotStakes v-else-if="controller.selectedTab === TopTab.ArgonotStaking" />
           <BitcoinLocks v-else-if="controller.selectedTab === TopTab.BitcoinLocks" />
           <BitcoinLoans v-else-if="controller.selectedTab === TopTab.BitcoinLoans" />
           <StableSwaps v-else-if="controller.selectedTab === TopTab.StableSwaps" />
@@ -54,7 +55,7 @@
       <GatewayRelayOverlay />
       <ServerSettingsOverlay />
       <ServerRemoveOverlay />
-      <OperationalOverlay />
+      <CertificationOverlay />
       <OperationalRewardsOverlay />
       <SecuritySettingsOverlay />
       <ImportAccountOverlay />
@@ -116,7 +117,7 @@ import MintingAuthorityRequestOverlay from './overlays/MintingAuthorityRequestOv
 import GatewayRelayOverlay from './overlays/GatewayRelayOverlay.vue';
 import ServerSettingsOverlay from './overlays/ServerSettingsOverlay.vue';
 import ServerOverlay from './overlays/ServerOverlay.vue';
-import OperationalOverlay from './overlays/OperationalOverlay.vue';
+import CertificationOverlay from './overlays/CertificationOverlay.vue';
 import OperationalRewardsOverlay from './overlays/OperationalRewardsOverlay.vue';
 import { CloseRequestedEvent, getCurrentWindow } from '@tauri-apps/api/window';
 import OperationalProfileOverlay from './overlays/OperationalProfileOverlay.vue';
@@ -136,6 +137,7 @@ import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import UpgradeToOperationsOverlay from './overlays/UpgradeToOperationsOverlay.vue';
 import UpgradeToTreasuryOverlay from './overlays/UpgradeToTreasuryOverlay.vue';
 import Onboarding from './screens/Onboarding.vue';
+import ArgonotStakes from './screens/ArgonotStakes.vue';
 
 const controller = useCertificationController();
 const config = getConfig();

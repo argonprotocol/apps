@@ -40,7 +40,7 @@
       </fieldset>
       <a
         v-if="ethereumImportMode === 'privateKey'"
-        href="https://argon.network/docs/bridgeless-transfers/metamask-wallet"
+        :href="`${NetworkConfig.websiteHost}/docs/bridgeless-transfers/connect-a-metamask-wallet`"
         target="_blank"
         rel="noopener noreferrer"
         class="text-argon-600 hover:text-argon-700 mb-3 inline-block text-sm"
@@ -49,7 +49,7 @@
       </a>
       <a
         v-else
-        href="https://argon.network/docs/bridgeless-transfers/uniswap-wallet"
+        :href="`${NetworkConfig.websiteHost}/docs/bridgeless-transfers/connect-a-uniswap-wallet`"
         target="_blank"
         rel="noopener noreferrer"
         class="text-argon-600 hover:text-argon-700 mb-3 inline-block text-sm"
@@ -73,6 +73,7 @@
         <span class="mt-4 mb-1 block text-sm font-semibold text-slate-700">Wallet Name</span>
         <input
           v-model="ethereumWalletNameInput"
+          maxlength="18"
           class="focus:border-argon-500 w-full rounded-md border border-slate-300 px-3 py-2 outline-none"
           placeholder="Name this wallet"
         />
@@ -147,6 +148,7 @@
         <span class="mb-1 block text-sm font-semibold text-slate-700">Wallet Name</span>
         <input
           v-model="ethereumWalletNameInput"
+          maxlength="18"
           class="focus:border-argon-500 w-full rounded-md border border-slate-300 px-3 py-2 outline-none"
           placeholder="Name this wallet"
         />
@@ -181,6 +183,7 @@ import type { IWallet } from '../lib/Wallet.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import { getCurrency } from '../stores/currency.ts';
 import Unicon from '../components/Unicon.vue';
+import { NetworkConfig } from '@argonprotocol/apps-core';
 
 const wallets = useWallets();
 const currency = getCurrency();

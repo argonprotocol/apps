@@ -26,7 +26,7 @@ import {
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1_000;
 export const VAULT_REVENUE_COUPON_SPEC_VERSION = 145;
-export const VAULT_STATS_FORMAT_VERSION = 1;
+export const VAULT_STATS_FORMAT_VERSION = 2;
 
 export class Vaults {
   public readonly vaultsById: { [id: number]: Vault } = {};
@@ -88,7 +88,12 @@ export class Vaults {
   }
 
   public async updateVaultRevenue(vaultId: number, frameRevenues: PalletVaultsVaultFrameRevenue[], skipSaving = false) {
-    this.stats ??= { formatVersion: VAULT_STATS_FORMAT_VERSION, synchedToFrame: 0, vaultsById: {} };
+    this.stats ??= {
+      formatVersion: VAULT_STATS_FORMAT_VERSION,
+      synchedToFrame: 0,
+      argonotStakingByFrame: [],
+      vaultsById: {},
+    };
     this.stats.vaultsById[vaultId] ??= {
       openedTick: this.vaultsById[vaultId]?.openedTick ?? 0,
       baseline: {
@@ -180,12 +185,19 @@ export class Vaults {
       }, 30e3);
     };
     try {
-      this.stats ??= { formatVersion: VAULT_STATS_FORMAT_VERSION, synchedToFrame: 0, vaultsById: {} };
+      this.stats ??= {
+        formatVersion: VAULT_STATS_FORMAT_VERSION,
+        synchedToFrame: 0,
+        argonotStakingByFrame: [],
+        vaultsById: {},
+      };
       // re-sync the last 10 frames to catch updates to revenue collection
       const oldestFrameToGet = this.stats.synchedToFrame - 10;
       const finalizedHead = this.miningFrames.blockWatch.finalizedBlockHeader;
       const frameIdsSeen = new Set<number>();
       const vaultFramesSeen = new Set<string>();
+      const argonotPoolsByFrame = new Map<number, bigint>();
+      const argonotCapitalByFrame = new Map<number, { participatingBonds: number; microgonsPerArgonot: bigint }>();
       let newestFinalizedFrameSeen = 0;
 
       await new FrameIterator(clients, this.miningFrames, 'VaultHistory').iterateFramesLimited(
@@ -201,6 +213,37 @@ export class Vaults {
             return;
           }
           newestFinalizedFrameSeen = Math.max(newestFinalizedFrameSeen, frameId);
+
+          if ('currentFrameArgonotBondParticipants' in api.query.treasury) {
+            const [participantsOption, rates, events] = await Promise.all([
+              api.query.treasury.currentFrameArgonotBondParticipants(),
+              this.currency.fetchMainchainRatesAtBlock({
+                api,
+                block: { blockHash: firstBlockMeta.blockHash },
+              }),
+              api.query.system.events(),
+            ]);
+
+            if (participantsOption.isSome) {
+              const participants = participantsOption.unwrap();
+              argonotCapitalByFrame.set(participants.frameId.toNumber(), {
+                participatingBonds: participants.totalBonds.toNumber(),
+                microgonsPerArgonot: rates.ARGNOT,
+              });
+            }
+
+            for (const { event } of events) {
+              if (
+                api.events.treasury.FrameEarningsDistributed.is(event) &&
+                'argonotBondPoolDistributed' in event.data
+              ) {
+                argonotPoolsByFrame.set(
+                  event.data.frameId.toNumber(),
+                  event.data.argonotBondPoolDistributed.toBigInt(),
+                );
+              }
+            }
+          }
 
           const vaultRevenues = await api.query.vaults.revenuePerFrameByVault.entries();
 
@@ -226,6 +269,20 @@ export class Vaults {
         },
       );
 
+      const refreshedArgonotStats = [...argonotCapitalByFrame.entries()].flatMap(
+        ([frameId, { participatingBonds, microgonsPerArgonot }]) => {
+          const poolDistributed = argonotPoolsByFrame.get(frameId);
+          if (poolDistributed === undefined) return [];
+          return [{ frameId, poolDistributed, participatingBonds, microgonsPerArgonot }];
+        },
+      );
+      const refreshedArgonotFrames = new Set(refreshedArgonotStats.map(frame => frame.frameId));
+      const retainedArgonotFrames = this.stats.argonotStakingByFrame.filter(
+        frame => !refreshedArgonotFrames.has(frame.frameId),
+      );
+      this.stats.argonotStakingByFrame = [...retainedArgonotFrames, ...refreshedArgonotStats].sort(
+        (a, b) => b.frameId - a.frameId,
+      );
       this.stats.synchedToFrame = Math.max(newestFinalizedFrameSeen, ...frameIdsSeen, this.stats.synchedToFrame);
       this.stats.formatVersion = VAULT_STATS_FORMAT_VERSION;
       await this.saveStats();
@@ -367,7 +424,7 @@ export class Vaults {
     return Math.round((epochPoolCapital / activatedSecuritization) * 100);
   }
 
-  public calculateBondsApr(): number {
+  public calculateArgonBondsApr(): number {
     const frames = this.selectReturnFrames(this.stats);
     const positions = frames.map(frame => {
       const externalEarnings = frame.treasuryPool.totalEarnings - frame.treasuryPool.vaultEarnings;
@@ -377,6 +434,28 @@ export class Vaults {
         endingCapital: startingCapital + externalEarnings,
       };
     });
+    const result = calculateAggregateReturn(positions);
+
+    return calculateAnnualPercentageRate({
+      startingValue: result.eligibleCapitalInvested,
+      endingValue: result.eligibleCapitalInvested + result.totalProfits,
+      periodDays: this.returnFrameDays,
+    });
+  }
+
+  public calculateArgonotStakingApr(): number {
+    if (!this.stats) return 0;
+
+    const oldestFrameId = this.stats.synchedToFrame - NetworkConfig.framesPerCohort + 1;
+    const positions = this.stats.argonotStakingByFrame
+      .filter(frame => frame.frameId >= oldestFrameId && frame.frameId <= this.stats!.synchedToFrame)
+      .map(frame => {
+        const startingCapital = BigInt(frame.participatingBonds) * frame.microgonsPerArgonot;
+        return {
+          startingCapital,
+          endingCapital: startingCapital + frame.poolDistributed,
+        };
+      });
     const result = calculateAggregateReturn(positions);
 
     return calculateAnnualPercentageRate({
@@ -469,6 +548,13 @@ export class Vaults {
     if (statsFromFile?.formatVersion === VAULT_STATS_FORMAT_VERSION) {
       return statsFromFile;
     }
+    if (statsFromFile?.formatVersion === 1) {
+      return {
+        ...statsFromFile,
+        formatVersion: VAULT_STATS_FORMAT_VERSION,
+        argonotStakingByFrame: [],
+      };
+    }
 
     const { synchedToFrame, vaultsById } =
       {
@@ -479,6 +565,7 @@ export class Vaults {
     const stats: IAllVaultStats = {
       formatVersion: VAULT_STATS_FORMAT_VERSION,
       synchedToFrame: synchedToFrame ?? 0,
+      argonotStakingByFrame: [],
       vaultsById: {},
     };
     for (const [vaultId, entry] of Object.entries(vaultsById ?? {})) {

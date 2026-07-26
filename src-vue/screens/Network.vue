@@ -43,9 +43,16 @@
 
         <div StatWrapper class="flex flex-col h-full border-b border-slate-400/50">
             <span>
-              {{ data.bondsAPR ? numeral(data.bondsAPR).formatIfElseCapped('< 1_000', '0,0.[0]', '0,0', 9_999) : '---' }}%
+              {{ data.argonBondsAPR ? numeral(data.argonBondsAPR).formatIfElseCapped('< 1_000', '0,0.[0]', '0,0', 9_999) : '---' }}%
             </span>
-          <label>Current Treasury Bond APR</label>
+          <label>Current Argon Bond APR</label>
+        </div>
+
+        <div StatWrapper class="flex flex-col h-full border-b border-slate-400/50">
+            <span>
+              {{ data.argonotStakingAPR ? numeral(data.argonotStakingAPR).formatIfElseCapped('< 1_000', '0,0.[0]', '0,0', 9_999) : '---' }}%
+            </span>
+          <label>Current Argonot Staking APR</label>
         </div>
 
         <div StatWrapper class="flex flex-col h-full border-b border-slate-400/50">
@@ -125,11 +132,7 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
-import {
-  BitcoinPrices,
-  calculateBitcoinRatchetReturn,
-  calculateRestabilizationLeverage,
-} from '@argonprotocol/apps-core';
+import { calculateRestabilizationLeverage } from '@argonprotocol/apps-core';
 import { getCurrency } from '../stores/currency.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { useMiningStats } from '../stores/miningStats.ts';
@@ -150,16 +153,6 @@ const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency
 const currentBlockNumber = Vue.ref(0);
 const microgonsInCirculation = Vue.ref(0n);
 const micronotsInCirculation = Vue.ref(0n);
-const bitcoinPrices = new BitcoinPrices().getDateRange(
-  dayjs.utc().subtract(1, 'year').format('YYYY-MM-DD'),
-  dayjs.utc().format('YYYY-MM-DD'),
-);
-const bitcoinAPR = calculateBitcoinRatchetReturn({
-  prices: bitcoinPrices,
-  flatFee: 2,
-  percentageFee: 5,
-  ratchetThreshold: 0.1,
-}).percent;
 
 const data = Vue.computed(() => {
   const microgonValueOfArgonots = currency.convertMicronotTo(micronotsInCirculation.value, UnitOfMeasurement.Microgon);
@@ -173,8 +166,9 @@ const data = Vue.computed(() => {
     totalMarketValueUsd: currency.isLoaded ? currency.convertMicrogonTo(totalEconomicValue, UnitOfMeasurement.USD) : 0,
     miningAPR: miningStats.averageAPR,
     vaultingAPR: vaultingStats.averageAPR,
-    bitcoinAPR,
-    bondsAPR: vaultingStats.bondsAPR,
+    bitcoinAPR: vaultingStats.bitcoinAPR,
+    argonBondsAPR: vaultingStats.argonBondsAPR,
+    argonotStakingAPR: vaultingStats.argonotStakingAPR,
     usdTargetForArgon: currency.priceIndex.argonUsdTargetPrice?.toNumber() ?? 0,
     usdForArgonot: currency.priceIndex.argonotUsdPrice?.toNumber() ?? 0,
     usdForBtc: currency.priceIndex.btcUsdPrice?.toNumber() ?? 0,

@@ -60,7 +60,7 @@
             </span>
             <div class="flex flex-row gap-x-3 items-stretch">
               <a
-                href="https://argon.network/"
+                :href="`${NetworkConfig.websiteHost}/docs`"
                 class="text-md text-argon-600 cursor-pointer"
               >
                 View Docs
@@ -95,6 +95,7 @@ import { getBitcoinLocks } from '../stores/bitcoin.ts';
 import FormattedMoney from '../components/FormattedMoney.vue';
 import DebtRecord from './treasury-screens/components/DebtRecord.vue';
 import { useFinancials } from '../stores/financials.ts';
+import { NetworkConfig } from '@argonprotocol/apps-core';
 
 dayjs.extend(utc);
 
