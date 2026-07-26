@@ -30,7 +30,7 @@
           </NavigationMenuLink>
           <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
           <template v-if="config.isLoaded && config.upstreamOperator">
-            <NavigationMenuLink MenuItem @click="() => openJurisdictionOverlay()" >
+            <NavigationMenuLink MenuItem @click="() => openSponsorOverlay()" >
               <header>View Sponsor Details</header>
             </NavigationMenuLink>
             <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
@@ -217,6 +217,10 @@ function openAboutOverlay() {
 
 function openJurisdictionOverlay() {
   basicEmitter.emit('openJurisdictionOverlay');
+}
+
+function openSponsorOverlay() {
+  basicEmitter.emit('openSponsorOverlay');
 }
 
 function openImportAccountOverlay() {

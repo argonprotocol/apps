@@ -67,7 +67,7 @@
               <span v-if="vaultingReturnToDate !== undefined">
                 {{ numeral(vaultingReturnToDate).formatIfElseCapped('< 100', '0,0.[00]', '0,0', 9_999) }}%
               </span>
-              <span>--</span>
+              <span v-else>--</span>
               <label>Vaulting RTD</label>
             </TooltipTrigger>
             <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right text-md bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 py-4 px-5 w-sm text-slate-900/60">
@@ -133,7 +133,7 @@
                     :remainder-display-value="formatMoney(bondMapRemainder)"
                     @tile-click="handleBondTileClick"
                   />
-                  <div class="w-full h-full border-2 border-dashed border-slate-400/50 text-slate-400/70 flex flex-col items-center justify-center">
+                  <div v-else class="w-full h-full border-2 border-dashed border-slate-400/50 text-slate-400/70 flex flex-col items-center justify-center">
                     No Bonds Available
                   </div>
                 </div>

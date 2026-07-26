@@ -52,19 +52,9 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import OverlayBase from './OverlayBase.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
-import { ServerType } from '../interfaces/IConfig.ts';
 import { getConfig } from '../stores/config.ts';
-import InstallProgress from '../components/InstallProgress.vue';
 import { getInstaller } from '../stores/installer.ts';
-import { getMyMiningSeats } from '../stores/myMiningSeats.ts';
 import { getBot } from '../stores/bot.ts';
-import { getEthereumBeaconApiUrl } from '../lib/EthereumClient.ts';
-import ArgonBlocksOverlay from './ArgonBlocksOverlay.vue';
-import BitcoinBlocksOverlay from './BitcoinBlocksOverlay.vue';
-import CountupClock from '../components/CountupClock.vue';
-import ActiveBidsOverlayButton from './ActiveBidsOverlayButton.vue';
-import BotHistoryOverlayButton from './BotHistoryOverlayButton.vue';
-import EthereumSyncPopover from './EthereumSyncPopover.vue';
 
 dayjs.extend(utc);
 

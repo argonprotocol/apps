@@ -66,7 +66,7 @@
             <span v-if="miningReturnSummary.percent !== undefined">
               {{ numeral(miningReturnSummary.percent).formatIfElseCapped('< 100', '0.[00]', '0,0', 9_999) }}%
             </span>
-            <span>--</span>
+            <span v-else>--</span>
             <label>Mining RTD</label>
           </TooltipTrigger>
           <TooltipContent side="bottom" :sideOffset="-10" align="end" :collisionPadding="9" class="text-right bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
@@ -142,7 +142,7 @@
                                 : `${seconds} Second${seconds === 1 ? '' : 's'}`
                           }}
                         </template>
-                        <template>
+                        <template v-else>
                           Your Next Bid Pending
                         </template>
                       </div>
@@ -166,7 +166,7 @@
                                 : `${seconds} Second${seconds === 1 ? '' : 's'}`
                           }}
                         </template>
-                        <template>
+                        <template v-else>
                           Auction May Close Any Moment
                         </template>
                       </div>

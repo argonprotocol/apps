@@ -38,7 +38,7 @@
       <div class="w-1/3 border-b border-slate-400/30 pb-5">
         <div class="text-argon-600 text-5xl font-bold">
           <template v-if="totalSwapReturn !== undefined">{{ numeral(totalSwapReturn).format('0,0.[00]') }}%</template>
-          <template>--</template>
+          <template v-else>--</template>
         </div>
         <div>Return to Date</div>
       </div>
@@ -77,7 +77,7 @@
           </section>
 
           <section
-            -if="!stableSwaps.marketError"
+            v-else-if="!stableSwaps.marketError"
             class="mx-9 flex min-h-20 flex-col items-center rounded border border-slate-400/20 bg-slate-400/5 px-6 py-16 text-center text-slate-600/60"
           >
             <p>

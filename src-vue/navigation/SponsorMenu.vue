@@ -43,16 +43,10 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { NavigationMenuContent, NavigationMenuItem, NavigationMenuLink, NavigationMenuTrigger } from 'reka-ui';
+import { NavigationMenuContent, NavigationMenuItem, NavigationMenuTrigger } from 'reka-ui';
 import basicEmitter from '../emitters/basicEmitter.ts';
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import relativeTime from 'dayjs/plugin/relativeTime';
 import { getConfig } from '../stores/config.ts';
 import { abbreviateAddress } from '../lib/Utils.ts';
-
-dayjs.extend(relativeTime);
-dayjs.extend(utc);
 
 const config = getConfig();
 
