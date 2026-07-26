@@ -11,6 +11,7 @@ import {
   selectPrimaryWallet,
   selectTransferWallet,
   showAddWalletOnTransferSide,
+  showCustomArgonAddressOnTransferSide,
   shouldLoadEthereumWalletSelection,
   toggleWalletTransferDirection,
   type IWalletOverlayState,
@@ -131,6 +132,13 @@ describe('wallet overlay state', () => {
       primaryWallet,
       transferIn: { addWalletStep: 'external' },
       transferOut: { wallet: transferWallet },
+    });
+  });
+
+  it('opens a custom Argon address on an active transfer side', () => {
+    expect(showCustomArgonAddressOnTransferSide({ primaryWallet, transferOut: {} }, 'out')).toEqual({
+      primaryWallet,
+      transferOut: { customArgonAddress: true },
     });
   });
 

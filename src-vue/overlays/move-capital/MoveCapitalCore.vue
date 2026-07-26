@@ -65,7 +65,7 @@
         </button>
       </div>
 
-      <template v-if="moveTo === MoveTo.External">
+      <template v-if="moveTo === MoveTo.External && !isExternalAddressPinned">
         <input
           v-model="externalAddress"
           :disabled="pendingTxInfo !== null"
@@ -114,6 +114,7 @@
       <button @click="close" class="cursor-pointer rounded-md border border-slate-600/60 px-7 py-1.5">Cancel</button>
       <button
         v-if="canSubmit"
+        type="button"
         @click="submitTransfer"
         :class="[
           !canAfford || !hasTokensToMove
@@ -185,6 +186,7 @@ const props = withDefaults(
     walletType?: WalletType.defaultArgon;
     moveFrom?: MoveFrom;
     showInputMenus?: boolean;
+    externalAddress?: string;
     moveTo?: MoveTo;
     maxAmount?: bigint;
     moveToken?: MoveToken;
@@ -198,6 +200,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'close'): void;
+  (e: 'transactionPending', value: boolean): void;
 }>();
 
 const myVault = getMyVault();
@@ -220,7 +223,8 @@ const isMoveToPinned = Vue.ref(false);
 const switchRotation = Vue.ref(90);
 const switchRotationDelta = Vue.ref(180);
 
-const externalAddress = Vue.ref('');
+const externalAddress = Vue.ref(props.externalAddress ?? '');
+const isExternalAddressPinned = Vue.computed(() => props.externalAddress !== undefined);
 const canChangeDestination = Vue.computed(() => !pendingTxInfo.value && !props.moveTo);
 const txFee = Vue.ref(0n);
 
@@ -502,12 +506,14 @@ async function submitTransfer() {
     };
     const txInfo = await moveCapital.move(moveFrom.value, moveTo.value, assetsToMove, fromWallet, toAddress);
 
+    emit('transactionPending', true);
     trackTxInfo(txInfo);
     pendingTxInfo.value = txInfo;
   } catch (err) {
     console.error('Error during transfer: %o', err);
     transactionError.value = 'This transfer failed, please try again';
     isProcessing.value = false;
+    emit('transactionPending', false);
   }
 }
 
@@ -520,6 +526,9 @@ function trackTxInfo(txInfo: TransactionInfo) {
       pendingTxInfo.value = null;
       transactionError.value = error.message;
       console.error('Error during transfer: %o', error);
+    }
+    if (args.progressPct === 100) {
+      emit('transactionPending', false);
     }
   });
 }
@@ -550,6 +559,7 @@ Vue.watch(
       isLoaded.value = false;
       isMoveToPinned.value = false;
       moveFrom.value = props.moveFrom || MoveFrom.DefaultArgon;
+      externalAddress.value = props.externalAddress ?? '';
       moveTo.value = props.moveTo ?? moveToOptions.value[0].value;
       if (!moveToOptions.value.some(option => option.value === moveTo.value)) {
         moveTo.value = moveToOptions.value[0].value;
@@ -593,6 +603,7 @@ Vue.onMounted(async () => {
     ) {
       const metdata = txInfo.tx.metadataJson as ITransactionMoveMetadata;
       pendingTxInfo.value = txInfo;
+      emit('transactionPending', true);
       isProcessing.value = true;
       amountToMove.value = metdata.assetsToMove[MoveToken.ARGN] ?? metdata.assetsToMove[MoveToken.ARGNOT] ?? 0n;
       moveTo.value = normalizeMoveTo(metdata.moveTo);

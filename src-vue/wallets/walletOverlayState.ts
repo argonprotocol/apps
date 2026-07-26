@@ -12,6 +12,7 @@ export type IWalletSetupStep = 'choice' | 'external';
 export type IWalletTransferSideState = {
   wallet?: IWalletSelection;
   addWalletStep?: IWalletSetupStep;
+  customArgonAddress?: boolean;
 };
 
 export type IWalletOverlayState = {
@@ -93,6 +94,14 @@ export function showAddWalletOnTransferSide(
 ): IWalletOverlayState {
   const key = direction === 'in' ? 'transferIn' : 'transferOut';
   return state[key] ? { ...state, [key]: { addWalletStep: initialStep } } : state;
+}
+
+export function showCustomArgonAddressOnTransferSide(
+  state: IWalletOverlayState,
+  direction: IWalletTransferDirection,
+): IWalletOverlayState {
+  const key = direction === 'in' ? 'transferIn' : 'transferOut';
+  return state[key] ? { ...state, [key]: { customArgonAddress: true } } : state;
 }
 
 export function getWalletSelectionKey(wallet: IWalletSelection): string {

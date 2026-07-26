@@ -39,6 +39,7 @@
               :transferDirection="transferInConfig?.crosschainDirection"
               :moveFrom="transferInConfig?.moveFrom"
               :moveTo="transferInConfig?.moveTo"
+              :customArgonAddress="props.transferIn.customArgonAddress"
               class="relative mt-7 -mr-px mb-7"
               @select="emit('selectTransferWallet', 'in', $event)"
               @closeWallet="emit('returnToTransferWalletChooser', 'in')"
@@ -47,6 +48,7 @@
               @minimize="emit('toggleTransferDirection', 'in')"
               @addNewWallet="emit('addNewWallet', 'in')"
               @addExternalEthereum="emit('addExternalEthereum', 'in')"
+              @selectCustomArgonAddress="emit('selectCustomArgonAddress', 'in')"
               @openTransferOverlay="
                 props.transferIn.wallet &&
                 props.primaryWallet &&
@@ -115,11 +117,15 @@
                 v-if="props.primaryWallet"
                 :selection="props.primaryWallet"
                 :wallet="getWallet(props.primaryWallet)"
-                :mode="props.transferOut?.wallet ? 'transfer' : 'chooser'"
+                :mode="props.transferOut?.wallet || props.transferOut?.customArgonAddress ? 'transfer' : 'chooser'"
+                :moveFrom="customTransferMoveFrom"
+                :moveTo="props.transferOut?.customArgonAddress ? MoveTo.External : undefined"
+                :externalAddress="customArgonAddress"
+                @customTransferStarted="customArgonAddressLocked = true"
                 :showGuidance="props.showGuidance"
                 :guidanceContext="props.guidanceContext"
                 :indentTokensLeft="!!props.transferIn?.wallet"
-                :indentTokensRight="!!props.transferOut?.wallet"
+                :indentTokensRight="!!props.transferOut?.wallet || !!props.transferOut?.customArgonAddress"
                 class="grow"
               />
               <EthereumWalletSetup
@@ -142,8 +148,10 @@
               :availableWallets="props.availableWallets"
               :isSource="false"
               :transferDirection="transferOutConfig?.crosschainDirection"
-              :moveFrom="transferOutConfig?.moveFrom"
               :moveTo="transferOutConfig?.moveTo"
+              :moveFrom="transferOutMoveFrom"
+              :customArgonAddress="props.transferOut.customArgonAddress"
+              :customArgonAddressLocked="customArgonAddressLocked"
               class="relative mt-7 mb-7 -ml-px"
               @select="emit('selectTransferWallet', 'out', $event)"
               @closeWallet="emit('returnToTransferWalletChooser', 'out')"
@@ -152,6 +160,8 @@
               @minimize="emit('toggleTransferDirection', 'out')"
               @addNewWallet="emit('addNewWallet', 'out')"
               @addExternalEthereum="emit('addExternalEthereum', 'out')"
+              @selectCustomArgonAddress="emit('selectCustomArgonAddress', 'out')"
+              @updateCustomArgonAddress="customArgonAddress = $event"
               @openTransferOverlay="
                 props.transferOut.wallet &&
                 props.primaryWallet &&
@@ -214,6 +224,7 @@ const emit = defineEmits<{
   (event: 'returnToTransferWalletChooser', direction: IWalletTransferDirection): void;
   (event: 'addNewWallet', direction: IWalletTransferDirection): void;
   (event: 'addExternalEthereum', direction: IWalletTransferDirection): void;
+  (event: 'selectCustomArgonAddress', direction: IWalletTransferDirection): void;
   (event: 'completeAddWallet', target: 'primary' | IWalletTransferDirection, walletRecord: IWalletRecord): void;
   (event: 'close'): void;
 }>();
@@ -228,6 +239,8 @@ const activeTransferOverlay = Vue.ref<{
   networkName: string;
   feeTokenSymbol: string;
 }>();
+const customArgonAddress = Vue.ref('');
+const customArgonAddressLocked = Vue.ref(false);
 
 const transferInConfig = Vue.computed(() =>
   props.transferIn?.wallet && props.primaryWallet
@@ -238,6 +251,14 @@ const transferOutConfig = Vue.computed(() =>
   props.transferOut?.wallet && props.primaryWallet
     ? getTransferConfig(props.primaryWallet, props.transferOut.wallet)
     : undefined,
+);
+const transferOutMoveFrom = Vue.computed(() => {
+  if (transferOutConfig.value?.moveFrom) return transferOutConfig.value.moveFrom;
+  if (!props.primaryWallet || isEthereumWalletSelection(props.primaryWallet)) return;
+  return props.primaryWallet.walletType === WalletType.miningBot ? MoveFrom.MiningBot : MoveFrom.DefaultArgon;
+});
+const customTransferMoveFrom = Vue.computed(() =>
+  props.transferOut?.customArgonAddress ? transferOutMoveFrom.value : undefined,
 );
 
 function getTransferConfig(source: IWalletSelection, recipient: IWalletSelection) {
@@ -297,9 +318,12 @@ Vue.watch(
     props.primaryWallet ? getWalletSelectionKey(props.primaryWallet) : undefined,
     props.transferIn?.wallet ? getWalletSelectionKey(props.transferIn.wallet) : undefined,
     props.transferOut?.wallet ? getWalletSelectionKey(props.transferOut.wallet) : undefined,
+    props.transferOut?.customArgonAddress,
   ],
   () => {
     activeTransferOverlay.value = undefined;
+    customArgonAddress.value = '';
+    customArgonAddressLocked.value = false;
   },
 );
 </script>
