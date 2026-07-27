@@ -175,9 +175,9 @@
         @focus="onMenuEnter"
       >
         <div class="relative flex flex-row items-center whitespace-nowrap pl-2.5 pr-3 pt-px">
-          <CheckBadgeIcon v-if="!isUnlockTrack" class="relative top-px h-[17px] w-[17px]" aria-hidden="true" />
-          <CertificationIcon v-else class="relative w-[24px] top-1.5 -left-px pointer-events-none" />
-          <span class="ml-0.5">{{ isUnlockTrack ? 'Treasury' : 'Operator' }} Certification</span>
+          <CertificationIcon class="relative w-[24px] top-1.5 -left-px pointer-events-none" />
+          <span class="TopBarOptionalLabel ml-1">{{ isUnlockTrack ? 'Treasury' : 'Operator' }}</span>
+          <span class="ml-1">Certification</span>
           <span class="font-mono ml-1">({{ completedStepCount }}/{{ currentStepIds.length }})</span>
         </div>
       </NavigationMenuTrigger>
@@ -247,7 +247,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { NavigationMenuContent, NavigationMenuItem, NavigationMenuTrigger } from 'reka-ui';
-import { XMarkIcon, CheckBadgeIcon } from '@heroicons/vue/24/outline';
+import { XMarkIcon } from '@heroicons/vue/24/outline';
 import { MICROGONS_PER_ARGON, NetworkConfig } from '@argonprotocol/apps-core';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { TopTab } from '../interfaces/IConfig.ts';
@@ -354,7 +354,7 @@ const checklistDescription = Vue.computed(() => {
     return 'Complete the following steps to unlock the next level features of this app.';
   }
 
-  const withUpstream = controller.chainProgress.hasUpstreamAccount ? ' (along with your upstream operator)' : '';
+  const withUpstream = controller.chainProgress.hasUpstreamAccount ? ' (along with your sponsor)' : '';
   return `Complete the following operations steps, and you'll earn${withUpstream} a ${operationalActivationRewardLabel.value} bonus from the Argon Treasury.`;
 });
 

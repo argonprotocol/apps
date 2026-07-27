@@ -1,7 +1,10 @@
 <template>
-  <div class="Navigation LeftBar z-10 flex h-full max-w-76 min-w-76 flex-col gap-y-1.5 select-none">
+  <div
+    class="Navigation LeftBar z-10 flex h-full max-w-76 min-w-76 flex-col gap-y-1.5 select-none"
+    :class="{ OperationsEnabled: config.isLoaded && config.hasExtensionOperations }"
+  >
     <section DashBox class="w-full px-1">
-      <div class="mt-3">
+      <div>
         <header>Basic Nav</header>
         <ul>
           <li
@@ -33,7 +36,7 @@
     </section>
 
     <section DashBox v-if="config.isLoaded && config.hasExtensionTreasury" class="w-full px-1">
-      <div class="mt-3">
+      <div>
         <header class="relative flex flex-row items-center">
           <div class="grow">Treasury</div>
           <div class="relative flex">
@@ -79,7 +82,7 @@
                 <ArgonBondIcon class="w-5.5 opacity-70" />
               </div>
               <div class="grow">Argon Bonds</div>
-              <div class="opacity-60">{{ currency.symbol }}{{ formatFinancialGroupValue('bonds') }}</div>
+              <div class="opacity-60">{{ currency.symbol }}{{ formatBondValue('ARGN') }}</div>
               <ArrowCalloutButton
                 v-if="
                   controller.activeGuideId === OperationalStepId.AcquireArgonBonds &&
@@ -100,7 +103,7 @@
                 <ArgonotBondIcon class="w-5.5 opacity-70" />
               </div>
               <div class="grow">Argonot Stakes</div>
-              <div class="opacity-60">{{ currency.symbol }}{{ formatFinancialGroupValue('bonds') }}</div>
+              <div class="opacity-60">{{ currency.symbol }}{{ formatBondValue('ARGNOT') }}</div>
               <!--              <ArrowCalloutButton-->
               <!--                v-if="-->
               <!--                  controller.activeGuideId === OperationalStepId.AcquireArgonotStakes &&-->
@@ -134,7 +137,7 @@
     </section>
 
     <section DashBox v-if="config.isLoaded && config.hasExtensionOperations" class="w-full px-1">
-      <div class="mt-3">
+      <div>
         <header class="relative flex flex-row items-center">
           <div class="grow">Operations</div>
           <div class="relative flex">
@@ -378,7 +381,10 @@
           </a>
         </div>
       </div>
-      <div v-else class="relative flex grow flex-col items-center justify-center text-center text-slate-700/30">
+      <div
+        v-else
+        class="ExploreLinks relative flex grow flex-col items-center justify-center text-center text-slate-700/30"
+      >
         <div class="relative flex flex-row items-center text-center whitespace-nowrap">Explore</div>
         <div class="relative mt-px">
           <a
@@ -407,7 +413,7 @@
         <div class="bg-argon-100/15 h-full w-full" style="text-shadow: 1px 1px 0 white">
           <div class="absolute top-0 left-0 h-full w-5 rounded-bl-lg bg-linear-to-r from-slate-600/10 to-transparent" />
           <div class="flex flex-col justify-center pt-1 pr-3 pl-3">
-            <header class="flex w-full flex-row items-center border-b border-slate-500/20 pb-1.5!">
+            <header class="flex w-full flex-row items-center border-b border-slate-500/20 pt-1! pb-1.5!">
               <WalletSelector
                 :selectedWallet="selectedWallet"
                 :walletSelections="walletSelections"
@@ -440,7 +446,7 @@
               </div>
               <div
                 v-if="selectedWalletBalanceIsLoaded && selectedWallet.walletType === WalletType.defaultArgon"
-                class="mx-auto mt-2 w-fit border-t border-slate-500/30 pt-2 text-center opacity-50"
+                class="wallet-summary-detail mx-auto mt-2 w-fit border-t border-slate-500/30 pt-2 text-center opacity-50"
               >
                 {{ currency.symbol
                 }}{{ microgonToMoneyNm(selectedWalletBalance - financials.savingsTotalPending).format('0,0.00') }} is
@@ -448,7 +454,7 @@
               </div>
               <div
                 v-else-if="selectedWalletBalanceIsLoaded && isEthereumWalletSelection(selectedWallet)"
-                class="mx-auto mt-2 flex w-fit gap-x-2 border-t border-slate-500/30 pt-2 text-center opacity-50"
+                class="wallet-summary-detail mx-auto mt-2 flex w-fit gap-x-2 border-t border-slate-500/30 pt-2 text-center opacity-50"
               >
                 {{ currency.symbol }}{{ microgonToMoneyNm(selectedOtherTokenValue).format('0,0.00') }} is in eth or
                 other tokens
@@ -602,6 +608,14 @@ function formatFinancialGroupValue(group: FinancialGroup): string {
   return microgonToMoneyNm(summary.currentValue).format('0,0.00');
 }
 
+function formatBondValue(asset: 'ARGN' | 'ARGNOT'): string {
+  if (!currency.isLoaded) return '--';
+
+  const summary = financials.financialPositionAggregate.groupSummaries.bonds;
+  if (summary.state !== 'ready' && !(summary.state === 'stale' && summary.positions.length)) return '--';
+  return microgonToMoneyNm(financials.bondSummariesByAsset[asset].currentValue).format('0,0.00');
+}
+
 function openDefaultArgonWallet() {
   basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
 }
@@ -664,7 +678,7 @@ Vue.onBeforeUnmount(() => {
 @reference "../main.css";
 
 header {
-  @apply px-2 pt-1 pb-3 font-bold text-slate-700/40 uppercase;
+  @apply px-2 pt-4 pb-3 font-bold text-slate-700/40 uppercase;
 }
 
 .wallet-summary:hover {
@@ -742,6 +756,66 @@ ul li {
         @apply rounded-bl-lg;
       }
     }
+  }
+}
+
+@media (max-height: 1000px) {
+  .LeftBar.OperationsEnabled {
+    @apply gap-y-1;
+
+    > section > div > header {
+      @apply pt-2 pb-2;
+    }
+
+    ul li {
+      @apply py-0;
+
+      article {
+        @apply py-1.5;
+      }
+    }
+
+    .wallet-summary {
+      @apply my-1 py-3;
+    }
+
+    .wallet-summary-total {
+      @apply text-[40px];
+    }
+
+    .wallet-summary-detail {
+      @apply mt-1 pt-1 text-sm;
+    }
+  }
+}
+
+@media (max-height: 850px) {
+  .LeftBar.OperationsEnabled {
+    > section > div > header {
+      @apply py-1.5;
+    }
+
+    ul li article {
+      @apply py-1;
+    }
+
+    .wallet-summary {
+      @apply py-2;
+    }
+
+    .wallet-summary-total {
+      @apply text-3xl;
+    }
+
+    .wallet-summary-detail {
+      @apply text-xs;
+    }
+  }
+}
+
+@media (max-height: 750px) {
+  .LeftBar.OperationsEnabled .ExploreLinks {
+    @apply hidden;
   }
 }
 </style>

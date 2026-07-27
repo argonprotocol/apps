@@ -23,8 +23,8 @@
         "alwaysOnTop": false,
         "center": true,
         "maximized": false,
-        "minWidth": 1000,
-        "minHeight": 800,
+        "minWidth": 1100,
+        "minHeight": 700,
         "shadow": true,
         "transparent": true
       }

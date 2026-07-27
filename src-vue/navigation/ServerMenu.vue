@@ -8,7 +8,7 @@
       >
         <div v-if="!config.isServerAdded" class="relative flex flex-row items-center pl-2.5 pr-3 pt-px whitespace-nowrap" style="word-spacing: -6px">
           <PluginSmallIcon class="h-3.5 relative mr-1.5" />
-          Add Node
+          <span class="TopBarOptionalLabel">Add </span>Node
         </div>
         <div v-else-if="config.isServerInstalling" class="relative -top-px flex flex-row pl-2.5 pr-3 pt-1">
           {{ serverInstallStatusLabel }}

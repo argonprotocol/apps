@@ -25,7 +25,6 @@ export enum TopTab {
   ArgonBonds = 'ArgonBonds',
   ArgonotStaking = 'ArgonotStaking',
   BitcoinLocks = 'BitcoinLocks',
-  BitcoinLoans = 'BitcoinLoans',
   StableSwaps = 'StableSwaps',
 
   Mining = 'Mining',

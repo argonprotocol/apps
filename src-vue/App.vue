@@ -15,7 +15,6 @@
           :class="
             controller.selectedTab === TopTab.ArgonBonds ||
             controller.selectedTab === TopTab.BitcoinLocks ||
-            controller.selectedTab === TopTab.BitcoinLoans ||
             controller.selectedTab === TopTab.StableSwaps
               ? 'rounded border-[1px] border-slate-400/40 bg-white shadow-md'
               : ''
@@ -27,7 +26,6 @@
           <ArgonBonds v-else-if="controller.selectedTab === TopTab.ArgonBonds" />
           <ArgonotStakes v-else-if="controller.selectedTab === TopTab.ArgonotStaking" />
           <BitcoinLocks v-else-if="controller.selectedTab === TopTab.BitcoinLocks" />
-          <OldBitcoinLoans v-else-if="controller.selectedTab === TopTab.BitcoinLoans" />
           <StableSwaps v-else-if="controller.selectedTab === TopTab.StableSwaps" />
 
           <Mining v-else-if="controller.selectedTab === TopTab.Mining" />
@@ -133,7 +131,6 @@ import ArgonBonds from './screens/ArgonBonds.vue';
 import BitcoinLocks from './screens/BitcoinLocks.vue';
 import LeftBar from './navigation/LeftBar.vue';
 import StableSwaps from './screens/StableSwaps.vue';
-import OldBitcoinLoans from './screens/OldBitcoinLoans.vue';
 import Home from './screens/Home.vue';
 import WelcomeToTreasuryOverlay from './overlays/WelcomeToTreasuryOverlay.vue';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';

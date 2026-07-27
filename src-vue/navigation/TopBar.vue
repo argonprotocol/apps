@@ -1,7 +1,7 @@
 <!-- prettier-ignore -->
 <template>
   <div
-    class="bg-white/95 relative flex min-h-14 w-full flex-row items-center select-none"
+    class="TopBar bg-white/95 relative flex min-h-14 w-full flex-row items-center select-none"
     style="border-radius: 10px 10px 0 0; box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2)"
     data-tauri-drag-region
   >
@@ -10,7 +10,7 @@
     />
     <div class="absolute right-2 -bottom-px h-px w-full bg-slate-400/30" />
 
-    <div class="flex flex-row items-center w-1/3 pointer-events-none relative top-px">
+    <div class="flex flex-row items-center pointer-events-none relative top-px">
       <WindowControls />
       <div class="relative top-px text-[19px] font-bold whitespace-nowrap flex flex-row items-center">
         Argon Desktop
@@ -44,7 +44,7 @@
 
     <NavigationMenuRoot
       v-if="controller.isLoaded && !controller.isImporting"
-      class="relative mr-3 flex w-1/3 grow flex-row items-center justify-end pointer-events-none"
+      class="relative mr-3 flex flex-row grow items-center justify-end pointer-events-none"
       :model-value="navigationMenuValue"
       :delay-duration="0"
       :skip-delay-duration="0"
@@ -220,3 +220,11 @@ Vue.onBeforeUnmount(() => {
   basicEmitter.off('openCertificationMenu', openCertificationMenu);
 });
 </script>
+
+<style scoped>
+@media (max-width: 1300px) {
+  .TopBar :deep(.TopBarOptionalLabel) {
+    display: none;
+  }
+}
+</style>

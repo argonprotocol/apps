@@ -6,17 +6,7 @@
 
       <section class="flex flex-row gap-x-2 h-[14%]">
         <TooltipRoot>
-          <TooltipTrigger as="div" box stat-box class="flex flex-col w-2/12 !py-4 group">
-            <span>{{ myMiningSeats.global.seatsTotal || 0 }}</span>
-            <label>Total Mining Seat{{ myMiningSeats.global.seatsTotal === 1 ? '' : 's' }}</label>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" :sideOffset="-10" align="start" :collisionPadding="9" class="bg-white border border-gray-800/20 rounded-md shadow-2xl z-50 p-4 w-xs text-slate-900/60">
-            The number of mining seats you've controlled over the previous year.
-            <TooltipArrow :width="27" :height="15" class="fill-white stroke-[0.5px] stroke-gray-800/20 -mt-px" />
-          </TooltipContent>
-        </TooltipRoot>
-        <TooltipRoot>
-          <TooltipTrigger as="div" box stat-box class="flex flex-col w-2/12 !py-4 group">
+          <TooltipTrigger as="div" box stat-box class="flex flex-col w-[20%] !py-4 group">
             <span>{{ numeral(myMiningSeats.global.framesCompleted).format('0,0.[00]') }}</span>
             <label>Frame{{ myMiningSeats.global.framesCompleted === 1 ? '' : 's' }} Completed</label>
           </TooltipTrigger>
@@ -26,7 +16,7 @@
           </TooltipContent>
         </TooltipRoot>
         <TooltipRoot>
-          <TooltipTrigger as="div" box stat-box class="flex flex-col w-2/12 !py-4 group">
+          <TooltipTrigger as="div" box stat-box class="flex flex-col w-[20%] !py-4 group">
             <span>{{ numeral(myMiningSeats.global.framesRemaining).format('0,0.[00]') }}</span>
             <label>Frame{{ myMiningSeats.global.framesRemaining === 1 ? '' : 's' }} Remaining</label>
           </TooltipTrigger>
@@ -36,7 +26,7 @@
           </TooltipContent>
         </TooltipRoot>
         <TooltipRoot>
-          <TooltipTrigger as="div" box stat-box class="flex flex-col w-2/12 !py-4 group">
+          <TooltipTrigger as="div" box stat-box class="flex flex-col w-[20%] !py-4 group">
             <span>
               {{ currency.symbol
               }}{{ microgonToMoneyNm(miningReturnSummary.investedCost).formatIfElse('< 100', '0.00', '0,0') }}
@@ -49,7 +39,7 @@
           </TooltipContent>
         </TooltipRoot>
         <TooltipRoot>
-          <TooltipTrigger as="div" box stat-box class="flex flex-col w-2/12 !py-4 group">
+          <TooltipTrigger as="div" box stat-box class="flex flex-col w-[20%] !py-4 group">
             <span>
               {{ currency.symbol
               }}{{ microgonToMoneyNm(miningReturnSummary.returnAmount ?? 0n).formatIfElse('< 100', '0.00', '0,0') }}
@@ -62,7 +52,7 @@
           </TooltipContent>
         </TooltipRoot>
         <TooltipRoot>
-          <TooltipTrigger as="div" box stat-box class="flex flex-col w-2/12 !py-4 group">
+          <TooltipTrigger as="div" box stat-box class="flex flex-col w-[20%] !py-4 group">
             <span v-if="miningReturnSummary.percent !== undefined">
               {{ numeral(miningReturnSummary.percent).formatIfElseCapped('< 100', '0.[00]', '0,0', 9_999) }}%
             </span>
@@ -171,7 +161,6 @@
                         </template>
                       </div>
                     </CountdownClock>
-                    <div class="titleize">{{ auctionTimingLabel }}</div>
                   </div>
                 </div>
               </div>
@@ -368,24 +357,6 @@ const avgMicronotsPerWinningBid = Vue.computed<bigint | null>(() => {
   if (!auctionBids.value.length) return null;
   const total = auctionBids.value.reduce((sum, bid) => sum + (bid.micronotsStakedPerSeat ?? 0n), 0n);
   return total / BigInt(auctionBids.value.length);
-});
-
-const auctionTimingLabel = Vue.computed(() => {
-  const auctionCloseTick = currentFrameDetail.value?.auctionCloseTick ?? null;
-  if (isSelectedLiveFrame.value) {
-    if (auctionCloseTick) {
-      const auctionClosedAt = dayjs.utc(auctionCloseTick * TICK_MILLIS).local();
-      return `Auction Closed ${auctionClosedAt.format('h:mm A')}`;
-    }
-
-    return 'Auction Closing Pending';
-  }
-
-  if (!auctionCloseTick) return 'Auction Closed -----';
-
-  const auctionClosedAt = dayjs.utc(auctionCloseTick * TICK_MILLIS).local();
-
-  return `Auction Closed ${auctionClosedAt.format('h:mm A')}`;
 });
 
 const countdownNextBidAt = Vue.computed(() => {

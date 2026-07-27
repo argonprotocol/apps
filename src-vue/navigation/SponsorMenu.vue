@@ -9,8 +9,8 @@
         <div
           class="group pointer-events-auto flex h-[30px] cursor-pointer flex-row items-center rounded-md border border-slate-400/50 px-3 font-semibold hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none"
         >
-          <div v-if="config.upstreamOperator" class="text-argon-600/70">
-            Sponsored by {{ upstreamOperatorName }}
+          <div v-if="config.upstreamOperator" class="text-argon-600/70 whitespace-nowrap">
+            Sponsored<span class="TopBarOptionalLabel"> by {{ upstreamOperatorName }}</span>
           </div>
           <div v-else class="group-hover:text-argon-600 text-slate-900/70">Connect a Vault</div>
         </div>
