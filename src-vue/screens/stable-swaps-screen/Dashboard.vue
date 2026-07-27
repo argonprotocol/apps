@@ -170,25 +170,17 @@ import { formatUnits } from 'viem';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import { getCurrency } from '../../stores/currency.ts';
 import { useStableSwaps } from '../../stores/stableSwaps.ts';
-import CurvedArrow from '../../components/CurvedArrow.vue';
 import EthereumIcon from '../../assets/networks/ethereum.svg';
 import ArgonIcon from '../../assets/networks/argon.svg';
-import SwapIcon from '../../assets/swap.svg';
-import basicEmitter from '../../emitters/basicEmitter.ts';
-import { WalletType } from '../../lib/Wallet.ts';
-import { bigIntAbs, ICurrencyKey, NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
-import { getConfig } from '../../stores/config.ts';
+import { ICurrencyKey, NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { ArrowTopRightOnSquareIcon, CheckIcon } from '@heroicons/vue/24/outline';
-import Arrow from '../../components/Arrow.vue';
 import FormattedMoney from '../../components/FormattedMoney.vue';
 import { useFinancials } from '../../stores/financials.ts';
 import SwapRecord from '../treasury-screens/components/SwapRecord.vue';
-import CurvedArrowRadialGradient from '../../components/CurvedArrowRadialGradient.vue';
 
 const currency = getCurrency();
 const financials = useFinancials();
 const stableSwaps = useStableSwaps();
-const config = getConfig();
 
 const { microgonToMoneyNm, microgonToNm } = createNumeralHelpers(currency);
 
@@ -205,15 +197,6 @@ const totalSwapReturn = Vue.computed(() => {
 
 async function openPurchaseTx(txHash: string) {
   await tauriOpenUrl(`https://etherscan.io/tx/${txHash}`);
-}
-
-function openEthereumWallet() {
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.ethereum });
-}
-
-async function activateStableSwaps() {
-  config.hasActivatedStableSwaps = true;
-  await config.save();
 }
 
 const currencyFadeClass = Vue.ref('');
