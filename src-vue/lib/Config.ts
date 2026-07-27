@@ -64,6 +64,7 @@ export class Config implements IConfig {
   private _loadedData!: IConfig;
   private _rawData = {} as IConfigStringified;
   private _walletPreviousHistoryLoadPct: number = 0;
+  private _isRecoveringPreviousWalletHistory: boolean = false;
 
   constructor(
     dbPromise: Promise<Db>,
@@ -346,7 +347,12 @@ export class Config implements IConfig {
       this._rawData = rawData;
       this._loadedDeferred.resolve();
       if (this.walletAccountsHadPreviousLife && !this.walletPreviousLifeRecovered) {
-        await this._bootupFromAccountPreviousHistory();
+        this._isRecoveringPreviousWalletHistory = true;
+        try {
+          await this._bootupFromAccountPreviousHistory();
+        } finally {
+          this._isRecoveringPreviousWalletHistory = false;
+        }
       }
     } catch (e) {
       this._loadedDeferred.reject(e);
@@ -378,7 +384,10 @@ export class Config implements IConfig {
   }
 
   public get isBootingUpPreviousWalletHistory(): boolean {
-    return this._loadedData.walletAccountsHadPreviousLife && !this._loadedData.walletPreviousLifeRecovered;
+    return (
+      this._isRecoveringPreviousWalletHistory ||
+      (this._loadedData.walletAccountsHadPreviousLife && !this._loadedData.walletPreviousLifeRecovered)
+    );
   }
 
   public get walletPreviousHistoryLoadPct(): number {
@@ -706,12 +715,14 @@ export class Config implements IConfig {
     }
 
     const { miningHistory, vaultingRules } = await this.accountRecoveryFn(pct => {
-      this._walletPreviousHistoryLoadPct = pct;
+      const recoveryProgress = Math.min(100, Math.max(0, pct));
+      this._walletPreviousHistoryLoadPct = Math.max(this._walletPreviousHistoryLoadPct, recoveryProgress * 0.95);
     });
     if (!miningHistory?.length && !vaultingRules) {
       console.warn('Config: No previous mining or vault history found');
       this.walletPreviousLifeRecovered = true;
       await this.save();
+      this._walletPreviousHistoryLoadPct = 100;
       return;
     }
     if (miningHistory) {
@@ -756,6 +767,7 @@ export class Config implements IConfig {
 
     this.walletPreviousLifeRecovered = true;
     await this.save();
+    this._walletPreviousHistoryLoadPct = 100;
   }
 
   private static extractDataToSave(

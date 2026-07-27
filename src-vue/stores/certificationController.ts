@@ -401,7 +401,7 @@ export const useCertificationController = defineStore('certificationController',
 
   let operationalAccountUnsubscribe: VoidFunction | undefined;
   let previousCompletionByStepId: Record<OperationalStepId, boolean> | undefined;
-  let hasLoadedInitialOperationalProgress = false;
+  const hasLoadedInitialOperationalProgress = Vue.ref(false);
 
   function isCertificationStepComplete(stepId: OperationalStepId) {
     if (stepId === OperationalStepId.BootstrapFromNode) return true;
@@ -555,9 +555,9 @@ export const useCertificationController = defineStore('certificationController',
     void subscribeOperationalAccount(
       walletKeys,
       x => {
-        const isInitialOperationalProgress = !hasLoadedInitialOperationalProgress;
-        hasLoadedInitialOperationalProgress = true;
+        const isInitialOperationalProgress = !hasLoadedInitialOperationalProgress.value;
         chainProgress.value = x;
+        hasLoadedInitialOperationalProgress.value = true;
 
         let shouldSaveConfig = false;
         if (x.hasOperationalAccount) {
@@ -819,6 +819,7 @@ export const useCertificationController = defineStore('certificationController',
     activeOperationalInvites,
     activeOperationalInviteCount,
     isFullyOperational,
+    hasLoadedInitialOperationalProgress,
     isOperationalActivationReady,
     isOperationalRewardsFlowActive,
     pendingCompletionNoticeStepId,
