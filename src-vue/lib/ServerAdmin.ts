@@ -69,6 +69,20 @@ export class ServerAdmin {
     return !!output;
   }
 
+  public async getAvailableDiskBytes(): Promise<number> {
+    const [output, code] = await this.connection.runCommandWithTimeout(
+      `df -Pk "$HOME" | awk 'NR == 2 { print $4; found=1 } END { if (!found) exit 1 }'`,
+      10e3,
+    );
+    const availableKilobytesText = output.trim();
+    const availableKilobytes = Number(availableKilobytesText);
+    if (code !== 0 || !availableKilobytesText || !Number.isSafeInteger(availableKilobytes) || availableKilobytes < 0) {
+      throw new Error('Could not determine available server disk space');
+    }
+
+    return availableKilobytes * 1024;
+  }
+
   public async createWorkdir(): Promise<void> {
     const username = this.connection.username;
     await this.connection.runCommandWithTimeout(

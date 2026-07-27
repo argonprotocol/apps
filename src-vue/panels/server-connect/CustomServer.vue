@@ -31,7 +31,9 @@
           <td class="border-b border-slate-400/40 py-2 pl-4 font-sans font-bold">4+ vCPUs</td>
           <td></td>
           <td class="border-b border-slate-400/40 py-2 pr-4">Hard Drive</td>
-          <td class="border-b border-slate-400/40 py-2 pl-4 font-sans font-bold">100GB or more</td>
+          <td class="border-b border-slate-400/40 py-2 pl-4 font-sans font-bold">
+            {{ MINIMUM_INSTALL_DISK_GB }}GB or more available
+          </td>
         </tr>
         <tr>
           <td class="border-b border-slate-400/40 py-2 pr-4">Internet</td>
@@ -163,6 +165,7 @@ import { IServerConnectChildExposed } from '../ServerConnectPanel.vue';
 import { IConfigServerAddCustomServer, ServerType } from '../../interfaces/IConfig.ts';
 import { SERVER_ENV_VARS } from '../../lib/Env.ts';
 import { getWalletKeys } from '../../stores/wallets.ts';
+import { MINIMUM_INSTALL_DISK_GB, MiningMachine } from '../../lib/MiningMachine.ts';
 
 const emit = defineEmits(['ready']);
 
@@ -240,6 +243,10 @@ async function connect(): Promise<IConfigServerAddCustomServer> {
 
   if (serverMeta.walletAddress && serverMeta.walletAddress !== walletKeys.miningBotAddress) {
     throw new Error('The server has a different wallet address than your mining account.');
+  }
+
+  if (!serverMeta.walletAddress) {
+    MiningMachine.ensureInstallationDiskSpace(serverMeta.availableDiskBytes);
   }
 
   if (serverMeta.biddingRules) {
