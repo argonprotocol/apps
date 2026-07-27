@@ -284,7 +284,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { MICROGONS_PER_ARGON, MICRONOTS_PER_ARGONOT, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { storeToRefs } from 'pinia';
 import { NavigationMenuContent, NavigationMenuItem, NavigationMenuTrigger } from 'reka-ui';
 import { InformationCircleIcon, MinusIcon, PlusIcon } from '@heroicons/vue/20/solid';
@@ -328,6 +328,8 @@ const {
 const bondAssetRows = Vue.computed(() => {
   const bondPositions = aggregate.value.groupSummaries.bonds.positions.filter(position => position.kind === 'bond');
   const positions = bondPositions.filter(position => position.lifecycle !== 'completed');
+  const argonPositions = positions.filter(position => position.nativeAsset === 'ARGN');
+  const argonotPositions = positions.filter(position => position.nativeAsset === 'ARGNOT');
 
   return [
     {
@@ -336,7 +338,9 @@ const bondAssetRows = Vue.computed(() => {
       singularLabel: 'bond',
       pluralLabel: 'bonds',
       currentValue: bondSummariesByAsset.value.ARGN.currentValue,
-      count: positions.filter(position => position.nativeAsset === 'ARGN').length,
+      count: Number(
+        argonPositions.reduce((total, position) => total + position.nativePrincipal, 0n) / BigInt(MICROGONS_PER_ARGON),
+      ),
       expanded: argonBondsAreExpanded,
     },
     {
@@ -345,7 +349,10 @@ const bondAssetRows = Vue.computed(() => {
       singularLabel: 'stake',
       pluralLabel: 'stakes',
       currentValue: bondSummariesByAsset.value.ARGNOT.currentValue,
-      count: positions.filter(position => position.nativeAsset === 'ARGNOT').length,
+      count: Number(
+        argonotPositions.reduce((total, position) => total + position.nativePrincipal, 0n) /
+          BigInt(MICRONOTS_PER_ARGONOT),
+      ),
       expanded: argonotStakesAreExpanded,
     },
   ];

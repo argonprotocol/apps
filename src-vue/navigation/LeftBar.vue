@@ -79,7 +79,7 @@
                 <ArgonBondIcon class="w-5.5 opacity-70" />
               </div>
               <div class="grow">Argon Bonds</div>
-              <div class="opacity-60">{{ currency.symbol }}{{ formatFinancialGroupValue('bonds') }}</div>
+              <div class="opacity-60">{{ currency.symbol }}{{ formatBondValue('ARGN') }}</div>
               <ArrowCalloutButton
                 v-if="
                   controller.activeGuideId === OperationalStepId.AcquireArgonBonds &&
@@ -100,7 +100,7 @@
                 <ArgonotBondIcon class="w-5.5 opacity-70" />
               </div>
               <div class="grow">Argonot Stakes</div>
-              <div class="opacity-60">{{ currency.symbol }}{{ formatFinancialGroupValue('bonds') }}</div>
+              <div class="opacity-60">{{ currency.symbol }}{{ formatBondValue('ARGNOT') }}</div>
               <!--              <ArrowCalloutButton-->
               <!--                v-if="-->
               <!--                  controller.activeGuideId === OperationalStepId.AcquireArgonotStakes &&-->
@@ -600,6 +600,14 @@ function formatFinancialGroupValue(group: FinancialGroup): string {
   const summary = financials.financialPositionAggregate.groupSummaries[group];
   if (summary.state !== 'ready' && !(summary.state === 'stale' && summary.positions.length)) return '--';
   return microgonToMoneyNm(summary.currentValue).format('0,0.00');
+}
+
+function formatBondValue(asset: 'ARGN' | 'ARGNOT'): string {
+  if (!currency.isLoaded) return '--';
+
+  const summary = financials.financialPositionAggregate.groupSummaries.bonds;
+  if (summary.state !== 'ready' && !(summary.state === 'stale' && summary.positions.length)) return '--';
+  return microgonToMoneyNm(financials.bondSummariesByAsset[asset].currentValue).format('0,0.00');
 }
 
 function openDefaultArgonWallet() {
