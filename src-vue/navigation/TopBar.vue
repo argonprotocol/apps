@@ -55,6 +55,12 @@
           <CertificationMenu @close="closeNavigationMenu" />
         </div>
         <div
+          v-if="config.isLoaded && config.upstreamOperator"
+          class="pointer-events-auto"
+        >
+          <SponsorMenu />
+        </div>
+        <div
           v-if="config.isLoaded && config.hasExtensionOperations"
           :class="[controller.selectedTab === TopTab.Mining && bot.isSyncing ? 'pointer-events-none' : 'pointer-events-auto']"
         >
@@ -102,6 +108,7 @@ import { useWallets } from '../stores/wallets.ts';
 import { getBot } from '../stores/bot.ts';
 import { useTour } from '../stores/tour.ts';
 import ServerMenu from './ServerMenu.vue';
+import SponsorMenu from './SponsorMenu.vue';
 import CertificationMenu from './CertificationMenu.vue';
 import { NavigationMenuIndicator, NavigationMenuList, NavigationMenuRoot, NavigationMenuViewport } from 'reka-ui';
 import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
@@ -150,10 +157,6 @@ async function fetchInstances() {
       },
     ];
   }
-}
-
-function onTreasuryInviteClaimed() {
-  navigationMenuValue.value = '';
 }
 
 function setNavigationMenuValue(value: string) {

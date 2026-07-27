@@ -1604,12 +1604,12 @@ export class MyVault {
   public async recoverAccountVault(args: {
     onProgress: (progress: number) => void;
   }): Promise<IVaultingRules | undefined> {
-    await this.deleteAllDbData();
     const { onProgress } = args;
+    onProgress(0);
+    await this.deleteAllDbData();
     const vaultingAddress = this.walletKeys.vaultingAddress;
     console.log('Recovering vault for address', vaultingAddress);
     const mainchainClients = getMainchainClients();
-    onProgress(0);
 
     const foundVault = await MyVaultRecovery.findOperatorVault(
       mainchainClients,
@@ -1648,16 +1648,18 @@ export class MyVault {
 
     const table = await this.getTable();
     await table.save(this.metadata!);
-    onProgress(100);
+    onProgress(90);
     await this.load(true);
     const treasuryBondLots = await TreasuryBonds.getBondLots(client, vault.vaultId, vault.operatorAccountId);
 
-    return MyVaultRecovery.rebuildRules({
+    const rules = MyVaultRecovery.rebuildRules({
       feesInMicrogons: foundVault.txFee ?? 0n,
       vault,
       bitcoin,
       treasuryMicrogons: BondLot.getTotals(treasuryBondLots).activeBondMicrogons,
     });
+    onProgress(100);
+    return rules;
   }
 
   public async updateSettings(args: {

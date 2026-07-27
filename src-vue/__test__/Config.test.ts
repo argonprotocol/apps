@@ -49,6 +49,35 @@ it('keeps mnemonic-restored accounts eligible for financial history without mini
   expect(config.walletPreviousLifeRecovered).toBe(true);
 });
 
+it('reserves the final recovery progress for applying and saving config', async () => {
+  const dbPromise = createMockedDbPromise();
+  const { walletKeys } = createTestWallet('//Alice');
+  vi.spyOn(walletKeys, 'didWalletHavePreviousLife').mockResolvedValueOnce(true);
+  let reportProgress: ((progressPct: number) => void) | undefined;
+  let finishRecovery: ((value: Record<string, never>) => void) | undefined;
+  const recoverAccount = vi.fn(
+    onProgress =>
+      new Promise<Record<string, never>>(resolve => {
+        reportProgress = onProgress;
+        finishRecovery = resolve;
+      }),
+  );
+  instanceChecks.delete(Config.prototype.constructor);
+  const config = new Config(dbPromise, walletKeys, recoverAccount);
+  const loadPromise = config.load();
+  await vi.waitFor(() => expect(reportProgress).toBeTypeOf('function'));
+
+  reportProgress?.(50);
+  expect(config.walletPreviousHistoryLoadPct).toBe(47.5);
+  expect(config.isBootingUpPreviousWalletHistory).toBe(true);
+
+  finishRecovery?.({});
+  await loadPromise;
+
+  expect(config.walletPreviousHistoryLoadPct).toBe(100);
+  expect(config.isBootingUpPreviousWalletHistory).toBe(false);
+});
+
 it('can load config from db state', async () => {
   const dbPromise = createMockedDbPromise({
     miningSetupStatus: `"${MiningSetupStatus.Finished}"`,

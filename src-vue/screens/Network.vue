@@ -65,24 +65,24 @@
           <label>Argonots In Circulation</label>
         </div>
 
-        <div StatWrapper class="col-span-1 sm:col-span-2 flex flex-col h-full border-b border-slate-400/50">
+        <div StatWrapper class="flex flex-col h-full border-b border-slate-400/50">
           <span>{{ data.restabilizationLeverage || '---' }} <span class="text-xl font-semibold lg:text-2xl">TO</span> {{ data.restabilizationLeverage ? '1' : '--'}}</span>
-          <label>Argon Restabilization <span class="hidden md:inline">Capacity</span></label>
+          <label>Restabilization <span class="hidden md:inline">Capacity</span></label>
         </div>
 
         <div StatWrapper class="flex flex-col h-full border-b border-slate-400/50">
-            <span>
-              ${{ data.mining.activeBidCostsUsd ? numeral(data.mining.activeBidCostsUsd).format('0,0.00') : '---' }}
-            </span>
+          <span>
+            ${{ data.mining.activeBidCostsUsd ? numeral(data.mining.activeBidCostsUsd).format('0,0.00') : '---' }}
+          </span>
           <label>Cost of Mining Seats</label>
         </div>
 
         <div StatWrapper class="flex flex-col h-full border-b border-slate-400/50">
-            <span>
-              ${{
-                data.mining.activeBlockRewardsUsd ? numeral(data.mining.activeBlockRewardsUsd).format('0,0.00') : '---'
-              }}
-            </span>
+          <span>
+            ${{
+              data.mining.activeBlockRewardsUsd ? numeral(data.mining.activeBlockRewardsUsd).format('0,0.00') : '---'
+            }}
+          </span>
           <label>Revenue from Mining Seats</label>
         </div>
 

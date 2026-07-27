@@ -2,7 +2,7 @@ import mitt, { type Emitter } from 'mitt';
 import { WalletType } from '../lib/Wallet.ts';
 import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
 import type { OperationalStepId } from '../stores/certificationController.ts';
-import { ICurrencyKey, MoveTo } from '@argonprotocol/apps-core';
+import { ICurrencyKey, MoveTo, type BondLot } from '@argonprotocol/apps-core';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 
 export type IWalletGuidanceContext = 'mining' | 'vaulting';
@@ -26,7 +26,7 @@ type IBasicEmitter = {
   };
   openBotEditOverlay: void;
   openServerRemoveOverlay: void;
-  openSecuritySettingsOverlay: { screen: 'overview' | 'mnemonics' | 'ssh' | 'encrypt' | 'ethereum-export' } | undefined;
+  openSecuritySettingsOverlay: { screen: 'overview' | 'mnemonics' | 'encrypt' | 'ethereum-export' } | undefined;
   openProvisioningCompleteOverlay: void;
   openServerConnectPanel: void;
   closeAllOverlays: void;
@@ -40,6 +40,7 @@ type IBasicEmitter = {
       | 'debug-package'
       | 'options-for-restart'
       | 'overview'
+      | 'ssh'
       | 'missing-data-scanner';
   };
   openCheckForAppUpdatesOverlay: void;
@@ -62,6 +63,8 @@ type IBasicEmitter = {
   openBitcoinLock: { lock?: IBitcoinLockRecord } | undefined;
   openBitcoinUnlock: IBitcoinLockRecord;
   resumeBitcoinFunding: IBitcoinLockRecord;
+  openBuyBondsOverlay: BondLot['programType'];
+  bondPurchaseSubmitted: BondLot['programType'] | undefined;
 
   openServerOverlay: void;
   openServerSettingsOverlay: void;
@@ -72,6 +75,8 @@ type IBasicEmitter = {
 
   openUpgradeToOperationsOverlay: void;
   openUpgradeToTreasuryOverlay: void;
+
+  openSponsorOverlay: void;
 };
 
 const basicEmitter: Emitter<IBasicEmitter> = mitt<IBasicEmitter>();

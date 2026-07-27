@@ -27,22 +27,38 @@ export class WalletRecovery {
     miningHistory?: IMiningAccountPreviousHistoryRecord[];
     vaultingRules?: IVaultingRules;
   }> {
+    let lastReportedProgress = -1;
+    const reportProgress = (progressPct: number) => {
+      const clampedProgress = Math.min(100, Math.max(0, lastReportedProgress, progressPct));
+      if (clampedProgress === lastReportedProgress) return;
+      lastReportedProgress = clampedProgress;
+      onLoadHistoryProgress?.(Math.round(clampedProgress * 100) / 100);
+    };
+
     const walletsForArgon = this.walletsForArgon;
+    reportProgress(0);
     await walletsForArgon.load();
+    reportProgress(3);
     await this.miningFrames.load();
+    reportProgress(5);
 
     const hasVaultHistory = walletsForArgon.defaultArgonWallet.hasValue();
 
-    let vaultProgress = hasVaultHistory ? 0 : 100;
     let miningProgress = 0;
-    onLoadHistoryProgress?.(0);
+    let vaultProgress = 0;
     const onProgress = (source: 'miner' | 'vault', progressPct: number) => {
-      if (source === 'miner') miningProgress = progressPct;
-      else vaultProgress = progressPct;
-      onLoadHistoryProgress?.(Math.round(100 * ((vaultProgress + miningProgress) / 2)) / 100);
+      const clampedSourceProgress = Math.min(100, Math.max(0, progressPct));
+      if (source === 'miner') miningProgress = clampedSourceProgress;
+      else vaultProgress = clampedSourceProgress;
+
+      // Mining is the only recovery task for wallets without vault history, so it
+      // receives the entire recovery range instead of starting at an artificial 50%.
+      const combinedProgress = hasVaultHistory ? miningProgress * 0.7 + vaultProgress * 0.3 : miningProgress;
+      reportProgress(10 + combinedProgress * 0.9);
     };
 
     const liveClient = await this.clients.archiveClientPromise;
+    reportProgress(10);
     const miningHistoryPromise = this.loadMiningHistory(liveClient, pct => onProgress('miner', pct));
 
     let vaultingHistoryPromise: Promise<IVaultingRules | undefined> = Promise.resolve(undefined);
@@ -53,7 +69,7 @@ export class WalletRecovery {
       });
     }
     const [miningHistory, vaultingRules] = await Promise.all([miningHistoryPromise, vaultingHistoryPromise]);
-    onLoadHistoryProgress?.(100);
+    reportProgress(100);
     return {
       miningHistory,
       vaultingRules,
@@ -65,9 +81,11 @@ export class WalletRecovery {
     onProgress: (progressPct: number) => void,
   ): Promise<IMiningAccountPreviousHistoryRecord[] | undefined> {
     const dataByFrameId: Record<string, IMiningAccountPreviousHistoryRecord> = {};
+    onProgress(0);
     const miningActivity = await findAddressActivity(this.walletKeys.miningBotAddress, {
       activityMask: AccountActivityKind.MiningBid,
     });
+    onProgress(10);
     if (miningActivity.coverage.gaps.length) {
       const firstGap = miningActivity.coverage.gaps[0];
       throw new Error(
@@ -76,6 +94,7 @@ export class WalletRecovery {
     }
     const minerFirstBidBlock = miningActivity.blocks.at(0)?.blockNumber ?? null;
     const accountSubaccounts = await this.walletKeys.getMiningBotSubaccounts();
+    onProgress(15);
 
     const currentFrameBids: IMiningAccountPreviousHistoryBid[] = [];
     const latestFrameId = this.miningFrames.currentFrameId;
@@ -95,10 +114,22 @@ export class WalletRecovery {
         micronotsStaked: bidRaw.argonots.toBigInt(),
       });
     }
+    onProgress(20);
 
-    const framesToProcess = latestFrameId - earliestFundingFrameId;
+    const epochFrameIdsToProcess: number[] = [];
+    for (let frameId = latestFrameId; frameId >= earliestFundingFrameId && frameId > 1; frameId -= 10) {
+      if (this.miningFrames.framesById[frameId]?.firstBlockHash) {
+        epochFrameIdsToProcess.push(frameId);
+      }
+    }
+    const totalEpochsToProcess = epochFrameIdsToProcess.length;
+    let epochsProcessed = 0;
     await new FrameIterator(this.clients, this.miningFrames).iterateFramesByEpoch(
       async (frameId, firstBlockMeta, api, abortController) => {
+        if (frameId < earliestFundingFrameId) {
+          abortController.abort();
+          return;
+        }
         if (firstBlockMeta.specVersion < 140) {
           console.log(`[MiningHistory] Reached spec version < 140 at frame ${frameId}, stopping history load`);
           return abortController.abort();
@@ -122,11 +153,11 @@ export class WalletRecovery {
             });
           }
         }
-        const framesProcessed = latestFrameId - frameId;
-        const progress = Math.max((100 * framesProcessed) / framesToProcess, 0);
+        epochsProcessed += 1;
+        const progress = totalEpochsToProcess > 0 ? 20 + (80 * epochsProcessed) / totalEpochsToProcess : 100;
         onProgress(progress);
         console.log(`[MiningHistory] Progress: ${progress}`);
-        if (frameId < earliestFundingFrameId) {
+        if (epochsProcessed >= totalEpochsToProcess) {
           abortController.abort();
         }
       },

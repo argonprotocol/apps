@@ -58,14 +58,14 @@
       <section class="mx-auto max-w-220 py-3 text-base font-light whitespace-normal opacity-80">
         <p v-if="config.hasExtensionOperations">
           You've been upgraded to the top level of Argon's operational feature set. In addition to Argon's bridgeless
-          cross-chain transfers yield-generating assets, you're now approved to help run its core mining and vaulting
-          infrastructure. Use the navbar on the left to explore your options.
+          cross-chain transfers and yield-generating assets, you're now approved to help run its core mining and
+          vaulting infrastructure. Use the navbar on the left to explore your options.
         </p>
         <p v-else-if="config.hasExtensionTreasury">
-          You've been upgraded to Treasury, which is the second of three app levels! You still have access to the same
-          wallet and cross-chain transfer capabilities as before, but now you can access the awesome yield-generating
-          assets of the network. You'll also want to explore becoming Treasury Certified, which makes you eligible for
-          the final level of Operator.
+          You've been upgraded to Treasury, which is the second of three app levels! You can still use the same wallet
+          and cross-chain transfer capabilities, but now you're also given access to the yield-generating assets of the
+          network. The final step is becoming Treasury Certified, which makes you eligible for the final level of
+          upgrading to a full-fledged network Operator.
         </p>
         <p v-else>
           This app has three levels of features. You’re currently approved for level one. This means you have full use
