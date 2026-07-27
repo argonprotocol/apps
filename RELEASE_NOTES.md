@@ -3,6 +3,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1] - 2026-07-26
+- Fixes empty vault display after database restore
+- After recreating app database, bootstrapping shows more accurate progress
+- Added a Sponsor menu to the top navigation for Treasury users
+- Added a Sponsor Details overlay
+
 ## [2.2.0] - 2026-07-26
 - Improved the Treasury upgrade, welcome, onboarding, and certification experiences.
 - Separated Argon Bonds and Argonot Stakes into distinct screens
