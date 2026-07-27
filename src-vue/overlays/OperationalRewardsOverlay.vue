@@ -32,6 +32,7 @@ import { useCertificationController } from '../stores/certificationController.ts
 import Activate from './operational-rewards/Activate.vue';
 import Congratulations from './operational-rewards/Congratulations.vue';
 import Claim from './operational-rewards/Claim.vue';
+import { shouldAutoOpenCertificationComplete } from './helpers/OperationalRewardsState.ts';
 
 type OperationalRewardsScreen = 'activate' | 'congratulations' | 'claim';
 
@@ -95,16 +96,23 @@ Vue.watch(
 );
 
 Vue.watch(
-  () => controller.isFullyOperational,
-  isFullyOperational => {
-    if (!isFullyOperational || config.certificationDetails?.showRewardsCelebration === false || isOpen.value) {
+  [() => controller.hasLoadedInitialOperationalProgress, () => controller.isFullyOperational],
+  ([hasLoadedInitialProgress, isFullyOperational], previousState) => {
+    const [hadLoadedInitialProgress = false, wasFullyOperational = false] = previousState;
+    if (
+      !shouldAutoOpenCertificationComplete(
+        { hasLoadedInitialProgress, isFullyOperational },
+        { hasLoadedInitialProgress: hadLoadedInitialProgress, isFullyOperational: wasFullyOperational },
+      ) ||
+      config.certificationDetails?.showRewardsCelebration === false ||
+      isOpen.value
+    ) {
       return;
     }
 
     controller.clearCompletionNotices();
     goTo('congratulations');
   },
-  { immediate: true },
 );
 
 basicEmitter.on('openOperationalRewardsOverlay', payload => {
