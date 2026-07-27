@@ -17,14 +17,25 @@ const config = getConfig();
 const stableSwaps = useStableSwaps();
 const isLoaded = Vue.ref(false);
 
-Vue.onMounted(async () => {
-  if (config.hasActivatedStableSwaps) {
+Vue.watch(
+  () => config.hasActivatedStableSwaps,
+  async () => {
+    await config.isLoadedPromise;
+
+    if (!config.hasActivatedStableSwaps) {
+      isLoaded.value = true;
+      return;
+    }
+
+    isLoaded.value = false;
     try {
       await stableSwaps.load();
     } catch {
       // Dashboard renders the store's marketError.
+    } finally {
+      isLoaded.value = true;
     }
-  }
-  isLoaded.value = true;
-});
+  },
+  { immediate: true },
+);
 </script>
