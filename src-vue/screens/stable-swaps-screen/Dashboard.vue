@@ -243,15 +243,7 @@ function finishSetCurrencyKey(key: ICurrencyKey) {
   currencyKey.value = key;
 }
 
-Vue.onMounted(async () => {
-  if (config.hasActivatedStableSwaps) {
-    try {
-      await stableSwaps.load();
-    } catch {
-      // The store exposes the underlying marketError for this screen.
-    }
-  }
-
+Vue.onMounted(() => {
   finishSetCurrencyKey(currencyKey.value);
   currencyRotationInterval = setInterval(() => {
     const currentIndex = currencyPositions.indexOf(currencyKey.value);

@@ -159,13 +159,6 @@ async function fetchInstances() {
   }
 }
 
-function toPossessive(name: string): string {
-  const trimmed = name.trim();
-  if (!trimmed) return '';
-
-  return trimmed.endsWith('s') ? `${trimmed}'` : `${trimmed}'s`;
-}
-
 function setNavigationMenuValue(value: string) {
   clearNavigationMenuClose();
 

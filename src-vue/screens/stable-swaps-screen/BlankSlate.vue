@@ -58,49 +58,20 @@
 </template>
 
 <script setup lang="ts">
-import * as Vue from 'vue';
-import dayjs from 'dayjs';
-import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
-import { formatUnits } from 'viem';
-import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
+import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
-import { useStableSwaps } from '../../stores/stableSwaps.ts';
 import CurvedArrow from '../../components/CurvedArrow.vue';
-import EthereumIcon from '../../assets/networks/ethereum.svg';
-import ArgonIcon from '../../assets/networks/argon.svg';
-import SwapIcon from '../../assets/swap.svg';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { WalletType } from '../../lib/Wallet.ts';
-import { bigIntAbs, ICurrencyKey, NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { getConfig } from '../../stores/config.ts';
-import { ArrowTopRightOnSquareIcon, CheckIcon } from '@heroicons/vue/24/outline';
-import Arrow from '../../components/Arrow.vue';
-import FormattedMoney from '../../components/FormattedMoney.vue';
 import { useFinancials } from '../../stores/financials.ts';
-import SwapRecord from '../treasury-screens/components/SwapRecord.vue';
 import CurvedArrowRadialGradient from '../../components/CurvedArrowRadialGradient.vue';
 
 const currency = getCurrency();
 const financials = useFinancials();
-const stableSwaps = useStableSwaps();
 const config = getConfig();
 
-const { microgonToMoneyNm, microgonToNm } = createNumeralHelpers(currency);
-
-const isLoaded = Vue.ref(false);
-
-const currencyKey = Vue.ref<ICurrencyKey>(UnitOfMeasurement.USD);
-const currencySymbol = Vue.computed(() => currency.recordsByKey[currencyKey.value].symbol);
-const oneArgonInMicrogons = 1000000n;
-const zeroMicrogons = 0n;
-
-const totalSwapReturn = Vue.computed(() => {
-  return financials.stableSwapPerformanceReturn;
-});
-
-async function openPurchaseTx(txHash: string) {
-  await tauriOpenUrl(`https://etherscan.io/tx/${txHash}`);
-}
+const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 function openEthereumWallet() {
   basicEmitter.emit('openWalletOverlay', { walletType: WalletType.ethereum });
@@ -110,58 +81,4 @@ async function activateStableSwaps() {
   config.hasActivatedStableSwaps = true;
   await config.save();
 }
-
-const currencyFadeClass = Vue.ref('');
-const currencyPositions: ICurrencyKey[] = [
-  UnitOfMeasurement.USD,
-  UnitOfMeasurement.EUR,
-  UnitOfMeasurement.GBP,
-  UnitOfMeasurement.INR,
-];
-
-let currencyRotationInterval: ReturnType<typeof setTimeout> | undefined;
-let setCurrencyKeyTimeout: ReturnType<typeof setTimeout> | undefined;
-
-function startSetCurrencyKey(key: ICurrencyKey, shouldClearRotation: boolean = true) {
-  if (!currency.isLoaded) return;
-  if (setCurrencyKeyTimeout) clearTimeout(setCurrencyKeyTimeout);
-  if (shouldClearRotation) clearInterval(currencyRotationInterval);
-
-  currencyFadeClass.value = 'opacity-10';
-  setCurrencyKeyTimeout = setTimeout(() => {
-    finishSetCurrencyKey(key);
-    currencyFadeClass.value = 'opacity-100';
-  }, 400);
-}
-
-function finishSetCurrencyKey(key: ICurrencyKey) {
-  currencyKey.value = key;
-}
-
-Vue.onMounted(async () => {
-  if (config.hasActivatedStableSwaps) {
-    try {
-      await stableSwaps.load();
-    } catch {
-      // The store exposes the underlying marketError for this screen.
-    }
-  }
-
-  finishSetCurrencyKey(currencyKey.value);
-  currencyRotationInterval = setInterval(() => {
-    const currentIndex = currencyPositions.indexOf(currencyKey.value);
-    const isLastIndex = currentIndex >= 3;
-    const nextIndex = isLastIndex ? 0 : currentIndex + 1;
-    const nextKey = currencyPositions[nextIndex];
-    startSetCurrencyKey(nextKey, false);
-    if (isLastIndex) {
-      clearInterval(currencyRotationInterval);
-    }
-  }, 5e3);
-  isLoaded.value = true;
-});
-
-Vue.onUnmounted(() => {
-  clearInterval(currencyRotationInterval);
-});
 </script>

@@ -33,7 +33,6 @@ import SecuritySettingsOverview from './security-settings/Overview.vue';
 import SecuritySettingsEncrypt from './security-settings/Encrypt.vue';
 import SecuritySettingsExportEthereumPrivateKey from './security-settings/ExportEthereumPrivateKey.vue';
 import SecuritySettingsMnemonics from './security-settings/Mnemonics.vue';
-import SecuritySettingsSSHAccess from './troubleshooting/SSHAccess.vue';
 import OverlayBase from './OverlayBase.vue';
 import { useBasics } from '../stores/basics.ts';
 import { useWallets } from '../stores/wallets.ts';
