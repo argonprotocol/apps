@@ -24,7 +24,7 @@
         "backgroundThrottling": "disabled",
         "center": true,
         "maximized": false,
-        "minWidth": 1000,
+        "minWidth": 1200,
         "minHeight": 800,
         "shadow": true,
         "transparent": true

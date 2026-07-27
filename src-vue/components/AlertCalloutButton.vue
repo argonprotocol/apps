@@ -41,11 +41,11 @@
             >
               Quit Task
             </button>
-<!--            <button-->
-<!--              class="border-argon-600/60 text-argon-600 hover:bg-argon-600/5 grow cursor-pointer rounded border px-5 py-1"-->
-<!--            >-->
-<!--              View Documentation-->
-<!--            </button>-->
+            <!--            <button-->
+            <!--              class="border-argon-600/60 text-argon-600 hover:bg-argon-600/5 grow cursor-pointer rounded border px-5 py-1"-->
+            <!--            >-->
+            <!--              View Documentation-->
+            <!--            </button>-->
           </div>
         </div>
         <HoverCardArrow
