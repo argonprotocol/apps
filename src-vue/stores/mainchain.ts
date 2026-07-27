@@ -212,6 +212,7 @@ async function connectPrunedClientToConfiguredServer(): Promise<void> {
   }
 
   const serverApiClient = getServerApiClient();
+  let prunedUrl: string;
   if (config.isServerInstalled && config.serverDetails.ipAddress) {
     if (!(await serverApiClient.isGatewayReady())) {
       console.warn('[Mainchain] Configured server gateway is not ready for pruned RPC');
@@ -221,7 +222,7 @@ async function connectPrunedClientToConfiguredServer(): Promise<void> {
 
     try {
       const sessionId = await serverApiClient.getAdminOperatorSessionId({ forceVerify: true });
-      await mainchainClients.setPrunedClient(serverApiClient.getGatewayWebsocketUrl('/substrate', sessionId));
+      prunedUrl = serverApiClient.getGatewayWebsocketUrl('/substrate', sessionId);
     } catch (error) {
       console.warn(
         `[Mainchain] Failed to connect configured pruned client after ${Date.now() - connectStartedAt}ms`,
@@ -230,19 +231,24 @@ async function connectPrunedClientToConfiguredServer(): Promise<void> {
       mainchainClients.clearPrunedClient();
       throw error;
     }
-
-    return;
-  }
-
-  const upstreamOperatorClient = getUpstreamOperatorClient();
-  if (upstreamOperatorClient.operatorHost && config.upstreamOperator) {
+  } else {
+    const upstreamOperatorClient = getUpstreamOperatorClient();
+    if (!upstreamOperatorClient.operatorHost || !config.upstreamOperator) {
+      mainchainClients.clearPrunedClient();
+      return;
+    }
     const sessionId = await upstreamOperatorClient.getMemberSessionId({
       forceVerify: true,
     });
-
-    await mainchainClients.setPrunedClient(upstreamOperatorClient.getWebsocketUrl('/substrate', sessionId));
-    return;
+    prunedUrl = upstreamOperatorClient.getWebsocketUrl('/substrate', sessionId);
   }
 
-  mainchainClients.clearPrunedClient();
+  void mainchainClients.setPrunedClient(prunedUrl).catch(error => {
+    if (mainchainClients.prunedUrl === prunedUrl) {
+      console.warn(
+        `[Mainchain] Failed to connect configured pruned client after ${Date.now() - connectStartedAt}ms`,
+        error,
+      );
+    }
+  });
 }

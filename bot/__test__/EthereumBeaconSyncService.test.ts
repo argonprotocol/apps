@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { NetworkConfig } from '@argonprotocol/apps-core';
+import { minimumVaultDelegateBalance, NetworkConfig } from '@argonprotocol/apps-core';
 
 type IMockTx = { id: string };
 type IMockSignedTx = {
@@ -97,10 +97,23 @@ import {
 const syncKeypair = { address: 'sync-account' } as any;
 
 describe('EthereumBeaconSyncService', () => {
-  const createClient = (startingNonce = 4, hasEthereumChainConfig = true): ArgonClient =>
+  const createClient = ({
+    startingNonce = 4,
+    hasEthereumChainConfig = true,
+    getDelegateBalance = () => minimumVaultDelegateBalance,
+  }: {
+    startingNonce?: number;
+    hasEthereumChainConfig?: boolean;
+    getDelegateBalance?: () => bigint;
+  } = {}): ArgonClient =>
     ({
       isConnected: true,
       query: {
+        system: {
+          account: vi.fn(async () => ({
+            data: { free: { toBigInt: getDelegateBalance } },
+          })),
+        },
         crosschainTransfer: {
           chainConfigBySourceChain: vi.fn(async () =>
             hasEthereumChainConfig
@@ -178,7 +191,7 @@ describe('EthereumBeaconSyncService', () => {
   });
 
   it('stays idle until the Ethereum transfer gateway is configured on-chain', async () => {
-    const service = new EthereumBeaconSyncService(createClient(4, false), {
+    const service = new EthereumBeaconSyncService(createClient({ hasEthereumChainConfig: false }), {
       beaconApiUrl: 'https://beacon.example',
       submitLane: createSubmitLane(createClient()),
     });
@@ -193,13 +206,70 @@ describe('EthereumBeaconSyncService', () => {
     });
   });
 
+  it('checks the delegate balance before generating work and again after waiting for the submission lane', async () => {
+    let delegateBalance = minimumVaultDelegateBalance - 1n;
+    const client = createClient({
+      getDelegateBalance: () => delegateBalance,
+    });
+    const submitLane = createSubmitLane(client);
+    const service = new EthereumBeaconSyncService(client, {
+      beaconApiUrl: 'https://beacon.example',
+      submitLane,
+    });
+
+    await service.runOnce();
+
+    expect(mainchainMock.getNextEthereumBeaconSyncTxs).not.toHaveBeenCalled();
+    expect(service.state()).toMatchObject({
+      mode: 'idle',
+      lastError: 'Vault delegate needs more funds before Ethereum beacon sync can run.',
+    });
+
+    delegateBalance = minimumVaultDelegateBalance;
+    const laneEntered = vi.fn();
+    let releaseLane!: () => void;
+    const laneGate = new Promise<void>(resolve => {
+      releaseLane = resolve;
+    });
+    void submitLane.runExclusive(async () => {
+      laneEntered();
+      await laneGate;
+    });
+
+    mainchainMock.getEthereumBeaconSyncState.mockResolvedValue({
+      isBootstrapped: true,
+      hasNextSyncCommittee: true,
+      latestFinalizedBlockRoot: '0xabc',
+      latestFinalizedSlot: 800n,
+      nextRecommendedFinalizedSlot: 832n,
+      latestSyncCommitteeUpdatePeriod: 12n,
+      headerInterval: 32n,
+    });
+    mainchainMock.getNextEthereumBeaconSyncTxs.mockResolvedValue([{ id: 'tx-1' }]);
+
+    await vi.waitFor(() => expect(laneEntered).toHaveBeenCalledOnce());
+    const runOncePromise = service.runOnce();
+    await vi.waitFor(() => expect(mainchainMock.getNextEthereumBeaconSyncTxs).toHaveBeenCalledOnce());
+
+    delegateBalance = minimumVaultDelegateBalance - 1n;
+    releaseLane();
+    await runOncePromise;
+
+    expect(client.query.system.account).toHaveBeenCalledTimes(3);
+    expect(submissionMock.submitWithTerminalStatusWatch).not.toHaveBeenCalled();
+    expect(service.state()).toMatchObject({
+      mode: 'idle',
+      lastError: 'Vault delegate needs more funds before Ethereum beacon sync can run.',
+    });
+  });
+
   it('submits returned transactions in order and refreshes sync state', async () => {
     let resolveFirstInBlock!: () => void;
     const firstInBlock = new Promise<void>(resolve => {
       resolveFirstInBlock = resolve;
     });
     const txs: IMockTx[] = [{ id: 'tx-1' }, { id: 'tx-2' }];
-    const client = createClient(12);
+    const client = createClient({ startingNonce: 12 });
 
     mainchainMock.getEthereumBeaconSyncState
       .mockResolvedValueOnce({
@@ -281,7 +351,11 @@ describe('EthereumBeaconSyncService', () => {
     vi.useFakeTimers();
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const txs: IMockTx[] = [{ id: 'tx-1' }];
-    const client = createClient(12);
+    let delegateBalance = minimumVaultDelegateBalance;
+    const client = createClient({
+      startingNonce: 12,
+      getDelegateBalance: () => delegateBalance,
+    });
 
     (client.rpc.author.pendingExtrinsics as any) = vi
       .fn()
@@ -295,15 +369,6 @@ describe('EthereumBeaconSyncService', () => {
       .mockResolvedValueOnce([]);
 
     mainchainMock.getEthereumBeaconSyncState
-      .mockResolvedValueOnce({
-        isBootstrapped: true,
-        hasNextSyncCommittee: true,
-        latestFinalizedBlockRoot: '0xabc',
-        latestFinalizedSlot: 800n,
-        nextRecommendedFinalizedSlot: 832n,
-        latestSyncCommitteeUpdatePeriod: 12n,
-        headerInterval: 32n,
-      })
       .mockResolvedValueOnce({
         isBootstrapped: true,
         hasNextSyncCommittee: true,
@@ -365,17 +430,16 @@ describe('EthereumBeaconSyncService', () => {
       mode: 'submitting',
     });
 
+    delegateBalance = minimumVaultDelegateBalance - 1n;
     await service.runOnce();
 
-    expect(mainchainMock.getNextEthereumBeaconSyncTxs).toHaveBeenCalledTimes(1);
     expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(1);
     expect(service.state()).toMatchObject({
       lastSubmittedTxHash: 'tx-1-hash',
-      latestFinalizedSlot: 800n,
-      latestSyncCommitteeUpdatePeriod: 12n,
       mode: 'submitting',
     });
 
+    delegateBalance = minimumVaultDelegateBalance;
     await service.runOnce();
 
     expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenNthCalledWith(
@@ -512,7 +576,7 @@ describe('EthereumBeaconSyncService', () => {
 
   it('waits for the next sweep when an equal-priority transaction is already pending', async () => {
     const txs: IMockTx[] = [{ id: 'tx-1' }, { id: 'tx-2' }];
-    const client = createClient(12);
+    const client = createClient({ startingNonce: 12 });
 
     mainchainMock.getEthereumBeaconSyncState.mockResolvedValue({
       isBootstrapped: true,
@@ -552,7 +616,7 @@ describe('EthereumBeaconSyncService', () => {
       TxSubmissionErrorCode.Dropped,
       'Transaction was dropped before it was included in a block.',
     );
-    const client = createClient(12);
+    const client = createClient({ startingNonce: 12 });
 
     mainchainMock.getEthereumBeaconSyncState
       .mockResolvedValueOnce({
@@ -617,7 +681,7 @@ describe('EthereumBeaconSyncService', () => {
   });
 
   it('treats ExpectedFinalizedHeaderNotStored as idle so the next pass can retry', async () => {
-    const client = createClient(12);
+    const client = createClient({ startingNonce: 12 });
 
     mainchainMock.getEthereumBeaconSyncState.mockResolvedValue({
       isBootstrapped: true,

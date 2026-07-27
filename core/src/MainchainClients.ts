@@ -1,6 +1,7 @@
 import { type ApiDecoration, type ArgonClient, getClient } from '@argonprotocol/mainchain';
 import { wrapApi } from './ClientWrapper.js';
-import { createTypedEventEmitter } from './utils.js';
+import { createDeferred, type IDeferred } from './Deferred.js';
+import { createTypedEventEmitter, raceWithTimeout } from './utils.js';
 
 export type ArgonQueryClient = ArgonClient | ApiDecoration<'promise'>;
 const stringifyApiLogValue = (_key: string, value: unknown) => (typeof value === 'bigint' ? value.toString() : value);
@@ -15,10 +16,19 @@ interface IDisconnectLogInfo {
   time: number;
 }
 
+interface IPrunedCandidate {
+  url: string;
+  connection: Promise<ArgonClient>;
+  ready: IDeferred<ArgonClient>;
+}
+
 type IClientType = 'archive' | 'pruned';
 type IClientConnectionState = 'connected' | 'disconnected';
 
 export class MainchainClients {
+  private static readonly prunedStateProbeTimeoutMs = 60e3;
+  private static readonly prunedStateProbeRetryMs = 5e3;
+
   public events = createTypedEventEmitter<{
     'connection-state-changed': (hasConnectedClient: boolean) => void;
     degraded: (error: Error | undefined, clientType: 'archive' | 'pruned') => void;
@@ -28,11 +38,13 @@ export class MainchainClients {
   public get prunedClientOrArchivePromise(): Promise<ArgonClient> {
     return this.prunedClientPromise ?? this.archiveClientPromise;
   }
+  public get prunedUrl(): string | undefined {
+    return this.prunedCandidate?.url;
+  }
 
   archiveUrl: string;
   archiveClientPromise: Promise<ArgonClient>;
 
-  prunedUrl?: string;
   prunedClientPromise?: Promise<ArgonClient>;
   lastErrorByClient: { archive: ILastErrorInfo; pruned: ILastErrorInfo } = {
     archive: { errors: [], lastErrorTime: 0 },
@@ -47,6 +59,9 @@ export class MainchainClients {
     archive: { message: '', time: 0 },
     pruned: { message: '', time: 0 },
   };
+  private prunedCandidate?: IPrunedCandidate;
+  private prunedStateProbePromise?: Promise<void>;
+  private prunedStateProbeTimer?: ReturnType<typeof setTimeout>;
   private isShuttingDown = false;
 
   constructor(
@@ -77,34 +92,66 @@ export class MainchainClients {
     return connectedClient;
   }
 
-  public async setPrunedClient(url: string): Promise<ArgonClient> {
-    if (this.prunedUrl === url && this.prunedClientPromise) {
-      return this.prunedClientPromise;
+  public setPrunedClient(url: string): Promise<ArgonClient> {
+    const previousCandidate = this.prunedCandidate;
+    if (previousCandidate?.url === url && !previousCandidate.ready.isRejected) {
+      return previousCandidate.ready.promise;
     }
 
-    const previousClientPromise = this.prunedClientPromise;
-    this.prunedUrl = url;
-    this.prunedClientPromise = getMainchainClientOrThrow(url).then(client => this.wrapClient(client, 'pruned'));
-    const client = await this.prunedClientPromise;
-    this.events.emit('on-pruned-client', client, url);
-    void previousClientPromise?.then(previousClient => previousClient.disconnect()).catch(() => undefined);
-    return this.prunedClientPromise;
+    const wasPreferred = !!this.prunedClientPromise;
+    this.prunedClientPromise = undefined;
+    this.currentClientByType.pruned = undefined;
+    this.setConnectionState('pruned', 'disconnected');
+    this.stopPrunedStateProbe();
+    const ready = createDeferred<ArgonClient>(false);
+    void ready.promise.catch(() => undefined);
+    const connection = getMainchainClientOrThrow(url).then(async client => {
+      if (this.prunedCandidate?.ready !== ready) {
+        await client.disconnect();
+        throw new Error('Pruned client was replaced before it connected');
+      }
+      return this.wrapClient(client, 'pruned');
+    });
+    const candidate = { url, connection, ready };
+    this.prunedCandidate = candidate;
+    void previousCandidate?.connection.then(previousClient => previousClient.disconnect()).catch(() => undefined);
+    previousCandidate?.ready.reject(new Error('Pruned client was replaced'));
+
+    if (wasPreferred) {
+      this.events.emit('degraded', undefined, 'pruned');
+    }
+
+    void candidate.connection
+      .then(client => {
+        this.schedulePrunedStateProbe(client);
+      })
+      .catch(error => {
+        if (this.prunedCandidate !== candidate) {
+          return;
+        }
+        this.currentClientByType.pruned = undefined;
+        this.setConnectionState('pruned', 'disconnected');
+        candidate.ready.reject(error);
+      });
+
+    return candidate.ready.promise;
   }
 
   public clearPrunedClient(): void {
-    const previousClientPromise = this.prunedClientPromise;
-    if (!previousClientPromise) return;
+    const previousCandidate = this.prunedCandidate;
+    if (!previousCandidate) return;
 
-    const shouldNotifyDegraded =
-      this.connectionStateByClient.pruned === 'connected' && !!this.currentClientByType.pruned;
+    const shouldNotifyDegraded = !!this.prunedClientPromise;
+    this.prunedCandidate = undefined;
     this.prunedClientPromise = undefined;
-    this.prunedUrl = undefined;
+    previousCandidate.ready.reject(new Error('Pruned client was cleared'));
     this.currentClientByType.pruned = undefined;
+    this.stopPrunedStateProbe();
     this.setConnectionState('pruned', 'disconnected');
     if (shouldNotifyDegraded) {
       this.events.emit('degraded', undefined, 'pruned');
     }
-    void previousClientPromise.then(previousClient => previousClient.disconnect()).catch(() => undefined);
+    void previousCandidate.connection.then(previousClient => previousClient.disconnect()).catch(() => undefined);
   }
 
   public async get(needsHistoricalBlocks: boolean): Promise<ArgonClient & { clientType: 'archive' | 'pruned' }> {
@@ -121,9 +168,11 @@ export class MainchainClients {
 
   public async disconnect() {
     this.isShuttingDown = true;
+    this.prunedCandidate?.ready.reject(new Error('Mainchain clients disconnected'));
+    this.stopPrunedStateProbe();
     await Promise.allSettled([
       this.archiveClientPromise.then(client => client.disconnect()),
-      this.prunedClientPromise?.then(client => client.disconnect()),
+      this.prunedCandidate?.connection.then(client => client.disconnect()),
     ]);
   }
 
@@ -152,8 +201,18 @@ export class MainchainClients {
         apiError = error;
         const errorTracker = this.lastErrorByClient[clientType];
         errorTracker.errors.push(error);
+        if (errorTracker.errors.length > 6) {
+          errorTracker.errors.shift();
+        }
         errorTracker.lastErrorTime = Date.now();
-        if (errorTracker.errors.length > 5) {
+        const isStateDiscarded = String(error).toLowerCase().includes('state already discarded');
+        if (clientType === 'pruned' && isStateDiscarded) {
+          this.schedulePrunedStateProbe(api);
+        } else if (errorTracker.errors.length > 5 && clientType === 'pruned') {
+          if (this.demotePrunedClient(api, error)) {
+            this.schedulePrunedStateProbe(api, MainchainClients.prunedStateProbeRetryMs);
+          }
+        } else if (errorTracker.errors.length > 5) {
           this.events.emit('degraded', error, clientType);
         }
 
@@ -187,7 +246,12 @@ export class MainchainClients {
       }
 
       this.setConnectionState(clientType, 'disconnected');
-      this.events.emit('degraded', undefined, clientType);
+      if (clientType === 'pruned') {
+        this.stopPrunedStateProbe();
+        this.demotePrunedClient(api);
+      } else {
+        this.events.emit('degraded', undefined, clientType);
+      }
       if (this.isShuttingDown) {
         return;
       }
@@ -205,9 +269,115 @@ export class MainchainClients {
         return;
       }
       this.setConnectionState(clientType, 'connected');
+      if (clientType === 'pruned') {
+        this.schedulePrunedStateProbe(api);
+      }
       if (!apiError) this.events.emit('working', '', clientType);
     });
     return api;
+  }
+
+  private schedulePrunedStateProbe(client: ArgonClient, delayMs = 0): void {
+    if (
+      this.isShuttingDown ||
+      this.currentClientByType.pruned !== client ||
+      this.connectionStateByClient.pruned !== 'connected' ||
+      this.prunedStateProbePromise ||
+      this.prunedStateProbeTimer
+    ) {
+      return;
+    }
+
+    if (delayMs > 0) {
+      this.prunedStateProbeTimer = setTimeout(() => {
+        this.prunedStateProbeTimer = undefined;
+        this.schedulePrunedStateProbe(client);
+      }, delayMs);
+      return;
+    }
+
+    const probePromise = raceWithTimeout(
+      (async () => {
+        const finalizedHash = await client.rpc.chain.getFinalizedHead();
+        const finalizedClient = await client.at(finalizedHash);
+        await finalizedClient.query.system.number();
+      })(),
+      MainchainClients.prunedStateProbeTimeoutMs,
+      () => {
+        throw new Error('Pruned client state probe timed out');
+      },
+    );
+    this.prunedStateProbePromise = probePromise;
+    let shouldRetry = false;
+
+    void probePromise
+      .then(() => {
+        if (
+          this.prunedStateProbePromise !== probePromise ||
+          this.currentClientByType.pruned !== client ||
+          this.connectionStateByClient.pruned !== 'connected' ||
+          this.prunedClientPromise
+        ) {
+          return;
+        }
+
+        const hadConnectedClient = this.hasConnectedClient();
+        this.prunedClientPromise = Promise.resolve(client);
+        this.prunedCandidate?.ready.resolve(client);
+        const hasConnectedClient = this.hasConnectedClient();
+        if (hadConnectedClient !== hasConnectedClient) {
+          this.events.emit('connection-state-changed', hasConnectedClient);
+        }
+        this.events.emit('on-pruned-client', client, this.prunedUrl!);
+      })
+      .catch(error => {
+        if (
+          this.prunedStateProbePromise !== probePromise ||
+          this.isShuttingDown ||
+          this.currentClientByType.pruned !== client
+        ) {
+          return;
+        }
+        this.demotePrunedClient(client, error as Error);
+        shouldRetry = this.connectionStateByClient.pruned === 'connected';
+      })
+      .finally(() => {
+        if (this.prunedStateProbePromise !== probePromise) {
+          return;
+        }
+
+        this.prunedStateProbePromise = undefined;
+        if (shouldRetry) {
+          this.schedulePrunedStateProbe(client, MainchainClients.prunedStateProbeRetryMs);
+        }
+      });
+  }
+
+  private stopPrunedStateProbe(): void {
+    if (this.prunedStateProbeTimer) {
+      clearTimeout(this.prunedStateProbeTimer);
+      this.prunedStateProbeTimer = undefined;
+    }
+    this.prunedStateProbePromise = undefined;
+  }
+
+  private demotePrunedClient(client: ArgonClient, error?: Error): boolean {
+    const candidate = this.prunedCandidate;
+    if (this.currentClientByType.pruned !== client || !this.prunedClientPromise || !candidate) {
+      return false;
+    }
+
+    const hadConnectedClient = this.hasConnectedClient();
+    this.prunedClientPromise = undefined;
+    const readiness = createDeferred<ArgonClient>(false);
+    void readiness.promise.catch(() => undefined);
+    candidate.ready = readiness;
+    const hasConnectedClient = this.hasConnectedClient();
+    if (hadConnectedClient !== hasConnectedClient) {
+      this.events.emit('connection-state-changed', hasConnectedClient);
+    }
+    this.events.emit('degraded', error, 'pruned');
+    return true;
   }
 
   private setConnectionState(clientType: IClientType, connectionState: IClientConnectionState): void {

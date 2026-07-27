@@ -1,5 +1,11 @@
 import { setTimeout as sleep } from 'node:timers/promises';
-import { NetworkConfig, raceWithTimeout, SingleFileQueue, type IEthereumSyncStatus } from '@argonprotocol/apps-core';
+import {
+  minimumVaultDelegateBalance,
+  NetworkConfig,
+  raceWithTimeout,
+  SingleFileQueue,
+  type IEthereumSyncStatus,
+} from '@argonprotocol/apps-core';
 import {
   type ArgonClient,
   ExtrinsicError,
@@ -111,20 +117,6 @@ export class EthereumBeaconSyncService {
       return;
     }
 
-    const syncState = await getEthereumBeaconSyncState(this.client);
-
-    this.stateData.latestSyncCommitteeUpdatePeriod = syncState.latestSyncCommitteeUpdatePeriod;
-    delete this.stateData.lastError;
-
-    if (!syncState.isBootstrapped) {
-      this.stateData.mode = 'needsBootstrap';
-      delete this.stateData.latestFinalizedSlot;
-      return;
-    }
-
-    this.stateData.latestFinalizedSlot = syncState.latestFinalizedSlot;
-    await this.updateExecutionLag();
-
     if (this.stateData.mode === 'submitting' && this.stateData.lastSubmittedTxHash) {
       const pendingExtrinsics = await this.client.rpc.author.pendingExtrinsics();
       const isSubmittedTxStillPending = pendingExtrinsics.some(
@@ -143,6 +135,29 @@ export class EthereumBeaconSyncService {
       this.stateData.mode = 'idle';
       delete this.stateData.lastSubmittedTxHash;
     }
+
+    const delegateBalance = await this.client.query.system
+      .account(submitLane.address)
+      .then(x => x.data.free.toBigInt());
+    if (delegateBalance < minimumVaultDelegateBalance) {
+      this.stateData.mode = 'idle';
+      this.stateData.lastError = 'Vault delegate needs more funds before Ethereum beacon sync can run.';
+      return;
+    }
+
+    const syncState = await getEthereumBeaconSyncState(this.client);
+
+    this.stateData.latestSyncCommitteeUpdatePeriod = syncState.latestSyncCommitteeUpdatePeriod;
+    delete this.stateData.lastError;
+
+    if (!syncState.isBootstrapped) {
+      this.stateData.mode = 'needsBootstrap';
+      delete this.stateData.latestFinalizedSlot;
+      return;
+    }
+
+    this.stateData.latestFinalizedSlot = syncState.latestFinalizedSlot;
+    await this.updateExecutionLag();
 
     let txs;
     try {
@@ -166,6 +181,15 @@ export class EthereumBeaconSyncService {
 
       try {
         const result = await submitLane.runExclusive(async (client, getNonce) => {
+          const currentDelegateBalance = await client.query.system
+            .account(submitLane.address)
+            .then(x => x.data.free.toBigInt());
+          if (currentDelegateBalance < minimumVaultDelegateBalance) {
+            this.stateData.mode = 'idle';
+            this.stateData.lastError = 'Vault delegate needs more funds before Ethereum beacon sync can run.';
+            return;
+          }
+
           try {
             return await new TxSubmitter(client, tx, submitLane.keypair).submit({
               nonce: await getNonce(),
