@@ -37,7 +37,7 @@ export async function startDevEthereumMintingAuthority(args: {
   NetworkConfig.setNetwork('dev-docker');
   NetworkConfig.setRuntimeOverride('dev-docker', {
     ethereumNetwork: {
-      executionRpcUrl,
+      executionRpcUrls: [executionRpcUrl],
       finalityBlocks: 16,
     },
   });
@@ -131,7 +131,7 @@ async function activateDevEthereumMintingAuthority(args: {
 
   NetworkConfig.setRuntimeOverride('dev-docker', {
     ethereumNetwork: {
-      executionRpcUrl,
+      executionRpcUrls: [executionRpcUrl],
       finalityBlocks: 16,
     },
   });

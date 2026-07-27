@@ -27,7 +27,17 @@
           </div>
         </div>
 
-        <div class="text-gray-500">Beacon API URL</div>
+        <div class="flex items-center gap-1 text-gray-500">
+          Beacon API URL
+          <Tooltip
+            as-child
+            :content="`Argon requires these standard Beacon REST API routes: ${ETHEREUM_BEACON_API_REQUIRED_PATHS.join(', ')}. A custom URL is tested before it is saved.`"
+          >
+            <span class="cursor-help text-slate-400 hover:text-slate-600">
+              <InformationCircleIcon class="size-4" />
+            </span>
+          </Tooltip>
+        </div>
         <div>
           <input
             v-model="beaconApiUrlInput"
@@ -104,8 +114,12 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
+import { InformationCircleIcon } from '@heroicons/vue/20/solid';
+import { fetch } from '@argonprotocol/apps-core';
+import type { EthereumBeaconConfigSpecResponse, EthereumVersionedLightClientUpdate } from '@argonprotocol/mainchain';
 import OverlayBase from './OverlayBase.vue';
 import CountupClock from '../components/CountupClock.vue';
+import Tooltip from '../components/Tooltip.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import {
   getDefaultEthereumBeaconApiUrl,
@@ -117,6 +131,14 @@ import { getBot } from '../stores/bot.ts';
 import { getConfig } from '../stores/config.ts';
 import { getInstaller } from '../stores/installer.ts';
 import { SERVER_ENV_VARS } from '../lib/Env.ts';
+
+const ETHEREUM_BEACON_API_REQUIRED_PATHS = [
+  '/eth/v1/config/spec',
+  '/eth/v1/beacon/light_client/finality_update',
+  '/eth/v1/beacon/light_client/updates',
+] as const;
+
+const REQUEST_TIMEOUT_MS = 10_000;
 
 const bot = getBot();
 const config = getConfig();
@@ -179,6 +201,36 @@ async function saveServerSettings(args: { disableBeaconSync?: boolean } = {}) {
       throw new Error('A beacon API URL is required to activate syncing.');
     }
 
+    if (savedBeaconApiUrl) {
+      settingsActionMessage.value = 'Testing beacon API compatibility…';
+      const [spec, finalityUpdate] = await Promise.all([
+        getBeaconJson<EthereumBeaconConfigSpecResponse>(savedBeaconApiUrl, ETHEREUM_BEACON_API_REQUIRED_PATHS[0]),
+        getBeaconJson<EthereumVersionedLightClientUpdate>(savedBeaconApiUrl, ETHEREUM_BEACON_API_REQUIRED_PATHS[1]),
+      ]);
+      const slotsPerEpoch = readBeaconBigInt(spec?.data?.SLOTS_PER_EPOCH, 'SLOTS_PER_EPOCH');
+      const epochsPerSyncCommitteePeriod = readBeaconBigInt(
+        spec?.data?.EPOCHS_PER_SYNC_COMMITTEE_PERIOD,
+        'EPOCHS_PER_SYNC_COMMITTEE_PERIOD',
+      );
+      readBeaconBigInt(spec?.data?.SLOTS_PER_HISTORICAL_ROOT, 'SLOTS_PER_HISTORICAL_ROOT');
+      const finalizedSlot = readBeaconBigInt(
+        finalityUpdate?.data?.finalized_header?.beacon?.slot,
+        'finalized light-client slot',
+        0n,
+      );
+      const currentPeriod = finalizedSlot / slotsPerEpoch / epochsPerSyncCommitteePeriod;
+      const updatesPath = `${ETHEREUM_BEACON_API_REQUIRED_PATHS[2]}?start_period=${currentPeriod}&count=1`;
+      const updates = await getBeaconJson<unknown>(savedBeaconApiUrl, updatesPath);
+
+      if (!Array.isArray(updates)) {
+        throw new Error(
+          `Beacon API compatibility check failed: ${ETHEREUM_BEACON_API_REQUIRED_PATHS[2]} returned invalid data.`,
+        );
+      }
+
+      settingsActionMessage.value = '';
+    }
+
     const previousBeaconApiUrl = config.ethereumBeaconApiUrl;
     const previousExecutionRpcUrl = config.ethereumExecutionRpcUrl;
     const shouldBeEnabled = !!getEthereumBeaconApiUrl(savedBeaconApiUrl);
@@ -231,6 +283,47 @@ async function waitForBeaconSyncState(shouldBeEnabled: boolean) {
 
     await new Promise(resolve => window.setTimeout(resolve, 1_000));
   }
+}
+
+async function getBeaconJson<T>(beaconApiUrl: string, path: string): Promise<T> {
+  let response: Response;
+  try {
+    const normalizedBaseUrl = beaconApiUrl.endsWith('/') ? beaconApiUrl : `${beaconApiUrl}/`;
+    response = await fetch(new URL(path.replace(/^\//, ''), normalizedBaseUrl), {
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Beacon API compatibility check failed for ${path}: ${message}`);
+  }
+
+  if (!response.ok) {
+    throw new Error(`Beacon API compatibility check failed: ${path} returned HTTP ${response.status}.`);
+  }
+
+  try {
+    return (await response.json()) as T;
+  } catch {
+    throw new Error(`Beacon API compatibility check failed: ${path} did not return JSON.`);
+  }
+}
+
+function readBeaconBigInt(value: string | undefined, label: string, minimum = 1n): bigint {
+  if (value === undefined) {
+    throw new Error(`Beacon API compatibility check failed: ${label} is missing or invalid.`);
+  }
+
+  try {
+    const result = BigInt(value);
+    if (result >= minimum) {
+      return result;
+    }
+  } catch {
+    // The compatibility error below identifies the invalid Beacon API field.
+  }
+
+  throw new Error(`Beacon API compatibility check failed: ${label} is missing or invalid.`);
 }
 
 function validateOptionalUrl(label: string, value?: string) {

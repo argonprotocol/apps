@@ -119,11 +119,12 @@ describe('EthereumGatewayProverService', () => {
     vi.clearAllMocks();
     viemMock.createPublicClient.mockReturnValue({
       readContract: viemMock.readContract,
+      transport: { onResponse: vi.fn() },
     });
     NetworkConfig.setNetwork('dev-docker');
     NetworkConfig.setRuntimeOverride('dev-docker', {
       ethereumNetwork: {
-        executionRpcUrl: 'http://ethereum.test',
+        executionRpcUrls: ['http://ethereum.test'],
       },
     });
   });
@@ -804,7 +805,7 @@ describe('EthereumGatewayProverService', () => {
     NetworkConfig.setNetwork('mainnet');
     NetworkConfig.setRuntimeOverride('mainnet', {
       ethereumNetwork: {
-        executionRpcUrl: 'http://ethereum.test',
+        executionRpcUrls: ['http://ethereum.test'],
       },
     });
 
@@ -859,7 +860,7 @@ describe('EthereumGatewayProverService', () => {
     NetworkConfig.setNetwork('mainnet');
     NetworkConfig.setRuntimeOverride('mainnet', {
       ethereumNetwork: {
-        executionRpcUrl: 'http://ethereum.test',
+        executionRpcUrls: ['http://ethereum.test'],
       },
     });
 

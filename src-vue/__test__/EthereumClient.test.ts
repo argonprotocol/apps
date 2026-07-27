@@ -15,7 +15,7 @@ describe('EthereumClient', () => {
     setFetchImplementation();
     NetworkConfig.setRuntimeOverride('dev-docker', {
       ethereumNetwork: {
-        executionRpcUrl: 'https://ethereum.test',
+        executionRpcUrls: ['https://ethereum.test'],
       },
     });
   });
@@ -121,5 +121,30 @@ describe('EthereumClient', () => {
     const requestBody = JSON.parse(String(runtimeFetchMock.mock.calls[0][1]?.body));
     expect(requestBody.method).toBe('eth_getBalance');
     expect(requestBody.params).toEqual(['0x0000000000000000000000000000000000000001', 'latest']);
+  });
+
+  it('uses the configured RPC before the built-in fallbacks', async () => {
+    NetworkConfig.setRuntimeOverride('dev-docker', {
+      ethereumNetwork: {
+        executionRpcUrls: ['https://ethereum-fallback.test'],
+      },
+    });
+    runtimeFetchMock.mockResolvedValueOnce(new Response('unavailable', { status: 503 })).mockResolvedValueOnce(
+      new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: '0x2a' }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }),
+    );
+    setFetchImplementation(runtimeFetchMock as unknown as FetchImplementation);
+
+    const publicClient = createEthereumPublicClient(undefined, 'https://ethereum-configured.test');
+
+    await expect(publicClient.getBalance({ address: '0x0000000000000000000000000000000000000001' })).resolves.toBe(42n);
+    expect(runtimeFetchMock.mock.calls.map(call => String(call[0]))).toEqual([
+      'https://ethereum-configured.test/',
+      'https://ethereum-fallback.test/',
+    ]);
   });
 });

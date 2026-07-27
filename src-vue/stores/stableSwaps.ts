@@ -28,9 +28,17 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
 
   let loadPromise: Promise<void> | undefined;
   let stableSwapsPromise: Promise<StableSwaps> | undefined;
+  let stableSwapsExecutionRpcUrl: string | undefined;
 
   async function getStableSwaps(): Promise<StableSwaps> {
-    stableSwapsPromise ??= createStableSwapPublicClient().then(publicClient => new StableSwaps(publicClient));
+    const executionRpcUrl = config.ethereumExecutionRpcUrl;
+    if (!stableSwapsPromise || stableSwapsExecutionRpcUrl !== executionRpcUrl) {
+      stableSwapsExecutionRpcUrl = executionRpcUrl;
+      stableSwapsPromise = createStableSwapPublicClient(executionRpcUrl).then(
+        publicClient => new StableSwaps(publicClient, { executionRpcUrl }),
+      );
+    }
+
     return await stableSwapsPromise;
   }
 

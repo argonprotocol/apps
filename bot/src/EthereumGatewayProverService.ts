@@ -1,4 +1,6 @@
 import {
+  getEthereumExecutionRpcUrls,
+  logEthereumExecutionRpcFallback,
   minimumVaultDelegateBalance,
   NetworkConfig,
   raceWithTimeout,
@@ -19,8 +21,9 @@ import {
 } from '@argonprotocol/mainchain';
 import process from 'node:process';
 import { createHash } from 'node:crypto';
-import { createPublicClient, http, type Hex } from 'viem';
+import { type Hex } from 'viem';
 import { DelegateSubmitLane } from './DelegateSubmitLane.ts';
+import { createEthereumExecutionClient } from './EthereumExecutionClient.ts';
 import { HttpError } from './HttpError.ts';
 
 export class EthereumGatewayProverService {
@@ -91,7 +94,7 @@ export class EthereumGatewayProverService {
   public async getRelayStatus(): Promise<IEthereumGatewayRelayStatus> {
     try {
       const client = this.requireClient();
-      this.requireExecutionRpcUrl();
+      this.requireExecutionRpcUrls();
       await this.loadGatewayAddress();
       const gatewaySyncPause = await client.query.crosschainTransfer.gatewaySyncPauseBySourceChain('Ethereum');
       if (!gatewaySyncPause.isNone) {
@@ -193,14 +196,9 @@ export class EthereumGatewayProverService {
         this.lastStallSweepWindowIndex = undefined;
       }
 
-      const executionRpcUrl = this.requireExecutionRpcUrl();
+      const executionRpcUrls = this.requireExecutionRpcUrls();
       const gatewayAddress = await this.loadGatewayAddress();
-      const executionClient = createPublicClient({
-        transport: http(executionRpcUrl, {
-          retryCount: 1,
-          timeout: 15_000,
-        }),
-      });
+      const executionClient = createEthereumExecutionClient(executionRpcUrls);
       const latestLocatorIndex = await executionClient.readContract({
         abi: EvmContracts.mintingGatewayAbi,
         address: gatewayAddress,
@@ -232,8 +230,7 @@ export class EthereumGatewayProverService {
         return;
       }
       const latestExecutionHeader = await getLatestArgonFinalizedExecutionHeader(client);
-      const proofPayload = await buildGatewayActivityProofPayload(client, {
-        executionRpcUrl,
+      const proofPayload = await buildGatewayActivityProofPayloadWithFallback(client, executionRpcUrls, {
         gatewayAddress,
         throughExecutionBlockNumber: latestExecutionHeader.blockNumber,
       });
@@ -370,12 +367,12 @@ export class EthereumGatewayProverService {
           continue;
         }
 
-        const executionRpcUrl = this.requireExecutionRpcUrl();
+        const executionRpcUrls = this.requireExecutionRpcUrls();
         const gatewayAddress = await this.loadGatewayAddress();
         latestResponse = await this.runToCheckpointWithContext(
           throughGatewayActivityNonce,
           client,
-          executionRpcUrl,
+          executionRpcUrls,
           gatewayAddress,
           preparedProofPayload,
         );
@@ -398,7 +395,7 @@ export class EthereumGatewayProverService {
   private async runToCheckpointWithContext(
     throughGatewayActivityNonce: bigint,
     client: ReturnType<EthereumGatewayProverService['requireClient']>,
-    executionRpcUrl: string,
+    executionRpcUrls: string[],
     gatewayAddress: Hex,
     preparedProofPayload?: EthereumGatewayActivityProofPayload,
   ): Promise<IEthereumGatewayCatchUpResponse> {
@@ -434,8 +431,7 @@ export class EthereumGatewayProverService {
       }
       if (!proofPayload) {
         const latestExecutionHeader = await getLatestArgonFinalizedExecutionHeader(client);
-        proofPayload = await buildGatewayActivityProofPayload(client, {
-          executionRpcUrl,
+        proofPayload = await buildGatewayActivityProofPayloadWithFallback(client, executionRpcUrls, {
           gatewayAddress,
           throughExecutionBlockNumber: latestExecutionHeader.blockNumber,
         });
@@ -598,13 +594,13 @@ export class EthereumGatewayProverService {
     return client;
   }
 
-  private requireExecutionRpcUrl(): string {
-    const executionRpcUrl = NetworkConfig.get().ethereumNetwork.executionRpcUrl.trim() || undefined;
-    if (!executionRpcUrl) {
+  private requireExecutionRpcUrls(): string[] {
+    const executionRpcUrls = getEthereumExecutionRpcUrls();
+    if (!executionRpcUrls.length) {
       throw new HttpError('Ethereum execution RPC is not configured on this network.', 503);
     }
 
-    return executionRpcUrl;
+    return executionRpcUrls;
   }
 
   private async loadCurrentRuntimeGatewayActivityNonce(
@@ -716,6 +712,54 @@ export class EthereumGatewayProverService {
       }
     }
   }
+}
+
+async function buildGatewayActivityProofPayloadWithFallback(
+  client: Parameters<typeof buildGatewayActivityProofPayload>[0],
+  executionRpcUrls: string[],
+  args: Omit<Parameters<typeof buildGatewayActivityProofPayload>[1], 'executionRpcUrl'>,
+): ReturnType<typeof buildGatewayActivityProofPayload> {
+  let lastError: unknown;
+  let hadNullPayload = false;
+
+  for (const executionRpcUrl of executionRpcUrls) {
+    try {
+      const payload = await buildGatewayActivityProofPayload(client, {
+        ...args,
+        executionRpcUrl,
+      });
+      if (payload !== null) {
+        return payload;
+      }
+      hadNullPayload = true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // These errors come from Argon runtime bounds, so another execution RPC cannot resolve them.
+      if (
+        message.startsWith('Gateway proof requires ') ||
+        message === 'Oldest uncovered gateway activity exceeds the Argon finalized execution-header window'
+      ) {
+        throw error;
+      }
+
+      lastError = error;
+      logEthereumExecutionRpcFallback({
+        executionRpcUrls,
+        failedRpcUrl: executionRpcUrl,
+        method: 'buildGatewayActivityProofPayload',
+      });
+    }
+  }
+
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+
+  if (hadNullPayload) {
+    return null;
+  }
+
+  throw new Error(lastError ? String(lastError) : 'Ethereum execution RPC is not configured on this network.');
 }
 
 function isRedundantCatchUpError(reason: string): boolean {
