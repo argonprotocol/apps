@@ -381,7 +381,10 @@
           </a>
         </div>
       </div>
-      <div v-else class="relative flex grow flex-col items-center justify-center text-center text-slate-700/30">
+      <div
+        v-else
+        class="ExploreLinks relative flex grow flex-col items-center justify-center text-center text-slate-700/30"
+      >
         <div class="relative flex flex-row items-center text-center whitespace-nowrap">Explore</div>
         <div class="relative mt-px">
           <a
@@ -807,6 +810,12 @@ ul li {
     .wallet-summary-detail {
       @apply text-xs;
     }
+  }
+}
+
+@media (max-height: 750px) {
+  .LeftBar.OperationsEnabled .ExploreLinks {
+    @apply hidden;
   }
 }
 </style>
