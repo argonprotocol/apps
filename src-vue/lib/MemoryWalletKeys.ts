@@ -70,7 +70,7 @@ export class MemoryWalletKeys extends WalletKeys {
     this.vaultingAccount = vaultingAccount;
     this.operationalAccount = operationalAccount;
     this.vaultDelegateAccount = vaultingAccount.derive('//delegate');
-    this.upstreamOperatorAuthAccount = operationalAccount.derive('//upstream-operator-auth');
+    this.upstreamOperatorAuthAccount = rootAccount.derive('//upstream-operator-auth');
   }
 
   public async exposeMasterMnemonic(): Promise<string> {
@@ -91,6 +91,10 @@ export class MemoryWalletKeys extends WalletKeys {
 
   public async getMiningSessionMiniSecret(): Promise<string> {
     return miniSecretFromUri(`${this.substrateSuri}//mining//session`);
+  }
+
+  public async getRouterRestoreSealingKey(): Promise<string> {
+    return miniSecretFromUri(`${this.substrateSuri}//router-restore-sealing`);
   }
 
   public async getDefaultArgonKeypair(): Promise<KeyringPair> {

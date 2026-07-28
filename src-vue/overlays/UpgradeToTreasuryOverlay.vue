@@ -253,7 +253,8 @@ async function connectToNetwork() {
       ...config.upstreamOperator,
       name: body.fromName,
       vaultId: body.invite.vaultId,
-      accountId: body.referrer,
+      accountId: body.operatorAccountId,
+      restorePackage: body.restorePackage,
     };
     config.hasExtensionTreasury = true;
     config.showWelcomeOverlay = false;

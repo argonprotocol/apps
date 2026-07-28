@@ -5,6 +5,7 @@ import { getWalletKeys } from './wallets.ts';
 
 let serverApiClient: ServerApiClient | undefined;
 let serverAuthClient: ServerAuthClient | undefined;
+let upstreamOperatorAuthClient: ServerAuthClient | undefined;
 
 export function getServerApiClient(): ServerApiClient {
   serverApiClient ??= new ServerApiClient(() => getConfig().serverDetails, getServerAuthClient());
@@ -14,4 +15,30 @@ export function getServerApiClient(): ServerApiClient {
 export function getServerAuthClient(): ServerAuthClient {
   serverAuthClient ??= new ServerAuthClient(getWalletKeys);
   return serverAuthClient;
+}
+
+export function getUpstreamOperatorAuthClient(): ServerAuthClient {
+  upstreamOperatorAuthClient ??= new ServerAuthClient(getWalletKeys, {
+    getRestorePackage: () => {
+      const config = getConfig();
+      if (!config.isLoaded) return;
+
+      return config.upstreamOperator?.restorePackage;
+    },
+    applyRestoreResult: async restore => {
+      const config = getConfig();
+      const upstreamOperator = config.upstreamOperator;
+      if (!upstreamOperator) return;
+
+      config.upstreamOperator = {
+        ...upstreamOperator,
+        restorePackage: restore.restorePackage,
+      };
+      await config.save();
+
+      const { getBitcoinLockCoupons } = await import('./bitcoin.ts');
+      getBitcoinLockCoupons().applyRestore(restore.bitcoinLockCoupons);
+    },
+  });
+  return upstreamOperatorAuthClient;
 }

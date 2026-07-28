@@ -7,15 +7,21 @@ import {
   verifyRouterAuthChallenge,
 } from '@argonprotocol/apps-core';
 import type { Db } from './Db.ts';
+import type { MemberRestoreService } from './MemberRestoreService.ts';
 import type { IUserRecord } from './db/UsersTable.ts';
 import { RouterError } from './RouterError.ts';
-import type { IRouterAuthSessionRequest, IRouterAuthSessionResponse } from './interfaces/index.ts';
+import type {
+  IRouterAuthChallengeResponse,
+  IRouterAuthSessionRequest,
+  IRouterAuthSessionResponse,
+} from './interfaces/index.ts';
 
 export interface IRouterAuthServiceOptions {
   db?: Db;
   adminOperatorAccountId?: string;
   sessionTtlSeconds?: number;
   challengeTtlMs?: number;
+  memberRestore?: MemberRestoreService;
 }
 
 export interface IAuthenticatedRouterSession {
@@ -27,17 +33,26 @@ const DEFAULT_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_SESSION_TTL_SECONDS = 12 * 60 * 60;
 
 export class RouterAuthService {
-  private readonly challengesByNonce = new Map<string, IRouterAuthChallenge>();
+  private readonly challengesByNonce = new Map<
+    string,
+    {
+      challenge: IRouterAuthChallenge;
+      restorePackageRequired: boolean;
+      restorePackageRequested: boolean;
+    }
+  >();
   private readonly db?: Db;
   private readonly adminOperatorAccountId?: string;
   private readonly sessionTtlSeconds: number;
   private readonly challengeTtlMs: number;
+  private readonly memberRestore?: MemberRestoreService;
 
   constructor(options: IRouterAuthServiceOptions = {}) {
     this.db = options.db;
     this.adminOperatorAccountId = options.adminOperatorAccountId?.trim() || undefined;
     this.sessionTtlSeconds = options.sessionTtlSeconds ?? DEFAULT_SESSION_TTL_SECONDS;
     this.challengeTtlMs = options.challengeTtlMs ?? DEFAULT_CHALLENGE_TTL_MS;
+    this.memberRestore = options.memberRestore;
     this.ensureAdminOperatorUser();
   }
 
@@ -49,12 +64,24 @@ export class RouterAuthService {
     this.db?.sessionsTable.deleteInactiveSessions();
   }
 
-  public createChallenge(authAccountId: string, role: RouterAuthRole = UserRole.AdminOperator): IRouterAuthChallenge {
+  public createChallenge(
+    authAccountId: string,
+    role: RouterAuthRole = UserRole.AdminOperator,
+    restore: {
+      packageRequired?: boolean;
+      packageRequested?: boolean;
+    } = {},
+  ): IRouterAuthChallengeResponse {
     this.assertEnabled();
 
     const normalizedRole = normalizeRole(role);
     const trimmedAuthAccountId = authAccountId.trim();
-    this.getUserForAuth(trimmedAuthAccountId, normalizedRole);
+    if (!trimmedAuthAccountId) {
+      throw new RouterError('An auth account id is required.', 400);
+    }
+    if (normalizedRole === UserRole.AdminOperator) {
+      this.getUserForAuth(trimmedAuthAccountId, normalizedRole);
+    }
     this.pruneExpiredChallenges();
 
     const challenge = {
@@ -64,15 +91,26 @@ export class RouterAuthService {
       expiresAt: Date.now() + this.challengeTtlMs,
     };
 
-    this.challengesByNonce.set(challenge.nonce, challenge);
-    return challenge;
+    this.challengesByNonce.set(challenge.nonce, {
+      challenge,
+      restorePackageRequired: normalizedRole === UserRole.Member && !!restore.packageRequired,
+      restorePackageRequested: normalizedRole === UserRole.Member && !!restore.packageRequested,
+    });
+    return {
+      ...challenge,
+      restorePackageRequired: normalizedRole === UserRole.Member && !!restore.packageRequired,
+    };
   }
 
-  public createSession(request: IRouterAuthSessionRequest): IRouterAuthSessionResponse {
+  public async createSession(request: IRouterAuthSessionRequest): Promise<{
+    session: IRouterAuthSessionResponse;
+    refreshRestorePackage: boolean;
+  }> {
     this.assertEnabled();
 
-    const challenge = this.challengesByNonce.get(request.nonce);
+    const pendingChallenge = this.challengesByNonce.get(request.nonce);
     this.challengesByNonce.delete(request.nonce);
+    const challenge = pendingChallenge?.challenge;
 
     if (!challenge || challenge.expiresAt <= Date.now()) {
       throw new RouterError('Login challenge expired. Please try again.', 401);
@@ -87,21 +125,37 @@ export class RouterAuthService {
       throw new RouterError('Login signature is invalid.', 403);
     }
 
-    const user = this.getUserForAuth(challenge.authAccountId, challenge.role);
-    const sessionId = nanoid();
-    this.db!.sessionsTable.deleteInactiveSessions();
+    let restorePackageApplied = false;
+    if (challenge.role === UserRole.Member) {
+      restorePackageApplied =
+        (await this.memberRestore?.restoreAuthenticatedMember({
+          authAccountId: challenge.authAccountId,
+          restorePackage: request.restorePackage,
+          packageRequired: pendingChallenge.restorePackageRequired,
+        })) ?? false;
+    }
 
-    const session = this.db!.sessionsTable.insertSession({
-      sessionId,
-      userId: user.id,
-      expiresAt: new Date(Date.now() + this.sessionTtlSeconds * 1000),
+    const sessionId = nanoid();
+    const session = this.db!.transaction(() => {
+      const user = this.getUserForAuth(challenge.authAccountId, challenge.role);
+      this.db!.sessionsTable.deleteInactiveSessions();
+      const session = this.db!.sessionsTable.insertSession({
+        sessionId,
+        userId: user.id,
+        expiresAt: new Date(Date.now() + this.sessionTtlSeconds * 1000),
+      });
+
+      return {
+        sessionId,
+        expiresAt: session.expiresAt.toISOString(),
+        accountId: user.accountId!,
+        role: normalizeRole(user.role),
+      };
     });
 
     return {
-      sessionId,
-      expiresAt: session.expiresAt.toISOString(),
-      accountId: user.accountId!,
-      role: normalizeRole(user.role),
+      session,
+      refreshRestorePackage: pendingChallenge.restorePackageRequested || restorePackageApplied,
     };
   }
 
@@ -128,14 +182,10 @@ export class RouterAuthService {
   }
 
   public requireMemberSession(req: Request, accountId?: string): IAuthenticatedRouterSession {
-    return this.requireUserSession(req, [UserRole.Member], accountId);
+    return this.requireSession(req, [UserRole.Member], accountId);
   }
 
-  public requireSession(req: Request, allowedRoles: readonly RouterAuthRole[], accountId?: string): IAuthenticatedRouterSession {
-    return this.requireUserSession(req, allowedRoles, accountId);
-  }
-
-  public requireUserSession(
+  public requireSession(
     req: Request,
     allowedRoles: readonly RouterAuthRole[],
     accountId?: string,
@@ -269,7 +319,7 @@ export class RouterAuthService {
 
   private pruneExpiredChallenges(): void {
     const now = Date.now();
-    for (const [nonce, challenge] of this.challengesByNonce) {
+    for (const [nonce, { challenge }] of this.challengesByNonce) {
       if (challenge.expiresAt <= now) {
         this.challengesByNonce.delete(nonce);
       }

@@ -90,8 +90,8 @@ export class UpstreamOperatorClient {
     inviteCode: string;
     defaultAccountKeypair: KeyringPair;
     authKeypair: KeyringPair;
-  }): Promise<{ fromName: string; referrer: string; invite: IMemberInvite }> {
-    const body = await this.postJson<IOpenInviteResponse>(
+  }): Promise<IOpenInviteResponse> {
+    return await this.postJson<IOpenInviteResponse>(
       args.operatorHost,
       `/invites/${encodeURIComponent(args.inviteCode)}/open`,
       {
@@ -103,12 +103,6 @@ export class UpstreamOperatorClient {
         }),
       },
     );
-
-    return {
-      fromName: body.fromName,
-      referrer: body.referrer,
-      invite: body.invite,
-    };
   }
 
   public async initializeBitcoinLock(

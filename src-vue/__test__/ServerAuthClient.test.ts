@@ -145,6 +145,59 @@ describe('ServerAuthClient', () => {
     expect(walletMock.upstreamOperatorAuthSigner.sign).toHaveBeenCalledTimes(1);
   });
 
+  it('sends a cached package only when the member challenge requests it', async () => {
+    const baseUrl = 'https://restore-session.example';
+    const restoreStore = {
+      getRestorePackage: vi.fn(() => 'cached-restore-package'),
+      applyRestoreResult: vi.fn(),
+    };
+    serverAuthClient = new ServerAuthClient(
+      () => ({
+        operationalAddress: 'admin-account',
+        getOperationalKeypair: walletMock.getOperationalKeypair,
+        getUpstreamOperatorAuthKeypair: walletMock.getUpstreamOperatorAuthKeypair,
+      }),
+      restoreStore,
+    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ...createChallenge('nonce-1', UserRole.Member),
+          restorePackageRequired: true,
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ...createSession(UserRole.Member),
+          restore: {
+            restorePackage: 'replacement-restore-package',
+            bitcoinLockCoupons: [],
+          },
+        }),
+      )
+      .mockResolvedValueOnce(emptyResponse(204));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await serverAuthClient.getMemberSessionId(baseUrl);
+
+    expect(fetchPaths(fetchMock)).toEqual(['/auth/challenge', '/auth/login', '/auth/verify/member']);
+    expect(fetchPayloads(fetchMock)[0]).toMatchObject({
+      role: UserRole.Member,
+      authAccountId: 'upstream-operator-auth-account',
+      hasRestorePackage: true,
+    });
+    expect(fetchPayloads(fetchMock)[0]).not.toHaveProperty('restorePackage');
+    expect(fetchPayloads(fetchMock)[1]).toMatchObject({
+      restorePackage: 'cached-restore-package',
+    });
+    expect(restoreStore.getRestorePackage).toHaveBeenCalledOnce();
+    expect(restoreStore.applyRestoreResult).toHaveBeenCalledWith({
+      restorePackage: 'replacement-restore-package',
+      bitcoinLockCoupons: [],
+    });
+  });
+
   it('does not cache transport failures as auth failures', async () => {
     const baseUrl = 'https://transport-failure.example';
     const fetchMock = vi

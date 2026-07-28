@@ -1,4 +1,4 @@
-import type { IRouterAuthChallenge, RouterAuthRole, UserRole, IOperationalAccessProof  } from '@argonprotocol/apps-core';
+import type { IRouterAuthChallenge, RouterAuthRole, UserRole, IOperationalAccessProof } from '@argonprotocol/apps-core';
 import type { IBitcoinLockCouponStatus, IBitcoinLockRelayRequest } from './IBitcoinLockRelay.js';
 import type { ITreasuryUserInvite } from './ITreasuryUserInvite.js';
 
@@ -41,10 +41,16 @@ export interface IMarkOperationsUpgradedRequest {
 export interface IRouterAuthChallengeRequest {
   authAccountId: string;
   role?: RouterAuthRole;
+  hasRestorePackage?: boolean;
 }
+
+export type IRouterAuthChallengeResponse = IRouterAuthChallenge & {
+  restorePackageRequired: boolean;
+};
 
 export interface IRouterAuthSessionRequest extends IRouterAuthChallenge {
   signature: string;
+  restorePackage?: string;
 }
 
 export interface IRouterAuthSessionResponse {
@@ -52,6 +58,7 @@ export interface IRouterAuthSessionResponse {
   expiresAt: string;
   accountId: string;
   role: RouterAuthRole;
+  restore?: IListBitcoinLockCouponsResponse & { restorePackage: string };
 }
 
 export interface IRouterErrorResponse {
@@ -81,8 +88,9 @@ export interface IListBitcoinLockCouponsResponse {
 
 export interface IOpenInviteResponse {
   fromName: string;
-  referrer: string;
+  operatorAccountId: string;
   invite: ITreasuryUserInvite;
+  restorePackage: string;
 }
 
 export interface IBitcoinLockStatusResponse {

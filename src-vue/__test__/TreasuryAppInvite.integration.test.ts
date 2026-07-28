@@ -231,7 +231,7 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       });
       const coupon = claimedInvite.invite.bitcoinLockCoupon!;
       expect(claimedInvite.fromName).toBe(expectedFromName);
-      expect(claimedInvite.referrer).toBe(operatorHarness.walletKeys.operationalAddress);
+      expect(claimedInvite.operatorAccountId).toBe(operatorHarness.walletKeys.operationalAddress);
       expect(coupon.coupon.expirationTick).toBeGreaterThan(0);
       expect(claimedInvite.invite.defaultAccountId).toBe(defaultAccountId);
       expect(claimedInvite.invite.authAccountId).toBe(

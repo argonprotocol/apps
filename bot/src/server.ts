@@ -5,6 +5,7 @@ import cors from 'cors';
 import { DockerStatus } from './DockerStatus.ts';
 import type {
   IActivateBitcoinLockCouponRequest,
+  IBitcoinLockCouponRecord,
   IBitcoinLockRelayJobRequest,
   IBotApiMethod,
   IBotApiResponse,
@@ -79,6 +80,13 @@ export class BotServer {
       await safeJsonRoute(res, async () => {
         const request = requireBody<ICreateBitcoinLockCouponRequest>(req.body);
         return await relayService.createCoupon(request);
+      });
+    });
+
+    app.post('/bitcoin-lock-coupons/restore', express.text({ type: '*/*' }), async (req, res) => {
+      await safeJsonRoute(res, async () => {
+        const coupon = requireBody<IBitcoinLockCouponRecord>(req.body);
+        return bot.db.bitcoinLockCouponsTable.restoreCoupon(coupon);
       });
     });
 

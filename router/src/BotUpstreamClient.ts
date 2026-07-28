@@ -4,6 +4,7 @@ import {
   type IEthereumGatewayCatchUpRequest,
   type IEthereumGatewayCatchUpResponse,
   type IEthereumGatewayRelayStatus,
+  type IBitcoinLockCouponRecord,
   type IBotStateStarting,
 } from '@argonprotocol/apps-core';
 import type {
@@ -31,6 +32,14 @@ export class BotUpstreamClient {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JsonExt.stringify(request),
+    });
+  }
+
+  public async restoreCoupon(coupon: IBitcoinLockCouponRecord): Promise<IBitcoinLockCouponRecord> {
+    return await this.request('/bitcoin-lock-coupons/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JsonExt.stringify(coupon),
     });
   }
 

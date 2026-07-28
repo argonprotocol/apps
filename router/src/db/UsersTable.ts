@@ -51,6 +51,40 @@ export class UsersTable extends BaseTable {
     return this.mapUser(record);
   }
 
+  public restoreClaimedUser(
+    user: Pick<IUserRecord, 'id' | 'role' | 'name' | 'accountId' | 'authAccountId' | 'operationalAccountId'>,
+  ): IUserRecord {
+    const record = this.db.sql
+      .prepare(
+        `
+        INSERT INTO Users (
+          id,
+          role,
+          name,
+          accountId,
+          authAccountId,
+          operationalAccountId
+        ) VALUES (
+          $id,
+          $role,
+          $name,
+          $accountId,
+          $authAccountId,
+          $operationalAccountId
+        )
+        RETURNING *
+      `,
+      )
+      .get(
+        toSqliteParams({
+          ...user,
+          operationalAccountId: user.operationalAccountId ?? null,
+        }),
+      ) as SqlUserRow;
+
+    return this.mapUser(record);
+  }
+
   public fetchById(id: number): IUserRecord | null {
     const record = this.db.sql
       .prepare(
@@ -106,11 +140,22 @@ export class UsersTable extends BaseTable {
     return record ? this.mapUser(record) : null;
   }
 
-  public claimAccount(
-    id: number,
-    accountId: string,
-    authAccountId: string,
-  ): IUserRecord | null {
+  public fetchByOperationalAccountId(operationalAccountId: string): IUserRecord | null {
+    const record = this.db.sql
+      .prepare(
+        `
+        SELECT *
+        FROM Users
+        WHERE operationalAccountId = $operationalAccountId
+        LIMIT 1
+      `,
+      )
+      .get({ $operationalAccountId: operationalAccountId }) as SqlUserRow | undefined;
+
+    return record ? this.mapUser(record) : null;
+  }
+
+  public claimAccount(id: number, accountId: string, authAccountId: string): IUserRecord | null {
     const record = this.db.sql
       .prepare(
         `

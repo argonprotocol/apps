@@ -20,30 +20,126 @@ export class BitcoinLockCouponsTable extends BaseTable {
     btcPctFee?: number;
     expiresAfterTicks: number;
   }): IBitcoinLockCouponRecord {
+    const now = new Date();
     const record = this.db.sql
       .prepare(
         `
         INSERT INTO BitcoinLockCoupons (
           userId,
+          sequence,
           offerCode,
           vaultId,
           maxSatoshis,
           estimatedGiftUsd,
           btcPctFee,
-          expiresAfterTicks
+          expiresAfterTicks,
+          createdAt,
+          updatedAt
         ) VALUES (
           $userId,
+          (
+            SELECT COALESCE(MAX(sequence), 0) + 1
+            FROM BitcoinLockCoupons
+            WHERE userId = $userId
+          ),
           $offerCode,
           $vaultId,
           $maxSatoshis,
           $estimatedGiftUsd,
           $btcPctFee,
-          $expiresAfterTicks
+          $expiresAfterTicks,
+          $createdAt,
+          $updatedAt
         )
         RETURNING *
       `,
       )
-      .get(toSqliteParams({ ...coupon, btcPctFee: coupon.btcPctFee ?? 0 })) as SqlCouponRow;
+      .get(
+        toSqliteParams({
+          ...coupon,
+          btcPctFee: coupon.btcPctFee ?? 0,
+          createdAt: now,
+          updatedAt: now,
+        }),
+      ) as SqlCouponRow;
+
+    return this.mapCoupon(record);
+  }
+
+  public restoreCoupon(
+    coupon: Omit<IBitcoinLockCouponRecord, 'sequence'> & { sequence?: number },
+  ): IBitcoinLockCouponRecord {
+    const existingByOfferCode = this.fetchByOfferCode(coupon.offerCode);
+    const sequence = coupon.sequence ?? existingByOfferCode?.sequence ?? 1;
+    if (existingByOfferCode) {
+      if (
+        existingByOfferCode.userId !== coupon.userId ||
+        existingByOfferCode.vaultId !== coupon.vaultId ||
+        existingByOfferCode.accountId !== coupon.accountId ||
+        existingByOfferCode.sequence !== sequence
+      ) {
+        throw new Error('Recovered bitcoin lock coupon conflicts with existing bot state.');
+      }
+
+      return existingByOfferCode;
+    }
+
+    const currentCoupon = this.fetchLatestByUserId(coupon.userId);
+    if (currentCoupon) {
+      if (currentCoupon.accountId !== coupon.accountId) {
+        throw new Error('Recovered bitcoin lock coupon conflicts with existing bot state.');
+      }
+
+      if (currentCoupon.sequence >= sequence) {
+        return currentCoupon;
+      }
+    }
+
+    const { id: _foreignId, ...couponToRestore } = coupon;
+    if (!couponToRestore.accountId) {
+      throw new Error('Recovered bitcoin lock coupon conflicts with existing bot state.');
+    }
+
+    const record = this.db.sql
+      .prepare(
+        `
+        INSERT INTO BitcoinLockCoupons (
+          userId,
+          sequence,
+          offerCode,
+          vaultId,
+          maxSatoshis,
+          estimatedGiftUsd,
+          btcPctFee,
+          expiresAfterTicks,
+          expirationTick,
+          accountId,
+          createdAt,
+          updatedAt
+        ) VALUES (
+          $userId,
+          $sequence,
+          $offerCode,
+          $vaultId,
+          $maxSatoshis,
+          $estimatedGiftUsd,
+          $btcPctFee,
+          $expiresAfterTicks,
+          $expirationTick,
+          $accountId,
+          $createdAt,
+          $updatedAt
+        )
+        RETURNING *
+      `,
+      )
+      .get(
+        toSqliteParams({
+          ...couponToRestore,
+          sequence,
+          expirationTick: couponToRestore.expirationTick ?? null,
+        }),
+      ) as SqlCouponRow;
 
     return this.mapCoupon(record);
   }
@@ -85,7 +181,7 @@ export class BitcoinLockCouponsTable extends BaseTable {
         SELECT *
         FROM BitcoinLockCoupons
         WHERE userId = $userId
-        ORDER BY id DESC
+        ORDER BY sequence DESC, id DESC
         LIMIT 1
       `,
       )
@@ -102,7 +198,7 @@ export class BitcoinLockCouponsTable extends BaseTable {
         SELECT *
         FROM BitcoinLockCoupons
         WHERE userId = $userId
-        ORDER BY id DESC
+        ORDER BY sequence DESC, id DESC
       `,
         )
         .all({ $userId: userId }) as SqlCouponRow[]
@@ -116,7 +212,7 @@ export class BitcoinLockCouponsTable extends BaseTable {
           `
         SELECT *
         FROM BitcoinLockCoupons
-        ORDER BY id DESC
+        ORDER BY createdAt DESC, id DESC
       `,
         )
         .all() as SqlCouponRow[]
@@ -131,7 +227,7 @@ export class BitcoinLockCouponsTable extends BaseTable {
         SET
           accountId = COALESCE(accountId, $accountId),
           expirationTick = COALESCE(expirationTick, $expirationTick),
-          updatedAt = CURRENT_TIMESTAMP
+          updatedAt = $updatedAt
         WHERE id = $id
         RETURNING *
       `,
@@ -141,6 +237,7 @@ export class BitcoinLockCouponsTable extends BaseTable {
           id,
           accountId,
           expirationTick,
+          updatedAt: new Date(),
         }),
       ) as SqlCouponRow | undefined;
 
