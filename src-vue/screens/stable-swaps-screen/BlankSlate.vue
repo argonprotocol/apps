@@ -10,7 +10,7 @@
           <span>When Argon's price on Uniswap drifts from target, Stable Swaps helps you trade</span>
           <span>
             the gaps and return Argon’s price back to target.
-            <a :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/argonot-stakes`" target="_blank">
+            <a :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/stable-swaps`" target="_blank">
               Learn more &raquo;
             </a>
           </span>
@@ -42,7 +42,6 @@
 
         <span class="relative">
           <button
-            data-testid="BitcoinLocks.openLockingOverlay()"
             @click="activateStableSwaps"
             class="bg-argon-button hover:bg-argon-button-hover mt-12 cursor-pointer rounded-md border border-transparent px-12 py-3 text-lg font-bold text-white"
           >

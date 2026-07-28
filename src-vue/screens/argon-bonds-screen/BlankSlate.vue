@@ -42,7 +42,6 @@
 
         <span class="relative">
           <button
-            data-testid="BitcoinLocks.openLockingOverlay()"
             @click="openBondsOverlay('Vault')"
             class="bg-argon-button hover:bg-argon-button-hover mt-12 cursor-pointer rounded-md border border-transparent px-12 py-3 text-lg font-bold text-white"
           >

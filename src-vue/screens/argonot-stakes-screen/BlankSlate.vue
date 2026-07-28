@@ -21,7 +21,7 @@
             <Step1Icon class="text-argon-600/60 mx-auto h-18" />
             <header class="mt-5 mb-1 font-bold">1. Buy Stakes</header>
             <p class="mx-auto max-w-60 leading-relaxed text-slate-900/60">
-              Your capital helps funds the liquidity need of the network.
+              Your capital helps fund the liquidity need of the network.
             </p>
           </li>
           <li class="w-1/3 rounded-md border border-slate-600/30 px-4 pt-6 pb-4">
@@ -42,7 +42,6 @@
 
         <span class="relative">
           <button
-            data-testid="BitcoinLocks.openLockingOverlay()"
             @click="openBondsOverlay('Argonot')"
             class="bg-argon-button hover:bg-argon-button-hover mt-12 cursor-pointer rounded-md border border-transparent px-12 py-3 text-lg font-bold text-white"
           >

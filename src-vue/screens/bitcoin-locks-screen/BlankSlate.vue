@@ -5,7 +5,7 @@
         <header class="text-argon-600/70 text-2xl font-normal tracking-widest">BITCOIN LOCKS</header>
         <h1 class="mt-2 text-4xl font-bold opacity-80 xl:text-5xl">Turn Bitcoin Into Liquid Capital</h1>
         <p class="mx-10 mt-3 flex-col text-xl leading-relaxed text-slate-900/60 xl:mx-28 2xl:mx-auto 2xl:flex">
-          <span>Lock your bitcoin at today’s market rate, receive it’s full value in inflation-resistant</span>
+          <span>Lock your bitcoin at today’s market rate, receive its full value in inflation-resistant</span>
           <span>
             Argon stablecoins, and be protected if Bitcoin’s price drops.
             <a :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/bitcoin-locks`" target="_blank">
