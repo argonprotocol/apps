@@ -144,7 +144,7 @@ export interface INetworkConfig {
 
 export interface IEthereumNetworkConfig {
   beaconApiUrl: string;
-  executionRpcUrl: string;
+  executionRpcUrls: string[];
   finalityBlocks: number;
   usdcTokenAddress: string;
 }
@@ -153,4 +153,57 @@ export interface IBaseNetworkConfig {
   chainId: number;
   rpcUrl: string;
   usdcTokenAddress: string;
+}
+
+export const ETHEREUM_EXECUTION_RPC_TRANSPORT = {
+  requestRetryCount: 0,
+  fallbackRetryCount: 1,
+  timeoutMs: 15_000,
+} as const;
+
+export function getEthereumExecutionRpcUrls(configuredExecutionRpcUrl?: string): string[] {
+  const ethereumNetwork = NetworkConfig.get().ethereumNetwork;
+  return Array.from(
+    new Set(
+      [configuredExecutionRpcUrl, ...ethereumNetwork.executionRpcUrls]
+        .map(url => url?.trim())
+        .filter((url): url is string => Boolean(url)),
+    ),
+  );
+}
+
+export function logEthereumExecutionRpcFallback(args: {
+  executionRpcUrls: string[];
+  failedRpcUrl?: string;
+  method: string;
+}): void {
+  const { executionRpcUrls, failedRpcUrl, method } = args;
+  if (!failedRpcUrl) {
+    return;
+  }
+
+  const failedRpcIndex = executionRpcUrls.indexOf(failedRpcUrl);
+  if (failedRpcIndex < 0) {
+    return;
+  }
+
+  const fallbackRpcUrl = executionRpcUrls[failedRpcIndex + 1];
+  if (!fallbackRpcUrl) {
+    return;
+  }
+
+  console.warn(
+    `[Ethereum RPC] ${method} failed on ${formatEthereumRpcUrlForLog(failedRpcUrl)}; ` +
+      `falling back to ${formatEthereumRpcUrlForLog(fallbackRpcUrl)}.`,
+  );
+}
+
+function formatEthereumRpcUrlForLog(rpcUrl: string): string {
+  try {
+    return new URL(rpcUrl).origin;
+  } catch {
+    const schemeSeparatorIndex = rpcUrl.indexOf('://');
+    const authority = schemeSeparatorIndex >= 0 ? rpcUrl.slice(schemeSeparatorIndex + 3) : rpcUrl;
+    return authority.split(/[/?]/)[0];
+  }
 }

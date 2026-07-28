@@ -61,6 +61,7 @@ type StableSwapsOptions = {
   argonTokenAddress?: Address;
   argonotTokenAddress?: Address;
   chainId?: number;
+  executionRpcUrl?: string;
 };
 
 export class StableSwaps {
@@ -395,13 +396,13 @@ export class StableSwaps {
   public static async buildStableSwapUniswapUrl(
     argonAmountMicrogons: bigint,
     inputCurrency?: string,
-    options: Pick<StableSwapsOptions, 'argonTokenAddress'> & { chainId?: number } = {},
+    options: Pick<StableSwapsOptions, 'argonTokenAddress' | 'chainId' | 'executionRpcUrl'> = {},
   ): Promise<string | null> {
     if (argonAmountMicrogons <= 0n) {
       return null;
     }
 
-    const chainConfig = options.argonTokenAddress ? undefined : await loadEthereumChainConfig();
+    const chainConfig = options.argonTokenAddress ? undefined : await loadEthereumChainConfig(options.executionRpcUrl);
     const argonTokenAddress = options.argonTokenAddress ?? chainConfig?.argonTokenAddress;
     if (!argonTokenAddress) {
       return null;
@@ -418,9 +419,9 @@ export class StableSwaps {
 
   public static async getInputCurrency(
     inputToken: IStableSwapInputTokenSymbol,
-    options: { argonotTokenAddress?: Address } = {},
+    options: Pick<StableSwapsOptions, 'argonotTokenAddress' | 'executionRpcUrl'> = {},
   ): Promise<string | undefined> {
-    const chainConfig = await loadEthereumChainConfig();
+    const chainConfig = await loadEthereumChainConfig(options.executionRpcUrl);
     const chainId = chainConfig?.chainId ?? ChainId.MAINNET;
     const stableSwapChain = getStableSwapChainConfig(chainId);
 
@@ -551,7 +552,8 @@ export class StableSwaps {
   private async getArgonotToken(chainId: number): Promise<Token | null> {
     try {
       const argonotTokenAddress =
-        this.options.argonotTokenAddress ?? (await loadEthereumChainConfig())?.argonotTokenAddress;
+        this.options.argonotTokenAddress ??
+        (await loadEthereumChainConfig(this.options.executionRpcUrl))?.argonotTokenAddress;
       return argonotTokenAddress ? getStableSwapArgonotToken(argonotTokenAddress, chainId) : null;
     } catch {
       return null;
@@ -563,7 +565,8 @@ export class StableSwaps {
       this.argonTokenPromise ??
       (async () => {
         const argonTokenAddress =
-          this.options.argonTokenAddress ?? (await loadEthereumChainConfig())?.argonTokenAddress;
+          this.options.argonTokenAddress ??
+          (await loadEthereumChainConfig(this.options.executionRpcUrl))?.argonTokenAddress;
         if (!argonTokenAddress) {
           throw new Error('Ethereum gateway chain config is not available on this Argon network.');
         }
@@ -659,7 +662,9 @@ export class StableSwaps {
     if (!this.chainIdPromise && this.options.chainId) {
       this.chainIdPromise = Promise.resolve(this.options.chainId);
     }
-    this.chainIdPromise ??= loadEthereumChainConfig().then(x => x?.chainId ?? ChainId.MAINNET);
+    this.chainIdPromise ??= loadEthereumChainConfig(this.options.executionRpcUrl).then(
+      x => x?.chainId ?? ChainId.MAINNET,
+    );
 
     const chainIdPromise = this.chainIdPromise;
     try {

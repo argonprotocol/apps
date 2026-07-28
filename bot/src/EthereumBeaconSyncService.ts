@@ -1,5 +1,6 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import {
+  getEthereumExecutionRpcUrls,
   minimumVaultDelegateBalance,
   NetworkConfig,
   raceWithTimeout,
@@ -16,8 +17,8 @@ import {
   isTxSubmissionError,
   TxSubmitter,
 } from '@argonprotocol/mainchain';
-import { createPublicClient, http } from 'viem';
 import { DelegateSubmitLane } from './DelegateSubmitLane.ts';
+import { createEthereumExecutionClient } from './EthereumExecutionClient.ts';
 
 type IEthereumBeaconSyncServiceOptions = {
   beaconApiUrl?: string;
@@ -275,15 +276,13 @@ export class EthereumBeaconSyncService {
       const latestExecutionAnchor = await getLatestArgonFinalizedExecutionHeader(this.client);
       this.stateData.latestExecutionAnchorBlockNumber = latestExecutionAnchor.blockNumber;
 
-      const executionRpcUrl = NetworkConfig.get().ethereumNetwork.executionRpcUrl.trim();
-      if (!executionRpcUrl) {
+      const executionRpcUrls = getEthereumExecutionRpcUrls();
+      if (!executionRpcUrls.length) {
         return;
       }
 
       try {
-        const latestEthereumBlockNumber = await createPublicClient({
-          transport: http(executionRpcUrl),
-        }).getBlockNumber();
+        const latestEthereumBlockNumber = await createEthereumExecutionClient(executionRpcUrls).getBlockNumber();
         this.stateData.latestEthereumBlockNumber = latestEthereumBlockNumber;
       } catch {
         delete this.stateData.latestEthereumBlockNumber;
@@ -399,7 +398,8 @@ async function getBeaconJson<T>(
 ): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(new URL(path, beaconApiUrl), {
+    const normalizedBaseUrl = beaconApiUrl.endsWith('/') ? beaconApiUrl : `${beaconApiUrl}/`;
+    response = await fetch(new URL(path.replace(/^\//, ''), normalizedBaseUrl), {
       headers: { accept: 'application/json' },
       signal: AbortSignal.timeout(timeoutMs),
     });

@@ -8,7 +8,7 @@
     "websiteHost": "http://localhost:5173",
     "ethereumNetwork": {
       "beaconApiUrl": "",
-      "executionRpcUrl": "",
+      "executionRpcUrls": [],
       "finalityBlocks": 16,
       "usdcTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
     },
@@ -31,7 +31,7 @@
     "websiteHost": "http://localhost:5173",
     "ethereumNetwork": {
       "beaconApiUrl": "",
-      "executionRpcUrl": "",
+      "executionRpcUrls": [],
       "finalityBlocks": 16,
       "usdcTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
     },
@@ -54,7 +54,11 @@
     "websiteHost": "https://staging.argon.network",
     "ethereumNetwork": {
       "beaconApiUrl": "https://ethereum-sepolia-beacon-api.publicnode.com",
-      "executionRpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
+      "executionRpcUrls": [
+        "https://ethereum-sepolia-rpc.publicnode.com",
+        "https://11155111.rpc.thirdweb.com",
+        "https://public.1rpc.io/sepolia"
+      ],
       "finalityBlocks": 32,
       "usdcTokenAddress": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
     },
@@ -77,7 +81,7 @@
     "websiteHost": "https://argon.network",
     "ethereumNetwork": {
       "beaconApiUrl": "https://ethereum-beacon-api.publicnode.com",
-      "executionRpcUrl": "https://ethereum-rpc.publicnode.com",
+      "executionRpcUrls": ["https://ethereum-rpc.publicnode.com", "https://eth.drpc.org", "https://public.1rpc.io/eth"],
       "finalityBlocks": 32,
       "usdcTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
     },

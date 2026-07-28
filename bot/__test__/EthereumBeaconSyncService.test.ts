@@ -516,6 +516,29 @@ describe('EthereumBeaconSyncService', () => {
     ).rejects.toThrow(/Beacon API request timed out after \d+ms for \/eth\/v1\/beacon\/headers\/finalized/);
   });
 
+  it('preserves path-authenticated beacon API URLs', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: { root: '0xroot', header: { message: { slot: '1' } } } })),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: { message: { body: { execution_payload: { block_number: '1' } } } },
+          }),
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+
+    await waitForFinalizedBeaconExecutionAtOrAbove('https://beacon.example/v2/test-key', 1n);
+
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      'https://beacon.example/v2/test-key/eth/v1/beacon/headers/finalized',
+      'https://beacon.example/v2/test-key/eth/v2/beacon/blocks/0xroot',
+    ]);
+  });
+
   it('treats finality update not ready as idle instead of error', async () => {
     mainchainMock.getEthereumBeaconSyncState.mockResolvedValue({
       isBootstrapped: true,

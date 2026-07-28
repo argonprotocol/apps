@@ -171,7 +171,7 @@ export async function startDevUpstreamServer(args: {
   const argonNetworkConfigOverride = args.devEthereum
     ? JSON.stringify({
         ethereumNetwork: {
-          executionRpcUrl: args.devEthereum.serverExecutionRpcUrl,
+          executionRpcUrls: [args.devEthereum.serverExecutionRpcUrl],
           finalityBlocks: args.devEthereumConfig?.finalityBlocks,
           usdcTokenAddress: args.devEthereum.usdcTokenAddress,
         },

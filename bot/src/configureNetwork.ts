@@ -44,7 +44,11 @@ function readRuntimeOverride(networkName: keyof typeof NetworkConfigSettings): I
       ? {
           ethereumNetwork: {
             ...baseOverride.ethereumNetwork,
-            executionRpcUrl: envExecutionRpcUrl,
+            executionRpcUrls: [
+              envExecutionRpcUrl,
+              ...(baseOverride.ethereumNetwork?.executionRpcUrls ??
+                NetworkConfigSettings[networkName].ethereumNetwork.executionRpcUrls),
+            ],
           },
         }
       : {}),

@@ -118,7 +118,7 @@ async function main(): Promise<void> {
     if (resolvedOverride) {
       tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE = JSON.stringify(resolvedOverride);
       console.log(
-        `[tauri-dev] Runtime override archive=${resolvedOverride.archiveUrl} esplora=${resolvedOverride.esploraHost}${resolvedOverride.indexerHost ? ` indexer=${resolvedOverride.indexerHost}` : ''}${resolvedOverride.ethereumNetwork?.executionRpcUrl ? ` ethereumExecution=${resolvedOverride.ethereumNetwork.executionRpcUrl}` : ''}${resolvedOverride.ethereumNetwork?.usdcTokenAddress ? ` usdc=${resolvedOverride.ethereumNetwork.usdcTokenAddress}` : ''}`,
+        `[tauri-dev] Runtime override archive=${resolvedOverride.archiveUrl} esplora=${resolvedOverride.esploraHost}${resolvedOverride.indexerHost ? ` indexer=${resolvedOverride.indexerHost}` : ''}${resolvedOverride.ethereumNetwork?.executionRpcUrls?.[0] ? ` ethereumExecution=${resolvedOverride.ethereumNetwork.executionRpcUrls[0]}` : ''}${resolvedOverride.ethereumNetwork?.usdcTokenAddress ? ` usdc=${resolvedOverride.ethereumNetwork.usdcTokenAddress}` : ''}`,
       );
     } else {
       delete tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE;
@@ -478,7 +478,7 @@ async function resolveDevDockerNetworkConfigOverride(
   };
   if (ethereumExecutionRpcUrl) {
     override.ethereumNetwork = {
-      executionRpcUrl: ethereumExecutionRpcUrl,
+      executionRpcUrls: [ethereumExecutionRpcUrl],
       ...(usdcTokenAddress ? { usdcTokenAddress } : {}),
     };
   }
@@ -492,7 +492,7 @@ async function resolveRuntimeEthereumExecutionRpcUrl(
   devEthereum?: IStartDevEthereumResult,
   inheritedOverride?: RuntimeNetworkConfigOverride,
 ): Promise<string | undefined> {
-  const inheritedExecutionRpcUrl = readNonEmpty(inheritedOverride?.ethereumNetwork?.executionRpcUrl);
+  const inheritedExecutionRpcUrl = readNonEmpty(inheritedOverride?.ethereumNetwork?.executionRpcUrls?.[0]);
   if (inheritedExecutionRpcUrl) {
     return inheritedExecutionRpcUrl;
   }

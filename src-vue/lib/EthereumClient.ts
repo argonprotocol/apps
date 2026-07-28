@@ -1,7 +1,10 @@
 import {
+  ETHEREUM_EXECUTION_RPC_TRANSPORT,
   fetch,
+  getEthereumExecutionRpcUrls,
   getErrorDiagnostics,
   getObjectStringProperty,
+  logEthereumExecutionRpcFallback,
   MoveToken,
   NetworkConfig,
 } from '@argonprotocol/apps-core';
@@ -22,6 +25,7 @@ import {
   createPublicClient,
   defineChain,
   encodeFunctionData,
+  fallback,
   getAddress,
   keccak256,
   hexToBytes,
@@ -32,6 +36,7 @@ import {
   type PublicClient,
   RpcRequestError,
   serializeTransaction,
+  shouldThrow,
   TransactionNotFoundError,
   TransactionReceiptNotFoundError,
   WaitForTransactionReceiptTimeoutError,
@@ -812,14 +817,43 @@ function createEthereumPublicClientForRpc(
   executionRpcUrl: string,
   chain?: Parameters<typeof createPublicClient>[0]['chain'],
 ): PublicClient {
-  return createPublicClient({
-    ...(chain ? { chain } : {}),
-    transport: http(executionRpcUrl, {
-      retryCount: 1,
-      timeout: 15_000,
+  const executionRpcUrls = getEthereumExecutionRpcUrls(executionRpcUrl).map(url => {
+    const parsedUrl = new URL(url);
+    if (parsedUrl.hostname !== 'host.docker.internal') {
+      return url;
+    }
+
+    parsedUrl.hostname = '127.0.0.1';
+    return parsedUrl.toString();
+  });
+  const transports = executionRpcUrls.map(url =>
+    http(url, {
+      retryCount: ETHEREUM_EXECUTION_RPC_TRANSPORT.requestRetryCount,
+      timeout: ETHEREUM_EXECUTION_RPC_TRANSPORT.timeoutMs,
       fetchFn: fetch,
     }),
+  );
+
+  const fallbackTransport = fallback(transports, {
+    retryCount: ETHEREUM_EXECUTION_RPC_TRANSPORT.fallbackRetryCount,
   });
+  const client = createPublicClient({
+    ...(chain ? { chain } : {}),
+    transport: fallbackTransport,
+  });
+  client.transport.onResponse(({ error, method, status, transport }) => {
+    if (status !== 'error' || shouldThrow(error)) {
+      return;
+    }
+
+    logEthereumExecutionRpcFallback({
+      executionRpcUrls,
+      failedRpcUrl: transport.value?.url,
+      method,
+    });
+  });
+
+  return client;
 }
 
 function convertEthereumBaseUnitsToRuntimeAmount(amountBaseUnits: bigint): bigint {
@@ -831,7 +865,7 @@ function convertEthereumBaseUnitsToRuntimeAmount(amountBaseUnits: bigint): bigin
 }
 
 export function getDefaultEthereumExecutionRpcUrl(): string | undefined {
-  return NetworkConfig.get().ethereumNetwork.executionRpcUrl.trim() || undefined;
+  return getEthereumExecutionRpcUrls()[0];
 }
 
 export function getEthereumExecutionRpcUrl(configuredExecutionRpcUrl?: string): string | undefined {

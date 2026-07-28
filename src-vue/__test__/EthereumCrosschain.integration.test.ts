@@ -184,7 +184,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
     argonotTokenAddress = fixture.argonotTokenAddress;
     NetworkConfig.setRuntimeOverride('dev-docker', {
       ethereumNetwork: {
-        executionRpcUrl: endpoints.executionRpcUrl,
+        executionRpcUrls: [endpoints.executionRpcUrl],
         finalityBlocks: 16,
       },
     });

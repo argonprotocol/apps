@@ -79,10 +79,12 @@ import { useWallets } from '../../../stores/wallets.ts';
 import { bigIntMin, bigNumberToBigInt, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 import { StableSwaps } from '../../../lib/StableSwaps.ts';
+import { getConfig } from '../../../stores/config.ts';
 
 dayjs.extend(utc);
 
 const currency = getCurrency();
+const config = getConfig();
 const wallets = useWallets();
 
 const { microgonToArgonNm, microgonToNm } = createNumeralHelpers(currency);
@@ -119,10 +121,13 @@ const walletOutputAmount = Vue.computed(() => {
 });
 
 async function openCurrentTrade() {
-  const inputCurrency = await StableSwaps.getInputCurrency(props.swap.inputToken);
+  const executionRpcUrl = config.ethereumExecutionRpcUrl;
+  const inputCurrency = await StableSwaps.getInputCurrency(props.swap.inputToken, { executionRpcUrl });
   if (!inputCurrency && props.swap.inputToken !== UnitOfMeasurement.ETH) return;
 
-  const swapUrl = await StableSwaps.buildStableSwapUniswapUrl(walletOutputAmount.value, inputCurrency);
+  const swapUrl = await StableSwaps.buildStableSwapUniswapUrl(walletOutputAmount.value, inputCurrency, {
+    executionRpcUrl,
+  });
   if (!swapUrl) return;
 
   await tauriOpenUrl(swapUrl);
