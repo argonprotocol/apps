@@ -198,6 +198,35 @@ export class UserInvitesTable extends BaseTable {
     return this.fetchById(id);
   }
 
+  public restoreClaimedInvite(args: { userId: number; inviteCode: string; fromName: string }): IUserInviteRecord {
+    this.db.sql
+      .prepare(
+        `
+        INSERT INTO UserInvites (
+          userId,
+          inviteCode,
+          fromName,
+          firstClickedAt,
+          lastClickedAt
+        ) VALUES (
+          $userId,
+          $inviteCode,
+          $fromName,
+          CURRENT_TIMESTAMP,
+          CURRENT_TIMESTAMP
+        )
+      `,
+      )
+      .run(toSqliteParams(args));
+
+    const invite = this.fetchById(args.userId);
+    if (!invite) {
+      throw new Error(`Invite ${args.userId} not found after member restore.`);
+    }
+
+    return invite;
+  }
+
   public deleteByUserId(userId: number): void {
     this.db.sql
       .prepare(

@@ -140,10 +140,11 @@ export async function startDevUpstreamServer(args: {
   await Fs.mkdir(configDir, { recursive: true });
   await Fs.mkdir(dataDir, { recursive: true });
 
-  const [miningBotKeypair, vaultDelegateKeypair, sessionMiniSecret] = await Promise.all([
+  const [miningBotKeypair, vaultDelegateKeypair, sessionMiniSecret, restoreKey] = await Promise.all([
     walletKeys.getMiningBotKeypair(),
     walletKeys.getVaultDelegateKeypair(),
     walletKeys.getMiningSessionMiniSecret(),
+    walletKeys.getRouterRestoreSealingKey(),
   ]);
   const biddingRules = {
     ...(Config.getDefault('biddingRules') as IConfig['biddingRules']),
@@ -182,6 +183,7 @@ export async function startDevUpstreamServer(args: {
     `MINING_FUNDING_ACCOUNT_ID=${miningBotKeypair.address}`,
     `VAULT_OPERATOR_ADDRESS=${walletKeys.vaultingAddress}`,
     `OPERATOR_ACCOUNT_ID=${walletKeys.operationalAddress}`,
+    `ROUTER_RESTORE_KEY=${restoreKey}`,
     `SESSION_MINI_SECRET=${sessionMiniSecret}`,
     `ETHEREUM_BEACON_API_URL=${args.devEthereum?.serverBeaconApiUrl?.trim() || existingState.ETHEREUM_BEACON_API_URL || ''}`,
     `ETHEREUM_EXECUTION_RPC_URL=${args.devEthereum?.serverExecutionRpcUrl?.trim() || existingState.ETHEREUM_EXECUTION_RPC_URL || ''}`,

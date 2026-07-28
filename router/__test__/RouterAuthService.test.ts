@@ -1,37 +1,42 @@
 import * as Fs from 'node:fs';
 import os from 'node:os';
 import Path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
-import { signRouterAuthChallenge, UserRole } from '@argonprotocol/apps-core';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { type IBitcoinLockCouponRecord, signRouterAuthChallenge, UserRole } from '@argonprotocol/apps-core';
 import { Keyring } from '@argonprotocol/mainchain';
 import { Db } from '../src/Db.ts';
+import { MemberRestoreService } from '../src/MemberRestoreService.ts';
 import { RouterAuthService } from '../src/RouterAuthService.ts';
 
 describe('RouterAuthService', () => {
   let db: Db | undefined;
+  const dbs: Db[] = [];
 
   afterEach(() => {
-    db?.close();
+    for (const testDb of dbs.splice(0)) {
+      testDb.close();
+    }
+    db = undefined;
   });
 
-  it('creates admin sessions from valid challenge signatures', () => {
+  it('creates admin sessions from valid challenge signatures', async () => {
     const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
-    const service = createAuthService(operator.address);
+    const { auth: service } = createAuthService(operator.address);
     const challenge = service.createChallenge(operator.address, UserRole.AdminOperator);
     const signature = signRouterAuthChallenge(operator, challenge);
 
-    const session = service.createSession({ ...challenge, signature });
+    const { session } = await service.createSession({ ...challenge, signature });
 
     expect(session.sessionId).toBeTruthy();
     expect(session.accountId).toBe(operator.address);
     expect(session.role).toBe(UserRole.AdminOperator);
   });
 
-  it('creates member sessions from claimed invite auth accounts', () => {
+  it('creates member sessions from claimed invite auth accounts', async () => {
     const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
     const member = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMember');
     const memberAuth = member.derive('//downstream-auth');
-    const service = createAuthService(operator.address);
+    const { auth: service, memberRestore } = createAuthService(operator.address, `0x${'42'.repeat(32)}`);
 
     const user = db!.usersTable.insertUser({
       role: UserRole.Member,
@@ -42,41 +47,168 @@ describe('RouterAuthService', () => {
 
     const challenge = service.createChallenge(memberAuth.address, UserRole.Member);
     const signature = signRouterAuthChallenge(memberAuth, challenge);
-    const session = service.createSession({ ...challenge, signature });
+    const { session } = await service.createSession({ ...challenge, signature });
 
     expect(session.accountId).toBe(member.address);
     expect(session.role).toBe(UserRole.Member);
+    expect(memberRestore.isPackageRequired(memberAuth.address)).toBe(false);
   });
 
-  it('rejects challenge signatures from the wrong key', () => {
+  it('rejects challenge signatures from the wrong key', async () => {
     const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
     const wrongOperator = new Keyring({ type: 'sr25519' }).addFromUri('//WrongRouterOperator');
-    const service = createAuthService(operator.address);
+    const { auth: service } = createAuthService(operator.address);
     const challenge = service.createChallenge(operator.address, UserRole.AdminOperator);
     const signature = signRouterAuthChallenge(wrongOperator, challenge);
 
-    expect(() => service.createSession({ ...challenge, signature })).toThrowError('Login signature is invalid.');
-  });
-
-  it('rejects member challenges for unclaimed auth accounts', () => {
-    const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
-    const member = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMember');
-    const service = createAuthService(operator.address);
-
-    expect(() => service.createChallenge(member.address, UserRole.Member)).toThrowError(
-      'This auth account is not allowed to access the router.',
+    await expect(service.createSession({ ...challenge, signature })).rejects.toThrowError(
+      'Login signature is invalid.',
     );
   });
 
-  function createAuthService(adminOperatorAccountId: string): RouterAuthService {
+  it('rejects unclaimed member auth only after its challenge signature is verified', async () => {
+    const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
+    const member = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMember');
+    const { auth: service } = createAuthService(operator.address);
+    const challenge = service.createChallenge(member.address, UserRole.Member);
+
+    await expect(
+      service.createSession({
+        ...challenge,
+        signature: signRouterAuthChallenge(member, challenge),
+      }),
+    ).rejects.toThrowError('This auth account is not allowed to access the router.');
+  });
+
+  it('does not restore a member before verifying the login signature', async () => {
+    const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
+    const member = new Keyring({ type: 'sr25519' }).addFromUri('//RestoreMember');
+    const memberAuth = member.derive('//upstream-operator-auth');
+    const restoreKey = `0x${'42'.repeat(32)}`;
+    const { memberRestore: originalRestore } = createAuthService(operator.address, restoreKey);
+
+    const user = db!.usersTable.insertUser({
+      role: UserRole.Member,
+      name: 'Casey',
+    });
+    const invite = db!.userInvitesTable.insertInvite(user.id, 'member-invite-1', 'Operator One');
+    db!.userInvitesTable.claimInvite(invite.id, member.address, memberAuth.address);
+    const claimedInvite = db!.userInvitesTable.fetchById(invite.id)!;
+    const coupon: IBitcoinLockCouponRecord = {
+      id: 11,
+      userId: invite.id,
+      sequence: 1,
+      offerCode: 'offer-code-1',
+      vaultId: 12,
+      maxSatoshis: 25_000n,
+      estimatedGiftUsd: 16.25,
+      btcPctFee: 2.5,
+      expiresAfterTicks: 60,
+      accountId: member.address,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    const restorePackage = originalRestore.createPackage(claimedInvite, coupon);
+    const restoreBitcoinLockCoupon = vi.fn(async () => {
+      expect(db!.usersTable.fetchByAuthAccountId(memberAuth.address)).toBeNull();
+    });
+    const { auth: recoveredService } = createAuthService(operator.address, restoreKey, restoreBitcoinLockCoupon);
+
+    const unsignedChallenge = recoveredService.createChallenge(memberAuth.address, UserRole.Member, {
+      packageRequired: true,
+    });
+    const wrongSigner = member.derive('//wrong-auth');
+    await expect(
+      recoveredService.createSession({
+        ...unsignedChallenge,
+        restorePackage,
+        signature: signRouterAuthChallenge(wrongSigner, unsignedChallenge),
+      }),
+    ).rejects.toThrow('Login signature is invalid.');
+    expect(db!.usersTable.fetchByAuthAccountId(memberAuth.address)).toBeNull();
+    expect(restoreBitcoinLockCoupon).not.toHaveBeenCalled();
+
+    const challenge = recoveredService.createChallenge(memberAuth.address, UserRole.Member, {
+      packageRequired: true,
+    });
+    await recoveredService.createSession({
+      ...challenge,
+      restorePackage,
+      signature: signRouterAuthChallenge(memberAuth, challenge),
+    });
+    expect(restoreBitcoinLockCoupon).toHaveBeenCalledOnce();
+  });
+
+  it('rejects router conflicts before restoring a coupon', async () => {
+    const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
+    const member = new Keyring({ type: 'sr25519' }).addFromUri('//RestoreMember');
+    const memberAuth = member.derive('//upstream-operator-auth');
+    const restoreKey = `0x${'42'.repeat(32)}`;
+    const { memberRestore: originalRestore } = createAuthService(operator.address, restoreKey);
+
+    const user = db!.usersTable.insertUser({
+      role: UserRole.Member,
+      name: 'Casey',
+    });
+    const invite = db!.userInvitesTable.insertInvite(user.id, 'member-invite-1', 'Operator One');
+    db!.userInvitesTable.claimInvite(invite.id, member.address, memberAuth.address);
+    const restorePackage = originalRestore.createPackage(db!.userInvitesTable.fetchById(invite.id)!, {
+      id: 11,
+      userId: invite.id,
+      sequence: 1,
+      offerCode: 'offer-code-1',
+      vaultId: 12,
+      maxSatoshis: 25_000n,
+      estimatedGiftUsd: 16.25,
+      btcPctFee: 2.5,
+      expiresAfterTicks: 60,
+      accountId: member.address,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const restoreBitcoinLockCoupon = vi.fn().mockResolvedValue(undefined);
+    const { auth: recoveredService } = createAuthService(operator.address, restoreKey, restoreBitcoinLockCoupon);
+    db!.usersTable.insertUser({
+      role: UserRole.Member,
+      name: 'Conflicting Member',
+    });
+
+    const challenge = recoveredService.createChallenge(memberAuth.address, UserRole.Member, {
+      packageRequired: true,
+    });
+    await expect(
+      recoveredService.createSession({
+        ...challenge,
+        restorePackage,
+        signature: signRouterAuthChallenge(memberAuth, challenge),
+      }),
+    ).rejects.toThrow('Restore package conflicts with an existing member.');
+    expect(restoreBitcoinLockCoupon).not.toHaveBeenCalled();
+  });
+
+  function createAuthService(
+    adminOperatorAccountId: string,
+    restoreKey?: string,
+    restoreBitcoinLockCoupon?: (coupon: IBitcoinLockCouponRecord) => Promise<void>,
+  ): { auth: RouterAuthService; memberRestore: MemberRestoreService } {
     const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-auth-service-test-'));
     db = new Db(Path.join(tempDir, 'router.sqlite'));
+    dbs.push(db);
     db.migrate();
 
-    return new RouterAuthService({
+    const memberRestore = new MemberRestoreService({
+      db,
+      restoreKey,
+      restoreBitcoinLockCoupon,
+    });
+    const auth = new RouterAuthService({
       db,
       adminOperatorAccountId,
       sessionTtlSeconds: 60,
+      memberRestore,
     });
+
+    return { auth, memberRestore };
   }
 });

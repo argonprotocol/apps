@@ -4,6 +4,7 @@ export type BitcoinLockCouponStatus = 'Open' | 'Expired' | BitcoinLockRelayStatu
 export interface IBitcoinLockCouponRecord {
   id: number;
   userId: number;
+  sequence: number;
   offerCode: string;
   vaultId: number;
   maxSatoshis: bigint;

@@ -109,6 +109,11 @@ export class WalletKeys {
     return u8aToHex(seed);
   }
 
+  public async getRouterRestoreSealingKey(): Promise<string> {
+    const seed = await invokeWithTimeout<Uint8Array>('derive_ed25519_seed', { suri: '//router-restore-sealing' }, 60e3);
+    return u8aToHex(seed);
+  }
+
   // TODO: move signing to backend instead of passing around key
   public async getDefaultArgonKeypair(): Promise<KeyringPair> {
     const account = await invokeWithTimeout<Uint8Array>(

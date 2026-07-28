@@ -812,6 +812,7 @@ export default class Installer {
       miningFundingAccountId: this.walletKeys.miningBotAddress,
       vaultOperatorAddress: this.walletKeys.vaultingAddress,
       operatorAccountId: this.walletKeys.operationalAddress,
+      routerRestoreKey: await this.walletKeys.getRouterRestoreSealingKey(),
       ethereumBeaconApiUrl,
       ethereumExecutionRpcUrl,
     });

@@ -108,8 +108,13 @@ function createBitcoinLockCouponsState() {
     couponOfferLiquidityMicrogons,
     currentCoupon,
     openCouponCount,
+    applyRestore,
     refresh,
   });
+
+  function applyRestore(nextCoupons: IBitcoinLockCouponStatus[]) {
+    coupons.value = nextCoupons;
+  }
 
   async function refresh(subscriptionKey = selectedVaultSubscriptionKey) {
     await Promise.all([config.isLoadedPromise, bitcoinLocks.load(), vaults.load().catch(() => null)]);

@@ -357,7 +357,6 @@ function openVaultCollect() {
 }
 
 function openBitcoinLock(args?: { lock?: IBitcoinLockRecord }) {
-  if (!myVault.createdVault) return;
   isExpanded.value = false;
   closeSharedOverlays();
   selectedUnlockLock.value = undefined;

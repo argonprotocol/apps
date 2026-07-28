@@ -179,6 +179,7 @@ export class ServerAdmin {
     miningFundingAccountId: string;
     vaultOperatorAddress: string;
     operatorAccountId: string;
+    routerRestoreKey: string;
     ethereumBeaconApiUrl?: string;
     ethereumExecutionRpcUrl?: string;
   }): Promise<void> {
@@ -187,6 +188,7 @@ export class ServerAdmin {
       `MINING_FUNDING_ACCOUNT_ID=${envState.miningFundingAccountId}`,
       `VAULT_OPERATOR_ADDRESS=${envState.vaultOperatorAddress}`,
       `OPERATOR_ACCOUNT_ID=${envState.operatorAccountId}`,
+      `ROUTER_RESTORE_KEY=${envState.routerRestoreKey}`,
     ];
     const ethereumBeaconApiUrl = envState.ethereumBeaconApiUrl?.trim();
     const ethereumExecutionRpcUrl = envState.ethereumExecutionRpcUrl?.trim();
@@ -549,13 +551,18 @@ export class ServerAdmin {
   }
 
   public async completelyWipeEverything(): Promise<void> {
-    const shellCommand = `sudo ${this.workDir}/server/scripts/wipe_server.sh `;
-
     try {
-      await this.connection.runCommandWithTimeout(shellCommand, 60e3);
+      const [output, status] = await this.connection.runCommandWithTimeout(
+        `sudo ${this.workDir}/server/scripts/wipe_server.sh`,
+        60e3,
+      );
+      if (status !== 0) {
+        console.error('Error wiping server:', output.trim());
+      }
     } catch (error) {
       console.error('Error wiping server:', error);
     }
+
     if (this.connection.isDockerHostProxy) {
       await LocalMachine.remove();
     }

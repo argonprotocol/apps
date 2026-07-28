@@ -18,6 +18,7 @@ import {
 import { getOfflineRegistry, Keyring, type KeyringPair } from '@argonprotocol/mainchain';
 import { Db as RouterDb } from '../src/Db.ts';
 import { RouterServer } from '../src/RouterServer.ts';
+import type { IRouterAuthServiceOptions } from '../src/RouterAuthService.ts';
 import type {
   IBitcoinLockCouponStatus,
   IInviteResponse,
@@ -27,7 +28,6 @@ import type {
   IPreviewInviteResponse,
   IRouterAuthSessionResponse,
 } from '../src/interfaces/index.ts';
-import type { IRouterAuthServiceOptions } from '../src/RouterAuthService.ts';
 
 const mainchainMocks = vi.hoisted(() => ({
   getClient: vi.fn(),
@@ -506,14 +506,17 @@ describe('RouterServer', () => {
     const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
     const member = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMember');
     const memberAuth = member.derive('//downstream-auth');
-    const activatedCoupon = createCouponStatus({
-      userId: invite.id,
-      offerCode: 'offer-code-1',
-      vaultId: 12,
-      maxSatoshis: 25_000n,
-      estimatedGiftUsd: 16.25,
-      btcPctFee: 2.5,
-    });
+    const activatedCoupon = createCouponStatus(
+      {
+        userId: invite.id,
+        offerCode: 'offer-code-1',
+        vaultId: 12,
+        maxSatoshis: 25_000n,
+        estimatedGiftUsd: 16.25,
+        btcPctFee: 2.5,
+      },
+      member.address,
+    );
 
     const started = await startRouterServer(
       routerDb,
@@ -532,6 +535,7 @@ describe('RouterServer', () => {
       },
       {
         adminOperatorAccountId: operator.address,
+        restoreKey: `0x${'42'.repeat(32)}`,
       },
     );
     routerServer = started.routerServer;
@@ -546,6 +550,7 @@ describe('RouterServer', () => {
 
     const body = JsonExt.parse<IOpenInviteResponse>(await response.text());
     expect(body.fromName).toBe('Operator One');
+    expect(body.operatorAccountId).toBe(operator.address);
     expect(body.referrer).toBe(operator.address);
     expect(body.invite.defaultAccountId).toBe(member.address);
     expect(body.invite.operationalAccountId).toBeFalsy();
@@ -553,6 +558,7 @@ describe('RouterServer', () => {
     expect(body.invite.authAccountId).toBe(memberAuth.address);
     expect(body.invite.vaultId).toBe(12);
     expect(body.invite.bitcoinLockCoupon).toEqual(activatedCoupon);
+    expect(body.restorePackage).toBeTruthy();
 
     const claimedInvite = routerDb.userInvitesTable.fetchByCode(invite.inviteCode);
     expect(claimedInvite?.defaultAccountId).toBe(member.address);
@@ -1028,7 +1034,10 @@ function createDb(prefix: string): RouterDb {
 async function startRouterServer(
   db: RouterDb,
   handleBotRequest: (request: BotRequest) => BotResponse | Promise<BotResponse>,
-  options?: IRouterAuthServiceOptions & { mainNodeUrl?: string },
+  options?: Omit<IRouterAuthServiceOptions, 'db' | 'memberRestore'> & {
+    restoreKey?: string;
+    mainNodeUrl?: string;
+  },
 ): Promise<{ routerAddress: IRouterAddress; routerServer: RouterServer; botServer: Http.Server }> {
   const { mainNodeUrl, ...auth } = options ?? {};
   const botServer = Http.createServer(async (req, res) => {
@@ -1157,27 +1166,32 @@ function listMemberInvites(db: RouterDb) {
   return db.userInvitesTable.fetchByRole(UserRole.Member);
 }
 
-function createCouponStatus(args: {
-  userId: number;
-  offerCode: string;
-  vaultId: number;
-  maxSatoshis: bigint;
-  estimatedGiftUsd: number;
-  btcPctFee: number;
-  createdAt?: Date;
-}): IBitcoinLockCouponStatus {
+function createCouponStatus(
+  args: {
+    userId: number;
+    offerCode: string;
+    vaultId: number;
+    maxSatoshis: bigint;
+    estimatedGiftUsd: number;
+    btcPctFee: number;
+    createdAt?: Date;
+  },
+  accountId?: string,
+): IBitcoinLockCouponStatus {
   const createdAt = args.createdAt ?? new Date('2026-06-20T12:00:00.000Z');
 
   return {
     coupon: {
       id: 1,
       userId: args.userId,
+      sequence: 1,
       offerCode: args.offerCode,
       vaultId: args.vaultId,
       maxSatoshis: args.maxSatoshis,
       estimatedGiftUsd: args.estimatedGiftUsd,
       btcPctFee: args.btcPctFee,
       expiresAfterTicks: 60,
+      ...(accountId ? { accountId } : {}),
       createdAt,
       updatedAt: createdAt,
     },

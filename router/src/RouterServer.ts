@@ -16,8 +16,15 @@ import { getClient } from '@argonprotocol/mainchain';
 import { ArgonApis } from './ArgonApis.ts';
 import { BitcoinApis } from './BitcoinApis.ts';
 import { BotUpstreamClient } from './BotUpstreamClient.ts';
-import { ADMIN_OPERATOR_ACCOUNT_ID, BITCOIN_CONFIG, ROUTER_AUTH_SESSION_TTL_SECONDS, SERVER_ROOT } from './env.ts';
+import {
+  ADMIN_OPERATOR_ACCOUNT_ID,
+  BITCOIN_CONFIG,
+  ROUTER_AUTH_SESSION_TTL_SECONDS,
+  ROUTER_RESTORE_KEY,
+  SERVER_ROOT,
+} from './env.ts';
 import type { Db } from './Db.ts';
+import { MemberRestoreService } from './MemberRestoreService.ts';
 import { RouterError } from './RouterError.ts';
 import { RouterAuthService, type IRouterAuthServiceOptions } from './RouterAuthService.ts';
 import { UserInviteService } from './UserInviteService.ts';
@@ -41,13 +48,17 @@ import type {
   IRouterAuthSessionResponse,
 } from './interfaces/index.ts';
 
+type IRouterServerAuthOptions = Omit<IRouterAuthServiceOptions, 'db' | 'memberRestore'> & {
+  restoreKey?: string;
+};
+
 interface IRouterServerOptions {
   db: Db;
   botInternalUrl: string;
   port?: number | string;
   localNodeUrl?: string;
   mainNodeUrl?: string;
-  auth?: IRouterAuthServiceOptions;
+  auth?: IRouterServerAuthOptions;
 }
 
 export class RouterServer {
@@ -72,6 +83,7 @@ export class RouterServer {
     const inviteProgressNodeUrl = this.options.mainNodeUrl ?? this.options.localNodeUrl;
     const adminOperatorAccountId =
       this.options.auth?.adminOperatorAccountId?.trim() || ADMIN_OPERATOR_ACCOUNT_ID?.trim();
+    const { restoreKey = ROUTER_RESTORE_KEY, ...authOptions } = this.options.auth ?? {};
     const getInviteProgressClient = async () => {
       if (!inviteProgressNodeUrl) {
         throw new RouterError('A mainchain node is required to approve operations access.', 503);
@@ -80,11 +92,19 @@ export class RouterServer {
       this.inviteProgressClientPromise ??= getClient(inviteProgressNodeUrl, { throwOnConnect: true });
       return await this.inviteProgressClientPromise;
     };
+    const memberRestore = new MemberRestoreService({
+      db,
+      restoreKey,
+      restoreBitcoinLockCoupon: async coupon => {
+        await botClient.restoreCoupon(coupon);
+      },
+    });
     const routerAuth = new RouterAuthService({
       db,
       sessionTtlSeconds: ROUTER_AUTH_SESSION_TTL_SECONDS ? Number(ROUTER_AUTH_SESSION_TTL_SECONDS) : undefined,
-      ...this.options.auth,
+      ...authOptions,
       adminOperatorAccountId,
+      memberRestore,
     });
     routerAuth.pruneInactiveSessions();
 
@@ -132,17 +152,45 @@ export class RouterServer {
       '/auth/challenge',
       express.text({ type: '*/*' }),
       safeJsonRoute(async req => {
-        const { authAccountId, role } = requireBody<IRouterAuthChallengeRequest>(req);
-        return routerAuth.createChallenge(authAccountId, role);
+        const { authAccountId, role, hasRestorePackage } = requireBody<IRouterAuthChallengeRequest>(req);
+        const restorePackageRequired = role === UserRole.Member && memberRestore.isPackageRequired(authAccountId);
+
+        return routerAuth.createChallenge(authAccountId, role, {
+          packageRequired: restorePackageRequired,
+          packageRequested: role === UserRole.Member && hasRestorePackage === false,
+        });
       }),
     );
 
     app.post(
       '/auth/login',
       express.text({ type: '*/*' }),
-      safeJsonRoute<IRouterAuthSessionResponse>(async req =>
-        routerAuth.createSession(requireBody<IRouterAuthSessionRequest>(req)),
-      ),
+      safeJsonRoute<IRouterAuthSessionResponse>(async req => {
+        const { session, refreshRestorePackage } = await routerAuth.createSession(
+          requireBody<IRouterAuthSessionRequest>(req),
+        );
+        if (session.role !== UserRole.Member || !memberRestore.isEnabled || !refreshRestorePackage) {
+          return session;
+        }
+
+        const invite = db.userInvitesTable.fetchByDefaultAccountId(session.accountId, UserRole.Member);
+        if (!invite) {
+          throw new RouterError('Invite not found', 404);
+        }
+
+        const bitcoinLockCoupons = await botClient.listCouponsByUserId(invite.id);
+        const bitcoinLockCoupon = bitcoinLockCoupons[0];
+        const restorePackage = memberRestore.createPackage(invite, bitcoinLockCoupon?.coupon);
+
+        session.restore = {
+          fromName: invite.fromName,
+          operatorAccountId: adminOperatorAccountId!,
+          restorePackage,
+          bitcoinLockCoupons,
+        };
+
+        return session;
+      }),
     );
 
     app.get('/auth/verify/admin', (req, res) => {
@@ -345,10 +393,13 @@ export class RouterServer {
           userId: invite.id,
           accountId: defaultAccountId,
         });
+        const restorePackage = memberRestore.createPackage(invite, bitcoinLockCoupon.coupon);
 
         return {
           fromName: invite.fromName,
+          operatorAccountId: adminOperatorAccountId,
           referrer: adminOperatorAccountId,
+          restorePackage,
           invite: {
             ...toTreasuryUserInvite(invite),
             vaultId: bitcoinLockCoupon.coupon.vaultId,
@@ -624,7 +675,6 @@ export class RouterServer {
             }
             throw error;
           });
-
         return { bitcoinLock };
       }),
     );

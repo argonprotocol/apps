@@ -1,17 +1,24 @@
 import {
   fetch,
-  type IRouterAuthChallenge as IServerAuthChallenge,
   JsonExt,
   type RouterAuthRole as ServerAuthRole,
   signRouterAuthChallenge as signServerAuthChallenge,
   UserRole,
 } from '@argonprotocol/apps-core';
 import type { KeyringPair } from '@argonprotocol/mainchain';
-import type { IRouterAuthSessionResponse as IServerAuthSessionResponse } from '@argonprotocol/apps-router';
+import type {
+  IRouterAuthChallengeResponse as IServerAuthChallenge,
+  IRouterAuthSessionResponse as IServerAuthSessionResponse,
+} from '@argonprotocol/apps-router';
 import type { WalletKeys } from './WalletKeys.ts';
 
 export type ServerAuthOptions = {
   forceVerify?: boolean;
+};
+
+export type MemberRestoreStore = {
+  getRestorePackage: () => string | undefined;
+  applyRestoreResult: (restore: NonNullable<IServerAuthSessionResponse['restore']>) => Promise<void> | void;
 };
 
 type VerifiedServerSession = {
@@ -46,7 +53,10 @@ export class ServerAuthClient {
   private sessionPromisesBySessionKey = new Map<string, Promise<VerifiedServerSession>>();
   private verifiedSessionsBySessionKey = new Map<string, VerifiedServerSession>();
 
-  constructor(private readonly getWalletKeys: () => ServerAuthWalletKeys) {}
+  constructor(
+    private readonly getWalletKeys: () => ServerAuthWalletKeys,
+    private readonly memberRestoreStore?: MemberRestoreStore,
+  ) {}
 
   public async getAdminOperatorSessionId(baseUrl: string, options: ServerAuthOptions = {}): Promise<string> {
     const walletKeys = this.getWalletKeys();
@@ -140,17 +150,24 @@ export class ServerAuthClient {
     this.invalidateSession(cacheKey);
 
     try {
-      const challenge = await requestAuth<IServerAuthChallenge>(`${baseUrl}/auth/challenge`, {
+      const restorePackage = role === UserRole.Member ? this.memberRestoreStore?.getRestorePackage() : undefined;
+      const challengeRequest = {
         role,
         authAccountId,
-      });
+        ...(role === UserRole.Member ? { hasRestorePackage: !!restorePackage } : {}),
+      };
+      const challenge = await requestAuth<IServerAuthChallenge>(`${baseUrl}/auth/challenge`, challengeRequest);
       if (!challenge) {
         throw new Error('Server auth is not configured.');
+      }
+      if (challenge.restorePackageRequired && !restorePackage) {
+        throw new Error('The upstream operator no longer recognizes this member, and no restore package is available.');
       }
 
       const authKeypair = await getAuthKeypair();
       const session = await requestAuth<IServerAuthSessionResponse>(`${baseUrl}/auth/login`, {
         ...challenge,
+        ...(challenge.restorePackageRequired && restorePackage ? { restorePackage } : {}),
         signature: signServerAuthChallenge(authKeypair, challenge),
       });
       if (!session) {
@@ -159,6 +176,9 @@ export class ServerAuthClient {
 
       if (!(await verifySession(baseUrl, role, session.sessionId))) {
         throw new Error('Server auth session was not accepted.');
+      }
+      if (role === UserRole.Member && session.restore) {
+        await this.memberRestoreStore?.applyRestoreResult(session.restore);
       }
 
       return this.markSessionVerified(cacheKey, session.sessionId, Date.parse(session.expiresAt));
