@@ -553,7 +553,7 @@ const selectedWalletAddressTestId = Vue.computed(() => {
   return `LeftBar.${selectedWalletKey.value}Address`;
 });
 const selectedWalletBalanceIsLoaded = Vue.computed(() => {
-  if (selectedWallet.value.walletType === WalletType.defaultArgon) return financials.savingsIsLoaded;
+  if (selectedWallet.value.walletType === WalletType.defaultArgon) return financials.savingsBalanceIsLoaded;
   return wallets.isLoaded;
 });
 const selectedOtherTokenValue = Vue.computed(() => {

@@ -1,7 +1,6 @@
 import packageJson from '../../package.json';
 import { Db } from './Db';
 import {
-  BootstrapType,
   ConfigSchema,
   IConfig,
   IConfigCertificationDetailsSchema,
@@ -143,6 +142,8 @@ export class Config implements IConfig {
       'oldestFrameIdToSync',
       'defaultCurrencyKey',
       'requiresPassword',
+      'hasExtensionTreasury',
+      'hasExtensionOperations',
     ];
 
     for (const key of Object.keys(defaults) as (keyof IConfig)[]) {
@@ -171,6 +172,21 @@ export class Config implements IConfig {
       const rawData = {} as IConfigStringified;
 
       const dbRawData = await db.configTable.fetchAllAsObject();
+      const storedBootstrapDetails = dbRawData.bootstrapDetails
+        ? JsonExt.parse<IConfig['bootstrapDetails']>(dbRawData.bootstrapDetails)
+        : undefined;
+      const storedUpstreamOperator = dbRawData.upstreamOperator
+        ? JsonExt.parse<IConfig['upstreamOperator']>(dbRawData.upstreamOperator)
+        : undefined;
+      const storedBootstrapHost = storedBootstrapDetails?.routerHost;
+      const clearFakeUpstream =
+        (storedBootstrapHost?.toUpperCase() === 'LOADING' || storedBootstrapHost === BOOTSTRAP_NETWORK_PLACEHOLDER) &&
+        !storedUpstreamOperator?.encryptedBootstrapRecovery &&
+        !storedUpstreamOperator?.restorePackage;
+      if (clearFakeUpstream) {
+        dbRawData.bootstrapDetails = '';
+        dbRawData.upstreamOperator = '';
+      }
 
       if (db.hasMigrationError) {
         this.hasDbMigrationError = true;
@@ -179,7 +195,7 @@ export class Config implements IConfig {
       for (const [key, value] of Object.entries(defaults)) {
         let rawValue = dbRawData[key as keyof typeof dbRawData];
         if (key === dbFields.bootstrapDetails && rawValue !== undefined && rawValue !== '') {
-          const bootstrapDetails = JsonExt.parse(rawValue as string);
+          const bootstrapDetails = JsonExt.parse(rawValue);
           const resolvedIpAddress =
             bootstrapDetails?.routerHost === BOOTSTRAP_NETWORK_PLACEHOLDER
               ? stripSocketProtocol(NETWORK_URL)
@@ -194,7 +210,7 @@ export class Config implements IConfig {
         }
         const schemaField = ConfigSchema.shape[key as keyof IConfig] as unknown as ZodAny | undefined;
         if (schemaField && rawValue !== undefined && rawValue !== '') {
-          const data = JsonExt.parse(rawValue as string);
+          const data = JsonExt.parse(rawValue);
           if (key === dbFields.serverDetails && data && typeof data === 'object' && 'port' in data) {
             data.sshPort ??= data.port;
             delete data.port;
@@ -231,7 +247,7 @@ export class Config implements IConfig {
           continue;
         }
 
-        rawData[key as keyof typeof rawData] = rawValue as string;
+        rawData[key as keyof typeof rawData] = rawValue;
         if (key === dbFields.serverDetails) {
           // Ensure old serverDetails without type are set to DigitalOcean
           loadedData.serverDetails.type ??= ServerType.DigitalOcean;
@@ -240,7 +256,12 @@ export class Config implements IConfig {
           rawData[dbFields.serverDetails] = JsonExt.stringify(loadedData.serverDetails, 2);
         }
       }
-
+      if (clearFakeUpstream) {
+        fieldsToSave.add(dbFields.bootstrapDetails);
+        fieldsToSave.add(dbFields.upstreamOperator);
+        rawData[dbFields.bootstrapDetails] = '';
+        rawData[dbFields.upstreamOperator] = '';
+      }
       const isFirstTimeAppLoad = Object.keys(dbRawData).length === 0;
       if (isFirstTimeAppLoad) {
         await this._injectFirstTimeAppData(loadedData, rawData, fieldsToSave);
@@ -303,7 +324,17 @@ export class Config implements IConfig {
         loadedData.miningSetupStatus === MiningSetupStatus.Finished ||
         loadedData.vaultingSetupStatus === VaultingSetupStatus.Finished;
 
-      if (loadedData.bootstrapDetails && loadedData.showWelcomeOverlay && !loadedData.wasImportedFromLegacy) {
+      if (loadedData.upstreamOperator && !loadedData.hasExtensionTreasury) {
+        loadedData.hasExtensionTreasury = true;
+        fieldsToSave.add(dbFields.hasExtensionTreasury);
+        rawData[dbFields.hasExtensionTreasury] = JsonExt.stringify(loadedData.hasExtensionTreasury);
+      }
+
+      if (
+        (loadedData.bootstrapDetails || hasLegacyAccountState) &&
+        loadedData.showWelcomeOverlay &&
+        !loadedData.wasImportedFromLegacy
+      ) {
         loadedData.showWelcomeOverlay = false;
         fieldsToSave.add(dbFields.showWelcomeOverlay);
         rawData[dbFields.showWelcomeOverlay] = JsonExt.stringify(loadedData.showWelcomeOverlay, 2);
@@ -317,15 +348,6 @@ export class Config implements IConfig {
         fieldsToSave.add(dbFields.hasExtensionOperations);
         rawData[dbFields.hasExtensionTreasury] = JsonExt.stringify(loadedData.hasExtensionTreasury, 2);
         rawData[dbFields.hasExtensionOperations] = JsonExt.stringify(loadedData.hasExtensionOperations, 2);
-      }
-
-      if (!loadedData.bootstrapDetails && hasLegacyAccountState) {
-        loadedData.bootstrapDetails = {
-          type: BootstrapType.Public,
-          routerHost: 'LOADING',
-        };
-        fieldsToSave.add(dbFields.bootstrapDetails);
-        rawData[dbFields.bootstrapDetails] = JsonExt.stringify(loadedData.bootstrapDetails, 2);
       }
 
       const isLocalComputer = loadedData.serverDetails.type === ServerType.LocalComputer;
@@ -699,12 +721,9 @@ export class Config implements IConfig {
     fieldsToSave.add(dbFields.walletAccountsHadPreviousLife);
 
     if (walletHadPreviousLife) {
-      loadedData.bootstrapDetails = {
-        type: BootstrapType.Public,
-        routerHost: 'LOADING',
-      };
-      stringifiedData[dbFields.bootstrapDetails] = JsonExt.stringify(loadedData.bootstrapDetails, 2);
-      fieldsToSave.add(dbFields.bootstrapDetails);
+      loadedData.showWelcomeOverlay = false;
+      stringifiedData[dbFields.showWelcomeOverlay] = JsonExt.stringify(false);
+      fieldsToSave.add(dbFields.showWelcomeOverlay);
     }
   }
 

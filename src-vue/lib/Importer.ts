@@ -3,7 +3,7 @@ import Restarter from './Restarter';
 import { Db } from './Db';
 import { invokeWithTimeout } from './tauriApi';
 import { ITryServerData, SSH } from './SSH';
-import { BootstrapType, IConfigServerDetails } from '../interfaces/IConfig';
+import { IConfigServerDetails } from '../interfaces/IConfig';
 import { IS_LOCAL_BUILD, NETWORK_NAME, SECURITY } from './Env.ts';
 import { hasArgonWalletValue } from './WalletForArgon.ts';
 import { WalletKeys } from './WalletKeys.ts';
@@ -62,10 +62,7 @@ export default class Importer {
     Object.assign(SECURITY, security);
 
     await this.config.load(true);
-    this.config.bootstrapDetails = {
-      type: BootstrapType.Public,
-      routerHost: 'LOADING',
-    };
+    this.config.showWelcomeOverlay = false;
     await this.config.save();
 
     restarter.restart();
@@ -99,7 +96,7 @@ export default class Importer {
     this.config.oldestFrameIdToSync = serverData.oldestFrameIdToSync!;
     this.config.ethereumBeaconApiUrl = serverData.ethereumBeaconApiUrl;
     this.config.ethereumExecutionRpcUrl = serverData.ethereumExecutionRpcUrl;
-    this.config.serverDetails = { ...this.config.serverDetails, ipAddress: ipAddress };
+    this.config.serverDetails = { ...this.config.serverDetails, ipAddress };
     await this.config.save();
   }
 

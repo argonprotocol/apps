@@ -7,6 +7,7 @@ import {
 } from '@argonprotocol/apps-core';
 import type { KeyringPair } from '@argonprotocol/mainchain';
 import type {
+  IRouterAuthChallengeRequest as IServerAuthChallengeRequest,
   IRouterAuthChallengeResponse as IServerAuthChallenge,
   IRouterAuthSessionResponse as IServerAuthSessionResponse,
 } from '@argonprotocol/apps-router';
@@ -16,8 +17,10 @@ export type ServerAuthOptions = {
   forceVerify?: boolean;
 };
 
-export type MemberRestoreStore = {
+export type MemberAuthState = {
   getRestorePackage: () => string | undefined;
+  getBootstrapEndpointPubkey?: () => Promise<string | undefined> | string | undefined;
+  applyBootstrapEndpointSecret?: (bootstrapEndpointSecret: string) => Promise<void> | void;
   applyRestoreResult: (restore: NonNullable<IServerAuthSessionResponse['restore']>) => Promise<void> | void;
 };
 
@@ -55,7 +58,7 @@ export class ServerAuthClient {
 
   constructor(
     private readonly getWalletKeys: () => ServerAuthWalletKeys,
-    private readonly memberRestoreStore?: MemberRestoreStore,
+    private readonly memberAuthState?: MemberAuthState,
   ) {}
 
   public async getAdminOperatorSessionId(baseUrl: string, options: ServerAuthOptions = {}): Promise<string> {
@@ -150,12 +153,21 @@ export class ServerAuthClient {
     this.invalidateSession(cacheKey);
 
     try {
-      const restorePackage = role === UserRole.Member ? this.memberRestoreStore?.getRestorePackage() : undefined;
-      const challengeRequest = {
+      let restorePackage: string | undefined;
+      const challengeRequest: IServerAuthChallengeRequest = {
         role,
         authAccountId,
-        ...(role === UserRole.Member ? { hasRestorePackage: !!restorePackage } : {}),
       };
+      if (role === UserRole.Member) {
+        restorePackage = this.memberAuthState?.getRestorePackage();
+        challengeRequest.hasRestorePackage = !!restorePackage;
+
+        const bootstrapEndpointPubkey = await this.memberAuthState?.getBootstrapEndpointPubkey?.();
+        if (bootstrapEndpointPubkey) {
+          challengeRequest.knownBootstrapEndpointPubkey = bootstrapEndpointPubkey;
+        }
+      }
+
       const challenge = await requestAuth<IServerAuthChallenge>(`${baseUrl}/auth/challenge`, challengeRequest);
       if (!challenge) {
         throw new Error('Server auth is not configured.');
@@ -177,8 +189,13 @@ export class ServerAuthClient {
       if (!(await verifySession(baseUrl, role, session.sessionId))) {
         throw new Error('Server auth session was not accepted.');
       }
-      if (role === UserRole.Member && session.restore) {
-        await this.memberRestoreStore?.applyRestoreResult(session.restore);
+      if (role === UserRole.Member) {
+        if (session.restore) {
+          await this.memberAuthState?.applyRestoreResult(session.restore);
+        }
+        if (session.bootstrapEndpointSecret) {
+          await this.memberAuthState?.applyBootstrapEndpointSecret?.(session.bootstrapEndpointSecret);
+        }
       }
 
       return this.markSessionVerified(cacheKey, session.sessionId, Date.parse(session.expiresAt));

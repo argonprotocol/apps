@@ -268,7 +268,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
         requestEthereumGatewayCatchUp: request => gatewayProverService.runToCheckpoint(request),
       },
       {
-        operatorHost: undefined,
+        resolveOperatorHost: async () => undefined,
         requestEthereumGatewayCatchUp: async () => ({ outcome: 'Noop' }),
       },
     );

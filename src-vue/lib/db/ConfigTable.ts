@@ -1,18 +1,18 @@
-import { IConfig, IConfigStringified } from '../../interfaces/IConfig';
+import { IConfigStringified } from '../../interfaces/IConfig';
 import { IConfigRecord } from '../../interfaces/db/IConfigRecord';
 import { BaseTable } from './BaseTable';
 import PluginSql from '@tauri-apps/plugin-sql';
 
 export class ConfigTable extends BaseTable {
-  public async fetchAllAsObject(): Promise<Partial<IConfig>> {
-    const data: any = {};
+  public async fetchAllAsObject(): Promise<Partial<IConfigStringified>> {
+    const data: Partial<IConfigStringified> = {};
     const rows = await this.db.select<IConfigRecord[]>('SELECT key, value FROM Config', []);
 
     for (const row of rows) {
-      data[row.key] = row.value;
+      data[row.key as keyof IConfigStringified] = row.value;
     }
 
-    return data as Partial<IConfig>;
+    return data;
   }
 
   public async insertOrReplace(obj: Partial<IConfigStringified>, overrideSqlInstance?: PluginSql) {

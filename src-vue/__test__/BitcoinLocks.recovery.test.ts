@@ -87,6 +87,7 @@ function createHistoricalLock(args: {
     utxoId: 7,
     p2wshScriptHashHex: `0020${'00'.repeat(32)}`,
     vaultId: 1,
+    isBackfill: false,
     lockedTargetPrice: args.lockedTargetPrice ?? 1_000n,
     liquidityPromised: args.liquidityPromised,
     ownerAccount: args.accountId,

@@ -6,6 +6,7 @@ import { instanceChecks } from '../lib/Utils.js';
 import { WalletKeys } from '../lib/WalletKeys.ts';
 import { createTestWallet } from './helpers/wallet.ts';
 import {
+  BootstrapType,
   type IConfig,
   InstallStepStatus,
   MiningSetupStatus,
@@ -197,6 +198,24 @@ it('migrates old server port field to sshPort', async () => {
   expect((config.serverDetails as any).port).toBeUndefined();
 });
 
+it.each(['loading', 'ARGON_NETWORK_NAME'])('clears fake upstream state stored with %s', async routerHost => {
+  const dbPromise = createMockedDbPromise({
+    bootstrapDetails: JsonExt.stringify({ type: BootstrapType.Public, routerHost }),
+    upstreamOperator: JsonExt.stringify({ name: 'Fake upstream' }),
+  });
+  const db = await dbPromise;
+  const saveSpy = vi.spyOn(db.configTable, 'insertOrReplace');
+  const { walletKeys } = createTestWallet('//Alice');
+  instanceChecks.delete(Config.prototype.constructor);
+  const config = new Config(dbPromise, walletKeys);
+
+  await config.load();
+
+  expect(config.bootstrapDetails).toBeUndefined();
+  expect(config.upstreamOperator).toBeUndefined();
+  expect(saveSpy).toHaveBeenCalledWith(expect.objectContaining({ bootstrapDetails: '', upstreamOperator: '' }));
+});
+
 it.each([MiningSetupStatus.Checklist, MiningSetupStatus.Installing])(
   'finishes interrupted mining setup from %s when bidding rules and the server were already saved',
   async miningSetupStatus => {
@@ -279,6 +298,8 @@ it.each([VaultingSetupStatus.None, VaultingSetupStatus.Checklist, VaultingSetupS
 it('preserves completed vaulting setup when recreating the local database', async () => {
   const dbPromise = createMockedDbPromise({
     vaultingSetupStatus: `"${VaultingSetupStatus.Finished}"`,
+    hasExtensionTreasury: 'true',
+    hasExtensionOperations: 'true',
   });
   const { walletKeys } = createTestWallet('//Alice');
   instanceChecks.delete(Config.prototype.constructor);
@@ -288,6 +309,8 @@ it('preserves completed vaulting setup when recreating the local database', asyn
   await config.restoreToConnection({} as PluginSql);
 
   expect(config.vaultingSetupStatus).toBe(VaultingSetupStatus.Finished);
+  expect(config.hasExtensionTreasury).toBe(true);
+  expect(config.hasExtensionOperations).toBe(true);
 });
 
 it('keeps interrupted setup active without durable evidence that creation finished', async () => {

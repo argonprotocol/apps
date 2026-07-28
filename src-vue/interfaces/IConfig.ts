@@ -108,6 +108,8 @@ export const ConfigServerDetailsSchema = z.object({
   ipAddress: z.string().ip().or(z.literal('')),
   sshPort: z.number().optional(),
   gatewayPort: z.number().optional(),
+  bootstrapEndpointIndex: z.number().int().nonnegative().optional(),
+  bootstrapEndpointSequence: z.number().int().positive().optional(),
   sshUser: z.string(),
   type: z.nativeEnum(ServerType),
   workDir: z.string(),
@@ -151,6 +153,8 @@ export const UpstreamOperatorSchema = z.object({
   vaultId: z.number().optional(),
   accountId: z.string().optional(),
   restorePackage: z.string().optional(),
+  encryptedBootstrapRecovery: z.string().optional(),
+  bootstrapEndpointSequence: z.number().int().positive().optional(),
 });
 
 export const ConfigSyncDetailsSchema = z.object({

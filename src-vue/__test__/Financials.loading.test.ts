@@ -235,6 +235,7 @@ describe('financials store lifecycle', () => {
     mocks.vaults.load.mockResolvedValue();
     mocks.vaultingStats.argonBurnCapacity = 0;
     mocks.vaultingStats.microgonValueInVaults = 0n;
+    mocks.vaultingStats.isLoadedPromise = Promise.resolve();
     mocks.myVault.load.mockResolvedValue();
     mocks.miningFinancials.loadPositions.mockResolvedValue([]);
     mocks.miningFinancials.loadPositions.mockClear();
@@ -350,6 +351,25 @@ describe('financials store lifecycle', () => {
     expect(mocks.vaults.load).not.toHaveBeenCalled();
   });
 
+  it('publishes the current wallet balance before domain history finishes loading', async () => {
+    let finishDomainLoad: () => void;
+    mocks.vaultingStats.isLoadedPromise = new Promise(resolve => {
+      finishDomainLoad = resolve;
+    });
+    mocks.walletsForArgon.readAccountSnapshot.mockImplementation(async ({ header }: { header: IBlockHeaderInfo }) => {
+      return createAccountSnapshot(header, 100n);
+    });
+
+    const financials = useFinancials();
+
+    await vi.waitFor(() => expect(financials.savingsBalanceIsLoaded).toBe(true));
+    expect(financials.savingsTotalValue).toBe(100n);
+    expect(financials.savingsIsLoaded).toBe(false);
+
+    finishDomainLoad!();
+    await vi.waitFor(() => expect(financials.savingsIsLoaded).toBe(true));
+  });
+
   it.each([
     {
       name: 'configuration',
@@ -387,7 +407,7 @@ describe('financials store lifecycle', () => {
       group: 'liquid' as const,
       fail: () => {
         mocks.walletHistoryRecovery.hasCompleteCoverage.mockResolvedValue(true);
-        mocks.walletsForArgon.fetchArgonotCustody.mockRejectedValueOnce(new Error('wallet loading failed'));
+        mocks.walletsForArgon.fetchArgonotCustody.mockRejectedValue(new Error('wallet loading failed'));
       },
     },
     {
@@ -511,6 +531,7 @@ describe('financials store lifecycle', () => {
     mocks.bitcoinLocks.getAllLocks.mockReturnValue([pendingSummary.record]);
     mocks.bitcoinLocks.createLockSummaryAt.mockResolvedValueOnce(pendingSummary).mockResolvedValue(mintedSummary);
     mocks.walletsForArgon.readAccountSnapshot
+      .mockResolvedValueOnce(firstSnapshot)
       .mockResolvedValueOnce(firstSnapshot)
       .mockResolvedValueOnce(secondSnapshot);
 

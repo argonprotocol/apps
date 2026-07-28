@@ -16,7 +16,7 @@ export type IEthereumGatewayCatchupResult = {
 export async function requestEthereumGatewayCatchup(args: {
   throughGatewayActivityNonce: bigint;
   serverApiClient?: Pick<ServerApiClient, 'getEthereumRelayStatus' | 'requestEthereumGatewayCatchUp'>;
-  upstreamOperatorClient?: Pick<UpstreamOperatorClient, 'operatorHost' | 'requestEthereumGatewayCatchUp'>;
+  upstreamOperatorClient?: Pick<UpstreamOperatorClient, 'resolveOperatorHost' | 'requestEthereumGatewayCatchUp'>;
 }): Promise<IEthereumGatewayCatchupResult> {
   const { throughGatewayActivityNonce, serverApiClient, upstreamOperatorClient } = args;
   let relaySource: IEthereumGatewayRelaySource | undefined;
@@ -25,6 +25,7 @@ export async function requestEthereumGatewayCatchup(args: {
   let localRelayAttemptOutcome: 'notReady' | 'requestFailed' | 'rejected' | undefined;
   let localRelayError = '';
   let localRelayReasonCode: IEthereumGatewayRelayReasonCode | undefined;
+  const upstreamOperatorHost = await upstreamOperatorClient?.resolveOperatorHost();
 
   if (serverApiClient) {
     try {
@@ -37,7 +38,7 @@ export async function requestEthereumGatewayCatchup(args: {
         if (response.outcome !== 'Rejected') {
           relaySource = 'localServer';
 
-          if (upstreamOperatorClient?.operatorHost) {
+          if (upstreamOperatorClient && upstreamOperatorHost) {
             try {
               await upstreamOperatorClient.requestEthereumGatewayCatchUp({
                 sourceChain: 'Ethereum',
@@ -63,7 +64,7 @@ export async function requestEthereumGatewayCatchup(args: {
     }
   }
 
-  if (!relaySource && upstreamOperatorClient?.operatorHost) {
+  if (!relaySource && upstreamOperatorClient && upstreamOperatorHost) {
     try {
       const response = await upstreamOperatorClient.requestEthereumGatewayCatchUp({
         sourceChain: 'Ethereum',

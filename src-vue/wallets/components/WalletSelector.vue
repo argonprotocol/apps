@@ -130,7 +130,7 @@ function getWalletAddress(wallet: IWalletSelection) {
 function getWalletTotal(wallet: IWalletSelection) {
   const isLoaded =
     currency.isLoaded &&
-    (wallet.walletType === WalletType.defaultArgon ? financials.savingsIsLoaded : wallets.isLoaded);
+    (wallet.walletType === WalletType.defaultArgon ? financials.savingsBalanceIsLoaded : wallets.isLoaded);
   if (!isLoaded) return '--';
 
   const total =

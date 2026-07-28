@@ -1,5 +1,12 @@
 import { ServerApiClient } from '../lib/ServerApiClient.ts';
 import { ServerAuthClient } from '../lib/ServerAuthClient.ts';
+import {
+  decryptBootstrapRecovery,
+  encryptBootstrapRecovery,
+  getBootstrapEndpointPubkey,
+} from '@argonprotocol/apps-core';
+import { hexToU8a, u8aToHex } from '@argonprotocol/mainchain';
+import { enrollUpstreamRecovery } from './bootstrapRecovery.ts';
 import { getConfig } from './config.ts';
 import { getWalletKeys } from './wallets.ts';
 
@@ -24,6 +31,35 @@ export function getUpstreamOperatorAuthClient(): ServerAuthClient {
       if (!config.isLoaded) return;
 
       return config.upstreamOperator?.restorePackage;
+    },
+    getBootstrapEndpointPubkey: async () => {
+      const encryptedBootstrapRecovery = getConfig().upstreamOperator?.encryptedBootstrapRecovery;
+      if (!encryptedBootstrapRecovery) return;
+
+      const recoverySeed = await getWalletKeys().getUpstreamEndpointRecoverySeed();
+      const recovery = await decryptBootstrapRecovery(hexToU8a(encryptedBootstrapRecovery), recoverySeed);
+      return u8aToHex(getBootstrapEndpointPubkey(recovery.endpointSecret));
+    },
+    applyBootstrapEndpointSecret: async bootstrapEndpointSecret => {
+      const config = getConfig();
+      if (!config.upstreamOperator) return;
+
+      const recoverySeed = await getWalletKeys().getUpstreamEndpointRecoverySeed();
+      const encryptedBootstrapRecovery = await encryptBootstrapRecovery(
+        {
+          version: 1,
+          endpointSecret: bootstrapEndpointSecret,
+        },
+        recoverySeed,
+      );
+      config.upstreamOperator = {
+        ...config.upstreamOperator,
+        encryptedBootstrapRecovery: u8aToHex(encryptedBootstrapRecovery),
+      };
+      await config.save();
+      void enrollUpstreamRecovery().catch(error => {
+        console.warn('Unable to enroll upstream endpoint recovery', error);
+      });
     },
     applyRestoreResult: async restore => {
       const config = getConfig();

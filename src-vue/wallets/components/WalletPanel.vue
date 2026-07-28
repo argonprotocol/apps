@@ -97,7 +97,7 @@ const currency = getCurrency();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const walletValueIsLoaded = Vue.computed(() => {
-  if (props.selection.walletType === WalletType.defaultArgon) return financials.savingsIsLoaded;
+  if (props.selection.walletType === WalletType.defaultArgon) return financials.savingsBalanceIsLoaded;
   return true;
 });
 const walletTotalValue = Vue.computed(() => {

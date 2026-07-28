@@ -62,8 +62,8 @@
     "@actions/github": "^9.1.1",
     "@argonprotocol/apps-bot": "workspace:*",
     "@argonprotocol/apps-core": "workspace:*",
-    "@argonprotocol/bitcoin": "1.4.10",
-    "@argonprotocol/mainchain": "1.4.10",
+    "@argonprotocol/bitcoin": "1.4.10-dev.a229760e",
+    "@argonprotocol/mainchain": "1.4.10-dev.a229760e",
     "@chenfengyuan/vue-countdown": "^2.1.3",
     "@ethereumjs/rlp": "^10.1.1",
     "@ethereumjs/trie": "^6.2.1",
@@ -132,7 +132,7 @@
     "e2e"
   ],
   "devDependencies": {
-    "@argonprotocol/testing": "1.4.10",
+    "@argonprotocol/testing": "1.4.10-dev.a229760e",
     "@scure/bip39": "^1.6.0",
     "@tauri-apps/cli": "^2.11.0",
     "@types/bun": "^1.2.22",
@@ -183,8 +183,8 @@
     }
   },
   "resolutions": {
-    "@argonprotocol/mainchain": "1.4.10",
-    "@argonprotocol/bitcoin": "1.4.10",
+    "@argonprotocol/mainchain": "1.4.10-dev.a229760e",
+    "@argonprotocol/bitcoin": "1.4.10-dev.a229760e",
     "@polkadot/api": "16.5.6",
     "@polkadot/api-augment": "16.5.6",
     "@polkadot/api-base": "16.5.6",
@@ -205,7 +205,7 @@
     "@openzeppelin/contracts@npm:3.4.1-solc-0.7-2": "npm:3.4.2-solc-0.7",
     "axios": "1.18.1",
     "ws": "8.21.0",
-    "@argonprotocol/testing": "1.4.10"
+    "@argonprotocol/testing": "1.4.10-dev.a229760e"
   },
   "resolutions_disabled": {
     "@argonprotocol/testing": "portal:../mainchain/testing/nodejs",

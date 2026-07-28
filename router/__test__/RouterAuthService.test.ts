@@ -115,7 +115,7 @@ describe('RouterAuthService', () => {
     const { auth: recoveredService } = createAuthService(operator.address, restoreKey, restoreBitcoinLockCoupon);
 
     const unsignedChallenge = recoveredService.createChallenge(memberAuth.address, UserRole.Member, {
-      packageRequired: true,
+      restorePackageRequired: true,
     });
     const wrongSigner = member.derive('//wrong-auth');
     await expect(
@@ -129,7 +129,7 @@ describe('RouterAuthService', () => {
     expect(restoreBitcoinLockCoupon).not.toHaveBeenCalled();
 
     const challenge = recoveredService.createChallenge(memberAuth.address, UserRole.Member, {
-      packageRequired: true,
+      restorePackageRequired: true,
     });
     await recoveredService.createSession({
       ...challenge,
@@ -175,7 +175,7 @@ describe('RouterAuthService', () => {
     });
 
     const challenge = recoveredService.createChallenge(memberAuth.address, UserRole.Member, {
-      packageRequired: true,
+      restorePackageRequired: true,
     });
     await expect(
       recoveredService.createSession({

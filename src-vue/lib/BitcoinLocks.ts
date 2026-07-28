@@ -830,7 +830,7 @@ export default class BitcoinLocks {
     operatorCoupon: IOperatorBitcoinLockCouponRoute;
   }): Promise<{ pendingLock: IBitcoinLockRecord; txInfo?: TransactionInfo<IBitcoinRequestLockMetadata> }> {
     const { offerCode } = args.operatorCoupon;
-    const operatorHost = this.upstreamOperatorClient.operatorHost;
+    const operatorHost = await this.upstreamOperatorClient.resolveOperatorHost();
     if (!operatorHost) {
       throw new Error('No upstream operator host configured.');
     }

@@ -180,6 +180,7 @@ export class ServerAdmin {
     vaultOperatorAddress: string;
     operatorAccountId: string;
     routerRestoreKey: string;
+    routerBootstrapEndpointSecret: string;
     ethereumBeaconApiUrl?: string;
     ethereumExecutionRpcUrl?: string;
   }): Promise<void> {
@@ -189,6 +190,7 @@ export class ServerAdmin {
       `VAULT_OPERATOR_ADDRESS=${envState.vaultOperatorAddress}`,
       `OPERATOR_ACCOUNT_ID=${envState.operatorAccountId}`,
       `ROUTER_RESTORE_KEY=${envState.routerRestoreKey}`,
+      `ROUTER_BOOTSTRAP_ENDPOINT_SECRET=${envState.routerBootstrapEndpointSecret}`,
     ];
     const ethereumBeaconApiUrl = envState.ethereumBeaconApiUrl?.trim();
     const ethereumExecutionRpcUrl = envState.ethereumExecutionRpcUrl?.trim();

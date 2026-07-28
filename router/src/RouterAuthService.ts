@@ -39,6 +39,7 @@ export class RouterAuthService {
       challenge: IRouterAuthChallenge;
       restorePackageRequired: boolean;
       restorePackageRequested: boolean;
+      bootstrapEndpointSecretRequired: boolean;
     }
   >();
   private readonly db?: Db;
@@ -67,9 +68,10 @@ export class RouterAuthService {
   public createChallenge(
     authAccountId: string,
     role: RouterAuthRole = UserRole.AdminOperator,
-    restore: {
-      packageRequired?: boolean;
-      packageRequested?: boolean;
+    memberAuth: {
+      restorePackageRequired?: boolean;
+      restorePackageRequested?: boolean;
+      bootstrapEndpointSecretRequired?: boolean;
     } = {},
   ): IRouterAuthChallengeResponse {
     this.assertEnabled();
@@ -93,18 +95,21 @@ export class RouterAuthService {
 
     this.challengesByNonce.set(challenge.nonce, {
       challenge,
-      restorePackageRequired: normalizedRole === UserRole.Member && !!restore.packageRequired,
-      restorePackageRequested: normalizedRole === UserRole.Member && !!restore.packageRequested,
+      restorePackageRequired: normalizedRole === UserRole.Member && !!memberAuth.restorePackageRequired,
+      restorePackageRequested: normalizedRole === UserRole.Member && !!memberAuth.restorePackageRequested,
+      bootstrapEndpointSecretRequired:
+        normalizedRole === UserRole.Member && !!memberAuth.bootstrapEndpointSecretRequired,
     });
     return {
       ...challenge,
-      restorePackageRequired: normalizedRole === UserRole.Member && !!restore.packageRequired,
+      restorePackageRequired: normalizedRole === UserRole.Member && !!memberAuth.restorePackageRequired,
     };
   }
 
   public async createSession(request: IRouterAuthSessionRequest): Promise<{
     session: IRouterAuthSessionResponse;
     refreshRestorePackage: boolean;
+    includeBootstrapEndpointSecret: boolean;
   }> {
     this.assertEnabled();
 
@@ -156,6 +161,7 @@ export class RouterAuthService {
     return {
       session,
       refreshRestorePackage: pendingChallenge.restorePackageRequested || restorePackageApplied,
+      includeBootstrapEndpointSecret: pendingChallenge.bootstrapEndpointSecretRequired,
     };
   }
 

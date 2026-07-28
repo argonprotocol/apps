@@ -114,6 +114,33 @@ export class WalletKeys {
     return u8aToHex(seed);
   }
 
+  public async getOwnServerBootstrapEndpointSecret(index = 0): Promise<string> {
+    const seed = await invokeWithTimeout<Uint8Array>(
+      'derive_ed25519_seed',
+      { suri: `//bootstrap-endpoint//${index}` },
+      60e3,
+    );
+    return u8aToHex(seed);
+  }
+
+  public async getUpstreamEndpointRecoverySeed(): Promise<string> {
+    const seed = await invokeWithTimeout<Uint8Array>(
+      'derive_ed25519_seed',
+      { suri: '//bootstrap-recovery//upstream' },
+      60e3,
+    );
+    return u8aToHex(seed);
+  }
+
+  public async getOwnServerEndpointRecoverySeed(): Promise<string> {
+    const seed = await invokeWithTimeout<Uint8Array>(
+      'derive_ed25519_seed',
+      { suri: '//bootstrap-recovery//own-server' },
+      60e3,
+    );
+    return u8aToHex(seed);
+  }
+
   // TODO: move signing to backend instead of passing around key
   public async getDefaultArgonKeypair(): Promise<KeyringPair> {
     const account = await invokeWithTimeout<Uint8Array>(

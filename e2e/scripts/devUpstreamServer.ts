@@ -23,6 +23,7 @@ import type { IDevEthereumConfig, IStartDevEthereumResult } from '../devEthereum
 import { AppVaultOperator } from '../actors/AppVaultOperator.ts';
 import { ensureDevGatewayCerts } from '../../scripts/devGatewayCerts.ts';
 import type { IConfig } from 'src-vue/interfaces/IConfig.ts';
+import { BootstrapRecovery } from 'src-vue/lib/BootstrapRecovery.ts';
 import { Config } from 'src-vue/lib/Config.ts';
 import { MemoryWalletKeys } from 'src-vue/lib/MemoryWalletKeys.ts';
 
@@ -140,12 +141,14 @@ export async function startDevUpstreamServer(args: {
   await Fs.mkdir(configDir, { recursive: true });
   await Fs.mkdir(dataDir, { recursive: true });
 
-  const [miningBotKeypair, vaultDelegateKeypair, sessionMiniSecret, restoreKey] = await Promise.all([
-    walletKeys.getMiningBotKeypair(),
-    walletKeys.getVaultDelegateKeypair(),
-    walletKeys.getMiningSessionMiniSecret(),
-    walletKeys.getRouterRestoreSealingKey(),
-  ]);
+  const [miningBotKeypair, vaultDelegateKeypair, sessionMiniSecret, restoreKey, bootstrapEndpointSecret] =
+    await Promise.all([
+      walletKeys.getMiningBotKeypair(),
+      walletKeys.getVaultDelegateKeypair(),
+      walletKeys.getMiningSessionMiniSecret(),
+      walletKeys.getRouterRestoreSealingKey(),
+      walletKeys.getOwnServerBootstrapEndpointSecret(),
+    ]);
   const biddingRules = {
     ...(Config.getDefault('biddingRules') as IConfig['biddingRules']),
     seatGoalType: SeatGoalType.Min,
@@ -184,6 +187,7 @@ export async function startDevUpstreamServer(args: {
     `VAULT_OPERATOR_ADDRESS=${walletKeys.vaultingAddress}`,
     `OPERATOR_ACCOUNT_ID=${walletKeys.operationalAddress}`,
     `ROUTER_RESTORE_KEY=${restoreKey}`,
+    `ROUTER_BOOTSTRAP_ENDPOINT_SECRET=${bootstrapEndpointSecret}`,
     `SESSION_MINI_SECRET=${sessionMiniSecret}`,
     `ETHEREUM_BEACON_API_URL=${args.devEthereum?.serverBeaconApiUrl?.trim() || existingState.ETHEREUM_BEACON_API_URL || ''}`,
     `ETHEREUM_EXECUTION_RPC_URL=${args.devEthereum?.serverExecutionRpcUrl?.trim() || existingState.ETHEREUM_EXECUTION_RPC_URL || ''}`,
@@ -205,6 +209,12 @@ export async function startDevUpstreamServer(args: {
       address: miningBotKeypair.address,
       microgons: miningCapital.microgons,
       micronots: miningCapital.micronots,
+    });
+    await sudoFundWallet({
+      client: fundingClient,
+      address: walletKeys.operationalAddress,
+      microgons: 10n * BigInt(MICROGONS_PER_ARGON),
+      micronots: 0n,
     });
   } finally {
     await fundingClient.disconnect();
@@ -246,13 +256,18 @@ export async function startDevUpstreamServer(args: {
     clients,
     walletKeys,
   });
+  const bootstrapRecovery = new BootstrapRecovery(walletKeys);
   let isShutdown = false;
   let operationsUpgradePoller: { shutdown(): Promise<void> } | undefined;
+  let endpointMonitor: NodeJS.Timeout | undefined;
+  let isEndpointRefreshRunning = false;
+  let publishedGatewayPort: string | undefined;
   const shutdown = async () => {
     if (isShutdown) {
       return;
     }
     isShutdown = true;
+    clearInterval(endpointMonitor);
     await operationsUpgradePoller?.shutdown().catch(() => undefined);
     await actor.dispose().catch(() => undefined);
     await clients.disconnect().catch(() => undefined);
@@ -260,12 +275,56 @@ export async function startDevUpstreamServer(args: {
 
   try {
     const client = await clients.get(false);
+    const { botPort, gatewayPort, routerPort } = await readDevUpstreamServerPorts(context);
+    if (BootstrapRecovery.isAvailable(client)) {
+      await bootstrapRecovery.publishEndpoint({
+        client,
+        transactionTracker: actor.transactionTracker,
+        bootstrapEndpointSecret,
+        host: '127.0.0.1',
+        port: Number(gatewayPort),
+      });
+      publishedGatewayPort = gatewayPort;
+
+      endpointMonitor = setInterval(() => {
+        if (isEndpointRefreshRunning) return;
+        isEndpointRefreshRunning = true;
+
+        void readComposePortWithRetry({
+          context,
+          service: 'upstream-nginx',
+          port: 443,
+          optional: true,
+          timeoutMs: 1_500,
+        })
+          .then(async currentGatewayPort => {
+            if (!currentGatewayPort || currentGatewayPort === publishedGatewayPort) return;
+
+            await bootstrapRecovery.publishEndpoint({
+              client,
+              transactionTracker: actor.transactionTracker,
+              bootstrapEndpointSecret,
+              host: '127.0.0.1',
+              port: Number(currentGatewayPort),
+            });
+            publishedGatewayPort = currentGatewayPort;
+            console.log(`[dev-upstream] Published updated gateway port ${currentGatewayPort}`);
+          })
+          .catch(error => {
+            console.warn(`[dev-upstream] Unable to publish updated gateway: ${(error as Error).message}`);
+          })
+          .finally(() => {
+            isEndpointRefreshRunning = false;
+          });
+      }, 2_000);
+      endpointMonitor.unref();
+    }
+
     await actor.bootstrapUpstreamOperator({
       client,
       vaultName: 'Testing',
     });
 
-    const { botPort, gatewayPort, routerPort } = await readDevUpstreamServerPorts(context);
     operationsUpgradePoller = actor.startOperationsUpgradePoller({
       client,
       routerHost: `http://127.0.0.1:${routerPort}`,

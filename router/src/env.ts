@@ -5,6 +5,7 @@ export const ADMIN_OPERATOR_ACCOUNT_ID = process.env.OPERATOR_ACCOUNT_ID;
 export const BOT_INTERNAL_URL = process.env.BOT_INTERNAL_URL || 'http://bot:8080';
 export const ROUTER_AUTH_SESSION_TTL_SECONDS = process.env.ROUTER_AUTH_SESSION_TTL_SECONDS;
 export const ROUTER_RESTORE_KEY = process.env.ROUTER_RESTORE_KEY;
+export const ROUTER_BOOTSTRAP_ENDPOINT_SECRET = process.env.ROUTER_BOOTSTRAP_ENDPOINT_SECRET;
 export const PORT = process.env.PORT || 8080;
 
 export const ARGON_CHAIN = process.env.ARGON_CHAIN;

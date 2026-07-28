@@ -45,6 +45,7 @@ export enum ReasonsToSkipInstall {
 type InstallerFns = {
   refreshPrunedClient?: () => void;
   isAppUpdateBlockingInstall?: () => boolean | Promise<boolean>;
+  publishOwnServerEndpoint?: () => Promise<void>;
 };
 
 export default class Installer {
@@ -194,6 +195,12 @@ export default class Installer {
       await this.config.save().catch(() => undefined);
     }
 
+    if (!this.config.serverDetails.bootstrapEndpointSequence) {
+      await this.fns.publishOwnServerEndpoint?.().catch(error => {
+        console.warn('[Installer] Unable to publish the configured server endpoint', error);
+      });
+    }
+
     this.isLoaded = true;
     this.isLoadedDeferred.resolve();
   }
@@ -327,6 +334,9 @@ export default class Installer {
       await this.installerCheck.noThrowWaitForInstallToComplete();
       await this.saveLocalGatewayPortWhenReady(server, { timeoutMs: 30e3, updateExisting: true });
       this.fns.refreshPrunedClient?.();
+      await this.fns.publishOwnServerEndpoint?.().catch(error => {
+        console.warn('[Installer] Unable to publish the configured server endpoint', error);
+      });
 
       console.info('Confirming all install flags');
       this.remoteFilesNeedUpdating = false;
@@ -385,9 +395,15 @@ export default class Installer {
   public async refreshLocalGatewayPort(timeoutMs = 5e3): Promise<void> {
     if (this.config.serverDetails.type !== ServerType.LocalComputer) return;
 
+    const previousGatewayPort = this.config.serverDetails.gatewayPort;
     const server = await this.getServer();
     await this.saveLocalGatewayPortWhenReady(server, { timeoutMs, updateExisting: true });
     this.fns.refreshPrunedClient?.();
+    if (this.config.serverDetails.gatewayPort !== previousGatewayPort) {
+      await this.fns.publishOwnServerEndpoint?.().catch(error => {
+        console.warn('[Installer] Unable to publish the updated server endpoint', error);
+      });
+    }
   }
 
   public async updateServerConfig(
@@ -807,12 +823,16 @@ export default class Installer {
     await server.uploadBiddingRules(this.config.biddingRules);
     progressFn?.(totalCount, 3);
 
+    const routerBootstrapEndpointSecret = await this.walletKeys.getOwnServerBootstrapEndpointSecret(
+      this.config.serverDetails.bootstrapEndpointIndex,
+    );
     await server.uploadEnvState({
       oldestFrameIdToSync: this.config.oldestFrameIdToSync,
       miningFundingAccountId: this.walletKeys.miningBotAddress,
       vaultOperatorAddress: this.walletKeys.vaultingAddress,
       operatorAccountId: this.walletKeys.operationalAddress,
       routerRestoreKey: await this.walletKeys.getRouterRestoreSealingKey(),
+      routerBootstrapEndpointSecret,
       ethereumBeaconApiUrl,
       ethereumExecutionRpcUrl,
     });

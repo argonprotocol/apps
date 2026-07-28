@@ -13,6 +13,7 @@ import { Db } from './Db.ts';
 import { ApiDecoration, type FrameSupportTokensMiscIdAmountRuntimeHoldReason } from '@argonprotocol/mainchain';
 import { SyncStateKeys } from './db/SyncStateTable.ts';
 import { type IFinancialObservation } from '../interfaces/IFinancialPosition.ts';
+import { logStartupTiming } from './Utils.ts';
 
 export type IWalletHistoryRevisions = {
   transfers: number;
@@ -168,13 +169,16 @@ export class WalletsForArgon {
     }
     this.deferredLoading.setIsRunning(true);
     const loadStartedAt = Date.now();
+    const startupTimingStartedAt = performance.now();
     let stage: string | undefined;
     try {
       const db = await this.dbPromise;
       const savedWalletSync = await db.syncStateTable.get(SyncStateKeys.Wallet);
+      const dbReadyAt = performance.now();
 
       stage = 'blockWatch.start';
       await this.blockWatch.start();
+      const blockWatchReadyAt = performance.now();
 
       const initialFinalizedBlock = this.blockWatch.finalizedBlockHeader;
       if (savedWalletSync && savedWalletSync.blockNumber < initialFinalizedBlock.blockNumber) {
@@ -202,6 +206,18 @@ export class WalletsForArgon {
 
       stage = 'loadCurrentBalances';
       await this.loadBalancesAt(this.blockWatch.bestBlockHeader);
+      const balancesReadyAt = performance.now();
+      logStartupTiming({
+        milestone: 'argon-wallet-chain-state-ready',
+        startedAt: startupTimingStartedAt,
+        details: {
+          dbMs: Math.round(dbReadyAt - startupTimingStartedAt),
+          blockWatchMs: Math.round(blockWatchReadyAt - dbReadyAt),
+          balanceReadMs: Math.round(balancesReadyAt - blockWatchReadyAt),
+          finalizedToBestBlocks:
+            this.blockWatch.bestBlockHeader.blockNumber - this.blockWatch.finalizedBlockHeader.blockNumber,
+        },
+      });
       void db.syncStateTable
         .upsert(SyncStateKeys.Wallet, {
           ...initialFinalizedBlock,

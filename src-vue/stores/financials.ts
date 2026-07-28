@@ -295,7 +295,10 @@ export const useFinancials = defineStore('financials', () => {
     return { positions, claimsHolds: Boolean(myVault.createdVault) };
   }
 
-  async function refreshAccountSnapshot(header: IBlockHeaderInfo, force = false): Promise<void> {
+  async function refreshAccountSnapshot(
+    header: IBlockHeaderInfo,
+    options: { force?: boolean; currentBalanceOnly?: boolean } = {},
+  ): Promise<void> {
     let refreshes: ReturnType<FinancialPositionBook['beginRefresh']>[] = [];
 
     try {
@@ -304,7 +307,7 @@ export const useFinancials = defineStore('financials', () => {
 
       const clientAt = await getBlockWatch().getApi(header);
       let candidate = accountSnapshot.value;
-      if (!candidate || candidate.observation.blockHash !== header.blockHash || force) {
+      if (!candidate || candidate.observation.blockHash !== header.blockHash || options.force) {
         candidate = await walletsForArgon.readAccountSnapshot({
           api: clientAt,
           header,
@@ -313,6 +316,18 @@ export const useFinancials = defineStore('financials', () => {
       }
       if (!isSameBlock(header, getBlockWatch().bestBlockHeader)) {
         void queueAccountRefresh({ force: true });
+        return;
+      }
+
+      if (options.currentBalanceOnly) {
+        const positions = await prepareWalletPositions({
+          snapshot: candidate,
+          treasuryHoldsAreClaimed: false,
+          miningClaimsHolds: false,
+          vaultClaimsHolds: false,
+        });
+        financialPositionBook.publish(financialPositionBook.beginRefresh('liquid'), positions, candidate.observation);
+        accountSnapshot.value = candidate;
         return;
       }
 
@@ -441,7 +456,7 @@ export const useFinancials = defineStore('financials', () => {
         queuedAccountReconciliation = false;
         activeAccountHash = nextHeader.blockHash.toLowerCase();
         try {
-          await refreshAccountSnapshot(nextHeader, shouldForce);
+          await refreshAccountSnapshot(nextHeader, { force: shouldForce });
         } finally {
           activeAccountHash = '';
         }
@@ -580,6 +595,7 @@ export const useFinancials = defineStore('financials', () => {
     });
   });
 
+  const savingsBalanceIsLoaded = Vue.ref(false);
   const savingsIsLoaded = Vue.ref(false);
 
   // Argon Bonds ///////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -932,6 +948,11 @@ export const useFinancials = defineStore('financials', () => {
     await Promise.all([wallets.isLoadedPromise, currency.isLoadedPromise]);
     const walletSourcesReadyAt = performance.now();
     setFinancialScope();
+
+    await refreshAccountSnapshot(getBlockWatch().bestBlockHeader, { currentBalanceOnly: true });
+    savingsBalanceIsLoaded.value = true;
+    const currentBalanceReadyAt = performance.now();
+
     await loadEnabledDomainSources();
     const domainSourcesReadyAt = performance.now();
 
@@ -946,7 +967,8 @@ export const useFinancials = defineStore('financials', () => {
       details: {
         configMs: Math.round(configReadyAt - loadStartedAt),
         walletSourcesMs: Math.round(walletSourcesReadyAt - configReadyAt),
-        domainSourcesMs: Math.round(domainSourcesReadyAt - walletSourcesReadyAt),
+        currentBalanceMs: Math.round(currentBalanceReadyAt - walletSourcesReadyAt),
+        domainSourcesMs: Math.round(domainSourcesReadyAt - currentBalanceReadyAt),
         accountSnapshotMs: Math.round(defaultArgonReadyAt - domainSourcesReadyAt),
       },
     });
@@ -1060,6 +1082,7 @@ export const useFinancials = defineStore('financials', () => {
     for (const group of financialGroups) {
       financialPositionBook.fail(financialPositionBook.beginRefresh(group), message);
     }
+    savingsBalanceIsLoaded.value = true;
     savingsIsLoaded.value = true;
     vaultsIsLoaded.value = true;
     isLoaded.value = true;
@@ -1080,6 +1103,7 @@ export const useFinancials = defineStore('financials', () => {
     savingsAllTimeFiatKey,
     savingsAllTimeReturn,
     savingsRestabilizationPower,
+    savingsBalanceIsLoaded,
     savingsIsLoaded,
 
     bondsTotalValue,
