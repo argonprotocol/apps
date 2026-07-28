@@ -17,6 +17,8 @@ export class MiningMachineError extends Error {
 
 // DigitalOcean API response types
 const DEFAULT_DIGITALOCEAN_IMAGE = 'ubuntu-24-04-x64';
+const BYTES_PER_GB = 1e9;
+export const MINIMUM_INSTALL_DISK_GB = 100;
 
 type IDropletActionLink = { id: number; rel: string; href: string };
 type ICreateDropletResponse = {
@@ -398,6 +400,10 @@ export class MiningMachine {
         throw new MiningMachineError('A SSH connection could not be established to your server.');
       }
     })();
+
+    if (!hasRunningBot && !serverMeta.walletAddress) {
+      this.ensureInstallationDiskSpace(serverMeta.availableDiskBytes);
+    }
     progressFn?.(100);
 
     if (serverMeta.walletAddress && serverMeta.walletAddress !== miningBotAccountAddress) {
@@ -405,6 +411,16 @@ export class MiningMachine {
     }
 
     return newServerDetails;
+  }
+
+  public static ensureInstallationDiskSpace(availableDiskBytes?: number): void {
+    if (availableDiskBytes === undefined) return;
+    if (availableDiskBytes >= MINIMUM_INSTALL_DISK_GB * BYTES_PER_GB) return;
+
+    const availableDiskGb = Math.floor(availableDiskBytes / BYTES_PER_GB);
+    throw new MiningMachineError(
+      `Argon requires at least ${MINIMUM_INSTALL_DISK_GB} GB of available disk space (${availableDiskGb} GB found)`,
+    );
   }
 }
 

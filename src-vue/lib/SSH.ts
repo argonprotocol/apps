@@ -11,6 +11,7 @@ export interface ITryServerData {
   oldestFrameIdToSync: number | undefined;
   ethereumBeaconApiUrl: string | undefined;
   ethereumExecutionRpcUrl: string | undefined;
+  availableDiskBytes?: number;
 }
 
 export class SSH {
@@ -55,14 +56,18 @@ export class SSH {
     }
     this.connection = connection; // save the working connection
 
-    if (!walletAddress)
+    if (!walletAddress) {
+      const availableDiskBytes = await server.getAvailableDiskBytes().catch(() => undefined);
+
       return {
         walletAddress: undefined,
         biddingRules: undefined,
         oldestFrameIdToSync: undefined,
         ethereumBeaconApiUrl: undefined,
         ethereumExecutionRpcUrl: undefined,
+        availableDiskBytes,
       };
+    }
 
     const { biddingRules, oldestFrameIdToSync, ethereumBeaconApiUrl, ethereumExecutionRpcUrl } =
       await server.downloadConfigState();
