@@ -52,16 +52,22 @@
         </ul>
 
         <div
-          class="mt-4 rounded border border-slate-600/10 px-4 py-2"
+          class="mt-4 rounded-md border border-slate-600/20 px-1 py-2"
           :class="showingExtraDetails ? '' : 'hover:bg-argon-100/10'"
         >
-          <button @click="showingExtraDetails = !showingExtraDetails" class="flex cursor-pointer flex-row gap-x-1.5">
-            <InfoIcon class="text-argon-600 w-4" />
-            <div class="text-argon-600 grow">How are these rates possible?</div>
+          <button
+            @click="showingExtraDetails = !showingExtraDetails"
+            class="flex w-full cursor-pointer flex-row items-center gap-x-1.5 px-3"
+          >
+            <InfoIcon class="text-argon-600 relative -top-px w-4" />
+            <div class="text-argon-600 grow text-left">How are these rates possible?</div>
             <MinusIcon v-if="showingExtraDetails" class="w-4 cursor-pointer text-slate-900/60" />
             <PlusIcon v-else class="w-4 text-slate-900/60" />
           </button>
-          <div v-if="showingExtraDetails" class="text-md mt-2 flex flex-col gap-y-2">
+          <div
+            v-if="showingExtraDetails"
+            class="text-md mt-2 flex flex-col gap-y-2 border-t border-slate-600/20 px-3 pt-3 pb-1"
+          >
             <p>
               First off, these rates float. The numbers shown above are simply what the network is paying right now. The
               strong returns are a combination of Argon's economic design paired with the fact that the network is in
@@ -70,23 +76,23 @@
             </p>
 
             <p>
-              <strong>Argon Bonds</strong>
+              <strong class="font-bold">Argon Bonds</strong>
               support the network's stabilization vaults. As demand for Argon grows, the new stablecoins must be
               stabilized.
             </p>
 
             <p>
-              <strong>Argonot Staking</strong>
+              <strong class="font-bold">Argonot Staking</strong>
               support the network's mining efforts. The network needs continual mining and processing, which are secured
               by argonots.
             </p>
 
             <p>
-              <strong>Bitcoin Locks</strong>
+              <strong class="font-bold">Bitcoin Locks</strong>
               earn fees for providing the collateral backing the massive shorts applied against Argon's peg.
             </p>
             <p>
-              <strong>Stable Swaps</strong>
+              <strong class="font-bold">Stable Swaps</strong>
               provide short-term liquidity for whenever Argon deviates from its peg.
             </p>
           </div>

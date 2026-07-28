@@ -16,14 +16,14 @@
         </p>
 
         <ul class="flex flex-row gap-x-10 py-3">
-          <li class="w-1/3 bg-argon-100/30 rounded-md text-center py-3 px-2">
+          <li class="w-1/3 bg-argon-100/20 rounded-md text-center py-3 px-2">
             <div class="flex flex-row gap-x-2 text-argon-400 justify-center">
               <SwapIcon class="h-5" />
             </div>
             <header class="font-bold text-argon-600 my-1.5">1. Save and Move</header>
             <p class="text-md">Hold inflation-resistant money and move it across chains without bridges.</p>
           </li>
-          <li class="w-1/3 bg-argon-100/30 rounded-md text-center py-3 px-2">
+          <li class="w-1/3 bg-argon-100/20 rounded-md text-center py-3 px-2">
             <div class="flex flex-row gap-x-2 text-argon-400 justify-center">
               <BitcoinIcon class="h-5" />
               <ArgonIcon class="h-5 opacity-70" />
@@ -32,7 +32,7 @@
             <header class="font-bold text-argon-600 my-1.5">2. Deploy Capital</header>
             <p>Access bonds, staking, bitcoin locks, and other opportunities.</p>
           </li>
-          <li class="w-1/3 bg-argon-100/30 rounded-md text-center py-3 px-2">
+          <li class="w-1/3 bg-argon-100/20 rounded-md text-center py-3 px-2">
             <div class="flex flex-row gap-x-2 text-argon-400 justify-center">
               <MiningIcon class="h-5" />
               <VaultingIcon class="h-5" />
