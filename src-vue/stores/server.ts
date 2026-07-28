@@ -27,13 +27,16 @@ export function getUpstreamOperatorAuthClient(): ServerAuthClient {
     },
     applyRestoreResult: async restore => {
       const config = getConfig();
-      const upstreamOperator = config.upstreamOperator;
-      if (!upstreamOperator) return;
+      const vaultId = restore.bitcoinLockCoupons[0]?.coupon.vaultId;
 
       config.upstreamOperator = {
-        ...upstreamOperator,
+        ...config.upstreamOperator,
+        name: restore.fromName,
+        accountId: restore.operatorAccountId,
+        ...(vaultId !== undefined ? { vaultId } : {}),
         restorePackage: restore.restorePackage,
       };
+      config.hasExtensionTreasury = true;
       await config.save();
 
       const { getBitcoinLockCoupons } = await import('./bitcoin.ts');

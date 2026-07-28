@@ -6,7 +6,6 @@ import Path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createOperationalAccessProof,
-  type IBitcoinLockCouponRecord,
   JsonExt,
   NetworkConfig,
   signRouterAuthAccountBinding,
@@ -18,9 +17,8 @@ import {
 } from '@argonprotocol/apps-core';
 import { getOfflineRegistry, Keyring, type KeyringPair } from '@argonprotocol/mainchain';
 import { Db as RouterDb } from '../src/Db.ts';
-import { MemberRestoreService } from '../src/MemberRestoreService.ts';
 import { RouterServer } from '../src/RouterServer.ts';
-import { RouterAuthService, type IRouterAuthServiceOptions } from '../src/RouterAuthService.ts';
+import type { IRouterAuthServiceOptions } from '../src/RouterAuthService.ts';
 import type {
   IBitcoinLockCouponStatus,
   IInviteResponse,
@@ -553,6 +551,7 @@ describe('RouterServer', () => {
     const body = JsonExt.parse<IOpenInviteResponse>(await response.text());
     expect(body.fromName).toBe('Operator One');
     expect(body.operatorAccountId).toBe(operator.address);
+    expect(body.referrer).toBe(operator.address);
     expect(body.invite.defaultAccountId).toBe(member.address);
     expect(body.invite.operationalAccountId).toBeFalsy();
     expect(body.invite.accessProof).toBeUndefined();
@@ -566,140 +565,6 @@ describe('RouterServer', () => {
     expect(claimedInvite?.operationalAccountId).toBeFalsy();
     expect(claimedInvite?.authAccountId).toBe(memberAuth.address);
     expect(claimedInvite?.lastClickedAt).toBeTruthy();
-  });
-
-  it('does not require a restore package solely because a member has no coupons', async () => {
-    routerDb = createDb('router-server-couponless-member-');
-    const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
-    const member = new Keyring({ type: 'sr25519' }).addFromUri('//CouponlessMember');
-    const memberAuth = member.derive('//upstream-operator-auth');
-    const invite = insertMemberInvite(routerDb, {
-      inviteCode: 'member-invite-1',
-      name: 'Casey',
-      fromName: 'Operator One',
-    });
-    routerDb.userInvitesTable.claimInvite(invite.id, member.address, memberAuth.address);
-    const handleBotRequest = vi.fn(() => ({ status: 200, body: [] }));
-    const started = await startRouterServer(routerDb, handleBotRequest, {
-      adminOperatorAccountId: operator.address,
-      restoreKey: `0x${'42'.repeat(32)}`,
-    });
-    routerServer = started.routerServer;
-    botServer = started.botServer;
-
-    const response = await requestJson(started.routerAddress, '/auth/challenge', {
-      role: UserRole.Member,
-      authAccountId: memberAuth.address,
-      hasRestorePackage: true,
-    });
-
-    expect(response.status).toBe(200);
-    expect(JsonExt.parse(await response.text())).toMatchObject({
-      restorePackageRequired: false,
-    });
-    expect(handleBotRequest).not.toHaveBeenCalled();
-  });
-
-  it('restores bot and router state only after member auth succeeds', async () => {
-    const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
-    const member = new Keyring({ type: 'sr25519' }).addFromUri('//RestoreMember');
-    const memberAuth = member.derive('//upstream-operator-auth');
-    const restoreKey = `0x${'42'.repeat(32)}`;
-    const originalDb = createDb('router-server-restore-source-');
-    const originalRestore = new MemberRestoreService({
-      db: originalDb,
-      restoreKey,
-    });
-    new RouterAuthService({
-      db: originalDb,
-      adminOperatorAccountId: operator.address,
-      memberRestore: originalRestore,
-    });
-    const invite = insertMemberInvite(originalDb, {
-      inviteCode: 'member-invite-1',
-      name: 'Casey',
-      fromName: 'Operator One',
-    });
-    originalDb.userInvitesTable.claimInvite(invite.id, member.address, memberAuth.address);
-    const claimedInvite = originalDb.userInvitesTable.fetchById(invite.id)!;
-    const coupon: IBitcoinLockCouponRecord = {
-      ...createCouponStatus({
-        userId: invite.id,
-        offerCode: 'offer-code-1',
-        vaultId: 12,
-        maxSatoshis: 25_000n,
-        estimatedGiftUsd: 16.25,
-        btcPctFee: 2.5,
-      }).coupon,
-      accountId: member.address,
-      expirationTick: 1_000,
-    };
-    const restorePackage = originalRestore.createPackage(claimedInvite, coupon);
-    originalDb.close();
-
-    routerDb = createDb('router-server-restore-recovered-');
-    let restoredCoupon: IBitcoinLockCouponRecord | undefined;
-    let restoreCount = 0;
-    const handleBotRequest = vi.fn((request: BotRequest): BotResponse => {
-      if (request.method === 'POST' && request.path === '/bitcoin-lock-coupons/restore') {
-        restoreCount += 1;
-        if (restoreCount === 1) {
-          expect(routerDb!.usersTable.fetchByAuthAccountId(memberAuth.address)).toBeNull();
-        }
-        restoredCoupon = request.body as IBitcoinLockCouponRecord;
-        return { status: 200, body: restoredCoupon };
-      }
-      if (request.method === 'GET' && request.path === `/bitcoin-lock-coupons/by-user/${invite.id}`) {
-        return {
-          status: 200,
-          body: restoredCoupon ? [{ coupon: restoredCoupon, status: 'Open' }] : [],
-        };
-      }
-
-      return { status: 404, body: { error: 'Not Found' } };
-    });
-    const started = await startRouterServer(routerDb, handleBotRequest, {
-      adminOperatorAccountId: operator.address,
-      restoreKey,
-    });
-    routerServer = started.routerServer;
-    botServer = started.botServer;
-
-    const challengeResponse = await requestJson(started.routerAddress, '/auth/challenge', {
-      role: UserRole.Member,
-      authAccountId: memberAuth.address,
-      hasRestorePackage: true,
-    });
-    expect(challengeResponse.status).toBe(200);
-    expect(routerDb.usersTable.fetchByAuthAccountId(memberAuth.address)).toBeNull();
-    expect(handleBotRequest).not.toHaveBeenCalled();
-
-    const challenge = JsonExt.parse<{
-      role: RouterAuthRole;
-      authAccountId: string;
-      nonce: string;
-      expiresAt: number;
-      restorePackageRequired: boolean;
-    }>(await challengeResponse.text());
-    expect(challenge.restorePackageRequired).toBe(true);
-    const loginResponse = await requestJson(started.routerAddress, '/auth/login', {
-      ...challenge,
-      restorePackage,
-      signature: signRouterAuthChallenge(memberAuth, challenge),
-    });
-    expect(loginResponse.status).toBe(200);
-
-    const session = JsonExt.parse<IRouterAuthSessionResponse>(await loginResponse.text());
-    expect(restoredCoupon).toEqual(coupon);
-    expect(session.restore).toEqual({
-      restorePackage: expect.any(String),
-      bitcoinLockCoupons: [{ coupon, status: 'Open' }],
-    });
-    expect(routerDb.userInvitesTable.fetchByDefaultAccountId(member.address)).toMatchObject({
-      name: 'Casey',
-      fromName: 'Operator One',
-    });
-    expect(restoreCount).toBe(1);
   });
 
   it('requires admin operator auth for invite management routes when auth is configured', async () => {

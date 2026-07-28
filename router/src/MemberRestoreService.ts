@@ -68,6 +68,8 @@ export class MemberRestoreService {
     }
     if (!payload) return false;
 
+    this.assertNoMemberRestoreConflict(payload, args.authAccountId);
+
     if (payload.bitcoinLockCoupon) {
       if (!this.restoreBitcoinLockCoupon) {
         throw new RouterError('Bitcoin lock coupon restoration is not configured.', 503);
@@ -136,7 +138,7 @@ export class MemberRestoreService {
     return payload;
   }
 
-  private restoreMember(payload: IRestorePackagePayload, authAccountId: string): void {
+  private assertNoMemberRestoreConflict(payload: IRestorePackagePayload, authAccountId: string): void {
     const member = payload.member;
     const existingUser = this.db.usersTable.fetchByAuthAccountId(authAccountId, UserRole.Member);
     if (existingUser) {
@@ -151,11 +153,6 @@ export class MemberRestoreService {
         throw new RouterError('Restore package conflicts with an existing member.', 409);
       }
 
-      this.db.userInvitesTable.restoreClaimedInvite({
-        userId: member.id,
-        inviteCode: member.inviteCode,
-        fromName: member.fromName,
-      });
       return;
     }
 
@@ -165,6 +162,25 @@ export class MemberRestoreService {
       this.db.userInvitesTable.fetchByCode(member.inviteCode)
     ) {
       throw new RouterError('Restore package conflicts with an existing member.', 409);
+    }
+  }
+
+  private restoreMember(payload: IRestorePackagePayload, authAccountId: string): void {
+    this.assertNoMemberRestoreConflict(payload, authAccountId);
+
+    const member = payload.member;
+    const existingUser = this.db.usersTable.fetchByAuthAccountId(authAccountId, UserRole.Member);
+    if (existingUser) {
+      if (this.db.userInvitesTable.fetchById(existingUser.id)) {
+        return;
+      }
+
+      this.db.userInvitesTable.restoreClaimedInvite({
+        userId: member.id,
+        inviteCode: member.inviteCode,
+        fromName: member.fromName,
+      });
+      return;
     }
 
     this.db.usersTable.restoreClaimedUser({

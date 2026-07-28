@@ -191,6 +191,7 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
         mainNodeUrl: network.archiveUrl,
         auth: {
           adminOperatorAccountId: operatorHarness.walletKeys.operationalAddress,
+          restoreKey: await operatorHarness.walletKeys.getRouterRestoreSealingKey(),
         },
       });
       routerServer.start();

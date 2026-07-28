@@ -58,7 +58,11 @@ export interface IRouterAuthSessionResponse {
   expiresAt: string;
   accountId: string;
   role: RouterAuthRole;
-  restore?: IListBitcoinLockCouponsResponse & { restorePackage: string };
+  restore?: IListBitcoinLockCouponsResponse & {
+    fromName: string;
+    operatorAccountId: string;
+    restorePackage: string;
+  };
 }
 
 export interface IRouterErrorResponse {
@@ -89,6 +93,8 @@ export interface IListBitcoinLockCouponsResponse {
 export interface IOpenInviteResponse {
   fromName: string;
   operatorAccountId: string;
+  /** @deprecated Use operatorAccountId. */
+  referrer: string;
   invite: ITreasuryUserInvite;
   restorePackage: string;
 }

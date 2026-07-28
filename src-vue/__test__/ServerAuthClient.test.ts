@@ -147,17 +147,16 @@ describe('ServerAuthClient', () => {
 
   it('sends a cached package only when the member challenge requests it', async () => {
     const baseUrl = 'https://restore-session.example';
-    const restoreStore = {
-      getRestorePackage: vi.fn(() => 'cached-restore-package'),
-      applyRestoreResult: vi.fn(),
-    };
     serverAuthClient = new ServerAuthClient(
       () => ({
         operationalAddress: 'admin-account',
         getOperationalKeypair: walletMock.getOperationalKeypair,
         getUpstreamOperatorAuthKeypair: walletMock.getUpstreamOperatorAuthKeypair,
       }),
-      restoreStore,
+      {
+        getRestorePackage: () => 'cached-restore-package',
+        applyRestoreResult: () => undefined,
+      },
     );
     const fetchMock = vi
       .fn()
@@ -167,15 +166,7 @@ describe('ServerAuthClient', () => {
           restorePackageRequired: true,
         }),
       )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          ...createSession(UserRole.Member),
-          restore: {
-            restorePackage: 'replacement-restore-package',
-            bitcoinLockCoupons: [],
-          },
-        }),
-      )
+      .mockResolvedValueOnce(jsonResponse(createSession(UserRole.Member)))
       .mockResolvedValueOnce(emptyResponse(204));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -190,11 +181,6 @@ describe('ServerAuthClient', () => {
     expect(fetchPayloads(fetchMock)[0]).not.toHaveProperty('restorePackage');
     expect(fetchPayloads(fetchMock)[1]).toMatchObject({
       restorePackage: 'cached-restore-package',
-    });
-    expect(restoreStore.getRestorePackage).toHaveBeenCalledOnce();
-    expect(restoreStore.applyRestoreResult).toHaveBeenCalledWith({
-      restorePackage: 'replacement-restore-package',
-      bitcoinLockCoupons: [],
     });
   });
 

@@ -41,8 +41,8 @@ If the router is missing member or invite state and the downstream reported that
 3. The router verifies the existing auth challenge signature before decrypting or applying the package.
 4. The router binds package decryption to the verified auth account ID and restores missing member and invite rows.
 5. If the package contains a coupon and canonical bot state is missing, the router restores that coupon.
-6. The router reads the resulting canonical coupon state and returns it with a freshly sealed package.
-7. The downstream replaces its cached package and applies the canonical coupon state.
+6. The router returns its operator name and account ID with the canonical coupon state and a freshly sealed package.
+7. The downstream replaces its cached package and applies the operator details and canonical coupon state.
 
 Restoration is idempotent. If a partial router/bot write fails, the next login can offer the same package again. If a
 newer canonical coupon already exists, it wins; an older packaged coupon is used only to repair missing coupon state.

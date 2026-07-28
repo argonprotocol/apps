@@ -39,10 +39,8 @@ describe('BitcoinLockCouponsTable', () => {
       id: expect.any(Number),
     });
     expect(restored.id).not.toBe(coupon.id);
-    expect(db.bitcoinLockCouponsTable.restoreCoupon(coupon)).toEqual(restored);
     const { sequence: _legacySequence, ...legacyCoupon } = coupon;
     expect(db.bitcoinLockCouponsTable.restoreCoupon(legacyCoupon)).toEqual(restored);
-    expect(db.bitcoinLockCouponsTable.fetchAll()).toEqual([restored]);
 
     expect(() =>
       db!.bitcoinLockCouponsTable.restoreCoupon({

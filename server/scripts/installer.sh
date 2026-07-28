@@ -315,7 +315,7 @@ if ! (already_ran "DockerInstall"); then
 
       if [[ -n "$latest_database_backup" ]]; then
         echo "Restoring server databases from $latest_database_backup"
-        run_command "tar -xzf $latest_database_backup -C $HOME_DIR"
+        run_command "tar -xzf \"$latest_database_backup\" -C \"$HOME_DIR\""
       fi
     fi
 

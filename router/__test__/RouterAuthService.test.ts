@@ -36,7 +36,7 @@ describe('RouterAuthService', () => {
     const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
     const member = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMember');
     const memberAuth = member.derive('//downstream-auth');
-    const { auth: service } = createAuthService(operator.address);
+    const { auth: service, memberRestore } = createAuthService(operator.address, `0x${'42'.repeat(32)}`);
 
     const user = db!.usersTable.insertUser({
       role: UserRole.Member,
@@ -51,6 +51,7 @@ describe('RouterAuthService', () => {
 
     expect(session.accountId).toBe(member.address);
     expect(session.role).toBe(UserRole.Member);
+    expect(memberRestore.isPackageRequired(memberAuth.address)).toBe(false);
   });
 
   it('rejects challenge signatures from the wrong key', async () => {
@@ -79,7 +80,7 @@ describe('RouterAuthService', () => {
     ).rejects.toThrowError('This auth account is not allowed to access the router.');
   });
 
-  it('restores a missing member and its coupon only after verifying the login signature', async () => {
+  it('does not restore a member before verifying the login signature', async () => {
     const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
     const member = new Keyring({ type: 'sr25519' }).addFromUri('//RestoreMember');
     const memberAuth = member.derive('//upstream-operator-auth');
@@ -108,15 +109,14 @@ describe('RouterAuthService', () => {
       updatedAt: new Date(),
     };
     const restorePackage = originalRestore.createPackage(claimedInvite, coupon);
-    const restoreBitcoinLockCoupon = vi.fn().mockResolvedValue(undefined);
+    const restoreBitcoinLockCoupon = vi.fn(async () => {
+      expect(db!.usersTable.fetchByAuthAccountId(memberAuth.address)).toBeNull();
+    });
     const { auth: recoveredService } = createAuthService(operator.address, restoreKey, restoreBitcoinLockCoupon);
 
     const unsignedChallenge = recoveredService.createChallenge(memberAuth.address, UserRole.Member, {
       packageRequired: true,
     });
-    expect(db!.usersTable.fetchByAuthAccountId(memberAuth.address)).toBeNull();
-    expect(restoreBitcoinLockCoupon).not.toHaveBeenCalled();
-
     const wrongSigner = member.derive('//wrong-auth');
     await expect(
       recoveredService.createSession({
@@ -131,24 +131,60 @@ describe('RouterAuthService', () => {
     const challenge = recoveredService.createChallenge(memberAuth.address, UserRole.Member, {
       packageRequired: true,
     });
-    const { session } = await recoveredService.createSession({
+    await recoveredService.createSession({
       ...challenge,
       restorePackage,
       signature: signRouterAuthChallenge(memberAuth, challenge),
     });
+    expect(restoreBitcoinLockCoupon).toHaveBeenCalledOnce();
+  });
 
-    expect(restoreBitcoinLockCoupon).toHaveBeenCalledWith(coupon);
-    expect(session).toMatchObject({
-      accountId: member.address,
+  it('rejects router conflicts before restoring a coupon', async () => {
+    const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
+    const member = new Keyring({ type: 'sr25519' }).addFromUri('//RestoreMember');
+    const memberAuth = member.derive('//upstream-operator-auth');
+    const restoreKey = `0x${'42'.repeat(32)}`;
+    const { memberRestore: originalRestore } = createAuthService(operator.address, restoreKey);
+
+    const user = db!.usersTable.insertUser({
       role: UserRole.Member,
-    });
-    expect(db!.userInvitesTable.fetchByDefaultAccountId(member.address)).toMatchObject({
-      id: invite.id,
       name: 'Casey',
-      fromName: 'Operator One',
-      inviteCode: 'member-invite-1',
-      authAccountId: memberAuth.address,
     });
+    const invite = db!.userInvitesTable.insertInvite(user.id, 'member-invite-1', 'Operator One');
+    db!.userInvitesTable.claimInvite(invite.id, member.address, memberAuth.address);
+    const restorePackage = originalRestore.createPackage(db!.userInvitesTable.fetchById(invite.id)!, {
+      id: 11,
+      userId: invite.id,
+      sequence: 1,
+      offerCode: 'offer-code-1',
+      vaultId: 12,
+      maxSatoshis: 25_000n,
+      estimatedGiftUsd: 16.25,
+      btcPctFee: 2.5,
+      expiresAfterTicks: 60,
+      accountId: member.address,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const restoreBitcoinLockCoupon = vi.fn().mockResolvedValue(undefined);
+    const { auth: recoveredService } = createAuthService(operator.address, restoreKey, restoreBitcoinLockCoupon);
+    db!.usersTable.insertUser({
+      role: UserRole.Member,
+      name: 'Conflicting Member',
+    });
+
+    const challenge = recoveredService.createChallenge(memberAuth.address, UserRole.Member, {
+      packageRequired: true,
+    });
+    await expect(
+      recoveredService.createSession({
+        ...challenge,
+        restorePackage,
+        signature: signRouterAuthChallenge(memberAuth, challenge),
+      }),
+    ).rejects.toThrow('Restore package conflicts with an existing member.');
+    expect(restoreBitcoinLockCoupon).not.toHaveBeenCalled();
   });
 
   function createAuthService(

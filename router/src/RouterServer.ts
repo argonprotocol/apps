@@ -183,6 +183,8 @@ export class RouterServer {
         const restorePackage = memberRestore.createPackage(invite, bitcoinLockCoupon?.coupon);
 
         session.restore = {
+          fromName: invite.fromName,
+          operatorAccountId: adminOperatorAccountId!,
           restorePackage,
           bitcoinLockCoupons,
         };
@@ -396,6 +398,7 @@ export class RouterServer {
         return {
           fromName: invite.fromName,
           operatorAccountId: adminOperatorAccountId,
+          referrer: adminOperatorAccountId,
           restorePackage,
           invite: {
             ...toTreasuryUserInvite(invite),

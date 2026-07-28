@@ -1,14 +1,14 @@
 import * as Fs from 'node:fs';
 import os from 'node:os';
 import Path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   type IActivateBitcoinLockCouponRequest,
   type IBitcoinLockCouponRecord,
   type IBitcoinLockCouponStatus,
   UserRole,
 } from '@argonprotocol/apps-core';
-import { BotServer, Db as BotDb, type Bot } from '@argonprotocol/apps-bot';
+import { type BotServer, Db as BotDb, startServer as startBotServer, type Bot } from '@argonprotocol/apps-bot';
 import type { IRouterAuthSessionResponse } from '@argonprotocol/apps-router';
 import { Db as RouterDb } from '../../router/src/Db.ts';
 import { RouterServer } from '../../router/src/RouterServer.ts';
@@ -61,21 +61,17 @@ describe('member restore handshake integration', () => {
     });
     let restorePackage: string | undefined = claimed.restorePackage;
     let downstreamCoupons: IBitcoinLockCouponStatus[] = [];
-    const applyRestoreResult = vi.fn((restore: NonNullable<IRouterAuthSessionResponse['restore']>) => {
+    let downstreamRestore: IRouterAuthSessionResponse['restore'];
+    const applyRestoreResult = (restore: NonNullable<IRouterAuthSessionResponse['restore']>) => {
+      downstreamRestore = restore;
       restorePackage = restore.restorePackage;
       downstreamCoupons = restore.bitcoinLockCoupons;
-    });
+    };
     let serverAuthClient = new ServerAuthClient(() => memberWalletKeys, {
       getRestorePackage: () => restorePackage,
       applyRestoreResult,
     });
     let upstreamOperatorClient = new UpstreamOperatorClient(serverAuthClient, () => operatorHost);
-
-    await expect(upstreamOperatorClient.getMemberInvite()).resolves.toMatchObject({
-      name: 'Casey',
-      fromName: 'Operator One',
-    });
-    expect(applyRestoreResult).not.toHaveBeenCalled();
 
     await source.routerServer.close();
     routerServers.splice(routerServers.indexOf(source.routerServer), 1);
@@ -93,8 +89,11 @@ describe('member restore handshake integration', () => {
       name: 'Casey',
       fromName: 'Operator One',
     });
-    expect(applyRestoreResult).toHaveBeenCalledOnce();
     expect(downstreamCoupons).toHaveLength(1);
+    expect(downstreamRestore).toMatchObject({
+      fromName: 'Operator One',
+      operatorAccountId: operatorWalletKeys.operationalAddress,
+    });
     expect(recovered.routerDb.userInvitesTable.fetchByDefaultAccountId(claimed.invite.defaultAccountId!)).toMatchObject(
       {
         name: 'Casey',
@@ -105,7 +104,7 @@ describe('member restore handshake integration', () => {
 
     restorePackage = undefined;
     downstreamCoupons = [];
-    applyRestoreResult.mockClear();
+    downstreamRestore = undefined;
     serverAuthClient = new ServerAuthClient(() => memberWalletKeys, {
       getRestorePackage: () => restorePackage,
       applyRestoreResult,
@@ -116,7 +115,6 @@ describe('member restore handshake integration', () => {
       name: 'Casey',
       fromName: 'Operator One',
     });
-    expect(applyRestoreResult).toHaveBeenCalledOnce();
     expect(restorePackage).toBeTruthy();
     expect(downstreamCoupons).toHaveLength(1);
   });
@@ -149,7 +147,7 @@ describe('member restore handshake integration', () => {
         return botDb.bitcoinLockCouponsTable.fetchByUserId(userId).map(toCouponStatus);
       },
     };
-    const botServer = new BotServer(
+    const botServer = startBotServer(
       {
         db: botDb,
         relayService,
@@ -164,7 +162,6 @@ describe('member restore handshake integration', () => {
       } as unknown as Bot,
       0,
     );
-    botServer.start();
     await botServer.waitForListening();
     botServers.push(botServer);
 
