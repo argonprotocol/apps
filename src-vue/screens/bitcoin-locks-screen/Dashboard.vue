@@ -109,65 +109,37 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
+import numeral from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getBitcoinLockCoupons, getBitcoinLocks } from '../../stores/bitcoin.ts';
-import { getConfig } from '../../stores/config.ts';
 import { getMiningFrames } from '../../stores/mainchain.ts';
 import { type IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
-import BitcoinLockingOverlay from '../../overlays/BitcoinLockingOverlay.vue';
 import BitcoinLockDetailOverlay from '../../overlays/BitcoinLockDetailOverlay.vue';
 import BitcoinUnlockingOverlay from '../../overlays/BitcoinUnlockingOverlay.vue';
-import CurvedArrow from '../../components/CurvedArrow.vue';
-import CurvedArrowRadialGradient from '../../components/CurvedArrowRadialGradient.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
-import { WalletType } from '../../lib/Wallet.ts';
 import BitcoinRatchetingOverlay from '../../overlays/BitcoinRatchetingOverlay.vue';
 import FormattedMoney from '../../components/FormattedMoney.vue';
 import { NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import type { IBitcoinLockSummary } from '../../interfaces/IBitcoinLockSummary.ts';
 import { useFinancials } from '../../stores/financials.ts';
-import { getMyVault, getVaults } from '../../stores/vaults.ts';
 import BitcoinRecord from '../treasury-screens/components/BitcoinRecord.vue';
 import BitcoinsReleasedOverlay from '../../overlays/BitcoinsReleasedOverlay.vue';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 
-const config = getConfig();
 const controller = useCertificationController();
 const currency = getCurrency();
 const financials = useFinancials();
 const bitcoinLocks = getBitcoinLocks();
 const bitcoinLockCoupons = getBitcoinLockCoupons();
 const miningFrames = getMiningFrames();
-const myVault = getMyVault();
-const vaults = getVaults();
 
-const { microgonToMoneyNm } = createNumeralHelpers(currency);
 const currentTick = Vue.ref(0);
 const pageSourcesAreLoaded = Vue.ref(false);
-const showLockingOverlay = Vue.ref(false);
 const showDetailOverlay = Vue.ref(false);
 const showUnlockingOverlay = Vue.ref(false);
 const showRatchetingOverlay = Vue.ref(false);
 const selectedLock = Vue.ref<IBitcoinLockSummary>();
-const couponProviderLabel = config.upstreamOperator?.name || 'The vault operator';
-const hasBitcoinRecords = Vue.computed(() => {
-  return financials.bitcoinLockDisplayRecords.length > 0 || financials.liquidInvisibleRecords.length > 0;
-});
-const defaultVault = Vue.computed(() => {
-  const vaultId = myVault.vaultId;
-  if (vaultId) {
-    return myVault.createdVault ?? vaults.vaultsById[vaultId];
-  }
-
-  const couponVaultId = bitcoinLockCoupons.currentCoupon?.coupon.vaultId;
-  return couponVaultId ? vaults.vaultsById[couponVaultId] : undefined;
-});
-
-const canStartLocking = Vue.computed(() => {
-  return financials.savingsTotalReadyToUse > 0n || !!bitcoinLockCoupons.currentCoupon;
-});
 
 function openDetail(lock: IBitcoinLockSummary) {
   if (lock.record.isHistoryRecoveryPending) return;
@@ -182,11 +154,6 @@ function openDetail(lock: IBitcoinLockSummary) {
 
 function openLockingOverlay() {
   basicEmitter.emit('openBitcoinLock', selectedLock.value ? { lock: selectedLock.value.record } : undefined);
-}
-
-function closeLockingOverlay() {
-  showLockingOverlay.value = false;
-  selectedLock.value = undefined;
 }
 
 function openUnlockingOverlay(eventOrLock: MouseEvent | IBitcoinLockRecord, maybeLock?: IBitcoinLockRecord) {
@@ -213,10 +180,6 @@ async function onRatchetCompleted() {
 }
 
 let unsubMiningFrames: (() => void) | undefined;
-
-function openArgonWallet() {
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
-}
 
 Vue.onMounted(async () => {
   void bitcoinLockCoupons.refresh().catch(error => {

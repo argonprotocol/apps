@@ -16,7 +16,7 @@
         Argon Desktop
         <NavigationMenuRoot
           v-if="instances.length > 1 && controller.isLoaded && !controller.isImporting"
-          class="relative ml-2 pointer-events-auto"
+          class="relative pointer-events-auto"
           :delay-duration="0"
           :skip-delay-duration="0"
         >

@@ -51,6 +51,7 @@ export const useAppUpdater = defineStore('appUpdater', () => {
     void ensureInstalledVersion().catch(console.error);
 
     if (ENABLE_AUTO_UPDATE && !updatePollInterval) {
+      void checkForUpdates();
       updatePollInterval = setInterval(() => {
         void checkForUpdates();
       }, 60e3);

@@ -1,5 +1,5 @@
 <template>
-  <div DashBox data-testid="BitcoinLocksScreen" class="flex h-full min-h-0 grow flex-col">
+  <div DashBox data-testid="BitcoinLocksScreen" class="flex grow flex-col">
     <div v-if="!isLoaded" class="flex grow items-center justify-center text-slate-500">Loading…</div>
     <Dashboard v-else-if="hasBitcoinRecords" />
     <BlankSlate v-else />

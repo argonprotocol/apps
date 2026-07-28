@@ -1,5 +1,5 @@
 <template>
-  <div DashBox data-testid="ArgonBondsScreen" class="flex h-full min-h-0 grow flex-col">
+  <div DashBox data-testid="ArgonBondsScreen" class="flex grow flex-col">
     <div v-if="loadError" class="flex grow flex-col items-center justify-center px-6 text-center">
       <p class="text-lg font-semibold text-slate-700">Unable to load Argon bonds</p>
       <p class="mt-2 max-w-xl text-sm text-rose-700/80">{{ loadError }}</p>

@@ -49,9 +49,9 @@
 
     <div
       :class="[wallets.walletRecords.length === 1 ? 'pb-10' : 'pb-0']"
-      class="mx-auto flex max-w-200 grow flex-col justify-center px-[5%]"
+      class="mx-auto flex max-w-180 grow flex-col justify-center px-[5%] xl:max-w-220"
     >
-      <h1 class="text-argon-600/80 text-4xl font-bold">
+      <h1 class="mt-2 text-4xl font-bold whitespace-nowrap opacity-80 xl:text-5xl">
         {{ config.postWelcomeLaunchCount > 0 ? 'Welcome Back to Argon Desktop!' : 'Your Gateway to Argon' }}
       </h1>
 

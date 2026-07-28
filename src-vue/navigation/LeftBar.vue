@@ -1,7 +1,7 @@
 <template>
   <div
     class="Navigation LeftBar z-10 flex h-full max-w-76 min-w-76 flex-col gap-y-1.5 select-none"
-    :class="{ OperationsEnabled: config.isLoaded && config.hasExtensionOperations }"
+    :class="{ ExtensionEnabled: config.isLoaded && (config.hasExtensionTreasury || config.hasExtensionOperations) }"
   >
     <section DashBox class="w-full px-1">
       <div>
@@ -243,7 +243,7 @@
                     <div class="Connector" />
                     <div class="flex grow flex-row items-center border-t border-slate-400/30">
                       <div class="grow py-1 text-slate-600/80">
-                        {{ microgonToArgonNm(vaultingAssets.securityMicrogons).format('0,0.[00]') }} Argons Securitized
+                        {{ microgonToArgonNm(vaultingAssets.securityMicrogons).format('0,0.[00]') }} ARGN Securitization
                       </div>
                       <ExternalIcon class="w-3.5 opacity-50" />
                     </div>
@@ -254,7 +254,8 @@
                     <div class="Connector" />
                     <div class="flex grow flex-row items-center border-t border-slate-400/30">
                       <div class="grow py-1 text-slate-600/80">
-                        {{ micronotToArgonotNm(vaultingAssets.securityMicronots).format('0,0.[00]') }} Argonots Staked
+                        {{ micronotToArgonotNm(vaultingAssets.securityMicronots).format('0,0.[00]') }} ARGNOT
+                        Securitization
                       </div>
                       <ExternalIcon class="w-3.5 opacity-50" />
                     </div>
@@ -759,10 +760,38 @@ ul li {
   }
 }
 
-@media (max-height: 1000px) {
-  .LeftBar.OperationsEnabled {
+@media (max-height: 1050px) {
+  .LeftBar.ExtensionEnabled {
     @apply gap-y-1;
 
+    > section > div > header {
+      @apply pt-3 pb-2.5;
+    }
+
+    ul li {
+      @apply py-0.5;
+
+      article {
+        @apply py-[7px];
+      }
+    }
+
+    .wallet-summary {
+      @apply my-1 py-3;
+    }
+
+    .wallet-summary-total {
+      @apply text-[45px];
+    }
+
+    .wallet-summary-detail {
+      @apply mt-1 pt-1 text-sm;
+    }
+  }
+}
+
+@media (max-height: 950px) {
+  .LeftBar.ExtensionEnabled {
     > section > div > header {
       @apply pt-2 pb-2;
     }
@@ -775,22 +804,14 @@ ul li {
       }
     }
 
-    .wallet-summary {
-      @apply my-1 py-3;
-    }
-
     .wallet-summary-total {
       @apply text-[40px];
-    }
-
-    .wallet-summary-detail {
-      @apply mt-1 pt-1 text-sm;
     }
   }
 }
 
 @media (max-height: 850px) {
-  .LeftBar.OperationsEnabled {
+  .LeftBar.ExtensionEnabled {
     > section > div > header {
       @apply py-1.5;
     }
@@ -814,7 +835,7 @@ ul li {
 }
 
 @media (max-height: 750px) {
-  .LeftBar.OperationsEnabled .ExploreLinks {
+  .LeftBar.ExtensionEnabled .ExploreLinks {
     @apply hidden;
   }
 }

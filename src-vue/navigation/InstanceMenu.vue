@@ -4,8 +4,7 @@
     <NavigationMenuItem value="instances" class="pointer-events-auto">
       <NavigationMenuTrigger
         Trigger
-        class="font-light inline-block text-md border border-slate-600/30 rounded-md text-slate-800/80 px-3 h-[30px] focus:outline-none relative -top-[0.5px]"
-        :class="[isOpen ? 'border-slate-400/60 bg-slate-400/10' : 'border-slate-400/50']"
+        class="relative min-w-[58px] text-center bg-slate-600/60 text-white rounded-full ml-2 px-2 border border-slate-600 inset-shadow text-sm focus:outline-none"
       >
         <template v-if="networkName !== 'mainnet'">{{ networkName }}:</template>{{ INSTANCE_NAME?.slice(0, 10) }}<template v-if="INSTANCE_NAME.length > 10">...</template>
       </NavigationMenuTrigger>
