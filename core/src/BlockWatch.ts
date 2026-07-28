@@ -102,12 +102,7 @@ export class BlockWatch {
       }),
 
       this.clients.events.on('on-pruned-client', () => {
-        if (
-          !this.isLoaded.isSettled ||
-          this.isRestarting ||
-          this.forcePrunedClientSubscriptions ||
-          this.activeSource === 'pruned'
-        ) {
+        if (!this.isRestarting && (!this.isLoaded.isSettled || this.activeSource === 'pruned')) {
           return;
         }
         this.scheduleRestart('pruned', 'Switched to pruned client');
@@ -177,6 +172,9 @@ export class BlockWatch {
           try {
             gap = await this.fillNewHeadGap(this.finalizedBlockHeader, announcedHeader);
           } catch (error) {
+            if (generation !== this.subscriptionGeneration) {
+              return;
+            }
             if (!isUnreadableBlockError(error)) {
               throw error;
             }
@@ -192,6 +190,9 @@ export class BlockWatch {
               announcedParentHash: announcedHeader.parentHash,
               error: String(error),
             });
+            return;
+          }
+          if (generation !== this.subscriptionGeneration) {
             return;
           }
           const newBlocks = gap.filter(x => !this.latestHeaders.some(y => y.blockHash === x.blockHash));
@@ -213,7 +214,7 @@ export class BlockWatch {
           if (generation !== this.subscriptionGeneration) {
             return;
           }
-          await this.setFinalizedHeader(header);
+          await this.setFinalizedHeader(header, generation);
         });
       });
 
@@ -453,7 +454,10 @@ export class BlockWatch {
     }
   }
 
-  private async setFinalizedHeader(header: Header): Promise<void> {
+  private async setFinalizedHeader(header: Header, generation = this.subscriptionGeneration): Promise<void> {
+    if (generation !== this.subscriptionGeneration) {
+      return;
+    }
     const finalizedHash = header.hash.toHex();
     const finalizedNumber = header.number.toNumber();
     const bestKnown = this.bestBlockHeader.blockNumber;
@@ -478,10 +482,17 @@ export class BlockWatch {
           selectedClient => selectedClient.rpc.chain.getHeader(),
           { blockNumber: finalizedNumber, finalizedNumber },
         );
+        if (generation !== this.subscriptionGeneration) {
+          return;
+        }
         // presume our old finalized is still valid, fill in the gap to the new best
-        const bestTail = await this.fillNewHeadGap(this.finalizedBlockHeader, bestHeader);
+        const finalizedHeader = this.finalizedBlockHeader;
+        const bestTail = await this.fillNewHeadGap(finalizedHeader, bestHeader);
+        if (generation !== this.subscriptionGeneration) {
+          return;
+        }
         // New canonical window: [latest finalized ... best]
-        this.latestHeaders = [this.finalizedBlockHeader, ...bestTail];
+        this.latestHeaders = [finalizedHeader, ...bestTail];
 
         if (this.bestBlockHeader.blockNumber <= bestKnown) {
           this.finalizedAheadRecoveryFailures += 1;
@@ -500,6 +511,9 @@ export class BlockWatch {
           this.events.emit('best-blocks', bestTail as [...any, IBlockHeaderInfo]);
         }
       } catch (error) {
+        if (generation !== this.subscriptionGeneration) {
+          return;
+        }
         this.finalizedAheadRecoveryFailures += 1;
         if (this.finalizedAheadRecoveryFailures >= 3) {
           this.scheduleRestart(this.getRecoverySource(), `Failed to recover finalized gap at block ${finalizedNumber}`);
@@ -666,7 +680,7 @@ export class BlockWatch {
   }
 
   private getRecoverySource(): ISubscriptionSource {
-    if (this.activeSource === 'pruned' && !this.forcePrunedClientSubscriptions) {
+    if (this.activeSource === 'pruned') {
       return 'archive';
     }
     return this.getPreferredSubscriptionSource();

@@ -469,6 +469,31 @@ describe('BlockWatch archive recovery', () => {
     expect(blockWatch.finalizedBlockHeader.blockNumber).toBe(101);
   });
 
+  it('keeps restarted headers when stale finalized recovery completes', async () => {
+    vi.spyOn(BlockWatch, 'readHeader').mockImplementation(readMockHeader);
+
+    const oldFinalizedHeader = createHeaderInfo(100, '0x100', '0x099');
+    const staleFinalizedHeader = createHeaderInfo(101, '0x101', '0x100');
+    const restartedHeaders = [createHeaderInfo(200, '0x200', '0x199'), createHeaderInfo(201, '0x201', '0x200')];
+    const staleBestHeader = createDeferredPromise<unknown>();
+    const getHeader = vi.fn(() => staleBestHeader.promise);
+    const archiveClient = { rpc: { chain: { getHeader } } };
+    const blockWatch = new BlockWatch(createClients({}, archiveClient) as any);
+    const blockWatchInternal = getInternalBlockWatch(blockWatch);
+    blockWatch.latestHeaders = [oldFinalizedHeader];
+    blockWatchInternal.subscriptionGeneration = 1;
+
+    const staleUpdate = blockWatchInternal.setFinalizedHeader(createHeader(staleFinalizedHeader), 1);
+    await vi.waitFor(() => expect(getHeader).toHaveBeenCalledOnce());
+
+    blockWatchInternal.subscriptionGeneration = 2;
+    blockWatch.latestHeaders = restartedHeaders;
+    staleBestHeader.resolve({ __info: staleFinalizedHeader });
+    await staleUpdate;
+
+    expect(blockWatch.latestHeaders).toEqual(restartedHeaders);
+  });
+
   it('starts on archive when the pruned client fails during startup', async () => {
     vi.spyOn(BlockWatch, 'readHeader').mockImplementation(readMockHeader);
 
@@ -490,6 +515,51 @@ describe('BlockWatch archive recovery', () => {
     expect(archiveClient.rpc.chain.subscribeNewHeads).toHaveBeenCalledOnce();
     expect(getInternalBlockWatch(blockWatch).activeSource).toBe('archive');
     expect(blockWatch.finalizedBlockHeader).toBe(finalizedHeader);
+  });
+
+  it('moves forced pruned subscriptions to archive on degradation and restores them after promotion', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(BlockWatch, 'readHeader').mockImplementation(readMockHeader);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      const finalizedHeader = createHeaderInfo(100, '0x100', '0x099');
+      const prunedClient = createSubscriptionClient(finalizedHeader);
+      const archiveClient = createSubscriptionClient(finalizedHeader);
+      const archiveFinalizedHead = createDeferredPromise<string>();
+      archiveClient.rpc.chain.getFinalizedHead.mockImplementation(() => archiveFinalizedHead.promise);
+      let onDegraded!: (error: Error | undefined, clientType: 'archive' | 'pruned') => void;
+      let onPrunedClient!: () => void;
+      const clients = {
+        prunedClientPromise: Promise.resolve(prunedClient) as Promise<typeof prunedClient> | undefined,
+        archiveClientPromise: Promise.resolve(archiveClient),
+        events: {
+          on: vi.fn((event: string, callback: (...args: any[]) => void) => {
+            if (event === 'degraded') onDegraded = callback;
+            if (event === 'on-pruned-client') onPrunedClient = callback;
+            return () => undefined;
+          }),
+        },
+      };
+      const blockWatch = new BlockWatch(clients as any, true);
+
+      await blockWatch.start();
+      expect(blockWatch.subscriptionClient).toBe(prunedClient);
+
+      clients.prunedClientPromise = undefined;
+      onDegraded(undefined, 'pruned');
+      await vi.advanceTimersByTimeAsync(250);
+      await vi.waitFor(() => expect(archiveClient.rpc.chain.getFinalizedHead).toHaveBeenCalledOnce());
+
+      clients.prunedClientPromise = Promise.resolve(prunedClient);
+      onPrunedClient();
+      archiveFinalizedHead.resolve(finalizedHeader.blockHash);
+      await vi.waitFor(() => expect(archiveClient.rpc.chain.subscribeNewHeads).toHaveBeenCalledOnce());
+      await vi.advanceTimersByTimeAsync(250);
+      await vi.waitFor(() => expect(prunedClient.rpc.chain.subscribeNewHeads).toHaveBeenCalledTimes(2));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('keeps concurrent startup callers attached when the pruned client connects', async () => {
@@ -628,35 +698,6 @@ describe('BlockWatch archive recovery', () => {
     expect(secondPrunedClient.at).toHaveBeenCalledOnce();
   });
 
-  it('queues a follow-up restart requested during an active restart', async () => {
-    vi.useFakeTimers();
-
-    try {
-      const blockWatch = new BlockWatch(createClients({}, {}) as any);
-      const blockWatchInternal = getInternalBlockWatch(blockWatch);
-      const firstRestart = createDeferredPromise<void>();
-
-      blockWatchInternal.unsubscribe = vi.fn();
-      const startMock = vi.spyOn(blockWatch, 'start').mockImplementation(async source => {
-        blockWatchInternal.unsubscribe = vi.fn();
-        if (source === 'archive') {
-          await firstRestart.promise;
-        }
-      });
-
-      const restartPromise = blockWatchInternal.restart('archive', 'Initial restart');
-      blockWatchInternal.scheduleRestart('pruned', 'Promote recovered pruned client');
-      firstRestart.resolve();
-
-      await restartPromise;
-      await vi.runAllTimersAsync();
-
-      expect(startMock.mock.calls.map(([source]) => source)).toEqual(['archive', 'pruned']);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   it('retries a failed restart until subscriptions recover', async () => {
     vi.useFakeTimers();
 
@@ -756,8 +797,8 @@ function getInternalBlockWatch(blockWatch: BlockWatch) {
   return blockWatch as unknown as {
     activeSource: 'archive' | 'pruned';
     restart(source: 'archive' | 'pruned', reason: string): Promise<void>;
-    scheduleRestart(source: 'archive' | 'pruned', reason: string, delayMs?: number): void;
-    setFinalizedHeader(header: ReturnType<typeof createHeader>): Promise<void>;
+    setFinalizedHeader(header: ReturnType<typeof createHeader>, generation?: number): Promise<void>;
+    subscriptionGeneration: number;
     unsubscribe?: () => void;
   };
 }

@@ -313,7 +313,7 @@ export async function readComposePortWithRetry(args: {
       }
 
       const matchedPort = endpoint.match(/:(\d+)\s*$/)?.[1];
-      if (!matchedPort) {
+      if (!matchedPort || matchedPort === '0') {
         throw new Error(`Could not parse mapped port from "${endpoint}" for ${args.service}:${args.port}`);
       }
 
