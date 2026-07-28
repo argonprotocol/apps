@@ -6,7 +6,7 @@ import {
   type PalletTreasuryBondLot,
   type Vault,
 } from '@argonprotocol/mainchain';
-import { BondLot } from '@argonprotocol/apps-core';
+import { BondLot, type IMiningCohortFinancial } from '@argonprotocol/apps-core';
 import type { IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
 import type {
   IFinancialGroupSnapshot,
@@ -19,7 +19,6 @@ import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
 import type { Currency } from '../lib/Currency.ts';
 import type { IWalletTransferRecord } from '../lib/db/WalletTransfersTable.ts';
 import { type IArgonAccountBalance, WalletsForArgon } from '../lib/WalletsForArgon.ts';
-import type { IMiningCohortFinancialRecord } from '../interfaces/db/ICohortFrameRecord.ts';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import { BitcoinFinancials, calculateBitcoinLockValuation } from '../lib/financials/BitcoinLocks.ts';
 import type { IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
@@ -354,7 +353,6 @@ describe('financial position accounting', () => {
       microgonsMinedTotal: 10_000_000n,
       microgonFeesCollectedTotal: 5_000_000n,
       closingArgonotPrice: 0n,
-      updatedAt: '2026-07-01T00:00:00Z',
     });
     const pendingBid = {
       frameId: 21,
@@ -496,8 +494,6 @@ describe('financial position accounting', () => {
           microgonsPerSeat: 50_000_000n,
           micronotsStakedPerSeat: 10_000_000n,
           bidPosition: 0,
-          createdAt: '2026-07-14T00:00:00Z',
-          updatedAt: '2026-07-14T00:00:00Z',
         },
       ],
       heldMicronots: 0n,
@@ -647,7 +643,6 @@ describe('financial position accounting', () => {
           micronotsToBeMinedPerSeat: 10_000_000n,
           closingArgonotPrice: 0n,
           microgonsMinedTotal: 10_000_000n,
-          updatedAt: '2026-07-01T00:00:00Z',
         }),
       ],
       latestFrameId: 12,
@@ -834,8 +829,6 @@ describe('financial position accounting', () => {
           argonotPriceAtBid: 3_000_000n,
           closingArgonotPrice: 0n,
           microgonsMinedTotal: 0n,
-          createdAt: bidAt.toISOString(),
-          updatedAt: bidAt.toISOString(),
         }),
       ],
       latestFrameId: 12,
@@ -1905,7 +1898,7 @@ describe('financial group snapshots', () => {
         currentValue: 20n,
         paidIncome: 0n,
         settledPrincipalValue: 0n,
-        cohort: {} as IMiningCohortFinancialRecord,
+        cohort: {} as IMiningCohortFinancial,
         recoveredValue: 0n,
         remainingSeatValue: 20n,
       },
@@ -2133,7 +2126,7 @@ function createWalletTransfer(
   };
 }
 
-function createMiningCohort(values: Partial<IMiningCohortFinancialRecord> = {}): IMiningCohortFinancialRecord {
+function createMiningCohort(values: Partial<IMiningCohortFinancial> = {}): IMiningCohortFinancial {
   return {
     id: 12,
     progress: 100,
@@ -2149,8 +2142,6 @@ function createMiningCohort(values: Partial<IMiningCohortFinancialRecord> = {}):
     microgonsMinedTotal: 20_000_000n,
     microgonsMintedTotal: 0n,
     microgonFeesCollectedTotal: 0n,
-    createdAt: '2026-07-01T00:00:00Z',
-    updatedAt: '2026-07-11T00:00:00Z',
     ...values,
   };
 }

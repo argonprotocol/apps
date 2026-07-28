@@ -6,6 +6,7 @@ import Bot from './Bot.ts';
 import { startServer } from './server.ts';
 import { Db } from './Db.ts';
 import { configureNetwork } from './configureNetwork.ts';
+import { MiningDb } from './MiningDb.ts';
 
 let oldestFrameIdToSync: number | undefined;
 
@@ -21,11 +22,14 @@ const bidderKeypair = await loadKeypair(requireEnv('BIDDER_KEYPAIR_PATH'));
 const bitcoinInitializerDelegateKeypair = await loadKeypair(requireEnv('VAULT_DELEGATE_KEYPAIR_PATH'));
 const db = new Db(datadir);
 db.migrate();
+const miningDb = new MiningDb(datadir);
+miningDb.migrate();
 await configureNetwork(archiveRpcUrl);
 const ethereumBeaconApiUrl =
   process.env.ETHEREUM_BEACON_API_URL?.trim() || NetworkConfig.get().ethereumNetwork.beaconApiUrl.trim() || undefined;
 const bot = new Bot({
   db,
+  miningDb,
   oldestFrameIdToSync: oldestFrameIdToSync,
   bitcoinInitializerDelegateKeypair,
   ethereumBeaconApiUrl,
@@ -47,6 +51,7 @@ onExit(() => server.close());
 
 try {
   await bot.start();
+  await server.broadcast('/state');
   let lastStateBroadcast = 0;
   const broadcastInterval = Math.max(100, NetworkConfig.tickMillis / 60);
   function broadcastUpdate() {
@@ -70,5 +75,6 @@ try {
   } else {
     server.startupError = `An unknown error occurred while starting the bot -> ${String(e)}`;
   }
+  await server.broadcast('/state');
   bot.history.handleError(e as Error);
 }

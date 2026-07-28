@@ -1,5 +1,5 @@
-import type { Db } from '../Db.ts';
+import type { DatabaseSync } from 'node:sqlite';
 
 export class BaseTable {
-  constructor(protected db: Db) {}
+  constructor(protected db: { sql: DatabaseSync }) {}
 }

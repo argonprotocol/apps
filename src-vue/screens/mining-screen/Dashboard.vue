@@ -137,7 +137,7 @@
                         </template>
                       </div>
                     </CountdownClock>
-                    <div>{{ nextBidTimingLabel }}</div>
+                    <div v-else>{{ nextBidTimingLabel }}</div>
                     <div>{{ auctionStatsLabel }}</div>
                     <div>{{ formatBidAmount(lowestWinningBid) }} Is the Lowest Bid</div>
                     <div>{{ formatBidAmount(myLastBidMicrogons) }} Was Your Last Bid</div>
@@ -711,8 +711,7 @@ Vue.onMounted(() => {
       console.error('[Mining Dashboard] Failed to subscribe to best blocks', error);
     });
 
-  botEmitter.on('updated-bids-data', refreshLiveFrameDetail);
-  botEmitter.on('updated-cohort-data', refreshLiveFrameDetail);
+  botEmitter.on('updated-mining-summary', refreshLiveFrameDetail);
   botEmitter.on('updated-server-state', refreshPendingHistoricalFrameDetail);
   window.addEventListener('focus', onWindowFocus);
   document.addEventListener('visibilitychange', onVisibilityChange);
@@ -722,8 +721,7 @@ Vue.onUnmounted(() => {
   myMiningSeats.unsubscribeFromDashboard();
   myMiningSeats.unsubscribeFromActivity();
   stopBestBlockSubscription?.();
-  botEmitter.off('updated-bids-data', refreshLiveFrameDetail);
-  botEmitter.off('updated-cohort-data', refreshLiveFrameDetail);
+  botEmitter.off('updated-mining-summary', refreshLiveFrameDetail);
   botEmitter.off('updated-server-state', refreshPendingHistoricalFrameDetail);
   window.removeEventListener('focus', onWindowFocus);
   document.removeEventListener('visibilitychange', onVisibilityChange);

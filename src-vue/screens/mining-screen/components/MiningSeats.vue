@@ -62,14 +62,14 @@ import * as Vue from 'vue';
 import { twMerge } from 'tailwind-merge';
 import { IMiningSeat, IMiningSlot, IMiningSlotBid, normalizeMiningSeatSlots } from '@argonprotocol/apps-core';
 import { getBlockWatch, getMining, getMiningFrames } from '../../../stores/mainchain.ts';
+import { getMyMiningSeats } from '../../../stores/myMiningSeats.ts';
 import { getWalletKeys, useWallets } from '../../../stores/wallets.ts';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
-import { getDbPromise } from '../../../stores/helpers/dbPromise.ts';
 import SeatTooltip from './SeatTooltip.vue';
 import { botEmitter } from '../../../lib/Bot.ts';
 import MinerIcon from '../../../assets/miner.svg?component';
 import { getMiningSeatProgressAtFrame } from '../miningSeatProgress.ts';
-import type { IMiningSeatRewardTerms } from '../../../interfaces/db/ICohortRecord.ts';
+import type { IMiningSeatRewardTerms } from '../../../interfaces/IMiningSeatStats.ts';
 
 type IMiningDisplaySeat = IMiningSeat & {
   startingFrameId?: number | null;
@@ -88,7 +88,7 @@ const props = defineProps<{
 
 const mining = getMining();
 const miningFrames = getMiningFrames();
-const dbPromise = getDbPromise();
+const myMiningSeats = getMyMiningSeats();
 const wallets = useWallets();
 const walletKeys = getWalletKeys();
 
@@ -350,8 +350,7 @@ Vue.watch(
 Vue.onMounted(() => {
   void refreshSeats();
   observeSeatGrid();
-  botEmitter.on('updated-bids-data', onLiveSeatsUpdated);
-  botEmitter.on('updated-cohort-data', onLiveSeatsUpdated);
+  botEmitter.on('updated-mining-summary', onLiveSeatsUpdated);
 });
 
 Vue.onUnmounted(() => {
@@ -360,8 +359,7 @@ Vue.onUnmounted(() => {
   if (clearHoveredSlotIdTimeout) {
     clearTimeout(clearHoveredSlotIdTimeout);
   }
-  botEmitter.off('updated-bids-data', onLiveSeatsUpdated);
-  botEmitter.off('updated-cohort-data', onLiveSeatsUpdated);
+  botEmitter.off('updated-mining-summary', onLiveSeatsUpdated);
 });
 
 async function refreshSeatTooltipStats(): Promise<void> {
@@ -382,8 +380,7 @@ async function refreshSeatTooltipStats(): Promise<void> {
         continue;
       }
 
-      const db = await dbPromise;
-      const cohorts = await db.cohortsTable.fetchByIds(missingStartingFrameIds);
+      const cohorts = myMiningSeats.getCohortsByIds(missingStartingFrameIds);
       const tooltipStatsByStartingFrameId = { ...seatTooltipStatsByStartingFrameId.value };
 
       for (const startingFrameId of missingStartingFrameIds) {

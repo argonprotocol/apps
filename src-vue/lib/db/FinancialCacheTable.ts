@@ -1,10 +1,14 @@
 import type { IWallet } from '../Wallet.ts';
+import type { IMiningSummary } from '@argonprotocol/apps-core';
 import { BaseTable, type IFieldTypes } from './BaseTable.ts';
 import { convertFromSqliteFields, logStartupTiming, toSqlParams } from '../Utils.ts';
 
 export enum FinancialCacheTypes {
   ExternalWalletBalance = 'ExternalWalletBalance',
+  MiningSummary = 'MiningSummary',
 }
+
+export const MiningSummaryCacheScope = 'operations';
 
 export type ExternalWalletChain = 'ethereum' | 'base';
 
@@ -19,6 +23,7 @@ export type IExternalWalletBalanceCacheRecord = Pick<
 
 export interface IFinancialCacheSchemas {
   [FinancialCacheTypes.ExternalWalletBalance]: IExternalWalletBalanceCacheRecord;
+  [FinancialCacheTypes.MiningSummary]: IMiningSummary;
 }
 
 export class FinancialCacheTable extends BaseTable {

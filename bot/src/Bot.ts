@@ -21,8 +21,10 @@ import {
   type IEthereumSyncStatus,
   type IHistoryFile,
   type IMiningFrameDetail,
+  type IMiningSummary,
   JsonExt,
   MainchainClients,
+  Mining,
   MiningFrames,
   NetworkConfig,
 } from '@argonprotocol/apps-core';
@@ -31,10 +33,13 @@ import { History } from './History.ts';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 import { EthereumGatewayProverService } from './EthereumGatewayProverService.ts';
 import { DelegateSubmitLane } from './DelegateSubmitLane.ts';
+import { MiningDb } from './MiningDb.ts';
+import { MiningSummaryService } from './MiningSummaryService.ts';
 
 interface IBotOptions {
   datadir: string;
   db: Db;
+  miningDb: MiningDb;
   fundingAccountId: string;
   bidderKeypair: KeyringPair;
   vaultOperatorAddress: string;
@@ -56,7 +61,9 @@ export default class Bot {
   public miningFrames!: MiningFrames;
   public blockWatch!: BlockWatch;
   public miningFrameHistory!: MiningFrameHistory;
+  public miningSummaryService!: MiningSummaryService;
   public db: Db;
+  public miningDb: MiningDb;
   public relayService: BitcoinLockRelayService;
   public ethereumGatewayProverService: EthereumGatewayProverService;
 
@@ -86,6 +93,7 @@ export default class Bot {
   constructor(options: IBotOptions) {
     this.options = options;
     this.db = options.db;
+    this.miningDb = options.miningDb;
     this.mainchainClients = new MainchainClients(this.options.archiveRpcUrl, () =>
       Boolean(JSON.parse(process.env.ARGON_LOG_APIS ?? '0')),
     );
@@ -200,6 +208,10 @@ export default class Bot {
     return this.miningFrameHistory.getDetail(frameId);
   }
 
+  public async getMiningSummary(): Promise<IMiningSummary> {
+    return await this.miningSummaryService.getSummary(await this.state());
+  }
+
   public async start(): Promise<void> {
     if (this.isStarting || this.isReady) return;
     this.isStarting = true;
@@ -297,6 +309,12 @@ export default class Bot {
         this.blockWatch,
         () => this.currentFrameId,
       );
+      this.miningSummaryService = new MiningSummaryService(
+        this.miningDb,
+        this.storage,
+        new Mining(this.mainchainClients),
+        this.miningFrames,
+      );
 
       this.isSyncing = true;
       this.history.handleStartedSyncing();
@@ -317,13 +335,16 @@ export default class Bot {
         }
       }
       this.history.handleFinishedSyncing();
-      this.isSyncing = false;
 
       console.log('Starting block sync');
       while (true) {
         try {
           this.history.handleReady();
-          await this.blockSync.start();
+          await this.blockSync.start(async () => {
+            await this.miningSummaryService.refresh(await this.state()).catch(error => {
+              console.error('Error updating mining summary', error);
+            });
+          });
           break;
         } catch (error) {
           console.error('Error starting block sync (retrying...)', error);
@@ -340,6 +361,18 @@ export default class Bot {
         throw error;
       }
 
+      console.log('Building mining summary');
+      while (true) {
+        const isMiningSummaryReady = await this.miningSummaryService.refresh(await this.state()).catch(error => {
+          console.error('Error building mining summary (retrying...)', error);
+          return false;
+        });
+        if (isMiningSummaryReady) break;
+
+        await setTimeout(1000);
+      }
+
+      this.isSyncing = false;
       this.watchBiddingRulesFile();
       this.isReady = true;
     } finally {
@@ -366,6 +399,7 @@ export default class Bot {
     await this.history?.handleShutdown?.();
     await this.storage?.close?.();
     this.db.close();
+    this.miningDb.close();
     await this.mainchainClients.disconnect();
     console.log('BOT SHUT DOWN');
     this.shutdownDeferred.resolve();

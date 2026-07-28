@@ -1,11 +1,15 @@
-import type { BondLot, ICapitalFlow, IInvestmentPositionValue } from '@argonprotocol/apps-core';
+import type {
+  BondLot,
+  ICapitalFlow,
+  IInvestmentPositionValue,
+  IMiningBid,
+  IMiningCohortFinancial,
+} from '@argonprotocol/apps-core';
 import type { Vault } from '@argonprotocol/mainchain';
 import type { IWallet } from '../lib/Wallet.ts';
 import type { IStableSwapPurchaseRecord } from '../lib/db/StableSwapPurchasesTable.ts';
 import type { IBondLotHistoryRecord } from '../lib/db/BondLotHistoryTable.ts';
 import type { IBitcoinLockRecord } from './IBitcoinLockRecord.ts';
-import type { IMiningCohortFinancialRecord } from './db/ICohortFrameRecord.ts';
-import type { IFrameBidRecord } from './db/IFrameBidRecord.ts';
 import type { IVaultCapitalHistoryRecord } from '../lib/db/VaultCapitalHistoryTable.ts';
 import type { IVaultRevenueEventsRecord } from '../lib/db/VaultRevenueEventsTable.ts';
 
@@ -88,7 +92,7 @@ export interface IBaseWalletFinancialPosition extends IFinancialPositionBase {
 export interface IMiningBidFinancialPosition extends IFinancialInvestmentPositionBase {
   kind: 'mining-bid';
   group: 'mining';
-  bid: IFrameBidRecord;
+  bid: IMiningBid;
   nativeStakedMicronots: bigint;
   entryArgonotRateMicrogons?: bigint;
   currentArgonotRateMicrogons?: bigint;
@@ -105,7 +109,7 @@ export interface IMiningBalanceFinancialPosition extends IFinancialPositionBase 
 export interface IMiningCohortFinancialPosition extends IFinancialInvestmentPositionBase {
   kind: 'mining-cohort';
   group: 'mining';
-  cohort: IMiningCohortFinancialRecord;
+  cohort: IMiningCohortFinancial;
   recoveredValue: bigint;
   remainingSeatValue: bigint;
   // Mining RTD uses realized income rather than the seat's current asset value.
@@ -124,7 +128,7 @@ interface IMiningArgonotFinancialPositionBase extends IFinancialInvestmentPositi
 }
 
 export type IMiningArgonotFinancialPosition = IMiningArgonotFinancialPositionBase &
-  ({ source: 'collateral' | 'rewards'; cohort: IMiningCohortFinancialRecord } | { source: 'custody'; cohort?: never });
+  ({ source: 'collateral' | 'rewards'; cohort: IMiningCohortFinancial } | { source: 'custody'; cohort?: never });
 
 interface IBondFinancialPositionBase extends IFinancialInvestmentPositionBase {
   kind: 'bond';

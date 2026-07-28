@@ -135,12 +135,20 @@ export class Config implements IConfig {
     const preserveFields: (keyof IConfig)[] = [
       'upstreamOperator',
       'bootstrapDetails',
+      'hasExtensionTreasury',
+      'hasExtensionOperations',
       'serverAdd',
       'serverDetails',
+      'isServerInstalled',
       'biddingRules',
       'vaultingRules',
+      'miningSetupStatus',
       'vaultingSetupStatus',
+      'hasMiningBids',
+      'hasMiningSeats',
       'oldestFrameIdToSync',
+      'walletAccountsHadPreviousLife',
+      'walletPreviousLifeRecovered',
       'defaultCurrencyKey',
       'requiresPassword',
     ];
@@ -153,7 +161,6 @@ export class Config implements IConfig {
         (this._loadedData as any)[key] = defaultValue as any;
       }
     }
-    await this._injectFirstTimeAppData(this._loadedData, this._rawData, this._fieldsToSave);
     const data = Config.extractDataToSave(this._fieldsToSave, this._rawData);
     await this._db.configTable.insertOrReplace(data, sql);
   }
@@ -246,22 +253,7 @@ export class Config implements IConfig {
         await this._injectFirstTimeAppData(loadedData, rawData, fieldsToSave);
       }
 
-      let hasMiningSeats = loadedData.hasMiningSeats;
-      let hasMiningBids = loadedData.hasMiningBids || hasMiningSeats;
-      if (!hasMiningSeats) {
-        const [savedMiningActivity] = await db.select<[{ hasMiningBids: number; hasMiningSeats: number }]>(`
-          SELECT
-            EXISTS(SELECT 1 FROM FrameBids WHERE json_array_length(bidsJson) > 0) AS hasMiningBids,
-            EXISTS(SELECT 1 FROM Cohorts WHERE seatCountWon > 0) AS hasMiningSeats
-        `);
-        hasMiningSeats = !!savedMiningActivity?.hasMiningSeats;
-        hasMiningBids ||= !!savedMiningActivity?.hasMiningBids || hasMiningSeats;
-      }
-      if (hasMiningSeats !== loadedData.hasMiningSeats) {
-        loadedData.hasMiningSeats = hasMiningSeats;
-        fieldsToSave.add(dbFields.hasMiningSeats);
-        rawData[dbFields.hasMiningSeats] = JsonExt.stringify(hasMiningSeats, 2);
-      }
+      const hasMiningBids = loadedData.hasMiningBids || loadedData.hasMiningSeats;
       if (hasMiningBids !== loadedData.hasMiningBids) {
         loadedData.hasMiningBids = hasMiningBids;
         fieldsToSave.add(dbFields.hasMiningBids);

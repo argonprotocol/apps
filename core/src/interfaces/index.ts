@@ -13,6 +13,7 @@ export * from './IFramesHistory.js';
 export * from './IHistoryFile.js';
 export * from './ILastModified.js';
 export * from './IMiningFrameDetail.js';
+export * from './IMiningSummary.js';
 export * from './ITransferSources.js';
 export * from './IIndexerSpec.js';
 export * from './IVaultStats.js';

@@ -92,7 +92,7 @@ import { getMiningFrames } from '../../../stores/mainchain.ts';
 import { TICK_MILLIS } from '../../../lib/Env.ts';
 import { BigNumber } from 'bignumber.js';
 import { getMiningSeatProgressAtFrame } from '../miningSeatProgress.ts';
-import type { IMiningSeatRewardTerms } from '../../../interfaces/db/ICohortRecord.ts';
+import type { IMiningSeatRewardTerms } from '../../../interfaces/IMiningSeatStats.ts';
 
 dayjs.extend(utc);
 

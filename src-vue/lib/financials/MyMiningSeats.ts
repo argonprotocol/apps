@@ -6,10 +6,11 @@ import {
   calculateMiningTermPositionValue,
   calculatePrincipalPositionValue,
   Currency,
+  type IMiningBid,
+  type IMiningCohortFinancial,
+  MiningFrames,
   NetworkConfig,
 } from '@argonprotocol/apps-core';
-import type { IMiningCohortFinancialRecord } from '../../interfaces/db/ICohortFrameRecord.ts';
-import type { IFrameBidRecord } from '../../interfaces/db/IFrameBidRecord.ts';
 import {
   createFinancialPosition,
   type IFinancialPosition,
@@ -33,9 +34,9 @@ type MiningFinancialPositionArgs = {
 };
 
 type MiningPositionData = {
-  cohorts: readonly IMiningCohortFinancialRecord[];
+  cohorts: readonly IMiningCohortFinancial[];
   latestFrameId: number;
-  pendingBids: readonly IFrameBidRecord[];
+  pendingBids: readonly IMiningBid[];
   heldMicronots: bigint;
   liveArgonotRateMicrogons?: bigint;
   frameDates: ReadonlyMap<number, Date>;
@@ -49,7 +50,7 @@ type MiningPositionData = {
 type MiningArgonotLot = {
   id: string;
   source: 'custody' | 'collateral' | 'rewards';
-  cohort?: IMiningCohortFinancialRecord;
+  cohort?: IMiningCohortFinancial;
   amount: bigint;
   entryRate?: bigint;
   startedAt?: Date;
@@ -66,7 +67,7 @@ type MiningArgonotBoundary =
   | {
       kind: 'cohort' | 'rewards';
       order: number;
-      cohort: IMiningCohortFinancialRecord;
+      cohort: IMiningCohortFinancial;
       occurredAt?: Date;
       sortOrder: number;
     }
@@ -91,6 +92,7 @@ export class MiningFinancials
       frameIds.add(cohort.id);
       frameIds.add(cohort.id + NetworkConfig.framesPerCohort);
     }
+    for (const bid of this.seats.currentFrameBids) frameIds.add(bid.frameId);
     const custodyTransfers = args.hasConfirmedHistoryCoverage
       ? await this.seats.db.walletTransfersTable.fetchArgonotCustodyBoundaries(args.miningBotAddress)
       : [];
@@ -228,7 +230,10 @@ export class MiningFinancials
             id: `mining-bid:${bid.frameId}:${bid.address}`,
             label: 'Pending mining bid',
             lifecycle: 'reserved',
-            startedAt: new Date(bid.createdAt),
+            startedAt:
+              bid.lastBidAtTick === undefined
+                ? frameDates.get(bid.frameId)
+                : MiningFrames.getTickDate(bid.lastBidAtTick),
             bid,
             nativeStakedMicronots,
             entryArgonotRateMicrogons: currentArgonotRate,
@@ -249,7 +254,7 @@ export function createMiningCohortFinancialPosition({
   liveArgonotRateMicrogons,
   frameDates,
 }: {
-  cohort: IMiningCohortFinancialRecord;
+  cohort: IMiningCohortFinancial;
   latestFrameId: number;
   liveArgonotRateMicrogons?: bigint;
   frameDates: ReadonlyMap<number, Date>;
@@ -303,7 +308,7 @@ function createMiningArgonotPositions({
   miningBotMicronots,
   hasConfirmedHistoryCoverage,
 }: {
-  cohorts: readonly IMiningCohortFinancialRecord[];
+  cohorts: readonly IMiningCohortFinancial[];
   latestFrameId: number;
   liveArgonotRateMicrogons?: bigint;
   frameDates: ReadonlyMap<number, Date>;
@@ -312,7 +317,7 @@ function createMiningArgonotPositions({
   miningBotMicronots: bigint;
   hasConfirmedHistoryCoverage: boolean;
 }): MiningArgonotPosition[] {
-  // CohortFrames already aggregate block rewards. A completed cohort therefore opens one reward lot
+  // The mining summary already aggregates block rewards. A completed cohort therefore opens one reward lot
   // at its closing mark; retaining the per-block reward stream would add data without changing the basis.
   const boundaries: MiningArgonotBoundary[] = [];
   for (const cohort of cohorts) {

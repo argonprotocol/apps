@@ -8,15 +8,23 @@ import Bot from '../src/Bot.ts';
 import {
   BidAmountAdjustmentType,
   BidAmountFormulaType,
+  type IBidsFile,
   type IBiddingRules,
+  type IEarningsFile,
+  type IMiningSummary,
+  JsonExt,
+  type JsonRpcResponse,
   MINING_BID_PROXY_FEE_FLOAT,
   NetworkConfig,
 } from '@argonprotocol/apps-core';
+import WebSocket from 'ws';
 import { DockerStatus } from '../src/DockerStatus.js';
 import { Db } from '../src/Db.ts';
 import { BitcoinLockRelayService } from '../src/BitcoinLockRelayService.ts';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
+import { MiningDb } from '../src/MiningDb.ts';
+import { startServer } from '../src/server.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
@@ -113,6 +121,8 @@ it.skipIf(skipE2E)(
 
     const db = new Db(botDataDir);
     db.migrate();
+    const miningDb = new MiningDb(botDataDir);
+    miningDb.migrate();
     const fundingAccount = sudo();
     const useProxyBidder = true;
     const proxyKeypair = new Keyring({ type: 'sr25519' }).addFromUri('//Ferdie//mining-proxy');
@@ -129,6 +139,7 @@ it.skipIf(skipE2E)(
 
     const bot = new Bot({
       db,
+      miningDb,
       bitcoinInitializerDelegateKeypair: sudo(),
       fundingAccountId: fundingAccount.address,
       bidderKeypair,
@@ -247,6 +258,15 @@ it.skipIf(skipE2E)(
     }
     expect(microgonsMined).toBeGreaterThanOrEqual(375_000 * voteBlocks);
 
+    for (const frameId of frameIdsWithVoteBlocks) {
+      await waitFor(30e3, `mining database update for frame ${frameId}`, async () => {
+        const frame = miningDb.frames.fetchLast().find(frame => frame.id === frameId);
+        if (!frame?.blocksMinedTotal || !frame.microgonsMinedTotal) return;
+        return frame;
+      });
+    }
+    await expectMiningSummaryToMatchJournals(bot, frameIdsWithVoteBlocks, cohortActivationFrameIds);
+
     console.log('Stopping bot 1', {
       frameIdsWithVoteBlocks,
       cohortActivationFrameIds,
@@ -258,8 +278,11 @@ it.skipIf(skipE2E)(
     const path2 = fs.mkdtempSync(Path.join(os.tmpdir(), 'bot2-'));
     const restartDb = new Db(path2);
     restartDb.migrate();
+    const restartMiningDb = new MiningDb(path2);
+    restartMiningDb.migrate();
     const botRestart = new Bot({
       db: restartDb,
+      miningDb: restartMiningDb,
       bitcoinInitializerDelegateKeypair: sudo(),
       fundingAccountId: fundingAccount.address,
       bidderKeypair,
@@ -305,6 +328,16 @@ it.skipIf(skipE2E)(
         return true;
       });
     }
+
+    for (const frameId of frameIdsWithVoteBlocks) {
+      await waitFor(30e3, `recovered mining database update for frame ${frameId}`, async () => {
+        const frame = restartMiningDb.frames.fetchLast().find(frame => frame.id === frameId);
+        if (!frame?.blocksMinedTotal || !frame.microgonsMinedTotal) return;
+        return frame;
+      });
+    }
+    await expectMiningSummaryToMatchJournals(botRestart, frameIdsWithVoteBlocks, cohortActivationFrameIds);
+
     console.log('Stopping bot 2');
     await botRestart.shutdown();
 
@@ -336,3 +369,109 @@ it.skipIf(skipE2E)(
   },
   600_000,
 );
+
+async function fetchMiningSummary(bot: Bot): Promise<IMiningSummary> {
+  const server = startServer(bot);
+  await server.waitForListening();
+  const { host, port } = server.getAddress();
+  const ws = new WebSocket(`ws://${host}:${port}`);
+
+  try {
+    return await new Promise<IMiningSummary>((resolve, reject) => {
+      const requestId = 1;
+      const timeout = setTimeout(() => reject(new Error('Timed out waiting for mining summary')), 5_000);
+
+      ws.on('open', () => {
+        ws.send(JsonExt.stringify({ jsonrpc: '2.0', id: requestId, method: '/mining-summary', params: [] }));
+      });
+      ws.on('message', data => {
+        const response = JsonExt.parse<JsonRpcResponse<'/mining-summary'>>(data.toString());
+        if (!('id' in response) || response.id !== requestId) return;
+
+        clearTimeout(timeout);
+        if ('error' in response) {
+          reject(new Error(response.error.message));
+          return;
+        }
+        resolve(response.result);
+      });
+      ws.on('error', error => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+    });
+  } finally {
+    ws.close();
+    await server.close();
+  }
+}
+
+async function expectMiningSummaryToMatchJournals(
+  bot: Bot,
+  frameIds: Set<number>,
+  cohortIds: Set<number>,
+): Promise<void> {
+  let summary: IMiningSummary | undefined;
+  const earningsByFrameId = new Map<number, IEarningsFile>();
+  const frameBidsByFrameId = new Map<number, IBidsFile>();
+  const bidsByCohortId = new Map<number, IBidsFile>();
+
+  await waitFor(10e3, 'mining summary to match journal block numbers', async () => {
+    const currentSummary = await fetchMiningSummary(bot);
+
+    for (const frameId of frameIds) {
+      const earnings = await bot.storage.earningsFile(frameId).get();
+      const frame = currentSummary.frames.find(frame => frame.id === frameId);
+      if (frame?.lastBlockNumber !== earnings.lastBlockNumber) return;
+
+      earningsByFrameId.set(frameId, earnings);
+      frameBidsByFrameId.set(frameId, await bot.storage.bidsFile(frameId - 1, frameId).get());
+    }
+    for (const cohortId of cohortIds) {
+      bidsByCohortId.set(cohortId, await bot.storage.bidsFile(cohortId - 1, cohortId).get());
+    }
+
+    summary = currentSummary;
+    return true;
+  });
+
+  expect(summary).toBeDefined();
+  for (const frameId of frameIds) {
+    const earnings = earningsByFrameId.get(frameId)!;
+    const frameBids = frameBidsByFrameId.get(frameId)!;
+    const blockEarnings = Object.values(earnings.earningsByBlock);
+
+    expect(summary!.frames.find(frame => frame.id === frameId)).toMatchObject({
+      id: frameId,
+      firstTick: earnings.frameFirstTick,
+      rewardTicksRemaining: earnings.frameRewardTicksRemaining,
+      firstBlockNumber: earnings.firstBlockNumber,
+      lastBlockNumber: earnings.lastBlockNumber,
+      microgonToUsd: earnings.microgonToUsd,
+      microgonToBtc: earnings.microgonToBtc,
+      microgonToArgonot: earnings.microgonToArgonot,
+      allMinersCount: frameBids.allMinersCount,
+      blocksMinedTotal: blockEarnings.length,
+      micronotsMinedTotal: blockEarnings.reduce((total, block) => total + block.micronotsMined, 0n),
+      microgonsMinedTotal: blockEarnings.reduce((total, block) => total + block.microgonsMined, 0n),
+      microgonsMintedTotal: blockEarnings.reduce((total, block) => total + block.microgonsMinted, 0n),
+      microgonFeesCollectedTotal: blockEarnings.reduce((total, block) => total + block.microgonFeesCollected, 0n),
+      accruedMicrogonProfits: earnings.accruedMicrogonProfits,
+      accruedMicronotProfits: earnings.accruedMicronotProfits,
+    });
+  }
+
+  for (const cohortId of cohortIds) {
+    const bids = bidsByCohortId.get(cohortId)!;
+    const transactionFeesTotal = Object.values(bids.transactionFeesByBlock).reduce((total, fee) => total + fee, 0n);
+
+    expect(summary!.cohorts.find(cohort => cohort.id === cohortId)).toMatchObject({
+      id: cohortId,
+      transactionFeesTotal,
+      micronotsStakedPerSeat: bids.micronotsStakedPerSeat,
+      microgonsBidPerSeat: bids.microgonsBidTotal / BigInt(bids.seatCountWon),
+      seatCountWon: bids.seatCountWon,
+      argonotPriceAtBid: bids.argonotPriceAtBid,
+    });
+  }
+}
