@@ -1596,7 +1596,13 @@ export class MyVault {
   }): Promise<void> {
     const { vault, createBlockNumber, masterXpubPath, txFee } = data;
     const table = await this.getTable();
-    this.data.metadata = await table.insert(vault.vaultId, masterXpubPath, createBlockNumber, txFee);
+    this.data.metadata = await table.insert({
+      id: vault.vaultId,
+      hdPath: masterXpubPath,
+      createdAtBlockHeight: createBlockNumber,
+      operationalFeeMicrogons: txFee,
+      isClosed: false,
+    });
     this.data.createdVault = vault;
     this.vaults.vaultsById[vault.vaultId] = vault;
   }

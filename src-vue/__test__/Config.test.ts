@@ -5,16 +5,10 @@ import { createMockedDbPromise, createTestDb } from './helpers/db';
 import { instanceChecks } from '../lib/Utils.js';
 import { WalletKeys } from '../lib/WalletKeys.ts';
 import { createTestWallet } from './helpers/wallet.ts';
-import {
-  BootstrapType,
-  type IConfig,
-  InstallStepStatus,
-  MiningSetupStatus,
-  ServerType,
-  VaultingSetupStatus,
-} from '../interfaces/IConfig.ts';
+import { BootstrapType, MiningSetupStatus, ServerType, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 import { JsonExt } from '@argonprotocol/apps-core';
-import type PluginSql from '@tauri-apps/plugin-sql';
+import Restarter from '../lib/Restarter.ts';
+import PluginSql from '@tauri-apps/plugin-sql';
 
 beforeAll(() => {
   WalletKeys.prototype.didWalletHavePreviousLife = vi.fn().mockResolvedValue(false);
@@ -92,90 +86,33 @@ it('can load config from db state', async () => {
   expect(config.postWelcomeLaunchCount).toBe(4);
 });
 
-it('trusts saved mining seats without querying cached activity', async () => {
+it('does not recover operation state from cached mining or vault activity', async () => {
   const dbPromise = createMockedDbPromise({
-    miningSetupStatus: `"${MiningSetupStatus.Finished}"`,
+    miningSetupStatus: `"${MiningSetupStatus.Checklist}"`,
+    vaultingSetupStatus: `"${VaultingSetupStatus.Installing}"`,
     hasMiningBids: 'false',
-    hasMiningSeats: 'true',
+    hasMiningSeats: 'false',
+    vaultingRules: JsonExt.stringify(Config.getDefault('vaultingRules'), 2),
   });
   const db = await dbPromise;
-  vi.spyOn(db, 'select').mockRejectedValue(new Error('cached mining activity should not be queried'));
+  const miningActivitySpy = vi
+    .spyOn(db, 'select')
+    .mockRejectedValue(new Error('cached mining activity should not be queried'));
+  const vaultActivitySpy = vi
+    .spyOn(db.vaultsTable, 'get')
+    .mockRejectedValue(new Error('cached vault activity should not be queried'));
   const { walletKeys } = createTestWallet('//Alice');
   instanceChecks.delete(Config.prototype.constructor);
   const config = new Config(dbPromise, walletKeys);
 
   await config.load();
 
-  expect(config.hasMiningBids).toBe(true);
-  expect(config.hasMiningSeats).toBe(true);
-});
-
-it('restores established mining flags from cached activity on app restart', async () => {
-  const db = await createTestDb();
-  const biddingRules = Config.getDefault('biddingRules') as IConfig['biddingRules'];
-  biddingRules.initialCapitalCommitment = 1n;
-  await db.configTable.insertOrReplace({
-    miningSetupStatus: `"${MiningSetupStatus.Installing}"`,
-    isServerInstalled: 'true',
-    isServerInstalling: 'true',
-    hasMiningBids: 'false',
-    hasMiningSeats: 'false',
-    biddingRules: JsonExt.stringify(biddingRules),
-  });
-  await db.frameBidsTable.insertOrUpdate(20, 200, [
-    {
-      address: '5cachedBid',
-      subAccountIndex: 1,
-      microgonsPerSeat: 10n,
-      micronotsStakedPerSeat: 20n,
-      bidPosition: 0,
-      lastBidAtTick: 100,
-    },
-  ]);
-  await db.framesTable.insertOrUpdate({
-    id: 19,
-    firstTick: 1,
-    rewardTicksRemaining: 0,
-    firstBlockNumber: 100,
-    lastBlockNumber: 199,
-    microgonToUsd: [],
-    microgonToBtc: [],
-    microgonToArgonot: [],
-    accruedMicrogonProfits: 0n,
-    accruedMicronotProfits: 0n,
-    progress: 100,
-  });
-  await db.cohortsTable.insertOrUpdate({
-    id: 19,
-    transactionFeesTotal: 0n,
-    micronotsStakedPerSeat: 20n,
-    microgonsBidPerSeat: 10n,
-    seatCountWon: 1,
-    microgonsToBeMinedPerSeat: 30n,
-    micronotsToBeMinedPerSeat: 40n,
-    argonotPriceAtBid: 50n,
-  });
-  const { walletKeys } = createTestWallet('//Alice');
-  instanceChecks.delete(Config.prototype.constructor);
-  const config = new Config(Promise.resolve(db), walletKeys);
-
-  try {
-    await config.load();
-
-    expect(config.miningSetupStatus).toBe(MiningSetupStatus.Finished);
-    expect(config.hasMiningBids).toBe(true);
-    expect(config.hasMiningSeats).toBe(true);
-    await expect(db.configTable.fetchAllAsObject()).resolves.toEqual(
-      expect.objectContaining({
-        miningSetupStatus: `"${MiningSetupStatus.Finished}"`,
-        hasMiningBids: 'true',
-        hasMiningSeats: 'true',
-      }),
-    );
-  } finally {
-    await db.close();
-    instanceChecks.delete(db.constructor);
-  }
+  expect(miningActivitySpy).not.toHaveBeenCalled();
+  expect(vaultActivitySpy).not.toHaveBeenCalled();
+  expect(config.miningSetupStatus).toBe(MiningSetupStatus.Checklist);
+  expect(config.vaultingSetupStatus).toBe(VaultingSetupStatus.Installing);
+  expect(config.hasMiningBids).toBe(false);
+  expect(config.hasMiningSeats).toBe(false);
 });
 
 it('migrates old server port field to sshPort', async () => {
@@ -216,122 +153,76 @@ it.each(['loading', 'ARGON_NETWORK_NAME'])('clears fake upstream state stored wi
   expect(saveSpy).toHaveBeenCalledWith(expect.objectContaining({ bootstrapDetails: '', upstreamOperator: '' }));
 });
 
-it.each([MiningSetupStatus.Checklist, MiningSetupStatus.Installing])(
-  'finishes interrupted mining setup from %s when bidding rules and the server were already saved',
-  async miningSetupStatus => {
-    const biddingRules = Config.getDefault('biddingRules') as IConfig['biddingRules'];
-    biddingRules.initialCapitalCommitment = 1n;
-    const serverInstaller = Config.getDefault('serverInstaller') as IConfig['serverInstaller'];
-    serverInstaller.MiningLaunch.status = InstallStepStatus.Completed;
-    const dbPromise = createMockedDbPromise({
-      miningSetupStatus: `"${miningSetupStatus}"`,
+it('preserves established operation state when recreating the local database', async () => {
+  const db = await createTestDb();
+  const replacementDb = await createTestDb();
+  const miningHistory = [{ frameId: 10, bids: [], seats: [] }];
+  const pluginSqlLoad = vi.spyOn(PluginSql, 'load').mockResolvedValue(replacementDb.sql);
+
+  try {
+    await db.configTable.insertOrReplace({
+      hasExtensionTreasury: 'true',
+      hasExtensionOperations: 'true',
+      miningSetupStatus: `"${MiningSetupStatus.Finished}"`,
+      vaultingSetupStatus: `"${VaultingSetupStatus.Finished}"`,
       isServerInstalled: 'true',
-      biddingRules: JsonExt.stringify(biddingRules),
-      serverInstaller: JsonExt.stringify(serverInstaller),
+      hasMiningBids: 'true',
+      hasMiningSeats: 'true',
+      walletAccountsHadPreviousLife: 'true',
+      walletPreviousLifeRecovered: 'true',
+      miningBotAccountPreviousHistory: JsonExt.stringify(miningHistory),
     });
-    const db = await dbPromise;
-    const saveSpy = vi.spyOn(db.configTable, 'insertOrReplace');
-    const { walletKeys } = createTestWallet('//Alice');
-    instanceChecks.delete(Config.prototype.constructor);
-    const config = new Config(dbPromise, walletKeys);
-
-    await config.load();
-
-    expect(config.miningSetupStatus).toBe(MiningSetupStatus.Finished);
-    expect(saveSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ miningSetupStatus: `"${MiningSetupStatus.Finished}"` }),
-    );
-  },
-);
-
-it('keeps mining setup active while the final server install step is still running', async () => {
-  const biddingRules = Config.getDefault('biddingRules') as IConfig['biddingRules'];
-  biddingRules.initialCapitalCommitment = 1n;
-  const serverInstaller = Config.getDefault('serverInstaller') as IConfig['serverInstaller'];
-  serverInstaller.MiningLaunch.status = InstallStepStatus.Working;
-  const dbPromise = createMockedDbPromise({
-    miningSetupStatus: `"${MiningSetupStatus.Installing}"`,
-    isServerInstalled: 'true',
-    isServerInstalling: 'true',
-    biddingRules: JsonExt.stringify(biddingRules),
-    serverInstaller: JsonExt.stringify(serverInstaller),
-  });
-  const { walletKeys } = createTestWallet('//Alice');
-  instanceChecks.delete(Config.prototype.constructor);
-  const config = new Config(dbPromise, walletKeys);
-
-  await config.load();
-
-  expect(config.miningSetupStatus).toBe(MiningSetupStatus.Installing);
-});
-
-it.each([VaultingSetupStatus.None, VaultingSetupStatus.Checklist, VaultingSetupStatus.Installing])(
-  'recovers completed vault setup from %s when vaulting rules and an open vault were saved',
-  async vaultingSetupStatus => {
-    const dbPromise = createMockedDbPromise({
-      vaultingSetupStatus: `"${vaultingSetupStatus}"`,
-      vaultingRules: JsonExt.stringify(Config.getDefault('vaultingRules')),
-    });
-    const db = await dbPromise;
-    vi.spyOn(db.vaultsTable, 'get').mockResolvedValue({
+    await db.vaultsTable.insert({
       id: 1,
-      hdPath: '//1',
+      hdPath: '//vaulting',
       createdAtBlockHeight: 10,
+      lastTermsUpdateHeight: 20,
+      operationalFeeMicrogons: 30n,
       isClosed: false,
-      createdAt: new Date(),
-      updatedAt: new Date(),
     });
-    const saveSpy = vi.spyOn(db.configTable, 'insertOrReplace');
     const { walletKeys } = createTestWallet('//Alice');
     instanceChecks.delete(Config.prototype.constructor);
-    const config = new Config(dbPromise, walletKeys);
-
+    const config = new Config(Promise.resolve(db), walletKeys);
     await config.load();
 
-    expect(config.vaultingSetupStatus).toBe(VaultingSetupStatus.Finished);
-    expect(saveSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ vaultingSetupStatus: `"${VaultingSetupStatus.Finished}"` }),
+    const previousLifeSpy = vi.spyOn(walletKeys, 'didWalletHavePreviousLife');
+    const restarter = new Restarter(Promise.resolve(db), config);
+    vi.spyOn(restarter, 'deleteAndCreateLocalDatabase').mockResolvedValue();
+    vi.spyOn(restarter, 'restart').mockImplementation(() => undefined);
+    await restarter.migrateToFreshLocalDatabase();
+
+    const recoverAccount = vi.fn(async () => ({}));
+    const { walletKeys: restoredWalletKeys } = createTestWallet('//Alice');
+    instanceChecks.delete(Config.prototype.constructor);
+    const restoredConfig = new Config(Promise.resolve(replacementDb), restoredWalletKeys, recoverAccount);
+    await restoredConfig.load();
+
+    expect(previousLifeSpy).not.toHaveBeenCalled();
+    expect(recoverAccount).not.toHaveBeenCalled();
+    expect(restoredConfig.isBootingUpPreviousWalletHistory).toBe(false);
+    expect(restoredConfig.hasExtensionTreasury).toBe(true);
+    expect(restoredConfig.hasExtensionOperations).toBe(true);
+    expect(restoredConfig.miningSetupStatus).toBe(MiningSetupStatus.Finished);
+    expect(restoredConfig.vaultingSetupStatus).toBe(VaultingSetupStatus.Finished);
+    expect(restoredConfig.isServerInstalled).toBe(true);
+    expect(restoredConfig.hasMiningBids).toBe(true);
+    expect(restoredConfig.hasMiningSeats).toBe(true);
+    expect(restoredConfig.walletAccountsHadPreviousLife).toBe(true);
+    expect(restoredConfig.walletPreviousLifeRecovered).toBe(true);
+    expect(restoredConfig.miningBotAccountPreviousHistory).toEqual(miningHistory);
+    await expect(replacementDb.vaultsTable.get()).resolves.toEqual(
+      expect.objectContaining({
+        id: 1,
+        hdPath: '//vaulting',
+        createdAtBlockHeight: 10,
+        lastTermsUpdateHeight: 20,
+        operationalFeeMicrogons: 30n,
+        isClosed: false,
+      }),
     );
-  },
-);
-
-it('preserves completed vaulting setup when recreating the local database', async () => {
-  const dbPromise = createMockedDbPromise({
-    vaultingSetupStatus: `"${VaultingSetupStatus.Finished}"`,
-    hasExtensionTreasury: 'true',
-    hasExtensionOperations: 'true',
-  });
-  const { walletKeys } = createTestWallet('//Alice');
-  instanceChecks.delete(Config.prototype.constructor);
-  const config = new Config(dbPromise, walletKeys);
-  await config.load();
-
-  await config.restoreToConnection({} as PluginSql);
-
-  expect(config.vaultingSetupStatus).toBe(VaultingSetupStatus.Finished);
-  expect(config.hasExtensionTreasury).toBe(true);
-  expect(config.hasExtensionOperations).toBe(true);
-});
-
-it('keeps interrupted setup active without durable evidence that creation finished', async () => {
-  const biddingRules = Config.getDefault('biddingRules') as IConfig['biddingRules'];
-  biddingRules.initialCapitalCommitment = 0n;
-  const serverInstaller = Config.getDefault('serverInstaller') as IConfig['serverInstaller'];
-  serverInstaller.MiningLaunch.status = InstallStepStatus.Completed;
-  const dbPromise = createMockedDbPromise({
-    miningSetupStatus: `"${MiningSetupStatus.Checklist}"`,
-    isServerInstalled: 'true',
-    vaultingSetupStatus: `"${VaultingSetupStatus.Installing}"`,
-    biddingRules: JsonExt.stringify(biddingRules),
-    vaultingRules: JsonExt.stringify(Config.getDefault('vaultingRules')),
-    serverInstaller: JsonExt.stringify(serverInstaller),
-  });
-  const { walletKeys } = createTestWallet('//Alice');
-  instanceChecks.delete(Config.prototype.constructor);
-  const config = new Config(dbPromise, walletKeys);
-
-  await config.load();
-
-  expect(config.miningSetupStatus).toBe(MiningSetupStatus.Checklist);
-  expect(config.vaultingSetupStatus).toBe(VaultingSetupStatus.Installing);
+  } finally {
+    pluginSqlLoad.mockRestore();
+    await db.close();
+    await replacementDb.close();
+  }
 });
