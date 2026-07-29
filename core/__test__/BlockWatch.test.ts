@@ -271,6 +271,39 @@ describe('BlockWatch archive recovery', () => {
     expect(blockWatch.isLoaded.isResolved).toBe(true);
   });
 
+  it('starts before the initial best-chain catchup finishes', async () => {
+    vi.spyOn(BlockWatch, 'readHeader').mockImplementation(readMockHeader);
+
+    const finalizedHeader = createHeaderInfo(100, '0x100', '0x099');
+    finalizedHeader.isFinalized = true;
+    const parentHeader = createHeaderInfo(101, '0x101', finalizedHeader.blockHash);
+    const bestHeader = createHeaderInfo(102, '0x102', parentHeader.blockHash);
+    const pendingParent = createDeferredPromise<unknown>();
+    const client = createSubscriptionClient(finalizedHeader);
+    client.rpc.chain.getHeader.mockImplementation(async (hash?: string) => {
+      if (hash === finalizedHeader.blockHash) return { __info: finalizedHeader };
+      if (!hash) return { __info: bestHeader };
+      if (hash === parentHeader.blockHash) return await pendingParent.promise;
+      throw new Error(`Unexpected header ${hash}`);
+    });
+    const blockWatch = new BlockWatch(createClients(client, client) as any);
+
+    await blockWatch.start('archive');
+
+    expect(blockWatch.finalizedBlockHeader).toBe(finalizedHeader);
+    expect(blockWatch.bestBlockHeader).toBe(bestHeader);
+    expect(blockWatch.latestHeaders).toEqual([finalizedHeader, bestHeader]);
+    expect(blockWatch.isLoaded.isResolved).toBe(false);
+    expect(client.rpc.chain.subscribeNewHeads).toHaveBeenCalledOnce();
+    expect(client.rpc.chain.subscribeFinalizedHeads).toHaveBeenCalledOnce();
+
+    pendingParent.resolve({ __info: parentHeader });
+    await vi.waitFor(() => {
+      expect(blockWatch.latestHeaders).toEqual([finalizedHeader, parentHeader, bestHeader]);
+      expect(blockWatch.isLoaded.isResolved).toBe(true);
+    });
+  });
+
   it('retries with a newer best block when the previous best head becomes unreadable', async () => {
     const finalizedHeader = createHeaderInfo(100, '0xfinalized', '0x099');
     finalizedHeader.isFinalized = true;
@@ -706,7 +739,7 @@ describe('BlockWatch archive recovery', () => {
       const blockWatchInternal = getInternalBlockWatch(blockWatch);
 
       blockWatchInternal.unsubscribe = vi.fn();
-      const startMock = vi.spyOn(blockWatch, 'start').mockImplementation(async () => {
+      const startMock = vi.spyOn(blockWatch, 'startWithCatchup').mockImplementation(async () => {
         blockWatchInternal.unsubscribe = vi.fn();
         if (startMock.mock.calls.length === 1) {
           throw new Error('offline');

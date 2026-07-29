@@ -195,7 +195,7 @@ const financials = useFinancials();
 const currency = getCurrency();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 const walletValueIsLoaded = computed(() =>
-  props.walletSelection?.walletType === WalletType.defaultArgon ? financials.savingsBalanceIsLoaded : true,
+  props.walletSelection?.walletType === WalletType.defaultArgon ? financials.savingsIsLoaded : true,
 );
 const walletTotalValue = computed(() => {
   if (!props.wallet) return 0n;

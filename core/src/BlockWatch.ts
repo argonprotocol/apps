@@ -51,6 +51,7 @@ export class BlockWatch {
   public latestHeaders: IBlockHeaderInfo[] = [];
   public finalizedHashes: { [blockNumber: number]: string } = {};
   public isLoaded = createDeferred(false);
+  private currentStateReady = createDeferred(false);
   private processingQueue = new SingleFileQueue();
   private apiByBlockHash = new Map<string, Promise<ApiDecoration<'promise'>>>();
   private eventsByBlockHash = new Map<
@@ -111,11 +112,17 @@ export class BlockWatch {
   }
 
   public async start(source = this.getPreferredSubscriptionSource()): Promise<void> {
+    const catchupPromise = this.startWithCatchup(source);
+    return await Promise.race([this.currentStateReady.promise, catchupPromise]);
+  }
+
+  public async startWithCatchup(source = this.getPreferredSubscriptionSource()): Promise<void> {
     if (this.isLoaded.isResolved || this.isLoaded.isRunning) {
       return this.isLoaded.promise;
     }
     if (this.isLoaded.isRejected) {
       this.isLoaded = createDeferred(false);
+      this.currentStateReady = createDeferred(false);
     }
     this.isLoaded.setIsRunning(true);
 
@@ -156,8 +163,18 @@ export class BlockWatch {
       const finalizedBlock = BlockWatch.readHeader(finalizedHeader, true);
       this.latestHeaders = [finalizedBlock];
       const bestHeader = await client.rpc.chain.getHeader();
-      const bestTail = await this.fillNewHeadGap(finalizedBlock, bestHeader);
-      this.latestHeaders = [finalizedBlock, ...bestTail];
+      const bestBlock = BlockWatch.readHeader(bestHeader);
+      if (bestBlock.blockHash !== finalizedBlock.blockHash) {
+        this.latestHeaders.push(bestBlock);
+      }
+
+      const initialBestTail = this.processingQueue.add(async () => {
+        const bestTail = await this.fillNewHeadGap(finalizedBlock, bestBlock);
+        if (generation !== this.subscriptionGeneration) {
+          return;
+        }
+        this.latestHeaders = [finalizedBlock, ...bestTail];
+      });
 
       unsub1 = await client.rpc.chain.subscribeNewHeads(async header => {
         if (generation !== this.subscriptionGeneration) {
@@ -222,6 +239,8 @@ export class BlockWatch {
         unsub1?.();
         unsub2?.();
       };
+      this.currentStateReady.resolve();
+      await initialBestTail.promise;
     } catch (error) {
       unsub1?.();
       unsub2?.();
@@ -243,6 +262,7 @@ export class BlockWatch {
     }
     this.subscriptionGeneration += 1;
     this.isLoaded = createDeferred(false);
+    this.currentStateReady = createDeferred(false);
   }
 
   public destroy(): void {
@@ -735,7 +755,7 @@ export class BlockWatch {
         source,
       });
       this.stop();
-      await this.start(source);
+      await this.startWithCatchup(source);
     } catch (error) {
       console.error('[BlockWatch]: Failed to restart subscriptions', { reason, error });
       this.pendingRestart = {

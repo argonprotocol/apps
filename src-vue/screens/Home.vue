@@ -205,7 +205,7 @@ function getWalletData(walletRecord: IWalletRecord): IWallet {
 }
 
 function walletBalanceIsLoaded(walletRecord: IWalletRecord): boolean {
-  return walletRecord.walletType === 'argon' ? financials.savingsBalanceIsLoaded : wallets.isLoaded;
+  return walletRecord.walletType === 'argon' ? financials.savingsIsLoaded : wallets.isLoaded;
 }
 
 function getWalletBalance(walletRecord: IWalletRecord): bigint {

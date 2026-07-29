@@ -102,7 +102,7 @@ export const useBlockchainStore = defineStore('blockchain', () => {
   }
 
   async function subscribeToBlocks(onBlock: (block: IBlock) => void) {
-    await blockWatch.start();
+    await blockWatch.startWithCatchup();
 
     // Subscribe to new blocks
     for (const header of blockWatch.latestHeaders) {
