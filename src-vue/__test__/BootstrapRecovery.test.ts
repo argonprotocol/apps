@@ -46,7 +46,6 @@ describe('BootstrapRecovery', () => {
       wallet: downstream,
       context: BootstrapRecoveryContext.Upstream,
       endpointSecret,
-      endpointOwner: upstream.operationalAddress,
       endpoint: {
         version: 1,
         host: 'router.example',
@@ -57,17 +56,16 @@ describe('BootstrapRecovery', () => {
 
     const recovery = new BootstrapRecovery(downstream);
     await expect(
-      recovery.recoverEndpoint(bootstrapClient, BootstrapRecoveryContext.Upstream, upstream.operationalAddress, 2),
+      recovery.recoverEndpoint(bootstrapClient, BootstrapRecoveryContext.Upstream, 2),
     ).resolves.toMatchObject({
       host: 'router.example',
       port: 443,
       sequence: 3,
       bootstrapEndpointSecret: endpointSecret,
-      ownerAccountId: upstream.operationalAddress,
     });
 
     await expect(
-      recovery.recoverEndpoint(bootstrapClient, BootstrapRecoveryContext.OwnServer, upstream.operationalAddress),
+      recovery.recoverEndpoint(bootstrapClient, BootstrapRecoveryContext.OwnServer),
     ).resolves.toBeUndefined();
 
     const ownServerEndpointIndex = 2;
@@ -76,7 +74,6 @@ describe('BootstrapRecovery', () => {
       wallet: downstream,
       context: BootstrapRecoveryContext.OwnServer,
       endpointSecret: ownServerEndpointSecret,
-      endpointOwner: downstream.operationalAddress,
       endpointIndex: ownServerEndpointIndex,
       recovery: {
         ssh: {
@@ -85,9 +82,7 @@ describe('BootstrapRecovery', () => {
         },
       },
     });
-    await expect(
-      recovery.recoverEndpoint(ownServerClient, BootstrapRecoveryContext.OwnServer, downstream.operationalAddress),
-    ).resolves.toMatchObject({
+    await expect(recovery.recoverEndpoint(ownServerClient, BootstrapRecoveryContext.OwnServer)).resolves.toMatchObject({
       host: 'router.example',
       port: 443,
       bootstrapEndpointSecret: ownServerEndpointSecret,
@@ -99,7 +94,7 @@ describe('BootstrapRecovery', () => {
     });
   });
 
-  it('rejects owner mismatches, stale endpoints, and malformed encrypted payloads', async () => {
+  it('rejects stale endpoints and malformed encrypted payloads', async () => {
     const downstream = createMockWalletKeys('//DownstreamValidation');
     const upstream = createMockWalletKeys('//UpstreamValidation');
     const endpointSecret = await upstream.getOwnServerBootstrapEndpointSecret();
@@ -107,7 +102,6 @@ describe('BootstrapRecovery', () => {
       wallet: downstream,
       context: BootstrapRecoveryContext.Upstream,
       endpointSecret,
-      endpointOwner: upstream.operationalAddress,
       endpoint: {
         version: 1,
         host: 'router.example',
@@ -117,23 +111,19 @@ describe('BootstrapRecovery', () => {
     });
     const recovery = new BootstrapRecovery(downstream);
 
-    await expect(
-      recovery.recoverEndpoint(bootstrapClient, BootstrapRecoveryContext.Upstream, downstream.operationalAddress),
-    ).rejects.toThrow('owned by a different account');
-    await expect(
-      recovery.recoverEndpoint(bootstrapClient, BootstrapRecoveryContext.Upstream, upstream.operationalAddress, 2),
-    ).rejects.toThrow('older than the cached endpoint');
+    await expect(recovery.recoverEndpoint(bootstrapClient, BootstrapRecoveryContext.Upstream, 2)).rejects.toThrow(
+      'older than the cached endpoint',
+    );
 
     const malformedClient = await createBootstrapClient({
       wallet: downstream,
       context: BootstrapRecoveryContext.Upstream,
       endpointSecret,
-      endpointOwner: upstream.operationalAddress,
       encryptedEndpoint: new Uint8Array([1, 2, 3]),
     });
-    await expect(
-      recovery.recoverEndpoint(malformedClient, BootstrapRecoveryContext.Upstream, upstream.operationalAddress),
-    ).rejects.toThrow('encrypted bootstrap payload is invalid');
+    await expect(recovery.recoverEndpoint(malformedClient, BootstrapRecoveryContext.Upstream)).rejects.toThrow(
+      'encrypted bootstrap payload is invalid',
+    );
   });
 });
 
@@ -141,7 +131,6 @@ async function createBootstrapClient(args: {
   wallet: MemoryWalletKeys;
   context: BootstrapRecoveryContext;
   endpointSecret: string;
-  endpointOwner: string;
   endpointIndex?: number;
   endpoint?: IBootstrapEndpointPayload;
   recovery?: Pick<IBootstrapRecoveryPayload, 'ssh'>;
@@ -191,14 +180,7 @@ async function createBootstrapClient(args: {
             optionBytes(u8aToHex(pubkey) === u8aToHex(endpointPubkey) ? encryptedEndpoint : undefined),
           );
         },
-        endpointOwnerByPubkey: (pubkey: Uint8Array) => {
-          return Promise.resolve(
-            registry.createType(
-              'Option<AccountId>',
-              u8aToHex(pubkey) === u8aToHex(endpointPubkey) ? args.endpointOwner : null,
-            ),
-          );
-        },
+        endpointOwnerByPubkey: () => Promise.resolve(registry.createType('Option<AccountId>', null)),
       },
     },
     tx: {

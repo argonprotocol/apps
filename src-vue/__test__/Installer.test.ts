@@ -80,6 +80,7 @@ it('keeps the installer loadable when a server check fails and clears the error 
 
   getServer.mockResolvedValue({
     downloadAccountAddress: vi.fn().mockResolvedValue(walletKeys.miningBotAddress),
+    uploadInstallManifest: vi.fn().mockResolvedValue(undefined),
   });
   vi.spyOn(installer as any, 'calculateIsReadyToRun').mockResolvedValue(false);
   vi.spyOn(installer as any, 'calculateIsRunning').mockResolvedValue(false);
@@ -496,6 +497,7 @@ it('preserves the remote Docker Compose project name across a core file replacem
 
   const server = {
     downloadAccountAddress: vi.fn().mockResolvedValue(walletKeys.miningBotAddress),
+    uploadInstallManifest: vi.fn().mockResolvedValue(undefined),
     getComposeProjectName: vi.fn().mockResolvedValue('mainnet-default'),
     uploadAccountAddress: vi.fn().mockResolvedValue(undefined),
     createLogsDir: vi.fn().mockResolvedValue(undefined),
@@ -573,7 +575,7 @@ it('uses a brief startup estimate until bot sync progress is available', async (
   ).resolves.toBe(37.5);
 });
 
-it('persists SSH details before later installation work can fail', async () => {
+it('persists and publishes SSH recovery before later installation work can fail', async () => {
   const dbPromise = createMockedDbPromise({ serverAdd: '{ "localComputer": {} }' });
   const db = await dbPromise;
   const insertOrReplace = vi.spyOn(db.configTable, 'insertOrReplace');
@@ -589,7 +591,13 @@ it('persists SSH details before later installation work can fail', async () => {
     workDir: '/app',
   });
 
-  const installer = new Installer(config, walletKeys);
+  let wasRecoveryPublishedBeforeFailure = false;
+  const publishOwnServerRecovery = vi.fn().mockImplementation(async () => {
+    wasRecoveryPublishedBeforeFailure = true;
+  });
+  const installer = new Installer(config, walletKeys, {
+    publishOwnServerRecovery,
+  });
   let wereSshDetailsSavedBeforeFailure = false;
   // @ts-ignore - keep the failure after machine setup and before bot installation
   installer.getServer = vi.fn().mockImplementation(async () => {
@@ -604,6 +612,7 @@ it('persists SSH details before later installation work can fail', async () => {
   await installer.load();
 
   expect(wereSshDetailsSavedBeforeFailure).toBe(true);
+  expect(wasRecoveryPublishedBeforeFailure).toBe(true);
   expect(config.serverDetails).toMatchObject({
     ipAddress: '127.0.0.1',
     sshPort: 2222,
@@ -733,6 +742,7 @@ it('waits for the first Argon block before uploading bot config files', async ()
 
   const server = {
     downloadAccountAddress: vi.fn().mockResolvedValue(walletKeys.miningBotAddress),
+    uploadInstallManifest: vi.fn().mockResolvedValue(undefined),
     createLogsDir: vi.fn().mockResolvedValue(undefined),
     startInstallerScript: vi.fn().mockResolvedValue(undefined),
   };
@@ -803,6 +813,7 @@ it('shows file-upload progress between 90 and 96 while waiting for proxy setup i
 
   const server = {
     downloadAccountAddress: vi.fn().mockResolvedValue(walletKeys.miningBotAddress),
+    uploadInstallManifest: vi.fn().mockResolvedValue(undefined),
     getComposeProjectName: vi.fn().mockResolvedValue('mainnet-default'),
     uploadAccountAddress: vi.fn().mockResolvedValue(undefined),
     createLogsDir: vi.fn().mockResolvedValue(undefined),
@@ -919,6 +930,7 @@ it('does not start the remote installer after an app update is installed', async
 
   const server = {
     downloadAccountAddress: vi.fn().mockResolvedValue(walletKeys.miningBotAddress),
+    uploadInstallManifest: vi.fn().mockResolvedValue(undefined),
     getComposeProjectName: vi.fn().mockResolvedValue('mainnet-default'),
     uploadAccountAddress: vi.fn().mockResolvedValue(undefined),
     createLogsDir: vi.fn().mockResolvedValue(undefined),
@@ -979,6 +991,7 @@ it('skips installer proxy setup before mining setup is finished', async () => {
 
   const server = {
     downloadAccountAddress: vi.fn().mockResolvedValue(walletKeys.miningBotAddress),
+    uploadInstallManifest: vi.fn().mockResolvedValue(undefined),
     createLogsDir: vi.fn().mockResolvedValue(undefined),
     startInstallerScript: vi.fn().mockResolvedValue(undefined),
   };
@@ -1027,6 +1040,7 @@ it('does not fail installer proxy migration when the mining funding account is s
 
   const server = {
     downloadAccountAddress: vi.fn().mockResolvedValue(walletKeys.miningBotAddress),
+    uploadInstallManifest: vi.fn().mockResolvedValue(undefined),
     createLogsDir: vi.fn().mockResolvedValue(undefined),
     startInstallerScript: vi.fn().mockResolvedValue(undefined),
   };

@@ -30,6 +30,8 @@ RUN rm -f /usr/sbin/policy-rc.d \
 RUN useradd -ms /bin/bash argon \
  && echo "argon ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
+COPY --chown=argon:argon argon-server.json /home/argon/.argon-server.json
+
 # Update sshd_config
 RUN sed -i 's/#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && \
     sed -i 's/#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config && \

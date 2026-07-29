@@ -121,8 +121,14 @@ export class SSHConnection {
       }
     });
     try {
-      const payload = { address: this.address, localRelativePath, remotePath, eventProgressKey };
-      await invokeWithTimeout('ssh_upload_embedded_file', payload, timeout);
+      const payload = {
+        address: this.address,
+        localRelativePath,
+        remotePath,
+        eventProgressKey,
+        timeoutMs: timeout,
+      };
+      await invokeWithTimeout('ssh_upload_embedded_file', payload, timeout + 5_000);
     } catch (e) {
       unsub();
       throw e;

@@ -80,7 +80,7 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
     const defaultAccountKeypair = await memberWalletKeys.getLiquidLockingKeypair();
     await sudoFundWallet({
       client,
-      address: operatorWalletKeys.operationalAddress,
+      address: operatorWalletKeys.defaultArgonAddress,
       microgons: 10n * BigInt(MICROGONS_PER_ARGON),
       micronots: 0n,
     });
@@ -100,28 +100,33 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
     const operatorRecovery = new BootstrapRecovery(operatorWalletKeys);
     const memberRecovery = new BootstrapRecovery(memberWalletKeys);
     const sourceUrl = new URL(source.operatorHost);
-    await operatorRecovery.publishServerEndpoint({
+    await operatorRecovery.publishRecovery({
       client,
       transactionTracker,
-      host: sourceUrl.hostname,
-      port: Number(sourceUrl.port),
+      context: BootstrapRecoveryContext.OwnServer,
+      bootstrapEndpointSecret,
+      bootstrapEndpointIndex: 0,
       ssh: {
         user: 'dev',
         port: 22,
       },
     });
-    await expect(
-      operatorRecovery.recoverEndpoint(
-        client,
-        BootstrapRecoveryContext.OwnServer,
-        operatorWalletKeys.operationalAddress,
-      ),
-    ).resolves.toMatchObject({
+    await expect(operatorRecovery.recoverEndpoint(client, BootstrapRecoveryContext.OwnServer)).resolves.toBeUndefined();
+    await operatorRecovery.publishEndpoint({
+      client,
+      transactionTracker,
+      host: sourceUrl.hostname,
+      port: Number(sourceUrl.port),
+      bootstrapEndpointSecret,
+    });
+    const bootstrapEndpointPubkey = getBootstrapEndpointPubkey(bootstrapEndpointSecret);
+    const endpointOwner = await client.query.bootstrap.endpointOwnerByPubkey(bootstrapEndpointPubkey);
+    expect(endpointOwner.unwrap().toString()).toBe(operatorWalletKeys.defaultArgonAddress);
+    await expect(operatorRecovery.recoverEndpoint(client, BootstrapRecoveryContext.OwnServer)).resolves.toMatchObject({
       host: sourceUrl.hostname,
       port: Number(sourceUrl.port),
       bootstrapEndpointSecret,
       bootstrapEndpointIndex: 0,
-      ownerAccountId: operatorWalletKeys.operationalAddress,
       ssh: {
         user: 'dev',
         port: 22,
@@ -186,11 +191,7 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
       applyRestoreResult,
     };
     const recoverOperatorHost = async () => {
-      const endpoint = await memberRecovery.recoverEndpoint(
-        client,
-        BootstrapRecoveryContext.Upstream,
-        operatorWalletKeys.operationalAddress,
-      );
+      const endpoint = await memberRecovery.recoverEndpoint(client, BootstrapRecoveryContext.Upstream);
       if (!endpoint) return;
 
       cachedOperatorHost = `http://${endpoint.host}:${endpoint.port}`;

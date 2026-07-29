@@ -212,7 +212,7 @@ export async function startDevUpstreamServer(args: {
     });
     await sudoFundWallet({
       client: fundingClient,
-      address: walletKeys.operationalAddress,
+      address: walletKeys.defaultArgonAddress,
       microgons: 10n * BigInt(MICROGONS_PER_ARGON),
       micronots: 0n,
     });

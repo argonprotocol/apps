@@ -1,15 +1,19 @@
 import { decryptBootstrapRecovery } from '@argonprotocol/apps-core';
 import { hexToU8a } from '@argonprotocol/mainchain';
 import { BootstrapRecovery, BootstrapRecoveryContext } from '../lib/BootstrapRecovery.ts';
-import { BootstrapType } from '../interfaces/IConfig.ts';
+import { BootstrapType, ServerType } from '../interfaces/IConfig.ts';
 import { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
 import { getConfig } from './config.ts';
 import { getMainchainClient, refreshPrunedClientFromConfig } from './mainchain.ts';
 import { getTransactionTracker } from './transactions.ts';
 import { getWalletKeys, getWalletsForArgon } from './wallets.ts';
+import { SSHConnection } from '../lib/SSHConnection.ts';
+import { ServerAdmin, type ServerInstallManifest } from '../lib/ServerAdmin.ts';
 
 let upstreamEnrollmentPromise: Promise<void> | undefined;
 let stopWatchingUpstreamRecoveryFunds: VoidFunction | undefined;
+let stopWatchingOwnServerFunds: VoidFunction | undefined;
+let serverRecoveryPublicationPromise: Promise<void> | undefined;
 let serverPublicationPromise: Promise<void> | undefined;
 
 export async function recoverUpstreamHost(): Promise<string | undefined> {
@@ -27,14 +31,12 @@ export async function recoverUpstreamHost(): Promise<string | undefined> {
     endpoint = await recovery.resolveEndpoint(
       client,
       recoveryPayload.endpointSecret,
-      upstreamOperator.accountId,
       upstreamOperator.bootstrapEndpointSequence,
     );
   } else {
     endpoint = await recovery.recoverEndpoint(
       client,
       BootstrapRecoveryContext.Upstream,
-      upstreamOperator?.accountId,
       upstreamOperator?.bootstrapEndpointSequence,
     );
   }
@@ -94,30 +96,36 @@ export function enrollUpstreamRecovery(): Promise<void> {
 }
 
 export function publishOwnServerEndpoint(): Promise<void> {
-  serverPublicationPromise ??= (async () => {
-    const config = getConfig();
-    const host = config.serverDetails.ipAddress;
-    if (!config.isServerInstalled || !host) return;
+  if (serverPublicationPromise) return serverPublicationPromise;
 
+  const config = getConfig();
+  const host = config.serverDetails.ipAddress;
+  if (!config.isServerInstalled || !host) return Promise.resolve();
+
+  const wallets = getWalletsForArgon();
+  if (wallets.defaultArgonWallet.availableMicrogons <= 0n) {
+    watchOwnServerFunds(wallets);
+    return Promise.resolve();
+  }
+
+  serverPublicationPromise = (async () => {
     const walletKeys = getWalletKeys();
     const client = await getMainchainClient(false);
     const recovery = new BootstrapRecovery(walletKeys);
-    const endpoint = await recovery.publishServerEndpoint({
+    const bootstrapEndpointIndex = config.serverDetails.bootstrapEndpointIndex ?? 0;
+    const bootstrapEndpointSecret = await walletKeys.getOwnServerBootstrapEndpointSecret(bootstrapEndpointIndex);
+    const endpoint = await recovery.publishEndpoint({
       client,
       transactionTracker: getTransactionTracker(),
       host,
       port: config.serverDetails.gatewayPort ?? 443,
-      bootstrapEndpointIndex: config.serverDetails.bootstrapEndpointIndex,
-      ssh: {
-        user: config.serverDetails.sshUser,
-        port: config.serverDetails.sshPort ?? 22,
-      },
+      bootstrapEndpointSecret,
     });
     if (!endpoint) return;
 
     config.serverDetails = {
       ...config.serverDetails,
-      bootstrapEndpointIndex: config.serverDetails.bootstrapEndpointIndex ?? 0,
+      bootstrapEndpointIndex,
       bootstrapEndpointSequence: endpoint.sequence,
     };
     await config.save();
@@ -128,20 +136,59 @@ export function publishOwnServerEndpoint(): Promise<void> {
   return serverPublicationPromise;
 }
 
+export function publishOwnServerRecovery(): Promise<void> {
+  if (serverRecoveryPublicationPromise) return serverRecoveryPublicationPromise;
+
+  const config = getConfig();
+  const { ipAddress, sshPort, sshUser } = config.serverDetails;
+  if (!ipAddress || !sshUser) return Promise.resolve();
+
+  const wallets = getWalletsForArgon();
+  if (wallets.defaultArgonWallet.availableMicrogons <= 0n) {
+    watchOwnServerFunds(wallets);
+    return Promise.resolve();
+  }
+
+  serverRecoveryPublicationPromise = (async () => {
+    const bootstrapEndpointIndex = config.serverDetails.bootstrapEndpointIndex ?? 0;
+    const walletKeys = getWalletKeys();
+    const client = await getMainchainClient(false);
+    await new BootstrapRecovery(walletKeys).publishRecovery({
+      client,
+      transactionTracker: getTransactionTracker(),
+      context: BootstrapRecoveryContext.OwnServer,
+      bootstrapEndpointSecret: await walletKeys.getOwnServerBootstrapEndpointSecret(bootstrapEndpointIndex),
+      bootstrapEndpointIndex,
+      ssh: {
+        user: sshUser,
+        port: sshPort ?? 22,
+      },
+    });
+
+    if (config.serverDetails.bootstrapEndpointIndex !== bootstrapEndpointIndex) {
+      config.serverDetails = {
+        ...config.serverDetails,
+        bootstrapEndpointIndex,
+      };
+      await config.save();
+    }
+  })().finally(() => {
+    serverRecoveryPublicationPromise = undefined;
+  });
+
+  return serverRecoveryPublicationPromise;
+}
+
 export async function recoverOwnServer(): Promise<void> {
   const config = getConfig();
   if (config.serverDetails.ipAddress || !config.walletAccountsHadPreviousLife) return;
 
   const walletKeys = getWalletKeys();
   const client = await getMainchainClient(true);
-  const endpoint = await new BootstrapRecovery(walletKeys).recoverEndpoint(
-    client,
-    BootstrapRecoveryContext.OwnServer,
-    walletKeys.operationalAddress,
-  );
+  const endpoint = await new BootstrapRecovery(walletKeys).recoverEndpoint(client, BootstrapRecoveryContext.OwnServer);
   if (!endpoint) return;
 
-  config.serverDetails = {
+  const recoveredServerDetails = {
     ...config.serverDetails,
     ipAddress: endpoint.host,
     gatewayPort: endpoint.port,
@@ -150,6 +197,42 @@ export async function recoverOwnServer(): Promise<void> {
     sshUser: endpoint.ssh?.user ?? config.serverDetails.sshUser,
     sshPort: endpoint.ssh?.port ?? config.serverDetails.sshPort,
   };
+  const connection = new SSHConnection(recoveredServerDetails);
+
+  let installManifest: ServerInstallManifest | undefined;
+  try {
+    await connection.connect();
+    installManifest = await new ServerAdmin(connection, recoveredServerDetails).downloadInstallManifest();
+  } catch (error) {
+    console.warn('[BootstrapRecovery] Unable to inspect the recovered server install manifest', error);
+  } finally {
+    if (connection.isConnected) {
+      await connection.close(true).catch(error => {
+        console.warn('[BootstrapRecovery] Unable to close the recovered server connection', error);
+      });
+    }
+  }
+
+  config.serverDetails = {
+    ...recoveredServerDetails,
+    type: installManifest?.type ?? ServerType.DigitalOcean,
+    workDir: installManifest?.workDir ?? '~',
+  };
+  config.hasExtensionTreasury = true;
+  config.hasExtensionOperations = true;
   config.isServerInstalled = true;
   await config.save();
+}
+
+function watchOwnServerFunds(wallets: ReturnType<typeof getWalletsForArgon>): void {
+  stopWatchingOwnServerFunds ??= wallets.events.on('balance-change', (balance, type) => {
+    if (type !== 'defaultArgon' || balance.availableMicrogons <= 0n) return;
+
+    stopWatchingOwnServerFunds?.();
+    stopWatchingOwnServerFunds = undefined;
+    void Promise.all([publishOwnServerRecovery(), publishOwnServerEndpoint()]).catch(error => {
+      watchOwnServerFunds(wallets);
+      console.warn('[BootstrapRecovery] Unable to publish the configured server bootstrap records', error);
+    });
+  });
 }

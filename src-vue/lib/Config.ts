@@ -134,16 +134,23 @@ export class Config implements IConfig {
     const preserveFields: (keyof IConfig)[] = [
       'upstreamOperator',
       'bootstrapDetails',
-      'serverAdd',
-      'serverDetails',
-      'biddingRules',
-      'vaultingRules',
-      'vaultingSetupStatus',
-      'oldestFrameIdToSync',
-      'defaultCurrencyKey',
-      'requiresPassword',
       'hasExtensionTreasury',
       'hasExtensionOperations',
+      'serverAdd',
+      'serverDetails',
+      'isServerInstalled',
+      'biddingRules',
+      'vaultingRules',
+      'miningSetupStatus',
+      'vaultingSetupStatus',
+      'hasMiningBids',
+      'hasMiningSeats',
+      'oldestFrameIdToSync',
+      'miningBotAccountPreviousHistory',
+      'walletAccountsHadPreviousLife',
+      'walletPreviousLifeRecovered',
+      'defaultCurrencyKey',
+      'requiresPassword',
     ];
 
     for (const key of Object.keys(defaults) as (keyof IConfig)[]) {
@@ -154,7 +161,6 @@ export class Config implements IConfig {
         (this._loadedData as any)[key] = defaultValue as any;
       }
     }
-    await this._injectFirstTimeAppData(this._loadedData, this._rawData, this._fieldsToSave);
     const data = Config.extractDataToSave(this._fieldsToSave, this._rawData);
     await this._db.configTable.insertOrReplace(data, sql);
   }
@@ -267,53 +273,11 @@ export class Config implements IConfig {
         await this._injectFirstTimeAppData(loadedData, rawData, fieldsToSave);
       }
 
-      let hasMiningSeats = loadedData.hasMiningSeats;
-      let hasMiningBids = loadedData.hasMiningBids || hasMiningSeats;
-      if (!hasMiningSeats) {
-        const [savedMiningActivity] = await db.select<[{ hasMiningBids: number; hasMiningSeats: number }]>(`
-          SELECT
-            EXISTS(SELECT 1 FROM FrameBids WHERE json_array_length(bidsJson) > 0) AS hasMiningBids,
-            EXISTS(SELECT 1 FROM Cohorts WHERE seatCountWon > 0) AS hasMiningSeats
-        `);
-        hasMiningSeats = !!savedMiningActivity?.hasMiningSeats;
-        hasMiningBids ||= !!savedMiningActivity?.hasMiningBids || hasMiningSeats;
-      }
-      if (hasMiningSeats !== loadedData.hasMiningSeats) {
-        loadedData.hasMiningSeats = hasMiningSeats;
-        fieldsToSave.add(dbFields.hasMiningSeats);
-        rawData[dbFields.hasMiningSeats] = JsonExt.stringify(hasMiningSeats, 2);
-      }
+      const hasMiningBids = loadedData.hasMiningBids || loadedData.hasMiningSeats;
       if (hasMiningBids !== loadedData.hasMiningBids) {
         loadedData.hasMiningBids = hasMiningBids;
         fieldsToSave.add(dbFields.hasMiningBids);
         rawData[dbFields.hasMiningBids] = JsonExt.stringify(hasMiningBids, 2);
-      }
-
-      if (hasMiningBids && loadedData.miningSetupStatus !== MiningSetupStatus.Finished) {
-        loadedData.miningSetupStatus = MiningSetupStatus.Finished;
-        fieldsToSave.add(dbFields.miningSetupStatus);
-        rawData[dbFields.miningSetupStatus] = JsonExt.stringify(loadedData.miningSetupStatus, 2);
-      } else if (
-        (loadedData.miningSetupStatus === MiningSetupStatus.Checklist ||
-          loadedData.miningSetupStatus === MiningSetupStatus.Installing) &&
-        loadedData.isServerInstalled &&
-        !loadedData.isServerInstalling &&
-        loadedData.serverInstaller.MiningLaunch.status === InstallStepStatus.Completed &&
-        rawData[dbFields.biddingRules] &&
-        (loadedData.biddingRules.initialCapitalCommitment ?? 0n) > 0n
-      ) {
-        loadedData.miningSetupStatus = MiningSetupStatus.Finished;
-        fieldsToSave.add(dbFields.miningSetupStatus);
-        rawData[dbFields.miningSetupStatus] = JsonExt.stringify(loadedData.miningSetupStatus, 2);
-      }
-
-      if (loadedData.vaultingSetupStatus !== VaultingSetupStatus.Finished && rawData[dbFields.vaultingRules]) {
-        const savedVault = await db.vaultsTable.get();
-        if (savedVault && !savedVault.isClosed) {
-          loadedData.vaultingSetupStatus = VaultingSetupStatus.Finished;
-          fieldsToSave.add(dbFields.vaultingSetupStatus);
-          rawData[dbFields.vaultingSetupStatus] = JsonExt.stringify(loadedData.vaultingSetupStatus, 2);
-        }
       }
 
       const hasLegacyAccountState =
@@ -350,8 +314,9 @@ export class Config implements IConfig {
         rawData[dbFields.hasExtensionOperations] = JsonExt.stringify(loadedData.hasExtensionOperations, 2);
       }
 
-      const isLocalComputer = loadedData.serverDetails.type === ServerType.LocalComputer;
-      if (isLocalComputer && !loadedData.isServerInstalling) {
+      const managesLocalComputer =
+        loadedData.serverDetails.type === ServerType.LocalComputer && loadedData.serverAdd?.localComputer;
+      if (managesLocalComputer && !loadedData.isServerInstalling) {
         const { sshPort } = await LocalMachine.activate();
         if (!IS_TEST && IS_STABLE_BUILD) {
           await invokeWithTimeout('toggle_nosleep', { enable: true }, 5000);

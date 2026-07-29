@@ -7,7 +7,7 @@ import { CloseRequestedEvent } from '@tauri-apps/api/window';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { refreshPrunedClientFromConfig } from './mainchain.ts';
 import { isAppUpdateBlockingServerInstall } from './appUpdater.ts';
-import { publishOwnServerEndpoint } from './bootstrapRecovery.ts';
+import { publishOwnServerEndpoint, publishOwnServerRecovery } from './bootstrapRecovery.ts';
 
 let installer: Vue.Reactive<Installer>;
 
@@ -22,6 +22,7 @@ export function getInstaller(): Vue.Reactive<Installer> {
         refreshPrunedClient: refreshPrunedClientFromConfig,
         isAppUpdateBlockingInstall: isAppUpdateBlockingServerInstall,
         publishOwnServerEndpoint,
+        publishOwnServerRecovery,
       }),
     );
     installer.load().catch(handleFatalError.bind('useInstaller'));

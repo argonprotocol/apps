@@ -7,7 +7,7 @@ use sp_core::Pair;
 use sp_core::crypto::Ss58Codec;
 use std::fs;
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tauri::WebviewWindow;
 use tauri::{AppHandle, Manager};
 use tauri::{Emitter, State};
@@ -123,15 +123,22 @@ async fn ssh_upload_embedded_file(
     local_relative_path: String,
     remote_path: String,
     event_progress_key: String,
+    timeout_ms: u64,
 ) -> Result<String, String> {
     log::info!("ssh_upload_embedded_file: {local_relative_path}, {remote_path}");
     let ssh: ssh::SSH = ssh_pool::get_connection(address)
         .await
         .map_err(|e| e.to_string())?
         .ok_or("No SSH connection")?;
-    ssh.upload_embedded_file(&app, &local_relative_path, &remote_path, event_progress_key)
-        .await
-        .map_err(|e| e.to_string())?;
+    ssh.upload_embedded_file(
+        &app,
+        &local_relative_path,
+        &remote_path,
+        event_progress_key,
+        Duration::from_millis(timeout_ms),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     Ok("success".to_string())
 }
 

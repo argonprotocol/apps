@@ -49,7 +49,7 @@ try {
     if (
       encryptedEndpoint.isNone ||
       endpointOwner.isNone ||
-      endpointOwner.unwrap().toString() !== walletKeys.operationalAddress
+      endpointOwner.unwrap().toString() !== walletKeys.defaultArgonAddress
     ) {
       throw new Error('The upstream server is not bootstrap-ready yet. Start the upstream server first.');
     }

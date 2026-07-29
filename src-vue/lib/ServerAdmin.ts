@@ -19,6 +19,8 @@ export interface IInstallStepStatuses {
   [key: string]: InstallStepStatusType;
 }
 
+export type ServerInstallManifest = { version: number } & Pick<IConfigServerDetails, 'type' | 'workDir'>;
+
 const installStepStatusPriorityByType: Record<InstallStepStatusType, number> = {
   [InstallStepStatusType.Pending]: 0,
   [InstallStepStatusType.Started]: 1,
@@ -67,6 +69,33 @@ export class ServerAdmin {
   public async isConnected(): Promise<boolean> {
     const [output] = await this.connection.runCommandWithTimeout('pwd', 10e3);
     return !!output;
+  }
+
+  public async uploadInstallManifest(): Promise<void> {
+    const manifest = JsonExt.stringify(
+      {
+        version: 1,
+        type: this.serverDetails.type,
+        workDir: this.serverDetails.workDir,
+      },
+      2,
+    );
+    await this.connection.uploadFileWithTimeout(manifest, '~/.argon-server.json', 10e3);
+  }
+
+  public async downloadInstallManifest(): Promise<ServerInstallManifest | undefined> {
+    const [rawManifest] = await this.connection.runCommandWithTimeout(
+      'cat ~/.argon-server.json 2>/dev/null || true',
+      10e3,
+    );
+    if (!rawManifest.trim()) return;
+
+    const manifest = JsonExt.parse<ServerInstallManifest>(rawManifest);
+    if (manifest.version !== 1) {
+      throw new Error(`Unsupported Argon server install manifest version: ${manifest.version}`);
+    }
+
+    return manifest;
   }
 
   public async getAvailableDiskBytes(): Promise<number> {

@@ -25,7 +25,6 @@ export type IRecoveredBootstrapEndpoint = IBootstrapEndpointPayload &
   Pick<IBootstrapRecoveryPayload, 'ssh'> & {
     bootstrapEndpointSecret: string;
     bootstrapEndpointIndex?: number;
-    ownerAccountId: string;
   };
 
 export enum BootstrapRecoveryContext {
@@ -36,45 +35,6 @@ export enum BootstrapRecoveryContext {
 export class BootstrapRecovery {
   constructor(private readonly walletKeys: WalletKeys) {}
 
-  public async publishServerEndpoint(args: {
-    client: ArgonClient;
-    transactionTracker: TransactionTracker;
-    host: string;
-    port: number;
-    bootstrapEndpointIndex?: number;
-    ssh: NonNullable<IBootstrapRecoveryPayload['ssh']>;
-  }): Promise<IBootstrapEndpointPayload | undefined> {
-    const bootstrapEndpointIndex = args.bootstrapEndpointIndex ?? 0;
-    const bootstrapEndpointSecret = await this.walletKeys.getOwnServerBootstrapEndpointSecret(bootstrapEndpointIndex);
-    const endpointOwner = await this.walletKeys.getOperationalKeypair();
-    const [endpointTx, endpoint] = await this.buildEndpointPublication(
-      args.client,
-      endpointOwner,
-      args.host,
-      args.port,
-      bootstrapEndpointSecret,
-    );
-    const recoveryTx = await this.buildRecoveryPublication({
-      client: args.client,
-      writer: endpointOwner,
-      context: BootstrapRecoveryContext.OwnServer,
-      bootstrapEndpointSecret,
-      bootstrapEndpointIndex,
-      ssh: args.ssh,
-    });
-    const publications = [endpointTx, recoveryTx].filter(tx => tx !== undefined);
-    const publicationTx = publications.length > 1 ? args.client.tx.utility.batchAll(publications) : publications[0];
-    await submitBootstrapTransaction(
-      args.transactionTracker,
-      args.client,
-      publicationTx,
-      endpointOwner,
-      endpointTx ? ExtrinsicType.BootstrapPublishEndpoint : ExtrinsicType.BootstrapPublishRecovery,
-    );
-
-    return endpoint;
-  }
-
   public async publishEndpoint(args: {
     client: ArgonClient;
     transactionTracker: TransactionTracker;
@@ -82,7 +42,7 @@ export class BootstrapRecovery {
     port: number;
     bootstrapEndpointSecret: string;
   }): Promise<IBootstrapEndpointPayload | undefined> {
-    const endpointOwner = await this.walletKeys.getOperationalKeypair();
+    const endpointOwner = await this.walletKeys.getDefaultArgonKeypair();
     const [endpointTx, endpoint] = await this.buildEndpointPublication(
       args.client,
       endpointOwner,
@@ -147,7 +107,6 @@ export class BootstrapRecovery {
   public async recoverEndpoint(
     client: ArgonClient,
     context: BootstrapRecoveryContext,
-    expectedOwnerAccountId?: string,
     minimumSequence = 0,
   ): Promise<IRecoveredBootstrapEndpoint | undefined> {
     if (!BootstrapRecovery.isAvailable(client)) return;
@@ -173,12 +132,7 @@ export class BootstrapRecovery {
       }
     }
 
-    const endpoint = await this.resolveEndpoint(
-      client,
-      bootstrapEndpointSecret,
-      expectedOwnerAccountId,
-      minimumSequence,
-    );
+    const endpoint = await this.resolveEndpoint(client, bootstrapEndpointSecret, minimumSequence);
     if (!endpoint) return;
 
     return {
@@ -191,22 +145,13 @@ export class BootstrapRecovery {
   public async resolveEndpoint(
     client: ArgonClient,
     bootstrapEndpointSecret: string,
-    expectedOwnerAccountId?: string,
     minimumSequence = 0,
   ): Promise<IRecoveredBootstrapEndpoint | undefined> {
     if (!BootstrapRecovery.isAvailable(client)) return;
 
     const bootstrapEndpointPubkey = getBootstrapEndpointPubkey(bootstrapEndpointSecret);
-    const [encryptedEndpoint, endpointOwner] = await Promise.all([
-      client.query.bootstrap.encryptedEndpointByPubkey(bootstrapEndpointPubkey),
-      client.query.bootstrap.endpointOwnerByPubkey(bootstrapEndpointPubkey),
-    ]);
-    if (encryptedEndpoint.isNone || endpointOwner.isNone) return;
-
-    const ownerAccountId = endpointOwner.unwrap().toString();
-    if (expectedOwnerAccountId && ownerAccountId !== expectedOwnerAccountId) {
-      throw new Error('The recovered upstream endpoint is owned by a different account.');
-    }
+    const encryptedEndpoint = await client.query.bootstrap.encryptedEndpointByPubkey(bootstrapEndpointPubkey);
+    if (encryptedEndpoint.isNone) return;
 
     const endpoint = await decryptBootstrapEndpoint(encryptedEndpoint.unwrap(), bootstrapEndpointSecret);
     if (endpoint.sequence < minimumSequence) {
@@ -216,7 +161,6 @@ export class BootstrapRecovery {
     return {
       ...endpoint,
       bootstrapEndpointSecret,
-      ownerAccountId,
     };
   }
 

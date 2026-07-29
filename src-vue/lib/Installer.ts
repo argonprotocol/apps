@@ -46,6 +46,7 @@ type InstallerFns = {
   refreshPrunedClient?: () => void;
   isAppUpdateBlockingInstall?: () => boolean | Promise<boolean>;
   publishOwnServerEndpoint?: () => Promise<void>;
+  publishOwnServerRecovery?: () => Promise<void>;
 };
 
 export default class Installer {
@@ -136,6 +137,8 @@ export default class Installer {
             );
             await tauriExit(0);
           }
+          await server.uploadInstallManifest();
+
           if (this.config.serverInstaller.errorType === InstallStepErrorType.ServerConnect) {
             this.config.serverInstaller.errorType = null;
             this.config.serverInstaller.errorMessage = null;
@@ -195,8 +198,12 @@ export default class Installer {
       await this.config.save().catch(() => undefined);
     }
 
-    if (!this.config.serverDetails.bootstrapEndpointSequence) {
-      await this.fns.publishOwnServerEndpoint?.().catch(error => {
+    void this.fns.publishOwnServerRecovery?.().catch(error => {
+      console.warn('[Installer] Unable to publish the configured server recovery', error);
+    });
+
+    if (this.config.serverDetails.bootstrapEndpointSequence === undefined) {
+      void this.fns.publishOwnServerEndpoint?.().catch(error => {
         console.warn('[Installer] Unable to publish the configured server endpoint', error);
       });
     }
@@ -278,6 +285,10 @@ export default class Installer {
         await this.config.save();
       }
 
+      void this.fns.publishOwnServerRecovery?.().catch(error => {
+        console.warn('[Installer] Unable to publish the configured server recovery', error);
+      });
+
       this.serverConnectProgress = 60;
       const server = await this.getServer(5);
       this.serverConnectProgress = 90;
@@ -286,6 +297,8 @@ export default class Installer {
       if (!uploadedWalletAddress) {
         await server.deleteBotStorageFiles();
       }
+      await server.uploadInstallManifest();
+
       this.serverConnectProgress = 100;
 
       installPhase = InstallStepErrorType.FileUpload;
@@ -334,7 +347,7 @@ export default class Installer {
       await this.installerCheck.noThrowWaitForInstallToComplete();
       await this.saveLocalGatewayPortWhenReady(server, { timeoutMs: 30e3, updateExisting: true });
       this.fns.refreshPrunedClient?.();
-      await this.fns.publishOwnServerEndpoint?.().catch(error => {
+      void this.fns.publishOwnServerEndpoint?.().catch(error => {
         console.warn('[Installer] Unable to publish the configured server endpoint', error);
       });
 

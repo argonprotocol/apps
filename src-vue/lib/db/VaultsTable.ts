@@ -1,5 +1,6 @@
 import { BaseTable, IFieldTypes } from './BaseTable';
 import { convertFromSqliteFields, toSqlParams } from '../Utils';
+import type PluginSql from '@tauri-apps/plugin-sql';
 
 export interface IVaultRecord {
   id: number;
@@ -12,31 +13,47 @@ export interface IVaultRecord {
   updatedAt: Date;
 }
 
+export type IVaultInsert = Omit<IVaultRecord, 'createdAt' | 'updatedAt'> &
+  Partial<Pick<IVaultRecord, 'createdAt' | 'updatedAt'>>;
+
 export class VaultsTable extends BaseTable {
   private fieldTypes: IFieldTypes = {
     date: ['createdAt', 'updatedAt'],
     bigint: ['operationalFeeMicrogons'],
+    boolean: ['isClosed'],
   };
 
-  public async insert(
-    vaultId: number,
-    hdPath: string,
-    updatedAtBlockHeight: number,
-    operationalFeeMicrogons: bigint,
-  ): Promise<IVaultRecord> {
-    const result = await this.db.select<IVaultRecord[]>(
-      `INSERT INTO Vaults (id, hdPath, createdAtBlockHeight, operationalFeeMicrogons)
-       VALUES (?, ?, ?, ?)
+  public async insert(vault: IVaultInsert, overrideSqlInstance?: PluginSql): Promise<IVaultRecord> {
+    const sql = overrideSqlInstance ?? this.db;
+    const createdAt = vault.createdAt ?? new Date();
+    const updatedAt = vault.updatedAt ?? createdAt;
+    const result = await sql.select<IVaultRecord[]>(
+      `INSERT INTO Vaults (
+         id, hdPath, createdAtBlockHeight, lastTermsUpdateHeight,
+         operationalFeeMicrogons, isClosed, createdAt, updatedAt
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          hdPath = excluded.hdPath,
          createdAtBlockHeight = excluded.createdAtBlockHeight,
          operationalFeeMicrogons = excluded.operationalFeeMicrogons,
-         updatedAt = CURRENT_TIMESTAMP
+         lastTermsUpdateHeight = excluded.lastTermsUpdateHeight,
+         isClosed = excluded.isClosed,
+         updatedAt = excluded.updatedAt
        RETURNING *`,
-      toSqlParams([vaultId, hdPath, updatedAtBlockHeight, operationalFeeMicrogons]),
+      toSqlParams([
+        vault.id,
+        vault.hdPath,
+        vault.createdAtBlockHeight,
+        vault.lastTermsUpdateHeight,
+        vault.operationalFeeMicrogons,
+        vault.isClosed,
+        createdAt,
+        updatedAt,
+      ]),
     );
     if (!result || result.length === 0) {
-      throw new Error(`Failed to insert vault with id ${vaultId}`);
+      throw new Error(`Failed to insert vault with id ${vault.id}`);
     }
     return convertFromSqliteFields<IVaultRecord[]>(result, this.fieldTypes)[0];
   }
