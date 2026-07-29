@@ -24,6 +24,7 @@ import {
 import { getDbPromise } from './helpers/dbPromise.ts';
 import {
   getEnabledFinancialHistoryDomains,
+  type IFinancialHistoryDomain,
   needsFinancialHistoryRecovery,
   restoreFinancialHistory as restoreFinancialHistoryFromIndex,
 } from '../lib/recovery/index.ts';
@@ -94,8 +95,12 @@ export const useFinancials = defineStore('financials', () => {
   const historyRecovery = Vue.ref<{
     state: 'checking' | 'restoring' | 'waiting' | 'ready' | 'error';
     recoveredBlockCount: number;
+    currentDomain?: IFinancialHistoryDomain;
+    currentDomainRecoveredBlockCount?: number;
+    currentDomainTotalBlockCount?: number;
     message?: string;
   }>({ state: 'ready', recoveredBlockCount: 0 });
+  const activeBitcoinLockCount = Vue.ref<number>();
   const isHistoryRecoveryInProgress = Vue.computed(() => {
     return (
       historyRecovery.value.state === 'checking' ||
@@ -964,6 +969,8 @@ export const useFinancials = defineStore('financials', () => {
   }
 
   async function initializeFinancialHistoryRecovery(): Promise<void> {
+    activeBitcoinLockCount.value = undefined;
+    historyRecovery.value = { state: 'checking', recoveredBlockCount: 0 };
     const enabledDomains = getEnabledFinancialHistoryDomains({
       force: false,
       hasExtensionTreasury: config.hasExtensionTreasury,
@@ -984,6 +991,7 @@ export const useFinancials = defineStore('financials', () => {
     }
 
     hasConfirmedFinancialHistoryCoverage = true;
+    await queueAccountRefresh({ force: true });
     historyRecovery.value = { state: 'ready', recoveredBlockCount: 0 };
   }
 
@@ -1022,17 +1030,29 @@ export const useFinancials = defineStore('financials', () => {
           if (!shouldShowRecovery) return;
           historyRecovery.value = { state: 'checking', recoveredBlockCount: 0 };
         },
-        onProgress(recoveredBlockCount) {
+        onActiveBitcoinLocksFound(count) {
           if (!shouldShowRecovery) return;
-          historyRecovery.value = {
-            state: 'restoring',
-            recoveredBlockCount,
-          };
+          activeBitcoinLockCount.value = count;
+        },
+        onProgress(recoveredBlockCount, domainProgress) {
+          if (!shouldShowRecovery) return;
+          historyRecovery.value = domainProgress
+            ? {
+                state: 'restoring',
+                recoveredBlockCount,
+                currentDomain: domainProgress.domain,
+                currentDomainRecoveredBlockCount: domainProgress.recoveredBlockCount,
+                currentDomainTotalBlockCount: domainProgress.totalBlockCount,
+              }
+            : {
+                state: 'checking',
+                recoveredBlockCount,
+              };
         },
       });
-      if (result.asOfBlock >= targetBlock) {
+      const isRecoveryComplete = result.asOfBlock >= targetBlock;
+      if (isRecoveryComplete) {
         hasConfirmedFinancialHistoryCoverage = true;
-        historyRecovery.value = { state: 'ready', recoveredBlockCount: result.importedBlockCount };
       } else if (shouldShowRecovery) {
         historyRecovery.value = {
           state: 'waiting',
@@ -1041,12 +1061,15 @@ export const useFinancials = defineStore('financials', () => {
         };
       }
       await queueAccountRefresh({ force: true });
+      if (isRecoveryComplete) {
+        historyRecovery.value = { state: 'ready', recoveredBlockCount: result.importedBlockCount };
+      }
       return result.asOfBlock;
     } catch (error) {
       if (shouldShowRecovery) {
         historyRecovery.value = {
+          ...historyRecovery.value,
           state: 'error',
-          recoveredBlockCount: historyRecovery.value.recoveredBlockCount,
           message: error instanceof Error ? error.message : 'Unable to restore investment history',
         };
       }
@@ -1101,6 +1124,7 @@ export const useFinancials = defineStore('financials', () => {
 
     financialPositionAggregate,
     liquidNativeBalances,
+    activeBitcoinLockCount,
     historyRecovery,
     isHistoryRecoveryInProgress,
     restoreFinancialHistory,

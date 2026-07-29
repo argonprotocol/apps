@@ -1,5 +1,5 @@
 import { parse as parseEnv } from 'dotenv';
-import { IBiddingRules, JsonExt, toComposeProjectName } from '@argonprotocol/apps-core';
+import { type IBiddingRules, type IBotStateFile, JsonExt, toComposeProjectName } from '@argonprotocol/apps-core';
 import { SSHConnection } from './SSHConnection';
 import { DEPLOY_ENV_FILE, INSTANCE_NAME, NETWORK_NAME, SERVER_ENV_VARS } from './Env.ts';
 import { KeyringPair$Json } from '@argonprotocol/mainchain';
@@ -195,11 +195,21 @@ export class ServerAdmin {
     oldestFrameIdToSync?: number;
     ethereumBeaconApiUrl?: string;
     ethereumExecutionRpcUrl?: string;
+    hasMiningBids?: boolean;
+    hasMiningSeats?: boolean;
   }> {
-    const [biddingRules, envState] = await Promise.all([this.downloadBiddingRules(), this.downloadEnvState()]);
+    const [biddingRules, envState, [botStateRaw]] = await Promise.all([
+      this.downloadBiddingRules(),
+      this.downloadEnvState(),
+      this.connection.runCommandWithTimeout(`cat ${this.workDir}/data/bot-state.json 2>/dev/null || true`, 20e3),
+    ]);
+    const botState = botStateRaw ? JsonExt.parse<IBotStateFile>(botStateRaw) : undefined;
+
     return {
       biddingRules,
       ...envState,
+      hasMiningBids: botState?.hasMiningBids,
+      hasMiningSeats: botState?.hasMiningSeats,
     };
   }
 

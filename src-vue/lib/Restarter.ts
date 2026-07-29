@@ -29,7 +29,8 @@ export default class Restarter {
   }
 
   public async run(toRestart: Set<AdvancedRestartOption>, installer: Installer): Promise<void> {
-    if (toRestart.has(AdvancedRestartOption.CompletelyWipeAndReinstallCloudMachine)) {
+    const isFullServerWipe = toRestart.has(AdvancedRestartOption.CompletelyWipeAndReinstallCloudMachine);
+    if (isFullServerWipe) {
       installer.stop();
       let server: ServerAdmin | undefined;
       try {
@@ -71,6 +72,9 @@ export default class Restarter {
 
     if (toRestart.has(AdvancedRestartOption.RecreateLocalDatabase)) {
       installer.stop();
+      if (isFullServerWipe) {
+        this._config.isServerInstalled = false;
+      }
       await this.migrateToFreshLocalDatabase(toRestart.has(AdvancedRestartOption.ReloadAppUi));
     }
 

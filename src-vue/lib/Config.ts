@@ -273,13 +273,6 @@ export class Config implements IConfig {
         await this._injectFirstTimeAppData(loadedData, rawData, fieldsToSave);
       }
 
-      const hasMiningBids = loadedData.hasMiningBids || loadedData.hasMiningSeats;
-      if (hasMiningBids !== loadedData.hasMiningBids) {
-        loadedData.hasMiningBids = hasMiningBids;
-        fieldsToSave.add(dbFields.hasMiningBids);
-        rawData[dbFields.hasMiningBids] = JsonExt.stringify(hasMiningBids, 2);
-      }
-
       const hasLegacyAccountState =
         loadedData.isServerInstalled ||
         loadedData.miningSetupStatus !== MiningSetupStatus.None ||

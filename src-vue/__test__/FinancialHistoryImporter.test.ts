@@ -122,7 +122,7 @@ describe('FinancialHistoryImporter', () => {
               bitcoin: {
                 asOfBlock: 90,
                 definitionVersion: 2,
-                recoveryVersion: 5,
+                recoveryVersion: 6,
                 partialRecovery: true,
               },
             },
@@ -320,7 +320,7 @@ describe('FinancialHistoryImporter', () => {
           bitcoin: {
             asOfBlock: 8,
             definitionVersion: 2,
-            recoveryVersion: 5,
+            recoveryVersion: 6,
             partialRecovery: true,
           },
         },
@@ -339,6 +339,9 @@ describe('FinancialHistoryImporter', () => {
     const upsert = vi.fn(async () => undefined);
     const commitHistoryReplay = vi.fn();
     const cancelHistoryReplay = vi.fn();
+    const onProgress = vi.fn();
+    const onActiveBitcoinLocksFound = vi.fn();
+    const findActiveLockIds = vi.fn(async () => [12]);
     vi.mocked(findAddressActivity).mockResolvedValueOnce({
       asOfBlock: 100,
       definitionVersion: 2,
@@ -362,7 +365,7 @@ describe('FinancialHistoryImporter', () => {
             definitionVersion: 2,
             domains: ['bitcoin'],
             domainCheckpoints: {
-              bitcoin: { asOfBlock: 100, definitionVersion: 2, recoveryVersion: 4 },
+              bitcoin: { asOfBlock: 100, definitionVersion: 2, recoveryVersion: 5 },
             },
           })),
           upsert,
@@ -379,6 +382,7 @@ describe('FinancialHistoryImporter', () => {
       bitcoinLockRecovery: {
         beginHistoryReplay,
         recoverBlock,
+        findActiveLockIds,
         findMissingActiveLockIds: vi.fn(async () => []),
         commitHistoryReplay,
         cancelHistoryReplay,
@@ -386,6 +390,8 @@ describe('FinancialHistoryImporter', () => {
       vaultHistory: {} as any,
       enabledDomains: ['bitcoin'],
       minimumAsOfBlock: 100,
+      onActiveBitcoinLocksFound,
+      onProgress,
     });
 
     expect(findAddressActivity).toHaveBeenLastCalledWith('5owner', {
@@ -398,9 +404,9 @@ describe('FinancialHistoryImporter', () => {
       SyncStateKeys.FinancialHistory,
       expect.objectContaining({
         asOfBlock: 100,
-        recoveryVersions: { bitcoin: 5 },
+        recoveryVersions: { bitcoin: 6 },
         domainCheckpoints: {
-          bitcoin: { asOfBlock: 100, definitionVersion: 2, recoveryVersion: 5 },
+          bitcoin: { asOfBlock: 100, definitionVersion: 2, recoveryVersion: 6 },
         },
       }),
     );
@@ -409,7 +415,16 @@ describe('FinancialHistoryImporter', () => {
     expect(commitHistoryReplay).toHaveBeenCalledOnce();
     expect(commitHistoryReplay).toHaveBeenCalledWith(true);
     expect(cancelHistoryReplay).not.toHaveBeenCalled();
+    expect(onActiveBitcoinLocksFound).toHaveBeenCalledWith(1);
+    expect(onProgress).toHaveBeenLastCalledWith(1, {
+      domain: 'bitcoin',
+      recoveredBlockCount: 1,
+      totalBlockCount: 1,
+    });
     expect(beginHistoryReplay.mock.invocationCallOrder[0]).toBeLessThan(recoverBlock.mock.invocationCallOrder[0]);
+    expect(findActiveLockIds.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(findAddressActivity).mock.invocationCallOrder[0],
+    );
     expect(recoverBlock.mock.invocationCallOrder[0]).toBeLessThan(commitHistoryReplay.mock.invocationCallOrder[0]);
     expect(upsert.mock.invocationCallOrder[0]).toBeLessThan(commitHistoryReplay.mock.invocationCallOrder[0]);
     expect(commitHistoryReplay.mock.invocationCallOrder[0]).toBeLessThan(upsert.mock.invocationCallOrder.at(-1)!);

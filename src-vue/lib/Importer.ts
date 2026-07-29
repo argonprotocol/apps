@@ -16,7 +16,9 @@ import { MemoryWalletKeys } from './MemoryWalletKeys.ts';
 import { readArgonWalletBalanceValues } from './WalletsForArgon.ts';
 import { getWalletsForArgon } from '../stores/wallets.ts';
 import { getBlockWatch, getFinalizedClient } from '../stores/mainchain.ts';
-import { JsonExt, Mining } from '@argonprotocol/apps-core';
+import { AccountActivityKind, JsonExt, Mining } from '@argonprotocol/apps-core';
+import { getOperationalChainProgressFromAccount } from './OperationalAccount.ts';
+import { findAddressActivity } from './IndexerClient.ts';
 
 export default class Importer {
   private readonly config: Config;
@@ -45,41 +47,68 @@ export default class Importer {
       importWalletKeys.vaultingAddress,
       importWalletKeys.operationalAddress,
     ];
-    const [balances, operationalAccount, miningAccount, miningSeats, currentBids, miningSubaccounts] =
-      await Promise.all([
-        readArgonWalletBalanceValues(finalizedApi, addresses),
-        finalizedApi.query.operationalAccounts.operationalAccounts(importWalletKeys.operationalAddress),
-        finalizedApi.query.system.account(importWalletKeys.miningBotAddress),
-        Mining.fetchMiningSeatsForAccount(importWalletKeys.miningBotAddress, finalizedApi),
-        Mining.fetchWinningBids(finalizedApi),
-        importWalletKeys.getMiningBotSubaccounts(),
-      ]);
+    const [balances, operationalAccount] = await Promise.all([
+      readArgonWalletBalanceValues(finalizedApi, addresses),
+      finalizedApi.query.operationalAccounts.operationalAccounts(importWalletKeys.operationalAddress),
+    ]);
 
     const hasExistingWalletValue = balances.some(balance => {
       return hasArgonWalletValue(balance);
     });
-    const operationalDetails = operationalAccount.isSome ? operationalAccount.unwrap() : undefined;
-    const hasLiveMiningSeats = Object.keys(miningSeats).length > 0;
-    const hasRecordedMiningSeats =
-      (operationalDetails?.miningSeatAccrual?.toNumber() ?? 0) +
-        (operationalDetails?.miningSeatAppliedTotal?.toNumber() ?? 0) >
-      0;
-    const hasMiningSeats = hasLiveMiningSeats || hasRecordedMiningSeats;
-    const hasMiningBids =
-      hasMiningSeats ||
-      currentBids.some(bid => {
-        return bid.managedByAddress === importWalletKeys.miningBotAddress || !!miningSubaccounts[bid.address];
-      });
-    const hasMiningAccountInfo =
-      hasArgonWalletValue(balances[1]) ||
-      miningAccount.nonce.toBigInt() > 0n ||
-      miningAccount.providers.toNumber() > 0 ||
-      miningAccount.consumers.toNumber() > 0 ||
-      miningAccount.sufficients.toNumber() > 0;
-    const hasLinkedMiningAccount = operationalDetails?.miningAccount.toHuman() === importWalletKeys.miningBotAddress;
-    const hasMiningAccount = hasLinkedMiningAccount || hasMiningAccountInfo || hasMiningBids;
-    const hasVault = operationalDetails?.vaultCreated?.toPrimitive() ?? false;
-    const hasPreviousLife = hasExistingWalletValue || !!operationalDetails || hasMiningAccount;
+    const operationalProgress = getOperationalChainProgressFromAccount(operationalAccount);
+    let hasMiningSeats = operationalProgress.hasFirstMiningSeat;
+    let hasMiningBids = hasMiningSeats;
+    if (!hasMiningSeats) {
+      const [miningSeats, miningActivity] = await Promise.all([
+        Mining.fetchMiningSeatsForAccount(importWalletKeys.miningBotAddress, finalizedApi).catch(() => undefined),
+        findAddressActivity(importWalletKeys.miningBotAddress, {
+          activityMask: AccountActivityKind.MiningBid | AccountActivityKind.MiningSeat,
+        }).catch(() => undefined),
+      ]);
+
+      hasMiningSeats =
+        Object.keys(miningSeats ?? {}).length > 0 ||
+        !!miningActivity?.blocks.some(block => !!(block.activityMask & AccountActivityKind.MiningSeat));
+      hasMiningBids = hasMiningSeats || !!miningActivity?.blocks.length;
+    }
+
+    const hasMiningWalletValue = hasArgonWalletValue(balances[0]) || hasArgonWalletValue(balances[1]);
+    const hasMiningActivity = hasMiningWalletValue || hasMiningBids;
+    let hasVaultActivity = operationalProgress.hasVault;
+    let hasTreasuryHistory = false;
+    if (!operationalProgress.hasOperationalAccount) {
+      const accountActivity = await findAddressActivity(importWalletKeys.defaultArgonAddress, {
+        activityMask:
+          AccountActivityKind.VaultPosition |
+          AccountActivityKind.VaultRevenue |
+          AccountActivityKind.BondPosition |
+          AccountActivityKind.BitcoinLock |
+          AccountActivityKind.BitcoinMint,
+      }).catch(() => undefined);
+
+      if (accountActivity) {
+        hasVaultActivity ||= accountActivity.blocks.some(block => {
+          return !!(block.activityMask & (AccountActivityKind.VaultPosition | AccountActivityKind.VaultRevenue));
+        });
+        hasTreasuryHistory ||= accountActivity.blocks.some(block => {
+          return !!(
+            block.activityMask &
+            (AccountActivityKind.BondPosition | AccountActivityKind.BitcoinLock | AccountActivityKind.BitcoinMint)
+          );
+        });
+      }
+    }
+
+    const hasOperationsHistory = operationalProgress.hasOperationalAccount || hasMiningActivity || hasVaultActivity;
+    hasTreasuryHistory ||= hasOperationsHistory;
+
+    const hasPreviousLife = hasExistingWalletValue || hasTreasuryHistory;
+    let miningSetupStatus = MiningSetupStatus.None;
+    if (hasMiningBids) {
+      miningSetupStatus = MiningSetupStatus.Finished;
+    } else if (hasMiningActivity) {
+      miningSetupStatus = MiningSetupStatus.Checklist;
+    }
 
     if (NETWORK_NAME === 'mainnet' && !IS_LOCAL_BUILD && !hasPreviousLife) {
       throw new Error('No existing wallet value was found for that mnemonic on this network.');
@@ -99,10 +128,13 @@ export default class Importer {
       showWelcomeOverlay: JsonExt.stringify(false, 2),
       walletAccountsHadPreviousLife: JsonExt.stringify(hasPreviousLife, 2),
       walletPreviousLifeRecovered: JsonExt.stringify(!hasPreviousLife, 2),
-      hasExtensionTreasury: JsonExt.stringify(hasPreviousLife, 2),
-      hasExtensionOperations: JsonExt.stringify(!!operationalDetails || hasMiningAccount, 2),
-      miningSetupStatus: JsonExt.stringify(hasMiningAccount ? MiningSetupStatus.Finished : MiningSetupStatus.None, 2),
-      vaultingSetupStatus: JsonExt.stringify(hasVault ? VaultingSetupStatus.Finished : VaultingSetupStatus.None, 2),
+      hasExtensionTreasury: JsonExt.stringify(hasTreasuryHistory, 2),
+      hasExtensionOperations: JsonExt.stringify(hasOperationsHistory, 2),
+      miningSetupStatus: JsonExt.stringify(miningSetupStatus, 2),
+      vaultingSetupStatus: JsonExt.stringify(
+        hasVaultActivity ? VaultingSetupStatus.Finished : VaultingSetupStatus.None,
+        2,
+      ),
       hasMiningBids: JsonExt.stringify(hasMiningBids, 2),
       hasMiningSeats: JsonExt.stringify(hasMiningSeats, 2),
     };
@@ -126,25 +158,34 @@ export default class Importer {
       throw new Error('Failed to fetch server data');
     } else if (serverData.walletAddress !== this.walletKeys.miningBotAddress) {
       throw new Error('Wallet address mismatch');
-    } else if (!serverData.biddingRules) {
-      throw new Error('No bidding rules found on server');
     }
 
     // TODO: We might want to return this data to the caller (BotCreatePanel) so they can hold it in case the user
     // wants to click the Cancel button.
-    this.config.biddingRules = serverData.biddingRules;
-    if (serverData.oldestFrameIdToSync !== undefined) {
-      this.config.oldestFrameIdToSync = serverData.oldestFrameIdToSync;
+    const hasMiningSeats = this.config.hasMiningSeats || !!serverData.hasMiningSeats;
+    const hasMiningBids = this.config.hasMiningBids || !!serverData.hasMiningBids || hasMiningSeats;
+    this.config.hasMiningSeats = hasMiningSeats;
+    this.config.hasMiningBids = hasMiningBids;
+
+    if (serverData.biddingRules) {
+      this.config.biddingRules = serverData.biddingRules;
     }
+    const hasCompletedMiningSetup =
+      this.config.miningSetupStatus === MiningSetupStatus.Finished || hasMiningBids || !!serverData.biddingRules;
+    this.config.miningSetupStatus = hasCompletedMiningSetup ? MiningSetupStatus.Finished : MiningSetupStatus.Checklist;
+    this.config.oldestFrameIdToSync = serverData.oldestFrameIdToSync ?? this.config.oldestFrameIdToSync;
     this.config.ethereumBeaconApiUrl = serverData.ethereumBeaconApiUrl;
     this.config.ethereumExecutionRpcUrl = serverData.ethereumExecutionRpcUrl;
     this.config.serverDetails = { ...this.config.serverDetails, ipAddress };
     this.config.isServerInstalled = true;
     this.config.isServerInstalling = false;
-    this.config.miningSetupStatus = MiningSetupStatus.Finished;
     this.config.hasExtensionTreasury = true;
     this.config.hasExtensionOperations = true;
-    await this.config.saveBiddingRules();
+    if (serverData.biddingRules) {
+      await this.config.saveBiddingRules();
+    } else {
+      await this.config.save();
+    }
   }
 
   private async shutdownBackgroundSync() {

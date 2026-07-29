@@ -458,8 +458,16 @@ describe('BitcoinLocks recovery', () => {
         operationalAddress: encodeAddress(new Uint8Array(32).fill(0x55)),
       } as WalletKeys,
     });
-    const fundingRecord = { id: 1, status: BitcoinUtxoStatus.ReleaseComplete } as never;
-    vi.spyOn(store.utxoTracking, 'getAcceptedFundingRecordForLock').mockReturnValue(fundingRecord);
+    const fundingRecordId = 1;
+    const fundingRecord = { id: fundingRecordId, status: BitcoinUtxoStatus.FundingCandidate } as never;
+    vi.spyOn(store.utxoTracking, 'getAcceptedFundingRecordForLock').mockImplementation(lock => {
+      return lock.fundingUtxoRecord;
+    });
+    vi.spyOn(store.utxoTracking, 'upsertUtxoRecord').mockResolvedValue(fundingRecord);
+    vi.spyOn(store.utxoTracking, 'setAcceptedFundingRecordForLock').mockImplementation(async (lock, funding) => {
+      lock.fundingUtxoRecordId = funding.id;
+      lock.fundingUtxoRecord = funding;
+    });
     const setReleaseRequest = vi.spyOn(store.utxoTracking, 'setReleaseRequest').mockImplementation(async funding => {
       funding.status = BitcoinUtxoStatus.ReleaseIsProcessingOnArgon;
     });
@@ -477,7 +485,7 @@ describe('BitcoinLocks recovery', () => {
     const record = createLock({
       uuid: 'recovered',
       utxoId: 7,
-      status: BitcoinLockStatus.LockPendingFunding,
+      status: BitcoinLockStatus.LockedAndMinted,
       createdAt: '2026-01-01T00:00:00Z',
     });
     record.lockDetails = new BitcoinLock({
@@ -500,12 +508,15 @@ describe('BitcoinLocks recovery', () => {
     const table = {
       getByUtxoId: vi.fn().mockResolvedValueOnce(undefined).mockResolvedValue(record),
       saveRecoveredHistory: vi.fn(async () => undefined),
+      setFundingUtxoRecordId: vi.fn(async (lock: IBitcoinLockRecord, fundingUtxoRecordId: number) => {
+        lock.fundingUtxoRecordId = fundingUtxoRecordId;
+      }),
       updateMintState: vi.fn(async () => undefined),
       recordReleaseRequest: vi.fn(async (lock: IBitcoinLockRecord, facts: Partial<IBitcoinLockRecord>) => {
         Object.assign(lock, facts, { status: BitcoinLockStatus.Releasing });
       }),
-      setStatus: vi.fn(async (lock: IBitcoinLockRecord, status: BitcoinLockStatus) => {
-        lock.status = status;
+      recordReleaseCosign: vi.fn(async (lock: IBitcoinLockRecord, facts: Partial<IBitcoinLockRecord>) => {
+        Object.assign(lock, facts);
       }),
       recordRemoval: vi.fn(
         async (lock: IBitcoinLockRecord, status: BitcoinLockStatus, facts: Partial<IBitcoinLockRecord>) => {
@@ -521,7 +532,9 @@ describe('BitcoinLocks recovery', () => {
       .mockResolvedValueOnce(verifiedLock)
       .mockResolvedValueOnce(ratchetedLock)
       .mockResolvedValueOnce(twiceRatchetedLock);
-    vi.spyOn(BitcoinLock.prototype, 'getFundingUtxoRef').mockResolvedValue(undefined);
+    vi.spyOn(BitcoinLock.prototype, 'getFundingUtxoRef')
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValue({ txid: 'funding-txid', bitcoinTxid: 'funding-txid', vout: 0 });
     vi.spyOn(BitcoinLock.prototype, 'findPendingMints').mockResolvedValueOnce([]).mockResolvedValue([100n]);
     vi.spyOn(BitcoinLock.prototype, 'getReleaseRequest').mockResolvedValue({
       toScriptPubkey: '0x0014',
@@ -648,7 +661,7 @@ describe('BitcoinLocks recovery', () => {
       expect.objectContaining({ mintAmount: 300n, mintPending: 0n, burned: 50n, txFee: 13n, extrinsicIndex: 2 }),
       expect.objectContaining({ mintAmount: 200n, mintPending: 100n, burned: 25n, txFee: 17n, extrinsicIndex: 3 }),
     ]);
-    expect(recovered.status).toBe(BitcoinLockStatus.Released);
+    expect(recovered.status).toBe(BitcoinLockStatus.Releasing);
     expect(recovered).toMatchObject({
       releaseRedemptionMicrogons: 900n,
       releaseArgonTxFeeMicrogons: 19n,
@@ -656,10 +669,12 @@ describe('BitcoinLocks recovery', () => {
       removalBlockHash: '0x155',
       removalBlockTime: new Date(historyBlock(155).blockTime),
       removalExtrinsicIndex: 2,
-      removalReason: 'released',
       btcPriceAtRemovalMicrogons: 4_000_000n,
     });
-    expect(setReleaseRequest).not.toHaveBeenCalled();
+    expect(recovered.removalReason).toBeUndefined();
+    expect(table.setFundingUtxoRecordId).toHaveBeenCalledWith(expect.anything(), fundingRecordId);
+    expect(table.recordReleaseCosign).toHaveBeenCalledOnce();
+    expect(setReleaseRequest).toHaveBeenCalledOnce();
     expect(table.saveRecoveredHistory).toHaveBeenCalledTimes(4);
     expect(table.updateMintState).toHaveBeenCalledTimes(2);
     await expect(store.recovery.findMissingActiveLockIds(api as never)).resolves.toEqual([8]);

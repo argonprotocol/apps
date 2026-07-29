@@ -40,9 +40,12 @@
       <div class="flex grow flex-col overflow-y-auto pt-10">
         <div class="flex flex-row items-center px-9 text-slate-800/70">
           <span class="grow">
-            You have {{ financials.bitcoinLockDisplayRecords.length }} BTC transaction{{
-              financials.bitcoinLockDisplayRecords.length === 1 ? '' : 's'
-            }}...
+            <template v-if="financials.isHistoryRecoveryInProgress">Restoring BTC transaction history...</template>
+            <template v-else>
+              You have {{ financials.bitcoinLockDisplayRecords.length }} BTC transaction{{
+                financials.bitcoinLockDisplayRecords.length === 1 ? '' : 's'
+              }}...
+            </template>
           </span>
           <div class="flex flex-row items-stretch gap-x-3">
             <span class="relative">

@@ -639,6 +639,7 @@ describe('financials store lifecycle', () => {
     await vi.waitFor(() => expect(mocks.needsFinancialHistoryRecovery).toHaveBeenCalled());
     expect(financials.historyRecovery.state).toBe('ready');
     expect(mocks.restoreFinancialHistory).not.toHaveBeenCalled();
+    expect(mocks.walletsForArgon.readAccountSnapshot).toHaveBeenCalledTimes(2);
   });
 
   it('exposes persisted Bitcoin rows and settled performance before the complete financial snapshot is ready', () => {

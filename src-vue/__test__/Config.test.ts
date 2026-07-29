@@ -92,7 +92,7 @@ it('does not recover operation state from cached mining or vault activity', asyn
     miningSetupStatus: `"${MiningSetupStatus.Checklist}"`,
     vaultingSetupStatus: `"${VaultingSetupStatus.Installing}"`,
     hasMiningBids: 'false',
-    hasMiningSeats: 'false',
+    hasMiningSeats: 'true',
     vaultingRules: JsonExt.stringify(Config.getDefault('vaultingRules'), 2),
   });
   const db = await dbPromise;
@@ -113,7 +113,7 @@ it('does not recover operation state from cached mining or vault activity', asyn
   expect(config.miningSetupStatus).toBe(MiningSetupStatus.Checklist);
   expect(config.vaultingSetupStatus).toBe(VaultingSetupStatus.Installing);
   expect(config.hasMiningBids).toBe(false);
-  expect(config.hasMiningSeats).toBe(false);
+  expect(config.hasMiningSeats).toBe(true);
 });
 
 it('migrates old server port field to sshPort', async () => {
@@ -176,7 +176,11 @@ it.each(['loading', 'ARGON_NETWORK_NAME'])('clears fake upstream state stored wi
   expect(saveSpy).toHaveBeenCalledWith(expect.objectContaining({ bootstrapDetails: '', upstreamOperator: '' }));
 });
 
-it('preserves established operation state when recreating the local database', async () => {
+it.each([
+  { vaultReadState: 'readable vault', vaultReadFails: false },
+  { vaultReadState: 'damaged vault table', vaultReadFails: true },
+])('preserves established operation state when recreating the local database with a $vaultReadState', async params => {
+  const { vaultReadFails } = params;
   const db = await createTestDb();
   const replacementDb = await createTestDb();
   const miningHistory = [{ frameId: 10, bids: [], seats: [] }];
@@ -184,6 +188,7 @@ it('preserves established operation state when recreating the local database', a
 
   try {
     await db.configTable.insertOrReplace({
+      bootstrapDetails: JsonExt.stringify({ type: BootstrapType.Public, routerHost: 'custom-router' }, 2),
       hasExtensionTreasury: 'true',
       hasExtensionOperations: 'true',
       miningSetupStatus: `"${MiningSetupStatus.Finished}"`,
@@ -208,6 +213,10 @@ it('preserves established operation state when recreating the local database', a
     const config = new Config(Promise.resolve(db), walletKeys);
     await config.load();
 
+    if (vaultReadFails) {
+      vi.spyOn(db.vaultsTable, 'get').mockRejectedValue(new Error('vault table is unreadable'));
+    }
+
     const previousLifeSpy = vi.spyOn(walletKeys, 'didWalletHavePreviousLife');
     const restarter = new Restarter(Promise.resolve(db), config);
     vi.spyOn(restarter, 'deleteAndCreateLocalDatabase').mockResolvedValue();
@@ -225,6 +234,10 @@ it('preserves established operation state when recreating the local database', a
     expect(restoredConfig.isBootingUpPreviousWalletHistory).toBe(false);
     expect(restoredConfig.hasExtensionTreasury).toBe(true);
     expect(restoredConfig.hasExtensionOperations).toBe(true);
+    expect(restoredConfig.bootstrapDetails).toEqual({
+      type: BootstrapType.Public,
+      routerHost: 'custom-router',
+    });
     expect(restoredConfig.miningSetupStatus).toBe(MiningSetupStatus.Finished);
     expect(restoredConfig.vaultingSetupStatus).toBe(VaultingSetupStatus.Finished);
     expect(restoredConfig.isServerInstalled).toBe(true);
@@ -233,16 +246,22 @@ it('preserves established operation state when recreating the local database', a
     expect(restoredConfig.walletAccountsHadPreviousLife).toBe(true);
     expect(restoredConfig.walletPreviousLifeRecovered).toBe(true);
     expect(restoredConfig.miningBotAccountPreviousHistory).toEqual(miningHistory);
-    await expect(replacementDb.vaultsTable.get()).resolves.toEqual(
-      expect.objectContaining({
-        id: 1,
-        hdPath: '//vaulting',
-        createdAtBlockHeight: 10,
-        lastTermsUpdateHeight: 20,
-        operationalFeeMicrogons: 30n,
-        isClosed: false,
-      }),
-    );
+
+    const restoredVault = await replacementDb.vaultsTable.get();
+    if (vaultReadFails) {
+      expect(restoredVault).toBeUndefined();
+    } else {
+      expect(restoredVault).toEqual(
+        expect.objectContaining({
+          id: 1,
+          hdPath: '//vaulting',
+          createdAtBlockHeight: 10,
+          lastTermsUpdateHeight: 20,
+          operationalFeeMicrogons: 30n,
+          isClosed: false,
+        }),
+      );
+    }
   } finally {
     pluginSqlLoad.mockRestore();
     await db.close();

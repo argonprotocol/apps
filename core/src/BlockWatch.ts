@@ -113,7 +113,13 @@ export class BlockWatch {
 
   public async start(source = this.getPreferredSubscriptionSource()): Promise<void> {
     const catchupPromise = this.startWithCatchup(source);
-    return await Promise.race([this.currentStateReady.promise, catchupPromise]);
+    const currentStateReady = this.currentStateReady;
+    void catchupPromise.catch(() => {
+      if (currentStateReady.isResolved && this.currentStateReady === currentStateReady) {
+        this.scheduleRestart(this.getRecoverySource(), 'Initial best-chain catchup failed');
+      }
+    });
+    return await Promise.race([currentStateReady.promise, catchupPromise]);
   }
 
   public async startWithCatchup(source = this.getPreferredSubscriptionSource()): Promise<void> {
