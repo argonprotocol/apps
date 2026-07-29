@@ -7,6 +7,7 @@ import {
   type IFrameBondLot,
   type MiningFrames,
   TreasuryBonds,
+  type VaultBondCapacityState,
 } from '@argonprotocol/apps-core';
 import type { Config } from './Config.ts';
 import type { Db } from './Db.ts';
@@ -59,6 +60,7 @@ export class ArgonBonds {
     distributableBidPool: 0n,
     totalActiveBonds: 0,
     vaultsById: {} as Record<number, IVaultArgonBondState>,
+    capacityStatesByVault: {} as Record<number, VaultBondCapacityState>,
   };
 
   private blockSubscription?: VoidFunction;
@@ -205,16 +207,17 @@ export class ArgonBonds {
 
     const vault = this.getVaultBonds(args.vaultId);
     const frameId = args.frameId ?? this.data.currentFrameId;
-    const [activeBonds, bondLots, frameBonds] = await Promise.all([
+    const [activeBonds, bondState, frameBonds] = await Promise.all([
       TreasuryBonds.getActiveBonds(client, args.vaultId),
-      TreasuryBonds.getBondLots(client, args.vaultId, args.accountId ?? args.operatorAddress),
+      TreasuryBonds.getVaultBondState(client, args.vaultId, args.accountId ?? args.operatorAddress),
       frameId > 0
         ? TreasuryBonds.getCurrentFrameBondLots(client, args.vaultId, args.operatorAddress)
         : Promise.resolve({ bondLots: [] }),
     ]);
 
     this.data.totalActiveBonds = activeBonds.totalActiveBonds;
-    vault.bondLots = bondLots;
+    this.data.capacityStatesByVault[args.vaultId] = bondState.capacityState;
+    vault.bondLots = bondState.bondLots;
     vault.currentFrame.frameId = frameId;
     vault.currentFrame.vaultBonds = activeBonds.vaultActiveBonds;
     vault.currentFrame.bondLots = frameBonds.bondLots;

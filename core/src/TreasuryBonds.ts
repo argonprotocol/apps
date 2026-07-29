@@ -6,8 +6,10 @@ import {
   type PalletTreasuryFrameVaultCapital,
   type PalletTreasuryVaultBondState,
   type PalletTreasuryVaultCapital,
+  type PriceIndex,
   type SubmittableExtrinsic,
   type Vec,
+  type Vault,
 } from '@argonprotocol/mainchain';
 import { stringToU8a, u8aConcat } from '@polkadot/util';
 import { bigNumberToBigInt } from './utils.js';
@@ -43,6 +45,11 @@ export interface INextFrameBondAvailability {
 
 // Deployed runtime 156 returns the summaries directly. Live metadata decodes either storage shape.
 type ISpec156VaultBondLots = Vec<PalletTreasuryBondLotSummary>;
+
+export type VaultBondCapacityState = Extract<
+  NonNullable<Parameters<Vault['availableBondSpace']>[1]>,
+  Iterable<{ activeBonds: number }>
+>;
 
 export class TreasuryBonds {
   public static async getActiveBonds(
@@ -150,10 +157,12 @@ export class TreasuryBonds {
   }
 
   public static async getBondLots(client: ArgonQueryClient, vaultId: number, ownAddress?: string): Promise<BondLot[]> {
-    const vaultState: PalletTreasuryVaultBondState | ISpec156VaultBondLots =
-      await client.query.treasury.bondLotsByVault(vaultId);
-    const summaries = 'bondLots' in vaultState ? vaultState.bondLots : vaultState;
-    const idsBySourceOrder = summaries.map(summary => summary.bondLotId.toNumber());
+    return (await TreasuryBonds.getVaultBondState(client, vaultId, ownAddress)).bondLots;
+  }
+
+  public static async getVaultBondState(client: ArgonQueryClient, vaultId: number, ownAddress?: string) {
+    const { summaries, capacityState } = await TreasuryBonds.getVaultBondSources(client, vaultId);
+    const idsBySourceOrder = [...summaries].map(summary => summary.bondLotId.toNumber());
 
     if (ownAddress) {
       const accountKeys = await client.query.treasury.bondLotIdsByAccount.keys(ownAddress);
@@ -162,14 +171,30 @@ export class TreasuryBonds {
 
     const ids = [...new Set(idsBySourceOrder)];
     const lotsById = await TreasuryBonds.getBondLotsById(client, ids);
-
-    return ids.flatMap(id => {
+    const bondLots = ids.flatMap(id => {
       const lot = lotsById.get(id);
       if (!lot) return [];
 
       const bondLot = BondLot.fromRuntime(id, lot, ownAddress);
       return bondLot.vaultId === vaultId ? [bondLot] : [];
     });
+
+    return {
+      bondLots,
+      capacityState,
+    };
+  }
+
+  public static availableBondSpace({
+    vault,
+    priceIndex,
+    bondState,
+  }: {
+    vault: Pick<Vault, 'availableBondSpace'>;
+    priceIndex: PriceIndex;
+    bondState?: VaultBondCapacityState;
+  }): bigint {
+    return vault.availableBondSpace(priceIndex, bondState, true);
   }
 
   public static async getBondLotsByAccount(client: ArgonQueryClient, accountId: string): Promise<BondLot[]> {
@@ -307,16 +332,34 @@ export class TreasuryBonds {
   }
 
   private static async getBondLotsForVault(client: ArgonQueryClient, vaultId: number): Promise<IBondLotSource[]> {
-    const vaultState: PalletTreasuryVaultBondState | ISpec156VaultBondLots =
-      await client.query.treasury.bondLotsByVault(vaultId);
-    const summaries = 'bondLots' in vaultState ? vaultState.bondLots : vaultState;
-    const ids = summaries.map(summary => summary.bondLotId.toNumber());
+    const { summaries } = await TreasuryBonds.getVaultBondSources(client, vaultId);
+    const ids = [...summaries].map(summary => summary.bondLotId.toNumber());
     const lotsById = await TreasuryBonds.getBondLotsById(client, ids);
 
     return ids.flatMap(id => {
       const lot = lotsById.get(id);
       return lot ? [{ id, lot }] : [];
     });
+  }
+
+  private static async getVaultBondSources(client: ArgonQueryClient, vaultId: number) {
+    const vaultState: PalletTreasuryVaultBondState | ISpec156VaultBondLots =
+      await client.query.treasury.bondLotsByVault(vaultId);
+    const summaries = 'bondLots' in vaultState ? vaultState.bondLots : vaultState;
+    const capacityState = [...summaries].map(summary => ({
+      activeBonds: summary.bonds.toNumber(),
+    }));
+
+    if ('bondLots' in vaultState) {
+      capacityState.push({
+        activeBonds: vaultState.backfillBondsReserved.toNumber(),
+      });
+    }
+
+    return {
+      summaries,
+      capacityState,
+    };
   }
 
   private static async getBondLotsById(
