@@ -13,6 +13,7 @@ import { bigintCodec, numberCodec, optionCodec } from '../../core/__test__/helpe
 import { encodeAddress } from '@polkadot/util-crypto';
 import { getBitcoinAlertNotices } from '../lib/Alerts.ts';
 import { BitcoinFinancials } from '../lib/financials/BitcoinLocks.ts';
+import * as vaultStore from '../stores/vaults.ts';
 
 function createStore(
   options: { blockWatch?: BlockWatch; transactionTracker?: TransactionTracker; walletKeys?: WalletKeys } = {},
@@ -1227,6 +1228,7 @@ describe('BitcoinLocks ratchet preview', () => {
       createdAt: '2026-01-01T00:00:00Z',
     });
     lock.lockedTargetPrice = 3_000n;
+    lock.lockDetails.ownerAccount = 'stale-bitcoin-owner';
 
     const client = {
       query: {
@@ -1235,9 +1237,10 @@ describe('BitcoinLocks ratchet preview', () => {
         },
       },
     };
+    const availableSecuritization = vi.fn(() => 10_000n);
     const vault = {
       operatorAccountId,
-      availableSecuritization: () => 10_000n,
+      availableSecuritization,
     };
     const calculateRatchetingCosts = vi.fn(async () => ({ burnAmount: 1_500n, ratchetingFee: 50n }));
     Object.assign(store, {
@@ -1257,7 +1260,50 @@ describe('BitcoinLocks ratchet preview', () => {
     const preview = await store.getRatchetPreview(lock);
 
     expect(calculateRatchetingCosts).toHaveBeenCalledWith(client, expect.anything(), vault, 2_000n);
+    expect(availableSecuritization).toHaveBeenCalledWith('bitcoin-owner');
     expect(preview.ratchetingFee).toBe(expectedFee);
+  });
+});
+
+describe('BitcoinLocks capacity owners', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('uses the prospective owner for lockable capacity', async () => {
+    const store = createStore();
+    const availableBitcoinSpace = vi.fn(() => 300n);
+    vi.spyOn(store, 'satoshisForArgonLiquidity').mockResolvedValue(300n);
+    vi.spyOn(BitcoinLock, 'calculateRedemptionAmountFromSatoshis').mockReturnValue(300n);
+
+    const capacity = await store.getLockableBitcoinCapacity({
+      vault: { availableBitcoinSpace } as never,
+      lockOwner: 'bitcoin-owner',
+    });
+
+    expect(availableBitcoinSpace).toHaveBeenCalledWith('bitcoin-owner');
+    expect(capacity.vaultCapacityLiquidityMicrogons).toBe(300n);
+  });
+
+  it('uses the existing lock owner for mismatch capacity', () => {
+    const store = createStore();
+    const availableBitcoinSpace = vi.fn(() => 300n);
+    vi.spyOn(vaultStore, 'getVaults').mockReturnValue({
+      vaultsById: { 1: { availableBitcoinSpace } },
+    } as never);
+    const lock = createLock({
+      uuid: 'mismatch-capacity',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockPendingFunding,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    lock.satoshis = 100n;
+    lock.liquidityPromised = 100n;
+    lock.lockDetails.ownerAccount = 'bitcoin-owner';
+    const candidate = { satoshis: 500n } as never;
+
+    expect(store.getUnderSecuritizedMicrogons(lock, candidate)).toBe(100n);
+    expect(store.getIncreaseSecuritizationMicrogons(lock, candidate)).toBe(300n);
+    expect(availableBitcoinSpace).toHaveBeenNthCalledWith(1, 'bitcoin-owner');
+    expect(availableBitcoinSpace).toHaveBeenNthCalledWith(2, 'bitcoin-owner');
   });
 });
 
