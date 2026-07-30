@@ -17,11 +17,15 @@
           </template>
           <template v-else>Looking for active Bitcoin locks and past transactions.</template>
         </p>
-        <p v-else class="mx-10 mt-3 flex-col text-xl leading-relaxed text-slate-900/60 xl:mx-28 2xl:mx-auto 2xl:flex">
-          <span>Lock your bitcoin at today’s market rate, receive its full value in inflation-resistant</span>
+        <p v-else class="mx-10 mt-3 flex-col text-xl leading-relaxed text-slate-900/60 xl:mx-10 2xl:mx-auto 2xl:flex">
+          <span>Lock your bitcoin at today’s market rate, receive its full value in stablecoins,</span>
           <span>
-            Argon stablecoins, and be protected if Bitcoin’s price drops.
-            <a :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/bitcoin-locks`" target="_blank">
+            and be protected from Bitcoin price drops. Oh, and it maintains chain-of-custody.
+            <a
+              class="whitespace-nowrap"
+              :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/bitcoin-locks`"
+              target="_blank"
+            >
               Learn more &raquo;
             </a>
           </span>

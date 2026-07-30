@@ -214,8 +214,10 @@
 
     <BondDetailOverlay
       v-if="showBondDetailOverlay && selectedFrameBondLot"
-      :bondLot="selectedFrameBondLot"
+      :bondLot="selectedFrameBondLot.details"
+      :frameProrata="selectedFrameBondLot.prorata"
       :bondFrame="currentTreasuryBondFrame"
+      liquidationAccount="vaulting"
       @close="closeBondDetailOverlay"
     />
 
@@ -259,7 +261,6 @@ import numeral from '../../lib/numeral.ts';
 import { getMyVault, getVaults } from '../../stores/vaults.ts';
 import type { IExternalBitcoinLock } from '../../lib/MyVault.ts';
 import { getConfig } from '../../stores/config.ts';
-import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline';
 import { TICK_MILLIS } from '../../lib/Env.ts';
 import VaultEditOverlay from '../../overlays/VaultEditOverlay.vue';
 import BitcoinLockDetailOverlay from '../../overlays/BitcoinLockDetailOverlay.vue';

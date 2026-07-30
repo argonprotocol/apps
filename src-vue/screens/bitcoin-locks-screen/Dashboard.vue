@@ -63,7 +63,11 @@
               />
             </span>
             <div class="w-px bg-slate-400/50" />
-            <a :href="`${NetworkConfig.websiteHost}/`" target="_blank" class="text-md text-argon-600 cursor-pointer">
+            <a
+              class="whitespace-nowrap"
+              :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/bitcoin-locks`"
+              target="_blank"
+            >
               View Docs
             </a>
           </div>

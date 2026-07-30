@@ -1,12 +1,18 @@
 <template>
-  <div class="flex flex-col px-2 pt-6 pb-3">
-    <div class="flex flex-col px-10">
-      <p class="font-light">
-        {{ vaultLabel }} has enough securitization to support up to {{ currency.symbol
-        }}{{ microgonToMoneyNm(vaultCapacityLiquidityMicrogons).format('0,0.00') }} of bitcoin liquidity, which
-        currently corresponds to {{ numeral(vaultCapacityBtc).format('0,0.[00000000]') }} BTC. As part of this process,
-        you'll receive the full market value of your bitcoin in the form of fully liquid, unencumbered Argon
-        stablecoins.
+  <div class="flex flex-col px-10 py-5">
+    <div class="flex flex-col pt-3">
+      <h1 class="text-3xl font-bold">Choose How Much Bitcoin to Liquid Lock</h1>
+
+      <p class="mt-3 leading-relaxed font-light">
+        Liquid locking lets you maintain your bitcoin’s full chain-of-custody while protecting against price drops.
+        You’ll also receive the full market value in inflation-resistant Argon stablecoins.
+        <a
+          class="whitespace-nowrap"
+          :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/bitcoin-locks`"
+          target="_blank"
+        >
+          Learn more.
+        </a>
       </p>
 
       <div
@@ -41,73 +47,127 @@
         </div>
       </div>
 
-      <div class="mt-5 flex flex-row gap-x-5">
-        <div class="flex w-1/2 grow flex-col space-y-1">
-          <label class="font-bold opacity-40">Bitcoins to Lock</label>
-          <InputNumber
-            data-testid="LockStart.bitcoinAmount"
-            v-model="bitcoinAmount"
-            @input="handleBtcChange"
-            :disabled="isSaving || isLoadingLiquidity"
-            :maxDecimals="8"
-            :min="0"
-            :max="availableLiquidityBtc"
-            suffix=" BTC"
-            :dragBy="0.1"
-            :dragByMin="0.01"
-            class="px-1 py-2 text-lg"
-          />
+      <div class="mt-8 flex flex-col">
+        <div class="mb-2 flex flex-row items-center">
+          <label class="grow font-bold opacity-40">Bitcoin to Lock</label>
+          <span v-if="bitcoinAmount === minLockBtc" class="text-sm text-gray-600/60">You're At Min Amount</span>
+          <button
+            v-else
+            type="button"
+            class="text-argon-600 hover:text-argon-700 cursor-pointer text-sm"
+            :disabled="isSaving || isLoadingLiquidity || availableLiquidityBtc <= 0"
+            @click="setBitcoinAmount(minLockBtc)"
+          >
+            Min
+          </button>
+          <span class="mx-3 h-4 border-l border-gray-300" />
+          <span v-if="bitcoinAmount === availableLiquidityBtc" class="text-sm text-gray-600/60">
+            You're At Vault Capacity
+          </span>
+          <button
+            v-else
+            type="button"
+            class="text-argon-600 hover:text-argon-700 cursor-pointer text-sm"
+            :disabled="isSaving || isLoadingLiquidity || availableLiquidityBtc <= 0"
+            @click="setBitcoinAmount(availableLiquidityBtc)"
+          >
+            Max
+          </button>
         </div>
-        <div class="flex flex-col space-y-1">
-          <label>&nbsp;</label>
-          <div class="py-2 text-xl">=</div>
+        <div class="relative flex w-full flex-row items-center rounded-md border border-slate-700/50">
+          <div class="w-1/2">
+            <InputNumber
+              data-testid="LockStart.bitcoinAmount"
+              v-model="bitcoinAmount"
+              @input="handleBtcChange"
+              :disabled="isSaving || isLoadingLiquidity"
+              :maxDecimals="8"
+              :min="0"
+              :max="availableLiquidityBtc"
+              suffix=" BTC"
+              :dragBy="0.1"
+              :dragByMin="0.01"
+              :hideArrows="true"
+              class="w-fit border-0 px-1 py-2 text-[17px]!"
+            />
+          </div>
+          <!--          <div class="relative z-10 h-5 w-5 bg-white px-2 font-light">-->
+          <!--            <div class="absolute top-[7.5px] left-1/2 -translate-x-1/2 -translate-y-1/2 text-3xl opacity-50">=</div>-->
+          <!--          </div>-->
+          <!--          <div class="absolute top-1/2 left-1/2 h-[140%] w-px origin-center -translate-x-1/2 -translate-y-1/2 rotate-45 bg-slate-700/30" />-->
+          <div class="flex w-1/2 flex-row justify-end">
+            <InputMoney
+              data-testid="LockStart.argonAmount"
+              v-model="liquidityToReceive"
+              @input="handleArgonChange"
+              :disabled="isSaving || isLoadingLiquidity"
+              :maxDecimals="0"
+              :min="0n"
+              :max="availableLiquidityMicrogons"
+              :dragBy="1_000_000n"
+              :dragByMin="1_000_000n"
+              prefix="~"
+              suffix=" CURRENT MARKET VALUE"
+              class="w-fit border-0 px-1 py-2 text-[17px]!"
+            />
+          </div>
         </div>
-        <div class="flex w-1/2 grow flex-col space-y-1">
-          <label class="font-bold opacity-40">Argons to Receive</label>
-          <InputMoney
-            data-testid="LockStart.argonAmount"
-            v-model="liquidityToReceive"
-            @input="handleArgonChange"
-            :disabled="isSaving || isLoadingLiquidity"
-            :maxDecimals="0"
-            :min="0n"
-            :max="availableLiquidityMicrogons"
-            :dragBy="1_000_000n"
-            :dragByMin="1_000_000n"
-            class="px-1 py-2 text-lg"
-          />
+        <div class="text-md mt-2 text-slate-700/70">
+          Cost: {{ microgonToArgonNm(securityFee).format('0,0.[00]') }} ARGN will be pulled from your Internal App
+          Wallet. See One-Time Lock Fee below.
         </div>
+        <WalletFundingCallout v-if="neededMicrogons" @open-wallet="openWallet">
+          <AlertIcon class="mr-2 h-4 text-yellow-700" />
+          Your wallet needs another {{ microgonToArgonNm(neededMicrogons).format('0,0.[00]') }} ARGN to initialize this
+          lock.
+        </WalletFundingCallout>
+
+        <section class="border-argon-600/30 mt-6 rounded-md border">
+          <div class="flex flex-row py-7 text-center">
+            <div class="w-1/3 px-3">
+              <header class="font-bold opacity-40">ONE-TIME LOCK FEE</header>
+              <div class="text-argon-600 py-1 text-3xl font-bold">
+                <template v-if="isFeeWaived">Waived</template>
+                <template v-else>{{ microgonToArgonNm(securityFee).format('0,0.[00]') }} ARGN</template>
+              </div>
+              <div class="font-light opacity-80">
+                <template v-if="isOperatorCouponLock">
+                  {{ couponProviderLabel }} Gifted You {{ currency.symbol
+                  }}{{ microgonToMoneyNm(oneTimeLockFee).format('0,0.00') }}
+                </template>
+                <template v-else-if="isVaultOperator">No Operator Fee Charged</template>
+                <template v-else>{{ currency.symbol }}{{ microgonToMoneyNm(securityFee).format('0,0.00') }}</template>
+              </div>
+            </div>
+            <div class="min-h-full min-w-px bg-slate-600/20" />
+            <div class="w-1/3 px-3">
+              <header class="font-bold opacity-40">YOU WILL RECEIVE</header>
+              <div class="text-argon-600 py-1 text-3xl font-bold">
+                {{ currency.symbol }}{{ microgonToMoneyNm(liquidityToReceive).format('0,0') }}
+              </div>
+              <div class="font-light opacity-80">In Unencumbered Argons</div>
+            </div>
+            <div class="min-h-full min-w-px bg-slate-600/20" />
+            <div class="w-1/3 px-3">
+              <header class="font-bold opacity-40">PROJECTED EARNINGS</header>
+              <div class="text-argon-600 py-1 text-3xl font-bold">
+                +{{ currency.symbol }}{{ microgonToMoneyNm(projectedEarnings).format('0,0') }}
+              </div>
+              <div class="font-light opacity-80">Modeled Over One Year</div>
+            </div>
+          </div>
+          <div class="mx-2 border-t border-slate-600/30 px-2 py-3 font-light italic opacity-70">
+            * The value of your {{ numeral(bitcoinAmount).format('0,0.[00000000]') }} BTC is protected even if bitcoin's
+            market's price falls.
+            <a :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/bitcoin-locks`" target="_blank">
+              Learn more.
+            </a>
+          </div>
+        </section>
       </div>
     </div>
 
-    <div v-if="showFeePanel" class="mt-5 px-10">
-      <section class="rounded-md border border-slate-200/80 bg-slate-50/70 px-4 py-2.5">
-        <div class="flex flex-row items-center justify-between gap-x-6">
-          <div>
-            <div class="text-[11px] font-medium tracking-wide text-slate-400 uppercase">Lock Fee</div>
-            <div class="mt-0.5 font-mono text-base text-slate-600">
-              {{ currency.symbol }}{{ microgonToMoneyNm(securityFee).format('0,0.[00]') }}
-            </div>
-            <p class="mt-0.5 text-xs text-slate-400">Charged by the vault operator when the lock is initialized.</p>
-          </div>
-
-          <div class="min-w-42 text-right">
-            <div class="text-[11px] font-medium tracking-wide text-slate-400 uppercase">Wallet Check</div>
-            <div v-if="neededMicrogons > 0n" class="mt-0.5 font-mono text-sm text-red-600">
-              Need {{ currency.symbol }}{{ microgonToMoneyNm(neededMicrogons).format('0,0.[00]') }} more
-            </div>
-            <div v-else class="mt-0.5 font-mono text-sm text-slate-600">You can afford it</div>
-            <p class="mt-0.5 text-xs text-slate-400">
-              {{ currency.symbol
-              }}{{ microgonToMoneyNm(wallets.liquidLockingWallet.availableMicrogons).format('0,0.[00]') }}
-              available
-            </p>
-          </div>
-        </div>
-      </section>
-    </div>
-
-    <div class="mt-16 flex flex-row items-center justify-end gap-x-3 border-t border-black/20 pt-4 pr-4">
+    <div class="mt-3 flex flex-row items-center justify-end gap-x-3 py-3">
       <button
         v-if="props.canChangeVault"
         data-testid="LockStart.changeVault()"
@@ -118,23 +178,20 @@
         Choose Different Vault
       </button>
       <button
-        class="border-argon-600/20 cursor-pointer rounded-lg border bg-gray-200 px-10 py-1 text-lg text-black hover:bg-gray-300"
+        class="cursor-pointer rounded-md border border-slate-300 px-10 py-2 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
         @click="closeOverlay"
         :disabled="isSaving"
       >
         Cancel
       </button>
       <button
-        :class="
-          isSaving || isLoadingLiquidity ? 'bg-argon-600/60 pointer-events-none' : 'bg-argon-600 hover:bg-argon-700'
-        "
-        :disabled="isSaving || isLoadingLiquidity"
+        :disabled="cannotContinue"
         @click="submitLiquidLock"
-        class="cursor-pointer rounded-lg px-10 py-2 text-lg font-bold text-white"
+        class="bg-argon-button hover:bg-argon-button-hover cursor-pointer rounded-md px-10 py-2 font-semibold text-white disabled:cursor-default disabled:opacity-40"
       >
         <template v-if="isSaving">Initializing Liquid Lock</template>
         <template v-else>
-          Initialize Liquid Lock
+          Continue to Locking
           <ChevronDoubleRightIcon class="relative -top-px inline-block size-5" />
         </template>
       </button>
@@ -157,6 +214,13 @@ import { getConfig } from '../../stores/config.ts';
 import { getVaults } from '../../stores/vaults.ts';
 import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
 import type { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
+import { bigNumberToBigInt, NetworkConfig } from '@argonprotocol/apps-core';
+import WalletFundingCallout from '../../components/WalletFundingCallout.vue';
+import basicEmitter from '../../emitters/basicEmitter.ts';
+import { WalletType } from '../../lib/Wallet.ts';
+import AlertIcon from '../../assets/alert.svg';
+import BigNumber from 'bignumber.js';
+import { useVaultingStats } from '../../stores/vaultingStats.ts';
 
 const props = defineProps<{
   canChangeVault?: boolean;
@@ -178,11 +242,10 @@ const bitcoinLockCoupons = getBitcoinLockCoupons();
 const config = getConfig();
 const wallets = useWallets();
 const walletKeys = getWalletKeys();
+const vaultingStats = useVaultingStats();
 
-const { microgonToMoneyNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm, microgonToArgonNm } = createNumeralHelpers(currency);
 
-const vaultCapacityLiquidityMicrogons = Vue.ref(0n);
-const vaultCapacityBtc = Vue.ref(0);
 const availableLiquidityMicrogons = Vue.ref(0n);
 const availableLiquidityBtc = Vue.ref(0);
 
@@ -194,6 +257,8 @@ const liquidityToReceive = Vue.ref(0n);
 const lockSatoshis = Vue.ref(0n);
 const securityFee = Vue.ref(0n);
 const hasEditedAmounts = Vue.ref(false);
+
+const minLockBtc = Vue.computed(() => Math.min(0.01, availableLiquidityBtc.value));
 
 const isVaultOperator = Vue.computed(() => {
   return walletKeys.defaultArgonAddress === props.vault.operatorAccountId;
@@ -227,13 +292,6 @@ const isOperatorCouponLock = Vue.computed(() => {
   return !!operatorCoupon.value;
 });
 
-const vaultLabel = Vue.computed(() => {
-  if (!hasCouponForVault.value) return 'This vault';
-
-  const name = config.upstreamOperator?.name;
-  return name ? `${name}'s vault` : 'The vault';
-});
-
 const couponProviderLabel = Vue.computed(() => {
   const name = config.upstreamOperator?.name;
   return name || 'The vault operator';
@@ -257,8 +315,33 @@ const neededMicrogons = Vue.computed(() => {
   return needed - wallets.liquidLockingWallet.availableMicrogons;
 });
 
-const showFeePanel = Vue.computed(() => {
-  return !isVaultOperator.value && !isOperatorCouponLock.value && securityFee.value > 0n;
+function openWallet() {
+  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
+}
+
+const oneTimeLockFee = Vue.computed(() => {
+  if (liquidityToReceive.value <= 0n) return 0n;
+  return props.vault.calculateBitcoinFee(liquidityToReceive.value);
+});
+
+const isFeeWaived = Vue.computed(() => {
+  return isVaultOperator.value || isOperatorCouponLock.value;
+});
+
+const projectedEarnings = Vue.computed(() => {
+  const bitcoinAPR = Math.max(0, Math.min(999, vaultingStats.bitcoinAPR));
+  return bigNumberToBigInt(BigNumber(liquidityToReceive.value.toString()).multipliedBy(bitcoinAPR).dividedBy(100));
+});
+
+const cannotContinue = Vue.computed(() => {
+  return (
+    isSaving.value ||
+    isLoadingLiquidity.value ||
+    lockSatoshis.value <= 0n ||
+    liquidityToReceive.value <= 0n ||
+    liquidityToReceive.value > availableLiquidityMicrogons.value ||
+    neededMicrogons.value > 0n
+  );
 });
 
 const debouncedHandleBtcChange = useDebounceFn(internalHandleBtcChange, 100, { maxWait: 200 });
@@ -295,7 +378,6 @@ async function internalHandleArgonChange(liquidityMicrogons: bigint) {
   const sats = await bitcoinLocks.satoshisForArgonLiquidity(liquidityMicrogons);
   lockSatoshis.value = sats;
   const btc = currency.convertSatToBtc(sats);
-  console.log(`${liquidityMicrogons} liquidity microgons -> ${sats} sats -> ${btc} btc`);
   bitcoinAmount.value = btc;
   lastSetBitcoinAmount = bitcoinAmount.value;
   lastSetLiquidityMicrogons = liquidityMicrogons;
@@ -332,6 +414,11 @@ function handleBtcChange(value: number) {
     }
   });
   pendingAmountSync = sync;
+}
+
+function setBitcoinAmount(value: number) {
+  bitcoinAmount.value = value;
+  handleBtcChange(value);
 }
 
 async function submitLiquidLock() {
@@ -386,15 +473,11 @@ function closeOverlay() {
 
 async function setLiquidityVariables() {
   const syncId = ++availableLiquiditySyncId;
-  const {
-    availableSatoshis: nextAvailableSatoshis,
-    availableLiquidityMicrogons: nextAvailableLiquidityMicrogons,
-    vaultCapacitySatoshis: nextVaultCapacitySatoshis,
-    vaultCapacityLiquidityMicrogons: nextVaultCapacityLiquidityMicrogons,
-  } = await bitcoinLocks.getLockableBitcoinCapacity({
-    vault: props.vault,
-    maxSatoshis: props.coupon && isOperatorCouponLock.value ? props.coupon.coupon.maxSatoshis : undefined,
-  });
+  const { availableSatoshis: nextAvailableSatoshis, availableLiquidityMicrogons: nextAvailableLiquidityMicrogons } =
+    await bitcoinLocks.getLockableBitcoinCapacity({
+      vault: props.vault,
+      maxSatoshis: props.coupon && isOperatorCouponLock.value ? props.coupon.coupon.maxSatoshis : undefined,
+    });
   const nextWholeArgonLiquidityMicrogons =
     nextAvailableLiquidityMicrogons - (nextAvailableLiquidityMicrogons % BigInt(MICROGONS_PER_ARGON));
   const nextWholeArgonSatoshis =
@@ -404,8 +487,6 @@ async function setLiquidityVariables() {
 
   if (syncId !== availableLiquiditySyncId) return;
 
-  vaultCapacityLiquidityMicrogons.value = nextVaultCapacityLiquidityMicrogons;
-  vaultCapacityBtc.value = currency.convertSatToBtc(nextVaultCapacitySatoshis);
   availableLiquidityMicrogons.value = nextWholeArgonLiquidityMicrogons;
   availableLiquidityBtc.value = currency.convertSatToBtc(nextAvailableSatoshis);
 

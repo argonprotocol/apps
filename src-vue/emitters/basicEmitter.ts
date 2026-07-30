@@ -63,8 +63,9 @@ type IBasicEmitter = {
   openBitcoinLock: { lock?: IBitcoinLockRecord } | undefined;
   openBitcoinUnlock: IBitcoinLockRecord;
   resumeBitcoinFunding: IBitcoinLockRecord;
-  openBuyBondsOverlay: BondLot['programType'];
-  bondPurchaseSubmitted: BondLot['programType'] | undefined;
+
+  openBondPurchaseOverlay: void;
+  openStakePurchaseOverlay: void;
 
   openServerOverlay: void;
   openServerSettingsOverlay: void;

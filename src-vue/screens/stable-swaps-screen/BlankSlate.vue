@@ -40,10 +40,10 @@
           </li>
         </ul>
 
+        <!--        @click="activateStableSwaps"-->
         <span class="relative">
           <button
-            @click="activateStableSwaps"
-            class="bg-argon-button hover:bg-argon-button-hover mt-12 cursor-pointer rounded-md border border-transparent px-12 py-3 text-lg font-bold text-white"
+            class="mt-12 rounded-md border border-transparent bg-gray-200 px-12 py-3 text-lg font-bold text-gray-400"
           >
             Activate Stable Swaps
           </button>

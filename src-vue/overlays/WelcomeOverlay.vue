@@ -66,7 +66,7 @@
           @click="closeOverlay"
           class="mt-5 w-full flex flex-row items-center justify-center space-x-2 bg-argon-button border border-argon-button-hover hover:bg-argon-button-hover text-white font-bold inner-button-shadow px-6 py-2 rounded-md cursor-pointer focus:outline-none"
         >
-          Start With New Account
+          Start New Account
         </button>
       </div>
     </div>
