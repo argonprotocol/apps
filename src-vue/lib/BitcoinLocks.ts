@@ -802,6 +802,7 @@ export default class BitcoinLocks {
     const txInfo = await this.#transactionTracker.submitAndWatch({
       tx,
       txSigner,
+      useLatestNonce: true,
       extrinsicType: ExtrinsicType.BitcoinRequestLock,
       metadata: {
         bitcoin: {
