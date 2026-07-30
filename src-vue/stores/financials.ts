@@ -970,7 +970,9 @@ export const useFinancials = defineStore('financials', () => {
 
   async function initializeFinancialHistoryRecovery(): Promise<void> {
     activeBitcoinLockCount.value = undefined;
-    historyRecovery.value = { state: 'checking', recoveredBlockCount: 0 };
+    if (!hasConfirmedFinancialHistoryCoverage) {
+      historyRecovery.value = { state: 'checking', recoveredBlockCount: 0 };
+    }
     const enabledDomains = getEnabledFinancialHistoryDomains({
       force: false,
       hasExtensionTreasury: config.hasExtensionTreasury,
@@ -988,6 +990,7 @@ export const useFinancials = defineStore('financials', () => {
     });
     if (needsRecovery) {
       hasConfirmedFinancialHistoryCoverage = false;
+      historyRecovery.value = { state: 'checking', recoveredBlockCount: 0 };
       await restoreFinancialHistory(false, targetBlock);
       return;
     }
