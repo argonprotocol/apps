@@ -2,17 +2,12 @@ import { Config } from './Config';
 import { IConfigServerDetails } from '../interfaces/IConfig';
 import { InvokeTimeout } from './tauriApi';
 import { SSHConnection } from './SSHConnection';
-import { IBiddingRules } from '@argonprotocol/apps-core';
 import { ServerAdmin } from './ServerAdmin';
 
-export interface ITryServerData {
+export type ITryServerData = Awaited<ReturnType<ServerAdmin['downloadConfigState']>> & {
   walletAddress: string | undefined;
-  biddingRules: IBiddingRules | undefined;
-  oldestFrameIdToSync: number | undefined;
-  ethereumBeaconApiUrl: string | undefined;
-  ethereumExecutionRpcUrl: string | undefined;
   availableDiskBytes?: number;
-}
+};
 
 export class SSH {
   public static connection?: SSHConnection;
@@ -69,15 +64,11 @@ export class SSH {
       };
     }
 
-    const { biddingRules, oldestFrameIdToSync, ethereumBeaconApiUrl, ethereumExecutionRpcUrl } =
-      await server.downloadConfigState();
+    const configState = await server.downloadConfigState();
 
     return {
       walletAddress,
-      biddingRules,
-      oldestFrameIdToSync,
-      ethereumBeaconApiUrl,
-      ethereumExecutionRpcUrl,
+      ...configState,
     };
   }
 

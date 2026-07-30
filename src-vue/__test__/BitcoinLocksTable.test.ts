@@ -82,6 +82,29 @@ describe('BitcoinLocksTable', () => {
       releaseArgonTxFeeMicrogons: 7n,
     });
     await table.recordReleaseCompensation(lock, 11n);
+    await table.recordReleaseCosign(lock, {
+      removalBlockNumber: 120,
+      removalBlockHash: undefined,
+      removalBlockTime: new Date('2026-07-16T12:00:00Z'),
+      removalExtrinsicIndex: 3,
+      btcPriceAtRemovalMicrogons: 4_000_000n,
+    });
+    const recoveredRelease = (await table.fetchAll()).find(record => record.uuid === lock.uuid)!;
+    expect(recoveredRelease).toMatchObject({
+      status: BitcoinLockStatus.Releasing,
+      removalBlockNumber: 120,
+      removalBlockTime: new Date('2026-07-16T12:00:00Z'),
+      removalExtrinsicIndex: 3,
+      btcPriceAtRemovalMicrogons: 4_000_000n,
+    });
+    expect(recoveredRelease.removalReason).toBeNull();
+
+    await table.setReleased(recoveredRelease);
+    expect(recoveredRelease).toMatchObject({
+      status: BitcoinLockStatus.Released,
+      removalReason: 'released',
+    });
+
     await table.recordRemoval(lock, BitcoinLockStatus.Released, {
       removalBlockNumber: 120,
       removalBlockHash: undefined,

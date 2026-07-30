@@ -97,6 +97,18 @@ export class MemoryWalletKeys extends WalletKeys {
     return miniSecretFromUri(`${this.substrateSuri}//router-restore-sealing`);
   }
 
+  public async getOwnServerBootstrapEndpointSecret(index = 0): Promise<string> {
+    return miniSecretFromUri(`${this.substrateSuri}//bootstrap-endpoint//${index}`);
+  }
+
+  public async getUpstreamEndpointRecoverySeed(): Promise<string> {
+    return miniSecretFromUri(`${this.substrateSuri}//bootstrap-recovery//upstream`);
+  }
+
+  public async getOwnServerEndpointRecoverySeed(): Promise<string> {
+    return miniSecretFromUri(`${this.substrateSuri}//bootstrap-recovery//own-server`);
+  }
+
   public async getDefaultArgonKeypair(): Promise<KeyringPair> {
     return this.vaultingAccount;
   }

@@ -11,8 +11,9 @@ import {
   type IEthereumGatewayCatchUpRequest,
   type IEthereumGatewayCatchUpResponse,
   type IEthereumGatewayRelayStatus,
+  getBootstrapEndpointPubkey,
 } from '@argonprotocol/apps-core';
-import { getClient } from '@argonprotocol/mainchain';
+import { getClient, u8aToHex } from '@argonprotocol/mainchain';
 import { ArgonApis } from './ArgonApis.ts';
 import { BitcoinApis } from './BitcoinApis.ts';
 import { BotUpstreamClient } from './BotUpstreamClient.ts';
@@ -20,6 +21,7 @@ import {
   ADMIN_OPERATOR_ACCOUNT_ID,
   BITCOIN_CONFIG,
   ROUTER_AUTH_SESSION_TTL_SECONDS,
+  ROUTER_BOOTSTRAP_ENDPOINT_SECRET,
   ROUTER_RESTORE_KEY,
   SERVER_ROOT,
 } from './env.ts';
@@ -50,6 +52,7 @@ import type {
 
 type IRouterServerAuthOptions = Omit<IRouterAuthServiceOptions, 'db' | 'memberRestore'> & {
   restoreKey?: string;
+  bootstrapEndpointSecret?: string;
 };
 
 interface IRouterServerOptions {
@@ -83,7 +86,15 @@ export class RouterServer {
     const inviteProgressNodeUrl = this.options.mainNodeUrl ?? this.options.localNodeUrl;
     const adminOperatorAccountId =
       this.options.auth?.adminOperatorAccountId?.trim() || ADMIN_OPERATOR_ACCOUNT_ID?.trim();
-    const { restoreKey = ROUTER_RESTORE_KEY, ...authOptions } = this.options.auth ?? {};
+    const {
+      restoreKey = ROUTER_RESTORE_KEY,
+      bootstrapEndpointSecret: configuredBootstrapEndpointSecret = ROUTER_BOOTSTRAP_ENDPOINT_SECRET,
+      ...authOptions
+    } = this.options.auth ?? {};
+    const bootstrapEndpointSecret = configuredBootstrapEndpointSecret?.trim();
+    const currentBootstrapEndpointPubkey = bootstrapEndpointSecret
+      ? u8aToHex(getBootstrapEndpointPubkey(bootstrapEndpointSecret))
+      : undefined;
     const getInviteProgressClient = async () => {
       if (!inviteProgressNodeUrl) {
         throw new RouterError('A mainchain node is required to approve operations access.', 503);
@@ -152,12 +163,17 @@ export class RouterServer {
       '/auth/challenge',
       express.text({ type: '*/*' }),
       safeJsonRoute(async req => {
-        const { authAccountId, role, hasRestorePackage } = requireBody<IRouterAuthChallengeRequest>(req);
+        const { authAccountId, role, hasRestorePackage, knownBootstrapEndpointPubkey } =
+          requireBody<IRouterAuthChallengeRequest>(req);
         const restorePackageRequired = role === UserRole.Member && memberRestore.isPackageRequired(authAccountId);
 
         return routerAuth.createChallenge(authAccountId, role, {
-          packageRequired: restorePackageRequired,
-          packageRequested: role === UserRole.Member && hasRestorePackage === false,
+          restorePackageRequired,
+          restorePackageRequested: role === UserRole.Member && hasRestorePackage === false,
+          bootstrapEndpointSecretRequired:
+            role === UserRole.Member &&
+            !!currentBootstrapEndpointPubkey &&
+            currentBootstrapEndpointPubkey !== knownBootstrapEndpointPubkey,
         });
       }),
     );
@@ -166,9 +182,12 @@ export class RouterServer {
       '/auth/login',
       express.text({ type: '*/*' }),
       safeJsonRoute<IRouterAuthSessionResponse>(async req => {
-        const { session, refreshRestorePackage } = await routerAuth.createSession(
+        const { session, refreshRestorePackage, includeBootstrapEndpointSecret } = await routerAuth.createSession(
           requireBody<IRouterAuthSessionRequest>(req),
         );
+        if (includeBootstrapEndpointSecret && bootstrapEndpointSecret) {
+          session.bootstrapEndpointSecret = bootstrapEndpointSecret;
+        }
         if (session.role !== UserRole.Member || !memberRestore.isEnabled || !refreshRestorePackage) {
           return session;
         }
@@ -393,13 +412,11 @@ export class RouterServer {
           userId: invite.id,
           accountId: defaultAccountId,
         });
-        const restorePackage = memberRestore.createPackage(invite, bitcoinLockCoupon.coupon);
 
         return {
           fromName: invite.fromName,
           operatorAccountId: adminOperatorAccountId,
           referrer: adminOperatorAccountId,
-          restorePackage,
           invite: {
             ...toTreasuryUserInvite(invite),
             vaultId: bitcoinLockCoupon.coupon.vaultId,

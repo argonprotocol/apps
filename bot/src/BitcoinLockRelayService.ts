@@ -22,8 +22,10 @@ import {
   type ISubmittableResult,
   PriceIndex,
   type SignedBlock,
+  type SubmittableExtrinsic,
   Vault,
 } from '@argonprotocol/mainchain';
+import type { AugmentedSubmittable } from '@polkadot/api-base/types';
 import { nanoid } from 'nanoid';
 import type { Db } from './Db.ts';
 import { DelegateSubmitLane } from './DelegateSubmitLane.ts';
@@ -48,6 +50,10 @@ type IRelayEventData = {
   blockHashHex: string;
   createdUtxoId?: number;
 };
+
+type InitializeFor = ArgonClient['tx']['bitcoinLocks']['initializeFor'];
+type Spec156InitializeForArgs = Parameters<InitializeFor> extends [...infer Args, unknown] ? Args : never;
+type Spec156InitializeFor = AugmentedSubmittable<(...args: Spec156InitializeForArgs) => ReturnType<InitializeFor>>;
 
 const RELAY_FINALIZATION_CONFIRMATIONS = 4;
 
@@ -277,13 +283,22 @@ export class BitcoinLockRelayService {
         await this.ensureVaultLoaded();
       }
 
-      const tx = client.tx.bitcoinLocks.initializeFor(
-        ownerAccountId,
-        this.vaultId!,
-        requestedSatoshis,
-        ownerBitcoinPubkey,
-        { V1: { microgonsAtTargetPerBtc } },
-      );
+      const initializeFor: InitializeFor | Spec156InitializeFor = client.tx.bitcoinLocks.initializeFor;
+      let tx: SubmittableExtrinsic;
+      if (isSpec156InitializeFor(initializeFor)) {
+        tx = initializeFor(ownerAccountId, this.vaultId!, requestedSatoshis, ownerBitcoinPubkey, {
+          V1: { microgonsAtTargetPerBtc },
+        });
+      } else {
+        tx = initializeFor(
+          ownerAccountId,
+          this.vaultId!,
+          requestedSatoshis,
+          ownerBitcoinPubkey,
+          { V1: { microgonsAtTargetPerBtc } },
+          0n,
+        );
+      }
       const txSubmittedAtBlockHeight = this.blockWatch.bestBlockHeader.blockNumber;
       const txSubmittedAtTime = new Date();
       const relayMortalityBlocks = getRelayMortalityBlocks();
@@ -707,6 +722,12 @@ function extractCreatedLockEvent(client: ArgonClient, events: GenericEvent[]) {
 
 function getRelayMortalityBlocks(): number {
   return NetworkConfig.canFrameBeZero() ? 32 : 8;
+}
+
+function isSpec156InitializeFor(
+  initializeFor: InitializeFor | Spec156InitializeFor,
+): initializeFor is Spec156InitializeFor {
+  return initializeFor.meta.args.length === 5;
 }
 
 function isMissingVaultError(error: unknown): boolean {

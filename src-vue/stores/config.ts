@@ -9,6 +9,7 @@ import { getMyVault } from './vaults.ts';
 import { getWalletsForArgon, getWalletKeys } from './wallets.ts';
 import { WalletRecovery } from '../lib/WalletRecovery.ts';
 import { getMainchainClients, getMiningFrames } from './mainchain.ts';
+import { recoverOwnServer, recoverUpstreamHost } from './bootstrapRecovery.ts';
 
 type GlobalConfigState = typeof globalThis & {
   __argonConfig?: Vue.Reactive<Config>;
@@ -50,6 +51,13 @@ export function getConfig(): Vue.Reactive<Config> {
         const walletsForArgon = getWalletsForArgon();
         const miningFrames = getMiningFrames();
         const walletRecover = new WalletRecovery(myVault, walletKeys, walletsForArgon, clients, miningFrames);
+        await recoverOwnServer().catch(error => {
+          console.warn('Unable to recover the imported account server endpoint', error);
+        });
+        await recoverUpstreamHost().catch(error => {
+          console.warn('Unable to recover the imported account upstream endpoint', error);
+        });
+
         return await walletRecover.findHistory(onProgress);
       }),
     );

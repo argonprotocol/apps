@@ -67,7 +67,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       }),
       undefined,
       {
-        operatorHost: 'https://upstream.example',
+        resolveOperatorHost: async () => 'https://upstream.example',
         requestEthereumGatewayCatchUp: upstreamCatchUp,
       },
     );
@@ -142,7 +142,7 @@ describe('EthereumInboundTransferTracker integration', () => {
         requestEthereumGatewayCatchUp,
       },
       {
-        operatorHost: 'https://upstream.example',
+        resolveOperatorHost: async () => 'https://upstream.example',
         requestEthereumGatewayCatchUp: upstreamCatchUp,
       },
     );
@@ -206,7 +206,7 @@ describe('EthereumInboundTransferTracker integration', () => {
         requestEthereumGatewayCatchUp: vi.fn(),
       },
       {
-        operatorHost: 'https://upstream.example',
+        resolveOperatorHost: async () => 'https://upstream.example',
         requestEthereumGatewayCatchUp: upstreamCatchUp,
       },
       {
@@ -268,7 +268,7 @@ describe('EthereumInboundTransferTracker integration', () => {
         requestEthereumGatewayCatchUp,
       },
       {
-        operatorHost: undefined,
+        resolveOperatorHost: async () => undefined,
         requestEthereumGatewayCatchUp: vi.fn(),
       },
       {
@@ -323,7 +323,7 @@ describe('EthereumInboundTransferTracker integration', () => {
         requestEthereumGatewayCatchUp: vi.fn(),
       },
       {
-        operatorHost: 'https://upstream.example',
+        resolveOperatorHost: async () => 'https://upstream.example',
         requestEthereumGatewayCatchUp: upstreamCatchUp,
       },
       {
@@ -418,7 +418,7 @@ describe('EthereumInboundTransferTracker integration', () => {
           requestEthereumGatewayCatchUp,
         },
         {
-          operatorHost: undefined,
+          resolveOperatorHost: async () => undefined,
           requestEthereumGatewayCatchUp: vi.fn(),
         },
       );
@@ -521,7 +521,7 @@ describe('EthereumInboundTransferTracker integration', () => {
           requestEthereumGatewayCatchUp,
         },
         {
-          operatorHost: undefined,
+          resolveOperatorHost: async () => undefined,
           requestEthereumGatewayCatchUp: vi.fn(),
         },
       );
@@ -617,7 +617,7 @@ describe('EthereumInboundTransferTracker integration', () => {
           requestEthereumGatewayCatchUp,
         },
         {
-          operatorHost: undefined,
+          resolveOperatorHost: async () => undefined,
           requestEthereumGatewayCatchUp: vi.fn(),
         },
       );
@@ -729,7 +729,7 @@ describe('EthereumInboundTransferTracker integration', () => {
           requestEthereumGatewayCatchUp,
         },
         {
-          operatorHost: undefined,
+          resolveOperatorHost: async () => undefined,
           requestEthereumGatewayCatchUp: vi.fn(),
         },
       );
@@ -821,7 +821,7 @@ describe('EthereumInboundTransferTracker integration', () => {
         requestEthereumGatewayCatchUp: vi.fn(),
       },
       {
-        operatorHost: 'https://upstream.example',
+        resolveOperatorHost: async () => 'https://upstream.example',
         requestEthereumGatewayCatchUp: upstreamCatchUp,
       },
     );
@@ -888,7 +888,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       }),
       undefined,
       {
-        operatorHost: undefined,
+        resolveOperatorHost: async () => undefined,
         requestEthereumGatewayCatchUp: vi.fn(),
       },
     );
@@ -972,7 +972,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       ethereumClient,
       undefined,
       {
-        operatorHost: undefined,
+        resolveOperatorHost: async () => undefined,
         requestEthereumGatewayCatchUp: vi.fn(),
       },
     );
@@ -1035,7 +1035,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       ethereumClient,
       undefined,
       {
-        operatorHost: undefined,
+        resolveOperatorHost: async () => undefined,
         requestEthereumGatewayCatchUp: vi.fn(),
       },
     );
@@ -1150,7 +1150,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       ethereumClient,
       undefined,
       {
-        operatorHost: undefined,
+        resolveOperatorHost: async () => undefined,
         requestEthereumGatewayCatchUp: vi.fn(),
       },
     );
@@ -1208,7 +1208,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       }),
       undefined,
       {
-        operatorHost: undefined,
+        resolveOperatorHost: async () => undefined,
         requestEthereumGatewayCatchUp: vi.fn(),
       },
     );

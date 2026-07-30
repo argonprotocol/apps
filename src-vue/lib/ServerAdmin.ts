@@ -1,5 +1,5 @@
 import { parse as parseEnv } from 'dotenv';
-import { IBiddingRules, JsonExt, toComposeProjectName } from '@argonprotocol/apps-core';
+import { type IBiddingRules, type IBotStateFile, JsonExt, toComposeProjectName } from '@argonprotocol/apps-core';
 import { SSHConnection } from './SSHConnection';
 import { DEPLOY_ENV_FILE, INSTANCE_NAME, NETWORK_NAME, SERVER_ENV_VARS } from './Env.ts';
 import { KeyringPair$Json } from '@argonprotocol/mainchain';
@@ -18,6 +18,8 @@ export enum InstallStepStatusType {
 export interface IInstallStepStatuses {
   [key: string]: InstallStepStatusType;
 }
+
+export type ServerInstallManifest = { version: number } & Pick<IConfigServerDetails, 'type' | 'workDir'>;
 
 const installStepStatusPriorityByType: Record<InstallStepStatusType, number> = {
   [InstallStepStatusType.Pending]: 0,
@@ -67,6 +69,33 @@ export class ServerAdmin {
   public async isConnected(): Promise<boolean> {
     const [output] = await this.connection.runCommandWithTimeout('pwd', 10e3);
     return !!output;
+  }
+
+  public async uploadInstallManifest(): Promise<void> {
+    const manifest = JsonExt.stringify(
+      {
+        version: 1,
+        type: this.serverDetails.type,
+        workDir: this.serverDetails.workDir,
+      },
+      2,
+    );
+    await this.connection.uploadFileWithTimeout(manifest, '~/.argon-server.json', 10e3);
+  }
+
+  public async downloadInstallManifest(): Promise<ServerInstallManifest | undefined> {
+    const [rawManifest] = await this.connection.runCommandWithTimeout(
+      'cat ~/.argon-server.json 2>/dev/null || true',
+      10e3,
+    );
+    if (!rawManifest.trim()) return;
+
+    const manifest = JsonExt.parse<ServerInstallManifest>(rawManifest);
+    if (manifest.version !== 1) {
+      throw new Error(`Unsupported Argon server install manifest version: ${manifest.version}`);
+    }
+
+    return manifest;
   }
 
   public async getAvailableDiskBytes(): Promise<number> {
@@ -166,11 +195,21 @@ export class ServerAdmin {
     oldestFrameIdToSync?: number;
     ethereumBeaconApiUrl?: string;
     ethereumExecutionRpcUrl?: string;
+    hasMiningBids?: boolean;
+    hasMiningSeats?: boolean;
   }> {
-    const [biddingRules, envState] = await Promise.all([this.downloadBiddingRules(), this.downloadEnvState()]);
+    const [biddingRules, envState, [botStateRaw]] = await Promise.all([
+      this.downloadBiddingRules(),
+      this.downloadEnvState(),
+      this.connection.runCommandWithTimeout(`cat ${this.workDir}/data/bot-state.json 2>/dev/null || true`, 20e3),
+    ]);
+    const botState = botStateRaw ? JsonExt.parse<IBotStateFile>(botStateRaw) : undefined;
+
     return {
       biddingRules,
       ...envState,
+      hasMiningBids: botState?.hasMiningBids,
+      hasMiningSeats: botState?.hasMiningSeats,
     };
   }
 
@@ -180,6 +219,7 @@ export class ServerAdmin {
     vaultOperatorAddress: string;
     operatorAccountId: string;
     routerRestoreKey: string;
+    routerBootstrapEndpointSecret: string;
     ethereumBeaconApiUrl?: string;
     ethereumExecutionRpcUrl?: string;
   }): Promise<void> {
@@ -189,6 +229,7 @@ export class ServerAdmin {
       `VAULT_OPERATOR_ADDRESS=${envState.vaultOperatorAddress}`,
       `OPERATOR_ACCOUNT_ID=${envState.operatorAccountId}`,
       `ROUTER_RESTORE_KEY=${envState.routerRestoreKey}`,
+      `ROUTER_BOOTSTRAP_ENDPOINT_SECRET=${envState.routerBootstrapEndpointSecret}`,
     ];
     const ethereumBeaconApiUrl = envState.ethereumBeaconApiUrl?.trim();
     const ethereumExecutionRpcUrl = envState.ethereumExecutionRpcUrl?.trim();

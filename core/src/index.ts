@@ -35,6 +35,7 @@ export * from './RouterAuth.js';
 export * from './Codecs.js';
 export * from './CertificationProgress.js';
 export * from './OperationalAccessProof.js';
+export * from './BootstrapPayloads.js';
 export * from './SqliteMigrations.js';
 export * from './SqliteUtils.js';
 export * from './fetch.js';

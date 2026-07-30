@@ -179,6 +179,10 @@ function transactionLabel(transaction: ITransactionRecord): string {
       return 'Activated Operational Account';
     case ExtrinsicType.OperationalClaimRewards:
       return 'Claimed Operational Rewards';
+    case ExtrinsicType.BootstrapPublishEndpoint:
+      return 'Published Encrypted Server Address';
+    case ExtrinsicType.BootstrapPublishRecovery:
+      return 'Registered Server Recovery';
     case ExtrinsicType.BitcoinRequestLock:
       return 'Created Bitcoin Lock';
     case ExtrinsicType.BitcoinRatchet:

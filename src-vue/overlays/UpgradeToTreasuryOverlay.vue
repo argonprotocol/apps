@@ -134,6 +134,7 @@
 import * as Vue from 'vue';
 import { getConfig } from '../stores/config.ts';
 import { useCertificationController } from '../stores/certificationController.ts';
+import { getUpstreamOperatorAuthClient } from '../stores/server.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
 import AlertIcon from '../assets/alert.svg?component';
 import { BootstrapType, TopTab } from '../interfaces/IConfig.ts';
@@ -254,7 +255,6 @@ async function connectToNetwork() {
       name: body.fromName,
       vaultId: body.invite.vaultId,
       accountId: body.operatorAccountId ?? body.referrer,
-      restorePackage: body.restorePackage,
     };
     config.hasExtensionTreasury = true;
     config.showWelcomeOverlay = false;
@@ -266,6 +266,11 @@ async function connectToNetwork() {
     emit('claimed');
 
     await config.save();
+    try {
+      await getUpstreamOperatorAuthClient().getMemberSessionId(operatorHost);
+    } catch (error) {
+      console.warn('Unable to enroll upstream recovery during invite claim', error);
+    }
     controller.setTab(TopTab.BitcoinLocks);
   } catch (error) {
     formError.value =

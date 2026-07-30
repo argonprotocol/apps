@@ -2,7 +2,11 @@
   <div DashBox data-testid="BitcoinLocksScreen" class="flex grow flex-col">
     <div v-if="!isLoaded" class="flex grow items-center justify-center text-slate-500">Loading…</div>
     <Dashboard v-else-if="hasBitcoinRecords" />
-    <BlankSlate v-else />
+    <BlankSlate
+      v-else
+      :is-restoring-history="financials.isHistoryRecoveryInProgress"
+      :active-bitcoin-lock-count="financials.activeBitcoinLockCount"
+    />
   </div>
 </template>
 

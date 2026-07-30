@@ -10,6 +10,11 @@
           <template v-if="aggregate.accountReturn.percent === undefined">0.00% RTD</template>
           <template v-else>{{ formatPercent(aggregate.accountReturn.percent) }} RTD</template>
         </div>
+        <span
+          v-if="isHistoryRecoveryInProgress"
+          aria-label="Financial history is syncing"
+          class="border-t-argon-600 ml-2 size-3 animate-spin rounded-full border-2 border-slate-300"
+        />
       </NavigationMenuTrigger>
 
       <NavigationMenuContent
@@ -60,10 +65,15 @@
                   {{ group.label }}
                 </div>
                 <div
-                  v-if="group.isStale || group.returnSummary.availability !== 'available'"
+                  v-if="
+                    isHistoryRecoveryInProgress ||
+                    group.isStale ||
+                    group.returnSummary.availability !== 'available'
+                  "
                   class="text-xs font-normal text-slate-500"
                 >
-                  <span v-if="group.isStale" class="inline-flex items-center gap-1">
+                  <span v-if="isHistoryRecoveryInProgress">Loading</span>
+                  <span v-else-if="group.isStale" class="inline-flex items-center gap-1">
                     Stale
                     <Tooltip
                       as-child
@@ -113,7 +123,18 @@
             v-else-if="isHistoryRecoveryInProgress"
             class="mt-1 border-t border-slate-400/30 px-3 py-2 text-xs font-normal text-slate-500"
           >
-            History catching up
+            <div class="flex items-center justify-between gap-4">
+              <span>{{ historyRecoveryLabel }}</span>
+              <span v-if="historyRecovery.currentDomainTotalBlockCount">
+                {{ historyRecovery.currentDomainRecoveredBlockCount }} /
+                {{ historyRecovery.currentDomainTotalBlockCount }} blocks
+              </span>
+            </div>
+            <ProgressBar
+              v-if="historyRecoveryProgress !== undefined"
+              :progress="historyRecoveryProgress"
+              class="mt-2 h-4"
+            />
           </li>
         </ul>
       </NavigationMenuContent>
@@ -127,6 +148,7 @@ import { storeToRefs } from 'pinia';
 import { NavigationMenuContent, NavigationMenuItem, NavigationMenuTrigger } from 'reka-ui';
 import { InformationCircleIcon } from '@heroicons/vue/20/solid';
 import numeral from '../lib/numeral.ts';
+import ProgressBar from '../components/ProgressBar.vue';
 import Tooltip from '../components/Tooltip.vue';
 import { useFinancials } from '../stores/financials.ts';
 import { getConfig } from '../stores/config.ts';
@@ -146,6 +168,23 @@ const {
   isHistoryRecoveryInProgress,
   bondSummariesByAsset,
 } = storeToRefs(financials);
+
+const historyRecoveryLabel = Vue.computed(() => {
+  if (historyRecovery.value.state === 'checking') return 'Determining history to retrieve';
+  if (historyRecovery.value.currentDomain === 'bitcoin') return 'Restoring Bitcoin history';
+  if (historyRecovery.value.currentDomain === 'bonds') return 'Restoring bond history';
+  if (historyRecovery.value.currentDomain === 'vaulting') return 'Restoring vault history';
+  return 'History catching up';
+});
+
+const historyRecoveryProgress = Vue.computed(() => {
+  const recovered = historyRecovery.value.currentDomainRecoveredBlockCount;
+  const total = historyRecovery.value.currentDomainTotalBlockCount;
+  if (recovered === undefined || !total) return;
+
+  return Math.min((recovered / total) * 100, 100);
+});
+
 const returnRows = Vue.computed(() => {
   if (!config.isLoaded) return [];
 

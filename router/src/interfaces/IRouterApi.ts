@@ -42,6 +42,7 @@ export interface IRouterAuthChallengeRequest {
   authAccountId: string;
   role?: RouterAuthRole;
   hasRestorePackage?: boolean;
+  knownBootstrapEndpointPubkey?: string;
 }
 
 export type IRouterAuthChallengeResponse = IRouterAuthChallenge & {
@@ -58,6 +59,7 @@ export interface IRouterAuthSessionResponse {
   expiresAt: string;
   accountId: string;
   role: RouterAuthRole;
+  bootstrapEndpointSecret?: string;
   restore?: IListBitcoinLockCouponsResponse & {
     fromName: string;
     operatorAccountId: string;
@@ -96,7 +98,6 @@ export interface IOpenInviteResponse {
   /** @deprecated Use operatorAccountId. */
   referrer: string;
   invite: ITreasuryUserInvite;
-  restorePackage: string;
 }
 
 export interface IBitcoinLockStatusResponse {

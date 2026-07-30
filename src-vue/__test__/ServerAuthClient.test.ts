@@ -147,6 +147,7 @@ describe('ServerAuthClient', () => {
 
   it('sends a cached package only when the member challenge requests it', async () => {
     const baseUrl = 'https://restore-session.example';
+    const applyBootstrapEndpointSecret = vi.fn();
     serverAuthClient = new ServerAuthClient(
       () => ({
         operationalAddress: 'admin-account',
@@ -155,6 +156,8 @@ describe('ServerAuthClient', () => {
       }),
       {
         getRestorePackage: () => 'cached-restore-package',
+        getBootstrapEndpointPubkey: () => 'known-bootstrap-endpoint-pubkey',
+        applyBootstrapEndpointSecret,
         applyRestoreResult: () => undefined,
       },
     );
@@ -166,7 +169,12 @@ describe('ServerAuthClient', () => {
           restorePackageRequired: true,
         }),
       )
-      .mockResolvedValueOnce(jsonResponse(createSession(UserRole.Member)))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ...createSession(UserRole.Member),
+          bootstrapEndpointSecret: 'replacement-bootstrap-endpoint-secret',
+        }),
+      )
       .mockResolvedValueOnce(emptyResponse(204));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -177,11 +185,13 @@ describe('ServerAuthClient', () => {
       role: UserRole.Member,
       authAccountId: 'upstream-operator-auth-account',
       hasRestorePackage: true,
+      knownBootstrapEndpointPubkey: 'known-bootstrap-endpoint-pubkey',
     });
     expect(fetchPayloads(fetchMock)[0]).not.toHaveProperty('restorePackage');
     expect(fetchPayloads(fetchMock)[1]).toMatchObject({
       restorePackage: 'cached-restore-package',
     });
+    expect(applyBootstrapEndpointSecret).toHaveBeenCalledWith('replacement-bootstrap-endpoint-secret');
   });
 
   it('does not cache transport failures as auth failures', async () => {

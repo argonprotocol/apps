@@ -11,6 +11,8 @@ export enum ExtrinsicType {
   OperationalRegister = 'OperationalRegister',
   OperationalActivateAndClaim = 'OperationalActivateAndClaim',
   OperationalClaimRewards = 'OperationalClaimRewards',
+  BootstrapPublishEndpoint = 'BootstrapPublishEndpoint',
+  BootstrapPublishRecovery = 'BootstrapPublishRecovery',
 
   BitcoinRequestLock = 'BitcoinRequestLock', // LockIsProcessingOnArgon
   BitcoinRatchet = 'BitcoinRatchet',

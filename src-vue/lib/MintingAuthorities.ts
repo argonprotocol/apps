@@ -86,7 +86,7 @@ export class MintingAuthorities {
     private readonly transactionTracker: TransactionTracker,
     private readonly getGatewayRelayClients?: () => Promise<{
       serverApiClient?: Pick<ServerApiClient, 'getEthereumRelayStatus' | 'requestEthereumGatewayCatchUp'>;
-      upstreamOperatorClient?: Pick<UpstreamOperatorClient, 'operatorHost' | 'requestEthereumGatewayCatchUp'>;
+      upstreamOperatorClient?: Pick<UpstreamOperatorClient, 'resolveOperatorHost' | 'requestEthereumGatewayCatchUp'>;
     }>,
   ) {
     this.data = {
@@ -471,7 +471,8 @@ export class MintingAuthorities {
     }
 
     const { serverApiClient, upstreamOperatorClient } = (await this.getGatewayRelayClients?.()) ?? {};
-    if (!serverApiClient && !upstreamOperatorClient?.operatorHost) {
+    const upstreamOperatorHost = await upstreamOperatorClient?.resolveOperatorHost();
+    if (!serverApiClient && !upstreamOperatorHost) {
       return;
     }
 
@@ -497,7 +498,7 @@ export class MintingAuthorities {
       const { relayError } = await requestEthereumGatewayCatchup({
         throughGatewayActivityNonce: nextGatewayActivityNonce,
         serverApiClient,
-        upstreamOperatorClient: upstreamOperatorClient?.operatorHost ? upstreamOperatorClient : undefined,
+        upstreamOperatorClient: upstreamOperatorHost ? upstreamOperatorClient : undefined,
       });
       if (relayError) {
         console.warn(

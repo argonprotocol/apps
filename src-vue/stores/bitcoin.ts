@@ -76,6 +76,7 @@ function createBitcoinLockCouponsState() {
 
   let couponOfferSyncId = 0;
   let selectedVaultSubscriptionKey = 0;
+  let couponRefresh: { subscriptionKey: number; promise: Promise<void> } | undefined;
   let unsubVault: (() => void) | undefined;
 
   Vue.watch(
@@ -93,7 +94,9 @@ function createBitcoinLockCouponsState() {
         return;
       }
 
-      void refresh(subscriptionKey).catch(handleFatalError.bind('getBitcoinLockCoupons'));
+      void refresh(subscriptionKey).catch(error => {
+        console.warn('Unable to refresh upstream Bitcoin lock coupons', error);
+      });
     },
     { immediate: true },
   );
@@ -116,11 +119,25 @@ function createBitcoinLockCouponsState() {
     coupons.value = nextCoupons;
   }
 
-  async function refresh(subscriptionKey = selectedVaultSubscriptionKey) {
+  async function refresh(subscriptionKey = selectedVaultSubscriptionKey): Promise<void> {
+    if (couponRefresh?.subscriptionKey === subscriptionKey) return await couponRefresh.promise;
+
+    const promise = refreshCoupons(subscriptionKey);
+    couponRefresh = { subscriptionKey, promise };
+    try {
+      await promise;
+    } finally {
+      if (couponRefresh?.promise === promise) {
+        couponRefresh = undefined;
+      }
+    }
+  }
+
+  async function refreshCoupons(subscriptionKey: number): Promise<void> {
     await Promise.all([config.isLoadedPromise, bitcoinLocks.load(), vaults.load().catch(() => null)]);
 
     const upstreamOperatorClient = getUpstreamOperatorClient();
-    if (!upstreamOperatorClient.operatorHost) {
+    if (!(await upstreamOperatorClient.resolveOperatorHost())) {
       coupons.value = [];
       couponOfferLiquidityMicrogons.value = undefined;
       return;

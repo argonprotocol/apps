@@ -285,7 +285,9 @@ describe('RouterServer', () => {
     ]);
     const bondLotsByVault = vi
       .fn()
-      .mockResolvedValue([{ bondLotId: registry.createType('u64', 1) }, { bondLotId: registry.createType('u64', 2) }]);
+      .mockResolvedValue(
+        registry.createType('Vec<PalletTreasuryBondLotSummary>', [{ bondLotId: 1 }, { bondLotId: 2 }]),
+      );
     const bondLotIdsByAccount = vi.fn(async (accountId: string) => {
       const id = accountId === memberOne.address ? 1 : 2;
       return [{ args: [null, registry.createType('u64', id)] }];
@@ -558,7 +560,6 @@ describe('RouterServer', () => {
     expect(body.invite.authAccountId).toBe(memberAuth.address);
     expect(body.invite.vaultId).toBe(12);
     expect(body.invite.bitcoinLockCoupon).toEqual(activatedCoupon);
-    expect(body.restorePackage).toBeTruthy();
 
     const claimedInvite = routerDb.userInvitesTable.fetchByCode(invite.inviteCode);
     expect(claimedInvite?.defaultAccountId).toBe(member.address);

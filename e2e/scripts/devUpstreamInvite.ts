@@ -1,5 +1,6 @@
 import {
   Currency,
+  getBootstrapEndpointPubkey,
   JsonExt,
   MainchainClients,
   MICROGONS_PER_ARGON,
@@ -8,6 +9,7 @@ import {
 } from '@argonprotocol/apps-core';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import { BitcoinLock, Vault } from '@argonprotocol/mainchain';
+import { BootstrapRecovery } from 'src-vue/lib/BootstrapRecovery.ts';
 import { InviteEnvelope } from 'src-vue/lib/InviteEnvelope.ts';
 import { ServerAuthClient } from 'src-vue/lib/ServerAuthClient.ts';
 import {
@@ -38,6 +40,21 @@ try {
   await currency.load(true);
 
   const client = await clients.get(false);
+  if (BootstrapRecovery.isAvailable(client)) {
+    const bootstrapEndpointPubkey = getBootstrapEndpointPubkey(await walletKeys.getOwnServerBootstrapEndpointSecret());
+    const [encryptedEndpoint, endpointOwner] = await Promise.all([
+      client.query.bootstrap.encryptedEndpointByPubkey(bootstrapEndpointPubkey),
+      client.query.bootstrap.endpointOwnerByPubkey(bootstrapEndpointPubkey),
+    ]);
+    if (
+      encryptedEndpoint.isNone ||
+      endpointOwner.isNone ||
+      endpointOwner.unwrap().toString() !== walletKeys.defaultArgonAddress
+    ) {
+      throw new Error('The upstream server is not bootstrap-ready yet. Start the upstream server first.');
+    }
+  }
+
   const vaultId = await client.query.vaults.vaultIdByOperator(walletKeys.vaultingAddress);
   if (vaultId.isNone) {
     throw new Error('The upstream server is not invite-ready yet. Start the upstream server first.');

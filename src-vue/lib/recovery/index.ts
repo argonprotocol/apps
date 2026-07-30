@@ -78,7 +78,7 @@ const earliestSupportedSpecVersions: Record<IFinancialHistoryDomain, number> = {
   vaulting: 116,
 };
 const historyRecoveryVersions: Partial<Record<IFinancialHistoryDomain, number>> = {
-  bitcoin: 5,
+  bitcoin: 6,
   bonds: 1,
 };
 
@@ -93,7 +93,15 @@ export async function restoreFinancialHistory(args: {
   force?: boolean;
   minimumAsOfBlock?: number;
   onCheckStart?: () => void;
-  onProgress?: (importedBlockCount: number) => void;
+  onActiveBitcoinLocksFound?: (count: number) => void;
+  onProgress?: (
+    importedBlockCount: number,
+    domainProgress?: {
+      domain: IFinancialHistoryDomain;
+      recoveredBlockCount: number;
+      totalBlockCount: number;
+    },
+  ) => void;
 }): Promise<IFinancialHistoryRestoreResult> {
   const { db, blockWatch, accountId, argonBonds, bitcoinLockRecovery, vaultHistory } = args;
   const enabledDomains = [...new Set(args.enabledDomains)];
@@ -147,10 +155,10 @@ export async function restoreFinancialHistory(args: {
     });
   };
 
-  args.onProgress?.(0);
   for (const domain of domainsToRestore) {
     const checkpoint = domainCheckpoints[domain];
     const isBitcoinReplay = domain === 'bitcoin' && !!bitcoinLockRecovery;
+    args.onProgress?.(importedBlockCount);
 
     try {
       const result = await restoreFinancialHistoryDomain({
@@ -164,7 +172,13 @@ export async function restoreFinancialHistory(args: {
         checkpoint,
         force: args.force,
         targetBlock,
-        onProgress: count => args.onProgress?.(importedBlockCount + count),
+        onActiveBitcoinLocksFound: args.onActiveBitcoinLocksFound,
+        onProgress: (recoveredBlockCount, totalBlockCount) =>
+          args.onProgress?.(importedBlockCount + recoveredBlockCount, {
+            domain,
+            recoveredBlockCount,
+            totalBlockCount,
+          }),
         onCheckpoint: checkpoint => saveDomainCheckpoint(domain, checkpoint),
       });
       importedBlockCount += result.importedBlockCount;
@@ -216,7 +230,7 @@ export class FinancialHistoryImporter {
   public async importBlocks(
     indexedBlocks: readonly IIndexedActivityBlock[],
     options: {
-      onProgress?: (importedBlockCount: number) => void;
+      onProgress?: (importedBlockCount: number, totalBlockCount: number) => void;
       onCheckpoint?: (blockNumber: number) => Promise<void>;
     } = {},
   ): Promise<IFinancialHistoryImportResult> {
@@ -253,7 +267,6 @@ export class FinancialHistoryImporter {
         );
       });
     });
-
     for (let start = 0; start < supportedBacklog.length; start += 8) {
       const batch = supportedBacklog.slice(start, start + 8);
       const loadedBlocks = await Promise.allSettled(batch.map(indexedBlock => this.loadBlock(indexedBlock)));
@@ -294,7 +307,7 @@ export class FinancialHistoryImporter {
         }
         importedBlockCount += 1;
         lastImportedBlockNumber = loadedBlock.indexedBlock.blockNumber;
-        options.onProgress?.(importedBlockCount);
+        options.onProgress?.(importedBlockCount, supportedBacklog.length);
       }
       if (lastImportedBlockNumber !== undefined) await options.onCheckpoint?.(lastImportedBlockNumber);
     }
@@ -376,7 +389,8 @@ async function restoreFinancialHistoryDomain(args: {
   checkpoint?: IFinancialHistoryCheckpoint;
   force?: boolean;
   targetBlock: number;
-  onProgress?: (importedBlockCount: number) => void;
+  onActiveBitcoinLocksFound?: (count: number) => void;
+  onProgress?: (importedBlockCount: number, totalBlockCount: number) => void;
   onCheckpoint?: (checkpoint: IFinancialHistoryCheckpoint) => Promise<void>;
 }): Promise<{ checkpoint: IFinancialHistoryCheckpoint; importedBlockCount: number; error?: string }> {
   const { db, blockWatch, accountId, argonBonds, bitcoinLockRecovery, vaultHistory, domain, checkpoint } = args;
@@ -388,6 +402,13 @@ async function restoreFinancialHistoryDomain(args: {
     args.force || !checkpoint || recoveryVersionChanged || (hasIncompleteBitcoinRecovery && !canResumeBitcoinRecovery)
       ? 0
       : checkpoint.asOfBlock;
+
+  if (domain === 'bitcoin' && bitcoinLockRecovery && afterBlock === 0 && args.onActiveBitcoinLocksFound) {
+    const finalizedApi = await blockWatch.getFinalizedApi();
+    const activeLockIds = await bitcoinLockRecovery.findActiveLockIds(finalizedApi);
+    args.onActiveBitcoinLocksFound(activeLockIds.length);
+  }
+
   let indexedHistory = await findAddressActivity(accountId, {
     afterBlock,
     toBlock: args.targetBlock,

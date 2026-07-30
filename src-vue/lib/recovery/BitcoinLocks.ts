@@ -334,6 +334,7 @@ export class BitcoinLockRecovery {
               { markFundingUtxo: true },
             );
             await this.utxoTracking.setAcceptedFundingRecordForLock(recovered, fundingRecord);
+            await table.setFundingUtxoRecordId(recovered, fundingRecord.id);
           }
         }
         if (fundingRecord && !this.utxoTracking.isReleaseStatus(fundingRecord.status)) {
@@ -347,24 +348,23 @@ export class BitcoinLockRecovery {
       } else if (event.method === 'BitcoinUtxoCosigned') {
         const fundingRecord = this.utxoTracking.getAcceptedFundingRecordForLock(record);
         const releaseIsComplete =
+          liveRecord?.status === BitcoinLockStatus.Released ||
           record.status === BitcoinLockStatus.Released ||
           this.utxoTracking.isReleaseCompleteStatus(fundingRecord?.status);
-        if (releaseIsComplete && !record.removalReason) {
+        if (!record.removalReason) {
           const recovered = this.createDetachedRecord(record);
-          const rates = await this.currency.fetchMainchainRatesAtBlock({ api, block });
-          const phase = eventRecords[eventIndex].phase;
-          await table.recordRemoval(recovered, BitcoinLockStatus.Released, {
-            removalBlockNumber: block.blockNumber,
-            removalBlockHash: block.blockHash,
-            removalBlockTime: new Date(block.blockTime),
-            removalExtrinsicIndex: phase.isApplyExtrinsic ? phase.asApplyExtrinsic.toNumber() : undefined,
-            removalReason: 'released',
-            btcPriceAtRemovalMicrogons: rates.BTC,
-          });
-          this.applyRecoveredRecord(recovered);
-        } else if (record.status !== BitcoinLockStatus.Releasing && record.status !== BitcoinLockStatus.Released) {
-          const recovered = this.createDetachedRecord(record);
-          await table.setStatus(recovered, BitcoinLockStatus.Releasing);
+          if (!record.removalBlockNumber) {
+            const rates = await this.currency.fetchMainchainRatesAtBlock({ api, block });
+            const phase = eventRecords[eventIndex].phase;
+            await table.recordReleaseCosign(recovered, {
+              removalBlockNumber: block.blockNumber,
+              removalBlockHash: block.blockHash,
+              removalBlockTime: new Date(block.blockTime),
+              removalExtrinsicIndex: phase.isApplyExtrinsic ? phase.asApplyExtrinsic.toNumber() : undefined,
+              btcPriceAtRemovalMicrogons: rates.BTC,
+            });
+          }
+          if (releaseIsComplete) await table.setReleased(recovered);
           this.applyRecoveredRecord(recovered);
         }
       } else if (event.method === 'BitcoinCosignPastDue') {
@@ -438,9 +438,13 @@ export class BitcoinLockRecovery {
     return this.applyRecoveredRecord(record);
   }
 
-  public async findMissingActiveLockIds(api: ApiDecoration<'promise'>): Promise<number[]> {
+  public async findActiveLockIds(api: ApiDecoration<'promise'>): Promise<number[]> {
     const ownerKeys = await api.query.bitcoinLocks.utxoIdsByOwnerAccount.keys(this.walletKeys.defaultArgonAddress);
-    const utxoIds = ownerKeys.map(key => key.args[1].toNumber());
+    return ownerKeys.map(key => key.args[1].toNumber());
+  }
+
+  public async findMissingActiveLockIds(api: ApiDecoration<'promise'>): Promise<number[]> {
+    const utxoIds = await this.findActiveLockIds(api);
     const chainLocks = await api.query.bitcoinLocks.locksByUtxoId.multi(utxoIds);
     const missing: number[] = [];
 

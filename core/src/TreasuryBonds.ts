@@ -2,9 +2,12 @@ import {
   type ArgonClient,
   FIXED_U128_DECIMALS,
   fromFixedNumber,
+  type PalletTreasuryBondLotSummary,
   type PalletTreasuryFrameVaultCapital,
+  type PalletTreasuryVaultBondState,
   type PalletTreasuryVaultCapital,
   type SubmittableExtrinsic,
+  type Vec,
 } from '@argonprotocol/mainchain';
 import { stringToU8a, u8aConcat } from '@polkadot/util';
 import { bigNumberToBigInt } from './utils.js';
@@ -37,6 +40,9 @@ export interface INextFrameBondAvailability {
   totalActiveBonds: number;
   nextFrameAvailableBonds: number;
 }
+
+// Deployed runtime 156 returns the summaries directly. Live metadata decodes either storage shape.
+type ISpec156VaultBondLots = Vec<PalletTreasuryBondLotSummary>;
 
 export class TreasuryBonds {
   public static async getActiveBonds(
@@ -144,8 +150,10 @@ export class TreasuryBonds {
   }
 
   public static async getBondLots(client: ArgonQueryClient, vaultId: number, ownAddress?: string): Promise<BondLot[]> {
-    const vaultSummaries = await client.query.treasury.bondLotsByVault(vaultId);
-    const idsBySourceOrder = vaultSummaries.map(summary => summary.bondLotId.toNumber());
+    const vaultState: PalletTreasuryVaultBondState | ISpec156VaultBondLots =
+      await client.query.treasury.bondLotsByVault(vaultId);
+    const summaries = 'bondLots' in vaultState ? vaultState.bondLots : vaultState;
+    const idsBySourceOrder = summaries.map(summary => summary.bondLotId.toNumber());
 
     if (ownAddress) {
       const accountKeys = await client.query.treasury.bondLotIdsByAccount.keys(ownAddress);
@@ -299,7 +307,9 @@ export class TreasuryBonds {
   }
 
   private static async getBondLotsForVault(client: ArgonQueryClient, vaultId: number): Promise<IBondLotSource[]> {
-    const summaries = await client.query.treasury.bondLotsByVault(vaultId);
+    const vaultState: PalletTreasuryVaultBondState | ISpec156VaultBondLots =
+      await client.query.treasury.bondLotsByVault(vaultId);
+    const summaries = 'bondLots' in vaultState ? vaultState.bondLots : vaultState;
     const ids = summaries.map(summary => summary.bondLotId.toNumber());
     const lotsById = await TreasuryBonds.getBondLotsById(client, ids);
 

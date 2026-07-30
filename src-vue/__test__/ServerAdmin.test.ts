@@ -2,6 +2,38 @@ import { expect, it, vi } from 'vitest';
 import { InstallStepKey, ServerType } from '../interfaces/IConfig.ts';
 import { ServerAdmin } from '../lib/ServerAdmin.ts';
 
+it('reads persisted mining history with imported server config', async () => {
+  const connection = {
+    runCommandWithTimeout: vi.fn().mockImplementation(async (command: string) => {
+      if (command.includes('biddingRules.json')) return ['', 0];
+      if (command.includes('.env.state')) return ['', 0];
+      if (command.includes('bot-state.json')) {
+        return [
+          JSON.stringify({
+            hasMiningBids: true,
+            hasMiningSeats: false,
+          }),
+          0,
+        ];
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    }),
+  };
+  const server = new ServerAdmin(connection as any, {
+    ipAddress: '127.0.0.1',
+    sshUser: 'root',
+    type: ServerType.CustomServer,
+    workDir: '/root',
+  });
+
+  await expect(server.downloadConfigState()).resolves.toEqual(
+    expect.objectContaining({
+      hasMiningBids: true,
+      hasMiningSeats: false,
+    }),
+  );
+});
+
 it('advances server collection progress without completing it before the archive is ready', async () => {
   vi.useFakeTimers();
   let rejectCollection: (error: Error) => void = () => undefined;

@@ -63,6 +63,7 @@ export class AppVaultOperator {
   public readonly myVault: MyVault;
   public readonly globalCouncil: GlobalCouncil;
   public readonly mintingAuthorities: MintingAuthorities;
+  public readonly transactionTracker: TransactionTracker;
 
   private constructor(args: {
     db: Db;
@@ -72,6 +73,7 @@ export class AppVaultOperator {
     myVault: MyVault;
     globalCouncil: GlobalCouncil;
     mintingAuthorities: MintingAuthorities;
+    transactionTracker: TransactionTracker;
     bitcoinLocks: BitcoinLocks;
   }) {
     this.#db = args.db;
@@ -81,6 +83,7 @@ export class AppVaultOperator {
     this.myVault = args.myVault;
     this.globalCouncil = args.globalCouncil;
     this.mintingAuthorities = args.mintingAuthorities;
+    this.transactionTracker = args.transactionTracker;
     this.#bitcoinLocks = args.bitcoinLocks;
   }
 
@@ -171,6 +174,7 @@ export class AppVaultOperator {
       myVault,
       globalCouncil,
       mintingAuthorities,
+      transactionTracker,
       bitcoinLocks,
     });
   }

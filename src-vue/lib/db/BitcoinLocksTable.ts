@@ -372,6 +372,40 @@ export class BitcoinLocksTable extends BaseTable {
     Object.assign(lock, this.toLockRecord(records[0]), { fundingUtxoRecord });
   }
 
+  public async recordReleaseCosign(
+    lock: IBitcoinLockRecord,
+    facts: Pick<
+      IBitcoinLockRecord,
+      | 'removalBlockNumber'
+      | 'removalBlockHash'
+      | 'removalBlockTime'
+      | 'removalExtrinsicIndex'
+      | 'btcPriceAtRemovalMicrogons'
+    >,
+  ): Promise<void> {
+    const records = await this.db.select<IBitcoinLockRecord[]>(
+      `UPDATE BitcoinLocks SET
+        removalBlockNumber = COALESCE(removalBlockNumber, ?),
+        removalBlockHash = COALESCE(removalBlockHash, ?),
+        removalBlockTime = COALESCE(removalBlockTime, ?),
+        removalExtrinsicIndex = COALESCE(removalExtrinsicIndex, ?),
+        btcPriceAtRemovalMicrogons = COALESCE(btcPriceAtRemovalMicrogons, ?)
+       WHERE uuid = ? RETURNING *`,
+      toSqlParams([
+        facts.removalBlockNumber,
+        facts.removalBlockHash,
+        facts.removalBlockTime,
+        facts.removalExtrinsicIndex,
+        facts.btcPriceAtRemovalMicrogons,
+        lock.uuid,
+      ]),
+    );
+    if (!records[0]) return;
+
+    const fundingUtxoRecord = lock.fundingUtxoRecord;
+    Object.assign(lock, this.toLockRecord(records[0]), { fundingUtxoRecord });
+  }
+
   public async recordRemoval(
     lock: IBitcoinLockRecord,
     status: BitcoinLockStatus,
@@ -414,11 +448,13 @@ export class BitcoinLocksTable extends BaseTable {
   }
 
   public async setReleased(lock: IBitcoinLockRecord): Promise<void> {
+    const releaseRemovalReason: IBitcoinLockRecord['removalReason'] = lock.removalBlockNumber ? 'released' : undefined;
     await this.db.execute(
-      'UPDATE BitcoinLocks SET status = ? WHERE uuid = ?',
-      toSqlParams([BitcoinLockStatus.Released, lock.uuid]),
+      'UPDATE BitcoinLocks SET status = ?, removalReason = COALESCE(removalReason, ?) WHERE uuid = ?',
+      toSqlParams([BitcoinLockStatus.Released, releaseRemovalReason, lock.uuid]),
     );
     lock.status = BitcoinLockStatus.Released;
+    if (releaseRemovalReason) lock.removalReason ??= releaseRemovalReason;
   }
 
   private toLockRecord(rawRecord: IBitcoinLockRecord): IBitcoinLockRecord {

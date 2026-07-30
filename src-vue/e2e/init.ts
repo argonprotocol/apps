@@ -54,7 +54,7 @@ function installClipboardShim(): void {
 export async function initializeE2EState(): Promise<void> {
   const config = getConfig();
   await config.isLoadedPromise;
-  // Account import recreates the config database and leaves bootstrapDetails as the onboarding marker.
+  // Account import recreates the config database and explicitly dismisses onboarding.
   if (!config.showWelcomeOverlay || config.bootstrapDetails) {
     config.showWelcomeOverlay = false;
     config.hasExtensionTreasury = true;

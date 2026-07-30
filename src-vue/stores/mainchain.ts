@@ -233,7 +233,8 @@ async function connectPrunedClientToConfiguredServer(): Promise<void> {
     }
   } else {
     const upstreamOperatorClient = getUpstreamOperatorClient();
-    if (!upstreamOperatorClient.operatorHost || !config.upstreamOperator) {
+    const operatorHost = await upstreamOperatorClient.resolveOperatorHost();
+    if (!operatorHost) {
       mainchainClients.clearPrunedClient();
       return;
     }

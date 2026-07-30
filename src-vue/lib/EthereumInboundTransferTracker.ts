@@ -89,7 +89,7 @@ export class EthereumInboundTransferTracker {
     private readonly serverApiClientSource: ServerRelayClientSource,
     private readonly upstreamOperatorClient: Pick<
       UpstreamOperatorClient,
-      'operatorHost' | 'requestEthereumGatewayCatchUp'
+      'resolveOperatorHost' | 'requestEthereumGatewayCatchUp'
     >,
     private readonly myVault?: Pick<MyVault, 'createdVault'>,
   ) {}
@@ -689,7 +689,7 @@ export class EthereumInboundTransferTracker {
 
     const serverApiClient =
       typeof this.serverApiClientSource === 'function' ? this.serverApiClientSource() : this.serverApiClientSource;
-    const upstreamOperatorHost = this.upstreamOperatorClient.operatorHost;
+    const upstreamOperatorHost = await this.upstreamOperatorClient.resolveOperatorHost();
     if (serverApiClient || upstreamOperatorHost) {
       const relayResult = await requestEthereumGatewayCatchup({
         throughGatewayActivityNonce,

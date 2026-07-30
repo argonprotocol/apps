@@ -1,7 +1,6 @@
 import packageJson from '../../package.json';
 import { Db } from './Db';
 import {
-  BootstrapType,
   ConfigSchema,
   IConfig,
   IConfigCertificationDetailsSchema,
@@ -135,12 +134,21 @@ export class Config implements IConfig {
     const preserveFields: (keyof IConfig)[] = [
       'upstreamOperator',
       'bootstrapDetails',
+      'hasExtensionTreasury',
+      'hasExtensionOperations',
       'serverAdd',
       'serverDetails',
+      'isServerInstalled',
       'biddingRules',
       'vaultingRules',
+      'miningSetupStatus',
       'vaultingSetupStatus',
+      'hasMiningBids',
+      'hasMiningSeats',
       'oldestFrameIdToSync',
+      'miningBotAccountPreviousHistory',
+      'walletAccountsHadPreviousLife',
+      'walletPreviousLifeRecovered',
       'defaultCurrencyKey',
       'requiresPassword',
     ];
@@ -153,7 +161,6 @@ export class Config implements IConfig {
         (this._loadedData as any)[key] = defaultValue as any;
       }
     }
-    await this._injectFirstTimeAppData(this._loadedData, this._rawData, this._fieldsToSave);
     const data = Config.extractDataToSave(this._fieldsToSave, this._rawData);
     await this._db.configTable.insertOrReplace(data, sql);
   }
@@ -171,6 +178,21 @@ export class Config implements IConfig {
       const rawData = {} as IConfigStringified;
 
       const dbRawData = await db.configTable.fetchAllAsObject();
+      const storedBootstrapDetails = dbRawData.bootstrapDetails
+        ? JsonExt.parse<IConfig['bootstrapDetails']>(dbRawData.bootstrapDetails)
+        : undefined;
+      const storedUpstreamOperator = dbRawData.upstreamOperator
+        ? JsonExt.parse<IConfig['upstreamOperator']>(dbRawData.upstreamOperator)
+        : undefined;
+      const storedBootstrapHost = storedBootstrapDetails?.routerHost;
+      const clearFakeUpstream =
+        (storedBootstrapHost?.toUpperCase() === 'LOADING' || storedBootstrapHost === BOOTSTRAP_NETWORK_PLACEHOLDER) &&
+        !storedUpstreamOperator?.encryptedBootstrapRecovery &&
+        !storedUpstreamOperator?.restorePackage;
+      if (clearFakeUpstream) {
+        dbRawData.bootstrapDetails = '';
+        dbRawData.upstreamOperator = '';
+      }
 
       if (db.hasMigrationError) {
         this.hasDbMigrationError = true;
@@ -179,7 +201,7 @@ export class Config implements IConfig {
       for (const [key, value] of Object.entries(defaults)) {
         let rawValue = dbRawData[key as keyof typeof dbRawData];
         if (key === dbFields.bootstrapDetails && rawValue !== undefined && rawValue !== '') {
-          const bootstrapDetails = JsonExt.parse(rawValue as string);
+          const bootstrapDetails = JsonExt.parse(rawValue);
           const resolvedIpAddress =
             bootstrapDetails?.routerHost === BOOTSTRAP_NETWORK_PLACEHOLDER
               ? stripSocketProtocol(NETWORK_URL)
@@ -194,7 +216,7 @@ export class Config implements IConfig {
         }
         const schemaField = ConfigSchema.shape[key as keyof IConfig] as unknown as ZodAny | undefined;
         if (schemaField && rawValue !== undefined && rawValue !== '') {
-          const data = JsonExt.parse(rawValue as string);
+          const data = JsonExt.parse(rawValue);
           if (key === dbFields.serverDetails && data && typeof data === 'object' && 'port' in data) {
             data.sshPort ??= data.port;
             delete data.port;
@@ -231,7 +253,7 @@ export class Config implements IConfig {
           continue;
         }
 
-        rawData[key as keyof typeof rawData] = rawValue as string;
+        rawData[key as keyof typeof rawData] = rawValue;
         if (key === dbFields.serverDetails) {
           // Ensure old serverDetails without type are set to DigitalOcean
           loadedData.serverDetails.type ??= ServerType.DigitalOcean;
@@ -240,59 +262,15 @@ export class Config implements IConfig {
           rawData[dbFields.serverDetails] = JsonExt.stringify(loadedData.serverDetails, 2);
         }
       }
-
+      if (clearFakeUpstream) {
+        fieldsToSave.add(dbFields.bootstrapDetails);
+        fieldsToSave.add(dbFields.upstreamOperator);
+        rawData[dbFields.bootstrapDetails] = '';
+        rawData[dbFields.upstreamOperator] = '';
+      }
       const isFirstTimeAppLoad = Object.keys(dbRawData).length === 0;
       if (isFirstTimeAppLoad) {
         await this._injectFirstTimeAppData(loadedData, rawData, fieldsToSave);
-      }
-
-      let hasMiningSeats = loadedData.hasMiningSeats;
-      let hasMiningBids = loadedData.hasMiningBids || hasMiningSeats;
-      if (!hasMiningSeats) {
-        const [savedMiningActivity] = await db.select<[{ hasMiningBids: number; hasMiningSeats: number }]>(`
-          SELECT
-            EXISTS(SELECT 1 FROM FrameBids WHERE json_array_length(bidsJson) > 0) AS hasMiningBids,
-            EXISTS(SELECT 1 FROM Cohorts WHERE seatCountWon > 0) AS hasMiningSeats
-        `);
-        hasMiningSeats = !!savedMiningActivity?.hasMiningSeats;
-        hasMiningBids ||= !!savedMiningActivity?.hasMiningBids || hasMiningSeats;
-      }
-      if (hasMiningSeats !== loadedData.hasMiningSeats) {
-        loadedData.hasMiningSeats = hasMiningSeats;
-        fieldsToSave.add(dbFields.hasMiningSeats);
-        rawData[dbFields.hasMiningSeats] = JsonExt.stringify(hasMiningSeats, 2);
-      }
-      if (hasMiningBids !== loadedData.hasMiningBids) {
-        loadedData.hasMiningBids = hasMiningBids;
-        fieldsToSave.add(dbFields.hasMiningBids);
-        rawData[dbFields.hasMiningBids] = JsonExt.stringify(hasMiningBids, 2);
-      }
-
-      if (hasMiningBids && loadedData.miningSetupStatus !== MiningSetupStatus.Finished) {
-        loadedData.miningSetupStatus = MiningSetupStatus.Finished;
-        fieldsToSave.add(dbFields.miningSetupStatus);
-        rawData[dbFields.miningSetupStatus] = JsonExt.stringify(loadedData.miningSetupStatus, 2);
-      } else if (
-        (loadedData.miningSetupStatus === MiningSetupStatus.Checklist ||
-          loadedData.miningSetupStatus === MiningSetupStatus.Installing) &&
-        loadedData.isServerInstalled &&
-        !loadedData.isServerInstalling &&
-        loadedData.serverInstaller.MiningLaunch.status === InstallStepStatus.Completed &&
-        rawData[dbFields.biddingRules] &&
-        (loadedData.biddingRules.initialCapitalCommitment ?? 0n) > 0n
-      ) {
-        loadedData.miningSetupStatus = MiningSetupStatus.Finished;
-        fieldsToSave.add(dbFields.miningSetupStatus);
-        rawData[dbFields.miningSetupStatus] = JsonExt.stringify(loadedData.miningSetupStatus, 2);
-      }
-
-      if (loadedData.vaultingSetupStatus !== VaultingSetupStatus.Finished && rawData[dbFields.vaultingRules]) {
-        const savedVault = await db.vaultsTable.get();
-        if (savedVault && !savedVault.isClosed) {
-          loadedData.vaultingSetupStatus = VaultingSetupStatus.Finished;
-          fieldsToSave.add(dbFields.vaultingSetupStatus);
-          rawData[dbFields.vaultingSetupStatus] = JsonExt.stringify(loadedData.vaultingSetupStatus, 2);
-        }
       }
 
       const hasLegacyAccountState =
@@ -303,7 +281,17 @@ export class Config implements IConfig {
         loadedData.miningSetupStatus === MiningSetupStatus.Finished ||
         loadedData.vaultingSetupStatus === VaultingSetupStatus.Finished;
 
-      if (loadedData.bootstrapDetails && loadedData.showWelcomeOverlay && !loadedData.wasImportedFromLegacy) {
+      if (loadedData.upstreamOperator && !loadedData.hasExtensionTreasury) {
+        loadedData.hasExtensionTreasury = true;
+        fieldsToSave.add(dbFields.hasExtensionTreasury);
+        rawData[dbFields.hasExtensionTreasury] = JsonExt.stringify(loadedData.hasExtensionTreasury);
+      }
+
+      if (
+        (loadedData.bootstrapDetails || hasLegacyAccountState) &&
+        loadedData.showWelcomeOverlay &&
+        !loadedData.wasImportedFromLegacy
+      ) {
         loadedData.showWelcomeOverlay = false;
         fieldsToSave.add(dbFields.showWelcomeOverlay);
         rawData[dbFields.showWelcomeOverlay] = JsonExt.stringify(loadedData.showWelcomeOverlay, 2);
@@ -319,17 +307,9 @@ export class Config implements IConfig {
         rawData[dbFields.hasExtensionOperations] = JsonExt.stringify(loadedData.hasExtensionOperations, 2);
       }
 
-      if (!loadedData.bootstrapDetails && hasLegacyAccountState) {
-        loadedData.bootstrapDetails = {
-          type: BootstrapType.Public,
-          routerHost: 'LOADING',
-        };
-        fieldsToSave.add(dbFields.bootstrapDetails);
-        rawData[dbFields.bootstrapDetails] = JsonExt.stringify(loadedData.bootstrapDetails, 2);
-      }
-
-      const isLocalComputer = loadedData.serverDetails.type === ServerType.LocalComputer;
-      if (isLocalComputer && !loadedData.isServerInstalling) {
+      const managesLocalComputer =
+        loadedData.serverDetails.type === ServerType.LocalComputer && loadedData.serverAdd?.localComputer;
+      if (managesLocalComputer && !loadedData.isServerInstalling) {
         const { sshPort } = await LocalMachine.activate();
         if (!IS_TEST && IS_STABLE_BUILD) {
           await invokeWithTimeout('toggle_nosleep', { enable: true }, 5000);
@@ -699,12 +679,9 @@ export class Config implements IConfig {
     fieldsToSave.add(dbFields.walletAccountsHadPreviousLife);
 
     if (walletHadPreviousLife) {
-      loadedData.bootstrapDetails = {
-        type: BootstrapType.Public,
-        routerHost: 'LOADING',
-      };
-      stringifiedData[dbFields.bootstrapDetails] = JsonExt.stringify(loadedData.bootstrapDetails, 2);
-      fieldsToSave.add(dbFields.bootstrapDetails);
+      loadedData.showWelcomeOverlay = false;
+      stringifiedData[dbFields.showWelcomeOverlay] = JsonExt.stringify(false);
+      fieldsToSave.add(dbFields.showWelcomeOverlay);
     }
   }
 

@@ -29,7 +29,8 @@ export default class Restarter {
   }
 
   public async run(toRestart: Set<AdvancedRestartOption>, installer: Installer): Promise<void> {
-    if (toRestart.has(AdvancedRestartOption.CompletelyWipeAndReinstallCloudMachine)) {
+    const isFullServerWipe = toRestart.has(AdvancedRestartOption.CompletelyWipeAndReinstallCloudMachine);
+    if (isFullServerWipe) {
       installer.stop();
       let server: ServerAdmin | undefined;
       try {
@@ -71,6 +72,9 @@ export default class Restarter {
 
     if (toRestart.has(AdvancedRestartOption.RecreateLocalDatabase)) {
       installer.stop();
+      if (isFullServerWipe) {
+        this._config.isServerInstalled = false;
+      }
       await this.migrateToFreshLocalDatabase(toRestart.has(AdvancedRestartOption.ReloadAppUi));
     }
 
@@ -82,6 +86,7 @@ export default class Restarter {
   public async migrateToFreshLocalDatabase(restartAfter: boolean = true) {
     const db = await this.dbPromise;
     const config = this._config;
+    const vault = await db.vaultsTable.get().catch(() => undefined);
 
     await this.deleteAndCreateLocalDatabase();
     if (restartAfter) {
@@ -93,6 +98,9 @@ export default class Restarter {
     const sql = await PluginSql.load(`sqlite:${Db.relativePath}`);
 
     await config.restoreToConnection(sql);
+    if (vault) {
+      await db.vaultsTable.insert(vault, sql);
+    }
 
     if (restartAfter) {
       this.restart();

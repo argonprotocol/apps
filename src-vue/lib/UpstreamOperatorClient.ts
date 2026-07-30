@@ -37,9 +37,12 @@ type UpstreamOperatorSessionAuth = {
 const BOOTSTRAP_LOADING_HOST = 'loading';
 
 export class UpstreamOperatorClient {
+  private operatorHostResolution?: Promise<string | undefined>;
+
   constructor(
     private readonly serverAuthClient?: ServerAuthClient,
     private readonly getOperatorHost = (): string | undefined => undefined,
+    private readonly recoverOperatorHost?: () => Promise<string | undefined>,
   ) {}
 
   public get operatorHost(): string | undefined {
@@ -51,12 +54,25 @@ export class UpstreamOperatorClient {
   }
 
   public async getMemberSessionId(options: ServerAuthOptions = {}): Promise<string> {
-    const operatorHost = this.requireOperatorHost();
-    if (!this.serverAuthClient) {
+    const serverAuthClient = this.serverAuthClient;
+    if (!serverAuthClient) {
       throw new Error('No upstream operator auth client configured.');
     }
 
-    return await this.serverAuthClient.getMemberSessionId(operatorHost, options);
+    return await this.requestWithOperatorHost(async operatorHost => {
+      return await serverAuthClient.getMemberSessionId(operatorHost, options);
+    });
+  }
+
+  public async resolveOperatorHost(): Promise<string | undefined> {
+    const operatorHost = this.operatorHost;
+    if (operatorHost) return operatorHost;
+
+    this.operatorHostResolution ??= this.recoverOperatorHost?.().catch(error => {
+      this.operatorHostResolution = undefined;
+      throw error;
+    });
+    return await this.operatorHostResolution;
   }
 
   public static getBootstrapHost(bootstrapDetails: IConfig['bootstrapDetails']): string | undefined {
@@ -109,13 +125,14 @@ export class UpstreamOperatorClient {
     offerCode: string,
     payload: IInitializeBitcoinLockRequest,
   ): Promise<IBitcoinLockCouponStatus & { status: BitcoinLockRelayStatus }> {
-    const operatorHost = this.requireOperatorHost();
-    const body = await this.requestWithSessionRetry(this.getMemberSessionAuth(operatorHost), sessionId =>
-      UpstreamOperatorClient.postJson<IBitcoinLockStatusResponse>(
-        operatorHost,
-        `/bitcoin-lock-coupons/${encodeURIComponent(offerCode)}/initialize`,
-        payload,
-        sessionId,
+    const body = await this.requestWithOperatorHost(async operatorHost =>
+      this.requestWithSessionRetry(this.getMemberSessionAuth(operatorHost), sessionId =>
+        UpstreamOperatorClient.postJson<IBitcoinLockStatusResponse>(
+          operatorHost,
+          `/bitcoin-lock-coupons/${encodeURIComponent(offerCode)}/initialize`,
+          payload,
+          sessionId,
+        ),
       ),
     );
 
@@ -123,13 +140,14 @@ export class UpstreamOperatorClient {
   }
 
   public async getBitcoinLockCoupons(): Promise<IBitcoinLockCouponStatus[]> {
-    const operatorHost = this.requireOperatorHost();
-    const body = await this.requestWithSessionRetry(this.getMemberSessionAuth(operatorHost), sessionId =>
-      UpstreamOperatorClient.request<IListBitcoinLockCouponsResponse>(
-        operatorHost,
-        '/invites/me/bitcoin-lock-coupons',
-        undefined,
-        sessionId,
+    const body = await this.requestWithOperatorHost(async operatorHost =>
+      this.requestWithSessionRetry(this.getMemberSessionAuth(operatorHost), sessionId =>
+        UpstreamOperatorClient.request<IListBitcoinLockCouponsResponse>(
+          operatorHost,
+          '/invites/me/bitcoin-lock-coupons',
+          undefined,
+          sessionId,
+        ),
       ),
     );
 
@@ -137,9 +155,10 @@ export class UpstreamOperatorClient {
   }
 
   public async getMemberInvite(): Promise<IMemberInvite> {
-    const operatorHost = this.requireOperatorHost();
-    const body = await this.requestWithSessionRetry(this.getMemberSessionAuth(operatorHost), sessionId =>
-      UpstreamOperatorClient.request<IInviteResponse>(operatorHost, '/invites/me', undefined, sessionId),
+    const body = await this.requestWithOperatorHost(async operatorHost =>
+      this.requestWithSessionRetry(this.getMemberSessionAuth(operatorHost), sessionId =>
+        UpstreamOperatorClient.request<IInviteResponse>(operatorHost, '/invites/me', undefined, sessionId),
+      ),
     );
 
     return body.invite;
@@ -150,7 +169,6 @@ export class UpstreamOperatorClient {
     operationalAccountId: string;
     authKeypair: KeyringPair;
   }): Promise<Date> {
-    const operatorHost = this.requireOperatorHost();
     const { authBindingExpiresAt, authBindingSignature } = createRouterAuthBinding({
       defaultAccountKeypair: args.defaultAccountKeypair,
       operationalAccountId: args.operationalAccountId,
@@ -161,16 +179,18 @@ export class UpstreamOperatorClient {
       authBindingExpiresAt,
       authBindingSignature,
     };
-    const body = await this.requestWithSessionRetry(this.getMemberSessionAuth(operatorHost), sessionId =>
-      UpstreamOperatorClient.request<IRequestOperationsUpgradeResponse>(
-        operatorHost,
-        '/invites/me/request-operations-upgrade',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JsonExt.stringify(payload),
-        },
-        sessionId,
+    const body = await this.requestWithOperatorHost(async operatorHost =>
+      this.requestWithSessionRetry(this.getMemberSessionAuth(operatorHost), sessionId =>
+        UpstreamOperatorClient.request<IRequestOperationsUpgradeResponse>(
+          operatorHost,
+          '/invites/me/request-operations-upgrade',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JsonExt.stringify(payload),
+          },
+          sessionId,
+        ),
       ),
     );
 
@@ -180,22 +200,23 @@ export class UpstreamOperatorClient {
   public async requestEthereumGatewayCatchUp(
     payload: IEthereumGatewayCatchUpRequest,
   ): Promise<IEthereumGatewayCatchUpResponse> {
-    const operatorHost = this.requireOperatorHost();
     const serverAuthClient = this.serverAuthClient;
     if (!serverAuthClient) {
       throw new Error('No upstream operator auth client configured.');
     }
 
-    return await this.requestWithSessionRetry(this.getMemberSessionAuth(operatorHost), sessionId =>
-      UpstreamOperatorClient.request<IEthereumGatewayCatchUpResponse>(
-        operatorHost,
-        '/ethereum-relay-request',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JsonExt.stringify(payload),
-        },
-        sessionId,
+    return await this.requestWithOperatorHost(async operatorHost =>
+      this.requestWithSessionRetry(this.getMemberSessionAuth(operatorHost), sessionId =>
+        UpstreamOperatorClient.request<IEthereumGatewayCatchUpResponse>(
+          operatorHost,
+          '/ethereum-relay-request',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JsonExt.stringify(payload),
+          },
+          sessionId,
+        ),
       ),
     );
   }
@@ -207,6 +228,24 @@ export class UpstreamOperatorClient {
     }
 
     return operatorHost;
+  }
+
+  private async requestWithOperatorHost<T>(request: (operatorHost: string) => Promise<T>): Promise<T> {
+    const operatorHost = await this.resolveOperatorHost();
+    if (!operatorHost) {
+      throw new Error('No upstream operator host configured.');
+    }
+
+    try {
+      return await request(operatorHost);
+    } catch (error) {
+      const recoveredOperatorHost = await this.recoverOperatorHost?.().catch(() => undefined);
+      if (!recoveredOperatorHost || recoveredOperatorHost === operatorHost) {
+        throw error;
+      }
+
+      return await request(recoveredOperatorHost);
+    }
   }
 
   public static async getBitcoinLockStatus(operatorHost: string, offerCode: string): Promise<IBitcoinLockCouponStatus> {

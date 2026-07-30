@@ -268,27 +268,43 @@ impl SSH {
         file_name: &str,
         remote_path: &str,
         event_progress_key: String,
+        timeout_duration: Duration,
     ) -> Result<()> {
         let app = app.clone();
         let file_name = file_name.to_string();
         let remote_path = remote_path.to_string();
         let transfer_client = self.transfer_client.clone();
         let config = self.config.clone();
-        let timeout_duration = Duration::from_secs(10);
         tauri::async_runtime::spawn_blocking(move || -> Result<()> {
             tauri::async_runtime::block_on(async move {
                 let mut client = transfer_client.lock().await;
-                let client =
-                    Self::get_or_connect_client(&mut client, &config, timeout_duration).await?;
-                Self::upload_embedded_file_on_client(
-                    client,
-                    &config,
-                    &app,
-                    &file_name,
-                    &remote_path,
-                    &event_progress_key,
-                )
+                let result = match timeout(timeout_duration, async {
+                    let client =
+                        Self::get_or_connect_client(&mut client, &config, Duration::from_secs(10))
+                            .await?;
+                    Self::upload_embedded_file_on_client(
+                        client,
+                        &config,
+                        &app,
+                        &file_name,
+                        &remote_path,
+                        &event_progress_key,
+                    )
+                    .await
+                })
                 .await
+                {
+                    Ok(result) => result,
+                    Err(_) => Err(anyhow::anyhow!(
+                        "SSH upload timed out after {timeout_duration:?}"
+                    )),
+                };
+
+                if result.is_err() {
+                    *client = None;
+                }
+
+                result
             })
         })
         .await
