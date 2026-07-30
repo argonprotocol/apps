@@ -10,7 +10,11 @@ import {
   setInboundRelayStepProgress,
 } from '../lib/CrosschainTransferProgress.ts';
 import { EthereumInboundTransferTracker } from '../lib/EthereumInboundTransferTracker.ts';
-import type { EthereumClient, IEthereumTransactionProgress } from '../lib/EthereumClient.ts';
+import {
+  EthereumTransactionRevertedError,
+  type EthereumClient,
+  type IEthereumTransactionProgress,
+} from '../lib/EthereumClient.ts';
 import {
   CrosschainInboundTransferStatus,
   type ICrosschainInboundTransferRecord,
@@ -1052,6 +1056,74 @@ describe('EthereumInboundTransferTracker integration', () => {
     expect(ethereumClient.waitForTransactionFinality).toHaveBeenCalledTimes(2);
   });
 
+  it('marks a reverted source transaction failed and clears it after dismissal', async () => {
+    const db = await createTestDb();
+    const walletKeys = createMockWalletKeys();
+    const sourceTxHash = `0x${'93'.repeat(32)}` as const;
+    const persistedRecord = await insertTransferRecord(db, walletKeys.ethereumAddress, {
+      id: 'eth-transfer-reverted',
+      token: MoveToken.ARGNOT,
+      argonDestinationAddress: walletKeys.defaultArgonAddress,
+      sourceTxHash,
+      status: CrosschainInboundTransferStatus.SourceSubmitted,
+    });
+    const ethereumClient = createEthereumClient({
+      sourceAddress: walletKeys.ethereumAddress,
+      destinationAddress: persistedRecord.argonDestinationAddress,
+      sourceTxHash,
+      sourceBlockNumber: 54,
+      sourceBlockHash: `0x${'94'.repeat(32)}`,
+      sourceLogIndex: 0,
+      gatewayActivityNonce: 9n,
+    });
+    ethereumClient.waitForTransactionFinality = vi.fn(async () => {
+      throw new EthereumTransactionRevertedError(sourceTxHash);
+    });
+    const tracker = new EthereumInboundTransferTracker(
+      Promise.resolve(db),
+      createTransactionTracker(),
+      createBlockWatch(
+        createMainchainClient({
+          getProvenNonce: () => 8n,
+        }),
+      ),
+      walletKeys,
+      ethereumClient,
+      undefined,
+      {
+        operatorHost: undefined,
+        requestEthereumGatewayCatchUp: vi.fn(),
+      },
+    );
+
+    await tracker.load();
+
+    await vi.waitFor(async () => {
+      const failedRecord = await db.crosschainInboundTransfersTable.get(persistedRecord.id);
+      expect(failedRecord?.failureReason).toContain('reverted');
+      expect(failedRecord?.isFailureAcknowledged).toBe(false);
+      expect(tracker.getTransfer(persistedRecord.id)?.transferState).toMatchObject({
+        isSubmitting: false,
+        hasPersistedTransfer: true,
+        needsAttention: true,
+        isComplete: false,
+      });
+    });
+    expect(ethereumClient.waitForTransactionFinality).toHaveBeenCalledTimes(1);
+
+    await tracker.dismissFailedTransfer(persistedRecord.id);
+
+    expect(tracker.getTransfer(persistedRecord.id)).toBeUndefined();
+    await expect(db.crosschainInboundTransfersTable.get(persistedRecord.id)).resolves.toMatchObject({
+      isFailureAcknowledged: true,
+    });
+    expect(tracker.getTransferStateForToken(MoveToken.ARGNOT)).toMatchObject({
+      isSubmitting: false,
+      hasPersistedTransfer: false,
+      needsAttention: false,
+    });
+  });
+
   it('surfaces a clear error when the Ethereum wallet cannot cover the network fee', async () => {
     const db = await createTestDb();
     const walletKeys = createMockWalletKeys();
@@ -1397,10 +1469,10 @@ async function insertTransferRecord(
     token: MoveToken.ARGN | MoveToken.ARGNOT;
     argonDestinationAddress: string;
     sourceTxHash: `0x${string}`;
-    sourceBlockNumber: number;
-    sourceBlockHash: `0x${string}`;
-    sourceLogIndex: number;
-    gatewayActivityNonce: bigint;
+    sourceBlockNumber?: number;
+    sourceBlockHash?: `0x${string}`;
+    sourceLogIndex?: number;
+    gatewayActivityNonce?: bigint;
     status: CrosschainInboundTransferStatus;
   },
 ): Promise<ICrosschainInboundTransferRecord> {

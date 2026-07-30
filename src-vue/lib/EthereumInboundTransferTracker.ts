@@ -14,7 +14,7 @@ import {
   setInboundRelayStepProgress,
   type ICrosschainTransferProgress,
 } from './CrosschainTransferProgress.ts';
-import { EthereumClient, type IEthereumMoveToken } from './EthereumClient.ts';
+import { EthereumClient, EthereumTransactionRevertedError, type IEthereumMoveToken } from './EthereumClient.ts';
 import { sleep } from './Utils.ts';
 import {
   CrosschainInboundTransferStatus,
@@ -425,7 +425,7 @@ export class EthereumInboundTransferTracker {
             return;
           }
         } catch (error) {
-          if (error instanceof InboundTransferInvariantError) {
+          if (error instanceof InboundTransferInvariantError || error instanceof EthereumTransactionRevertedError) {
             throw error;
           }
 

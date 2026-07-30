@@ -89,6 +89,16 @@ export type IFinalizedEthereumTransactionProgress = IEthereumTransactionProgress
   blockNumber: number;
   blockHash: Hash;
 };
+
+export class EthereumTransactionRevertedError extends Error {
+  constructor(txHash: Hash) {
+    super(
+      `Ethereum transaction ${txHash} reverted. Its contract changes were not applied, but the Ethereum network fee was still charged.`,
+    );
+    this.name = 'EthereumTransactionRevertedError';
+  }
+}
+
 type IEthereumSubmissionClient = {
   sendRawTransaction(args: { serializedTransaction: Hex }): Promise<Hash>;
   getTransaction(args: { hash: Hash }): Promise<unknown>;
@@ -1363,7 +1373,9 @@ async function buildEthereumUnsignedTransaction(args: {
     publicClient.estimateFeesPerGas(),
   ]);
   const fallbackGasPrice = fees.gasPrice ?? (await publicClient.getGasPrice());
-  const gas = (gasEstimate * 12n) / 10n;
+  // The gateway estimate can update the current block's activity locator, while the mined
+  // transaction may need the more expensive path that creates the next block locator.
+  const gas = (gasEstimate * 12n) / 10n + 50_000n;
   const maxFeePerGas = fees.maxFeePerGas ?? fallbackGasPrice;
   const maxPriorityFeePerGas = fees.maxPriorityFeePerGas ?? fallbackGasPrice;
 
@@ -1478,6 +1490,7 @@ async function waitForIndexedReceipt(publicClient: PublicClient, hash: Hash): Pr
         timeout: 5_000,
       });
       if (receipt.blockNumber !== null) {
+        assertEthereumTransactionSucceeded(receipt);
         return receipt;
       }
     } catch (error) {
@@ -1503,13 +1516,24 @@ async function getIndexedReceiptIfAvailable(
 ): Promise<EthereumExecutionReceipt | undefined> {
   try {
     const receipt = await publicClient.getTransactionReceipt({ hash });
-    return receipt.blockNumber !== null ? receipt : undefined;
+    if (receipt.blockNumber === null) {
+      return;
+    }
+
+    assertEthereumTransactionSucceeded(receipt);
+    return receipt;
   } catch (error) {
     if (error instanceof TransactionReceiptNotFoundError || isIndexingInProgressError(error)) {
       return;
     }
 
     throw error;
+  }
+}
+
+function assertEthereumTransactionSucceeded(receipt: EthereumExecutionReceipt) {
+  if (receipt.status === 'reverted') {
+    throw new EthereumTransactionRevertedError(receipt.transactionHash);
   }
 }
 
