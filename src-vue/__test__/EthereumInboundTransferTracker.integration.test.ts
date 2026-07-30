@@ -1091,7 +1091,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       ethereumClient,
       undefined,
       {
-        operatorHost: undefined,
+        resolveOperatorHost: async () => undefined,
         requestEthereumGatewayCatchUp: vi.fn(),
       },
     );
