@@ -1,12 +1,8 @@
 import PluginSql, { QueryResult } from '@tauri-apps/plugin-sql';
-import { CohortFramesTable } from './db/CohortFramesTable';
-import { CohortsTable } from './db/CohortsTable';
 import { ConfigTable } from './db/ConfigTable';
-import { FramesTable } from './db/FramesTable';
 import { SyncStateTable } from './db/SyncStateTable.ts';
 import { INSTANCE_NAME, NETWORK_NAME } from './Env';
 import { ensureOnlyOneInstance } from './Utils';
-import { FrameBidsTable } from './db/FrameBidsTable';
 import { VaultsTable } from './db/VaultsTable.ts';
 import { BitcoinLocksTable } from './db/BitcoinLocksTable.ts';
 import { TransactionsTable } from './db/TransactionsTable.ts';
@@ -29,11 +25,7 @@ export class Db {
   public sql: PluginSql;
   public hasMigrationError: boolean;
   public syncStateTable: SyncStateTable;
-  public cohortFramesTable: CohortFramesTable;
-  public cohortsTable: CohortsTable;
   public configTable: ConfigTable;
-  public framesTable: FramesTable;
-  public frameBidsTable: FrameBidsTable;
   public transactionsTable: TransactionsTable;
   public transactionStatusHistoryTable: TransactionStatusHistoryTable;
   public vaultsTable: VaultsTable;
@@ -57,11 +49,7 @@ export class Db {
     this.sql = sql;
     this.hasMigrationError = hasMigrationError;
     this.syncStateTable = new SyncStateTable(this);
-    this.cohortFramesTable = new CohortFramesTable(this);
-    this.cohortsTable = new CohortsTable(this);
     this.configTable = new ConfigTable(this);
-    this.framesTable = new FramesTable(this);
-    this.frameBidsTable = new FrameBidsTable(this);
     this.vaultsTable = new VaultsTable(this);
     this.vaultRevenueEventsTable = new VaultRevenueEventsTable(this);
     this.transactionsTable = new TransactionsTable(this);

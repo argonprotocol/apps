@@ -148,10 +148,12 @@ export async function startDevUpstreamServer(args: {
   ]);
   const biddingRules = {
     ...(Config.getDefault('biddingRules') as IConfig['biddingRules']),
-    seatGoalType: SeatGoalType.Min,
+    seatGoalType: SeatGoalType.Max,
     seatGoalCount: 1,
+    startingBidFormulaType: BidAmountFormulaType.Custom,
+    startingBidCustom: 100_000n,
     maximumBidFormulaType: BidAmountFormulaType.Custom,
-    maximumBidCustom: 2_000_000n,
+    maximumBidCustom: 400_000n,
   };
 
   await Promise.all([

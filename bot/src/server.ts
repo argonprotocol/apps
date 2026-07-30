@@ -45,6 +45,7 @@ export class BotServer {
       '/bitcoin-recent-blocks': async () => await DockerStatus.getBitcoinLatestBlocks(),
       '/history': async frameId => await bot.getHistoryForFrame(frameId),
       '/mining-frame': async frameId => await bot.getMiningFrameDetail(frameId),
+      '/mining-summary': async () => await bot.getMiningSummary(),
       '/bids': async cohortBiddingFrameId => {
         const startingFrameId = cohortBiddingFrameId ?? (await bot.currentFrameId);
         return await bot.storage.bidsFile(startingFrameId, startingFrameId + 1).get();
@@ -139,6 +140,7 @@ export class BotServer {
       ws.isAlive = true;
       ws.on('pong', () => (ws.isAlive = true));
       ws.on('message', data => this.onMessage(ws, data));
+      void this.sendState(ws);
 
       const interval = setInterval(() => {
         if (!ws.isAlive) {
@@ -155,6 +157,7 @@ export class BotServer {
             data: null,
           } as JsonRpcResponse),
         );
+        void this.sendState(ws);
       }, this.heartbeatIntervalMs).unref();
 
       ws.on('close', () => {
@@ -180,6 +183,22 @@ export class BotServer {
         wss.emit('connection', ws, request);
       });
     });
+  }
+
+  private async sendState(ws: WebSocket): Promise<void> {
+    try {
+      const data = await this.rpcHandlers['/state']();
+      if (ws.readyState !== WebSocket.OPEN) return;
+      ws.send(
+        JsonExt.stringify({
+          jsonrpc: '2.0',
+          event: '/state',
+          data,
+        } as JsonRpcResponse<'/state'>),
+      );
+    } catch (error) {
+      console.error('[BotServer] Failed to send state update', error);
+    }
   }
 
   public async waitForListening(): Promise<void> {

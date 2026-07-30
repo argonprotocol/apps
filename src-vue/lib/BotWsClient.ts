@@ -28,8 +28,6 @@ export class BotWsClient {
   private webSocket?: WebSocket;
   private messageWaiters: Map<number, IDeferred<any>> = new Map();
 
-  // Temporary behavior: disable automatic reconnect attempts.
-  private shouldReconnect = true;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly reconnectBaseDelayMs = 250;
@@ -46,20 +44,7 @@ export class BotWsClient {
   private readonly heartbeatWatchdogIntervalMs = 10_000;
 
   constructor(private readonly serverApiClient: ServerApiClient) {
-    this.preventUnhandledConnectRejection();
     this.beginConnect();
-  }
-
-  public static async connectToServerGateway(serverApiClient: ServerApiClient): Promise<BotWsClient> {
-    const client = new BotWsClient(serverApiClient);
-    await client.connectDeferred.promise;
-    return client;
-  }
-
-  private preventUnhandledConnectRejection(): void {
-    void this.connectDeferred.promise.catch(() => {
-      // Connection failures are surfaced to explicit awaiters; this prevents noisy unhandled rejections meanwhile.
-    });
   }
 
   private startHeartbeatWatchdog(): void {
@@ -103,7 +88,6 @@ export class BotWsClient {
     // New connection attempt -> new deferred for callers waiting on readiness.
     if (this.connectDeferred.isSettled) {
       this.connectDeferred = createDeferred<void>();
-      this.preventUnhandledConnectRejection();
     }
 
     // Clear any scheduled reconnect because we're connecting now.
@@ -121,13 +105,8 @@ export class BotWsClient {
     try {
       sessionId = await this.serverApiClient.getAdminOperatorSessionId({ forceVerify: true });
     } catch (error) {
-      if (!this.connectDeferred.isSettled) {
-        this.connectDeferred.reject(error);
-      }
       console.warn('BotWsClient auth check failed before connect:', error);
-      if (this.hasEverConnected) {
-        this.scheduleReconnect();
-      }
+      this.scheduleReconnect();
       return;
     }
 
@@ -144,10 +123,6 @@ export class BotWsClient {
     });
 
     this.webSocket.addEventListener('error', err => {
-      if (!this.connectDeferred.isSettled) {
-        this.connectDeferred.reject(err);
-      }
-
       // If the connection errors after being established, fail all in-flight requests.
       for (const [id, waiter] of this.messageWaiters.entries()) {
         waiter.reject(new Error(`BotWsClient WebSocket error (request id: ${id})`));
@@ -164,14 +139,6 @@ export class BotWsClient {
     this.webSocket.addEventListener('close', event => {
       this.stopHeartbeatWatchdog();
       this.emitConnectionLostOnce({ source: 'close', code: event.code, reason: event.reason || 'n/a' });
-
-      if (!this.connectDeferred.isSettled) {
-        this.connectDeferred.reject(
-          new Error(
-            `BotWsClient WebSocket closed before connect (code: ${event.code}, reason: ${event.reason || 'n/a'})`,
-          ),
-        );
-      }
 
       // Reject any pending RPC calls so callers don't hang until timeout.
       for (const [id, waiter] of this.messageWaiters.entries()) {
@@ -218,7 +185,6 @@ export class BotWsClient {
   }
 
   private scheduleReconnect(): void {
-    if (!this.shouldReconnect) return;
     if (this.reconnectTimer) return;
 
     // Exponential backoff with a little jitter.
@@ -234,7 +200,6 @@ export class BotWsClient {
     // If callers are awaiting readiness, make sure they are awaiting a fresh deferred.
     if (this.connectDeferred.isSettled && this.webSocket?.readyState !== WebSocket.OPEN) {
       this.connectDeferred = createDeferred<void>();
-      this.preventUnhandledConnectRejection();
     }
 
     this.reconnectTimer = setTimeout(() => {
@@ -261,7 +226,7 @@ export class BotWsClient {
       this.scheduleReconnect();
     }
 
-    // If connectDeferred has already been rejected/settled, replace it so awaiting doesn't immediately throw.
+    // If the previous connection settled, wait on a fresh connection attempt.
     if (this.connectDeferred.isSettled && this.webSocket?.readyState !== WebSocket.OPEN) {
       this.connectDeferred = createDeferred<void>();
       this.scheduleReconnect();

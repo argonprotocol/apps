@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, disposePinia, setActivePinia, type Pinia } from 'pinia';
-import { type ArgonQueryClient, BondLot, type IBlockHeaderInfo } from '@argonprotocol/apps-core';
+import {
+  type ArgonQueryClient,
+  BondLot,
+  type IBlockHeaderInfo,
+  type IMiningCohortFinancial,
+} from '@argonprotocol/apps-core';
 import {
   type FrameSupportTokensMiscIdAmountRuntimeHoldReason,
   getOfflineRegistry,
@@ -9,7 +14,6 @@ import {
 import type { IFinancialPosition } from '../interfaces/IFinancialPosition.ts';
 import type { IArgonAccountSnapshot } from '../lib/WalletsForArgon.ts';
 import type { WalletForArgon } from '../lib/WalletForArgon.ts';
-import type { IMiningCohortFinancialRecord } from '../interfaces/db/ICohortFrameRecord.ts';
 
 const mocks = vi.hoisted(() => {
   const wallet = (address: string) => ({
@@ -607,7 +611,7 @@ describe('financials store lifecycle', () => {
       settledPrincipalValue: 0n,
       startedAt: new Date('2026-07-01T00:00:00Z'),
       endedAt: new Date('2026-07-10T00:00:00Z'),
-      cohort: {} as IMiningCohortFinancialRecord,
+      cohort: {} as IMiningCohortFinancial,
       recoveredValue: 30n,
       remainingSeatValue: 0n,
       performanceEndingCapital: 130n,

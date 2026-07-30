@@ -10,8 +10,7 @@ import {
 import { ApiDecoration } from '@argonprotocol/mainchain';
 import { INSTANCE_NAME, LOG_DEBUG, NETWORK_NAME, NETWORK_URL } from '../lib/Env.ts';
 import { getConfig } from './config';
-import { botEmitter } from '../lib/Bot.ts';
-import { BotStatus } from '../lib/BotSyncer.ts';
+import { botEmitter, BotStatus } from '../lib/Bot.ts';
 import { getBot } from './bot.ts';
 import { VaultCalculator } from '../lib/VaultCalculator.ts';
 import { Config } from '../lib/Config.ts';

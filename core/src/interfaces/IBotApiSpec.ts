@@ -4,12 +4,14 @@ import type { IHistoryFile } from './IHistoryFile.ts';
 import type { IBidsFile } from './IBidsFile.ts';
 import type { IEarningsFile } from './IEarningsFile.ts';
 import type { IMiningFrameDetail } from './IMiningFrameDetail.ts';
+import type { IMiningSummary } from './IMiningSummary.ts';
 
 export interface IBotApiSpec {
   '/state': () => Promise<IBotState | IBotStateStarting>;
   '/bitcoin-recent-blocks': () => Promise<IBitcoinBlockMeta[]>;
   '/history': (frameId?: number) => Promise<IHistoryFile>;
   '/mining-frame': (frameId: number) => Promise<IMiningFrameDetail>;
+  '/mining-summary': () => Promise<IMiningSummary>;
   '/bids': (cohortBiddingFrameId?: number) => Promise<IBidsFile>;
   '/earnings': (frameId: number) => Promise<IEarningsFile>;
   '/heartbeat': () => Promise<null>;

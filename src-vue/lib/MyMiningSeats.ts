@@ -1,9 +1,15 @@
 import BigNumber from 'bignumber.js';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import {
   calculateMiningRewardProjection,
   createDeferred,
   Currency as CurrencyBase,
   IDeferred,
+  type IMiningBid,
+  type IMiningCohort,
+  type IMiningCohortFinancial,
+  type IMiningSummary,
   type IWinningBid,
   MiningFrames,
   NetworkConfig,
@@ -11,15 +17,15 @@ import {
 import { IDashboardFrameStats, IDashboardGlobalStats } from '../interfaces/IMiningSeatStats';
 import { Db } from './Db';
 import { Config } from './Config';
-import { ICohortRecord } from '../interfaces/db/ICohortRecord';
-import type { IMiningCohortFinancialRecord } from '../interfaces/db/ICohortFrameRecord.ts';
-import type { IFrameBidRecord } from '../interfaces/db/IFrameBidRecord.ts';
 import { botEmitter } from './Bot';
 import { ensureOnlyOneInstance, getPercent, logStartupTiming, percentOf } from './Utils';
 import { IServerStateRecord } from '../interfaces/db/IServerStateRecord.ts';
 import { Currency } from './Currency.ts';
 import { SyncStateKeys } from './db/SyncStateTable.ts';
 import { createMiningCohortFinancialPosition } from './financials/MyMiningSeats.ts';
+import { FinancialCacheTypes, MiningSummaryCacheScope } from './db/FinancialCacheTable.ts';
+
+dayjs.extend(utc);
 
 interface IMyMiningSeats {
   seatCount: number;
@@ -49,8 +55,8 @@ export class MyMiningSeats {
   public pendingBids: IMyMiningBids;
 
   public allWinningBids: (IWinningBid & { micronotsStakedPerSeat: bigint })[];
-  public currentFrameBids: IFrameBidRecord[];
-  public miningCohorts: IMiningCohortFinancialRecord[];
+  public currentFrameBids: IMiningBid[];
+  public miningCohorts: IMiningCohortFinancial[];
   public financialRevision: number;
 
   public global: IDashboardGlobalStats;
@@ -64,8 +70,8 @@ export class MyMiningSeats {
   private isLoadedDeferred!: IDeferred<void>;
   private loadPromise?: Promise<void>;
   private serverStateRefreshPromise?: Promise<void>;
-  private miningCohortsById = new Map<number, IMiningCohortFinancialRecord>();
-  private hasRefreshedCompletedMiningHistory = false;
+  private miningCohortsById = new Map<number, IMiningCohortFinancial>();
+  private miningSummary?: IMiningSummary;
 
   public db!: Db;
 
@@ -169,6 +175,13 @@ export class MyMiningSeats {
     this.updateDashboard().catch(console.error);
   }
 
+  public getCohortsByIds(ids: readonly number[]): IMiningCohort[] {
+    return ids.flatMap(id => {
+      const cohort = this.miningCohortsById.get(id);
+      return cohort ? [cohort] : [];
+    });
+  }
+
   public async load() {
     if (this.isLoaded) return this.isLoadedPromise;
     if (this.loadPromise) return await this.loadPromise;
@@ -204,43 +217,34 @@ export class MyMiningSeats {
           this.selectedFrameId = this.latestFrameId;
         }
 
+        stage = 'mining-summary-cache';
+        try {
+          this.miningSummary = await this.db.financialCacheTable.get(
+            FinancialCacheTypes.MiningSummary,
+            MiningSummaryCacheScope,
+          );
+        } catch (error) {
+          this.miningSummary = undefined;
+          console.warn('[MyMiningSeats] Unable to restore cached mining summary', error);
+        }
+
         stage = 'post-load-updates';
-        await Promise.all([this.updateMiningSeats(), this.updateMiningBids(), this.updateServerState()]);
-        this.hasRefreshedCompletedMiningHistory = true;
+        if (this.miningSummary) {
+          this.applyMiningSummary(this.miningSummary);
+        }
+        await this.updateServerState();
         this.financialRevision += 1;
 
-        botEmitter.on('updated-cohort-data', async frameId => {
+        botEmitter.on('updated-mining-summary', async summary => {
           if (this.serverStateRefreshPromise) await this.serverStateRefreshPromise;
-
-          const isOnLatestFrame = this.selectedFrameId === this.latestFrameId;
-          this.latestFrameId = frameId;
-          if (isOnLatestFrame) this.selectFrameId(frameId, true);
-          const fromFrameId = this.hasRefreshedCompletedMiningHistory
-            ? Math.max(0, frameId - NetworkConfig.framesPerCohort)
-            : 0;
-          await this.updateMiningSeats(fromFrameId);
-          this.hasRefreshedCompletedMiningHistory = true;
+          this.applyMiningSummary(summary);
           this.financialRevision += 1;
-
           if (this.isSubscribedToDashboard) {
             await this.updateDashboard();
             this.dashboardHasUpdates = false;
           } else {
             this.dashboardHasUpdates = true;
           }
-        });
-
-        botEmitter.on('updated-cohort-history', async () => {
-          if (this.serverStateRefreshPromise) await this.serverStateRefreshPromise;
-          await this.updateMiningSeats();
-          this.hasRefreshedCompletedMiningHistory = true;
-          this.financialRevision += 1;
-        });
-
-        botEmitter.on('updated-bids-data', async () => {
-          if (this.serverStateRefreshPromise) await this.serverStateRefreshPromise;
-          await this.updateMiningBids();
-          this.financialRevision += 1;
         });
 
         botEmitter.on('updated-server-state', async () => {
@@ -313,7 +317,10 @@ export class MyMiningSeats {
   public async refresh(): Promise<void> {
     await this.isLoadedDeferred.promise;
 
-    await Promise.all([this.updateMiningSeats(), this.updateMiningBids(), this.updateServerState()]);
+    if (this.miningSummary) {
+      this.applyMiningSummary(this.miningSummary);
+    }
+    await this.updateServerState();
     this.financialRevision += 1;
     await this.updateDashboard();
 
@@ -326,10 +333,10 @@ export class MyMiningSeats {
   }
 
   private async updateDashboard(): Promise<void> {
-    const [globalStats, frames] = await Promise.all([
-      this.db.cohortsTable.fetchGlobalStats(),
-      this.fetchFramesFromDb(),
-    ]);
+    if (!this.miningSummary) return;
+
+    const globalStats = this.miningSummary.global;
+    const frames = this.buildDashboardFrameStats(this.miningSummary.frames);
     this.global = {
       ...globalStats,
       microgonValueOfRewards: Currency.microgonValueOfMiningRewards({
@@ -340,18 +347,6 @@ export class MyMiningSeats {
       }),
     };
     this.frames = frames;
-  }
-
-  private async updateMiningSeats(fromFrameId = 0): Promise<void> {
-    const cohorts = await this.db.cohortsTable.fetchFinancialPositions(fromFrameId);
-
-    for (const cohortId of this.miningCohortsById.keys()) {
-      if (cohortId >= fromFrameId) this.miningCohortsById.delete(cohortId);
-    }
-    for (const cohort of cohorts) this.miningCohortsById.set(cohort.id, cohort);
-
-    this.miningCohorts = [...this.miningCohortsById.values()].sort((a, b) => a.id - b.id);
-    this.activeSeats = this.calculateActiveMiningSeats(this.miningCohorts);
   }
 
   private async updateServerState(): Promise<void> {
@@ -366,8 +361,7 @@ export class MyMiningSeats {
     await this.serverStateRefreshPromise;
   }
 
-  private async updateMiningBids(): Promise<void> {
-    const frameBids = await this.db.frameBidsTable.fetchForFrameId(this.latestFrameId);
+  private applyMiningBids(frameBids: IMiningBid[]): void {
     this.currentFrameBids = frameBids;
     this.allWinningBids = frameBids.map(x => {
       return {
@@ -389,7 +383,20 @@ export class MyMiningSeats {
     );
   }
 
-  private calculateActiveMiningSeats(cohorts: readonly IMiningCohortFinancialRecord[]): IMyMiningSeats {
+  private applyMiningSummary(summary: IMiningSummary): void {
+    const isOnLatestFrame = this.selectedFrameId === this.latestFrameId;
+    this.miningSummary = summary;
+    this.latestFrameId = summary.latestFrameId;
+    if (isOnLatestFrame) this.selectFrameId(summary.latestFrameId, true);
+
+    this.miningCohortsById.clear();
+    for (const cohort of summary.cohorts) this.miningCohortsById.set(cohort.id, cohort);
+    this.miningCohorts = summary.cohorts.filter(cohort => cohort.seatCountWon > 0);
+    this.activeSeats = this.calculateActiveMiningSeats(this.miningCohorts);
+    this.applyMiningBids(summary.currentBids);
+  }
+
+  private calculateActiveMiningSeats(cohorts: readonly IMiningCohortFinancial[]): IMyMiningSeats {
     let seatCount = 0;
     let microgonsBidTotal = 0n;
     let micronotsStakedTotal = 0n;
@@ -452,7 +459,7 @@ export class MyMiningSeats {
   }
 
   private calculateExpectedBlockRewards(
-    cohort: ICohortRecord,
+    cohort: IMiningCohort,
     percentage: number,
     argonotPrice: bigint,
   ): {
@@ -476,22 +483,99 @@ export class MyMiningSeats {
     };
   }
 
-  private async fetchFramesFromDb(): Promise<IDashboardFrameStats[]> {
-    const lastYear = await this.db.framesTable
-      .fetchLastYear(this.miningFrames, this.currency.microgonsPer.ARGNOT)
-      .then(x => x as IDashboardFrameStats[]);
-    const earliestFrameId = lastYear.at(-1)?.id ?? 0;
+  private buildDashboardFrameStats(summaryFrames: IMiningSummary['frames']): IDashboardFrameStats[] {
+    let previousArgonotPrice = this.currency.microgonsPer.ARGNOT;
+    const lastYear = summaryFrames.map(frame => {
+      const miningFrame = this.miningFrames.framesById[frame.id];
+      const dateStart = miningFrame?.dateStart ?? MiningFrames.getTickDate(frame.firstTick);
+      const argonotPrice = frame.microgonToArgonot.at(-1) || previousArgonotPrice;
+      if (argonotPrice > 0n) previousArgonotPrice = argonotPrice;
+      const microgonValueOfRewards = Currency.microgonValueOfMiningRewards({
+        microgonsMined: frame.microgonsMinedTotal,
+        microgonsMinted: frame.microgonsMintedTotal,
+        micronotsMined: frame.micronotsMinedTotal,
+        argonotPrice,
+      });
+      const profit = microgonValueOfRewards - frame.seatCostTotalFramed;
+
+      return {
+        id: frame.id,
+        date: dayjs.utc(dateStart).format('YYYY-MM-DD'),
+        firstTick: miningFrame?.frameStartTick ?? frame.firstTick,
+        allMinersCount: frame.allMinersCount,
+        seatCountActive: frame.seatCountActive,
+        seatCostTotalFramed: frame.seatCostTotalFramed,
+        blocksMinedTotal: frame.blocksMinedTotal,
+        microgonToUsd: frame.microgonToUsd,
+        microgonToArgonot: frame.microgonToArgonot,
+        microgonsMinedTotal: frame.microgonsMinedTotal,
+        microgonsMintedTotal: frame.microgonsMintedTotal,
+        micronotsMinedTotal: frame.micronotsMinedTotal,
+        microgonFeesCollectedTotal: frame.microgonFeesCollectedTotal,
+        accruedMicrogonProfits: frame.accruedMicrogonProfits,
+        microgonValueOfRewards,
+        progress: frame.progress,
+        profit: Number(profit),
+        profitPct: getPercent(profit, frame.seatCostTotalFramed),
+        score: 0,
+        expected: {
+          blocksMinedTotal: 0,
+          micronotsMinedTotal: 0n,
+          microgonsMinedTotal: 0n,
+          microgonsMintedTotal: 0n,
+          microgonValueOfRewards: 0n,
+        },
+      };
+    });
+
+    while (lastYear.length < 365) {
+      const earliestRecord = lastYear[0];
+      if (!earliestRecord) break;
+      const previousDay = dayjs.utc(earliestRecord.date).subtract(1, 'day');
+      if (previousDay.isBefore(dayjs.utc('2025-01-01'))) break;
+
+      lastYear.unshift({
+        id: earliestRecord.id - 1,
+        date: previousDay.format('YYYY-MM-DD'),
+        firstTick: earliestRecord.firstTick - NetworkConfig.rewardTicksPerFrame,
+        allMinersCount: 0,
+        seatCountActive: 0,
+        seatCostTotalFramed: 0n,
+        microgonToUsd: [0n],
+        microgonToArgonot: [0n],
+        blocksMinedTotal: 0,
+        microgonsMinedTotal: 0n,
+        microgonsMintedTotal: 0n,
+        micronotsMinedTotal: 0n,
+        microgonFeesCollectedTotal: 0n,
+        microgonValueOfRewards: 0n,
+        progress: 0,
+        profit: 0,
+        profitPct: 0,
+        accruedMicrogonProfits: 0n,
+        score: 0,
+        expected: {
+          blocksMinedTotal: 0,
+          micronotsMinedTotal: 0n,
+          microgonsMinedTotal: 0n,
+          microgonsMintedTotal: 0n,
+          microgonValueOfRewards: 0n,
+        },
+      });
+    }
+
+    const earliestFrameId = lastYear[0]?.id ?? 0;
     const activeCohorts = this.miningCohorts.filter(
       cohort => cohort.id > earliestFrameId - NetworkConfig.framesPerCohort,
     );
-    const cohortsById: { [id: number]: ICohortRecord } = {};
+    const cohortsById: { [id: number]: IMiningCohort } = {};
     for (const cohort of activeCohorts) {
       cohortsById[cohort.id] = cohort;
     }
     const framesById = new Map<number, IDashboardFrameStats>();
 
     this.activeFrames = 0;
-    let previousArgonotPrice = this.currency.microgonsPer.ARGNOT;
+    previousArgonotPrice = this.currency.microgonsPer.ARGNOT;
     for (const frame of lastYear) {
       const cohortAtFrame = cohortsById[frame.id];
       // count an active frame if we bid but didn't win any seats

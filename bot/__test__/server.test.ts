@@ -23,6 +23,25 @@ function createMockBot(overrides: Record<string, any> = {}): Bot {
       shutdown: async () => undefined,
     },
     history: { recent: Promise.resolve({ activities: [{ id: 'a1' }] }) },
+    getMiningSummary: async () => ({
+      observedAt: new Date('2026-07-28T12:00:00Z'),
+      sourceBlockNumber: 456,
+      latestFrameId: 123,
+      cohorts: [],
+      frames: [],
+      currentBids: [],
+      global: {
+        seatsTotal: 0,
+        framesCompleted: 0,
+        framesRemaining: 0,
+        framedCost: 0n,
+        transactionFeesTotal: 0n,
+        microgonsBidTotal: 0n,
+        micronotsMinedTotal: 0n,
+        microgonsMinedTotal: 0n,
+        microgonsMintedTotal: 0n,
+      },
+    }),
     storage: {
       bidsFile: (_start: number, _end: number) => ({ get: async () => ({ bids: [] }) }),
       earningsFile: (_frameId: number) => ({ get: async () => ({ earnings: [] }) }),
@@ -77,10 +96,7 @@ describe('BotServer basic behavior', () => {
     });
   });
 
-  it('WS sends /heartbeat event periodically (we see at least one)', async () => {
-    // To avoid waiting 30s, this test just checks we can connect and receive *something*
-    // NOTE: With the current implementation, first heartbeat is at 30s.
-    // If you want this test fast, see the note below about making heartbeat interval injectable.
+  it('pushes state immediately and continues sending heartbeats', async () => {
     server = startServer(createMockBot(), 0, 100);
     await server.waitForListening();
     const { host, port } = server.getAddress();
@@ -117,8 +133,8 @@ describe('BotServer basic behavior', () => {
 
     expect(firstMessage).toMatchObject({
       jsonrpc: '2.0',
-      event: '/heartbeat',
-      data: null,
+      event: '/state',
+      data: { ok: true },
     });
     await expect(got2Heartbeats.promise).resolves.toBe(true);
   });
@@ -131,81 +147,35 @@ describe('BotServer basic behavior', () => {
       0,
     );
     await server.waitForListening();
-    const { host, port } = server.getAddress();
-
-    const ws = new WebSocket(`ws://${host}:${port}`);
-
-    const response = await new Promise<any>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('Timed out waiting for rpc response')), 5_000);
-
-      ws.on('open', () => {
-        ws.send(
-          JSON.stringify({
-            jsonrpc: '2.0',
-            id: 1,
-            method: '/bids', // should be forced to /state because isReady=false
-            params: [],
-          }),
-        );
-      });
-
-      ws.on('message', data => {
-        const msg = JSON.parse(readMessageData(data));
-        if (msg.id === 1) {
-          clearTimeout(timeout);
-          resolve(msg);
-          ws.close();
-        }
-      });
-
-      ws.on('error', err => {
-        clearTimeout(timeout);
-        reject(err);
-      });
-    });
+    const response = await requestRpc(server, '/bids', 1);
 
     expect(response.jsonrpc).toBe('2.0');
     expect(response.id).toBe(1);
     expect(response.error).toBeUndefined();
-    // From our mock bot.state()
     expect(response.result).toMatchObject({ ok: true });
+  });
+
+  it('returns the server mining summary over JSON-RPC', async () => {
+    server = startServer(createMockBot(), 0);
+    await server.waitForListening();
+    const response = await requestRpc(server, '/mining-summary', 3);
+
+    expect(response.error).toBeUndefined();
+    expect(response.result).toMatchObject({
+      observedAt: new Date('2026-07-28T12:00:00Z'),
+      sourceBlockNumber: 456,
+      latestFrameId: 123,
+      cohorts: [],
+      frames: [],
+      currentBids: [],
+      global: expect.objectContaining({ framedCost: 0n }),
+    });
   });
 
   it('unknown RPC method returns Method not found error', async () => {
     server = startServer(createMockBot(), 0);
     await server.waitForListening();
-    const { host, port } = server.getAddress();
-
-    const ws = new WebSocket(`ws://${host}:${port}`);
-
-    const response = await new Promise<any>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('Timed out waiting for rpc response')), 5_000);
-
-      ws.on('open', () => {
-        ws.send(
-          JSON.stringify({
-            jsonrpc: '2.0',
-            id: 2,
-            method: '/definitely-not-a-real-method',
-            params: [],
-          }),
-        );
-      });
-
-      ws.on('message', data => {
-        const msg = JSON.parse(readMessageData(data));
-        if (msg.id === 2) {
-          clearTimeout(timeout);
-          resolve(msg);
-          ws.close();
-        }
-      });
-
-      ws.on('error', err => {
-        clearTimeout(timeout);
-        reject(err);
-      });
-    });
+    const response = await requestRpc(server, '/definitely-not-a-real-method', 2);
 
     expect(response.id).toBe(2);
     expect(response.result).toBeUndefined();
@@ -215,6 +185,31 @@ describe('BotServer basic behavior', () => {
     expect(String(response.error.message)).toContain('Method not found');
   });
 });
+
+async function requestRpc(server: BotServer, method: string, id: number): Promise<any> {
+  const { host, port } = server.getAddress();
+  const ws = new WebSocket(`ws://${host}:${port}`);
+
+  return await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('Timed out waiting for rpc response')), 5_000);
+
+    ws.on('open', () => {
+      ws.send(JsonExt.stringify({ jsonrpc: '2.0', id, method, params: [] }));
+    });
+    ws.on('message', data => {
+      const message = JsonExt.parse<any>(readMessageData(data));
+      if (message.id !== id) return;
+
+      clearTimeout(timeout);
+      resolve(message);
+      ws.close();
+    });
+    ws.on('error', error => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+  });
+}
 
 function readMessageData(data: WebSocket.RawData): string {
   if (typeof data === 'string') return data;

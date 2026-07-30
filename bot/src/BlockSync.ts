@@ -52,6 +52,7 @@ export class BlockSync {
   public didProcessBlock?: (lastProcessed: ILastProcessed) => void;
 
   private scheduleTimer?: NodeJS.Timeout;
+  private afterBlockProcessed?: (lastProcessed: ILastProcessed) => Promise<void> | void;
 
   private unsubscribe?: () => void;
   private isStopping: boolean = false;
@@ -253,7 +254,8 @@ export class BlockSync {
     return final;
   }
 
-  public async start() {
+  public async start(afterBlockProcessed?: (lastProcessed: ILastProcessed) => Promise<void> | void) {
+    this.afterBlockProcessed = afterBlockProcessed;
     await this.scheduleNext(500, true);
   }
 
@@ -312,7 +314,13 @@ export class BlockSync {
       if (latestBestBlockHeader) {
         await this.backfillBestBlockHeader(latestBestBlockHeader);
       }
-      this.inProcessSync = this.processNext();
+      this.inProcessSync = this.processNext().then(async result => {
+        const lastProcessed = this.lastProcessed;
+        if (result && lastProcessed) {
+          await this.afterBlockProcessed?.(lastProcessed);
+        }
+        return result;
+      });
       const result = await this.inProcessSync;
       if (result?.remaining ?? 0 > 0) {
         waitTime = 0;
