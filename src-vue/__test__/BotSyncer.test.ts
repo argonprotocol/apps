@@ -132,6 +132,48 @@ describe('BotSyncer', () => {
     });
   });
 
+  it('resumes historical sync at the first missing cohort instead of the latest frame cursor', async () => {
+    const { syncer, config, framesTable, cohortsTable } = createSyncer();
+    const testSyncer = syncer as unknown as IBotSyncerTestTarget;
+    const syncDbFrame = vi.spyOn(testSyncer, 'syncDbFrame').mockRejectedValue(new Error('stop after first frame'));
+    config.latestFrameIdProcessed = 865;
+    framesTable.fetchLastProcessedFrame.mockResolvedValue(864);
+    framesTable.fetchProcessedFrameIdsSince.mockResolvedValue(Array.from({ length: 817 }, (_, index) => index + 48));
+    cohortsTable.fetchCohortIdsSince.mockResolvedValue(Array.from({ length: 407 }, (_, index) => index + 48));
+
+    await testSyncer.syncThePast(98.6, {
+      oldestFrameIdToSync: 48,
+      currentFrameId: 865,
+      currentTick: 1,
+    });
+
+    await vi.waitFor(() => {
+      expect(syncDbFrame).toHaveBeenCalledWith(455, expect.anything());
+    });
+  });
+
+  it('replays incomplete frames without downloading the processed frames between them', async () => {
+    const { syncer, botFns, config, framesTable, cohortsTable } = createSyncer();
+    const testSyncer = syncer as unknown as IBotSyncerTestTarget;
+    const syncDbFrame = vi.spyOn(testSyncer, 'syncDbFrame').mockResolvedValue(undefined);
+    vi.spyOn(syncer as any, 'calculateDbSyncProgress').mockResolvedValue(100);
+    config.latestFrameIdProcessed = 8;
+    framesTable.fetchLastProcessedFrame.mockResolvedValue(8);
+    framesTable.fetchProcessedFrameIdsSince.mockResolvedValue([1, 2, 4, 5, 7, 8]);
+    cohortsTable.fetchCohortIdsSince.mockResolvedValue([1, 2, 3, 4, 5, 6, 7, 8]);
+
+    await testSyncer.syncThePast(75, {
+      oldestFrameIdToSync: 1,
+      currentFrameId: 8,
+      currentTick: 1,
+    });
+
+    await vi.waitFor(() => {
+      expect(botFns.onEvent).toHaveBeenCalledWith('updated-cohort-history', 8);
+    });
+    expect(syncDbFrame.mock.calls.map(([frameId]) => frameId)).toEqual([3, 6]);
+  });
+
   it.each([
     {
       name: 'captured with the winning bid',
@@ -211,10 +253,18 @@ function createSyncer(options: { gatewayReady?: boolean } = {}) {
   const serverApiClient = {
     isGatewayReady: vi.fn().mockResolvedValue(options.gatewayReady ?? true),
   };
+  const config = { isServerInstalled: true, latestFrameIdProcessed: 1 };
+  const framesTable = {
+    fetchLastProcessedFrame: vi.fn().mockResolvedValue(1),
+    fetchProcessedFrameIdsSince: vi.fn<() => Promise<number[]>>().mockResolvedValue([]),
+  };
+  const cohortsTable = {
+    fetchCohortIdsSince: vi.fn<() => Promise<number[]>>().mockResolvedValue([]),
+  };
 
   const syncer = new BotSyncer(
-    { isServerInstalled: true, latestFrameIdProcessed: 1 } as any,
-    { framesTable: { fetchLastProcessedFrame: vi.fn().mockResolvedValue(1) } } as any,
+    config as any,
+    { framesTable, cohortsTable } as any,
     installer as any,
     serverApiClient as any,
     { load: vi.fn() } as any,
@@ -222,5 +272,5 @@ function createSyncer(options: { gatewayReady?: boolean } = {}) {
     botFns,
   );
 
-  return { syncer, botFns, installer, serverApiClient };
+  return { syncer, botFns, installer, serverApiClient, config, framesTable, cohortsTable };
 }

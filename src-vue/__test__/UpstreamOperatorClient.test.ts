@@ -2,6 +2,27 @@ import { expect, it, vi } from 'vitest';
 import { RequestStatusError, ServerAuthClient } from '../lib/ServerAuthClient.ts';
 import { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
+import { BootstrapType } from '../interfaces/IConfig.ts';
+
+const storeMocks = vi.hoisted(() => ({
+  config: {
+    bootstrapDetails: undefined as { type: string; routerHost: string } | undefined,
+    upstreamOperator: undefined as { name: string } | undefined,
+    isLoadedPromise: Promise.resolve(),
+  },
+  recoverUpstreamHost: vi.fn(),
+}));
+
+vi.mock('../stores/config.ts', () => ({
+  getConfig: () => storeMocks.config,
+}));
+vi.mock('../stores/server.ts', () => ({
+  getUpstreamOperatorAuthClient: () => undefined,
+}));
+vi.mock('../stores/bootstrapRecovery.ts', () => ({
+  enrollUpstreamRecovery: vi.fn(),
+  recoverUpstreamHost: storeMocks.recoverUpstreamHost,
+}));
 
 it('queries a missing upstream endpoint only once', async () => {
   const recoverOperatorHost = vi.fn().mockResolvedValue(undefined);
@@ -11,6 +32,20 @@ it('queries a missing upstream endpoint only once', async () => {
   await expect(client.resolveOperatorHost()).resolves.toBeUndefined();
 
   expect(recoverOperatorHost).toHaveBeenCalledOnce();
+});
+
+it('does not treat a legacy public RPC host as an upstream operator', async () => {
+  storeMocks.config.bootstrapDetails = {
+    type: BootstrapType.Public,
+    routerHost: 'rpc.argon.network',
+  };
+  storeMocks.config.upstreamOperator = undefined;
+  storeMocks.recoverUpstreamHost.mockResolvedValue(undefined);
+  const { getUpstreamOperatorClient } = await import('../stores/upstreamOperator.ts');
+
+  await expect(getUpstreamOperatorClient().resolveOperatorHost()).resolves.toBeUndefined();
+
+  expect(storeMocks.recoverUpstreamHost).toHaveBeenCalledOnce();
 });
 
 it('retries upstream resolution after a transient failure', async () => {

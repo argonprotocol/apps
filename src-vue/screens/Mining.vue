@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <div data-testid="MiningScreen" class="relative h-full w-full">
+  <div data-testid="MiningScreen" class="relative isolate h-full w-full">
     <BlankSlate v-if="config.miningSetupStatus === MiningSetupStatus.None && !config.miningBotAccountPreviousHistory" />
     <SetupChecklist v-else-if="config.miningSetupStatus === MiningSetupStatus.Checklist" />
     <SetupInstalling v-else-if="config.miningSetupStatus === MiningSetupStatus.Installing" />

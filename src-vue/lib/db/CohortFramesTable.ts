@@ -23,7 +23,8 @@ export class CohortFramesTable extends BaseTable {
       microgonsMintedTotal,
       microgonFeesCollectedTotal,
     } = args;
-    const cache = this.cache.get(frameId);
+    const cacheKey = `${frameId}:${cohortActivationFrameId}`;
+    const cache = this.cache.get(cacheKey);
     if (cache) {
       // If nothing has changed, skip the database write
       if (
@@ -36,7 +37,7 @@ export class CohortFramesTable extends BaseTable {
         return;
       }
     }
-    this.cache.set(frameId, {
+    this.cache.set(cacheKey, {
       frameId,
       cohortId: cohortActivationFrameId,
       blocksMinedTotal,

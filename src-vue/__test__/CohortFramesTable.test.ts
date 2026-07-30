@@ -2,6 +2,65 @@ import { describe, expect, it, vi } from 'vitest';
 import { createTestDb } from './helpers/db.ts';
 
 describe('CohortFramesTable', () => {
+  it('stores equal earnings for different cohorts in the same frame', async () => {
+    const db = await createTestDb();
+    const earnings = {
+      frameId: 12,
+      blocksMinedTotal: 0,
+      micronotsMinedTotal: 0n,
+      microgonsMinedTotal: 0n,
+      microgonsMintedTotal: 0n,
+      microgonFeesCollectedTotal: 0n,
+    };
+
+    try {
+      await Promise.all(
+        [11, 12].map(id =>
+          db.framesTable.insertOrUpdate({
+            id,
+            firstTick: id * 1_000,
+            rewardTicksRemaining: 0,
+            firstBlockNumber: id * 100,
+            lastBlockNumber: id * 100 + 99,
+            microgonToUsd: [],
+            microgonToBtc: [],
+            microgonToArgonot: [],
+            accruedMicrogonProfits: 0n,
+            accruedMicronotProfits: 0n,
+            progress: 100,
+          }),
+        ),
+      );
+      await Promise.all(
+        [11, 12].map(id =>
+          db.cohortsTable.insertOrUpdate({
+            id,
+            transactionFeesTotal: 0n,
+            micronotsStakedPerSeat: 0n,
+            microgonsBidPerSeat: 0n,
+            seatCountWon: 0,
+            microgonsToBeMinedPerSeat: 0n,
+            micronotsToBeMinedPerSeat: 0n,
+            argonotPriceAtBid: 0n,
+          }),
+        ),
+      );
+      await db.cohortFramesTable.insertOrUpdate({ ...earnings, cohortActivationFrameId: 11 });
+      await db.cohortFramesTable.insertOrUpdate({ ...earnings, cohortActivationFrameId: 12 });
+
+      await expect(
+        db.select<{ frameId: number; cohortId: number }[]>(
+          'SELECT frameId, cohortId FROM CohortFrames ORDER BY cohortId',
+        ),
+      ).resolves.toEqual([
+        { frameId: 12, cohortId: 11 },
+        { frameId: 12, cohortId: 12 },
+      ]);
+    } finally {
+      await db.close();
+    }
+  });
+
   it('round-trips a bid-time Argonot price above the SQLite integer range', async () => {
     const db = await createTestDb();
     const largeValue = 9_876_543_210_123_456_789n;

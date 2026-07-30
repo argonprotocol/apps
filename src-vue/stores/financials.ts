@@ -785,7 +785,7 @@ export const useFinancials = defineStore('financials', () => {
   walletsForArgon.events.on('history:gap', gap => {
     if (!config.hasExtensionTreasury && !config.hasExtensionOperations) return;
 
-    void restoreFinancialHistory(false, gap.toBlock).catch(() => undefined);
+    finalizedHistoryScheduler.queue(gap.toBlock);
   });
 
   walletsForArgon.events.on('history:recovered', revisions => {
@@ -879,7 +879,7 @@ export const useFinancials = defineStore('financials', () => {
         // block when a domain activates so its positions can claim those holds.
         accountSnapshot.value = undefined;
         await queueAccountRefresh({ force: true });
-        if (config.walletAccountsHadPreviousLife && (config.hasExtensionTreasury || config.hasExtensionOperations)) {
+        if (config.hasExtensionTreasury || config.hasExtensionOperations) {
           void initializeFinancialHistoryRecovery().catch(error => {
             console.error('[FinancialHistory] Unable to initialize recovery', error);
           });
@@ -961,7 +961,7 @@ export const useFinancials = defineStore('financials', () => {
     if (config.hasExtensionTreasury) startLockSummaryProgressRefresh();
 
     isLoaded.value = true;
-    if (config.walletAccountsHadPreviousLife && (config.hasExtensionTreasury || config.hasExtensionOperations)) {
+    if (config.hasExtensionTreasury || config.hasExtensionOperations) {
       void initializeFinancialHistoryRecovery().catch(error => {
         console.error('[FinancialHistory] Unable to initialize recovery', error);
       });
@@ -984,14 +984,18 @@ export const useFinancials = defineStore('financials', () => {
       accountId: wallets.defaultArgonWallet.address,
       enabledDomains,
       bitcoinLockRecovery: bitcoinLocks.recovery,
+      recoverMissingCheckpoints: config.walletAccountsHadPreviousLife,
     });
     if (needsRecovery) {
+      hasConfirmedFinancialHistoryCoverage = false;
       await restoreFinancialHistory(false, targetBlock);
       return;
     }
 
-    hasConfirmedFinancialHistoryCoverage = true;
-    await queueAccountRefresh({ force: true });
+    if (!hasConfirmedFinancialHistoryCoverage) {
+      hasConfirmedFinancialHistoryCoverage = true;
+      await queueAccountRefresh({ force: true });
+    }
     historyRecovery.value = { state: 'ready', recoveredBlockCount: 0 };
   }
 
@@ -1024,6 +1028,7 @@ export const useFinancials = defineStore('financials', () => {
         bitcoinLockRecovery: bitcoinLocks.recovery,
         vaultHistory: myVault.history,
         enabledDomains,
+        recoverMissingCheckpoints: config.walletAccountsHadPreviousLife,
         force,
         minimumAsOfBlock: targetBlock,
         onCheckStart() {

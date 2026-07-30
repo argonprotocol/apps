@@ -243,7 +243,7 @@ describe('financials store lifecycle', () => {
     mocks.stableSwaps.refreshWalletSnapshot.mockResolvedValue();
     mocks.restoreFinancialHistory.mockResolvedValue({ asOfBlock: 1, importedBlockCount: 0 });
     mocks.restoreFinancialHistory.mockClear();
-    mocks.needsFinancialHistoryRecovery.mockResolvedValue(true);
+    mocks.needsFinancialHistoryRecovery.mockResolvedValue(false);
     mocks.needsFinancialHistoryRecovery.mockClear();
     mocks.blockWatch.bestBlockHeader = {
       blockNumber: 1,
@@ -642,6 +642,22 @@ describe('financials store lifecycle', () => {
     expect(mocks.walletsForArgon.readAccountSnapshot).toHaveBeenCalledTimes(2);
   });
 
+  it('resumes and surfaces pending domain recovery without imported-account history', async () => {
+    mocks.config.hasExtensionTreasury = true;
+    mocks.needsFinancialHistoryRecovery.mockResolvedValue(true);
+    mocks.restoreFinancialHistory.mockRejectedValue(new Error('history unavailable'));
+
+    const financials = useFinancials();
+
+    await vi.waitFor(() => expect(financials.historyRecovery.state).toBe('error'));
+    expect(mocks.needsFinancialHistoryRecovery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bitcoinLockRecovery: mocks.bitcoinLocks.recovery,
+        recoverMissingCheckpoints: false,
+      }),
+    );
+  });
+
   it('exposes persisted Bitcoin rows and settled performance before the complete financial snapshot is ready', () => {
     const cachedSummary = createBitcoinSummary(0n);
     const persistedSummary = {
@@ -692,15 +708,18 @@ describe('financials store lifecycle', () => {
       | undefined;
     expect(gapListener).toBeDefined();
 
+    vi.useFakeTimers();
     gapListener!({ afterBlock: 1, toBlock: 10 });
+    await vi.advanceTimersByTimeAsync(30_000);
 
-    await vi.waitFor(() => expect(mocks.restoreFinancialHistory).toHaveBeenCalled());
+    expect(mocks.restoreFinancialHistory).toHaveBeenCalled();
     expect(mocks.restoreFinancialHistory).toHaveBeenCalledWith(expect.objectContaining({ minimumAsOfBlock: 10 }));
   });
 
   it('keeps local positions available while recovery is unavailable', async () => {
     mocks.config.hasExtensionTreasury = true;
     mocks.config.walletAccountsHadPreviousLife = true;
+    mocks.needsFinancialHistoryRecovery.mockResolvedValue(true);
     mocks.restoreFinancialHistory.mockRejectedValue(new Error('indexer unavailable'));
 
     const financials = useFinancials();
