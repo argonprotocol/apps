@@ -3,9 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { keccak256, TransactionNotFoundError, TransactionReceiptNotFoundError } from 'viem';
 import {
   createEthereumPublicClient,
+  EthereumClient,
+  EthereumTransactionRevertedError,
   getEthereumUserErrorMessage,
   submitEthereumTransaction,
 } from '../lib/EthereumClient.ts';
+import { createMockWalletKeys } from './helpers/wallet.ts';
 
 const runtimeFetchMock = vi.fn();
 
@@ -146,5 +149,28 @@ describe('EthereumClient', () => {
       'https://ethereum-configured.test/',
       'https://ethereum-fallback.test/',
     ]);
+  });
+
+  it('rejects a reverted receipt instead of counting its confirmations', async () => {
+    const txHash = `0x${'11'.repeat(32)}` as const;
+    const ethereumClient = new EthereumClient(createMockWalletKeys(), 'https://ethereum.test');
+    const getBlockNumber = vi.fn(async () => 100n);
+
+    Object.assign(ethereumClient, {
+      createExecutionClient: async () => ({
+        publicClient: {
+          getTransactionReceipt: vi.fn(async () => ({
+            blockNumber: 90n,
+            blockHash: `0x${'22'.repeat(32)}`,
+            transactionHash: txHash,
+            status: 'reverted',
+          })),
+          getBlockNumber,
+        },
+      }),
+    });
+
+    await expect(ethereumClient.getTransactionProgress({ txHash })).rejects.toThrow(EthereumTransactionRevertedError);
+    expect(getBlockNumber).not.toHaveBeenCalled();
   });
 });
