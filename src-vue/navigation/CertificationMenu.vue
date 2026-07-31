@@ -103,9 +103,9 @@
             <button
               type="button"
               class="bg-argon-button hover:bg-argon-button-hover rounded-lg px-4 py-2 text-sm font-semibold text-white"
-              @click="openNetworkTabFromTooltip"
+              @click="openUpgradeToOperationsOverlay"
             >
-              Open Network Tab
+              Open Details
             </button>
           </div>
         </div>
@@ -250,7 +250,6 @@ import { NavigationMenuContent, NavigationMenuItem, NavigationMenuTrigger } from
 import { XMarkIcon } from '@heroicons/vue/24/outline';
 import { MICROGONS_PER_ARGON, NetworkConfig } from '@argonprotocol/apps-core';
 import basicEmitter from '../emitters/basicEmitter.ts';
-import { TopTab } from '../interfaces/IConfig.ts';
 import { getConfig } from '../stores/config.ts';
 import { getCurrency } from '../stores/currency.ts';
 import Checkbox from '../components/Checkbox.vue';
@@ -394,17 +393,13 @@ function dismissActivatedTooltip() {
   void config.save();
 }
 
-function openNetworkTabFromTooltip() {
-  dismissUpgradeTooltip();
-  controller.setTab(TopTab.Network);
-}
-
 function openActivatedAction() {
   dismissActivatedTooltip();
   basicEmitter.emit('highlightOperationsNavigation');
 }
 
 function openUpgradeToOperationsOverlay() {
+  dismissUpgradeTooltip();
   basicEmitter.emit('openUpgradeToOperationsOverlay');
 }
 

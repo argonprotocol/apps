@@ -20,7 +20,7 @@ const operatorAddress = encodeAddress(new Uint8Array(32).fill(0x11));
 const buyerAddress = encodeAddress(new Uint8Array(32).fill(0x22));
 const displayLotsById = new Map([
   [1, createVaultBondLot({ owner: buyerAddress, bonds: 3 })],
-  [2, createVaultBondLot({ owner: operatorAddress, bonds: 20 })],
+  [2, createVaultBondLot({ owner: operatorAddress, bonds: 20, isBackfill: true })],
   [3, createVaultBondLot({ owner: operatorAddress, bonds: 5, releaseReason: 'UserLiquidation' })],
 ]);
 
@@ -35,6 +35,32 @@ describe('TreasuryBonds', () => {
         totalActiveBonds: 325,
       }),
     ).toBe(75n * oneArgonot);
+  });
+
+  it('scales the Argonot target by the vault share of the ARGN securitization target', () => {
+    const oneArgon = BigInt(MICROGONS_PER_ARGON);
+    const oneArgonot = BigInt(MICRONOTS_PER_ARGONOT);
+
+    expect(
+      TreasuryBonds.getVaultArgonotSecuritizationTarget({
+        activatedSecuritizationMicrogons: 20_000n * oneArgon,
+        totalArgonIssuanceMicrogons: 1_000_000n * oneArgon,
+        totalArgonotIssuanceMicronots: 2_000_000n * oneArgonot,
+      }),
+    ).toBe(48_000n * oneArgonot);
+  });
+
+  it('caps the vault Argonot target at 40 percent of ARGNOT circulation', () => {
+    const oneArgon = BigInt(MICROGONS_PER_ARGON);
+    const oneArgonot = BigInt(MICRONOTS_PER_ARGONOT);
+
+    expect(
+      TreasuryBonds.getVaultArgonotSecuritizationTarget({
+        activatedSecuritizationMicrogons: 500_000n * oneArgon,
+        totalArgonIssuanceMicrogons: 1_000_000n * oneArgon,
+        totalArgonotIssuanceMicronots: 2_000_000n * oneArgonot,
+      }),
+    ).toBe(800_000n * oneArgonot);
   });
 
   it('keeps owner display lots separate from current runtime capacity', async () => {
@@ -54,10 +80,15 @@ describe('TreasuryBonds', () => {
     const client = createVaultBondClient(runtimeState, displayLotsById, [2, 3]);
     const bondState = await TreasuryBonds.getVaultBondState(client as any, 1, operatorAddress);
 
-    expect(bondState.bondLots.map(({ id, isOwn, isReleasing }) => ({ id, isOwn, isReleasing }))).toEqual([
-      { id: 1, isOwn: false, isReleasing: false },
-      { id: 2, isOwn: true, isReleasing: false },
-      { id: 3, isOwn: true, isReleasing: true },
+    expect(bondState.backfillBonds).toBe(20);
+    expect(bondState.backfillBondsReserved).toBe(2);
+    expect(bondState.ordinaryBonds).toBe(3);
+    expect(
+      bondState.bondLots.map(({ id, isOwn, isBackfill, isReleasing }) => ({ id, isOwn, isBackfill, isReleasing })),
+    ).toEqual([
+      { id: 1, isOwn: false, isBackfill: false, isReleasing: false },
+      { id: 2, isOwn: true, isBackfill: true, isReleasing: false },
+      { id: 3, isOwn: true, isBackfill: false, isReleasing: true },
     ]);
 
     expect(
@@ -109,6 +140,9 @@ describe('TreasuryBonds', () => {
     const client = createVaultBondClient(legacyState, displayLotsById, [2, 3]);
     const bondState = await TreasuryBonds.getVaultBondState(client as any, 1, operatorAddress);
 
+    expect(bondState.backfillBonds).toBe(0);
+    expect(bondState.backfillBondsReserved).toBe(0);
+    expect(bondState.ordinaryBonds).toBe(3);
     expect(bondState.bondLots.map(lot => lot.id)).toEqual([1, 2, 3]);
     expect(
       TreasuryBonds.availableBondSpace({
@@ -143,16 +177,19 @@ function createVaultBondClient(
 function createVaultBondLot({
   owner,
   bonds,
+  isBackfill,
   releaseReason,
 }: {
   owner: string;
   bonds: number;
+  isBackfill?: boolean;
   releaseReason?: 'UserLiquidation';
 }) {
   return registry.createType<PalletTreasuryBondLot>('PalletTreasuryBondLot', {
     owner,
     program: { Vault: { vaultId: 1, sharingPercent: 0, bonusPercent: 0 } },
     bonds,
+    isBackfill: isBackfill ?? false,
     createdFrameId: 1,
     participatedFrames: 0,
     lastFrameEarningsFrameId: null,

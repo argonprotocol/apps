@@ -73,6 +73,7 @@ import type { ICrosschainTransferOutMetadata } from '../lib/EthereumOutboundTran
 import type { ITransactionMoveMetadata } from '../lib/MoveCapital.ts';
 import type {
   IVaultCommittedArgonotsMetadata,
+  IVaultBackfillMetadata,
   IVaultIncreaseAllocationMetadata,
   IVaultInitialAllocateMetadata,
 } from '../lib/MyVault.ts';
@@ -158,7 +159,7 @@ function transactionLabel(transaction: ITransactionRecord): string {
     case ExtrinsicType.VaultInitialAllocate:
       return 'Funded Vault';
     case ExtrinsicType.VaultIncreaseAllocation:
-      return 'Added Vault Capital';
+      return 'Updated Vault Capital';
     case ExtrinsicType.VaultCollect: {
       const metadata = transaction.metadataJson as IVaultCollectMetadata;
       if (metadata.actionType === 'collectRevenue') return 'Collected Vault Revenue';
@@ -197,6 +198,13 @@ function transactionLabel(transaction: ITransactionRecord): string {
       return 'Used Orphaned Bitcoin as Funding';
     case ExtrinsicType.BitcoinOrphanedUtxoRelease:
       return 'Requested Orphaned Bitcoin Release';
+    case ExtrinsicType.VaultSetBackfill: {
+      const metadata = transaction.metadataJson as IVaultBackfillMetadata;
+      const changes = [...metadata.bitcoinChanges, ...metadata.bondChanges];
+      if (changes.every(change => change.isBackfill)) return 'Added Assets to Backfill';
+      if (changes.every(change => !change.isBackfill)) return 'Removed Assets from Backfill';
+      return 'Updated Backfill';
+    }
     case ExtrinsicType.Transfer:
       return 'Moved Funds';
     case ExtrinsicType.CrosschainTransferProve:
@@ -271,7 +279,10 @@ function amountLabel(activity: IWalletActivityRecord): string {
     }
     case ExtrinsicType.VaultIncreaseAllocation: {
       const metadata = transaction.metadataJson as IVaultIncreaseAllocationMetadata;
-      return formatTokenAmount(metadata.addedSecuritizationMicrogons, 'argon');
+      return formatAssetAmounts(
+        metadata.securitizationMicrogons ?? metadata.addedSecuritizationMicrogons,
+        metadata.committedMicronots ?? metadata.addedMicronots,
+      );
     }
     case ExtrinsicType.VaultSetCommittedArgonots: {
       const metadata = transaction.metadataJson as IVaultCommittedArgonotsMetadata;

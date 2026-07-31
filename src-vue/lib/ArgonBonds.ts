@@ -20,6 +20,9 @@ import { ArgonBondsRecovery } from './recovery/ArgonBonds.ts';
 
 export interface IVaultArgonBondState {
   bondLots: BondLot[];
+  ordinaryBonds: number;
+  backfillBonds: number;
+  backfillBondsReserved: number;
   currentFrame: {
     frameId: number;
     vaultBonds: number;
@@ -218,6 +221,9 @@ export class ArgonBonds {
     this.data.totalActiveBonds = activeBonds.totalActiveBonds;
     this.data.capacityStatesByVault[args.vaultId] = bondState.capacityState;
     vault.bondLots = bondState.bondLots;
+    vault.ordinaryBonds = bondState.ordinaryBonds;
+    vault.backfillBonds = bondState.backfillBonds;
+    vault.backfillBondsReserved = bondState.backfillBondsReserved;
     vault.currentFrame.frameId = frameId;
     vault.currentFrame.vaultBonds = activeBonds.vaultActiveBonds;
     vault.currentFrame.bondLots = frameBonds.bondLots;
@@ -231,6 +237,9 @@ export class ArgonBonds {
   public getVaultBonds(vaultId: number): IVaultArgonBondState {
     return (this.data.vaultsById[vaultId] ??= {
       bondLots: [],
+      ordinaryBonds: 0,
+      backfillBonds: 0,
+      backfillBondsReserved: 0,
       currentFrame: {
         frameId: 0,
         vaultBonds: 0,

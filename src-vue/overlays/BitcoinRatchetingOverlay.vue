@@ -33,7 +33,19 @@
         </div>
       </div>
 
-      <div v-if="ratchetPreview.shortfall > 0n" class="rounded border border-red-200 bg-red-50 px-3 py-2 text-red-700">
+      <div
+        v-if="ratchetPreview.securitizationToAdd > 0n"
+        class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800"
+      >
+        Because this Bitcoin is used as backfill, it must be fully securitized before it can ratchet. This ratchet
+        requires {{ currency.symbol
+        }}{{ microgonToMoneyNm(ratchetPreview.securitizationToAdd).format('0,0.00') }} more in vault security. That
+        amount will be added from your wallet with the ratchet.
+      </div>
+      <div
+        v-else-if="ratchetPreview.shortfall > 0n"
+        class="rounded border border-red-200 bg-red-50 px-3 py-2 text-red-700"
+      >
         This vault needs {{ currency.symbol }}{{ microgonToMoneyNm(ratchetPreview.shortfall).format('0,0.00') }} more
         security before it can ratchet this Bitcoin lock.
       </div>
@@ -53,7 +65,7 @@
         class="bg-argon-600 inline-flex items-center px-5 py-1 text-white border border-argon-800 rounded disabled:opacity-50 cursor-pointer"
       >
         <Spinner v-if="isSubmitting" class="Inverse mr-2 h-4 min-h-4 w-4 min-w-4" />
-        {{ isSubmitting ? 'Ratchet pending...' : 'Finish Ratchet' }}
+        {{ submitLabel }}
       </button>
       <div v-if="errorMessage" class="mt-3 text-sm text-red-600">{{ errorMessage }}</div>
     </div>
@@ -96,6 +108,12 @@ const emit = defineEmits<{
   (e: 'completed'): void;
 }>();
 
+const submitLabel = Vue.computed(() => {
+  if (isSubmitting.value) return 'Ratchet pending...';
+  if (ratchetPreview.value?.securitizationToAdd) return 'Add Security & Ratchet';
+  return 'Finish Ratchet';
+});
+
 async function loadRatchetPreview() {
   isLoadingPreview.value = true;
   errorMessage.value = '';
@@ -117,7 +135,10 @@ async function submitRatchet() {
   errorMessage.value = '';
 
   try {
-    const txSigner = await walletKeys.getLiquidLockingKeypair();
+    const txSigner =
+      ratchetPreview.value.securitizationToAdd > 0n
+        ? await walletKeys.getVaultingKeypair()
+        : await walletKeys.getLiquidLockingKeypair();
     const info = await bitcoinLocks.ratchet(props.personalLock, txSigner);
     trackTransaction(info);
   } catch (error) {

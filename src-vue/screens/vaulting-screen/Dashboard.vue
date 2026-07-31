@@ -169,7 +169,7 @@
                       </TooltipContent>
                     </TooltipRoot>
                     <TooltipRoot :delayDuration="200">
-                      <TooltipTrigger as="div" class="cursor-help">{{ numeral(revenueCapturedPct).format('0,0.[00]') }}% of Potential Revenue Captured</TooltipTrigger>
+                      <TooltipTrigger as="div" class="cursor-help">{{ numeral(vaultingBreakdown.revenueCapturedPct).format('0,0.[00]') }}% of Potential Revenue Captured</TooltipTrigger>
                       <TooltipContent side="bottom" :sideOffset="4" :collisionPadding="9" class="text-md z-50 w-xs rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 font-light text-slate-900/60 shadow-2xl">
                         How much of your vault's potential mining pool revenue is being earned. Maximize this by using your capital for bitcoin security and funding treasury externally.
                         <TooltipArrow :width="27" :height="15" class="-mt-px fill-white stroke-gray-800/20 stroke-[0.5px]" />
@@ -265,8 +265,7 @@ import { TICK_MILLIS } from '../../lib/Env.ts';
 import VaultEditOverlay from '../../overlays/VaultEditOverlay.vue';
 import BitcoinLockDetailOverlay from '../../overlays/BitcoinLockDetailOverlay.vue';
 import BondDetailOverlay from '../../overlays/BondDetailOverlay.vue';
-import { BondLot, MoveTo, NetworkConfig, TreasuryBonds, type IFrameBondLot } from '@argonprotocol/apps-core';
-import { BigNumber } from 'bignumber.js';
+import { bigIntMax, BondLot, NetworkConfig, TreasuryBonds, type IFrameBondLot } from '@argonprotocol/apps-core';
 import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
 import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
@@ -281,7 +280,6 @@ import { TopTab } from '../../interfaces/IConfig.ts';
 import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 import { useFinancials } from '../../stores/financials.ts';
-import { WalletType } from '../../lib/Wallet.ts';
 
 dayjs.extend(utc);
 
@@ -350,23 +348,6 @@ const potentialDailyRevenue = Vue.computed(() => {
     fullTreasuryBondCapacity: vaultingBreakdown.treasuryBondPurchaseCapacityBonds,
     operatorKeepPct: 100 - (rules.profitSharingPct ?? 0),
   });
-});
-
-const revenueCapturedPct = Vue.computed(() => {
-  const allFunds =
-    vaultingBreakdown.sidelinedMicrogons +
-    vaultingBreakdown.treasuryBondMicrogons +
-    vaultingBreakdown.securityMicrogons;
-  if (allFunds <= 0n) return 0;
-
-  const securityFactor = BigNumber(vaultingBreakdown.securityMicrogonsActivated).dividedBy(BigNumber(allFunds));
-
-  const totalCapacity = vaultingBreakdown.securityMicrogons + vaultingBreakdown.treasuryBondCapacityMicrogons;
-  const activated = vaultingBreakdown.securityMicrogonsActivated + vaultingBreakdown.treasuryBondCapacityUsedMicrogons;
-  const utilizationFactor =
-    totalCapacity > 0n ? BigNumber(activated).dividedBy(BigNumber(totalCapacity)) : BigNumber(0);
-
-  return securityFactor.multipliedBy(utilizationFactor).multipliedBy(100).toNumber();
 });
 
 function formatMoney(value: bigint) {
@@ -530,10 +511,7 @@ const bitcoinMapRemainder = Vue.computed(() => {
 
 const bondMapTotal = Vue.computed(() => {
   const used = bondMapItems.value.reduce((sum, item) => sum + item.amount, 0n);
-
-  // Keep bond lot tiles aligned with the runtime bond lots. The remainder carries
-  // next-frame purchase capacity, while pending tiles show lots that are not yet in the frame snapshot.
-  return used + vaultingBreakdown.treasuryBondMicrogonsAvailable;
+  return bigIntMax(used, vaultingBreakdown.treasuryBondCapacityMicrogons);
 });
 
 const internalTreasuryBondMicrogonsSecured = Vue.computed(() => {
@@ -541,13 +519,13 @@ const internalTreasuryBondMicrogonsSecured = Vue.computed(() => {
 });
 
 const currentBondMapLots = Vue.computed((): IBondMapLot[] => {
-  const frameBondLots = currentTreasuryBondFrame.value.bondLots;
+  const ordinaryFrameBondLots = currentTreasuryBondFrame.value.bondLots;
   const activeBondLots = (vaultBondState.value?.bondLots ?? []).filter(bondLot => bondLot.activeBonds > 0);
   const operatorAccountId = myVault.createdVault?.operatorAccountId;
 
   return activeBondLots.map(bondLot => {
     // Preserve frame-specific earnings metadata when the selected frame includes this lot.
-    const frameBondLot = frameBondLots.find(frameBondLot => frameBondLot.details.id === bondLot.id);
+    const frameBondLot = ordinaryFrameBondLots.find(frameBondLot => frameBondLot.details.id === bondLot.id);
 
     if (frameBondLot) {
       return {
@@ -565,7 +543,9 @@ const currentBondMapLots = Vue.computed((): IBondMapLot[] => {
       prorata: 0n,
       isOperator: bondLot.accountId === operatorAccountId,
       details: bondLot,
-      status: 'pending',
+      // A backfill lot never appears in ordinaryFrameBondLots; mainchain records all backfill
+      // participation in aggregate frame fields instead.
+      status: bondLot.isBackfill ? 'active' : 'pending',
     };
   });
 });
@@ -723,10 +703,7 @@ function openVaultEditOverlay() {
 }
 
 function openSecuritization() {
-  basicEmitter.emit('openMoveCapitalOverlay', {
-    walletType: WalletType.defaultArgon,
-    moveTo: MoveTo.VaultingSecurity,
-  });
+  basicEmitter.emit('openSecuritizationOverlay');
 }
 
 const miningFrames = getMiningFrames();

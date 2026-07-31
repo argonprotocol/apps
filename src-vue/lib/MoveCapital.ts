@@ -1,5 +1,5 @@
 import { getMainchainClient } from '../stores/mainchain.ts';
-import { ArgonClient, FIXED_U128_DECIMALS, SubmittableExtrinsic, toFixedNumber } from '@argonprotocol/mainchain';
+import { ArgonClient, SubmittableExtrinsic } from '@argonprotocol/mainchain';
 import {
   bigIntMax,
   bigIntMin,
@@ -10,7 +10,6 @@ import {
   MoveTo,
   MoveToken,
 } from '@argonprotocol/apps-core';
-import { MyVault } from './MyVault.ts';
 import {
   existentialDepositMicrogons,
   existentialDepositMicronots,
@@ -30,8 +29,6 @@ export interface IAssetsToMove {
   [MoveToken.ARGNOT]?: bigint;
 }
 
-export type IMoveCapitalWalletType = WalletType.defaultArgon | WalletType.miningBot | 'vaulting';
-
 let pendingDefaultArgonMiningTransferPromise: Promise<DefaultArgonMiningTransferResult> | undefined;
 const DEFAULT_ARGON_MINING_TRANSFER_FOLLOW_WINDOW_FINALIZED_BLOCKS = 2;
 
@@ -40,24 +37,21 @@ export class MoveCapital {
 
   private walletKeys: WalletKeys;
   private transactionTracker: TransactionTracker;
-  private myVault: MyVault;
 
-  constructor(walletKeys: WalletKeys, transactionTracker: TransactionTracker, myVault: MyVault) {
+  constructor(walletKeys: WalletKeys, transactionTracker: TransactionTracker) {
     this.walletKeys = walletKeys;
     this.transactionTracker = transactionTracker;
-    this.myVault = myVault;
   }
 
-  public getWalletTypeFromMove(moveFrom: MoveFrom): IMoveCapitalWalletType {
+  public getWalletTypeFromMove(moveFrom: MoveFrom): WalletType.defaultArgon | WalletType.miningBot {
     switch (moveFrom) {
       case MoveFrom.DefaultArgon:
         return WalletType.defaultArgon;
 
       case MoveFrom.MiningBot:
         return WalletType.miningBot;
-
-      case MoveFrom.VaultingSecurity:
-        return 'vaulting';
+      default:
+        throw new Error(`Unsupported move source: ${moveFrom}`);
     }
   }
 
@@ -73,10 +67,6 @@ export class MoveCapital {
   ): Promise<TransactionInfo> {
     client ??= await getMainchainClient(false);
 
-    if ([MoveTo.VaultingSecurity].includes(moveTo)) {
-      this.validateVaultAllocationMove(moveFrom, moveTo, assetsToMove);
-    }
-
     if (shouldDeductFeeFromCapital) {
       const fee = await this.calculateFee(moveFrom, moveTo, assetsToMove, fromWallet, toAddress, prependedTxs, client);
       assetsToMove = {
@@ -84,28 +74,21 @@ export class MoveCapital {
         [MoveToken.ARGNOT]: assetsToMove[MoveToken.ARGNOT] ?? 0n,
       };
     }
-    if ([MoveTo.VaultingSecurity].includes(moveTo)) {
-      return await this.myVault.increaseVaultSecuritization({
-        addedSecuritizationMicrogons: moveTo === MoveTo.VaultingSecurity ? (assetsToMove.ARGN ?? 0n) : 0n,
-        metadata: this.buildMoveMetadata(moveFrom, moveTo, assetsToMove, toAddress),
-      });
-    } else {
-      const transaction = await this.buildTransaction(moveFrom, moveTo, assetsToMove, toAddress, prependedTxs, client);
-      const { tx, metadata } = transaction;
-      const txSigner = await this.getSigner(moveFrom);
-      const txInfo = await this.transactionTracker.submitAndWatch({
-        tx,
-        txSigner,
-        metadata,
-        extrinsicType: ExtrinsicType.Transfer,
-      });
-      if (moveFrom === MoveFrom.VaultingSecurity) {
-        void this.myVault.recordFinalizedVaultCapital(txInfo).catch(error => {
-          console.error('[MoveCapital] Failed to record finalized vault capital', error);
-        });
-      }
-      return txInfo;
-    }
+    const { tx, metadata } = await this.buildTransaction(
+      moveFrom,
+      moveTo,
+      assetsToMove,
+      toAddress,
+      prependedTxs,
+      client,
+    );
+    const txSigner = await this.getSigner(moveFrom);
+    return await this.transactionTracker.submitAndWatch({
+      tx,
+      txSigner,
+      metadata,
+      extrinsicType: ExtrinsicType.Transfer,
+    });
   }
 
   public async moveConfiguredDefaultArgonToBot(
@@ -372,8 +355,8 @@ export class MoveCapital {
         return await this.walletKeys.getDefaultArgonKeypair();
       case MoveFrom.MiningBot:
         return await this.walletKeys.getMiningBotKeypair();
-      case MoveFrom.VaultingSecurity:
-        return await this.walletKeys.getVaultingKeypair();
+      default:
+        throw new Error(`Unsupported move source: ${moveFrom}`);
     }
   }
 
@@ -438,22 +421,6 @@ export class MoveCapital {
       throw new Error('The address entered is not a valid Argon address.');
     }
 
-    /// 1. Reduce funding / withdraw from vaulting as needed
-    if (moveFrom === MoveFrom.VaultingSecurity && assetsToMove.ARGN) {
-      const vault = this.myVault.createdVault;
-      if (!vault) {
-        throw new Error('No vault created');
-      }
-      const newAmount = vault.securitization - assetsToMove[MoveToken.ARGN];
-      const tx = client.tx.vaults.modifyFunding(
-        vault.vaultId,
-        newAmount,
-        toFixedNumber(vault.securitizationRatio, FIXED_U128_DECIMALS),
-      );
-      txs.push(tx);
-    }
-
-    /// 2. Transfer the argons / argonots
     if (moveTo === MoveTo.External && !externalMeta.isArgonAddress) {
       throw new Error('External transfers require a valid Argon address.');
     }
@@ -471,18 +438,6 @@ export class MoveCapital {
 
     const tx = txs.length === 1 ? txs[0] : client.tx.utility.batch(txs);
     return { tx, metadata };
-  }
-
-  private validateVaultAllocationMove(moveFrom: MoveFrom, moveTo: MoveTo, assetsToMove: IAssetsToMove): void {
-    if (moveFrom !== MoveFrom.DefaultArgon) {
-      throw new Error('Vault allocation moves must come from Inflation-Free Savings.');
-    }
-    if (assetsToMove[MoveToken.ARGNOT]) {
-      throw new Error('Only ARGN can be moved into vault allocations.');
-    }
-    if (!assetsToMove[MoveToken.ARGN]) {
-      throw new Error(`No ${MoveToken.ARGN} amount provided for vault allocation.`);
-    }
   }
 
   private buildMoveMetadata(
@@ -511,24 +466,7 @@ export class MoveCapital {
     client ??= await getMainchainClient(false);
     this.transactionError = '';
     try {
-      let tx: SubmittableExtrinsic;
-      if ([MoveTo.VaultingSecurity].includes(moveTo)) {
-        this.validateVaultAllocationMove(moveFrom, moveTo, assetsToMove);
-        tx = await this.myVault.buildIncreaseBitcoinSecurityTx(
-          moveTo === MoveTo.VaultingSecurity ? (assetsToMove[MoveToken.ARGN] ?? 0n) : 0n,
-          client,
-        );
-      } else {
-        const transaction = await this.buildTransaction(
-          moveFrom,
-          moveTo,
-          assetsToMove,
-          toAddress,
-          prependedTxs,
-          client,
-        );
-        tx = transaction.tx;
-      }
+      const { tx } = await this.buildTransaction(moveFrom, moveTo, assetsToMove, toAddress, prependedTxs, client);
       const feeObj = await tx.paymentInfo(fromWallet.address);
       let fee = feeObj.partialFee.toBigInt();
 

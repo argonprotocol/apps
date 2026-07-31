@@ -21,6 +21,7 @@ export enum ExtrinsicType {
   VaultCosignOrphanedUtxoRelease = 'VaultCosignOrphanedUtxoRelease',
   BitcoinOrphanedUtxoUseAsFunding = 'BitcoinOrphanedUtxoUseAsFunding',
   BitcoinOrphanedUtxoRelease = 'BitcoinOrphanedUtxoRelease',
+  VaultSetBackfill = 'VaultSetBackfill',
 
   Transfer = 'Transfer',
   CrosschainTransferProve = 'CrosschainTransferProve',

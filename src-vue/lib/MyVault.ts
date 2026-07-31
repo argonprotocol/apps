@@ -82,13 +82,27 @@ export type IVaultInitialAllocateMetadata = {
 };
 
 export type IVaultIncreaseAllocationMetadata = {
-  addedSecuritizationMicrogons: bigint;
+  securitizationMicrogons?: bigint;
+  committedMicronots?: bigint;
+  addedSecuritizationMicrogons?: bigint;
+  addedMicronots?: bigint;
   vaultId: number;
 };
 
 export type IVaultCommittedArgonotsMetadata = {
   committedMicronots: bigint;
   vaultId: number;
+};
+
+export type IVaultBackfillMetadata = {
+  bitcoinChanges: {
+    utxoId: number;
+    isBackfill: boolean;
+  }[];
+  bondChanges: {
+    bondLotId: number;
+    isBackfill: boolean;
+  }[];
 };
 
 // Keep following a submitted/reorged cosign attempt briefly before retrying it.
@@ -642,6 +656,77 @@ export class MyVault {
 
       return await deferred.promise;
     }).promise;
+  }
+
+  public async setBackfill({
+    bitcoinChanges,
+    bondChanges,
+    client,
+  }: {
+    bitcoinChanges: {
+      lock: Pick<BitcoinLock, 'utxoId' | 'vaultId' | 'isFunded' | 'ownerAccount' | 'getReleaseRequest'>;
+      isBackfill: boolean;
+    }[];
+    bondChanges: {
+      lot: Pick<BondLot, 'id' | 'vaultId' | 'accountId' | 'isOwn' | 'programType' | 'isReleasing'>;
+      isBackfill: boolean;
+    }[];
+    client?: ArgonClient;
+  }): Promise<TransactionInfo<IVaultBackfillMetadata>> {
+    const vault = this.createdVault;
+    if (!vault) {
+      throw new Error('Create your vault before managing backfill.');
+    }
+    if (!bitcoinChanges.length && !bondChanges.length) {
+      throw new Error('Select at least one backfill change.');
+    }
+
+    client ??= await getMainchainClient(false);
+    const signer = await this.walletKeys.getVaultingKeypair();
+
+    for (const { lock } of bitcoinChanges) {
+      if (!lock.isFunded || lock.vaultId !== vault.vaultId || (await lock.getReleaseRequest(client))) {
+        throw new Error('This Bitcoin lock is no longer eligible for backfill.');
+      }
+      if (lock.ownerAccount !== signer.address) {
+        throw new Error('Only the Bitcoin lock owner can change its backfill status.');
+      }
+    }
+
+    for (const { lot } of bondChanges) {
+      if (!lot.isOwn || lot.programType !== 'Vault' || lot.vaultId !== vault.vaultId || lot.isReleasing) {
+        throw new Error('This bond lot is no longer eligible for backfill.');
+      }
+      if (lot.accountId !== signer.address) {
+        throw new Error('Only the bond lot owner can change its backfill status.');
+      }
+    }
+
+    const txs: SubmittableExtrinsic[] = [];
+    for (const isBackfill of [true, false]) {
+      for (const change of bitcoinChanges.filter(candidate => candidate.isBackfill === isBackfill)) {
+        txs.push(client.tx.bitcoinLocks.setAsBackfill(change.lock.utxoId, isBackfill));
+      }
+      for (const change of bondChanges.filter(candidate => candidate.isBackfill === isBackfill)) {
+        txs.push(client.tx.treasury.setBondLotAsBackfill(change.lot.id, isBackfill));
+      }
+    }
+
+    return await this.#transactionTracker.submitAndWatch({
+      tx: txs.length === 1 ? txs[0] : client.tx.utility.batchAll(txs),
+      txSigner: signer,
+      extrinsicType: ExtrinsicType.VaultSetBackfill,
+      metadata: {
+        bitcoinChanges: bitcoinChanges.map(({ lock, isBackfill }) => ({
+          utxoId: lock.utxoId,
+          isBackfill,
+        })),
+        bondChanges: bondChanges.map(({ lot, isBackfill }) => ({
+          bondLotId: lot.id,
+          isBackfill,
+        })),
+      },
+    });
   }
 
   public async ensureDelegatedBitcoinSigner(): Promise<TransactionInfo | undefined> {
@@ -1202,8 +1287,14 @@ export class MyVault {
 
       const client = await getMainchainClient(true);
       const api = await client.at(finalizedBlockHash);
-      const [vault, blockNumber] = await Promise.all([Vault.get(api, vaultId), api.query.system.number()]);
+      const [vault, argonotCommitment, blockNumber] = await Promise.all([
+        Vault.get(api, vaultId),
+        api.query.vaults.argonotCommitmentByVaultId(vaultId),
+        api.query.system.number(),
+      ]);
+      this.vaults.vaultsById[vaultId] = vault;
       this.data.createdVault = vault;
+      this.updateArgonotCommitment(argonotCommitment);
 
       const block = await this.miningFrames.blockWatch.getHeader(blockNumber.toNumber());
       const db = await this.dbPromise;
@@ -1813,8 +1904,9 @@ export class MyVault {
     }
   }
 
-  public async increaseVaultSecuritization(args: {
-    addedSecuritizationMicrogons: bigint;
+  public async setVaultSecuritization(args: {
+    securitizationMicrogons?: bigint;
+    committedMicronots?: bigint;
     tip?: bigint;
     metadata?: object;
   }): Promise<TransactionInfo> {
@@ -1824,7 +1916,14 @@ export class MyVault {
       throw new Error('No vault created to get changes needed');
     }
 
-    const tx = await this.buildIncreaseBitcoinSecurityTx(args.addedSecuritizationMicrogons, client);
+    const change: Parameters<MyVault['buildSecuritizationTx']>[0] = {};
+    if (args.securitizationMicrogons !== undefined) {
+      change.securitizationMicrogons = args.securitizationMicrogons;
+    }
+    if (args.committedMicronots !== undefined) {
+      change.committedMicronots = args.committedMicronots;
+    }
+    const tx = await this.buildSecuritizationTx(change, client);
     const txSigner = await this.walletKeys.getVaultingKeypair();
     const submitOptions = {
       useLatestNonce: true,
@@ -1832,37 +1931,62 @@ export class MyVault {
     };
     const submitter = new TxSubmitter(client, tx, txSigner);
     const txResult = await submitter.submit(submitOptions);
+    const metadata: IVaultIncreaseAllocationMetadata = {
+      vaultId: vault.vaultId,
+      ...args.metadata,
+    };
+    if (args.securitizationMicrogons !== undefined) {
+      metadata.securitizationMicrogons = args.securitizationMicrogons;
+    }
+    if (args.committedMicronots !== undefined) {
+      metadata.committedMicronots = args.committedMicronots;
+    }
     const info = await this.#transactionTracker.trackTxResult({
       txResult,
       extrinsicType: ExtrinsicType.VaultIncreaseAllocation,
-      metadata: {
-        addedSecuritizationMicrogons: args.addedSecuritizationMicrogons,
-        vaultId: vault.vaultId,
-        ...args.metadata,
-      },
+      metadata,
     });
     this.data.pendingAllocateTxInfo = info;
     void this.onIncreaseVaultSecuritization(info);
     return info;
   }
 
-  public async buildIncreaseBitcoinSecurityTx(
-    addedSecuritizationMicrogons: bigint,
+  public async buildSecuritizationTx(
+    args: {
+      securitizationMicrogons?: bigint;
+      committedMicronots?: bigint;
+    },
     client?: ArgonClient,
   ): Promise<SubmittableExtrinsic> {
     const vault = this.createdVault;
     if (!vault) {
       throw new Error('No vault created to get changes needed');
     }
-    if (addedSecuritizationMicrogons === 0n)
-      throw new Error('Invalid securitization increase amount, must be greater than 0');
+    const changesSecuritization =
+      args.securitizationMicrogons !== undefined && args.securitizationMicrogons !== vault.securitization;
+    const changesArgonotCommitment =
+      args.committedMicronots !== undefined &&
+      args.committedMicronots !== this.data.argonotCommitment.committedMicronots;
+    if (!changesSecuritization && !changesArgonotCommitment) {
+      throw new Error('A securitization change is required');
+    }
     client ??= await getMainchainClient(false);
 
-    return client.tx.vaults.modifyFunding(
-      vault.vaultId,
-      vault.securitization + addedSecuritizationMicrogons,
-      toFixedNumber(vault.securitizationRatio, FIXED_U128_DECIMALS),
-    );
+    const txs: SubmittableExtrinsic[] = [];
+    if (args.securitizationMicrogons !== undefined && changesSecuritization) {
+      txs.push(
+        client.tx.vaults.modifyFunding(
+          vault.vaultId,
+          args.securitizationMicrogons,
+          toFixedNumber(vault.securitizationRatio, FIXED_U128_DECIMALS),
+        ),
+      );
+    }
+    if (args.committedMicronots !== undefined && changesArgonotCommitment) {
+      txs.push(client.tx.vaults.setCommittedArgonots(args.committedMicronots));
+    }
+
+    return txs.length === 1 ? txs[0] : client.tx.utility.batchAll(txs);
   }
 
   private async onIncreaseVaultSecuritization(txInfo: TransactionInfo): Promise<void> {

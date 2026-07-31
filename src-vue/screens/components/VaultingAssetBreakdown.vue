@@ -99,8 +99,6 @@
         :height="itemHeight"
         :spacerWidth="spacerWidth"
         :align="props.align"
-        :moveFrom="MoveFrom.VaultingSecurity"
-        :moveToken="MoveToken.ARGN"
       >
         <div class="flex flex-row items-center w-full">
           <div class="grow">
@@ -159,8 +157,6 @@
         :height="itemHeight"
         :spacerWidth="spacerWidth"
         :align="props.align"
-        :moveFrom="MoveFrom.VaultingSecurity"
-        :moveToken="MoveToken.ARGNOT"
       >
         <div class="flex flex-row items-center w-full">
           <div class="grow">

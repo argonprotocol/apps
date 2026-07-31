@@ -7,6 +7,7 @@ import { getMyVault } from './vaults.ts';
 import { getCurrency } from './currency.ts';
 import { getSpendableDefaultArgonMicrogons } from '../lib/WalletForArgon.ts';
 import { getArgonBonds } from './argonBonds.ts';
+import { getCappedPercent } from '../lib/Utils.ts';
 
 export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', () => {
   const wallets = useWallets();
@@ -96,7 +97,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
 
   // What the vault can support with its active Bitcoin security.
   const treasuryBondCapacityMicrogons = Vue.computed(() => {
-    const sats = BigInt(myVault.createdVault?.securitizedSatoshis ?? 0);
+    const sats = myVault.createdVault?.effectiveSecuritizedSatoshis() ?? 0n;
     if (sats <= 0n) return 0n;
     return currency.priceIndex.getSatoshiPriceInTargetMicrogons(sats);
   });
@@ -140,6 +141,11 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
     return bigIntMax(0n, securityMicrogons.value + treasuryBondMicrogons.value - operationalFeeMicrogons.value);
   });
 
+  const revenueCapturedPct = Vue.computed(() => {
+    const currentBonds = vaultBondState.value?.currentFrame.vaultBonds ?? 0;
+    return getCappedPercent(currentBonds, treasuryBondPurchaseCapacityBonds.value);
+  });
+
   return {
     sidelinedMicrogons,
     sidelinedMicronots,
@@ -168,5 +174,6 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
 
     operationalFeeMicrogons,
     totalVaultValue,
+    revenueCapturedPct,
   };
 });

@@ -13,7 +13,7 @@
         <div class="text-argon-700 text-5xl leading-none font-bold">So What’s Next?</div>
 
         <p class="mt-5 text-base leading-7 text-slate-700">
-          You’ve earned an upgrade code. Use the Network tab to upgrade a treasury user you trust to an operator. When
+          You’ve earned an upgrade code. Use the Onboarding tab to upgrade a treasury user you trust to an operator. When
           they complete the Argon Operational Certification, you both earn ₳{{
             microgonToArgonNm(controller.rewardConfig.operationalActivationReward).format('0,0.[00]')
           }}.
@@ -54,7 +54,7 @@
         <div class="text-argon-700/70 text-xs font-semibold tracking-widest uppercase">Upgrade Codes Unlocked</div>
         <div class="text-argon-700 mt-2 text-4xl font-bold">{{ controller.chainProgress.availableAccessCodes }}</div>
         <div class="mt-2 text-sm leading-6 text-slate-500">
-          You can now use one upgrade code in the Network tab to upgrade a treasury user to an operator.
+          You can now use one upgrade code in the Onboarding tab to upgrade a treasury user to an operator.
         </div>
       </div>
     </div>
@@ -83,9 +83,9 @@
       <button
         type="button"
         class="bg-argon-button hover:bg-argon-button-hover rounded-lg px-5 py-2.5 text-sm font-semibold text-white"
-        @click="openNetwork"
+        @click="openOnboarding"
       >
-        Open Network Tab
+        Open Onboarding Tab
       </button>
     </div>
   </div>
@@ -116,8 +116,8 @@ const referrerRewardName = Vue.computed(() => {
   return upstreamOperator.name.trim();
 });
 
-function openNetwork() {
-  controller.setTab(TopTab.Network);
+function openOnboarding() {
+  controller.setTab(TopTab.Onboarding);
   emit('close');
 }
 </script>

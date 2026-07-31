@@ -2,7 +2,7 @@ import mitt, { type Emitter } from 'mitt';
 import { WalletType } from '../lib/Wallet.ts';
 import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
 import type { OperationalStepId } from '../stores/certificationController.ts';
-import { ICurrencyKey, MoveTo, type BondLot } from '@argonprotocol/apps-core';
+import { ICurrencyKey, type BondLot } from '@argonprotocol/apps-core';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 
 export type IWalletGuidanceContext = 'mining' | 'vaulting';
@@ -19,11 +19,7 @@ type IBasicEmitter = {
   openWalletDisconnectOverlay: { walletRecordId: number };
   ethereumWalletDisconnected: { walletRecordId: number };
   openEthereumWalletImportOverlay: 'choice' | 'external';
-  openMoveCapitalOverlay: {
-    walletType: WalletType.defaultArgon;
-    moveTo?: MoveTo;
-    maxAmount?: bigint;
-  };
+  openSecuritizationOverlay: void;
   openBotEditOverlay: void;
   openServerRemoveOverlay: void;
   openSecuritySettingsOverlay: { screen: 'overview' | 'mnemonics' | 'encrypt' | 'ethereum-export' } | undefined;
@@ -60,6 +56,7 @@ type IBasicEmitter = {
   openArgonotCommitmentOverlay: void;
   openMintingAuthorityRequestOverlay: void;
   openGatewayRelayOverlay: void;
+  openBackfillOverlay: void;
   openBitcoinLock: { lock?: IBitcoinLockRecord } | undefined;
   openBitcoinUnlock: IBitcoinLockRecord;
   resumeBitcoinFunding: IBitcoinLockRecord;

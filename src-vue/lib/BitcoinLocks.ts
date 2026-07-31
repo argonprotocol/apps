@@ -13,8 +13,11 @@ import {
   ApiDecoration,
   ArgonClient,
   BitcoinLock,
+  FIXED_U128_DECIMALS,
   formatArgons,
+  fromFixedNumber,
   hexToU8a,
+  toFixedNumber,
   type IBitcoinLockConfig,
   type SubmittableExtrinsic,
   TxResult,
@@ -44,6 +47,7 @@ import { UpstreamOperatorClient } from './UpstreamOperatorClient.ts';
 import {
   bigNumberToBigInt,
   bigIntMax,
+  type ArgonQueryClient,
   BlockWatch,
   createDeferred,
   Currency as CurrencyBase,
@@ -107,13 +111,16 @@ export interface IBitcoinRatchetPreview {
   newLiquidityPromised: bigint;
   ratchetingFee: bigint;
   requiredVaultFunds: bigint;
+  securitizationToAdd: bigint;
   shortfall: bigint;
   vaultId: number;
 }
 
 export interface IBitcoinRatchetMetadata {
+  addedSecuritizationMicrogons?: bigint;
   utxoId: number;
 }
+
 export type { IBitcoinUnlockReleaseState, IBitcoinVaultMismatchState, IBitcoinVaultUnlockStateDetails };
 
 export interface IOperatorBitcoinLockCouponRoute {
@@ -262,6 +269,33 @@ export default class BitcoinLocks {
     return locks
       .filter(lock => includeHistoryRecoveryPending || !lock.isHistoryRecoveryPending)
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
+  public async getEligibleBackfillLocks({
+    vaultId,
+    operatorAddress,
+    client,
+  }: {
+    vaultId: number;
+    operatorAddress: string;
+    client?: ArgonQueryClient;
+  }): Promise<BitcoinLock[]> {
+    client ??= await getMainchainClient(false);
+
+    const keys = await client.query.bitcoinLocks.utxoIdsByOwnerAccount.keys(operatorAddress);
+    const utxoIds = [...new Set(keys.map(key => key.args[1].toNumber()))];
+    const locks = await Promise.all(utxoIds.map(utxoId => BitcoinLock.get(client, utxoId)));
+    const eligible: BitcoinLock[] = [];
+
+    for (const lock of locks) {
+      if (!lock) continue;
+      if (lock.ownerAccount !== operatorAddress || lock.vaultId !== vaultId || !lock.isFunded) continue;
+      if (await lock.getReleaseRequest(client)) continue;
+
+      eligible.push(lock);
+    }
+
+    return eligible;
   }
 
   public createLockSummary(lock: IBitcoinLockRecord): IBitcoinLockSummary {
@@ -1313,7 +1347,7 @@ export default class BitcoinLocks {
       }
 
       const context = await this.getRatchetContext(lock);
-      const { client } = context;
+      const { client, vault } = context;
       const preview = await this.calculateRatchetPreview(lock, context);
       if (!preview.canRatchet) {
         if (preview.shortfall > 0n) {
@@ -1325,11 +1359,22 @@ export default class BitcoinLocks {
       // Use whatever is loaded into the price index at this time. NOTE: this could be old, but is likely what the user has seen
       const microgonsAtTargetPerBtc = this.#currency.priceIndex.getSatoshiPriceInTargetMicrogons(SATOSHIS_PER_BITCOIN);
 
-      const tx = client.tx.bitcoinLocks.ratchet(lock.utxoId!, {
+      const ratchetTx = client.tx.bitcoinLocks.ratchet(lock.utxoId!, {
         V1: { microgonsAtTargetPerBtc },
       });
+      let tx = ratchetTx;
+
+      if (preview.securitizationToAdd > 0n) {
+        const increaseSecurityTx = client.tx.vaults.modifyFunding(
+          lock.vaultId,
+          vault.securitization + preview.securitizationToAdd,
+          toFixedNumber(vault.securitizationRatio, FIXED_U128_DECIMALS),
+        );
+        tx = client.tx.utility.batchAll([increaseSecurityTx, ratchetTx]);
+      }
+
       const txSubmitter = new TxSubmitter(client, tx, txSigner);
-      const requiredBalance = preview.burnAmount + preview.ratchetingFee;
+      const requiredBalance = preview.burnAmount + preview.ratchetingFee + preview.securitizationToAdd;
       const affordability = await txSubmitter.canAfford({
         tip,
         unavailableBalance: requiredBalance,
@@ -1340,11 +1385,15 @@ export default class BitcoinLocks {
         );
       }
       const txResult = await txSubmitter.submit({ tip, disableAutomaticTxTracking: true });
+      const metadata: IBitcoinRatchetMetadata = { utxoId: lock.utxoId! };
+      if (preview.securitizationToAdd > 0n) {
+        metadata.addedSecuritizationMicrogons = preview.securitizationToAdd;
+      }
 
       const txInfo = await this.#transactionTracker.trackTxResult<IBitcoinRatchetMetadata>({
         txResult,
         extrinsicType: ExtrinsicType.BitcoinRatchet,
-        metadata: { utxoId: lock.utxoId! },
+        metadata,
       });
 
       void this.onRatchetFinalized(lock, txInfo).catch(error => {
@@ -1369,37 +1418,55 @@ export default class BitcoinLocks {
 
     const oldTargetPrice = bitcoinLock.lockedTargetPrice;
     const newTargetPrice = this.#currency.priceIndex.getSatoshiPriceInTargetMicrogons(lock.satoshis);
-    const lockSecuritizationRatio = await this.getLockSecuritizationRatio(client, lock);
+    const storedLockSecuritizationRatio = await this.getLockSecuritizationRatio(client, lock);
+    const securitizationRatio =
+      storedLockSecuritizationRatio === undefined
+        ? vault.securitizationRatioBN()
+        : fromFixedNumber(storedLockSecuritizationRatio, FIXED_U128_DECIMALS);
     const availableVaultFunds = vault.availableSecuritization(bitcoinLock.ownerAccount);
     const isUpRatchet = newTargetPrice > oldTargetPrice;
 
-    let newLiquidityPromised: bigint;
+    const newLiquidityPromised = BitcoinLock.calculateRedemptionAmount(this.#currency.priceIndex, newTargetPrice);
     let additionalLiquidityToMint = 0n;
     let requiredVaultFunds = 0n;
 
     if (isUpRatchet) {
       const diffAmount = newTargetPrice - oldTargetPrice;
-      newLiquidityPromised = BitcoinLock.calculateRedemptionAmount(this.#currency.priceIndex, diffAmount);
-      additionalLiquidityToMint = newLiquidityPromised;
-      requiredVaultFunds =
-        lockSecuritizationRatio === undefined
-          ? bigNumberToBigInt(vault.securitizationRatioBN().multipliedBy(newLiquidityPromised))
-          : (newLiquidityPromised * lockSecuritizationRatio) / 1_000_000_000_000_000_000n;
-    } else {
-      newLiquidityPromised = BitcoinLock.calculateRedemptionAmount(this.#currency.priceIndex, newTargetPrice);
+      additionalLiquidityToMint = BitcoinLock.calculateRedemptionAmount(this.#currency.priceIndex, diffAmount);
+      requiredVaultFunds = bigNumberToBigInt(securitizationRatio.multipliedBy(additionalLiquidityToMint));
     }
 
     const shortfall = requiredVaultFunds > availableVaultFunds ? requiredVaultFunds - availableVaultFunds : 0n;
+    let backfillSecuritizationShortfall = 0n;
+
+    if (bitcoinLock.isBackfill) {
+      const currentBackfillSecuritization = bigNumberToBigInt(
+        securitizationRatio.multipliedBy(bitcoinLock.liquidityPromised),
+      );
+      const newBackfillSecuritization = bigNumberToBigInt(securitizationRatio.multipliedBy(newLiquidityPromised));
+      const projectedBackfillSecuritization =
+        bigIntMax(vault.backfillSecuritizationLocked - currentBackfillSecuritization, 0n) + newBackfillSecuritization;
+      const publicSecuritizationLocked = bigIntMax(vault.securitizationLocked - vault.backfillSecuritizationLocked, 0n);
+      const supportedBackfillSecuritization = bigIntMax(vault.securitization - publicSecuritizationLocked, 0n);
+      backfillSecuritizationShortfall = bigIntMax(
+        projectedBackfillSecuritization - supportedBackfillSecuritization,
+        0n,
+      );
+    }
+    const isOperatorBackfill = bitcoinLock.isBackfill && bitcoinLock.ownerAccount === vault.operatorAccountId;
+    const securitizationToAdd = isOperatorBackfill ? bigIntMax(shortfall, backfillSecuritizationShortfall) : 0n;
+    const hasSufficientSecuritization = shortfall === 0n && backfillSecuritizationShortfall === 0n;
 
     return {
       additionalLiquidityToMint,
       availableVaultFunds,
       burnAmount,
-      canRatchet: shortfall === 0n && newTargetPrice !== oldTargetPrice,
+      canRatchet: (hasSufficientSecuritization || isOperatorBackfill) && newTargetPrice !== oldTargetPrice,
       currentLiquidityPromised: bitcoinLock.liquidityPromised,
       newLiquidityPromised,
       ratchetingFee,
       requiredVaultFunds,
+      securitizationToAdd,
       shortfall,
       vaultId: lock.vaultId,
     };
@@ -1476,6 +1543,9 @@ export default class BitcoinLocks {
             return event.phase.isApplyExtrinsic && event.phase.asApplyExtrinsic.toNumber() === extrinsicIndex;
           });
           await this.recovery.recoverBlock(block, events, { lockQueueOwnerUuid: lock.uuid });
+          if (txInfo.tx.metadataJson.addedSecuritizationMicrogons) {
+            await this.myVault?.load(true);
+          }
           postProcessor.resolve();
         },
         { waitForHistoryRecovery: true },

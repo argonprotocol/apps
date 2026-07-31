@@ -9,20 +9,24 @@
         </p>
       </div>
 
-      <button
-        v-if="
-          config.isServerInstalled &&
-          hasLoadedVaultState &&
-          hasProfileName &&
-          !inviteCreationBlockedReason &&
-          !isAddingInvite
-        "
-        type="button"
-        class="bg-argon-button hover:bg-argon-button-hover shrink-0 rounded-lg px-3 py-2 text-sm font-semibold text-white"
-        @click="toggleAddInvite"
-      >
-        Add Invite
-      </button>
+      <div v-if="config.isServerInstalled && hasLoadedVaultState && myVault.createdVault" class="flex shrink-0 gap-2">
+        <button
+          type="button"
+          class="shrink-0 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+          @click="basicEmitter.emit('openBackfillOverlay')"
+        >
+          Manage Flexible Assets
+        </button>
+
+        <button
+          v-if="hasProfileName && !inviteCreationBlockedReason && !isAddingInvite"
+          type="button"
+          class="bg-argon-button hover:bg-argon-button-hover shrink-0 rounded-lg px-3 py-2 text-sm font-semibold text-white"
+          @click="toggleAddInvite"
+        >
+          Add Invite
+        </button>
+      </div>
     </div>
 
     <div v-if="!config.isServerInstalled" class="my-auto text-center text-sm leading-6 text-slate-500">

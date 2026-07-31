@@ -462,6 +462,45 @@ export class Vaults {
     });
   }
 
+  public calculateTreasuryYearlyRevenue({
+    vaultId,
+    capital,
+    operatorKeepPct,
+  }: {
+    vaultId: number;
+    capital: bigint;
+    operatorKeepPct: number;
+  }): bigint {
+    const stats = this.stats;
+    const vaultStats = stats?.vaultsById[vaultId];
+    if (!stats || !vaultStats || capital <= 0n || operatorKeepPct <= 0) return 0n;
+
+    const oldestFrameId = stats.synchedToFrame - 364;
+    const realized = vaultStats.changesByFrame.reduce(
+      (total, frame) => {
+        if (frame.frameId < oldestFrameId || frame.frameId > stats.synchedToFrame) return total;
+
+        const frameCapital = frame.treasuryPool.externalCapital + frame.treasuryPool.vaultCapital;
+        if (frameCapital <= 0n) return total;
+
+        total.capital += frameCapital;
+        total.earnings += frame.treasuryPool.totalEarnings;
+        return total;
+      },
+      { capital: 0n, earnings: 0n },
+    );
+    if (realized.capital <= 0n || realized.earnings <= 0n) return 0n;
+
+    return bigNumberToBigInt(
+      BigNumber(capital)
+        .multipliedBy(realized.earnings)
+        .dividedBy(realized.capital)
+        .multipliedBy(operatorKeepPct)
+        .dividedBy(100)
+        .multipliedBy(365),
+    );
+  }
+
   public calculateArgonotStakingApr(): number {
     if (!this.stats) return 0;
 

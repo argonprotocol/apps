@@ -10,7 +10,7 @@ const Bob = `0x${'22'.repeat(32)}`;
 
 describe('BondLot', () => {
   it('loads app bond lot state from runtime bond lots', () => {
-    const activeCodec = createBondLot({ bonds: 250, owner: Alice });
+    const activeCodec = createBondLot({ bonds: 250, owner: Alice, isBackfill: true });
     const releasingCodec = createBondLot({ bonds: 150, owner: Alice, isReleasing: true, releaseFrame: 12 });
     const activeLot = BondLot.fromRuntime(1, activeCodec, activeCodec.owner.toString());
     const releasingLot = BondLot.fromRuntime(2, releasingCodec, releasingCodec.owner.toString());
@@ -22,6 +22,8 @@ describe('BondLot', () => {
     expect(activeLot.returningBonds).toBe(0);
     expect(activeLot.isOwn).toBe(true);
     expect(activeLot.canRelease).toBe(true);
+    expect(activeLot.isBackfill).toBe(true);
+    expect(releasingLot.isBackfill).toBe(false);
     expect(releasingLot.activeBonds).toBe(0);
     expect(releasingLot.returningBonds).toBe(150);
     expect(releasingLot.releaseFrame).toBe(12);
@@ -155,6 +157,7 @@ describe('BondLot', () => {
 function createBondLot(args: {
   bonds: number;
   owner: string;
+  isBackfill?: boolean;
   isReleasing?: boolean;
   releaseFrame?: number;
   participatedFrames?: number;
@@ -174,6 +177,7 @@ function createBondLot(args: {
     owner: args.owner,
     program: args.program ?? { Vault: { vaultId: 1, sharingPercent: 0, bonusPercent: 0 } },
     bonds: args.bonds,
+    isBackfill: args.isBackfill ?? false,
     createdFrameId: args.createdFrame ?? 0,
     participatedFrames: args.participatedFrames ?? 0,
     lastFrameEarningsFrameId: args.lastFrameEarningsFrame ?? null,

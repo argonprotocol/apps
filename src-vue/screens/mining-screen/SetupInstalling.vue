@@ -36,7 +36,6 @@ import { MoveCapital, type ITransactionMoveMetadata } from '../../lib/MoveCapita
 import { ExtrinsicType } from '../../lib/db/TransactionsTable.ts';
 import type { TransactionInfo } from '../../lib/TransactionInfo.ts';
 import { TxAttemptState } from '../../lib/TransactionTracker.ts';
-import { getMyVault } from '../../stores/vaults.ts';
 import type { Config } from '../../lib/Config.ts';
 import { getMiningFundingState } from './miningFunding.ts';
 
@@ -44,8 +43,7 @@ const config = getConfig();
 const wallets = useWallets();
 const walletKeys = getWalletKeys();
 const transactionTracker = getTransactionTracker();
-const myVault = getMyVault();
-const moveCapital = new MoveCapital(walletKeys, transactionTracker, myVault);
+const moveCapital = new MoveCapital(walletKeys, transactionTracker);
 
 const transactionErrorMessage = Vue.ref('');
 const progressPct = Vue.ref(0);
