@@ -690,7 +690,7 @@ Vue.watch(isSelectedLiveFrame, isLiveFrame => {
 });
 
 Vue.onMounted(() => {
-  void myMiningSeats.subscribeToDashboard();
+  void myMiningSeats.subscribeToDashboard({ selectLatestFrame: true });
   void myMiningSeats.subscribeToActivity();
   loadChartData();
   void updateSliderFrame(sliderFrameIndex.value);

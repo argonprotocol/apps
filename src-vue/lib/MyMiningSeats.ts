@@ -213,8 +213,11 @@ export class MyMiningSeats {
           if (this.serverStateRefreshPromise) await this.serverStateRefreshPromise;
 
           const isOnLatestFrame = this.selectedFrameId === this.latestFrameId;
-          this.latestFrameId = frameId;
-          if (isOnLatestFrame) this.selectFrameId(frameId, true);
+          if (frameId > this.latestFrameId) {
+            this.latestFrameId = frameId;
+            if (isOnLatestFrame) this.selectFrameId(frameId, true);
+          }
+
           const fromFrameId = this.hasRefreshedCompletedMiningHistory
             ? Math.max(0, frameId - NetworkConfig.framesPerCohort)
             : 0;
@@ -276,7 +279,11 @@ export class MyMiningSeats {
     return await this.loadPromise;
   }
 
-  public async subscribeToDashboard(): Promise<void> {
+  public async subscribeToDashboard({
+    selectLatestFrame = false,
+  }: { selectLatestFrame?: boolean } = {}): Promise<void> {
+    if (selectLatestFrame) this.selectFrameId(this.latestFrameId, true);
+
     this.dashboardSubscribers++;
     if (this.dashboardSubscribers > 1) return;
 
