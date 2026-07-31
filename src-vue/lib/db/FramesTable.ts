@@ -155,6 +155,14 @@ export class FramesTable extends BaseTable {
     return latest[0]?.maxId || 0;
   }
 
+  public async fetchProcessedFrameIdsSince(frameId: number, limit: number): Promise<number[]> {
+    const frames = await this.db.select<{ id: number }[]>(
+      'SELECT id FROM Frames WHERE id >= ? AND isProcessed = 1 ORDER BY id ASC LIMIT ?',
+      [frameId, limit],
+    );
+    return frames.map(frame => frame.id);
+  }
+
   public async fetchExistingCompleteSince(frameId: number, limit = 10): Promise<number[]> {
     if (this.processedFrames[frameId]) {
       const completedFrames = [];

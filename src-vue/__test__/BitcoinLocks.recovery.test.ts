@@ -257,13 +257,57 @@ describe('BitcoinLocks recovery', () => {
     const setHistoryRecoveryPending = vi.fn();
     vi.spyOn(store, 'getTable').mockResolvedValue({ setHistoryRecoveryPending } as never);
 
-    await store.recovery.beginHistoryReplay({ recoverExistingLocks: true });
+    await store.recovery.beginHistoryReplay({ lockScope: 'all' });
 
     expect(record.isHistoryRecoveryPending).toBe(true);
     expect(store.getActiveLocks()).toEqual([]);
     expect(setHistoryRecoveryPending).toHaveBeenCalledWith(record.uuid, true);
 
     await store.recovery.commitHistoryReplay();
+  });
+
+  it('repairs pending locks without replaying healthy locks', async () => {
+    const blockWatch = Object.assign(Object.create(null), {
+      getApi: async () => ({}),
+    }) as BlockWatch;
+    const store = createStore({ blockWatch });
+    const pendingRecord = createLock({
+      uuid: 'pending-recovery',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockedAndMinted,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    pendingRecord.isHistoryRecoveryPending = true;
+    const healthyRecord = createLock({
+      uuid: 'healthy-lock',
+      utxoId: 8,
+      status: BitcoinLockStatus.LockedAndMinted,
+      createdAt: '2026-01-02T00:00:00Z',
+    });
+    store.data.locksByUtxoId[7] = pendingRecord;
+    store.data.locksByUtxoId[8] = healthyRecord;
+    const setHistoryRecoveryPending = vi.fn();
+    const recordRemoval = vi.fn(async (record: IBitcoinLockRecord, status: BitcoinLockStatus) => {
+      record.status = status;
+      record.removalReason = 'released';
+    });
+    vi.spyOn(store, 'getTable').mockResolvedValue({
+      recordRemoval,
+      setHistoryRecoveryPending,
+    } as never);
+
+    await store.recovery.beginHistoryReplay({ lockScope: 'pending' });
+    await store.recovery.recoverBlock(historyBlock(200), [
+      historyEvent(151, 'bitcoinLocks', 'BitcoinSpentAfterRelease', { utxoId: 7, vaultId: 1 }),
+      historyEvent(151, 'bitcoinLocks', 'BitcoinSpentAfterRelease', { utxoId: 8, vaultId: 1 }),
+    ]);
+    await store.recovery.commitHistoryReplay();
+
+    expect(pendingRecord.removalReason).toBe('released');
+    expect(healthyRecord.removalReason).toBeUndefined();
+    expect(healthyRecord.isHistoryRecoveryPending).toBeUndefined();
+    expect(recordRemoval).toHaveBeenCalledOnce();
+    expect(setHistoryRecoveryPending).not.toHaveBeenCalledWith(healthyRecord.uuid, true);
   });
 
   it('serializes history replay with the affected lock queue without yielding or waiting behind itself', async () => {

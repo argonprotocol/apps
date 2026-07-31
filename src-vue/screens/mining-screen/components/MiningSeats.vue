@@ -34,7 +34,7 @@
           </span>
           <span
             v-else
-            class="relative z-10 opacity-50"
+            class="seat-label relative z-10 opacity-50"
             :class="item.seat.miner?.isOurs && item.seat.slotId === currentAuctionSlot ? 'underline' : ''"
           >
             {{ item.seat.id }}
@@ -151,6 +151,7 @@ const seatGridStyle = Vue.computed((): Record<string, string> => {
     '--seat-dot-size': `${dotPx}px`,
     '--seat-dot-gap-x': `${gapX}px`,
     '--seat-dot-gap-y': `${gapY}px`,
+    '--seat-label-display': dotPx < 12 ? 'none' : 'inline',
     gridTemplateColumns: `repeat(${cols}, var(--seat-dot-size))`,
     justifyContent: 'start',
   };
@@ -426,6 +427,11 @@ function getVisibleStartingFrameIds(): number[] {
   width: var(--seat-dot-size, 14px);
   height: var(--seat-dot-size, 14px);
   text-shadow: 1px 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.seat-label {
+  display: var(--seat-label-display, none);
+  font-size: clamp(6px, calc(var(--seat-dot-size) * 0.3), 0.875rem);
 }
 
 .seat-progress-ring {

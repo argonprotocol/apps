@@ -206,6 +206,12 @@
                     {{ currency.symbol }}{{ formatValue(bitcoinPositionBreakdown.lockedBtc) }}
                   </div>
                 </div>
+                <div v-if="bitcoinPositionBreakdown.pendingMint" class="flex items-center justify-between gap-6 py-1">
+                  <div class="font-normal text-slate-600">Pending mint</div>
+                  <div class="font-mono font-normal text-slate-600">
+                    {{ currency.symbol }}{{ formatValue(bitcoinPositionBreakdown.pendingMint) }}
+                  </div>
+                </div>
                 <div class="flex items-center justify-between gap-6 py-1">
                   <div class="font-normal text-slate-600">Debt</div>
                   <div class="font-mono font-normal text-slate-600">

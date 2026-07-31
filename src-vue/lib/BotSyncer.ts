@@ -309,8 +309,22 @@ export class BotSyncer {
     const currentTick = botState.currentTick;
     const framesToSync = currentFrameId - oldestFrameIdToSync + 1;
 
-    const latestDbProcessedFrame = await this.db.framesTable.fetchLastProcessedFrame();
-    const startFrameToSync = Math.min(latestDbProcessedFrame, latestFrameIdProcessed);
+    const [latestDbProcessedFrame, processedFrameIds, existingCohortIds] = await Promise.all([
+      this.db.framesTable.fetchLastProcessedFrame(),
+      this.db.framesTable.fetchProcessedFrameIdsSince(oldestFrameIdToSync, framesToSync),
+      this.db.cohortsTable.fetchCohortIdsSince(oldestFrameIdToSync, framesToSync),
+    ]);
+    const processedFrames = new Set(processedFrameIds);
+    let firstIncompleteFrameId = oldestFrameIdToSync;
+    while (processedFrames.has(firstIncompleteFrameId) && firstIncompleteFrameId <= currentFrameId) {
+      firstIncompleteFrameId += 1;
+    }
+
+    const firstMissingCohortId = oldestFrameIdToSync + existingCohortIds.length;
+    const startFrameToSync = Math.max(
+      oldestFrameIdToSync,
+      Math.min(latestDbProcessedFrame, latestFrameIdProcessed, firstIncompleteFrameId, firstMissingCohortId),
+    );
 
     console.log('Syncing the past frames...', {
       oldestFrameIdToSync,
@@ -324,7 +338,13 @@ export class BotSyncer {
     const syncPromise = (async () => {
       try {
         for (let frameId = startFrameToSync; frameId <= currentFrameId; frameId++) {
+          const requiresCohortCatchUp = frameId >= firstMissingCohortId;
+          if (processedFrames.has(frameId) && !requiresCohortCatchUp) {
+            continue;
+          }
+
           await this.syncDbFrame(frameId, botState);
+          processedFrames.add(frameId);
           progress = await this.calculateDbSyncProgress(botState);
           this.botFns.setDbSyncProgress(progress);
         }

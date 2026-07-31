@@ -37,15 +37,43 @@ describe('FinalizedHistoryScheduler', () => {
     await scheduler.close();
   });
 
-  it('keeps retrying an unavailable source with capped backoff', async () => {
+  it('stops retrying when a newer target arrives during the final automatic attempt', async () => {
+    vi.useFakeTimers();
+    const refresh = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('indexer unavailable'))
+      .mockRejectedValueOnce(new Error('indexer unavailable'))
+      .mockRejectedValueOnce(new Error('indexer unavailable'))
+      .mockImplementationOnce(async () => {
+        await Promise.resolve();
+        scheduler.queue(13);
+        throw new Error('indexer unavailable');
+      });
+    const scheduler = new FinalizedHistoryScheduler(refresh, 10);
+
+    scheduler.queue(12);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(refresh).toHaveBeenCalledTimes(4);
+    await scheduler.close();
+  });
+
+  it('stays paused across new background targets until explicitly retried', async () => {
     vi.useFakeTimers();
     const refresh = vi.fn().mockRejectedValue(new Error('indexer unavailable'));
     const scheduler = new FinalizedHistoryScheduler(refresh, 10);
 
     scheduler.queue(12);
-    await vi.advanceTimersByTimeAsync(120);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(refresh).toHaveBeenCalledTimes(4);
 
+    scheduler.queue(13);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(refresh).toHaveBeenCalledTimes(4);
+
+    await expect(scheduler.runNow(13)).rejects.toThrow('indexer unavailable');
     expect(refresh).toHaveBeenCalledTimes(5);
+    expect(refresh).toHaveBeenLastCalledWith(13, false);
     await scheduler.close();
   });
 });

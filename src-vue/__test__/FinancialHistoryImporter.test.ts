@@ -30,6 +30,7 @@ describe('FinancialHistoryImporter', () => {
         db,
         accountId: '5owner',
         enabledDomains: ['bonds'],
+        recoverMissingCheckpoints: true,
       }),
     ).resolves.toBe(true);
 
@@ -46,8 +47,34 @@ describe('FinancialHistoryImporter', () => {
         db,
         accountId: '5owner',
         enabledDomains: ['bonds'],
+        recoverMissingCheckpoints: true,
       }),
     ).resolves.toBe(false);
+  });
+
+  it('only treats missing checkpoints as previous-wallet recovery', async () => {
+    const db = {
+      syncStateTable: {
+        get: vi.fn(async () => undefined),
+      },
+    } as any;
+
+    await expect(
+      needsFinancialHistoryRecovery({
+        db,
+        accountId: '5owner',
+        enabledDomains: ['bonds'],
+        recoverMissingCheckpoints: false,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      needsFinancialHistoryRecovery({
+        db,
+        accountId: '5owner',
+        enabledDomains: ['bonds'],
+        recoverMissingCheckpoints: true,
+      }),
+    ).resolves.toBe(true);
   });
 
   it('initializes Bitcoin recovery when a loaded lock is still quarantined', async () => {
@@ -70,6 +97,7 @@ describe('FinancialHistoryImporter', () => {
         accountId: '5owner',
         enabledDomains: ['bitcoin'],
         bitcoinLockRecovery: { hasPendingHistoryRecovery: true } as any,
+        recoverMissingCheckpoints: false,
       }),
     ).resolves.toBe(true);
   });
@@ -92,6 +120,7 @@ describe('FinancialHistoryImporter', () => {
         argonBonds: {} as any,
         vaultHistory: {} as any,
         enabledDomains: ['bonds'],
+        recoverMissingCheckpoints: true,
         minimumAsOfBlock: 100,
         onCheckStart,
       }),
@@ -100,7 +129,7 @@ describe('FinancialHistoryImporter', () => {
     expect(onCheckStart).not.toHaveBeenCalled();
   });
 
-  it('resumes a loaded Bitcoin recovery from its saved partial checkpoint', async () => {
+  it('restarts a loaded Bitcoin recovery when its saved lock state may be newer than its checkpoint', async () => {
     const upsert = vi.fn(async () => undefined);
     const beginHistoryReplay = vi.fn();
     const commitHistoryReplay = vi.fn();
@@ -108,7 +137,7 @@ describe('FinancialHistoryImporter', () => {
       asOfBlock: 100,
       definitionVersion: 2,
       blocks: [],
-      coverage: { fromBlock: 90, toBlock: 100, gaps: [] },
+      coverage: { fromBlock: 0, toBlock: 100, gaps: [] },
     });
 
     await restoreFinancialHistory({
@@ -145,17 +174,69 @@ describe('FinancialHistoryImporter', () => {
       } as any,
       vaultHistory: {} as any,
       enabledDomains: ['bitcoin'],
+      recoverMissingCheckpoints: true,
       minimumAsOfBlock: 100,
     });
 
     expect(findAddressActivity).toHaveBeenCalledWith('5owner', {
-      afterBlock: 90,
+      afterBlock: 0,
       toBlock: 100,
       activityMask: AccountActivityKind.BitcoinLock | AccountActivityKind.BitcoinMint,
     });
-    expect(beginHistoryReplay).toHaveBeenCalledWith({ recoverExistingLocks: false });
+    expect(beginHistoryReplay).toHaveBeenCalledWith({ lockScope: 'pending' });
     expect(commitHistoryReplay).toHaveBeenCalledWith(true);
     expect(upsert).toHaveBeenCalledOnce();
+  });
+
+  it('repairs only pending Bitcoin locks when a fresh wallet has no recovery checkpoint', async () => {
+    const upsert = vi.fn(async () => undefined);
+    const beginHistoryReplay = vi.fn();
+    const commitHistoryReplay = vi.fn();
+    vi.mocked(findAddressActivity).mockResolvedValue({
+      asOfBlock: 100,
+      definitionVersion: 2,
+      blocks: [],
+      coverage: { fromBlock: 0, toBlock: 100, gaps: [] },
+    });
+    const restoreArgs = {
+      db: {
+        syncStateTable: { get: vi.fn(async () => undefined), upsert },
+        bondLotHistoryTable: { fetchAll: vi.fn(async () => []) },
+      } as any,
+      blockWatch: {
+        finalizedBlockHeader: { blockNumber: 100 },
+        getFinalizedApi: vi.fn(async () => ({})),
+      } as any,
+      accountId: '5owner',
+      argonBonds: { data: { bondLots: [] } } as any,
+      bitcoinLockRecovery: {
+        hasPendingHistoryRecovery: true,
+        beginHistoryReplay,
+        findMissingActiveLockIds: vi.fn(async () => []),
+        commitHistoryReplay,
+        cancelHistoryReplay: vi.fn(),
+      } as any,
+      vaultHistory: {} as any,
+      enabledDomains: ['bitcoin', 'bonds'] as const,
+      recoverMissingCheckpoints: false,
+      minimumAsOfBlock: 100,
+    };
+
+    await restoreFinancialHistory(restoreArgs);
+
+    expect(findAddressActivity).toHaveBeenCalledOnce();
+    expect(beginHistoryReplay).toHaveBeenCalledWith({ lockScope: 'pending' });
+    expect(commitHistoryReplay).toHaveBeenCalledWith(true);
+    expect(upsert).toHaveBeenLastCalledWith(
+      SyncStateKeys.FinancialHistory,
+      expect.objectContaining({
+        asOfBlock: 100,
+        domains: ['bitcoin'],
+        domainCheckpoints: {
+          bitcoin: { asOfBlock: 100, definitionVersion: 2, recoveryVersion: 6 },
+        },
+      }),
+    );
   });
 
   it('returns the minimum safe checkpoint across enabled financial domains', async () => {
@@ -179,6 +260,7 @@ describe('FinancialHistoryImporter', () => {
         argonBonds: {} as any,
         vaultHistory: {} as any,
         enabledDomains: ['bonds', 'vaulting'],
+        recoverMissingCheckpoints: true,
         minimumAsOfBlock: 100,
       }),
     ).resolves.toEqual({ importedBlockCount: 0, asOfBlock: 100, targetBlock: 100 });
@@ -219,6 +301,7 @@ describe('FinancialHistoryImporter', () => {
       argonBonds: { data: { bondLots: [] }, importHistoryBlock: vi.fn() } as any,
       vaultHistory: { importBlock: vi.fn() } as any,
       enabledDomains: ['bonds', 'vaulting'],
+      recoverMissingCheckpoints: true,
       minimumAsOfBlock: 100,
     });
 
@@ -307,6 +390,7 @@ describe('FinancialHistoryImporter', () => {
         } as any,
         vaultHistory: {} as any,
         enabledDomains: ['bonds', 'bitcoin'],
+        recoverMissingCheckpoints: true,
         minimumAsOfBlock: 10,
       }),
     ).rejects.toThrow('Bitcoin lock history failed at block 9: archive unavailable');
@@ -389,6 +473,7 @@ describe('FinancialHistoryImporter', () => {
       } as any,
       vaultHistory: {} as any,
       enabledDomains: ['bitcoin'],
+      recoverMissingCheckpoints: true,
       minimumAsOfBlock: 100,
       onActiveBitcoinLocksFound,
       onProgress,
@@ -411,7 +496,7 @@ describe('FinancialHistoryImporter', () => {
       }),
     );
     expect(beginHistoryReplay).toHaveBeenCalledOnce();
-    expect(beginHistoryReplay).toHaveBeenCalledWith({ recoverExistingLocks: true });
+    expect(beginHistoryReplay).toHaveBeenCalledWith({ lockScope: 'all' });
     expect(commitHistoryReplay).toHaveBeenCalledOnce();
     expect(commitHistoryReplay).toHaveBeenCalledWith(true);
     expect(cancelHistoryReplay).not.toHaveBeenCalled();
@@ -463,6 +548,7 @@ describe('FinancialHistoryImporter', () => {
         } as any,
         vaultHistory: {} as any,
         enabledDomains: ['bonds'],
+        recoverMissingCheckpoints: true,
         minimumAsOfBlock: 100,
       }),
     ).rejects.toThrow('not restored all active bond purchases');
@@ -497,6 +583,7 @@ describe('FinancialHistoryImporter', () => {
         argonBonds: { data: { bondLots: [], bondHistory: [] } } as any,
         vaultHistory: {} as any,
         enabledDomains: ['bonds'],
+        recoverMissingCheckpoints: true,
         minimumAsOfBlock: 100,
       }),
     ).rejects.toThrow('coverage gap from block 50 to 60');

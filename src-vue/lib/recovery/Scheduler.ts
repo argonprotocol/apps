@@ -19,9 +19,11 @@ export class FinalizedHistoryScheduler {
   public queue(finalizedBlockNumber: number, force = false): void {
     if (!force && finalizedBlockNumber <= Math.max(this.queuedBlockNumber, this.processedBlockNumber)) return;
 
-    const shouldInterruptRetry = this.retryAttempts > 0;
     this.queuedBlockNumber = Math.max(this.queuedBlockNumber, finalizedBlockNumber);
     this.forceQueued ||= force;
+    if (this.retryAttempts > 3 && !force) return;
+
+    const shouldInterruptRetry = this.retryAttempts > 0;
     if (shouldInterruptRetry && this.timer) {
       clearTimeout(this.timer);
       this.timer = undefined;
@@ -36,6 +38,7 @@ export class FinalizedHistoryScheduler {
     }
     if (this.isClosed || (!this.forceQueued && this.queuedBlockNumber <= this.processedBlockNumber)) return;
 
+    if (this.retryAttempts > 3) this.retryAttempts = 0;
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = undefined;
@@ -55,6 +58,7 @@ export class FinalizedHistoryScheduler {
       this.isClosed ||
       this.timer ||
       this.runningPromise ||
+      (this.retryAttempts > 3 && !this.forceQueued) ||
       (!this.forceQueued && this.queuedBlockNumber <= this.processedBlockNumber)
     ) {
       return;
@@ -86,7 +90,9 @@ export class FinalizedHistoryScheduler {
       } catch (error) {
         if (isRetryableHistoryRecoveryError(error)) {
           this.retryAttempts += 1;
-          nextDelayMs = this.delayMs * 2 ** Math.min(this.retryAttempts - 1, 2);
+          if (this.retryAttempts <= 3) {
+            nextDelayMs = this.delayMs * 2 ** Math.min(this.retryAttempts - 1, 2);
+          }
         }
         if (surfaceError) throw error;
       } finally {

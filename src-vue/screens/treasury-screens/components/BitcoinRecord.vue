@@ -1,16 +1,25 @@
 <template>
   <div class="BitcoinRecord Component flex flex-col">
-    <section RecoveryRecord v-if="lockSummary.record.isHistoryRecoveryPending">
-      <BitcoinIcon MainIcon class="bitcoin-spin" />
+    <section
+      RecoveryRecord
+      v-if="lockSummary.record.isHistoryRecoveryPending"
+      :class="isHistoryRecoveryPaused ? 'cursor-default' : 'cursor-wait'"
+    >
+      <BitcoinAlertIcon v-if="isHistoryRecoveryPaused" MainIcon />
+      <BitcoinIcon v-else MainIcon class="bitcoin-spin" />
       <div ContentWrapper>
         <div FirstRow>
           <header>{{ satToBtcNm(lockSummary.satoshis).format('0,0.[00000000]') }} of BTC</header>
-          <span class="inline-flex items-center gap-2 font-semibold text-slate-500">
+          <span v-if="isHistoryRecoveryPaused" class="font-semibold text-red-600">Recovery paused</span>
+          <span v-else class="inline-flex items-center gap-2 font-semibold text-slate-500">
             <Spinner class="h-4 w-4" />
             Syncing...
           </span>
         </div>
-        <div SecondRow>Restoring this Bitcoin transaction from chain history.</div>
+        <div SecondRow>
+          <template v-if="isHistoryRecoveryPaused">Open the RTD menu to retry Bitcoin history recovery.</template>
+          <template v-else>Restoring this Bitcoin transaction from chain history.</template>
+        </div>
       </div>
     </section>
 
@@ -223,6 +232,7 @@ import type { IBitcoinLockSummary } from '../../../interfaces/IBitcoinLockSummar
 import numeral, { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import { getBitcoinLocks } from '../../../stores/bitcoin.ts';
+import { useFinancials } from '../../../stores/financials.ts';
 import ProgressBar from '../../../components/ProgressBar.vue';
 import BitcoinRecordMismatch from './BitcoinRecordMismatch.vue';
 import Spinner from '../../../components/Spinner.vue';
@@ -231,6 +241,7 @@ dayjs.extend(utc);
 
 const currency = getCurrency();
 const bitcoinLocks = getBitcoinLocks();
+const financials = useFinancials();
 
 const { microgonToMoneyNm, satToBtcNm, satToMoneyNm } = createNumeralHelpers(currency);
 
@@ -245,6 +256,7 @@ const emit = defineEmits<{
 
 const isActionHovered = Vue.ref(false);
 const lockRecord = Vue.computed(() => props.lockSummary.record);
+const isHistoryRecoveryPaused = Vue.computed(() => financials.historyRecovery.state === 'error');
 const isRatchetPending = Vue.computed(() => !!bitcoinLocks.getPendingRatchetTxInfo(lockRecord.value));
 const mismatchAcceptProgress = Vue.computed(() => {
   if (!lockRecord.value.utxoId) {
@@ -282,7 +294,7 @@ async function acknowledgeExpiredNotice() {
 
 .BitcoinRecord.Component {
   section[RecoveryRecord] {
-    @apply flex cursor-wait flex-row items-center gap-2.5 rounded border border-slate-900/20 bg-slate-100 px-3.5 py-2 opacity-60;
+    @apply flex flex-row items-center gap-2.5 rounded border border-slate-900/20 bg-slate-100 px-3.5 py-2 opacity-60;
   }
 
   section[PendingRecord] {
