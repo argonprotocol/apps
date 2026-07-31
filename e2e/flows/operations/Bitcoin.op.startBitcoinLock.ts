@@ -15,7 +15,6 @@ type IStartBitcoinLockUiState = {
   lockOverlayVisible: boolean;
   lockOverlayState: string | null;
   lockStartVisible: boolean;
-  fundingBip21Visible: boolean;
 };
 
 type IStartBitcoinLockState = IE2EOperationInspectState<IBitcoinVaultMismatchState, IStartBitcoinLockUiState>;
@@ -23,12 +22,11 @@ type IStartBitcoinLockState = IE2EOperationInspectState<IBitcoinVaultMismatchSta
 export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import.meta, {
   async inspect({ flow }) {
     const panelState = await flow.inspect(bitcoinEnsureMismatchActionPanel);
-    const [bitcoinLocksScreen, lockStartEntry, lockOverlay, lockStart, fundingBip21] = await Promise.all([
+    const [bitcoinLocksScreen, lockStartEntry, lockOverlay, lockStart] = await Promise.all([
       flow.isVisible('BitcoinLocksScreen'),
       flow.isVisible('BitcoinLocks.openLockingOverlay()'),
       flow.isVisible('BitcoinLockingOverlay'),
       flow.isVisible('LockStart.submitLiquidLock()'),
-      flow.isVisible('fundingBip21.copyContent()'),
     ]);
     const bitcoinLocksScreenVisible = bitcoinLocksScreen.visible;
     const lockStartEntryVisible = lockStartEntry.visible;
@@ -37,8 +35,7 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
       ? await flow.getAttribute('BitcoinLockingOverlay', 'data-e2e-state', { timeoutMs: 1_000 }).catch(() => null)
       : null;
     const lockStartVisible = lockStart.visible;
-    const fundingBip21Visible = fundingBip21.visible;
-    const isComplete = panelState.chainState.isPendingFunding || fundingBip21Visible;
+    const isComplete = panelState.chainState.isPendingFunding || lockOverlayState === 'ReadyForBitcoin';
     const canRun =
       !isComplete &&
       !panelState.chainState.hasActiveLock &&
@@ -67,7 +64,6 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
         lockOverlayVisible,
         lockOverlayState,
         lockStartVisible,
-        fundingBip21Visible,
       },
       state: operationState,
       phase:

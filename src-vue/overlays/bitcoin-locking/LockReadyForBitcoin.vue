@@ -19,7 +19,9 @@
 
       <p class="mt-5 text-gray-600 select-text">
         2. Send exactly
-        <strong>{{ satToBtcNm(props.personalLock.satoshis).format('0,0.[00000000]') }}</strong>
+        <strong data-testid="LockReadyForBitcoin.amount">
+          {{ satToBtcNm(props.personalLock.satoshis).format('0,0.[00000000]') }}
+        </strong>
         BTC (&asymp; {{ currency.symbol }}{{ satToMoneyNm(props.personalLock.satoshis).format('0,0.00') }}) to this
         address:
       </p>
@@ -31,7 +33,7 @@
             :content="scriptPaytoAddress"
             class="relative min-w-0 grow cursor-pointer"
           >
-            <span class="flex min-w-0 items-center opacity-80">
+            <span data-testid="LockReadyForBitcoin.address" class="flex min-w-0 items-center opacity-80">
               <span class="truncate">{{ scriptPaytoAddressPrefix }}</span>
               <span class="shrink-0">{{ scriptPaytoAddressSuffix }}</span>
               <CopyIcon class="ml-2 h-4 w-4 shrink-0" />
@@ -46,6 +48,7 @@
           </CopyToClipboard>
         </div>
         <button
+          data-testid="LockReadyForBitcoin.copyAddress()"
           class="border-argon-600 shrink-0 rounded-md border px-3 whitespace-nowrap"
           @click.stop="scriptPaytoAddressCopy?.copy()"
         >

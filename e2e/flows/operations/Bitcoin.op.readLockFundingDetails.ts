@@ -1,7 +1,7 @@
 import type { IBitcoinVaultMismatchState } from '../types/srcVue.ts';
 import type { IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
 import { readClipboardWithRetries } from '../helpers/readClipboardWithRetries.ts';
-import { formatUnitsToDecimal, parseBip21, parseDecimalToUnits } from '../helpers/utils.ts';
+import { formatUnitsToDecimal, parseDecimalToUnits } from '../helpers/utils.ts';
 import type { IE2EOperationInspectState, IE2EOperationState } from '../types.ts';
 import bitcoinEnsureMismatchActionPanel from './Bitcoin.op.ensureMismatchActionPanel.ts';
 import { Operation } from './index.ts';
@@ -13,7 +13,8 @@ type IReadLockFundingDetailsChainState = IBitcoinVaultMismatchState & {
 };
 
 type IReadLockFundingDetailsUiState = {
-  fundingBip21Visible: boolean;
+  fundingAddressVisible: boolean;
+  fundingAmountVisible: boolean;
   lockOverlayState: string | null;
 };
 
@@ -25,25 +26,30 @@ type IReadLockFundingDetailsState = IE2EOperationInspectState<
 export default new Operation<IBitcoinFlowContext, IReadLockFundingDetailsState>(import.meta, {
   async inspect({ flow, state: flowState }) {
     const hasLockFundingDetails = !!flowState.lockFundingDetails;
-    const [panelState, lockOverlay, fundingBip21] = await Promise.all([
+    const [panelState, lockOverlay, fundingAddress, fundingAmount] = await Promise.all([
       flow.inspect(bitcoinEnsureMismatchActionPanel),
       flow.isVisible('BitcoinLockingOverlay'),
-      flow.isVisible('fundingBip21.copyContent()'),
+      flow.isVisible('LockReadyForBitcoin.address'),
+      flow.isVisible('LockReadyForBitcoin.amount'),
     ]);
     const lockOverlayState = lockOverlay.visible
       ? await flow.getAttribute('BitcoinLockingOverlay', 'data-e2e-state', { timeoutMs: 1_000 }).catch(() => null)
       : null;
     const readyForBitcoinVisible = lockOverlayState === 'ReadyForBitcoin';
+    const fundingDetailsVisible = fundingAddress.visible && fundingAmount.visible;
     const wrongLockingPhaseVisible =
       lockOverlay.visible && !!lockOverlayState && lockOverlayState !== 'ReadyForBitcoin';
     const isComplete = hasLockFundingDetails;
-    const canRun = !isComplete && panelState.chainState.isPendingFunding && readyForBitcoinVisible;
+    const canRun =
+      !isComplete && panelState.chainState.isPendingFunding && readyForBitcoinVisible && fundingDetailsVisible;
     let operationState: IE2EOperationState = 'processing';
     if (isComplete) {
       operationState = 'complete';
     } else if (wrongLockingPhaseVisible) {
       operationState = 'uiStateMismatch';
     } else if (panelState.chainState.isPendingFunding && !readyForBitcoinVisible) {
+      operationState = 'uiStateMismatch';
+    } else if (readyForBitcoinVisible && !fundingDetailsVisible) {
       operationState = 'uiStateMismatch';
     } else if (canRun) {
       operationState = 'runnable';
@@ -62,13 +68,17 @@ export default new Operation<IBitcoinFlowContext, IReadLockFundingDetailsState>(
     if (!isComplete && !readyForBitcoinVisible) {
       blockers.push('ReadyForBitcoin funding details are not visible.');
     }
+    if (!isComplete && readyForBitcoinVisible && !fundingDetailsVisible) {
+      blockers.push('ReadyForBitcoin funding address or amount is not visible.');
+    }
     return {
       chainState: {
         hasLockFundingDetails,
         ...panelState.chainState,
       },
       uiState: {
-        fundingBip21Visible: fundingBip21.visible,
+        fundingAddressVisible: fundingAddress.visible,
+        fundingAmountVisible: fundingAmount.visible,
         lockOverlayState,
       },
       state: operationState,
@@ -80,20 +90,12 @@ export default new Operation<IBitcoinFlowContext, IReadLockFundingDetailsState>(
   async run({ flow, flowName, state: flowState }, state) {
     if (state.state === 'complete') return;
 
-    if (!state.uiState.fundingBip21Visible) {
-      await flow.click({ selector: '.BitcoinLockingOverlay .text-argon-600.cursor-pointer' }, { timeoutMs: 5_000 });
-      await flow.waitFor('fundingBip21.copyContent()', { timeoutMs: 5_000 });
-    }
-
-    const bip21 = await readClipboardWithRetries(
+    const lockAddress = await readClipboardWithRetries(
       flow,
-      () => flow.click('fundingBip21.copyContent()'),
-      value => value.startsWith('bitcoin:'),
+      () => flow.click('LockReadyForBitcoin.copyAddress()'),
+      value => value.startsWith('bcrt1'),
     );
-    const { address: lockAddress, amount: lockAmount } = parseBip21(bip21);
-    if (!lockAddress) {
-      throw new Error(`${flowName}: missing lock address`);
-    }
+    const lockAmount = (await flow.getText('LockReadyForBitcoin.amount')).trim().replaceAll(',', '');
     if (!lockAmount) {
       throw new Error(`${flowName}: missing lock amount`);
     }
