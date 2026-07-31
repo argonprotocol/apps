@@ -26,11 +26,10 @@ export default createBitcoinFundLockExactOperation();
 function createBitcoinFundLockExactOperation(): Operation<IBitcoinFlowContext, IFundLockExactState> {
   const operation = new Operation<IBitcoinFlowContext, IFundLockExactState>(import.meta, {
     async inspect({ flow }) {
-      const [panelState, lockingEntryVisible, lockOverlay, fundingBip21] = await Promise.all([
+      const [panelState, lockingEntryVisible, lockOverlay] = await Promise.all([
         flow.inspect(bitcoinEnsureMismatchActionPanel),
         hasBitcoinLockEntry(flow),
         flow.isVisible('BitcoinLockingOverlay'),
-        flow.isVisible('fundingBip21.copyContent()'),
       ]);
       const lockingOverlayState = lockOverlay.visible
         ? await flow.getAttribute('BitcoinLockingOverlay', 'data-e2e-state', { timeoutMs: 1_000 }).catch(() => null)
@@ -39,9 +38,7 @@ function createBitcoinFundLockExactOperation(): Operation<IBitcoinFlowContext, I
       const inFundingState = panelState.chainState.isPendingFunding;
       const fundingReadyToResume = panelState.chainState.isFundingReadyToResume;
       const fundingEntryVisible =
-        fundingBip21.visible ||
-        lockingEntryVisible ||
-        (lockOverlay.visible && lockingOverlayState === 'ReadyForBitcoin');
+        lockingEntryVisible || (lockOverlay.visible && lockingOverlayState === 'ReadyForBitcoin');
       const processingOnBitcoinVisible = lockingOverlayState === 'ProcessingOnBitcoin';
       const isComplete = panelState.chainState.isPostFundingLock || processingOnBitcoinVisible;
       const canRun =

@@ -10,7 +10,6 @@ type IOpenLockFundingOverlayUiState = {
   lockingEntryVisible: boolean;
   lockOverlayVisible: boolean;
   lockOverlayState: string | null;
-  fundingBip21Visible: boolean;
 };
 
 type IOpenLockFundingOverlayState = IE2EOperationInspectState<
@@ -21,16 +20,12 @@ type IOpenLockFundingOverlayState = IE2EOperationInspectState<
 export default new Operation<IBitcoinFlowContext, IOpenLockFundingOverlayState>(import.meta, {
   async inspect({ flow }) {
     const panelState = await flow.inspect(bitcoinEnsureMismatchActionPanel);
-    const [lockOverlay, fundingBip21] = await Promise.all([
-      flow.isVisible('BitcoinLockingOverlay'),
-      flow.isVisible('fundingBip21.copyContent()'),
-    ]);
+    const lockOverlay = await flow.isVisible('BitcoinLockingOverlay');
     const lockingEntryVisible = panelState.lockingEntryVisible;
     const lockOverlayVisible = lockOverlay.visible;
     const lockOverlayState = lockOverlay.visible
       ? await flow.getAttribute('BitcoinLockingOverlay', 'data-e2e-state', { timeoutMs: 1_000 }).catch(() => null)
       : null;
-    const fundingBip21Visible = fundingBip21.visible;
     const readyForBitcoinVisible = lockOverlayState === 'ReadyForBitcoin';
     const wrongLockingPhaseVisible = lockOverlayVisible && !!lockOverlayState && lockOverlayState !== 'ReadyForBitcoin';
     const isComplete = readyForBitcoinVisible;
@@ -65,7 +60,6 @@ export default new Operation<IBitcoinFlowContext, IOpenLockFundingOverlayState>(
         lockingEntryVisible,
         lockOverlayVisible,
         lockOverlayState,
-        fundingBip21Visible,
       },
       state: operationState,
       phase:

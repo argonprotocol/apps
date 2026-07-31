@@ -137,18 +137,16 @@ async function readFundLockMismatchUiState(flow: IE2EFlowRuntime): Promise<{
   fundingEntryVisible: boolean;
   mismatchPanelVisible: boolean;
 }> {
-  const [lockingEntryVisible, lockOverlay, fundingBip21, mismatchPanel] = await Promise.all([
+  const [lockingEntryVisible, lockOverlay, mismatchPanel] = await Promise.all([
     hasBitcoinLockEntry(flow),
     flow.isVisible('BitcoinLockingOverlay'),
-    flow.isVisible('fundingBip21.copyContent()'),
     flow.isVisible('LockFundingMismatch'),
   ]);
   const lockingOverlayState = lockOverlay.visible
     ? await flow.getAttribute('BitcoinLockingOverlay', 'data-e2e-state', { timeoutMs: 1_000 }).catch(() => null)
     : null;
   return {
-    fundingEntryVisible:
-      lockingEntryVisible || fundingBip21.visible || (lockOverlay.visible && lockingOverlayState === 'ReadyForBitcoin'),
+    fundingEntryVisible: lockingEntryVisible || (lockOverlay.visible && lockingOverlayState === 'ReadyForBitcoin'),
     mismatchPanelVisible: mismatchPanel.visible || (lockOverlay.visible && lockingOverlayState === 'FundingMismatch'),
   };
 }
