@@ -12,7 +12,7 @@ import { getSpendableDefaultArgonMicrogons, IArgonWalletType, WalletForArgon } f
 import { IWallet, defaultWalletData } from '../lib/Wallet.ts';
 import { WalletsForArgon, IWalletEvents, readArgonWalletBalanceValues } from '../lib/WalletsForArgon.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
-import { getBlockWatch, getFinalizedClient } from './mainchain.ts';
+import { getBlockWatch, getFinalizedClient, getMainchainClient } from './mainchain.ts';
 import { getMyVault } from './vaults.ts';
 import { loadEthereumChainConfig } from '../lib/EthereumClient.ts';
 import { WalletForEthereum } from '../lib/WalletForEthereum.ts';
@@ -30,11 +30,18 @@ let legacyMiningHoldCleanupPromise: Promise<void> | undefined;
 
 let walletKeys: WalletKeys;
 export function getWalletKeys() {
-  walletKeys ??= new WalletKeys(SECURITY, async () => {
-    const walletsForArgon = getWalletsForArgon();
-    await walletsForArgon.load();
-    return walletsForArgon.didWalletHavePreviousLife();
-  });
+  walletKeys ??= new WalletKeys(
+    SECURITY,
+    async () => {
+      const walletsForArgon = getWalletsForArgon();
+      await walletsForArgon.load();
+      return walletsForArgon.didWalletHavePreviousLife();
+    },
+    async () => {
+      const client = await getMainchainClient(false);
+      return client.consts.mint.maxPossibleMiners.toNumber();
+    },
+  );
   return walletKeys;
 }
 
