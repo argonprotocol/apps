@@ -72,6 +72,25 @@ export class Vaults {
     return this.waitForLoad.promise;
   }
 
+  public async refreshVault(vaultId: number): Promise<Vault | undefined> {
+    const client = await this.mainchainClients.get(false);
+    const vaultOption = await client.query.vaults.vaultsById(vaultId);
+    if (!vaultOption.isSome) {
+      delete this.vaultsById[vaultId];
+      delete this.vaultSatoshisById[vaultId];
+      return;
+    }
+
+    const raw = vaultOption.unwrap();
+    const vault = new Vault(vaultId, raw, NetworkConfig.tickMillis);
+    this.vaultsById[vaultId] = vault;
+    this.vaultSatoshisById[vaultId] = {
+      lockedSatoshis: raw.lockedSatoshis.toBigInt(),
+      securitizedSatoshis: raw.securitizedSatoshis.toBigInt(),
+    };
+    return vault;
+  }
+
   public async subscribeToVault(vaultId: number, onUpdate: (vault: Vault) => void): Promise<() => void> {
     const client = await this.mainchainClients.get(false);
 

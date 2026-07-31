@@ -331,6 +331,9 @@ export const useCertificationController = defineStore('certificationController',
   const completedTreasuryCertificationStepCount = Vue.computed(() => {
     return treasuryCertificationStepIds.filter(stepId => isCertificationStepComplete(stepId)).length;
   });
+  const isTreasuryCertificationChecklistComplete = Vue.computed(() => {
+    return completedTreasuryCertificationStepCount.value === treasuryCertificationStepIds.length;
+  });
   const isCertificationChecklistComplete = Vue.computed(() => {
     return completedCertificationStepCount.value === certificationStepCount;
   });
@@ -807,6 +810,7 @@ export const useCertificationController = defineStore('certificationController',
     certificationStepCount,
     completedCertificationStepCount,
     completedTreasuryCertificationStepCount,
+    isTreasuryCertificationChecklistComplete,
     isCertificationChecklistComplete,
     isTreasuryCertificationFlowActive,
     chainProgress,

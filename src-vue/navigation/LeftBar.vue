@@ -58,7 +58,7 @@
                   <BitcoinIcon class="w-6" />
                 </div>
                 Bitcoin Locks
-                <GiftIcon v-if="bitcoinLockCoupons.openCouponCount" class="text-argon-800/50 ml-2 w-4" />
+                <GiftIcon v-if="hasActiveCoupon" class="text-argon-800/50 ml-2 w-4" />
               </div>
               <div class="flex items-center gap-x-2">
                 <span v-if="currency.isLoaded" class="opacity-60">
@@ -529,6 +529,15 @@ const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm, micronotToMon
 
 const showOperationsNavigationCallouts = Vue.ref(false);
 const selectedWallet = Vue.ref<IWalletSelection>({ walletType: WalletType.defaultArgon });
+const now = Vue.ref(Date.now());
+const couponExpirationInterval = setInterval(() => {
+  now.value = Date.now();
+}, 1_000);
+
+const hasActiveCoupon = Vue.computed(() => {
+  const expiresAt = bitcoinLockCoupons.currentCoupon?.expiresAt;
+  return expiresAt != null && new Date(expiresAt).getTime() > now.value;
+});
 
 const walletSelections = Vue.computed(() => {
   return getAvailableWalletSelections(wallets.walletRecords, [], config.hasExtensionOperations);
@@ -671,6 +680,7 @@ function highlightOperationsNavigation() {
 basicEmitter.on('highlightOperationsNavigation', highlightOperationsNavigation);
 
 Vue.onBeforeUnmount(() => {
+  clearInterval(couponExpirationInterval);
   basicEmitter.off('highlightOperationsNavigation', highlightOperationsNavigation);
 });
 </script>

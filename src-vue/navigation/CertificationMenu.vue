@@ -112,36 +112,36 @@
       </div>
     </div>
 
-    <div AlertMenu v-else-if="isShowingBonusTooltip" class="fixed z-50 pt-[12px]" :style="alertMenuStyle">
-      <Arrow
-        class="absolute top-0 h-3.5 w-6"
-        :style="alertArrowStyle"
-        fill="white"
-      />
-      <Arrow
-        class="absolute top-0 h-3.5 w-6"
-        :style="alertArrowStyle"
-        fill="color-mix(in oklab, var(--color-argon-600) 5%, transparent)"
-      />
-      <div class="bg-white border border-argon-400/50 rounded shadow-xl pt-0.5 pl-0.5">
-        <div class="relative bg-argon-600/5 w-108 rounded px-5 pb-5 pt-3" style="text-shadow: 1px 1px 0 white">
-          <div class="flex items-center justify-between border-b border-argon-300/20 pb-2 mb-2">
-            <div class="font-bold text-argon-600 text-xl">Collect Your Treasury Bonus</div>
-            <button
-              @click="dismissMessage"
-              class="cursor-pointer rounded-full p-1 text-argon-600/70 hover:bg-white/70 hover:text-argon-800"
-              aria-label="Close tooltip"
-            >
-              <XMarkIcon class="h-5 w-5 stroke-[2.5]" />
-            </button>
-          </div>
-          <p class="text-argon-600 mt-1">
-            A bonus of {{ operationalActivationRewardLabel }} has been set aside in Argon's Treasury for your benefit. It
-            will be claimable once your account becomes fully operational. Open the menu above to learn more.
-          </p>
-        </div>
-      </div>
-    </div>
+<!--    <div AlertMenu v-else-if="isShowingBonusTooltip" class="fixed z-50 pt-[12px]" :style="alertMenuStyle">-->
+<!--      <Arrow-->
+<!--        class="absolute top-0 h-3.5 w-6"-->
+<!--        :style="alertArrowStyle"-->
+<!--        fill="white"-->
+<!--      />-->
+<!--      <Arrow-->
+<!--        class="absolute top-0 h-3.5 w-6"-->
+<!--        :style="alertArrowStyle"-->
+<!--        fill="color-mix(in oklab, var(&#45;&#45;color-argon-600) 5%, transparent)"-->
+<!--      />-->
+<!--      <div class="bg-white border border-argon-400/50 rounded shadow-xl pt-0.5 pl-0.5">-->
+<!--        <div class="relative bg-argon-600/5 w-108 rounded px-5 pb-5 pt-3" style="text-shadow: 1px 1px 0 white">-->
+<!--          <div class="flex items-center justify-between border-b border-argon-300/20 pb-2 mb-2">-->
+<!--            <div class="font-bold text-argon-600 text-xl">Collect Your Treasury Bonus</div>-->
+<!--            <button-->
+<!--              @click="dismissMessage"-->
+<!--              class="cursor-pointer rounded-full p-1 text-argon-600/70 hover:bg-white/70 hover:text-argon-800"-->
+<!--              aria-label="Close tooltip"-->
+<!--            >-->
+<!--              <XMarkIcon class="h-5 w-5 stroke-[2.5]" />-->
+<!--            </button>-->
+<!--          </div>-->
+<!--          <p class="text-argon-600 mt-1">-->
+<!--            A bonus of {{ operationalActivationRewardLabel }} has been set aside in Argon's Treasury for your benefit. It-->
+<!--            will be claimable once your account becomes fully operational. Open the menu above to learn more.-->
+<!--          </p>-->
+<!--        </div>-->
+<!--      </div>-->
+<!--    </div>-->
 
     <div
       v-if="!config.hasExtensionTreasury"

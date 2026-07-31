@@ -547,6 +547,15 @@ export const useFinancials = defineStore('financials', () => {
     }
   }
 
+  async function refreshVaults(vaultIds?: number[]) {
+    if (vaultIds?.length) {
+      await Promise.all(vaultIds.map(vaultId => vaultStore.refreshVault(vaultId)));
+    } else {
+      await vaultStore.load(true);
+    }
+    await loadVaults();
+  }
+
   // Savings ///////////////////////////////////////////////////////////////////////////////////////////////////////////
 
   const savingsTotalPending = Vue.computed(() => {
@@ -1104,6 +1113,7 @@ export const useFinancials = defineStore('financials', () => {
   return {
     vaultsActiveRecords,
     vaultsIsLoaded,
+    refreshVaults,
 
     savingsTotalPending,
     savingsTotalReadyToUse,

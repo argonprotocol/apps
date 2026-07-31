@@ -2,12 +2,31 @@
 <template>
   <OverlayBase :isOpen="isOpen" @close="closeOverlay" @pressEsc="closeOverlay" class="w-240">
     <template #title>
-      <StepsHeader :icon="ArgonIcon" :items="stepItems" />
+      <StepsHeader :isLoading="isLoading" :hasError="!!loadError" :icon="ArgonIcon" :items="stepItems" />
     </template>
 
-    <div v-if="!isLoaded" class="flex flex-col items-center justify-center">
-      Loading...
+    <div v-if="isLoading" class="flex min-h-60 flex-col items-center justify-center gap-3 text-slate-500">
+      <div class="h-8 w-8 animate-spin rounded-full border-3 border-slate-200 border-t-argon-500" />
+      <div>Refreshing vault availability...</div>
     </div>
+    <div v-else-if="loadError" class="flex min-h-60 flex-col items-center justify-center gap-4 px-8 text-center">
+      <div class="text-lg font-semibold text-slate-800">Unable to refresh bond availability</div>
+      <div class="text-sm text-slate-500">{{ loadError }}</div>
+      <div class="flex gap-3">
+        <button class="rounded border border-slate-300 px-4 py-2 text-sm text-slate-600" @click="closeOverlay">Cancel</button>
+        <button class="bg-argon-button rounded px-4 py-2 text-sm font-semibold text-white" @click="loadPurchase">
+          Retry
+        </button>
+      </div>
+    </div>
+    <BondPurchaseComplete
+      v-else-if="isComplete"
+      :amount="completedPurchaseAmount"
+      singularLabel="Argon Bond"
+      pluralLabel="Argon Bonds"
+      distributionSource="Vault revenue"
+      @close="closeOverlay"
+    />
     <div v-else-if="!vaultId" class="px-6 pt-2 pb-7">
       <SelectAVault unitType="ArgonBond" @select="handleVaultSelected" />
       <div class="flex flex-row justify-end gap-3 pt-3 px-3 mt-4 mb-3 border-t border-slate-300">
@@ -54,6 +73,16 @@
           </button>
         </div>
       </div>
+    </div>
+    <div
+      v-else-if="vaultAvailableCapacity <= 0n"
+      class="flex min-h-105 flex-col items-center justify-center px-10 py-5 text-center"
+    >
+      <AlertIcon class="h-18 text-yellow-700" />
+      <h1 class="mt-8 text-xl font-bold text-yellow-800">This Vault Has No Argon Bond Space</h1>
+      <p class="mt-4 max-w-150 text-lg leading-relaxed font-light">
+        Contact the person who invited you and let them know their vault has no more Argon Bond space.
+      </p>
     </div>
     <div v-else class="px-10 py-5">
       <div class="pt-3">
@@ -107,7 +136,7 @@
           </div>
           <WalletFundingCallout v-if="neededMicrogons" @open-wallet="openWallet">
             <AlertIcon class="h-4 text-yellow-700 mr-2" />
-            Your wallet needs another {{ microgonToArgonNm(neededMicrogons).format('0,0.[00]') }} ARGN to purchase these
+            Your wallet needs {{ availableMicrogons ? '' : 'another' }} {{ microgonToArgonNm(neededMicrogons).format('0,0.[00]') }} ARGN to purchase these
             bonds.
           </WalletFundingCallout>
 
@@ -202,6 +231,8 @@ import { useVaultingStats } from '../stores/vaultingStats.ts';
 import { WalletType } from '../lib/Wallet.ts';
 import WalletFundingCallout from '../components/WalletFundingCallout.vue';
 import AlertIcon from '../assets/alert.svg?component';
+import BondPurchaseComplete from './BondPurchaseComplete.vue';
+import { useFinancials } from '../stores/financials.ts';
 
 const MICROGONS_PER_ARGON_BIGINT = BigInt(MICROGONS_PER_ARGON);
 
@@ -214,11 +245,13 @@ const walletKeys = getWalletKeys();
 const vaultingStats = useVaultingStats();
 const transactionTracker = getTransactionTracker();
 const vaults = getVaults();
+const financials = useFinancials();
 
 const { microgonToArgonNm, microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const isOpen = Vue.ref(false);
-const isLoaded = Vue.ref(false);
+const isLoading = Vue.ref(false);
+const loadError = Vue.ref('');
 const tmpVaultId = Vue.ref<number>();
 const selectedVaultId = Vue.ref<number>();
 const vault = Vue.ref<Vault>();
@@ -230,6 +263,8 @@ const txInfo = Vue.ref<TransactionInfo>();
 const progressPct = Vue.ref(0);
 const progressMessage = Vue.ref('');
 const progressError = Vue.ref('');
+const isComplete = Vue.ref(false);
+const completedPurchaseAmount = Vue.ref(0);
 
 let unsubVault: VoidFunction | undefined;
 let unsubProgress: VoidFunction | undefined;
@@ -239,7 +274,7 @@ const vaultId = Vue.computed(() => {
   return selectedVaultId.value ?? myVault.vaultId ?? config.upstreamOperator?.vaultId;
 });
 
-const walletBalance = Vue.computed(() => wallets.defaultArgonWallet.availableMicrogons);
+const availableMicrogons = Vue.computed(() => wallets.defaultArgonWallet.availableMicrogons);
 
 const vaultBondState = Vue.computed(() => {
   return vaultId.value ? argonBonds.data.vaultsById[vaultId.value] : undefined;
@@ -250,13 +285,7 @@ const vaultAvailableCapacity = Vue.computed(() => {
 });
 
 const spendableWalletBalance = Vue.computed(() => {
-  return getSpendableDefaultArgonMicrogons(walletBalance.value);
-});
-
-const operationalReserveMicrogons = Vue.computed(() => walletBalance.value - spendableWalletBalance.value);
-
-const vaultCapacityLimitsPurchase = Vue.computed(() => {
-  return vaultAvailableCapacity.value < spendableWalletBalance.value;
+  return getSpendableDefaultArgonMicrogons(availableMicrogons.value);
 });
 
 const maxPurchaseAmount = Vue.computed(() => {
@@ -285,28 +314,28 @@ function openWallet() {
 const stepItems: IStepHeaderItem[] = [
   {
     label: 'Select Vault',
-    tooltip: "Choose how much BTC you want to lock. The more you lock, the more Argons you'll receive.",
-    isActive: () => false,
+    tooltip: 'Pick the vault you want to use for your bond purchase.',
+    isActive: () => !vaultId.value && !txInfo.value && !isComplete.value,
   },
   {
     label: '',
-    tooltip: 'Your request is submitted to the Argon network and validated by participating miners.',
+    tooltip: "We'll pull the latest data from the network.",
     isActive: () => false,
   },
   {
     label: 'Choose Amount',
-    tooltip: "Choose how much BTC you want to lock. The more you lock, the more Argons you'll receive.",
-    isActive: () => true,
+    tooltip: 'Choose how many Argon Bonds you want to purchase.',
+    isActive: () => !!vaultId.value && !txInfo.value && !isComplete.value,
   },
   {
     label: '',
-    tooltip: 'Your request is submitted to the Argon network and validated by participating miners.',
-    isActive: () => false,
+    tooltip: 'Your bond purchase settles directly on the blockchain.',
+    isActive: () => !!txInfo.value && !isComplete.value,
   },
   {
     label: 'Collect Argons',
-    tooltip: 'You will be awarded the full market value of your Bitcoin as unencumbered Argon stablecoins.',
-    isActive: () => false,
+    tooltip: 'Collect daily ARGN distributions funded by Vault revenue.',
+    isActive: () => isComplete.value,
   },
 ];
 
@@ -320,49 +349,80 @@ function resetProgress() {
   isSubmitting.value = false;
 }
 
-function cleanupPurchase() {
+function cancelPurchaseActivity() {
   purchaseSession += 1;
   unsubVault?.();
   unsubVault = undefined;
+  unsubProgress?.();
+  unsubProgress = undefined;
+}
+
+function cleanupPurchase() {
+  cancelPurchaseActivity();
   resetProgress();
 }
 
 function resetPurchase() {
   vault.value = undefined;
   purchaseAmount.value = 0;
+  completedPurchaseAmount.value = 0;
+  isComplete.value = false;
   errorMessage.value = '';
+  loadError.value = '';
+  isLoading.value = false;
   isSubmitting.value = false;
 }
 
-async function openOverlay() {
+async function loadPurchase() {
+  const session = ++purchaseSession;
+  const relevantVaultIds = [myVault.vaultId, config.upstreamOperator?.vaultId].filter((id): id is number => id != null);
+  isLoading.value = true;
+  loadError.value = '';
+  try {
+    await Promise.all([
+      financials.refreshVaults(relevantVaultIds.length ? [...new Set(relevantVaultIds)] : undefined),
+      argonBonds.refreshBondLots(),
+    ]);
+    if (session !== purchaseSession || !isOpen.value) return;
+    if (vaultId.value !== undefined) {
+      await initializePurchase(session);
+    }
+  } catch (error) {
+    if (session !== purchaseSession || !isOpen.value) return;
+    loadError.value = error instanceof Error ? error.message : 'Unable to refresh bond availability.';
+  } finally {
+    if (session === purchaseSession && isOpen.value) isLoading.value = false;
+  }
+}
+
+function openOverlay() {
   cleanupPurchase();
   resetPurchase();
   tmpVaultId.value = undefined;
   selectedVaultId.value = undefined;
-
-  if (vaultId.value !== undefined) {
-    await initializePurchase();
-  }
   isOpen.value = true;
+  void loadPurchase();
 }
 
 function closeOverlay() {
   isOpen.value = false;
-  cleanupPurchase();
-  resetPurchase();
-  tmpVaultId.value = undefined;
-  selectedVaultId.value = undefined;
+  cancelPurchaseActivity();
 }
 
 async function onSubmitted() {
-  closeOverlay();
+  if (isComplete.value) return;
+
+  isComplete.value = true;
+  unsubProgress?.();
+  unsubProgress = undefined;
   await argonBonds.refreshBondLots();
 }
 
-function trackTxInfo(info: TransactionInfo) {
+function trackTxInfo(info: TransactionInfo<IBuyVaultBondMetadata>) {
   unsubProgress?.();
   txInfo.value = info;
   isSubmitting.value = false;
+  completedPurchaseAmount.value = Number(info.tx.metadataJson.bondPurchaseMicrogons / MICROGONS_PER_ARGON_BIGINT);
   argonBonds.saveBondPurchase(info);
 
   unsubProgress = info.subscribeToProgress((args, error) => {
@@ -417,8 +477,7 @@ async function submit() {
   }
 }
 
-async function initializePurchase() {
-  const session = ++purchaseSession;
+async function initializePurchase(session = ++purchaseSession) {
   unsubVault?.();
   unsubVault = undefined;
 
@@ -438,11 +497,7 @@ async function initializePurchase() {
   await transactionTracker.load();
   if (session !== purchaseSession) return;
 
-  const pendingBuyTxInfo = transactionTracker.findLatestTxInfo<{
-    vaultId?: number;
-    bondPurchaseMicrogons?: bigint;
-    bondPurchaseMicronots?: bigint;
-  }>(candidate => {
+  const pendingBuyTxInfo = transactionTracker.findLatestTxInfo<IBuyVaultBondMetadata>(candidate => {
     if (candidate.tx.accountAddress !== walletKeys.defaultArgonAddress) return false;
     if (candidate.tx.submissionErrorJson || candidate.tx.blockExtrinsicErrorJson) return false;
 
@@ -481,7 +536,6 @@ Vue.onMounted(async () => {
     raw: client.consts.treasury.minimumArgonsPerContributor.toBigInt(),
     formatted: minPurchaseAllowed.value,
   });
-  isLoaded.value = true;
 });
 
 Vue.onUnmounted(() => {

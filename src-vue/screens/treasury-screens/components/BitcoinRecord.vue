@@ -105,7 +105,12 @@
         </div>
         <div SecondRow>
           <div class="fade-in-out text-argon-900/60 text-md pointer-events-none font-bold">
-            You need to send the required amount of bitcoin into the vault.
+            <CountdownClock :time="fundingExpirationTime" v-slot="{ days, hours, minutes, seconds, isFinished }">
+              <template v-if="isFinished">The time to complete this step has expired.</template>
+              <template v-else>
+                You have {{ formatTimeRemaining(days, hours, minutes, seconds) }} to complete this step.
+              </template>
+            </CountdownClock>
           </div>
         </div>
       </div>
@@ -236,6 +241,7 @@ import { useFinancials } from '../../../stores/financials.ts';
 import ProgressBar from '../../../components/ProgressBar.vue';
 import BitcoinRecordMismatch from './BitcoinRecordMismatch.vue';
 import Spinner from '../../../components/Spinner.vue';
+import CountdownClock from '../../../components/CountdownClock.vue';
 
 dayjs.extend(utc);
 
@@ -256,6 +262,7 @@ const emit = defineEmits<{
 
 const isActionHovered = Vue.ref(false);
 const lockRecord = Vue.computed(() => props.lockSummary.record);
+const fundingExpirationTime = Vue.ref(dayjs.utc(bitcoinLocks.verifyExpirationTime(lockRecord.value)));
 const isHistoryRecoveryPaused = Vue.computed(() => financials.historyRecovery.state === 'error');
 const isRatchetPending = Vue.computed(() => !!bitcoinLocks.getPendingRatchetTxInfo(lockRecord.value));
 const mismatchAcceptProgress = Vue.computed(() => {
@@ -272,6 +279,12 @@ const mismatchAcceptProgress = Vue.computed(() => {
 function expirationDate(lock: IBitcoinLockRecord) {
   const expirationMillis = bitcoinLocks.unlockDeadlineTime(lock);
   return dayjs.utc(expirationMillis);
+}
+
+function formatTimeRemaining(days: number, hours: number, minutes: number, seconds: number): string {
+  const totalHours = days * 24 + hours;
+  const parts = [totalHours ? `${totalHours}h` : '', minutes ? `${minutes}m` : '', `${seconds}s`].filter(Boolean);
+  return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0];
 }
 
 function openRatchetingOverlay(event: MouseEvent, lock: IBitcoinLockSummary) {

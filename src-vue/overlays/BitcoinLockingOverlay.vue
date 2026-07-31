@@ -10,10 +10,24 @@
     class="BitcoinLockingOverlay min-h-60 w-240"
   >
     <template #title>
-      <StepsHeader v-if="isLoaded" :icon="BitcoinIcon" :items="stepItems" />
+      <StepsHeader :isLoading="isLoading" :hasError="!!vaultRefreshError" :icon="BitcoinIcon" :items="stepItems" />
     </template>
 
-    <div v-if="lockStep === LockStep.SelectVault" class="px-2">
+    <div v-if="isLoading" class="flex min-h-60 flex-col items-center justify-center gap-3 text-slate-500">
+      <div class="h-8 w-8 animate-spin rounded-full border-3 border-slate-200 border-t-argon-500" />
+      <div>Loading...</div>
+    </div>
+    <div v-else-if="vaultRefreshError" class="flex min-h-60 flex-col items-center justify-center gap-4 px-8 text-center">
+      <div class="text-lg font-semibold text-slate-800">Unable to refresh vault availability</div>
+      <div class="text-sm text-slate-500">{{ vaultRefreshError }}</div>
+      <div class="flex gap-3">
+        <button class="rounded border border-slate-300 px-4 py-2 text-sm text-slate-600" @click="closeOverlay">Cancel</button>
+        <button class="bg-argon-button rounded px-4 py-2 text-sm font-semibold text-white" @click="refreshVaultAvailability">
+          Retry
+        </button>
+      </div>
+    </div>
+    <div v-else-if="lockStep === LockStep.SelectVault" class="px-2">
       <SelectAVault unitType="BitcoinLock" @load="handleVaultsLoaded" @select="handleVaultSelected" class="px-3" />
       <div class="flex flex-row justify-end gap-3 pt-3 px-3 mt-4 mb-3 border-t border-slate-300">
         <button
@@ -34,11 +48,8 @@
     </div>
     <LockStart
       v-else-if="lockStep === LockStep.Start"
-      :canChangeVault="canChangeVault"
-      :coupon="bitcoinLockCoupons.currentCoupon"
       :currentTick="currentTick"
       :vault="vault as Vault"
-      @changeVault="changeVault"
       @close="closeOverlay"
       @lockCreated="onLockCreated" />
     <LockIsProcessingOnArgon v-else-if="lockStep === LockStep.IsProcessingOnArgon" :personalLock="personalLock!" />
@@ -62,7 +73,11 @@
         </button>
       </div>
     </div>
-    <LockReadyForBitcoin v-else-if="lockStep === LockStep.ReadyForBitcoin" :personalLock="personalLock!" />
+    <LockReadyForBitcoin
+      v-else-if="lockStep === LockStep.ReadyForBitcoin"
+      :personalLock="personalLock!"
+      @close="closeOverlay"
+    />
     <LockIsProcessingOnBitcoin v-else-if="lockStep === LockStep.ProcessingOnBitcoin" :personalLock="personalLock!" />
     <LockFundingMismatch v-else-if="lockStep === LockStep.FundingMismatch" :personalLock="personalLock!" />
     <LockFundingExpired
@@ -98,7 +113,7 @@ import LockIsProcessingOnBitcoin from './bitcoin-locking/LockIsProcessingOnBitco
 import LockFundingMismatch from './bitcoin-locking/LockFundingMismatch.vue';
 import LockFundingExpired from './bitcoin-locking/LockFundingExpired.vue';
 import LockMinting from './bitcoin-locking/LockMinting.vue';
-import { getBitcoinLockCoupons, getBitcoinLocks } from '../stores/bitcoin.ts';
+import { getBitcoinLocks } from '../stores/bitcoin.ts';
 import { getConfig } from '../stores/config.ts';
 import { getMyVault, getVaults } from '../stores/vaults.ts';
 import { Vault } from '@argonprotocol/mainchain';
@@ -107,16 +122,20 @@ import StepsHeader, { IStepHeaderItem } from '../components/StepsHeader.vue';
 import BitcoinIcon from '../assets/wallets/bitcoin.svg?component';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { getMiningFrames } from '../stores/mainchain.ts';
+import { useFinancials } from '../stores/financials.ts';
+import { useCertificationController } from '../stores/certificationController.ts';
 
 const bitcoinLocks = getBitcoinLocks();
-const bitcoinLockCoupons = getBitcoinLockCoupons();
 const config = getConfig();
+const financials = useFinancials();
+const certificationController = useCertificationController();
 const myVault = getMyVault();
 const vaults = getVaults();
 const miningFrames = getMiningFrames();
 
 const isOpen = Vue.ref(false);
-const isLoaded = Vue.ref(false);
+const isLoading = Vue.ref(true);
+const vaultRefreshError = Vue.ref('');
 const currentTick = Vue.ref(0);
 const requestedPersonalLock = Vue.ref<IBitcoinLockRecord>();
 const tmpVault = Vue.ref<Vault>();
@@ -125,18 +144,15 @@ const vault = Vue.ref<Vault>();
 const createdLockUuid = Vue.ref<string | undefined>();
 const createdLock = Vue.ref<IBitcoinLockRecord | undefined>();
 let overlayRefreshInterval: ReturnType<typeof setInterval> | undefined;
-let headerLoadTimeout: ReturnType<typeof setTimeout> | undefined;
 let unsubscribeTicks: VoidFunction | undefined;
+let vaultRefreshKey = 0;
 
 const defaultVault = Vue.computed(() => {
+  const vaultId = myVault.vaultId;
+  if (vaultId) return vaults.vaultsById[vaultId] ?? myVault.createdVault;
+
   const upstreamVaultId = config.upstreamOperator?.vaultId;
   if (upstreamVaultId) return vaults.vaultsById[upstreamVaultId];
-
-  const vaultId = myVault.vaultId;
-  if (vaultId) return myVault.createdVault ?? vaults.vaultsById[vaultId];
-
-  const couponVaultId = bitcoinLockCoupons.currentCoupon?.coupon.vaultId;
-  return couponVaultId ? vaults.vaultsById[couponVaultId] : undefined;
 });
 
 const trackedCreatedLock = Vue.computed<IBitcoinLockRecord | undefined>(() => {
@@ -177,7 +193,13 @@ const mismatchView = Vue.computed(() => {
 const canChangeVault = Vue.computed(() => {
   const ownVaultId = myVault.vaultId;
   const upstreamVaultId = config.upstreamOperator?.vaultId;
-  return !personalLock.value && ownVaultId != null && upstreamVaultId != null && ownVaultId !== upstreamVaultId;
+  return (
+    !certificationController.isTreasuryCertificationChecklistComplete &&
+    !personalLock.value &&
+    ownVaultId != null &&
+    upstreamVaultId != null &&
+    ownVaultId !== upstreamVaultId
+  );
 });
 
 const lockStep = Vue.computed<LockStep>(() => {
@@ -238,8 +260,12 @@ const lockFailedError = Vue.computed(() => {
 const stepItems: IStepHeaderItem[] = [
   {
     label: 'Select Vault',
-    tooltip: "Choose how much BTC you want to lock. The more you lock, the more Argons you'll receive.",
+    tooltip: 'Pick the vault you want to use for your liquid locking.',
     isActive: () => lockStep.value === LockStep.SelectVault,
+    click: () => {
+      console.log('CAN CHANGE VAULT: ', canChangeVault.value);
+      return canChangeVault.value ? changeVault() : undefined;
+    },
   },
   {
     label: '',
@@ -359,12 +385,14 @@ function changeVault() {
 }
 
 function resetLockingSession() {
+  vaultRefreshKey += 1;
   requestedPersonalLock.value = undefined;
   tmpVault.value = undefined;
   vault.value = undefined;
   createdLockUuid.value = undefined;
   createdLock.value = undefined;
-  isLoaded.value = false;
+  isLoading.value = false;
+  vaultRefreshError.value = '';
   lockProcessingDetails.value = {
     progressPct: 0,
     confirmations: -1,
@@ -374,10 +402,6 @@ function resetLockingSession() {
 }
 
 function stopSessionRefresh() {
-  if (headerLoadTimeout) {
-    clearTimeout(headerLoadTimeout);
-    headerLoadTimeout = undefined;
-  }
   if (overlayRefreshInterval) {
     clearInterval(overlayRefreshInterval);
     overlayRefreshInterval = undefined;
@@ -386,9 +410,6 @@ function stopSessionRefresh() {
 
 function startSessionRefresh() {
   stopSessionRefresh();
-  headerLoadTimeout = setTimeout(() => {
-    isLoaded.value = true;
-  }, 100);
 
   void resolveCreatedLockTransition();
   updateLockProcessingDetails();
@@ -398,15 +419,44 @@ function startSessionRefresh() {
   }, 1_000);
 }
 
-function openOverlay(args?: { lock?: IBitcoinLockRecord }) {
+async function refreshVaultAvailability() {
+  const refreshKey = ++vaultRefreshKey;
+  const vaultIds = [myVault.vaultId, config.upstreamOperator?.vaultId].filter(
+    (vaultId): vaultId is number => vaultId != null,
+  );
+  isLoading.value = true;
+  vaultRefreshError.value = '';
+  try {
+    await financials.refreshVaults([...new Set(vaultIds)]);
+    if (refreshKey !== vaultRefreshKey || !isOpen.value) return;
+    tmpVault.value = defaultVault.value;
+    vault.value = defaultVault.value;
+    startSessionRefresh();
+  } catch (error) {
+    if (refreshKey !== vaultRefreshKey || !isOpen.value) return;
+    vaultRefreshError.value = error instanceof Error ? error.message : 'The vault refresh failed.';
+  } finally {
+    if (refreshKey === vaultRefreshKey) isLoading.value = false;
+  }
+}
+
+async function openOverlay(args?: { lock?: IBitcoinLockRecord }) {
   stopSessionRefresh();
   resetLockingSession();
 
   requestedPersonalLock.value = args?.lock;
-  tmpVault.value = defaultVault.value;
-  vault.value = defaultVault.value;
+  isLoading.value = !args?.lock;
   isOpen.value = true;
-  startSessionRefresh();
+  if (args?.lock) {
+    tmpVault.value = defaultVault.value;
+    vault.value = defaultVault.value;
+    startSessionRefresh();
+  } else {
+    const openKey = vaultRefreshKey;
+    await new Promise(resolve => setTimeout(resolve, 5_000));
+    if (openKey !== vaultRefreshKey || !isOpen.value) return;
+    void refreshVaultAvailability();
+  }
 }
 
 function closeSession() {
@@ -422,9 +472,6 @@ function closeFromGlobalRequest() {
 Vue.onMounted(async () => {
   basicEmitter.on('openBitcoinLock', openOverlay);
   basicEmitter.on('closeAllOverlays', closeFromGlobalRequest);
-  void bitcoinLockCoupons.refresh().catch(error => {
-    console.error('Unable to refresh Bitcoin lock coupons', error);
-  });
 
   await miningFrames.load();
   currentTick.value = miningFrames.currentTick;

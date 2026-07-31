@@ -2,12 +2,31 @@
 <template>
   <OverlayBase :isOpen="isOpen" @close="closeOverlay" @pressEsc="closeOverlay" class="w-240">
     <template #title>
-      <StepsHeader :icon="ArgonotIcon" :items="stepItems" />
+      <StepsHeader :isLoading="isLoading" :hasError="!!loadError" :icon="ArgonotIcon" :items="stepItems" />
     </template>
 
-    <div v-if="!isLoaded" class="flex flex-col items-center justify-center">
-      Loading...
+    <div v-if="isLoading" class="flex min-h-60 flex-col items-center justify-center gap-3 text-slate-500">
+      <div class="h-8 w-8 animate-spin rounded-full border-3 border-slate-200 border-t-argon-500" />
+      <div>Refreshing stake availability...</div>
     </div>
+    <div v-else-if="loadError" class="flex min-h-60 flex-col items-center justify-center gap-4 px-8 text-center">
+      <div class="text-lg font-semibold text-slate-800">Unable to refresh stake availability</div>
+      <div class="text-sm text-slate-500">{{ loadError }}</div>
+      <div class="flex gap-3">
+        <button class="rounded border border-slate-300 px-4 py-2 text-sm text-slate-600" @click="closeOverlay">Cancel</button>
+        <button class="bg-argon-button rounded px-4 py-2 text-sm font-semibold text-white" @click="loadPurchase">
+          Retry
+        </button>
+      </div>
+    </div>
+    <BondPurchaseComplete
+      v-else-if="isComplete"
+      :amount="completedPurchaseAmount"
+      singularLabel="Argonot Stake"
+      pluralLabel="Argonot Stakes"
+      distributionSource="Mining Auction revenue"
+      @close="closeOverlay"
+    />
     <div v-else-if="!minerId" class="px-6 pt-2 pb-7">
       <div class="flex flex-row justify-end gap-3 pt-3 px-3 mt-4 mb-3 border-t border-slate-300">
         <button
@@ -108,7 +127,7 @@
           </div>
           <WalletFundingCallout v-if="neededMicronots" @open-wallet="openWallet">
             <AlertIcon class="h-4 text-yellow-700 mr-2" />
-            Your wallet needs another {{ micronotToArgonotNm(neededMicronots).format('0,0.[00]') }} ARGNOT to purchase
+            Your wallet needs {{ availableMicronots ? '' : 'another' }} {{ micronotToArgonotNm(neededMicronots).format('0,0.[00]') }} ARGNOT to purchase
             these stakes.
           </WalletFundingCallout>
 
@@ -209,6 +228,7 @@ import { useVaultingStats } from '../stores/vaultingStats.ts';
 import { WalletType } from '../lib/Wallet.ts';
 import WalletFundingCallout from '../components/WalletFundingCallout.vue';
 import AlertIcon from '../assets/alert.svg?component';
+import BondPurchaseComplete from './BondPurchaseComplete.vue';
 
 const wallets = useWallets();
 const argonBonds = getArgonBonds();
@@ -220,7 +240,8 @@ const transactionTracker = getTransactionTracker();
 const { micronotToArgonotNm, micronotToMoneyNm } = createNumeralHelpers(currency);
 
 const isOpen = Vue.ref(false);
-const isLoaded = Vue.ref(false);
+const isLoading = Vue.ref(false);
+const loadError = Vue.ref('');
 const tmpVaultId = Vue.ref<number>();
 const selectedVaultId = Vue.ref<number>();
 const vault = Vue.ref<Vault>();
@@ -233,13 +254,15 @@ const txInfo = Vue.ref<TransactionInfo>();
 const progressPct = Vue.ref(0);
 const progressMessage = Vue.ref('');
 const progressError = Vue.ref('');
+const isComplete = Vue.ref(false);
+const completedPurchaseAmount = Vue.ref(0);
 const minerId = Vue.ref('TODO');
 
 let unsubVault: VoidFunction | undefined;
 let unsubProgress: VoidFunction | undefined;
 let purchaseSession = 0;
 
-const walletBalance = Vue.computed(() => wallets.defaultArgonWallet.availableMicronots);
+const availableMicronots = Vue.computed(() => wallets.defaultArgonWallet.availableMicronots);
 
 const unitsPerBond = Vue.computed(() => BigInt(MICRONOTS_PER_ARGONOT));
 
@@ -254,19 +277,10 @@ const vaultAvailableCapacity = Vue.computed(() => {
   return argonotBondCapacity.value;
 });
 
-const spendableWalletBalance = Vue.computed(() => {
-  return walletBalance.value;
-});
-
 const purchaseCapacity = Vue.computed(() => {
-  return spendableWalletBalance.value < vaultAvailableCapacity.value
-    ? spendableWalletBalance.value
+  return availableMicronots.value < vaultAvailableCapacity.value
+    ? availableMicronots.value
     : vaultAvailableCapacity.value;
-});
-
-const maxPurchaseAmount = Vue.computed(() => {
-  const max = purchaseCapacity.value;
-  return max - (max % unitsPerBond.value);
 });
 
 const maxPurchaseBonds = Vue.computed(() => {
@@ -274,7 +288,7 @@ const maxPurchaseBonds = Vue.computed(() => {
 });
 
 const neededMicronots = Vue.computed(() => {
-  return purchaseAmount.value > walletBalance.value ? purchaseAmount.value - walletBalance.value : 0n;
+  return purchaseAmount.value > availableMicronots.value ? purchaseAmount.value - availableMicronots.value : 0n;
 });
 
 const projectedEarnings = Vue.computed(() => {
@@ -294,28 +308,28 @@ function selectVault() {
 const stepItems: IStepHeaderItem[] = [
   {
     label: 'Select Miner',
-    tooltip: 'Choose the miner whose Mining Auction returns will support this stake.',
-    isActive: () => false,
+    tooltip: 'Choose the miner you want to purchase your Argonot Stakes through.',
+    isActive: () => !minerId.value && !txInfo.value && !isComplete.value,
   },
   {
     label: '',
-    tooltip: 'Your request is submitted to the Argon network and validated by participating miners.',
+    tooltip: "We'll pull data from the network",
     isActive: () => false,
   },
   {
     label: 'Choose Amount',
     tooltip: 'Choose how many Argonot Stakes you want to purchase.',
-    isActive: () => true,
+    isActive: () => !!minerId.value && !txInfo.value && !isComplete.value,
   },
   {
     label: '',
-    tooltip: 'Your request is submitted to the Argon network and validated by participating miners.',
-    isActive: () => false,
+    tooltip: 'Your purchase will finalized directly on the blockchain.',
+    isActive: () => !!txInfo.value && !isComplete.value,
   },
   {
-    label: 'Earn Returns',
-    tooltip: 'Collect your share of Mining Auction profits.',
-    isActive: () => false,
+    label: 'Collect Argons',
+    tooltip: 'Collect daily ARGN distributions funded by Mining Auction revenue.',
+    isActive: () => isComplete.value,
   },
 ];
 
@@ -329,10 +343,16 @@ function resetProgress() {
   isSubmitting.value = false;
 }
 
-function cleanupPurchase() {
+function cancelPurchaseActivity() {
   purchaseSession += 1;
   unsubVault?.();
   unsubVault = undefined;
+  unsubProgress?.();
+  unsubProgress = undefined;
+}
+
+function cleanupPurchase() {
+  cancelPurchaseActivity();
   resetProgress();
 }
 
@@ -340,37 +360,56 @@ function resetPurchase() {
   vault.value = undefined;
   argonotBondCapacity.value = 0n;
   purchaseAmount.value = 0n;
+  completedPurchaseAmount.value = 0;
+  isComplete.value = false;
   errorMessage.value = '';
+  loadError.value = '';
+  isLoading.value = false;
   isSubmitting.value = false;
 }
 
-async function openOverlay() {
+async function loadPurchase() {
+  const session = ++purchaseSession;
+  isLoading.value = true;
+  loadError.value = '';
+  try {
+    await initializePurchase(session);
+  } catch (error) {
+    if (session !== purchaseSession || !isOpen.value) return;
+    loadError.value = error instanceof Error ? error.message : 'Unable to refresh stake availability.';
+  } finally {
+    if (session === purchaseSession && isOpen.value) isLoading.value = false;
+  }
+}
+
+function openOverlay() {
   cleanupPurchase();
   resetPurchase();
   tmpVaultId.value = undefined;
   selectedVaultId.value = undefined;
-
-  await initializePurchase();
   isOpen.value = true;
+  void loadPurchase();
 }
 
 function closeOverlay() {
   isOpen.value = false;
-  cleanupPurchase();
-  resetPurchase();
-  tmpVaultId.value = undefined;
-  selectedVaultId.value = undefined;
+  cancelPurchaseActivity();
 }
 
 async function onSubmitted() {
-  closeOverlay();
+  if (isComplete.value) return;
+
+  isComplete.value = true;
+  unsubProgress?.();
+  unsubProgress = undefined;
   await argonBonds.refreshBondLots();
 }
 
-function trackTxInfo(info: TransactionInfo) {
+function trackTxInfo(info: TransactionInfo<IBuyArgonotBondMetadata>) {
   unsubProgress?.();
   txInfo.value = info;
   isSubmitting.value = false;
+  completedPurchaseAmount.value = Number(info.tx.metadataJson.bondPurchaseMicronots / unitsPerBond.value);
   argonBonds.saveBondPurchase(info);
 
   unsubProgress = info.subscribeToProgress((args, error) => {
@@ -416,8 +455,7 @@ async function submit() {
   }
 }
 
-async function initializePurchase() {
-  const session = ++purchaseSession;
+async function initializePurchase(session = ++purchaseSession) {
   unsubVault?.();
   unsubVault = undefined;
 
@@ -437,11 +475,7 @@ async function initializePurchase() {
   await transactionTracker.load();
   if (session !== purchaseSession) return;
 
-  const pendingBuyTxInfo = transactionTracker.findLatestTxInfo<{
-    vaultId?: number;
-    bondPurchaseMicrogons?: bigint;
-    bondPurchaseMicronots?: bigint;
-  }>(candidate => {
+  const pendingBuyTxInfo = transactionTracker.findLatestTxInfo<IBuyArgonotBondMetadata>(candidate => {
     if (candidate.tx.accountAddress !== walletKeys.defaultArgonAddress) return false;
     if (candidate.tx.submissionErrorJson || candidate.tx.blockExtrinsicErrorJson) return false;
 
@@ -461,8 +495,6 @@ async function initializePurchase() {
 Vue.onMounted(async () => {
   basicEmitter.on('openStakePurchaseOverlay', openOverlay);
   basicEmitter.on('closeAllOverlays', closeOverlay);
-
-  isLoaded.value = true;
 });
 
 Vue.onUnmounted(() => {

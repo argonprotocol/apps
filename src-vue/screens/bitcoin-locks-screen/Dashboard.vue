@@ -51,7 +51,7 @@
             <span class="relative">
               <button
                 data-testid="BitcoinLocks.openLockingOverlay()"
-                @click="openLockingOverlay"
+                @click="openNewLockingOverlay"
                 class="text-md text-argon-600 cursor-pointer"
               >
                 Lock Another Bitcoin
@@ -161,6 +161,11 @@ function openDetail(lock: IBitcoinLockSummary) {
 
 function openLockingOverlay() {
   basicEmitter.emit('openBitcoinLock', selectedLock.value ? { lock: selectedLock.value.record } : undefined);
+}
+
+function openNewLockingOverlay() {
+  selectedLock.value = undefined;
+  openLockingOverlay();
 }
 
 function openUnlockingOverlay(eventOrLock: MouseEvent | IBitcoinLockRecord, maybeLock?: IBitcoinLockRecord) {
