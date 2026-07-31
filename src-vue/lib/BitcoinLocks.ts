@@ -734,7 +734,7 @@ export default class BitcoinLocks {
     });
   }
 
-  private async minimumSatoshiPerLock(): Promise<bigint> {
+  public async minimumSatoshiPerLock(): Promise<bigint> {
     const client = await getMainchainClient(false);
     return await client.query.bitcoinLocks.minimumSatoshis().then(x => x.toBigInt());
   }

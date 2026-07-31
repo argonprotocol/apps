@@ -42,7 +42,7 @@
 
         <span class="relative">
           <button
-            @click="openBondsOverlay('Argonot')"
+            @click="openStakePurchaseOverlay"
             class="bg-argon-button hover:bg-argon-button-hover mt-12 cursor-pointer rounded-md border border-transparent px-12 py-3 text-lg font-bold text-white"
           >
             Buy Your First Argonot Stake
@@ -77,8 +77,8 @@ const argonBonds = getArgonBonds();
 
 const supportsArgnotBacking = Vue.ref(false);
 
-function openBondsOverlay(programType: BondLot['programType']) {
-  basicEmitter.emit('openBuyBondsOverlay', programType);
+function openStakePurchaseOverlay() {
+  basicEmitter.emit('openStakePurchaseOverlay');
 }
 
 async function refreshMarketData() {

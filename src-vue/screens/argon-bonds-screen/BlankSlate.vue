@@ -42,7 +42,7 @@
 
         <span class="relative">
           <button
-            @click="openBondsOverlay('Vault')"
+            @click="openBondPurchaseOverlay"
             class="bg-argon-button hover:bg-argon-button-hover mt-12 cursor-pointer rounded-md border border-transparent px-12 py-3 text-lg font-bold text-white"
           >
             Buy Your First Argon Bond
@@ -87,8 +87,8 @@ const argonBonds = getArgonBonds();
 
 const canBuyWithArgn = Vue.computed(() => financials.savingsTotalReadyToUse > 0n);
 
-function openBondsOverlay(programType: BondLot['programType']) {
-  basicEmitter.emit('openBuyBondsOverlay', programType);
+function openBondPurchaseOverlay() {
+  basicEmitter.emit('openBondPurchaseOverlay');
 }
 
 async function refreshMarketData() {

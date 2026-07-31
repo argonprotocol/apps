@@ -1,51 +1,158 @@
 <template>
   <OverlayBase
     :isOpen="true"
+    class="BondDetailOverlay min-h-48 w-180"
     data-testid="BondDetailOverlay"
     @close="emit('close')"
     @pressEsc="emit('close')"
-    class="BondDetailOverlay min-h-48 w-200"
   >
     <template #title>
-      <div class="mr-6 flex grow flex-row items-center gap-2">
-        <span class="text-xl font-bold text-slate-800/80">Bond Details</span>
-        <span
-          v-if="bondLot.isOperator"
-          class="bg-argon-600 inline-block rounded px-1.5 pb-px align-middle text-sm text-white"
-        >
-          YOURS
-        </span>
-        <span v-else class="inline-block rounded bg-slate-500 px-1.5 pb-px align-middle text-sm text-white">
-          EXTERNAL
-        </span>
-      </div>
+      <span class="text-xl font-bold text-slate-800/80">
+        {{ bondLot.programType === 'Argonot' ? 'Stake' : 'Bond' }} Details
+      </span>
+      <span v-if="bondLot.isOwn" class="bg-argon-600 inline-block rounded px-1.5 pb-px align-middle text-sm text-white">
+        YOURS
+      </span>
+      <span v-else class="inline-block rounded bg-slate-500 px-1.5 pb-px align-middle text-sm text-white">
+        EXTERNAL
+      </span>
     </template>
 
-    <BondDetail :summary="summary" />
+    <div class="flex flex-row gap-8 px-10 pt-6 pb-8">
+      <div class="relative w-28 shrink-0 pt-1">
+        <BondIcon class="w-28 opacity-50" />
+      </div>
+
+      <div class="grow">
+        <div class="flex items-baseline gap-2">
+          <span class="text-argon-600 font-mono text-2xl font-bold">
+            <template v-if="bondLot.programType === 'Argonot'">
+              {{ micronotToArgonotNm(bondLot.bondMicrogons).format('0,0.00') }} ARGNOT
+            </template>
+            <template v-else>
+              {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.bondMicrogons).format('0,0.00') }}
+            </template>
+          </span>
+          <span class="text-sm text-slate-500">
+            {{ numeral(bondLot.bonds).format('0,0') }} {{ bondLot.programType === 'Argonot' ? 'stakes' : 'bonds' }}
+          </span>
+        </div>
+
+        <div class="mt-1 text-sm font-light text-slate-400">Purchased {{ purchasedAtLabel }}</div>
+
+        <div
+          v-if="frameSummary"
+          class="border-argon-100 bg-argon-50 mt-3 flex flex-row items-start gap-6 rounded-lg border px-4 py-3 text-sm text-slate-600"
+        >
+          <div>
+            Frame {{ bondFrame!.frameId }} earnings
+            <span class="font-semibold">
+              {{ currency.symbol }}{{ microgonToMoneyNm(frameSummary.earnings).format('0,0.00') }}
+            </span>
+          </div>
+          <div class="text-slate-400">{{ frameSummary.poolSharePct.toFixed(1) }}% of vault bonds</div>
+          <div v-if="frameSummary.keepPct < 100" class="text-slate-400">
+            owner keeps {{ frameSummary.keepPct.toFixed(0) }}%
+          </div>
+        </div>
+
+        <div class="mt-4 grid grid-cols-3 gap-4 rounded-lg bg-slate-50 px-4 py-3 text-sm">
+          <div>
+            <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">Program</div>
+            <div class="mt-1 text-slate-700">{{ bondProgramLabel }}</div>
+          </div>
+
+          <div>
+            <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">Created</div>
+            <div class="mt-1 text-slate-700">Frame {{ bondLot.createdFrame }}</div>
+          </div>
+
+          <div>
+            <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">Last Paid</div>
+            <div class="mt-1 text-slate-700">
+              {{ bondLot.lastEarningsFrame == null ? 'Not yet' : `Frame ${bondLot.lastEarningsFrame}` }}
+            </div>
+          </div>
+
+          <div>
+            <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">Principal Basis</div>
+            <div class="mt-1 font-medium text-slate-700">
+              <template v-if="position?.investedCost !== undefined">
+                {{ currency.symbol }}{{ microgonToMoneyNm(position.investedCost).format('0,0.00') }}
+              </template>
+              <template v-else>--</template>
+              <div
+                v-if="bondLot.programType === 'Argonot' && position?.currentArgonotRateMicrogons !== undefined"
+                class="mt-0.5 text-xs font-normal text-slate-400"
+              >
+                ARGNOT price {{ currency.symbol
+                }}{{ microgonToMoneyNm(position.currentArgonotRateMicrogons).format('0,0.00') }}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">Lifetime Distributions</div>
+            <div class="mt-1 font-medium text-slate-700">
+              {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.lifetimeEarnings).format('0,0.00') }}
+            </div>
+          </div>
+
+          <div>
+            <div class="text-xs font-semibold tracking-wide text-slate-400 uppercase">Return to Date</div>
+            <div class="mt-1 font-medium text-slate-700">
+              <template v-if="returnPercent !== undefined">{{ numeral(returnPercent).format('0,0.00') }}%</template>
+              <template v-else>--</template>
+            </div>
+          </div>
+        </div>
+
+        <div
+          v-if="bondLot.isReleasing && releaseAtLabel"
+          class="mt-3 flex flex-row items-start gap-6 text-sm text-slate-600"
+        >
+          <div class="text-amber-700">
+            Returning
+            <span class="font-semibold">
+              <template v-if="bondLot.programType === 'Argonot'">
+                {{ micronotToArgonotNm(bondLot.returningBondMicrogons).format('0,0.00') }} ARGNOT
+              </template>
+              <template v-else>
+                {{ currency.symbol }}{{ microgonToMoneyNm(bondLot.returningBondMicrogons).format('0,0.00') }}
+              </template>
+            </span>
+            on {{ releaseAtLabel }}
+          </div>
+        </div>
+      </div>
+    </div>
 
     <div
-      v-if="bondLotDetails?.isOwn"
+      v-if="canLiquidate && !isLiquidating"
       class="flex items-start justify-between gap-4 border-t border-slate-200 px-10 py-4"
     >
       <div class="text-sm text-slate-500">
-        <template v-if="bondLotDetails.isReleasing">This bond lot is already being returned.</template>
-        <template v-else>Liquidate this bond lot to schedule its return from Treasury Bonds.</template>
-        <div v-if="liquidationError" class="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-700">
-          {{ liquidationError }}
-        </div>
+        Liquidate this {{ bondLot.programType === 'Argonot' ? 'stake' : 'bond' }} lot to schedule its return.
       </div>
       <button
-        v-if="bondLotDetails.canRelease && !bondLotDetails.isReleasing && !isLiquidating"
         type="button"
         class="bg-argon-button hover:bg-argon-button-hover shrink-0 rounded px-5 py-2 text-sm font-semibold text-white"
         @click="liquidateBondLot"
       >
-        Liquidate Bond Lot
+        Liquidate {{ bondLot.programType === 'Argonot' ? 'Stake' : 'Bond' }} Lot
       </button>
     </div>
 
+    <div v-if="liquidationError" class="border-t border-slate-200 px-10 py-4">
+      <div class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        {{ liquidationError }}
+      </div>
+    </div>
+
     <div v-if="isLiquidating" class="space-y-3 border-t border-slate-200 px-10 py-5">
-      <div class="text-sm font-medium text-slate-600">Liquidating bond lot...</div>
+      <div class="text-sm font-medium text-slate-600">
+        Liquidating {{ bondLot.programType === 'Argonot' ? 'stake' : 'bond' }} lot...
+      </div>
       <ProgressBar :progress="liquidationProgressPct" :hasError="!!liquidationError" />
       <div class="text-xs text-slate-500">{{ liquidationProgressLabel }}</div>
     </div>
@@ -54,110 +161,159 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import OverlayBase from './OverlayBase.vue';
-import BondDetail from './bitcoin-locking/BondDetail.vue';
-import ProgressBar from '../components/ProgressBar.vue';
-import { type IArgonBondFrame } from '../lib/ArgonBonds.ts';
-import { getMyVault } from '../stores/vaults.ts';
-import { getMiningFrames, getMainchainClient } from '../stores/mainchain.ts';
-import { TreasuryBonds, type IFrameBondLot, type IFrameBondSummary } from '@argonprotocol/apps-core';
-import { TICK_MILLIS } from '../lib/Env.ts';
 import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
+import utc from 'dayjs/plugin/utc.js';
+import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
+import OverlayBase from './OverlayBase.vue';
+import ProgressBar from '../components/ProgressBar.vue';
+import BondIcon from '../assets/bond.svg?component';
+import { getCurrency } from '../stores/currency.ts';
+import { getMainchainClient, getMiningFrames } from '../stores/mainchain.ts';
+import { getMyVault, getVaults } from '../stores/vaults.ts';
+import { BondLot, TreasuryBonds } from '@argonprotocol/apps-core';
 import { getWalletKeys } from '../stores/wallets.ts';
 import { getTransactionTracker } from '../stores/transactions.ts';
-import { ExtrinsicType } from '../lib/db/TransactionsTable.ts';
+import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
+import { type TransactionInfo } from '../lib/TransactionInfo.ts';
 import { generateProgressLabel } from '../lib/Utils.ts';
+import { getArgonBonds } from '../stores/argonBonds.ts';
+import type { IBondFinancialPosition } from '../interfaces/IFinancialPosition.ts';
+import type { IArgonBondFrame } from '../lib/ArgonBonds.ts';
 
 dayjs.extend(utc);
 
-const myVault = getMyVault();
+const currency = getCurrency();
 const miningFrames = getMiningFrames();
+const myVault = getMyVault();
+const vaults = getVaults();
 const walletKeys = getWalletKeys();
 const transactionTracker = getTransactionTracker();
+const argonBonds = getArgonBonds();
 
-const props = defineProps<{
-  bondLot: IFrameBondLot;
-  bondFrame: IArgonBondFrame;
-}>();
+const { microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
+
+const props = withDefaults(
+  defineProps<{
+    bondLot: BondLot;
+    position?: IBondFinancialPosition;
+    returnPercent?: number;
+    frameProrata?: bigint;
+    bondFrame?: IArgonBondFrame;
+    liquidationAccount?: 'default' | 'vaulting';
+  }>(),
+  {
+    liquidationAccount: 'default',
+  },
+);
 
 const emit = defineEmits<{
   (e: 'close'): void;
+  (e: 'submitted'): void;
 }>();
 
-// Capture the current frame snapshot so the open detail view does not drift while the frame advances.
-const bondLotAtOpen = props.bondLot;
-const bondFrameAtOpen = props.bondFrame;
-
-// When frame ends, fetch finalized earnings from runtime bond history.
-const finalizedFrameRow = Vue.ref<{ earnings: bigint } | null>(null);
 const isLiquidating = Vue.ref(false);
 const liquidationError = Vue.ref('');
 const liquidationProgressPct = Vue.ref(0);
 const liquidationProgressLabel = Vue.ref('');
+const finalizedFrameEarnings = Vue.ref<bigint>();
 
 let unsubscribeLiquidationProgress: VoidFunction | undefined;
+
+const purchasedAtLabel = Vue.computed(() => {
+  if (!props.bondLot.createdFrame) return 'before frame tracking started';
+  return dayjs.utc(miningFrames.getFrameDate(props.bondLot.createdFrame)).local().format('M/D/YYYY [at] h:mm a');
+});
+
+const releaseAtLabel = Vue.computed(() => {
+  if (props.bondLot.releaseFrame == null) return '';
+  return dayjs.utc(miningFrames.getFrameDate(props.bondLot.releaseFrame)).local().format('M/D/YYYY [at] h:mm a');
+});
+
+const bondProgramLabel = Vue.computed(() => {
+  if (props.bondLot.programType === 'Argonot') {
+    return 'Argonot Stake';
+  }
+
+  const vaultId = props.bondLot.vaultId;
+  if (vaultId == null) {
+    return 'Vault Bond';
+  }
+
+  const vault = vaults.vaultsById[vaultId];
+  const name = vault?.name?.trim();
+  return name ? `${name} Vault` : `Vault #${vaultId}`;
+});
+
+const canLiquidate = Vue.computed(() => {
+  return props.bondLot.isOwn && props.bondLot.canRelease && !props.bondLot.isReleasing;
+});
+
+const frameSummary = Vue.computed(() => {
+  if (props.frameProrata === undefined || !props.bondFrame) return;
+
+  const keepPct = props.bondLot.isOwn ? 100 : 100 - (props.bondLot.sharingPercent ?? 0);
+  const earnings =
+    finalizedFrameEarnings.value ??
+    TreasuryBonds.projectedFrameEarnings({
+      bondLotProrata: props.frameProrata,
+      vaultBonds: props.bondFrame.vaultBonds,
+      globalBonds: props.bondFrame.globalBonds,
+      distributableBidPool: props.bondFrame.distributableBidPool,
+      earningsSharePct: keepPct,
+    });
+
+  return {
+    earnings,
+    keepPct,
+    poolSharePct: TreasuryBonds.prorataToPercent(props.frameProrata),
+  };
+});
 
 Vue.watch(
   () => myVault.data.currentFrameId,
   async newFrameId => {
-    if (newFrameId > bondFrameAtOpen.frameId && finalizedFrameRow.value === null) {
-      const client = await getMainchainClient(false);
-      const history = await TreasuryBonds.getBondFrameHistory(client, myVault.vaultId!, bondLotAtOpen.accountId);
-      const row = history.find(r => r.frameId === bondFrameAtOpen.frameId);
-      if (row) {
-        finalizedFrameRow.value = { earnings: row.earnings };
-      }
+    if (
+      props.frameProrata === undefined ||
+      !props.bondFrame ||
+      newFrameId <= props.bondFrame.frameId ||
+      finalizedFrameEarnings.value !== undefined ||
+      myVault.vaultId == null
+    ) {
+      return;
     }
+
+    const client = await getMainchainClient(false);
+    const history = await TreasuryBonds.getBondFrameHistory(client, myVault.vaultId, props.bondLot.accountId);
+    finalizedFrameEarnings.value = history.find(row => row.frameId === props.bondFrame!.frameId)?.earnings;
   },
 );
 
-const summary = Vue.computed<IFrameBondSummary>(() => {
-  const keepPct = bondLotAtOpen.isOperator ? 100 : 100 - (bondLotAtOpen.details.sharingPercent ?? 0);
-  const poolSharePct = TreasuryBonds.prorataToPercent(bondLotAtOpen.prorata);
-
-  const baseArgs = {
-    bondLotProrata: bondLotAtOpen.prorata,
-    vaultBonds: bondFrameAtOpen.vaultBonds,
-    globalBonds: bondFrameAtOpen.globalBonds,
-    distributableBidPool: bondFrameAtOpen.distributableBidPool,
-  };
-
-  let totalEarnings: bigint;
-  let vaultEarnings: bigint;
-  if (finalizedFrameRow.value !== null) {
-    totalEarnings = finalizedFrameRow.value.earnings;
-    vaultEarnings = finalizedFrameRow.value.earnings;
-  } else {
-    totalEarnings = TreasuryBonds.projectedFrameEarnings({ ...baseArgs, earningsSharePct: 100 });
-    vaultEarnings = TreasuryBonds.projectedFrameEarnings({ ...baseArgs, earningsSharePct: keepPct });
+function trackLiquidationTxInfo(info: TransactionInfo) {
+  unsubscribeLiquidationProgress?.();
+  isLiquidating.value = true;
+  if (props.liquidationAccount === 'default') {
+    argonBonds.saveBondLiquidation(props.bondLot, info);
   }
 
-  const startTick = miningFrames.getTickStart(bondFrameAtOpen.frameId);
-  const endTick = miningFrames.getTickEnd(bondFrameAtOpen.frameId);
+  unsubscribeLiquidationProgress = info.subscribeToProgress((args, error) => {
+    liquidationProgressPct.value = args.progressPct;
+    liquidationProgressLabel.value = generateProgressLabel(args.confirmations, args.expectedConfirmations);
 
-  return {
-    bondLot: bondLotAtOpen,
-    poolSharePct,
-    totalEarnings,
-    vaultEarnings,
-    keepPct,
-    frameStartDate: dayjs
-      .utc(startTick * TICK_MILLIS)
-      .local()
-      .format('MMMM D, h:mm A'),
-    frameEndDate: dayjs
-      .utc((endTick + 1) * TICK_MILLIS)
-      .local()
-      .format('MMMM D, h:mm A'),
-  };
-});
+    if (error) {
+      liquidationError.value = error.message || 'Unable to liquidate bond lot.';
+      isLiquidating.value = false;
+      return;
+    }
 
-const bondLotDetails = Vue.computed(() => bondLotAtOpen.details);
+    if (args.progressPct >= 100) {
+      emit('submitted');
+      emit('close');
+    }
+  });
+}
 
 async function liquidateBondLot() {
-  const details = bondLotDetails.value;
-  if (!details.isOwn || !details.canRelease || details.isReleasing || isLiquidating.value) return;
+  if (!canLiquidate.value || isLiquidating.value) return;
 
   liquidationError.value = '';
   liquidationProgressPct.value = 0;
@@ -166,42 +322,50 @@ async function liquidateBondLot() {
 
   try {
     const client = await getMainchainClient(false);
-    const signer = await walletKeys.getVaultingKeypair();
-    const tx = await TreasuryBonds.buildReleaseBondLotTx({ client, bondLotId: details.id });
+    const signer =
+      props.liquidationAccount === 'vaulting'
+        ? await walletKeys.getVaultingKeypair()
+        : await walletKeys.getDefaultArgonKeypair();
+    const tx = await TreasuryBonds.buildReleaseBondLotTx({ client, bondLotId: props.bondLot.id });
     const info = await transactionTracker.submitAndWatch({
       tx,
       txSigner: signer,
       extrinsicType: ExtrinsicType.TreasuryReleaseBondLot,
       metadata: {
-        bondLotId: details.id,
-        releasedBondMicrogons: details.bondMicrogons,
+        bondLotId: props.bondLot.id,
+        releasedBondMicrogons: props.bondLot.bondMicrogons,
       },
     });
-
-    unsubscribeLiquidationProgress?.();
-    unsubscribeLiquidationProgress = info.subscribeToProgress((args, error) => {
-      liquidationProgressPct.value = args.progressPct;
-      liquidationProgressLabel.value = generateProgressLabel(args.confirmations, args.expectedConfirmations);
-
-      if (error) {
-        liquidationError.value = error.message;
-        isLiquidating.value = false;
-        unsubscribeLiquidationProgress?.();
-        unsubscribeLiquidationProgress = undefined;
-        return;
-      }
-
-      if (args.progressPct >= 100) {
-        emit('close');
-      }
-    });
+    trackLiquidationTxInfo(info);
   } catch (error) {
     liquidationError.value = error instanceof Error ? error.message : 'Unable to liquidate bond lot.';
-    isLiquidating.value = false;
     liquidationProgressPct.value = 0;
     liquidationProgressLabel.value = '';
+    isLiquidating.value = false;
   }
 }
+
+Vue.onMounted(async () => {
+  await transactionTracker.load();
+  const liquidationAddress =
+    props.liquidationAccount === 'vaulting' ? walletKeys.vaultingAddress : walletKeys.defaultArgonAddress;
+
+  const pendingLiquidationTxInfo = transactionTracker.findLatestTxInfo<{
+    bondLotId?: number;
+    releasedBondMicrogons?: bigint;
+  }>(candidate => {
+    if (candidate.tx.extrinsicType !== ExtrinsicType.TreasuryReleaseBondLot) return false;
+    if (candidate.tx.accountAddress !== liquidationAddress) return false;
+    if (candidate.tx.metadataJson?.bondLotId !== props.bondLot.id) return false;
+    if ((candidate.tx.metadataJson?.releasedBondMicrogons ?? 0n) <= 0n) return false;
+    if (candidate.tx.submissionErrorJson || candidate.tx.blockExtrinsicErrorJson) return false;
+    return candidate.tx.status === TransactionStatus.Submitted || candidate.tx.status === TransactionStatus.InBlock;
+  });
+
+  if (pendingLiquidationTxInfo) {
+    trackLiquidationTxInfo(pendingLiquidationTxInfo);
+  }
+});
 
 Vue.onUnmounted(() => {
   unsubscribeLiquidationProgress?.();

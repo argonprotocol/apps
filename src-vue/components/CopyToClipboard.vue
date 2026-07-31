@@ -31,13 +31,14 @@ const $el = Vue.ref<typeof HTMLElement>();
 
 defineExpose({
   $el,
+  copy: copyContent,
 });
 
 let highlightAndCopyTimeout1: ReturnType<typeof setTimeout> | undefined = undefined;
 let highlightAndCopyTimeout2: ReturnType<typeof setTimeout> | undefined = undefined;
 let highlightAndCopyTimeout3: ReturnType<typeof setTimeout> | undefined = undefined;
 
-function copyContent(event: MouseEvent) {
+function copyContent(event?: MouseEvent) {
   event?.stopImmediatePropagation();
   void navigator.clipboard.writeText(props.content).catch(() => {
     // Ignore clipboard failures; the UI feedback still confirms the click action.

@@ -9,29 +9,7 @@
       <div class="grow text-2xl font-bold">Treasury Bonds</div>
     </template>
 
-    <div v-if="currentScreen === 'buy'" class="space-y-5 px-6 py-5 text-slate-700">
-      <div class="text-sm font-semibold text-slate-800">
-        Buy Bonds
-      </div>
-
-      <div class="text-sm leading-6 text-slate-500">
-        Buy bonds to allocate Treasury Bonds to this vault.
-        <template v-if="availableBondMicrogons > 0n">
-          You can buy up to {{ microgonToArgonNm(availableBondMicrogons).format('0,0.[00]') }} ARGN more for this vault.
-        </template>
-      </div>
-
-      <div class="rounded-lg border border-slate-200 bg-white px-5 py-5">
-        <BuyBondsForm
-          :vaultId="vaultId"
-          :walletBalance="wallets.defaultArgonWallet.availableMicrogons"
-          @close="goBack"
-          @submitted="onBuySubmitted"
-        />
-      </div>
-    </div>
-
-    <div v-else class="space-y-5 px-6 py-5 text-slate-700">
+    <div class="space-y-5 px-6 py-5 text-slate-700">
       <div class="flex items-start justify-between gap-5">
         <div>
           <div class="text-sm font-semibold text-slate-800">
@@ -49,7 +27,7 @@
           type="button"
           :disabled="availableBondMicrogons <= 0n"
           class="bg-argon-button hover:bg-argon-button-hover shrink-0 rounded-md px-5 py-2 text-sm font-semibold text-white disabled:cursor-default disabled:opacity-40"
-          @click="goToBuy">
+          @click="openBondPurchaseOverlay">
           Buy Bonds
         </button>
       </div>
@@ -160,7 +138,6 @@
 import * as Vue from 'vue';
 import { BondLot, TreasuryBonds } from '@argonprotocol/apps-core';
 import OverlayBase from './OverlayBase.vue';
-import BuyBondsForm from './BuyBondsForm.vue';
 import ProgressBar from '../components/ProgressBar.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { getArgonBonds } from '../stores/argonBonds.ts';
@@ -175,7 +152,6 @@ import { generateProgressLabel } from '../lib/Utils.ts';
 import { ExtrinsicType } from '../lib/db/TransactionsTable.ts';
 
 const currency = getCurrency();
-const wallets = useWallets();
 const walletKeys = getWalletKeys();
 const myVault = getMyVault();
 const argonBonds = getArgonBonds();
@@ -185,7 +161,6 @@ const vaultingBreakdown = useVaultingAssetBreakdown();
 const { microgonToArgonNm, microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const isOpen = Vue.ref(false);
-const currentScreen = Vue.ref<'overview' | 'buy'>('overview');
 
 const liquidatingLotId = Vue.ref<number>();
 const liquidationProgressActive = Vue.ref(false);
@@ -216,20 +191,10 @@ const liquidationProgressTitle = Vue.computed(() => {
 
 function closeOverlay() {
   isOpen.value = false;
-  currentScreen.value = 'overview';
 }
 
-function goBack() {
-  currentScreen.value = 'overview';
-}
-
-function goToBuy() {
-  currentScreen.value = 'buy';
-}
-
-async function onBuySubmitted() {
-  currentScreen.value = 'overview';
-  await refreshBondLots();
+function openBondPurchaseOverlay() {
+  basicEmitter.emit('openBondPurchaseOverlay');
 }
 
 function resetLiquidationProgress() {
@@ -294,7 +259,6 @@ async function refreshBondLots() {
 
 basicEmitter.on('openTreasuryBondsOverlay', () => {
   isOpen.value = true;
-  currentScreen.value = 'overview';
   void refreshBondLots();
 });
 

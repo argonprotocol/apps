@@ -43,7 +43,7 @@
                 type="button"
                 :disabled="!canBuyWithArgn"
                 class="text-md text-argon-600 cursor-pointer disabled:cursor-default disabled:opacity-40"
-                @click="openBondsOverlay('Vault')"
+                @click="openBondPurchaseOverlay"
               >
                 Buy Argon Bonds
               </button>
@@ -104,19 +104,15 @@ import { getMainchainClient } from '../../stores/mainchain.ts';
 import { getConfig } from '../../stores/config.ts';
 import { BondLot, NetworkConfig } from '@argonprotocol/apps-core';
 import { getArgonBonds } from '../../stores/argonBonds.ts';
-import BuyBondsOverlay from '../../overlays/BuyBondsOverlay.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
-import { WalletType } from '../../lib/Wallet.ts';
 import FormattedMoney from '../../components/FormattedMoney.vue';
 import { useFinancials } from '../../stores/financials.ts';
-import { calculatePositionReturn } from '../../lib/financials/index.ts';
+import { calculatePositionReturn } from '../../lib/financials';
 import BondRecord from '../treasury-screens/components/BondRecord.vue';
-import BondDetailOverlay from '../../app-treasury/overlays/BondDetailOverlay.vue';
+import BondDetailOverlay from '../../overlays/BondDetailOverlay.vue';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import type { IBondFinancialPosition } from '../../interfaces/IFinancialPosition.ts';
-import CurvedArrow from '../../components/CurvedArrow.vue';
-import CurvedArrowRadialGradient from '../../components/CurvedArrowRadialGradient.vue';
 
 const currency = getCurrency();
 const controller = useCertificationController();
@@ -165,8 +161,8 @@ const isSummaryReady = Vue.computed(() => {
 });
 const canBuyWithArgn = Vue.computed(() => financials.savingsTotalReadyToUse > 0n);
 
-function openBondsOverlay(programType: BondLot['programType']) {
-  basicEmitter.emit('openBuyBondsOverlay', programType);
+function openBondPurchaseOverlay() {
+  basicEmitter.emit('openBondPurchaseOverlay');
 }
 
 async function onPurchaseSubmitted() {
@@ -204,10 +200,6 @@ async function refreshMarketData() {
     },
     client,
   );
-}
-
-function openArgonWallet() {
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
 }
 
 let unsubVault: (() => void) | undefined;

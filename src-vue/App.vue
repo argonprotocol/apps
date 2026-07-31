@@ -73,8 +73,9 @@
       </template>
       <UpgradeToOperationsOverlay />
       <UpgradeToTreasuryOverlay />
-      <GlobalBitcoinLockingOverlay />
-      <GlobalBuyBondsOverlay />
+      <BitcoinLockingOverlay />
+      <BondPurchaseOverlay />
+      <StakePurchaseOverlay />
     </template>
     <AppUpdatesOverlay />
   </div>
@@ -138,8 +139,9 @@ import UpgradeToOperationsOverlay from './overlays/UpgradeToOperationsOverlay.vu
 import UpgradeToTreasuryOverlay from './overlays/UpgradeToTreasuryOverlay.vue';
 import Onboarding from './screens/Onboarding.vue';
 import ArgonotStakes from './screens/ArgonotStakes.vue';
-import GlobalBitcoinLockingOverlay from './overlays/GlobalBitcoinLockingOverlay.vue';
-import GlobalBuyBondsOverlay from './overlays/GlobalBuyBondsOverlay.vue';
+import BitcoinLockingOverlay from './overlays/BitcoinLockingOverlay.vue';
+import BondPurchaseOverlay from './overlays/BondPurchaseOverlay.vue';
+import StakePurchaseOverlay from './overlays/StakePurchaseOverlay.vue';
 import SponsorOverlay from './overlays/SponsorOverlay.vue';
 
 const controller = useCertificationController();

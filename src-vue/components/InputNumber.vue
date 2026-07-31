@@ -1,14 +1,18 @@
 <!-- prettier-ignore -->
 <template>
-  <div @focus="handleFocus" @blur="handleBlur" ref="$el" :class="[[props.class || '', hasFocus ? 'z-90' : ''].join(' ')]" class="relative focus-within:relative focus:outline-none" tabindex="0">
+  <div @focus="handleFocus" @blur="handleBlur" ref="$el"
+    class="relative border border-slate-700/50 rounded-md focus-within:relative focus:outline-none font-mono text-sm"
+    :class="twMerge(
+       hasFocus ? 'z-90 inner-input-shadow outline-2 -outline-offset-2 outline-argon-button' : '',
+      props.disabled ? 'border-dashed' : '',
+      !hasFocus && !props.disabled ? 'hover:bg-white' : '',
+      props.class
+    )"
+    tabindex="0"
+  >
     <div
       InputFieldWrapper
-      :class="twMerge(
-        props.disabled ? 'border-dashed' : '',
-        hasFocus ? 'inner-input-shadow outline-2 -outline-offset-2 outline-argon-button' : '',
-        !hasFocus && !props.disabled ? 'hover:bg-white' : '',
-        'min-w-20 font-mono text-sm flex flex-row w-full text-left py-[2px] border border-slate-700/50 rounded-md text-gray-800 cursor-text',
-      )"
+      class="min-w-20 flex flex-row w-full text-left py-[2px] text-gray-800 cursor-text border-0 focus:outline-none"
     >
       <span class="select-none pl-[10px] py-[1px]">{{ prefix }}</span>
       <div class="relative inline-block w-auto whitespace-nowrap">
@@ -32,7 +36,7 @@
         <span @click="moveCursorToEnd" @dblclick="selectAllText" class="absolute top-0 left-0 w-full h-full" />
       </span>
 
-      <div NumArrows v-if="!props.disabled" class="flex flex-col mr-2">
+      <div NumArrows v-if="!props.disabled && !props.hideArrows" class="flex flex-col mr-2">
         <tooltip side="top" content="Click or drag">
           <NumArrow NumArrowUp
             @pointerdown="handlePointerDown"
@@ -74,6 +78,7 @@ const props = withDefaults(
     dragBy?: number;
     dragByMin?: number;
     disabled?: boolean;
+    hideArrows?: boolean;
     prefix?: string;
     suffix?: string;
     minDecimals?: number;
@@ -87,6 +92,7 @@ const props = withDefaults(
     prefix: '',
     suffix: '',
     disabled: false,
+    hideArrows: false,
     format: 'number',
     minDecimals: 0,
     maxDecimals: 2,

@@ -17,11 +17,15 @@
           </template>
           <template v-else>Looking for active Bitcoin locks and past transactions.</template>
         </p>
-        <p v-else class="mx-10 mt-3 flex-col text-xl leading-relaxed text-slate-900/60 xl:mx-28 2xl:mx-auto 2xl:flex">
-          <span>Lock your bitcoin at today’s market rate, receive its full value in inflation-resistant</span>
+        <p v-else class="mx-10 mt-3 flex-col text-xl leading-relaxed text-slate-900/60 xl:mx-10 2xl:mx-auto 2xl:flex">
+          <span>Lock your bitcoin at today’s market rate, receive its full value in stablecoins,</span>
           <span>
-            Argon stablecoins, and be protected if Bitcoin’s price drops.
-            <a :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/bitcoin-locks`" target="_blank">
+            and be protected from Bitcoin price drops. Oh, and it maintains chain-of-custody.
+            <a
+              class="whitespace-nowrap"
+              :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/bitcoin-locks`"
+              target="_blank"
+            >
               Learn more &raquo;
             </a>
           </span>
@@ -67,7 +71,10 @@
           />
         </span>
         <div v-if="!props.isRestoringHistory" class="mt-2 text-slate-800/60">
-          It only takes a few minutes · Preview is free
+          <template v-if="activeCouponGift">
+            You've been gifted ${{ activeCouponGift.amount }}, which expires in {{ activeCouponGift.timeRemaining }}
+          </template>
+          <template v-else>It only takes a few minutes · Preview is free</template>
         </div>
       </div>
     </div>
@@ -108,10 +115,40 @@ const miningFrames = getMiningFrames();
 
 const currentTick = Vue.ref(0);
 const pageSourcesAreLoaded = Vue.ref(false);
+const now = Vue.ref(Date.now());
+let countdownInterval: ReturnType<typeof setInterval> | undefined;
 
 const canStartLocking = Vue.computed(() => {
   return financials.savingsTotalReadyToUse > 0n || !!bitcoinLockCoupons.currentCoupon;
 });
+
+const activeCouponGift = Vue.computed(() => {
+  const couponStatus = bitcoinLockCoupons.currentCoupon;
+  const expiresAt = couponStatus?.expiresAt ? new Date(couponStatus.expiresAt).getTime() : undefined;
+  if (
+    !couponStatus ||
+    !expiresAt ||
+    expiresAt <= now.value ||
+    (couponStatus.coupon.expirationTick != null && couponStatus.coupon.expirationTick <= currentTick.value)
+  ) {
+    return;
+  }
+
+  return {
+    amount: couponStatus.coupon.estimatedGiftUsd.toFixed(2),
+    timeRemaining: formatTimeRemaining(Math.ceil((expiresAt - now.value) / 1_000)),
+  };
+});
+
+function formatTimeRemaining(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts = [hours ? `${hours}h` : '', minutes ? `${minutes}m` : '', seconds ? `${seconds}s` : ''].filter(Boolean);
+
+  if (parts.length < 2) return parts[0] ?? '0s';
+  return `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`;
+}
 
 function openLockingOverlay() {
   basicEmitter.emit('openBitcoinLock', undefined);
@@ -120,6 +157,10 @@ function openLockingOverlay() {
 let unsubMiningFrames: (() => void) | undefined;
 
 Vue.onMounted(async () => {
+  countdownInterval = setInterval(() => {
+    now.value = Date.now();
+  }, 1_000);
+
   void bitcoinLockCoupons.refresh().catch(error => {
     console.error('Unable to refresh Bitcoin lock coupons', error);
   });
@@ -134,6 +175,7 @@ Vue.onMounted(async () => {
 });
 
 Vue.onUnmounted(() => {
+  clearInterval(countdownInterval);
   unsubMiningFrames?.();
 });
 </script>

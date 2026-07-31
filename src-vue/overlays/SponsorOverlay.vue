@@ -35,6 +35,16 @@
             <span class="py-3 text-gray-500">Connection</span>
             <span class="py-3">{{ config.bootstrapDetails?.type || '--' }}</span>
           </li>
+          <li v-if="estimatedLockGift" class="contents">
+            <span class="py-3 text-gray-500">Gifts</span>
+            <span class="py-3">
+              Up to {{ currency.symbol }}{{ microgonToMoneyNm(estimatedLockGift).format('0,0.00') }} in bitcoin locking fees
+              <template v-if="couponExpiresAt">
+                <template v-if="couponTimeRemaining">(expires in {{ couponTimeRemaining }})</template>
+                <template v-else>(expired)</template>
+              </template>
+            </span>
+          </li>
         </ul>
 
         <p class="font-light leading-6 text-gray-600">
@@ -48,14 +58,57 @@
 </template>
 <script setup lang="ts">
 import * as Vue from 'vue';
+import { BitcoinLock } from '@argonprotocol/mainchain';
 import OverlayBase from './OverlayBase.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { getConfig } from '../stores/config.ts';
+import { createNumeralHelpers } from '../lib/numeral';
+import { getCurrency } from '../stores/currency.ts';
+import { getBitcoinLockCoupons } from '../stores/bitcoin.ts';
+import { getVaults } from '../stores/vaults.ts';
 
 const config = getConfig();
+const currency = getCurrency();
+const bitcoinLockCoupons = getBitcoinLockCoupons();
+const vaults = getVaults();
+
+const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
+const now = Vue.ref(Date.now());
+let countdownInterval: ReturnType<typeof setInterval> | undefined;
+
+const estimatedLockGift = Vue.computed(() => {
+  const coupon = bitcoinLockCoupons.currentCoupon;
+  if (!coupon) return;
+
+  const vault = vaults.vaultsById[coupon.coupon.vaultId];
+  if (!vault) return;
+
+  const fullLockAmount = BitcoinLock.calculateRedemptionAmountFromSatoshis(
+    currency.priceIndex,
+    coupon.coupon.maxSatoshis,
+  );
+  return vault.calculateBitcoinFee(fullLockAmount);
+});
+
+const couponExpiresAt = Vue.computed(() => {
+  const expiresAt = bitcoinLockCoupons.currentCoupon?.expiresAt;
+  return expiresAt ? new Date(expiresAt).getTime() : undefined;
+});
+
+const couponTimeRemaining = Vue.computed(() => {
+  if (!couponExpiresAt.value) return;
+
+  const totalSeconds = Math.max(0, Math.ceil((couponExpiresAt.value - now.value) / 1_000));
+  if (totalSeconds === 0) return;
+
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${hours}h ${minutes}m ${seconds}s`;
+});
 
 function closeOverlay() {
   isOpen.value = false;
@@ -66,7 +119,13 @@ basicEmitter.on('openSponsorOverlay', () => {
 });
 
 Vue.onMounted(async () => {
+  countdownInterval = setInterval(() => {
+    now.value = Date.now();
+  }, 1_000);
+
   await config.load();
   isLoaded.value = true;
 });
+
+Vue.onUnmounted(() => clearInterval(countdownInterval));
 </script>
