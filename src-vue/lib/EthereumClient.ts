@@ -104,16 +104,17 @@ type IEthereumSubmissionClient = {
   getTransaction(args: { hash: Hash }): Promise<unknown>;
   getTransactionReceipt(args: { hash: Hash }): Promise<unknown>;
 };
-type IEthereumGatewayCouncilSnapshot = {
-  signers: Address[];
-  weights: bigint[];
-};
-type IEthereumGatewayUpdate = {
-  queueNonce: bigint;
-  kind: bigint;
-  payload: Hex;
-  signatures: Hex[];
-};
+type ApplyGatewayUpdatesArgs = ContractFunctionArgs<
+  typeof EvmContracts.mintingGatewayAbi,
+  'nonpayable',
+  'applyGatewayUpdates'
+>;
+type IEthereumGatewayCouncilSnapshot = ApplyGatewayUpdatesArgs[0];
+type IEthereumGatewayUpdate = ApplyGatewayUpdatesArgs[1][number];
+type MintingGatewayHashContext = Parameters<typeof EvmContracts.hashMintingGatewayGatewayUpdateApproval>[0];
+type MintingGatewayGlobalIssuanceCouncilRotateTarget = Parameters<
+  typeof EvmContracts.encodeMintingGatewayGlobalIssuanceCouncilRotateTarget
+>[0];
 const ethereumChainConfigPromises = new Map<string, Promise<IEthereumChainConfig | undefined>>();
 type EthereumExecutionReceipt = Awaited<ReturnType<PublicClient['getTransactionReceipt']>>;
 type MintingGatewayTransferOutOfArgonAuthorization = {
@@ -129,6 +130,7 @@ export type IEthereumFinalizeTransferOutOfArgonArgs = {
   proof: MintingGatewayTransferOutOfArgonProof;
 };
 type LoadedCouncil = {
+  epochMicrogonsPerArgonot: bigint;
   totalWeight: bigint;
   members: {
     signer: Address;
@@ -991,13 +993,11 @@ async function getReadyEthereumGatewayUpdates(
         );
       }
 
-      const relayableUpdate = await buildGatewayUpdate(
-        finalizedClient,
-        hashContext,
-        queueNonce,
+      const relayableUpdate = await buildGatewayUpdate(finalizedClient, hashContext, queueNonce, {
         entry,
         approvingCouncilHash,
-      );
+        councilCache,
+      });
       relayableUpdates.push(relayableUpdate);
       expectedPreviousApprovalHash = toHexValue(entry.approvalHash);
     }
@@ -1018,6 +1018,8 @@ async function getReadyEthereumGatewayUpdates(
     readyRelayableUpdates = lastOwnedUpdateIndex >= 0 ? relayableUpdates.slice(0, lastOwnedUpdateIndex + 1) : [];
   }
 
+  // ESLint loses the ABI-derived update type through the EvmContracts namespace here.
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
   const updates = readyRelayableUpdates.map(({ update }) => update);
   for (let index = 0; index < updates.length; index += 1) {
     const isBorder =
@@ -1045,15 +1047,60 @@ async function getReadyEthereumGatewayUpdates(
   };
 }
 
-// ESLint loses the helper call types through the EvmContracts namespace here.
-/* eslint-disable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return */
+// The published mainchain declarations reference a missing generated module, so ESLint sees these
+// native EvmContracts helpers as error-typed even though the runtime exports are present.
+/* eslint-disable @typescript-eslint/no-unsafe-call */
 async function buildGatewayUpdate(
   finalizedClient: IArgonQueryable,
-  hashContext: { chainId: bigint; gatewayAddress: Address },
+  hashContext: MintingGatewayHashContext,
   queueNonce: bigint,
-  entry: PalletCrosschainTransferCouncilApprovalQueueEntry,
-  approvingCouncilHash: Hex,
+  queueItem: {
+    entry: PalletCrosschainTransferCouncilApprovalQueueEntry;
+    approvingCouncilHash: Hex;
+    councilCache: Map<Hex, LoadedCouncil>;
+  },
 ): Promise<RelayableGatewayUpdate> {
+  const { entry, approvingCouncilHash, councilCache } = queueItem;
+  if (entry.target.isGlobalIssuanceCouncilRotation) {
+    const signatures = getSortedSignatures(entry.signatures);
+    const nextCouncilHash = toHexValue(entry.target.asGlobalIssuanceCouncilRotation);
+    const nextCouncil = await loadCouncilByHash(finalizedClient, nextCouncilHash, councilCache);
+    const target: MintingGatewayGlobalIssuanceCouncilRotateTarget = {
+      council: councilToSnapshot(nextCouncil),
+      epochMicrogonsPerArgonot: nextCouncil.epochMicrogonsPerArgonot,
+    };
+    const calculatedCouncilHash = EvmContracts.hashMintingGatewayGlobalIssuanceCouncil({
+      ...target.council,
+      epochMicrogonsPerArgonot: target.epochMicrogonsPerArgonot,
+    });
+    const targetPayloadHash = EvmContracts.hashMintingGatewayRotateGlobalIssuanceCouncil(hashContext, target);
+    const approvalHash = EvmContracts.hashMintingGatewayRotateGlobalIssuanceCouncilApproval(hashContext, {
+      queueNonce,
+      approvingCouncilHash,
+      previousUpdateHash: toHexValue(entry.previousApprovalHash),
+      target,
+    });
+
+    if (calculatedCouncilHash !== nextCouncilHash) {
+      throw new Error(`Queue nonce ${queueNonce} target council hash does not match council`);
+    }
+    if (toHexValue(entry.targetPayloadHash) !== targetPayloadHash) {
+      throw new Error(`Queue nonce ${queueNonce} target payload hash does not match council`);
+    }
+    if (toHexValue(entry.approvalHash) !== approvalHash) {
+      throw new Error(`Queue nonce ${queueNonce} approval hash does not match council rotation`);
+    }
+
+    return {
+      update: {
+        queueNonce,
+        kind: EvmContracts.MINTING_GATEWAY_UPDATE_KINDS.globalIssuanceCouncilRotate,
+        payload: EvmContracts.encodeMintingGatewayGlobalIssuanceCouncilRotateTarget(target),
+        signatures,
+      },
+    };
+  }
+
   if (entry.target.isMintingAuthorityDeactivation) {
     const signingKey = getAddress(toHexValue(entry.target.asMintingAuthorityDeactivation));
     const authorityOption = await finalizedClient.query.crosschainTransfer.mintingAuthoritiesBySigner(signingKey);
@@ -1123,7 +1170,7 @@ async function buildGatewayUpdate(
     signingKey,
   };
   const payload = EvmContracts.encodeMintingGatewayMintingAuthorityActivationTarget(target);
-  const targetPayloadHash = payloadHashFromActivationPayload(hashContext, target);
+  const targetPayloadHash = EvmContracts.hashMintingGatewayActivateMintingAuthority(hashContext, target);
   const approvalHash = EvmContracts.hashMintingGatewayGatewayUpdateApproval(hashContext, {
     queueNonce,
     approvingCouncilHash,
@@ -1177,6 +1224,7 @@ async function loadCouncilByHash(
 
   const council = councilOption.unwrap();
   const loaded = {
+    epochMicrogonsPerArgonot: council.epochMicrogonsPerArgonot.toBigInt(),
     totalWeight: council.totalWeight.toBigInt(),
     members: [...council.members.entries()]
       .map(([signer, member]) => ({
@@ -1221,13 +1269,7 @@ function councilToSnapshot(council: LoadedCouncil): IEthereumGatewayCouncilSnaps
   };
 }
 
-function payloadHashFromActivationPayload(
-  hashContext: { chainId: bigint; gatewayAddress: Address },
-  target: { microgonCollateral: bigint; micronotCollateral: bigint; signingKey: Address },
-): Hex {
-  return EvmContracts.hashMintingGatewayActivateMintingAuthority(hashContext, target);
-}
-/* eslint-enable @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return */
+/* eslint-enable @typescript-eslint/no-unsafe-call */
 
 function calculateExpectedGatewayRelayRepaymentMicrogons(args: {
   relayableUpdates: RelayableGatewayUpdate[];
