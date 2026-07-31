@@ -95,8 +95,12 @@ export class WalletKeys {
 
   public async getMiningBotSubaccounts(count?: number): Promise<{ [address: string]: { index: number } }> {
     if (count === undefined && this.loadMiningBotSubaccountCount) {
-      this.miningBotSubaccountCountPromise ??= this.loadMiningBotSubaccountCount();
-      count = await this.miningBotSubaccountCountPromise;
+      try {
+        this.miningBotSubaccountCountPromise ??= this.loadMiningBotSubaccountCount();
+        count = await this.miningBotSubaccountCountPromise;
+      } catch {
+        this.miningBotSubaccountCountPromise = undefined;
+      }
     }
     count ??= 144;
 
