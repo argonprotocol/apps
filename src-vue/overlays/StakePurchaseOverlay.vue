@@ -323,7 +323,7 @@ const stepItems: IStepHeaderItem[] = [
   },
   {
     label: '',
-    tooltip: 'Your purchase will finalized directly on the blockchain.',
+    tooltip: 'Your purchase will be finalized directly on the blockchain.',
     isActive: () => !!txInfo.value && !isComplete.value,
   },
   {

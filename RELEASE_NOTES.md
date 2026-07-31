@@ -3,6 +3,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-07-30
+- Revamped Bitcoin Locking overlay
+- Revamped Argon Bonds purchasing overlay
+- Revamped Argonot Stakes purchasing overlay
+- Revamped all the blank slates in Treasury
+- Added support for WebAssembly in older MacOs versions
+- Fixed a number of bugs
+
 ## [2.2.2] - 2026-07-27
 - LeftBar navigation is now responsive down to 700px height
 - TopBar navigation is now responsive down to 1100px width
