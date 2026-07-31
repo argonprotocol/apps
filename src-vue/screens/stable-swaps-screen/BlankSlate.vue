@@ -43,7 +43,8 @@
         <!--        @click="activateStableSwaps"-->
         <span class="relative">
           <button
-            class="mt-12 rounded-md border border-transparent bg-gray-200 px-12 py-3 text-lg font-bold text-gray-400"
+            disabled
+            class="mt-12 cursor-not-allowed rounded-md border border-transparent bg-gray-200 px-12 py-3 text-lg font-bold text-gray-400"
           >
             Activate Stable Swaps
           </button>

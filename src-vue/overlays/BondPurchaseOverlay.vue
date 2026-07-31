@@ -532,10 +532,6 @@ Vue.onMounted(async () => {
   minPurchaseAllowed.value = Number(
     client.consts.treasury.minimumArgonsPerContributor.toBigInt() / MICROGONS_PER_ARGON_BIGINT,
   );
-  console.log('MINIMUM PURCHASE ALLOWED: ', {
-    raw: client.consts.treasury.minimumArgonsPerContributor.toBigInt(),
-    formatted: minPurchaseAllowed.value,
-  });
 });
 
 Vue.onUnmounted(() => {

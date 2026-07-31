@@ -8,7 +8,7 @@
               tabindex="-1"
               class="flex w-[calc(33.333333%+3rem)] flex-row items-center"
               :class="item.click && !props.isLoading ? 'cursor-pointer' : ''"
-              @click="props.isLoading ? undefined : item.click"
+              @click="props.isLoading ? undefined : item.click?.()"
             >
               <component
                 v-if="index === 0"

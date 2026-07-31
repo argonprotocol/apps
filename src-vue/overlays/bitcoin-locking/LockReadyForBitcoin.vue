@@ -80,9 +80,10 @@
       <p class="mt-5 text-gray-600 select-text">3. Click the “I Locked My Bitcoin” button below.</p>
 
       <p class="mt-8 leading-normal font-light text-gray-600 select-text">
-        Once your transaction is confirmed, Argon Network will mint you 1,500 ARGN, which is the current market value of
-        {{ satToBtcNm(props.personalLock.satoshis).format('0,0.[00000000]') }} BTC. If you accidentally send a different
-        amount, the network will pause and let you accept the adjusted amount or return the BTC.
+        Once your transaction is confirmed, Argon Network will mint you
+        {{ microgonToArgonNm(props.personalLock.liquidityPromised).format('0,0.[00]') }} ARGN, which is the current
+        market value of {{ satToBtcNm(props.personalLock.satoshis).format('0,0.[00000000]') }} BTC. If you accidentally
+        send a different amount, the network will pause and let you accept the adjusted amount or return the BTC.
       </p>
     </div>
 
@@ -124,7 +125,6 @@ import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { SATS_PER_BTC } from '@argonprotocol/mainchain';
 import { getCurrency } from '../../stores/currency.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
-import Spinner from '../../components/Spinner.vue';
 import { TooltipArrow, TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger } from 'reka-ui';
 import { useFloatingZIndex } from '../helpers/OverlayZIndex.ts';
 import { ChevronDoubleRightIcon } from '@heroicons/vue/24/outline';
@@ -143,7 +143,7 @@ const currency = getCurrency();
 const bitcoinLocks = getBitcoinLocks();
 const floatingZIndex = useFloatingZIndex();
 
-const { satToMoneyNm, satToBtcNm } = createNumeralHelpers(currency);
+const { microgonToArgonNm, satToMoneyNm, satToBtcNm } = createNumeralHelpers(currency);
 
 const fundingBip21 = Vue.ref('');
 const scriptPaytoAddress = Vue.ref('');

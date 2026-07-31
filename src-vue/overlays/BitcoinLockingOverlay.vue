@@ -262,10 +262,7 @@ const stepItems: IStepHeaderItem[] = [
     label: 'Select Vault',
     tooltip: 'Pick the vault you want to use for your liquid locking.',
     isActive: () => lockStep.value === LockStep.SelectVault,
-    click: () => {
-      console.log('CAN CHANGE VAULT: ', canChangeVault.value);
-      return canChangeVault.value ? changeVault() : undefined;
-    },
+    click: () => (canChangeVault.value ? changeVault() : undefined),
   },
   {
     label: '',

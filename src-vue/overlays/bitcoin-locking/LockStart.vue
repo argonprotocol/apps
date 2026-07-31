@@ -210,7 +210,7 @@ import { bigNumberToBigInt, NetworkConfig } from '@argonprotocol/apps-core';
 import WalletFundingCallout from '../../components/WalletFundingCallout.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { WalletType } from '../../lib/Wallet.ts';
-import AlertIcon from '../../assets/alert.svg';
+import AlertIcon from '../../assets/alert.svg?component';
 import BigNumber from 'bignumber.js';
 import { useVaultingStats } from '../../stores/vaultingStats.ts';
 
