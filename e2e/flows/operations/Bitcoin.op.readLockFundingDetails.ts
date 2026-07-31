@@ -90,10 +90,15 @@ export default new Operation<IBitcoinFlowContext, IReadLockFundingDetailsState>(
   async run({ flow, flowName, state: flowState }, state) {
     if (state.state === 'complete') return;
 
+    const visibleLockAddress = (await flow.getText('LockReadyForBitcoin.address')).trim();
+    if (!visibleLockAddress) {
+      throw new Error(`${flowName}: missing lock address`);
+    }
+
     const lockAddress = await readClipboardWithRetries(
       flow,
       () => flow.click('LockReadyForBitcoin.copyAddress()'),
-      value => value.startsWith('bcrt1'),
+      value => value === visibleLockAddress,
     );
     const lockAmount = (await flow.getText('LockReadyForBitcoin.amount')).trim().replaceAll(',', '');
     if (!lockAmount) {
