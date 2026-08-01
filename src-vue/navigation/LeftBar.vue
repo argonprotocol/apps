@@ -302,7 +302,11 @@
                   <div class="mt-0.5 flex grow flex-row items-center">
                     <div class="Connector" />
                     <div class="flex grow flex-row items-center border-t border-slate-400/30">
-                      <div class="grow py-1 text-slate-600/80">0 Pending Invites</div>
+                      <div class="grow py-1 text-slate-600/80">
+                        {{ controller.operationalOverview.pendingInviteCount }} Pending Invite{{
+                          controller.operationalOverview.pendingInviteCount === 1 ? '' : 's'
+                        }}
+                      </div>
                       <ExternalIcon class="w-3.5 opacity-50" />
                     </div>
                   </div>
@@ -311,7 +315,11 @@
                   <div class="flex grow flex-row items-center">
                     <div class="Connector" />
                     <div class="flex grow flex-row items-center border-t border-slate-400/30">
-                      <div class="grow py-1 text-slate-600/80">0 Active Members</div>
+                      <div class="grow py-1 text-slate-600/80">
+                        {{ controller.operationalOverview.activeMemberCount }} Active Member{{
+                          controller.operationalOverview.activeMemberCount === 1 ? '' : 's'
+                        }}
+                      </div>
                       <ExternalIcon class="w-3.5 opacity-50" />
                     </div>
                   </div>

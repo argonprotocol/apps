@@ -2,21 +2,34 @@
 <template>
   <OverlayBase
     :isOpen="isOpen"
+    :showGoBack="returnToInvite && (!backfillProgressActive || isBackfillProgressComplete || !!backfillError)"
     @close="closeOverlay"
     @pressEsc="closeOverlay"
+    @goBack="goBackToInvite"
     class="w-7/12">
     <template #title>
-      <div class="grow text-2xl font-bold">Manage Flexible Assets</div>
+      <div class="grow text-2xl font-bold">
+        {{ continueToInvite ? 'Set Up Flexible Space' : 'Manage Flexible Assets' }}
+      </div>
     </template>
 
     <div class="space-y-5 px-6 py-5 text-slate-700">
-      <p class="text-sm leading-6 text-slate-500">
+      <template v-if="continueToInvite">
+        <p class="text-sm leading-6 text-slate-500">
+          We need to make sure your new vault members will have space available to lock Bitcoin and Bonds.
+          "Flexible Space" allow you to mark some of your own Bitcoin locks and Bonds to temporarily step aside when a new member is ready to use that capacity.
+        </p>
+        <p class="text-sm leading-6 text-slate-500">
+          Your assets remain yours and automatically use the space again when it becomes available.
+        </p>
+      </template>
+      <p v-else class="text-sm leading-6 text-slate-500">
         Make your Bitcoin and bonds flexible so new vault members can use the capacity they occupy instead of waiting
         for you to add more securitization. Member assets take priority when they arrive; your assets remain yours and
         can use the capacity again when it becomes available.
       </p>
       <p class="border-argon-300 border-l-2 py-0.5 pl-3 text-xs leading-5 text-slate-500">
-        Flexible Bitcoin must be fully securitized before it can be ratcheted. Flexible bond returns are limited to the
+        NOTE: Flexible Bitcoin must be fully securitized before it can be ratcheted. Flexible Bond returns are limited to the
         portion covered by securitization.
       </p>
 
@@ -52,8 +65,8 @@
           <button
             type="button"
             class="bg-argon-button hover:bg-argon-button-hover rounded-lg px-5 py-2.5 text-sm font-semibold text-white"
-            @click="resetBackfillProgress">
-            Back to Assets
+            @click="handleBackfillProgressAction">
+            {{ isBackfillProgressComplete && continueToInvite ? 'Continue to Invite' : 'Back to Assets' }}
           </button>
         </div>
       </div>
@@ -124,7 +137,7 @@
             type="submit"
             :disabled="!changeCount"
             class="bg-argon-button hover:bg-argon-button-hover rounded-md px-5 py-2 text-sm font-semibold text-white disabled:cursor-default disabled:opacity-40">
-            Apply Changes
+            {{ continueToInvite ? 'Continue to Invite' : 'Apply Changes' }}
           </button>
         </div>
       </form>
@@ -140,7 +153,7 @@ import OverlayBase from './OverlayBase.vue';
 import ProgressBar from '../components/ProgressBar.vue';
 import Checkbox from '../components/Checkbox.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
-import type { IVaultBackfillMetadata } from '../lib/MyVault.ts';
+import type { IVaultBackfillChanges, IVaultBackfillMetadata } from '../lib/MyVault.ts';
 import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
@@ -162,6 +175,8 @@ const { microgonToMoneyNm, satToBtcNm } = createNumeralHelpers(currency);
 
 const isOpen = Vue.ref(false);
 const isLoading = Vue.ref(false);
+const continueToInvite = Vue.ref(false);
+const returnToInvite = Vue.ref(false);
 const eligibleLocks = Vue.ref<BitcoinLock[]>([]);
 const eligibleBondLots = Vue.ref<BondLot[]>([]);
 const bitcoinSelectionByUtxoId = Vue.ref<Record<number, boolean>>({});
@@ -196,12 +211,19 @@ const backfillProgressTitle = Vue.computed(() => {
   if (isBackfillProgressComplete.value) return 'Flexible assets updated';
   return 'Updating flexible assets';
 });
-
 function closeOverlay() {
   isOpen.value = false;
+  continueToInvite.value = false;
+  returnToInvite.value = false;
 }
 
-async function openOverlay() {
+async function openOverlay(request?: {
+  continueToInvite?: boolean;
+  returnToInvite?: boolean;
+  flexibleAssetChanges?: IVaultBackfillChanges;
+}) {
+  continueToInvite.value = request?.continueToInvite ?? false;
+  returnToInvite.value = request?.returnToInvite ?? false;
   isOpen.value = true;
   await transactionTracker.load();
   const pending = transactionTracker.findLatestTxInfo<IVaultBackfillMetadata>(candidate => {
@@ -217,6 +239,41 @@ async function openOverlay() {
   }
 
   await loadBackfillAssets();
+  for (const change of request?.flexibleAssetChanges?.bitcoinChanges ?? []) {
+    bitcoinSelectionByUtxoId.value[change.lock.utxoId] = change.isBackfill;
+  }
+  for (const change of request?.flexibleAssetChanges?.bondChanges ?? []) {
+    bondSelectionById.value[change.lot.id] = change.isBackfill;
+  }
+}
+
+function goBackToInvite() {
+  if (backfillProgressActive.value) {
+    resetBackfillProgress();
+  }
+  const flexibleAssetChanges = {
+    bitcoinChanges: bitcoinChanges.value,
+    bondChanges: bondChanges.value,
+  };
+  closeOverlay();
+  basicEmitter.emit('openMemberInviteOverlay', { preserveDraft: true, flexibleAssetChanges });
+}
+
+function continueToInviteForm() {
+  if (!isBackfillProgressComplete.value || !continueToInvite.value) return;
+
+  resetBackfillProgress();
+  closeOverlay();
+  basicEmitter.emit('openMemberInviteOverlay');
+}
+
+function handleBackfillProgressAction() {
+  if (isBackfillProgressComplete.value && continueToInvite.value) {
+    continueToInviteForm();
+    return;
+  }
+
+  resetBackfillProgress();
 }
 
 async function loadBackfillAssets() {
@@ -259,6 +316,16 @@ async function loadBackfillAssets() {
 
 async function submitBackfill() {
   if (!changeCount.value || backfillProgressActive.value) return;
+
+  if (continueToInvite.value) {
+    const flexibleAssetChanges = {
+      bitcoinChanges: bitcoinChanges.value,
+      bondChanges: bondChanges.value,
+    };
+    closeOverlay();
+    basicEmitter.emit('openMemberInviteOverlay', { flexibleAssetChanges });
+    return;
+  }
 
   activeChangeCount.value = changeCount.value;
   backfillProgressActive.value = true;

@@ -1,4 +1,5 @@
 import { getMainchainClient } from '../stores/mainchain.ts';
+import BigNumber from 'bignumber.js';
 import {
   addressBytesHex,
   BitcoinNetwork,
@@ -1328,13 +1329,16 @@ export default class BitcoinLocks {
     return { bitcoinLock, client, vault };
   }
 
-  private async getLockSecuritizationRatio(client: ArgonClient, lock: IBitcoinLockRecord): Promise<bigint | undefined> {
+  public async getLockSecuritizationRatio(
+    client: ArgonClient,
+    lock: Pick<IBitcoinLockRecord, 'utxoId'>,
+  ): Promise<BigNumber | undefined> {
     if (lock.utxoId === undefined) return undefined;
 
     const rawLock = await client.query.bitcoinLocks.locksByUtxoId(lock.utxoId);
     if (!rawLock?.isSome) return undefined;
 
-    return rawLock.unwrap().securitizationRatio.toBigInt();
+    return fromFixedNumber(rawLock.unwrap().securitizationRatio.toBigInt(), FIXED_U128_DECIMALS);
   }
 
   public async ratchet(lock: IBitcoinLockRecord, txSigner: TxSigningAccount, tip = 0n) {
@@ -1418,11 +1422,7 @@ export default class BitcoinLocks {
 
     const oldTargetPrice = bitcoinLock.lockedTargetPrice;
     const newTargetPrice = this.#currency.priceIndex.getSatoshiPriceInTargetMicrogons(lock.satoshis);
-    const storedLockSecuritizationRatio = await this.getLockSecuritizationRatio(client, lock);
-    const securitizationRatio =
-      storedLockSecuritizationRatio === undefined
-        ? vault.securitizationRatioBN()
-        : fromFixedNumber(storedLockSecuritizationRatio, FIXED_U128_DECIMALS);
+    const securitizationRatio = (await this.getLockSecuritizationRatio(client, lock)) ?? vault.securitizationRatioBN();
     const availableVaultFunds = vault.availableSecuritization(bitcoinLock.ownerAccount);
     const isUpRatchet = newTargetPrice > oldTargetPrice;
 

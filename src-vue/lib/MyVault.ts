@@ -105,6 +105,20 @@ export type IVaultBackfillMetadata = {
   }[];
 };
 
+export type IVaultBackfillChanges = {
+  bitcoinChanges: {
+    lock: Pick<
+      BitcoinLock,
+      'utxoId' | 'vaultId' | 'isFunded' | 'ownerAccount' | 'liquidityPromised' | 'getReleaseRequest'
+    >;
+    isBackfill: boolean;
+  }[];
+  bondChanges: {
+    lot: Pick<BondLot, 'id' | 'vaultId' | 'accountId' | 'isOwn' | 'programType' | 'isReleasing'>;
+    isBackfill: boolean;
+  }[];
+};
+
 // Keep following a submitted/reorged cosign attempt briefly before retrying it.
 const COSIGN_ATTEMPT_FOLLOW_WINDOW_FINALIZED_BLOCKS = 2;
 
@@ -662,17 +676,7 @@ export class MyVault {
     bitcoinChanges,
     bondChanges,
     client,
-  }: {
-    bitcoinChanges: {
-      lock: Pick<BitcoinLock, 'utxoId' | 'vaultId' | 'isFunded' | 'ownerAccount' | 'getReleaseRequest'>;
-      isBackfill: boolean;
-    }[];
-    bondChanges: {
-      lot: Pick<BondLot, 'id' | 'vaultId' | 'accountId' | 'isOwn' | 'programType' | 'isReleasing'>;
-      isBackfill: boolean;
-    }[];
-    client?: ArgonClient;
-  }): Promise<TransactionInfo<IVaultBackfillMetadata>> {
+  }: IVaultBackfillChanges & { client?: ArgonClient }): Promise<TransactionInfo<IVaultBackfillMetadata>> {
     const vault = this.createdVault;
     if (!vault) {
       throw new Error('Create your vault before managing backfill.');
@@ -683,34 +687,7 @@ export class MyVault {
 
     client ??= await getMainchainClient(false);
     const signer = await this.walletKeys.getVaultingKeypair();
-
-    for (const { lock } of bitcoinChanges) {
-      if (!lock.isFunded || lock.vaultId !== vault.vaultId || (await lock.getReleaseRequest(client))) {
-        throw new Error('This Bitcoin lock is no longer eligible for backfill.');
-      }
-      if (lock.ownerAccount !== signer.address) {
-        throw new Error('Only the Bitcoin lock owner can change its backfill status.');
-      }
-    }
-
-    for (const { lot } of bondChanges) {
-      if (!lot.isOwn || lot.programType !== 'Vault' || lot.vaultId !== vault.vaultId || lot.isReleasing) {
-        throw new Error('This bond lot is no longer eligible for backfill.');
-      }
-      if (lot.accountId !== signer.address) {
-        throw new Error('Only the bond lot owner can change its backfill status.');
-      }
-    }
-
-    const txs: SubmittableExtrinsic[] = [];
-    for (const isBackfill of [true, false]) {
-      for (const change of bitcoinChanges.filter(candidate => candidate.isBackfill === isBackfill)) {
-        txs.push(client.tx.bitcoinLocks.setAsBackfill(change.lock.utxoId, isBackfill));
-      }
-      for (const change of bondChanges.filter(candidate => candidate.isBackfill === isBackfill)) {
-        txs.push(client.tx.treasury.setBondLotAsBackfill(change.lot.id, isBackfill));
-      }
-    }
+    const txs = await this.buildBackfillTxs({ bitcoinChanges, bondChanges, client, signerAddress: signer.address });
 
     return await this.#transactionTracker.submitAndWatch({
       tx: txs.length === 1 ? txs[0] : client.tx.utility.batchAll(txs),
@@ -727,6 +704,57 @@ export class MyVault {
         })),
       },
     });
+  }
+
+  public async prepareMemberInvite({
+    vaultName,
+    bitcoinChanges,
+    bondChanges,
+  }: IVaultBackfillChanges & { vaultName: string }): Promise<TransactionInfo<IVaultBackfillMetadata> | undefined> {
+    const vault = this.createdVault;
+    if (!vault) {
+      throw new Error('Create your vault before sending member invites.');
+    }
+
+    const nextVaultName = vaultName.trim();
+    if (!nextVaultName) {
+      throw new Error('A vault name is required to enable member invites.');
+    }
+    if (!/^[A-Z][A-Za-z0-9]{0,17}$/.test(nextVaultName)) {
+      throw new Error('Vault name must start with a capital letter and use up to 18 letters or numbers.');
+    }
+
+    return await this.#vaultQueue.add(async () => {
+      const client = await getMainchainClient(false);
+      const signer = await this.walletKeys.getVaultingKeypair();
+      const delegateAddress = await this.walletKeys.getVaultDelegateKeypair().then(x => x.address);
+      const { txs } = await this.buildVaultRelaySetupTxs({ client, delegateAddress });
+
+      if (vault.name !== nextVaultName) {
+        txs.push(client.tx.vaults.setName(nextVaultName));
+      }
+
+      txs.push(
+        ...(await this.buildBackfillTxs({
+          bitcoinChanges,
+          bondChanges,
+          client,
+          signerAddress: signer.address,
+        })),
+      );
+
+      if (!txs.length) return;
+
+      return await this.#transactionTracker.submitAndWatch({
+        tx: txs.length === 1 ? txs[0] : client.tx.utility.batchAll(txs),
+        txSigner: signer,
+        extrinsicType: ExtrinsicType.VaultSetBackfill,
+        metadata: {
+          bitcoinChanges: bitcoinChanges.map(({ lock, isBackfill }) => ({ utxoId: lock.utxoId, isBackfill })),
+          bondChanges: bondChanges.map(({ lot, isBackfill }) => ({ bondLotId: lot.id, isBackfill })),
+        },
+      });
+    }).promise;
   }
 
   public async ensureDelegatedBitcoinSigner(): Promise<TransactionInfo | undefined> {
@@ -1570,6 +1598,45 @@ export class MyVault {
       needsSetup: needsDelegateSetup || !!registerCouncilSignerTx,
       txs,
     };
+  }
+
+  private async buildBackfillTxs({
+    bitcoinChanges,
+    bondChanges,
+    client,
+    signerAddress,
+  }: IVaultBackfillChanges & { client: ArgonClient; signerAddress: string }): Promise<SubmittableExtrinsic[]> {
+    const vault = this.createdVault!;
+
+    for (const { lock } of bitcoinChanges) {
+      if (!lock.isFunded || lock.vaultId !== vault.vaultId || (await lock.getReleaseRequest(client))) {
+        throw new Error('This Bitcoin lock is no longer eligible for backfill.');
+      }
+      if (lock.ownerAccount !== signerAddress) {
+        throw new Error('Only the Bitcoin lock owner can change its backfill status.');
+      }
+    }
+
+    for (const { lot } of bondChanges) {
+      if (!lot.isOwn || lot.programType !== 'Vault' || lot.vaultId !== vault.vaultId || lot.isReleasing) {
+        throw new Error('This bond lot is no longer eligible for backfill.');
+      }
+      if (lot.accountId !== signerAddress) {
+        throw new Error('Only the bond lot owner can change its backfill status.');
+      }
+    }
+
+    const txs: SubmittableExtrinsic[] = [];
+    for (const isBackfill of [true, false]) {
+      for (const change of bitcoinChanges.filter(candidate => candidate.isBackfill === isBackfill)) {
+        txs.push(client.tx.bitcoinLocks.setAsBackfill(change.lock.utxoId, isBackfill));
+      }
+      for (const change of bondChanges.filter(candidate => candidate.isBackfill === isBackfill)) {
+        txs.push(client.tx.treasury.setBondLotAsBackfill(change.lot.id, isBackfill));
+      }
+    }
+
+    return txs;
   }
 
   public async updateRevenueStats(frameRevenues?: Vec<PalletVaultsVaultFrameRevenue>): Promise<void> {

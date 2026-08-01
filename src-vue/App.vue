@@ -6,34 +6,44 @@
   </template>
   <div v-else class="h-screen w-screen flex flex-col overflow-hidden cursor-default">
     <TopBar />
-    <div v-if="controller.isLoaded && !controller.isImporting" class="flex flex-row grow gap-x-2 pl-2 pt-2 pb-2 overflow-scroll">
-      <LeftBar />
-      <main v-if="controller.isLoaded && !controller.isImporting" class="grow min-h-0 relative flex flex-col overflow-hidden">
+    <div
+      v-if="controller.isLoaded && !controller.isImporting"
+      class="flex min-h-0 grow flex-col overflow-hidden"
+    >
+      <div class="relative z-10">
         <AlertBars />
-        <div
-          class="grow min-h-0 flex flex-col overflow-y-auto overflow-x-hidden"
-          :class="
-            controller.selectedTab === TopTab.ArgonBonds ||
-            controller.selectedTab === TopTab.BitcoinLocks ||
-            controller.selectedTab === TopTab.StableSwaps
-              ? 'rounded border-[1px] border-slate-400/40 bg-white shadow-md'
-              : ''
-          "
-        >
-          <Home v-if="controller.selectedTab === TopTab.Home || controller.selectedTab === 'Dashboard' as TopTab" />
-          <Network v-else-if="controller.selectedTab === TopTab.Network" />
+      </div>
 
-          <ArgonBonds v-else-if="controller.selectedTab === TopTab.ArgonBonds" />
-          <ArgonotStakes v-else-if="controller.selectedTab === TopTab.ArgonotStaking" />
-          <BitcoinLocks v-else-if="controller.selectedTab === TopTab.BitcoinLocks" />
-          <StableSwaps v-else-if="controller.selectedTab === TopTab.StableSwaps" />
+      <div class="flex min-h-0 grow flex-row gap-x-2 overflow-scroll pt-2 pb-2 pl-2">
+        <LeftBar />
+        <main class="relative flex min-h-0 grow flex-col overflow-hidden">
+          <div
+            class="flex min-h-0 grow flex-col overflow-x-hidden overflow-y-auto"
+            :class="
+              controller.selectedTab === TopTab.ArgonBonds ||
+              controller.selectedTab === TopTab.BitcoinLocks ||
+              controller.selectedTab === TopTab.StableSwaps
+                ? 'rounded border-[1px] border-slate-400/40 bg-white shadow-md'
+                : ''
+            "
+          >
+            <Home v-if="controller.selectedTab === TopTab.Home || controller.selectedTab === 'Dashboard' as TopTab" />
+            <Network v-else-if="controller.selectedTab === TopTab.Network" />
 
-          <Mining v-else-if="controller.selectedTab === TopTab.Mining" />
-          <Vaulting v-else-if="controller.selectedTab === TopTab.Vaulting" />
-          <Onboarding v-else-if="controller.selectedTab === TopTab.Onboarding || controller.selectedTab === 'Invites' as TopTab" />
-          <Home v-else />
-        </div>
-      </main>
+            <ArgonBonds v-else-if="controller.selectedTab === TopTab.ArgonBonds" />
+            <ArgonotStakes v-else-if="controller.selectedTab === TopTab.ArgonotStaking" />
+            <BitcoinLocks v-else-if="controller.selectedTab === TopTab.BitcoinLocks" />
+            <StableSwaps v-else-if="controller.selectedTab === TopTab.StableSwaps" />
+
+            <Mining v-else-if="controller.selectedTab === TopTab.Mining" />
+            <Vaulting v-else-if="controller.selectedTab === TopTab.Vaulting" />
+            <Onboarding
+              v-else-if="controller.selectedTab === TopTab.Onboarding || controller.selectedTab === 'Invites' as TopTab"
+            />
+            <Home v-else />
+          </div>
+        </main>
+      </div>
     </div>
     <div v-else class="grow relative">
       <div class="flex flex-col items-center justify-center h-full">
@@ -56,6 +66,7 @@
       <ServerRemoveOverlay />
       <CertificationOverlay />
       <OperationalRewardsOverlay />
+      <MemberInviteOverlay />
       <SecuritySettingsOverlay />
       <ImportAccountOverlay />
       <BotEditOverlay />
@@ -123,6 +134,7 @@ import ServerSettingsOverlay from './overlays/ServerSettingsOverlay.vue';
 import ServerOverlay from './overlays/ServerOverlay.vue';
 import CertificationOverlay from './overlays/CertificationOverlay.vue';
 import OperationalRewardsOverlay from './overlays/OperationalRewardsOverlay.vue';
+import MemberInviteOverlay from './overlays/MemberInviteOverlay.vue';
 import { CloseRequestedEvent, getCurrentWindow } from '@tauri-apps/api/window';
 import OperationalProfileOverlay from './overlays/OperationalProfileOverlay.vue';
 import { checkInstallerIfCloseAllowed } from './stores/installer.ts';

@@ -13,7 +13,7 @@ import {
 } from '../lib/db/TransactionStatusHistoryTable.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
 import { bigintCodec, numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts';
-import { Vault } from '@argonprotocol/mainchain';
+import { getOfflineRegistry, type ArgonPrimitivesVault, Vault } from '@argonprotocol/mainchain';
 import BigNumber from 'bignumber.js';
 import { MyVaultRecovery } from '../lib/recovery/MyVaultRecovery.ts';
 
@@ -974,6 +974,129 @@ describe('MyVault cosign recovery', () => {
 
     expect(result).toBe(submittedTxInfo);
     expect(submitAndWatch).toHaveBeenCalledTimes(2);
+
+    getMainchainClient.mockRestore();
+  });
+
+  it('prepares a first member invite with one on-chain batch', async () => {
+    const submittedTxInfo = createTxInfo({ extrinsicType: ExtrinsicType.VaultSetBackfill });
+    const batchAll = vi.fn(txs => ({ kind: 'batch', txs }));
+    const setName = vi.fn(name => ({ kind: 'name', name }));
+    const setAsBackfill = vi.fn((utxoId, isBackfill) => ({ kind: 'bitcoin', utxoId, isBackfill }));
+    const setBondLotAsBackfill = vi.fn((bondLotId, isBackfill) => ({ kind: 'bond', bondLotId, isBackfill }));
+    const client = {
+      tx: {
+        utility: { batchAll },
+        vaults: { setName },
+        bitcoinLocks: { setAsBackfill },
+        treasury: { setBondLotAsBackfill },
+      },
+    };
+    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
+    const { myVault, submitAndWatch } = createVault({
+      submitAndWatch: vi.fn().mockResolvedValue(submittedTxInfo),
+    });
+    const signer = await myVault.walletKeys.getVaultingKeypair();
+    const rawVault = getOfflineRegistry().createType<ArgonPrimitivesVault>('ArgonPrimitivesVault', {
+      operatorAccountId: signer.address,
+      delegateAccountId: null,
+      name: null,
+      lastNameChangeTick: null,
+      securitization: 0n,
+      securitizationTarget: 0n,
+      securitizationLocked: 0n,
+      backfillSecuritizationLocked: 0n,
+      backfillSecuritizationReserved: 0n,
+      securitizationPendingActivation: 0n,
+      lockedSatoshis: 0n,
+      securitizedSatoshis: 0n,
+      backfillSecuritizedSatoshis: 0n,
+      securitizationReleaseSchedule: {},
+      securitizationRatio: 1_000_000_000_000_000_000n,
+      isClosed: false,
+      terms: {
+        bitcoinAnnualPercentRate: 0n,
+        bitcoinBaseFee: 0n,
+        treasuryProfitSharing: 0,
+        treasuryBonusProfitSharing: 0,
+      },
+      pendingTerms: null,
+      openedTick: 0n,
+      operationalMinimumReleaseTick: null,
+    });
+    myVault.data.createdVault = new Vault(7, rawVault, 1_000);
+    vi.spyOn(myVault as any, 'buildVaultRelaySetupTxs').mockResolvedValue({
+      needsSetup: true,
+      txs: [{ kind: 'delegate' }],
+    });
+
+    const result = await myVault.prepareMemberInvite({
+      vaultName: 'OperatorOne',
+      bitcoinChanges: [
+        {
+          lock: {
+            utxoId: 11,
+            vaultId: 7,
+            isFunded: true,
+            ownerAccount: signer.address,
+            liquidityPromised: 1_000n,
+            getReleaseRequest: vi.fn(async () => undefined),
+          },
+          isBackfill: true,
+        },
+      ],
+      bondChanges: [
+        {
+          lot: {
+            id: 22,
+            vaultId: 7,
+            accountId: signer.address,
+            isOwn: true,
+            programType: 'Vault',
+            isReleasing: false,
+          },
+          isBackfill: true,
+        },
+      ],
+    });
+
+    expect(result).toBe(submittedTxInfo);
+    expect(batchAll).toHaveBeenCalledWith([
+      { kind: 'delegate' },
+      { kind: 'name', name: 'OperatorOne' },
+      { kind: 'bitcoin', utxoId: 11, isBackfill: true },
+      { kind: 'bond', bondLotId: 22, isBackfill: true },
+    ]);
+    expect(submitAndWatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extrinsicType: ExtrinsicType.VaultSetBackfill,
+        metadata: {
+          bitcoinChanges: [{ utxoId: 11, isBackfill: true }],
+          bondChanges: [{ bondLotId: 22, isBackfill: true }],
+        },
+      }),
+    );
+
+    getMainchainClient.mockRestore();
+  });
+
+  it('does not submit an empty member invite setup batch', async () => {
+    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({} as any);
+    const { myVault, submitAndWatch } = createVault();
+    myVault.data.createdVault = { name: 'OperatorOne' } as Vault;
+    vi.spyOn(myVault as any, 'buildVaultRelaySetupTxs').mockResolvedValue({
+      needsSetup: false,
+      txs: [],
+    });
+
+    const result = await myVault.prepareMemberInvite({
+      vaultName: 'OperatorOne',
+      bitcoinChanges: [],
+      bondChanges: [],
+    });
+
+    expect(result).toBeUndefined();
+    expect(submitAndWatch).not.toHaveBeenCalled();
 
     getMainchainClient.mockRestore();
   });

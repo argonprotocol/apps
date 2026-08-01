@@ -4,6 +4,7 @@ import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
 import type { OperationalStepId } from '../stores/certificationController.ts';
 import { ICurrencyKey, type BondLot } from '@argonprotocol/apps-core';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
+import type { IVaultBackfillChanges } from '../lib/MyVault.ts';
 
 export type IWalletGuidanceContext = 'mining' | 'vaulting';
 
@@ -47,6 +48,7 @@ type IBasicEmitter = {
   openImportAccountOverlay: void;
 
   openOperationalProfileOverlay: void;
+  openMemberInviteOverlay: { preserveDraft?: boolean; flexibleAssetChanges?: IVaultBackfillChanges } | undefined;
 
   openVaultsOverlay: void;
   openTransactionsOverlay: void;
@@ -56,7 +58,9 @@ type IBasicEmitter = {
   openArgonotCommitmentOverlay: void;
   openMintingAuthorityRequestOverlay: void;
   openGatewayRelayOverlay: void;
-  openBackfillOverlay: void;
+  openBackfillOverlay:
+    | { continueToInvite?: boolean; returnToInvite?: boolean; flexibleAssetChanges?: IVaultBackfillChanges }
+    | undefined;
   openBitcoinLock: { lock?: IBitcoinLockRecord } | undefined;
   openBitcoinUnlock: IBitcoinLockRecord;
   resumeBitcoinFunding: IBitcoinLockRecord;

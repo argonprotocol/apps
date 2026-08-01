@@ -201,9 +201,9 @@ function transactionLabel(transaction: ITransactionRecord): string {
     case ExtrinsicType.VaultSetBackfill: {
       const metadata = transaction.metadataJson as IVaultBackfillMetadata;
       const changes = [...metadata.bitcoinChanges, ...metadata.bondChanges];
-      if (changes.every(change => change.isBackfill)) return 'Added Assets to Backfill';
-      if (changes.every(change => !change.isBackfill)) return 'Removed Assets from Backfill';
-      return 'Updated Backfill';
+      if (changes.every(change => change.isBackfill)) return 'Made Assets Flexible';
+      if (changes.every(change => !change.isBackfill)) return 'Made Assets Inflexible';
+      return 'Updated Flexible Assets';
     }
     case ExtrinsicType.Transfer:
       return 'Moved Funds';
