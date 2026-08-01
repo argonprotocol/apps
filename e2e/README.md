@@ -268,3 +268,12 @@ This writes a custom chainspec that can be used with:
 ```bash
 yarn dev:docker:custom
 ```
+
+To use the pinned runtime with a longer frame for user testing, generate the chainspec without a custom WASM:
+
+```bash
+yarn docker:argon:chainspec --ticks-between-slots 100
+yarn dev:docker:custom
+```
+
+The frame override can also be combined with a custom runtime WASM by passing both arguments.
