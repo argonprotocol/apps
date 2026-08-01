@@ -53,15 +53,12 @@
             <div>
               <div class="text-sm font-semibold text-slate-800">Gifts</div>
               <p class="mt-1 text-xs leading-5 text-slate-500">
-                Choose at least one benefit for this invite. To ensure a smooth onboarding, you need to create enough space for new bitcoin locks and bonds to be able to added to your vault.
+                Choose at least one benefit for this invite. To ensure a smooth onboarding, you need to create enough space for new Bitcoin locks and bonds to be added to your vault.
                 <br/><br/>
-                To add more space, you can make your own bitcoins and bonds "flexible"
-                <a
-                  class="cursor-pointer"
-                  @click="openFlexibleAssets"
-                >
-                  here.
-                </a>
+                <template v-if="supportsFlexibleAssets">
+                  To add more space, you can make your own Bitcoin and bonds "flexible"
+                  <a href="#" class="cursor-pointer" @click.prevent="openFlexibleAssets">here.</a>
+                </template>
               </p>
             </div>
           </div>
@@ -77,37 +74,36 @@
                 </span>
               </span>
               <span class="shrink-0 text-xs font-medium text-slate-500">
-                {{ microgonToArgonNm(vaultingAssets.flexibleBitcoinMicrogonsAvailable).format('0,0.[00]') }} ARGN
-                available
+                {{ microgonToArgonNm(maxLockableMicrogons).format('0,0.[00]') }} ARGN available
               </span>
             </label>
 
             <div v-if="hasBitcoinFeeWaiver" class="mt-4 pl-7">
               <div class="mb-2 text-xs font-semibold text-slate-600">
-                How much of your flexible space can they use?
+                Maximum lock value covered by this gift
               </div>
               <InputToken
                 data-testid="MemberInvite.argonAmount"
-                v-model="bitcoinFeeWaiverMicrogons"
+                v-model="maximumBitcoinLockMicrogons"
                 :disabled="!!inviteCreationBlockedReason"
                 :min="0n"
                 :max="maxLockableMicrogons"
                 suffix=" ARGN"
               />
               <div class="mt-2 text-xs text-slate-500">
-                ≈ {{ satToBtcNm(bitcoinFeeWaiverSatoshis).format('0,0.[00000000]') }} BTC · Gift value {{ currency.symbol
-                }}{{ microgonToMoneyNm(bitcoinFeeWaiverValueMicrogons).format('0,0.00') }}
+                ≈ {{ satToBtcNm(maximumBitcoinLockSatoshis).format('0,0.[00000000]') }} BTC · Gift value {{ currency.symbol
+                }}{{ microgonToMoneyNm(bitcoinFeeGiftValueMicrogons).format('0,0.00') }}
               </div>
               <div
                 v-if="
-                  bitcoinFeeWaiverMicrogons > 0n &&
-                  bitcoinFeeWaiverMicrogons < controller.rewardConfig.treasuryMinimumBitcoin
+                  maximumBitcoinLockMicrogons > 0n &&
+                  maximumBitcoinLockMicrogons < controller.rewardConfig.treasuryMinimumBitcoin
                 "
                 class="mt-3 border-l-2 border-amber-400 py-0.5 pl-3 text-xs leading-5 text-amber-700"
               >
                 Treasury certification requires at least
                 {{ microgonToArgonNm(controller.rewardConfig.treasuryMinimumBitcoin).format('0,0.[00]') }} ARGN of
-                Bitcoin. Increase this gift or make more assets flexible to cover that requirement.
+                Bitcoin. Increase this gift to cover that requirement.
               </div>
             </div>
           </div>
@@ -167,7 +163,7 @@ import InputToken from '../components/InputToken.vue';
 import ProgressBar from '../components/ProgressBar.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
-import type { IVaultBackfillChanges } from '../lib/MyVault.ts';
+import { supportsFlexibleAssetsRuntime, type IVaultBackfillChanges } from '../lib/MyVault.ts';
 import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import { generateProgressLabel } from '../lib/Utils.ts';
 import { useBasics } from '../stores/basics.ts';
@@ -197,9 +193,10 @@ const isSubmitting = Vue.ref(false);
 const operatorName = Vue.ref('');
 const inviteName = Vue.ref('');
 const hasBitcoinFeeWaiver = Vue.ref(true);
-const bitcoinFeeWaiverMicrogons = Vue.ref(0n);
+const maximumBitcoinLockMicrogons = Vue.ref(0n);
 const maxLockableSatoshis = Vue.ref(0n);
 const maxLockableMicrogons = Vue.ref(0n);
+const supportsFlexibleAssets = Vue.ref(false);
 const inviteCreationBlockedReason = Vue.ref('');
 const errorMessage = Vue.ref('');
 const setupTransaction = Vue.ref<TransactionInfo>();
@@ -212,16 +209,16 @@ let unsubscribeSetupProgress: VoidFunction | undefined;
 let openRequestId = 0;
 
 const requiresOperatorName = Vue.computed(() => !myVault.createdVault?.name);
-const bitcoinFeeWaiverSatoshis = Vue.computed(() => {
-  return BitcoinLock.satoshisRequiredForRedemptionAmount(currency.priceIndex, bitcoinFeeWaiverMicrogons.value);
+const maximumBitcoinLockSatoshis = Vue.computed(() => {
+  return BitcoinLock.satoshisRequiredForRedemptionAmount(currency.priceIndex, maximumBitcoinLockMicrogons.value);
 });
-const bitcoinFeeWaiverValueMicrogons = Vue.computed(() => {
+const bitcoinFeeGiftValueMicrogons = Vue.computed(() => {
   const vault = myVault.createdVault;
   if (!vault) return 0n;
 
   const lockValue = BitcoinLock.calculateRedemptionAmountFromSatoshis(
     currency.priceIndex,
-    bitcoinFeeWaiverSatoshis.value,
+    maximumBitcoinLockSatoshis.value,
   );
   return vault.calculateBitcoinFee(lockValue);
 });
@@ -230,7 +227,7 @@ const canSubmit = Vue.computed(() => {
   if (!inviteName.value.trim()) return false;
   if (requiresOperatorName.value && !operatorName.value.trim()) return false;
   if (!hasBitcoinFeeWaiver.value) return false;
-  return bitcoinFeeWaiverMicrogons.value > 0n && bitcoinFeeWaiverMicrogons.value <= maxLockableMicrogons.value;
+  return maximumBitcoinLockMicrogons.value > 0n && maximumBitcoinLockMicrogons.value <= maxLockableMicrogons.value;
 });
 
 function closeOverlay() {
@@ -269,7 +266,7 @@ async function openOverlay(request?: { preserveDraft?: boolean; flexibleAssetCha
     await loadInviteCapacity(preserveDraft);
     if (!isOpen.value || requestId !== openRequestId) return;
 
-    if (maxLockableMicrogons.value <= 0n && !flexibleAssetChanges.value) {
+    if (supportsFlexibleAssets.value && maxLockableMicrogons.value <= 0n && !flexibleAssetChanges.value) {
       isOpen.value = false;
       basics.overlayIsOpen = false;
 
@@ -296,14 +293,29 @@ async function loadInviteCapacity(preserveGiftAmount = false) {
     inviteCreationBlockedReason.value = 'Create your vault before sending member invites.';
     maxLockableSatoshis.value = 0n;
     maxLockableMicrogons.value = 0n;
-    bitcoinFeeWaiverMicrogons.value = 0n;
+    maximumBitcoinLockMicrogons.value = 0n;
     return;
   }
 
+  const client = await getMainchainClient(false);
+  supportsFlexibleAssets.value = supportsFlexibleAssetsRuntime(client);
   operatorName.value = vault.name ?? '';
+
+  if (!supportsFlexibleAssets.value) {
+    const { availableSatoshis, availableLiquidityMicrogons } = await bitcoinLocks.getLockableBitcoinCapacity({ vault });
+
+    maxLockableSatoshis.value = availableSatoshis;
+    maxLockableMicrogons.value = availableLiquidityMicrogons;
+    if (!preserveGiftAmount || maximumBitcoinLockMicrogons.value > availableLiquidityMicrogons) {
+      maximumBitcoinLockMicrogons.value = availableLiquidityMicrogons;
+    }
+    inviteCreationBlockedReason.value =
+      availableLiquidityMicrogons > 0n ? '' : 'Member invites require available Bitcoin lock space.';
+    return;
+  }
+
   let flexibleBitcoinMicrogons = vaultingAssets.flexibleBitcoinMicrogonsAvailable;
   if (flexibleAssetChanges.value) {
-    const client = await getMainchainClient(false);
     const bitcoinSecuritizationRatios = await Promise.all(
       flexibleAssetChanges.value.bitcoinChanges.map(async change => {
         return (await bitcoinLocks.getLockSecuritizationRatio(client, change.lock)) ?? vault.securitizationRatioBN();
@@ -338,8 +350,8 @@ async function loadInviteCapacity(preserveGiftAmount = false) {
       currency.priceIndex,
       flexibleBitcoinSatoshis,
     );
-    if (!preserveGiftAmount || bitcoinFeeWaiverMicrogons.value > maxLockableMicrogons.value) {
-      bitcoinFeeWaiverMicrogons.value = maxLockableMicrogons.value;
+    if (!preserveGiftAmount || maximumBitcoinLockMicrogons.value > maxLockableMicrogons.value) {
+      maximumBitcoinLockMicrogons.value = maxLockableMicrogons.value;
     }
     inviteCreationBlockedReason.value =
       maxLockableMicrogons.value > 0n ? '' : 'Select a flexible Bitcoin lock before continuing.';
@@ -353,8 +365,8 @@ async function loadInviteCapacity(preserveGiftAmount = false) {
 
   maxLockableSatoshis.value = availableSatoshis;
   maxLockableMicrogons.value = availableLiquidityMicrogons;
-  if (!preserveGiftAmount || bitcoinFeeWaiverMicrogons.value > availableLiquidityMicrogons) {
-    bitcoinFeeWaiverMicrogons.value = availableLiquidityMicrogons;
+  if (!preserveGiftAmount || maximumBitcoinLockMicrogons.value > availableLiquidityMicrogons) {
+    maximumBitcoinLockMicrogons.value = availableLiquidityMicrogons;
   }
   inviteCreationBlockedReason.value =
     availableLiquidityMicrogons > 0n ? '' : 'Member invites require available flexible Bitcoin space.';
@@ -377,17 +389,17 @@ async function submitInvite() {
       throw new Error('No server is available to create an invite.');
     }
 
-    if (bitcoinFeeWaiverMicrogons.value <= 0n) {
+    if (maximumBitcoinLockMicrogons.value <= 0n) {
       throw new Error('The Bitcoin fee waiver must be greater than zero.');
     }
-    if (bitcoinFeeWaiverMicrogons.value > maxLockableMicrogons.value) {
-      throw new Error("The Bitcoin fee waiver can't exceed the vault's available flexible Bitcoin space.");
+    if (maximumBitcoinLockMicrogons.value > maxLockableMicrogons.value) {
+      throw new Error("The Bitcoin fee waiver can't exceed the vault's available Bitcoin space.");
     }
 
-    const maxSatoshis = await bitcoinLocks.satoshisForArgonLiquidity(bitcoinFeeWaiverMicrogons.value);
+    const maxSatoshis = await bitcoinLocks.satoshisForArgonLiquidity(maximumBitcoinLockMicrogons.value);
     const fullLockAmount = BitcoinLock.calculateRedemptionAmountFromSatoshis(currency.priceIndex, maxSatoshis);
     if (maxSatoshis > maxLockableSatoshis.value || fullLockAmount > maxLockableMicrogons.value) {
-      throw new Error("The Bitcoin fee waiver can't exceed the vault's available flexible Bitcoin space.");
+      throw new Error("The Bitcoin fee waiver can't exceed the vault's available Bitcoin space.");
     }
     const estimatedGiftUsd = Number(
       currency.convertMicrogonTo(vault.calculateBitcoinFee(fullLockAmount), UnitOfMeasurement.USD),
@@ -469,7 +481,7 @@ function clearSetupProgress() {
 }
 
 function openFlexibleAssets() {
-  if (isSubmitting.value) return;
+  if (isSubmitting.value || !supportsFlexibleAssets.value) return;
 
   isOpen.value = false;
   basics.overlayIsOpen = false;

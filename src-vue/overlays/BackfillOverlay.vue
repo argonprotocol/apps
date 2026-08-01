@@ -16,8 +16,8 @@
     <div class="space-y-5 px-6 py-5 text-slate-700">
       <template v-if="continueToInvite">
         <p class="text-sm leading-6 text-slate-500">
-          We need to make sure your new vault members will have space available to lock Bitcoin and Bonds.
-          "Flexible Space" allow you to mark some of your own Bitcoin locks and Bonds to temporarily step aside when a new member is ready to use that capacity.
+          We need to make sure your new vault members will have space available to lock Bitcoin and bonds.
+          "Flexible Space" allows you to mark some of your own Bitcoin locks and bonds to temporarily step aside when a new member is ready to use that capacity.
         </p>
         <p class="text-sm leading-6 text-slate-500">
           Your assets remain yours and automatically use the space again when it becomes available.

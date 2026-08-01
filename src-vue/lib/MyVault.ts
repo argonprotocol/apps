@@ -62,6 +62,10 @@ import { VaultHistory } from './recovery/MyVault.ts';
 
 export const DEFAULT_MASTER_XPUB_PATH = "m/84'/0'/0'";
 
+export function supportsFlexibleAssetsRuntime(client: ArgonClient): boolean {
+  return 'setAsBackfill' in client.tx.bitcoinLocks && 'setBondLotAsBackfill' in client.tx.treasury;
+}
+
 type IPendingCosignUtxo = {
   targetValue: bigint;
   dueFrame?: number;

@@ -13,8 +13,8 @@
         <div class="text-argon-700 text-5xl leading-none font-bold">So What’s Next?</div>
 
         <p class="mt-5 text-base leading-7 text-slate-700">
-          You’ve earned an upgrade code. Use the Onboarding tab to upgrade a treasury user you trust to an operator. When
-          they complete the Argon Operational Certification, you both earn ₳{{
+          You’ve earned an upgrade code. Use the Onboarding tab to upgrade a treasury user you trust to an operator.
+          When they complete the Argon Operational Certification, you both earn ₳{{
             microgonToArgonNm(controller.rewardConfig.operationalActivationReward).format('0,0.[00]')
           }}.
         </p>

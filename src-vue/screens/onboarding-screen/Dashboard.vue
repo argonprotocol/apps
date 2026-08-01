@@ -120,15 +120,17 @@
         >
           View Rewards
         </button>
-        <div class="h-5 w-px bg-slate-600/30" />
-        <button
-          type="button"
-          :disabled="!myVault.createdVault"
-          class="cursor-pointer text-base font-light text-slate-700 hover:opacity-80 disabled:cursor-default disabled:opacity-35"
-          @click="basicEmitter.emit('openBackfillOverlay')"
-        >
-          Manage Flexible Assets
-        </button>
+        <template v-if="supportsFlexibleAssets">
+          <div class="h-5 w-px bg-slate-600/30" />
+          <button
+            type="button"
+            :disabled="!myVault.createdVault"
+            class="cursor-pointer text-base font-light text-slate-700 hover:opacity-80 disabled:cursor-default disabled:opacity-35"
+            @click="basicEmitter.emit('openBackfillOverlay')"
+          >
+            Manage Flexible Assets
+          </button>
+        </template>
         <div class="h-5 w-px bg-slate-600/30" />
         <button
           data-testid="SendMemberInvite"
@@ -152,10 +154,12 @@
 import * as Vue from 'vue';
 import { TooltipArrow, TooltipContent, TooltipProvider, TooltipRoot, TooltipTrigger } from 'reka-ui';
 import basicEmitter from '../../emitters/basicEmitter.ts';
+import { supportsFlexibleAssetsRuntime } from '../../lib/MyVault.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { useCertificationController } from '../../stores/certificationController.ts';
 import { getConfig } from '../../stores/config.ts';
 import { getCurrency } from '../../stores/currency.ts';
+import { getMainchainClient } from '../../stores/mainchain.ts';
 import { getMyVault } from '../../stores/vaults.ts';
 import MemberInvites from './components/MemberInvites.vue';
 
@@ -164,6 +168,8 @@ const controller = useCertificationController();
 const currency = getCurrency();
 const myVault = getMyVault();
 const { microgonToArgonNm } = createNumeralHelpers(currency);
+
+const supportsFlexibleAssets = Vue.ref(false);
 
 const canViewRewards = Vue.computed(() => {
   return (
@@ -185,6 +191,11 @@ function openRewards() {
     basicEmitter.emit('openOperationalRewardsOverlay', { screen: 'claim' });
   }
 }
+
+Vue.onMounted(async () => {
+  const client = await getMainchainClient(false);
+  supportsFlexibleAssets.value = supportsFlexibleAssetsRuntime(client);
+});
 </script>
 
 <style scoped>

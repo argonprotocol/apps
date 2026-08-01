@@ -1,6 +1,6 @@
 <template>
   <div class="flex h-full flex-col">
-    <div class="flex items-start justify-between gap-4 border-b border-slate-200 pb-3">
+    <div class="flex items-start justify-between gap-4">
       <div>
         <div class="text-xl font-bold text-slate-800">Member Invites</div>
         <p class="mt-1 text-sm leading-5 text-slate-500">
@@ -24,13 +24,13 @@
       <div class="mt-4 min-h-0 grow overflow-auto rounded border border-slate-900/30 bg-white shadow">
         <table class="w-full min-w-[760px] text-left">
           <thead
-            class="sticky top-0 z-10 border-b border-slate-100 bg-white text-xs font-semibold tracking-wide text-slate-400 uppercase"
+            class="sticky top-0 z-10 border-b border-slate-200 bg-white text-xs font-semibold tracking-wide text-slate-400 uppercase"
           >
             <tr>
               <th class="px-5 py-3">Invitee</th>
               <th class="px-5 py-3">Status</th>
               <th class="px-5 py-3">Certification</th>
-              <th class="px-5 py-3">Invite Details</th>
+              <th class="px-5 py-3">Details</th>
               <th class="px-5 py-3 text-right">Actions</th>
             </tr>
           </thead>
@@ -83,7 +83,6 @@
                     <span class="font-sans text-xs text-slate-400">Bonds</span>
                   </div>
                 </div>
-                <span v-else class="text-sm text-slate-400">-</span>
                 <div class="mt-1 text-xs text-slate-400">Sent {{ dayjs.utc(invite.createdAt).local().fromNow() }}</div>
               </td>
 

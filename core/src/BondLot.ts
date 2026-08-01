@@ -97,7 +97,11 @@ export class BondLot {
     this.canRelease = model.canRelease;
   }
 
-  public static fromRuntime(id: number, lot: PalletTreasuryBondLot, ownAddress?: string): BondLot {
+  public static fromRuntime(
+    id: number,
+    lot: PalletTreasuryBondLot | Omit<PalletTreasuryBondLot, 'isBackfill'>,
+    ownAddress?: string,
+  ): BondLot {
     const accountId = lot.owner.toString();
     const bonds = lot.bonds.toNumber();
     const participatedFrames = lot.participatedFrames.toNumber();
@@ -131,7 +135,7 @@ export class BondLot {
       releaseFrame: lot.releaseFrameId.isSome ? lot.releaseFrameId.unwrap().toNumber() : null,
       releaseReason: lot.releaseReason.isSome ? lot.releaseReason.unwrap().type : undefined,
       isReleasing: lot.releaseReason.isSome,
-      isBackfill: lot.isBackfill.valueOf(),
+      isBackfill: 'isBackfill' in lot ? lot.isBackfill.valueOf() : false,
       isOwn: accountId === ownAddress,
       canRelease: accountId === ownAddress,
     });
