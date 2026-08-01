@@ -5,6 +5,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { EvmContracts, getClient } from '@argonprotocol/mainchain';
+import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import {
   createPublicClient,
   encodeFunctionData,
@@ -280,17 +281,17 @@ async function loadEthereumChainConfig(archiveUrl: string): Promise<EthereumChai
   const client = await getClient(archiveUrl);
 
   try {
-    const config = await client.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
-    if (config.isNone || !config.unwrap().isEvm) {
-      throw new Error('Ethereum chain config is not available on this Argon network.');
-    }
+    return await waitFor(45e3, 'Ethereum chain config', async () => {
+      const config = await client.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
+      if (config.isNone || !config.unwrap().isEvm) return;
 
-    const ethereumConfig = config.unwrap().asEvm;
-    return {
-      gatewayAddress: getAddress(ethereumConfig.gateway.toHex()),
-      argonTokenAddress: getAddress(ethereumConfig.argonToken.toHex()),
-      argonotTokenAddress: getAddress(ethereumConfig.argonotToken.toHex()),
-    };
+      const ethereumConfig = config.unwrap().asEvm;
+      return {
+        gatewayAddress: getAddress(ethereumConfig.gateway.toHex()),
+        argonTokenAddress: getAddress(ethereumConfig.argonToken.toHex()),
+        argonotTokenAddress: getAddress(ethereumConfig.argonotToken.toHex()),
+      };
+    });
   } finally {
     await client.disconnect();
   }

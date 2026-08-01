@@ -55,12 +55,22 @@ try {
     }
   }
 
-  const vaultId = await client.query.vaults.vaultIdByOperator(walletKeys.vaultingAddress);
-  if (vaultId.isNone) {
-    throw new Error('The upstream server is not invite-ready yet. Start the upstream server first.');
-  }
+  const vault = await waitFor(
+    45e3,
+    'upstream vault invite setup',
+    async () => {
+      const vaultId = await client.query.vaults.vaultIdByOperator(walletKeys.vaultingAddress);
+      if (vaultId.isNone) return;
 
-  const vault = await Vault.get(client, vaultId.unwrap().toNumber());
+      const currentVault = await Vault.get(client, vaultId.unwrap().toNumber());
+      if (currentVault.name !== 'Testing' || !currentVault.delegateAccountId) return;
+
+      return currentVault;
+    },
+    {
+      timeoutMessage: 'The upstream server has not finished registering its vault name and delegate.',
+    },
+  );
   const inviteLiquidityMicrogons = 1_000n * BigInt(MICROGONS_PER_ARGON);
   const maxSatoshis = BitcoinLock.satoshisRequiredForRedemptionAmount(
     currency.priceIndex,
@@ -71,7 +81,7 @@ try {
     currency.convertMicrogonTo(vault.calculateBitcoinFee(fullLockAmount), UnitOfMeasurement.USD),
   );
   const btcPctFee = vault.terms.bitcoinAnnualPercentRate.times(100).toNumber();
-  const fromName = vault.name || 'Testing';
+  const fromName = vault.name!;
 
   const serverAuthClient = new ServerAuthClient(() => walletKeys);
   await waitFor(45e3, 'upstream bot ready', async () => {

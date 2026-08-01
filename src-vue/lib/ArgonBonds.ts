@@ -1,4 +1,4 @@
-import type { ArgonClient, FrameSystemEventRecord } from '@argonprotocol/mainchain';
+import type { ArgonClient, FrameSystemEventRecord, Vault } from '@argonprotocol/mainchain';
 import {
   type ArgonQueryClient,
   BondLot,
@@ -53,6 +53,8 @@ type IVaultBondSubscription = {
   frameId?: number;
 };
 
+const VAULT_SECURITIZATION_BOND_CAPACITY_SPEC_VERSION = 157;
+
 export class ArgonBonds {
   public data = {
     bondLots: [] as BondLot[],
@@ -76,7 +78,7 @@ export class ArgonBonds {
   constructor(
     private readonly dbPromise: Promise<Db>,
     private readonly config: Pick<Config, 'isLoadedPromise' | 'upstreamOperator'>,
-    private readonly currency: Pick<Currency, 'isLoadedPromise' | 'fetchMainchainRatesAtBlock'>,
+    private readonly currency: Pick<Currency, 'isLoadedPromise' | 'fetchMainchainRatesAtBlock' | 'priceIndex'>,
     public readonly miningFrames: MiningFrames,
     private readonly walletKeys: WalletKeys,
     private readonly transactionTracker: TransactionTracker,
@@ -96,6 +98,33 @@ export class ArgonBonds {
 
   public get bondTotals() {
     return BondLot.getTotals(this.data.bondLots);
+  }
+
+  public getVaultBondCapacityMicrogons(vault: Vault): bigint {
+    const bitcoinCapacityMicrogons = this.currency.priceIndex.getSatoshiPriceInTargetMicrogons(
+      vault.effectiveSecuritizedSatoshis(),
+    );
+    if (this.runtimeSpecVersion < VAULT_SECURITIZATION_BOND_CAPACITY_SPEC_VERSION) {
+      return bitcoinCapacityMicrogons;
+    }
+
+    return TreasuryBonds.getVaultBondCapacityMicrogons({
+      vault,
+      priceIndex: this.currency.priceIndex,
+    });
+  }
+
+  public availableBondSpace(vault: Vault): bigint {
+    const bondState = this.data.capacityStatesByVault[vault.vaultId];
+    if (this.runtimeSpecVersion < VAULT_SECURITIZATION_BOND_CAPACITY_SPEC_VERSION) {
+      return vault.availableBondSpace(this.currency.priceIndex, bondState, true);
+    }
+
+    return TreasuryBonds.availableBondSpace({
+      vault,
+      priceIndex: this.currency.priceIndex,
+      bondState,
+    });
   }
 
   public async load(): Promise<void> {
@@ -416,5 +445,9 @@ export class ArgonBonds {
     const blockNumber = info.txResult.blockNumber ?? info.tx.blockHeight;
     if (blockNumber === undefined) throw new Error('Finalized bond transaction is missing its inclusion block');
     return this.miningFrames.blockWatch.getHeader(blockNumber);
+  }
+
+  private get runtimeSpecVersion(): number {
+    return this.miningFrames.blockWatch.subscriptionClient?.runtimeVersion.specVersion.toNumber() ?? 0;
   }
 }

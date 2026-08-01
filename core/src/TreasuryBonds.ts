@@ -256,11 +256,30 @@ export class TreasuryBonds {
     priceIndex,
     bondState,
   }: {
-    vault: Pick<Vault, 'availableBondSpace'>;
+    vault: Pick<Vault, 'effectiveSecuritizedSatoshis' | 'securitization'>;
     priceIndex: PriceIndex;
     bondState?: VaultBondCapacityState;
   }): bigint {
-    return vault.availableBondSpace(priceIndex, bondState, true);
+    const capacityMicrogons = TreasuryBonds.getVaultBondCapacityMicrogons({
+      vault,
+      priceIndex,
+    });
+    const bondCapacity = TreasuryBonds.getBondPurchaseCapacity(capacityMicrogons);
+    const unavailableBonds = [...(bondState ?? [])].reduce((total, state) => total + state.activeBonds, 0);
+    const availableBonds = bondCapacity > unavailableBonds ? bondCapacity - unavailableBonds : 0;
+
+    return BondLot.bondsToMicrogons(availableBonds);
+  }
+
+  public static getVaultBondCapacityMicrogons({
+    vault,
+    priceIndex,
+  }: {
+    vault: Pick<Vault, 'effectiveSecuritizedSatoshis' | 'securitization'>;
+    priceIndex: PriceIndex;
+  }): bigint {
+    const bitcoinCapacityMicrogons = priceIndex.getSatoshiPriceInTargetMicrogons(vault.effectiveSecuritizedSatoshis());
+    return vault.securitization > bitcoinCapacityMicrogons ? vault.securitization : bitcoinCapacityMicrogons;
   }
 
   public static async getBondLotsByAccount(client: ArgonQueryClient, accountId: string): Promise<BondLot[]> {

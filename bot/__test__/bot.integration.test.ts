@@ -53,14 +53,17 @@ it.skipIf(skipE2E)(
     const currentTick = await client.query.ticks.currentTick();
     const res = await new TxSubmitter(
       client,
-      client.tx.priceIndex.submit({
-        btcUsdPrice: toFixedNumber(60_000.5, 18),
-        argonUsdPrice: toFixedNumber(1.0, 18),
-        argonotUsdPrice: toFixedNumber(2.0, 18),
-        argonUsdTargetPrice: toFixedNumber(1.0, 18),
-        argonTimeWeightedAverageLiquidity: toFixedNumber(1_000, 18),
-        tick: currentTick.toBigInt(),
-      }),
+      client.tx.priceIndex.submit(
+        {
+          btcUsdPrice: toFixedNumber(60_000.5, 18),
+          argonUsdPrice: toFixedNumber(1.0, 18),
+          argonotUsdPrice: toFixedNumber(2.0, 18),
+          argonUsdTargetPrice: toFixedNumber(1.0, 18),
+          argonTimeWeightedAverageLiquidity: toFixedNumber(1_000, 18),
+          tick: currentTick.toBigInt(),
+        },
+        null,
+      ),
       new Keyring({ type: 'sr25519' }).addFromUri('//Eve//oracle'),
     ).submit();
     await res.waitForInFirstBlock;

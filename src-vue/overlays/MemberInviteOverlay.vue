@@ -406,10 +406,12 @@ async function submitInvite() {
     );
 
     let fromName = vault.name?.trim() ?? '';
+    const expectedVaultName = fromName || operatorName.value.trim();
+
     let inviteSetupTransaction: TransactionInfo | undefined;
     if (flexibleAssetChanges.value) {
       inviteSetupTransaction = await myVault.prepareMemberInvite({
-        vaultName: fromName || operatorName.value.trim(),
+        vaultName: expectedVaultName,
         ...flexibleAssetChanges.value,
       });
     } else if (fromName) {
@@ -421,13 +423,14 @@ async function submitInvite() {
     if (inviteSetupTransaction) {
       await waitForSetupTransaction(inviteSetupTransaction);
       flexibleAssetChanges.value = undefined;
-      await myVault.load(true);
-      fromName = myVault.createdVault?.name?.trim() || fromName || operatorName.value.trim();
     }
-    if (!inviteSetupTransaction && !fromName) {
-      await myVault.load(true);
-      fromName = myVault.createdVault?.name?.trim() || operatorName.value.trim();
+
+    await myVault.load(true);
+    const preparedVault = myVault.createdVault;
+    if (preparedVault?.name?.trim() !== expectedVaultName || !preparedVault.delegateAccountId) {
+      throw new Error('Your vault invite settings have not reached the chain yet. Please try again.');
     }
+    fromName = preparedVault.name!;
 
     const invite = await serverApiClient.createInvite({
       name: inviteName.value.trim(),
@@ -465,7 +468,7 @@ async function waitForSetupTransaction(transaction: TransactionInfo) {
   });
 
   try {
-    await transaction.txResult.waitForFinalizedBlock;
+    await transaction.txResult.waitForInFirstBlock;
   } finally {
     clearSetupProgress();
   }

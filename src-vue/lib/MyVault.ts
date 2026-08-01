@@ -636,10 +636,6 @@ export class MyVault {
         return await existing;
       }
 
-      if (this.createdVault?.delegateAccountId) {
-        throw new Error('Vault invite setup is already configured for this vault.');
-      }
-
       const deferred = createDeferred<TransactionInfo>();
       this.#singleRunTransactions.set(ExtrinsicType.VaultSetBitcoinLockDelegate, deferred.promise);
 

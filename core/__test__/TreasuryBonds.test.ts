@@ -225,6 +225,22 @@ describe('TreasuryBonds', () => {
       }),
     ).toBe(7n * oneArgon);
   });
+
+  it('uses the larger of vault securitization and securitized Bitcoin value for bond capacity', () => {
+    const oneArgon = BigInt(MICROGONS_PER_ARGON);
+    const vault = createCapacityVault(() => 4n, 10n * oneArgon);
+    const priceIndex = new PriceIndex();
+    vi.spyOn(priceIndex, 'getSatoshiPriceInTargetMicrogons').mockImplementation(
+      satoshis => BigInt(satoshis) * oneArgon,
+    );
+    const bondState = [{ activeBonds: 3 }];
+
+    expect(TreasuryBonds.availableBondSpace({ vault, priceIndex, bondState })).toBe(7n * oneArgon);
+
+    vault.securitization = 2n * oneArgon;
+
+    expect(TreasuryBonds.availableBondSpace({ vault, priceIndex, bondState })).toBe(1n * oneArgon);
+  });
 });
 
 function createVaultBondClient(
@@ -273,12 +289,12 @@ function createVaultBondLot({
   });
 }
 
-function createCapacityVault(getCapacityBonds: () => bigint) {
+function createCapacityVault(getCapacityBonds: () => bigint, securitization = 0n) {
   const vault = Object.assign(Object.create(Vault.prototype), {
     effectiveSecuritizedSatoshis: getCapacityBonds,
+    securitization,
   }) as Vault;
 
-  return {
-    availableBondSpace: vault.availableBondSpace.bind(vault),
-  };
+  vault.availableBondSpace = vault.availableBondSpace.bind(vault);
+  return vault;
 }

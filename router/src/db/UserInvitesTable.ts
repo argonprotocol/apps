@@ -198,7 +198,18 @@ export class UserInvitesTable extends BaseTable {
     return this.fetchById(id);
   }
 
-  public restoreClaimedInvite(args: { userId: number; inviteCode: string; fromName: string }): IUserInviteRecord {
+  public restoreClaimedInvite(
+    args: Pick<IUserInviteRecord, 'inviteCode' | 'fromName' | 'createdAt'> &
+      Partial<
+        Pick<
+          IUserInviteRecord,
+          | 'firstClickedAt'
+          | 'operationsUpgradeRequestedAt'
+          | 'operationsUpgradedAt'
+          | 'operationsAccessProofSignature'
+        >
+      > & { userId: number },
+  ): IUserInviteRecord {
     this.db.sql
       .prepare(
         `
@@ -207,17 +218,31 @@ export class UserInvitesTable extends BaseTable {
           inviteCode,
           fromName,
           firstClickedAt,
-          lastClickedAt
+          operationsUpgradeRequestedAt,
+          operationsUpgradedAt,
+          operationsAccessProofSignature,
+          createdAt
         ) VALUES (
           $userId,
           $inviteCode,
           $fromName,
-          CURRENT_TIMESTAMP,
-          CURRENT_TIMESTAMP
+          $firstClickedAt,
+          $operationsUpgradeRequestedAt,
+          $operationsUpgradedAt,
+          $operationsAccessProofSignature,
+          $createdAt
         )
       `,
       )
-      .run(toSqliteParams(args));
+      .run(
+        toSqliteParams({
+          ...args,
+          firstClickedAt: args.firstClickedAt,
+          operationsUpgradeRequestedAt: args.operationsUpgradeRequestedAt,
+          operationsUpgradedAt: args.operationsUpgradedAt,
+          operationsAccessProofSignature: args.operationsAccessProofSignature,
+        }),
+      );
 
     const invite = this.fetchById(args.userId);
     if (!invite) {

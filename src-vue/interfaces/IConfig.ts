@@ -154,6 +154,7 @@ export const UpstreamOperatorSchema = z.object({
   vaultId: z.number().optional(),
   accountId: z.string().optional(),
   restorePackage: z.string().optional(),
+  restorePackageRevision: z.string().optional(),
   encryptedBootstrapRecovery: z.string().optional(),
   bootstrapEndpointSequence: z.number().int().positive().optional(),
 });

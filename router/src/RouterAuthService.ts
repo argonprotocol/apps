@@ -38,7 +38,8 @@ export class RouterAuthService {
     {
       challenge: IRouterAuthChallenge;
       restorePackageRequired: boolean;
-      restorePackageRequested: boolean;
+      hasRestorePackage?: boolean;
+      restorePackageRevision?: string;
       bootstrapEndpointSecretRequired: boolean;
     }
   >();
@@ -70,7 +71,8 @@ export class RouterAuthService {
     role: RouterAuthRole = UserRole.AdminOperator,
     memberAuth: {
       restorePackageRequired?: boolean;
-      restorePackageRequested?: boolean;
+      hasRestorePackage?: boolean;
+      restorePackageRevision?: string;
       bootstrapEndpointSecretRequired?: boolean;
     } = {},
   ): IRouterAuthChallengeResponse {
@@ -96,7 +98,8 @@ export class RouterAuthService {
     this.challengesByNonce.set(challenge.nonce, {
       challenge,
       restorePackageRequired: normalizedRole === UserRole.Member && !!memberAuth.restorePackageRequired,
-      restorePackageRequested: normalizedRole === UserRole.Member && !!memberAuth.restorePackageRequested,
+      hasRestorePackage: normalizedRole === UserRole.Member ? memberAuth.hasRestorePackage : undefined,
+      restorePackageRevision: normalizedRole === UserRole.Member ? memberAuth.restorePackageRevision : undefined,
       bootstrapEndpointSecretRequired:
         normalizedRole === UserRole.Member && !!memberAuth.bootstrapEndpointSecretRequired,
     });
@@ -130,14 +133,13 @@ export class RouterAuthService {
       throw new RouterError('Login signature is invalid.', 403);
     }
 
-    let restorePackageApplied = false;
     if (challenge.role === UserRole.Member) {
-      restorePackageApplied =
-        (await this.memberRestore?.restoreAuthenticatedMember({
-          authAccountId: challenge.authAccountId,
-          restorePackage: request.restorePackage,
-          packageRequired: pendingChallenge.restorePackageRequired,
-        })) ?? false;
+      await this.memberRestore?.restoreAuthenticatedMember({
+        authAccountId: challenge.authAccountId,
+        restorePackage: request.restorePackage,
+        packageRequired: pendingChallenge.restorePackageRequired,
+        accountBinding: request.accountBinding,
+      });
     }
 
     const sessionId = nanoid();
@@ -158,9 +160,21 @@ export class RouterAuthService {
       };
     });
 
+    let refreshRestorePackage = false;
+    if (challenge.role === UserRole.Member && this.memberRestore?.isEnabled) {
+      const currentPackageRevision = this.memberRestore.getPackageRevision(challenge.authAccountId);
+      if (pendingChallenge.restorePackageRequired) {
+        refreshRestorePackage = true;
+      } else if (pendingChallenge.restorePackageRevision !== undefined) {
+        refreshRestorePackage = currentPackageRevision !== pendingChallenge.restorePackageRevision;
+      } else {
+        refreshRestorePackage = pendingChallenge.hasRestorePackage !== true;
+      }
+    }
+
     return {
       session,
-      refreshRestorePackage: pendingChallenge.restorePackageRequested || restorePackageApplied,
+      refreshRestorePackage,
       includeBootstrapEndpointSecret: pendingChallenge.bootstrapEndpointSecretRequired,
     };
   }

@@ -43,6 +43,9 @@
             >
               <td class="px-5 py-4">
                 <div class="max-w-72 truncate text-sm font-semibold text-slate-800">{{ invite.name }}</div>
+                <div class="mt-0.5 text-xs text-slate-400">
+                  Sent {{ dayjs.utc(invite.createdAt).local().fromNow() }}
+                </div>
               </td>
 
               <td class="px-5 py-4">
@@ -72,18 +75,38 @@
               </td>
 
               <td class="px-5 py-4 whitespace-nowrap">
-                <div v-if="invite.vaultContribution" class="flex items-center gap-4">
-                  <div class="font-mono text-sm font-semibold text-slate-800">
-                    ₳{{ microgonToArgonNm(invite.vaultContribution?.bitcoinAmount ?? 0n).format('0,0.[00]') }}
-                    <span class="font-sans text-xs font-normal text-slate-400">Bitcoin</span>
-                  </div>
-                  <span class="text-slate-300">·</span>
-                  <div class="font-mono text-sm text-slate-600">
+                <div v-if="invite.vaultContribution" class="text-sm whitespace-nowrap text-slate-600">
+                  <span class="font-mono">
+                    <template v-if="(invite.vaultContribution.bitcoinAmount ?? 0n) > 0n">
+                      ₳{{ microgonToArgonNm(invite.vaultContribution.bitcoinAmount).format('0,0.[00]') }}
+                    </template>
+                    <template v-else>
+                      ₳{{ microgonToArgonNm(invite.vaultContribution.pendingBitcoinAmount ?? 0n).format('0,0.[00]') }}
+                    </template>
+                  </span>
+                  <span class="ml-1 text-xs text-slate-400">Bitcoin</span>
+                  <span
+                    v-if="
+                      (invite.vaultContribution.bitcoinAmount ?? 0n) > 0n &&
+                      (invite.vaultContribution.pendingBitcoinAmount ?? 0n) > 0n
+                    "
+                    class="ml-1 text-xs text-slate-400"
+                  >
+                    (₳{{ microgonToArgonNm(invite.vaultContribution.pendingBitcoinAmount ?? 0n).format('0,0.[00]') }}
+                    awaiting funding)
+                  </span>
+                  <span
+                    v-else-if="(invite.vaultContribution.pendingBitcoinAmount ?? 0n) > 0n"
+                    class="ml-1 text-xs text-slate-400"
+                  >
+                    (awaiting funding)
+                  </span>
+                  <span class="mx-2 text-slate-300">·</span>
+                  <span class="font-mono">
                     ₳{{ microgonToArgonNm(invite.vaultContribution?.bondAmount ?? 0n).format('0,0.[00]') }}
-                    <span class="font-sans text-xs text-slate-400">Bonds</span>
-                  </div>
+                  </span>
+                  <span class="ml-1 text-xs text-slate-400">Bonds</span>
                 </div>
-                <div class="mt-1 text-xs text-slate-400">Sent {{ dayjs.utc(invite.createdAt).local().fromNow() }}</div>
               </td>
 
               <td class="px-5 py-4">

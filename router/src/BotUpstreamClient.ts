@@ -35,7 +35,7 @@ export class BotUpstreamClient {
     });
   }
 
-  public async restoreCoupon(coupon: IBitcoinLockCouponRecord): Promise<IBitcoinLockCouponRecord> {
+  public async restoreCoupon(coupon: Omit<IBitcoinLockCouponRecord, 'id'>): Promise<IBitcoinLockCouponRecord> {
     return await this.request('/bitcoin-lock-coupons/restore', {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },

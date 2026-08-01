@@ -227,14 +227,17 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
     const currentTick = await client.query.ticks.currentTick();
     await submitAndFinalize(
       client,
-      client.tx.priceIndex.submit({
-        btcUsdPrice: toFixedNumber(60_000, 18),
-        argonUsdPrice: toFixedNumber(1, 18),
-        argonotUsdPrice: toFixedNumber(1, 18),
-        argonUsdTargetPrice: toFixedNumber(1, 18),
-        argonTimeWeightedAverageLiquidity: toFixedNumber(1_000_000, 18),
-        tick: currentTick.toBigInt(),
-      }),
+      client.tx.priceIndex.submit(
+        {
+          btcUsdPrice: toFixedNumber(60_000, 18),
+          argonUsdPrice: toFixedNumber(1, 18),
+          argonotUsdPrice: toFixedNumber(1, 18),
+          argonUsdTargetPrice: toFixedNumber(1, 18),
+          argonTimeWeightedAverageLiquidity: toFixedNumber(1_000_000, 18),
+          tick: currentTick.toBigInt(),
+        },
+        null,
+      ),
       new Keyring({ type: 'sr25519' }).addFromUri('//Eve//oracle'),
     );
 

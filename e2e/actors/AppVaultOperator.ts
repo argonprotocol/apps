@@ -250,13 +250,24 @@ export class AppVaultOperator {
     const existingOperationalAccount = await loadOperationalAccount(this.walletKeys, client);
     const existingProgress = getOperationalChainProgressFromAccount(existingOperationalAccount, rewardConfig);
 
-    if (vault.delegateAccountId && existingProgress.isOperational && existingProgress.availableAccessCodes > 0) {
+    if (
+      vault.name === vaultName &&
+      vault.delegateAccountId &&
+      existingProgress.isOperational &&
+      existingProgress.availableAccessCodes > 0
+    ) {
       return;
     }
 
-    if (!vault.delegateAccountId) {
+    if (vault.name !== vaultName || !vault.delegateAccountId) {
       const txInfo = await this.myVault.setupVaultInviteProfile(vaultName);
       await txInfo?.txResult.waitForInFirstBlock;
+
+      await this.myVault.load(true);
+      const configuredVault = this.myVault.createdVault;
+      if (configuredVault?.name !== vaultName || !configuredVault.delegateAccountId) {
+        throw new Error('Upstream vault name and delegate did not reach the chain during bootstrap.');
+      }
     }
 
     if (!existingOperationalAccount.isSome) {

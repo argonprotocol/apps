@@ -67,7 +67,8 @@ export class BitcoinLockCouponsTable extends BaseTable {
   }
 
   public restoreCoupon(
-    coupon: Omit<IBitcoinLockCouponRecord, 'sequence'> & { sequence?: number },
+    coupon: Omit<IBitcoinLockCouponRecord, 'id' | 'sequence'> &
+      Partial<Pick<IBitcoinLockCouponRecord, 'id' | 'sequence'>>,
   ): IBitcoinLockCouponRecord {
     const existingByOfferCode = this.fetchByOfferCode(coupon.offerCode);
     const sequence = coupon.sequence ?? existingByOfferCode?.sequence ?? 1;
