@@ -203,11 +203,12 @@ async function completeRegistration() {
       registrationProgressLabel.value = args.progressMessage;
       registrationProgressError.value = error?.message ?? '';
 
-      if (error) {
+      if (error || args.progressPct >= 100) {
+        unsubscribeProgress?.();
+        unsubscribeProgress = undefined;
         isRegistering.value = false;
-      } else if (args.progressPct >= 100) {
-        isRegistering.value = false;
-        void markComplete();
+
+        if (!error) void markComplete();
       }
     });
   } catch (error) {

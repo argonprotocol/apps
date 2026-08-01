@@ -475,7 +475,9 @@ async function initializePurchase(session = ++purchaseSession) {
   if (session !== purchaseSession) return;
 
   const maxActiveLots = client.consts.treasury.maxActiveArgonotBondLots.toNumber();
-  const smallestActiveLotBonds = activeLots[0]?.bonds.toNumber();
+  const smallestActiveLotBonds = activeLots.length
+    ? activeLots.reduce((smallest, lot) => Math.min(smallest, lot.bonds.toNumber()), Number.POSITIVE_INFINITY)
+    : undefined;
   const isReplacingActiveLot = activeLots.length >= maxActiveLots;
 
   minPurchaseAllowed.value = TreasuryBonds.getArgonotBondMinimumPurchase({
