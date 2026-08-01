@@ -296,6 +296,10 @@ const isOperatorCouponLock = Vue.computed(() => {
   return !!operatorCoupon.value;
 });
 
+const capacityLockOwner = Vue.computed(() => {
+  return isOperatorCouponLock.value ? undefined : walletKeys.liquidLockingAddress;
+});
+
 const couponProviderLabel = Vue.computed(() => {
   const name = config.upstreamOperator?.name;
   return name || 'The vault operator';
@@ -440,7 +444,7 @@ async function submitLiquidLock() {
     }
     if (
       BitcoinLock.calculateRedemptionAmountFromSatoshis(currency.priceIndex, satoshis) >
-      (props.vault.availableBitcoinSpace() ?? 0n)
+      (props.vault.availableBitcoinSpace(capacityLockOwner.value) ?? 0n)
     ) {
       throw new Error(
         "This amount rounds above the vault's remaining capacity. Lower the requested Argons slightly and try again.",
@@ -477,6 +481,7 @@ async function setLiquidityVariables() {
   const [capacity, nextMinimumLockSatoshis] = await Promise.all([
     bitcoinLocks.getLockableBitcoinCapacity({
       vault: props.vault,
+      lockOwner: capacityLockOwner.value,
       maxSatoshis: coupon && isOperatorCouponLock.value ? coupon.coupon.maxSatoshis : undefined,
     }),
     bitcoinLocks.minimumSatoshiPerLock(),

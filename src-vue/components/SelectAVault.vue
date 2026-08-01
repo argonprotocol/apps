@@ -36,7 +36,8 @@
             >
               BTC Space
               <br />
-              {{ currency.symbol }}{{ microgonToMoneyNm(vault.availableBitcoinSpace()).format('0,0.00') }}
+              {{ currency.symbol
+              }}{{ microgonToMoneyNm(vault.availableBitcoinSpace(walletKeys.liquidLockingAddress)).format('0,0.00') }}
             </div>
             <div
               v-else
@@ -72,6 +73,7 @@ import { Vault } from '@argonprotocol/mainchain';
 import { useFinancials } from '../stores/financials.ts';
 import { getArgonBonds } from '../stores/argonBonds.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
+import { getWalletKeys } from '../stores/wallets.ts';
 
 const emit = defineEmits<{
   (e: 'load', vaults: Vault[]): void;
@@ -90,6 +92,7 @@ const props = withDefaults(
 const currency = getCurrency();
 const financials = useFinancials();
 const argonBonds = getArgonBonds();
+const walletKeys = getWalletKeys();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 

@@ -677,14 +677,14 @@ export default class BitcoinLocks {
     return BitcoinLock.satoshisRequiredForRedemptionAmount(this.#currency.priceIndex, microgonLiquidity);
   }
 
-  public async getLockableBitcoinCapacity(args: { vault: Vault; maxSatoshis?: bigint }): Promise<{
+  public async getLockableBitcoinCapacity(args: { vault: Vault; lockOwner?: string; maxSatoshis?: bigint }): Promise<{
     availableSatoshis: bigint;
     availableLiquidityMicrogons: bigint;
     vaultCapacitySatoshis: bigint;
     vaultCapacityLiquidityMicrogons: bigint;
   }> {
-    const { vault, maxSatoshis } = args;
-    const vaultCapacityLiquidityMicrogons = vault.availableBitcoinSpace() ?? 0n;
+    const { vault, lockOwner, maxSatoshis } = args;
+    const vaultCapacityLiquidityMicrogons = vault.availableBitcoinSpace(lockOwner) ?? 0n;
     const vaultCapacitySatoshis = await this.satoshisForArgonLiquidity(vaultCapacityLiquidityMicrogons);
     let availableSatoshis =
       maxSatoshis != null && maxSatoshis < vaultCapacitySatoshis ? maxSatoshis : vaultCapacitySatoshis;
@@ -1370,7 +1370,7 @@ export default class BitcoinLocks {
     const oldTargetPrice = bitcoinLock.lockedTargetPrice;
     const newTargetPrice = this.#currency.priceIndex.getSatoshiPriceInTargetMicrogons(lock.satoshis);
     const lockSecuritizationRatio = await this.getLockSecuritizationRatio(client, lock);
-    const availableVaultFunds = vault.availableSecuritization();
+    const availableVaultFunds = vault.availableSecuritization(bitcoinLock.ownerAccount);
     const isUpRatchet = newTargetPrice > oldTargetPrice;
 
     let newLiquidityPromised: bigint;
@@ -1869,7 +1869,7 @@ export default class BitcoinLocks {
       receivedSatoshis: received,
     });
     if (extraLiquidity === null || extraLiquidity <= 0n) return null;
-    const availableLiquidity = vault.availableBitcoinSpace();
+    const availableLiquidity = vault.availableBitcoinSpace(lock.lockDetails.ownerAccount);
     if (availableLiquidity >= extraLiquidity) return null;
     return extraLiquidity - availableLiquidity;
   }
@@ -1888,7 +1888,7 @@ export default class BitcoinLocks {
       receivedSatoshis: received,
     });
     if (extraLiquidity === null || extraLiquidity <= 0n) return 0n;
-    const availableLiquidity = vault.availableBitcoinSpace();
+    const availableLiquidity = vault.availableBitcoinSpace(lock.lockDetails.ownerAccount);
     if (availableLiquidity <= 0n) return 0n;
     return extraLiquidity > availableLiquidity ? availableLiquidity : extraLiquidity;
   }
