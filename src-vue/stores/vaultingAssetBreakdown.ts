@@ -119,9 +119,13 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
 
   // The remaining next-frame room for buying new bonds.
   const treasuryBondMicrogonsAvailable = Vue.computed(() => {
-    return (
-      myVault.createdVault?.availableBondSpace(currency.priceIndex, vaultBondState.value?.bondLots ?? [], true) ?? 0n
-    );
+    if (!myVault.createdVault) return 0n;
+
+    return TreasuryBonds.availableBondSpace({
+      vault: myVault.createdVault,
+      priceIndex: currency.priceIndex,
+      bondState: argonBonds.data.capacityStatesByVault[myVault.createdVault.vaultId],
+    });
   });
 
   // Operational Fees

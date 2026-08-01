@@ -276,12 +276,14 @@ const vaultId = Vue.computed(() => {
 
 const availableMicrogons = Vue.computed(() => wallets.defaultArgonWallet.availableMicrogons);
 
-const vaultBondState = Vue.computed(() => {
-  return vaultId.value ? argonBonds.data.vaultsById[vaultId.value] : undefined;
-});
-
 const vaultAvailableCapacity = Vue.computed(() => {
-  return vault.value?.availableBondSpace(currency.priceIndex, vaultBondState.value?.bondLots ?? [], true) ?? 0n;
+  if (!vault.value) return 0n;
+
+  return TreasuryBonds.availableBondSpace({
+    vault: vault.value,
+    priceIndex: currency.priceIndex,
+    bondState: argonBonds.data.capacityStatesByVault[vault.value.vaultId],
+  });
 });
 
 const spendableWalletBalance = Vue.computed(() => {
