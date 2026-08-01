@@ -37,6 +37,79 @@ describe('TreasuryBonds', () => {
     ).toBe(75n * oneArgonot);
   });
 
+  it('credits an evicted Argonot lot toward purchase capacity', () => {
+    const oneArgonot = BigInt(MICRONOTS_PER_ARGONOT);
+
+    expect(
+      TreasuryBonds.getArgonotBondPurchaseCapacity({
+        totalIssuanceMicronots: 1_000n * oneArgonot,
+        maxBondedPercent: 40,
+        totalActiveBonds: 395,
+        replacedBonds: 3,
+      }),
+    ).toBe(8n * oneArgonot);
+  });
+
+  it('uses the configured minimum for Argonot purchases while the active lot set has room', () => {
+    const oneArgonot = BigInt(MICRONOTS_PER_ARGONOT);
+
+    expect(
+      TreasuryBonds.getArgonotBondMinimumPurchase({
+        configuredMinimumMicrounits: 100n * oneArgonot,
+        activeLotCount: 999,
+        maxActiveLots: 1_000,
+        smallestActiveLotBonds: 250,
+      }),
+    ).toBe(100);
+  });
+
+  it('rounds the configured Argonot minimum up to a whole stake', () => {
+    const oneArgonot = BigInt(MICRONOTS_PER_ARGONOT);
+
+    expect(
+      TreasuryBonds.getArgonotBondMinimumPurchase({
+        configuredMinimumMicrounits: oneArgonot + 1n,
+        activeLotCount: 0,
+        maxActiveLots: 1_000,
+      }),
+    ).toBe(2);
+  });
+
+  it('requires a full-set Argonot purchase to beat the smallest active lot', () => {
+    const oneArgonot = BigInt(MICRONOTS_PER_ARGONOT);
+
+    expect(
+      TreasuryBonds.getArgonotBondMinimumPurchase({
+        configuredMinimumMicrounits: 100n * oneArgonot,
+        activeLotCount: 1_000,
+        maxActiveLots: 1_000,
+        smallestActiveLotBonds: 250,
+      }),
+    ).toBe(251);
+  });
+
+  it('limits one Argonot purchase to ten percent of total network capacity', () => {
+    const oneArgonot = BigInt(MICRONOTS_PER_ARGONOT);
+
+    expect(
+      TreasuryBonds.getArgonotBondPurchaseLimit({
+        totalIssuanceMicronots: 1_000n * oneArgonot,
+        maxBondedPercent: 40,
+      }),
+    ).toBe(40n * oneArgonot);
+  });
+
+  it('rounds the Argonot purchase limit down to whole stakes', () => {
+    const oneArgonot = BigInt(MICRONOTS_PER_ARGONOT);
+
+    expect(
+      TreasuryBonds.getArgonotBondPurchaseLimit({
+        totalIssuanceMicronots: 499n * oneArgonot,
+        maxBondedPercent: 40,
+      }),
+    ).toBe(19n * oneArgonot);
+  });
+
   it('scales the Argonot target by the vault share of the ARGN securitization target', () => {
     const oneArgon = BigInt(MICROGONS_PER_ARGON);
     const oneArgonot = BigInt(MICRONOTS_PER_ARGONOT);

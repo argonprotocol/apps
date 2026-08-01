@@ -107,7 +107,7 @@
             </button>
             <span class="h-4 border-l border-gray-300 mx-3" />
             <span v-if="purchaseAmount === maxPurchaseAmount" class="text-sm text-gray-600/60">
-              You're At Vault Capacity
+              You're At Max Amount
             </span>
             <button
               v-else

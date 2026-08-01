@@ -117,13 +117,46 @@ export class TreasuryBonds {
     totalIssuanceMicronots: bigint;
     maxBondedPercent: number;
     totalActiveBonds: number;
+    replacedBonds?: number;
   }): bigint {
-    const { totalIssuanceMicronots, maxBondedPercent, totalActiveBonds } = args;
+    const { totalIssuanceMicronots, maxBondedPercent, totalActiveBonds, replacedBonds = 0 } = args;
     const unitsPerBond = BigInt(MICRONOTS_PER_ARGONOT);
     const maximumActiveBonds = (totalIssuanceMicronots * BigInt(maxBondedPercent)) / 100n / unitsPerBond;
-    const remainingBonds = maximumActiveBonds - BigInt(totalActiveBonds);
+    const remainingBonds = maximumActiveBonds - BigInt(totalActiveBonds) + BigInt(replacedBonds);
 
     return remainingBonds > 0n ? remainingBonds * unitsPerBond : 0n;
+  }
+
+  public static getArgonotBondMinimumPurchase(args: {
+    configuredMinimumMicrounits: bigint;
+    activeLotCount: number;
+    maxActiveLots: number;
+    smallestActiveLotBonds?: number;
+  }): number {
+    const { configuredMinimumMicrounits, activeLotCount, maxActiveLots, smallestActiveLotBonds } = args;
+    const unitsPerBond = BigInt(MICRONOTS_PER_ARGONOT);
+    const configuredMinimum = (configuredMinimumMicrounits + unitsPerBond - 1n) / unitsPerBond;
+    let minimumBonds = configuredMinimum > 1n ? configuredMinimum : 1n;
+    minimumBonds = minimumBonds < 0xffff_ffffn ? minimumBonds : 0xffff_ffffn;
+
+    if (activeLotCount >= maxActiveLots && smallestActiveLotBonds !== undefined) {
+      const cutoffMinimum = BigInt(smallestActiveLotBonds) + 1n;
+      if (cutoffMinimum > minimumBonds) minimumBonds = cutoffMinimum;
+    }
+
+    return Number(minimumBonds);
+  }
+
+  public static getArgonotBondPurchaseLimit(args: {
+    totalIssuanceMicronots: bigint;
+    maxBondedPercent: number;
+  }): bigint {
+    const { totalIssuanceMicronots, maxBondedPercent } = args;
+    const unitsPerBond = BigInt(MICRONOTS_PER_ARGONOT);
+    const maximumActiveBonds = (totalIssuanceMicronots * BigInt(maxBondedPercent)) / 100n / unitsPerBond;
+    const maximumPurchaseBonds = maximumActiveBonds / 10n;
+
+    return maximumPurchaseBonds * unitsPerBond;
   }
 
   public static getVaultArgonotSecuritizationTarget(args: {
