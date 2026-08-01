@@ -350,6 +350,14 @@ export default class Bot {
     }
   }
 
+  public async manualBid(request: IManualBidRequest): Promise<null> {
+    if (!this.isReady) {
+      throw new Error('The mining bot is not ready yet.');
+    }
+    await this.autobidder.submitManualBid(request);
+    return null;
+  }
+
   public pauseBidding(): null {
     if (!this.isReady) {
       throw new Error('The mining bot is not ready yet.');
@@ -363,18 +371,6 @@ export default class Bot {
       throw new Error('The mining bot is not ready yet.');
     }
     this.autobidder.resumeBidding();
-    return null;
-  }
-
-  public async manualBid(request: IManualBidRequest): Promise<null> {
-    if (!this.isReady) {
-      throw new Error('The mining bot is not ready yet.');
-    }
-    if (!this.autobidder.currentBidder) {
-      throw new Error('There is no active bidding cohort right now.');
-    }
-
-    await this.autobidder.submitManualBid(request);
     return null;
   }
 

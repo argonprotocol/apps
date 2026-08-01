@@ -1,10 +1,18 @@
 import BigNumber from 'bignumber.js';
 import BiddingCalculatorData from './BiddingCalculatorData.js';
-import { bigIntAbs, bigIntCeil, bigIntMax, bigIntMin, bigNumberToBigInt } from './utils.js';
+import { Currency, MICRONOTS_PER_ARGONOT } from './Currency.js';
+import {
+  bigIntAbs,
+  bigIntCeil,
+  bigIntMax,
+  bigIntMin,
+  bigNumberToBigInt,
+  calculateProfitPct,
+  compoundXTimes,
+  percentOf,
+  roundTo,
+} from './utils.js';
 import { BidAmountAdjustmentType, BidAmountFormulaType, type IBiddingRules } from './interfaces/IBiddingRules.js';
-import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
-
-const MICRONOTS_PER_ARGONOT = MICROGONS_PER_ARGON;
 
 interface IBidDetails {
   formulaType: BidAmountFormulaType;
@@ -157,6 +165,42 @@ export default class BiddingCalculator {
       microgonRequirement,
       micronotRequirement,
       capitalCommitment,
+    };
+  }
+
+  public calculateBidEconomics({
+    bidPrincipal,
+    transactionFees = this.data.estimatedTransactionFee,
+    growthType = 'medium',
+  }: {
+    bidPrincipal: bigint;
+    transactionFees?: bigint;
+    growthType?: IGrowthType;
+  }) {
+    const annualArgonotPriceChangePct = this.extractArgonotPriceChangePct(growthType);
+    const annualArgonCirculationGrowthPct = this.extractArgonCirculationGrowthPct(growthType);
+    const tenDayArgonotPriceChangePct = this.convertAnnualToTenDayRate(annualArgonotPriceChangePct);
+    const projectedArgonotPrice = percentOf(this.data.microgonExchangeRateTo.ARGNOT, 100 + tenDayArgonotPriceChangePct);
+    const microgonsMined = this.data.microgonsToMineThisSeat;
+    const microgonsMinted = this.calculateMicrogonsToMintThisSeat(annualArgonCirculationGrowthPct);
+    const micronotsMined = this.data.micronotsToMineThisSeat;
+    const microgonValue = Currency.microgonValueOfMiningRewards({
+      microgonsMined,
+      microgonsMinted,
+      micronotsMined,
+      argonotPrice: projectedArgonotPrice,
+    });
+
+    return {
+      microgonsMined,
+      microgonsMinted,
+      microgonsEarned: microgonsMined + microgonsMinted,
+      micronotsMined,
+      microgonValue,
+      projectedReturnPct: roundTo(calculateProfitPct(bidPrincipal + transactionFees, microgonValue) * 100, 2),
+      annualArgonCirculationGrowthPct,
+      annualArgonotPriceChangePct,
+      projectedArgonotPrice,
     };
   }
 
@@ -455,10 +499,6 @@ export default class BiddingCalculator {
       throw new RangeError('annualPct cannot go lower than -100');
     }
 
-    const annualFactor = 1 + annualPct / 100;
-    const periodsPerYear = 365 / 10;
-    const rate = Math.pow(annualFactor, 1 / periodsPerYear) - 1;
-
-    return rate * 100;
+    return compoundXTimes(annualPct / 100, 10 / 365) * 100;
   }
 }

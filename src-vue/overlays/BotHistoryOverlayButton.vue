@@ -3,7 +3,7 @@
   <PopoverRoot as="div" @update:open="onOpen">
     <PopoverTrigger type="button" class="inline-flex appearance-none bg-transparent p-0 text-left focus:outline-none">
       <slot>
-        <span class="border border-argon-300 text-center text-lg font-bold mt-10 whitespace-nowrap text-argon-600 px-7 py-2 rounded cursor-pointer hover:bg-argon-50/40 hover:border-argon-600 transition-all duration-300">
+        <span class="border border-argon-300 text-center text-lg font-bold whitespace-nowrap text-argon-600 px-7 py-1 rounded cursor-pointer hover:bg-argon-50/40 hover:border-argon-600 transition-all duration-300">
           View Bidding Activity
         </span>
       </slot>

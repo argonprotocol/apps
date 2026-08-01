@@ -36,6 +36,8 @@ export interface IBidPlanInput {
 export interface IBidPlan {
   reason?: IBidPlanReason;
   seatsAfterBid: number;
+  additionalMicrogonsNeeded: bigint;
+  additionalMicronotsNeeded: bigint;
   replacedBids: IBidPlanBid[];
   accountsToBidWith: IBidPlanSubaccount[];
 }
@@ -132,6 +134,20 @@ function planBidWithSortedSubaccounts(input: IBidPlanInput, sortedSubaccounts: I
       availableBidSlots < requestedAdditionalSeats ? 'max-bid-too-low' : 'insufficient-bidding-accounts';
   }
   const targetAccounts = accountsEligibleForBid.slice(0, targetAdditionalSeats);
+  const targetReplacedBids = targetAccounts
+    .map(x => lowerWinningBidsByAddress.get(x.address))
+    .filter((x): x is IBidPlanBid => !!x);
+  const reusableMicrogons = targetReplacedBids.reduce((sum, bid) => sum + bid.bidMicrogons, 0n);
+  const reusableMicronots = targetReplacedBids.reduce((sum, bid) => sum + bid.micronotsStaked, 0n);
+  const additionalMicrogonsNeeded = bigIntMax(
+    BigInt(targetAdditionalSeats) * microgonsPerSeat + feeEstimate + tip - accountBalance - reusableMicrogons,
+    0n,
+  );
+  const additionalMicronotsNeeded = bigIntMax(
+    BigInt(targetAdditionalSeats) * micronotsPerSeat - accountMicronots - reusableMicronots,
+    0n,
+  );
+
   if (requestedAdditionalSeats === 0) {
     return createRejectedPlan('no-op', alreadyWinningSeats);
   }
@@ -176,6 +192,8 @@ function planBidWithSortedSubaccounts(input: IBidPlanInput, sortedSubaccounts: I
     return {
       reason,
       seatsAfterBid: alreadyWinningSeats + accountsToBidWith.length,
+      additionalMicrogonsNeeded,
+      additionalMicronotsNeeded,
       replacedBids,
       accountsToBidWith,
     };
@@ -183,6 +201,8 @@ function planBidWithSortedSubaccounts(input: IBidPlanInput, sortedSubaccounts: I
 
   return {
     seatsAfterBid: alreadyWinningSeats + accountsToBidWith.length,
+    additionalMicrogonsNeeded,
+    additionalMicronotsNeeded,
     replacedBids,
     accountsToBidWith,
   };
@@ -192,6 +212,8 @@ function createRejectedPlan(reason: IBidPlanReason, seatsAfterBid: number): IBid
   return {
     reason,
     seatsAfterBid,
+    additionalMicrogonsNeeded: 0n,
+    additionalMicronotsNeeded: 0n,
     replacedBids: [],
     accountsToBidWith: [],
   };

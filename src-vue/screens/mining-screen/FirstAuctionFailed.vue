@@ -37,9 +37,8 @@
         </template>
       </p>
       <div class="flex flex-row justify-center items-center space-x-6 mt-14">
-        <ActiveBidsOverlayButton />
         <BotHistoryOverlayButton />
-        <button @click="openBiddingPanel" class="border border-argon-300 text-center text-lg font-bold whitespace-nowrap text-argon-600 px-7 py-1 rounded cursor-pointer hover:bg-argon-50/40 hover:border-argon-600 transition-all duration-300">
+        <button @click="basicEmitter.emit('openBiddingPanel')" class="border border-argon-300 text-center text-lg font-bold whitespace-nowrap text-argon-600 px-7 py-1 rounded cursor-pointer hover:bg-argon-50/40 hover:border-argon-600 transition-all duration-300">
           Open Bidding Panel
         </button>
       </div>
@@ -52,7 +51,6 @@ import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { getConfig } from '../../stores/config.ts';
-import ActiveBidsOverlayButton from '../../overlays/ActiveBidsOverlayButton.vue';
 import BotHistoryOverlayButton from '../../overlays/BotHistoryOverlayButton.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { getBiddingCalculator } from '../../stores/mainchain.ts';
@@ -103,10 +101,6 @@ function openBiddingBudgetOverlay() {
 
 function openWalletFunding() {
   basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
-}
-
-function openBiddingPanel() {
-  basicEmitter.emit('openBiddingPanel');
 }
 
 Vue.onMounted(async () => {

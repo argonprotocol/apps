@@ -47,9 +47,8 @@
         This page will update automatically when a successful bid is confirmed.
       </p>
       <div class="flex flex-row justify-center items-center space-x-6 mt-10">
-        <ActiveBidsOverlayButton />
         <BotHistoryOverlayButton />
-        <button @click="openBiddingPanel" class="border border-argon-300 text-center text-lg font-bold whitespace-nowrap text-argon-600 px-7 py-1 rounded cursor-pointer hover:bg-argon-50/40 hover:border-argon-600 transition-all duration-300">
+        <button @click="basicEmitter.emit('openBiddingPanel')" class="border border-argon-300 text-center text-lg font-bold whitespace-nowrap text-argon-600 px-7 py-1 rounded cursor-pointer hover:bg-argon-50/40 hover:border-argon-600 transition-all duration-300">
           Open Bidding Panel
         </button>
       </div>
@@ -64,7 +63,6 @@ import utc from 'dayjs/plugin/utc';
 import { getConfig } from '../../stores/config.ts';
 import CountdownClock from '../../components/CountdownClock.vue';
 import ConfettiIcon from '../../assets/confetti.svg?component';
-import ActiveBidsOverlayButton from '../../overlays/ActiveBidsOverlayButton.vue';
 import BotHistoryOverlayButton from '../../overlays/BotHistoryOverlayButton.vue';
 import { MINING_BID_PROXY_FEE_FLOAT, MiningFrames } from '@argonprotocol/apps-core';
 import basicEmitter from '../../emitters/basicEmitter.ts';
@@ -122,10 +120,6 @@ async function ensureMiningBidProxy() {
   } finally {
     isEnsuringMiningBidProxy.value = false;
   }
-}
-
-function openBiddingPanel() {
-  basicEmitter.emit('openBiddingPanel');
 }
 
 Vue.onMounted(async () => {

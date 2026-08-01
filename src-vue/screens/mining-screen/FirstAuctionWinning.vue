@@ -65,9 +65,8 @@
         </template>
       </p>
       <div class="flex flex-row justify-center items-center space-x-6 mt-10">
-        <ActiveBidsOverlayButton />
         <BotHistoryOverlayButton />
-        <button @click="openBiddingPanel" class="border border-argon-300 text-center text-lg font-bold whitespace-nowrap text-argon-600 px-7 py-1 rounded cursor-pointer hover:bg-argon-50/40 hover:border-argon-600 transition-all duration-300">
+        <button @click="basicEmitter.emit('openBiddingPanel')" class="border border-argon-300 text-center text-lg font-bold whitespace-nowrap text-argon-600 px-7 py-1 rounded cursor-pointer hover:bg-argon-50/40 hover:border-argon-600 transition-all duration-300">
           Open Bidding Panel
         </button>
         <button @click="openBotConfig" class="border border-argon-300 text-center text-lg font-bold whitespace-nowrap text-argon-600 px-7 py-1 rounded cursor-pointer hover:bg-argon-50/40 hover:border-argon-600 transition-all duration-300">
@@ -87,7 +86,6 @@ import { getCurrency } from '../../stores/currency.ts';
 import { type IBiddingRules, type IWinningBid, NetworkConfig } from '@argonprotocol/apps-core';
 import CountdownClock from '../../components/CountdownClock.vue';
 import ConfettiIcon from '../../assets/confetti.svg?component';
-import ActiveBidsOverlayButton from '../../overlays/ActiveBidsOverlayButton.vue';
 import BotHistoryOverlayButton from '../../overlays/BotHistoryOverlayButton.vue';
 import { getBiddingCalculator, getMining } from '../../stores/mainchain.ts';
 import { getMyMiningSeats } from '../../stores/myMiningSeats.ts';
@@ -138,10 +136,6 @@ function handleAuctionClosingTick(totalSecondsRemaining: number) {
 
 function openBotConfig() {
   basicEmitter.emit('openBotEditOverlay');
-}
-
-function openBiddingPanel() {
-  basicEmitter.emit('openBiddingPanel');
 }
 
 Vue.onMounted(async () => {

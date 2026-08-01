@@ -649,6 +649,67 @@ describe('CohortBidder unit tests', () => {
     await pendingRequest;
   });
 
+  it('deduplicates a manual bid submitted through the recovered transaction flow', async () => {
+    const currentTick = 100;
+    const blockHash = `0x${'01'.repeat(32)}`;
+    const events = createTypedEventEmitter();
+    const mortalEra = { asMortalEra: { death: () => 108 } };
+    const client = {
+      at: vi.fn(),
+      registry: { createType: vi.fn().mockReturnValue(mortalEra) },
+      query: { ticks: { currentTick: vi.fn().mockResolvedValue({ toNumber: () => currentTick }) } },
+    };
+    client.at.mockResolvedValue(client);
+
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 0], {
+      accountBalance: 1_000_000n,
+    });
+    cohortBidder.miningFrames = {
+      blockWatch: {
+        bestBlockHeader: {
+          blockNumber: currentTick,
+          blockHash,
+          tick: currentTick,
+          frameRewardTicksRemaining: 20,
+        },
+        events,
+        subscriptionClient: client,
+      },
+    } as unknown as MiningFrames;
+    cohortBidder.currentBids.atTick = currentTick;
+    cohortBidder.currentBids.mostRecentBidTick = currentTick;
+    vi.spyOn(cohortBidder, 'planNextBid' as any).mockResolvedValue(undefined);
+
+    let finalizeBid!: (blockHash: Uint8Array) => void;
+    const waitForFinalizedBlock = new Promise<Uint8Array>(resolve => {
+      finalizeBid = resolve;
+    });
+    const txResult = {
+      extrinsic: { signedHash: blockHash, submittedAtBlockNumber: currentTick },
+      waitForInFirstBlock: Promise.resolve(new Uint8Array([1])),
+      waitForFinalizedBlock,
+      blockHash: new Uint8Array([1]),
+      blockNumber: currentTick,
+      finalFee: 60_000n,
+    } as TxResult;
+    const submitSigned = vi.fn().mockResolvedValue(txResult);
+    const createMiningBidTx = vi.spyOn(accountset, 'createMiningBidTx').mockResolvedValue({
+      client,
+      feeEstimate: vi.fn().mockResolvedValue(60_000n),
+      sign: vi.fn().mockResolvedValue({ era: mortalEra }),
+      submitSigned,
+    } as never);
+
+    const request = { microgonsPerSeat: 500_000n, seats: 1 };
+    const firstRequest = cohortBidder.submitManualBid(request);
+    await vi.waitFor(() => expect(submitSigned).toHaveBeenCalledOnce());
+    const duplicateRequest = cohortBidder.submitManualBid(request);
+    finalizeBid(new Uint8Array([1]));
+
+    await expect(Promise.all([firstRequest, duplicateRequest])).resolves.toEqual([undefined, undefined]);
+    expect(createMiningBidTx).toHaveBeenCalledOnce();
+  });
+
   it('retries snapshot planning when immediate replanning fails after a submission attempt', async () => {
     const header = createBlockHeader(100, `0x${'01'.repeat(32)}`);
     const blockWatch = {

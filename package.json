@@ -21,6 +21,7 @@
     "dev:gateway-certs": "tsx scripts/devGatewayCerts.ts",
     "dev:docker": "yarn build:indexer && yarn build:server && yarn clean:dev:docker && yarn dev:gateway-certs && yarn docker:up && yarn tauri:dev:docker",
     "dev:docker:custom": "ARGON_CHAIN=/chainspec.raw.json yarn dev:docker",
+    "dev:docker:long-frame": "yarn docker:argon:chainspec --ticks-between-slots 100 && yarn dev:docker:custom",
     "dev:fund": "tsx e2e/scripts/fundArgonAccount.ts",
     "dev:argon:add-argn": "tsx e2e/scripts/fundArgonAccount.ts --token=ARGN",
     "dev:argon:add-argnot": "tsx e2e/scripts/fundArgonAccount.ts --token=ARGNOT",

@@ -31,6 +31,25 @@
   </AlertBarRow>
 
   <AlertBarRow
+    BiddingPaused
+    v-if="bot.state?.isBiddingPaused"
+    tone="warn"
+    showDefaultIcon>
+    <div>
+      <span class="font-bold">AUTOMATIC BIDDING PAUSED.</span>
+      <template v-if="resumeBiddingError"> {{ resumeBiddingError }}</template>
+      <template v-else> New scheduled bids will not be submitted; an in-flight bid can still finalize.</template>
+    </div>
+    <template #action>
+      <button
+        @click="resumeAutomaticBidding"
+        :disabled="isResumingBidding">
+        {{ isResumingBidding ? 'Resuming...' : 'Resume Bidding' }}
+      </button>
+    </template>
+  </AlertBarRow>
+
+  <AlertBarRow
     ServerDegraded
     v-if="isApiClientDegraded"
     tone="warn"
@@ -271,12 +290,14 @@ const argonBonds = getArgonBonds();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const isRestarting = Vue.ref(false);
+const isResumingBidding = Vue.ref(false);
 const isApiClientDegraded = Vue.ref(!clients.hasConnectedClient());
 const isExpanded = Vue.ref(false);
 const showVaultCollectOverlay = Vue.ref(false);
 const showBitcoinUnlockingOverlay = Vue.ref(false);
 const selectedUnlockLock = Vue.ref<IBitcoinLockRecord | undefined>(undefined);
 const resumedFundingByLockUtxoId = Vue.ref<{ [lockUtxoId: number]: true }>({});
+const resumeBiddingError = Vue.ref('');
 
 let unsubscribeArgonBondVault: VoidFunction | undefined;
 
@@ -342,6 +363,20 @@ async function restartBot() {
   isRestarting.value = true;
   await bot.restart();
   isRestarting.value = false;
+}
+
+async function resumeAutomaticBidding() {
+  isResumingBidding.value = true;
+  resumeBiddingError.value = '';
+
+  try {
+    const client = await bot.getClient();
+    await client.fetch('/resume-bidding');
+  } catch (error) {
+    resumeBiddingError.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    isResumingBidding.value = false;
+  }
 }
 
 function closeSharedOverlays() {

@@ -66,3 +66,61 @@ describe('BiddingCalculator loading', () => {
     expect(unsubscribeFirst).toHaveBeenCalledOnce();
   });
 });
+
+describe('BiddingCalculator bid economics', () => {
+  it('combines projected ARGN and ARGNOT rewards', () => {
+    const calculator = new BiddingCalculator(
+      {
+        estimatedTransactionFee: 2_000_000n,
+        microgonsToMineThisSeat: 20_000_000n,
+        micronotsToMineThisSeat: 10_000_000n,
+        microgonsInCirculation: 100_000_000n,
+        maxPossibleMiningSeatCount: 1,
+        microgonExchangeRateTo: { ARGNOT: 3_000_000n },
+      } as any,
+      {
+        argonCirculationGrowthPctMin: 0,
+        argonCirculationGrowthPctMax: 0,
+        argonotPriceChangePctMin: 0,
+        argonotPriceChangePctMax: 0,
+      } as any,
+    );
+
+    expect(calculator.calculateBidEconomics({ bidPrincipal: 100_000_000n })).toEqual({
+      microgonsMined: 20_000_000n,
+      microgonsMinted: 0n,
+      microgonsEarned: 20_000_000n,
+      micronotsMined: 10_000_000n,
+      microgonValue: 50_000_000n,
+      projectedReturnPct: -50.98,
+      annualArgonCirculationGrowthPct: 0,
+      annualArgonotPriceChangePct: 0,
+      projectedArgonotPrice: 3_000_000n,
+    });
+  });
+
+  it('includes configured ARGN circulation growth in projected minting', () => {
+    const calculator = new BiddingCalculator(
+      {
+        estimatedTransactionFee: 2_000_000n,
+        microgonsToMineThisSeat: 20_000_000n,
+        micronotsToMineThisSeat: 10_000_000n,
+        microgonsInCirculation: 100_000_000n,
+        maxPossibleMiningSeatCount: 1,
+        microgonExchangeRateTo: { ARGNOT: 3_000_000n },
+      } as any,
+      {
+        argonCirculationGrowthPctMin: 100,
+        argonCirculationGrowthPctMax: 100,
+        argonotPriceChangePctMin: 0,
+        argonotPriceChangePctMax: 0,
+      } as any,
+    );
+
+    const economics = calculator.calculateBidEconomics({ bidPrincipal: 100_000_000n });
+
+    expect(economics.microgonsMinted).toBeGreaterThan(0n);
+    expect(economics.microgonValue).toBeGreaterThan(50_000_000n);
+    expect(economics.projectedReturnPct).toBeGreaterThan(-50.98);
+  });
+});

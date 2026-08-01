@@ -56,6 +56,7 @@ describe('planBid', () => {
     });
 
     expect(result.reason).toBe('insufficient-argonot-balance');
+    expect(result.additionalMicronotsNeeded).toBe(5n);
     expect(result.accountsToBidWith.map(x => x.address)).toEqual(['B']);
     expect(result.seatsAfterBid).toBe(2);
   });

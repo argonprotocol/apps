@@ -11,9 +11,12 @@ import {
 import { subscribeToFinalizedStorageChanges } from './StorageSubscriber.js';
 import { BlockWatch, type IBlockHeaderInfo } from './BlockWatch.js';
 import type { MiningFrames } from './MiningFrames.js';
-import { createDeferred } from './Deferred.js';
+import { createDeferred, type IDeferred } from './Deferred.js';
+import { JsonExt } from './JsonExt.js';
 import { planBidWithFeeEstimate, type IBidPlanBid, type IBidPlanSubaccount } from './BidPlan.js';
 import { TransactionEvents } from './TransactionEvents.js';
+import type { IManualBidRequest } from './interfaces/IBotApiSpec.js';
+import { bigIntMax } from './utils.js';
 
 interface IBidDetail extends IBidPlanBid {
   bidAtTick: number;
@@ -89,6 +92,10 @@ export class CohortBidder {
   private lastLoggedSeatsInBudget: number;
 
   private pendingRequest: Promise<any> | undefined;
+  private pendingManualBid?: {
+    requestKey: string;
+    completion: IDeferred<void>;
+  };
   private pendingFinalizations = new Set<Promise<void>>();
   private stopDeferred = createDeferred<void>(false);
   private minIncrement = 10_000n;
@@ -295,6 +302,108 @@ export class CohortBidder {
     return this.myWinningBids;
   }
 
+  public async submitManualBid(request: IManualBidRequest): Promise<void> {
+    const requestKey = JsonExt.stringify(request);
+    let pendingManualBidWaits = 0;
+
+    while (this.pendingManualBid) {
+      if (pendingManualBidWaits >= 2) {
+        throw new Error('manual-bid-busy');
+      }
+
+      pendingManualBidWaits += 1;
+      const pendingManualBid = this.pendingManualBid;
+      try {
+        await pendingManualBid.completion.promise;
+      } catch (error) {
+        if (pendingManualBid.requestKey === requestKey) throw error;
+      }
+      await new Promise(setImmediate);
+
+      if (pendingManualBid.requestKey === requestKey) return;
+    }
+
+    const completion = createDeferred<void>();
+    void completion.promise.catch(() => undefined);
+    this.pendingManualBid = { requestKey, completion };
+
+    try {
+      if (this.isStopping) throw new Error('bidder-stopping');
+      if (!this.isBiddingOpen) throw new Error('bidding-closed');
+      if (request.microgonsPerSeat % this.minIncrement !== 0n) throw new Error('invalid-bid-increment');
+
+      if (this.pendingRequest) {
+        await this.pendingRequest;
+        await new Promise(setImmediate);
+      }
+
+      const lastBidTick = this.lastBid?.submittedAtTick ?? 0;
+      const waitStartedAt = Date.now();
+      while (this.currentBids.mostRecentBidTick < lastBidTick) {
+        if (this.isStopping) throw new Error('bidder-stopping');
+        if (Date.now() - waitStartedAt > 15_000) throw new Error('waiting-for-bid-results');
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+
+      const { accountBalance, accountMicronots, tip } = await this.getBidBalances();
+      const subaccounts = [...this.subaccounts];
+      const seenAddresses = new Set(subaccounts.map(x => x.address));
+      if (subaccounts.length < request.seats) {
+        const availableAccounts = await this.accountset.getAvailableMinerAccounts(
+          Math.max(request.seats, this.nextCohortSize ?? request.seats),
+        );
+        for (const account of availableAccounts) {
+          if (seenAddresses.has(account.address)) continue;
+
+          subaccounts.push(account);
+          seenAddresses.add(account.address);
+          if (subaccounts.length >= request.seats) break;
+        }
+      }
+
+      const { plan } = await planBidWithFeeEstimate({
+        ...request,
+        nextCohortSize: this.nextCohortSize!,
+        micronotsPerSeat: this.micronotsPerSeat,
+        accountBalance,
+        accountMicronots,
+        allWinningBids: this.currentBids.bids,
+        myWinningBids: this.myWinningBids,
+        subaccounts,
+        tip,
+        estimateFee: (accounts, bidAmount, feeTip) => this.estimateFee(bidAmount, accounts, feeTip),
+      });
+
+      if (plan.reason || !plan.accountsToBidWith.length) {
+        throw new Error(plan.reason ?? 'manual-bid-rejected');
+      }
+
+      this.bidPlanGeneration += 1;
+      this.setNextBid({
+        microgonsPerSeat: request.microgonsPerSeat,
+        bidAtTick: this.blockWatch.bestBlockHeader.tick,
+        subaccounts: plan.accountsToBidWith.map(x => x.address),
+        alreadyWinningSeats: plan.seatsAfterBid - plan.accountsToBidWith.length,
+        tip,
+      });
+      this.pendingRequest = this.submitNextBid(true);
+      await this.pendingRequest;
+      completion.resolve();
+    } catch (error) {
+      completion.reject(error);
+      throw error;
+    } finally {
+      if (this.pendingManualBid?.completion === completion) {
+        this.pendingManualBid = undefined;
+      }
+      if (!this.isPaused && !this.isStopping) {
+        void this.planNextBid(this.blockWatch.bestBlockHeader.frameRewardTicksRemaining!).catch(error => {
+          this.error('Error resuming bid planning after a manual bid:', error);
+        });
+      }
+    }
+  }
+
   public pauseBidding(): void {
     if (this.isPaused) return;
 
@@ -351,7 +460,7 @@ export class CohortBidder {
       }
     }
 
-    if (!this.isPaused && this.nextBid && this.nextBid.bidAtTick <= header.tick) {
+    if (!this.isPaused && !this.pendingManualBid && this.nextBid && this.nextBid.bidAtTick <= header.tick) {
       this.pendingRequest ??= this.submitNextBid();
     }
   }
@@ -365,7 +474,7 @@ export class CohortBidder {
     }
 
     // don't process two bids at the same time
-    if (this.pendingRequest) {
+    if (this.pendingRequest || this.pendingManualBid) {
       this.log(`Current bid is still in progress at block #${this.latestBlockNumber}, skipping this check`);
       return;
     }
@@ -411,18 +520,8 @@ export class CohortBidder {
     }
     beatableBids.sort((a, b) => Number(a - b));
 
-    let accountBalance = await this.accountset.submitterBalance();
+    const { accountBalance, accountMicronots, tip } = await this.getBidBalances();
     if (this.isStopping || planGeneration !== this.bidPlanGeneration) return;
-
-    accountBalance -= this.options.sidelinedWalletMicrogons ?? 0n;
-    if (accountBalance <= 0n) accountBalance = 0n;
-    let accountMicronots = await this.accountset.accountMicronots();
-    if (this.isStopping || planGeneration !== this.bidPlanGeneration) return;
-
-    accountMicronots -= this.options.sidelinedWalletMicronots ?? 0n;
-    if (accountMicronots < 0n) accountMicronots = 0n;
-
-    const tip = this.options.tipPerTransaction ?? 0n;
 
     if (!beatableBids.length) {
       let lowestUnownedBid = BigInt(Number.MAX_SAFE_INTEGER);
@@ -569,7 +668,7 @@ export class CohortBidder {
     return true;
   }
 
-  private async submitNextBid() {
+  private async submitNextBid(rethrowOnError: boolean = false) {
     const nextBid = this.nextBid;
 
     if (!nextBid) {
@@ -628,11 +727,16 @@ export class CohortBidder {
         isFinalized: false,
         expectedFinalizationTick: bidAtTick + 5,
       };
-      const finalization = this.awaitFinalization(txResult, microgonsPerSeat, subaccounts.length);
-      this.pendingFinalizations.add(finalization);
-      void finalization.finally(() => this.pendingFinalizations.delete(finalization));
+      this.broadcastUpdates();
+
+      const finalization = this.awaitFinalization(txResult, microgonsPerSeat, subaccounts.length, rethrowOnError);
+      const trackedFinalization = finalization.catch(() => undefined);
+      this.pendingFinalizations.add(trackedFinalization);
+      void trackedFinalization.finally(() => this.pendingFinalizations.delete(trackedFinalization));
+      if (rethrowOnError) await finalization;
     } catch (err) {
       this.error(`Error bidding for cohort ${this.cohortStartingFrameId}:`, err);
+      if (rethrowOnError) throw err;
     } finally {
       await new Promise(setImmediate);
       this.pendingRequest = undefined;
@@ -747,7 +851,12 @@ export class CohortBidder {
     void txResult.waitForFinalizedBlock.catch(() => undefined).finally(cleanup);
   }
 
-  private async awaitFinalization(txResult: TxResult, microgonsPerSeat: bigint, submittedCount: number) {
+  private async awaitFinalization(
+    txResult: TxResult,
+    microgonsPerSeat: bigint,
+    submittedCount: number,
+    rethrowOnError: boolean = false,
+  ) {
     const pendingBid = this.lastBid;
 
     try {
@@ -803,8 +912,10 @@ export class CohortBidder {
       }
 
       this.broadcastUpdates();
+      if (bidError && rethrowOnError) throw bidError;
     } catch (err) {
       this.error('Error awaiting bid finalization:', err);
+      if (rethrowOnError) throw err;
     }
   }
 
@@ -822,6 +933,19 @@ export class CohortBidder {
       bidAmount: nextBid,
     });
     return await fakeTx.feeEstimate(tip);
+  }
+
+  private async getBidBalances() {
+    const [submitterBalance, stakedMicronots] = await Promise.all([
+      this.accountset.submitterBalance(),
+      this.accountset.accountMicronots(),
+    ]);
+
+    return {
+      accountBalance: bigIntMax(submitterBalance - (this.options.sidelinedWalletMicrogons ?? 0n), 0n),
+      accountMicronots: bigIntMax(stakedMicronots - (this.options.sidelinedWalletMicronots ?? 0n), 0n),
+      tip: this.options.tipPerTransaction ?? 0n,
+    };
   }
 
   private updateBidList(

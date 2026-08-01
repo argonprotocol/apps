@@ -181,7 +181,12 @@
               </div>
               <div v-if="controller.selectedTab === TopTab.Mining" class="text-md -mb-1.5">
                 <div class="flex flex-row">
-                  <div class="mt-0.5 flex grow flex-row items-center">
+                  <button
+                    type="button"
+                    data-testid="LeftBar.openBiddingPanel"
+                    class="mt-0.5 flex grow cursor-pointer flex-row items-center text-left hover:opacity-80"
+                    @click.stop="basicEmitter.emit('openBiddingPanel')"
+                  >
                     <div class="Connector" />
                     <div class="flex grow flex-row items-center border-t border-slate-400/30">
                       <div class="grow py-1 text-slate-600/80">
@@ -189,7 +194,7 @@
                       </div>
                       <ExternalIcon class="w-3.5 opacity-50" />
                     </div>
-                  </div>
+                  </button>
                 </div>
                 <div class="flex flex-row">
                   <div class="flex grow flex-row items-center">

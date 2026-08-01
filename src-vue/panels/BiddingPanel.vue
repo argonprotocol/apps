@@ -3,20 +3,29 @@
   <DialogRoot class="absolute inset-0 z-10" :open="isOpen">
     <DialogPortal>
       <DialogOverlay asChild>
-        <BgOverlay @close="closePanel" />
+        <BgOverlay rounded="none" :style="{ zIndex: overlayZIndex.backdropZIndex }" @close="closePanel" />
       </DialogOverlay>
 
-      <DialogContent @escapeKeyDown="closePanel" :aria-describedby="undefined">
+      <DialogContent asChild @escapeKeyDown="closePanel" :aria-describedby="undefined" :style="{ zIndex: overlayZIndex.contentZIndex }">
         <div
-          class="BiddingPanel inner-input-shadow bg-argon-menu-bg absolute top-[50px] right-2 bottom-2 left-2 z-50 flex flex-col rounded-md border border-black/30 text-left transition-all focus:outline-none overflow-hidden"
+          class="BiddingPanel inner-input-shadow bg-argon-menu-bg absolute top-[80px] bottom-[80px] left-1/2 flex w-10/12 min-w-[1000px] max-w-[1500px] -translate-x-1/2 flex-col overflow-hidden rounded-md border border-black/30 text-left transition-all focus:outline-none"
           style="
             box-shadow:
               0 -1px 2px 0 rgba(0, 0, 0, 0.1),
               inset 0 2px 0 rgba(255, 255, 255, 1);
           "
         >
-          <div class="mx-1 flex min-h-[60px] flex-row items-center border-b border-slate-300 bg-white pl-5 pr-5">
+          <div class="mx-1 flex min-h-[60px] flex-row items-center gap-x-5 border-b border-slate-300 bg-white pl-5 pr-5">
             <DialogTitle class="text-2xl font-bold text-slate-800/70">Bidding Panel</DialogTitle>
+            <div
+              v-if="isBiddingControlUpdating || didPauseBiddingForPanel || bot.state?.isBiddingPaused"
+              class="border-argon-700 bg-argon-500 flex items-center gap-x-2 rounded border px-3 py-1.5 text-sm font-bold text-white shadow-sm"
+            >
+              <PauseIcon class="size-4" />
+              <template v-if="biddingControlAction === 'resume'">Resuming automatic bids...</template>
+              <template v-else-if="isBiddingControlUpdating">Pausing automatic bids...</template>
+              <template v-else>Automatic bidding is paused while you review bids</template>
+            </div>
             <div
               @click="closePanel"
               class="absolute top-[18px] right-5 z-50 flex h-[30px] w-[30px] cursor-pointer items-center justify-center rounded-md border border-slate-400/60 text-sm/6 font-semibold hover:border-slate-500/70 hover:bg-[#D6D9DF] focus:outline-none">
@@ -24,10 +33,12 @@
             </div>
           </div>
 
-          <div v-if="isLoaded" class="flex min-h-0 grow flex-col gap-y-3 px-5 py-4">
-            <section class="grid grid-cols-[1fr_1fr_1.5fr_1fr_1fr] gap-x-2">
+          <div v-if="isLoaded" class="flex min-h-0 grow flex-col gap-y-3 overflow-y-auto px-5 py-4">
+            <section box class="grid shrink-0 grid-cols-[1fr_1fr_1.5fr_1fr_1fr] overflow-hidden">
               <div stat-box>
-                <span>{{ currency.symbol }}{{ microgonToMoneyNm(startingFrameCapital).format('0,0.[00]') }}</span>
+                <span>
+                  {{ currency.symbol }}{{ microgonToMoneyNm(miningAssets.auctionMicrogonsUnused + miningAssets.auctionMicrogonsActivated + transactionFees).format('0,0.[00]') }}
+                </span>
                 <label>In Starting Capital</label>
               </div>
               <div stat-box>
@@ -44,11 +55,22 @@
               </div>
               <div stat-box>
                 <span>{{ micronotToArgonotNm(currentMicronotsForBid).format('0,0.[00000000]') }}</span>
-                <label>ARGNOT Required / Seat</label>
+                <label class="flex items-center gap-x-1">
+                  ARGNOT Collateral / Seat
+                  <Tooltip
+                    asChild
+                    side="top"
+                    content="The network sets this collateral from 2x the previous day's median winning bid, converted at the previous frame's average ARGNOT price."
+                  >
+                    <span class="cursor-help text-slate-400 hover:text-slate-600">
+                      <InformationCircleIcon class="size-3.5" />
+                    </span>
+                  </Tooltip>
+                </label>
               </div>
             </section>
 
-            <section box class="flex flex-col gap-y-4 px-4 py-4">
+            <section box class="flex shrink-0 flex-col gap-y-3 px-4 py-3">
               <div class="flex items-start justify-between gap-x-6">
                 <div>
                   <div class="text-lg font-bold text-slate-800/80">Your Next Bid</div>
@@ -56,154 +78,151 @@
                     {{ nextBidTimingText }}
                   </div>
                 </div>
-                <div v-if="currentBidIsWaiting" class="text-right text-sm font-medium text-amber-700">
-                  Waiting on last bid finalization
+                <div class="flex items-center gap-x-3">
+                  <div v-if="currentBidIsWaiting" class="text-right text-sm font-medium text-amber-700">
+                    Waiting on last bid finalization
+                  </div>
+                  <Tooltip
+                    v-if="bot.state?.isBiddingOpen || didPauseBiddingForPanel || bot.state?.isBiddingPaused"
+                    asChild
+                    side="left"
+                    content="Pause automatic bidding while you prepare a manual bid. An in-flight bid will still finalize."
+                  >
+                    <button
+                      type="button"
+                      class="cursor-pointer rounded border px-3 py-1.5 text-sm font-semibold transition-colors disabled:cursor-wait disabled:opacity-50"
+                      :class="
+                        didPauseBiddingForPanel || bot.state?.isBiddingPaused
+                          ? 'border-argon-400 text-argon-700 hover:bg-argon-50'
+                          : 'border-slate-300 text-slate-600 hover:border-slate-400 hover:bg-slate-50'
+                      "
+                      :disabled="isBiddingControlUpdating"
+                      @click="toggleAutomaticBidding"
+                    >
+                      <template v-if="isBiddingControlUpdating">Updating...</template>
+                      <template v-else-if="didPauseBiddingForPanel || bot.state?.isBiddingPaused">
+                        Resume Auto-Bidding
+                      </template>
+                      <template v-else>Pause Auto-Bidding</template>
+                    </button>
+                  </Tooltip>
                 </div>
               </div>
 
-              <div class="grid grid-cols-3 gap-x-3 text-sm text-slate-700/80">
-                <div info-box>
-                  <div info-label>Current Bid</div>
-                  <div class="font-mono text-lg font-bold text-slate-800/90">{{ currentBidSummary }}</div>
-                </div>
-                <div info-box>
-                  <div info-label>Locked Now</div>
-                  <div class="font-mono text-lg font-bold text-slate-800/90">
-                    {{ micronotToArgonotNm(myMiningSeats.pendingBids.micronotsStakedTotal).format('0,0.[00000000]') }} ARGNOT
+              <div v-if="biddingControlError" class="text-sm font-medium text-red-700">
+                {{ biddingControlError }}
+              </div>
+
+              <template v-if="bot.state?.isBiddingOpen">
+                <div class="flex items-center justify-between gap-x-6 rounded border border-slate-300/70 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  <div>
+                    <span class="font-bold text-slate-800/80">Current:</span>
+                    <span class="font-mono">{{ currentBidSummary }}</span>
+                  </div>
+                  <div>
+                    <span class="font-bold text-slate-800/80">ARGNOT locked:</span>
+                    <span class="font-mono">
+                      {{ micronotToArgonotNm(myMiningSeats.pendingBids.micronotsStakedTotal).format('0,0.[00000000]') }}
+                    </span>
                   </div>
                 </div>
-                <div info-box>
-                  <div info-label>Status</div>
-                  <div class="font-mono text-lg font-bold text-slate-800/90">{{ bidStatusSummary }}</div>
-                </div>
-              </div>
 
-              <div class="grid grid-cols-[minmax(0,1fr)_minmax(160px,220px)_220px] items-end gap-x-4">
-                <InputMoney
-                  v-model="draftMicrogonsPerSeat"
-                  :min="minBidIncrement"
-                  :dragBy="minBidIncrement"
-                  :dragByMin="minBidIncrement"
-                  :minDecimals="2"
-                  :maxDecimals="2"
-                  suffix=" / seat"
-                  class="w-full"
-                  @update:modelValue="markDraftEdited"
-                />
-                <InputNumber
-                  v-model="draftSeats"
-                  :min="1"
-                  :max="nextCohortSize || undefined"
-                  suffix=" seats"
-                  class="w-full"
-                  @update:modelValue="markDraftEdited"
-                />
-                <button
-                  @click="submitManualBid"
-                  :disabled="isSubmitDisabled"
-                  :class="isSubmitDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-argon-500'"
-                  class="bg-argon-button rounded-md px-5 py-2.5 text-lg font-bold text-white transition-colors"
-                >
-                  {{ isSubmitting ? 'Submitting...' : 'Submit Bid' }}
-                </button>
-              </div>
-
-              <div class="flex items-end justify-between gap-x-6">
-                <div class="grow text-sm text-slate-700/80">
-                  {{ effectSentence }}
+                <div class="grid grid-cols-[minmax(0,1fr)_minmax(160px,220px)_220px] items-end gap-x-4">
+                  <InputMoney
+                    v-model="draftMicrogonsPerSeat"
+                    :min="minBidIncrement"
+                    :dragBy="minBidIncrement"
+                    :dragByMin="minBidIncrement"
+                    :minDecimals="2"
+                    :maxDecimals="2"
+                    suffix=" / seat"
+                    class="w-full"
+                    @update:modelValue="markDraftEdited"
+                  />
+                  <InputNumber
+                    v-model="draftSeats"
+                    :min="1"
+                    :max="nextCohortSize || undefined"
+                    suffix=" seats"
+                    class="w-full"
+                    @update:modelValue="markDraftEdited"
+                  />
+                  <button
+                    @click="submitManualBid"
+                    :disabled="isSubmitDisabled"
+                    :class="isSubmitDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-argon-500'"
+                    class="bg-argon-button rounded-md px-5 py-2.5 text-lg font-bold text-white transition-colors"
+                  >
+                    {{ isSubmitting ? 'Submitting...' : 'Submit Bid' }}
+                  </button>
                 </div>
-                <div class="min-w-[12rem] text-right">
-                  <div class="font-mono text-2xl font-bold text-argon-700/90">
-                    {{ currency.symbol }}{{ microgonToMoneyNm(targetLockedMicrogons).format('0,0.[00]') }}
+
+                <div class="flex items-center justify-between gap-x-6 text-sm text-slate-700/80">
+                  <div>{{ effectSentence }}</div>
+                  <div class="text-right">
+                    <span class="text-slate-500">Locked after submit:</span>
+                    <span class="font-mono font-bold text-slate-800/90">
+                      {{ currency.symbol }}{{ microgonToMoneyNm(preview?.targetLockedMicrogons ?? 0n).format('0,0.[00]') }}
+                    </span>
                   </div>
-                  <div class="text-xs uppercase tracking-wide text-slate-500">Locked After Submit</div>
                 </div>
-              </div>
 
-              <div class="flex items-center justify-between gap-x-6 text-sm">
-                <div class="text-slate-600">
-                  {{ argonotDeltaText }}
+                <div class="flex items-center justify-between gap-x-6 text-sm">
+                  <div class="text-slate-600">
+                    <template v-if="!preview">Enter a bid to see any additional ARGNOT needed.</template>
+                    <template v-else-if="preview.additionalMicronotsNeeded > 0n">
+                      +{{ micronotToArgonotNm(preview.additionalMicronotsNeeded).format('0,0.[00000000]') }} ARGNOT needed for this bid.
+                    </template>
+                    <template v-else>No additional ARGNOT needed for this bid.</template>
+                  </div>
+                  <div v-if="submitError || blockingReason" class="font-medium text-red-700">
+                    {{ submitError || blockingReason }}
+                  </div>
                 </div>
-                <div v-if="submitError || blockingReason" class="font-medium text-red-700">
-                  {{ submitError || blockingReason }}
+
+                <div class="flex items-center justify-between gap-x-6 border-t border-slate-300/70 pt-3 text-sm text-slate-700">
+                  <div>
+                    <span class="font-bold text-slate-800/80">Expected per seat:</span>
+                    {{ micronotToArgonotNm(bidEconomics.micronotsMined).format('0,0.[0000]') }} ARGNOT +
+                    {{ microgonToArgonNm(bidEconomics.microgonsEarned).format('0,0.[00]') }} ARGN
+                    <span v-if="bidEconomics.microgonsMinted > 0n" class="text-slate-500">
+                      ({{ microgonToArgonNm(bidEconomics.microgonsMinted).format('0,0.[00]') }} supplemental)
+                    </span>
+                  </div>
+                  <div class="flex items-center justify-end gap-x-1 font-mono">
+                    {{ currency.symbol }}{{ microgonToMoneyNm(bidEconomics.microgonValue).format('0,0.[00]') }} projected value ·
+                    {{ numeral(bidEconomics.projectedReturnPct).formatIfElse('0', '0', '+0.[0]') }}% return
+                    <Tooltip
+                      asChild
+                      side="top"
+                      :content="`Projected value combines fixed ARGN rewards, supplemental ARGN using your ${numeral(bidEconomics.annualArgonCirculationGrowthPct).formatIfElse('0', '0', '+0.[0]')}% circulation-growth assumption, and ARGNOT rewards using your ${numeral(bidEconomics.annualArgonotPriceChangePct).formatIfElse('0', '0', '+0.[0]')}% annual price-change assumption.`"
+                    >
+                      <span class="cursor-help text-slate-400 hover:text-slate-600">
+                        <InformationCircleIcon class="size-3.5" />
+                      </span>
+                    </Tooltip>
+                  </div>
                 </div>
-              </div>
+              </template>
             </section>
 
-            <section class="flex min-h-0 grow flex-row gap-x-3">
-              <div box class="flex min-h-0 w-1/2 flex-col px-4 py-3">
-                <div class="mb-3 flex items-end justify-between gap-x-4">
-                  <div class="text-lg font-bold text-slate-800/80">Previous Auction's Winning Bids</div>
-                  <div class="text-xs uppercase tracking-wide text-slate-500">
-                    {{ previousWinningBids.length }} network bids, {{ previousOwnedBidCount }} by you
-                  </div>
-                </div>
-                <div v-if="previousWinningBids.length === 0" class="flex grow items-center justify-center text-slate-500">
-                  No winning bids recorded for the previous auction.
-                </div>
-                <div v-else class="min-h-0 grow overflow-y-auto">
-                  <table class="w-full">
-                    <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>Amount</th>
-                        <th>Bid Submitted</th>
-                        <th class="text-right">Bidding Account</th>
-                      </tr>
-                    </thead>
-                    <tbody class="font-mono font-light">
-                      <tr v-for="bid in previousWinningBids" :key="`prev-${bid.address}`">
-                        <td class="text-left opacity-50">{{ bidRank(bid) }}</td>
-                        <td class="text-left">{{ currency.symbol }}{{ microgonToMoneyNm(bid.microgonsPerSeat).format('0,0.00') }}</td>
-                        <td class="text-left">{{ tickFromNow(bid.lastBidAtTick) }}</td>
-                        <td class="relative text-right">
-                          {{ shortAddress(bid.address) }}
-                          <span v-if="typeof bid.subAccountIndex === 'number'" owned-badge>YOU</span>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div box class="flex min-h-0 w-1/2 flex-col px-4 py-3">
-                <div class="mb-3 flex items-end justify-between gap-x-4">
-                  <div class="text-lg font-bold text-slate-800/80">Current Winning Bids</div>
-                  <div class="text-xs uppercase tracking-wide text-slate-500">
-                    {{ currentWinningBids.length }} network bids, {{ currentOwnedBidCount }} by you
-                  </div>
-                </div>
-                <div v-if="currentWinningBids.length === 0" class="flex grow items-center justify-center text-slate-500">
-                  No winning bids are loaded for the current auction.
-                </div>
-                <div v-else class="min-h-0 grow overflow-y-auto">
-                  <table class="w-full">
-                    <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>Amount</th>
-                        <th>Bid Submitted</th>
-                        <th class="text-right">Bidding Account</th>
-                      </tr>
-                    </thead>
-                    <tbody class="font-mono font-light">
-                      <tr v-for="bid in currentWinningBids" :key="`current-${bid.address}`">
-                        <td class="text-left opacity-50">{{ bidRank(bid) }}</td>
-                        <td class="text-left">{{ currency.symbol }}{{ microgonToMoneyNm(bid.microgonsPerSeat ?? 0n).format('0,0.00') }}</td>
-                        <td class="text-left">{{ tickFromNow(bid.lastBidAtTick) }}</td>
-                        <td class="relative text-right">
-                          {{ shortAddress(bid.address) }}
-                          <span v-if="typeof bid.subAccountIndex === 'number'" owned-badge>YOU</span>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+            <section class="mt-auto flex h-[280px] min-h-0 shrink-0 flex-row gap-x-3">
+              <BidHistoryTable
+                class="w-1/2"
+                title="Previous Auction's Winning Bids"
+                emptyText="No winning bids recorded for the previous auction."
+                :bids="previousWinningBids"
+              />
+              <BidHistoryTable
+                class="w-1/2"
+                title="Current Winning Bids"
+                emptyText="No winning bids are loaded for the current auction."
+                :bids="currentWinningBids"
+              />
             </section>
           </div>
 
-          <div v-else class="flex grow items-center justify-center text-xl font-bold text-slate-600/40">
+          <div v-else class="flex min-h-[300px] items-center justify-center text-xl font-bold text-slate-600/40">
             Loading Bidding Panel...
           </div>
         </div>
@@ -219,37 +238,53 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import utc from 'dayjs/plugin/utc';
 import {
   Accountset,
+  bigIntMax,
   getRange,
+  type IBotState,
   type IBidPlan,
   type IBidPlanBid,
   type IBidPlanSubaccount,
   type IManualBidRequest,
   planBidWithFeeEstimate,
 } from '@argonprotocol/apps-core';
+import { ask as askDialog, message as messageDialog } from '@tauri-apps/plugin-dialog';
+import { useDebounceFn } from '@vueuse/core';
 import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
-import { XMarkIcon } from '@heroicons/vue/24/outline';
+import { InformationCircleIcon, PauseIcon, XMarkIcon } from '@heroicons/vue/24/outline';
 import BgOverlay from '../components/BgOverlay.vue';
+import BidHistoryTable from './BidHistoryTable.vue';
 import InputMoney from '../components/InputMoney.vue';
 import InputNumber from '../components/InputNumber.vue';
+import Tooltip from '../components/Tooltip.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { getBot } from '../stores/bot.ts';
 import { getConfig } from '../stores/config.ts';
 import { getCurrency } from '../stores/currency.ts';
-import { createNumeralHelpers } from '../lib/numeral.ts';
+import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { getDbPromise } from '../stores/helpers/dbPromise.ts';
-import { getMining, getMainchainClient, getMiningFrames } from '../stores/mainchain.ts';
+import { getBiddingCalculator, getMining, getMainchainClient, getMiningFrames } from '../stores/mainchain.ts';
 import { useMiningAssetBreakdown } from '../stores/miningAssetBreakdown.ts';
 import { getMyMiningSeats } from '../stores/myMiningSeats.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
 import { TICK_MILLIS } from '../lib/Env.ts';
 import type { IFrameBidRecord } from '../interfaces/db/IFrameBidRecord.ts';
+import { provideOverlayContentZIndex, useOverlayZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 
 dayjs.extend(utc);
 dayjs.extend(relativeTime);
 
+type IBidPreview = IBidPlan & {
+  canSubmit: boolean;
+  currentWinningSeats: number;
+  alreadyWinningSeats: number;
+  targetLockedMicrogons: bigint;
+  newAccounts: IBidPlanSubaccount[];
+};
+
 const bot = getBot();
 const config = getConfig();
 const currency = getCurrency();
+const biddingCalculator = getBiddingCalculator();
 const mining = getMining();
 const miningFrames = getMiningFrames();
 
@@ -260,10 +295,18 @@ const walletKeys = getWalletKeys();
 const { microgonToMoneyNm, micronotToArgonotNm, microgonToArgonNm } = createNumeralHelpers(currency);
 
 const isOpen = Vue.ref(false);
+const overlayZIndex = useOverlayZIndex(() => isOpen.value);
+provideOverlayContentZIndex(Vue.toRef(overlayZIndex, 'contentZIndex'));
+
 const isLoaded = Vue.ref(false);
 const isSubmitting = Vue.ref(false);
+const isClosing = Vue.ref(false);
+const isBiddingControlUpdating = Vue.ref(false);
+const didPauseBiddingForPanel = Vue.ref(false);
 const isPreviewLoading = Vue.ref(false);
 const hasEditedDraft = Vue.ref(false);
+const biddingControlAction = Vue.ref<'pause' | 'resume'>();
+const biddingControlError = Vue.ref('');
 const submitError = Vue.ref('');
 
 const minBidIncrement = Vue.ref(10_000n);
@@ -271,14 +314,16 @@ const currentMicronotsForBid = Vue.ref(0n);
 const nextCohortSize = Vue.ref(0);
 const transactionFees = Vue.ref(0n);
 const previousWinningBids = Vue.ref<IFrameBidRecord[]>([]);
+const previewFeeEstimate = Vue.ref(0n);
+const automaticBidAtPause = Vue.ref<IBotState['nextBid']>();
 
-const preview = Vue.ref<IBidPlan | null>(null);
+const preview = Vue.ref<IBidPreview | null>(null);
 const draftMicrogonsPerSeat = Vue.ref(0n);
 const draftSeats = Vue.ref(1);
-const manualSubaccounts = Vue.ref<IBidPlanSubaccount[]>([]);
 
 let previewRequestId = 0;
 let previewAccountset: Accountset | null = null;
+let biddingControlPromise: Promise<void> | undefined;
 
 const currentFrameId = Vue.computed(() => bot.state?.currentFrameId ?? miningFrames.currentFrameId);
 
@@ -290,25 +335,29 @@ const myWinningBids = Vue.computed(() => {
   return currentWinningBids.value.filter(bid => typeof bid.subAccountIndex === 'number');
 });
 
-const currentOwnedBidCount = Vue.computed(() => myWinningBids.value.length);
-const previousOwnedBidCount = Vue.computed(
-  () => previousWinningBids.value.filter(bid => typeof bid.subAccountIndex === 'number').length,
-);
-
 const currentBidIsWaiting = Vue.computed(() => bot.state?.lastBid?.isFinalized === false);
 
-const startingFrameCapital = Vue.computed(() => {
-  return miningAssets.auctionMicrogonsUnused + miningAssets.auctionMicrogonsActivated + transactionFees.value;
-});
+const bidEconomics = Vue.computed(() => {
+  const submittedSeats = preview.value?.accountsToBidWith.length ?? 0;
+  const transactionFees = submittedSeats
+    ? previewFeeEstimate.value / BigInt(submittedSeats)
+    : biddingCalculator.data.estimatedTransactionFee;
 
-const targetLockedMicrogons = Vue.computed(() => preview.value?.targetLockedMicrogons ?? 0n);
+  return biddingCalculator.calculateBidEconomics({
+    bidPrincipal: draftMicrogonsPerSeat.value,
+    transactionFees,
+  });
+});
 
 const currentFrameStartDate = Vue.computed(() => {
   const frameStartTick = miningFrames.getTickStart(currentFrameId.value);
   if (!frameStartTick) {
     return '-----';
   }
-  return dayjs.utc(frameStartTick * TICK_MILLIS).local().format('MMMM D, h:mm A');
+  return dayjs
+    .utc(frameStartTick * TICK_MILLIS)
+    .local()
+    .format('MMMM D, h:mm A');
 });
 
 const currentFrameEndDate = Vue.computed(() => {
@@ -316,10 +365,22 @@ const currentFrameEndDate = Vue.computed(() => {
   if (!frameEndTick) {
     return '-----';
   }
-  return dayjs.utc(frameEndTick * TICK_MILLIS).local().add(1, 'minute').format('MMMM D, h:mm A');
+  return dayjs
+    .utc(frameEndTick * TICK_MILLIS)
+    .local()
+    .add(1, 'minute')
+    .format('MMMM D, h:mm A');
 });
 
 const nextBidTimingText = Vue.computed(() => {
+  if (isBiddingControlUpdating.value || didPauseBiddingForPanel.value || bot.state?.isBiddingPaused) {
+    if (automaticBidAtPause.value) {
+      return `Automatic bidding is paused. Its planned ${formatBidSummary(automaticBidAtPause.value.microgonsPerSeat, automaticBidAtPause.value.seats)} is loaded below.`;
+    }
+
+    return 'Automatic bidding is paused. Manual bids remain available.';
+  }
+
   if (!bot.state?.isBiddingOpen) {
     return 'Bidding is closed for the current auction window.';
   }
@@ -340,22 +401,12 @@ const currentBidSummary = Vue.computed(() => {
     return 'No active winning bids';
   }
   const amounts = myWinningBids.value.map(x => x.microgonsPerSeat ?? 0n);
-  const uniqueAmounts = [...new Set(amounts.map(x => x.toString()))].map(x => BigInt(x));
+  const uniqueAmounts = [...new Set(amounts)];
   if (uniqueAmounts.length === 1) {
     return `${currency.symbol}${microgonToMoneyNm(uniqueAmounts[0]).format('0,0.00')} / seat for ${myWinningBids.value.length}`;
   }
   const sorted = [...uniqueAmounts].sort((a, b) => Number(a - b));
   return `${currency.symbol}${microgonToMoneyNm(sorted[0]).format('0,0.00')} - ${currency.symbol}${microgonToMoneyNm(sorted.at(-1) ?? 0n).format('0,0.00')} across ${myWinningBids.value.length}`;
-});
-
-const bidStatusSummary = Vue.computed(() => {
-  if (currentBidIsWaiting.value) {
-    return 'Finalizing';
-  }
-  if (!bot.state?.isBiddingOpen) {
-    return 'Closed';
-  }
-  return bot.state?.nextBid ? 'Scheduled' : 'Idle';
 });
 
 const effectSentence = Vue.computed(() => {
@@ -367,10 +418,14 @@ const effectSentence = Vue.computed(() => {
   }
   const parts: string[] = [];
   if (preview.value.alreadyWinningSeats) {
-    parts.push(`keep ${preview.value.alreadyWinningSeats} winning seat${preview.value.alreadyWinningSeats === 1 ? '' : 's'} in place`);
+    parts.push(
+      `keep ${preview.value.alreadyWinningSeats} winning seat${preview.value.alreadyWinningSeats === 1 ? '' : 's'} in place`,
+    );
   }
   if (preview.value.replacedBids.length) {
-    parts.push(`replace ${preview.value.replacedBids.length} lower bid${preview.value.replacedBids.length === 1 ? '' : 's'}`);
+    parts.push(
+      `replace ${preview.value.replacedBids.length} lower bid${preview.value.replacedBids.length === 1 ? '' : 's'}`,
+    );
   }
   if (preview.value.newAccounts.length) {
     parts.push(`add ${preview.value.newAccounts.length} seat${preview.value.newAccounts.length === 1 ? '' : 's'}`);
@@ -379,23 +434,7 @@ const effectSentence = Vue.computed(() => {
     parts.push('leave your active bid set unchanged');
   }
 
-  let sentence = `This would ${parts.join(', ')}.`;
-  if (preview.value.additionalMicronotsNeeded > 0n) {
-    sentence += ` It needs +${micronotToArgonotNm(preview.value.additionalMicronotsNeeded).format('0,0.[00000000]')} ARGNOT.`;
-  }
-  return sentence;
-});
-
-const argonotDeltaText = Vue.computed(() => {
-  if (!preview.value) {
-    return `Current requirement: ${micronotToArgonotNm(currentMicronotsForBid.value).format('0,0.[00000000]')} ARGNOT per seat.`;
-  }
-
-  if (preview.value.additionalMicronotsNeeded > 0n) {
-    return `Current requirement: ${micronotToArgonotNm(currentMicronotsForBid.value).format('0,0.[00000000]')} ARGNOT per seat. This bid needs +${micronotToArgonotNm(preview.value.additionalMicronotsNeeded).format('0,0.[00000000]')} ARGNOT.`;
-  }
-
-  return `Current requirement: ${micronotToArgonotNm(currentMicronotsForBid.value).format('0,0.[00000000]')} ARGNOT per seat.`;
+  return `This would ${parts.join(', ')}.`;
 });
 
 const blockingReason = Vue.computed(() => {
@@ -409,7 +448,7 @@ const blockingReason = Vue.computed(() => {
     return undefined;
   }
   if (draftMicrogonsPerSeat.value % minBidIncrement.value !== 0n) {
-    return `Bid price must be a multiple of ${microgonToArgonNm(minBidIncrement.value).format('0,0.[00000000]')} ARG.`;
+    return `Bid price must be a multiple of ${microgonToArgonNm(minBidIncrement.value).format('0,0.[00000000]')} ARGN.`;
   }
   if (!preview.value) {
     return isPreviewLoading.value ? 'Checking this bid...' : undefined;
@@ -420,20 +459,88 @@ const isSubmitDisabled = Vue.computed(() => {
   return isSubmitting.value || isPreviewLoading.value || Boolean(blockingReason.value) || !preview.value?.canSubmit;
 });
 
-function closePanel() {
+async function closePanel() {
+  if (isClosing.value) {
+    return;
+  }
+
+  isClosing.value = true;
   isOpen.value = false;
+
+  try {
+    await biddingControlPromise;
+    if (!didPauseBiddingForPanel.value) {
+      return;
+    }
+
+    const shouldResume = await askDialog(
+      'Automatic bidding was paused while you used the bidding panel. Resume it now?',
+      {
+        title: 'Resume Automatic Bidding?',
+        kind: 'info',
+        okLabel: 'Resume Bidding',
+        cancelLabel: 'Keep Paused',
+      },
+    );
+
+    if (shouldResume) {
+      try {
+        const client = await bot.getClient();
+        await client.fetch('/resume-bidding');
+      } catch (error) {
+        await messageDialog(
+          `Automatic bidding is still paused. ${error instanceof Error ? error.message : String(error)}`,
+          {
+            title: 'Unable to Resume Bidding',
+            kind: 'error',
+          },
+        );
+      }
+    }
+  } finally {
+    biddingControlPromise = undefined;
+    didPauseBiddingForPanel.value = false;
+    isClosing.value = false;
+  }
 }
 
 function markDraftEdited() {
   hasEditedDraft.value = true;
 }
 
-function shortAddress(address: string) {
-  return `${address.slice(0, 10)}...${address.slice(-7)}`;
-}
+function toggleAutomaticBidding() {
+  if (biddingControlPromise) {
+    return biddingControlPromise;
+  }
 
-function bidRank(bid: { bidPosition?: number }) {
-  return `${(bid.bidPosition ?? 0) + 1})`;
+  const shouldResume = didPauseBiddingForPanel.value || bot.state?.isBiddingPaused;
+  biddingControlAction.value = shouldResume ? 'resume' : 'pause';
+  isBiddingControlUpdating.value = true;
+  biddingControlError.value = '';
+
+  if (!shouldResume) {
+    automaticBidAtPause.value = bot.state?.nextBid;
+  }
+
+  biddingControlPromise = (async () => {
+    try {
+      const client = await bot.getClient();
+      await client.fetch(shouldResume ? '/resume-bidding' : '/pause-bidding');
+      didPauseBiddingForPanel.value = !shouldResume;
+      if (shouldResume) {
+        automaticBidAtPause.value = undefined;
+      }
+    } catch (error) {
+      const action = shouldResume ? 'resumed' : 'paused';
+      biddingControlError.value = `Automatic bidding could not be ${action}. ${error instanceof Error ? error.message : String(error)}`;
+    } finally {
+      biddingControlPromise = undefined;
+      biddingControlAction.value = undefined;
+      isBiddingControlUpdating.value = false;
+    }
+  })();
+
+  return biddingControlPromise;
 }
 
 function formatBidSummary(microgonsPerSeat: bigint, seats: number) {
@@ -444,7 +551,10 @@ function tickFromNow(tick?: number) {
   if (!tick) {
     return '---';
   }
-  return dayjs.utc(tick * TICK_MILLIS).local().fromNow();
+  return dayjs
+    .utc(tick * TICK_MILLIS)
+    .local()
+    .fromNow();
 }
 
 async function ensurePreviewAccountset() {
@@ -452,20 +562,23 @@ async function ensurePreviewAccountset() {
     return previewAccountset;
   }
   const client = await getMainchainClient(false);
-  const [seedAccount, sessionMiniSecret] = await Promise.all([
+  const [fundingAccount, txSubmitter, sessionMiniSecret] = await Promise.all([
     walletKeys.getMiningBotKeypair(),
+    walletKeys.getMiningBidProxyKeypair(),
     walletKeys.getMiningSessionMiniSecret(),
   ]);
   previewAccountset = new Accountset({
     client,
-    seedAccount,
+    fundingAccountId: fundingAccount.address,
+    isProxy: true,
     sessionMiniSecretOrMnemonic: sessionMiniSecret,
     subaccountRange: getRange(0, 144),
+    txSubmitter,
   });
   return previewAccountset;
 }
 
-async function loadManualSubaccounts() {
+async function loadManualSubaccounts(): Promise<IBidPlanSubaccount[]> {
   const accountset = await ensurePreviewAccountset();
   const subaccounts: IBidPlanSubaccount[] = [];
   const seenAddresses = new Set<string>();
@@ -482,23 +595,26 @@ async function loadManualSubaccounts() {
     seenAddresses.add(bid.address);
   }
 
-  const availableAccounts = await accountset.getAvailableMinerAccounts(Math.max(nextCohortSize.value, draftSeats.value));
+  const availableAccounts = await accountset.getAvailableMinerAccounts(
+    Math.max(nextCohortSize.value, draftSeats.value),
+  );
   for (const account of availableAccounts) {
     if (seenAddresses.has(account.address)) {
       continue;
     }
-    subaccounts.push({
-      address: account.address,
-      index: account.index,
-      isRebid: account.isRebid,
-    });
+    subaccounts.push(account);
     seenAddresses.add(account.address);
   }
 
-  manualSubaccounts.value = subaccounts;
+  return subaccounts;
 }
 
-async function estimateBidFee(accountset: Accountset, subaccounts: IBidPlanSubaccount[], bidAmount: bigint, tip: bigint) {
+async function estimateBidFee(
+  accountset: Accountset,
+  subaccounts: IBidPlanSubaccount[],
+  bidAmount: bigint,
+  tip: bigint,
+) {
   if (!subaccounts.length) {
     return 0n;
   }
@@ -516,13 +632,19 @@ async function refreshPreview() {
   const requestId = ++previewRequestId;
   if (draftMicrogonsPerSeat.value <= 0n || draftSeats.value <= 0) {
     preview.value = null;
+    previewFeeEstimate.value = 0n;
     return;
   }
 
   isPreviewLoading.value = true;
+  previewFeeEstimate.value = 0n;
   try {
     const accountset = await ensurePreviewAccountset();
-    await loadManualSubaccounts();
+    const [subaccounts, submitterBalance, stakedMicronots] = await Promise.all([
+      loadManualSubaccounts(),
+      accountset.submitterBalance(),
+      accountset.accountMicronots(),
+    ]);
 
     const allWinningBids: IBidPlanBid[] = currentWinningBids.value.map(bid => ({
       address: bid.address,
@@ -539,19 +661,10 @@ async function refreshPreview() {
       microgonsPerSeat: draftMicrogonsPerSeat.value,
       seats: draftSeats.value,
     };
-    let accountBalance = await accountset.submitterBalance();
-    accountBalance -= config.biddingRules?.sidelinedMicrogons ?? 0n;
-    if (accountBalance < 0n) {
-      accountBalance = 0n;
-    }
+    const accountBalance = bigIntMax(submitterBalance - (config.biddingRules?.sidelinedMicrogons ?? 0n), 0n);
+    const accountMicronots = bigIntMax(stakedMicronots - (config.biddingRules?.sidelinedMicronots ?? 0n), 0n);
 
-    let accountMicronots = await accountset.accountMicronots();
-    accountMicronots -= config.biddingRules?.sidelinedMicronots ?? 0n;
-    if (accountMicronots < 0n) {
-      accountMicronots = 0n;
-    }
-
-    const { plan } = await planBidWithFeeEstimate({
+    const { plan, feeEstimate } = await planBidWithFeeEstimate({
       ...request,
       nextCohortSize: nextCohortSize.value,
       micronotsPerSeat: currentMicronotsForBid.value,
@@ -560,17 +673,32 @@ async function refreshPreview() {
       tip: 0n,
       allWinningBids,
       myWinningBids: myWinningPlanBids,
-      subaccounts: manualSubaccounts.value,
+      subaccounts,
       estimateFee: (subaccounts, bidAmount, tip) => estimateBidFee(accountset, subaccounts, bidAmount, tip),
     });
 
     if (requestId !== previewRequestId) {
       return;
     }
-    preview.value = plan;
+    const keptBids = myWinningPlanBids.filter(x => x.bidMicrogons >= request.microgonsPerSeat);
+    const replacedBidAddresses = new Set(plan.replacedBids.map(x => x.address));
+    const requestedAdditionalSeats = Math.max(0, request.seats - keptBids.length);
+
+    preview.value = {
+      ...plan,
+      canSubmit: !plan.reason && plan.accountsToBidWith.length > 0,
+      currentWinningSeats: myWinningPlanBids.length,
+      alreadyWinningSeats: keptBids.length,
+      targetLockedMicrogons:
+        keptBids.reduce((sum, bid) => sum + bid.bidMicrogons, 0n) +
+        BigInt(requestedAdditionalSeats) * request.microgonsPerSeat,
+      newAccounts: plan.accountsToBidWith.filter(x => !replacedBidAddresses.has(x.address)),
+    };
+    previewFeeEstimate.value = feeEstimate;
   } catch (error) {
     if (requestId === previewRequestId) {
       preview.value = null;
+      previewFeeEstimate.value = 0n;
     }
     console.error('Failed to refresh bidding panel preview:', error);
   } finally {
@@ -581,23 +709,30 @@ async function refreshPreview() {
 }
 
 async function loadPanelData() {
-  const [db, client] = await Promise.all([getDbPromise(), getMainchainClient(false)]);
-  await miningFrames.load();
+  const [db, client] = await Promise.all([getDbPromise(), getMainchainClient(false), biddingCalculator.load()]);
+  biddingCalculator.updateBiddingRules(config.biddingRules);
+  const frameId = currentFrameId.value;
+  const [micronotsForBid, cohortSize, winningBids, frameTransactionFees] = await Promise.all([
+    mining.fetchCurrentMicronotsForBid(client),
+    mining.fetchNextCohortSize(client),
+    frameId > 1 ? db.frameBidsTable.fetchForFrameId(frameId - 1) : [],
+    db.cohortsTable.getTxFees(frameId),
+  ]);
   minBidIncrement.value = client.consts.miningSlot.bidIncrements.toBigInt();
-  currentMicronotsForBid.value = await mining.fetchCurrentMicronotsForBid(client);
-  nextCohortSize.value = await mining.fetchNextCohortSize(client);
-  previousWinningBids.value = currentFrameId.value > 1 ? await db.frameBidsTable.fetchForFrameId(currentFrameId.value - 1) : [];
-  transactionFees.value = await db.cohortsTable.getTxFees(currentFrameId.value);
+  currentMicronotsForBid.value = micronotsForBid;
+  nextCohortSize.value = cohortSize;
+  previousWinningBids.value = winningBids;
+  transactionFees.value = frameTransactionFees;
 
   if (!hasEditedDraft.value) {
-    const nextBid = bot.state?.nextBid;
+    const nextBid = automaticBidAtPause.value ?? bot.state?.nextBid;
     draftMicrogonsPerSeat.value =
-      nextBid?.microgonsPerSeat ??
-      myWinningBids.value.at(-1)?.microgonsPerSeat ??
-      minBidIncrement.value;
-    draftSeats.value = nextBid?.seats ?? Math.max(1, currentOwnedBidCount.value);
+      nextBid?.microgonsPerSeat ?? myWinningBids.value.at(-1)?.microgonsPerSeat ?? minBidIncrement.value;
+    draftSeats.value = nextBid?.seats ?? Math.max(1, myWinningBids.value.length);
   }
 }
+
+const refreshPreviewDebounced = useDebounceFn(refreshPreview, 100, { maxWait: 250 });
 
 async function submitManualBid() {
   if (isSubmitDisabled.value) {
@@ -619,7 +754,7 @@ async function submitManualBid() {
   }
 }
 
-function mapPlanReasonToMessage(reason: string | undefined, plan: IBidPlan | null): string | undefined {
+function mapPlanReasonToMessage(reason: string | undefined, plan: IBidPreview | null): string | undefined {
   if (!reason || !plan) {
     return undefined;
   }
@@ -637,7 +772,7 @@ function mapPlanReasonToMessage(reason: string | undefined, plan: IBidPlan | nul
     case 'insufficient-bidding-accounts':
       return 'There are not enough bidding accounts available for this request.';
     case 'insufficient-argon-balance':
-      return `You need +${microgonToArgonNm(plan.additionalMicrogonsNeeded).format('0,0.[00000000]')} ARG to submit this bid.`;
+      return `You need +${microgonToArgonNm(plan.additionalMicrogonsNeeded).format('0,0.[00000000]')} ARGN to submit this bid.`;
     case 'insufficient-argonot-balance':
       return `You need +${micronotToArgonotNm(plan.additionalMicronotsNeeded).format('0,0.[00000000]')} ARGNOT to submit this bid.`;
     default:
@@ -657,7 +792,7 @@ function mapSubmitErrorToMessage(error: unknown): string {
     case 'bidder-stopping':
       return 'The mining bot is restarting. Try again in a moment.';
     case 'invalid-bid-increment':
-      return `Bid amount must be a multiple of ${microgonToArgonNm(minBidIncrement.value).format('0,0.[00000000]')} ARG.`;
+      return `Bid amount must be a multiple of ${microgonToArgonNm(minBidIncrement.value).format('0,0.[00000000]')} ARGN.`;
     case 'waiting-for-bid-results':
       return 'Your last bid is still settling. Try again in a moment.';
     case 'manual-bid-busy':
@@ -668,13 +803,18 @@ function mapSubmitErrorToMessage(error: unknown): string {
 }
 
 Vue.watch(
-  () => [draftMicrogonsPerSeat.value.toString(), draftSeats.value, currentMicronotsForBid.value.toString(), nextCohortSize.value],
+  () => [
+    draftMicrogonsPerSeat.value.toString(),
+    draftSeats.value,
+    currentMicronotsForBid.value.toString(),
+    nextCohortSize.value,
+  ],
   () => {
-    if (!isOpen.value) {
+    if (!isOpen.value || !isLoaded.value) {
       return;
     }
     submitError.value = '';
-    void refreshPreview();
+    void refreshPreviewDebounced();
   },
 );
 
@@ -684,18 +824,18 @@ Vue.watch(
       .map(bid => `${bid.address}:${bid.microgonsPerSeat ?? 0n}:${bid.lastBidAtTick ?? 0}`)
       .join('|'),
   () => {
-    if (!isOpen.value) {
+    if (!isOpen.value || !isLoaded.value) {
       return;
     }
     submitError.value = '';
-    void refreshPreview();
+    void refreshPreviewDebounced();
   },
 );
 
 Vue.watch(
   () => currentFrameId.value,
   () => {
-    if (!isOpen.value) {
+    if (!isOpen.value || !isLoaded.value) {
       return;
     }
     submitError.value = '';
@@ -704,15 +844,20 @@ Vue.watch(
 );
 
 basicEmitter.on('openBiddingPanel', async () => {
-  if (isOpen.value) {
+  if (isOpen.value || isClosing.value) {
     return;
   }
 
   isOpen.value = true;
   isLoaded.value = false;
+  isClosing.value = false;
   hasEditedDraft.value = false;
+  didPauseBiddingForPanel.value = false;
+  biddingControlError.value = '';
   submitError.value = '';
   preview.value = null;
+  automaticBidAtPause.value = undefined;
+
   await loadPanelData();
   isLoaded.value = true;
   await refreshPreview();
@@ -727,40 +872,18 @@ basicEmitter.on('openBiddingPanel', async () => {
 }
 
 [stat-box] {
-  @apply text-argon-600 flex min-h-[88px] flex-col items-center justify-center rounded border border-slate-400/30 bg-white px-3 py-3 text-center shadow;
-
-  span {
-    @apply font-mono text-2xl font-bold leading-tight;
-  }
-
-  label {
-    @apply mt-1 text-sm text-slate-500;
-  }
+  @apply flex min-h-[70px] flex-col items-center justify-center px-3 py-2 text-center text-slate-800/85;
 }
 
-[info-box] {
-  @apply rounded border border-slate-300/70 bg-slate-50 px-3 py-2;
+[stat-box] + [stat-box] {
+  @apply border-l border-slate-300/70;
 }
 
-[info-label] {
-  @apply mb-1 text-xs font-bold uppercase tracking-wide text-slate-500;
+[stat-box] > span {
+  @apply font-mono text-xl leading-tight font-bold;
 }
 
-[owned-badge] {
-  @apply bg-argon-600 absolute top-1/2 right-0 -translate-y-1/2 rounded px-1.5 pb-0.25 text-sm text-white;
-}
-
-table {
-  thead th {
-    @apply border-b border-slate-300 pb-2 text-left text-sm font-bold text-argon-600/80;
-  }
-
-  tbody td {
-    @apply border-b border-slate-200 py-2 text-sm;
-  }
-
-  tbody tr:last-child td {
-    @apply border-b-0;
-  }
+[stat-box] label {
+  @apply mt-1 text-xs text-slate-500;
 }
 </style>
