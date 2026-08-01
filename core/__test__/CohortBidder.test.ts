@@ -831,9 +831,10 @@ describe('CohortBidder unit tests', () => {
     expect(findTransaction).toHaveBeenCalledTimes(1);
   });
 
-  it('patches a silently included transaction once mortality is reached', async () => {
+  it('finalizes a silently included transaction recovered at mortality', async () => {
     const deathBlock = 108;
-    const { blockWatch, cohortBidder, includedBlock, txResult } = createBidRecoveryHarness(accountset);
+    const { blockWatch, cohortBidder, getFinalizedHash, includedBlock, txResult } =
+      createBidRecoveryHarness(accountset);
     const findTransaction = vi
       .spyOn(TransactionEvents, 'findByExtrinsicHash')
       .mockResolvedValue(createFoundTransaction(includedBlock));
@@ -846,7 +847,67 @@ describe('CohortBidder unit tests', () => {
 
     await expect(txResult.waitForInFirstBlock).resolves.toHaveLength(32);
     expect(findTransaction).toHaveBeenCalledTimes(1);
-    await txResult.setFinalized();
+    await new Promise(setImmediate);
+
+    const finalizedHeader = { ...includedBlock, isFinalized: true };
+    Object.assign(blockWatch, { finalizedBlockHeader: finalizedHeader });
+    blockWatch.events.emit('finalized', [finalizedHeader]);
+
+    await expect(txResult.waitForFinalizedBlock).resolves.toHaveLength(32);
+    expect(getFinalizedHash).toHaveBeenCalledWith(includedBlock.blockNumber);
+  });
+
+  it('finalizes when transaction tracking stops after reporting inclusion', async () => {
+    const deathBlock = 108;
+    const { blockWatch, cohortBidder, includedBlock, txResult } = createBidRecoveryHarness(accountset);
+    const found = createFoundTransaction(includedBlock);
+    const findTransaction = vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValue(found);
+
+    // @ts-expect-error exercising private mortality fallback behavior
+    cohortBidder.startBidMortalityFallback(txResult, deathBlock);
+    await txResult.setSeenInBlock({
+      blockHash: Uint8Array.from({ length: 32 }, () => 1),
+      blockNumber: found.blockNumber,
+      events: found.extrinsicEvents,
+      extrinsicIndex: found.extrinsicIndex,
+    });
+
+    const deathHeader = createBlockHeader(deathBlock, `0x${'08'.repeat(32)}`);
+    Object.assign(blockWatch, { bestBlockHeader: deathHeader });
+    blockWatch.events.emit('best-blocks', [deathHeader]);
+    await new Promise(setImmediate);
+
+    const finalizedHeader = { ...includedBlock, isFinalized: true };
+    Object.assign(blockWatch, { finalizedBlockHeader: finalizedHeader });
+    blockWatch.events.emit('finalized', [finalizedHeader]);
+
+    await expect(txResult.waitForFinalizedBlock).resolves.toHaveLength(32);
+    expect(findTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a recovered transaction reorged before finalization', async () => {
+    const deathBlock = 108;
+    const { blockWatch, cohortBidder, getFinalizedHash, includedBlock, txResult } =
+      createBidRecoveryHarness(accountset);
+    vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValue(createFoundTransaction(includedBlock));
+    getFinalizedHash.mockResolvedValue(`0x${'02'.repeat(32)}`);
+
+    // @ts-expect-error exercising private mortality fallback behavior
+    cohortBidder.startBidMortalityFallback(txResult, deathBlock);
+    const deathHeader = createBlockHeader(deathBlock, `0x${'08'.repeat(32)}`);
+    Object.assign(blockWatch, { bestBlockHeader: deathHeader });
+    blockWatch.events.emit('best-blocks', [deathHeader]);
+
+    await expect(txResult.waitForInFirstBlock).resolves.toHaveLength(32);
+    await new Promise(setImmediate);
+
+    const finalizedHeader = { ...includedBlock, isFinalized: true };
+    Object.assign(blockWatch, { finalizedBlockHeader: finalizedHeader });
+    blockWatch.events.emit('finalized', [finalizedHeader]);
+
+    await expect(txResult.waitForFinalizedBlock).rejects.toThrow(
+      'Recovered bid transaction was reorged before finalization',
+    );
   });
 
   it('rejects a silent transaction when its mortality lookup fails', async () => {
@@ -881,9 +942,11 @@ describe('CohortBidder unit tests', () => {
         ticks: { currentTick: vi.fn().mockResolvedValue({ toNumber: () => finalizedHeader.tick }) },
       },
     };
+    const mortalEra = { asMortalEra: { death: () => 108 } };
     const client = {
       at: vi.fn().mockResolvedValue(stopApi),
       query: stopApi.query,
+      registry: { createType: vi.fn().mockReturnValue(mortalEra) },
       rpc: {
         chain: { getFinalizedHead: vi.fn().mockResolvedValue(finalizedHeader.blockHash) },
         system: { accountNextIndex: vi.fn().mockResolvedValue(0) },
@@ -930,11 +993,12 @@ describe('CohortBidder unit tests', () => {
       nonce: 0,
     });
     const signedTx = {
-      era: { asMortalEra: { death: () => 108 } },
+      era: mortalEra,
     };
     const sign = vi.fn().mockResolvedValue(signedTx);
     const submitSigned = vi.fn().mockResolvedValue(txResult);
     vi.spyOn(accountset, 'createMiningBidTx').mockResolvedValue({
+      client,
       sign,
       submitSigned,
     } as never);
@@ -1023,14 +1087,15 @@ function createBidRecoveryHarness(accountset: Accountset, args: { latestBlockNum
   const includedBlock = createBlockHeader(101, `0x${'01'.repeat(32)}`);
   const latestBlock = args.latestBlockNumber === includedBlock.blockNumber ? includedBlock : submittedBlock;
   const events = createTypedEventEmitter();
+  const getFinalizedHash = vi.fn(async (blockNumber: number) => {
+    return blockNumber === includedBlock.blockNumber ? includedBlock.blockHash : submittedBlock.blockHash;
+  });
   const blockWatch = {
     bestBlockHeader: latestBlock,
     finalizedBlockHeader: submittedBlock,
     latestHeaders: [latestBlock],
     events,
-    getFinalizedHash: vi.fn(async (blockNumber: number) => {
-      return blockNumber === includedBlock.blockNumber ? includedBlock.blockHash : submittedBlock.blockHash;
-    }),
+    getFinalizedHash,
   } as unknown as BlockWatch;
   const cohortBidder = new CohortBidder(
     accountset,
@@ -1057,7 +1122,7 @@ function createBidRecoveryHarness(accountset: Accountset, args: { latestBlockNum
     nonce: 0,
   });
 
-  return { blockWatch, cohortBidder, includedBlock, txResult };
+  return { blockWatch, cohortBidder, getFinalizedHash, includedBlock, txResult };
 }
 
 function createBlockHeader(blockNumber: number, blockHash: string): IBlockHeaderInfo {

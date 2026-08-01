@@ -626,9 +626,20 @@ export class CohortBidder {
 
   private startBidMortalityFallback(txResult: TxResult, deathBlock: number): void {
     let hasSearched = false;
+    let isCheckingFinalizedBlock = false;
+    let unsubscribeFinalized: (() => void) | undefined;
+    const cleanup = () => {
+      unsubscribeBest();
+      unsubscribeFinalized?.();
+    };
+    const failTransaction = (error: unknown) => {
+      if (txResult.isFinalized || txResult.submissionError) return;
+
+      txResult.submissionError = error instanceof Error ? error : new Error(String(error));
+    };
     const recover = async () => {
       unsubscribeBest();
-      if (hasSearched || txResult.isFinalized || txResult.submissionError || txResult.blockHash) return;
+      if (hasSearched || txResult.isFinalized || txResult.submissionError) return;
 
       hasSearched = true;
 
@@ -639,7 +650,7 @@ export class CohortBidder {
           searchStartBlockHeight: txResult.extrinsic.submittedAtBlockNumber,
           bestBlockHeight: deathBlock,
         });
-        if (txResult.isFinalized || txResult.submissionError || txResult.blockHash) return;
+        if (txResult.isFinalized || txResult.submissionError) return;
         if (!transaction) {
           this.log('Bid transaction mortality reached', {
             transactionHash: txResult.extrinsic.signedHash,
@@ -662,11 +673,44 @@ export class CohortBidder {
           deathBlock,
           includedBlock: transaction.blockNumber,
         });
+
+        const finalizeRecoveredTransaction = async (finalizedHeight: number) => {
+          if (
+            isCheckingFinalizedBlock ||
+            finalizedHeight < transaction.blockNumber ||
+            txResult.isFinalized ||
+            txResult.submissionError
+          ) {
+            return;
+          }
+
+          isCheckingFinalizedBlock = true;
+          try {
+            const finalizedHash = await this.blockWatch.getFinalizedHash(transaction.blockNumber);
+            if (txResult.isFinalized || txResult.submissionError) return;
+
+            if (finalizedHash !== transaction.blockHash) {
+              failTransaction(new Error('Recovered bid transaction was reorged before finalization'));
+              return;
+            }
+
+            await txResult.setFinalized();
+          } catch (error) {
+            failTransaction(error);
+          } finally {
+            isCheckingFinalizedBlock = false;
+          }
+        };
+
+        if (txResult.isFinalized || txResult.submissionError) return;
+
+        unsubscribeFinalized = this.blockWatch.events.on('finalized', headers => {
+          void finalizeRecoveredTransaction(headers.at(-1)!.blockNumber);
+        });
+        await finalizeRecoveredTransaction(this.blockWatch.finalizedBlockHeader.blockNumber);
       } catch (error) {
         this.error('Error recovering bid transaction at mortality', error);
-        if (!txResult.isFinalized && !txResult.submissionError) {
-          txResult.submissionError = error instanceof Error ? error : new Error(String(error));
-        }
+        failTransaction(error);
       }
     };
     const unsubscribeBest = this.blockWatch.events.on('best-blocks', headers => {
@@ -678,7 +722,7 @@ export class CohortBidder {
     if (this.blockWatch.bestBlockHeader.blockNumber >= deathBlock) {
       void recover();
     }
-    void txResult.waitForFinalizedBlock.catch(() => undefined).finally(unsubscribeBest);
+    void txResult.waitForFinalizedBlock.catch(() => undefined).finally(cleanup);
   }
 
   private async awaitFinalization(txResult: TxResult, microgonsPerSeat: bigint, submittedCount: number) {
