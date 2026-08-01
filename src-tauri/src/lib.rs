@@ -6,6 +6,8 @@ use objc2_app_kit::NSWindow;
 use sp_core::Pair;
 use sp_core::crypto::Ss58Codec;
 use std::fs;
+#[cfg(any(test, all(target_os = "macos", not(debug_assertions))))]
+use std::path::Path;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tauri::WebviewWindow;
@@ -37,6 +39,13 @@ struct NoSleepState {
 
 struct EthereumSignerPolicyState {
     policy: Mutex<Option<ethereum_signer::EthereumSignerPolicy>>,
+}
+
+#[cfg(any(test, all(target_os = "macos", not(debug_assertions))))]
+fn is_running_from_mounted_volume(executable_path: &Path) -> bool {
+    executable_path
+        .strip_prefix("/Volumes")
+        .is_ok_and(|relative_path| relative_path.components().next().is_some())
 }
 
 #[tauri::command]
@@ -819,6 +828,26 @@ pub fn run() {
                 .expect("Failed to initialize window globals");
         })
         .setup(move |app| {
+            #[cfg(all(target_os = "macos", not(debug_assertions)))]
+            if std::env::current_exe()
+                .as_deref()
+                .is_ok_and(is_running_from_mounted_volume)
+            {
+                use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+
+                log::error!("Refusing to start from a mounted macOS volume");
+                let handle = app.handle().clone();
+                app.dialog()
+                    .message(
+                        "Drag Argon Desktop into your Applications folder, eject the installer, \
+                         and then open the copy from Applications.",
+                    )
+                    .title("Argon can’t run from the disk image")
+                    .kind(MessageDialogKind::Error)
+                    .show(move |_| handle.exit(1));
+                return Ok(());
+            }
+
             let handle = app.handle();
             let config_path = Utils::get_absolute_config_instance_dir(handle);
             log::info!(
@@ -967,4 +996,31 @@ pub fn run() {
         ])
         .run(context)
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_running_from_mounted_volume;
+    use std::path::Path;
+
+    #[test]
+    fn detects_an_app_running_from_a_mounted_volume() {
+        assert!(is_running_from_mounted_volume(Path::new(
+            "/Volumes/Argon Desktop/Argon Desktop.app/Contents/MacOS/Argon Desktop"
+        )));
+    }
+
+    #[test]
+    fn allows_an_app_running_from_applications() {
+        assert!(!is_running_from_mounted_volume(Path::new(
+            "/Applications/Argon Desktop.app/Contents/MacOS/Argon Desktop"
+        )));
+    }
+
+    #[test]
+    fn does_not_match_a_similarly_named_directory() {
+        assert!(!is_running_from_mounted_volume(Path::new(
+            "/VolumesBackup/Argon Desktop.app/Contents/MacOS/Argon Desktop"
+        )));
+    }
 }
