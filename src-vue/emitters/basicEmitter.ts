@@ -76,6 +76,7 @@ type IBasicEmitter = {
   openOperationalRewardsOverlay: { screen?: 'activate' | 'congratulations' | 'claim' } | undefined;
 
   openUpgradeToOperationsOverlay: void;
+  openWelcomeToOperationsOverlay: void;
   openUpgradeToTreasuryOverlay: void;
 
   openSponsorOverlay: void;

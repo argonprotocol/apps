@@ -4,13 +4,17 @@
       <div class="relative flex w-10/12 max-w-300 flex-col items-center py-10 text-center">
         <header class="text-argon-600/70 text-2xl font-normal tracking-widest">STABLE SWAPS</header>
         <h1 class="mt-2 text-4xl font-bold opacity-80 xl:text-[2.6rem] 2xl:text-5xl">
-          Arbitrage Movements In Argon Price
+          Arbitrage the Global Argon Price
         </h1>
-        <p class="mx-10 mt-3 flex-col text-xl leading-relaxed text-slate-900/60 xl:mx-40 2xl:mx-auto 2xl:flex">
+        <p class="mx-10 mt-3 flex-col text-xl leading-relaxed text-slate-900/60 xl:mx-16 2xl:mx-auto 2xl:flex">
           <span>When Argon's price on Uniswap drifts from target, Stable Swaps helps you trade</span>
           <span>
             the gaps and return Argon’s price back to target.
-            <a :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/stable-swaps`" target="_blank">
+            <a
+              class="whitespace-nowrap"
+              :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/stable-swaps`"
+              target="_blank"
+            >
               Learn more &raquo;
             </a>
           </span>

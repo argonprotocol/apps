@@ -84,6 +84,7 @@
         <WelcomeToTreasuryOverlay />
       </template>
       <UpgradeToOperationsOverlay />
+      <WelcomeToOperationsOverlay />
       <UpgradeToTreasuryOverlay />
       <BitcoinLockingOverlay />
       <BondPurchaseOverlay />
@@ -150,6 +151,7 @@ import Home from './screens/Home.vue';
 import WelcomeToTreasuryOverlay from './overlays/WelcomeToTreasuryOverlay.vue';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import UpgradeToOperationsOverlay from './overlays/UpgradeToOperationsOverlay.vue';
+import WelcomeToOperationsOverlay from './overlays/WelcomeToOperationsOverlay.vue';
 import UpgradeToTreasuryOverlay from './overlays/UpgradeToTreasuryOverlay.vue';
 import Onboarding from './screens/Onboarding.vue';
 import ArgonotStakes from './screens/ArgonotStakes.vue';
