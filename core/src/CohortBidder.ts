@@ -4,6 +4,7 @@ import {
   type ArgonPrimitivesBlockSealMiningRegistration,
   ExtrinsicError,
   formatArgons,
+  hexToU8a,
   type TxResult,
   Vec,
 } from '@argonprotocol/mainchain';
@@ -11,13 +12,16 @@ import { subscribeToFinalizedStorageChanges } from './StorageSubscriber.js';
 import { BlockWatch, type IBlockHeaderInfo } from './BlockWatch.js';
 import type { MiningFrames } from './MiningFrames.js';
 import { createDeferred } from './Deferred.js';
+import { planBidWithFeeEstimate, type IBidPlanBid, type IBidPlanSubaccount } from './BidPlan.js';
+import { TransactionEvents } from './TransactionEvents.js';
 
-interface IBidDetail {
-  address: string;
-  micronotsStaked: bigint;
-  bidMicrogons: bigint;
+interface IBidDetail extends IBidPlanBid {
   bidAtTick: number;
 }
+
+// Substrate mortal-era periods are powers of two, so 8 is the safe period closest to ten blocks.
+const DEFAULT_BID_MORTALITY_BLOCKS = 8;
+const MINIMUM_BID_MORTALITY_BLOCKS = 4;
 
 export interface ICohortBidderOptions {
   minBid: bigint;
@@ -84,7 +88,7 @@ export class CohortBidder {
   private lastLoggedSeatsInBudget: number;
 
   private pendingRequest: Promise<any> | undefined;
-  private pendingFinalizations: Promise<void>[] = [];
+  private pendingFinalizations = new Set<Promise<void>>();
   private stopDeferred = createDeferred<void>(false);
   private minIncrement = 10_000n;
   private ticksBeforeVrfClose = 30;
@@ -94,13 +98,14 @@ export class CohortBidder {
 
   private lastBidsHash: string | undefined;
   private bidsForNextSlotCohortKey!: string;
+  private bidPlanGeneration = 0;
   private readonly name: string;
 
   constructor(
     public accountset: Accountset,
     public miningFrames: MiningFrames,
     public cohortStartingFrameId: number,
-    public subaccounts: { index: number; isRebid: boolean; address: string }[],
+    public subaccounts: IBidPlanSubaccount[],
     public options: ICohortBidderOptions,
     public callbacks?: {
       onBidsUpdated?(args: {
@@ -311,12 +316,21 @@ export class CohortBidder {
       .then(x => x.toHex());
 
     if (this.lastBidsHash !== latestCohortBidsHash) {
-      this.lastBidsHash = latestCohortBidsHash;
-      const clientAt = await client.at(header.blockHash);
-      const rawBids = await clientAt.query.miningSlot.bidsForNextSlotCohort();
-      this.updateBidList(rawBids, blockNumber, tick, isFirstLoad);
+      const previousBidsHash = this.lastBidsHash;
+      try {
+        const clientAt = await client.at(header.blockHash);
+        const rawBids = await clientAt.query.miningSlot.bidsForNextSlotCohort();
 
-      await this.planNextBid(header.frameRewardTicksRemaining);
+        this.lastBidsHash = latestCohortBidsHash;
+        this.updateBidList(rawBids, blockNumber, tick, isFirstLoad);
+
+        await this.planNextBid(header.frameRewardTicksRemaining!);
+      } catch (error) {
+        if (this.lastBidsHash === latestCohortBidsHash) {
+          this.lastBidsHash = previousBidsHash;
+        }
+        throw error;
+      }
     }
 
     if (this.nextBid && this.nextBid.bidAtTick <= header.tick) {
@@ -324,7 +338,8 @@ export class CohortBidder {
     }
   }
 
-  private async planNextBid(frameRewardTicksRemaining = 1440) {
+  private async planNextBid(frameRewardTicksRemaining: number) {
+    const planGeneration = ++this.bidPlanGeneration;
     if (this.isStopping) return;
 
     // don't process two bids at the same time
@@ -334,9 +349,11 @@ export class CohortBidder {
     }
 
     // if our latest bid is more recent than the current bids, wait
-    if (this.currentBids.mostRecentBidTick < (this.lastBid?.submittedAtTick ?? 0)) {
+    const lastBid = this.lastBid;
+    const lastBidTick = lastBid?.submittedAtTick ?? 0;
+    if ((lastBid?.seatsWon ?? 0) > 0 && this.currentBids.mostRecentBidTick < lastBidTick) {
       this.log(`Waiting for bids more recent than our last attempt.`, {
-        ownAttemptedBidTick: this.lastBid?.submittedAtTick,
+        ownAttemptedBidTick: lastBidTick,
         mostRecentBidTick: this.currentBids.mostRecentBidTick,
         latestBlockNumber: this.latestBlockNumber,
       });
@@ -356,7 +373,6 @@ export class CohortBidder {
       `Checking bids for cohort ${this.cohortStartingFrameId} at block ${this.latestBlockNumber}, Still trying for seats: ${this.subaccounts.length}. Currently winning ${myWinningBids.length} bids.`,
     );
 
-    const myWinningAddresses = new Set(myWinningBids.map(x => x.address));
     const beatableBids: bigint[] = [];
     if (bids.length < this.nextCohortSize!) {
       beatableBids.push(this.clampBid(0n));
@@ -374,9 +390,13 @@ export class CohortBidder {
     beatableBids.sort((a, b) => Number(a - b));
 
     let accountBalance = await this.accountset.submitterBalance();
+    if (this.isStopping || planGeneration !== this.bidPlanGeneration) return;
+
     accountBalance -= this.options.sidelinedWalletMicrogons ?? 0n;
     if (accountBalance <= 0n) accountBalance = 0n;
     let accountMicronots = await this.accountset.accountMicronots();
+    if (this.isStopping || planGeneration !== this.bidPlanGeneration) return;
+
     accountMicronots -= this.options.sidelinedWalletMicronots ?? 0n;
     if (accountMicronots < 0n) accountMicronots = 0n;
 
@@ -408,93 +428,43 @@ export class CohortBidder {
       return;
     }
 
-    this.subaccounts.sort((a, b) => {
-      const isWinningA = myWinningAddresses.has(a.address);
-      const isWinningB = myWinningAddresses.has(b.address);
-      if (isWinningA && !isWinningB) return -1;
-      if (!isWinningA && isWinningB) return 1;
-
-      if (a.isRebid && !b.isRebid) return -1;
-      if (!a.isRebid && b.isRebid) return 1;
-      return a.index - b.index;
-    });
-
     const bidsets = await Promise.all(
       beatableBids.map(async bidPrice => {
-        let availableBalanceForBids = accountBalance;
-        let alreadySpentMicrogons = 0n;
-        let availableMicronots = accountMicronots;
-        let alreadySpentMicronots = 0n;
-
-        let accountStayingWinner = 0;
-        const accountsToBidWith = this.subaccounts.filter(y => {
-          const bid = myWinningBids.find(b => b.address === y.address);
-          if (!bid) return true;
-          if (bid.bidMicrogons >= bidPrice) {
-            accountStayingWinner += 1;
-            alreadySpentMicrogons += bid.bidMicrogons;
-            alreadySpentMicronots += bid.micronotsStaked;
-            return false;
-          } else {
-            // rebid this account
-            availableBalanceForBids += bid.bidMicrogons;
-            availableMicronots += bid.micronotsStaked;
-            return true;
-          }
+        const { plan, feeEstimate, availableBalanceForBids, availableMicronots } = await planBidWithFeeEstimate({
+          microgonsPerSeat: bidPrice,
+          seats: this.subaccounts.length,
+          nextCohortSize: this.nextCohortSize!,
+          micronotsPerSeat: this.micronotsPerSeat,
+          accountBalance,
+          accountMicronots,
+          allWinningBids: bids,
+          myWinningBids,
+          subaccounts: this.subaccounts,
+          tip,
+          estimateFee: (subaccounts, bidAmount, feeTip) => this.estimateFee(bidAmount, subaccounts, feeTip),
         });
-
-        const bidsToReplace = bids.filter(x => x.bidMicrogons < bidPrice).length;
-        const emptyBids = this.nextCohortSize! - bids.length;
-        const availableBidsToReplace = bidsToReplace + emptyBids;
-
         let reductionReason: IBidReductionReason | undefined;
-        if (accountsToBidWith.length > availableBidsToReplace) {
-          accountsToBidWith.length = availableBidsToReplace;
-          reductionReason = 'max-bid-too-low';
+        if (
+          plan.reason === 'max-bid-too-low' ||
+          plan.reason === 'insufficient-argon-balance' ||
+          plan.reason === 'insufficient-argonot-balance'
+        ) {
+          reductionReason = plan.reason;
         }
-        // shrink to affordable micronots
-        const totalMicronotsNeeded = BigInt(accountsToBidWith.length) * this.micronotsPerSeat;
-        if (totalMicronotsNeeded > availableMicronots) {
-          const maxSeats = Math.floor(Number(availableMicronots / this.micronotsPerSeat));
-          if (accountsToBidWith.length > maxSeats) {
-            this.log('Reducing bids due to nsf micronots', {
-              maxSeats,
-              availableMicronots,
-              accountsToBidWith: accountsToBidWith.length,
-            });
-            accountsToBidWith.length = maxSeats;
-            reductionReason = 'insufficient-argonot-balance';
-          }
-        }
-        const feeEstimate = await this.estimateFee(bidPrice, accountsToBidWith, tip);
-        const estimatedFeePlusTip = feeEstimate + tip;
-        availableBalanceForBids -= estimatedFeePlusTip;
-        // can't afford any bids
-        if (availableBalanceForBids < 0n) {
-          availableBalanceForBids = 0n;
-          accountsToBidWith.length = 0;
-          reductionReason = 'insufficient-argon-balance';
-        }
-        // shrink to affordable bids
-        else if (bidPrice > 0n) {
-          let maxBids = Math.floor(Number(availableBalanceForBids / bidPrice));
-          if (maxBids < 0) maxBids = 0;
-          if (accountsToBidWith.length > maxBids) {
-            accountsToBidWith.length = maxBids;
-            reductionReason = 'insufficient-argon-balance';
-          }
-        }
+
         return {
           bidAmount: bidPrice,
-          accountsToBidWith,
-          totalSeatsAfterBid: accountStayingWinner + accountsToBidWith.length,
+          accountsToBidWith: plan.accountsToBidWith,
+          totalSeatsAfterBid: plan.seatsAfterBid,
           availableBalanceForBids,
           availableMicronots,
-          estimatedFeePlusTip,
+          estimatedFeePlusTip: feeEstimate + tip,
           reductionReason,
         };
       }),
     );
+    if (this.isStopping || planGeneration !== this.bidPlanGeneration) return;
+
     bidsets.sort((a, b) => {
       // prioritize more seats, then lower bid
       const seatDiff = b.totalSeatsAfterBid - a.totalSeatsAfterBid;
@@ -532,7 +502,7 @@ export class CohortBidder {
       let nextBidSubmissionTick = Math.max(lastBidTick + this.options.bidDelay, bidsAtTick);
 
       // if we are close to VRF close, bid immediately
-      if (frameRewardTicksRemaining !== undefined && frameRewardTicksRemaining <= this.ticksBeforeVrfClose) {
+      if (frameRewardTicksRemaining <= this.ticksBeforeVrfClose) {
         nextBidSubmissionTick = bidsAtTick;
       }
 
@@ -584,6 +554,7 @@ export class CohortBidder {
       this.log('No next bid planned, skipping submission.');
       return;
     }
+    this.setNextBid(undefined);
 
     try {
       const { microgonsPerSeat, subaccounts, tip } = nextBid;
@@ -598,18 +569,35 @@ export class CohortBidder {
         subaccounts: subaccounts.map(x => ({ address: x })),
         bidAmount: microgonsPerSeat,
       });
-      const txResult = await submitter.submit({
+      const bestBlockHeader = this.blockWatch.bestBlockHeader;
+      const mortalityBlocks =
+        bestBlockHeader.frameRewardTicksRemaining! <= DEFAULT_BID_MORTALITY_BLOCKS
+          ? MINIMUM_BID_MORTALITY_BLOCKS
+          : DEFAULT_BID_MORTALITY_BLOCKS;
+      const era = submitter.client.registry.createType('ExtrinsicEra', {
+        current: bestBlockHeader.blockNumber,
+        period: mortalityBlocks,
+      });
+      const signedTx = await submitter.sign({
+        blockHash: bestBlockHeader.blockHash,
+        era,
         tip,
         useLatestNonce: true,
       });
+      const txResult = await submitter.submitSigned(signedTx);
+      const deathBlock = signedTx.era.asMortalEra.death(txResult.extrinsic.submittedAtBlockNumber);
+      this.startBidMortalityFallback(txResult, deathBlock);
       this.pendingBidTxResult = txResult;
       const client = this.client;
 
-      await txResult.waitForInFirstBlock.catch(() => null);
+      const inclusionError = await txResult.waitForInFirstBlock.then(() => undefined).catch((error: Error) => error);
+      if (!txResult.blockHash) {
+        throw inclusionError ?? new Error('Bid transaction did not report block inclusion');
+      }
 
       const api = txResult.blockHash ? await client.at(txResult.blockHash) : client;
       const bidAtTick = await api.query.ticks.currentTick().then(x => x.toNumber());
-      const successfulBids = txResult.batchInterruptedIndex ?? subaccounts.length;
+      const successfulBids = txResult.batchInterruptedIndex ?? (txResult.extrinsicError ? 0 : subaccounts.length);
       this.lastBid = {
         submittedAtTick: bidAtTick,
         microgonsPerSeat,
@@ -618,29 +606,140 @@ export class CohortBidder {
         isFinalized: false,
         expectedFinalizationTick: bidAtTick + 5,
       };
-      this.pendingFinalizations.push(this.awaitFinalization(txResult, microgonsPerSeat, subaccounts.length));
+      const finalization = this.awaitFinalization(txResult, microgonsPerSeat, subaccounts.length);
+      this.pendingFinalizations.add(finalization);
+      void finalization.finally(() => this.pendingFinalizations.delete(finalization));
     } catch (err) {
       this.error(`Error bidding for cohort ${this.cohortStartingFrameId}:`, err);
     } finally {
       await new Promise(setImmediate);
       this.pendingRequest = undefined;
       this.pendingBidTxResult = undefined;
-      await this.planNextBid(this.blockWatch.bestBlockHeader.frameRewardTicksRemaining);
+      try {
+        await this.planNextBid(this.blockWatch.bestBlockHeader.frameRewardTicksRemaining!);
+      } catch (error) {
+        this.lastBidsHash = undefined;
+        this.error('Error planning the next bid after a submission attempt:', error);
+      }
     }
   }
 
+  private startBidMortalityFallback(txResult: TxResult, deathBlock: number): void {
+    let hasSearched = false;
+    let isCheckingFinalizedBlock = false;
+    let unsubscribeFinalized: (() => void) | undefined;
+    const cleanup = () => {
+      unsubscribeBest();
+      unsubscribeFinalized?.();
+    };
+    const failTransaction = (error: unknown) => {
+      if (txResult.isFinalized || txResult.submissionError) return;
+
+      txResult.submissionError = error instanceof Error ? error : new Error(String(error));
+    };
+    const recover = async () => {
+      unsubscribeBest();
+      if (hasSearched || txResult.isFinalized || txResult.submissionError) return;
+
+      hasSearched = true;
+
+      try {
+        const transaction = await TransactionEvents.findByExtrinsicHash({
+          blockWatch: this.blockWatch,
+          extrinsicHash: txResult.extrinsic.signedHash,
+          searchStartBlockHeight: txResult.extrinsic.submittedAtBlockNumber,
+          bestBlockHeight: deathBlock,
+        });
+        if (txResult.isFinalized || txResult.submissionError) return;
+        if (!transaction) {
+          this.log('Bid transaction mortality reached', {
+            transactionHash: txResult.extrinsic.signedHash,
+            submittedBlock: txResult.extrinsic.submittedAtBlockNumber,
+            deathBlock,
+          });
+          txResult.submissionError = new Error('Bid transaction expired before block inclusion');
+          return;
+        }
+
+        await txResult.setSeenInBlock({
+          blockHash: hexToU8a(transaction.blockHash),
+          blockNumber: transaction.blockNumber,
+          events: transaction.extrinsicEvents,
+          extrinsicIndex: transaction.extrinsicIndex,
+        });
+        this.log('Recovered bid transaction after its status subscription went silent', {
+          transactionHash: txResult.extrinsic.signedHash,
+          submittedBlock: txResult.extrinsic.submittedAtBlockNumber,
+          deathBlock,
+          includedBlock: transaction.blockNumber,
+        });
+
+        const finalizeRecoveredTransaction = async (finalizedHeight: number) => {
+          if (
+            isCheckingFinalizedBlock ||
+            finalizedHeight < transaction.blockNumber ||
+            txResult.isFinalized ||
+            txResult.submissionError
+          ) {
+            return;
+          }
+
+          isCheckingFinalizedBlock = true;
+          try {
+            const finalizedHash = await this.blockWatch.getFinalizedHash(transaction.blockNumber);
+            if (txResult.isFinalized || txResult.submissionError) return;
+
+            if (finalizedHash !== transaction.blockHash) {
+              failTransaction(new Error('Recovered bid transaction was reorged before finalization'));
+              return;
+            }
+
+            await txResult.setFinalized();
+          } catch (error) {
+            failTransaction(error);
+          } finally {
+            isCheckingFinalizedBlock = false;
+          }
+        };
+
+        if (txResult.isFinalized || txResult.submissionError) return;
+
+        unsubscribeFinalized = this.blockWatch.events.on('finalized', headers => {
+          void finalizeRecoveredTransaction(headers.at(-1)!.blockNumber);
+        });
+        await finalizeRecoveredTransaction(this.blockWatch.finalizedBlockHeader.blockNumber);
+      } catch (error) {
+        this.error('Error recovering bid transaction at mortality', error);
+        failTransaction(error);
+      }
+    };
+    const unsubscribeBest = this.blockWatch.events.on('best-blocks', headers => {
+      if (headers.at(-1)!.blockNumber >= deathBlock) {
+        void recover();
+      }
+    });
+
+    if (this.blockWatch.bestBlockHeader.blockNumber >= deathBlock) {
+      void recover();
+    }
+    void txResult.waitForFinalizedBlock.catch(() => undefined).finally(cleanup);
+  }
+
   private async awaitFinalization(txResult: TxResult, microgonsPerSeat: bigint, submittedCount: number) {
+    const pendingBid = this.lastBid;
+
     try {
       const bidError = await txResult.waitForFinalizedBlock.then(() => undefined).catch((x: ExtrinsicError) => x);
       const client = this.client;
       const api = txResult.blockHash ? await client.at(txResult.blockHash) : client;
       const blockNumber: number = txResult.blockNumber ?? (await api.query.system.number().then(x => x.toNumber()));
       const bidAtTick = await api.query.ticks.currentTick().then(x => x.toNumber());
-      const successfulBids = txResult.batchInterruptedIndex ?? submittedCount;
+      const successfulBids =
+        txResult.batchInterruptedIndex ?? (bidError || txResult.extrinsicError ? 0 : submittedCount);
 
-      if (this.lastBid) {
-        this.lastBid.isFinalized = true;
-        this.lastBid.seatsWon = successfulBids;
+      if (pendingBid) {
+        pendingBid.isFinalized = true;
+        pendingBid.seatsWon = successfulBids;
       }
       this.txFees += txResult.finalFee ?? 0n;
 

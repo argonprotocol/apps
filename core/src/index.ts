@@ -23,6 +23,7 @@ export * from './AccountMiners.js';
 export * from './AccountEventsFilter.js';
 export * from './TreasuryBonds.js';
 export * from './CohortBidder.js';
+export * from './BidPlan.js';
 export * from './StorageFinder.js';
 export * from './TransactionEvents.js';
 export * from './Vaults.js';
