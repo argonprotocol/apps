@@ -189,6 +189,25 @@ describe('Vault and bond network returns', () => {
     expect(vaults.calculateArgonBondsApr()).toBe(0);
   });
 
+  it('projects yearly treasury revenue from the last 365 frames regardless of frame duration', () => {
+    NetworkConfig.setNetwork('dev-docker');
+    const vaults = createVaults();
+    vaults.stats = createStats([
+      createFrame({ frameId: 35, externalCapital: 1n, totalEarnings: 10_000n }),
+      createFrame({ frameId: 36, externalCapital: 1_000n, totalEarnings: 100n }),
+      createFrame({ frameId: 400, externalCapital: 3_000n, totalEarnings: 300n }),
+    ]);
+    vaults.stats.synchedToFrame = 400;
+
+    expect(
+      vaults.calculateTreasuryYearlyRevenue({
+        vaultId: 1,
+        capital: 2_000n,
+        operatorKeepPct: 25,
+      }),
+    ).toBe(18_250n);
+  });
+
   it('calculates Argonot staking APR from historical frame rewards and price-valued capital', () => {
     const vaults = createVaults();
     vaults.stats = {

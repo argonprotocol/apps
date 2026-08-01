@@ -191,6 +191,7 @@ export class ArgonBondsRecovery {
       releaseFrame: lot.releaseFrameId.isSome ? lot.releaseFrameId.unwrap().toNumber() : null,
       releaseReason: lot.releaseReason.isSome ? lot.releaseReason.unwrap().type : undefined,
       isReleasing: lot.releaseReason.isSome,
+      isBackfill: false,
       isOwn: accountId === this.walletKeys.defaultArgonAddress,
       canRelease: accountId === this.walletKeys.defaultArgonAddress,
     });

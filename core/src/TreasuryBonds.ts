@@ -126,6 +126,33 @@ export class TreasuryBonds {
     return remainingBonds > 0n ? remainingBonds * unitsPerBond : 0n;
   }
 
+  public static getVaultArgonotSecuritizationTarget(args: {
+    activatedSecuritizationMicrogons: bigint;
+    totalArgonIssuanceMicrogons: bigint;
+    totalArgonotIssuanceMicronots: bigint;
+  }): bigint {
+    const { activatedSecuritizationMicrogons, totalArgonIssuanceMicrogons, totalArgonotIssuanceMicronots } = args;
+    if (
+      activatedSecuritizationMicrogons <= 0n ||
+      totalArgonIssuanceMicrogons <= 0n ||
+      totalArgonotIssuanceMicronots <= 0n
+    ) {
+      return 0n;
+    }
+
+    const networkArgonSecuritizationTarget = BigNumber(totalArgonIssuanceMicrogons).dividedBy(3);
+    const vaultSecuritizationShare = BigNumber.minimum(
+      BigNumber(activatedSecuritizationMicrogons).dividedBy(networkArgonSecuritizationTarget),
+      1,
+    );
+    const networkArgonotTarget = BigNumber(totalArgonotIssuanceMicronots)
+      .multipliedBy(40)
+      .dividedBy(100)
+      .integerValue(BigNumber.ROUND_DOWN);
+
+    return bigNumberToBigInt(networkArgonotTarget.multipliedBy(vaultSecuritizationShare), true);
+  }
+
   public static potentialDailyRevenue(args: {
     distributableBidPool: bigint;
     globalActiveBonds: number;
@@ -161,7 +188,8 @@ export class TreasuryBonds {
   }
 
   public static async getVaultBondState(client: ArgonQueryClient, vaultId: number, ownAddress?: string) {
-    const { summaries, capacityState } = await TreasuryBonds.getVaultBondSources(client, vaultId);
+    const { summaries, capacityState, ordinaryBonds, backfillBonds, backfillBondsReserved } =
+      await TreasuryBonds.getVaultBondSources(client, vaultId);
     const idsBySourceOrder = [...summaries].map(summary => summary.bondLotId.toNumber());
 
     if (ownAddress) {
@@ -182,6 +210,9 @@ export class TreasuryBonds {
     return {
       bondLots,
       capacityState,
+      ordinaryBonds,
+      backfillBonds,
+      backfillBondsReserved,
     };
   }
 
@@ -349,16 +380,24 @@ export class TreasuryBonds {
     const capacityState = [...summaries].map(summary => ({
       activeBonds: summary.bonds.toNumber(),
     }));
+    const ordinaryBonds = capacityState.reduce((total, summary) => total + summary.activeBonds, 0);
+    let backfillBonds = 0;
+    let backfillBondsReserved = 0;
 
     if ('bondLots' in vaultState) {
+      backfillBonds = vaultState.backfillBonds.toNumber();
+      backfillBondsReserved = vaultState.backfillBondsReserved.toNumber();
       capacityState.push({
-        activeBonds: vaultState.backfillBondsReserved.toNumber(),
+        activeBonds: backfillBondsReserved,
       });
     }
 
     return {
       summaries,
       capacityState,
+      ordinaryBonds,
+      backfillBonds,
+      backfillBondsReserved,
     };
   }
 

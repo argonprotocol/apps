@@ -57,7 +57,7 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: bigint): void;
 }>();
 
-const prefix = Vue.ref(props.prefix);
+const prefix = Vue.computed(() => props.prefix);
 
 const modelValue = Vue.computed(() => {
   return BigNumber(props.modelValue).dividedBy(MICROGONS_PER_ARGON).toNumber();

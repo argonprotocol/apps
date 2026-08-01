@@ -47,6 +47,7 @@ type IBondLotModel = {
   releaseFrame: number | null;
   releaseReason?: PalletTreasuryBondReleaseReason['type'];
   isReleasing: boolean;
+  isBackfill: boolean;
   isOwn: boolean;
   canRelease: boolean;
 };
@@ -69,6 +70,7 @@ export class BondLot {
   public readonly releaseFrame: number | null;
   public readonly releaseReason?: PalletTreasuryBondReleaseReason['type'];
   public readonly isReleasing: boolean;
+  public readonly isBackfill: boolean;
   public readonly isOwn: boolean;
   public readonly canRelease: boolean;
 
@@ -90,11 +92,16 @@ export class BondLot {
     this.releaseFrame = model.releaseFrame;
     this.releaseReason = model.releaseReason;
     this.isReleasing = model.isReleasing;
+    this.isBackfill = model.isBackfill;
     this.isOwn = model.isOwn;
     this.canRelease = model.canRelease;
   }
 
-  public static fromRuntime(id: number, lot: PalletTreasuryBondLot, ownAddress?: string): BondLot {
+  public static fromRuntime(
+    id: number,
+    lot: PalletTreasuryBondLot | Omit<PalletTreasuryBondLot, 'isBackfill'>,
+    ownAddress?: string,
+  ): BondLot {
     const accountId = lot.owner.toString();
     const bonds = lot.bonds.toNumber();
     const participatedFrames = lot.participatedFrames.toNumber();
@@ -128,6 +135,7 @@ export class BondLot {
       releaseFrame: lot.releaseFrameId.isSome ? lot.releaseFrameId.unwrap().toNumber() : null,
       releaseReason: lot.releaseReason.isSome ? lot.releaseReason.unwrap().type : undefined,
       isReleasing: lot.releaseReason.isSome,
+      isBackfill: 'isBackfill' in lot ? lot.isBackfill.valueOf() : false,
       isOwn: accountId === ownAddress,
       canRelease: accountId === ownAddress,
     });

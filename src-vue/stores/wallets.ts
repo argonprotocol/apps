@@ -13,7 +13,6 @@ import { IWallet, defaultWalletData } from '../lib/Wallet.ts';
 import { WalletsForArgon, IWalletEvents, readArgonWalletBalanceValues } from '../lib/WalletsForArgon.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
 import { getBlockWatch, getFinalizedClient, getMainchainClient } from './mainchain.ts';
-import { getMyVault } from './vaults.ts';
 import { loadEthereumChainConfig } from '../lib/EthereumClient.ts';
 import { WalletForEthereum } from '../lib/WalletForEthereum.ts';
 import { WalletForBase } from '../lib/WalletForBase.ts';
@@ -654,7 +653,7 @@ export const useWallets = defineStore('wallets', () => {
       if (!hasLegacyValue) {
         return;
       }
-      const moveCapital = new MoveCapital(walletKeys, getTransactionTracker(), getMyVault());
+      const moveCapital = new MoveCapital(walletKeys, getTransactionTracker());
       await moveCapital.moveLegacyMiningHoldToDefault(
         {
           ...defaultWalletData,

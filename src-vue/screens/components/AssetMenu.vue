@@ -22,11 +22,6 @@
           class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade data-[state=open]:transition-all"
         >
           <div class="bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-            <DropdownMenuItem @click="() => openMoveCapitalOverlay()" class="py-2">
-              <header>Move Tokens</header>
-            </DropdownMenuItem>
-
-            <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             <DropdownMenuItem @click="() => openWalletOverlay()" class="py-2">
               <header>Receive Tokens</header>
             </DropdownMenuItem>
@@ -48,7 +43,6 @@ import {
   DropdownMenuItem,
   DropdownMenuPortal,
   DropdownMenuRoot,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
   PointerDownOutsideEvent,
 } from 'reka-ui';
@@ -65,10 +59,6 @@ const floatingZIndex = useFloatingZIndex();
 
 function openWalletOverlay() {
   basicEmitter.emit('openWalletOverlay', { walletType: props.walletType });
-}
-
-function openMoveCapitalOverlay() {
-  basicEmitter.emit('openMoveCapitalOverlay', { walletType: props.walletType });
 }
 
 let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;

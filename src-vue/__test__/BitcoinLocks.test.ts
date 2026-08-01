@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import BigNumber from 'bignumber.js';
 import type { BlockWatch, Currency as CurrencyBase } from '@argonprotocol/apps-core';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import type { Db } from '../lib/Db.ts';
@@ -7,7 +8,14 @@ import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import { BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
-import { BitcoinLock, hexToU8a, TxSubmitter, type IBitcoinLock } from '@argonprotocol/mainchain';
+import {
+  BitcoinLock,
+  FIXED_U128_DECIMALS,
+  hexToU8a,
+  toFixedNumber,
+  TxSubmitter,
+  type IBitcoinLock,
+} from '@argonprotocol/mainchain';
 import { createHistoricalEventData } from '../../indexer/__test__/helpers/historicalEvents.ts';
 import { bigintCodec, numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts';
 import { encodeAddress } from '@polkadot/util-crypto';
@@ -1241,6 +1249,7 @@ describe('BitcoinLocks ratchet preview', () => {
     const vault = {
       operatorAccountId,
       availableSecuritization,
+      securitizationRatioBN: () => BigNumber(1),
     };
     const calculateRatchetingCosts = vi.fn(async () => ({ burnAmount: 1_500n, ratchetingFee: 50n }));
     Object.assign(store, {
@@ -1262,6 +1271,54 @@ describe('BitcoinLocks ratchet preview', () => {
     expect(calculateRatchetingCosts).toHaveBeenCalledWith(client, expect.anything(), vault, 2_000n);
     expect(availableSecuritization).toHaveBeenCalledWith('bitcoin-owner');
     expect(preview.ratchetingFee).toBe(expectedFee);
+  });
+
+  it('includes the security needed to fully backfill the projected ratchet', async () => {
+    const store = createStore();
+    const lock = createLock({
+      uuid: 'backfill-ratchet-preview',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockedAndMinted,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    lock.lockedTargetPrice = 3_000n;
+
+    Object.assign(store, {
+      getRatchetContext: async () => ({
+        bitcoinLock: {
+          calculateRatchetingCosts: async () => ({ burnAmount: 2_000n, ratchetingFee: 0n }),
+          isBackfill: true,
+          liquidityPromised: 3_000n,
+          lockedTargetPrice: 3_000n,
+          ownerAccount: 'vault-owner',
+        },
+        client: {
+          query: {
+            bitcoinLocks: {
+              locksByUtxoId: async () => ({
+                isSome: true,
+                unwrap: () => ({
+                  securitizationRatio: { toBigInt: () => toFixedNumber(1, FIXED_U128_DECIMALS) },
+                }),
+              }),
+            },
+          },
+        },
+        vault: {
+          availableSecuritization: () => 0n,
+          backfillSecuritizationLocked: 6_000n,
+          operatorAccountId: 'vault-owner',
+          securitization: 5_000n,
+          securitizationLocked: 8_000n,
+        },
+      }),
+    });
+    vi.spyOn(BitcoinLock, 'calculateRedemptionAmount').mockReturnValue(2_000n);
+
+    const preview = await store.getRatchetPreview(lock);
+
+    expect(preview.securitizationToAdd).toBe(2_000n);
+    expect(preview.canRatchet).toBe(true);
   });
 });
 
@@ -1339,7 +1396,7 @@ describe('BitcoinLocks ratchet transaction tracking', () => {
     expect(store.getPendingRatchetTxInfo(lock)).toBeUndefined();
   });
 
-  it('submits using the preview balance without waiting for finalization', async () => {
+  it('atomically adds missing securitization before ratcheting a backfill lock', async () => {
     const waitForFinalizedBlock = new Promise<Uint8Array>(() => undefined);
     const txResult = { waitForFinalizedBlock };
     const txInfo = {
@@ -1360,7 +1417,10 @@ describe('BitcoinLocks ratchet transaction tracking', () => {
       status: BitcoinLockStatus.LockedAndMinted,
       createdAt: '2026-01-01T00:00:00Z',
     });
-    const ratchetTx = {};
+    const increaseSecurityTx = { kind: 'increase-security' };
+    const ratchetTx = { kind: 'ratchet' };
+    const batchTx = { kind: 'batch' };
+    const batchAll = vi.fn(() => batchTx);
     const client = {
       query: {
         bitcoinLocks: {
@@ -1374,20 +1434,29 @@ describe('BitcoinLocks ratchet transaction tracking', () => {
         bitcoinLocks: {
           ratchet: vi.fn(() => ratchetTx),
         },
+        vaults: {
+          modifyFunding: vi.fn(() => increaseSecurityTx),
+        },
+        utility: { batchAll },
       },
     };
     const calculateRatchetingCosts = vi.fn(async () => ({ burnAmount: 400n, ratchetingFee: 0n }));
     const getRatchetContext = vi.fn(async () => ({
       bitcoinLock: {
         calculateRatchetingCosts,
+        isBackfill: true,
         liquidityPromised: 1_000n,
         lockedTargetPrice: 1_000n,
         ownerAccount: 'owner',
       },
       client,
       vault: {
-        availableSecuritization: () => 1_000n,
+        availableSecuritization: () => 0n,
+        backfillSecuritizationLocked: 1_000n,
         operatorAccountId: 'owner',
+        securitization: 0n,
+        securitizationRatio: 1,
+        securitizationLocked: 1_000n,
       },
     }));
     Object.assign(store, { getRatchetContext });
@@ -1403,15 +1472,17 @@ describe('BitcoinLocks ratchet transaction tracking', () => {
     expect(client.tx.bitcoinLocks.ratchet).toHaveBeenCalledWith(7, {
       V1: { microgonsAtTargetPerBtc: 2_000n },
     });
+    expect(client.tx.vaults.modifyFunding).toHaveBeenCalledWith(1, 1_000n, toFixedNumber(1, FIXED_U128_DECIMALS));
+    expect(batchAll).toHaveBeenCalledWith([increaseSecurityTx, ratchetTx]);
     expect(canAfford).toHaveBeenCalledWith({
       tip: 0n,
-      unavailableBalance: 400n,
+      unavailableBalance: 1_400n,
     });
     expect(getRatchetContext).toHaveBeenCalledOnce();
     expect(trackTxResult).toHaveBeenCalledWith({
       txResult,
       extrinsicType: ExtrinsicType.BitcoinRatchet,
-      metadata: { utxoId: 7 },
+      metadata: { addedSecuritizationMicrogons: 1_000n, utxoId: 7 },
     });
   });
 });

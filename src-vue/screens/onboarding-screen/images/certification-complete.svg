@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 92 64" xmlns="http://www.w3.org/2000/svg">
+  <title>Certification complete</title>
+  <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8">
+    <circle cx="46" cy="24" r="16" />
+    <circle cx="46" cy="24" r="11" />
+    <path d="m40 24 4 4 8-9" />
+    <path d="m36 37-5 18 10-5 5 7 4-17M56 37l5 18-10-5-5 7" />
+    <path d="M25 13h5M27.5 10.5v5M62 13h5M64.5 10.5v5" />
+  </g>
+</svg>

@@ -13,7 +13,7 @@ import {
 } from '../lib/db/TransactionStatusHistoryTable.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
 import { bigintCodec, numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts';
-import { Vault } from '@argonprotocol/mainchain';
+import { getOfflineRegistry, type ArgonPrimitivesVault, Vault } from '@argonprotocol/mainchain';
 import BigNumber from 'bignumber.js';
 import { MyVaultRecovery } from '../lib/recovery/MyVaultRecovery.ts';
 
@@ -452,13 +452,13 @@ describe('MyVault cosign recovery', () => {
     getMainchainClient.mockRestore();
   });
 
-  it('submits vault allocation increases through TxSubmitter and tracks the result', async () => {
+  it('submits combined vault securitization through TxSubmitter and tracks both amounts', async () => {
     const { myVault, trackTxResult } = createVault();
     const tx = createMockTxResultTx();
     const txResultInfo = createTxInfo({
       extrinsicType: ExtrinsicType.VaultIncreaseAllocation,
       metadataJson: {
-        addedSecuritizationMicrogons: 100n,
+        securitizationMicrogons: 1_100n,
         vaultId: 7,
       },
     });
@@ -467,10 +467,9 @@ describe('MyVault cosign recovery', () => {
       securitization: 1_000n,
       securitizationRatio: 1,
     } as any;
-    vi.spyOn(
-      myVault as unknown as { buildIncreaseBitcoinSecurityTx: MyVault['buildIncreaseBitcoinSecurityTx'] },
-      'buildIncreaseBitcoinSecurityTx',
-    ).mockResolvedValue(tx as any);
+    const buildSecuritizationTx = vi
+      .spyOn(myVault as unknown as { buildSecuritizationTx: MyVault['buildSecuritizationTx'] }, 'buildSecuritizationTx')
+      .mockResolvedValue(tx as any);
     vi.spyOn(myVault as any, 'onIncreaseVaultSecuritization').mockResolvedValue(undefined);
     trackTxResult.mockResolvedValue(txResultInfo);
     const client = {
@@ -492,11 +491,19 @@ describe('MyVault cosign recovery', () => {
     };
     const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
 
-    const result = await myVault.increaseVaultSecuritization({
-      addedSecuritizationMicrogons: 100n,
+    const result = await myVault.setVaultSecuritization({
+      securitizationMicrogons: 1_100n,
+      committedMicronots: 350n,
       metadata: { moveFrom: 'VaultingHold', moveTo: 'VaultingSecurity' },
     });
 
+    expect(buildSecuritizationTx).toHaveBeenCalledWith(
+      {
+        securitizationMicrogons: 1_100n,
+        committedMicronots: 350n,
+      },
+      client,
+    );
     expect(tx.signAsync).toHaveBeenCalledWith(expect.objectContaining({ address: expect.any(String) }), {
       nonce: 9,
       tip: undefined,
@@ -511,7 +518,8 @@ describe('MyVault cosign recovery', () => {
       }),
       extrinsicType: ExtrinsicType.VaultIncreaseAllocation,
       metadata: {
-        addedSecuritizationMicrogons: 100n,
+        securitizationMicrogons: 1_100n,
+        committedMicronots: 350n,
         vaultId: 7,
         moveFrom: 'VaultingHold',
         moveTo: 'VaultingSecurity',
@@ -520,6 +528,43 @@ describe('MyVault cosign recovery', () => {
     expect(result).toBe(txResultInfo);
 
     getMainchainClient.mockRestore();
+  });
+
+  it('uses the selected final ARGN and ARGNOT securitization amounts', async () => {
+    const { myVault } = createVault();
+    const fundingTx = { id: 'funding' };
+    const commitmentTx = { id: 'commitment' };
+    const batchTx = { id: 'batch' };
+    myVault.data.createdVault = {
+      vaultId: 7,
+      securitization: 1_000n,
+      securitizationRatio: 1,
+    } as any;
+    myVault.data.argonotCommitment.committedMicronots = 100n;
+    const client = {
+      tx: {
+        vaults: {
+          modifyFunding: vi.fn(() => fundingTx),
+          setCommittedArgonots: vi.fn(() => commitmentTx),
+        },
+        utility: {
+          batchAll: vi.fn(() => batchTx),
+        },
+      },
+    };
+
+    const result = await myVault.buildSecuritizationTx(
+      {
+        securitizationMicrogons: 900n,
+        committedMicronots: 80n,
+      },
+      client as any,
+    );
+
+    expect(client.tx.vaults.modifyFunding).toHaveBeenCalledWith(7, 900n, 1_000_000_000_000_000_000n);
+    expect(client.tx.vaults.setCommittedArgonots).toHaveBeenCalledWith(80n);
+    expect(client.tx.utility.batchAll).toHaveBeenCalledWith([fundingTx, commitmentTx]);
+    expect(result).toBe(batchTx);
   });
 
   it('reuses the pending collect tx instead of resubmitting collect work', async () => {
@@ -933,6 +978,129 @@ describe('MyVault cosign recovery', () => {
     getMainchainClient.mockRestore();
   });
 
+  it('prepares a first member invite with one on-chain batch', async () => {
+    const submittedTxInfo = createTxInfo({ extrinsicType: ExtrinsicType.VaultSetBackfill });
+    const batchAll = vi.fn(txs => ({ kind: 'batch', txs }));
+    const setName = vi.fn(name => ({ kind: 'name', name }));
+    const setAsBackfill = vi.fn((utxoId, isBackfill) => ({ kind: 'bitcoin', utxoId, isBackfill }));
+    const setBondLotAsBackfill = vi.fn((bondLotId, isBackfill) => ({ kind: 'bond', bondLotId, isBackfill }));
+    const client = {
+      tx: {
+        utility: { batchAll },
+        vaults: { setName },
+        bitcoinLocks: { setAsBackfill },
+        treasury: { setBondLotAsBackfill },
+      },
+    };
+    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
+    const { myVault, submitAndWatch } = createVault({
+      submitAndWatch: vi.fn().mockResolvedValue(submittedTxInfo),
+    });
+    const signer = await myVault.walletKeys.getVaultingKeypair();
+    const rawVault = getOfflineRegistry().createType<ArgonPrimitivesVault>('ArgonPrimitivesVault', {
+      operatorAccountId: signer.address,
+      delegateAccountId: null,
+      name: null,
+      lastNameChangeTick: null,
+      securitization: 0n,
+      securitizationTarget: 0n,
+      securitizationLocked: 0n,
+      backfillSecuritizationLocked: 0n,
+      backfillSecuritizationReserved: 0n,
+      securitizationPendingActivation: 0n,
+      lockedSatoshis: 0n,
+      securitizedSatoshis: 0n,
+      backfillSecuritizedSatoshis: 0n,
+      securitizationReleaseSchedule: {},
+      securitizationRatio: 1_000_000_000_000_000_000n,
+      isClosed: false,
+      terms: {
+        bitcoinAnnualPercentRate: 0n,
+        bitcoinBaseFee: 0n,
+        treasuryProfitSharing: 0,
+        treasuryBonusProfitSharing: 0,
+      },
+      pendingTerms: null,
+      openedTick: 0n,
+      operationalMinimumReleaseTick: null,
+    });
+    myVault.data.createdVault = new Vault(7, rawVault, 1_000);
+    vi.spyOn(myVault as any, 'buildVaultRelaySetupTxs').mockResolvedValue({
+      needsSetup: true,
+      txs: [{ kind: 'delegate' }],
+    });
+
+    const result = await myVault.prepareMemberInvite({
+      vaultName: 'OperatorOne',
+      bitcoinChanges: [
+        {
+          lock: {
+            utxoId: 11,
+            vaultId: 7,
+            isFunded: true,
+            ownerAccount: signer.address,
+            liquidityPromised: 1_000n,
+            getReleaseRequest: vi.fn(async () => undefined),
+          },
+          isBackfill: true,
+        },
+      ],
+      bondChanges: [
+        {
+          lot: {
+            id: 22,
+            vaultId: 7,
+            accountId: signer.address,
+            isOwn: true,
+            programType: 'Vault',
+            isReleasing: false,
+          },
+          isBackfill: true,
+        },
+      ],
+    });
+
+    expect(result).toBe(submittedTxInfo);
+    expect(batchAll).toHaveBeenCalledWith([
+      { kind: 'delegate' },
+      { kind: 'name', name: 'OperatorOne' },
+      { kind: 'bitcoin', utxoId: 11, isBackfill: true },
+      { kind: 'bond', bondLotId: 22, isBackfill: true },
+    ]);
+    expect(submitAndWatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extrinsicType: ExtrinsicType.VaultSetBackfill,
+        metadata: {
+          bitcoinChanges: [{ utxoId: 11, isBackfill: true }],
+          bondChanges: [{ bondLotId: 22, isBackfill: true }],
+        },
+      }),
+    );
+
+    getMainchainClient.mockRestore();
+  });
+
+  it('does not submit an empty member invite setup batch', async () => {
+    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({} as any);
+    const { myVault, submitAndWatch } = createVault();
+    myVault.data.createdVault = { name: 'OperatorOne' } as Vault;
+    vi.spyOn(myVault as any, 'buildVaultRelaySetupTxs').mockResolvedValue({
+      needsSetup: false,
+      txs: [],
+    });
+
+    const result = await myVault.prepareMemberInvite({
+      vaultName: 'OperatorOne',
+      bitcoinChanges: [],
+      bondChanges: [],
+    });
+
+    expect(result).toBeUndefined();
+    expect(submitAndWatch).not.toHaveBeenCalled();
+
+    getMainchainClient.mockRestore();
+  });
+
   it('renders ready before load resolves, but still waits for council and authority state', async () => {
     let resolveBitcoinLocksLoad!: () => void;
     let resolveGlobalCouncilLoad!: () => void;
@@ -1045,7 +1213,17 @@ describe('MyVault cosign recovery', () => {
     const capitalInsert = vi.fn(async () => undefined);
     const walletKeys = createMockWalletKeys();
     const api = {
-      query: { system: { number: vi.fn(async () => numberCodec(55)) } },
+      query: {
+        system: { number: vi.fn(async () => numberCodec(55)) },
+        vaults: {
+          argonotCommitmentByVaultId: vi.fn(async () =>
+            optionCodec({
+              committedMicronots: bigintCodec(25n),
+              encumberedMicronots: bigintCodec(10n),
+            }),
+          ),
+        },
+      },
     };
     const client = { at: vi.fn(async () => api) };
     const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
@@ -1062,6 +1240,7 @@ describe('MyVault cosign recovery', () => {
       walletKeys,
     });
     myVault.data.metadata = { id: 7 } as any;
+    myVault.vaults.vaultsById[7] = { securitization: 1_000n } as Vault;
 
     await myVault.recordFinalizedVaultCapital({
       tx: { blockHeight: 55, blockHash: '0x55', blockExtrinsicIndex: 2 },
@@ -1069,6 +1248,11 @@ describe('MyVault cosign recovery', () => {
     } as any);
 
     expect(myVault.data.createdVault).toBe(liveVault);
+    expect(myVault.vaults.vaultsById[7]).toBe(liveVault);
+    expect(myVault.data.argonotCommitment).toEqual({
+      committedMicronots: 25n,
+      encumberedMicronots: 10n,
+    });
     expect(capitalInsert).toHaveBeenCalledWith(
       expect.objectContaining({
         eventType: 'modified',
@@ -1283,7 +1467,7 @@ function createVault(args?: {
       },
       ...args?.db,
     } as any),
-    {} as any,
+    { vaultsById: {} } as any,
     args?.walletKeys ?? createMockWalletKeys(),
     transactionTracker,
     bitcoinLocks,

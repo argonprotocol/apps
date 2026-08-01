@@ -58,6 +58,20 @@ type IOperationalStep = {
   blockedByStepId?: OperationalStepId;
 };
 
+type IOperationalInviteStatus = {
+  label:
+    | 'Not opened'
+    | 'Opened'
+    | 'Registered'
+    | 'Upgrade requested'
+    | 'Access granted'
+    | 'Operationally certified'
+    | 'Expired';
+  showRewardNote: boolean;
+  completedTreasuryCertificationRequirements?: number;
+  treasuryCertificationRequirementCount?: number;
+};
+
 export const operationalSteps: Record<OperationalStepId, IOperationalStep> = {
   [OperationalStepId.BootstrapFromNode]: {
     title: 'Bootstrap from Existing Node',
@@ -130,20 +144,6 @@ const allCertificationStepIds: readonly OperationalStepId[] = [
 ];
 
 type IOperationalStepStatus = 'not_started' | 'underway' | 'complete';
-export type IOperationalInviteStatusLabel =
-  | 'Not opened'
-  | 'Opened'
-  | 'Registered'
-  | 'Upgrade requested'
-  | 'Access granted'
-  | 'Operationally certified'
-  | 'Expired';
-export type IOperationalInviteStatus = {
-  label: IOperationalInviteStatusLabel;
-  showRewardNote: boolean;
-  completedTreasuryCertificationRequirements?: number;
-  treasuryCertificationRequirementCount?: number;
-};
 
 export const useCertificationController = defineStore('certificationController', () => {
   const defaultRewardAmount = 500n * BigInt(MICROGONS_PER_ARGON);
@@ -217,6 +217,7 @@ export const useCertificationController = defineStore('certificationController',
   });
   const completionNoticeQueue = Vue.ref<OperationalStepId[]>([]);
   const operationalInvites = Vue.ref<IMemberInvite[]>([]);
+  const hasLoadedOperationalInvites = Vue.ref(false);
   const operationalInviteStatusesByCode = Vue.ref<Record<string, IOperationalInviteStatus>>({});
 
   const certificationStepCount = allCertificationStepIds.length;
@@ -381,6 +382,21 @@ export const useCertificationController = defineStore('certificationController',
   });
   const operationalOverview = Vue.computed(() => {
     const hasOperationsAccess = chainProgress.value.isUpgradedToOperations || isFullyOperational.value;
+    let pendingInviteCount = 0;
+    let activeMemberCount = 0;
+
+    for (const invite of operationalInvites.value) {
+      if (operationalInviteStatusesByCode.value[invite.inviteCode]?.label === 'Expired') continue;
+
+      const bitcoinAmount = invite.vaultContribution?.bitcoinAmount ?? 0n;
+      const bondAmount = invite.vaultContribution?.bondAmount ?? 0n;
+
+      if (bitcoinAmount > 0n || bondAmount > 0n) {
+        activeMemberCount += 1;
+      } else {
+        pendingInviteCount += 1;
+      }
+    }
 
     return {
       hasOperationsAccess,
@@ -389,6 +405,8 @@ export const useCertificationController = defineStore('certificationController',
       needsOperationsSetup: hasOperationsAccess && !isOperationalActivationReady.value && !isFullyOperational.value,
       availableUpgradeCodeCount: inviteSlotProgress.value.availableAccessCodes,
       activeInviteCount: activeOperationalInviteCount.value,
+      pendingInviteCount,
+      activeMemberCount,
       rewardsEarnedAmount: inviteSlotProgress.value.rewardsEarnedAmount,
       rewardsCollectedAmount: inviteSlotProgress.value.rewardsCollectedAmount,
       pendingRewardsAmount: pendingRewardsAmount.value,
@@ -654,15 +672,20 @@ export const useCertificationController = defineStore('certificationController',
     if (!config.serverDetails.ipAddress) {
       operationalInvites.value = [];
       operationalInviteStatusesByCode.value = {};
+      hasLoadedOperationalInvites.value = true;
       return [];
     }
 
-    const invites = await getServerApiClient().getInvites();
-    operationalInvites.value = invites;
+    try {
+      const invites = await getServerApiClient().getInvites();
+      operationalInvites.value = invites;
 
-    await refreshOperationalInviteStatuses(invites);
+      await refreshOperationalInviteStatuses(invites);
 
-    return invites;
+      return invites;
+    } finally {
+      hasLoadedOperationalInvites.value = true;
+    }
   }
 
   function setOperationalInvites(invites: IMemberInvite[]) {
@@ -819,6 +842,7 @@ export const useCertificationController = defineStore('certificationController',
     operationalOverview,
     pendingRewardsAmount,
     operationalInvites,
+    hasLoadedOperationalInvites,
     operationalInviteStatusesByCode,
     activeOperationalInvites,
     activeOperationalInviteCount,

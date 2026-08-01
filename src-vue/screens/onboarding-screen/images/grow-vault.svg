@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 92 64" xmlns="http://www.w3.org/2000/svg">
+  <title>Invites filling vault capacity</title>
+  <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7">
+    <rect x="29" y="8" width="33" height="25" fill="currentColor" fill-opacity="0.12" />
+    <rect x="29" y="37" width="22" height="19" fill="currentColor" fill-opacity="0.12" />
+    <rect x="55" y="37" width="30" height="19" stroke-dasharray="3 2.5" />
+    <rect x="66" y="8" width="19" height="25" fill="currentColor" fill-opacity="0.12" stroke-dasharray="3 2.5" />
+    <rect x="3" y="14" width="16" height="12" rx="1" />
+    <path d="m3 15 8 6 8-6M19 20c17 0 29 0 47 0" />
+    <path d="m61 16 5 4-5 4" />
+  </g>
+</svg>
