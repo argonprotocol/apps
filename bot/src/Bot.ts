@@ -256,7 +256,7 @@ export default class Bot {
       const commonAccountsetOptions = {
         client: this.localClient,
         sessionMiniSecretOrMnemonic: this.options.sessionMiniSecret,
-        subaccountRange: getRange(0, 144),
+        subaccountRange: getRange(0, this.localClient.consts.mint.maxPossibleMiners.toNumber()),
         txSubmitter: this.options.bidderKeypair,
       };
       const accountsetOptions: AccountsetOptions = isProxyBidder

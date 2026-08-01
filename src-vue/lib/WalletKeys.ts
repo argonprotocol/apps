@@ -51,10 +51,12 @@ export class WalletKeys {
 
   public miningBotSubaccountsCache: { [address: string]: { index: number } } = {};
   private upstreamOperatorAuthKeypair?: KeyringPair;
+  private miningBotSubaccountCountPromise?: Promise<number>;
 
   constructor(
     security: ISecurity,
     public didWalletHavePreviousLife: () => Promise<boolean>,
+    private readonly loadMiningBotSubaccountCount?: () => Promise<number>,
   ) {
     this.sshPublicKey = security.sshPublicKey;
     this.defaultArgonAddress = security.vaultingAddress;
@@ -91,12 +93,23 @@ export class WalletKeys {
     return (await this.getMiningBidProxyKeypair()).toJson(passphrase);
   }
 
-  public async getMiningBotSubaccounts(count = 144): Promise<{ [address: string]: { index: number } }> {
-    if (Object.keys(this.miningBotSubaccountsCache).length >= count) {
+  public async getMiningBotSubaccounts(count?: number): Promise<{ [address: string]: { index: number } }> {
+    if (count === undefined && this.loadMiningBotSubaccountCount) {
+      try {
+        this.miningBotSubaccountCountPromise ??= this.loadMiningBotSubaccountCount();
+        count = await this.miningBotSubaccountCountPromise;
+      } catch {
+        this.miningBotSubaccountCountPromise = undefined;
+      }
+    }
+    count ??= 144;
+
+    const currentCount = Object.keys(this.miningBotSubaccountsCache).length;
+    if (currentCount >= count) {
       return this.miningBotSubaccountsCache;
     }
 
-    const indexes = getRange(0, count);
+    const indexes = getRange(currentCount, count);
     for (const index of indexes) {
       const address = Accountset.createMiningSubaccount(this.miningBotAddress, index);
       this.miningBotSubaccountsCache[address] = { index };
