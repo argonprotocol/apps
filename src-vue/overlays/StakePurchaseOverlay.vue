@@ -229,7 +229,11 @@ import { WalletType } from '../lib/Wallet.ts';
 import WalletFundingCallout from '../components/WalletFundingCallout.vue';
 import AlertIcon from '../assets/alert.svg?component';
 import BondPurchaseComplete from './BondPurchaseComplete.vue';
+import { getConfig } from '../stores/config.ts';
+import { getMyVault } from '../stores/vaults.ts';
 
+const config = getConfig();
+const myVault = getMyVault();
 const wallets = useWallets();
 const argonBonds = getArgonBonds();
 const currency = getCurrency();
@@ -310,9 +314,12 @@ function selectVault() {
   minerId.value = 'TODO';
 }
 
-const stepItems: IStepHeaderItem[] = [
+const operatorName = Vue.computed(() => (myVault.createdVault ? 'Yours' : config.upstreamOperator?.name));
+
+const stepItems = Vue.computed<IStepHeaderItem[]>(() => [
   {
     label: 'Select Miner',
+    value: operatorName.value,
     tooltip: 'Choose the miner you want to purchase your Argonot Stakes through.',
     isActive: () => !minerId.value && !txInfo.value && !isComplete.value,
   },
@@ -323,6 +330,7 @@ const stepItems: IStepHeaderItem[] = [
   },
   {
     label: 'Choose Amount',
+    value: completedPurchaseAmount.value > 0 ? numeral(completedPurchaseAmount.value).format('0,0') : undefined,
     tooltip: 'Choose how many Argonot Stakes you want to purchase.',
     isActive: () => !!minerId.value && !txInfo.value && !isComplete.value,
   },
@@ -336,7 +344,7 @@ const stepItems: IStepHeaderItem[] = [
     tooltip: 'Collect daily ARGN distributions funded by Mining Auction revenue.',
     isActive: () => isComplete.value,
   },
-];
+]);
 
 function resetProgress() {
   unsubProgress?.();

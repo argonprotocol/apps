@@ -18,6 +18,8 @@ import { BondLot, type IBondLotSource } from './BondLot.js';
 import { MICRONOTS_PER_ARGONOT } from './Currency.js';
 import type { ArgonQueryClient } from './MainchainClients.js';
 
+const U32_MAX = 4_294_967_295n;
+
 export interface IFrameBondLot {
   id: string;
   accountId: string;
@@ -137,7 +139,7 @@ export class TreasuryBonds {
     const unitsPerBond = BigInt(MICRONOTS_PER_ARGONOT);
     const configuredMinimum = (configuredMinimumMicrounits + unitsPerBond - 1n) / unitsPerBond;
     let minimumBonds = configuredMinimum > 1n ? configuredMinimum : 1n;
-    minimumBonds = minimumBonds < 0xffff_ffffn ? minimumBonds : 0xffff_ffffn;
+    minimumBonds = minimumBonds < U32_MAX ? minimumBonds : U32_MAX;
 
     if (activeLotCount >= maxActiveLots && smallestActiveLotBonds !== undefined) {
       const cutoffMinimum = BigInt(smallestActiveLotBonds) + 1n;
