@@ -376,7 +376,7 @@
           <CertificationIcon class="text-argon-600/60 pointer-events-none relative -top-2 w-10" />
         </div>
         <div class="relative mt-1 text-slate-700/60">
-          Become Treasury certified
+          Become Treasury Certified
           <br />
           to reach the next level!
         </div>

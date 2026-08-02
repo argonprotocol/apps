@@ -107,7 +107,7 @@
             </button>
             <span class="h-4 border-l border-gray-300 mx-3" />
             <span v-if="purchaseAmount === maxPurchaseAmount" class="text-sm text-gray-600/60">
-              You're At Vault Capacity
+              You're At Max Amount
             </span>
             <button
               v-else
@@ -313,9 +313,12 @@ function openWallet() {
   basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
 }
 
-const stepItems: IStepHeaderItem[] = [
+const operatorName = Vue.computed(() => (myVault.createdVault ? 'Yours' : config.upstreamOperator?.name));
+
+const stepItems = Vue.computed<IStepHeaderItem[]>(() => [
   {
     label: 'Select Vault',
+    value: operatorName.value,
     tooltip: 'Pick the vault you want to use for your bond purchase.',
     isActive: () => !vaultId.value && !txInfo.value && !isComplete.value,
   },
@@ -326,6 +329,7 @@ const stepItems: IStepHeaderItem[] = [
   },
   {
     label: 'Choose Amount',
+    value: completedPurchaseAmount.value > 0 ? numeral(completedPurchaseAmount.value).format('0,0') : undefined,
     tooltip: 'Choose how many Argon Bonds you want to purchase.',
     isActive: () => !!vaultId.value && !txInfo.value && !isComplete.value,
   },
@@ -339,7 +343,7 @@ const stepItems: IStepHeaderItem[] = [
     tooltip: 'Collect daily ARGN distributions funded by Vault revenue.',
     isActive: () => isComplete.value,
   },
-];
+]);
 
 function resetProgress() {
   unsubProgress?.();

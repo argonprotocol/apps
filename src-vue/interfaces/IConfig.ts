@@ -121,6 +121,7 @@ export const ConfigCertificationDetailsSchema = z.object({
   showRewardsCelebration: z.boolean().optional(),
   dismissedCompletionNoticeStepIds: z.array(z.string()).optional(),
   dismissedOperationsUpgradeOverlay: z.boolean().optional(),
+  dismissedWelcomeToOperationsOverlay: z.boolean().optional(),
   dismissedOperationsActivatedOverlay: z.boolean().optional(),
 });
 

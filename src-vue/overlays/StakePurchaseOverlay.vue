@@ -98,7 +98,7 @@
             </button>
             <span class="h-4 border-l border-gray-300 mx-3" />
             <span v-if="purchaseBonds === maxPurchaseBonds" class="text-sm text-gray-600/60">
-              You're At Purchase Capacity
+              You're At Max Amount
             </span>
             <button
               v-else
@@ -229,7 +229,11 @@ import { WalletType } from '../lib/Wallet.ts';
 import WalletFundingCallout from '../components/WalletFundingCallout.vue';
 import AlertIcon from '../assets/alert.svg?component';
 import BondPurchaseComplete from './BondPurchaseComplete.vue';
+import { getConfig } from '../stores/config.ts';
+import { getMyVault } from '../stores/vaults.ts';
 
+const config = getConfig();
+const myVault = getMyVault();
 const wallets = useWallets();
 const argonBonds = getArgonBonds();
 const currency = getCurrency();
@@ -246,6 +250,7 @@ const tmpVaultId = Vue.ref<number>();
 const selectedVaultId = Vue.ref<number>();
 const vault = Vue.ref<Vault>();
 const argonotBondCapacity = Vue.ref(0n);
+const argonotBondPurchaseLimit = Vue.ref(0n);
 const purchaseAmount = Vue.ref<bigint>(0n);
 const minPurchaseAllowed = Vue.ref(1);
 const isSubmitting = Vue.ref(false);
@@ -284,7 +289,11 @@ const purchaseCapacity = Vue.computed(() => {
 });
 
 const maxPurchaseBonds = Vue.computed(() => {
-  return Math.min(Number(vaultAvailableCapacity.value / unitsPerBond.value), 100_000);
+  return Number(
+    (vaultAvailableCapacity.value < argonotBondPurchaseLimit.value
+      ? vaultAvailableCapacity.value
+      : argonotBondPurchaseLimit.value) / unitsPerBond.value,
+  );
 });
 
 const neededMicronots = Vue.computed(() => {
@@ -305,9 +314,12 @@ function selectVault() {
   minerId.value = 'TODO';
 }
 
-const stepItems: IStepHeaderItem[] = [
+const operatorName = Vue.computed(() => (myVault.createdVault ? 'Yours' : config.upstreamOperator?.name));
+
+const stepItems = Vue.computed<IStepHeaderItem[]>(() => [
   {
     label: 'Select Miner',
+    value: operatorName.value,
     tooltip: 'Choose the miner you want to purchase your Argonot Stakes through.',
     isActive: () => !minerId.value && !txInfo.value && !isComplete.value,
   },
@@ -318,6 +330,7 @@ const stepItems: IStepHeaderItem[] = [
   },
   {
     label: 'Choose Amount',
+    value: completedPurchaseAmount.value > 0 ? numeral(completedPurchaseAmount.value).format('0,0') : undefined,
     tooltip: 'Choose how many Argonot Stakes you want to purchase.',
     isActive: () => !!minerId.value && !txInfo.value && !isComplete.value,
   },
@@ -331,7 +344,7 @@ const stepItems: IStepHeaderItem[] = [
     tooltip: 'Collect daily ARGN distributions funded by Mining Auction revenue.',
     isActive: () => isComplete.value,
   },
-];
+]);
 
 function resetProgress() {
   unsubProgress?.();
@@ -359,7 +372,9 @@ function cleanupPurchase() {
 function resetPurchase() {
   vault.value = undefined;
   argonotBondCapacity.value = 0n;
+  argonotBondPurchaseLimit.value = 0n;
   purchaseAmount.value = 0n;
+  minPurchaseAllowed.value = 1;
   completedPurchaseAmount.value = 0;
   isComplete.value = false;
   errorMessage.value = '';
@@ -460,16 +475,35 @@ async function initializePurchase(session = ++purchaseSession) {
   unsubVault = undefined;
 
   const client = await getMainchainClient(false);
-  const [totalIssuance, totalActiveBonds] = await Promise.all([
+  const [totalIssuance, totalActiveBonds, activeLots] = await Promise.all([
     client.query.ownership.totalIssuance(),
     client.query.treasury.totalActiveArgonotBonds(),
+    client.query.treasury.argonotBondLots(),
   ]);
   if (session !== purchaseSession) return;
+
+  const maxActiveLots = client.consts.treasury.maxActiveArgonotBondLots.toNumber();
+  const smallestActiveLotBonds = activeLots.length
+    ? activeLots.reduce((smallest, lot) => Math.min(smallest, lot.bonds.toNumber()), Number.POSITIVE_INFINITY)
+    : undefined;
+  const isReplacingActiveLot = activeLots.length >= maxActiveLots;
+
+  minPurchaseAllowed.value = TreasuryBonds.getArgonotBondMinimumPurchase({
+    configuredMinimumMicrounits: client.consts.treasury.minimumArgonsPerContributor.toBigInt(),
+    activeLotCount: activeLots.length,
+    maxActiveLots,
+    smallestActiveLotBonds,
+  });
 
   argonotBondCapacity.value = TreasuryBonds.getArgonotBondPurchaseCapacity({
     totalIssuanceMicronots: totalIssuance.toBigInt(),
     maxBondedPercent: client.consts.treasury.maxArgonotBondedPercentOfCirculation.toNumber(),
     totalActiveBonds: totalActiveBonds.toNumber(),
+    replacedBonds: isReplacingActiveLot ? smallestActiveLotBonds : undefined,
+  });
+  argonotBondPurchaseLimit.value = TreasuryBonds.getArgonotBondPurchaseLimit({
+    totalIssuanceMicronots: totalIssuance.toBigInt(),
+    maxBondedPercent: client.consts.treasury.maxArgonotBondedPercentOfCirculation.toNumber(),
   });
 
   await transactionTracker.load();
@@ -489,7 +523,8 @@ async function initializePurchase(session = ++purchaseSession) {
     trackTxInfo(pendingBuyTxInfo);
   }
 
-  purchaseAmount.value = 200n * unitsPerBond.value;
+  const initialPurchaseBonds = Math.min(maxPurchaseBonds.value, Math.max(minPurchaseAllowed.value, 200));
+  purchaseAmount.value = BigInt(initialPurchaseBonds) * unitsPerBond.value;
 }
 
 Vue.onMounted(async () => {

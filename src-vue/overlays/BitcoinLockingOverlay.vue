@@ -116,7 +116,7 @@ import LockMinting from './bitcoin-locking/LockMinting.vue';
 import { getBitcoinLocks } from '../stores/bitcoin.ts';
 import { getConfig } from '../stores/config.ts';
 import { getMyVault, getVaults } from '../stores/vaults.ts';
-import { Vault } from '@argonprotocol/mainchain';
+import { SATS_PER_BTC, Vault } from '@argonprotocol/mainchain';
 import SelectAVault from '../components/SelectAVault.vue';
 import StepsHeader, { IStepHeaderItem } from '../components/StepsHeader.vue';
 import BitcoinIcon from '../assets/wallets/bitcoin.svg?component';
@@ -124,6 +124,7 @@ import basicEmitter from '../emitters/basicEmitter.ts';
 import { getMiningFrames } from '../stores/mainchain.ts';
 import { useFinancials } from '../stores/financials.ts';
 import { useCertificationController } from '../stores/certificationController.ts';
+import numeral from '../lib/numeral.ts';
 
 const bitcoinLocks = getBitcoinLocks();
 const config = getConfig();
@@ -257,9 +258,18 @@ const lockFailedError = Vue.computed(() => {
   return bitcoinLocks.getLockProcessingError(lock);
 });
 
-const stepItems: IStepHeaderItem[] = [
+const operatorName = Vue.computed(() => (myVault.createdVault ? 'Yours' : config.upstreamOperator?.name));
+
+const btcBeingLocked = Vue.computed(() => {
+  const satoshis = personalLock.value?.satoshis;
+  if (satoshis == null) return undefined;
+  return Number(satoshis) / Number(SATS_PER_BTC);
+});
+
+const stepItems = Vue.computed<IStepHeaderItem[]>(() => [
   {
     label: 'Select Vault',
+    value: operatorName.value,
     tooltip: 'Pick the vault you want to use for your liquid locking.',
     isActive: () => lockStep.value === LockStep.SelectVault,
     click: () => (canChangeVault.value ? changeVault() : undefined),
@@ -271,6 +281,7 @@ const stepItems: IStepHeaderItem[] = [
   },
   {
     label: 'Choose Amount',
+    value: btcBeingLocked.value == null ? undefined : `${numeral(btcBeingLocked.value).format('0,0.[000000]')} BTC`,
     tooltip: "Choose how much BTC you want to lock. The more you lock, the more Argons you'll receive.",
     isActive: () => lockStep.value === LockStep.Start,
   },
@@ -281,6 +292,7 @@ const stepItems: IStepHeaderItem[] = [
   },
   {
     label: 'Lock Bitcoin',
+    value: lockStep.value === LockStep.Minting ? 'Locked' : undefined,
     tooltip: 'You must move your chosen Bitcoin amount to the multisig address provided by Argon.',
     isActive: () => isLockBitcoinStep.value,
   },
@@ -295,7 +307,7 @@ const stepItems: IStepHeaderItem[] = [
     tooltip: 'You will be awarded the full market value of your Bitcoin as unencumbered Argon stablecoins.',
     isActive: () => lockStep.value === LockStep.Minting,
   },
-];
+]);
 
 function updateLockProcessingDetails() {
   const lock = personalLock.value;

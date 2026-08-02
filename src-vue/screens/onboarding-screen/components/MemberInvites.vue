@@ -21,7 +21,7 @@
         </div>
       </div>
 
-      <div class="mt-4 min-h-0 grow overflow-auto rounded border border-slate-900/30 bg-white shadow">
+      <div class="mt-4 min-h-0 grow overflow-auto">
         <table class="w-full min-w-[760px] text-left">
           <thead
             class="sticky top-0 z-10 border-b border-slate-200 bg-white text-xs font-semibold tracking-wide text-slate-400 uppercase"

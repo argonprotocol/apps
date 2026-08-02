@@ -70,6 +70,13 @@
             </template>
             <template v-if="isEthereumWalletSelection(props.selection)">
               <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+              <DropdownMenuItem MenuItem @click="updateTokens">
+                <div ItemWrapper>
+                  <header>Update Tokens</header>
+                  <ArrowPathIcon class="h-4 w-4" />
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
               <DropdownMenuItem MenuItem @click="disconnectWallet">
                 <div ItemWrapper>
                   <header>Disconnect Wallet from App</header>
@@ -99,10 +106,18 @@ import {
 import type { PointerDownOutsideEvent } from 'reka-ui';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { WalletType } from '../../lib/Wallet.ts';
-import { KeyIcon, LinkSlashIcon, WindowIcon, QrCodeIcon, ShieldCheckIcon } from '@heroicons/vue/24/outline';
+import {
+  ArrowPathIcon,
+  KeyIcon,
+  LinkSlashIcon,
+  WindowIcon,
+  QrCodeIcon,
+  ShieldCheckIcon,
+} from '@heroicons/vue/24/outline';
 import QRCode from 'qrcode';
 import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 import { isEthereumWalletSelection, type IWalletSelection } from '../walletOverlayState.ts';
+import { useWallets } from '../../stores/wallets.ts';
 
 const props = withDefaults(
   defineProps<{
@@ -125,6 +140,7 @@ const isOpen = Vue.ref(false);
 const floatingZIndex = useFloatingZIndex();
 const showQrCode = Vue.ref(false);
 const qrCode = Vue.ref('');
+const wallets = useWallets();
 
 // Expose the root element to parent components
 defineExpose({
@@ -151,6 +167,12 @@ function disconnectWallet() {
   if (!isEthereumWalletSelection(props.selection)) return;
   isOpen.value = false;
   basicEmitter.emit('openWalletDisconnectOverlay', { walletRecordId: props.selection.walletRecord.id });
+}
+
+function updateTokens() {
+  if (!isEthereumWalletSelection(props.selection)) return;
+  isOpen.value = false;
+  void wallets.refreshEthereumWalletRecord(props.selection.walletRecord.id);
 }
 
 function openRecovery() {

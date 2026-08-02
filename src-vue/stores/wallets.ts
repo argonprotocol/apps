@@ -714,6 +714,14 @@ export const useWallets = defineStore('wallets', () => {
     return ensureEthereumWalletLoader(record).data;
   }
 
+  async function refreshEthereumWalletRecord(recordId: number): Promise<void> {
+    const record = walletRecords.value.find(wallet => wallet.id === recordId && wallet.walletType === 'ethereum');
+    if (!record) {
+      throw new Error(`Ethereum wallet record not found: ${recordId}`);
+    }
+    await ensureEthereumWalletLoader(record).load({ force: true });
+  }
+
   function ensureEthereumWalletLoader(record: IWalletRecord) {
     const existingWallet = ethereumWalletLoaders.get(record.id);
     if (existingWallet?.address.toLowerCase() === record.address.toLowerCase()) {
@@ -741,6 +749,7 @@ export const useWallets = defineStore('wallets', () => {
     refreshWalletRecords,
     selectEthereumWalletRecord,
     getEthereumWalletRecord,
+    refreshEthereumWalletRecord,
     createDefaultEthereumWallet,
     previewExternalEthereumMnemonic,
     importExternalEthereumPrivateKey,

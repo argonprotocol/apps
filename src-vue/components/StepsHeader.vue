@@ -27,6 +27,12 @@
                 {{ item.label }}
                 <RoundCap class="absolute top-0 left-0" :isSelected="isActive(item)" />
                 <RoundCap align="end" class="absolute top-0 right-[2px]" :isSelected="isActive(item)" />
+                <div
+                  v-if="item.value && !isActive(item) && !props.isLoading"
+                  class="text-argon-600/50 absolute bottom-full left-1/2 min-w-[60%] -translate-x-1/2 translate-y-2 rounded-md border border-gray-600/30 bg-white px-2 py-1 text-xs font-bold"
+                >
+                  {{ item.value }}
+                </div>
               </div>
             </TooltipTrigger>
             <TooltipContent
@@ -68,6 +74,7 @@
 <script lang="ts">
 export interface IStepHeaderItem {
   label: string;
+  value?: string;
   tooltip: string;
   isActive: () => boolean;
   click?: () => void;
