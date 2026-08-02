@@ -30,7 +30,7 @@
    ```
 9. Push the branch and version tag to the remote repository.
    ```bash
-   git push origin v<new-version> refs/tags/v<new-version>
+   git push --set-upstream origin refs/heads/v<new-version>:refs/heads/v<new-version> refs/tags/v<new-version>:refs/tags/v<new-version>
    ```
 10. The branch push will trigger the CI/CD pipeline to create a draft release associated with the version tag.
 11. Once you are happy with the release, publish it via GitHub. This will update it as the latest stable or experimental release.
