@@ -3,6 +3,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.1] - 2026-08-01
+- Improved overlays related to Operations upgrading
+- Fixed bugs to stop bidding bot from stalling
+- Revamped onboarding UI for Operations
+- Operators can now setup flexible bitcoin locks and bonds
+- Alert Mac users when they open the app from a DMG or external volume
+- Fixed the min Argonot Stake bug when purchasing
+- Flow headers for bitcoin/bond/stake overlays now show selected values
+
 ## [2.3.0] - 2026-07-30
 - Revamped Bitcoin Locking overlay
 - Revamped Argon Bonds purchasing overlay
