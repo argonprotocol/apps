@@ -184,7 +184,9 @@ export class GlobalCouncil {
     return txs;
   }
 
-  public async relayApprovedGatewayUpdates(options: { allowUncompensatedRelay?: boolean } = {}) {
+  public async relayApprovedGatewayUpdates(
+    options: { allowUncompensatedRelay?: boolean; onlyThroughOwnedUpdate?: boolean } = {},
+  ) {
     const finalizedClient = await getFinalizedClient();
 
     const executionRpcUrl = getEthereumExecutionRpcUrl(this.getConfiguredExecutionRpcUrl?.());
@@ -221,6 +223,7 @@ export class GlobalCouncil {
         address: this.walletKeys.ethereumAddress,
         hdPath: this.walletKeys.ethereumHdPath,
       },
+      { allowUncompensatedRelay: true },
     );
   }
 
@@ -248,7 +251,10 @@ export class GlobalCouncil {
 
     const relayPromise = (async () => {
       if (hasSignedApprovalsAwaitingRelay) {
-        const receipt = await this.relayApprovedGatewayUpdates({ allowUncompensatedRelay: true });
+        const receipt = await this.relayApprovedGatewayUpdates({
+          allowUncompensatedRelay: true,
+          onlyThroughOwnedUpdate: true,
+        });
         if (receipt) {
           this.#lastSharedRelayQueueKey = undefined;
           this.#lastSharedRelayQueueSeenAt = 0;

@@ -160,6 +160,12 @@ export type IEthereumGatewayRelayPreview = {
   canRelay: boolean;
   reason?: 'paused' | 'noReadyUpdates' | 'uncompensatedSharedBatch' | 'insufficientBalance' | 'repaymentTooLow';
 };
+
+type GatewayRelayOptions = {
+  allowUncompensatedRelay?: boolean;
+  onlyThroughOwnedUpdate?: boolean;
+};
+
 type IPreparedGatewayRelay = IEthereumGatewayRelayPreview & {
   publicClient: PublicClient;
   transaction?: TransactionSerializableEIP1559;
@@ -490,13 +496,14 @@ export class EthereumClient {
     finalizedClient: IArgonQueryable,
     relayerArgonAddress: string,
     signer: { address: string; hdPath: `m/44'/60'/${string}` },
+    options: GatewayRelayOptions = {},
   ): Promise<IEthereumGatewayRelayPreview> {
     const {
       publicClient: _publicClient,
       transaction: _transaction,
       unsignedTransaction: _unsignedTransaction,
       ...preview
-    } = await this.prepareReadyGatewayRelay(finalizedClient, relayerArgonAddress, signer);
+    } = await this.prepareReadyGatewayRelay(finalizedClient, relayerArgonAddress, signer, options);
     return preview;
   }
 
@@ -504,7 +511,7 @@ export class EthereumClient {
     finalizedClient: IArgonQueryable,
     relayerArgonAddress: string,
     signer: { address: string; hdPath: `m/44'/60'/${string}` },
-    options: { allowUncompensatedRelay?: boolean } = {},
+    options: GatewayRelayOptions = {},
   ): Promise<EthereumExecutionReceipt | undefined> {
     const prepared = await this.prepareReadyGatewayRelay(finalizedClient, relayerArgonAddress, signer, options);
     if (!prepared.canRelay || !prepared.transaction || !prepared.unsignedTransaction) {
@@ -525,10 +532,10 @@ export class EthereumClient {
     finalizedClient: IArgonQueryable,
     relayerArgonAddress: string,
     signer: { address: string; hdPath: `m/44'/60'/${string}` },
-    options: { allowUncompensatedRelay?: boolean } = {},
+    options: GatewayRelayOptions = {},
   ): Promise<IPreparedGatewayRelay> {
     const relayerArgonAccountId = toArgonAccountIdHex(relayerArgonAddress);
-    const throughOwnerArgonAccountId = options.allowUncompensatedRelay
+    const throughOwnerArgonAccountId = options.onlyThroughOwnedUpdate
       ? toArgonAccountIdHex(this.walletKeys.vaultingAddress)
       : undefined;
     const chainConfig = await this.loadChainConfig();
