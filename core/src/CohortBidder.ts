@@ -331,6 +331,17 @@ export class CohortBidder {
         }
         throw error;
       }
+    } else {
+      const events = await this.blockWatch.getEvents(header);
+      const fundingBalanceChanged = events.some(({ event }) => {
+        if (event.section !== 'balances' && event.section !== 'ownership') return false;
+
+        return [...event.data].some(value => value.toString() === this.accountset.fundingAccountId);
+      });
+
+      if (fundingBalanceChanged) {
+        await this.planNextBid(header.frameRewardTicksRemaining!);
+      }
     }
 
     if (this.nextBid && this.nextBid.bidAtTick <= header.tick) {

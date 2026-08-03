@@ -601,6 +601,71 @@ describe('CohortBidder unit tests', () => {
     expect(cohortBidder.nextBid?.microgonsPerSeat).toBe(610_000n);
   });
 
+  it.each([
+    {
+      currency: 'ARGON',
+      eventSection: 'balances',
+      initialMicrogons: 500_000n,
+      initialMicronots: 100_000n,
+    },
+    {
+      currency: 'ARGNOT',
+      eventSection: 'ownership',
+      initialMicrogons: 1_000_000n,
+      initialMicronots: 0n,
+    },
+  ])('replans when the funding account receives $currency without new cohort bids', async options => {
+    let accountBalance = options.initialMicrogons;
+    let accountMicronots = options.initialMicronots;
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 0], {
+      minBid: 500_000n,
+      maxBid: 1_000_000n,
+      accountBalance,
+      accountMicronots,
+    });
+    vi.spyOn(accountset, 'submitterBalance').mockImplementation(() => Promise.resolve(accountBalance));
+    vi.spyOn(accountset, 'accountMicronots').mockImplementation(() => Promise.resolve(accountMicronots));
+    vi.spyOn(cohortBidder, 'submitNextBid' as any).mockResolvedValue(undefined);
+    cohortBidder.currentBids.atBlockNumber = 100;
+    cohortBidder.currentBids.atTick = 100;
+
+    // @ts-expect-error exercising the private planning flow
+    await cohortBidder.planNextBid(20);
+    expect(cohortBidder.nextBid).toBeUndefined();
+
+    accountBalance = 1_000_000n;
+    accountMicronots = 100_000n;
+    const bidsHash = `0x${'01'.repeat(32)}`;
+    const blockWatch = {
+      subscriptionClient: {
+        rpc: {
+          state: {
+            getStorageHash: vi.fn().mockResolvedValue({ toHex: () => bidsHash }),
+          },
+        },
+      },
+      getEvents: vi.fn().mockResolvedValue([
+        {
+          event: {
+            section: options.eventSection,
+            data: [{ toString: () => accountset.fundingAccountId }],
+          },
+        },
+      ]),
+    };
+    cohortBidder.miningFrames = { blockWatch } as unknown as MiningFrames;
+    // @ts-expect-error setting the current private bid hash for an unchanged auction
+    cohortBidder.lastBidsHash = bidsHash;
+    // @ts-expect-error setting the private storage key used by the header flow
+    cohortBidder.bidsForNextSlotCohortKey = 'bids-key';
+
+    // @ts-expect-error exercising the private best-block flow
+    await cohortBidder.onHeader(createBlockHeader(101, `0x${'02'.repeat(32)}`), false);
+
+    expect(cohortBidder.nextBid?.microgonsPerSeat).toBe(500_000n);
+    expect(cohortBidder.nextBid?.subaccounts).toHaveLength(1);
+  });
+
   it('claims a planned bid before asynchronous transaction creation begins', async () => {
     const header = createBlockHeader(100, `0x${'01'.repeat(32)}`);
     const blockWatch = {

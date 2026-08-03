@@ -4,7 +4,6 @@ import {
   type GenericEvent,
   type Header,
   type SpRuntimeDispatchError,
-  type Vec,
 } from '@argonprotocol/mainchain';
 import {
   AccountMiners,
@@ -341,8 +340,10 @@ export class BlockSync {
     console.log(`[BlockSync] Processing block ${blockNumber}`, blockMeta);
 
     const client = this.getRpcClient(blockNumber);
-    const api = await client.at(blockMeta.hash);
-    const events = await api.query.system.events();
+    const { api, events } = await this.blockWatch.getEventsWithSpec({
+      blockNumber,
+      blockHash: blockMeta.hash,
+    });
     const cohortEarningsAtFrameId = await this.accountMiners.onBlock(
       blockMeta,
       events.map(x => x.event),
@@ -480,7 +481,7 @@ export class BlockSync {
     currentFrameId: number,
     biddingFrameId: number,
     block: IBlock,
-    events: Vec<FrameSystemEventRecord>,
+    events: readonly FrameSystemEventRecord[],
     argonotPriceAtBid?: bigint,
   ): Promise<{ hasMiningBids: boolean; hasMiningSeats: boolean; transactionFeesTotal: bigint }> {
     const client = this.getRpcClient(block.number);
