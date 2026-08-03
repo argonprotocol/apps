@@ -26,6 +26,7 @@ fi
 if [ -f "$SERVER_DIR/.env" ]; then
   . "$SERVER_DIR/.env"
 fi
+
 MIN_FREE_DISK_GB=10
 
 # Debug logging
@@ -117,6 +118,13 @@ read_router_syncstatus() {
 reset "FileUpload"
 start "FileUpload"
 
+if [ "$NEEDS_FULL_SETUP" = true ]; then
+    if grep -q '^DOCKER_LOG_DRIVER=' "$SERVER_DIR/.env" 2>/dev/null; then
+        run_command "sed -i 's/^DOCKER_LOG_DRIVER=.*/DOCKER_LOG_DRIVER=journald/' $SERVER_DIR/.env"
+    else
+        run_command "echo 'DOCKER_LOG_DRIVER=journald' >> $SERVER_DIR/.env"
+    fi
+fi
 
 finish "FileUpload"
 
@@ -223,6 +231,13 @@ if ! (already_ran "UbuntuCheck"); then
         run_command "sudo cp $SCRIPTS_DIR/conf/fail2ban_recidive.local /etc/fail2ban/jail.d/recidive.local"
         run_command "sudo systemctl enable fail2ban --now"
         run_command "sudo systemctl restart fail2ban"
+
+        echo "-----------------------------------------------------------------"
+        echo "CONFIGURING PERSISTENT SYSTEM LOGGING"
+        run_command "sudo install -D -m 0644 $SCRIPTS_DIR/conf/argon-journald.conf /etc/systemd/journald.conf.d/argon.conf"
+        run_command "sudo systemctl restart systemd-journald"
+        run_command "sudo journalctl --flush"
+        run_command "sudo journalctl --rotate --vacuum-size=1G --vacuum-time=14days"
     fi
 
     finish "UbuntuCheck"

@@ -105,6 +105,28 @@ docker ps -a --format '{{.ID}} {{.Names}}' | while read -r id name; do
   docker inspect "$id" > "${OUT}/docker/${safe}.inspect.json" 2>&1 || true
 done
 
+if command -v journalctl >/dev/null 2>&1; then
+  echo "[*] Capturing retained logs across container upgrades"
+  if ! journalctl --disk-usage > "${OUT}/docker/journal-disk-usage.txt" 2>&1; then
+    record_collection_error "Could not read journal disk usage."
+  fi
+
+  JOURNAL_CONTAINER_NAMES="${OUT}/docker/journal-container-names.txt"
+  JOURNAL_CONTAINER_NAMES_ERROR="${OUT}/docker/journal-container-names.error.txt"
+  if journalctl --no-pager -F CONTAINER_NAME > "$JOURNAL_CONTAINER_NAMES" 2> "$JOURNAL_CONTAINER_NAMES_ERROR"; then
+    while read -r name; do
+      [[ -z "$name" ]] && continue
+      safe="${name//[^[:alnum:]_.-]/_}"
+      if ! journalctl --no-pager -o short-iso-precise CONTAINER_NAME="$name" \
+        > "${OUT}/logs/${safe}.journal.log" 2>&1; then
+        record_collection_error "Could not collect retained journal logs for container '$name'."
+      fi
+    done < "$JOURNAL_CONTAINER_NAMES"
+  else
+    record_collection_error "Could not enumerate retained container journals."
+  fi
+fi
+
 echo "[*] Copying install logs"
 if [[ -d "$INSTALL_LOG_DIR" ]]; then
   rsync -a --delete "$INSTALL_LOG_DIR"/ "${OUT}/install/" || true
