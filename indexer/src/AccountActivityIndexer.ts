@@ -65,11 +65,9 @@ export class AccountActivityIndexer {
       if (firstBlock > latestBlock) return;
 
       let nextBlock = firstBlock;
-      // Events in a runtime-upgrade block were encoded before that block installed
-      // the new runtime. Start from the preceding state so a resumed indexer uses
-      // the same registry as a replay that crossed the upgrade without stopping.
-      const precedingBlock = Math.max(0, firstBlock - 1);
-      let api = await client.at(await client.rpc.chain.getBlockHash(precedingBlock));
+      // ApiPromise.at decorates an upgrade block with the runtime that emitted
+      // that block's events, even though its resulting state has the new spec.
+      let api = await client.at(await client.rpc.chain.getBlockHash(firstBlock));
 
       while (!this.isClosed && nextBlock <= latestBlock) {
         const chunkSize = this.batchRpcUrl ? 5_000 : 100;

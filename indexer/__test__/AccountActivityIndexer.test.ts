@@ -17,7 +17,7 @@ import { IndexerDb } from '../src/IndexerDb.ts';
 import { numberCodec } from './helpers/codecs.ts';
 import { createHistoricalEventData } from './helpers/historicalEvents.ts';
 
-it('resumes on an upgrade block with the preceding runtime registry', async () => {
+it('resumes on an upgrade block with that block runtime registry', async () => {
   const directory = fs.mkdtempSync(Path.join(os.tmpdir(), 'activity-upgrade-resume-'));
   const db = new IndexerDb(Path.join(directory, 'test.db'));
   const alice = encodeAddress(new Uint8Array(32).fill(1));
@@ -35,7 +35,7 @@ it('resumes on an upgrade block with the preceding runtime registry', async () =
       ['0x03', 157],
     ]),
     apis: new Map([
-      ['0x01', oldRuntime.api],
+      ['0x02', oldRuntime.api],
       ['0x03', newRuntime.api],
     ]),
   });
