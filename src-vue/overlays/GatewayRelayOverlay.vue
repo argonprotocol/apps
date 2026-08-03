@@ -224,7 +224,7 @@ async function loadPreview() {
   submitError.value = '';
 
   try {
-    preview.value = await myVault.globalCouncil.getReadyGatewayRelayPreview();
+    preview.value = await myVault.globalCouncil.getReadyGatewayRelayPreview({ allowUncompensatedRelay: true });
   } catch (error) {
     preview.value = undefined;
     loadError.value = error instanceof Error ? error.message : 'Unable to load pending gateway activities.';

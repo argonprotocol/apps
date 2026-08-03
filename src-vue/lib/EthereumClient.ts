@@ -161,7 +161,7 @@ export type IEthereumGatewayRelayPreview = {
   reason?: 'paused' | 'noReadyUpdates' | 'uncompensatedSharedBatch' | 'insufficientBalance' | 'repaymentTooLow';
 };
 
-type GatewayRelayOptions = {
+export type GatewayRelayOptions = {
   allowUncompensatedRelay?: boolean;
   onlyThroughOwnedUpdate?: boolean;
 };

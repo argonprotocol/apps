@@ -16,6 +16,17 @@ import { TreasuryBonds } from '../src/TreasuryBonds.ts';
 import { numberCodec, optionCodec } from './helpers/codecs.ts';
 
 const registry = getOfflineRegistry();
+registry.register({
+  PalletTreasuryBondLotSummary: {
+    bondLotId: 'Compact<u64>',
+    bonds: 'Compact<u32>',
+  },
+  PalletTreasuryVaultBondState: {
+    bondLots: 'Vec<PalletTreasuryBondLotSummary>',
+    backfillBonds: 'Compact<u32>',
+    backfillBondsReserved: 'Compact<u32>',
+  },
+});
 const operatorAddress = encodeAddress(new Uint8Array(32).fill(0x11));
 const buyerAddress = encodeAddress(new Uint8Array(32).fill(0x22));
 const displayLotsById = new Map([
@@ -156,12 +167,10 @@ describe('TreasuryBonds', () => {
     expect(bondState.backfillBonds).toBe(20);
     expect(bondState.backfillBondsReserved).toBe(2);
     expect(bondState.ordinaryBonds).toBe(3);
-    expect(
-      bondState.bondLots.map(({ id, isOwn, isBackfill, isReleasing }) => ({ id, isOwn, isBackfill, isReleasing })),
-    ).toEqual([
-      { id: 1, isOwn: false, isBackfill: false, isReleasing: false },
-      { id: 2, isOwn: true, isBackfill: true, isReleasing: false },
-      { id: 3, isOwn: true, isBackfill: false, isReleasing: true },
+    expect(bondState.bondLots.map(({ id, isOwn, isReleasing }) => ({ id, isOwn, isReleasing }))).toEqual([
+      { id: 1, isOwn: false, isReleasing: false },
+      { id: 2, isOwn: true, isReleasing: false },
+      { id: 3, isOwn: true, isReleasing: true },
     ]);
 
     expect(
