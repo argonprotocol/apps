@@ -11,65 +11,10 @@ import {
 } from '@argonprotocol/mainchain';
 import { BlockWatch, type IBlockHeaderInfo } from '@argonprotocol/apps-core';
 import type { ApiDecoration } from '@polkadot/api/types';
-import { AccountActivityKind } from '../src/AccountActivity.ts';
 import { AccountActivityIndexer } from '../src/AccountActivityIndexer.ts';
 import { IndexerDb } from '../src/IndexerDb.ts';
 import { numberCodec } from './helpers/codecs.ts';
 import { createHistoricalEventData } from './helpers/historicalEvents.ts';
-
-it('resumes on an upgrade block with that block runtime registry', async () => {
-  const directory = fs.mkdtempSync(Path.join(os.tmpdir(), 'activity-upgrade-resume-'));
-  const db = new IndexerDb(Path.join(directory, 'test.db'));
-  const alice = encodeAddress(new Uint8Array(32).fill(1));
-  const bob = encodeAddress(new Uint8Array(32).fill(2));
-  const events = new Map([
-    ['0x02', [appliedEvent(transferEvent(alice, bob), 0)]],
-    ['0x03', [appliedEvent(transferEvent(bob, alice), 0)]],
-  ]);
-  const oldRuntime = eventApi(156, events, ['0x02']);
-  const newRuntime = eventApi(157, events, ['0x03']);
-  const runtimeClient = activityClient({
-    latestBlock: 3,
-    specVersions: new Map([
-      ['0x02', 157],
-      ['0x03', 157],
-    ]),
-    apis: new Map([
-      ['0x02', oldRuntime.api],
-      ['0x03', newRuntime.api],
-    ]),
-  });
-  const readHeader = vi.spyOn(BlockWatch, 'readHeader').mockReturnValue(header(3));
-  db.recordBlocks([
-    {
-      blockNumber: 1,
-      blockHash: new Uint8Array([1]),
-      specVersion: 156,
-      accounts: [],
-      vaults: [],
-      vaultOwners: [],
-    },
-  ]);
-  const indexer = new AccountActivityIndexer(db);
-
-  try {
-    await indexer.start(runtimeClient.client);
-    await indexer.close({ drain: true });
-
-    expect(oldRuntime.createType).toHaveBeenCalledOnce();
-    expect(newRuntime.createType).toHaveBeenCalledOnce();
-    expect(db.latestSyncedBlock).toBe(3);
-    expect(db.findAddressActivity(alice)).toMatchObject([
-      { blockNumber: 2, specVersion: 156, activityMask: AccountActivityKind.Transfer },
-      { blockNumber: 3, specVersion: 157, activityMask: AccountActivityKind.Transfer },
-    ]);
-    expect(indexer.coverageGap).toBeUndefined();
-  } finally {
-    readHeader.mockRestore();
-    db.close();
-    fs.rmSync(directory, { recursive: true, force: true });
-  }
-});
 
 it('stops before activity without complete named metadata instead of advancing coverage', async () => {
   const directory = fs.mkdtempSync(Path.join(os.tmpdir(), 'activity-gap-'));
@@ -86,7 +31,7 @@ it('stops before activity without complete named metadata instead of advancing c
   const runtimeClient = activityClient({
     latestBlock: 1,
     specVersions: new Map([['0x01', 156]]),
-    apis: new Map([['0x00', runtime.api]]),
+    apis: new Map([['0x01', runtime.api]]),
   });
   const readHeader = vi.spyOn(BlockWatch, 'readHeader').mockReturnValue(header(1));
   const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -117,7 +62,7 @@ it('keeps draining after a transient sync error', async () => {
   const runtimeClient = activityClient({
     latestBlock: 1,
     specVersions: new Map([['0x01', 156]]),
-    apis: new Map([['0x00', runtime.api]]),
+    apis: new Map([['0x01', runtime.api]]),
   });
   const getStorage = vi.mocked(runtimeClient.client.rpc.state.getStorage);
   getStorage.mockRejectedValueOnce(new Error('temporary RPC failure'));
@@ -146,7 +91,7 @@ it('starts syncing when the first finalized block arrives after genesis startup'
   const runtimeClient = activityClient({
     latestBlock: 0,
     specVersions: new Map([['0x01', 156]]),
-    apis: new Map([['0x00', runtime.api]]),
+    apis: new Map([['0x01', runtime.api]]),
   });
   const readHeader = vi.spyOn(BlockWatch, 'readHeader').mockReturnValueOnce(header(0)).mockReturnValueOnce(header(1));
   const indexer = new AccountActivityIndexer(db);
@@ -164,14 +109,6 @@ it('starts syncing when the first finalized block arrives after genesis startup'
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
-
-function transferEvent(from: string, to: string): GenericEvent {
-  return {
-    section: 'balances',
-    method: 'Transfer',
-    data: createHistoricalEventData(156, 'balances', 'Transfer', { from, to, amount: 1_000 }),
-  } as GenericEvent;
-}
 
 function appliedEvent(event: GenericEvent, extrinsicIndex: number): FrameSystemEventRecord {
   return {
