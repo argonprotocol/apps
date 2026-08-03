@@ -11,6 +11,7 @@ import {
   EthereumClient,
   getEthereumExecutionRpcUrl,
   getEthereumFinalityMillis,
+  type GatewayRelayOptions,
   type IEthereumGatewayRelayPreview,
 } from './EthereumClient.ts';
 const COUNCIL_SIGNER_REGISTRATION_MESSAGE_KEY = 'argon/council-signer/v2';
@@ -184,7 +185,7 @@ export class GlobalCouncil {
     return txs;
   }
 
-  public async relayApprovedGatewayUpdates(options: { allowUncompensatedRelay?: boolean } = {}) {
+  public async relayApprovedGatewayUpdates(options: GatewayRelayOptions = {}) {
     const finalizedClient = await getFinalizedClient();
 
     const executionRpcUrl = getEthereumExecutionRpcUrl(this.getConfiguredExecutionRpcUrl?.());
@@ -204,7 +205,7 @@ export class GlobalCouncil {
     );
   }
 
-  public async getReadyGatewayRelayPreview(): Promise<IEthereumGatewayRelayPreview> {
+  public async getReadyGatewayRelayPreview(options: GatewayRelayOptions = {}): Promise<IEthereumGatewayRelayPreview> {
     const finalizedClient = await getFinalizedClient();
     await this.refresh(finalizedClient, ++this.#updateSeq);
 
@@ -221,6 +222,7 @@ export class GlobalCouncil {
         address: this.walletKeys.ethereumAddress,
         hdPath: this.walletKeys.ethereumHdPath,
       },
+      options,
     );
   }
 
@@ -248,7 +250,10 @@ export class GlobalCouncil {
 
     const relayPromise = (async () => {
       if (hasSignedApprovalsAwaitingRelay) {
-        const receipt = await this.relayApprovedGatewayUpdates({ allowUncompensatedRelay: true });
+        const receipt = await this.relayApprovedGatewayUpdates({
+          allowUncompensatedRelay: true,
+          onlyThroughOwnedUpdate: true,
+        });
         if (receipt) {
           this.#lastSharedRelayQueueKey = undefined;
           this.#lastSharedRelayQueueSeenAt = 0;

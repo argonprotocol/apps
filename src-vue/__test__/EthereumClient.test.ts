@@ -221,6 +221,38 @@ describe('EthereumClient', () => {
     ]);
   });
 
+  it('relays a standalone council rotation when an unreimbursed relay is explicitly allowed', async () => {
+    const fixture = createCouncilRotationRelayFixture();
+    fixture.entries.delete(2n);
+
+    const receipt = await fixture.ethereumClient.applyReadyGatewayUpdates(
+      fixture.finalizedClient as any,
+      fixture.walletKeys.vaultingAddress,
+      {
+        address: fixture.walletKeys.ethereumAddress,
+        hdPath: `m/44'/60'/0'/0'`,
+      },
+      { allowUncompensatedRelay: true },
+    );
+
+    expect(receipt?.transactionHash).toBe(fixture.transactionHash);
+
+    const decoded = decodeFunctionData({
+      abi: EvmContracts.mintingGatewayAbi,
+      data: fixture.submittedTransaction.data!,
+    });
+
+    expect(decoded.functionName).toBe('applyGatewayUpdates');
+    expect(decoded.args?.[1]).toEqual([
+      {
+        queueNonce: 1n,
+        kind: EvmContracts.MINTING_GATEWAY_UPDATE_KINDS.globalIssuanceCouncilRotate,
+        payload: EvmContracts.encodeMintingGatewayGlobalIssuanceCouncilRotateTarget(fixture.rotationTarget),
+        signatures: fixture.currentCouncilSignatures,
+      },
+    ]);
+  });
+
   it.each([
     ['target council hash', 'council', 'target council hash does not match council'],
     ['target payload hash', 'payload', 'target payload hash does not match council'],
@@ -460,6 +492,7 @@ function createCouncilRotationRelayFixture(corruption?: 'council' | 'payload' | 
     activationTarget,
     currentCouncil,
     currentCouncilSignatures,
+    entries,
     ethereumClient,
     finalizedClient,
     rotatedCouncilSignatures,

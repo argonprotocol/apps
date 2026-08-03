@@ -187,6 +187,10 @@ const previewMessage = Vue.computed(() => {
   }
 
   if (preview.value.canRelay) {
+    if (preview.value.expectedRepaymentMicrogons <= 0n) {
+      return 'This relay is ready. Your Ethereum wallet will pay the network fee and no Argon reimbursement is expected.';
+    }
+
     return 'These minting-authority updates are ready to relay to Ethereum from the wallet shown above.';
   }
 
@@ -220,7 +224,7 @@ async function loadPreview() {
   submitError.value = '';
 
   try {
-    preview.value = await myVault.globalCouncil.getReadyGatewayRelayPreview();
+    preview.value = await myVault.globalCouncil.getReadyGatewayRelayPreview({ allowUncompensatedRelay: true });
   } catch (error) {
     preview.value = undefined;
     loadError.value = error instanceof Error ? error.message : 'Unable to load pending gateway activities.';
@@ -239,7 +243,7 @@ async function submitRelay() {
   isSubmitting.value = true;
 
   try {
-    const receipt = await myVault.globalCouncil.relayApprovedGatewayUpdates();
+    const receipt = await myVault.globalCouncil.relayApprovedGatewayUpdates({ allowUncompensatedRelay: true });
     if (!receipt) {
       await loadPreview();
       submitError.value = 'No relayable gateway updates were available by the time this submission was sent.';

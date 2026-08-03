@@ -29,7 +29,10 @@ describe('GlobalCouncil', () => {
 
     expect(getReadyGatewayRelayPreview).not.toHaveBeenCalled();
     expect(relayApprovedGatewayUpdates).toHaveBeenCalledTimes(1);
-    expect(relayApprovedGatewayUpdates).toHaveBeenCalledWith({ allowUncompensatedRelay: true });
+    expect(relayApprovedGatewayUpdates).toHaveBeenCalledWith({
+      allowUncompensatedRelay: true,
+      onlyThroughOwnedUpdate: true,
+    });
   });
 
   it('waits before relaying a shared ready batch that is not ours', async () => {
@@ -116,8 +119,14 @@ describe('GlobalCouncil', () => {
       });
 
       expect(getReadyGatewayRelayPreview).toHaveBeenCalledTimes(1);
-      expect(relayApprovedGatewayUpdates).toHaveBeenNthCalledWith(1, { allowUncompensatedRelay: true });
-      expect(relayApprovedGatewayUpdates).toHaveBeenNthCalledWith(2, { allowUncompensatedRelay: true });
+      expect(relayApprovedGatewayUpdates).toHaveBeenNthCalledWith(1, {
+        allowUncompensatedRelay: true,
+        onlyThroughOwnedUpdate: true,
+      });
+      expect(relayApprovedGatewayUpdates).toHaveBeenNthCalledWith(2, {
+        allowUncompensatedRelay: true,
+        onlyThroughOwnedUpdate: true,
+      });
       expect(relayApprovedGatewayUpdates).toHaveBeenNthCalledWith(3);
       expect(relayApprovedGatewayUpdates).toHaveBeenCalledTimes(3);
     } finally {
