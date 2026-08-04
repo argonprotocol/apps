@@ -328,12 +328,13 @@ function formatFrontendError(payload: UnknownRecord): string {
 function isFatalFrontendError(payload: UnknownRecord): boolean {
   const label = typeof payload.label === 'string' ? payload.label : '';
   const message = typeof payload.message === 'string' ? payload.message : '';
+  const normalizedMessage = message.toLowerCase();
   const isBenignResizeObserverNotification =
     label === 'window.error' && message === 'ResizeObserver loop completed with undelivered notifications.';
   const isExpectedReloadDisconnect =
     label === 'unhandledrejection' &&
-    (message.includes('disconnected from ws://') || message.includes('disconnected from wss://')) &&
-    message.includes(': 1000:: Normal Closure');
+    (normalizedMessage.includes('disconnected from ws://') || normalizedMessage.includes('disconnected from wss://')) &&
+    normalizedMessage.includes(': 1000:: normal closure');
 
   return label !== 'console.error' && !isBenignResizeObserverNotification && !isExpectedReloadDisconnect;
 }
