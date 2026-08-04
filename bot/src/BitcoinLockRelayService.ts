@@ -82,7 +82,10 @@ export class BitcoinLockRelayService {
   ) {}
 
   public async start(): Promise<void> {
-    this.startedPromise ??= this.startInternal();
+    this.startedPromise ??= this.startInternal().catch(error => {
+      this.startedPromise = undefined;
+      throw error;
+    });
     return this.startedPromise;
   }
 
