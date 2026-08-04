@@ -6,7 +6,6 @@ import {
   type PalletTreasuryFrameVaultCapital,
   type PalletTreasuryVaultBondState,
   type PalletTreasuryVaultCapital,
-  type PriceIndex,
   type SubmittableExtrinsic,
   type Vec,
   type Vault,
@@ -253,33 +252,16 @@ export class TreasuryBonds {
 
   public static availableBondSpace({
     vault,
-    priceIndex,
     bondState,
   }: {
-    vault: Pick<Vault, 'effectiveSecuritizedSatoshis' | 'securitization'>;
-    priceIndex: PriceIndex;
+    vault: Pick<Vault, 'activatedSecuritization'>;
     bondState?: VaultBondCapacityState;
   }): bigint {
-    const capacityMicrogons = TreasuryBonds.getVaultBondCapacityMicrogons({
-      vault,
-      priceIndex,
-    });
-    const bondCapacity = TreasuryBonds.getBondPurchaseCapacity(capacityMicrogons);
+    const bondCapacity = TreasuryBonds.getBondPurchaseCapacity(vault.activatedSecuritization());
     const unavailableBonds = [...(bondState ?? [])].reduce((total, state) => total + state.activeBonds, 0);
     const availableBonds = bondCapacity > unavailableBonds ? bondCapacity - unavailableBonds : 0;
 
     return BondLot.bondsToMicrogons(availableBonds);
-  }
-
-  public static getVaultBondCapacityMicrogons({
-    vault,
-    priceIndex,
-  }: {
-    vault: Pick<Vault, 'effectiveSecuritizedSatoshis' | 'securitization'>;
-    priceIndex: PriceIndex;
-  }): bigint {
-    const bitcoinCapacityMicrogons = priceIndex.getSatoshiPriceInTargetMicrogons(vault.effectiveSecuritizedSatoshis());
-    return vault.securitization > bitcoinCapacityMicrogons ? vault.securitization : bitcoinCapacityMicrogons;
   }
 
   public static async getBondLotsByAccount(client: ArgonQueryClient, accountId: string): Promise<BondLot[]> {

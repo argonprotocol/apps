@@ -53,8 +53,6 @@ type IVaultBondSubscription = {
   frameId?: number;
 };
 
-const VAULT_SECURITIZATION_BOND_CAPACITY_SPEC_VERSION = 157;
-
 export class ArgonBonds {
   public data = {
     bondLots: [] as BondLot[],
@@ -101,28 +99,14 @@ export class ArgonBonds {
   }
 
   public getVaultBondCapacityMicrogons(vault: Vault): bigint {
-    const bitcoinCapacityMicrogons = this.currency.priceIndex.getSatoshiPriceInTargetMicrogons(
-      vault.effectiveSecuritizedSatoshis(),
-    );
-    if (this.runtimeSpecVersion < VAULT_SECURITIZATION_BOND_CAPACITY_SPEC_VERSION) {
-      return bitcoinCapacityMicrogons;
-    }
-
-    return TreasuryBonds.getVaultBondCapacityMicrogons({
-      vault,
-      priceIndex: this.currency.priceIndex,
-    });
+    return vault.activatedSecuritization();
   }
 
   public availableBondSpace(vault: Vault): bigint {
     const bondState = this.data.capacityStatesByVault[vault.vaultId];
-    if (this.runtimeSpecVersion < VAULT_SECURITIZATION_BOND_CAPACITY_SPEC_VERSION) {
-      return vault.availableBondSpace(this.currency.priceIndex, bondState, true);
-    }
 
     return TreasuryBonds.availableBondSpace({
       vault,
-      priceIndex: this.currency.priceIndex,
       bondState,
     });
   }
