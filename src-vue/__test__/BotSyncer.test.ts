@@ -36,6 +36,29 @@ describe('BotSyncer', () => {
     expect(installer.refreshLocalGatewayPort).toHaveBeenCalledTimes(1);
   });
 
+  it('disposes a websocket client that connects after the syncer is disposed', async () => {
+    const { syncer } = createSyncer();
+    let resolveClient!: (client: BotWsClient) => void;
+    const connection = new Promise<BotWsClient>(resolve => {
+      resolveClient = resolve;
+    });
+    const connect = vi.spyOn(BotWsClient, 'connectToServerGateway').mockReturnValue(connection);
+    const dispose = vi.fn();
+    const client = {
+      dispose,
+      events: { on: vi.fn() },
+    } as unknown as BotWsClient;
+
+    const pendingClient = syncer.getClient();
+    await vi.waitFor(() => expect(connect).toHaveBeenCalledTimes(1));
+
+    syncer.dispose();
+    resolveClient(client);
+
+    await expect(pendingClient).rejects.toThrow('BotSyncer disposed');
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
   it('does not mark the bot broken for transient rpc errors', async () => {
     const { syncer, botFns } = createSyncer();
     const testSyncer = syncer as unknown as IBotSyncerTestTarget;
