@@ -95,6 +95,10 @@ export class Bot {
     await this.botSyncer.refresh();
   }
 
+  public dispose(): void {
+    this.botSyncer?.dispose();
+  }
+
   public async restart(): Promise<void> {
     const server = new ServerAdmin(await SSH.getOrCreateConnection(), this.config.serverDetails);
     this.botSyncer.isPaused = true;

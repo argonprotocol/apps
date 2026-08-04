@@ -131,6 +131,12 @@ export class BotSyncer {
     await this.runSync(state);
   }
 
+  public dispose(): void {
+    this.isPaused = true;
+    this.botWsClient?.dispose();
+    this.botWsClient = undefined;
+  }
+
   private async loopToStayConnected(): Promise<void> {
     try {
       if (this.isRunnable) {

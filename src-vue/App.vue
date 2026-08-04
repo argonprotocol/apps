@@ -159,6 +159,7 @@ import BitcoinLockingOverlay from './overlays/BitcoinLockingOverlay.vue';
 import BondPurchaseOverlay from './overlays/BondPurchaseOverlay.vue';
 import StakePurchaseOverlay from './overlays/StakePurchaseOverlay.vue';
 import SponsorOverlay from './overlays/SponsorOverlay.vue';
+import { getMainchainClients } from './stores/mainchain.ts';
 
 const controller = useCertificationController();
 const config = getConfig();
@@ -200,6 +201,11 @@ function externalLinkHandler(event: MouseEvent) {
   void tauriOpenUrl(anchor.href);
 }
 
+function disposeAppTransports() {
+  bot.dispose();
+  void getMainchainClients().disconnect();
+}
+
 Vue.onBeforeMount(async () => {
   await waitForLoad();
 });
@@ -208,6 +214,7 @@ Vue.onMounted(async () => {
   // Add keyboard shortcuts for panel switching
   document.addEventListener('keydown', keydownHandler);
   document.addEventListener('click', externalLinkHandler);
+  window.addEventListener('beforeunload', disposeAppTransports);
 
   const appWindow = getCurrentWindow();
   await appWindow.onCloseRequested(async (event: CloseRequestedEvent) => {
@@ -221,6 +228,7 @@ Vue.onMounted(async () => {
 Vue.onBeforeUnmount(() => {
   document.removeEventListener('keydown', keydownHandler);
   document.removeEventListener('click', externalLinkHandler);
+  window.removeEventListener('beforeunload', disposeAppTransports);
 });
 
 Vue.onErrorCaptured((error, instance) => {

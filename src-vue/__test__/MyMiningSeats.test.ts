@@ -70,6 +70,21 @@ describe('MyMiningSeats', () => {
 
     expect(onSpy).toHaveBeenCalledTimes(4);
   });
+
+  it('advances automatically but only moves backward for explicit frame navigation', () => {
+    const { myMiningSeats } = createMyMiningSeats();
+    myMiningSeats.latestFrameId = 13;
+    myMiningSeats.selectedFrameId = 12;
+
+    expect(myMiningSeats.selectFrameId(13, { skipDashboardUpdate: true })).toBe(true);
+    expect(myMiningSeats.selectedFrameId).toBe(13);
+
+    expect(myMiningSeats.selectFrameId(12, { skipDashboardUpdate: true })).toBe(false);
+    expect(myMiningSeats.selectedFrameId).toBe(13);
+
+    expect(myMiningSeats.selectFrameId(12, { isUserAction: true, skipDashboardUpdate: true })).toBe(true);
+    expect(myMiningSeats.selectedFrameId).toBe(12);
+  });
 });
 
 function createMyMiningSeats(
