@@ -502,6 +502,27 @@ describe('BlockWatch archive recovery', () => {
     expect(blockWatch.finalizedBlockHeader.blockNumber).toBe(101);
   });
 
+  it('retains an announced finalized head when the queried best head is stale', async () => {
+    vi.spyOn(BlockWatch, 'readHeader').mockImplementation(readMockHeader);
+
+    const previousFinalizedHeader = createHeaderInfo(100, '0x100', '0x099');
+    previousFinalizedHeader.isFinalized = true;
+    const announcedFinalizedHeader = createHeaderInfo(101, '0x101', '0x100');
+    const archiveClient = {
+      rpc: {
+        chain: {
+          getHeader: vi.fn().mockResolvedValue({ __info: previousFinalizedHeader }),
+        },
+      },
+    };
+    const blockWatch = new BlockWatch(createClients(archiveClient, archiveClient) as any);
+    blockWatch.latestHeaders = [previousFinalizedHeader];
+
+    await getInternalBlockWatch(blockWatch).setFinalizedHeader(createHeader(announcedFinalizedHeader));
+
+    expect(blockWatch.latestHeaders).toEqual([{ ...announcedFinalizedHeader, isFinalized: true }]);
+  });
+
   it('keeps restarted headers when stale finalized recovery completes', async () => {
     vi.spyOn(BlockWatch, 'readHeader').mockImplementation(readMockHeader);
 
@@ -806,10 +827,11 @@ function createClients(prunedClient: unknown, archiveClient: unknown, clientEven
   };
 }
 
-function createHeader({ blockHash, blockNumber }: IBlockHeaderInfo) {
+function createHeader(header: IBlockHeaderInfo) {
   return {
-    hash: { toHex: () => blockHash },
-    number: { toNumber: () => blockNumber },
+    __info: header,
+    hash: { toHex: () => header.blockHash },
+    number: { toNumber: () => header.blockNumber },
   };
 }
 

@@ -47,9 +47,10 @@ export default class Importer {
       importWalletKeys.vaultingAddress,
       importWalletKeys.operationalAddress,
     ];
-    const [balances, operationalAccount] = await Promise.all([
+    const [balances, operationalAccount, ownedVaultId] = await Promise.all([
       readArgonWalletBalanceValues(finalizedApi, addresses),
       finalizedApi.query.operationalAccounts.operationalAccounts(importWalletKeys.operationalAddress),
+      finalizedApi.query.vaults.vaultIdByOperator(importWalletKeys.vaultingAddress),
     ]);
 
     const hasExistingWalletValue = balances.some(balance => {
@@ -74,23 +75,18 @@ export default class Importer {
 
     const hasMiningWalletValue = hasArgonWalletValue(balances[0]) || hasArgonWalletValue(balances[1]);
     const hasMiningActivity = hasMiningWalletValue || hasMiningBids;
-    let hasVaultActivity = operationalProgress.hasVault;
+    // Member Bitcoin events also carry VaultPosition because they affect vault capital. Only the runtime's operator
+    // index proves that this account owns a vault and should regain Operations.
+    const hasVaultActivity = operationalProgress.hasVault || ownedVaultId.isSome;
     let hasTreasuryHistory = false;
     if (!operationalProgress.hasOperationalAccount) {
-      const accountActivity = await findAddressActivity(importWalletKeys.defaultArgonAddress, {
+      const treasuryActivity = await findAddressActivity(importWalletKeys.defaultArgonAddress, {
         activityMask:
-          AccountActivityKind.VaultPosition |
-          AccountActivityKind.VaultRevenue |
-          AccountActivityKind.BondPosition |
-          AccountActivityKind.BitcoinLock |
-          AccountActivityKind.BitcoinMint,
+          AccountActivityKind.BondPosition | AccountActivityKind.BitcoinLock | AccountActivityKind.BitcoinMint,
       }).catch(() => undefined);
 
-      if (accountActivity) {
-        hasVaultActivity ||= accountActivity.blocks.some(block => {
-          return !!(block.activityMask & (AccountActivityKind.VaultPosition | AccountActivityKind.VaultRevenue));
-        });
-        hasTreasuryHistory ||= accountActivity.blocks.some(block => {
+      if (treasuryActivity) {
+        hasTreasuryHistory ||= treasuryActivity.blocks.some(block => {
           return !!(
             block.activityMask &
             (AccountActivityKind.BondPosition | AccountActivityKind.BitcoinLock | AccountActivityKind.BitcoinMint)
@@ -130,6 +126,7 @@ export default class Importer {
       walletPreviousLifeRecovered: JsonExt.stringify(!hasPreviousLife, 2),
       hasExtensionTreasury: JsonExt.stringify(hasTreasuryHistory, 2),
       hasExtensionOperations: JsonExt.stringify(hasOperationsHistory, 2),
+      certificationDetails: JsonExt.stringify({ hasSavedMnemonic: true }, 2),
       miningSetupStatus: JsonExt.stringify(miningSetupStatus, 2),
       vaultingSetupStatus: JsonExt.stringify(
         hasVaultActivity ? VaultingSetupStatus.Finished : VaultingSetupStatus.None,

@@ -262,12 +262,6 @@ export class AppVaultOperator {
     if (vault.name !== vaultName || !vault.delegateAccountId) {
       const txInfo = await this.myVault.setupVaultInviteProfile(vaultName);
       await txInfo?.txResult.waitForInFirstBlock;
-
-      await this.myVault.load(true);
-      const configuredVault = this.myVault.createdVault;
-      if (configuredVault?.name !== vaultName || !configuredVault.delegateAccountId) {
-        throw new Error('Upstream vault name and delegate did not reach the chain during bootstrap.');
-      }
     }
 
     if (!existingOperationalAccount.isSome) {

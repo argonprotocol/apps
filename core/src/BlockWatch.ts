@@ -513,7 +513,14 @@ export class BlockWatch {
         }
         // presume our old finalized is still valid, fill in the gap to the new best
         const finalizedHeader = this.finalizedBlockHeader;
-        const bestTail = await this.fillNewHeadGap(finalizedHeader, bestHeader);
+        const recoveredBestHeader = BlockWatch.readHeader(bestHeader);
+        // After an RPC timeout, finalized subscriptions can advance before a fresh best-head query catches up.
+        // The announced finalized header is canonical and must remain the minimum recovery head.
+        const recoveryHead =
+          recoveredBestHeader.blockNumber <= finalizedNumber
+            ? BlockWatch.readHeader(header, true)
+            : recoveredBestHeader;
+        const bestTail = await this.fillNewHeadGap(finalizedHeader, recoveryHead);
         if (generation !== this.subscriptionGeneration) {
           return;
         }
@@ -766,7 +773,7 @@ export class BlockWatch {
       console.error('[BlockWatch]: Failed to restart subscriptions', { reason, error });
       this.pendingRestart = {
         source,
-        reason: `Retrying failed restart after ${reason}`,
+        reason,
         delayMs: this.failedRestartDelayMs,
       };
     } finally {

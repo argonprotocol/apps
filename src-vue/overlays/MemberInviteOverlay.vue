@@ -405,32 +405,24 @@ async function submitInvite() {
       currency.convertMicrogonTo(vault.calculateBitcoinFee(fullLockAmount), UnitOfMeasurement.USD),
     );
 
-    let fromName = vault.name?.trim() ?? '';
-    const expectedVaultName = fromName || operatorName.value.trim();
+    const fromName = vault.name?.trim() || operatorName.value.trim();
 
     let inviteSetupTransaction: TransactionInfo | undefined;
     if (flexibleAssetChanges.value) {
       inviteSetupTransaction = await myVault.prepareMemberInvite({
-        vaultName: expectedVaultName,
+        vaultName: fromName,
         ...flexibleAssetChanges.value,
       });
-    } else if (fromName) {
+    } else if (vault.name?.trim()) {
       inviteSetupTransaction = await myVault.ensureDelegatedBitcoinSigner();
     } else {
-      inviteSetupTransaction = await myVault.setupVaultInviteProfile(operatorName.value.trim());
+      inviteSetupTransaction = await myVault.setupVaultInviteProfile(fromName);
     }
 
     if (inviteSetupTransaction) {
       await waitForSetupTransaction(inviteSetupTransaction);
       flexibleAssetChanges.value = undefined;
     }
-
-    await myVault.load(true);
-    const preparedVault = myVault.createdVault;
-    if (preparedVault?.name?.trim() !== expectedVaultName || !preparedVault.delegateAccountId) {
-      throw new Error('Your vault invite settings have not reached the chain yet. Please try again.');
-    }
-    fromName = preparedVault.name!;
 
     const invite = await serverApiClient.createInvite({
       name: inviteName.value.trim(),

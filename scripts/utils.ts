@@ -1,5 +1,38 @@
 import fs from 'node:fs';
+import { createServer } from 'node:net';
 import { version as packageVersion } from '../package.json';
+
+export function isPortAvailable(port: number, host = '127.0.0.1'): Promise<boolean> {
+  return new Promise(resolve => {
+    const server = createServer();
+    server.once('error', () => resolve(false));
+    server.listen(port, host, () => {
+      server.close(() => resolve(true));
+    });
+  });
+}
+
+export function reserveEphemeralPort(host = '127.0.0.1'): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once('error', reject);
+    server.listen(0, host, () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        server.close(() => reject(new Error('Failed to reserve an ephemeral port')));
+        return;
+      }
+      const { port } = address;
+      server.close(error => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(port);
+      });
+    });
+  });
+}
 
 export function readReleaseNotes(rawVersion: string = packageVersion, logError = true): string | null {
   // normalize: strip leading v, but match with or without

@@ -142,7 +142,11 @@
                   </button>
 
                   <CopyToClipboard
-                    v-if="!canRegenerateInvite(invite)"
+                    v-if="
+                      !canRegenerateInvite(invite) &&
+                      (invite.vaultContribution?.bitcoinAmount ?? 0n) === 0n &&
+                      (invite.vaultContribution?.bondAmount ?? 0n) === 0n
+                    "
                     :content="getMemberInviteUrl(invite)"
                     class="shrink-0"
                   >

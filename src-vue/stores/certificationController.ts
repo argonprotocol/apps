@@ -8,6 +8,7 @@ import { getDbPromise } from './helpers/dbPromise.ts';
 import {
   countCompletedTreasuryCertificationRequirements,
   createDeferred,
+  loadCertificationProgress,
   MICROGONS_PER_ARGON,
   treasuryCertificationRequirementCount,
 } from '@argonprotocol/apps-core';
@@ -264,7 +265,8 @@ export const useCertificationController = defineStore('certificationController',
       config.vaultingSetupStatus === VaultingSetupStatus.Finished
     );
   });
-  const hasCompletedOwnBitcoinLock = Vue.computed(() => {
+  const hasCompletedOwnBitcoinLock = Vue.ref(false);
+  Vue.watchEffect(() => {
     const completedOwnBitcoinLockAmount = bitcoinLocks.getAllLocks().reduce((total, lock) => {
       if (lock.lockDetails.ownerAccount !== walletKeys.defaultArgonAddress) return total;
       if (
@@ -281,9 +283,12 @@ export const useCertificationController = defineStore('certificationController',
       return total + lock.liquidityPromised;
     }, 0n);
 
-    return rewardConfig.value.treasuryMinimumBitcoin <= 0n
-      ? completedOwnBitcoinLockAmount > 0n
-      : completedOwnBitcoinLockAmount >= rewardConfig.value.treasuryMinimumBitcoin;
+    const hasCompletedLock =
+      rewardConfig.value.treasuryMinimumBitcoin <= 0n
+        ? completedOwnBitcoinLockAmount > 0n
+        : completedOwnBitcoinLockAmount >= rewardConfig.value.treasuryMinimumBitcoin;
+
+    if (hasCompletedLock) hasCompletedOwnBitcoinLock.value = true;
   });
   const certificationProgress = Vue.computed(() => {
     if (chainProgress.value.hasOperationalAccount) {
@@ -572,6 +577,17 @@ export const useCertificationController = defineStore('certificationController',
     );
 
     rewardConfig.value = await getOperationalRewardConfig();
+
+    try {
+      // Mnemonic import rebuilds local Bitcoin records later, so restore this completed step directly from chain.
+      const progress = await loadCertificationProgress({
+        client: await getMainchainClient(false),
+        defaultAccountId: walletKeys.defaultArgonAddress,
+      });
+      if (progress.hasTreasuryBitcoin) hasCompletedOwnBitcoinLock.value = true;
+    } catch (error) {
+      console.error('[Certification Controller] Unable to load Bitcoin certification progress.', error);
+    }
 
     void subscribeOperationalAccount(
       walletKeys,

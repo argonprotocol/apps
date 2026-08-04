@@ -164,7 +164,11 @@ const trackedCreatedLock = Vue.computed<IBitcoinLockRecord | undefined>(() => {
 });
 
 const personalLock = Vue.computed<IBitcoinLockRecord | undefined>(() => {
-  if (requestedPersonalLock.value) return requestedPersonalLock.value;
+  const requestedLock = requestedPersonalLock.value;
+  if (requestedLock) {
+    if (requestedLock.utxoId == null) return requestedLock;
+    return bitcoinLocks.getLockByUtxoId(requestedLock.utxoId) ?? requestedLock;
+  }
 
   if (trackedCreatedLock.value) {
     return trackedCreatedLock.value;
