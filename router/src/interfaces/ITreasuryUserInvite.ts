@@ -10,6 +10,7 @@ export type IOperationalUserInvite = IUserInvite;
 
 export interface IInviteVaultContribution {
   bitcoinAmount: bigint;
+  pendingBitcoinAmount: bigint;
   bondAmount: bigint;
 }
 

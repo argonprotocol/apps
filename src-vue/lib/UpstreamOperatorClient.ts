@@ -179,8 +179,9 @@ export class UpstreamOperatorClient {
       authBindingExpiresAt,
       authBindingSignature,
     };
-    const body = await this.requestWithOperatorHost(async operatorHost =>
-      this.requestWithSessionRetry(this.getMemberSessionAuth(operatorHost), sessionId =>
+    const body = await this.requestWithOperatorHost(async operatorHost => {
+      const sessionAuth = this.getMemberSessionAuth(operatorHost);
+      const response = await this.requestWithSessionRetry(sessionAuth, sessionId =>
         UpstreamOperatorClient.request<IRequestOperationsUpgradeResponse>(
           operatorHost,
           '/invites/me/request-operations-upgrade',
@@ -191,8 +192,17 @@ export class UpstreamOperatorClient {
           },
           sessionId,
         ),
-      ),
-    );
+      );
+
+      try {
+        await sessionAuth.invalidateSessionId();
+        await sessionAuth.getSessionId();
+      } catch (error) {
+        console.warn('[UpstreamOperatorClient] Unable to refresh member recovery after requesting Operations', error);
+      }
+
+      return response;
+    });
 
     return body.operationsUpgradeRequestedAt;
   }

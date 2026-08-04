@@ -26,6 +26,7 @@ import {
   startDevUpstreamServer,
   waitForDevUpstreamEthereumRelayReady,
 } from '../e2e/scripts/devUpstreamServer.ts';
+import { isPortAvailable } from '../scripts/utils.ts';
 import fs from 'fs';
 import path from 'path';
 import process from 'process';
@@ -44,7 +45,7 @@ async function main(): Promise<void> {
   const argonAppInstance = process.env.ARGON_APP_INSTANCE || '';
   console.log(`[tauri-dev] Starting Tauri dev for network="${network}" with instance="${argonAppInstance}"`);
 
-  const tauriPort = getTauriPort(argonAppInstance);
+  const tauriPort = await getTauriPort(argonAppInstance);
   const configFileName = `tauri.desktop.local.${network.replace('dev-docker', 'docknet')}.conf.json`;
   const configFilePath = path.resolve(__dirname, configFileName);
   const baseConfig = loadBaseConfig(configFileName, configFilePath);
@@ -297,13 +298,26 @@ async function main(): Promise<void> {
   });
 }
 
-function getTauriPort(argonAppInstance: string): string {
+async function getTauriPort(argonAppInstance: string): Promise<string> {
   if (argonAppInstance.includes(':')) {
     const parts = argonAppInstance.split(':');
     const port = parts[parts.length - 1];
     if (port) return port;
   }
-  return '1420';
+
+  const requestedPort = 1420;
+  let port = requestedPort;
+  while (true) {
+    const isAvailable = await isPortAvailable(port);
+    if (isAvailable) break;
+
+    port += 1;
+  }
+
+  if (port !== requestedPort) {
+    console.log(`[tauri-dev] Port ${requestedPort} is already in use; using port ${port}`);
+  }
+  return String(port);
 }
 
 function loadBaseConfig(configFileName: string, configFilePath: string): any {

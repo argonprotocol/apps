@@ -1,4 +1,10 @@
-import type { IRouterAuthChallenge, RouterAuthRole, UserRole, IOperationalAccessProof } from '@argonprotocol/apps-core';
+import type {
+  IOperationalAccessProof,
+  IRouterAuthAccountBinding,
+  IRouterAuthChallenge,
+  RouterAuthRole,
+  UserRole,
+} from '@argonprotocol/apps-core';
 import type { IBitcoinLockCouponStatus, IBitcoinLockRelayRequest } from './IBitcoinLockRelay.js';
 import type { ITreasuryUserInvite } from './ITreasuryUserInvite.js';
 
@@ -41,7 +47,9 @@ export interface IMarkOperationsUpgradedRequest {
 export interface IRouterAuthChallengeRequest {
   authAccountId: string;
   role?: RouterAuthRole;
+  /** @deprecated Use restorePackageRevision. */
   hasRestorePackage?: boolean;
+  restorePackageRevision?: string;
   knownBootstrapEndpointPubkey?: string;
 }
 
@@ -52,6 +60,7 @@ export type IRouterAuthChallengeResponse = IRouterAuthChallenge & {
 export interface IRouterAuthSessionRequest extends IRouterAuthChallenge {
   signature: string;
   restorePackage?: string;
+  accountBinding?: IRouterAuthAccountBinding & { signature: string };
 }
 
 export interface IRouterAuthSessionResponse {
@@ -64,6 +73,8 @@ export interface IRouterAuthSessionResponse {
     fromName: string;
     operatorAccountId: string;
     restorePackage: string;
+    restorePackageRevision: string;
+    hasOperationsAccess: boolean;
   };
 }
 

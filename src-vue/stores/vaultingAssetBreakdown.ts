@@ -102,11 +102,11 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
     return treasuryBondTotals.value.returningBondMicrogons;
   });
 
-  // What the vault can support with its active Bitcoin security.
+  // What the connected runtime lets this vault support.
   const treasuryBondCapacityMicrogons = Vue.computed(() => {
-    const sats = myVault.createdVault?.effectiveSecuritizedSatoshis() ?? 0n;
-    if (sats <= 0n) return 0n;
-    return currency.priceIndex.getSatoshiPriceInTargetMicrogons(sats);
+    if (!myVault.createdVault) return 0n;
+
+    return argonBonds.getVaultBondCapacityMicrogons(myVault.createdVault);
   });
 
   const treasuryBondCapacityUsedMicrogons = Vue.computed(() => {
@@ -129,11 +129,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   const treasuryBondMicrogonsAvailable = Vue.computed(() => {
     if (!myVault.createdVault) return 0n;
 
-    return TreasuryBonds.availableBondSpace({
-      vault: myVault.createdVault,
-      priceIndex: currency.priceIndex,
-      bondState: argonBonds.data.capacityStatesByVault[myVault.createdVault.vaultId],
-    });
+    return argonBonds.availableBondSpace(myVault.createdVault);
   });
 
   const flexibleBitcoinMicrogonsAvailable = Vue.computed(() => {

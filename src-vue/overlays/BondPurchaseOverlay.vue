@@ -279,11 +279,7 @@ const availableMicrogons = Vue.computed(() => wallets.defaultArgonWallet.availab
 const vaultAvailableCapacity = Vue.computed(() => {
   if (!vault.value) return 0n;
 
-  return TreasuryBonds.availableBondSpace({
-    vault: vault.value,
-    priceIndex: currency.priceIndex,
-    bondState: argonBonds.data.capacityStatesByVault[vault.value.vaultId],
-  });
+  return argonBonds.availableBondSpace(vault.value);
 });
 
 const spendableWalletBalance = Vue.computed(() => {

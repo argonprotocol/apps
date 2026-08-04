@@ -2,7 +2,12 @@ import * as Fs from 'node:fs';
 import os from 'node:os';
 import Path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { type IBitcoinLockCouponRecord, signRouterAuthChallenge, UserRole } from '@argonprotocol/apps-core';
+import {
+  type IBitcoinLockCouponRecord,
+  signRouterAuthAccountBinding,
+  signRouterAuthChallenge,
+  UserRole,
+} from '@argonprotocol/apps-core';
 import { Keyring } from '@argonprotocol/mainchain';
 import { Db } from '../src/Db.ts';
 import { MemberRestoreService } from '../src/MemberRestoreService.ts';
@@ -80,7 +85,7 @@ describe('RouterAuthService', () => {
     ).rejects.toThrowError('This auth account is not allowed to access the router.');
   });
 
-  it('does not restore a member before verifying the login signature', async () => {
+  it('verifies the login and account binding before restoring a member', async () => {
     const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
     const member = new Keyring({ type: 'sr25519' }).addFromUri('//RestoreMember');
     const memberAuth = member.derive('//upstream-operator-auth');
@@ -128,12 +133,32 @@ describe('RouterAuthService', () => {
     expect(db!.usersTable.fetchByAuthAccountId(memberAuth.address)).toBeNull();
     expect(restoreBitcoinLockCoupon).not.toHaveBeenCalled();
 
+    const missingBindingChallenge = recoveredService.createChallenge(memberAuth.address, UserRole.Member, {
+      restorePackageRequired: true,
+    });
+    await expect(
+      recoveredService.createSession({
+        ...missingBindingChallenge,
+        restorePackage,
+        signature: signRouterAuthChallenge(memberAuth, missingBindingChallenge),
+      }),
+    ).rejects.toThrow('The member account binding is required to restore this backup.');
+
     const challenge = recoveredService.createChallenge(memberAuth.address, UserRole.Member, {
       restorePackageRequired: true,
     });
+    const accountBinding = {
+      accountId: member.address,
+      authAccountId: memberAuth.address,
+      expiresAt: challenge.expiresAt,
+    };
     await recoveredService.createSession({
       ...challenge,
       restorePackage,
+      accountBinding: {
+        ...accountBinding,
+        signature: signRouterAuthAccountBinding(member, accountBinding),
+      },
       signature: signRouterAuthChallenge(memberAuth, challenge),
     });
     expect(restoreBitcoinLockCoupon).toHaveBeenCalledOnce();
@@ -177,20 +202,64 @@ describe('RouterAuthService', () => {
     const challenge = recoveredService.createChallenge(memberAuth.address, UserRole.Member, {
       restorePackageRequired: true,
     });
+    const accountBinding = {
+      accountId: member.address,
+      authAccountId: memberAuth.address,
+      expiresAt: challenge.expiresAt,
+    };
     await expect(
       recoveredService.createSession({
         ...challenge,
         restorePackage,
+        accountBinding: {
+          ...accountBinding,
+          signature: signRouterAuthAccountBinding(member, accountBinding),
+        },
         signature: signRouterAuthChallenge(memberAuth, challenge),
       }),
     ).rejects.toThrow('Restore package conflicts with an existing member.');
     expect(restoreBitcoinLockCoupon).not.toHaveBeenCalled();
   });
 
+  it('accepts the previous package format using the recovered user date and refreshes the next signed login', async () => {
+    const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
+    const memberAuth = new Keyring({ type: 'sr25519' }).addFromUri('//LegacyMemberAuth');
+    const restoreKey = `0x${'42'.repeat(32)}`;
+    const legacyRestorePackage =
+      'yerDW_cRdoQltNzAHN9Y_93rvAAWCot__gEafy2ywbfKrqgF0jUe3_R2W4Kf5DdqofrLuFOkGFxV7QbZnH7Xc2WwfuwcE_DDeeydwr0isZeW7Fns8cKxw2TpwXyN7mLR4Tv_UvSirIfS1dG7tWnZrMUCG7uP1fr0yY_GZ37eYdalNdCCVA0DaNxmtdRatSKBtSx0H8hTbcKNtS0DyAdnw90nnVuhD_614k600g_CSIo0bL41lwnugclJss4W';
+    const { memberRestore, auth } = createAuthService(operator.address, restoreKey);
+
+    await memberRestore.restoreAuthenticatedMember({
+      authAccountId: memberAuth.address,
+      restorePackage: legacyRestorePackage,
+      packageRequired: true,
+    });
+
+    const restoredInvite = db!.userInvitesTable.fetchByCode('legacy-invite-code');
+    const restoredUser = db!.usersTable.fetchById(restoredInvite!.id);
+    expect(restoredInvite).toMatchObject({
+      name: 'Legacy Member',
+      fromName: 'Legacy Operator',
+      defaultAccountId: 'legacy-default-account',
+      createdAt: restoredUser!.createdAt,
+      firstClickedAt: null,
+      operationsUpgradeRequestedAt: null,
+      operationsUpgradedAt: null,
+    });
+
+    const challenge = auth.createChallenge(memberAuth.address, UserRole.Member);
+    const session = await auth.createSession({
+      ...challenge,
+      signature: signRouterAuthChallenge(memberAuth, challenge),
+    });
+
+    expect(session.refreshRestorePackage).toBe(true);
+  });
+
   function createAuthService(
     adminOperatorAccountId: string,
     restoreKey?: string,
-    restoreBitcoinLockCoupon?: (coupon: IBitcoinLockCouponRecord) => Promise<void>,
+    restoreBitcoinLockCoupon?: (coupon: Omit<IBitcoinLockCouponRecord, 'id'>) => Promise<void>,
   ): { auth: RouterAuthService; memberRestore: MemberRestoreService } {
     const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-auth-service-test-'));
     db = new Db(Path.join(tempDir, 'router.sqlite'));

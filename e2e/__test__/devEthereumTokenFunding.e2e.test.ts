@@ -105,4 +105,21 @@ describe('dev Ethereum token funding', () => {
       args: [recipient, 5_000_000n * 10n ** 12n],
     });
   });
+
+  it('waits for dev startup to publish the Ethereum chain config', async () => {
+    state.argonClient.query.crosschainTransfer.chainConfigBySourceChain.mockResolvedValueOnce({
+      isNone: true,
+      unwrap: () => {
+        throw new Error('Cannot unwrap None');
+      },
+    });
+
+    await fundDevEthereumTokens({
+      to: getAddress(`0x${'66'.repeat(20)}`),
+      argnRuntimeAmount: 25_000_000n,
+    });
+
+    expect(state.argonClient.query.crosschainTransfer.chainConfigBySourceChain).toHaveBeenCalledTimes(2);
+    expect(state.sendDevEthereumAdminTransaction).toHaveBeenCalledTimes(1);
+  });
 });

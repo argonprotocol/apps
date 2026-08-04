@@ -103,6 +103,21 @@
         </template>
       </AlertBarRow>
 
+      <AlertBarRow
+        v-else-if="realAlertCount === 1 && pendingOperationsUpgrade"
+        tone="warn"
+        showDefaultIcon>
+        <div class="pr-3 text-white">
+          <strong v-if="pendingOperationsUpgradeRequests.length === 1">
+            {{ pendingOperationsUpgradeRequests[0]?.name }} requested an Operations upgrade.
+          </strong>
+          <strong v-else>{{ pendingOperationsUpgradeRequests.length }} members requested Operations upgrades.</strong>
+        </div>
+        <template #action>
+          <button @click="openOperationsUpgradeRequests">Review Requests</button>
+        </template>
+      </AlertBarRow>
+
       <template v-else>
         <PopoverAnchor as-child>
           <AlertBarRow tone="warn" showDefaultIcon>
@@ -143,7 +158,7 @@
                   <VaultAlert
                     v-if="vaultAlert"
                     :notice="vaultAlert"
-                    :isLast="displayBitcoinAlerts.length === 0"
+                    :isLast="displayBitcoinAlerts.length === 0 && !pendingOperationsUpgrade"
                     @open="openVaultCollect()" />
 
                   <BitcoinAlert
@@ -155,6 +170,21 @@
                     :isLast="entry.isLast"
                     @open-lock="openBitcoinLock({ lock: $event.lock })"
                     @open-unlock="openBitcoinUnlock($event.lock)" />
+
+                  <AlertDetailRow
+                    v-if="pendingOperationsUpgrade"
+                    dataTestid="OperationsUpgradeAlert"
+                    title="Operations upgrade requests"
+                    buttonLabel="Review Requests"
+                    :isLast="true"
+                    @open="openOperationsUpgradeRequests">
+                    <template #icon>
+                      <AlertIcon class="mt-1 h-8 w-8 text-argon-700/70" />
+                    </template>
+                    <template #subline>
+                      Review the requests and approve members who have completed Treasury certification.
+                    </template>
+                  </AlertDetailRow>
                 </div>
               </div>
             </div>
@@ -251,10 +281,14 @@ import { getBitcoinLocks } from '../stores/bitcoin.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { getMyVault } from '../stores/vaults.ts';
 import { getArgonBonds } from '../stores/argonBonds.ts';
+import { useCertificationController } from '../stores/certificationController.ts';
+import { TopTab } from '../interfaces/IConfig.ts';
+import AlertIcon from '../assets/alert.svg?component';
 import BitcoinIcon from '../assets/wallets/bitcoin.svg?component';
 import VaultCollectOverlay from '../overlays/VaultCollectOverlay.vue';
 import BitcoinUnlockingOverlay from '../overlays/BitcoinUnlockingOverlay.vue';
 import AlertBarRow from '../alerts/AlertBarRow.vue';
+import AlertDetailRow from '../alerts/AlertDetailRow.vue';
 import BitcoinAlert from '../alerts/BitcoinAlert.vue';
 import VaultAlert from '../alerts/VaultAlert.vue';
 import { buildAlertSummary, getBitcoinAlertNotices, sumBitcoinAlertAmount, type IBitcoinAlert } from '../lib/Alerts.ts';
@@ -268,6 +302,7 @@ const myVault = getMyVault();
 const bitcoinLocks = getBitcoinLocks();
 const currency = getCurrency();
 const argonBonds = getArgonBonds();
+const controller = useCertificationController();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const isRestarting = Vue.ref(false);
@@ -279,12 +314,19 @@ const selectedUnlockLock = Vue.ref<IBitcoinLockRecord | undefined>(undefined);
 const resumedFundingByLockUtxoId = Vue.ref<{ [lockUtxoId: number]: true }>({});
 
 let unsubscribeArgonBondVault: VoidFunction | undefined;
+let operationalInviteRefreshInterval: ReturnType<typeof setInterval> | undefined;
 
 const vaultAlert = Vue.computed(() => myVault.collectBuilder.getNotice());
 const bitcoinAlerts = Vue.computed(() => getBitcoinAlertNotices(bitcoinLocks));
+const pendingOperationsUpgradeRequests = Vue.computed(() => {
+  return controller.operationalInvites.filter(invite => {
+    return !!invite.operationsUpgradeRequestedAt && !invite.accessProof && !invite.operationsUpgradedAt;
+  });
+});
+const pendingOperationsUpgrade = Vue.computed(() => pendingOperationsUpgradeRequests.value.length > 0);
 
 const realAlertCount = Vue.computed(() => {
-  return (vaultAlert.value ? 1 : 0) + bitcoinAlerts.value.length;
+  return (vaultAlert.value ? 1 : 0) + bitcoinAlerts.value.length + (pendingOperationsUpgrade.value ? 1 : 0);
 });
 
 const displayBitcoinAlerts = Vue.computed(() => {
@@ -296,7 +338,7 @@ const displayBitcoinAlerts = Vue.computed(() => {
   }));
 
   alerts.forEach((entry, index) => {
-    entry.isLast = index === alerts.length - 1;
+    entry.isLast = index === alerts.length - 1 && !pendingOperationsUpgrade.value;
   });
 
   return alerts;
@@ -390,6 +432,11 @@ function closeBitcoinUnlockingOverlay() {
   selectedUnlockLock.value = undefined;
 }
 
+function openOperationsUpgradeRequests() {
+  isExpanded.value = false;
+  controller.setTab(TopTab.Onboarding);
+}
+
 function isResumedFundingAlert(alert: IBitcoinAlert | null | undefined): boolean {
   if (!alert?.lock.utxoId) return false;
   return alert.kind === 'fundingExpiring' && !!resumedFundingByLockUtxoId.value[alert.lock.utxoId];
@@ -401,6 +448,13 @@ async function loadAttentionData() {
   if (myVault.createdVault) {
     await myVault.subscribe().catch(() => undefined);
   }
+}
+
+async function loadOperationalInvites() {
+  if (!config.hasExtensionOperations || !config.isServerInstalled || !config.serverDetails.ipAddress) return;
+  if (controller.selectedTab === TopTab.Onboarding) return;
+
+  await controller.loadOperationalInvites().catch(() => undefined);
 }
 
 async function subscribeArgonBondVault() {
@@ -465,6 +519,11 @@ Vue.watch(realAlertCount, count => {
 
 Vue.onMounted(() => {
   void loadAttentionData();
+  void loadOperationalInvites();
+
+  operationalInviteRefreshInterval = setInterval(() => {
+    void loadOperationalInvites();
+  }, 5_000);
 
   basicEmitter.on('openVaultCollect', openVaultCollect);
   basicEmitter.on('openBitcoinUnlock', openBitcoinUnlock);
@@ -474,6 +533,7 @@ Vue.onMounted(() => {
 
 Vue.onUnmounted(() => {
   unsubscribeArgonBondVault?.();
+  if (operationalInviteRefreshInterval) clearInterval(operationalInviteRefreshInterval);
 
   basicEmitter.off('openVaultCollect', openVaultCollect);
   basicEmitter.off('openBitcoinUnlock', openBitcoinUnlock);

@@ -2,6 +2,7 @@ import {
   fetch,
   JsonExt,
   type RouterAuthRole as ServerAuthRole,
+  signRouterAuthAccountBinding,
   signRouterAuthChallenge as signServerAuthChallenge,
   UserRole,
 } from '@argonprotocol/apps-core';
@@ -9,6 +10,7 @@ import type { KeyringPair } from '@argonprotocol/mainchain';
 import type {
   IRouterAuthChallengeRequest as IServerAuthChallengeRequest,
   IRouterAuthChallengeResponse as IServerAuthChallenge,
+  IRouterAuthSessionRequest as IServerAuthSessionRequest,
   IRouterAuthSessionResponse as IServerAuthSessionResponse,
 } from '@argonprotocol/apps-router';
 import type { WalletKeys } from './WalletKeys.ts';
@@ -18,7 +20,9 @@ export type ServerAuthOptions = {
 };
 
 export type MemberAuthState = {
-  getRestorePackage: () => string | undefined;
+  getRestorePackage: () =>
+    | Pick<NonNullable<IServerAuthSessionResponse['restore']>, 'restorePackage' | 'restorePackageRevision'>
+    | undefined;
   getBootstrapEndpointPubkey?: () => Promise<string | undefined> | string | undefined;
   applyBootstrapEndpointSecret?: (bootstrapEndpointSecret: string) => Promise<void> | void;
   applyRestoreResult: (restore: NonNullable<IServerAuthSessionResponse['restore']>) => Promise<void> | void;
@@ -31,7 +35,11 @@ type VerifiedServerSession = {
 
 export type ServerAuthWalletKeys = Pick<
   WalletKeys,
-  'operationalAddress' | 'getOperationalKeypair' | 'getUpstreamOperatorAuthKeypair'
+  | 'defaultArgonAddress'
+  | 'operationalAddress'
+  | 'getDefaultArgonKeypair'
+  | 'getOperationalKeypair'
+  | 'getUpstreamOperatorAuthKeypair'
 >;
 
 export class RequestStatusError extends Error {
@@ -153,7 +161,7 @@ export class ServerAuthClient {
     this.invalidateSession(cacheKey);
 
     try {
-      let restorePackage: string | undefined;
+      let restorePackage: ReturnType<MemberAuthState['getRestorePackage']>;
       const challengeRequest: IServerAuthChallengeRequest = {
         role,
         authAccountId,
@@ -161,6 +169,7 @@ export class ServerAuthClient {
       if (role === UserRole.Member) {
         restorePackage = this.memberAuthState?.getRestorePackage();
         challengeRequest.hasRestorePackage = !!restorePackage;
+        challengeRequest.restorePackageRevision = restorePackage?.restorePackageRevision;
 
         const bootstrapEndpointPubkey = await this.memberAuthState?.getBootstrapEndpointPubkey?.();
         if (bootstrapEndpointPubkey) {
@@ -177,11 +186,28 @@ export class ServerAuthClient {
       }
 
       const authKeypair = await getAuthKeypair();
-      const session = await requestAuth<IServerAuthSessionResponse>(`${baseUrl}/auth/login`, {
+      const sessionRequest: IServerAuthSessionRequest = {
         ...challenge,
-        ...(challenge.restorePackageRequired && restorePackage ? { restorePackage } : {}),
         signature: signServerAuthChallenge(authKeypair, challenge),
-      });
+      };
+      if (challenge.restorePackageRequired && restorePackage) {
+        const walletKeys = this.getWalletKeys();
+        const defaultAccount = await walletKeys.getDefaultArgonKeypair();
+        const accountBinding = {
+          accountId: walletKeys.defaultArgonAddress,
+          operationalAccountId: walletKeys.operationalAddress,
+          authAccountId,
+          expiresAt: challenge.expiresAt,
+        };
+
+        sessionRequest.restorePackage = restorePackage.restorePackage;
+        sessionRequest.accountBinding = {
+          ...accountBinding,
+          signature: signRouterAuthAccountBinding(defaultAccount, accountBinding),
+        };
+      }
+
+      const session = await requestAuth<IServerAuthSessionResponse>(`${baseUrl}/auth/login`, sessionRequest);
       if (!session) {
         throw new Error('Server auth session was not created.');
       }

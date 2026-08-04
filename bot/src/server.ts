@@ -85,7 +85,7 @@ export class BotServer {
 
     app.post('/bitcoin-lock-coupons/restore', express.text({ type: '*/*' }), async (req, res) => {
       await safeJsonRoute(res, async () => {
-        const coupon = requireBody<IBitcoinLockCouponRecord>(req.body);
+        const coupon = requireBody<Omit<IBitcoinLockCouponRecord, 'id'>>(req.body);
         return bot.db.bitcoinLockCouponsTable.restoreCoupon(coupon);
       });
     });

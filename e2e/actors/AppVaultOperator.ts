@@ -250,11 +250,16 @@ export class AppVaultOperator {
     const existingOperationalAccount = await loadOperationalAccount(this.walletKeys, client);
     const existingProgress = getOperationalChainProgressFromAccount(existingOperationalAccount, rewardConfig);
 
-    if (vault.delegateAccountId && existingProgress.isOperational && existingProgress.availableAccessCodes > 0) {
+    if (
+      vault.name === vaultName &&
+      vault.delegateAccountId &&
+      existingProgress.isOperational &&
+      existingProgress.availableAccessCodes > 0
+    ) {
       return;
     }
 
-    if (!vault.delegateAccountId) {
+    if (vault.name !== vaultName || !vault.delegateAccountId) {
       const txInfo = await this.myVault.setupVaultInviteProfile(vaultName);
       await txInfo?.txResult.waitForInFirstBlock;
     }

@@ -7,6 +7,10 @@ const walletMock = vi.hoisted(() => {
     address: 'admin-account',
     sign: vi.fn(() => new Uint8Array([1, 2, 3])),
   };
+  const defaultSigner = {
+    address: 'default-account',
+    sign: vi.fn(() => new Uint8Array([7, 8, 9])),
+  };
   const upstreamOperatorAuthSigner = {
     address: 'upstream-operator-auth-account',
     sign: vi.fn(() => new Uint8Array([4, 5, 6])),
@@ -14,7 +18,9 @@ const walletMock = vi.hoisted(() => {
 
   return {
     signer,
+    defaultSigner,
     upstreamOperatorAuthSigner,
+    getDefaultArgonKeypair: vi.fn(),
     getOperationalKeypair: vi.fn(),
     getUpstreamOperatorAuthKeypair: vi.fn(),
   };
@@ -25,15 +31,20 @@ describe('ServerAuthClient', () => {
 
   beforeEach(() => {
     serverAuthClient = new ServerAuthClient(() => ({
+      defaultArgonAddress: 'default-account',
       operationalAddress: 'admin-account',
+      getDefaultArgonKeypair: walletMock.getDefaultArgonKeypair,
       getOperationalKeypair: walletMock.getOperationalKeypair,
       getUpstreamOperatorAuthKeypair: walletMock.getUpstreamOperatorAuthKeypair,
     }));
     walletMock.signer.sign.mockClear();
+    walletMock.defaultSigner.sign.mockClear();
     walletMock.upstreamOperatorAuthSigner.sign.mockClear();
     walletMock.getOperationalKeypair.mockReset();
+    walletMock.getDefaultArgonKeypair.mockReset();
     walletMock.getUpstreamOperatorAuthKeypair.mockReset();
     walletMock.getOperationalKeypair.mockResolvedValue(walletMock.signer);
+    walletMock.getDefaultArgonKeypair.mockResolvedValue(walletMock.defaultSigner);
     walletMock.getUpstreamOperatorAuthKeypair.mockResolvedValue(walletMock.upstreamOperatorAuthSigner);
     vi.unstubAllGlobals();
   });
@@ -136,6 +147,7 @@ describe('ServerAuthClient', () => {
       {
         role: UserRole.Member,
         authAccountId: 'upstream-operator-auth-account',
+        hasRestorePackage: false,
       },
       {
         role: UserRole.Member,
@@ -148,17 +160,23 @@ describe('ServerAuthClient', () => {
   it('sends a cached package only when the member challenge requests it', async () => {
     const baseUrl = 'https://restore-session.example';
     const applyBootstrapEndpointSecret = vi.fn();
+    const applyRestoreResult = vi.fn();
     serverAuthClient = new ServerAuthClient(
       () => ({
+        defaultArgonAddress: 'default-account',
         operationalAddress: 'admin-account',
+        getDefaultArgonKeypair: walletMock.getDefaultArgonKeypair,
         getOperationalKeypair: walletMock.getOperationalKeypair,
         getUpstreamOperatorAuthKeypair: walletMock.getUpstreamOperatorAuthKeypair,
       }),
       {
-        getRestorePackage: () => 'cached-restore-package',
+        getRestorePackage: () => ({
+          restorePackage: 'cached-restore-package',
+          restorePackageRevision: '2.1',
+        }),
         getBootstrapEndpointPubkey: () => 'known-bootstrap-endpoint-pubkey',
         applyBootstrapEndpointSecret,
-        applyRestoreResult: () => undefined,
+        applyRestoreResult,
       },
     );
     const fetchMock = vi
@@ -173,6 +191,14 @@ describe('ServerAuthClient', () => {
         jsonResponse({
           ...createSession(UserRole.Member),
           bootstrapEndpointSecret: 'replacement-bootstrap-endpoint-secret',
+          restore: {
+            fromName: 'Operator One',
+            operatorAccountId: 'operator-account',
+            restorePackage: 'current-restore-package',
+            restorePackageRevision: '2.2',
+            hasOperationsAccess: true,
+            bitcoinLockCoupons: [],
+          },
         }),
       )
       .mockResolvedValueOnce(emptyResponse(204));
@@ -185,13 +211,27 @@ describe('ServerAuthClient', () => {
       role: UserRole.Member,
       authAccountId: 'upstream-operator-auth-account',
       hasRestorePackage: true,
+      restorePackageRevision: '2.1',
       knownBootstrapEndpointPubkey: 'known-bootstrap-endpoint-pubkey',
     });
     expect(fetchPayloads(fetchMock)[0]).not.toHaveProperty('restorePackage');
     expect(fetchPayloads(fetchMock)[1]).toMatchObject({
       restorePackage: 'cached-restore-package',
+      accountBinding: {
+        accountId: 'default-account',
+        operationalAccountId: 'admin-account',
+        authAccountId: 'upstream-operator-auth-account',
+      },
     });
     expect(applyBootstrapEndpointSecret).toHaveBeenCalledWith('replacement-bootstrap-endpoint-secret');
+    expect(applyRestoreResult).toHaveBeenCalledWith({
+      fromName: 'Operator One',
+      operatorAccountId: 'operator-account',
+      restorePackage: 'current-restore-package',
+      restorePackageRevision: '2.2',
+      hasOperationsAccess: true,
+      bitcoinLockCoupons: [],
+    });
   });
 
   it('does not cache transport failures as auth failures', async () => {

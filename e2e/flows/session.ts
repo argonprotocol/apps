@@ -1,10 +1,10 @@
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, type WriteStream } from 'node:fs';
-import { createServer } from 'node:net';
 import os from 'node:os';
 import Path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { isPortAvailable, reserveEphemeralPort } from '../../scripts/utils.ts';
 import { DriverClient } from '../driver/client.ts';
 import { type DriverServer, startDriverServer } from '../driver/server.ts';
 import { isRetryableAppConnectionError } from './helpers/utils.ts';
@@ -1035,38 +1035,6 @@ function parsePort(value: string | undefined): number | undefined {
     return undefined;
   }
   return port;
-}
-
-function isPortAvailable(port: number): Promise<boolean> {
-  return new Promise(resolve => {
-    const server = createServer();
-    server.once('error', () => resolve(false));
-    server.listen(port, '127.0.0.1', () => {
-      server.close(() => resolve(true));
-    });
-  });
-}
-
-function reserveEphemeralPort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = createServer();
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address();
-      if (!address || typeof address === 'string') {
-        server.close(() => reject(new Error('Failed to reserve an ephemeral app port')));
-        return;
-      }
-      const { port } = address;
-      server.close(error => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve(port);
-      });
-    });
-  });
 }
 
 function sleep(ms: number): Promise<void> {

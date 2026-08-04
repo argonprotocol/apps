@@ -163,13 +163,14 @@ export class RouterServer {
       '/auth/challenge',
       express.text({ type: '*/*' }),
       safeJsonRoute(async req => {
-        const { authAccountId, role, hasRestorePackage, knownBootstrapEndpointPubkey } =
+        const { authAccountId, role, hasRestorePackage, restorePackageRevision, knownBootstrapEndpointPubkey } =
           requireBody<IRouterAuthChallengeRequest>(req);
         const restorePackageRequired = role === UserRole.Member && memberRestore.isPackageRequired(authAccountId);
 
         return routerAuth.createChallenge(authAccountId, role, {
           restorePackageRequired,
-          restorePackageRequested: role === UserRole.Member && hasRestorePackage === false,
+          hasRestorePackage,
+          restorePackageRevision,
           bootstrapEndpointSecretRequired:
             role === UserRole.Member &&
             !!currentBootstrapEndpointPubkey &&
@@ -197,16 +198,22 @@ export class RouterServer {
           throw new RouterError('Invite not found', 404);
         }
 
-        const bitcoinLockCoupons = await botClient.listCouponsByUserId(invite.id);
-        const bitcoinLockCoupon = bitcoinLockCoupons[0];
-        const restorePackage = memberRestore.createPackage(invite, bitcoinLockCoupon?.coupon);
+        try {
+          const bitcoinLockCoupons = await botClient.listCouponsByUserId(invite.id);
+          const bitcoinLockCoupon = bitcoinLockCoupons[0];
+          const restorePackage = memberRestore.createPackage(invite, bitcoinLockCoupon?.coupon);
 
-        session.restore = {
-          fromName: invite.fromName,
-          operatorAccountId: adminOperatorAccountId!,
-          restorePackage,
-          bitcoinLockCoupons,
-        };
+          session.restore = {
+            fromName: invite.fromName,
+            operatorAccountId: adminOperatorAccountId!,
+            restorePackage,
+            restorePackageRevision: memberRestore.getPackageRevision(invite.authAccountId!)!,
+            hasOperationsAccess: !!(invite.operationsUpgradedAt || invite.operationsAccessProofSignature),
+            bitcoinLockCoupons,
+          };
+        } catch (error) {
+          console.warn('[router] Unable to refresh the member restore package.', error);
+        }
 
         return session;
       }),
@@ -432,34 +439,19 @@ export class RouterServer {
       safeJsonRoute<IListInvitesResponse>(async () => {
         const couponsByUserId = await botClient.listLatestCouponsByUserId();
         const invites = db.userInvitesTable.fetchByRole(UserRole.Member);
-        const vaultBondAmountsByAccountId = new Map<number, Map<string, bigint>>();
+        const inviteVaultId = couponsByUserId.values().next().value?.coupon.vaultId;
+        const vaultBondAmountsByAccountId = new Map<string, bigint>();
         let inviteProgressClient: ArgonClient | undefined;
 
         if (inviteProgressNodeUrl) {
           try {
             const client = await getInviteProgressClient();
-            const vaultIds = [
-              ...new Set(
-                invites.flatMap(invite => {
-                  const vaultId = couponsByUserId.get(invite.id)?.coupon.vaultId;
-                  return invite.defaultAccountId && vaultId ? [vaultId] : [];
-                }),
-              ),
-            ];
+            const bondLots = inviteVaultId ? await TreasuryBonds.getBondLots(client, inviteVaultId) : [];
 
-            await Promise.all(
-              vaultIds.map(async vaultId => {
-                const bondAmountsByAccountId = new Map<string, bigint>();
-                const bondLots = await TreasuryBonds.getBondLots(client, vaultId);
-
-                for (const bondLot of bondLots) {
-                  const currentAmount = bondAmountsByAccountId.get(bondLot.accountId) ?? 0n;
-                  bondAmountsByAccountId.set(bondLot.accountId, currentAmount + bondLot.activeBondMicrogons);
-                }
-
-                vaultBondAmountsByAccountId.set(vaultId, bondAmountsByAccountId);
-              }),
-            );
+            for (const bondLot of bondLots) {
+              const currentAmount = vaultBondAmountsByAccountId.get(bondLot.accountId) ?? 0n;
+              vaultBondAmountsByAccountId.set(bondLot.accountId, currentAmount + bondLot.activeBondMicrogons);
+            }
             inviteProgressClient = client;
           } catch (error) {
             this.inviteProgressClientPromise = undefined;
@@ -488,16 +480,27 @@ export class RouterServer {
                   ]);
 
                   certificationProgress = progress;
-                  const vaultId = bitcoinLockCoupon?.coupon.vaultId;
-                  const vaultContribution = vaultId
-                    ? {
-                        bitcoinAmount: accountLocks.reduce((total, lock) => {
-                          if (!lock.isFunded || lock.vaultId !== vaultId) return total;
-                          return total + lock.liquidityPromised;
-                        }, 0n),
-                        bondAmount: vaultBondAmountsByAccountId.get(vaultId)?.get(defaultAccountId) ?? 0n,
+                  let vaultContribution;
+                  if (inviteVaultId) {
+                    let bitcoinAmount = 0n;
+                    let pendingBitcoinAmount = 0n;
+
+                    for (const lock of accountLocks) {
+                      if (lock.vaultId !== inviteVaultId) continue;
+
+                      if (lock.isFunded) {
+                        bitcoinAmount += lock.liquidityPromised;
+                      } else {
+                        pendingBitcoinAmount += lock.liquidityPromised;
                       }
-                    : undefined;
+                    }
+
+                    vaultContribution = {
+                      bitcoinAmount,
+                      pendingBitcoinAmount,
+                      bondAmount: vaultBondAmountsByAccountId.get(defaultAccountId) ?? 0n,
+                    };
+                  }
 
                   return {
                     ...toTreasuryUserInvite(invite),

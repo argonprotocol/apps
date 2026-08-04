@@ -16,6 +16,7 @@ const importMocks = vi.hoisted(() => ({
   closeWallets: vi.fn(),
   findMiningActivity: vi.fn(),
   getFinalizedClient: vi.fn(),
+  getOperatorVaultId: vi.fn(),
   readBalances: vi.fn(),
   stopBlockWatch: vi.fn(),
 }));
@@ -40,6 +41,7 @@ vi.mock('../lib/IndexerClient.ts', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  importMocks.getOperatorVaultId.mockResolvedValue({ isSome: false });
 });
 
 it('restores completed mining setup from imported operational account state', async () => {
@@ -66,6 +68,7 @@ it('restores completed mining setup from imported operational account state', as
           unwrap: () => operationalDetails,
         }),
       },
+      vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
     },
   });
   importMocks.readBalances.mockImplementation(async (_api, addresses: string[]) => {
@@ -89,6 +92,7 @@ it('restores completed mining setup from imported operational account state', as
     walletPreviousLifeRecovered: 'false',
     hasExtensionTreasury: 'true',
     hasExtensionOperations: 'true',
+    certificationDetails: JsonExt.stringify({ hasSavedMnemonic: true }, 2),
     miningSetupStatus: JsonExt.stringify(MiningSetupStatus.Finished, 2),
     vaultingSetupStatus: JsonExt.stringify(VaultingSetupStatus.Finished, 2),
     hasMiningBids: 'true',
@@ -128,6 +132,7 @@ it.each([
           isSome: false,
         }),
       },
+      vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
     },
   });
   importMocks.readBalances.mockResolvedValue([emptyBalance, emptyBalance, emptyBalance, emptyBalance]);
@@ -178,6 +183,7 @@ it.each([
           isSome: false,
         }),
       },
+      vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
     },
   });
   importMocks.readBalances.mockResolvedValue(balances);
@@ -213,6 +219,7 @@ it('does not invent extensions from an imported basic wallet balance', async () 
           isSome: false,
         }),
       },
+      vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
     },
   });
   importMocks.readBalances.mockResolvedValue([
@@ -252,6 +259,7 @@ it('does not infer treasury from an unattributed account hold', async () => {
           isSome: false,
         }),
       },
+      vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
     },
   });
   importMocks.readBalances.mockResolvedValue([
@@ -279,7 +287,7 @@ it('does not infer treasury from an unattributed account hold', async () => {
 it.each([
   {
     activityKind: 'bitcoin',
-    activityMask: AccountActivityKind.BitcoinLock,
+    activityMask: AccountActivityKind.BitcoinLock | AccountActivityKind.VaultPosition,
     hasExtensionOperations: 'false',
     vaultingSetupStatus: JsonExt.stringify(VaultingSetupStatus.None, 2),
   },
@@ -313,19 +321,15 @@ it.each([
           isSome: false,
         }),
       },
+      vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
     },
   });
   importMocks.readBalances.mockResolvedValue([emptyBalance, emptyBalance, emptyBalance, emptyBalance]);
+  importMocks.getOperatorVaultId.mockResolvedValue({ isSome: params.activityKind === 'vault' });
   importMocks.findMiningActivity.mockImplementation(async (_address, filters) => {
-    const accountActivityMask =
-      AccountActivityKind.VaultPosition |
-      AccountActivityKind.VaultRevenue |
-      AccountActivityKind.BondPosition |
-      AccountActivityKind.BitcoinLock |
-      AccountActivityKind.BitcoinMint;
     return {
       blocks:
-        filters.activityMask === accountActivityMask ? [{ blockNumber: 10, activityMask: params.activityMask }] : [],
+        filters.activityMask & params.activityMask ? [{ blockNumber: 10, activityMask: params.activityMask }] : [],
       coverage: { gaps: [] },
     };
   });
@@ -336,13 +340,9 @@ it.each([
   await new Importer({} as Config, walletKeys, Promise.resolve(db)).importFromMnemonic(mnemonic);
 
   expect(importMocks.findMiningActivity).toHaveBeenCalledWith(importWalletKeys.defaultArgonAddress, {
-    activityMask:
-      AccountActivityKind.VaultPosition |
-      AccountActivityKind.VaultRevenue |
-      AccountActivityKind.BondPosition |
-      AccountActivityKind.BitcoinLock |
-      AccountActivityKind.BitcoinMint,
+    activityMask: AccountActivityKind.BondPosition | AccountActivityKind.BitcoinLock | AccountActivityKind.BitcoinMint,
   });
+  expect(importMocks.getOperatorVaultId).toHaveBeenCalledWith(importWalletKeys.vaultingAddress);
   expect(insertOrReplace).toHaveBeenCalledWith(
     expect.objectContaining({
       walletAccountsHadPreviousLife: 'true',
@@ -367,6 +367,7 @@ it('does not block account import when fallback index history is unavailable', a
           isSome: false,
         }),
       },
+      vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
     },
   });
   importMocks.readBalances.mockResolvedValue([emptyBalance, emptyBalance, emptyBalance, emptyBalance]);

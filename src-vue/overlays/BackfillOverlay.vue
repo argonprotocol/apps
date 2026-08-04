@@ -80,7 +80,7 @@
           <div class="mb-2 text-sm font-semibold text-slate-800">Bitcoin</div>
           <div v-if="eligibleLocks.length" class="border-y border-slate-200">
             <label
-              v-for="lock in eligibleLocks"
+              v-for="(lock, index) in eligibleLocks"
               :key="lock.utxoId"
               class="flex cursor-pointer items-center gap-4 border-b border-slate-100 px-2 py-3 last:border-0">
               <input
@@ -90,11 +90,13 @@
               />
               <Checkbox :isChecked="bitcoinSelectionByUtxoId[lock.utxoId]" :size="4" />
               <span class="grow">
-                <span class="block text-sm font-semibold text-slate-800">Bitcoin lock #{{ lock.utxoId }}</span>
-                <span class="mt-0.5 block text-xs text-slate-400">Funded</span>
+                <span class="block text-sm font-semibold text-slate-800">Bitcoin lock #{{ index + 1 }}</span>
+                <span class="mt-0.5 block text-xs text-slate-400">
+                  {{ satToBtcNm(lock.satoshis).format('0,0.[00000000]') }} BTC
+                </span>
               </span>
               <span class="font-mono text-sm font-semibold text-slate-800">
-                {{ satToBtcNm(lock.satoshis).format('0,0.[00000000]') }} BTC
+                {{ currency.symbol }}{{ microgonToMoneyNm(lock.liquidityPromised).format('0,0.00') }}
               </span>
             </label>
           </div>
@@ -107,7 +109,7 @@
           <div class="mb-2 text-sm font-semibold text-slate-800">Treasury Bonds</div>
           <div v-if="eligibleBondLots.length" class="border-y border-slate-200">
             <label
-              v-for="lot in eligibleBondLots"
+              v-for="(lot, index) in eligibleBondLots"
               :key="lot.id"
               class="flex cursor-pointer items-center gap-4 border-b border-slate-100 px-2 py-3 last:border-0">
               <input
@@ -117,7 +119,7 @@
               />
               <Checkbox :isChecked="bondSelectionById[lot.id]" :size="4" />
               <span class="grow">
-                <span class="block text-sm font-semibold text-slate-800">Bond lot #{{ lot.id }}</span>
+                <span class="block text-sm font-semibold text-slate-800">Bond lot #{{ index + 1 }}</span>
                 <span class="mt-0.5 block text-xs text-slate-400">
                   {{ lot.bonds.toLocaleString() }} bonds
                 </span>

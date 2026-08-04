@@ -4,12 +4,14 @@ import Path from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import {
   BlockWatch,
+  createOperationalAccessProof,
   decryptBootstrapRecovery,
   encryptBootstrapRecovery,
   type IActivateBitcoinLockCouponRequest,
   type IBitcoinLockCouponRecord,
   type IBitcoinLockCouponStatus,
   getBootstrapEndpointPubkey,
+  JsonExt,
   MainchainClients,
   MICROGONS_PER_ARGON,
   NetworkConfig,
@@ -17,10 +19,10 @@ import {
 } from '@argonprotocol/apps-core';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
-import { type ArgonClient, u8aToHex } from '@argonprotocol/mainchain';
-import { teardown } from '@argonprotocol/testing';
+import { type ArgonClient, TxSubmitter, u8aToHex } from '@argonprotocol/mainchain';
+import { sudo, teardown } from '@argonprotocol/testing';
 import { type BotServer, Db as BotDb, startServer as startBotServer, type Bot } from '@argonprotocol/apps-bot';
-import type { IRouterAuthSessionResponse } from '@argonprotocol/apps-router';
+import type { IInviteResponse, IRouterAuthSessionResponse } from '@argonprotocol/apps-router';
 import { Db as RouterDb } from '../../router/src/Db.ts';
 import { RouterServer } from '../../router/src/RouterServer.ts';
 import { BootstrapRecovery, BootstrapRecoveryContext } from '../lib/BootstrapRecovery.ts';
@@ -91,6 +93,37 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
       micronots: 0n,
     });
 
+    const operationalAccountStorageKey = client.query.operationalAccounts.operationalAccounts.key(
+      operatorWalletKeys.operationalAddress,
+    );
+    const operationalAccount = client.createType('PalletOperationalAccountsOperationalAccount', {
+      vaultAccount: operatorWalletKeys.vaultingAddress,
+      miningAccount: operatorWalletKeys.miningBotAddress,
+      encryptionPubkey: new Uint8Array(32),
+      upstreamAccount: null,
+      uniswapArgonTransfersInAmount: 0n,
+      accountBitcoinAmount: 0n,
+      accountVaultBondAmount: 0n,
+      vaultCreated: true,
+      vaultBitcoinAccrual: 0n,
+      vaultBitcoinAppliedTotal: 0n,
+      miningSeatAccrual: 0,
+      miningSeatAppliedTotal: 0,
+      operationalCertificationsCount: 0,
+      accessCodePending: false,
+      availableAccessCodes: 1,
+      rewardsEarnedCount: 0,
+      rewardsEarnedAmount: 0n,
+      rewardsCollectedAmount: 0n,
+      isOperationallyCertified: true,
+    });
+    const operationalAccountResult = await new TxSubmitter(
+      client,
+      client.tx.sudo.sudo(client.tx.system.setStorage([[operationalAccountStorageKey, operationalAccount.toHex()]])),
+      sudo(),
+    ).submit({ useLatestNonce: true });
+    await operationalAccountResult.waitForInFirstBlock;
+
     const source = await startUpstream(
       'source',
       operatorWalletKeys.operationalAddress,
@@ -155,14 +188,19 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
       defaultAccountKeypair,
       authKeypair: await memberWalletKeys.getUpstreamOperatorAuthKeypair(),
     });
-    let restorePackage: string | undefined;
+    let restorePackage:
+      | Pick<NonNullable<IRouterAuthSessionResponse['restore']>, 'restorePackage' | 'restorePackageRevision'>
+      | undefined;
     let cachedBootstrapRecovery: Uint8Array | undefined;
     let downstreamCoupons: IBitcoinLockCouponStatus[] = [];
     let downstreamRestore: IRouterAuthSessionResponse['restore'];
     const upstreamRecoverySeed = await memberWalletKeys.getUpstreamEndpointRecoverySeed();
     const applyRestoreResult = (restore: NonNullable<IRouterAuthSessionResponse['restore']>) => {
       downstreamRestore = restore;
-      restorePackage = restore.restorePackage;
+      restorePackage = {
+        restorePackage: restore.restorePackage,
+        restorePackageRevision: restore.restorePackageRevision,
+      };
       downstreamCoupons = restore.bitcoinLockCoupons;
     };
     const memberAuthState: MemberAuthState = {
@@ -205,9 +243,49 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
     );
     await serverAuthClient.getMemberSessionId(source.operatorHost);
     expect(restorePackage).toBeTruthy();
+    const claimedInvite = source.routerDb.userInvitesTable.fetchById(invite.id)!;
+    const invitationAt = claimedInvite.createdAt;
+    const acceptedAt = claimedInvite.firstClickedAt!;
+    const initialRestorePackageRevision = restorePackage!.restorePackageRevision;
+    expect(initialRestorePackageRevision).toBe('2.0');
     await expect(decryptBootstrapRecovery(cachedBootstrapRecovery!, upstreamRecoverySeed)).resolves.toMatchObject({
       endpointSecret: bootstrapEndpointSecret,
     });
+
+    const operationsUpgradeRequestedAt = await upstreamOperatorClient.requestOperationsUpgrade({
+      defaultAccountKeypair,
+      operationalAccountId: memberWalletKeys.operationalAddress,
+      authKeypair: await memberWalletKeys.getUpstreamOperatorAuthKeypair(),
+    });
+    await serverAuthClient.invalidateMemberSessionId(source.operatorHost);
+    await serverAuthClient.getMemberSessionId(source.operatorHost);
+    expect(restorePackage!.restorePackageRevision).toBe('2.1');
+    expect(downstreamRestore?.hasOperationsAccess).toBe(false);
+
+    const operatorAuthClient = new ServerAuthClient(() => operatorWalletKeys);
+    const operatorSessionId = await operatorAuthClient.getAdminOperatorSessionId(source.operatorHost);
+    const accessProof = createOperationalAccessProof(
+      await operatorWalletKeys.getOperationalKeypair(),
+      memberWalletKeys.operationalAddress,
+    );
+    const approvalResponse = await fetch(
+      `${source.operatorHost}/invites/${invite.inviteCode}/mark-operations-upgraded?sessionId=${operatorSessionId}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JsonExt.stringify({ signature: accessProof.signature }),
+      },
+    );
+    expect(approvalResponse.status).toBe(200);
+    const approvedInvite = JsonExt.parse<IInviteResponse>(await approvalResponse.text()).invite;
+    const operationsUpgradedAt = approvedInvite.operationsUpgradedAt!;
+
+    const requestedRestorePackageRevision = restorePackage!.restorePackageRevision;
+    await serverAuthClient.invalidateMemberSessionId(source.operatorHost);
+    await serverAuthClient.getMemberSessionId(source.operatorHost);
+    expect(requestedRestorePackageRevision).toBe('2.1');
+    expect(restorePackage!.restorePackageRevision).toBe('2.2');
+    expect(downstreamRestore?.hasOperationsAccess).toBe(true);
 
     await source.routerServer.close();
     routerServers.splice(routerServers.indexOf(source.routerServer), 1);
@@ -246,9 +324,16 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
       {
         name: 'Casey',
         fromName: 'Operator One',
+        createdAt: invitationAt,
+        firstClickedAt: acceptedAt,
+        operationalAccountId: memberWalletKeys.operationalAddress,
+        operationsUpgradeRequestedAt,
+        operationsUpgradedAt,
+        operationsAccessProofSignature: accessProof.signature,
       },
     );
     expect(recovered.botDb.bitcoinLockCouponsTable.fetchAll()).toHaveLength(1);
+    expect(downstreamRestore?.hasOperationsAccess).toBe(true);
 
     restorePackage = undefined;
     cachedBootstrapRecovery = undefined;
@@ -326,6 +411,7 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
     const routerServer = new RouterServer({
       db: routerDb,
       botInternalUrl: `http://${botAddress.host}:${botAddress.port}`,
+      mainNodeUrl: clients.archiveUrl,
       port: 0,
       auth: {
         adminOperatorAccountId,

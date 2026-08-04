@@ -159,7 +159,8 @@
       @click="openUpgradeToOperationsOverlay"
     >
       <div class="relative flex flex-row items-center gap-1.5 whitespace-nowrap pl-2.5 pr-3 pt-px">
-        Upgrade to Operations
+        <template v-if="hasRequestedOperationsUpgrade">Operations Requested</template>
+        <template v-else>Upgrade to Operations</template>
       </div>
     </div>
     <NavigationMenuItem
@@ -290,6 +291,9 @@ const isUnlockTrack = Vue.computed(() => {
 const isCertificationMenuVisible = Vue.computed(() => {
   return !controller.isOperationalRewardsFlowActive;
 });
+const hasRequestedOperationsUpgrade = Vue.computed(() => {
+  return config.upstreamOperator?.restorePackageRevision?.endsWith('.1') ?? false;
+});
 
 const currentStepIds = Vue.computed(() => {
   return isUnlockTrack.value ? treasuryCertificationStepIds : operationsCertificationStepIds;
@@ -326,7 +330,10 @@ const isShowingUpgradeButton = Vue.computed(() => {
 
 const isShowingUpgradeTooltip = Vue.computed(() => {
   return (
-    isShowingUpgradeButton.value && !config.certificationDetails?.dismissedOperationsUpgradeOverlay && !isOpen.value
+    isShowingUpgradeButton.value &&
+    !hasRequestedOperationsUpgrade.value &&
+    !config.certificationDetails?.dismissedOperationsUpgradeOverlay &&
+    !isOpen.value
   );
 });
 

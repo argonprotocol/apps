@@ -26,6 +26,7 @@ import type {
   IListInvitesResponse,
   IOpenInviteResponse,
   IPreviewInviteResponse,
+  IRouterAuthChallengeRequest,
   IRouterAuthSessionResponse,
 } from '../src/interfaces/index.ts';
 
@@ -228,74 +229,53 @@ describe('RouterServer', () => {
     expect(body.invites[1].bitcoinLockCoupon).toBeUndefined();
   });
 
-  it('loads vault bonds once and reuses each member bitcoin state when listing invite progress', async () => {
+  it('separates initialized and funded bitcoin progress in the operator vault', async () => {
     routerDb = createDb('router-server-list-invite-progress-');
 
-    const memberOne = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMemberOne');
-    const memberTwo = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMemberTwo');
-    const inviteOne = insertMemberInvite(routerDb, {
-      inviteCode: 'member-invite-1',
-      name: 'Casey',
-      fromName: 'Operator One',
+    const members = ['NoLock', 'Pending', 'Funded', 'Mixed', 'OtherVault'].map(name =>
+      new Keyring({ type: 'sr25519' }).addFromUri(`//InviteMember${name}`),
+    );
+    const invites = members.map((member, index) => {
+      const invite = insertMemberInvite(routerDb!, {
+        inviteCode: `member-invite-${index + 1}`,
+        name: `Member ${index + 1}`,
+        fromName: 'Operator One',
+      });
+      routerDb!.userInvitesTable.claimInvite(invite.id, member.address, member.address);
+      return invite;
     });
-    const inviteTwo = insertMemberInvite(routerDb, {
-      inviteCode: 'member-invite-2',
-      name: 'Riley',
-      fromName: 'Operator One',
-    });
-    routerDb.userInvitesTable.claimInvite(inviteOne.id, memberOne.address, memberOne.address);
-    routerDb.userInvitesTable.claimInvite(inviteTwo.id, memberTwo.address, memberTwo.address);
-
-    const coupons = [
+    const coupons = invites.map((invite, index) =>
       createCouponStatus({
-        userId: inviteOne.id,
-        offerCode: 'offer-code-1',
+        userId: invite.id,
+        offerCode: `offer-code-${index + 1}`,
         vaultId: 12,
         maxSatoshis: 25_000n,
         estimatedGiftUsd: 16.25,
         btcPctFee: 2.5,
       }),
-      createCouponStatus({
-        userId: inviteTwo.id,
-        offerCode: 'offer-code-2',
-        vaultId: 12,
-        maxSatoshis: 25_000n,
-        estimatedGiftUsd: 16.25,
-        btcPctFee: 2.5,
-      }),
-    ];
+    );
     const registry = getOfflineRegistry();
-    const bondLots = new Map([
-      [
-        1,
-        registry.createType('PalletTreasuryBondLot', {
-          owner: memberOne.address,
-          program: { Vault: { vaultId: 12, sharingPercent: 0, bonusPercent: 0 } },
-          bonds: 3,
-        }),
-      ],
-      [
-        2,
-        registry.createType('PalletTreasuryBondLot', {
-          owner: memberTwo.address,
-          program: { Vault: { vaultId: 12, sharingPercent: 0, bonusPercent: 0 } },
-          bonds: 5,
-        }),
-      ],
+    const bondLotsByVault = vi.fn().mockResolvedValue(registry.createType('Vec<PalletTreasuryBondLotSummary>', []));
+    const bondLotIdsByAccount = vi.fn().mockResolvedValue([]);
+    const utxoIdsByAccount = new Map([
+      [members[1].address, [101]],
+      [members[2].address, [102]],
+      [members[3].address, [103, 104, 105]],
+      [members[4].address, [106]],
     ]);
-    const bondLotsByVault = vi
-      .fn()
-      .mockResolvedValue(
-        registry.createType('Vec<PalletTreasuryBondLotSummary>', [{ bondLotId: 1 }, { bondLotId: 2 }]),
-      );
-    const bondLotIdsByAccount = vi.fn(async (accountId: string) => {
-      const id = accountId === memberOne.address ? 1 : 2;
-      return [{ args: [null, registry.createType('u64', id)] }];
-    });
     const utxoIdsByOwnerAccount = vi.fn(async (accountId: string) => {
-      const id = accountId === memberOne.address ? 101 : 102;
-      return [{ args: [null, registry.createType('u64', id)] }];
+      return (utxoIdsByAccount.get(accountId) ?? []).map(id => ({
+        args: [null, registry.createType('u64', id)],
+      }));
     });
+    const lockByUtxoId = new Map([
+      [101, { vaultId: 12, liquidityPromised: 5, isFunded: false }],
+      [102, { vaultId: 12, liquidityPromised: 7, isFunded: true }],
+      [103, { vaultId: 12, liquidityPromised: 11, isFunded: false }],
+      [104, { vaultId: 12, liquidityPromised: 13, isFunded: true }],
+      [105, { vaultId: 12, liquidityPromised: 17, isFunded: false }],
+      [106, { vaultId: 99, liquidityPromised: 19, isFunded: false }],
+    ]);
     mainchainMocks.getClient.mockResolvedValue({
       disconnect: vi.fn().mockResolvedValue(undefined),
       consts: {
@@ -318,26 +298,24 @@ describe('RouterServer', () => {
           bondLotsByVault,
           bondLotIdsByAccount: { keys: bondLotIdsByAccount },
           bondLotById: {
-            multi: vi.fn(async (ids: number[]) => {
-              return ids.map(id => ({
-                isSome: true,
-                unwrap: () => bondLots.get(id),
-              }));
-            }),
+            multi: vi.fn().mockResolvedValue([]),
           },
         },
         bitcoinLocks: {
           utxoIdsByOwnerAccount: { keys: utxoIdsByOwnerAccount },
           locksByUtxoId: {
             multi: vi.fn(async (ids: number[]) => {
-              return ids.map(id => ({
-                isSome: true,
-                unwrap: () => ({
-                  vaultId: registry.createType('u32', 12),
-                  liquidityPromised: registry.createType('u128', id === 101 ? 7 : 11),
-                  isFunded: { toJSON: () => true },
-                }),
-              }));
+              return ids.map(id => {
+                const lock = lockByUtxoId.get(id)!;
+                return {
+                  isSome: true,
+                  unwrap: () => ({
+                    vaultId: registry.createType('u32', lock.vaultId),
+                    liquidityPromised: registry.createType('u128', lock.liquidityPromised),
+                    isFunded: { toJSON: () => lock.isFunded },
+                  }),
+                };
+              });
             }),
           },
         },
@@ -368,17 +346,15 @@ describe('RouterServer', () => {
 
     const body = JsonExt.parse<IListInvitesResponse>(await response.text());
     const invitesByCode = new Map(body.invites.map(invite => [invite.inviteCode, invite]));
-    expect(invitesByCode.get(inviteOne.inviteCode)?.vaultContribution).toEqual({
-      bitcoinAmount: 7n,
-      bondAmount: 3n * 1_000_000n,
-    });
-    expect(invitesByCode.get(inviteTwo.inviteCode)?.vaultContribution).toEqual({
-      bitcoinAmount: 11n,
-      bondAmount: 5n * 1_000_000n,
-    });
-    expect(bondLotsByVault).toHaveBeenCalledTimes(1);
-    expect(bondLotIdsByAccount).toHaveBeenCalledTimes(2);
-    expect(utxoIdsByOwnerAccount).toHaveBeenCalledTimes(2);
+    expect(invites.map(invite => invitesByCode.get(invite.inviteCode)?.vaultContribution)).toEqual([
+      { bitcoinAmount: 0n, pendingBitcoinAmount: 0n, bondAmount: 0n },
+      { bitcoinAmount: 0n, pendingBitcoinAmount: 5n, bondAmount: 0n },
+      { bitcoinAmount: 7n, pendingBitcoinAmount: 0n, bondAmount: 0n },
+      { bitcoinAmount: 13n, pendingBitcoinAmount: 28n, bondAmount: 0n },
+      { bitcoinAmount: 0n, pendingBitcoinAmount: 0n, bondAmount: 0n },
+    ]);
+    expect(bondLotsByVault).toHaveBeenCalledOnce();
+    expect(bondLotsByVault).toHaveBeenCalledWith(12);
   });
 
   it('regenerates an expired invite in place', async () => {
@@ -566,6 +542,107 @@ describe('RouterServer', () => {
     expect(claimedInvite?.operationalAccountId).toBeFalsy();
     expect(claimedInvite?.authAccountId).toBe(memberAuth.address);
     expect(claimedInvite?.lastClickedAt).toBeTruthy();
+  });
+
+  it('returns a refreshed member backup only after its revision changes', async () => {
+    routerDb = createDb('router-server-refresh-member-package-');
+
+    const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
+    const member = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMember');
+    const memberAuth = member.derive('//upstream-operator-auth');
+    const invite = insertMemberInvite(routerDb, {
+      inviteCode: 'member-invite-1',
+      name: 'Casey',
+      fromName: 'Operator One',
+    });
+    routerDb.userInvitesTable.claimInvite(invite.id, member.address, memberAuth.address);
+
+    const started = await startRouterServer(
+      routerDb,
+      request => {
+        if (request.method === 'GET' && request.path === `/bitcoin-lock-coupons/by-user/${invite.id}`) {
+          return { status: 200, body: [] };
+        }
+
+        return { status: 404, body: { error: 'Not Found' } };
+      },
+      {
+        adminOperatorAccountId: operator.address,
+        restoreKey: `0x${'42'.repeat(32)}`,
+      },
+    );
+    routerServer = started.routerServer;
+    botServer = started.botServer;
+
+    const { session } = await login(started.routerAddress, member, UserRole.Member, memberAuth);
+    const initialRevision = session.restore?.restorePackageRevision;
+
+    expect(initialRevision).toBe('2.0');
+    expect(session.restore?.restorePackage).toBeTruthy();
+
+    const current = await login(started.routerAddress, member, UserRole.Member, memberAuth, {
+      restorePackageRevision: initialRevision,
+    });
+    expect(current.session.restore).toBeUndefined();
+
+    const previousClientWithPackage = await login(started.routerAddress, member, UserRole.Member, memberAuth, {
+      hasRestorePackage: true,
+    });
+    expect(previousClientWithPackage.session.restore).toBeUndefined();
+
+    const previousClientWithoutPackage = await login(started.routerAddress, member, UserRole.Member, memberAuth, {
+      hasRestorePackage: false,
+    });
+    expect(previousClientWithoutPackage.session.restore?.restorePackage).toBeTruthy();
+
+    routerDb.userInvitesTable.requestOperationsUpgrade(invite.id);
+
+    const changed = await login(started.routerAddress, member, UserRole.Member, memberAuth, {
+      restorePackageRevision: initialRevision,
+    });
+    const requestedRevision = changed.session.restore?.restorePackageRevision;
+    expect(requestedRevision).toBe('2.1');
+
+    const unchangedRequest = await login(started.routerAddress, member, UserRole.Member, memberAuth, {
+      restorePackageRevision: requestedRevision,
+    });
+    expect(unchangedRequest.session.restore).toBeUndefined();
+  });
+
+  it('keeps member login available when the current restore package cannot be refreshed', async () => {
+    routerDb = createDb('router-server-member-package-refresh-retry-');
+
+    const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
+    const member = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMember');
+    const memberAuth = member.derive('//upstream-operator-auth');
+    const invite = insertMemberInvite(routerDb, {
+      inviteCode: 'member-invite-1',
+      name: 'Casey',
+      fromName: 'Operator One',
+    });
+    routerDb.userInvitesTable.claimInvite(invite.id, member.address, memberAuth.address);
+
+    const started = await startRouterServer(
+      routerDb,
+      request => {
+        if (request.method === 'GET' && request.path === `/bitcoin-lock-coupons/by-user/${invite.id}`) {
+          return { status: 503, body: { error: 'Coupon service is restarting.' } };
+        }
+
+        return { status: 404, body: { error: 'Not Found' } };
+      },
+      {
+        adminOperatorAccountId: operator.address,
+        restoreKey: `0x${'42'.repeat(32)}`,
+      },
+    );
+    routerServer = started.routerServer;
+    botServer = started.botServer;
+
+    const { session } = await login(started.routerAddress, member, UserRole.Member, memberAuth);
+
+    expect(session.sessionId).toBeTruthy();
+    expect(session.restore).toBeUndefined();
   });
 
   it('requires admin operator auth for invite management routes when auth is configured', async () => {
@@ -1084,15 +1161,18 @@ async function login(
   account: KeyringPair,
   role: RouterAuthRole = UserRole.AdminOperator,
   authAccount?: KeyringPair,
+  restore?: Pick<IRouterAuthChallengeRequest, 'restorePackageRevision' | 'hasRestorePackage'>,
 ): Promise<{ session: IRouterAuthSessionResponse }> {
   const baseUrl = `http://${routerAddress.host}:${routerAddress.port}`;
+  const challengeRequest: IRouterAuthChallengeRequest = {
+    role,
+    authAccountId: (authAccount ?? account).address,
+  };
+  Object.assign(challengeRequest, restore);
   const challengeResponse = await fetch(`${baseUrl}/auth/challenge`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JsonExt.stringify({
-      role,
-      authAccountId: (authAccount ?? account).address,
-    }),
+    body: JsonExt.stringify(challengeRequest),
   });
   const challenge = JsonExt.parse<{
     role: RouterAuthRole;

@@ -30,7 +30,13 @@ export function getUpstreamOperatorAuthClient(): ServerAuthClient {
       const config = getConfig();
       if (!config.isLoaded) return;
 
-      return config.upstreamOperator?.restorePackage;
+      const restorePackage = config.upstreamOperator?.restorePackage;
+      if (!restorePackage) return;
+
+      return {
+        restorePackage,
+        restorePackageRevision: config.upstreamOperator?.restorePackageRevision ?? '1.0',
+      };
     },
     getBootstrapEndpointPubkey: async () => {
       const encryptedBootstrapRecovery = getConfig().upstreamOperator?.encryptedBootstrapRecovery;
@@ -71,8 +77,12 @@ export function getUpstreamOperatorAuthClient(): ServerAuthClient {
         accountId: restore.operatorAccountId,
         ...(vaultId !== undefined ? { vaultId } : {}),
         restorePackage: restore.restorePackage,
+        restorePackageRevision: restore.restorePackageRevision,
       };
       config.hasExtensionTreasury = true;
+      if (restore.hasOperationsAccess) {
+        config.hasExtensionOperations = true;
+      }
       await config.save();
 
       const { getBitcoinLockCoupons } = await import('./bitcoin.ts');

@@ -405,28 +405,23 @@ async function submitInvite() {
       currency.convertMicrogonTo(vault.calculateBitcoinFee(fullLockAmount), UnitOfMeasurement.USD),
     );
 
-    let fromName = vault.name?.trim() ?? '';
+    const fromName = vault.name?.trim() || operatorName.value.trim();
+
     let inviteSetupTransaction: TransactionInfo | undefined;
     if (flexibleAssetChanges.value) {
       inviteSetupTransaction = await myVault.prepareMemberInvite({
-        vaultName: fromName || operatorName.value.trim(),
+        vaultName: fromName,
         ...flexibleAssetChanges.value,
       });
-    } else if (fromName) {
+    } else if (vault.name?.trim()) {
       inviteSetupTransaction = await myVault.ensureDelegatedBitcoinSigner();
     } else {
-      inviteSetupTransaction = await myVault.setupVaultInviteProfile(operatorName.value.trim());
+      inviteSetupTransaction = await myVault.setupVaultInviteProfile(fromName);
     }
 
     if (inviteSetupTransaction) {
       await waitForSetupTransaction(inviteSetupTransaction);
       flexibleAssetChanges.value = undefined;
-      await myVault.load(true);
-      fromName = myVault.createdVault?.name?.trim() || fromName || operatorName.value.trim();
-    }
-    if (!inviteSetupTransaction && !fromName) {
-      await myVault.load(true);
-      fromName = myVault.createdVault?.name?.trim() || operatorName.value.trim();
     }
 
     const invite = await serverApiClient.createInvite({
@@ -465,7 +460,7 @@ async function waitForSetupTransaction(transaction: TransactionInfo) {
   });
 
   try {
-    await transaction.txResult.waitForFinalizedBlock;
+    await transaction.txResult.waitForInFirstBlock;
   } finally {
     clearSetupProgress();
   }

@@ -74,7 +74,6 @@ import { useFinancials } from '../stores/financials.ts';
 import { getArgonBonds } from '../stores/argonBonds.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
-import { TreasuryBonds } from '@argonprotocol/apps-core';
 
 const emit = defineEmits<{
   (e: 'load', vaults: Vault[]): void;
@@ -102,11 +101,7 @@ const selectedVaultId = Vue.ref<number | null>(null);
 const vaultBondSubscriptions: VoidFunction[] = [];
 
 function availableBondSpace(vault: Vault): bigint {
-  return TreasuryBonds.availableBondSpace({
-    vault,
-    priceIndex: currency.priceIndex,
-    bondState: argonBonds.data.capacityStatesByVault[vault.vaultId],
-  });
+  return argonBonds.availableBondSpace(vault);
 }
 
 function bitcoinAnnualPercentRate(vault: Vault) {
