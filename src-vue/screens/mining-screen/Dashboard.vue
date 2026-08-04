@@ -649,6 +649,7 @@ async function refreshLiveFrameDetail() {
 
 async function refreshPendingHistoricalFrameDetail() {
   const frameId = currentFrame.value.id;
+  if (frameId !== myMiningSeats.selectedFrameId) return;
   if (frameId >= myMiningSeats.latestFrameId) return;
 
   await loadHistoricalFrameDetail(frameId);
