@@ -430,8 +430,4 @@ export class ArgonBonds {
     if (blockNumber === undefined) throw new Error('Finalized bond transaction is missing its inclusion block');
     return this.miningFrames.blockWatch.getHeader(blockNumber);
   }
-
-  private get runtimeSpecVersion(): number {
-    return this.miningFrames.blockWatch.subscriptionClient?.runtimeVersion.specVersion.toNumber() ?? 0;
-  }
 }
