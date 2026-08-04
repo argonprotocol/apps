@@ -37,6 +37,28 @@ afterEach(() => {
 });
 
 describe.sequential('BitcoinLockRelayService integration', () => {
+  it('retries startup after an initial failure', async () => {
+    const harness = await createRelayServiceHarness();
+    const service = harness.service as unknown as TestRelayService;
+    let attempts = 0;
+
+    try {
+      vi.spyOn(service, 'startInternal').mockImplementation(async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new Error('Pruned client is not ready');
+        }
+      });
+
+      await expect(harness.service.start()).rejects.toThrow('Pruned client is not ready');
+      await expect(harness.service.start()).resolves.toBeUndefined();
+
+      expect(attempts).toBe(2);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
   it('stores the btc percent fee on created coupons', async () => {
     const harness = await createRelayServiceHarness();
     const service = harness.service as unknown as TestRelayService;

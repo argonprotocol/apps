@@ -720,18 +720,13 @@ async function buildGatewayActivityProofPayloadWithFallback(
   args: Omit<Parameters<typeof buildGatewayActivityProofPayload>[1], 'executionRpcUrl'>,
 ): ReturnType<typeof buildGatewayActivityProofPayload> {
   let lastError: unknown;
-  let hadNullPayload = false;
 
   for (const executionRpcUrl of executionRpcUrls) {
     try {
-      const payload = await buildGatewayActivityProofPayload(client, {
+      return await buildGatewayActivityProofPayload(client, {
         ...args,
         executionRpcUrl,
       });
-      if (payload !== null) {
-        return payload;
-      }
-      hadNullPayload = true;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       // These errors come from Argon runtime bounds, so another execution RPC cannot resolve them.
@@ -753,10 +748,6 @@ async function buildGatewayActivityProofPayloadWithFallback(
 
   if (lastError instanceof Error) {
     throw lastError;
-  }
-
-  if (hadNullPayload) {
-    return null;
   }
 
   throw new Error(lastError ? String(lastError) : 'Ethereum execution RPC is not configured on this network.');

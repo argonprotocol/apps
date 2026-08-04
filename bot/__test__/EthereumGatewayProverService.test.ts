@@ -113,6 +113,7 @@ let currentClientArgs:
 describe('EthereumGatewayProverService', () => {
   afterEach(() => {
     vi.useRealTimers();
+    gatewayProofMock.buildGatewayActivityProofPayload.mockReset();
   });
 
   beforeEach(() => {
@@ -129,8 +130,15 @@ describe('EthereumGatewayProverService', () => {
     });
   });
 
-  it('returns Noop when the mainchain helper reports nothing new to prove', async () => {
-    gatewayProofMock.buildGatewayActivityProofPayload.mockResolvedValue(null);
+  it('returns Noop without falling back when the primary RPC reports nothing new to prove', async () => {
+    NetworkConfig.setRuntimeOverride('dev-docker', {
+      ethereumNetwork: {
+        executionRpcUrls: ['http://paid-ethereum.test', 'http://public-ethereum.test'],
+      },
+    });
+    gatewayProofMock.buildGatewayActivityProofPayload
+      .mockResolvedValueOnce(null)
+      .mockRejectedValueOnce(new Error('Public Ethereum RPC should not be called'));
     const service = new EthereumGatewayProverService(
       createSubmitLane(createClient({ runtimeGatewayActivityNonce: 5n })),
     );
@@ -145,7 +153,7 @@ describe('EthereumGatewayProverService', () => {
       throughGatewayActivityNonce: 5n,
     });
     expect(gatewayProofMock.buildGatewayActivityProofPayload).toHaveBeenCalledWith(expect.anything(), {
-      executionRpcUrl: 'http://ethereum.test',
+      executionRpcUrl: 'http://paid-ethereum.test',
       gatewayAddress: '0xgateway',
       throughExecutionBlockNumber: 160n,
     });
