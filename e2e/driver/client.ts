@@ -330,6 +330,10 @@ function isFatalFrontendError(payload: UnknownRecord): boolean {
   const message = typeof payload.message === 'string' ? payload.message : '';
   const isBenignResizeObserverNotification =
     label === 'window.error' && message === 'ResizeObserver loop completed with undelivered notifications.';
+  const isExpectedReloadDisconnect =
+    label === 'unhandledrejection' &&
+    (message.includes('disconnected from ws://') || message.includes('disconnected from wss://')) &&
+    message.includes(': 1000:: Normal Closure');
 
-  return label !== 'console.error' && !isBenignResizeObserverNotification;
+  return label !== 'console.error' && !isBenignResizeObserverNotification && !isExpectedReloadDisconnect;
 }
