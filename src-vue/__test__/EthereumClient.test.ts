@@ -134,7 +134,7 @@ describe('EthereumClient', () => {
     expect(requestBody.params).toEqual(['0x0000000000000000000000000000000000000001', 'latest']);
   });
 
-  it('uses the configured RPC before the built-in fallbacks', async () => {
+  it('falls back from the configured RPC when it returns a provider error', async () => {
     NetworkConfig.setRuntimeOverride('dev-docker', {
       ethereumNetwork: {
         executionRpcUrls: ['https://ethereum-fallback.test'],
