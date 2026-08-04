@@ -102,7 +102,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
     return treasuryBondTotals.value.returningBondMicrogons;
   });
 
-  // What the connected runtime lets this vault support.
+  // What the vault can support with its activated securitization.
   const treasuryBondCapacityMicrogons = Vue.computed(() => {
     if (!myVault.createdVault) return 0n;
 

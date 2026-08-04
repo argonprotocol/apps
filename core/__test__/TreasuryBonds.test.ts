@@ -5,9 +5,7 @@ import {
   type PalletTreasuryBondLot,
   type PalletTreasuryBondLotSummary,
   type PalletTreasuryVaultBondState,
-  PriceIndex,
   type Vec,
-  Vault,
 } from '@argonprotocol/mainchain';
 import { encodeAddress } from '@polkadot/util-crypto';
 
@@ -147,14 +145,10 @@ describe('TreasuryBonds', () => {
     ).toBe(800_000n * oneArgonot);
   });
 
-  it('keeps owner display lots separate from current runtime capacity', async () => {
+  it('keeps owner display lots separate from activated securitization capacity', async () => {
     const oneArgon = BigInt(MICROGONS_PER_ARGON);
-    let capacityBonds = 10n;
-    const vault = createCapacityVault(() => capacityBonds);
-    const priceIndex = new PriceIndex();
-    vi.spyOn(priceIndex, 'getSatoshiPriceInTargetMicrogons').mockImplementation(
-      satoshis => BigInt(satoshis) * oneArgon,
-    );
+    let activatedSecuritization = 10n * oneArgon;
+    const vault = createCapacityVault(() => activatedSecuritization);
 
     const runtimeState = registry.createType<PalletTreasuryVaultBondState>('PalletTreasuryVaultBondState', {
       bondLots: [{ bondLotId: 1, bonds: 3 }],
@@ -176,7 +170,6 @@ describe('TreasuryBonds', () => {
     expect(
       TreasuryBonds.availableBondSpace({
         vault,
-        priceIndex,
         bondState: bondState.capacityState,
       }),
     ).toBe(5n * oneArgon);
@@ -192,17 +185,15 @@ describe('TreasuryBonds', () => {
     expect(
       TreasuryBonds.availableBondSpace({
         vault,
-        priceIndex,
         bondState: moreBackfillBondState.capacityState,
       }),
     ).toBe(5n * oneArgon);
 
-    capacityBonds = 4n;
+    activatedSecuritization = 4n * oneArgon;
 
     expect(
       TreasuryBonds.availableBondSpace({
         vault,
-        priceIndex,
         bondState: bondState.capacityState,
       }),
     ).toBe(0n);
@@ -210,11 +201,7 @@ describe('TreasuryBonds', () => {
 
   it('uses only legacy storage summaries for capacity', async () => {
     const oneArgon = BigInt(MICROGONS_PER_ARGON);
-    const vault = createCapacityVault(() => 10n);
-    const priceIndex = new PriceIndex();
-    vi.spyOn(priceIndex, 'getSatoshiPriceInTargetMicrogons').mockImplementation(
-      satoshis => BigInt(satoshis) * oneArgon,
-    );
+    const vault = createCapacityVault(() => 10n * oneArgon);
 
     const legacyState = registry.createType<Vec<PalletTreasuryBondLotSummary>>('Vec<PalletTreasuryBondLotSummary>', [
       { bondLotId: 1, bonds: 3 },
@@ -229,26 +216,24 @@ describe('TreasuryBonds', () => {
     expect(
       TreasuryBonds.availableBondSpace({
         vault,
-        priceIndex,
         bondState: bondState.capacityState,
       }),
     ).toBe(7n * oneArgon);
   });
 
-  it('uses the larger of vault securitization and securitized Bitcoin value for bond capacity', () => {
+  it('caps purchases at activated securitization instead of full vault securitization', () => {
     const oneArgon = BigInt(MICROGONS_PER_ARGON);
-    const vault = createCapacityVault(() => 4n, 10n * oneArgon);
-    const priceIndex = new PriceIndex();
-    vi.spyOn(priceIndex, 'getSatoshiPriceInTargetMicrogons').mockImplementation(
-      satoshis => BigInt(satoshis) * oneArgon,
-    );
-    const bondState = [{ activeBonds: 3 }];
+    const vault = {
+      activatedSecuritization: () => 4n * oneArgon,
+      securitization: 10n * oneArgon,
+    };
 
-    expect(TreasuryBonds.availableBondSpace({ vault, priceIndex, bondState })).toBe(7n * oneArgon);
-
-    vault.securitization = 2n * oneArgon;
-
-    expect(TreasuryBonds.availableBondSpace({ vault, priceIndex, bondState })).toBe(1n * oneArgon);
+    expect(
+      TreasuryBonds.availableBondSpace({
+        vault,
+        bondState: [{ activeBonds: 3 }],
+      }),
+    ).toBe(oneArgon);
   });
 });
 
@@ -298,12 +283,8 @@ function createVaultBondLot({
   });
 }
 
-function createCapacityVault(getCapacityBonds: () => bigint, securitization = 0n) {
-  const vault = Object.assign(Object.create(Vault.prototype), {
-    effectiveSecuritizedSatoshis: getCapacityBonds,
-    securitization,
-  }) as Vault;
-
-  vault.availableBondSpace = vault.availableBondSpace.bind(vault);
-  return vault;
+function createCapacityVault(activatedSecuritization: () => bigint) {
+  return {
+    activatedSecuritization,
+  };
 }
