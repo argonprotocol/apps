@@ -27,8 +27,9 @@ export class BotWsClient {
   private requestIdCounter = 0;
   private webSocket?: WebSocket;
   private messageWaiters: Map<number, IDeferred<any>> = new Map();
+  private isDisposed = false;
 
-  // Temporary behavior: disable automatic reconnect attempts.
+  // Lifecycle gate for automatic reconnect attempts.
   private shouldReconnect = true;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -52,8 +53,33 @@ export class BotWsClient {
 
   public static async connectToServerGateway(serverApiClient: ServerApiClient): Promise<BotWsClient> {
     const client = new BotWsClient(serverApiClient);
-    await client.connectDeferred.promise;
-    return client;
+    try {
+      await client.connectDeferred.promise;
+      return client;
+    } catch (error) {
+      client.dispose();
+      throw error;
+    }
+  }
+
+  public dispose(): void {
+    if (this.isDisposed) return;
+    this.isDisposed = true;
+    this.shouldReconnect = false;
+
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = undefined;
+    }
+    this.stopHeartbeatWatchdog();
+
+    const error = new Error('BotWsClient disposed');
+    if (!this.connectDeferred.isSettled) this.connectDeferred.reject(error);
+    for (const waiter of this.messageWaiters.values()) waiter.reject(error);
+    this.messageWaiters.clear();
+
+    this.webSocket?.close();
+    this.webSocket = undefined;
   }
 
   private preventUnhandledConnectRejection(): void {
@@ -100,6 +126,8 @@ export class BotWsClient {
   }
 
   private beginConnect(): void {
+    if (this.isDisposed) return;
+
     // New connection attempt -> new deferred for callers waiting on readiness.
     if (this.connectDeferred.isSettled) {
       this.connectDeferred = createDeferred<void>();
@@ -130,6 +158,8 @@ export class BotWsClient {
       }
       return;
     }
+
+    if (this.isDisposed) return;
 
     this.webSocket = new WebSocket(this.serverApiClient.getGatewayWebsocketUrl('/bot/', sessionId));
 
@@ -250,6 +280,7 @@ export class BotWsClient {
   }
 
   private async ensureConnected(): Promise<void> {
+    if (this.isDisposed) throw new Error('BotWsClient disposed');
     if (this.webSocket?.readyState === WebSocket.OPEN) return;
 
     // If we're closed or closing, nudge the reconnect loop.

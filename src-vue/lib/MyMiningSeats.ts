@@ -162,11 +162,23 @@ export class MyMiningSeats {
     return newFrameId;
   }
 
-  public selectFrameId(frameId: number, skipDashboardUpdate: boolean = false) {
+  public selectFrameId(
+    frameId: number,
+    {
+      isUserAction = false,
+      skipDashboardUpdate = false,
+    }: {
+      isUserAction?: boolean;
+      skipDashboardUpdate?: boolean;
+    } = {},
+  ): boolean {
+    if (!isUserAction && frameId < this.selectedFrameId) return false;
+
     this.selectedFrameId = frameId;
-    if (skipDashboardUpdate) return;
+    if (skipDashboardUpdate) return true;
 
     this.updateDashboard().catch(console.error);
+    return true;
   }
 
   public async load() {
@@ -215,7 +227,7 @@ export class MyMiningSeats {
           const isOnLatestFrame = this.selectedFrameId === this.latestFrameId;
           if (frameId > this.latestFrameId) {
             this.latestFrameId = frameId;
-            if (isOnLatestFrame) this.selectFrameId(frameId, true);
+            if (isOnLatestFrame) this.selectFrameId(frameId, { skipDashboardUpdate: true });
           }
 
           const fromFrameId = this.hasRefreshedCompletedMiningHistory
@@ -282,7 +294,7 @@ export class MyMiningSeats {
   public async subscribeToDashboard({
     selectLatestFrame = false,
   }: { selectLatestFrame?: boolean } = {}): Promise<void> {
-    if (selectLatestFrame) this.selectFrameId(this.latestFrameId, true);
+    if (selectLatestFrame) this.selectFrameId(this.latestFrameId, { skipDashboardUpdate: true });
 
     this.dashboardSubscribers++;
     if (this.dashboardSubscribers > 1) return;

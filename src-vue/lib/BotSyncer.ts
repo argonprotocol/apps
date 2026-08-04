@@ -46,6 +46,7 @@ export class BotSyncer {
   private miningFrames: MiningFrames;
   private botWsClient: BotWsClient | undefined;
   private botWsClientPromise: Promise<BotWsClient> | undefined;
+  private isDisposed = false;
   private nextBotWsClientAttemptAt: number = 0;
   private lastStateRefreshAt: number = 0;
   private pendingState: IBotState | IBotStateStarting | undefined;
@@ -82,6 +83,7 @@ export class BotSyncer {
   }
 
   public async getClient(): Promise<BotWsClient> {
+    if (this.isDisposed) throw new Error('BotSyncer disposed');
     if (this.botWsClient) return this.botWsClient;
     if (Date.now() < this.nextBotWsClientAttemptAt) {
       throw new Error('Bot websocket connection is waiting before retrying.');
@@ -99,6 +101,11 @@ export class BotSyncer {
 
     this.botWsClientPromise = BotWsClient.connectToServerGateway(this.serverApiClient)
       .then(client => {
+        if (this.isDisposed) {
+          client.dispose();
+          throw new Error('BotSyncer disposed');
+        }
+
         this.botWsClient = client;
         this.nextBotWsClientAttemptAt = 0;
 
@@ -129,6 +136,15 @@ export class BotSyncer {
     const client = await this.getClient();
     const state = await client.fetch('/state');
     await this.runSync(state);
+  }
+
+  public dispose(): void {
+    if (this.isDisposed) return;
+    this.isDisposed = true;
+    this.isPaused = true;
+    this.botWsClient?.dispose();
+    this.botWsClient = undefined;
+    this.botWsClientPromise = undefined;
   }
 
   private async loopToStayConnected(): Promise<void> {

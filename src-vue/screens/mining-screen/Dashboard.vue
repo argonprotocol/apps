@@ -569,16 +569,20 @@ function prefetchHistoricalFrameDetail(frameId: number) {
   });
 }
 
-async function updateSliderFrame(newFrameIndex: number) {
+async function updateSliderFrame(newFrameIndex: number, isUserAction = false) {
   const lastIndex = Math.max(myMiningSeats.frames.length - 1, 0);
   const nextFrameIndex = Math.min(Math.max(newFrameIndex, 0), lastIndex);
   const nextFrame = myMiningSeats.frames[nextFrameIndex];
   if (!nextFrame) return;
 
-  currentFrame.value = nextFrame;
-  const frameId = currentFrame.value.id;
+  const frameId = nextFrame.id;
+  const didSelectFrame = myMiningSeats.selectFrameId(frameId, {
+    isUserAction,
+    skipDashboardUpdate: true,
+  });
+  if (!didSelectFrame) return;
 
-  myMiningSeats.selectFrameId(frameId, true);
+  currentFrame.value = nextFrame;
 
   if (frameId === myMiningSeats.latestFrameId) {
     loadingFrameId.value = null;

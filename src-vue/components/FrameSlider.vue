@@ -24,7 +24,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: 'changedFrame', index: number): void;
+  (e: 'changedFrame', index: number, isUserAction: boolean): void;
 }>();
 
 let dragMeta: any = {};
@@ -125,7 +125,7 @@ function updateFrameSliderPos(index: number, isUserAction = true) {
   if (!item) return;
 
   syncFrameSliderPos(nextFrameIndex);
-  emit('changedFrame', nextFrameIndex);
+  emit('changedFrame', nextFrameIndex, isUserAction);
 }
 
 function handleKeyDown(e: KeyboardEvent) {
