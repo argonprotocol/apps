@@ -204,11 +204,30 @@ impl Security {
                     #[cfg(target_os = "linux")]
                     {
                         // keyring 3.6.3's persistent builder does not probe the old keyutils store.
-                        let legacy_entry = keyring::keyutils::KeyutilsCredential::new_with_target(
-                            None, &service, &account,
-                        )?;
-                        match legacy_entry.get_password() {
-                            Ok(key) => match Self::decode_wallet_key(&key) {
+                        let legacy_key =
+                            match keyring::keyutils::KeyutilsCredential::new_with_target(
+                                None, &service, &account,
+                            ) {
+                                Ok(legacy_entry) => match legacy_entry.get_password() {
+                                    Ok(key) => Some(key),
+                                    Err(keyring::Error::NoEntry) => None,
+                                    Err(error) => {
+                                        log::warn!(
+                                            "Could not read the optional legacy Linux wallet encryption key; continuing without migration: {error}"
+                                        );
+                                        None
+                                    }
+                                },
+                                Err(error) => {
+                                    log::warn!(
+                                        "Could not initialize the optional legacy Linux wallet key store; continuing without migration: {error}"
+                                    );
+                                    None
+                                }
+                            };
+
+                        match legacy_key {
+                            Some(key) => match Self::decode_wallet_key(&key) {
                                 Ok(_) => {
                                     if let Err(error) = entry.set_password(&key) {
                                         log::warn!(
@@ -224,8 +243,7 @@ impl Security {
                                     None
                                 }
                             },
-                            Err(keyring::Error::NoEntry) => None,
-                            Err(error) => return Err(error.into()),
+                            None => None,
                         }
                     }
 
