@@ -119,7 +119,7 @@ const showMismatchReturnProgress = Vue.computed(() => {
 const mismatchReturnProgress = Vue.computed(() => {
   const returnRecord = nextMismatchCandidate.value?.returnRecord;
   if (isMismatchReturningOnArgon.value && lockRecord.value.utxoId && returnRecord) {
-    const txStatus = bitcoinLocks.getOrphanedReturnTxInfoForRecord(lockRecord.value.utxoId, returnRecord)?.getStatus();
+    const txStatus = bitcoinLocks.orphanReleases.getTransactionInfo(lockRecord.value.utxoId, returnRecord)?.getStatus();
     return {
       progressPct: txStatus?.progressPct ?? 0,
       label: generateProgressLabel(txStatus?.confirmations ?? -1, txStatus?.expectedConfirmations ?? 0, {

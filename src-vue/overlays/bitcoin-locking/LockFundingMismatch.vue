@@ -806,8 +806,8 @@ async function refreshEstimatedOptionFees() {
   let returnFee: bigint | null = null;
   const destination = returnFeeEstimateDestination.value;
   if (destination && canReturnMismatch.value) {
-    returnFee = await bitcoinLocks
-      .estimatedMismatchReturnArgonTxFee({
+    returnFee = await bitcoinLocks.orphanReleases
+      .estimatedCandidateReturnArgonTxFee({
         lock: currentLock.value,
         candidateRecord: candidate,
         liquidLockingAddress,
@@ -904,7 +904,7 @@ async function returnMismatch() {
 
   isSubmitting.value = true;
   try {
-    await bitcoinLocks.requestMismatchOrphanReturnOnArgon({
+    await bitcoinLocks.orphanReleases.requestCandidateReturn({
       lock: currentLock.value,
       candidateRecord: candidate,
       toScriptPubkey: destination,

@@ -257,8 +257,10 @@ export async function startDevUpstreamServer(args: {
     walletKeys,
   });
   const bootstrapRecovery = new BootstrapRecovery(walletKeys);
+  const vaultAlertAbortController = new AbortController();
   let isShutdown = false;
   let operationsUpgradePoller: { shutdown(): Promise<void> } | undefined;
+  let vaultAlertPoller: Promise<void> | undefined;
   let endpointMonitor: NodeJS.Timeout | undefined;
   let isEndpointRefreshRunning = false;
   let publishedGatewayPort: string | undefined;
@@ -268,7 +270,11 @@ export async function startDevUpstreamServer(args: {
     }
     isShutdown = true;
     clearInterval(endpointMonitor);
-    await operationsUpgradePoller?.shutdown().catch(() => undefined);
+    vaultAlertAbortController.abort();
+    await Promise.all([
+      operationsUpgradePoller?.shutdown().catch(() => undefined),
+      vaultAlertPoller?.catch(() => undefined),
+    ]);
     await actor.dispose().catch(() => undefined);
     await clients.disconnect().catch(() => undefined);
   };
@@ -328,6 +334,10 @@ export async function startDevUpstreamServer(args: {
     operationsUpgradePoller = actor.startOperationsUpgradePoller({
       client,
       routerHost: `http://127.0.0.1:${routerPort}`,
+    });
+    vaultAlertPoller = actor.pollVaultAlerts({ signal: vaultAlertAbortController.signal });
+    void vaultAlertPoller.catch(error => {
+      console.warn('[dev-upstream] Vault alert poller stopped.', error);
     });
 
     return {

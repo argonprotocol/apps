@@ -1,7 +1,10 @@
 import {
   BitcoinLock,
   u8aEq,
+  u8aToHex,
   type ApiDecoration,
+  type ArgonPrimitivesBitcoinUtxoRef,
+  type Bytes,
   type FrameSystemEventRecord,
   type GenericEvent,
 } from '@argonprotocol/mainchain';
@@ -22,9 +25,12 @@ export class BitcoinLockRecovery {
   private readonly utxoTracking: Pick<
     BitcoinUtxoTracking,
     | 'getAcceptedFundingRecordForLock'
+    | 'getUtxoRecord'
     | 'isReleaseCompleteStatus'
     | 'isReleaseStatus'
     | 'setAcceptedFundingRecordForLock'
+    | 'setReleaseCosign'
+    | 'setReleaseIsProcessingOnArgon'
     | 'setReleaseRequest'
     | 'upsertUtxoRecord'
   >;
@@ -282,7 +288,56 @@ export class BitcoinLockRecovery {
         if (!isBitcoinMint && event.method !== 'BitcoinLockRatcheted') continue;
         throw new Error(`Bitcoin lock ${utxoId} history is missing its creation record`);
       }
-      if (isBitcoinUtxoVerified) {
+      if (event.method === 'OrphanedUtxoReceived') {
+        const utxoRef = readRequiredEventField(event, 'utxoRef', block) as ArgonPrimitivesBitcoinUtxoRef;
+        await this.utxoTracking.upsertUtxoRecord(
+          record,
+          {
+            txid: utxoRef.txid.toHex(),
+            vout: utxoRef.outputIndex.toNumber(),
+            satoshis: readRequiredEventBigInt(event, ['satoshis'], block),
+          },
+          { markOrphaned: true },
+        );
+      } else if (event.method === 'OrphanedUtxoReleaseRequested') {
+        const ownerAccount = readRequiredEventField(event, 'accountId', block).toString();
+        if (ownerAccount !== record.lockDetails.ownerAccount) continue;
+        const utxoRef = readRequiredEventField(event, 'utxoRef', block) as ArgonPrimitivesBitcoinUtxoRef;
+        const orphanMaybe = await api.query.bitcoinLocks.orphanedUtxosByAccount(ownerAccount, utxoRef);
+        if (orphanMaybe.isNone) continue;
+        const orphan = orphanMaybe.unwrap();
+        if (orphan.cosignRequest.isNone) continue;
+        const request = orphan.cosignRequest.unwrap();
+        const orphanRecord = await this.utxoTracking.upsertUtxoRecord(
+          record,
+          {
+            txid: utxoRef.txid.toHex(),
+            vout: utxoRef.outputIndex.toNumber(),
+            satoshis: orphan.satoshis.toBigInt(),
+          },
+          { markOrphaned: true },
+        );
+        await this.utxoTracking.setReleaseIsProcessingOnArgon(orphanRecord, {
+          requestedReleaseAtTick: await api.query.ticks.currentTick().then(tick => tick.toNumber()),
+          releaseToDestinationAddress: u8aToHex(request.toScriptPubkey, undefined, false),
+          releaseBitcoinNetworkFee: request.bitcoinNetworkFee.toBigInt(),
+        });
+      } else if (event.method === 'OrphanedUtxoCosigned') {
+        const ownerAccount = readRequiredEventField(event, 'accountId', block).toString();
+        if (ownerAccount !== record.lockDetails.ownerAccount) continue;
+        const utxoRef = readRequiredEventField(event, 'utxoRef', block) as ArgonPrimitivesBitcoinUtxoRef;
+        const orphanRecord = this.utxoTracking.getUtxoRecord(
+          utxoId,
+          utxoRef.txid.toHex(),
+          utxoRef.outputIndex.toNumber(),
+        );
+        if (!orphanRecord) continue;
+        const signature = readRequiredEventField(event, 'signature', block) as Bytes;
+        await this.utxoTracking.setReleaseCosign(orphanRecord, {
+          releaseCosignVaultSignature: signature.toU8a(true),
+          releaseCosignHeight: block.blockNumber,
+        });
+      } else if (isBitcoinUtxoVerified) {
         const chainLock = await BitcoinLock.get(api, utxoId);
         if (!chainLock) throw new Error(`Bitcoin lock ${utxoId} is unavailable after funding verification`);
 
@@ -850,4 +905,7 @@ const bitcoinRecoveryEventMethods = new Set([
   'BitcoinSpentAfterRelease',
   'BitcoinUtxoCosignRequested',
   'BitcoinUtxoCosigned',
+  'OrphanedUtxoCosigned',
+  'OrphanedUtxoReceived',
+  'OrphanedUtxoReleaseRequested',
 ]);

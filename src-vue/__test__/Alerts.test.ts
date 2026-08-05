@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest';
-import { NetworkConfig } from '@argonprotocol/apps-core';
+import { describe, expect, it, vi } from 'vitest';
+import { MoveTo, NetworkConfig } from '@argonprotocol/apps-core';
 import { getBitcoinAlertNotices } from '../lib/Alerts.ts';
 import { BITCOIN_BLOCK_MILLIS, TICK_MILLIS } from '../lib/Env.ts';
 import { VaultCollectBuilder } from '../lib/VaultCollectBuilder.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
+import { AppVaultOperator } from '../../e2e/actors/AppVaultOperator.ts';
 
 type TestMismatchPhase =
   | 'none'
@@ -39,6 +40,7 @@ describe('VaultCollectBuilder.getNotice', () => {
       expiringCollectAmount: 7n,
       nextCollectDueDate: 1234,
       signatureCount: 1,
+      orphanSignatureCount: 0,
       nextCosignDueDate: 5678,
       councilApprovalCount: 1,
       authorizedTransferCount: 3,
@@ -72,6 +74,7 @@ describe('VaultCollectBuilder.getNotice', () => {
       expiringCollectAmount: 0n,
       nextCollectDueDate: 0,
       signatureCount: 0,
+      orphanSignatureCount: 0,
       nextCosignDueDate: 0,
       councilApprovalCount: 2,
       authorizedTransferCount: 1,
@@ -88,6 +91,18 @@ describe('VaultCollectBuilder.getNotice', () => {
 
   it('returns null when there is nothing to collect or sign', () => {
     expect(createCollectBuilder(vaultSource()).getNotice()).toBeNull();
+  });
+
+  it('surfaces orphan release signatures without other vault work', () => {
+    const notice = createCollectBuilder(
+      vaultSource({
+        pendingOrphanCosignCount: 2,
+      }),
+    ).getNotice();
+
+    expect(notice?.signatureCount).toBe(2);
+    expect(notice?.orphanSignatureCount).toBe(2);
+    expect(notice?.transactionCount).toBe(1);
   });
 
   it('marks revenue collection as processing only when the active submission is collecting revenue', () => {
@@ -107,6 +122,35 @@ describe('VaultCollectBuilder.getNotice', () => {
       signatureCount: 0,
       councilApprovalCount: 0,
     });
+  });
+});
+
+describe('AppVaultOperator vault alert poller', () => {
+  it('submits orphan signatures through the vault alert collect path', async () => {
+    const subscribe = vi.fn().mockResolvedValue(undefined);
+    const source = vaultSource({ pendingOrphanCosignCount: 1 });
+    const collectBuilder = createCollectBuilder(source);
+    const getNotice = vi.spyOn(collectBuilder, 'getNotice');
+    const collect = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(async () => {
+        source.data.pendingOrphanCosignCount = 0;
+        return { waitForPostProcessing: Promise.resolve() };
+      });
+    const actor = Object.assign(Object.create(AppVaultOperator.prototype), {
+      myVault: { subscribe, collectBuilder, collect },
+    }) as AppVaultOperator;
+
+    const abortController = new AbortController();
+    const poller = actor.pollVaultAlerts({ signal: abortController.signal, pollMs: 1 });
+    await vi.waitFor(() => expect(collect).toHaveBeenCalledTimes(2));
+    abortController.abort();
+    await poller;
+
+    expect(subscribe).toHaveBeenCalledTimes(1);
+    expect(getNotice).toHaveBeenCalled();
+    expect(collect).toHaveBeenCalledWith({ moveTo: MoveTo.DefaultArgon });
   });
 });
 
@@ -215,6 +259,7 @@ function vaultSource(
     globalCouncilPendingApprovals: number;
     pendingMintingAuthorizationTips: bigint[];
     pendingCosignUtxosById: Map<number, { targetValue: bigint }>;
+    pendingOrphanCosignCount: number;
     myPendingBitcoinCosignTxInfosByUtxoId: Map<number, unknown>;
     nextCollectDueDate: number;
     nextCosignDueDate: number;
@@ -241,6 +286,7 @@ function vaultSource(
       expiringCollectAmount: 0n,
       pendingCollectTxInfo: null,
       pendingCosignUtxosById: new Map(),
+      pendingOrphanCosignCount: 0,
       myPendingBitcoinCosignTxInfosByUtxoId: new Map(),
       nextCollectDueDate: 0,
       nextCosignDueDate: 0,

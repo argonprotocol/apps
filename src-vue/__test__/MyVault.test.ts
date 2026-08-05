@@ -64,6 +64,75 @@ describe('MyVaultRecovery', () => {
 });
 
 describe('MyVault cosign recovery', () => {
+  it('keeps orphan release signatures in operator alert state', async () => {
+    const unsubscribe = vi.fn();
+    const subscribeStorage = vi.fn(async () => unsubscribe);
+    const orphanEntries = vi
+      .fn()
+      .mockResolvedValueOnce([[{}, numberCodec(2)]])
+      .mockResolvedValueOnce([[{}, numberCodec(3)]]);
+    const client = {
+      clientType: 'pruned',
+      query: {
+        vaults: {
+          vaultsById: subscribeStorage,
+          revenuePerFrameByVault: subscribeStorage,
+          pendingCosignByVaultId: subscribeStorage,
+          lastCollectFrameByVaultId: subscribeStorage,
+          argonotCommitmentByVaultId: subscribeStorage,
+          orphanedUtxoAccountsByVaultId: { entries: orphanEntries },
+        },
+      },
+      on: vi.fn(),
+    };
+    const requestEvent = { data: { vaultId: numberCodec(7) } };
+    const unrelatedEvent = { is: () => false };
+    const eventClient = {
+      events: {
+        bitcoinLocks: {
+          BitcoinLockCreated: unrelatedEvent,
+          BitcoinLockRatcheted: unrelatedEvent,
+          BitcoinUtxoCosignRequested: unrelatedEvent,
+          BitcoinUtxoCosigned: unrelatedEvent,
+          BitcoinCosignPastDue: unrelatedEvent,
+          BitcoinLockBurned: unrelatedEvent,
+          OrphanedUtxoReleaseRequested: { is: (event: unknown) => event === requestEvent },
+          OrphanedUtxoCosigned: unrelatedEvent,
+        },
+      },
+      query: {
+        vaults: {
+          orphanedUtxoAccountsByVaultId: { entries: orphanEntries },
+        },
+      },
+    };
+    const clients = {
+      get: vi.fn(async () => client),
+      events: { on: vi.fn(() => unsubscribe) },
+    };
+    const getMainchainClients = vi.spyOn(mainchainStore, 'getMainchainClients').mockReturnValue(clients as any);
+    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(eventClient as any);
+    const { myVault, blockWatchEventOn, getBlockEvents } = createVault({ blockEvents: [{ event: requestEvent }] });
+    myVault.data.createdVault = { vaultId: 7 } as Vault;
+    myVault.data.metadata = { id: 7 } as any;
+    vi.spyOn(myVault as unknown as IMyVaultTestTarget, 'updateCollectDeadlines').mockImplementation(() => undefined);
+
+    await myVault.subscribe();
+
+    expect(myVault.data.pendingOrphanCosignCount).toBe(2);
+
+    const onBestBlocks = blockWatchEventOn.mock.calls.find(([event]) => event === 'best-blocks')![1];
+    onBestBlocks([{ blockNumber: 10, blockHash: '0x10' }]);
+    await vi.waitFor(() => {
+      expect(myVault.data.pendingOrphanCosignCount).toBe(3);
+    });
+    expect(getBlockEvents).toHaveBeenCalledTimes(1);
+
+    myVault.unsubscribe();
+    getMainchainClient.mockRestore();
+    getMainchainClients.mockRestore();
+  });
+
   it('does not add the informational tip to the actual transaction fee twice', () => {
     const { myVault } = createVault();
     myVault.data.metadata = { operationalFeeMicrogons: 10n } as any;
@@ -689,7 +758,7 @@ describe('MyVault cosign recovery', () => {
       },
       submittedCosignUtxoIds: [],
     });
-    vi.spyOn(myVault as any, 'onVaultCollect').mockResolvedValue(undefined);
+    vi.spyOn(myVault as any, 'onVaultCollect').mockRejectedValue(new Error('post-processing failed'));
 
     const result = await myVault.collect({ moveTo: 'VaultingHold' as any });
 
@@ -709,13 +778,80 @@ describe('MyVault cosign recovery', () => {
     const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({} as any);
     vi.spyOn(myVault.collectBuilder, 'buildPendingSubmission').mockResolvedValue(undefined);
 
-    await expect(myVault.collect({ moveTo: 'VaultingHold' as any })).rejects.toThrow(
-      'No vault actions are currently available to submit.',
-    );
+    await expect(myVault.collect({ moveTo: 'VaultingHold' as any })).resolves.toBeUndefined();
     expect(mintingAuthorities.authorize).not.toHaveBeenCalled();
 
     getFinalizedClient.mockRestore();
     getMainchainClient.mockRestore();
+  });
+
+  it('submits all current orphan cosigns before collecting revenue', async () => {
+    const firstOrphanTx = { kind: 'first-orphan-cosign' };
+    const secondOrphanTx = { kind: 'second-orphan-cosign' };
+    const collectTx = { kind: 'collect' };
+    const batchAll = vi.fn(() => ({ kind: 'batch' }));
+    const collect = vi.fn(() => collectTx);
+    const client = {
+      query: {
+        vaults: {
+          pendingCosignByVaultId: vi.fn().mockResolvedValue([]),
+          revenuePerFrameByVault: vi.fn().mockResolvedValue([{ uncollectedRevenue: { toBigInt: () => 40n } }]),
+        },
+      },
+      tx: {
+        utility: { batchAll },
+        vaults: { collect },
+      },
+    };
+    const finalizedClient = {};
+    const { myVault } = createVault();
+    myVault.data.createdVault = { vaultId: 7 } as any;
+    myVault.data.pendingOrphanCosignCount = 2;
+    const firstOrphanMetadata = {
+      lockUtxoId: 8,
+      ownerAccount: 'owner-1',
+      txid: 'a'.repeat(64),
+      vout: 2,
+      vaultSignatureHex: '0x1234',
+    };
+    const secondOrphanMetadata = {
+      ...firstOrphanMetadata,
+      txid: 'b'.repeat(64),
+    };
+    const buildPendingOrphanCosignTxs = vi
+      .spyOn(myVault as unknown as IMyVaultTestTarget, 'buildPendingOrphanCosignTxs')
+      .mockResolvedValueOnce([{ tx: firstOrphanTx, metadata: firstOrphanMetadata }])
+      .mockResolvedValueOnce([
+        { tx: firstOrphanTx, metadata: firstOrphanMetadata },
+        { tx: secondOrphanTx, metadata: secondOrphanMetadata },
+      ]);
+
+    const partialSubmission = await myVault.collectBuilder.buildPendingSubmission({
+      client: client as any,
+      finalizedClient: finalizedClient as any,
+      moveTo: 'VaultingHold' as any,
+    });
+
+    expect(collect).not.toHaveBeenCalled();
+    expect(partialSubmission?.tx).toBe(firstOrphanTx);
+    expect(partialSubmission?.metadata.actionType).toBe('cosignBitcoin');
+
+    const completeSubmission = await myVault.collectBuilder.buildPendingSubmission({
+      client: client as any,
+      finalizedClient: finalizedClient as any,
+      moveTo: 'VaultingHold' as any,
+    });
+
+    expect(buildPendingOrphanCosignTxs).toHaveBeenCalledWith({
+      finalizedClient,
+      submitClient: client,
+      vaultId: 7,
+    });
+    expect(batchAll).toHaveBeenCalledWith([firstOrphanTx, secondOrphanTx, collectTx]);
+    expect(completeSubmission?.metadata).toMatchObject({
+      actionType: 'collectRevenue',
+      cosignedOrphanUtxos: [firstOrphanMetadata, secondOrphanMetadata],
+    });
   });
 
   it('batches council approvals into collect work', async () => {
@@ -1295,9 +1431,16 @@ function createVault(args?: {
   db?: Record<string, unknown>;
   walletKeys?: ReturnType<typeof createMockWalletKeys>;
   ensureStoredEvents?: ReturnType<typeof vi.fn>;
+  blockEvents?: unknown[];
 }) {
+  const blockWatchEventOn = vi.fn(
+    (_event: string, _callback: (headers: { blockNumber: number; blockHash: string }[]) => void) => vi.fn(),
+  );
+  const getBlockEvents = vi.fn(async () => args?.blockEvents ?? []);
   const blockWatch = {
     finalizedBlockHeader: { blockNumber: args?.finalizedHeight ?? 100 },
+    events: { on: blockWatchEventOn },
+    getEvents: getBlockEvents,
     getFinalizedApi: vi.fn(async () => ({})),
     getHeader: vi.fn(async (blockHeight: number) => {
       return {
@@ -1396,8 +1539,10 @@ function createVault(args?: {
     }),
     getTxAttemptState,
   } as unknown as TransactionTracker;
+  const onFrameId = vi.fn((_callback: (frameId: number) => void) => ({ unsubscribe: vi.fn() }));
   const miningFrames = {
     blockWatch,
+    onFrameId,
     getFrameDate: vi.fn(() => new Date('2026-01-01T00:00:00Z')),
   } as unknown as MiningFrames;
   const bitcoinLocks = {} as BitcoinLocks;
@@ -1479,6 +1624,9 @@ function createVault(args?: {
   return {
     myVault,
     blockWatch,
+    blockWatchEventOn,
+    getBlockEvents,
+    onFrameId,
     globalCouncil,
     mintingAuthorities,
     submitAndWatch,

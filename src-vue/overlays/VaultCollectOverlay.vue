@@ -403,7 +403,12 @@ async function submitCollect() {
   collectProgressLabel.value = 'Preparing transaction...';
 
   try {
-    await myVault.collect({ moveTo: MoveTo.DefaultArgon });
+    const txInfo = await myVault.collect({ moveTo: MoveTo.DefaultArgon });
+    if (!txInfo) {
+      isSubmittingCollect.value = false;
+      collectProgressPct.value = 0;
+      collectProgressLabel.value = '';
+    }
   } catch (error) {
     collectError.value = error instanceof Error ? error.message : `${error}`;
     isSubmittingCollect.value = false;

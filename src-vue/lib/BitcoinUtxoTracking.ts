@@ -29,6 +29,8 @@ export interface IUtxoTrackingDeps {
 }
 
 export default class BitcoinUtxoTracking {
+  readonly #orphanedUtxoRecordIds = new Set<number>();
+
   public data: {
     utxosByLockUtxoId: { [utxoId: number]: IBitcoinUtxoRecord[] };
     utxosByKey: { [key: string]: IBitcoinUtxoRecord };
@@ -45,10 +47,12 @@ export default class BitcoinUtxoTracking {
 
   public async load(): Promise<void> {
     const table = await this.getTable();
-    const records = await table.fetchAll();
+    const [records, orphanedRecordIds] = await Promise.all([table.fetchAll(), table.fetchOrphanedRecordIds()]);
     this.data.utxosByLockUtxoId = {};
     this.data.utxosByKey = {};
     this.data.utxosById = {};
+    this.#orphanedUtxoRecordIds.clear();
+    for (const id of orphanedRecordIds) this.#orphanedUtxoRecordIds.add(id);
     for (const record of records) {
       this.recordUtxo(record);
     }
@@ -126,6 +130,7 @@ export default class BitcoinUtxoTracking {
       if (siblingRecord.id === record.id) continue;
       if (siblingRecord.status !== BitcoinUtxoStatus.FundingCandidate) continue;
       await table.setOrphaned(siblingRecord);
+      this.#orphanedUtxoRecordIds.add(siblingRecord.id);
     }
 
     lock.fundingUtxoRecordId = record.id;
@@ -144,7 +149,7 @@ export default class BitcoinUtxoTracking {
       seenClients.add(client);
 
       const candidates = await this.syncArgonFundingCandidates(lock, client);
-      const orphans = await this.syncArgonOrphanedCandidates(lock, client);
+      const orphans = await this.syncArgonOrphans([lock], client);
       if (candidates.length || orphans.length) return;
     }
 
@@ -152,7 +157,7 @@ export default class BitcoinUtxoTracking {
     const latestClient = await this.deps.getMainchainClient(false).catch(() => undefined);
     if (!latestClient) return;
     await this.syncArgonFundingCandidates(lock, latestClient);
-    await this.syncArgonOrphanedCandidates(lock, latestClient);
+    await this.syncArgonOrphans([lock], latestClient);
   }
 
   public async syncArgonFundingCandidates(
@@ -183,32 +188,50 @@ export default class BitcoinUtxoTracking {
     return records;
   }
 
-  public async syncArgonOrphanedCandidates(
-    lock: IBitcoinLockRecord,
+  public async syncArgonOrphans(
+    locks: IBitcoinLockRecord[],
     apiClient: ApiDecoration<'promise'>,
   ): Promise<IBitcoinUtxoRecord[]> {
-    if (!lock.utxoId) return [];
-
-    const entries = await apiClient.query.bitcoinLocks.orphanedUtxosByAccount.entries(lock.lockDetails.ownerAccount);
-    if (!entries.length) return [];
-
+    const locksByOwner = new Map<string, IBitcoinLockRecord[]>();
     const records: IBitcoinUtxoRecord[] = [];
-    for (const [orphanKey, orphanMaybe] of entries) {
-      if (orphanMaybe.isNone) continue;
-      const orphan = orphanMaybe.unwrap();
-      if (orphan.utxoId.toNumber() !== lock.utxoId) continue;
 
-      const utxoRef = orphanKey.args[1];
-      const record = await this.upsertUtxoRecord(
-        lock,
-        {
-          txid: utxoRef.txid.toHex(),
-          vout: utxoRef.outputIndex.toNumber(),
-          satoshis: orphan.satoshis.toBigInt(),
-        },
-        { markOrphaned: true },
-      );
-      records.push(record);
+    for (const lock of locks) {
+      if (!lock.utxoId) continue;
+      const ownerLocks = locksByOwner.get(lock.lockDetails.ownerAccount) ?? [];
+      ownerLocks.push(lock);
+      locksByOwner.set(lock.lockDetails.ownerAccount, ownerLocks);
+    }
+
+    for (const [ownerAccount, ownerLocks] of locksByOwner) {
+      const locksByUtxoId = new Map(ownerLocks.map(lock => [lock.utxoId, lock]));
+      const entries = await apiClient.query.bitcoinLocks.orphanedUtxosByAccount.entries(ownerAccount);
+
+      for (const [orphanKey, orphanMaybe] of entries) {
+        if (orphanMaybe.isNone) continue;
+        const orphan = orphanMaybe.unwrap();
+        const lock = locksByUtxoId.get(orphan.utxoId.toNumber());
+        if (!lock) continue;
+
+        const utxoRef = orphanKey.args[1];
+        const record = await this.upsertUtxoRecord(
+          lock,
+          {
+            txid: utxoRef.txid.toHex(),
+            vout: utxoRef.outputIndex.toNumber(),
+            satoshis: orphan.satoshis.toBigInt(),
+          },
+          { markOrphaned: true },
+        );
+        records.push(record);
+
+        if (orphan.cosignRequest.isSome) {
+          const request = orphan.cosignRequest.unwrap();
+          await this.setReleaseIsProcessingOnArgon(record, {
+            releaseToDestinationAddress: request.toScriptPubkey.toHex(),
+            releaseBitcoinNetworkFee: request.bitcoinNetworkFee.toBigInt(),
+          });
+        }
+      }
     }
     return records;
   }
@@ -398,6 +421,7 @@ export default class BitcoinUtxoTracking {
   ): IBitcoinUtxoRecord[] {
     const records = (this.data.utxosByLockUtxoId[lockUtxoId] ?? []).filter(record => {
       if (!this.isMismatchOrphanLifecycleRecord(record, fundingUtxoRecordId)) return false;
+      if (this.#orphanedUtxoRecordIds.has(record.id)) return false;
       if (!candidateRecord) return true;
       return this.isSameCandidate(record, candidateRecord);
     });
@@ -407,7 +431,23 @@ export default class BitcoinUtxoTracking {
   public getAllOrphanLifecycleUtxos(): IBitcoinUtxoRecord[] {
     return Object.values(this.data.utxosByLockUtxoId)
       .flat()
-      .filter(record => this.isMismatchOrphanLifecycleRecord(record));
+      .filter(record => {
+        const hasOrphanLifecycleStatus =
+          record.status === BitcoinUtxoStatus.Orphaned ||
+          this.isReleaseProcessingStatus(record.status) ||
+          this.isReleaseCompleteStatus(record.status);
+        return hasOrphanLifecycleStatus && this.#orphanedUtxoRecordIds.has(record.id);
+      });
+  }
+
+  public getUnresolvedOrphanRecords(locks: IBitcoinLockRecord[]): IBitcoinUtxoRecord[] {
+    const fundingRecordIds = new Set(
+      locks.map(lock => this.getAcceptedFundingRecordForLock(lock)?.id).filter((id): id is number => id !== undefined),
+    );
+
+    return this.getAllOrphanLifecycleUtxos()
+      .filter(record => !fundingRecordIds.has(record.id) && !this.isReleaseCompleteStatus(record.status))
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
   }
 
   public getRequestReleaseByVaultProgress(
@@ -616,6 +656,7 @@ export default class BitcoinUtxoTracking {
         );
       }
       this.recordUtxo(record);
+      if (options?.markOrphaned) this.#orphanedUtxoRecordIds.add(record.id);
       if (options?.markFundingUtxo) {
         lock.fundingUtxoRecordId = record.id;
         lock.fundingUtxoRecord = record;
@@ -643,6 +684,7 @@ export default class BitcoinUtxoTracking {
       await table.updateMempoolObservation(record, options.mempoolObservation, this.deps.getOracleBitcoinBlockHeight());
     }
     this.recordUtxo(record);
+    if (options?.markOrphaned) this.#orphanedUtxoRecordIds.add(record.id);
     if (options?.markFundingUtxo) {
       lock.fundingUtxoRecordId = record.id;
       lock.fundingUtxoRecord = record;
