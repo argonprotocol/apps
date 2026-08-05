@@ -1166,7 +1166,13 @@ mod tests {
         fs::create_dir_all(&test_dir).expect("test dir should be created");
 
         let mnemonic = "test test test test test test test test test test test junk";
-        let original_key = [1u8; 32];
+        let original_key = rand::random::<[u8; 32]>();
+
+        let mut wrong_key = rand::random::<[u8; 32]>();
+        if wrong_key == original_key {
+            wrong_key[0] ^= 1;
+        }
+
         let wallet = WalletFile {
             encrypted_mnemonic: Security::encrypt_mnemonic(&original_key, mnemonic)
                 .expect("mnemonic should encrypt"),
@@ -1177,7 +1183,7 @@ mod tests {
         fs::write(&mnemonic_path, mnemonic).expect("mnemonic should be written");
 
         assert_eq!(
-            wallet_recovery_mnemonic(&wallet, Some(&[2u8; 32]), &mnemonic_path)
+            wallet_recovery_mnemonic(&wallet, Some(&wrong_key), &mnemonic_path)
                 .expect("matching mnemonic should recover the stranded wallet"),
             Some(mnemonic.to_string())
         );
