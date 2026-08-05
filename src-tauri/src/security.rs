@@ -203,7 +203,7 @@ impl Security {
                 Err(keyring::Error::NoEntry) => {
                     #[cfg(target_os = "linux")]
                     {
-                        // keyring 3.6.3's persistent builder does not probe the old keyutils store.
+                        // The persistent Secret Service backend does not probe legacy keyutils entries.
                         let legacy_key =
                             match keyring::keyutils::KeyutilsCredential::new_with_target(
                                 None, &service, &account,
