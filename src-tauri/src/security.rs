@@ -153,6 +153,10 @@ impl Security {
             return Ok(key);
         }
 
+        Self::replace_encryption_key_for_app_id(app_id)
+    }
+
+    fn replace_encryption_key_for_app_id(app_id: &str) -> Result<[u8; 32]> {
         let service = format!("{app_id}.mnemonic");
         let account = Utils::get_relative_config_instance_dir(app_id)
             .to_string_lossy()
@@ -204,10 +208,18 @@ impl Security {
                             None, &service, &account,
                         )?;
                         match legacy_entry.get_password() {
-                            Ok(key) => {
-                                entry.set_password(&key)?;
-                                Some(key)
-                            }
+                            Ok(key) => match Self::decode_wallet_key(&key) {
+                                Ok(_) => {
+                                    entry.set_password(&key)?;
+                                    Some(key)
+                                }
+                                Err(error) => {
+                                    log::warn!(
+                                        "Ignoring invalid legacy Linux wallet encryption key: {error}"
+                                    );
+                                    None
+                                }
+                            },
                             Err(keyring::Error::NoEntry) => None,
                             Err(error) => return Err(error.into()),
                         }
@@ -299,12 +311,20 @@ impl Security {
     }
 
     fn write_wallet_file(app: &AppHandle, mnemonic: &str) -> Result<Security> {
+        let key = Self::encryption_key(app)?;
+        Self::write_wallet_file_with_key(app, mnemonic, &key)
+    }
+
+    fn write_wallet_file_with_key(
+        app: &AppHandle,
+        mnemonic: &str,
+        key: &[u8; 32],
+    ) -> Result<Security> {
         let (_, ssh_public_key) = Self::derive_ssh_key(mnemonic)?;
         let security = Self::create_with_addresses(mnemonic, &ssh_public_key)?;
 
-        let key = Self::encryption_key(app)?;
         let wallet = WalletFile {
-            encrypted_mnemonic: Self::encrypt_mnemonic(&key, mnemonic)?,
+            encrypted_mnemonic: Self::encrypt_mnemonic(key, mnemonic)?,
             meta: security.clone(),
         };
 
@@ -346,7 +366,8 @@ impl Security {
                 return Ok(Some(wallet.meta));
             };
 
-            let security = Self::write_wallet_file(app, &mnemonic)?;
+            let replacement_key = Self::replace_encryption_key_for_app_id(app_id)?;
+            let security = Self::write_wallet_file_with_key(app, &mnemonic, &replacement_key)?;
             log::warn!("Recovered the wallet encryption key from the local mnemonic bridge");
             return Ok(Some(security));
         }
