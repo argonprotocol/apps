@@ -144,7 +144,6 @@ import {
   useCertificationController,
   OperationalStepId,
   operationalSteps,
-  operationsCertificationStepIds,
   treasuryCertificationStepIds,
 } from '../stores/certificationController.ts';
 import { useBasics } from '../stores/basics.ts';
@@ -161,7 +160,9 @@ const isOpen = Vue.ref(false);
 const currentStepId = Vue.ref<OperationalStepId | null>(null);
 const currentTrack = Vue.ref<'treasury' | 'operations'>('treasury');
 const currentStepIds = Vue.computed(() => {
-  return currentTrack.value === 'treasury' ? treasuryCertificationStepIds : operationsCertificationStepIds;
+  return currentTrack.value === 'treasury'
+    ? treasuryCertificationStepIds
+    : controller.visibleOperationsCertificationStepIds;
 });
 const currentBlockingStep = Vue.computed(() => {
   return currentStepId.value ? controller.getCertificationBlocker(currentStepId.value) : null;
@@ -272,7 +273,11 @@ basicEmitter.on('openOperationalOverlay', (stepId: OperationalStepId) => {
     return;
   }
 
-  currentTrack.value = treasuryCertificationStepIds.some(id => id === stepId) ? 'treasury' : 'operations';
+  if (stepId === OperationalStepId.BackupMnemonic && controller.chainProgress.isUpgradedToOperations) {
+    currentTrack.value = 'operations';
+  } else {
+    currentTrack.value = treasuryCertificationStepIds.some(id => id === stepId) ? 'treasury' : 'operations';
+  }
   isOpen.value = true;
   currentStepId.value = stepId;
   basics.overlayIsOpen = true;
