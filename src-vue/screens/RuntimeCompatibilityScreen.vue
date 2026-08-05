@@ -16,13 +16,14 @@
 
       <div class="pointer-events-none relative top-px mr-3 flex w-1/2 grow flex-row items-center justify-end space-x-2">
         <button
+          v-if="!isBrowserUnsupported"
           class="text-argon-600/70 hover:text-argon-600 decoration-argon-600/30 hover:decoration-argon-600/70 pointer-events-auto cursor-pointer px-2 py-2 text-xs font-medium underline underline-offset-4 transition"
           @click="openMnemonicExport"
         >
           Export recovery phrase
         </button>
         <button
-          v-if="phase !== 'upgrade-required'"
+          v-if="!isBrowserUnsupported && phase !== 'upgrade-required'"
           class="text-argon-600 border-argon-600/20 hover:border-argon-600/40 hover:bg-argon-600/6 pointer-events-auto cursor-pointer rounded-full border bg-white/70 px-4 py-2 text-sm font-semibold transition disabled:opacity-70"
           :disabled="isLoading"
           @click="runtimeCompatibility.refreshCompatibility('manual')"
@@ -49,7 +50,13 @@
       >
         <div class="mb-8">
           <div
-            v-if="phase === 'paused'"
+            v-if="isBrowserUnsupported"
+            class="text-argon-600/70 mb-3 text-xs font-semibold tracking-[0.35em] uppercase"
+          >
+            {{ webRuntimeRequirement.name }} Required
+          </div>
+          <div
+            v-else-if="phase === 'paused'"
             class="text-argon-600/70 mb-3 text-xs font-semibold tracking-[0.35em] uppercase"
           >
             Network Upgrade In Progress
@@ -62,7 +69,8 @@
           </div>
 
           <h1 class="text-argon-text-primary mb-4 text-4xl leading-tight font-semibold">
-            <template v-if="isNewDownloadRequired">
+            <template v-if="isBrowserUnsupported">Argon Desktop requires {{ webRuntimeRequirement.name }}.</template>
+            <template v-else-if="isNewDownloadRequired">
               {{ APP_NAME }} is becoming Argon Desktop. Download the new app to continue.
             </template>
             <template v-else-if="phase === 'paused'">
@@ -115,7 +123,12 @@
             Restart App to Activate Update
           </button>
           <div class="text-argon-text-primary/80 max-w-2xl text-xl leading-7">
-            <template v-if="isNewDownloadRequired">Download Argon Desktop from the Argon website to continue.</template>
+            <template v-if="isBrowserUnsupported">
+              {{ webRuntimeRequirement.updateInstructions }} Then close and reopen Argon Desktop.
+            </template>
+            <template v-else-if="isNewDownloadRequired">
+              Download Argon Desktop from the Argon website to continue.
+            </template>
             <template v-else-if="phase === 'upgrade-required'">Install the latest app update to continue.</template>
             <template v-else>Waiting for a compatible app update...</template>
           </div>
@@ -135,11 +148,28 @@ import ExternalIcon from '../assets/external.svg';
 import { APP_NAME } from '../lib/Env.ts';
 import { useAppUpdater } from '../stores/appUpdater.ts';
 import { useRuntimeCompatibility } from '../stores/runtimeCompatibility.ts';
+import { platformType } from '../tauri-controls/utils/os.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import { NetworkConfig } from '@argonprotocol/apps-core';
 
 const updater = useAppUpdater();
 const runtimeCompatibility = useRuntimeCompatibility();
+
+const webRuntimeRequirement = {
+  macos: {
+    name: 'Safari 16.4 or later',
+    updateInstructions: 'Update Safari to version 16.4 or later, or update macOS.',
+  },
+  windows: {
+    name: 'Microsoft Edge WebView2 Runtime 111 or later',
+    updateInstructions: 'Update Microsoft Edge WebView2 Runtime to version 111 or later, or update Windows.',
+  },
+  gnome: {
+    name: 'WebKitGTK 2.40 or later',
+    updateInstructions: 'Update WebKitGTK to version 2.40 or later using your Linux distribution.',
+  },
+}[platformType];
+
 const {
   downloadProgress,
   errorMessage: updaterErrorMessage,
@@ -149,6 +179,7 @@ const {
 } = storeToRefs(updater);
 const {
   errorMessage: compatibilityErrorMessage,
+  isBrowserUnsupported,
   isLoading,
   newDownloadRequired: isNewDownloadRequired,
   phase,
