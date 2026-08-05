@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import {
   createOperationalAccessProof,
   Currency,
@@ -5,6 +6,7 @@ import {
   JsonExt,
   MainchainClients,
   MiningFrames,
+  MoveTo,
   TreasuryBonds,
 } from '@argonprotocol/apps-core';
 import {
@@ -461,6 +463,34 @@ export class AppVaultOperator {
         await runPromise.catch(() => undefined);
       },
     };
+  }
+
+  public async pollVaultAlerts(args: { signal: AbortSignal; pollMs?: number }): Promise<void> {
+    const pollMs = args.pollMs ?? 1_000;
+    await this.myVault.subscribe();
+
+    while (!args.signal.aborted) {
+      try {
+        const notice = this.myVault.collectBuilder.getNotice();
+        const hasVaultSubmission =
+          (notice?.collectRevenue ?? 0n) > 0n ||
+          (notice?.signatureCount ?? 0) > 0 ||
+          (notice?.councilApprovalCount ?? 0) > 0;
+
+        if (hasVaultSubmission && !notice?.processing) {
+          const txInfo = await this.myVault.collect({ moveTo: MoveTo.DefaultArgon });
+          await txInfo?.waitForPostProcessing;
+        }
+      } catch (error) {
+        console.warn('[dev-upstream] Unable to process vault alerts.', error);
+      }
+
+      try {
+        await delay(pollMs, undefined, { signal: args.signal });
+      } catch (error) {
+        if (!args.signal.aborted) throw error;
+      }
+    }
   }
 
   public async registerMintingAuthority(args: {

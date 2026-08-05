@@ -74,9 +74,11 @@
           {{ notice.signatureCount }} bitcoin transaction{{ notice.signatureCount === 1 ? '' : 's' }} require{{
             notice.signatureCount === 1 ? 's' : ''
           }}
-          signing at a penalty of {{ formatMoney(notice.signaturePenalty) }}
+          signing<template v-if="hasTimedCosigns(notice)">
+            at a penalty of {{ formatMoney(notice.signaturePenalty) }}
+          </template>
         </strong>
-        <span class="text-white/80">
+        <span v-if="hasTimedCosigns(notice)" class="text-white/80">
           (due in
           <CountdownClock :time="cosignDueDate" v-slot="{ hours, minutes, days }">
             <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
@@ -109,15 +111,17 @@
             </span>
             <span v-else-if="seconds">{{ seconds }} second{{ seconds === 1 ? '' : 's' }}</span>
           </CountdownClock>
-          and {{ formatMoney(notice.signaturePenalty) }} is at risk in securitization for
-          <CountdownClock :time="cosignDueDate" v-slot="{ hours, minutes, days }">
-            <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
-            <template v-else>
-              <span v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }}</span>
-              <span v-if="hours && minutes">&nbsp;</span>
-              <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
-            </template>
-          </CountdownClock>)
+          <template v-if="hasTimedCosigns(notice)">
+            and {{ formatMoney(notice.signaturePenalty) }} is at risk in securitization for
+            <CountdownClock :time="cosignDueDate" v-slot="{ hours, minutes, days }">
+              <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
+              <template v-else>
+                <span v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }}</span>
+                <span v-if="hours && minutes">&nbsp;</span>
+                <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
+              </template>
+            </CountdownClock>
+          </template>)
         </span>
       </template>
     </div>
@@ -192,15 +196,18 @@
       </template>
 
       <template v-else-if="!notice.collectRevenue && notice.signatureCount">
-        {{ formatMoney(notice.signaturePenalty) }} is at risk in securitization for
-        <CountdownClock :time="cosignDueDate" v-slot="{ hours, minutes, days }">
-          <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
-          <template v-else>
-            <span v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }}</span>
-            <span v-if="hours && minutes">&nbsp;</span>
-            <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
-          </template>
-        </CountdownClock>
+        <template v-if="hasTimedCosigns(notice)">
+          {{ formatMoney(notice.signaturePenalty) }} is at risk in securitization for
+          <CountdownClock :time="cosignDueDate" v-slot="{ hours, minutes, days }">
+            <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
+            <template v-else>
+              <span v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }}</span>
+              <span v-if="hours && minutes">&nbsp;</span>
+              <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
+            </template>
+          </CountdownClock>
+        </template>
+        <template v-else>Complete the pending orphaned bitcoin return.</template>
       </template>
 
       <template v-else>
@@ -214,15 +221,17 @@
           </span>
           <span v-else-if="seconds">{{ seconds }} second{{ seconds === 1 ? '' : 's' }}</span>
         </CountdownClock>
-        and {{ formatMoney(notice.signaturePenalty) }} is at risk in securitization for
-        <CountdownClock :time="cosignDueDate" v-slot="{ hours, minutes, days }">
-          <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
-          <template v-else>
-            <span v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }}</span>
-            <span v-if="hours && minutes">&nbsp;</span>
-            <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
-          </template>
-        </CountdownClock>
+        <template v-if="hasTimedCosigns(notice)">
+          and {{ formatMoney(notice.signaturePenalty) }} is at risk in securitization for
+          <CountdownClock :time="cosignDueDate" v-slot="{ hours, minutes, days }">
+            <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
+            <template v-else>
+              <span v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }}</span>
+              <span v-if="hours && minutes">&nbsp;</span>
+              <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
+            </template>
+          </CountdownClock>
+        </template>
       </template>
     </template>
   </AlertDetailRow>
@@ -305,6 +314,10 @@ function isProcessingCollect(notice: IVaultCollectNotice): boolean {
 
 function isProcessingApprovals(notice: IVaultCollectNotice): boolean {
   return notice.processing?.actionType === 'approveCouncil';
+}
+
+function hasTimedCosigns(notice: IVaultCollectNotice): boolean {
+  return notice.nextCosignDueDate > 0;
 }
 
 function getButtonLabel(notice: IVaultCollectNotice): string {
@@ -401,6 +414,10 @@ function getCardTooltipContent(notice: IVaultCollectNotice): string {
 
   if (notice.collectRevenue > 0n) {
     return 'Collect your vault earnings.';
+  }
+
+  if (notice.orphanSignatureCount === notice.signatureCount) {
+    return 'Sign orphaned bitcoin return transactions.';
   }
 
   return 'Sign bitcoin transactions to avoid forfeiting vault security.';

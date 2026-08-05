@@ -422,6 +422,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       }
 
       const collectTx = await myVault.collect({ moveTo: MoveTo.DefaultArgon });
+      if (!collectTx) throw new Error('Expected the pending council approval to produce a collect transaction.');
       await collectTx.txResult.waitForFinalizedBlock;
       await collectTx.waitForPostProcessing;
       expect(collectTx.tx.extrinsicType).toBe('CrosschainTransferApproveCouncil');

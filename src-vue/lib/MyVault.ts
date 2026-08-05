@@ -147,6 +147,7 @@ export class MyVault {
     };
     pendingCollectRevenue: bigint;
     pendingCosignUtxosById: Map<number, IPendingCosignUtxo>;
+    pendingOrphanCosignCount: number;
     releasedExternalUtxoIds: Set<number>;
     myPendingBitcoinCosignTxInfosByUtxoId: Map<number, TransactionInfo<{ utxoId: number }>>;
     nextCollectDueDate: number;
@@ -186,6 +187,7 @@ export class MyVault {
   #cosignQueue = new SingleFileQueue();
   #collectFrames: { frameId: number; uncollectedEarnings: bigint }[] = [];
   #pendingCosignUpdateSeq = 0;
+  #pendingOrphanCosignUpdateSeq = 0;
   #externalLocksUpdateSeq = 0;
   public readonly collectBuilder: VaultCollectBuilder;
   public readonly history: VaultHistory;
@@ -213,6 +215,7 @@ export class MyVault {
       pendingCollectTxInfo: null,
       pendingAllocateTxInfo: null,
       pendingCosignUtxosById: new Map(),
+      pendingOrphanCosignCount: 0,
       myPendingBitcoinCosignTxInfosByUtxoId: new Map(),
       nextCollectDueDate: 0,
       nextCosignDueDate: 0,
@@ -305,7 +308,9 @@ export class MyVault {
           tx.extrinsicType === ExtrinsicType.VaultCollect ||
           tx.extrinsicType === ExtrinsicType.CrosschainTransferApproveCouncil
         ) {
-          void this.onVaultCollect(txInfo);
+          void this.onVaultCollect(txInfo).catch(error => {
+            console.warn(`[MyVault] Unable to finish vault collect transaction #${txInfo.tx.id}`, error);
+          });
         }
       }
       if (!this.#singleRunTransactions.has(ExtrinsicType.VaultInitialAllocate)) {
@@ -379,6 +384,7 @@ export class MyVault {
       const vaultId = this.createdVault.vaultId;
       const clients = getMainchainClients();
       const client = await clients.get(false);
+      await this.refreshPendingOrphanCosignCount(client, vaultId);
 
       // update stats live
       const sub = await client.query.vaults.vaultsById(vaultId, vault => {
@@ -409,11 +415,14 @@ export class MyVault {
       const { unsubscribe: sub6 } = this.miningFrames.onFrameId(frameId => {
         this.data.currentFrameId = frameId;
         this.updateCollectDeadlines();
+        void this.refreshPendingOrphanCosignCount(client, vaultId).catch(x =>
+          console.error('Error updating pending orphaned Bitcoin signatures', x),
+        );
       });
 
       const sub7 = this.miningFrames.blockWatch.events.on('best-blocks', headers => {
-        void this.refreshExternalLocksFromBlockEvents(headers).catch(x =>
-          console.error(`Error updating external locks from block events`, x),
+        void this.refreshVaultBitcoinStateFromBlockEvents(headers).catch(x =>
+          console.error(`Error updating vault Bitcoin state from block events`, x),
         );
       });
 
@@ -454,15 +463,37 @@ export class MyVault {
     };
   }
 
-  private async refreshExternalLocksFromBlockEvents(headers: IBlockHeaderInfo[]): Promise<void> {
+  private async refreshPendingOrphanCosignCount(client: ArgonQueryClient, vaultId: number): Promise<void> {
+    const updateSeq = ++this.#pendingOrphanCosignUpdateSeq;
+    const entries = await client.query.vaults.orphanedUtxoAccountsByVaultId.entries(vaultId);
+    if (updateSeq !== this.#pendingOrphanCosignUpdateSeq) return;
+
+    this.data.pendingOrphanCosignCount = entries.reduce((total, [, count]) => total + count.toNumber(), 0);
+  }
+
+  private async refreshVaultBitcoinStateFromBlockEvents(headers: IBlockHeaderInfo[]): Promise<void> {
     const vaultId = this.vaultId;
     if (vaultId == null) return;
 
     const typeClient = await getMainchainClient(false);
     let latestApiClient: ApiDecoration<'promise'> | undefined;
+    let shouldRefreshOrphanCosigns = false;
     for (const header of headers) {
       const events = await this.miningFrames.blockWatch.getEvents(header);
+      let shouldRefreshExternalLocks = false;
       for (const { event } of events) {
+        if (typeClient.events.bitcoinLocks.OrphanedUtxoReleaseRequested.is(event)) {
+          if (vaultId === event.data.vaultId.toNumber()) {
+            shouldRefreshOrphanCosigns = true;
+          }
+          continue;
+        }
+        if (typeClient.events.bitcoinLocks.OrphanedUtxoCosigned.is(event)) {
+          if (vaultId === event.data.vaultId.toNumber()) {
+            shouldRefreshOrphanCosigns = true;
+          }
+          continue;
+        }
         if (
           typeClient.events.bitcoinLocks.BitcoinLockCreated.is(event) ||
           typeClient.events.bitcoinLocks.BitcoinLockRatcheted.is(event) ||
@@ -472,14 +503,19 @@ export class MyVault {
           typeClient.events.bitcoinLocks.BitcoinLockBurned.is(event)
         ) {
           if (vaultId === event.data.vaultId.toNumber()) {
-            latestApiClient = await this.miningFrames.clientAt(header);
-            break;
+            shouldRefreshExternalLocks = true;
           }
         }
+      }
+      if (shouldRefreshExternalLocks) {
+        latestApiClient = await this.miningFrames.clientAt(header);
       }
     }
     if (latestApiClient) {
       await this.refreshExternalLocks(latestApiClient);
+    }
+    if (shouldRefreshOrphanCosigns) {
+      await this.refreshPendingOrphanCosignCount(typeClient, vaultId);
     }
   }
 
@@ -1046,7 +1082,7 @@ export class MyVault {
     }
   }
 
-  public async collect(afterCollect: { moveTo: MoveTo }): Promise<TransactionInfo> {
+  public async collect(afterCollect: { moveTo: MoveTo }): Promise<TransactionInfo | undefined> {
     return await this.#cosignQueue.add(async () => {
       if (this.data.pendingCollectTxInfo) {
         if (!this.data.pendingCollectTxInfo.isPostProcessed) {
@@ -1069,7 +1105,7 @@ export class MyVault {
       });
 
       if (!submission) {
-        throw new Error('No vault actions are currently available to submit.');
+        return;
       }
 
       const txSigner = await this.walletKeys.getVaultingKeypair();
@@ -1088,7 +1124,7 @@ export class MyVault {
         this.data.releasedExternalUtxoIds.add(utxoId);
       }
 
-      void this.onVaultCollect(txInfo);
+      void this.onVaultCollect(txInfo).catch(() => undefined);
 
       return txInfo;
     }).promise;

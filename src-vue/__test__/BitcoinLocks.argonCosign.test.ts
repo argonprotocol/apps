@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BitcoinLock, type ArgonClient } from '@argonprotocol/mainchain';
+import type { BlockWatch, Currency as CurrencyBase } from '@argonprotocol/apps-core';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
+import type { Db } from '../lib/Db.ts';
+import type { TransactionTracker } from '../lib/TransactionTracker.ts';
+import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
 import { TransactionStatus } from '../lib/db/TransactionsTable.ts';
@@ -10,6 +14,7 @@ vi.mock('../stores/mainchain.ts', () => ({
 }));
 
 type IBitcoinLocksTestTarget = {
+  checkIncomingArgonBlock(header: { blockHash: string; blockNumber: number }): Promise<void>;
   checkForMissingBitcoinLockState(lock: IBitcoinLockRecord): Promise<void>;
   onBitcoinLockFinalized(txInfo: {
     createPostProcessor: () => { resolve: () => void };
@@ -200,6 +205,104 @@ describe('BitcoinLocks Argon cosign gating', () => {
 
     expect(lock.lockDetails.couponFeesPaid).toBe(148_296_012n);
   });
+
+  it('subscribes to orphan counters for every vault receiving an owner return request', async () => {
+    const ownerAccount = createLock().lockDetails.ownerAccount;
+    const firstLock = createLock({ utxoId: 11, vaultId: 1 });
+    const secondLock = createLock({ uuid: 'lock-2', utxoId: 12, vaultId: 2 });
+    const sameVaultLock = createLock({ uuid: 'lock-3', utxoId: 13, vaultId: 1 });
+    const subscribe = vi.fn(async (_vaultId: number, _owner: string, callback: (count: unknown) => void) => {
+      callback({ toNumber: () => 1 });
+      return vi.fn();
+    });
+    const client = {
+      query: { vaults: { orphanedUtxoAccountsByVaultId: subscribe } },
+    } as unknown as ArgonClient;
+    const store = new BitcoinLocks(
+      Promise.resolve({} as Db),
+      { defaultArgonAddress: ownerAccount } as WalletKeys,
+      { bestBlockHeader: { blockNumber: 100 } } as BlockWatch,
+      {} as CurrencyBase,
+      {} as TransactionTracker,
+    );
+    store.data.locksByUtxoId = { 11: firstLock, 12: secondLock, 13: sameVaultLock };
+    vi.spyOn(store.utxoTracking, 'getUnresolvedOrphanRecords').mockReturnValue([
+      createFundingRecord({ lockUtxoId: 11 }),
+      createFundingRecord({ id: 2, lockUtxoId: 12 }),
+      createFundingRecord({ id: 3, lockUtxoId: 13 }),
+    ]);
+
+    await store.orphanReleases.syncCosignCounterSubscriptions(client);
+
+    expect(subscribe).toHaveBeenCalledTimes(2);
+    expect(subscribe).toHaveBeenCalledWith(1, ownerAccount, expect.any(Function));
+    expect(subscribe).toHaveBeenCalledWith(2, ownerAccount, expect.any(Function));
+  });
+
+  it('reads orphan cosign events only after an owner vault counter decreases', async () => {
+    const lock = createLock({ status: BitcoinLockStatus.Released });
+    const orphanRecord = createFundingRecord();
+    const counterCallbacks: Array<(count: { toNumber: () => number }) => void> = [];
+    const subscribe = vi.fn(
+      async (_vaultId: number, _owner: string, callback: (count: { toNumber: () => number }) => void) => {
+        counterCallbacks.push(callback);
+        callback({ toNumber: () => 1 });
+        return vi.fn();
+      },
+    );
+    const subscriptionClient = {
+      query: { vaults: { orphanedUtxoAccountsByVaultId: subscribe } },
+    } as unknown as ArgonClient;
+    const blockHeaders = new Map([
+      [101, { blockNumber: 101, blockHash: '0x101' }],
+      [102, { blockNumber: 102, blockHash: '0x102' }],
+    ]);
+    const cosignEvent = {
+      event: { section: 'bitcoinLocks', method: 'OrphanedUtxoCosigned' },
+    };
+    const getEvents = vi.fn(async (block: { blockNumber: number }) => {
+      return block.blockNumber === 102 ? [cosignEvent] : [];
+    });
+    const blockWatchStub = {
+      bestBlockHeader: { blockNumber: 101, blockHash: '0x101' },
+      getHeaderByBlockNumber: vi.fn(async (blockNumber: number) => blockHeaders.get(blockNumber)),
+      getApi: vi.fn().mockResolvedValue({
+        query: {
+          bitcoinUtxos: {
+            confirmedBitcoinBlockTip: vi.fn().mockResolvedValue({ isSome: false }),
+          },
+        },
+      }),
+      getEvents,
+    };
+    const blockWatch = blockWatchStub as unknown as BlockWatch;
+    const store = new BitcoinLocks(
+      Promise.resolve({} as Db),
+      { defaultArgonAddress: lock.lockDetails.ownerAccount } as WalletKeys,
+      blockWatch,
+      {} as CurrencyBase,
+      {} as TransactionTracker,
+    );
+    store.data.locksByUtxoId = { 11: lock };
+    vi.spyOn(store.utxoTracking, 'getUnresolvedOrphanRecords').mockReturnValue([orphanRecord]);
+    const recoverBlock = vi.spyOn(store.recovery, 'recoverBlock').mockResolvedValue(undefined);
+    Object.assign(store, {
+      getTable: vi.fn().mockResolvedValue({}),
+    });
+    const testStore = store as unknown as IBitcoinLocksTestTarget;
+
+    await store.orphanReleases.syncCosignCounterSubscriptions(subscriptionClient);
+    await testStore.checkIncomingArgonBlock({ blockNumber: 102, blockHash: '0x102' });
+    expect(getEvents).not.toHaveBeenCalled();
+
+    counterCallbacks[0]({ toNumber: () => 0 });
+    blockWatchStub.bestBlockHeader = { blockNumber: 102, blockHash: '0x102' };
+    await testStore.checkIncomingArgonBlock({ blockNumber: 103, blockHash: '0x103' });
+
+    expect(getEvents).toHaveBeenCalledTimes(2);
+    expect(getEvents).toHaveBeenCalledWith(blockHeaders.get(102));
+    expect(recoverBlock).toHaveBeenCalledWith(blockHeaders.get(102), [cosignEvent]);
+  });
 });
 
 function createLock(overrides: Partial<IBitcoinLockRecord> = {}): IBitcoinLockRecord {
@@ -224,16 +327,16 @@ function createLock(overrides: Partial<IBitcoinLockRecord> = {}): IBitcoinLockRe
     fundingUtxoRecord: undefined,
     network: 'testnet',
     hdPath: "m/84'/0'/0'",
-    vaultId: 1,
+    vaultId: overrides.vaultId ?? 1,
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-01T00:00:00Z'),
   };
 }
 
-function createFundingRecord(): IBitcoinUtxoRecord {
+function createFundingRecord(overrides: Partial<IBitcoinUtxoRecord> = {}): IBitcoinUtxoRecord {
   return {
-    id: 1,
-    lockUtxoId: 11,
+    id: overrides.id ?? 1,
+    lockUtxoId: overrides.lockUtxoId ?? 11,
     txid: 'a'.repeat(64),
     vout: 0,
     satoshis: 10_000n,

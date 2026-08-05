@@ -83,6 +83,65 @@
             @ratchet="openRatchetingOverlay"
             @unlock="openUnlockingOverlay"
           />
+          <section
+            v-if="actionableOrphanRecords.length || showReturnedOrphans"
+            data-testid="BitcoinOrphans"
+            class="mt-2 space-y-2 border-y border-slate-300/70 py-4"
+          >
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <h2 class="font-semibold text-slate-800">Orphaned Bitcoin</h2>
+                <p class="text-sm text-slate-500">Bitcoin deposits handled outside a lock.</p>
+              </div>
+              <button
+                v-if="returnedOrphanCount"
+                type="button"
+                data-testid="BitcoinOrphans.toggleReturned()"
+                @click="showReturnedOrphans = !showReturnedOrphans"
+                class="text-argon-600 cursor-pointer text-sm whitespace-nowrap hover:underline"
+              >
+                {{ showReturnedOrphans ? 'Hide returned' : `Show returned (${returnedOrphanCount})` }}
+              </button>
+            </div>
+            <button
+              v-for="record in visibleOrphanRecords"
+              :key="record.id"
+              :data-testid="`BitcoinOrphans.record.${record.id}`"
+              type="button"
+              @click="selectedOrphan = record"
+              class="hover:border-argon-400 flex w-full cursor-pointer items-center rounded-lg border border-slate-300 bg-white px-4 py-3 text-left"
+            >
+              <div class="grow">
+                <div class="font-semibold text-slate-800">
+                  {{ numeral(currency.convertSatToBtc(record.satoshis)).format('0,0.[00000000]') }} BTC received
+                </div>
+                <div class="text-sm text-slate-500">
+                  {{ dayjs(record.firstSeenAt).format('MMM D, YYYY') }} · Lock expected
+                  {{
+                    numeral(
+                      currency.convertSatToBtc(bitcoinLocks.getLockByUtxoId(record.lockUtxoId)?.satoshis ?? 0n),
+                    ).format('0,0.[00000000]')
+                  }}
+                  BTC
+                </div>
+              </div>
+              <div class="text-right">
+                <div class="text-sm font-semibold" :class="record.statusError ? 'text-red-700' : 'text-argon-700'">
+                  {{ orphanStatus(record) }}
+                </div>
+                <div class="text-sm text-slate-500">{{ orphanAction(record) }}</div>
+              </div>
+            </button>
+          </section>
+          <button
+            v-else-if="returnedOrphanCount"
+            type="button"
+            data-testid="BitcoinOrphans.showReturned()"
+            @click="showReturnedOrphans = true"
+            class="hover:text-argon-600 cursor-pointer self-end text-sm text-slate-500 hover:underline"
+          >
+            View returned Bitcoin ({{ returnedOrphanCount }})
+          </button>
           <BitcoinsReleasedOverlay v-if="financials.liquidInvisibleRecords.length" @open-detail="openDetail" />
         </section>
         <div class="relative px-0.5 pb-0.5">
@@ -112,19 +171,29 @@
     @close="showRatchetingOverlay = false"
     @completed="onRatchetCompleted"
   />
+
+  <BitcoinOrphanRecoveryOverlay
+    v-if="selectedOrphan && selectedOrphanLock"
+    :record="selectedOrphan"
+    :lock="selectedOrphanLock"
+    @close="selectedOrphan = undefined"
+  />
 </template>
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import dayjs from 'dayjs';
 import numeral from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getBitcoinLockCoupons, getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { getMiningFrames } from '../../stores/mainchain.ts';
 import { type IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
+import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../../lib/db/BitcoinUtxosTable.ts';
 import BitcoinLockDetailOverlay from '../../overlays/BitcoinLockDetailOverlay.vue';
 import BitcoinUnlockingOverlay from '../../overlays/BitcoinUnlockingOverlay.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import BitcoinRatchetingOverlay from '../../overlays/BitcoinRatchetingOverlay.vue';
+import BitcoinOrphanRecoveryOverlay from '../../overlays/BitcoinOrphanRecoveryOverlay.vue';
 import FormattedMoney from '../../components/FormattedMoney.vue';
 import { NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import type { IBitcoinLockSummary } from '../../interfaces/IBitcoinLockSummary.ts';
@@ -146,7 +215,59 @@ const pageSourcesAreLoaded = Vue.ref(false);
 const showDetailOverlay = Vue.ref(false);
 const showUnlockingOverlay = Vue.ref(false);
 const showRatchetingOverlay = Vue.ref(false);
+const showReturnedOrphans = Vue.ref(false);
 const selectedLock = Vue.ref<IBitcoinLockSummary>();
+const selectedOrphan = Vue.ref<IBitcoinUtxoRecord>();
+
+const orphanRecords = Vue.computed(() => {
+  const locks = bitcoinLocks.getAllLocks();
+  const fundingRecordIds = new Set(
+    locks
+      .map(lock => bitcoinLocks.utxoTracking.getAcceptedFundingRecordForLock(lock)?.id)
+      .filter((id): id is number => id !== undefined),
+  );
+
+  return bitcoinLocks.utxoTracking
+    .getAllOrphanLifecycleUtxos()
+    .filter(record => !fundingRecordIds.has(record.id))
+    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+});
+const actionableOrphanRecords = Vue.computed(() =>
+  orphanRecords.value.filter(record => !bitcoinLocks.utxoTracking.isReleaseCompleteStatus(record.status)),
+);
+const visibleOrphanRecords = Vue.computed(() => {
+  if (showReturnedOrphans.value) return orphanRecords.value;
+  return actionableOrphanRecords.value;
+});
+const returnedOrphanCount = Vue.computed(
+  () => orphanRecords.value.filter(record => bitcoinLocks.utxoTracking.isReleaseCompleteStatus(record.status)).length,
+);
+
+const selectedOrphanLock = Vue.computed(() => {
+  if (!selectedOrphan.value) return undefined;
+  return bitcoinLocks.getLockByUtxoId(selectedOrphan.value.lockUtxoId);
+});
+
+function orphanStatus(record: IBitcoinUtxoRecord): string {
+  if (record.statusError) return 'Recovery needs attention';
+  if (bitcoinLocks.utxoTracking.isReleaseCompleteStatus(record.status)) return 'Returned';
+  if (record.status === BitcoinUtxoStatus.Orphaned) return 'Return required';
+  if (record.status === BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin) return 'Returning on Bitcoin';
+  if (record.releaseCosignVaultSignature) return 'Preparing return';
+  return 'Awaiting vault signature';
+}
+
+function orphanAction(record: IBitcoinUtxoRecord): string {
+  if (record.statusError || record.status === BitcoinUtxoStatus.Orphaned) return 'Return Bitcoin';
+  if (bitcoinLocks.utxoTracking.isReleaseCompleteStatus(record.status)) return 'View details';
+  return 'View progress';
+}
+
+Vue.watch(visibleOrphanRecords, records => {
+  if (selectedOrphan.value && !records.some(record => record.id === selectedOrphan.value?.id)) {
+    selectedOrphan.value = undefined;
+  }
+});
 
 function openDetail(lock: IBitcoinLockSummary) {
   if (lock.record.isHistoryRecoveryPending) return;

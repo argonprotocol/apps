@@ -345,7 +345,7 @@ export function createBitcoinLockProgressStore(deps: BitcoinLockProgressDeps) {
       clearOrphanedReturnArgonProgress();
       return;
     }
-    const txInfo = bitcoinLocks.getOrphanedReturnTxInfoForRecord(utxoId, record);
+    const txInfo = bitcoinLocks.orphanReleases.getTransactionInfo(utxoId, record);
     if (!txInfo) {
       clearOrphanedReturnArgonProgress();
       return;

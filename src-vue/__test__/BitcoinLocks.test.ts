@@ -27,9 +27,15 @@ import { encodeAddress } from '@polkadot/util-crypto';
 import { getBitcoinAlertNotices } from '../lib/Alerts.ts';
 import { BitcoinFinancials } from '../lib/financials/BitcoinLocks.ts';
 import * as vaultStore from '../stores/vaults.ts';
+import { createTestDb } from './helpers/db.ts';
 
 function createStore(
-  options: { blockWatch?: BlockWatch; transactionTracker?: TransactionTracker; walletKeys?: WalletKeys } = {},
+  options: {
+    blockWatch?: BlockWatch;
+    db?: Db;
+    transactionTracker?: TransactionTracker;
+    walletKeys?: WalletKeys;
+  } = {},
 ) {
   const blockWatch =
     options.blockWatch ??
@@ -54,7 +60,7 @@ function createStore(
     }) as TransactionTracker);
 
   return new BitcoinLocks(
-    Promise.resolve(Object.create(null) as Db),
+    Promise.resolve(options.db ?? (Object.create(null) as Db)),
     options.walletKeys ?? (Object.create(null) as WalletKeys),
     blockWatch,
     currency,
@@ -185,6 +191,78 @@ describe('BitcoinLocks recovery', () => {
     expect(lock.isHistoryRecoveryPending).toBeUndefined();
     expect(pendingLock.isHistoryRecoveryPending).toBeUndefined();
     expect(store.recovery.hasPendingHistoryRecovery).toBe(false);
+  });
+
+  it('replays each orphan UTXO through request and vault cosign history', async () => {
+    const db = await createTestDb();
+    const lock = createLock({
+      uuid: 'orphan-history',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockedAndMinted,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    const utxoRef = { txid: `0x${'44'.repeat(32)}`, outputIndex: 2 };
+    const api = {
+      query: {
+        ticks: { currentTick: vi.fn(async () => numberCodec(700)) },
+        bitcoinLocks: {
+          orphanedUtxosByAccount: vi.fn(async () =>
+            optionCodec({
+              utxoId: numberCodec(7),
+              satoshis: bigintCodec(12_000n),
+              cosignRequest: optionCodec({
+                toScriptPubkey: new Uint8Array([0, 20, 1, 2, 3]),
+                bitcoinNetworkFee: bigintCodec(120n),
+              }),
+            }),
+          ),
+        },
+      },
+    };
+    const store = createStore({
+      blockWatch: { getApi: vi.fn(async () => api) } as unknown as BlockWatch,
+      db,
+    });
+    store.data.locksByUtxoId[7] = lock;
+
+    await store.recovery.recoverBlock(historyBlock(201), [
+      historyEvent(147, 'bitcoinLocks', 'OrphanedUtxoReceived', {
+        utxoId: 7,
+        utxoRef,
+        vaultId: 1,
+        satoshis: 12_000n,
+      }),
+    ]);
+    await store.recovery.recoverBlock(historyBlock(202), [
+      historyEvent(147, 'bitcoinLocks', 'OrphanedUtxoReleaseRequested', {
+        utxoId: 7,
+        utxoRef,
+        vaultId: 1,
+        accountId: lock.lockDetails.ownerAccount,
+      }),
+    ]);
+    await store.recovery.recoverBlock(historyBlock(203), [
+      historyEvent(147, 'bitcoinLocks', 'OrphanedUtxoCosigned', {
+        utxoId: 7,
+        utxoRef,
+        vaultId: 1,
+        accountId: lock.lockDetails.ownerAccount,
+        signature: '0x010203',
+      }),
+    ]);
+
+    expect(store.utxoTracking.getUtxosForLock(lock)).toEqual([
+      expect.objectContaining({
+        txid: utxoRef.txid,
+        vout: utxoRef.outputIndex,
+        satoshis: 12_000n,
+        status: BitcoinUtxoStatus.ReleaseIsProcessingOnArgon,
+        releaseToDestinationAddress: '0014010203',
+        releaseBitcoinNetworkFee: 120n,
+        releaseCosignVaultSignature: hexToU8a('0x010203'),
+        releaseCosignHeight: 203,
+      }),
+    ]);
   });
 
   it('quarantines only recovering locks while regular locks remain active and syncable', async () => {
@@ -833,6 +911,38 @@ describe('BitcoinLocks recovery', () => {
 
     expect(setStatus).not.toHaveBeenCalled();
     expect(record.status).toBe(BitcoinLockStatus.LockPendingFunding);
+  });
+
+  it('keeps settled locks archived while allowing their orphan action', async () => {
+    const store = createStore({ db: await createTestDb() });
+    const record = createLock({
+      uuid: 'expired-lock-with-orphan',
+      utxoId: 7,
+      status: BitcoinLockStatus.Released,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    record.removalReason = 'released';
+    store.data.locksByUtxoId[7] = record;
+
+    const orphan = await store.utxoTracking.upsertUtxoRecord(
+      record,
+      { txid: '11'.repeat(32), vout: 0, satoshis: 7_500n },
+      { markOrphaned: true },
+    );
+
+    expect(store.getMismatchViewState(record).nextCandidate?.canReturn).toBe(false);
+    expect(store.isInactiveForVaultDisplay(record)).toBe(true);
+    expect(store.utxoTracking.getUnresolvedOrphanRecords([record])).toEqual([orphan]);
+    const runInQueueForUtxo = Reflect.get(store, 'runInQueueForUtxo') as <T>(
+      lock: IBitcoinLockRecord,
+      timeoutMs: number,
+      task: () => Promise<T>,
+      options: { allowOrphanRecovery: boolean },
+    ) => Promise<T>;
+
+    await expect(
+      runInQueueForUtxo.call(store, record, 1_000, async () => 'return-started', { allowOrphanRecovery: true }),
+    ).resolves.toBe('return-started');
   });
 
   it('publishes existing and out-of-order locks only after history replay is committed', async () => {
@@ -1578,6 +1688,7 @@ describe('BitcoinLocks recovery', () => {
     const blockWatch = {
       getHeaderByBlockNumber: vi.fn(async () => historyBlock(152)),
       getApi: vi.fn(async () => clientAt),
+      getEvents: vi.fn(async () => []),
     } as unknown as BlockWatch;
     const store = createStore({ blockWatch });
     const record = createLock({
