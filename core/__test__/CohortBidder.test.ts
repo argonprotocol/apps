@@ -130,6 +130,22 @@ describe('CohortBidder unit tests', () => {
     expect(cohortBidder.nextBid?.subaccounts.length).toBe(10);
   });
 
+  it('submits zero-value bids when no others are present', async () => {
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 9], {
+      minBid: 0n,
+      maxBid: Argons(4.9),
+      accountBalance: Argons(1),
+    });
+    cohortBidder.currentBids.bids = [];
+    cohortBidder.currentBids.atTick = 10;
+
+    // @ts-expect-error - private var
+    await expect(cohortBidder.planNextBid()).resolves.toBeUndefined();
+
+    expect(cohortBidder.nextBid?.microgonsPerSeat).toBe(0n);
+    expect(cohortBidder.nextBid?.subaccounts.length).toBe(10);
+  });
+
   it('can bid up existing seats', async () => {
     const { cohortBidder } = await createBidderWithMocks(accountset, [0, 9], {
       maxBid: Argons(4.9),
