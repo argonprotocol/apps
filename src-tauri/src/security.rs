@@ -328,7 +328,15 @@ impl Security {
         let raw = fs::read_to_string(&wallet_path)?;
         if let Ok(wallet) = serde_json::from_str::<WalletFile>(&raw) {
             let app_id = app.config().identifier.as_str();
-            let existing_key = Self::read_encryption_key_for_app_id(app_id)?;
+            let existing_key = match Self::read_encryption_key_for_app_id(app_id) {
+                Ok(key) => key,
+                Err(error) => {
+                    log::warn!(
+                        "Could not read the wallet encryption key; trying local mnemonic bridge recovery: {error}"
+                    );
+                    None
+                }
+            };
             let Some(mnemonic) = wallet_recovery_mnemonic(
                 &wallet,
                 existing_key.as_ref(),
@@ -666,15 +674,26 @@ impl Security {
 }
 
 fn read_wallet_recovery_mnemonic(wallet: &WalletFile, mnemonic_path: &Path) -> Result<String> {
-    let mnemonic = fs::read_to_string(mnemonic_path)?.trim().to_string();
-    let security = Security::derive_security_from_mnemonic(&mnemonic)?;
+    let mnemonic = fs::read_to_string(mnemonic_path).map_err(|error| {
+        anyhow::anyhow!(
+            "Could not read the local mnemonic bridge file for wallet recovery: {error}"
+        )
+    })?;
+    let mnemonic = mnemonic.trim();
+
+    anyhow::ensure!(
+        !mnemonic.is_empty(),
+        "Local mnemonic bridge file is empty; manual wallet recovery is required"
+    );
+
+    let security = Security::derive_security_from_mnemonic(mnemonic)?;
 
     anyhow::ensure!(
         security.vaulting_address == wallet.meta.vaulting_address,
         "Local mnemonic does not match wallet.json; manual wallet recovery is required"
     );
 
-    Ok(mnemonic)
+    Ok(mnemonic.to_string())
 }
 
 fn wallet_recovery_mnemonic(
@@ -1084,6 +1103,37 @@ mod tests {
                 .expect_err("a different mnemonic must not replace the wallet key")
                 .to_string()
                 .contains("does not match wallet.json")
+        );
+
+        fs::remove_dir_all(&test_dir).expect("test dir should be removed");
+    }
+
+    #[test]
+    fn reports_unavailable_local_mnemonic_for_wallet_recovery() {
+        let test_dir = unique_test_dir("reports-unavailable-local-mnemonic-for-wallet-recovery");
+        fs::create_dir_all(&test_dir).expect("test dir should be created");
+
+        let mnemonic = "test test test test test test test test test test test junk";
+        let wallet = WalletFile {
+            encrypted_mnemonic: "unreadable without the missing key".to_string(),
+            meta: Security::derive_security_from_mnemonic(mnemonic)
+                .expect("wallet metadata should derive"),
+        };
+        let mnemonic_path = test_dir.join("mnemonic");
+
+        assert!(
+            read_wallet_recovery_mnemonic(&wallet, &mnemonic_path)
+                .expect_err("a missing mnemonic bridge file must not be parsed")
+                .to_string()
+                .contains("Could not read the local mnemonic bridge file for wallet recovery")
+        );
+
+        fs::write(&mnemonic_path, " \n").expect("empty mnemonic file should be written");
+        assert!(
+            read_wallet_recovery_mnemonic(&wallet, &mnemonic_path)
+                .expect_err("an empty mnemonic bridge file must not be parsed")
+                .to_string()
+                .contains("Local mnemonic bridge file is empty")
         );
 
         fs::remove_dir_all(&test_dir).expect("test dir should be removed");
