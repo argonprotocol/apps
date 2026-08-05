@@ -199,6 +199,12 @@ async function main(): Promise<void> {
     void devEthereumReadyPromise.catch(() => undefined);
   }
 
+  // E2E onboarding starts another Compose build for this project after the app connects.
+  // Finish upstream startup first so Docker Compose and Bake do not mutate the project concurrently.
+  if (isE2EAppRun && devUpstreamPromise) {
+    await devUpstreamPromise;
+  }
+
   const child = spawn('yarn', tauriArgs, {
     env: tauriEnv,
     stdio: 'inherit',
