@@ -210,7 +210,11 @@ impl Security {
                         match legacy_entry.get_password() {
                             Ok(key) => match Self::decode_wallet_key(&key) {
                                 Ok(_) => {
-                                    entry.set_password(&key)?;
+                                    if let Err(error) = entry.set_password(&key) {
+                                        log::warn!(
+                                            "Could not persist the migrated legacy Linux wallet encryption key; using it for this session and retrying migration later: {error}"
+                                        );
+                                    }
                                     Some(key)
                                 }
                                 Err(error) => {
