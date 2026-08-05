@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import BigNumber from 'bignumber.js';
-import type { BlockWatch, Currency as CurrencyBase } from '@argonprotocol/apps-core';
+import { TransactionEvents, type BlockWatch, type Currency as CurrencyBase } from '@argonprotocol/apps-core';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import type { Db } from '../lib/Db.ts';
 import type { TransactionTracker } from '../lib/TransactionTracker.ts';
@@ -254,25 +254,169 @@ describe('BitcoinLocks recovery', () => {
     expect(store.getAllLocks()).toEqual([regularRecord, record]);
   });
 
-  it('quarantines existing locks before a full history replay begins', async () => {
-    const store = createStore();
+  it('keeps a chain-confirmed lock usable while its full history is replayed', async () => {
+    const store = createStore({
+      blockWatch: { getFinalizedApi: vi.fn(async () => ({})) } as never,
+    });
     const record = createLock({
-      uuid: 'stale-lock',
+      uuid: 'active-lock',
       utxoId: 7,
       status: BitcoinLockStatus.LockedAndMinted,
       createdAt: '2026-01-01T00:00:00Z',
     });
+    record.liquidityPromised = 500n;
+    record.lockedTargetPrice = 1_000n;
+    record.ratchets = [
+      {
+        mintAmount: 500n,
+        mintPending: 0n,
+        liquidityPromised: 500n,
+        lockedTargetPrice: 1_000n,
+        securityFee: 0n,
+        txFee: 0n,
+        burned: 0n,
+        blockHeight: 10,
+        oracleBitcoinBlockHeight: 100,
+      },
+    ];
     store.data.locksByUtxoId[7] = record;
+    const recoveredRecord = {
+      ...record,
+      ratchets: [{ ...record.ratchets[0], txFee: 21n }],
+    };
+    const chainLock = {
+      utxoId: 7,
+      createdAtArgonBlock: 10,
+      liquidityPromised: 500n,
+      lockedTargetPrice: 1_000n,
+    } as BitcoinLock;
     const setHistoryRecoveryPending = vi.fn();
-    vi.spyOn(store, 'getTable').mockResolvedValue({ setHistoryRecoveryPending } as never);
+    vi.spyOn(store, 'getTable').mockResolvedValue({
+      getByUtxoId: vi.fn().mockResolvedValueOnce(record).mockResolvedValue(recoveredRecord),
+      setHistoryRecoveryPending,
+    } as never);
+    vi.spyOn(store.recovery, 'findActiveLockIds').mockResolvedValue([7]);
+    vi.spyOn(BitcoinLock, 'get').mockResolvedValue(chainLock);
+
+    await store.recovery.recoverActiveLocks();
+    expect(store.getActiveLocks()).toEqual([record]);
 
     await store.recovery.beginHistoryReplay({ lockScope: 'all' });
 
-    expect(record.isHistoryRecoveryPending).toBe(true);
-    expect(store.getActiveLocks()).toEqual([]);
-    expect(setHistoryRecoveryPending).toHaveBeenCalledWith(record.uuid, true);
+    expect(record.isHistoryRecoveryPending).toBeUndefined();
+    expect(store.getActiveLocks()).toEqual([record]);
+    expect(setHistoryRecoveryPending).not.toHaveBeenCalledWith(record.uuid, true);
+
+    await store.recovery.recoverLock({
+      lock: chainLock,
+      createdAtArgonBlockHeight: 10,
+      finalFee: 21n,
+    });
+
+    expect(record.ratchets[0].txFee).toBe(0n);
+    expect(store.getActiveLocks()).toEqual([record]);
 
     await store.recovery.commitHistoryReplay();
+
+    expect(record.ratchets[0].txFee).toBe(21n);
+    expect(store.getActiveLocks()).toEqual([record]);
+  });
+
+  it('resumes an in-flight release that has already left the active chain index', async () => {
+    const store = createStore({
+      blockWatch: { getFinalizedApi: vi.fn(async () => ({})) } as never,
+    });
+    const releasingLock = createLock({
+      uuid: 'releasing-lock',
+      utxoId: 7,
+      status: BitcoinLockStatus.Releasing,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    releasingLock.fundingUtxoRecord = {
+      id: 1,
+      lockUtxoId: 7,
+      status: BitcoinUtxoStatus.ReleaseIsProcessingOnArgon,
+    } as never;
+    const activeLock = createLock({
+      uuid: 'active-lock',
+      utxoId: 8,
+      status: BitcoinLockStatus.LockedAndMinted,
+      createdAt: '2026-02-01T00:00:00Z',
+    });
+    store.data.locksByUtxoId[7] = releasingLock;
+    store.data.locksByUtxoId[8] = activeLock;
+
+    const setHistoryRecoveryPending = vi.fn();
+    const getByUtxoId = vi.fn(async utxoId => store.data.locksByUtxoId[utxoId]);
+    vi.spyOn(store, 'getTable').mockResolvedValue({
+      getByUtxoId,
+      setHistoryRecoveryPending,
+    } as never);
+    vi.spyOn(store as any, 'runPendingLoadReconciliation').mockResolvedValue(undefined);
+    vi.spyOn(store.recovery, 'findActiveLockIds').mockResolvedValue([8]);
+    vi.spyOn(BitcoinLock, 'get').mockResolvedValue({
+      utxoId: 8,
+      createdAtArgonBlock: 10,
+      liquidityPromised: activeLock.liquidityPromised,
+      lockedTargetPrice: activeLock.lockedTargetPrice,
+    } as BitcoinLock);
+    vi.spyOn(store, 'unlockDeadlineTime').mockReturnValue(Date.now() + 60_000);
+
+    await store.recovery.recoverActiveLocks();
+    expect(releasingLock.status).toBe(BitcoinLockStatus.Releasing);
+    expect(releasingLock.isHistoryRecoveryPending).toBeUndefined();
+
+    await store.recovery.beginHistoryReplay({ lockScope: 'all' });
+    expect(releasingLock.isHistoryRecoveryPending).toBeUndefined();
+    getByUtxoId.mockResolvedValue({
+      ...releasingLock,
+      status: BitcoinLockStatus.Releasing,
+    });
+    await store.recovery.recoverLock({
+      lock: { utxoId: 7 } as BitcoinLock,
+      createdAtArgonBlockHeight: 1,
+      finalFee: 0n,
+    });
+    await store.recovery.commitHistoryReplay();
+
+    expect(activeLock.isHistoryRecoveryPending).toBeUndefined();
+    expect(releasingLock.isHistoryRecoveryPending).toBeUndefined();
+    expect(releasingLock.status).toBe(BitcoinLockStatus.Releasing);
+    expect(store.getActiveLocks()).toEqual([activeLock, releasingLock]);
+    expect(setHistoryRecoveryPending).toHaveBeenCalledWith(releasingLock.uuid, false);
+  });
+
+  it('quarantines an unresolved release that has no live chain or Bitcoin release state', async () => {
+    const store = createStore({
+      blockWatch: { getFinalizedApi: vi.fn(async () => ({})) } as never,
+    });
+    const unresolvedRelease = createLock({
+      uuid: 'unresolved-release',
+      utxoId: 7,
+      status: BitcoinLockStatus.Releasing,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    store.data.locksByUtxoId[7] = unresolvedRelease;
+
+    const setHistoryRecoveryPending = vi.fn(async (_uuid: string, isPending: boolean) => {
+      unresolvedRelease.isHistoryRecoveryPending = isPending;
+    });
+    vi.spyOn(store, 'getTable').mockResolvedValue({ setHistoryRecoveryPending } as never);
+    vi.spyOn(store.recovery, 'findActiveLockIds').mockResolvedValue([]);
+
+    await store.recovery.recoverActiveLocks();
+
+    expect(unresolvedRelease.status).toBe(BitcoinLockStatus.Releasing);
+    expect(unresolvedRelease.isHistoryRecoveryPending).toBe(true);
+    expect(store.getActiveLocks()).toEqual([]);
+    expect(getBitcoinAlertNotices(store)).toEqual([]);
+
+    await store.recovery.beginHistoryReplay({ lockScope: 'all' });
+    await store.recovery.commitHistoryReplay();
+
+    expect(unresolvedRelease.status).toBe(BitcoinLockStatus.Releasing);
+    expect(unresolvedRelease.isHistoryRecoveryPending).toBe(true);
+    expect(store.recovery.hasPendingHistoryRecovery).toBe(true);
   });
 
   it('repairs pending locks without replaying healthy locks', async () => {
@@ -376,6 +520,222 @@ describe('BitcoinLocks recovery', () => {
 
     expect(setHistoryRecoveryPending).toHaveBeenCalledWith(record.uuid, true);
     expect(setHistoryRecoveryPending).toHaveBeenCalledWith(record.uuid, false);
+  });
+
+  it('shares concurrent active-lock recovery so one UTXO cannot create multiple rows', async () => {
+    const store = createStore({
+      blockWatch: {
+        getFinalizedApi: vi.fn(async () => ({})),
+      } as never,
+    });
+    const record = createLock({
+      uuid: 'chain-recovery',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockPendingFunding,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    const chainLock = { utxoId: 7, createdAtArgonBlock: 10 } as BitcoinLock;
+    let finishRecovery!: () => void;
+    const recoveryGate = new Promise<void>(resolve => {
+      finishRecovery = resolve;
+    });
+    vi.spyOn(store.recovery, 'findActiveLockIds').mockResolvedValue([7]);
+    vi.spyOn(BitcoinLock, 'get').mockResolvedValue(chainLock);
+    const recoverLock = vi.spyOn(store.recovery, 'recoverLock').mockImplementation(async () => {
+      await recoveryGate;
+      return record;
+    });
+
+    const firstRecovery = store.recovery.recoverActiveLocks();
+    const concurrentRecovery = store.recovery.recoverActiveLocks();
+
+    expect(concurrentRecovery).toBe(firstRecovery);
+    await vi.waitFor(() => expect(recoverLock).toHaveBeenCalledOnce());
+    finishRecovery();
+    await expect(firstRecovery).resolves.toEqual([record]);
+    await expect(concurrentRecovery).resolves.toEqual([record]);
+    expect(recoverLock).toHaveBeenCalledOnce();
+  });
+
+  it('keeps successful active locks usable while retrying a transient per-lock failure', async () => {
+    const store = createStore({
+      blockWatch: {
+        getFinalizedApi: vi.fn(async () => ({})),
+      } as never,
+    });
+    const retriedRecord = createLock({
+      uuid: 'recovered-on-retry',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockedAndMinted,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    const recoveredRecord = createLock({
+      uuid: 'recovered-after-failure',
+      utxoId: 8,
+      status: BitcoinLockStatus.LockedAndMinted,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    const retriedChainLock = { utxoId: 7, createdAtArgonBlock: 10 } as BitcoinLock;
+    const recoveredChainLock = { utxoId: 8, createdAtArgonBlock: 20 } as BitcoinLock;
+    const ratchet = {
+      mintAmount: 0n,
+      mintPending: 0n,
+      lockedTargetPrice: 0n,
+      securityFee: 0n,
+      txFee: 0n,
+      burned: 0n,
+      blockHeight: 0,
+      oracleBitcoinBlockHeight: 0,
+    };
+    retriedRecord.ratchets = [{ ...ratchet, blockHeight: 10 }];
+    recoveredRecord.ratchets = [{ ...ratchet, blockHeight: 20 }];
+    vi.spyOn(store.recovery, 'findActiveLockIds').mockResolvedValue([7, 8]);
+    vi.spyOn(BitcoinLock, 'get')
+      .mockRejectedValueOnce(new Error('lock 7 unavailable'))
+      .mockResolvedValueOnce(recoveredChainLock)
+      .mockResolvedValueOnce(retriedChainLock)
+      .mockResolvedValueOnce(recoveredChainLock);
+    vi.spyOn(store.recovery, 'recoverLock').mockImplementation(async ({ lock }) => {
+      return lock.utxoId === 7 ? retriedRecord : recoveredRecord;
+    });
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await expect(store.recovery.recoverActiveLocks()).resolves.toEqual([recoveredRecord]);
+    expect(store.recovery.hasPendingHistoryRecovery).toBe(true);
+
+    await expect(store.recovery.recoverActiveLocks()).resolves.toEqual([recoveredRecord, retriedRecord]);
+    expect(store.recovery.hasPendingHistoryRecovery).toBe(false);
+  });
+
+  it('keeps a chain-confirmed complete active lock usable after an interrupted replay', async () => {
+    const store = createStore({
+      blockWatch: {
+        getFinalizedApi: vi.fn(async () => ({})),
+      } as never,
+    });
+    const record = createLock({
+      uuid: 'complete-active-lock',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockedAndMinted,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    record.isHistoryRecoveryPending = true;
+    record.liquidityPromised = 500n;
+    record.lockedTargetPrice = 1_000n;
+    record.ratchets = [
+      {
+        mintAmount: 500n,
+        mintPending: 0n,
+        burned: 0n,
+        securityFee: 0n,
+        txFee: 0n,
+        lockedTargetPrice: 1_000n,
+        blockHeight: 10,
+        oracleBitcoinBlockHeight: 100,
+      },
+    ];
+    store.data.locksByUtxoId[7] = record;
+    const setHistoryRecoveryPending = vi.fn(async () => undefined);
+    vi.spyOn(store, 'getTable').mockResolvedValue({
+      getByUtxoId: vi.fn(async () => record),
+      setHistoryRecoveryPending,
+    } as never);
+    vi.spyOn(store.recovery, 'findActiveLockIds').mockResolvedValue([7]);
+    vi.spyOn(BitcoinLock, 'get').mockResolvedValue({
+      utxoId: 7,
+      createdAtArgonBlock: 10,
+      liquidityPromised: 500n,
+      lockedTargetPrice: 1_000n,
+    } as BitcoinLock);
+
+    expect(store.getLockByUtxoId(7)).toBeUndefined();
+
+    await store.recovery.recoverActiveLocks();
+
+    expect(setHistoryRecoveryPending).toHaveBeenCalledWith(record.uuid, false);
+    expect(record.isHistoryRecoveryPending).toBeUndefined();
+    expect(store.getLockByUtxoId(7)).toBe(record);
+
+    await store.recovery.beginHistoryReplay({ lockScope: 'all' });
+    expect(store.getLockByUtxoId(7)).toBe(record);
+
+    await store.recovery.commitHistoryReplay(false);
+
+    expect(record.isHistoryRecoveryPending).toBeUndefined();
+    expect(store.getLockByUtxoId(7)).toBe(record);
+
+    record.isHistoryRecoveryPending = true;
+    record.ratchets = [];
+    setHistoryRecoveryPending.mockClear();
+    const saveRecoveredHistory = vi.fn(async () => undefined);
+    vi.spyOn(store, 'getTable').mockResolvedValue({
+      getByUtxoId: vi.fn(async () => record),
+      saveRecoveredHistory,
+      setHistoryRecoveryPending,
+    } as never);
+
+    await store.recovery.recoverActiveLocks();
+
+    expect(saveRecoveredHistory).toHaveBeenCalledOnce();
+    expect(setHistoryRecoveryPending).toHaveBeenCalledWith(record.uuid, false);
+    expect(record.isHistoryRecoveryPending).toBeUndefined();
+    expect(store.getLockByUtxoId(7)).toBe(record);
+    expect(record.ratchets).toEqual([
+      expect.objectContaining({
+        liquidityPromised: 500n,
+        lockedTargetPrice: 1_000n,
+      }),
+    ]);
+  });
+
+  it('preserves a known creation fee when enrichment cannot find its fee event', async () => {
+    const api = {};
+    const store = createStore({
+      blockWatch: {
+        getFinalizedApi: vi.fn(async () => api),
+      } as never,
+    });
+    const record = createLock({
+      uuid: 'known-creation-fee',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockedAndMinted,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    record.ratchets = [
+      {
+        mintAmount: 500n,
+        mintPending: 0n,
+        burned: 0n,
+        securityFee: 0n,
+        txFee: 21n,
+        lockedTargetPrice: 1_000n,
+        blockHeight: 10,
+        oracleBitcoinBlockHeight: 100,
+      },
+    ];
+    store.data.locksByUtxoId[7] = record;
+    const saveRecoveredHistory = vi.fn(async () => undefined);
+    vi.spyOn(store, 'getTable').mockResolvedValue({
+      getByUtxoId: vi.fn(async () => record),
+      saveRecoveredHistory,
+    } as never);
+    vi.spyOn(store.recovery, 'findActiveLockIds').mockResolvedValue([7]);
+    vi.spyOn(BitcoinLock, 'get').mockResolvedValue({
+      utxoId: 7,
+      createdAtArgonBlock: 10,
+      ownerAccount: record.lockDetails.ownerAccount,
+    } as BitcoinLock);
+    vi.spyOn(TransactionEvents, 'findFromFeePaidEvent').mockResolvedValue(undefined);
+
+    await store.recovery.recoverActiveLockCreationDetails({
+      archiveClientPromise: Promise.resolve({
+        rpc: { chain: { getBlockHash: vi.fn(async () => new Uint8Array([10])) } },
+        events: { bitcoinLocks: { BitcoinLockCreated: { is: vi.fn(() => false) } } },
+      }),
+    } as never);
+
+    expect(saveRecoveredHistory).toHaveBeenCalledOnce();
+    expect(record.ratchets[0].txFee).toBe(21n);
   });
 
   it('resumes one-shot relay work after the affected lock finishes recovery', async () => {

@@ -55,6 +55,7 @@ const mocks = vi.hoisted(() => {
         blockTime: Date.parse('2026-07-16T12:00:00Z') + (blockNumber - 1) * 60_000,
       })),
     },
+    mainchainClients: {},
     config: {
       isLoaded: true,
       isLoadedPromise: Promise.resolve(),
@@ -173,7 +174,10 @@ vi.mock('../stores/wallets.ts', () => ({
 vi.mock('../stores/bitcoin.ts', () => ({ getBitcoinLocks: () => mocks.bitcoinLocks }));
 vi.mock('../stores/currency.ts', () => ({ getCurrency: () => mocks.currency }));
 vi.mock('../stores/argonBonds.ts', () => ({ getArgonBonds: () => mocks.argonBonds }));
-vi.mock('../stores/mainchain.ts', () => ({ getBlockWatch: () => mocks.blockWatch }));
+vi.mock('../stores/mainchain.ts', () => ({
+  getBlockWatch: () => mocks.blockWatch,
+  getMainchainClients: () => mocks.mainchainClients,
+}));
 vi.mock('../stores/vaults.ts', () => ({
   getMyVault: () => mocks.myVault,
   getVaults: () => mocks.vaults,
@@ -653,7 +657,7 @@ describe('financials store lifecycle', () => {
     expect(mocks.needsFinancialHistoryRecovery).toHaveBeenCalledWith(
       expect.objectContaining({
         bitcoinLockRecovery: mocks.bitcoinLocks.recovery,
-        recoverMissingCheckpoints: false,
+        recoverMissingCheckpointsFor: [],
       }),
     );
   });

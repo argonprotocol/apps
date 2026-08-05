@@ -434,18 +434,11 @@ async fn derive_bitcoin_extended_key(
 
 #[tauri::command]
 async fn run_db_migrations(app: AppHandle) -> Result<(), String> {
-    run_db_migrations_after_legacy_import(app, false).await
-}
-
-async fn run_db_migrations_after_legacy_import(
-    app: AppHandle,
-    imported_from_legacy: bool,
-) -> Result<(), String> {
     log::info!("run_db_migrations");
     migrations::backup_current_instance_database(&app).map_err(|e| e.to_string())?;
     let absolute_db_path = Utils::get_absolute_config_instance_dir(&app).join("database.sqlite");
     log::info!("Running DB migrations for {}", absolute_db_path.display());
-    migrations::run_db_migrations(absolute_db_path, imported_from_legacy)
+    migrations::run_db_migrations(absolute_db_path)
         .await
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -579,9 +572,7 @@ async fn load_instance(app: AppHandle, name: String) -> Result<(), String> {
     unsafe {
         std::env::set_var("ARGON_APP_INSTANCE", &name);
     }
-    let imported_from_legacy =
-        security::Security::migrate_legacy_app_dir(&app).map_err(|e| e.to_string())?;
-    run_db_migrations_after_legacy_import(app.clone(), imported_from_legacy).await?;
+    run_db_migrations(app.clone()).await?;
     let window = app
         .get_webview_window("main")
         .ok_or("Main window not found")?;
@@ -864,13 +855,8 @@ pub fn run() {
                 access: Mutex::new(None),
             });
 
-            let imported_from_legacy =
-                security::Security::migrate_legacy_app_dir(handle).map_err(tauri::Error::Anyhow)?;
             init_config_instance_dir(handle, &relative_config_dir)?;
-            tauri::async_runtime::block_on(run_db_migrations_after_legacy_import(
-                handle.clone(),
-                imported_from_legacy,
-            ))?;
+            tauri::async_runtime::block_on(run_db_migrations(handle.clone()))?;
 
             let window = app.get_webview_window("main").unwrap();
 
