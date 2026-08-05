@@ -143,7 +143,7 @@ describe('CohortBidder unit tests', () => {
     await expect(cohortBidder.planNextBid()).resolves.toBeUndefined();
 
     expect(cohortBidder.nextBid?.microgonsPerSeat).toBe(0n);
-    expect(cohortBidder.nextBid?.subaccounts.length).toBe(10);
+    expect(cohortBidder.nextBid?.subaccounts).toEqual(cohortBidder.subaccounts.map(x => x.address));
   });
 
   it('can bid up existing seats', async () => {
