@@ -617,37 +617,6 @@ export class RouterServer {
       }),
     );
 
-    app.post(
-      '/invites/:inviteCode/reassign-operations-upgrade-code',
-      requireAdminOperatorAuth,
-      safeJsonRoute<IInviteResponse>(async req => {
-        const inviteCode = req.params.inviteCode;
-        const invite = db.userInvitesTable.fetchByCode(inviteCode, UserRole.Member);
-        if (!invite) {
-          throw new RouterError('Invite not found', 404);
-        }
-
-        let isOperationalAccountRegistered = false;
-        if (invite.operationalAccountId) {
-          const client = await getInviteProgressClient();
-          const [operationalAccount] = await client.query.operationalAccounts.operationalAccounts.multi([
-            invite.operationalAccountId,
-          ]);
-          isOperationalAccountRegistered = !!operationalAccount?.isSome;
-        }
-
-        const reassignedInvite = inviteService.reassignOperationsUpgradeCode({
-          inviteCode,
-          isOperationalAccountRegistered,
-        });
-        if (!reassignedInvite) {
-          throw new RouterError('Invite not found', 404);
-        }
-
-        return { invite: toTreasuryUserInvite(reassignedInvite) };
-      }),
-    );
-
     app.get(
       '/bitcoin-lock-coupons',
       requireAdminOperatorAuth,

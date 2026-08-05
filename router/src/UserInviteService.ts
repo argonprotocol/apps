@@ -269,28 +269,6 @@ export class UserInviteService {
     });
   }
 
-  public reassignOperationsUpgradeCode(args: {
-    inviteCode: string;
-    isOperationalAccountRegistered: boolean;
-  }): IUserInviteRecord | null {
-    const inviteCode = args.inviteCode.trim();
-    if (!inviteCode) {
-      throw new RouterError('An invite code is required.');
-    }
-
-    return this.db.transaction(() => {
-      const invite = this.db.userInvitesTable.fetchByCode(inviteCode, UserRole.Member);
-      if (!invite) {
-        return invite;
-      }
-      if (args.isOperationalAccountRegistered) {
-        throw new RouterError('An operations upgrade code cannot be reassigned after the account is registered.', 409);
-      }
-
-      return this.db.userInvitesTable.reassignOperationsUpgradeCode(invite.id);
-    });
-  }
-
   public getInviteAccessProof(
     invite: IUserInviteRecord,
     upstreamAccountId?: string,

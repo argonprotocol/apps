@@ -147,18 +147,6 @@ export class ServerApiClient {
     return body.invite;
   }
 
-  public async reassignOperationsUpgradeCode(inviteCode: string): Promise<IMemberInvite> {
-    const body = await this.postJson<IInviteResponse>(
-      `/invites/${encodeURIComponent(inviteCode)}/reassign-operations-upgrade-code`,
-      {},
-      {
-        timeoutMs: 10e3,
-        adminOperatorAuth: true,
-      },
-    );
-    return body.invite;
-  }
-
   public async requestEthereumGatewayCatchUp(
     payload: IEthereumGatewayCatchUpRequest,
   ): Promise<IEthereumGatewayCatchUpResponse> {

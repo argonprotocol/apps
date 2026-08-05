@@ -122,16 +122,6 @@
                   </button>
 
                   <button
-                    v-if="canReassignOperationsUpgradeCode(invite)"
-                    type="button"
-                    :disabled="reassigningInviteCode === invite.inviteCode"
-                    class="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold whitespace-nowrap text-slate-700 disabled:cursor-default disabled:opacity-50"
-                    @click="reassignOperationsUpgradeCode(invite)"
-                  >
-                    {{ reassigningInviteCode === invite.inviteCode ? 'Reassigning…' : 'Reassign Code' }}
-                  </button>
-
-                  <button
                     v-if="canRegenerateInvite(invite)"
                     type="button"
                     :disabled="regeneratingInviteCode === invite.inviteCode"
@@ -221,7 +211,6 @@ const { microgonToArgonNm } = createNumeralHelpers(currency);
 
 const errorMessage = Vue.ref<string | null>(null);
 const approvingInviteCode = Vue.ref<string | null>(null);
-const reassigningInviteCode = Vue.ref<string | null>(null);
 const regeneratingInviteCode = Vue.ref<string | null>(null);
 const supportsAccessProofRuntime = Vue.ref(false);
 
@@ -270,10 +259,6 @@ function canApproveOperationsAccess(invite: IMemberInvite): boolean {
     !!invite.certificationProgress &&
     hasCompletedTreasuryCertificationRequirements(invite.certificationProgress)
   );
-}
-
-function canReassignOperationsUpgradeCode(invite: IMemberInvite): boolean {
-  return !!invite.accessProof && !invite.certificationProgress?.hasOperationalAccount;
 }
 
 function canRegenerateInvite(invite: IMemberInvite): boolean {
@@ -328,24 +313,6 @@ async function approveOperationsAccess(invite: IMemberInvite) {
     errorMessage.value = error?.message ?? 'Unable to approve operations access right now.';
   } finally {
     approvingInviteCode.value = null;
-  }
-}
-
-async function reassignOperationsUpgradeCode(invite: IMemberInvite) {
-  if (!canReassignOperationsUpgradeCode(invite) || reassigningInviteCode.value) {
-    return;
-  }
-
-  reassigningInviteCode.value = invite.inviteCode;
-  errorMessage.value = null;
-
-  try {
-    await serverApiClient.reassignOperationsUpgradeCode(invite.inviteCode);
-    await refreshInvites();
-  } catch (error: any) {
-    errorMessage.value = error?.message ?? 'Unable to reassign this operations upgrade code right now.';
-  } finally {
-    reassigningInviteCode.value = null;
   }
 }
 
