@@ -7,6 +7,8 @@ use bip32::{ExtendedKey, Prefix, XPrv};
 use curve25519_dalek::edwards::CompressedEdwardsY;
 use curve25519_dalek::montgomery::MontgomeryPoint;
 use hkdf::Hkdf;
+#[cfg(target_os = "linux")]
+use keyring::credential::CredentialApi;
 use secrecy::SecretString;
 use sha2::{Digest, Sha256, Sha512};
 use sp_core::crypto::AddressUri;
@@ -194,7 +196,28 @@ impl Security {
             let entry = keyring::Entry::new(&service, &account)?;
             match entry.get_password() {
                 Ok(key) => Some(key),
-                Err(keyring::Error::NoEntry) => None,
+                Err(keyring::Error::NoEntry) => {
+                    #[cfg(target_os = "linux")]
+                    {
+                        // keyring 3.6.3's persistent builder does not probe the old keyutils store.
+                        let legacy_entry = keyring::keyutils::KeyutilsCredential::new_with_target(
+                            None, &service, &account,
+                        )?;
+                        match legacy_entry.get_password() {
+                            Ok(key) => {
+                                entry.set_password(&key)?;
+                                Some(key)
+                            }
+                            Err(keyring::Error::NoEntry) => None,
+                            Err(error) => return Err(error.into()),
+                        }
+                    }
+
+                    #[cfg(not(target_os = "linux"))]
+                    {
+                        None
+                    }
+                }
                 Err(error) => return Err(error.into()),
             }
         };
@@ -304,7 +327,20 @@ impl Security {
 
         let raw = fs::read_to_string(&wallet_path)?;
         if let Ok(wallet) = serde_json::from_str::<WalletFile>(&raw) {
-            return Ok(Some(wallet.meta));
+            let app_id = app.config().identifier.as_str();
+            let existing_key = Self::read_encryption_key_for_app_id(app_id)?;
+            let Some(mnemonic) = wallet_recovery_mnemonic(
+                &wallet,
+                existing_key.as_ref(),
+                &Self::legacy_mnemonic_path(app),
+            )?
+            else {
+                return Ok(Some(wallet.meta));
+            };
+
+            let security = Self::write_wallet_file(app, &mnemonic)?;
+            log::warn!("Recovered the wallet encryption key from the local mnemonic bridge");
+            return Ok(Some(security));
         }
 
         let mnemonic = Self::expose_mnemonic(app)?;
@@ -629,6 +665,32 @@ impl Security {
     }
 }
 
+fn read_wallet_recovery_mnemonic(wallet: &WalletFile, mnemonic_path: &Path) -> Result<String> {
+    let mnemonic = fs::read_to_string(mnemonic_path)?.trim().to_string();
+    let security = Security::derive_security_from_mnemonic(&mnemonic)?;
+
+    anyhow::ensure!(
+        security.vaulting_address == wallet.meta.vaulting_address,
+        "Local mnemonic does not match wallet.json; manual wallet recovery is required"
+    );
+
+    Ok(mnemonic)
+}
+
+fn wallet_recovery_mnemonic(
+    wallet: &WalletFile,
+    existing_key: Option<&[u8; 32]>,
+    mnemonic_path: &Path,
+) -> Result<Option<String>> {
+    if existing_key
+        .is_some_and(|key| Security::decrypt_mnemonic(key, &wallet.encrypted_mnemonic).is_ok())
+    {
+        return Ok(None);
+    }
+
+    read_wallet_recovery_mnemonic(wallet, mnemonic_path).map(Some)
+}
+
 fn default_ethereum_hd_prefixes() -> EthereumHdPrefixes {
     EthereumHdPrefixes {
         primary: DEFAULT_PRIMARY_ETHEREUM_HD_PREFIX.to_string(),
@@ -763,8 +825,9 @@ fn write_mnemonic_file_if_missing(path: &Path, mnemonic: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        Security, copy_dir_contents_if_missing, default_ethereum_hd_prefixes, get_ethereum_hd_path,
-        legacy_operations_app_id, write_mnemonic_file_if_missing,
+        Security, WalletFile, copy_dir_contents_if_missing, default_ethereum_hd_prefixes,
+        get_ethereum_hd_path, legacy_operations_app_id, read_wallet_recovery_mnemonic,
+        wallet_recovery_mnemonic, write_mnemonic_file_if_missing,
     };
     use crate::ethereum_signer;
     use sp_core::Pair;
@@ -984,6 +1047,73 @@ mod tests {
         assert_eq!(
             fs::read_to_string(&mnemonic_path).expect("mnemonic file should exist"),
             "existing mnemonic"
+        );
+
+        fs::remove_dir_all(&test_dir).expect("test dir should be removed");
+    }
+
+    #[test]
+    fn recovers_only_matching_mnemonic_when_wallet_key_is_missing() {
+        let test_dir =
+            unique_test_dir("recovers-only-matching-mnemonic-when-wallet-key-is-missing");
+        fs::create_dir_all(&test_dir).expect("test dir should be created");
+
+        let mnemonic = "test test test test test test test test test test test junk";
+        let wallet = WalletFile {
+            encrypted_mnemonic: "unreadable without the missing key".to_string(),
+            meta: Security::derive_security_from_mnemonic(mnemonic)
+                .expect("wallet metadata should derive"),
+        };
+        let mnemonic_path = test_dir.join("mnemonic");
+        fs::write(&mnemonic_path, mnemonic).expect("mnemonic should be written");
+
+        assert_eq!(
+            read_wallet_recovery_mnemonic(&wallet, &mnemonic_path)
+                .expect("matching mnemonic should recover the wallet"),
+            mnemonic
+        );
+
+        let other_mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let other_wallet = WalletFile {
+            encrypted_mnemonic: wallet.encrypted_mnemonic,
+            meta: Security::derive_security_from_mnemonic(other_mnemonic)
+                .expect("other wallet metadata should derive"),
+        };
+        assert!(
+            read_wallet_recovery_mnemonic(&other_wallet, &mnemonic_path)
+                .expect_err("a different mnemonic must not replace the wallet key")
+                .to_string()
+                .contains("does not match wallet.json")
+        );
+
+        fs::remove_dir_all(&test_dir).expect("test dir should be removed");
+    }
+
+    #[test]
+    fn recovers_when_stored_key_cannot_decrypt_wallet() {
+        let test_dir = unique_test_dir("recovers-when-stored-key-cannot-decrypt-wallet");
+        fs::create_dir_all(&test_dir).expect("test dir should be created");
+
+        let mnemonic = "test test test test test test test test test test test junk";
+        let original_key = [1u8; 32];
+        let wallet = WalletFile {
+            encrypted_mnemonic: Security::encrypt_mnemonic(&original_key, mnemonic)
+                .expect("mnemonic should encrypt"),
+            meta: Security::derive_security_from_mnemonic(mnemonic)
+                .expect("wallet metadata should derive"),
+        };
+        let mnemonic_path = test_dir.join("mnemonic");
+        fs::write(&mnemonic_path, mnemonic).expect("mnemonic should be written");
+
+        assert_eq!(
+            wallet_recovery_mnemonic(&wallet, Some(&[2u8; 32]), &mnemonic_path)
+                .expect("matching mnemonic should recover the stranded wallet"),
+            Some(mnemonic.to_string())
+        );
+        assert_eq!(
+            wallet_recovery_mnemonic(&wallet, Some(&original_key), &mnemonic_path)
+                .expect("the original key should still decrypt the wallet"),
+            None
         );
 
         fs::remove_dir_all(&test_dir).expect("test dir should be removed");
