@@ -118,7 +118,27 @@ export class BitcoinLockRecovery {
     if (!isComplete) {
       this.historyReplayLocksByUtxoId = undefined;
       this.historyReplayLockScope = undefined;
-      for (const recovered of Object.values(stagedLocks)) this.applyRecoveredRecord(recovered);
+      const table = await this.getTable();
+      for (const recovered of Object.values(stagedLocks)) {
+        const utxoId = recovered.utxoId;
+        const liveLock = utxoId === undefined ? undefined : this.locksByUtxoId[utxoId];
+        const activeLock = utxoId === undefined ? undefined : this.activeLocksByUtxoId.get(utxoId);
+        const fundingRecord = liveLock ? this.utxoTracking.getAcceptedFundingRecordForLock(liveLock) : undefined;
+        const hasLiveReleaseState =
+          liveLock?.status === BitcoinLockStatus.Releasing && this.utxoTracking.isReleaseStatus(fundingRecord?.status);
+        const hasIncompleteActiveHistory =
+          activeLock &&
+          !this.hasCompleteRatchetEconomics(recovered, activeLock.liquidityPromised, activeLock.lockedTargetPrice);
+        if (utxoId !== undefined && liveLock && (hasLiveReleaseState || hasIncompleteActiveHistory)) {
+          await table.saveRecoveredHistory(liveLock);
+          await table.setHistoryRecoveryPending(liveLock.uuid, false);
+          delete liveLock.isHistoryRecoveryPending;
+          this.historyRecoveryPendingUtxoIds.delete(utxoId);
+          this.historyRecoveryPendingUuids.delete(liveLock.uuid);
+          continue;
+        }
+        this.applyRecoveredRecord(recovered);
+      }
       await this.publishCompleteActiveLocks();
       this.activeLocksByUtxoId.clear();
       return;
