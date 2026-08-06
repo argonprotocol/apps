@@ -176,12 +176,12 @@ import {
   countCompletedTreasuryCertificationRequirements,
   createOperationalAccessProof,
   hasCompletedTreasuryCertificationRequirements,
+  InviteEnvelope,
   NetworkConfig,
   operationalCertificationRequirementCount,
   treasuryCertificationRequirementCount,
 } from '@argonprotocol/apps-core';
 import CopyToClipboard from '../../../components/CopyToClipboard.vue';
-import { InviteEnvelope } from '../../../lib/InviteEnvelope.ts';
 import { createNumeralHelpers } from '../../../lib/numeral.ts';
 import { supportsOperationalAccessProofRuntime } from '../../../lib/OperationalAccount.ts';
 import { UpstreamOperatorClient } from '../../../lib/UpstreamOperatorClient.ts';
