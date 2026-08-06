@@ -447,25 +447,21 @@ export class BitcoinLockRelayService {
         this.db.bitcoinLockRelaysTable.revertToSubmitted(relayId);
         return;
       }
-      this.submitLane.invalidateNonce();
       this.failRelay(relayId, 'Relay was retracted before it was included in a block.');
       return;
     }
 
     if (status.isUsurped) {
-      this.submitLane.invalidateNonce();
       this.failRelay(relayId, `Relay was usurped by ${status.asUsurped.toHex()}.`);
       return;
     }
 
     if (status.isDropped) {
-      this.submitLane.invalidateNonce();
       this.failRelay(relayId, 'Relay was dropped before it was included in a block.');
       return;
     }
 
     if (status.isInvalid) {
-      this.submitLane.invalidateNonce();
       this.failRelay(relayId, 'Relay was rejected as invalid by the node.');
       return;
     }

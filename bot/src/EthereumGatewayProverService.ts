@@ -528,7 +528,6 @@ export class EthereumGatewayProverService {
           console.log(
             `[EthereumGatewayProverService] Gateway relay submission went stale for target ${throughGatewayActivityNonce}; retrying`,
           );
-          this.submitLane.invalidateNonce();
           continue;
         }
         if (isRedundantCatchUpError(reason)) {

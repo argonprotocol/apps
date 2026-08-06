@@ -132,7 +132,6 @@ export class EthereumBeaconSyncService {
         `[EthereumBeaconSyncService] Submitted beacon sync tx ${this.stateData.lastSubmittedTxHash} ` +
           'is no longer pending before inclusion was observed; retrying',
       );
-      submitLane.invalidateNonce();
       this.stateData.mode = 'idle';
       delete this.stateData.lastSubmittedTxHash;
     }
@@ -201,7 +200,6 @@ export class EthereumBeaconSyncService {
               console.warn(
                 `[EthereumBeaconSyncService] Beacon sync tx already pending in pool; waiting for next sweep: ${message}`,
               );
-              submitLane.invalidateNonce();
               return;
             }
             throw error;
@@ -228,7 +226,6 @@ export class EthereumBeaconSyncService {
         }
       } catch (error) {
         if (isRetryableBeaconSyncSubmitError(error)) {
-          submitLane.invalidateNonce();
           continue;
         }
         if (

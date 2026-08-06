@@ -99,15 +99,26 @@ const syncKeypair = { address: 'sync-account' } as any;
 describe('EthereumBeaconSyncService', () => {
   const createClient = ({
     startingNonce = 4,
+    nonceState = { stable: startingNonce, pool: startingNonce },
     hasEthereumChainConfig = true,
     getDelegateBalance = () => minimumVaultDelegateBalance,
   }: {
     startingNonce?: number;
+    nonceState?: { stable: number; pool: number };
     hasEthereumChainConfig?: boolean;
     getDelegateBalance?: () => bigint;
   } = {}): ArgonClient =>
     ({
       isConnected: true,
+      at: vi.fn(async () => ({
+        query: {
+          system: {
+            account: vi.fn(async () => ({
+              nonce: { toNumber: () => nonceState.stable },
+            })),
+          },
+        },
+      })),
       query: {
         system: {
           account: vi.fn(async () => ({
@@ -132,12 +143,18 @@ describe('EthereumBeaconSyncService', () => {
         },
       },
       rpc: {
+        chain: {
+          getHeader: vi.fn(async () => ({
+            number: { toNumber: () => 100 },
+          })),
+          getBlockHash: vi.fn(async () => '0xstable'),
+        },
         author: {
           pendingExtrinsics: vi.fn(async () => []),
         },
         system: {
           accountNextIndex: vi.fn(async () => ({
-            toNumber: () => startingNonce,
+            toNumber: () => nonceState.pool,
           })),
         },
       },
@@ -255,7 +272,6 @@ describe('EthereumBeaconSyncService', () => {
     releaseLane();
     await runOncePromise;
 
-    expect(client.query.system.account).toHaveBeenCalledTimes(3);
     expect(submissionMock.submitWithTerminalStatusWatch).not.toHaveBeenCalled();
     expect(service.state()).toMatchObject({
       mode: 'idle',
@@ -269,7 +285,8 @@ describe('EthereumBeaconSyncService', () => {
       resolveFirstInBlock = resolve;
     });
     const txs: IMockTx[] = [{ id: 'tx-1' }, { id: 'tx-2' }];
-    const client = createClient({ startingNonce: 12 });
+    const nonceState = { stable: 12, pool: 12 };
+    const client = createClient({ nonceState });
 
     mainchainMock.getEthereumBeaconSyncState
       .mockResolvedValueOnce({
@@ -321,6 +338,8 @@ describe('EthereumBeaconSyncService', () => {
       { nonce: 12 },
     );
 
+    nonceState.stable = 13;
+    nonceState.pool = 13;
     resolveFirstInBlock();
     await vi.waitFor(() => {
       expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(2);
