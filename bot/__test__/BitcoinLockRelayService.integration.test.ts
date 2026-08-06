@@ -505,7 +505,22 @@ async function createRelayServiceHarness(args?: { bestBlockNumber?: number; fina
     get: vi.fn(async () => ({})),
   } as unknown as MainchainClients;
   const laneClient = {
+    at: vi.fn(async () => ({
+      query: {
+        system: {
+          account: vi.fn(async () => ({
+            nonce: { toNumber: () => 1 },
+          })),
+        },
+      },
+    })),
     rpc: {
+      chain: {
+        getHeader: vi.fn(async () => ({
+          number: { toNumber: () => 100 },
+        })),
+        getBlockHash: vi.fn(async () => '0xstable'),
+      },
       system: {
         accountNextIndex: vi.fn(async () => ({
           toNumber: () => 1,

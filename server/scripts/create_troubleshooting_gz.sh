@@ -228,7 +228,7 @@ SINCE="$(date -u -d '48 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -v -4
 # Data folders
 echo "[*] Copying data folders"
 shopt -s nullglob
-bot_data_paths=("$ROOT_DIR"/data/argon/bot*)
+bot_data_paths=("$ROOT_DIR"/data/argon/bot* "$ROOT_DIR"/data/argon/vault.sqlite*)
 shopt -u nullglob
 
 if (( ${#bot_data_paths[@]} )); then
@@ -236,7 +236,8 @@ if (( ${#bot_data_paths[@]} )); then
     record_collection_error "Some bot data files could not be copied. Continuing with a partial bundle."
   fi
 else
-  record_collection_error "No bot data paths matched $ROOT_DIR/data/argon/bot*. Continuing without bot data."
+  record_collection_error \
+    "No bot data paths matched $ROOT_DIR/data/argon/bot* or $ROOT_DIR/data/argon/vault.sqlite*. Continuing without bot data."
 fi
 
 exec 2>&3

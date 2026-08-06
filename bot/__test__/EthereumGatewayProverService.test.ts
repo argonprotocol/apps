@@ -241,13 +241,11 @@ describe('EthereumGatewayProverService', () => {
     expect(submissionMock.submitWithTerminalStatusWatch).toHaveBeenCalledTimes(2);
   });
 
-  it('retries with a refreshed nonce when the node drops the delegate submission', async () => {
+  it('retries a dropped delegate submission with the still-available nonce', async () => {
     const client = createClient();
     const service = new EthereumGatewayProverService(createSubmitLane(client), {
       shouldApplySharedRelayStagger: true,
     });
-    const accountNextIndex = client.rpc.system.accountNextIndex as ReturnType<typeof vi.fn>;
-    accountNextIndex.mockResolvedValueOnce({ toNumber: () => 4 }).mockResolvedValueOnce({ toNumber: () => 5 });
 
     gatewayProofMock.buildGatewayActivityProofPayload
       .mockResolvedValueOnce({
@@ -315,7 +313,7 @@ describe('EthereumGatewayProverService', () => {
       delegateAddress: '5RelayDelegate',
       argonTxHash: '0xrelaytx',
       extrinsicMethodJson: { section: 'crosschainTransfer', method: 'proveGatewayActivity' },
-      txNonce: 5,
+      txNonce: 4,
       txSubmittedAtBlockHeight: 322,
       txSubmittedAtTime: new Date('2026-05-13T16:00:01.000Z'),
       estimatedFee: 7n,
@@ -327,7 +325,8 @@ describe('EthereumGatewayProverService', () => {
   it('releases a timed-out first-block wait so a later catch-up can run', async () => {
     vi.useFakeTimers();
 
-    const client = createClient();
+    const nonceState = { stable: 4, pool: 4 };
+    const client = createClient({ nonceState });
     const service = new EthereumGatewayProverService(createSubmitLane(client), {
       shouldApplySharedRelayStagger: true,
     });
@@ -339,21 +338,24 @@ describe('EthereumGatewayProverService', () => {
       activities: [{ gatewayState: { gatewayActivityNonce: 7n } }],
     });
     submissionMock.submitWithTerminalStatusWatch
-      .mockImplementationOnce(async (_submitter, options?: { nonce?: number }) => ({
-        signedTx: {
-          method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
-          nonce: { toNumber: () => options?.nonce ?? 0 },
-        },
-        result: {
-          extrinsic: {
-            signedHash: '0xtimeout',
-            submittedAtBlockNumber: 321,
-            submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+      .mockImplementationOnce(async (_submitter, options?: { nonce?: number }) => {
+        nonceState.pool = 5;
+        return {
+          signedTx: {
+            method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
+            nonce: { toNumber: () => options?.nonce ?? 0 },
           },
-          blockNumber: 321,
-          waitForInFirstBlock: new Promise(() => undefined),
-        },
-      }))
+          result: {
+            extrinsic: {
+              signedHash: '0xtimeout',
+              submittedAtBlockNumber: 321,
+              submittedTime: new Date('2026-05-13T16:00:00.000Z'),
+            },
+            blockNumber: 321,
+            waitForInFirstBlock: new Promise(() => undefined),
+          },
+        };
+      })
       .mockImplementationOnce(async (_submitter, options?: { nonce?: number }) => ({
         signedTx: {
           method: { toHuman: () => ({ section: 'crosschainTransfer', method: 'proveGatewayActivity' }) },
@@ -387,6 +389,8 @@ describe('EthereumGatewayProverService', () => {
       estimatedFee: 7n,
       throughGatewayActivityNonce: 7n,
     });
+    nonceState.stable = 5;
+    nonceState.pool = 5;
     await expect(
       service.runToCheckpoint({ sourceChain: 'Ethereum', throughGatewayActivityNonce: 7n }),
     ).resolves.toEqual({
@@ -985,6 +989,7 @@ function createClient(
   args: {
     tx?: { paymentInfo: ReturnType<typeof vi.fn> };
     accountNextNonce?: number;
+    nonceState?: { stable: number; pool: number };
     balance?: bigint;
     existentialDeposit?: bigint;
     hasEthereumChainConfig?: boolean;
@@ -1017,6 +1022,17 @@ function createClient(
     } as const);
 
   return {
+    at: vi.fn(async () => ({
+      query: {
+        system: {
+          account: vi.fn(async () => ({
+            nonce: {
+              toNumber: () => args.nonceState?.stable ?? args.accountNextNonce ?? 4,
+            },
+          })),
+        },
+      },
+    })),
     tx: {
       crosschainTransfer: {
         proveGatewayActivity: vi.fn(() => tx),
@@ -1101,9 +1117,15 @@ function createClient(
       },
     },
     rpc: {
+      chain: {
+        getHeader: vi.fn(async () => ({
+          number: { toNumber: () => 100 },
+        })),
+        getBlockHash: vi.fn(async () => '0xstable'),
+      },
       system: {
         accountNextIndex: vi.fn(async () => ({
-          toNumber: () => args.accountNextNonce ?? 4,
+          toNumber: () => args.nonceState?.pool ?? args.accountNextNonce ?? 4,
         })),
       },
     },
