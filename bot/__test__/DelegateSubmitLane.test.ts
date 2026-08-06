@@ -136,8 +136,7 @@ describe('DelegateSubmitLane', () => {
     void submission.then(settled, settled);
     const accountNextIndex = vi.mocked(lane.client.rpc.system.accountNextIndex);
     await vi.waitFor(() => expect(accountNextIndex).toHaveBeenCalledOnce());
-    vi.setSystemTime(Date.now() + 600_000);
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(600_000);
 
     await vi.waitFor(() => expect(settled).toHaveBeenCalledOnce());
     await expect(submission).rejects.toThrow(
