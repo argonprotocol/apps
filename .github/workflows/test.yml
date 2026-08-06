@@ -11,6 +11,7 @@ concurrency:
 
 jobs:
   tests:
+    name: ${{ matrix.suite }} (${{ matrix.platform }})
     env:
       CI: true
       E2E_DRIVER_RECEIVED_TIMEOUT_MS: 30000
@@ -21,8 +22,13 @@ jobs:
       matrix:
         include:
           - platform: 'ubuntu-latest'
+            suite: non-e2e
           - platform: 'macos-latest'
+            suite: regular
           - platform: 'windows-latest'
+            suite: regular
+          - platform: 'ubuntu-latest'
+            suite: e2e
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout code
@@ -38,8 +44,8 @@ jobs:
         shell: bash
         run: |
           echo "CI_TEMP_DIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
-          echo "E2E_SCREENSHOT_DIR=$RUNNER_TEMP/e2e-screenshots" >> "$GITHUB_ENV"
-          if [ "$RUNNER_OS" = "Linux" ]; then
+          if [ "${{ matrix.suite }}" = "e2e" ]; then
+            echo "E2E_SCREENSHOT_DIR=$RUNNER_TEMP/e2e-screenshots" >> "$GITHUB_ENV"
             sudo mkdir -p /mnt/target
             sudo chown -R "$USER:$USER" /mnt/target
             sudo rm -rf src-tauri/target
@@ -47,8 +53,8 @@ jobs:
             echo "CARGO_TARGET_DIR=/mnt/target" >> "$GITHUB_ENV"
           fi
 
-      - name: Install system dependencies
-        if: matrix.platform == 'ubuntu-latest'
+      - name: Install desktop dependencies
+        if: matrix.suite == 'e2e'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -58,24 +64,21 @@ jobs:
             libspa-0.2-dev \
             libclang-dev \
             libgbm-dev \
+            gnome-keyring \
             webkit2gtk-driver \
             xvfb
 
-      # install latest stable Rust release
       - name: Setup rust-toolchain stable
+        if: matrix.suite == 'e2e'
         uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537
         with:
           toolchain: stable
 
-      # setup caching for the Rust target folder
       - name: Setup Rust cache
+        if: matrix.suite == 'e2e'
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
         with:
           workspaces: src-tauri
-
-      - if: runner.os == 'Windows'
-        shell: bash
-        run: echo "AWS_LC_SYS_PREBUILT_NASM=1" >> "$GITHUB_ENV"
 
       - name: Enable Corepack
         run: corepack enable
@@ -83,8 +86,8 @@ jobs:
       - name: Install dependencies
         run: yarn install
 
-      - name: Trust local gateway CA for Linux e2e
-        if: matrix.platform == 'ubuntu-latest'
+      - name: Trust local gateway CA
+        if: matrix.suite == 'e2e'
         run: |
           yarn dev:gateway-certs
           sudo cp "$HOME/.argon/dev-gateway-ca/rootCA.pem" /usr/local/share/ca-certificates/argon-dev-gateway-ca.crt
@@ -94,11 +97,11 @@ jobs:
         run: yarn build:indexer
 
       - name: Make docker.sock world-writable
-        if: matrix.platform == 'ubuntu-latest'
+        if: matrix.suite != 'regular'
         run: sudo chmod 666 /var/run/docker.sock
 
       - name: Install Kurtosis
-        if: matrix.platform == 'ubuntu-latest'
+        if: matrix.suite != 'regular'
         run: |
           echo "deb [trusted=yes] https://sdk.kurtosis.com/kurtosis-cli-release-artifacts/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
           sudo apt update
@@ -107,7 +110,7 @@ jobs:
           kurtosis analytics disable || true
 
       - name: Start Kurtosis engine
-        if: matrix.platform == 'ubuntu-latest'
+        if: matrix.suite != 'regular'
         shell: bash
         run: |
           for attempt in 1 2 3; do
@@ -124,25 +127,37 @@ jobs:
             sleep 15
           done
 
+      - name: Tests
+        if: matrix.suite == 'regular'
+        run: yarn vitest --run --project '!integration' --project '!e2e'
+
+      - name: Tests excluding e2e
+        if: matrix.suite == 'non-e2e'
+        run: yarn vitest --run --project '!e2e'
+
       # xvfb-run provides a virtual display required by WebKit/GTK in CI.
-      # dbus-run-session provides a D-Bus session bus that WebKit/GTK requires.
-      - name: Tests (Linux)
-        if: matrix.platform == 'ubuntu-latest'
-        run: xvfb-run --auto-servernum --server-args="-screen 0 1400x1000x24" yarn test
+      # dbus-run-session provides a D-Bus session bus for WebKit/GTK and the wallet key store.
+      - name: E2E tests
+        if: matrix.suite == 'e2e'
+        run: |
+          gnome-keyring-daemon --components=secrets --daemonize --unlock <<< 'e2e'
+          xvfb-run --auto-servernum --server-args="-screen 0 1400x1000x24" yarn vitest --run --project e2e
         shell: dbus-run-session -- bash --noprofile --norc -eo pipefail {0}
         env:
           ARGON_E2E_HEADLESS: '0'
           E2E_FLOW_APP_LOGS: 'quiet'
           E2E_SCREENSHOT_MODE: '1'
 
-      - name: Tests (macOS/Windows)
-        if: matrix.platform != 'ubuntu-latest'
-        run: yarn test
-        env:
-          SKIP_E2E: '1'
-
       - name: Upload test artifacts
-        if: failure()
+        if: failure() && matrix.suite != 'e2e'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: test-artifacts-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suite }}-${{ matrix.platform }}
+          path: /tmp/troubleshooting-*
+          if-no-files-found: ignore
+
+      - name: Upload e2e artifacts
+        if: failure() && matrix.suite == 'e2e'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: e2e-artifacts-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}
@@ -152,7 +167,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload e2e screenshots
-        if: always() && matrix.platform == 'ubuntu-latest'
+        if: always() && matrix.suite == 'e2e'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: e2e-screenshots-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform }}

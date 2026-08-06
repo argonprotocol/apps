@@ -98,6 +98,26 @@ export default class BitcoinOrphanReleases {
     });
   }
 
+  public async onRequestedReleaseInBlock(record: IBitcoinUtxoRecord, txInfo: TransactionInfo): Promise<void> {
+    const { txResult } = txInfo;
+    const postProcessor = txInfo.createPostProcessor();
+    try {
+      await txResult.waitForInFirstBlock;
+      const txFailure = getTransactionFailureMessage(txInfo);
+      if (txFailure) {
+        await this.bitcoinLocks.utxoTracking.setReleaseError(record, txFailure);
+        return;
+      }
+
+      await this.ensureObservedAtTick(record, txInfo);
+    } catch (error) {
+      await this.bitcoinLocks.utxoTracking.setReleaseError(record, String(error));
+      throw error;
+    } finally {
+      postProcessor.resolve();
+    }
+  }
+
   public async reconcileCandidateReturns(lock: IBitcoinLockRecord): Promise<void> {
     if (!lock.utxoId) return;
 
@@ -461,16 +481,9 @@ export default class BitcoinOrphanReleases {
         },
       });
 
-      void txInfo.txResult.waitForInFirstBlock
-        .then(async () => {
-          const txFailure = getTransactionFailureMessage(txInfo);
-          if (txFailure) {
-            await this.bitcoinLocks.utxoTracking.setReleaseError(record, txFailure);
-            return;
-          }
-          await this.ensureObservedAtTick(record, txInfo);
-        })
-        .catch(error => this.bitcoinLocks.utxoTracking.setReleaseError(record, String(error)));
+      void this.onRequestedReleaseInBlock(record, txInfo).catch(error => {
+        console.warn(`[BitcoinOrphanReleases] Unable to process return request #${txInfo.tx.id}`, error);
+      });
 
       return txInfo;
     } catch (error) {

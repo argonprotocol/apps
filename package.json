@@ -29,6 +29,7 @@
     "dev:ethereum:add-argn": "tsx e2e/scripts/fundDevEthereumTokens.ts --token=ARGN",
     "dev:ethereum:add-argnot": "tsx e2e/scripts/fundDevEthereumTokens.ts --token=ARGNOT",
     "dev:ethereum:force-update-global-issuance-council": "tsx e2e/scripts/forceUpdateGlobalIssuanceCouncil.ts",
+    "dev:upstream:app": "tsx e2e/scripts/prepareDevUpstreamApp.ts && ARGON_DEV_UPSTREAM=0 yarn tauri:dev:docker:app2",
     "dev:upstream:invite": "tsx e2e/scripts/devUpstreamInvite.ts",
     "e2e:prepare": "yarn build:server",
     "e2e:docker": "yarn workspace @argonprotocol/apps-e2e run flows",

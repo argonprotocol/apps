@@ -33,7 +33,6 @@ const defaultUpstreamRootDir = path.resolve(__dirname, '..', 'dev-upstream');
 const execFileAsync = promisify(execFile);
 
 export const DEV_UPSTREAM_MASTER_MNEMONIC = 'test test test test test test test test test test test junk';
-export const DEV_UPSTREAM_SUBSTRATE_SURI = '//DevUpstreamOperator';
 
 export const DEV_DOCKER_COMPOSE_FILES = [
   'docker-compose.yml',
@@ -58,6 +57,7 @@ export interface IDevUpstreamServerRuntime {
   botPort: string;
   gatewayPort: string;
   routerPort: string;
+  stopVaultAlertPoller(): Promise<void>;
   shutdown(): Promise<void>;
 }
 
@@ -264,17 +264,18 @@ export async function startDevUpstreamServer(args: {
   let endpointMonitor: NodeJS.Timeout | undefined;
   let isEndpointRefreshRunning = false;
   let publishedGatewayPort: string | undefined;
+  const stopVaultAlertPoller = async () => {
+    vaultAlertAbortController.abort();
+    await vaultAlertPoller?.catch(() => undefined);
+    vaultAlertPoller = undefined;
+  };
   const shutdown = async () => {
     if (isShutdown) {
       return;
     }
     isShutdown = true;
     clearInterval(endpointMonitor);
-    vaultAlertAbortController.abort();
-    await Promise.all([
-      operationsUpgradePoller?.shutdown().catch(() => undefined),
-      vaultAlertPoller?.catch(() => undefined),
-    ]);
+    await Promise.all([operationsUpgradePoller?.shutdown().catch(() => undefined), stopVaultAlertPoller()]);
     await actor.dispose().catch(() => undefined);
     await clients.disconnect().catch(() => undefined);
   };
@@ -345,6 +346,7 @@ export async function startDevUpstreamServer(args: {
       botPort,
       gatewayPort,
       routerPort,
+      stopVaultAlertPoller,
       shutdown,
     };
   } catch (error) {
@@ -437,7 +439,7 @@ function getComposeArgs(context: DevDockerComposeContext): string[] {
 
 export async function createDevUpstreamWalletKeys(): Promise<MemoryWalletKeys> {
   return new MemoryWalletKeys({
-    substrateSuri: DEV_UPSTREAM_SUBSTRATE_SURI,
+    substrateSuri: DEV_UPSTREAM_MASTER_MNEMONIC,
     masterMnemonic: DEV_UPSTREAM_MASTER_MNEMONIC,
   });
 }

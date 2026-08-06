@@ -64,13 +64,41 @@ describe('MyVaultRecovery', () => {
 });
 
 describe('MyVault cosign recovery', () => {
-  it('keeps orphan release signatures in operator alert state', async () => {
+  it('updates collect alert state from finalized data', async () => {
     const unsubscribe = vi.fn();
     const subscribeStorage = vi.fn(async () => unsubscribe);
+    const frameRevenues = vi
+      .fn()
+      .mockResolvedValueOnce([{ frameId: numberCodec(1), uncollectedRevenue: bigintCodec(42n) }])
+      .mockResolvedValueOnce([{ frameId: numberCodec(1), uncollectedRevenue: bigintCodec(84n) }]);
     const orphanEntries = vi
       .fn()
       .mockResolvedValueOnce([[{}, numberCodec(2)]])
       .mockResolvedValueOnce([[{}, numberCodec(3)]]);
+    const requestEvent = {
+      section: 'bitcoinLocks',
+      method: 'OrphanedUtxoReleaseRequested',
+      data: { vaultId: numberCodec(7) },
+    };
+    const vaultEvent = { section: 'vaults', method: 'FundsLocked', data: { vaultId: numberCodec(7) } };
+    const blockEvents: { event: unknown }[] = [{ event: requestEvent }];
+    const eventMatcher = (method: string) => ({ is: (event: { method?: string }) => event.method === method });
+    const unrelatedEvent = eventMatcher('Unrelated');
+    const bitcoinEvents = {
+      BitcoinLockCreated: eventMatcher('BitcoinLockCreated'),
+      BitcoinLockRatcheted: unrelatedEvent,
+      BitcoinUtxoCosignRequested: unrelatedEvent,
+      BitcoinUtxoCosigned: unrelatedEvent,
+      BitcoinCosignPastDue: unrelatedEvent,
+      BitcoinLockBurned: unrelatedEvent,
+      OrphanedUtxoReleaseRequested: eventMatcher('OrphanedUtxoReleaseRequested'),
+      OrphanedUtxoCosigned: unrelatedEvent,
+    };
+    const vaultEvents = {
+      FundsLocked: eventMatcher('FundsLocked'),
+      VaultCollected: unrelatedEvent,
+      VaultRevenueUncollected: unrelatedEvent,
+    };
     const client = {
       clientType: 'pruned',
       query: {
@@ -80,28 +108,19 @@ describe('MyVault cosign recovery', () => {
           pendingCosignByVaultId: subscribeStorage,
           lastCollectFrameByVaultId: subscribeStorage,
           argonotCommitmentByVaultId: subscribeStorage,
-          orphanedUtxoAccountsByVaultId: { entries: orphanEntries },
         },
       },
       on: vi.fn(),
     };
-    const requestEvent = { data: { vaultId: numberCodec(7) } };
-    const unrelatedEvent = { is: () => false };
     const eventClient = {
-      events: {
-        bitcoinLocks: {
-          BitcoinLockCreated: unrelatedEvent,
-          BitcoinLockRatcheted: unrelatedEvent,
-          BitcoinUtxoCosignRequested: unrelatedEvent,
-          BitcoinUtxoCosigned: unrelatedEvent,
-          BitcoinCosignPastDue: unrelatedEvent,
-          BitcoinLockBurned: unrelatedEvent,
-          OrphanedUtxoReleaseRequested: { is: (event: unknown) => event === requestEvent },
-          OrphanedUtxoCosigned: unrelatedEvent,
-        },
-      },
+      events: { bitcoinLocks: bitcoinEvents },
+    };
+    const finalizedApi = {
+      events: { bitcoinLocks: bitcoinEvents, vaults: vaultEvents },
       query: {
         vaults: {
+          revenuePerFrameByVault: frameRevenues,
+          pendingCosignByVaultId: vi.fn(async () => []),
           orphanedUtxoAccountsByVaultId: { entries: orphanEntries },
         },
       },
@@ -112,7 +131,10 @@ describe('MyVault cosign recovery', () => {
     };
     const getMainchainClients = vi.spyOn(mainchainStore, 'getMainchainClients').mockReturnValue(clients as any);
     const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(eventClient as any);
-    const { myVault, blockWatchEventOn, getBlockEvents } = createVault({ blockEvents: [{ event: requestEvent }] });
+    const { myVault, blockWatchEventOn, getBlockEvents, getBlockEventsWithSpec } = createVault({
+      blockEvents,
+      finalizedApi,
+    });
     myVault.data.createdVault = { vaultId: 7 } as Vault;
     myVault.data.metadata = { id: 7 } as any;
     vi.spyOn(myVault as unknown as IMyVaultTestTarget, 'updateCollectDeadlines').mockImplementation(() => undefined);
@@ -120,13 +142,40 @@ describe('MyVault cosign recovery', () => {
     await myVault.subscribe();
 
     expect(myVault.data.pendingOrphanCosignCount).toBe(2);
+    expect(myVault.data.pendingCollectRevenue).toBe(42n);
 
     const onBestBlocks = blockWatchEventOn.mock.calls.find(([event]) => event === 'best-blocks')![1];
     onBestBlocks([{ blockNumber: 10, blockHash: '0x10' }]);
     await vi.waitFor(() => {
-      expect(myVault.data.pendingOrphanCosignCount).toBe(3);
+      expect(getBlockEvents).toHaveBeenCalledTimes(1);
     });
-    expect(getBlockEvents).toHaveBeenCalledTimes(1);
+    expect(myVault.data.pendingOrphanCosignCount).toBe(2);
+    expect(myVault.data.pendingCollectRevenue).toBe(42n);
+
+    const onFinalized = blockWatchEventOn.mock.calls.find(([event]) => event === 'finalized')![1];
+    blockEvents.splice(
+      0,
+      1,
+      { event: { method: 'BitcoinLockCreated', data: { vaultId: numberCodec(7) } } },
+      { event: { method: 'OrphanedUtxoReleaseRequested', data: { vaultId: numberCodec(8) } } },
+      { event: { method: 'FundsLocked', data: { vaultId: numberCodec(8) } } },
+    );
+    await onFinalized([{ blockNumber: 9, blockHash: '0x09' }]);
+
+    expect(orphanEntries).toHaveBeenCalledTimes(1);
+    expect(frameRevenues).toHaveBeenCalledTimes(1);
+
+    blockEvents.splice(0, blockEvents.length, { event: requestEvent });
+    await onFinalized([{ blockNumber: 10, blockHash: '0x10' }]);
+
+    expect(myVault.data.pendingOrphanCosignCount).toBe(3);
+    expect(myVault.data.pendingCollectRevenue).toBe(42n);
+
+    blockEvents.splice(0, 1, { event: vaultEvent });
+    await onFinalized([{ blockNumber: 11, blockHash: '0x11' }]);
+
+    expect(myVault.data.pendingCollectRevenue).toBe(84n);
+    expect(getBlockEventsWithSpec).toHaveBeenCalledTimes(3);
 
     myVault.unsubscribe();
     getMainchainClient.mockRestore();
@@ -796,6 +845,9 @@ describe('MyVault cosign recovery', () => {
         vaults: {
           pendingCosignByVaultId: vi.fn().mockResolvedValue([]),
           revenuePerFrameByVault: vi.fn().mockResolvedValue([{ uncollectedRevenue: { toBigInt: () => 40n } }]),
+          orphanedUtxoAccountsByVaultId: {
+            entries: vi.fn().mockResolvedValue([[{}, numberCodec(2)]]),
+          },
         },
       },
       tx: {
@@ -803,7 +855,7 @@ describe('MyVault cosign recovery', () => {
         vaults: { collect },
       },
     };
-    const finalizedClient = {};
+    const finalizedClient = client;
     const { myVault } = createVault();
     myVault.data.createdVault = { vaultId: 7 } as any;
     myVault.data.pendingOrphanCosignCount = 2;
@@ -863,6 +915,7 @@ describe('MyVault cosign recovery', () => {
         vaults: {
           pendingCosignByVaultId: vi.fn().mockResolvedValue([]),
           revenuePerFrameByVault: vi.fn().mockResolvedValue([{ uncollectedRevenue: { toBigInt: () => 40n } }]),
+          orphanedUtxoAccountsByVaultId: { entries: vi.fn().mockResolvedValue([]) },
         },
       },
       tx: {
@@ -898,7 +951,7 @@ describe('MyVault cosign recovery', () => {
 
     const submission = await myVault.collectBuilder.buildPendingSubmission({
       client: client as any,
-      finalizedClient: {} as any,
+      finalizedClient: client as any,
       moveTo: 'VaultingHold' as any,
     });
 
@@ -932,6 +985,7 @@ describe('MyVault cosign recovery', () => {
         vaults: {
           pendingCosignByVaultId: vi.fn().mockResolvedValue([]),
           revenuePerFrameByVault: vi.fn().mockResolvedValue([{ uncollectedRevenue: { toBigInt: () => 40n } }]),
+          orphanedUtxoAccountsByVaultId: { entries: vi.fn().mockResolvedValue([]) },
         },
       },
       tx: {
@@ -972,7 +1026,7 @@ describe('MyVault cosign recovery', () => {
 
     const submission = await myVault.collectBuilder.buildPendingSubmission({
       client: client as any,
-      finalizedClient: {} as any,
+      finalizedClient: client as any,
       moveTo: 'VaultingHold' as any,
     });
 
@@ -1432,16 +1486,24 @@ function createVault(args?: {
   walletKeys?: ReturnType<typeof createMockWalletKeys>;
   ensureStoredEvents?: ReturnType<typeof vi.fn>;
   blockEvents?: unknown[];
+  finalizedApi?: object;
 }) {
   const blockWatchEventOn = vi.fn(
-    (_event: string, _callback: (headers: { blockNumber: number; blockHash: string }[]) => void) => vi.fn(),
+    (_event: string, _callback: (headers: { blockNumber: number; blockHash: string }[]) => void | Promise<void>) =>
+      vi.fn(),
   );
   const getBlockEvents = vi.fn(async () => args?.blockEvents ?? []);
+  const getBlockEventsWithSpec = vi.fn(async () => ({
+    api: args?.finalizedApi ?? {},
+    events: args?.blockEvents ?? [],
+  }));
   const blockWatch = {
     finalizedBlockHeader: { blockNumber: args?.finalizedHeight ?? 100 },
     events: { on: blockWatchEventOn },
     getEvents: getBlockEvents,
-    getFinalizedApi: vi.fn(async () => ({})),
+    getEventsWithSpec: getBlockEventsWithSpec,
+    getFinalizedApi: vi.fn(async () => args?.finalizedApi ?? {}),
+    getApi: vi.fn(async () => args?.finalizedApi ?? {}),
     getHeader: vi.fn(async (blockHeight: number) => {
       return {
         blockNumber: blockHeight,
@@ -1612,7 +1674,7 @@ function createVault(args?: {
       },
       ...args?.db,
     } as any),
-    { vaultsById: {} } as any,
+    { vaultsById: {}, updateVaultRevenue: vi.fn(async () => undefined) } as any,
     args?.walletKeys ?? createMockWalletKeys(),
     transactionTracker,
     bitcoinLocks,
@@ -1626,6 +1688,7 @@ function createVault(args?: {
     blockWatch,
     blockWatchEventOn,
     getBlockEvents,
+    getBlockEventsWithSpec,
     onFrameId,
     globalCouncil,
     mintingAuthorities,

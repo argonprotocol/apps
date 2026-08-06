@@ -32,6 +32,7 @@
           <a
             :href="mempool.txUrl(record.txid)"
             target="_blank"
+            rel="noopener noreferrer"
             class="text-argon-600 inline-flex items-center gap-1 hover:underline"
           >
             View transaction
@@ -89,7 +90,19 @@
       </div>
 
       <div v-else class="space-y-4">
-        <div class="border-argon-100 bg-argon-50 space-y-2 rounded-lg border px-4 py-3">
+        <template v-if="isArgonRequestInProgress">
+          <div class="mt-6">
+            <div class="fade-progress text-center text-5xl font-bold">
+              {{ numeral(argonRequestProgressPct).format('0.00') }}%
+            </div>
+          </div>
+
+          <ProgressBar :progress="argonRequestProgressPct" :showLabel="false" class="h-4" />
+
+          <div class="mt-1 text-center font-light text-gray-500">{{ argonRequestProgressLabel }}</div>
+        </template>
+
+        <div v-else class="border-argon-100 bg-argon-50 space-y-2 rounded-lg border px-4 py-3">
           <template
             v-if="
               record.status === BitcoinUtxoStatus.ReleaseComplete ||
@@ -148,6 +161,7 @@
             v-if="record.releaseTxid"
             :href="mempool.txUrl(record.releaseTxid)"
             target="_blank"
+            rel="noopener noreferrer"
             class="text-argon-600 inline-flex items-center gap-1 text-sm hover:underline"
           >
             View return transaction
@@ -180,9 +194,11 @@ import { getCurrency } from '../stores/currency.ts';
 import { useWallets } from '../stores/wallets.ts';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
+import { TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import BitcoinMempool from '../lib/BitcoinMempool.ts';
 import { ESPLORA_HOST } from '../lib/Env.ts';
+import { generateProgressLabel } from '../lib/Utils.ts';
 
 dayjs.extend(utc);
 
@@ -204,6 +220,10 @@ const requestError = Vue.ref('');
 const argonFeeQuote = Vue.ref<{ canAfford: boolean; availableBalance: bigint; txFee: bigint }>();
 const argonFeeQuoteError = Vue.ref('');
 const isCheckingArgonFee = Vue.ref(false);
+const argonRequestProgressPct = Vue.ref(0);
+const argonRequestConfirmations = Vue.ref(-1);
+const argonRequestExpectedConfirmations = Vue.ref(0);
+const isArgonRequestInProgress = Vue.ref(false);
 
 const bitcoinAmount = Vue.computed(() =>
   numeral(currency.convertSatToBtc(props.record.satoshis)).format('0,0.[00000000]'),
@@ -291,9 +311,15 @@ const argonFeeShortfall = Vue.computed(() => {
   return shortfall > 0n ? shortfall : 0n;
 });
 const releaseProgress = Vue.computed(() => bitcoinLocks.utxoTracking.getReleaseLifecycleProgress(props.record));
+const argonRequestProgressLabel = Vue.computed(() => {
+  return generateProgressLabel(argonRequestConfirmations.value, argonRequestExpectedConfirmations.value, {
+    blockType: 'Argon',
+  });
+});
 
 let feeQuoteTimeout: ReturnType<typeof setTimeout> | undefined;
 let feeQuoteRunId = 0;
+let stopArgonRequestProgress: (() => void) | undefined;
 
 Vue.watch(
   [trimmedDestination, feeRatePerSatVb, () => wallets.liquidLockingWallet.availableMicrogons],
@@ -316,25 +342,47 @@ Vue.watch(
 
 Vue.onUnmounted(() => {
   if (feeQuoteTimeout) clearTimeout(feeQuoteTimeout);
+  stopArgonRequestProgress?.();
 });
+
+Vue.onMounted(() => trackArgonRequestProgress());
 
 async function requestReturn(): Promise<void> {
   if (!canSubmit.value) return;
   isSubmitting.value = true;
+  isArgonRequestInProgress.value = true;
   requestError.value = '';
 
   try {
-    await bitcoinLocks.orphanReleases.requestOrphanReturn({
+    const txInfo = await bitcoinLocks.orphanReleases.requestOrphanReturn({
       lock: props.lock,
       record: props.record,
       toScriptPubkey: trimmedDestination.value,
       feeRatePerSatVb: feeRatePerSatVb.value,
     });
+    trackArgonRequestProgress(txInfo);
   } catch (error) {
+    isArgonRequestInProgress.value = false;
     requestError.value = error instanceof Error ? error.message : String(error);
   } finally {
     isSubmitting.value = false;
   }
+}
+
+function trackArgonRequestProgress(
+  txInfo = bitcoinLocks.orphanReleases.getTransactionInfo(props.record.lockUtxoId, props.record),
+): void {
+  if (!txInfo) return;
+
+  isArgonRequestInProgress.value = [TransactionStatus.Submitted, TransactionStatus.InBlock].includes(txInfo.tx.status);
+  stopArgonRequestProgress?.();
+  stopArgonRequestProgress = txInfo.subscribeToProgress((progress, error) => {
+    argonRequestProgressPct.value = progress.progressPct;
+    argonRequestConfirmations.value = progress.confirmations;
+    argonRequestExpectedConfirmations.value = progress.expectedConfirmations;
+    isArgonRequestInProgress.value = progress.progressPct < 100 && !error;
+    if (error) requestError.value = error.message;
+  });
 }
 
 async function refreshArgonFeeQuote(runId: number): Promise<void> {

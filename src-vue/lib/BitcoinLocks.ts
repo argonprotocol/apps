@@ -515,6 +515,14 @@ export default class BitcoinLocks {
               recoveryLock = lock;
               processing = this.onRequestedReleaseInBlock(lock, txInfo);
             }
+          } else if (tx.extrinsicType === ExtrinsicType.BitcoinOrphanedUtxoRelease) {
+            const { utxoId, utxoRecordId } = tx.metadataJson as { utxoId: number; utxoRecordId: number };
+            const lock = this.locksByUtxoId[utxoId];
+            const record = this.utxoTracking.getUtxoRecordById(utxoRecordId);
+            if (lock && record) {
+              recoveryLock = lock;
+              processing = this.orphanReleases.onRequestedReleaseInBlock(record, txInfo);
+            }
           } else if (tx.extrinsicType === ExtrinsicType.BitcoinRatchet) {
             const { utxoId } = tx.metadataJson;
             const lock = this.locksByUtxoId[utxoId];

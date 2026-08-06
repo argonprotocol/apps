@@ -157,13 +157,15 @@ export class VaultCollectBuilder {
       vaultId,
     });
 
-    const frameRevenues = await client.query.vaults.revenuePerFrameByVault(vaultId);
+    const frameRevenues = await finalizedClient.query.vaults.revenuePerFrameByVault(vaultId);
     const expectedCollectRevenue = frameRevenues.reduce(
       (total, frameRevenue) => total + frameRevenue.uncollectedRevenue.toBigInt(),
       0n,
     );
     const pendingCouncilApprovals = await myVault.globalCouncil.refresh(finalizedClient);
-    const hasUnsubmittedOrphanCosigns = myVault.data.pendingOrphanCosignCount > cosignedOrphanUtxos.length;
+    const orphanCosignEntries = await finalizedClient.query.vaults.orphanedUtxoAccountsByVaultId.entries(vaultId);
+    const pendingOrphanCosignCount = orphanCosignEntries.reduce((total, [, count]) => total + count.toNumber(), 0);
+    const hasUnsubmittedOrphanCosigns = pendingOrphanCosignCount > cosignedOrphanUtxos.length;
     const shouldCollectRevenue = expectedCollectRevenue > 0n && !hasUnsubmittedOrphanCosigns;
     const hasCollectWork = shouldCollectRevenue || bitcoinTxs.length > 0;
     const metadata = {
@@ -244,7 +246,7 @@ async function buildCollectBitcoinTxs(args: {
   vaultId: number;
 }) {
   const { myVault, client, finalizedClient, vaultId } = args;
-  const pendingCosignUtxos = await client.query.vaults.pendingCosignByVaultId(vaultId);
+  const pendingCosignUtxos = await finalizedClient.query.vaults.pendingCosignByVaultId(vaultId);
   const bitcoinTxs: SubmittableExtrinsic[] = [];
   const cosignedUtxoIds: number[] = [];
 

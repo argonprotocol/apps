@@ -49,19 +49,23 @@
           <strong>
             {{ manualPendingCosignCount }} transaction{{ manualPendingCosignCount === 1 ? '' : 's' }}
           </strong>
-          that must be signed. Failure to do so within
-          <CountdownClock :time="nextCosignDueDate" v-slot="{ hours, minutes, days }">
-            <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
-            <template v-else>
-              <span class="mr-2" v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }}</span>
-              <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
-            </template>
-          </CountdownClock>
-          will result in your vault forfeiting
-          <strong>
-            {{ currency.symbol }}{{ microgonToMoneyNm(manualPendingCosignSum).formatIfElse('< 1_000', '0,0.00', '0,0') }}
-          </strong>
-          in securitization.
+          that must be signed.
+          <template v-if="manualPendingCosignSum > 0n">
+            Failure to do so within
+            <CountdownClock :time="nextCosignDueDate" v-slot="{ hours, minutes, days }">
+              <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
+              <template v-else>
+                <span class="mr-2" v-if="hours">{{ hours }} hour{{ hours === 1 ? '' : 's' }}</span>
+                <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
+              </template>
+            </CountdownClock>
+            will result in your vault forfeiting
+            <strong>
+              {{ currency.symbol
+              }}{{ microgonToMoneyNm(manualPendingCosignSum).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+            </strong>
+            in securitization.
+          </template>
         </p>
 
         <div
@@ -385,6 +389,7 @@ Vue.watch(
     myVault.mintingAuthorities.data.pendingMintingAuthorizations.length,
     myVault.mintingAuthorities.data.pendingMintingAuthorizeTxInfosByTransferId.size,
     myVault.data.pendingCosignUtxosById.size,
+    myVault.data.pendingOrphanCosignCount,
     myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.size,
   ],
   () => {
