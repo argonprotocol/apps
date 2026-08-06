@@ -1,14 +1,12 @@
 import { ITuple, Option, U8aFixed, u8aToHex, Vault } from '@argonprotocol/mainchain';
 import { IVaultingRules } from '../../interfaces/IVaultingRules.ts';
 import BigNumber from 'bignumber.js';
-import BitcoinLocks from '../BitcoinLocks.ts';
 import { AccountActivityKind, MainchainClients, StorageFinder, TransactionEvents } from '@argonprotocol/apps-core';
 import { TICK_MILLIS } from '../Env.ts';
 import { Config } from '../Config.ts';
 import bs58check from 'bs58check';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
 import { hexToU8a } from '@polkadot/util';
-import type { IBitcoinLockRecord } from '../db/BitcoinLocksTable.ts';
 import { DEFAULT_MASTER_XPUB_PATH } from '../MyVault.ts';
 import { WalletKeys } from '../WalletKeys.ts';
 import { findAddressActivity } from '../IndexerClient.ts';
@@ -145,81 +143,6 @@ export class MyVaultRecovery {
       txFee: vaultCreateFee,
       vault,
     };
-  }
-
-  public static async recoverPersonalBitcoin(args: {
-    mainchainClients: MainchainClients;
-    bitcoinLocks: BitcoinLocks;
-    vaultSetupBlockNumber: number;
-    vault: Vault;
-  }): Promise<(IBitcoinLockRecord & { initializedAtBlockNumber: number })[]> {
-    const { mainchainClients, bitcoinLocks, vault, vaultSetupBlockNumber } = args;
-    const vaultingAddress = vault.operatorAccountId;
-    const vaultId = vault.vaultId;
-    const client = await mainchainClients.archiveClientPromise;
-    const bitcoins = await client.query.bitcoinLocks.locksByUtxoId.entries();
-    const myBitcoins = bitcoins.filter(([, lockMaybe]) => {
-      if (!lockMaybe.isSome) return false;
-      if (lockMaybe.value.vaultId.toNumber() !== vaultId) return false;
-      return lockMaybe.value.ownerAccount.toHuman() === vaultingAddress;
-    });
-
-    const records: (IBitcoinLockRecord & { initializedAtBlockNumber: number })[] = [];
-    const table = await bitcoinLocks.getTable();
-
-    for (const [utxoId] of myBitcoins) {
-      const existingInDb = await table.getByUtxoId(utxoId.args[0].toNumber());
-      if (existingInDb) {
-        records.push({ ...existingInDb, initializedAtBlockNumber: existingInDb.ratchets[0].blockHeight });
-        continue;
-      }
-
-      const lock = await bitcoinLocks.getFromApi(utxoId.args[0].toNumber());
-      let bitcoinTxAddition: { blockHash: Uint8Array; blockNumber: number } | undefined;
-      if (lock.createdAtArgonBlock > 0) {
-        bitcoinTxAddition = {
-          blockNumber: lock.createdAtArgonBlock,
-          blockHash: await client.rpc.chain.getBlockHash(lock.createdAtArgonBlock),
-        };
-      } else {
-        const bitcoinTxKey = client.query.bitcoinLocks.locksByUtxoId.key(lock.utxoId);
-        bitcoinTxAddition = await StorageFinder.binarySearchForStorageAddition(
-          mainchainClients,
-          bitcoinTxKey,
-          vaultSetupBlockNumber,
-        ).catch(err => {
-          console.warn('Unable to find bitcoin lock creation block:', err);
-          return undefined;
-        });
-      }
-      const addedAtBlockNumber = bitcoinTxAddition?.blockNumber ?? 0;
-      let bitcoinTxFee = 0n;
-      if (bitcoinTxAddition) {
-        const result = await TransactionEvents.findFromFeePaidEvent({
-          client,
-          blockHash: bitcoinTxAddition.blockHash,
-          isMatchingEvent: ev => {
-            if (client.events.bitcoinLocks.BitcoinLockCreated.is(ev)) {
-              return ev.data.utxoId.toNumber() === lock.utxoId;
-            }
-            return false;
-          },
-          accountAddress: vaultingAddress,
-        });
-        bitcoinTxFee = result?.fee ?? 0n;
-      }
-
-      const record = await bitcoinLocks.recovery.recoverLock({
-        lock,
-        createdAtArgonBlockHeight: addedAtBlockNumber,
-        finalFee: bitcoinTxFee,
-      });
-      records.push({ ...record, initializedAtBlockNumber: addedAtBlockNumber });
-    }
-    records.sort((a, b) => {
-      return b.initializedAtBlockNumber - a.initializedAtBlockNumber;
-    });
-    return records;
   }
 
   private static async recoverXpubPath(param: {

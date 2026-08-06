@@ -56,7 +56,7 @@
           </li>
         </ul>
 
-        <span v-if="!props.isRestoringHistory" class="relative">
+        <span class="relative">
           <button
             data-testid="BitcoinLocks.openLockingOverlay()"
             @click="openLockingOverlay"
@@ -70,7 +70,7 @@
             class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
           />
         </span>
-        <div v-if="!props.isRestoringHistory" class="mt-2 text-slate-800/60">
+        <div class="mt-2 text-slate-800/60">
           <template v-if="activeCouponGift">
             You've been gifted ${{ activeCouponGift.amount }}, which expires in {{ activeCouponGift.timeRemaining }}
           </template>

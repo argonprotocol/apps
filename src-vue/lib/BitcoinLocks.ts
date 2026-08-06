@@ -463,6 +463,21 @@ export default class BitcoinLocks {
       for (const lock of Object.values(this.locksByUtxoId)) {
         this.utxoTracking.getAcceptedFundingRecordForLock(lock);
       }
+
+      await this.blockWatch.start();
+      const persistedUtxoIds = new Set(Object.keys(this.locksByUtxoId).map(Number));
+      const activeLocks = await this.recovery.recoverActiveLocks().catch(error => {
+        console.warn('[BitcoinLocks] Unable to restore active locks from chain during startup', error);
+        return [];
+      });
+      for (const lock of activeLocks) {
+        if (lock.utxoId === undefined || persistedUtxoIds.has(lock.utxoId)) continue;
+
+        await this.checkForMissingBitcoinLockState(lock).catch(error => {
+          console.warn(`[BitcoinLocks] Unable to reconcile restored lock ${lock.uuid} during startup`, error);
+        });
+      }
+
       for (const lock of Object.values(this.locksByUtxoId)) {
         if (!this.isTerminalLock(lock)) {
           await this.checkForMissingBitcoinLockState(lock).catch(error => {
@@ -551,7 +566,6 @@ export default class BitcoinLocks {
         await relaySync;
       }
 
-      await this.blockWatch.start();
       this.#needsLoadReconciliation = true;
       const initialBestBlock = this.blockWatch.bestBlockHeader;
       void this.#blockQueue

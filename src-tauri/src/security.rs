@@ -71,46 +71,6 @@ struct X25519Keypair {
 }
 
 impl Security {
-    pub fn migrate_legacy_app_dir(app: &AppHandle) -> Result<bool> {
-        let Some(legacy_app_id) = legacy_operations_app_id(app.config().identifier.as_str()) else {
-            return Ok(false);
-        };
-
-        let legacy_config_dir =
-            Utils::get_absolute_config_instance_dir_for_app_id(app, &legacy_app_id);
-        if !legacy_config_dir.exists() {
-            return Ok(false);
-        }
-
-        let config_dir = Utils::get_absolute_config_instance_dir(app);
-        let migration_marker = config_dir.join(".legacy-migration-in-progress");
-        if Self::wallet_path(app).exists() && !migration_marker.exists() {
-            return Ok(false);
-        }
-
-        fs::create_dir_all(&config_dir)?;
-        if !migration_marker.exists() {
-            fs::write(&migration_marker, b"")?;
-        }
-
-        let reconciled_mnemonic =
-            Self::reconcile_legacy_migration_mnemonic(&legacy_app_id, &legacy_config_dir)?;
-
-        if let Some(mnemonic) = reconciled_mnemonic {
-            Self::write_wallet_file(app, &mnemonic)?;
-            log::info!("Reconciled migrated mnemonic for desktop app using legacy wallet evidence");
-        }
-
-        copy_dir_contents_if_missing(&legacy_config_dir, &config_dir)?;
-        if let Err(error) = fs::remove_file(&migration_marker) {
-            if error.kind() != ErrorKind::NotFound {
-                return Err(error.into());
-            }
-        }
-        log::info!("Migrated missing config files from legacy app dir {legacy_app_id}");
-        Ok(true)
-    }
-
     pub fn expose_private_key_openssh(app: &AppHandle) -> anyhow::Result<SecretString> {
         let mnemonic = Self::expose_mnemonic(app)?;
         let (private_key, _public_key) = Self::derive_ssh_key(&mnemonic)?;
@@ -405,80 +365,6 @@ impl Security {
         Self::create_with_addresses(mnemonic, &ssh_public_key)
     }
 
-    fn reconcile_legacy_migration_mnemonic(
-        legacy_app_id: &str,
-        legacy_config_dir: &Path,
-    ) -> Result<Option<String>> {
-        let legacy_wallet_path = legacy_config_dir.join("wallet.json");
-        let legacy_mnemonic_path = legacy_config_dir.join("mnemonic");
-        if !legacy_wallet_path.exists() {
-            return Ok(None);
-        }
-
-        let raw_wallet = fs::read_to_string(&legacy_wallet_path)?;
-        let legacy_wallet: WalletFile = serde_json::from_str(&raw_wallet)?;
-
-        if !legacy_mnemonic_path.exists() {
-            return Ok(Some(Self::decrypt_legacy_wallet_mnemonic(
-                legacy_app_id,
-                &legacy_wallet,
-            )?));
-        }
-
-        let legacy_plaintext_mnemonic = fs::read_to_string(&legacy_mnemonic_path)?;
-        let legacy_plaintext_mnemonic = legacy_plaintext_mnemonic.trim().to_string();
-        if legacy_plaintext_mnemonic.is_empty() {
-            return Ok(Some(Self::decrypt_legacy_wallet_mnemonic(
-                legacy_app_id,
-                &legacy_wallet,
-            )?));
-        }
-
-        let legacy_plaintext_security = match Self::derive_security_from_mnemonic(
-            &legacy_plaintext_mnemonic,
-        ) {
-            Ok(security) => security,
-            Err(error) => {
-                log::warn!(
-                    "Legacy plaintext mnemonic is invalid; trying encrypted wallet.json recovery: {error}"
-                );
-                return Ok(Some(Self::decrypt_legacy_wallet_mnemonic(
-                    legacy_app_id,
-                    &legacy_wallet,
-                )?));
-            }
-        };
-
-        anyhow::ensure!(
-            legacy_plaintext_security.vaulting_address == legacy_wallet.meta.vaulting_address,
-            "Legacy plaintext mnemonic does not match wallet.json vaulting address; manual wallet recovery is required"
-        );
-
-        Ok(Some(legacy_plaintext_mnemonic))
-    }
-
-    fn decrypt_legacy_wallet_mnemonic(
-        legacy_app_id: &str,
-        legacy_wallet: &WalletFile,
-    ) -> Result<String> {
-        let Some(legacy_key) = Self::read_encryption_key_for_app_id(legacy_app_id)? else {
-            anyhow::bail!(
-                "Legacy wallet.json is present, but its encryption key for app id {legacy_app_id} is unavailable"
-            );
-        };
-
-        let legacy_wallet_mnemonic =
-            Self::decrypt_mnemonic(&legacy_key, &legacy_wallet.encrypted_mnemonic)?;
-        let legacy_wallet_security = Self::derive_security_from_mnemonic(&legacy_wallet_mnemonic)?;
-
-        anyhow::ensure!(
-            legacy_wallet_security.vaulting_address == legacy_wallet.meta.vaulting_address,
-            "Legacy wallet.json metadata does not match its encrypted mnemonic during desktop migration"
-        );
-
-        Ok(legacy_wallet_mnemonic)
-    }
-
     pub fn sr_derive(app: &AppHandle, suri: &str) -> Result<(sr25519::Pair, [u8; 32])> {
         let mnemonic = Self::expose_mnemonic(app)?;
         Self::sr_derive_from_mnemonic(&mnemonic, suri)
@@ -765,11 +651,6 @@ fn get_ethereum_hd_path(prefix: &str, index: u32) -> String {
     format!("{prefix}/{index}'")
 }
 
-fn legacy_operations_app_id(app_id: &str) -> Option<String> {
-    let suffix = app_id.strip_prefix("com.argon.desktop")?;
-    Some(format!("com.argon.operations{suffix}"))
-}
-
 #[cfg(all(target_os = "macos", not(argon_signed_build)))]
 fn read_local_dev_wallet_key(service: &str, account: &str) -> Result<Option<String>> {
     let output = Command::new("security")
@@ -832,41 +713,6 @@ fn generate_wallet_key_hex() -> String {
     hex::encode(key)
 }
 
-fn copy_dir_contents_if_missing(source_dir: &Path, target_dir: &Path) -> Result<()> {
-    fs::create_dir_all(target_dir)?;
-
-    for entry in walkdir::WalkDir::new(source_dir).into_iter().flatten() {
-        let path = entry.path();
-        if path == source_dir {
-            continue;
-        }
-
-        let relative_path = path.strip_prefix(source_dir)?;
-        if relative_path == Path::new("wallet.json") {
-            continue;
-        }
-
-        let target_path = target_dir.join(relative_path);
-
-        if entry.file_type().is_dir() {
-            fs::create_dir_all(&target_path)?;
-            continue;
-        }
-
-        if target_path.exists() {
-            continue;
-        }
-
-        if let Some(parent) = target_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        fs::copy(path, &target_path)?;
-    }
-
-    Ok(())
-}
-
 fn write_mnemonic_file_if_missing(path: &Path, mnemonic: &str) -> Result<()> {
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
@@ -887,9 +733,8 @@ fn write_mnemonic_file_if_missing(path: &Path, mnemonic: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        Security, WalletFile, copy_dir_contents_if_missing, default_ethereum_hd_prefixes,
-        get_ethereum_hd_path, legacy_operations_app_id, read_wallet_recovery_mnemonic,
-        wallet_recovery_mnemonic, write_mnemonic_file_if_missing,
+        Security, WalletFile, default_ethereum_hd_prefixes, get_ethereum_hd_path,
+        read_wallet_recovery_mnemonic, wallet_recovery_mnemonic, write_mnemonic_file_if_missing,
     };
     use crate::ethereum_signer;
     use sp_core::Pair;
@@ -1213,57 +1058,6 @@ mod tests {
             wallet_recovery_mnemonic(&wallet, Some(&original_key), &mnemonic_path)
                 .expect("the original key should still decrypt the wallet"),
             None
-        );
-
-        fs::remove_dir_all(&test_dir).expect("test dir should be removed");
-    }
-
-    #[test]
-    fn maps_desktop_app_ids_to_operations_ids() {
-        assert_eq!(
-            legacy_operations_app_id("com.argon.desktop"),
-            Some("com.argon.operations".to_string())
-        );
-        assert_eq!(
-            legacy_operations_app_id("com.argon.desktop.local"),
-            Some("com.argon.operations.local".to_string())
-        );
-        assert_eq!(
-            legacy_operations_app_id("com.argon.desktop.experimental"),
-            Some("com.argon.operations.experimental".to_string())
-        );
-        assert_eq!(legacy_operations_app_id("com.argon"), None);
-    }
-
-    #[test]
-    fn copies_legacy_config_files_without_copying_wallet_json() {
-        let test_dir = unique_test_dir("copies-legacy-config-files-without-copying-wallet-json");
-        let source_dir = test_dir.join("source");
-        let target_dir = test_dir.join("target");
-        fs::create_dir_all(source_dir.join("nested")).expect("source dir should be created");
-        fs::create_dir_all(&target_dir).expect("target dir should be created");
-        fs::write(source_dir.join("wallet.json"), "legacy wallet")
-            .expect("wallet should be written");
-        fs::write(source_dir.join("mnemonic"), "legacy mnemonic")
-            .expect("mnemonic should be written");
-        fs::write(source_dir.join("nested/config.json"), "legacy config")
-            .expect("config should be written");
-
-        copy_dir_contents_if_missing(&source_dir, &target_dir)
-            .expect("legacy files should be copied");
-
-        assert!(
-            !target_dir.join("wallet.json").exists(),
-            "wallet.json should be recreated from mnemonic, not copied from the legacy app dir"
-        );
-        assert_eq!(
-            fs::read_to_string(target_dir.join("mnemonic")).expect("mnemonic should exist"),
-            "legacy mnemonic"
-        );
-        assert_eq!(
-            fs::read_to_string(target_dir.join("nested/config.json"))
-                .expect("nested config should exist"),
-            "legacy config"
         );
 
         fs::remove_dir_all(&test_dir).expect("test dir should be removed");

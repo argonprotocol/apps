@@ -1770,7 +1770,6 @@ export class MyVault {
   }): Promise<IVaultingRules | undefined> {
     const { onProgress } = args;
     onProgress(0);
-    await this.deleteAllDbData();
     const vaultingAddress = this.walletKeys.vaultingAddress;
     console.log('Recovering vault for address', vaultingAddress);
     const mainchainClients = getMainchainClients();
@@ -1793,14 +1792,9 @@ export class MyVault {
 
     let bitcoin: IBitcoinLockRecord | undefined;
     const hasSecuritization = vault.activatedSecuritization() > 0n || vault.securitizationPendingActivation > 0n;
-    if (hasSecuritization && foundVault.createBlockNumber) {
-      const myBitcoins = await MyVaultRecovery.recoverPersonalBitcoin({
-        mainchainClients,
-        bitcoinLocks: this.bitcoinLocks,
-        vaultSetupBlockNumber: foundVault.createBlockNumber,
-        vault,
-      });
-      bitcoin = myBitcoins[0];
+    if (hasSecuritization) {
+      const activeBitcoins = await this.bitcoinLocks.recovery.recoverActiveLocks();
+      bitcoin = activeBitcoins.find(record => record.vaultId === vault.vaultId);
     }
 
     const client = await getMainchainClient(false);
@@ -2101,13 +2095,6 @@ export class MyVault {
   private async getTable(): Promise<VaultsTable> {
     this.#table ??= await this.dbPromise.then(x => x.vaultsTable);
     return this.#table;
-  }
-
-  private async deleteAllDbData() {
-    const db = await this.dbPromise;
-    await db.vaultsTable.deleteAll();
-    await db.bitcoinLocksTable.deleteAll();
-    await db.walletHdKeysTable.deleteByKeyRole(['councilSigner', 'mintingAuthority']);
   }
 
   public static getSecuritizationTarget(rules: IVaultingRules) {

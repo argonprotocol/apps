@@ -10,7 +10,7 @@
       v-if="controller.isLoaded && !controller.isImporting"
       class="flex min-h-0 grow flex-col overflow-hidden"
     >
-      <div class="relative z-10">
+      <div class="relative">
         <AlertBars />
       </div>
 

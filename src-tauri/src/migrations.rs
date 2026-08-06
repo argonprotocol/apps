@@ -80,10 +80,7 @@ pub fn backup_current_instance_database(app: &AppHandle) -> AnyhowResult<bool> {
     backup_database_if_needed(&config_dir, &current_version)
 }
 
-pub async fn run_db_migrations(
-    absolute_db_path: PathBuf,
-    imported_from_legacy: bool,
-) -> Result<(), String> {
+pub async fn run_db_migrations(absolute_db_path: PathBuf) -> Result<(), String> {
     let opts = sqlx::sqlite::SqliteConnectOptions::new()
         .filename(&absolute_db_path)
         .create_if_missing(true);
@@ -100,20 +97,6 @@ pub async fn run_db_migrations(
         .run(&pool)
         .await
         .map_err(|e| format!("Failed to run migrations: {e}"))?;
-
-    if imported_from_legacy {
-        sqlx::query(
-            "INSERT INTO Config (key, value) VALUES \
-             ('showWelcomeOverlay', 'true'), \
-             ('wasImportedFromLegacy', 'true'), \
-             ('walletAccountsHadPreviousLife', 'true'), \
-             ('walletPreviousLifeRecovered', 'true') \
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        )
-        .execute(&pool)
-        .await
-        .map_err(|e| format!("Failed to mark legacy import in Config: {e}"))?;
-    }
 
     pool.close().await;
     Ok(())
