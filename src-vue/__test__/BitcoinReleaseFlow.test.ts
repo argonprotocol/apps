@@ -471,14 +471,15 @@ describe('BitcoinLocks release status sync', () => {
     expect(submitToBitcoin).not.toHaveBeenCalled();
   });
 
-  it('submitToBitcoin treats duplicate orphan broadcasts as already submitted', async () => {
+  it('submitToBitcoin keeps failed orphan broadcasts retryable and treats duplicates as submitted', async () => {
     const db = await createTestDb();
     const orphanReturnTxid = 'b'.repeat(64);
     const getTxStatus = vi.fn().mockResolvedValue(undefined);
     const getTipHeight = vi.fn().mockResolvedValue(321);
     const broadcastTx = vi
       .fn()
-      .mockRejectedValue(new Error('Failed to broadcast transaction: 400 Bad Request - txn-already-known'));
+      .mockRejectedValueOnce(new Error('Bitcoin service unavailable'))
+      .mockRejectedValueOnce(new Error('Failed to broadcast transaction: 400 Bad Request - txn-already-known'));
     const mempool = Object.assign(Object.create(BitcoinMempool.prototype), {
       getTxStatus,
       getTipHeight,
@@ -509,26 +510,38 @@ describe('BitcoinLocks release status sync', () => {
       isFinal: true,
       toBytes: () => new Uint8Array([0xde, 0xad, 0xbe, 0xef]),
     } as any);
-    const setReleaseSeenOnBitcoinAndProcessing = vi
-      .spyOn(store.utxoTracking, 'setReleaseSeenOnBitcoinAndProcessing')
-      .mockResolvedValue(undefined);
+    const setReleaseSeenOnBitcoinAndProcessing = vi.spyOn(store.utxoTracking, 'setReleaseSeenOnBitcoinAndProcessing');
     const setReleaseError = vi.spyOn(store.utxoTracking, 'setReleaseError').mockResolvedValue(undefined);
+    const releaseArgs = {
+      toScriptPubkey: '0014abc123',
+      bitcoinNetworkFee: 10n,
+      vaultSignature: new Uint8Array([1, 2, 3]),
+    };
 
     try {
       // @ts-expect-error - private access
-      await store.orphanReleases.submitToBitcoin(lock, orphanRecord, {
-        toScriptPubkey: '0014abc123',
-        bitcoinNetworkFee: 10n,
-        vaultSignature: new Uint8Array([1, 2, 3]),
-      });
+      await store.orphanReleases.submitToBitcoin(lock, orphanRecord, releaseArgs);
+
+      expect(orphanRecord.status).toBe(BitcoinUtxoStatus.ReleaseIsProcessingOnArgon);
+      expect(orphanRecord.statusError).toBe('Error: Bitcoin service unavailable');
+
+      // @ts-expect-error - private access
+      await store.orphanReleases.submitToBitcoin(lock, orphanRecord, releaseArgs);
     } finally {
       cosignAndGenerateTx.mockRestore();
     }
 
-    expect(broadcastTx).toHaveBeenCalledWith('deadbeef');
-    expect(getTxStatus).toHaveBeenCalledWith(orphanReturnTxid, 0);
+    expect(broadcastTx).toHaveBeenCalledTimes(2);
+    expect(broadcastTx).toHaveBeenNthCalledWith(1, 'deadbeef');
+    expect(broadcastTx).toHaveBeenNthCalledWith(2, 'deadbeef');
+    expect(getTxStatus).toHaveBeenCalledTimes(2);
+    expect(getTxStatus).toHaveBeenNthCalledWith(1, orphanReturnTxid, 0);
+    expect(getTxStatus).toHaveBeenNthCalledWith(2, orphanReturnTxid, 0);
     expect(setReleaseSeenOnBitcoinAndProcessing).toHaveBeenCalledWith(orphanRecord, orphanReturnTxid, 321);
     expect(setReleaseError).not.toHaveBeenCalled();
+    expect(orphanRecord.status).toBe(BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin);
+    expect(orphanRecord.statusError).toBeUndefined();
+    expect(orphanRecord.releaseTxid).toBe(orphanReturnTxid);
   });
 
   it('submitToBitcoin reuses a confirmed orphan return txid on restart', async () => {

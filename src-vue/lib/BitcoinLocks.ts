@@ -3118,7 +3118,15 @@ export default class BitcoinLocks {
 
     this.#needsLoadReconciliation = true;
     void this.#blockQueue
-      .add(async () => this.runPendingLoadReconciliation())
+      .add(async () => {
+        try {
+          const archiveClient = await getMainchainClient(true);
+          await this.orphanReleases.syncCosignCounterSubscriptions(archiveClient);
+        } catch (error) {
+          console.warn('[BitcoinLocks] Unable to refresh orphan return counters after history recovery', error);
+        }
+        await this.runPendingLoadReconciliation();
+      })
       .promise.catch(error =>
         console.warn('[BitcoinLocks] Unable to resume reconciliation after history recovery', error),
       );

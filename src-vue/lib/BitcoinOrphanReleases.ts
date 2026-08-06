@@ -694,7 +694,7 @@ export default class BitcoinOrphanReleases {
       const mempoolTip = await this.mempool.getTipHeight().catch(() => oracleBitcoinBlockHeight);
       await this.bitcoinLocks.utxoTracking.setReleaseSeenOnBitcoinAndProcessing(record, bitcoinTxid, mempoolTip);
     } catch (error) {
-      await this.bitcoinLocks.utxoTracking.setReleaseError(record, String(error));
+      await this.bitcoinLocks.utxoTracking.setStatusError(record, String(error));
     }
   }
 

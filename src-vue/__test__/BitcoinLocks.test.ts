@@ -29,6 +29,10 @@ import { BitcoinFinancials } from '../lib/financials/BitcoinLocks.ts';
 import * as vaultStore from '../stores/vaults.ts';
 import { createTestDb } from './helpers/db.ts';
 
+vi.mock('../stores/mainchain.ts', () => ({
+  getMainchainClient: vi.fn(async () => ({})),
+}));
+
 function createStore(
   options: {
     blockWatch?: BlockWatch;
@@ -870,6 +874,9 @@ describe('BitcoinLocks recovery', () => {
     const setRelayMetadata = vi.fn();
     vi.spyOn(store, 'getTable').mockResolvedValue({ setHistoryRecoveryPending, setRelayMetadata } as never);
     vi.spyOn(store as any, 'runPendingLoadReconciliation').mockResolvedValue(undefined);
+    const syncCosignCounterSubscriptions = vi
+      .spyOn(store.orphanReleases, 'syncCosignCounterSubscriptions')
+      .mockResolvedValue(undefined);
 
     const syncRelayBackedPendingLock = Reflect.get(store, 'syncRelayBackedPendingLock') as (
       lock: IBitcoinLockRecord,
@@ -886,6 +893,7 @@ describe('BitcoinLocks recovery', () => {
     await store.recovery.commitHistoryReplay();
     await relaySync;
     expect(setRelayMetadata).toHaveBeenCalledOnce();
+    expect(syncCosignCounterSubscriptions).toHaveBeenCalledOnce();
   });
 
   it('keeps recovered expired locks in history without processing them as active', async () => {
