@@ -216,8 +216,7 @@ export default class BitcoinOrphanReleases {
 
   public async syncBitcoinProcessing(oracleBitcoinBlockHeight: number): Promise<void> {
     const locksByUtxoId = this.bitcoinLocks.data.locksByUtxoId;
-    const tasks = this.bitcoinLocks.utxoTracking
-      .getAllOrphanLifecycleUtxos()
+    const tasks = Object.values(this.bitcoinLocks.utxoTracking.data.utxosById)
       .filter(record => {
         if (record.status !== BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin) return false;
         const lock = locksByUtxoId[record.lockUtxoId];

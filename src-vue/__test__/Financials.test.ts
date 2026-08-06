@@ -1562,6 +1562,64 @@ describe('financial position accounting', () => {
     expect(bitcoin?.returnSummary.availability).toBe('unavailable');
   });
 
+  it('does not make current Bitcoin returns partial for a zero-value spent lock', () => {
+    const lock = {
+      uuid: 'lock-active',
+      status: BitcoinLockStatus.LockedAndMinted,
+      satoshis: 10_000n,
+      lockedTargetPrice: 100n,
+      ratchets: [{ mintPending: 0n }],
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+    } as unknown as IBitcoinLockRecord;
+    const summary = {
+      uuid: lock.uuid,
+      status: lock.status,
+      satoshis: lock.satoshis,
+      valueOfBtc: 150n,
+      startingCapital: 100n,
+      totalLiquidity: 100n,
+      pendingLiquidity: 0n,
+      receivedLiquidity: 100n,
+      totalFees: 0n,
+      unlockAmount: 100n,
+      endingCapital: 150n,
+      record: lock,
+    } as IBitcoinLockSummary;
+    const spentLock = {
+      ...lock,
+      uuid: 'lock-spent-without-value',
+      status: BitcoinLockStatus.Released,
+      removalReason: 'spent',
+      removalBlockTime: new Date('2026-02-01T00:00:00Z'),
+    } as IBitcoinLockRecord;
+    const spentSummary = {
+      ...summary,
+      uuid: spentLock.uuid,
+      status: spentLock.status,
+      valueOfBtc: 0n,
+      pendingLiquidity: 0n,
+      endingCapital: 0n,
+      record: spentLock,
+    } as IBitcoinLockSummary;
+
+    const positions = bitcoinFinancials.createFinancialPositions({
+      summaries: [summary, spentSummary],
+      hasCurrentPrice: true,
+      hasConfirmedHistoryCoverage: true,
+    });
+    const bitcoin = reduceFinancialPositions(readySnapshots(positions)).groupSummaries.bitcoin;
+
+    expect(positions.map(position => position.id)).toEqual([
+      `bitcoin-asset:${lock.uuid}`,
+      `bitcoin-liability:${lock.uuid}`,
+    ]);
+    expect(bitcoin.returnSummary).toMatchObject({
+      availability: 'available',
+      eligiblePositionCount: 1,
+      investmentPositionCount: 1,
+    });
+  });
+
   it('excludes ARGNOT principal price movement from bond and account returns', async () => {
     const vaultLot = createBondLot({ id: 1, bonds: 10, cumulativeEarnings: 1_000_000n });
     const argonotLot = createBondLot({

@@ -258,7 +258,6 @@ import Arrow from '../components/Arrow.vue';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import {
   OperationalStepId,
-  operationsCertificationStepIds,
   operationalSteps,
   treasuryCertificationStepIds,
   useCertificationController,
@@ -296,7 +295,7 @@ const hasRequestedOperationsUpgrade = Vue.computed(() => {
 });
 
 const currentStepIds = Vue.computed(() => {
-  return isUnlockTrack.value ? treasuryCertificationStepIds : operationsCertificationStepIds;
+  return isUnlockTrack.value ? treasuryCertificationStepIds : controller.visibleOperationsCertificationStepIds;
 });
 
 const completedStepCount = Vue.computed(() => {

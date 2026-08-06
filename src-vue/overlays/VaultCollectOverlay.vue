@@ -51,7 +51,7 @@
           </strong>
           that must be signed.
           <template v-if="manualPendingCosignSum > 0n">
-            Failure to do so within
+            Signatures for active Bitcoin locks must be completed within
             <CountdownClock :time="nextCosignDueDate" v-slot="{ hours, minutes, days }">
               <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
               <template v-else>
@@ -59,7 +59,7 @@
                 <span v-if="minutes">{{ minutes }} minute{{ minutes === 1 ? '' : 's' }}</span>
               </template>
             </CountdownClock>
-            will result in your vault forfeiting
+            or your vault will forfeit
             <strong>
               {{ currency.symbol
               }}{{ microgonToMoneyNm(manualPendingCosignSum).formatIfElse('< 1_000', '0,0.00', '0,0') }}

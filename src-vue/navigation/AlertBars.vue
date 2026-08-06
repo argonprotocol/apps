@@ -142,54 +142,57 @@
           </AlertBarRow>
         </PopoverAnchor>
 
-        <PopoverContent
-          data-testid="AlertsRoot.details"
-          side="bottom"
-          align="start"
-          :sideOffset="0"
-          :collisionPadding="0"
-          :avoidCollisions="false"
-          @open-auto-focus.prevent
-          class="z-50 w-[var(--reka-popover-trigger-width)] max-w-none outline-none">
-          <div class="alerts-popover-shell pointer-events-auto">
-            <div class="alerts-popover-panel">
-              <div class="alerts-popover-body max-h-[min(62vh,560px)] overflow-y-auto px-3 py-3">
-                <div>
-                  <VaultAlert
-                    v-if="vaultAlert"
-                    :notice="vaultAlert"
-                    :isLast="displayBitcoinAlerts.length === 0 && !pendingOperationsUpgrade"
-                    @open="openVaultCollect()" />
+        <PopoverPortal>
+          <PopoverContent
+            data-testid="AlertsRoot.details"
+            side="bottom"
+            align="start"
+            :sideOffset="0"
+            :collisionPadding="0"
+            :avoidCollisions="false"
+            :style="floatingZIndex"
+            @open-auto-focus.prevent
+            class="w-[var(--reka-popover-trigger-width)] max-w-none outline-none">
+            <div class="alerts-popover-shell pointer-events-auto">
+              <div class="alerts-popover-panel">
+                <div class="alerts-popover-body max-h-[min(62vh,560px)] overflow-y-auto px-3 py-3">
+                  <div>
+                    <VaultAlert
+                      v-if="vaultAlert"
+                      :notice="vaultAlert"
+                      :isLast="displayBitcoinAlerts.length === 0 && !pendingOperationsUpgrade"
+                      @open="openVaultCollect()" />
 
-                  <BitcoinAlert
-                    v-for="entry in displayBitcoinAlerts"
-                    :key="entry.key"
-                    :notice="entry.alert"
-                    :isPreview="entry.isPreview"
-                    :isResumedFunding="isResumedFundingAlert(entry.alert)"
-                    :isLast="entry.isLast"
-                    @open-lock="openBitcoinLock({ lock: $event.lock })"
-                    @open-unlock="openBitcoinUnlock($event.lock)" />
+                    <BitcoinAlert
+                      v-for="entry in displayBitcoinAlerts"
+                      :key="entry.key"
+                      :notice="entry.alert"
+                      :isPreview="entry.isPreview"
+                      :isResumedFunding="isResumedFundingAlert(entry.alert)"
+                      :isLast="entry.isLast"
+                      @open-lock="openBitcoinLock({ lock: $event.lock })"
+                      @open-unlock="openBitcoinUnlock($event.lock)" />
 
-                  <AlertDetailRow
-                    v-if="pendingOperationsUpgrade"
-                    dataTestid="OperationsUpgradeAlert"
-                    title="Operations upgrade requests"
-                    buttonLabel="Review Requests"
-                    :isLast="true"
-                    @open="openOperationsUpgradeRequests">
-                    <template #icon>
-                      <AlertIcon class="mt-1 h-8 w-8 text-argon-700/70" />
-                    </template>
-                    <template #subline>
-                      Review the requests and approve members who have completed Treasury certification.
-                    </template>
-                  </AlertDetailRow>
+                    <AlertDetailRow
+                      v-if="pendingOperationsUpgrade"
+                      dataTestid="OperationsUpgradeAlert"
+                      title="Operations upgrade requests"
+                      buttonLabel="Review Requests"
+                      :isLast="true"
+                      @open="openOperationsUpgradeRequests">
+                      <template #icon>
+                        <AlertIcon class="mt-1 h-8 w-8 text-argon-700/70" />
+                      </template>
+                      <template #subline>
+                        Review the requests and approve members who have completed Treasury certification.
+                      </template>
+                    </AlertDetailRow>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        </PopoverContent>
+          </PopoverContent>
+        </PopoverPortal>
       </template>
     </div>
 
@@ -267,7 +270,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { PopoverAnchor, PopoverContent, PopoverRoot, PopoverTrigger } from 'reka-ui';
+import { PopoverAnchor, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui';
 import { getConfig } from '../stores/config.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
@@ -292,6 +295,7 @@ import AlertDetailRow from '../alerts/AlertDetailRow.vue';
 import BitcoinAlert from '../alerts/BitcoinAlert.vue';
 import VaultAlert from '../alerts/VaultAlert.vue';
 import { buildAlertSummary, getBitcoinAlertNotices, sumBitcoinAlertAmount, type IBitcoinAlert } from '../lib/Alerts.ts';
+import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 
 const config = getConfig();
 const bot = getBot();
@@ -304,6 +308,7 @@ const currency = getCurrency();
 const argonBonds = getArgonBonds();
 const controller = useCertificationController();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
+const floatingZIndex = useFloatingZIndex();
 
 const isRestarting = Vue.ref(false);
 const isApiClientDegraded = Vue.ref(!clients.hasConnectedClient());

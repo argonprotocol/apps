@@ -83,6 +83,8 @@ function createBitcoinLockPositions(
   const paidIncome = summary.receivedLiquidity - summary.totalFees;
 
   if (record.removalReason || summary.status === BitcoinLockStatus.Released) {
+    if (record.removalReason === 'spent' && summary.pendingLiquidity === 0n) return [];
+
     const isReleased = record.removalReason === 'released';
     const removalBtcPrice = record.btcPriceAtRemovalMicrogons ?? undefined;
     const removalBtcValue = valueSatoshisAtRate(record.satoshis, removalBtcPrice);

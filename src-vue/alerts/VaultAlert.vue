@@ -74,12 +74,10 @@
           {{ notice.signatureCount }} bitcoin transaction{{ notice.signatureCount === 1 ? '' : 's' }} require{{
             notice.signatureCount === 1 ? 's' : ''
           }}
-          signing<template v-if="hasTimedCosigns(notice)">
-            at a penalty of {{ formatMoney(notice.signaturePenalty) }}
-          </template>
+          signing
         </strong>
         <span v-if="hasTimedCosigns(notice)" class="text-white/80">
-          (due in
+          ({{ formatMoney(notice.signaturePenalty) }} is at risk for signatures on active Bitcoin locks; due in
           <CountdownClock :time="cosignDueDate" v-slot="{ hours, minutes, days }">
             <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
             <template v-else>
@@ -112,7 +110,8 @@
             <span v-else-if="seconds">{{ seconds }} second{{ seconds === 1 ? '' : 's' }}</span>
           </CountdownClock>
           <template v-if="hasTimedCosigns(notice)">
-            and {{ formatMoney(notice.signaturePenalty) }} is at risk in securitization for
+            and {{ formatMoney(notice.signaturePenalty) }} in securitization is at risk unless signatures on active
+            Bitcoin locks are completed within
             <CountdownClock :time="cosignDueDate" v-slot="{ hours, minutes, days }">
               <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
               <template v-else>
@@ -197,7 +196,8 @@
 
       <template v-else-if="!notice.collectRevenue && notice.signatureCount">
         <template v-if="hasTimedCosigns(notice)">
-          {{ formatMoney(notice.signaturePenalty) }} is at risk in securitization for
+          {{ formatMoney(notice.signaturePenalty) }} in securitization is at risk unless signatures on active Bitcoin
+          locks are completed within
           <CountdownClock :time="cosignDueDate" v-slot="{ hours, minutes, days }">
             <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
             <template v-else>
@@ -222,7 +222,8 @@
           <span v-else-if="seconds">{{ seconds }} second{{ seconds === 1 ? '' : 's' }}</span>
         </CountdownClock>
         <template v-if="hasTimedCosigns(notice)">
-          and {{ formatMoney(notice.signaturePenalty) }} is at risk in securitization for
+          and {{ formatMoney(notice.signaturePenalty) }} in securitization is at risk unless signatures on active
+          Bitcoin locks are completed within
           <CountdownClock :time="cosignDueDate" v-slot="{ hours, minutes, days }">
             <span v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</span>
             <template v-else>
@@ -418,6 +419,10 @@ function getCardTooltipContent(notice: IVaultCollectNotice): string {
 
   if (notice.orphanSignatureCount > 0 && notice.orphanSignatureCount === notice.signatureCount) {
     return 'Sign orphaned bitcoin return transactions.';
+  }
+
+  if (notice.orphanSignatureCount > 0) {
+    return 'Sign active lock and orphaned bitcoin return transactions.';
   }
 
   return 'Sign bitcoin transactions to avoid forfeiting vault security.';

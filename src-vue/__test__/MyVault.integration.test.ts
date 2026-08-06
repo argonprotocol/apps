@@ -220,15 +220,14 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
         new BitcoinLocks(Promise.resolve(newDb), walletKeys, blockWatch, myVault.vaults.currency, transactionTracker2),
       );
       await bitcoinLocksRecovery.load();
-      expect(Object.keys(bitcoinLocksRecovery.data.locksByUtxoId)).toHaveLength(0);
-      const bitcoins = await MyVaultRecovery.recoverPersonalBitcoin({
-        mainchainClients: clients,
-        vaultSetupBlockNumber: vaultCreatedBlockNumber,
-        vault: recoveredVault,
-        bitcoinLocks: bitcoinLocksRecovery,
-      });
+      expect(Object.keys(bitcoinLocksRecovery.data.locksByUtxoId)).toHaveLength(1);
+
+      const bitcoins = await bitcoinLocksRecovery.recovery.recoverActiveLocks();
       expect(bitcoins).toHaveLength(1);
       const bitcoin = bitcoins[0];
+      expect(bitcoin.ratchets[0].blockHeight).toBe(lockCreatedBlockNumber);
+
+      await bitcoinLocksRecovery.recovery.recoverActiveLockCreationDetails(clients);
       console.log('Bitcoin result', {
         recovered: bitcoin.ratchets[0],
         original: bitcoinStored.ratchets[0],
@@ -236,7 +235,6 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       expect({ ...bitcoin, createdAt: undefined, updatedAt: undefined }).toStrictEqual({
         ...bitcoinStored,
         uuid: expect.any(String),
-        initializedAtBlockNumber: lockCreatedBlockNumber,
         createdAt: undefined,
         updatedAt: undefined,
       });

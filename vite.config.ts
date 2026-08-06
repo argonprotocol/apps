@@ -106,6 +106,9 @@ export default defineConfig(async ({ mode }) => {
         events: require.resolve('events/'),
       },
     },
+    optimizeDeps: {
+      include: ['@ngraveio/bc-ur'],
+    },
     plugins: [
       wasm(),
       vitePluginTopLevelAwait(),

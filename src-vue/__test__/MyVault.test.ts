@@ -819,16 +819,29 @@ describe('MyVault cosign recovery', () => {
     getMainchainClient.mockRestore();
   });
 
-  it('does not silently sponsor crosschain transfers when no collect batch is available', async () => {
+  it('refreshes finalized alert state when no collect batch is available', async () => {
     const { myVault, mintingAuthorities } = createVault();
     myVault.data.createdVault = { vaultId: 7 } as any;
     myVault.data.metadata = { id: 7 } as any;
-    const getFinalizedClient = vi.spyOn(mainchainStore, 'getFinalizedClient').mockResolvedValue({} as any);
+    myVault.data.pendingCollectRevenue = 42n;
+    myVault.data.pendingOrphanCosignCount = 1;
+    vi.spyOn(myVault as unknown as IMyVaultTestTarget, 'updateCollectDeadlines').mockImplementation(() => undefined);
+    const getFinalizedClient = vi.spyOn(mainchainStore, 'getFinalizedClient').mockResolvedValue({
+      query: {
+        vaults: {
+          pendingCosignByVaultId: vi.fn(async () => []),
+          orphanedUtxoAccountsByVaultId: { entries: vi.fn(async () => []) },
+          revenuePerFrameByVault: vi.fn(async () => []),
+        },
+      },
+    } as any);
     const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({} as any);
     vi.spyOn(myVault.collectBuilder, 'buildPendingSubmission').mockResolvedValue(undefined);
 
     await expect(myVault.collect({ moveTo: 'VaultingHold' as any })).resolves.toBeUndefined();
     expect(mintingAuthorities.authorize).not.toHaveBeenCalled();
+    expect(myVault.data.pendingCollectRevenue).toBe(0n);
+    expect(myVault.data.pendingOrphanCosignCount).toBe(0);
 
     getFinalizedClient.mockRestore();
     getMainchainClient.mockRestore();

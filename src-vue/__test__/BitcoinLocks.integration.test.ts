@@ -1,4 +1,5 @@
 import Path from 'node:path';
+import docker from 'docker-compose';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { BitcoinLock, Vault } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
@@ -32,6 +33,7 @@ import {
   walletFundingMicrogons,
 } from './helpers/bitcoinLocksHarness.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
+import { MyVaultRecovery } from '../lib/recovery/MyVaultRecovery.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
@@ -386,7 +388,6 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
 
         const firstRelease = await releaseLockAndWaitForChainRestore(
           harness,
-          harness.myVault,
           fundedFirst.lock,
           progress,
           initialAvailableBitcoinSpace,
@@ -440,7 +441,6 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
 
         const thirdRelease = await releaseLockAndWaitForChainRestore(
           harness,
-          harness.myVault,
           fundedThird.lock,
           progress,
           initialAvailableBitcoinSpace,
@@ -456,6 +456,82 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
     } finally {
       await cleanupHarness(harness);
     }
+  });
+
+  describe('with the indexer stopped', () => {
+    let harness: TestHarness;
+    let activeLock: IBitcoinLockRecord;
+
+    beforeAll(async () => {
+      harness = await createHarness({
+        archiveUrl: network.archiveUrl,
+        esploraHost: network.networkConfigOverride.esploraHost,
+        network: 'dev-docker',
+      });
+      activeLock = await createLock(harness, harness.myVault.createdVault!);
+
+      await docker.stopOne('indexer', {
+        config: ['docker-compose.yml', 'indexer.docker-compose.yml'],
+        cwd: Path.resolve(import.meta.dirname, '../../e2e/argon'),
+        env: network.composeEnv,
+      });
+      await waitFor(15e3, 'indexer shutdown', async () => {
+        try {
+          await globalThis.fetch(NetworkConfig.get().indexerHost, { signal: AbortSignal.timeout(1_000) });
+        } catch {
+          return true;
+        }
+      });
+    }, 120e3);
+
+    afterAll(async () => {
+      await cleanupHarness(harness);
+    });
+
+    it('recovers the vault from chain data', async () => {
+      const recovered = await MyVaultRecovery.findOperatorVault(
+        clients,
+        harness.bitcoinLocks.bitcoinNetwork,
+        harness.walletKeys,
+      );
+
+      expect(recovered?.vault.vaultId).toBe(harness.myVault.createdVault?.vaultId);
+      expect(recovered?.createBlockNumber).toBeGreaterThan(0);
+    });
+
+    it('restores an active lock into a fresh database and can start another lock', async () => {
+      const recovered = await createClientHarness({
+        archiveUrl: network.archiveUrl,
+        esploraHost: network.networkConfigOverride.esploraHost,
+        network: 'dev-docker',
+        walletKeys: harness.walletKeys,
+      });
+
+      try {
+        const restoredLock = recovered.bitcoinLocks.getLockByUtxoId(activeLock.utxoId!);
+        expect(restoredLock).toBeTruthy();
+        expect(restoredLock?.isHistoryRecoveryPending).not.toBe(true);
+        expect(recovered.bitcoinLocks.getActiveLocks().map(lock => lock.utxoId)).toContain(activeLock.utxoId);
+
+        const remainingLiquidity = harness.myVault.createdVault!.availableBitcoinSpace();
+        expect(remainingLiquidity).toBeGreaterThan(0n);
+        const satoshis = await recovered.bitcoinLocks.satoshisForArgonLiquidity(remainingLiquidity / 2n);
+        const { pendingLock, txInfo } = await recovered.bitcoinLocks.initializeLock({
+          satoshis,
+          vault: harness.myVault.createdVault!,
+        });
+        await txInfo!.txResult.waitForFinalizedBlock;
+        await txInfo!.waitForPostProcessing;
+
+        const newLock = recovered.bitcoinLocks.getAllLocks().find(lock => lock.uuid === pendingLock.uuid);
+        expect(newLock?.utxoId).toBeDefined();
+        const activeUtxoIds = recovered.bitcoinLocks.getActiveLocks().map(lock => lock.utxoId);
+        expect(activeUtxoIds).toContain(activeLock.utxoId);
+        expect(activeUtxoIds).toContain(newLock?.utxoId);
+      } finally {
+        await cleanupClientHarness(recovered);
+      }
+    });
   });
 });
 
@@ -994,8 +1070,7 @@ async function returnExpiredMismatchAndWaitForChainRestore(
 }
 
 async function releaseLockAndWaitForChainRestore(
-  harness: ClientHarness,
-  operatorVault: MyVault,
+  harness: TestHarness,
   lock: IBitcoinLockRecord,
   progress: ReturnType<typeof createBitcoinLockProgressStore>,
   expectedAvailableBitcoinSpace: bigint,
@@ -1010,8 +1085,6 @@ async function releaseLockAndWaitForChainRestore(
   });
   expect(releaseTx).toBeTruthy();
   await releaseTx!.txResult.waitForInFirstBlock;
-
-  await collectVaultSignatureFromAlert(operatorVault, 0);
 
   await waitFor(30e3, 'release request tracked on argon', () => {
     const refreshed = getCurrentLock(harness, currentLock.utxoId!);
@@ -1072,7 +1145,7 @@ async function releaseLockAndWaitForChainRestore(
     if (!vault.isSome) return;
     if (vault.unwrap().securitizationLocked.toBigInt() !== 0n) return;
     if (JSON.stringify(pendingCosign.toJSON()) !== '[]') return;
-    if (operatorVault.createdVault?.availableBitcoinSpace() !== expectedAvailableBitcoinSpace) return;
+    if (harness.myVault.createdVault?.availableBitcoinSpace() !== expectedAvailableBitcoinSpace) return;
     return true;
   });
 

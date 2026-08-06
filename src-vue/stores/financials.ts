@@ -4,7 +4,7 @@ import { getWalletHistoryRecovery, getWalletsForArgon, useWallets } from './wall
 import { getBitcoinLocks } from './bitcoin.ts';
 import { getCurrency } from './currency.ts';
 import { getArgonBonds } from './argonBonds.ts';
-import { getBlockWatch } from './mainchain.ts';
+import { getBlockWatch, getMainchainClients } from './mainchain.ts';
 import {
   type ArgonQueryClient,
   calculateRestabilizationLeverage,
@@ -990,12 +990,13 @@ export const useFinancials = defineStore('financials', () => {
     });
     const db = await getDbPromise();
     const targetBlock = getBlockWatch().finalizedBlockHeader.blockNumber;
+    const recoverMissingCheckpointsFor = getMissingCheckpointDomains(enabledDomains);
     const needsRecovery = await needsFinancialHistoryRecovery({
       db,
       accountId: wallets.defaultArgonWallet.address,
       enabledDomains,
       bitcoinLockRecovery: bitcoinLocks.recovery,
-      recoverMissingCheckpoints: config.walletAccountsHadPreviousLife,
+      recoverMissingCheckpointsFor,
     });
     if (needsRecovery) {
       hasConfirmedFinancialHistoryCoverage = false;
@@ -1031,6 +1032,7 @@ export const useFinancials = defineStore('financials', () => {
       if (enabledDomains.includes('bonds')) historyLoads.push(argonBonds.load());
       if (enabledDomains.includes('bitcoin')) historyLoads.push(bitcoinLocks.load());
       await Promise.all(historyLoads);
+      const recoverMissingCheckpointsFor = getMissingCheckpointDomains(enabledDomains);
 
       const result = await restoreFinancialHistoryFromIndex({
         db,
@@ -1040,7 +1042,8 @@ export const useFinancials = defineStore('financials', () => {
         bitcoinLockRecovery: bitcoinLocks.recovery,
         vaultHistory: myVault.history,
         enabledDomains,
-        recoverMissingCheckpoints: config.walletAccountsHadPreviousLife,
+        recoverMissingCheckpointsFor,
+        mainchainClients: getMainchainClients(),
         force,
         minimumAsOfBlock: targetBlock,
         onCheckStart() {
@@ -1092,6 +1095,23 @@ export const useFinancials = defineStore('financials', () => {
       }
       throw error;
     }
+  }
+
+  function getMissingCheckpointDomains(enabledDomains: readonly IFinancialHistoryDomain[]): IFinancialHistoryDomain[] {
+    if (config.walletAccountsHadPreviousLife) return [...enabledDomains];
+
+    const groups = financialPositionAggregate.value.groupSummaries;
+    const domains: IFinancialHistoryDomain[] = [];
+    if (enabledDomains.includes('bitcoin') && groups.bitcoin.returnSummary.investmentPositionCount > 0) {
+      domains.push('bitcoin');
+    }
+    if (enabledDomains.includes('bonds') && groups.bonds.returnSummary.investmentPositionCount > 0) {
+      domains.push('bonds');
+    }
+    if (enabledDomains.includes('vaulting') && groups.vaulting.returnSummary.investmentPositionCount > 0) {
+      domains.push('vaulting');
+    }
+    return domains;
   }
 
   void load().catch(error => {

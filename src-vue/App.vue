@@ -2,7 +2,7 @@
 <template>
   <template v-if="shouldShowCompatibilityScreen">
     <RuntimeCompatibilityScreen />
-    <SecuritySettingsOverlay />
+    <SecuritySettingsOverlay v-if="!isBrowserUnsupported" />
   </template>
   <div v-else class="h-screen w-screen flex flex-col overflow-hidden cursor-default">
     <TopBar />
@@ -10,7 +10,7 @@
       v-if="controller.isLoaded && !controller.isImporting"
       class="flex min-h-0 grow flex-col overflow-hidden"
     >
-      <div class="relative z-10">
+      <div class="relative">
         <AlertBars />
       </div>
 
@@ -163,19 +163,26 @@ import { getMainchainClient, getMainchainClients } from './stores/mainchain.ts';
 import { getMyVault } from './stores/vaults.ts';
 import { getArgonBonds } from './stores/argonBonds.ts';
 
-const controller = useCertificationController();
-const config = getConfig();
-const tour = useTour();
-const bot = getBot();
-
-const updater = useAppUpdater();
 const runtimeCompatibility = useRuntimeCompatibility();
-const { shouldShowCompatibilityScreen } = storeToRefs(runtimeCompatibility);
+const { isBrowserUnsupported, shouldShowCompatibilityScreen } = storeToRefs(runtimeCompatibility);
+const updater = useAppUpdater();
 let foregroundRefreshPromise: Promise<void> | undefined;
 let lastForegroundFinalizedHash: string | undefined;
 
-updater.start();
 runtimeCompatibility.start();
+
+let controller!: ReturnType<typeof useCertificationController>;
+let config!: ReturnType<typeof getConfig>;
+let tour!: ReturnType<typeof useTour>;
+let bot!: ReturnType<typeof getBot>;
+
+if (!isBrowserUnsupported.value) {
+  controller = useCertificationController();
+  config = getConfig();
+  tour = useTour();
+  bot = getBot();
+  updater.start();
+}
 
 const order = [TopTab.Home, TopTab.Mining, TopTab.Vaulting];
 
@@ -237,10 +244,18 @@ function refreshFinalizedStateOnFocus() {
 }
 
 Vue.onBeforeMount(async () => {
+  if (isBrowserUnsupported.value) {
+    return;
+  }
+
   await waitForLoad();
 });
 
 Vue.onMounted(async () => {
+  if (isBrowserUnsupported.value) {
+    return;
+  }
+
   // Add keyboard shortcuts for panel switching
   document.addEventListener('keydown', keydownHandler);
   document.addEventListener('click', externalLinkHandler);
@@ -268,5 +283,7 @@ Vue.onErrorCaptured((error, instance) => {
   return false;
 });
 
-createMenu();
+if (!isBrowserUnsupported.value) {
+  createMenu();
+}
 </script>

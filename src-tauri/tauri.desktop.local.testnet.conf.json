@@ -9,5 +9,10 @@
       "icons-desktop/local/testnet/icon.icns",
       "icons-desktop/local/testnet/icon.ico"
     ]
+  },
+  "app": {
+    "security": {
+      "capabilities": ["default", "dev"]
+    }
   }
 }

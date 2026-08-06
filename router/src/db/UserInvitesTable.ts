@@ -308,23 +308,6 @@ export class UserInvitesTable extends BaseTable {
     return this.fetchById(id);
   }
 
-  public reassignOperationsUpgradeCode(id: number): IUserInviteRecord | null {
-    this.db.sql
-      .prepare(
-        `
-        UPDATE UserInvites
-        SET
-          operationsUpgradeRequestedAt = NULL,
-          operationsUpgradedAt = NULL,
-          operationsAccessProofSignature = NULL
-        WHERE userId = $id
-      `,
-      )
-      .run({ $id: id });
-
-    return this.fetchById(id);
-  }
-
   private mapInvite(record: SqlInviteRow): IUserInviteRecord {
     return convertFromSqliteFields<IUserInviteRecord>(record, inviteFieldTypes);
   }
