@@ -2,7 +2,7 @@
 <template>
   <template v-if="shouldShowCompatibilityScreen">
     <RuntimeCompatibilityScreen />
-    <SecuritySettingsOverlay />
+    <SecuritySettingsOverlay v-if="!isBrowserUnsupported" />
   </template>
   <div v-else class="h-screen w-screen flex flex-col overflow-hidden cursor-default">
     <TopBar />
@@ -161,17 +161,24 @@ import StakePurchaseOverlay from './overlays/StakePurchaseOverlay.vue';
 import SponsorOverlay from './overlays/SponsorOverlay.vue';
 import { getMainchainClients } from './stores/mainchain.ts';
 
-const controller = useCertificationController();
-const config = getConfig();
-const tour = useTour();
-const bot = getBot();
-
-const updater = useAppUpdater();
 const runtimeCompatibility = useRuntimeCompatibility();
-const { shouldShowCompatibilityScreen } = storeToRefs(runtimeCompatibility);
+const { isBrowserUnsupported, shouldShowCompatibilityScreen } = storeToRefs(runtimeCompatibility);
+const updater = useAppUpdater();
 
-updater.start();
 runtimeCompatibility.start();
+
+let controller!: ReturnType<typeof useCertificationController>;
+let config!: ReturnType<typeof getConfig>;
+let tour!: ReturnType<typeof useTour>;
+let bot!: ReturnType<typeof getBot>;
+
+if (!isBrowserUnsupported.value) {
+  controller = useCertificationController();
+  config = getConfig();
+  tour = useTour();
+  bot = getBot();
+  updater.start();
+}
 
 const order = [TopTab.Home, TopTab.Mining, TopTab.Vaulting];
 
@@ -207,10 +214,18 @@ function disposeAppTransports() {
 }
 
 Vue.onBeforeMount(async () => {
+  if (isBrowserUnsupported.value) {
+    return;
+  }
+
   await waitForLoad();
 });
 
 Vue.onMounted(async () => {
+  if (isBrowserUnsupported.value) {
+    return;
+  }
+
   // Add keyboard shortcuts for panel switching
   document.addEventListener('keydown', keydownHandler);
   document.addEventListener('click', externalLinkHandler);
@@ -236,5 +251,7 @@ Vue.onErrorCaptured((error, instance) => {
   return false;
 });
 
-createMenu();
+if (!isBrowserUnsupported.value) {
+  createMenu();
+}
 </script>

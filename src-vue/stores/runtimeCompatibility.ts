@@ -6,7 +6,13 @@ import { ENABLE_AUTO_UPDATE, IS_EXPERIMENTAL_BUILD } from '../lib/Env.ts';
 import { getMainchainClients } from './mainchain.ts';
 import { useAppUpdater } from './appUpdater.ts';
 
-export type RuntimeCompatibilityPhase = 'disabled' | 'loading' | 'compatible' | 'paused' | 'upgrade-required';
+export type RuntimeCompatibilityPhase =
+  | 'disabled'
+  | 'loading'
+  | 'compatible'
+  | 'paused'
+  | 'upgrade-required'
+  | 'browser-unsupported';
 
 type CompatibilityInfo = { maxSpecVersion?: number; newDownloadRequired?: boolean };
 type Unsubscribe = () => void | Promise<void>;
@@ -23,8 +29,10 @@ export const useRuntimeCompatibility = defineStore('runtimeCompatibility', () =>
   const errorMessage = Vue.ref('');
   const newDownloadRequired = Vue.ref(false);
   const isLoading = Vue.computed(() => phase.value === 'loading');
+  const isBrowserUnsupported = Vue.computed(() => phase.value === 'browser-unsupported');
   const shouldShowCompatibilityScreen = Vue.computed(
-    () => isLoading.value || phase.value === 'paused' || phase.value === 'upgrade-required',
+    () =>
+      isBrowserUnsupported.value || isLoading.value || phase.value === 'paused' || phase.value === 'upgrade-required',
   );
 
   const updater = useAppUpdater();
@@ -46,6 +54,18 @@ export const useRuntimeCompatibility = defineStore('runtimeCompatibility', () =>
     }
 
     isStarted = true;
+
+    if (
+      typeof AbortSignal === 'undefined' ||
+      typeof AbortSignal.timeout !== 'function' ||
+      typeof Array.prototype.findLastIndex !== 'function' ||
+      typeof ResizeObserver !== 'function' ||
+      typeof crypto === 'undefined' ||
+      !crypto.subtle
+    ) {
+      phase.value = 'browser-unsupported';
+      return;
+    }
 
     if (!ENABLE_AUTO_UPDATE) {
       phase.value = 'disabled';
@@ -247,6 +267,7 @@ export const useRuntimeCompatibility = defineStore('runtimeCompatibility', () =>
     errorMessage,
     newDownloadRequired,
     isLoading,
+    isBrowserUnsupported,
     shouldShowCompatibilityScreen,
     start,
     refreshCompatibility,
