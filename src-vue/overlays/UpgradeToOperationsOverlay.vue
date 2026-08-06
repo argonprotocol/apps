@@ -79,6 +79,12 @@
   </OverlayBase>
 </template>
 
+<script lang="ts">
+import { ref } from 'vue';
+
+const hasRequestedUpgradeThisSession = ref(false);
+</script>
+
 <script setup lang="ts">
 import * as Vue from 'vue';
 import type { IMemberInvite } from '@argonprotocol/apps-router';
@@ -132,6 +138,10 @@ const canRequestUpgrade = Vue.computed(() => {
     return false;
   }
 
+  if (hasRequestedUpgradeThisSession.value) {
+    return false;
+  }
+
   if (invite.value?.operationsUpgradeRequestedAt && controller.chainProgress.hasOperationalAccount) {
     return false;
   }
@@ -163,6 +173,8 @@ async function requestUpgrade() {
       operationalAccountId: walletKeys.operationalAddress,
       authKeypair,
     });
+
+    hasRequestedUpgradeThisSession.value = true;
 
     config.setCertificationDetails({ dismissedOperationsUpgradeOverlay: true });
     void config.save();
