@@ -58,7 +58,7 @@
       </div>
 
       <div
-        v-else-if="invite?.operationsUpgradeRequestedAt"
+        v-else-if="invite?.operationsUpgradeRequestedAt && !canRequestUpgrade"
         class="border-argon-300 mt-5 border-l-2 pl-3 text-sm text-slate-600"
       >
         Upgrade requested on {{ requestedAtLabel }}. We're waiting for your sponsor to approve.
@@ -128,7 +128,11 @@ const canRequestUpgrade = Vue.computed(() => {
     return false;
   }
 
-  if (invite.value?.operationsUpgradeRequestedAt || invite.value?.accessProof || invite.value?.operationsUpgradedAt) {
+  if (invite.value?.accessProof || invite.value?.operationsUpgradedAt) {
+    return false;
+  }
+
+  if (invite.value?.operationsUpgradeRequestedAt && controller.chainProgress.hasOperationalAccount) {
     return false;
   }
 
