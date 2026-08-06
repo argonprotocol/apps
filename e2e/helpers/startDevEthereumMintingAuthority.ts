@@ -72,7 +72,7 @@ export async function startDevEthereumMintingAuthority(args: {
       executionRpcUrl,
       logPrefix,
     });
-    await updateMintingAuthorityRuntimeState(executionRpcUrl, 'ready');
+    let runtimeStateReady = false;
 
     authorizeTransfersPromise = (async () => {
       while (!shouldStopAuthorizing) {
@@ -86,6 +86,10 @@ export async function startDevEthereumMintingAuthority(args: {
             });
             if (activationStatus.authorityActive) {
               console.info(`[${logPrefix}] minting authority activation is finalized`);
+              if (!runtimeStateReady) {
+                await updateMintingAuthorityRuntimeState(executionRpcUrl, 'ready');
+                runtimeStateReady = true;
+              }
             } else if (Date.now() - lastActivationProgressLogAt >= 10_000) {
               lastActivationProgressLogAt = Date.now();
               console.info(
@@ -94,6 +98,11 @@ export async function startDevEthereumMintingAuthority(args: {
             }
             await new Promise(resolve => setTimeout(resolve, 1_000));
             continue;
+          }
+
+          if (!runtimeStateReady) {
+            await updateMintingAuthorityRuntimeState(executionRpcUrl, 'ready');
+            runtimeStateReady = true;
           }
 
           const didAuthorize = await actor.authorizeNextPendingTransfer(client);
@@ -295,7 +304,7 @@ async function activateDevEthereumMintingAuthority(args: {
   });
 
   console.info(`[${logPrefix}] approving pending council updates`);
-  if (!(await actor.approvePendingGatewayUpdates({ client }))) {
+  if (!(await actor.approvePendingGatewayUpdates())) {
     throw new Error(`${logPrefix}: minting authority activation approval disappeared before it could be signed.`);
   }
 
@@ -354,9 +363,7 @@ async function refreshMintingAuthorityActivation(args: {
 
   if (status.pendingApprovals > 0) {
     console.info(`[${args.logPrefix}] approving pending council updates`);
-    await args.actor.approvePendingGatewayUpdates({
-      client: args.client,
-    });
+    await args.actor.approvePendingGatewayUpdates();
     status = await args.actor.getEthereumMintingAuthorityStatus({
       client: args.client,
       priorStatus: status,

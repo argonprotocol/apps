@@ -105,7 +105,7 @@ export default new Operation<IVaultingFlowContext, ITransferOutToEthereumState>(
       await pollEvery(
         1_000,
         async () => {
-          if ((await flow.isVisible(moveToEthereumTarget)).visible) return true;
+          if ((await flow.isVisible(moveToEthereumTarget)).clickable) return true;
           await clickIfVisible(flow, 'WalletOverlay.chooseEthereumWallet()', { timeoutMs: 1_500 });
           return false;
         },
