@@ -126,6 +126,7 @@ export default new OperationalFlow<IVaultingFlowContext, ITransferOutToEthereumS
 
     await clickIfVisible(flow, 'WalletOverlay.closeLeft()', { timeoutMs: 5_000 });
     await clickIfVisible(flow, 'WalletOverlay.closeRight()', { timeoutMs: 5_000 });
+    await flow.waitFor('WalletOverlay', { state: 'missing', timeoutMs: 10_000 });
 
     if (!(await flow.isVisible('VaultingScreen')).visible) {
       await flow.run(vaultingActivateTab);

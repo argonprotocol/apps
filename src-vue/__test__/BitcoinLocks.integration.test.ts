@@ -470,7 +470,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
         esploraHost: network.networkConfigOverride.esploraHost,
         network: 'dev-docker',
       });
-      activeLock = await createLock(harness);
+      activeLock = await createLock(harness, harness.myVault.createdVault!);
 
       await docker.stopOne('indexer', {
         config: ['docker-compose.yml', 'indexer.docker-compose.yml'],

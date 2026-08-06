@@ -291,7 +291,7 @@ async function main(): Promise<void> {
           serverEnvVars: tauriEnv,
         },
       });
-      console.log('[tauri-dev][ethereum-ready] local Ethereum minting authority is ready');
+      console.log('[tauri-dev] local Ethereum minting authority activation is running');
 
       if (isShuttingDown) {
         await devEthereumMintingAuthorityRuntime.shutdown().catch(() => undefined);

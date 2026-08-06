@@ -522,16 +522,13 @@ export class AppVaultOperator {
     throw new Error(`Minting authority registration for ${signingKey} never appeared on chain.`);
   }
 
-  public async approvePendingGatewayUpdates(args: { client: ArgonClient }): Promise<boolean> {
-    const txs = await this.globalCouncil.buildApprovePendingGatewayUpdateTxs(args.client);
-    if (!txs.length) {
+  public async approvePendingGatewayUpdates(): Promise<boolean> {
+    const txInfo = await this.myVault.collect({ moveTo: MoveTo.DefaultArgon });
+    if (!txInfo) {
       return false;
     }
 
-    await this.submitVaultingTx({
-      client: args.client,
-      tx: txs.length === 1 ? txs[0] : args.client.tx.utility.batchAll(txs),
-    });
+    await txInfo.waitForPostProcessing;
     return true;
   }
 
