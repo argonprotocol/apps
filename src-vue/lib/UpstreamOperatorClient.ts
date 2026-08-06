@@ -274,6 +274,7 @@ export class UpstreamOperatorClient {
   ): Promise<T> {
     const response = await fetch(buildAuthenticatedUrl(operatorHost, path, sessionId), {
       ...init,
+      redirect: 'error',
       headers: {
         ...(init?.headers as Record<string, string> | undefined),
       },

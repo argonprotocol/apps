@@ -104,16 +104,22 @@
         <input
           v-model="inviteCode"
           type="text"
+          :maxlength="MAX_INVITE_INPUT_LENGTH"
+          :disabled="isConnecting"
+          autocomplete="off"
+          autocapitalize="none"
+          spellcheck="false"
           placeholder="Paste access code"
-          class="text-md focus:border-argon-500 focus:ring-argon-500/15 grow rounded-lg border border-slate-400/70 bg-white px-2.5 py-2.5 text-lg font-normal text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] transition outline-none focus:ring-2"
+          class="text-md focus:border-argon-500 focus:ring-argon-500/15 grow rounded-lg border border-slate-400/70 bg-white px-2.5 py-2.5 text-lg font-normal text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] transition outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-60"
         />
 
         <button
           @click="connectToNetwork"
-          class="bg-argon-button border-argon-button-hover hover:bg-argon-button-hover inner-button-shadow flex cursor-pointer flex-row items-center justify-center space-x-2 rounded-md border px-12 py-3 font-bold whitespace-nowrap text-white focus:outline-none"
+          :disabled="!hasValidInviteCode || isConnecting"
+          class="bg-argon-button border-argon-button-hover hover:bg-argon-button-hover inner-button-shadow flex cursor-pointer flex-row items-center justify-center space-x-2 rounded-md border px-12 py-3 font-bold whitespace-nowrap text-white focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
           tabindex="0"
         >
-          Activate Upgrade
+          {{ isConnecting ? 'Activating...' : 'Activate Upgrade' }}
         </button>
       </div>
       <div
@@ -132,14 +138,15 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import { InviteEnvelope, MAX_INVITE_INPUT_LENGTH } from '@argonprotocol/apps-core';
 import { getConfig } from '../stores/config.ts';
 import { useCertificationController } from '../stores/certificationController.ts';
 import { getUpstreamOperatorAuthClient } from '../stores/server.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
 import AlertIcon from '../assets/alert.svg?component';
 import { BootstrapType, TopTab } from '../interfaces/IConfig.ts';
-import { InviteEnvelope } from '../lib/InviteEnvelope.ts';
 import { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
+import { RequestStatusError } from '../lib/ServerAuthClient.ts';
 import numeral from '../lib/numeral.ts';
 import OverlayBase from './OverlayBase.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
@@ -164,6 +171,7 @@ const inviteCode = Vue.ref<string>('');
 const formError = Vue.ref('');
 const showingExtraDetails = Vue.ref(false);
 const isArgonotStakingAprReady = Vue.ref(false);
+const isConnecting = Vue.ref(false);
 
 async function refreshArgonotStakingApr(): Promise<void> {
   isArgonotStakingAprReady.value = false;
@@ -179,6 +187,7 @@ async function refreshArgonotStakingApr(): Promise<void> {
 function extractInviteCodeFromUrl(input: string): string {
   const trimmed = input.trim();
   if (!trimmed) return '';
+  if (trimmed.length > MAX_INVITE_INPUT_LENGTH) return trimmed;
 
   let parsedUrl: URL;
   try {
@@ -187,12 +196,13 @@ function extractInviteCodeFromUrl(input: string): string {
     return trimmed;
   }
 
-  const match = parsedUrl.pathname.match(/^\/invite\/([^/?#]+)/);
+  const match = parsedUrl.pathname.match(/^\/invite\/([^/]+)\/?$/);
   if (!match?.[1]) return trimmed;
   try {
-    return decodeURIComponent(match[1]);
+    const decoded = decodeURIComponent(match[1]);
+    return decoded.length <= MAX_INVITE_INPUT_LENGTH ? decoded : trimmed;
   } catch {
-    return '';
+    return trimmed;
   }
 }
 
@@ -204,11 +214,17 @@ if (typeof window !== 'undefined') {
 }
 
 function closeOverlay() {
+  if (isConnecting.value) return;
+
   isOpen.value = false;
+  inviteCode.value = '';
+  formError.value = '';
   showingExtraDetails.value = false;
 }
 
 async function connectToNetwork() {
+  if (isConnecting.value) return;
+
   formError.value = '';
 
   if (!hasValidInviteCode.value) {
@@ -226,7 +242,7 @@ async function connectToNetwork() {
     return;
   }
 
-  const operatorAddress = [meta.host, meta.port].filter(Boolean).join(':');
+  const operatorAddress = meta.host.includes(':') ? `[${meta.host}]:${meta.port}` : `${meta.host}:${meta.port}`;
   const operatorHost = UpstreamOperatorClient.getBootstrapHost({
     type: BootstrapType.Private,
     routerHost: operatorAddress,
@@ -236,6 +252,7 @@ async function connectToNetwork() {
     return;
   }
 
+  isConnecting.value = true;
   try {
     const authKeypair = await walletKeys.getUpstreamOperatorAuthKeypair();
     const defaultAccountKeypair = await walletKeys.getLiquidLockingKeypair();
@@ -261,6 +278,7 @@ async function connectToNetwork() {
     config.bootstrapDetails = {
       ...UpstreamOperatorClient.getBootstrapDetails(operatorHost, BootstrapType.Private),
     };
+    isConnecting.value = false;
     closeOverlay();
     config.showWelcomeOverlay = true;
     emit('claimed');
@@ -273,11 +291,15 @@ async function connectToNetwork() {
     }
     controller.setTab(TopTab.BitcoinLocks);
   } catch (error) {
-    formError.value =
-      error instanceof Error && error.message
-        ? error.message
-        : 'An error occurred trying to connect with that access code. Please verify it and try again.';
-    return;
+    if (error instanceof RequestStatusError && error.status === 404) {
+      formError.value = 'The access code was not found.';
+    } else if (error instanceof RequestStatusError && error.status === 409) {
+      formError.value = 'That access code has already been used or is no longer available.';
+    } else {
+      formError.value = 'Unable to connect with that access code. Please verify it and try again.';
+    }
+  } finally {
+    isConnecting.value = false;
   }
 }
 
@@ -297,10 +319,9 @@ Vue.watch(
 
     const decoded = InviteEnvelope.decode(normalizedInviteCode);
     formError.value = '';
-    hasValidInviteCode.value = true;
-    if (decoded.hasError) {
+    hasValidInviteCode.value = !decoded.hasError && !decoded.isEmpty;
+    if (decoded.hasError && normalizedInviteCode) {
       formError.value = 'The access code you provided is invalid.';
-      hasValidInviteCode.value = false;
     }
   },
   { immediate: true },

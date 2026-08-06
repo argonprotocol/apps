@@ -32,6 +32,7 @@ export * from './SingleFileQueue.js';
 export * from './JsonExt.js';
 export * from './UserRole.js';
 export * from './InviteCodes.js';
+export * from './InviteEnvelope.js';
 export * from './RouterAuth.js';
 export * from './Codecs.js';
 export * from './CertificationProgress.js';

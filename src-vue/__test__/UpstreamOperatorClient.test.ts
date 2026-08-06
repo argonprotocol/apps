@@ -1,4 +1,4 @@
-import { expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { RequestStatusError, ServerAuthClient } from '../lib/ServerAuthClient.ts';
 import { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
@@ -23,6 +23,29 @@ vi.mock('../stores/bootstrapRecovery.ts', () => ({
   enrollUpstreamRecovery: vi.fn(),
   recoverUpstreamHost: storeMocks.recoverUpstreamHost,
 }));
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+it('refuses redirects when claiming a pasted invite', async () => {
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('{}'));
+  vi.stubGlobal('fetch', fetchMock);
+  const walletKeys = createMockWalletKeys('//InviteRedirect');
+
+  await UpstreamOperatorClient.claimInvite({
+    operatorHost: 'https://203.0.113.10',
+    inviteCode: 'member-invite-1',
+    defaultAccountKeypair: await walletKeys.getLiquidLockingKeypair(),
+    authKeypair: await walletKeys.getUpstreamOperatorAuthKeypair(),
+  });
+
+  expect(fetchMock).toHaveBeenCalledOnce();
+  expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+    method: 'POST',
+    redirect: 'error',
+  });
+});
 
 it('queries a missing upstream endpoint only once', async () => {
   const recoverOperatorHost = vi.fn().mockResolvedValue(undefined);

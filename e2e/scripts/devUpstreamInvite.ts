@@ -1,6 +1,7 @@
 import {
   Currency,
   getBootstrapEndpointPubkey,
+  InviteEnvelope,
   JsonExt,
   MainchainClients,
   MICROGONS_PER_ARGON,
@@ -10,7 +11,6 @@ import {
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import { BitcoinLock, Vault } from '@argonprotocol/mainchain';
 import { BootstrapRecovery } from 'src-vue/lib/BootstrapRecovery.ts';
-import { InviteEnvelope } from 'src-vue/lib/InviteEnvelope.ts';
 import { ServerAuthClient } from 'src-vue/lib/ServerAuthClient.ts';
 import {
   createDevUpstreamWalletKeys,
