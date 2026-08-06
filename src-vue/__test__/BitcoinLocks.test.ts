@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import BigNumber from 'bignumber.js';
-import { TransactionEvents, type BlockWatch, type Currency as CurrencyBase } from '@argonprotocol/apps-core';
+import {
+  StorageFinder,
+  TransactionEvents,
+  type BlockWatch,
+  type Currency as CurrencyBase,
+} from '@argonprotocol/apps-core';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import type { Db } from '../lib/Db.ts';
 import type { TransactionTracker } from '../lib/TransactionTracker.ts';
@@ -714,7 +719,7 @@ describe('BitcoinLocks recovery', () => {
     ]);
   });
 
-  it('preserves a known creation fee when enrichment cannot find its fee event', async () => {
+  it('recovers a migrated lock creation from full history and preserves its known fee', async () => {
     const api = {};
     const store = createStore({
       blockWatch: {
@@ -748,20 +753,28 @@ describe('BitcoinLocks recovery', () => {
     vi.spyOn(store.recovery, 'findActiveLockIds').mockResolvedValue([7]);
     vi.spyOn(BitcoinLock, 'get').mockResolvedValue({
       utxoId: 7,
-      createdAtArgonBlock: 10,
+      createdAtArgonBlock: 0,
       ownerAccount: record.lockDetails.ownerAccount,
     } as BitcoinLock);
+    const binarySearchForStorageAddition = vi.spyOn(StorageFinder, 'binarySearchForStorageAddition').mockResolvedValue({
+      blockNumber: 3,
+      blockHash: new Uint8Array([3]),
+    } as never);
     vi.spyOn(TransactionEvents, 'findFromFeePaidEvent').mockResolvedValue(undefined);
 
-    await store.recovery.recoverActiveLockCreationDetails({
+    const mainchainClients = {
       archiveClientPromise: Promise.resolve({
-        rpc: { chain: { getBlockHash: vi.fn(async () => new Uint8Array([10])) } },
+        query: { bitcoinLocks: { locksByUtxoId: { key: vi.fn(() => 'lock-key') } } },
         events: { bitcoinLocks: { BitcoinLockCreated: { is: vi.fn(() => false) } } },
       }),
-    } as never);
+    } as never;
+
+    await store.recovery.recoverActiveLockCreationDetails(mainchainClients);
 
     expect(saveRecoveredHistory).toHaveBeenCalledOnce();
+    expect(record.ratchets[0].blockHeight).toBe(3);
     expect(record.ratchets[0].txFee).toBe(21n);
+    expect(binarySearchForStorageAddition).toHaveBeenCalledWith(mainchainClients, 'lock-key', 0);
   });
 
   it('resumes one-shot relay work after the affected lock finishes recovery', async () => {

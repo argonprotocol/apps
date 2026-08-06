@@ -360,6 +360,11 @@ impl Security {
         Ok(Some(security))
     }
 
+    fn derive_security_from_mnemonic(mnemonic: &str) -> Result<Security> {
+        let (_, ssh_public_key) = Self::derive_ssh_key(mnemonic)?;
+        Self::create_with_addresses(mnemonic, &ssh_public_key)
+    }
+
     pub fn sr_derive(app: &AppHandle, suri: &str) -> Result<(sr25519::Pair, [u8; 32])> {
         let mnemonic = Self::expose_mnemonic(app)?;
         Self::sr_derive_from_mnemonic(&mnemonic, suri)

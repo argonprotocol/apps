@@ -626,7 +626,7 @@ export class BitcoinLockRecovery {
         } else {
           // Locks migrated from storage predating createdAtArgonBlock have a zero value.
           const lockStorageKey = archiveClient.query.bitcoinLocks.locksByUtxoId.key(utxoId);
-          const lockCreation = await StorageFinder.binarySearchForStorageAddition(mainchainClients, lockStorageKey);
+          const lockCreation = await StorageFinder.binarySearchForStorageAddition(mainchainClients, lockStorageKey, 0);
           creationBlockNumber = lockCreation?.blockNumber ?? 0;
           creationBlockHash = lockCreation?.blockHash;
         }
