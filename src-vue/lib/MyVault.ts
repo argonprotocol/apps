@@ -186,8 +186,8 @@ export class MyVault {
   // Serialize cosign submissions (collect + individual cosign) and track in-flight intent per UTXO.
   #cosignQueue = new SingleFileQueue();
   #collectFrames: { frameId: number; uncollectedEarnings: bigint }[] = [];
+  #finalizedBitcoinCosignUpdateSeq = 0;
   #pendingCosignUpdateSeq = 0;
-  #pendingOrphanCosignUpdateSeq = 0;
   #externalLocksUpdateSeq = 0;
   public readonly collectBuilder: VaultCollectBuilder;
   public readonly history: VaultHistory;
@@ -384,7 +384,11 @@ export class MyVault {
       const vaultId = this.createdVault.vaultId;
       const clients = getMainchainClients();
       const client = await clients.get(false);
-      await this.refreshPendingOrphanCosignCount(client, vaultId);
+      const finalizedClient = await this.miningFrames.blockWatch.getFinalizedApi();
+      await Promise.all([
+        this.refreshFinalizedRevenueState(finalizedClient, vaultId),
+        this.refreshFinalizedBitcoinCosignState(finalizedClient, vaultId),
+      ]);
 
       // update stats live
       const sub = await client.query.vaults.vaultsById(vaultId, vault => {
@@ -396,37 +400,68 @@ export class MyVault {
         this.data.createdVault = nextVault;
       });
 
-      const sub2 = await client.query.vaults.revenuePerFrameByVault(vaultId, async x => {
-        await this.updateRevenueStats(x);
+      const sub2 = await client.query.vaults.lastCollectFrameByVaultId(vaultId, () => {
         this.updateCollectDeadlines();
       });
-
-      const sub3 = await client.query.vaults.pendingCosignByVaultId(vaultId, async x => {
-        const updateSeq = ++this.#pendingCosignUpdateSeq;
-        await this.recordPendingCosignUtxos(x, updateSeq, client);
-      });
-      const sub4 = await client.query.vaults.lastCollectFrameByVaultId(vaultId, () => {
-        this.updateCollectDeadlines();
-      });
-      const sub5 = await client.query.vaults.argonotCommitmentByVaultId(vaultId, commitment => {
+      const sub3 = await client.query.vaults.argonotCommitmentByVaultId(vaultId, commitment => {
         this.updateArgonotCommitment(commitment);
       });
 
-      const { unsubscribe: sub6 } = this.miningFrames.onFrameId(frameId => {
+      const { unsubscribe: sub4 } = this.miningFrames.onFrameId(frameId => {
         this.data.currentFrameId = frameId;
         this.updateCollectDeadlines();
-        void this.refreshPendingOrphanCosignCount(client, vaultId).catch(x =>
-          console.error('Error updating pending orphaned Bitcoin signatures', x),
-        );
       });
 
-      const sub7 = this.miningFrames.blockWatch.events.on('best-blocks', headers => {
+      const sub5 = this.miningFrames.blockWatch.events.on('best-blocks', headers => {
         void this.refreshVaultBitcoinStateFromBlockEvents(headers).catch(x =>
           console.error(`Error updating vault Bitcoin state from block events`, x),
         );
       });
 
-      const sub8 = clients.events.on('on-pruned-client', () => {
+      const sub6 = this.miningFrames.blockWatch.events.on('finalized', async headers => {
+        try {
+          let latestBitcoinClient: ApiDecoration<'promise'> | undefined;
+          let latestRevenueClient: ApiDecoration<'promise'> | undefined;
+          for (const header of headers) {
+            const { api, events } = await this.miningFrames.blockWatch.getEventsWithSpec(header);
+            if (header.isNewFrame) latestRevenueClient = api;
+
+            for (const { event } of events) {
+              if (
+                api.events.bitcoinLocks.BitcoinUtxoCosignRequested.is(event) ||
+                api.events.bitcoinLocks.BitcoinUtxoCosigned.is(event) ||
+                api.events.bitcoinLocks.BitcoinCosignPastDue.is(event) ||
+                api.events.bitcoinLocks.OrphanedUtxoReleaseRequested.is(event) ||
+                api.events.bitcoinLocks.OrphanedUtxoCosigned.is(event)
+              ) {
+                if (event.data.vaultId.toNumber() === vaultId) latestBitcoinClient = api;
+                continue;
+              }
+
+              if (
+                api.events.vaults.FundsLocked.is(event) ||
+                api.events.vaults.VaultCollected.is(event) ||
+                api.events.vaults.VaultRevenueUncollected.is(event)
+              ) {
+                if (event.data.vaultId.toNumber() === vaultId) latestRevenueClient = api;
+              }
+            }
+          }
+
+          const refreshes: Promise<void>[] = [];
+          if (latestBitcoinClient) {
+            refreshes.push(this.refreshFinalizedBitcoinCosignState(latestBitcoinClient, vaultId));
+          }
+          if (latestRevenueClient) {
+            refreshes.push(this.refreshFinalizedRevenueState(latestRevenueClient, vaultId));
+          }
+          await Promise.all(refreshes);
+        } catch (error) {
+          console.error('Error updating finalized vault collect state', error);
+        }
+      });
+
+      const sub7 = clients.events.on('on-pruned-client', () => {
         if (client.clientType === 'archive') {
           this.unsubscribe();
           void this.subscribe();
@@ -441,10 +476,28 @@ export class MyVault {
 
       await Promise.all([this.globalCouncil.subscribe(), this.mintingAuthorities.subscribe()]);
 
-      this.#subscriptions.push(sub, sub2, sub3, sub4, sub5, sub6, sub7, sub8);
+      this.#subscriptions.push(sub, sub2, sub3, sub4, sub5, sub6, sub7);
     } finally {
       this.#isSubscribing = false;
     }
+  }
+
+  public async refreshFinalizedState(args: { client: ArgonQueryClient; currentFrameId: number }): Promise<void> {
+    const vaultId = this.vaultId;
+    const refreshes: Promise<unknown>[] = [];
+
+    if (this.data.isReady && vaultId != null) {
+      this.data.currentFrameId = args.currentFrameId;
+      refreshes.push(
+        this.refreshFinalizedBitcoinCosignState(args.client, vaultId),
+        this.refreshFinalizedRevenueState(args.client, vaultId),
+        this.refreshExternalLocks(args.client),
+      );
+    }
+    if (this.globalCouncil.data.isReady) refreshes.push(this.globalCouncil.refresh(args.client));
+    if (this.mintingAuthorities.data.isReady) refreshes.push(this.mintingAuthorities.refresh(args.client));
+
+    await Promise.all(refreshes);
   }
 
   private updateArgonotCommitment(commitment: Option<ArgonPrimitivesVaultVaultArgonotCommitment>): void {
@@ -463,12 +516,23 @@ export class MyVault {
     };
   }
 
-  private async refreshPendingOrphanCosignCount(client: ArgonQueryClient, vaultId: number): Promise<void> {
-    const updateSeq = ++this.#pendingOrphanCosignUpdateSeq;
-    const entries = await client.query.vaults.orphanedUtxoAccountsByVaultId.entries(vaultId);
-    if (updateSeq !== this.#pendingOrphanCosignUpdateSeq) return;
+  private async refreshFinalizedBitcoinCosignState(client: ArgonQueryClient, vaultId: number): Promise<void> {
+    const updateSeq = ++this.#finalizedBitcoinCosignUpdateSeq;
+    const [pendingCosignUtxos, orphanCosignEntries] = await Promise.all([
+      client.query.vaults.pendingCosignByVaultId(vaultId),
+      client.query.vaults.orphanedUtxoAccountsByVaultId.entries(vaultId),
+    ]);
+    if (updateSeq !== this.#finalizedBitcoinCosignUpdateSeq) return;
 
-    this.data.pendingOrphanCosignCount = entries.reduce((total, [, count]) => total + count.toNumber(), 0);
+    await this.recordPendingCosignUtxos(pendingCosignUtxos, ++this.#pendingCosignUpdateSeq, client);
+    if (updateSeq !== this.#finalizedBitcoinCosignUpdateSeq) return;
+
+    this.data.pendingOrphanCosignCount = orphanCosignEntries.reduce((total, [, count]) => total + count.toNumber(), 0);
+  }
+
+  private async refreshFinalizedRevenueState(client: ArgonQueryClient, vaultId: number): Promise<void> {
+    await this.updateRevenueStats(await client.query.vaults.revenuePerFrameByVault(vaultId));
+    this.updateCollectDeadlines();
   }
 
   private async refreshVaultBitcoinStateFromBlockEvents(headers: IBlockHeaderInfo[]): Promise<void> {
@@ -477,23 +541,10 @@ export class MyVault {
 
     const typeClient = await getMainchainClient(false);
     let latestApiClient: ApiDecoration<'promise'> | undefined;
-    let shouldRefreshOrphanCosigns = false;
     for (const header of headers) {
       const events = await this.miningFrames.blockWatch.getEvents(header);
       let shouldRefreshExternalLocks = false;
       for (const { event } of events) {
-        if (typeClient.events.bitcoinLocks.OrphanedUtxoReleaseRequested.is(event)) {
-          if (vaultId === event.data.vaultId.toNumber()) {
-            shouldRefreshOrphanCosigns = true;
-          }
-          continue;
-        }
-        if (typeClient.events.bitcoinLocks.OrphanedUtxoCosigned.is(event)) {
-          if (vaultId === event.data.vaultId.toNumber()) {
-            shouldRefreshOrphanCosigns = true;
-          }
-          continue;
-        }
         if (
           typeClient.events.bitcoinLocks.BitcoinLockCreated.is(event) ||
           typeClient.events.bitcoinLocks.BitcoinLockRatcheted.is(event) ||
@@ -514,9 +565,6 @@ export class MyVault {
     if (latestApiClient) {
       await this.refreshExternalLocks(latestApiClient);
     }
-    if (shouldRefreshOrphanCosigns) {
-      await this.refreshPendingOrphanCosignCount(typeClient, vaultId);
-    }
   }
 
   private updateCollectDeadlines() {
@@ -532,7 +580,7 @@ export class MyVault {
     this.data.nextCosignDueDate = nextCosignFrame ? this.miningFrames.getFrameDate(nextCosignFrame).getTime() : 0;
   }
 
-  private async recordPendingCosignUtxos(rawUtxoIds: Iterable<u64>, updateSeq: number, client: ArgonClient) {
+  private async recordPendingCosignUtxos(rawUtxoIds: Iterable<u64>, updateSeq: number, client: ArgonQueryClient) {
     const previousPendingCosignsById = new Map(this.data.pendingCosignUtxosById);
     const pendingCosignUtxosById = new Map<number, IPendingCosignUtxo>();
     for (const utxoId of rawUtxoIds) {

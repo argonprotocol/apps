@@ -159,7 +159,9 @@ import BitcoinLockingOverlay from './overlays/BitcoinLockingOverlay.vue';
 import BondPurchaseOverlay from './overlays/BondPurchaseOverlay.vue';
 import StakePurchaseOverlay from './overlays/StakePurchaseOverlay.vue';
 import SponsorOverlay from './overlays/SponsorOverlay.vue';
-import { getMainchainClients } from './stores/mainchain.ts';
+import { getMainchainClient, getMainchainClients } from './stores/mainchain.ts';
+import { getMyVault } from './stores/vaults.ts';
+import { getArgonBonds } from './stores/argonBonds.ts';
 
 const controller = useCertificationController();
 const config = getConfig();
@@ -169,6 +171,8 @@ const bot = getBot();
 const updater = useAppUpdater();
 const runtimeCompatibility = useRuntimeCompatibility();
 const { shouldShowCompatibilityScreen } = storeToRefs(runtimeCompatibility);
+let foregroundRefreshPromise: Promise<void> | undefined;
+let lastForegroundFinalizedHash: string | undefined;
 
 updater.start();
 runtimeCompatibility.start();
@@ -206,6 +210,32 @@ function disposeAppTransports() {
   void getMainchainClients().disconnect();
 }
 
+function refreshFinalizedStateOnFocus() {
+  if (!controller.isLoaded || foregroundRefreshPromise) return;
+
+  foregroundRefreshPromise = (async () => {
+    const archiveClient = await getMainchainClient(true);
+    const finalizedHash = await archiveClient.rpc.chain.getFinalizedHead();
+    const blockHash = finalizedHash.toHex();
+    if (blockHash === lastForegroundFinalizedHash) return;
+
+    const finalizedClient = await archiveClient.at(finalizedHash);
+    const currentFrameId = await finalizedClient.query.miningSlot.nextFrameId().then(frameId => frameId.toNumber() - 1);
+    const myVault = getMyVault();
+    const argonBonds = getArgonBonds();
+
+    await Promise.all([
+      myVault.refreshFinalizedState({ client: finalizedClient, currentFrameId }),
+      argonBonds.refreshActiveState({ client: finalizedClient, currentFrameId }),
+    ]);
+    lastForegroundFinalizedHash = blockHash;
+  })()
+    .catch(error => console.error('[App] Unable to refresh finalized state after window focus', error))
+    .finally(() => {
+      foregroundRefreshPromise = undefined;
+    });
+}
+
 Vue.onBeforeMount(async () => {
   await waitForLoad();
 });
@@ -214,6 +244,7 @@ Vue.onMounted(async () => {
   // Add keyboard shortcuts for panel switching
   document.addEventListener('keydown', keydownHandler);
   document.addEventListener('click', externalLinkHandler);
+  window.addEventListener('focus', refreshFinalizedStateOnFocus);
   window.addEventListener('beforeunload', disposeAppTransports);
 
   const appWindow = getCurrentWindow();
@@ -228,6 +259,7 @@ Vue.onMounted(async () => {
 Vue.onBeforeUnmount(() => {
   document.removeEventListener('keydown', keydownHandler);
   document.removeEventListener('click', externalLinkHandler);
+  window.removeEventListener('focus', refreshFinalizedStateOnFocus);
   window.removeEventListener('beforeunload', disposeAppTransports);
 });
 

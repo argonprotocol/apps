@@ -416,7 +416,7 @@ function getCardTooltipContent(notice: IVaultCollectNotice): string {
     return 'Collect your vault earnings.';
   }
 
-  if (notice.orphanSignatureCount === notice.signatureCount) {
+  if (notice.orphanSignatureCount > 0 && notice.orphanSignatureCount === notice.signatureCount) {
     return 'Sign orphaned bitcoin return transactions.';
   }
 

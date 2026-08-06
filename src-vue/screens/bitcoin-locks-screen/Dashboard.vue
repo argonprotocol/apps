@@ -86,22 +86,12 @@
           <section
             v-if="actionableOrphanRecords.length || showReturnedOrphans"
             data-testid="BitcoinOrphans"
-            class="mt-2 space-y-2 border-y border-slate-300/70 py-4"
+            :class="financials.liquidInvisibleRecords.length ? 'border-b' : ''"
+            class="mt-2 space-y-2 border-t border-slate-300/70 py-4"
           >
-            <div class="flex items-start justify-between gap-4">
-              <div>
-                <h2 class="font-semibold text-slate-800">Orphaned Bitcoin</h2>
-                <p class="text-sm text-slate-500">Bitcoin deposits handled outside a lock.</p>
-              </div>
-              <button
-                v-if="returnedOrphanCount"
-                type="button"
-                data-testid="BitcoinOrphans.toggleReturned()"
-                @click="showReturnedOrphans = !showReturnedOrphans"
-                class="text-argon-600 cursor-pointer text-sm whitespace-nowrap hover:underline"
-              >
-                {{ showReturnedOrphans ? 'Hide returned' : `Show returned (${returnedOrphanCount})` }}
-              </button>
+            <div>
+              <h2 class="font-semibold text-slate-800">Orphaned Bitcoin</h2>
+              <p class="text-sm text-slate-500">Bitcoin deposits handled outside a lock.</p>
             </div>
             <button
               v-for="record in visibleOrphanRecords"
@@ -132,6 +122,15 @@
                 <div class="text-sm text-slate-500">{{ orphanAction(record) }}</div>
               </div>
             </button>
+            <button
+              v-if="returnedOrphanCount"
+              type="button"
+              data-testid="BitcoinOrphans.toggleReturned()"
+              @click="showReturnedOrphans = !showReturnedOrphans"
+              class="text-argon-600 ml-auto block cursor-pointer text-sm whitespace-nowrap hover:underline"
+            >
+              {{ showReturnedOrphans ? 'Hide returned' : `Show returned (${returnedOrphanCount})` }}
+            </button>
           </section>
           <button
             v-else-if="returnedOrphanCount"
@@ -140,7 +139,7 @@
             @click="showReturnedOrphans = true"
             class="hover:text-argon-600 cursor-pointer self-end text-sm text-slate-500 hover:underline"
           >
-            View returned Bitcoin ({{ returnedOrphanCount }})
+            Show orphaned Bitcoin ({{ returnedOrphanCount }})
           </button>
           <BitcoinsReleasedOverlay v-if="financials.liquidInvisibleRecords.length" @open-detail="openDetail" />
         </section>
@@ -189,6 +188,7 @@ import { getBitcoinLockCoupons, getBitcoinLocks } from '../../stores/bitcoin.ts'
 import { getMiningFrames } from '../../stores/mainchain.ts';
 import { type IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../../lib/db/BitcoinUtxosTable.ts';
+import { TransactionStatus } from '../../lib/db/TransactionsTable.ts';
 import BitcoinLockDetailOverlay from '../../overlays/BitcoinLockDetailOverlay.vue';
 import BitcoinUnlockingOverlay from '../../overlays/BitcoinUnlockingOverlay.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
@@ -254,6 +254,10 @@ function orphanStatus(record: IBitcoinUtxoRecord): string {
   if (record.status === BitcoinUtxoStatus.Orphaned) return 'Return required';
   if (record.status === BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin) return 'Returning on Bitcoin';
   if (record.releaseCosignVaultSignature) return 'Preparing return';
+  const txStatus = bitcoinLocks.orphanReleases.getTransactionInfo(record.lockUtxoId, record)?.tx.status;
+  if (txStatus && [TransactionStatus.Submitted, TransactionStatus.InBlock].includes(txStatus)) {
+    return 'Submitting return request';
+  }
   return 'Awaiting vault signature';
 }
 

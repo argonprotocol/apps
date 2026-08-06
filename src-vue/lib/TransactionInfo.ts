@@ -261,7 +261,8 @@ export function getTransactionFailureMessage(txInfo?: TransactionInfo): string |
 
   const extrinsicError = txInfo.txResult.extrinsicError;
   if (extrinsicError) {
-    if (extrinsicError instanceof ExtrinsicError && extrinsicError.details) return extrinsicError.details;
+    const details = (extrinsicError as ExtrinsicError).details;
+    if (details) return details;
     return extrinsicError.message || String(extrinsicError);
   }
 

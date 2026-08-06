@@ -577,14 +577,26 @@ describe('BitcoinUtxoTracking', () => {
       uuid: 'lock-3',
       lockDetails: { ...createLockDetails(), ownerAccount: 'owner-2' },
     });
-    const orphanEntry = (utxoId: number, txid: string, vout: number, satoshis: bigint) => [
+    const orphanEntry = (
+      utxoId: number,
+      txid: string,
+      vout: number,
+      satoshis: bigint,
+      releaseRequest?: { bitcoinNetworkFee: bigint; toScriptPubkey: Uint8Array },
+    ) => [
       { args: [{}, { txid: { toHex: () => txid }, outputIndex: { toNumber: () => vout } }] },
       {
         isNone: false,
         unwrap: () => ({
           utxoId: { toNumber: () => utxoId },
           satoshis: { toBigInt: () => satoshis },
-          cosignRequest: { isSome: false },
+          cosignRequest: {
+            isSome: !!releaseRequest,
+            unwrap: () => ({
+              bitcoinNetworkFee: { toBigInt: () => releaseRequest!.bitcoinNetworkFee },
+              toScriptPubkey: releaseRequest!.toScriptPubkey,
+            }),
+          },
         }),
       },
     ];
@@ -593,7 +605,10 @@ describe('BitcoinUtxoTracking', () => {
         return [orphanEntry(3, 'c'.repeat(64), 0, 12_000n)];
       }
       return [
-        orphanEntry(1, 'a'.repeat(64), 0, 10_000n),
+        orphanEntry(1, 'a'.repeat(64), 0, 10_000n, {
+          bitcoinNetworkFee: 250n,
+          toScriptPubkey: new Uint8Array([0, 20, 171]),
+        }),
         orphanEntry(1, 'b'.repeat(64), 1, 11_000n),
         orphanEntry(99, 'f'.repeat(64), 0, 99_000n),
       ];
@@ -610,6 +625,12 @@ describe('BitcoinUtxoTracking', () => {
       `1:${'b'.repeat(64)}:1`,
       `3:${'c'.repeat(64)}:0`,
     ]);
+    expect(records[0]).toEqual(
+      expect.objectContaining({
+        releaseBitcoinNetworkFee: 250n,
+        releaseToDestinationAddress: '0014ab',
+      }),
+    );
 
     await tracking.syncArgonOrphans([firstLock, secondLock, thirdLock], client);
     expect(tracking.getUtxosForLock(firstLock)).toHaveLength(2);

@@ -198,6 +198,24 @@ export class ArgonBonds {
     ).bondLotHistoryTable.fetchAll(this.walletKeys.defaultArgonAddress);
   }
 
+  public async refreshActiveState(args: { client: ArgonQueryClient; currentFrameId: number }): Promise<void> {
+    if (!this.data.isLoaded) return;
+
+    this.data.currentFrameId = args.currentFrameId;
+
+    const refreshes: Promise<void>[] = [];
+    refreshes.push(this.refreshBondLots(args.client));
+    if (this.isGlobalSubscribed) {
+      refreshes.push(
+        TreasuryBonds.getDistributableBidPool(args.client).then(value => {
+          this.data.distributableBidPool = value;
+        }),
+      );
+    }
+    if (this.vaultSubscriptionArgs.size) refreshes.push(this.refreshSubscribedVaults(args.client));
+    await Promise.all(refreshes);
+  }
+
   public async subscribeGlobal(client?: ArgonClient): Promise<void> {
     if (this.isGlobalSubscribed) return;
 
