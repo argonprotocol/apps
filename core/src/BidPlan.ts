@@ -107,7 +107,7 @@ function planBidWithSortedSubaccounts(input: IBidPlanInput, sortedSubaccounts: I
   const alreadyWinningSeats = keptBids.length;
   const requestedAdditionalSeats = Math.max(0, seats - alreadyWinningSeats);
 
-  if (microgonsPerSeat <= 0n) {
+  if (microgonsPerSeat < 0n) {
     return createRejectedPlan('invalid-bid-amount', alreadyWinningSeats);
   }
   if (seats <= 0) {
