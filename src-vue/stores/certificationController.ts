@@ -331,6 +331,14 @@ export const useCertificationController = defineStore('certificationController',
     };
   });
 
+  const visibleOperationsCertificationStepIds = Vue.computed(() => {
+    if (isCertificationStepComplete(OperationalStepId.BackupMnemonic)) {
+      return operationsCertificationStepIds;
+    }
+
+    return [OperationalStepId.BackupMnemonic, ...operationsCertificationStepIds];
+  });
+
   const completedCertificationStepCount = Vue.computed(() => {
     return allCertificationStepIds.filter(stepId => isCertificationStepComplete(stepId)).length;
   });
@@ -852,6 +860,7 @@ export const useCertificationController = defineStore('certificationController',
     isTreasuryCertificationChecklistComplete,
     isCertificationChecklistComplete,
     isTreasuryCertificationFlowActive,
+    visibleOperationsCertificationStepIds,
     chainProgress,
     rewardConfig,
     inviteSlotProgress,
