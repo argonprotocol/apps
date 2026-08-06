@@ -221,6 +221,14 @@ function resetEthereumImport() {
   selectedMnemonicPath.value = '';
 }
 
+function normalizeEthereumMnemonic(value: string) {
+  return value
+    .trim()
+    .split(/[\s,;]+/)
+    .filter(Boolean)
+    .join(' ');
+}
+
 async function continueExternalImport() {
   ethereumImportError.value = '';
   const walletName = ethereumWalletNameInput.value.trim();
@@ -239,7 +247,14 @@ async function continueExternalImport() {
       emit('complete', walletRecord);
       return;
     }
-    mnemonicAccounts.value = await wallets.previewExternalEthereumMnemonic(ethereumSecretInput.value.trim());
+    const mnemonic = normalizeEthereumMnemonic(ethereumSecretInput.value);
+    const wordCount = mnemonic ? mnemonic.split(' ').length : 0;
+    if (wordCount !== 12 && wordCount !== 24) {
+      ethereumImportError.value = `Enter exactly 12 or 24 mnemonic words. You entered ${wordCount}.`;
+      return;
+    }
+    ethereumSecretInput.value = mnemonic;
+    mnemonicAccounts.value = await wallets.previewExternalEthereumMnemonic(mnemonic);
     selectedMnemonicPath.value = mnemonicAccounts.value[0]?.derivationPath ?? '';
     ethereumImportStep.value = 'mnemonicAccounts';
     await scanMnemonicBalances();

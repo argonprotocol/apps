@@ -620,6 +620,17 @@ mod tests {
     }
 
     #[test]
+    fn derives_standard_ethereum_address_from_24_word_mnemonic() {
+        let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
+
+        let address = derive_standard_addresses(mnemonic, &["m/44'/60'/0'/0/0".to_string()])
+            .expect("24-word mnemonic should derive an Ethereum address");
+
+        assert_eq!(address.len(), 1);
+        assert!(address[0].starts_with("0x"));
+    }
+
+    #[test]
     fn parses_viem_unsigned_eip1559_transaction_chain_id() {
         let unsigned_transaction = decode_hex(
             "0x02f8678330282480010982db70949fe46736679d2d9a65f0992f2272de9f3c7fa6e080b844095ea7b3000000000000000000000000e7f1725e7734ce288f8367e1bb143e90eeb172480000000000000000000000000000000000000000000000000000000000000001c0",
