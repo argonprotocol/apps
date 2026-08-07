@@ -1299,10 +1299,11 @@ export class MyVault {
         }
         queued.add(key);
 
-        const blockNumber = orphan.recordedArgonBlockNumber.toNumber();
+        // The orphan is written during this block, so recover its lock from the pre-orphan state.
+        const blockNumber = orphan.recordedArgonBlockNumber.toNumber() - 1;
         const apiNode = await this.miningFrames.blockWatch.getRpcClient(blockNumber);
         const blockHash = await apiNode.rpc.chain.getBlockHash(blockNumber);
-        const apiClient = await submitClient.at(blockHash);
+        const apiClient = await apiNode.at(blockHash);
 
         const lock = await BitcoinLock.get(apiClient, lockUtxoId);
         if (!lock) {

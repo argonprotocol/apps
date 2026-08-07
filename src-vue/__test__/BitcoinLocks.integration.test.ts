@@ -224,7 +224,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
     }
   });
 
-  it('alerts a separate vault operator to return an orphaned deposit', async () => {
+  it('returns a mismatched deposit received before expiry through a separate vault operator', async () => {
     const operator = await createHarness({
       archiveUrl: network.archiveUrl,
       esploraHost: network.networkConfigOverride.esploraHost,
@@ -263,20 +263,51 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
             getMismatchFundingSatoshis(lock.satoshis),
             progress,
           );
-          const client = await clients.get(false);
-          await client.tx.bitcoinUtxos
-            .rejectUtxoCandidate(lock.utxoId!, {
-              txid: observed.candidate.txid,
-              outputIndex: observed.candidate.vout,
-            })
-            .signAndSend(await owner.walletKeys.getLiquidLockingKeypair());
+
+          const expirationConfig = await BitcoinLock.getConfig(await clients.get(false));
+          const expirationBitcoinHeight =
+            observed.lock.lockDetails.createdAtHeight + expirationConfig.pendingConfirmationExpirationBlocks;
+
+          const preExpiryClient = await clients.get(false);
+          const preExpiryBitcoinHeight = await BitcoinLock.getBitcoinConfirmedBlockHeight(preExpiryClient);
+          const preExpiryChainLock = await BitcoinLock.get(preExpiryClient, observed.lock.utxoId!);
+          const preExpiryCandidates = await preExpiryClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(
+            observed.lock.utxoId!,
+          );
+          const candidateWasRecordedBeforeExpiry = [...preExpiryCandidates.entries()].some(([utxoRef]) => {
+            return (
+              utxoRef.txid.toHex() === observed.candidate.txid &&
+              utxoRef.outputIndex.toNumber() === observed.candidate.vout
+            );
+          });
+
+          expect(preExpiryBitcoinHeight).toBeLessThan(expirationBitcoinHeight);
+          expect(preExpiryChainLock).toBeTruthy();
+          expect(candidateWasRecordedBeforeExpiry).toBe(true);
+
+          await waitFor(
+            60e3,
+            'separate operator lock expiration height',
+            async () => {
+              const chainClient = await clients.get(false);
+              const currentBitcoinHeight = await BitcoinLock.getBitcoinConfirmedBlockHeight(chainClient);
+              if (currentBitcoinHeight >= expirationBitcoinHeight) return true;
+              mineBitcoinBlocks(expirationBitcoinHeight - currentBitcoinHeight, minerAddress);
+              return;
+            },
+            { pollMs: 1e3 },
+          );
 
           const orphan = await waitFor(
-            60e3,
-            'rejected deposit recorded as orphan',
+            90e3,
+            'expired late deposit recorded as orphan',
             async () => {
               const currentLock = getCurrentLock(owner, lock.utxoId!);
-              await owner.bitcoinLocks.utxoTracking.syncArgonOrphans([currentLock], await clients.get(false));
+              const chainClient = await clients.get(false);
+              await owner.bitcoinLocks.utxoTracking.syncPendingFundingSignals(currentLock);
+              progress.updateLock(currentLock);
+              if (await BitcoinLock.get(chainClient, currentLock.utxoId!)) return;
+              await owner.bitcoinLocks.utxoTracking.syncArgonOrphans([currentLock], chainClient);
               return owner.bitcoinLocks.utxoTracking
                 .getUnresolvedOrphanRecords([currentLock])
                 .find(record => record.txid === observed.candidate.txid);
