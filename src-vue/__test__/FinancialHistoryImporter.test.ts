@@ -151,7 +151,7 @@ describe('FinancialHistoryImporter', () => {
               bitcoin: {
                 asOfBlock: 90,
                 definitionVersion: 2,
-                recoveryVersion: 6,
+                recoveryVersion: 7,
                 partialRecovery: true,
               },
             },
@@ -233,7 +233,7 @@ describe('FinancialHistoryImporter', () => {
         asOfBlock: 100,
         domains: ['bitcoin'],
         domainCheckpoints: {
-          bitcoin: { asOfBlock: 100, definitionVersion: 2, recoveryVersion: 6 },
+          bitcoin: { asOfBlock: 100, definitionVersion: 2, recoveryVersion: 7 },
         },
       }),
     );
@@ -409,7 +409,7 @@ describe('FinancialHistoryImporter', () => {
           bitcoin: {
             asOfBlock: 8,
             definitionVersion: 2,
-            recoveryVersion: 6,
+            recoveryVersion: 7,
             partialRecovery: true,
           },
         },
@@ -503,9 +503,9 @@ describe('FinancialHistoryImporter', () => {
       SyncStateKeys.FinancialHistory,
       expect.objectContaining({
         asOfBlock: 100,
-        recoveryVersions: { bitcoin: 6 },
+        recoveryVersions: { bitcoin: 7 },
         domainCheckpoints: {
-          bitcoin: { asOfBlock: 100, definitionVersion: 2, recoveryVersion: 6 },
+          bitcoin: { asOfBlock: 100, definitionVersion: 2, recoveryVersion: 7 },
         },
       }),
     );

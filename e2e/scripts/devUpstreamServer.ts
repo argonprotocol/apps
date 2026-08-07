@@ -33,7 +33,6 @@ const defaultUpstreamRootDir = path.resolve(__dirname, '..', 'dev-upstream');
 const execFileAsync = promisify(execFile);
 
 export const DEV_UPSTREAM_MASTER_MNEMONIC = 'test test test test test test test test test test test junk';
-export const DEV_UPSTREAM_SUBSTRATE_SURI = '//DevUpstreamOperator';
 
 export const DEV_DOCKER_COMPOSE_FILES = [
   'docker-compose.yml',
@@ -58,6 +57,7 @@ export interface IDevUpstreamServerRuntime {
   botPort: string;
   gatewayPort: string;
   routerPort: string;
+  stopVaultAlertPoller(): Promise<void>;
   shutdown(): Promise<void>;
 }
 
@@ -257,18 +257,25 @@ export async function startDevUpstreamServer(args: {
     walletKeys,
   });
   const bootstrapRecovery = new BootstrapRecovery(walletKeys);
+  const vaultAlertAbortController = new AbortController();
   let isShutdown = false;
   let operationsUpgradePoller: { shutdown(): Promise<void> } | undefined;
+  let vaultAlertPoller: Promise<void> | undefined;
   let endpointMonitor: NodeJS.Timeout | undefined;
   let isEndpointRefreshRunning = false;
   let publishedGatewayPort: string | undefined;
+  const stopVaultAlertPoller = async () => {
+    vaultAlertAbortController.abort();
+    await vaultAlertPoller?.catch(() => undefined);
+    vaultAlertPoller = undefined;
+  };
   const shutdown = async () => {
     if (isShutdown) {
       return;
     }
     isShutdown = true;
     clearInterval(endpointMonitor);
-    await operationsUpgradePoller?.shutdown().catch(() => undefined);
+    await Promise.all([operationsUpgradePoller?.shutdown().catch(() => undefined), stopVaultAlertPoller()]);
     await actor.dispose().catch(() => undefined);
     await clients.disconnect().catch(() => undefined);
   };
@@ -329,12 +336,17 @@ export async function startDevUpstreamServer(args: {
       client,
       routerHost: `http://127.0.0.1:${routerPort}`,
     });
+    vaultAlertPoller = actor.pollVaultAlerts({ signal: vaultAlertAbortController.signal });
+    void vaultAlertPoller.catch(error => {
+      console.warn('[dev-upstream] Vault alert poller stopped.', error);
+    });
 
     return {
       operator: actor,
       botPort,
       gatewayPort,
       routerPort,
+      stopVaultAlertPoller,
       shutdown,
     };
   } catch (error) {
@@ -427,7 +439,7 @@ function getComposeArgs(context: DevDockerComposeContext): string[] {
 
 export async function createDevUpstreamWalletKeys(): Promise<MemoryWalletKeys> {
   return new MemoryWalletKeys({
-    substrateSuri: DEV_UPSTREAM_SUBSTRATE_SURI,
+    substrateSuri: DEV_UPSTREAM_MASTER_MNEMONIC,
     masterMnemonic: DEV_UPSTREAM_MASTER_MNEMONIC,
   });
 }

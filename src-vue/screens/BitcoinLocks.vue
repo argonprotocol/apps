@@ -23,7 +23,10 @@ const currency = getCurrency();
 const financials = useFinancials();
 const isLoaded = Vue.ref(false);
 const hasBitcoinRecords = Vue.computed(
-  () => financials.bitcoinLockDisplayRecords.length > 0 || financials.liquidInvisibleRecords.length > 0,
+  () =>
+    financials.bitcoinLockDisplayRecords.length > 0 ||
+    financials.liquidInvisibleRecords.length > 0 ||
+    bitcoinLocks.utxoTracking.getAllOrphanLifecycleUtxos().length > 0,
 );
 
 Vue.onMounted(async () => {

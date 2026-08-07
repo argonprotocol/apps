@@ -178,7 +178,7 @@
             <button
               @click.stop="openRatchetingOverlay($event, lockSummary)"
               :class="[
-                lockSummary.ratchetPercent || isRatchetPending
+                displayedRatchetPercent || isRatchetPending
                   ? 'bg-argon-600 border-argon-800 hover:bg-argon-700 text-white hover:shadow-lg'
                   : 'cursor-default border-slate-800/20 text-slate-600/40',
               ]"
@@ -188,9 +188,9 @@
                 <Spinner class="Inverse mr-1.5 h-3 min-h-3 w-3 min-w-3" />
                 Ratcheting...
               </template>
-              <span v-else-if="lockSummary.ratchetPercent">
-                Ratchet {{ lockSummary.ratchetPercent > 0 ? '+' : ''
-                }}{{ numeral(lockSummary.ratchetPercent).format('0,0.[00]') }}%
+              <span v-else-if="displayedRatchetPercent">
+                Ratchet {{ displayedRatchetPercent > 0 ? '+' : ''
+                }}{{ numeral(displayedRatchetPercent).format('0,0.[00]') }}%
               </span>
               <template v-else>Price Is at Par</template>
             </button>
@@ -219,7 +219,9 @@
           <div class="flex grow flex-row items-stretch justify-center">
             <span class="h-full w-px bg-slate-400/50"></span>
           </div>
-          <span class="pr-1">{{ numeral(lockSummary.totalReturn).format('0,0.[00]') }}% return</span>
+          <span class="pr-1">
+            {{ numeral(Math.round(lockSummary.totalReturn * 100) / 100).format('0,0.[00]') }}% return
+          </span>
         </div>
       </div>
     </section>
@@ -265,6 +267,7 @@ const lockRecord = Vue.computed(() => props.lockSummary.record);
 const fundingExpirationTime = Vue.computed(() => dayjs.utc(bitcoinLocks.verifyExpirationTime(lockRecord.value)));
 const isHistoryRecoveryPaused = Vue.computed(() => financials.historyRecovery.state === 'error');
 const isRatchetPending = Vue.computed(() => !!bitcoinLocks.getPendingRatchetTxInfo(lockRecord.value));
+const displayedRatchetPercent = Vue.computed(() => Math.round(props.lockSummary.ratchetPercent * 100) / 100);
 const mismatchAcceptProgress = Vue.computed(() => {
   if (!lockRecord.value.utxoId) {
     return { progressPct: 0, error: '' };
@@ -288,7 +291,7 @@ function formatTimeRemaining(days: number, hours: number, minutes: number, secon
 }
 
 function openRatchetingOverlay(event: MouseEvent, lock: IBitcoinLockSummary) {
-  if (!props.lockSummary.ratchetPercent && !isRatchetPending.value) return;
+  if (!displayedRatchetPercent.value && !isRatchetPending.value) return;
   emit('ratchet', event, lock);
 }
 

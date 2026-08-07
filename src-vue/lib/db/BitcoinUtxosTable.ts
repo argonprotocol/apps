@@ -59,6 +59,16 @@ export class BitcoinUtxosTable extends BaseTable {
     return convertFromSqliteFields<IBitcoinUtxoStatusHistoryRecord[]>(rawRecords, { date: ['createdAt'] });
   }
 
+  public async fetchOrphanedRecordIds(): Promise<number[]> {
+    const records = await this.db.select<{ utxoRecordId: number }[]>(
+      `SELECT DISTINCT utxoRecordId
+       FROM BitcoinUtxoStatusHistory
+       WHERE newStatus = ?`,
+      toSqlParams([BitcoinUtxoStatus.Orphaned]),
+    );
+    return records.map(record => record.utxoRecordId);
+  }
+
   public async getByLockOutpoint(
     lockUtxoId: number,
     txid: string,

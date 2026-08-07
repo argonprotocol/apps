@@ -34,6 +34,7 @@ export type IVaultCollectNotice = {
   expiringCollectAmount: bigint;
   nextCollectDueDate: number;
   signatureCount: number;
+  orphanSignatureCount: number;
   nextCosignDueDate: number;
   councilApprovalCount: number;
   authorizedTransferCount: number;
@@ -75,7 +76,7 @@ export class VaultCollectBuilder {
     );
 
     const collectRevenue = myVault.data.pendingCollectRevenue;
-    const signatureCount = manualPendingCosignEntries.length;
+    const signatureCount = manualPendingCosignEntries.length + myVault.data.pendingOrphanCosignCount;
     const councilApprovalCount = myVault.globalCouncil.data.pendingApprovals.length;
 
     const pendingMintingAuthorizations = myVault.mintingAuthorities.data.pendingMintingAuthorizations;
@@ -122,6 +123,7 @@ export class VaultCollectBuilder {
       expiringCollectAmount: myVault.data.expiringCollectAmount,
       nextCollectDueDate: myVault.data.nextCollectDueDate,
       signatureCount,
+      orphanSignatureCount: myVault.data.pendingOrphanCosignCount,
       nextCosignDueDate: myVault.data.nextCosignDueDate,
       councilApprovalCount,
       authorizedTransferCount,
@@ -155,13 +157,17 @@ export class VaultCollectBuilder {
       vaultId,
     });
 
-    const frameRevenues = await client.query.vaults.revenuePerFrameByVault(vaultId);
+    const frameRevenues = await finalizedClient.query.vaults.revenuePerFrameByVault(vaultId);
     const expectedCollectRevenue = frameRevenues.reduce(
       (total, frameRevenue) => total + frameRevenue.uncollectedRevenue.toBigInt(),
       0n,
     );
     const pendingCouncilApprovals = await myVault.globalCouncil.refresh(finalizedClient);
-    const hasCollectWork = expectedCollectRevenue > 0n || bitcoinTxs.length > 0;
+    const orphanCosignEntries = await finalizedClient.query.vaults.orphanedUtxoAccountsByVaultId.entries(vaultId);
+    const pendingOrphanCosignCount = orphanCosignEntries.reduce((total, [, count]) => total + count.toNumber(), 0);
+    const hasUnsubmittedOrphanCosigns = pendingOrphanCosignCount > cosignedOrphanUtxos.length;
+    const shouldCollectRevenue = expectedCollectRevenue > 0n && !hasUnsubmittedOrphanCosigns;
+    const hasCollectWork = shouldCollectRevenue || bitcoinTxs.length > 0;
     const metadata = {
       vaultId,
       actionType: 'cosignBitcoin',
@@ -176,14 +182,14 @@ export class VaultCollectBuilder {
         ...(await myVault.globalCouncil.buildApprovePendingGatewayUpdateTxs(client, pendingCouncilApprovals)),
         ...bitcoinTxs,
       ];
-      if (expectedCollectRevenue > 0n) {
+      if (shouldCollectRevenue) {
         txs.push(client.tx.vaults.collect(vaultId));
       }
       return {
         tx: txs.length === 1 ? txs[0] : client.tx.utility.batchAll(txs),
         metadata: {
           ...metadata,
-          actionType: expectedCollectRevenue > 0n ? 'collectRevenue' : 'cosignBitcoin',
+          actionType: shouldCollectRevenue ? 'collectRevenue' : 'cosignBitcoin',
           councilApprovalCount: pendingCouncilApprovals.length,
         },
         submittedCosignUtxoIds: cosignedUtxoIds,
@@ -240,7 +246,7 @@ async function buildCollectBitcoinTxs(args: {
   vaultId: number;
 }) {
   const { myVault, client, finalizedClient, vaultId } = args;
-  const pendingCosignUtxos = await client.query.vaults.pendingCosignByVaultId(vaultId);
+  const pendingCosignUtxos = await finalizedClient.query.vaults.pendingCosignByVaultId(vaultId);
   const bitcoinTxs: SubmittableExtrinsic[] = [];
   const cosignedUtxoIds: number[] = [];
 

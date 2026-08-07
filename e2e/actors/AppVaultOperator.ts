@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import {
   createOperationalAccessProof,
   Currency,
@@ -5,6 +6,7 @@ import {
   JsonExt,
   MainchainClients,
   MiningFrames,
+  MoveTo,
   TreasuryBonds,
 } from '@argonprotocol/apps-core';
 import {
@@ -463,6 +465,34 @@ export class AppVaultOperator {
     };
   }
 
+  public async pollVaultAlerts(args: { signal: AbortSignal; pollMs?: number }): Promise<void> {
+    const pollMs = args.pollMs ?? 1_000;
+    await this.myVault.subscribe();
+
+    while (!args.signal.aborted) {
+      try {
+        const notice = this.myVault.collectBuilder.getNotice();
+        const hasVaultSubmission =
+          (notice?.collectRevenue ?? 0n) > 0n ||
+          (notice?.signatureCount ?? 0) > 0 ||
+          (notice?.councilApprovalCount ?? 0) > 0;
+
+        if (hasVaultSubmission && !notice?.processing) {
+          const txInfo = await this.myVault.collect({ moveTo: MoveTo.DefaultArgon });
+          await txInfo?.waitForPostProcessing;
+        }
+      } catch (error) {
+        console.warn('[dev-upstream] Unable to process vault alerts.', error);
+      }
+
+      try {
+        await delay(pollMs, undefined, { signal: args.signal });
+      } catch (error) {
+        if (!args.signal.aborted) throw error;
+      }
+    }
+  }
+
   public async registerMintingAuthority(args: {
     microgonCollateral: bigint;
     micronotCollateral: bigint;
@@ -492,16 +522,13 @@ export class AppVaultOperator {
     throw new Error(`Minting authority registration for ${signingKey} never appeared on chain.`);
   }
 
-  public async approvePendingGatewayUpdates(args: { client: ArgonClient }): Promise<boolean> {
-    const txs = await this.globalCouncil.buildApprovePendingGatewayUpdateTxs(args.client);
-    if (!txs.length) {
+  public async approvePendingGatewayUpdates(): Promise<boolean> {
+    const txInfo = await this.myVault.collect({ moveTo: MoveTo.DefaultArgon });
+    if (!txInfo) {
       return false;
     }
 
-    await this.submitVaultingTx({
-      client: args.client,
-      tx: txs.length === 1 ? txs[0] : args.client.tx.utility.batchAll(txs),
-    });
+    await txInfo.waitForPostProcessing;
     return true;
   }
 

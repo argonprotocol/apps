@@ -1,14 +1,15 @@
 import Path from 'node:path';
 import docker from 'docker-compose';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { BitcoinLock } from '@argonprotocol/mainchain';
+import { BitcoinLock, Vault } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
-import { MainchainClients, NetworkConfig } from '@argonprotocol/apps-core';
+import { MainchainClients, MoveTo, NetworkConfig } from '@argonprotocol/apps-core';
 import {
   startArgonTestNetwork,
   type StartedArgonTestNetwork,
 } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
+import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
 import {
   createBitcoinAddress,
   generateBlocks as mineBitcoinBlocks,
@@ -21,14 +22,18 @@ import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLoc
 import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
 import { createBitcoinLockProgressStore } from '../stores/bitcoinLockProgress.ts';
 import type { Db } from '../lib/Db.ts';
+import type { MyVault } from '../lib/MyVault.ts';
 import {
+  type BitcoinLocksClientHarness as ClientHarness,
   type BitcoinLocksHarness as TestHarness,
   createBitcoinLocksClientHarness,
   createBitcoinLocksHarness as createHarness,
   cleanupBitcoinLocksClientHarness,
   cleanupBitcoinLocksHarness as cleanupHarness,
+  walletFundingMicrogons,
 } from './helpers/bitcoinLocksHarness.ts';
 import { MyVaultRecovery } from '../lib/recovery/MyVaultRecovery.ts';
+import { createMockWalletKeys } from './helpers/wallet.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
@@ -99,7 +104,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
     });
 
     try {
-      const lock = await createLock(harness);
+      const lock = await createLock(harness, harness.myVault.createdVault!);
       const stopTracking = progress.trackLock(lock);
 
       try {
@@ -143,7 +148,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
 
     try {
       const initialAvailableBitcoinSpace = harness.myVault.createdVault!.availableBitcoinSpace();
-      const lock = await createLock(harness);
+      const lock = await createLock(harness, harness.myVault.createdVault!);
       const stopTracking = progress.trackLock(lock);
 
       try {
@@ -169,7 +174,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
     });
 
     try {
-      const lock = await createLock(harness);
+      const lock = await createLock(harness, harness.myVault.createdVault!);
       const reservedAvailableBitcoinSpace = harness.myVault.createdVault!.availableBitcoinSpace();
       const stopTracking = progress.trackLock(lock);
 
@@ -219,6 +224,139 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
     }
   });
 
+  it('alerts a separate vault operator to return an orphaned deposit', async () => {
+    const operator = await createHarness({
+      archiveUrl: network.archiveUrl,
+      esploraHost: network.networkConfigOverride.esploraHost,
+      network: 'dev-docker',
+    });
+
+    try {
+      const ownerWalletKeys = createMockWalletKeys();
+      const owner = await createBitcoinLocksClientHarness({
+        archiveUrl: network.archiveUrl,
+        esploraHost: network.networkConfigOverride.esploraHost,
+        network: 'dev-docker',
+        walletKeys: ownerWalletKeys,
+      });
+
+      try {
+        await sudoFundWallet({
+          address: ownerWalletKeys.defaultArgonAddress,
+          microgons: walletFundingMicrogons,
+          micronots: 0n,
+          archiveUrl: network.archiveUrl,
+        });
+
+        const lock = await createLock(owner, operator.myVault.createdVault!);
+        const progress = createBitcoinLockProgressStore({
+          myVault: operator.myVault,
+          bitcoinLocks: owner.bitcoinLocks,
+          miningFrames: owner.miningFrames,
+        });
+        const stopTracking = progress.trackLock(lock);
+
+        try {
+          const observed = await observeMismatchCandidate(
+            owner,
+            lock,
+            getMismatchFundingSatoshis(lock.satoshis),
+            progress,
+          );
+          const client = await clients.get(false);
+          await client.tx.bitcoinUtxos
+            .rejectUtxoCandidate(lock.utxoId!, {
+              txid: observed.candidate.txid,
+              outputIndex: observed.candidate.vout,
+            })
+            .signAndSend(await owner.walletKeys.getLiquidLockingKeypair());
+
+          const orphan = await waitFor(
+            60e3,
+            'rejected deposit recorded as orphan',
+            async () => {
+              const currentLock = getCurrentLock(owner, lock.utxoId!);
+              await owner.bitcoinLocks.utxoTracking.syncArgonOrphans([currentLock], await clients.get(false));
+              return owner.bitcoinLocks.utxoTracking
+                .getUnresolvedOrphanRecords([currentLock])
+                .find(record => record.txid === observed.candidate.txid);
+            },
+            { pollMs: 1e3 },
+          );
+          expect(orphan.status).toBe(BitcoinUtxoStatus.Orphaned);
+          expect(orphan.satoshis).toBe(observed.candidate.satoshis);
+
+          const currentLock = getCurrentLock(owner, lock.utxoId!);
+          expect(owner.bitcoinLocks.utxoTracking.getUnresolvedOrphanRecords([currentLock])).toContain(orphan);
+
+          const returnDestination = createBitcoinAddress();
+          const bitcoinNetworkFee = await owner.bitcoinLocks.calculateBitcoinNetworkFee(
+            currentLock,
+            5n,
+            returnDestination,
+          );
+          const returnTx = await owner.bitcoinLocks.orphanReleases.requestOrphanReturn({
+            lock: currentLock,
+            record: orphan,
+            toScriptPubkey: returnDestination,
+            bitcoinNetworkFee,
+          });
+          expect(returnTx).toBeTruthy();
+          await returnTx!.txResult.waitForFinalizedBlock;
+
+          await collectVaultSignatureFromAlert(operator.myVault, 1);
+
+          const returningOrphan = await waitFor(120e3, 'orphan return seen on bitcoin', () => {
+            const current = owner.bitcoinLocks.utxoTracking.getUtxoRecord(
+              currentLock.utxoId!,
+              orphan.txid,
+              orphan.vout,
+            );
+            if (!current?.releaseTxid) return;
+            return current;
+          });
+          await waitForBitcoinTransactionOutputSatoshis({
+            flowName: 'BitcoinLocks.integration.orphanReturn',
+            txid: returningOrphan.releaseTxid!,
+            address: returnDestination,
+            minimumSatoshis: 1n,
+            minerAddress,
+            timeoutMs: 30e3,
+            pollMs: 500,
+          });
+          await waitForBitcoinTransactionConfirmations({
+            flowName: 'BitcoinLocks.integration.orphanReturn',
+            txid: returningOrphan.releaseTxid!,
+            minimumConfirmations: 8,
+            minerAddress,
+            mineMode: 'missing',
+            timeoutMs: 30e3,
+            pollMs: 500,
+          });
+
+          await waitFor(90e3, 'orphan return completed', () => {
+            const current = owner.bitcoinLocks.utxoTracking.getUtxoRecord(
+              currentLock.utxoId!,
+              orphan.txid,
+              orphan.vout,
+            );
+            if (current?.status !== BitcoinUtxoStatus.ReleaseComplete) return;
+            if (owner.bitcoinLocks.utxoTracking.getUnresolvedOrphanRecords([currentLock]).length) return;
+            if (operator.myVault.data.pendingOrphanCosignCount !== 0) return;
+            if (operator.myVault.collectBuilder.getNotice()?.orphanSignatureCount) return;
+            return current;
+          });
+        } finally {
+          stopTracking();
+        }
+      } finally {
+        await cleanupBitcoinLocksClientHarness(owner);
+      }
+    } finally {
+      await cleanupHarness(operator);
+    }
+  }, 420e3);
+
   it('keeps a new funded lock isolated after a prior release and a prior mismatch return', async () => {
     const harness = await createHarness({
       archiveUrl: network.archiveUrl,
@@ -233,7 +371,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
 
     try {
       const initialAvailableBitcoinSpace = harness.myVault.createdVault!.availableBitcoinSpace();
-      const firstLock = await createLock(harness);
+      const firstLock = await createLock(harness, harness.myVault.createdVault!);
       const firstStopTracking = progress.trackLock(firstLock);
 
       let firstReleasedRecordId = 0;
@@ -250,6 +388,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
 
         const firstRelease = await releaseLockAndWaitForChainRestore(
           harness,
+          harness.myVault,
           fundedFirst.lock,
           progress,
           initialAvailableBitcoinSpace,
@@ -260,7 +399,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
         firstStopTracking();
       }
 
-      const secondLock = await createLock(harness);
+      const secondLock = await createLock(harness, harness.myVault.createdVault!);
       const secondStopTracking = progress.trackLock(secondLock);
 
       let secondReturnedRecordId = 0;
@@ -290,7 +429,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
         secondStopTracking();
       }
 
-      const thirdLock = await createLock(harness);
+      const thirdLock = await createLock(harness, harness.myVault.createdVault!);
       const thirdStopTracking = progress.trackLock(thirdLock);
 
       try {
@@ -303,6 +442,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
 
         const thirdRelease = await releaseLockAndWaitForChainRestore(
           harness,
+          harness.myVault,
           fundedThird.lock,
           progress,
           initialAvailableBitcoinSpace,
@@ -330,7 +470,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
         esploraHost: network.networkConfigOverride.esploraHost,
         network: 'dev-docker',
       });
-      activeLock = await createLock(harness);
+      activeLock = await createLock(harness, harness.myVault.createdVault!);
 
       await docker.stopOne('indexer', {
         config: ['docker-compose.yml', 'indexer.docker-compose.yml'],
@@ -397,19 +537,23 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
   });
 });
 
-async function createLock(harness: TestHarness, microgonLiquidity?: bigint): Promise<IBitcoinLockRecord> {
-  const availableBitcoinSpace = harness.myVault.createdVault!.availableBitcoinSpace();
+async function createLock(
+  harness: ClientHarness,
+  vault: Vault,
+  microgonLiquidity?: bigint,
+): Promise<IBitcoinLockRecord> {
+  const availableBitcoinSpace = vault.availableBitcoinSpace();
   const targetLiquidity = microgonLiquidity ?? (availableBitcoinSpace * 4n) / 5n;
   expect(targetLiquidity).toBeGreaterThan(0n);
   const satoshis = await harness.bitcoinLocks.satoshisForArgonLiquidity(targetLiquidity);
 
   await harness.bitcoinLocks.initializeLock({
     satoshis,
-    vault: harness.myVault.createdVault!,
+    vault,
   });
   return await waitFor(120e3, 'pending bitcoin lock finalization', () => {
     const lock = Object.values(harness.bitcoinLocks.data.locksByUtxoId)
-      .filter(record => record.vaultId === harness.myVault.createdVault!.vaultId)
+      .filter(record => record.vaultId === vault.vaultId)
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
     if (!lock) return;
     if (lock.status !== BitcoinLockStatus.LockPendingFunding) return;
@@ -418,7 +562,7 @@ async function createLock(harness: TestHarness, microgonLiquidity?: bigint): Pro
 }
 
 async function observeMismatchCandidate(
-  harness: TestHarness,
+  harness: ClientHarness,
   lock: IBitcoinLockRecord,
   satoshis: bigint,
   progress: ReturnType<typeof createBitcoinLockProgressStore>,
@@ -493,9 +637,13 @@ function getMismatchReturnRecord(
   lock: IBitcoinLockRecord,
   candidate: Pick<IBitcoinUtxoRecord, 'id'>,
 ): IBitcoinUtxoRecord | undefined {
-  return harness.bitcoinLocks.getMismatchViewState(lock).candidates.find(view => {
+  const mismatchRecord = harness.bitcoinLocks.getMismatchViewState(lock).candidates.find(view => {
     return view.record.id === candidate.id;
   })?.returnRecord;
+  if (mismatchRecord) return mismatchRecord;
+
+  const record = harness.bitcoinLocks.utxoTracking.getUtxoRecordById(candidate.id);
+  return harness.bitcoinLocks.utxoTracking.isReleaseStatus(record?.status) ? record : undefined;
 }
 
 async function waitForMismatchReturnTracked(args: {
@@ -578,7 +726,7 @@ async function returnMismatchAndWaitForReadyToResume(
 
   const returnDestination = createBitcoinAddress();
   const bitcoinNetworkFee = await harness.bitcoinLocks.calculateBitcoinNetworkFee(observed.lock, 5n, returnDestination);
-  const returnTx = await harness.bitcoinLocks.requestMismatchOrphanReturnOnArgon({
+  const returnTx = await harness.bitcoinLocks.orphanReleases.requestCandidateReturn({
     lock: observed.lock,
     candidateRecord: observed.candidate,
     toScriptPubkey: returnDestination,
@@ -685,7 +833,7 @@ async function returnMismatchAndWaitForReadyToResume(
 }
 
 async function acceptMismatchFunding(
-  harness: TestHarness,
+  harness: ClientHarness,
   lock: IBitcoinLockRecord,
   progress: ReturnType<typeof createBitcoinLockProgressStore>,
 ): Promise<{ lock: IBitcoinLockRecord; acceptedRecord: IBitcoinUtxoRecord; candidate: IBitcoinUtxoRecord }> {
@@ -816,7 +964,7 @@ async function returnExpiredMismatchAndWaitForChainRestore(
 
   const returnDestination = createBitcoinAddress();
   const bitcoinNetworkFee = await harness.bitcoinLocks.calculateBitcoinNetworkFee(expired.lock, 5n, returnDestination);
-  const returnTx = await harness.bitcoinLocks.requestMismatchOrphanReturnOnArgon({
+  const returnTx = await harness.bitcoinLocks.orphanReleases.requestCandidateReturn({
     lock: expired.lock,
     candidateRecord: expired.candidate,
     toScriptPubkey: returnDestination,
@@ -872,9 +1020,7 @@ async function returnExpiredMismatchAndWaitForChainRestore(
     async () => {
       const refreshed = getCurrentLock(harness, expired.lock.utxoId!);
       progress.updateLock(refreshed);
-      const record = harness.bitcoinLocks.getMismatchViewState(refreshed).candidates.find(candidate => {
-        return candidate.record.id === expired.candidate.id;
-      })?.returnRecord;
+      const record = getMismatchReturnRecord(harness, refreshed, expired.candidate);
       if (!record) return;
       if (record.status !== BitcoinUtxoStatus.ReleaseComplete) return;
       if (!record.releaseTxid) return;
@@ -886,7 +1032,7 @@ async function returnExpiredMismatchAndWaitForChainRestore(
       if (chainLock) return;
 
       const mismatchView = harness.bitcoinLocks.getMismatchViewState(refreshed);
-      if (mismatchView.phase !== 'returned') return;
+      if (mismatchView.candidates.some(candidate => candidate.record.id === expired.candidate.id)) return;
       if (
         refreshed.status !== BitcoinLockStatus.LockExpiredWaitingForFunding &&
         refreshed.status !== BitcoinLockStatus.LockExpiredWaitingForFundingAcknowledged
@@ -926,7 +1072,8 @@ async function returnExpiredMismatchAndWaitForChainRestore(
 }
 
 async function releaseLockAndWaitForChainRestore(
-  harness: TestHarness,
+  harness: ClientHarness,
+  operatorVault: MyVault,
   lock: IBitcoinLockRecord,
   progress: ReturnType<typeof createBitcoinLockProgressStore>,
   expectedAvailableBitcoinSpace: bigint,
@@ -941,6 +1088,8 @@ async function releaseLockAndWaitForChainRestore(
   });
   expect(releaseTx).toBeTruthy();
   await releaseTx!.txResult.waitForInFirstBlock;
+
+  await collectVaultSignatureFromAlert(operatorVault, 0);
 
   await waitFor(30e3, 'release request tracked on argon', () => {
     const refreshed = getCurrentLock(harness, currentLock.utxoId!);
@@ -1001,14 +1150,33 @@ async function releaseLockAndWaitForChainRestore(
     if (!vault.isSome) return;
     if (vault.unwrap().securitizationLocked.toBigInt() !== 0n) return;
     if (JSON.stringify(pendingCosign.toJSON()) !== '[]') return;
-    if (harness.myVault.createdVault?.availableBitcoinSpace() !== expectedAvailableBitcoinSpace) return;
+    if (operatorVault.createdVault?.availableBitcoinSpace() !== expectedAvailableBitcoinSpace) return;
     return true;
   });
 
   return seenOnBitcoin;
 }
 
-function getCurrentLock(harness: TestHarness, utxoId: number): IBitcoinLockRecord {
+async function collectVaultSignatureFromAlert(
+  operatorVault: MyVault,
+  expectedOrphanSignatureCount: number,
+): Promise<void> {
+  const notice = await waitFor(30e3, 'vault signature alert', () => {
+    const current = operatorVault.collectBuilder.getNotice();
+    if (!current?.signatureCount) return;
+    if (current.orphanSignatureCount !== expectedOrphanSignatureCount) return;
+    return current;
+  });
+
+  expect(notice.signatureCount).toBeGreaterThanOrEqual(1);
+  expect(notice.orphanSignatureCount).toBe(expectedOrphanSignatureCount);
+
+  const collectTx = await operatorVault.collect({ moveTo: MoveTo.DefaultArgon });
+  if (!collectTx) throw new Error('Expected the vault signature alert to produce a collect transaction.');
+  await collectTx.txResult.waitForFinalizedBlock;
+}
+
+function getCurrentLock(harness: ClientHarness, utxoId: number): IBitcoinLockRecord {
   const lock = harness.bitcoinLocks.getLockByUtxoId(utxoId);
   if (!lock) {
     throw new Error(`Missing current lock ${utxoId}`);

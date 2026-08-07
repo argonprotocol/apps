@@ -252,3 +252,23 @@ export class TransactionInfo<MetadataType = unknown> {
     }
   }
 }
+
+export function getTransactionFailureMessage(txInfo?: TransactionInfo): string | undefined {
+  if (!txInfo) return undefined;
+
+  const submissionError = txInfo.txResult.submissionError;
+  if (submissionError) return submissionError.message || String(submissionError);
+
+  const extrinsicError = txInfo.txResult.extrinsicError;
+  if (extrinsicError) {
+    const details = (extrinsicError as ExtrinsicError).details;
+    if (details) return details;
+    return extrinsicError.message || String(extrinsicError);
+  }
+
+  if ([TransactionStatus.Error, TransactionStatus.TimedOutWaitingForBlock].includes(txInfo.tx.status)) {
+    return `Transaction ended with status ${txInfo.tx.status}.`;
+  }
+
+  return undefined;
+}

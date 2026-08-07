@@ -64,9 +64,7 @@ async function main(): Promise<void> {
   let startedDevEthereum: IStartDevEthereumResult | undefined;
   let isShuttingDown = false;
   if (network === 'dev-docker') {
-    const mintingAuthoritySetting = readNonEmpty(
-      process.env.ARGON_DEV_ETHEREUM_MINTING_AUTHORITY,
-    )?.toLowerCase();
+    const mintingAuthoritySetting = readNonEmpty(process.env.ARGON_DEV_ETHEREUM_MINTING_AUTHORITY)?.toLowerCase();
     shouldStartDevEthereumMintingAuthority =
       !!devEthereumConfig && !['0', 'false', 'no', 'off'].includes(mintingAuthoritySetting ?? '');
     await ensureDevGatewayCerts({ appInstance: argonAppInstance, network });
@@ -140,7 +138,10 @@ async function main(): Promise<void> {
   let devEthereumReadyPromise: Promise<void> | undefined;
   let devUpstreamPromise: Promise<void> | undefined;
   let devUpstreamRuntime: IDevUpstreamServerRuntime | undefined;
-  if (devDockerArchiveUrl && (!isE2EAppRun || devEthereumConfig)) {
+  const shouldStartDevUpstream = !['0', 'false', 'no', 'off'].includes(
+    readNonEmpty(process.env.ARGON_DEV_UPSTREAM)?.toLowerCase() ?? '',
+  );
+  if (devDockerArchiveUrl && shouldStartDevUpstream && (!isE2EAppRun || devEthereumConfig)) {
     devUpstreamPromise = startDevUpstreamServer({
       archiveUrl: devDockerArchiveUrl,
       devEthereum: startedDevEthereum,
@@ -148,7 +149,7 @@ async function main(): Promise<void> {
     })
       .then(runtime => {
         devUpstreamRuntime = runtime;
-        console.log('[tauri-dev][upstream-ready] upstream server is ready');
+        console.log(`[tauri-dev][upstream-ready] upstream server is ready (vault alert actor pid ${process.pid})`);
       })
       .catch(error => {
         console.error(`[tauri-dev] Failed to start upstream server: ${(error as Error).message}`);
@@ -157,6 +158,17 @@ async function main(): Promise<void> {
 
     void devUpstreamPromise.catch(() => undefined);
   }
+
+  process.on('SIGUSR2', () => {
+    void devUpstreamPromise
+      ?.then(async () => {
+        await devUpstreamRuntime?.stopVaultAlertPoller();
+        console.log('[tauri-dev] Vault alert actor stopped');
+      })
+      .catch(error => {
+        console.error(`[tauri-dev] Failed to stop vault alert actor: ${(error as Error).message}`);
+      });
+  });
 
   if (devEthereumSetup) {
     devEthereumRuntimeSetupPromise = devEthereumSetup.start();
@@ -279,7 +291,7 @@ async function main(): Promise<void> {
           serverEnvVars: tauriEnv,
         },
       });
-      console.log('[tauri-dev][ethereum-ready] local Ethereum minting authority is ready');
+      console.log('[tauri-dev] local Ethereum minting authority activation is running');
 
       if (isShuttingDown) {
         await devEthereumMintingAuthorityRuntime.shutdown().catch(() => undefined);

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import * as Vue from 'vue';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
 import { createTestDb } from './helpers/db.ts';
 import BitcoinUtxoTracking, { type IUtxoTrackingDeps } from '../lib/BitcoinUtxoTracking.ts';
@@ -489,6 +490,7 @@ describe('BitcoinUtxoTracking', () => {
   it('marks sibling funding candidates orphaned when a funding utxo is accepted', async () => {
     const db = await createTestDb();
     const tracking = createTracking(db);
+    tracking.data = Vue.reactive(tracking.data) as typeof tracking.data;
     const lock = createLock({ status: BitcoinLockStatus.LockPendingFunding, satoshis: 10_000n });
 
     const acceptedRecord = await tracking.upsertUtxoRecord(
@@ -501,14 +503,176 @@ describe('BitcoinUtxoTracking', () => {
       { txid: '9'.repeat(64), vout: 1, satoshis: lock.satoshis + 200n },
       { markArgonCandidate: true },
     );
+    const unresolvedOrphans = Vue.computed(() => tracking.getUnresolvedOrphanRecords([lock]));
+    expect(unresolvedOrphans.value).toEqual([]);
 
     await tracking.setAcceptedFundingRecordForLock(lock, acceptedRecord);
 
     expect(acceptedRecord.status).toBe(BitcoinUtxoStatus.FundingUtxo);
     expect(siblingCandidate.status).toBe(BitcoinUtxoStatus.Orphaned);
     expect(tracking.getFundingCandidateRecords(lock)).toEqual([]);
+    expect(unresolvedOrphans.value).toEqual([siblingCandidate]);
 
     const history = await db.bitcoinUtxosTable.fetchStatusHistory(siblingCandidate.id);
     expect(history.at(-1)?.newStatus).toBe(BitcoinUtxoStatus.Orphaned);
+  });
+
+  it('selects unresolved orphan records independently from their lock state', async () => {
+    const db = await createTestDb();
+    const tracking = createTracking(db);
+    const lock = createLock({ status: BitcoinLockStatus.LockedAndMinted });
+    const fundingRecord = await tracking.upsertUtxoRecord(
+      lock,
+      { txid: 'a'.repeat(64), vout: 0, satoshis: lock.satoshis },
+      { markFundingUtxo: true },
+    );
+    const mismatchReturn = await tracking.upsertUtxoRecord(
+      lock,
+      { txid: 'e'.repeat(64), vout: 4, satoshis: lock.satoshis + 1_000n },
+      { markArgonCandidate: true },
+    );
+    const exactAmountOrphan = await tracking.upsertUtxoRecord(
+      lock,
+      { txid: 'b'.repeat(64), vout: 1, satoshis: lock.satoshis },
+      { markOrphaned: true },
+    );
+    const returningOrphan = await tracking.upsertUtxoRecord(
+      lock,
+      { txid: 'c'.repeat(64), vout: 2, satoshis: lock.satoshis + 500n },
+      { markOrphaned: true },
+    );
+    const returnedOrphan = await tracking.upsertUtxoRecord(
+      lock,
+      { txid: 'd'.repeat(64), vout: 3, satoshis: lock.satoshis - 500n },
+      { markOrphaned: true },
+    );
+
+    await tracking.setReleaseIsProcessingOnArgon(fundingRecord, {
+      releaseToDestinationAddress: '0014aaaa',
+      releaseBitcoinNetworkFee: 100n,
+    });
+    await tracking.setReleaseIsProcessingOnArgon(mismatchReturn, {
+      releaseToDestinationAddress: '0014cccc',
+      releaseBitcoinNetworkFee: 300n,
+    });
+    await tracking.setReleaseIsProcessingOnArgon(returningOrphan, {
+      releaseToDestinationAddress: '0014bbbb',
+      releaseBitcoinNetworkFee: 200n,
+    });
+    await tracking.setReleaseComplete(returnedOrphan, 120);
+
+    const records = tracking.getUnresolvedOrphanRecords([lock]);
+    expect(records).toHaveLength(2);
+    expect(records).toEqual(expect.arrayContaining([returningOrphan, exactAmountOrphan]));
+    expect(tracking.getMismatchOrphanReleases(lock.utxoId!, undefined, fundingRecord.id)).toEqual([mismatchReturn]);
+  });
+
+  it('synchronizes all chain orphans with one query per owner', async () => {
+    const db = await createTestDb();
+    const tracking = createTracking(db);
+    const firstLock = createLock({ utxoId: 1, uuid: 'lock-1' });
+    const secondLock = createLock({ utxoId: 2, uuid: 'lock-2' });
+    const thirdLock = createLock({
+      utxoId: 3,
+      uuid: 'lock-3',
+      lockDetails: { ...createLockDetails(), ownerAccount: 'owner-2' },
+    });
+    const orphanEntry = (
+      utxoId: number,
+      txid: string,
+      vout: number,
+      satoshis: bigint,
+      releaseRequest?: { bitcoinNetworkFee: bigint; toScriptPubkey: Uint8Array },
+    ) => [
+      { args: [{}, { txid: { toHex: () => txid }, outputIndex: { toNumber: () => vout } }] },
+      {
+        isNone: false,
+        unwrap: () => ({
+          utxoId: { toNumber: () => utxoId },
+          satoshis: { toBigInt: () => satoshis },
+          cosignRequest: {
+            isSome: !!releaseRequest,
+            unwrap: () => ({
+              bitcoinNetworkFee: { toBigInt: () => releaseRequest!.bitcoinNetworkFee },
+              toScriptPubkey: releaseRequest!.toScriptPubkey,
+            }),
+          },
+        }),
+      },
+    ];
+    const entries = vi.fn().mockImplementation(async (owner: string) => {
+      if (owner === thirdLock.lockDetails.ownerAccount) {
+        return [orphanEntry(3, 'c'.repeat(64), 0, 12_000n)];
+      }
+      return [
+        orphanEntry(1, 'a'.repeat(64), 0, 10_000n, {
+          bitcoinNetworkFee: 250n,
+          toScriptPubkey: new Uint8Array([0, 20, 171]),
+        }),
+        orphanEntry(1, 'b'.repeat(64), 1, 11_000n),
+        orphanEntry(99, 'f'.repeat(64), 0, 99_000n),
+      ];
+    });
+    const client = {
+      query: { bitcoinLocks: { orphanedUtxosByAccount: { entries } } },
+    } as unknown as ArgonClient;
+
+    const records = await tracking.syncArgonOrphans([firstLock, secondLock, thirdLock], client);
+
+    expect(entries).toHaveBeenCalledTimes(2);
+    expect(records.map(record => `${record.lockUtxoId}:${record.txid}:${record.vout}`)).toEqual([
+      `1:${'a'.repeat(64)}:0`,
+      `1:${'b'.repeat(64)}:1`,
+      `3:${'c'.repeat(64)}:0`,
+    ]);
+    expect(records[0]).toEqual(
+      expect.objectContaining({
+        releaseBitcoinNetworkFee: 250n,
+        releaseToDestinationAddress: '0014ab',
+      }),
+    );
+
+    await tracking.syncArgonOrphans([firstLock, secondLock, thirdLock], client);
+    expect(tracking.getUtxosForLock(firstLock)).toHaveLength(2);
+    expect(tracking.getUtxosForLock(thirdLock)).toHaveLength(1);
+  });
+
+  it('restores an orphan return and its release state after restart', async () => {
+    const db = await createTestDb();
+    const lock = createLock();
+    const tracking = createTracking(db);
+    const record = await tracking.upsertUtxoRecord(
+      lock,
+      { txid: 'a'.repeat(64), vout: 2, satoshis: 12_000n },
+      { markOrphaned: true },
+    );
+
+    await tracking.setReleaseIsProcessingOnArgon(record, {
+      requestedReleaseAtTick: 321,
+      releaseToDestinationAddress: '0014abc123',
+      releaseBitcoinNetworkFee: 200n,
+    });
+    await tracking.setReleaseCosign(record, {
+      releaseCosignVaultSignature: new Uint8Array([1, 2, 3]),
+      releaseCosignHeight: 456,
+    });
+    await tracking.setReleaseSeenOnBitcoinAndProcessing(record, 'b'.repeat(64), 789);
+
+    const restartedTracking = createTracking(db);
+    await restartedTracking.load();
+
+    expect(restartedTracking.getUnresolvedOrphanRecords([lock])).toEqual([
+      expect.objectContaining({
+        id: record.id,
+        status: BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin,
+        requestedReleaseAtTick: 321,
+        releaseToDestinationAddress: '0014abc123',
+        releaseBitcoinNetworkFee: 200n,
+        releaseCosignVaultSignature: new Uint8Array([1, 2, 3]),
+        releaseCosignHeight: 456,
+        releaseTxid: 'b'.repeat(64),
+        releaseFirstSeenBitcoinHeight: 789,
+      }),
+    ]);
   });
 });
