@@ -40,7 +40,7 @@
       </fieldset>
       <a
         v-if="ethereumImportMode === 'privateKey'"
-        :href="`${NetworkConfig.websiteHost}/docs/bridgeless-transfers/connect-a-metamask-wallet`"
+        :href="`${NetworkConfig.websiteHost}/docs/bridgeless-transfers/connect-metamask-wallet`"
         target="_blank"
         rel="noopener noreferrer"
         class="text-argon-600 hover:text-argon-700 mb-3 inline-block text-sm"
@@ -49,7 +49,7 @@
       </a>
       <a
         v-else
-        :href="`${NetworkConfig.websiteHost}/docs/bridgeless-transfers/connect-a-uniswap-wallet`"
+        :href="`${NetworkConfig.websiteHost}/docs/bridgeless-transfers/connect-uniswap-wallet`"
         target="_blank"
         rel="noopener noreferrer"
         class="text-argon-600 hover:text-argon-700 mb-3 inline-block text-sm"
