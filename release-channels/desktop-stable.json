@@ -1,51 +1,51 @@
 {
-  "version": "2.3.2",
-  "notes": "- Improved account recovery and app reliability after reconnecting or refreshing\n- Fixed issues affecting mining bids, bond purchases, and activity history\n- Improved Ethereum relay reliability and server troubleshooting\n- Added security and dependency updates",
-  "pub_date": "2026-08-04T18:52:22.878Z",
+  "version": "2.3.3",
+  "notes": "- Fix Linux keystore persistence\n- Orphaned Bitcoin UTXO recovery\n- Ensure \"request operations\" is available until approved\n- Minimum browser check to app startup\n- 24 word mnemonic support for Ethereum Wallets\n- Fix sporadic stall on bots for relayed bitcoin transactions",
+  "pub_date": "2026-08-07T15:08:44.483Z",
   "platforms": {
     "linux-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0VEZXAyWktnRnZEN1BtdjZmOUpHajBBZEpKdU0zREU0WnhZQUlLZ0hvaXZTQ1NVcnVDbVZBak5vdXpTVDJCcnZ2VkI2UEZZV1dZM3lXbWlHRnVBSndFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1ODY5NDQ3CWZpbGU6QXJnb24gRGVza3RvcF8yLjMuMl9hbWQ2NC5BcHBJbWFnZQpvcXV2N2pXNWZla0VuZmhxekhVOS9rSGpYQjMySnovM2pxVEFCMVl4bzRwUEl6QVpHeFpkdnVqWG5pV2Z3UGRiaHByQXZqS2FObXM5M0VGa3lSSWNEZz09Cg==",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v2.3.2/Argon.Desktop_2.3.2_amd64.AppImage"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0s2MzVDWGJMblVaUTVTWVlpcVdTaHRWalpITWdsdUdIUmVNZ01OU2VYdVZjVExucU4zYlNPK1FoL0pQWVJHM2ttQldlcEdDeTV3aGlUUE4vNDloM0FvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2MTE1MDEyCWZpbGU6QXJnb24gRGVza3RvcF8yLjMuM19hbWQ2NC5BcHBJbWFnZQozOWdId21zTERoVy9Oa0Vic2pHbW4rVTc3K1p1RXlnUFUzYUR4Wm43Y1J3VS82ZkRTZ3BqcnJyVjI3SHFxdUhlUFZxbUxKV1ZXZkRPcDM5a0g3N0xBZz09Cg==",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v2.3.3/Argon.Desktop_2.3.3_amd64.AppImage"
     },
     "linux-x86_64-appimage": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0VEZXAyWktnRnZEN1BtdjZmOUpHajBBZEpKdU0zREU0WnhZQUlLZ0hvaXZTQ1NVcnVDbVZBak5vdXpTVDJCcnZ2VkI2UEZZV1dZM3lXbWlHRnVBSndFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1ODY5NDQ3CWZpbGU6QXJnb24gRGVza3RvcF8yLjMuMl9hbWQ2NC5BcHBJbWFnZQpvcXV2N2pXNWZla0VuZmhxekhVOS9rSGpYQjMySnovM2pxVEFCMVl4bzRwUEl6QVpHeFpkdnVqWG5pV2Z3UGRiaHByQXZqS2FObXM5M0VGa3lSSWNEZz09Cg==",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v2.3.2/Argon.Desktop_2.3.2_amd64.AppImage"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0s2MzVDWGJMblVaUTVTWVlpcVdTaHRWalpITWdsdUdIUmVNZ01OU2VYdVZjVExucU4zYlNPK1FoL0pQWVJHM2ttQldlcEdDeTV3aGlUUE4vNDloM0FvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2MTE1MDEyCWZpbGU6QXJnb24gRGVza3RvcF8yLjMuM19hbWQ2NC5BcHBJbWFnZQozOWdId21zTERoVy9Oa0Vic2pHbW4rVTc3K1p1RXlnUFUzYUR4Wm43Y1J3VS82ZkRTZ3BqcnJyVjI3SHFxdUhlUFZxbUxKV1ZXZkRPcDM5a0g3N0xBZz09Cg==",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v2.3.3/Argon.Desktop_2.3.3_amd64.AppImage"
     },
     "linux-x86_64-deb": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0JFdEJFaVhWVTlOL3hWYnlYT3lPcWtNTWJNUHJoR1RObEZ4VVpkaXhvcUwzVWgyQUNDcVdmR2Rta2tQbkNudkpVOGRtVlNCRmNlVE45b3Jlc1RFZ1FzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1ODY5NDQ3CWZpbGU6QXJnb24gRGVza3RvcF8yLjMuMl9hbWQ2NC5kZWIKVDAyR1RkcjNxdmkrbm5wQ1FJUWk3KzdLbzZmNDhka1J4bTduKzNJWXJnblQ0N2RuNklSekFLOW80UXZ4dlNZSzRXSXl4K0RlSndwR0RHZXZRWWFHQlE9PQo=",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v2.3.2/Argon.Desktop_2.3.2_amd64.deb"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM01zZDdRc2cwTUpOSk9hQVdDYUtXVlhuc2Z4UmxzVXZ5MGJSQ3Jidm9vOXVPWVBkL1hOTmdPaVkySENicnZBS3RUWWhzbEV2bGpoK2JEbnp3V1dRWHdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2MTE1MDEyCWZpbGU6QXJnb24gRGVza3RvcF8yLjMuM19hbWQ2NC5kZWIKVkJSZnZzNzBVQ0JDdG1Ba3ZCQXlkeWNXaXh0bWtqaGJoTkJaRGxVYUtKNFZDbnZpTHliNmo1RkhSZkVsSmwyQ0haSSsxc1BqMjJkVTBxQ1NQY0k2Q2c9PQo=",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v2.3.3/Argon.Desktop_2.3.3_amd64.deb"
     },
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM05QekVlMGFoc2JKc1BpaERnZEsrUGxTdlBiTytMQTJnOGVmV2k0NEZIR2FwOGJmbzdaYldDY3hpNDNOclRTblhYTG5VUnZSZWNZS1h6RFA1a0ZCVlE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1ODY5MzYxCWZpbGU6QXJnb24gRGVza3RvcF8yLjMuMl94NjQtc2V0dXAuZXhlCkd5OElxMkhsbFNXa2RpWVdFdVdNNTNMOXc5Smw0NTNNRlhqY3NtT0MvRVU4L3RqblFZaVo0bDIxUys5VVExd0dZajRtN2YvTjQvSlZ5N3lBcjNQckNRPT0K",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v2.3.2/Argon.Desktop_2.3.2_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0sxUDR4a1htbGx5RHZkd0hjSzRqMi9OdGk0cCtxNTFmTy9vVjVhTTJHSXRickIrS3pEZ0hLWHpObWFMT0xMYVdhbmV1QmliYTdrSlM5WWk1VzN2NkE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2MTE1MTA3CWZpbGU6QXJnb24gRGVza3RvcF8yLjMuM194NjQtc2V0dXAuZXhlCnV3SHF3WnQzZXJPVjR4VGxLNGF6MUxidWZKdEtidGNOTm1ZWVZEb3JCZURiOEI0YWNUMnBuandkc293ZllQVW9OemdiR050YzZzNjlqaFNGb0NPV0F3PT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v2.3.3/Argon.Desktop_2.3.3_x64-setup.exe"
     },
     "windows-x86_64-nsis": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM05QekVlMGFoc2JKc1BpaERnZEsrUGxTdlBiTytMQTJnOGVmV2k0NEZIR2FwOGJmbzdaYldDY3hpNDNOclRTblhYTG5VUnZSZWNZS1h6RFA1a0ZCVlE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1ODY5MzYxCWZpbGU6QXJnb24gRGVza3RvcF8yLjMuMl94NjQtc2V0dXAuZXhlCkd5OElxMkhsbFNXa2RpWVdFdVdNNTNMOXc5Smw0NTNNRlhqY3NtT0MvRVU4L3RqblFZaVo0bDIxUys5VVExd0dZajRtN2YvTjQvSlZ5N3lBcjNQckNRPT0K",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v2.3.2/Argon.Desktop_2.3.2_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0sxUDR4a1htbGx5RHZkd0hjSzRqMi9OdGk0cCtxNTFmTy9vVjVhTTJHSXRickIrS3pEZ0hLWHpObWFMT0xMYVdhbmV1QmliYTdrSlM5WWk1VzN2NkE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2MTE1MTA3CWZpbGU6QXJnb24gRGVza3RvcF8yLjMuM194NjQtc2V0dXAuZXhlCnV3SHF3WnQzZXJPVjR4VGxLNGF6MUxidWZKdEtidGNOTm1ZWVZEb3JCZURiOEI0YWNUMnBuandkc293ZllQVW9OemdiR050YzZzNjlqaFNGb0NPV0F3PT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v2.3.3/Argon.Desktop_2.3.3_x64-setup.exe"
     },
     "darwin-universal": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0hYVWpMSGhMYjRzWmh2Wng0ZlVZeE54MVNQL052Qy84Qmg0RnpTS09CWkt3azVFRldQaStHNU1MYVVCOWFzQmRqcUVRZEJrN3krWm1OdHdYQjJWcGdZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1ODY5NDc0CWZpbGU6QXJnb24gRGVza3RvcC5hcHAudGFyLmd6ClVFenR6eFNEUzhDOHZNb2gwTXUzbUlyM20zOTFHY1RxL1FBZlE1Q0tNYlJ5ckxZTThuck1OVVkzaGV3WjBXQjRNRkduOXNTR1dDcUdFR3ZqU0V4UkFnPT0K",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v2.3.2/Argon.Desktop_universal.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0NzOVNOL0ZJNDhCamJYVkhvMTk1ZlRrd1B1S1R4TUtxeUpDTFlrZk03c2ZBSWpYV0JZZ01qaWw4ZHh1NEFuSnp3dGlkL0RCRVBLRWZDcjFsdDBBdUFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2MTE1MjYzCWZpbGU6QXJnb24gRGVza3RvcC5hcHAudGFyLmd6CjcyS0xUY0hTbEVEdzlWYklGMFhqUDNSUVYrOVlaYldxSjRCdkduM3FYQW9nU2JFY3VqeG5tbjQ2aGpydjlDOGQ3Z0FweGJTVXZmaGFvSWNkbUZTSUJBPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v2.3.3/Argon.Desktop_universal.app.tar.gz"
     },
     "darwin-universal-app": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0hYVWpMSGhMYjRzWmh2Wng0ZlVZeE54MVNQL052Qy84Qmg0RnpTS09CWkt3azVFRldQaStHNU1MYVVCOWFzQmRqcUVRZEJrN3krWm1OdHdYQjJWcGdZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1ODY5NDc0CWZpbGU6QXJnb24gRGVza3RvcC5hcHAudGFyLmd6ClVFenR6eFNEUzhDOHZNb2gwTXUzbUlyM20zOTFHY1RxL1FBZlE1Q0tNYlJ5ckxZTThuck1OVVkzaGV3WjBXQjRNRkduOXNTR1dDcUdFR3ZqU0V4UkFnPT0K",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v2.3.2/Argon.Desktop_universal.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0NzOVNOL0ZJNDhCamJYVkhvMTk1ZlRrd1B1S1R4TUtxeUpDTFlrZk03c2ZBSWpYV0JZZ01qaWw4ZHh1NEFuSnp3dGlkL0RCRVBLRWZDcjFsdDBBdUFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2MTE1MjYzCWZpbGU6QXJnb24gRGVza3RvcC5hcHAudGFyLmd6CjcyS0xUY0hTbEVEdzlWYklGMFhqUDNSUVYrOVlaYldxSjRCdkduM3FYQW9nU2JFY3VqeG5tbjQ2aGpydjlDOGQ3Z0FweGJTVXZmaGFvSWNkbUZTSUJBPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v2.3.3/Argon.Desktop_universal.app.tar.gz"
     },
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0hYVWpMSGhMYjRzWmh2Wng0ZlVZeE54MVNQL052Qy84Qmg0RnpTS09CWkt3azVFRldQaStHNU1MYVVCOWFzQmRqcUVRZEJrN3krWm1OdHdYQjJWcGdZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1ODY5NDc0CWZpbGU6QXJnb24gRGVza3RvcC5hcHAudGFyLmd6ClVFenR6eFNEUzhDOHZNb2gwTXUzbUlyM20zOTFHY1RxL1FBZlE1Q0tNYlJ5ckxZTThuck1OVVkzaGV3WjBXQjRNRkduOXNTR1dDcUdFR3ZqU0V4UkFnPT0K",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v2.3.2/Argon.Desktop_universal.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0NzOVNOL0ZJNDhCamJYVkhvMTk1ZlRrd1B1S1R4TUtxeUpDTFlrZk03c2ZBSWpYV0JZZ01qaWw4ZHh1NEFuSnp3dGlkL0RCRVBLRWZDcjFsdDBBdUFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2MTE1MjYzCWZpbGU6QXJnb24gRGVza3RvcC5hcHAudGFyLmd6CjcyS0xUY0hTbEVEdzlWYklGMFhqUDNSUVYrOVlaYldxSjRCdkduM3FYQW9nU2JFY3VqeG5tbjQ2aGpydjlDOGQ3Z0FweGJTVXZmaGFvSWNkbUZTSUJBPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v2.3.3/Argon.Desktop_universal.app.tar.gz"
     },
     "darwin-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0hYVWpMSGhMYjRzWmh2Wng0ZlVZeE54MVNQL052Qy84Qmg0RnpTS09CWkt3azVFRldQaStHNU1MYVVCOWFzQmRqcUVRZEJrN3krWm1OdHdYQjJWcGdZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1ODY5NDc0CWZpbGU6QXJnb24gRGVza3RvcC5hcHAudGFyLmd6ClVFenR6eFNEUzhDOHZNb2gwTXUzbUlyM20zOTFHY1RxL1FBZlE1Q0tNYlJ5ckxZTThuck1OVVkzaGV3WjBXQjRNRkduOXNTR1dDcUdFR3ZqU0V4UkFnPT0K",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v2.3.2/Argon.Desktop_universal.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0NzOVNOL0ZJNDhCamJYVkhvMTk1ZlRrd1B1S1R4TUtxeUpDTFlrZk03c2ZBSWpYV0JZZ01qaWw4ZHh1NEFuSnp3dGlkL0RCRVBLRWZDcjFsdDBBdUFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2MTE1MjYzCWZpbGU6QXJnb24gRGVza3RvcC5hcHAudGFyLmd6CjcyS0xUY0hTbEVEdzlWYklGMFhqUDNSUVYrOVlaYldxSjRCdkduM3FYQW9nU2JFY3VqeG5tbjQ2aGpydjlDOGQ3Z0FweGJTVXZmaGFvSWNkbUZTSUJBPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v2.3.3/Argon.Desktop_universal.app.tar.gz"
     },
     "darwin-aarch64-app": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0hYVWpMSGhMYjRzWmh2Wng0ZlVZeE54MVNQL052Qy84Qmg0RnpTS09CWkt3azVFRldQaStHNU1MYVVCOWFzQmRqcUVRZEJrN3krWm1OdHdYQjJWcGdZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1ODY5NDc0CWZpbGU6QXJnb24gRGVza3RvcC5hcHAudGFyLmd6ClVFenR6eFNEUzhDOHZNb2gwTXUzbUlyM20zOTFHY1RxL1FBZlE1Q0tNYlJ5ckxZTThuck1OVVkzaGV3WjBXQjRNRkduOXNTR1dDcUdFR3ZqU0V4UkFnPT0K",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v2.3.2/Argon.Desktop_universal.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0NzOVNOL0ZJNDhCamJYVkhvMTk1ZlRrd1B1S1R4TUtxeUpDTFlrZk03c2ZBSWpYV0JZZ01qaWw4ZHh1NEFuSnp3dGlkL0RCRVBLRWZDcjFsdDBBdUFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2MTE1MjYzCWZpbGU6QXJnb24gRGVza3RvcC5hcHAudGFyLmd6CjcyS0xUY0hTbEVEdzlWYklGMFhqUDNSUVYrOVlaYldxSjRCdkduM3FYQW9nU2JFY3VqeG5tbjQ2aGpydjlDOGQ3Z0FweGJTVXZmaGFvSWNkbUZTSUJBPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v2.3.3/Argon.Desktop_universal.app.tar.gz"
     },
     "darwin-x86_64-app": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0hYVWpMSGhMYjRzWmh2Wng0ZlVZeE54MVNQL052Qy84Qmg0RnpTS09CWkt3azVFRldQaStHNU1MYVVCOWFzQmRqcUVRZEJrN3krWm1OdHdYQjJWcGdZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1ODY5NDc0CWZpbGU6QXJnb24gRGVza3RvcC5hcHAudGFyLmd6ClVFenR6eFNEUzhDOHZNb2gwTXUzbUlyM20zOTFHY1RxL1FBZlE1Q0tNYlJ5ckxZTThuck1OVVkzaGV3WjBXQjRNRkduOXNTR1dDcUdFR3ZqU0V4UkFnPT0K",
-      "url": "https://github.com/argonprotocol/apps/releases/download/v2.3.2/Argon.Desktop_universal.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTVBvRU9wVFZvM0NzOVNOL0ZJNDhCamJYVkhvMTk1ZlRrd1B1S1R4TUtxeUpDTFlrZk03c2ZBSWpYV0JZZ01qaWw4ZHh1NEFuSnp3dGlkL0RCRVBLRWZDcjFsdDBBdUFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg2MTE1MjYzCWZpbGU6QXJnb24gRGVza3RvcC5hcHAudGFyLmd6CjcyS0xUY0hTbEVEdzlWYklGMFhqUDNSUVYrOVlaYldxSjRCdkduM3FYQW9nU2JFY3VqeG5tbjQ2aGpydjlDOGQ3Z0FweGJTVXZmaGFvSWNkbUZTSUJBPT0K",
+      "url": "https://github.com/argonprotocol/apps/releases/download/v2.3.3/Argon.Desktop_universal.app.tar.gz"
     }
   }
 }
