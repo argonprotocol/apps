@@ -57,7 +57,7 @@ export interface IDevUpstreamServerRuntime {
   botPort: string;
   gatewayPort: string;
   routerPort: string;
-  stopVaultAlertPoller(): Promise<void>;
+  detachOperator(): Promise<void>;
   shutdown(): Promise<void>;
 }
 
@@ -264,10 +264,18 @@ export async function startDevUpstreamServer(args: {
   let endpointMonitor: NodeJS.Timeout | undefined;
   let isEndpointRefreshRunning = false;
   let publishedGatewayPort: string | undefined;
-  const stopVaultAlertPoller = async () => {
-    vaultAlertAbortController.abort();
-    await vaultAlertPoller?.catch(() => undefined);
+  const detachOperator = async () => {
+    const upgradePoller = operationsUpgradePoller;
+    const alertPoller = vaultAlertPoller;
+    operationsUpgradePoller = undefined;
     vaultAlertPoller = undefined;
+
+    vaultAlertAbortController.abort();
+    try {
+      await Promise.all([upgradePoller?.shutdown(), alertPoller]);
+    } finally {
+      actor.myVault.unsubscribe();
+    }
   };
   const shutdown = async () => {
     if (isShutdown) {
@@ -275,7 +283,7 @@ export async function startDevUpstreamServer(args: {
     }
     isShutdown = true;
     clearInterval(endpointMonitor);
-    await Promise.all([operationsUpgradePoller?.shutdown().catch(() => undefined), stopVaultAlertPoller()]);
+    await detachOperator().catch(() => undefined);
     await actor.dispose().catch(() => undefined);
     await clients.disconnect().catch(() => undefined);
   };
@@ -346,7 +354,7 @@ export async function startDevUpstreamServer(args: {
       botPort,
       gatewayPort,
       routerPort,
-      stopVaultAlertPoller,
+      detachOperator,
       shutdown,
     };
   } catch (error) {
@@ -489,7 +497,7 @@ export async function waitForDevUpstreamEthereumRelayReady(args: {
   throw new Error(`Upstream Ethereum relay did not become ready within ${timeoutMs}ms: ${lastReason}`);
 }
 
-function resolveDevUpstreamRootDir(): string {
+export function resolveDevUpstreamRootDir(): string {
   const configuredRootDir = process.env.ARGON_DEV_UPSTREAM_ROOT_DIR?.trim() || defaultUpstreamRootDir;
   return path.resolve(configuredRootDir);
 }

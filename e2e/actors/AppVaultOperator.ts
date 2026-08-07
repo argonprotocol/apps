@@ -404,6 +404,7 @@ export class AppVaultOperator {
     const { client, routerHost } = args;
     const pollMs = args.pollMs ?? 5_000;
     const serverAuthClient = new ServerAuthClient(() => this.walletKeys);
+    const abortController = new AbortController();
     let isStopped = false;
 
     const runPromise = (async () => {
@@ -413,6 +414,7 @@ export class AppVaultOperator {
             serverAuthClient,
             routerHost,
             path: '/invites',
+            init: { signal: abortController.signal },
           });
 
           for (const invite of invites.invites) {
@@ -436,6 +438,7 @@ export class AppVaultOperator {
               path: `/invites/${encodeURIComponent(invite.inviteCode)}/mark-operations-upgraded`,
               init: {
                 method: 'POST',
+                signal: abortController.signal,
                 headers: {
                   'Content-Type': 'application/json',
                 },
@@ -448,11 +451,17 @@ export class AppVaultOperator {
             break;
           }
         } catch (error) {
-          console.warn('[dev-upstream] Unable to process requested operations upgrades.', error);
+          if (!isStopped) {
+            console.warn('[dev-upstream] Unable to process requested operations upgrades.', error);
+          }
         }
 
         if (!isStopped) {
-          await new Promise(resolve => setTimeout(resolve, pollMs));
+          try {
+            await delay(pollMs, undefined, { signal: abortController.signal });
+          } catch (error) {
+            if (!isStopped) throw error;
+          }
         }
       }
     })();
@@ -460,7 +469,8 @@ export class AppVaultOperator {
     return {
       shutdown: async () => {
         isStopped = true;
-        await runPromise.catch(() => undefined);
+        abortController.abort();
+        await runPromise;
       },
     };
   }
