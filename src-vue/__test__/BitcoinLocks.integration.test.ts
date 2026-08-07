@@ -1087,7 +1087,7 @@ async function releaseLockAndWaitForChainRestore(
     toScriptPubkey: releaseAddress,
   });
   expect(releaseTx).toBeTruthy();
-  await releaseTx!.txResult.waitForInFirstBlock;
+  await releaseTx!.txResult.waitForFinalizedBlock;
 
   await collectVaultSignatureFromAlert(operatorVault, 0);
 

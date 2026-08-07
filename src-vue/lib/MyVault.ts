@@ -1153,6 +1153,11 @@ export class MyVault {
       });
 
       if (!submission) {
+        const vaultId = this.createdVault.vaultId;
+        await Promise.all([
+          this.refreshFinalizedBitcoinCosignState(finalizedClient, vaultId),
+          this.refreshFinalizedRevenueState(finalizedClient, vaultId),
+        ]);
         return;
       }
 
