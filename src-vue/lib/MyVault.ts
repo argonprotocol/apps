@@ -1154,10 +1154,21 @@ export class MyVault {
 
       if (!submission) {
         const vaultId = this.createdVault.vaultId;
-        await Promise.all([
+        const [bitcoinCosignResult, revenueResult] = await Promise.allSettled([
           this.refreshFinalizedBitcoinCosignState(finalizedClient, vaultId),
           this.refreshFinalizedRevenueState(finalizedClient, vaultId),
         ]);
+
+        if (bitcoinCosignResult.status === 'rejected') {
+          console.warn(
+            '[MyVault] Unable to refresh finalized Bitcoin cosign state after no-op collect',
+            bitcoinCosignResult.reason,
+          );
+        }
+
+        if (revenueResult.status === 'rejected') {
+          console.warn('[MyVault] Unable to refresh finalized revenue state after no-op collect', revenueResult.reason);
+        }
         return;
       }
 

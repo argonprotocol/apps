@@ -316,7 +316,10 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           expect(orphan.satoshis).toBe(observed.candidate.satoshis);
 
           const currentLock = getCurrentLock(owner, lock.utxoId!);
-          expect(await BitcoinLock.get(await clients.get(false), currentLock.utxoId!)).toBeFalsy();
+          await waitFor(90e3, 'expired chain lock removed', async () => {
+            const chainClient = await clients.get(false);
+            return !(await BitcoinLock.get(chainClient, currentLock.utxoId!));
+          });
           expect(owner.bitcoinLocks.utxoTracking.getUnresolvedOrphanRecords([currentLock])).toContain(orphan);
 
           const returnDestination = createBitcoinAddress();
