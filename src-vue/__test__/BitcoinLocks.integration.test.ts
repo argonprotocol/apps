@@ -337,15 +337,23 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
 
           await collectVaultSignatureFromAlert(operator.myVault, 1);
 
-          const returningOrphan = await waitFor(120e3, 'orphan return seen on bitcoin', () => {
-            const current = owner.bitcoinLocks.utxoTracking.getUtxoRecord(
-              currentLock.utxoId!,
-              orphan.txid,
-              orphan.vout,
-            );
-            if (!current?.releaseTxid) return;
-            return current;
-          });
+          const returningOrphan = await waitFor(
+            120e3,
+            'orphan return seen on bitcoin',
+            async () => {
+              await owner.bitcoinLocks.orphanReleases.recoverPendingCosignEvents(
+                owner.miningFrames.blockWatch.bestBlockHeader.blockNumber,
+              );
+              const current = owner.bitcoinLocks.utxoTracking.getUtxoRecord(
+                currentLock.utxoId!,
+                orphan.txid,
+                orphan.vout,
+              );
+              if (!current?.releaseTxid) return;
+              return current;
+            },
+            { pollMs: 1e3 },
+          );
           await waitForBitcoinTransactionOutputSatoshis({
             flowName: 'BitcoinLocks.integration.orphanReturn',
             txid: returningOrphan.releaseTxid!,
@@ -419,7 +427,6 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
 
         const firstRelease = await releaseLockAndWaitForChainRestore(
           harness,
-          harness.myVault,
           fundedFirst.lock,
           progress,
           initialAvailableBitcoinSpace,
@@ -473,7 +480,6 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
 
         const thirdRelease = await releaseLockAndWaitForChainRestore(
           harness,
-          harness.myVault,
           fundedThird.lock,
           progress,
           initialAvailableBitcoinSpace,
@@ -1103,8 +1109,7 @@ async function returnExpiredMismatchAndWaitForChainRestore(
 }
 
 async function releaseLockAndWaitForChainRestore(
-  harness: ClientHarness,
-  operatorVault: MyVault,
+  harness: TestHarness,
   lock: IBitcoinLockRecord,
   progress: ReturnType<typeof createBitcoinLockProgressStore>,
   expectedAvailableBitcoinSpace: bigint,
@@ -1118,9 +1123,7 @@ async function releaseLockAndWaitForChainRestore(
     toScriptPubkey: releaseAddress,
   });
   expect(releaseTx).toBeTruthy();
-  await releaseTx!.txResult.waitForFinalizedBlock;
-
-  await collectVaultSignatureFromAlert(operatorVault, 0);
+  await releaseTx!.txResult.waitForInFirstBlock;
 
   await waitFor(30e3, 'release request tracked on argon', () => {
     const refreshed = getCurrentLock(harness, currentLock.utxoId!);
@@ -1181,7 +1184,7 @@ async function releaseLockAndWaitForChainRestore(
     if (!vault.isSome) return;
     if (vault.unwrap().securitizationLocked.toBigInt() !== 0n) return;
     if (JSON.stringify(pendingCosign.toJSON()) !== '[]') return;
-    if (operatorVault.createdVault?.availableBitcoinSpace() !== expectedAvailableBitcoinSpace) return;
+    if (harness.myVault.createdVault?.availableBitcoinSpace() !== expectedAvailableBitcoinSpace) return;
     return true;
   });
 
