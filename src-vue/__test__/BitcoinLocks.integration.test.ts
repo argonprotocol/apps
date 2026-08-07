@@ -304,10 +304,8 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
             async () => {
               const currentLock = getCurrentLock(owner, lock.utxoId!);
               const chainClient = await clients.get(false);
-              await owner.bitcoinLocks.utxoTracking.syncPendingFundingSignals(currentLock);
+              await owner.bitcoinLocks.utxoTracking.syncPendingFundingSignals(currentLock, chainClient);
               progress.updateLock(currentLock);
-              if (await BitcoinLock.get(chainClient, currentLock.utxoId!)) return;
-              await owner.bitcoinLocks.utxoTracking.syncArgonOrphans([currentLock], chainClient);
               return owner.bitcoinLocks.utxoTracking
                 .getUnresolvedOrphanRecords([currentLock])
                 .find(record => record.txid === observed.candidate.txid);
@@ -318,6 +316,10 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           expect(orphan.satoshis).toBe(observed.candidate.satoshis);
 
           const currentLock = getCurrentLock(owner, lock.utxoId!);
+          await waitFor(90e3, 'expired chain lock removed', async () => {
+            const chainClient = await clients.get(false);
+            return !(await BitcoinLock.get(chainClient, currentLock.utxoId!));
+          });
           expect(owner.bitcoinLocks.utxoTracking.getUnresolvedOrphanRecords([currentLock])).toContain(orphan);
 
           const returnDestination = createBitcoinAddress();
