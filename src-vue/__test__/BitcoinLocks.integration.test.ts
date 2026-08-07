@@ -306,15 +306,23 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
 
           await collectVaultSignatureFromAlert(operator.myVault, 1);
 
-          const returningOrphan = await waitFor(120e3, 'orphan return seen on bitcoin', () => {
-            const current = owner.bitcoinLocks.utxoTracking.getUtxoRecord(
-              currentLock.utxoId!,
-              orphan.txid,
-              orphan.vout,
-            );
-            if (!current?.releaseTxid) return;
-            return current;
-          });
+          const returningOrphan = await waitFor(
+            120e3,
+            'orphan return seen on bitcoin',
+            async () => {
+              await owner.bitcoinLocks.orphanReleases.recoverPendingCosignEvents(
+                owner.miningFrames.blockWatch.bestBlockHeader.blockNumber,
+              );
+              const current = owner.bitcoinLocks.utxoTracking.getUtxoRecord(
+                currentLock.utxoId!,
+                orphan.txid,
+                orphan.vout,
+              );
+              if (!current?.releaseTxid) return;
+              return current;
+            },
+            { pollMs: 1e3 },
+          );
           await waitForBitcoinTransactionOutputSatoshis({
             flowName: 'BitcoinLocks.integration.orphanReturn',
             txid: returningOrphan.releaseTxid!,
