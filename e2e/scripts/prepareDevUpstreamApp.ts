@@ -7,12 +7,14 @@ import process from 'node:process';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import { DEV_UPSTREAM_MASTER_MNEMONIC, resolveDevUpstreamRootDir } from './devUpstreamServer.ts';
 
+if (process.platform === 'win32') {
+  throw new Error('The visible dev upstream handoff is not supported on Windows because it requires SIGUSR2.');
+}
+
 const actorPidPath = Path.join(resolveDevUpstreamRootDir(), 'config', 'operator-actor.pid');
 let appConfigDir: string;
 if (process.platform === 'darwin') {
   appConfigDir = Path.join(Os.homedir(), 'Library', 'Application Support');
-} else if (process.platform === 'win32') {
-  appConfigDir = process.env.APPDATA || Path.join(Os.homedir(), 'AppData', 'Roaming');
 } else {
   appConfigDir = process.env.XDG_CONFIG_HOME || Path.join(Os.homedir(), '.config');
 }

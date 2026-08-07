@@ -414,6 +414,7 @@ export class AppVaultOperator {
             serverAuthClient,
             routerHost,
             path: '/invites',
+            init: { signal: abortController.signal },
           });
 
           for (const invite of invites.invites) {
@@ -437,6 +438,7 @@ export class AppVaultOperator {
               path: `/invites/${encodeURIComponent(invite.inviteCode)}/mark-operations-upgraded`,
               init: {
                 method: 'POST',
+                signal: abortController.signal,
                 headers: {
                   'Content-Type': 'application/json',
                 },
@@ -449,7 +451,9 @@ export class AppVaultOperator {
             break;
           }
         } catch (error) {
-          console.warn('[dev-upstream] Unable to process requested operations upgrades.', error);
+          if (!isStopped) {
+            console.warn('[dev-upstream] Unable to process requested operations upgrades.', error);
+          }
         }
 
         if (!isStopped) {
