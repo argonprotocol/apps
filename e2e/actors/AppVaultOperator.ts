@@ -404,6 +404,7 @@ export class AppVaultOperator {
     const { client, routerHost } = args;
     const pollMs = args.pollMs ?? 5_000;
     const serverAuthClient = new ServerAuthClient(() => this.walletKeys);
+    const abortController = new AbortController();
     let isStopped = false;
 
     const runPromise = (async () => {
@@ -452,7 +453,11 @@ export class AppVaultOperator {
         }
 
         if (!isStopped) {
-          await new Promise(resolve => setTimeout(resolve, pollMs));
+          try {
+            await delay(pollMs, undefined, { signal: abortController.signal });
+          } catch (error) {
+            if (!isStopped) throw error;
+          }
         }
       }
     })();
@@ -460,7 +465,8 @@ export class AppVaultOperator {
     return {
       shutdown: async () => {
         isStopped = true;
-        await runPromise.catch(() => undefined);
+        abortController.abort();
+        await runPromise;
       },
     };
   }

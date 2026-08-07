@@ -23,6 +23,7 @@ import {
   type IDevUpstreamServerRuntime,
   readComposeContainerId,
   readComposePortWithRetry,
+  resolveDevUpstreamRootDir,
   startDevUpstreamServer,
   waitForDevUpstreamEthereumRelayReady,
 } from '../e2e/scripts/devUpstreamServer.ts';
@@ -138,18 +139,29 @@ async function main(): Promise<void> {
   let devEthereumReadyPromise: Promise<void> | undefined;
   let devUpstreamPromise: Promise<void> | undefined;
   let devUpstreamRuntime: IDevUpstreamServerRuntime | undefined;
+  let devUpstreamActorPidPath: string | undefined;
   const shouldStartDevUpstream = !['0', 'false', 'no', 'off'].includes(
     readNonEmpty(process.env.ARGON_DEV_UPSTREAM)?.toLowerCase() ?? '',
   );
   if (devDockerArchiveUrl && shouldStartDevUpstream && (!isE2EAppRun || devEthereumConfig)) {
+    const actorPidPath = path.join(resolveDevUpstreamRootDir(), 'config', 'operator-actor.pid');
+    devUpstreamActorPidPath = actorPidPath;
+    fs.rmSync(actorPidPath, { force: true });
     devUpstreamPromise = startDevUpstreamServer({
       archiveUrl: devDockerArchiveUrl,
       devEthereum: startedDevEthereum,
       devEthereumConfig,
     })
-      .then(runtime => {
+      .then(async runtime => {
         devUpstreamRuntime = runtime;
-        console.log(`[tauri-dev][upstream-ready] upstream server is ready (vault alert actor pid ${process.pid})`);
+        try {
+          fs.writeFileSync(actorPidPath, `${process.pid}\n`);
+        } catch (error) {
+          await runtime.shutdown().catch(() => undefined);
+          devUpstreamRuntime = undefined;
+          throw error;
+        }
+        console.log(`[tauri-dev][upstream-ready] upstream server is ready (operator actor pid ${process.pid})`);
       })
       .catch(error => {
         console.error(`[tauri-dev] Failed to start upstream server: ${(error as Error).message}`);
@@ -157,18 +169,19 @@ async function main(): Promise<void> {
       });
 
     void devUpstreamPromise.catch(() => undefined);
-  }
 
-  process.on('SIGUSR2', () => {
-    void devUpstreamPromise
-      ?.then(async () => {
-        await devUpstreamRuntime?.stopVaultAlertPoller();
-        console.log('[tauri-dev] Vault alert actor stopped');
-      })
-      .catch(error => {
-        console.error(`[tauri-dev] Failed to stop vault alert actor: ${(error as Error).message}`);
-      });
-  });
+    process.on('SIGUSR2', () => {
+      void devUpstreamPromise
+        ?.then(async () => {
+          await devUpstreamRuntime?.detachOperator();
+          fs.rmSync(actorPidPath, { force: true });
+          console.log('[tauri-dev] Embedded upstream operator detached');
+        })
+        .catch(error => {
+          console.error(`[tauri-dev] Failed to detach embedded upstream operator: ${(error as Error).message}`);
+        });
+    });
+  }
 
   if (devEthereumSetup) {
     devEthereumRuntimeSetupPromise = devEthereumSetup.start();
@@ -309,6 +322,7 @@ async function main(): Promise<void> {
       await devEthereumMintingAuthorityPromise;
       await devEthereumMintingAuthorityRuntime?.shutdown().catch(() => undefined);
       await devUpstreamRuntime?.shutdown().catch(() => undefined);
+      if (devUpstreamActorPidPath) fs.rmSync(devUpstreamActorPidPath, { force: true });
     })();
     void shutdownPromise.finally(() => {
       process.exit(code ?? 0);
