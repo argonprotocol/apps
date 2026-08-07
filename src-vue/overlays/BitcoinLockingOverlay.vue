@@ -453,7 +453,7 @@ async function refreshVaultAvailability() {
   }
 }
 
-async function openOverlay(args?: { lock?: IBitcoinLockRecord }) {
+function openOverlay(args?: { lock?: IBitcoinLockRecord }) {
   stopSessionRefresh();
   resetLockingSession();
 
@@ -465,9 +465,6 @@ async function openOverlay(args?: { lock?: IBitcoinLockRecord }) {
     vault.value = defaultVault.value;
     startSessionRefresh();
   } else {
-    const openKey = vaultRefreshKey;
-    await new Promise(resolve => setTimeout(resolve, 5_000));
-    if (openKey !== vaultRefreshKey || !isOpen.value) return;
     void refreshVaultAvailability();
   }
 }
