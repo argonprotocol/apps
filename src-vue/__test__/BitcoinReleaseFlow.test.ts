@@ -471,6 +471,54 @@ describe('BitcoinLocks release status sync', () => {
     expect(submitToBitcoin).not.toHaveBeenCalled();
   });
 
+  it('syncBitcoinProcessing completes mismatch and orphan returns without treating the funding UTXO as a return', async () => {
+    const lock = createLockRecord({ utxoId: 11 });
+    const fundingRecord = createFundingRecord({
+      id: 12,
+      lockUtxoId: 11,
+      status: BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin,
+      releaseTxid: 'a'.repeat(64),
+    });
+    const mismatchReturn = createFundingRecord({
+      id: 13,
+      lockUtxoId: 11,
+      status: BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin,
+      releaseTxid: 'b'.repeat(64),
+    });
+    const orphanReturn = createFundingRecord({
+      id: 14,
+      lockUtxoId: 11,
+      status: BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin,
+      releaseTxid: 'c'.repeat(64),
+    });
+    const updateReleaseLastConfirmationCheck = vi.fn<(...args: any[]) => Promise<void>>().mockResolvedValue();
+    const setReleaseComplete = vi.fn<(...args: any[]) => Promise<void>>().mockResolvedValue();
+    const getTxStatus = vi.fn().mockResolvedValue({ isConfirmed: true, transactionBlockHeight: 321 });
+    const orphanReleases = createOrphanReleasesStub({
+      bitcoinLocks: {
+        data: { locksByUtxoId: { 11: lock } },
+        utxoTracking: {
+          getUtxosForLock: vi.fn().mockReturnValue([fundingRecord, mismatchReturn, orphanReturn]),
+          getAllOrphanLifecycleUtxos: vi.fn().mockReturnValue([orphanReturn]),
+          getAcceptedFundingRecordForLock: vi.fn().mockReturnValue(fundingRecord),
+          updateReleaseLastConfirmationCheck,
+          setReleaseComplete,
+        },
+      },
+      mempool: { getTxStatus },
+    });
+
+    await orphanReleases.syncBitcoinProcessing(300);
+
+    expect(getTxStatus).toHaveBeenCalledTimes(2);
+    expect(getTxStatus).toHaveBeenCalledWith(mismatchReturn.releaseTxid, 300);
+    expect(getTxStatus).toHaveBeenCalledWith(orphanReturn.releaseTxid, 300);
+    expect(updateReleaseLastConfirmationCheck).toHaveBeenCalledWith(mismatchReturn);
+    expect(updateReleaseLastConfirmationCheck).toHaveBeenCalledWith(orphanReturn);
+    expect(setReleaseComplete).toHaveBeenCalledWith(mismatchReturn, 321);
+    expect(setReleaseComplete).toHaveBeenCalledWith(orphanReturn, 321);
+  });
+
   it('submitToBitcoin keeps failed orphan broadcasts retryable and treats duplicates as submitted', async () => {
     const db = await createTestDb();
     const orphanReturnTxid = 'b'.repeat(64);

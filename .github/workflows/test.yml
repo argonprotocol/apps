@@ -129,7 +129,7 @@ jobs:
 
       - name: Tests
         if: matrix.suite == 'regular'
-        run: yarn vitest --run --project '!integration' --project '!e2e'
+        run: yarn vitest --run --exclude '**/*.integration.test.ts' --exclude 'e2e/__test__/**/*.e2e.test.ts'
 
       - name: Tests excluding e2e
         if: matrix.suite == 'non-e2e'
