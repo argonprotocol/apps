@@ -34,6 +34,7 @@ export class BitcoinLockRecovery {
   private readonly utxoTracking: Pick<
     BitcoinUtxoTracking,
     | 'getAcceptedFundingRecordForLock'
+    | 'getAllOrphanLifecycleUtxos'
     | 'getUtxoRecord'
     | 'isReleaseCompleteStatus'
     | 'isReleaseStatus'
@@ -172,7 +173,10 @@ export class BitcoinLockRecovery {
         const fundingRecord = this.utxoTracking.getAcceptedFundingRecordForLock(liveLock);
         const hasLiveReleaseState =
           liveLock.status === BitcoinLockStatus.Releasing && this.utxoTracking.isReleaseStatus(fundingRecord?.status);
-        if (!hasLiveReleaseState) continue;
+        const hasOrphanRecoveryState = this.utxoTracking
+          .getAllOrphanLifecycleUtxos()
+          .some(record => record.lockUtxoId === liveLock.utxoId);
+        if (!hasLiveReleaseState && !hasOrphanRecoveryState) continue;
       }
 
       await table.setHistoryRecoveryPending(uuid, false);
