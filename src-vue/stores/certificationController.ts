@@ -127,6 +127,7 @@ export const operationalSteps: Record<OperationalStepId, IOperationalStep> = {
   },
 };
 
+export const treasuryBitcoinCertificationDisplayAmount = 600n * BigInt(MICROGONS_PER_ARGON);
 export const treasuryCertificationStepIds = [
   OperationalStepId.BackupMnemonic,
   OperationalStepId.LiquidLock,
@@ -505,7 +506,7 @@ export const useCertificationController = defineStore('certificationController',
       return formatArgonRequirementText(rewardConfig.value.operationalMinimumVaultSecuritization, 'securitization');
     }
     if (stepId === OperationalStepId.LiquidLock) {
-      return formatArgonRequirementText(rewardConfig.value.treasuryMinimumBitcoin, 'bitcoin');
+      return formatArgonRequirementText(treasuryBitcoinCertificationDisplayAmount, 'bitcoin');
     }
     if (stepId === OperationalStepId.AcquireArgonBonds) {
       return formatArgonRequirementText(rewardConfig.value.treasuryMinimumBonds, 'bonds');
