@@ -269,6 +269,44 @@ describe('BitcoinLocks recovery', () => {
     ]);
   });
 
+  it('publishes a rediscovered orphan without waiting for an app refresh', async () => {
+    const db = await createTestDb();
+    const store = createStore({
+      blockWatch: { getApi: vi.fn(async () => ({})) } as unknown as BlockWatch,
+      db,
+    });
+    const lock = createLock({
+      uuid: 'late-orphan',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockPendingFunding,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    const utxoRef = { txid: `0x${'55'.repeat(32)}`, outputIndex: 1 };
+    store.data.locksByUtxoId[7] = lock;
+
+    await store.recovery.beginHistoryReplay({ lockScope: 'all' });
+    await store.recovery.recoverBlock(historyBlock(201), [
+      historyEvent(147, 'bitcoinLocks', 'OrphanedUtxoReceived', {
+        utxoId: 7,
+        utxoRef,
+        vaultId: 1,
+        satoshis: 12_000n,
+      }),
+    ]);
+    await store.recovery.commitHistoryReplay();
+
+    expect(lock.isHistoryRecoveryPending).toBeUndefined();
+    expect(store.getLockByUtxoId(7)).toBe(lock);
+    expect(store.utxoTracking.getUnresolvedOrphanRecords([lock])).toEqual([
+      expect.objectContaining({
+        txid: utxoRef.txid,
+        vout: utxoRef.outputIndex,
+        satoshis: 12_000n,
+        status: BitcoinUtxoStatus.Orphaned,
+      }),
+    ]);
+  });
+
   it('quarantines only recovering locks while regular locks remain active and syncable', async () => {
     const store = createStore();
     const record = createLock({
