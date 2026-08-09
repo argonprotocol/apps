@@ -34,6 +34,7 @@ export class BitcoinLockRecovery {
   private readonly utxoTracking: Pick<
     BitcoinUtxoTracking,
     | 'getAcceptedFundingRecordForLock'
+    | 'getAllOrphanLifecycleUtxos'
     | 'getUtxoRecord'
     | 'isReleaseCompleteStatus'
     | 'isReleaseStatus'
@@ -157,22 +158,27 @@ export class BitcoinLockRecovery {
 
     const table = await this.getTable();
     const completedLocks: IBitcoinLockRecord[] = [];
+    const orphanLifecycleLockUtxoIds = new Set(
+      this.utxoTracking.getAllOrphanLifecycleUtxos().map(record => record.lockUtxoId),
+    );
     for (const uuid of [...this.historyRecoveryPendingUuids]) {
       const liveLock =
         Object.values(this.locksByUtxoId).find(lock => lock.uuid === uuid) ??
         this.pendingLocks.find(lock => lock.uuid === uuid);
       if (!liveLock) continue;
 
+      const lockUtxoId = liveLock.utxoId;
       const isUnresolvedHistoricalLock =
         lockScope === 'all' &&
-        liveLock.utxoId !== undefined &&
+        lockUtxoId !== undefined &&
         !liveLock.removalReason &&
-        !this.activeLocksByUtxoId.has(liveLock.utxoId);
+        !this.activeLocksByUtxoId.has(lockUtxoId);
       if (isUnresolvedHistoricalLock) {
         const fundingRecord = this.utxoTracking.getAcceptedFundingRecordForLock(liveLock);
         const hasLiveReleaseState =
           liveLock.status === BitcoinLockStatus.Releasing && this.utxoTracking.isReleaseStatus(fundingRecord?.status);
-        if (!hasLiveReleaseState) continue;
+        const hasOrphanRecoveryState = orphanLifecycleLockUtxoIds.has(lockUtxoId);
+        if (!hasLiveReleaseState && !hasOrphanRecoveryState) continue;
       }
 
       await table.setHistoryRecoveryPending(uuid, false);
