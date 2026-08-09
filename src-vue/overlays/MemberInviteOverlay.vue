@@ -97,13 +97,13 @@
               <div
                 v-if="
                   maximumBitcoinLockMicrogons > 0n &&
-                  maximumBitcoinLockMicrogons < controller.rewardConfig.treasuryMinimumBitcoin
+                  maximumBitcoinLockMicrogons < treasuryBitcoinCertificationDisplayAmount
                 "
                 class="mt-3 border-l-2 border-amber-400 py-0.5 pl-3 text-xs leading-5 text-amber-700"
               >
                 Treasury certification requires at least
-                {{ microgonToArgonNm(controller.rewardConfig.treasuryMinimumBitcoin).format('0,0.[00]') }} ARGN of
-                Bitcoin. Increase this gift to cover that requirement.
+                {{ microgonToArgonNm(treasuryBitcoinCertificationDisplayAmount).format('0,0.[00]') }} ARGN of Bitcoin.
+                Increase this gift to cover that requirement.
               </div>
             </div>
           </div>
@@ -168,7 +168,10 @@ import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import { generateProgressLabel } from '../lib/Utils.ts';
 import { useBasics } from '../stores/basics.ts';
 import { getBitcoinLocks } from '../stores/bitcoin.ts';
-import { useCertificationController } from '../stores/certificationController.ts';
+import {
+  treasuryBitcoinCertificationDisplayAmount,
+  useCertificationController,
+} from '../stores/certificationController.ts';
 import { getConfig } from '../stores/config.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
