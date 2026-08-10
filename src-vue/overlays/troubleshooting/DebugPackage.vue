@@ -40,7 +40,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { appConfigDir, appLogDir, join, tempDir } from '@tauri-apps/api/path';
+import { appConfigDir, appLogDir, downloadDir, join, tempDir } from '@tauri-apps/api/path';
 import { listen } from '@tauri-apps/api/event';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import Checkbox from '../../components/Checkbox.vue';
@@ -79,7 +79,7 @@ async function downloadTroubleshooting() {
     const osProfilePath = await join(troubleshootingRoot, 'os-profile.json');
     const collectionErrorsPath = await join(troubleshootingRoot, 'collection-errors.txt');
     const collectionErrors: string[] = [];
-    let zipPath = await join(await tempDir(), `argon_${INSTANCE_NAME}_troubleshooting_${timestamp}.zip`);
+    const zipPath = await join(await downloadDir(), `argon_${INSTANCE_NAME}_troubleshooting_${timestamp}.zip`);
     let serverPackagePath: string | undefined;
     let hasOsProfile = false;
 
@@ -94,7 +94,6 @@ async function downloadTroubleshooting() {
         });
         serverPackagePath = downloadPath;
         removeOnFinish.push({ path: downloadPath });
-        zipPath = downloadPath.replace('.tar.gz', '.zip');
       } catch (error) {
         console.warn('Unable to include server troubleshooting package:', error);
         collectionErrors.push(`Server troubleshooting package: ${String(error)}`);
