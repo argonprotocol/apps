@@ -5,6 +5,7 @@ import { TxAttemptState, TransactionTracker } from '../lib/TransactionTracker.ts
 import { ExtrinsicType, type ITransactionRecord, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { TransactionHistorySource, TransactionHistoryStatus } from '../lib/db/TransactionStatusHistoryTable.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
+import { createTestDb } from './helpers/db.ts';
 
 vi.mock('../stores/mainchain.ts', () => ({
   getMainchainClient: vi.fn(async () => ({})),
@@ -145,6 +146,217 @@ describe('TransactionTracker', () => {
     });
 
     await expect(tracker.getTxAttemptState(tracker.data.txInfos[0], 2)).resolves.toBe(TxAttemptState.Replace);
+  });
+
+  it('does not retry a transaction based only on its nonce finalizing elsewhere', async () => {
+    const db = await createTestDb();
+    const call = { section: 'crosschainTransfer', method: 'collateralizeTransfer' };
+    const createUnsignedTx = (method = call) => ({
+      method,
+      signAsync: vi.fn(async (_signer, options) => ({
+        hash: { toHex: () => `0x${options.nonce}` },
+        method: { toHuman: () => method },
+        nonce: numberCodec(options.nonce),
+        send: vi.fn(async () => undefined),
+      })),
+    });
+    const client = {
+      rpc: {
+        chain: {
+          getHeader: vi.fn(async () => ({ number: numberCodec(100) })),
+        },
+        system: {
+          accountNextIndex: vi.fn(async () => numberCodec(7)),
+        },
+      },
+      tx: vi.fn((tx: { method: typeof call }) => createUnsignedTx(tx.method)),
+    };
+    const blockWatch = {
+      start: vi.fn().mockResolvedValue(undefined),
+      bestBlockHeader: { blockNumber: 105, blockHash: '0x69' },
+      finalizedBlockHeader: {
+        blockNumber: 105,
+        blockTime: new Date('2026-03-20T20:05:00Z').getTime(),
+        blockHash: '0x69',
+      },
+      getApi: vi.fn(async () => ({
+        query: {
+          system: {
+            account: vi.fn(async () => ({ nonce: numberCodec(8) })),
+          },
+        },
+      })),
+      events: { on: vi.fn() },
+    };
+    const tracker = new TransactionTracker(Promise.resolve(db), blockWatch as any);
+    vi.spyOn(tracker as any, 'watchForUpdates').mockResolvedValue(undefined);
+
+    try {
+      await tracker.load();
+      const originalTxInfo = await tracker.submitAndWatch({
+        client: client as any,
+        tx: createUnsignedTx() as any,
+        txSigner: { address: '5Alice' } as any,
+        extrinsicType: ExtrinsicType.CrosschainTransferAuthorize,
+        useLatestNonce: true,
+      });
+      vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValueOnce(undefined);
+      await (tracker as unknown as ITransactionTrackerTestApi).updatePendingStatuses({ blockNumber: 105 });
+
+      const storedTxs = await db.transactionsTable.fetchAll();
+      const originalStoredTx = storedTxs.find(record => record.id === originalTxInfo.tx.id)!;
+      const history = await db.transactionStatusHistoryTable.fetchByTransactionId(originalTxInfo.tx.id);
+      expect(storedTxs).toHaveLength(1);
+      expect(originalStoredTx.followOnTxId).toBeNull();
+      expect(originalStoredTx.status).toBe(TransactionStatus.Error);
+      expect(originalStoredTx.submissionErrorJson?.message).toBe(
+        'Transaction nonce was already used by another transaction.',
+      );
+      expect(history.map(({ status, source }) => [status, source])).toEqual([
+        [TransactionHistoryStatus.Submitted, TransactionHistorySource.Local],
+        [TransactionHistoryStatus.Invalid, TransactionHistorySource.Local],
+        [TransactionHistoryStatus.Error, TransactionHistorySource.Local],
+      ]);
+    } finally {
+      tracker.shutdown();
+      await db.close();
+    }
+  });
+
+  it('retries only a latest-nonce transaction rejected as outdated', async () => {
+    const db = await createTestDb();
+    const call = { section: 'crosschainTransfer', method: 'collateralizeTransfer' };
+    let nextNonce = 7;
+    let rejectedNonce = 7;
+    let submissionError = new Error('1010: Invalid Transaction: Transaction is outdated');
+    const createUnsignedTx = () => ({
+      signAsync: vi.fn(async (_signer, options) => ({
+        hash: { toHex: () => `0x${options.nonce}` },
+        method: { toHuman: () => call },
+        nonce: numberCodec(options.nonce),
+        send: vi.fn(async () => {
+          if (options.nonce === rejectedNonce) {
+            nextNonce += 1;
+            throw submissionError;
+          }
+        }),
+      })),
+    });
+    const client = {
+      rpc: {
+        chain: {
+          getHeader: vi.fn(async () => ({ number: numberCodec(100) })),
+        },
+        system: {
+          accountNextIndex: vi.fn(async () => numberCodec(nextNonce)),
+        },
+      },
+      tx: vi.fn(() => createUnsignedTx()),
+    };
+    const blockWatch = {
+      start: vi.fn().mockResolvedValue(undefined),
+      bestBlockHeader: { blockNumber: 100, blockHash: '0x64' },
+      finalizedBlockHeader: {
+        blockNumber: 100,
+        blockTime: new Date('2026-03-20T20:00:00Z').getTime(),
+        blockHash: '0x64',
+      },
+      events: { on: vi.fn() },
+    };
+    const tracker = new TransactionTracker(Promise.resolve(db), blockWatch as any);
+    vi.spyOn(tracker as any, 'watchForUpdates').mockResolvedValue(undefined);
+
+    try {
+      const txInfo = await tracker.submitAndWatch({
+        client: client as any,
+        tx: createUnsignedTx() as any,
+        txSigner: { address: '5Alice' } as any,
+        extrinsicType: ExtrinsicType.CrosschainTransferAuthorize,
+        useLatestNonce: true,
+      });
+
+      const storedTxs = await db.transactionsTable.fetchAll();
+      expect(storedTxs).toHaveLength(2);
+      expect(storedTxs.map(record => record.txNonce).sort()).toEqual([7, 8]);
+      expect(storedTxs.find(record => record.txNonce === 7)?.status).toBe(TransactionStatus.Error);
+      expect(txInfo.tx.txNonce).toBe(8);
+      expect(txInfo.tx.status).toBe(TransactionStatus.Submitted);
+
+      nextNonce = 9;
+      rejectedNonce = 9;
+      submissionError = new Error('1010: Invalid Transaction: Payment');
+      const rejectedTxInfo = await tracker.submitAndWatch({
+        client: client as any,
+        tx: createUnsignedTx() as any,
+        txSigner: { address: '5Alice' } as any,
+        extrinsicType: ExtrinsicType.CrosschainTransferAuthorize,
+        useLatestNonce: true,
+      });
+
+      const storedTxsAfterGenericError = await db.transactionsTable.fetchAll();
+      expect(storedTxsAfterGenericError).toHaveLength(3);
+      expect(storedTxsAfterGenericError.find(record => record.id === rejectedTxInfo.tx.id)?.status).toBe(
+        TransactionStatus.Error,
+      );
+      expect(storedTxsAfterGenericError.some(record => record.txNonce === 10)).toBe(false);
+    } finally {
+      tracker.shutdown();
+      await db.close();
+    }
+  });
+
+  it('checks the account nonce at the finalized block used for the status scan', async () => {
+    const tx = createTransaction({
+      id: 5,
+      status: TransactionStatus.Submitted,
+      submittedAtBlockHeight: 100,
+      txNonce: 7,
+      blockHeight: undefined,
+      blockHash: undefined,
+    });
+    const { tracker, blockWatch } = await createTracker({
+      txs: [tx],
+      finalizedHeight: 105,
+      finalizedAccountNonce: 7,
+    });
+    const trackerApi = tracker as unknown as ITransactionTrackerTestApi;
+    vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValueOnce(undefined);
+
+    const statusUpdate = trackerApi.updatePendingStatuses({ blockNumber: 105 });
+    blockWatch.finalizedBlockHeader = {
+      blockNumber: 106,
+      blockHash: '0x6a',
+      blockTime: new Date('2026-03-20T20:06:00Z').getTime(),
+    };
+    await statusUpdate;
+
+    expect(blockWatch.getApi).toHaveBeenCalledWith({
+      blockNumber: 105,
+      blockHash: '0x69',
+      blockTime: expect.any(Number),
+    });
+  });
+
+  it('expires an overdue transaction when the finalized nonce lookup fails', async () => {
+    const tx = createTransaction({
+      id: 6,
+      status: TransactionStatus.Submitted,
+      submittedAtBlockHeight: 60,
+      txNonce: 7,
+      blockHeight: undefined,
+      blockHash: undefined,
+    });
+    const { tracker, table } = await createTracker({
+      txs: [tx],
+      finalizedHeight: 125,
+      finalizedAccountError: new Error('WebSocket is not connected'),
+    });
+    const trackerApi = tracker as unknown as ITransactionTrackerTestApi;
+    vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValueOnce(undefined);
+
+    await trackerApi.updatePendingStatuses({ blockNumber: 125 });
+
+    expect(table.markExpiredWaitingForBlock).toHaveBeenCalledWith(tx);
   });
 
   it('treats a dropped attempt as replaceable', async () => {
@@ -439,6 +651,7 @@ describe('TransactionTracker', () => {
 
   it('reserves local nonces above restored pending submissions for concurrent same-account work', async () => {
     vi.mocked(getMainchainClient).mockResolvedValue({
+      tx: vi.fn(() => ({ signAsync: vi.fn() })),
       rpc: {
         chain: {
           getHeader: vi.fn(async () => ({ number: numberCodec(125) })),
@@ -584,6 +797,8 @@ describe('TransactionTracker', () => {
 async function createTracker(args: {
   txs: ITransactionRecord[];
   finalizedHeight: number;
+  finalizedAccountNonce?: number;
+  finalizedAccountError?: Error;
   latestHistoryByTxId?: Map<number, any>;
   headerByHeight?: Record<number, string>;
 }) {
@@ -629,6 +844,16 @@ async function createTracker(args: {
       blockHash: `0x${args.finalizedHeight.toString(16)}`,
     },
     getFinalizedHash: vi.fn(async (blockHeight: number) => args.headerByHeight?.[blockHeight] ?? '0xfinalized-block'),
+    getApi: vi.fn(async () => ({
+      query: {
+        system: {
+          account: vi.fn(async () => {
+            if (args.finalizedAccountError) throw args.finalizedAccountError;
+            return { nonce: numberCodec(args.finalizedAccountNonce ?? 0) };
+          }),
+        },
+      },
+    })),
     getHeader: vi.fn(async (blockHeight: number) => {
       return {
         blockNumber: blockHeight,
