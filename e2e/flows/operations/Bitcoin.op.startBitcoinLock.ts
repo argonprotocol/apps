@@ -99,7 +99,17 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
         clear: true,
         timeoutMs: 3_000,
       });
-      await sleep(500);
+      await pollEvery(
+        50,
+        async () =>
+          (await flow
+            .getAttribute('LockStart.argonAmount', 'data-synced-value', { timeoutMs: 1_000 })
+            .catch(() => null)) === input.minimumLockMicrogons?.toString(),
+        {
+          timeoutMs: 3_000,
+          timeoutMessage: `${flowName}: Argon lock amount did not synchronize to ${input.minimumLockMicrogons}.`,
+        },
+      );
     } else if (input.minimumLockSatoshis != null) {
       await flow.type(
         { selector: '[data-testid="LockStart.bitcoinAmount"] [data-testid="input-number"]' },

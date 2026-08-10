@@ -99,6 +99,7 @@
           <div class="flex w-1/2 flex-row justify-end">
             <InputMoney
               data-testid="LockStart.argonAmount"
+              :data-synced-value="lastSetLiquidityMicrogons.toString()"
               v-model="liquidityToReceive"
               @input="handleArgonChange"
               :disabled="isSaving || isLoadingLiquidity"
@@ -349,7 +350,7 @@ const cannotContinue = Vue.computed(() => {
 const debouncedHandleBtcChange = useDebounceFn(internalHandleBtcChange, 100, { maxWait: 200 });
 const debouncedHandleArgonChange = useDebounceFn(internalHandleArgonChange, 100, { maxWait: 200 });
 
-let lastSetLiquidityMicrogons = 0n;
+const lastSetLiquidityMicrogons = Vue.ref(0n);
 let lastSetBitcoinAmount = 0;
 let availableLiquiditySyncId = 0;
 let pendingAmountSync: Promise<unknown> | undefined;
@@ -371,12 +372,12 @@ function initializeDefaultAmounts(satoshis: bigint, liquidityMicrogons: bigint) 
   liquidityToReceive.value = liquidityMicrogons;
   bitcoinAmount.value = btc;
 
-  lastSetLiquidityMicrogons = liquidityMicrogons;
+  lastSetLiquidityMicrogons.value = liquidityMicrogons;
   lastSetBitcoinAmount = btc;
 }
 
 async function internalHandleArgonChange(liquidityMicrogons: bigint) {
-  if (liquidityMicrogons === lastSetLiquidityMicrogons) {
+  if (liquidityMicrogons === lastSetLiquidityMicrogons.value) {
     return;
   }
   const sats = await bitcoinLocks.satoshisForArgonLiquidity(liquidityMicrogons);
@@ -384,7 +385,7 @@ async function internalHandleArgonChange(liquidityMicrogons: bigint) {
   const btc = currency.convertSatToBtc(sats);
   bitcoinAmount.value = btc;
   lastSetBitcoinAmount = bitcoinAmount.value;
-  lastSetLiquidityMicrogons = liquidityMicrogons;
+  lastSetLiquidityMicrogons.value = liquidityMicrogons;
   updateFeeEstimate();
 }
 
@@ -395,7 +396,7 @@ async function internalHandleBtcChange(value: number) {
   const satoshis = BigInt(Math.round(value * Number(SATS_PER_BTC)));
   lockSatoshis.value = satoshis;
   liquidityToReceive.value = BitcoinLock.calculateRedemptionAmountFromSatoshis(currency.priceIndex, satoshis);
-  lastSetLiquidityMicrogons = liquidityToReceive.value;
+  lastSetLiquidityMicrogons.value = liquidityToReceive.value;
   lastSetBitcoinAmount = value;
   updateFeeEstimate();
 }
