@@ -337,6 +337,61 @@ describe('TransactionTracker', () => {
     });
   });
 
+  it('shares a finalized nonce query across same-account transactions in one status scan', async () => {
+    const txs = [
+      createTransaction({
+        id: 5,
+        status: TransactionStatus.Submitted,
+        txNonce: 7,
+        blockHeight: undefined,
+        blockHash: undefined,
+      }),
+      createTransaction({
+        id: 6,
+        status: TransactionStatus.Submitted,
+        txNonce: 8,
+        blockHeight: undefined,
+        blockHash: undefined,
+      }),
+    ];
+    const { tracker, finalizedAccountQuery } = await createTracker({
+      txs,
+      finalizedHeight: 105,
+      finalizedAccountNonce: 7,
+    });
+    const trackerApi = tracker as unknown as ITransactionTrackerTestApi;
+    vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValue(undefined);
+
+    await trackerApi.updatePendingStatuses({ blockNumber: 105 });
+    await trackerApi.updatePendingStatuses({ blockNumber: 105 });
+
+    expect(finalizedAccountQuery).toHaveBeenCalledOnce();
+  });
+
+  it('retries a failed finalized nonce query without waiting for a new finalized block', async () => {
+    const tx = createTransaction({
+      id: 6,
+      status: TransactionStatus.Submitted,
+      submittedAtBlockHeight: 100,
+      txNonce: 7,
+      blockHeight: undefined,
+      blockHash: undefined,
+    });
+    const { tracker, table, finalizedAccountQuery } = await createTracker({
+      txs: [tx],
+      finalizedHeight: 105,
+      finalizedAccountError: new Error('WebSocket is not connected'),
+    });
+    const trackerApi = tracker as unknown as ITransactionTrackerTestApi;
+    vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValue(undefined);
+
+    await trackerApi.updatePendingStatuses({ blockNumber: 105 });
+    await trackerApi.updatePendingStatuses({ blockNumber: 105 });
+
+    expect(finalizedAccountQuery).toHaveBeenCalledTimes(2);
+    expect(table.updateFinalizedHead).not.toHaveBeenCalled();
+  });
+
   it('expires an overdue transaction when the finalized nonce lookup fails', async () => {
     const tx = createTransaction({
       id: 6,
@@ -803,6 +858,10 @@ async function createTracker(args: {
   headerByHeight?: Record<number, string>;
 }) {
   let insertedId = Math.max(0, ...args.txs.map(tx => tx.id));
+  const finalizedAccountQuery = vi.fn(async () => {
+    if (args.finalizedAccountError) throw args.finalizedAccountError;
+    return { nonce: numberCodec(args.finalizedAccountNonce ?? 0) };
+  });
   const table = {
     fetchAll: vi.fn().mockResolvedValue(args.txs),
     insert: vi.fn(async (record: Partial<ITransactionRecord>) =>
@@ -847,10 +906,7 @@ async function createTracker(args: {
     getApi: vi.fn(async () => ({
       query: {
         system: {
-          account: vi.fn(async () => {
-            if (args.finalizedAccountError) throw args.finalizedAccountError;
-            return { nonce: numberCodec(args.finalizedAccountNonce ?? 0) };
-          }),
+          account: finalizedAccountQuery,
         },
       },
     })),
@@ -872,7 +928,7 @@ async function createTracker(args: {
   vi.spyOn(tracker as any, 'watchForUpdates').mockResolvedValue(undefined);
   await tracker.load();
 
-  return { tracker, table, blockWatch };
+  return { tracker, table, blockWatch, finalizedAccountQuery };
 }
 
 function createLoadTracker(args: {

@@ -486,6 +486,7 @@ export class TransactionTracker {
     const table = await this.getTable();
     const bestBlockNumber = bestBlockInfo.blockNumber;
     const checkedTxIds = new Set<number>();
+    const finalizedAccountNonceByAddress = new Map<string, Promise<number | undefined>>();
 
     for (const txInfo of this.data.txInfos) {
       const { tx, txResult } = txInfo;
@@ -577,11 +578,44 @@ export class TransactionTracker {
         } else {
           console.log('[TransactionTracker] No transaction found as of block', { bestBlockNumber, id: tx.id });
 
-          const invalidError = await this.getConsumedNonceError(tx, finalizedBlockHeader);
-          if (invalidError) {
-            await this.recordInvalidTransaction(tx, txResult, invalidError, TransactionHistorySource.Local);
-            checkedTxIds.add(tx.id);
-            continue;
+          let finalizedNonceLookupFailed = false;
+          if (tx.txNonce != null && tx.finalizedHeadHeight !== finalizedHeight) {
+            let finalizedAccountNoncePromise = finalizedAccountNonceByAddress.get(tx.accountAddress);
+            if (!finalizedAccountNoncePromise) {
+              finalizedAccountNoncePromise = (async () => {
+                try {
+                  const api = await this.blockWatch.getApi(finalizedBlockHeader);
+                  const account = await api.query.system.account(tx.accountAddress);
+                  return account.nonce.toNumber();
+                } catch (error) {
+                  console.warn('[TransactionTracker] Unable to check finalized account nonce', {
+                    accountAddress: tx.accountAddress,
+                    finalizedHeight,
+                    error,
+                  });
+                }
+              })();
+              finalizedAccountNonceByAddress.set(tx.accountAddress, finalizedAccountNoncePromise);
+            }
+
+            const finalizedAccountNonce = await finalizedAccountNoncePromise;
+            if (finalizedAccountNonce === undefined) {
+              finalizedNonceLookupFailed = true;
+            } else if (finalizedAccountNonce > tx.txNonce) {
+              const error = new TxSubmissionError(
+                TxSubmissionErrorCode.Invalid,
+                'Transaction nonce was already used by another transaction.',
+              );
+              txResult.submissionError = error;
+              await this.recordHistoryStatus({
+                transactionId: tx.id,
+                status: TransactionHistoryStatus.Invalid,
+                source: TransactionHistorySource.Local,
+              });
+              await this.recordSubmissionError(tx, error);
+              checkedTxIds.add(tx.id);
+              continue;
+            }
           }
 
           if (finalizedHeight - tx.submittedAtBlockHeight > MAX_BLOCKS_TO_CHECK) {
@@ -590,6 +624,9 @@ export class TransactionTracker {
             txResult.extrinsicError = new Error('Transaction expired waiting for block inclusion');
             await txResult.setFinalized();
             await table.markExpiredWaitingForBlock(tx);
+          } else if (finalizedNonceLookupFailed) {
+            // Retry this account at the same finalized head after a transient RPC failure.
+            continue;
           }
         }
         checkedTxIds.add(tx.id);
@@ -635,45 +672,6 @@ export class TransactionTracker {
     if (record.status === TransactionStatus.Error) return;
     const table = await this.getTable();
     await table.recordSubmissionError(record, error);
-  }
-
-  private async getConsumedNonceError(
-    record: ITransactionRecord,
-    finalizedBlockHeader: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>,
-  ): Promise<TxSubmissionError | undefined> {
-    if (record.txNonce == null) return;
-
-    try {
-      const api = await this.blockWatch.getApi(finalizedBlockHeader);
-      const account = await api.query.system.account(record.accountAddress);
-      if (account.nonce.toNumber() <= record.txNonce) return;
-
-      return new TxSubmissionError(
-        TxSubmissionErrorCode.Invalid,
-        'Transaction nonce was already used by another transaction.',
-      );
-    } catch (error) {
-      console.warn('[TransactionTracker] Unable to check finalized account nonce', {
-        accountAddress: record.accountAddress,
-        finalizedHeight: finalizedBlockHeader.blockNumber,
-        error,
-      });
-    }
-  }
-
-  private async recordInvalidTransaction(
-    record: ITransactionRecord,
-    txResult: TxResult,
-    error: Error,
-    source: TransactionHistorySource,
-  ): Promise<void> {
-    txResult.submissionError = error;
-    await this.recordHistoryStatus({
-      transactionId: record.id,
-      status: TransactionHistoryStatus.Invalid,
-      source,
-    });
-    await this.recordSubmissionError(record, error);
   }
 
   private async reserveLatestNonce(
