@@ -567,8 +567,8 @@ Vue.onMounted(async () => {
     if (
       txInfo.tx.extrinsicType === ExtrinsicType.Transfer &&
       normalizeMoveFrom(metadata.moveFrom) === moveFrom.value &&
-      normalizeMoveTo(metadata.moveTo) === props.moveTo &&
-      (metadata.assetsToMove[props.moveToken] ?? 0n) > 0n
+      (props.moveTo === undefined || normalizeMoveTo(metadata.moveTo) === props.moveTo) &&
+      (metadata.assetsToMove?.[props.moveToken] ?? 0n) > 0n
     ) {
       pendingTxInfo.value = txInfo;
       emit('transactionPending', true);
