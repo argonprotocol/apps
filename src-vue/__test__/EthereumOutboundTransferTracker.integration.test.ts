@@ -1795,11 +1795,12 @@ describe('EthereumOutboundTransferTracker integration', () => {
     });
   });
 
-  it('recovers a submitted Ethereum transfer after app restart', async () => {
+  it('resubmits a dropped Ethereum transfer after app restart', async () => {
     const db = await createTestDb();
     const walletKeys = createMockWalletKeys();
     const transferId = 'outbound-submitted-target-chain';
     const targetTxHash = `0x${'b2'.repeat(32)}` as const;
+    const replacementTxHash = `0x${'b4'.repeat(32)}` as const;
     const blockWatch = createBlockWatch({
       initialHeader: { blockNumber: 12, blockHash: '0xready' },
       getApi: async () => ({}),
@@ -1919,19 +1920,20 @@ describe('EthereumOutboundTransferTracker integration', () => {
       expect(transfer?.transferState.error).toBe('');
     });
 
+    const staleSubmittedRecord = await db.crosschainOutboundTransfersTable.get(transferId);
+    vi.spyOn(db.crosschainOutboundTransfersTable, 'fetchAll').mockResolvedValueOnce([
+      { ...staleSubmittedRecord!, updatedAt: new Date(0) },
+    ]);
+
     const trackerAfterRestart = new EthereumOutboundTransferTracker(
       Promise.resolve(db),
       transactionTracker as any,
       blockWatch.instance as any,
       walletKeys,
       {
-        estimateFinalizeTransferOutOfArgonFee: vi.fn(async () => {
-          throw new Error('should not re-estimate after Ethereum submission');
-        }),
+        estimateFinalizeTransferOutOfArgonFee: vi.fn(async () => 1n),
         getNativeBalanceWei: vi.fn(async () => 10n),
-        finalizeTransferOutOfArgon: vi.fn(async () => {
-          throw new Error('should not resubmit after Ethereum submission');
-        }),
+        finalizeTransferOutOfArgon: vi.fn(async () => replacementTxHash),
         getTransactionProgress: vi.fn(
           async () =>
             ({
@@ -1944,21 +1946,25 @@ describe('EthereumOutboundTransferTracker integration', () => {
             }) satisfies IEthereumTransactionProgress,
         ),
         getTransactionFinalityPollMs: vi.fn(() => 1),
-        waitForTransactionFinality: vi.fn(
-          async () =>
-            ({
-              blockNumber: 99,
-              blockHash: `0x${'b3'.repeat(32)}`,
-              confirmations: 1,
-              expectedConfirmations: 1,
-              progressPct: 100,
-              isFinalized: true,
-            }) satisfies IFinalizedEthereumTransactionProgress,
-        ),
+        isTransactionVisible: vi.fn(async () => false),
+        waitForTransactionFinality: vi.fn(async ({ txHash }: { txHash: string }) => {
+          if (txHash === targetTxHash) {
+            throw new Error('the dropped hash should be replaced before waiting for finality');
+          }
+
+          return {
+            blockNumber: 99,
+            blockHash: `0x${'b3'.repeat(32)}`,
+            confirmations: 1,
+            expectedConfirmations: 1,
+            progressPct: 100,
+            isFinalized: true,
+          } satisfies IFinalizedEthereumTransactionProgress;
+        }),
         confirmTransferOutOfArgon: vi.fn(
           async () =>
             ({
-              targetTxHash,
+              targetTxHash: replacementTxHash,
               targetBlockNumber: 99,
               targetBlockHash: `0x${'b3'.repeat(32)}`,
               gatewayActivityNonce: 11n,
@@ -1972,6 +1978,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
     await vi.waitFor(async () => {
       const persisted = await db.crosschainOutboundTransfersTable.get(transferId);
       expect(persisted?.status).toBe(CrosschainOutboundTransferStatus.TransferFinalizedOnTargetChain);
+      expect(persisted?.targetTxHash).toBe(replacementTxHash);
       expect(persisted?.failureReason).toBeNull();
       expect(trackerAfterRestart.getTransfer(transferId)?.transferState.error).toBe('');
       expect(trackerAfterRestart.getTransfer(transferId)?.transferState.progress.overallProgressPct).toBe(100);

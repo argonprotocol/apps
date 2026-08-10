@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   decodeFunctionData,
   keccak256,
+  parseTransaction,
   TransactionNotFoundError,
   TransactionReceiptNotFoundError,
   type Hex,
@@ -112,6 +113,71 @@ describe('EthereumClient', () => {
         fallbackErrorMessage: 'fallback',
       }),
     ).rejects.toThrow('Missing or invalid parameters. Double check you have provided the correct parameters.');
+  });
+
+  it('reserves distinct Ethereum nonces for concurrent outbound finalizations', async () => {
+    const walletKeys = createMockWalletKeys();
+    const ethereumClient = new EthereumClient(walletKeys, 'https://ethereum.test');
+    const gatewayAddress = repeatHex('11', 20);
+    const submittedNonces: number[] = [];
+    let nextNonce = 3;
+    const publicClient = {
+      getTransactionCount: vi.fn(async () => nextNonce),
+      estimateGas: vi.fn(async () => 100_000n),
+      estimateFeesPerGas: vi.fn(async () => ({
+        gasPrice: 1n,
+        maxFeePerGas: 1n,
+        maxPriorityFeePerGas: 1n,
+      })),
+      sendRawTransaction: vi.fn(async ({ serializedTransaction }: { serializedTransaction: Hex }) => {
+        const nonce = parseTransaction(serializedTransaction).nonce!;
+        submittedNonces.push(nonce);
+        nextNonce = nonce + 1;
+        return toHex(nonce, { size: 32 });
+      }),
+    };
+    Object.assign(ethereumClient, {
+      loadChainConfig: async () => ({
+        chainId: 1,
+        gatewayAddress,
+        argonTokenAddress: repeatHex('22', 20),
+        argonotTokenAddress: repeatHex('33', 20),
+      }),
+      createExecutionClient: async () => ({
+        chain: { id: 1 },
+        publicClient,
+      }),
+    });
+    const proof = {
+      authorizations: [
+        {
+          microgonCollateral: 100n,
+          micronotCollateral: 0n,
+          signature: `${repeatHex('00', 64)}1c` as const,
+        },
+      ],
+    };
+
+    await Promise.all(
+      [1n, 2n].map(argonTransferNonce =>
+        ethereumClient.finalizeTransferOutOfArgon({
+          request: {
+            argonAccountId: repeatHex('44', 32),
+            argonTransferNonce,
+            chainId: 1n,
+            microgonsPerArgonot: 3n,
+            recipient: walletKeys.ethereumAddress,
+            validUntilBlock: 500n,
+            token: repeatHex('22', 20),
+            amount: 100n,
+            mintingAuthorityTip: 1n,
+          },
+          proof,
+        }),
+      ),
+    );
+
+    expect(submittedNonces).toEqual([3, 4]);
   });
 
   it('routes Ethereum balance requests through plugin-http', async () => {

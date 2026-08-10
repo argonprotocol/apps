@@ -42,6 +42,7 @@ import type { MintingAuthorities, IMintingAuthorityAuthorizeMetadata } from './M
 import { existentialDepositMicrogons, existentialDepositMicronots } from './WalletForArgon.ts';
 
 const NETWORK = 'Ethereum';
+const ETHEREUM_TRANSACTION_NOT_FOUND_TIMEOUT_MS = 120_000;
 type IEthereumOutboundTransferClient = Pick<
   EthereumClient,
   | 'estimateFinalizeTransferOutOfArgonFee'
@@ -52,7 +53,7 @@ type IEthereumOutboundTransferClient = Pick<
   | 'getTransactionFinalityPollMs'
   | 'waitForTransactionFinality'
 > &
-  Partial<Pick<EthereumClient, 'estimateLikelyFinalizeTransferOutOfArgonFee'>>;
+  Partial<Pick<EthereumClient, 'estimateLikelyFinalizeTransferOutOfArgonFee' | 'isTransactionVisible'>>;
 
 export type ICrosschainTransferOutMetadata = {
   actionType: 'transferOutToEthereum';
@@ -891,6 +892,25 @@ export class EthereumOutboundTransferTracker {
 
     transfer.transferState.error = '';
     let activeRecord = record;
+    if (
+      activeRecord.status === CrosschainOutboundTransferStatus.TransferSubmittedToTargetChain &&
+      activeRecord.targetTxHash &&
+      this.ethereumClient.isTransactionVisible &&
+      Date.now() - activeRecord.updatedAt.getTime() >= ETHEREUM_TRANSACTION_NOT_FOUND_TIMEOUT_MS &&
+      !(await this.ethereumClient.isTransactionVisible(activeRecord.targetTxHash))
+    ) {
+      transfer.transferState.progress = setOutboundEthereumStepProgress(transfer.transferState.progress, {
+        progressPct: 0,
+        detail: 'Preparing Ethereum transfer retry...',
+      });
+      const db = await this.dbPromise;
+      activeRecord = (await db.crosschainOutboundTransfersTable.patch(activeRecord.id, {
+        status: CrosschainOutboundTransferStatus.MintingAuthorized,
+        progressJson: transfer.transferState.progress,
+      }))!;
+      transfer.persistedRecord = activeRecord;
+    }
+
     if (activeRecord.status === CrosschainOutboundTransferStatus.MintingAuthorized) {
       transfer.transferState.progress = setOutboundEthereumStepProgress(transfer.transferState.progress, {
         progressPct: 0,
