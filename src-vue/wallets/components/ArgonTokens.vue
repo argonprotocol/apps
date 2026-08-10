@@ -27,7 +27,7 @@
         @transactionPending="updateTransferPending(MoveToken.ARGN, $event)"
       >
         <MoveArrowButton
-          :disabled="!moveMicrogons || !canMoveToDestination"
+          :disabled="!moveMicrogons || (!canMoveToDestination && !argonTransferPending)"
           :pending="argonTransferPending"
           :placement="props.movePlacement"
           :title="argonMoveTitle"
@@ -61,7 +61,7 @@
         @transactionPending="updateTransferPending(MoveToken.ARGNOT, $event)"
       >
         <MoveArrowButton
-          :disabled="!moveMicronots || !canMoveToDestination"
+          :disabled="!moveMicronots || (!canMoveToDestination && !argonotTransferPending)"
           :pending="argonotTransferPending"
           :placement="props.movePlacement"
           :title="argonotMoveTitle"
@@ -147,7 +147,7 @@ const emit = defineEmits<{
       availableAmount: bigint;
     },
   ): void;
-  (e: 'customTransferStarted'): void;
+  (e: 'customTransferPending', value: boolean): void;
 }>();
 
 function updateTransferPending(moveToken: MoveToken, isPending: boolean) {
@@ -156,8 +156,8 @@ function updateTransferPending(moveToken: MoveToken, isPending: boolean) {
   } else {
     argonotTransferPending.value = isPending;
   }
-  if (isPending && props.moveTo === MoveTo.External) {
-    emit('customTransferStarted');
+  if (props.moveTo === MoveTo.External) {
+    emit('customTransferPending', argonTransferPending.value || argonotTransferPending.value);
   }
 }
 

@@ -415,6 +415,15 @@ export class MoveCapital {
   ) {
     client ??= await getMainchainClient(false);
     const txs: SubmittableExtrinsic[] = [...prependedTxs];
+
+    if (moveTo === MoveTo.MiningBot) {
+      toAddress = this.walletKeys.miningBotAddress;
+    } else if (moveTo === MoveTo.DefaultArgon) {
+      toAddress = this.walletKeys.defaultArgonAddress;
+    } else if (moveTo === MoveTo.VaultingSecurity) {
+      toAddress = this.walletKeys.vaultingAddress;
+    }
+
     const externalMeta = this.checkAddressType(toAddress);
 
     if (moveTo === MoveTo.External && !externalMeta.isArgonAddress) {

@@ -563,18 +563,19 @@ Vue.onMounted(async () => {
     if (transactionsShownCompleted.has(txInfo.tx.id)) {
       continue;
     }
+    const metadata = txInfo.tx.metadataJson as ITransactionMoveMetadata;
     if (
       txInfo.tx.extrinsicType === ExtrinsicType.Transfer &&
-      normalizeMoveFrom(txInfo.tx.metadataJson.moveFrom) === moveFrom.value &&
-      txInfo.tx.metadataJson.assetsToMove?.[props.moveToken] > 0n
+      normalizeMoveFrom(metadata.moveFrom) === moveFrom.value &&
+      normalizeMoveTo(metadata.moveTo) === props.moveTo &&
+      (metadata.assetsToMove[props.moveToken] ?? 0n) > 0n
     ) {
-      const metdata = txInfo.tx.metadataJson as ITransactionMoveMetadata;
       pendingTxInfo.value = txInfo;
       emit('transactionPending', true);
       isProcessing.value = true;
-      amountToMove.value = metdata.assetsToMove[MoveToken.ARGN] ?? metdata.assetsToMove[MoveToken.ARGNOT] ?? 0n;
-      moveTo.value = normalizeMoveTo(metdata.moveTo);
-      externalAddress.value = metdata.externalAddress || '';
+      amountToMove.value = metadata.assetsToMove[MoveToken.ARGN] ?? metadata.assetsToMove[MoveToken.ARGNOT] ?? 0n;
+      moveTo.value = normalizeMoveTo(metadata.moveTo);
+      externalAddress.value = metadata.externalAddress || '';
       checkExternalAddress();
       console.log('Resuming pending transfer: %o', txInfo);
       trackTxInfo(txInfo);
