@@ -892,13 +892,25 @@ export class EthereumOutboundTransferTracker {
 
     transfer.transferState.error = '';
     let activeRecord = record;
+    let shouldRetrySubmittedTransfer = false;
     if (
       activeRecord.status === CrosschainOutboundTransferStatus.TransferSubmittedToTargetChain &&
       activeRecord.targetTxHash &&
       this.ethereumClient.isTransactionVisible &&
-      Date.now() - activeRecord.updatedAt.getTime() >= ETHEREUM_TRANSACTION_NOT_FOUND_TIMEOUT_MS &&
-      !(await this.ethereumClient.isTransactionVisible(activeRecord.targetTxHash))
+      Date.now() - activeRecord.updatedAt.getTime() >= ETHEREUM_TRANSACTION_NOT_FOUND_TIMEOUT_MS
     ) {
+      try {
+        shouldRetrySubmittedTransfer =
+          (await this.ethereumClient.isTransactionVisible(activeRecord.targetTxHash)) === false;
+      } catch (error) {
+        console.warn(
+          `[EthereumOutboundTransferTracker] Unable to verify Ethereum transaction visibility for ${record.id}; continuing to wait for finality`,
+          error,
+        );
+      }
+    }
+
+    if (shouldRetrySubmittedTransfer) {
       transfer.transferState.progress = setOutboundEthereumStepProgress(transfer.transferState.progress, {
         progressPct: 0,
         detail: 'Preparing Ethereum transfer retry...',
