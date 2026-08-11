@@ -31,13 +31,13 @@ export class VaultRevenueEventsTable extends BaseTable {
         VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT DO UPDATE SET
           amount = CASE
-            WHEN VaultRevenueEvents.blockHash != excluded.blockHash THEN excluded.amount
+            WHEN VaultRevenueEvents.blockHash IS NOT excluded.blockHash THEN excluded.amount
             ELSE VaultRevenueEvents.amount
           END,
           blockHash = excluded.blockHash,
           blockTime = COALESCE(excluded.blockTime, VaultRevenueEvents.blockTime),
           extrinsicIndex = COALESCE(excluded.extrinsicIndex, VaultRevenueEvents.extrinsicIndex)
-        WHERE VaultRevenueEvents.blockHash != excluded.blockHash
+        WHERE VaultRevenueEvents.blockHash IS NOT excluded.blockHash
            OR (VaultRevenueEvents.blockTime IS NULL AND excluded.blockTime IS NOT NULL)
            OR (VaultRevenueEvents.extrinsicIndex IS NULL AND excluded.extrinsicIndex IS NOT NULL)
         RETURNING *;`,
