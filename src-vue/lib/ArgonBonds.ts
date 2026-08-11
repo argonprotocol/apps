@@ -204,7 +204,7 @@ export class ArgonBonds {
     this.data.currentFrameId = args.currentFrameId;
 
     const refreshes: Promise<void>[] = [];
-    refreshes.push(this.refreshBondLots(args.client));
+    refreshes.push(this.miningFrames.blockWatch.getCurrentApi().then(client => this.refreshBondLots(client)));
     if (this.isGlobalSubscribed) {
       refreshes.push(
         TreasuryBonds.getDistributableBidPool(args.client).then(value => {

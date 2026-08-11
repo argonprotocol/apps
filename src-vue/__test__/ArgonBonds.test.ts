@@ -14,6 +14,46 @@ const registry = getOfflineRegistry();
 const accountId = encodeAddress(new Uint8Array(32).fill(0x22));
 
 describe('ArgonBonds', () => {
+  it('keeps best-chain bond purchases visible during active-state recovery', async () => {
+    const lotCodec = registry.createType<PalletTreasuryBondLot>('PalletTreasuryBondLot', {
+      owner: accountId,
+      program: { Argonot: null },
+      bonds: 20,
+      createdFrameId: 4,
+      participatedFrames: 0,
+      lastFrameEarningsFrameId: null,
+      lastFrameEarnings: null,
+      cumulativeEarnings: 0,
+      releaseFrameId: null,
+      releaseReason: null,
+    });
+    const finalizedLot = BondLot.fromRuntime(7, lotCodec, accountId);
+    const bestChainLot = BondLot.fromRuntime(8, lotCodec, accountId);
+    const finalizedClient = {};
+    const currentClient = {};
+    const blockWatch = {
+      getCurrentApi: vi.fn(async () => currentClient),
+    };
+    const getBondLots = vi.spyOn(TreasuryBonds, 'getBondLotsByAccount').mockImplementation(async client => {
+      return client === currentClient ? [finalizedLot, bestChainLot] : [finalizedLot];
+    });
+    const argonBonds = new ArgonBonds(
+      Promise.resolve({} as any),
+      { isLoadedPromise: Promise.resolve(), upstreamOperator: undefined },
+      new Currency({ events: { on: vi.fn() } } as any),
+      { blockWatch } as any,
+      { defaultArgonAddress: accountId } as any,
+      {} as any,
+    );
+    argonBonds.data.isLoaded = true;
+    argonBonds.data.bondLots = [finalizedLot, bestChainLot];
+
+    await argonBonds.refreshActiveState({ client: finalizedClient as any, currentFrameId: 4 });
+
+    expect(argonBonds.data.bondLots.map(lot => lot.id)).toEqual([7, 8]);
+    getBondLots.mockRestore();
+  });
+
   it('records automatic releases from finalized frame blocks', async () => {
     const db = await createTestDb();
     const lot = registry.createType<PalletTreasuryBondLot>('PalletTreasuryBondLot', {
