@@ -777,7 +777,9 @@ export default class BitcoinLocks {
         BigNumber(projectedAvailableSecuritization).dividedBy(vault.securitizationRatioBN()),
       );
     }
-    await this.#currency.isLoadedPromise;
+    if (!this.#currency.isLoaded) {
+      await this.#currency.load();
+    }
     const vaultCapacitySatoshis = BitcoinLock.satoshisRequiredForRedemptionAmount(
       this.#currency.priceIndex,
       vaultCapacityLiquidityMicrogons,

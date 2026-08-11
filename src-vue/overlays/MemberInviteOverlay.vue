@@ -419,13 +419,12 @@ async function loadInviteCapacity(preserveGiftAmount = false) {
     projectedBackfillSecuritizationLocked = projectedBackfillMicrogons;
   }
 
-  const { availableSatoshis, availableLiquidityMicrogons, vaultCapacityLiquidityMicrogons } =
-    await bitcoinLocks.getLockableBitcoinCapacity({
-      vault: currentVault,
-      projectedBackfillSecuritizationLocked,
-    });
+  const { availableSatoshis, availableLiquidityMicrogons } = await bitcoinLocks.getLockableBitcoinCapacity({
+    vault: currentVault,
+    projectedBackfillSecuritizationLocked,
+  });
 
-  const wholeArgonCapacity = vaultCapacityLiquidityMicrogons - (vaultCapacityLiquidityMicrogons % microgonsPerArgon);
+  const wholeArgonCapacity = availableLiquidityMicrogons - (availableLiquidityMicrogons % microgonsPerArgon);
 
   maxLockableSatoshis.value = availableSatoshis;
   maxLockableMicrogons.value = wholeArgonCapacity;
