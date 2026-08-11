@@ -217,7 +217,7 @@ export class Vaults {
       const vaultFramesSeen = new Set<string>();
       const argonotPoolsByFrame = new Map<number, bigint>();
       const argonotCapitalByFrame = new Map<number, { participatingBonds: number; microgonsPerArgonot: bigint }>();
-      let newestFinalizedFrameSeen = 0;
+      let newestCompletedFrameSeen = 0;
 
       await new FrameIterator(clients, this.miningFrames, 'VaultHistory').iterateFramesLimited(
         async (frameId, firstBlockMeta, api, abortController) => {
@@ -231,7 +231,7 @@ export class Vaults {
           if (firstBlockMeta.blockNumber > finalizedHead.blockNumber) {
             return;
           }
-          newestFinalizedFrameSeen = Math.max(newestFinalizedFrameSeen, frameId);
+          newestCompletedFrameSeen = Math.max(newestCompletedFrameSeen, frameId - 1);
 
           if ('currentFrameArgonotBondParticipants' in api.query.treasury) {
             const [participantsOption, rates, events] = await Promise.all([
@@ -302,7 +302,7 @@ export class Vaults {
       this.stats.argonotStakingByFrame = [...retainedArgonotFrames, ...refreshedArgonotStats].sort(
         (a, b) => b.frameId - a.frameId,
       );
-      this.stats.synchedToFrame = Math.max(newestFinalizedFrameSeen, ...frameIdsSeen, this.stats.synchedToFrame);
+      this.stats.synchedToFrame = Math.max(newestCompletedFrameSeen, ...frameIdsSeen, this.stats.synchedToFrame);
       this.stats.formatVersion = VAULT_STATS_FORMAT_VERSION;
       await this.saveStats();
       refreshingDeferred.resolve(this.stats);

@@ -63,6 +63,55 @@ describe('Vaults load retry', () => {
   });
 });
 
+describe('Vault revenue sync', () => {
+  it('stores the latest completed frame when the current frame has finalized blocks', async () => {
+    vi.useFakeTimers();
+
+    const api = {
+      query: {
+        treasury: {},
+        vaults: {
+          revenuePerFrameByVault: { entries: vi.fn().mockResolvedValue([]) },
+        },
+      },
+    };
+    const miningFrames = {
+      load: vi.fn().mockResolvedValue(undefined),
+      frameIds: [20],
+      framesById: { 20: { firstBlockHash: '0x20' } },
+      getFrameStart: vi.fn().mockResolvedValue({
+        frame: {
+          firstBlockSpecVersion: 200,
+          firstBlockNumber: 100,
+          firstBlockHash: '0x20',
+          firstBlockTick: 1_000,
+        },
+        api,
+      }),
+      blockWatch: { finalizedBlockHeader: { blockNumber: 100 } },
+    };
+    const mainchainClients = {
+      get: vi.fn().mockResolvedValue({
+        query: {
+          vaults: {
+            vaultsById: { entries: vi.fn().mockResolvedValue([]) },
+          },
+        },
+      }),
+    };
+    const vaults = new Vaults('mainnet', {} as any, miningFrames as any, mainchainClients as any);
+    vaults.stats = createStats([]);
+    vaults.stats.synchedToFrame = 18;
+
+    await vaults.updateRevenue();
+
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+
+    expect(vaults.stats.synchedToFrame).toBe(19);
+  });
+});
+
 describe('Vault and bond network returns', () => {
   it('uses the inclusive return window for coupon-net vault income and recorded external bond earnings', () => {
     const vaults = createVaults();
