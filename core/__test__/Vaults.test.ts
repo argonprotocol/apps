@@ -65,6 +65,8 @@ describe('Vaults load retry', () => {
 
 describe('Vault revenue sync', () => {
   it('stores the latest completed frame when the current frame has finalized blocks', async () => {
+    vi.useFakeTimers();
+
     const api = {
       query: {
         treasury: {},
@@ -102,6 +104,9 @@ describe('Vault revenue sync', () => {
     vaults.stats.synchedToFrame = 18;
 
     await vaults.updateRevenue();
+
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
 
     expect(vaults.stats.synchedToFrame).toBe(19);
   });
