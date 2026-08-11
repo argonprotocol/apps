@@ -40,7 +40,7 @@
                   class="pointer-events-none absolute top-1/2 -right-3 -translate-y-1/2 translate-x-full z-50 -mt-0.5"
                 />
               </h2>
-              <p v-if="hasMiningMachine">
+              <p v-if="config.isServerAdded">
                 <template v-if="config.serverAdd?.localComputer">This local computer will be used to run your mining software. We've already checked its requirements.</template>
                 <template v-else-if="config.serverAdd?.digitalOcean">Your Digital Ocean API Key is ready to go. We will do all the work of creating and setting up your server.</template>
                 <template v-else>Your custom server is connected and verified. We'll do the work of installing and configuring the software.</template>
@@ -201,7 +201,7 @@ const futureTransactionFeeBudgetMicrogons = 2n * BigInt(MICROGONS_PER_ARGON);
 const treasuryBondSuggestionIncrementMicrogons = 100n * BigInt(MICROGONS_PER_ARGON);
 
 const serverConnectIsChecked = Vue.computed(() => {
-  return wallets.isLoaded && hasMiningMachine.value;
+  return wallets.isLoaded && config.isServerAdded;
 });
 
 const currentStep = Vue.computed(() => {
@@ -258,11 +258,6 @@ const walletIsFullyFunded = Vue.computed(() => {
   }
 
   return true;
-});
-
-const hasMiningMachine = Vue.computed(() => {
-  const x = config.serverAdd;
-  return !!x?.customServer || !!x?.localComputer || !!x?.digitalOcean;
 });
 
 function calculateAlignOffset(event: MouseEvent, parentElement: HTMLElement | null, align: 'start' | 'end') {

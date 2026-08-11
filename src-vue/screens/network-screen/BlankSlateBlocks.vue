@@ -76,6 +76,7 @@ import { useBlockchainStore } from '../../stores/blockchain.ts';
 import dayjs, { Dayjs } from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { Motion } from 'motion-v';
+import { getElapsedTime } from '../../lib/ElapsedTime.ts';
 
 dayjs.extend(utc);
 
@@ -185,9 +186,9 @@ async function loadBlocks() {
 function updateTimeSinceBlock(runContinuously: boolean = true) {
   if (lastBlockTimestamp) {
     const now = dayjs.utc();
-    const totalSecondsSinceBlock = now.diff(lastBlockTimestamp, 'seconds');
-    minutesSinceBlock.value = totalSecondsSinceBlock < 60 ? 0 : Math.floor(totalSecondsSinceBlock / 60);
-    secondsSinceBlock.value = totalSecondsSinceBlock % 60;
+    const elapsed = getElapsedTime(now.diff(lastBlockTimestamp, 'seconds'));
+    minutesSinceBlock.value = elapsed.totalSeconds < 60 ? 0 : Math.floor(elapsed.totalSeconds / 60);
+    secondsSinceBlock.value = elapsed.seconds;
   }
   if (runContinuously) {
     timeSinceBlockTimeout = setTimeout(updateTimeSinceBlock, 1000);
