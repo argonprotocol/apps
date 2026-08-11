@@ -919,6 +919,7 @@ export class MyVault {
           vaultId,
           committedMicronots,
         },
+        useLatestNonce: true,
       });
     }).promise;
   }

@@ -162,6 +162,7 @@ import SponsorOverlay from './overlays/SponsorOverlay.vue';
 import { getMainchainClient, getMainchainClients } from './stores/mainchain.ts';
 import { getMyVault } from './stores/vaults.ts';
 import { getArgonBonds } from './stores/argonBonds.ts';
+import { getEthereumOutboundTransferTracker } from './stores/moveToEthereum.ts';
 
 const runtimeCompatibility = useRuntimeCompatibility();
 const { isBrowserUnsupported, shouldShowCompatibilityScreen } = storeToRefs(runtimeCompatibility);
@@ -182,6 +183,9 @@ if (!isBrowserUnsupported.value) {
   tour = useTour();
   bot = getBot();
   updater.start();
+  void config.isLoadedPromise
+    .then(() => getEthereumOutboundTransferTracker())
+    .catch(error => console.error('[App] Unable to start outbound Ethereum transfer tracking', error));
 }
 
 const order = [TopTab.Home, TopTab.Mining, TopTab.Vaulting];

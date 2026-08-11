@@ -7,6 +7,7 @@ import {
   logEthereumExecutionRpcFallback,
   MoveToken,
   NetworkConfig,
+  SingleFileQueue,
 } from '@argonprotocol/apps-core';
 import {
   decodeAddress,
@@ -173,6 +174,8 @@ type IPreparedGatewayRelay = IEthereumGatewayRelayPreview & {
 };
 
 export class EthereumClient {
+  #outboundFinalizationQueue = new SingleFileQueue();
+
   constructor(
     private readonly walletKeys: Pick<
       WalletKeys,
@@ -345,6 +348,11 @@ export class EthereumClient {
     };
   }
 
+  public async isTransactionVisible(txHash: Hash): Promise<boolean> {
+    const { publicClient } = await this.createExecutionClient();
+    return await isEthereumTransactionVisibleAtRpc(publicClient, txHash);
+  }
+
   public async waitForTransactionFinality(args: {
     txHash: Hash;
     blockNumber?: number;
@@ -392,26 +400,28 @@ export class EthereumClient {
   }
 
   public async finalizeTransferOutOfArgon(args: IEthereumFinalizeTransferOutOfArgonArgs): Promise<Hash> {
-    const chainConfig = await this.loadChainConfig();
-    const { chain, publicClient } = await this.createExecutionClient();
-    const { transaction, unsignedTransaction } = await buildEthereumUnsignedTransaction({
-      publicClient,
-      from: getAddress(this.walletKeys.ethereumAddress),
-      chainId: chain.id,
-      to: chainConfig.gatewayAddress,
-      data: encodeFunctionData({
-        abi: EvmContracts.mintingGatewayAbi,
-        functionName: 'finalizeTransferOutOfArgon',
-        args: [args.request, args.proof],
-      }),
-    });
-    await this.ensureEthereumSignerPolicyConfigured(chainConfig);
-    const signature = await this.walletKeys.signEthereumTransaction(unsignedTransaction);
-    return await submitEthereumTransaction({
-      publicClient,
-      serializedTransaction: serializeTransaction(transaction, signature),
-      fallbackErrorMessage: 'Unable to submit the Ethereum transfer right now.',
-    });
+    return await this.#outboundFinalizationQueue.add(async () => {
+      const chainConfig = await this.loadChainConfig();
+      const { chain, publicClient } = await this.createExecutionClient();
+      const { transaction, unsignedTransaction } = await buildEthereumUnsignedTransaction({
+        publicClient,
+        from: getAddress(this.walletKeys.ethereumAddress),
+        chainId: chain.id,
+        to: chainConfig.gatewayAddress,
+        data: encodeFunctionData({
+          abi: EvmContracts.mintingGatewayAbi,
+          functionName: 'finalizeTransferOutOfArgon',
+          args: [args.request, args.proof],
+        }),
+      });
+      await this.ensureEthereumSignerPolicyConfigured(chainConfig);
+      const signature = await this.walletKeys.signEthereumTransaction(unsignedTransaction);
+      return await submitEthereumTransaction({
+        publicClient,
+        serializedTransaction: serializeTransaction(transaction, signature),
+        fallbackErrorMessage: 'Unable to submit the Ethereum transfer right now.',
+      });
+    }).promise;
   }
 
   public async confirmTransferOutOfArgon(transfer: IEthereumTransferOutOfArgon): Promise<IEthereumTransferOutOfArgon> {
@@ -1591,8 +1601,12 @@ async function isSubmittedEthereumTransactionVisible(
   hash: Hash,
 ): Promise<boolean> {
   for (let attempt = 0; attempt < 10; attempt += 1) {
-    if (await isEthereumTransactionVisibleAtRpc(publicClient, hash)) {
-      return true;
+    try {
+      if (await isEthereumTransactionVisibleAtRpc(publicClient, hash)) {
+        return true;
+      }
+    } catch {
+      // This is best-effort recovery after the original submission already failed.
     }
     await sleep(500);
   }
@@ -1609,7 +1623,7 @@ async function isEthereumTransactionVisibleAtRpc(
     return true;
   } catch (error) {
     if (!(error instanceof TransactionNotFoundError)) {
-      return false;
+      throw error;
     }
   }
 
@@ -1619,9 +1633,9 @@ async function isEthereumTransactionVisibleAtRpc(
     if (error instanceof TransactionReceiptNotFoundError || isIndexingInProgressError(error)) {
       return false;
     }
-  }
 
-  return false;
+    throw error;
+  }
 }
 
 function isIndexingInProgressError(error: unknown): boolean {
