@@ -404,23 +404,22 @@ export class MintingAuthorities {
 
   private async onRegister(txInfo: TransactionInfo<IMintingAuthorityRegisterMetadata>): Promise<void> {
     const postProcessor = txInfo.createPostProcessor();
-    const db = await this.dbPromise;
-    const client = await getMainchainClient(false);
     const { authorityIndex } = txInfo.tx.metadataJson;
 
     try {
-      await txInfo.txResult.waitForFinalizedBlock;
-    } catch (error) {
-      await db.walletHdKeysTable.delete({
-        keyRole: 'mintingAuthority',
-        scopeKey: this.walletKeys.vaultingAddress.toLowerCase(),
-        hdIndex: authorityIndex,
-      });
-      postProcessor.reject(error as Error);
-      throw error;
-    }
+      const db = await this.dbPromise;
+      try {
+        await txInfo.txResult.waitForFinalizedBlock;
+      } catch (error) {
+        await db.walletHdKeysTable.delete({
+          keyRole: 'mintingAuthority',
+          scopeKey: this.walletKeys.vaultingAddress.toLowerCase(),
+          hdIndex: authorityIndex,
+        });
+        throw error;
+      }
 
-    try {
+      const client = await getMainchainClient(false);
       const blockHash = txInfo.tx.blockHash ?? (await txInfo.txResult.waitForInFirstBlock);
       await this.refresh(await client.at(blockHash));
       postProcessor.resolve();

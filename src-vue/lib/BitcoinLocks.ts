@@ -212,6 +212,10 @@ export default class BitcoinLocks {
   #relayPollingUuids = new Set<string>();
   #mempool: BitcoinMempool;
   #reportedMissingFundingForReleaseLocks = new Set<string>();
+  #fundingExpirationEstimateByCreatedHeight = new Map<
+    number,
+    { oracleBitcoinBlockHeight: number; expirationTime: number }
+  >();
   constructor(
     private readonly dbPromise: Promise<Db>,
     private readonly walletKeys: WalletKeys,
@@ -370,12 +374,25 @@ export default class BitcoinLocks {
     if (!this.#config) {
       throw new Error('Bitcoin lock configuration is not loaded for verify time.');
     }
-    const expirationHeight = this.#config.pendingConfirmationExpirationBlocks + lock.lockDetails.createdAtHeight;
+    const { createdAtHeight } = lock.lockDetails;
+    const expirationHeight = this.#config.pendingConfirmationExpirationBlocks + createdAtHeight;
+    const oracleBitcoinBlockHeight = this.oracleBitcoinBlockHeight;
 
-    if (expirationHeight <= this.oracleBitcoinBlockHeight) {
+    if (expirationHeight <= oracleBitcoinBlockHeight) {
       return Date.now() - 1; // Already expired
     }
-    return Date.now() + (expirationHeight - this.oracleBitcoinBlockHeight) * BITCOIN_BLOCK_MILLIS;
+
+    const previousEstimate = this.#fundingExpirationEstimateByCreatedHeight.get(createdAtHeight);
+    if (previousEstimate?.oracleBitcoinBlockHeight === oracleBitcoinBlockHeight) {
+      return previousEstimate.expirationTime;
+    }
+
+    const expirationTime = Date.now() + (expirationHeight - oracleBitcoinBlockHeight) * BITCOIN_BLOCK_MILLIS;
+    this.#fundingExpirationEstimateByCreatedHeight.set(createdAtHeight, {
+      oracleBitcoinBlockHeight,
+      expirationTime,
+    });
+    return expirationTime;
   }
 
   public getFundingWindowProgress(lock: Pick<IBitcoinLockRecord, 'lockDetails'>): number {

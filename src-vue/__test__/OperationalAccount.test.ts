@@ -35,8 +35,7 @@ it('submits operational registration once the treasury wallet can afford it', as
   };
   const transactionTracker = {
     load: vi.fn(),
-    findLatestTxInfo: vi.fn(),
-    getTxAttemptState: vi.fn(),
+    findLatestTxAttempt: vi.fn(),
     submitAndWatch: vi.fn().mockResolvedValue({ tx: { id: 1 } }),
   };
   const walletKeys = {
@@ -103,8 +102,7 @@ it('waits for more treasury funds before submitting operational registration', a
   };
   const transactionTracker = {
     load: vi.fn(),
-    findLatestTxInfo: vi.fn(),
-    getTxAttemptState: vi.fn(),
+    findLatestTxAttempt: vi.fn(),
     submitAndWatch: vi.fn(),
   };
   const walletKeys = {
@@ -158,8 +156,7 @@ it('waits for the runtime upgrade before submitting an access-proof registration
   };
   const transactionTracker = {
     load: vi.fn(),
-    findLatestTxInfo: vi.fn(),
-    getTxAttemptState: vi.fn(),
+    findLatestTxAttempt: vi.fn(),
     submitAndWatch: vi.fn(),
   };
   const walletKeys = {

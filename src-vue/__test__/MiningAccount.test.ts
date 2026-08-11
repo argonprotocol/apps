@@ -41,7 +41,7 @@ it('submits mining bid proxy registration through the archive client', async () 
     },
   };
   const transactionTracker = {
-    findLatestTxInfo: vi.fn(),
+    findLatestTxAttempt: vi.fn().mockResolvedValue(undefined),
     submitAndWatch: vi.fn().mockResolvedValue({ tx: { id: 1 } }),
   };
   const walletKeys = {

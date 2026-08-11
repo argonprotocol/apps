@@ -203,7 +203,7 @@ describe('MyVault cosign recovery', () => {
 
     const latestTxAttempt = await myVault.findLatestReleaseCosignTxAttempt(11);
 
-    expect(latestTxAttempt).toMatchObject({ txInfo, txAttemptState: TxAttemptState.Follow });
+    expect(latestTxAttempt).toMatchObject({ txInfo, txAttemptState: TxAttemptState.Pending });
   });
 
   it('ignores an old submitted cosign tx after the grace window', async () => {
@@ -1585,7 +1585,7 @@ function createVault(args?: {
   const txInfos = args?.txInfos ?? [];
   const submitAndWatch = args?.submitAndWatch ?? vi.fn();
   const trackTxResult = args?.trackTxResult ?? vi.fn();
-  const getTxAttemptState = vi.fn(async (txInfo: TransactionInfo, finalizedBlockGrace: number) => {
+  const getTxAttemptState = vi.fn(async (txInfo: TransactionInfo, waitForConfirmations: number) => {
     const latestHistoryStatus = historyByTxId[txInfo.tx.id]?.at(-1)?.status;
     if (
       txInfo.tx.submissionErrorJson ||
@@ -1632,8 +1632,8 @@ function createVault(args?: {
 
     const finalizedHeight = blockWatch.finalizedBlockHeader.blockNumber;
     if (txInfo.tx.status === TransactionStatus.Submitted) {
-      return finalizedHeight - txInfo.tx.submittedAtBlockHeight <= finalizedBlockGrace
-        ? TxAttemptState.Follow
+      return finalizedHeight - txInfo.tx.submittedAtBlockHeight <= waitForConfirmations
+        ? TxAttemptState.Pending
         : TxAttemptState.Replace;
     }
 
@@ -1645,10 +1645,10 @@ function createVault(args?: {
 
       const header = await blockWatch.getHeader(blockHeight).catch(() => undefined);
       if (!header || header.blockHash === blockHash) {
-        return TxAttemptState.Follow;
+        return TxAttemptState.Pending;
       }
 
-      return finalizedHeight - blockHeight <= finalizedBlockGrace ? TxAttemptState.Follow : TxAttemptState.Replace;
+      return finalizedHeight - blockHeight <= waitForConfirmations ? TxAttemptState.Pending : TxAttemptState.Replace;
     }
 
     if (txInfo.tx.status === TransactionStatus.Finalized) {

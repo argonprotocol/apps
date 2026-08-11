@@ -255,7 +255,7 @@ async function buildCollectBitcoinTxs(args: {
     const latestTxAttempt = await myVault.findLatestReleaseCosignTxAttempt(utxoId);
     if (
       latestTxAttempt &&
-      (latestTxAttempt.txAttemptState === TxAttemptState.Follow ||
+      (latestTxAttempt.txAttemptState === TxAttemptState.Pending ||
         latestTxAttempt.txAttemptState === TxAttemptState.Finalized)
     ) {
       continue;

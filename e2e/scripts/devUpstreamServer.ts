@@ -154,7 +154,7 @@ export async function startDevUpstreamServer(args: {
     seatGoalType: SeatGoalType.Max,
     seatGoalCount: 4,
     maximumBidFormulaType: BidAmountFormulaType.Custom,
-    maximumBidCustom: 500_000n,
+    maximumBidCustom: 280_000n,
   };
 
   await Promise.all([

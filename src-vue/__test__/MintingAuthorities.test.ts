@@ -7,14 +7,38 @@ import {
   getOwnedEthereumMintingAuthorities,
   getNextMintingAuthoritySigner,
   restoreOwnedEthereumMintingAuthorities,
+  type IMintingAuthorityRegisterMetadata,
 } from '../lib/MintingAuthorities.ts';
 import { getEthereumHdPath } from '../lib/WalletKeys.ts';
 import { DEFAULT_MEMORY_WALLET_KEYS_ETHEREUM_HD_PREFIXES } from '../lib/MemoryWalletKeys.ts';
 import { mnemonicToAccount } from 'viem/accounts';
+import { TransactionInfo } from '../lib/TransactionInfo.ts';
+import type { ITransactionRecord } from '../lib/db/TransactionsTable.ts';
+import type { TxResult } from '@argonprotocol/mainchain';
 
 const TEST_MNEMONIC = 'test test test test test test test test test test test junk';
 
 describe('MintingAuthorities', () => {
+  it('settles registration post-processing when setup fails before finalization', async () => {
+    const setupError = new Error('database unavailable');
+    const txInfo = new TransactionInfo<IMintingAuthorityRegisterMetadata>({
+      tx: {
+        metadataJson: { authorityIndex: 0 },
+      } as ITransactionRecord,
+      txResult: {} as TxResult,
+    });
+    const mintingAuthorities = new MintingAuthorities(
+      Promise.reject(setupError),
+      {} as WalletKeys,
+      {} as any,
+      {} as any,
+    );
+
+    await expect(mintingAuthorities['onRegister'](txInfo)).rejects.toThrow(setupError);
+    await expect(txInfo.waitForPostProcessing).rejects.toThrow(setupError);
+    expect(txInfo.isPostProcessed).toBe(true);
+  });
+
   it('only scans missing signer indexes for a council account after its unrecognized registration', async () => {
     const db = await createTestDb();
     const walletKeys = createWalletKeysStub();

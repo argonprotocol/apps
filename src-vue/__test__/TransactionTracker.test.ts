@@ -12,6 +12,7 @@ vi.mock('../stores/mainchain.ts', () => ({
 }));
 
 type ITransactionTrackerTestApi = {
+  handleWatchedResult: (tx: ITransactionRecord, txResult: any, result: any) => Promise<void>;
   updatePendingStatuses: (bestBlockInfo: { blockNumber: number }) => Promise<void>;
   watchForUpdates: () => Promise<void>;
 };
@@ -70,6 +71,35 @@ describe('TransactionTracker', () => {
     expect(tracker.data.txInfosByType[ExtrinsicType.VaultCollect]).toBeUndefined();
   });
 
+  it('waits for the initial load before finding the latest transaction attempt', async () => {
+    let resolveLoad!: (value: ITransactionRecord[]) => void;
+    const loadRows = new Promise<ITransactionRecord[]>(resolve => {
+      resolveLoad = resolve;
+    });
+    const tx = createTransaction({
+      id: 22,
+      extrinsicType: ExtrinsicType.MiningBidProxySetup,
+      status: TransactionStatus.Finalized,
+      isFinalized: true,
+    });
+    const { tracker, table } = createLoadTracker({ txsByLoad: [loadRows] });
+
+    const attemptPromise = tracker.findLatestTxAttempt({
+      extrinsicType: ExtrinsicType.MiningBidProxySetup,
+      waitForConfirmations: 2,
+    });
+
+    await vi.waitFor(() => expect(table.fetchAll).toHaveBeenCalledOnce());
+    expect(tracker.data.txInfos).toHaveLength(0);
+
+    resolveLoad([tx]);
+
+    await expect(attemptPromise).resolves.toMatchObject({
+      txInfo: { tx: { id: tx.id } },
+      txAttemptState: TxAttemptState.Finalized,
+    });
+  });
+
   it('does not resume dropped attempts at load, but keeps tracking them on-chain', async () => {
     const tx = createTransaction({
       id: 1,
@@ -118,34 +148,503 @@ describe('TransactionTracker', () => {
     expect(txResult.isFinalized).toBe(false);
   });
 
-  it('treats a recent submitted attempt as followable', async () => {
+  it('treats a recent submitted attempt as pending', async () => {
     const tx = createTransaction({
       id: 2,
       status: TransactionStatus.Submitted,
       submittedAtBlockHeight: 100,
+      blockHeight: undefined,
+      blockHash: undefined,
       extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
     });
+    const findTransaction = vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValue(undefined);
     const { tracker } = await createTracker({
       txs: [tx],
       finalizedHeight: 101,
     });
 
-    await expect(tracker.getTxAttemptState(tracker.data.txInfos[0], 2)).resolves.toBe(TxAttemptState.Follow);
+    await expect(tracker.getTxAttemptState(tracker.data.txInfos[0], 2)).resolves.toBe(TxAttemptState.Pending);
+    await expect(tracker.getTxAttemptState(tracker.data.txInfos[0], 2)).resolves.toBe(TxAttemptState.Pending);
+    expect(findTransaction).toHaveBeenCalledOnce();
+    findTransaction.mockRestore();
   });
 
-  it('treats a stale submitted attempt as replaceable', async () => {
+  it('replaces a recent submitted attempt when its finalized nonce was already used', async () => {
     const tx = createTransaction({
       id: 3,
       status: TransactionStatus.Submitted,
       submittedAtBlockHeight: 100,
+      txNonce: 4,
+      blockHeight: undefined,
+      blockHash: undefined,
       extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
     });
+    const findTransaction = vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValue(undefined);
+    const { tracker, historyTable } = await createTracker({
+      txs: [tx],
+      finalizedHeight: 101,
+      finalizedAccountNonce: 5,
+    });
+
+    await expect(tracker.getTxAttemptState(tracker.data.txInfos[0], 2)).resolves.toBe(TxAttemptState.Replace);
+    expect(historyTable.record).toHaveBeenCalledWith({
+      transactionId: tx.id,
+      status: TransactionHistoryStatus.Invalid,
+      source: TransactionHistorySource.Local,
+    });
+    findTransaction.mockRestore();
+  });
+
+  it('preserves a consumed nonce error when the submitted attempt is overdue', async () => {
+    const tx = createTransaction({
+      id: 4,
+      status: TransactionStatus.Submitted,
+      submittedAtBlockHeight: 100,
+      txNonce: 4,
+      blockHeight: undefined,
+      blockHash: undefined,
+      extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
+    });
+    const findTransaction = vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValue(undefined);
     const { tracker } = await createTracker({
+      txs: [tx],
+      finalizedHeight: 161,
+      finalizedAccountNonce: 5,
+    });
+
+    await expect(tracker.getTxAttemptState(tracker.data.txInfos[0], 2)).resolves.toBe(TxAttemptState.Replace);
+
+    const txResult = tracker.data.txInfos[0].txResult;
+    expect(txResult.submissionError?.message).toBe('Transaction nonce was already used by another transaction.');
+    expect(txResult.extrinsicError).toBeUndefined();
+    expect(txResult.isFinalized).toBe(false);
+    findTransaction.mockRestore();
+  });
+
+  it('drops a stale submitted attempt and releases its nonce for replacement', async () => {
+    const tx = createTransaction({
+      id: 3,
+      status: TransactionStatus.Submitted,
+      submittedAtBlockHeight: 100,
+      txNonce: 4,
+      blockHeight: undefined,
+      blockHash: undefined,
+      extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
+    });
+    const replacementTx = {
+      signAsync: vi.fn(async (_signer, options) => ({
+        hash: { toHex: () => '0xreplacement' },
+        method: { toHuman: () => ({ section: 'proxy', method: 'addProxy' }) },
+        nonce: numberCodec(options.nonce),
+        send: vi.fn(async () => undefined),
+      })),
+    };
+    const client = {
+      tx: vi.fn(() => replacementTx),
+      rpc: {
+        author: {
+          pendingExtrinsics: vi.fn(async () => []),
+        },
+        chain: {
+          getHeader: vi.fn(async () => ({ number: numberCodec(103) })),
+        },
+        system: {
+          accountNextIndex: vi.fn(async () => numberCodec(4)),
+        },
+      },
+    };
+    vi.mocked(getMainchainClient).mockResolvedValue(client as any);
+    const findTransaction = vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValueOnce(undefined);
+    const { tracker, historyTable } = await createTracker({
       txs: [tx],
       finalizedHeight: 103,
     });
 
     await expect(tracker.getTxAttemptState(tracker.data.txInfos[0], 2)).resolves.toBe(TxAttemptState.Replace);
+    expect(historyTable.record).toHaveBeenCalledWith({
+      transactionId: tx.id,
+      status: TransactionHistoryStatus.Dropped,
+      source: TransactionHistorySource.Local,
+    });
+
+    await tracker.submitAndWatch({
+      client: client as any,
+      tx: replacementTx as any,
+      txSigner: { address: tx.accountAddress } as any,
+      extrinsicType: tx.extrinsicType,
+      useLatestNonce: true,
+    });
+    expect(replacementTx.signAsync).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ nonce: 4 }));
+    findTransaction.mockRestore();
+  });
+
+  it('keeps a stale submitted attempt pending while it remains in the transaction pool', async () => {
+    const tx = createTransaction({
+      id: 3,
+      status: TransactionStatus.Submitted,
+      submittedAtBlockHeight: 100,
+      blockHeight: undefined,
+      blockHash: undefined,
+      extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
+    });
+    vi.mocked(getMainchainClient).mockResolvedValue({
+      rpc: {
+        author: {
+          pendingExtrinsics: vi.fn(async () => [{ hash: { toHex: () => tx.extrinsicHash } }]),
+        },
+      },
+    } as any);
+    const findTransaction = vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValueOnce(undefined);
+    const { tracker, historyTable } = await createTracker({
+      txs: [tx],
+      finalizedHeight: 103,
+    });
+
+    await expect(tracker.getTxAttemptState(tracker.data.txInfos[0], 2)).resolves.toBe(TxAttemptState.Pending);
+    expect(historyTable.record).not.toHaveBeenCalled();
+    findTransaction.mockRestore();
+  });
+
+  it('keeps an overdue submitted attempt pending while it remains in the transaction pool', async () => {
+    const tx = createTransaction({
+      id: 4,
+      status: TransactionStatus.Submitted,
+      submittedAtBlockHeight: 100,
+      txNonce: 4,
+      blockHeight: undefined,
+      blockHash: undefined,
+      extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
+    });
+    vi.mocked(getMainchainClient).mockResolvedValue({
+      rpc: {
+        author: {
+          pendingExtrinsics: vi.fn(async () => [{ hash: { toHex: () => tx.extrinsicHash } }]),
+        },
+      },
+    } as any);
+    const findTransaction = vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValue(undefined);
+    const { tracker, table, historyTable } = await createTracker({
+      txs: [tx],
+      finalizedHeight: 161,
+      finalizedAccountNonce: 4,
+    });
+
+    await expect(tracker.getTxAttemptState(tracker.data.txInfos[0], 2)).resolves.toBe(TxAttemptState.Pending);
+    expect(table.markExpiredWaitingForBlock).not.toHaveBeenCalled();
+    expect(historyTable.record).not.toHaveBeenCalled();
+    findTransaction.mockRestore();
+  });
+
+  it('keeps a stale submitted attempt pending when found in a canonical block', async () => {
+    const tx = createTransaction({
+      id: 3,
+      status: TransactionStatus.Submitted,
+      submittedAtBlockHeight: 100,
+      blockHeight: undefined,
+      blockHash: undefined,
+      extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
+    });
+    const pendingExtrinsics = vi.fn(async () => []);
+    vi.mocked(getMainchainClient).mockResolvedValue({
+      rpc: {
+        author: { pendingExtrinsics },
+      },
+    } as any);
+    const findTransaction = vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValueOnce({
+      blockNumber: 102,
+      blockHash: '0xcanonical',
+      blockTime: new Date('2026-03-20T20:04:00Z').getTime(),
+      extrinsicIndex: 1,
+      fee: 1n,
+      tip: 0n,
+      extrinsicEvents: [],
+    });
+    const { tracker, table, historyTable } = await createTracker({
+      txs: [tx],
+      finalizedHeight: 103,
+    });
+
+    await expect(tracker.getTxAttemptState(tracker.data.txInfos[0], 2)).resolves.toBe(TxAttemptState.Pending);
+    expect(table.recordInBlock).toHaveBeenCalledWith(tx, {
+      blockNumber: 102,
+      blockHash: '0xcanonical',
+      blockTime: new Date('2026-03-20T20:04:00Z'),
+      feePlusTip: 1n,
+      tip: 0n,
+      extrinsicError: undefined,
+      transactionEvents: [],
+      extrinsicIndex: 1,
+    });
+    expect(pendingExtrinsics).not.toHaveBeenCalled();
+    expect(historyTable.record).not.toHaveBeenCalled();
+    findTransaction.mockRestore();
+  });
+
+  it('rechecks canonical blocks when the best head changes during the transaction pool lookup', async () => {
+    const tx = createTransaction({
+      id: 3,
+      status: TransactionStatus.Submitted,
+      submittedAtBlockHeight: 100,
+      blockHeight: undefined,
+      blockHash: undefined,
+      extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
+    });
+    const canonicalTransaction = {
+      blockNumber: 104,
+      blockHash: '0xcanonical',
+      blockTime: new Date('2026-03-20T20:06:00Z').getTime(),
+      extrinsicIndex: 1,
+      fee: 1n,
+      tip: 0n,
+      extrinsicEvents: [],
+    };
+    const findTransaction = vi
+      .spyOn(TransactionEvents, 'findByExtrinsicHash')
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(canonicalTransaction);
+    const { tracker, table, historyTable, blockWatch } = await createTracker({
+      txs: [tx],
+      finalizedHeight: 103,
+    });
+    vi.mocked(getMainchainClient).mockResolvedValue({
+      rpc: {
+        author: {
+          pendingExtrinsics: vi.fn(async () => {
+            blockWatch.bestBlockHeader = { blockNumber: 104 };
+            return [];
+          }),
+        },
+      },
+    } as any);
+
+    await expect(tracker.getTxAttemptState(tracker.data.txInfos[0], 2)).resolves.toBe(TxAttemptState.Pending);
+    expect(findTransaction).toHaveBeenCalledTimes(2);
+    expect(table.recordInBlock).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({ blockNumber: 104, blockHash: '0xcanonical' }),
+    );
+    expect(historyTable.record).not.toHaveBeenCalled();
+    findTransaction.mockRestore();
+  });
+
+  it('does not rescan a transaction after it is dropped while a status update is queued', async () => {
+    const tx = createTransaction({
+      id: 3,
+      status: TransactionStatus.Submitted,
+      submittedAtBlockHeight: 100,
+      blockHeight: undefined,
+      blockHash: undefined,
+      extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
+    });
+    let finishPoolLookup!: () => void;
+    const poolLookup = new Promise<void>(resolve => {
+      finishPoolLookup = resolve;
+    });
+    const pendingExtrinsics = vi.fn(async () => {
+      await poolLookup;
+      return [];
+    });
+    vi.mocked(getMainchainClient).mockResolvedValue({
+      rpc: { author: { pendingExtrinsics } },
+    } as any);
+    const findTransaction = vi
+      .spyOn(TransactionEvents, 'findByExtrinsicHash')
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({
+        blockNumber: 104,
+        blockHash: '0xlate',
+        blockTime: new Date('2026-03-20T20:06:00Z').getTime(),
+        extrinsicIndex: 1,
+        fee: 1n,
+        tip: 0n,
+        extrinsicEvents: [],
+      });
+    const { tracker, table } = await createTracker({
+      txs: [tx],
+      finalizedHeight: 103,
+    });
+    const attemptState = tracker.getTxAttemptState(tracker.data.txInfos[0], 2);
+    await vi.waitFor(() => expect(pendingExtrinsics).toHaveBeenCalledOnce());
+
+    const statusUpdate = (tracker as unknown as ITransactionTrackerTestApi).updatePendingStatuses({
+      blockNumber: 104,
+    });
+    finishPoolLookup();
+
+    await expect(attemptState).resolves.toBe(TxAttemptState.Replace);
+    await statusUpdate;
+    expect(findTransaction).toHaveBeenCalledOnce();
+    expect(table.recordInBlock).not.toHaveBeenCalled();
+    findTransaction.mockRestore();
+  });
+
+  it('keeps an attempt pending when an in-block watch update arrives during the pool lookup', async () => {
+    const tx = createTransaction({
+      id: 7,
+      status: TransactionStatus.Submitted,
+      submittedAtBlockHeight: 100,
+      blockHeight: undefined,
+      blockHash: undefined,
+      extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
+    });
+    let finishPoolLookup!: () => void;
+    const poolLookup = new Promise<void>(resolve => {
+      finishPoolLookup = resolve;
+    });
+    const pendingExtrinsics = vi.fn(async () => {
+      await poolLookup;
+      return [];
+    });
+    vi.mocked(getMainchainClient).mockResolvedValue({
+      rpc: { author: { pendingExtrinsics } },
+    } as any);
+    const findTransaction = vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValue(undefined);
+    let finishWatchLookup!: () => void;
+    const watchLookup = new Promise<void>(resolve => {
+      finishWatchLookup = resolve;
+    });
+    const findWatchedTransaction = vi
+      .spyOn(TransactionEvents, 'findByExtrinsicHashInBlock')
+      .mockImplementation(async () => {
+        await watchLookup;
+        return {
+          blockNumber: 102,
+          blockHash: '0xin-block',
+          blockTime: new Date('2026-03-20T20:04:00Z').getTime(),
+          extrinsicIndex: 1,
+          fee: 1n,
+          tip: 0n,
+          extrinsicEvents: [],
+        };
+      });
+    const { tracker, historyTable } = await createTracker({
+      txs: [tx],
+      finalizedHeight: 103,
+    });
+    const attemptState = tracker.getTxAttemptState(tracker.data.txInfos[0], 2);
+    await vi.waitFor(() => expect(pendingExtrinsics).toHaveBeenCalledOnce());
+
+    const watchUpdate = (tracker as unknown as ITransactionTrackerTestApi).handleWatchedResult(
+      tx,
+      {
+        blockNumber: 102,
+        isFinalized: false,
+      },
+      {
+        status: {
+          isBroadcast: false,
+          isInBlock: true,
+          isFinalized: false,
+          isRetracted: false,
+          isUsurped: false,
+          isDropped: false,
+          isInvalid: false,
+          asInBlock: { toHex: () => '0xin-block' },
+        },
+      },
+    );
+    await Promise.resolve();
+    finishPoolLookup();
+
+    await expect(attemptState).resolves.toBe(TxAttemptState.Pending);
+    finishWatchLookup();
+    await watchUpdate;
+    expect(historyTable.record).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: TransactionHistoryStatus.Dropped }),
+    );
+    findTransaction.mockRestore();
+    findWatchedTransaction.mockRestore();
+  });
+
+  it('keeps a stale submitted attempt pending when the transaction pool is unavailable', async () => {
+    const tx = createTransaction({
+      id: 3,
+      status: TransactionStatus.Submitted,
+      submittedAtBlockHeight: 100,
+      blockHeight: undefined,
+      blockHash: undefined,
+      extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
+    });
+    vi.mocked(getMainchainClient).mockResolvedValue({
+      rpc: {
+        author: {
+          pendingExtrinsics: vi.fn().mockRejectedValue(new Error('Transaction pool unavailable')),
+        },
+      },
+    } as any);
+    const findTransaction = vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValueOnce(undefined);
+    const { tracker, historyTable } = await createTracker({
+      txs: [tx],
+      finalizedHeight: 103,
+    });
+
+    await expect(tracker.getTxAttemptState(tracker.data.txInfos[0], 2)).resolves.toBe(TxAttemptState.Pending);
+    expect(historyTable.record).not.toHaveBeenCalled();
+    findTransaction.mockRestore();
+  });
+
+  it('replaces an in-block attempt missing from canonical history after the grace window', async () => {
+    const tx = createTransaction({
+      id: 4,
+      status: TransactionStatus.InBlock,
+      blockHeight: 100,
+      blockHash: '0xmissing',
+      extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
+    });
+    vi.mocked(getMainchainClient).mockResolvedValue({
+      rpc: {
+        author: {
+          pendingExtrinsics: vi.fn(async () => []),
+        },
+      },
+    } as any);
+    const findTransaction = vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValue(undefined);
+    const { tracker, blockWatch } = await createTracker({
+      txs: [tx],
+      finalizedHeight: 101,
+    });
+
+    await expect(tracker.getTxAttemptState(tracker.data.txInfos[0], 2)).resolves.toBe(TxAttemptState.Pending);
+
+    blockWatch.finalizedBlockHeader.blockNumber = 103;
+    blockWatch.getFinalizedHash.mockResolvedValue('0xcanonical');
+
+    await expect(tracker.getTxAttemptState(tracker.data.txInfos[0], 2)).resolves.toBe(TxAttemptState.Replace);
+    findTransaction.mockRestore();
+  });
+
+  it('keeps an in-block attempt pending when its finalized hash remains canonical', async () => {
+    const tx = createTransaction({
+      id: 5,
+      status: TransactionStatus.InBlock,
+      blockHeight: 100,
+      blockHash: '0xcanonical',
+      extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
+    });
+    const { tracker, blockWatch } = await createTracker({
+      txs: [tx],
+      finalizedHeight: 103,
+    });
+    blockWatch.getFinalizedHash.mockResolvedValue('0xcanonical');
+
+    await expect(tracker.getTxAttemptState(tracker.data.txInfos[0], 2)).resolves.toBe(TxAttemptState.Pending);
+  });
+
+  it('keeps a stale in-block attempt pending when canonical history is unavailable', async () => {
+    const tx = createTransaction({
+      id: 6,
+      status: TransactionStatus.InBlock,
+      blockHeight: 100,
+      blockHash: '0xunknown',
+      extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
+    });
+    const { tracker, blockWatch } = await createTracker({
+      txs: [tx],
+      finalizedHeight: 103,
+    });
+    blockWatch.getFinalizedHash.mockRejectedValue(new Error('Finalized history unavailable'));
+
+    await expect(tracker.getTxAttemptState(tracker.data.txInfos[0], 2)).resolves.toBe(TxAttemptState.Pending);
   });
 
   it('does not retry a transaction based only on its nonce finalizing elsewhere', async () => {
@@ -392,7 +891,7 @@ describe('TransactionTracker', () => {
     expect(table.updateFinalizedHead).not.toHaveBeenCalled();
   });
 
-  it('expires an overdue transaction when the finalized nonce lookup fails', async () => {
+  it('keeps an overdue transaction pending when the finalized nonce lookup fails', async () => {
     const tx = createTransaction({
       id: 6,
       status: TransactionStatus.Submitted,
@@ -411,7 +910,7 @@ describe('TransactionTracker', () => {
 
     await trackerApi.updatePendingStatuses({ blockNumber: 125 });
 
-    expect(table.markExpiredWaitingForBlock).toHaveBeenCalledWith(tx);
+    expect(table.markExpiredWaitingForBlock).not.toHaveBeenCalled();
   });
 
   it('treats a dropped attempt as replaceable', async () => {
@@ -877,6 +1376,7 @@ async function createTracker(args: {
     ),
     markFinalized: vi.fn(async (record: ITransactionRecord) => record),
     recordInBlock: vi.fn(async (record: ITransactionRecord) => record),
+    recordSubmissionError: vi.fn(async (record: ITransactionRecord) => record),
     markExpiredWaitingForBlock: vi.fn(async (record: ITransactionRecord) => record),
     updateFinalizedHead: vi.fn(
       async (record: ITransactionRecord, finalizedDetails: { blockNumber: number; blockTime: Date }) => {
@@ -928,7 +1428,7 @@ async function createTracker(args: {
   vi.spyOn(tracker as any, 'watchForUpdates').mockResolvedValue(undefined);
   await tracker.load();
 
-  return { tracker, table, blockWatch, finalizedAccountQuery };
+  return { tracker, table, historyTable, blockWatch, finalizedAccountQuery };
 }
 
 function createLoadTracker(args: {
