@@ -45,7 +45,7 @@ beforeEach(() => {
   importMocks.getOperatorVaultId.mockResolvedValue({ isSome: false });
 });
 
-it('keeps the current database when mnemonic import fails', async () => {
+it('stops background sync before importing and keeps the current database on failure', async () => {
   const { mnemonic, walletKeys } = createTestWallet('//Alice');
   const db = {
     reconnect: vi.fn(),
@@ -75,6 +75,11 @@ it('keeps the current database when mnemonic import fails', async () => {
   ).rejects.toThrow('import failed');
 
   expect(invokeWithTimeout).toHaveBeenCalledWith('import_mnemonic', { mnemonic }, 10_000);
+  expect(importMocks.closeWallets).toHaveBeenCalledOnce();
+  expect(importMocks.stopBlockWatch).toHaveBeenCalledOnce();
+  expect(importMocks.stopBlockWatch.mock.invocationCallOrder[0]).toBeLessThan(
+    vi.mocked(invokeWithTimeout).mock.invocationCallOrder[0],
+  );
   expect(deleteDatabase).not.toHaveBeenCalled();
 });
 

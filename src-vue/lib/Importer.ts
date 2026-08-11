@@ -110,8 +110,8 @@ export default class Importer {
       throw new Error('No existing wallet value was found for that mnemonic on this network.');
     }
 
-    const security = await invokeWithTimeout('import_mnemonic', { mnemonic }, 10_000);
     await this.shutdownBackgroundSync();
+    const security = await invokeWithTimeout('import_mnemonic', { mnemonic }, 10_000);
     const restarter = new Restarter(this.dbPromise, this.config);
     await restarter.deleteAndCreateLocalDatabase();
     const db = await this.dbPromise;
