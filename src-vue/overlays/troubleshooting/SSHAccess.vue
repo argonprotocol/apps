@@ -78,7 +78,7 @@ const macLinuxCommand = Vue.computed(() => {
     'cat <<\'EOF\' > "$tmp"',
     privateKey.value.trim(),
     'EOF',
-    `ssh -i "$tmp" -p ${port} ${username}@${host}`,
+    `ssh -o IdentitiesOnly=yes -i "$tmp" -p ${port} ${username}@${host}`,
   ].join('\n');
 });
 
@@ -91,7 +91,7 @@ const windowsCommand = Vue.computed(() => {
     "@'",
     privateKey.value.trim(),
     "'@ | Set-Content -Path $path -NoNewline",
-    `ssh -i $path -p ${port} ${username}@${host}`,
+    `ssh -o IdentitiesOnly=yes -i $path -p ${port} ${username}@${host}`,
     'Remove-Item -Force $path',
   ].join('\n');
 });

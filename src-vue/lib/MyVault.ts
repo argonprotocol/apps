@@ -1435,7 +1435,7 @@ export class MyVault {
         securitization: vault.securitization,
         securitizationTarget: bigIntMax(vault.securitization - vault.getRelockCapacity(), 0n),
         blockNumber: blockNumber.toNumber(),
-        blockHash: txInfo.tx.blockHash ?? u8aToHex(finalizedBlockHash),
+        blockHash: u8aToHex(finalizedBlockHash),
         blockTime: new Date(block.blockTime),
         extrinsicIndex: txInfo.tx.blockExtrinsicIndex ?? txInfo.txResult.extrinsicIndex,
       });
@@ -1472,7 +1472,7 @@ export class MyVault {
             amount: revenue,
             source: 'vaultCollect',
             blockNumber,
-            blockHash: txInfo.tx.blockHash ?? u8aToHex(finalizedBlockHash),
+            blockHash: u8aToHex(finalizedBlockHash),
             blockTime: new Date(block.blockTime),
             extrinsicIndex: txInfo.tx.blockExtrinsicIndex ?? txResult.extrinsicIndex,
           });
@@ -1609,9 +1609,9 @@ export class MyVault {
     const postProcessor = txInfo.createPostProcessor();
     try {
       const client = await getMainchainClient(true);
-      const blockHash = await txResult.waitForFinalizedBlock;
+      const finalizedBlockHash = await txResult.waitForFinalizedBlock;
       await this.#transactionTracker.ensureStoredEvents(txInfo);
-      const api = await client.at(blockHash);
+      const api = await client.at(finalizedBlockHash);
       const blockNumber = await api.query.system.number();
       let vaultId: number | undefined;
       for (const event of txResult.events) {
@@ -1640,7 +1640,7 @@ export class MyVault {
           vaultId,
           securitization: vault.securitization,
           blockNumber: blockNumber.toNumber(),
-          blockHash: tx.blockHash ?? u8aToHex(blockHash),
+          blockHash: u8aToHex(finalizedBlockHash),
           blockTime: new Date(block.blockTime),
           extrinsicIndex: tx.blockExtrinsicIndex ?? txResult.extrinsicIndex,
         });

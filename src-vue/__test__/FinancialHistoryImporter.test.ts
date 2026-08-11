@@ -129,63 +129,99 @@ describe('FinancialHistoryImporter', () => {
     expect(onCheckStart).not.toHaveBeenCalled();
   });
 
-  it('restarts a loaded Bitcoin recovery when its saved lock state may be newer than its checkpoint', async () => {
-    const upsert = vi.fn(async () => undefined);
+  it('retries incomplete incremental Bitcoin history from the beginning in the same recovery', async () => {
     const beginHistoryReplay = vi.fn();
     const commitHistoryReplay = vi.fn();
-    vi.mocked(findAddressActivity).mockResolvedValueOnce({
-      asOfBlock: 100,
-      definitionVersion: 2,
-      blocks: [],
-      coverage: { fromBlock: 0, toBlock: 100, gaps: [] },
-    });
+    const recoverBlock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Bitcoin lock 44 pending mint exceeds recovered history'))
+      .mockResolvedValue(undefined);
+    vi.mocked(findAddressActivity)
+      .mockResolvedValueOnce({
+        asOfBlock: 100,
+        definitionVersion: 2,
+        blocks: [
+          {
+            blockNumber: 95,
+            blockHash: '0x95',
+            specVersion: 151,
+            activityMask: AccountActivityKind.BitcoinMint,
+          },
+        ],
+        coverage: { fromBlock: 90, toBlock: 100, gaps: [] },
+      })
+      .mockResolvedValueOnce({
+        asOfBlock: 100,
+        definitionVersion: 2,
+        blocks: [
+          {
+            blockNumber: 10,
+            blockHash: '0x10',
+            specVersion: 151,
+            activityMask: AccountActivityKind.BitcoinLock,
+          },
+          {
+            blockNumber: 95,
+            blockHash: '0x95',
+            specVersion: 151,
+            activityMask: AccountActivityKind.BitcoinMint,
+          },
+        ],
+        coverage: { fromBlock: 0, toBlock: 100, gaps: [] },
+      });
 
-    await restoreFinancialHistory({
-      db: {
-        syncStateTable: {
-          get: vi.fn(async () => ({
-            accountId: '5owner',
-            asOfBlock: 90,
-            domains: ['bitcoin'],
-            domainCheckpoints: {
-              bitcoin: {
-                asOfBlock: 90,
-                definitionVersion: 2,
-                recoveryVersion: 7,
-                partialRecovery: true,
+    await expect(
+      restoreFinancialHistory({
+        db: {
+          syncStateTable: {
+            get: vi.fn(async () => ({
+              accountId: '5owner',
+              asOfBlock: 90,
+              domains: ['bitcoin'],
+              domainCheckpoints: {
+                bitcoin: { asOfBlock: 90, definitionVersion: 2, recoveryVersion: 7 },
               },
-            },
-          })),
-          upsert,
-        },
-      } as any,
-      blockWatch: {
-        finalizedBlockHeader: { blockNumber: 100 },
-        getFinalizedApi: vi.fn(async () => ({})),
-      } as any,
-      accountId: '5owner',
-      argonBonds: {} as any,
-      bitcoinLockRecovery: {
-        hasPendingHistoryRecovery: true,
-        beginHistoryReplay,
-        findMissingActiveLockIds: vi.fn(async () => []),
-        commitHistoryReplay,
-        cancelHistoryReplay: vi.fn(),
-      } as any,
-      vaultHistory: {} as any,
-      enabledDomains: ['bitcoin'],
-      recoverMissingCheckpointsFor: ['bitcoin'],
-      minimumAsOfBlock: 100,
-    });
+            })),
+            upsert: vi.fn(async () => undefined),
+          },
+        } as any,
+        blockWatch: {
+          finalizedBlockHeader: { blockNumber: 100 },
+          getHeader: vi.fn(async ({ blockNumber, blockHash }) => ({ blockNumber, blockHash })),
+          getEventsWithSpec: vi.fn(async () => ({ events: [], specVersion: 151 })),
+          getFinalizedApi: vi.fn(async () => ({})),
+        } as any,
+        accountId: '5owner',
+        argonBonds: {} as any,
+        bitcoinLockRecovery: {
+          hasPendingHistoryRecovery: false,
+          beginHistoryReplay,
+          recoverBlock,
+          findMissingActiveLockIds: vi.fn(async () => []),
+          commitHistoryReplay,
+          cancelHistoryReplay: vi.fn(),
+        } as any,
+        vaultHistory: {} as any,
+        enabledDomains: ['bitcoin'],
+        recoverMissingCheckpointsFor: ['bitcoin'],
+        minimumAsOfBlock: 100,
+      }),
+    ).resolves.toEqual({ importedBlockCount: 2, asOfBlock: 100, targetBlock: 100 });
 
-    expect(findAddressActivity).toHaveBeenCalledWith('5owner', {
+    expect(findAddressActivity).toHaveBeenNthCalledWith(1, '5owner', {
+      afterBlock: 90,
+      toBlock: 100,
+      activityMask: AccountActivityKind.BitcoinLock | AccountActivityKind.BitcoinMint,
+    });
+    expect(findAddressActivity).toHaveBeenNthCalledWith(2, '5owner', {
       afterBlock: 0,
       toBlock: 100,
       activityMask: AccountActivityKind.BitcoinLock | AccountActivityKind.BitcoinMint,
     });
-    expect(beginHistoryReplay).toHaveBeenCalledWith({ lockScope: 'pending' });
-    expect(commitHistoryReplay).toHaveBeenCalledWith(true);
-    expect(upsert).toHaveBeenCalledOnce();
+    expect(beginHistoryReplay).toHaveBeenNthCalledWith(1, { lockScope: 'encountered' });
+    expect(beginHistoryReplay).toHaveBeenNthCalledWith(2, { lockScope: 'all' });
+    expect(commitHistoryReplay).toHaveBeenNthCalledWith(1, false);
+    expect(commitHistoryReplay).toHaveBeenNthCalledWith(2, true);
   });
 
   it('repairs only pending Bitcoin locks when a fresh wallet has no recovery checkpoint', async () => {

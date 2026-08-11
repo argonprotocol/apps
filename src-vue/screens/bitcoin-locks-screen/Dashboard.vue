@@ -17,7 +17,10 @@
       </div>
       <div class="w-1/3 border-b border-slate-400/30 py-5">
         <div class="text-argon-600 text-5xl font-bold">
-          {{ numeral(financials.liquidPerformanceReturn).format('0,0.[00]') }}%
+          <template v-if="financials.liquidPerformanceReturn !== undefined">
+            {{ numeral(financials.liquidPerformanceReturn).format('0,0.[00]') }}%
+          </template>
+          <template v-else>&mdash;</template>
         </div>
         <div class="font-light text-slate-900/70">Liquid Locking Returns</div>
       </div>
@@ -30,7 +33,10 @@
       </div>
       <div class="w-1/3 border-b border-slate-400/30 py-5">
         <div class="text-argon-600 text-5xl font-bold">
-          {{ numeral(financials.liquidHodlingReturn).format('0,0.[00]') }}%
+          <template v-if="financials.liquidHodlingReturn !== undefined">
+            {{ numeral(financials.liquidHodlingReturn).format('0,0.[00]') }}%
+          </template>
+          <template v-else>&mdash;</template>
         </div>
         <div class="font-light text-slate-900/70">Hodling Returns</div>
       </div>
@@ -220,6 +226,14 @@ const selectedLock = Vue.ref<IBitcoinLockSummary>();
 const selectedOrphan = Vue.ref<IBitcoinUtxoRecord>();
 
 const orphanRecords = Vue.computed(() => {
+  if (
+    financials.isHistoryRecoveryInProgress ||
+    bitcoinLocks.recovery.hasPendingHistoryRecovery ||
+    bitcoinLocks.data.isReconciliationPending
+  ) {
+    return [];
+  }
+
   const locks = bitcoinLocks.getAllLocks();
   const fundingRecordIds = new Set(
     locks

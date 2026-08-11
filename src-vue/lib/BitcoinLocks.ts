@@ -170,6 +170,7 @@ export default class BitcoinLocks {
     mismatchErrorsByLockUtxoId: { [lockUtxoId: number]: string };
     oracleBitcoinBlockHeight: number;
     bitcoinNetwork: BitcoinNetwork;
+    isReconciliationPending: boolean;
     latestArgonBlock?: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>;
   };
 
@@ -211,8 +212,6 @@ export default class BitcoinLocks {
   #relayPollingUuids = new Set<string>();
   #mempool: BitcoinMempool;
   #reportedMissingFundingForReleaseLocks = new Set<string>();
-  #needsLoadReconciliation = false;
-
   constructor(
     private readonly dbPromise: Promise<Db>,
     private readonly walletKeys: WalletKeys,
@@ -230,6 +229,7 @@ export default class BitcoinLocks {
       mismatchErrorsByLockUtxoId: {},
       oracleBitcoinBlockHeight: 0,
       bitcoinNetwork: BitcoinNetwork.Bitcoin,
+      isReconciliationPending: false,
     };
     this.#mempool = mempool;
     this.utxoTracking = new BitcoinUtxoTracking({
@@ -583,7 +583,7 @@ export default class BitcoinLocks {
       await this.orphanReleases.syncCosignCounterSubscriptions(archiveClient).catch(error => {
         console.warn('[BitcoinLocks] Unable to watch orphan return counters', error);
       });
-      this.#needsLoadReconciliation = true;
+      this.data.isReconciliationPending = true;
       const initialBestBlock = this.blockWatch.bestBlockHeader;
       void this.#blockQueue
         .add(async () => {
@@ -616,7 +616,7 @@ export default class BitcoinLocks {
   }
 
   private async runPendingLoadReconciliation(): Promise<void> {
-    if (!this.#needsLoadReconciliation) {
+    if (!this.data.isReconciliationPending) {
       return;
     }
 
@@ -635,7 +635,7 @@ export default class BitcoinLocks {
       }
       await this.syncLockReleaseBitcoinProcessing(this.locksByUtxoId);
       await this.orphanReleases.syncBitcoinProcessing(this.oracleBitcoinBlockHeight);
-      this.#needsLoadReconciliation = false;
+      this.data.isReconciliationPending = false;
     } catch (error) {
       console.warn('[BitcoinLocks] Startup reconciliation did not finish; will retry on the next block', error);
     }
@@ -3116,7 +3116,7 @@ export default class BitcoinLocks {
     }
     if (!locks.length) return;
 
-    this.#needsLoadReconciliation = true;
+    this.data.isReconciliationPending = true;
     void this.#blockQueue
       .add(async () => {
         try {
