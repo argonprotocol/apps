@@ -61,7 +61,7 @@
             <span class="mx-2 text-gray-300">|</span>
             <Tooltip
               :asChild="true"
-              :content="`Sets this lock to the ${argonSymbol}600 Treasury Certification minimum.`"
+              :content="`Sets this lock to the ${argonSymbol}${microgonToArgonNm(treasuryBitcoinCertificationDisplayAmount).format('0,0')} Treasury Certification minimum.`"
               side="top"
             >
               <span class="inline-flex cursor-help items-center gap-0.5">
@@ -799,7 +799,7 @@ async function refreshConversionQuote(): Promise<boolean> {
   try {
     return await refresh;
   } finally {
-    if (pendingQuoteRefresh === refresh) pendingQuoteRefresh = undefined;
+    pendingQuoteRefresh = undefined;
   }
 }
 

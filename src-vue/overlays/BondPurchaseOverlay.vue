@@ -509,7 +509,7 @@ async function submit() {
 
   try {
     if (isOverVaultBondCapacity.value) {
-      throw new Error('This vault needs more locked Bitcoin before it can create this many Argon Bonds.');
+      throw new Error(`${vaultLabel.value} does not have enough Bond space for this purchase.`);
     }
 
     const bondPurchaseMicrogons = BigInt(purchaseAmount.value) * MICROGONS_PER_ARGON_BIGINT;

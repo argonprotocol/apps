@@ -84,7 +84,7 @@
 
       <p class="mt-8 leading-normal font-light text-gray-600 select-text">
         Once your transaction is confirmed, Argon Network will mint you
-        {{ currency.symbol }}{{ microgonToArgonNm(props.personalLock.liquidityPromised).format('0,0.[00]') }}, which is
+        {{ currency.symbol }}{{ microgonToMoneyNm(props.personalLock.liquidityPromised).format('0,0.[00]') }}, which is
         the current market value of {{ formatBtc(currency.convertSatToBtc(props.personalLock.satoshis)) }} BTC. If you
         accidentally send a different amount, the network will pause and let you accept the adjusted amount or return
         the BTC.
@@ -160,7 +160,7 @@ const currency = getCurrency();
 const bitcoinLocks = getBitcoinLocks();
 const floatingZIndex = useFloatingZIndex();
 
-const { microgonToArgonNm, satToMoneyNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm, satToMoneyNm } = createNumeralHelpers(currency);
 
 const fundingBip21 = Vue.ref('');
 const scriptPaytoAddress = Vue.ref('');
@@ -228,7 +228,12 @@ Vue.onMounted(async () => {
     console.error('Error formatting P2WSH address:', error);
     throw new Error('Failed to format P2WSH address');
   }
-  const btcAmount = formatBtc(Number(props.personalLock.satoshis) / Number(SATS_PER_BTC));
+  const wholeBtc = props.personalLock.satoshis / SATS_PER_BTC;
+  const fractionalSatoshis = (props.personalLock.satoshis % SATS_PER_BTC)
+    .toString()
+    .padStart(8, '0')
+    .replace(/0+$/, '');
+  const btcAmount = fractionalSatoshis ? `${wholeBtc}.${fractionalSatoshis}` : wholeBtc.toString();
   const label = encodeURIComponent(`Argon Vault #${props.personalLock.vaultId} (utxo id=${props.personalLock.utxoId})`);
   const message = encodeURIComponent(
     `Personal BTC Funding for Vault #${props.personalLock.vaultId}, Utxo Id #${props.personalLock.utxoId}`,
