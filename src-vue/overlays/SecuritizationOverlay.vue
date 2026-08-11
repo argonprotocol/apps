@@ -2,8 +2,10 @@
 <template>
   <OverlayBase
     :isOpen="isOpen"
+    :showGoBack="returnToInvite && !isProcessing"
     @close="closeOverlay"
     @pressEsc="closeOverlay"
+    @goBack="goBackToInvite"
     class="w-[920px]"
   >
     <template #title>
@@ -190,6 +192,7 @@ const vaultingAssets = useVaultingAssetBreakdown();
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const isOpen = Vue.ref(false);
+const returnToInvite = Vue.ref(false);
 const securitizationMicrogons = Vue.ref(0n);
 const committedMicronots = Vue.ref(0n);
 const totalArgonIssuanceMicrogons = Vue.ref(0n);
@@ -240,7 +243,8 @@ function closeOverlay() {
   isOpen.value = false;
 }
 
-function openOverlay() {
+function openOverlay(request?: { returnToInvite?: boolean }) {
+  returnToInvite.value = request?.returnToInvite ?? false;
   isOpen.value = true;
   if (!isProcessing.value) {
     securitizationMicrogons.value = vaultingAssets.securityMicrogons;
@@ -265,6 +269,13 @@ function openOverlay() {
             : 'Unable to load current token circulation.';
       });
   }
+}
+
+function goBackToInvite() {
+  if (isProcessing.value) return;
+
+  closeOverlay();
+  basicEmitter.emit('openMemberInviteOverlay', { preserveDraft: true });
 }
 
 function openWallet() {

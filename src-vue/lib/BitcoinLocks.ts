@@ -749,15 +749,39 @@ export default class BitcoinLocks {
     return BitcoinLock.satoshisRequiredForRedemptionAmount(this.#currency.priceIndex, microgonLiquidity);
   }
 
-  public async getLockableBitcoinCapacity(args: { vault: Vault; lockOwner?: string; maxSatoshis?: bigint }): Promise<{
+  public async getLockableBitcoinCapacity(args: {
+    vault: Vault;
+    lockOwner?: string;
+    maxSatoshis?: bigint;
+    projectedBackfillSecuritizationLocked?: bigint;
+  }): Promise<{
     availableSatoshis: bigint;
     availableLiquidityMicrogons: bigint;
     vaultCapacitySatoshis: bigint;
     vaultCapacityLiquidityMicrogons: bigint;
   }> {
-    const { vault, lockOwner, maxSatoshis } = args;
-    const vaultCapacityLiquidityMicrogons = vault.availableBitcoinSpace(lockOwner) ?? 0n;
-    const vaultCapacitySatoshis = await this.satoshisForArgonLiquidity(vaultCapacityLiquidityMicrogons);
+    const { vault, lockOwner, maxSatoshis, projectedBackfillSecuritizationLocked } = args;
+    let vaultCapacityLiquidityMicrogons: bigint;
+    if (projectedBackfillSecuritizationLocked == null) {
+      vaultCapacityLiquidityMicrogons = vault.availableBitcoinSpace(lockOwner) ?? 0n;
+    } else {
+      const projectedOrdinarySecuritizationLocked = bigIntMax(
+        vault.securitizationLocked - projectedBackfillSecuritizationLocked,
+        0n,
+      );
+      const projectedAvailableSecuritization = bigIntMax(
+        vault.securitization - projectedOrdinarySecuritizationLocked - vault.backfillSecuritizationReserved,
+        0n,
+      );
+      vaultCapacityLiquidityMicrogons = bigNumberToBigInt(
+        BigNumber(projectedAvailableSecuritization).dividedBy(vault.securitizationRatioBN()),
+      );
+    }
+    await this.#currency.isLoadedPromise;
+    const vaultCapacitySatoshis = BitcoinLock.satoshisRequiredForRedemptionAmount(
+      this.#currency.priceIndex,
+      vaultCapacityLiquidityMicrogons,
+    );
     let availableSatoshis =
       maxSatoshis != null && maxSatoshis < vaultCapacitySatoshis ? maxSatoshis : vaultCapacitySatoshis;
 
