@@ -50,6 +50,7 @@ function createStore(
       bestBlockHeader: { blockNumber: 0, blockHash: '0x0' },
     }) as BlockWatch);
   const currency = Object.assign(Object.create(null), {
+    isLoadedPromise: Promise.resolve(),
     load: async () => undefined,
     priceIndex: { getSatoshiPriceInTargetMicrogons: () => 2_000n },
     convertSatToBtc: () => 0,
@@ -1952,7 +1953,7 @@ describe('BitcoinLocks capacity owners', () => {
   it('uses the prospective owner for lockable capacity', async () => {
     const store = createStore();
     const availableBitcoinSpace = vi.fn(() => 300n);
-    vi.spyOn(store, 'satoshisForArgonLiquidity').mockResolvedValue(300n);
+    vi.spyOn(BitcoinLock, 'satoshisRequiredForRedemptionAmount').mockReturnValue(300n);
     vi.spyOn(BitcoinLock, 'calculateRedemptionAmountFromSatoshis').mockReturnValue(300n);
 
     const capacity = await store.getLockableBitcoinCapacity({
@@ -1962,6 +1963,31 @@ describe('BitcoinLocks capacity owners', () => {
 
     expect(availableBitcoinSpace).toHaveBeenCalledWith('bitcoin-owner');
     expect(capacity.vaultCapacityLiquidityMicrogons).toBe(300n);
+  });
+
+  it('includes unused space when projecting flexible capacity changes', async () => {
+    const store = createStore();
+    const availableBitcoinSpace = vi.fn(() => 200n);
+    vi.spyOn(BitcoinLock, 'satoshisRequiredForRedemptionAmount').mockImplementation((_priceIndex, microgons) => {
+      return microgons;
+    });
+    vi.spyOn(BitcoinLock, 'calculateRedemptionAmountFromSatoshis').mockImplementation((_priceIndex, satoshis) => {
+      return satoshis;
+    });
+
+    const capacity = await store.getLockableBitcoinCapacity({
+      vault: {
+        availableBitcoinSpace,
+        backfillSecuritizationReserved: 100n,
+        securitization: 1_000n,
+        securitizationLocked: 800n,
+        securitizationRatioBN: () => BigNumber(1),
+      } as never,
+      projectedBackfillSecuritizationLocked: 300n,
+    });
+
+    expect(availableBitcoinSpace).not.toHaveBeenCalled();
+    expect(capacity.vaultCapacityLiquidityMicrogons).toBe(400n);
   });
 
   it('uses the existing lock owner for mismatch capacity', () => {

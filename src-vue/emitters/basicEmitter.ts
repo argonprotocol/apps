@@ -20,7 +20,7 @@ type IBasicEmitter = {
   openWalletDisconnectOverlay: { walletRecordId: number };
   ethereumWalletDisconnected: { walletRecordId: number };
   openEthereumWalletImportOverlay: 'choice' | 'external';
-  openSecuritizationOverlay: void;
+  openSecuritizationOverlay: { returnToInvite?: boolean } | undefined;
   openBotEditOverlay: void;
   openServerRemoveOverlay: void;
   openSecuritySettingsOverlay: { screen: 'overview' | 'mnemonics' | 'encrypt' | 'ethereum-export' } | undefined;
