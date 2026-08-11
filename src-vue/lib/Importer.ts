@@ -111,12 +111,12 @@ export default class Importer {
     }
 
     await this.shutdownBackgroundSync();
+    const security = await invokeWithTimeout('import_mnemonic', { mnemonic }, 10_000);
     const restarter = new Restarter(this.dbPromise, this.config);
     await restarter.deleteAndCreateLocalDatabase();
     const db = await this.dbPromise;
     await db.reconnect();
 
-    const security = await invokeWithTimeout('overwrite_mnemonic', { mnemonic }, 10_000);
     Object.assign(SECURITY, security);
 
     // The live Config and wallet singletons still reference the previous mnemonic until the app reloads.

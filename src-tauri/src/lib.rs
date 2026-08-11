@@ -178,14 +178,16 @@ async fn read_embedded_file(app: AppHandle, local_relative_path: String) -> Resu
 }
 
 #[tauri::command]
-async fn overwrite_mnemonic(
+async fn import_mnemonic(
     app: AppHandle,
     signer_policy: State<'_, EthereumSignerPolicyState>,
     mnemonic: String,
 ) -> Result<security::Security, String> {
-    log::info!("overwrite_mnemonic");
-    let security =
-        security::Security::save_with_mnemonic(&app, &mnemonic).map_err(|e| e.to_string())?;
+    log::info!("import_mnemonic");
+    migrations::backup_current_instance_database_for_import(&app)
+        .await
+        .map_err(|e| e.to_string())?;
+    let security = Security::import_mnemonic(&app, &mnemonic).map_err(|e| e.to_string())?;
     *signer_policy.policy.lock().await = None;
     Ok(security)
 }
@@ -974,7 +976,7 @@ pub fn run() {
             expose_mnemonic,
             export_default_ethereum_private_key,
             encrypt_wallet_secret,
-            overwrite_mnemonic,
+            import_mnemonic,
             measure_latency,
             load_instance,
             report_empty_app_root_after_activation,

@@ -3,6 +3,7 @@ use rand::RngCore;
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 use tauri::{AppHandle, Manager};
 
 static ENV_DOCKER: &str = include_str!("../../server/.env.dev-docker");
@@ -89,6 +90,20 @@ impl Utils {
                 tauri::path::BaseDirectory::AppConfig,
             )
             .expect("Failed to resolve config instance directory")
+    }
+
+    pub fn iso_timestamp_for_filename() -> String {
+        let timestamp = time::OffsetDateTime::from(SystemTime::now());
+        format!(
+            "{:04}-{:02}-{:02}T{:02}-{:02}-{:02}.{:03}Z",
+            timestamp.year(),
+            u8::from(timestamp.month()),
+            timestamp.day(),
+            timestamp.hour(),
+            timestamp.minute(),
+            timestamp.second(),
+            timestamp.millisecond(),
+        )
     }
 
     pub fn get_embedded_path(app: &AppHandle, path: impl AsRef<Path>) -> anyhow::Result<PathBuf> {

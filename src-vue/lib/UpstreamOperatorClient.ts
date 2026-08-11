@@ -33,6 +33,9 @@ type UpstreamOperatorSessionAuth = {
   getSessionId: () => Promise<string>;
   invalidateSessionId: () => Promise<void>;
 };
+type OperationsUpgradeRequestState = Pick<Partial<IMemberInvite>, 'operationsUpgradeRequestedAt'> & {
+  restorePackageRevision?: string;
+};
 
 const BOOTSTRAP_LOADING_HOST = 'loading';
 
@@ -351,6 +354,13 @@ export class UpstreamOperatorClient {
       return await request(sessionId);
     }
   }
+}
+
+export function hasOperationsUpgradeRequest({
+  operationsUpgradeRequestedAt,
+  restorePackageRevision,
+}: OperationsUpgradeRequestState): boolean {
+  return !!operationsUpgradeRequestedAt || restorePackageRevision?.endsWith('.1') === true;
 }
 
 function buildAuthenticatedUrl(operatorHost: string, path: string, sessionId?: string): string {

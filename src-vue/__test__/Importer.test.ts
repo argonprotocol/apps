@@ -11,6 +11,7 @@ import { type IConfig, MiningSetupStatus, VaultingSetupStatus } from '../interfa
 import Restarter from '../lib/Restarter.ts';
 import { MemoryWalletKeys } from '../lib/MemoryWalletKeys.ts';
 import type { Db } from '../lib/Db.ts';
+import { invokeWithTimeout } from '../lib/tauriApi.ts';
 
 const importMocks = vi.hoisted(() => ({
   closeWallets: vi.fn(),
@@ -42,6 +43,44 @@ vi.mock('../lib/IndexerClient.ts', () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   importMocks.getOperatorVaultId.mockResolvedValue({ isSome: false });
+});
+
+it('stops background sync before importing and keeps the current database on failure', async () => {
+  const { mnemonic, walletKeys } = createTestWallet('//Alice');
+  const db = {
+    reconnect: vi.fn(),
+    configTable: { insertOrReplace: vi.fn() },
+  } as unknown as Db;
+  importMocks.getFinalizedClient.mockResolvedValue({
+    query: {
+      operationalAccounts: {
+        operationalAccounts: vi.fn().mockResolvedValue({ isSome: false }),
+      },
+      vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
+    },
+  });
+  importMocks.readBalances.mockResolvedValue([
+    emptyBalance,
+    emptyBalance,
+    { ...emptyBalance, availableMicrogons: 1n },
+    emptyBalance,
+  ]);
+  importMocks.findMiningActivity.mockResolvedValue({ blocks: [], coverage: { gaps: [] } });
+  vi.spyOn(Mining, 'fetchMiningSeatsForAccount').mockResolvedValue({});
+  vi.mocked(invokeWithTimeout).mockRejectedValueOnce(new Error('import failed'));
+  const deleteDatabase = vi.spyOn(Restarter.prototype, 'deleteAndCreateLocalDatabase').mockResolvedValue();
+
+  await expect(
+    new Importer({} as Config, walletKeys, Promise.resolve(db)).importFromMnemonic(mnemonic),
+  ).rejects.toThrow('import failed');
+
+  expect(invokeWithTimeout).toHaveBeenCalledWith('import_mnemonic', { mnemonic }, 10_000);
+  expect(importMocks.closeWallets).toHaveBeenCalledOnce();
+  expect(importMocks.stopBlockWatch).toHaveBeenCalledOnce();
+  expect(importMocks.stopBlockWatch.mock.invocationCallOrder[0]).toBeLessThan(
+    vi.mocked(invokeWithTimeout).mock.invocationCallOrder[0],
+  );
+  expect(deleteDatabase).not.toHaveBeenCalled();
 });
 
 it('restores completed mining setup from imported operational account state', async () => {

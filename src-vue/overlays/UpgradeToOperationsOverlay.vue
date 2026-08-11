@@ -99,6 +99,7 @@ import OverlayBase from './OverlayBase.vue';
 import AlertIcon from '../assets/alert.svg';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import numeral from '../lib/numeral.ts';
+import { hasOperationsUpgradeRequest } from '../lib/UpstreamOperatorClient.ts';
 
 const config = getConfig();
 const controller = useCertificationController();
@@ -142,7 +143,12 @@ const canRequestUpgrade = Vue.computed(() => {
     return false;
   }
 
-  if (invite.value?.operationsUpgradeRequestedAt && controller.chainProgress.hasOperationalAccount) {
+  if (
+    hasOperationsUpgradeRequest({
+      ...(invite.value ?? {}),
+      restorePackageRevision: config.upstreamOperator?.restorePackageRevision,
+    })
+  ) {
     return false;
   }
 
