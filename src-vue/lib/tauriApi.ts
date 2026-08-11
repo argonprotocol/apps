@@ -7,7 +7,7 @@ export class InvokeTimeout extends Error {
 }
 
 const SENSITIVE_COMMANDS = new Set([
-  'overwrite_mnemonic',
+  'import_mnemonic',
   'encrypt_wallet_secret',
   'derive_external_ethereum_addresses',
   'derive_external_ethereum_address_from_private_key',

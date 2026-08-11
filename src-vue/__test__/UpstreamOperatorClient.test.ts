@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { RequestStatusError, ServerAuthClient } from '../lib/ServerAuthClient.ts';
-import { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
+import { hasOperationsUpgradeRequest, UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
 import { BootstrapType } from '../interfaces/IConfig.ts';
 
@@ -26,6 +26,15 @@ vi.mock('../stores/bootstrapRecovery.ts', () => ({
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+it('keeps an operations upgrade pending after the upstream records the request', () => {
+  expect(
+    hasOperationsUpgradeRequest({
+      operationsUpgradeRequestedAt: new Date('2026-08-10T12:00:00Z'),
+      restorePackageRevision: '2.0',
+    }),
+  ).toBe(true);
 });
 
 it('refuses redirects when claiming a pasted invite', async () => {

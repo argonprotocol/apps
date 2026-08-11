@@ -264,6 +264,7 @@ import {
 } from '../stores/certificationController.ts';
 import DiamondIcon from '../assets/diamond.svg';
 import CertificationIcon from '../assets/certification.svg';
+import { hasOperationsUpgradeRequest } from '../lib/UpstreamOperatorClient.ts';
 
 const config = getConfig();
 const controller = useCertificationController();
@@ -291,7 +292,9 @@ const isCertificationMenuVisible = Vue.computed(() => {
   return !controller.isOperationalRewardsFlowActive;
 });
 const hasRequestedOperationsUpgrade = Vue.computed(() => {
-  return config.upstreamOperator?.restorePackageRevision?.endsWith('.1') ?? false;
+  return hasOperationsUpgradeRequest({
+    restorePackageRevision: config.upstreamOperator?.restorePackageRevision,
+  });
 });
 
 const currentStepIds = Vue.computed(() => {

@@ -570,6 +570,14 @@ impl Security {
         Self::write_wallet_file(app, mnemonic)
     }
 
+    pub fn import_mnemonic(app: &AppHandle, mnemonic: &str) -> Result<Self> {
+        backup_mnemonic_if_different(&Utils::get_absolute_config_instance_dir(app), mnemonic)?;
+
+        let security = Self::write_wallet_file(app, mnemonic)?;
+        write_mnemonic_file(&Self::legacy_mnemonic_path(app), mnemonic)?;
+        Ok(security)
+    }
+
     fn create_with_addresses(mnemonic: &str, public_key: &str) -> Result<Self> {
         let mining_hold_account = Self::sr_derive_from_mnemonic(mnemonic, "//holding")?; // If we had a do-over, it would be called mining
         let mining_bot_account = Self::sr_derive_from_mnemonic(mnemonic, "//mining")?; // If we had a do-over, it would be called miningBot
@@ -730,11 +738,51 @@ fn write_mnemonic_file_if_missing(path: &Path, mnemonic: &str) -> Result<()> {
     }
 }
 
+fn write_mnemonic_file(path: &Path, mnemonic: &str) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+
+    #[cfg(unix)]
+    options.mode(0o600);
+
+    let mut file = options.open(path)?;
+    file.write_all(mnemonic.as_bytes())?;
+    file.sync_all()?;
+    Ok(())
+}
+
+fn backup_mnemonic_if_different(config_dir: &Path, imported_mnemonic: &str) -> Result<()> {
+    let mnemonic_path = config_dir.join("mnemonic");
+    if !mnemonic_path.exists() {
+        return Ok(());
+    }
+
+    let existing_mnemonic = fs::read_to_string(&mnemonic_path)?;
+    if existing_mnemonic.trim().is_empty() || existing_mnemonic.trim() == imported_mnemonic.trim() {
+        return Ok(());
+    }
+
+    let backup_dir = config_dir
+        .join("mnemonic-backups")
+        .join(Utils::iso_timestamp_for_filename());
+    fs::create_dir_all(&backup_dir)?;
+
+    write_mnemonic_file_if_missing(&backup_dir.join("mnemonic"), &existing_mnemonic)?;
+
+    log::info!("Backed up the existing mnemonic bridge before mnemonic import");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        Security, WalletFile, default_ethereum_hd_prefixes, get_ethereum_hd_path,
-        read_wallet_recovery_mnemonic, wallet_recovery_mnemonic, write_mnemonic_file_if_missing,
+        Security, WalletFile, backup_mnemonic_if_different, default_ethereum_hd_prefixes,
+        get_ethereum_hd_path, read_wallet_recovery_mnemonic, wallet_recovery_mnemonic,
+        write_mnemonic_file, write_mnemonic_file_if_missing,
     };
     use crate::ethereum_signer;
     use sp_core::Pair;
@@ -954,6 +1002,66 @@ mod tests {
         assert_eq!(
             fs::read_to_string(&mnemonic_path).expect("mnemonic file should exist"),
             "existing mnemonic"
+        );
+
+        fs::remove_dir_all(&test_dir).expect("test dir should be removed");
+    }
+
+    #[test]
+    fn backs_up_plaintext_mnemonic_only_when_import_differs() {
+        let test_dir = unique_test_dir("backs-up-plaintext-mnemonic-only-when-import-differs");
+        fs::create_dir_all(&test_dir).expect("test dir should be created");
+
+        let existing_mnemonic = "test test test test test test test test test test test junk";
+        let imported_mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        fs::write(test_dir.join("mnemonic"), existing_mnemonic)
+            .expect("existing mnemonic should be written");
+
+        backup_mnemonic_if_different(&test_dir, existing_mnemonic)
+            .expect("matching mnemonic should not need backup");
+        assert!(!test_dir.join("mnemonic-backups").exists());
+
+        backup_mnemonic_if_different(&test_dir, imported_mnemonic)
+            .expect("different mnemonic should be backed up");
+
+        let backup_root = test_dir.join("mnemonic-backups");
+        let backup_dirs = fs::read_dir(&backup_root)
+            .expect("backup root should exist")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("backup directory should be readable");
+        assert_eq!(backup_dirs.len(), 1);
+
+        let backup_timestamp = backup_dirs[0].file_name();
+        let backup_timestamp = backup_timestamp.to_string_lossy();
+        assert_eq!(backup_timestamp.len(), 24);
+        assert_eq!(backup_timestamp.as_bytes()[10], b'T');
+        assert_eq!(backup_timestamp.as_bytes()[23], b'Z');
+
+        assert_eq!(
+            fs::read_to_string(backup_dirs[0].path().join("mnemonic"))
+                .expect("mnemonic backup should be readable"),
+            existing_mnemonic
+        );
+
+        fs::remove_dir_all(&test_dir).expect("test dir should be removed");
+    }
+
+    #[test]
+    fn replaces_active_plaintext_mnemonic_during_import() {
+        let test_dir = unique_test_dir("replaces-active-plaintext-mnemonic-during-import");
+        fs::create_dir_all(&test_dir).expect("test dir should be created");
+
+        let mnemonic_path = test_dir.join("mnemonic");
+        fs::write(&mnemonic_path, "existing mnemonic")
+            .expect("existing mnemonic should be written");
+        let imported_mnemonic = "test test test test test test test test test test test junk";
+
+        write_mnemonic_file(&mnemonic_path, imported_mnemonic)
+            .expect("active mnemonic should be replaced");
+
+        assert_eq!(
+            fs::read_to_string(&mnemonic_path).expect("active mnemonic should be readable"),
+            imported_mnemonic
         );
 
         fs::remove_dir_all(&test_dir).expect("test dir should be removed");
