@@ -3,6 +3,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.4] - 2026-08-10
+- Improve cleanup of old bitcoin transactions and orphans
+- Performance improvement for locking Bitcoin
+- Move troubleshooting downloads to Downloads folder
+- Ensure moving funds cleanly separates wallets and external addresses
+- Ethereum transfers could miss detection of dropped ethereum transactions
+
 ## [2.3.3] - 2026-08-06
 - Fix Linux keystore persistence
 - Orphaned Bitcoin UTXO recovery
