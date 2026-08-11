@@ -479,6 +479,15 @@ if ! (already_ran "ArgonInstall"); then
         command_output=$(read_router_syncstatus "/argon/syncstatus")
         unset allow_run_command_fail
 
+        argon_logs=$(run_compose "sudo docker compose logs --no-color --tail 100 argon-miner")
+        if grep -qF "ARGON_RECOVERY_REQUIRED: missing-state-anchor" <<<"$argon_logs"; then
+          echo "Argon node requested recovery; resetting $ARGON_DATA_FOLDER/chains"
+          run_compose "sudo docker compose stop argon-miner"
+          run_command "sudo rm -rf -- \"${ARGON_DATA_FOLDER:?}/chains\""
+          run_compose "sudo docker compose up argon-miner -d --force-recreate"
+          continue
+        fi
+
         # Check if the response failed
         if [[ -z "$command_output" ]] || \
            ! jq empty <<<"$command_output" >/dev/null 2>&1 || \
