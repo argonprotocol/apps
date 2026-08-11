@@ -148,16 +148,9 @@ Vue.watch(
   },
 );
 
-async function refreshUpdates() {
-  const newVersion = await updater.checkForUpdates();
-  if (newVersion) {
-    console.log(newVersion);
-  }
-}
-
 basicEmitter.on('openCheckForAppUpdatesOverlay', () => {
   isOpen.value = true;
 
-  void refreshUpdates().catch(console.error);
+  void updater.checkForUpdates({ force: true }).catch(console.error);
 });
 </script>
