@@ -40,6 +40,7 @@ export const useAppUpdater = defineStore('appUpdater', () => {
   let isStarted = false;
   let versionPromise: Promise<string> | null = null;
   let updateCheckPromise: Promise<AppUpdate> | null = null;
+  let latestUpdateCheckId = 0;
   let updatePollInterval: ReturnType<typeof setInterval> | null = null;
 
   function start() {
@@ -81,16 +82,21 @@ export const useAppUpdater = defineStore('appUpdater', () => {
     return versionPromise;
   }
 
-  async function checkForUpdates(): Promise<AppUpdate> {
-    if (updateCheckPromise) {
+  async function checkForUpdates({ force = false }: { force?: boolean } = {}): Promise<AppUpdate> {
+    if (updateCheckPromise && !force) {
       return updateCheckPromise;
     }
 
-    updateCheckPromise = Promise.resolve().then(async () => {
+    const updateCheckId = ++latestUpdateCheckId;
+    const nextUpdateCheckPromise = Promise.resolve().then(async () => {
       isChecking.value = true;
 
       try {
         const nextUpdate = await check();
+        if (updateCheckId !== latestUpdateCheckId) {
+          return nextUpdate;
+        }
+
         const hasNewVersion = nextUpdate?.version !== update.value?.version;
 
         errorMessage.value = '';
@@ -110,15 +116,20 @@ export const useAppUpdater = defineStore('appUpdater', () => {
           runtime: getRuntimeDiagnostics(),
           error: getErrorDiagnostics(error),
         });
-        errorMessage.value = 'Error checking for updates. Please try again later.';
+        if (updateCheckId === latestUpdateCheckId) {
+          errorMessage.value = 'Error checking for updates. Please try again later.';
+        }
         return update.value as AppUpdate;
       } finally {
-        isChecking.value = false;
-        updateCheckPromise = null;
+        if (updateCheckId === latestUpdateCheckId) {
+          isChecking.value = false;
+          updateCheckPromise = null;
+        }
       }
     });
 
-    return updateCheckPromise;
+    updateCheckPromise = nextUpdateCheckPromise;
+    return nextUpdateCheckPromise;
   }
 
   async function downloadAndInstallUpdate() {

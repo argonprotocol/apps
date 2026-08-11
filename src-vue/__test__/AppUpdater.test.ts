@@ -49,3 +49,26 @@ it('blocks server installation across a UI reload after installing an app update
   expect(await isAppUpdateBlockingServerInstall()).toBe(false);
   expect(sessionValues.has('argon-app-update-requires-relaunch')).toBe(false);
 });
+
+it('lets a manual update check supersede an active background check', async () => {
+  let resolveBackgroundCheck!: (update: Awaited<ReturnType<typeof check>>) => void;
+  vi.mocked(check)
+    .mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          resolveBackgroundCheck = resolve;
+        }),
+    )
+    .mockResolvedValueOnce({ version: '1.4.4' } as any);
+  const updater = useAppUpdater();
+
+  const backgroundCheck = updater.checkForUpdates();
+  await Promise.resolve();
+
+  const manualCheck = updater.checkForUpdates({ force: true });
+  resolveBackgroundCheck({ version: '1.4.3' } as any);
+
+  expect((await manualCheck)?.version).toBe('1.4.4');
+  await backgroundCheck;
+  expect(updater.update?.version).toBe('1.4.4');
+});
