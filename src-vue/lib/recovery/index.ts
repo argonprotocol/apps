@@ -167,39 +167,46 @@ export async function restoreFinancialHistory(args: {
   };
 
   for (const domain of domainsToRestore) {
-    const checkpoint = domainCheckpoints[domain];
+    let checkpoint = domainCheckpoints[domain];
     const isBitcoinReplay = domain === 'bitcoin' && !!bitcoinLockRecovery;
     args.onProgress?.(importedBlockCount);
 
     try {
-      const result = await restoreFinancialHistoryDomain({
-        db,
-        blockWatch,
-        accountId,
-        argonBonds,
-        bitcoinLockRecovery,
-        vaultHistory,
-        domain,
-        checkpoint,
-        recoverMissingCheckpointsFor: args.recoverMissingCheckpointsFor,
-        mainchainClients: args.mainchainClients,
-        force: args.force,
-        targetBlock,
-        onActiveBitcoinLocksFound: args.onActiveBitcoinLocksFound,
-        onProgress: (recoveredBlockCount, totalBlockCount) =>
-          args.onProgress?.(importedBlockCount + recoveredBlockCount, {
-            domain,
-            recoveredBlockCount,
-            totalBlockCount,
-          }),
-        onCheckpoint: checkpoint => saveDomainCheckpoint(domain, checkpoint),
-      });
-      importedBlockCount += result.importedBlockCount;
+      let result!: Awaited<ReturnType<typeof restoreFinancialHistoryDomain>>;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        result = await restoreFinancialHistoryDomain({
+          db,
+          blockWatch,
+          accountId,
+          argonBonds,
+          bitcoinLockRecovery,
+          vaultHistory,
+          domain,
+          checkpoint,
+          recoverMissingCheckpointsFor: args.recoverMissingCheckpointsFor,
+          mainchainClients: args.mainchainClients,
+          force: args.force,
+          targetBlock,
+          onActiveBitcoinLocksFound: args.onActiveBitcoinLocksFound,
+          onProgress: (recoveredBlockCount, totalBlockCount) =>
+            args.onProgress?.(importedBlockCount + recoveredBlockCount, {
+              domain,
+              recoveredBlockCount,
+              totalBlockCount,
+            }),
+          onCheckpoint: checkpoint => saveDomainCheckpoint(domain, checkpoint),
+        });
 
-      if (isBitcoinReplay) {
-        await bitcoinLockRecovery.commitHistoryReplay(!result.error && result.checkpoint.asOfBlock >= targetBlock);
+        if (isBitcoinReplay) {
+          await bitcoinLockRecovery.commitHistoryReplay(!result.error && result.checkpoint.asOfBlock >= targetBlock);
+        }
+        await saveDomainCheckpoint(domain, result.checkpoint);
+
+        if (attempt > 0 || !isBitcoinReplay || !result.retryFromStart) break;
+        checkpoint = result.checkpoint;
       }
-      await saveDomainCheckpoint(domain, result.checkpoint);
+
+      importedBlockCount += result.importedBlockCount;
       if (result.error) throw new Error(result.error);
     } catch (error) {
       if (isBitcoinReplay) {
@@ -418,12 +425,19 @@ async function restoreFinancialHistoryDomain(args: {
   onActiveBitcoinLocksFound?: (count: number) => void;
   onProgress?: (importedBlockCount: number, totalBlockCount: number) => void;
   onCheckpoint?: (checkpoint: IFinancialHistoryCheckpoint) => Promise<void>;
-}): Promise<{ checkpoint: IFinancialHistoryCheckpoint; importedBlockCount: number; error?: string }> {
+}): Promise<{
+  checkpoint: IFinancialHistoryCheckpoint;
+  importedBlockCount: number;
+  error?: string;
+  retryFromStart?: boolean;
+}> {
   const { db, blockWatch, accountId, argonBonds, bitcoinLockRecovery, vaultHistory, domain, checkpoint } = args;
   const recoveryVersion = historyRecoveryVersions[domain];
   const recoveryVersionChanged =
     !!checkpoint && recoveryVersion !== undefined && checkpoint.recoveryVersion !== recoveryVersion;
-  const shouldRestartBitcoinRecovery = domain === 'bitcoin' && bitcoinLockRecovery?.hasPendingHistoryRecovery;
+  const hasPendingBitcoinRecovery = domain === 'bitcoin' && bitcoinLockRecovery?.hasPendingHistoryRecovery;
+  const shouldRestartBitcoinRecovery =
+    domain === 'bitcoin' && (hasPendingBitcoinRecovery || checkpoint?.partialRecovery);
   let afterBlock =
     args.force || !checkpoint || recoveryVersionChanged || shouldRestartBitcoinRecovery ? 0 : checkpoint.asOfBlock;
 
@@ -464,7 +478,8 @@ async function restoreFinancialHistoryDomain(args: {
   if (domain === 'bitcoin' && bitcoinLockRecovery) {
     let lockScope: BitcoinHistoryReplayLockScope = afterBlock === 0 ? 'all' : 'encountered';
     const canRepairOnlyPendingLocks =
-      shouldRestartBitcoinRecovery &&
+      hasPendingBitcoinRecovery &&
+      !checkpoint?.partialRecovery &&
       !args.force &&
       !recoveryVersionChanged &&
       !definitionChanged &&
@@ -505,6 +520,7 @@ async function restoreFinancialHistoryDomain(args: {
       return {
         importedBlockCount,
         error: domainError,
+        ...(domain === 'bitcoin' && afterBlock > 0 ? { retryFromStart: true } : {}),
         checkpoint: {
           asOfBlock: Math.max(afterBlock, (result.failedAtBlock ?? afterBlock + 1) - 1),
           definitionVersion: indexedHistory.definitionVersion,

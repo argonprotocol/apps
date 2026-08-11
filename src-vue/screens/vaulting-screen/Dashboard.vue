@@ -388,6 +388,7 @@ function formatLockLabel(lock: { satoshis: bigint }): string {
 }
 
 function getLockTileStatus(lock: IBitcoinLockRecord): TileStatus {
+  if (lock.isHistoryRecoveryPending) return 'pending';
   if (bitcoinLocks.isLockedStatus(lock)) return 'active';
   if (bitcoinLocks.isReleaseStatus(lock)) return 'active';
   return 'pending';
@@ -397,7 +398,9 @@ const localVaultLocks = Vue.computed(() => {
   const vaultId = myVault.createdVault?.vaultId;
   if (!vaultId) return [];
 
-  return bitcoinLocks.getActiveLocks().filter(lock => lock.vaultId === vaultId);
+  return bitcoinLocks
+    .getAllLocks({ includeHistoryRecoveryPending: true })
+    .filter(lock => lock.vaultId === vaultId && !bitcoinLocks.isInactiveForVaultDisplay(lock));
 });
 
 const localLocksByUuid = Vue.computed(() => {
@@ -430,6 +433,8 @@ function handleBitcoinTileClick(key: string) {
   // Local lock
   const lock = localLocksByUuid.value[key];
   if (lock) {
+    if (lock.isHistoryRecoveryPending) return;
+
     if (bitcoinLocks.isLockedStatus(lock) || bitcoinLocks.isReleaseStatus(lock)) {
       openLockDetailOverlay(lock);
     } else {
@@ -483,7 +488,7 @@ const bitcoinMapItems = Vue.computed((): MapItem[] => {
       label: formatLockLabel(lock),
       amount: microgons,
       displayValue: formatMoney(microgons),
-      emphasis: bitcoinLocks.isLockedStatus(lock) ? 'strong' : 'default',
+      emphasis: bitcoinLocks.isLockedStatus(lock) && !lock.isHistoryRecoveryPending ? 'strong' : 'default',
       status: tileStatus,
     });
   }

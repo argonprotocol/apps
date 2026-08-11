@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => {
       createLockSummary: vi.fn((_lock: object) => createBitcoinSummary(0n)),
       createLockSummaryAt: vi.fn(async (_lock: object, _api: object) => createBitcoinSummary(0n)),
       isLockedStatus: vi.fn(() => true),
+      isFinishedStatus: vi.fn(() => false),
       isReleaseStatus: vi.fn(() => false),
       isInactiveForVaultDisplay: vi.fn(() => false),
       refreshLockSummary: vi.fn(),
@@ -235,7 +236,9 @@ describe('financials store lifecycle', () => {
     mocks.bitcoinLocks.createLockSummaryAt.mockImplementation(async () => createBitcoinSummary(0n));
     mocks.bitcoinLocks.createLockSummaryAt.mockClear();
     mocks.bitcoinLocks.isLockedStatus.mockReturnValue(true);
+    mocks.bitcoinLocks.isFinishedStatus.mockReturnValue(false);
     mocks.bitcoinLocks.isReleaseStatus.mockReturnValue(false);
+    mocks.bitcoinLocks.isInactiveForVaultDisplay.mockReturnValue(false);
     mocks.vaults.load.mockResolvedValue();
     mocks.vaultingStats.argonBurnCapacity = 0;
     mocks.vaultingStats.microgonValueInVaults = 0n;
@@ -699,6 +702,40 @@ describe('financials store lifecycle', () => {
     expect(financials.savingsIsLoaded).toBe(false);
   });
 
+  it('archives funded Bitcoin history without presenting abandoned lock requests as transactions', () => {
+    const baseSummary = createBitcoinSummary(0n);
+    const abandonedSummary = {
+      ...baseSummary,
+      uuid: 'abandoned-lock-request',
+      status: 'LockExpiredWaitingForFundingAcknowledged',
+      record: {
+        ...baseSummary.record,
+        uuid: 'abandoned-lock-request',
+        status: 'LockExpiredWaitingForFundingAcknowledged',
+      },
+    };
+    const releasedSummary = {
+      ...baseSummary,
+      uuid: 'released-lock',
+      status: 'Released',
+      record: {
+        ...baseSummary.record,
+        uuid: 'released-lock',
+        status: 'Released',
+        removalReason: 'released',
+      },
+    };
+    mocks.bitcoinLocks.getAllLocks.mockReturnValue([abandonedSummary.record, releasedSummary.record]);
+    mocks.bitcoinLocks.createLockSummary.mockImplementation(lock => {
+      return lock === abandonedSummary.record ? abandonedSummary : releasedSummary;
+    });
+    mocks.bitcoinLocks.isInactiveForVaultDisplay.mockReturnValue(true);
+
+    const financials = useFinancials();
+
+    expect(financials.liquidInvisibleRecords).toEqual([releasedSummary]);
+  });
+
   it('requests recovery when live wallet tracking reports a history gap', async () => {
     mocks.config.hasExtensionTreasury = true;
 
@@ -720,16 +757,29 @@ describe('financials store lifecycle', () => {
     expect(mocks.restoreFinancialHistory).toHaveBeenCalledWith(expect.objectContaining({ minimumAsOfBlock: 10 }));
   });
 
-  it('keeps local positions available while recovery is unavailable', async () => {
+  it('publishes repaired positions when later history recovery fails', async () => {
+    const staleSummary = {
+      ...createBitcoinSummary(0n),
+      totalFees: 6_059_946n,
+    };
+    const recoveredSummary = {
+      ...staleSummary,
+      totalFees: 59_946n,
+    };
     mocks.config.hasExtensionTreasury = true;
     mocks.config.walletAccountsHadPreviousLife = true;
     mocks.needsFinancialHistoryRecovery.mockResolvedValue(true);
     mocks.restoreFinancialHistory.mockRejectedValue(new Error('indexer unavailable'));
+    mocks.bitcoinLocks.getAllLocks.mockReturnValue([staleSummary.record]);
+    mocks.bitcoinLocks.createLockSummaryAt.mockResolvedValueOnce(staleSummary).mockResolvedValue(recoveredSummary);
 
     const financials = useFinancials();
 
     await vi.waitFor(() => {
       expect(financials.historyRecovery.state).toBe('error');
+    });
+    await vi.waitFor(() => {
+      expect(financials.bitcoinLockDisplayRecords[0]?.totalFees).toBe(59_946n);
     });
     expect(financials.financialPositionAggregate.groupSummaries.liquid.state).toBe('ready');
   });

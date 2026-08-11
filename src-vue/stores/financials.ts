@@ -634,7 +634,10 @@ export const useFinancials = defineStore('financials', () => {
   });
 
   const liquidInvisibleRecords = Vue.computed<IBitcoinLockSummary[]>(() => {
-    return bitcoinLockSummaries.value.filter(lock => bitcoinLocks.isInactiveForVaultDisplay(lock.record));
+    return bitcoinLockSummaries.value.filter(lock => {
+      if (!bitcoinLocks.isInactiveForVaultDisplay(lock.record)) return false;
+      return !!lock.record.removalReason || bitcoinLocks.isFinishedStatus(lock.record);
+    });
   });
 
   const liquidVisibleRecords = Vue.computed<IBitcoinLockSummary[]>(() => {
@@ -690,7 +693,7 @@ export const useFinancials = defineStore('financials', () => {
   });
 
   const liquidLockedRecords = Vue.computed(() => {
-    return liquidVisibleRecords.value.filter(lock => bitcoinLocks.isLockedStatus(lock.record));
+    return bitcoinLockSummaries.value.filter(lock => bitcoinLocks.isLockedStatus(lock.record));
   });
 
   const liquidTotalSatoshis = Vue.computed(() => {
@@ -698,12 +701,22 @@ export const useFinancials = defineStore('financials', () => {
   });
 
   const liquidPerformanceReturn = Vue.computed(() => {
-    return financialPositionAggregate.value.groupSummaries.bitcoin.returnSummary.percent ?? 0;
+    if (bitcoinLockDisplayRecords.value.some(lock => lock.record.isHistoryRecoveryPending)) return;
+
+    const percent = financialPositionAggregate.value.groupSummaries.bitcoin.returnSummary.percent;
+    if (bitcoinLockDisplayRecords.value.length && percent === undefined) return;
+
+    return percent ?? 0;
   });
 
   const liquidHodlingInvestments = Vue.ref<IPerformanceReturnInput[]>([]);
   const liquidHodlingReturn = Vue.computed(() => {
-    return calculatePerformanceReturn(liquidHodlingInvestments.value).percent;
+    if (bitcoinLockDisplayRecords.value.some(lock => lock.record.isHistoryRecoveryPending)) return;
+
+    const percent = calculatePerformanceReturn(liquidHodlingInvestments.value).percent;
+    if (bitcoinLockDisplayRecords.value.length && percent === undefined) return;
+
+    return percent ?? 0;
   });
 
   const liquidCurrentBitcoinDebt = Vue.ref(0n);
@@ -1080,7 +1093,6 @@ export const useFinancials = defineStore('financials', () => {
           message: `Investment history is indexed through block ${result.asOfBlock.toLocaleString()} and is still catching up`,
         };
       }
-      await queueAccountRefresh({ force: true });
       if (isRecoveryComplete) {
         historyRecovery.value = { state: 'ready', recoveredBlockCount: result.importedBlockCount };
       }
@@ -1094,6 +1106,14 @@ export const useFinancials = defineStore('financials', () => {
         };
       }
       throw error;
+    } finally {
+      // A later history domain can fail after an earlier one repaired durable records.
+      // Publish those repairs even though the overall recovery remains retryable.
+      try {
+        await queueAccountRefresh({ force: true });
+      } catch (error) {
+        console.warn('[FinancialHistory] Unable to publish recovered positions', error);
+      }
     }
   }
 

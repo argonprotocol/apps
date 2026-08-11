@@ -91,6 +91,7 @@ export class BitcoinLockRecovery {
 
   public get hasPendingHistoryRecovery(): boolean {
     return (
+      this.historyReplayLocksByUtxoId !== undefined ||
       this.activeLockRecoveryFailedUtxoIds.size > 0 ||
       [...Object.values(this.locksByUtxoId), ...this.pendingLocks].some(lock => lock.isHistoryRecoveryPending)
     );
@@ -104,8 +105,18 @@ export class BitcoinLockRecovery {
     this.historyReplayLocksByUtxoId = {};
     this.historyReplayLockScope = lockScope;
     if (lockScope !== 'all') this.activeLocksByUtxoId.clear();
+    let table: BitcoinLocksTable | undefined;
     for (const lock of [...Object.values(this.locksByUtxoId), ...this.pendingLocks]) {
       if (!lock.isHistoryRecoveryPending) continue;
+
+      if (this.isRetiredHistoryRecord(lock)) {
+        table ??= await this.getTable();
+        await table.setHistoryRecoveryPending(lock.uuid, false);
+        delete lock.isHistoryRecoveryPending;
+        this.historyRecoveryPendingUuids.delete(lock.uuid);
+        if (lock.utxoId !== undefined) this.historyRecoveryPendingUtxoIds.delete(lock.utxoId);
+        continue;
+      }
 
       this.historyRecoveryPendingUuids.add(lock.uuid);
       if (lock.utxoId !== undefined) this.historyRecoveryPendingUtxoIds.add(lock.utxoId);
@@ -190,7 +201,12 @@ export class BitcoinLockRecovery {
       completedLocks.push(liveLock);
     }
     this.activeLocksByUtxoId.clear();
-    this.onHistoryRecoveryComplete(completedLocks);
+    const reconciliationLocksByUuid = new Map(completedLocks.map(lock => [lock.uuid, lock]));
+    for (const utxoId of orphanLifecycleLockUtxoIds) {
+      const lock = this.locksByUtxoId[utxoId];
+      if (lock) reconciliationLocksByUuid.set(lock.uuid, lock);
+    }
+    this.onHistoryRecoveryComplete([...reconciliationLocksByUuid.values()]);
   }
 
   public async cancelHistoryReplay(): Promise<void> {
@@ -313,7 +329,7 @@ export class BitcoinLockRecovery {
             lockQueueOwnerUuid: options.lockQueueOwnerUuid,
           }));
         const recovered = this.createDetachedRecord(record);
-        recovered.status = BitcoinLockStatus.LockPendingFunding;
+        if (!this.isRetiredHistoryRecord(recovered)) recovered.status = BitcoinLockStatus.LockPendingFunding;
         recovered.satoshis = chainLock.satoshis;
         recovered.liquidityPromised = chainLock.liquidityPromised;
         recovered.lockedTargetPrice = chainLock.lockedTargetPrice;
@@ -818,7 +834,7 @@ export class BitcoinLockRecovery {
     }
     const mintAmount = isUpRatchet ? cumulativeLiquidity - previousLiquidity : cumulativeLiquidity;
     const burned = readRequiredEventBigInt(event, ['amountBurned'], block);
-    if (recovered.status !== BitcoinLockStatus.Released && recovered.status !== BitcoinLockStatus.Releasing) {
+    if (!this.isRetiredHistoryRecord(recovered) && recovered.status !== BitcoinLockStatus.Releasing) {
       recovered.status = BitcoinLockStatus.LockedAndIsMinting;
     }
 
@@ -870,17 +886,22 @@ export class BitcoinLockRecovery {
   private applyRecoveredRecord(recovered: IBitcoinLockRecord): IBitcoinLockRecord {
     const utxoId = recovered.utxoId!;
     const stagedLocks = this.historyReplayLocksByUtxoId;
-    if (stagedLocks) {
-      recovered.isHistoryRecoveryPending = true;
-      this.historyRecoveryPendingUtxoIds.add(utxoId);
-      this.historyRecoveryPendingUuids.add(recovered.uuid);
-    }
     const liveRecord = this.locksByUtxoId[utxoId];
     const current =
       stagedLocks?.[utxoId] ?? (stagedLocks && liveRecord ? this.createDetachedRecord(liveRecord) : liveRecord);
+    const retiredStatus = current && this.isRetiredHistoryRecord(current) ? current.status : undefined;
+    if (stagedLocks && retiredStatus === undefined && !this.isRetiredHistoryRecord(recovered)) {
+      recovered.isHistoryRecoveryPending = true;
+      this.historyRecoveryPendingUtxoIds.add(utxoId);
+      this.historyRecoveryPendingUuids.add(recovered.uuid);
+    } else if (retiredStatus !== undefined) {
+      recovered.status = retiredStatus;
+      delete recovered.isHistoryRecoveryPending;
+    }
     if (current) {
       recovered.fundingUtxoRecord ??= current.fundingUtxoRecord;
       Object.assign(current, recovered);
+      if (retiredStatus !== undefined) current.status = retiredStatus;
       if (stagedLocks) stagedLocks[utxoId] = current;
       return current;
     }
@@ -898,7 +919,9 @@ export class BitcoinLockRecovery {
     if (!this.historyReplayLocksByUtxoId) return;
 
     const utxoId = lock.utxoId;
-    if (utxoId === undefined || this.historyRecoveryPendingUtxoIds.has(utxoId)) return;
+    if (utxoId === undefined || this.historyRecoveryPendingUtxoIds.has(utxoId) || this.isRetiredHistoryRecord(lock)) {
+      return;
+    }
 
     const activeLock = this.activeLocksByUtxoId.get(utxoId);
     if (
@@ -949,6 +972,19 @@ export class BitcoinLockRecovery {
     }
 
     if (completedLocks.length) this.onHistoryRecoveryComplete(completedLocks);
+  }
+
+  private isRetiredHistoryRecord(lock: Pick<IBitcoinLockRecord, 'status' | 'removalReason'>): boolean {
+    return (
+      !!lock.removalReason ||
+      [
+        BitcoinLockStatus.Released,
+        BitcoinLockStatus.LockExpiredWaitingForFunding,
+        BitcoinLockStatus.LockExpiredWaitingForFundingAcknowledged,
+        BitcoinLockStatus.LockFailed,
+        BitcoinLockStatus.LockFailedAcknowledged,
+      ].includes(lock.status)
+    );
   }
 
   private hasCompleteRatchetEconomics(

@@ -36,6 +36,7 @@ type IMyVaultTestTarget = {
   updateCollectDeadlines(): void;
   trackTxResultFee(txResult: unknown): Promise<void>;
   recordFee(txResult: { finalFee?: bigint; finalFeeTip?: bigint }): void;
+  onVaultCreated(txInfo: TransactionInfo<{ masterXpubPath: string }>): Promise<Vault>;
 };
 
 describe('MyVaultRecovery', () => {
@@ -1412,7 +1413,7 @@ describe('MyVault cosign recovery', () => {
     getMainchainClient.mockRestore();
   });
 
-  it('records finalized vault capital from the resulting vault state', async () => {
+  it('records finalized vault capital from the resulting vault state after re-inclusion', async () => {
     const capitalInsert = vi.fn(async () => undefined);
     const walletKeys = createMockWalletKeys();
     const api = {
@@ -1447,7 +1448,7 @@ describe('MyVault cosign recovery', () => {
 
     await myVault.recordFinalizedVaultCapital({
       tx: { blockHeight: 55, blockHash: '0x55', blockExtrinsicIndex: 2 },
-      txResult: { waitForFinalizedBlock: Promise.resolve(new Uint8Array()) },
+      txResult: { waitForFinalizedBlock: Promise.resolve(new Uint8Array([0xfa])) },
     } as any);
 
     expect(myVault.data.createdVault).toBe(liveVault);
@@ -1461,8 +1462,64 @@ describe('MyVault cosign recovery', () => {
         eventType: 'modified',
         securitization: 900n,
         securitizationTarget: 700n,
-        blockHash: '0x55',
+        blockHash: '0xfa',
         extrinsicIndex: 2,
+      }),
+    );
+    getVault.mockRestore();
+    getMainchainClient.mockRestore();
+  });
+
+  it('records a created vault against the finalized block after re-inclusion', async () => {
+    const capitalInsert = vi.fn(async () => undefined);
+    const metadataInsert = vi.fn(async () => ({ id: 7 }));
+    const finalizedBlockHash = new Uint8Array([0xfa]);
+    const vault = {
+      vaultId: 7,
+      securitization: 4_000n,
+    } as Vault;
+    const postProcessor = { resolve: vi.fn(), reject: vi.fn() };
+    const txInfo = {
+      tx: {
+        blockHash: '0xstale',
+        blockExtrinsicIndex: 5,
+        metadataJson: { masterXpubPath: '//vault' },
+      },
+      txResult: {
+        waitForFinalizedBlock: Promise.resolve(finalizedBlockHash),
+        events: [{ data: { vaultId: numberCodec(7) } }],
+        finalFee: 10n,
+      },
+      createPostProcessor: vi.fn(() => postProcessor),
+    } as unknown as TransactionInfo<{ masterXpubPath: string }>;
+    const api = {
+      query: {
+        system: { number: vi.fn(async () => numberCodec(55)) },
+      },
+    };
+    const client = {
+      at: vi.fn(async () => api),
+      events: {
+        vaults: {
+          VaultCreated: { is: vi.fn(() => true) },
+        },
+      },
+    };
+    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
+    const getVault = vi.spyOn(Vault, 'get').mockResolvedValue(vault);
+    const { myVault } = createVault({
+      db: {
+        vaultsTable: { insert: metadataInsert },
+        vaultCapitalHistoryTable: { insert: capitalInsert },
+      },
+    });
+
+    await (myVault as unknown as IMyVaultTestTarget).onVaultCreated(txInfo);
+
+    expect(capitalInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'created',
+        blockHash: '0xfa',
       }),
     );
     getVault.mockRestore();

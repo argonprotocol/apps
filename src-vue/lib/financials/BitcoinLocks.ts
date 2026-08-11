@@ -3,6 +3,7 @@ import {
   createFinancialPosition,
   type IBitcoinAssetFinancialPosition,
   type IBitcoinLiabilityFinancialPosition,
+  withInvestmentBasis,
 } from '../../interfaces/IFinancialPosition.ts';
 import type { IBitcoinLockSummary } from '../../interfaces/IBitcoinLockSummary.ts';
 import type { IBitcoinLockRecord } from '../../interfaces/IBitcoinLockRecord.ts';
@@ -37,7 +38,9 @@ export class BitcoinFinancials {
     await this.locks.load();
 
     const summaries = await Promise.all(
-      this.locks.getAllLocks().map(lock => this.locks.createLockSummaryAt(lock, args.clientAt)),
+      this.locks
+        .getAllLocks({ includeHistoryRecoveryPending: true })
+        .map(lock => this.locks.createLockSummaryAt(lock, args.clientAt)),
     );
     const hodlingInvestments: IPerformanceReturnInput[] = [];
     let currentBitcoinDebt = 0n;
@@ -46,7 +49,11 @@ export class BitcoinFinancials {
       const lock = summary.record;
 
       if (this.locks.isLockedStatus(lock)) currentBitcoinDebt += summary.unlockAmount;
-      if ((this.locks.isLockedStatus(lock) || this.locks.isReleaseStatus(lock)) && lock.ratchets[0]) {
+      if (
+        !lock.isHistoryRecoveryPending &&
+        (this.locks.isLockedStatus(lock) || this.locks.isReleaseStatus(lock)) &&
+        lock.ratchets[0]
+      ) {
         hodlingInvestments.push({
           startingDate: lock.createdAt,
           // Hodling compares BTC market movement; this is not the Bitcoin locking profit basis.
@@ -81,6 +88,7 @@ function createBitcoinLockPositions(
 ): BitcoinFinancialPosition[] {
   const { record } = summary;
   const paidIncome = summary.receivedLiquidity - summary.totalFees;
+  const hasConfirmedLockHistory = !record.isHistoryRecoveryPending;
 
   if (record.removalReason || summary.status === BitcoinLockStatus.Released) {
     if (record.removalReason === 'spent' && summary.pendingLiquidity === 0n) return [];
@@ -93,9 +101,10 @@ function createBitcoinLockPositions(
     const releaseRedemption = record.releaseRedemptionMicrogons ?? undefined;
     const releaseArgonTxFee = record.releaseArgonTxFeeMicrogons ?? undefined;
     const historicalTotalFees = summary.historicalTotalFees;
-    const releaseCompensation = hasConfirmedHistoryCoverage
-      ? (record.releaseCompensationMicrogons ?? 0n)
-      : (record.releaseCompensationMicrogons ?? undefined);
+    const releaseCompensation =
+      hasConfirmedHistoryCoverage && hasConfirmedLockHistory
+        ? (record.releaseCompensationMicrogons ?? 0n)
+        : (record.releaseCompensationMicrogons ?? undefined);
     const releasePaidIncome =
       releaseArgonTxFee !== undefined && releaseCompensation !== undefined
         ? paidIncome - releaseArgonTxFee + releaseCompensation
@@ -107,6 +116,7 @@ function createBitcoinLockPositions(
     if (
       isReleased &&
       hasConfirmedHistoryCoverage &&
+      hasConfirmedLockHistory &&
       record.removalBlockTime !== undefined &&
       removalBtcValue !== undefined &&
       releaseRedemption !== undefined &&
@@ -175,16 +185,19 @@ function createBitcoinLockPositions(
         id: `bitcoin-asset:${record.uuid}`,
         label: 'Locked Bitcoin',
         lifecycle: isReleasing ? 'releasing' : 'active',
-        performanceEndingCapital: summary.endingCapital,
+        ...(hasConfirmedLockHistory ? { performanceEndingCapital: summary.endingCapital } : {}),
         startedAt: record.createdAt,
         lock: summary.record,
       },
-      {
-        currentValue,
-        investedCost: summary.startingCapital,
-        paidIncome,
-        settledPrincipalValue: 0n,
-      },
+      withInvestmentBasis(
+        {
+          currentValue,
+          investedCost: summary.startingCapital,
+          paidIncome,
+          settledPrincipalValue: 0n,
+        },
+        hasConfirmedLockHistory,
+      ),
     ),
     createFinancialPosition('bitcoin-liability', {
       id: `bitcoin-liability:${record.uuid}`,

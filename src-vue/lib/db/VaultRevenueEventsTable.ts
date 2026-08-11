@@ -30,9 +30,15 @@ export class VaultRevenueEventsTable extends BaseTable {
         (amount, source, blockNumber, blockHash, blockTime, extrinsicIndex)
         VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT DO UPDATE SET
-          blockTime = COALESCE(VaultRevenueEvents.blockTime, excluded.blockTime),
-          extrinsicIndex = COALESCE(VaultRevenueEvents.extrinsicIndex, excluded.extrinsicIndex)
-        WHERE (VaultRevenueEvents.blockTime IS NULL AND excluded.blockTime IS NOT NULL)
+          amount = CASE
+            WHEN VaultRevenueEvents.blockHash != excluded.blockHash THEN excluded.amount
+            ELSE VaultRevenueEvents.amount
+          END,
+          blockHash = excluded.blockHash,
+          blockTime = COALESCE(excluded.blockTime, VaultRevenueEvents.blockTime),
+          extrinsicIndex = COALESCE(excluded.extrinsicIndex, VaultRevenueEvents.extrinsicIndex)
+        WHERE VaultRevenueEvents.blockHash != excluded.blockHash
+           OR (VaultRevenueEvents.blockTime IS NULL AND excluded.blockTime IS NOT NULL)
            OR (VaultRevenueEvents.extrinsicIndex IS NULL AND excluded.extrinsicIndex IS NOT NULL)
         RETURNING *;`,
       toSqlParams([amount, source, blockNumber, blockHash, blockTime, extrinsicIndex]),

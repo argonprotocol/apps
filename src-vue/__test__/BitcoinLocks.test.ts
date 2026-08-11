@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import BigNumber from 'bignumber.js';
 import {
+  createDeferred,
   StorageFinder,
   TransactionEvents,
   type BlockWatch,
@@ -269,7 +270,7 @@ describe('BitcoinLocks recovery', () => {
     ]);
   });
 
-  it('publishes a rediscovered orphan without waiting for an app refresh', async () => {
+  it('publishes a rediscovered orphan after current-state reconciliation', async () => {
     const db = await createTestDb();
     const store = createStore({
       blockWatch: { getApi: vi.fn(async () => ({})) } as unknown as BlockWatch,
@@ -278,11 +279,18 @@ describe('BitcoinLocks recovery', () => {
     const lock = createLock({
       uuid: 'late-orphan',
       utxoId: 7,
-      status: BitcoinLockStatus.LockPendingFunding,
+      status: BitcoinLockStatus.Released,
       createdAt: '2026-01-01T00:00:00Z',
     });
+    lock.removalReason = 'released';
     const utxoRef = { txid: `0x${'55'.repeat(32)}`, outputIndex: 1 };
     store.data.locksByUtxoId[7] = lock;
+    const releaseReconciliation = createDeferred<void>();
+    vi.spyOn(store.orphanReleases, 'reconcileOrphanReturns').mockImplementation(async () => {
+      await releaseReconciliation.promise;
+      const orphan = store.utxoTracking.getUtxosForLock(lock)[0];
+      await store.utxoTracking.setReleaseComplete(orphan);
+    });
 
     await store.recovery.beginHistoryReplay({ lockScope: 'all' });
     await store.recovery.recoverBlock(historyBlock(201), [
@@ -293,28 +301,49 @@ describe('BitcoinLocks recovery', () => {
         satoshis: 12_000n,
       }),
     ]);
+    expect(store.recovery.hasPendingHistoryRecovery).toBe(true);
+
     await store.recovery.commitHistoryReplay();
+
+    expect(store.data.isReconciliationPending).toBe(true);
+    expect(store.utxoTracking.getUnresolvedOrphanRecords([lock])).toHaveLength(1);
+
+    releaseReconciliation.resolve();
+    await vi.waitFor(() => expect(store.data.isReconciliationPending).toBe(false));
 
     expect(lock.isHistoryRecoveryPending).toBeUndefined();
     expect(store.getLockByUtxoId(7)).toBe(lock);
-    expect(store.utxoTracking.getUnresolvedOrphanRecords([lock])).toEqual([
+    expect(store.utxoTracking.getAllOrphanLifecycleUtxos()).toEqual([
       expect.objectContaining({
         txid: utxoRef.txid,
         vout: utxoRef.outputIndex,
         satoshis: 12_000n,
-        status: BitcoinUtxoStatus.Orphaned,
+        status: BitcoinUtxoStatus.ReleaseComplete,
       }),
     ]);
+    expect(store.utxoTracking.getUnresolvedOrphanRecords([lock])).toEqual([]);
   });
 
-  it('quarantines only recovering locks while regular locks remain active and syncable', async () => {
+  it('quarantines recovering locks from actions while keeping their current values visible', async () => {
     const store = createStore();
     const record = createLock({
       uuid: 'interim-release',
       utxoId: 7,
-      status: BitcoinLockStatus.LockPendingFunding,
+      status: BitcoinLockStatus.LockedAndIsMinting,
       createdAt: '2026-01-01T00:00:00Z',
     });
+    record.ratchets = [
+      {
+        mintAmount: 80n,
+        mintPending: 10n,
+        lockedTargetPrice: 100n,
+        securityFee: 2n,
+        txFee: 0n,
+        burned: 0n,
+        blockHeight: 10,
+        oracleBitcoinBlockHeight: 100,
+      },
+    ];
     record.fundingUtxoRecord = {
       status: BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin,
       statusError: 'PSBT finalize error',
@@ -354,26 +383,56 @@ describe('BitcoinLocks recovery', () => {
     await store.syncLockReleaseStatusFromFundingRecord(record, releasingRecord);
     await store.syncLockReleaseStatusFromFundingRecord(regularRecord, releasingRecord);
 
-    expect(record.status).toBe(BitcoinLockStatus.LockPendingFunding);
+    expect(record.status).toBe(BitcoinLockStatus.LockedAndIsMinting);
     expect(regularRecord.status).toBe(BitcoinLockStatus.Releasing);
     expect(setStatus).toHaveBeenCalledOnce();
     expect(setStatus).toHaveBeenCalledWith(regularRecord, BitcoinLockStatus.Releasing);
 
     vi.spyOn(store, 'load').mockResolvedValue();
+    const recoverySummary = {
+      uuid: record.uuid,
+      record,
+      status: record.status,
+      satoshis: record.satoshis,
+      valueOfBtc: 100n,
+      startingCapital: 80n,
+      endingCapital: 88n,
+      pendingLiquidity: 10n,
+      receivedLiquidity: 70n,
+      totalFees: 2n,
+      unlockAmount: 60n,
+    } as ReturnType<typeof store.createLockSummary>;
     const regularSummary = {
+      uuid: regularRecord.uuid,
       record: regularRecord,
       status: regularRecord.status,
+      satoshis: regularRecord.satoshis,
+      valueOfBtc: 0n,
+      startingCapital: 0n,
+      endingCapital: 0n,
+      pendingLiquidity: 0n,
+      receivedLiquidity: 0n,
+      totalFees: 0n,
       unlockAmount: 0n,
     } as ReturnType<typeof store.createLockSummary>;
-    const createLockSummaryAt = vi.spyOn(store, 'createLockSummaryAt').mockResolvedValue(regularSummary);
+    const createLockSummaryAt = vi
+      .spyOn(store, 'createLockSummaryAt')
+      .mockImplementation(async lock => (lock === record ? recoverySummary : regularSummary));
     const financials = await new BitcoinFinancials(store).loadSnapshot({
       clientAt: Object.create(null),
-      hasCurrentPrice: false,
+      hasCurrentPrice: true,
     });
 
-    expect(createLockSummaryAt).toHaveBeenCalledOnce();
-    expect(createLockSummaryAt).toHaveBeenCalledWith(regularRecord, expect.anything());
-    expect(financials.summaries).toEqual([regularSummary]);
+    expect(createLockSummaryAt).toHaveBeenCalledTimes(2);
+    expect(financials.summaries).toEqual([regularSummary, recoverySummary]);
+    expect(financials.currentBitcoinDebt).toBe(60n);
+    expect(financials.hodlingInvestments).toEqual([]);
+    const recoveryPosition = financials.positions.find(position => position.id === `bitcoin-asset:${record.uuid}`);
+    expect(recoveryPosition).toMatchObject({ kind: 'bitcoin-asset', lock: record, currentValue: 110n });
+    if (recoveryPosition?.kind !== 'bitcoin-asset') throw new Error('Expected recovering Bitcoin asset position');
+    expect(recoveryPosition.investedCost).toBeUndefined();
+    expect(recoveryPosition.paidIncome).toBe(68n);
+    expect(recoveryPosition.performanceEndingCapital).toBeUndefined();
 
     delete record.isHistoryRecoveryPending;
     expect(store.getAllLocks()).toEqual([regularRecord, record]);
@@ -934,7 +993,7 @@ describe('BitcoinLocks recovery', () => {
     expect(syncCosignCounterSubscriptions).toHaveBeenCalledOnce();
   });
 
-  it('keeps recovered expired locks in history without processing them as active', async () => {
+  it('keeps recovered expired locks retired during a full history replay', async () => {
     const store = createStore();
     const record = createLock({
       uuid: 'expired-lock',
@@ -943,13 +1002,22 @@ describe('BitcoinLocks recovery', () => {
       createdAt: '2026-01-01T00:00:00Z',
     });
     record.removalReason = 'expired';
+    record.isHistoryRecoveryPending = true;
     store.data.locksByUtxoId[7] = record;
+
+    const setHistoryRecoveryPending = vi.fn();
+    const setStatus = vi.fn();
+    vi.spyOn(store, 'getTable').mockResolvedValue({ setHistoryRecoveryPending, setStatus } as never);
+
+    await store.recovery.beginHistoryReplay({ lockScope: 'all' });
+    await store.recovery.commitHistoryReplay();
 
     expect(store.getActiveLocks()).toEqual([]);
     expect(store.getAllLocks()).toEqual([record]);
     expect(store.getLockByUtxoId(7)).toBe(record);
-    const setStatus = vi.fn();
-    vi.spyOn(store, 'getTable').mockResolvedValue({ setStatus } as never);
+    expect(record.isHistoryRecoveryPending).toBeUndefined();
+    expect(setHistoryRecoveryPending).toHaveBeenCalledWith(record.uuid, false);
+    expect(setHistoryRecoveryPending).not.toHaveBeenCalledWith(record.uuid, true);
 
     await store.syncLockReleaseStatusFromFundingRecord(record, {
       status: BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin,
