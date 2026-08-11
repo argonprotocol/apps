@@ -2,13 +2,13 @@
   <div class="space-y-5 px-10 pt-5 pb-5">
     <p v-if="isMismatchAccepted">
       Funding difference accepted. Argon has locked your adjusted
-      {{ satToBtcNm(fundingUtxoRecord?.satoshis ?? personalLock.satoshis ?? 0n).format('0,0.[00000000]') }} of BTC
+      {{ formatBtc(currency.convertSatToBtc(fundingUtxoRecord?.satoshis ?? personalLock.satoshis ?? 0n)) }} of BTC
       (around {{ currency.symbol
       }}{{ satToMoneyNm(fundingUtxoRecord?.satoshis ?? personalLock.satoshis ?? 0n).format('0,0.00') }}).
     </p>
     <p v-else>
       Argon has processed and locked your
-      {{ satToBtcNm(fundingUtxoRecord?.satoshis ?? personalLock.satoshis ?? 0n).format('0,0.[00000000]') }} of BTC
+      {{ formatBtc(currency.convertSatToBtc(fundingUtxoRecord?.satoshis ?? personalLock.satoshis ?? 0n)) }} of BTC
       (around {{ currency.symbol
       }}{{ satToMoneyNm(fundingUtxoRecord?.satoshis ?? personalLock.satoshis ?? 0n).format('0,0.00') }}).
     </p>
@@ -36,7 +36,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
+import { createNumeralHelpers, formatBtc } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
@@ -46,7 +46,7 @@ import { TransactionStatus } from '../../lib/db/TransactionsTable.ts';
 const currency = getCurrency();
 const bitcoinLocks = getBitcoinLocks();
 
-const { microgonToArgonNm, satToBtcNm, satToMoneyNm } = createNumeralHelpers(currency);
+const { microgonToArgonNm, satToMoneyNm } = createNumeralHelpers(currency);
 
 const props = defineProps<{
   personalLock: IBitcoinLockRecord;

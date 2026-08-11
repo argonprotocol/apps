@@ -111,6 +111,8 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
         },
       );
     } else if (input.minimumLockSatoshis != null) {
+      await flow.click('LockStart.amountUnit');
+      await flow.click('BTC');
       await flow.type(
         { selector: '[data-testid="LockStart.bitcoinAmount"] [data-testid="input-number"]' },
         formatUnitsToDecimal(input.minimumLockSatoshis, SATOSHIS_PER_BTC, `${flowName}.minimumLockSatoshis`),

@@ -124,7 +124,7 @@ import basicEmitter from '../emitters/basicEmitter.ts';
 import { getMiningFrames } from '../stores/mainchain.ts';
 import { useFinancials } from '../stores/financials.ts';
 import { useCertificationController } from '../stores/certificationController.ts';
-import numeral from '../lib/numeral.ts';
+import { formatBtc } from '../lib/numeral.ts';
 
 const bitcoinLocks = getBitcoinLocks();
 const config = getConfig();
@@ -285,7 +285,7 @@ const stepItems = Vue.computed<IStepHeaderItem[]>(() => [
   },
   {
     label: 'Choose Amount',
-    value: btcBeingLocked.value == null ? undefined : `${numeral(btcBeingLocked.value).format('0,0.[000000]')} BTC`,
+    value: btcBeingLocked.value == null ? undefined : `${formatBtc(btcBeingLocked.value)} BTC`,
     tooltip: "Choose how much BTC you want to lock. The more you lock, the more Argons you'll receive.",
     isActive: () => lockStep.value === LockStep.Start,
   },
