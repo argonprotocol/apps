@@ -480,7 +480,7 @@ if ! (already_ran "ArgonInstall"); then
         unset allow_run_command_fail
 
         allow_run_command_fail=1
-        argon_logs=$(run_compose "sudo docker compose logs --no-color --tail 100 argon-miner 2>&1 | grep -m 1 -F 'ARGON_RECOVERY_REQUIRED: missing-state-anchor'")
+        argon_logs=$(run_compose "sudo docker compose logs --no-color --tail 100 argon-miner | grep -m 1 -F 'ARGON_RECOVERY_REQUIRED: missing-state-anchor'")
         unset allow_run_command_fail
         if grep -qF "ARGON_RECOVERY_REQUIRED: missing-state-anchor" <<<"$argon_logs"; then
           echo "Argon node requested recovery; resetting $ARGON_DATA_FOLDER/chains"
