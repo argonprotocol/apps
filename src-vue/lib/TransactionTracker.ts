@@ -3,12 +3,15 @@ import {
   ExtrinsicError,
   type GenericEvent,
   hexToU8a,
+  isOutdatedTransactionError,
   ISubmittableOptions,
   type ISubmittableResult,
   SignedBlock,
   SubmittableExtrinsic,
   type TxSigningAccount,
   TxResult,
+  TxSubmissionError,
+  TxSubmissionErrorCode,
 } from '@argonprotocol/mainchain';
 import * as Vue from 'vue';
 import { Db } from './Db.ts';
@@ -210,13 +213,38 @@ export class TransactionTracker {
       metadata?: T;
     } & ISubmittableOptions,
   ): Promise<TransactionInfo<T>> {
-    const { client: providedClient, tx, txSigner, extrinsicType, metadata, useLatestNonce, ...apiOptions } = args;
     await this.load();
+    const txInfo = await this.submitAttempt(args);
+    await this.watchForUpdates();
+
+    return txInfo;
+  }
+
+  private async submitAttempt<T>(
+    args: {
+      client?: ArgonClient;
+      tx: SubmittableExtrinsic;
+      txSigner: TxSigningAccount;
+      extrinsicType: ExtrinsicType;
+      metadata?: T;
+    } & ISubmittableOptions,
+    outdatedNonceAttempt = 1,
+  ): Promise<TransactionInfo<T>> {
+    const { client: providedClient, tx, txSigner, extrinsicType, metadata, useLatestNonce, ...providedOptions } = args;
     const client = providedClient ?? (await getMainchainClient(false));
     console.log('[TransactionTracker] SUBMITTING TRANSACTION', extrinsicType);
     const submittedAtBlockHeight = await client.rpc.chain.getHeader().then(x => x.number.toNumber());
+    const shouldRetryLatestNonce = useLatestNonce && providedOptions.nonce === undefined;
+    const apiOptions = { ...providedOptions };
+    const retryArgs = shouldRetryLatestNonce
+      ? {
+          ...args,
+          client,
+          tx: client.tx(tx),
+        }
+      : undefined;
     let releaseNonceReservation: VoidFunction | undefined;
-    if (useLatestNonce && apiOptions.nonce === undefined) {
+    if (shouldRetryLatestNonce) {
       const reservation = await this.reserveLatestNonce(client, txSigner.address);
       apiOptions.nonce = reservation.nonce;
       releaseNonceReservation = reservation.release;
@@ -245,26 +273,33 @@ export class TransactionTracker {
         metadata,
       });
 
-      await signedTx
-        .send(result => {
+      let shouldRetryOutdatedNonce = false;
+      try {
+        await signedTx.send(result => {
           if (this.#isClosed) {
             return;
           }
           txResult.onSubscriptionResult(result);
           void this.handleWatchedResult(txInfo.tx, txResult, result);
-        })
-        .catch(async error => {
-          if (this.#isClosed) {
-            return;
-          }
-          txResult.submissionError = error as Error;
-          await this.recordSubmissionError(txInfo.tx, txResult.submissionError);
         });
+      } catch (error) {
+        if (this.#isClosed) {
+          return txInfo;
+        }
+        txResult.submissionError = error as Error;
+        await this.recordSubmissionError(txInfo.tx, txResult.submissionError);
+        shouldRetryOutdatedNonce =
+          retryArgs !== undefined && outdatedNonceAttempt < 3 && isOutdatedTransactionError(error);
+      }
+
+      if (shouldRetryOutdatedNonce && retryArgs) {
+        releaseNonceReservation?.();
+        releaseNonceReservation = undefined;
+        return await this.submitAttempt(retryArgs, outdatedNonceAttempt + 1);
+      }
     } finally {
       releaseNonceReservation?.();
     }
-
-    await this.watchForUpdates();
 
     return txInfo;
   }
@@ -446,10 +481,12 @@ export class TransactionTracker {
   }
 
   private async updatePendingStatuses(bestBlockInfo: IBlockHeaderInfo): Promise<void> {
+    const finalizedBlockHeader = { ...this.blockWatch.finalizedBlockHeader };
+    const { blockNumber: finalizedHeight, blockTime: finalizedBlockTime } = finalizedBlockHeader;
     const table = await this.getTable();
-    const { blockNumber: finalizedHeight, blockTime: finalizedBlockTime } = this.blockWatch.finalizedBlockHeader;
     const bestBlockNumber = bestBlockInfo.blockNumber;
     const checkedTxIds = new Set<number>();
+    const finalizedAccountNonceByAddress = new Map<string, Promise<number | undefined>>();
 
     for (const txInfo of this.data.txInfos) {
       const { tx, txResult } = txInfo;
@@ -541,12 +578,55 @@ export class TransactionTracker {
         } else {
           console.log('[TransactionTracker] No transaction found as of block', { bestBlockNumber, id: tx.id });
 
+          let finalizedNonceLookupFailed = false;
+          if (tx.txNonce != null && tx.finalizedHeadHeight !== finalizedHeight) {
+            let finalizedAccountNoncePromise = finalizedAccountNonceByAddress.get(tx.accountAddress);
+            if (!finalizedAccountNoncePromise) {
+              finalizedAccountNoncePromise = (async () => {
+                try {
+                  const api = await this.blockWatch.getApi(finalizedBlockHeader);
+                  const account = await api.query.system.account(tx.accountAddress);
+                  return account.nonce.toNumber();
+                } catch (error) {
+                  console.warn('[TransactionTracker] Unable to check finalized account nonce', {
+                    accountAddress: tx.accountAddress,
+                    finalizedHeight,
+                    error,
+                  });
+                }
+              })();
+              finalizedAccountNonceByAddress.set(tx.accountAddress, finalizedAccountNoncePromise);
+            }
+
+            const finalizedAccountNonce = await finalizedAccountNoncePromise;
+            if (finalizedAccountNonce === undefined) {
+              finalizedNonceLookupFailed = true;
+            } else if (finalizedAccountNonce > tx.txNonce) {
+              const error = new TxSubmissionError(
+                TxSubmissionErrorCode.Invalid,
+                'Transaction nonce was already used by another transaction.',
+              );
+              txResult.submissionError = error;
+              await this.recordHistoryStatus({
+                transactionId: tx.id,
+                status: TransactionHistoryStatus.Invalid,
+                source: TransactionHistorySource.Local,
+              });
+              await this.recordSubmissionError(tx, error);
+              checkedTxIds.add(tx.id);
+              continue;
+            }
+          }
+
           if (finalizedHeight - tx.submittedAtBlockHeight > MAX_BLOCKS_TO_CHECK) {
             // too old, stop checking
             console.log(`[TransactionTracker] Marking transaction #${tx.id} expired:`, tx.extrinsicHash);
             txResult.extrinsicError = new Error('Transaction expired waiting for block inclusion');
             await txResult.setFinalized();
             await table.markExpiredWaitingForBlock(tx);
+          } else if (finalizedNonceLookupFailed) {
+            // Retry this account at the same finalized head after a transient RPC failure.
+            continue;
           }
         }
         checkedTxIds.add(tx.id);
@@ -819,7 +899,7 @@ export class TransactionTracker {
     if (txInfo.txResult.submissionError) {
       return false;
     }
-    return true;
+    return !this.isNonResumableWatchStatus(this.getLatestHistoryStatus(txInfo.tx.id));
   }
 
   private reservesNonceLane(txInfo: TransactionInfo, address: string) {
