@@ -57,6 +57,28 @@ describe('MoveCapital', () => {
     });
   });
 
+  it('derives the mining destination instead of using a supplied external address', async () => {
+    const { moveCapital } = createMoveCapital();
+    const client = {
+      tx: {
+        balances: {
+          transferAllowDeath: (recipient: string, amount: bigint) => ({ recipient, amount }),
+        },
+      },
+    } as any;
+
+    const { tx } = await moveCapital.buildTransaction(
+      MoveFrom.DefaultArgon,
+      MoveTo.MiningBot,
+      { ARGN: 1_000_000n },
+      'friend-address',
+      [],
+      client,
+    );
+
+    expect(tx).toEqual({ recipient: 'mining-bot-address', amount: 1_000_000n });
+  });
+
   it('keeps the default wallet reserves when sweeping to the bot', async () => {
     const { moveCapital, transactionTracker, postProcessMiningBidProxySetupSpy } = createMoveCapital();
     postProcessMiningBidProxySetupSpy.mockRestore();

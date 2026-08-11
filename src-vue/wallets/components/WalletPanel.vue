@@ -40,7 +40,7 @@
           :indentLeft="props.indentTokensLeft"
           :indentRight="props.indentTokensRight"
           @openTransferOverlay="emit('openTransferOverlay', $event)"
-          @customTransferStarted="emit('customTransferStarted')"
+          @customTransferPending="emit('customTransferPending', $event)"
         />
       </div>
     </div>
@@ -89,7 +89,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (event: 'openTransferOverlay', transfer: { moveToken: IEthereumMoveToken; availableAmount: bigint }): void;
-  (event: 'customTransferStarted'): void;
+  (event: 'customTransferPending', value: boolean): void;
 }>();
 
 const financials = useFinancials();

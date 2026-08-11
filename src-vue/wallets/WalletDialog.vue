@@ -121,7 +121,7 @@
                 :moveFrom="customTransferMoveFrom"
                 :moveTo="props.transferOut?.customArgonAddress ? MoveTo.External : undefined"
                 :externalAddress="customArgonAddress"
-                @customTransferStarted="customArgonAddressLocked = true"
+                @customTransferPending="customArgonAddressLocked = $event"
                 :showGuidance="props.showGuidance"
                 :guidanceContext="props.guidanceContext"
                 :indentTokensLeft="!!props.transferIn?.wallet"
