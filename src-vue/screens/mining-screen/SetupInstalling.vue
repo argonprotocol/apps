@@ -226,7 +226,7 @@ async function ensureTrackedSetupTransfer(force = false) {
   const txInfo = findLatestSetupTxInfo();
   if (txInfo) {
     const txAttemptState = await transactionTracker.getTxAttemptState(txInfo, 2);
-    if (txAttemptState === TxAttemptState.Follow) {
+    if (txAttemptState === TxAttemptState.Pending) {
       trackTxInfo(txInfo);
       return;
     }

@@ -29,10 +29,14 @@ import { getBitcoinAlertNotices } from '../lib/Alerts.ts';
 import { BitcoinFinancials } from '../lib/financials/BitcoinLocks.ts';
 import * as vaultStore from '../stores/vaults.ts';
 import { createTestDb } from './helpers/db.ts';
+import { createBitcoinLockConfig } from './helpers/bitcoin.ts';
+import { getMainchainClient } from '../stores/mainchain.ts';
 
 vi.mock('../stores/mainchain.ts', () => ({
   getMainchainClient: vi.fn(async () => ({})),
 }));
+
+afterEach(() => vi.useRealTimers());
 
 function createStore(
   options: {
@@ -165,6 +169,52 @@ function historyEvent(
     phase: { isApplyExtrinsic: true, asApplyExtrinsic: numberCodec(extrinsicIndex) },
   };
 }
+
+it('keeps a funding expiration estimate stable until the oracle Bitcoin height changes', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-08-11T18:00:00Z'));
+
+  const db = await createTestDb();
+  const blockWatch = Object.assign(Object.create(null), {
+    start: async () => undefined,
+    events: { on: () => () => undefined },
+    bestBlockHeader: { blockNumber: 0, blockHash: '0x0' },
+  }) as BlockWatch;
+  const archiveClient = {
+    consts: { bitcoinLocks: { argonTicksPerDay: { toNumber: () => 1_440 } } },
+    query: {
+      bitcoinLocks: {
+        utxoIdsByOwnerAccount: { keys: vi.fn(async () => []) },
+      },
+    },
+  };
+  blockWatch.getFinalizedApi = vi.fn(async () => archiveClient) as never;
+  vi.mocked(getMainchainClient).mockResolvedValue(archiveClient as never);
+  vi.spyOn(BitcoinLock, 'getConfig').mockResolvedValue(
+    createBitcoinLockConfig({ pendingConfirmationExpirationBlocks: 6 }),
+  );
+  const store = createStore({ blockWatch, db });
+
+  await store.load();
+  store.data.oracleBitcoinBlockHeight = 100;
+
+  const lock = createLock({
+    uuid: 'pending-lock',
+    status: BitcoinLockStatus.LockPendingFunding,
+    createdAt: '2026-08-11T18:00:00Z',
+  });
+  const initialExpiration = store.verifyExpirationTime(lock);
+
+  await vi.advanceTimersByTimeAsync(2_000);
+
+  expect(store.verifyExpirationTime(lock)).toBe(initialExpiration);
+
+  store.data.oracleBitcoinBlockHeight = 101;
+
+  expect(store.verifyExpirationTime(lock)).not.toBe(initialExpiration);
+
+  store.unsubscribeFromArgonBlocks();
+});
 
 describe('BitcoinLocks recovery', () => {
   it('recognizes and clears recovery flags restored from the database', async () => {

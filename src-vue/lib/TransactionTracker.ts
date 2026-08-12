@@ -41,9 +41,16 @@ type IWatchedTxStatus = {
 };
 
 export enum TxAttemptState {
-  Follow = 'Follow',
+  Pending = 'Pending',
   Finalized = 'Finalized',
   Replace = 'Replace',
+}
+
+enum TxReconciliationState {
+  Included = 'Included',
+  InPool = 'InPool',
+  Absent = 'Absent',
+  Unavailable = 'Unavailable',
 }
 
 export class TransactionTracker {
@@ -60,6 +67,9 @@ export class TransactionTracker {
   #bestBlockNumber?: number;
   #watchUnsubscribe?: () => void;
   #nonceLaneByAddress = new Map<string, Promise<void>>();
+  #statusLaneByTxId = new Map<number, Promise<void>>();
+  #pendingWatchResultsByTxId = new Map<number, number>();
+  #reconciliationByTxId = new Map<number, { head: string; state: TxReconciliationState }>();
   #isClosed = false;
 
   constructor(
@@ -95,6 +105,7 @@ export class TransactionTracker {
       const client = await getMainchainClient(false);
       await this.blockWatch.start();
 
+      this.#reconciliationByTxId.clear();
       this.data.txInfos.length = 0;
       for (const extrinsicType of Object.keys(this.data.txInfosByType)) {
         delete this.data.txInfosByType[extrinsicType as ExtrinsicType];
@@ -327,88 +338,161 @@ export class TransactionTracker {
       | undefined;
   }
 
-  public async getTxAttemptState(
-    txInfo: TransactionInfo,
-    followWindowFinalizedBlocks: number,
-  ): Promise<TxAttemptState> {
-    if (
-      txInfo.tx.submissionErrorJson ||
-      txInfo.tx.blockExtrinsicErrorJson ||
-      txInfo.tx.status === TransactionStatus.Error ||
-      txInfo.tx.status === TransactionStatus.TimedOutWaitingForBlock
-    ) {
-      return TxAttemptState.Replace;
-    }
+  public async findLatestTxAttempt<MetadataType = unknown>(args: {
+    extrinsicType: ExtrinsicType | ExtrinsicType[];
+    waitForConfirmations: number;
+    matches?: (txInfo: TransactionInfo<MetadataType>) => boolean;
+  }): Promise<{ txInfo: TransactionInfo<MetadataType>; txAttemptState: TxAttemptState } | undefined> {
+    await this.load();
 
-    const latestHistoryStatus = this.getLatestHistoryStatus(txInfo.tx.id);
-    if (
-      latestHistoryStatus === TransactionHistoryStatus.Dropped ||
-      latestHistoryStatus === TransactionHistoryStatus.Usurped ||
-      latestHistoryStatus === TransactionHistoryStatus.Invalid
-    ) {
-      return TxAttemptState.Replace;
-    }
+    const extrinsicTypes = Array.isArray(args.extrinsicType) ? args.extrinsicType : [args.extrinsicType];
+    const txInfo = this.findLatestTxInfo<MetadataType>(candidate => {
+      return extrinsicTypes.includes(candidate.tx.extrinsicType) && (args.matches?.(candidate) ?? true);
+    });
+    if (!txInfo) return;
 
-    if (latestHistoryStatus === TransactionHistoryStatus.Retracted && txInfo.tx.txNonce != null) {
-      for (const otherTxInfo of this.data.txInfos) {
-        if (otherTxInfo.tx.id === txInfo.tx.id) continue;
-        if (otherTxInfo.tx.accountAddress !== txInfo.tx.accountAddress) continue;
-        if (otherTxInfo.tx.txNonce == null || otherTxInfo.tx.txNonce < txInfo.tx.txNonce) continue;
+    return {
+      txInfo,
+      txAttemptState: await this.getTxAttemptState(txInfo, args.waitForConfirmations),
+    };
+  }
 
-        if (otherTxInfo.tx.status === TransactionStatus.Finalized) {
-          return TxAttemptState.Replace;
-        }
-
-        if (otherTxInfo.tx.status !== TransactionStatus.InBlock) {
-          continue;
-        }
-
-        const { blockHash, blockHeight } = otherTxInfo.tx;
-        if (!blockHash || blockHeight == null) {
-          continue;
-        }
-
-        const header = await this.blockWatch.getHeader(blockHeight).catch(() => undefined);
-        if (header?.blockHash === blockHash) {
-          return TxAttemptState.Replace;
-        }
-      }
-    }
-
-    const finalizedHeight = this.blockWatch.finalizedBlockHeader.blockNumber;
-
-    if (txInfo.tx.status === TransactionStatus.Submitted) {
-      if (finalizedHeight - txInfo.tx.submittedAtBlockHeight <= followWindowFinalizedBlocks) {
-        return TxAttemptState.Follow;
-      }
-      return TxAttemptState.Replace;
-    }
-
-    if (txInfo.tx.status === TransactionStatus.InBlock) {
-      const { blockHash, blockHeight } = txInfo.tx;
-      if (!blockHash || blockHeight == null) {
+  public async getTxAttemptState(txInfo: TransactionInfo, waitForConfirmations: number): Promise<TxAttemptState> {
+    return await this.runInTransactionStatusLane(txInfo.tx.id, async () => {
+      if (
+        txInfo.tx.submissionErrorJson ||
+        txInfo.tx.blockExtrinsicErrorJson ||
+        txInfo.tx.status === TransactionStatus.Error ||
+        txInfo.tx.status === TransactionStatus.TimedOutWaitingForBlock
+      ) {
         return TxAttemptState.Replace;
       }
 
-      const header = await this.blockWatch.getHeader(blockHeight).catch(() => undefined);
-      if (!header) {
-        return TxAttemptState.Follow;
-      }
-      if (header.blockHash === blockHash) {
-        return TxAttemptState.Follow;
-      }
-      if (finalizedHeight - blockHeight <= followWindowFinalizedBlocks) {
-        return TxAttemptState.Follow;
+      const latestHistoryStatus = this.getLatestHistoryStatus(txInfo.tx.id);
+      if (
+        latestHistoryStatus === TransactionHistoryStatus.Dropped ||
+        latestHistoryStatus === TransactionHistoryStatus.Usurped ||
+        latestHistoryStatus === TransactionHistoryStatus.Invalid
+      ) {
+        return TxAttemptState.Replace;
       }
 
+      if (latestHistoryStatus === TransactionHistoryStatus.Retracted && txInfo.tx.txNonce != null) {
+        for (const otherTxInfo of this.data.txInfos) {
+          if (otherTxInfo.tx.id === txInfo.tx.id) continue;
+          if (otherTxInfo.tx.accountAddress !== txInfo.tx.accountAddress) continue;
+          if (otherTxInfo.tx.txNonce == null || otherTxInfo.tx.txNonce < txInfo.tx.txNonce) continue;
+
+          if (otherTxInfo.tx.status === TransactionStatus.Finalized) {
+            return TxAttemptState.Replace;
+          }
+
+          if (otherTxInfo.tx.status !== TransactionStatus.InBlock) {
+            continue;
+          }
+
+          const { blockHash, blockHeight } = otherTxInfo.tx;
+          if (!blockHash || blockHeight == null) {
+            continue;
+          }
+
+          const header = await this.blockWatch.getHeader(blockHeight).catch(() => undefined);
+          if (header?.blockHash === blockHash) {
+            return TxAttemptState.Replace;
+          }
+        }
+      }
+
+      let reconciliationState: TxReconciliationState | undefined;
+      if (this.isTrackedAsPending(txInfo)) {
+        try {
+          reconciliationState = await this.reconcilePendingTransaction({
+            txInfo,
+            bestBlockInfo: { ...this.blockWatch.bestBlockHeader },
+            finalizedBlockHeader: { ...this.blockWatch.finalizedBlockHeader },
+            finalizedAccountNonceByAddress: new Map(),
+          });
+        } catch (error) {
+          console.warn('[TransactionTracker] Unable to reconcile transaction before choosing an attempt', {
+            transactionId: txInfo.tx.id,
+            error,
+          });
+          return TxAttemptState.Pending;
+        }
+      }
+
+      if (txInfo.txResult.submissionError || txInfo.txResult.extrinsicError) {
+        return TxAttemptState.Replace;
+      }
+      if (txInfo.tx.status === TransactionStatus.Finalized) {
+        return TxAttemptState.Finalized;
+      }
+      if (
+        reconciliationState === TxReconciliationState.Included ||
+        reconciliationState === TxReconciliationState.InPool
+      ) {
+        return TxAttemptState.Pending;
+      }
+
+      const finalizedHeight = this.blockWatch.finalizedBlockHeader.blockNumber;
+      const attemptHeight = txInfo.tx.blockHeight ?? txInfo.tx.submittedAtBlockHeight;
+      if (finalizedHeight - attemptHeight <= waitForConfirmations) {
+        return TxAttemptState.Pending;
+      }
+      if (txInfo.tx.status !== TransactionStatus.Submitted && txInfo.tx.status !== TransactionStatus.InBlock) {
+        return TxAttemptState.Replace;
+      }
+      if (reconciliationState === TxReconciliationState.Unavailable) {
+        return TxAttemptState.Pending;
+      }
+
+      try {
+        if (await this.isInTransactionPool(txInfo.tx.extrinsicHash)) {
+          return TxAttemptState.Pending;
+        }
+      } catch (error) {
+        console.warn('[TransactionTracker] Unable to check transaction pool before replacing transaction', {
+          transactionId: txInfo.tx.id,
+          error,
+        });
+        return TxAttemptState.Pending;
+      }
+
+      try {
+        reconciliationState = await this.reconcilePendingTransaction({
+          txInfo,
+          bestBlockInfo: { ...this.blockWatch.bestBlockHeader },
+          finalizedBlockHeader: { ...this.blockWatch.finalizedBlockHeader },
+          finalizedAccountNonceByAddress: new Map(),
+        });
+      } catch (error) {
+        console.warn('[TransactionTracker] Unable to reconcile transaction before replacing it', {
+          transactionId: txInfo.tx.id,
+          error,
+        });
+        return TxAttemptState.Pending;
+      }
+      if (
+        reconciliationState === TxReconciliationState.Included ||
+        reconciliationState === TxReconciliationState.InPool ||
+        reconciliationState === TxReconciliationState.Unavailable
+      ) {
+        return TxAttemptState.Pending;
+      }
+      if (!this.isTrackedAsPending(txInfo)) {
+        return TxAttemptState.Replace;
+      }
+      if (this.#pendingWatchResultsByTxId.has(txInfo.tx.id)) {
+        return TxAttemptState.Pending;
+      }
+
+      await this.recordHistoryStatus({
+        transactionId: txInfo.tx.id,
+        status: TransactionHistoryStatus.Dropped,
+        source: TransactionHistorySource.Local,
+      });
       return TxAttemptState.Replace;
-    }
-
-    if (txInfo.tx.status === TransactionStatus.Finalized) {
-      return TxAttemptState.Finalized;
-    }
-
-    return TxAttemptState.Replace;
+    });
   }
 
   public async trackTxResult<T>(
@@ -482,170 +566,214 @@ export class TransactionTracker {
 
   private async updatePendingStatuses(bestBlockInfo: IBlockHeaderInfo): Promise<void> {
     const finalizedBlockHeader = { ...this.blockWatch.finalizedBlockHeader };
-    const { blockNumber: finalizedHeight, blockTime: finalizedBlockTime } = finalizedBlockHeader;
-    const table = await this.getTable();
-    const bestBlockNumber = bestBlockInfo.blockNumber;
-    const checkedTxIds = new Set<number>();
     const finalizedAccountNonceByAddress = new Map<string, Promise<number | undefined>>();
 
     for (const txInfo of this.data.txInfos) {
-      const { tx, txResult } = txInfo;
       if (!this.isTrackedAsPending(txInfo)) {
         continue;
       }
       try {
-        const latestHistoryStatus = this.getLatestHistoryStatus(tx.id);
-        const shouldRescanBestBlockTx =
-          latestHistoryStatus === TransactionHistoryStatus.Retracted ||
-          this.isNonResumableWatchStatus(latestHistoryStatus);
-
-        if (tx.blockHeight) {
-          if (tx.blockHeight <= finalizedHeight) {
-            // ensure this block hash is still valid
-            const finalizedHash = await this.blockWatch.getFinalizedHash(tx.blockHeight);
-            if (finalizedHash === tx.blockHash) {
-              await table.markFinalized(tx, {
-                blockNumber: finalizedHeight,
-                blockTime: new Date(finalizedBlockTime),
-              });
-              await txResult.setFinalized();
-              checkedTxIds.add(tx.id);
-              continue;
-            }
-          } else if (!shouldRescanBestBlockTx) {
-            // The tx is already in a best block. Wait for finalization before attempting
-            // expensive relocation scans across the recent chain window.
-            checkedTxIds.add(tx.id);
-            continue;
+        await this.runInTransactionStatusLane(txInfo.tx.id, async () => {
+          if (!this.isTrackedAsPending(txInfo)) {
+            return;
           }
-        }
-
-        // first check if we can find the transaction (this is particularly relevant if we re-open the app after 60 blocks)
-        const MAX_BLOCKS_TO_CHECK = 60;
-        const searchStartBlockHeight = this.getSearchStartBlockHeight(tx);
-        const maxBlocksToCheck = Math.min(
-          MAX_BLOCKS_TO_CHECK,
-          Math.max(0, bestBlockInfo.blockNumber - searchStartBlockHeight),
-        );
-        const findTransactionResult = await TransactionEvents.findByExtrinsicHash({
-          blockWatch: this.blockWatch,
-          extrinsicHash: tx.extrinsicHash,
-          maxBlocksToCheck,
-          bestBlockHeight: bestBlockInfo.blockNumber,
-          searchStartBlockHeight,
-          blockCache: this.#blockCache,
+          await this.reconcilePendingTransaction({
+            txInfo,
+            bestBlockInfo,
+            finalizedBlockHeader,
+            finalizedAccountNonceByAddress,
+          });
         });
-        if (findTransactionResult) {
-          const originalBlockHash = tx.blockHash;
-          if (originalBlockHash === findTransactionResult.blockHash) {
-            // no change
-            const { extrinsicEvents, ...txResult } = findTransactionResult;
-            console.log('[TransactionTracker] No change in block', {
-              id: tx.id,
-              ...txResult,
-              transactionEvents: extrinsicEvents.map(x => x.toHuman()),
-            });
-            checkedTxIds.add(tx.id);
-            continue;
-          }
+      } catch (error) {
+        console.error(`[TransactionTracker] Error updating pending transaction #${txInfo.tx.id} status:`, error);
+      }
+    }
+    if (this.data.txInfos.every(x => !this.isTrackedAsPending(x))) {
+      this.stopWatching();
+    }
+  }
+
+  private async reconcilePendingTransaction(args: {
+    txInfo: TransactionInfo;
+    bestBlockInfo: IBlockHeaderInfo;
+    finalizedBlockHeader: IBlockHeaderInfo;
+    finalizedAccountNonceByAddress: Map<string, Promise<number | undefined>>;
+  }): Promise<TxReconciliationState> {
+    const { txInfo, bestBlockInfo, finalizedBlockHeader, finalizedAccountNonceByAddress } = args;
+    const { tx, txResult } = txInfo;
+    const finalizedHeight = finalizedBlockHeader.blockNumber;
+    const finalizedBlockTime = finalizedBlockHeader.blockTime;
+    const reconciliationHead = `${bestBlockInfo.blockNumber}:${bestBlockInfo.blockHash}:${finalizedHeight}:${finalizedBlockHeader.blockHash}`;
+    const cachedReconciliation = this.#reconciliationByTxId.get(tx.id);
+    if (cachedReconciliation?.head === reconciliationHead) {
+      return cachedReconciliation.state;
+    }
+
+    const table = await this.getTable();
+    let reconciliationState: TxReconciliationState | undefined;
+    const latestHistoryStatus = this.getLatestHistoryStatus(tx.id);
+    const shouldRescanBestBlockTx =
+      latestHistoryStatus === TransactionHistoryStatus.Retracted || this.isNonResumableWatchStatus(latestHistoryStatus);
+
+    if (tx.blockHeight) {
+      if (tx.blockHeight <= finalizedHeight) {
+        const finalizedHash = await this.blockWatch.getFinalizedHash(tx.blockHeight);
+        if (finalizedHash === tx.blockHash) {
+          await table.markFinalized(tx, {
+            blockNumber: finalizedHeight,
+            blockTime: new Date(finalizedBlockTime),
+          });
+          await txResult.setFinalized();
+          reconciliationState = TxReconciliationState.Included;
+        }
+      } else if (!shouldRescanBestBlockTx) {
+        reconciliationState = TxReconciliationState.Included;
+      }
+    }
+
+    const MAX_BLOCKS_TO_CHECK = 60;
+    if (!reconciliationState) {
+      const searchStartBlockHeight = this.getSearchStartBlockHeight(tx);
+      const maxBlocksToCheck = Math.min(
+        MAX_BLOCKS_TO_CHECK,
+        Math.max(0, bestBlockInfo.blockNumber - searchStartBlockHeight),
+      );
+      const findTransactionResult = await TransactionEvents.findByExtrinsicHash({
+        blockWatch: this.blockWatch,
+        extrinsicHash: tx.extrinsicHash,
+        maxBlocksToCheck,
+        bestBlockHeight: bestBlockInfo.blockNumber,
+        searchStartBlockHeight,
+        blockCache: this.#blockCache,
+      });
+      if (findTransactionResult) {
+        reconciliationState = TxReconciliationState.Included;
+        if (tx.blockHash === findTransactionResult.blockHash) {
+          const { extrinsicEvents, ...txResultDetails } = findTransactionResult;
+          console.log('[TransactionTracker] No change in block', {
+            id: tx.id,
+            ...txResultDetails,
+            transactionEvents: extrinsicEvents.map(x => x.toHuman()),
+          });
+        } else {
           const { blockHash, blockNumber, blockTime, fee, tip, error, extrinsicEvents, extrinsicIndex } =
             findTransactionResult;
-          const u8aBlockHash = hexToU8a(blockHash);
           await table.recordInBlock(tx, {
-            blockNumber: blockNumber,
+            blockNumber,
             blockHash,
             blockTime: new Date(blockTime),
             feePlusTip: fee,
-            tip: tip,
+            tip,
             extrinsicError: error,
             transactionEvents: extrinsicEvents,
             extrinsicIndex,
           });
           await txResult.setSeenInBlock({
-            blockHash: u8aBlockHash,
-            blockNumber: blockNumber,
+            blockHash: hexToU8a(blockHash),
+            blockNumber,
             events: extrinsicEvents,
             extrinsicIndex,
           });
 
-          if (findTransactionResult.blockNumber <= finalizedHeight) {
+          if (blockNumber <= finalizedHeight) {
             await table.markFinalized(tx, {
               blockNumber: finalizedHeight,
               blockTime: new Date(finalizedBlockTime),
             });
             await txResult.setFinalized();
           }
-        } else {
-          console.log('[TransactionTracker] No transaction found as of block', { bestBlockNumber, id: tx.id });
+        }
+      } else {
+        reconciliationState = TxReconciliationState.Absent;
+        console.log('[TransactionTracker] No transaction found as of block', {
+          bestBlockNumber: bestBlockInfo.blockNumber,
+          id: tx.id,
+        });
 
-          let finalizedNonceLookupFailed = false;
-          if (tx.txNonce != null && tx.finalizedHeadHeight !== finalizedHeight) {
-            let finalizedAccountNoncePromise = finalizedAccountNonceByAddress.get(tx.accountAddress);
-            if (!finalizedAccountNoncePromise) {
-              finalizedAccountNoncePromise = (async () => {
-                try {
-                  const api = await this.blockWatch.getApi(finalizedBlockHeader);
-                  const account = await api.query.system.account(tx.accountAddress);
-                  return account.nonce.toNumber();
-                } catch (error) {
-                  console.warn('[TransactionTracker] Unable to check finalized account nonce', {
-                    accountAddress: tx.accountAddress,
-                    finalizedHeight,
-                    error,
-                  });
-                }
-              })();
-              finalizedAccountNonceByAddress.set(tx.accountAddress, finalizedAccountNoncePromise);
-            }
-
-            const finalizedAccountNonce = await finalizedAccountNoncePromise;
-            if (finalizedAccountNonce === undefined) {
-              finalizedNonceLookupFailed = true;
-            } else if (finalizedAccountNonce > tx.txNonce) {
-              const error = new TxSubmissionError(
-                TxSubmissionErrorCode.Invalid,
-                'Transaction nonce was already used by another transaction.',
-              );
-              txResult.submissionError = error;
-              await this.recordHistoryStatus({
-                transactionId: tx.id,
-                status: TransactionHistoryStatus.Invalid,
-                source: TransactionHistorySource.Local,
-              });
-              await this.recordSubmissionError(tx, error);
-              checkedTxIds.add(tx.id);
-              continue;
-            }
+        if (tx.txNonce != null && tx.finalizedHeadHeight !== finalizedHeight) {
+          let finalizedAccountNoncePromise = finalizedAccountNonceByAddress.get(tx.accountAddress);
+          if (!finalizedAccountNoncePromise) {
+            finalizedAccountNoncePromise = (async () => {
+              try {
+                const api = await this.blockWatch.getApi(finalizedBlockHeader);
+                const account = await api.query.system.account(tx.accountAddress);
+                return account.nonce.toNumber();
+              } catch (error) {
+                console.warn('[TransactionTracker] Unable to check finalized account nonce', {
+                  accountAddress: tx.accountAddress,
+                  finalizedHeight,
+                  error,
+                });
+              }
+            })();
+            finalizedAccountNonceByAddress.set(tx.accountAddress, finalizedAccountNoncePromise);
           }
 
-          if (finalizedHeight - tx.submittedAtBlockHeight > MAX_BLOCKS_TO_CHECK) {
-            // too old, stop checking
-            console.log(`[TransactionTracker] Marking transaction #${tx.id} expired:`, tx.extrinsicHash);
-            txResult.extrinsicError = new Error('Transaction expired waiting for block inclusion');
-            await txResult.setFinalized();
-            await table.markExpiredWaitingForBlock(tx);
-          } else if (finalizedNonceLookupFailed) {
-            // Retry this account at the same finalized head after a transient RPC failure.
-            continue;
+          const finalizedAccountNonce = await finalizedAccountNoncePromise;
+          if (finalizedAccountNonce === undefined) {
+            reconciliationState = TxReconciliationState.Unavailable;
+          } else if (finalizedAccountNonce > tx.txNonce) {
+            const error = new TxSubmissionError(
+              TxSubmissionErrorCode.Invalid,
+              'Transaction nonce was already used by another transaction.',
+            );
+            txResult.submissionError = error;
+            await this.recordHistoryStatus({
+              transactionId: tx.id,
+              status: TransactionHistoryStatus.Invalid,
+              source: TransactionHistorySource.Local,
+            });
+            await this.recordSubmissionError(tx, error);
+            return TxReconciliationState.Absent;
           }
         }
-        checkedTxIds.add(tx.id);
-      } catch (error) {
-        console.error(`[TransactionTracker] Error updating pending transaction #${tx.id} status:`, error);
+
+        if (
+          reconciliationState === TxReconciliationState.Absent &&
+          finalizedHeight - tx.submittedAtBlockHeight > MAX_BLOCKS_TO_CHECK
+        ) {
+          try {
+            if (await this.isInTransactionPool(tx.extrinsicHash)) {
+              reconciliationState = TxReconciliationState.InPool;
+            } else {
+              console.log(`[TransactionTracker] Marking transaction #${tx.id} expired:`, tx.extrinsicHash);
+              txResult.extrinsicError = new Error('Transaction expired waiting for block inclusion');
+              await txResult.setFinalized();
+              await table.markExpiredWaitingForBlock(tx);
+            }
+          } catch (error) {
+            console.warn('[TransactionTracker] Unable to check transaction pool before expiring transaction', {
+              transactionId: tx.id,
+              error,
+            });
+            reconciliationState = TxReconciliationState.Unavailable;
+          }
+        }
       }
     }
-    for (const txInfo of this.data.txInfos) {
-      if (txInfo.tx.status === TransactionStatus.Finalized || txInfo.tx.status === TransactionStatus.Error) continue;
-      if (!checkedTxIds.has(txInfo.tx.id)) continue;
-      await table.updateFinalizedHead(txInfo.tx, {
+
+    if (reconciliationState === TxReconciliationState.Unavailable) {
+      return reconciliationState;
+    }
+    if (tx.status !== TransactionStatus.Finalized && tx.status !== TransactionStatus.Error) {
+      await table.updateFinalizedHead(tx, {
         blockNumber: finalizedHeight,
         blockTime: new Date(finalizedBlockTime),
       });
       txInfo.finalizedHeadHeight = finalizedHeight;
     }
-    if (this.data.txInfos.every(x => !this.isTrackedAsPending(x))) {
-      this.stopWatching();
+    if (reconciliationState === TxReconciliationState.InPool) {
+      return reconciliationState;
     }
+
+    this.#reconciliationByTxId.set(tx.id, { head: reconciliationHead, state: reconciliationState });
+    return reconciliationState;
+  }
+
+  private async isInTransactionPool(extrinsicHash: string): Promise<boolean> {
+    const client = await getMainchainClient(false);
+    const pendingExtrinsics = await client.rpc.author.pendingExtrinsics();
+    return pendingExtrinsics.some(extrinsic => extrinsic.hash.toHex() === extrinsicHash);
   }
 
   private async getTable(): Promise<TransactionsTable> {
@@ -672,6 +800,26 @@ export class TransactionTracker {
     if (record.status === TransactionStatus.Error) return;
     const table = await this.getTable();
     await table.recordSubmissionError(record, error);
+  }
+
+  private async runInTransactionStatusLane<T>(transactionId: number, callback: () => Promise<T>): Promise<T> {
+    const priorLane = this.#statusLaneByTxId.get(transactionId) ?? Promise.resolve();
+    let releaseLane!: VoidFunction;
+    const lane = new Promise<void>(resolve => {
+      releaseLane = resolve;
+    });
+    const currentLane = priorLane.then(() => lane);
+    this.#statusLaneByTxId.set(transactionId, currentLane);
+
+    await priorLane;
+    try {
+      return await callback();
+    } finally {
+      releaseLane();
+      if (this.#statusLaneByTxId.get(transactionId) === currentLane) {
+        this.#statusLaneByTxId.delete(transactionId);
+      }
+    }
   }
 
   private async reserveLatestNonce(
@@ -722,35 +870,49 @@ export class TransactionTracker {
     if (this.#isClosed) {
       return;
     }
-    try {
-      const { status } = result;
-      const isInBlock = status.isInBlock;
-      const isFinalized = status.isFinalized || txResult.isFinalized;
-      let blockHash: string | undefined;
-      if (isInBlock) {
-        blockHash = status.asInBlock.toHex();
-      } else if (status.isFinalized) {
-        blockHash = status.asFinalized.toHex();
-      }
-      const submissionError = txResult.submissionError;
+    this.#pendingWatchResultsByTxId.set(record.id, (this.#pendingWatchResultsByTxId.get(record.id) ?? 0) + 1);
 
-      await this.recordWatchStatus(record, {
-        isBroadcast: status.isBroadcast,
-        isInBlock,
-        isFinalized,
-        isRetracted: status.isRetracted,
-        isUsurped: status.isUsurped,
-        isDropped: status.isDropped,
-        isInvalid: status.isInvalid,
-        blockHash,
-        blockNumber: txResult.blockNumber,
-        replacementTxHash: status.isUsurped ? status.asUsurped.toHex() : undefined,
+    try {
+      await this.runInTransactionStatusLane(record.id, async () => {
+        if (this.#isClosed) {
+          return;
+        }
+        const { status } = result;
+        const isInBlock = status.isInBlock;
+        const isFinalized = status.isFinalized || txResult.isFinalized;
+        let blockHash: string | undefined;
+        if (isInBlock) {
+          blockHash = status.asInBlock.toHex();
+        } else if (status.isFinalized) {
+          blockHash = status.asFinalized.toHex();
+        }
+        const submissionError = txResult.submissionError;
+
+        await this.recordWatchStatus(record, {
+          isBroadcast: status.isBroadcast,
+          isInBlock,
+          isFinalized,
+          isRetracted: status.isRetracted,
+          isUsurped: status.isUsurped,
+          isDropped: status.isDropped,
+          isInvalid: status.isInvalid,
+          blockHash,
+          blockNumber: txResult.blockNumber,
+          replacementTxHash: status.isUsurped ? status.asUsurped.toHex() : undefined,
+        });
+        if (submissionError) {
+          await this.recordSubmissionError(record, submissionError);
+        }
       });
-      if (submissionError) {
-        await this.recordSubmissionError(record, submissionError);
-      }
     } catch (error) {
       console.error(`[TransactionTracker] Error handling watched tx #${record.id} update`, error);
+    } finally {
+      const pendingWatchResults = (this.#pendingWatchResultsByTxId.get(record.id) ?? 1) - 1;
+      if (pendingWatchResults > 0) {
+        this.#pendingWatchResultsByTxId.set(record.id, pendingWatchResults);
+      } else {
+        this.#pendingWatchResultsByTxId.delete(record.id);
+      }
     }
   }
 
@@ -769,6 +931,8 @@ export class TransactionTracker {
       replacementTxHash,
     }: IWatchedTxStatus,
   ) {
+    this.#reconciliationByTxId.delete(record.id);
+
     if (isBroadcast) {
       await this.recordHistoryStatus({
         transactionId: record.id,

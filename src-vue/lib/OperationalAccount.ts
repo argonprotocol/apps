@@ -116,7 +116,7 @@ interface IEnsureOperationalAccountRegisteredArgs {
   walletKeys: WalletKeys;
   accessProof: IOperationalAccessProof | null;
   availableMicrogons: bigint;
-  followWindowFinalizedBlocks?: number;
+  waitForConfirmations?: number;
   client?: ArgonClient;
 }
 
@@ -197,17 +197,12 @@ export async function ensureOperationalAccountRegistered(
 ): Promise<TransactionInfo | undefined> {
   await args.transactionTracker.load();
 
-  const latestRegistrationTxInfo = args.transactionTracker.findLatestTxInfo(txInfo => {
-    return txInfo.tx.extrinsicType === ExtrinsicType.OperationalRegister;
+  const latestRegistrationAttempt = await args.transactionTracker.findLatestTxAttempt({
+    extrinsicType: ExtrinsicType.OperationalRegister,
+    waitForConfirmations: args.waitForConfirmations ?? 2,
   });
-  if (latestRegistrationTxInfo) {
-    const txAttemptState = await args.transactionTracker.getTxAttemptState(
-      latestRegistrationTxInfo,
-      args.followWindowFinalizedBlocks ?? 2,
-    );
-    if (txAttemptState === TxAttemptState.Follow) {
-      return latestRegistrationTxInfo;
-    }
+  if (latestRegistrationAttempt?.txAttemptState === TxAttemptState.Pending) {
+    return latestRegistrationAttempt.txInfo;
   }
 
   const client = args.client ?? (await getMainchainClient(false));
