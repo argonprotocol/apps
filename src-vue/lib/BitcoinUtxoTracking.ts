@@ -7,6 +7,7 @@ import {
   BitcoinUtxosTable,
   BitcoinUtxoStatus,
   IBitcoinUtxoRecord,
+  isBitcoinUtxoReleaseStatus,
   type IConfirmedReleaseCosign,
   IMempoolFundingObservation,
 } from './db/BitcoinUtxosTable.ts';
@@ -93,7 +94,13 @@ export default class BitcoinUtxoTracking {
     return this.getPreferredCandidateFromList(candidates, lock.satoshis);
   }
 
-  public getAcceptedFundingRecordForLock(lock: IBitcoinLockRecord): IBitcoinUtxoRecord | undefined {
+  public getAcceptedFundingRecordForLock(
+    lock: IBitcoinLockRecord,
+    records?: {
+      getById: (id: number) => IBitcoinUtxoRecord | undefined;
+      getForLock: () => IBitcoinUtxoRecord[];
+    },
+  ): IBitcoinUtxoRecord | undefined {
     const cachedFundingRecord = lock.fundingUtxoRecord;
     if (cachedFundingRecord && cachedFundingRecord.lockUtxoId === lock.utxoId) {
       lock.fundingUtxoRecordId ??= cachedFundingRecord.id;
@@ -101,17 +108,22 @@ export default class BitcoinUtxoTracking {
     }
 
     if (lock.fundingUtxoRecordId) {
-      const record = this.getUtxoRecordById(lock.fundingUtxoRecordId);
+      const record = records
+        ? records.getById(lock.fundingUtxoRecordId)
+        : this.getUtxoRecordById(lock.fundingUtxoRecordId);
       if (record?.lockUtxoId === lock.utxoId) {
         lock.fundingUtxoRecord = record;
         return record;
       }
     }
     if (!lock.utxoId) return undefined;
-    const records = this.data.utxosByLockUtxoId[lock.utxoId] ?? [];
+
+    const recordsForLock = records ? records.getForLock() : this.getUtxosForLock(lock);
     const record =
-      records.find(x => x.status === BitcoinUtxoStatus.FundingUtxo) ??
-      records.find(x => this.isReleaseStatus(x.status) && x.satoshis === lock.satoshis);
+      recordsForLock.find(candidate => candidate.status === BitcoinUtxoStatus.FundingUtxo) ??
+      recordsForLock.find(
+        candidate => isBitcoinUtxoReleaseStatus(candidate.status) && candidate.satoshis === lock.satoshis,
+      );
     lock.fundingUtxoRecordId = record?.id ?? null;
     lock.fundingUtxoRecord = record;
     return record;
@@ -709,7 +721,7 @@ export default class BitcoinUtxoTracking {
     return `${lockUtxoId}:${txid}:${vout}`;
   }
 
-  private shouldUpdateObservedCandidateStatus(
+  public shouldUpdateObservedCandidateStatus(
     record: IBitcoinUtxoRecord,
     observedStatus?: BitcoinUtxoStatus,
   ): observedStatus is BitcoinUtxoStatus {
@@ -792,7 +804,7 @@ export default class BitcoinUtxoTracking {
     return this.sortCandidatesByPreference(candidates, targetSatoshis)[0];
   }
 
-  private getObservedStatusForUpsert(
+  public getObservedStatusForUpsert(
     _lock: IBitcoinLockRecord,
     _candidate: { txid: string; vout: number },
     options?: {
@@ -827,7 +839,7 @@ export default class BitcoinUtxoTracking {
   }
 
   public isReleaseStatus(status: BitcoinUtxoStatus | undefined): boolean {
-    return this.isReleaseProcessingStatus(status) || this.isReleaseCompleteStatus(status);
+    return isBitcoinUtxoReleaseStatus(status);
   }
 
   public isReleaseCompleteStatus(status: BitcoinUtxoStatus | undefined): boolean {

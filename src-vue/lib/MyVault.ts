@@ -548,10 +548,14 @@ export class MyVault {
         if (
           typeClient.events.bitcoinLocks.BitcoinLockCreated.is(event) ||
           typeClient.events.bitcoinLocks.BitcoinLockRatcheted.is(event) ||
+          typeClient.events.bitcoinLocks.UtxoFundedFromCandidate?.is(event) ||
+          typeClient.events.bitcoinLocks.SecuritizationIncreased?.is(event) ||
+          typeClient.events.bitcoinLocks.BitcoinLockBackfillChanged?.is(event) ||
           typeClient.events.bitcoinLocks.BitcoinUtxoCosignRequested.is(event) ||
           typeClient.events.bitcoinLocks.BitcoinUtxoCosigned.is(event) ||
           typeClient.events.bitcoinLocks.BitcoinCosignPastDue.is(event) ||
-          typeClient.events.bitcoinLocks.BitcoinLockBurned.is(event)
+          typeClient.events.bitcoinLocks.BitcoinLockBurned.is(event) ||
+          typeClient.events.bitcoinLocks.BitcoinSpentAfterRelease?.is(event)
         ) {
           if (vaultId === event.data.vaultId.toNumber()) {
             shouldRefreshExternalLocks = true;

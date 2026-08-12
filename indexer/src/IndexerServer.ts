@@ -6,8 +6,12 @@ import Path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { u8aToHex } from '@polkadot/util';
 import { type ArgonClient, getClient } from '@argonprotocol/mainchain';
-import type { IAccountActivityQuery, IIndexerSpec } from '@argonprotocol/apps-core';
-import { IndexerDb, ACCOUNT_ACTIVITY_DEFINITION_VERSION } from './IndexerDb.ts';
+import {
+  ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+  type IAccountActivityQuery,
+  type IIndexerSpec,
+} from '@argonprotocol/apps-core';
+import { IncompatibleAccountActivityDatabaseError, IndexerDb } from './IndexerDb.ts';
 import { AccountActivityIndexer } from './AccountActivityIndexer.ts';
 import { FinalizedBlockIndexer } from './FinalizedBlockIndexer.ts';
 import { LegacyIndexerDb, WalletTransferCurrency, WalletTransferSource } from './LegacyIndexerDb.ts';
@@ -36,8 +40,7 @@ export class IndexerServer {
     }
 
     try {
-      copySeedIfNeeded(args.dbDir, `${args.network}-activity-v2.db`);
-      this.db = new IndexerDb(Path.join(args.dbDir, `${args.network}-activity-v2.db`));
+      this.db = openAccountActivityDatabase(args.dbDir, `${args.network}-activity-v2.db`);
       this.activityIndexer = new AccountActivityIndexer(this.db);
     } catch (error) {
       this.activityStartupError = error instanceof Error ? error : new Error(String(error));
@@ -176,6 +179,22 @@ export class IndexerServer {
 
     const client = await this.clientPromise;
     await client.disconnect();
+  }
+}
+
+export function openAccountActivityDatabase(dbDir: string, file: string): IndexerDb {
+  const databasePath = Path.join(dbDir, file);
+  copySeedIfNeeded(dbDir, file);
+
+  try {
+    return new IndexerDb(databasePath);
+  } catch (error) {
+    if (!(error instanceof IncompatibleAccountActivityDatabaseError)) throw error;
+
+    console.warn(`Replacing incompatible account activity database: ${error.message}`);
+    for (const suffix of ['', '-shm', '-wal']) Fs.rmSync(`${databasePath}${suffix}`, { force: true });
+    copySeedIfNeeded(dbDir, file);
+    return new IndexerDb(databasePath);
   }
 }
 

@@ -1,6 +1,6 @@
 import { BaseTable, IFieldTypes } from './BaseTable';
-import type { IBitcoinLock } from '@argonprotocol/mainchain';
-import { JsonExt } from '@argonprotocol/apps-core';
+import { type IBitcoinLock, BitcoinLock } from '@argonprotocol/mainchain';
+import { bigIntMax, JsonExt } from '@argonprotocol/apps-core';
 import { convertFromSqliteFields, toSqlParams } from '../Utils.ts';
 import { nanoid } from 'nanoid';
 import {
@@ -17,6 +17,54 @@ export {
   type IBitcoinLockRelayMetadata,
   type IRatchet,
 } from '../../interfaces/IBitcoinLockRecord.ts';
+
+export function applyBitcoinLockMintState(lock: IBitcoinLockRecord): void {
+  const remainingMint = lock.ratchets.reduce((total, ratchet) => total + ratchet.mintPending, 0n);
+  if (
+    remainingMint === 0n &&
+    (lock.status === BitcoinLockStatus.LockPendingFunding || lock.status === BitcoinLockStatus.LockedAndIsMinting)
+  ) {
+    lock.status = BitcoinLockStatus.LockedAndMinted;
+  } else if (lock.status === BitcoinLockStatus.LockPendingFunding) {
+    lock.status = BitcoinLockStatus.LockedAndIsMinting;
+  }
+}
+
+export function applyCanonicalPreFundingState(record: IBitcoinLockRecord, chainLock: BitcoinLock): bigint {
+  const creationRatchet = record.ratchets[0];
+  if (!creationRatchet) throw new Error(`Bitcoin lock ${record.utxoId} is missing its creation ratchet`);
+
+  const currentSatoshis = chainLock.utxoSatoshis ?? chainLock.satoshis;
+  chainLock.couponFeesPaid = bigIntMax(chainLock.couponFeesPaid, record.lockDetails?.couponFeesPaid ?? 0n);
+  record.satoshis = currentSatoshis;
+  record.liquidityPromised = chainLock.liquidityPromised;
+  record.lockedTargetPrice = chainLock.lockedTargetPrice;
+  record.lockDetails = chainLock;
+  creationRatchet.mintAmount = chainLock.liquidityPromised;
+  creationRatchet.mintPending = chainLock.liquidityPromised;
+  creationRatchet.lockedTargetPrice = chainLock.lockedTargetPrice;
+  creationRatchet.securityFee = chainLock.securityFees;
+  return currentSatoshis;
+}
+
+export function createBitcoinLockCreationRatchets(
+  lock: IBitcoinLock,
+  createdAtArgonBlockHeight: number,
+  finalFee: bigint,
+): IBitcoinLockRecord['ratchets'] {
+  return [
+    {
+      mintAmount: lock.liquidityPromised,
+      mintPending: lock.liquidityPromised,
+      lockedTargetPrice: lock.lockedTargetPrice,
+      blockHeight: createdAtArgonBlockHeight,
+      burned: 0n,
+      securityFee: lock.securityFees,
+      txFee: finalFee,
+      oracleBitcoinBlockHeight: lock.createdAtHeight,
+    },
+  ];
+}
 
 export class BitcoinLocksTable extends BaseTable {
   private fieldTypes: IFieldTypes = {
@@ -127,18 +175,7 @@ export class BitcoinLocksTable extends BaseTable {
     const { uuid, lock, createdAtArgonBlockHeight, finalFee } = args;
     const status = BitcoinLockStatus.LockPendingFunding;
 
-    const ratchets = [
-      {
-        mintAmount: lock.liquidityPromised,
-        mintPending: lock.liquidityPromised,
-        lockedTargetPrice: lock.lockedTargetPrice,
-        blockHeight: createdAtArgonBlockHeight,
-        burned: 0n,
-        securityFee: lock.securityFees,
-        txFee: finalFee,
-        oracleBitcoinBlockHeight: lock.createdAtHeight,
-      },
-    ];
+    const ratchets = createBitcoinLockCreationRatchets(lock, createdAtArgonBlockHeight, finalFee);
 
     const rawRecords = await this.db.select<IBitcoinLockRecord[]>(
       `UPDATE BitcoinLocks SET
@@ -214,6 +251,9 @@ export class BitcoinLocksTable extends BaseTable {
     await this.db.execute(
       `UPDATE BitcoinLocks SET
         status = ?, satoshis = ?, lockedTargetPrice = ?, liquidityPromised = ?, lockDetails = ?, ratchets = ?,
+        releaseRedemptionMicrogons = ?, releaseArgonTxFeeMicrogons = ?, releaseCompensationMicrogons = ?,
+        removalBlockNumber = ?, removalBlockHash = ?, removalBlockTime = ?, removalExtrinsicIndex = ?,
+        removalReason = ?, btcPriceAtRemovalMicrogons = ?,
         createdAt = COALESCE(?, createdAt)
        WHERE uuid = ?`,
       toSqlParams([
@@ -223,6 +263,15 @@ export class BitcoinLocksTable extends BaseTable {
         lock.liquidityPromised,
         lock.lockDetails,
         lock.ratchets,
+        lock.releaseRedemptionMicrogons,
+        lock.releaseArgonTxFeeMicrogons,
+        lock.releaseCompensationMicrogons,
+        lock.removalBlockNumber,
+        lock.removalBlockHash,
+        lock.removalBlockTime,
+        lock.removalExtrinsicIndex,
+        lock.removalReason,
+        lock.btcPriceAtRemovalMicrogons,
         createdAt,
         lock.uuid,
       ]),
@@ -231,16 +280,7 @@ export class BitcoinLocksTable extends BaseTable {
   }
 
   public async updateMintState(lock: IBitcoinLockRecord): Promise<void> {
-    const remainingMint = lock.ratchets.reduce((acc, ratchet) => acc + ratchet.mintPending, 0n);
-
-    if (
-      remainingMint === 0n &&
-      (lock.status === BitcoinLockStatus.LockPendingFunding || lock.status === BitcoinLockStatus.LockedAndIsMinting)
-    ) {
-      lock.status = BitcoinLockStatus.LockedAndMinted;
-    } else if (lock.status === BitcoinLockStatus.LockPendingFunding) {
-      lock.status = BitcoinLockStatus.LockedAndIsMinting;
-    }
+    applyBitcoinLockMintState(lock);
     const ratchets = JsonExt.stringify(lock.ratchets);
     await this.db.execute(
       `UPDATE BitcoinLocks SET ratchets = ?, status = ? WHERE uuid = ?`,

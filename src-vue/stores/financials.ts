@@ -626,7 +626,16 @@ export const useFinancials = defineStore('financials', () => {
   const bitcoinLockSummaries = Vue.computed<IBitcoinLockSummary[]>(() => {
     const summariesByUuid = new Map(liquidAllRecords.value.map(summary => [summary.uuid, summary]));
     for (const lock of bitcoinLocks.getAllLocks({ includeHistoryRecoveryPending: true })) {
-      if (!summariesByUuid.has(lock.uuid)) {
+      const summary = summariesByUuid.get(lock.uuid);
+      if (summary) {
+        const summaryWithLiveRecord = {
+          ...summary,
+          statusDetails: { ...summary.statusDetails },
+          record: lock,
+        };
+        bitcoinLocks.refreshLockSummary(summaryWithLiveRecord);
+        summariesByUuid.set(lock.uuid, summaryWithLiveRecord);
+      } else {
         summariesByUuid.set(lock.uuid, bitcoinLocks.createLockSummary(lock));
       }
     }

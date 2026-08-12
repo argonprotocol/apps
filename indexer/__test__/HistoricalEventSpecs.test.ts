@@ -17,11 +17,12 @@ expectTypeOf<HistoricalBondCreated['data']['expiration']['asBitcoinBlock']['toNu
 
 describe('HistoricalEventSpecs', () => {
   it('covers every published-chain runtime spec', () => {
-    expect(supportedHistoricalEventSpecs).toEqual(Array.from({ length: 57 }, (_, index) => index + 100));
+    expect(supportedHistoricalEventSpecs).toEqual(Array.from({ length: 58 }, (_, index) => index + 100));
     expect(historicalEventSpecSources[100]).toBe('@argonprotocol/mainchain@0.0.25');
     expect(historicalEventSpecSources[124]).toBe('argonprotocol/mainchain@1fd3a9e9');
     expect(historicalEventSpecSources[149]).toBe('@argonprotocol/mainchain@1.4.2-dev.9a289267');
     expect(historicalEventSpecSources[152]).toBe('@argonprotocol/mainchain@1.4.6');
+    expect(historicalEventSpecSources[157]).toBe('@argonprotocol/mainchain@1.4.11');
   });
 
   it('stores only changes from the preceding spec', () => {
@@ -126,8 +127,12 @@ describe('HistoricalEventSpecs', () => {
     ).toBe(true);
   });
 
-  it('rejects runtime specs outside the copied catalog', () => {
+  it('uses the newest declarations for future runtime specs', () => {
     expect(() => getHistoricalEventFields(99, 'vaults', 'VaultCreated')).toThrow('runtime spec 99');
-    expect(() => getHistoricalEventFields(157, 'vaults', 'VaultCreated')).toThrow('runtime spec 157');
+    expect(getHistoricalEventFields(158, 'bitcoinLocks', 'BitcoinLockBackfillChanged')).toEqual([
+      'utxoId',
+      'vaultId',
+      'isBackfill',
+    ]);
   });
 });

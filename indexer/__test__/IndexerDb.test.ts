@@ -90,6 +90,46 @@ it('associates ownerless Bitcoin lifecycle blocks with the recorded lock owner',
   }
 });
 
+it('associates minting authority lifecycle blocks with the registered owner', () => {
+  const directory = fs.mkdtempSync(Path.join(os.tmpdir(), 'account-activity-'));
+  const db = new IndexerDb(Path.join(directory, 'test.db'));
+  const destinationSigningKey = `0x${'33'.repeat(20)}`;
+  const gatewayOperationsMask = 1 << 13;
+
+  try {
+    db.recordBlocks([
+      {
+        blockNumber: 1,
+        blockHash: Uint8Array.of(1),
+        specVersion: 157,
+        accounts: [{ address: alice, mask: gatewayOperationsMask }],
+        vaults: [],
+        vaultOwners: [],
+        mintingAuthorities: [{ destinationSigningKey, mask: gatewayOperationsMask }],
+        mintingAuthorityOwners: [{ destinationSigningKey, address: alice }],
+      },
+      {
+        blockNumber: 2,
+        blockHash: Uint8Array.of(2),
+        specVersion: 157,
+        accounts: [],
+        vaults: [],
+        vaultOwners: [],
+        mintingAuthorities: [{ destinationSigningKey, mask: gatewayOperationsMask }],
+        mintingAuthorityOwners: [],
+      },
+    ]);
+
+    expect(db.findAddressActivity(alice)).toMatchObject([
+      { blockNumber: 1, activityMask: gatewayOperationsMask },
+      { blockNumber: 2, activityMask: gatewayOperationsMask },
+    ]);
+  } finally {
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 it('rejects account-owned Bitcoin lifecycle activity when replay has not established its owner', () => {
   const directory = fs.mkdtempSync(Path.join(os.tmpdir(), 'account-activity-'));
   const db = new IndexerDb(Path.join(directory, 'test.db'));

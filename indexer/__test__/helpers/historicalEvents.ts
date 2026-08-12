@@ -17,10 +17,14 @@ export function createHistoricalEventData(
   }
 
   const fields = Object.entries(declarations[0]);
-  const data = getOfflineRegistry().createType<GenericEvent['data']>(
-    `(${fields.map(([, type]) => type).join(',')})`,
-    fields.map(([name]) => values[name]),
-  );
+  const registry = getOfflineRegistry();
+  const data =
+    fields.length === 1
+      ? registry.createType<GenericEvent['data']>(`Vec<${fields[0][1]}>`, [values[fields[0][0]]])
+      : registry.createType<GenericEvent['data']>(
+          `(${fields.map(([, type]) => type).join(',')})`,
+          fields.map(([name]) => values[name]),
+        );
   Object.defineProperties(data, {
     names: { value: fields.map(([name]) => name) },
     typeDef: { value: fields.map(([, type]) => getTypeDef(type)) },

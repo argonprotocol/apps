@@ -29,6 +29,7 @@ import {
 } from '@argonprotocol/mainchain';
 import { Db } from './Db.ts';
 import {
+  applyCanonicalPreFundingState,
   BitcoinLocksTable,
   BitcoinLockStatus,
   IBitcoinLockBlockExtrinsicError,
@@ -248,18 +249,22 @@ export default class BitcoinLocks {
       walletKeys,
       blockWatch,
       currency,
-      locksByUtxoId: this.data.locksByUtxoId,
-      pendingLocks: this.data.pendingLocks,
+      getLocksByUtxoId: () => this.data.locksByUtxoId,
+      getPendingLocks: () => this.data.pendingLocks,
       utxoTracking: this.utxoTracking,
-      waitForLockIdle: async lock => {
+      waitForLockIdle: async (lock, alreadyOwnsQueue) => {
         this.#historyRecoveryWaitersByUuid[lock.uuid] ??= createDeferred<void>();
+        if (alreadyOwnsQueue) return;
+
         const queue = this.#txQueueByUuid[lock.uuid];
         if (queue) await queue.add(async () => undefined).promise;
       },
       onHistoryRecoveryComplete: locks => this.resumeAfterHistoryRecovery(locks),
       insertPending: this.insertPending.bind(this),
+      dbPromise,
       getTable: () => this.getTable(),
       getDerivedPubkey: (vaultId, index) => this.getDerivedPubkey(vaultId, index),
+      getBitcoinNetwork: () => String(this.#config?.bitcoinNetwork ?? BitcoinNetwork[this.bitcoinNetwork]),
       trackDerivedBitcoinLockKey: (vaultId, derivedPubkey) => this.trackDerivedBitcoinLockKey(vaultId, derivedPubkey),
     });
     this.orphanReleases = new BitcoinOrphanReleases(this, blockWatch, this.#mempool, transactionTracker, walletKeys);
@@ -2889,7 +2894,13 @@ export default class BitcoinLocks {
       const table = await this.getTable();
       const archivedBitcoinBlockHeight = this.data.oracleBitcoinBlockHeight;
 
-      const clientAt = await this.blockWatch.getApi(header);
+      const { api: clientAt, events } = await this.blockWatch.getEventsWithSpec(header);
+      const hasBitcoinLockFlexibilityChange = events.some(({ event }) => {
+        return (
+          event.section === 'bitcoinLocks' &&
+          (event.method === 'BitcoinLockBackfillChanged' || event.method === 'BitcoinLockFlexibleChanged')
+        );
+      });
 
       this.data.oracleBitcoinBlockHeight = await clientAt.query.bitcoinUtxos
         .confirmedBitcoinBlockTip()
@@ -2926,7 +2937,9 @@ export default class BitcoinLocks {
           return this.runInQueueForUtxo(lockRecord, 30e3, async () => {
             const isPendingFunding = lockRecord.status === BitcoinLockStatus.LockPendingFunding;
             const shouldTrackFundingSignals = this.isFundingSignalTrackingStatus(lockRecord.status);
-            const shouldSyncLockingState = this.isLockedStatus(lockRecord) || isPendingFunding;
+            const shouldSyncLockingState =
+              isPendingFunding ||
+              (this.isLockedStatus(lockRecord) && (!lockRecord.fundingUtxoRecordId || hasBitcoinLockFlexibilityChange));
 
             // Phase 1: lock sync.
             if (shouldSyncLockingState) {
@@ -3108,8 +3121,6 @@ export default class BitcoinLocks {
   }
 
   private async updateLockingStatus(lock: IBitcoinLockRecord, finalizedApi: ApiDecoration<'promise'>): Promise<void> {
-    if (lock.fundingUtxoRecordId) return;
-
     const bitcoinLock = await BitcoinLock.get(finalizedApi, lock.utxoId!);
     if (!bitcoinLock) {
       const table = await this.getTable();
@@ -3120,10 +3131,24 @@ export default class BitcoinLocks {
       return;
     }
 
-    if (!bitcoinLock.isFunded) {
+    if (bitcoinLock.isFunded && !lock.fundingUtxoRecordId) {
+      await this.tryUpdateFundingUtxo(lock, finalizedApi, bitcoinLock);
       return;
     }
-    await this.tryUpdateFundingUtxo(lock, finalizedApi, bitcoinLock);
+
+    if (!bitcoinLock.isFunded) {
+      if (lock.status !== BitcoinLockStatus.LockPendingFunding) return;
+
+      applyCanonicalPreFundingState(lock, bitcoinLock);
+      const table = await this.getTable();
+      await table.saveRecoveredHistory(lock);
+      return;
+    }
+    if (lock.lockDetails.isBackfill === bitcoinLock.isBackfill) return;
+
+    this.applyLatestLockDetails(lock, bitcoinLock);
+    const table = await this.getTable();
+    await table.saveRecoveredHistory(lock);
   }
 
   private async getFundingRecordOrThrow(lock: IBitcoinLockRecord): Promise<IBitcoinUtxoRecord> {
@@ -3145,7 +3170,7 @@ export default class BitcoinLocks {
     lock: Pick<IBitcoinLockRecord, 'uuid'> & Partial<Pick<IBitcoinLockRecord, 'status' | 'removalReason'>>,
     options: { allowOrphanRecovery?: boolean } = {},
   ): void {
-    if (this.isHistoryRecoveryPendingForLock(lock)) {
+    if (this.#historyRecoveryWaitersByUuid[lock.uuid] || this.isHistoryRecoveryPendingForLock(lock)) {
       throw new Error('Bitcoin history recovery is still in progress. Please wait for it to finish.');
     }
     const isSettled =
@@ -3170,6 +3195,8 @@ export default class BitcoinLocks {
   }
 
   private waitForHistoryRecovery(lock: Pick<IBitcoinLockRecord, 'uuid'>): Promise<void> | undefined {
+    const activeRecovery = this.#historyRecoveryWaitersByUuid[lock.uuid];
+    if (activeRecovery) return activeRecovery.promise;
     if (!this.isHistoryRecoveryPendingForLock(lock)) return;
 
     this.#historyRecoveryWaitersByUuid[lock.uuid] ??= createDeferred<void>();
@@ -3178,7 +3205,10 @@ export default class BitcoinLocks {
 
   private resumeAfterHistoryRecovery(locks: IBitcoinLockRecord[]): void {
     for (const lock of locks) {
-      this.#historyRecoveryWaitersByUuid[lock.uuid]?.resolve();
+      const waiter = this.#historyRecoveryWaitersByUuid[lock.uuid];
+      if (!waiter) continue;
+
+      waiter.resolve();
       delete this.#historyRecoveryWaitersByUuid[lock.uuid];
     }
     if (!locks.length) return;

@@ -17,7 +17,7 @@ type IBitcoinLocksTestTarget = {
   checkIncomingArgonBlock(header: { blockHash: string; blockNumber: number }): Promise<void>;
   checkForMissingBitcoinLockState(lock: IBitcoinLockRecord): Promise<void>;
   onBitcoinLockFinalized(txInfo: {
-    createPostProcessor: () => { resolve: () => void };
+    createPostProcessor: () => { resolve: () => void; reject: (error: Error) => void };
     tx: { metadataJson: { bitcoin: { uuid: string } } };
     txResult: { waitForFinalizedBlock: Promise<Uint8Array>; extrinsicError?: Error };
   }): Promise<void>;
@@ -47,20 +47,31 @@ describe('BitcoinLocks Argon cosign gating', () => {
     };
     extrinsicError.errorCode = 'bitcoinLocks.InsufficientVaultFunds';
     extrinsicError.details = 'bitcoinLocks.InsufficientVaultFunds';
+    const blockWatch = Object.assign(Object.create(null), {
+      start: async () => undefined,
+      events: { on: () => () => undefined },
+      bestBlockHeader: { blockNumber: 0, blockHash: '0x0' },
+    }) as BlockWatch;
+    const store = new BitcoinLocks(
+      Promise.resolve({} as Db),
+      Object.create(null) as WalletKeys,
+      blockWatch,
+      Object.create(null) as CurrencyBase,
+      Object.create(null) as TransactionTracker,
+    );
+    store.data.pendingLocks = [lock];
     const setLockFailed = vi.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined);
     const postProcessorResolve = vi.fn();
-    const store = Object.assign(Object.create(BitcoinLocks.prototype), {
-      data: {
-        pendingLocks: [lock],
-      },
+    const postProcessorReject = vi.fn();
+    Object.assign(store, {
       getTable: vi.fn().mockResolvedValue({
         setLockFailed,
       }),
-    }) as BitcoinLocks;
+    });
     const testStore = store as unknown as IBitcoinLocksTestTarget;
 
     await testStore.onBitcoinLockFinalized({
-      createPostProcessor: () => ({ resolve: postProcessorResolve }),
+      createPostProcessor: () => ({ resolve: postProcessorResolve, reject: postProcessorReject }),
       tx: { metadataJson: { bitcoin: { uuid: lock.uuid } } },
       txResult: {
         waitForFinalizedBlock: Promise.reject(extrinsicError),
@@ -74,6 +85,7 @@ describe('BitcoinLocks Argon cosign gating', () => {
       message: 'bitcoinLocks.InsufficientVaultFunds',
     });
     expect(postProcessorResolve).toHaveBeenCalledTimes(1);
+    expect(postProcessorReject).not.toHaveBeenCalled();
   });
 
   it('stores the cosign only after a later sync sees it in finalized Argon state', async () => {
@@ -103,7 +115,14 @@ describe('BitcoinLocks Argon cosign gating', () => {
       vaultSignature: new Uint8Array([1, 2, 3]),
     });
 
-    const store = Object.assign(Object.create(BitcoinLocks.prototype), {
+    const store = new BitcoinLocks(
+      Promise.resolve({} as Db),
+      {} as WalletKeys,
+      { bestBlockHeader: { blockNumber: 0 } } as BlockWatch,
+      {} as CurrencyBase,
+      {} as TransactionTracker,
+    );
+    Object.assign(store, {
       utxoTracking: {
         setReleaseCosign,
       },
@@ -114,7 +133,7 @@ describe('BitcoinLocks Argon cosign gating', () => {
         vaultId: 1,
         cosignMyLock,
       },
-    }) as BitcoinLocks;
+    });
     const testStore = store as unknown as IBitcoinLocksTestTarget;
 
     await testStore.syncLockReleaseArgonCosign(lock, {} as ArgonClient);
@@ -153,7 +172,14 @@ describe('BitcoinLocks Argon cosign gating', () => {
       vaultSignature,
     });
 
-    const store = Object.assign(Object.create(BitcoinLocks.prototype), {
+    const store = new BitcoinLocks(
+      Promise.resolve({} as Db),
+      {} as WalletKeys,
+      { bestBlockHeader: { blockNumber: 0 } } as BlockWatch,
+      {} as CurrencyBase,
+      {} as TransactionTracker,
+    );
+    Object.assign(store, {
       utxoTracking: {
         setReleaseCosign,
       },
@@ -164,7 +190,7 @@ describe('BitcoinLocks Argon cosign gating', () => {
         vaultId: 1,
         cosignMyLock,
       },
-    }) as BitcoinLocks;
+    });
     const testStore = store as unknown as IBitcoinLocksTestTarget;
 
     await testStore.syncLockReleaseArgonCosign(lock, {} as ArgonClient);
@@ -258,22 +284,32 @@ describe('BitcoinLocks Argon cosign gating', () => {
       [102, { blockNumber: 102, blockHash: '0x102' }],
     ]);
     const cosignEvent = {
-      event: { section: 'bitcoinLocks', method: 'OrphanedUtxoCosigned' },
+      event: {
+        section: 'bitcoinLocks',
+        method: 'OrphanedUtxoCosigned',
+        data: Object.assign([], { names: [] }),
+      },
     };
     const getEvents = vi.fn(async (block: { blockNumber: number }) => {
       return block.blockNumber === 102 ? [cosignEvent] : [];
     });
+    const blockApi = {
+      query: {
+        bitcoinUtxos: {
+          confirmedBitcoinBlockTip: vi.fn().mockResolvedValue({ isSome: false }),
+        },
+      },
+    };
     const blockWatchStub = {
       bestBlockHeader: { blockNumber: 101, blockHash: '0x101' },
       getHeaderByBlockNumber: vi.fn(async (blockNumber: number) => blockHeaders.get(blockNumber)),
-      getApi: vi.fn().mockResolvedValue({
-        query: {
-          bitcoinUtxos: {
-            confirmedBitcoinBlockTip: vi.fn().mockResolvedValue({ isSome: false }),
-          },
-        },
-      }),
+      getApi: vi.fn().mockResolvedValue(blockApi),
       getEvents,
+      getEventsWithSpec: vi.fn(async (block: { blockNumber: number }) => ({
+        api: blockApi,
+        events: await getEvents(block),
+        specVersion: 157,
+      })),
     };
     const blockWatch = blockWatchStub as unknown as BlockWatch;
     const store = new BitcoinLocks(
@@ -293,14 +329,12 @@ describe('BitcoinLocks Argon cosign gating', () => {
 
     await store.orphanReleases.syncCosignCounterSubscriptions(subscriptionClient);
     await testStore.checkIncomingArgonBlock({ blockNumber: 102, blockHash: '0x102' });
-    expect(getEvents).not.toHaveBeenCalled();
+    expect(recoverBlock).not.toHaveBeenCalled();
 
     counterCallbacks[0]({ toNumber: () => 0 });
     blockWatchStub.bestBlockHeader = { blockNumber: 102, blockHash: '0x102' };
     await testStore.checkIncomingArgonBlock({ blockNumber: 103, blockHash: '0x103' });
 
-    expect(getEvents).toHaveBeenCalledTimes(2);
-    expect(getEvents).toHaveBeenCalledWith(blockHeaders.get(102));
     expect(recoverBlock).toHaveBeenCalledWith(blockHeaders.get(102), [cosignEvent]);
   });
 });
