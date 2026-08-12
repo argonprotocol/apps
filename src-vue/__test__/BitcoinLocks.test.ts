@@ -1950,6 +1950,22 @@ describe('BitcoinLocks ratchet preview', () => {
 describe('BitcoinLocks capacity owners', () => {
   afterEach(() => vi.restoreAllMocks());
 
+  it('keeps vault capacity while rounding the Bitcoin requirement up', async () => {
+    const store = createStore();
+    vi.spyOn(BitcoinLock, 'calculateRedemptionAmount').mockImplementation((_priceIndex, targetPrice) => targetPrice);
+
+    expect(await store.satoshisForArgonLiquidity(3n, 200_000_000n)).toBe(2n);
+
+    vi.spyOn(store, 'satoshisForArgonLiquidity').mockResolvedValue(301n);
+    const capacity = await store.getLockableBitcoinCapacity({
+      vault: { availableBitcoinSpace: () => 300n } as never,
+      microgonsAtTargetPerBtc: 200_000_000n,
+    });
+
+    expect(capacity.availableLiquidityMicrogons).toBe(300n);
+    expect(capacity.availableSatoshis).toBe(301n);
+  });
+
   it('uses the prospective owner for lockable capacity', async () => {
     const store = createStore();
     const availableBitcoinSpace = vi.fn(() => 300n);

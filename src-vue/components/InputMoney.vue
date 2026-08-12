@@ -39,6 +39,7 @@ const props = withDefaults(
     minDecimals?: number;
     maxDecimals?: number;
     prefix?: string;
+    symbol?: string;
   }>(),
   {
     options: () => [],
@@ -58,7 +59,7 @@ const emit = defineEmits<{
 }>();
 
 const prefix = Vue.computed(() => {
-  return (props.prefix || '') + currency.symbol;
+  return (props.prefix || '') + (props.symbol ?? currency.symbol);
 });
 
 const modelValue = Vue.computed(() => {
