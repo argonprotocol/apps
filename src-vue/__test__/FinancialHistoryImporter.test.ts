@@ -102,6 +102,47 @@ describe('FinancialHistoryImporter', () => {
     ).resolves.toBe(true);
   });
 
+  it('rejects an older activity index before replaying quarantined Bitcoin history', async () => {
+    vi.mocked(findAddressActivity).mockResolvedValueOnce({
+      blocks: [],
+      asOfBlock: 100,
+      definitionVersion: 1,
+      coverage: { fromBlock: 0, toBlock: 100, gaps: [] },
+    });
+
+    await expect(
+      restoreFinancialHistory({
+        db: {
+          syncStateTable: {
+            get: vi.fn(async () => ({
+              accountId: '5owner',
+              asOfBlock: 100,
+              domains: ['bitcoin'],
+              domainCheckpoints: {
+                bitcoin: { asOfBlock: 100, definitionVersion: 1, recoveryVersion: 8 },
+              },
+            })),
+            upsert: vi.fn(async () => undefined),
+          },
+        } as any,
+        blockWatch: { getFinalizedApi: vi.fn(async () => ({})) } as any,
+        accountId: '5owner',
+        argonBonds: {} as any,
+        bitcoinLockRecovery: {
+          hasPendingHistoryRecovery: true,
+          beginHistoryReplay: vi.fn(async () => undefined),
+          commitHistoryReplay: vi.fn(async () => undefined),
+          cancelHistoryReplay: vi.fn(async () => undefined),
+          findMissingActiveLockIds: vi.fn(async () => []),
+        } as any,
+        vaultHistory: {} as any,
+        enabledDomains: ['bitcoin'],
+        recoverMissingCheckpointsFor: [],
+        minimumAsOfBlock: 100,
+      }),
+    ).rejects.toThrow('Activity index definition 1 is older than required definition 2');
+  });
+
   it('skips the v2 activity lookup when the saved checkpoint already covers finalized progress', async () => {
     const getCheckpoint = vi.fn(async () => ({
       accountId: '5owner',
@@ -179,7 +220,7 @@ describe('FinancialHistoryImporter', () => {
               asOfBlock: 90,
               domains: ['bitcoin'],
               domainCheckpoints: {
-                bitcoin: { asOfBlock: 90, definitionVersion: 2, recoveryVersion: 7 },
+                bitcoin: { asOfBlock: 90, definitionVersion: 2, recoveryVersion: 8 },
               },
             })),
             upsert: vi.fn(async () => undefined),
@@ -269,7 +310,7 @@ describe('FinancialHistoryImporter', () => {
         asOfBlock: 100,
         domains: ['bitcoin'],
         domainCheckpoints: {
-          bitcoin: { asOfBlock: 100, definitionVersion: 2, recoveryVersion: 7 },
+          bitcoin: { asOfBlock: 100, definitionVersion: 2, recoveryVersion: 8 },
         },
       }),
     );
@@ -445,7 +486,7 @@ describe('FinancialHistoryImporter', () => {
           bitcoin: {
             asOfBlock: 8,
             definitionVersion: 2,
-            recoveryVersion: 7,
+            recoveryVersion: 8,
             partialRecovery: true,
           },
         },
@@ -539,9 +580,9 @@ describe('FinancialHistoryImporter', () => {
       SyncStateKeys.FinancialHistory,
       expect.objectContaining({
         asOfBlock: 100,
-        recoveryVersions: { bitcoin: 7 },
+        recoveryVersions: { bitcoin: 8 },
         domainCheckpoints: {
-          bitcoin: { asOfBlock: 100, definitionVersion: 2, recoveryVersion: 7 },
+          bitcoin: { asOfBlock: 100, definitionVersion: 2, recoveryVersion: 8 },
         },
       }),
     );

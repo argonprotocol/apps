@@ -22,6 +22,7 @@ export const accountActivityKindNames = new Map<AccountActivityKind, string>([
   [AccountActivityKind.OperationalReward, 'operational_reward'],
   [AccountActivityKind.Fee, 'fee'],
   [AccountActivityKind.AccountBalance, 'account_balance'],
+  [AccountActivityKind.GatewayOperations, 'gateway_operations'],
 ]);
 
 type IDecodedAccountActivityEvent = {
@@ -29,10 +30,12 @@ type IDecodedAccountActivityEvent = {
   accounts: string[];
   vaultIds: number[];
   bitcoinLockIds: number[];
+  mintingAuthoritySigningKeys: string[];
 };
 type IAccountActivityEvent = Pick<GenericEvent, 'data' | 'method' | 'section'>;
 type IAccountActivityEventGroup = Omit<ReturnType<typeof groupEventsByExtrinsic>[number], 'extrinsicEvents'> & {
   extrinsicEvents: readonly IAccountActivityEvent[];
+  sourceAccount?: string;
 };
 
 type IAccountActivityResult = {
@@ -41,6 +44,8 @@ type IAccountActivityResult = {
   vaultOwners: { vaultId: number; address: string }[];
   bitcoinLocks: { utxoId: number; mask: number }[];
   bitcoinLockOwners: { utxoId: number; address: string }[];
+  mintingAuthorities: { destinationSigningKey: string; mask: number }[];
+  mintingAuthorityOwners: { destinationSigningKey: string; address: string }[];
 };
 
 export class AccountActivityDecoder {
@@ -53,8 +58,10 @@ export class AccountActivityDecoder {
     const vaultOwners: { vaultId: number; address: string }[] = [];
     const bitcoinLockMasks = new Map<number, number>();
     const bitcoinLockOwners: { utxoId: number; address: string }[] = [];
+    const mintingAuthorityMasks = new Map<string, number>();
+    const mintingAuthorityOwners: { destinationSigningKey: string; address: string }[] = [];
 
-    for (const { extrinsicEvents, extrinsicIndex } of args.eventGroups) {
+    for (const { extrinsicEvents, extrinsicIndex, sourceAccount } of args.eventGroups) {
       for (let eventIndex = 0; eventIndex < extrinsicEvents.length; eventIndex += 1) {
         const event = extrinsicEvents[eventIndex];
         const isBalanceSet =
@@ -64,7 +71,7 @@ export class AccountActivityDecoder {
           event.method === 'Transfer' &&
           isUserTransferEventSet(extrinsicEvents, eventIndex);
         const isCustodyTransfer = extrinsicIndex !== undefined && (isBalanceSet || isUserTransfer);
-        const decoded = this.decodeEvent(event, args.specVersion, isCustodyTransfer);
+        const decoded = this.decodeEvent(event, args.specVersion, isCustodyTransfer, sourceAccount);
         const { mask } = decoded;
         if (!mask) continue;
 
@@ -80,6 +87,13 @@ export class AccountActivityDecoder {
 
         for (const utxoId of decoded.bitcoinLockIds) {
           bitcoinLockMasks.set(utxoId, (bitcoinLockMasks.get(utxoId) ?? 0) | mask);
+        }
+
+        for (const destinationSigningKey of decoded.mintingAuthoritySigningKeys) {
+          mintingAuthorityMasks.set(
+            destinationSigningKey,
+            (mintingAuthorityMasks.get(destinationSigningKey) ?? 0) | mask,
+          );
         }
 
         if (event.section === 'vaults' && event.method === 'VaultCreated') {
@@ -98,6 +112,11 @@ export class AccountActivityDecoder {
           const utxoId = decoded.bitcoinLockIds[0];
           if (address && utxoId !== undefined) bitcoinLockOwners.push({ utxoId, address });
         }
+        if (event.section === 'crosschainTransfer' && event.method === 'MintingAuthorityRegistered') {
+          const address = eventAccounts[0];
+          const destinationSigningKey = decoded.mintingAuthoritySigningKeys[0];
+          if (address && destinationSigningKey) mintingAuthorityOwners.push({ destinationSigningKey, address });
+        }
       }
     }
 
@@ -107,6 +126,11 @@ export class AccountActivityDecoder {
       vaultOwners,
       bitcoinLocks: [...bitcoinLockMasks].map(([utxoId, mask]) => ({ utxoId, mask })),
       bitcoinLockOwners,
+      mintingAuthorities: [...mintingAuthorityMasks].map(([destinationSigningKey, mask]) => ({
+        destinationSigningKey,
+        mask,
+      })),
+      mintingAuthorityOwners,
     };
   }
 
@@ -114,10 +138,16 @@ export class AccountActivityDecoder {
     event: IAccountActivityEvent,
     specVersion: number,
     isCustodyTransfer: boolean,
+    sourceAccount?: string,
   ): IDecodedAccountActivityEvent {
     const mask = classifyEvent(event, { isCustodyTransfer });
     if (!mask) {
-      return { mask, accounts: [], vaultIds: [], bitcoinLockIds: [] };
+      return { mask, accounts: [], vaultIds: [], bitcoinLockIds: [], mintingAuthoritySigningKeys: [] };
+    }
+    if (isGatewayOperationSourceEvent(event) && !sourceAccount) {
+      throw new AccountActivityCoverageError(
+        `${event.method} at runtime spec ${specVersion} has no signed source account`,
+      );
     }
     if (!hasNamedEventData(event)) {
       throw new AccountActivityCoverageError(
@@ -127,9 +157,10 @@ export class AccountActivityDecoder {
 
     return {
       mask,
-      accounts: collectEventAccounts(event),
+      accounts: collectEventAccounts(event, sourceAccount),
       vaultIds: collectEventVaultIds(event),
       bitcoinLockIds: collectEventBitcoinLockIds(event),
+      mintingAuthoritySigningKeys: collectMintingAuthoritySigningKeys(event),
     };
   }
 }
@@ -145,12 +176,16 @@ export function classifyEvent(
   // the effective account and the fee-paying account different.
   if (section === 'transactionPayment' && method === 'TransactionFeePaid') return AccountActivityKind.Fee;
 
-  if (section === 'bitcoinLocks') return AccountActivityKind.BitcoinLock;
+  if (section === 'bitcoinLocks') {
+    return ignoredBitcoinLockEvents.has(method) ? 0 : AccountActivityKind.BitcoinLock;
+  }
 
-  // BitcoinUtxos observes every watched candidate on the network. Those events
-  // do not identify an account and are not needed to reconstruct a user's lock;
-  // account-owned lifecycle events are emitted by BitcoinLocks instead.
-  if (section === 'bitcoinUtxos') return 0;
+  // Most BitcoinUtxos events are global candidate observations. Verification and
+  // unwatching are durable lock transitions, and the lock-owner index resolves
+  // their UTXO IDs back to the account that created the lock.
+  if (section === 'bitcoinUtxos') {
+    return method === 'UtxoVerified' || method === 'UtxoUnwatched' ? AccountActivityKind.BitcoinLock : 0;
+  }
   if (section === 'bonds') {
     if (legacyBitcoinBondEvents.has(method)) return AccountActivityKind.BitcoinLock;
     if (method !== 'BondCreated') return 0;
@@ -168,6 +203,7 @@ export function classifyEvent(
     return tokenGatewayAccountEvents.has(method) ? AccountActivityKind.Crosschain : 0;
   }
   if (section === 'crosschainTransfer') {
+    if (gatewayOperationEvents.has(method)) return AccountActivityKind.GatewayOperations;
     return crosschainAccountEvents.has(method) ? AccountActivityKind.Crosschain : 0;
   }
 
@@ -240,6 +276,7 @@ const miningBidEvents = new Set([
   'SlotBidderOut',
   'SlotBidderReplaced',
 ]);
+const ignoredBitcoinLockEvents = new Set(['CosignOverdueError', 'LockExpirationError']);
 const legacyBitcoinBondEvents = new Set([
   'BitcoinBondBurned',
   'BitcoinCosignPastDue',
@@ -289,13 +326,24 @@ const localchainAccountEvents = new Set([
 ]);
 const tokenGatewayAccountEvents = new Set(['AssetReceived', 'AssetRefunded', 'AssetTeleported']);
 const crosschainAccountEvents = new Set([
-  'TransferCollateralInvalidated',
-  'TransferCollateralized',
   'TransferOutCanceled',
   'TransferOutFinalized',
   'TransferOutReady',
   'TransferOutStarted',
   'TransferToArgonSettled',
+]);
+const gatewayOperationEvents = new Set([
+  'CouncilSignerRegistered',
+  'CouncilSignerRotationQueued',
+  'MintingAuthorityActivationCompleted',
+  'MintingAuthorityActivationFinalized',
+  'MintingAuthorityDeactivationFinalized',
+  'MintingAuthorityDeactivationQueued',
+  'MintingAuthorityRegistered',
+  'QueueEntryApprovalReady',
+  'QueueEntryApprovalRecorded',
+  'TransferCollateralInvalidated',
+  'TransferCollateralized',
 ]);
 const vaultRevenueEvents = new Set([
   'BidPoolDistributed',
@@ -324,6 +372,7 @@ const vaultBitcoinLockEvents = new Set([
 // committed vault capital. Configuration-only changes such as xpub and terms
 // updates are deliberately excluded.
 const vaultPositionEvents = new Set([
+  'BackfillSecuritizationReservedChanged',
   'VaultClosed',
   'VaultCreated',
   'VaultModified',
@@ -347,6 +396,7 @@ const vaultPositionEvents = new Set([
 // with programId so one lifecycle can cover vault-backed and ARGNOT-backed lots;
 // the block's runtime metadata resolves that shape change before account collection.
 const treasuryBondPositionEvents = new Set([
+  'BondLotBackfillChanged',
   'BondLotPurchased',
   'BondLotReleased',
   'BondLotReleaseScheduled',
@@ -358,6 +408,7 @@ const treasuryBondPositionEvents = new Set([
 // lifecycle. Keep these as vault activity even though the later bond lifecycle
 // lives in the same pallet.
 const treasuryVaultPositionEvents = new Set([
+  'BackfillBondsReservedChanged',
   'ErrorRefundingTreasuryCapital',
   'NextBidPoolCapitalLocked',
   'RefundedTreasuryCapital',
@@ -371,10 +422,12 @@ const treasuryVaultRevenueEvents = new Set([
   'CouldNotFundTreasury',
 ]);
 
-function collectEventAccounts(event: HistoricalEvent): string[] {
+function collectEventAccounts(event: HistoricalEvent, sourceAccount?: string): string[] {
   const accounts = event.data.flatMap((value, index) => {
     return event.data.typeDef[index].type.includes('AccountId') ? [value.toString()] : [];
   });
+
+  if (sourceAccount && isGatewayOperationSourceEvent(event)) accounts.push(sourceAccount);
 
   if (event.section === 'miningSlot' && event.method === 'NewMiners') {
     for (const miner of event.data.newMiners) {
@@ -392,10 +445,7 @@ function collectEventAccounts(event: HistoricalEvent): string[] {
     }
   }
 
-  if (
-    event.section === 'blockRewards' &&
-    (event.method === 'RewardCreated' || event.method === 'RewardUnlocked')
-  ) {
+  if (event.section === 'blockRewards' && (event.method === 'RewardCreated' || event.method === 'RewardUnlocked')) {
     accounts.push(...event.data.rewards.map(reward => reward.accountId.toString()));
   }
 
@@ -404,6 +454,18 @@ function collectEventAccounts(event: HistoricalEvent): string[] {
   }
 
   return accounts;
+}
+
+function collectMintingAuthoritySigningKeys(event: HistoricalEvent): string[] {
+  const { data } = event;
+  return 'destinationSigningKey' in data ? [data.destinationSigningKey.toHex()] : [];
+}
+
+export function isGatewayOperationSourceEvent(event: Pick<GenericEvent, 'method' | 'section'>): boolean {
+  return (
+    event.section === 'crosschainTransfer' &&
+    (event.method === 'QueueEntryApprovalRecorded' || event.method === 'QueueEntryApprovalReady')
+  );
 }
 
 function collectEventVaultIds(event: HistoricalEvent): number[] {

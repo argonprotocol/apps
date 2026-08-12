@@ -14,38 +14,58 @@ import {
   type BlockWatch,
   type Currency,
   type IBlockHeaderInfo,
+  JsonExt,
   type MainchainClients,
+  readEventField,
   StorageFinder,
   TransactionEvents,
 } from '@argonprotocol/apps-core';
-import { BitcoinLocksTable, BitcoinLockStatus, type IBitcoinLockRecord } from '../db/BitcoinLocksTable.ts';
-import type BitcoinUtxoTracking from '../BitcoinUtxoTracking.ts';
+import {
+  applyCanonicalPreFundingState,
+  applyBitcoinLockMintState,
+  BitcoinLocksTable,
+  BitcoinLockStatus,
+  createBitcoinLockCreationRatchets,
+  type IBitcoinLockRecord,
+} from '../db/BitcoinLocksTable.ts';
+import { BitcoinUtxoStatus, isBitcoinUtxoReleaseStatus, type IBitcoinUtxoRecord } from '../db/BitcoinUtxosTable.ts';
+import BitcoinUtxoTracking from '../BitcoinUtxoTracking.ts';
 import type { deriveBitcoinLockHdKey, WalletKeys } from '../WalletKeys.ts';
+import type { Db } from '../Db.ts';
+import type { IBitcoinRequestLockMetadata } from '../BitcoinLocks.ts';
+import { ExtrinsicType } from '../db/TransactionsTable.ts';
 import { readRequiredEventBigInt, readRequiredEventField } from './index.ts';
+
+type BitcoinRecoveryUtxoTracking = Pick<
+  BitcoinUtxoTracking,
+  | 'getAcceptedFundingRecordForLock'
+  | 'getAllOrphanLifecycleUtxos'
+  | 'getObservedStatusForUpsert'
+  | 'getUtxoRecord'
+  | 'getUtxoRecordById'
+  | 'getUtxosForLock'
+  | 'isReleaseCompleteStatus'
+  | 'isReleaseStatus'
+  | 'load'
+  | 'setAcceptedFundingRecordForLock'
+  | 'setReleaseCosign'
+  | 'setReleaseIsProcessingOnArgon'
+  | 'setReleaseRequest'
+  | 'shouldUpdateObservedCandidateStatus'
+  | 'upsertUtxoRecord'
+>;
 
 export class BitcoinLockRecovery {
   private readonly walletKeys: WalletKeys;
   private readonly blockWatch: BlockWatch;
   private readonly currency: Pick<Currency, 'fetchMainchainRatesAtBlock'>;
-  private readonly locksByUtxoId: Record<number, IBitcoinLockRecord>;
-  private readonly pendingLocks: IBitcoinLockRecord[];
-  private readonly waitForLockIdle: (lock: IBitcoinLockRecord) => Promise<void>;
+  private readonly getLocksByUtxoId: () => Record<number, IBitcoinLockRecord>;
+  private readonly getPendingLocks: () => IBitcoinLockRecord[];
+  private readonly waitForLockIdle: (lock: IBitcoinLockRecord, alreadyOwnsQueue?: boolean) => Promise<void>;
   private readonly onHistoryRecoveryComplete: (locks: IBitcoinLockRecord[]) => void;
-  private readonly utxoTracking: Pick<
-    BitcoinUtxoTracking,
-    | 'getAcceptedFundingRecordForLock'
-    | 'getAllOrphanLifecycleUtxos'
-    | 'getUtxoRecord'
-    | 'isReleaseCompleteStatus'
-    | 'isReleaseStatus'
-    | 'setAcceptedFundingRecordForLock'
-    | 'setReleaseCosign'
-    | 'setReleaseIsProcessingOnArgon'
-    | 'setReleaseRequest'
-    | 'upsertUtxoRecord'
-  >;
-  private historyReplayLocksByUtxoId?: Record<number, IBitcoinLockRecord>;
-  private historyReplayLockScope?: BitcoinHistoryReplayLockScope;
+  private readonly utxoTracking: BitcoinRecoveryUtxoTracking;
+  private readonly dbPromise: Promise<Db>;
+  private historyReplay?: BitcoinHistoryReplaySession;
   private readonly historyRecoveryPendingUtxoIds = new Set<number>();
   private readonly historyRecoveryPendingUuids = new Set<string>();
   private readonly activeLockRecoveryFailedUtxoIds = new Set<number>();
@@ -56,6 +76,7 @@ export class BitcoinLockRecovery {
   ) => Promise<IBitcoinLockRecord>;
   private readonly getTable: () => Promise<BitcoinLocksTable>;
   private readonly getDerivedPubkey: (vaultId: number, index: number) => ReturnType<typeof deriveBitcoinLockHdKey>;
+  private readonly getBitcoinNetwork: () => string;
   private readonly trackDerivedBitcoinLockKey: (
     vaultId: number,
     derivedPubkey: Awaited<ReturnType<typeof deriveBitcoinLockHdKey>>,
@@ -65,33 +86,37 @@ export class BitcoinLockRecovery {
     walletKeys: WalletKeys;
     blockWatch: BlockWatch;
     currency: Pick<Currency, 'fetchMainchainRatesAtBlock'>;
-    locksByUtxoId: Record<number, IBitcoinLockRecord>;
-    pendingLocks: IBitcoinLockRecord[];
+    getLocksByUtxoId: BitcoinLockRecovery['getLocksByUtxoId'];
+    getPendingLocks: BitcoinLockRecovery['getPendingLocks'];
     waitForLockIdle: BitcoinLockRecovery['waitForLockIdle'];
     onHistoryRecoveryComplete: BitcoinLockRecovery['onHistoryRecoveryComplete'];
     utxoTracking: BitcoinLockRecovery['utxoTracking'];
+    dbPromise: Promise<Db>;
     insertPending: BitcoinLockRecovery['insertPending'];
     getTable: () => Promise<BitcoinLocksTable>;
     getDerivedPubkey: BitcoinLockRecovery['getDerivedPubkey'];
+    getBitcoinNetwork: BitcoinLockRecovery['getBitcoinNetwork'];
     trackDerivedBitcoinLockKey: BitcoinLockRecovery['trackDerivedBitcoinLockKey'];
   }) {
     this.walletKeys = args.walletKeys;
     this.blockWatch = args.blockWatch;
     this.currency = args.currency;
-    this.locksByUtxoId = args.locksByUtxoId;
-    this.pendingLocks = args.pendingLocks;
+    this.getLocksByUtxoId = args.getLocksByUtxoId;
+    this.getPendingLocks = args.getPendingLocks;
     this.waitForLockIdle = args.waitForLockIdle;
     this.onHistoryRecoveryComplete = args.onHistoryRecoveryComplete;
     this.utxoTracking = args.utxoTracking;
+    this.dbPromise = args.dbPromise;
     this.insertPending = args.insertPending;
     this.getTable = args.getTable;
     this.getDerivedPubkey = args.getDerivedPubkey;
+    this.getBitcoinNetwork = args.getBitcoinNetwork;
     this.trackDerivedBitcoinLockKey = args.trackDerivedBitcoinLockKey;
   }
 
   public get hasPendingHistoryRecovery(): boolean {
     return (
-      this.historyReplayLocksByUtxoId !== undefined ||
+      this.historyReplay !== undefined ||
       this.activeLockRecoveryFailedUtxoIds.size > 0 ||
       [...Object.values(this.locksByUtxoId), ...this.pendingLocks].some(lock => lock.isHistoryRecoveryPending)
     );
@@ -100,23 +125,20 @@ export class BitcoinLockRecovery {
   public async beginHistoryReplay({
     lockScope = 'encountered',
   }: { lockScope?: BitcoinHistoryReplayLockScope } = {}): Promise<void> {
-    if (this.historyReplayLocksByUtxoId) throw new Error('Bitcoin lock history replay is already running');
+    if (this.historyReplay) throw new Error('Bitcoin lock history replay is already running');
 
-    this.historyReplayLocksByUtxoId = {};
-    this.historyReplayLockScope = lockScope;
+    this.historyReplay = {
+      commitStarted: false,
+      locksByUtxoId: {},
+      originalLocksByUtxoId: {},
+      utxos: new BitcoinHistoryUtxoProjection(this.utxoTracking, this.dbPromise),
+      lockScope,
+      hdKeys: new Map(),
+      dirtyLockUtxoIds: new Set(),
+    };
     if (lockScope !== 'all') this.activeLocksByUtxoId.clear();
-    let table: BitcoinLocksTable | undefined;
     for (const lock of [...Object.values(this.locksByUtxoId), ...this.pendingLocks]) {
       if (!lock.isHistoryRecoveryPending) continue;
-
-      if (this.isRetiredHistoryRecord(lock)) {
-        table ??= await this.getTable();
-        await table.setHistoryRecoveryPending(lock.uuid, false);
-        delete lock.isHistoryRecoveryPending;
-        this.historyRecoveryPendingUuids.delete(lock.uuid);
-        if (lock.utxoId !== undefined) this.historyRecoveryPendingUtxoIds.delete(lock.utxoId);
-        continue;
-      }
 
       this.historyRecoveryPendingUuids.add(lock.uuid);
       if (lock.utxoId !== undefined) this.historyRecoveryPendingUtxoIds.add(lock.utxoId);
@@ -130,45 +152,123 @@ export class BitcoinLockRecovery {
   }
 
   public async commitHistoryReplay(isComplete = true): Promise<void> {
-    const stagedLocks = this.historyReplayLocksByUtxoId;
-    if (!stagedLocks) return;
+    const replay = this.historyReplay;
+    if (!replay) return;
 
     if (!isComplete) {
-      this.historyReplayLocksByUtxoId = undefined;
-      this.historyReplayLockScope = undefined;
-      const table = await this.getTable();
-      for (const recovered of Object.values(stagedLocks)) {
-        const utxoId = recovered.utxoId;
-        const liveLock = utxoId === undefined ? undefined : this.locksByUtxoId[utxoId];
-        const activeLock = utxoId === undefined ? undefined : this.activeLocksByUtxoId.get(utxoId);
-        const fundingRecord = liveLock ? this.utxoTracking.getAcceptedFundingRecordForLock(liveLock) : undefined;
-        const hasLiveReleaseState =
-          liveLock?.status === BitcoinLockStatus.Releasing && this.utxoTracking.isReleaseStatus(fundingRecord?.status);
-        const hasIncompleteActiveHistory =
-          activeLock &&
-          !this.hasCompleteRatchetEconomics(recovered, activeLock.liquidityPromised, activeLock.lockedTargetPrice);
-        if (utxoId !== undefined && liveLock && (hasLiveReleaseState || hasIncompleteActiveHistory)) {
-          await table.saveRecoveredHistory(liveLock);
-          await table.setHistoryRecoveryPending(liveLock.uuid, false);
-          delete liveLock.isHistoryRecoveryPending;
-          this.historyRecoveryPendingUtxoIds.delete(utxoId);
-          this.historyRecoveryPendingUuids.delete(liveLock.uuid);
-          continue;
-        }
-        this.applyRecoveredRecord(recovered);
-      }
-      await this.publishCompleteActiveLocks();
+      this.historyReplay = undefined;
       this.activeLocksByUtxoId.clear();
+      this.onHistoryRecoveryComplete(Object.values(replay.locksByUtxoId));
       return;
     }
 
-    const lockScope = this.historyReplayLockScope;
-    this.historyReplayLocksByUtxoId = undefined;
-    this.historyReplayLockScope = undefined;
-    for (const recovered of Object.values(stagedLocks)) this.applyRecoveredRecord(recovered);
-
+    const lockScope = replay.lockScope;
     const table = await this.getTable();
+    const locks = [...replay.dirtyLockUtxoIds]
+      .map(utxoId => replay.locksByUtxoId[utxoId])
+      .filter((lock): lock is IBitcoinLockRecord => Boolean(lock));
+    const utxos = replay.utxos.records;
+    const db = await this.dbPromise;
+    const persistedLocksByUtxoId = new Map<number, IBitcoinLockRecord>();
+    replay.commitStarted = true;
+
+    for (const recovered of locks) {
+      if (recovered.utxoId === undefined) continue;
+
+      let durable = await table.getByUtxoId(recovered.utxoId);
+      durable ??= await table.findPendingByHdPath(recovered.hdPath);
+      let useRecoveredStatus = !durable;
+      const original = replay.originalLocksByUtxoId[recovered.utxoId];
+      const persistedEconomics = durable ? getBitcoinLockEconomicsFingerprint(durable) : undefined;
+      const originalEconomics = original ? getBitcoinLockEconomicsFingerprint(original) : undefined;
+      const recoveredEconomics = getBitcoinLockEconomicsFingerprint(recovered);
+
+      if (
+        persistedEconomics !== undefined &&
+        originalEconomics !== undefined &&
+        persistedEconomics !== originalEconomics &&
+        persistedEconomics !== recoveredEconomics
+      ) {
+        throw new Error(`Bitcoin lock ${recovered.utxoId} changed during history recovery; retry the replay`);
+      }
+
+      if (!durable) {
+        durable = await table.insertPending({
+          uuid: recovered.uuid,
+          status: BitcoinLockStatus.LockIsProcessingOnArgon,
+          satoshis: recovered.satoshis,
+          cosignVersion: recovered.cosignVersion,
+          network: recovered.network,
+          hdPath: recovered.hdPath,
+          vaultId: recovered.vaultId,
+        });
+        useRecoveredStatus = true;
+      }
+
+      if (durable.isHistoryRecoveryPending) {
+        this.historyRecoveryPendingUuids.add(durable.uuid);
+        this.historyRecoveryPendingUtxoIds.add(recovered.utxoId);
+      }
+
+      if (durable.utxoId == null) {
+        const creation = recovered.ratchets[0];
+        durable = await table.finalizePending({
+          uuid: durable.uuid,
+          lock: recovered.lockDetails,
+          createdAtArgonBlockHeight: creation?.blockHeight ?? recovered.lockDetails.createdAtArgonBlock,
+          finalFee: creation?.txFee ?? 0n,
+        });
+        useRecoveredStatus = true;
+      }
+
+      const resolved = resolveRecoveredLock(durable, recovered, useRecoveredStatus);
+      await table.saveRecoveredHistory(resolved, resolved.createdAt);
+      persistedLocksByUtxoId.set(recovered.utxoId, resolved);
+    }
+
+    for (const hdKey of replay.hdKeys.values()) await db.walletHdKeysTable.upsert(hdKey);
+
+    for (const recovered of utxos) {
+      const durable = await db.bitcoinUtxosTable.getByLockOutpoint(
+        recovered.lockUtxoId,
+        recovered.txid,
+        recovered.vout,
+      );
+      if (durable) {
+        await db.bitcoinUtxosTable.saveRecoveredHistory(resolveRecoveredUtxo(durable, recovered));
+      } else {
+        await db.bitcoinUtxosTable.insert(recovered);
+      }
+    }
+
+    for (const recovered of locks) {
+      if (recovered.utxoId === undefined || !recovered.fundingUtxoRecord) continue;
+
+      const fundingUtxo = await db.bitcoinUtxosTable.getByLockOutpoint(
+        recovered.utxoId,
+        recovered.fundingUtxoRecord.txid,
+        recovered.fundingUtxoRecord.vout,
+      );
+      const durableLock = persistedLocksByUtxoId.get(recovered.utxoId);
+      if (fundingUtxo && durableLock) await table.setFundingUtxoRecordId(durableLock, fundingUtxo.id);
+    }
+
+    let durableLocks: IBitcoinLockRecord[] = [];
+    if (locks.length) {
+      const recordsByUuid = new Map((await table.fetchAll()).map(lock => [lock.uuid, lock]));
+      durableLocks = locks.map(recovered => recordsByUuid.get(recovered.uuid) ?? recovered);
+    }
+    if (utxos.length) await this.utxoTracking.load();
+
+    this.historyReplay = undefined;
     const completedLocks: IBitcoinLockRecord[] = [];
+    for (const recovered of durableLocks) {
+      const applied = this.applyRecoveredRecord(recovered);
+      const pendingIndex = this.pendingLocks.findIndex(pending => pending.uuid === applied.uuid);
+      if (applied.utxoId !== undefined && pendingIndex >= 0) this.pendingLocks.splice(pendingIndex, 1);
+      completedLocks.push(applied);
+    }
+
     const orphanLifecycleLockUtxoIds = new Set(
       this.utxoTracking.getAllOrphanLifecycleUtxos().map(record => record.lockUtxoId),
     );
@@ -182,7 +282,7 @@ export class BitcoinLockRecovery {
       const isUnresolvedHistoricalLock =
         lockScope === 'all' &&
         lockUtxoId !== undefined &&
-        !liveLock.removalReason &&
+        !this.isRetiredHistoryRecord(liveLock) &&
         !this.activeLocksByUtxoId.has(lockUtxoId);
       if (isUnresolvedHistoricalLock) {
         const fundingRecord = this.utxoTracking.getAcceptedFundingRecordForLock(liveLock);
@@ -201,7 +301,10 @@ export class BitcoinLockRecovery {
       completedLocks.push(liveLock);
     }
     this.activeLocksByUtxoId.clear();
-    const reconciliationLocksByUuid = new Map(completedLocks.map(lock => [lock.uuid, lock]));
+    const reconciliationLocksByUuid = new Map(
+      Object.values(replay.locksByUtxoId).map(lock => [lock.uuid, lock]),
+    );
+    for (const lock of completedLocks) reconciliationLocksByUuid.set(lock.uuid, lock);
     for (const utxoId of orphanLifecycleLockUtxoIds) {
       const lock = this.locksByUtxoId[utxoId];
       if (lock) reconciliationLocksByUuid.set(lock.uuid, lock);
@@ -210,10 +313,12 @@ export class BitcoinLockRecovery {
   }
 
   public async cancelHistoryReplay(): Promise<void> {
-    this.historyReplayLocksByUtxoId = undefined;
-    this.historyReplayLockScope = undefined;
-    await this.publishCompleteActiveLocks();
+    const replay = this.historyReplay;
+    const commitStarted = replay?.commitStarted;
+    this.historyReplay = undefined;
+    if (!commitStarted) await this.publishCompleteActiveLocks();
     this.activeLocksByUtxoId.clear();
+    if (replay) this.onHistoryRecoveryComplete(Object.values(replay.locksByUtxoId));
   }
 
   public async recoverBlock(
@@ -223,15 +328,20 @@ export class BitcoinLockRecovery {
   ): Promise<void> {
     const api = await this.blockWatch.getApi(block);
     const table = await this.getTable();
+    const utxoTracking = this.historyReplay?.utxos ?? this.utxoTracking;
 
     for (let eventIndex = 0; eventIndex < eventRecords.length; eventIndex += 1) {
       const { event } = eventRecords[eventIndex];
       const isBitcoinMint = event.section === 'mint' && event.method === 'BitcoinMint';
       const isBitcoinUtxoVerified = event.section === 'bitcoinUtxos' && event.method === 'UtxoVerified';
-      if (event.section !== 'bitcoinLocks' && !isBitcoinMint && !isBitcoinUtxoVerified) continue;
-      if (event.section === 'bitcoinLocks' && !bitcoinRecoveryEventMethods.has(event.method)) {
+      const isBitcoinUtxoUnwatched = event.section === 'bitcoinUtxos' && event.method === 'UtxoUnwatched';
+      if (event.section !== 'bitcoinLocks' && !isBitcoinMint && !isBitcoinUtxoVerified && !isBitcoinUtxoUnwatched) {
         continue;
       }
+      const bitcoinLockPolicy =
+        event.section === 'bitcoinLocks' ? bitcoinRecoveryEventPolicies[event.method] : undefined;
+      const isUnknownBitcoinLockEvent = event.section === 'bitcoinLocks' && !bitcoinLockPolicy;
+      if (bitcoinLockPolicy === 'ignore') continue;
 
       const utxoId = this.readUtxoId(event, block);
       if (isBitcoinMint && utxoId === undefined) {
@@ -239,10 +349,10 @@ export class BitcoinLockRecovery {
           continue;
 
         let candidateIds = this.historyRecoveryPendingUtxoIds;
-        if (this.historyReplayLockScope !== 'pending') {
+        if (this.historyReplay?.lockScope !== 'pending') {
           candidateIds = new Set([
             ...Object.keys(this.locksByUtxoId).map(Number),
-            ...Object.keys(this.historyReplayLocksByUtxoId ?? {}).map(Number),
+            ...Object.keys(this.historyReplay?.locksByUtxoId ?? {}).map(Number),
           ]);
         }
         for (const recoveryId of candidateIds) {
@@ -253,12 +363,16 @@ export class BitcoinLockRecovery {
       }
       if (utxoId === undefined) continue;
       if (
-        (isBitcoinMint || event.method === 'BitcoinLockCreated' || event.method === 'BitcoinLockRatcheted') &&
+        (isBitcoinMint ||
+          event.method === 'BitcoinLockCreated' ||
+          event.method === 'BitcoinLockRatcheted' ||
+          event.method === 'SecuritizationIncreased' ||
+          event.method === 'UtxoFundedFromCandidate') &&
         readRequiredEventField(event, 'accountId', block).toString() !== this.walletKeys.defaultArgonAddress
       ) {
         continue;
       }
-      if (this.historyReplayLockScope === 'pending' && !this.historyRecoveryPendingUtxoIds.has(utxoId)) continue;
+      if (this.historyReplay?.lockScope === 'pending' && !this.historyRecoveryPendingUtxoIds.has(utxoId)) continue;
 
       const liveRecord = this.locksByUtxoId[utxoId];
       if (liveRecord) await this.prepareHistoryRecoveryLock(liveRecord, options.lockQueueOwnerUuid);
@@ -312,7 +426,7 @@ export class BitcoinLockRecovery {
                 extrinsicIndex,
               };
               recovered.lockDetails = chainLock;
-              await table.saveRecoveredHistory(recovered, new Date(block.blockTime));
+              await this.saveRecoveredHistory(table, recovered, new Date(block.blockTime));
               this.applyRecoveredRecord(recovered);
             }
             continue;
@@ -350,7 +464,7 @@ export class BitcoinLockRecovery {
           },
         ];
         this.assertSafePendingMint(recovered);
-        await table.saveRecoveredHistory(recovered, new Date(block.blockTime));
+        await this.saveRecoveredHistory(table, recovered, new Date(block.blockTime));
         this.applyRecoveredRecord(recovered);
         continue;
       }
@@ -364,9 +478,79 @@ export class BitcoinLockRecovery {
         if (!isBitcoinMint && event.method !== 'BitcoinLockRatcheted') continue;
         throw new Error(`Bitcoin lock ${utxoId} history is missing its creation record`);
       }
-      if (event.method === 'OrphanedUtxoReceived') {
+      const restoresPreFundingState =
+        isBitcoinUtxoVerified ||
+        event.method === 'SecuritizationIncreased' ||
+        event.method === 'UtxoFundedFromCandidate' ||
+        (isUnknownBitcoinLockEvent && record.status === BitcoinLockStatus.LockPendingFunding);
+      if (restoresPreFundingState) {
+        const chainLock = await BitcoinLock.get(api, utxoId);
+        if (!chainLock) throw new Error(`Bitcoin lock ${utxoId} is unavailable after ${event.method}`);
+
+        const recovered = this.createDetachedRecord(record);
+        // These events mutate the original lock rather than creating a new ratchet.
+        // Use the archived post-event state because older event shapes omit some resulting economics.
+        const currentSatoshis = applyCanonicalPreFundingState(recovered, chainLock);
+
+        let fundingRecord;
+        if (isBitcoinUtxoVerified || event.method === 'UtxoFundedFromCandidate') {
+          if (recovered.status === BitcoinLockStatus.LockPendingFunding) {
+            recovered.status = BitcoinLockStatus.LockedAndIsMinting;
+          }
+          const utxoRef = await chainLock.getFundingUtxoRef(api);
+          if (utxoRef) {
+            fundingRecord = await utxoTracking.upsertUtxoRecord(
+              recovered,
+              { txid: utxoRef.txid, vout: utxoRef.vout, satoshis: currentSatoshis },
+              { markFundingUtxo: true },
+            );
+            await utxoTracking.setAcceptedFundingRecordForLock(recovered, fundingRecord);
+          }
+        }
+
+        this.assertSafePendingMint(recovered);
+        await this.saveRecoveredHistory(table, recovered);
+        if (fundingRecord && !this.historyReplay) {
+          await table.setFundingUtxoRecordId(recovered, fundingRecord.id);
+        }
+        this.applyRecoveredRecord(recovered);
+      } else if (isBitcoinUtxoUnwatched) {
+        if (record.status !== BitcoinLockStatus.LockPendingFunding) continue;
+
+        const chainLock = await BitcoinLock.get(api, utxoId);
+        if (chainLock) continue;
+
+        const recovered = this.createDetachedRecord(record);
+        if (this.historyReplay) recovered.status = BitcoinLockStatus.LockExpiredWaitingForFunding;
+        else await table.setLockExpiredWaitingForFunding(recovered);
+        this.applyRecoveredRecord(recovered);
+      } else if (event.method === 'BitcoinLockBackfillChanged' || isUnknownBitcoinLockEvent) {
+        const chainLock = await BitcoinLock.get(api, utxoId);
+        if (!chainLock) {
+          throw new Error(
+            `bitcoinLocks.${event.method} requires an explicit recovery handler because it removed the lock`,
+          );
+        }
+        if (
+          isUnknownBitcoinLockEvent &&
+          !this.hasCompleteRatchetEconomics(record, chainLock.liquidityPromised, chainLock.lockedTargetPrice)
+        ) {
+          throw new Error(
+            `bitcoinLocks.${event.method} requires an explicit recovery handler because it changed lock economics`,
+          );
+        }
+
+        const recovered = this.createDetachedRecord(record);
+        chainLock.couponFeesPaid = bigIntMax(chainLock.couponFeesPaid, recovered.lockDetails?.couponFeesPaid ?? 0n);
+        recovered.satoshis = chainLock.utxoSatoshis ?? chainLock.satoshis;
+        recovered.liquidityPromised = chainLock.liquidityPromised;
+        recovered.lockedTargetPrice = chainLock.lockedTargetPrice;
+        recovered.lockDetails = chainLock;
+        await this.saveRecoveredHistory(table, recovered);
+        this.applyRecoveredRecord(recovered);
+      } else if (event.method === 'OrphanedUtxoReceived') {
         const utxoRef = readRequiredEventField(event, 'utxoRef', block) as ArgonPrimitivesBitcoinUtxoRef;
-        await this.utxoTracking.upsertUtxoRecord(
+        await utxoTracking.upsertUtxoRecord(
           record,
           {
             txid: utxoRef.txid.toHex(),
@@ -384,7 +568,7 @@ export class BitcoinLockRecovery {
         const orphan = orphanMaybe.unwrap();
         if (orphan.cosignRequest.isNone) continue;
         const request = orphan.cosignRequest.unwrap();
-        const orphanRecord = await this.utxoTracking.upsertUtxoRecord(
+        const orphanRecord = await utxoTracking.upsertUtxoRecord(
           record,
           {
             txid: utxoRef.txid.toHex(),
@@ -393,63 +577,22 @@ export class BitcoinLockRecovery {
           },
           { markOrphaned: true },
         );
-        await this.utxoTracking.setReleaseIsProcessingOnArgon(orphanRecord, {
+        await utxoTracking.setReleaseIsProcessingOnArgon(orphanRecord, {
           requestedReleaseAtTick: await api.query.ticks.currentTick().then(tick => tick.toNumber()),
           releaseToDestinationAddress: u8aToHex(request.toScriptPubkey, undefined, false),
           releaseBitcoinNetworkFee: request.bitcoinNetworkFee.toBigInt(),
         });
       } else if (event.method === 'OrphanedUtxoCosigned') {
-        const ownerAccount = readRequiredEventField(event, 'accountId', block).toString();
+        const ownerAccount = readEventField(event, 'accountId')?.toString() ?? record.lockDetails.ownerAccount;
         if (ownerAccount !== record.lockDetails.ownerAccount) continue;
         const utxoRef = readRequiredEventField(event, 'utxoRef', block) as ArgonPrimitivesBitcoinUtxoRef;
-        const orphanRecord = this.utxoTracking.getUtxoRecord(
-          utxoId,
-          utxoRef.txid.toHex(),
-          utxoRef.outputIndex.toNumber(),
-        );
+        const orphanRecord = utxoTracking.getUtxoRecord(utxoId, utxoRef.txid.toHex(), utxoRef.outputIndex.toNumber());
         if (!orphanRecord) continue;
         const signature = readRequiredEventField(event, 'signature', block) as Bytes;
-        await this.utxoTracking.setReleaseCosign(orphanRecord, {
+        await utxoTracking.setReleaseCosign(orphanRecord, {
           releaseCosignVaultSignature: signature.toU8a(true),
           releaseCosignHeight: block.blockNumber,
         });
-      } else if (isBitcoinUtxoVerified) {
-        const chainLock = await BitcoinLock.get(api, utxoId);
-        if (!chainLock) throw new Error(`Bitcoin lock ${utxoId} is unavailable after funding verification`);
-
-        const recovered = this.createDetachedRecord(record);
-        const creationRatchet = recovered.ratchets[0];
-        if (!creationRatchet) throw new Error(`Bitcoin lock ${utxoId} is missing its creation ratchet`);
-
-        // Older UtxoVerified events did not include the received amount, so use the archived post-event state.
-        const verifiedSatoshis = chainLock.utxoSatoshis ?? chainLock.satoshis;
-        chainLock.couponFeesPaid = bigIntMax(chainLock.couponFeesPaid, recovered.lockDetails?.couponFeesPaid ?? 0n);
-        recovered.satoshis = verifiedSatoshis;
-        recovered.liquidityPromised = chainLock.liquidityPromised;
-        recovered.lockedTargetPrice = chainLock.lockedTargetPrice;
-        recovered.lockDetails = chainLock;
-        creationRatchet.mintAmount = chainLock.liquidityPromised;
-        creationRatchet.mintPending = chainLock.liquidityPromised;
-        creationRatchet.lockedTargetPrice = chainLock.lockedTargetPrice;
-        if (recovered.status === BitcoinLockStatus.LockPendingFunding) {
-          recovered.status = BitcoinLockStatus.LockedAndIsMinting;
-        }
-
-        const utxoRef = await chainLock.getFundingUtxoRef(api);
-        let fundingRecord;
-        if (utxoRef) {
-          fundingRecord = await this.utxoTracking.upsertUtxoRecord(
-            recovered,
-            { txid: utxoRef.txid, vout: utxoRef.vout, satoshis: verifiedSatoshis },
-            { markFundingUtxo: true },
-          );
-          await this.utxoTracking.setAcceptedFundingRecordForLock(recovered, fundingRecord);
-        }
-
-        this.assertSafePendingMint(recovered);
-        await table.saveRecoveredHistory(recovered);
-        if (fundingRecord) await table.setFundingUtxoRecordId(recovered, fundingRecord.id);
-        this.applyRecoveredRecord(recovered);
       } else if (event.method === 'BitcoinLockRatcheted') {
         await this.importRatchet(record, block, eventRecords, eventIndex, api, table);
       } else if (isBitcoinMint) {
@@ -460,25 +603,34 @@ export class BitcoinLockRecovery {
           throw new Error(`Bitcoin lock ${utxoId} release request is unavailable at block ${block.blockNumber}`);
         }
         const recovered = this.createDetachedRecord(record);
-        await table.recordReleaseRequest(recovered, {
-          releaseRedemptionMicrogons: releaseRequest.redemptionAmount,
-          releaseArgonTxFeeMicrogons: this.readTransactionFee(eventRecords, eventIndex, block),
-        });
-        let fundingRecord = this.utxoTracking.getAcceptedFundingRecordForLock(recovered);
+        const releaseArgonTxFeeMicrogons = this.readTransactionFee(eventRecords, eventIndex, block);
+        if (this.historyReplay) {
+          if (recovered.status !== BitcoinLockStatus.Released) recovered.status = BitcoinLockStatus.Releasing;
+          recovered.releaseRedemptionMicrogons ??= releaseRequest.redemptionAmount;
+          recovered.releaseArgonTxFeeMicrogons ??= releaseArgonTxFeeMicrogons;
+        } else {
+          await table.recordReleaseRequest(recovered, {
+            releaseRedemptionMicrogons: releaseRequest.redemptionAmount,
+            releaseArgonTxFeeMicrogons,
+          });
+        }
+        let fundingRecord = utxoTracking.getAcceptedFundingRecordForLock(recovered);
         if (!fundingRecord) {
           const utxoRef = await new BitcoinLock(recovered.lockDetails).getFundingUtxoRef(api);
           if (utxoRef) {
-            fundingRecord = await this.utxoTracking.upsertUtxoRecord(
+            fundingRecord = await utxoTracking.upsertUtxoRecord(
               recovered,
               { txid: utxoRef.txid, vout: utxoRef.vout, satoshis: recovered.satoshis },
               { markFundingUtxo: true },
             );
-            await this.utxoTracking.setAcceptedFundingRecordForLock(recovered, fundingRecord);
-            await table.setFundingUtxoRecordId(recovered, fundingRecord.id);
+            await utxoTracking.setAcceptedFundingRecordForLock(recovered, fundingRecord);
+            if (!this.historyReplay) {
+              await table.setFundingUtxoRecordId(recovered, fundingRecord.id);
+            }
           }
         }
         if (fundingRecord && !this.utxoTracking.isReleaseStatus(fundingRecord.status)) {
-          await this.utxoTracking.setReleaseRequest(fundingRecord, {
+          await utxoTracking.setReleaseRequest(fundingRecord, {
             requestedReleaseAtTick: await api.query.ticks.currentTick().then(tick => tick.toNumber()),
             releaseToDestinationAddress: releaseRequest.toScriptPubkey,
             releaseBitcoinNetworkFee: releaseRequest.bitcoinNetworkFee,
@@ -486,7 +638,7 @@ export class BitcoinLockRecovery {
         }
         this.applyRecoveredRecord(recovered);
       } else if (event.method === 'BitcoinUtxoCosigned') {
-        const fundingRecord = this.utxoTracking.getAcceptedFundingRecordForLock(record);
+        const fundingRecord = utxoTracking.getAcceptedFundingRecordForLock(record);
         const releaseIsComplete =
           liveRecord?.status === BitcoinLockStatus.Released ||
           record.status === BitcoinLockStatus.Released ||
@@ -496,20 +648,38 @@ export class BitcoinLockRecovery {
           if (!record.removalBlockNumber) {
             const rates = await this.currency.fetchMainchainRatesAtBlock({ api, block });
             const phase = eventRecords[eventIndex].phase;
-            await table.recordReleaseCosign(recovered, {
+            const removal = {
               removalBlockNumber: block.blockNumber,
               removalBlockHash: block.blockHash,
               removalBlockTime: new Date(block.blockTime),
               removalExtrinsicIndex: phase.isApplyExtrinsic ? phase.asApplyExtrinsic.toNumber() : undefined,
               btcPriceAtRemovalMicrogons: rates.BTC,
-            });
+            };
+            if (this.historyReplay) {
+              assignIfUnset(recovered, removal, [
+                'removalBlockNumber',
+                'removalBlockHash',
+                'removalBlockTime',
+                'removalExtrinsicIndex',
+                'btcPriceAtRemovalMicrogons',
+              ]);
+            } else {
+              await table.recordReleaseCosign(recovered, removal);
+            }
           }
-          if (releaseIsComplete) await table.setReleased(recovered);
+          if (releaseIsComplete) {
+            if (this.historyReplay) {
+              recovered.status = BitcoinLockStatus.Released;
+              if (recovered.removalBlockNumber) recovered.removalReason ??= 'released';
+            } else await table.setReleased(recovered);
+          }
           this.applyRecoveredRecord(recovered);
         }
       } else if (event.method === 'BitcoinCosignPastDue') {
         const recovered = this.createDetachedRecord(record);
-        await table.recordReleaseCompensation(recovered, readRequiredEventBigInt(event, ['compensationAmount'], block));
+        const compensation = readRequiredEventBigInt(event, ['compensationAmount'], block);
+        if (this.historyReplay) recovered.releaseCompensationMicrogons ??= compensation;
+        else await table.recordReleaseCompensation(recovered, compensation);
         this.applyRecoveredRecord(recovered);
       } else if (event.method === 'BitcoinSpentAfterRelease' || event.method === 'BitcoinLockBurned') {
         let removalReason: NonNullable<IBitcoinLockRecord['removalReason']> = 'released';
@@ -523,14 +693,29 @@ export class BitcoinLockRecovery {
         const recovered = this.createDetachedRecord(record);
         const rates = await this.currency.fetchMainchainRatesAtBlock({ api, block });
         const phase = eventRecords[eventIndex].phase;
-        await table.recordRemoval(recovered, status, {
+        const removal = {
           removalBlockNumber: block.blockNumber,
           removalBlockHash: block.blockHash,
           removalBlockTime: new Date(block.blockTime),
           removalExtrinsicIndex: phase.isApplyExtrinsic ? phase.asApplyExtrinsic.toNumber() : undefined,
           removalReason,
           btcPriceAtRemovalMicrogons: rates.BTC,
-        });
+        };
+        if (this.historyReplay) {
+          if (!recovered.removalReason || recovered.removalReason === removal.removalReason) {
+            recovered.status = status;
+          }
+          assignIfUnset(recovered, removal, [
+            'removalBlockNumber',
+            'removalBlockHash',
+            'removalBlockTime',
+            'removalExtrinsicIndex',
+            'removalReason',
+            'btcPriceAtRemovalMicrogons',
+          ]);
+        } else {
+          await table.recordRemoval(recovered, status, removal);
+        }
         this.applyRecoveredRecord(recovered);
       }
     }
@@ -543,7 +728,7 @@ export class BitcoinLockRecovery {
     lockQueueOwnerUuid?: string;
   }): Promise<IBitcoinLockRecord> {
     const liveRecord = this.locksByUtxoId[args.lock.utxoId];
-    if (this.historyReplayLocksByUtxoId && liveRecord) {
+    if (this.historyReplay && liveRecord) {
       await this.prepareHistoryRecoveryLock(liveRecord, args.lockQueueOwnerUuid);
     }
 
@@ -552,8 +737,7 @@ export class BitcoinLockRecovery {
     if (existing) {
       await this.prepareHistoryRecoveryLock(existing, args.lockQueueOwnerUuid);
       if (
-        !this.historyReplayLocksByUtxoId &&
-        existing.isHistoryRecoveryPending &&
+        !this.historyReplay &&
         !this.hasCompleteRatchetEconomics(existing, args.lock.liquidityPromised, args.lock.lockedTargetPrice)
       ) {
         const recovered = this.createDetachedRecord(existing);
@@ -580,7 +764,7 @@ export class BitcoinLockRecovery {
             oracleBitcoinBlockHeight: args.lock.createdAtHeight,
           },
         ];
-        await table.saveRecoveredHistory(recovered);
+        await this.saveRecoveredHistory(table, recovered);
         return this.applyRecoveredRecord(recovered);
       }
       return this.applyRecoveredRecord(existing);
@@ -590,21 +774,64 @@ export class BitcoinLockRecovery {
     if (!derivedPubkey) throw new Error(`Unable to recover the HD path for Bitcoin lock ${args.lock.utxoId}`);
 
     let record = await table.findPendingByHdPath(derivedPubkey.hdPath);
-    if (!record) {
-      record = await this.insertPending({
-        uuid: BitcoinLocksTable.createUuid(),
-        vaultId: args.lock.vaultId,
-        satoshis: args.lock.satoshis,
-        hdPath: derivedPubkey.hdPath,
+    let recoveredUuid = record?.uuid;
+    if (!recoveredUuid) {
+      const db = await this.dbPromise;
+      const transaction = (await db.transactionsTable.fetchAll()).find(candidate => {
+        if (candidate.extrinsicType !== ExtrinsicType.BitcoinRequestLock) return false;
+
+        const metadata = candidate.metadataJson as Partial<IBitcoinRequestLockMetadata> | undefined;
+        return metadata?.bitcoin?.hdPath === derivedPubkey.hdPath && metadata.bitcoin.vaultId === args.lock.vaultId;
       });
+      const metadata = transaction?.metadataJson as Partial<IBitcoinRequestLockMetadata> | undefined;
+      recoveredUuid = metadata?.bitcoin?.uuid ?? BitcoinLocksTable.createUuid();
     }
-    if (record.status === BitcoinLockStatus.LockIsProcessingOnArgon) {
-      record = await table.finalizePending({
-        uuid: record.uuid,
-        lock: args.lock,
-        createdAtArgonBlockHeight: args.createdAtArgonBlockHeight,
-        finalFee: args.finalFee,
-      });
+
+    if (this.historyReplay) {
+      const now = new Date();
+      record = record
+        ? this.createDetachedRecord(record)
+        : {
+            uuid: recoveredUuid,
+            status: BitcoinLockStatus.LockIsProcessingOnArgon,
+            satoshis: args.lock.satoshis,
+            liquidityPromised: 0n,
+            lockedTargetPrice: 0n,
+            ratchets: [],
+            cosignVersion: 'v1',
+            lockDetails: args.lock,
+            fundingUtxoRecordId: null,
+            network: this.getBitcoinNetwork(),
+            hdPath: derivedPubkey.hdPath,
+            vaultId: args.lock.vaultId,
+            createdAt: now,
+            updatedAt: now,
+          };
+      if (record.status === BitcoinLockStatus.LockIsProcessingOnArgon) {
+        record.status = BitcoinLockStatus.LockPendingFunding;
+        record.utxoId = args.lock.utxoId;
+        record.liquidityPromised = args.lock.liquidityPromised;
+        record.lockedTargetPrice = args.lock.lockedTargetPrice;
+        record.lockDetails = args.lock;
+        record.ratchets = createBitcoinLockCreationRatchets(args.lock, args.createdAtArgonBlockHeight, args.finalFee);
+      }
+    } else {
+      if (!record) {
+        record = await this.insertPending({
+          uuid: recoveredUuid,
+          vaultId: args.lock.vaultId,
+          satoshis: args.lock.satoshis,
+          hdPath: derivedPubkey.hdPath,
+        });
+      }
+      if (record.status === BitcoinLockStatus.LockIsProcessingOnArgon) {
+        record = await table.finalizePending({
+          uuid: record.uuid,
+          lock: args.lock,
+          createdAtArgonBlockHeight: args.createdAtArgonBlockHeight,
+          finalFee: args.finalFee,
+        });
+      }
     }
     await this.prepareHistoryRecoveryLock(record, args.lockQueueOwnerUuid);
     return this.applyRecoveredRecord(record);
@@ -644,12 +871,6 @@ export class BitcoinLockRecovery {
           resumedReleases.push(record);
           continue;
         }
-        if (record.isHistoryRecoveryPending) continue;
-
-        await table.setHistoryRecoveryPending(record.uuid, true);
-        record.isHistoryRecoveryPending = true;
-        this.historyRecoveryPendingUtxoIds.add(record.utxoId);
-        this.historyRecoveryPendingUuids.add(record.uuid);
       }
       if (resumedReleases.length) this.onHistoryRecoveryComplete(resumedReleases);
 
@@ -722,7 +943,7 @@ export class BitcoinLockRecovery {
         const recovered = this.createDetachedRecord(record);
         recovered.ratchets[0].blockHeight = creationBlockNumber;
         if (result) recovered.ratchets[0].txFee = result.fee;
-        await table.saveRecoveredHistory(recovered);
+        await this.saveRecoveredHistory(table, recovered);
         this.applyRecoveredRecord(recovered);
       } catch (error) {
         console.warn(`Unable to recover Bitcoin lock ${utxoId} creation details:`, error);
@@ -872,7 +1093,7 @@ export class BitcoinLockRecovery {
       recovered.lockDetails = chainLock;
     }
     this.assertSafePendingMint(recovered);
-    await table.saveRecoveredHistory(recovered);
+    await this.saveRecoveredHistory(table, recovered);
     this.applyRecoveredRecord(recovered);
   }
 
@@ -883,18 +1104,28 @@ export class BitcoinLockRecovery {
     };
   }
 
+  private async saveRecoveredHistory(
+    table: BitcoinLocksTable,
+    record: IBitcoinLockRecord,
+    createdAt?: Date,
+  ): Promise<void> {
+    if (this.historyReplay) {
+      if (createdAt) record.createdAt = createdAt;
+      return;
+    }
+    if (createdAt) await table.saveRecoveredHistory(record, createdAt);
+    else await table.saveRecoveredHistory(record);
+  }
+
   private applyRecoveredRecord(recovered: IBitcoinLockRecord): IBitcoinLockRecord {
     const utxoId = recovered.utxoId!;
-    const stagedLocks = this.historyReplayLocksByUtxoId;
+    const stagedLocks = this.historyReplay?.locksByUtxoId;
+    this.historyReplay?.dirtyLockUtxoIds.add(utxoId);
     const liveRecord = this.locksByUtxoId[utxoId];
     const current =
       stagedLocks?.[utxoId] ?? (stagedLocks && liveRecord ? this.createDetachedRecord(liveRecord) : liveRecord);
     const retiredStatus = current && this.isRetiredHistoryRecord(current) ? current.status : undefined;
-    if (stagedLocks && retiredStatus === undefined && !this.isRetiredHistoryRecord(recovered)) {
-      recovered.isHistoryRecoveryPending = true;
-      this.historyRecoveryPendingUtxoIds.add(utxoId);
-      this.historyRecoveryPendingUuids.add(recovered.uuid);
-    } else if (retiredStatus !== undefined) {
+    if (retiredStatus !== undefined) {
       recovered.status = retiredStatus;
       delete recovered.isHistoryRecoveryPending;
     }
@@ -912,14 +1143,14 @@ export class BitcoinLockRecovery {
   }
 
   private getRecoveryLock(utxoId: number): IBitcoinLockRecord | undefined {
-    return this.historyReplayLocksByUtxoId?.[utxoId] ?? this.locksByUtxoId[utxoId];
+    return this.historyReplay?.locksByUtxoId[utxoId] ?? this.locksByUtxoId[utxoId];
   }
 
   private async prepareHistoryRecoveryLock(lock: IBitcoinLockRecord, lockQueueOwnerUuid?: string): Promise<void> {
-    if (!this.historyReplayLocksByUtxoId) return;
+    if (!this.historyReplay) return;
 
     const utxoId = lock.utxoId;
-    if (utxoId === undefined || this.historyRecoveryPendingUtxoIds.has(utxoId) || this.isRetiredHistoryRecord(lock)) {
+    if (utxoId === undefined || this.historyReplay.locksByUtxoId[utxoId] || this.isRetiredHistoryRecord(lock)) {
       return;
     }
 
@@ -933,15 +1164,10 @@ export class BitcoinLockRecovery {
     const fundingRecord = this.utxoTracking.getAcceptedFundingRecordForLock(lock);
     if (lock.status === BitcoinLockStatus.Releasing && this.utxoTracking.isReleaseStatus(fundingRecord?.status)) return;
 
-    const table = await this.getTable();
-    await table.setHistoryRecoveryPending(lock.uuid, true);
-
-    lock.isHistoryRecoveryPending = true;
-    const pendingLock = this.pendingLocks.find(record => record.uuid === lock.uuid);
-    if (pendingLock) pendingLock.isHistoryRecoveryPending = true;
-    this.historyRecoveryPendingUtxoIds.add(utxoId);
-    this.historyRecoveryPendingUuids.add(lock.uuid);
-    if (lock.uuid !== lockQueueOwnerUuid) await this.waitForLockIdle(lock);
+    await this.waitForLockIdle(lock, lock.uuid === lockQueueOwnerUuid);
+    const snapshot = this.createDetachedRecord(lock);
+    this.historyReplay.locksByUtxoId[utxoId] = snapshot;
+    this.historyReplay.originalLocksByUtxoId[utxoId] = this.createDetachedRecord(snapshot);
   }
 
   private async publishCompleteActiveLocks(): Promise<void> {
@@ -1055,7 +1281,19 @@ export class BitcoinLockRecovery {
       const derivedPubkey = await this.getDerivedPubkey(vaultId, index);
       if (!u8aEq(ownerPubkey, derivedPubkey.ownerBitcoinPubkey)) continue;
 
-      await this.trackDerivedBitcoinLockKey(vaultId, derivedPubkey);
+      if (this.historyReplay) {
+        const scopeKey = vaultId.toString();
+        this.historyReplay.hdKeys.set(`${scopeKey}:${derivedPubkey.hdIndex}`, {
+          keyRole: 'bitcoinLock',
+          scopeKey,
+          hdIndex: derivedPubkey.hdIndex,
+          hdPath: derivedPubkey.hdPath,
+          address: derivedPubkey.address,
+          publicKeyHex: u8aToHex(derivedPubkey.ownerBitcoinPubkey),
+        });
+      } else {
+        await this.trackDerivedBitcoinLockKey(vaultId, derivedPubkey);
+      }
       return derivedPubkey;
     }
   }
@@ -1141,7 +1379,7 @@ export class BitcoinLockRecovery {
     }
 
     this.assertSafePendingMint(recovered);
-    await table.updateMintState(recovered);
+    await this.saveRecoveredMintState(table, recovered);
     this.applyRecoveredRecord(recovered);
   }
 
@@ -1171,8 +1409,25 @@ export class BitcoinLockRecovery {
       fulfilled -= fulfilledFromRatchet;
     }
     this.assertSafePendingMint(recovered);
-    await table.updateMintState(recovered);
+    await this.saveRecoveredMintState(table, recovered);
     this.applyRecoveredRecord(recovered);
+  }
+
+  private async saveRecoveredMintState(table: BitcoinLocksTable, record: IBitcoinLockRecord): Promise<void> {
+    if (!this.historyReplay) {
+      await table.updateMintState(record);
+      return;
+    }
+
+    applyBitcoinLockMintState(record);
+  }
+
+  private get locksByUtxoId(): Record<number, IBitcoinLockRecord> {
+    return this.getLocksByUtxoId();
+  }
+
+  private get pendingLocks(): IBitcoinLockRecord[] {
+    return this.getPendingLocks();
   }
 }
 
@@ -1185,15 +1440,290 @@ type BitcoinRecoveryEventRecord = {
 
 export type BitcoinHistoryReplayLockScope = 'all' | 'encountered' | 'pending';
 
-const bitcoinRecoveryEventMethods = new Set([
-  'BitcoinCosignPastDue',
-  'BitcoinLockBurned',
-  'BitcoinLockCreated',
-  'BitcoinLockRatcheted',
-  'BitcoinSpentAfterRelease',
-  'BitcoinUtxoCosignRequested',
-  'BitcoinUtxoCosigned',
-  'OrphanedUtxoCosigned',
-  'OrphanedUtxoReceived',
-  'OrphanedUtxoReleaseRequested',
-]);
+function resolveRecoveredLock(
+  durable: IBitcoinLockRecord,
+  recovered: IBitcoinLockRecord,
+  useRecoveredStatus: boolean,
+): IBitcoinLockRecord {
+  const status = useRecoveredStatus ? recovered.status : durable.status;
+  const createdAt = durable.createdAt < recovered.createdAt ? durable.createdAt : recovered.createdAt;
+
+  assignIfUnset(durable, recovered, [
+    'utxoId',
+    'fundingUtxoRecordId',
+    'fundingUtxoRecord',
+    'releaseRedemptionMicrogons',
+    'releaseArgonTxFeeMicrogons',
+    'releaseCompensationMicrogons',
+    'removalBlockNumber',
+    'removalBlockHash',
+    'removalBlockTime',
+    'removalExtrinsicIndex',
+    'removalReason',
+    'btcPriceAtRemovalMicrogons',
+  ]);
+  Object.assign(durable, {
+    satoshis: recovered.satoshis,
+    lockedTargetPrice: recovered.lockedTargetPrice,
+    liquidityPromised: recovered.liquidityPromised,
+    ratchets: recovered.ratchets,
+    lockDetails: recovered.lockDetails,
+    createdAt,
+    status,
+  });
+  return durable;
+}
+
+function resolveRecoveredUtxo(durable: IBitcoinUtxoRecord, recovered: IBitcoinUtxoRecord): IBitcoinUtxoRecord {
+  const durableIsRelease = isBitcoinUtxoReleaseStatus(durable.status);
+  const recoveredIsRelease = isBitcoinUtxoReleaseStatus(recovered.status);
+  const status =
+    durableIsRelease || durable.status === BitcoinUtxoStatus.FundingUtxo ? durable.status : recovered.status;
+  let statusError = recovered.statusError ?? durable.statusError;
+  if (durableIsRelease) statusError = durable.statusError;
+  else if (recoveredIsRelease) statusError = recovered.statusError;
+  const firstSeenAt = durable.firstSeenAt < recovered.firstSeenAt ? durable.firstSeenAt : recovered.firstSeenAt;
+
+  assignIfUnset(durable, recovered, [
+    'mempoolObservation',
+    'firstSeenOnArgonAt',
+    'firstSeenOracleHeight',
+    'lastConfirmationCheckAt',
+    'lastConfirmationCheckOracleHeight',
+    'requestedReleaseAtTick',
+    'releaseBitcoinNetworkFee',
+    'releaseToDestinationAddress',
+    'releaseCosignVaultSignature',
+    'releaseCosignHeight',
+    'releaseTxid',
+    'releaseFirstSeenAt',
+    'releaseFirstSeenBitcoinHeight',
+    'releaseFirstSeenOracleHeight',
+    'releaseLastConfirmationCheckAt',
+    'releaseLastConfirmationCheckOracleHeight',
+    'releasedAtBitcoinHeight',
+  ]);
+  Object.assign(durable, {
+    status,
+    statusError,
+    firstSeenAt,
+    firstSeenBitcoinHeight: Math.max(durable.firstSeenBitcoinHeight, recovered.firstSeenBitcoinHeight),
+  });
+  return durable;
+}
+
+function assignIfUnset<T extends object, K extends keyof T>(target: T, source: Pick<T, K>, fields: readonly K[]): void {
+  for (const field of fields) target[field] = target[field] ?? source[field];
+}
+
+function getBitcoinLockEconomicsFingerprint(
+  lock: Pick<
+    IBitcoinLockRecord,
+    'satoshis' | 'lockedTargetPrice' | 'liquidityPromised' | 'ratchets' | 'lockDetails'
+  >,
+): string {
+  return JsonExt.stringify([
+    lock.satoshis,
+    lock.lockedTargetPrice,
+    lock.liquidityPromised,
+    lock.ratchets,
+    lock.lockDetails,
+  ]);
+}
+
+export const bitcoinRecoveryEventPolicies: Readonly<Record<string, 'replay' | 'ignore'>> = {
+  BitcoinCosignPastDue: 'replay',
+  BitcoinLockBackfillChanged: 'replay',
+  BitcoinLockBurned: 'replay',
+  BitcoinLockCreated: 'replay',
+  BitcoinLockRatcheted: 'replay',
+  BitcoinSpentAfterRelease: 'replay',
+  BitcoinUtxoCosignRequested: 'replay',
+  BitcoinUtxoCosigned: 'replay',
+  CosignOverdueError: 'ignore',
+  LockExpirationError: 'ignore',
+  OrphanedUtxoCosigned: 'replay',
+  OrphanedUtxoReceived: 'replay',
+  OrphanedUtxoReleaseRequested: 'replay',
+  SecuritizationIncreased: 'replay',
+  UtxoFundedFromCandidate: 'replay',
+};
+
+type BitcoinHistoryReplaySession = {
+  commitStarted: boolean;
+  locksByUtxoId: Record<number, IBitcoinLockRecord>;
+  originalLocksByUtxoId: Record<number, IBitcoinLockRecord>;
+  utxos: BitcoinHistoryUtxoProjection;
+  lockScope: BitcoinHistoryReplayLockScope;
+  hdKeys: Map<string, Parameters<Db['walletHdKeysTable']['upsert']>[0]>;
+  dirtyLockUtxoIds: Set<number>;
+};
+
+class BitcoinHistoryUtxoProjection {
+  private readonly recordsByKey = new Map<string, IBitcoinUtxoRecord>();
+  private readonly recordsById = new Map<number, IBitcoinUtxoRecord>();
+  private readonly orphanedRecordKeys = new Set<string>();
+  private nextId = -1;
+
+  constructor(
+    private readonly live: BitcoinRecoveryUtxoTracking,
+    private readonly dbPromise: Promise<Db>,
+  ) {
+    for (const record of live.getAllOrphanLifecycleUtxos()) {
+      this.orphanedRecordKeys.add(this.getKey(record.lockUtxoId, record.txid, record.vout));
+    }
+  }
+
+  public get records(): readonly IBitcoinUtxoRecord[] {
+    return [...this.recordsById.values()];
+  }
+
+  public getUtxoRecord(lockUtxoId: number, txid: string, vout: number): IBitcoinUtxoRecord | undefined {
+    const key = this.getKey(lockUtxoId, txid, vout);
+    return this.recordsByKey.get(key) ?? this.live.getUtxoRecord(lockUtxoId, txid, vout);
+  }
+
+  public getAcceptedFundingRecordForLock(lock: IBitcoinLockRecord): IBitcoinUtxoRecord | undefined {
+    return this.live.getAcceptedFundingRecordForLock(lock, {
+      getById: id => this.getUtxoRecordById(id),
+      getForLock: () => this.getUtxosForLock(lock),
+    });
+  }
+
+  public async upsertUtxoRecord(
+    ...[lock, candidate, options]: Parameters<BitcoinRecoveryUtxoTracking['upsertUtxoRecord']>
+  ): Promise<IBitcoinUtxoRecord> {
+    if (!lock.utxoId) throw new Error('Lock has no utxoId for UTXO tracking.');
+
+    const key = this.getKey(lock.utxoId, candidate.txid, candidate.vout);
+    const observedStatus = this.live.getObservedStatusForUpsert(lock, candidate, options);
+    const shouldMarkArgonCandidateSeen = !!(
+      options?.markArgonCandidate ||
+      options?.markOrphaned ||
+      options?.markFundingUtxo
+    );
+    const candidateSeenAt = shouldMarkArgonCandidateSeen ? new Date() : undefined;
+    let record = this.getUtxoRecord(lock.utxoId, candidate.txid, candidate.vout);
+    if (!record) {
+      const now = new Date();
+      record = {
+        id: this.nextId,
+        lockUtxoId: lock.utxoId,
+        txid: candidate.txid,
+        vout: candidate.vout,
+        satoshis: candidate.satoshis,
+        network: lock.network,
+        status: observedStatus ?? BitcoinUtxoStatus.FundingCandidate,
+        mempoolObservation: options?.mempoolObservation,
+        firstSeenAt: now,
+        firstSeenOnArgonAt: candidateSeenAt,
+        firstSeenBitcoinHeight: options?.mempoolObservation?.transactionBlockHeight ?? 0,
+        createdAt: now,
+        updatedAt: now,
+      };
+      this.nextId -= 1;
+      this.recordsByKey.set(key, record);
+      this.recordsById.set(record.id, record);
+    } else {
+      record = this.getWritableRecord(record);
+      if (this.live.shouldUpdateObservedCandidateStatus(record, observedStatus)) {
+        record.status = observedStatus;
+      }
+      record.satoshis = candidate.satoshis;
+      if (candidateSeenAt && !record.firstSeenOnArgonAt) record.firstSeenOnArgonAt = candidateSeenAt;
+      if (options?.mempoolObservation) record.mempoolObservation = options.mempoolObservation;
+    }
+    if (options?.markOrphaned) this.orphanedRecordKeys.add(key);
+    if (options?.markFundingUtxo) {
+      lock.fundingUtxoRecordId = record.id;
+      lock.fundingUtxoRecord = record;
+    }
+    return record;
+  }
+
+  public async setAcceptedFundingRecordForLock(lock: IBitcoinLockRecord, record: IBitcoinUtxoRecord): Promise<void> {
+    record = this.getWritableRecord(record);
+    if (!lock.utxoId || record.lockUtxoId !== lock.utxoId) {
+      throw new Error('Funding record does not belong to this lock.');
+    }
+
+    const observedAt = new Date();
+    record.status = BitcoinUtxoStatus.FundingUtxo;
+    record.firstSeenOnArgonAt ??= observedAt;
+    const siblings = this.getUtxosForLock(lock)
+      .filter(sibling => sibling.status === BitcoinUtxoStatus.FundingCandidate)
+      .map(sibling => this.getWritableRecord(sibling));
+    for (const sibling of siblings) {
+      sibling.status = BitcoinUtxoStatus.Orphaned;
+      sibling.firstSeenOnArgonAt ??= observedAt;
+      this.orphanedRecordKeys.add(this.getKey(sibling.lockUtxoId, sibling.txid, sibling.vout));
+    }
+    lock.fundingUtxoRecordId = record.id;
+    lock.fundingUtxoRecord = record;
+  }
+
+  public async setReleaseRequest(
+    record: IBitcoinUtxoRecord,
+    args: Parameters<BitcoinRecoveryUtxoTracking['setReleaseRequest']>[1],
+  ): Promise<void> {
+    const table = (await this.dbPromise).bitcoinUtxosTable;
+    await table.setReleaseRequest(this.getWritableRecord(record), args, false);
+  }
+
+  public async setReleaseIsProcessingOnArgon(
+    record: IBitcoinUtxoRecord,
+    args: Parameters<BitcoinRecoveryUtxoTracking['setReleaseIsProcessingOnArgon']>[1],
+  ): Promise<void> {
+    const table = (await this.dbPromise).bitcoinUtxosTable;
+    await table.setReleaseIsProcessingOnArgon(this.getWritableRecord(record), args, false);
+  }
+
+  public async setReleaseCosign(
+    record: IBitcoinUtxoRecord,
+    args: Parameters<BitcoinRecoveryUtxoTracking['setReleaseCosign']>[1],
+  ): Promise<void> {
+    const table = (await this.dbPromise).bitcoinUtxosTable;
+    await table.setReleaseCosign(this.getWritableRecord(record), args, false);
+  }
+
+  public getAllOrphanLifecycleUtxos(): IBitcoinUtxoRecord[] {
+    const recordsByKey = new Map(
+      this.live
+        .getAllOrphanLifecycleUtxos()
+        .map(record => [this.getKey(record.lockUtxoId, record.txid, record.vout), record]),
+    );
+    for (const [key, record] of this.recordsByKey) recordsByKey.set(key, record);
+    return [...recordsByKey].flatMap(([key, record]) => {
+      return this.orphanedRecordKeys.has(key) && this.live.isReleaseStatus(record.status) ? [record] : [];
+    });
+  }
+
+  private getUtxoRecordById(id: number): IBitcoinUtxoRecord | undefined {
+    return this.recordsById.get(id) ?? this.live.getUtxoRecordById(id);
+  }
+
+  private getUtxosForLock(lock: IBitcoinLockRecord): IBitcoinUtxoRecord[] {
+    if (!lock.utxoId) return [];
+    const recordsByKey = new Map(
+      this.live.getUtxosForLock(lock).map(record => [this.getKey(record.lockUtxoId, record.txid, record.vout), record]),
+    );
+    for (const [key, record] of this.recordsByKey) {
+      if (record.lockUtxoId === lock.utxoId) recordsByKey.set(key, record);
+    }
+    return [...recordsByKey.values()];
+  }
+
+  private getWritableRecord(record: IBitcoinUtxoRecord): IBitcoinUtxoRecord {
+    const existing = this.recordsById.get(record.id);
+    if (existing) return existing;
+
+    const projected = { ...record };
+    this.recordsById.set(projected.id, projected);
+    this.recordsByKey.set(this.getKey(projected.lockUtxoId, projected.txid, projected.vout), projected);
+    return projected;
+  }
+
+  private getKey(lockUtxoId: number, txid: string, vout: number): string {
+    return `${lockUtxoId}:${txid}:${vout}`;
+  }
+}

@@ -23,7 +23,11 @@ export enum AccountActivityKind {
   Fee = 1 << 11,
   /** Other named balance mutation retained for later reclassification. */
   AccountBalance = 1 << 12,
+  /** Global Council votes, minting-authority work, and related gateway operations. */
+  GatewayOperations = 1 << 13,
 }
+
+export const ACCOUNT_ACTIVITY_DEFINITION_VERSION = 2;
 
 export interface IAccountActivityQuery {
   afterBlock?: number;

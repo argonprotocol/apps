@@ -702,6 +702,28 @@ describe('financials store lifecycle', () => {
     expect(financials.savingsIsLoaded).toBe(false);
   });
 
+  it('uses the live Bitcoin record after loading its financial snapshot', async () => {
+    const snapshotSummary = createBitcoinSummary(0n);
+    snapshotSummary.record = {
+      ...snapshotSummary.record,
+      isHistoryRecoveryPending: true,
+    };
+    const liveRecord = {
+      ...snapshotSummary.record,
+      isHistoryRecoveryPending: false,
+    };
+    mocks.config.hasExtensionTreasury = true;
+    mocks.bitcoinLocks.getAllLocks.mockReturnValue([liveRecord]);
+    mocks.bitcoinLocks.createLockSummaryAt.mockResolvedValue(snapshotSummary);
+
+    const financials = useFinancials();
+
+    await vi.waitFor(() => {
+      expect(financials.financialPositionAggregate.groupSummaries.liquid.state).toBe('ready');
+    });
+    expect(financials.bitcoinLockDisplayRecords[0]?.record).toBe(liveRecord);
+  });
+
   it('archives funded Bitcoin history without presenting abandoned lock requests as transactions', () => {
     const baseSummary = createBitcoinSummary(0n);
     const abandonedSummary = {
@@ -818,6 +840,7 @@ function createBitcoinSummary(pendingLiquidity: bigint) {
     satoshis: 100_000n,
     liquidityPromised: 50n,
     lockedTargetPrice: 100n,
+    isHistoryRecoveryPending: false,
     ratchets: [
       {
         mintAmount: 50n,

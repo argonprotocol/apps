@@ -88,7 +88,8 @@ export function hasNamedEventData(
 }
 
 function getEventDeclarations(specVersion: number, section: string, method: string): readonly HistoricalEventFields[] {
-  if (!historicalEventSpecSources[specVersion]) {
+  const earliestSupportedSpec = supportedHistoricalEventSpecs[0];
+  if (earliestSupportedSpec === undefined || specVersion < earliestSupportedSpec) {
     throw new AccountActivityCoverageError(`No copied event declarations for runtime spec ${specVersion}`);
   }
 

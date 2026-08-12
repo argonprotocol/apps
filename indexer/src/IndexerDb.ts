@@ -1,5 +1,5 @@
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
-import type { IAccountActivityQuery } from '@argonprotocol/apps-core';
+import { ACCOUNT_ACTIVITY_DEFINITION_VERSION, type IAccountActivityQuery } from '@argonprotocol/apps-core';
 import { accountActivityKindNames } from './AccountActivity.js';
 import { AccountActivityCoverageError } from './HistoricalEventSpecs.js';
 
@@ -19,9 +19,10 @@ export interface IAccountActivityBlock {
   vaultOwners: { vaultId: number; address: string }[];
   bitcoinLocks?: { utxoId: number; mask: number }[];
   bitcoinLockOwners?: { utxoId: number; address: string }[];
+  mintingAuthorities?: { destinationSigningKey: string; mask: number }[];
+  mintingAuthorityOwners?: { destinationSigningKey: string; address: string }[];
 }
 
-export const ACCOUNT_ACTIVITY_DEFINITION_VERSION = 1;
 const syncStateId = 'accountActivity';
 
 export class IncompatibleAccountActivityDatabaseError extends Error {}
@@ -31,6 +32,7 @@ type StatementName =
   | 'insertAccountBlock'
   | 'insertBitcoinLockOwner'
   | 'insertBlock'
+  | 'insertMintingAuthorityOwner'
   | 'insertVaultOwner'
   | 'updateSync';
 
@@ -41,6 +43,7 @@ export class IndexerDb {
   private readonly statements = {} as Record<StatementName, StatementSync>;
   private readonly vaultOwners = new Map<number, string>();
   private readonly bitcoinLockOwners = new Map<number, string>();
+  private readonly mintingAuthorityOwners = new Map<string, string>();
 
   constructor(databasePath: string) {
     console.log('opening account activity database at', databasePath);
@@ -87,6 +90,7 @@ export class IndexerDb {
     this.prepareWriteStatements();
     const pendingVaultOwners = new Map<number, string>();
     const pendingBitcoinLockOwners = new Map<number, string>();
+    const pendingMintingAuthorityOwners = new Map<string, string>();
 
     try {
       this.database.exec('BEGIN TRANSACTION;');
@@ -105,6 +109,10 @@ export class IndexerDb {
           this.statements.insertBitcoinLockOwner.run({ utxoId, accountId: address });
           pendingBitcoinLockOwners.set(utxoId, address);
         }
+        for (const { destinationSigningKey, address } of block.mintingAuthorityOwners ?? []) {
+          this.statements.insertMintingAuthorityOwner.run({ destinationSigningKey, accountId: address });
+          pendingMintingAuthorityOwners.set(destinationSigningKey, address);
+        }
 
         const accountMasks = new Map(block.accounts.map(({ address, mask }) => [address, mask]));
         for (const { vaultId, mask } of block.vaults) {
@@ -118,6 +126,17 @@ export class IndexerDb {
           const accountId = pendingBitcoinLockOwners.get(utxoId) ?? this.bitcoinLockOwners.get(utxoId);
           if (!accountId) {
             throw new AccountActivityCoverageError(`Bitcoin lock ${utxoId} has activity before its owner is known`);
+          }
+          accountMasks.set(accountId, (accountMasks.get(accountId) ?? 0) | mask);
+        }
+        for (const { destinationSigningKey, mask } of block.mintingAuthorities ?? []) {
+          const accountId =
+            pendingMintingAuthorityOwners.get(destinationSigningKey) ??
+            this.mintingAuthorityOwners.get(destinationSigningKey);
+          if (!accountId) {
+            throw new AccountActivityCoverageError(
+              `Minting authority ${destinationSigningKey} has activity before its owner is known`,
+            );
           }
           accountMasks.set(accountId, (accountMasks.get(accountId) ?? 0) | mask);
         }
@@ -140,6 +159,9 @@ export class IndexerDb {
 
       for (const [vaultId, accountId] of pendingVaultOwners) this.vaultOwners.set(vaultId, accountId);
       for (const [utxoId, accountId] of pendingBitcoinLockOwners) this.bitcoinLockOwners.set(utxoId, accountId);
+      for (const [destinationSigningKey, accountId] of pendingMintingAuthorityOwners) {
+        this.mintingAuthorityOwners.set(destinationSigningKey, accountId);
+      }
       this.latestSyncedBlock = lastBlock.blockNumber;
     } catch (error) {
       this.database.exec('ROLLBACK;');
@@ -176,6 +198,7 @@ export class IndexerDb {
       'AccountBlocks',
       'VaultOwners',
       'BitcoinLockOwners',
+      'MintingAuthorityOwners',
       'ActivityKinds',
       'SyncState',
     ].find(table => !tables.has(table));
@@ -201,6 +224,16 @@ export class IndexerDb {
       accountId: string;
     }[];
     for (const { utxoId, accountId } of bitcoinLockOwners) this.bitcoinLockOwners.set(utxoId, accountId);
+
+    const mintingAuthorityOwners = this.database
+      .prepare(`SELECT destinationSigningKey, accountId FROM MintingAuthorityOwners`)
+      .all() as unknown as {
+      destinationSigningKey: string;
+      accountId: string;
+    }[];
+    for (const { destinationSigningKey, accountId } of mintingAuthorityOwners) {
+      this.mintingAuthorityOwners.set(destinationSigningKey, accountId);
+    }
   }
 
   private prepareWriteStatements(): void {
@@ -219,6 +252,10 @@ export class IndexerDb {
     `);
     this.statements.insertBitcoinLockOwner ??= this.database.prepare(`
       INSERT OR REPLACE INTO BitcoinLockOwners (utxoId, accountId) VALUES (:utxoId, :accountId)
+    `);
+    this.statements.insertMintingAuthorityOwner ??= this.database.prepare(`
+      INSERT OR REPLACE INTO MintingAuthorityOwners (destinationSigningKey, accountId)
+      VALUES (:destinationSigningKey, :accountId)
     `);
     this.statements.updateSync ??= this.database.prepare(`
       INSERT OR REPLACE INTO SyncState (id, blockNumber, definitionVersion, syncedAt)
@@ -258,6 +295,10 @@ const CurrentSchema = `CREATE TABLE Blocks (
   );
   CREATE TABLE BitcoinLockOwners (
     utxoId INTEGER PRIMARY KEY,
+    accountId TEXT NOT NULL
+  );
+  CREATE TABLE MintingAuthorityOwners (
+    destinationSigningKey TEXT PRIMARY KEY,
     accountId TEXT NOT NULL
   );
   CREATE TABLE ActivityKinds (

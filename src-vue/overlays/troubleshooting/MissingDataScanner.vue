@@ -7,7 +7,7 @@
       </p>
       <button
         @click="startScanning"
-        class="bg-argon-600 border-argon-700 mt-3 rounded-md border py-3 font-bold text-white"
+        class="bg-argon-600 border-argon-700 mt-3 rounded-md border px-5 py-3 font-bold text-white"
       >
         Start Scanning
       </button>

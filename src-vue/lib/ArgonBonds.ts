@@ -334,9 +334,12 @@ export class ArgonBonds {
         } else if (
           typeClient.events.treasury.BondLotPurchased.is(event) ||
           typeClient.events.treasury.BondLotReleaseScheduled.is(event) ||
-          typeClient.events.treasury.BondLotReleased.is(event)
+          typeClient.events.treasury.BondLotReleased.is(event) ||
+          typeClient.events.treasury.BondLotBackfillChanged?.is(event)
         ) {
           refreshBonds = true;
+          refreshMarket = true;
+        } else if (typeClient.events.treasury.BackfillBondsReservedChanged?.is(event)) {
           refreshMarket = true;
         }
       }

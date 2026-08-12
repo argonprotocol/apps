@@ -1,5 +1,6 @@
 import type { GenericEvent } from '@argonprotocol/mainchain';
 import {
+  ACCOUNT_ACTIVITY_DEFINITION_VERSION,
   AccountActivityKind,
   readEventField,
   type BlockWatch,
@@ -80,7 +81,7 @@ const earliestSupportedSpecVersions: Record<IFinancialHistoryDomain, number> = {
   vaulting: 116,
 };
 const historyRecoveryVersions: Partial<Record<IFinancialHistoryDomain, number>> = {
-  bitcoin: 7,
+  bitcoin: 8,
   bonds: 1,
 };
 
@@ -457,6 +458,11 @@ async function restoreFinancialHistoryDomain(args: {
     toBlock: args.targetBlock,
     activityMask: domainActivityMasks[domain],
   });
+  if (indexedHistory.definitionVersion < ACCOUNT_ACTIVITY_DEFINITION_VERSION) {
+    throw new Error(
+      `Activity index definition ${indexedHistory.definitionVersion} is older than required definition ${ACCOUNT_ACTIVITY_DEFINITION_VERSION}`,
+    );
+  }
 
   const definitionChanged = !!checkpoint && checkpoint.definitionVersion !== indexedHistory.definitionVersion;
   if (afterBlock > 0 && definitionChanged) {

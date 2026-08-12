@@ -1553,27 +1553,9 @@ export type HistoricalEventDeclaration =
         readonly liquidity: u128;
       };
     }
-  | {
-      readonly section: 'vaults';
-      readonly method: 'VaultClosed';
-      readonly fields: { readonly vaultId: u32; readonly remainingSecuritization: u128; readonly released: u128 };
-    }
-  | {
-      readonly section: 'vaults';
-      readonly method: 'VaultCreated';
-      readonly fields: {
-        readonly vaultId: u32;
-        readonly securitization: u128;
-        readonly securitizationRatio: u128;
-        readonly operatorAccountId: AccountId32;
-        readonly openedTick: u64;
-      };
-    }
-  | {
-      readonly section: 'vaults';
-      readonly method: 'VaultModified';
-      readonly fields: { readonly vaultId: u32; readonly securitization: u128; readonly securitizationRatio: u128 };
-    }
+
+
+
   | {
       readonly section: 'vaults';
       readonly method: 'ObligationCompleted';
@@ -2712,6 +2694,35 @@ export type HistoricalEventDeclaration =
         readonly amount: u128;
         readonly dispatchError: SpRuntimeDispatchError;
       };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'BitcoinLockBackfillChanged';
+      readonly fields: { readonly utxoId: u64; readonly vaultId: u32; readonly isBackfill: bool };
+    }
+  | {
+      readonly section: 'crosschainTransfer';
+      readonly method: 'GlobalIssuanceCouncilRotationQueued';
+      readonly fields: {
+        readonly destinationChain: PalletCrosschainTransferSourceChain;
+        readonly councilHash: H256;
+        readonly approvalQueueNonce: u64;
+      };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'BackfillBondsReservedChanged';
+      readonly fields: { readonly vaultId: u32; readonly backfillBondsReserved: u32 };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'BondLotBackfillChanged';
+      readonly fields: { readonly vaultId: u32; readonly bondLotId: u64; readonly isBackfill: bool };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'BackfillSecuritizationReservedChanged';
+      readonly fields: { readonly vaultId: u32; readonly backfillSecuritizationReserved: u128 };
     };
 
 export const historicalEventSpecSources = {
@@ -2772,6 +2783,7 @@ export const historicalEventSpecSources = {
   '154': '@argonprotocol/mainchain@1.4.8',
   '155': '@argonprotocol/mainchain@1.4.9',
   '156': '@argonprotocol/mainchain@1.4.10',
+  '157': '@argonprotocol/mainchain@1.4.11',
 } as const;
 
 export const historicalEventChanges = [
@@ -4586,5 +4598,36 @@ export const historicalEventChanges = [
       amount: 'u128',
       dispatchError: 'SpRuntimeDispatchError',
     },
+  },
+  {
+    spec: 157,
+    section: 'bitcoinLocks',
+    method: 'BitcoinLockBackfillChanged',
+    fields: { utxoId: 'u64', vaultId: 'u32', isBackfill: 'bool' },
+  },
+  {
+    spec: 157,
+    section: 'crosschainTransfer',
+    method: 'GlobalIssuanceCouncilRotationQueued',
+    fields: { destinationChain: 'PalletCrosschainTransferSourceChain', councilHash: 'H256', approvalQueueNonce: 'u64' },
+  },
+  { spec: 157, section: 'operationalAccounts', method: 'EncryptedServerUpdated', fields: null },
+  {
+    spec: 157,
+    section: 'treasury',
+    method: 'BackfillBondsReservedChanged',
+    fields: { vaultId: 'u32', backfillBondsReserved: 'u32' },
+  },
+  {
+    spec: 157,
+    section: 'treasury',
+    method: 'BondLotBackfillChanged',
+    fields: { vaultId: 'u32', bondLotId: 'u64', isBackfill: 'bool' },
+  },
+  {
+    spec: 157,
+    section: 'vaults',
+    method: 'BackfillSecuritizationReservedChanged',
+    fields: { vaultId: 'u32', backfillSecuritizationReserved: 'u128' },
   },
 ] as const;

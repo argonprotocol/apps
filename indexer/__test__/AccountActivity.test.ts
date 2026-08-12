@@ -8,6 +8,65 @@ import { createHistoricalEventData } from './helpers/historicalEvents.ts';
 const emptyEventData = Object.assign([], { names: [], typeDef: [] });
 
 describe('AccountActivityDecoder', () => {
+  it('attributes minting authority lifecycle to its registered owner', () => {
+    const authorityOwner = encodeAddress(new Uint8Array(32).fill(1));
+    const destinationSigningKey = `0x${'33'.repeat(20)}`;
+    const registered = {
+      section: 'crosschainTransfer',
+      method: 'MintingAuthorityRegistered',
+      data: createHistoricalEventData(157, 'crosschainTransfer', 'MintingAuthorityRegistered', {
+        destinationChain: 'Ethereum',
+        destinationSigningKey,
+        accountId: authorityOwner,
+        approvalQueueNonce: 1,
+      }),
+    };
+    const collateralized = {
+      section: 'crosschainTransfer',
+      method: 'TransferCollateralized',
+      data: createHistoricalEventData(157, 'crosschainTransfer', 'TransferCollateralized', {
+        transferId: `0x${'44'.repeat(32)}`,
+        destinationSigningKey,
+        microgonCollateral: 1_000,
+        micronotCollateral: 0,
+      }),
+    };
+    const gatewayOperationsMask = 1 << 13;
+
+    expect(
+      new AccountActivityDecoder().decode({
+        eventGroups: [
+          { extrinsicIndex: 1, extrinsicEvents: [registered] },
+          { extrinsicIndex: 2, extrinsicEvents: [collateralized] },
+        ],
+        specVersion: 157,
+      }),
+    ).toMatchObject({
+      accounts: [{ address: authorityOwner, mask: gatewayOperationsMask }],
+      mintingAuthorities: [{ destinationSigningKey, mask: gatewayOperationsMask }],
+      mintingAuthorityOwners: [{ destinationSigningKey, address: authorityOwner }],
+    });
+  });
+
+  it('stops coverage when a council vote source account is unavailable', () => {
+    const councilApproval = {
+      section: 'crosschainTransfer',
+      method: 'QueueEntryApprovalRecorded',
+      data: createHistoricalEventData(157, 'crosschainTransfer', 'QueueEntryApprovalRecorded', {
+        destinationChain: 'Ethereum',
+        target: { GlobalIssuanceCouncilRotation: `0x${'44'.repeat(32)}` },
+        approvalQueueNonce: 1,
+      }),
+    };
+
+    expect(() =>
+      new AccountActivityDecoder().decode({
+        eventGroups: [{ extrinsicIndex: 1, extrinsicEvents: [councilApproval] }],
+        specVersion: 157,
+      }),
+    ).toThrow('QueueEntryApprovalRecorded at runtime spec 157 has no signed source account');
+  });
+
   it('classifies force-set balances as custody transfers without widening other balance activity', () => {
     const argonAccount = encodeAddress(new Uint8Array(32).fill(1));
     const argonotAccount = encodeAddress(new Uint8Array(32).fill(2));
@@ -57,7 +116,7 @@ describe('AccountActivityDecoder', () => {
     expect(
       new AccountActivityDecoder().decode({
         eventGroups: [{ extrinsicIndex: 2, extrinsicEvents: [event, success] }],
-        specVersion: 157,
+        specVersion: 158,
       }),
     ).toEqual({
       accounts: [
@@ -68,6 +127,8 @@ describe('AccountActivityDecoder', () => {
       vaultOwners: [],
       bitcoinLocks: [],
       bitcoinLockOwners: [],
+      mintingAuthorities: [],
+      mintingAuthorityOwners: [],
     });
   });
 
@@ -117,15 +178,6 @@ describe('AccountActivityDecoder', () => {
     ]);
   });
 
-  it('keeps bond lifecycle activity without indexing frame earnings', () => {
-    expect(classifyEvent({ section: 'treasury', method: 'BondLotPurchased', data: emptyEventData } as any)).toBe(
-      AccountActivityKind.BondPosition,
-    );
-    expect(
-      classifyEvent({ section: 'treasury', method: 'FrameEarningsDistributed', data: emptyEventData } as any),
-    ).toBe(0);
-  });
-
   it('preserves classification for every copied historical vault event', () => {
     const expectedKinds = new Map<string, number>();
     for (const method of vaultRevenueMethods) expectedKinds.set(method, AccountActivityKind.VaultRevenue);
@@ -143,6 +195,58 @@ describe('AccountActivityDecoder', () => {
     }
     for (const method of ignoredVaultMethods) {
       expect(classifyEvent({ section: 'vaults', method, data: emptyEventData } as any), method).toBe(0);
+    }
+  });
+
+  it('assigns every copied Bitcoin event an explicit activity policy', () => {
+    const lockMethods = new Set(
+      historicalEventChanges.filter(change => change.section === 'bitcoinLocks').map(change => change.method),
+    );
+    const utxoMethods = new Set(
+      historicalEventChanges.filter(change => change.section === 'bitcoinUtxos').map(change => change.method),
+    );
+
+    expect([...indexedBitcoinLockMethods, ...ignoredBitcoinLockMethods].sort()).toEqual([...lockMethods].sort());
+    expect([...indexedBitcoinUtxoMethods, ...ignoredBitcoinUtxoMethods].sort()).toEqual([...utxoMethods].sort());
+    for (const method of indexedBitcoinLockMethods) {
+      expect(classifyEvent({ section: 'bitcoinLocks', method, data: emptyEventData } as any), method).toBe(
+        AccountActivityKind.BitcoinLock,
+      );
+    }
+    for (const method of ignoredBitcoinLockMethods) {
+      expect(classifyEvent({ section: 'bitcoinLocks', method, data: emptyEventData } as any), method).toBe(0);
+    }
+    for (const method of indexedBitcoinUtxoMethods) {
+      expect(classifyEvent({ section: 'bitcoinUtxos', method, data: emptyEventData } as any), method).toBe(
+        AccountActivityKind.BitcoinLock,
+      );
+    }
+    for (const method of ignoredBitcoinUtxoMethods) {
+      expect(classifyEvent({ section: 'bitcoinUtxos', method, data: emptyEventData } as any), method).toBe(0);
+    }
+  });
+
+  it('indexes an unknown Bitcoin lock method for downstream compatibility handling', () => {
+    expect(
+      classifyEvent({ section: 'bitcoinLocks', method: 'FutureCanonicalChange', data: emptyEventData } as any),
+    ).toBe(AccountActivityKind.BitcoinLock);
+  });
+
+  it('assigns every copied treasury event an explicit activity policy', () => {
+    const expectedKinds = new Map<string, number>();
+    for (const method of treasuryBondMethods) expectedKinds.set(method, AccountActivityKind.BondPosition);
+    for (const method of treasuryVaultMethods) expectedKinds.set(method, AccountActivityKind.VaultPosition);
+    for (const method of treasuryRevenueMethods) expectedKinds.set(method, AccountActivityKind.VaultRevenue);
+    const historicalMethods = new Set(
+      historicalEventChanges.filter(change => change.section === 'treasury').map(change => change.method),
+    );
+
+    expect([...expectedKinds.keys(), ...ignoredTreasuryMethods].sort()).toEqual([...historicalMethods].sort());
+    for (const [method, kind] of expectedKinds) {
+      expect(classifyEvent({ section: 'treasury', method, data: emptyEventData } as any), method).toBe(kind);
+    }
+    for (const method of ignoredTreasuryMethods) {
+      expect(classifyEvent({ section: 'treasury', method, data: emptyEventData } as any), method).toBe(0);
     }
   });
 
@@ -366,25 +470,21 @@ describe('AccountActivityDecoder', () => {
     });
   });
 
-  it('ignores global Bitcoin UTXO observations that do not identify an account lifecycle', () => {
+  it('indexes a Bitcoin UTXO event through the known lock owner', () => {
     const event = {
       section: 'bitcoinUtxos',
       method: 'UtxoVerified',
-      data: createHistoricalEventData(156, 'bitcoinUtxos', 'UtxoVerified', {
+      data: createHistoricalEventData(157, 'bitcoinUtxos', 'UtxoVerified', {
         utxoId: 9,
         satoshisReceived: 10_000,
       }),
     };
 
-    expect(classifyEvent(event)).toBe(0);
     expect(
-      new AccountActivityDecoder().decode({ eventGroups: [{ extrinsicEvents: [event] }], specVersion: 156 }),
-    ).toEqual({
+      new AccountActivityDecoder().decode({ eventGroups: [{ extrinsicEvents: [event] }], specVersion: 157 }),
+    ).toMatchObject({
       accounts: [],
-      vaults: [],
-      vaultOwners: [],
-      bitcoinLocks: [],
-      bitcoinLockOwners: [],
+      bitcoinLocks: [{ utxoId: 9, mask: AccountActivityKind.BitcoinLock }],
     });
   });
 
@@ -424,6 +524,7 @@ const vaultBitcoinMethods = [
   'ObligationModified',
 ];
 const vaultPositionMethods = [
+  'BackfillSecuritizationReservedChanged',
   'CommittedArgonotsSet',
   'FundsReleased',
   'FundsScheduledForRelease',
@@ -440,4 +541,58 @@ const ignoredVaultMethods = [
   'VaultBitcoinXpubChange',
   'VaultTermsChangeScheduled',
   'VaultTermsChanged',
+];
+const indexedBitcoinLockMethods = [
+  'BitcoinCosignPastDue',
+  'BitcoinLockBackfillChanged',
+  'BitcoinLockBurned',
+  'BitcoinLockCreated',
+  'BitcoinLockRatcheted',
+  'BitcoinSpentAfterRelease',
+  'BitcoinUtxoCosignRequested',
+  'BitcoinUtxoCosigned',
+  'OrphanedUtxoCosigned',
+  'OrphanedUtxoReceived',
+  'OrphanedUtxoReleaseRequested',
+  'SecuritizationIncreased',
+  'UtxoFundedFromCandidate',
+];
+const ignoredBitcoinLockMethods = ['CosignOverdueError', 'LockExpirationError'];
+const indexedBitcoinUtxoMethods = ['UtxoUnwatched', 'UtxoVerified'];
+const ignoredBitcoinUtxoMethods = [
+  'UtxoExpiredError',
+  'UtxoRejected',
+  'UtxoRejectedError',
+  'UtxoSpent',
+  'UtxoSpentError',
+  'UtxoVerifiedError',
+];
+const treasuryBondMethods = [
+  'BondLotBackfillChanged',
+  'BondLotPurchased',
+  'BondLotReleased',
+  'BondLotReleaseScheduled',
+  'CouldNotReleaseBondLot',
+  'EncumberedBondMicrogonsBurned',
+  'FrameVaultCapitalLocked',
+];
+const treasuryVaultMethods = [
+  'BackfillBondsReservedChanged',
+  'ErrorRefundingTreasuryCapital',
+  'NextBidPoolCapitalLocked',
+  'RefundedTreasuryCapital',
+  'VaultFunderAllocation',
+  'VaultOperatorPrebond',
+];
+const treasuryRevenueMethods = [
+  'BidPoolDistributed',
+  'CouldNotBurnBidPool',
+  'CouldNotDistributeBidPool',
+  'CouldNotFundTreasury',
+];
+const ignoredTreasuryMethods = [
+  'CouldNotDistributeEarningsToArgonotBondLot',
+  'CouldNotDistributeEarningsToBondLot',
+  'CouldNotTransferToTreasuryReserves',
+  'FrameEarningsDistributed',
 ];

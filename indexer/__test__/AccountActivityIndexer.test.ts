@@ -110,6 +110,51 @@ it('starts syncing when the first finalized block arrives after genesis startup'
   }
 });
 
+it('attributes council votes to the signed source account without loading unrelated block bodies', async () => {
+  const directory = fs.mkdtempSync(Path.join(os.tmpdir(), 'activity-gateway-source-'));
+  const db = new IndexerDb(Path.join(directory, 'test.db'));
+  const councilMember = encodeAddress(new Uint8Array(32).fill(3));
+  const councilApproval = {
+    section: 'crosschainTransfer',
+    method: 'QueueEntryApprovalRecorded',
+    data: createHistoricalEventData(157, 'crosschainTransfer', 'QueueEntryApprovalRecorded', {
+      destinationChain: 'Ethereum',
+      target: { GlobalIssuanceCouncilRotation: `0x${'44'.repeat(32)}` },
+      approvalQueueNonce: 1,
+    }),
+  } as GenericEvent;
+  const events = new Map<string, FrameSystemEventRecord[]>([
+    ['0x01', []],
+    ['0x02', [appliedEvent(councilApproval, 0)]],
+  ]);
+  const runtime = eventApi(157, events, ['0x01', '0x02']);
+  const runtimeClient = activityClient({
+    latestBlock: 2,
+    specVersions: new Map([
+      ['0x01', 157],
+      ['0x02', 157],
+    ]),
+    apis: new Map([
+      ['0x01', runtime.api],
+      ['0x02', runtime.api],
+    ]),
+    sourceAccounts: new Map([['0x02', [councilMember]]]),
+  });
+  const readHeader = vi.spyOn(BlockWatch, 'readHeader').mockReturnValue(header(2));
+  const indexer = new AccountActivityIndexer(db);
+
+  try {
+    await indexer.start(runtimeClient.client);
+    await indexer.close({ drain: true });
+
+    expect(db.findAddressActivity(councilMember)).toMatchObject([{ blockNumber: 2, activityMask: 1 << 13 }]);
+  } finally {
+    readHeader.mockRestore();
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 function appliedEvent(event: GenericEvent, extrinsicIndex: number): FrameSystemEventRecord {
   return {
     event,
@@ -137,6 +182,7 @@ function activityClient(args: {
   latestBlock: number;
   specVersions: ReadonlyMap<string, number>;
   apis: ReadonlyMap<string, ApiDecoration<'promise'>>;
+  sourceAccounts?: ReadonlyMap<string, string[]>;
 }): { client: ArgonClient; at: ReturnType<typeof vi.fn> } {
   const blockHash = (blockNumber: number) => ({
     toHex: () => `0x0${blockNumber}`,
@@ -146,11 +192,25 @@ function activityClient(args: {
     if (!api) throw new Error(`No event API for ${hash.toHex()}`);
     return api;
   });
+  const getBlock = vi.fn(async (hash: string) => {
+    const sourceAccounts = args.sourceAccounts?.get(hash);
+    if (!sourceAccounts) throw new Error(`Unexpected block-body request for ${hash}`);
+
+    return {
+      block: {
+        extrinsics: sourceAccounts.map(sourceAccount => ({
+          isSigned: true,
+          signer: { toString: () => sourceAccount },
+        })),
+      },
+    };
+  });
   const client = {
     at,
     query: { system: { events: { key: () => '0xevents' } } },
     rpc: {
       chain: {
+        getBlock,
         getBlockHash: vi.fn(async blockNumber => blockHash(Number(blockNumber))),
         getFinalizedHead: vi.fn(async () => blockHash(args.latestBlock)),
         getHeader: vi.fn(async () => ({})),

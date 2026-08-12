@@ -10,15 +10,17 @@
       <div ContentWrapper>
         <div FirstRow>
           <header>{{ satToBtcNm(lockSummary.satoshis).format('0,0.[00000000]') }} of BTC</header>
-          <span v-if="isHistoryRecoveryPaused" class="font-semibold text-red-600">Recovery paused</span>
+          <span v-if="isHistoryRecoveryPaused" class="font-semibold text-red-600">History unavailable</span>
           <span v-else class="inline-flex items-center gap-2 font-semibold text-slate-500">
             <Spinner class="h-4 w-4" />
-            Syncing...
+            Checking history...
           </span>
         </div>
         <div SecondRow>
-          <template v-if="isHistoryRecoveryPaused">Open the RTD menu to retry Bitcoin history recovery.</template>
-          <template v-else>Restoring this Bitcoin transaction from chain history.</template>
+          <template v-if="isHistoryRecoveryPaused">
+            This saved Bitcoin lock could not be verified. Open the RTD menu to retry.
+          </template>
+          <template v-else>Verifying this saved Bitcoin lock against chain history.</template>
         </div>
       </div>
     </section>

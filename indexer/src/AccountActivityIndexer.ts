@@ -3,7 +3,7 @@ import { BlockWatch, getRange, groupEventsByExtrinsic, type IBlockHeaderInfo } f
 import type { ApiDecoration } from '@polkadot/api/types';
 import type { Bytes, Vec } from '@polkadot/types-codec';
 import { hexToU8a } from '@polkadot/util';
-import { AccountActivityDecoder } from './AccountActivity.js';
+import { AccountActivityDecoder, isGatewayOperationSourceEvent } from './AccountActivity.js';
 import type { IAccountActivityBlock, IndexerDb } from './IndexerDb.js';
 import { AccountActivityCoverageError } from './HistoricalEventSpecs.js';
 
@@ -163,9 +163,25 @@ export class AccountActivityIndexer {
     const eventsByBlock = rawEventsByBlock.map(rawEvents => {
       return api.registry.createType<Vec<FrameSystemEventRecord>>('Vec<FrameSystemEventRecord>', rawEvents ?? '0x00');
     });
+    const sourceAccountsByBlock = await Promise.all(
+      eventsByBlock.map(async (events, index) => {
+        if (!events.some(({ event }) => isGatewayOperationSourceEvent(event))) return;
+
+        const signedBlock = await client.rpc.chain.getBlock(blockHashes[index]);
+        return signedBlock.block.extrinsics.map(extrinsic =>
+          extrinsic.isSigned ? extrinsic.signer.toString() : undefined,
+        );
+      }),
+    );
     const blocks = blockNumbers.slice(0, blockCount).map((blockNumber, index) => {
+      const eventGroups = groupEventsByExtrinsic(eventsByBlock[index]).map(group => {
+        if (group.extrinsicIndex === undefined) return group;
+
+        const sourceAccount = sourceAccountsByBlock[index]?.[group.extrinsicIndex];
+        return sourceAccount ? { ...group, sourceAccount } : group;
+      });
       const activity = this.decoder.decode({
-        eventGroups: groupEventsByExtrinsic(eventsByBlock[index]),
+        eventGroups,
         specVersion,
       });
       return {
@@ -177,6 +193,8 @@ export class AccountActivityIndexer {
         vaultOwners: activity.vaultOwners,
         bitcoinLocks: activity.bitcoinLocks,
         bitcoinLockOwners: activity.bitcoinLockOwners,
+        mintingAuthorities: activity.mintingAuthorities,
+        mintingAuthorityOwners: activity.mintingAuthorityOwners,
       };
     });
 
