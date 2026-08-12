@@ -24,6 +24,10 @@ export default function numeral(input?: any): Numeral {
   return numeralOriginal(input);
 }
 
+export function formatBtc(btc: number): string {
+  return numeral(btc).format('0,0.00[000000]');
+}
+
 numeralOriginal.fn.formatIfElse = function (condition, ifFormat, elseFormat) {
   const format = chooseIfElseFormat(condition, ifFormat, elseFormat, this._value);
   return this.format(format);

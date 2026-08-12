@@ -8,6 +8,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import dayjs, { type Dayjs } from 'dayjs';
+import { getElapsedTime } from '../lib/ElapsedTime.ts';
 
 const props = defineProps<{
   time: Dayjs | null;
@@ -37,10 +38,11 @@ function updateTime() {
 
   if (props.time) {
     const now = dayjs.utc();
-    totalSecondsElapsed = now.diff(props.time, 'seconds');
-    hours.value = Math.floor(totalSecondsElapsed / 3600);
-    minutes.value = Math.floor((totalSecondsElapsed % 3600) / 60);
-    seconds.value = totalSecondsElapsed % 60;
+    const elapsed = getElapsedTime(now.diff(props.time, 'seconds'));
+    totalSecondsElapsed = elapsed.totalSeconds;
+    hours.value = elapsed.hours;
+    minutes.value = elapsed.minutes;
+    seconds.value = elapsed.seconds;
     isNull.value = false;
   } else {
     hours.value = 0;

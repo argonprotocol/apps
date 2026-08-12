@@ -123,8 +123,8 @@ export type IVaultBackfillChanges = {
   }[];
 };
 
-// Keep following a submitted/reorged cosign attempt briefly before retrying it.
-const COSIGN_ATTEMPT_FOLLOW_WINDOW_FINALIZED_BLOCKS = 2;
+// Keep a submitted or recently reorged cosign attempt pending briefly before retrying it.
+const COSIGN_ATTEMPT_CONFIRMATIONS_TO_WAIT = 2;
 
 export class MyVault {
   // The shared vault delegate now fronts both bitcoin lock relay work and Ethereum proof/beacon relay submissions.
@@ -1008,7 +1008,7 @@ export class MyVault {
 
       if (
         latestTxAttempt &&
-        (latestTxAttempt.txAttemptState === TxAttemptState.Follow ||
+        (latestTxAttempt.txAttemptState === TxAttemptState.Pending ||
           latestTxAttempt.txAttemptState === TxAttemptState.Finalized)
       ) {
         return { txInfo: latestTxAttempt.txInfo, vaultSignature: cosignResult.vaultSignature };
@@ -1058,7 +1058,7 @@ export class MyVault {
 
       if (
         latestTxAttempt &&
-        (latestTxAttempt.txAttemptState === TxAttemptState.Follow ||
+        (latestTxAttempt.txAttemptState === TxAttemptState.Pending ||
           latestTxAttempt.txAttemptState === TxAttemptState.Finalized)
       ) {
         const cosignResult = await this.buildOrphanCosignTx(args);
@@ -1226,7 +1226,7 @@ export class MyVault {
       txInfo: latestTxInfo,
       txAttemptState: await this.#transactionTracker.getTxAttemptState(
         latestTxInfo,
-        COSIGN_ATTEMPT_FOLLOW_WINDOW_FINALIZED_BLOCKS,
+        COSIGN_ATTEMPT_CONFIRMATIONS_TO_WAIT,
       ),
     };
   }
@@ -1267,7 +1267,7 @@ export class MyVault {
       txInfo: latestTxInfo,
       txAttemptState: await this.#transactionTracker.getTxAttemptState(
         latestTxInfo,
-        COSIGN_ATTEMPT_FOLLOW_WINDOW_FINALIZED_BLOCKS,
+        COSIGN_ATTEMPT_CONFIRMATIONS_TO_WAIT,
       ),
     };
   }
@@ -1308,7 +1308,7 @@ export class MyVault {
         });
         if (
           latestTxAttempt &&
-          (latestTxAttempt.txAttemptState === TxAttemptState.Follow ||
+          (latestTxAttempt.txAttemptState === TxAttemptState.Pending ||
             latestTxAttempt.txAttemptState === TxAttemptState.Finalized)
         ) {
           continue;

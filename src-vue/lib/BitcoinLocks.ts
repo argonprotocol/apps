@@ -213,6 +213,10 @@ export default class BitcoinLocks {
   #relayPollingUuids = new Set<string>();
   #mempool: BitcoinMempool;
   #reportedMissingFundingForReleaseLocks = new Set<string>();
+  #fundingExpirationEstimateByCreatedHeight = new Map<
+    number,
+    { oracleBitcoinBlockHeight: number; expirationTime: number }
+  >();
   constructor(
     private readonly dbPromise: Promise<Db>,
     private readonly walletKeys: WalletKeys,
@@ -375,12 +379,25 @@ export default class BitcoinLocks {
     if (!this.#config) {
       throw new Error('Bitcoin lock configuration is not loaded for verify time.');
     }
-    const expirationHeight = this.#config.pendingConfirmationExpirationBlocks + lock.lockDetails.createdAtHeight;
+    const { createdAtHeight } = lock.lockDetails;
+    const expirationHeight = this.#config.pendingConfirmationExpirationBlocks + createdAtHeight;
+    const oracleBitcoinBlockHeight = this.oracleBitcoinBlockHeight;
 
-    if (expirationHeight <= this.oracleBitcoinBlockHeight) {
+    if (expirationHeight <= oracleBitcoinBlockHeight) {
       return Date.now() - 1; // Already expired
     }
-    return Date.now() + (expirationHeight - this.oracleBitcoinBlockHeight) * BITCOIN_BLOCK_MILLIS;
+
+    const previousEstimate = this.#fundingExpirationEstimateByCreatedHeight.get(createdAtHeight);
+    if (previousEstimate?.oracleBitcoinBlockHeight === oracleBitcoinBlockHeight) {
+      return previousEstimate.expirationTime;
+    }
+
+    const expirationTime = Date.now() + (expirationHeight - oracleBitcoinBlockHeight) * BITCOIN_BLOCK_MILLIS;
+    this.#fundingExpirationEstimateByCreatedHeight.set(createdAtHeight, {
+      oracleBitcoinBlockHeight,
+      expirationTime,
+    });
+    return expirationTime;
   }
 
   public getFundingWindowProgress(lock: Pick<IBitcoinLockRecord, 'lockDetails'>): number {
@@ -749,9 +766,37 @@ export default class BitcoinLocks {
     await db.execute('DELETE FROM BitcoinLockVaultHdSeq', []);
   }
 
-  public async satoshisForArgonLiquidity(microgonLiquidity: bigint): Promise<bigint> {
-    await this.#currency.load(true);
-    return BitcoinLock.satoshisRequiredForRedemptionAmount(this.#currency.priceIndex, microgonLiquidity);
+  public async satoshisForArgonLiquidity(microgonLiquidity: bigint, microgonsAtTargetPerBtc?: bigint): Promise<bigint> {
+    if (microgonsAtTargetPerBtc === undefined) {
+      await this.#currency.load(true);
+      return BitcoinLock.satoshisRequiredForRedemptionAmount(this.#currency.priceIndex, microgonLiquidity);
+    }
+
+    if (microgonLiquidity <= 0n || microgonsAtTargetPerBtc <= 0n) return 0n;
+
+    let lowerSatoshis = 0n;
+    let upperSatoshis = 1n;
+    while (this.argonLiquidityForSatoshis(upperSatoshis, microgonsAtTargetPerBtc) < microgonLiquidity) {
+      upperSatoshis *= 2n;
+    }
+
+    while (lowerSatoshis < upperSatoshis) {
+      const satoshis = (lowerSatoshis + upperSatoshis) / 2n;
+      if (this.argonLiquidityForSatoshis(satoshis, microgonsAtTargetPerBtc) >= microgonLiquidity) {
+        upperSatoshis = satoshis;
+      } else {
+        lowerSatoshis = satoshis + 1n;
+      }
+    }
+    return lowerSatoshis;
+  }
+
+  public argonLiquidityForSatoshis(satoshis: bigint, microgonsAtTargetPerBtc?: bigint): bigint {
+    const targetPrice =
+      microgonsAtTargetPerBtc === undefined
+        ? this.#currency.priceIndex.getSatoshiPriceInTargetMicrogons(satoshis)
+        : (microgonsAtTargetPerBtc * satoshis) / SATOSHIS_PER_BITCOIN;
+    return BitcoinLock.calculateRedemptionAmount(this.#currency.priceIndex, targetPrice);
   }
 
   public async getLockableBitcoinCapacity(args: {
@@ -759,13 +804,14 @@ export default class BitcoinLocks {
     lockOwner?: string;
     maxSatoshis?: bigint;
     projectedBackfillSecuritizationLocked?: bigint;
+    microgonsAtTargetPerBtc?: bigint;
   }): Promise<{
     availableSatoshis: bigint;
     availableLiquidityMicrogons: bigint;
     vaultCapacitySatoshis: bigint;
     vaultCapacityLiquidityMicrogons: bigint;
   }> {
-    const { vault, lockOwner, maxSatoshis, projectedBackfillSecuritizationLocked } = args;
+    const { vault, lockOwner, maxSatoshis, projectedBackfillSecuritizationLocked, microgonsAtTargetPerBtc } = args;
     let vaultCapacityLiquidityMicrogons: bigint;
     if (projectedBackfillSecuritizationLocked == null) {
       vaultCapacityLiquidityMicrogons = vault.availableBitcoinSpace(lockOwner) ?? 0n;
@@ -785,25 +831,16 @@ export default class BitcoinLocks {
     if (!this.#currency.isLoaded) {
       await this.#currency.load();
     }
-    const vaultCapacitySatoshis = BitcoinLock.satoshisRequiredForRedemptionAmount(
-      this.#currency.priceIndex,
-      vaultCapacityLiquidityMicrogons,
-    );
-    let availableSatoshis =
-      maxSatoshis != null && maxSatoshis < vaultCapacitySatoshis ? maxSatoshis : vaultCapacitySatoshis;
-
-    while (
-      availableSatoshis > 0n &&
-      BitcoinLock.calculateRedemptionAmountFromSatoshis(this.#currency.priceIndex, availableSatoshis) >
-        vaultCapacityLiquidityMicrogons
-    ) {
-      availableSatoshis -= 1n;
+    const vaultCapacitySatoshis =
+      microgonsAtTargetPerBtc === undefined
+        ? BitcoinLock.satoshisRequiredForRedemptionAmount(this.#currency.priceIndex, vaultCapacityLiquidityMicrogons)
+        : await this.satoshisForArgonLiquidity(vaultCapacityLiquidityMicrogons, microgonsAtTargetPerBtc);
+    let availableSatoshis = vaultCapacitySatoshis;
+    let availableLiquidityMicrogons = vaultCapacityLiquidityMicrogons;
+    if (maxSatoshis != null && maxSatoshis < vaultCapacitySatoshis) {
+      availableSatoshis = maxSatoshis;
+      availableLiquidityMicrogons = this.argonLiquidityForSatoshis(availableSatoshis, microgonsAtTargetPerBtc);
     }
-
-    const availableLiquidityMicrogons = BitcoinLock.calculateRedemptionAmountFromSatoshis(
-      this.#currency.priceIndex,
-      availableSatoshis,
-    );
 
     return {
       availableSatoshis,
@@ -817,8 +854,9 @@ export default class BitcoinLocks {
     vault: Vault;
     txSigner: TxSigningAccount;
     tip?: bigint;
+    microgonsAtTargetPerBtc?: bigint;
   }): Promise<{ canAfford: boolean; txFeePlusTip: bigint; securityFee: bigint }> {
-    const { vault, txSigner, tip = 0n } = args;
+    const { vault, txSigner, tip = 0n, microgonsAtTargetPerBtc } = args;
     const ownerBitcoinXpriv = await this.walletKeys.getBitcoinChildXpriv(
       `m/1018'/0'/${vault.vaultId}'/0/0'`,
       this.bitcoinNetwork,
@@ -833,6 +871,7 @@ export default class BitcoinLocks {
       ownerBitcoinPubkey,
       txSigner,
       tip,
+      microgonsAtTargetPerBtc,
       satoshis: await this.minimumSatoshiPerLock(),
     });
   }
@@ -847,6 +886,7 @@ export default class BitcoinLocks {
     satoshis: bigint;
     tip?: bigint;
     operatorCoupon?: IOperatorBitcoinLockCouponRoute;
+    microgonsAtTargetPerBtc?: bigint;
   }): Promise<{ pendingLock: IBitcoinLockRecord; txInfo?: TransactionInfo<IBitcoinRequestLockMetadata> }> {
     const { vault, satoshis, tip, operatorCoupon } = args;
     const txSigner = await this.walletKeys.getLiquidLockingKeypair();
@@ -876,6 +916,7 @@ export default class BitcoinLocks {
         vault,
         satoshis,
         operatorCoupon,
+        microgonsAtTargetPerBtc: args.microgonsAtTargetPerBtc,
       });
     }
 
@@ -887,8 +928,9 @@ export default class BitcoinLocks {
       );
     }
     const submitTxClient = await getMainchainClient(false);
-    const microgonsAtTargetPerBtc = this.#currency.priceIndex.getSatoshiPriceInTargetMicrogons(SATOSHIS_PER_BITCOIN);
-    const liquidityPromised = BitcoinLock.calculateRedemptionAmountFromSatoshis(this.#currency.priceIndex, satoshis);
+    const microgonsAtTargetPerBtc =
+      args.microgonsAtTargetPerBtc ?? this.#currency.priceIndex.getSatoshiPriceInTargetMicrogons(SATOSHIS_PER_BITCOIN);
+    const liquidityPromised = this.argonLiquidityForSatoshis(satoshis, microgonsAtTargetPerBtc);
 
     const { ownerBitcoinPubkey, hdPath } = await this.getNextUtxoPubkey(args);
     const { tx, securityFee } = await BitcoinLock.createInitializeTx({
@@ -932,6 +974,7 @@ export default class BitcoinLocks {
     vault: Vault;
     satoshis: bigint;
     operatorCoupon: IOperatorBitcoinLockCouponRoute;
+    microgonsAtTargetPerBtc?: bigint;
   }): Promise<{ pendingLock: IBitcoinLockRecord; txInfo?: TransactionInfo<IBitcoinRequestLockMetadata> }> {
     const { offerCode } = args.operatorCoupon;
     const operatorHost = await this.upstreamOperatorClient.resolveOperatorHost();
@@ -939,11 +982,9 @@ export default class BitcoinLocks {
       throw new Error('No upstream operator host configured.');
     }
 
-    const microgonsAtTargetPerBtc = this.#currency.priceIndex.getSatoshiPriceInTargetMicrogons(SATOSHIS_PER_BITCOIN);
-    const liquidityPromised = BitcoinLock.calculateRedemptionAmountFromSatoshis(
-      this.#currency.priceIndex,
-      args.satoshis,
-    );
+    const microgonsAtTargetPerBtc =
+      args.microgonsAtTargetPerBtc ?? this.#currency.priceIndex.getSatoshiPriceInTargetMicrogons(SATOSHIS_PER_BITCOIN);
+    const liquidityPromised = this.argonLiquidityForSatoshis(args.satoshis, microgonsAtTargetPerBtc);
     const { ownerBitcoinPubkey, hdPath } = await this.getNextUtxoPubkey({ vault: args.vault });
 
     const relay = await this.upstreamOperatorClient.initializeBitcoinLock(offerCode, {

@@ -20,7 +20,7 @@
       <p class="mt-5 text-gray-600 select-text">
         2. Send exactly
         <strong data-testid="LockReadyForBitcoin.amount">
-          {{ satToBtcNm(props.personalLock.satoshis).format('0,0.[00000000]') }}
+          {{ formatBtc(currency.convertSatToBtc(props.personalLock.satoshis)) }}
         </strong>
         BTC (&asymp; {{ currency.symbol }}{{ satToMoneyNm(props.personalLock.satoshis).format('0,0.00') }}) to this
         address:
@@ -80,35 +80,48 @@
         </TooltipProvider>
       </div>
 
-      <p class="mt-5 text-gray-600 select-text">3. Click the “I Locked My Bitcoin” button below.</p>
+      <p class="mt-5 text-gray-600 select-text">3. Click “Check for My Bitcoin” to look for your transfer.</p>
 
       <p class="mt-8 leading-normal font-light text-gray-600 select-text">
         Once your transaction is confirmed, Argon Network will mint you
-        {{ microgonToArgonNm(props.personalLock.liquidityPromised).format('0,0.[00]') }} ARGN, which is the current
-        market value of {{ satToBtcNm(props.personalLock.satoshis).format('0,0.[00000000]') }} BTC. If you accidentally
-        send a different amount, the network will pause and let you accept the adjusted amount or return the BTC.
+        {{ currency.symbol }}{{ microgonToMoneyNm(props.personalLock.liquidityPromised).format('0,0.[00]') }}, which is
+        the current market value of {{ formatBtc(currency.convertSatToBtc(props.personalLock.satoshis)) }} BTC. If you
+        accidentally send a different amount, the network will pause and let you accept the adjusted amount or return
+        the BTC.
       </p>
     </div>
 
-    <div class="mt-3 flex flex-row items-center justify-end gap-x-3 border-t border-slate-200 pt-5 pb-3">
-      <button
-        class="cursor-pointer rounded-md border border-slate-300 px-10 py-2 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
-        @click="closeOverlay"
-        :disabled="isSaving"
+    <div class="mt-3 border-t border-slate-200 pt-4 pb-3">
+      <div
+        v-if="fundingCheckMessage"
+        data-testid="LockReadyForBitcoin.fundingCheckMessage"
+        class="mb-3 flex items-start rounded-md border border-yellow-400/70 bg-yellow-100 px-4 py-3 text-sm text-yellow-900"
       >
-        Close and Finish Later
-      </button>
-      <button
-        :disabled="cannotContinue"
-        @click="submitLiquidLock"
-        class="bg-argon-button enabled:hover:bg-argon-button-hover cursor-pointer rounded-md px-10 py-2 font-semibold text-white disabled:cursor-default disabled:opacity-40"
-      >
-        <template v-if="isSaving">Checking Bitcoin Network...</template>
-        <template v-else>
-          I Locked My Bitcoin
-          <ChevronDoubleRightIcon class="relative -top-px inline-block size-5" />
-        </template>
-      </button>
+        <AlertIcon class="mt-0.5 mr-3 size-5 shrink-0 text-yellow-700" />
+        <span>{{ fundingCheckMessage }}</span>
+      </div>
+
+      <div class="flex flex-row items-center justify-end gap-x-3">
+        <button
+          class="cursor-pointer rounded-md border border-slate-300 px-10 py-2 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+          @click="closeOverlay"
+        >
+          Close and Finish Later
+        </button>
+        <button
+          data-testid="LockReadyForBitcoin.checkForBitcoin()"
+          :disabled="isCheckingForBitcoin || retrySeconds !== undefined"
+          @click="checkForBitcoin"
+          class="bg-argon-button enabled:hover:bg-argon-button-hover min-w-68 cursor-pointer rounded-md px-10 py-2 font-semibold text-white disabled:cursor-default disabled:opacity-60"
+        >
+          <template v-if="isCheckingForBitcoin">Checking Bitcoin Network...</template>
+          <template v-else-if="retrySeconds !== undefined">Checking again in {{ retrySeconds }}s</template>
+          <template v-else>
+            Check for My Bitcoin
+            <ChevronDoubleRightIcon class="relative -top-px inline-block size-5" />
+          </template>
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -117,11 +130,12 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
-import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
+import { createNumeralHelpers, formatBtc } from '../../lib/numeral.ts';
 import { abbreviateAddress } from '../../lib/Utils.ts';
 import CopyToClipboard from '../../components/CopyToClipboard.vue';
 import BitcoinQrCode from '../../components/BitcoinQrCode.vue';
 import CountdownClock from '../../components/CountdownClock.vue';
+import AlertIcon from '../../assets/alert.svg?component';
 import CopyIcon from '../../assets/copy.svg?component';
 import ClockIcon from '../../assets/clock.svg?component';
 import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
@@ -146,7 +160,7 @@ const currency = getCurrency();
 const bitcoinLocks = getBitcoinLocks();
 const floatingZIndex = useFloatingZIndex();
 
-const { microgonToArgonNm, satToMoneyNm, satToBtcNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm, satToMoneyNm } = createNumeralHelpers(currency);
 
 const fundingBip21 = Vue.ref('');
 const scriptPaytoAddress = Vue.ref('');
@@ -154,22 +168,55 @@ const scriptPaytoAddressPrefix = Vue.computed(() => scriptPaytoAddress.value.sli
 const scriptPaytoAddressSuffix = Vue.computed(() => scriptPaytoAddress.value.slice(-18));
 const scriptPaytoAddressCopy = Vue.ref<{ copy: () => void }>();
 const fundingExpirationTime = Vue.ref(dayjs.utc());
-const isSaving = Vue.ref(false);
-const cannotContinue = Vue.computed(() => isSaving.value);
+const isCheckingForBitcoin = Vue.ref(false);
+const retrySeconds = Vue.ref<number>();
+const fundingCheckMessage = Vue.ref('');
+
+let retryCountdownInterval: ReturnType<typeof setInterval> | undefined;
 
 function closeOverlay() {
   emit('close');
 }
 
-async function submitLiquidLock() {
-  if (isSaving.value) return;
+async function checkForBitcoin() {
+  if (isCheckingForBitcoin.value) return;
 
-  isSaving.value = true;
+  stopFundingRetryCountdown();
+  isCheckingForBitcoin.value = true;
   try {
-    await bitcoinLocks.utxoTracking.syncPendingFundingSignals(props.personalLock);
+    const observation = await bitcoinLocks.utxoTracking.observeMempoolFunding(props.personalLock);
+    if (observation) return;
+
+    fundingCheckMessage.value = 'We haven’t found your transfer yet, but we’ll keep checking automatically.';
+  } catch (error) {
+    console.error('Error checking for Bitcoin funding:', error);
+    fundingCheckMessage.value = 'We couldn’t check the Bitcoin network just now, but we’ll try again automatically.';
   } finally {
-    isSaving.value = false;
+    isCheckingForBitcoin.value = false;
   }
+
+  startFundingRetryCountdown();
+}
+
+function startFundingRetryCountdown() {
+  stopFundingRetryCountdown();
+  retrySeconds.value = 30;
+  retryCountdownInterval = setInterval(() => {
+    if (retrySeconds.value === undefined) return;
+    if (retrySeconds.value > 1) {
+      retrySeconds.value -= 1;
+      return;
+    }
+
+    stopFundingRetryCountdown();
+    void checkForBitcoin();
+  }, 1e3);
+}
+
+function stopFundingRetryCountdown() {
+  if (retryCountdownInterval) clearInterval(retryCountdownInterval);
+  retryCountdownInterval = undefined;
+  retrySeconds.value = undefined;
 }
 
 Vue.onMounted(async () => {
@@ -181,11 +228,18 @@ Vue.onMounted(async () => {
     console.error('Error formatting P2WSH address:', error);
     throw new Error('Failed to format P2WSH address');
   }
-  const btcAmount = numeral(Number(props.personalLock.satoshis) / Number(SATS_PER_BTC)).format('0,0.[00000000]');
+  const wholeBtc = props.personalLock.satoshis / SATS_PER_BTC;
+  const fractionalSatoshis = (props.personalLock.satoshis % SATS_PER_BTC)
+    .toString()
+    .padStart(8, '0')
+    .replace(/0+$/, '');
+  const btcAmount = fractionalSatoshis ? `${wholeBtc}.${fractionalSatoshis}` : wholeBtc.toString();
   const label = encodeURIComponent(`Argon Vault #${props.personalLock.vaultId} (utxo id=${props.personalLock.utxoId})`);
   const message = encodeURIComponent(
     `Personal BTC Funding for Vault #${props.personalLock.vaultId}, Utxo Id #${props.personalLock.utxoId}`,
   );
   fundingBip21.value = `bitcoin:${scriptPaytoAddress.value}?amount=${btcAmount}&label=${label}&message=${message}`;
 });
+
+Vue.onUnmounted(stopFundingRetryCountdown);
 </script>

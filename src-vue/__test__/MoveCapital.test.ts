@@ -424,7 +424,7 @@ describe('MoveCapital', () => {
     await expect(secondSweep).resolves.toEqual({ kind: 'submitted', txInfo });
   });
 
-  it('follows an existing tracked default Argon mining transfer after reload', async () => {
+  it('resumes an existing pending default Argon mining transfer after reload', async () => {
     const existingTxInfo = {
       tx: {
         id: 7,
@@ -436,7 +436,7 @@ describe('MoveCapital', () => {
       },
     } as any;
     const { moveCapital, transactionTracker } = createMoveCapital(existingTxInfo);
-    transactionTracker.getTxAttemptState.mockResolvedValue(TxAttemptState.Follow);
+    transactionTracker.getTxAttemptState.mockResolvedValue(TxAttemptState.Pending);
 
     const result = await moveCapital.moveConfiguredDefaultArgonToBot(
       createMiningTransferArgs(

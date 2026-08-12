@@ -301,9 +301,7 @@ export class BitcoinLockRecovery {
       completedLocks.push(liveLock);
     }
     this.activeLocksByUtxoId.clear();
-    const reconciliationLocksByUuid = new Map(
-      Object.values(replay.locksByUtxoId).map(lock => [lock.uuid, lock]),
-    );
+    const reconciliationLocksByUuid = new Map(Object.values(replay.locksByUtxoId).map(lock => [lock.uuid, lock]));
     for (const lock of completedLocks) reconciliationLocksByUuid.set(lock.uuid, lock);
     for (const utxoId of orphanLifecycleLockUtxoIds) {
       const lock = this.locksByUtxoId[utxoId];
@@ -1517,10 +1515,7 @@ function assignIfUnset<T extends object, K extends keyof T>(target: T, source: P
 }
 
 function getBitcoinLockEconomicsFingerprint(
-  lock: Pick<
-    IBitcoinLockRecord,
-    'satoshis' | 'lockedTargetPrice' | 'liquidityPromised' | 'ratchets' | 'lockDetails'
-  >,
+  lock: Pick<IBitcoinLockRecord, 'satoshis' | 'lockedTargetPrice' | 'liquidityPromised' | 'ratchets' | 'lockDetails'>,
 ): string {
   return JsonExt.stringify([
     lock.satoshis,
@@ -1694,7 +1689,9 @@ class BitcoinHistoryUtxoProjection {
     );
     for (const [key, record] of this.recordsByKey) recordsByKey.set(key, record);
     return [...recordsByKey].flatMap(([key, record]) => {
-      return this.orphanedRecordKeys.has(key) && this.live.isReleaseStatus(record.status) ? [record] : [];
+      const hasOrphanLifecycleStatus =
+        record.status === BitcoinUtxoStatus.Orphaned || this.live.isReleaseStatus(record.status);
+      return this.orphanedRecordKeys.has(key) && hasOrphanLifecycleStatus ? [record] : [];
     });
   }
 

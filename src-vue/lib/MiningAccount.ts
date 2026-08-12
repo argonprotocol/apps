@@ -34,28 +34,21 @@ export async function planMiningBidProxySetup(args: {
 
 export async function findTrackedMiningBidProxySetup(args: {
   transactionTracker: TransactionTracker;
-  followWindowFinalizedBlocks?: number;
+  waitForConfirmations?: number;
 }): Promise<TransactionInfo<MiningBidProxySetupMetadata> | undefined> {
-  const latestMiningBidProxySetupTxInfo = args.transactionTracker.findLatestTxInfo<MiningBidProxySetupMetadata>(
-    txInfo => txInfo.tx.extrinsicType === ExtrinsicType.MiningBidProxySetup,
-  );
-  if (!latestMiningBidProxySetupTxInfo) {
-    return;
-  }
-
-  const txAttemptState = await args.transactionTracker.getTxAttemptState(
-    latestMiningBidProxySetupTxInfo,
-    args.followWindowFinalizedBlocks ?? 2,
-  );
-  if (txAttemptState === TxAttemptState.Follow) {
-    return latestMiningBidProxySetupTxInfo;
+  const latestAttempt = await args.transactionTracker.findLatestTxAttempt<MiningBidProxySetupMetadata>({
+    extrinsicType: ExtrinsicType.MiningBidProxySetup,
+    waitForConfirmations: args.waitForConfirmations ?? 2,
+  });
+  if (latestAttempt?.txAttemptState === TxAttemptState.Pending) {
+    return latestAttempt.txInfo;
   }
 }
 
 export async function ensureMiningBidProxySetup(args: {
   transactionTracker: TransactionTracker;
   walletKeys: WalletKeys;
-  followWindowFinalizedBlocks?: number;
+  waitForConfirmations?: number;
   client?: ArgonClient;
 }): Promise<MiningBidProxySetupResult> {
   const trackedTxInfo = await findTrackedMiningBidProxySetup(args);

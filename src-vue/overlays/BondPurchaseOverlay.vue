@@ -79,9 +79,9 @@
       class="flex min-h-105 flex-col items-center justify-center px-10 py-5 text-center"
     >
       <AlertIcon class="h-18 text-yellow-700" />
-      <h1 class="mt-8 text-xl font-bold text-yellow-800">This Vault Has No Argon Bond Space</h1>
+      <h1 class="mt-8 text-xl font-bold text-yellow-800">{{ vaultLabel }} has no Argon Bond space</h1>
       <p class="mt-4 max-w-150 text-lg leading-relaxed font-light">
-        Contact the person who invited you and let them know their vault has no more Argon Bond space.
+        Contact {{ vaultName || 'the person who invited you' }} to create more Bond space.
       </p>
     </div>
     <div v-else class="px-10 py-5">
@@ -106,6 +106,28 @@
               Min
             </button>
             <span class="h-4 border-l border-gray-300 mx-3" />
+            <Tooltip
+              v-if="certificationPurchaseAmount > 0"
+              :asChild="true"
+              content="Sets this purchase to the amount still needed for Treasury Certification."
+              side="top"
+            >
+              <span class="inline-flex cursor-help items-center gap-0.5 text-sm">
+                <span v-if="purchaseAmount === certificationPurchaseAmount" class="text-gray-600/60">
+                  Certification
+                </span>
+                <button
+                  v-else
+                  type="button"
+                  class="text-argon-600 hover:text-argon-700 cursor-pointer"
+                  @click="purchaseAmount = certificationPurchaseAmount"
+                >
+                  Certification
+                </button>
+                <InformationCircleIcon class="size-3.5 text-gray-400" />
+              </span>
+            </Tooltip>
+            <span v-if="certificationPurchaseAmount > 0" class="h-4 border-l border-gray-300 mx-3" />
             <span v-if="purchaseAmount === maxPurchaseAmount" class="text-sm text-gray-600/60">
               You're At Max Amount
             </span>
@@ -121,7 +143,6 @@
           <InputNumber
             v-model="purchaseAmount"
             :min="minPurchaseAllowed"
-            :max="maxPurchaseAmount"
             :dragBy="1"
             :dragByMin="1"
             :minDecimals="0"
@@ -134,7 +155,27 @@
             }}{{ bondToMoneyNm(purchaseAmount).format('0,0.00') }}) will be pulled from your Internal App
             Wallet for this acquisition.
           </div>
-          <WalletFundingCallout v-if="neededMicrogons" @open-wallet="openWallet">
+          <div
+            v-if="isOverVaultBondCapacity"
+            class="relative mt-3 flex items-center rounded border border-yellow-400/70 bg-yellow-100 px-3 py-3 text-yellow-900"
+          >
+            <AlertIcon class="mr-2 h-4 shrink-0 text-yellow-700" />
+            <span>
+              <template
+                v-if="
+                  certificationPurchaseAmount > maxPurchaseAmount && purchaseAmount === certificationPurchaseAmount
+                "
+              >
+                Treasury Certification needs {{ numeral(certificationPurchaseAmount).format('0,0') }} more Argon
+                Bonds. {{ vaultLabel }} can only create {{ numeral(maxPurchaseAmount).format('0,0') }} right now.
+              </template>
+              <template v-else>
+                {{ vaultLabel }} can only create {{ numeral(maxPurchaseAmount).format('0,0') }} Argon Bonds right now.
+              </template>
+              Contact {{ vaultName || 'the person who invited you' }} to create more Bond space.
+            </span>
+          </div>
+          <WalletFundingCallout v-else-if="neededMicrogons" @open-wallet="openWallet">
             <AlertIcon class="h-4 text-yellow-700 mr-2" />
             Your wallet needs {{ availableMicrogons ? '' : 'another' }} {{ microgonToArgonNm(neededMicrogons).format('0,0.[00]') }} ARGN to purchase these
             bonds.
@@ -188,7 +229,7 @@
           </button>
           <button
             type="button"
-            :disabled="isSubmitting || purchaseAmount <= 0 || neededMicrogons > 0n"
+            :disabled="isSubmitting || purchaseAmount <= 0 || isOverVaultBondCapacity || neededMicrogons > 0n"
             class="bg-argon-button hover:bg-argon-button-hover rounded-md px-5 py-2 cursor-pointer font-semibold text-white disabled:opacity-40"
             @click="submit"
           >
@@ -204,6 +245,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import BigNumber from 'bignumber.js';
+import { InformationCircleIcon } from '@heroicons/vue/24/outline';
 import OverlayBase from './OverlayBase.vue';
 import SelectAVault from '../components/SelectAVault.vue';
 import { Vault } from '@argonprotocol/mainchain';
@@ -215,6 +257,7 @@ import { getWalletKeys, useWallets } from '../stores/wallets.ts';
 import { getArgonBonds } from '../stores/argonBonds.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import InputNumber from '../components/InputNumber.vue';
+import Tooltip from '../components/Tooltip.vue';
 import ProgressBar from '../components/ProgressBar.vue';
 import { type TransactionInfo } from '../lib/TransactionInfo.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
@@ -233,6 +276,7 @@ import WalletFundingCallout from '../components/WalletFundingCallout.vue';
 import AlertIcon from '../assets/alert.svg?component';
 import BondPurchaseComplete from './BondPurchaseComplete.vue';
 import { useFinancials } from '../stores/financials.ts';
+import { useCertificationController } from '../stores/certificationController.ts';
 
 const MICROGONS_PER_ARGON_BIGINT = BigInt(MICROGONS_PER_ARGON);
 
@@ -246,6 +290,7 @@ const vaultingStats = useVaultingStats();
 const transactionTracker = getTransactionTracker();
 const vaults = getVaults();
 const financials = useFinancials();
+const certificationController = useCertificationController();
 
 const { microgonToArgonNm, microgonToMoneyNm } = createNumeralHelpers(currency);
 
@@ -282,6 +327,13 @@ const vaultAvailableCapacity = Vue.computed(() => {
   return argonBonds.availableBondSpace(vault.value);
 });
 
+const vaultName = Vue.computed(() => vault.value?.name?.trim() || config.upstreamOperator?.name?.trim());
+
+const vaultLabel = Vue.computed(() => {
+  if (vaultName.value) return `${vaultName.value}’s Vault`;
+  return 'This vault';
+});
+
 const spendableWalletBalance = Vue.computed(() => {
   return getSpendableDefaultArgonMicrogons(availableMicrogons.value);
 });
@@ -289,6 +341,16 @@ const spendableWalletBalance = Vue.computed(() => {
 const maxPurchaseAmount = Vue.computed(() => {
   return Number(vaultAvailableCapacity.value / MICROGONS_PER_ARGON_BIGINT);
 });
+
+const certificationPurchaseAmount = Vue.computed(() => {
+  const remainingMicrogons =
+    certificationController.rewardConfig.treasuryMinimumBonds - argonBonds.bondTotals.activeBondMicrogons;
+  if (remainingMicrogons <= 0n) return 0;
+
+  return Number((remainingMicrogons + MICROGONS_PER_ARGON_BIGINT - 1n) / MICROGONS_PER_ARGON_BIGINT);
+});
+
+const isOverVaultBondCapacity = Vue.computed(() => purchaseAmount.value > maxPurchaseAmount.value);
 
 const neededMicrogons = Vue.computed(() => {
   const purchaseMicrogons = BigInt(purchaseAmount.value) * MICROGONS_PER_ARGON_BIGINT;
@@ -446,6 +508,10 @@ async function submit() {
   isSubmitting.value = true;
 
   try {
+    if (isOverVaultBondCapacity.value) {
+      throw new Error(`${vaultLabel.value} does not have enough Bond space for this purchase.`);
+    }
+
     const bondPurchaseMicrogons = BigInt(purchaseAmount.value) * MICROGONS_PER_ARGON_BIGINT;
     const client = await getMainchainClient(false);
     const signer = await walletKeys.getDefaultArgonKeypair();
@@ -483,6 +549,9 @@ async function initializePurchase(session = ++purchaseSession) {
   unsubVault?.();
   unsubVault = undefined;
 
+  await certificationController.isLoadedPromise;
+  if (session !== purchaseSession) return;
+
   if (vaultId.value) {
     const initializingVaultId = vaultId.value;
     vault.value = vaults.vaultsById[initializingVaultId];
@@ -514,7 +583,7 @@ async function initializePurchase(session = ++purchaseSession) {
     trackTxInfo(pendingBuyTxInfo);
   }
 
-  purchaseAmount.value = maxPurchaseAmount.value;
+  purchaseAmount.value = certificationPurchaseAmount.value || maxPurchaseAmount.value;
 }
 
 function handleVaultSelected(v: Vault) {

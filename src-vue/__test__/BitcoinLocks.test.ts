@@ -7,11 +7,61 @@ import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts
 import { BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
 import * as vaultStore from '../stores/vaults.ts';
 import { numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts';
-import { createLock, createStore } from './helpers/bitcoin.ts';
+import { createBitcoinLockConfig, createLock, createStore } from './helpers/bitcoin.ts';
+import { createTestDb } from './helpers/db.ts';
+import { getMainchainClient } from '../stores/mainchain.ts';
 
 vi.mock('../stores/mainchain.ts', () => ({
   getMainchainClient: vi.fn(async () => ({})),
 }));
+
+afterEach(() => vi.useRealTimers());
+
+it('keeps a funding expiration estimate stable until the oracle Bitcoin height changes', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-08-11T18:00:00Z'));
+
+  const db = await createTestDb();
+  const archiveClient = {
+    consts: { bitcoinLocks: { argonTicksPerDay: { toNumber: () => 1_440 } } },
+    query: {
+      bitcoinLocks: {
+        utxoIdsByOwnerAccount: { keys: vi.fn(async () => []) },
+      },
+    },
+  };
+  const blockWatch = {
+    start: async () => undefined,
+    events: { on: () => () => undefined },
+    bestBlockHeader: { blockNumber: 0, blockHash: '0x0' },
+    getFinalizedApi: vi.fn(async () => archiveClient),
+  };
+  vi.mocked(getMainchainClient).mockResolvedValue(archiveClient as never);
+  vi.spyOn(BitcoinLock, 'getConfig').mockResolvedValue(
+    createBitcoinLockConfig({ pendingConfirmationExpirationBlocks: 6 }),
+  );
+  const store = createStore({ blockWatch: blockWatch as never, db });
+
+  await store.load();
+  store.data.oracleBitcoinBlockHeight = 100;
+
+  const lock = createLock({
+    uuid: 'pending-lock',
+    status: BitcoinLockStatus.LockPendingFunding,
+    createdAt: '2026-08-11T18:00:00Z',
+  });
+  const initialExpiration = store.verifyExpirationTime(lock);
+
+  await vi.advanceTimersByTimeAsync(2_000);
+
+  expect(store.verifyExpirationTime(lock)).toBe(initialExpiration);
+
+  store.data.oracleBitcoinBlockHeight = 101;
+
+  expect(store.verifyExpirationTime(lock)).not.toBe(initialExpiration);
+
+  store.unsubscribeFromArgonBlocks();
+});
 
 describe('BitcoinLocks ratchet preview', () => {
   afterEach(() => vi.restoreAllMocks());
@@ -116,6 +166,22 @@ describe('BitcoinLocks ratchet preview', () => {
 
 describe('BitcoinLocks capacity owners', () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it('keeps vault capacity while rounding the Bitcoin requirement up', async () => {
+    const store = createStore();
+    vi.spyOn(BitcoinLock, 'calculateRedemptionAmount').mockImplementation((_priceIndex, targetPrice) => targetPrice);
+
+    expect(await store.satoshisForArgonLiquidity(3n, 200_000_000n)).toBe(2n);
+
+    vi.spyOn(store, 'satoshisForArgonLiquidity').mockResolvedValue(301n);
+    const capacity = await store.getLockableBitcoinCapacity({
+      vault: { availableBitcoinSpace: () => 300n } as never,
+      microgonsAtTargetPerBtc: 200_000_000n,
+    });
+
+    expect(capacity.availableLiquidityMicrogons).toBe(300n);
+    expect(capacity.availableSatoshis).toBe(301n);
+  });
 
   it('uses the prospective owner for lockable capacity', async () => {
     const store = createStore();

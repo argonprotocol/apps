@@ -19,11 +19,14 @@
         </div>
       </div>
     </template>
+    <p v-else-if="!satoshisObserved" class="pt-2">
+      We’re looking for your Bitcoin transfer. It can take a few moments for the transaction to appear on the Bitcoin
+      network.
+    </p>
     <p v-else-if="isWaitingForFirstBitcoinBlock" class="pt-2">
       <template v-if="observedBtcLabel !== undefined">
         We detected a transfer of {{ observedBtcLabel }} BTC in Bitcoin's mempool.
       </template>
-      <template v-else>We detected your Bitcoin transfer in Bitcoin's mempool.</template>
       We’re waiting for the first Bitcoin block before confirmation tracking begins.
     </p>
 
@@ -42,7 +45,9 @@
       class="mt-12 flex items-center justify-center gap-3 text-center text-gray-500"
     >
       <Spinner class="h-5 w-5" />
-      <span>Waiting for the first Bitcoin block...</span>
+      <span>
+        {{ !satoshisObserved ? 'Looking for your Bitcoin transfer...' : 'Waiting for the first Bitcoin block...' }}
+      </span>
     </div>
 
     <template v-else>
@@ -61,7 +66,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import numeral from '../../lib/numeral.ts';
+import numeral, { formatBtc } from '../../lib/numeral.ts';
 import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
@@ -96,18 +101,18 @@ const hasMismatch = Vue.computed(() => {
 });
 const isInvalidAmount = Vue.ref<boolean>(false);
 const reservedBtcLabel = Vue.computed(() => {
-  return numeral(currency.convertSatToBtc(personalLock.value.satoshis ?? 0n)).format('0,0.[00000000]');
+  return formatBtc(currency.convertSatToBtc(personalLock.value.satoshis ?? 0n));
 });
 const observedBtcLabel = Vue.computed(() => {
   if (satoshisObserved.value === undefined) return undefined;
-  return numeral(currency.convertSatToBtc(satoshisObserved.value)).format('0,0.[00000000]');
+  return formatBtc(currency.convertSatToBtc(satoshisObserved.value));
 });
 const differenceBtcLabel = Vue.computed(() => {
   const observed = satoshisObserved.value;
   if (observed === undefined) return '0 BTC';
   const diff = observed - personalLock.value.satoshis;
   const absDiff = diff < 0n ? -diff : diff;
-  const formatted = numeral(currency.convertSatToBtc(absDiff)).format('0,0.[00000000]');
+  const formatted = formatBtc(currency.convertSatToBtc(absDiff));
   if (diff > 0n) return `+${formatted} BTC`;
   if (diff < 0n) return `-${formatted} BTC`;
   return `${formatted} BTC`;

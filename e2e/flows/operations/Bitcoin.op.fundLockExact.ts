@@ -8,6 +8,7 @@ import type { IBitcoinVaultMismatchState } from '../types/srcVue.ts';
 import { Operation } from './index.ts';
 import type { IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
 import type { IE2EOperationInspectState, IE2EOperationState } from '../types.ts';
+import { clickIfVisible } from '../helpers/utils.ts';
 import bitcoinEnsureMismatchActionPanel from './Bitcoin.op.ensureMismatchActionPanel.ts';
 import { BITCOIN_LOCK_ENTRY_SELECTOR } from './Bitcoin.op.activateTab.ts';
 
@@ -99,6 +100,13 @@ function createBitcoinFundLockExactOperation(): Operation<IBitcoinFlowContext, I
         minimumSatoshis: flowState.lockFundingDetails.amountSatoshis,
         minerAddress,
       });
+      const checkedForTransfer = await clickIfVisible(flow, 'LockReadyForBitcoin.checkForBitcoin()');
+      if (!checkedForTransfer) {
+        const latest = await flow.inspect<IFundLockExactState>();
+        if (latest.uiState.lockingOverlayState !== 'ProcessingOnBitcoin') {
+          throw new Error(`${flowName}: the Bitcoin transfer check was not clickable.`);
+        }
+      }
       await flow.poll<IFundLockExactState>(
         latest => {
           if (latest.state === 'uiStateMismatch') {

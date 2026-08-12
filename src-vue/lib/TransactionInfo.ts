@@ -195,9 +195,13 @@ export class TransactionInfo<MetadataType = unknown> {
 
     this.blockProgress.setIsFinalized(isFinalized);
     this.blockProgress.setBlockHeightGoal(this.tx.blockHeight);
-    const progressPct = this.blockProgress.getProgress();
+    let progressPct = this.blockProgress.getProgress();
     const confirmations = this.blockProgress.getConfirmations();
     const expectedConfirmations = this.blockProgress.expectedConfirmations;
+
+    if (progressPct > 99 && this.postProcessor && !this.postProcessor.isSettled) {
+      progressPct = 99;
+    }
 
     const error = this.txResult.submissionError ?? this.txResult.extrinsicError;
 
@@ -227,10 +231,6 @@ export class TransactionInfo<MetadataType = unknown> {
         status.expectedConfirmations = followOnStatus.expectedConfirmations;
         status.isFinalized &&= followOnStatus.isFinalized;
       }
-    }
-
-    if (status.progressPct > 99 && this.postProcessor && !this.postProcessor.isSettled) {
-      status.progressPct = 99;
     }
 
     const progressMessage = this.getWaitingForFinalizationMessage(status);

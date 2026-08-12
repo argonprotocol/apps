@@ -171,7 +171,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
       {
         isFinalized: true,
         blockNumber: tx.submittedAtBlockHeight + 65,
-        blockHash: '0xabc',
+        blockHash: blockwatch.finalizedBlockHeader.blockHash,
         parentHash: '0xdef',
         tick: 0,
         author: '0x123',
@@ -180,6 +180,7 @@ describe.skipIf(skipE2E).sequential('Transaction tracker tests', { timeout: 60e3
     ];
 
     vi.spyOn(TransactionEvents, 'findByExtrinsicHash').mockResolvedValueOnce(undefined);
+    vi.spyOn(client.rpc.author, 'pendingExtrinsics').mockResolvedValueOnce([] as any);
 
     // @ts-expect-error Now actually watch for updates
     await transactionTracker.updatePendingStatuses(70);

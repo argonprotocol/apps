@@ -28,7 +28,7 @@
           class="flex flex-row cursor-pointer py-5 grow items-center"
         >
           <div class="flex flex-row">
-            <Checkbox :isChecked="wallets.isLoaded && hasMiningMachine" />
+            <Checkbox :isChecked="serverConnectIsChecked" />
             <div class="px-4">
               <h2 class="text-2xl text-argon-600 font-bold">
                 Connect a Cloud Machine
@@ -39,7 +39,7 @@
                   class="pointer-events-none absolute top-1/2 -right-3 -translate-y-1/2 translate-x-full z-50 -mt-0.5"
                 />
               </h2>
-              <p v-if="hasMiningMachine">
+              <p v-if="config.isServerAdded">
                 <template v-if="config.serverAdd?.localComputer">This local computer will be used to run your mining software. We've already checked its requirements.</template>
                 <template v-else-if="config.serverAdd?.digitalOcean">Your Digital Ocean API Key is ready to go. We will do all the work of creating and setting up your server.</template>
                 <template v-else>Your custom server is connected and verified. We'll do the work of installing and configuring the software.</template>
@@ -249,7 +249,7 @@ const averageAPY = Vue.ref(0);
 const calculatorLoadError = Vue.ref(false);
 
 const serverConnectIsChecked = Vue.computed(() => {
-  return wallets.isLoaded && hasMiningMachine.value;
+  return wallets.isLoaded && config.isServerAdded;
 });
 
 const currentStep = Vue.computed(() => {
@@ -317,12 +317,7 @@ const walletIsFullyFunded = Vue.computed(() => {
 });
 
 const canLaunchMiningBot = Vue.computed(() => {
-  return walletIsFullyFunded.value && hasMiningMachine.value && config.isServerInstalled && !basics.overlayIsOpen;
-});
-
-const hasMiningMachine = Vue.computed(() => {
-  const x = config.serverAdd;
-  return !!x?.customServer || !!x?.localComputer || !!x?.digitalOcean;
+  return walletIsFullyFunded.value && config.isServerAdded && config.isServerInstalled && !basics.overlayIsOpen;
 });
 
 function calculateAlignOffset(event: MouseEvent, parentElement: HTMLElement | null, align: 'start' | 'end') {

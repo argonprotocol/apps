@@ -30,7 +30,7 @@ export interface IAssetsToMove {
 }
 
 let pendingDefaultArgonMiningTransferPromise: Promise<DefaultArgonMiningTransferResult> | undefined;
-const DEFAULT_ARGON_MINING_TRANSFER_FOLLOW_WINDOW_FINALIZED_BLOCKS = 2;
+const DEFAULT_ARGON_MINING_TRANSFER_CONFIRMATIONS_TO_WAIT = 2;
 
 export class MoveCapital {
   public transactionError: string = '';
@@ -129,9 +129,9 @@ export class MoveCapital {
     if (latestSweepTxInfo) {
       const txAttemptState = await this.transactionTracker.getTxAttemptState(
         latestSweepTxInfo,
-        DEFAULT_ARGON_MINING_TRANSFER_FOLLOW_WINDOW_FINALIZED_BLOCKS,
+        DEFAULT_ARGON_MINING_TRANSFER_CONFIRMATIONS_TO_WAIT,
       );
-      if (txAttemptState === TxAttemptState.Follow) {
+      if (txAttemptState === TxAttemptState.Pending) {
         return { kind: 'trackingExisting', txInfo: latestSweepTxInfo };
       }
     }
@@ -213,12 +213,12 @@ export class MoveCapital {
           txInfo: latestDefaultArgonMiningTransferTxInfo,
           txAttemptState: await this.transactionTracker.getTxAttemptState(
             latestDefaultArgonMiningTransferTxInfo,
-            DEFAULT_ARGON_MINING_TRANSFER_FOLLOW_WINDOW_FINALIZED_BLOCKS,
+            DEFAULT_ARGON_MINING_TRANSFER_CONFIRMATIONS_TO_WAIT,
           ),
         }
       : undefined;
 
-    if (latestDefaultArgonMiningTransferAttempt?.txAttemptState === TxAttemptState.Follow) {
+    if (latestDefaultArgonMiningTransferAttempt?.txAttemptState === TxAttemptState.Pending) {
       return {
         kind: 'trackingExisting',
         txInfo: latestDefaultArgonMiningTransferAttempt.txInfo,
@@ -369,7 +369,7 @@ export class MoveCapital {
       const proxySetup = await ensureMiningBidProxySetup({
         transactionTracker: this.transactionTracker,
         walletKeys: this.walletKeys,
-        followWindowFinalizedBlocks: DEFAULT_ARGON_MINING_TRANSFER_FOLLOW_WINDOW_FINALIZED_BLOCKS,
+        waitForConfirmations: DEFAULT_ARGON_MINING_TRANSFER_CONFIRMATIONS_TO_WAIT,
       });
       if (proxySetup.kind === 'trackingExisting' || proxySetup.kind === 'submitted') {
         await proxySetup.txInfo.waitForPostProcessing;
