@@ -3,6 +3,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.5] - 2026-08-12
+- Flexible assets are now optional for sending onboarding invites
+- Bitcoin recovery no longer interferes with records on the Bitcoin Locks page
+- Bonds could disappear from the Argon Bonds view in certain circumstances
+- Restore servers created before Vaults and Mining
+- Simplify Bitcoin Lock starting input page
+- Various small bug fixes
+
 ## [2.3.4] - 2026-08-10
 - Improve cleanup of old bitcoin transactions and orphans
 - Performance improvement for locking Bitcoin
