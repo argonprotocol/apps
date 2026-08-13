@@ -1,8 +1,18 @@
 import { execFileSync } from 'node:child_process';
 import Fs from 'node:fs';
 import Path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
+import { gunzipSync } from 'node:zlib';
+import { getClient } from '@argonprotocol/mainchain';
+import { format, resolveConfig } from 'prettier';
 import * as Semver from 'semver';
+import {
+  createRuntimeCompatibilityModule,
+  readRuntimeCompatibilityProvenance,
+  type RuntimeCompatibilityProvenance,
+  type RuntimeInterfaceSources,
+} from './runtimeCompatibilityTypes.ts';
 
 const RUNTIME_PACKAGES = ['@argonprotocol/mainchain', '@argonprotocol/testing', '@argonprotocol/bitcoin'] as const;
 const AUTHORITATIVE_RUNTIME_PACKAGE = '@argonprotocol/mainchain' as const;
@@ -13,6 +23,7 @@ const ARGON_ENV_PATH = Path.join(REPO_ROOT, 'e2e/argon/.env');
 const SERVER_DEV_DOCKER_ENV_PATH = Path.join(REPO_ROOT, 'server/.env.dev-docker');
 const SERVER_MAINNET_ENV_PATH = Path.join(REPO_ROOT, 'server/.env.mainnet');
 const SERVER_TESTNET_ENV_PATH = Path.join(REPO_ROOT, 'server/.env.testnet');
+const RUNTIME_COMPATIBILITY_PATH = Path.join(REPO_ROOT, 'core/src/runtimeCompatibility.ts');
 const MAINCHAIN_GIT_REPO = 'https://github.com/argonprotocol/mainchain.git';
 const WORKSPACE_MAINCHAIN_PATH = Path.resolve(REPO_ROOT, '../mainchain');
 const DEV_RUNTIME_PACKAGE_PATHS: Record<RuntimePackage, string> = {
@@ -58,6 +69,7 @@ async function main(): Promise<void> {
   const rootPackageJson = JSON.parse(rootPackageJsonRaw) as {
     workspaces?: string[];
   };
+  const compatibilityResult = await updateRuntimeCompatibilityTypes(rootPackageJsonRaw);
 
   const envResult = updateEnvContents(envRaw, {
     VERSION: resolvedPin.dockerVersion,
@@ -112,6 +124,9 @@ async function main(): Promise<void> {
   }
 
   console.info('Updated runtime pin configuration.');
+  console.info(
+    `- runtime compatibility: ${compatibilityResult.changed ? Path.relative(REPO_ROOT, RUNTIME_COMPATIBILITY_PATH) : `unchanged (mainnet spec ${compatibilityResult.provenance.specVersion})`}`,
+  );
   console.info(`- e2e/argon/.env: ${envResult.changedKeys.join(', ') || 'no changes'}`);
   console.info(`- server/.env.dev-docker: ${serverEnvResult.changedKeys.join(', ') || 'no changes'}`);
   if (isTagPin) {
@@ -169,6 +184,171 @@ function normalizeRef(value: string | undefined): string {
     throw new Error(USAGE);
   }
   return normalized;
+}
+
+async function updateRuntimeCompatibilityTypes(
+  rootPackageJsonRaw: string,
+): Promise<{ changed: boolean; provenance: RuntimeCompatibilityProvenance }> {
+  const deployedRuntime = await readDeployedRuntime();
+  if (Fs.existsSync(RUNTIME_COMPATIBILITY_PATH)) {
+    const existing = readRuntimeCompatibilityProvenance(Fs.readFileSync(RUNTIME_COMPATIBILITY_PATH, 'utf8'));
+    if (existing?.specVersion === deployedRuntime.specVersion) {
+      return { changed: false, provenance: existing };
+    }
+  }
+
+  const rootPackageJson = JSON.parse(rootPackageJsonRaw) as {
+    resolutions?: Record<string, string>;
+  };
+  const installedPackagePath = Path.resolve(
+    Path.dirname(fileURLToPath(import.meta.resolve(AUTHORITATIVE_RUNTIME_PACKAGE))),
+    '../package.json',
+  );
+  const installedPackage = JSON.parse(Fs.readFileSync(installedPackagePath, 'utf8')) as {
+    name?: string;
+    version?: string;
+  };
+  const clientVersion = installedPackage.version;
+  if (installedPackage.name !== AUTHORITATIVE_RUNTIME_PACKAGE || !clientVersion || !Semver.valid(clientVersion)) {
+    throw new Error(`Cannot snapshot runtime compatibility types from ${clientVersion ?? 'an unknown client version'}`);
+  }
+
+  if (!clientMatchesNodeVersion(clientVersion, deployedRuntime.nodeVersion)) {
+    throw new Error(
+      `Cannot snapshot mainnet runtime spec ${deployedRuntime.specVersion}: the deployed node is ${deployedRuntime.nodeVersion}, but the installed ${AUTHORITATIVE_RUNTIME_PACKAGE} client is ${clientVersion}`,
+    );
+  }
+
+  const sources = await readCurrentRuntimeInterfaceSources(
+    clientVersion,
+    rootPackageJson.resolutions?.[AUTHORITATIVE_RUNTIME_PACKAGE],
+  );
+  const provenance: RuntimeCompatibilityProvenance = {
+    clientVersion,
+    finalizedBlockHash: deployedRuntime.finalizedBlockHash,
+    specVersion: deployedRuntime.specVersion,
+  };
+  const generated = createRuntimeCompatibilityModule(sources, provenance);
+  const prettierConfig = await resolveConfig(RUNTIME_COMPATIBILITY_PATH);
+  const formatted = await format(generated, { ...prettierConfig, filepath: RUNTIME_COMPATIBILITY_PATH });
+  if (Fs.existsSync(RUNTIME_COMPATIBILITY_PATH) && Fs.readFileSync(RUNTIME_COMPATIBILITY_PATH, 'utf8') === formatted) {
+    return { changed: false, provenance };
+  }
+
+  Fs.writeFileSync(RUNTIME_COMPATIBILITY_PATH, formatted, 'utf8');
+  return { changed: true, provenance };
+}
+
+async function readDeployedRuntime(): Promise<{
+  finalizedBlockHash: string;
+  nodeVersion: string;
+  specVersion: number;
+}> {
+  const archiveUrl = parseEnv(Fs.readFileSync(SERVER_MAINNET_ENV_PATH, 'utf8')).ARGON_ARCHIVE_NODE;
+  if (!archiveUrl) {
+    throw new Error(`${Path.relative(REPO_ROOT, SERVER_MAINNET_ENV_PATH)} does not define ARGON_ARCHIVE_NODE`);
+  }
+
+  const client = await getClient(archiveUrl);
+  try {
+    const finalizedBlockHash = (await client.rpc.chain.getFinalizedHead()).toHex();
+    const runtimeVersion = await client.rpc.state.getRuntimeVersion(finalizedBlockHash);
+    const specVersion = runtimeVersion.specVersion.toNumber();
+    const nodeVersion = (await client.rpc.system.version()).toString();
+    return { finalizedBlockHash, nodeVersion, specVersion };
+  } finally {
+    await client.disconnect();
+  }
+}
+
+async function readCurrentRuntimeInterfaceSources(
+  version: string,
+  resolution: string | undefined,
+): Promise<RuntimeInterfaceSources> {
+  const portalPath = resolution?.startsWith('portal:')
+    ? Path.resolve(REPO_ROOT, resolution.slice('portal:'.length))
+    : null;
+  const localPaths = [portalPath, Path.dirname(DEV_RUNTIME_PACKAGE_PATHS[AUTHORITATIVE_RUNTIME_PACKAGE])].filter(
+    (path): path is string => Boolean(path),
+  );
+
+  for (const localPath of localPaths) {
+    const packageJsonPath = Path.join(localPath, 'package.json');
+    if (!Fs.existsSync(packageJsonPath)) continue;
+
+    const packageJson = JSON.parse(Fs.readFileSync(packageJsonPath, 'utf8')) as { version?: string };
+    if (packageJson.version !== version) continue;
+    return readRuntimeInterfaceSourcesFromDirectory(Path.join(localPath, 'src/interfaces'));
+  }
+
+  const response = await fetch(
+    `https://registry.npmjs.org/@argonprotocol/mainchain/-/mainchain-${encodeURIComponent(version)}.tgz`,
+  );
+  if (!response.ok) {
+    throw new Error(`Unable to download ${AUTHORITATIVE_RUNTIME_PACKAGE}@${version}: ${response.status}`);
+  }
+
+  const archive = gunzipSync(Buffer.from(await response.arrayBuffer()));
+  return readRuntimeInterfaceSourcesFromArchive(archive, version);
+}
+
+function readRuntimeInterfaceSourcesFromDirectory(directory: string): RuntimeInterfaceSources {
+  return {
+    lookup: Fs.readFileSync(Path.join(directory, 'types-lookup.ts'), 'utf8'),
+    tx: Fs.readFileSync(Path.join(directory, 'augment-api-tx.ts'), 'utf8'),
+    query: Fs.readFileSync(Path.join(directory, 'augment-api-query.ts'), 'utf8'),
+    events: Fs.readFileSync(Path.join(directory, 'augment-api-events.ts'), 'utf8'),
+    runtime: Fs.readFileSync(Path.join(directory, 'augment-api-runtime.ts'), 'utf8'),
+  };
+}
+
+function readRuntimeInterfaceSourcesFromArchive(archive: Buffer, version: string): RuntimeInterfaceSources {
+  const readSource = (filename: string) => {
+    const contents = readTarFile(archive, `package/src/interfaces/${filename}`);
+    if (!contents) {
+      throw new Error(`${AUTHORITATIVE_RUNTIME_PACKAGE}@${version} does not include src/interfaces/${filename}`);
+    }
+    return contents;
+  };
+
+  return {
+    lookup: readSource('types-lookup.ts'),
+    tx: readSource('augment-api-tx.ts'),
+    query: readSource('augment-api-query.ts'),
+    events: readSource('augment-api-events.ts'),
+    runtime: readSource('augment-api-runtime.ts'),
+  };
+}
+
+function readTarFile(archive: Buffer, requestedPath: string): string | undefined {
+  for (let offset = 0; offset < archive.length; ) {
+    const name = archive
+      .subarray(offset, offset + 100)
+      .toString()
+      .replace(/\0.*$/, '');
+    if (!name) return;
+
+    const size = Number.parseInt(
+      archive
+        .subarray(offset + 124, offset + 136)
+        .toString()
+        .replace(/\0.*$/, '')
+        .trim(),
+      8,
+    );
+    const contentsOffset = offset + 512;
+    if (name === requestedPath) return archive.subarray(contentsOffset, contentsOffset + size).toString();
+    offset = contentsOffset + Math.ceil(size / 512) * 512;
+  }
+}
+
+function clientMatchesNodeVersion(clientVersion: string, nodeVersion: string): boolean {
+  if (Semver.coerce(clientVersion)?.version !== Semver.coerce(nodeVersion)?.version) return false;
+
+  const clientCommit = Semver.parse(clientVersion)?.prerelease.find(
+    (identifier): identifier is string => typeof identifier === 'string' && /^[a-f0-9]{7,40}$/i.test(identifier),
+  );
+  return !clientCommit || nodeVersion.toLowerCase().includes(clientCommit.toLowerCase());
 }
 
 function isCommitHash(value: string): boolean {
