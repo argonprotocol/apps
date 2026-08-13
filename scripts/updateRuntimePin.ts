@@ -219,10 +219,11 @@ async function updateRuntimeCompatibilityTypes(
     );
   }
 
-  const sources = await readCurrentRuntimeInterfaceSources(
-    clientVersion,
-    rootPackageJson.resolutions?.[AUTHORITATIVE_RUNTIME_PACKAGE],
-  );
+  const sources = await readCurrentRuntimeInterfaceSources({
+    installedPackageDirectory: Path.dirname(installedPackagePath),
+    resolution: rootPackageJson.resolutions?.[AUTHORITATIVE_RUNTIME_PACKAGE],
+    version: clientVersion,
+  });
   const provenance: RuntimeCompatibilityProvenance = {
     clientVersion,
     finalizedBlockHash: deployedRuntime.finalizedBlockHash,
@@ -261,35 +262,52 @@ async function readDeployedRuntime(): Promise<{
   }
 }
 
-async function readCurrentRuntimeInterfaceSources(
-  version: string,
-  resolution: string | undefined,
-): Promise<RuntimeInterfaceSources> {
-  const portalPath = resolution?.startsWith('portal:')
-    ? Path.resolve(REPO_ROOT, resolution.slice('portal:'.length))
+async function readCurrentRuntimeInterfaceSources(args: {
+  installedPackageDirectory: string;
+  resolution?: string;
+  version: string;
+}): Promise<RuntimeInterfaceSources> {
+  const portalPath = args.resolution?.startsWith('portal:')
+    ? Path.resolve(REPO_ROOT, args.resolution.slice('portal:'.length))
     : null;
-  const localPaths = [portalPath, Path.dirname(DEV_RUNTIME_PACKAGE_PATHS[AUTHORITATIVE_RUNTIME_PACKAGE])].filter(
-    (path): path is string => Boolean(path),
-  );
+  const localPaths = [
+    args.installedPackageDirectory,
+    portalPath,
+    Path.dirname(DEV_RUNTIME_PACKAGE_PATHS[AUTHORITATIVE_RUNTIME_PACKAGE]),
+  ].filter((path): path is string => Boolean(path));
 
   for (const localPath of localPaths) {
     const packageJsonPath = Path.join(localPath, 'package.json');
     if (!Fs.existsSync(packageJsonPath)) continue;
 
     const packageJson = JSON.parse(Fs.readFileSync(packageJsonPath, 'utf8')) as { version?: string };
-    if (packageJson.version !== version) continue;
-    return readRuntimeInterfaceSourcesFromDirectory(Path.join(localPath, 'src/interfaces'));
+    if (packageJson.version !== args.version) continue;
+
+    const interfacesDirectory = Path.join(localPath, 'src/interfaces');
+    if (
+      ![
+        'types-lookup.ts',
+        'augment-api-tx.ts',
+        'augment-api-query.ts',
+        'augment-api-events.ts',
+        'augment-api-runtime.ts',
+      ].every(filename => Fs.existsSync(Path.join(interfacesDirectory, filename)))
+    ) {
+      continue;
+    }
+
+    return readRuntimeInterfaceSourcesFromDirectory(interfacesDirectory);
   }
 
   const response = await fetch(
-    `https://registry.npmjs.org/@argonprotocol/mainchain/-/mainchain-${encodeURIComponent(version)}.tgz`,
+    `https://registry.npmjs.org/@argonprotocol/mainchain/-/mainchain-${encodeURIComponent(args.version)}.tgz`,
   );
   if (!response.ok) {
-    throw new Error(`Unable to download ${AUTHORITATIVE_RUNTIME_PACKAGE}@${version}: ${response.status}`);
+    throw new Error(`Unable to download ${AUTHORITATIVE_RUNTIME_PACKAGE}@${args.version}: ${response.status}`);
   }
 
   const archive = gunzipSync(Buffer.from(await response.arrayBuffer()));
-  return readRuntimeInterfaceSourcesFromArchive(archive, version);
+  return readRuntimeInterfaceSourcesFromArchive(archive, args.version);
 }
 
 function readRuntimeInterfaceSourcesFromDirectory(directory: string): RuntimeInterfaceSources {
