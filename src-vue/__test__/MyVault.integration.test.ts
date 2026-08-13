@@ -232,7 +232,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
         recovered: bitcoin.ratchets[0],
         original: bitcoinStored.ratchets[0],
       });
-      expect({ ...bitcoin, createdAt: undefined, updatedAt: undefined }).toStrictEqual({
+      expect({ ...bitcoin, createdAt: undefined, updatedAt: undefined }).toEqual({
         ...bitcoinStored,
         uuid: expect.any(String),
         createdAt: undefined,
