@@ -106,7 +106,11 @@ export default new Operation<IVaultingFlowContext, ITransferOutToEthereumState>(
         1_000,
         async () => {
           if ((await flow.isVisible(moveToEthereumTarget)).clickable) return true;
-          await clickIfVisible(flow, 'WalletOverlay.chooseEthereumWallet()', { timeoutMs: 1_500 });
+          await clickIfVisible(
+            flow,
+            { selector: '[data-testid="WalletOverlay.transferOutPanel"] button[data-wallet-key^="ethereum:"]' },
+            { timeoutMs: 1_500 },
+          );
           return false;
         },
         {

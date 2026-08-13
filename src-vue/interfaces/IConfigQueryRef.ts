@@ -5,4 +5,5 @@ export interface IConfigQueryRef
   showWelcomeOverlay: boolean;
   hasSavedBiddingRules: boolean;
   hasSavedVaultingRules: boolean;
+  isServerAdded: boolean;
 }

@@ -10,7 +10,11 @@ type IConnectServerUiState = {
   dashboardVisible: boolean;
 };
 
-interface IConnectServerState extends IE2EOperationInspectState<Record<string, never>, IConnectServerUiState> {
+type IConnectServerChainState = {
+  isServerAdded: boolean;
+};
+
+interface IConnectServerState extends IE2EOperationInspectState<IConnectServerChainState, IConnectServerUiState> {
   connectEntryVisible: boolean;
   connectOverlayVisible: boolean;
   serverConnected: boolean;
@@ -21,17 +25,18 @@ const DEFAULT_CONNECT_READY_TIMEOUT_MS = 120_000;
 
 export default new Operation<IMiningFlowContext, IConnectServerState>(import.meta, {
   async inspect({ flow }) {
-    const [connectEntry, connectOverlay, dashboard] = await Promise.all([
+    const [setupState, connectEntry, connectOverlay, dashboard] = await Promise.all([
+      flow.queryApp(
+        refs => ({
+          isServerAdded: refs.config.isServerAdded,
+        }),
+        { timeoutMs: 10_000 },
+      ),
       flow.isVisible('SetupChecklist.openServerConnectPanel()'),
       flow.isVisible({ selector: '.ConnectOverlay' }),
       flow.isVisible('MiningDashboard'),
     ]);
-    const connectText = await flow
-      .getText('SetupChecklist.openServerConnectPanel()', { timeoutMs: 2_000 })
-      .catch(() => null);
-    const serverConnected = /used to run your mining software|api key is ready to go|connected and verified/i.test(
-      connectText ?? '',
-    );
+    const serverConnected = setupState?.isServerAdded ?? false;
     const isComplete = serverConnected || dashboard.visible;
     const canRun = connectOverlay.visible || (connectEntry.visible && !serverConnected && !dashboard.visible);
     let operationState: 'complete' | 'runnable' | 'processing' = 'processing';
@@ -46,7 +51,9 @@ export default new Operation<IMiningFlowContext, IConnectServerState>(import.met
       blockers.push('Mining server connect step is not visible.');
     }
     return {
-      chainState: {},
+      chainState: {
+        isServerAdded: serverConnected,
+      },
       uiState: {
         connectEntryVisible: connectEntry.visible,
         connectOverlayVisible: connectOverlay.visible,
