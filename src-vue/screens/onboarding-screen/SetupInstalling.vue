@@ -76,7 +76,7 @@ async function activateMemberOnboarding() {
         unsubscribeProgress = transaction.subscribeToProgress((progress, error) => {
           progressPct.value = progress.progressPct;
           progressLabel.value = generateProgressLabel(progress.confirmations, progress.expectedConfirmations, {
-            prefix: 'Submitted Operator Profile',
+            prefix: 'Submitted Member Onboarding',
             blockType: 'Argon',
           });
           errorMessage.value = error?.message ?? '';
