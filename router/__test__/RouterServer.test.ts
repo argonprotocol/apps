@@ -15,7 +15,12 @@ import {
   type IEthereumGatewayRelayStatus,
   type RouterAuthRole,
 } from '@argonprotocol/apps-core';
-import { getOfflineRegistry, Keyring, type KeyringPair } from '@argonprotocol/mainchain';
+import {
+  getOfflineRegistry,
+  Keyring,
+  type KeyringPair,
+  type PalletTreasuryVaultBondState,
+} from '@argonprotocol/mainchain';
 import { Db as RouterDb } from '../src/Db.ts';
 import { RouterServer } from '../src/RouterServer.ts';
 import type { IRouterAuthServiceOptions } from '../src/RouterAuthService.ts';
@@ -255,7 +260,13 @@ describe('RouterServer', () => {
       }),
     );
     const registry = getOfflineRegistry();
-    const bondLotsByVault = vi.fn().mockResolvedValue(registry.createType('Vec<PalletTreasuryBondLotSummary>', []));
+    const bondLotsByVault = vi.fn().mockResolvedValue(
+      registry.createType<PalletTreasuryVaultBondState>('PalletTreasuryVaultBondState', {
+        regularBondLots: [],
+        flexibleBonds: 0,
+        reservedBondSpace: 0,
+      }),
+    );
     const bondLotIdsByAccount = vi.fn().mockResolvedValue([]);
     const utxoIdsByAccount = new Map([
       [members[1].address, [101]],
