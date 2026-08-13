@@ -554,7 +554,6 @@ export function getOperationalChainProgressFromAccount(
   const operationalMinimumUniswapTransfer = rewardConfig?.operationalMinimumUniswapTransfer ?? 0n;
 
   const bitcoinAccrual = account.vaultBitcoinAccrual.toBigInt();
-  const bitcoinAppliedTotal = account.vaultBitcoinAppliedTotal.toBigInt();
   const miningSeatAccrualValue = account.miningSeatAccrual.toNumber();
   const uniswapArgonTransfersInAmountValue = account.uniswapArgonTransfersInAmount.toBigInt();
   let accessCodePending = entry.accessCodePending;
