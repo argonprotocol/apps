@@ -435,7 +435,7 @@ async function internalHandleBtcChange(value: number) {
   if (value === lastSetBitcoinAmount) {
     return;
   }
-  const satoshis = BigInt(Math.round(value * Number(SATS_PER_BTC)));
+  const satoshis = bigNumberToBigInt(BigNumber(value).multipliedBy(SATS_PER_BTC.toString()));
   lockSatoshis.value = satoshis;
   liquidityToReceive.value = bitcoinLocks.argonLiquidityForSatoshis(satoshis, conversionQuoteMicrogonsPerBtc.value);
   lastSetLiquidityMicrogons.value = liquidityToReceive.value;
