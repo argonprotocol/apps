@@ -5,6 +5,7 @@ import {
   IAllVaultStats,
   MainchainClients,
   MiningFrames,
+  minimumVaultDelegateBalance,
   NetworkConfig,
   TreasuryBonds,
 } from '@argonprotocol/apps-core';
@@ -167,6 +168,10 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       expect(createdVault).toBeTruthy();
       expect(createdVault.vaultId).toBe(1);
       expect(createdVault.operatorAccountId).toBe(walletKeys.vaultingAddress);
+      const delegateAddress = await walletKeys.getVaultDelegateKeypair().then(x => x.address);
+      const delegateBalance = await client.query.system.account(delegateAddress).then(x => x.data.free.toBigInt());
+      expect(createdVault.delegateAccountId).toBe(delegateAddress);
+      expect(delegateBalance).toBeGreaterThanOrEqual(minimumVaultDelegateBalance);
 
       const recovery = MyVaultRecovery.findOperatorVault(clients, BitcoinNetwork.Regtest, walletKeys);
       await expect(recovery).resolves.toBeTruthy();

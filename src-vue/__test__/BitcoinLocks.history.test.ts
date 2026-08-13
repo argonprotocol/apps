@@ -423,7 +423,7 @@ describe('BitcoinLocks historical event replay', () => {
     vi.spyOn(BitcoinLock, 'get').mockResolvedValue(
       new BitcoinLock({
         ...createHistoricalLock({ accountId, liquidityPromised: recoveredLiquidity }),
-        isBackfill,
+        isFlexible: isBackfill,
       }),
     );
     const unknownEvent = historyEvent(157, 'bitcoinLocks', 'BitcoinLockBackfillChanged', {
@@ -440,7 +440,7 @@ describe('BitcoinLocks historical event replay', () => {
     }
 
     await expect(replay).resolves.toBeUndefined();
-    expect(record.lockDetails.isBackfill).toBe(true);
+    expect(record.lockDetails.isFlexible).toBe(true);
     expect(saveRecoveredHistory).toHaveBeenCalledWith(record);
   });
 

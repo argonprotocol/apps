@@ -1,7 +1,13 @@
 import { ITuple, Option, U8aFixed, u8aToHex, Vault } from '@argonprotocol/mainchain';
 import { IVaultingRules } from '../../interfaces/IVaultingRules.ts';
 import BigNumber from 'bignumber.js';
-import { AccountActivityKind, MainchainClients, StorageFinder, TransactionEvents } from '@argonprotocol/apps-core';
+import {
+  AccountActivityKind,
+  getVaultByOperator,
+  MainchainClients,
+  StorageFinder,
+  TransactionEvents,
+} from '@argonprotocol/apps-core';
 import { TICK_MILLIS } from '../Env.ts';
 import { Config } from '../Config.ts';
 import bs58check from 'bs58check';
@@ -67,13 +73,13 @@ export class MyVaultRecovery {
     const client = await mainchainClients.archiveClientPromise;
 
     const vaultingAddress = walletKeys.vaultingAddress;
-    const vaultIdMaybe = await client.query.vaults.vaultIdByOperator(vaultingAddress);
-    if (vaultIdMaybe.isNone) return;
-    const vaultId = vaultIdMaybe.unwrap().toNumber();
-    const vaultRaw = await client.query.vaults.vaultsById(vaultId);
-
-    if (vaultRaw.isNone) throw new Error(`Vault with id ${vaultId} not found`);
-    const vault = new Vault(vaultId, vaultRaw.value, TICK_MILLIS);
+    const vault = await getVaultByOperator({
+      client,
+      operatorAddress: vaultingAddress,
+      tickDurationMillis: TICK_MILLIS,
+    });
+    if (!vault) return;
+    const vaultId = vault.vaultId;
 
     const storedXpubMaybe = await client.query.vaults.vaultXPubById(vaultId);
     const masterXpubPath = await this.recoverXpubPath({

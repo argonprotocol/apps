@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { MiningFrames } from '@argonprotocol/apps-core';
+import { targetVaultDelegateBalance, type MiningFrames } from '@argonprotocol/apps-core';
 import { reactive } from 'vue';
 import { MyVault } from '../lib/MyVault.ts';
 import type BitcoinLocks from '../lib/BitcoinLocks.ts';
@@ -48,7 +48,6 @@ describe('MyVaultRecovery', () => {
         securitizationRatio: 1,
         terms: {
           treasuryProfitSharing: BigNumber(0.1),
-          treasuryBonusProfitSharing: BigNumber(0),
           bitcoinBaseFee: 0n,
           bitcoinAnnualPercentRate: BigNumber(0.02),
         },
@@ -87,6 +86,7 @@ describe('MyVault cosign recovery', () => {
     const unrelatedEvent = eventMatcher('Unrelated');
     const bitcoinEvents = {
       BitcoinLockCreated: eventMatcher('BitcoinLockCreated'),
+      BitcoinLockFlexibleChanged: unrelatedEvent,
       BitcoinLockRatcheted: unrelatedEvent,
       BitcoinUtxoCosignRequested: unrelatedEvent,
       BitcoinUtxoCosigned: unrelatedEvent,
@@ -1143,6 +1143,7 @@ describe('MyVault cosign recovery', () => {
             [ExtrinsicType.VaultSetBitcoinLockDelegate]: completedTxInfo,
           },
         },
+        findLatestTxAttempt: vi.fn().mockResolvedValue(undefined),
         submitAndWatch,
       } as any,
       {
@@ -1166,15 +1167,15 @@ describe('MyVault cosign recovery', () => {
       } as any,
     );
     vi.spyOn(myVault as any, 'refreshExternalLocks').mockResolvedValue(undefined);
-    vi.spyOn(myVault as any, 'buildVaultRelaySetupTxs').mockResolvedValue({
+    vi.spyOn(myVault as any, 'buildVaultDelegateSetupTxs').mockResolvedValue({
       needsSetup: true,
       txs: [{ kind: 'setup' }],
     });
 
     myVault.data.createdVault = myVault.vaults.vaultsById[7];
-    await myVault.setupVaultInviteProfile('OperatorOne');
+    await myVault.setupVaultInviteProfile({ operatorName: 'OperatorOne' });
     await myVault.load(true);
-    const result = await myVault.setupVaultInviteProfile('OperatorOne');
+    const result = await myVault.setupVaultInviteProfile({ operatorName: 'OperatorOne' });
 
     expect(result).toBe(submittedTxInfo);
     expect(submitAndWatch).toHaveBeenCalledTimes(2);
@@ -1182,12 +1183,269 @@ describe('MyVault cosign recovery', () => {
     getMainchainClient.mockRestore();
   });
 
-  it('prepares a first member invite with one on-chain batch', async () => {
-    const submittedTxInfo = createTxInfo({ extrinsicType: ExtrinsicType.VaultSetBackfill });
+  it('resumes pending vault profile setup after restart without submitting it again', async () => {
+    const pending = createTxInfo({
+      extrinsicType: ExtrinsicType.VaultSetBitcoinLockDelegate,
+      status: TransactionStatus.Submitted,
+      submittedAtBlockHeight: 100,
+    });
+    const { myVault, submitAndWatch } = createVault({ txInfos: [pending] });
+    const delegateAddress = await myVault.walletKeys.getVaultDelegateKeypair().then(x => x.address);
+    pending.tx.metadataJson = {
+      vaultId: 7,
+      delegateAddress,
+      vaultName: 'OperatorOne',
+    };
+    myVault.data.createdVault = createTestVault({
+      vaultId: 7,
+      operatorAccountId: myVault.walletKeys.vaultingAddress,
+      delegateAccountId: null,
+    });
+
+    const result = await myVault.setupVaultInviteProfile({ operatorName: 'OperatorOne' });
+
+    expect(result).toBe(pending);
+    expect(submitAndWatch).not.toHaveBeenCalled();
+  });
+
+  it('does not resubmit a finalized vault profile already reflected in vault state', async () => {
+    const finalized = createTxInfo({
+      extrinsicType: ExtrinsicType.VaultSetBitcoinLockDelegate,
+      status: TransactionStatus.Finalized,
+    });
+    const { myVault, submitAndWatch } = createVault({ txInfos: [finalized] });
+    const delegateAddress = await myVault.walletKeys.getVaultDelegateKeypair().then(x => x.address);
+    finalized.tx.metadataJson = {
+      vaultId: 7,
+      delegateAddress,
+      vaultName: 'OperatorOne',
+    };
+    const createdVault = createTestVault({
+      vaultId: 7,
+      operatorAccountId: myVault.walletKeys.vaultingAddress,
+      delegateAccountId: delegateAddress,
+    });
+    Object.defineProperty(createdVault, 'name', { value: 'OperatorOne' });
+    myVault.data.createdVault = createdVault;
+    vi.spyOn(myVault as any, 'buildVaultDelegateSetupTxs').mockResolvedValue({
+      needsSetup: false,
+      txs: [],
+    });
+    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({} as any);
+
+    const result = await myVault.setupVaultInviteProfile({ operatorName: 'OperatorOne' });
+
+    expect(result).toBeUndefined();
+    expect(submitAndWatch).not.toHaveBeenCalled();
+
+    getMainchainClient.mockRestore();
+  });
+
+  it('batches an operational profile name with vault delegate setup', async () => {
+    const submittedTxInfo = createTxInfo({
+      extrinsicType: ExtrinsicType.VaultSetBitcoinLockDelegate,
+    });
+    const setName = vi.fn(name => ({ kind: 'set-operational-name', name }));
+    const batchAll = vi.fn(txs => ({ kind: 'batch', txs }));
+    const client = {
+      tx: {
+        operationalAccounts: { setName },
+        utility: { batchAll },
+        vaults: {},
+      },
+    };
+    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
+    const { myVault, submitAndWatch } = createVault({
+      submitAndWatch: vi.fn().mockResolvedValue(submittedTxInfo),
+    });
+    const signer = await myVault.walletKeys.getVaultingKeypair();
+    const delegateAddress = await myVault.walletKeys.getVaultDelegateKeypair().then(x => x.address);
+    myVault.data.createdVault = createTestVault({
+      vaultId: 7,
+      operatorAccountId: signer.address,
+      delegateAccountId: null,
+    });
+    vi.spyOn(myVault as any, 'buildVaultDelegateSetupTxs').mockResolvedValue({
+      needsSetup: true,
+      txs: [{ kind: 'delegate' }],
+    });
+
+    const result = await myVault.setupVaultInviteProfile({
+      operatorName: 'OperatorOne',
+      currentOperatorName: '',
+    });
+
+    expect(setName).toHaveBeenCalledWith('OperatorOne');
+    expect(batchAll).toHaveBeenCalledWith([
+      { kind: 'delegate' },
+      { kind: 'set-operational-name', name: 'OperatorOne' },
+    ]);
+    expect(submitAndWatch).toHaveBeenCalledWith({
+      tx: { kind: 'batch', txs: expect.any(Array) },
+      txSigner: signer,
+      extrinsicType: ExtrinsicType.VaultSetBitcoinLockDelegate,
+      metadata: {
+        vaultId: 7,
+        delegateAddress,
+        vaultName: 'OperatorOne',
+      },
+    });
+    expect(result).toBe(submittedTxInfo);
+
+    getMainchainClient.mockRestore();
+  });
+
+  it('repairs a mismatched and underfunded vault delegate', async () => {
+    const submittedTxInfo = createTxInfo({
+      extrinsicType: ExtrinsicType.VaultSetBitcoinLockDelegate,
+    });
+    const transferKeepAlive = vi.fn((address, amount) => ({ kind: 'fund-delegate', address, amount }));
+    const setDelegateAccount = vi.fn(address => ({ kind: 'set-delegate', address }));
+    const batchAll = vi.fn(txs => ({ kind: 'batch', txs }));
+    const { myVault, submitAndWatch } = createVault({
+      submitAndWatch: vi.fn().mockResolvedValue(submittedTxInfo),
+    });
+    const delegateAddress = await myVault.walletKeys.getVaultDelegateKeypair().then(x => x.address);
+    const client = {
+      query: {
+        system: {
+          account: vi.fn(async address => ({
+            data: {
+              free: bigintCodec(address === delegateAddress ? 0n : 100_000_000n),
+            },
+          })),
+        },
+      },
+      tx: {
+        balances: { transferKeepAlive },
+        utility: { batchAll },
+        vaults: { setDelegateAccount },
+      },
+    };
+    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
+    Object.assign(myVault.globalCouncil, {
+      buildRegisterCouncilSignerTx: vi.fn().mockResolvedValue(undefined),
+    });
+    myVault.data.createdVault = {
+      vaultId: 7,
+      operatorAccountId: myVault.walletKeys.vaultingAddress,
+      delegateAccountId: 'wrong-delegate',
+    } as Vault;
+
+    const result = await myVault.ensureVaultDelegateReady();
+
+    expect(transferKeepAlive).toHaveBeenCalledWith(delegateAddress, targetVaultDelegateBalance);
+    expect(setDelegateAccount).toHaveBeenCalledWith(delegateAddress);
+    expect(batchAll).toHaveBeenCalledWith([
+      { kind: 'fund-delegate', address: delegateAddress, amount: targetVaultDelegateBalance },
+      { kind: 'set-delegate', address: delegateAddress },
+    ]);
+    expect(submitAndWatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        txSigner: expect.objectContaining({ address: myVault.walletKeys.vaultingAddress }),
+        extrinsicType: ExtrinsicType.VaultSetBitcoinLockDelegate,
+        metadata: { vaultId: 7, delegateAddress },
+      }),
+    );
+    expect(result).toBe(submittedTxInfo);
+
+    getMainchainClient.mockRestore();
+  });
+
+  it('tops up a matching underfunded vault delegate without registering it again', async () => {
+    const submittedTxInfo = createTxInfo({
+      extrinsicType: ExtrinsicType.VaultTopUpBitcoinLockDelegate,
+    });
+    const transferKeepAlive = vi.fn((address, amount) => ({ kind: 'fund-delegate', address, amount }));
+    const setDelegateAccount = vi.fn();
+    const { myVault, submitAndWatch } = createVault({
+      submitAndWatch: vi.fn().mockResolvedValue(submittedTxInfo),
+    });
+    const delegateAddress = await myVault.walletKeys.getVaultDelegateKeypair().then(x => x.address);
+    const client = {
+      query: {
+        system: {
+          account: vi.fn(async () => ({ data: { free: bigintCodec(0n) } })),
+        },
+      },
+      tx: {
+        balances: { transferKeepAlive },
+        vaults: { setDelegateAccount },
+      },
+    };
+    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
+    Object.assign(myVault.globalCouncil, {
+      buildRegisterCouncilSignerTx: vi.fn().mockResolvedValue(undefined),
+    });
+    myVault.data.createdVault = {
+      vaultId: 7,
+      operatorAccountId: myVault.walletKeys.vaultingAddress,
+      delegateAccountId: delegateAddress,
+    } as Vault;
+
+    const result = await myVault.ensureVaultDelegateReady();
+
+    expect(transferKeepAlive).toHaveBeenCalledWith(delegateAddress, targetVaultDelegateBalance);
+    expect(setDelegateAccount).not.toHaveBeenCalled();
+    expect(submitAndWatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tx: { kind: 'fund-delegate', address: delegateAddress, amount: targetVaultDelegateBalance },
+        txSigner: expect.objectContaining({ address: myVault.walletKeys.vaultingAddress }),
+        extrinsicType: ExtrinsicType.VaultTopUpBitcoinLockDelegate,
+        metadata: { vaultId: 7, delegateAddress },
+      }),
+    );
+    expect(result).toBe(submittedTxInfo);
+
+    getMainchainClient.mockRestore();
+  });
+
+  it('resumes a pending delegate top-up instead of transferring twice', async () => {
+    const pendingTopUp = createTxInfo({
+      id: 44,
+      extrinsicType: ExtrinsicType.VaultTopUpBitcoinLockDelegate,
+      status: TransactionStatus.Submitted,
+      submittedAtBlockHeight: 100,
+    });
+    const transferKeepAlive = vi.fn((address, amount) => ({ kind: 'fund-delegate', address, amount }));
+    const { myVault, submitAndWatch } = createVault({ txInfos: [pendingTopUp] });
+    const delegateAddress = await myVault.walletKeys.getVaultDelegateKeypair().then(x => x.address);
+    pendingTopUp.tx.metadataJson = { vaultId: 7, delegateAddress };
+    const client = {
+      query: {
+        system: {
+          account: vi.fn(async () => ({ data: { free: bigintCodec(0n) } })),
+        },
+      },
+      tx: {
+        balances: { transferKeepAlive },
+      },
+    };
+    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
+    Object.assign(myVault.globalCouncil, {
+      buildRegisterCouncilSignerTx: vi.fn().mockResolvedValue(undefined),
+    });
+    myVault.data.createdVault = {
+      vaultId: 7,
+      operatorAccountId: myVault.walletKeys.vaultingAddress,
+      delegateAccountId: delegateAddress,
+    } as Vault;
+
+    const result = await myVault.ensureVaultDelegateReady();
+
+    expect(transferKeepAlive).toHaveBeenCalledWith(delegateAddress, targetVaultDelegateBalance);
+    expect(submitAndWatch).not.toHaveBeenCalled();
+    expect(result).toBe(pendingTopUp);
+
+    getMainchainClient.mockRestore();
+  });
+
+  it('prepares a first member invite with the previous runtime calls in one batch', async () => {
+    const submittedTxInfo = createTxInfo({ extrinsicType: ExtrinsicType.VaultSetFlexibleAssets });
     const batchAll = vi.fn(txs => ({ kind: 'batch', txs }));
     const setName = vi.fn(name => ({ kind: 'name', name }));
-    const setAsBackfill = vi.fn((utxoId, isBackfill) => ({ kind: 'bitcoin', utxoId, isBackfill }));
-    const setBondLotAsBackfill = vi.fn((bondLotId, isBackfill) => ({ kind: 'bond', bondLotId, isBackfill }));
+    const setAsBackfill = vi.fn((utxoId, isFlexible) => ({ kind: 'bitcoin', utxoId, isFlexible }));
+    const setBondLotAsBackfill = vi.fn((bondLotId, isFlexible) => ({ kind: 'bond', bondLotId, isFlexible }));
     const client = {
       tx: {
         utility: { batchAll },
@@ -1201,35 +1459,12 @@ describe('MyVault cosign recovery', () => {
       submitAndWatch: vi.fn().mockResolvedValue(submittedTxInfo),
     });
     const signer = await myVault.walletKeys.getVaultingKeypair();
-    const rawVault = getOfflineRegistry().createType<ArgonPrimitivesVault>('ArgonPrimitivesVault', {
+    myVault.data.createdVault = createTestVault({
+      vaultId: 7,
       operatorAccountId: signer.address,
       delegateAccountId: null,
-      name: null,
-      lastNameChangeTick: null,
-      securitization: 0n,
-      securitizationTarget: 0n,
-      securitizationLocked: 0n,
-      backfillSecuritizationLocked: 0n,
-      backfillSecuritizationReserved: 0n,
-      securitizationPendingActivation: 0n,
-      lockedSatoshis: 0n,
-      securitizedSatoshis: 0n,
-      backfillSecuritizedSatoshis: 0n,
-      securitizationReleaseSchedule: {},
-      securitizationRatio: 1_000_000_000_000_000_000n,
-      isClosed: false,
-      terms: {
-        bitcoinAnnualPercentRate: 0n,
-        bitcoinBaseFee: 0n,
-        treasuryProfitSharing: 0,
-        treasuryBonusProfitSharing: 0,
-      },
-      pendingTerms: null,
-      openedTick: 0n,
-      operationalMinimumReleaseTick: null,
     });
-    myVault.data.createdVault = new Vault(7, rawVault, 1_000);
-    vi.spyOn(myVault as any, 'buildVaultRelaySetupTxs').mockResolvedValue({
+    vi.spyOn(myVault as any, 'buildVaultDelegateSetupTxs').mockResolvedValue({
       needsSetup: true,
       txs: [{ kind: 'delegate' }],
     });
@@ -1242,11 +1477,11 @@ describe('MyVault cosign recovery', () => {
             utxoId: 11,
             vaultId: 7,
             isFunded: true,
-            ownerAccount: signer.address,
             liquidityPromised: 1_000n,
+            ownerAccount: signer.address,
             getReleaseRequest: vi.fn(async () => undefined),
           },
-          isBackfill: true,
+          isFlexible: true,
         },
       ],
       bondChanges: [
@@ -1259,7 +1494,7 @@ describe('MyVault cosign recovery', () => {
             programType: 'Vault',
             isReleasing: false,
           },
-          isBackfill: true,
+          isFlexible: true,
         },
       ],
     });
@@ -1268,12 +1503,12 @@ describe('MyVault cosign recovery', () => {
     expect(batchAll).toHaveBeenCalledWith([
       { kind: 'delegate' },
       { kind: 'name', name: 'OperatorOne' },
-      { kind: 'bitcoin', utxoId: 11, isBackfill: true },
-      { kind: 'bond', bondLotId: 22, isBackfill: true },
+      { kind: 'bitcoin', utxoId: 11, isFlexible: true },
+      { kind: 'bond', bondLotId: 22, isFlexible: true },
     ]);
     expect(submitAndWatch).toHaveBeenCalledWith(
       expect.objectContaining({
-        extrinsicType: ExtrinsicType.VaultSetBackfill,
+        extrinsicType: ExtrinsicType.VaultSetFlexibleAssets,
         metadata: {
           bitcoinChanges: [{ utxoId: 11, isBackfill: true }],
           bondChanges: [{ bondLotId: 22, isBackfill: true }],
@@ -1284,11 +1519,77 @@ describe('MyVault cosign recovery', () => {
     getMainchainClient.mockRestore();
   });
 
+  it('prepares flexible assets with the current runtime calls', async () => {
+    const submittedTxInfo = createTxInfo({ extrinsicType: ExtrinsicType.VaultSetFlexibleAssets });
+    const batchAll = vi.fn(txs => ({ kind: 'batch', txs }));
+    const setFlexible = vi.fn((utxoId, isFlexible) => ({ kind: 'bitcoin', utxoId, isFlexible }));
+    const setBondLotFlexible = vi.fn((bondLotId, isFlexible) => ({ kind: 'bond', bondLotId, isFlexible }));
+    const client = {
+      tx: {
+        utility: { batchAll },
+        bitcoinLocks: { setFlexible },
+        treasury: { setBondLotFlexible },
+      },
+    };
+    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
+    const { myVault, submitAndWatch } = createVault({
+      submitAndWatch: vi.fn().mockResolvedValue(submittedTxInfo),
+    });
+    const signer = await myVault.walletKeys.getVaultingKeypair();
+    myVault.data.createdVault = createTestVault({
+      vaultId: 7,
+      operatorAccountId: signer.address,
+      delegateAccountId: null,
+    });
+
+    const result = await myVault.setFlexibleAssets({
+      bitcoinChanges: [
+        {
+          lock: {
+            utxoId: 11,
+            vaultId: 7,
+            isFunded: true,
+            liquidityPromised: 1_000n,
+            ownerAccount: signer.address,
+            getReleaseRequest: vi.fn(async () => undefined),
+          },
+          isFlexible: true,
+        },
+      ],
+      bondChanges: [
+        {
+          lot: {
+            id: 22,
+            vaultId: 7,
+            accountId: signer.address,
+            isOwn: true,
+            programType: 'Vault',
+            isReleasing: false,
+          },
+          isFlexible: true,
+        },
+      ],
+    });
+
+    expect(result).toBe(submittedTxInfo);
+    expect(batchAll).toHaveBeenCalledWith([
+      { kind: 'bitcoin', utxoId: 11, isFlexible: true },
+      { kind: 'bond', bondLotId: 22, isFlexible: true },
+    ]);
+    expect(submitAndWatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extrinsicType: ExtrinsicType.VaultSetFlexibleAssets,
+      }),
+    );
+
+    getMainchainClient.mockRestore();
+  });
+
   it('does not submit an empty member invite setup batch', async () => {
     const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({} as any);
     const { myVault, submitAndWatch } = createVault();
     myVault.data.createdVault = { name: 'OperatorOne' } as Vault;
-    vi.spyOn(myVault as any, 'buildVaultRelaySetupTxs').mockResolvedValue({
+    vi.spyOn(myVault as any, 'buildVaultDelegateSetupTxs').mockResolvedValue({
       needsSetup: false,
       txs: [],
     });
@@ -1669,6 +1970,18 @@ function createVault(args?: {
     findLatestTxInfo: vi.fn((matcher: (txInfo: TransactionInfo) => boolean) => {
       return txInfos.find(matcher);
     }),
+    findLatestTxAttempt: vi.fn(async (params: Parameters<TransactionTracker['findLatestTxAttempt']>[0]) => {
+      const extrinsicTypes = Array.isArray(params.extrinsicType) ? params.extrinsicType : [params.extrinsicType];
+      const txInfo = txInfos.find(candidate => {
+        return extrinsicTypes.includes(candidate.tx.extrinsicType) && (params.matches?.(candidate) ?? true);
+      });
+      if (!txInfo) return;
+
+      return {
+        txInfo,
+        txAttemptState: await getTxAttemptState(txInfo, params.waitForConfirmations),
+      };
+    }),
     getTxAttemptState,
   } as unknown as TransactionTracker;
   const onFrameId = vi.fn((_callback: (frameId: number) => void) => ({ unsubscribe: vi.fn() }));
@@ -1765,6 +2078,43 @@ function createVault(args?: {
     submitAndWatch,
     trackTxResult,
   };
+}
+
+function createTestVault(args: {
+  vaultId: number;
+  operatorAccountId: string;
+  delegateAccountId: string | null;
+  name?: string;
+}): Vault {
+  const rawVault = getOfflineRegistry().createType<ArgonPrimitivesVault>('ArgonPrimitivesVault', {
+    operatorAccountId: args.operatorAccountId,
+    delegateAccountId: args.delegateAccountId,
+    name: args.name ?? null,
+    lastNameChangeTick: null,
+    securitization: 0n,
+    securitizationTarget: 0n,
+    securitizationLocked: 0n,
+    flexibleSecuritizationLocked: 0n,
+    reservedSecuritizationSpace: 0n,
+    securitizationPendingActivation: 0n,
+    lockedSatoshis: 0n,
+    securitizedSatoshis: 0n,
+    flexibleSecuritizedSatoshis: 0,
+    securitizationReleaseSchedule: {},
+    securitizationRatio: 1_000_000_000_000_000_000n,
+    isClosed: false,
+    terms: {
+      bitcoinAnnualPercentRate: 0n,
+      bitcoinBaseFee: 0n,
+      treasuryProfitSharing: 0,
+      treasuryBonusProfitSharing: 0,
+    },
+    pendingTerms: null,
+    openedTick: 0n,
+    operationalMinimumReleaseTick: null,
+  });
+
+  return new Vault(args.vaultId, rawVault, 1_000);
 }
 
 function createMockTxResultTx() {

@@ -1,5 +1,6 @@
 import {
   Currency,
+  getVaultByOperator,
   getBootstrapEndpointPubkey,
   InviteEnvelope,
   JsonExt,
@@ -9,8 +10,9 @@ import {
   UnitOfMeasurement,
 } from '@argonprotocol/apps-core';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
-import { BitcoinLock, Vault } from '@argonprotocol/mainchain';
+import { BitcoinLock } from '@argonprotocol/mainchain';
 import { BootstrapRecovery } from 'src-vue/lib/BootstrapRecovery.ts';
+import { loadOperationalAccountSetup } from 'src-vue/lib/OperationalAccount.ts';
 import { ServerAuthClient } from 'src-vue/lib/ServerAuthClient.ts';
 import {
   createDevUpstreamWalletKeys,
@@ -55,22 +57,23 @@ try {
     }
   }
 
-  const vault = await waitFor(
+  const readyOperator = await waitFor(
     45e3,
-    'upstream vault invite setup',
+    'upstream operator profile setup',
     async () => {
-      const vaultId = await client.query.vaults.vaultIdByOperator(walletKeys.vaultingAddress);
-      if (vaultId.isNone) return;
+      const vault = await getVaultByOperator({ client, operatorAddress: walletKeys.vaultingAddress });
+      if (!vault) return;
 
-      const currentVault = await Vault.get(client, vaultId.unwrap().toNumber());
-      if (currentVault.name !== 'Testing' || !currentVault.delegateAccountId) return;
+      const setup = await loadOperationalAccountSetup({ client, walletKeys, vault });
+      if (setup.operatorName !== 'Testing' || !setup.vaultDelegateIsReady) return;
 
-      return currentVault;
+      return { setup, vault };
     },
     {
-      timeoutMessage: 'The upstream server has not finished registering its vault name and delegate.',
+      timeoutMessage: 'The upstream server has not finished activating its operator profile and vault delegate.',
     },
   );
+  const { setup, vault } = readyOperator;
   const inviteLiquidityMicrogons = 1_000n * BigInt(MICROGONS_PER_ARGON);
   const maxSatoshis = BitcoinLock.satoshisRequiredForRedemptionAmount(
     currency.priceIndex,
@@ -81,7 +84,7 @@ try {
     currency.convertMicrogonTo(vault.calculateBitcoinFee(fullLockAmount), UnitOfMeasurement.USD),
   );
   const btcPctFee = vault.terms.bitcoinAnnualPercentRate.times(100).toNumber();
-  const fromName = vault.name!;
+  const fromName = setup.operatorName;
 
   const serverAuthClient = new ServerAuthClient(() => walletKeys);
   await waitFor(45e3, 'upstream bot ready', async () => {

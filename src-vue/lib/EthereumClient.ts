@@ -981,9 +981,9 @@ async function getReadyEthereumGatewayUpdates(
       functionName: 'paused',
     }),
   ]);
-  const argonApprovalsNonce = rawArgonApprovalsNonce as bigint;
-  const argonApprovalsHash = rawArgonApprovalsHash as Hex;
-  const paused = rawPaused as boolean;
+  const argonApprovalsNonce = rawArgonApprovalsNonce;
+  const argonApprovalsHash = rawArgonApprovalsHash;
+  const paused = rawPaused;
   const relayableUpdates: RelayableGatewayUpdate[] = [];
   let expectedPreviousApprovalHash = argonApprovalsHash;
 
@@ -1035,8 +1035,6 @@ async function getReadyEthereumGatewayUpdates(
     readyRelayableUpdates = lastOwnedUpdateIndex >= 0 ? relayableUpdates.slice(0, lastOwnedUpdateIndex + 1) : [];
   }
 
-  // ESLint loses the ABI-derived update type through the EvmContracts namespace here.
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
   const updates = readyRelayableUpdates.map(({ update }) => update);
   for (let index = 0; index < updates.length; index += 1) {
     const isBorder =
@@ -1064,9 +1062,6 @@ async function getReadyEthereumGatewayUpdates(
   };
 }
 
-// The published mainchain declarations reference a missing generated module, so ESLint sees these
-// native EvmContracts helpers as error-typed even though the runtime exports are present.
-/* eslint-disable @typescript-eslint/no-unsafe-call */
 async function buildGatewayUpdate(
   finalizedClient: IArgonQueryable,
   hashContext: MintingGatewayHashContext,
@@ -1285,8 +1280,6 @@ function councilToSnapshot(council: LoadedCouncil): IEthereumGatewayCouncilSnaps
     weights: council.members.map(member => member.weight),
   };
 }
-
-/* eslint-enable @typescript-eslint/no-unsafe-call */
 
 function calculateExpectedGatewayRelayRepaymentMicrogons(args: {
   relayableUpdates: RelayableGatewayUpdate[];

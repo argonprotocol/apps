@@ -284,7 +284,7 @@ export default class BitcoinLocks {
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   }
 
-  public async getEligibleBackfillLocks({
+  public async getEligibleFlexibleLocks({
     vaultId,
     operatorAddress,
     client,
@@ -803,7 +803,7 @@ export default class BitcoinLocks {
     vault: Vault;
     lockOwner?: string;
     maxSatoshis?: bigint;
-    projectedBackfillSecuritizationLocked?: bigint;
+    projectedFlexibleSecuritizationLocked?: bigint;
     microgonsAtTargetPerBtc?: bigint;
   }): Promise<{
     availableSatoshis: bigint;
@@ -811,17 +811,17 @@ export default class BitcoinLocks {
     vaultCapacitySatoshis: bigint;
     vaultCapacityLiquidityMicrogons: bigint;
   }> {
-    const { vault, lockOwner, maxSatoshis, projectedBackfillSecuritizationLocked, microgonsAtTargetPerBtc } = args;
+    const { vault, lockOwner, maxSatoshis, projectedFlexibleSecuritizationLocked, microgonsAtTargetPerBtc } = args;
     let vaultCapacityLiquidityMicrogons: bigint;
-    if (projectedBackfillSecuritizationLocked == null) {
+    if (projectedFlexibleSecuritizationLocked == null) {
       vaultCapacityLiquidityMicrogons = vault.availableBitcoinSpace(lockOwner) ?? 0n;
     } else {
       const projectedOrdinarySecuritizationLocked = bigIntMax(
-        vault.securitizationLocked - projectedBackfillSecuritizationLocked,
+        vault.securitizationLocked - projectedFlexibleSecuritizationLocked,
         0n,
       );
       const projectedAvailableSecuritization = bigIntMax(
-        vault.securitization - projectedOrdinarySecuritizationLocked - vault.backfillSecuritizationReserved,
+        vault.securitization - projectedOrdinarySecuritizationLocked - vault.reservedSecuritizationSpace,
         0n,
       );
       vaultCapacityLiquidityMicrogons = bigNumberToBigInt(
@@ -1502,7 +1502,7 @@ export default class BitcoinLocks {
     const oldTargetPrice = bitcoinLock.lockedTargetPrice;
     const newTargetPrice = this.#currency.priceIndex.getSatoshiPriceInTargetMicrogons(lock.satoshis);
     const securitizationRatio = (await this.getLockSecuritizationRatio(client, lock)) ?? vault.securitizationRatioBN();
-    const availableVaultFunds = vault.availableSecuritization(bitcoinLock.ownerAccount);
+    const availableVaultFunds = vault.availableSecuritizationSpace(bitcoinLock.ownerAccount);
     const isUpRatchet = newTargetPrice > oldTargetPrice;
 
     const newLiquidityPromised = BitcoinLock.calculateRedemptionAmount(this.#currency.priceIndex, newTargetPrice);
@@ -1516,31 +1516,31 @@ export default class BitcoinLocks {
     }
 
     const shortfall = requiredVaultFunds > availableVaultFunds ? requiredVaultFunds - availableVaultFunds : 0n;
-    let backfillSecuritizationShortfall = 0n;
+    let flexibleSecuritizationShortfall = 0n;
 
-    if (bitcoinLock.isBackfill) {
-      const currentBackfillSecuritization = bigNumberToBigInt(
+    if (bitcoinLock.isFlexible) {
+      const currentFlexibleSecuritization = bigNumberToBigInt(
         securitizationRatio.multipliedBy(bitcoinLock.liquidityPromised),
       );
-      const newBackfillSecuritization = bigNumberToBigInt(securitizationRatio.multipliedBy(newLiquidityPromised));
-      const projectedBackfillSecuritization =
-        bigIntMax(vault.backfillSecuritizationLocked - currentBackfillSecuritization, 0n) + newBackfillSecuritization;
-      const publicSecuritizationLocked = bigIntMax(vault.securitizationLocked - vault.backfillSecuritizationLocked, 0n);
-      const supportedBackfillSecuritization = bigIntMax(vault.securitization - publicSecuritizationLocked, 0n);
-      backfillSecuritizationShortfall = bigIntMax(
-        projectedBackfillSecuritization - supportedBackfillSecuritization,
+      const newFlexibleSecuritization = bigNumberToBigInt(securitizationRatio.multipliedBy(newLiquidityPromised));
+      const projectedFlexibleSecuritization =
+        bigIntMax(vault.flexibleSecuritizationLocked - currentFlexibleSecuritization, 0n) + newFlexibleSecuritization;
+      const publicSecuritizationLocked = bigIntMax(vault.securitizationLocked - vault.flexibleSecuritizationLocked, 0n);
+      const supportedFlexibleSecuritization = bigIntMax(vault.securitization - publicSecuritizationLocked, 0n);
+      flexibleSecuritizationShortfall = bigIntMax(
+        projectedFlexibleSecuritization - supportedFlexibleSecuritization,
         0n,
       );
     }
-    const isOperatorBackfill = bitcoinLock.isBackfill && bitcoinLock.ownerAccount === vault.operatorAccountId;
-    const securitizationToAdd = isOperatorBackfill ? bigIntMax(shortfall, backfillSecuritizationShortfall) : 0n;
-    const hasSufficientSecuritization = shortfall === 0n && backfillSecuritizationShortfall === 0n;
+    const isOperatorFlexible = bitcoinLock.isFlexible && bitcoinLock.ownerAccount === vault.operatorAccountId;
+    const securitizationToAdd = isOperatorFlexible ? bigIntMax(shortfall, flexibleSecuritizationShortfall) : 0n;
+    const hasSufficientSecuritization = shortfall === 0n && flexibleSecuritizationShortfall === 0n;
 
     return {
       additionalLiquidityToMint,
       availableVaultFunds,
       burnAmount,
-      canRatchet: (hasSufficientSecuritization || isOperatorBackfill) && newTargetPrice !== oldTargetPrice,
+      canRatchet: (hasSufficientSecuritization || isOperatorFlexible) && newTargetPrice !== oldTargetPrice,
       currentLiquidityPromised: bitcoinLock.liquidityPromised,
       newLiquidityPromised,
       ratchetingFee,
@@ -3144,7 +3144,7 @@ export default class BitcoinLocks {
       await table.saveRecoveredHistory(lock);
       return;
     }
-    if (lock.lockDetails.isBackfill === bitcoinLock.isBackfill) return;
+    if (lock.lockDetails.isFlexible === bitcoinLock.isFlexible) return;
 
     this.applyLatestLockDetails(lock, bitcoinLock);
     const table = await this.getTable();

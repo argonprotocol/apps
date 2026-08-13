@@ -11,6 +11,7 @@ import {
   MainchainClients,
   MiningFrames,
   NetworkConfig,
+  type RuntimeSpec157,
   SATOSHIS_PER_BITCOIN,
   TransactionEvents,
 } from '@argonprotocol/apps-core';
@@ -22,10 +23,8 @@ import {
   type ISubmittableResult,
   PriceIndex,
   type SignedBlock,
-  type SubmittableExtrinsic,
   Vault,
 } from '@argonprotocol/mainchain';
-import type { AugmentedSubmittable } from '@polkadot/api-base/types';
 import { nanoid } from 'nanoid';
 import type { Db } from './Db.ts';
 import { DelegateSubmitLane } from './DelegateSubmitLane.ts';
@@ -50,10 +49,6 @@ type IRelayEventData = {
   blockHashHex: string;
   createdUtxoId?: number;
 };
-
-type InitializeFor = ArgonClient['tx']['bitcoinLocks']['initializeFor'];
-type Spec156InitializeForArgs = Parameters<InitializeFor> extends [...infer Args, unknown] ? Args : never;
-type Spec156InitializeFor = AugmentedSubmittable<(...args: Spec156InitializeForArgs) => ReturnType<InitializeFor>>;
 
 const RELAY_FINALIZATION_CONFIRMATIONS = 4;
 
@@ -286,22 +281,20 @@ export class BitcoinLockRelayService {
         await this.ensureVaultLoaded();
       }
 
-      const initializeFor: InitializeFor | Spec156InitializeFor = client.tx.bitcoinLocks.initializeFor;
-      let tx: SubmittableExtrinsic;
-      if (isSpec156InitializeFor(initializeFor)) {
-        tx = initializeFor(ownerAccountId, this.vaultId!, requestedSatoshis, ownerBitcoinPubkey, {
-          V1: { microgonsAtTargetPerBtc },
-        });
-      } else {
-        tx = initializeFor(
-          ownerAccountId,
-          this.vaultId!,
-          requestedSatoshis,
-          ownerBitcoinPubkey,
-          { V1: { microgonsAtTargetPerBtc } },
-          0n,
-        );
+      const bitcoinLocks = client.tx.bitcoinLocks as
+        | ArgonClient['tx']['bitcoinLocks']
+        | RuntimeSpec157.Transactions<'promise'>['bitcoinLocks'];
+      if (!('initializeFor' in bitcoinLocks)) {
+        throw new HttpError('This runtime requires the Bitcoin lock owner to submit initialization directly.', 409);
       }
+      const tx = bitcoinLocks.initializeFor(
+        ownerAccountId,
+        this.vaultId!,
+        requestedSatoshis,
+        ownerBitcoinPubkey,
+        { V1: { microgonsAtTargetPerBtc } },
+        0n,
+      );
       const txSubmittedAtBlockHeight = this.blockWatch.bestBlockHeader.blockNumber;
       const txSubmittedAtTime = new Date();
       const relayMortalityBlocks = getRelayMortalityBlocks();
@@ -401,7 +394,7 @@ export class BitcoinLockRelayService {
       (total, relay) => total + (relay.securitizationUsedMicrogons ?? 0n),
       0n,
     );
-    const availableSecuritization = latestVault.availableSecuritization();
+    const availableSecuritization = latestVault.availableSecuritizationSpace();
 
     if (availableSecuritization < requiredSecuritization + pendingSubmittedSecuritization) {
       const totalRequiredSecuritization = requiredSecuritization + pendingSubmittedSecuritization;
@@ -721,12 +714,6 @@ function extractCreatedLockEvent(client: ArgonClient, events: GenericEvent[]) {
 
 function getRelayMortalityBlocks(): number {
   return NetworkConfig.canFrameBeZero() ? 32 : 8;
-}
-
-function isSpec156InitializeFor(
-  initializeFor: InitializeFor | Spec156InitializeFor,
-): initializeFor is Spec156InitializeFor {
-  return initializeFor.meta.args.length === 5;
 }
 
 function isMissingVaultError(error: unknown): boolean {

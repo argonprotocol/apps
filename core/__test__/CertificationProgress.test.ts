@@ -53,64 +53,25 @@ describe('CertificationProgress', () => {
     expect(countCompletedOperationalCertificationRequirements(progress)).toBe(3);
   });
 
-  it('uses the deployed v1.4.9 operational account fields when they are present', () => {
-    const progress = getCertificationProgressFromOperationalAccount(
-      some({
-        vaultCreated: boolCodec(false),
-        hasUniswapTransfer: boolCodec(true),
-        isOperational: boolCodec(true),
-        miningSeatAccrual: numberCodec(0),
-        miningSeatAppliedTotal: numberCodec(1),
-        accountBitcoinAmount: bigintCodec(0n),
-        accountVaultBondAmount: bigintCodec(0n),
-        bitcoinAccrual: bigintCodec(1n),
-        bitcoinAppliedTotal: bigintCodec(0n),
-        hasTreasuryPoolParticipation: boolCodec(true),
-      }),
-      {
-        treasuryMinimumBitcoin: 10n,
-        treasuryMinimumBonds: 8n,
-        treasuryMinimumUniswapTransfer: 12n,
-        operationalMinimumVaultSecuritization: 12n,
-        operationalMinimumUniswapTransfer: 13n,
-        miningSeatsForOperational: 2,
-      },
-    );
-
-    expect(progress.hasOperationalAccount).toBe(true);
-    expect(progress.isTreasuryCertified).toBe(true);
-    expect(progress.hasTreasuryBitcoin).toBe(true);
-    expect(progress.hasTreasuryBonds).toBe(true);
-    expect(progress.hasTreasuryUniswapTransfer).toBe(true);
-    expect(progress.treasuryBitcoinAmount).toBe(1n);
-    expect(progress.treasuryBondAmount).toBeUndefined();
-    expect(progress.isUpgradedToOperations).toBe(true);
-    expect(progress.hasOperationalVault).toBe(false);
-    expect(progress.hasOperationalMiningSeats).toBe(false);
-    expect(progress.hasOperationalUniswapTransfer).toBe(true);
-    expect(progress.isOperationallyCertified).toBe(true);
-    expect(countCompletedTreasuryCertificationRequirements(progress)).toBe(3);
-    expect(countCompletedOperationalCertificationRequirements(progress)).toBe(1);
-  });
-
-  it('falls back to the deployed boolean treasury requirements before the runtime upgrade', () => {
+  it('loads certification thresholds from the supported operational account constants', () => {
     const client = {
       consts: {
         operationalAccounts: {
+          minimumBitcoin: bigintCodec(10n),
+          minimumBonds: bigintCodec(8n),
+          minimumUniswapTransfer: bigintCodec(12n),
+          operationalMinimumUniswapTransfer: bigintCodec(13n),
           operationalMinimumVaultSecuritization: bigintCodec(12n),
           miningSeatsForOperational: numberCodec(2),
-        },
-        vaults: {
-          operationalMinimumVaultSecuritization: bigintCodec(12n),
         },
       },
     };
 
     expect(getCertificationThresholds(client as any)).toEqual({
-      treasuryMinimumBitcoin: 1n,
-      treasuryMinimumBonds: 1n,
-      treasuryMinimumUniswapTransfer: 1n,
-      operationalMinimumUniswapTransfer: 1n,
+      treasuryMinimumBitcoin: 10n,
+      treasuryMinimumBonds: 8n,
+      treasuryMinimumUniswapTransfer: 12n,
+      operationalMinimumUniswapTransfer: 13n,
       operationalMinimumVaultSecuritization: 12n,
       miningSeatsForOperational: 2,
     });

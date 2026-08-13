@@ -6,6 +6,7 @@ import {
   FIXED_U128_DECIMALS,
   hexToU8a,
   IBitcoinLock,
+  type IArgonQueryable,
   ITxProgressCallback,
   PalletVaultsVaultFrameRevenue,
   type Option,
@@ -36,9 +37,10 @@ import {
   MoveFrom,
   MoveTo,
   NetworkConfig,
+  type RuntimeSpec157,
   SingleFileQueue,
-  targetVaultDelegateBalance,
   TreasuryBonds,
+  targetVaultDelegateBalance,
   vaultDelegateFeeBuffer,
 } from '@argonprotocol/apps-core';
 import { IVaultRecord, VaultsTable } from './db/VaultsTable.ts';
@@ -59,12 +61,9 @@ import { ICollectOrphanCosignMetadata, IVaultCollectMetadata, VaultCollectBuilde
 import { getSpendableDefaultArgonMicrogons } from './WalletForArgon.ts';
 import bs58check from 'bs58check';
 import { VaultHistory } from './recovery/MyVault.ts';
+import { isValidOperatorName, OPERATOR_NAME_REQUIREMENTS } from './Utils.ts';
 
 export const DEFAULT_MASTER_XPUB_PATH = "m/84'/0'/0'";
-
-export function supportsFlexibleAssetsRuntime(client: ArgonClient): boolean {
-  return 'setAsBackfill' in client.tx.bitcoinLocks && 'setBondLotAsBackfill' in client.tx.treasury;
-}
 
 type IPendingCosignUtxo = {
   targetValue: bigint;
@@ -98,7 +97,8 @@ export type IVaultCommittedArgonotsMetadata = {
   vaultId: number;
 };
 
-export type IVaultBackfillMetadata = {
+// These field names are persisted in transaction history from earlier app versions.
+export type IVaultFlexibleAssetMetadata = {
   bitcoinChanges: {
     utxoId: number;
     isBackfill: boolean;
@@ -109,17 +109,17 @@ export type IVaultBackfillMetadata = {
   }[];
 };
 
-export type IVaultBackfillChanges = {
+export type IVaultFlexibleAssetChanges = {
   bitcoinChanges: {
     lock: Pick<
       BitcoinLock,
       'utxoId' | 'vaultId' | 'isFunded' | 'ownerAccount' | 'liquidityPromised' | 'getReleaseRequest'
     >;
-    isBackfill: boolean;
+    isFlexible: boolean;
   }[];
   bondChanges: {
     lot: Pick<BondLot, 'id' | 'vaultId' | 'accountId' | 'isOwn' | 'programType' | 'isReleasing'>;
-    isBackfill: boolean;
+    isFlexible: boolean;
   }[];
 };
 
@@ -127,13 +127,22 @@ export type IVaultBackfillChanges = {
 const COSIGN_ATTEMPT_CONFIRMATIONS_TO_WAIT = 2;
 
 export class MyVault {
-  // The shared vault delegate now fronts both bitcoin lock relay work and Ethereum proof/beacon relay submissions.
-  public static async getVaultDelegateTopUpAmount(client: ArgonClient, delegateAddress: string): Promise<bigint> {
+  public static async getVaultDelegateTopUpAmount(client: IArgonQueryable, delegateAddress: string): Promise<bigint> {
     const delegateBalance = await client.query.system.account(delegateAddress).then(x => x.data.free.toBigInt());
     if (delegateBalance >= minimumVaultDelegateBalance) {
       return 0n;
     }
     return targetVaultDelegateBalance - delegateBalance;
+  }
+
+  public static async isVaultDelegateReady(
+    client: IArgonQueryable,
+    vault: Pick<Vault, 'delegateAccountId'>,
+    delegateAddress: string,
+  ): Promise<boolean> {
+    if (vault.delegateAccountId !== delegateAddress) return false;
+
+    return (await MyVault.getVaultDelegateTopUpAmount(client, delegateAddress)) === 0n;
   }
 
   public data: {
@@ -540,6 +549,13 @@ export class MyVault {
     if (vaultId == null) return;
 
     const typeClient = await getMainchainClient(false);
+    const bitcoinLockEvents = typeClient.events.bitcoinLocks as
+      | ArgonClient['events']['bitcoinLocks']
+      | RuntimeSpec157.Events<'promise'>['bitcoinLocks'];
+    const bitcoinLockFlexibilityChanged =
+      'BitcoinLockFlexibleChanged' in bitcoinLockEvents
+        ? bitcoinLockEvents.BitcoinLockFlexibleChanged
+        : bitcoinLockEvents.BitcoinLockBackfillChanged;
     let latestApiClient: ApiDecoration<'promise'> | undefined;
     for (const header of headers) {
       const events = await this.miningFrames.blockWatch.getEvents(header);
@@ -550,7 +566,7 @@ export class MyVault {
           typeClient.events.bitcoinLocks.BitcoinLockRatcheted.is(event) ||
           typeClient.events.bitcoinLocks.UtxoFundedFromCandidate?.is(event) ||
           typeClient.events.bitcoinLocks.SecuritizationIncreased?.is(event) ||
-          typeClient.events.bitcoinLocks.BitcoinLockBackfillChanged?.is(event) ||
+          bitcoinLockFlexibilityChanged.is(event) ||
           typeClient.events.bitcoinLocks.BitcoinUtxoCosignRequested.is(event) ||
           typeClient.events.bitcoinLocks.BitcoinUtxoCosigned.is(event) ||
           typeClient.events.bitcoinLocks.BitcoinCosignPastDue.is(event) ||
@@ -682,8 +698,8 @@ export class MyVault {
     if (!nextVaultName) {
       throw new Error('A vault name is required to enable member invites.');
     }
-    if (!/^[A-Z][A-Za-z0-9]{0,17}$/.test(nextVaultName)) {
-      throw new Error('Vault name must start with a capital letter and use up to 18 letters or numbers.');
+    if (!isValidOperatorName(nextVaultName)) {
+      throw new Error(OPERATOR_NAME_REQUIREMENTS);
     }
     if (currentVaultName === nextVaultName) {
       return;
@@ -692,8 +708,8 @@ export class MyVault {
     return await this.#vaultQueue.add(async () => {
       const client = await getMainchainClient(false);
       const txSigner = await this.walletKeys.getVaultingKeypair();
-      const info = await this.#transactionTracker.submitAndWatch({
-        tx: client.tx.vaults.setName(nextVaultName),
+      const txInfo = await this.#transactionTracker.submitAndWatch({
+        tx: this.buildOperatorNameTx(client, nextVaultName),
         txSigner,
         extrinsicType: ExtrinsicType.VaultModifySettings,
         metadata: {
@@ -701,44 +717,70 @@ export class MyVault {
           vaultName: nextVaultName,
         },
       });
-      void this.onModifySettings(info);
-      return info;
+      void this.onModifySettings(txInfo);
+      return txInfo;
     }).promise;
   }
 
-  public async setupVaultInviteProfile(vaultName: string): Promise<TransactionInfo | undefined> {
+  public async setupVaultInviteProfile(args: {
+    operatorName: string;
+    currentOperatorName?: string;
+  }): Promise<TransactionInfo | undefined> {
     if (!this.createdVault) return;
 
-    const currentVaultName = this.createdVault.name;
-    const nextVaultName = vaultName.trim();
-    if (!nextVaultName) {
+    const operatorName = args.operatorName.trim();
+    if (!operatorName) {
       throw new Error('A vault name is required to enable member invites.');
     }
-    if (!/^[A-Z][A-Za-z0-9]{0,17}$/.test(nextVaultName)) {
-      throw new Error('Vault name must start with a capital letter and use up to 18 letters or numbers.');
+    if (!isValidOperatorName(operatorName)) {
+      throw new Error(OPERATOR_NAME_REQUIREMENTS);
     }
 
     return await this.#vaultQueue.add(async () => {
+      const delegateAddress = await this.walletKeys.getVaultDelegateKeypair().then(x => x.address);
+      const vaultId = this.createdVault!.vaultId;
+      const pendingAttempt = await this.#transactionTracker.findLatestTxAttempt<{
+        vaultId?: number;
+        delegateAddress?: string;
+        vaultName?: string;
+      }>({
+        extrinsicType: ExtrinsicType.VaultSetBitcoinLockDelegate,
+        waitForConfirmations: 2,
+        matches: txInfo => {
+          return (
+            txInfo.tx.metadataJson.vaultId === vaultId &&
+            txInfo.tx.metadataJson.delegateAddress === delegateAddress &&
+            txInfo.tx.metadataJson.vaultName === operatorName
+          );
+        },
+      });
+      if (pendingAttempt?.txAttemptState === TxAttemptState.Pending) {
+        return pendingAttempt.txInfo;
+      }
+      if (pendingAttempt) {
+        this.#singleRunTransactions.delete(ExtrinsicType.VaultSetBitcoinLockDelegate);
+      }
+
       const existing = this.#singleRunTransactions.get(ExtrinsicType.VaultSetBitcoinLockDelegate);
       if (existing) {
         return await existing;
       }
 
+      const client = await getMainchainClient(false);
+      const { txs } = await this.buildVaultDelegateSetupTxs({
+        client,
+        delegateAddress,
+      });
+      const currentOperatorName = args.currentOperatorName ?? this.createdVault?.name;
+      if (currentOperatorName?.trim() !== operatorName) {
+        txs.push(this.buildOperatorNameTx(client, operatorName));
+      }
+      if (!txs.length) return;
+
       const deferred = createDeferred<TransactionInfo>();
       this.#singleRunTransactions.set(ExtrinsicType.VaultSetBitcoinLockDelegate, deferred.promise);
 
       try {
-        const delegateAddress = await this.walletKeys.getVaultDelegateKeypair().then(x => x.address);
-        const client = await getMainchainClient(false);
-        const vaultId = this.createdVault!.vaultId;
-        const { txs } = await this.buildVaultRelaySetupTxs({
-          client,
-          delegateAddress,
-        });
-        if (currentVaultName !== nextVaultName) {
-          txs.push(client.tx.vaults.setName(nextVaultName));
-        }
-
         const txSigner = await this.walletKeys.getVaultingKeypair();
         const txInfo = await this.#transactionTracker.submitAndWatch({
           tx: client.tx.utility.batchAll(txs),
@@ -747,7 +789,7 @@ export class MyVault {
           metadata: {
             vaultId,
             delegateAddress,
-            vaultName: nextVaultName,
+            vaultName: operatorName,
           },
         });
         deferred.resolve(txInfo);
@@ -760,37 +802,33 @@ export class MyVault {
     }).promise;
   }
 
-  public async setBackfill({
+  public async setFlexibleAssets({
     bitcoinChanges,
     bondChanges,
     client,
-  }: IVaultBackfillChanges & { client?: ArgonClient }): Promise<TransactionInfo<IVaultBackfillMetadata>> {
+  }: IVaultFlexibleAssetChanges & { client?: ArgonClient }): Promise<TransactionInfo<IVaultFlexibleAssetMetadata>> {
     const vault = this.createdVault;
     if (!vault) {
-      throw new Error('Create your vault before managing backfill.');
+      throw new Error('Create your vault before managing flexible assets.');
     }
     if (!bitcoinChanges.length && !bondChanges.length) {
-      throw new Error('Select at least one backfill change.');
+      throw new Error('Select at least one flexible asset change.');
     }
 
     client ??= await getMainchainClient(false);
     const signer = await this.walletKeys.getVaultingKeypair();
-    const txs = await this.buildBackfillTxs({ bitcoinChanges, bondChanges, client, signerAddress: signer.address });
+    const txs = await this.buildFlexibleAssetTxs({
+      bitcoinChanges,
+      bondChanges,
+      client,
+      signerAddress: signer.address,
+    });
 
     return await this.#transactionTracker.submitAndWatch({
       tx: txs.length === 1 ? txs[0] : client.tx.utility.batchAll(txs),
       txSigner: signer,
-      extrinsicType: ExtrinsicType.VaultSetBackfill,
-      metadata: {
-        bitcoinChanges: bitcoinChanges.map(({ lock, isBackfill }) => ({
-          utxoId: lock.utxoId,
-          isBackfill,
-        })),
-        bondChanges: bondChanges.map(({ lot, isBackfill }) => ({
-          bondLotId: lot.id,
-          isBackfill,
-        })),
-      },
+      extrinsicType: ExtrinsicType.VaultSetFlexibleAssets,
+      metadata: serializeFlexibleAssetMetadata({ bitcoinChanges, bondChanges }),
     });
   }
 
@@ -798,7 +836,9 @@ export class MyVault {
     vaultName,
     bitcoinChanges,
     bondChanges,
-  }: IVaultBackfillChanges & { vaultName: string }): Promise<TransactionInfo<IVaultBackfillMetadata> | undefined> {
+  }: IVaultFlexibleAssetChanges & { vaultName: string }): Promise<
+    TransactionInfo<IVaultFlexibleAssetMetadata> | undefined
+  > {
     const vault = this.createdVault;
     if (!vault) {
       throw new Error('Create your vault before sending member invites.');
@@ -808,22 +848,22 @@ export class MyVault {
     if (!nextVaultName) {
       throw new Error('A vault name is required to enable member invites.');
     }
-    if (!/^[A-Z][A-Za-z0-9]{0,17}$/.test(nextVaultName)) {
-      throw new Error('Vault name must start with a capital letter and use up to 18 letters or numbers.');
+    if (!isValidOperatorName(nextVaultName)) {
+      throw new Error(OPERATOR_NAME_REQUIREMENTS);
     }
 
     return await this.#vaultQueue.add(async () => {
       const client = await getMainchainClient(false);
       const signer = await this.walletKeys.getVaultingKeypair();
       const delegateAddress = await this.walletKeys.getVaultDelegateKeypair().then(x => x.address);
-      const { txs } = await this.buildVaultRelaySetupTxs({ client, delegateAddress });
+      const { txs } = await this.buildVaultDelegateSetupTxs({ client, delegateAddress });
 
       if (vault.name !== nextVaultName) {
-        txs.push(client.tx.vaults.setName(nextVaultName));
+        txs.push(this.buildOperatorNameTx(client, nextVaultName));
       }
 
       txs.push(
-        ...(await this.buildBackfillTxs({
+        ...(await this.buildFlexibleAssetTxs({
           bitcoinChanges,
           bondChanges,
           client,
@@ -836,16 +876,14 @@ export class MyVault {
       return await this.#transactionTracker.submitAndWatch({
         tx: txs.length === 1 ? txs[0] : client.tx.utility.batchAll(txs),
         txSigner: signer,
-        extrinsicType: ExtrinsicType.VaultSetBackfill,
-        metadata: {
-          bitcoinChanges: bitcoinChanges.map(({ lock, isBackfill }) => ({ utxoId: lock.utxoId, isBackfill })),
-          bondChanges: bondChanges.map(({ lot, isBackfill }) => ({ bondLotId: lot.id, isBackfill })),
-        },
+        extrinsicType: ExtrinsicType.VaultSetFlexibleAssets,
+        metadata: serializeFlexibleAssetMetadata({ bitcoinChanges, bondChanges }),
       });
     }).promise;
   }
 
-  public async ensureDelegatedBitcoinSigner(): Promise<TransactionInfo | undefined> {
+  // The shared vault delegate fronts both bitcoin lock and Ethereum proof relay submissions.
+  public async ensureVaultDelegateReady(): Promise<TransactionInfo | undefined> {
     if (!this.createdVault) return;
 
     const client = await getMainchainClient(false);
@@ -853,12 +891,34 @@ export class MyVault {
     const vaultId = this.createdVault.vaultId;
 
     return await this.#vaultQueue.add(async () => {
-      const { needsSetup, txs } = await this.buildVaultRelaySetupTxs({
+      const { needsSetup, txs } = await this.buildVaultDelegateSetupTxs({
         client,
         delegateAddress,
       });
       if (!txs.length) {
         return;
+      }
+
+      const extrinsicType = needsSetup
+        ? ExtrinsicType.VaultSetBitcoinLockDelegate
+        : ExtrinsicType.VaultTopUpBitcoinLockDelegate;
+      const pendingAttempt = await this.#transactionTracker.findLatestTxAttempt<{
+        vaultId?: number;
+        delegateAddress?: string;
+      }>({
+        extrinsicType,
+        waitForConfirmations: 2,
+        matches: txInfo => {
+          return (
+            txInfo.tx.metadataJson.vaultId === vaultId && txInfo.tx.metadataJson.delegateAddress === delegateAddress
+          );
+        },
+      });
+      if (pendingAttempt?.txAttemptState === TxAttemptState.Pending) {
+        return pendingAttempt.txInfo;
+      }
+      if (pendingAttempt) {
+        this.#singleRunTransactions.delete(extrinsicType);
       }
 
       if (needsSetup) {
@@ -1559,6 +1619,7 @@ export class MyVault {
       console.log('Creating a vault with address', txSigner.address);
       const vaultXpriv = await this.getVaultXpriv(masterXpubPath);
       const masterXpub = vaultXpriv.publicExtendedKey;
+      const delegateAddress = await this.walletKeys.getVaultDelegateKeypair().then(x => x.address);
       const client = await getMainchainClient(false);
       if (rules.securitizationRatio < 1 || rules.securitizationRatio > 2) {
         throw new Error('Securitization ratio must be between 1 and 2');
@@ -1577,14 +1638,20 @@ export class MyVault {
           bitcoinAnnualPercentRate: toFixedNumber(rules.btcPctFee / 100, FIXED_U128_DECIMALS),
           bitcoinBaseFee: BigInt(rules.btcFlatFee),
           treasuryProfitSharing: toFixedNumber(rules.profitSharingPct / 100, PERMILL_DECIMALS),
+          treasuryBonusProfitSharing: toFixedNumber(0, PERMILL_DECIMALS),
         },
         securitizationRatio: toFixedNumber(rules.securitizationRatio, FIXED_U128_DECIMALS),
         securitization: MyVault.getSecuritizationTarget(rules),
         bitcoinXpubkey,
+        delegateAccountId: delegateAddress,
       };
 
       const txs: SubmittableExtrinsic[] = [];
       txs.push(client.tx.vaults.create(vaultParams));
+      const delegateTopUpAmount = await MyVault.getVaultDelegateTopUpAmount(client, delegateAddress);
+      if (delegateTopUpAmount) {
+        txs.push(client.tx.balances.transferKeepAlive(delegateAddress, delegateTopUpAmount));
+      }
       const registerCouncilSignerTx = await this.globalCouncil.buildRegisterCouncilSignerTx(client);
       if (registerCouncilSignerTx) txs.push(registerCouncilSignerTx);
       const tx = txs.length === 1 ? txs[0] : client.tx.utility.batch(txs);
@@ -1659,40 +1726,30 @@ export class MyVault {
     }
   }
 
-  private async buildVaultRelaySetupTxs(args: { client: ArgonClient; delegateAddress: string }): Promise<{
+  private async buildVaultDelegateSetupTxs(args: { client: ArgonClient; delegateAddress: string }): Promise<{
     needsSetup: boolean;
     txs: SubmittableExtrinsic[];
   }> {
     const txs: SubmittableExtrinsic[] = [];
-    const needsDelegateSetup = !this.createdVault?.delegateAccountId;
+    const needsDelegateSetup = this.createdVault?.delegateAccountId !== args.delegateAddress;
+    const amountToFund = await MyVault.getVaultDelegateTopUpAmount(args.client, args.delegateAddress);
 
     if (needsDelegateSetup) {
       const vaultBalance = await args.client.query.system
         .account(this.createdVault!.operatorAccountId)
         .then(x => x.data.free.toBigInt());
-      if (vaultBalance < targetVaultDelegateBalance + vaultDelegateFeeBuffer) {
+      if (vaultBalance < amountToFund + vaultDelegateFeeBuffer) {
         throw new Error(
-          `Your Argon wallet must have a minimum of ${
-            targetVaultDelegateBalance + vaultDelegateFeeBuffer
-          } balance to activate the vault delegate.`,
+          `Your Argon wallet must have a minimum of ${amountToFund + vaultDelegateFeeBuffer} balance to activate the vault delegate.`,
         );
       }
 
-      txs.push(args.client.tx.balances.transferKeepAlive(args.delegateAddress, targetVaultDelegateBalance));
-      if (
-        'setBitcoinLockDelegate' in args.client.tx.vaults &&
-        typeof args.client.tx.vaults.setBitcoinLockDelegate === 'function'
-      ) {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-        txs.push(args.client.tx.vaults.setBitcoinLockDelegate(args.delegateAddress));
-      } else {
-        txs.push(args.client.tx.vaults.setDelegateAccount(args.delegateAddress));
-      }
-    } else {
-      const amountToFund = await MyVault.getVaultDelegateTopUpAmount(args.client, args.delegateAddress);
       if (amountToFund) {
         txs.push(args.client.tx.balances.transferKeepAlive(args.delegateAddress, amountToFund));
       }
+      txs.push(args.client.tx.vaults.setDelegateAccount(args.delegateAddress));
+    } else if (amountToFund) {
+      txs.push(args.client.tx.balances.transferKeepAlive(args.delegateAddress, amountToFund));
     }
 
     const registerCouncilSignerTx = await this.globalCouncil.buildRegisterCouncilSignerTx(args.client);
@@ -1706,39 +1763,59 @@ export class MyVault {
     };
   }
 
-  private async buildBackfillTxs({
+  private buildOperatorNameTx(client: ArgonClient, name: string): SubmittableExtrinsic {
+    const vaults = client.tx.vaults as ArgonClient['tx']['vaults'] | RuntimeSpec157.Transactions<'promise'>['vaults'];
+    if ('setName' in vaults) {
+      return vaults.setName(name);
+    }
+
+    return client.tx.operationalAccounts.setName(name);
+  }
+
+  private async buildFlexibleAssetTxs({
     bitcoinChanges,
     bondChanges,
     client,
     signerAddress,
-  }: IVaultBackfillChanges & { client: ArgonClient; signerAddress: string }): Promise<SubmittableExtrinsic[]> {
+  }: IVaultFlexibleAssetChanges & { client: ArgonClient; signerAddress: string }): Promise<SubmittableExtrinsic[]> {
     const vault = this.createdVault!;
+    if (!bitcoinChanges.length && !bondChanges.length) return [];
 
     for (const { lock } of bitcoinChanges) {
       if (!lock.isFunded || lock.vaultId !== vault.vaultId || (await lock.getReleaseRequest(client))) {
-        throw new Error('This Bitcoin lock is no longer eligible for backfill.');
+        throw new Error('This Bitcoin lock is no longer eligible to be flexible.');
       }
       if (lock.ownerAccount !== signerAddress) {
-        throw new Error('Only the Bitcoin lock owner can change its backfill status.');
+        throw new Error('Only the Bitcoin lock owner can change its flexible status.');
       }
     }
 
     for (const { lot } of bondChanges) {
       if (!lot.isOwn || lot.programType !== 'Vault' || lot.vaultId !== vault.vaultId || lot.isReleasing) {
-        throw new Error('This bond lot is no longer eligible for backfill.');
+        throw new Error('This bond lot is no longer eligible to be flexible.');
       }
       if (lot.accountId !== signerAddress) {
-        throw new Error('Only the bond lot owner can change its backfill status.');
+        throw new Error('Only the bond lot owner can change its flexible status.');
       }
     }
 
     const txs: SubmittableExtrinsic[] = [];
-    for (const isBackfill of [true, false]) {
-      for (const change of bitcoinChanges.filter(candidate => candidate.isBackfill === isBackfill)) {
-        txs.push(client.tx.bitcoinLocks.setAsBackfill(change.lock.utxoId, isBackfill));
+    const bitcoinLocks = client.tx.bitcoinLocks as
+      | ArgonClient['tx']['bitcoinLocks']
+      | RuntimeSpec157.Transactions<'promise'>['bitcoinLocks'];
+    const treasury = client.tx.treasury as
+      | ArgonClient['tx']['treasury']
+      | RuntimeSpec157.Transactions<'promise'>['treasury'];
+    const setBitcoinFlexible = 'setFlexible' in bitcoinLocks ? bitcoinLocks.setFlexible : bitcoinLocks.setAsBackfill;
+    const setBondLotFlexible =
+      'setBondLotFlexible' in treasury ? treasury.setBondLotFlexible : treasury.setBondLotAsBackfill;
+
+    for (const isFlexible of [true, false]) {
+      for (const change of bitcoinChanges.filter(candidate => candidate.isFlexible === isFlexible)) {
+        txs.push(setBitcoinFlexible(change.lock.utxoId, isFlexible));
       }
-      for (const change of bondChanges.filter(candidate => candidate.isBackfill === isBackfill)) {
-        txs.push(client.tx.treasury.setBondLotAsBackfill(change.lot.id, isBackfill));
+      for (const change of bondChanges.filter(candidate => candidate.isFlexible === isFlexible)) {
+        txs.push(setBondLotFlexible(change.lot.id, isFlexible));
       }
     }
 
@@ -2206,6 +2283,27 @@ export class MyVault {
   public static getSecuritizationTarget(rules: IVaultingRules) {
     return bigIntMax(rules.baseMicrogonCommitment, 0n);
   }
+}
+
+function serializeFlexibleAssetMetadata(changes: IVaultFlexibleAssetChanges): IVaultFlexibleAssetMetadata {
+  return {
+    bitcoinChanges: changes.bitcoinChanges.map(({ lock, isFlexible }) => ({
+      utxoId: lock.utxoId,
+      isBackfill: isFlexible,
+    })),
+    bondChanges: changes.bondChanges.map(({ lot, isFlexible }) => ({
+      bondLotId: lot.id,
+      isBackfill: isFlexible,
+    })),
+  };
+}
+
+export function supportsFlexibleAssetsRuntime(client: ArgonClient): boolean {
+  const supportsCurrentRuntime = 'setFlexible' in client.tx.bitcoinLocks && 'setBondLotFlexible' in client.tx.treasury;
+  const supportsPreviousRuntime =
+    'setAsBackfill' in client.tx.bitcoinLocks && 'setBondLotAsBackfill' in client.tx.treasury;
+
+  return supportsCurrentRuntime || supportsPreviousRuntime;
 }
 
 export type IMyVaultInspect = Pick<MyVault, 'vaultId' | 'load'>;

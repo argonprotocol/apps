@@ -1,6 +1,6 @@
 <!-- prettier-ignore -->
 <template>
-  <div class="flex flex-col h-full w-full relative">
+  <div DashBox class="flex flex-col h-full w-full relative">
     <div v-if="!config.miningBotAccountPreviousHistory" @click="goBack" class="absolute flex flex-row gap-x-2 z-10 top-3 pb-3 pr-10 left-5 items-center text-slate-400/50 hover:text-slate-600 cursor-pointer">
       <ArrowLeftIcon class="size-4 " />
       <div>
@@ -29,8 +29,8 @@
         >
           <div class="flex flex-row">
             <Checkbox :isChecked="serverConnectIsChecked" />
-            <div class="px-4">
-              <h2 class="text-2xl text-argon-600 font-bold">
+            <div class="px-4 text-slate-600">
+              <h2 class="text-argon-600 relative inline-block text-2xl font-bold">
                 Connect a Cloud Machine
                 <span v-if="config.isServerAdded && !config.isServerInstalled" class="installing-badge relative -top-0.5 text-base rounded bg-argon-600/80 px-2 py-0.5 text-white">INSTALLING</span>
                 <ArrowCalloutButton
@@ -60,8 +60,8 @@
         >
           <div class="flex flex-row">
             <Checkbox :isChecked="wallets.isLoaded && config.hasSavedBiddingRules" />
-            <div class="px-4">
-              <h2 class="text-2xl text-argon-600 font-bold relative inline-block">
+            <div class="px-4 text-slate-600">
+              <h2 class="text-argon-600 relative inline-block text-2xl font-bold">
                 Confirm Your Bidding Rules
                 <ArrowCalloutButton
                   v-if="currentStep === 'BiddingRules'"
@@ -103,8 +103,8 @@
         >
           <div class="flex flex-row">
             <Checkbox :isChecked="walletIsFullyFunded" />
-            <div class="px-4">
-              <h2 class="text-2xl text-argon-600 font-bold relative inline-block">
+            <div class="px-4 text-slate-600">
+              <h2 class="text-argon-600 relative inline-block text-2xl font-bold">
                 {{ walletIsPartiallyFunded ? 'Finish' : '' }} Fund{{ walletIsPartiallyFunded ? 'ing' : '' }}
                 Your Wallet
                 <ArrowCalloutButton

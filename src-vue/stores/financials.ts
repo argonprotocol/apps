@@ -530,7 +530,7 @@ export const useFinancials = defineStore('financials', () => {
   async function loadVaults() {
     try {
       vaultsActiveRecords.value = Object.values(vaultStore.vaultsById)
-        .filter(vault => vault.availableSecuritization() > 0n)
+        .filter(vault => vault.availableSecuritizationSpace() > 0n)
         .sort((left, right) => {
           const leftAvailableBitcoinSpace = left.availableBitcoinSpace();
           const rightAvailableBitcoinSpace = right.availableBitcoinSpace();

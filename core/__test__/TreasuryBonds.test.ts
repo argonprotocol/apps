@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  type Codec,
+  FIXED_U128_DECIMALS,
   getOfflineRegistry,
   MICROGONS_PER_ARGON,
+  type PalletTreasuryFrameVaultCapital,
   type PalletTreasuryBondLot,
-  type PalletTreasuryBondLotSummary,
   type PalletTreasuryVaultBondState,
-  type Vec,
+  toFixedNumber,
 } from '@argonprotocol/mainchain';
 import { encodeAddress } from '@polkadot/util-crypto';
 
@@ -15,21 +17,40 @@ import { numberCodec, optionCodec } from './helpers/codecs.ts';
 
 const registry = getOfflineRegistry();
 registry.register({
-  PalletTreasuryBondLotSummary: {
-    bondLotId: 'Compact<u64>',
-    bonds: 'Compact<u32>',
-  },
-  PalletTreasuryVaultBondState: {
+  RuntimeSpec157PalletTreasuryVaultBondState: {
     bondLots: 'Vec<PalletTreasuryBondLotSummary>',
     backfillBonds: 'Compact<u32>',
     backfillBondsReserved: 'Compact<u32>',
+  },
+  RuntimeSpec157PalletTreasuryBondLot: {
+    owner: 'AccountId32',
+    program: 'PalletTreasuryBondProgram',
+    bonds: 'Compact<u32>',
+    isBackfill: 'bool',
+    createdFrameId: 'Compact<u64>',
+    participatedFrames: 'Compact<u32>',
+    lastFrameEarningsFrameId: 'Option<u64>',
+    lastFrameEarnings: 'Option<u128>',
+    cumulativeEarnings: 'Compact<u128>',
+    releaseFrameId: 'Option<u64>',
+    releaseReason: 'Option<PalletTreasuryBondReleaseReason>',
+  },
+  RuntimeSpec157PalletTreasuryVaultCapital: {
+    bondLotAllocations: 'Vec<PalletTreasuryBondLotAllocation>',
+    backfillBondsEligible: 'Compact<u32>',
+    backfillProrata: 'u128',
+    eligibleBonds: 'Compact<u32>',
+  },
+  RuntimeSpec157PalletTreasuryFrameVaultCapital: {
+    frameId: 'Compact<u64>',
+    vaults: 'BTreeMap<u32, RuntimeSpec157PalletTreasuryVaultCapital>',
   },
 });
 const operatorAddress = encodeAddress(new Uint8Array(32).fill(0x11));
 const buyerAddress = encodeAddress(new Uint8Array(32).fill(0x22));
 const displayLotsById = new Map([
   [1, createVaultBondLot({ owner: buyerAddress, bonds: 3 })],
-  [2, createVaultBondLot({ owner: operatorAddress, bonds: 20, isBackfill: true })],
+  [2, createVaultBondLot({ owner: operatorAddress, bonds: 20, isFlexible: true })],
   [3, createVaultBondLot({ owner: operatorAddress, bonds: 5, releaseReason: 'UserLiquidation' })],
 ]);
 
@@ -145,21 +166,21 @@ describe('TreasuryBonds', () => {
     ).toBe(800_000n * oneArgonot);
   });
 
-  it('keeps owner display lots separate from activated securitization capacity', async () => {
+  it('uses flexible bond reservations without counting flexible bonds against available capacity', async () => {
     const oneArgon = BigInt(MICROGONS_PER_ARGON);
     let activatedSecuritization = 10n * oneArgon;
     const vault = createCapacityVault(() => activatedSecuritization);
 
     const runtimeState = registry.createType<PalletTreasuryVaultBondState>('PalletTreasuryVaultBondState', {
-      bondLots: [{ bondLotId: 1, bonds: 3 }],
-      backfillBonds: 20,
-      backfillBondsReserved: 2,
+      regularBondLots: [{ bondLotId: 1, bonds: 3 }],
+      flexibleBonds: 20,
+      reservedBondSpace: 2,
     });
     const client = createVaultBondClient(runtimeState, displayLotsById, [2, 3]);
     const bondState = await TreasuryBonds.getVaultBondState(client as any, 1, operatorAddress);
 
-    expect(bondState.backfillBonds).toBe(20);
-    expect(bondState.backfillBondsReserved).toBe(2);
+    expect(bondState.flexibleBonds).toBe(20);
+    expect(bondState.reservedBondSpace).toBe(2);
     expect(bondState.ordinaryBonds).toBe(3);
     expect(bondState.bondLots.map(({ id, isOwn, isReleasing }) => ({ id, isOwn, isReleasing }))).toEqual([
       { id: 1, isOwn: false, isReleasing: false },
@@ -174,18 +195,18 @@ describe('TreasuryBonds', () => {
       }),
     ).toBe(5n * oneArgon);
 
-    const moreBackfillState = registry.createType<PalletTreasuryVaultBondState>('PalletTreasuryVaultBondState', {
-      bondLots: [{ bondLotId: 1, bonds: 3 }],
-      backfillBonds: 200,
-      backfillBondsReserved: 2,
+    const moreFlexibleState = registry.createType<PalletTreasuryVaultBondState>('PalletTreasuryVaultBondState', {
+      regularBondLots: [{ bondLotId: 1, bonds: 3 }],
+      flexibleBonds: 200,
+      reservedBondSpace: 2,
     });
-    const moreBackfillClient = createVaultBondClient(moreBackfillState, displayLotsById, [2, 3]);
-    const moreBackfillBondState = await TreasuryBonds.getVaultBondState(moreBackfillClient as any, 1, operatorAddress);
+    const moreFlexibleClient = createVaultBondClient(moreFlexibleState, displayLotsById, [2, 3]);
+    const moreFlexibleBondState = await TreasuryBonds.getVaultBondState(moreFlexibleClient as any, 1, operatorAddress);
 
     expect(
       TreasuryBonds.availableBondSpace({
         vault,
-        bondState: moreBackfillBondState.capacityState,
+        bondState: moreFlexibleBondState.capacityState,
       }),
     ).toBe(5n * oneArgon);
 
@@ -199,26 +220,66 @@ describe('TreasuryBonds', () => {
     ).toBe(0n);
   });
 
-  it('uses only legacy storage summaries for capacity', async () => {
-    const oneArgon = BigInt(MICROGONS_PER_ARGON);
-    const vault = createCapacityVault(() => 10n * oneArgon);
-
-    const legacyState = registry.createType<Vec<PalletTreasuryBondLotSummary>>('Vec<PalletTreasuryBondLotSummary>', [
-      { bondLotId: 1, bonds: 3 },
+  it('loads previous-runtime backfill bond state and lot history as flexible state', async () => {
+    const previousState = registry.createType('RuntimeSpec157PalletTreasuryVaultBondState', {
+      bondLots: [{ bondLotId: 1, bonds: 3 }],
+      backfillBonds: 20,
+      backfillBondsReserved: 2,
+    });
+    const previousLotsById = new Map([
+      [1, createRuntimeSpec157VaultBondLot({ owner: buyerAddress, bonds: 3 })],
+      [2, createRuntimeSpec157VaultBondLot({ owner: operatorAddress, bonds: 20, isFlexible: true })],
     ]);
-    const client = createVaultBondClient(legacyState, displayLotsById, [2, 3]);
+    const client = createVaultBondClient(previousState, previousLotsById, [2]);
     const bondState = await TreasuryBonds.getVaultBondState(client as any, 1, operatorAddress);
 
-    expect(bondState.backfillBonds).toBe(0);
-    expect(bondState.backfillBondsReserved).toBe(0);
     expect(bondState.ordinaryBonds).toBe(3);
-    expect(bondState.bondLots.map(lot => lot.id)).toEqual([1, 2, 3]);
-    expect(
-      TreasuryBonds.availableBondSpace({
-        vault,
-        bondState: bondState.capacityState,
-      }),
-    ).toBe(7n * oneArgon);
+    expect(bondState.flexibleBonds).toBe(20);
+    expect(bondState.reservedBondSpace).toBe(2);
+    expect(bondState.bondLots.map(({ id, isFlexible }) => ({ id, isFlexible }))).toEqual([
+      { id: 1, isFlexible: false },
+      { id: 2, isFlexible: true },
+    ]);
+  });
+
+  it('loads current-runtime regular bond frame allocations', async () => {
+    const frameCapital = registry.createType<PalletTreasuryFrameVaultCapital>('PalletTreasuryFrameVaultCapital', {
+      frameId: 10,
+      vaults: {
+        1: {
+          regularBondAllocations: [{ bondLotId: 1, prorata: toFixedNumber(0.3, FIXED_U128_DECIMALS) }],
+          flexibleBondsEligible: 7,
+          flexibleProrata: toFixedNumber(0.7, FIXED_U128_DECIMALS),
+          eligibleBonds: 10,
+        },
+      },
+    });
+    const client = createFrameBondClient(frameCapital, displayLotsById);
+
+    const result = await TreasuryBonds.getCurrentFrameBondLots(client as any, 1, operatorAddress);
+
+    expect(result.totalActiveBonds).toBe(10);
+    expect(result.bondLots.map(({ id, bonds }) => ({ id, bonds }))).toEqual([{ id: 'lot:1', bonds: 3 }]);
+  });
+
+  it('loads previous-runtime bond frame allocations', async () => {
+    const frameCapital = registry.createType('RuntimeSpec157PalletTreasuryFrameVaultCapital', {
+      frameId: 10,
+      vaults: {
+        1: {
+          bondLotAllocations: [{ bondLotId: 1, prorata: toFixedNumber(0.3, FIXED_U128_DECIMALS) }],
+          backfillBondsEligible: 7,
+          backfillProrata: toFixedNumber(0.7, FIXED_U128_DECIMALS),
+          eligibleBonds: 10,
+        },
+      },
+    });
+    const client = createFrameBondClient(frameCapital, displayLotsById);
+
+    const result = await TreasuryBonds.getCurrentFrameBondLots(client as any, 1, operatorAddress);
+
+    expect(result.totalActiveBonds).toBe(10);
+    expect(result.bondLots.map(({ id, bonds }) => ({ id, bonds }))).toEqual([{ id: 'lot:1', bonds: 3 }]);
   });
 
   it('caps purchases at activated securitization instead of full vault securitization', () => {
@@ -237,11 +298,7 @@ describe('TreasuryBonds', () => {
   });
 });
 
-function createVaultBondClient(
-  vaultState: PalletTreasuryVaultBondState | Vec<PalletTreasuryBondLotSummary>,
-  lotsById: Map<number, PalletTreasuryBondLot>,
-  ownerLotIds: number[],
-) {
+function createVaultBondClient(vaultState: Codec, lotsById: Map<number, Codec>, ownerLotIds: number[]) {
   return {
     query: {
       treasury: {
@@ -257,22 +314,35 @@ function createVaultBondClient(
   };
 }
 
+function createFrameBondClient(frameCapital: Codec, lotsById: Map<number, Codec>) {
+  return {
+    query: {
+      treasury: {
+        currentFrameVaultCapital: vi.fn(async () => optionCodec(frameCapital)),
+        bondLotById: {
+          multi: vi.fn(async (ids: number[]) => ids.map(id => optionCodec(lotsById.get(id)))),
+        },
+      },
+    },
+  };
+}
+
 function createVaultBondLot({
   owner,
   bonds,
-  isBackfill,
+  isFlexible,
   releaseReason,
 }: {
   owner: string;
   bonds: number;
-  isBackfill?: boolean;
+  isFlexible?: boolean;
   releaseReason?: 'UserLiquidation';
 }) {
   return registry.createType<PalletTreasuryBondLot>('PalletTreasuryBondLot', {
     owner,
     program: { Vault: { vaultId: 1, sharingPercent: 0, bonusPercent: 0 } },
     bonds,
-    isBackfill: isBackfill ?? false,
+    isFlexible: isFlexible ?? false,
     createdFrameId: 1,
     participatedFrames: 0,
     lastFrameEarningsFrameId: null,
@@ -280,6 +350,30 @@ function createVaultBondLot({
     cumulativeEarnings: 0,
     releaseFrameId: releaseReason ? 2 : null,
     releaseReason: releaseReason ?? null,
+  });
+}
+
+function createRuntimeSpec157VaultBondLot({
+  owner,
+  bonds,
+  isFlexible = false,
+}: {
+  owner: string;
+  bonds: number;
+  isFlexible?: boolean;
+}) {
+  return registry.createType('RuntimeSpec157PalletTreasuryBondLot', {
+    owner,
+    program: { Vault: { vaultId: 1, sharingPercent: 0, bonusPercent: 0 } },
+    bonds,
+    isBackfill: isFlexible,
+    createdFrameId: 1,
+    participatedFrames: 0,
+    lastFrameEarningsFrameId: null,
+    lastFrameEarnings: null,
+    cumulativeEarnings: 0,
+    releaseFrameId: null,
+    releaseReason: null,
   });
 }
 

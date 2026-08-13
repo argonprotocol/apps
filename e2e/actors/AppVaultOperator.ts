@@ -29,9 +29,11 @@ import { GlobalCouncil } from '../../src-vue/lib/GlobalCouncil.ts';
 import { MintingAuthorities } from '../../src-vue/lib/MintingAuthorities.ts';
 import { DEFAULT_MASTER_XPUB_PATH, MyVault } from '../../src-vue/lib/MyVault.ts';
 import {
+  activateOperationalAccountSetup,
   buildOperatorAccountRegistrationTx,
   getOperationalChainProgressFromAccount,
   getOperationalRewardConfig,
+  loadOperationalAccountSetup,
   loadOperationalAccount,
 } from '../../src-vue/lib/OperationalAccount.ts';
 import { TransactionTracker } from '../../src-vue/lib/TransactionTracker.ts';
@@ -222,11 +224,11 @@ export class AppVaultOperator {
     throw new Error(`AppVaultOperator could not recover or create a vault for ${this.walletKeys.treasuryAddress}.`);
   }
 
-  public async bootstrapUpstreamOperator(args: { client: ArgonClient; vaultName: string }): Promise<void> {
+  public async bootstrapUpstreamOperator(args: { client: ArgonClient; operatorName: string }): Promise<void> {
     const { client } = args;
-    const vaultName = args.vaultName.trim();
-    if (!vaultName) {
-      throw new Error('A vault name is required to bootstrap the upstream operator.');
+    const operatorName = args.operatorName.trim();
+    if (!operatorName) {
+      throw new Error('An Operator name is required to bootstrap the upstream operator.');
     }
 
     const rewardConfig = await getOperationalRewardConfig(client);
@@ -251,19 +253,19 @@ export class AppVaultOperator {
 
     const existingOperationalAccount = await loadOperationalAccount(this.walletKeys, client);
     const existingProgress = getOperationalChainProgressFromAccount(existingOperationalAccount, rewardConfig);
+    const existingSetup = await loadOperationalAccountSetup({
+      client,
+      walletKeys: this.walletKeys,
+      vault,
+    });
 
     if (
-      vault.name === vaultName &&
-      vault.delegateAccountId &&
+      existingSetup.operatorName === operatorName &&
+      existingSetup.vaultDelegateIsReady &&
       existingProgress.isOperational &&
       existingProgress.availableAccessCodes > 0
     ) {
       return;
-    }
-
-    if (vault.name !== vaultName || !vault.delegateAccountId) {
-      const txInfo = await this.myVault.setupVaultInviteProfile(vaultName);
-      await txInfo?.txResult.waitForInFirstBlock;
     }
 
     if (!existingOperationalAccount.isSome) {
@@ -389,7 +391,13 @@ export class AppVaultOperator {
       throw new Error('Upstream operational account did not receive an access code during bootstrap.');
     }
 
-    await this.myVault.load(true);
+    await activateOperationalAccountSetup({
+      client,
+      myVault: this.myVault,
+      transactionTracker: this.transactionTracker,
+      walletKeys: this.walletKeys,
+      operatorName,
+    });
   }
 
   public async setCommittedArgonots(args: { amount: bigint }): Promise<void> {

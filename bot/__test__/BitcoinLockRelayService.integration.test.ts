@@ -165,6 +165,78 @@ describe.sequential('BitcoinLockRelayService integration', () => {
     }
   });
 
+  it('submits the deployed-runtime initializeFor with the vault delegate', async () => {
+    const harness = await createRelayServiceHarness();
+    const service = harness.service as unknown as TestRelayService;
+
+    try {
+      const coupon = insertCoupon(harness.db);
+      const request = createRelayRequest(coupon.offerCode);
+      service.vaultId = coupon.vaultId;
+      vi.spyOn(service, 'checkRelayCapacity').mockResolvedValue({
+        canSubmit: true,
+        securitizationUsedMicrogons: 1_000n,
+      });
+
+      const signedTx = {
+        hash: { toHex: () => '0xinitialize-for' },
+        method: { toHuman: () => ({ method: 'initializeFor' }) },
+        send: vi.fn(async () => () => undefined),
+      };
+      const signAsync = vi.fn(async (_signer: { address: string }, _options: unknown) => signedTx);
+      const initializeFor = Object.assign(
+        vi.fn(() => ({ signAsync })),
+        {
+          meta: { args: Array.from({ length: 6 }) },
+        },
+      );
+      harness.laneClient.tx = { bitcoinLocks: { initializeFor } };
+
+      const status = await service.submitNewRelay(coupon, request);
+
+      expect(status.status).toBe('Submitted');
+      const initializeArgs = [
+        request.ownerAccountId,
+        coupon.vaultId,
+        request.requestedSatoshis,
+        request.ownerBitcoinPubkey,
+        { V1: { microgonsAtTargetPerBtc: request.microgonsAtTargetPerBtc } },
+        0n,
+      ];
+      expect(initializeFor).toHaveBeenCalledWith(...initializeArgs);
+      expect(signAsync.mock.calls[0]?.[0].address).toBe(sudo().address);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it('does not sign owner-runtime initialize with the vault delegate', async () => {
+    const harness = await createRelayServiceHarness();
+    const service = harness.service as unknown as TestRelayService;
+
+    try {
+      const coupon = insertCoupon(harness.db);
+      const request = createRelayRequest(coupon.offerCode);
+      service.vaultId = coupon.vaultId;
+      vi.spyOn(service, 'checkRelayCapacity').mockResolvedValue({
+        canSubmit: true,
+        securitizationUsedMicrogons: 1_000n,
+      });
+
+      const initialize = vi.fn();
+      harness.laneClient.tx = { bitcoinLocks: { initialize } };
+
+      await expect(service.submitNewRelay(coupon, request)).rejects.toMatchObject({
+        message: 'This runtime requires the Bitcoin lock owner to submit initialization directly.',
+        status: 409,
+      });
+      expect(initialize).not.toHaveBeenCalled();
+      expect(harness.db.bitcoinLockRelaysTable.fetchByCouponId(coupon.id)).toBeNull();
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
   it('uses redemption liquidity for securitization preflight and logs the compared values', async () => {
     const harness = await createRelayServiceHarness();
     const service = harness.service as unknown as TestRelayService & {
@@ -180,7 +252,7 @@ describe.sequential('BitcoinLockRelayService integration', () => {
       service.latestVault = {
         vaultId: 1,
         delegateAccountId: sudo().address,
-        availableSecuritization: () => 1_020_000n,
+        availableSecuritizationSpace: () => 1_020_000n,
         securitizationRatioBN: () => new BigNumber(1),
       };
       harness.clients.get = vi.fn(async () => ({
@@ -535,6 +607,7 @@ async function createRelayServiceHarness(args?: { bestBlockNumber?: number; fina
   return {
     db,
     clients,
+    laneClient,
     service,
     cleanup: async () => {
       await service.shutdown().catch(() => undefined);

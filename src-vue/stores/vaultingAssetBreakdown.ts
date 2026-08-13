@@ -36,7 +36,7 @@ export const useVaultingAssetBreakdown = defineStore('vaultingAssetBreakdown', (
   const securityMicrogonsUnused = Vue.computed<bigint>(() => {
     const vault = myVault.createdVault;
     if (!vault) return 0n;
-    return bigIntMax(0n, vault.availableSecuritization() - vault.getRelockCapacity());
+    return bigIntMax(0n, vault.availableSecuritizationSpace() - vault.getRelockCapacity());
   });
 
   const securityMicrogonsPending = Vue.computed(() => {

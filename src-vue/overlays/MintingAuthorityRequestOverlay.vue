@@ -610,7 +610,7 @@ async function submit() {
   isSubmitting.value = true;
 
   try {
-    const relaySetupTx = await myVault.ensureDelegatedBitcoinSigner();
+    const relaySetupTx = await myVault.ensureVaultDelegateReady();
     await relaySetupTx?.waitForPostProcessing;
 
     const info = await myVault.mintingAuthorities.register({
@@ -650,7 +650,7 @@ async function updateRelayDelegate() {
   isUpdatingRelayDelegate.value = true;
 
   try {
-    const relaySetupTx = await myVault.ensureDelegatedBitcoinSigner();
+    const relaySetupTx = await myVault.ensureVaultDelegateReady();
     await relaySetupTx?.waitForPostProcessing;
     await loadState();
   } catch (error) {

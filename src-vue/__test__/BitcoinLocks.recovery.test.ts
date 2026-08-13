@@ -974,7 +974,7 @@ describe('BitcoinLocks history replay publication', () => {
     });
     store.data.locksByUtxoId[7] = record;
     vi.spyOn(BitcoinLock, 'get').mockResolvedValue(
-      new BitcoinLock({ ...createHistoricalLock({ accountId, liquidityPromised: 1_000n }), isBackfill: true }),
+      new BitcoinLock({ ...createHistoricalLock({ accountId, liquidityPromised: 1_000n }), isFlexible: true }),
     );
     const block = historyBlock(200);
     const replayEvents = [
@@ -994,18 +994,18 @@ describe('BitcoinLocks history replay publication', () => {
     await store.recovery.beginHistoryReplay({ lockScope: 'all' });
     await store.recovery.recoverBlock(block, replayEvents);
 
-    expect((await db.bitcoinLocksTable.getByUtxoId(7))?.lockDetails.isBackfill).toBe(false);
-    expect(record.lockDetails.isBackfill).toBe(false);
+    expect((await db.bitcoinLocksTable.getByUtxoId(7))?.lockDetails.isFlexible).toBe(false);
+    expect(record.lockDetails.isFlexible).toBe(false);
 
     vi.spyOn(db.bitcoinUtxosTable, 'insert').mockRejectedValueOnce(new Error('temporary UTXO write failure'));
     await expect(store.recovery.commitHistoryReplay()).rejects.toThrow('temporary UTXO write failure');
 
-    expect(record.lockDetails.isBackfill).toBe(false);
+    expect(record.lockDetails.isFlexible).toBe(false);
     expect(record.isHistoryRecoveryPending).toBe(false);
 
     await store.recovery.cancelHistoryReplay();
 
-    expect(record.lockDetails.isBackfill).toBe(false);
+    expect(record.lockDetails.isFlexible).toBe(false);
     expect(record.isHistoryRecoveryPending).toBe(false);
 
     await store.recovery.beginHistoryReplay({ lockScope: 'all' });
@@ -1013,8 +1013,8 @@ describe('BitcoinLocks history replay publication', () => {
 
     await store.recovery.commitHistoryReplay();
 
-    expect((await db.bitcoinLocksTable.getByUtxoId(7))?.lockDetails.isBackfill).toBe(true);
-    expect(record.lockDetails.isBackfill).toBe(true);
+    expect((await db.bitcoinLocksTable.getByUtxoId(7))?.lockDetails.isFlexible).toBe(true);
+    expect(record.lockDetails.isFlexible).toBe(true);
     expect(record.isHistoryRecoveryPending).toBe(false);
   });
 
@@ -1047,7 +1047,7 @@ describe('BitcoinLocks history replay publication', () => {
     });
     store.data.locksByUtxoId[7] = record;
     vi.spyOn(BitcoinLock, 'get').mockResolvedValue(
-      new BitcoinLock({ ...createHistoricalLock({ accountId, liquidityPromised: 1_000n }), isBackfill: true }),
+      new BitcoinLock({ ...createHistoricalLock({ accountId, liquidityPromised: 1_000n }), isFlexible: true }),
     );
 
     await store.recovery.beginHistoryReplay({ lockScope: 'all' });
@@ -1064,7 +1064,7 @@ describe('BitcoinLocks history replay publication', () => {
 
     expect((await db.bitcoinLocksTable.getByUtxoId(7))?.status).toBe(BitcoinLockStatus.Releasing);
     expect(record.status).toBe(BitcoinLockStatus.Releasing);
-    expect(record.lockDetails.isBackfill).toBe(true);
+    expect(record.lockDetails.isFlexible).toBe(true);
   });
 
   it('snapshots a lock after its queued live ratchet finishes', async () => {
@@ -1093,7 +1093,7 @@ describe('BitcoinLocks history replay publication', () => {
     });
     store.data.locksByUtxoId[7] = record;
     vi.spyOn(BitcoinLock, 'get').mockResolvedValue(
-      new BitcoinLock({ ...createHistoricalLock({ accountId, liquidityPromised: 1_200n }), isBackfill: true }),
+      new BitcoinLock({ ...createHistoricalLock({ accountId, liquidityPromised: 1_200n }), isFlexible: true }),
     );
     const liveRatchetStarted = createDeferred<void>();
     const finishLiveRatchet = createDeferred<void>();
@@ -1160,7 +1160,7 @@ describe('BitcoinLocks history replay publication', () => {
     });
     store.data.locksByUtxoId[7] = record;
     vi.spyOn(BitcoinLock, 'get').mockResolvedValue(
-      new BitcoinLock({ ...createHistoricalLock({ accountId, liquidityPromised: 1_000n }), isBackfill: true }),
+      new BitcoinLock({ ...createHistoricalLock({ accountId, liquidityPromised: 1_000n }), isFlexible: true }),
     );
 
     await store.recovery.beginHistoryReplay({ lockScope: 'all' });

@@ -1,15 +1,15 @@
 <!-- prettier-ignore -->
 <template>
-  <div data-testid="MiningIsInstalling" class="Screen VaultIsInstalling flex flex-col items-center justify-center px-[15%] h-full w-full pb-[10%]">
+  <div DashBox data-testid="MiningIsInstalling" class="Screen VaultIsInstalling flex flex-col items-center justify-center px-[15%] h-full w-full pb-[10%]">
     <div>
-      <MiningIcon :class="errorMessage ? '' : 'pulse-animation'" class="w-36 block mb-3 mx-auto text-argon-800/80" />
+      <MiningIcon :class="errorMessage ? '' : 'pulse-animation'" class="mx-auto mb-3 block h-28 text-argon-800/80" />
       <h1 class="mt-5 text-5xl font-bold text-center text-argon-600">Initializing Your Miner</h1>
 
-      <p v-if="errorMessage != ''" class="pt-3 font-light w-140 text-center">
+      <p v-if="errorMessage != ''" class="mx-auto w-140 pt-3 text-center font-light">
         There was an error setting up your miner: <span class="text-red-700">{{ errorMessage }}</span>
       </p>
 
-      <div class="flex flex-col w-140 pt-7">
+      <div class="mx-auto flex w-140 flex-col pt-7">
         <ProgressBar
           :hasError="errorMessage !== ''"
           :progress="progressPct"

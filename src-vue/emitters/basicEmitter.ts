@@ -4,9 +4,14 @@ import { PortfolioTab } from '../panels/interfaces/IPortfolioTab.ts';
 import type { OperationalStepId } from '../stores/certificationController.ts';
 import { ICurrencyKey, type BondLot } from '@argonprotocol/apps-core';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
-import type { IVaultBackfillChanges } from '../lib/MyVault.ts';
+import type { IVaultFlexibleAssetChanges } from '../lib/MyVault.ts';
 
 export type IWalletGuidanceContext = 'mining' | 'vaulting';
+
+export type IOperationalProfileRequest = {
+  draftName: string;
+  onSelect: (operatorName: string) => void;
+};
 
 export type IWalletOverlayRequest = {
   walletType: WalletType.defaultArgon | WalletType.miningBot | WalletType.ethereum;
@@ -47,8 +52,8 @@ type IBasicEmitter = {
 
   openImportAccountOverlay: void;
 
-  openOperationalProfileOverlay: void;
-  openMemberInviteOverlay: { preserveDraft?: boolean; flexibleAssetChanges?: IVaultBackfillChanges } | undefined;
+  openOperationalProfileOverlay: IOperationalProfileRequest | void;
+  openMemberInviteOverlay: { preserveDraft?: boolean; flexibleAssetChanges?: IVaultFlexibleAssetChanges } | undefined;
 
   openVaultsOverlay: void;
   openTransactionsOverlay: void;
@@ -58,8 +63,8 @@ type IBasicEmitter = {
   openArgonotCommitmentOverlay: void;
   openMintingAuthorityRequestOverlay: void;
   openGatewayRelayOverlay: void;
-  openBackfillOverlay:
-    | { continueToInvite?: boolean; returnToInvite?: boolean; flexibleAssetChanges?: IVaultBackfillChanges }
+  openFlexibleAssetsOverlay:
+    | { continueToInvite?: boolean; returnToInvite?: boolean; flexibleAssetChanges?: IVaultFlexibleAssetChanges }
     | undefined;
   openBitcoinLock: { lock?: IBitcoinLockRecord } | undefined;
   openBitcoinUnlock: IBitcoinLockRecord;

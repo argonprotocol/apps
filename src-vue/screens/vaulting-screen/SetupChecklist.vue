@@ -30,23 +30,24 @@
         >
           <div class="flex flex-row">
             <Checkbox :isChecked="serverConnectIsChecked" />
-            <div class="px-4">
-              <h2 class="text-2xl text-[#A600D4] font-bold relative inline-block">
+            <div class="px-4 text-slate-600">
+              <h2 class="text-argon-600 relative inline-block text-2xl font-bold">
                 Connect a Cloud Machine
                 <span v-if="config.isServerAdded && !config.isServerInstalled" class="installing-badge relative -top-0.5 text-base rounded bg-argon-600/80 px-2 py-0.5 text-white">INSTALLING</span>
                 <ArrowCalloutButton
                   v-else-if="currentStep === 'ServerConnect'"
-                  guidance="A cloud machine is required for your vault."
+                  guidance="A cloud machine is required to operate your vault."
                   class="pointer-events-none absolute top-1/2 -right-3 -translate-y-1/2 translate-x-full z-50 -mt-0.5"
                 />
               </h2>
               <p v-if="config.isServerAdded">
-                <template v-if="config.serverAdd?.localComputer">This local computer will be used to run your mining software. We've already checked its requirements.</template>
-                <template v-else-if="config.serverAdd?.digitalOcean">Your Digital Ocean API Key is ready to go. We will do all the work of creating and setting up your server.</template>
-                <template v-else>Your custom server is connected and verified. We'll do the work of installing and configuring the software.</template>
+                <template v-if="config.serverAdd?.localComputer">This local computer will run your vaulting and mining software. We've already checked its requirements.</template>
+                <template v-else-if="config.serverAdd?.digitalOcean">Your DigitalOcean API key is ready. We'll create and set up your cloud machine for vaulting and mining.</template>
+                <template v-else>Your custom server is connected and verified. We'll install and configure the vaulting and mining software.</template>
               </p>
               <p v-else>
-                Argon's mining software is runnable on cheap virtual cloud machines. We'll show you how to add one.
+                Argon's vaulting and mining software is runnable on cheap virtual cloud machines. We'll show you how to
+                add one.
               </p>
             </div>
           </div>
@@ -61,8 +62,8 @@
         >
           <div class="flex flex-row">
             <Checkbox :isChecked="config.hasSavedVaultingRules" />
-            <div class="px-4">
-              <h2 class="text-2xl text-[#A600D4] font-bold relative inline-block">
+            <div class="px-4 text-slate-600">
+              <h2 class="text-argon-600 relative inline-block text-2xl font-bold">
                 Confirm Your Vault Settings
                 <ArrowCalloutButton
                   v-if="currentStep === 'VaultingRules'"
@@ -101,8 +102,8 @@
         >
           <div class="flex flex-row">
             <Checkbox :isChecked="walletIsFullyFunded" />
-            <div class="px-4">
-              <h2 class="text-2xl text-[#A600D4] font-bold relative inline-block">
+            <div class="px-4 text-slate-600">
+              <h2 class="text-argon-600 relative inline-block text-2xl font-bold">
                 {{ walletIsPartiallyFunded ? 'Finish' : '' }} Fund{{ walletIsPartiallyFunded ? 'ing' : '' }}
                 Your Wallet
                 <ArrowCalloutButton

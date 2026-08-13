@@ -57,7 +57,7 @@
       <WalletDisconnectOverlay />
       <TransactionsOverlay />
       <SecuritizationOverlay />
-      <BackfillOverlay />
+      <FlexibleAssetsOverlay />
       <TreasuryBondsOverlay />
       <ArgonotCommitmentOverlay />
       <MintingAuthorityRequestOverlay />
@@ -126,7 +126,7 @@ import AlertBars from './navigation/AlertBars.vue';
 import WelcomeTour from './overlays/WelcomeTour.vue';
 import BotEditOverlay from './overlays/BotEditOverlay.vue';
 import SecuritizationOverlay from './overlays/SecuritizationOverlay.vue';
-import BackfillOverlay from './overlays/BackfillOverlay.vue';
+import FlexibleAssetsOverlay from './overlays/FlexibleAssetsOverlay.vue';
 import TreasuryBondsOverlay from './overlays/TreasuryBondsOverlay.vue';
 import ArgonotCommitmentOverlay from './overlays/ArgonotCommitmentOverlay.vue';
 import MintingAuthorityRequestOverlay from './overlays/MintingAuthorityRequestOverlay.vue';

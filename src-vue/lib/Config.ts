@@ -9,6 +9,7 @@ import {
   InstallStepKey,
   InstallStepStatus,
   MiningSetupStatus,
+  OnboardingSetupStatus,
   ServerType,
   TopTab,
   VaultingSetupStatus,
@@ -98,6 +99,7 @@ export class Config implements IConfig {
       },
       miningSetupStatus: Config.getDefault(dbFields.miningSetupStatus) as MiningSetupStatus,
       vaultingSetupStatus: Config.getDefault(dbFields.vaultingSetupStatus) as VaultingSetupStatus,
+      onboardingSetupStatus: Config.getDefault(dbFields.onboardingSetupStatus) as OnboardingSetupStatus,
       serverInstaller: Config.getDefault(dbFields.serverInstaller) as IConfig['serverInstaller'],
       oldestFrameIdToSync: Config.getDefault(dbFields.oldestFrameIdToSync) as number,
       latestFrameIdProcessed: Config.getDefault(dbFields.latestFrameIdProcessed) as number,
@@ -143,6 +145,7 @@ export class Config implements IConfig {
       'vaultingRules',
       'miningSetupStatus',
       'vaultingSetupStatus',
+      'onboardingSetupStatus',
       'hasMiningBids',
       'hasMiningSeats',
       'oldestFrameIdToSync',
@@ -387,6 +390,13 @@ export class Config implements IConfig {
   }
   public set vaultingSetupStatus(value: VaultingSetupStatus) {
     this.setField('vaultingSetupStatus', value);
+  }
+
+  public get onboardingSetupStatus(): OnboardingSetupStatus {
+    return this.getField('onboardingSetupStatus');
+  }
+  public set onboardingSetupStatus(value: OnboardingSetupStatus) {
+    this.setField('onboardingSetupStatus', value);
   }
 
   public get requiresPassword(): boolean {
@@ -770,6 +780,7 @@ export class Config implements IConfig {
 const dbFields = {
   miningSetupStatus: 'miningSetupStatus',
   vaultingSetupStatus: 'vaultingSetupStatus',
+  onboardingSetupStatus: 'onboardingSetupStatus',
 
   showWelcomeOverlay: 'showWelcomeOverlay',
   postWelcomeLaunchCount: 'postWelcomeLaunchCount',
@@ -810,6 +821,7 @@ const dbFields = {
 const defaults: IConfigDefaults = {
   miningSetupStatus: () => MiningSetupStatus.None,
   vaultingSetupStatus: () => VaultingSetupStatus.None,
+  onboardingSetupStatus: () => OnboardingSetupStatus.None,
 
   showWelcomeOverlay: () => true,
   postWelcomeLaunchCount: () => 0,

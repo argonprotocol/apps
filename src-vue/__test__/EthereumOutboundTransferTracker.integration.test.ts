@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import * as Vue from 'vue';
 import { MoveToken } from '@argonprotocol/apps-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { getAddress } from 'viem';
 import { EthereumOutboundTransferTracker } from '../lib/EthereumOutboundTransferTracker.ts';
 import type {
   IEthereumTransactionProgress,
@@ -1692,7 +1693,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
         argonTransferNonce: 1n,
         chainId: 1n,
         microgonsPerArgonot: 3n,
-        recipient: walletKeys.ethereumAddress,
+        recipient: getAddress(walletKeys.ethereumAddress),
         validUntilBlock: 500n,
         token: `0x${'44'.repeat(20)}`,
         amount: 100n,
@@ -1844,7 +1845,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
         argonTransferNonce: 1n,
         chainId: 1n,
         microgonsPerArgonot: 3n,
-        recipient: walletKeys.ethereumAddress,
+        recipient: getAddress(walletKeys.ethereumAddress),
         validUntilBlock: 500n,
         token: `0x${'44'.repeat(20)}`,
         amount: 100n,
