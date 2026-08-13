@@ -1,0 +1,4 @@
+interface:
+  display_name: "Stateful Workflow Review"
+  short_description: "Audit state provenance, recovery, and convergence"
+  default_prompt: "Use $stateful-workflow-review to audit this change for missing state origins, recovery boundaries, and observer resynchronization."
