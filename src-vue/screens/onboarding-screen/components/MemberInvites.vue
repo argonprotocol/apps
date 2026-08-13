@@ -11,13 +11,9 @@
     </div>
 
     <div class="flex min-h-0 grow flex-col">
-      <div v-if="errorMessage || showRuntimeUpgradeNotice" class="mt-3 space-y-2">
+      <div v-if="errorMessage" class="mt-3 space-y-2">
         <div v-if="errorMessage" class="text-sm text-red-600">
           {{ errorMessage }}
-        </div>
-
-        <div v-if="showRuntimeUpgradeNotice" class="border-argon-300 border-l-2 pl-3 text-sm text-slate-600">
-          Operations approval will unlock here after the next mainchain runtime upgrade is active.
         </div>
       </div>
 
@@ -183,9 +179,7 @@ import {
 } from '@argonprotocol/apps-core';
 import CopyToClipboard from '../../../components/CopyToClipboard.vue';
 import { createNumeralHelpers } from '../../../lib/numeral.ts';
-import { supportsOperationalAccessProofRuntime } from '../../../lib/OperationalAccount.ts';
 import { UpstreamOperatorClient } from '../../../lib/UpstreamOperatorClient.ts';
-import { getMainchainClient } from '../../../stores/mainchain.ts';
 import { getBitcoinLocks } from '../../../stores/bitcoin.ts';
 import { getConfig } from '../../../stores/config.ts';
 import { getCurrency } from '../../../stores/currency.ts';
@@ -212,16 +206,7 @@ const { microgonToArgonNm } = createNumeralHelpers(currency);
 const errorMessage = Vue.ref<string | null>(null);
 const approvingInviteCode = Vue.ref<string | null>(null);
 const regeneratingInviteCode = Vue.ref<string | null>(null);
-const supportsAccessProofRuntime = Vue.ref(false);
-
 let loadInvitesPromise: Promise<void> | undefined;
-
-const showRuntimeUpgradeNotice = Vue.computed(() => {
-  return (
-    !supportsAccessProofRuntime.value &&
-    controller.operationalInvites.some(invite => !!invite.operationsUpgradeRequestedAt)
-  );
-});
 
 function inviteStatus(invite: IMemberInvite) {
   return (
@@ -251,7 +236,6 @@ function canApproveOperationsAccess(invite: IMemberInvite): boolean {
   }).length;
 
   return (
-    supportsAccessProofRuntime.value &&
     controller.chainProgress.availableAccessCodes > outstandingAccessProofCount &&
     !!invite.operationsUpgradeRequestedAt &&
     !invite.accessProof &&
@@ -351,7 +335,7 @@ async function regenerateInvite(invite: IMemberInvite) {
       throw new Error('No server is available to create an invite.');
     }
 
-    const delegateSetupTx = await myVault.ensureDelegatedBitcoinSigner();
+    const delegateSetupTx = await myVault.ensureVaultDelegateReady();
     await delegateSetupTx?.txResult.waitForInFirstBlock;
 
     await serverApiClient.regenerateInvite(invite.inviteCode, {
@@ -377,15 +361,6 @@ function getMemberInviteUrl(invite: IMemberInvite): string {
   })}`;
 }
 
-async function loadRuntimeSupport() {
-  try {
-    const client = await getMainchainClient(false);
-    supportsAccessProofRuntime.value = supportsOperationalAccessProofRuntime(client);
-  } catch (error: any) {
-    errorMessage.value = error?.message ?? 'Unable to verify operations approval support.';
-  }
-}
-
 Vue.watch(
   [() => config.isServerInstalled, () => config.serverDetails.ipAddress],
   ([isServerInstalled, ipAddress], _previous, onCleanup) => {
@@ -394,8 +369,6 @@ Vue.watch(
     if (!controller.hasLoadedOperationalInvites) {
       void loadInvites();
     }
-    void loadRuntimeSupport();
-
     const interval = setInterval(() => {
       if (document.visibilityState !== 'visible') return;
       void loadInvites();

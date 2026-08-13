@@ -3,6 +3,7 @@ import { decodeAddress, EvmContracts } from '@argonprotocol/mainchain';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   decodeFunctionData,
+  getAddress,
   keccak256,
   parseTransaction,
   TransactionNotFoundError,
@@ -166,7 +167,7 @@ describe('EthereumClient', () => {
             argonTransferNonce,
             chainId: 1n,
             microgonsPerArgonot: 3n,
-            recipient: walletKeys.ethereumAddress,
+            recipient: getAddress(walletKeys.ethereumAddress),
             validUntilBlock: 500n,
             token: repeatHex('22', 20),
             amount: 100n,
@@ -248,9 +249,6 @@ describe('EthereumClient', () => {
     expect(getBlockNumber).not.toHaveBeenCalled();
   });
 
-  // The published mainchain declarations reference a missing generated module, so ESLint sees these
-  // native EvmContracts helpers as error-typed even though the runtime exports are present.
-  /* eslint-disable @typescript-eslint/no-unsafe-call */
   it('relays a council rotation and the next contiguous ready update', async () => {
     const fixture = createCouncilRotationRelayFixture();
     const receipt = await fixture.ethereumClient.applyReadyGatewayUpdates(
@@ -339,7 +337,6 @@ describe('EthereumClient', () => {
     ).rejects.toThrow(`Queue nonce 1 ${expectedError}`);
     expect(fixture.sendRawTransaction).not.toHaveBeenCalled();
   });
-  /* eslint-enable @typescript-eslint/no-unsafe-call */
 });
 
 const ZERO_HASH = repeatHex('00', 32);
@@ -375,9 +372,6 @@ function none() {
   };
 }
 
-// The published mainchain declarations reference a missing generated module, so ESLint sees these
-// native EvmContracts helpers as error-typed even though the runtime exports are present.
-/* eslint-disable @typescript-eslint/no-unsafe-call */
 function createCouncilRotationRelayFixture(corruption?: 'council' | 'payload' | 'approval') {
   const gatewayAddress = repeatHex('11', 20);
   const authoritySigningKey = repeatHex('22', 20);
@@ -569,4 +563,3 @@ function createCouncilRotationRelayFixture(corruption?: 'council' | 'payload' | 
     walletKeys,
   };
 }
-/* eslint-enable @typescript-eslint/no-unsafe-call */

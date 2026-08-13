@@ -15,9 +15,14 @@ import { WalletKeys } from './WalletKeys.ts';
 import { MemoryWalletKeys } from './MemoryWalletKeys.ts';
 import { readArgonWalletBalanceValues } from './WalletsForArgon.ts';
 import { getWalletsForArgon } from '../stores/wallets.ts';
-import { getBlockWatch, getFinalizedClient } from '../stores/mainchain.ts';
-import { AccountActivityKind, JsonExt, Mining } from '@argonprotocol/apps-core';
-import { getOperationalChainProgressFromAccount } from './OperationalAccount.ts';
+import { getBlockWatch, getFinalizedClient, getMainchainClient } from '../stores/mainchain.ts';
+import { AccountActivityKind, getVaultByOperator, JsonExt, Mining } from '@argonprotocol/apps-core';
+import {
+  getOnboardingSetupStatus,
+  getOperationalChainProgressFromAccount,
+  getOperationalProfileName,
+  usesOperationalProfileNameRuntime,
+} from './OperationalAccount.ts';
 import { findAddressActivity } from './IndexerClient.ts';
 
 export default class Importer {
@@ -40,17 +45,18 @@ export default class Importer {
       substrateSuri: mnemonic,
       masterMnemonic: mnemonic,
     });
-    const finalizedApi = await getFinalizedClient();
+    const mainchainClient = await getMainchainClient(false);
+    const finalizedApi = await getFinalizedClient(mainchainClient);
     const addresses = [
       importWalletKeys.legacyMiningHoldAddress,
       importWalletKeys.miningBotAddress,
       importWalletKeys.vaultingAddress,
       importWalletKeys.operationalAddress,
     ];
-    const [balances, operationalAccount, ownedVaultId] = await Promise.all([
+    const [balances, operationalAccount, ownedVault] = await Promise.all([
       readArgonWalletBalanceValues(finalizedApi, addresses),
       finalizedApi.query.operationalAccounts.operationalAccounts(importWalletKeys.operationalAddress),
-      finalizedApi.query.vaults.vaultIdByOperator(importWalletKeys.vaultingAddress),
+      getVaultByOperator({ client: finalizedApi, operatorAddress: importWalletKeys.vaultingAddress }),
     ]);
 
     const hasExistingWalletValue = balances.some(balance => {
@@ -77,7 +83,7 @@ export default class Importer {
     const hasMiningActivity = hasMiningWalletValue || hasMiningBids;
     // Member Bitcoin events also carry VaultPosition because they affect vault capital. Only the runtime's operator
     // index proves that this account owns a vault and should regain Operations.
-    const hasVaultActivity = operationalProgress.hasVault || ownedVaultId.isSome;
+    const hasVaultActivity = operationalProgress.hasVault || !!ownedVault;
     let hasTreasuryHistory = false;
     if (!operationalProgress.hasOperationalAccount) {
       const treasuryActivity = await findAddressActivity(importWalletKeys.defaultArgonAddress, {
@@ -97,6 +103,19 @@ export default class Importer {
 
     const hasOperationsHistory = operationalProgress.hasOperationalAccount || hasMiningActivity || hasVaultActivity;
     hasTreasuryHistory ||= hasOperationsHistory;
+
+    const usesOperationalProfile = usesOperationalProfileNameRuntime(mainchainClient);
+    const operatorName = usesOperationalProfile
+      ? getOperationalProfileName(operationalAccount)
+      : (ownedVault?.name?.trim() ?? '');
+    const onboardingSetupStatus = getOnboardingSetupStatus({
+      hasOnboardingHistory: hasOperationsHistory,
+      hasMiningSeats,
+      hasVault: !!ownedVault,
+      isServerInstalled: false,
+      operatorName,
+      usesOperationalProfile,
+    });
 
     const hasPreviousLife = hasExistingWalletValue || hasTreasuryHistory;
     let miningSetupStatus = MiningSetupStatus.None;
@@ -132,6 +151,7 @@ export default class Importer {
         hasVaultActivity ? VaultingSetupStatus.Finished : VaultingSetupStatus.None,
         2,
       ),
+      onboardingSetupStatus: JsonExt.stringify(onboardingSetupStatus, 2),
       hasMiningBids: JsonExt.stringify(hasMiningBids, 2),
       hasMiningSeats: JsonExt.stringify(hasMiningSeats, 2),
     };

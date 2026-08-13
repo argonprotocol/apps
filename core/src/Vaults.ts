@@ -1,4 +1,10 @@
-import { BitcoinLock, type PalletVaultsVaultFrameRevenue, u128, Vault } from '@argonprotocol/mainchain';
+import {
+  BitcoinLock,
+  type IArgonQueryable,
+  type PalletVaultsVaultFrameRevenue,
+  u128,
+  Vault,
+} from '@argonprotocol/mainchain';
 import {
   bigNumberToBigInt,
   convertBigIntStringToNumber,
@@ -713,4 +719,15 @@ export class Vaults {
       participatingVaults,
     };
   }
+}
+
+export async function getVaultByOperator(args: {
+  client: IArgonQueryable;
+  operatorAddress: string;
+  tickDurationMillis?: number;
+}): Promise<Vault | undefined> {
+  const vaultId = await args.client.query.vaults.vaultIdByOperator(args.operatorAddress);
+  if (!vaultId.isSome) return;
+
+  return await Vault.get(args.client, vaultId.unwrap().toNumber(), args.tickDurationMillis);
 }

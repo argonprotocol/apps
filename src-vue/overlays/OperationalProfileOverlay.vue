@@ -12,7 +12,7 @@
         Loading...
       </div>
 
-      <div v-else-if="!hasVault" class="text-center my-16 text-slate-700/50">
+      <div v-else-if="requiresVault && !hasVault" class="text-center my-16 text-slate-700/50">
         You need to create a vault before setting up your profile.
       </div>
 
@@ -22,25 +22,29 @@
         </div>
 
         <p class="text-base font-light leading-6 text-slate-900">
-          Set your Operator name. This name will be visible in the invites you send to family and friends.
+          This name identifies you in onboarding invites to friends and family.
         </p>
 
         <div class="mt-4">
           <label class="text-sm font-medium text-slate-700">Operator Name</label>
           <input
-            v-model.trim="vaultName"
+            :value="operatorName"
+            @input="handleOperatorNameInput"
             type="text"
             maxlength="18"
-            placeholder="ArgonFamilyVault"
+            placeholder="ArgonFamily"
             class="inner-input-shadow mt-2 w-full rounded-lg border border-slate-400/70 bg-white px-2.5 py-1.5 text-lg font-normal text-slate-700 placeholder:text-slate-300 outline-none transition focus:border-argon-500 focus:ring-2 focus:ring-argon-500/15"
           />
           <div class="mt-2 text-xs text-slate-500">
-            Start with a capital letter and use up to 18 letters or numbers (no spaces).
+            Start with a capital letter and use up to 18 letters or numbers (no spaces or "Vault").
+          </div>
+          <div v-if="operatorNameInputNotice" class="mt-1 text-xs text-red-600">
+            {{ operatorNameInputNotice }}
           </div>
         </div>
 
         <div v-if="setupTxInfo" class="mt-5">
-          <div class="text-sm font-medium text-slate-700">Submitting your vault setup on Argon.</div>
+          <div class="text-sm font-medium text-slate-700">Submitting your Operator profile on Argon.</div>
           <div class="mt-3">
             <ProgressBar :progress="setupProgressPct" :hasError="!!setupProgressError" />
           </div>
@@ -75,80 +79,134 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import OverlayBase from './OverlayBase.vue';
-import basicEmitter from '../emitters/basicEmitter.ts';
+import basicEmitter, { type IOperationalProfileRequest } from '../emitters/basicEmitter.ts';
 import ProgressBar from '../components/ProgressBar.vue';
+import {
+  getOperationalProfileName,
+  isValidOperatorName,
+  loadOperationalAccount,
+  setOperationalProfileName,
+  usesOperationalProfileNameRuntime,
+} from '../lib/OperationalAccount.ts';
 import { useBasics } from '../stores/basics.ts';
+import { getMainchainClient } from '../stores/mainchain.ts';
+import { getTransactionTracker } from '../stores/transactions.ts';
 import { getMyVault } from '../stores/vaults.ts';
+import { getWalletKeys } from '../stores/wallets.ts';
 import type { TransactionInfo } from '../lib/TransactionInfo.ts';
-import { generateProgressLabel } from '../lib/Utils.ts';
+import {
+  generateProgressLabel,
+  getOperatorNameInputNotice,
+  normalizeOperatorNameInput,
+  OPERATOR_NAME_REQUIREMENTS,
+} from '../lib/Utils.ts';
+import { MyVault } from '../lib/MyVault.ts';
 
 const basics = useBasics();
 const myVault = getMyVault();
+const transactionTracker = getTransactionTracker();
+const walletKeys = getWalletKeys();
 
 const isOpen = Vue.ref(false);
 const isLoaded = Vue.ref(false);
 const isSaving = Vue.ref(false);
 const errorMessage = Vue.ref('');
-const vaultName = Vue.ref('');
+const operatorName = Vue.ref('');
+const operatorNameInputNotice = Vue.ref('');
+const requiresVault = Vue.ref(true);
 const setupTxInfo = Vue.ref<TransactionInfo | null>(null);
 const setupProgressPct = Vue.ref(0);
 const setupProgressMessage = Vue.ref('');
 const setupProgressError = Vue.ref<string | null>(null);
 
 let unsubSetupProgress: (() => void) | undefined;
+let selectDraftName: ((operatorName: string) => void) | undefined;
 
 const hasVault = Vue.computed(() => {
   return !!myVault.createdVault?.vaultId;
 });
 
-async function load() {
+async function load(request?: IOperationalProfileRequest) {
   errorMessage.value = '';
+  operatorNameInputNotice.value = '';
   clearSetupProgress();
+  selectDraftName = request?.onSelect;
 
   try {
-    await myVault.load(true);
-    vaultName.value = myVault.createdVault?.name ?? '';
-  } catch (error: any) {
-    vaultName.value = '';
-    errorMessage.value = error?.message ?? 'Unable to load your vault right now. Please try again.';
+    const client = await getMainchainClient(false);
+    requiresVault.value = !usesOperationalProfileNameRuntime(client);
+
+    if (requiresVault.value) {
+      await myVault.load();
+      operatorName.value = request?.draftName || myVault.createdVault?.name || '';
+    } else {
+      const savedName = getOperationalProfileName(await loadOperationalAccount(walletKeys, client));
+      operatorName.value = request?.draftName || savedName;
+    }
+  } catch (error) {
+    operatorName.value = request?.draftName ?? '';
+    errorMessage.value = error instanceof Error ? error.message : 'Unable to load your profile right now.';
   }
 }
 
 async function saveProfile() {
   if (isSaving.value) return;
 
-  const nextVaultName = vaultName.value.trim();
-  isSaving.value = true;
+  const nextOperatorName = operatorName.value.trim();
   errorMessage.value = '';
   clearSetupProgress();
 
-  try {
-    await myVault.load(true);
-    const createdVault = myVault.createdVault;
-    if (!createdVault) {
-      errorMessage.value = 'You need to create a vault before saving your profile.';
-      return;
-    }
-    if (!nextVaultName) {
-      errorMessage.value = 'Enter an Operator name to continue.';
-      return;
-    }
+  if (!nextOperatorName) {
+    errorMessage.value = 'Enter an Operator name to continue.';
+    return;
+  }
+  if (!isValidOperatorName(nextOperatorName)) {
+    errorMessage.value = OPERATOR_NAME_REQUIREMENTS;
+    return;
+  }
+  if (selectDraftName) {
+    selectDraftName(nextOperatorName);
+    closeOverlay();
+    return;
+  }
 
-    const txInfo = createdVault.delegateAccountId
-      ? await myVault.setVaultName(nextVaultName)
-      : await myVault.setupVaultInviteProfile(nextVaultName);
+  isSaving.value = true;
+
+  try {
+    const client = await getMainchainClient(false);
+    let txInfo: TransactionInfo | undefined;
+    if (usesOperationalProfileNameRuntime(client)) {
+      txInfo = await setOperationalProfileName({ transactionTracker, walletKeys, name: nextOperatorName, client });
+    } else {
+      await myVault.load();
+      const createdVault = myVault.createdVault;
+      if (!createdVault) {
+        throw new Error('You need to create a vault before saving your profile.');
+      }
+      const delegateAddress = await walletKeys.getVaultDelegateKeypair().then(keypair => keypair.address);
+      const delegateIsReady = await MyVault.isVaultDelegateReady(client, createdVault, delegateAddress);
+      txInfo = delegateIsReady
+        ? await myVault.setVaultName(nextOperatorName)
+        : await myVault.setupVaultInviteProfile({ operatorName: nextOperatorName });
+    }
     await waitForSetupTransaction(txInfo);
 
-    if (txInfo) {
-      void txInfo.txResult.waitForFinalizedBlock.then(() => myVault.load(true)).catch(() => null);
-    }
-
     closeOverlay();
-  } catch (error: any) {
-    errorMessage.value = error?.message ?? 'Unable to save your profile right now. Please try again.';
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : 'Unable to save your profile right now.';
   } finally {
     isSaving.value = false;
   }
+}
+
+function handleOperatorNameInput(event: Event) {
+  const input = event.currentTarget as HTMLInputElement;
+  const enteredName = input.value;
+  const nextOperatorName = normalizeOperatorNameInput(input.value);
+
+  operatorNameInputNotice.value = getOperatorNameInputNotice(enteredName, nextOperatorName);
+  operatorName.value = nextOperatorName;
+  input.value = nextOperatorName;
 }
 
 async function waitForSetupTransaction(txInfo?: TransactionInfo) {
@@ -169,7 +227,7 @@ async function waitForSetupTransaction(txInfo?: TransactionInfo) {
     }
   });
 
-  await txInfo.txResult.waitForInFirstBlock;
+  await txInfo.waitForPostProcessing;
   clearSetupProgress();
 }
 
@@ -184,11 +242,12 @@ function clearSetupProgress() {
 
 function closeOverlay() {
   isOpen.value = false;
+  selectDraftName = undefined;
   basics.overlayIsOpen = false;
 }
 
-basicEmitter.on('openOperationalProfileOverlay', async () => {
-  await load();
+basicEmitter.on('openOperationalProfileOverlay', async request => {
+  await load(request || undefined);
   isOpen.value = true;
   isLoaded.value = true;
   basics.overlayIsOpen = true;

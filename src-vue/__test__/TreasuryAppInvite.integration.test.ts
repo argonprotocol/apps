@@ -124,15 +124,17 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
     try {
       const operatorVault = operatorHarness.myVault.createdVault!;
       const operatorClient = await operatorHarness.clients.get(false);
-      const supportsVaultName = typeof operatorClient.tx.vaults.setName === 'function';
+      const supportsVaultName = 'setName' in operatorClient.tx.vaults;
       const expectedFromName = 'OperatorOne';
       const delegateKeypair = await operatorHarness.walletKeys.getVaultDelegateKeypair();
 
       if (supportsVaultName) {
-        const delegateSetupTx = await operatorHarness.myVault.setupVaultInviteProfile(expectedFromName);
+        const delegateSetupTx = await operatorHarness.myVault.setupVaultInviteProfile({
+          operatorName: expectedFromName,
+        });
         await delegateSetupTx?.txResult.waitForFinalizedBlock;
       } else {
-        const delegateSetupTx = await operatorHarness.myVault.ensureDelegatedBitcoinSigner();
+        const delegateSetupTx = await operatorHarness.myVault.ensureVaultDelegateReady();
         await delegateSetupTx?.txResult.waitForFinalizedBlock;
       }
 

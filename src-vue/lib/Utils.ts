@@ -7,9 +7,35 @@ import { formatEther } from 'viem';
 export { getPercent, percentOf };
 export { convertFromSqliteFields } from '@argonprotocol/apps-core';
 
+export const OPERATOR_NAME_REQUIREMENTS =
+  'Operator name must start with a capital letter, use up to 18 letters or numbers, and cannot include "Vault".';
+
 export function isInt(n: any) {
   if (typeof n === 'string') return !n.includes('.');
   return n % 1 === 0;
+}
+
+export function isValidOperatorName(name: string): boolean {
+  const trimmedName = name.trim();
+  return /^[A-Z][A-Za-z0-9]{0,17}$/.test(trimmedName) && !trimmedName.toLowerCase().includes('vault');
+}
+
+export function normalizeOperatorNameInput(name: string): string {
+  const allowedCharacters = name.replace(/[^A-Za-z0-9]/g, '').slice(0, 18);
+  return allowedCharacters.replace(/^[a-z]/, firstLetter => firstLetter.toUpperCase());
+}
+
+export function getOperatorNameInputNotice(enteredName: string, normalizedName: string): string {
+  if (/[^A-Za-z0-9]/.test(enteredName)) {
+    return 'Operator names can only use letters and numbers; spaces and symbols were removed.';
+  }
+  if (/^[a-z]/.test(enteredName)) {
+    return 'Operator names start with a capital letter, so the first letter was capitalized.';
+  }
+  if (normalizedName.toLowerCase().includes('vault')) {
+    return 'Operator names cannot include "Vault".';
+  }
+  return '';
 }
 
 export async function getInstanceConfigDir(): Promise<string> {

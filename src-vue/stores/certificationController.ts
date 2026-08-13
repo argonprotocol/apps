@@ -8,6 +8,7 @@ import { getDbPromise } from './helpers/dbPromise.ts';
 import {
   countCompletedTreasuryCertificationRequirements,
   createDeferred,
+  getVaultByOperator,
   loadCertificationProgress,
   MICROGONS_PER_ARGON,
   treasuryCertificationRequirementCount,
@@ -15,17 +16,21 @@ import {
 import handleFatalError from './helpers/handleFatalError.ts';
 import Importer from '../lib/Importer.ts';
 import {
+  getOnboardingSetupStatus,
+  getOperationalChainProgressFromAccount,
+  getOperationalProfileName,
   getOperationalRewardConfig,
   type IOperationalChainProgress,
   type IOperationalRewardConfig,
   subscribeOperationalAccount,
+  usesOperationalProfileNameRuntime,
 } from '../lib/OperationalAccount.ts';
 import { getBitcoinLocks } from './bitcoin.ts';
 import { getServerApiClient } from './server.ts';
 import { getTransactionTracker } from './transactions.ts';
 import { getArgonBonds } from './argonBonds.ts';
 import { getMyMiningSeats } from './myMiningSeats.ts';
-import { getMainchainClient } from './mainchain.ts';
+import { getFinalizedClient, getMainchainClient } from './mainchain.ts';
 import { getMyVault } from './vaults.ts';
 import BootstrapToNode from '../overlays/certification/BootstrapToNode.vue';
 import BackupMnemonic from '../overlays/certification/BackupMnemonic.vue';
@@ -35,8 +40,9 @@ import AcquireBonds from '../overlays/certification/AcquireBonds.vue';
 import TransferArgons from '../overlays/certification/TransferArgons.vue';
 import WinMiningSeats from '../overlays/certification/WinMiningSeats.vue';
 import WinMoreMiningSeats from '../overlays/certification/WinMoreMiningSeats.vue';
-import { TopTab, VaultingSetupStatus } from '../interfaces/IConfig.ts';
+import { OnboardingSetupStatus, TopTab, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
+import { TxAttemptState } from '../lib/TransactionTracker.ts';
 import { BitcoinLockStatus } from '../interfaces/IBitcoinLockRecord.ts';
 
 export enum OperationalStepId {
@@ -437,6 +443,8 @@ export const useCertificationController = defineStore('certificationController',
   let operationalAccountUnsubscribe: VoidFunction | undefined;
   let previousCompletionByStepId: Record<OperationalStepId, boolean> | undefined;
   const hasLoadedInitialOperationalProgress = Vue.ref(false);
+  let hasRecoveredOnboardingSetup = false;
+  let isRecoveringOnboardingSetup = false;
 
   function isCertificationStepComplete(stepId: OperationalStepId) {
     if (stepId === OperationalStepId.BootstrapFromNode) return true;
@@ -585,12 +593,14 @@ export const useCertificationController = defineStore('certificationController',
       },
     );
 
+    const client = await getMainchainClient(false);
+
     rewardConfig.value = await getOperationalRewardConfig();
 
     try {
       // Mnemonic import rebuilds local Bitcoin records later, so restore this completed step directly from chain.
       const progress = await loadCertificationProgress({
-        client: await getMainchainClient(false),
+        client,
         defaultAccountId: walletKeys.defaultArgonAddress,
       });
       if (progress.hasTreasuryBitcoin) hasCompletedOwnBitcoinLock.value = true;
@@ -626,6 +636,65 @@ export const useCertificationController = defineStore('certificationController',
         }
         if (shouldSaveConfig) {
           void config.save();
+        }
+
+        if (!hasRecoveredOnboardingSetup && !isRecoveringOnboardingSetup) {
+          isRecoveringOnboardingSetup = true;
+          void getFinalizedClient(client)
+            .then(async finalizedClient => {
+              const [accountRaw, ownedVault] = await Promise.all([
+                finalizedClient.query.operationalAccounts.operationalAccounts(walletKeys.operationalAddress),
+                getVaultByOperator({ client: finalizedClient, operatorAddress: walletKeys.vaultingAddress }),
+              ]);
+              const onboardingProgress = getOperationalChainProgressFromAccount(accountRaw, rewardConfig.value);
+              const usesOperationalProfile = usesOperationalProfileNameRuntime(client);
+              const operatorName = usesOperationalProfile
+                ? getOperationalProfileName(accountRaw)
+                : (ownedVault?.name?.trim() ?? '');
+              const setupStatus = getOnboardingSetupStatus({
+                hasOnboardingHistory:
+                  onboardingProgress.hasOperationalAccount ||
+                  onboardingProgress.hasVault ||
+                  onboardingProgress.hasFirstMiningSeat ||
+                  !!ownedVault,
+                hasMiningSeats: onboardingProgress.hasFirstMiningSeat,
+                hasVault: !!ownedVault,
+                isServerInstalled: config.isServerInstalled,
+                operatorName,
+                usesOperationalProfile,
+              });
+
+              let recoveredSetupStatus = setupStatus;
+              if (
+                setupStatus !== OnboardingSetupStatus.Finished &&
+                config.onboardingSetupStatus === OnboardingSetupStatus.Installing
+              ) {
+                await transactionTracker.load();
+                const pendingSetupAttempt = await transactionTracker.findLatestTxAttempt({
+                  extrinsicType: [
+                    ExtrinsicType.OperationalSetProfileName,
+                    ExtrinsicType.VaultSetBitcoinLockDelegate,
+                    ExtrinsicType.VaultTopUpBitcoinLockDelegate,
+                  ],
+                  waitForConfirmations: 2,
+                });
+                if (pendingSetupAttempt?.txAttemptState === TxAttemptState.Pending) {
+                  recoveredSetupStatus = OnboardingSetupStatus.Installing;
+                }
+              }
+
+              if (config.onboardingSetupStatus !== recoveredSetupStatus) {
+                config.onboardingSetupStatus = recoveredSetupStatus;
+                await config.save();
+              }
+              hasRecoveredOnboardingSetup = true;
+            })
+            .catch(error => {
+              console.error('[Certification Controller] Unable to recover onboarding setup.', error);
+            })
+            .finally(() => {
+              isRecoveringOnboardingSetup = false;
+            });
         }
       },
       rewardConfig.value,

@@ -73,7 +73,7 @@ import type { ICrosschainTransferOutMetadata } from '../lib/EthereumOutboundTran
 import type { ITransactionMoveMetadata } from '../lib/MoveCapital.ts';
 import type {
   IVaultCommittedArgonotsMetadata,
-  IVaultBackfillMetadata,
+  IVaultFlexibleAssetMetadata,
   IVaultIncreaseAllocationMetadata,
   IVaultInitialAllocateMetadata,
 } from '../lib/MyVault.ts';
@@ -169,9 +169,9 @@ function transactionLabel(transaction: ITransactionRecord): string {
     case ExtrinsicType.VaultSetCommittedArgonots:
       return 'Updated Vault ARGNOT Commitment';
     case ExtrinsicType.VaultSetBitcoinLockDelegate:
-      return 'Set Bitcoin Lock Delegate';
+      return 'Set Vault Delegate';
     case ExtrinsicType.VaultTopUpBitcoinLockDelegate:
-      return 'Funded Bitcoin Lock Delegate';
+      return 'Funded Vault Delegate';
     case ExtrinsicType.MiningBidProxySetup:
       return 'Set Up Mining Bid Proxy';
     case ExtrinsicType.OperationalRegister:
@@ -198,8 +198,8 @@ function transactionLabel(transaction: ITransactionRecord): string {
       return 'Used Orphaned Bitcoin as Funding';
     case ExtrinsicType.BitcoinOrphanedUtxoRelease:
       return 'Requested Orphaned Bitcoin Release';
-    case ExtrinsicType.VaultSetBackfill: {
-      const metadata = transaction.metadataJson as IVaultBackfillMetadata;
+    case ExtrinsicType.VaultSetFlexibleAssets: {
+      const metadata = transaction.metadataJson as IVaultFlexibleAssetMetadata;
       const changes = [...metadata.bitcoinChanges, ...metadata.bondChanges];
       if (changes.every(change => change.isBackfill)) return 'Made Assets Flexible';
       if (changes.every(change => !change.isBackfill)) return 'Made Assets Inflexible';

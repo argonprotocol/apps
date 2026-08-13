@@ -8,8 +8,7 @@
           Grow Your Vault. Grow the Network.
         </h1>
         <p class="mt-3 max-w-4xl text-xl leading-relaxed text-slate-900/60">
-          You’ve completed certification and established your vault. Now maximize your revenue by showing friends and
-          family how to use it.
+          Set up member onboarding to invite friends, guide them through certification, and earn referral rewards.
         </p>
 
         <ul class="mt-10 flex w-[86%] max-w-310 flex-row gap-x-4">
@@ -51,13 +50,12 @@
         </ul>
 
         <button
-          data-testid="SendMemberInvite"
+          data-testid="SetupMemberOnboarding"
           type="button"
-          :disabled="!config.isServerInstalled || !myVault.createdVault"
           class="inner-button-shadow bg-argon-button border-argon-button-hover hover:bg-argon-button-hover mt-10 flex cursor-pointer items-center gap-3 rounded-md border px-12 py-3 text-lg font-bold text-white disabled:cursor-default disabled:opacity-40"
-          @click="basicEmitter.emit('openMemberInviteOverlay')"
+          @click="continueOnboarding"
         >
-          Send Your First Invite
+          Set Up Member Onboarding
           <PaperAirplaneIcon class="size-5" />
         </button>
       </section>
@@ -69,18 +67,21 @@
 import { PaperAirplaneIcon } from '@heroicons/vue/24/solid';
 import ArgonIcon from '../../assets/wallets/networks/argon.svg?component';
 import SparkleIcon from '../../assets/sparkle-outline.svg?component';
-import basicEmitter from '../../emitters/basicEmitter.ts';
+import { OnboardingSetupStatus } from '../../interfaces/IConfig.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { useCertificationController } from '../../stores/certificationController.ts';
 import { getConfig } from '../../stores/config.ts';
 import { getCurrency } from '../../stores/currency.ts';
-import { getMyVault } from '../../stores/vaults.ts';
 import CertificationCompleteIcon from './images/certification-complete.svg?component';
 import GrowVaultIcon from './images/grow-vault.svg?component';
 
 const config = getConfig();
 const controller = useCertificationController();
 const currency = getCurrency();
-const myVault = getMyVault();
 const { microgonToArgonNm } = createNumeralHelpers(currency);
+
+function continueOnboarding() {
+  config.onboardingSetupStatus = OnboardingSetupStatus.Checklist;
+  void config.save();
+}
 </script>

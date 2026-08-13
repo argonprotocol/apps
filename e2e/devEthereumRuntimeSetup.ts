@@ -229,11 +229,11 @@ export async function syncEthereumGatewayActiveCouncilToArgon(args: {
     weights: members.map(([, member]) => member.weight.toBigInt()),
   };
   const nextMicrogonsPerArgonot = activeCouncil.epochMicrogonsPerArgonot.toBigInt();
-  const gatewayCouncil = (await publicClient.readContract({
+  const gatewayCouncil = await publicClient.readContract({
     address: gatewayAddress,
     abi: EvmContracts.mintingGatewayAbi,
     functionName: 'globalIssuanceCouncil',
-  })) as readonly [bigint, bigint, Hex, bigint];
+  });
   const expectedGatewayCouncilHash = EvmContracts.hashMintingGatewayGlobalIssuanceCouncil({
     ...currentCouncil,
     epochMicrogonsPerArgonot: nextMicrogonsPerArgonot,

@@ -1,11 +1,16 @@
 <!-- prettier-ignore -->
 <template>
-  <div class="flex h-full grow flex-col">
+  <div class="relative isolate h-full w-full">
     <template v-if="config.hasExtensionOperations">
-      <div v-if="!config.isServerInstalled" class="flex h-full items-center justify-center text-slate-500">
-        Finish installing your server before managing member invites.
-      </div>
-
+      <SetupInstalling
+        v-if="config.onboardingSetupStatus === OnboardingSetupStatus.Installing"
+        :operatorName="operatorNameForActivation"
+      />
+      <SetupChecklist
+        v-else-if="config.onboardingSetupStatus === OnboardingSetupStatus.Checklist"
+        @activate="activateOnboarding"
+      />
+      <BlankSlate v-else-if="config.onboardingSetupStatus === OnboardingSetupStatus.None" />
       <div v-else-if="inviteLoadError" class="flex h-full items-center justify-center text-red-600">
         {{ inviteLoadError }}
       </div>
@@ -13,8 +18,6 @@
       <div v-else-if="!controller.hasLoadedOperationalInvites" class="flex h-full items-center justify-center">
         <div class="text-2xl font-bold text-slate-600/40 uppercase">Loading...</div>
       </div>
-
-      <BlankSlate v-else-if="!controller.operationalInvites.length" />
       <Dashboard v-else />
     </template>
 
@@ -40,19 +43,37 @@
 import * as Vue from 'vue';
 import { NetworkConfig } from '@argonprotocol/apps-core';
 import LockedIcon from '../assets/locked.svg?component';
+import { OnboardingSetupStatus } from '../interfaces/IConfig.ts';
 import { useCertificationController } from '../stores/certificationController.ts';
 import { getConfig } from '../stores/config.ts';
 import BlankSlate from './onboarding-screen/BlankSlate.vue';
 import Dashboard from './onboarding-screen/Dashboard.vue';
+import SetupChecklist from './onboarding-screen/SetupChecklist.vue';
+import SetupInstalling from './onboarding-screen/SetupInstalling.vue';
 
 const config = getConfig();
 const controller = useCertificationController();
+
 const inviteLoadError = Vue.ref('');
+const operatorNameForActivation = Vue.ref('');
+
+function activateOnboarding(operatorName: string) {
+  operatorNameForActivation.value = operatorName;
+  config.onboardingSetupStatus = OnboardingSetupStatus.Installing;
+  void config.save();
+}
 
 Vue.watch(
-  [() => config.hasExtensionOperations, () => config.isServerInstalled, () => config.serverDetails.ipAddress],
-  async ([hasExtensionOperations, isServerInstalled, ipAddress]) => {
-    if (!hasExtensionOperations || !isServerInstalled || !ipAddress) return;
+  [
+    () => config.hasExtensionOperations,
+    () => config.onboardingSetupStatus,
+    () => config.isServerInstalled,
+    () => config.serverDetails.ipAddress,
+  ],
+  async ([hasExtensionOperations, setupStatus, isServerInstalled, ipAddress]) => {
+    if (!hasExtensionOperations || setupStatus !== OnboardingSetupStatus.Finished || !isServerInstalled || !ipAddress) {
+      return;
+    }
 
     inviteLoadError.value = '';
     try {

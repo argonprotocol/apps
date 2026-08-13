@@ -8,15 +8,12 @@ import {
 
 import { MICRONOTS_PER_ARGONOT } from './Currency.js';
 import { calculateAnnualPercentageYield } from './FinancialReturns.js';
+import type { RuntimeSpec157 } from './runtimeCompatibility.js';
 
 export interface IBondLotSource {
   id: number;
-  lot: PalletTreasuryBondLot;
+  lot: PalletTreasuryBondLot | RuntimeSpec157.PalletTreasuryBondLot;
 }
-
-// Spec version 155 stored vault terms directly on the lot before the program field was added.
-type LegacyPalletTreasuryBondLot = PalletTreasuryBondLot &
-  Pick<PalletTreasuryBondLot['program']['asVault'], 'vaultId' | 'sharingPercent' | 'bonusPercent'>;
 
 export type IBondLotTotals = {
   totalBonds: number;
@@ -47,7 +44,7 @@ type IBondLotModel = {
   releaseFrame: number | null;
   releaseReason?: PalletTreasuryBondReleaseReason['type'];
   isReleasing: boolean;
-  isBackfill: boolean;
+  isFlexible: boolean;
   isOwn: boolean;
   canRelease: boolean;
 };
@@ -70,7 +67,7 @@ export class BondLot {
   public readonly releaseFrame: number | null;
   public readonly releaseReason?: PalletTreasuryBondReleaseReason['type'];
   public readonly isReleasing: boolean;
-  public readonly isBackfill: boolean;
+  public readonly isFlexible: boolean;
   public readonly isOwn: boolean;
   public readonly canRelease: boolean;
 
@@ -92,26 +89,26 @@ export class BondLot {
     this.releaseFrame = model.releaseFrame;
     this.releaseReason = model.releaseReason;
     this.isReleasing = model.isReleasing;
-    this.isBackfill = model.isBackfill;
+    this.isFlexible = model.isFlexible;
     this.isOwn = model.isOwn;
     this.canRelease = model.canRelease;
   }
 
   public static fromRuntime(
     id: number,
-    lot: PalletTreasuryBondLot | Omit<PalletTreasuryBondLot, 'isBackfill'>,
+    lot: PalletTreasuryBondLot | RuntimeSpec157.PalletTreasuryBondLot,
     ownAddress?: string,
   ): BondLot {
     const accountId = lot.owner.toString();
     const bonds = lot.bonds.toNumber();
     const participatedFrames = lot.participatedFrames.toNumber();
-    const programType = lot.program?.isArgonot ? 'Argonot' : 'Vault';
+    const programType = lot.program.isArgonot ? 'Argonot' : 'Vault';
     let vaultId: number | undefined;
     let sharingPercent: number | undefined;
     let bonusPercent = 0;
 
     if (programType === 'Vault') {
-      const vaultTerms = lot.program?.isVault ? lot.program.asVault : (lot as LegacyPalletTreasuryBondLot);
+      const vaultTerms = lot.program.asVault;
       vaultId = vaultTerms.vaultId.toNumber();
       sharingPercent = permillToPercent(vaultTerms.sharingPercent.toBigInt());
       bonusPercent = permillToPercent(vaultTerms.bonusPercent.toBigInt());
@@ -135,7 +132,7 @@ export class BondLot {
       releaseFrame: lot.releaseFrameId.isSome ? lot.releaseFrameId.unwrap().toNumber() : null,
       releaseReason: lot.releaseReason.isSome ? lot.releaseReason.unwrap().type : undefined,
       isReleasing: lot.releaseReason.isSome,
-      isBackfill: 'isBackfill' in lot ? lot.isBackfill.valueOf() : false,
+      isFlexible: 'isFlexible' in lot ? lot.isFlexible.valueOf() : lot.isBackfill.valueOf(),
       isOwn: accountId === ownAddress,
       canRelease: accountId === ownAddress,
     });

@@ -100,7 +100,7 @@ export const useNetworkStats = defineStore('networkStats', () => {
         slot.seats.filter((seat): seat is IActiveMiningSeat => seat.miner !== null),
       );
       activeVaults.value = Object.values(vaults.vaultsById)
-        .filter(vault => vault.availableSecuritization() > 0n)
+        .filter(vault => vault.availableSecuritizationSpace() > 0n)
         .sort((left, right) => {
           const leftAvailableBitcoinSpace = left.availableBitcoinSpace();
           const rightAvailableBitcoinSpace = right.availableBitcoinSpace();

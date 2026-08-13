@@ -5,7 +5,13 @@ import { createMockedDbPromise, createTestDb } from './helpers/db';
 import { instanceChecks } from '../lib/Utils.js';
 import { WalletKeys } from '../lib/WalletKeys.ts';
 import { createTestWallet } from './helpers/wallet.ts';
-import { BootstrapType, MiningSetupStatus, ServerType, VaultingSetupStatus } from '../interfaces/IConfig.ts';
+import {
+  BootstrapType,
+  MiningSetupStatus,
+  OnboardingSetupStatus,
+  ServerType,
+  VaultingSetupStatus,
+} from '../interfaces/IConfig.ts';
 import { JsonExt } from '@argonprotocol/apps-core';
 import Restarter from '../lib/Restarter.ts';
 import PluginSql from '@tauri-apps/plugin-sql';
@@ -23,6 +29,7 @@ it('can load config defaults', async () => {
   const config = new Config(dbPromise, walletKeys);
   await config.load();
   expect(config.miningSetupStatus).toBe(MiningSetupStatus.None);
+  expect(config.onboardingSetupStatus).toBe(OnboardingSetupStatus.None);
   expect(config.isServerInstalling).toBe(false);
   expect(config.hasMiningSeats).toBe(false);
   expect(config.hasMiningBids).toBe(false);
@@ -193,6 +200,7 @@ it.each([
       hasExtensionOperations: 'true',
       miningSetupStatus: `"${MiningSetupStatus.Finished}"`,
       vaultingSetupStatus: `"${VaultingSetupStatus.Finished}"`,
+      onboardingSetupStatus: `"${OnboardingSetupStatus.Finished}"`,
       isServerInstalled: 'true',
       hasMiningBids: 'true',
       hasMiningSeats: 'true',
@@ -240,6 +248,7 @@ it.each([
     });
     expect(restoredConfig.miningSetupStatus).toBe(MiningSetupStatus.Finished);
     expect(restoredConfig.vaultingSetupStatus).toBe(VaultingSetupStatus.Finished);
+    expect(restoredConfig.onboardingSetupStatus).toBe(OnboardingSetupStatus.Finished);
     expect(restoredConfig.isServerInstalled).toBe(true);
     expect(restoredConfig.hasMiningBids).toBe(true);
     expect(restoredConfig.hasMiningSeats).toBe(true);

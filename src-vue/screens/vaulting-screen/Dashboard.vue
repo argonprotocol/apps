@@ -548,9 +548,9 @@ const currentBondMapLots = Vue.computed((): IBondMapLot[] => {
       prorata: 0n,
       isOperator: bondLot.accountId === operatorAccountId,
       details: bondLot,
-      // A backfill lot never appears in ordinaryFrameBondLots; mainchain records all backfill
+      // A flexible lot never appears in ordinaryFrameBondLots; mainchain records all flexible
       // participation in aggregate frame fields instead.
-      status: bondLot.isBackfill ? 'active' : 'pending',
+      status: bondLot.isFlexible ? 'active' : 'pending',
     };
   });
 });

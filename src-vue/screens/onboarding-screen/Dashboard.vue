@@ -126,25 +126,56 @@
             type="button"
             :disabled="!myVault.createdVault"
             class="cursor-pointer text-base font-light text-slate-700 hover:opacity-80 disabled:cursor-default disabled:opacity-35"
-            @click="basicEmitter.emit('openBackfillOverlay')"
+            @click="basicEmitter.emit('openFlexibleAssetsOverlay')"
           >
             Manage Flexible Assets
           </button>
         </template>
         <div class="h-5 w-px bg-slate-600/30" />
-        <button
-          data-testid="SendMemberInvite"
-          type="button"
-          :disabled="!canSendInvite"
-          class="cursor-pointer text-base font-light text-slate-700 hover:opacity-80 disabled:cursor-default disabled:opacity-35"
-          @click="basicEmitter.emit('openMemberInviteOverlay')"
-        >
-          Send Invite
-        </button>
+        <span class="relative">
+          <button
+            data-testid="SendMemberInvite"
+            type="button"
+            :disabled="!canSendInvite"
+            class="cursor-pointer text-base font-light text-slate-700 hover:opacity-80 disabled:cursor-default disabled:opacity-35"
+            @click="
+              showCreateInviteGuidance = false;
+              basicEmitter.emit('openMemberInviteOverlay');
+            "
+          >
+            Create Invite
+          </button>
+          <ArrowCalloutButton
+            v-if="showCreateInviteGuidance"
+            direction="right"
+            guidanceTitle="Create Your First Invite"
+            guidance="Create your first member invite here."
+            :showGuidanceActions="false"
+            class="absolute top-1/2 left-0 z-50 -translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
+          />
+        </span>
       </header>
 
-      <div class="min-h-0 grow px-5 py-4">
+      <div v-if="controller.operationalInvites.length" class="min-h-0 grow px-5 py-4">
         <MemberInvites />
+      </div>
+      <div v-else-if="showInviteBlankSlate" class="flex min-h-0 grow items-center justify-center px-8 pb-16">
+        <div class="flex max-w-xl flex-col items-center text-center">
+          <OnboardingIcon class="text-argon-600/60 mb-6 h-28" />
+          <div class="text-xl font-bold text-slate-800">Get started by sending your first invite</div>
+          <p class="mt-2 text-sm leading-6 text-slate-500">
+            Invite people into your vault, track their certification progress, and approve operations access when they
+            are ready.
+          </p>
+          <button
+            type="button"
+            :disabled="!canSendInvite"
+            class="bg-argon-button hover:bg-argon-button-hover mt-7 cursor-pointer rounded-md border border-transparent px-8 py-2.5 text-base font-bold text-white disabled:cursor-default disabled:opacity-40"
+            @click="showCreateInviteGuidance = true"
+          >
+            Get Started
+          </button>
+        </div>
       </div>
     </section>
   </div>
@@ -153,6 +184,8 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import { TooltipArrow, TooltipContent, TooltipProvider, TooltipRoot, TooltipTrigger } from 'reka-ui';
+import OnboardingIcon from '../../assets/onboarding.svg?component';
+import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { supportsFlexibleAssetsRuntime } from '../../lib/MyVault.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
@@ -170,6 +203,7 @@ const myVault = getMyVault();
 const { microgonToArgonNm } = createNumeralHelpers(currency);
 
 const supportsFlexibleAssets = Vue.ref(false);
+const showCreateInviteGuidance = Vue.ref(false);
 
 const canViewRewards = Vue.computed(() => {
   return (
@@ -179,6 +213,10 @@ const canViewRewards = Vue.computed(() => {
 
 const canSendInvite = Vue.computed(() => {
   return config.isServerInstalled && controller.hasLoadedOperationalInvites && !!myVault.createdVault;
+});
+
+const showInviteBlankSlate = Vue.computed(() => {
+  return controller.hasLoadedOperationalInvites && controller.operationalInvites.length === 0;
 });
 
 function openRewards() {

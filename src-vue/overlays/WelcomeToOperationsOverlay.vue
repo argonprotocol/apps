@@ -75,10 +75,7 @@ import { getMainchainClient } from '../stores/mainchain.ts';
 import { getTransactionTracker } from '../stores/transactions.ts';
 import { getUpstreamOperatorClient } from '../stores/upstreamOperator.ts';
 import { getWalletKeys, useWallets } from '../stores/wallets.ts';
-import {
-  ensureOperationalAccountRegistered,
-  supportsOperationalAccessProofRuntime,
-} from '../lib/OperationalAccount.ts';
+import { ensureOperationalAccountRegistered } from '../lib/OperationalAccount.ts';
 
 const config = getConfig();
 const transactionTracker = getTransactionTracker();
@@ -181,7 +178,7 @@ async function completeRegistration() {
   try {
     invite.value = await upstreamOperatorClient.getMemberInvite();
     const client = await getMainchainClient(false);
-    if (!invite.value?.accessProof || !supportsOperationalAccessProofRuntime(client)) {
+    if (!invite.value?.accessProof) {
       await markComplete();
       return;
     }

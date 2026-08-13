@@ -166,9 +166,9 @@ export class ArgonBondsRecovery {
       return BondLot.fromRuntime(id, lot, this.walletKeys.defaultArgonAddress);
     }
 
-    // Older archive storage predates the program field and has no
-    // sharing/bonus fields. Current and immediately previous runtime codecs
-    // continue through BondLot.fromRuntime.
+    // Historical archive storage predates the program field and has no
+    // sharing/bonus fields. Supported live runtime codecs continue through
+    // BondLot.fromRuntime.
     const vaultId = lot.get('vaultId');
     if (!vaultId) throw new Error(`Historical vault bond lot ${id} is missing its vault`);
 
@@ -191,7 +191,7 @@ export class ArgonBondsRecovery {
       releaseFrame: lot.releaseFrameId.isSome ? lot.releaseFrameId.unwrap().toNumber() : null,
       releaseReason: lot.releaseReason.isSome ? lot.releaseReason.unwrap().type : undefined,
       isReleasing: lot.releaseReason.isSome,
-      isBackfill: false,
+      isFlexible: false,
       isOwn: accountId === this.walletKeys.defaultArgonAddress,
       canRelease: accountId === this.walletKeys.defaultArgonAddress,
     });

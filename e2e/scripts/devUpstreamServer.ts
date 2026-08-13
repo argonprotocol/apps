@@ -251,7 +251,8 @@ export async function startDevUpstreamServer(args: {
 
   NetworkConfig.setNetwork('dev-docker');
 
-  const clients = new MainchainClients(args.archiveUrl, () => false);
+  const archiveClient = await getClient(args.archiveUrl);
+  const clients = new MainchainClients(args.archiveUrl, () => false, archiveClient);
   const actor = await AppVaultOperator.load({
     clients,
     walletKeys,
@@ -337,7 +338,7 @@ export async function startDevUpstreamServer(args: {
 
     await actor.bootstrapUpstreamOperator({
       client,
-      vaultName: 'Testing',
+      operatorName: 'Testing',
     });
 
     operationsUpgradePoller = actor.startOperationsUpgradePoller({

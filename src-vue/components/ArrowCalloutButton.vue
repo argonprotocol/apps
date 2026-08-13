@@ -42,7 +42,7 @@
           <div
             v-if="props.guidance"
             :style="{ backgroundColor: props.fillColor }"
-            class="border-argon-600/40 flex w-100 flex-col gap-2 rounded border shadow-xl"
+            class="border-argon-600/40 flex w-100 flex-col rounded border shadow-xl"
           >
             <header class="bg-argon-600/10 px-5 py-3 font-bold">
               <template v-if="props.guidanceTitle">{{ props.guidanceTitle }}</template>
@@ -51,7 +51,7 @@
               </template>
             </header>
 
-            <p class="px-5 pt-3">
+            <p class="px-5 pt-3" :class="props.showGuidanceActions ? '' : 'pb-3'">
               {{ props.guidance }}
             </p>
 

@@ -76,6 +76,13 @@ export enum VaultingSetupStatus {
   Finished = 'Finished',
 }
 
+export enum OnboardingSetupStatus {
+  None = 'None',
+  Checklist = 'Checklist',
+  Installing = 'Installing',
+  Finished = 'Finished',
+}
+
 export enum ServerType {
   DigitalOcean = 'DigitalOcean',
   CustomServer = 'CustomServer',
@@ -198,6 +205,7 @@ export const ConfigSchema = z.object({
 
   miningSetupStatus: z.nativeEnum(MiningSetupStatus),
   vaultingSetupStatus: z.nativeEnum(VaultingSetupStatus),
+  onboardingSetupStatus: z.nativeEnum(OnboardingSetupStatus),
 
   showWelcomeOverlay: z.boolean(),
   postWelcomeLaunchCount: z.number().int().nonnegative(),
@@ -273,6 +281,7 @@ export interface IConfigDefaults {
 
   miningSetupStatus: () => IConfig['miningSetupStatus'];
   vaultingSetupStatus: () => IConfig['vaultingSetupStatus'];
+  onboardingSetupStatus: () => IConfig['onboardingSetupStatus'];
 
   showWelcomeOverlay: () => IConfig['showWelcomeOverlay'];
   postWelcomeLaunchCount: () => IConfig['postWelcomeLaunchCount'];

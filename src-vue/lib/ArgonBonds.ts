@@ -6,6 +6,7 @@ import {
   type IBlockHeaderInfo,
   type IFrameBondLot,
   type MiningFrames,
+  type RuntimeSpec157,
   TreasuryBonds,
   type VaultBondCapacityState,
 } from '@argonprotocol/apps-core';
@@ -21,8 +22,8 @@ import { ArgonBondsRecovery } from './recovery/ArgonBonds.ts';
 export interface IVaultArgonBondState {
   bondLots: BondLot[];
   ordinaryBonds: number;
-  backfillBonds: number;
-  backfillBondsReserved: number;
+  flexibleBonds: number;
+  reservedBondSpace: number;
   currentFrame: {
     frameId: number;
     vaultBonds: number;
@@ -253,8 +254,8 @@ export class ArgonBonds {
     this.data.capacityStatesByVault[args.vaultId] = bondState.capacityState;
     vault.bondLots = bondState.bondLots;
     vault.ordinaryBonds = bondState.ordinaryBonds;
-    vault.backfillBonds = bondState.backfillBonds;
-    vault.backfillBondsReserved = bondState.backfillBondsReserved;
+    vault.flexibleBonds = bondState.flexibleBonds;
+    vault.reservedBondSpace = bondState.reservedBondSpace;
     vault.currentFrame.frameId = frameId;
     vault.currentFrame.vaultBonds = activeBonds.vaultActiveBonds;
     vault.currentFrame.bondLots = frameBonds.bondLots;
@@ -269,8 +270,8 @@ export class ArgonBonds {
     return (this.data.vaultsById[vaultId] ??= {
       bondLots: [],
       ordinaryBonds: 0,
-      backfillBonds: 0,
-      backfillBondsReserved: 0,
+      flexibleBonds: 0,
+      reservedBondSpace: 0,
       currentFrame: {
         frameId: 0,
         vaultBonds: 0,
@@ -315,6 +316,17 @@ export class ArgonBonds {
     let refreshBidPool = false;
     let latestRefreshBlock: IBlockHeaderInfo | undefined;
     const typeClient = await getMainchainClient(false);
+    const treasuryEvents = typeClient.events.treasury as
+      | ArgonClient['events']['treasury']
+      | RuntimeSpec157.Events<'promise'>['treasury'];
+    const bondLotFlexibilityChanged =
+      'BondLotFlexibilityChanged' in treasuryEvents
+        ? treasuryEvents.BondLotFlexibilityChanged
+        : treasuryEvents.BondLotBackfillChanged;
+    const reservedBondSpaceChanged =
+      'ReservedBondSpaceChanged' in treasuryEvents
+        ? treasuryEvents.ReservedBondSpaceChanged
+        : treasuryEvents.BackfillBondsReservedChanged;
 
     for (const block of blocks) {
       if (block.frameId != null) this.data.currentFrameId = block.frameId;
@@ -335,11 +347,11 @@ export class ArgonBonds {
           typeClient.events.treasury.BondLotPurchased.is(event) ||
           typeClient.events.treasury.BondLotReleaseScheduled.is(event) ||
           typeClient.events.treasury.BondLotReleased.is(event) ||
-          typeClient.events.treasury.BondLotBackfillChanged?.is(event)
+          bondLotFlexibilityChanged.is(event)
         ) {
           refreshBonds = true;
           refreshMarket = true;
-        } else if (typeClient.events.treasury.BackfillBondsReservedChanged?.is(event)) {
+        } else if (reservedBondSpaceChanged.is(event)) {
           refreshMarket = true;
         }
       }

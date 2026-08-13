@@ -9,6 +9,7 @@ export enum ExtrinsicType {
   VaultTopUpBitcoinLockDelegate = 'VaultTopUpBitcoinLockDelegate',
   MiningBidProxySetup = 'MiningBidProxySetup',
   OperationalRegister = 'OperationalRegister',
+  OperationalSetProfileName = 'OperationalSetProfileName',
   OperationalActivateAndClaim = 'OperationalActivateAndClaim',
   OperationalClaimRewards = 'OperationalClaimRewards',
   BootstrapPublishEndpoint = 'BootstrapPublishEndpoint',
@@ -21,7 +22,7 @@ export enum ExtrinsicType {
   VaultCosignOrphanedUtxoRelease = 'VaultCosignOrphanedUtxoRelease',
   BitcoinOrphanedUtxoUseAsFunding = 'BitcoinOrphanedUtxoUseAsFunding',
   BitcoinOrphanedUtxoRelease = 'BitcoinOrphanedUtxoRelease',
-  VaultSetBackfill = 'VaultSetBackfill',
+  VaultSetFlexibleAssets = 'VaultSetBackfill', // Preserve the stored value used by existing transaction history.
 
   Transfer = 'Transfer',
   CrosschainTransferProve = 'CrosschainTransferProve',

@@ -37,7 +37,7 @@
         v-if="ratchetPreview.securitizationToAdd > 0n"
         class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800"
       >
-        Because this Bitcoin is used as backfill, it must be fully securitized before it can ratchet. This ratchet
+        Because this Bitcoin is used as flexible capacity, it must be fully securitized before it can ratchet. This ratchet
         requires {{ currency.symbol
         }}{{ microgonToMoneyNm(ratchetPreview.securitizationToAdd).format('0,0.00') }} more in vault security. That
         amount will be added from your wallet with the ratchet.

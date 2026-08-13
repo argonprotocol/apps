@@ -2,7 +2,7 @@
 <template>
   <OverlayBase
     :isOpen="isOpen"
-    :showGoBack="returnToInvite && (!backfillProgressActive || isBackfillProgressComplete || !!backfillError)"
+    :showGoBack="returnToInvite && (!flexibleAssetProgressActive || isFlexibleAssetProgressComplete || !!flexibleAssetError)"
     @close="closeOverlay"
     @pressEsc="closeOverlay"
     @goBack="goBackToInvite"
@@ -33,9 +33,9 @@
         portion covered by securitization.
       </p>
 
-      <div v-if="backfillProgressActive" class="border-y border-slate-200 py-8">
+      <div v-if="flexibleAssetProgressActive" class="border-y border-slate-200 py-8">
         <div class="text-center text-lg font-semibold text-slate-800">
-          {{ backfillProgressTitle }}
+          {{ flexibleAssetProgressTitle }}
         </div>
         <p class="mx-auto mt-3 max-w-xl text-center text-sm leading-6 text-slate-500">
           Updating {{ activeChangeCount }} flexible {{ activeChangeCount === 1 ? 'asset' : 'assets' }}.
@@ -43,30 +43,30 @@
         </p>
 
         <div class="text-argon-700 mt-8 text-center text-4xl font-bold">
-          {{ numeral(backfillProgressPct).format('0.00') }}%
+          {{ numeral(flexibleAssetProgressPct).format('0.00') }}%
         </div>
 
         <ProgressBar
-          :progress="backfillProgressPct"
-          :hasError="!!backfillError"
+          :progress="flexibleAssetProgressPct"
+          :hasError="!!flexibleAssetError"
           :showLabel="false"
           class="mt-4 h-4"
         />
 
         <div class="mt-4 text-center text-sm text-slate-500">
-          {{ backfillProgressLabel }}
+          {{ flexibleAssetProgressLabel }}
         </div>
 
-        <div v-if="backfillError" class="mt-5 border-l-2 border-red-300 pl-3 text-sm text-red-700">
-          {{ backfillError }}
+        <div v-if="flexibleAssetError" class="mt-5 border-l-2 border-red-300 pl-3 text-sm text-red-700">
+          {{ flexibleAssetError }}
         </div>
 
-        <div v-if="isBackfillProgressComplete || backfillError" class="mt-7 flex justify-end">
+        <div v-if="isFlexibleAssetProgressComplete || flexibleAssetError" class="mt-7 flex justify-end">
           <button
             type="button"
             class="bg-argon-button hover:bg-argon-button-hover rounded-lg px-5 py-2.5 text-sm font-semibold text-white"
-            @click="handleBackfillProgressAction">
-            {{ isBackfillProgressComplete && continueToInvite ? 'Continue to Invite' : 'Back to Assets' }}
+            @click="handleFlexibleAssetProgressAction">
+            {{ isFlexibleAssetProgressComplete && continueToInvite ? 'Continue to Invite' : 'Back to Assets' }}
           </button>
         </div>
       </div>
@@ -75,7 +75,7 @@
         Loading eligible assets…
       </div>
 
-      <form v-else @submit.prevent="submitBackfill">
+      <form v-else @submit.prevent="submitFlexibleAssets">
         <section>
           <div class="mb-2 text-sm font-semibold text-slate-800">Bitcoin</div>
           <div v-if="eligibleLocks.length" class="border-y border-slate-200">
@@ -155,7 +155,7 @@ import OverlayBase from './OverlayBase.vue';
 import ProgressBar from '../components/ProgressBar.vue';
 import Checkbox from '../components/Checkbox.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
-import type { IVaultBackfillChanges, IVaultBackfillMetadata } from '../lib/MyVault.ts';
+import type { IVaultFlexibleAssetChanges, IVaultFlexibleAssetMetadata } from '../lib/MyVault.ts';
 import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
@@ -184,33 +184,33 @@ const eligibleBondLots = Vue.ref<BondLot[]>([]);
 const bitcoinSelectionByUtxoId = Vue.ref<Record<number, boolean>>({});
 const bondSelectionById = Vue.ref<Record<number, boolean>>({});
 const activeChangeCount = Vue.ref(0);
-const backfillProgressActive = Vue.ref(false);
-const backfillProgressPct = Vue.ref(0);
-const backfillProgressLabel = Vue.ref('');
-const backfillError = Vue.ref('');
+const flexibleAssetProgressActive = Vue.ref(false);
+const flexibleAssetProgressPct = Vue.ref(0);
+const flexibleAssetProgressLabel = Vue.ref('');
+const flexibleAssetError = Vue.ref('');
 
-let unsubscribeBackfillProgress: VoidFunction | undefined;
+let unsubscribeFlexibleAssetProgress: VoidFunction | undefined;
 let hasRefreshedFinalizedState = false;
 
 const bitcoinChanges = Vue.computed(() => {
   return eligibleLocks.value.flatMap(lock => {
-    const isBackfill = bitcoinSelectionByUtxoId.value[lock.utxoId];
-    return isBackfill === lock.isBackfill ? [] : [{ lock, isBackfill }];
+    const isFlexible = bitcoinSelectionByUtxoId.value[lock.utxoId];
+    return isFlexible === lock.isFlexible ? [] : [{ lock, isFlexible }];
   });
 });
 const bondChanges = Vue.computed(() => {
   return eligibleBondLots.value.flatMap(lot => {
-    const isBackfill = bondSelectionById.value[lot.id];
-    return isBackfill === lot.isBackfill ? [] : [{ lot, isBackfill }];
+    const isFlexible = bondSelectionById.value[lot.id];
+    return isFlexible === lot.isFlexible ? [] : [{ lot, isFlexible }];
   });
 });
 const changeCount = Vue.computed(() => bitcoinChanges.value.length + bondChanges.value.length);
-const isBackfillProgressComplete = Vue.computed(() => {
-  return backfillProgressPct.value >= 100 && !backfillError.value;
+const isFlexibleAssetProgressComplete = Vue.computed(() => {
+  return flexibleAssetProgressPct.value >= 100 && !flexibleAssetError.value;
 });
-const backfillProgressTitle = Vue.computed(() => {
-  if (backfillError.value) return 'Flexible asset update needs attention';
-  if (isBackfillProgressComplete.value) return 'Flexible assets updated';
+const flexibleAssetProgressTitle = Vue.computed(() => {
+  if (flexibleAssetError.value) return 'Flexible asset update needs attention';
+  if (isFlexibleAssetProgressComplete.value) return 'Flexible assets updated';
   return 'Updating flexible assets';
 });
 function closeOverlay() {
@@ -222,36 +222,36 @@ function closeOverlay() {
 async function openOverlay(request?: {
   continueToInvite?: boolean;
   returnToInvite?: boolean;
-  flexibleAssetChanges?: IVaultBackfillChanges;
+  flexibleAssetChanges?: IVaultFlexibleAssetChanges;
 }) {
   continueToInvite.value = request?.continueToInvite ?? false;
   returnToInvite.value = request?.returnToInvite ?? false;
   isOpen.value = true;
   await transactionTracker.load();
-  const pending = transactionTracker.findLatestTxInfo<IVaultBackfillMetadata>(candidate => {
+  const pending = transactionTracker.findLatestTxInfo<IVaultFlexibleAssetMetadata>(candidate => {
     if (candidate.tx.accountAddress !== walletKeys.vaultingAddress) return false;
-    if (candidate.tx.extrinsicType !== ExtrinsicType.VaultSetBackfill) return false;
+    if (candidate.tx.extrinsicType !== ExtrinsicType.VaultSetFlexibleAssets) return false;
 
     return candidate.tx.status === TransactionStatus.Submitted || candidate.tx.status === TransactionStatus.InBlock;
   });
 
   if (pending) {
-    trackBackfillTransaction(pending);
+    trackFlexibleAssetTransaction(pending);
     return;
   }
 
-  await loadBackfillAssets();
+  await loadFlexibleAssets();
   for (const change of request?.flexibleAssetChanges?.bitcoinChanges ?? []) {
-    bitcoinSelectionByUtxoId.value[change.lock.utxoId] = change.isBackfill;
+    bitcoinSelectionByUtxoId.value[change.lock.utxoId] = change.isFlexible;
   }
   for (const change of request?.flexibleAssetChanges?.bondChanges ?? []) {
-    bondSelectionById.value[change.lot.id] = change.isBackfill;
+    bondSelectionById.value[change.lot.id] = change.isFlexible;
   }
 }
 
 function goBackToInvite() {
-  if (backfillProgressActive.value) {
-    resetBackfillProgress();
+  if (flexibleAssetProgressActive.value) {
+    resetFlexibleAssetProgress();
   }
   const flexibleAssetChanges = {
     bitcoinChanges: bitcoinChanges.value,
@@ -262,23 +262,23 @@ function goBackToInvite() {
 }
 
 function continueToInviteForm() {
-  if (!isBackfillProgressComplete.value || !continueToInvite.value) return;
+  if (!isFlexibleAssetProgressComplete.value || !continueToInvite.value) return;
 
-  resetBackfillProgress();
+  resetFlexibleAssetProgress();
   closeOverlay();
   basicEmitter.emit('openMemberInviteOverlay');
 }
 
-function handleBackfillProgressAction() {
-  if (isBackfillProgressComplete.value && continueToInvite.value) {
+function handleFlexibleAssetProgressAction() {
+  if (isFlexibleAssetProgressComplete.value && continueToInvite.value) {
     continueToInviteForm();
     return;
   }
 
-  resetBackfillProgress();
+  resetFlexibleAssetProgress();
 }
 
-async function loadBackfillAssets() {
+async function loadFlexibleAssets() {
   const vault = myVault.createdVault;
   if (!vault) {
     eligibleLocks.value = [];
@@ -290,7 +290,7 @@ async function loadBackfillAssets() {
   try {
     const client = await getMainchainClient(false);
     const [locks] = await Promise.all([
-      bitcoinLocks.getEligibleBackfillLocks({
+      bitcoinLocks.getEligibleFlexibleLocks({
         vaultId: vault.vaultId,
         operatorAddress: vault.operatorAccountId,
         client,
@@ -309,15 +309,15 @@ async function loadBackfillAssets() {
     eligibleBondLots.value = argonBonds
       .getVaultBonds(vault.vaultId)
       .bondLots.filter(lot => lot.isOwn && lot.programType === 'Vault' && !lot.isReleasing);
-    bitcoinSelectionByUtxoId.value = Object.fromEntries(locks.map(lock => [lock.utxoId, lock.isBackfill]));
-    bondSelectionById.value = Object.fromEntries(eligibleBondLots.value.map(lot => [lot.id, lot.isBackfill]));
+    bitcoinSelectionByUtxoId.value = Object.fromEntries(locks.map(lock => [lock.utxoId, lock.isFlexible]));
+    bondSelectionById.value = Object.fromEntries(eligibleBondLots.value.map(lot => [lot.id, lot.isFlexible]));
   } finally {
     isLoading.value = false;
   }
 }
 
-async function submitBackfill() {
-  if (!changeCount.value || backfillProgressActive.value) return;
+async function submitFlexibleAssets() {
+  if (!changeCount.value || flexibleAssetProgressActive.value) return;
 
   if (continueToInvite.value) {
     const flexibleAssetChanges = {
@@ -330,36 +330,36 @@ async function submitBackfill() {
   }
 
   activeChangeCount.value = changeCount.value;
-  backfillProgressActive.value = true;
-  backfillProgressPct.value = 0;
-  backfillProgressLabel.value = 'Submitting transaction…';
-  backfillError.value = '';
+  flexibleAssetProgressActive.value = true;
+  flexibleAssetProgressPct.value = 0;
+  flexibleAssetProgressLabel.value = 'Submitting transaction…';
+  flexibleAssetError.value = '';
 
   try {
-    trackBackfillTransaction(
-      await myVault.setBackfill({
+    trackFlexibleAssetTransaction(
+      await myVault.setFlexibleAssets({
         bitcoinChanges: bitcoinChanges.value,
         bondChanges: bondChanges.value,
       }),
     );
   } catch (error) {
-    backfillError.value = error instanceof Error ? error.message : 'Transaction failed. Please try again.';
+    flexibleAssetError.value = error instanceof Error ? error.message : 'Transaction failed. Please try again.';
   }
 }
 
-function trackBackfillTransaction(info: TransactionInfo<IVaultBackfillMetadata>) {
+function trackFlexibleAssetTransaction(info: TransactionInfo<IVaultFlexibleAssetMetadata>) {
   activeChangeCount.value = info.tx.metadataJson.bitcoinChanges.length + info.tx.metadataJson.bondChanges.length;
-  backfillProgressActive.value = true;
-  backfillError.value = '';
+  flexibleAssetProgressActive.value = true;
+  flexibleAssetError.value = '';
   hasRefreshedFinalizedState = false;
 
-  unsubscribeBackfillProgress?.();
-  unsubscribeBackfillProgress = info.subscribeToProgress(async (progress, error) => {
-    backfillProgressPct.value = progress.progressPct;
-    backfillProgressLabel.value = progress.progressMessage;
+  unsubscribeFlexibleAssetProgress?.();
+  unsubscribeFlexibleAssetProgress = info.subscribeToProgress(async (progress, error) => {
+    flexibleAssetProgressPct.value = progress.progressPct;
+    flexibleAssetProgressLabel.value = progress.progressMessage;
 
     if (error) {
-      backfillError.value = error.message ?? 'Transaction failed.';
+      flexibleAssetError.value = error.message ?? 'Transaction failed.';
       return;
     }
 
@@ -368,9 +368,9 @@ function trackBackfillTransaction(info: TransactionInfo<IVaultBackfillMetadata>)
     hasRefreshedFinalizedState = true;
     try {
       await myVault.load(true);
-      await loadBackfillAssets();
+      await loadFlexibleAssets();
     } catch (refreshError) {
-      backfillError.value =
+      flexibleAssetError.value =
         refreshError instanceof Error
           ? `Flexible assets updated, but the latest vault state could not be loaded: ${refreshError.message}`
           : 'Flexible assets updated, but the latest vault state could not be loaded.';
@@ -378,20 +378,20 @@ function trackBackfillTransaction(info: TransactionInfo<IVaultBackfillMetadata>)
   });
 }
 
-function resetBackfillProgress() {
-  unsubscribeBackfillProgress?.();
-  unsubscribeBackfillProgress = undefined;
+function resetFlexibleAssetProgress() {
+  unsubscribeFlexibleAssetProgress?.();
+  unsubscribeFlexibleAssetProgress = undefined;
   activeChangeCount.value = 0;
-  backfillProgressActive.value = false;
-  backfillProgressPct.value = 0;
-  backfillProgressLabel.value = '';
-  backfillError.value = '';
+  flexibleAssetProgressActive.value = false;
+  flexibleAssetProgressPct.value = 0;
+  flexibleAssetProgressLabel.value = '';
+  flexibleAssetError.value = '';
 }
 
-basicEmitter.on('openBackfillOverlay', openOverlay);
+basicEmitter.on('openFlexibleAssetsOverlay', openOverlay);
 
 Vue.onUnmounted(() => {
-  basicEmitter.off('openBackfillOverlay', openOverlay);
-  unsubscribeBackfillProgress?.();
+  basicEmitter.off('openFlexibleAssetsOverlay', openOverlay);
+  unsubscribeFlexibleAssetProgress?.();
 });
 </script>

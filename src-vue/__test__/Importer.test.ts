@@ -7,16 +7,18 @@ import { createMockedDbPromise } from './helpers/db.ts';
 import { createTestWallet } from './helpers/wallet.ts';
 import { instanceChecks } from '../lib/Utils.ts';
 import { SSH } from '../lib/SSH.ts';
-import { type IConfig, MiningSetupStatus, VaultingSetupStatus } from '../interfaces/IConfig.ts';
+import { type IConfig, MiningSetupStatus, OnboardingSetupStatus, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 import Restarter from '../lib/Restarter.ts';
 import { MemoryWalletKeys } from '../lib/MemoryWalletKeys.ts';
 import type { Db } from '../lib/Db.ts';
 import { invokeWithTimeout } from '../lib/tauriApi.ts';
+import { Vault } from '@argonprotocol/mainchain';
 
 const importMocks = vi.hoisted(() => ({
   closeWallets: vi.fn(),
   findMiningActivity: vi.fn(),
   getFinalizedClient: vi.fn(),
+  getMainchainClient: vi.fn(),
   getOperatorVaultId: vi.fn(),
   readBalances: vi.fn(),
   stopBlockWatch: vi.fn(),
@@ -24,6 +26,7 @@ const importMocks = vi.hoisted(() => ({
 
 vi.mock('../stores/mainchain.ts', () => ({
   getFinalizedClient: importMocks.getFinalizedClient,
+  getMainchainClient: importMocks.getMainchainClient,
   getBlockWatch: () => ({ stop: importMocks.stopBlockWatch }),
 }));
 
@@ -43,6 +46,9 @@ vi.mock('../lib/IndexerClient.ts', () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   importMocks.getOperatorVaultId.mockResolvedValue({ isSome: false });
+  importMocks.getMainchainClient.mockResolvedValue({
+    tx: { operationalAccounts: {}, vaults: { setName: vi.fn() } },
+  });
 });
 
 it('stops background sync before importing and keeps the current database on failure', async () => {
@@ -95,8 +101,20 @@ it('restores completed mining setup from imported operational account state', as
     configTable: { insertOrReplace },
   } as unknown as Db;
   const operationalDetails = {
+    accountBitcoinAmount: { toBigInt: () => 0n },
+    accountVaultBondAmount: { toBigInt: () => 0n },
+    availableAccessCodes: { toNumber: () => 0 },
+    isOperationallyCertified: { toPrimitive: () => false },
     miningSeatAccrual: { toNumber: () => 0 },
     miningSeatAppliedTotal: { toNumber: () => 1 },
+    operationalCertificationsCount: { toNumber: () => 0 },
+    rewardsCollectedAmount: { toBigInt: () => 0n },
+    rewardsEarnedAmount: { toBigInt: () => 0n },
+    rewardsEarnedCount: { toNumber: () => 0 },
+    uniswapArgonTransfersInAmount: { toBigInt: () => 0n },
+    upstreamAccount: { isSome: false },
+    vaultBitcoinAccrual: { toBigInt: () => 0n },
+    vaultBitcoinAppliedTotal: { toBigInt: () => 0n },
     vaultCreated: { toPrimitive: () => true },
   };
   importMocks.getFinalizedClient.mockResolvedValue({
@@ -134,6 +152,7 @@ it('restores completed mining setup from imported operational account state', as
     certificationDetails: JsonExt.stringify({ hasSavedMnemonic: true }, 2),
     miningSetupStatus: JsonExt.stringify(MiningSetupStatus.Finished, 2),
     vaultingSetupStatus: JsonExt.stringify(VaultingSetupStatus.Finished, 2),
+    onboardingSetupStatus: JsonExt.stringify(OnboardingSetupStatus.Checklist, 2),
     hasMiningBids: 'true',
     hasMiningSeats: 'true',
   });
@@ -364,7 +383,11 @@ it.each([
     },
   });
   importMocks.readBalances.mockResolvedValue([emptyBalance, emptyBalance, emptyBalance, emptyBalance]);
-  importMocks.getOperatorVaultId.mockResolvedValue({ isSome: params.activityKind === 'vault' });
+  importMocks.getOperatorVaultId.mockResolvedValue({
+    isSome: params.activityKind === 'vault',
+    unwrap: () => ({ toNumber: () => 7 }),
+  });
+  const getVault = vi.spyOn(Vault, 'get').mockResolvedValue({ vaultId: 7 } as Vault);
   importMocks.findMiningActivity.mockImplementation(async (_address, filters) => {
     return {
       blocks:
@@ -382,6 +405,7 @@ it.each([
     activityMask: AccountActivityKind.BondPosition | AccountActivityKind.BitcoinLock | AccountActivityKind.BitcoinMint,
   });
   expect(importMocks.getOperatorVaultId).toHaveBeenCalledWith(importWalletKeys.vaultingAddress);
+  expect(getVault).toHaveBeenCalledTimes(params.activityKind === 'vault' ? 1 : 0);
   expect(insertOrReplace).toHaveBeenCalledWith(
     expect.objectContaining({
       walletAccountsHadPreviousLife: 'true',
@@ -390,6 +414,8 @@ it.each([
       vaultingSetupStatus: params.vaultingSetupStatus,
     }),
   );
+
+  getVault.mockRestore();
 });
 
 it('does not block account import when fallback index history is unavailable', async () => {

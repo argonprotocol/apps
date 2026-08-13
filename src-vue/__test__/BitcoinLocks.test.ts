@@ -87,10 +87,10 @@ describe('BitcoinLocks ratchet preview', () => {
         },
       },
     };
-    const availableSecuritization = vi.fn(() => 10_000n);
+    const availableSecuritizationSpace = vi.fn(() => 10_000n);
     const vault = {
       operatorAccountId,
-      availableSecuritization,
+      availableSecuritizationSpace,
       securitizationRatioBN: () => BigNumber(1),
     };
     const calculateRatchetingCosts = vi.fn(async () => ({ burnAmount: 1_500n, ratchetingFee: 50n }));
@@ -111,14 +111,14 @@ describe('BitcoinLocks ratchet preview', () => {
     const preview = await store.getRatchetPreview(lock);
 
     expect(calculateRatchetingCosts).toHaveBeenCalledWith(client, expect.anything(), vault, 2_000n);
-    expect(availableSecuritization).toHaveBeenCalledWith('bitcoin-owner');
+    expect(availableSecuritizationSpace).toHaveBeenCalledWith('bitcoin-owner');
     expect(preview.ratchetingFee).toBe(expectedFee);
   });
 
-  it('includes the security needed to fully backfill the projected ratchet', async () => {
+  it('includes the security needed to support the projected flexible ratchet', async () => {
     const store = createStore();
     const lock = createLock({
-      uuid: 'backfill-ratchet-preview',
+      uuid: 'flexible-ratchet-preview',
       utxoId: 7,
       status: BitcoinLockStatus.LockedAndMinted,
       createdAt: '2026-01-01T00:00:00Z',
@@ -129,7 +129,7 @@ describe('BitcoinLocks ratchet preview', () => {
       getRatchetContext: async () => ({
         bitcoinLock: {
           calculateRatchetingCosts: async () => ({ burnAmount: 2_000n, ratchetingFee: 0n }),
-          isBackfill: true,
+          isFlexible: true,
           liquidityPromised: 3_000n,
           lockedTargetPrice: 3_000n,
           ownerAccount: 'vault-owner',
@@ -147,8 +147,8 @@ describe('BitcoinLocks ratchet preview', () => {
           },
         },
         vault: {
-          availableSecuritization: () => 0n,
-          backfillSecuritizationLocked: 6_000n,
+          availableSecuritizationSpace: () => 0n,
+          flexibleSecuritizationLocked: 6_000n,
           operatorAccountId: 'vault-owner',
           securitization: 5_000n,
           securitizationLocked: 8_000n,
@@ -211,12 +211,12 @@ describe('BitcoinLocks capacity owners', () => {
     const capacity = await store.getLockableBitcoinCapacity({
       vault: {
         availableBitcoinSpace,
-        backfillSecuritizationReserved: 100n,
+        reservedSecuritizationSpace: 100n,
         securitization: 1_000n,
         securitizationLocked: 800n,
         securitizationRatioBN: () => BigNumber(1),
       } as never,
-      projectedBackfillSecuritizationLocked: 300n,
+      projectedFlexibleSecuritizationLocked: 300n,
     });
 
     expect(availableBitcoinSpace).not.toHaveBeenCalled();
@@ -279,7 +279,7 @@ describe('BitcoinLocks ratchet transaction tracking', () => {
     expect(store.getPendingRatchetTxInfo(lock)).toBeUndefined();
   });
 
-  it('atomically adds missing securitization before ratcheting a backfill lock', async () => {
+  it('atomically adds missing securitization before ratcheting a flexible lock', async () => {
     const waitForFinalizedBlock = new Promise<Uint8Array>(() => undefined);
     const txResult = { waitForFinalizedBlock };
     const txInfo = {
@@ -327,15 +327,15 @@ describe('BitcoinLocks ratchet transaction tracking', () => {
     const getRatchetContext = vi.fn(async () => ({
       bitcoinLock: {
         calculateRatchetingCosts,
-        isBackfill: true,
+        isFlexible: true,
         liquidityPromised: 1_000n,
         lockedTargetPrice: 1_000n,
         ownerAccount: 'owner',
       },
       client,
       vault: {
-        availableSecuritization: () => 0n,
-        backfillSecuritizationLocked: 1_000n,
+        availableSecuritizationSpace: () => 0n,
+        flexibleSecuritizationLocked: 1_000n,
         operatorAccountId: 'owner',
         securitization: 0n,
         securitizationRatio: 1,
