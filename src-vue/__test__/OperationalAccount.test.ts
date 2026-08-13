@@ -14,6 +14,15 @@ import { bigintCodec } from '../../core/__test__/helpers/codecs.ts';
 import { TxAttemptState } from '../lib/TransactionTracker.ts';
 import { normalizeOperatorNameInput } from '../lib/Utils.ts';
 
+const appsCoreMocks = vi.hoisted(() => ({
+  getVaultByOperator: vi.fn(),
+}));
+
+vi.mock('@argonprotocol/apps-core', async importOriginal => ({
+  ...(await importOriginal()),
+  getVaultByOperator: appsCoreMocks.getVaultByOperator,
+}));
+
 it.each([
   {
     runtime: 'previous runtime with a vault',
@@ -191,7 +200,7 @@ it('keeps names on vaults while both name extrinsics are available', () => {
   expect(usesOperationalProfileNameRuntime(client as any)).toBe(false);
 });
 
-it('tops up a vault delegate that falls below readiness while the operator name transaction is finalizing', async () => {
+it('uses the finalized vault profile before repairing an underfunded delegate', async () => {
   const profileTransaction = { tx: { id: 1 } };
   const delegateTransaction = { tx: { id: 2 } };
   const account = vi
@@ -209,20 +218,31 @@ it('tops up a vault delegate that falls below readiness while the operator name 
     name: '',
     delegateAccountId: 'delegate',
   };
+  const finalizedVault = {
+    ...createdVault,
+    name: 'OperatorOne',
+  };
+  const load = vi
+    .fn()
+    .mockResolvedValueOnce(undefined)
+    .mockImplementationOnce(async () => {
+      createdVault.name = 'OperatorOne';
+    });
   const myVault = {
     createdVault,
-    load: vi.fn(),
-    setupVaultInviteProfile: vi.fn(async ({ operatorName }) => {
-      createdVault.name = operatorName;
-      return profileTransaction;
-    }),
+    load,
+    setupVaultInviteProfile: vi.fn().mockResolvedValue(profileTransaction),
     ensureVaultDelegateReady: vi.fn().mockResolvedValue(delegateTransaction),
   };
   const transactionTracker = { load: vi.fn() };
   const walletKeys = {
+    vaultingAddress: 'vaulting',
     getVaultDelegateKeypair: vi.fn().mockResolvedValue({ address: 'delegate' }),
   };
   const transactions: unknown[] = [];
+  appsCoreMocks.getVaultByOperator
+    .mockResolvedValueOnce(finalizedVault)
+    .mockRejectedValueOnce(new Error('Archive RPC unavailable'));
 
   const setup = await activateOperationalAccountSetup({
     client: client as any,
@@ -242,7 +262,7 @@ it('tops up a vault delegate that falls below readiness while the operator name 
   expect(transactions).toEqual([profileTransaction, delegateTransaction]);
 });
 
-it('restores a finalized operator name transaction after onboarding remounts without its local draft', async () => {
+it('restores a finalized operator name transaction when the authoritative vault query is unavailable', async () => {
   const profileTransaction = {
     tx: {
       id: 1,
@@ -281,8 +301,10 @@ it('restores a finalized operator name transaction after onboarding remounts wit
     }),
   };
   const walletKeys = {
+    vaultingAddress: 'vaulting',
     getVaultDelegateKeypair: vi.fn().mockResolvedValue({ address: 'delegate' }),
   };
+  appsCoreMocks.getVaultByOperator.mockRejectedValue(new Error('Archive RPC unavailable'));
 
   const setup = await activateOperationalAccountSetup({
     client: client as any,

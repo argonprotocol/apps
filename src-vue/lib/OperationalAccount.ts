@@ -12,6 +12,7 @@ import {
   createDeferred,
   getCertificationProgressFromOperationalAccount,
   getCertificationThresholds,
+  getVaultByOperator,
   type IOperationalAccessProof,
   MICROGONS_PER_ARGON,
   type RuntimeSpec157,
@@ -349,10 +350,19 @@ export async function activateOperationalAccountSetup(args: {
     await args.myVault.load(true);
   }
 
+  let vault = args.myVault.createdVault ?? undefined;
+  if (hasVault) {
+    const finalizedVault = await getVaultByOperator({
+      client: args.client,
+      operatorAddress: args.walletKeys.vaultingAddress,
+    }).catch(() => undefined);
+    vault = finalizedVault ?? vault;
+  }
+
   let setup = await loadOperationalAccountSetup({
     client: args.client,
     walletKeys: args.walletKeys,
-    vault: args.myVault.createdVault ?? undefined,
+    vault,
   });
 
   if (hasVault && !setup.vaultDelegateIsReady) {
@@ -364,10 +374,15 @@ export async function activateOperationalAccountSetup(args: {
     }
 
     await args.myVault.load(true);
+    const finalizedVault = await getVaultByOperator({
+      client: args.client,
+      operatorAddress: args.walletKeys.vaultingAddress,
+    }).catch(() => undefined);
+    vault = finalizedVault ?? args.myVault.createdVault ?? undefined;
     setup = await loadOperationalAccountSetup({
       client: args.client,
       walletKeys: args.walletKeys,
-      vault: args.myVault.createdVault ?? undefined,
+      vault,
     });
   }
 
