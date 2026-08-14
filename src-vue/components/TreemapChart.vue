@@ -331,7 +331,6 @@ function getRectStyle(rect: IRectNode) {
 
 .treemap .treemap__tile--pending {
   border-style: dashed;
-  position: relative;
 }
 
 .treemap .treemap__tile--pending::before {

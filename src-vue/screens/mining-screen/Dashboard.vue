@@ -1,7 +1,7 @@
 <!-- prettier-ignore -->
 <template>
   <TooltipProvider :disableHoverableContent="true" class="flex flex-col h-full">
-    <div data-testid="MiningDashboard" :class="myMiningSeats.isLoaded ? '' : 'opacity-30 pointer-events-none'" class="flex flex-col h-full pr-2.5 gap-y-2 justify-stretch grow">
+    <div data-testid="MiningDashboard" :class="myMiningSeats.isLoaded ? '' : 'opacity-30 pointer-events-none'" class="flex min-w-0 flex-col h-full pr-2.5 gap-y-2 justify-stretch grow">
       <span data-testid="TotalBlocksMined" :data-value="totalBlocksMined" class="sr-only">{{ totalBlocksMined }}</span>
 
       <section class="flex flex-row gap-x-2 h-[14%]">
@@ -66,8 +66,8 @@
         </TooltipRoot>
       </section>
 
-      <section class="flex flex-row gap-x-2.5 grow">
-        <div class="flex flex-col grow gap-y-2">
+      <section class="flex min-w-0 flex-row gap-x-2.5 grow">
+        <div class="flex min-w-0 flex-col grow gap-y-2">
           <section box class="flex flex-col grow text-center px-2">
             <header class="flex flex-row justify-between text-xl font-bold py-2 px-2 text-slate-900/80 border-b border-slate-400/30 select-none">
               <span class="flex flex-row items-center" :title="'Frame #' + currentFrame.id">
@@ -740,7 +740,7 @@ Vue.onUnmounted(() => {
 @reference "../../main.css";
 
 [box] {
-  @apply min-h-20 rounded border-[1px] border-slate-400/30 bg-white py-2 shadow;
+  @apply min-h-20 min-w-0 rounded border-[1px] border-slate-400/30 bg-white py-2 shadow;
 }
 
 [stat-box] {
