@@ -1,7 +1,6 @@
-import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import type { IBitcoinVaultMismatchState } from '../types/srcVue.ts';
 import type { IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
-import { clickIfVisible, formatUnitsToDecimal, pollEvery, sleep } from '../helpers/utils.ts';
+import { clickIfVisible, formatUnitsToDecimal, pollEvery } from '../helpers/utils.ts';
 import type { IE2EOperationInspectState, IE2EOperationState } from '../types.ts';
 import bitcoinEnsureMismatchActionPanel from './Bitcoin.op.ensureMismatchActionPanel.ts';
 import { Operation } from './index.ts';
@@ -88,40 +87,54 @@ export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import
     }
     await flow.waitFor('LockStart.submitLiquidLock()', { state: 'enabled', timeoutMs: 10_000 });
 
+    let expectedSatoshis = input.minimumLockSatoshis;
+    let amountInputName = `${flowName}.minimumLockSatoshis`;
     if (input.minimumLockMicrogons != null) {
-      const argonAmount =
-        formatUnitsToDecimal(
-          input.minimumLockMicrogons,
-          BigInt(MICROGONS_PER_ARGON),
-          `${flowName}.minimumLockMicrogons`,
-        ).replace(/\.?0+$/, '') || '0';
-      await flow.type({ selector: '[data-testid="LockStart.argonAmount"] [data-testid="input-number"]' }, argonAmount, {
-        clear: true,
+      const quote = await flow.getAttribute('LockStart.bitcoinAmount', 'data-microgons-per-btc', {
         timeoutMs: 3_000,
       });
-      await pollEvery(
-        50,
-        async () =>
-          (await flow
-            .getAttribute('LockStart.argonAmount', 'data-synced-value', { timeoutMs: 1_000 })
-            .catch(() => null)) === input.minimumLockMicrogons?.toString(),
+      if (!quote) throw new Error(`${flowName}: Bitcoin conversion quote is unavailable.`);
+
+      const result = await flow.queryApp(
+        async (refs, args: { microgons: string; microgonsPerBtc: string }) => ({
+          satoshis: (
+            await refs.bitcoinLocks.satoshisForArgonLiquidity(BigInt(args.microgons), BigInt(args.microgonsPerBtc))
+          ).toString(),
+        }),
         {
+          args: {
+            microgons: input.minimumLockMicrogons.toString(),
+            microgonsPerBtc: quote,
+          },
           timeoutMs: 3_000,
-          timeoutMessage: `${flowName}: Argon lock amount did not synchronize to ${input.minimumLockMicrogons}.`,
         },
       );
-    } else if (input.minimumLockSatoshis != null) {
-      await flow.click('LockStart.amountUnit');
-      await flow.click('BTC');
+      if (!result) throw new Error(`${flowName}: Bitcoin amount could not be calculated.`);
+
+      expectedSatoshis = BigInt(result.satoshis);
+      amountInputName = `${flowName}.minimumLockMicrogons`;
+    }
+
+    if (expectedSatoshis != null) {
       await flow.type(
         { selector: '[data-testid="LockStart.bitcoinAmount"] [data-testid="input-number"]' },
-        formatUnitsToDecimal(input.minimumLockSatoshis, SATOSHIS_PER_BTC, `${flowName}.minimumLockSatoshis`),
+        formatUnitsToDecimal(expectedSatoshis, SATOSHIS_PER_BTC, amountInputName),
         {
           clear: true,
           timeoutMs: 3_000,
         },
       );
-      await sleep(500);
+      await pollEvery(
+        50,
+        async () =>
+          (await flow
+            .getAttribute('LockStart.bitcoinAmount', 'data-synced-satoshis', { timeoutMs: 1_000 })
+            .catch(() => null)) === expectedSatoshis.toString(),
+        {
+          timeoutMs: 3_000,
+          timeoutMessage: `${flowName}: Bitcoin lock amount did not synchronize to ${expectedSatoshis} satoshis.`,
+        },
+      );
     }
 
     const didSubmit = await clickIfVisible(flow, 'LockStart.submitLiquidLock()');

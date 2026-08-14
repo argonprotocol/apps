@@ -50,6 +50,7 @@ export interface IBitcoinVaultUnlockStateDetails {
 
 export interface IBitcoinLocksQueryRef {
   load(force?: boolean): Promise<void>;
+  satoshisForArgonLiquidity(microgonLiquidity: bigint, microgonsAtTargetPerBtc?: bigint): Promise<bigint>;
   getActiveLocks(): IBitcoinLockQueryRecord[];
   getLockMismatchState(lock: IBitcoinLockQueryRecord | undefined): IBitcoinVaultMismatchState;
   getLockSatoshiAllowedVariance(): number | undefined;

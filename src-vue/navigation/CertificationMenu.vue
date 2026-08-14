@@ -250,15 +250,17 @@ import * as Vue from 'vue';
 import { NavigationMenuContent, NavigationMenuItem, NavigationMenuTrigger } from 'reka-ui';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
 import { MICROGONS_PER_ARGON, NetworkConfig } from '@argonprotocol/apps-core';
+import { BitcoinLock } from '@argonprotocol/mainchain';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { getConfig } from '../stores/config.ts';
 import { getCurrency } from '../stores/currency.ts';
 import Checkbox from '../components/Checkbox.vue';
 import Arrow from '../components/Arrow.vue';
-import { createNumeralHelpers } from '../lib/numeral.ts';
+import { createNumeralHelpers, formatBtc } from '../lib/numeral.ts';
 import {
   OperationalStepId,
   operationalSteps,
+  treasuryBitcoinCertificationDisplayAmount,
   treasuryCertificationStepIds,
   useCertificationController,
 } from '../stores/certificationController.ts';
@@ -456,7 +458,16 @@ function formatStepTitle(stepId: OperationalStepId) {
   }
 
   if (stepId === OperationalStepId.LiquidLock) {
-    return `Liquid Lock ${requirement.replace(' bitcoin', ' Worth of Bitcoin')}`;
+    const title = `Liquid Lock ${requirement.replace(' bitcoin', ' Worth of Bitcoin')}`;
+    if (!currency.isLoaded || !currency.priceIndex.btcUsdPrice || !currency.priceIndex.argonUsdTargetPrice) {
+      return title;
+    }
+
+    const satoshis = BitcoinLock.satoshisRequiredForRedemptionAmount(
+      currency.priceIndex,
+      treasuryBitcoinCertificationDisplayAmount,
+    );
+    return `${title} (${formatBtc(currency.convertSatToBtc(satoshis))} BTC)`;
   }
   if (stepId === OperationalStepId.ActivateVault) {
     return `Create a ${requirement.replace(' securitization', '')} Vault`;
