@@ -259,6 +259,22 @@ async function waitForUnlockRequestAccepted(flow: IBitcoinFlowContext['flow']): 
       progress.requestAcceptedSeen = true;
     }
 
+    if (backendRelease.hasActiveLock && backendRelease.isReleaseStatus && !backendRelease.isReleaseComplete) {
+      let releaseEntryText = '';
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        releaseEntryText = await flow
+          .getText({ selector: BITCOIN_LOCK_ENTRY_SELECTOR, index: 0 }, { timeoutMs: 1_000 })
+          .catch(() => '');
+        if (releaseEntryText.includes('Is Being Released')) break;
+        await sleep(250);
+      }
+
+      assert.ok(
+        releaseEntryText.includes('Is Being Released'),
+        'The Bitcoin lock disappeared from the dashboard while its release was still in progress.',
+      );
+    }
+
     if ((backendRelease.isReleaseComplete || !backendRelease.hasActiveLock) && lockEntryCount === 0) {
       progress.lockEntryClearedSeen = true;
       return progress;

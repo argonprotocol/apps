@@ -160,6 +160,26 @@
       </div>
     </section>
 
+    <section PendingRecord v-else-if="lockSummary.status === BitcoinLockStatus.Releasing">
+      <BitcoinIcon MainIcon class="bitcoin-spin" />
+      <div ContentWrapper>
+        <div FirstRow>
+          <header>{{ satToBtcNm(lockSummary.satoshis).format('0,0.[00000000]') }} of BTC Is Being Released</header>
+          <button PrimaryButton @click.stop="openUnlockingOverlay($event, lockSummary.record)">View Progress</button>
+        </div>
+        <div SecondRow>
+          <template v-if="releaseState.isWaitingForVaultCosign">
+            Waiting for the vault to cosign the Bitcoin release.
+          </template>
+          <template v-else-if="releaseState.isBitcoinReleaseProcessing">
+            The release is processing on the Bitcoin network.
+          </template>
+          <template v-else-if="releaseState.isArgonSubmitting">The release request is processing on Argon.</template>
+          <template v-else>Preparing the Bitcoin release.</template>
+        </div>
+      </div>
+    </section>
+
     <section
       ActiveRecord
       v-else-if="[BitcoinLockStatus.LockedAndIsMinting, BitcoinLockStatus.LockedAndMinted].includes(lockSummary.status)"
@@ -270,6 +290,7 @@ const fundingExpirationTime = Vue.computed(() => dayjs.utc(bitcoinLocks.verifyEx
 const isHistoryRecoveryPaused = Vue.computed(() => financials.historyRecovery.state === 'error');
 const isRatchetPending = Vue.computed(() => !!bitcoinLocks.getPendingRatchetTxInfo(lockRecord.value));
 const displayedRatchetPercent = Vue.computed(() => Math.round(props.lockSummary.ratchetPercent * 100) / 100);
+const releaseState = Vue.computed(() => bitcoinLocks.getLockUnlockReleaseState(lockRecord.value));
 const mismatchAcceptProgress = Vue.computed(() => {
   if (!lockRecord.value.utxoId) {
     return { progressPct: 0, error: '' };
