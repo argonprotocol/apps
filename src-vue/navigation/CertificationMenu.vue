@@ -267,6 +267,7 @@ import {
 import DiamondIcon from '../assets/diamond.svg';
 import CertificationIcon from '../assets/certification.svg';
 import { hasOperationsUpgradeRequest } from '../lib/UpstreamOperatorClient.ts';
+import { canRequestOperationsUpgrade } from '../lib/OperationalAccount.ts';
 
 const config = getConfig();
 const controller = useCertificationController();
@@ -324,9 +325,13 @@ const isShowingActivatedTooltip = Vue.computed(() => {
 
 const isShowingUpgradeButton = Vue.computed(() => {
   return (
-    config.hasExtensionTreasury &&
-    !controller.chainProgress.isUpgradedToOperations &&
-    controller.completedTreasuryCertificationStepCount === treasuryCertificationStepIds.length &&
+    canRequestOperationsUpgrade({
+      hasLoadedInitialOperationalProgress: controller.hasLoadedInitialOperationalProgress,
+      hasExtensionTreasury: config.hasExtensionTreasury,
+      hasCompletedTreasuryCertification:
+        controller.completedTreasuryCertificationStepCount === treasuryCertificationStepIds.length,
+      isUpgradedToOperations: controller.chainProgress.isUpgradedToOperations,
+    }) &&
     !completionNoticeStepId.value &&
     !controller.isOperationalRewardsFlowActive
   );
