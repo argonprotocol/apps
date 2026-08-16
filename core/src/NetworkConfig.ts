@@ -145,6 +145,7 @@ export interface INetworkConfig {
 export interface IEthereumNetworkConfig {
   beaconApiUrl: string;
   executionRpcUrls: string[];
+  explorerUrl: string;
   finalityBlocks: number;
   usdcTokenAddress: string;
 }
@@ -160,6 +161,13 @@ export const ETHEREUM_EXECUTION_RPC_TRANSPORT = {
   fallbackRetryCount: 1,
   timeoutMs: 15_000,
 } as const;
+
+export function getEthereumTransactionExplorerUrl(transactionHash: string): string | undefined {
+  const explorerUrl = NetworkConfig.get().ethereumNetwork.explorerUrl.trim().replace(/\/$/, '');
+  if (!explorerUrl) return;
+
+  return `${explorerUrl}/tx/${transactionHash}`;
+}
 
 export function getEthereumExecutionRpcUrls(configuredExecutionRpcUrl?: string): string[] {
   const ethereumNetwork = NetworkConfig.get().ethereumNetwork;

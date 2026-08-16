@@ -34,6 +34,7 @@ export type IMintingAuthorityAuthorization = {
   transferId: string;
   authorityIndex: number;
   moveToken: MoveToken.ARGN | MoveToken.ARGNOT;
+  sourceAccount: string;
   destinationSigningKey: string;
   finalizeRequest: EvmContracts.MintingGatewayTransferOutOfArgonRequest;
   authorizationHash: string;
@@ -41,6 +42,28 @@ export type IMintingAuthorityAuthorization = {
   microgonCollateral: bigint;
   micronotCollateral: bigint;
   securityAmountMicrogons: bigint;
+};
+
+export type IMintingAuthorityBackedTransfer = {
+  transferId: string;
+  status: 'waitingForAuthorizations' | 'readyForEthereum';
+  moveToken: MoveToken.ARGN | MoveToken.ARGNOT;
+  sourceAccount: string;
+  sourceTransferNonce: bigint;
+  destinationAccount: string;
+  amount: bigint;
+  validUntilEthereumBlock: bigint;
+  mintingAuthorityTip: bigint;
+  totalAttachedCollateral: bigint;
+  ownedMicrogonCollateral: bigint;
+  ownedMicronotCollateral: bigint;
+  authoritySigners: string[];
+};
+
+export type ICrosschainSourceTransferTotals = {
+  microgonsOut: bigint;
+  micronotsOut: bigint;
+  transferOutCount: number;
 };
 
 export type IMintingAuthorityAuthorizeMetadata = {
@@ -53,6 +76,33 @@ export type IMintingAuthorityAuthorizeMetadata = {
     micronotCollateral: bigint;
   }>;
 };
+
+export function getActiveMintingAuthorityRemaining(
+  authorities: IEthereumMintingAuthority[],
+  microgonsPerArgonot: bigint,
+): { microgons: bigint; micronots: bigint; valueMicrogons: bigint } {
+  const remaining = authorities.reduce(
+    (total, authority) => {
+      if (!authority.isActive) return total;
+
+      total.microgons += bigIntMax(
+        0n,
+        authority.gatewayRemainingMicrogonCollateral - authority.pendingReservedMicrogonCollateral,
+      );
+      total.micronots += bigIntMax(
+        0n,
+        authority.gatewayRemainingMicronotCollateral - authority.pendingReservedMicronotCollateral,
+      );
+      return total;
+    },
+    { microgons: 0n, micronots: 0n },
+  );
+
+  return {
+    ...remaining,
+    valueMicrogons: remaining.microgons + (remaining.micronots * microgonsPerArgonot) / BigInt(MICROGONS_PER_ARGON),
+  };
+}
 
 export type IMintingAuthorityRegisterMetadata = {
   actionType: 'registerMintingAuthority';
@@ -69,6 +119,10 @@ export class MintingAuthorities {
     isReady: boolean;
     authorities: IEthereumMintingAuthority[];
     pendingMintingAuthorizations: IMintingAuthorityAuthorization[];
+    backedTransfers: IMintingAuthorityBackedTransfer[];
+    backedTransfersError?: string;
+    sourceTotalsByAccount: Map<string, ICrosschainSourceTransferTotals>;
+    sourceUpstreamVaultAccountsByAccount: Map<string, string>;
     pendingMintingAuthorizeTxInfosByTransferId: Map<string, TransactionInfo<IMintingAuthorityAuthorizeMetadata>>;
   };
   #subscriptions: VoidFunction[] = [];
@@ -93,6 +147,9 @@ export class MintingAuthorities {
       isReady: false,
       authorities: [],
       pendingMintingAuthorizations: [],
+      backedTransfers: [],
+      sourceTotalsByAccount: new Map(),
+      sourceUpstreamVaultAccountsByAccount: new Map(),
       pendingMintingAuthorizeTxInfosByTransferId: new Map(),
     };
   }
@@ -110,6 +167,12 @@ export class MintingAuthorities {
       await this.miningFrames.blockWatch.start();
       const finalizedClient = await this.miningFrames.blockWatch.getFinalizedApi();
       await this.refresh(finalizedClient);
+      if (!this.data.authorities.length) {
+        const restoredAuthorities = await this.restoreSignerIndexes(finalizedClient);
+        if (restoredAuthorities.length) {
+          await this.refresh(finalizedClient);
+        }
+      }
       for (const txInfo of this.transactionTracker.pendingBlockTxInfosAtLoad) {
         if (txInfo.tx.extrinsicType === ExtrinsicType.CrosschainTransferAuthorize) {
           void this.onAuthorize(txInfo as TransactionInfo<IMintingAuthorityAuthorizeMetadata>);
@@ -138,21 +201,118 @@ export class MintingAuthorities {
       this.walletKeys,
       db.walletHdKeysTable,
     );
-    const pendingMintingAuthorizations = await getPendingMintingAuthorizations(
-      finalizedClient,
-      authorities,
-      getPendingLocalAuthorizations(this.transactionTracker.data.txInfos),
-    );
+    let backedTransfersError: string | undefined;
+    const [pendingMintingAuthorizations, backedTransfers] = await Promise.all([
+      getPendingMintingAuthorizations(
+        finalizedClient,
+        authorities,
+        getPendingLocalAuthorizations(this.transactionTracker.data.txInfos),
+      ),
+      getMintingAuthorityBackedTransfers(finalizedClient, authorities).catch(error => {
+        console.warn('[MintingAuthorities] Unable to refresh transfers backed by owned authorities', error);
+        backedTransfersError = error instanceof Error ? error.message : `${error}`;
+        return this.data.backedTransfers;
+      }),
+    ]);
     if (updateSeq !== this.#updateSeq) {
       return this.data.pendingMintingAuthorizations;
     }
 
+    const sourceAccounts = [
+      ...new Set([
+        ...pendingMintingAuthorizations.map(authorization => authorization.sourceAccount),
+        ...backedTransfers.map(transfer => transfer.sourceAccount),
+      ]),
+    ];
+    const [sourceTotals, sourceUpstreamVaultAccountsByAccount] = await Promise.all([
+      sourceAccounts.length
+        ? finalizedClient.query.crosschainTransfer.transferTotalsByAccount.multi(sourceAccounts)
+        : [],
+      this.loadSourceUpstreamVaultAccounts(finalizedClient, sourceAccounts),
+    ]);
+
     this.data.authorities = authorities;
     this.data.pendingMintingAuthorizations = pendingMintingAuthorizations;
+    this.data.backedTransfers = backedTransfers;
+    this.data.backedTransfersError = backedTransfersError;
+    this.data.sourceTotalsByAccount = new Map(
+      sourceAccounts.map((accountId, index) => {
+        const totals = sourceTotals[index];
+        return [
+          accountId,
+          {
+            microgonsOut: totals.microgonsOut.toBigInt(),
+            micronotsOut: totals.micronotsOut.toBigInt(),
+            transferOutCount: totals.argonTransfersOutCount.toNumber() + totals.argonotTransfersOutCount.toNumber(),
+          },
+        ];
+      }),
+    );
+    this.data.sourceUpstreamVaultAccountsByAccount = sourceUpstreamVaultAccountsByAccount;
     void this.syncPendingActivationRelay(authorities).catch(error =>
       console.error(`Error requesting pending minting-authority activation relay`, error),
     );
     return pendingMintingAuthorizations;
+  }
+
+  private async loadSourceUpstreamVaultAccounts(
+    finalizedClient: ApiDecoration<'promise'>,
+    sourceAccounts: string[],
+  ): Promise<Map<string, string>> {
+    if (!sourceAccounts.length) return new Map();
+
+    try {
+      const sourceOperationalAccountIds =
+        await finalizedClient.query.operationalAccounts.operationalAccountBySubAccount.multi(sourceAccounts);
+      const operationalAccountIds = [
+        ...new Set(
+          sourceOperationalAccountIds.flatMap(accountId => (accountId.isSome ? [accountId.unwrap().toString()] : [])),
+        ),
+      ];
+      if (!operationalAccountIds.length) return new Map();
+
+      const operationalAccountOptions =
+        await finalizedClient.query.operationalAccounts.operationalAccounts.multi(operationalAccountIds);
+      const operationalAccountsById = new Map(
+        operationalAccountOptions.flatMap((account, index) =>
+          account.isSome ? [[operationalAccountIds[index], account.unwrap()] as const] : [],
+        ),
+      );
+      const upstreamAccountIds = [
+        ...new Set(
+          [...operationalAccountsById.values()].flatMap(account =>
+            account.upstreamAccount.isSome ? [account.upstreamAccount.unwrap().toString()] : [],
+          ),
+        ),
+      ];
+      if (!upstreamAccountIds.length) return new Map();
+
+      const upstreamAccountOptions =
+        await finalizedClient.query.operationalAccounts.operationalAccounts.multi(upstreamAccountIds);
+      const upstreamVaultAccountsById = new Map(
+        upstreamAccountOptions.flatMap((account, index) =>
+          account.isSome ? [[upstreamAccountIds[index], account.unwrap().vaultAccount.toString()] as const] : [],
+        ),
+      );
+      const sourceUpstreamVaultAccounts = new Map<string, string>();
+
+      for (const [index, sourceAccount] of sourceAccounts.entries()) {
+        const operationalAccountId = sourceOperationalAccountIds[index];
+        if (!operationalAccountId?.isSome) continue;
+
+        const operationalAccount = operationalAccountsById.get(operationalAccountId.unwrap().toString());
+        const upstreamAccountId = operationalAccount?.upstreamAccount;
+        if (!upstreamAccountId?.isSome) continue;
+
+        const upstreamVaultAccount = upstreamVaultAccountsById.get(upstreamAccountId.unwrap().toString());
+        if (upstreamVaultAccount) sourceUpstreamVaultAccounts.set(sourceAccount, upstreamVaultAccount);
+      }
+
+      return sourceUpstreamVaultAccounts;
+    } catch (error) {
+      console.warn('[MintingAuthorities] Unable to resolve transfer source sponsors', error);
+      return new Map();
+    }
   }
 
   public async restoreSignerIndexes(
@@ -179,6 +339,10 @@ export class MintingAuthorities {
 
     this.data.authorities = authorities;
     this.data.pendingMintingAuthorizations = [];
+    this.data.backedTransfers = [];
+    this.data.backedTransfersError = undefined;
+    this.data.sourceTotalsByAccount = new Map();
+    this.data.sourceUpstreamVaultAccountsByAccount = new Map();
     void this.syncPendingActivationRelay(authorities).catch(error =>
       console.error(`Error requesting restored minting-authority activation relay`, error),
     );
@@ -319,8 +483,16 @@ export class MintingAuthorities {
     }
   }
 
-  public async authorize(transferId?: string): Promise<TransactionInfo<IMintingAuthorityAuthorizeMetadata>> {
-    if (transferId) {
+  public async authorize(transferIds?: string[]): Promise<TransactionInfo<IMintingAuthorityAuthorizeMetadata>> {
+    const selectedTransferIds = transferIds
+      ? [...new Set(transferIds.map(transferId => transferId.toLowerCase()))]
+      : undefined;
+    if (selectedTransferIds && !selectedTransferIds.length) {
+      throw new Error('Select at least one minting authorization.');
+    }
+
+    if (selectedTransferIds?.length === 1) {
+      const transferId = selectedTransferIds[0];
       const pendingTxInfo = this.data.pendingMintingAuthorizeTxInfosByTransferId.get(transferId);
       if (pendingTxInfo && !pendingTxInfo.isPostProcessed) {
         return pendingTxInfo;
@@ -329,36 +501,50 @@ export class MintingAuthorities {
     }
 
     await this.load();
-    let nextAuthorization = transferId
-      ? this.data.pendingMintingAuthorizations.find(x => x.transferId === transferId)
-      : this.data.pendingMintingAuthorizations[0];
-    if (!nextAuthorization) {
+    const getAvailableAuthorizations = () => {
+      if (!selectedTransferIds) return [...this.data.pendingMintingAuthorizations];
+
+      const authorizationByTransferId = new Map(
+        this.data.pendingMintingAuthorizations.map(authorization => [
+          authorization.transferId.toLowerCase(),
+          authorization,
+        ]),
+      );
+      return selectedTransferIds
+        .map(transferId => authorizationByTransferId.get(transferId))
+        .filter(authorization => authorization !== undefined);
+    };
+
+    let authorizations = getAvailableAuthorizations();
+    if (!authorizations.length || (selectedTransferIds && authorizations.length !== selectedTransferIds.length)) {
       const finalizedClient = await this.miningFrames.blockWatch.getFinalizedApi();
       await this.refresh(finalizedClient);
-      nextAuthorization = transferId
-        ? this.data.pendingMintingAuthorizations.find(x => x.transferId === transferId)
-        : this.data.pendingMintingAuthorizations[0];
-      if (!nextAuthorization && transferId) {
-        nextAuthorization = (
-          await getPendingMintingAuthorizations(
-            finalizedClient,
-            this.data.authorities,
-            getPendingLocalAuthorizations(this.transactionTracker.data.txInfos),
-            transferId,
-          )
-        )[0];
+      authorizations = getAvailableAuthorizations();
+      if (!authorizations.length && selectedTransferIds?.length === 1) {
+        authorizations = await getPendingMintingAuthorizations(
+          finalizedClient,
+          this.data.authorities,
+          getPendingLocalAuthorizations(this.transactionTracker.data.txInfos),
+          selectedTransferIds[0],
+        );
       }
     }
-    if (!nextAuthorization) {
-      if (transferId) {
-        throw new Error(`Transfer ${transferId} is not currently available to authorize.`);
+    if (!authorizations.length) {
+      if (selectedTransferIds) {
+        throw new Error('The selected transfers are not currently available to authorize.');
       }
       throw new Error('No pending minting authorizations are currently available.');
+    }
+    if (selectedTransferIds && authorizations.length !== selectedTransferIds.length) {
+      const availableTransferIds = new Set(authorizations.map(authorization => authorization.transferId.toLowerCase()));
+      const unavailableTransferIds = selectedTransferIds.filter(transferId => !availableTransferIds.has(transferId));
+      throw new Error(
+        `The following transfers are not currently available to authorize: ${unavailableTransferIds.join(', ')}`,
+      );
     }
 
     const client = await this.miningFrames.blockWatch.clients.get(false);
     const txSigner = await this.walletKeys.getVaultingKeypair();
-    const authorizations = transferId ? [nextAuthorization] : [...this.data.pendingMintingAuthorizations];
     const txs = await Promise.all(
       authorizations.map(async authorization =>
         client.tx.crosschainTransfer.collateralizeTransfer(
@@ -374,7 +560,7 @@ export class MintingAuthorities {
       ),
     );
     const txInfo = await this.transactionTracker.submitAndWatch({
-      tx: txs.length === 1 ? txs[0] : client.tx.utility.batch(txs),
+      tx: txs.length === 1 ? txs[0] : client.tx.utility.batchAll(txs),
       txSigner,
       extrinsicType: ExtrinsicType.CrosschainTransferAuthorize,
       metadata: {
@@ -432,7 +618,7 @@ export class MintingAuthorities {
   public async onAuthorize(txInfo: TransactionInfo<IMintingAuthorityAuthorizeMetadata>): Promise<void> {
     const { authorizations } = txInfo.tx.metadataJson;
     for (const { transferId } of authorizations) {
-      this.data.pendingMintingAuthorizeTxInfosByTransferId.set(transferId, txInfo);
+      this.data.pendingMintingAuthorizeTxInfosByTransferId.set(transferId.toLowerCase(), txInfo);
     }
     const postProcessor = txInfo.createPostProcessor();
 
@@ -448,8 +634,9 @@ export class MintingAuthorities {
       throw error;
     } finally {
       for (const { transferId } of authorizations) {
-        if (this.data.pendingMintingAuthorizeTxInfosByTransferId.get(transferId)?.tx.id === txInfo.tx.id) {
-          this.data.pendingMintingAuthorizeTxInfosByTransferId.delete(transferId);
+        const normalizedTransferId = transferId.toLowerCase();
+        if (this.data.pendingMintingAuthorizeTxInfosByTransferId.get(normalizedTransferId)?.tx.id === txInfo.tx.id) {
+          this.data.pendingMintingAuthorizeTxInfosByTransferId.delete(normalizedTransferId);
         }
       }
     }
@@ -724,6 +911,7 @@ export async function getPendingMintingAuthorizations(
         transferId,
         authorityIndex: authority.authorityIndex,
         moveToken: transfer.asset.isArgon ? MoveToken.ARGN : MoveToken.ARGNOT,
+        sourceAccount: transfer.argonAccountId.toString(),
         destinationSigningKey: authority.signer,
         finalizeRequest,
         authorizationHash: EvmContracts.hashMintingGatewayMintingAuthorization(
@@ -751,6 +939,56 @@ export async function getPendingMintingAuthorizations(
   }
 
   return authorizations;
+}
+
+export async function getMintingAuthorityBackedTransfers(
+  finalizedClient: ApiDecoration<'promise'>,
+  authorities: IEthereumMintingAuthority[],
+): Promise<IMintingAuthorityBackedTransfer[]> {
+  const authoritySigners = new Set(authorities.map(authority => authority.signer.toLowerCase()));
+  const transferIds = [...new Set(authorities.flatMap(authority => authority.activePendingTransferIds))];
+  if (transferIds.length === 0) return [];
+
+  const transferOptions = await finalizedClient.query.crosschainTransfer.transferOutById.multi(transferIds);
+  const backedTransfers: IMintingAuthorityBackedTransfer[] = [];
+
+  for (const [index, transferOption] of transferOptions.entries()) {
+    if (transferOption.isNone) continue;
+
+    const transfer = transferOption.unwrap();
+    let ownedMicrogonCollateral = 0n;
+    let ownedMicronotCollateral = 0n;
+    const ownedAuthoritySigners: string[] = [];
+
+    for (const [signer, collateral] of transfer.mintingAuthorityCollateralBySigner.entries()) {
+      const signerAddress = signer.toHex();
+      if (!authoritySigners.has(signerAddress.toLowerCase())) continue;
+
+      ownedAuthoritySigners.push(signerAddress);
+      ownedMicrogonCollateral += collateral.microgonCollateral.toBigInt();
+      ownedMicronotCollateral += collateral.micronotCollateral.toBigInt();
+    }
+
+    if (ownedAuthoritySigners.length === 0) continue;
+
+    backedTransfers.push({
+      transferId: transferIds[index],
+      status: transfer.state.isReady ? 'readyForEthereum' : 'waitingForAuthorizations',
+      moveToken: transfer.asset.isArgon ? MoveToken.ARGN : MoveToken.ARGNOT,
+      sourceAccount: transfer.argonAccountId.toString(),
+      sourceTransferNonce: transfer.argonTransferNonce.toBigInt(),
+      destinationAccount: transfer.destinationAccount.toHex(),
+      amount: transfer.amount.toBigInt(),
+      validUntilEthereumBlock: transfer.validUntilEthereumBlock.toBigInt(),
+      mintingAuthorityTip: transfer.mintingAuthorityTip.toBigInt(),
+      totalAttachedCollateral: transfer.totalAttachedCollateral.toBigInt(),
+      ownedMicrogonCollateral,
+      ownedMicronotCollateral,
+      authoritySigners: ownedAuthoritySigners,
+    });
+  }
+
+  return backedTransfers;
 }
 
 function createActiveAuthorities(

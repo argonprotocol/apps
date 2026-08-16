@@ -96,6 +96,27 @@ it('treats a watched finalized tx result as finalized before the record is persi
   });
 });
 
+it('reports an included transaction as on chain before the finalized head catches up', async () => {
+  const txInfo = new TransactionInfo({
+    tx: {
+      blockHeight: 100,
+      isFinalized: false,
+      createdAt: new Date(),
+    } as ITransactionRecord,
+    txResult: {
+      isFinalized: false,
+    } as TxResult,
+  });
+  let unsubscribe: () => void = () => undefined;
+
+  const progressMessage = await new Promise<string>(resolve => {
+    unsubscribe = txInfo.subscribeToProgress(args => resolve(args.progressMessage));
+  });
+  unsubscribe();
+
+  expect(progressMessage).toBe('Included in Block #100 · Waiting for Finalization...');
+});
+
 it('rejects waitForPostProcessing when post-processing fails', async () => {
   const txInfo = new TransactionInfo({
     tx: {

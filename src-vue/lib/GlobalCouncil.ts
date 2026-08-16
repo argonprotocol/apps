@@ -1,7 +1,12 @@
-import { bigIntMax, createDeferred, MiningFrames } from '@argonprotocol/apps-core';
+import { createDeferred, MiningFrames } from '@argonprotocol/apps-core';
 import { u8aToHex } from '@argonprotocol/mainchain';
 import type { IDeferred } from '@argonprotocol/apps-core';
-import type { ApiDecoration, ArgonClient, SubmittableExtrinsic } from '@argonprotocol/mainchain';
+import type {
+  ApiDecoration,
+  ArgonClient,
+  PalletCrosschainTransferCouncilApprovalQueueEntry,
+  SubmittableExtrinsic,
+} from '@argonprotocol/mainchain';
 import { u8aConcat } from '@polkadot/util';
 import type { Db } from './Db.ts';
 import type { WalletKeys } from './WalletKeys.ts';
@@ -11,13 +16,49 @@ import {
   EthereumClient,
   getEthereumExecutionRpcUrl,
   getEthereumFinalityMillis,
+  hasGatewayApprovalQuorum,
   type GatewayRelayOptions,
   type IEthereumGatewayRelayPreview,
 } from './EthereumClient.ts';
 const COUNCIL_SIGNER_REGISTRATION_MESSAGE_KEY = 'argon/council-signer/v2';
+const COUNCIL_APPROVAL_QUEUE_BATCH_SIZE = 32n;
+
+export type IGlobalCouncilChange = {
+  vaultCount: number;
+  newVaultCount: number;
+  leavingVaultCount: number;
+  epochMicrogonsPerArgonot: bigint;
+};
 
 export type IGlobalCouncilApproval = {
   approvalHash: string;
+  queueNonce: bigint;
+} & (
+  | {
+      targetKind: 'mintingAuthorityActivation';
+      targetSigningKey: string;
+      authorityOwnerAccount?: string;
+    }
+  | {
+      targetKind: 'mintingAuthorityDeactivation';
+      targetSigningKey: string;
+      authorityOwnerAccount?: string;
+    }
+  | {
+      targetKind: 'globalIssuanceCouncilRotation';
+      targetCouncilHash: string;
+      councilChange?: IGlobalCouncilChange;
+    }
+);
+
+export type IGlobalCouncilQueueItem = IGlobalCouncilApproval & {
+  approvalProgress: {
+    approvedWeight: bigint;
+    totalWeight: bigint;
+    signatureCount: number;
+    memberCount: number;
+  };
+  status: 'needsSignature' | 'awaitingCouncilQuorum' | 'readyForRelay';
 };
 
 export class GlobalCouncil {
@@ -25,6 +66,12 @@ export class GlobalCouncil {
     isReady: boolean;
     councilSigner?: string;
     pendingApprovals: IGlobalCouncilApproval[];
+    approvalQueue: IGlobalCouncilQueueItem[];
+    gatewayActivityCount: bigint;
+    activeEpochMicrogonsPerArgonot?: bigint;
+    transferOutMicrogonsPerArgonot?: bigint;
+    ethereumApprovalNonce?: bigint;
+    ethereumApprovalBlockNumbers: Map<bigint, bigint>;
   };
 
   #subscriptions: Array<() => void> = [];
@@ -35,6 +82,7 @@ export class GlobalCouncil {
   #lastRelayCheckAt = 0;
   #lastSharedRelayQueueKey?: string;
   #lastSharedRelayQueueSeenAt = 0;
+  #approvalBlockHydrationPromise?: Promise<void>;
 
   constructor(
     private readonly dbPromise: Promise<Db>,
@@ -46,6 +94,12 @@ export class GlobalCouncil {
       isReady: false,
       councilSigner: undefined,
       pendingApprovals: [],
+      approvalQueue: [],
+      gatewayActivityCount: 0n,
+      activeEpochMicrogonsPerArgonot: undefined,
+      transferOutMicrogonsPerArgonot: undefined,
+      ethereumApprovalNonce: undefined,
+      ethereumApprovalBlockNumbers: new Map(),
     };
   }
 
@@ -75,17 +129,36 @@ export class GlobalCouncil {
     updateSeq = ++this.#updateSeq,
   ): Promise<IGlobalCouncilApproval[]> {
     const db = await this.dbPromise;
-    const { councilSigner, pendingApprovals, hasSignedApprovalsAwaitingRelay, sharedRelayQueueKey } =
-      await getPendingCouncilApprovals(finalizedClient, this.walletKeys, db.walletHdKeysTable);
+    const {
+      councilSigner,
+      pendingApprovals,
+      approvalQueue,
+      gatewayActivityCount,
+      activeEpochMicrogonsPerArgonot,
+      transferOutMicrogonsPerArgonot,
+      hasReadyGatewayUpdates,
+      sharedRelayQueueKey,
+    } = await getPendingCouncilApprovals(finalizedClient, this.walletKeys, db.walletHdKeysTable);
     if (updateSeq !== this.#updateSeq) {
       return this.data.pendingApprovals;
     }
 
     this.data.councilSigner = councilSigner;
     this.data.pendingApprovals = pendingApprovals;
+    this.data.approvalQueue = approvalQueue;
+    this.data.gatewayActivityCount = gatewayActivityCount;
+    this.data.activeEpochMicrogonsPerArgonot = activeEpochMicrogonsPerArgonot;
+    this.data.transferOutMicrogonsPerArgonot = transferOutMicrogonsPerArgonot;
+    const liveQueueNonces = new Set(approvalQueue.map(({ queueNonce }) => queueNonce));
+    this.data.ethereumApprovalBlockNumbers = new Map(
+      [...this.data.ethereumApprovalBlockNumbers].filter(([queueNonce]) => liveQueueNonces.has(queueNonce)),
+    );
+    void this.refreshEthereumApprovalNonce(updateSeq).catch(error =>
+      console.error(`Error refreshing Ethereum gateway approval state`, error),
+    );
     void this.syncApprovedGatewayRelay({
       councilSigner,
-      hasSignedApprovalsAwaitingRelay,
+      hasReadyGatewayUpdates,
       sharedRelayQueueKey,
     }).catch(error => console.error(`Error relaying approved gateway updates`, error));
     return pendingApprovals;
@@ -194,7 +267,8 @@ export class GlobalCouncil {
     }
 
     const delegateAddress = await this.walletKeys.getVaultDelegateKeypair().then(x => x.address);
-    return await new EthereumClient(this.walletKeys, executionRpcUrl).applyReadyGatewayUpdates(
+    const ethereumClient = new EthereumClient(this.walletKeys, executionRpcUrl);
+    const receipt = await ethereumClient.applyReadyGatewayUpdates(
       finalizedClient,
       delegateAddress,
       {
@@ -203,6 +277,10 @@ export class GlobalCouncil {
       },
       options,
     );
+    if (receipt) {
+      await this.refreshEthereumApprovalNonce(this.#updateSeq, ethereumClient);
+    }
+    return receipt;
   }
 
   public async getReadyGatewayRelayPreview(options: GatewayRelayOptions = {}): Promise<IEthereumGatewayRelayPreview> {
@@ -226,16 +304,45 @@ export class GlobalCouncil {
     );
   }
 
+  public async hydrateEthereumApprovalBlockNumbers(
+    queueNonces: bigint[],
+    latestExecutionAnchorBlockNumber: bigint,
+  ): Promise<void> {
+    await this.#approvalBlockHydrationPromise;
+
+    const missingQueueNonces = queueNonces.filter(
+      queueNonce => !this.data.ethereumApprovalBlockNumbers.has(queueNonce),
+    );
+    if (!missingQueueNonces.length) return;
+
+    const executionRpcUrl = getEthereumExecutionRpcUrl(this.getConfiguredExecutionRpcUrl?.());
+    if (!executionRpcUrl) return;
+
+    const ethereumClient = new EthereumClient(this.walletKeys, executionRpcUrl);
+    const hydrationPromise = ethereumClient
+      .getGatewayApprovalBlockNumbers(missingQueueNonces, latestExecutionAnchorBlockNumber)
+      .then(blockNumbers => {
+        this.data.ethereumApprovalBlockNumbers = new Map([...this.data.ethereumApprovalBlockNumbers, ...blockNumbers]);
+      });
+    this.#approvalBlockHydrationPromise = hydrationPromise;
+
+    try {
+      await hydrationPromise;
+    } finally {
+      this.#approvalBlockHydrationPromise = undefined;
+    }
+  }
+
   private async syncApprovedGatewayRelay(args: {
     councilSigner?: string;
-    hasSignedApprovalsAwaitingRelay: boolean;
+    hasReadyGatewayUpdates: boolean;
     sharedRelayQueueKey?: string;
   }): Promise<void> {
-    const { councilSigner, hasSignedApprovalsAwaitingRelay, sharedRelayQueueKey } = args;
+    const { councilSigner, hasReadyGatewayUpdates, sharedRelayQueueKey } = args;
     if (!councilSigner || this.#pendingRelayPromise) {
       return;
     }
-    if (!hasSignedApprovalsAwaitingRelay && !sharedRelayQueueKey) {
+    if (!hasReadyGatewayUpdates && !sharedRelayQueueKey) {
       this.#lastSharedRelayQueueKey = undefined;
       this.#lastSharedRelayQueueSeenAt = 0;
       return;
@@ -249,7 +356,7 @@ export class GlobalCouncil {
     this.#lastRelayCheckAt = now;
 
     const relayPromise = (async () => {
-      if (hasSignedApprovalsAwaitingRelay) {
+      if (hasReadyGatewayUpdates) {
         const receipt = await this.relayApprovedGatewayUpdates({
           allowUncompensatedRelay: true,
           onlyThroughOwnedUpdate: true,
@@ -293,6 +400,19 @@ export class GlobalCouncil {
       this.#pendingRelayPromise = undefined;
     }
   }
+
+  private async refreshEthereumApprovalNonce(updateSeq: number, ethereumClient?: EthereumClient): Promise<void> {
+    if (!ethereumClient) {
+      const executionRpcUrl = getEthereumExecutionRpcUrl(this.getConfiguredExecutionRpcUrl?.());
+      if (!executionRpcUrl) return;
+      ethereumClient = new EthereumClient(this.walletKeys, executionRpcUrl);
+    }
+
+    const ethereumApprovalNonce = await ethereumClient.getGatewayApprovalNonce();
+    if (updateSeq === this.#updateSeq) {
+      this.data.ethereumApprovalNonce = ethereumApprovalNonce;
+    }
+  }
 }
 
 async function getPendingCouncilApprovals(
@@ -302,7 +422,11 @@ async function getPendingCouncilApprovals(
 ): Promise<{
   councilSigner?: string;
   pendingApprovals: IGlobalCouncilApproval[];
-  hasSignedApprovalsAwaitingRelay: boolean;
+  approvalQueue: IGlobalCouncilQueueItem[];
+  gatewayActivityCount: bigint;
+  activeEpochMicrogonsPerArgonot?: bigint;
+  transferOutMicrogonsPerArgonot?: bigint;
+  hasReadyGatewayUpdates: boolean;
   sharedRelayQueueKey?: string;
 }> {
   const [councilSignerAddress] = await walletKeys.getEthereumAddresses([walletKeys.councilSignerEthereumHdPath]);
@@ -315,7 +439,14 @@ async function getPendingCouncilApprovals(
     publicKeyHex: null,
   });
 
-  const [councilSignerOption, councilApprovalCursorOption, gatewayStateOption, nextQueueNonce] = await Promise.all([
+  const [
+    councilSignerOption,
+    councilApprovalCursorOption,
+    gatewayStateOption,
+    nextQueueNonce,
+    activeCouncilHashOption,
+    transferOutQuoteOption,
+  ] = await Promise.all([
     finalizeClient.query.crosschainTransfer.councilSignerByDestinationChainAndAccountId(
       'Ethereum',
       walletKeys.vaultingAddress,
@@ -326,40 +457,187 @@ async function getPendingCouncilApprovals(
     ),
     finalizeClient.query.crosschainTransfer.gatewayStateBySourceChain('Ethereum'),
     finalizeClient.query.crosschainTransfer.nextCouncilApprovalQueueNonceByDestinationChain('Ethereum'),
+    finalizeClient.query.crosschainTransfer.activeGlobalIssuanceCouncilByDestinationChain?.('Ethereum'),
+    finalizeClient.query.crosschainTransfer.transferOutQuoteMicrogonsPerArgonotByDestinationChain?.('Ethereum'),
   ]);
 
   const councilSigner = councilSignerOption.isSome ? councilSignerOption.unwrap().toHex() : undefined;
   const pendingApprovals: IGlobalCouncilApproval[] = [];
+  const approvalQueue: IGlobalCouncilQueueItem[] = [];
+  const approvalQueueCandidates: Array<{
+    approval: IGlobalCouncilApproval;
+    entry: PalletCrosschainTransferCouncilApprovalQueueEntry;
+    hasLocalSignature: boolean;
+  }> = [];
   const canSignCouncilApprovals = councilSigner?.toLowerCase() === councilSignerAddress.toLowerCase();
-  let hasSignedApprovalsAwaitingRelay = false;
   let sharedRelayQueueKey: string | undefined;
+  const gatewayActivityCount = gatewayStateOption.isSome
+    ? (gatewayStateOption.unwrap().gatewayActivityNonce?.toBigInt() ?? 0n)
+    : 0n;
 
   if (canSignCouncilApprovals && !councilApprovalCursorOption.isNone) {
     const lastSyncedNonce = gatewayStateOption.isSome ? gatewayStateOption.unwrap().argonApprovalsNonce.toBigInt() : 0n;
     const lastSignedNonce = councilApprovalCursorOption.unwrap().toBigInt();
     const nextPendingQueueNonce = nextQueueNonce.toBigInt();
-    hasSignedApprovalsAwaitingRelay = lastSignedNonce > lastSyncedNonce;
+    let reachedQueueEnd = false;
     for (
-      let queueNonce = bigIntMax(lastSyncedNonce, lastSignedNonce) + 1n;
-      queueNonce <= nextPendingQueueNonce;
-      queueNonce += 1n
+      let batchStartNonce = lastSyncedNonce + 1n;
+      batchStartNonce <= nextPendingQueueNonce && !reachedQueueEnd;
+      batchStartNonce += COUNCIL_APPROVAL_QUEUE_BATCH_SIZE
     ) {
-      const entryOption = await finalizeClient.query.crosschainTransfer.councilApprovalQueueByDestinationChainAndNonce(
-        'Ethereum',
-        queueNonce,
-      );
-      if (entryOption.isNone) {
-        break;
+      const batchEndNonce = batchStartNonce + COUNCIL_APPROVAL_QUEUE_BATCH_SIZE - 1n;
+      const batchNonces: bigint[] = [];
+      for (
+        let queueNonce = batchStartNonce;
+        queueNonce <= nextPendingQueueNonce && queueNonce <= batchEndNonce;
+        queueNonce += 1n
+      ) {
+        batchNonces.push(queueNonce);
       }
+      const entryOptions =
+        await finalizeClient.query.crosschainTransfer.councilApprovalQueueByDestinationChainAndNonce.multi(
+          batchNonces.map(queueNonce => ['Ethereum', queueNonce]),
+        );
+      for (const [index, entryOption] of entryOptions.entries()) {
+        if (entryOption.isNone) {
+          reachedQueueEnd = true;
+          break;
+        }
 
-      const entry = entryOption.unwrap();
-      pendingApprovals.push({ approvalHash: entry.approvalHash.toHex() });
+        const queueNonce = batchNonces[index];
+        const entry = entryOption.unwrap();
+        const approvalHash = entry.approvalHash.toHex();
+        let approval: IGlobalCouncilApproval;
+        if (entry.target.isMintingAuthorityActivation) {
+          approval = {
+            approvalHash,
+            queueNonce,
+            targetKind: 'mintingAuthorityActivation',
+            targetSigningKey: entry.target.asMintingAuthorityActivation.toHex(),
+          };
+        } else if (entry.target.isMintingAuthorityDeactivation) {
+          approval = {
+            approvalHash,
+            queueNonce,
+            targetKind: 'mintingAuthorityDeactivation',
+            targetSigningKey: entry.target.asMintingAuthorityDeactivation.toHex(),
+          };
+        } else if (entry.target.isGlobalIssuanceCouncilRotation) {
+          approval = {
+            approvalHash,
+            queueNonce,
+            targetKind: 'globalIssuanceCouncilRotation',
+            targetCouncilHash: entry.target.asGlobalIssuanceCouncilRotation.toHex(),
+          };
+        } else {
+          throw new Error(`Unsupported approval queue target ${entry.target.type}`);
+        }
+
+        approvalQueueCandidates.push({ approval, entry, hasLocalSignature: queueNonce <= lastSignedNonce });
+      }
     }
 
-    if (pendingApprovals.length === 0 && nextPendingQueueNonce > lastSyncedNonce) {
+    const approvingCouncilHashes = [
+      ...new Set(approvalQueueCandidates.map(({ entry }) => entry.approvingCouncilHash.toHex())),
+    ];
+    const approvingCouncilOptions = approvingCouncilHashes.length
+      ? await finalizeClient.query.crosschainTransfer.globalIssuanceCouncilByHash.multi(approvingCouncilHashes)
+      : [];
+    const approvingCouncilsByHash = new Map(
+      approvingCouncilHashes.map((hash, index) => [hash, approvingCouncilOptions[index]]),
+    );
+
+    for (const { approval, entry, hasLocalSignature } of approvalQueueCandidates) {
+      const approvingCouncilHash = entry.approvingCouncilHash.toHex();
+      const approvingCouncilOption = approvingCouncilsByHash.get(approvingCouncilHash);
+      if (!approvingCouncilOption?.isSome) {
+        throw new Error(`GlobalIssuanceCouncil ${approvingCouncilHash} not found.`);
+      }
+
+      const approvingCouncil = approvingCouncilOption.unwrap();
+      const approvalProgress = {
+        approvedWeight: entry.approvedTotalWeight.toBigInt(),
+        totalWeight: approvingCouncil.totalWeight.toBigInt(),
+        signatureCount: entry.signatures.size,
+        memberCount: approvingCouncil.members.size,
+      };
+      const isReadyForRelay = hasGatewayApprovalQuorum(approvalProgress);
+      const status = isReadyForRelay ? 'readyForRelay' : hasLocalSignature ? 'awaitingCouncilQuorum' : 'needsSignature';
+
+      approvalQueue.push({ ...approval, approvalProgress, status });
+      if (status === 'needsSignature') pendingApprovals.push(approval);
+    }
+
+    if (approvalQueue.some(({ status }) => status === 'readyForRelay')) {
       sharedRelayQueueKey = `${lastSyncedNonce}:${nextPendingQueueNonce}`;
     }
   }
 
-  return { councilSigner, pendingApprovals, hasSignedApprovalsAwaitingRelay, sharedRelayQueueKey };
+  const hasReadyGatewayUpdates = approvalQueue.some(({ status }) => status === 'readyForRelay');
+
+  const authorityApprovals = approvalQueue.filter(approval => approval.targetKind !== 'globalIssuanceCouncilRotation');
+  const authorityOptions = authorityApprovals.length
+    ? await finalizeClient.query.crosschainTransfer.mintingAuthoritiesBySigner.multi(
+        authorityApprovals.map(approval => approval.targetSigningKey),
+      )
+    : [];
+  for (const [index, approval] of authorityApprovals.entries()) {
+    const authorityOption = authorityOptions[index];
+    if (authorityOption.isSome) approval.authorityOwnerAccount = authorityOption.unwrap().accountId.toString();
+  }
+
+  const councilApprovals = approvalQueue.filter(approval => approval.targetKind === 'globalIssuanceCouncilRotation');
+  const councilHashes = [
+    ...(activeCouncilHashOption?.isSome ? [activeCouncilHashOption.unwrap().toHex()] : []),
+    ...councilApprovals.map(approval => approval.targetCouncilHash),
+  ];
+  const councilOptions = councilHashes.length
+    ? await finalizeClient.query.crosschainTransfer.globalIssuanceCouncilByHash.multi(councilHashes)
+    : [];
+  const activeCouncil = activeCouncilHashOption?.isSome ? councilOptions[0]?.unwrap() : undefined;
+  const activeMemberAccounts = new Set(
+    activeCouncil ? [...activeCouncil.members.values()].map(member => member.accountId.toString()) : [],
+  );
+  const targetOffset = activeCouncilHashOption?.isSome ? 1 : 0;
+  for (const [index, approval] of councilApprovals.entries()) {
+    const councilOption = councilOptions[index + targetOffset];
+    if (!councilOption?.isSome) continue;
+
+    const council = councilOption.unwrap();
+    const targetMemberAccounts = new Set([...council.members.values()].map(member => member.accountId.toString()));
+    approval.councilChange = {
+      vaultCount: targetMemberAccounts.size,
+      newVaultCount: [...targetMemberAccounts].filter(accountId => !activeMemberAccounts.has(accountId)).length,
+      leavingVaultCount: [...activeMemberAccounts].filter(accountId => !targetMemberAccounts.has(accountId)).length,
+      epochMicrogonsPerArgonot: council.epochMicrogonsPerArgonot.toBigInt(),
+    };
+  }
+  for (const pendingApproval of pendingApprovals) {
+    const queueItem = approvalQueue.find(item => item.queueNonce === pendingApproval.queueNonce);
+    if (!queueItem || queueItem.targetKind !== pendingApproval.targetKind) continue;
+    if (
+      pendingApproval.targetKind === 'globalIssuanceCouncilRotation' &&
+      queueItem.targetKind === 'globalIssuanceCouncilRotation'
+    ) {
+      pendingApproval.councilChange = queueItem.councilChange;
+    } else if (
+      pendingApproval.targetKind !== 'globalIssuanceCouncilRotation' &&
+      queueItem.targetKind !== 'globalIssuanceCouncilRotation'
+    ) {
+      pendingApproval.authorityOwnerAccount = queueItem.authorityOwnerAccount;
+    }
+  }
+
+  return {
+    councilSigner,
+    pendingApprovals,
+    approvalQueue,
+    gatewayActivityCount,
+    activeEpochMicrogonsPerArgonot: activeCouncil?.epochMicrogonsPerArgonot.toBigInt(),
+    transferOutMicrogonsPerArgonot: transferOutQuoteOption?.isSome
+      ? transferOutQuoteOption.unwrap().toBigInt()
+      : activeCouncil?.epochMicrogonsPerArgonot.toBigInt(),
+    hasReadyGatewayUpdates,
+    sharedRelayQueueKey,
+  };
 }

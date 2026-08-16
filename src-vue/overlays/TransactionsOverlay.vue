@@ -164,6 +164,7 @@ function transactionLabel(transaction: ITransactionRecord): string {
       const metadata = transaction.metadataJson as IVaultCollectMetadata;
       if (metadata.actionType === 'collectRevenue') return 'Collected Vault Revenue';
       if (metadata.actionType === 'cosignBitcoin') return 'Cosigned Bitcoin Locks';
+      if (metadata.actionType === 'approveCouncil') return 'Approved Gateway Changes';
       return 'Processed Vault Actions';
     }
     case ExtrinsicType.VaultSetCommittedArgonots:
@@ -212,7 +213,7 @@ function transactionLabel(transaction: ITransactionRecord): string {
     case ExtrinsicType.CrosschainTransferTransferOut:
       return 'Sent to Ethereum';
     case ExtrinsicType.CrosschainTransferApproveCouncil:
-      return 'Approved Ethereum Transfer';
+      return 'Approved Gateway Change';
     case ExtrinsicType.CrosschainTransferAuthorize:
       return 'Authorized Ethereum Transfer';
     case ExtrinsicType.CrosschainTransferRegisterMintingAuthority:

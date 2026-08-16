@@ -3,6 +3,8 @@ import { decodeAddress, EvmContracts } from '@argonprotocol/mainchain';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   decodeFunctionData,
+  encodeAbiParameters,
+  encodeEventTopics,
   getAddress,
   keccak256,
   parseTransaction,
@@ -285,6 +287,74 @@ describe('EthereumClient', () => {
     ]);
   });
 
+  it('reads the gateway approval nonce currently applied on Ethereum', async () => {
+    const fixture = createCouncilRotationRelayFixture();
+
+    await expect(fixture.ethereumClient.getGatewayApprovalNonce()).resolves.toBe(0n);
+  });
+
+  it('hydrates Ethereum block numbers for live gateway approval rows in one block-range lookup', async () => {
+    const fixture = createCouncilRotationRelayFixture();
+    const zeroHash: Hex = `0x${'00'.repeat(32)}`;
+    const signingKey: Hex = `0x${'11'.repeat(20)}`;
+    const topics = encodeEventTopics({
+      abi: EvmContracts.mintingGatewayAbi,
+      eventName: 'MintingAuthorityDeactivated',
+      args: { signingKey },
+    });
+    const data = encodeAbiParameters(
+      [
+        { name: 'microgonCollateral', type: 'uint128' },
+        { name: 'micronotCollateral', type: 'uint128' },
+        { name: 'approvalHash', type: 'bytes32' },
+        { name: 'relayerArgonAccountId', type: 'bytes32' },
+        {
+          name: 'gatewayState',
+          type: 'tuple',
+          components: [
+            { name: 'gatewayActivityNonce', type: 'uint64' },
+            { name: 'argonApprovalsNonce', type: 'uint64' },
+            { name: 'argonCirculation', type: 'uint128' },
+            { name: 'argonotCirculation', type: 'uint128' },
+          ],
+        },
+      ],
+      [
+        0n,
+        0n,
+        zeroHash,
+        zeroHash,
+        {
+          gatewayActivityNonce: 7n,
+          argonApprovalsNonce: 8n,
+          argonCirculation: 0n,
+          argonotCirculation: 0n,
+        },
+      ],
+    );
+    const getLogs = vi.fn(async () => [{ data, topics, blockNumber: 120n }]);
+    const publicClient = {
+      readContract: vi.fn(async ({ functionName }: { functionName: string }) => {
+        if (functionName === 'latestActivityBlockLocatorIndex') return 4n;
+        if (functionName === 'activityBlockLocators') return [120n, 7n, 7n, zeroHash];
+        throw new Error(`Unexpected function ${functionName}`);
+      }),
+      getLogs,
+    };
+    Object.assign(fixture.ethereumClient, {
+      createExecutionClient: async () => ({ publicClient }),
+    });
+
+    await expect(fixture.ethereumClient.getGatewayApprovalBlockNumbers([8n], 115n)).resolves.toEqual(
+      new Map([[8n, 120n]]),
+    );
+    expect(getLogs).toHaveBeenCalledWith({
+      address: fixture.gatewayAddress,
+      fromBlock: 116n,
+      toBlock: 120n,
+    });
+  });
+
   it('relays a standalone council rotation when an unreimbursed relay is explicitly allowed', async () => {
     const fixture = createCouncilRotationRelayFixture();
     fixture.entries.delete(2n);
@@ -555,6 +625,7 @@ function createCouncilRotationRelayFixture(corruption?: 'council' | 'payload' | 
     entries,
     ethereumClient,
     finalizedClient,
+    gatewayAddress,
     rotatedCouncilSignatures,
     rotationTarget,
     sendRawTransaction,

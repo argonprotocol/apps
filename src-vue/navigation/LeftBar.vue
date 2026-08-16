@@ -326,6 +326,31 @@
                 </div>
               </div>
             </article>
+            <div Selector :LastSelector="!showCrosschainNavigation" />
+          </li>
+          <li
+            v-if="showCrosschainNavigation"
+            data-testid="LeftBar.goto(TopTab.CrosschainTransfers)"
+            @click="goto(TopTab.CrosschainTransfers)"
+            :class="{ Selected: controller.selectedTab === TopTab.CrosschainTransfers }"
+          >
+            <article class="flex flex-col">
+              <div class="relative flex flex-row items-center">
+                <div class="flex grow flex-row items-center">
+                  <div class="mr-1 w-6 text-center">
+                    <ArrowsRightLeftIcon class="relative inline-block w-5.5 opacity-70" />
+                  </div>
+                  <div>Crosschain</div>
+                  <div v-if="hasCrosschainAction" class="ml-2 flex items-center" title="Crosschain action required">
+                    <span class="bg-argon-800/50 h-2 w-2 rounded-full" />
+                    <span class="sr-only">Action required</span>
+                  </div>
+                </div>
+                <div v-if="currency.isLoaded" class="opacity-60">
+                  {{ currency.symbol }}{{ microgonToMoneyNm(crosschainNetEarnings).format('0,0.00') }}
+                </div>
+              </div>
+            </article>
             <div Selector LastSelector />
           </li>
         </ul>
@@ -526,6 +551,9 @@ import {
 import WalletSelector from '../wallets/components/WalletSelector.vue';
 import WalletActions from '../wallets/components/WalletActions.vue';
 import CertificationIcon from '../assets/certification.svg';
+import { ArrowsRightLeftIcon } from '@heroicons/vue/24/outline';
+import { getMyVault } from '../stores/vaults.ts';
+import { getCrosschainAccessState } from '../lib/CrosschainTransferView.ts';
 
 const controller = useCertificationController();
 const basics = useBasics();
@@ -536,6 +564,7 @@ const currency = getCurrency();
 const financials = useFinancials();
 const miningAssets = useMiningAssetBreakdown();
 const vaultingAssets = useVaultingAssetBreakdown();
+const myVault = getMyVault();
 const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm, micronotToMoneyNm, satToMoneyNm } =
   createNumeralHelpers(currency);
 
@@ -591,6 +620,23 @@ const selectedWalletBalance = Vue.computed(() => {
 
   const wallet = selectedWalletData.value;
   return getWalletTotalValue(wallet, currency);
+});
+
+const hasCrosschainAction = Vue.computed(() => {
+  return (
+    myVault.mintingAuthorities.data.pendingMintingAuthorizations.length > 0 ||
+    myVault.globalCouncil.data.pendingApprovals.length > 0
+  );
+});
+
+const crosschainNetEarnings = Vue.computed(() => myVault.getCrosschainQueueNetEarnings());
+
+const showCrosschainNavigation = Vue.computed(() => {
+  return getCrosschainAccessState({
+    hasActivatedCrosschain: config.hasActivatedCrosschain,
+    authorityCount: myVault.mintingAuthorities.data.isReady ? myVault.mintingAuthorities.data.authorities.length : 0,
+    councilSigner: myVault.globalCouncil.data.councilSigner,
+  }).hasAccess;
 });
 
 function selectWallet(wallet: IWalletSelection) {

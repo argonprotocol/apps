@@ -1,7 +1,7 @@
 import { Vaults } from '../lib/Vaults';
 import { getDbPromise } from './helpers/dbPromise';
 import { MyVault } from '../lib/MyVault.ts';
-import { reactive } from 'vue';
+import { reactive, watch } from 'vue';
 import { getConfig, NETWORK_NAME } from './config.ts';
 import { getMiningFrames } from './mainchain.ts';
 import { getCurrency } from './currency.ts';
@@ -12,11 +12,14 @@ import { GlobalCouncil } from '../lib/GlobalCouncil.ts';
 import { MintingAuthorities } from '../lib/MintingAuthorities.ts';
 import { getServerApiClient } from './server.ts';
 import { getUpstreamOperatorClient } from './upstreamOperator.ts';
+import { CrosschainHistory } from '../lib/CrosschainHistory.ts';
+import { createKnownCrosschainSourceIdentities, getCrosschainAccessState } from '../lib/CrosschainTransferView.ts';
 
 export { type Vaults };
 
 let vaults: Vaults;
 let myVault: MyVault;
+let crosschainHistory: CrosschainHistory;
 
 export function getVaults(): Vaults {
   if (!vaults) {
@@ -46,6 +49,32 @@ export function getMyVault(): MyVault {
       };
     });
     mintingAuthorities.data = reactive(mintingAuthorities.data) as any;
+    watch(
+      () => [mintingAuthorities.data.authorities.length, globalCouncil.data.councilSigner] as const,
+      ([authorityCount, councilSigner]) => {
+        if (
+          !getCrosschainAccessState({
+            hasActivatedCrosschain: config.hasActivatedCrosschain,
+            authorityCount,
+            councilSigner,
+          }).hasAccess
+        ) {
+          return;
+        }
+
+        void config.isLoadedPromise
+          .then(async () => {
+            if (config.hasActivatedCrosschain) return;
+
+            config.hasActivatedCrosschain = true;
+            config.hasExtensionTreasury = true;
+            config.hasExtensionOperations = true;
+            await config.save();
+          })
+          .catch(error => console.error('[CrosschainTransfers] Unable to preserve navigation access', error));
+      },
+      { immediate: true },
+    );
 
     myVault = new MyVault(
       dbPromise,
@@ -61,4 +90,29 @@ export function getMyVault(): MyVault {
   }
 
   return myVault;
+}
+
+export function getCrosschainHistory(): CrosschainHistory {
+  if (!crosschainHistory) {
+    const financialCache = getDbPromise().then(db => db.financialCacheTable);
+    crosschainHistory = new CrosschainHistory(getWalletKeys(), getMiningFrames().blockWatch, financialCache);
+    crosschainHistory.data = reactive(crosschainHistory.data) as typeof crosschainHistory.data;
+  }
+
+  return crosschainHistory;
+}
+
+export function getKnownCrosschainSourceIdentities() {
+  const config = getConfig();
+  const vault = getMyVault();
+  const walletKeys = getWalletKeys();
+
+  return createKnownCrosschainSourceIdentities({
+    networkName: NETWORK_NAME,
+    createdVault: vault.createdVault ?? undefined,
+    vaultsById: vault.vaults.vaultsById,
+    localAccountIds: [walletKeys.defaultArgonAddress, walletKeys.vaultingAddress, walletKeys.operationalAddress],
+    upstreamOperator: config.upstreamOperator,
+    sourceUpstreamVaultAccountsByAccount: vault.mintingAuthorities.data.sourceUpstreamVaultAccountsByAccount,
+  });
 }

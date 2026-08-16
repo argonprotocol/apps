@@ -1,8 +1,10 @@
 import type { IWallet } from '../Wallet.ts';
+import type { ICrosschainHistoryRecord } from '../CrosschainHistory.ts';
 import { BaseTable, type IFieldTypes } from './BaseTable.ts';
 import { convertFromSqliteFields, logStartupTiming, toSqlParams } from '../Utils.ts';
 
 export enum FinancialCacheTypes {
+  CrosschainHistory = 'CrosschainHistory',
   ExternalWalletBalance = 'ExternalWalletBalance',
 }
 
@@ -17,7 +19,14 @@ export type IExternalWalletBalanceCacheRecord = Pick<
   observedAt: Date;
 };
 
+export type ICrosschainHistoryCacheRecord = {
+  records: ICrosschainHistoryRecord[];
+  definitionVersion: number;
+  refreshedThroughBlock: number;
+};
+
 export interface IFinancialCacheSchemas {
+  [FinancialCacheTypes.CrosschainHistory]: ICrosschainHistoryCacheRecord;
   [FinancialCacheTypes.ExternalWalletBalance]: IExternalWalletBalanceCacheRecord;
 }
 

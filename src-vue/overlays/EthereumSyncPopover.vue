@@ -66,10 +66,10 @@
             <div class="text-gray-500">Ethereum Block</div>
             <div class="font-mono font-light">{{ formatBigInt(ethereumSyncState?.latestEthereumBlockNumber) }}</div>
 
-            <div class="text-gray-500">Execution Anchor Gap</div>
+            <div class="text-gray-500">Execution Anchor Lag</div>
             <div class="font-mono font-light">{{ formatBigInt(executionBlockLag) }}</div>
 
-            <div class="text-gray-500">Gateway Nonce Gap</div>
+            <div class="text-gray-500">Gateway Activity Lag</div>
             <div class="font-mono font-light">{{ formatBigInt(ethereumSyncState?.gatewayActivityNonceGap) }}</div>
 
             <div class="text-gray-500">Last Error</div>

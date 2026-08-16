@@ -6,7 +6,8 @@
     :title="overlayTitle"
     @close="closeOverlay"
     class="">
-    <div box class="flex flex-col gap-y-6 px-5 py-3">
+    <template #default="{ floatingZIndex }">
+      <div box class="flex flex-col gap-y-6 px-5 py-3">
       <div
         v-if="!showCollectSection && !showMintingAuthorizeSection"
         class="rounded-md border border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-600">
@@ -74,14 +75,67 @@
           <p>
             <template v-if="collectRevenue || manualPendingCosignCount">This transaction will also record </template>
             <template v-else>The next transaction will record </template>
-            <strong>
+            <PopoverRoot v-if="myVault.globalCouncil.data.pendingApprovals.length" as="span">
+              <PopoverTrigger as-child>
+                <button
+                  type="button"
+                  class="focus-visible:ring-argon-500 inline cursor-pointer appearance-none rounded-sm bg-transparent p-0 text-left text-inherit underline decoration-dotted underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1">
+                  <strong>
+                    {{ councilApprovalCount }} council approval{{ councilApprovalCount === 1 ? '' : 's' }}
+                  </strong>
+                </button>
+              </PopoverTrigger>
+              <PopoverPortal>
+                <PopoverContent
+                  side="top"
+                  align="center"
+                  :sideOffset="10"
+                  :collisionPadding="24"
+                  :avoidCollisions="true"
+                  :style="{ zIndex: floatingZIndex }"
+                  class="relative w-[min(520px,calc(100vw-2rem))] rounded-lg border border-gray-300 bg-white text-left text-sm text-slate-700 shadow-lg">
+                  <PopoverPanelArrow />
+                  <div class="max-h-[min(420px,calc(100vh-3rem))] overflow-y-auto px-5 py-4">
+                    <h2 class="mb-3 text-lg font-bold text-slate-800">Pending Ethereum Gateway Updates</h2>
+                    <div class="flex flex-col gap-3">
+                      <div
+                        v-for="approval in myVault.globalCouncil.data.pendingApprovals"
+                        :key="approval.approvalHash"
+                        class="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
+                        <div class="font-semibold text-slate-800">
+                          {{ formatCouncilTarget(approval.targetKind) }}
+                        </div>
+                        <CrosschainActivityDetails
+                          class="mt-3"
+                          :queueNonce="approval.queueNonce"
+                          :targetKind="approval.targetKind"
+                          :targetValue="approval.targetKind === 'globalIssuanceCouncilRotation'
+                            ? approval.targetCouncilHash
+                            : approval.targetSigningKey"
+                          :authorityOwnerAccount="approval.targetKind === 'globalIssuanceCouncilRotation'
+                            ? undefined
+                            : approval.authorityOwnerAccount"
+                          :authorityOwnerIdentity="approval.targetKind === 'globalIssuanceCouncilRotation' || !approval.authorityOwnerAccount
+                            ? undefined
+                            : getSourceIdentity(approval.authorityOwnerAccount)"
+                          :councilChange="approval.targetKind === 'globalIssuanceCouncilRotation'
+                            ? approval.councilChange
+                            : undefined"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </PopoverContent>
+              </PopoverPortal>
+            </PopoverRoot>
+            <strong v-else>
               {{ councilApprovalCount }} council approval{{ councilApprovalCount === 1 ? '' : 's' }}
             </strong>
             for pending Ethereum gateway updates.
           </p>
         </div>
 
-        <div v-if="collectError" class="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div v-if="collectError" class="border-argon-error/30 bg-argon-error/5 text-argon-error rounded-md border px-4 py-3 text-sm">
           {{ collectError }}
         </div>
 
@@ -131,7 +185,50 @@
 
           <p v-else-if="mintingAuthorizeOpportunityCount > 0" class="mt-2 text-sm text-slate-600">
             You have
-            <strong>
+            <PopoverRoot v-if="myVault.mintingAuthorities.data.pendingMintingAuthorizations.length" as="span">
+              <PopoverTrigger as-child>
+                <button
+                  type="button"
+                  class="focus-visible:ring-argon-500 inline cursor-pointer appearance-none rounded-sm bg-transparent p-0 text-left text-inherit underline decoration-dotted underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1">
+                  <strong>
+                    {{ mintingAuthorizeOpportunityCount }} crosschain authorization{{ mintingAuthorizeOpportunityCount === 1 ? '' : 's' }}
+                  </strong>
+                </button>
+              </PopoverTrigger>
+              <PopoverPortal>
+                <PopoverContent
+                  side="top"
+                  align="center"
+                  :sideOffset="10"
+                  :collisionPadding="24"
+                  :avoidCollisions="true"
+                  :style="{ zIndex: floatingZIndex }"
+                  class="relative w-[min(560px,calc(100vw-2rem))] rounded-lg border border-gray-300 bg-white text-left text-sm text-slate-700 shadow-lg">
+                  <PopoverPanelArrow />
+                  <div class="max-h-[min(480px,calc(100vh-3rem))] overflow-y-auto px-5 py-4">
+                    <h2 class="mb-3 text-lg font-bold text-slate-800">Crosschain Authorizations</h2>
+                    <div class="flex flex-col gap-3">
+                      <div
+                        v-for="authorization in myVault.mintingAuthorities.data.pendingMintingAuthorizations"
+                        :key="authorization.transferId"
+                        class="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
+                        <CrosschainTransferDetails
+                          :transfer="authorization"
+                          :sourceIdentity="getSourceIdentity(authorization.sourceAccount)"
+                          :sourceTotals="getSourceTotals(authorization.sourceAccount)"
+                          :recipientSeen="crosschainHistory.hasSeenRecipient(
+                            authorization.finalizeRequest.recipient,
+                            authorization.transferId,
+                          )"
+                          progress="Waiting for your minting-authority signature"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </PopoverContent>
+              </PopoverPortal>
+            </PopoverRoot>
+            <strong v-else>
               {{ mintingAuthorizeOpportunityCount }} crosschain authorization{{ mintingAuthorizeOpportunityCount === 1 ? '' : 's' }}
             </strong>
             ready on Argon
@@ -150,11 +247,11 @@
 
         <div
           v-if="mintingAuthorizeUpdateMessage"
-          class="rounded-md border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-700">
+          class="border-argon-100 bg-argon-20 text-argon-800 rounded-md border px-4 py-3 text-sm">
           {{ mintingAuthorizeUpdateMessage }}
         </div>
 
-        <div v-if="mintingAuthorizeError" class="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div v-if="mintingAuthorizeError" class="border-argon-error/30 bg-argon-error/5 text-argon-error rounded-md border px-4 py-3 text-sm">
           {{ mintingAuthorizeError }}
         </div>
 
@@ -181,7 +278,8 @@
           </div>
         </div>
       </section>
-    </div>
+      </div>
+    </template>
   </OverlayBase>
 </template>
 
@@ -189,14 +287,20 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
+import { MoveTo } from '@argonprotocol/apps-core';
+import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui';
 import CountdownClock from '../components/CountdownClock.vue';
-import { getMyVault } from '../stores/vaults.ts';
+import CrosschainActivityDetails from '../components/CrosschainActivityDetails.vue';
+import CrosschainTransferDetails from '../components/CrosschainTransferDetails.vue';
+import PopoverPanelArrow from '../components/PopoverPanelArrow.vue';
+import { getCrosschainHistory, getKnownCrosschainSourceIdentities, getMyVault } from '../stores/vaults.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
+import { formatCouncilTarget } from '../lib/CrosschainTransferView.ts';
 import ProgressBar from '../components/ProgressBar.vue';
 import OverlayBase from './OverlayBase.vue';
-import { MoveTo } from '@argonprotocol/apps-core';
-import { TransactionInfo } from '../lib/TransactionInfo.ts';
+import { getActiveTransactionInfos, trackTransactionProgress } from '../lib/TransactionProgress.ts';
+import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import type { IMintingAuthorityAuthorizeMetadata } from '../lib/MintingAuthorities.ts';
 import type { IVaultCollectMetadata } from '../lib/VaultCollectBuilder.ts';
 
@@ -207,10 +311,19 @@ const emit = defineEmits<{
 }>();
 
 const myVault = getMyVault();
+const crosschainHistory = getCrosschainHistory();
 const currency = getCurrency();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
+const knownSourceIdentities = Vue.computed(() => {
+  return getKnownCrosschainSourceIdentities();
+});
+
 const isOpen = Vue.ref(true);
+
+Vue.onMounted(() => {
+  void crosschainHistory.refresh();
+});
 
 const collectRevenue = Vue.ref(0n);
 const councilApprovalCount = Vue.ref(0);
@@ -253,11 +366,11 @@ const activeCollectTxInfos = Vue.computed(() => {
     txInfos.push(pendingBitcoinCosignTxInfo);
   }
 
-  return getUniqueTransactionInfos(txInfos);
+  return getActiveTransactionInfos(txInfos);
 });
 
 const activeMintingAuthorizeTxInfos = Vue.computed(() => {
-  return getUniqueTransactionInfos([
+  return getActiveTransactionInfos([
     ...myVault.mintingAuthorities.data.pendingMintingAuthorizeTxInfosByTransferId.values(),
   ]) as TransactionInfo<IMintingAuthorityAuthorizeMetadata>[];
 });
@@ -361,6 +474,14 @@ const mintingAuthorizeButtonLabel = Vue.computed(() => {
 function closeOverlay() {
   isOpen.value = false;
   emit('close');
+}
+
+function getSourceIdentity(accountId: string) {
+  return knownSourceIdentities.value.get(accountId);
+}
+
+function getSourceTotals(accountId: string) {
+  return myVault.mintingAuthorities.data.sourceTotalsByAccount.get(accountId);
 }
 
 function syncNoticeState() {
@@ -499,86 +620,6 @@ function maybeCloseOverlay() {
   ) {
     closeOverlay();
   }
-}
-
-function trackTransactionProgress(args: {
-  txInfos: TransactionInfo[];
-  isSubmitting: Vue.Ref<boolean>;
-  progressPct: Vue.Ref<number>;
-  progressLabel: Vue.Ref<string>;
-  activeTransactionCount: Vue.Ref<number>;
-  error: Vue.Ref<string>;
-  onIdle: () => void;
-  onCleanup: (cleanupFn: () => void) => void;
-}) {
-  const { txInfos, isSubmitting, progressPct, progressLabel, activeTransactionCount, error, onIdle, onCleanup } = args;
-
-  if (txInfos.length > 0) {
-    const progressByTxId = new Map(
-      txInfos.map(txInfo => [
-        txInfo.tx.id,
-        {
-          progressPct: 0,
-          progressMessage: 'Preparing transaction...',
-        },
-      ]),
-    );
-
-    error.value = '';
-    isSubmitting.value = true;
-    activeTransactionCount.value = txInfos.length;
-
-    for (const txInfo of txInfos) {
-      const unsubscribe = txInfo.subscribeToProgress((progressArgs, progressError) => {
-        progressByTxId.set(txInfo.tx.id, {
-          progressPct: progressArgs.progressPct,
-          progressMessage: progressArgs.progressMessage,
-        });
-
-        const slowestProgress = Array.from(progressByTxId.values()).reduce((slowest, current) => {
-          if (!slowest || current.progressPct < slowest.progressPct) {
-            return current;
-          }
-          return slowest;
-        });
-
-        progressPct.value = slowestProgress?.progressPct ?? 0;
-        progressLabel.value =
-          txInfos.length > 1
-            ? `${slowestProgress?.progressMessage ?? 'Preparing transaction...'} (${txInfos.length} transactions in progress)`
-            : (slowestProgress?.progressMessage ?? '');
-
-        if (progressError) {
-          error.value = progressError.message;
-        }
-      });
-      onCleanup(unsubscribe);
-    }
-
-    return;
-  }
-
-  activeTransactionCount.value = 0;
-  if (!isSubmitting.value) {
-    return;
-  }
-
-  isSubmitting.value = false;
-  progressPct.value = 0;
-  progressLabel.value = '';
-  onIdle();
-}
-
-function getUniqueTransactionInfos(txInfos: TransactionInfo[]) {
-  const uniqueTxInfos = new Map<number, TransactionInfo>();
-  for (const txInfo of txInfos) {
-    if (txInfo.isPostProcessed) {
-      continue;
-    }
-    uniqueTxInfos.set(txInfo.tx.id, txInfo);
-  }
-
-  return [...uniqueTxInfos.values()].sort((left, right) => left.tx.createdAt.getTime() - right.tx.createdAt.getTime());
 }
 
 function getCollectActionTitle(actionType?: IVaultCollectMetadata['actionType']) {

@@ -85,6 +85,7 @@ export class Config implements IConfig {
       wasImportedFromLegacy: Config.getDefault(dbFields.wasImportedFromLegacy) as IConfig['wasImportedFromLegacy'],
       hasExtensionTreasury: Config.getDefault(dbFields.hasExtensionTreasury) as IConfig['hasExtensionTreasury'],
       hasExtensionOperations: Config.getDefault(dbFields.hasExtensionOperations) as IConfig['hasExtensionOperations'],
+      hasActivatedCrosschain: Config.getDefault(dbFields.hasActivatedCrosschain) as IConfig['hasActivatedCrosschain'],
       selectedTab: Config.getDefault(dbFields.selectedTab) as IConfig['selectedTab'],
       ethereumBeaconApiUrl: Config.getDefault(dbFields.ethereumBeaconApiUrl) as IConfig['ethereumBeaconApiUrl'],
       ethereumExecutionRpcUrl: Config.getDefault(
@@ -138,6 +139,7 @@ export class Config implements IConfig {
       'bootstrapDetails',
       'hasExtensionTreasury',
       'hasExtensionOperations',
+      'hasActivatedCrosschain',
       'serverAdd',
       'serverDetails',
       'isServerInstalled',
@@ -453,6 +455,14 @@ export class Config implements IConfig {
   }
   public set hasExtensionOperations(value: IConfig['hasExtensionOperations']) {
     this.setField('hasExtensionOperations', value);
+  }
+
+  public get hasActivatedCrosschain(): IConfig['hasActivatedCrosschain'] {
+    return this.getField('hasActivatedCrosschain');
+  }
+
+  public set hasActivatedCrosschain(value: IConfig['hasActivatedCrosschain']) {
+    this.setField('hasActivatedCrosschain', value);
   }
 
   public get selectedTab(): IConfig['selectedTab'] {
@@ -787,6 +797,7 @@ const dbFields = {
   wasImportedFromLegacy: 'wasImportedFromLegacy',
   hasExtensionTreasury: 'hasExtensionTreasury',
   hasExtensionOperations: 'hasExtensionOperations',
+  hasActivatedCrosschain: 'hasActivatedCrosschain',
   selectedTab: 'selectedTab',
 
   requiresPassword: 'requiresPassword',
@@ -828,6 +839,7 @@ const defaults: IConfigDefaults = {
   wasImportedFromLegacy: () => false,
   hasExtensionTreasury: () => false,
   hasExtensionOperations: () => false,
+  hasActivatedCrosschain: () => false,
   selectedTab: () => TopTab.Home,
 
   requiresPassword: () => false,

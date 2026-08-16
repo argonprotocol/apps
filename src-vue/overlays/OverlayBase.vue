@@ -67,7 +67,7 @@
                 </span>
               </h2>
               <div :class="props.overflowScroll ? 'min-h-0 overflow-y-auto overflow-x-hidden' : ''" class="grow flex flex-col">
-                <slot />
+                <slot :floatingZIndex="getFloatingZIndex(overlayZIndex.contentZIndex)" />
               </div>
             </div>
           </Motion>
@@ -85,7 +85,7 @@ import { AnimatePresence, Motion, MotionGlobalConfig } from 'motion-v';
 import { ChevronLeftIcon, XMarkIcon } from '@heroicons/vue/24/outline';
 import BgOverlay from '../components/BgOverlay.vue';
 import Draggable from './helpers/Draggable.ts';
-import { provideOverlayContentZIndex, useOverlayZIndex } from './helpers/OverlayZIndex.ts';
+import { getFloatingZIndex, provideOverlayContentZIndex, useOverlayZIndex } from './helpers/OverlayZIndex.ts';
 
 defineOptions({
   inheritAttrs: false,
