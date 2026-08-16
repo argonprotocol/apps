@@ -1,58 +1,64 @@
 <template>
-  <TooltipProvider :disableHoverableContent="true">
-    <div ref="seatGridElem" class="seat-grid" :style="seatGridStyle">
-      <TooltipRoot v-for="item of gridSeats" :key="`seat-id-${item.seat.id}`">
-        <TooltipTrigger
-          :class="
-            twMerge(
-              'seat-dot relative flex flex-row items-center justify-center border text-sm transition-colors duration-500',
-              getSeatBorderClasses(item.seat),
-              getSeatBackgroundClasses(item.seat),
-              getLastBlockMinerSeatClasses(item.seat),
-            )
-          "
-          @mouseenter="setHoveredSlotId(item.seat.slotId)"
-          @mouseleave="clearHoveredSlotId(item.seat.slotId)"
-          @focus="setHoveredSlotId(item.seat.slotId)"
-          @blur="clearHoveredSlotId(item.seat.slotId)"
-        >
-          <svg v-if="item.startingFrameId !== null" viewBox="0 0 36 36" class="seat-progress-ring" aria-hidden="true">
-            <circle
-              cx="18"
-              cy="18"
-              r="17.2"
-              pathLength="100"
-              :stroke-dasharray="`${getSeatProgressPct(item.startingFrameId)} 100`"
-              :class="twMerge('seat-progress-value', getSeatProgressColorClasses(item.seat))"
+  <TooltipProvider :delayDuration="300" :skipDelayDuration="0">
+    <div ref="seatGridContainerElem" class="h-full w-full min-w-0">
+      <div class="seat-grid" :style="seatGridStyle">
+        <TooltipRoot v-for="item of gridSeats" :key="`seat-id-${item.seat.id}`">
+          <TooltipTrigger
+            :class="
+              twMerge(
+                'seat-dot relative flex flex-row items-center justify-center border text-sm transition-colors duration-500',
+                getSeatBorderClasses(item.seat, item.hasAuction),
+                getSeatBackgroundClasses(item.seat),
+                getLastBlockMinerSeatClasses(item.seat, item.hasAuction),
+                item.isUnavailableForBids ? 'opacity-80' : '',
+              )
+            "
+            @mouseenter="setHoveredSlotId(item.seat.slotId)"
+            @mouseleave="clearHoveredSlotId(item.seat.slotId)"
+            @focus="setHoveredSlotId(item.seat.slotId)"
+            @blur="clearHoveredSlotId(item.seat.slotId)"
+          >
+            <svg v-if="item.startingFrameId !== null" viewBox="0 0 36 36" class="seat-progress-ring" aria-hidden="true">
+              <circle
+                cx="18"
+                cy="18"
+                r="17.2"
+                pathLength="100"
+                :stroke-dasharray="`${getSeatProgressPct(item.startingFrameId)} 100`"
+                :class="twMerge('seat-progress-value', getSeatProgressColorClasses(item.seat, item.hasAuction))"
+              />
+            </svg>
+            <span
+              v-if="props.isLiveFrame && item.seat.miner?.address === props.lastBlockMinerAddress"
+              class="relative z-10 flex h-full w-full items-center justify-center"
+            >
+              <MinerIcon class="h-[54%] w-[54%] text-white" />
+            </span>
+            <span
+              v-else
+              class="seat-label relative z-10 opacity-50"
+              :class="item.seat.miner?.isOurs && item.hasAuction ? 'underline' : ''"
+            >
+              {{ item.seat.id }}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" align="center" :sideOffset="-5" :collisionPadding="9" class="relative z-[1000]">
+            <SeatTooltip
+              :seat="item.seat"
+              :frameId="props.frameId"
+              :isLiveFrame="props.isLiveFrame"
+              :startingFrameId="item.startingFrameId"
+              :ourBidAddresses="ourBidAddresses"
+              :hasAuction="item.hasAuction"
+              :isUnavailableForBids="item.isUnavailableForBids"
+              :tooltipStats="
+                item.seat.miner ? seatTooltipStatsByStartingFrameId[item.seat.miner.startingFrameId] : null
+              "
             />
-          </svg>
-          <span
-            v-if="props.isLiveFrame && item.seat.miner?.address === props.lastBlockMinerAddress"
-            class="relative z-10 flex h-full w-full items-center justify-center"
-          >
-            <MinerIcon class="h-[54%] w-[54%] text-white" />
-          </span>
-          <span
-            v-else
-            class="seat-label relative z-10 opacity-50"
-            :class="item.seat.miner?.isOurs && item.seat.slotId === currentAuctionSlot ? 'underline' : ''"
-          >
-            {{ item.seat.id }}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" align="center" :sideOffset="-5" :collisionPadding="9" class="relative z-[1000]">
-          <SeatTooltip
-            :seat="item.seat"
-            :frameId="props.frameId"
-            :isLiveFrame="props.isLiveFrame"
-            :startingFrameId="item.startingFrameId"
-            :ourBidAddresses="ourBidAddresses"
-            :hasAuction="item.seat.slotId === currentAuctionSlot"
-            :tooltipStats="item.seat.miner ? seatTooltipStatsByStartingFrameId[item.seat.miner.startingFrameId] : null"
-          />
-          <TooltipArrow :width="27" :height="15" class="z-20 -mt-px fill-white stroke-slate-800/20 stroke-[0.5px]" />
-        </TooltipContent>
-      </TooltipRoot>
+            <TooltipArrow :width="27" :height="15" class="z-20 -mt-px fill-white stroke-slate-800/20 stroke-[0.5px]" />
+          </TooltipContent>
+        </TooltipRoot>
+      </div>
     </div>
   </TooltipProvider>
 </template>
@@ -97,7 +103,7 @@ const currentAuctionSlot = Vue.computed(() => {
   return miningSlotId < 10 ? miningSlotId : 0;
 });
 
-const seatGridElem = Vue.ref<HTMLElement | null>(null);
+const seatGridContainerElem = Vue.ref<HTMLElement | null>(null);
 const seatGridWidth = Vue.ref(0);
 const seatGridHeight = Vue.ref(0);
 let seatGridObserver: ResizeObserver | null = null;
@@ -115,13 +121,23 @@ let shouldRefreshSeatsAgain = false;
 let isRefreshingSeatTooltipStats = false;
 let shouldRefreshSeatTooltipStatsAgain = false;
 
-const gridSeats = Vue.computed<{ seat: IMiningDisplaySeat; startingFrameId: number | null }[]>(() => {
-  return slots.value.flatMap(slot =>
-    slot.seats.map(seat => ({
-      seat,
-      startingFrameId: getSeatStartingFrameId(seat),
-    })),
-  );
+const gridSeats = Vue.computed<
+  { seat: IMiningDisplaySeat; startingFrameId: number | null; hasAuction: boolean; isUnavailableForBids: boolean }[]
+>(() => {
+  return slots.value.flatMap(slot => {
+    return slot.seats.map(seat => {
+      const isCurrentAuctionSlot = slot.slotId === currentAuctionSlot.value;
+      const isUnavailableForBids =
+        props.isLiveFrame && isCurrentAuctionSlot && seat.miner !== null && seat.bid === null;
+
+      return {
+        seat,
+        startingFrameId: getSeatStartingFrameId(seat),
+        hasAuction: isCurrentAuctionSlot && !isUnavailableForBids,
+        isUnavailableForBids,
+      };
+    });
+  });
 });
 
 const seatGridStyle = Vue.computed((): Record<string, string> => {
@@ -130,16 +146,12 @@ const seatGridStyle = Vue.computed((): Record<string, string> => {
     return {};
   }
 
-  const baseGapX = 6;
-  const gapY = 6;
+  const gap = dotCount > 500 ? 4 : 6;
   const width = Math.max(seatGridWidth.value, 1);
   const height = Math.max(seatGridHeight.value, 1);
   const cols = Math.max(1, Math.ceil(Math.sqrt((dotCount * width) / height)));
   const rows = Math.max(1, Math.ceil(dotCount / cols));
-  let dotPx = Math.max(
-    3,
-    Math.floor(Math.min((width - (cols - 1) * baseGapX) / cols, (height - (rows - 1) * gapY) / rows)),
-  );
+  let dotPx = Math.max(3, Math.floor(Math.min((width - (cols - 1) * gap) / cols, (height - (rows - 1) * gap) / rows)));
 
   if (dotPx * cols > width) {
     dotPx = Math.max(3, Math.floor(width / cols));
@@ -150,7 +162,7 @@ const seatGridStyle = Vue.computed((): Record<string, string> => {
   return {
     '--seat-dot-size': `${dotPx}px`,
     '--seat-dot-gap-x': `${gapX}px`,
-    '--seat-dot-gap-y': `${gapY}px`,
+    '--seat-dot-gap-y': `${gap}px`,
     '--seat-label-display': dotPx < 12 ? 'none' : 'inline',
     gridTemplateColumns: `repeat(${cols}, var(--seat-dot-size))`,
     justifyContent: 'start',
@@ -162,14 +174,12 @@ function isWinningBid(bid: IMiningSlotBid | null) {
   return ourBidAddresses.value.has(bid.address);
 }
 
-function getSeatBorderClasses(seat: IMiningDisplaySeat): string {
+function getSeatBorderClasses(seat: IMiningDisplaySeat, hasAuction: boolean): string {
   if (getSeatStartingFrameId(seat) !== null) {
-    return props.isLiveFrame && seat.slotId === currentAuctionSlot.value
-      ? 'border-transparent current-slot-seat'
-      : 'border-transparent';
+    return props.isLiveFrame && hasAuction ? 'border-transparent current-slot-seat' : 'border-transparent';
   }
 
-  if (seat.slotId === currentAuctionSlot.value) {
+  if (hasAuction) {
     if (isWinningBid(seat.bid)) {
       return `border-argon-600 border-2 ${props.isLiveFrame ? 'current-slot-seat' : ''}`;
     }
@@ -192,11 +202,11 @@ function getSeatBackgroundClasses(seat: IMiningDisplaySeat): string {
   return seat.miner?.isOurs ? 'bg-argon-300/30' : 'bg-slate-100/60';
 }
 
-function getLastBlockMinerSeatClasses(seat: IMiningDisplaySeat): string {
+function getLastBlockMinerSeatClasses(seat: IMiningDisplaySeat, hasAuction: boolean): string {
   if (!props.isLiveFrame) return '';
   if (seat.miner?.address !== props.lastBlockMinerAddress) return '';
 
-  if (seat.slotId === currentAuctionSlot.value) {
+  if (hasAuction) {
     return isWinningBid(seat.bid) ? 'bg-argon-600 text-white' : 'bg-slate-500/70 text-white';
   }
 
@@ -218,8 +228,8 @@ function getSeatProgressPct(startingFrameId: number): number {
   return progress;
 }
 
-function getSeatProgressColorClasses(seat: IMiningDisplaySeat): string {
-  if (seat.slotId === currentAuctionSlot.value) {
+function getSeatProgressColorClasses(seat: IMiningDisplaySeat, hasAuction: boolean): string {
+  if (hasAuction) {
     return isWinningBid(seat.bid) ? 'text-argon-400/50' : 'text-slate-300/50';
   }
 
@@ -229,7 +239,7 @@ function getSeatProgressColorClasses(seat: IMiningDisplaySeat): string {
 function observeSeatGrid() {
   seatGridObserver?.disconnect();
   seatGridObserver = null;
-  if (!seatGridElem.value) {
+  if (!seatGridContainerElem.value) {
     seatGridWidth.value = 0;
     seatGridHeight.value = 0;
     return;
@@ -241,7 +251,7 @@ function observeSeatGrid() {
     seatGridWidth.value = rect.width;
     seatGridHeight.value = rect.height;
   });
-  seatGridObserver.observe(seatGridElem.value);
+  seatGridObserver.observe(seatGridContainerElem.value);
 }
 
 function setHoveredSlotId(slotId: number): void {
@@ -331,7 +341,7 @@ function onLiveSeatsUpdated() {
   void refreshSeats();
 }
 
-Vue.watch(seatGridElem, observeSeatGrid, { flush: 'post' });
+Vue.watch(seatGridContainerElem, observeSeatGrid, { flush: 'post' });
 
 Vue.watch(
   () => [props.frameId, props.isLiveFrame, props.frameSlots],
@@ -417,7 +427,7 @@ function getVisibleStartingFrameIds(): number[] {
 @reference "../../../main.css";
 
 .seat-grid {
-  @apply grid h-full w-full content-center;
+  @apply grid h-full w-full min-w-0 content-center;
   column-gap: var(--seat-dot-gap-x, 6px);
   row-gap: var(--seat-dot-gap-y, 6px);
 }

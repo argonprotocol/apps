@@ -71,6 +71,12 @@
         </div>
       </div>
     </div>
+    <div
+      v-else-if="isUnavailableForBids"
+      class="border-t border-slate-300 px-3 py-3 text-left font-medium text-slate-500"
+    >
+      This seat is not available for bids in the current frame.
+    </div>
   </div>
 </template>
 
@@ -113,6 +119,7 @@ const props = defineProps<{
   startingFrameId?: number | null;
   ourBidAddresses: Set<string>;
   hasAuction: boolean;
+  isUnavailableForBids: boolean;
   tooltipStats?: IMiningSeatRewardTerms | null;
 }>();
 
