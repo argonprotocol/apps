@@ -37,6 +37,7 @@
 
             <Mining v-else-if="controller.selectedTab === TopTab.Mining" />
             <Vaulting v-else-if="controller.selectedTab === TopTab.Vaulting" />
+            <CrosschainTransfers v-else-if="controller.selectedTab === TopTab.CrosschainTransfers" />
             <Onboarding
               v-else-if="controller.selectedTab === TopTab.Onboarding || controller.selectedTab === 'Invites' as TopTab"
             />
@@ -56,6 +57,7 @@
       <WalletDialogs />
       <WalletDisconnectOverlay />
       <TransactionsOverlay />
+      <CrosschainHistoryOverlay />
       <SecuritizationOverlay />
       <FlexibleAssetsOverlay />
       <TreasuryBondsOverlay />
@@ -101,10 +103,12 @@ import { createMenu } from './NativeMenu.ts';
 import Network from './screens/Network.vue';
 import Mining from './screens/Mining.vue';
 import Vaulting from './screens/Vaulting.vue';
+import CrosschainTransfers from './screens/CrosschainTransfers.vue';
 import ServerConnectPanel from './panels/ServerConnectPanel.vue';
 import WalletDialogs from './wallets/WalletDialogs.vue';
 import WalletDisconnectOverlay from './overlays/WalletDisconnectOverlay.vue';
 import TransactionsOverlay from './overlays/TransactionsOverlay.vue';
+import CrosschainHistoryOverlay from './overlays/CrosschainHistoryOverlay.vue';
 import ServerRemoveOverlay from './overlays/ServerRemoveOverlay.vue';
 import SecuritySettingsOverlay from './overlays/SecuritySettingsOverlay.vue';
 import ImportAccountOverlay from './overlays/ImportAccountOverlay.vue';

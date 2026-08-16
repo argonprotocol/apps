@@ -133,19 +133,9 @@ export async function createMenu() {
         text: 'Crosschain Transfers',
         items: [
           {
-            id: 'experimental-set-argonot-commitment',
-            text: 'Set Vault Argonot Commitment',
-            action: () => basicEmitter.emit('openArgonotCommitmentOverlay'),
-          },
-          {
             id: 'experimental-create-minting-authority-request',
             text: 'Register a Minting Authority',
             action: () => basicEmitter.emit('openMintingAuthorityRequestOverlay'),
-          },
-          {
-            id: 'experimental-relay-gateway-activities',
-            text: 'Relay Gateway Activities',
-            action: () => basicEmitter.emit('openGatewayRelayOverlay'),
           },
           ...(IS_LOCAL_BUILD && NETWORK_NAME === 'dev-docker'
             ? [

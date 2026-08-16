@@ -1,8 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
+import { MoveToken } from '@argonprotocol/apps-core';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { createTestDb } from './helpers/db.ts';
 import {
   MintingAuthorities,
+  type IEthereumMintingAuthority,
+  getActiveMintingAuthorityRemaining,
+  getMintingAuthorityBackedTransfers,
   getPendingMintingAuthorizations,
   getOwnedEthereumMintingAuthorities,
   getNextMintingAuthoritySigner,
@@ -37,6 +41,70 @@ describe('MintingAuthorities', () => {
     await expect(mintingAuthorities['onRegister'](txInfo)).rejects.toThrow(setupError);
     await expect(txInfo.waitForPostProcessing).rejects.toThrow(setupError);
     expect(txInfo.isPostProcessed).toBe(true);
+  });
+
+  it('calculates transfer capacity from active unreserved collateral only', () => {
+    const activeAuthority = {
+      isActive: true,
+      gatewayRemainingMicrogonCollateral: 10_000_000n,
+      pendingReservedMicrogonCollateral: 2_000_000n,
+      gatewayRemainingMicronotCollateral: 5_000_000n,
+      pendingReservedMicronotCollateral: 1_000_000n,
+    } as IEthereumMintingAuthority;
+    const deactivatingAuthority = {
+      isActive: false,
+      isDeactivating: true,
+      gatewayRemainingMicrogonCollateral: 99_000_000n,
+      pendingReservedMicrogonCollateral: 0n,
+      gatewayRemainingMicronotCollateral: 99_000_000n,
+      pendingReservedMicronotCollateral: 0n,
+    } as IEthereumMintingAuthority;
+
+    expect(getActiveMintingAuthorityRemaining([activeAuthority, deactivatingAuthority], 2_000_000n)).toEqual({
+      microgons: 8_000_000n,
+      micronots: 4_000_000n,
+      valueMicrogons: 16_000_000n,
+    });
+  });
+
+  it('restores an imported active authority without local signer-index records', async () => {
+    const db = await createTestDb();
+    const walletKeys = createWalletKeysStub();
+    const signer = (await walletKeys.getEthereumAddresses([walletKeys.getMintingAuthorityEthereumHdPath(0)]))[0];
+    const finalizedClient = {
+      query: {
+        crosschainTransfer: {
+          chainConfigBySourceChain: vi.fn(async () => ({ isNone: true })),
+          councilSignerByDestinationChainAndAccountId: vi.fn(async () => ({ isNone: false })),
+          mintingAuthoritiesBySigner: {
+            multi: vi.fn(async (signers: string[]) =>
+              signers.map(candidate =>
+                candidate === signer ? someAuthority(walletKeys.vaultingAddress, candidate) : noneAuthority(),
+              ),
+            ),
+          },
+        },
+      },
+    };
+    const mintingAuthorities = new MintingAuthorities(
+      Promise.resolve(db),
+      walletKeys as unknown as WalletKeys,
+      {
+        blockWatch: {
+          start: vi.fn(async () => undefined),
+          getFinalizedApi: vi.fn(async () => finalizedClient),
+        },
+      } as any,
+      {
+        pendingBlockTxInfosAtLoad: [],
+        data: { txInfos: [] },
+      } as any,
+    );
+
+    await mintingAuthorities.load();
+
+    expect(mintingAuthorities.data.authorities).toHaveLength(1);
+    expect(mintingAuthorities.data.authorities[0]).toMatchObject({ signer, authorityIndex: 0, isActive: true });
   });
 
   it('only scans missing signer indexes for a council account after its unrecognized registration', async () => {
@@ -334,6 +402,21 @@ describe('MintingAuthorities', () => {
     expect(authorizations[0]).toMatchObject({
       transferId: '0x' + '02'.repeat(32),
       authorityIndex: 0,
+      moveToken: MoveToken.ARGN,
+      sourceAccount: '5SourceAccount',
+      destinationSigningKey: authority.signer,
+      finalizeRequest: {
+        argonAccountId: '0x' + 'aa'.repeat(32),
+        argonTransferNonce: 1n,
+        chainId: 1n,
+        recipient: '0x' + 'bb'.repeat(20),
+        validUntilBlock: 123n,
+        token: '0x' + 'bb'.repeat(20),
+        amount: 80n,
+        mintingAuthorityTip: 1n,
+        microgonsPerArgonot: 1_000_000n,
+      },
+      mintingAuthorityTip: 1n,
       microgonCollateral: 70n,
       micronotCollateral: 0n,
       securityAmountMicrogons: 70n,
@@ -355,6 +438,73 @@ describe('MintingAuthorities', () => {
     expect(authorizations).toEqual([]);
     expect(client.query.crosschainTransfer.chainConfigBySourceChain).not.toHaveBeenCalled();
     expect(client.query.crosschainTransfer.pendingCollateralizationRequestsByChain).not.toHaveBeenCalled();
+  });
+
+  it('loads transfers already backed by an owned minting authority', async () => {
+    const signer = '0x' + '11'.repeat(20);
+    const transferId = '0x' + '01'.repeat(32);
+    let isReady = false;
+    const client = {
+      query: {
+        crosschainTransfer: {
+          transferOutById: {
+            multi: vi.fn(async () => [
+              {
+                isNone: false,
+                unwrap: () => ({
+                  state: { isReady },
+                  asset: { isArgon: true },
+                  argonAccountId: accountValue('0x' + 'aa'.repeat(32), '5SourceAccount'),
+                  argonTransferNonce: bigintValue(7n),
+                  destinationAccount: hexValue('0x' + 'bb'.repeat(20)),
+                  amount: bigintValue(80n),
+                  validUntilEthereumBlock: bigintValue(123n),
+                  mintingAuthorityTip: bigintValue(2n),
+                  totalAttachedCollateral: bigintValue(60n),
+                  mintingAuthorityCollateralBySigner: new Map([
+                    [
+                      hexValue(signer),
+                      {
+                        microgonCollateral: bigintValue(40n),
+                        micronotCollateral: bigintValue(20n),
+                      },
+                    ],
+                  ]),
+                }),
+              },
+            ]),
+          },
+        },
+      },
+    };
+    const authority = {
+      signer,
+      activePendingTransferIds: [transferId],
+    } as any;
+    const transfers = await getMintingAuthorityBackedTransfers(client as any, [authority]);
+
+    expect(transfers).toEqual([
+      {
+        transferId,
+        status: 'waitingForAuthorizations',
+        moveToken: MoveToken.ARGN,
+        sourceAccount: '5SourceAccount',
+        sourceTransferNonce: 7n,
+        destinationAccount: '0x' + 'bb'.repeat(20),
+        amount: 80n,
+        validUntilEthereumBlock: 123n,
+        mintingAuthorityTip: 2n,
+        totalAttachedCollateral: 60n,
+        ownedMicrogonCollateral: 40n,
+        ownedMicronotCollateral: 20n,
+        authoritySigners: [signer],
+      },
+    ]);
+
+    isReady = true;
+    await expect(getMintingAuthorityBackedTransfers(client as any, [authority])).resolves.toMatchObject([
+      { transferId, status: 'readyForEthereum' },
+    ]);
   });
 
   it('can plan an exact transfer even when the generic queue planner would spend the authority on an earlier request', async () => {
@@ -428,9 +578,9 @@ describe('MintingAuthorities', () => {
     });
   });
 
-  it('batches all current minting authorizations with utility.batch', async () => {
+  it('authorizes only the selected transfer requests', async () => {
     const collateralizeTransfer = vi.fn((transferId: string) => ({ kind: 'collateralizeTransfer', transferId }));
-    const batch = vi.fn(txs => ({ kind: 'batch', txs }));
+    const batchAll = vi.fn(txs => ({ kind: 'batchAll', txs }));
     const submitAndWatch = vi.fn(async (args: { metadata: unknown; tx: unknown }) => ({
       tx: { metadataJson: args.metadata },
       txResult: {},
@@ -440,10 +590,11 @@ describe('MintingAuthorities', () => {
       getMintingAuthorityEthereumHdPath(hdIndex: number): `m/44'/60'/${string}` {
         return getEthereumHdPath(DEFAULT_MEMORY_WALLET_KEYS_ETHEREUM_HD_PREFIXES.mintingAuthority, hdIndex);
       },
-      signEthereumPersonalMessage: vi
-        .fn()
-        .mockResolvedValueOnce(`0x${'11'.repeat(64)}1c`)
-        .mockResolvedValueOnce(`0x${'22'.repeat(64)}1c`),
+      signEthereumPersonalMessage: vi.fn(async (authorizationHash: string) => {
+        if (authorizationHash === `0x${'aa'.repeat(32)}`) return `0x${'11'.repeat(64)}1c`;
+        if (authorizationHash === `0x${'bb'.repeat(32)}`) return `0x${'22'.repeat(64)}1c`;
+        return `0x${'33'.repeat(64)}1c`;
+      }),
     };
     const pendingMintingAuthorizations = [
       {
@@ -462,6 +613,14 @@ describe('MintingAuthorities', () => {
         microgonCollateral: 0n,
         micronotCollateral: 20n,
       },
+      {
+        transferId: '0x' + '03'.repeat(32),
+        authorityIndex: 4,
+        authorizationHash: '0x' + 'cc'.repeat(32),
+        mintingAuthorityTip: 33n,
+        microgonCollateral: 30n,
+        micronotCollateral: 40n,
+      },
     ];
     const mintingAuthorities = {
       data: {
@@ -478,7 +637,7 @@ describe('MintingAuthorities', () => {
                   collateralizeTransfer,
                 },
                 utility: {
-                  batch,
+                  batchAll,
                 },
               },
             })),
@@ -490,45 +649,42 @@ describe('MintingAuthorities', () => {
       onAuthorize: vi.fn(async () => undefined),
     };
 
-    await MintingAuthorities.prototype.authorize.call(mintingAuthorities);
+    await MintingAuthorities.prototype.authorize.call(mintingAuthorities, [
+      pendingMintingAuthorizations[1].transferId,
+      pendingMintingAuthorizations[2].transferId,
+    ]);
 
+    expect(collateralizeTransfer).toHaveBeenCalledTimes(2);
     expect(collateralizeTransfer).toHaveBeenNthCalledWith(
       1,
-      pendingMintingAuthorizations[0].transferId,
-      `0x${'11'.repeat(64)}1c`,
-      pendingMintingAuthorizations[0].microgonCollateral,
-      pendingMintingAuthorizations[0].micronotCollateral,
-    );
-    expect(collateralizeTransfer).toHaveBeenNthCalledWith(
-      2,
       pendingMintingAuthorizations[1].transferId,
       `0x${'22'.repeat(64)}1c`,
       pendingMintingAuthorizations[1].microgonCollateral,
       pendingMintingAuthorizations[1].micronotCollateral,
     );
-    expect(batch).toHaveBeenCalledWith([
-      { kind: 'collateralizeTransfer', transferId: pendingMintingAuthorizations[0].transferId },
+    expect(collateralizeTransfer).toHaveBeenNthCalledWith(
+      2,
+      pendingMintingAuthorizations[2].transferId,
+      `0x${'33'.repeat(64)}1c`,
+      pendingMintingAuthorizations[2].microgonCollateral,
+      pendingMintingAuthorizations[2].micronotCollateral,
+    );
+    expect(batchAll).toHaveBeenCalledWith([
       { kind: 'collateralizeTransfer', transferId: pendingMintingAuthorizations[1].transferId },
+      { kind: 'collateralizeTransfer', transferId: pendingMintingAuthorizations[2].transferId },
     ]);
     expect(submitAndWatch).toHaveBeenCalledWith(
       expect.objectContaining({
         tx: {
-          kind: 'batch',
+          kind: 'batchAll',
           txs: [
-            { kind: 'collateralizeTransfer', transferId: pendingMintingAuthorizations[0].transferId },
             { kind: 'collateralizeTransfer', transferId: pendingMintingAuthorizations[1].transferId },
+            { kind: 'collateralizeTransfer', transferId: pendingMintingAuthorizations[2].transferId },
           ],
         },
         metadata: {
           actionType: 'authorizeTransfer',
           authorizations: [
-            {
-              authorityIndex: pendingMintingAuthorizations[0].authorityIndex,
-              transferId: pendingMintingAuthorizations[0].transferId,
-              mintingAuthorityTip: pendingMintingAuthorizations[0].mintingAuthorityTip,
-              microgonCollateral: pendingMintingAuthorizations[0].microgonCollateral,
-              micronotCollateral: pendingMintingAuthorizations[0].micronotCollateral,
-            },
             {
               authorityIndex: pendingMintingAuthorizations[1].authorityIndex,
               transferId: pendingMintingAuthorizations[1].transferId,
@@ -536,9 +692,44 @@ describe('MintingAuthorities', () => {
               microgonCollateral: pendingMintingAuthorizations[1].microgonCollateral,
               micronotCollateral: pendingMintingAuthorizations[1].micronotCollateral,
             },
+            {
+              authorityIndex: pendingMintingAuthorizations[2].authorityIndex,
+              transferId: pendingMintingAuthorizations[2].transferId,
+              mintingAuthorityTip: pendingMintingAuthorizations[2].mintingAuthorityTip,
+              microgonCollateral: pendingMintingAuthorizations[2].microgonCollateral,
+              micronotCollateral: pendingMintingAuthorizations[2].micronotCollateral,
+            },
           ],
         },
         useLatestNonce: true,
+      }),
+    );
+
+    vi.clearAllMocks();
+
+    await MintingAuthorities.prototype.authorize.call(mintingAuthorities);
+
+    expect(collateralizeTransfer).toHaveBeenCalledTimes(3);
+    expect(batchAll).toHaveBeenCalledWith(
+      pendingMintingAuthorizations.map(authorization => ({
+        kind: 'collateralizeTransfer',
+        transferId: authorization.transferId,
+      })),
+    );
+    expect(submitAndWatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: {
+          actionType: 'authorizeTransfer',
+          authorizations: pendingMintingAuthorizations.map(
+            ({ authorityIndex, transferId, mintingAuthorityTip, microgonCollateral, micronotCollateral }) => ({
+              authorityIndex,
+              transferId,
+              mintingAuthorityTip,
+              microgonCollateral,
+              micronotCollateral,
+            }),
+          ),
+        },
       }),
     );
   });
@@ -666,6 +857,18 @@ function noneAuthority() {
   };
 }
 
+function bigintValue(value: bigint) {
+  return { toBigInt: () => value };
+}
+
+function hexValue(value: string) {
+  return { toHex: () => value };
+}
+
+function accountValue(hex: string, address: string) {
+  return { toHex: () => hex, toString: () => address };
+}
+
 function someTransfer(transferId: string) {
   return {
     isNone: false,
@@ -674,7 +877,7 @@ function someTransfer(transferId: string) {
       microgonsPerArgonot: { toBigInt: () => 1_000_000n },
       mintingAuthorityCollateralBySigner: { keys: () => [] },
       asset: { isArgon: true },
-      argonAccountId: { toHex: () => '0x' + 'aa'.repeat(32) },
+      argonAccountId: accountValue('0x' + 'aa'.repeat(32), '5SourceAccount'),
       argonTransferNonce: { toBigInt: () => 1n },
       destinationAccount: { toHex: () => '0x' + 'bb'.repeat(20) },
       validUntilEthereumBlock: { toBigInt: () => 123n },

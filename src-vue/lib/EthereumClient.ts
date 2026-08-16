@@ -308,6 +308,80 @@ export class EthereumClient {
     });
   }
 
+  public async getGatewayApprovalNonce(): Promise<bigint> {
+    const chainConfig = await this.loadChainConfig();
+    const { publicClient } = await this.createExecutionClient();
+    return await publicClient.readContract({
+      abi: EvmContracts.mintingGatewayAbi,
+      address: chainConfig.gatewayAddress,
+      functionName: 'argonApprovalsNonce',
+    });
+  }
+
+  public async getGatewayApprovalBlockNumbers(
+    queueNonces: bigint[],
+    afterExecutionBlockNumber?: bigint,
+  ): Promise<Map<bigint, bigint>> {
+    if (!queueNonces.length) return new Map();
+
+    const chainConfig = await this.loadChainConfig();
+    const { publicClient } = await this.createExecutionClient();
+    const latestLocatorIndex = await publicClient.readContract({
+      abi: EvmContracts.mintingGatewayAbi,
+      address: chainConfig.gatewayAddress,
+      functionName: 'latestActivityBlockLocatorIndex',
+    });
+    if (!latestLocatorIndex) return new Map();
+
+    const latestLocator = await publicClient.readContract({
+      abi: EvmContracts.mintingGatewayAbi,
+      address: chainConfig.gatewayAddress,
+      functionName: 'activityBlockLocators',
+      args: [latestLocatorIndex],
+    });
+    const latestActivityBlockNumber = latestLocator[0];
+    const fromBlock =
+      afterExecutionBlockNumber === undefined ? latestActivityBlockNumber : afterExecutionBlockNumber + 1n;
+    if (fromBlock > latestActivityBlockNumber) return new Map();
+
+    const requestedQueueNonces = new Set(queueNonces);
+    const blockNumbersByQueueNonce = new Map<bigint, bigint>();
+    const logs = await publicClient.getLogs({
+      address: chainConfig.gatewayAddress,
+      fromBlock,
+      toBlock: latestActivityBlockNumber,
+    });
+
+    for (const log of logs) {
+      if (log.blockNumber == null) continue;
+
+      let activity;
+      try {
+        activity = decodeEthereumGatewayActivityLog({
+          data: log.data,
+          topics: [...log.topics],
+        });
+      } catch {
+        continue;
+      }
+
+      if (
+        activity.kind !== EvmContracts.MintingGatewayEvents.GlobalIssuanceCouncilRotated.name &&
+        activity.kind !== EvmContracts.MintingGatewayEvents.MintingAuthorityActivated.name &&
+        activity.kind !== EvmContracts.MintingGatewayEvents.MintingAuthorityDeactivated.name
+      ) {
+        continue;
+      }
+
+      const queueNonce = activity.gatewayState.argonApprovalsNonce;
+      if (requestedQueueNonces.has(queueNonce)) {
+        blockNumbersByQueueNonce.set(queueNonce, log.blockNumber);
+      }
+    }
+
+    return blockNumbersByQueueNonce;
+  }
+
   public async getTransactionProgress(args: {
     txHash: Hash;
     blockNumber?: number;
@@ -1266,12 +1340,26 @@ function queueEntryHasQuorum(
     signedWeight += member.weight;
   }
 
-  if (signedWeight * 100n >= council.totalWeight * 90n) {
+  return hasGatewayApprovalQuorum({
+    approvedWeight: signedWeight,
+    totalWeight: council.totalWeight,
+    signatureCount: entry.signatures.size,
+    memberCount: council.members.length,
+  });
+}
+
+export function hasGatewayApprovalQuorum(args: {
+  approvedWeight: bigint;
+  totalWeight: bigint;
+  signatureCount: number;
+  memberCount: number;
+}) {
+  if (args.approvedWeight * 100n >= args.totalWeight * 90n) {
     return true;
   }
 
-  const unsignedMemberCount = council.members.length - entry.signatures.size;
-  return unsignedMemberCount <= 2 && signedWeight * 100n >= council.totalWeight * 80n;
+  const unsignedMemberCount = args.memberCount - args.signatureCount;
+  return unsignedMemberCount <= 2 && args.approvedWeight * 100n >= args.totalWeight * 80n;
 }
 
 function councilToSnapshot(council: LoadedCouncil): IEthereumGatewayCouncilSnapshot {

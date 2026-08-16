@@ -172,7 +172,12 @@ import { getCurrency } from '../../stores/currency.ts';
 import { useStableSwaps } from '../../stores/stableSwaps.ts';
 import EthereumIcon from '../../assets/networks/ethereum.svg';
 import ArgonIcon from '../../assets/networks/argon.svg';
-import { ICurrencyKey, NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import {
+  getEthereumTransactionExplorerUrl,
+  ICurrencyKey,
+  NetworkConfig,
+  UnitOfMeasurement,
+} from '@argonprotocol/apps-core';
 import { ArrowTopRightOnSquareIcon, CheckIcon } from '@heroicons/vue/24/outline';
 import FormattedMoney from '../../components/FormattedMoney.vue';
 import { useFinancials } from '../../stores/financials.ts';
@@ -196,7 +201,8 @@ const totalSwapReturn = Vue.computed(() => {
 });
 
 async function openPurchaseTx(txHash: string) {
-  await tauriOpenUrl(`https://etherscan.io/tx/${txHash}`);
+  const explorerUrl = getEthereumTransactionExplorerUrl(txHash);
+  if (explorerUrl) await tauriOpenUrl(explorerUrl);
 }
 
 const currencyFadeClass = Vue.ref('');

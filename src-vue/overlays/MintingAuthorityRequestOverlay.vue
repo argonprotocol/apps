@@ -32,7 +32,7 @@
           {{ progressMessage }}
         </div>
 
-        <div v-if="progressError" class="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div v-if="progressError" class="border-argon-error/30 bg-argon-error/5 text-argon-error rounded-md border px-4 py-3 text-sm">
           {{ progressError }}
         </div>
 
@@ -54,7 +54,7 @@
       </div>
 
       <div v-else-if="loadError" class="space-y-4">
-        <div class="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div class="border-argon-error/30 bg-argon-error/5 text-argon-error rounded-md border px-4 py-3 text-sm">
           {{ loadError }}
         </div>
 
@@ -76,33 +76,33 @@
 
         <div
           v-if="relayDelegateNeedsSetup"
-          class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-4">
+          class="rounded-lg border border-slate-300 bg-slate-50 px-4 py-4">
           <div class="flex items-start justify-between gap-4">
             <div class="grow">
-              <div class="text-sm font-semibold text-amber-900">Relay Delegate Needs Setup</div>
-              <div class="mt-1 text-sm leading-6 text-amber-800">
+              <div class="text-sm font-semibold text-slate-800">Relay Delegate Needs Setup</div>
+              <div class="mt-1 text-sm leading-6 text-slate-600">
                 Your server can't send Ethereum relays for this vault yet because the relay delegate isn't set up.
               </div>
 
               <div class="mt-4 grid grid-cols-3 gap-3 text-sm">
-                <div class="rounded-md border border-amber-200 bg-white/70 px-3 py-2">
-                  <div class="text-xs font-semibold uppercase tracking-wide text-amber-700">Current Balance</div>
-                  <div class="mt-1 font-semibold text-amber-950">
-                    {{ microgonToArgonNm(relayDelegateBalance).format('0,0.[000000]') }} ARGN
+                <div class="rounded-md border border-slate-200 bg-white px-3 py-2">
+                  <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Current Balance</div>
+                  <div class="mt-1 font-semibold text-slate-800">
+                    {{ microgonToArgonNm(relayDelegateBalance).format('0,0.[00]') }} ARGN
                   </div>
                 </div>
 
-                <div class="rounded-md border border-amber-200 bg-white/70 px-3 py-2">
-                  <div class="text-xs font-semibold uppercase tracking-wide text-amber-700">Minimum Balance</div>
-                  <div class="mt-1 font-semibold text-amber-950">
-                    {{ microgonToArgonNm(minimumVaultDelegateBalance).format('0,0.[000000]') }} ARGN
+                <div class="rounded-md border border-slate-200 bg-white px-3 py-2">
+                  <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Minimum Balance</div>
+                  <div class="mt-1 font-semibold text-slate-800">
+                    {{ microgonToArgonNm(minimumVaultDelegateBalance).format('0,0.[00]') }} ARGN
                   </div>
                 </div>
 
-                <div class="rounded-md border border-amber-200 bg-white/70 px-3 py-2">
-                  <div class="text-xs font-semibold uppercase tracking-wide text-amber-700">Setup Funding</div>
-                  <div class="mt-1 font-semibold text-amber-950">
-                    {{ microgonToArgonNm(targetVaultDelegateBalance).format('0,0.[000000]') }} ARGN
+                <div class="rounded-md border border-slate-200 bg-white px-3 py-2">
+                  <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Setup Funding</div>
+                  <div class="mt-1 font-semibold text-slate-800">
+                    {{ microgonToArgonNm(targetVaultDelegateBalance).format('0,0.[00]') }} ARGN
                   </div>
                 </div>
               </div>
@@ -122,34 +122,34 @@
 
         <div
           v-else-if="relayDelegateTopUpAmount > 0n"
-          class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-4">
+          class="rounded-lg border border-slate-300 bg-slate-50 px-4 py-4">
           <div class="flex items-start justify-between gap-4">
             <div class="grow">
-              <div class="text-sm font-semibold text-amber-900">Relay Delegate Needs Funds</div>
-              <div class="mt-1 text-sm leading-6 text-amber-800">
+              <div class="text-sm font-semibold text-slate-800">Relay Delegate Needs Funds</div>
+              <div class="mt-1 text-sm leading-6 text-slate-600">
                 Your server's relay delegate is low on funds. Top it up here so your server can keep sending Ethereum
                 relays for this vault.
               </div>
 
               <div class="mt-4 grid grid-cols-3 gap-3 text-sm">
-                <div class="rounded-md border border-amber-200 bg-white/70 px-3 py-2">
-                  <div class="text-xs font-semibold uppercase tracking-wide text-amber-700">Current Balance</div>
-                  <div class="mt-1 font-semibold text-amber-950">
-                    {{ microgonToArgonNm(relayDelegateBalance).format('0,0.[000000]') }} ARGN
+                <div class="rounded-md border border-slate-200 bg-white px-3 py-2">
+                  <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Current Balance</div>
+                  <div class="mt-1 font-semibold text-slate-800">
+                    {{ microgonToArgonNm(relayDelegateBalance).format('0,0.[00]') }} ARGN
                   </div>
                 </div>
 
-                <div class="rounded-md border border-amber-200 bg-white/70 px-3 py-2">
-                  <div class="text-xs font-semibold uppercase tracking-wide text-amber-700">Minimum Balance</div>
-                  <div class="mt-1 font-semibold text-amber-950">
-                    {{ microgonToArgonNm(minimumVaultDelegateBalance).format('0,0.[000000]') }} ARGN
+                <div class="rounded-md border border-slate-200 bg-white px-3 py-2">
+                  <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Minimum Balance</div>
+                  <div class="mt-1 font-semibold text-slate-800">
+                    {{ microgonToArgonNm(minimumVaultDelegateBalance).format('0,0.[00]') }} ARGN
                   </div>
                 </div>
 
-                <div class="rounded-md border border-amber-200 bg-white/70 px-3 py-2">
-                  <div class="text-xs font-semibold uppercase tracking-wide text-amber-700">Top-Up Needed</div>
-                  <div class="mt-1 font-semibold text-amber-950">
-                    {{ microgonToArgonNm(relayDelegateTopUpAmount).format('0,0.[000000]') }} ARGN
+                <div class="rounded-md border border-slate-200 bg-white px-3 py-2">
+                  <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Top-Up Needed</div>
+                  <div class="mt-1 font-semibold text-slate-800">
+                    {{ microgonToArgonNm(relayDelegateTopUpAmount).format('0,0.[00]') }} ARGN
                   </div>
                 </div>
               </div>
@@ -175,12 +175,12 @@
             </div>
           </div>
 
-          <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
-            <div class="text-xs font-semibold uppercase tracking-wide text-emerald-700">New authority signing key</div>
-            <div class="mt-1 text-sm font-semibold text-emerald-900">
+          <div class="border-argon-100 bg-argon-20 rounded-lg border px-4 py-3">
+            <div class="text-argon-700 text-xs font-semibold uppercase tracking-wide">New authority signing key</div>
+            <div class="text-argon-900 mt-1 text-sm font-semibold">
               {{ nextAuthorityIndex != null ? `Signer #${nextAuthorityIndex}` : 'Preparing signer...' }}
             </div>
-            <div class="mt-2 break-all font-mono text-sm text-emerald-800">
+            <div class="text-argon-800 mt-2 break-all font-mono text-sm">
               {{ nextAuthoritySigner || 'Loading a fresh minting-authority signer...' }}
             </div>
           </div>
@@ -228,14 +228,14 @@
                 <div>
                   <div class="text-xs font-semibold uppercase tracking-wide text-slate-400">ARGN</div>
                   <div class="mt-1 font-semibold text-slate-800">
-                    {{ microgonToArgonNm(authority.microgonCollateral).format('0,0.[000000]') }}
+                    {{ microgonToArgonNm(authority.microgonCollateral).format('0,0.[00]') }}
                   </div>
                 </div>
 
                 <div>
                   <div class="text-xs font-semibold uppercase tracking-wide text-slate-400">ARGNOT</div>
                   <div class="mt-1 font-semibold text-slate-800">
-                    {{ micronotToArgonotNm(authority.micronotCollateral).format('0,0.[000000]') }}
+                    {{ micronotToArgonotNm(authority.micronotCollateral).format('0,0.[00]') }}
                   </div>
                 </div>
               </div>
@@ -247,28 +247,36 @@
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
             <div class="text-xs font-semibold uppercase tracking-wide text-slate-400">Epoch Argonot Conversion</div>
             <div class="mt-1 text-lg font-semibold text-slate-800">
-              {{ microgonToArgonNm(epochMicrogonsPerArgonot).format('0,0.[000000]') }} ARGN / ARGNOT
+              {{ microgonToArgonNm(epochMicrogonsPerArgonot).format('0,0.[00]') }} ARGN / ARGNOT
             </div>
           </div>
 
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
             <div class="text-xs font-semibold uppercase tracking-wide text-slate-400">Minimum request value</div>
             <div class="mt-1 text-lg font-semibold text-slate-800">
-              {{ microgonToArgonNm(minimumRequiredMicrogons).format('0,0.[000000]') }} ARGN
+              {{ microgonToArgonNm(minimumRequiredMicrogons).format('0,0.[00]') }} ARGN
             </div>
           </div>
 
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
             <div class="text-xs font-semibold uppercase tracking-wide text-slate-400">Bond-backed ARGN available</div>
             <div class="mt-1 text-lg font-semibold text-slate-800">
-              {{ microgonToArgonNm(remainingBondMicrogons).format('0,0.[000000]') }} ARGN
+              {{ microgonToArgonNm(remainingBondMicrogons).format('0,0.[00]') }} ARGN
             </div>
           </div>
 
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
             <div class="text-xs font-semibold uppercase tracking-wide text-slate-400">Committed ARGNOT available</div>
-            <div class="mt-1 text-lg font-semibold text-slate-800">
-              {{ micronotToArgonotNm(remainingCommittedMicronots).format('0,0.[000000]') }} ARGNOT
+            <div class="mt-1 flex items-end justify-between gap-3">
+              <div class="text-lg font-semibold text-slate-800">
+                {{ micronotToArgonotNm(remainingCommittedMicronots).format('0,0.[00]') }} ARGNOT
+              </div>
+              <button
+                type="button"
+                class="text-argon-600 hover:text-argon-800 cursor-pointer text-xs font-semibold"
+                @click="openCommitment">
+                Manage
+              </button>
             </div>
           </div>
         </div>
@@ -314,7 +322,7 @@
           <div class="mt-4 rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
             <div class="text-xs font-semibold uppercase tracking-wide text-slate-400">Total request value</div>
             <div class="mt-1 text-2xl font-semibold text-slate-800">
-              {{ microgonToArgonNm(requestValueMicrogons).format('0,0.[000000]') }} ARGN
+              {{ microgonToArgonNm(requestValueMicrogons).format('0,0.[00]') }} ARGN
             </div>
             <div class="mt-1 text-xs text-slate-500">
               This combines your direct bond-backed ARGN with committed ARGNOT converted at the current council value.
@@ -322,17 +330,17 @@
           </div>
         </div>
 
-        <div v-if="validationMessage" class="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+        <div v-if="validationMessage" class="border-argon-100 bg-argon-20 text-argon-800 rounded-md border px-4 py-3 text-sm">
           {{ validationMessage }}
         </div>
 
         <div
           v-if="activationRelayError"
-          class="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          class="border-argon-error/30 bg-argon-error/5 text-argon-error rounded-md border px-4 py-3 text-sm">
           {{ activationRelayError }}
         </div>
 
-        <div v-if="submitError" class="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div v-if="submitError" class="border-argon-error/30 bg-argon-error/5 text-argon-error rounded-md border px-4 py-3 text-sm">
           {{ submitError }}
         </div>
 
@@ -460,19 +468,24 @@ const validationMessage = Vue.computed(() => {
     return 'No bond-backed Argons or committed Argonots are currently available for a minting authority request.';
   }
   if (maximumRequestValueMicrogons.value < minimumRequiredMicrogons.value) {
-    return `Available collateral totals ${microgonToArgonNm(maximumRequestValueMicrogons.value).format('0,0.[000000]')} ARGN, which is below the ${microgonToArgonNm(minimumRequiredMicrogons.value).format('0,0.[000000]')} ARGN minimum.`;
+    return `Available collateral totals ${microgonToArgonNm(maximumRequestValueMicrogons.value).format('0,0.[00]')} ARGN, which is below the ${microgonToArgonNm(minimumRequiredMicrogons.value).format('0,0.[00]')} ARGN minimum.`;
   }
   if (requestValueMicrogons.value <= 0n) {
     return 'Add bond-backed ARGN, committed ARGNOT, or both.';
   }
   if (requestValueMicrogons.value < minimumRequiredMicrogons.value) {
-    return `Minting authority collateral must be at least ${microgonToArgonNm(minimumRequiredMicrogons.value).format('0,0.[000000]')} ARGN in total value.`;
+    return `Minting authority collateral must be at least ${microgonToArgonNm(minimumRequiredMicrogons.value).format('0,0.[00]')} ARGN in total value.`;
   }
   return '';
 });
 
 function closeOverlay() {
   isOpen.value = false;
+}
+
+function openCommitment() {
+  closeOverlay();
+  basicEmitter.emit('openArgonotCommitmentOverlay');
 }
 
 function resetProgress() {

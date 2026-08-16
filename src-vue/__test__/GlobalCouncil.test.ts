@@ -15,7 +15,7 @@ describe('GlobalCouncil', () => {
       globalCouncil as unknown as {
         syncApprovedGatewayRelay: (args: {
           councilSigner?: string;
-          hasSignedApprovalsAwaitingRelay: boolean;
+          hasReadyGatewayUpdates: boolean;
           sharedRelayQueueKey?: string;
         }) => Promise<void>;
       }
@@ -23,7 +23,7 @@ describe('GlobalCouncil', () => {
 
     await syncApprovedGatewayRelay({
       councilSigner: '0xabc',
-      hasSignedApprovalsAwaitingRelay: true,
+      hasReadyGatewayUpdates: true,
       sharedRelayQueueKey: undefined,
     });
 
@@ -54,7 +54,7 @@ describe('GlobalCouncil', () => {
         globalCouncil as unknown as {
           syncApprovedGatewayRelay: (args: {
             councilSigner?: string;
-            hasSignedApprovalsAwaitingRelay: boolean;
+            hasReadyGatewayUpdates: boolean;
             sharedRelayQueueKey?: string;
           }) => Promise<void>;
         }
@@ -62,13 +62,13 @@ describe('GlobalCouncil', () => {
 
       await syncApprovedGatewayRelay({
         councilSigner: '0xabc',
-        hasSignedApprovalsAwaitingRelay: false,
+        hasReadyGatewayUpdates: false,
         sharedRelayQueueKey: '9:9',
       });
       await vi.advanceTimersByTimeAsync(getEthereumFinalityMillis() * 3);
       await syncApprovedGatewayRelay({
         councilSigner: '0xabc',
-        hasSignedApprovalsAwaitingRelay: false,
+        hasReadyGatewayUpdates: false,
         sharedRelayQueueKey: '9:9',
       });
 
@@ -100,7 +100,7 @@ describe('GlobalCouncil', () => {
         globalCouncil as unknown as {
           syncApprovedGatewayRelay: (args: {
             councilSigner?: string;
-            hasSignedApprovalsAwaitingRelay: boolean;
+            hasReadyGatewayUpdates: boolean;
             sharedRelayQueueKey?: string;
           }) => Promise<void>;
         }
@@ -108,13 +108,13 @@ describe('GlobalCouncil', () => {
 
       await syncApprovedGatewayRelay({
         councilSigner: '0xabc',
-        hasSignedApprovalsAwaitingRelay: true,
+        hasReadyGatewayUpdates: true,
         sharedRelayQueueKey: '9:9',
       });
       await vi.advanceTimersByTimeAsync(getEthereumFinalityMillis() * 3);
       await syncApprovedGatewayRelay({
         councilSigner: '0xabc',
-        hasSignedApprovalsAwaitingRelay: true,
+        hasReadyGatewayUpdates: true,
         sharedRelayQueueKey: '9:9',
       });
 
@@ -134,7 +134,7 @@ describe('GlobalCouncil', () => {
     }
   });
 
-  it('includes deactivation approvals in the pending queue', async () => {
+  it('describes every pending gateway update', async () => {
     const globalCouncil = new GlobalCouncil(
       Promise.resolve({
         walletHdKeysTable: {
@@ -153,7 +153,7 @@ describe('GlobalCouncil', () => {
         globalCouncil as unknown as {
           syncApprovedGatewayRelay: (args: {
             councilSigner?: string;
-            hasSignedApprovalsAwaitingRelay: boolean;
+            hasReadyGatewayUpdates: boolean;
             sharedRelayQueueKey?: string;
           }) => Promise<void>;
         },
@@ -163,50 +163,179 @@ describe('GlobalCouncil', () => {
 
     const approvalHashOne = { toHex: () => '0x11' };
     const approvalHashTwo = { toHex: () => '0x22' };
+    const approvalHashThree = { toHex: () => '0x33' };
     const finalizedClient = {
       query: {
         crosschainTransfer: {
           councilSignerByDestinationChainAndAccountId: vi.fn(async () => some(hexValue('0xabc'))),
           councilApprovalCursorByDestinationChainAndAccountId: vi.fn(async () => some(bigintValue(0n))),
-          gatewayStateBySourceChain: vi.fn(async () => some({ argonApprovalsNonce: bigintValue(0n) })),
-          nextCouncilApprovalQueueNonceByDestinationChain: vi.fn(async () => bigintValue(2n)),
-          councilApprovalQueueByDestinationChainAndNonce: vi.fn(async (_chain: string, nonce: bigint) => {
-            if (nonce === 1n) {
-              return some({
-                target: {
-                  isMintingAuthorityActivation: true,
-                  isMintingAuthorityDeactivation: false,
-                },
-                approvalHash: approvalHashOne,
-              });
-            }
-            if (nonce === 2n) {
-              return some({
-                target: {
-                  isMintingAuthorityActivation: false,
-                  isMintingAuthorityDeactivation: true,
-                },
-                approvalHash: approvalHashTwo,
-              });
-            }
-            return none();
-          }),
+          gatewayStateBySourceChain: vi.fn(async () =>
+            some({ argonApprovalsNonce: bigintValue(0n), gatewayActivityNonce: bigintValue(47n) }),
+          ),
+          nextCouncilApprovalQueueNonceByDestinationChain: vi.fn(async () => bigintValue(33n)),
+          activeGlobalIssuanceCouncilByDestinationChain: vi.fn(async () => some(hexValue('0xactive'))),
+          transferOutQuoteMicrogonsPerArgonotByDestinationChain: vi.fn(async () => some(bigintValue(750_000n))),
+          globalIssuanceCouncilByHash: {
+            multi: vi.fn(async (hashes: string[]) =>
+              hashes.map(hash =>
+                some(
+                  council(
+                    hash === '0xactive' ? ['5existing', '5leaving'] : ['5existing', '5new-one', '5new-two'],
+                    hash === '0xactive' ? 1_000_000n : 2_000_000n,
+                  ),
+                ),
+              ),
+            ),
+          },
+          mintingAuthoritiesBySigner: {
+            multi: vi.fn(async (signers: string[]) =>
+              signers.map(signer => some({ accountId: { toString: () => `owner-${signer}` } })),
+            ),
+          },
+          councilApprovalQueueByDestinationChainAndNonce: {
+            multi: vi.fn(async (keys: Array<[string, bigint]>) =>
+              keys.map(([, nonce]) => {
+                if (nonce === 1n) {
+                  return some({
+                    approvingCouncilHash: hexValue('0xactive'),
+                    approvedTotalWeight: bigintValue(0n),
+                    signatures: new Map(),
+                    target: {
+                      isMintingAuthorityActivation: true,
+                      isMintingAuthorityDeactivation: false,
+                      isGlobalIssuanceCouncilRotation: false,
+                      asMintingAuthorityActivation: hexValue('0xaaaa'),
+                    },
+                    approvalHash: approvalHashOne,
+                  });
+                }
+                if (nonce === 2n) {
+                  return some({
+                    approvingCouncilHash: hexValue('0xactive'),
+                    approvedTotalWeight: bigintValue(0n),
+                    signatures: new Map(),
+                    target: {
+                      isMintingAuthorityActivation: false,
+                      isMintingAuthorityDeactivation: true,
+                      isGlobalIssuanceCouncilRotation: false,
+                      asMintingAuthorityDeactivation: hexValue('0xbbbb'),
+                    },
+                    approvalHash: approvalHashTwo,
+                  });
+                }
+                if (nonce === 3n) {
+                  return some({
+                    approvingCouncilHash: hexValue('0xactive'),
+                    approvedTotalWeight: bigintValue(0n),
+                    signatures: new Map(),
+                    target: {
+                      isMintingAuthorityActivation: false,
+                      isMintingAuthorityDeactivation: false,
+                      isGlobalIssuanceCouncilRotation: true,
+                      asGlobalIssuanceCouncilRotation: hexValue('0xcccc'),
+                    },
+                    approvalHash: approvalHashThree,
+                  });
+                }
+                if (nonce <= 33n) {
+                  return some({
+                    approvingCouncilHash: hexValue('0xactive'),
+                    approvedTotalWeight: bigintValue(0n),
+                    signatures: new Map(),
+                    target: {
+                      isMintingAuthorityActivation: true,
+                      isMintingAuthorityDeactivation: false,
+                      isGlobalIssuanceCouncilRotation: false,
+                      asMintingAuthorityActivation: hexValue(`0x${nonce.toString(16).padStart(4, '0')}`),
+                    },
+                    approvalHash: hexValue(`0x${nonce.toString(16).padStart(2, '0')}`),
+                  });
+                }
+                return none();
+              }),
+            ),
+          },
         },
       },
     };
 
-    await expect(globalCouncil.refresh(finalizedClient as any)).resolves.toEqual([
-      { approvalHash: '0x11' },
-      { approvalHash: '0x22' },
+    const pendingApprovals = await globalCouncil.refresh(finalizedClient as any);
+
+    expect(pendingApprovals.slice(0, 3)).toEqual([
+      {
+        approvalHash: '0x11',
+        queueNonce: 1n,
+        targetKind: 'mintingAuthorityActivation',
+        targetSigningKey: '0xaaaa',
+        authorityOwnerAccount: 'owner-0xaaaa',
+      },
+      {
+        approvalHash: '0x22',
+        queueNonce: 2n,
+        targetKind: 'mintingAuthorityDeactivation',
+        targetSigningKey: '0xbbbb',
+        authorityOwnerAccount: 'owner-0xbbbb',
+      },
+      {
+        approvalHash: '0x33',
+        queueNonce: 3n,
+        targetKind: 'globalIssuanceCouncilRotation',
+        targetCouncilHash: '0xcccc',
+        councilChange: {
+          vaultCount: 3,
+          newVaultCount: 2,
+          leavingVaultCount: 1,
+          epochMicrogonsPerArgonot: 2_000_000n,
+        },
+      },
     ]);
+    expect(pendingApprovals).toHaveLength(33);
+    expect(globalCouncil.data.gatewayActivityCount).toBe(47n);
+    expect(globalCouncil.data.activeEpochMicrogonsPerArgonot).toBe(1_000_000n);
+    expect(globalCouncil.data.transferOutMicrogonsPerArgonot).toBe(750_000n);
+    expect(
+      finalizedClient.query.crosschainTransfer.councilApprovalQueueByDestinationChainAndNonce.multi,
+    ).toHaveBeenCalledTimes(2);
     expect(syncApprovedGatewayRelay).toHaveBeenCalledWith({
       councilSigner: '0xabc',
-      hasSignedApprovalsAwaitingRelay: false,
+      hasReadyGatewayUpdates: false,
       sharedRelayQueueKey: undefined,
     });
   });
 
-  it('keeps the shared relay queue key when signed approvals are already awaiting Ethereum relay', async () => {
+  it('signs enriched approvals with their original approval hashes', async () => {
+    const signEthereumPersonalMessage = vi.fn(async (approvalHash: string) => `signature-${approvalHash}`);
+    const globalCouncil = new GlobalCouncil(
+      Promise.resolve({} as any),
+      {
+        councilSignerEthereumHdPath: `m/44'/60'/1'/0'`,
+        signEthereumPersonalMessage,
+      } as any,
+      {} as any,
+    );
+
+    const approveQueueEntries = vi.fn((_chain: string, signatures: string[]) => ({ signatures }));
+    await globalCouncil.buildApprovePendingGatewayUpdateTxs(
+      {
+        consts: { crosschainTransfer: { maxQueueApprovalsPerCall: { toNumber: () => 10 } } },
+        createType: vi.fn((_type: string, signatures: string[]) => signatures),
+        tx: { crosschainTransfer: { approveQueueEntries } },
+      } as any,
+      [
+        {
+          approvalHash: '0x33',
+          queueNonce: 3n,
+          targetKind: 'globalIssuanceCouncilRotation',
+          targetCouncilHash: '0xcccc',
+        },
+      ],
+    );
+
+    expect(signEthereumPersonalMessage).toHaveBeenCalledOnce();
+    expect(signEthereumPersonalMessage).toHaveBeenCalledWith('0x33', `m/44'/60'/1'/0'`, 'argon');
+  });
+
+  it('marks a signed gateway update ready only after the council reaches quorum', async () => {
     const globalCouncil = new GlobalCouncil(
       Promise.resolve({
         walletHdKeysTable: {
@@ -225,7 +354,7 @@ describe('GlobalCouncil', () => {
         globalCouncil as unknown as {
           syncApprovedGatewayRelay: (args: {
             councilSigner?: string;
-            hasSignedApprovalsAwaitingRelay: boolean;
+            hasReadyGatewayUpdates: boolean;
             sharedRelayQueueKey?: string;
           }) => Promise<void>;
         },
@@ -233,6 +362,7 @@ describe('GlobalCouncil', () => {
       )
       .mockResolvedValue(undefined);
 
+    let approvedWeight = 0n;
     const finalizedClient = {
       query: {
         crosschainTransfer: {
@@ -240,15 +370,67 @@ describe('GlobalCouncil', () => {
           councilApprovalCursorByDestinationChainAndAccountId: vi.fn(async () => some(bigintValue(2n))),
           gatewayStateBySourceChain: vi.fn(async () => some({ argonApprovalsNonce: bigintValue(1n) })),
           nextCouncilApprovalQueueNonceByDestinationChain: vi.fn(async () => bigintValue(2n)),
-          councilApprovalQueueByDestinationChainAndNonce: vi.fn(async () => none()),
+          activeGlobalIssuanceCouncilByDestinationChain: vi.fn(async () => none()),
+          transferOutQuoteMicrogonsPerArgonotByDestinationChain: vi.fn(async () => none()),
+          globalIssuanceCouncilByHash: {
+            multi: vi.fn(async () => [some(council(['5council-member'], 1_000_000n))]),
+          },
+          mintingAuthoritiesBySigner: {
+            multi: vi.fn(async () => [some({ accountId: { toString: () => '5authority-owner' } })]),
+          },
+          councilApprovalQueueByDestinationChainAndNonce: {
+            multi: vi.fn(async () => [
+              some({
+                approvingCouncilHash: hexValue('0xapproving'),
+                approvedTotalWeight: bigintValue(approvedWeight),
+                signatures: new Map([['0xabc', '0xsig']]),
+                target: {
+                  isMintingAuthorityActivation: true,
+                  isMintingAuthorityDeactivation: false,
+                  isGlobalIssuanceCouncilRotation: false,
+                  asMintingAuthorityActivation: hexValue('0xaaaa'),
+                },
+                approvalHash: hexValue('0x11'),
+              }),
+            ]),
+          },
         },
       },
     };
 
     await expect(globalCouncil.refresh(finalizedClient as any)).resolves.toEqual([]);
-    expect(syncApprovedGatewayRelay).toHaveBeenCalledWith({
+    expect(globalCouncil.data.approvalQueue).toMatchObject([
+      {
+        approvalHash: '0x11',
+        approvalProgress: {
+          approvedWeight: 0n,
+          totalWeight: 1n,
+          signatureCount: 1,
+          memberCount: 1,
+        },
+        queueNonce: 2n,
+        status: 'awaitingCouncilQuorum',
+        targetKind: 'mintingAuthorityActivation',
+        targetSigningKey: '0xaaaa',
+        authorityOwnerAccount: '5authority-owner',
+      },
+    ]);
+    expect(syncApprovedGatewayRelay).toHaveBeenLastCalledWith({
       councilSigner: '0xabc',
-      hasSignedApprovalsAwaitingRelay: true,
+      hasReadyGatewayUpdates: false,
+      sharedRelayQueueKey: undefined,
+    });
+
+    approvedWeight = 1n;
+    await globalCouncil.refresh(finalizedClient as any);
+
+    expect(globalCouncil.data.approvalQueue[0]).toMatchObject({
+      approvalProgress: { approvedWeight: 1n },
+      status: 'readyForRelay',
+    });
+    expect(syncApprovedGatewayRelay).toHaveBeenLastCalledWith({
+      councilSigner: '0xabc',
+      hasReadyGatewayUpdates: true,
       sharedRelayQueueKey: '1:2',
     });
   });
@@ -279,5 +461,15 @@ function none() {
   return {
     isSome: false,
     isNone: true,
+  };
+}
+
+function council(accountIds: string[], epochMicrogonsPerArgonot: bigint) {
+  return {
+    members: new Map(
+      accountIds.map((accountId, index) => [`0x${index}`, { accountId: { toString: () => accountId } }]),
+    ),
+    totalWeight: bigintValue(BigInt(accountIds.length)),
+    epochMicrogonsPerArgonot: bigintValue(epochMicrogonsPerArgonot),
   };
 }

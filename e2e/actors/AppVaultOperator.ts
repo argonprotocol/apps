@@ -562,7 +562,7 @@ export class AppVaultOperator {
       return false;
     }
 
-    const txInfo = await this.mintingAuthorities.authorize(nextPending.transferId);
+    const txInfo = await this.mintingAuthorities.authorize([nextPending.transferId]);
     await txInfo.waitForPostProcessing;
     return true;
   }

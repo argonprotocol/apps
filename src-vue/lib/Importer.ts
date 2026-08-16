@@ -53,10 +53,18 @@ export default class Importer {
       importWalletKeys.vaultingAddress,
       importWalletKeys.operationalAddress,
     ];
-    const [balances, operationalAccount, ownedVault] = await Promise.all([
+    const mintingAuthorityCouncilSigner = finalizedApi.query.crosschainTransfer
+      ?.councilSignerByDestinationChainAndAccountId
+      ? finalizedApi.query.crosschainTransfer.councilSignerByDestinationChainAndAccountId(
+          'Ethereum',
+          importWalletKeys.vaultingAddress,
+        )
+      : undefined;
+    const [balances, operationalAccount, ownedVault, councilSigner] = await Promise.all([
       readArgonWalletBalanceValues(finalizedApi, addresses),
       finalizedApi.query.operationalAccounts.operationalAccounts(importWalletKeys.operationalAddress),
       getVaultByOperator({ client: finalizedApi, operatorAddress: importWalletKeys.vaultingAddress }),
+      mintingAuthorityCouncilSigner,
     ]);
 
     const hasExistingWalletValue = balances.some(balance => {
@@ -84,6 +92,7 @@ export default class Importer {
     // Member Bitcoin events also carry VaultPosition because they affect vault capital. Only the runtime's operator
     // index proves that this account owns a vault and should regain Operations.
     const hasVaultActivity = operationalProgress.hasVault || !!ownedVault;
+    const hasActivatedCrosschain = councilSigner?.isSome ?? false;
     let hasTreasuryHistory = false;
     if (!operationalProgress.hasOperationalAccount) {
       const treasuryActivity = await findAddressActivity(importWalletKeys.defaultArgonAddress, {
@@ -101,7 +110,8 @@ export default class Importer {
       }
     }
 
-    const hasOperationsHistory = operationalProgress.hasOperationalAccount || hasMiningActivity || hasVaultActivity;
+    const hasOperationsHistory =
+      operationalProgress.hasOperationalAccount || hasMiningActivity || hasVaultActivity || hasActivatedCrosschain;
     hasTreasuryHistory ||= hasOperationsHistory;
 
     const usesOperationalProfile = usesOperationalProfileNameRuntime(mainchainClient);
@@ -145,6 +155,7 @@ export default class Importer {
       walletPreviousLifeRecovered: JsonExt.stringify(!hasPreviousLife, 2),
       hasExtensionTreasury: JsonExt.stringify(hasTreasuryHistory, 2),
       hasExtensionOperations: JsonExt.stringify(hasOperationsHistory, 2),
+      hasActivatedCrosschain: JsonExt.stringify(hasActivatedCrosschain, 2),
       certificationDetails: JsonExt.stringify({ hasSavedMnemonic: true }, 2),
       miningSetupStatus: JsonExt.stringify(miningSetupStatus, 2),
       vaultingSetupStatus: JsonExt.stringify(

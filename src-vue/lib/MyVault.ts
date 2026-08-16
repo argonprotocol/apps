@@ -55,7 +55,7 @@ import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { computeCollectDeadline } from './VaultDeadlineWatcher.ts';
 import { WalletKeys } from './WalletKeys.ts';
 import { GlobalCouncil } from './GlobalCouncil.ts';
-import { MintingAuthorities } from './MintingAuthorities.ts';
+import { MintingAuthorities, type IMintingAuthorityAuthorizeMetadata } from './MintingAuthorities.ts';
 import { Config } from './Config.ts';
 import { ICollectOrphanCosignMetadata, IVaultCollectMetadata, VaultCollectBuilder } from './VaultCollectBuilder.ts';
 import { getSpendableDefaultArgonMicrogons } from './WalletForArgon.ts';
@@ -373,6 +373,41 @@ export class MyVault {
 
   public getTxInfoByType(extrinsicType: ExtrinsicType): TransactionInfo<any> | undefined {
     return this.#transactionTracker.data.txInfosByType[extrinsicType];
+  }
+
+  public getCrosschainQueueTxInfos(): TransactionInfo[] {
+    return this.#transactionTracker.data.txInfos.filter(({ tx }) => {
+      if (
+        tx.extrinsicType === ExtrinsicType.CrosschainTransferAuthorize ||
+        tx.extrinsicType === ExtrinsicType.CrosschainTransferApproveCouncil
+      ) {
+        return true;
+      }
+
+      const metadata = tx.metadataJson as Partial<IVaultCollectMetadata>;
+      return (
+        tx.extrinsicType === ExtrinsicType.VaultCollect &&
+        (metadata.actionType === 'approveCouncil' || (metadata.councilApprovalCount ?? 0) > 0)
+      );
+    });
+  }
+
+  public getCrosschainQueueNetEarnings(): bigint {
+    return this.getCrosschainQueueTxInfos().reduce((netEarnings, { tx }) => {
+      if (!tx.isFinalized || tx.extrinsicType !== ExtrinsicType.CrosschainTransferAuthorize) {
+        return netEarnings;
+      }
+
+      const metadata = tx.metadataJson as IMintingAuthorityAuthorizeMetadata;
+      const completedAuthorizationCount = tx.blockExtrinsicErrorJson
+        ? (tx.blockExtrinsicErrorJson.batchInterruptedIndex ?? 0)
+        : metadata.authorizations.length;
+      const earnedRewards = metadata.authorizations
+        .slice(0, completedAuthorizationCount)
+        .reduce((total, authorization) => total + authorization.mintingAuthorityTip, 0n);
+
+      return netEarnings + earnedRewards - (tx.txFeePlusTip ?? 0n);
+    }, 0n);
   }
 
   public getBitcoinReleaseRequestTxInfo(utxoId: number): TransactionInfo<any> | undefined {

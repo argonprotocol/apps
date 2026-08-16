@@ -227,7 +227,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
 
     blockWatch.emitFinalized(transferHeader);
     await vi.waitFor(() => {
-      expect(mintingAuthorities.authorize).toHaveBeenCalledWith(onChainTransferId);
+      expect(mintingAuthorities.authorize).toHaveBeenCalledWith([onChainTransferId]);
     });
 
     blockWatch.emitFinalized(readyHeader);
@@ -1435,7 +1435,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
     await tracker.load();
 
     await vi.waitFor(() => {
-      expect(authorize).toHaveBeenCalledWith(onChainTransferId);
+      expect(authorize).toHaveBeenCalledWith([onChainTransferId]);
       expect(tracker.getTransfer(transferId)?.transferState.error).toBe('');
       expect(tracker.getTransfer(transferId)?.transferState.needsAttention).toBe(false);
       expect(tracker.getTransfer(transferId)?.transferState.progress.currentStepLabel).toBe(

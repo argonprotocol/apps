@@ -57,6 +57,7 @@ type IBasicEmitter = {
 
   openVaultsOverlay: void;
   openTransactionsOverlay: void;
+  openCrosschainHistoryOverlay: void;
 
   openVaultCollect: void;
   openTreasuryBondsOverlay: void;

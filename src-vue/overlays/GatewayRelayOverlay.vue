@@ -7,7 +7,7 @@
     @pressEsc="closeOverlay"
     class="w-[620px]">
     <template #title>
-      <div class="grow text-2xl font-bold">Relay Pending Gateway Activities</div>
+      <div class="grow text-2xl font-bold">Relay Gateway Updates</div>
     </template>
 
     <div class="px-6 py-5 text-slate-700">
@@ -16,7 +16,7 @@
       </div>
 
       <div v-else-if="loadError" class="space-y-4">
-        <div class="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div class="border-argon-error/30 bg-argon-error/5 text-argon-error rounded-md border px-4 py-3 text-sm">
           {{ loadError }}
         </div>
 
@@ -32,15 +32,21 @@
 
       <div v-else-if="preview" class="space-y-5">
         <p class="text-sm leading-6 text-slate-500">
-          This sends ready Ethereum gateway updates using your Ethereum wallet. Collect still records council approvals and collateralizes transfers separately; this step is only for the outbound Ethereum relay.
+          This publishes signed minting-authority and council updates to the Ethereum gateway. Transfers that are ready on Argon are submitted separately by their sending wallets.
         </p>
 
-        <div v-if="submitSuccessHash" class="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+        <div v-if="readyTransferCount" class="rounded-md border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          {{ readyTransferCount }} outbound transfer{{ readyTransferCount === 1 ? ' is' : 's are' }} ready on Argon and waiting for
+          {{ readyTransferCount === 1 ? 'its' : 'their' }} sending wallet{{ readyTransferCount === 1 ? '' : 's' }} to submit
+          {{ readyTransferCount === 1 ? 'it' : 'them' }} on Ethereum. {{ readyTransferCount === 1 ? 'It is' : 'They are' }} not a gateway update relayed by this action.
+        </div>
+
+        <div v-if="submitSuccessHash" class="border-argon-100 bg-argon-20 text-argon-800 rounded-md border px-4 py-3 text-sm">
           Gateway activities were relayed to Ethereum in transaction
           <span class="font-mono">{{ submitSuccessHash }}</span>.
         </div>
 
-        <div v-if="submitError" class="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div v-if="submitError" class="border-argon-error/30 bg-argon-error/5 text-argon-error rounded-md border px-4 py-3 text-sm">
           {{ submitError }}
         </div>
 
@@ -58,14 +64,21 @@
             <div class="flex items-center justify-between gap-4 px-4 py-3">
               <dt class="text-sm text-slate-500">Current ETH balance</dt>
               <dd class="text-sm font-semibold text-slate-800">
-                {{ formatEth(preview.ethereumBalanceWei) }} ETH
+                {{ formatEvmNativeFeeWei(preview.ethereumBalanceWei) }} ETH
               </dd>
             </div>
 
             <div class="flex items-center justify-between gap-4 px-4 py-3">
-              <dt class="text-sm text-slate-500">Ready gateway activities</dt>
+              <dt class="text-sm text-slate-500">Ready gateway updates</dt>
               <dd class="text-sm font-semibold text-slate-800">
                 {{ preview.updateCount }}
+              </dd>
+            </div>
+
+            <div v-if="awaitingCouncilQuorumCount" class="flex items-center justify-between gap-4 px-4 py-3">
+              <dt class="text-sm text-slate-500">Waiting for council quorum</dt>
+              <dd class="text-sm font-semibold text-slate-800">
+                {{ awaitingCouncilQuorumCount }}
               </dd>
             </div>
 
@@ -97,21 +110,25 @@
             <div class="flex items-center justify-between gap-4 px-4 py-3">
               <dt class="text-sm text-slate-500">Estimated network fee</dt>
               <dd class="text-sm font-semibold text-slate-800">
-                {{ preview.feeEstimateWei != null ? `${formatEth(preview.feeEstimateWei)} ETH` : 'Not available' }}
+                {{
+                  preview.feeEstimateWei != null
+                    ? `${formatEvmNativeFeeWei(preview.feeEstimateWei)} ETH`
+                    : 'Not available'
+                }}
               </dd>
             </div>
 
             <div class="flex items-center justify-between gap-4 px-4 py-3">
               <dt class="text-sm text-slate-500">Expected repayment on Argon</dt>
               <dd class="text-sm font-semibold text-slate-800">
-                {{ microgonToArgonNm(preview.expectedRepaymentMicrogons).format('0,0.[000000]') }} ARGN
+                {{ microgonToArgonNm(preview.expectedRepaymentMicrogons).format('0,0.[00]') }} ARGN
               </dd>
             </div>
 
             <div v-if="estimatedFeeMicrogons != null" class="flex items-center justify-between gap-4 px-4 py-3">
               <dt class="text-sm text-slate-500">Fee at current repayment pricing</dt>
               <dd class="text-sm font-semibold text-slate-800">
-                {{ microgonToArgonNm(estimatedFeeMicrogons).format('0,0.[000000]') }} ARGN
+                {{ microgonToArgonNm(estimatedFeeMicrogons).format('0,0.[00]') }} ARGN
               </dd>
             </div>
           </dl>
@@ -119,7 +136,7 @@
 
         <div
           class="rounded-md px-4 py-3 text-sm"
-          :class="preview.canRelay ? 'border border-emerald-200 bg-emerald-50 text-emerald-800' : 'border border-amber-200 bg-amber-50 text-amber-800'">
+          :class="preview.canRelay ? 'border border-argon-100 bg-argon-20 text-argon-800' : 'border border-slate-300 bg-slate-50 text-slate-700'">
           {{ previewMessage }}
         </div>
 
@@ -199,7 +216,11 @@ const previewMessage = Vue.computed(() => {
   }
 
   if (preview.value.reason === 'noReadyUpdates') {
-    return 'No pending gateway activities are ready to relay right now.';
+    if (awaitingCouncilQuorumCount.value) {
+      return `${awaitingCouncilQuorumCount.value} gateway proposal${awaitingCouncilQuorumCount.value === 1 ? ' has' : 's have'} your signature but ${awaitingCouncilQuorumCount.value === 1 ? 'is' : 'are'} still waiting for council quorum.`;
+    }
+
+    return 'No signed gateway updates are ready to publish to Ethereum right now.';
   }
 
   if (preview.value.reason === 'uncompensatedSharedBatch') {
@@ -208,14 +229,24 @@ const previewMessage = Vue.computed(() => {
 
   if (preview.value.reason === 'insufficientBalance') {
     const missingWei = (preview.value.feeEstimateWei ?? 0n) - preview.value.ethereumBalanceWei;
-    return `This wallet needs about ${formatEth(missingWei)} more ETH to cover this relay.`;
+    return `This wallet needs about ${formatEvmNativeFeeWei(missingWei)} more ETH to cover this relay.`;
   }
 
   if (preview.value.reason === 'repaymentTooLow') {
     return 'At current repayment pricing, this relay would cost more in Ethereum fees than the expected Argon repayment.';
   }
 
-  return 'No pending gateway activities are ready to relay right now.';
+  return 'No signed gateway updates are ready to publish to Ethereum right now.';
+});
+
+const readyTransferCount = Vue.computed(() => {
+  return myVault.mintingAuthorities.data.backedTransfers.filter(transfer => transfer.status === 'readyForEthereum')
+    .length;
+});
+
+const awaitingCouncilQuorumCount = Vue.computed(() => {
+  return myVault.globalCouncil.data.approvalQueue.filter(approval => approval.status === 'awaitingCouncilQuorum')
+    .length;
 });
 
 async function loadPreview() {
@@ -262,10 +293,6 @@ async function submitRelay() {
 
 function closeOverlay() {
   isOpen.value = false;
-}
-
-function formatEth(valueWei: bigint) {
-  return formatEvmNativeFeeWei(valueWei);
 }
 
 basicEmitter.on('openGatewayRelayOverlay', () => {

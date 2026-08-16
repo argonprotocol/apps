@@ -170,6 +170,9 @@ export class TransactionInfo<MetadataType = unknown> {
     }
 
     if (confirmations === -1) {
+      if (this.tx.blockHeight) {
+        return `Included in Block #${this.tx.blockHeight} · Waiting for Finalization...`;
+      }
       return 'Waiting for 1st Block...';
     } else if (confirmations === 0 && expectedConfirmations > 0) {
       return 'Waiting for 2nd Block...';

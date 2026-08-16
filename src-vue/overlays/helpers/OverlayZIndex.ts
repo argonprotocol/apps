@@ -72,11 +72,15 @@ export function provideOverlayContentZIndex(contentZIndex: Vue.Ref<number> | Vue
   Vue.provide(overlayContentZIndexKey, contentZIndex);
 }
 
+export function getFloatingZIndex(parentOverlayContentZIndex?: number, offset = 1) {
+  const rootFloatingZIndex = ROOT_FLOATING_Z_INDEX + Math.max(offset - 1, 0);
+  return parentOverlayContentZIndex ? parentOverlayContentZIndex + offset : rootFloatingZIndex;
+}
+
 export function useFloatingZIndex(offset = 1) {
   const parentOverlayContentZIndex = Vue.inject(overlayContentZIndexKey, undefined);
-  const rootFloatingZIndex = ROOT_FLOATING_Z_INDEX + Math.max(offset - 1, 0);
 
   return Vue.computed(() => ({
-    zIndex: parentOverlayContentZIndex ? parentOverlayContentZIndex.value + offset : rootFloatingZIndex,
+    zIndex: getFloatingZIndex(parentOverlayContentZIndex?.value, offset),
   }));
 }

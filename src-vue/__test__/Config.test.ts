@@ -94,6 +94,24 @@ it('can load config from db state', async () => {
   expect(config.postWelcomeLaunchCount).toBe(4);
 });
 
+it('keeps Crosschain Transfers available after it has been activated', async () => {
+  const db = await createTestDb();
+  const { walletKeys } = createTestWallet('//Alice');
+  instanceChecks.delete(Config.prototype.constructor);
+  const config = new Config(Promise.resolve(db), walletKeys);
+  await config.load();
+
+  config.hasActivatedCrosschain = true;
+  await config.save();
+
+  instanceChecks.delete(Config.prototype.constructor);
+  const restoredConfig = new Config(Promise.resolve(db), walletKeys);
+  await restoredConfig.load();
+
+  expect(restoredConfig.hasActivatedCrosschain).toBe(true);
+  await db.close();
+});
+
 it('does not recover operation state from cached mining or vault activity', async () => {
   const dbPromise = createMockedDbPromise({
     miningSetupStatus: `"${MiningSetupStatus.Checklist}"`,

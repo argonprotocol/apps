@@ -29,6 +29,7 @@ export enum TopTab {
 
   Mining = 'Mining',
   Vaulting = 'Vaulting',
+  CrosschainTransfers = 'CrosschainTransfers',
   Onboarding = 'Onboarding',
 }
 
@@ -212,6 +213,7 @@ export const ConfigSchema = z.object({
   wasImportedFromLegacy: z.boolean(),
   hasExtensionTreasury: z.boolean(),
   hasExtensionOperations: z.boolean(),
+  hasActivatedCrosschain: z.boolean(),
   selectedTab: z.nativeEnum(TopTab),
 
   serverAdd: ConfigServerAddSchema.optional(),
@@ -288,6 +290,7 @@ export interface IConfigDefaults {
   wasImportedFromLegacy: () => IConfig['wasImportedFromLegacy'];
   hasExtensionTreasury: () => IConfig['hasExtensionTreasury'];
   hasExtensionOperations: () => IConfig['hasExtensionOperations'];
+  hasActivatedCrosschain: () => IConfig['hasActivatedCrosschain'];
   selectedTab: () => IConfig['selectedTab'];
 
   serverAdd: () => IConfig['serverAdd'];

@@ -1124,7 +1124,9 @@ export class EthereumOutboundTransferTracker {
       return false;
     };
 
-    let pendingTxInfo = this.mintingAuthorities.data.pendingMintingAuthorizeTxInfosByTransferId.get(transferId);
+    let pendingTxInfo = this.mintingAuthorities.data.pendingMintingAuthorizeTxInfosByTransferId.get(
+      transferId.toLowerCase(),
+    );
     if (!matchesLiveAuthorization(pendingTxInfo)) {
       pendingTxInfo = this.transactionTracker.findLatestTxInfo<IMintingAuthorityAuthorizeMetadata>(candidate =>
         matchesLiveAuthorization(candidate),
@@ -1155,7 +1157,7 @@ export class EthereumOutboundTransferTracker {
     });
 
     try {
-      const txInfo = await this.mintingAuthorities.authorize(transferId);
+      const txInfo = await this.mintingAuthorities.authorize([transferId]);
       await this.attachPendingArgonProgress({
         transferId,
         transfer,

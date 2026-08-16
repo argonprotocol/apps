@@ -149,6 +149,7 @@ it('restores completed mining setup from imported operational account state', as
     walletPreviousLifeRecovered: 'false',
     hasExtensionTreasury: 'true',
     hasExtensionOperations: 'true',
+    hasActivatedCrosschain: 'false',
     certificationDetails: JsonExt.stringify({ hasSavedMnemonic: true }, 2),
     miningSetupStatus: JsonExt.stringify(MiningSetupStatus.Finished, 2),
     vaultingSetupStatus: JsonExt.stringify(VaultingSetupStatus.Finished, 2),
@@ -299,6 +300,42 @@ it('does not invent extensions from an imported basic wallet balance', async () 
       hasExtensionTreasury: 'false',
       hasExtensionOperations: 'false',
       miningSetupStatus: JsonExt.stringify(MiningSetupStatus.None, 2),
+    }),
+  );
+});
+
+it('restores Crosschain Transfers for an unfunded account with a minting-authority council signer', async () => {
+  const { mnemonic, walletKeys } = createTestWallet('//Alice');
+  const insertOrReplace = vi.fn();
+  const db = {
+    reconnect: vi.fn(),
+    configTable: { insertOrReplace },
+  } as unknown as Db;
+  importMocks.getFinalizedClient.mockResolvedValue({
+    query: {
+      operationalAccounts: {
+        operationalAccounts: vi.fn().mockResolvedValue({ isSome: false }),
+      },
+      vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
+      crosschainTransfer: {
+        councilSignerByDestinationChainAndAccountId: vi.fn().mockResolvedValue({ isSome: true }),
+      },
+    },
+  });
+  importMocks.readBalances.mockResolvedValue([emptyBalance, emptyBalance, emptyBalance, emptyBalance]);
+  importMocks.findMiningActivity.mockResolvedValue({ blocks: [], coverage: { gaps: [] } });
+  vi.spyOn(Mining, 'fetchMiningSeatsForAccount').mockResolvedValue({});
+  vi.spyOn(Restarter.prototype, 'deleteAndCreateLocalDatabase').mockResolvedValue();
+  vi.spyOn(Restarter.prototype, 'restart').mockImplementation(() => undefined);
+
+  await new Importer({} as Config, walletKeys, Promise.resolve(db)).importFromMnemonic(mnemonic);
+
+  expect(insertOrReplace).toHaveBeenCalledWith(
+    expect.objectContaining({
+      walletAccountsHadPreviousLife: 'true',
+      hasExtensionTreasury: 'true',
+      hasExtensionOperations: 'true',
+      hasActivatedCrosschain: 'true',
     }),
   );
 });
