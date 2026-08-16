@@ -192,7 +192,7 @@ import numeral from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getBitcoinLockCoupons, getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { getMiningFrames } from '../../stores/mainchain.ts';
-import { type IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
+import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../../lib/db/BitcoinUtxosTable.ts';
 import { TransactionStatus } from '../../lib/db/TransactionsTable.ts';
 import BitcoinLockDetailOverlay from '../../overlays/BitcoinLockDetailOverlay.vue';
@@ -291,6 +291,11 @@ function openDetail(lock: IBitcoinLockSummary) {
   if (lock.record.isHistoryRecoveryPending) return;
 
   selectedLock.value = lock;
+  if (lock.record.status === BitcoinLockStatus.Releasing) {
+    openUnlockingOverlay(lock.record);
+    return;
+  }
+
   if (bitcoinLocks.isLockedStatus(lock.record) || bitcoinLocks.isFinishedStatus(lock.record)) {
     showDetailOverlay.value = true;
   } else {
