@@ -100,6 +100,7 @@ import AlertIcon from '../assets/alert.svg';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import numeral from '../lib/numeral.ts';
 import { hasOperationsUpgradeRequest } from '../lib/UpstreamOperatorClient.ts';
+import { canRequestOperationsUpgrade } from '../lib/OperationalAccount.ts';
 
 const config = getConfig();
 const controller = useCertificationController();
@@ -123,11 +124,13 @@ const upstreamName = Vue.computed(() => {
 });
 
 const isEligibleForUpgrade = Vue.computed(() => {
-  return (
-    config.hasExtensionTreasury &&
-    !controller.chainProgress.isUpgradedToOperations &&
-    controller.completedTreasuryCertificationStepCount === treasuryCertificationStepIds.length
-  );
+  return canRequestOperationsUpgrade({
+    hasLoadedInitialOperationalProgress: controller.hasLoadedInitialOperationalProgress,
+    hasExtensionTreasury: config.hasExtensionTreasury,
+    hasCompletedTreasuryCertification:
+      controller.completedTreasuryCertificationStepCount === treasuryCertificationStepIds.length,
+    isUpgradedToOperations: controller.chainProgress.isUpgradedToOperations,
+  });
 });
 
 const canRequestUpgrade = Vue.computed(() => {

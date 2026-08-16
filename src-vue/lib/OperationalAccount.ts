@@ -240,6 +240,20 @@ export function getOnboardingSetupStatus(args: {
   return OnboardingSetupStatus.Checklist;
 }
 
+export function canRequestOperationsUpgrade(args: {
+  hasLoadedInitialOperationalProgress: boolean;
+  hasExtensionTreasury: boolean;
+  hasCompletedTreasuryCertification: boolean;
+  isUpgradedToOperations: boolean;
+}): boolean {
+  return (
+    args.hasLoadedInitialOperationalProgress &&
+    args.hasExtensionTreasury &&
+    args.hasCompletedTreasuryCertification &&
+    !args.isUpgradedToOperations
+  );
+}
+
 export async function setOperationalProfileName(args: {
   transactionTracker: TransactionTracker;
   walletKeys: WalletKeys;
