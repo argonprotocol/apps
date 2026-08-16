@@ -32,8 +32,8 @@
     </section>
 
     <div class="relative flex min-h-0 grow flex-col">
-      <div class="flex flex-col overflow-y-auto px-9 pt-10 pb-5">
-        <div class="flex flex-row items-center text-slate-800/70">
+      <div class="flex grow flex-col overflow-y-auto pt-10">
+        <div class="flex flex-row items-center px-9 text-slate-800/70">
           <span class="grow">
             You have {{ bondLots.length }} bond transaction{{ bondLots.length === 1 ? '' : 's' }}...
           </span>
@@ -63,24 +63,24 @@
             </a>
           </div>
         </div>
-      </div>
 
-      <section class="flex flex-col gap-y-3 px-9">
-        <BondRecord
-          v-for="bondLot in bondLots"
-          :key="bondLot.id"
-          :bondLot="bondLot"
-          :isReleasing="bondLot.isReleasing"
-          :position="bondPositionsByLotId.get(bondLot.id)"
-          :returnPercent="bondReturnsByLotId.get(bondLot.id)"
-          @click="openDetail(bondLot)"
-          @liquidate="openDetail"
-        />
-      </section>
+        <section class="mt-4 flex grow flex-col gap-y-3 px-9 pb-10">
+          <BondRecord
+            v-for="bondLot in bondLots"
+            :key="bondLot.id"
+            :bondLot="bondLot"
+            :isReleasing="bondLot.isReleasing"
+            :position="bondPositionsByLotId.get(bondLot.id)"
+            :returnPercent="bondReturnsByLotId.get(bondLot.id)"
+            @click="openDetail(bondLot)"
+            @liquidate="openDetail"
+          />
+        </section>
+        <div class="relative px-0.5 pb-0.5">
+          <img src="/treasury-footers/argon-bonds.png" class="w-full opacity-50" alt="" />
+        </div>
+      </div>
       <div class="absolute top-0 left-0 h-10 w-full bg-linear-to-b from-white to-transparent" />
-    </div>
-    <div class="relative px-0.5 pb-0.5">
-      <img src="/treasury-footers/argon-bonds.png" class="w-full opacity-50" />
     </div>
   </div>
 
