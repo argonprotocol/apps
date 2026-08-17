@@ -1,7 +1,21 @@
 import fs from 'node:fs/promises';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { padHex, toFunctionSelector, type Address } from 'viem';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('@argonprotocol/testing', () => ({
+  TestEthereum: class {
+    public static isInstalled() {
+      return true;
+    }
+
+    constructor() {
+      throw new Error('Started a replacement Ethereum enclave');
+    }
+  },
+}));
 
 const runtimeState = {
   beaconPreset: 'minimal',
@@ -12,11 +26,57 @@ const runtimeState = {
   serverExecutionRpcUrl: 'http://host.docker.internal:32003/',
   serverBeaconApiUrl: 'http://host.docker.internal:33001/',
   usdcTokenAddress: '0x5fbdb2315678afecb367f032d93f642f64180aa3',
+  gateway: {
+    gatewayAddress: `0x${'11'.repeat(20)}`,
+    argonTokenAddress: `0x${'22'.repeat(20)}`,
+    argonotTokenAddress: `0x${'33'.repeat(20)}`,
+  },
   setupStatus: 'starting',
 } as const;
 
+async function startEthereumRpc(gateway = runtimeState.gateway) {
+  const server = http.createServer((request, response) => {
+    if (request.method === 'GET') {
+      response.setHeader('content-type', 'application/json');
+      response.end('{}');
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    request.on('data', chunk => chunks.push(chunk));
+    request.on('end', () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString()) as {
+        id: number;
+        method: string;
+        params?: [{ data?: string }];
+      };
+      let result: string | Address = runtimeState.chainId;
+      const callData = body.params?.[0]?.data;
+      if (body.method === 'eth_call' && callData?.startsWith(toFunctionSelector('argonToken()'))) {
+        result = padHex(gateway.argonTokenAddress, { size: 32 });
+      }
+      if (body.method === 'eth_call' && callData?.startsWith(toFunctionSelector('argonotToken()'))) {
+        result = padHex(gateway.argonotTokenAddress, { size: 32 });
+      }
+
+      response.setHeader('content-type', 'application/json');
+      response.end(JSON.stringify({ jsonrpc: '2.0', id: body.id, result }));
+    });
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Unable to resolve test Ethereum RPC address.');
+
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    close: () => new Promise<void>((resolve, reject) => server.close(error => (error ? reject(error) : resolve()))),
+  };
+}
+
 import {
   readDevEthereumRuntimeState,
+  resolveDevEthereumRpcUrl,
+  startDevEthereum,
   updateDevEthereumRuntimeState,
   writeDevEthereumRuntimeState,
 } from '../devEthereum.ts';
@@ -54,6 +114,146 @@ describe('dev Ethereum runtime state', () => {
       mintingAuthorityStatus: 'ready',
     });
     expect((await fs.readdir(runtimeStateDir)).filter(filePath => filePath.endsWith('.tmp'))).toEqual([]);
+  });
+
+  it.each(['starting', 'ready'] as const)(
+    'reuses a reachable %s deployment across Tauri restarts',
+    async setupStatus => {
+      const rpc = await startEthereumRpc();
+      await writeDevEthereumRuntimeState({
+        ...runtimeState,
+        executionRpcUrl: rpc.url,
+        beaconApiUrl: rpc.url,
+        serverExecutionRpcUrl: rpc.url,
+        serverBeaconApiUrl: rpc.url,
+        setupStatus,
+      });
+
+      try {
+        const ethereum = await startDevEthereum({
+          beaconPreset: 'minimal',
+          secondsPerSlot: 1,
+          finalityMillis: 16_000,
+          finalityBlocks: 16,
+        });
+
+        expect(ethereum.enclaveName).toBe(runtimeState.enclaveName);
+        expect(ethereum.executionRpcUrl).toBe(rpc.url);
+        expect(ethereum.gateway).toEqual(runtimeState.gateway);
+        if (setupStatus === 'ready') {
+          await expect(resolveDevEthereumRpcUrl({})).resolves.toBe(rpc.url);
+        } else {
+          await expect(resolveDevEthereumRpcUrl({})).rejects.toThrow('Local Ethereum setup has not finished');
+        }
+      } finally {
+        await rpc.close();
+      }
+    },
+  );
+
+  it('replaces a deployment whose beacon endpoint is unavailable', async () => {
+    const rpc = await startEthereumRpc();
+    await writeDevEthereumRuntimeState({
+      ...runtimeState,
+      executionRpcUrl: rpc.url,
+      beaconApiUrl: 'http://127.0.0.1:1',
+      serverExecutionRpcUrl: rpc.url,
+      setupStatus: 'ready',
+    });
+
+    try {
+      await expect(
+        startDevEthereum({
+          beaconPreset: 'minimal',
+          secondsPerSlot: 1,
+          finalityMillis: 16_000,
+          finalityBlocks: 16,
+        }),
+      ).rejects.toThrow('Started a replacement Ethereum enclave');
+    } finally {
+      await rpc.close();
+    }
+  });
+
+  it('recovers a reachable prior deployment when the latest deployment is unavailable', async () => {
+    const rpc = await startEthereumRpc();
+    await writeDevEthereumRuntimeState({
+      ...runtimeState,
+      executionRpcUrl: rpc.url,
+      beaconApiUrl: rpc.url,
+      serverExecutionRpcUrl: rpc.url,
+      serverBeaconApiUrl: rpc.url,
+      setupStatus: 'ready',
+    });
+    await writeDevEthereumRuntimeState({
+      ...runtimeState,
+      enclaveName: 'argon-eth-stopped',
+      executionRpcUrl: 'http://127.0.0.1:1',
+      beaconApiUrl: 'http://127.0.0.1:2',
+      serverExecutionRpcUrl: 'http://127.0.0.1:1',
+      serverBeaconApiUrl: 'http://127.0.0.1:2',
+      setupStatus: 'starting',
+    });
+
+    try {
+      const ethereum = await startDevEthereum({
+        beaconPreset: 'minimal',
+        secondsPerSlot: 1,
+        finalityMillis: 16_000,
+        finalityBlocks: 16,
+      });
+
+      expect(ethereum.enclaveName).toBe(runtimeState.enclaveName);
+      expect(ethereum.executionRpcUrl).toBe(rpc.url);
+      await expect(readDevEthereumRuntimeState()).resolves.toMatchObject({ executionRpcUrl: rpc.url });
+    } finally {
+      await rpc.close();
+    }
+  });
+
+  it('recovers the deployment that matches the configured mainchain gateway', async () => {
+    const compatibleRpc = await startEthereumRpc();
+    const incompatibleGateway: typeof runtimeState.gateway = {
+      gatewayAddress: `0x${'44'.repeat(20)}`,
+      argonTokenAddress: `0x${'55'.repeat(20)}`,
+      argonotTokenAddress: `0x${'66'.repeat(20)}`,
+    };
+    const incompatibleRpc = await startEthereumRpc(incompatibleGateway);
+    await writeDevEthereumRuntimeState({
+      ...runtimeState,
+      executionRpcUrl: compatibleRpc.url,
+      beaconApiUrl: compatibleRpc.url,
+      serverExecutionRpcUrl: compatibleRpc.url,
+      serverBeaconApiUrl: compatibleRpc.url,
+      setupStatus: 'ready',
+    });
+    await writeDevEthereumRuntimeState({
+      ...runtimeState,
+      enclaveName: 'argon-eth-incompatible',
+      executionRpcUrl: incompatibleRpc.url,
+      beaconApiUrl: incompatibleRpc.url,
+      serverExecutionRpcUrl: incompatibleRpc.url,
+      serverBeaconApiUrl: incompatibleRpc.url,
+      gateway: incompatibleGateway,
+      setupStatus: 'starting',
+    });
+
+    try {
+      const ethereum = await startDevEthereum(
+        {
+          beaconPreset: 'minimal',
+          secondsPerSlot: 1,
+          finalityMillis: 16_000,
+          finalityBlocks: 16,
+        },
+        runtimeState.gateway,
+      );
+
+      expect(ethereum.enclaveName).toBe(runtimeState.enclaveName);
+      expect(ethereum.executionRpcUrl).toBe(compatibleRpc.url);
+    } finally {
+      await Promise.all([compatibleRpc.close(), incompatibleRpc.close()]);
+    }
   });
 
   it('stores state in the isolated test directory when configured', async () => {

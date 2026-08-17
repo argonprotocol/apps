@@ -1,4 +1,5 @@
 import * as Vue from 'vue';
+import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 import { fn, mocked } from 'storybook/test';
 import { setupAppScenario } from './setupAppScenario.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../src-vue/interfaces/IBitcoinLockRecord.ts';
@@ -9,8 +10,11 @@ import BitcoinLocks, { type IBitcoinMismatchViewState } from '../../src-vue/lib/
 import { getBitcoinLockCoupons, getBitcoinLocks } from '../../src-vue/stores/bitcoin.ts';
 import { useFinancials } from '../../src-vue/stores/financials.ts';
 
-export function setupBitcoinPortfolioScenario() {
-  setupAppScenario({ selectedTab: TopTab.BitcoinLocks });
+export function setupBitcoinPortfolioScenario(options: { feeWaiver?: boolean } = {}) {
+  setupAppScenario({
+    selectedTab: TopTab.BitcoinLocks,
+    config: options.feeWaiver ? { upstreamOperator: { name: 'Atlas Operator', vaultId: 7 } } : undefined,
+  });
 
   const summaries = [
     createSummary(1, BitcoinLockStatus.LockIsProcessingOnArgon, { progressPct: 34 }),
@@ -177,8 +181,33 @@ export function setupBitcoinPortfolioScenario() {
   });
 
   mocked(getBitcoinLocks).mockReturnValue(bitcoinLocks as unknown as ReturnType<typeof getBitcoinLocks>);
+  const currentCoupon: IBitcoinLockCouponStatus | undefined = options.feeWaiver
+    ? {
+        status: 'Open',
+        originalFeeCreditMicrogons: 68_000_000n,
+        usedFeeCreditMicrogons: 40_800_000n,
+        pendingFeeCreditMicrogons: 0n,
+        remainingFeeCreditMicrogons: 27_200_000n,
+        expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1_000),
+        coupon: {
+          id: 1,
+          userId: 1,
+          sequence: 1,
+          offerCode: 'synthetic-portfolio-fee-waiver',
+          vaultId: 7,
+          maxSatoshis: 100_000_000n,
+          estimatedGiftUsd: 68,
+          btcPctFee: 3.4,
+          feeCreditMicrogons: 68_000_000n,
+          expiresAfterTicks: 7,
+          expirationTick: 10_100,
+          createdAt: new Date('2026-08-15T16:00:00.000Z'),
+          updatedAt: new Date('2026-08-16T16:00:00.000Z'),
+        },
+      }
+    : undefined;
   mocked(getBitcoinLockCoupons, { partial: true }).mockReturnValue({
-    currentCoupon: undefined,
+    currentCoupon,
     refresh: fn(async () => undefined),
   });
   mocked(useFinancials).mockReturnValue(

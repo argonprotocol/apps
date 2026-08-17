@@ -6,7 +6,10 @@ import type {
   UserRole,
 } from '@argonprotocol/apps-core';
 import type { IBitcoinLockCouponStatus, IBitcoinLockRelayRequest } from './IBitcoinLockRelay.js';
+import type { BitcoinLockFeeCoupon } from '@argonprotocol/mainchain';
 import type { ITreasuryUserInvite } from './ITreasuryUserInvite.js';
+
+export const BITCOIN_FEE_COUPON_MINIMUM_DESKTOP_VERSION = '2.3.5';
 
 export type IInitializeBitcoinLockRequest = IBitcoinLockRelayRequest;
 export type InviteRole = UserRole;
@@ -17,6 +20,7 @@ export interface ICreateInviteRequest {
   vaultId: number;
   maxSatoshis: bigint;
   estimatedGiftUsd: number;
+  feeCreditMicrogons?: bigint;
   btcPctFee?: number;
   expiresAfterTicks: number;
 }
@@ -81,6 +85,7 @@ export interface IRouterAuthSessionResponse {
 export interface IRouterErrorResponse {
   error: string;
   code?: string;
+  minimumDesktopVersion?: string;
 }
 
 export interface IInviteResponse {
@@ -94,7 +99,9 @@ export interface IListInvitesResponse {
 export interface IPreviewInviteResponse {
   maxSatoshis: bigint;
   estimatedGiftUsd: number;
+  feeCreditMicrogons?: bigint;
   btcPctFee: number;
+  expiresAfterTicks: number;
   expiresAt: Date;
   fromName: string;
 }
@@ -113,4 +120,17 @@ export interface IOpenInviteResponse {
 
 export interface IBitcoinLockStatusResponse {
   bitcoinLock: IBitcoinLockCouponStatus;
+  execution?: {
+    type: 'FeeCoupon';
+    requestId: string;
+    feeCoupon: BitcoinLockFeeCoupon;
+  };
+}
+
+export interface IBitcoinLockCouponUseUpdateRequest {
+  status: 'Finalized' | 'Failed';
+}
+
+export interface IUpdateBitcoinLockCouponExpirationRequest {
+  expiresAfterTicks: number;
 }

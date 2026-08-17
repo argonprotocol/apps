@@ -1,6 +1,7 @@
 import * as Vue from 'vue';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
 import { UnitOfMeasurement } from '@argonprotocol/apps-core';
+import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 import { TxResult, type IBitcoinLock } from '@argonprotocol/mainchain';
 import { ApiPromise } from '@polkadot/api';
 import { MockProvider } from '@polkadot/rpc-provider/mock';
@@ -34,7 +35,7 @@ import BitcoinMempool from '../../src-vue/lib/BitcoinMempool.ts';
 import BitcoinUtxoTracking from '../../src-vue/lib/BitcoinUtxoTracking.ts';
 import type { IExternalBitcoinLock } from '../../src-vue/lib/MyVault.ts';
 import { TransactionInfo } from '../../src-vue/lib/TransactionInfo.ts';
-import { getBitcoinLocks } from '../../src-vue/stores/bitcoin.ts';
+import { getBitcoinLockCoupons, getBitcoinLocks } from '../../src-vue/stores/bitcoin.ts';
 import { getCurrency } from '../../src-vue/stores/currency.ts';
 import { useFinancials } from '../../src-vue/stores/financials.ts';
 import { getMainchainClient } from '../../src-vue/stores/mainchain.ts';
@@ -63,6 +64,9 @@ Object.defineProperties(scenarioMainchainClient, {
   },
   consts: {
     value: { bitcoinLocks: { maxBtcPriceTickAge: scenarioRegistry.createType('u32', 100) } },
+  },
+  tx: {
+    value: { bitcoinLocks: {} },
   },
 });
 
@@ -226,6 +230,12 @@ export function setupBitcoinOverlayScenario() {
     satoshisForArgonLiquidity: fn(async (microgons: bigint) => (microgons * 100_000_000n) / 6_800_000_000n),
     argonLiquidityForSatoshis: fn((satoshis: bigint) => (satoshis * 6_800_000_000n) / 100_000_000n),
     initializeLock: fn(async () => undefined),
+    getInitializeFeeEstimate: fn(async () => ({
+      canAfford: true,
+      requiredWalletBalanceMicrogons: 2_125_000n,
+      securityFee: 2_000_000n,
+      txFeePlusTip: 125_000n,
+    })),
     calculateBitcoinNetworkFee: fn(async () => 18_000n),
     requestBitcoinRelease: fn(async () => undefined),
     estimatedReleaseArgonTxFee: fn(async () => 125_000n),
@@ -241,6 +251,44 @@ export function setupBitcoinOverlayScenario() {
     acknowledgeFailed: fn(async () => undefined),
   });
   mocked(getBitcoinLocks).mockReturnValue(bitcoinLocks);
+
+  function setFeeWaiver(remainingFeeCreditMicrogons = 20_400_000n) {
+    Object.assign(vault, {
+      terms: { ...vault.terms, bitcoinBaseFee: 2_000_000n },
+      calculateBitcoinFee: fn(() => 22_400_000n),
+    });
+
+    const coupon: IBitcoinLockCouponStatus = {
+      status: 'Open',
+      originalFeeCreditMicrogons: 68_000_000n,
+      usedFeeCreditMicrogons: 68_000_000n - remainingFeeCreditMicrogons,
+      pendingFeeCreditMicrogons: 0n,
+      remainingFeeCreditMicrogons,
+      expiresAt: new Date(scenarioStartedAt + 7 * 24 * 60 * 60 * 1_000),
+      coupon: {
+        id: 1,
+        userId: 1,
+        sequence: 1,
+        offerCode: 'synthetic-fee-waiver',
+        vaultId: vault.vaultId,
+        maxSatoshis: 100_000_000n,
+        estimatedGiftUsd: 68,
+        btcPctFee: 3.4,
+        feeCreditMicrogons: 68_000_000n,
+        expiresAfterTicks: 7,
+        expirationTick: 10_100,
+        accountId: liquidLockingWallet.address,
+        createdAt: new Date(scenarioStartedAt - 24 * 60 * 60 * 1_000),
+        updatedAt: new Date(scenarioStartedAt),
+      },
+    };
+    const bitcoinLockCoupons = Vue.reactive({
+      currentCoupon: coupon,
+      refresh: fn(async () => undefined),
+    }) as unknown as ReturnType<typeof getBitcoinLockCoupons>;
+    mocked(getBitcoinLockCoupons).mockReturnValue(bitcoinLockCoupons);
+    return coupon;
+  }
 
   const financials = useFinancials();
   Object.assign(financials, {
@@ -317,6 +365,7 @@ export function setupBitcoinOverlayScenario() {
     releaseProcessing,
     releaseVaultWaitProgress,
     replaceUtxoRecords,
+    setFeeWaiver,
     vault,
     defer() {
       let resolve!: VoidFunction;

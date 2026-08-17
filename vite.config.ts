@@ -116,6 +116,7 @@ export default defineConfig(async ({ mode }) => {
       wasm(),
       !isStorybook && vitePluginTopLevelAwait(),
       vue({
+        features: isStorybook ? { componentIdGenerator: 'filepath' } : undefined,
         template: {
           compilerOptions: {
             nodeTransforms: [

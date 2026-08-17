@@ -1,7 +1,16 @@
 import { NetworkConfig, NetworkConfigSettings } from '@argonprotocol/apps-core';
 import { Db } from './src/Db.ts';
 import { RouterServer } from './src/RouterServer.ts';
-import { ARGON_CHAIN, BITCOIN_CHAIN, BOT_INTERNAL_URL, LOCAL_NODE_URL, MAIN_NODE_URL, PORT, ROUTER_DB_PATH } from './src/env';
+import {
+  ARGON_CHAIN,
+  BITCOIN_CHAIN,
+  BOT_DB_PATH,
+  BOT_INTERNAL_URL,
+  LOCAL_NODE_URL,
+  MAIN_NODE_URL,
+  PORT,
+  ROUTER_DB_PATH,
+} from './src/env';
 
 console.log('Starting router server on port', PORT, {
   LOCAL_NODE_URL,
@@ -21,6 +30,7 @@ db.migrate();
 const server = new RouterServer({
   db,
   botInternalUrl: BOT_INTERNAL_URL,
+  botDbPath: BOT_DB_PATH,
   port: Number(PORT),
   localNodeUrl: LOCAL_NODE_URL,
   mainNodeUrl: MAIN_NODE_URL,

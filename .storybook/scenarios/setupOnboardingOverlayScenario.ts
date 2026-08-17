@@ -1,6 +1,9 @@
 import * as Vue from 'vue';
 import { bigIntMin, BondLot } from '@argonprotocol/apps-core';
-import { fn, mocked } from 'storybook/test';
+import type { IMemberInvite } from '@argonprotocol/apps-router';
+import { Vault } from '@argonprotocol/mainchain';
+import BigNumber from 'bignumber.js';
+import { fn, mocked, spyOn } from 'storybook/test';
 import { TopTab } from '../../src-vue/interfaces/IConfig.ts';
 import { ExtrinsicType, TransactionStatus } from '../../src-vue/lib/db/TransactionsTable.ts';
 import {
@@ -14,13 +17,33 @@ import {
 import { getArgonBonds } from '../../src-vue/stores/argonBonds.ts';
 import { getBitcoinLocks } from '../../src-vue/stores/bitcoin.ts';
 import { getMainchainClient } from '../../src-vue/stores/mainchain.ts';
+import { getServerApiClient } from '../../src-vue/stores/server.ts';
 import { getTransactionTracker } from '../../src-vue/stores/transactions.ts';
 import { getMyVault } from '../../src-vue/stores/vaults.ts';
+import type { TransactionInfo } from '../../src-vue/lib/TransactionInfo.ts';
 import { createScenarioVault } from './createScenarioVault.ts';
 import { setupAppScenario } from './setupAppScenario.ts';
 
-export function setupOperationalProfileScenario(state: 'draft' | 'vaultRequired' | 'loadError') {
-  setupAppScenario({ selectedTab: TopTab.Onboarding });
+export function setupOperationalProfileScenario(
+  state: 'draft' | 'vaultRequired' | 'loadError' | 'settingsFlexible' | 'settingsBasic',
+) {
+  const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
+
+  if (state === 'settingsFlexible' || state === 'settingsBasic') {
+    controller.operatorName = 'AtlasOperator';
+    const client = {
+      tx: {
+        bitcoinLocks: state === 'settingsFlexible' ? { setFlexible: fn() } : {},
+        treasury: state === 'settingsFlexible' ? { setBondLotFlexible: fn() } : {},
+        vaults: {},
+      },
+    } as unknown as Awaited<ReturnType<typeof getMainchainClient>>;
+    mocked(getMainchainClient).mockResolvedValue(client);
+    mocked(usesOperationalProfileNameRuntime).mockReturnValue(true);
+    mocked(loadOperationalAccount).mockResolvedValue({} as Awaited<ReturnType<typeof loadOperationalAccount>>);
+    mocked(getOperationalProfileName).mockReturnValue('AtlasOperator');
+    return;
+  }
 
   if (state === 'loadError') {
     const currentMyVault = getMyVault();
@@ -105,18 +128,94 @@ export function setupFlexibleAssetsScenario(state: 'empty' | 'loading' | 'eligib
   }
 }
 
-export function setupMemberInviteScenario(state: 'vaultRequired' | 'loading' | 'loadError') {
-  setupAppScenario({ selectedTab: TopTab.Onboarding });
+export function setupMemberInviteScenario(
+  state:
+    | 'vaultRequired'
+    | 'loading'
+    | 'loadError'
+    | 'currentRuntime'
+    | 'previousRuntime'
+    | 'onboardingInactive'
+    | 'bitcoinSpaceRequired'
+    | 'insufficientBitcoinWaiver'
+    | 'insufficientBondCapacity'
+    | 'setupProgress'
+    | 'setupError'
+    | 'creating'
+    | 'createError',
+) {
+  const { config, controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
   if (state === 'vaultRequired') return;
 
   const currentMyVault = getMyVault();
-  const createdVault = createScenarioVault();
+  const createdVault = createScenarioVault({
+    name: state === 'onboardingInactive' ? 'Atlas Operator' : 'AtlasOperator',
+    terms: {
+      bitcoinAnnualPercentRate: BigNumber(0.034),
+      bitcoinBaseFee: 2_000_000n,
+      treasuryProfitSharing: BigNumber(0.2),
+    },
+  });
   mocked(getMyVault).mockReturnValue({
     ...currentMyVault,
     data: Vue.shallowReactive({ ...currentMyVault.data, createdVault }),
     createdVault,
     vaultId: createdVault.vaultId,
+    load: fn(async () => undefined),
+    ensureVaultDelegateReady: fn(async () => {
+      if (state === 'setupProgress') return createInviteSetupTransaction();
+      if (state === 'setupError') {
+        return createInviteSetupTransaction(new Error('The vault setup transaction was retracted.'));
+      }
+    }),
   } as unknown as ReturnType<typeof getMyVault>);
+
+  if (state !== 'loading' && state !== 'loadError') {
+    const getVault = spyOn(Vault, 'get').mockResolvedValue(createdVault);
+    const client = {
+      tx: {
+        bitcoinLocks: {
+          setFlexible: fn(),
+          ...(state === 'previousRuntime' ? { initializeFor: fn() } : {}),
+        },
+        treasury: { setBondLotFlexible: fn() },
+        vaults: { setName: fn() },
+      },
+    } as unknown as Awaited<ReturnType<typeof getMainchainClient>>;
+    mocked(getMainchainClient).mockResolvedValue(client);
+    mocked(getArgonBonds, { partial: true }).mockReturnValue({
+      availableBondSpace: fn(() => (state === 'insufficientBondCapacity' ? 100_000_000n : 300_000_000n)),
+    });
+    let availableLiquidityMicrogons = 2_000_000_000n;
+    if (state === 'bitcoinSpaceRequired') {
+      availableLiquidityMicrogons = 500_000n;
+    } else if (state === 'insufficientBitcoinWaiver') {
+      availableLiquidityMicrogons = 300_000_000n;
+    }
+    mocked(getBitcoinLocks, { partial: true }).mockReturnValue({
+      getLockableBitcoinCapacity: fn(async () => ({
+        availableSatoshis: 29_411_764n,
+        availableLiquidityMicrogons,
+        vaultCapacitySatoshis: 29_411_764n,
+        vaultCapacityLiquidityMicrogons: availableLiquidityMicrogons,
+      })),
+    });
+    controller.rewardConfig.treasuryMinimumBonds = 200_000_000n;
+
+    if (state === 'setupProgress' || state === 'setupError' || state === 'creating' || state === 'createError') {
+      config.serverDetails.ipAddress = '127.0.0.1';
+      mocked(getServerApiClient, { partial: true }).mockReturnValue({
+        createInvite: fn(() => {
+          if (state === 'creating') return new Promise<IMemberInvite>(() => undefined);
+          if (state === 'createError') return Promise.reject(new Error('The invite service is unavailable.'));
+          return new Promise<IMemberInvite>(() => undefined);
+        }),
+      });
+    }
+
+    return () => getVault.mockRestore();
+  }
+
   mocked(getMainchainClient).mockImplementation(() => {
     if (state === 'loading') return new Promise(() => undefined);
     return Promise.reject(new Error('The vault capacity could not be loaded.'));
@@ -183,4 +282,27 @@ function createFlexibleBond(id: number, isFlexible: boolean) {
     isOwn: true,
     canRelease: true,
   });
+}
+
+function createInviteSetupTransaction(error?: Error): TransactionInfo {
+  const subscribeToProgress: TransactionInfo['subscribeToProgress'] = callback => {
+    queueMicrotask(() =>
+      callback(
+        {
+          progressPct: 54,
+          progressMessage: 'Waiting for Argon finalization…',
+          confirmations: 1,
+          expectedConfirmations: 4,
+          isMaxed: false,
+        },
+        error,
+      ),
+    );
+    return fn();
+  };
+
+  return {
+    subscribeToProgress,
+    txResult: { waitForInFirstBlock: new Promise(() => undefined) },
+  } as unknown as TransactionInfo;
 }

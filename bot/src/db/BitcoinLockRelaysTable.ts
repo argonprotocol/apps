@@ -12,7 +12,7 @@ export class BitcoinLockRelaysTable extends BaseTable {
   }
 
   public insertRelay(relay: {
-    couponId: number;
+    requestId: string;
     requestedSatoshis: bigint;
     securitizationUsedMicrogons: bigint;
     ownerAccountId: string;
@@ -30,7 +30,7 @@ export class BitcoinLockRelaysTable extends BaseTable {
       .prepare(
         `
         INSERT INTO BitcoinLockRelays (
-          couponId,
+          requestId,
           status,
           requestedSatoshis,
           securitizationUsedMicrogons,
@@ -45,7 +45,7 @@ export class BitcoinLockRelaysTable extends BaseTable {
           txSubmittedAtTime,
           txExpiresAtBlockHeight
         ) VALUES (
-          $couponId,
+          $requestId,
           'Submitted',
           $requestedSatoshis,
           $securitizationUsedMicrogons,
@@ -83,17 +83,17 @@ export class BitcoinLockRelaysTable extends BaseTable {
     return record ? this.mapRelay(record) : null;
   }
 
-  public fetchByCouponId(couponId: number): IBitcoinLockRelayRecord | null {
+  public fetchByRequestId(requestId: string): IBitcoinLockRelayRecord | null {
     const record = this.db.sql
       .prepare(
         `
         SELECT *
         FROM BitcoinLockRelays
-        WHERE couponId = $couponId
+        WHERE requestId = $requestId
         LIMIT 1
       `,
       )
-      .get({ $couponId: couponId }) as SqlRelayRow | undefined;
+      .get({ $requestId: requestId }) as SqlRelayRow | undefined;
 
     return record ? this.mapRelay(record) : null;
   }

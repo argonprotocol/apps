@@ -4,13 +4,11 @@ import express from 'express';
 import cors from 'cors';
 import { DockerStatus } from './DockerStatus.ts';
 import type {
-  IActivateBitcoinLockCouponRequest,
-  IBitcoinLockCouponRecord,
   IBitcoinLockRelayJobRequest,
+  ISignBitcoinLockFeeCouponRequest,
   IBotApiMethod,
   IBotApiResponse,
   IBotApiSpec,
-  ICreateBitcoinLockCouponRequest,
   IEthereumGatewayCatchUpRequest,
   JsonRpcRequest,
   JsonRpcResponse,
@@ -76,49 +74,28 @@ export class BotServer {
       });
     });
 
-    app.post('/bitcoin-lock-coupons', express.text({ type: '*/*' }), async (req, res) => {
-      await safeJsonRoute(res, async () => {
-        const request = requireBody<ICreateBitcoinLockCouponRequest>(req.body);
-        return await relayService.createCoupon(request);
-      });
-    });
-
-    app.post('/bitcoin-lock-coupons/restore', express.text({ type: '*/*' }), async (req, res) => {
-      await safeJsonRoute(res, async () => {
-        const coupon = requireBody<Omit<IBitcoinLockCouponRecord, 'id'>>(req.body);
-        return bot.db.bitcoinLockCouponsTable.restoreCoupon(coupon);
-      });
-    });
-
-    app.post('/bitcoin-lock-coupons/activate', express.text({ type: '*/*' }), async (req, res) => {
-      await safeJsonRoute(res, async () => {
-        const request = requireBody<IActivateBitcoinLockCouponRequest>(req.body);
-        return await relayService.activateLatestCoupon(request);
-      });
-    });
-
-    app.post('/bitcoin-lock-coupons/initialize', express.text({ type: '*/*' }), async (req, res) => {
+    app.post('/bitcoin-lock-relays/initialize', express.text({ type: '*/*' }), async (req, res) => {
       await safeJsonRoute(res, async () => {
         const request = requireBody<IBitcoinLockRelayJobRequest>(req.body);
         return await relayService.relayBitcoinLock(request);
       });
     });
 
-    app.get('/bitcoin-lock-coupons', async (_req, res) => {
+    app.post('/bitcoin-lock-fee-coupons/sign', express.text({ type: '*/*' }), async (req, res) => {
       await safeJsonRoute(res, async () => {
-        return await relayService.getBitcoinLockCouponStatuses();
+        return await relayService.signFeeCoupon(requireBody<ISignBitcoinLockFeeCouponRequest>(req.body));
       });
     });
 
-    app.get('/bitcoin-lock-coupons/by-user/:userId', async (req, res) => {
+    app.get('/bitcoin-lock-relays', async (_req, res) => {
       await safeJsonRoute(res, async () => {
-        return await relayService.getBitcoinLockCouponsByUserId(Number(req.params.userId));
+        return relayService.getBitcoinLockRelays();
       });
     });
 
-    app.get('/bitcoin-lock-coupons/:offerCode', async (req, res) => {
+    app.get('/bitcoin-lock-relays/:requestId', async (req, res) => {
       await safeJsonRoute(res, async () => {
-        return await relayService.getBitcoinLockCouponStatus(req.params.offerCode);
+        return relayService.getBitcoinLockRelay(req.params.requestId);
       });
     });
 

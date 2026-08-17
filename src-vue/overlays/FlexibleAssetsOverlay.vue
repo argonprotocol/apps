@@ -2,28 +2,17 @@
 <template>
   <OverlayBase
     :isOpen="isOpen"
-    :showGoBack="returnToInvite && (!flexibleAssetProgressActive || isFlexibleAssetProgressComplete || !!flexibleAssetError)"
+    :showGoBack="!!returnTo && (!flexibleAssetProgressActive || isFlexibleAssetProgressComplete || !!flexibleAssetError)"
     @close="closeOverlay"
     @pressEsc="closeOverlay"
-    @goBack="goBackToInvite"
+    @goBack="goBack"
     class="w-7/12">
     <template #title>
-      <div class="grow text-2xl font-bold">
-        {{ continueToInvite ? 'Set Up Flexible Space' : 'Manage Flexible Assets' }}
-      </div>
+      <div class="grow text-2xl font-bold">Manage Flexible Assets</div>
     </template>
 
     <div class="space-y-5 px-6 py-5 text-slate-700">
-      <template v-if="continueToInvite">
-        <p class="text-sm leading-6 text-slate-500">
-          We need to make sure your new vault members will have space available to lock Bitcoin and bonds.
-          "Flexible Space" allows you to mark some of your own Bitcoin locks and bonds to temporarily step aside when a new member is ready to use that capacity.
-        </p>
-        <p class="text-sm leading-6 text-slate-500">
-          Your assets remain yours and automatically use the space again when it becomes available.
-        </p>
-      </template>
-      <p v-else class="text-sm leading-6 text-slate-500">
+      <p class="text-sm leading-6 text-slate-500">
         Make your Bitcoin and bonds flexible so new vault members can use the capacity they occupy instead of waiting
         for you to add more securitization. Member assets take priority when they arrive; your assets remain yours and
         can use the capacity again when it becomes available.
@@ -66,7 +55,7 @@
             type="button"
             class="bg-argon-button hover:bg-argon-button-hover rounded-lg px-5 py-2.5 text-sm font-semibold text-white"
             @click="handleFlexibleAssetProgressAction">
-            {{ isFlexibleAssetProgressComplete && continueToInvite ? 'Continue to Invite' : 'Back to Assets' }}
+            Back to Assets
           </button>
         </div>
       </div>
@@ -139,7 +128,7 @@
             type="submit"
             :disabled="!changeCount"
             class="bg-argon-button hover:bg-argon-button-hover rounded-md px-5 py-2 text-sm font-semibold text-white disabled:cursor-default disabled:opacity-40">
-            {{ continueToInvite ? 'Continue to Invite' : 'Apply Changes' }}
+            Apply Changes
           </button>
         </div>
       </form>
@@ -177,8 +166,7 @@ const { microgonToMoneyNm, satToBtcNm } = createNumeralHelpers(currency);
 
 const isOpen = Vue.ref(false);
 const isLoading = Vue.ref(false);
-const continueToInvite = Vue.ref(false);
-const returnToInvite = Vue.ref(false);
+const returnTo = Vue.ref<'memberInvite' | 'onboardingSettings'>();
 const eligibleLocks = Vue.ref<BitcoinLock[]>([]);
 const eligibleBondLots = Vue.ref<BondLot[]>([]);
 const bitcoinSelectionByUtxoId = Vue.ref<Record<number, boolean>>({});
@@ -191,6 +179,7 @@ const flexibleAssetError = Vue.ref('');
 
 let unsubscribeFlexibleAssetProgress: VoidFunction | undefined;
 let hasRefreshedFinalizedState = false;
+let overlayRequestVersion = 0;
 
 const bitcoinChanges = Vue.computed(() => {
   return eligibleLocks.value.flatMap(lock => {
@@ -214,20 +203,25 @@ const flexibleAssetProgressTitle = Vue.computed(() => {
   return 'Updating flexible assets';
 });
 function closeOverlay() {
+  overlayRequestVersion += 1;
+  isLoading.value = false;
+  resetFlexibleAssetProgress();
   isOpen.value = false;
-  continueToInvite.value = false;
-  returnToInvite.value = false;
+  returnTo.value = undefined;
 }
 
 async function openOverlay(request?: {
-  continueToInvite?: boolean;
-  returnToInvite?: boolean;
+  returnTo?: 'memberInvite' | 'onboardingSettings';
   flexibleAssetChanges?: IVaultFlexibleAssetChanges;
 }) {
-  continueToInvite.value = request?.continueToInvite ?? false;
-  returnToInvite.value = request?.returnToInvite ?? false;
+  const requestVersion = ++overlayRequestVersion;
+  resetFlexibleAssetProgress();
+  isLoading.value = false;
+  returnTo.value = request?.returnTo;
   isOpen.value = true;
   await transactionTracker.load();
+  if (requestVersion !== overlayRequestVersion || !isOpen.value) return;
+
   const pending = transactionTracker.findLatestTxInfo<IVaultFlexibleAssetMetadata>(candidate => {
     if (candidate.tx.accountAddress !== walletKeys.vaultingAddress) return false;
     if (candidate.tx.extrinsicType !== ExtrinsicType.VaultSetFlexibleAssets) return false;
@@ -236,11 +230,13 @@ async function openOverlay(request?: {
   });
 
   if (pending) {
-    trackFlexibleAssetTransaction(pending);
+    trackFlexibleAssetTransaction(pending, requestVersion);
     return;
   }
 
   await loadFlexibleAssets();
+  if (requestVersion !== overlayRequestVersion || !isOpen.value) return;
+
   for (const change of request?.flexibleAssetChanges?.bitcoinChanges ?? []) {
     bitcoinSelectionByUtxoId.value[change.lock.utxoId] = change.isFlexible;
   }
@@ -249,40 +245,40 @@ async function openOverlay(request?: {
   }
 }
 
-function goBackToInvite() {
+function goBack() {
+  const destination = returnTo.value;
   if (flexibleAssetProgressActive.value) {
     resetFlexibleAssetProgress();
   }
-  const flexibleAssetChanges = {
-    bitcoinChanges: bitcoinChanges.value,
-    bondChanges: bondChanges.value,
-  };
-  closeOverlay();
-  basicEmitter.emit('openMemberInviteOverlay', { preserveDraft: true, flexibleAssetChanges });
-}
 
-function continueToInviteForm() {
-  if (!isFlexibleAssetProgressComplete.value || !continueToInvite.value) return;
-
-  resetFlexibleAssetProgress();
-  closeOverlay();
-  basicEmitter.emit('openMemberInviteOverlay');
-}
-
-function handleFlexibleAssetProgressAction() {
-  if (isFlexibleAssetProgressComplete.value && continueToInvite.value) {
-    continueToInviteForm();
+  if (destination === 'memberInvite') {
+    const flexibleAssetChanges = {
+      bitcoinChanges: bitcoinChanges.value,
+      bondChanges: bondChanges.value,
+    };
+    closeOverlay();
+    basicEmitter.emit('openMemberInviteOverlay', { preserveDraft: true, flexibleAssetChanges });
     return;
   }
 
+  closeOverlay();
+  if (destination === 'onboardingSettings') {
+    basicEmitter.emit('openOperationalProfileOverlay', { screen: 'settings' });
+  }
+}
+
+function handleFlexibleAssetProgressAction() {
   resetFlexibleAssetProgress();
 }
 
 async function loadFlexibleAssets() {
+  const requestVersion = overlayRequestVersion;
   const vault = myVault.createdVault;
   if (!vault) {
-    eligibleLocks.value = [];
-    eligibleBondLots.value = [];
+    if (requestVersion === overlayRequestVersion && isOpen.value) {
+      eligibleLocks.value = [];
+      eligibleBondLots.value = [];
+    }
     return;
   }
 
@@ -304,6 +300,7 @@ async function loadFlexibleAssets() {
         client,
       ),
     ]);
+    if (requestVersion !== overlayRequestVersion || !isOpen.value) return;
 
     eligibleLocks.value = locks;
     eligibleBondLots.value = argonBonds
@@ -312,23 +309,14 @@ async function loadFlexibleAssets() {
     bitcoinSelectionByUtxoId.value = Object.fromEntries(locks.map(lock => [lock.utxoId, lock.isFlexible]));
     bondSelectionById.value = Object.fromEntries(eligibleBondLots.value.map(lot => [lot.id, lot.isFlexible]));
   } finally {
-    isLoading.value = false;
+    if (requestVersion === overlayRequestVersion && isOpen.value) isLoading.value = false;
   }
 }
 
 async function submitFlexibleAssets() {
   if (!changeCount.value || flexibleAssetProgressActive.value) return;
 
-  if (continueToInvite.value) {
-    const flexibleAssetChanges = {
-      bitcoinChanges: bitcoinChanges.value,
-      bondChanges: bondChanges.value,
-    };
-    closeOverlay();
-    basicEmitter.emit('openMemberInviteOverlay', { flexibleAssetChanges });
-    return;
-  }
-
+  const requestVersion = overlayRequestVersion;
   activeChangeCount.value = changeCount.value;
   flexibleAssetProgressActive.value = true;
   flexibleAssetProgressPct.value = 0;
@@ -341,13 +329,20 @@ async function submitFlexibleAssets() {
         bitcoinChanges: bitcoinChanges.value,
         bondChanges: bondChanges.value,
       }),
+      requestVersion,
     );
   } catch (error) {
+    if (requestVersion !== overlayRequestVersion || !isOpen.value) return;
     flexibleAssetError.value = error instanceof Error ? error.message : 'Transaction failed. Please try again.';
   }
 }
 
-function trackFlexibleAssetTransaction(info: TransactionInfo<IVaultFlexibleAssetMetadata>) {
+function trackFlexibleAssetTransaction(
+  info: TransactionInfo<IVaultFlexibleAssetMetadata>,
+  requestVersion = overlayRequestVersion,
+) {
+  if (requestVersion !== overlayRequestVersion || !isOpen.value) return;
+
   activeChangeCount.value = info.tx.metadataJson.bitcoinChanges.length + info.tx.metadataJson.bondChanges.length;
   flexibleAssetProgressActive.value = true;
   flexibleAssetError.value = '';
@@ -355,6 +350,8 @@ function trackFlexibleAssetTransaction(info: TransactionInfo<IVaultFlexibleAsset
 
   unsubscribeFlexibleAssetProgress?.();
   unsubscribeFlexibleAssetProgress = info.subscribeToProgress(async (progress, error) => {
+    if (requestVersion !== overlayRequestVersion || !isOpen.value) return;
+
     flexibleAssetProgressPct.value = progress.progressPct;
     flexibleAssetProgressLabel.value = progress.progressMessage;
 
@@ -368,8 +365,10 @@ function trackFlexibleAssetTransaction(info: TransactionInfo<IVaultFlexibleAsset
     hasRefreshedFinalizedState = true;
     try {
       await myVault.load(true);
+      if (requestVersion !== overlayRequestVersion || !isOpen.value) return;
       await loadFlexibleAssets();
     } catch (refreshError) {
+      if (requestVersion !== overlayRequestVersion || !isOpen.value) return;
       flexibleAssetError.value =
         refreshError instanceof Error
           ? `Flexible assets updated, but the latest vault state could not be loaded: ${refreshError.message}`

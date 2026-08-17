@@ -30,6 +30,7 @@ import { OnboardingSetupStatus } from '../../interfaces/IConfig.ts';
 import { activateOperationalAccountSetup } from '../../lib/OperationalAccount.ts';
 import { generateProgressLabel } from '../../lib/Utils.ts';
 import { getConfig } from '../../stores/config.ts';
+import { useCertificationController } from '../../stores/certificationController.ts';
 import { getMainchainClient } from '../../stores/mainchain.ts';
 import { getTransactionTracker } from '../../stores/transactions.ts';
 import { getMyVault } from '../../stores/vaults.ts';
@@ -40,6 +41,7 @@ const props = defineProps<{
 }>();
 
 const config = getConfig();
+const controller = useCertificationController();
 const myVault = getMyVault();
 const transactionTracker = getTransactionTracker();
 const walletKeys = getWalletKeys();
@@ -60,7 +62,7 @@ async function activateMemberOnboarding() {
 
     const client = await getMainchainClient(false);
 
-    await activateOperationalAccountSetup({
+    const setup = await activateOperationalAccountSetup({
       client,
       myVault,
       transactionTracker,
@@ -84,6 +86,7 @@ async function activateMemberOnboarding() {
         await transaction.waitForPostProcessing;
       },
     });
+    controller.operatorName = setup.operatorName;
 
     progressPct.value = 100;
     progressLabel.value = 'Member onboarding is active.';

@@ -4,81 +4,39 @@ import {
   type IEthereumGatewayCatchUpRequest,
   type IEthereumGatewayCatchUpResponse,
   type IEthereumGatewayRelayStatus,
-  type IBitcoinLockCouponRecord,
+  type ISignBitcoinLockFeeCouponRequest,
+  type IBitcoinLockRelayRecord,
   type IBotStateStarting,
 } from '@argonprotocol/apps-core';
-import type {
-  IActivateBitcoinLockCouponRequest,
-  IBitcoinLockCouponStatus,
-  IBitcoinLockRelayJobRequest,
-  ICreateBitcoinLockCouponRequest,
-  IRouterErrorResponse,
-} from './interfaces/index.ts';
+import type { BitcoinLockFeeCoupon } from '@argonprotocol/mainchain';
+import type { IBitcoinLockRelayJobRequest, IRouterErrorResponse } from './interfaces/index.ts';
 import { RouterError } from './RouterError.ts';
 
 export class BotUpstreamClient {
   constructor(private readonly botInternalUrl: string) {}
 
-  public async createCoupon(request: ICreateBitcoinLockCouponRequest): Promise<IBitcoinLockCouponStatus> {
-    return await this.request('/bitcoin-lock-coupons', {
+  public async initializeBitcoinLock(request: IBitcoinLockRelayJobRequest): Promise<IBitcoinLockRelayRecord> {
+    return await this.request('/bitcoin-lock-relays/initialize', {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JsonExt.stringify(request),
     });
   }
 
-  public async activateLatestCoupon(request: IActivateBitcoinLockCouponRequest): Promise<IBitcoinLockCouponStatus> {
-    return await this.request('/bitcoin-lock-coupons/activate', {
+  public async getBitcoinLockRelay(requestId: string): Promise<IBitcoinLockRelayRecord> {
+    return await this.request(`/bitcoin-lock-relays/${encodeURIComponent(requestId)}`);
+  }
+
+  public async listBitcoinLockRelays(): Promise<IBitcoinLockRelayRecord[]> {
+    return await this.request('/bitcoin-lock-relays');
+  }
+
+  public async signBitcoinLockFeeCoupon(request: ISignBitcoinLockFeeCouponRequest): Promise<BitcoinLockFeeCoupon> {
+    return await this.request('/bitcoin-lock-fee-coupons/sign', {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JsonExt.stringify(request),
     });
-  }
-
-  public async restoreCoupon(coupon: Omit<IBitcoinLockCouponRecord, 'id'>): Promise<IBitcoinLockCouponRecord> {
-    return await this.request('/bitcoin-lock-coupons/restore', {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JsonExt.stringify(coupon),
-    });
-  }
-
-  public async initializeCoupon(
-    offerCode: string,
-    request: IBitcoinLockRelayJobRequest,
-  ): Promise<IBitcoinLockCouponStatus> {
-    return await this.request('/bitcoin-lock-coupons/initialize', {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JsonExt.stringify({
-        ...request,
-        offerCode,
-      }),
-    });
-  }
-
-  public async getCoupon(offerCode: string): Promise<IBitcoinLockCouponStatus> {
-    return await this.request(`/bitcoin-lock-coupons/${encodeURIComponent(offerCode)}`);
-  }
-
-  public async listCoupons(): Promise<IBitcoinLockCouponStatus[]> {
-    return await this.request('/bitcoin-lock-coupons');
-  }
-
-  public async listCouponsByUserId(userId: number): Promise<IBitcoinLockCouponStatus[]> {
-    return await this.request(`/bitcoin-lock-coupons/by-user/${encodeURIComponent(String(userId))}`);
-  }
-
-  public async listLatestCouponsByUserId(): Promise<Map<number, IBitcoinLockCouponStatus>> {
-    const couponsByUserId = new Map<number, IBitcoinLockCouponStatus>();
-
-    for (const coupon of await this.listCoupons()) {
-      if (!couponsByUserId.has(coupon.coupon.userId)) {
-        couponsByUserId.set(coupon.coupon.userId, coupon);
-      }
-    }
-
-    return couponsByUserId;
   }
 
   public async requestEthereumGatewayCatchUp(

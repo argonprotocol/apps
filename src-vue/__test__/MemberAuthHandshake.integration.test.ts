@@ -7,8 +7,6 @@ import {
   createOperationalAccessProof,
   decryptBootstrapRecovery,
   encryptBootstrapRecovery,
-  type IActivateBitcoinLockCouponRequest,
-  type IBitcoinLockCouponRecord,
   type IBitcoinLockCouponStatus,
   getBootstrapEndpointPubkey,
   JsonExt,
@@ -172,13 +170,14 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
       name: 'Casey',
     });
     const invite = source.routerDb.userInvitesTable.insertInvite(member.id, 'member-invite-1', 'Operator One');
-    source.botDb.bitcoinLockCouponsTable.insertCoupon({
+    const coupon = source.routerDb.bitcoinLockCouponsTable.insert({
       userId: invite.id,
       offerCode: 'offer-code-1',
       vaultId: 12,
       maxSatoshis: 25_000n,
       estimatedGiftUsd: 16.25,
       btcPctFee: 2.5,
+      feeCreditMicrogons: 5_000_000n,
       expiresAfterTicks: 60,
     });
 
@@ -188,6 +187,16 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
       defaultAccountKeypair,
       authKeypair: await memberWalletKeys.getUpstreamOperatorAuthKeypair(),
     });
+    const couponUse = source.routerDb.bitcoinLockCouponsTable.insertUse({
+      couponId: coupon.id,
+      requestId: 'restored-coupon-use',
+      feeCreditMicrogons: 2_000_000n,
+      requestedSatoshis: 25_000n,
+      ownerAccountId: claimed.invite.defaultAccountId!,
+      ownerBitcoinPubkey: `02${'33'.repeat(32)}`,
+      microgonsAtTargetPerBtc: 75_000_000n,
+    });
+    source.routerDb.bitcoinLockCouponsTable.recordUse(couponUse.requestId, { status: 'Finalized' });
     let restorePackage:
       | Pick<NonNullable<IRouterAuthSessionResponse['restore']>, 'restorePackage' | 'restorePackageRevision'>
       | undefined;
@@ -247,7 +256,7 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
     const invitationAt = claimedInvite.createdAt;
     const acceptedAt = claimedInvite.firstClickedAt!;
     const initialRestorePackageRevision = restorePackage!.restorePackageRevision;
-    expect(initialRestorePackageRevision).toBe('2.0');
+    expect(initialRestorePackageRevision).toMatch(/^3\.0\.\d+$/);
     await expect(decryptBootstrapRecovery(cachedBootstrapRecovery!, upstreamRecoverySeed)).resolves.toMatchObject({
       endpointSecret: bootstrapEndpointSecret,
     });
@@ -259,7 +268,7 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
     });
     await serverAuthClient.invalidateMemberSessionId(source.operatorHost);
     await serverAuthClient.getMemberSessionId(source.operatorHost);
-    expect(restorePackage!.restorePackageRevision).toBe('2.1');
+    expect(restorePackage!.restorePackageRevision).toMatch(/^3\.1\.\d+$/);
     expect(downstreamRestore?.hasOperationsAccess).toBe(false);
 
     const operatorAuthClient = new ServerAuthClient(() => operatorWalletKeys);
@@ -283,8 +292,8 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
     const requestedRestorePackageRevision = restorePackage!.restorePackageRevision;
     await serverAuthClient.invalidateMemberSessionId(source.operatorHost);
     await serverAuthClient.getMemberSessionId(source.operatorHost);
-    expect(requestedRestorePackageRevision).toBe('2.1');
-    expect(restorePackage!.restorePackageRevision).toBe('2.2');
+    expect(requestedRestorePackageRevision).toMatch(/^3\.1\.\d+$/);
+    expect(restorePackage!.restorePackageRevision).toMatch(/^3\.2\.\d+$/);
     expect(downstreamRestore?.hasOperationsAccess).toBe(true);
 
     await source.routerServer.close();
@@ -316,6 +325,12 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
       fromName: 'Operator One',
     });
     expect(downstreamCoupons).toHaveLength(1);
+    expect(downstreamCoupons[0]).toMatchObject({
+      originalFeeCreditMicrogons: 5_000_000n,
+      usedFeeCreditMicrogons: 2_000_000n,
+      remainingFeeCreditMicrogons: 3_000_000n,
+      uses: [{ requestId: couponUse.requestId, status: 'Finalized', feeCreditMicrogons: 2_000_000n }],
+    });
     expect(downstreamRestore).toMatchObject({
       fromName: 'Operator One',
       operatorAccountId: operatorWalletKeys.operationalAddress,
@@ -332,7 +347,11 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
         operationsAccessProofSignature: accessProof.signature,
       },
     );
-    expect(recovered.botDb.bitcoinLockCouponsTable.fetchAll()).toHaveLength(1);
+    const [recoveredCoupon] = recovered.routerDb.bitcoinLockCouponsTable.fetchAll();
+    expect(recoveredCoupon).toBeTruthy();
+    expect(recovered.routerDb.bitcoinLockCouponsTable.fetchUsesByCouponId(recoveredCoupon.id)).toMatchObject([
+      { requestId: couponUse.requestId, status: 'Finalized', feeCreditMicrogons: 2_000_000n },
+    ]);
     expect(downstreamRestore?.hasOperationsAccess).toBe(true);
 
     restorePackage = undefined;
@@ -376,14 +395,12 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
     botDb.migrate();
     botDbs.push(botDb);
     const relayService = {
-      activateLatestCoupon: async (request: IActivateBitcoinLockCouponRequest) => {
-        const coupon = botDb.bitcoinLockCouponsTable.fetchLatestByUserId(request.userId);
-        if (!coupon) throw new Error('Bitcoin lock coupon not found.');
-
-        return toCouponStatus(botDb.bitcoinLockCouponsTable.activateCoupon(coupon.id, request.accountId, 1_000)!);
+      relayBitcoinLock: async () => {
+        throw new Error('Bitcoin relay is not used by this recovery test.');
       },
-      getBitcoinLockCouponsByUserId: async (userId: number) => {
-        return botDb.bitcoinLockCouponsTable.fetchByUserId(userId).map(toCouponStatus);
+      getBitcoinLockRelays: () => [],
+      getBitcoinLockRelay: () => {
+        throw new Error('Bitcoin relay is not used by this recovery test.');
       },
     };
     const botServer = startBotServer(
@@ -433,10 +450,3 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
     };
   }
 });
-
-function toCouponStatus(coupon: IBitcoinLockCouponRecord): IBitcoinLockCouponStatus {
-  return {
-    coupon,
-    status: 'Open',
-  };
-}

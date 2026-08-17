@@ -6,12 +6,32 @@ import {
 } from '../lib/CrosschainTransferView.ts';
 
 describe('CrosschainTransferView', () => {
-  it('allows a registered council signer to activate Crosschain without a minting authority', () => {
+  it('does not activate Crosschain for a registered signer outside the active council', () => {
+    expect(
+      getCrosschainAccessState({
+        hasActivatedCrosschain: false,
+        authorityCount: 1,
+        isActiveCouncilMember: false,
+      }),
+    ).toEqual({ hasAccess: false, hasMintingAuthority: true });
+  });
+
+  it('activates Crosschain for an active council member without a minting authority', () => {
     expect(
       getCrosschainAccessState({
         hasActivatedCrosschain: false,
         authorityCount: 0,
-        councilSigner: `0x${'11'.repeat(20)}`,
+        isActiveCouncilMember: true,
+      }),
+    ).toEqual({ hasAccess: true, hasMintingAuthority: false });
+  });
+
+  it('retains Crosschain access after it has been activated', () => {
+    expect(
+      getCrosschainAccessState({
+        hasActivatedCrosschain: true,
+        authorityCount: 0,
+        isActiveCouncilMember: false,
       }),
     ).toEqual({ hasAccess: true, hasMintingAuthority: false });
   });

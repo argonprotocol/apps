@@ -127,7 +127,14 @@
           </span>
           <span class="shrink-0">
             One-time fee:
-            <template v-if="isFeeWaived">Waived</template>
+            <template v-if="isVaultOperator">Waived</template>
+            <template v-else-if="isDirectFeeCouponLock">
+              <span class="line-through">
+                {{ argonSymbol }}{{ microgonToArgonNm(oneTimeLockFee).format('0,0.00') }}
+              </span>
+              {{ argonSymbol }}{{ microgonToArgonNm(securityFee).format('0,0.00') }} after gift
+            </template>
+            <template v-else-if="isOperatorCouponLock">Covered</template>
             <template v-else>
               {{ argonSymbol }}{{ microgonToArgonNm(securityFee).format('0,0.00') }}, paid from your wallet
             </template>
@@ -152,10 +159,26 @@
             Choose Max to use that available Bitcoin space.
           </span>
         </div>
-        <WalletFundingCallout v-else-if="neededMicrogons" @open-wallet="openWallet">
+        <WalletFundingCallout
+          v-else-if="isCheckingWalletBalance && availableMicrogons < vault.terms.bitcoinBaseFee"
+          arrowSide="right"
+          @open-wallet="openWallet"
+        >
           <AlertIcon class="mr-2 h-4 text-yellow-700" />
-          Your wallet needs {{ availableMicrogons ? '' : 'another' }} {{ argonSymbol
-          }}{{ microgonToArgonNm(neededMicrogons).format('0,0.[00]') }} to initialize this lock.
+          Your wallet can’t cover the {{ argonSymbol
+          }}{{ microgonToArgonNm(vault.terms.bitcoinBaseFee).format('0,0.00') }} base fee. Checking the full balance
+          needed…
+        </WalletFundingCallout>
+        <WalletFundingCallout v-else-if="neededMicrogons" arrowSide="right" @open-wallet="openWallet">
+          <AlertIcon class="mr-2 h-4 text-yellow-700" />
+          <template v-if="requiredWalletBalanceMicrogons != null">
+            Your wallet needs a balance of {{ argonSymbol
+            }}{{ microgonToArgonNm(requiredWalletBalanceMicrogons).format('0,0.00') }} to initialize this lock.
+          </template>
+          <template v-else>
+            Your wallet needs {{ availableMicrogons ? '' : 'another' }} {{ argonSymbol
+            }}{{ microgonToArgonNm(neededMicrogons).format('0,0.00') }} to initialize this lock.
+          </template>
         </WalletFundingCallout>
 
         <section class="border-argon-600/30 mt-6 rounded-md border">
@@ -163,13 +186,19 @@
             <div class="w-1/3 px-3">
               <header class="font-bold opacity-40">ONE-TIME LOCK FEE</header>
               <div class="text-argon-600 py-1 text-3xl font-bold">
-                <template v-if="isFeeWaived">Waived</template>
+                <template v-if="isVaultOperator">Waived</template>
+                <template v-else-if="isDirectFeeCouponLock">
+                  <span class="text-slate-400 line-through">
+                    {{ argonSymbol }}{{ microgonToArgonNm(securityFee + coveredFee).format('0,0.00') }}
+                  </span>
+                  <span class="ml-2">{{ argonSymbol }}{{ microgonToArgonNm(securityFee).format('0,0.00') }}</span>
+                </template>
                 <template v-else>{{ argonSymbol }}{{ microgonToArgonNm(securityFee).format('0,0.00') }}</template>
               </div>
               <div class="font-light opacity-80">
                 <template v-if="isOperatorCouponLock">
-                  {{ couponProviderLabel }} Gifted You {{ argonSymbol
-                  }}{{ microgonToArgonNm(oneTimeLockFee).format('0,0.00') }}
+                  {{ argonSymbol }}{{ microgonToArgonNm(coveredFee).format('0,0.00') }} fee waiver from
+                  {{ couponProviderLabel }}
                 </template>
                 <template v-else-if="isVaultOperator">No Operator Fee Charged</template>
                 <template v-else>It's the Only Cost of Locking</template>
@@ -232,7 +261,7 @@ import InputNumber from '../../components/InputNumber.vue';
 import Tooltip from '../../components/Tooltip.vue';
 import { createNumeralHelpers, formatBtc } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
-import { MICROGONS_PER_ARGON, SATS_PER_BTC, Vault } from '@argonprotocol/mainchain';
+import { BitcoinLock, MICROGONS_PER_ARGON, SATS_PER_BTC, Vault } from '@argonprotocol/mainchain';
 import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 import { useDebounceFn } from '@vueuse/core';
 import { getBitcoinLockCoupons, getBitcoinLocks } from '../../stores/bitcoin.ts';
@@ -241,7 +270,8 @@ import { getVaults } from '../../stores/vaults.ts';
 import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
 import { getMainchainClient } from '../../stores/mainchain.ts';
 import type { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
-import { bigNumberToBigInt, NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { BitcoinLockWalletFundingError } from '../../lib/BitcoinLocks.ts';
+import { bigIntMax, bigIntMin, bigNumberToBigInt, NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import WalletFundingCallout from '../../components/WalletFundingCallout.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { WalletType } from '../../lib/Wallet.ts';
@@ -292,7 +322,10 @@ const bitcoinAmount = Vue.ref(0);
 const liquidityToReceive = Vue.ref(0n);
 const lockSatoshis = Vue.ref(0n);
 const securityFee = Vue.ref(0n);
-const hasEditedAmounts = Vue.ref(false);
+const usesDirectFeeCoupon = Vue.ref(false);
+const requiredWalletBalanceMicrogons = Vue.ref<bigint>();
+const isCheckingWalletBalance = Vue.ref(false);
+const amountSelection = Vue.ref<'bitcoin' | 'minimum' | 'certification' | 'maximum'>();
 const amountInputs = Vue.ref<HTMLElement | null>(null);
 
 function focusAmountInput(event: MouseEvent) {
@@ -315,13 +348,21 @@ const isVaultOperator = Vue.computed(() => {
   return walletKeys.defaultArgonAddress === props.vault.operatorAccountId;
 });
 
+const operatorCouponStatus = Vue.computed(() => {
+  const currentCoupon = bitcoinLockCoupons.currentCoupon;
+  if (currentCoupon?.coupon.vaultId === props.vault.vaultId) return currentCoupon;
+
+  const resumableCoupon = bitcoinLockCoupons.resumableCoupon;
+  if (resumableCoupon?.coupon.vaultId === props.vault.vaultId) return resumableCoupon;
+});
+
 const hasCouponForVault = Vue.computed(() => {
-  const coupon = bitcoinLockCoupons.currentCoupon;
+  const coupon = operatorCouponStatus.value;
   return coupon?.coupon.vaultId === props.vault.vaultId;
 });
 
 const isOperatorCouponExpired = Vue.computed(() => {
-  const coupon = bitcoinLockCoupons.currentCoupon;
+  const coupon = operatorCouponStatus.value;
   return (
     coupon?.coupon.expirationTick != null &&
     props.currentTick != null &&
@@ -330,20 +371,28 @@ const isOperatorCouponExpired = Vue.computed(() => {
 });
 
 const operatorCoupon = Vue.computed(() => {
-  const coupon = bitcoinLockCoupons.currentCoupon;
+  const coupon = operatorCouponStatus.value;
   if (!hasCouponForVault.value || isOperatorCouponExpired.value || !coupon) {
     return undefined;
   }
+
+  const pendingInitialization = coupon.uses?.find(use => use.status === 'Prepared' && use.feeCoupon);
 
   return {
     vaultId: coupon.coupon.vaultId,
     offerCode: coupon.coupon.offerCode,
     accountId: coupon.coupon.accountId,
+    remainingFeeCreditMicrogons: coupon.remainingFeeCreditMicrogons,
+    pendingInitialization,
   };
 });
 
 const isOperatorCouponLock = Vue.computed(() => {
   return !!operatorCoupon.value;
+});
+
+const isDirectFeeCouponLock = Vue.computed(() => {
+  return isOperatorCouponLock.value && usesDirectFeeCoupon.value;
 });
 
 const capacityLockOwner = Vue.computed(() => {
@@ -360,11 +409,12 @@ const availableMicrogons = Vue.computed(() => {
 });
 
 const neededMicrogons = Vue.computed(() => {
-  if (securityFee.value <= 0n) return 0n;
-  const buffer = 25_000n;
-  const needed = securityFee.value + buffer;
-  if (wallets.liquidLockingWallet.availableMicrogons >= needed) return 0n;
-  return needed - wallets.liquidLockingWallet.availableMicrogons;
+  if (!wallets.isLoaded) return 0n;
+  if (isDirectFeeCouponLock.value && requiredWalletBalanceMicrogons.value == null) return 0n;
+  const requiredBalance = requiredWalletBalanceMicrogons.value ?? securityFee.value;
+  if (requiredBalance <= 0n) return 0n;
+  if (availableMicrogons.value >= requiredBalance) return 0n;
+  return requiredBalance - availableMicrogons.value;
 });
 
 function openWallet() {
@@ -376,8 +426,18 @@ const oneTimeLockFee = Vue.computed(() => {
   return props.vault.calculateBitcoinFee(liquidityToReceive.value);
 });
 
-const isFeeWaived = Vue.computed(() => {
-  return isVaultOperator.value || isOperatorCouponLock.value;
+const variableFeeCovered = Vue.computed(() => {
+  if (!isDirectFeeCouponLock.value) return 0n;
+  const variableFee = bigIntMax(oneTimeLockFee.value - props.vault.terms.bitcoinBaseFee, 0n);
+  const feeCredit =
+    (operatorCoupon.value?.pendingInitialization?.feeCreditMicrogons ?? 0n) +
+    (operatorCoupon.value?.remainingFeeCreditMicrogons ?? 0n);
+  return bigIntMin(variableFee, feeCredit);
+});
+
+const coveredFee = Vue.computed(() => {
+  if (!isOperatorCouponLock.value) return 0n;
+  return isDirectFeeCouponLock.value ? variableFeeCovered.value : oneTimeLockFee.value;
 });
 
 const projectedEarnings = Vue.computed(() => {
@@ -389,6 +449,9 @@ const cannotContinue = Vue.computed(() => {
   return (
     isSaving.value ||
     isLoadingLiquidity.value ||
+    !wallets.isLoaded ||
+    isCheckingWalletBalance.value ||
+    (isDirectFeeCouponLock.value && requiredWalletBalanceMicrogons.value == null) ||
     lockSatoshis.value <= 0n ||
     liquidityToReceive.value <= 0n ||
     liquidityToReceive.value > availableLiquidityMicrogons.value ||
@@ -403,22 +466,64 @@ let lastSetBitcoinAmount = 0;
 let availableLiquiditySyncId = 0;
 let pendingAmountSync: Promise<unknown> | undefined;
 let pendingQuoteRefresh: Promise<boolean> | undefined;
+let feeCouponRefreshTimeout: ReturnType<typeof setTimeout> | undefined;
 let conversionQuoteExpiresAt = 0;
 let conversionQuoteRefreshTimeout: ReturnType<typeof setTimeout> | undefined;
 let conversionHighlightTimeout: ReturnType<typeof setTimeout> | undefined;
+let walletBalanceEstimateSyncId = 0;
+let amountSelectionSyncId = 0;
 let isUnmounted = false;
 
 const CONVERSION_QUOTE_REFRESH_ERROR = 'Unable to refresh the Bitcoin conversion rate. Retrying shortly.';
+const WALLET_BALANCE_ESTIMATE_ERROR = 'Unable to check the wallet balance needed for this lock. Please try again.';
 
 function updateFeeEstimate() {
-  if (!props.vault || liquidityToReceive.value <= 0n || isVaultOperator.value || isOperatorCouponLock.value) {
+  if (!props.vault || liquidityToReceive.value <= 0n || isVaultOperator.value) {
     securityFee.value = 0n;
     return;
   }
-  securityFee.value = props.vault.calculateBitcoinFee(liquidityToReceive.value);
+  securityFee.value = props.vault.calculateBitcoinFee(liquidityToReceive.value) - coveredFee.value;
 }
 
-Vue.watch(isFeeWaived, updateFeeEstimate);
+const estimateWalletBalance = useDebounceFn(
+  async (syncId: number) => {
+    try {
+      const estimate = await bitcoinLocks.getInitializeFeeEstimate({
+        vault: props.vault,
+        satoshis: lockSatoshis.value,
+        microgonsAtTargetPerBtc: conversionQuoteMicrogonsPerBtc.value,
+        feeDiscountMicrogons: coveredFee.value,
+      });
+      if (syncId !== walletBalanceEstimateSyncId || isUnmounted) return;
+
+      requiredWalletBalanceMicrogons.value = estimate.requiredWalletBalanceMicrogons;
+      if (errorMessage.value === WALLET_BALANCE_ESTIMATE_ERROR) errorMessage.value = null;
+    } catch (error) {
+      if (syncId !== walletBalanceEstimateSyncId || isUnmounted) return;
+
+      console.error('Error estimating the Bitcoin lock wallet balance:', error);
+      errorMessage.value = WALLET_BALANCE_ESTIMATE_ERROR;
+    } finally {
+      if (syncId === walletBalanceEstimateSyncId) isCheckingWalletBalance.value = false;
+    }
+  },
+  100,
+  { maxWait: 200 },
+);
+
+Vue.watch([coveredFee, usesDirectFeeCoupon], updateFeeEstimate);
+Vue.watch(
+  [isDirectFeeCouponLock, lockSatoshis, conversionQuoteMicrogonsPerBtc, coveredFee],
+  () => {
+    const syncId = ++walletBalanceEstimateSyncId;
+    requiredWalletBalanceMicrogons.value = undefined;
+    isCheckingWalletBalance.value =
+      isDirectFeeCouponLock.value && lockSatoshis.value > 0n && conversionQuoteMicrogonsPerBtc.value > 0n;
+
+    if (isCheckingWalletBalance.value) void estimateWalletBalance(syncId);
+  },
+  { immediate: true },
+);
 
 function initializeDefaultAmounts(satoshis: bigint, liquidityMicrogons: bigint) {
   const btc = currency.convertSatToBtc(satoshis);
@@ -452,7 +557,8 @@ async function internalHandleBtcChange(value: number) {
 }
 
 function handleBtcChange(value: number) {
-  hasEditedAmounts.value = true;
+  amountSelection.value = 'bitcoin';
+  amountSelectionSyncId += 1;
   const sync = debouncedHandleBtcChange(value).finally(() => {
     if (pendingAmountSync === sync) {
       pendingAmountSync = undefined;
@@ -462,6 +568,8 @@ function handleBtcChange(value: number) {
 }
 
 function setMinimumAmount() {
+  amountSelection.value = 'minimum';
+  amountSelectionSyncId += 1;
   const liquidityMicrogons = bitcoinLocks.argonLiquidityForSatoshis(
     minimumLockSatoshis.value,
     conversionQuoteMicrogonsPerBtc.value,
@@ -471,6 +579,8 @@ function setMinimumAmount() {
 }
 
 async function setCertificationAmount() {
+  amountSelection.value = 'certification';
+  amountSelectionSyncId += 1;
   const satoshis = await bitcoinLocks.satoshisForArgonLiquidity(
     treasuryBitcoinCertificationDisplayAmount,
     conversionQuoteMicrogonsPerBtc.value,
@@ -480,6 +590,8 @@ async function setCertificationAmount() {
 }
 
 async function setMaximumAmount() {
+  amountSelection.value = 'maximum';
+  amountSelectionSyncId += 1;
   const satoshis = await bitcoinLocks.satoshisForArgonLiquidity(
     availableLiquidityMicrogons.value,
     conversionQuoteMicrogonsPerBtc.value,
@@ -489,7 +601,8 @@ async function setMaximumAmount() {
 }
 
 async function submitLiquidLock() {
-  if (isSaving.value) return;
+  if (cannotContinue.value) return;
+  isSaving.value = true;
 
   try {
     await config.isLoadedPromise;
@@ -499,12 +612,12 @@ async function submitLiquidLock() {
       const quoteChanged = await refreshConversionQuote();
       if (quoteChanged) {
         errorMessage.value = 'The Bitcoin conversion rate was updated. Review the new amount and continue again.';
+        isSaving.value = false;
         return;
       }
     }
 
     let satoshis = lockSatoshis.value;
-    isSaving.value = true;
     errorMessage.value = null;
     if (satoshis <= 0n && liquidityToReceive.value > 0n) {
       satoshis = await bitcoinLocks.satoshisForArgonLiquidity(
@@ -521,22 +634,31 @@ async function submitLiquidLock() {
       throw new Error("This amount is above the vault's remaining capacity. Lower the Bitcoin amount and try again.");
     }
 
-    await bitcoinLocks.initializeLock({
+    const { pendingLock } = await bitcoinLocks.initializeLock({
       satoshis,
       vault: props.vault,
       operatorCoupon: operatorCoupon.value,
       microgonsAtTargetPerBtc: conversionQuoteMicrogonsPerBtc.value,
     });
+    emit('lockCreated', pendingLock);
     if (operatorCoupon.value) {
-      await bitcoinLockCoupons.refresh();
+      void bitcoinLockCoupons.refresh().catch(error => {
+        console.warn('Unable to refresh the Bitcoin fee coupon after initialization', error);
+      });
     }
-    const createdLock = bitcoinLocks.data.pendingLocks.at(-1);
-    if (createdLock) {
-      emit('lockCreated', createdLock);
+  } catch (error) {
+    console.error('Error initializing liquid lock:', error);
+    if (operatorCoupon.value) {
+      await bitcoinLockCoupons.refresh().catch(refreshError => {
+        console.warn('Unable to refresh the Bitcoin fee coupon', refreshError);
+      });
     }
-  } catch (e: any) {
-    console.error('Error initializing liquid lock:', e);
-    errorMessage.value = e.message;
+    if (error instanceof BitcoinLockWalletFundingError) {
+      requiredWalletBalanceMicrogons.value = error.requiredWalletBalanceMicrogons;
+      errorMessage.value = null;
+    } else {
+      errorMessage.value = error instanceof Error ? error.message : String(error);
+    }
     isSaving.value = false;
   }
 }
@@ -547,13 +669,13 @@ function closeOverlay() {
 }
 
 async function setLiquidityVariables() {
-  const coupon = bitcoinLockCoupons.currentCoupon;
   const syncId = ++availableLiquiditySyncId;
+  const amountSyncId = amountSelectionSyncId;
   const [capacity, nextMinimumLockSatoshis] = await Promise.all([
     bitcoinLocks.getLockableBitcoinCapacity({
       vault: props.vault,
       lockOwner: capacityLockOwner.value,
-      maxSatoshis: coupon && isOperatorCouponLock.value ? coupon.coupon.maxSatoshis : undefined,
+      maxSatoshis: isOperatorCouponLock.value ? bitcoinLockCoupons.maximumCoveredLockSatoshis : undefined,
       microgonsAtTargetPerBtc: conversionQuoteMicrogonsPerBtc.value,
     }),
     bitcoinLocks.minimumSatoshiPerLock(),
@@ -576,22 +698,47 @@ async function setLiquidityVariables() {
           conversionQuoteMicrogonsPerBtc.value,
         )
       : 0n;
-  const defaultLiquidityMicrogons = treasuryBitcoinCertificationDisplayAmount;
-  const defaultSatoshis =
-    defaultLiquidityMicrogons > 0n
-      ? await bitcoinLocks.satoshisForArgonLiquidity(defaultLiquidityMicrogons, conversionQuoteMicrogonsPerBtc.value)
-      : 0n;
-
   if (syncId !== availableLiquiditySyncId) return;
 
   availableLiquidityMicrogons.value = nextWholeArgonLiquidityMicrogons;
   availableLiquidityBtc.value = currency.convertSatToBtc(nextWholeArgonSatoshis);
   minimumLockSatoshis.value = nextMinimumLockSatoshis;
+  if (amountSyncId !== amountSelectionSyncId) return;
 
-  if (!hasEditedAmounts.value || (liquidityToReceive.value === 0n && lockSatoshis.value === 0n)) {
-    initializeDefaultAmounts(defaultSatoshis, defaultLiquidityMicrogons);
-    if (syncId !== availableLiquiditySyncId) return;
+  const pendingSatoshis = operatorCoupon.value?.pendingInitialization?.requestedSatoshis;
+  const isInitialAmount = amountSelection.value == null;
+  const selection = amountSelection.value ?? (pendingSatoshis ? 'bitcoin' : 'certification');
+
+  let selectedSatoshis = lockSatoshis.value;
+  let selectedLiquidityMicrogons: bigint;
+
+  if (selection === 'minimum') {
+    selectedSatoshis = nextMinimumLockSatoshis;
+    selectedLiquidityMicrogons = bitcoinLocks.argonLiquidityForSatoshis(
+      selectedSatoshis,
+      conversionQuoteMicrogonsPerBtc.value,
+    );
+  } else if (selection === 'maximum') {
+    selectedSatoshis = nextWholeArgonSatoshis;
+    selectedLiquidityMicrogons = nextWholeArgonLiquidityMicrogons;
+  } else if (selection === 'certification') {
+    selectedLiquidityMicrogons = treasuryBitcoinCertificationDisplayAmount;
+    selectedSatoshis = await bitcoinLocks.satoshisForArgonLiquidity(
+      selectedLiquidityMicrogons,
+      conversionQuoteMicrogonsPerBtc.value,
+    );
+  } else {
+    selectedSatoshis = isInitialAmount ? (pendingSatoshis ?? 0n) : selectedSatoshis;
+    selectedLiquidityMicrogons = bitcoinLocks.argonLiquidityForSatoshis(
+      selectedSatoshis,
+      conversionQuoteMicrogonsPerBtc.value,
+    );
   }
+
+  if (syncId !== availableLiquiditySyncId || amountSyncId !== amountSelectionSyncId) return;
+
+  amountSelection.value = selection;
+  initializeDefaultAmounts(selectedSatoshis, selectedLiquidityMicrogons);
 
   updateFeeEstimate();
 }
@@ -601,6 +748,7 @@ async function refreshConversionQuote(): Promise<boolean> {
 
   const refresh = (async () => {
     const quoteClient = await getMainchainClient(false);
+    usesDirectFeeCoupon.value = !BitcoinLock.supportsInitializeFor(quoteClient);
     const [, eligibleRates, currentTick] = await Promise.all([
       currency.fetchMainchainRates(quoteClient, { ignoreCache: true }),
       quoteClient.query.bitcoinLocks.microgonPerBtcHistory(),
@@ -620,25 +768,9 @@ async function refreshConversionQuote(): Promise<boolean> {
         currentTick.toNumber(),
     );
     const quoteDurationMillis = quoteTicksRemaining * NetworkConfig.tickMillis;
-    const shouldMaintainCertificationAmount = isCertificationAmount.value;
-
     conversionQuoteMicrogonsPerBtc.value = nextQuote;
     try {
       await setLiquidityVariables();
-
-      if (hasEditedAmounts.value) {
-        if (shouldMaintainCertificationAmount) {
-          const satoshis = await bitcoinLocks.satoshisForArgonLiquidity(
-            treasuryBitcoinCertificationDisplayAmount,
-            nextQuote,
-          );
-          initializeDefaultAmounts(satoshis, treasuryBitcoinCertificationDisplayAmount);
-        } else {
-          const liquidityMicrogons = bitcoinLocks.argonLiquidityForSatoshis(lockSatoshis.value, nextQuote);
-          initializeDefaultAmounts(lockSatoshis.value, liquidityMicrogons);
-        }
-        updateFeeEstimate();
-      }
     } catch (error) {
       conversionQuoteMicrogonsPerBtc.value = previousQuote;
       throw error;
@@ -681,6 +813,32 @@ function handleConversionQuoteRefreshError(error: unknown) {
   scheduleConversionQuoteRefresh(30e3);
 }
 
+function scheduleFeeCouponRefresh(delay = 5e3) {
+  if (feeCouponRefreshTimeout) clearTimeout(feeCouponRefreshTimeout);
+  feeCouponRefreshTimeout = undefined;
+  if (
+    isUnmounted ||
+    !usesDirectFeeCoupon.value ||
+    !operatorCoupon.value ||
+    operatorCoupon.value.remainingFeeCreditMicrogons != null
+  ) {
+    return;
+  }
+
+  feeCouponRefreshTimeout = setTimeout(() => {
+    void bitcoinLockCoupons
+      .refresh()
+      .catch(() => undefined)
+      .finally(() => scheduleFeeCouponRefresh());
+  }, delay);
+}
+
+Vue.watch(
+  [usesDirectFeeCoupon, () => operatorCoupon.value?.remainingFeeCreditMicrogons],
+  () => scheduleFeeCouponRefresh(0),
+  { immediate: true },
+);
+
 Vue.onMounted(async () => {
   await config.isLoadedPromise;
   try {
@@ -692,6 +850,7 @@ Vue.onMounted(async () => {
 
 Vue.onUnmounted(() => {
   isUnmounted = true;
+  if (feeCouponRefreshTimeout) clearTimeout(feeCouponRefreshTimeout);
   if (conversionQuoteRefreshTimeout) clearTimeout(conversionQuoteRefreshTimeout);
   if (conversionHighlightTimeout) clearTimeout(conversionHighlightTimeout);
 });

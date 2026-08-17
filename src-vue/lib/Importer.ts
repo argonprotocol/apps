@@ -13,6 +13,8 @@ import { IS_LOCAL_BUILD, NETWORK_NAME, SECURITY } from './Env.ts';
 import { hasArgonWalletValue } from './WalletForArgon.ts';
 import { WalletKeys } from './WalletKeys.ts';
 import { MemoryWalletKeys } from './MemoryWalletKeys.ts';
+import { isAccountInGlobalIssuanceCouncil } from './CrosschainTransferView.ts';
+import { findOwnedEthereumMintingAuthoritySigners } from './MintingAuthorities.ts';
 import { readArgonWalletBalanceValues } from './WalletsForArgon.ts';
 import { getWalletsForArgon } from '../stores/wallets.ts';
 import { getBlockWatch, getFinalizedClient, getMainchainClient } from '../stores/mainchain.ts';
@@ -53,18 +55,25 @@ export default class Importer {
       importWalletKeys.vaultingAddress,
       importWalletKeys.operationalAddress,
     ];
-    const mintingAuthorityCouncilSigner = finalizedApi.query.crosschainTransfer
-      ?.councilSignerByDestinationChainAndAccountId
-      ? finalizedApi.query.crosschainTransfer.councilSignerByDestinationChainAndAccountId(
-          'Ethereum',
-          importWalletKeys.vaultingAddress,
-        )
-      : undefined;
-    const [balances, operationalAccount, ownedVault, councilSigner] = await Promise.all([
+    const crosschainTransfer = finalizedApi.query.crosschainTransfer;
+    const activeCouncilPromise = crosschainTransfer
+      ?.activeGlobalIssuanceCouncilByDestinationChain?.('Ethereum')
+      ?.then(async councilHash => {
+        if (councilHash.isNone) return;
+
+        const council = await crosschainTransfer.globalIssuanceCouncilByHash(councilHash.unwrap());
+        return council.isSome ? council.unwrap() : undefined;
+      });
+    const ownedMintingAuthoritySignersPromise = findOwnedEthereumMintingAuthoritySigners(
+      finalizedApi,
+      importWalletKeys,
+    );
+    const [balances, operationalAccount, ownedVault, activeCouncil, ownedMintingAuthoritySigners] = await Promise.all([
       readArgonWalletBalanceValues(finalizedApi, addresses),
       finalizedApi.query.operationalAccounts.operationalAccounts(importWalletKeys.operationalAddress),
       getVaultByOperator({ client: finalizedApi, operatorAddress: importWalletKeys.vaultingAddress }),
-      mintingAuthorityCouncilSigner,
+      activeCouncilPromise,
+      ownedMintingAuthoritySignersPromise,
     ]);
 
     const hasExistingWalletValue = balances.some(balance => {
@@ -92,7 +101,8 @@ export default class Importer {
     // Member Bitcoin events also carry VaultPosition because they affect vault capital. Only the runtime's operator
     // index proves that this account owns a vault and should regain Operations.
     const hasVaultActivity = operationalProgress.hasVault || !!ownedVault;
-    const hasActivatedCrosschain = councilSigner?.isSome ?? false;
+    const hasActivatedCrosschain = isAccountInGlobalIssuanceCouncil(activeCouncil, importWalletKeys.vaultingAddress);
+    const hasCrosschainHistory = hasActivatedCrosschain || ownedMintingAuthoritySigners.length > 0;
     let hasTreasuryHistory = false;
     if (!operationalProgress.hasOperationalAccount) {
       const treasuryActivity = await findAddressActivity(importWalletKeys.defaultArgonAddress, {
@@ -111,7 +121,7 @@ export default class Importer {
     }
 
     const hasOperationsHistory =
-      operationalProgress.hasOperationalAccount || hasMiningActivity || hasVaultActivity || hasActivatedCrosschain;
+      operationalProgress.hasOperationalAccount || hasMiningActivity || hasVaultActivity || hasCrosschainHistory;
     hasTreasuryHistory ||= hasOperationsHistory;
 
     const usesOperationalProfile = usesOperationalProfileNameRuntime(mainchainClient);

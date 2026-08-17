@@ -20,6 +20,7 @@ import {
   type GatewayRelayOptions,
   type IEthereumGatewayRelayPreview,
 } from './EthereumClient.ts';
+import { isAccountInGlobalIssuanceCouncil } from './CrosschainTransferView.ts';
 const COUNCIL_SIGNER_REGISTRATION_MESSAGE_KEY = 'argon/council-signer/v2';
 const COUNCIL_APPROVAL_QUEUE_BATCH_SIZE = 32n;
 
@@ -65,6 +66,7 @@ export class GlobalCouncil {
   public data: {
     isReady: boolean;
     councilSigner?: string;
+    isActiveCouncilMember: boolean;
     pendingApprovals: IGlobalCouncilApproval[];
     approvalQueue: IGlobalCouncilQueueItem[];
     gatewayActivityCount: bigint;
@@ -93,6 +95,7 @@ export class GlobalCouncil {
     this.data = {
       isReady: false,
       councilSigner: undefined,
+      isActiveCouncilMember: false,
       pendingApprovals: [],
       approvalQueue: [],
       gatewayActivityCount: 0n,
@@ -131,6 +134,7 @@ export class GlobalCouncil {
     const db = await this.dbPromise;
     const {
       councilSigner,
+      isActiveCouncilMember,
       pendingApprovals,
       approvalQueue,
       gatewayActivityCount,
@@ -144,6 +148,7 @@ export class GlobalCouncil {
     }
 
     this.data.councilSigner = councilSigner;
+    this.data.isActiveCouncilMember = isActiveCouncilMember;
     this.data.pendingApprovals = pendingApprovals;
     this.data.approvalQueue = approvalQueue;
     this.data.gatewayActivityCount = gatewayActivityCount;
@@ -421,6 +426,7 @@ async function getPendingCouncilApprovals(
   walletHdKeysTable: WalletHdKeysTable,
 ): Promise<{
   councilSigner?: string;
+  isActiveCouncilMember: boolean;
   pendingApprovals: IGlobalCouncilApproval[];
   approvalQueue: IGlobalCouncilQueueItem[];
   gatewayActivityCount: bigint;
@@ -595,6 +601,7 @@ async function getPendingCouncilApprovals(
     ? await finalizeClient.query.crosschainTransfer.globalIssuanceCouncilByHash.multi(councilHashes)
     : [];
   const activeCouncil = activeCouncilHashOption?.isSome ? councilOptions[0]?.unwrap() : undefined;
+  const isActiveCouncilMember = isAccountInGlobalIssuanceCouncil(activeCouncil, walletKeys.vaultingAddress);
   const activeMemberAccounts = new Set(
     activeCouncil ? [...activeCouncil.members.values()].map(member => member.accountId.toString()) : [],
   );
@@ -630,6 +637,7 @@ async function getPendingCouncilApprovals(
 
   return {
     councilSigner,
+    isActiveCouncilMember,
     pendingApprovals,
     approvalQueue,
     gatewayActivityCount,

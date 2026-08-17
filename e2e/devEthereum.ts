@@ -19,6 +19,7 @@ import {
   createWalletClient,
   defineChain,
   encodeFunctionData,
+  getAddress,
   http,
   parseUnits,
   type Abi,
@@ -53,6 +54,7 @@ const DEV_ETHEREUM_LAUNCH_MAX_ATTEMPTS = 3;
 const DEV_ETHEREUM_LAUNCH_RETRY_DELAY_MS = 1_000;
 let runtimeStateOperation = Promise.resolve();
 export type DevEthereumBeaconPreset = 'mainnet' | 'minimal';
+type DevEthereumGateway = Awaited<ReturnType<TestEthereum['deployMintingGatewayFixture']>>;
 
 export interface IDevEthereumConfig {
   beaconPreset: DevEthereumBeaconPreset;
@@ -70,17 +72,10 @@ export interface IStartDevEthereumResult {
   serverExecutionRpcUrl: string;
   serverBeaconApiUrl: string;
   usdcTokenAddress: Address;
+  gateway?: DevEthereumGateway;
 }
 
-export interface IDevEthereumRuntimeState {
-  beaconPreset: DevEthereumBeaconPreset;
-  enclaveName: string;
-  executionRpcUrl: string;
-  beaconApiUrl: string;
-  chainId: string;
-  serverExecutionRpcUrl: string;
-  serverBeaconApiUrl: string;
-  usdcTokenAddress: Address;
+export interface IDevEthereumRuntimeState extends IStartDevEthereumResult {
   mintingAuthorityStatus?: 'starting' | 'ready';
   setupStatus: 'starting' | 'ready';
   updatedAt: string;
@@ -110,7 +105,47 @@ export function readDevEthereumConfigFromEnv(): IDevEthereumConfig | undefined {
   };
 }
 
-export async function startDevEthereum(config: IDevEthereumConfig): Promise<IStartDevEthereumResult> {
+export async function startDevEthereum(
+  config: IDevEthereumConfig,
+  configuredGateway?: DevEthereumGateway,
+): Promise<IStartDevEthereumResult> {
+  const candidates = await readDevEthereumRuntimeStateCandidates();
+  for (const current of candidates) {
+    if (current.beaconPreset !== config.beaconPreset) continue;
+
+    try {
+      const [chainId, beaconResponse] = await Promise.all([
+        rpcCall<string>(current.executionRpcUrl, 'eth_chainId', []),
+        fetch(new URL('/eth/v1/beacon/genesis', current.beaconApiUrl), {
+          signal: AbortSignal.timeout(10_000),
+        }),
+      ]);
+      if (chainId === current.chainId && beaconResponse.ok) {
+        if (configuredGateway && !(await doesDevEthereumGatewayMatch(current.executionRpcUrl, configuredGateway))) {
+          console.warn(
+            `[tauri-dev] Local dev Ethereum enclave ${current.enclaveName} does not match the gateway configured on Argon`,
+          );
+          continue;
+        }
+
+        const action = current.setupStatus === 'ready' ? 'Reusing' : 'Resuming';
+        console.log(`[tauri-dev] ${action} local dev Ethereum enclave ${current.enclaveName}`);
+        await writeDevEthereumRuntimeState(current);
+        return current;
+      }
+    } catch (error) {
+      console.warn(
+        `[tauri-dev] Dev Ethereum enclave ${current.enclaveName} is unavailable: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  if (configuredGateway) {
+    throw new Error(
+      'No running local Ethereum enclave matches the gateway configured on Argon. Restart the full dev-docker stack so Argon and Ethereum are recreated together.',
+    );
+  }
+
   if (!TestEthereum.isInstalled()) {
     throw new Error(
       'Kurtosis is required to launch the local Ethereum devnet. Install Kurtosis first, or rerun with ARGON_DEV_ETHEREUM=0 to disable Ethereum.',
@@ -190,6 +225,7 @@ export function createDevEthereumSetup(
       let setupStep = 'waiting for Polkadot crypto load';
 
       try {
+        await updateDevEthereumRuntimeState(devEthereum.executionRpcUrl, { setupStatus: 'starting' });
         await waitForLoad();
         const alice = new Keyring({ type: 'sr25519' }).createFromUri('//Alice');
 
@@ -197,16 +233,25 @@ export function createDevEthereumSetup(
         console.log(`[tauri-dev] ${setupStep}`);
         await ensureDevEthereumBeaconBootstrap(archiveUrl, devEthereum.beaconApiUrl, devEthereum.beaconPreset, alice);
 
-        setupStep = 'deploying the local Ethereum gateway fixture';
+        setupStep = 'preparing the local Ethereum gateway';
         console.log(`[tauri-dev] ${setupStep}`);
-        const fixtureDeployer = new TestEthereum(devEthereum.enclaveName);
-        fixtureDeployer.executionRpcUrl = devEthereum.executionRpcUrl;
-        fixtureDeployer.chainId = devEthereum.chainId;
-        const initialMicrogonsPerArgonot = await loadLocalGatewayCouncilFloorMicrogonsPerArgonot(archiveUrl);
-        const fixture = await fixtureDeployer.deployMintingGatewayFixture({
-          deployerPrivateKey: DEV_ETHEREUM_ADMIN_ACCOUNT.privateKey,
-          initialMicrogonsPerArgonot,
-        });
+        let gateway = devEthereum.gateway ?? (await loadConfiguredDevEthereumGateway(archiveUrl));
+        if (gateway && !(await doesDevEthereumGatewayMatch(devEthereum.executionRpcUrl, gateway))) {
+          gateway = undefined;
+        }
+        if (!gateway) {
+          const fixtureDeployer = new TestEthereum(devEthereum.enclaveName);
+          fixtureDeployer.executionRpcUrl = devEthereum.executionRpcUrl;
+          fixtureDeployer.chainId = devEthereum.chainId;
+          const initialMicrogonsPerArgonot = await loadLocalGatewayCouncilFloorMicrogonsPerArgonot(archiveUrl);
+          gateway = await fixtureDeployer.deployMintingGatewayFixture({
+            deployerPrivateKey: DEV_ETHEREUM_ADMIN_ACCOUNT.privateKey,
+            initialMicrogonsPerArgonot,
+          });
+        } else {
+          console.log('[tauri-dev] Reusing the local Ethereum gateway deployment');
+        }
+        await updateDevEthereumRuntimeState(devEthereum.executionRpcUrl, { gateway });
 
         setupStep = 'initializing the local Ethereum token reserve';
         console.log(`[tauri-dev] ${setupStep}`);
@@ -215,9 +260,9 @@ export function createDevEthereumSetup(
         });
         await initializeDevEthereumTokenReserve({
           publicClient,
-          gatewayAddress: fixture.gatewayAddress,
-          argonTokenAddress: fixture.argonTokenAddress,
-          argonotTokenAddress: fixture.argonotTokenAddress,
+          gatewayAddress: gateway.gatewayAddress,
+          argonTokenAddress: gateway.argonTokenAddress,
+          argonotTokenAddress: gateway.argonotTokenAddress,
           rootAccountAddress: DEV_ETHEREUM_ADMIN_ACCOUNT.address,
           ensureBacking: async () => {
             const client = await getClient(archiveUrl);
@@ -237,7 +282,7 @@ export function createDevEthereumSetup(
             (
               await sendDevEthereumAdminTransaction({
                 rpcUrl: devEthereum.executionRpcUrl,
-                to: fixture.gatewayAddress,
+                to: gateway.gatewayAddress,
                 data,
               })
             ).hash,
@@ -249,13 +294,18 @@ export function createDevEthereumSetup(
           archiveUrl,
           devEthereum.chainId,
           devEthereum.executionRpcUrl,
-          fixture,
+          gateway,
           alice,
         );
 
         setupStep = 'syncing the Ethereum gateway council to Argon';
         console.log(`[tauri-dev] ${setupStep}`);
-        await ensureDevEthereumGatewayActiveCouncil(archiveUrl, devEthereum.executionRpcUrl, fixture);
+        await ensureDevEthereumGatewayActiveCouncil(archiveUrl, devEthereum.executionRpcUrl, gateway);
+
+        await updateDevEthereumRuntimeState(devEthereum.executionRpcUrl, {
+          gateway,
+          setupStatus: 'ready',
+        });
       } catch (error) {
         throw new Error(`Failed while ${setupStep}: ${(error as Error).message}`);
       }
@@ -315,6 +365,86 @@ export async function sendDevEthereumAdminTransaction(args: {
   };
 }
 
+async function doesDevEthereumGatewayMatch(executionRpcUrl: string, gateway: DevEthereumGateway): Promise<boolean> {
+  const publicClient = createPublicClient({
+    transport: http(executionRpcUrl, { retryCount: 1, timeout: 15_000 }),
+  });
+
+  try {
+    const [argonTokenAddress, argonotTokenAddress] = await Promise.all([
+      publicClient.readContract({
+        address: gateway.gatewayAddress,
+        abi: EvmContracts.mintingGatewayAbi,
+        functionName: 'argonToken',
+      }),
+      publicClient.readContract({
+        address: gateway.gatewayAddress,
+        abi: EvmContracts.mintingGatewayAbi,
+        functionName: 'argonotToken',
+      }),
+    ]);
+
+    return (
+      argonTokenAddress.toLowerCase() === gateway.argonTokenAddress.toLowerCase() &&
+      argonotTokenAddress.toLowerCase() === gateway.argonotTokenAddress.toLowerCase()
+    );
+  } catch {
+    return false;
+  }
+}
+
+export async function loadConfiguredDevEthereumGateway(archiveUrl: string): Promise<DevEthereumGateway | undefined> {
+  await waitForQueryableClient(archiveUrl, { label: 'dev Ethereum chain-config client' });
+  const client = await getClient(archiveUrl);
+
+  try {
+    const chainConfig = await client.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
+    if (chainConfig.isNone) return;
+
+    const config = chainConfig.unwrap();
+    if (!config.isEvm) return;
+
+    const ethereum = config.asEvm;
+    return {
+      gatewayAddress: getAddress(ethereum.gateway.toHex()),
+      argonTokenAddress: getAddress(ethereum.argonToken.toHex()),
+      argonotTokenAddress: getAddress(ethereum.argonotToken.toHex()),
+    };
+  } finally {
+    await client.disconnect().catch(() => undefined);
+  }
+}
+
+async function readDevEthereumRuntimeStateCandidates(): Promise<IDevEthereumRuntimeState[]> {
+  const latest = await readDevEthereumRuntimeState();
+  const latestStatePath = getDevEthereumRuntimeStatePath();
+  const configuredStateDir = process.env.ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR?.trim();
+  const scopedStateDir = configuredStateDir
+    ? path.dirname(latestStatePath)
+    : path.join(path.dirname(latestStatePath), 'dev-ethereum');
+  const fileNames = await fs.readdir(scopedStateDir).catch(() => []);
+  const scopedStates = await Promise.all(
+    fileNames
+      .filter(fileName => fileName.endsWith('.json') && fileName !== 'latest.json')
+      .map(async fileName => {
+        try {
+          const raw = await fs.readFile(path.join(scopedStateDir, fileName), 'utf8');
+          return JSON.parse(raw) as IDevEthereumRuntimeState;
+        } catch {
+          return undefined;
+        }
+      }),
+  );
+  scopedStates.sort((left, right) => Date.parse(right?.updatedAt ?? '') - Date.parse(left?.updatedAt ?? ''));
+
+  const candidates: IDevEthereumRuntimeState[] = [];
+  for (const state of [latest, ...scopedStates]) {
+    if (!state || candidates.some(candidate => candidate.executionRpcUrl === state.executionRpcUrl)) continue;
+    candidates.push(state);
+  }
+  return candidates;
+}
+
 export async function readDevEthereumRuntimeState(
   executionRpcUrl?: string,
   runtimeStateDir?: string,
@@ -339,7 +469,7 @@ export async function resolveDevEthereumRpcUrl(args: { rpcUrl?: string; logPrefi
 
   const runtimeState = await readDevEthereumRuntimeState();
   const runtimeRpc = readNonEmpty(runtimeState?.executionRpcUrl);
-  if (runtimeRpc) {
+  if (runtimeRpc && runtimeState?.setupStatus === 'ready') {
     try {
       const chainId = await rpcCall<string>(runtimeRpc, 'eth_chainId', []);
       if (!runtimeState?.chainId || chainId === runtimeState.chainId) {
@@ -354,6 +484,8 @@ export async function resolveDevEthereumRpcUrl(args: { rpcUrl?: string; logPrefi
         `[${logPrefix}] Ignoring unreadable dev Ethereum runtime state at ${runtimeRpc}: ${(error as Error).message}`,
       );
     }
+  } else if (runtimeRpc) {
+    throw new Error('Local Ethereum setup has not finished. Keep Tauri dev running and retry after it is ready.');
   }
 
   throw new Error(
@@ -502,7 +634,7 @@ export function writeDevEthereumRuntimeState(state: Omit<IDevEthereumRuntimeStat
 
 export function updateDevEthereumRuntimeState(
   executionRpcUrl: string,
-  updates: Partial<Pick<IDevEthereumRuntimeState, 'setupStatus' | 'mintingAuthorityStatus'>>,
+  updates: Partial<Pick<IDevEthereumRuntimeState, 'gateway' | 'setupStatus' | 'mintingAuthorityStatus'>>,
 ): Promise<void> {
   return queueDevEthereumRuntimeStateOperation(async () => {
     const runtimeState = await readDevEthereumRuntimeState(executionRpcUrl);
@@ -526,14 +658,9 @@ async function writeDevEthereumRuntimeStateNow(state: Omit<IDevEthereumRuntimeSt
   const scopedStatePath = getDevEthereumRuntimeStatePath(state.executionRpcUrl);
   const serialized = `${JSON.stringify(runtimeState, null, 2)}\n`;
 
-  await Promise.all([
-    fs.mkdir(path.dirname(latestStatePath), { recursive: true }),
-    fs.mkdir(path.dirname(scopedStatePath), { recursive: true }),
-  ]);
-  await Promise.all([
-    writeFileAtomically(latestStatePath, serialized),
-    writeFileAtomically(scopedStatePath, serialized),
-  ]);
+  await fs.mkdir(path.dirname(scopedStatePath), { recursive: true });
+  await writeFileAtomically(scopedStatePath, serialized);
+  await writeFileAtomically(latestStatePath, serialized);
 }
 
 async function queueDevEthereumRuntimeStateOperation<T>(operation: () => Promise<T>): Promise<T> {

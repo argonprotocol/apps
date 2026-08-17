@@ -8,6 +8,7 @@ import {
   IBitcoinLock,
   type IArgonQueryable,
   ITxProgressCallback,
+  MICROGONS_PER_ARGON,
   PalletVaultsVaultFrameRevenue,
   type Option,
   PERMILL_DECIMALS,
@@ -64,6 +65,7 @@ import { VaultHistory } from './recovery/MyVault.ts';
 import { isValidOperatorName, OPERATOR_NAME_REQUIREMENTS } from './Utils.ts';
 
 export const DEFAULT_MASTER_XPUB_PATH = "m/84'/0'/0'";
+const MINIMUM_BITCOIN_BASE_FEE = BigInt(MICROGONS_PER_ARGON);
 
 type IPendingCosignUtxo = {
   targetValue: bigint;
@@ -1659,6 +1661,9 @@ export class MyVault {
       if (rules.securitizationRatio < 1 || rules.securitizationRatio > 2) {
         throw new Error('Securitization ratio must be between 1 and 2');
       }
+      if (BigInt(rules.btcFlatFee) < MINIMUM_BITCOIN_BASE_FEE) {
+        throw new Error('The Bitcoin base fee must be at least ₳1.00.');
+      }
 
       let bitcoinXpubkey = hexToU8a(masterXpub);
       if (bitcoinXpubkey.length !== 78) {
@@ -2061,6 +2066,9 @@ export class MyVault {
       );
     }
     const { profitSharingPct, btcFlatFee, btcPctFee } = rules;
+    if (btcFlatFee < MINIMUM_BITCOIN_BASE_FEE) {
+      throw new Error('The Bitcoin base fee must be at least ₳1.00.');
+    }
     if (
       profitSharingPct !== previousRules.profitSharingPct ||
       btcFlatFee !== previousRules.btcFlatFee ||

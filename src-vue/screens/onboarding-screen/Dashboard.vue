@@ -5,7 +5,10 @@
       <section class="flex h-[14%] flex-row gap-x-2">
         <TooltipRoot>
           <TooltipTrigger as="div" box stat-box class="group flex w-[20%] flex-col !py-4">
-            <span>₳{{ microgonToArgonNm(controller.operationalOverview.rewardsEarnedAmount).format('0,0.[00]') }}</span>
+            <span>
+              {{ currency.symbol
+              }}{{ microgonToMoneyNm(controller.operationalOverview.rewardsEarnedAmount).format('0,0.00') }}
+            </span>
             <label>Rewards Earned</label>
           </TooltipTrigger>
           <TooltipContent
@@ -26,7 +29,10 @@
 
         <TooltipRoot>
           <TooltipTrigger as="div" box stat-box class="group flex w-[20%] flex-col !py-4">
-            <span>₳{{ microgonToArgonNm(controller.operationalOverview.pendingRewardsAmount).format('0,0.[00]') }}</span>
+            <span>
+              {{ currency.symbol
+              }}{{ microgonToMoneyNm(controller.operationalOverview.pendingRewardsAmount).format('0,0.00') }}
+            </span>
             <label>Rewards Unclaimed</label>
           </TooltipTrigger>
           <TooltipContent
@@ -111,7 +117,16 @@
     </TooltipProvider>
 
     <section box class="mt-2 flex min-h-0 grow flex-col px-2">
-      <header class="flex items-center justify-end gap-3 border-b border-slate-400/30 px-2 py-2">
+      <header class="flex items-center gap-3 border-b border-slate-400/30 px-2 py-2">
+        <button
+          data-testid="Onboarding.editOperatorName"
+          type="button"
+          class="ml-auto cursor-pointer text-base font-light text-slate-700 hover:opacity-80"
+          @click="basicEmitter.emit('openOperationalProfileOverlay', { screen: 'settings' })"
+        >
+          Settings
+        </button>
+        <div class="h-5 w-px bg-slate-600/30" />
         <button
           type="button"
           :disabled="!canViewRewards"
@@ -120,17 +135,6 @@
         >
           View Rewards
         </button>
-        <template v-if="supportsFlexibleAssets">
-          <div class="h-5 w-px bg-slate-600/30" />
-          <button
-            type="button"
-            :disabled="!myVault.createdVault"
-            class="cursor-pointer text-base font-light text-slate-700 hover:opacity-80 disabled:cursor-default disabled:opacity-35"
-            @click="basicEmitter.emit('openFlexibleAssetsOverlay')"
-          >
-            Manage Flexible Assets
-          </button>
-        </template>
         <div class="h-5 w-px bg-slate-600/30" />
         <span class="relative">
           <button
@@ -187,12 +191,10 @@ import { TooltipArrow, TooltipContent, TooltipProvider, TooltipRoot, TooltipTrig
 import OnboardingIcon from '../../assets/onboarding.svg?component';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
-import { supportsFlexibleAssetsRuntime } from '../../lib/MyVault.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { useCertificationController } from '../../stores/certificationController.ts';
 import { getConfig } from '../../stores/config.ts';
 import { getCurrency } from '../../stores/currency.ts';
-import { getMainchainClient } from '../../stores/mainchain.ts';
 import { getMyVault } from '../../stores/vaults.ts';
 import MemberInvites from './components/MemberInvites.vue';
 
@@ -200,9 +202,8 @@ const config = getConfig();
 const controller = useCertificationController();
 const currency = getCurrency();
 const myVault = getMyVault();
-const { microgonToArgonNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
-const supportsFlexibleAssets = Vue.ref(false);
 const showCreateInviteGuidance = Vue.ref(false);
 
 const canViewRewards = Vue.computed(() => {
@@ -229,11 +230,6 @@ function openRewards() {
     basicEmitter.emit('openOperationalRewardsOverlay', { screen: 'claim' });
   }
 }
-
-Vue.onMounted(async () => {
-  const client = await getMainchainClient(false);
-  supportsFlexibleAssets.value = supportsFlexibleAssetsRuntime(client);
-});
 </script>
 
 <style scoped>

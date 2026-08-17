@@ -8,7 +8,6 @@ import {
 } from '@argonprotocol/apps-core';
 import type { KeyringPair } from '@argonprotocol/mainchain';
 import type {
-  BitcoinLockRelayStatus,
   IBitcoinLockCouponStatus,
   IBitcoinLockStatusResponse,
   IInviteResponse,
@@ -127,8 +126,8 @@ export class UpstreamOperatorClient {
   public async initializeBitcoinLock(
     offerCode: string,
     payload: IInitializeBitcoinLockRequest,
-  ): Promise<IBitcoinLockCouponStatus & { status: BitcoinLockRelayStatus }> {
-    const body = await this.requestWithOperatorHost(async operatorHost =>
+  ): Promise<IBitcoinLockStatusResponse> {
+    return await this.requestWithOperatorHost(async operatorHost =>
       this.requestWithSessionRetry(this.getMemberSessionAuth(operatorHost), sessionId =>
         UpstreamOperatorClient.postJson<IBitcoinLockStatusResponse>(
           operatorHost,
@@ -138,8 +137,19 @@ export class UpstreamOperatorClient {
         ),
       ),
     );
+  }
 
-    return body.bitcoinLock as IBitcoinLockCouponStatus & { status: BitcoinLockRelayStatus };
+  public async recordBitcoinLockFeeCouponUse(requestId: string, status: 'Finalized' | 'Failed'): Promise<void> {
+    await this.requestWithOperatorHost(async operatorHost =>
+      this.requestWithSessionRetry(this.getMemberSessionAuth(operatorHost), sessionId =>
+        UpstreamOperatorClient.postJson<IBitcoinLockStatusResponse>(
+          operatorHost,
+          `/bitcoin-lock-coupon-uses/${encodeURIComponent(requestId)}`,
+          { status },
+          sessionId,
+        ),
+      ),
+    );
   }
 
   public async getBitcoinLockCoupons(): Promise<IBitcoinLockCouponStatus[]> {
@@ -302,6 +312,8 @@ export class UpstreamOperatorClient {
       throw new RequestStatusError(
         responseError ?? `Upstream operator request failed (${response.status}).`,
         response.status,
+        getObjectStringProperty(body, 'code'),
+        getObjectStringProperty(body, 'minimumDesktopVersion'),
       );
     }
     if (responseError) {

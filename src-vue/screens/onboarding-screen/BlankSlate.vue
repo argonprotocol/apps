@@ -79,7 +79,6 @@ const config = getConfig();
 const controller = useCertificationController();
 const currency = getCurrency();
 const { microgonToArgonNm } = createNumeralHelpers(currency);
-
 function continueOnboarding() {
   config.onboardingSetupStatus = OnboardingSetupStatus.Checklist;
   void config.save();

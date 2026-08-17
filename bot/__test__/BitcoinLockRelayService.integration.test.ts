@@ -3,15 +3,16 @@ import os from 'node:os';
 import Path from 'node:path';
 import BigNumber from 'bignumber.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { getOfflineRegistry, TxSubmitter, Vault } from '@argonprotocol/mainchain';
 import { sudo } from '@argonprotocol/testing';
+import { stringToU8a, u8aToHex } from '@polkadot/util';
+import { blake2AsU8a, signatureVerify } from '@polkadot/util-crypto';
 import {
   type BlockWatch,
-  type IBitcoinLockCouponStatus,
   type IBitcoinLockRelayJobRequest,
   type IBitcoinLockRelayRecord,
   type IBlockHeaderInfo,
   type MainchainClients,
-  MiningFrames,
   NetworkConfig,
   TransactionEvents,
 } from '@argonprotocol/apps-core';
@@ -24,9 +25,10 @@ NetworkConfig.setNetwork('dev-docker');
 const { BitcoinLockRelayService } = await import('../src/BitcoinLockRelayService.ts');
 type TestRelayService = {
   vaultId?: number;
+  latestVault?: Vault;
   startInternal(): Promise<void>;
-  submitNewRelay(coupon: unknown, request: IBitcoinLockRelayJobRequest): Promise<IBitcoinLockCouponStatus>;
-  checkRelayCapacity(coupon: unknown, request: IBitcoinLockRelayJobRequest): Promise<unknown>;
+  submitNewRelay(request: IBitcoinLockRelayJobRequest): Promise<IBitcoinLockRelayRecord>;
+  checkRelayCapacity(request: IBitcoinLockRelayJobRequest): Promise<unknown>;
   handleSubmissionUpdate(relayId: number, client: unknown, result: ISubmittableResult): Promise<void>;
   reconcileNonTerminalRelays(): Promise<void>;
   relayWatchUnsubscribes: Map<number, () => void>;
@@ -37,6 +39,71 @@ afterEach(() => {
 });
 
 describe.sequential('BitcoinLockRelayService integration', () => {
+  it('signs the requested lock amount and price with the next coupon nonce', async () => {
+    const harness = await createRelayServiceHarness();
+    const service = harness.service as unknown as TestRelayService;
+
+    try {
+      vi.spyOn(harness.service, 'start').mockResolvedValue();
+      service.vaultId = 1;
+      service.latestVault = Object.assign(Object.create(Vault.prototype), {
+        vaultId: 1,
+        delegateAccountId: harness.service.delegateAddress,
+      });
+      vi.spyOn(harness.clients, 'get').mockResolvedValue({
+        genesisHash: { toHex: () => `0x${'12'.repeat(32)}` },
+        tx: { bitcoinLocks: {} },
+        query: {
+          miningSlot: {
+            nextFrameId: async () => ({ toBigInt: () => 11n }),
+          },
+          bitcoinLocks: {
+            lastFeeCouponNonceByVaultAndAccount: async () => ({
+              isSome: true,
+              unwrap: () => ({ toBigInt: () => 4n }),
+            }),
+          },
+        },
+      } as never);
+
+      const request = {
+        vaultId: 1,
+        beneficiary: sudo().address,
+        requestedSatoshis: 25_000n,
+        microgonsAtTargetPerBtc: 75_000_000n,
+        feeDiscountMicrogons: 400n,
+        expiresAfterTicks: 60,
+      };
+      await expect(harness.service.signFeeCoupon({ ...request, feeCouponNonce: 4n })).rejects.toThrow(
+        'nonce is no longer available',
+      );
+      const coupon = await harness.service.signFeeCoupon({ ...request, feeCouponNonce: 5n });
+      const message = getOfflineRegistry()
+        .createType('(Bytes,H256,u32,AccountId,u64,u128,u128,u128,u64,u64)', [
+          u8aToHex(stringToU8a('bitcoin_lock_fee_coupon')),
+          `0x${'12'.repeat(32)}`,
+          request.vaultId,
+          request.beneficiary,
+          request.requestedSatoshis,
+          request.microgonsAtTargetPerBtc,
+          request.feeDiscountMicrogons,
+          coupon.securitizationSpaceToUnreserve,
+          coupon.expiresAtFrame,
+          coupon.nonce,
+        ])
+        .toU8a();
+
+      expect(coupon).toMatchObject({ feeDiscount: 400n, nonce: 5n });
+      expect(coupon).not.toHaveProperty('requestedSatoshis');
+      expect(coupon).not.toHaveProperty('microgonsAtTargetPerBtc');
+      expect(
+        signatureVerify(blake2AsU8a(message, 256), coupon.signature as string, harness.service.delegateAddress),
+      ).toMatchObject({ isValid: true });
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
   it('retries startup after an initial failure', async () => {
     const harness = await createRelayServiceHarness();
     const service = harness.service as unknown as TestRelayService;
@@ -59,7 +126,7 @@ describe.sequential('BitcoinLockRelayService integration', () => {
     }
   });
 
-  it('stores the btc percent fee on created coupons', async () => {
+  it('returns the same active relay when the same request is submitted twice', async () => {
     const harness = await createRelayServiceHarness();
     const service = harness.service as unknown as TestRelayService;
 
@@ -67,49 +134,22 @@ describe.sequential('BitcoinLockRelayService integration', () => {
       vi.spyOn(service, 'startInternal').mockImplementation(async () => {
         service.vaultId = 1;
       });
-
-      const coupon = await harness.service.createCoupon({
-        userId: 1,
-        vaultId: 1,
-        maxSatoshis: 50_000n,
-        estimatedGiftUsd: 30,
-        btcPctFee: 2.5,
-        expiresAfterTicks: 60,
-      });
-
-      expect(coupon.coupon.btcPctFee).toBe(2.5);
-      expect(harness.db.bitcoinLockCouponsTable.fetchById(coupon.coupon.id)?.btcPctFee).toBe(2.5);
-    } finally {
-      await harness.cleanup();
-    }
-  });
-
-  it('returns the same active relay when the same invite is submitted twice', async () => {
-    const harness = await createRelayServiceHarness();
-    const service = harness.service as unknown as TestRelayService;
-
-    try {
-      vi.spyOn(service, 'startInternal').mockImplementation(async () => {
-        service.vaultId = 1;
-      });
-      insertCoupon(harness.db);
-      const submitSpy = vi.spyOn(service, 'submitNewRelay').mockImplementation(async (_coupon, request) => {
-        upsertCouponState(harness.db, request, 'Submitted');
-        return getCouponStatus(harness.db, request.offerCode)!;
+      const submitSpy = vi.spyOn(service, 'submitNewRelay').mockImplementation(async request => {
+        return upsertRelayState(harness.db, request, 'Submitted');
       });
 
       const first = await harness.service.relayBitcoinLock(createRelayRequest());
       const second = await harness.service.relayBitcoinLock(createRelayRequest());
 
       expect(second).toEqual(first);
-      expect(getCouponStatus(harness.db, first.coupon.offerCode)?.status).toBe('Submitted');
+      expect(harness.db.bitcoinLockRelaysTable.fetchByRequestId(first.requestId)?.status).toBe('Submitted');
       expect(submitSpy).toHaveBeenCalledTimes(1);
     } finally {
       await harness.cleanup();
     }
   });
 
-  it('coalesces concurrent initialize requests for the same invite', async () => {
+  it('coalesces concurrent submissions for the same request id', async () => {
     const harness = await createRelayServiceHarness();
     const service = harness.service as unknown as TestRelayService;
 
@@ -117,15 +157,11 @@ describe.sequential('BitcoinLockRelayService integration', () => {
       vi.spyOn(service, 'startInternal').mockImplementation(async () => {
         service.vaultId = 1;
       });
-      insertCoupon(harness.db);
-
-      let resolveRelay!: (value: any) => void;
-      const relayPromise = new Promise(resolve => {
+      let resolveRelay!: (value: IBitcoinLockRelayRecord) => void;
+      const relayPromise = new Promise<IBitcoinLockRelayRecord>(resolve => {
         resolveRelay = resolve;
       });
-      const submitSpy = vi
-        .spyOn(service, 'submitNewRelay')
-        .mockReturnValue(relayPromise as Promise<IBitcoinLockCouponStatus>);
+      const submitSpy = vi.spyOn(service, 'submitNewRelay').mockReturnValue(relayPromise);
 
       const firstPromise = harness.service.relayBitcoinLock(createRelayRequest());
       const secondPromise = harness.service.relayBitcoinLock(createRelayRequest());
@@ -133,8 +169,7 @@ describe.sequential('BitcoinLockRelayService integration', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
       expect(submitSpy).toHaveBeenCalledTimes(1);
 
-      upsertCouponState(harness.db, createRelayRequest(), 'Submitted');
-      resolveRelay(getCouponStatus(harness.db, createRelayRequest().offerCode)!);
+      resolveRelay(upsertRelayState(harness.db, createRelayRequest(), 'Submitted'));
 
       const [first, second] = await Promise.all([firstPromise, secondPromise]);
       expect(second).toEqual(first);
@@ -151,15 +186,15 @@ describe.sequential('BitcoinLockRelayService integration', () => {
       vi.spyOn(service, 'startInternal').mockImplementation(async () => {
         service.vaultId = 1;
       });
-      insertCoupon(harness.db);
       vi.spyOn(service, 'checkRelayCapacity').mockResolvedValue({
         canSubmit: false,
         reason: 'Vault securitization is currently exhausted for this lock request.',
         statusCode: 409,
       });
+      harness.laneClient.tx = { bitcoinLocks: { initializeFor: vi.fn() } };
 
       await expect(harness.service.relayBitcoinLock(createRelayRequest())).rejects.toThrow('Vault securitization');
-      expect(getCouponStatus(harness.db, 'offer-code')?.status).toBe('Open');
+      expect(harness.db.bitcoinLockRelaysTable.fetchAll()).toEqual([]);
     } finally {
       await harness.cleanup();
     }
@@ -170,9 +205,12 @@ describe.sequential('BitcoinLockRelayService integration', () => {
     const service = harness.service as unknown as TestRelayService;
 
     try {
-      const coupon = insertCoupon(harness.db);
-      const request = createRelayRequest(coupon.offerCode);
-      service.vaultId = coupon.vaultId;
+      const request = createRelayRequest();
+      service.vaultId = request.vaultId;
+      service.latestVault = Object.assign(Object.create(Vault.prototype), {
+        vaultId: request.vaultId,
+        operatorAccountId: 'operator',
+      });
       vi.spyOn(service, 'checkRelayCapacity').mockResolvedValue({
         canSubmit: true,
         securitizationUsedMicrogons: 1_000n,
@@ -184,26 +222,25 @@ describe.sequential('BitcoinLockRelayService integration', () => {
         send: vi.fn(async () => () => undefined),
       };
       const signAsync = vi.fn(async (_signer: { address: string }, _options: unknown) => signedTx);
-      const initializeFor = Object.assign(
-        vi.fn(() => ({ signAsync })),
-        {
-          meta: { args: Array.from({ length: 6 }) },
-        },
-      );
+      const initializeFor = vi.fn(() => ({ signAsync }));
       harness.laneClient.tx = { bitcoinLocks: { initializeFor } };
+      vi.spyOn(TxSubmitter.prototype, 'canAfford').mockResolvedValue({
+        canAfford: true,
+        availableBalance: 0n,
+        txFee: 0n,
+      });
 
-      const status = await service.submitNewRelay(coupon, request);
+      const status = await service.submitNewRelay(request);
 
       expect(status.status).toBe('Submitted');
-      const initializeArgs = [
+      expect(initializeFor).toHaveBeenCalledWith(
         request.ownerAccountId,
-        coupon.vaultId,
+        request.vaultId,
         request.requestedSatoshis,
-        request.ownerBitcoinPubkey,
+        expect.any(Uint8Array),
         { V1: { microgonsAtTargetPerBtc: request.microgonsAtTargetPerBtc } },
         0n,
-      ];
-      expect(initializeFor).toHaveBeenCalledWith(...initializeArgs);
+      );
       expect(signAsync.mock.calls[0]?.[0].address).toBe(sudo().address);
     } finally {
       await harness.cleanup();
@@ -215,9 +252,8 @@ describe.sequential('BitcoinLockRelayService integration', () => {
     const service = harness.service as unknown as TestRelayService;
 
     try {
-      const coupon = insertCoupon(harness.db);
-      const request = createRelayRequest(coupon.offerCode);
-      service.vaultId = coupon.vaultId;
+      const request = createRelayRequest();
+      service.vaultId = request.vaultId;
       vi.spyOn(service, 'checkRelayCapacity').mockResolvedValue({
         canSubmit: true,
         securitizationUsedMicrogons: 1_000n,
@@ -226,12 +262,13 @@ describe.sequential('BitcoinLockRelayService integration', () => {
       const initialize = vi.fn();
       harness.laneClient.tx = { bitcoinLocks: { initialize } };
 
-      await expect(service.submitNewRelay(coupon, request)).rejects.toMatchObject({
-        message: 'This runtime requires the Bitcoin lock owner to submit initialization directly.',
+      await expect(service.submitNewRelay(request)).rejects.toMatchObject({
+        message:
+          'This runtime no longer supports delegated Bitcoin lock initialization. Update Argon Desktop to use the fee coupon directly.',
         status: 409,
       });
       expect(initialize).not.toHaveBeenCalled();
-      expect(harness.db.bitcoinLockRelaysTable.fetchByCouponId(coupon.id)).toBeNull();
+      expect(harness.db.bitcoinLockRelaysTable.fetchByRequestId(request.requestId)).toBeNull();
     } finally {
       await harness.cleanup();
     }
@@ -239,22 +276,18 @@ describe.sequential('BitcoinLockRelayService integration', () => {
 
   it('uses redemption liquidity for securitization preflight and logs the compared values', async () => {
     const harness = await createRelayServiceHarness();
-    const service = harness.service as unknown as TestRelayService & {
-      latestVault?: unknown;
-      vaultId?: number;
-    };
+    const service = harness.service as unknown as TestRelayService;
 
     try {
-      const coupon = insertCoupon(harness.db);
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       service.vaultId = 1;
-      service.latestVault = {
+      service.latestVault = Object.assign(Object.create(Vault.prototype), {
         vaultId: 1,
         delegateAccountId: sudo().address,
         availableSecuritizationSpace: () => 1_020_000n,
         securitizationRatioBN: () => new BigNumber(1),
-      };
+      });
       harness.clients.get = vi.fn(async () => ({
         query: {
           priceIndex: {
@@ -273,8 +306,8 @@ describe.sequential('BitcoinLockRelayService integration', () => {
         },
       })) as any;
 
-      const preflight = (await service.checkRelayCapacity(coupon, {
-        ...createRelayRequest(coupon.offerCode),
+      const preflight = (await service.checkRelayCapacity({
+        ...createRelayRequest(),
         requestedSatoshis: 25_000n,
         microgonsAtTargetPerBtc: 4_000_000_000n,
       })) as {
@@ -313,42 +346,41 @@ describe.sequential('BitcoinLockRelayService integration', () => {
       });
 
       const cases: Array<{
-        offerCode: string;
+        requestId: string;
         patch: Partial<IBitcoinLockRelayJobRequest>;
         errorMatcher: string;
       }> = [
         {
-          offerCode: 'missing-account-id',
+          requestId: 'missing-account-id',
           patch: { ownerAccountId: '   ' },
           errorMatcher: 'owner account id',
         },
         {
-          offerCode: 'missing-pubkey',
+          requestId: 'missing-pubkey',
           patch: { ownerBitcoinPubkey: '   ' },
           errorMatcher: 'owner bitcoin pubkey',
         },
         {
-          offerCode: 'below-minimum-sats',
+          requestId: 'below-minimum-sats',
           patch: { requestedSatoshis: 1000n },
           errorMatcher: 'greater than minimum satoshis',
         },
         {
-          offerCode: 'missing-price-quote',
+          requestId: 'missing-price-quote',
           patch: { microgonsAtTargetPerBtc: 0n },
           errorMatcher: 'current bitcoin price quote',
         },
       ];
 
-      for (const { offerCode, patch, errorMatcher } of cases) {
-        insertCoupon(harness.db, offerCode);
+      for (const { requestId, patch, errorMatcher } of cases) {
         await expect(
           harness.service.relayBitcoinLock({
-            ...createRelayRequest(offerCode),
+            ...createRelayRequest(requestId),
             ...patch,
           }),
         ).rejects.toThrow(errorMatcher);
 
-        expect(getCouponStatus(harness.db, offerCode)?.status).toBe('Open');
+        expect(harness.db.bitcoinLockRelaysTable.fetchByRequestId(requestId)).toBeNull();
       }
     } finally {
       await harness.cleanup();
@@ -371,11 +403,8 @@ describe.sequential('BitcoinLockRelayService integration', () => {
       ];
 
       for (const [index, { kind, errorMatcher }] of failures.entries()) {
-        const request = createRelayRequest();
-        request.offerCode = `offer-code-${index}`;
-        insertCoupon(harness.db, request.offerCode);
-
-        const relay = upsertCouponState(harness.db, request, 'Submitted');
+        const request = createRelayRequest(`request-${index}`);
+        const relay = upsertRelayState(harness.db, request, 'Submitted');
 
         await service.handleSubmissionUpdate(relay.id, {} as any, createSubmissionResult({ blockHash: '0x1', kind }));
 
@@ -398,8 +427,7 @@ describe.sequential('BitcoinLockRelayService integration', () => {
 
     try {
       const request = createRelayRequest();
-      insertCoupon(harness.db, request.offerCode);
-      const relay = upsertCouponState(harness.db, request, 'Submitted');
+      const relay = upsertRelayState(harness.db, request, 'Submitted');
 
       vi.spyOn(service as any, 'getRelayEventData').mockResolvedValue({
         inBlockHeight: 12,
@@ -445,8 +473,7 @@ describe.sequential('BitcoinLockRelayService integration', () => {
 
     try {
       const request = createRelayRequest();
-      insertCoupon(harness.db, request.offerCode);
-      const relay = upsertCouponState(harness.db, request, 'Submitted');
+      const relay = upsertRelayState(harness.db, request, 'Submitted');
       patchRelayRow(harness.db, relay.id, {
         extrinsicHash: '0xdeadbeef',
         txSubmittedAtBlockHeight: 12,
@@ -471,8 +498,7 @@ describe.sequential('BitcoinLockRelayService integration', () => {
 
     try {
       const request = createRelayRequest();
-      insertCoupon(harness.db, request.offerCode);
-      const relay = upsertCouponState(harness.db, request, 'Submitted');
+      const relay = upsertRelayState(harness.db, request, 'Submitted');
       patchRelayRow(harness.db, relay.id, {
         extrinsicHash: '0xinblock',
         txSubmittedAtBlockHeight: 8,
@@ -516,8 +542,7 @@ describe.sequential('BitcoinLockRelayService integration', () => {
 
     try {
       const request = createRelayRequest();
-      insertCoupon(harness.db, request.offerCode);
-      const relay = upsertCouponState(harness.db, request, 'InBlock');
+      const relay = upsertRelayState(harness.db, request, 'InBlock');
       patchRelayRow(harness.db, relay.id, {
         txInBlockHeight: 82,
         txInBlockHash: '0xnew-block',
@@ -542,8 +567,7 @@ describe.sequential('BitcoinLockRelayService integration', () => {
 
     try {
       const request = createRelayRequest();
-      insertCoupon(harness.db, request.offerCode);
-      const relay = upsertCouponState(harness.db, request, 'InBlock');
+      const relay = upsertRelayState(harness.db, request, 'InBlock');
       patchRelayRow(harness.db, relay.id, {
         txInBlockHeight: 82,
         txInBlockHash: '0xold-block',
@@ -606,6 +630,7 @@ async function createRelayServiceHarness(args?: { bestBlockNumber?: number; fina
 
   return {
     db,
+    blockWatch,
     clients,
     laneClient,
     service,
@@ -617,42 +642,29 @@ async function createRelayServiceHarness(args?: { bestBlockNumber?: number; fina
   };
 }
 
-function createRelayRequest(offerCode = 'offer-code'): IBitcoinLockRelayJobRequest {
+function createRelayRequest(requestId = 'request-id'): IBitcoinLockRelayJobRequest {
   return {
-    offerCode,
+    requestId,
+    vaultId: 1,
     requestedSatoshis: 25_000n,
     ownerAccountId: sudo().address,
-    ownerBitcoinPubkey: '0x1234',
+    ownerBitcoinPubkey: `02${'33'.repeat(32)}`,
     microgonsAtTargetPerBtc: 75_000_000n,
   };
 }
 
-function insertCoupon(db: Db, offerCode = 'offer-code') {
-  const coupon = db.bitcoinLockCouponsTable.insertCoupon({
-    userId: 1,
-    offerCode,
-    vaultId: 1,
-    maxSatoshis: 50_000n,
-    estimatedGiftUsd: 30,
-    expiresAfterTicks: 60,
-  });
-
-  return db.bitcoinLockCouponsTable.activateCoupon(coupon.id, sudo().address, 999_999)!;
-}
-
-function upsertCouponState(db: Db, request: IBitcoinLockRelayJobRequest, status: 'Submitted' | 'InBlock') {
-  const coupon = db.bitcoinLockCouponsTable.fetchByOfferCode(request.offerCode) ?? insertCoupon(db, request.offerCode);
-  let relay = db.bitcoinLockRelaysTable.fetchByCouponId(coupon.id);
+function upsertRelayState(db: Db, request: IBitcoinLockRelayJobRequest, status: 'Submitted' | 'InBlock') {
+  let relay = db.bitcoinLockRelaysTable.fetchByRequestId(request.requestId);
   if (!relay) {
     relay = db.bitcoinLockRelaysTable.insertRelay({
-      couponId: coupon.id,
+      requestId: request.requestId,
       requestedSatoshis: request.requestedSatoshis,
       securitizationUsedMicrogons: 0n,
       ownerAccountId: request.ownerAccountId,
       ownerBitcoinPubkey: request.ownerBitcoinPubkey,
       microgonsAtTargetPerBtc: request.microgonsAtTargetPerBtc,
       delegateAddress: sudo().address,
-      extrinsicHash: `0x${request.offerCode}`,
+      extrinsicHash: `0x${request.requestId}`,
       extrinsicMethodJson: {},
       txNonce: 1,
       txSubmittedAtBlockHeight: 8,
@@ -670,19 +682,6 @@ function upsertCouponState(db: Db, request: IBitcoinLockRelayJobRequest, status:
     });
   }
   return relay;
-}
-
-function getCouponStatus(db: Db, offerCode: string): IBitcoinLockCouponStatus | undefined {
-  const coupon = db.bitcoinLockCouponsTable.fetchByOfferCode(offerCode);
-  if (!coupon) return undefined;
-
-  const relay = db.bitcoinLockRelaysTable.fetchByCouponId(coupon.id);
-  return {
-    coupon,
-    relay: relay ?? undefined,
-    status: relay?.status ?? 'Open',
-    expiresAt: coupon.expirationTick ? MiningFrames.getTickDate(coupon.expirationTick) : undefined,
-  };
 }
 
 function patchRelayRow(

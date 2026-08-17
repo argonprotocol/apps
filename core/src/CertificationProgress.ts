@@ -2,6 +2,7 @@ import {
   type ArgonClient,
   type BitcoinLock,
   type Option,
+  type PalletCrosschainTransferAccountTransferTotals,
   type PalletOperationalAccountsOperationalAccount,
 } from '@argonprotocol/mainchain';
 import { BondLot } from './BondLot.js';
@@ -60,12 +61,22 @@ export async function loadCertificationProgress(args: {
   defaultAccountId: string;
   operationalAccountId?: string;
   accountLocksPromise?: ReturnType<typeof loadAccountLocks>;
+  operationalAccountPromise?: Promise<Option<PalletOperationalAccountsOperationalAccount>>;
+  transferTotalsPromise?: Promise<PalletCrosschainTransferAccountTransferTotals>;
 }): Promise<ICertificationProgress> {
-  const { client, defaultAccountId, operationalAccountId, accountLocksPromise } = args;
+  const {
+    client,
+    defaultAccountId,
+    operationalAccountId,
+    accountLocksPromise,
+    operationalAccountPromise,
+    transferTotalsPromise,
+  } = args;
   const thresholds = getCertificationThresholds(client);
 
   if (operationalAccountId) {
-    const accountRaw = await client.query.operationalAccounts.operationalAccounts(operationalAccountId);
+    const accountRaw = await (operationalAccountPromise ??
+      client.query.operationalAccounts.operationalAccounts(operationalAccountId));
     if (accountRaw.isSome) {
       return getCertificationProgressFromOperationalAccount(accountRaw, thresholds);
     }
@@ -74,7 +85,7 @@ export async function loadCertificationProgress(args: {
   const [bondLots, locks, transferTotals] = await Promise.all([
     TreasuryBonds.getBondLotsByAccount(client, defaultAccountId),
     accountLocksPromise ?? loadAccountLocks({ client, defaultAccountId }),
-    client.query.crosschainTransfer.transferTotalsByAccount(defaultAccountId),
+    transferTotalsPromise ?? client.query.crosschainTransfer.transferTotalsByAccount(defaultAccountId),
   ]);
 
   const treasuryBitcoinAmount = getAccountBitcoinAmount(locks);

@@ -8,7 +8,10 @@
     >
     <div class="pointer-events-none absolute top-3 right-3 text-xs text-slate-500">Click to copy</div>
     <template #copying>
-      <div class="text-argon-700 absolute top-3 right-3 text-xs font-semibold">Copied</div>
+      <div class="pointer-events-none absolute top-3 right-16 left-3 overflow-hidden font-mono text-xs whitespace-pre">
+        <span class="bg-blue-200">{{ content }}</span>
+      </div>
+      <div class="absolute top-3 right-3 bg-white pl-2 text-xs font-semibold text-blue-800/60">Copied</div>
     </template>
   </CopyToClipboard>
 </template>

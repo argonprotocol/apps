@@ -49,6 +49,12 @@ export const SetupRequired: Story = {
   },
 };
 
+export const ServerInstalling: Story = {
+  beforeEach: () => {
+    setupOnboardingScenario(OnboardingSetupStatus.Checklist, { hasOperation: true, serverAdded: true });
+  },
+};
+
 export const ReadyToActivate: Story = {
   beforeEach: () => {
     setupOnboardingScenario(OnboardingSetupStatus.Checklist, { hasOperation: true, serverInstalled: true });
@@ -108,13 +114,13 @@ export const MemberStates: Story = {
 
 function setupOnboardingScenario(
   onboardingSetupStatus: OnboardingSetupStatus,
-  options: { hasOperation?: boolean; serverInstalled?: boolean } = {},
+  options: { hasOperation?: boolean; serverAdded?: boolean; serverInstalled?: boolean } = {},
 ) {
   const { controller } = setupAppScenario({
     selectedTab: TopTab.Onboarding,
     config: {
       onboardingSetupStatus,
-      isServerAdded: options.serverInstalled ?? false,
+      isServerAdded: options.serverAdded ?? options.serverInstalled ?? false,
       isServerInstalled: options.serverInstalled ?? false,
     },
   });

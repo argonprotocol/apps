@@ -270,6 +270,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import { NetworkConfig } from '@argonprotocol/apps-core';
 import { PopoverAnchor, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui';
 import { getConfig } from '../stores/config.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
@@ -526,9 +527,12 @@ Vue.onMounted(() => {
   void loadAttentionData();
   void loadOperationalInvites();
 
-  operationalInviteRefreshInterval = setInterval(() => {
-    void loadOperationalInvites();
-  }, 5_000);
+  operationalInviteRefreshInterval = setInterval(
+    () => {
+      void loadOperationalInvites();
+    },
+    Math.max(NetworkConfig.tickMillis, 5_000),
+  );
 
   basicEmitter.on('openVaultCollect', openVaultCollect);
   basicEmitter.on('openBitcoinUnlock', openBitcoinUnlock);

@@ -189,10 +189,7 @@ async function requestUpgrade() {
     void config.save();
 
     if (invite.value) {
-      invite.value = {
-        ...invite.value,
-        operationsUpgradeRequestedAt,
-      };
+      invite.value.operationsUpgradeRequestedAt = operationsUpgradeRequestedAt;
     }
   } catch (error) {
     formError.value =

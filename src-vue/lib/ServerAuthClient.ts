@@ -46,6 +46,8 @@ export class RequestStatusError extends Error {
   constructor(
     message: string,
     public readonly status: number,
+    public readonly code?: string,
+    public readonly minimumDesktopVersion?: string,
   ) {
     super(message);
   }

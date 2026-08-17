@@ -47,7 +47,7 @@ const MAX_DECODED_INVITE_LENGTH = 512;
 const BASE64_PATTERN = /^(?:[A-Za-z0-9_-]+={0,2})$/;
 const InviteFieldsSchema = z
   .object({
-    host: z.string().ip(),
+    host: z.union([z.literal('localhost'), z.string().ip()]),
     port: z
       .string()
       .regex(/^[1-9]\d{0,4}$/)

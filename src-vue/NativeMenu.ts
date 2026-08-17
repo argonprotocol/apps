@@ -128,27 +128,21 @@ export async function createMenu() {
         text: 'Open Internal App Wallet',
         action: () => basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon }),
       },
-      await PredefinedMenuItem.new({ item: 'Separator' }),
-      await Submenu.new({
-        text: 'Crosschain Transfers',
-        items: [
-          {
-            id: 'experimental-create-minting-authority-request',
-            text: 'Register a Minting Authority',
-            action: () => basicEmitter.emit('openMintingAuthorityRequestOverlay'),
-          },
-          ...(IS_LOCAL_BUILD && NETWORK_NAME === 'dev-docker'
-            ? [
-                await PredefinedMenuItem.new({ item: 'Separator' }),
+      ...(IS_LOCAL_BUILD && NETWORK_NAME === 'dev-docker'
+        ? [
+            await PredefinedMenuItem.new({ item: 'Separator' }),
+            await Submenu.new({
+              text: 'Crosschain Transfers',
+              items: [
                 {
                   id: 'experimental-force-update-global-issuance-council',
                   text: 'Reset Global Issuance Council',
                   action: () => void showForceUpdateGlobalIssuanceCouncilCommand(),
                 },
-              ]
-            : []),
-        ],
-      }),
+              ],
+            }),
+          ]
+        : []),
     ],
   });
 

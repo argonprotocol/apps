@@ -635,7 +635,7 @@ const showCrosschainNavigation = Vue.computed(() => {
   return getCrosschainAccessState({
     hasActivatedCrosschain: config.hasActivatedCrosschain,
     authorityCount: myVault.mintingAuthorities.data.isReady ? myVault.mintingAuthorities.data.authorities.length : 0,
-    councilSigner: myVault.globalCouncil.data.councilSigner,
+    isActiveCouncilMember: myVault.globalCouncil.data.isActiveCouncilMember,
   }).hasAccess;
 });
 

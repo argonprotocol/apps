@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import BigNumber from 'bignumber.js';
 import { BitcoinLock, FIXED_U128_DECIMALS, toFixedNumber, TxSubmitter } from '@argonprotocol/mainchain';
-import type { TransactionTracker } from '../lib/TransactionTracker.ts';
+import { type TransactionTracker, TxAttemptState } from '../lib/TransactionTracker.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
@@ -10,12 +10,229 @@ import { numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts'
 import { createBitcoinLockConfig, createLock, createStore } from './helpers/bitcoin.ts';
 import { createTestDb } from './helpers/db.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
+import type { IBitcoinRequestLockMetadata } from '../lib/BitcoinLocks.ts';
+import type { TransactionInfo } from '../lib/TransactionInfo.ts';
+import type { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
+import { createMockWalletKeys } from './helpers/wallet.ts';
 
 vi.mock('../stores/mainchain.ts', () => ({
   getMainchainClient: vi.fn(async () => ({})),
 }));
 
 afterEach(() => vi.useRealTimers());
+
+describe('BitcoinLocks fee coupon recovery', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('estimates the full wallet balance needed before initializing with a fee waiver', async () => {
+    const walletKeys = createMockWalletKeys('//FeeCouponEstimate');
+    const store = createStore({ walletKeys });
+    const client = {
+      consts: { balances: { existentialDeposit: { toBigInt: () => 5n } } },
+    };
+    vi.mocked(getMainchainClient).mockResolvedValue(client as never);
+    vi.spyOn(BitcoinLock, 'createInitializeTx').mockResolvedValue({
+      tx: {} as never,
+      securityFee: 70n,
+      txFee: 3n,
+      txFeePlusTip: 3n,
+      availableBalance: 0n,
+      canAfford: false,
+    });
+
+    const estimate = await store.getInitializeFeeEstimate({
+      vault: { vaultId: 12 } as never,
+      satoshis: 10_000n,
+      microgonsAtTargetPerBtc: 80_000_000n,
+      feeDiscountMicrogons: 68n,
+    });
+
+    expect(estimate).toMatchObject({
+      canAfford: false,
+      requiredWalletBalanceMicrogons: 10n,
+      securityFee: 2n,
+      txFeePlusTip: 3n,
+    });
+  });
+
+  it('reauthorizes a durable initialization after restart and reaches submission after wallet funding', async () => {
+    const db = await createTestDb();
+    const walletKeys = createMockWalletKeys('//FeeCouponRecovery');
+    const existingAttempt = {
+      state: TxAttemptState.Pending,
+      txInfo: undefined as TransactionInfo<IBitcoinRequestLockMetadata> | undefined,
+    };
+    const submitAndWatch = vi.fn(async () => {
+      throw new Error('submission boundary reached');
+    });
+    const transactionTracker = Object.assign(Object.create(null), {
+      data: { txInfos: [], txInfosByType: {} },
+      findLatestTxAttempt: async (args: {
+        matches: (candidate: TransactionInfo<IBitcoinRequestLockMetadata>) => boolean;
+      }) => {
+        const { txInfo } = existingAttempt;
+        if (!txInfo || !args.matches(txInfo)) return;
+        return { txInfo, txAttemptState: existingAttempt.state };
+      },
+      load: async () => undefined,
+      pendingBlockTxInfosAtLoad: [],
+      submitAndWatch,
+    }) as TransactionTracker;
+    let upstreamSupportsFeeCoupons = true;
+    const initializeBitcoinLock = vi.fn(async (_offerCode: string, request: { requestId: string }) => {
+      if (!upstreamSupportsFeeCoupons) return { bitcoinLock: {} as never };
+
+      return {
+        bitcoinLock: {} as never,
+        execution: {
+          type: 'FeeCoupon' as const,
+          requestId: request.requestId,
+          feeCoupon,
+        },
+      };
+    });
+    const upstreamOperatorClient = Object.assign(Object.create(null), {
+      resolveOperatorHost: async () => 'http://operator.test',
+      initializeBitcoinLock,
+      recordBitcoinLockFeeCouponUse: async () => undefined,
+    }) as UpstreamOperatorClient;
+    const store = createStore({ db, transactionTracker, upstreamOperatorClient, walletKeys });
+    vi.spyOn(store, 'load').mockResolvedValue();
+    vi.spyOn(store, 'minimumSatoshiPerLock').mockResolvedValue(1n);
+    vi.spyOn(store, 'argonLiquidityForSatoshis').mockReturnValue(4_000n);
+
+    const vaultId = 12;
+    const feeCoupon = {
+      feeDiscount: 400n,
+      securitizationSpaceToUnreserve: 0n,
+      expiresAtFrame: 1_000n,
+      nonce: 1n,
+      signature: '0xsignature',
+    };
+    const pendingInitialization = {
+      id: 1,
+      couponId: 1,
+      requestId: 'lock-1',
+      status: 'Prepared' as const,
+      feeCreditMicrogons: 400n,
+      requestedSatoshis: 10_000n,
+      ownerAccountId: walletKeys.liquidLockingAddress,
+      ownerBitcoinPubkey: '0x1234',
+      microgonsAtTargetPerBtc: 75_000_000n,
+      feeCoupon,
+      createdAt: new Date('2026-08-13T12:00:00Z'),
+      updatedAt: new Date('2026-08-13T12:00:00Z'),
+    };
+    const client = {
+      consts: { balances: { existentialDeposit: { toBigInt: () => 5n } } },
+      query: { bitcoinLocks: { minimumSatoshis: async () => ({ toBigInt: () => 1n }) } },
+      tx: { bitcoinLocks: { initialize: vi.fn() } },
+    };
+    vi.mocked(getMainchainClient).mockResolvedValue(client as never);
+
+    let canAfford = false;
+    const createInitializeTx = vi.spyOn(BitcoinLock, 'createInitializeTx').mockImplementation(async args => ({
+      tx: {} as never,
+      securityFee: args.feeCoupon ? 10n : 410n,
+      txFee: 1n,
+      txFeePlusTip: 1n,
+      availableBalance: canAfford ? 16n : 15n,
+      canAfford,
+      feeCoupon: args.feeCoupon,
+    }));
+    const initialize = () =>
+      store.initializeLock({
+        vault: {
+          vaultId,
+          calculateBitcoinFee: () => 410n,
+          terms: { bitcoinBaseFee: 10n },
+        } as never,
+        satoshis: pendingInitialization.requestedSatoshis + 1n,
+        microgonsAtTargetPerBtc: 80_000_000n,
+        operatorCoupon: {
+          vaultId,
+          offerCode: 'offer-code',
+          accountId: walletKeys.liquidLockingAddress,
+          remainingFeeCreditMicrogons: 600n,
+          pendingInitialization,
+        } as never,
+      });
+
+    await expect(initialize()).rejects.toMatchObject({
+      requiredWalletBalanceMicrogons: 16n,
+    });
+    expect(createInitializeTx).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        satoshis: pendingInitialization.requestedSatoshis + 1n,
+        microgonsAtTargetPerBtc: 80_000_000n,
+      }),
+    );
+    expect(initializeBitcoinLock).not.toHaveBeenCalled();
+
+    canAfford = true;
+    upstreamSupportsFeeCoupons = false;
+    await expect(initialize()).rejects.toMatchObject({
+      status: 426,
+      code: 'UPSTREAM_UPGRADE_REQUIRED',
+    });
+    expect(submitAndWatch).not.toHaveBeenCalled();
+
+    upstreamSupportsFeeCoupons = true;
+    await expect(initialize()).rejects.toThrow('submission boundary reached');
+    expect(initializeBitcoinLock).toHaveBeenCalledWith(
+      'offer-code',
+      expect.objectContaining({
+        requestId: pendingInitialization.requestId,
+        feeCouponNonce: pendingInitialization.feeCoupon.nonce,
+        requestedSatoshis: pendingInitialization.requestedSatoshis + 1n,
+        microgonsAtTargetPerBtc: 80_000_000n,
+      }),
+    );
+
+    const pendingLock = createLock({
+      uuid: pendingInitialization.requestId,
+      status: BitcoinLockStatus.LockIsProcessingOnArgon,
+      createdAt: '2026-08-13T12:05:00Z',
+    });
+    store.data.pendingLocks.push(pendingLock);
+    existingAttempt.txInfo = {
+      tx: {
+        accountAddress: walletKeys.liquidLockingAddress,
+        extrinsicType: ExtrinsicType.BitcoinRequestLock,
+        metadataJson: {
+          bitcoin: {
+            uuid: pendingInitialization.requestId,
+            vaultId,
+            satoshis: pendingInitialization.requestedSatoshis + 1n,
+            hdPath: '//Bitcoin//0',
+            lockedTargetPrice: 80_000_000n,
+            liquidityPromised: 4_000n,
+            securityFee: 10n,
+            feeCouponNonce: pendingInitialization.feeCoupon.nonce,
+            feeCouponRequestId: 'previous-router-request',
+          },
+        },
+      },
+    } as TransactionInfo<IBitcoinRequestLockMetadata>;
+
+    await expect(initialize()).resolves.toEqual({ pendingLock, txInfo: existingAttempt.txInfo });
+
+    existingAttempt.state = TxAttemptState.Replace;
+    store.data.pendingLocks.splice(store.data.pendingLocks.indexOf(pendingLock), 1);
+    await expect(initialize()).rejects.toThrow('submission boundary reached');
+    expect(submitAndWatch).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        metadata: {
+          bitcoin: expect.objectContaining({
+            feeCouponNonce: pendingInitialization.feeCoupon.nonce,
+            feeCouponRequestId: pendingInitialization.requestId,
+            uuid: expect.not.stringContaining(pendingInitialization.requestId),
+          }),
+        },
+      }),
+    );
+  });
+});
 
 it('keeps a funding expiration estimate stable until the oracle Bitcoin height changes', async () => {
   vi.useFakeTimers();

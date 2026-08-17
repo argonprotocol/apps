@@ -19,14 +19,14 @@ it('round-trips a member invite envelope', () => {
 
 it('round-trips a localhost member invite envelope', () => {
   const encoded = InviteEnvelope.encode({
-    host: '10.0.0.4',
+    host: 'localhost',
     port: '443',
     inviteCode: 'member-invite-2',
   });
 
   expect(InviteEnvelope.decode(encoded)).toEqual({
-    host: '10.0.0.4',
-    ipAddress: '10.0.0.4',
+    host: 'localhost',
+    ipAddress: 'localhost',
     port: '443',
     inviteCode: 'member-invite-2',
   });

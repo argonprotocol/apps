@@ -23,7 +23,7 @@
     Flat Fee
   </div>
   <div class="flex flex-row items-center gap-2 w-full">
-    <InputMoney v-model="config.vaultingRules.btcFlatFee" class="w-full" />
+    <InputMoney v-model="config.vaultingRules.btcFlatFee" :min="BigInt(MICROGONS_PER_ARGON)" class="w-full" />
   </div>
 
   <div class="mt-3 font-bold opacity-60 mb-0.5">
@@ -40,6 +40,7 @@ import { ExclamationTriangleIcon } from '@heroicons/vue/20/solid';
 import InputNumber from '../../components/InputNumber.vue';
 import InputMoney from '../../components/InputMoney.vue';
 import { getConfig } from '../../stores/config.ts';
+import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 
 const config = getConfig();
 const showBidAmountAlert = Vue.ref(false);
