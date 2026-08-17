@@ -320,6 +320,7 @@ const argonRequestProgressLabel = Vue.computed(() => {
 let feeQuoteTimeout: ReturnType<typeof setTimeout> | undefined;
 let feeQuoteRunId = 0;
 let stopArgonRequestProgress: (() => void) | undefined;
+let isDisposed = false;
 
 Vue.watch(
   [trimmedDestination, feeRatePerSatVb, () => wallets.liquidLockingWallet.availableMicrogons],
@@ -341,6 +342,7 @@ Vue.watch(
 );
 
 Vue.onUnmounted(() => {
+  isDisposed = true;
   if (feeQuoteTimeout) clearTimeout(feeQuoteTimeout);
   stopArgonRequestProgress?.();
 });
@@ -372,7 +374,8 @@ async function requestReturn(): Promise<void> {
 function trackArgonRequestProgress(
   txInfo = bitcoinLocks.orphanReleases.getTransactionInfo(props.record.lockUtxoId, props.record),
 ): void {
-  if (!txInfo) return;
+  // The request can resolve after this overlay instance is disposed; teardown cannot remove a later subscription.
+  if (!txInfo || isDisposed) return;
 
   isArgonRequestInProgress.value = [TransactionStatus.Submitted, TransactionStatus.InBlock].includes(txInfo.tx.status);
   stopArgonRequestProgress?.();

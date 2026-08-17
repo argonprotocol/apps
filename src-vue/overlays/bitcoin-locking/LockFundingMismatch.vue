@@ -774,6 +774,7 @@ function selectAction(action: 'accept' | 'return') {
 
 let refreshFeeEstimateTimeout: ReturnType<typeof setTimeout> | undefined;
 let feeEstimateRunId = 0;
+let isDisposed = false;
 
 function queueFeeEstimateRefresh() {
   if (refreshFeeEstimateTimeout) clearTimeout(refreshFeeEstimateTimeout);
@@ -962,11 +963,14 @@ Vue.watch(
 Vue.onMounted(async () => {
   await bitcoinLocks.load();
   await vaults.load(true).catch(() => undefined);
+  // This component instance can be disposed during the forced refresh; do not start resources afterward.
+  if (isDisposed) return;
   stopLockProgressTracking = bitcoinLockProgress.trackLock(currentLock.value);
   queueFeeEstimateRefresh();
 });
 
 Vue.onUnmounted(() => {
+  isDisposed = true;
   if (refreshFeeEstimateTimeout) clearTimeout(refreshFeeEstimateTimeout);
   stopLockProgressTracking?.();
   stopLockProgressTracking = undefined;

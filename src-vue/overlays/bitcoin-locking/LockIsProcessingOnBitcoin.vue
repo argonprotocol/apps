@@ -126,9 +126,12 @@ function updateProgress() {
 
 let updateBitcoinLockProcessingInterval: ReturnType<typeof setInterval> | undefined = undefined;
 let stopLockProgressTracking: (() => void) | undefined;
+let isDisposed = false;
 
 Vue.onMounted(async () => {
   await bitcoinLocks.load();
+  // Persisted locks render early, so this component instance can be disposed while loading.
+  if (isDisposed) return;
   stopLockProgressTracking = bitcoinLockProgress.trackLock(personalLock.value);
   updateBitcoinLockProcessingInterval = setInterval(updateProgress, 1e3);
   updateProgress();
@@ -144,8 +147,10 @@ Vue.watch(
 );
 
 Vue.onUnmounted(() => {
+  isDisposed = true;
   if (updateBitcoinLockProcessingInterval) {
     clearInterval(updateBitcoinLockProcessingInterval);
+    updateBitcoinLockProcessingInterval = undefined;
   }
   stopLockProgressTracking?.();
   stopLockProgressTracking = undefined;

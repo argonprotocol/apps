@@ -248,10 +248,12 @@ function closeOverlay() {
   isOpen.value = false;
 }
 
-basicEmitter.on('openUpgradeToOperationsOverlay', () => {
+function openUpgradeToOperationsOverlay() {
   isOpen.value = true;
   void refreshOperationReturns();
-});
+}
+
+basicEmitter.on('openUpgradeToOperationsOverlay', openUpgradeToOperationsOverlay);
 
 Vue.watch(
   () => controller.chainProgress.isUpgradedToOperations,
@@ -269,6 +271,7 @@ Vue.onMounted(() => {
 });
 
 Vue.onBeforeUnmount(() => {
+  basicEmitter.off('openUpgradeToOperationsOverlay', openUpgradeToOperationsOverlay);
   if (refreshInterval) {
     clearInterval(refreshInterval);
   }

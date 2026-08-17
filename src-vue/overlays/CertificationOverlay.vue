@@ -266,7 +266,7 @@ function openDocumentationLink(link: string) {
   void tauriOpenUrl(link);
 }
 
-basicEmitter.on('openOperationalOverlay', (stepId: OperationalStepId) => {
+function openOperationalOverlay(stepId: OperationalStepId) {
   if (controller.isOperationalActivationReady) {
     closeOverlay();
     basicEmitter.emit('openOperationalRewardsOverlay', { screen: 'activate' });
@@ -281,5 +281,11 @@ basicEmitter.on('openOperationalOverlay', (stepId: OperationalStepId) => {
   isOpen.value = true;
   currentStepId.value = stepId;
   basics.overlayIsOpen = true;
+}
+
+basicEmitter.on('openOperationalOverlay', openOperationalOverlay);
+
+Vue.onUnmounted(() => {
+  basicEmitter.off('openOperationalOverlay', openOperationalOverlay);
 });
 </script>

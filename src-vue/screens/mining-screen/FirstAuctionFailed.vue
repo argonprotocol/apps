@@ -69,6 +69,8 @@ const currency = getCurrency();
 const wallets = useWallets();
 const myMiningSeats = getMyMiningSeats();
 const bot = getBot();
+let isDisposed = false;
+let calculatorSubscription: ReturnType<typeof calculator.onLoad> | undefined;
 
 const { microgonToMoneyNm, microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 const microgonRequirement = Vue.ref(0n);
@@ -105,9 +107,12 @@ function openWalletFunding() {
 Vue.onMounted(async () => {
   if (!config.biddingRules) return;
   await config.isLoadedPromise;
-  await myMiningSeats.subscribeToActivity();
+  // This component instance can be disposed while configuration loads; do not attach callbacks afterward.
+  if (isDisposed) return;
 
-  const loadSubscription = calculator.onLoad(() => {
+  calculatorSubscription = calculator.onLoad(() => {
+    // onLoad also queues this callback through loadedFrameIdPromise, which unsubscribe cannot cancel.
+    if (isDisposed) return;
     const projections = calculator.runProjections(config.biddingRules, 'maximum');
     microgonRequirement.value = projections.microgonRequirement;
     micronotRequirement.value = projections.micronotRequirement;
@@ -115,12 +120,12 @@ Vue.onMounted(async () => {
     myMaximumBid.value = calculator.maximumBidAmount;
   });
 
-  Vue.onUnmounted(() => {
-    loadSubscription.unsubscribe();
-    myMiningSeats.unsubscribeFromActivity();
-  });
-
   await calculator.load();
+});
+
+Vue.onUnmounted(() => {
+  isDisposed = true;
+  calculatorSubscription?.unsubscribe();
 });
 </script>
 

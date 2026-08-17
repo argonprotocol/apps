@@ -173,6 +173,7 @@ const retrySeconds = Vue.ref<number>();
 const fundingCheckMessage = Vue.ref('');
 
 let retryCountdownInterval: ReturnType<typeof setInterval> | undefined;
+let isDisposed = false;
 
 function closeOverlay() {
   emit('close');
@@ -195,6 +196,8 @@ async function checkForBitcoin() {
     isCheckingForBitcoin.value = false;
   }
 
+  // The request can finish after this component instance is disposed; teardown cannot clear a later interval.
+  if (isDisposed) return;
   startFundingRetryCountdown();
 }
 
@@ -241,5 +244,8 @@ Vue.onMounted(async () => {
   fundingBip21.value = `bitcoin:${scriptPaytoAddress.value}?amount=${btcAmount}&label=${label}&message=${message}`;
 });
 
-Vue.onUnmounted(stopFundingRetryCountdown);
+Vue.onUnmounted(() => {
+  isDisposed = true;
+  stopFundingRetryCountdown();
+});
 </script>

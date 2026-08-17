@@ -98,6 +98,7 @@ const txInfo = Vue.shallowRef<TransactionInfo<IBitcoinRatchetMetadata>>();
 const progressPct = Vue.ref(0);
 const progressLabel = Vue.ref('');
 let unsubscribeProgress: (() => void) | undefined;
+let isDisposed = false;
 
 const props = defineProps<{
   personalLock: IBitcoinLockRecord;
@@ -139,6 +140,8 @@ async function submitRatchet() {
       ratchetPreview.value.securitizationToAdd > 0n
         ? await walletKeys.getVaultingKeypair()
         : await walletKeys.getLiquidLockingKeypair();
+    // This overlay instance can be disposed while the signer loads; do not start a transaction afterward.
+    if (isDisposed) return;
     const info = await bitcoinLocks.ratchet(props.personalLock, txSigner);
     trackTransaction(info);
   } catch (error) {
@@ -148,6 +151,7 @@ async function submitRatchet() {
 }
 
 function trackTransaction(info: TransactionInfo<IBitcoinRatchetMetadata>) {
+  if (isDisposed) return;
   unsubscribeProgress?.();
   txInfo.value = info;
   isSubmitting.value = true;
@@ -166,6 +170,8 @@ function trackTransaction(info: TransactionInfo<IBitcoinRatchetMetadata>) {
 
   void info.waitForPostProcessing.then(
     () => {
+      // Post-processing cannot be cancelled; this disposed instance must not reload the parent dashboard.
+      if (isDisposed) return;
       const error = info.getStatus().error;
       if (error) {
         errorMessage.value = error.message;
@@ -185,6 +191,8 @@ function trackTransaction(info: TransactionInfo<IBitcoinRatchetMetadata>) {
 
 Vue.onMounted(async () => {
   await bitcoinLocks.load();
+  // This overlay instance can be disposed while recovered state loads; do not subscribe afterward.
+  if (isDisposed) return;
   const pendingTxInfo = bitcoinLocks.getPendingRatchetTxInfo(props.personalLock);
   if (pendingTxInfo) {
     isLoadingPreview.value = false;
@@ -196,6 +204,7 @@ Vue.onMounted(async () => {
 });
 
 Vue.onUnmounted(() => {
+  isDisposed = true;
   unsubscribeProgress?.();
 });
 </script>
