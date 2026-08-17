@@ -81,6 +81,7 @@ export default defineConfig(async ({ mode }) => {
 
   const envFile = loadEnv(mode, process.cwd(), '');
   const host = envFile.TAURI_DEV_HOST;
+  const isStorybook = process.env.STORYBOOK === 'true';
 
   const instance = (process.env.ARGON_APP_INSTANCE || '').split(':');
   const instancePort = parseInt(instance[1] || DEFAULT_PORT, 10);
@@ -89,10 +90,12 @@ export default defineConfig(async ({ mode }) => {
     throw new Error(`⚠️ ARGON_APP_INSTANCE must be set on the command line not from inside a .env file`);
   }
 
-  // Check if the port is available
-  const portAvailable = await isPortAvailable(instancePort);
-  if (!portAvailable) {
-    throw new Error(`⚠️ Port ${instancePort} is already in use. The server may fail to start.`);
+  // Storybook loads this config for its preview but manages its own server port.
+  if (!isStorybook) {
+    const portAvailable = await isPortAvailable(instancePort);
+    if (!portAvailable) {
+      throw new Error(`⚠️ Port ${instancePort} is already in use. The server may fail to start.`);
+    }
   }
 
   const driverWs = getValidatedDriverWs(process.env.ARGON_DRIVER_WS);
@@ -111,7 +114,7 @@ export default defineConfig(async ({ mode }) => {
     },
     plugins: [
       wasm(),
-      vitePluginTopLevelAwait(),
+      !isStorybook && vitePluginTopLevelAwait(),
       vue({
         template: {
           compilerOptions: {

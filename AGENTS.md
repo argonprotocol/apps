@@ -18,6 +18,16 @@ These rules apply to implementation and review in this repository. Keep changes 
 - Reuse the repository's established spacing, typography, control sizes, and responsive patterns. Avoid page-specific size systems, arbitrary Tailwind values, and near-duplicate style variants.
 - Keep directly related declarations together, with spacing between separate concerns. Do not crunch setup code into dense blocks or nested ternaries.
 
+## Storybook UI States
+
+- When a change alters visible UI, text, or workflow state, add or update the applicable Storybook stories for every materially changed reachable state. If no story applies, state why in the handoff.
+- Prefer the highest meaningful production screen, overlay, or workflow panel. Full-screen stories should use the shared app frame so the real TopBar and LeftBar are visible; focused overlays and independently useful panels can remain isolated. Do not recreate production markup or initialize the entire application service graph.
+- Cover affected empty, loading, progress, blocked, error, success, recovery, and populated states without generating every internal flag combination or inventing intermediate states.
+- Mock only external boundaries and store accessors. Use deterministic synthetic data, real exported types, and the production component's actual state selectors.
+- Use `play` interactions for user-driven transitions. Represent service-driven progress and failure states as explicit stories rather than timers or fake buttons.
+- Keep fixed state stories inert and visibly labeled. Mark a story interactive only while every reachable control in that state has a deterministic mocked outcome; never expose production controls that fall through to unavailable Tauri, database, chain, or network services.
+- Follow `.storybook/README.md`, run `yarn storybook:test` and `yarn storybook:build`, and never commit generated `storybook-static` output.
+
 ## Domain and State Design
 
 - Name the authoritative owner for each durable or externally observed state. Do not let flags, cached projections, and UI state become competing authorities.
