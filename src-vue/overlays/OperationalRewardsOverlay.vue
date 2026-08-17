@@ -115,12 +115,18 @@ Vue.watch(
   },
 );
 
-basicEmitter.on('openOperationalRewardsOverlay', payload => {
+function openOperationalRewardsOverlay(payload?: { screen?: OperationalRewardsScreen }) {
   if (!controller.isFullyOperational && !controller.isOperationalActivationReady) {
     return;
   }
 
   controller.clearCompletionNotices();
   goTo(payload?.screen ?? (controller.isFullyOperational ? 'congratulations' : 'activate'));
+}
+
+basicEmitter.on('openOperationalRewardsOverlay', openOperationalRewardsOverlay);
+
+Vue.onUnmounted(() => {
+  basicEmitter.off('openOperationalRewardsOverlay', openOperationalRewardsOverlay);
 });
 </script>

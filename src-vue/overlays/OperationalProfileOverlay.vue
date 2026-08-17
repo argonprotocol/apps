@@ -121,6 +121,7 @@ const setupProgressError = Vue.ref<string | null>(null);
 
 let unsubSetupProgress: (() => void) | undefined;
 let selectDraftName: ((operatorName: string) => void) | undefined;
+let openRequestId = 0;
 
 const hasVault = Vue.computed(() => {
   return !!myVault.createdVault?.vaultId;
@@ -246,14 +247,20 @@ function closeOverlay() {
   basics.overlayIsOpen = false;
 }
 
-basicEmitter.on('openOperationalProfileOverlay', async request => {
+async function openOperationalProfileOverlay(request: void | IOperationalProfileRequest) {
+  const requestId = ++openRequestId;
   await load(request || undefined);
+  if (requestId !== openRequestId) return;
   isOpen.value = true;
   isLoaded.value = true;
   basics.overlayIsOpen = true;
-});
+}
+
+basicEmitter.on('openOperationalProfileOverlay', openOperationalProfileOverlay);
 
 Vue.onUnmounted(() => {
+  openRequestId += 1;
+  basicEmitter.off('openOperationalProfileOverlay', openOperationalProfileOverlay);
   clearSetupProgress();
 });
 </script>

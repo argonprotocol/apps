@@ -159,6 +159,7 @@ const controller = useCertificationController();
 const isOpen = Vue.ref(false);
 const currentStepId = Vue.ref<OperationalStepId | null>(null);
 const currentTrack = Vue.ref<'treasury' | 'operations'>('treasury');
+let guideActivationTimeout: ReturnType<typeof setTimeout> | undefined;
 const currentStepIds = Vue.computed(() => {
   return currentTrack.value === 'treasury'
     ? treasuryCertificationStepIds
@@ -226,7 +227,9 @@ function startTask() {
   const stepId = currentStepId.value;
   closeOverlay();
 
-  setTimeout(() => {
+  if (guideActivationTimeout) clearTimeout(guideActivationTimeout);
+  guideActivationTimeout = setTimeout(() => {
+    guideActivationTimeout = undefined;
     controller.activeGuideId = stepId;
 
     if (stepId === OperationalStepId.ActivateVault) {
@@ -266,7 +269,7 @@ function openDocumentationLink(link: string) {
   void tauriOpenUrl(link);
 }
 
-basicEmitter.on('openOperationalOverlay', (stepId: OperationalStepId) => {
+function openOperationalOverlay(stepId: OperationalStepId) {
   if (controller.isOperationalActivationReady) {
     closeOverlay();
     basicEmitter.emit('openOperationalRewardsOverlay', { screen: 'activate' });
@@ -281,5 +284,12 @@ basicEmitter.on('openOperationalOverlay', (stepId: OperationalStepId) => {
   isOpen.value = true;
   currentStepId.value = stepId;
   basics.overlayIsOpen = true;
+}
+
+basicEmitter.on('openOperationalOverlay', openOperationalOverlay);
+
+Vue.onUnmounted(() => {
+  if (guideActivationTimeout) clearTimeout(guideActivationTimeout);
+  basicEmitter.off('openOperationalOverlay', openOperationalOverlay);
 });
 </script>
