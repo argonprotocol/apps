@@ -131,9 +131,10 @@ jobs:
         if: matrix.suite == 'regular'
         run: yarn vitest --run --project '!storybook' --exclude '**/*.integration.test.ts' --exclude 'e2e/__test__/**/*.e2e.test.ts'
 
-      - name: Tests excluding e2e
+      - name: Tests excluding e2e and Storybook
         if: matrix.suite == 'non-e2e'
-        run: yarn vitest --run --project '!e2e' --project '!storybook'
+        # Vitest unions repeated negative project filters, so exclude E2E by file instead.
+        run: yarn vitest --run --project '!storybook' --exclude 'e2e/__test__/**/*.e2e.test.ts'
 
       # xvfb-run provides a virtual display required by WebKit/GTK in CI.
       # dbus-run-session provides a D-Bus session bus for WebKit/GTK and the wallet key store.

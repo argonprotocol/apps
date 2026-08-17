@@ -391,9 +391,6 @@ function createFeeWaiverUse(
     ownerBitcoinPubkey: `02${'44'.repeat(32)}`,
     microgonsAtTargetPerBtc: 6_800_000_000n,
     feeCoupon: {
-      vaultId: 7,
-      genesisHash: `0x${'12'.repeat(32)}`,
-      beneficiary: memberAccountId,
       feeDiscount: feeCreditMicrogons,
       securitizationSpaceToUnreserve: 0n,
       expiresAtFrame: 1_000n,

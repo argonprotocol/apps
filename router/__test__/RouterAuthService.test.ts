@@ -144,9 +144,6 @@ describe('RouterAuthService', () => {
       status: 'Prepared',
       feeCreditMicrogons: 300n,
       feeCoupon: {
-        vaultId: coupon.vaultId,
-        genesisHash: `0x${'12'.repeat(32)}`,
-        beneficiary: member.address,
         feeDiscount: 300n,
         securitizationSpaceToUnreserve: 0n,
         expiresAtFrame: 1_000n,

@@ -2,20 +2,9 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { TestEthereum } from '@argonprotocol/testing';
 import { padHex, toFunctionSelector, type Address } from 'viem';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-vi.mock('@argonprotocol/testing', () => ({
-  TestEthereum: class {
-    public static isInstalled() {
-      return true;
-    }
-
-    constructor() {
-      throw new Error('Started a replacement Ethereum enclave');
-    }
-  },
-}));
 
 const runtimeState = {
   beaconPreset: 'minimal',
@@ -153,6 +142,10 @@ describe('dev Ethereum runtime state', () => {
 
   it('replaces a deployment whose beacon endpoint is unavailable', async () => {
     const rpc = await startEthereumRpc();
+    const isInstalled = vi.spyOn(TestEthereum, 'isInstalled').mockReturnValue(true);
+    const launch = vi
+      .spyOn(TestEthereum.prototype, 'launch')
+      .mockRejectedValue(new Error('Started a replacement Ethereum enclave'));
     await writeDevEthereumRuntimeState({
       ...runtimeState,
       executionRpcUrl: rpc.url,
@@ -171,6 +164,8 @@ describe('dev Ethereum runtime state', () => {
         }),
       ).rejects.toThrow('Started a replacement Ethereum enclave');
     } finally {
+      launch.mockRestore();
+      isInstalled.mockRestore();
       await rpc.close();
     }
   });
