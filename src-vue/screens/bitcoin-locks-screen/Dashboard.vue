@@ -192,6 +192,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getBitcoinLockCoupons, getBitcoinLocks } from '../../stores/bitcoin.ts';
@@ -213,6 +214,8 @@ import BitcoinRecord from '../treasury-screens/components/BitcoinRecord.vue';
 import BitcoinsReleasedOverlay from '../../overlays/BitcoinsReleasedOverlay.vue';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
+
+dayjs.extend(relativeTime);
 
 const controller = useCertificationController();
 const currency = getCurrency();

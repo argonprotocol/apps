@@ -92,6 +92,35 @@ export const Start: Story = {
   },
 };
 
+export const FeeWaiver: Story = {
+  beforeEach: () => {
+    scenario = setupBitcoinOverlayScenario();
+    requestedLock = undefined;
+    scenario.setFeeWaiver();
+  },
+  play: async () => {
+    await expectEventuallyVisible(within(document.body).findByText(/fee waiver from Atlas Operator/));
+  },
+};
+
+export const FeeWaiverNeedsWalletFunding: Story = {
+  beforeEach: () => {
+    scenario = setupBitcoinOverlayScenario();
+    requestedLock = undefined;
+    scenario.liquidLockingWallet.availableMicrogons = 0n;
+    scenario.bitcoinLocks.getInitializeFeeEstimate = fn(async () => ({
+      canAfford: false,
+      requiredWalletBalanceMicrogons: 2_125_000n,
+      securityFee: 2_000_000n,
+      txFeePlusTip: 125_000n,
+    }));
+    scenario.setFeeWaiver();
+  },
+  play: async () => {
+    await expectEventuallyVisible(within(document.body).findByText(/wallet needs a balance of .*2\.13/));
+  },
+};
+
 export const ArgonProcessing: Story = {
   beforeEach: () => {
     scenario = setupBitcoinOverlayScenario();

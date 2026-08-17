@@ -35,7 +35,7 @@ export const RestoringHistory: Story = {
 };
 
 export const Portfolio: Story = {
-  beforeEach: setupBitcoinPortfolioScenario,
+  beforeEach: () => setupBitcoinPortfolioScenario(),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
@@ -45,6 +45,14 @@ export const Portfolio: Story = {
     await expect(canvas.getAllByText('The release is processing on the Bitcoin network.')).toHaveLength(1);
     await expect(canvas.getByText('2 bitcoin transactions have been archived')).toBeVisible();
     await expect(canvas.getByText(/^released \d+ days ago$/)).toBeVisible();
+  },
+};
+
+export const PortfolioWithFeeWaiver: Story = {
+  beforeEach: () => setupBitcoinPortfolioScenario({ feeWaiver: true }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText(/fee waiver from Atlas Operator has .*27\.20 remaining/)).toBeVisible();
   },
 };
 

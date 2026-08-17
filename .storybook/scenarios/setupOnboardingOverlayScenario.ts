@@ -1,6 +1,8 @@
 import * as Vue from 'vue';
 import { bigIntMin, BondLot } from '@argonprotocol/apps-core';
-import { fn, mocked } from 'storybook/test';
+import { Vault } from '@argonprotocol/mainchain';
+import BigNumber from 'bignumber.js';
+import { fn, mocked, spyOn } from 'storybook/test';
 import { TopTab } from '../../src-vue/interfaces/IConfig.ts';
 import { ExtrinsicType, TransactionStatus } from '../../src-vue/lib/db/TransactionsTable.ts';
 import {
@@ -105,18 +107,55 @@ export function setupFlexibleAssetsScenario(state: 'empty' | 'loading' | 'eligib
   }
 }
 
-export function setupMemberInviteScenario(state: 'vaultRequired' | 'loading' | 'loadError') {
-  setupAppScenario({ selectedTab: TopTab.Onboarding });
+export function setupMemberInviteScenario(
+  state: 'vaultRequired' | 'loading' | 'loadError' | 'currentRuntime' | 'previousRuntime',
+) {
+  const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
   if (state === 'vaultRequired') return;
 
   const currentMyVault = getMyVault();
-  const createdVault = createScenarioVault();
+  const createdVault = createScenarioVault({
+    terms: {
+      bitcoinAnnualPercentRate: BigNumber(0.034),
+      bitcoinBaseFee: 2_000_000n,
+      treasuryProfitSharing: BigNumber(0.2),
+    },
+  });
   mocked(getMyVault).mockReturnValue({
     ...currentMyVault,
     data: Vue.shallowReactive({ ...currentMyVault.data, createdVault }),
     createdVault,
     vaultId: createdVault.vaultId,
   } as unknown as ReturnType<typeof getMyVault>);
+
+  if (state === 'currentRuntime' || state === 'previousRuntime') {
+    const getVault = spyOn(Vault, 'get').mockResolvedValue(createdVault);
+    const client = {
+      tx: {
+        bitcoinLocks: {
+          setFlexible: fn(),
+          ...(state === 'previousRuntime' ? { initializeFor: fn() } : {}),
+        },
+        treasury: { setBondLotFlexible: fn() },
+        vaults: { setName: fn() },
+      },
+    } as unknown as Awaited<ReturnType<typeof getMainchainClient>>;
+    mocked(getMainchainClient).mockResolvedValue(client);
+    mocked(getArgonBonds, { partial: true }).mockReturnValue({
+      availableBondSpace: fn(() => 0n),
+    });
+    mocked(getBitcoinLocks, { partial: true }).mockReturnValue({
+      getLockableBitcoinCapacity: fn(async () => ({
+        availableSatoshis: 29_411_764n,
+        availableLiquidityMicrogons: 2_000_000_000n,
+        vaultCapacitySatoshis: 29_411_764n,
+        vaultCapacityLiquidityMicrogons: 2_000_000_000n,
+      })),
+    });
+    controller.rewardConfig.treasuryMinimumBonds = 200_000_000n;
+    return () => getVault.mockRestore();
+  }
+
   mocked(getMainchainClient).mockImplementation(() => {
     if (state === 'loading') return new Promise(() => undefined);
     return Promise.reject(new Error('The vault capacity could not be loaded.'));

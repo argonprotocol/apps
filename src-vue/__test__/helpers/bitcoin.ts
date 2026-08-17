@@ -69,6 +69,7 @@ export function createStore(
     options.transactionTracker ??
     (Object.assign(Object.create(null), {
       load: async () => undefined,
+      findLatestTxInfo: () => undefined,
       pendingBlockTxInfosAtLoad: [],
       data: { txInfos: [], txInfosByType: {} },
     }) as TransactionTracker);
