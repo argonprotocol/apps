@@ -774,10 +774,13 @@ function selectAction(action: 'accept' | 'return') {
 
 let refreshFeeEstimateTimeout: ReturnType<typeof setTimeout> | undefined;
 let feeEstimateRunId = 0;
+let isUnmounted = false;
 
 function queueFeeEstimateRefresh() {
+  if (isUnmounted) return;
   if (refreshFeeEstimateTimeout) clearTimeout(refreshFeeEstimateTimeout);
   refreshFeeEstimateTimeout = setTimeout(() => {
+    refreshFeeEstimateTimeout = undefined;
     void refreshEstimatedOptionFees();
   }, 200);
 }
@@ -786,7 +789,7 @@ async function refreshEstimatedOptionFees() {
   const runId = ++feeEstimateRunId;
   const candidate = nextCandidate.value?.record;
   if (!candidate || !currentLock.value.utxoId) {
-    if (runId !== feeEstimateRunId) return;
+    if (isUnmounted || runId !== feeEstimateRunId) return;
     acceptArgonTxFeeMicrogons.value = null;
     returnArgonTxFeeMicrogons.value = null;
     return;
@@ -817,7 +820,7 @@ async function refreshEstimatedOptionFees() {
       .catch(() => null);
   }
 
-  if (runId !== feeEstimateRunId) return;
+  if (isUnmounted || runId !== feeEstimateRunId) return;
   acceptArgonTxFeeMicrogons.value = acceptFee;
   returnArgonTxFeeMicrogons.value = returnFee;
 }
@@ -962,12 +965,16 @@ Vue.watch(
 Vue.onMounted(async () => {
   await bitcoinLocks.load();
   await vaults.load(true).catch(() => undefined);
+  if (isUnmounted) return;
   stopLockProgressTracking = bitcoinLockProgress.trackLock(currentLock.value);
   queueFeeEstimateRefresh();
 });
 
 Vue.onUnmounted(() => {
+  isUnmounted = true;
+  feeEstimateRunId += 1;
   if (refreshFeeEstimateTimeout) clearTimeout(refreshFeeEstimateTimeout);
+  refreshFeeEstimateTimeout = undefined;
   stopLockProgressTracking?.();
   stopLockProgressTracking = undefined;
 });

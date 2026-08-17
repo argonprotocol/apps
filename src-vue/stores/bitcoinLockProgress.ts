@@ -399,6 +399,7 @@ export function createBitcoinLockProgressStore(deps: BitcoinLockProgressDeps) {
   async function ensureMiningFramesSubscription() {
     if (miningFramesUnsub) return;
     await miningFrames.load();
+    if (activeConsumers.value === 0 || miningFramesUnsub || !isReleaseArgonPhase(lock.value)) return;
     miningFramesUnsub = miningFrames.onTick(() => {
       if (isReleaseArgonPhase(lock.value)) {
         updateVaultWaitProgress();

@@ -185,6 +185,48 @@ describe('bitcoinLockProgress', () => {
     expect(store.lockProcessing.value.confirmations).toBe(1);
   });
 
+  it('does not subscribe to mining frames after the final consumer stops during load', async () => {
+    let finishLoading!: () => void;
+    const loading = new Promise<void>(resolve => {
+      finishLoading = resolve;
+    });
+    const onTick = vi.fn(() => ({ unsubscribe: vi.fn() }));
+    const lock = createLock(BitcoinLockStatus.Releasing);
+    const store = createBitcoinLockProgressStore({
+      myVault: {
+        getBitcoinReleaseRequestTxInfo: () => undefined,
+        getTxInfoByType: () => undefined,
+      } as Pick<MyVault, 'getBitcoinReleaseRequestTxInfo' | 'getTxInfoByType'> as MyVault,
+      bitcoinLocks: {
+        getAcceptedFundingRecord: () =>
+          ({ status: BitcoinUtxoStatus.ReleaseIsProcessingOnArgon }) as ReturnType<
+            BitcoinLocks['getAcceptedFundingRecord']
+          >,
+        getMismatchViewState: () => ({ phase: 'none' }) as ReturnType<BitcoinLocks['getMismatchViewState']>,
+        getRequestReleaseByVaultProgress: () => 0,
+        isLockProcessingStatus: () => false,
+      } as Pick<
+        BitcoinLocks,
+        | 'getAcceptedFundingRecord'
+        | 'getMismatchViewState'
+        | 'getRequestReleaseByVaultProgress'
+        | 'isLockProcessingStatus'
+      > as BitcoinLocks,
+      miningFrames: {
+        load: () => loading,
+        onTick,
+      } as Pick<MiningFrames, 'load' | 'onTick'> as MiningFrames,
+    });
+
+    const stopTracking = store.trackLock(lock);
+    stopTracking();
+    finishLoading();
+    await loading;
+    await Promise.resolve();
+
+    expect(onTick).not.toHaveBeenCalled();
+  });
+
   it('keeps the last known funding progress when the same lock recomputes as unknown', () => {
     const lock = { ...createLock(BitcoinLockStatus.LockPendingFunding), utxoId: 18 } as IBitcoinLockRecord;
     const store = createBitcoinLockProgressStore({

@@ -126,9 +126,11 @@ function updateProgress() {
 
 let updateBitcoinLockProcessingInterval: ReturnType<typeof setInterval> | undefined = undefined;
 let stopLockProgressTracking: (() => void) | undefined;
+let isUnmounted = false;
 
 Vue.onMounted(async () => {
   await bitcoinLocks.load();
+  if (isUnmounted) return;
   stopLockProgressTracking = bitcoinLockProgress.trackLock(personalLock.value);
   updateBitcoinLockProcessingInterval = setInterval(updateProgress, 1e3);
   updateProgress();
@@ -144,8 +146,10 @@ Vue.watch(
 );
 
 Vue.onUnmounted(() => {
+  isUnmounted = true;
   if (updateBitcoinLockProcessingInterval) {
     clearInterval(updateBitcoinLockProcessingInterval);
+    updateBitcoinLockProcessingInterval = undefined;
   }
   stopLockProgressTracking?.();
   stopLockProgressTracking = undefined;

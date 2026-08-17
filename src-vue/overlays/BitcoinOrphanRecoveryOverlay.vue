@@ -320,10 +320,12 @@ const argonRequestProgressLabel = Vue.computed(() => {
 let feeQuoteTimeout: ReturnType<typeof setTimeout> | undefined;
 let feeQuoteRunId = 0;
 let stopArgonRequestProgress: (() => void) | undefined;
+let isUnmounted = false;
 
 Vue.watch(
   [trimmedDestination, feeRatePerSatVb, () => wallets.liquidLockingWallet.availableMicrogons],
   () => {
+    if (isUnmounted) return;
     if (feeQuoteTimeout) clearTimeout(feeQuoteTimeout);
     const runId = ++feeQuoteRunId;
     argonFeeQuote.value = undefined;
@@ -335,14 +337,21 @@ Vue.watch(
     }
 
     isCheckingArgonFee.value = true;
-    feeQuoteTimeout = setTimeout(() => void refreshArgonFeeQuote(runId), 200);
+    feeQuoteTimeout = setTimeout(() => {
+      feeQuoteTimeout = undefined;
+      void refreshArgonFeeQuote(runId);
+    }, 200);
   },
   { immediate: true },
 );
 
 Vue.onUnmounted(() => {
+  isUnmounted = true;
+  feeQuoteRunId += 1;
   if (feeQuoteTimeout) clearTimeout(feeQuoteTimeout);
+  feeQuoteTimeout = undefined;
   stopArgonRequestProgress?.();
+  stopArgonRequestProgress = undefined;
 });
 
 Vue.onMounted(() => trackArgonRequestProgress());
@@ -360,23 +369,26 @@ async function requestReturn(): Promise<void> {
       toScriptPubkey: trimmedDestination.value,
       feeRatePerSatVb: feeRatePerSatVb.value,
     });
+    if (isUnmounted) return;
     trackArgonRequestProgress(txInfo);
   } catch (error) {
+    if (isUnmounted) return;
     isArgonRequestInProgress.value = false;
     requestError.value = error instanceof Error ? error.message : String(error);
   } finally {
-    isSubmitting.value = false;
+    if (!isUnmounted) isSubmitting.value = false;
   }
 }
 
 function trackArgonRequestProgress(
   txInfo = bitcoinLocks.orphanReleases.getTransactionInfo(props.record.lockUtxoId, props.record),
 ): void {
-  if (!txInfo) return;
+  if (!txInfo || isUnmounted) return;
 
   isArgonRequestInProgress.value = [TransactionStatus.Submitted, TransactionStatus.InBlock].includes(txInfo.tx.status);
   stopArgonRequestProgress?.();
   stopArgonRequestProgress = txInfo.subscribeToProgress((progress, error) => {
+    if (isUnmounted) return;
     argonRequestProgressPct.value = progress.progressPct;
     argonRequestConfirmations.value = progress.confirmations;
     argonRequestExpectedConfirmations.value = progress.expectedConfirmations;
@@ -393,13 +405,13 @@ async function refreshArgonFeeQuote(runId: number): Promise<void> {
       toScriptPubkey: trimmedDestination.value,
       feeRatePerSatVb: feeRatePerSatVb.value,
     });
-    if (runId !== feeQuoteRunId) return;
+    if (isUnmounted || runId !== feeQuoteRunId) return;
     argonFeeQuote.value = quote;
   } catch {
-    if (runId !== feeQuoteRunId) return;
+    if (isUnmounted || runId !== feeQuoteRunId) return;
     argonFeeQuoteError.value = 'Unable to check the Argon transaction fee. Please try again.';
   } finally {
-    if (runId === feeQuoteRunId) isCheckingArgonFee.value = false;
+    if (!isUnmounted && runId === feeQuoteRunId) isCheckingArgonFee.value = false;
   }
 }
 

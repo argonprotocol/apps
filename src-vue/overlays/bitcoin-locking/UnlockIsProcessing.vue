@@ -55,13 +55,16 @@ Vue.watch(
 );
 
 let stopProgressTracking: (() => void) | undefined;
+let isUnmounted = false;
 
 Vue.onMounted(async () => {
   await bitcoinLocks.load();
+  if (isUnmounted) return;
   stopProgressTracking = bitcoinLockProgress.trackLock(personalLock.value);
 });
 
 Vue.onUnmounted(() => {
+  isUnmounted = true;
   stopProgressTracking?.();
   stopProgressTracking = undefined;
 });

@@ -181,6 +181,7 @@ const personalLock = Vue.computed<IBitcoinLockRecord | undefined>(() => {
 const releaseState = Vue.computed(() => bitcoinLocks.getLockUnlockReleaseState(personalLock.value));
 
 const wasOpenedWithoutBitcoin = Vue.ref(!props.personalLock);
+let headerLoadTimeout: ReturnType<typeof setTimeout> | undefined;
 
 const unlockStep = Vue.computed<UnlockStep>(() => {
   const lock = personalLock.value;
@@ -205,10 +206,14 @@ function closeOverlay() {
   emit('close', false);
 }
 
-Vue.onMounted(async () => {
-  setTimeout(() => {
+Vue.onMounted(() => {
+  headerLoadTimeout = setTimeout(() => {
     isLoaded.value = true;
   }, 100);
+});
+
+Vue.onUnmounted(() => {
+  if (headerLoadTimeout) clearTimeout(headerLoadTimeout);
 });
 </script>
 

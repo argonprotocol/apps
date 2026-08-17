@@ -147,6 +147,7 @@ const createdLock = Vue.ref<IBitcoinLockRecord | undefined>();
 let overlayRefreshInterval: ReturnType<typeof setInterval> | undefined;
 let unsubscribeTicks: VoidFunction | undefined;
 let vaultRefreshKey = 0;
+let isUnmounted = false;
 
 const defaultVault = Vue.computed(() => {
   const vaultId = myVault.vaultId;
@@ -343,12 +344,13 @@ async function resolveCreatedLockTransition() {
   if (requestedPersonalLock.value || !createdLockUuid.value) return;
   if (trackedCreatedLock.value?.utxoId != null) return;
 
+  const lockUuid = createdLockUuid.value;
   const table = await bitcoinLocks.getTable();
-  const utxoId = await table.getUtxoIdByUuid(createdLockUuid.value);
+  const utxoId = await table.getUtxoIdByUuid(lockUuid);
   if (utxoId == null) return;
 
   const finalizedLock = bitcoinLocks.getLockByUtxoId(utxoId) ?? (await table.getByUtxoId(utxoId));
-  if (!finalizedLock) return;
+  if (isUnmounted || !isOpen.value || createdLockUuid.value !== lockUuid || !finalizedLock) return;
 
   createdLock.value = finalizedLock;
 }
@@ -484,6 +486,7 @@ Vue.onMounted(async () => {
   basicEmitter.on('closeAllOverlays', closeFromGlobalRequest);
 
   await miningFrames.load();
+  if (isUnmounted) return;
   currentTick.value = miningFrames.currentTick;
   unsubscribeTicks = miningFrames.onTick(() => {
     currentTick.value = miningFrames.currentTick;
@@ -498,10 +501,11 @@ Vue.watch(trackedCreatedLock, nextLock => {
 Vue.watch(personalLock, updateLockProcessingDetails, { deep: true });
 
 Vue.onUnmounted(() => {
+  isUnmounted = true;
   basicEmitter.off('openBitcoinLock', openOverlay);
   basicEmitter.off('closeAllOverlays', closeFromGlobalRequest);
   unsubscribeTicks?.();
-  stopSessionRefresh();
+  closeSession();
 });
 </script>
 
