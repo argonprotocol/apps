@@ -6,6 +6,7 @@ import {
   JsonExt,
   loadAccountLocks,
   loadCertificationProgress,
+  NetworkConfig,
   TreasuryBonds,
   UserRole,
   type IEthereumGatewayCatchUpRequest,
@@ -16,6 +17,7 @@ import {
 import { getClient, u8aToHex } from '@argonprotocol/mainchain';
 import { ArgonApis } from './ArgonApis.ts';
 import { BitcoinApis } from './BitcoinApis.ts';
+import { BitcoinLockCouponService } from './BitcoinLockCouponService.ts';
 import { BotUpstreamClient } from './BotUpstreamClient.ts';
 import {
   ADMIN_OPERATOR_ACCOUNT_ID,
@@ -33,8 +35,10 @@ import { UserInviteService } from './UserInviteService.ts';
 import type { IUserInviteRecord } from './db/UserInvitesTable.ts';
 import type {
   IBitcoinLockRelayRequest,
+  IBitcoinLockCouponUseUpdateRequest,
   IBitcoinLockStatusResponse,
   ICreateInviteRequest,
+  IUpdateBitcoinLockCouponExpirationRequest,
   IInviteResponse,
   IListBitcoinLockCouponsResponse,
   IListInvitesResponse,
@@ -48,6 +52,7 @@ import type {
   IRouterAuthChallengeRequest,
   IRouterAuthSessionRequest,
   IRouterAuthSessionResponse,
+  IRouterErrorResponse,
 } from './interfaces/index.ts';
 
 type IRouterServerAuthOptions = Omit<IRouterAuthServiceOptions, 'db' | 'memberRestore'> & {
@@ -58,6 +63,7 @@ type IRouterServerAuthOptions = Omit<IRouterAuthServiceOptions, 'db' | 'memberRe
 interface IRouterServerOptions {
   db: Db;
   botInternalUrl: string;
+  botDbPath?: string;
   port?: number | string;
   localNodeUrl?: string;
   mainNodeUrl?: string;
@@ -67,7 +73,7 @@ interface IRouterServerOptions {
 export class RouterServer {
   private server!: Server;
   private readonly listeningPromise: Promise<void>;
-  private inviteProgressClientPromise?: Promise<ArgonClient>;
+  private mainchainClientPromise?: Promise<ArgonClient>;
   private resolveListening!: () => void;
   private rejectListening!: (error: Error) => void;
 
@@ -83,7 +89,7 @@ export class RouterServer {
     const { botInternalUrl, db } = this.options;
     const botClient = new BotUpstreamClient(botInternalUrl);
     const inviteService = new UserInviteService(db);
-    const inviteProgressNodeUrl = this.options.mainNodeUrl ?? this.options.localNodeUrl;
+    const mainchainNodeUrl = this.options.mainNodeUrl ?? this.options.localNodeUrl;
     const adminOperatorAccountId =
       this.options.auth?.adminOperatorAccountId?.trim() || ADMIN_OPERATOR_ACCOUNT_ID?.trim();
     const {
@@ -95,21 +101,27 @@ export class RouterServer {
     const currentBootstrapEndpointPubkey = bootstrapEndpointSecret
       ? u8aToHex(getBootstrapEndpointPubkey(bootstrapEndpointSecret))
       : undefined;
-    const getInviteProgressClient = async () => {
-      if (!inviteProgressNodeUrl) {
-        throw new RouterError('A mainchain node is required to approve operations access.', 503);
+    const getMainchainClient = async () => {
+      if (!mainchainNodeUrl) {
+        throw new RouterError('A mainchain node is required.', 503);
       }
 
-      this.inviteProgressClientPromise ??= getClient(inviteProgressNodeUrl, { throwOnConnect: true });
-      return await this.inviteProgressClientPromise;
+      this.mainchainClientPromise ??= getClient(mainchainNodeUrl, { throwOnConnect: true }).catch(error => {
+        this.mainchainClientPromise = undefined;
+        throw error;
+      });
+      return await this.mainchainClientPromise;
     };
-    const memberRestore = new MemberRestoreService({
+    const bitcoinLockCouponService = new BitcoinLockCouponService({
       db,
-      restoreKey,
-      restoreBitcoinLockCoupon: async coupon => {
-        await botClient.restoreCoupon(coupon);
-      },
+      botClient,
+      getMainchainClient,
+      legacyBotDbPath: this.options.botDbPath,
     });
+    void bitcoinLockCouponService
+      .reconcile()
+      .catch(error => console.warn('[router] Unable to reconcile Bitcoin fee coupon uses.', error));
+    const memberRestore = new MemberRestoreService({ db, restoreKey });
     const routerAuth = new RouterAuthService({
       db,
       sessionTtlSeconds: ROUTER_AUTH_SESSION_TTL_SECONDS ? Number(ROUTER_AUTH_SESSION_TTL_SECONDS) : undefined,
@@ -199,9 +211,9 @@ export class RouterServer {
         }
 
         try {
-          const bitcoinLockCoupons = await botClient.listCouponsByUserId(invite.id);
+          const bitcoinLockCoupons = await bitcoinLockCouponService.getByUserId(invite.id);
           const bitcoinLockCoupon = bitcoinLockCoupons[0];
-          const restorePackage = memberRestore.createPackage(invite, bitcoinLockCoupon?.coupon);
+          const restorePackage = memberRestore.createPackage(invite, bitcoinLockCoupon);
 
           session.restore = {
             fromName: invite.fromName,
@@ -285,21 +297,19 @@ export class RouterServer {
       safeJsonRoute<IInviteResponse>(async req => {
         const body = requireBody<ICreateInviteRequest>(req);
         const btcPctFee = validateInviteCouponRequest(body);
+        const { name, fromName, ...couponRequest } = body;
 
         const invite = inviteService.createInvite({
-          name: body.name,
-          fromName: body.fromName,
+          name,
+          fromName,
         });
 
         let bitcoinLockCoupon;
         try {
-          bitcoinLockCoupon = await botClient.createCoupon({
+          bitcoinLockCoupon = await bitcoinLockCouponService.create({
+            ...couponRequest,
             userId: invite.id,
-            vaultId: body.vaultId,
-            maxSatoshis: body.maxSatoshis,
-            estimatedGiftUsd: body.estimatedGiftUsd,
             btcPctFee,
-            expiresAfterTicks: body.expiresAfterTicks,
           });
         } catch (error) {
           try {
@@ -334,7 +344,7 @@ export class RouterServer {
           throw new RouterError('Invite not found', 404);
         }
 
-        const latestCoupon = (await botClient.listLatestCouponsByUserId()).get(invite.id);
+        const latestCoupon = (await bitcoinLockCouponService.getLatestByUserId()).get(invite.id);
         if (latestCoupon?.status !== 'Expired') {
           throw new RouterError('Only expired invites can be regenerated.', 409);
         }
@@ -342,13 +352,10 @@ export class RouterServer {
         const regenerated = await inviteService.regenerateInvite({
           inviteCode,
           createReplacementCoupon: replacementInvite =>
-            botClient.createCoupon({
+            bitcoinLockCouponService.create({
+              ...body,
               userId: replacementInvite.id,
-              vaultId: body.vaultId,
-              maxSatoshis: body.maxSatoshis,
-              estimatedGiftUsd: body.estimatedGiftUsd,
               btcPctFee,
-              expiresAfterTicks: body.expiresAfterTicks,
             }),
         });
 
@@ -372,7 +379,7 @@ export class RouterServer {
           throw new RouterError('This invite has already been used.', 409, 'ALREADY_USED');
         }
 
-        const [bitcoinLockCoupon] = await botClient.listCouponsByUserId(invite.id);
+        const [bitcoinLockCoupon] = await bitcoinLockCouponService.getByUserId(invite.id);
         if (!bitcoinLockCoupon) {
           throw new RouterError('Bitcoin lock coupon not found.', 404);
         }
@@ -381,8 +388,12 @@ export class RouterServer {
         return {
           maxSatoshis: coupon.maxSatoshis,
           estimatedGiftUsd: coupon.estimatedGiftUsd,
+          ...(coupon.feeCreditMicrogons != null ? { feeCreditMicrogons: coupon.feeCreditMicrogons } : {}),
           btcPctFee: coupon.btcPctFee,
-          expiresAt: new Date(new Date(coupon.createdAt).getTime() + 24 * 60 * 60 * 1000),
+          expiresAfterTicks: coupon.expiresAfterTicks,
+          // Older invite pages require an absolute date; before acceptance this is the deadline if accepted now.
+          expiresAt:
+            bitcoinLockCoupon.expiresAt ?? new Date(Date.now() + coupon.expiresAfterTicks * NetworkConfig.tickMillis),
           fromName: invite.fromName,
         };
       }),
@@ -415,10 +426,7 @@ export class RouterServer {
           throw new RouterError('Invite not found', 404);
         }
 
-        const bitcoinLockCoupon = await botClient.activateLatestCoupon({
-          userId: invite.id,
-          accountId: defaultAccountId,
-        });
+        const bitcoinLockCoupon = await bitcoinLockCouponService.activateLatest(invite.id, defaultAccountId);
 
         return {
           fromName: invite.fromName,
@@ -437,24 +445,24 @@ export class RouterServer {
       '/invites',
       requireAdminOperatorAuth,
       safeJsonRoute<IListInvitesResponse>(async () => {
-        const couponsByUserId = await botClient.listLatestCouponsByUserId();
+        const couponsByUserId = await bitcoinLockCouponService.getLatestByUserId();
         const invites = db.userInvitesTable.fetchByRole(UserRole.Member);
         const inviteVaultId = couponsByUserId.values().next().value?.coupon.vaultId;
         const vaultBondAmountsByAccountId = new Map<string, bigint>();
-        let inviteProgressClient: ArgonClient | undefined;
+        let mainchainClient: ArgonClient | undefined;
 
-        if (inviteProgressNodeUrl) {
+        if (mainchainNodeUrl) {
           try {
-            const client = await getInviteProgressClient();
+            const client = await getMainchainClient();
             const bondLots = inviteVaultId ? await TreasuryBonds.getBondLots(client, inviteVaultId) : [];
 
             for (const bondLot of bondLots) {
               const currentAmount = vaultBondAmountsByAccountId.get(bondLot.accountId) ?? 0n;
               vaultBondAmountsByAccountId.set(bondLot.accountId, currentAmount + bondLot.activeBondMicrogons);
             }
-            inviteProgressClient = client;
+            mainchainClient = client;
           } catch (error) {
-            this.inviteProgressClientPromise = undefined;
+            this.mainchainClientPromise = undefined;
             console.warn('[router] Unable to load invite certification progress.', error);
           }
         }
@@ -464,7 +472,7 @@ export class RouterServer {
             invites.map(async invite => {
               const bitcoinLockCoupon = couponsByUserId.get(invite.id);
               let certificationProgress: ICertificationProgress | undefined;
-              const client = inviteProgressClient;
+              const client = mainchainClient;
               const defaultAccountId = invite.defaultAccountId;
               if (client && defaultAccountId) {
                 try {
@@ -509,7 +517,7 @@ export class RouterServer {
                     vaultContribution,
                   };
                 } catch (error) {
-                  this.inviteProgressClientPromise = undefined;
+                  this.mainchainClientPromise = undefined;
                   console.warn('[router] Unable to load invite certification progress.', error);
                 }
               }
@@ -585,7 +593,7 @@ export class RouterServer {
           .flatMap(invite =>
             invite.operationsAccessProofSignature && invite.operationalAccountId ? [invite.operationalAccountId] : [],
           );
-        const client = await getInviteProgressClient();
+        const client = await getMainchainClient();
         const operationalAccounts = await client.query.operationalAccounts.operationalAccounts.multi([
           adminOperatorAccountId,
           ...approvedOperationalAccountIds,
@@ -622,7 +630,7 @@ export class RouterServer {
       requireAdminOperatorAuth,
       safeJsonRoute<IListBitcoinLockCouponsResponse>(async () => {
         return {
-          bitcoinLockCoupons: await botClient.listCoupons(),
+          bitcoinLockCoupons: await bitcoinLockCouponService.getAll(),
         };
       }),
     );
@@ -631,7 +639,7 @@ export class RouterServer {
       '/bitcoin-lock-coupons/:offerCode',
       safeJsonRoute<IBitcoinLockStatusResponse>(async req => {
         return {
-          bitcoinLock: await botClient.getCoupon(req.params.offerCode),
+          bitcoinLock: await bitcoinLockCouponService.getByOfferCode(req.params.offerCode),
         };
       }),
     );
@@ -647,24 +655,49 @@ export class RouterServer {
           throw new RouterError('A current bitcoin price quote is required to initialize this bitcoin lock.');
         }
 
-        const bitcoinLock = await botClient
-          .initializeCoupon(req.params.offerCode, {
-            offerCode: req.params.offerCode,
-            requestedSatoshis: body.requestedSatoshis,
-            ownerAccountId: body.ownerAccountId,
-            ownerBitcoinPubkey: body.ownerBitcoinPubkey,
-            microgonsAtTargetPerBtc: body.microgonsAtTargetPerBtc,
-          })
-          .catch(error => {
-            if (error instanceof RouterError) {
-              throw new RouterError(
-                error.message || 'Bot request failed to initialize this bitcoin lock.',
-                error.status,
-              );
-            }
-            throw error;
-          });
-        return { bitcoinLock };
+        if (body.execution === 'FeeCoupon') {
+          const authorization = await bitcoinLockCouponService.authorizeInitialization(req.params.offerCode, body);
+          return {
+            bitcoinLock: authorization.status,
+            execution: {
+              type: 'FeeCoupon',
+              requestId: authorization.use.requestId,
+              feeCoupon: authorization.use.feeCoupon!,
+            },
+          };
+        }
+
+        return {
+          bitcoinLock: await bitcoinLockCouponService.initialize(req.params.offerCode, body),
+        };
+      }),
+    );
+
+    app.post(
+      '/bitcoin-lock-coupon-uses/:requestId',
+      express.text({ type: '*/*' }),
+      safeJsonRoute<IBitcoinLockStatusResponse>(async req => {
+        const session = routerAuth.requireMemberSession(req);
+        if (!session.accountId) throw new RouterError('A member account is required.', 403);
+        const body = requireBody<IBitcoinLockCouponUseUpdateRequest>(req);
+        if (body.status !== 'Finalized' && body.status !== 'Failed') {
+          throw new RouterError('A valid Bitcoin fee coupon use status is required.', 400);
+        }
+        return {
+          bitcoinLock: await bitcoinLockCouponService.reportFeeCouponUse(req.params.requestId, session.accountId),
+        };
+      }),
+    );
+
+    app.post(
+      '/bitcoin-lock-coupons/:offerCode/expiration',
+      requireAdminOperatorAuth,
+      express.text({ type: '*/*' }),
+      safeJsonRoute<IBitcoinLockStatusResponse>(async req => {
+        const body = requireBody<IUpdateBitcoinLockCouponExpirationRequest>(req);
+        return {
+          bitcoinLock: await bitcoinLockCouponService.updateExpiration(req.params.offerCode, body.expiresAfterTicks),
+        };
       }),
     );
 
@@ -686,7 +719,7 @@ export class RouterServer {
         }
 
         return {
-          bitcoinLockCoupons: await botClient.listCouponsByUserId(invite.id),
+          bitcoinLockCoupons: await bitcoinLockCouponService.getByUserId(invite.id),
         };
       }),
     );
@@ -729,28 +762,14 @@ export class RouterServer {
       res.status(404).send('Not Found');
     });
 
-    void (async () => {
-      const migrationNodeUrl = this.options.mainNodeUrl ?? this.options.localNodeUrl;
-      if (migrationNodeUrl) {
-        const client = await getClient(migrationNodeUrl, { throwOnConnect: true });
-        try {
-          await inviteService.migrateMissingOperationalAccountIds(client);
-        } finally {
-          await client.disconnect().catch(() => undefined);
-        }
-      }
-
-      this.server = app.listen(this.options.port ?? 0, () => {
-        console.log(
-          `Router server is running on port ${(this.server.address() as { port?: number } | null)?.port ?? this.options.port}`,
-        );
-        this.resolveListening();
-      });
-      this.server.once('error', err => {
-        this.rejectListening(err);
-      });
-    })().catch(error => {
-      this.rejectListening(error instanceof Error ? error : new Error(String(error)));
+    this.server = app.listen(this.options.port ?? 0, () => {
+      console.log(
+        `Router server is running on port ${(this.server.address() as { port?: number } | null)?.port ?? this.options.port}`,
+      );
+      this.resolveListening();
+    });
+    this.server.once('error', error => {
+      this.rejectListening(error);
     });
   }
 
@@ -779,7 +798,7 @@ export class RouterServer {
       });
     });
 
-    await this.inviteProgressClientPromise
+    await this.mainchainClientPromise
       ?.then(client => client.disconnect().catch(() => undefined))
       .catch(() => undefined);
   }
@@ -832,9 +851,13 @@ function safeJsonRoute<T>(
       const status = error instanceof RouterError ? error.status : 500;
       const message = error instanceof Error ? error.message : String(error);
       const code = error instanceof RouterError ? error.code : undefined;
+      const minimumDesktopVersion = error instanceof RouterError ? error.minimumDesktopVersion : undefined;
 
       if (!res.headersSent) {
-        sendJson(res, code ? { error: message, code } : { error: message }, status);
+        const response: IRouterErrorResponse = { error: message };
+        if (code) response.code = code;
+        if (minimumDesktopVersion) response.minimumDesktopVersion = minimumDesktopVersion;
+        sendJson(res, response, status);
       }
     }
   };

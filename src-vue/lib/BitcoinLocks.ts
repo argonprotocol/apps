@@ -47,15 +47,18 @@ import BitcoinMempool from './BitcoinMempool.ts';
 import { getVaults } from '../stores/vaults.ts';
 import { BITCOIN_BLOCK_MILLIS, ESPLORA_HOST } from './Env.ts';
 import { UpstreamOperatorClient } from './UpstreamOperatorClient.ts';
+import { RequestStatusError } from './ServerAuthClient.ts';
 import {
   bigNumberToBigInt,
   bigIntMax,
+  bigIntMin,
   type ArgonQueryClient,
   BlockWatch,
   createDeferred,
   Currency as CurrencyBase,
   getPercent,
   IBlockHeaderInfo,
+  type IBitcoinLockCouponUseRecord,
   IDeferred,
   MiningFrames,
   NetworkConfig,
@@ -64,7 +67,7 @@ import {
   SingleFileQueue,
 } from '@argonprotocol/apps-core';
 import type { BitcoinLockRelayStatus, IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
-import { TransactionTracker } from './TransactionTracker.ts';
+import { TransactionTracker, TxAttemptState } from './TransactionTracker.ts';
 import { deriveBitcoinLockHdKey, WalletKeys } from './WalletKeys.ts';
 import { getTransactionFailureMessage, TransactionInfo } from './TransactionInfo.ts';
 import { ExtrinsicType, TransactionStatus } from './db/TransactionsTable.ts';
@@ -130,6 +133,14 @@ export interface IOperatorBitcoinLockCouponRoute {
   vaultId: number;
   offerCode: string;
   accountId?: string;
+  remainingFeeCreditMicrogons?: bigint;
+  pendingInitialization?: Pick<IBitcoinLockCouponUseRecord, 'requestId' | 'feeCreditMicrogons' | 'feeCoupon'>;
+}
+
+export class BitcoinLockWalletFundingError extends Error {
+  constructor(public readonly requiredWalletBalanceMicrogons: bigint) {
+    super(`Your wallet needs a balance of ${formatArgons(requiredWalletBalanceMicrogons)} to initialize this lock.`);
+  }
 }
 
 export interface IBitcoinRequestLockMetadata {
@@ -141,6 +152,8 @@ export interface IBitcoinRequestLockMetadata {
     lockedTargetPrice: bigint;
     liquidityPromised: bigint;
     securityFee: bigint;
+    feeCouponNonce?: bigint;
+    feeCouponRequestId?: string;
   };
 }
 
@@ -850,30 +863,42 @@ export default class BitcoinLocks {
     };
   }
 
-  private async canPayMinimumFee(args: {
+  public async getInitializeFeeEstimate(args: {
     vault: Vault;
-    txSigner: TxSigningAccount;
+    satoshis: bigint;
+    txSigner?: TxSigningAccount;
     tip?: bigint;
     microgonsAtTargetPerBtc?: bigint;
-  }): Promise<{ canAfford: boolean; txFeePlusTip: bigint; securityFee: bigint }> {
-    const { vault, txSigner, tip = 0n, microgonsAtTargetPerBtc } = args;
+    feeDiscountMicrogons?: bigint;
+  }) {
+    const { vault, satoshis, tip = 0n, microgonsAtTargetPerBtc, feeDiscountMicrogons = 0n } = args;
+    const txSigner = args.txSigner ?? (await this.walletKeys.getLiquidLockingKeypair());
     const ownerBitcoinXpriv = await this.walletKeys.getBitcoinChildXpriv(
       `m/1018'/0'/${vault.vaultId}'/0/0'`,
       this.bitcoinNetwork,
     );
     const ownerBitcoinPubkey = getCompressedPubkey(ownerBitcoinXpriv.publicKey!);
-
-    // explode on purpose if we can't afford even the minimum
-    return await BitcoinLock.createInitializeTx({
-      client: await getMainchainClient(false),
+    const client = await getMainchainClient(false);
+    const estimate = await BitcoinLock.createInitializeTx({
+      client,
       vault,
       priceIndex: this.#currency.priceIndex,
       ownerBitcoinPubkey,
       txSigner,
       tip,
       microgonsAtTargetPerBtc,
-      satoshis: await this.minimumSatoshiPerLock(),
+      satoshis,
     });
+    const securityFee = bigIntMax(estimate.securityFee - feeDiscountMicrogons, 0n);
+    const requiredWalletBalanceMicrogons =
+      securityFee + estimate.txFeePlusTip + client.consts.balances.existentialDeposit.toBigInt();
+
+    return {
+      canAfford: estimate.availableBalance >= requiredWalletBalanceMicrogons,
+      requiredWalletBalanceMicrogons,
+      securityFee,
+      txFeePlusTip: estimate.txFeePlusTip,
+    };
   }
 
   public async minimumSatoshiPerLock(): Promise<bigint> {
@@ -920,7 +945,13 @@ export default class BitcoinLocks {
       });
     }
 
-    const basicFeeCapability = await this.canPayMinimumFee({ ...args, txSigner });
+    const basicFeeCapability = await this.getInitializeFeeEstimate({
+      vault,
+      satoshis: minimumSatoshis,
+      txSigner,
+      tip,
+      microgonsAtTargetPerBtc: args.microgonsAtTargetPerBtc,
+    });
     if (!basicFeeCapability.canAfford) {
       const { txFeePlusTip, securityFee } = basicFeeCapability;
       throw new Error(
@@ -976,27 +1007,160 @@ export default class BitcoinLocks {
     operatorCoupon: IOperatorBitcoinLockCouponRoute;
     microgonsAtTargetPerBtc?: bigint;
   }): Promise<{ pendingLock: IBitcoinLockRecord; txInfo?: TransactionInfo<IBitcoinRequestLockMetadata> }> {
+    const client = await getMainchainClient(false);
     const { offerCode } = args.operatorCoupon;
     const operatorHost = await this.upstreamOperatorClient.resolveOperatorHost();
     if (!operatorHost) {
       throw new Error('No upstream operator host configured.');
     }
 
+    const supportsInitializeFor = BitcoinLock.supportsInitializeFor(client);
+    const pendingInitialization = supportsInitializeFor ? undefined : args.operatorCoupon.pendingInitialization;
+    const feeCouponNonce = pendingInitialization?.feeCoupon?.nonce;
+    if (pendingInitialization && feeCouponNonce == null) {
+      throw new Error('This Bitcoin lock initialization is missing its signed fee coupon.');
+    }
+
+    const existingAttempt =
+      feeCouponNonce != null
+        ? await this.findBitcoinLockInitializationAttempt({
+            accountAddress: args.txSigner.address,
+            vaultId: args.vault.vaultId,
+            feeCouponNonce,
+          })
+        : undefined;
+    if (existingAttempt && existingAttempt.txAttemptState !== TxAttemptState.Replace) {
+      const existingUuid = existingAttempt.txInfo.tx.metadataJson.bitcoin.uuid;
+      const existingLock =
+        this.data.pendingLocks.find(lock => lock.uuid === existingUuid) ??
+        Object.values(this.locksByUtxoId).find(lock => lock.uuid === existingUuid);
+      if (existingLock) return { pendingLock: existingLock, txInfo: existingAttempt.txInfo };
+
+      throw new Error('This Bitcoin lock initialization is still being recovered from local history.');
+    }
+
+    const satoshis = args.satoshis;
     const microgonsAtTargetPerBtc =
       args.microgonsAtTargetPerBtc ?? this.#currency.priceIndex.getSatoshiPriceInTargetMicrogons(SATOSHIS_PER_BITCOIN);
-    const liquidityPromised = this.argonLiquidityForSatoshis(args.satoshis, microgonsAtTargetPerBtc);
+    const liquidityPromised = this.argonLiquidityForSatoshis(satoshis, microgonsAtTargetPerBtc);
     const { ownerBitcoinPubkey, hdPath } = await this.getNextUtxoPubkey({ vault: args.vault });
 
-    const relay = await this.upstreamOperatorClient.initializeBitcoinLock(offerCode, {
+    if (!supportsInitializeFor) {
+      const requestedFeeCouponId = pendingInitialization?.requestId ?? BitcoinLocksTable.createUuid();
+
+      const remainingFeeCreditMicrogons = args.operatorCoupon.remainingFeeCreditMicrogons;
+      if (remainingFeeCreditMicrogons == null && !pendingInitialization) {
+        throw new Error(
+          'This Bitcoin fee gift is waiting for your upstream operator to update it for the current network.',
+        );
+      }
+      const availableFeeCreditMicrogons =
+        (remainingFeeCreditMicrogons ?? 0n) + (pendingInitialization?.feeCreditMicrogons ?? 0n);
+      const variableFee = bigIntMax(
+        args.vault.calculateBitcoinFee(liquidityPromised) - args.vault.terms.bitcoinBaseFee,
+        0n,
+      );
+      const feeCreditMicrogons = bigIntMin(variableFee, availableFeeCreditMicrogons);
+      if (feeCreditMicrogons <= 0n) throw new Error('This Bitcoin fee gift has no remaining credit.');
+
+      const initializeArgs = {
+        client,
+        vault: args.vault,
+        priceIndex: this.#currency.priceIndex,
+        ownerBitcoinPubkey,
+        txSigner: args.txSigner,
+        microgonsAtTargetPerBtc,
+        satoshis,
+      };
+      const feeEstimate = await BitcoinLock.createInitializeTx(initializeArgs);
+      const existentialDeposit = client.consts.balances.existentialDeposit.toBigInt();
+      const memberSecurityFee = bigIntMax(feeEstimate.securityFee - feeCreditMicrogons, 0n);
+      const requiredWalletBalanceMicrogons = memberSecurityFee + feeEstimate.txFeePlusTip + existentialDeposit;
+      if (feeEstimate.availableBalance < requiredWalletBalanceMicrogons) {
+        throw new BitcoinLockWalletFundingError(requiredWalletBalanceMicrogons);
+      }
+
+      const response = await this.upstreamOperatorClient.initializeBitcoinLock(offerCode, {
+        requestId: requestedFeeCouponId,
+        feeCouponNonce,
+        execution: 'FeeCoupon',
+        feeCreditMicrogons,
+        ownerAccountId: args.txSigner.address,
+        ownerBitcoinPubkey: u8aToHex(ownerBitcoinPubkey),
+        requestedSatoshis: satoshis,
+        microgonsAtTargetPerBtc,
+      });
+      if (response.execution?.type !== 'FeeCoupon') {
+        throw new RequestStatusError(
+          'Your upstream operator must update before it can provide a Bitcoin fee gift for the current network.',
+          426,
+          'UPSTREAM_UPGRADE_REQUIRED',
+        );
+      }
+
+      const feeCouponRequestId = response.execution.requestId;
+      const bitcoinUuid = existingAttempt ? BitcoinLocksTable.createUuid() : feeCouponRequestId;
+      const signedFeeCoupon = response.execution.feeCoupon;
+
+      let initialization;
+      try {
+        initialization = await BitcoinLock.createInitializeTx({
+          ...initializeArgs,
+          feeCoupon: signedFeeCoupon,
+        });
+      } catch (error) {
+        await this.upstreamOperatorClient.recordBitcoinLockFeeCouponUse(feeCouponRequestId, 'Failed');
+        throw error;
+      }
+      if (!initialization.canAfford) {
+        throw new BitcoinLockWalletFundingError(
+          initialization.txFeePlusTip + initialization.securityFee + existentialDeposit,
+        );
+      }
+
+      let txInfo;
+      try {
+        txInfo = await this.#transactionTracker.submitAndWatch({
+          tx: initialization.tx,
+          txSigner: args.txSigner,
+          useLatestNonce: true,
+          extrinsicType: ExtrinsicType.BitcoinRequestLock,
+          metadata: {
+            bitcoin: {
+              uuid: bitcoinUuid,
+              vaultId: args.vault.vaultId,
+              satoshis,
+              hdPath,
+              lockedTargetPrice: microgonsAtTargetPerBtc,
+              liquidityPromised,
+              securityFee: initialization.securityFee,
+              feeCouponNonce: signedFeeCoupon.nonce,
+              feeCouponRequestId,
+            },
+          },
+        });
+      } catch (error) {
+        await this.upstreamOperatorClient.recordBitcoinLockFeeCouponUse(feeCouponRequestId, 'Failed');
+        throw error;
+      }
+
+      await this.createPendingBitcoinLock(txInfo);
+      const pendingLock = this.data.pendingLocks.at(-1);
+      if (!pendingLock) throw new Error('Pending lock was not created');
+      return { pendingLock, txInfo };
+    }
+
+    const response = await this.upstreamOperatorClient.initializeBitcoinLock(offerCode, {
       ownerAccountId: args.txSigner.address,
       ownerBitcoinPubkey: u8aToHex(ownerBitcoinPubkey),
-      requestedSatoshis: args.satoshis,
+      requestedSatoshis: satoshis,
       microgonsAtTargetPerBtc,
     });
+    const relay = response.bitcoinLock as IBitcoinLockCouponStatus & { status: BitcoinLockRelayStatus };
 
     const pendingLock = await this.insertPending({
       uuid: BitcoinLocksTable.createUuid(),
-      satoshis: args.satoshis,
+      satoshis,
       lockedTargetPrice: microgonsAtTargetPerBtc,
       liquidityPromised,
       vaultId: args.vault.vaultId,
@@ -1007,6 +1171,25 @@ export default class BitcoinLocks {
 
     await this.syncRelayBackedPendingLock(pendingLock, relay);
     return { pendingLock };
+  }
+
+  private async findBitcoinLockInitializationAttempt(args: {
+    accountAddress: string;
+    vaultId: number;
+    feeCouponNonce: bigint;
+  }) {
+    return await this.#transactionTracker.findLatestTxAttempt<IBitcoinRequestLockMetadata>({
+      extrinsicType: ExtrinsicType.BitcoinRequestLock,
+      waitForConfirmations: 2,
+      matches: candidate => {
+        const bitcoin = candidate.tx.metadataJson.bitcoin;
+        return (
+          candidate.tx.accountAddress === args.accountAddress &&
+          bitcoin.vaultId === args.vaultId &&
+          bitcoin.feeCouponNonce === args.feeCouponNonce
+        );
+      },
+    });
   }
 
   private async fetchRelayStatus(
@@ -1250,6 +1433,12 @@ export default class BitcoinLocks {
             }
           }
         }
+        if (txInfo.tx.metadataJson.bitcoin.feeCouponRequestId) {
+          await this.upstreamOperatorClient.recordBitcoinLockFeeCouponUse(
+            txInfo.tx.metadataJson.bitcoin.feeCouponRequestId,
+            'Failed',
+          );
+        }
         postProcessor.resolve();
         return;
       }
@@ -1265,9 +1454,19 @@ export default class BitcoinLocks {
           finalFee: txResult.finalFee!,
         },
       );
+      if (txInfo.tx.metadataJson.bitcoin.feeCouponRequestId) {
+        await this.upstreamOperatorClient.recordBitcoinLockFeeCouponUse(
+          txInfo.tx.metadataJson.bitcoin.feeCouponRequestId,
+          'Finalized',
+        );
+      }
       postProcessor.resolve();
       return record;
     } catch (error) {
+      const feeCouponRequestId = txInfo.tx.metadataJson.bitcoin.feeCouponRequestId;
+      if (feeCouponRequestId && txInfo.txResult.submissionError) {
+        await this.upstreamOperatorClient.recordBitcoinLockFeeCouponUse(feeCouponRequestId, 'Failed');
+      }
       postProcessor.reject(error as Error);
       throw error;
     }

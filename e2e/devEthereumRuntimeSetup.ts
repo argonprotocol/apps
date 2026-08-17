@@ -128,30 +128,30 @@ export async function initializeDevEthereumTokenReserve(args: {
     functionName: 'migrationCompleted',
   });
 
-  if (!migrationCompleted) {
-    // The backing must be finalized on Argon before Ethereum exposes the migrated supply.
-    await args.ensureBacking();
+  if (migrationCompleted) return;
 
-    const hash = await args.sendMigration(
-      encodeFunctionData({
-        abi: EvmContracts.mintingGatewayAbi,
-        functionName: 'migrate',
-        args: [
-          {
-            recipients: [rootAccountAddress],
-            amounts: [reserveBaseUnits],
-          },
-          {
-            recipients: [rootAccountAddress],
-            amounts: [reserveBaseUnits],
-          },
-        ],
-      }),
-    );
-    const receipt = await publicClient.waitForTransactionReceipt({ hash });
-    if (receipt.status !== 'success') {
-      throw new Error(`Dev Ethereum token reserve migration failed: ${hash}`);
-    }
+  // The backing must be finalized on Argon before Ethereum exposes the migrated supply.
+  await args.ensureBacking();
+
+  const hash = await args.sendMigration(
+    encodeFunctionData({
+      abi: EvmContracts.mintingGatewayAbi,
+      functionName: 'migrate',
+      args: [
+        {
+          recipients: [rootAccountAddress],
+          amounts: [reserveBaseUnits],
+        },
+        {
+          recipients: [rootAccountAddress],
+          amounts: [reserveBaseUnits],
+        },
+      ],
+    }),
+  );
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success') {
+    throw new Error(`Dev Ethereum token reserve migration failed: ${hash}`);
   }
 
   const [argonBalance, argonotBalance] = await Promise.all([

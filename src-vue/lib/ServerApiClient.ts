@@ -9,6 +9,7 @@ import {
 } from '@argonprotocol/apps-core';
 import type {
   ICreateInviteRequest,
+  IBitcoinLockStatusResponse,
   IInviteResponse,
   IListInvitesResponse,
   IMarkOperationsUpgradedRequest,
@@ -130,6 +131,15 @@ export class ServerApiClient {
       },
     );
     return body.invite;
+  }
+
+  public async updateBitcoinLockCouponExpiration(offerCode: string, expiresAfterTicks: number) {
+    const body = await this.postJson<IBitcoinLockStatusResponse>(
+      `/bitcoin-lock-coupons/${encodeURIComponent(offerCode)}/expiration`,
+      { expiresAfterTicks },
+      { timeoutMs: 10e3, adminOperatorAuth: true },
+    );
+    return body.bitcoinLock;
   }
 
   public async markOperationsUpgraded(

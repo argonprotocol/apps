@@ -1,5 +1,5 @@
 import { stripNetworkPrefix } from '@argonprotocol/apps-core';
-import type { Vault } from '@argonprotocol/mainchain';
+import type { PalletCrosschainTransferGlobalIssuanceCouncil, Vault } from '@argonprotocol/mainchain';
 import type { IConnectedVault } from '../interfaces/IConfig.ts';
 import type { IGlobalCouncilQueueItem } from './GlobalCouncil.ts';
 
@@ -11,14 +11,21 @@ export type ICrosschainSourceIdentity = {
 export function getCrosschainAccessState(args: {
   hasActivatedCrosschain: boolean;
   authorityCount: number;
-  councilSigner?: string;
+  isActiveCouncilMember: boolean;
 }) {
   const hasMintingAuthority = args.authorityCount > 0;
 
   return {
-    hasAccess: args.hasActivatedCrosschain || hasMintingAuthority || Boolean(args.councilSigner),
+    hasAccess: args.hasActivatedCrosschain || args.isActiveCouncilMember,
     hasMintingAuthority,
   };
+}
+
+export function isAccountInGlobalIssuanceCouncil(
+  council: PalletCrosschainTransferGlobalIssuanceCouncil | undefined,
+  accountId: string,
+): boolean {
+  return !!council && [...council.members.values()].some(member => member.accountId.toString() === accountId);
 }
 
 export function createKnownCrosschainSourceIdentities(args: {

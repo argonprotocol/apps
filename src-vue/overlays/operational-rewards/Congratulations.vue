@@ -108,7 +108,6 @@ const config = getConfig();
 const currency = getCurrency();
 
 const { microgonToArgonNm } = createNumeralHelpers(currency);
-
 const referrerRewardName = Vue.computed(() => {
   const upstreamOperator = config.upstreamOperator;
   if (!upstreamOperator?.name) return '';

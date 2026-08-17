@@ -69,6 +69,7 @@
       <CertificationOverlay />
       <OperationalRewardsOverlay />
       <MemberInviteOverlay />
+      <MemberDetailsOverlay />
       <SecuritySettingsOverlay />
       <ImportAccountOverlay />
       <BotEditOverlay />
@@ -140,6 +141,7 @@ import ServerOverlay from './overlays/ServerOverlay.vue';
 import CertificationOverlay from './overlays/CertificationOverlay.vue';
 import OperationalRewardsOverlay from './overlays/OperationalRewardsOverlay.vue';
 import MemberInviteOverlay from './overlays/MemberInviteOverlay.vue';
+import MemberDetailsOverlay from './overlays/MemberDetailsOverlay.vue';
 import { CloseRequestedEvent, getCurrentWindow } from '@tauri-apps/api/window';
 import OperationalProfileOverlay from './overlays/OperationalProfileOverlay.vue';
 import { checkInstallerIfCloseAllowed } from './stores/installer.ts';

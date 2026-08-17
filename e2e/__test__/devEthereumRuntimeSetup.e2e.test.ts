@@ -1,7 +1,42 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EvmContracts } from '@argonprotocol/mainchain';
 import { getAddress, type Hex, type PublicClient } from 'viem';
-import { submitDevAdminTransaction, syncEthereumGatewayActiveCouncilToArgon } from '../devEthereumRuntimeSetup.ts';
+import {
+  initializeDevEthereumTokenReserve,
+  submitDevAdminTransaction,
+  syncEthereumGatewayActiveCouncilToArgon,
+} from '../devEthereumRuntimeSetup.ts';
+
+describe('initializeDevEthereumTokenReserve', () => {
+  it('does not remigrate after the root account distributes part of the initialized reserve', async () => {
+    const argonTokenAddress = getAddress(`0x${'11'.repeat(20)}`);
+    const argonotTokenAddress = getAddress(`0x${'22'.repeat(20)}`);
+    const readContract = vi.fn(async ({ address, functionName }: { address: string; functionName: string }) => {
+      if (functionName === 'migrationCompleted') return true;
+      if (address === argonTokenAddress) return 7_000n * 10n ** 18n;
+      return 10_000n * 10n ** 18n;
+    });
+    const ensureBacking = vi.fn();
+    const sendMigration = vi.fn(async (): Promise<Hex> => `0x${'ab'.repeat(32)}`);
+
+    await expect(
+      initializeDevEthereumTokenReserve({
+        publicClient: {
+          readContract,
+          waitForTransactionReceipt: vi.fn(),
+        } as Pick<PublicClient, 'readContract' | 'waitForTransactionReceipt'>,
+        gatewayAddress: getAddress(`0x${'33'.repeat(20)}`),
+        argonTokenAddress,
+        argonotTokenAddress,
+        rootAccountAddress: getAddress(`0x${'44'.repeat(20)}`),
+        ensureBacking,
+        sendMigration,
+      }),
+    ).resolves.toBeUndefined();
+    expect(ensureBacking).not.toHaveBeenCalled();
+    expect(sendMigration).not.toHaveBeenCalled();
+  });
+});
 
 describe('submitDevAdminTransaction', () => {
   it('accepts a relocated transaction once its intended state is applied', async () => {

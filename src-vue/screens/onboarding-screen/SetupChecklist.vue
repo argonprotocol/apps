@@ -28,7 +28,15 @@
           <div class="flex flex-row">
             <Checkbox :isChecked="config.isServerAdded" />
             <div class="px-4 text-slate-600">
-              <h2 class="text-argon-600 relative inline-block text-2xl font-bold">Connect a Cloud Machine</h2>
+              <h2 class="text-argon-600 relative inline-block text-2xl font-bold">
+                Connect a Cloud Machine
+                <span
+                  v-if="config.isServerAdded && !config.isServerInstalled"
+                  class="installing-badge bg-argon-600/80 relative -top-0.5 rounded px-2 py-0.5 text-base text-white"
+                >
+                  INSTALLING
+                </span>
+              </h2>
               <p v-if="config.isServerInstalled">Your cloud machine is connected and ready for member onboarding.</p>
               <p v-else-if="config.isServerAdded">Your cloud machine is being prepared. Open it to check installation progress.</p>
               <p v-else>Connect the cloud machine that will host your operation and guide invited members through setup.</p>
@@ -40,11 +48,16 @@
 
         <section class="flex grow cursor-pointer flex-row items-center py-5" @click="openOperatorProfile">
           <div class="flex flex-row">
-            <Checkbox :isChecked="isValidOperatorName(operatorName)" />
+            <Checkbox :isChecked="isValidOperatorName(controller.onboardingOperatorNameDraft ?? '')" />
             <div class="px-4 text-slate-600">
               <h2 class="text-argon-600 relative inline-block text-2xl font-bold">Set an Operator Name</h2>
               <p>
-                <span v-if="isValidOperatorName(operatorName)" class="font-semibold opacity-100">{{ operatorName }}.</span>
+                <span
+                  v-if="isValidOperatorName(controller.onboardingOperatorNameDraft ?? '')"
+                  class="font-semibold opacity-100"
+                >
+                  {{ controller.onboardingOperatorNameDraft }}.
+                </span>
                 This name identifies you in onboarding invites to friends and family.
               </p>
             </div>
@@ -121,7 +134,6 @@ const controller = useCertificationController();
 const myVault = getMyVault();
 const walletKeys = getWalletKeys();
 
-const operatorName = Vue.ref('');
 const usesOperationalProfile = Vue.ref(false);
 const isLoaded = Vue.ref(false);
 const errorMessage = Vue.ref('');
@@ -135,12 +147,16 @@ const hasRequiredOperation = Vue.computed(() => {
 });
 
 const canContinue = Vue.computed(() => {
-  return config.isServerInstalled && isValidOperatorName(operatorName.value) && hasRequiredOperation.value;
+  return (
+    config.isServerInstalled &&
+    isValidOperatorName(controller.onboardingOperatorNameDraft ?? '') &&
+    hasRequiredOperation.value
+  );
 });
 
 function activateOnboarding() {
   if (!canContinue.value) return;
-  emit('activate', operatorName.value.trim());
+  emit('activate', controller.onboardingOperatorNameDraft!.trim());
 }
 
 function openServerConnectPanel() {
@@ -149,9 +165,9 @@ function openServerConnectPanel() {
 
 function openOperatorProfile() {
   basicEmitter.emit('openOperationalProfileOverlay', {
-    draftName: operatorName.value,
+    draftName: controller.onboardingOperatorNameDraft ?? '',
     onSelect: name => {
-      operatorName.value = name;
+      controller.onboardingOperatorNameDraft = name;
     },
   });
 }
@@ -181,16 +197,18 @@ Vue.onMounted(async () => {
     usesOperationalProfile.value = usesOperationalProfileNameRuntime(client);
 
     await myVault.load();
-    if (usesOperationalProfile.value) {
-      operatorName.value = getOperationalProfileName(await loadOperationalAccount(walletKeys, client));
-    } else {
-      operatorName.value = myVault.createdVault?.name ?? '';
-      if (!operatorName.value) {
+    if (controller.onboardingOperatorNameDraft == null && usesOperationalProfile.value) {
+      controller.onboardingOperatorNameDraft = getOperationalProfileName(
+        await loadOperationalAccount(walletKeys, client),
+      );
+    } else if (controller.onboardingOperatorNameDraft == null) {
+      controller.onboardingOperatorNameDraft = myVault.createdVault?.name ?? '';
+      if (!controller.onboardingOperatorNameDraft) {
         const ownedVault = await getVaultByOperator({
           client,
           operatorAddress: walletKeys.vaultingAddress,
         });
-        operatorName.value = ownedVault?.name ?? '';
+        controller.onboardingOperatorNameDraft = ownedVault?.name ?? '';
       }
     }
   } catch (error) {
@@ -210,5 +228,18 @@ section:hover {
 
 section p {
   @apply mt-1 ml-0.5 opacity-60;
+}
+
+.installing-badge {
+  animation: installing-fade 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes installing-fade {
+  from {
+    opacity: 0.3;
+  }
+  to {
+    opacity: 1;
+  }
 }
 </style>

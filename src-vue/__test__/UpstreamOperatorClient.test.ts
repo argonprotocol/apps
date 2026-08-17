@@ -116,3 +116,27 @@ it('retries an HTTP failure when chain recovery resolves a different host', asyn
   expect(getMemberSessionId).toHaveBeenNthCalledWith(4, recoveredHost, {});
   expect(recoverOperatorHost).toHaveBeenCalledTimes(2);
 });
+
+it('preserves a router upgrade requirement for the calling workflow', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          error: 'Update Argon Desktop and try again.',
+          code: 'DESKTOP_UPGRADE_REQUIRED',
+          minimumDesktopVersion: '2.3.5',
+        }),
+        { status: 426 },
+      );
+    }),
+  );
+
+  await expect(
+    UpstreamOperatorClient.getBitcoinLockStatus('https://operator.example', 'offer-code'),
+  ).rejects.toMatchObject({
+    status: 426,
+    code: 'DESKTOP_UPGRADE_REQUIRED',
+    minimumDesktopVersion: '2.3.5',
+  });
+});

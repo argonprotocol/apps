@@ -1,13 +1,52 @@
 <!-- prettier-ignore -->
 <template>
-  <OverlayBase :isOpen="isOpen" @close="closeOverlay" @pressEsc="closeOverlay" class="w-6/12">
+  <OverlayBase
+    :isOpen="isOpen"
+    :showGoBack="currentScreen === 'name' && openedFromSettings"
+    @close="closeOverlay"
+    @pressEsc="closeOverlay"
+    @goBack="currentScreen = 'settings'"
+    class="w-6/12"
+  >
     <template #title>
       <div class="text-2xl font-bold inline-block relative">
-        Your Operational Profile
+        {{ currentScreen === 'settings' ? 'Onboarding Settings' : 'Your Operational Profile' }}
       </div>
     </template>
 
-    <div class="flex flex-col w-full pt-3 pb-5 px-5 gap-x-5">
+    <div v-if="currentScreen === 'settings'" class="px-6 py-5 text-base text-slate-700">
+      <button
+        type="button"
+        class="hover:text-argon-600 hover:to-argon-menu-hover/70 flex w-full cursor-pointer items-center justify-between rounded-md py-4 text-left hover:bg-gradient-to-r hover:from-transparent"
+        @click="openOperationsName"
+      >
+        <span class="flex items-center">
+          <OnboardingIcon class="mr-2 size-5 opacity-70" />
+          Operations Name
+        </span>
+        <span class="text-sm text-slate-500">{{ controller.operatorName || 'Not set' }}</span>
+      </button>
+
+      <template v-if="supportsFlexibleAssets">
+        <div class="my-4 border-t border-dashed border-slate-300" />
+        <button
+          type="button"
+          class="hover:text-argon-600 hover:to-argon-menu-hover/70 flex w-full cursor-pointer items-center justify-between rounded-md py-4 text-left hover:bg-gradient-to-r hover:from-transparent"
+          @click="
+            closeOverlay();
+            basicEmitter.emit('openFlexibleAssetsOverlay', { returnTo: 'onboardingSettings' });
+          "
+        >
+          <span class="flex items-center">
+            <ArrowsUpDownIcon class="mr-2 size-5 opacity-70" />
+            Flexible Assets
+          </span>
+          <span class="text-sm text-slate-500">Manage</span>
+        </button>
+      </template>
+    </div>
+
+    <div v-else class="flex flex-col w-full pt-3 pb-5 px-5 gap-x-5">
       <div v-if="!isLoaded">
         Loading...
       </div>
@@ -78,6 +117,8 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import { ArrowsUpDownIcon } from '@heroicons/vue/24/outline';
+import OnboardingIcon from '../assets/onboarding.svg?component';
 import OverlayBase from './OverlayBase.vue';
 import basicEmitter, { type IOperationalProfileRequest } from '../emitters/basicEmitter.ts';
 import ProgressBar from '../components/ProgressBar.vue';
@@ -89,6 +130,7 @@ import {
   usesOperationalProfileNameRuntime,
 } from '../lib/OperationalAccount.ts';
 import { useBasics } from '../stores/basics.ts';
+import { useCertificationController } from '../stores/certificationController.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { getTransactionTracker } from '../stores/transactions.ts';
 import { getMyVault } from '../stores/vaults.ts';
@@ -100,9 +142,10 @@ import {
   normalizeOperatorNameInput,
   OPERATOR_NAME_REQUIREMENTS,
 } from '../lib/Utils.ts';
-import { MyVault } from '../lib/MyVault.ts';
+import { MyVault, supportsFlexibleAssetsRuntime } from '../lib/MyVault.ts';
 
 const basics = useBasics();
+const controller = useCertificationController();
 const myVault = getMyVault();
 const transactionTracker = getTransactionTracker();
 const walletKeys = getWalletKeys();
@@ -118,6 +161,9 @@ const setupTxInfo = Vue.ref<TransactionInfo | null>(null);
 const setupProgressPct = Vue.ref(0);
 const setupProgressMessage = Vue.ref('');
 const setupProgressError = Vue.ref<string | null>(null);
+const currentScreen = Vue.ref<'settings' | 'name'>('name');
+const openedFromSettings = Vue.ref(false);
+const supportsFlexibleAssets = Vue.ref(false);
 
 let unsubSetupProgress: (() => void) | undefined;
 let selectDraftName: ((operatorName: string) => void) | undefined;
@@ -128,10 +174,11 @@ const hasVault = Vue.computed(() => {
 });
 
 async function load(request?: IOperationalProfileRequest) {
+  const profileRequest = request && 'draftName' in request ? request : undefined;
   errorMessage.value = '';
   operatorNameInputNotice.value = '';
   clearSetupProgress();
-  selectDraftName = request?.onSelect;
+  selectDraftName = profileRequest?.onSelect;
 
   try {
     const client = await getMainchainClient(false);
@@ -139,15 +186,22 @@ async function load(request?: IOperationalProfileRequest) {
 
     if (requiresVault.value) {
       await myVault.load();
-      operatorName.value = request?.draftName || myVault.createdVault?.name || '';
+      operatorName.value = profileRequest?.draftName || myVault.createdVault?.name || '';
     } else {
       const savedName = getOperationalProfileName(await loadOperationalAccount(walletKeys, client));
-      operatorName.value = request?.draftName || savedName;
+      operatorName.value = profileRequest?.draftName || savedName;
     }
   } catch (error) {
-    operatorName.value = request?.draftName ?? '';
+    operatorName.value = profileRequest?.draftName ?? '';
     errorMessage.value = error instanceof Error ? error.message : 'Unable to load your profile right now.';
   }
+}
+
+async function openOperationsName() {
+  currentScreen.value = 'name';
+  isLoaded.value = false;
+  await load();
+  isLoaded.value = true;
 }
 
 async function saveProfile() {
@@ -191,6 +245,7 @@ async function saveProfile() {
         : await myVault.setupVaultInviteProfile({ operatorName: nextOperatorName });
     }
     await waitForSetupTransaction(txInfo);
+    controller.operatorName = nextOperatorName;
 
     closeOverlay();
   } catch (error) {
@@ -249,7 +304,14 @@ function closeOverlay() {
 
 async function openOperationalProfileOverlay(request: void | IOperationalProfileRequest) {
   const requestId = ++openRequestId;
-  await load(request || undefined);
+  openedFromSettings.value = !!request && 'screen' in request;
+  currentScreen.value = openedFromSettings.value ? 'settings' : 'name';
+  if (openedFromSettings.value) {
+    const client = await getMainchainClient(false);
+    supportsFlexibleAssets.value = supportsFlexibleAssetsRuntime(client);
+  } else {
+    await load(request || undefined);
+  }
   // Runtime compatibility can unmount this global overlay while the profile load is pending.
   if (requestId !== openRequestId) return;
   isOpen.value = true;

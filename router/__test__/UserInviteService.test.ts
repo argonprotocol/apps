@@ -3,7 +3,7 @@ import os from 'node:os';
 import Path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createOperationalAccessProof, signRouterAuthAccountBinding, UserRole } from '@argonprotocol/apps-core';
-import { Keyring, type ArgonClient, type KeyringPair } from '@argonprotocol/mainchain';
+import { Keyring, type KeyringPair } from '@argonprotocol/mainchain';
 import { Db } from '../src/Db.ts';
 import { UserInviteService } from '../src/UserInviteService.ts';
 
@@ -42,7 +42,9 @@ describe('UserInviteService', () => {
   });
 
   it('keeps the expired invite code when replacement coupon creation fails', async () => {
-    db = new Db(Path.join(Fs.mkdtempSync(Path.join(os.tmpdir(), 'invite-service-regenerate-rollback-')), 'router.sqlite'));
+    db = new Db(
+      Path.join(Fs.mkdtempSync(Path.join(os.tmpdir(), 'invite-service-regenerate-rollback-')), 'router.sqlite'),
+    );
     db.migrate();
 
     const inviteCodes = ['member-invite-1', 'member-invite-2'];
@@ -169,7 +171,9 @@ describe('UserInviteService', () => {
   });
 
   it('rejects reusing an operational account on a different invite upgrade request', () => {
-    db = new Db(Path.join(Fs.mkdtempSync(Path.join(os.tmpdir(), 'invite-service-operational-reuse-')), 'router.sqlite'));
+    db = new Db(
+      Path.join(Fs.mkdtempSync(Path.join(os.tmpdir(), 'invite-service-operational-reuse-')), 'router.sqlite'),
+    );
     db.migrate();
 
     const ids = ['member-invite-1', 'member-invite-2'];
@@ -206,7 +210,9 @@ describe('UserInviteService', () => {
   });
 
   it('requires a valid account signature for auth binding', () => {
-    db = new Db(Path.join(Fs.mkdtempSync(Path.join(os.tmpdir(), 'invite-service-binding-signature-')), 'router.sqlite'));
+    db = new Db(
+      Path.join(Fs.mkdtempSync(Path.join(os.tmpdir(), 'invite-service-binding-signature-')), 'router.sqlite'),
+    );
     db.migrate();
 
     const service = new UserInviteService(db, {
@@ -293,9 +299,7 @@ describe('UserInviteService', () => {
     const operationalAccount = member.derive('//operational');
 
     service.claimInvite(createClaimInviteArgs(invite.inviteCode, member, memberAuth));
-    service.requestOperationsUpgrade(
-      createRequestOperationsUpgradeArgs(member, memberAuth, operationalAccount),
-    );
+    service.requestOperationsUpgrade(createRequestOperationsUpgradeArgs(member, memberAuth, operationalAccount));
 
     const upgradedInvite = service.markOperationsUpgraded({
       inviteCode: invite.inviteCode,
@@ -387,40 +391,6 @@ describe('UserInviteService', () => {
       })?.operationsAccessProofSignature,
     ).toBe(secondAccessProof.signature);
   });
-
-  it('migrates missing operational account ids from chain data', async () => {
-    db = new Db(Path.join(Fs.mkdtempSync(Path.join(os.tmpdir(), 'invite-service-heal-operational-account-')), 'router.sqlite'));
-    db.migrate();
-
-    const member = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMember');
-    const memberAuth = member.derive('//downstream-auth');
-    const operationalAccount = member.derive('//operational');
-    const service = new UserInviteService(db, {
-      createInviteCode: () => 'member-invite-1',
-    });
-    const invite = service.createInvite({
-      name: 'Casey',
-      fromName: 'Operator One',
-    });
-
-    service.claimInvite(createClaimInviteArgs(invite.inviteCode, member, memberAuth));
-    await service.migrateMissingOperationalAccountIds({
-      query: {
-        operationalAccounts: {
-          operationalAccountBySubAccount: {
-            multi: async () => [
-              {
-                isSome: true,
-                unwrap: () => operationalAccount.address,
-              },
-            ],
-          },
-        },
-      },
-    } as unknown as ArgonClient);
-
-    expect(db.userInvitesTable.fetchById(invite.id)?.operationalAccountId).toBe(operationalAccount.address);
-  });
 });
 
 function createClaimInviteArgs(
@@ -444,7 +414,12 @@ function createClaimInviteArgs(
   };
 }
 
-function createRequestOperationsUpgradeArgs(member: KeyringPair, authAccount: KeyringPair, operationalAccount: KeyringPair, expiresAt = Date.now() + 60_000) {
+function createRequestOperationsUpgradeArgs(
+  member: KeyringPair,
+  authAccount: KeyringPair,
+  operationalAccount: KeyringPair,
+  expiresAt = Date.now() + 60_000,
+) {
   const authBinding = {
     accountId: member.address,
     operationalAccountId: operationalAccount.address,

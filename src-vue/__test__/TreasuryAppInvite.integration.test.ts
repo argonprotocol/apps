@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { BitcoinLock, Vault } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
 import {
+  bigIntMax,
   BlockWatch,
   type IBotState,
   type IMiningFrameDetail,
@@ -18,6 +19,7 @@ import {
   type StartedArgonTestNetwork,
 } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
+import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
 import { ServerAuthClient } from '../lib/ServerAuthClient.ts';
 import { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
@@ -28,6 +30,7 @@ import {
   cleanupBitcoinLocksHarness,
   createBitcoinLocksClientHarness,
   createBitcoinLocksHarness,
+  walletFundingMicrogons,
 } from './helpers/bitcoinLocksHarness.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
 import {
@@ -95,7 +98,7 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
     );
   }, 240e3);
 
-  it('tracks the invite lifecycle across the operator api, relay flow, and local lock state', async () => {
+  it('tracks reusable fee coupons across the operator api, runtime, and local lock state', async () => {
     const operatorHarness = await createBitcoinLocksHarness({
       archiveUrl: network.archiveUrl,
       esploraHost: network.networkConfigOverride.esploraHost,
@@ -124,6 +127,8 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
     try {
       const operatorVault = operatorHarness.myVault.createdVault!;
       const operatorClient = await operatorHarness.clients.get(false);
+      expect(BitcoinLock.supportsInitializeFor(operatorClient)).toBe(false);
+
       const supportsVaultName = 'setName' in operatorClient.tx.vaults;
       const expectedFromName = 'OperatorOne';
       const delegateKeypair = await operatorHarness.walletKeys.getVaultDelegateKeypair();
@@ -202,18 +207,31 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       const routerAddress = routerServer.getAddress();
       operatorHost = `http://${routerAddress.host}:${routerAddress.port}`;
 
-      const initialUtxoIds = new Set(Object.keys(treasuryHarness.bitcoinLocks.data.locksByUtxoId).map(Number));
-      const targetLiquidity = operatorVault.availableBitcoinSpace() / 4n;
-      const requestedSatoshis = await treasuryHarness.bitcoinLocks.satoshisForArgonLiquidity(targetLiquidity);
+      const giftLiquidity = operatorVault.availableBitcoinSpace() / 4n;
+      const requestedLiquidity = giftLiquidity / 2n;
+      const maxSatoshis = await treasuryHarness.bitcoinLocks.satoshisForArgonLiquidity(giftLiquidity);
+      const requestedSatoshis = await treasuryHarness.bitcoinLocks.satoshisForArgonLiquidity(requestedLiquidity);
+      const feeCreditMicrogons = bigIntMax(
+        operatorVault.calculateBitcoinFee(giftLiquidity) - operatorVault.terms.bitcoinBaseFee,
+        0n,
+      );
       const defaultAccountId = treasuryHarness.walletKeys.liquidLockingAddress;
+
+      await sudoFundWallet({
+        address: defaultAccountId,
+        microgons: walletFundingMicrogons,
+        micronots: 0n,
+        archiveUrl: network.archiveUrl,
+      });
 
       // Operator issues the invite and should see it tracked immediately in the router api.
       const createdInvite = await createTreasuryAppInvite(operatorHost, operatorServerAuthClient, {
         name: 'Casey',
         fromName: expectedFromName,
         vaultId: operatorVault.vaultId,
-        maxSatoshis: requestedSatoshis + 5_000n,
+        maxSatoshis,
         estimatedGiftUsd: 125,
+        feeCreditMicrogons,
         btcPctFee: 2.5,
         expiresAfterTicks: 240,
       });
@@ -236,6 +254,7 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       expect(claimedInvite.fromName).toBe(expectedFromName);
       expect(claimedInvite.operatorAccountId).toBe(operatorHarness.walletKeys.operationalAddress);
       expect(coupon.coupon.expirationTick).toBeGreaterThan(0);
+      expect(coupon.remainingFeeCreditMicrogons).toBe(feeCreditMicrogons);
       expect(claimedInvite.invite.defaultAccountId).toBe(defaultAccountId);
       expect(claimedInvite.invite.authAccountId).toBe(
         (await treasuryHarness.walletKeys.getUpstreamOperatorAuthKeypair()).address,
@@ -276,70 +295,80 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
         ),
       ).rejects.toThrow('Forbidden');
 
-      // The treasury app user requests relay-backed lock creation.
-      const { txInfo } = await treasuryHarness.bitcoinLocks.initializeLock({
+      // The member submits directly with a beneficiary-specific coupon signed by the bot.
+      const firstInitialization = await treasuryHarness.bitcoinLocks.initializeLock({
         satoshis: requestedSatoshis,
         vault: operatorVault,
         operatorCoupon: {
           vaultId: operatorVault.vaultId,
           offerCode: coupon.coupon.offerCode,
           accountId: defaultAccountId,
+          remainingFeeCreditMicrogons: coupon.remainingFeeCreditMicrogons,
         },
       });
-      expect(txInfo).toBeUndefined();
+      expect(firstInitialization.txInfo).toBeDefined();
+      expect(firstInitialization.pendingLock.relayMetadataJson).toBeNull();
+      await firstInitialization.txInfo!.txResult.waitForFinalizedBlock;
+      await firstInitialization.txInfo!.waitForPostProcessing;
 
-      const pendingLock = await waitFor(30e3, 'coupon relay pending lock', () => {
-        return treasuryHarness.bitcoinLocks.data.pendingLocks.find(
-          lock => lock.relayMetadataJson?.offerCode === coupon.coupon.offerCode,
-        );
+      const firstLock = await waitForCouponLock(treasuryHarness, firstInitialization.pendingLock.uuid);
+      const afterFirstUse = await waitForCouponUses(operatorHost, coupon.coupon.offerCode, 1);
+      const firstUse = afterFirstUse.uses![0];
+
+      expect(firstUse).toMatchObject({
+        status: 'Finalized',
+        requestedSatoshis,
+        ownerAccountId: defaultAccountId,
       });
-      expect(pendingLock.relayMetadataJson?.operatorHost).toBe(operatorHost);
-      expect(pendingLock.relayMetadataJson?.offerCode).toBe(coupon.coupon.offerCode);
-
-      const progressedPendingLock = await waitFor(45e3, 'relay progress reflected in local pending lock', () => {
-        const lock = treasuryHarness.bitcoinLocks.data.pendingLocks.find(x => x.uuid === pendingLock.uuid);
-        if (!lock?.relayMetadataJson?.status) return;
-        if (!['Submitted', 'InBlock', 'Finalized'].includes(lock.relayMetadataJson.status)) return;
-        return lock;
+      expect(firstUse.microgonsAtTargetPerBtc).toBeGreaterThan(0n);
+      expect(firstUse.feeCoupon).toMatchObject({
+        nonce: 1n,
       });
-      expect(progressedPendingLock.relayMetadataJson?.status).toBeTruthy();
-
-      const inBlockRelay = await waitFor(45e3, 'public relay in block', async () => {
-        const relay = await UpstreamOperatorClient.getBitcoinLockStatus(operatorHost, coupon.coupon.offerCode);
-        if (relay.status === 'Failed') {
-          throw new Error(relay.relay?.error ?? 'Relay failed before reaching a block.');
-        }
-        if (!['InBlock', 'Finalized'].includes(relay.status)) return;
-        if (relay.relay?.txExpiresAtBlockHeight == null || relay.relay.txSubmittedAtBlockHeight == null) return;
-        return relay;
+      expect(firstUse.feeCoupon).not.toHaveProperty('beneficiary');
+      expect(firstUse.feeCoupon).not.toHaveProperty('requestedSatoshis');
+      expect(firstUse.feeCoupon).not.toHaveProperty('microgonsAtTargetPerBtc');
+      expect(afterFirstUse).toMatchObject({
+        status: 'Open',
+        originalFeeCreditMicrogons: feeCreditMicrogons,
+        usedFeeCreditMicrogons: firstUse.feeCreditMicrogons,
+        pendingFeeCreditMicrogons: 0n,
+        remainingFeeCreditMicrogons: feeCreditMicrogons - firstUse.feeCreditMicrogons,
       });
-      expect(inBlockRelay.relay!.txExpiresAtBlockHeight).toBeGreaterThan(inBlockRelay.relay!.txSubmittedAtBlockHeight);
+      expect(firstLock.satoshis).toBe(requestedSatoshis);
 
-      const publicRelayResponse = await fetch(
-        `${operatorHost}/bitcoin-lock-coupons/${encodeURIComponent(coupon.coupon.offerCode)}`,
+      const secondInitialization = await treasuryHarness.bitcoinLocks.initializeLock({
+        satoshis: requestedSatoshis,
+        vault: operatorVault,
+        operatorCoupon: {
+          vaultId: operatorVault.vaultId,
+          offerCode: coupon.coupon.offerCode,
+          accountId: defaultAccountId,
+          remainingFeeCreditMicrogons: afterFirstUse.remainingFeeCreditMicrogons,
+        },
+      });
+      expect(secondInitialization.txInfo).toBeDefined();
+      await secondInitialization.txInfo!.txResult.waitForFinalizedBlock;
+      await secondInitialization.txInfo!.waitForPostProcessing;
+
+      const secondLock = await waitForCouponLock(treasuryHarness, secondInitialization.pendingLock.uuid);
+      const afterSecondUse = await waitForCouponUses(operatorHost, coupon.coupon.offerCode, 2);
+      const totalUsedFeeCredit = afterSecondUse.uses!.reduce((total, use) => total + use.feeCreditMicrogons, 0n);
+      expect(afterSecondUse.uses?.map(use => use.status)).toEqual(['Finalized', 'Finalized']);
+      expect(afterSecondUse.uses?.map(use => use.feeCoupon?.nonce)).toEqual([1n, 2n]);
+      expect(afterSecondUse).toMatchObject({
+        originalFeeCreditMicrogons: feeCreditMicrogons,
+        usedFeeCreditMicrogons: totalUsedFeeCredit,
+        pendingFeeCreditMicrogons: 0n,
+        remainingFeeCreditMicrogons: feeCreditMicrogons - totalUsedFeeCredit,
+      });
+      expect(secondLock.utxoId).not.toBe(firstLock.utxoId);
+
+      const chainClient = await treasuryHarness.clients.get(false);
+      const lastNonce = await chainClient.query.bitcoinLocks.lastFeeCouponNonceByVaultAndAccount(
+        operatorVault.vaultId,
+        defaultAccountId,
       );
-      expect(publicRelayResponse.ok).toBe(true);
-      const publicRelayBody = JsonExt.parse<{ bitcoinLock: Record<string, unknown> }>(await publicRelayResponse.text());
-      expect(publicRelayBody.bitcoinLock.coupon).toBeTruthy();
-      expect(publicRelayBody.bitcoinLock.status).toBeTruthy();
-
-      // The treasury app should finalize the new lock and retain coupon relay metadata.
-      const finalizedLock = await waitFor(120e3, 'coupon relay lock finalized', async () => {
-        const lock = Object.values(treasuryHarness.bitcoinLocks.data.locksByUtxoId)
-          .filter(record => record.utxoId && !initialUtxoIds.has(record.utxoId))
-          .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())[0];
-        if (!lock) return;
-        if (lock.status !== BitcoinLockStatus.LockPendingFunding) return;
-        if (lock.relayMetadataJson?.offerCode !== coupon.coupon.offerCode) return;
-
-        const chainLock = await BitcoinLock.get(await treasuryHarness.clients.get(false), lock.utxoId!);
-        if (!chainLock) return;
-
-        return lock;
-      });
-      expect(finalizedLock.satoshis).toBe(requestedSatoshis);
-      expect(finalizedLock.lockDetails.utxoId).toBe(finalizedLock.utxoId);
-      expect(finalizedLock.relayMetadataJson?.offerCode).toBe(coupon.coupon.offerCode);
+      expect(lastNonce.unwrap().toBigInt()).toBe(2n);
     } finally {
       await routerServer?.close().catch(() => undefined);
       routerDb?.close();
@@ -353,6 +382,24 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
     }
   });
 });
+
+async function waitForCouponLock(harness: Awaited<ReturnType<typeof createBitcoinLocksClientHarness>>, uuid: string) {
+  return await waitFor(120e3, 'fee coupon lock finalized', async () => {
+    const lock = Object.values(harness.bitcoinLocks.data.locksByUtxoId).find(record => record.uuid === uuid);
+    if (!lock?.utxoId || lock.status !== BitcoinLockStatus.LockPendingFunding) return;
+    if (!(await BitcoinLock.get(await harness.clients.get(false), lock.utxoId))) return;
+    return lock;
+  });
+}
+
+async function waitForCouponUses(operatorHost: string, offerCode: string, expectedUses: number) {
+  return await waitFor(45e3, 'fee coupon use finalized', async () => {
+    const status = await UpstreamOperatorClient.getBitcoinLockStatus(operatorHost, offerCode);
+    if (status.uses?.length !== expectedUses) return;
+    if (status.uses.some(use => use.status !== 'Finalized')) return;
+    return status;
+  });
+}
 
 async function createTreasuryAppInvite(
   operatorHost: string,

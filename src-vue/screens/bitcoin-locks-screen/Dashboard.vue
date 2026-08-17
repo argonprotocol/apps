@@ -58,7 +58,7 @@
               <button
                 data-testid="BitcoinLocks.openLockingOverlay()"
                 @click="openNewLockingOverlay"
-                class="text-md text-argon-600 cursor-pointer"
+                class="text-argon-600 cursor-pointer"
               >
                 Lock Another Bitcoin
               </button>
@@ -70,7 +70,7 @@
             </span>
             <div class="w-px bg-slate-400/50" />
             <a
-              class="whitespace-nowrap"
+              class="text-argon-600 cursor-pointer whitespace-nowrap"
               :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/bitcoin-locks`"
               target="_blank"
             >
@@ -148,6 +148,10 @@
             Show orphaned Bitcoin ({{ returnedOrphanCount }})
           </button>
           <BitcoinsReleasedOverlay v-if="financials.liquidInvisibleRecords.length" @open-detail="openDetail" />
+          <div v-if="remainingFeeWaiver" class="self-end text-right text-sm text-slate-600">
+            Your fee waiver from {{ remainingFeeWaiver.provider }} has {{ remainingFeeWaiver.amount }} remaining ·
+            expires in {{ remainingFeeWaiver.timeRemaining }}
+          </div>
         </section>
         <div class="relative px-0.5 pb-0.5">
           <img src="/treasury-footers/bitcoin-locks.png" class="w-full opacity-50" />
@@ -188,9 +192,10 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
-import numeral from '../../lib/numeral.ts';
+import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getBitcoinLockCoupons, getBitcoinLocks } from '../../stores/bitcoin.ts';
+import { getConfig } from '../../stores/config.ts';
 import { getMiningFrames } from '../../stores/mainchain.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../../lib/db/BitcoinUtxosTable.ts';
@@ -211,12 +216,15 @@ import { OperationalStepId, useCertificationController } from '../../stores/cert
 
 const controller = useCertificationController();
 const currency = getCurrency();
+const config = getConfig();
 const financials = useFinancials();
 const bitcoinLocks = getBitcoinLocks();
 const bitcoinLockCoupons = getBitcoinLockCoupons();
 const miningFrames = getMiningFrames();
+const { microgonToArgonNm } = createNumeralHelpers(currency);
 
 const currentTick = Vue.ref(0);
+const now = Vue.ref(Date.now());
 const pageSourcesAreLoaded = Vue.ref(false);
 const showDetailOverlay = Vue.ref(false);
 const showUnlockingOverlay = Vue.ref(false);
@@ -224,6 +232,19 @@ const showRatchetingOverlay = Vue.ref(false);
 const showReturnedOrphans = Vue.ref(false);
 const selectedLock = Vue.ref<IBitcoinLockSummary>();
 const selectedOrphan = Vue.ref<IBitcoinUtxoRecord>();
+
+const remainingFeeWaiver = Vue.computed(() => {
+  const coupon = bitcoinLockCoupons.currentCoupon;
+  const remainingMicrogons = coupon?.remainingFeeCreditMicrogons;
+  const expiresAt = coupon?.expiresAt ? new Date(coupon.expiresAt).getTime() : 0;
+  if (!remainingMicrogons || remainingMicrogons <= 0n || expiresAt <= now.value) return;
+
+  return {
+    amount: `${currency.symbol}${microgonToArgonNm(remainingMicrogons).format('0,0.00')}`,
+    provider: config.upstreamOperator?.name || 'your upstream operator',
+    timeRemaining: dayjs(expiresAt).from(now.value, true),
+  };
+});
 
 const orphanRecords = Vue.computed(() => {
   if (
@@ -336,8 +357,12 @@ async function onRatchetCompleted() {
 }
 
 let unsubMiningFrames: (() => void) | undefined;
+let feeWaiverCountdownInterval: ReturnType<typeof setInterval> | undefined;
 
 Vue.onMounted(async () => {
+  feeWaiverCountdownInterval = setInterval(() => {
+    now.value = Date.now();
+  }, 60e3);
   void bitcoinLockCoupons.refresh().catch(error => {
     console.error('Unable to refresh Bitcoin lock coupons', error);
   });
@@ -352,6 +377,7 @@ Vue.onMounted(async () => {
 });
 
 Vue.onUnmounted(() => {
+  clearInterval(feeWaiverCountdownInterval);
   unsubMiningFrames?.();
 });
 </script>

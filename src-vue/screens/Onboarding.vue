@@ -4,7 +4,7 @@
     <template v-if="config.hasExtensionOperations">
       <SetupInstalling
         v-if="config.onboardingSetupStatus === OnboardingSetupStatus.Installing"
-        :operatorName="operatorNameForActivation"
+        :operatorName="controller.onboardingOperatorNameDraft"
       />
       <SetupChecklist
         v-else-if="config.onboardingSetupStatus === OnboardingSetupStatus.Checklist"
@@ -55,10 +55,8 @@ const config = getConfig();
 const controller = useCertificationController();
 
 const inviteLoadError = Vue.ref('');
-const operatorNameForActivation = Vue.ref('');
-
 function activateOnboarding(operatorName: string) {
-  operatorNameForActivation.value = operatorName;
+  controller.onboardingOperatorNameDraft = operatorName;
   config.onboardingSetupStatus = OnboardingSetupStatus.Installing;
   void config.save();
 }

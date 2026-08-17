@@ -1,6 +1,9 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import {
   type IBitcoinLockCouponRecord,
+  type IBitcoinLockCouponStatus,
+  type IBitcoinLockCouponUseRecord,
+  type IBitcoinLockRelayRecord,
   type IRouterAuthAccountBinding,
   JsonExt,
   UserRole,
@@ -15,7 +18,7 @@ const RESTORE_PACKAGE_AAD = Buffer.from('argon-router-restore-v1');
 const RESTORE_PACKAGE_NONCE_BYTES = 12;
 const RESTORE_PACKAGE_TAG_BYTES = 16;
 
-const RESTORE_PACKAGE_FORMAT_VERSION = 2;
+const RESTORE_PACKAGE_FORMAT_VERSION = 3;
 
 type IRestoreMember = Pick<IUserInviteRecord, 'id' | 'name' | 'fromName' | 'inviteCode'> &
   Partial<
@@ -30,6 +33,16 @@ type IRestoreMember = Pick<IUserInviteRecord, 'id' | 'name' | 'fromName' | 'invi
   >;
 
 type IRestorePackagePayload = {
+  version: 3;
+  member: IRestoreMember;
+  bitcoinLockCoupon?: {
+    coupon: Omit<IBitcoinLockCouponRecord, 'id' | 'userId' | 'accountId'>;
+    relay?: IBitcoinLockRelayRecord;
+    uses?: Omit<IBitcoinLockCouponUseRecord, 'id' | 'couponId'>[];
+  };
+};
+
+type IVersionTwoRestorePackagePayload = {
   version: 2;
   member: IRestoreMember;
   bitcoinLockCoupon?: Omit<IBitcoinLockCouponRecord, 'id' | 'userId' | 'accountId'>;
@@ -47,16 +60,10 @@ type ILegacyRestorePackagePayload = {
 export class MemberRestoreService {
   private readonly db: Db;
   private readonly restoreKey?: Buffer;
-  private readonly restoreBitcoinLockCoupon?: (coupon: Omit<IBitcoinLockCouponRecord, 'id'>) => Promise<void>;
 
-  constructor(options: {
-    db: Db;
-    restoreKey?: string;
-    restoreBitcoinLockCoupon?: (coupon: Omit<IBitcoinLockCouponRecord, 'id'>) => Promise<void>;
-  }) {
+  constructor(options: { db: Db; restoreKey?: string }) {
     this.db = options.db;
     this.restoreKey = decodeRestoreKey(options.restoreKey);
-    this.restoreBitcoinLockCoupon = options.restoreBitcoinLockCoupon;
   }
 
   public get isEnabled(): boolean {
@@ -102,18 +109,42 @@ export class MemberRestoreService {
 
     this.assertNoMemberRestoreConflict(payload, args.authAccountId, memberAccounts.accountId);
 
-    if (payload.bitcoinLockCoupon) {
-      if (!this.restoreBitcoinLockCoupon) {
-        throw new RouterError('Bitcoin lock coupon restoration is not configured.', 503);
+    this.db.transaction(() => {
+      this.restoreMember(payload, args.authAccountId, memberAccounts);
+
+      if (!payload.bitcoinLockCoupon) return;
+
+      if (payload.version === 3) {
+        const { coupon, relay } = payload.bitcoinLockCoupon;
+        const restoredCoupon = this.db.bitcoinLockCouponsTable.restore({
+          ...coupon,
+          userId: payload.member.id,
+          accountId: memberAccounts.accountId,
+          relayRequestId: relay?.requestId,
+          relay,
+        });
+        for (const use of payload.bitcoinLockCoupon.uses ?? []) {
+          this.db.bitcoinLockCouponsTable.restoreUse(restoredCoupon.id, use);
+        }
+        return;
       }
 
-      await this.restoreBitcoinLockCoupon({
-        ...payload.bitcoinLockCoupon,
+      if (payload.version === 2) {
+        this.db.bitcoinLockCouponsTable.restore({
+          ...payload.bitcoinLockCoupon,
+          userId: payload.member.id,
+          accountId: memberAccounts.accountId,
+        });
+        return;
+      }
+
+      const { id: _id, userId: _userId, accountId: _accountId, ...coupon } = payload.bitcoinLockCoupon;
+      this.db.bitcoinLockCouponsTable.restore({
+        ...coupon,
         userId: payload.member.id,
         accountId: memberAccounts.accountId,
       });
-    }
-    this.db.transaction(() => this.restoreMember(payload, args.authAccountId, memberAccounts));
+    });
   }
 
   public getPackageRevision(authAccountId: string): string | undefined {
@@ -121,30 +152,33 @@ export class MemberRestoreService {
     const invite = user ? this.db.userInvitesTable.fetchById(user.id) : undefined;
     if (!invite) return;
 
-    if (invite.operationsUpgradedAt || invite.operationsAccessProofSignature) {
-      return `${RESTORE_PACKAGE_FORMAT_VERSION}.2`;
-    }
-    if (invite.operationsUpgradeRequestedAt) {
-      return `${RESTORE_PACKAGE_FORMAT_VERSION}.1`;
-    }
-    return `${RESTORE_PACKAGE_FORMAT_VERSION}.0`;
+    let operationsRevision = 0;
+    if (invite.operationsUpgradeRequestedAt) operationsRevision = 1;
+    if (invite.operationsUpgradedAt || invite.operationsAccessProofSignature) operationsRevision = 2;
+
+    const coupon = this.db.bitcoinLockCouponsTable.fetchLatestByUserId(invite.id);
+    return `${RESTORE_PACKAGE_FORMAT_VERSION}.${operationsRevision}.${coupon?.updatedAt.getTime() ?? 0}`;
   }
 
-  public createPackage(invite: IUserInviteRecord, bitcoinLockCoupon?: IBitcoinLockCouponRecord): string {
+  public createPackage(invite: IUserInviteRecord, bitcoinLockCoupon?: IBitcoinLockCouponStatus): string {
     if (!this.restoreKey || !invite.defaultAccountId || !invite.authAccountId) {
       throw new RouterError('Router member restore is not configured for this member.', 503);
     }
     if (
       bitcoinLockCoupon &&
-      (bitcoinLockCoupon.userId !== invite.id || bitcoinLockCoupon.accountId !== invite.defaultAccountId)
+      (bitcoinLockCoupon.coupon.userId !== invite.id || bitcoinLockCoupon.coupon.accountId !== invite.defaultAccountId)
     ) {
       throw new RouterError('Bitcoin lock coupon does not match this member.', 409);
     }
 
     let coupon: IRestorePackagePayload['bitcoinLockCoupon'];
     if (bitcoinLockCoupon) {
-      const { id: _id, userId: _userId, accountId: _accountId, ...couponDetails } = bitcoinLockCoupon;
-      coupon = couponDetails;
+      const { id: _id, userId: _userId, accountId: _accountId, ...couponDetails } = bitcoinLockCoupon.coupon;
+      coupon = {
+        coupon: couponDetails,
+        relay: bitcoinLockCoupon.relay,
+        uses: bitcoinLockCoupon.uses?.map(({ id: _id, couponId: _couponId, ...use }) => use),
+      };
     }
 
     return sealPackage(
@@ -171,14 +205,14 @@ export class MemberRestoreService {
   private validatePackage(
     restorePackage: string,
     authAccountId: string,
-  ): IRestorePackagePayload | ILegacyRestorePackagePayload {
+  ): IRestorePackagePayload | IVersionTwoRestorePackagePayload | ILegacyRestorePackagePayload {
     if (!this.restoreKey) {
       throw new RouterError('Router member restore is not configured.', 503);
     }
 
     const payload = unsealPackage(restorePackage, this.restoreKey, authAccountId);
     const member = payload.member;
-    if (payload.version !== 1 && payload.version !== RESTORE_PACKAGE_FORMAT_VERSION) {
+    if (payload.version !== 1 && payload.version !== 2 && payload.version !== RESTORE_PACKAGE_FORMAT_VERSION) {
       throw new RouterError('Restore package does not match this member.', 403);
     }
     if (!member || !member.id || !member.name || !member.fromName || !member.inviteCode) {
@@ -200,7 +234,7 @@ export class MemberRestoreService {
   }
 
   private getMemberAccounts(
-    payload: IRestorePackagePayload | ILegacyRestorePackagePayload,
+    payload: IRestorePackagePayload | IVersionTwoRestorePackagePayload | ILegacyRestorePackagePayload,
     args: {
       authAccountId: string;
       accountBinding?: IRouterAuthAccountBinding & { signature: string };
@@ -242,7 +276,7 @@ export class MemberRestoreService {
   }
 
   private assertNoMemberRestoreConflict(
-    payload: IRestorePackagePayload | ILegacyRestorePackagePayload,
+    payload: IRestorePackagePayload | IVersionTwoRestorePackagePayload | ILegacyRestorePackagePayload,
     authAccountId: string,
     accountId: string,
   ): void {
@@ -273,7 +307,7 @@ export class MemberRestoreService {
   }
 
   private restoreMember(
-    payload: IRestorePackagePayload | ILegacyRestorePackagePayload,
+    payload: IRestorePackagePayload | IVersionTwoRestorePackagePayload | ILegacyRestorePackagePayload,
     authAccountId: string,
     accounts: { accountId: string; operationalAccountId?: string | null },
   ): void {
@@ -347,7 +381,7 @@ function unsealPackage(
   restorePackage: string,
   key: Buffer,
   authAccountId: string,
-): IRestorePackagePayload | ILegacyRestorePackagePayload {
+): IRestorePackagePayload | IVersionTwoRestorePackagePayload | ILegacyRestorePackagePayload {
   try {
     const encrypted = Buffer.from(restorePackage, 'base64url');
     if (encrypted.length <= RESTORE_PACKAGE_NONCE_BYTES + RESTORE_PACKAGE_TAG_BYTES) {
@@ -362,7 +396,9 @@ function unsealPackage(
     decipher.setAuthTag(tag);
 
     const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
-    return JsonExt.parse<IRestorePackagePayload>(plaintext);
+    return JsonExt.parse<IRestorePackagePayload | IVersionTwoRestorePackagePayload | ILegacyRestorePackagePayload>(
+      plaintext,
+    );
   } catch {
     throw new RouterError('Restore package is invalid.', 403);
   }

@@ -143,7 +143,7 @@ describe('GlobalCouncil', () => {
       } as any),
       {
         councilSignerEthereumHdPath: `m/44'/60'/1'/0'`,
-        vaultingAddress: '5vault',
+        vaultingAddress: '5existing',
         getEthereumAddresses: vi.fn(async () => ['0xabc']),
       } as any,
       {} as any,
@@ -291,6 +291,7 @@ describe('GlobalCouncil', () => {
     ]);
     expect(pendingApprovals).toHaveLength(33);
     expect(globalCouncil.data.gatewayActivityCount).toBe(47n);
+    expect(globalCouncil.data.isActiveCouncilMember).toBe(true);
     expect(globalCouncil.data.activeEpochMicrogonsPerArgonot).toBe(1_000_000n);
     expect(globalCouncil.data.transferOutMicrogonsPerArgonot).toBe(750_000n);
     expect(

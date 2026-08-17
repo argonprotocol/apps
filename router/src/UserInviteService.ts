@@ -6,7 +6,6 @@ import {
   verifyOperationalAccessProof,
   verifyRouterAuthAccountBinding,
 } from '@argonprotocol/apps-core';
-import type { ArgonClient } from '@argonprotocol/mainchain';
 import type { Db } from './Db.ts';
 import { RouterError } from './RouterError.ts';
 import type { IUserInviteRecord } from './db/UserInvitesTable.ts';
@@ -170,10 +169,7 @@ export class UserInviteService {
     if (!invite) {
       throw new RouterError('Invite not found', 404);
     }
-    if (
-      authBinding.accountId !== defaultAccountId ||
-      authBinding.authAccountId !== invite.authAccountId
-    ) {
+    if (authBinding.accountId !== defaultAccountId || authBinding.authAccountId !== invite.authAccountId) {
       throw new RouterError('The auth binding does not match this invite.', 403);
     }
     if (!verifyRouterAuthAccountBinding(authBinding, authBindingSignature)) {
@@ -288,31 +284,6 @@ export class UserInviteService {
       this.db.userInvitesTable.deleteByUserId(userId);
       this.db.usersTable.deleteById(userId);
     });
-  }
-
-  public async migrateMissingOperationalAccountIds(client: ArgonClient): Promise<void> {
-    const invites = this.db.userInvitesTable.fetchByRole(UserRole.Member);
-    const invitesMissingOperationalAccountId = invites.filter(invite => !invite.operationalAccountId && invite.defaultAccountId);
-    if (!invitesMissingOperationalAccountId.length) {
-      return;
-    }
-
-    try {
-      const operationalAccounts = await client.query.operationalAccounts.operationalAccountBySubAccount.multi(
-        invitesMissingOperationalAccountId.map(invite => invite.defaultAccountId!),
-      );
-
-      invitesMissingOperationalAccountId.forEach((invite, index) => {
-        const operationalAccountId = operationalAccounts[index];
-        if (!operationalAccountId?.isSome) {
-          return;
-        }
-
-        this.db.usersTable.setOperationalAccountId(invite.id, operationalAccountId.unwrap().toString());
-      });
-    } catch (error) {
-      console.warn('[router] Unable to heal missing operational account ids.', error);
-    }
   }
 
   private createUniqueInviteCode(): string {

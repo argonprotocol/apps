@@ -3,6 +3,7 @@ export class RouterError extends Error {
     message: string,
     public readonly status = 400,
     public readonly code?: string,
+    public readonly minimumDesktopVersion?: string,
   ) {
     super(message);
   }

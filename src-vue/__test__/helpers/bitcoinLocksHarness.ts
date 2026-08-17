@@ -33,7 +33,7 @@ export const defaultVaultRules: IVaultingRules = {
   capitalForSecuritizationPct: 50,
   baseMicrogonCommitment: 10_000_000n,
   baseMicronotCommitment: 0n,
-  btcFlatFee: 100_000n,
+  btcFlatFee: 1_000_000n,
   btcPctFee: 2.5,
   profitSharingPct: 5,
 };

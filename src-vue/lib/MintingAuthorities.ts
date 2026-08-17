@@ -756,6 +756,27 @@ export async function restoreOwnedEthereumMintingAuthorities(
   walletHdKeysTable: WalletHdKeysTable,
 ): Promise<IEthereumMintingAuthority[]> {
   const scopeKey = walletKeys.vaultingAddress.toLowerCase();
+  const ownedSigners = await findOwnedEthereumMintingAuthoritySigners(finalizedClient, walletKeys);
+
+  for (const { authorityIndex, signer } of ownedSigners) {
+    await walletHdKeysTable.upsert({
+      keyRole: 'mintingAuthority',
+      scopeKey,
+      hdIndex: authorityIndex,
+      hdPath: walletKeys.getMintingAuthorityEthereumHdPath(authorityIndex),
+      address: signer,
+      publicKeyHex: null,
+    });
+  }
+
+  return await getOwnedEthereumMintingAuthorities(finalizedClient, walletKeys, walletHdKeysTable);
+}
+
+export async function findOwnedEthereumMintingAuthoritySigners(
+  finalizedClient: ApiDecoration<'promise'>,
+  walletKeys: WalletKeys,
+): Promise<Array<{ authorityIndex: number; signer: string }>> {
+  const ownedSigners: Array<{ authorityIndex: number; signer: string }> = [];
   for (
     let startIndex = 0;
     startIndex < MINTING_AUTHORITY_SIGNER_SCAN_LIMIT;
@@ -769,8 +790,9 @@ export async function restoreOwnedEthereumMintingAuthorities(
       walletKeys.getMintingAuthorityEthereumHdPaths(batchSize, startIndex),
     );
     const authorityOptions = derivedSigners.length
-      ? await finalizedClient.query.crosschainTransfer.mintingAuthoritiesBySigner.multi(derivedSigners)
+      ? await finalizedClient.query.crosschainTransfer?.mintingAuthoritiesBySigner?.multi?.(derivedSigners)
       : [];
+    if (!authorityOptions) return ownedSigners;
 
     for (const [offset, authorityOption] of authorityOptions.entries()) {
       if (authorityOption.isNone) continue;
@@ -780,19 +802,11 @@ export async function restoreOwnedEthereumMintingAuthorities(
         continue;
       }
 
-      const authorityIndex = startIndex + offset;
-      await walletHdKeysTable.upsert({
-        keyRole: 'mintingAuthority',
-        scopeKey,
-        hdIndex: authorityIndex,
-        hdPath: walletKeys.getMintingAuthorityEthereumHdPath(authorityIndex),
-        address: derivedSigners[offset],
-        publicKeyHex: null,
-      });
+      ownedSigners.push({ authorityIndex: startIndex + offset, signer: derivedSigners[offset] });
     }
   }
 
-  return await getOwnedEthereumMintingAuthorities(finalizedClient, walletKeys, walletHdKeysTable);
+  return ownedSigners;
 }
 
 export async function getNextMintingAuthoritySigner(args: {

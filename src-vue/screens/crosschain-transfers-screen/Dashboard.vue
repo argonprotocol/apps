@@ -453,7 +453,7 @@ const accessState = Vue.computed(() =>
   getCrosschainAccessState({
     hasActivatedCrosschain: config.hasActivatedCrosschain,
     authorityCount: myVault.mintingAuthorities.data.authorities.length,
-    councilSigner: myVault.globalCouncil.data.councilSigner,
+    isActiveCouncilMember: myVault.globalCouncil.data.isActiveCouncilMember,
   }),
 );
 

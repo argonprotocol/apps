@@ -8,11 +8,11 @@ import {
   createDevEthereumSetup,
   type IDevEthereumSetup,
   type IStartDevEthereumResult,
+  loadConfiguredDevEthereumGateway,
   readDevEthereumConfigFromEnv,
   readDevEthereumRuntimeState,
   resolveDevEthereumRpcUrl,
   startDevEthereum,
-  updateDevEthereumRuntimeState,
 } from '../e2e/devEthereum.ts';
 import {
   startDevEthereumMintingAuthority,
@@ -72,26 +72,31 @@ async function main(): Promise<void> {
 
     console.log('[tauri-dev] Resolving dev-docker compose ports');
     const composePorts = await resolveDevDockerComposePorts();
-    startedDevEthereum = devEthereumConfig
-      ? await (async () => {
-          console.log(
-            `[tauri-dev] Launching local dev Ethereum (preset=${devEthereumConfig.beaconPreset}, secondsPerSlot=${devEthereumConfig.secondsPerSlot})`,
-          );
-          return await startDevEthereum(devEthereumConfig);
-        })()
-      : undefined;
     if (composePorts) {
       devDockerArchiveUrl = `ws://127.0.0.1:${composePorts.archiveRpcPort}`;
       console.log(
         `[tauri-dev] Resolved compose ports archiveNode=${composePorts.archivePort} archiveRpc=${composePorts.archiveRpcPort} archiveP2p=${composePorts.archiveP2pPort} bitcoinP2p=${composePorts.bitcoinP2pPort} esplora=${composePorts.esploraPort}${composePorts.indexerPort ? ` indexer=${composePorts.indexerPort}` : ''} notary=${composePorts.notaryAliasContainerId}`,
       );
       Object.assign(tauriEnv, getDevDockerServerEnvVars(composePorts));
-      if (startedDevEthereum && devEthereumConfig) {
-        devEthereumSetup = createDevEthereumSetup(devDockerArchiveUrl, startedDevEthereum, devEthereumConfig);
-        Object.assign(tauriEnv, devEthereumSetup.env);
-      }
     } else {
       console.warn('[tauri-dev] Server env override unavailable, falling back to static server config');
+    }
+
+    const configuredGateway =
+      devEthereumConfig && devDockerArchiveUrl
+        ? await loadConfiguredDevEthereumGateway(devDockerArchiveUrl)
+        : undefined;
+    startedDevEthereum = devEthereumConfig
+      ? await (async () => {
+          console.log(
+            `[tauri-dev] Launching local dev Ethereum (preset=${devEthereumConfig.beaconPreset}, secondsPerSlot=${devEthereumConfig.secondsPerSlot})`,
+          );
+          return await startDevEthereum(devEthereumConfig, configuredGateway);
+        })()
+      : undefined;
+    if (devDockerArchiveUrl && startedDevEthereum && devEthereumConfig) {
+      devEthereumSetup = createDevEthereumSetup(devDockerArchiveUrl, startedDevEthereum, devEthereumConfig);
+      Object.assign(tauriEnv, devEthereumSetup.env);
     }
 
     const inheritedOverride = readNonEmpty(process.env.ARGON_NETWORK_CONFIG_OVERRIDE);
@@ -136,10 +141,18 @@ async function main(): Promise<void> {
   }
 
   let devEthereumRuntimeSetupPromise: Promise<void> | undefined;
-  let devEthereumReadyPromise: Promise<void> | undefined;
+  let devEthereumRelayReadyPromise: Promise<void> | undefined;
   let devUpstreamPromise: Promise<void> | undefined;
   let devUpstreamRuntime: IDevUpstreamServerRuntime | undefined;
   let devUpstreamActorPidPath: string | undefined;
+  if (devEthereumSetup) {
+    devEthereumRuntimeSetupPromise = devEthereumSetup.start().catch(error => {
+      console.error(`[tauri-dev] Failed to configure local Ethereum: ${(error as Error).message}`);
+      throw error;
+    });
+    await devEthereumRuntimeSetupPromise;
+  }
+
   const shouldStartDevUpstream = !['0', 'false', 'no', 'off'].includes(
     readNonEmpty(process.env.ARGON_DEV_UPSTREAM)?.toLowerCase() ?? '',
   );
@@ -184,44 +197,37 @@ async function main(): Promise<void> {
   }
 
   if (devEthereumSetup) {
-    devEthereumRuntimeSetupPromise = devEthereumSetup.start();
-    devEthereumReadyPromise = devEthereumRuntimeSetupPromise
-      .then(async () => {
-        if (!devDockerArchiveUrl || !startedDevEthereum) {
-          throw new Error('Dev Ethereum relay activation is missing archive or Ethereum setup details.');
-        }
-        if (isShuttingDown) {
-          return;
-        }
+    devEthereumRelayReadyPromise = (async () => {
+      if (!devDockerArchiveUrl || !startedDevEthereum) {
+        throw new Error('Dev Ethereum relay activation is missing archive or Ethereum setup details.');
+      }
+      if (isShuttingDown) {
+        return;
+      }
 
-        await devUpstreamPromise;
-        if (!devUpstreamRuntime) {
-          throw new Error('Upstream server did not finish startup before Ethereum relay activation.');
-        }
-        if (isShuttingDown) {
-          return;
-        }
+      await devUpstreamPromise;
+      if (!devUpstreamRuntime) {
+        throw new Error('Upstream server did not finish startup before Ethereum relay activation.');
+      }
+      if (isShuttingDown) {
+        return;
+      }
 
-        await waitForDevUpstreamEthereumRelayReady({
-          archiveUrl: devDockerArchiveUrl,
-          botPort: devUpstreamRuntime.botPort,
-        });
-        if (isShuttingDown) {
-          return;
-        }
-
-        console.log('[tauri-dev][ethereum-ready] upstream Ethereum relay is ready');
-
-        await updateDevEthereumRuntimeState(startedDevEthereum.executionRpcUrl, {
-          setupStatus: 'ready',
-        });
-      })
-      .catch(error => {
-        console.error(`[tauri-dev] Failed to finish local Ethereum setup: ${(error as Error).message}`);
-        throw error;
+      await waitForDevUpstreamEthereumRelayReady({
+        archiveUrl: devDockerArchiveUrl,
+        botPort: devUpstreamRuntime.botPort,
       });
+      if (isShuttingDown) {
+        return;
+      }
 
-    void devEthereumReadyPromise.catch(() => undefined);
+      console.log('[tauri-dev][ethereum-ready] upstream Ethereum relay is ready');
+    })().catch(error => {
+      console.error(`[tauri-dev] Failed to activate the local Ethereum relay: ${(error as Error).message}`);
+      throw error;
+    });
+
+    void devEthereumRelayReadyPromise.catch(() => undefined);
   }
 
   // E2E onboarding starts another Compose build for this project after the app connects.

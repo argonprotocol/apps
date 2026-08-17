@@ -304,8 +304,15 @@ it('does not invent extensions from an imported basic wallet balance', async () 
   );
 });
 
-it('restores Crosschain Transfers for an unfunded account with a minting-authority council signer', async () => {
+it.each([
+  { name: 'does not restore Crosschain Transfers from council signer registration alone', isActive: false },
+  { name: 'restores Crosschain Transfers for an active council member', isActive: true },
+])('$name', async ({ isActive }) => {
   const { mnemonic, walletKeys } = createTestWallet('//Alice');
+  const importWalletKeys = new MemoryWalletKeys({
+    substrateSuri: mnemonic,
+    masterMnemonic: mnemonic,
+  });
   const insertOrReplace = vi.fn();
   const db = {
     reconnect: vi.fn(),
@@ -319,6 +326,84 @@ it('restores Crosschain Transfers for an unfunded account with a minting-authori
       vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
       crosschainTransfer: {
         councilSignerByDestinationChainAndAccountId: vi.fn().mockResolvedValue({ isSome: true }),
+        activeGlobalIssuanceCouncilByDestinationChain: vi.fn().mockResolvedValue({
+          isSome: true,
+          isNone: false,
+          unwrap: () => '0xactive',
+        }),
+        globalIssuanceCouncilByHash: vi.fn().mockResolvedValue({
+          isSome: true,
+          isNone: false,
+          unwrap: () => ({
+            members: new Map([
+              [
+                '0xsigner',
+                {
+                  accountId: {
+                    toString: () => (isActive ? importWalletKeys.vaultingAddress : '5AnotherCouncilMember'),
+                  },
+                },
+              ],
+            ]),
+          }),
+        }),
+      },
+    },
+  });
+  importMocks.readBalances.mockResolvedValue([emptyBalance, emptyBalance, emptyBalance, emptyBalance]);
+  importMocks.findMiningActivity.mockResolvedValue({ blocks: [], coverage: { gaps: [] } });
+  vi.spyOn(Mining, 'fetchMiningSeatsForAccount').mockResolvedValue({});
+  vi.spyOn(Restarter.prototype, 'deleteAndCreateLocalDatabase').mockResolvedValue();
+  vi.spyOn(Restarter.prototype, 'restart').mockImplementation(() => undefined);
+
+  await new Importer({} as Config, walletKeys, Promise.resolve(db)).importFromMnemonic(mnemonic);
+
+  expect(insertOrReplace).toHaveBeenCalledWith(
+    expect.objectContaining({
+      walletAccountsHadPreviousLife: `${isActive}`,
+      hasExtensionTreasury: `${isActive}`,
+      hasExtensionOperations: `${isActive}`,
+      hasActivatedCrosschain: `${isActive}`,
+    }),
+  );
+});
+
+it('preserves Operations history without granting Crosschain access from an owned minting authority', async () => {
+  const { mnemonic, walletKeys } = createTestWallet('//Alice');
+  const importWalletKeys = new MemoryWalletKeys({
+    substrateSuri: mnemonic,
+    masterMnemonic: mnemonic,
+  });
+  const insertOrReplace = vi.fn();
+  const db = {
+    reconnect: vi.fn(),
+    configTable: { insertOrReplace },
+  } as unknown as Db;
+  importMocks.getFinalizedClient.mockResolvedValue({
+    query: {
+      operationalAccounts: {
+        operationalAccounts: vi.fn().mockResolvedValue({ isSome: false }),
+      },
+      vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
+      crosschainTransfer: {
+        councilSignerByDestinationChainAndAccountId: vi.fn().mockResolvedValue({ isSome: false }),
+        activeGlobalIssuanceCouncilByDestinationChain: vi.fn().mockResolvedValue({ isSome: false, isNone: true }),
+        mintingAuthoritiesBySigner: {
+          multi: vi.fn(async (signers: string[]) =>
+            signers.map((_, index) =>
+              index === 0
+                ? {
+                    isSome: true,
+                    isNone: false,
+                    unwrap: () => ({
+                      accountId: { toString: () => importWalletKeys.vaultingAddress },
+                      destinationChain: { isEthereum: true },
+                    }),
+                  }
+                : { isSome: false, isNone: true },
+            ),
+          ),
+        },
       },
     },
   });
@@ -335,7 +420,7 @@ it('restores Crosschain Transfers for an unfunded account with a minting-authori
       walletAccountsHadPreviousLife: 'true',
       hasExtensionTreasury: 'true',
       hasExtensionOperations: 'true',
-      hasActivatedCrosschain: 'true',
+      hasActivatedCrosschain: 'false',
     }),
   );
 });

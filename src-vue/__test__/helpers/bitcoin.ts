@@ -1,10 +1,12 @@
 import type { IBitcoinLock, IBitcoinLockConfig } from '@argonprotocol/mainchain';
 import { type BlockWatch, type Currency } from '@argonprotocol/apps-core';
+import BigNumber from 'bignumber.js';
 import { createHistoricalEventData } from '../../../indexer/__test__/helpers/historicalEvents.ts';
 import { numberCodec } from '../../../core/__test__/helpers/codecs.ts';
 import BitcoinLocks from '../../lib/BitcoinLocks.ts';
 import type { Db } from '../../lib/Db.ts';
 import type { TransactionTracker } from '../../lib/TransactionTracker.ts';
+import type { UpstreamOperatorClient } from '../../lib/UpstreamOperatorClient.ts';
 import type { WalletKeys } from '../../lib/WalletKeys.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 
@@ -44,6 +46,7 @@ export function createStore(
     blockWatch?: BlockWatch;
     db?: Db;
     transactionTracker?: TransactionTracker;
+    upstreamOperatorClient?: UpstreamOperatorClient;
     walletKeys?: WalletKeys;
   } = {},
 ): BitcoinLocks {
@@ -57,7 +60,7 @@ export function createStore(
   const currency = Object.assign(Object.create(null), {
     isLoadedPromise: Promise.resolve(),
     load: async () => undefined,
-    priceIndex: { getSatoshiPriceInTargetMicrogons: () => 2_000n },
+    priceIndex: { btcUsdPrice: BigNumber(1), getSatoshiPriceInTargetMicrogons: () => 2_000n },
     convertSatToBtc: () => 0,
     convertBtcToMicrogon: () => 0n,
     fetchMainchainRatesAtBlock: async () => ({ BTC: 4_000_000n, ARGNOT: 1_000_000n, USD: 1_000_000n }),
@@ -76,6 +79,8 @@ export function createStore(
     blockWatch,
     currency,
     transactionTracker,
+    undefined,
+    options.upstreamOperatorClient,
   );
 }
 

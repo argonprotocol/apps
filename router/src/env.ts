@@ -17,3 +17,4 @@ export const LOGS_DIR = process.env.LOGS_DIR;
 export const DATADIR = process.env.DATADIR || '/data';
 
 export const ROUTER_DB_PATH = process.env.ROUTER_DB_PATH || `${DATADIR}/router.sqlite`;
+export const BOT_DB_PATH = process.env.BOT_DB_PATH || `${DATADIR}/vault.sqlite`;

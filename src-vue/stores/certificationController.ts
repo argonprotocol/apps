@@ -71,7 +71,7 @@ type IOperationalInviteStatus = {
     | 'Opened'
     | 'Registered'
     | 'Upgrade requested'
-    | 'Access granted'
+    | 'Operations access granted'
     | 'Operationally certified'
     | 'Expired';
   showRewardNote: boolean;
@@ -171,6 +171,8 @@ export const useCertificationController = defineStore('certificationController',
   const wallets = useWallets();
 
   const selectedTab = Vue.ref<TopTab | null>(null);
+  const onboardingOperatorNameDraft = Vue.ref<string>();
+  const operatorName = Vue.ref('');
 
   const activeGuideId = Vue.ref<OperationalStepId | null>(null);
   const isTransferGuideActive = Vue.computed(() => {
@@ -224,9 +226,25 @@ export const useCertificationController = defineStore('certificationController',
     maxAvailableUpgradeCodes: 3,
   });
   const completionNoticeQueue = Vue.ref<OperationalStepId[]>([]);
-  const operationalInvites = Vue.ref<IMemberInvite[]>([]);
+  const operationalInvites = Vue.shallowRef<IMemberInvite[]>([]);
   const hasLoadedOperationalInvites = Vue.ref(false);
   const operationalInviteStatusesByCode = Vue.ref<Record<string, IOperationalInviteStatus>>({});
+  const operationalInviteServerKey = Vue.computed(() => {
+    const { type, ipAddress, gatewayPort } = config.serverDetails;
+    return ipAddress ? `${type}:${ipAddress}:${gatewayPort ?? 443}` : '';
+  });
+  let operationalInviteLoadVersion = 0;
+
+  Vue.watch(
+    operationalInviteServerKey,
+    serverKey => {
+      operationalInviteLoadVersion += 1;
+      operationalInvites.value = [];
+      operationalInviteStatusesByCode.value = {};
+      hasLoadedOperationalInvites.value = !serverKey;
+    },
+    { immediate: true },
+  );
 
   const certificationStepCount = allCertificationStepIds.length;
   const hasBitcoinFundingSeenOnBitcoin = Vue.computed(() => {
@@ -648,9 +666,10 @@ export const useCertificationController = defineStore('certificationController',
               ]);
               const onboardingProgress = getOperationalChainProgressFromAccount(accountRaw, rewardConfig.value);
               const usesOperationalProfile = usesOperationalProfileNameRuntime(client);
-              const operatorName = usesOperationalProfile
+              const recoveredOperatorName = usesOperationalProfile
                 ? getOperationalProfileName(accountRaw)
                 : (ownedVault?.name?.trim() ?? '');
+              operatorName.value = recoveredOperatorName;
               const setupStatus = getOnboardingSetupStatus({
                 hasOnboardingHistory:
                   onboardingProgress.hasOperationalAccount ||
@@ -660,7 +679,7 @@ export const useCertificationController = defineStore('certificationController',
                 hasMiningSeats: onboardingProgress.hasFirstMiningSeat,
                 hasVault: !!ownedVault,
                 isServerInstalled: config.isServerInstalled,
-                operatorName,
+                operatorName: recoveredOperatorName,
                 usesOperationalProfile,
               });
 
@@ -763,22 +782,28 @@ export const useCertificationController = defineStore('certificationController',
   }
 
   async function loadOperationalInvites() {
-    if (!config.serverDetails.ipAddress) {
+    const serverKey = operationalInviteServerKey.value;
+    if (!serverKey) {
       operationalInvites.value = [];
       operationalInviteStatusesByCode.value = {};
       hasLoadedOperationalInvites.value = true;
       return [];
     }
 
+    const requestVersion = ++operationalInviteLoadVersion;
     try {
       const invites = await getServerApiClient().getInvites();
-      operationalInvites.value = invites;
+      if (requestVersion !== operationalInviteLoadVersion || serverKey !== operationalInviteServerKey.value) {
+        return operationalInvites.value;
+      }
 
-      await refreshOperationalInviteStatuses(invites);
+      setOperationalInvites(invites);
 
       return invites;
     } finally {
-      hasLoadedOperationalInvites.value = true;
+      if (requestVersion === operationalInviteLoadVersion && serverKey === operationalInviteServerKey.value) {
+        hasLoadedOperationalInvites.value = true;
+      }
     }
   }
 
@@ -815,7 +840,7 @@ export const useCertificationController = defineStore('certificationController',
 
     if (invite.accessProof || invite.operationsUpgradedAt) {
       return {
-        label: 'Access granted',
+        label: 'Operations access granted',
         showRewardNote: false,
       };
     }
@@ -916,6 +941,8 @@ export const useCertificationController = defineStore('certificationController',
 
   return {
     selectedTab,
+    onboardingOperatorNameDraft,
+    operatorName,
     isLoaded,
     isLoadedPromise,
     isImporting,
