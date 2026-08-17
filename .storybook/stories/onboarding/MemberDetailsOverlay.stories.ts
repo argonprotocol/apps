@@ -1,6 +1,13 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
-import type { ICertificationProgress } from '@argonprotocol/apps-core';
-import type { IBitcoinLockCouponStatus, IMemberInvite } from '@argonprotocol/apps-router';
+import type {
+  BitcoinLockCouponUseStatus,
+  IBitcoinLockCouponUseRecord,
+  ICertificationProgress,
+} from '@argonprotocol/apps-core';
+import type {
+  IBitcoinLockCouponStatus,
+  IMemberInvite,
+} from '@argonprotocol/apps-router';
 import { MiningFrames, NetworkConfig } from '@argonprotocol/apps-core';
 import { Keyring } from '@polkadot/keyring';
 import { TypeRegistry } from '@polkadot/types';
@@ -16,6 +23,10 @@ import { getServerApiClient } from '../../../src-vue/stores/server.ts';
 import { getWalletKeys } from '../../../src-vue/stores/wallets.ts';
 
 let selectedInvite: IMemberInvite;
+const scenarioKeyring = new Keyring({ type: 'sr25519' });
+const memberAccountId = scenarioKeyring.addFromUri('//StorybookMember').address;
+const operationalAccountId = scenarioKeyring.addFromUri('//StorybookOperationalMember').address;
+const operatorKeypair = scenarioKeyring.addFromUri('//StorybookOperator');
 
 const meta = {
   title: 'Onboarding/Member details',
@@ -35,7 +46,7 @@ type Story = StoryObj<typeof meta>;
 export const NotOpened: Story = {
   beforeEach: () => {
     const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
-    selectedInvite = createInvite(1, 'Pending member');
+    selectedInvite = createInvite(1);
     controller.setOperationalInvites([selectedInvite]);
   },
   play: async () => {
@@ -47,10 +58,10 @@ export const NotOpened: Story = {
 export const TreasuryMember: Story = {
   beforeEach: () => {
     const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
-    selectedInvite = createInvite(2, 'Treasury member', {
-      defaultAccountId: '5SyntheticTreasuryMember',
+    selectedInvite = createInvite(2, {
+      defaultAccountId: memberAccountId,
       firstClickedAt: new Date('2026-08-16T16:00:00.000Z'),
-      bitcoinLockCoupon: createFeeWaiver(),
+      bitcoinLockCoupon: createFeeWaiver('partiallyUsed'),
       certificationProgress: createCertificationProgress({
         hasTreasuryBitcoin: true,
         treasuryBitcoinAmount: 600_000_000n,
@@ -82,9 +93,9 @@ export const OperationsRequested: Story = {
   beforeEach: () => {
     const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
     controller.chainProgress.availableAccessCodes = 1;
-    selectedInvite = createInvite(3, 'Operations requested', {
-      defaultAccountId: '5SyntheticOperationsMember',
-      operationalAccountId: '5SyntheticOperationalAccount',
+    selectedInvite = createInvite(3, {
+      defaultAccountId: memberAccountId,
+      operationalAccountId,
       firstClickedAt: new Date('2026-08-15T16:00:00.000Z'),
       operationsUpgradeRequestedAt: new Date('2026-08-16T16:00:00.000Z'),
       certificationProgress: createCertificationProgress({
@@ -106,9 +117,9 @@ export const OperationsRequested: Story = {
 export const OperationsGranted: Story = {
   beforeEach: () => {
     const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
-    selectedInvite = createInvite(4, 'Operations granted', {
-      defaultAccountId: '5SyntheticGrantedMember',
-      operationalAccountId: '5SyntheticOperationalAccount',
+    selectedInvite = createInvite(4, {
+      defaultAccountId: memberAccountId,
+      operationalAccountId,
       firstClickedAt: new Date('2026-08-14T16:00:00.000Z'),
       operationsUpgradedAt: new Date('2026-08-16T16:00:00.000Z'),
       certificationProgress: createCertificationProgress({
@@ -135,7 +146,7 @@ export const OperationsGranted: Story = {
 export const OpenedNotRegistered: Story = {
   beforeEach: () => {
     const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
-    selectedInvite = createInvite(5, 'Opened member', {
+    selectedInvite = createInvite(5, {
       lastClickedAt: new Date('2026-08-16T16:00:00.000Z'),
     });
     controller.setOperationalInvites([selectedInvite]);
@@ -148,8 +159,8 @@ export const OpenedNotRegistered: Story = {
 export const BalancesLoading: Story = {
   beforeEach: () => {
     const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
-    selectedInvite = createInvite(6, 'Loading member', {
-      defaultAccountId: '5SyntheticLoadingMember',
+    selectedInvite = createInvite(6, {
+      defaultAccountId: memberAccountId,
       firstClickedAt: new Date('2026-08-16T16:00:00.000Z'),
     });
     controller.setOperationalInvites([selectedInvite]);
@@ -162,8 +173,8 @@ export const BalancesLoading: Story = {
 export const BalancesUnavailable: Story = {
   beforeEach: () => {
     const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
-    selectedInvite = createInvite(7, 'Unavailable balances', {
-      defaultAccountId: '5SyntheticUnavailableMember',
+    selectedInvite = createInvite(7, {
+      defaultAccountId: memberAccountId,
       firstClickedAt: new Date('2026-08-16T16:00:00.000Z'),
     });
     controller.setOperationalInvites([selectedInvite]);
@@ -177,17 +188,9 @@ export const BalancesUnavailable: Story = {
 export const PreviousRuntimeFeeWaiver: Story = {
   beforeEach: () => {
     const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
-    selectedInvite = createInvite(8, 'Previous runtime waiver', {
+    selectedInvite = createInvite(8, {
       lastClickedAt: new Date('2026-08-16T16:00:00.000Z'),
-      bitcoinLockCoupon: createFeeWaiver(
-        {
-          originalFeeCreditMicrogons: undefined,
-          usedFeeCreditMicrogons: undefined,
-          pendingFeeCreditMicrogons: undefined,
-          remainingFeeCreditMicrogons: undefined,
-        },
-        { expirationTick: undefined },
-      ),
+      bitcoinLockCoupon: createFeeWaiver('previousRuntime'),
     });
     controller.setOperationalInvites([selectedInvite]);
   },
@@ -199,14 +202,10 @@ export const PreviousRuntimeFeeWaiver: Story = {
 export const FeeWaiverPending: Story = {
   beforeEach: () => {
     const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
-    selectedInvite = createInvite(9, 'Pending waiver', {
-      lastClickedAt: new Date('2026-08-16T16:00:00.000Z'),
-      bitcoinLockCoupon: createFeeWaiver({
-        status: 'InBlock',
-        usedFeeCreditMicrogons: 20_400_000n,
-        pendingFeeCreditMicrogons: 20_400_000n,
-        remainingFeeCreditMicrogons: 27_200_000n,
-      }),
+    selectedInvite = createInvite(9, {
+      defaultAccountId: memberAccountId,
+      firstClickedAt: new Date('2026-08-15T16:00:00.000Z'),
+      bitcoinLockCoupon: createFeeWaiver('pending'),
     });
     controller.setOperationalInvites([selectedInvite]);
   },
@@ -218,21 +217,16 @@ export const FeeWaiverPending: Story = {
 export const FeeWaiverUsed: Story = {
   beforeEach: () => {
     const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
-    selectedInvite = createInvite(10, 'Completed waiver', {
-      lastClickedAt: new Date('2026-08-16T16:00:00.000Z'),
-      bitcoinLockCoupon: createFeeWaiver(
-        {
-          status: 'Used',
-          usedFeeCreditMicrogons: 68_000_000n,
-          remainingFeeCreditMicrogons: 0n,
-        },
-        { usedAt: new Date('2026-08-16T16:00:00.000Z') },
-      ),
+    selectedInvite = createInvite(10, {
+      defaultAccountId: memberAccountId,
+      firstClickedAt: new Date('2026-08-15T16:00:00.000Z'),
+      bitcoinLockCoupon: createFeeWaiver('used'),
     });
     controller.setOperationalInvites([selectedInvite]);
   },
   play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText(/Used/));
+    await expectEventuallyVisible(within(document.body).findByText('Bitcoin Fee Waiver'));
+    await expect(within(document.body).findAllByText('₳68')).resolves.toHaveLength(2);
   },
 };
 
@@ -240,12 +234,9 @@ export const FeeWaiverExpired: Story = {
   beforeEach: () => {
     const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
     const currentTick = MiningFrames.calculateCurrentTickFromSystemTime();
-    selectedInvite = createInvite(11, 'Expired waiver', {
+    selectedInvite = createInvite(11, {
       lastClickedAt: new Date('2026-08-16T16:00:00.000Z'),
-      bitcoinLockCoupon: createFeeWaiver(
-        { status: 'Expired' },
-        { expirationTick: currentTick - 2 * NetworkConfig.rewardTicksPerFrame },
-      ),
+      bitcoinLockCoupon: createFeeWaiver('expired', currentTick),
     });
     controller.setOperationalInvites([selectedInvite]);
   },
@@ -300,10 +291,10 @@ export const ExpirationUpdateFailed: Story = {
   },
 };
 
-function createInvite(id: number, name: string, overrides: Partial<IMemberInvite> = {}): IMemberInvite {
+function createInvite(id: number, overrides: Partial<IMemberInvite> = {}): IMemberInvite {
   return {
     id,
-    name,
+    name: 'Morgan',
     fromName: 'Atlas Operator',
     inviteCode: `synthetic-member-details-${id}`,
     createdAt: new Date('2026-08-14T16:00:00.000Z'),
@@ -312,45 +303,114 @@ function createInvite(id: number, name: string, overrides: Partial<IMemberInvite
 }
 
 function createFeeWaiver(
-  overrides: Partial<IBitcoinLockCouponStatus> = {},
-  couponOverrides: Partial<IBitcoinLockCouponStatus['coupon']> = {},
+  state: 'available' | 'partiallyUsed' | 'previousRuntime' | 'pending' | 'used' | 'expired' = 'available',
+  currentTick = MiningFrames.calculateCurrentTickFromSystemTime(),
 ): IBitcoinLockCouponStatus {
-  const currentTick = MiningFrames.calculateCurrentTickFromSystemTime();
+  const originalFeeCreditMicrogons = 68_000_000n;
+  let uses: IBitcoinLockCouponUseRecord[] = [];
+  if (state === 'partiallyUsed') {
+    uses = [createFeeWaiverUse(1, 'Finalized', 40_800_000n)];
+  } else if (state === 'pending') {
+    uses = [createFeeWaiverUse(1, 'Finalized', 20_400_000n), createFeeWaiverUse(2, 'InBlock', 20_400_000n)];
+  } else if (state === 'used') {
+    uses = [createFeeWaiverUse(1, 'Finalized', 68_000_000n)];
+  }
+
+  let expirationTick: number | undefined;
+  if (state !== 'previousRuntime') {
+    expirationTick =
+      state === 'expired'
+        ? currentTick - 2 * NetworkConfig.rewardTicksPerFrame
+        : currentTick + 7 * NetworkConfig.rewardTicksPerFrame;
+  }
+
+  const coupon: IBitcoinLockCouponStatus['coupon'] = {
+    id: 1,
+    userId: 2,
+    sequence: 1,
+    offerCode: 'synthetic-member-fee-waiver',
+    vaultId: 7,
+    maxSatoshis: 100_000_000n,
+    estimatedGiftUsd: 68,
+    btcPctFee: 3.4,
+    expiresAfterTicks: 7 * NetworkConfig.rewardTicksPerFrame,
+    createdAt: new Date('2026-08-14T16:00:00.000Z'),
+    updatedAt: new Date('2026-08-16T16:00:00.000Z'),
+    ...(state === 'previousRuntime' ? {} : { feeCreditMicrogons: originalFeeCreditMicrogons }),
+    ...(expirationTick == null ? {} : { expirationTick }),
+    ...(uses.length ? { accountId: memberAccountId } : {}),
+  };
+
+  if (state === 'previousRuntime') return { status: 'Open', coupon };
+
+  // Derive the visible state from the durable use history consumed by BitcoinLockCouponService.getStatus.
+  const usedFeeCreditMicrogons = uses
+    .filter(use => use.status === 'Finalized')
+    .reduce((total, use) => total + use.feeCreditMicrogons, 0n);
+  const activeUse = uses.find(
+    use => use.status === 'Prepared' || use.status === 'Submitted' || use.status === 'InBlock',
+  );
+  const pendingFeeCreditMicrogons = uses
+    .filter(use => use.status === 'Prepared' || use.status === 'Submitted' || use.status === 'InBlock')
+    .reduce((total, use) => total + use.feeCreditMicrogons, 0n);
+  const remainingFeeCreditMicrogons = originalFeeCreditMicrogons - usedFeeCreditMicrogons - pendingFeeCreditMicrogons;
+
+  let status: IBitcoinLockCouponStatus['status'] = 'Open';
+  if (activeUse) {
+    status = activeUse.status;
+  } else if (usedFeeCreditMicrogons >= originalFeeCreditMicrogons) {
+    status = 'Used';
+  } else if (expirationTick != null && currentTick >= expirationTick) {
+    status = 'Expired';
+  }
+
   return {
-    status: 'Open',
-    originalFeeCreditMicrogons: 68_000_000n,
-    usedFeeCreditMicrogons: 40_800_000n,
-    pendingFeeCreditMicrogons: 0n,
-    remainingFeeCreditMicrogons: 27_200_000n,
-    coupon: {
-      id: 1,
-      userId: 2,
-      sequence: 1,
-      offerCode: 'synthetic-member-fee-waiver',
+    status,
+    coupon,
+    ...(uses.length ? { uses } : {}),
+    originalFeeCreditMicrogons,
+    usedFeeCreditMicrogons,
+    pendingFeeCreditMicrogons,
+    remainingFeeCreditMicrogons,
+  };
+}
+
+function createFeeWaiverUse(
+  id: number,
+  status: BitcoinLockCouponUseStatus,
+  feeCreditMicrogons: bigint,
+): IBitcoinLockCouponUseRecord {
+  return {
+    id,
+    couponId: 1,
+    requestId: `storybook-fee-waiver-use-${id}`,
+    status,
+    feeCreditMicrogons,
+    requestedSatoshis: 10_000_000n,
+    ownerAccountId: memberAccountId,
+    ownerBitcoinPubkey: `02${'44'.repeat(32)}`,
+    microgonsAtTargetPerBtc: 6_800_000_000n,
+    feeCoupon: {
       vaultId: 7,
-      maxSatoshis: 100_000_000n,
-      estimatedGiftUsd: 68,
-      btcPctFee: 3.4,
-      feeCreditMicrogons: 68_000_000n,
-      expiresAfterTicks: 7 * NetworkConfig.rewardTicksPerFrame,
-      expirationTick: currentTick + 7 * NetworkConfig.rewardTicksPerFrame,
-      createdAt: new Date('2026-08-14T16:00:00.000Z'),
-      updatedAt: new Date('2026-08-16T16:00:00.000Z'),
-      ...couponOverrides,
+      genesisHash: `0x${'12'.repeat(32)}`,
+      beneficiary: memberAccountId,
+      feeDiscount: feeCreditMicrogons,
+      securitizationSpaceToUnreserve: 0n,
+      expiresAtFrame: 1_000n,
+      nonce: BigInt(id),
+      signature: `0x${'34'.repeat(64)}`,
     },
-    ...overrides,
+    createdAt: new Date(`2026-08-${14 + id}T16:00:00.000Z`),
+    updatedAt: new Date(`2026-08-${15 + id}T16:00:00.000Z`),
   };
 }
 
 function setupOperationsUpgradeAction(state: 'progress' | 'error') {
   const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
-  const keyring = new Keyring({ type: 'sr25519' });
-  const operationalKeypair = keyring.addFromUri('//StorybookOperator');
-  const memberOperationalAccountId = keyring.addFromUri('//StorybookMember').address;
   controller.chainProgress.availableAccessCodes = 1;
-  selectedInvite = createInvite(12, 'Operations action', {
-    defaultAccountId: '5SyntheticOperationsActionMember',
-    operationalAccountId: memberOperationalAccountId,
+  selectedInvite = createInvite(12, {
+    defaultAccountId: memberAccountId,
+    operationalAccountId,
     firstClickedAt: new Date('2026-08-15T16:00:00.000Z'),
     operationsUpgradeRequestedAt: new Date('2026-08-16T16:00:00.000Z'),
     certificationProgress: createCertificationProgress({
@@ -363,7 +423,7 @@ function setupOperationsUpgradeAction(state: 'progress' | 'error') {
   controller.setOperationalInvites([selectedInvite]);
   mocked(getMainchainClient).mockResolvedValue(createMemberClient(3_487_660_000n));
   Object.assign(getWalletKeys(), {
-    getOperationalKeypair: fn(async () => operationalKeypair),
+    getOperationalKeypair: fn(async () => operatorKeypair),
   });
   mocked(getServerApiClient, { partial: true }).mockReturnValue({
     markOperationsUpgraded: fn(() => {
@@ -375,7 +435,7 @@ function setupOperationsUpgradeAction(state: 'progress' | 'error') {
 
 function setupExpirationUpdate(state: 'progress' | 'error') {
   const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
-  selectedInvite = createInvite(13, 'Expiration action', {
+  selectedInvite = createInvite(13, {
     lastClickedAt: new Date('2026-08-16T16:00:00.000Z'),
     bitcoinLockCoupon: createFeeWaiver(),
   });

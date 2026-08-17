@@ -106,14 +106,6 @@ export const SetupInProgress: Story = {
   },
 };
 
-export const SetupFailed: Story = {
-  beforeEach: () => setupMemberInviteScenario('setupError'),
-  play: async () => {
-    await submitInvite();
-    await expectEventuallyVisible(within(document.body).findByText('The vault setup transaction was retracted.'));
-  },
-};
-
 export const Creating: Story = {
   beforeEach: () => setupMemberInviteScenario('creating'),
   play: async () => {

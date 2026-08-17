@@ -83,7 +83,7 @@ export const InvalidDestination: Story = {
         await body.findByTestId('BitcoinOrphanRecoveryOverlay.returnDestination'),
         'not-a-bitcoin-address',
       );
-      await expectEventuallyVisible(body.findByText(/Enter a valid Bitcoin regtest address/i));
+      await expectEventuallyVisible(body.findByText(/Enter a valid Bitcoin address/i));
     } finally {
       disablePreview();
     }
