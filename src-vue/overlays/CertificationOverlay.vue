@@ -159,7 +159,6 @@ const controller = useCertificationController();
 const isOpen = Vue.ref(false);
 const currentStepId = Vue.ref<OperationalStepId | null>(null);
 const currentTrack = Vue.ref<'treasury' | 'operations'>('treasury');
-let guideActivationTimeout: ReturnType<typeof setTimeout> | undefined;
 const currentStepIds = Vue.computed(() => {
   return currentTrack.value === 'treasury'
     ? treasuryCertificationStepIds
@@ -227,9 +226,7 @@ function startTask() {
   const stepId = currentStepId.value;
   closeOverlay();
 
-  if (guideActivationTimeout) clearTimeout(guideActivationTimeout);
-  guideActivationTimeout = setTimeout(() => {
-    guideActivationTimeout = undefined;
+  setTimeout(() => {
     controller.activeGuideId = stepId;
 
     if (stepId === OperationalStepId.ActivateVault) {
@@ -289,7 +286,6 @@ function openOperationalOverlay(stepId: OperationalStepId) {
 basicEmitter.on('openOperationalOverlay', openOperationalOverlay);
 
 Vue.onUnmounted(() => {
-  if (guideActivationTimeout) clearTimeout(guideActivationTimeout);
   basicEmitter.off('openOperationalOverlay', openOperationalOverlay);
 });
 </script>

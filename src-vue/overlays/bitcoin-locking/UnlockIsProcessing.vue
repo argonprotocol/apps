@@ -55,16 +55,17 @@ Vue.watch(
 );
 
 let stopProgressTracking: (() => void) | undefined;
-let isUnmounted = false;
+let isDisposed = false;
 
 Vue.onMounted(async () => {
   await bitcoinLocks.load();
-  if (isUnmounted) return;
+  // Persisted locks render early, so this component instance can be disposed while loading.
+  if (isDisposed) return;
   stopProgressTracking = bitcoinLockProgress.trackLock(personalLock.value);
 });
 
 Vue.onUnmounted(() => {
-  isUnmounted = true;
+  isDisposed = true;
   stopProgressTracking?.();
   stopProgressTracking = undefined;
 });

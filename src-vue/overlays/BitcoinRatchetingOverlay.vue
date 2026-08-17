@@ -98,7 +98,7 @@ const txInfo = Vue.shallowRef<TransactionInfo<IBitcoinRatchetMetadata>>();
 const progressPct = Vue.ref(0);
 const progressLabel = Vue.ref('');
 let unsubscribeProgress: (() => void) | undefined;
-let isUnmounted = false;
+let isDisposed = false;
 
 const props = defineProps<{
   personalLock: IBitcoinLockRecord;
@@ -120,15 +120,12 @@ async function loadRatchetPreview() {
   errorMessage.value = '';
 
   try {
-    const preview = await bitcoinLocks.getRatchetPreview(props.personalLock);
-    if (isUnmounted) return;
-    ratchetPreview.value = preview;
+    ratchetPreview.value = await bitcoinLocks.getRatchetPreview(props.personalLock);
   } catch (error) {
-    if (isUnmounted) return;
     ratchetPreview.value = undefined;
     errorMessage.value = error instanceof Error ? error.message : 'Unable to load ratchet details.';
   } finally {
-    if (!isUnmounted) isLoadingPreview.value = false;
+    isLoadingPreview.value = false;
   }
 }
 
@@ -143,19 +140,18 @@ async function submitRatchet() {
       ratchetPreview.value.securitizationToAdd > 0n
         ? await walletKeys.getVaultingKeypair()
         : await walletKeys.getLiquidLockingKeypair();
-    if (isUnmounted) return;
+    // This overlay instance can be disposed while the signer loads; do not start a transaction afterward.
+    if (isDisposed) return;
     const info = await bitcoinLocks.ratchet(props.personalLock, txSigner);
-    if (isUnmounted) return;
     trackTransaction(info);
   } catch (error) {
-    if (isUnmounted) return;
     errorMessage.value = error instanceof Error ? error.message : 'Unable to ratchet this Bitcoin lock.';
     isSubmitting.value = false;
   }
 }
 
 function trackTransaction(info: TransactionInfo<IBitcoinRatchetMetadata>) {
-  if (isUnmounted) return;
+  if (isDisposed) return;
   unsubscribeProgress?.();
   txInfo.value = info;
   isSubmitting.value = true;
@@ -165,7 +161,6 @@ function trackTransaction(info: TransactionInfo<IBitcoinRatchetMetadata>) {
   progressLabel.value = status.isFinalized ? 'Finalizing ratchet details...' : 'Waiting for transaction status...';
 
   unsubscribeProgress = info.subscribeToProgress((progress, error) => {
-    if (isUnmounted) return;
     progressPct.value = progress.progressPct;
     progressLabel.value = progress.progressMessage;
     if (error) {
@@ -175,7 +170,8 @@ function trackTransaction(info: TransactionInfo<IBitcoinRatchetMetadata>) {
 
   void info.waitForPostProcessing.then(
     () => {
-      if (isUnmounted) return;
+      // Post-processing cannot be cancelled; this disposed instance must not reload the parent dashboard.
+      if (isDisposed) return;
       const error = info.getStatus().error;
       if (error) {
         errorMessage.value = error.message;
@@ -187,7 +183,6 @@ function trackTransaction(info: TransactionInfo<IBitcoinRatchetMetadata>) {
       emit('completed');
     },
     error => {
-      if (isUnmounted) return;
       errorMessage.value = error instanceof Error ? error.message : 'Unable to save the completed ratchet.';
       isSubmitting.value = false;
     },
@@ -196,7 +191,8 @@ function trackTransaction(info: TransactionInfo<IBitcoinRatchetMetadata>) {
 
 Vue.onMounted(async () => {
   await bitcoinLocks.load();
-  if (isUnmounted) return;
+  // This overlay instance can be disposed while recovered state loads; do not subscribe afterward.
+  if (isDisposed) return;
   const pendingTxInfo = bitcoinLocks.getPendingRatchetTxInfo(props.personalLock);
   if (pendingTxInfo) {
     isLoadingPreview.value = false;
@@ -208,8 +204,7 @@ Vue.onMounted(async () => {
 });
 
 Vue.onUnmounted(() => {
-  isUnmounted = true;
+  isDisposed = true;
   unsubscribeProgress?.();
-  unsubscribeProgress = undefined;
 });
 </script>

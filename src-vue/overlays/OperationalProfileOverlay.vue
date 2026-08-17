@@ -250,6 +250,7 @@ function closeOverlay() {
 async function openOperationalProfileOverlay(request: void | IOperationalProfileRequest) {
   const requestId = ++openRequestId;
   await load(request || undefined);
+  // Runtime compatibility can unmount this global overlay while the profile load is pending.
   if (requestId !== openRequestId) return;
   isOpen.value = true;
   isLoaded.value = true;

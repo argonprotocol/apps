@@ -173,7 +173,7 @@ const retrySeconds = Vue.ref<number>();
 const fundingCheckMessage = Vue.ref('');
 
 let retryCountdownInterval: ReturnType<typeof setInterval> | undefined;
-let isUnmounted = false;
+let isDisposed = false;
 
 function closeOverlay() {
   emit('close');
@@ -186,24 +186,22 @@ async function checkForBitcoin() {
   isCheckingForBitcoin.value = true;
   try {
     const observation = await bitcoinLocks.utxoTracking.observeMempoolFunding(props.personalLock);
-    if (isUnmounted) return;
     if (observation) return;
 
     fundingCheckMessage.value = 'We haven’t found your transfer yet, but we’ll keep checking automatically.';
   } catch (error) {
-    if (isUnmounted) return;
     console.error('Error checking for Bitcoin funding:', error);
     fundingCheckMessage.value = 'We couldn’t check the Bitcoin network just now, but we’ll try again automatically.';
   } finally {
-    if (!isUnmounted) isCheckingForBitcoin.value = false;
+    isCheckingForBitcoin.value = false;
   }
 
-  if (isUnmounted) return;
+  // The request can finish after this component instance is disposed; teardown cannot clear a later interval.
+  if (isDisposed) return;
   startFundingRetryCountdown();
 }
 
 function startFundingRetryCountdown() {
-  if (isUnmounted) return;
   stopFundingRetryCountdown();
   retrySeconds.value = 30;
   retryCountdownInterval = setInterval(() => {
@@ -226,7 +224,6 @@ function stopFundingRetryCountdown() {
 
 Vue.onMounted(async () => {
   await bitcoinLocks.load();
-  if (isUnmounted) return;
   fundingExpirationTime.value = dayjs.utc(bitcoinLocks.verifyExpirationTime(props.personalLock));
   try {
     scriptPaytoAddress.value = bitcoinLocks.formatP2wshAddress(props.personalLock.lockDetails.p2wshScriptHashHex);
@@ -248,7 +245,7 @@ Vue.onMounted(async () => {
 });
 
 Vue.onUnmounted(() => {
-  isUnmounted = true;
+  isDisposed = true;
   stopFundingRetryCountdown();
 });
 </script>
