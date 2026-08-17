@@ -112,7 +112,13 @@
               </td>
 
               <td class="px-3 py-4 text-right">
-                <ChevronRightIcon class="inline size-5 text-slate-300" />
+                <button
+                  type="button"
+                  :aria-label="`Open details for ${invite.name}`"
+                  @click.stop="basicEmitter.emit('openMemberDetailsOverlay', { invite })"
+                >
+                  <ChevronRightIcon class="inline size-5 text-slate-300" />
+                </button>
               </td>
             </tr>
           </tbody>

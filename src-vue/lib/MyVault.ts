@@ -1662,7 +1662,7 @@ export class MyVault {
         throw new Error('Securitization ratio must be between 1 and 2');
       }
       if (BigInt(rules.btcFlatFee) < MINIMUM_BITCOIN_BASE_FEE) {
-        throw new Error('The Bitcoin base fee must be at least A1.');
+        throw new Error('The Bitcoin base fee must be at least ₳1.00.');
       }
 
       let bitcoinXpubkey = hexToU8a(masterXpub);
@@ -2067,7 +2067,7 @@ export class MyVault {
     }
     const { profitSharingPct, btcFlatFee, btcPctFee } = rules;
     if (btcFlatFee < MINIMUM_BITCOIN_BASE_FEE) {
-      throw new Error('The Bitcoin base fee must be at least A1.');
+      throw new Error('The Bitcoin base fee must be at least ₳1.00.');
     }
     if (
       profitSharingPct !== previousRules.profitSharingPct ||
