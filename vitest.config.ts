@@ -1,8 +1,13 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { storybookTest } from '@storybook/addon-vitest/vitest-plugin';
+import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
 
 const INTEGRATION_TEST_GLOB = '**/__test__/**/*.integration.test.ts';
 const E2E_TEST_GLOB = 'e2e/__test__/**/*.e2e.test.ts';
 const APP_SETUP_FILE = './vitest.setup.ts';
+const dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   test: {
@@ -11,6 +16,25 @@ export default defineConfig({
     maxWorkers: process.env.VITEST_MAX_WORKERS ?? '50%',
     disableConsoleIntercept: true,
     projects: [
+      {
+        extends: './vite.config.ts',
+        plugins: [
+          storybookTest({
+            configDir: path.join(dirname, '.storybook'),
+          }),
+        ],
+        test: {
+          name: 'storybook',
+          fileParallelism: false,
+          maxWorkers: 1,
+          browser: {
+            enabled: true,
+            headless: true,
+            provider: playwright({}),
+            instances: [{ browser: 'chromium' }],
+          },
+        },
+      },
       {
         test: {
           name: 'src-vue',

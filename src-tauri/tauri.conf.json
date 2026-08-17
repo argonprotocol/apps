@@ -42,8 +42,7 @@
         ],
         "script-src": [
           "'self'",
-          "'wasm-unsafe-eval'",
-          "'unsafe-eval'"
+          "'wasm-unsafe-eval'"
         ],
         "style-src": [
           "'self'",

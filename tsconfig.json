@@ -29,6 +29,7 @@
     }
   },
   "include": [
+    ".storybook/**/*.ts",
     "src-vue/**/*.ts",
     "src-vue/**/*.d.ts",
     "src-vue/**/*.tsx",
@@ -43,8 +44,6 @@
     "indexer/**/*.ts",
     "e2e/**/*.ts"
   ],
-  "exclude": [
-    "**/*.js"
-  ],
+  "exclude": ["**/*.js"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

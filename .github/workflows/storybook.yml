@@ -1,0 +1,96 @@
+name: Storybook
+
+on:
+  push:
+    paths:
+      - '.github/workflows/storybook.yml'
+      - '.storybook/**'
+      - 'src-vue/**'
+      - 'package.json'
+      - 'yarn.lock'
+      - 'tsconfig.json'
+      - 'vite.config.ts'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  interaction-tests:
+    name: Story interactions (informational)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: '24'
+          cache: 'yarn'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Install Chromium
+        run: yarn playwright install --with-deps chromium
+
+      - name: Run story interactions
+        id: storybook-tests
+        continue-on-error: true
+        run: yarn storybook:test
+
+      - name: Summarize interaction tests
+        if: always()
+        run: |
+          echo "### Story interactions" >> "$GITHUB_STEP_SUMMARY"
+          echo "Result: ${{ steps.storybook-tests.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "This check is informational while the initial story catalog is being stabilized." >> "$GITHUB_STEP_SUMMARY"
+
+  changed-ui-states:
+    name: Changed UI states
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: '24'
+          cache: 'yarn'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Build Storybook
+        run: yarn storybook:build
+
+      - name: Publish changed UI states
+        id: chromatic
+        uses: chromaui/action@14cfaef73576e69f95f47f60058063f46ca38719 # v18.1.0
+        with:
+          projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+          storybookBuildDir: storybook-static
+          onlyChanged: true
+          exitZeroOnChanges: true
+          autoAcceptChanges: main
+
+      - name: Link Storybook review
+        run: |
+          {
+            echo "### Storybook"
+            echo "[Review changed UI states](${{ steps.chromatic.outputs.buildUrl }})"
+            echo "[Browse the complete PR Storybook](${{ steps.chromatic.outputs.storybookUrl }})"
+          } >> "$GITHUB_STEP_SUMMARY"
