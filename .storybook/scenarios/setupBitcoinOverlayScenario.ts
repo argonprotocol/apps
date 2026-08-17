@@ -67,6 +67,7 @@ Object.defineProperties(scenarioMainchainClient, {
 });
 
 export function setupBitcoinOverlayScenario() {
+  const scenarioStartedAt = Date.now();
   const pendingResolvers = new Set<VoidFunction>();
   const cleanupTasks = new Set<VoidFunction>();
   const { config, wallets } = setupAppScenario({
@@ -170,6 +171,7 @@ export function setupBitcoinOverlayScenario() {
     }),
     orphanReleases: {
       getTransactionInfo: fn((_lockUtxoId: number, record: IBitcoinUtxoRecord) => orphanTransactions.get(record.id)),
+      estimatedCandidateReturnArgonTxFee: fn(async () => 125_000n),
       getOrphanReturnFeeQuote: fn(async () => ({
         canAfford: true,
         availableBalance: 25_000_000n,
@@ -228,8 +230,8 @@ export function setupBitcoinOverlayScenario() {
     requestBitcoinRelease: fn(async () => undefined),
     estimatedReleaseArgonTxFee: fn(async () => 125_000n),
     formatP2wshAddress: fn((scriptHex: string) => BitcoinLocks.formatP2wshAddress(scriptHex, BitcoinNetwork.Regtest)),
-    verifyExpirationTime: fn(() => Date.UTC(2026, 7, 17, 16, 0, 0)),
-    unlockDeadlineTime: fn(() => Date.UTC(2026, 7, 16, 17, 0, 0)),
+    verifyExpirationTime: fn(() => scenarioStartedAt + 24 * 60 * 60 * 1_000),
+    unlockDeadlineTime: fn(() => scenarioStartedAt + 48 * 60 * 60 * 1_000),
     getFundingWindowProgress: fn(() => 45),
     getRequestReleaseByVaultProgress: fn(() => releaseVaultWaitProgress.value),
     getCosignDeadlineProgress: fn(() => 65),

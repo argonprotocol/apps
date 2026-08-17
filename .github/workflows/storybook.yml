@@ -49,13 +49,18 @@ jobs:
       - name: Summarize interaction tests
         if: always()
         run: |
-          echo "### Story interactions" >> "$GITHUB_STEP_SUMMARY"
-          echo "Result: ${{ steps.storybook-tests.outcome }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "This check is informational while the initial story catalog is being stabilized." >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Story interactions"
+            echo "Result: ${{ steps.storybook-tests.outcome }}"
+            echo "This check is informational while the initial story catalog is being stabilized."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   changed-ui-states:
     name: Changed UI states
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - name: Checkout code
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
@@ -88,9 +93,45 @@ jobs:
           autoAcceptChanges: main
 
       - name: Link Storybook review
+        if: always() && steps.chromatic.outputs.buildUrl != '' && steps.chromatic.outputs.storybookUrl != ''
         run: |
           {
             echo "### Storybook"
             echo "[Review changed UI states](${{ steps.chromatic.outputs.buildUrl }})"
             echo "[Browse the complete PR Storybook](${{ steps.chromatic.outputs.storybookUrl }})"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Link Storybook in pull request
+        if: always() && steps.chromatic.outputs.buildUrl != '' && steps.chromatic.outputs.storybookUrl != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHROMATIC_BUILD_URL: ${{ steps.chromatic.outputs.buildUrl }}
+          CHROMATIC_STORYBOOK_URL: ${{ steps.chromatic.outputs.storybookUrl }}
+        run: |
+          pr_number=$(gh api --method GET "/repos/${GITHUB_REPOSITORY}/pulls" \
+            -f state=open \
+            -f head="${GITHUB_REPOSITORY_OWNER}:${GITHUB_REF_NAME}" \
+            --jq 'first | .number // empty')
+
+          if [[ -z "$pr_number" ]]; then
+            echo "::notice::No open pull request was found for ${GITHUB_REF_NAME}."
+            exit 0
+          fi
+
+          marker='<!-- chromatic-pr-links -->'
+          body="${marker}
+          ## Storybook review
+
+          - [Review changed UI states](${CHROMATIC_BUILD_URL})
+          - [Browse the complete PR Storybook](${CHROMATIC_STORYBOOK_URL})
+
+          Updated for commit \`${GITHUB_SHA:0:7}\`."
+          comment_id=$(gh api "/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/comments" --paginate \
+            --jq ".[] | select(.body | contains(\"${marker}\")) | .id" | head -n 1)
+
+          if [[ -n "$comment_id" ]]; then
+            gh api --method PATCH "/repos/${GITHUB_REPOSITORY}/issues/comments/${comment_id}" -f body="$body"
+          else
+            gh api --method POST "/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/comments" -f body="$body"
+          fi
