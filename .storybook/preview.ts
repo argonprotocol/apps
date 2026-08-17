@@ -16,6 +16,7 @@ sb.mock(import('../src-vue/stores/financials.ts'), { spy: true });
 sb.mock(import('../src-vue/stores/helpers/dbPromise.ts'), { spy: true });
 sb.mock(import('../src-vue/stores/installer.ts'), { spy: true });
 sb.mock(import('../src-vue/stores/mainchain.ts'), { spy: true });
+sb.mock(import('../src-vue/stores/server.ts'), { spy: true });
 sb.mock(import('../src-vue/stores/miningAssetBreakdown.ts'), { spy: true });
 sb.mock(import('../src-vue/stores/miningStats.ts'));
 sb.mock(import('../src-vue/stores/myMiningSeats.ts'), { spy: true });

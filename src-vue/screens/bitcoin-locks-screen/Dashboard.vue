@@ -243,7 +243,7 @@ const remainingFeeWaiver = Vue.computed(() => {
   if (!remainingMicrogons || remainingMicrogons <= 0n || expiresAt <= now.value) return;
 
   return {
-    amount: `${currency.symbol}${microgonToArgonNm(remainingMicrogons).format('0,0.00')}`,
+    amount: `${currency.recordsByKey[UnitOfMeasurement.ARGN].symbol}${microgonToArgonNm(remainingMicrogons).format('0,0.00')}`,
     provider: config.upstreamOperator?.name || 'your upstream operator',
     timeRemaining: dayjs(expiresAt).from(now.value, true),
   };

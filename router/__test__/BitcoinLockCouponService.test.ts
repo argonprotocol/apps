@@ -109,6 +109,9 @@ describe('BitcoinLockCouponService', () => {
     expect(cleared.status).toBe('Expired');
 
     signedCoupon.resolve({
+      vaultId: 12,
+      genesisHash: `0x${'12'.repeat(32)}`,
+      beneficiary: 'member-account',
       feeDiscount: 400n,
       securitizationSpaceToUnreserve: 0n,
       expiresAtFrame: 1_000n,
@@ -402,6 +405,9 @@ describe('BitcoinLockCouponService', () => {
 
     const botClient = new BotUpstreamClient('http://127.0.0.1:1');
     const signFeeCoupon = vi.spyOn(botClient, 'signBitcoinLockFeeCoupon').mockImplementation(async request => ({
+      vaultId: request.vaultId,
+      genesisHash: `0x${'12'.repeat(32)}`,
+      beneficiary: request.beneficiary,
       feeDiscount: request.feeDiscountMicrogons,
       securitizationSpaceToUnreserve: 0n,
       expiresAtFrame: 1_000n,

@@ -190,8 +190,16 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {} }: 
         argonotUsdPrice: BigNumber(14),
         btcUsdPrice: BigNumber(68_000),
       }),
+      recordsByKey: {
+        [UnitOfMeasurement.ARGN]: { key: UnitOfMeasurement.ARGN, symbol: '₳', name: 'Argon' },
+        [UnitOfMeasurement.USD]: { key: UnitOfMeasurement.USD, symbol: '$', name: 'Dollar' },
+        [UnitOfMeasurement.EUR]: { key: UnitOfMeasurement.EUR, symbol: '€', name: 'Euro' },
+        [UnitOfMeasurement.GBP]: { key: UnitOfMeasurement.GBP, symbol: '£', name: 'Pound' },
+        [UnitOfMeasurement.INR]: { key: UnitOfMeasurement.INR, symbol: '₹', name: 'Rupee' },
+      },
       record: { key: UnitOfMeasurement.USD, symbol: '$', name: 'Dollar' },
       symbol: '$',
+      load: fn(async () => undefined),
     }),
   );
   mocked(useFinancials, { partial: true }).mockReturnValue(

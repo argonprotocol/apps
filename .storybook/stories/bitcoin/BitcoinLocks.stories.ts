@@ -52,7 +52,7 @@ export const PortfolioWithFeeWaiver: Story = {
   beforeEach: () => setupBitcoinPortfolioScenario({ feeWaiver: true }),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(canvas.getByText(/fee waiver from Atlas Operator has .*27\.20 remaining/)).toBeVisible();
+    await expect(canvas.getByText(/fee waiver from Atlas Operator has ₳27\.20 remaining/)).toBeVisible();
   },
 };
 

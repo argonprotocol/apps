@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import * as Vue from 'vue';
-import { within } from 'storybook/test';
+import { expect, userEvent, within } from 'storybook/test';
 import { setupMemberInviteScenario } from '../../scenarios/setupOnboardingOverlayScenario.ts';
 import { expectEventuallyVisible } from '../../support/expectEventuallyVisible.ts';
 import basicEmitter from '../../../src-vue/emitters/basicEmitter.ts';
@@ -36,7 +36,10 @@ export const CapacityLoadFailed: Story = {
 export const CurrentRuntime: Story = {
   beforeEach: () => setupMemberInviteScenario('currentRuntime'),
   play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText('Attach Bitcoin Lock Fees Waivers'));
+    const canvas = within(document.body);
+    await expectEventuallyVisible(canvas.findByText('Attach Bitcoin Lock Fees Waivers'));
+    expect(canvas.queryByText(/Activate member onboarding before creating an invite/)).not.toBeInTheDocument();
+    await expect(canvas.findByRole('slider', { name: 'Bitcoin lock fee waiver amount' })).resolves.toBeEnabled();
   },
 };
 
@@ -48,3 +51,77 @@ export const PreviousRuntime: Story = {
     );
   },
 };
+
+export const OnboardingInactive: Story = {
+  beforeEach: () => setupMemberInviteScenario('onboardingInactive'),
+  play: async () => {
+    await expectEventuallyVisible(
+      within(document.body).findByText(/Activate member onboarding before creating an invite/),
+    );
+  },
+};
+
+export const BitcoinSpaceRequired: Story = {
+  beforeEach: () => setupMemberInviteScenario('bitcoinSpaceRequired'),
+  play: async () => {
+    await expectEventuallyVisible(
+      within(document.body).findByText(/Member invites require at least \$1 of available Bitcoin lock space/),
+    );
+  },
+};
+
+export const InsufficientBitcoinWaiver: Story = {
+  beforeEach: () => setupMemberInviteScenario('insufficientBitcoinWaiver'),
+  play: async () => {
+    await expectEventuallyVisible(
+      within(document.body).findByText(/will not be able to lock enough Bitcoin for Treasury verification/),
+    );
+  },
+};
+
+export const InsufficientBondCapacity: Story = {
+  beforeEach: () => setupMemberInviteScenario('insufficientBondCapacity'),
+  play: async () => {
+    await expectEventuallyVisible(
+      within(document.body).findByText(/will not be able to buy enough bonds for Treasury verification/),
+    );
+  },
+};
+
+export const SetupInProgress: Story = {
+  beforeEach: () => setupMemberInviteScenario('setupProgress'),
+  play: async () => {
+    await submitInvite();
+    await expectEventuallyVisible(within(document.body).findByText('Preparing your vault to create this invite.'));
+  },
+};
+
+export const SetupFailed: Story = {
+  beforeEach: () => setupMemberInviteScenario('setupError'),
+  play: async () => {
+    await submitInvite();
+    await expectEventuallyVisible(within(document.body).findByText('The vault setup transaction was retracted.'));
+  },
+};
+
+export const Creating: Story = {
+  beforeEach: () => setupMemberInviteScenario('creating'),
+  play: async () => {
+    await submitInvite();
+    await expectEventuallyVisible(within(document.body).findByRole('button', { name: 'Creating…' }));
+  },
+};
+
+export const CreateFailed: Story = {
+  beforeEach: () => setupMemberInviteScenario('createError'),
+  play: async () => {
+    await submitInvite();
+    await expectEventuallyVisible(within(document.body).findByText('The invite service is unavailable.'));
+  },
+};
+
+async function submitInvite() {
+  const canvas = within(document.body);
+  await userEvent.type(await canvas.findByPlaceholderText('Who is this invite for?'), 'Morgan');
+  await userEvent.click(await canvas.findByRole('button', { name: 'Create Invite' }));
+}

@@ -11,7 +11,10 @@ import { getBitcoinLockCoupons, getBitcoinLocks } from '../../src-vue/stores/bit
 import { useFinancials } from '../../src-vue/stores/financials.ts';
 
 export function setupBitcoinPortfolioScenario(options: { feeWaiver?: boolean } = {}) {
-  setupAppScenario({ selectedTab: TopTab.BitcoinLocks });
+  setupAppScenario({
+    selectedTab: TopTab.BitcoinLocks,
+    config: options.feeWaiver ? { upstreamOperator: { name: 'Atlas Operator', vaultId: 7 } } : undefined,
+  });
 
   const summaries = [
     createSummary(1, BitcoinLockStatus.LockIsProcessingOnArgon, { progressPct: 34 }),
