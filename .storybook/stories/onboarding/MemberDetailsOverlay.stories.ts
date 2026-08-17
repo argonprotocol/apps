@@ -68,6 +68,16 @@ export const TreasuryMember: Story = {
   },
 };
 
+export const FeeWaiverExpirationOpen: Story = {
+  ...TreasuryMember,
+  play: async () => {
+    const canvas = within(document.body);
+    await userEvent.click(await canvas.findByRole('button', { name: '7 days' }));
+    await expectEventuallyVisible(canvas.findByText('Fee Waiver Expiration'));
+    await expect(canvas.findByTestId('input-number')).resolves.toHaveTextContent('7');
+  },
+};
+
 export const OperationsRequested: Story = {
   beforeEach: () => {
     const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
@@ -241,6 +251,16 @@ export const FeeWaiverExpired: Story = {
   },
   play: async () => {
     await expectEventuallyVisible(within(document.body).findByRole('button', { name: '2 days ago' }));
+  },
+};
+
+export const FeeWaiverExpiredExtensionOpen: Story = {
+  ...FeeWaiverExpired,
+  play: async () => {
+    const canvas = within(document.body);
+    await userEvent.click(await canvas.findByRole('button', { name: '2 days ago' }));
+    await expectEventuallyVisible(canvas.findByText('Fee Waiver Expiration'));
+    await expect(canvas.findByTestId('input-number')).resolves.toHaveTextContent('0');
   },
 };
 

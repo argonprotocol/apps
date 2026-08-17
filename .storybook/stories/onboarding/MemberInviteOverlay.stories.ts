@@ -43,6 +43,16 @@ export const CurrentRuntime: Story = {
   },
 };
 
+export const FeeWaiverAvailabilityOpen: Story = {
+  ...CurrentRuntime,
+  play: async () => {
+    const canvas = within(document.body);
+    await userEvent.click(await canvas.findByRole('button', { name: '7 days' }));
+    await expectEventuallyVisible(canvas.findByText('Fee Waiver Availability'));
+    await expect(canvas.findByTestId('input-number')).resolves.toHaveTextContent('7');
+  },
+};
+
 export const PreviousRuntime: Story = {
   beforeEach: () => setupMemberInviteScenario('previousRuntime'),
   play: async () => {
