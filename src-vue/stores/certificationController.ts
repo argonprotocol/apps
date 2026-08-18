@@ -230,6 +230,8 @@ export const useCertificationController = defineStore('certificationController',
   const hasLoadedOperationalInvites = Vue.ref(false);
   const operationalInviteStatusesByCode = Vue.ref<Record<string, IOperationalInviteStatus>>({});
   const operationalInviteServerKey = Vue.computed(() => {
+    if (!config.isLoaded) return '';
+
     const { type, ipAddress, gatewayPort } = config.serverDetails;
     return ipAddress ? `${type}:${ipAddress}:${gatewayPort ?? 443}` : '';
   });

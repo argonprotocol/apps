@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import type { ICertificationProgress } from '@argonprotocol/apps-core';
 import type { IMemberInvite } from '@argonprotocol/apps-router';
+import { Keyring } from '@polkadot/keyring';
 import * as Vue from 'vue';
 import { fn, mocked } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
@@ -27,6 +28,7 @@ const meta = {
 
 export default meta;
 type Story = StoryObj<typeof meta>;
+const scenarioKeyring = new Keyring({ type: 'sr25519' });
 
 export const LockedForTreasury: Story = {
   beforeEach: () => {
@@ -152,28 +154,32 @@ function createMemberInvites(): IMemberInvite[] {
   });
 
   return [
-    createInvite(1, 'Invitation sent'),
-    createInvite(2, 'Link opened', { lastClickedAt: now }),
-    createInvite(3, 'Treasury underway', {
-      defaultAccountId: '5TreasuryUnderway',
+    createInvite(1, 'Morgan'),
+    createInvite(2, 'Casey', { lastClickedAt: now }),
+    createInvite(3, 'Jordan', {
+      defaultAccountId: memberAccountId(3),
+      firstClickedAt: now,
       certificationProgress: createCertificationProgress({ hasTreasuryBitcoin: true }),
       vaultContribution: { bitcoinAmount: 120_000_000n, pendingBitcoinAmount: 0n, bondAmount: 0n },
     }),
-    createInvite(4, 'Awaiting Bitcoin funding', {
-      defaultAccountId: '5AwaitingFunding',
+    createInvite(4, 'Riley', {
+      defaultAccountId: memberAccountId(4),
+      firstClickedAt: now,
       certificationProgress: createCertificationProgress({ hasTreasuryBonds: true }),
       vaultContribution: { bitcoinAmount: 0n, pendingBitcoinAmount: 600_000_000n, bondAmount: 800_000_000n },
     }),
-    createInvite(5, 'Upgrade requested', {
-      defaultAccountId: '5UpgradeRequested',
-      operationalAccountId: '5OperationalRequested',
+    createInvite(5, 'Taylor', {
+      defaultAccountId: memberAccountId(5),
+      operationalAccountId: operationalAccountId(5),
+      firstClickedAt: now,
       operationsUpgradeRequestedAt: now,
       certificationProgress: treasuryComplete,
       vaultContribution: { bitcoinAmount: 600_000_000n, pendingBitcoinAmount: 0n, bondAmount: 1_000_000_000n },
     }),
-    createInvite(6, 'Access granted', {
-      defaultAccountId: '5AccessGranted',
-      operationalAccountId: '5OperationalGranted',
+    createInvite(6, 'Avery', {
+      defaultAccountId: memberAccountId(6),
+      operationalAccountId: operationalAccountId(6),
+      firstClickedAt: now,
       operationsUpgradedAt: now,
       certificationProgress: createCertificationProgress({
         ...treasuryComplete,
@@ -183,9 +189,10 @@ function createMemberInvites(): IMemberInvite[] {
       }),
       vaultContribution: { bitcoinAmount: 900_000_000n, pendingBitcoinAmount: 75_000_000n, bondAmount: 1_500_000_000n },
     }),
-    createInvite(7, 'Operationally certified', {
-      defaultAccountId: '5Certified',
-      operationalAccountId: '5OperationalCertified',
+    createInvite(7, 'Quinn', {
+      defaultAccountId: memberAccountId(7),
+      operationalAccountId: operationalAccountId(7),
+      firstClickedAt: now,
       operationsUpgradedAt: now,
       certificationProgress: createCertificationProgress({
         hasOperationalAccount: true,
@@ -201,7 +208,7 @@ function createMemberInvites(): IMemberInvite[] {
       }),
       vaultContribution: { bitcoinAmount: 1_500_000_000n, pendingBitcoinAmount: 0n, bondAmount: 2_400_000_000n },
     }),
-    createInvite(8, 'Expired invitation', {
+    createInvite(8, 'Jamie', {
       bitcoinLockCoupon: {
         status: 'Expired',
         expiresAt: new Date('2026-08-14T16:00:00.000Z'),
@@ -221,6 +228,14 @@ function createMemberInvites(): IMemberInvite[] {
       },
     }),
   ];
+}
+
+function memberAccountId(id: number): string {
+  return scenarioKeyring.addFromUri(`//StorybookMember${id}`).address;
+}
+
+function operationalAccountId(id: number): string {
+  return scenarioKeyring.addFromUri(`//StorybookOperationalMember${id}`).address;
 }
 
 function createInvite(id: number, name: string, overrides: Partial<IMemberInvite> = {}): IMemberInvite {

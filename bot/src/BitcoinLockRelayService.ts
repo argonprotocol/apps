@@ -180,9 +180,6 @@ export class BitcoinLockRelayService {
       throw new HttpError('This Bitcoin fee coupon nonce is no longer available.', 409);
     }
     const feeCoupon: BitcoinLockFeeCoupon = {
-      vaultId: request.vaultId,
-      genesisHash: client.genesisHash.toHex(),
-      beneficiary,
       feeDiscount: request.feeDiscountMicrogons,
       securitizationSpaceToUnreserve: 0n,
       expiresAtFrame: currentFrame + BigInt(lifetimeFrames),
@@ -193,9 +190,9 @@ export class BitcoinLockRelayService {
     const message = getOfflineRegistry()
       .createType('(Bytes,H256,u32,AccountId,u64,u128,u128,u128,u64,u64)', [
         u8aToHex(stringToU8a('bitcoin_lock_fee_coupon')),
-        feeCoupon.genesisHash,
-        feeCoupon.vaultId,
-        feeCoupon.beneficiary,
+        client.genesisHash.toHex(),
+        request.vaultId,
+        beneficiary,
         request.requestedSatoshis,
         request.microgonsAtTargetPerBtc,
         feeCoupon.feeDiscount,

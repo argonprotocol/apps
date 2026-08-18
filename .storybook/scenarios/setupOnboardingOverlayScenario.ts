@@ -140,7 +140,6 @@ export function setupMemberInviteScenario(
     | 'insufficientBitcoinWaiver'
     | 'insufficientBondCapacity'
     | 'setupProgress'
-    | 'setupError'
     | 'creating'
     | 'createError',
 ) {
@@ -164,9 +163,6 @@ export function setupMemberInviteScenario(
     load: fn(async () => undefined),
     ensureVaultDelegateReady: fn(async () => {
       if (state === 'setupProgress') return createInviteSetupTransaction();
-      if (state === 'setupError') {
-        return createInviteSetupTransaction(new Error('The vault setup transaction was retracted.'));
-      }
     }),
   } as unknown as ReturnType<typeof getMyVault>);
 
@@ -202,7 +198,7 @@ export function setupMemberInviteScenario(
     });
     controller.rewardConfig.treasuryMinimumBonds = 200_000_000n;
 
-    if (state === 'setupProgress' || state === 'setupError' || state === 'creating' || state === 'createError') {
+    if (state === 'setupProgress' || state === 'creating' || state === 'createError') {
       config.serverDetails.ipAddress = '127.0.0.1';
       mocked(getServerApiClient, { partial: true }).mockReturnValue({
         createInvite: fn(() => {
@@ -284,19 +280,16 @@ function createFlexibleBond(id: number, isFlexible: boolean) {
   });
 }
 
-function createInviteSetupTransaction(error?: Error): TransactionInfo {
+function createInviteSetupTransaction(): TransactionInfo {
   const subscribeToProgress: TransactionInfo['subscribeToProgress'] = callback => {
     queueMicrotask(() =>
-      callback(
-        {
-          progressPct: 54,
-          progressMessage: 'Waiting for Argon finalization…',
-          confirmations: 1,
-          expectedConfirmations: 4,
-          isMaxed: false,
-        },
-        error,
-      ),
+      callback({
+        progressPct: 54,
+        progressMessage: 'Waiting for Argon finalization…',
+        confirmations: 1,
+        expectedConfirmations: 4,
+        isMaxed: false,
+      }),
     );
     return fn();
   };
