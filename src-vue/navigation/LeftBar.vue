@@ -359,7 +359,7 @@
 
     <section DashBox class="flex w-full grow flex-col justify-end px-1">
       <div
-        v-if="config.isLoaded && !config.hasExtensionTreasury"
+        v-if="config.isLoaded && controller.hasLoadedInitialOperationalProgress && !config.hasExtensionTreasury"
         class="relative flex grow flex-col items-center justify-center text-center"
       >
         <DiamondsIcon class="text-argon-600/80 mb-2 w-20" />
@@ -391,6 +391,7 @@
       <div
         v-else-if="
           config.isLoaded &&
+          controller.hasLoadedInitialOperationalProgress &&
           config.hasExtensionTreasury &&
           !controller.chainProgress.isUpgradedToOperations &&
           controller.completedTreasuryCertificationStepCount !== treasuryCertificationStepIds.length

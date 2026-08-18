@@ -11,12 +11,6 @@
     </div>
 
     <div class="flex min-h-0 grow flex-col">
-      <div v-if="errorMessage" class="mt-3 space-y-2">
-        <div v-if="errorMessage" class="text-sm text-red-600">
-          {{ errorMessage }}
-        </div>
-      </div>
-
       <div class="mt-4 min-h-0 grow overflow-auto">
         <table class="w-full min-w-[760px] text-left">
           <thead
@@ -129,7 +123,6 @@
 </template>
 
 <script setup lang="ts">
-import * as Vue from 'vue';
 import type { IMemberInvite } from '@argonprotocol/apps-router';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -138,27 +131,21 @@ import { ChevronRightIcon } from '@heroicons/vue/24/outline';
 import {
   countCompletedOperationalCertificationRequirements,
   countCompletedTreasuryCertificationRequirements,
-  NetworkConfig,
   operationalCertificationRequirementCount,
   treasuryCertificationRequirementCount,
 } from '@argonprotocol/apps-core';
 import basicEmitter from '../../../emitters/basicEmitter.ts';
 import { createNumeralHelpers } from '../../../lib/numeral.ts';
-import { getConfig } from '../../../stores/config.ts';
 import { getCurrency } from '../../../stores/currency.ts';
 import { useCertificationController } from '../../../stores/certificationController.ts';
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
 
-const config = getConfig();
 const controller = useCertificationController();
 const currency = getCurrency();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
-const errorMessage = Vue.ref<string | null>(null);
-let loadInvitesPromise: Promise<void> | undefined;
-
 function inviteStatus(invite: IMemberInvite) {
   return (
     controller.operationalInviteStatusesByCode[invite.inviteCode] ?? {
@@ -192,47 +179,4 @@ function certificationRequirementCount(invite: IMemberInvite) {
     (showOperationsCertification(invite) ? operationalCertificationRequirementCount : 0)
   );
 }
-
-function loadInvites(): Promise<void> {
-  if (loadInvitesPromise) {
-    return loadInvitesPromise;
-  }
-
-  errorMessage.value = null;
-  loadInvitesPromise = (async () => {
-    try {
-      await controller.loadOperationalInvites();
-    } catch (error) {
-      errorMessage.value =
-        error instanceof Error
-          ? `Unable to refresh member invites: ${error.message}`
-          : 'Unable to refresh member invites right now. Please try again.';
-    }
-  })().finally(() => {
-    loadInvitesPromise = undefined;
-  });
-
-  return loadInvitesPromise;
-}
-
-Vue.watch(
-  [() => config.isServerInstalled, () => config.serverDetails.ipAddress],
-  ([isServerInstalled, ipAddress], _previous, onCleanup) => {
-    if (!isServerInstalled || !ipAddress) return;
-
-    if (!controller.hasLoadedOperationalInvites) {
-      void loadInvites();
-    }
-    const interval = setInterval(
-      () => {
-        if (document.visibilityState !== 'visible') return;
-        void loadInvites();
-      },
-      Math.max(NetworkConfig.tickMillis, 5_000),
-    );
-
-    onCleanup(() => clearInterval(interval));
-  },
-  { immediate: true },
-);
 </script>

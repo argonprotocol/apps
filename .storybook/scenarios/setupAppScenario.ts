@@ -64,6 +64,7 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {} }: 
   const config = Vue.reactive({
     isLoaded: true,
     isLoadedPromise: Promise.resolve(),
+    selectedTab,
     hasExtensionOperations: true,
     hasExtensionTreasury: false,
     miningSetupStatus: MiningSetupStatus.None,
