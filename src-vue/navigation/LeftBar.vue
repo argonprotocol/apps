@@ -347,7 +347,7 @@
                   </div>
                 </div>
                 <div v-if="currency.isLoaded" class="opacity-60">
-                  {{ currency.symbol }}{{ microgonToMoneyNm(crosschainHistory.getTransferTips()).format('0,0.00') }}
+                  {{ currency.symbol }}{{ microgonToMoneyNm(crosschainTransferTips).format('0,0.00') }}
                 </div>
               </div>
             </article>
@@ -580,6 +580,8 @@ const hasActiveCoupon = Vue.computed(() => {
   const expiresAt = bitcoinLockCoupons.currentCoupon?.expiresAt;
   return expiresAt != null && new Date(expiresAt).getTime() > now.value;
 });
+
+const crosschainTransferTips = Vue.computed(() => crosschainHistory.getTransferTips());
 
 const walletSelections = Vue.computed(() => {
   return getAvailableWalletSelections(wallets.walletRecords, [], config.hasExtensionOperations);

@@ -218,10 +218,20 @@ describe('CrosschainHistory', () => {
         queueNonce: 4n,
       },
     };
+    const legacyAuthorization: ICrosschainHistoryRecord = {
+      ...firstAuthorization,
+      id: '0xblock:5',
+      details: {
+        ...firstAuthorizationDetails,
+        tip: undefined,
+        reward: 25_000n,
+        transferId: '0xlegacy-transfer',
+      },
+    };
     const history = new CrosschainHistory({ vaultingAddress: firstAuthorization.accountId }, {} as any);
-    history.data.records = [firstAuthorization, secondAuthorization, authorityRelay];
+    history.data.records = [firstAuthorization, secondAuthorization, authorityRelay, legacyAuthorization];
 
-    expect(history.getTransferTips()).toBe(125_000n);
+    expect(history.getTransferTips()).toBe(150_000n);
   });
 
   it('keeps this wallet council signatures in its crosschain history', async () => {

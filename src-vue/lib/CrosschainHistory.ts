@@ -21,7 +21,9 @@ export type ICrosschainHistoryDetails =
       destinationAccount: string;
       moveToken: MoveToken.ARGN | MoveToken.ARGNOT;
       amount: bigint;
-      tip: bigint;
+      tip?: bigint;
+      /** Cached records from before the transfer-tip rename. */
+      reward?: bigint;
       microgonCollateral: bigint;
       micronotCollateral: bigint;
     }
@@ -131,9 +133,10 @@ export class CrosschainHistory {
     }, 0n);
   }
 
-  public getTransferTips() {
+  public getTransferTips(): bigint {
     return this.data.records.reduce((total, record) => {
-      return record.details.kind === 'transferAuthorization' ? total + record.details.tip : total;
+      if (record.details.kind !== 'transferAuthorization') return total;
+      return total + (record.details.tip ?? record.details.reward ?? 0n);
     }, 0n);
   }
 
