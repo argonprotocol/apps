@@ -224,11 +224,12 @@ export const EmptyDashboard: Story = {
 };
 
 export const MemberStates: Story = {
-  beforeEach: () => {
+  beforeEach: async () => {
     const controller = setupOnboardingScenario(OnboardingSetupStatus.Finished, {
       hasOperation: true,
       serverInstalled: true,
     });
+    await Vue.nextTick();
     controller.chainProgress = {
       ...controller.chainProgress,
       availableAccessCodes: 3,
@@ -240,8 +241,10 @@ export const MemberStates: Story = {
     controller.setOperationalInvites(createMemberInvites());
     controller.hasLoadedOperationalInvites = true;
   },
-  play: async () => {
-    await expect(await within(document.body).findByText('Created 3 days ago')).toBeVisible();
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await expect(await canvas.findByText('Created 3 days ago')).toBeVisible();
   },
 };
 
