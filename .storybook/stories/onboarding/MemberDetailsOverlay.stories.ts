@@ -57,7 +57,7 @@ export const TreasuryMember: Story = {
     const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
     selectedInvite = createInvite(2, {
       defaultAccountId: memberAccountId,
-      firstClickedAt: new Date('2026-08-16T16:00:00.000Z'),
+      firstClickedAt: dateDaysAgo(1),
       bitcoinLockCoupon: createFeeWaiver('partiallyUsed'),
       certificationProgress: createCertificationProgress({
         hasTreasuryBitcoin: true,
@@ -93,8 +93,8 @@ export const OperationsRequested: Story = {
     selectedInvite = createInvite(3, {
       defaultAccountId: memberAccountId,
       operationalAccountId,
-      firstClickedAt: new Date('2026-08-15T16:00:00.000Z'),
-      operationsUpgradeRequestedAt: new Date('2026-08-16T16:00:00.000Z'),
+      firstClickedAt: dateDaysAgo(2),
+      operationsUpgradeRequestedAt: dateDaysAgo(1),
       certificationProgress: createCertificationProgress({
         hasTreasuryBitcoin: true,
         hasTreasuryBonds: true,
@@ -117,8 +117,8 @@ export const OperationsGranted: Story = {
     selectedInvite = createInvite(4, {
       defaultAccountId: memberAccountId,
       operationalAccountId,
-      firstClickedAt: new Date('2026-08-14T16:00:00.000Z'),
-      operationsUpgradedAt: new Date('2026-08-16T16:00:00.000Z'),
+      firstClickedAt: dateDaysAgo(3),
+      operationsUpgradedAt: dateDaysAgo(1),
       certificationProgress: createCertificationProgress({
         hasOperationalAccount: true,
         hasTreasuryBitcoin: true,
@@ -144,7 +144,7 @@ export const OpenedNotRegistered: Story = {
   beforeEach: () => {
     const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
     selectedInvite = createInvite(5, {
-      lastClickedAt: new Date('2026-08-16T16:00:00.000Z'),
+      lastClickedAt: dateDaysAgo(1),
     });
     controller.setOperationalInvites([selectedInvite]);
   },
@@ -158,7 +158,7 @@ export const BalancesLoading: Story = {
     const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
     selectedInvite = createInvite(6, {
       defaultAccountId: memberAccountId,
-      firstClickedAt: new Date('2026-08-16T16:00:00.000Z'),
+      firstClickedAt: dateDaysAgo(1),
     });
     controller.setOperationalInvites([selectedInvite]);
   },
@@ -172,7 +172,7 @@ export const BalancesUnavailable: Story = {
     const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
     selectedInvite = createInvite(7, {
       defaultAccountId: memberAccountId,
-      firstClickedAt: new Date('2026-08-16T16:00:00.000Z'),
+      firstClickedAt: dateDaysAgo(1),
     });
     controller.setOperationalInvites([selectedInvite]);
     mocked(getMainchainClient).mockResolvedValue(createMemberClient(0n, new Error('Member balances are unavailable.')));
@@ -187,7 +187,7 @@ export const PreviousRuntimeFeeWaiver: Story = {
     const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
     const currentTick = MiningFrames.calculateCurrentTickFromSystemTime();
     selectedInvite = createInvite(8, {
-      lastClickedAt: new Date('2026-08-16T16:00:00.000Z'),
+      lastClickedAt: dateDaysAgo(1),
       bitcoinLockCoupon: createFeeWaiver('previousRuntime', currentTick),
     });
     controller.setOperationalInvites([selectedInvite]);
@@ -207,7 +207,7 @@ export const FeeWaiverPending: Story = {
     const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
     selectedInvite = createInvite(9, {
       defaultAccountId: memberAccountId,
-      firstClickedAt: new Date('2026-08-15T16:00:00.000Z'),
+      firstClickedAt: dateDaysAgo(2),
       bitcoinLockCoupon: createFeeWaiver('pending'),
     });
     controller.setOperationalInvites([selectedInvite]);
@@ -222,7 +222,7 @@ export const FeeWaiverUsed: Story = {
     const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
     selectedInvite = createInvite(10, {
       defaultAccountId: memberAccountId,
-      firstClickedAt: new Date('2026-08-15T16:00:00.000Z'),
+      firstClickedAt: dateDaysAgo(2),
       bitcoinLockCoupon: createFeeWaiver('used'),
     });
     controller.setOperationalInvites([selectedInvite]);
@@ -240,7 +240,7 @@ export const FeeWaiverExpired: Story = {
     const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
     const currentTick = MiningFrames.calculateCurrentTickFromSystemTime();
     selectedInvite = createInvite(11, {
-      lastClickedAt: new Date('2026-08-16T16:00:00.000Z'),
+      lastClickedAt: dateDaysAgo(1),
       bitcoinLockCoupon: createFeeWaiver('expired', currentTick),
     });
     controller.setOperationalInvites([selectedInvite]);
@@ -300,13 +300,17 @@ export const ExpirationUpdateFailed: Story = {
   },
 };
 
+function dateDaysAgo(daysAgo: number) {
+  return new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1_000);
+}
+
 function createInvite(id: number, overrides: Partial<IMemberInvite> = {}): IMemberInvite {
   return {
     id,
     name: 'Morgan',
     fromName: 'Atlas Operator',
     inviteCode: `synthetic-member-details-${id}`,
-    createdAt: new Date('2026-08-14T16:00:00.000Z'),
+    createdAt: dateDaysAgo(3),
     ...overrides,
   };
 }
@@ -343,8 +347,8 @@ function createFeeWaiver(
     estimatedGiftUsd: 68,
     btcPctFee: 3.4,
     expiresAfterTicks: 7 * NetworkConfig.rewardTicksPerFrame,
-    createdAt: new Date('2026-08-14T16:00:00.000Z'),
-    updatedAt: new Date('2026-08-16T16:00:00.000Z'),
+    createdAt: dateDaysAgo(3),
+    updatedAt: dateDaysAgo(1),
     feeCreditMicrogons: originalFeeCreditMicrogons,
     ...(expirationTick == null ? {} : { expirationTick }),
     ...(uses.length ? { accountId: memberAccountId } : {}),
@@ -441,8 +445,8 @@ function createFeeWaiverUse(
       nonce: BigInt(id),
       signature: `0x${'34'.repeat(64)}`,
     },
-    createdAt: new Date(`2026-08-${14 + id}T16:00:00.000Z`),
-    updatedAt: new Date(`2026-08-${15 + id}T16:00:00.000Z`),
+    createdAt: dateDaysAgo(3 - id),
+    updatedAt: dateDaysAgo(2 - id),
   };
 }
 
@@ -452,8 +456,8 @@ function setupOperationsUpgradeAction(state: 'progress' | 'error') {
   selectedInvite = createInvite(12, {
     defaultAccountId: memberAccountId,
     operationalAccountId,
-    firstClickedAt: new Date('2026-08-15T16:00:00.000Z'),
-    operationsUpgradeRequestedAt: new Date('2026-08-16T16:00:00.000Z'),
+    firstClickedAt: dateDaysAgo(2),
+    operationsUpgradeRequestedAt: dateDaysAgo(1),
     certificationProgress: createCertificationProgress({
       hasTreasuryBitcoin: true,
       hasTreasuryBonds: true,
@@ -477,7 +481,7 @@ function setupOperationsUpgradeAction(state: 'progress' | 'error') {
 function setupExpirationUpdate(state: 'progress' | 'error') {
   const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
   selectedInvite = createInvite(13, {
-    lastClickedAt: new Date('2026-08-16T16:00:00.000Z'),
+    lastClickedAt: dateDaysAgo(1),
     bitcoinLockCoupon: createFeeWaiver(),
   });
   controller.setOperationalInvites([selectedInvite]);
