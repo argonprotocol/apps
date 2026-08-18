@@ -63,34 +63,35 @@
         </button>
       </div>
 
-      <div v-if="invite.bitcoinLockCoupon" class="mt-8">
+      <div v-if="invite.bitcoinLockCoupon?.originalFeeCreditMicrogons != null" class="mt-8">
         <div class="border-b border-slate-200 pb-1 font-semibold text-slate-800">Bitcoin Fee Waiver</div>
         <div class="mt-3 text-sm text-slate-500">
           <div class="flex items-center">
-            <div v-if="invite.bitcoinLockCoupon.status === 'Used' && bitcoinFeeWaiverAppliedAt">
-              Used
-              <span class="ml-1">
-                {{ formatMemberDate(bitcoinFeeWaiverAppliedAt) }}
-              </span>
-            </div>
-            <div v-else-if="invite.bitcoinLockCoupon.originalFeeCreditMicrogons != null">
-              <span class="font-mono text-slate-700">
-                ₳{{ formatArgonTokenAmount(invite.bitcoinLockCoupon.usedFeeCreditMicrogons ?? 0n) }}
-              </span>
-              of
-              <span class="font-mono text-slate-700">
-                ₳{{ formatArgonTokenAmount(invite.bitcoinLockCoupon.originalFeeCreditMicrogons) }}
-              </span>
-              used
+            <span class="font-mono text-slate-700">
+              ₳{{ formatFeeWaiverAmount(invite.bitcoinLockCoupon.originalFeeCreditMicrogons) }}
+            </span>
+            <span class="ml-1">fee waiver</span>
+            <template v-if="invite.bitcoinLockCoupon.status === 'Used'">
+              <span class="mr-1 ml-2">· Used</span>
+              <span v-if="bitcoinFeeWaiverAppliedAt">{{ formatMemberDate(bitcoinFeeWaiverAppliedAt) }}</span>
+            </template>
+            <template v-else>
               <span
-                v-if="(invite.bitcoinLockCoupon.pendingFeeCreditMicrogons ?? 0n) > 0n"
-                class="font-mono text-slate-700"
+                v-if="
+                  (invite.bitcoinLockCoupon.usedFeeCreditMicrogons ?? 0n) === 0n &&
+                  (invite.bitcoinLockCoupon.pendingFeeCreditMicrogons ?? 0n) === 0n
+                "
+                class="ml-2"
               >
-                (₳{{ formatArgonTokenAmount(invite.bitcoinLockCoupon.pendingFeeCreditMicrogons ?? 0n) }}
-                pending)
+                · Unused
               </span>
-            </div>
-            <div v-else>This waiver covers one eligible Bitcoin lock.</div>
+              <span v-if="(invite.bitcoinLockCoupon.usedFeeCreditMicrogons ?? 0n) > 0n" class="ml-2">
+                · ₳{{ formatFeeWaiverAmount(invite.bitcoinLockCoupon.usedFeeCreditMicrogons ?? 0n) }} used
+              </span>
+              <span v-if="(invite.bitcoinLockCoupon.pendingFeeCreditMicrogons ?? 0n) > 0n" class="ml-2">
+                · ₳{{ formatFeeWaiverAmount(invite.bitcoinLockCoupon.pendingFeeCreditMicrogons ?? 0n) }} pending
+              </span>
+            </template>
             <template
               v-if="
                 invite.bitcoinLockCoupon.status !== 'Used' && isBitcoinFeeWaiverExpired && expirationDaysAgo != null
@@ -393,17 +394,31 @@ const certificationCompletedCount = Vue.computed(() => {
 const canUpdateBitcoinFeeWaiverExpiration = Vue.computed(() => {
   const coupon = invite.value?.bitcoinLockCoupon;
   return (
+    !controller.operationalInviteLoadError &&
     !!coupon &&
     (coupon.status === 'Open' || coupon.status === 'Expired') &&
-    (coupon.remainingFeeCreditMicrogons ?? 1n) > 0n
+    (coupon.remainingFeeCreditMicrogons ?? 0n) > 0n
   );
 });
 const bitcoinFeeWaiverAppliedAt = Vue.computed(() => {
   const coupon = invite.value?.bitcoinLockCoupon;
   if (coupon?.status !== 'Used') return;
-  return coupon.relay?.updatedAt ?? coupon.coupon.usedAt;
+  return (
+    coupon.relay?.updatedAt ??
+    coupon.coupon.usedAt ??
+    coupon.uses?.filter(use => use.status === 'Finalized').at(-1)?.updatedAt
+  );
 });
-const isBitcoinFeeWaiverExpired = Vue.computed(() => invite.value?.bitcoinLockCoupon?.status === 'Expired');
+const isBitcoinFeeWaiverExpired = Vue.computed(() => {
+  const coupon = invite.value?.bitcoinLockCoupon;
+  if (!coupon) return false;
+
+  return (
+    coupon.status === 'Expired' ||
+    (coupon.coupon.expirationTick != null &&
+      MiningFrames.calculateCurrentTickFromSystemTime() >= coupon.coupon.expirationTick)
+  );
+});
 const availabilityDays = Vue.computed(() => {
   const coupon = invite.value?.bitcoinLockCoupon?.coupon;
   if (!coupon || coupon.expirationTick != null) return;
@@ -436,6 +451,8 @@ const availableOperationsUpgradeCodeCount = Vue.computed(() => {
   return Math.max(controller.chainProgress.availableAccessCodes - outstandingAccessProofCount, 0);
 });
 const canUpgradeMemberToOperations = Vue.computed(() => {
+  if (controller.operationalInviteLoadError) return false;
+
   const member = invite.value;
   if (!member) return false;
 
@@ -628,6 +645,10 @@ Vue.onUnmounted(() => {
 function formatArgonTokenAmount(amount: bigint) {
   const format = amount % BigInt(MICROGONS_PER_ARGON) === 0n ? '0,0' : '0,0.00';
   return microgonToArgonNm(amount).format(format);
+}
+
+function formatFeeWaiverAmount(amount: bigint) {
+  return microgonToArgonNm(amount).format('0,0');
 }
 
 function formatMemberDate(date: Date) {

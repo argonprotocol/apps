@@ -204,6 +204,10 @@ export async function startDevUpstreamServer(args: {
   };
   const fundingClient = await getClient(args.archiveUrl);
   try {
+    const existingTreasuryMicronots = (
+      await fundingClient.query.ownership.account(walletKeys.defaultArgonAddress)
+    ).free.toBigInt();
+
     await sudoFundWallet({
       client: fundingClient,
       address: miningBotKeypair.address,
@@ -214,7 +218,7 @@ export async function startDevUpstreamServer(args: {
       client: fundingClient,
       address: walletKeys.defaultArgonAddress,
       microgons: 10n * BigInt(MICROGONS_PER_ARGON),
-      micronots: 0n,
+      micronots: existingTreasuryMicronots,
     });
   } finally {
     await fundingClient.disconnect();

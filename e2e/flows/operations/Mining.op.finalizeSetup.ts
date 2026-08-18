@@ -210,6 +210,10 @@ export default new Operation<IMiningFlowContext, IFinalizeSetupState>(import.met
       INSTALL_PROGRESS_POLL_MS,
       async () => {
         if (await didFinishInstall()) return true;
+        const miningInstallError = await getMiningInstallError(flow);
+        if (miningInstallError) {
+          throw new Error(`${flowName}: mining setup failed: ${miningInstallError}`);
+        }
 
         const [installProgressVisible, miningInstallingVisible, startingBotVisible] = await Promise.all([
           flow.isVisible({ selector: '.InstallProgress' }),
@@ -384,6 +388,15 @@ async function getFailedInstallStepNames(flow: IE2EFlowRuntime, stepCount: numbe
   return failedSteps;
 }
 
+async function getMiningInstallError(flow: IE2EFlowRuntime): Promise<string | null> {
+  const errorTarget = 'MiningIsInstalling.errorMessage';
+  const errorState = await flow.isVisible(errorTarget);
+  if (!errorState.visible) return null;
+
+  const message = (await flow.getText(errorTarget, { timeoutMs: 1_000 })).trim();
+  return message.length > 0 ? message : 'Unknown mining setup error';
+}
+
 async function tryGetTotalBlocksMined(flow: IE2EFlowRuntime, flowName: string): Promise<number | null> {
   const value = await getAttributeOrNull(flow, 'TotalBlocksMined', 'data-value', 2_000);
   if (value == null || value.trim().length === 0) return null;
@@ -398,6 +411,11 @@ async function waitForServerInstallToReachLaunchableState(flow: IE2EFlowRuntime,
   await pollEvery(
     2_000,
     async () => {
+      const miningInstallError = await getMiningInstallError(flow);
+      if (miningInstallError) {
+        throw new Error(`${flowName}: mining setup failed: ${miningInstallError}`);
+      }
+
       const [dashboard, firstAuction, startingBot, launchBot, installProgress] = await Promise.all([
         flow.isVisible('MiningDashboard'),
         flow.isVisible('FirstAuction'),
@@ -475,6 +493,11 @@ async function waitForPostLaunchReadyState(flow: IE2EFlowRuntime, flowName: stri
   await pollEvery(
     2_000,
     async () => {
+      const miningInstallError = await getMiningInstallError(flow);
+      if (miningInstallError) {
+        throw new Error(`${flowName}: mining setup failed: ${miningInstallError}`);
+      }
+
       const dashboardVisible = await flow.isVisible('MiningDashboard');
       return dashboardVisible.visible;
     },

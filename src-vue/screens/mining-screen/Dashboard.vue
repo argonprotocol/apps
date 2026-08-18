@@ -1,6 +1,10 @@
 <!-- prettier-ignore -->
 <template>
   <TooltipProvider :disableHoverableContent="true" class="flex flex-col h-full">
+    <ServerConnectionStatus v-if="!bot.isReady && config.isServerInstalling" featureName="Mining" isBlocking>
+      <template #icon><MiningIcon class="h-full w-full" /></template>
+    </ServerConnectionStatus>
+
     <div data-testid="MiningDashboard" :class="myMiningSeats.isLoaded ? '' : 'opacity-30 pointer-events-none'" class="flex min-w-0 flex-col h-full pr-2.5 gap-y-2 justify-stretch grow">
       <span data-testid="TotalBlocksMined" :data-value="totalBlocksMined" class="sr-only">{{ totalBlocksMined }}</span>
 
@@ -248,12 +252,16 @@ import MiningSeats from './components/MiningSeats.vue';
 import { getBlockWatch, getMainchainClient, getMining, getMiningFrames } from '../../stores/mainchain.ts';
 import { botEmitter } from '../../lib/Bot.ts';
 import { getBot } from '../../stores/bot.ts';
+import { getConfig } from '../../stores/config.ts';
 import { useWallets } from '../../stores/wallets.ts';
 import { useFinancials } from '../../stores/financials.ts';
+import MiningIcon from '../../assets/mining.svg?component';
+import ServerConnectionStatus from '../../components/ServerConnectionStatus.vue';
 
 const myMiningSeats = getMyMiningSeats();
 const currency = getCurrency();
 const bot = getBot();
+const config = getConfig();
 const blockWatch = getBlockWatch();
 const mining = getMining();
 const miningFrames = getMiningFrames();

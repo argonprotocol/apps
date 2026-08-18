@@ -3,18 +3,27 @@ import type { ICertificationProgress } from '@argonprotocol/apps-core';
 import type { IMemberInvite } from '@argonprotocol/apps-router';
 import { Keyring } from '@polkadot/keyring';
 import * as Vue from 'vue';
-import { fn, mocked } from 'storybook/test';
+import { expect, fn, mocked, within } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import { createScenarioVault } from '../../scenarios/createScenarioVault.ts';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
-import { OnboardingSetupStatus, TopTab } from '../../../src-vue/interfaces/IConfig.ts';
+import {
+  type IConfig,
+  InstallStepErrorType,
+  OnboardingSetupStatus,
+  TopTab,
+} from '../../../src-vue/interfaces/IConfig.ts';
+import { Config } from '../../../src-vue/lib/Config.ts';
 import {
   activateOperationalAccountSetup,
   usesOperationalProfileNameRuntime,
 } from '../../../src-vue/lib/OperationalAccount.ts';
 import { useCertificationController } from '../../../src-vue/stores/certificationController.ts';
+import { getConfig } from '../../../src-vue/stores/config.ts';
+import { getInstaller } from '../../../src-vue/stores/installer.ts';
 import { getMainchainClient } from '../../../src-vue/stores/mainchain.ts';
 import { getMyVault } from '../../../src-vue/stores/vaults.ts';
+import { getServerApiClient } from '../../../src-vue/stores/server.ts';
 import Onboarding from '../../../src-vue/screens/Onboarding.vue';
 
 const meta = {
@@ -85,6 +94,124 @@ export const InviteLoading: Story = {
   },
 };
 
+export const ServerUpdatingWithoutInviteApi: Story = {
+  beforeEach: () => {
+    setupOnboardingScenario(OnboardingSetupStatus.Finished, {
+      hasOperation: true,
+      serverInstalled: true,
+      serverInstalling: true,
+    });
+    mocked(getServerApiClient, { partial: true }).mockReturnValue({
+      getInvites: fn(async () => {
+        throw new Error('Server API unavailable');
+      }),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await expect(await canvas.findByRole('heading', { name: 'Updating Your Server' })).toBeVisible();
+    await expect(canvas.getByText(/Member onboarding will reconnect automatically/)).toBeVisible();
+  },
+};
+
+export const ServerUpdateFailed: Story = {
+  beforeEach: () => {
+    setupOnboardingScenario(OnboardingSetupStatus.Finished, {
+      hasOperation: true,
+      serverInstalled: true,
+      serverInstalling: true,
+    });
+
+    const config = getConfig();
+    config.serverInstaller = Config.getDefault('serverInstaller') as IConfig['serverInstaller'];
+    config.serverInstaller.errorType = InstallStepErrorType.ArgonInstall;
+    config.serverInstaller.errorMessage = 'Argon syncstatus returned error JSON too many times';
+
+    mocked(getServerApiClient, { partial: true }).mockReturnValue({
+      getInvites: fn(async () => {
+        throw new Error('Server API unavailable');
+      }),
+    });
+    mocked(getInstaller, { partial: true }).mockReturnValue({
+      runFailedStep: fn(async () => undefined),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await expect(canvas.getByTestId('LeftBar.goto(TopTab.Onboarding)')).toHaveClass('Selected');
+    await expect(await canvas.findByText('Server Update Failed')).toBeVisible();
+    await expect(canvas.getByText(/Failed to Install Argon/)).toBeVisible();
+    await expect(canvas.getByText('Argon syncstatus returned error JSON too many times')).toBeVisible();
+  },
+};
+
+export const ServerUpdatingWithInviteApi: Story = {
+  beforeEach: () => {
+    setupOnboardingScenario(OnboardingSetupStatus.Finished, {
+      hasOperation: true,
+      serverInstalled: true,
+      serverInstalling: true,
+    });
+    mocked(getServerApiClient, { partial: true }).mockReturnValue({
+      getInvites: fn(async () => createMemberInvites()),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await expect(await canvas.findByText('Server Update in Progress')).toBeVisible();
+    await expect(await canvas.findByText('Morgan')).toBeVisible();
+    await expect(canvas.getByTestId('SendMemberInvite')).not.toBeDisabled();
+  },
+};
+
+export const ServerUpdatingWithCachedInvites: Story = {
+  beforeEach: async () => {
+    const controller = setupOnboardingScenario(OnboardingSetupStatus.Finished, {
+      hasOperation: true,
+      serverInstalled: true,
+      serverInstalling: true,
+    });
+    await Vue.nextTick();
+    controller.setOperationalInvites(createMemberInvites());
+    controller.hasLoadedOperationalInvites = true;
+    mocked(getServerApiClient, { partial: true }).mockReturnValue({
+      getInvites: fn(async () => {
+        throw new Error('Server API unavailable');
+      }),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await expect(await canvas.findByText('Server Update in Progress')).toBeVisible();
+    await expect(canvas.getByText('Morgan')).toBeVisible();
+    await expect(canvas.getByTestId('SendMemberInvite')).toBeDisabled();
+  },
+};
+
+export const ServerUnavailableWithoutInviteApi: Story = {
+  beforeEach: () => {
+    setupOnboardingScenario(OnboardingSetupStatus.Finished, {
+      hasOperation: true,
+      serverInstalled: true,
+    });
+    mocked(getServerApiClient, { partial: true }).mockReturnValue({
+      getInvites: fn(async () => {
+        throw new Error('Server API unavailable');
+      }),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await expect(await canvas.findByRole('heading', { name: 'Server Unavailable' })).toBeVisible();
+    await expect(canvas.getByText(/Member onboarding cannot reach your server right now/)).toBeVisible();
+  },
+};
+
 export const EmptyDashboard: Story = {
   beforeEach: () => {
     const controller = setupOnboardingScenario(OnboardingSetupStatus.Finished, {
@@ -116,15 +243,31 @@ export const MemberStates: Story = {
 
 function setupOnboardingScenario(
   onboardingSetupStatus: OnboardingSetupStatus,
-  options: { hasOperation?: boolean; serverAdded?: boolean; serverInstalled?: boolean } = {},
+  options: {
+    hasOperation?: boolean;
+    serverAdded?: boolean;
+    serverInstalled?: boolean;
+    serverInstalling?: boolean;
+  } = {},
 ) {
-  const { controller } = setupAppScenario({
+  const { config, controller } = setupAppScenario({
     selectedTab: TopTab.Onboarding,
     config: {
       onboardingSetupStatus,
       isServerAdded: options.serverAdded ?? options.serverInstalled ?? false,
       isServerInstalled: options.serverInstalled ?? false,
+      isServerInstalling: options.serverInstalling ?? false,
     },
+  });
+
+  if (options.serverInstalled) {
+    config.serverDetails = {
+      ...config.serverDetails,
+      ipAddress: '192.0.2.10',
+    };
+  }
+  mocked(getServerApiClient, { partial: true }).mockReturnValue({
+    getInvites: fn(async () => controller.operationalInvites),
   });
   const createdVault = options.hasOperation ? createScenarioVault() : null;
   const currentMyVault = getMyVault();

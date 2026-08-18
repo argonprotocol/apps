@@ -292,7 +292,7 @@ const isUnlockTrack = Vue.computed(() => {
   return !controller.chainProgress.isUpgradedToOperations;
 });
 const isCertificationMenuVisible = Vue.computed(() => {
-  return !controller.isOperationalRewardsFlowActive;
+  return controller.hasLoadedInitialOperationalProgress && !controller.isOperationalRewardsFlowActive;
 });
 const hasRequestedOperationsUpgrade = Vue.computed(() => {
   return hasOperationsUpgradeRequest({

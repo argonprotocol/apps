@@ -13,8 +13,13 @@ import { getBitcoinAlertNotices } from '../lib/Alerts.ts';
 import { BitcoinFinancials } from '../lib/financials/BitcoinLocks.ts';
 import { createTestDb } from './helpers/db.ts';
 import { bitcoinRecoveryEventPolicies } from '../lib/recovery/BitcoinLocks.ts';
+import * as BitcoinLockHistory from '../lib/recovery/BitcoinLockHistory.ts';
 import { createLock, createStore, createHistoricalLock, historyBlock, historyEvent } from './helpers/bitcoin.ts';
 import { nextTick, reactive, watchEffect } from 'vue';
+
+vi.mock('../lib/recovery/BitcoinLockHistory.ts', () => ({
+  getHistoricalBitcoinLock: vi.fn(),
+}));
 
 vi.mock('../stores/mainchain.ts', () => ({
   getMainchainClient: vi.fn(async () => ({})),
@@ -973,7 +978,7 @@ describe('BitcoinLocks history replay publication', () => {
       walletKeys: { defaultArgonAddress: accountId } as WalletKeys,
     });
     store.data.locksByUtxoId[7] = record;
-    vi.spyOn(BitcoinLock, 'get').mockResolvedValue(
+    vi.mocked(BitcoinLockHistory.getHistoricalBitcoinLock).mockResolvedValue(
       new BitcoinLock({ ...createHistoricalLock({ accountId, liquidityPromised: 1_000n }), isFlexible: true }),
     );
     const block = historyBlock(200);
@@ -1046,7 +1051,7 @@ describe('BitcoinLocks history replay publication', () => {
       walletKeys: { defaultArgonAddress: accountId } as WalletKeys,
     });
     store.data.locksByUtxoId[7] = record;
-    vi.spyOn(BitcoinLock, 'get').mockResolvedValue(
+    vi.mocked(BitcoinLockHistory.getHistoricalBitcoinLock).mockResolvedValue(
       new BitcoinLock({ ...createHistoricalLock({ accountId, liquidityPromised: 1_000n }), isFlexible: true }),
     );
 
@@ -1092,7 +1097,7 @@ describe('BitcoinLocks history replay publication', () => {
       walletKeys: { defaultArgonAddress: accountId } as WalletKeys,
     });
     store.data.locksByUtxoId[7] = record;
-    vi.spyOn(BitcoinLock, 'get').mockResolvedValue(
+    vi.mocked(BitcoinLockHistory.getHistoricalBitcoinLock).mockResolvedValue(
       new BitcoinLock({ ...createHistoricalLock({ accountId, liquidityPromised: 1_200n }), isFlexible: true }),
     );
     const liveRatchetStarted = createDeferred<void>();
@@ -1159,7 +1164,7 @@ describe('BitcoinLocks history replay publication', () => {
       walletKeys: { defaultArgonAddress: accountId } as WalletKeys,
     });
     store.data.locksByUtxoId[7] = record;
-    vi.spyOn(BitcoinLock, 'get').mockResolvedValue(
+    vi.mocked(BitcoinLockHistory.getHistoricalBitcoinLock).mockResolvedValue(
       new BitcoinLock({ ...createHistoricalLock({ accountId, liquidityPromised: 1_000n }), isFlexible: true }),
     );
 

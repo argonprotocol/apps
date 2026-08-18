@@ -1,6 +1,27 @@
 <!-- prettier-ignore -->
 <template>
-  <div class="flex h-full grow flex-col">
+  <ServerConnectionStatus
+    v-if="controller.operationalInviteLoadError && !controller.operationalInvites.length"
+    featureName="Member onboarding"
+    isBlocking
+    isUnavailable
+  >
+    <template #icon><OnboardingIcon class="h-full w-full" /></template>
+  </ServerConnectionStatus>
+
+  <div v-else-if="!controller.hasLoadedOperationalInvites" class="flex h-full items-center justify-center">
+    <div class="text-2xl font-bold text-slate-600/40 uppercase">Loading...</div>
+  </div>
+
+  <div v-else class="flex h-full grow flex-col">
+    <ServerConnectionStatus
+      v-if="config.isServerInstalling || controller.operationalInviteLoadError"
+      featureName="Member onboarding"
+      :isUnavailable="!!controller.operationalInviteLoadError"
+    >
+      <template #icon><OnboardingIcon class="h-full w-full" /></template>
+    </ServerConnectionStatus>
+
     <TooltipProvider :disableHoverableContent="true">
       <section class="flex h-[14%] flex-row gap-x-2">
         <TooltipRoot>
@@ -187,6 +208,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
+import { NetworkConfig } from '@argonprotocol/apps-core';
 import { TooltipArrow, TooltipContent, TooltipProvider, TooltipRoot, TooltipTrigger } from 'reka-ui';
 import OnboardingIcon from '../../assets/onboarding.svg?component';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
@@ -197,6 +219,7 @@ import { getConfig } from '../../stores/config.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getMyVault } from '../../stores/vaults.ts';
 import MemberInvites from './components/MemberInvites.vue';
+import ServerConnectionStatus from '../../components/ServerConnectionStatus.vue';
 
 const config = getConfig();
 const controller = useCertificationController();
@@ -205,6 +228,7 @@ const myVault = getMyVault();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const showCreateInviteGuidance = Vue.ref(false);
+let loadInvitesPromise: Promise<unknown> | undefined;
 
 const canViewRewards = Vue.computed(() => {
   return (
@@ -213,7 +237,12 @@ const canViewRewards = Vue.computed(() => {
 });
 
 const canSendInvite = Vue.computed(() => {
-  return config.isServerInstalled && controller.hasLoadedOperationalInvites && !!myVault.createdVault;
+  return (
+    config.isServerInstalled &&
+    controller.hasLoadedOperationalInvites &&
+    !controller.operationalInviteLoadError &&
+    !!myVault.createdVault
+  );
 });
 
 const showInviteBlankSlate = Vue.computed(() => {
@@ -230,6 +259,39 @@ function openRewards() {
     basicEmitter.emit('openOperationalRewardsOverlay', { screen: 'claim' });
   }
 }
+
+function loadInvites(): Promise<unknown> {
+  if (loadInvitesPromise) return loadInvitesPromise;
+
+  const promise = controller
+    .loadOperationalInvites()
+    .catch(() => undefined)
+    .finally(() => {
+      loadInvitesPromise = undefined;
+    });
+  loadInvitesPromise = promise;
+
+  return promise;
+}
+
+Vue.watch(
+  [() => config.isLoaded, () => config.isServerInstalled, () => config.serverDetails.ipAddress],
+  ([isConfigLoaded, isServerInstalled, ipAddress], _previous, onCleanup) => {
+    if (!isConfigLoaded || !isServerInstalled || !ipAddress) return;
+
+    void loadInvites();
+    const interval = setInterval(
+      () => {
+        if (document.visibilityState !== 'visible') return;
+        void loadInvites();
+      },
+      Math.max(NetworkConfig.tickMillis, 5_000),
+    );
+
+    onCleanup(() => clearInterval(interval));
+  },
+  { immediate: true },
+);
 </script>
 
 <style scoped>
