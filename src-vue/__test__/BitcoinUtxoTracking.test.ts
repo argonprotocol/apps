@@ -293,7 +293,7 @@ describe('BitcoinUtxoTracking', () => {
     expect(candidates[0].status).toBe(BitcoinUtxoStatus.SeenOnMempool);
     expect(candidates[0].mempoolObservation?.isConfirmed).toBe(true);
     expect(warning).toHaveBeenCalledWith(
-      '[BitcoinUtxoTracking] Failed to refresh Argon funding candidates',
+      '[BitcoinUtxoTracking] Failed to refresh Argon funding candidates for lock lock-1 (utxoId 1)',
       expect.objectContaining({ message: 'rpc timeout' }),
     );
     warning.mockRestore();
@@ -340,7 +340,7 @@ describe('BitcoinUtxoTracking', () => {
       expect.objectContaining({ txid: chainTxid, status: BitcoinUtxoStatus.FundingCandidate }),
     ]);
     expect(warning).toHaveBeenCalledWith(
-      '[BitcoinUtxoTracking] Failed to observe mempool funding',
+      '[BitcoinUtxoTracking] Failed to observe mempool funding for lock lock-1 (utxoId 1)',
       expect.objectContaining({ message: 'esplora unavailable' }),
     );
     warning.mockRestore();
