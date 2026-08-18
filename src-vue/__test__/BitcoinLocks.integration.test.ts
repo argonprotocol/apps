@@ -265,8 +265,8 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           );
 
           const expirationConfig = await BitcoinLock.getConfig(await clients.get(false));
-          const expirationBitcoinHeight =
-            observed.lock.lockDetails.createdAtHeight + expirationConfig.pendingConfirmationExpirationBlocks;
+          const orphaningBitcoinHeight =
+            observed.lock.lockDetails.createdAtHeight + expirationConfig.pendingConfirmationExpirationBlocks + 1;
 
           const preExpiryClient = await clients.get(false);
           const preExpiryBitcoinHeight = await BitcoinLock.getBitcoinConfirmedBlockHeight(preExpiryClient);
@@ -281,7 +281,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
             );
           });
 
-          expect(preExpiryBitcoinHeight).toBeLessThan(expirationBitcoinHeight);
+          expect(preExpiryBitcoinHeight).toBeLessThan(orphaningBitcoinHeight);
           expect(preExpiryChainLock).toBeTruthy();
           expect(candidateWasRecordedBeforeExpiry).toBe(true);
 
@@ -291,8 +291,8 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
             async () => {
               const chainClient = await clients.get(false);
               const currentBitcoinHeight = await BitcoinLock.getBitcoinConfirmedBlockHeight(chainClient);
-              if (currentBitcoinHeight >= expirationBitcoinHeight) return true;
-              mineBitcoinBlocks(expirationBitcoinHeight - currentBitcoinHeight, minerAddress);
+              if (currentBitcoinHeight >= orphaningBitcoinHeight) return true;
+              mineBitcoinBlocks(orphaningBitcoinHeight - currentBitcoinHeight, minerAddress);
               return;
             },
             { pollMs: 1e3 },
@@ -930,16 +930,16 @@ async function returnExpiredMismatchAndWaitForChainRestore(
 }> {
   const observed = await observeMismatchCandidate(harness, lock, getMismatchFundingSatoshis(lock.satoshis), progress);
   const expirationConfig = await BitcoinLock.getConfig(await clients.get(false));
-  const expirationBitcoinHeight =
-    observed.lock.lockDetails.createdAtHeight + expirationConfig.pendingConfirmationExpirationBlocks;
+  const orphaningBitcoinHeight =
+    observed.lock.lockDetails.createdAtHeight + expirationConfig.pendingConfirmationExpirationBlocks + 1;
   await waitFor(
     60e3,
     'bitcoin lock expiration height',
     async () => {
       const chainClient = await clients.get(false);
       const currentBitcoinHeight = await BitcoinLock.getBitcoinConfirmedBlockHeight(chainClient);
-      if (currentBitcoinHeight >= expirationBitcoinHeight) return true;
-      mineBitcoinBlocks(expirationBitcoinHeight - currentBitcoinHeight, minerAddress);
+      if (currentBitcoinHeight >= orphaningBitcoinHeight) return true;
+      mineBitcoinBlocks(orphaningBitcoinHeight - currentBitcoinHeight, minerAddress);
       return;
     },
     { pollMs: 1e3 },

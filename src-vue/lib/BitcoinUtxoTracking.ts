@@ -297,8 +297,19 @@ export default class BitcoinUtxoTracking {
       this.observeMempoolFunding(lock),
     ]);
 
+    if (argonCandidatesResult.status === 'rejected') {
+      console.warn(
+        `[BitcoinUtxoTracking] Failed to refresh Argon funding candidates for lock ${lock.uuid} (utxoId ${lock.utxoId})`,
+        argonCandidatesResult.reason,
+      );
+    }
     if (mempoolObservationResult.status === 'fulfilled') {
       mempoolObservation = mempoolObservationResult.value;
+    } else {
+      console.warn(
+        `[BitcoinUtxoTracking] Failed to observe mempool funding for lock ${lock.uuid} (utxoId ${lock.utxoId})`,
+        mempoolObservationResult.reason,
+      );
     }
 
     const hasFundingRecord = !!this.getAcceptedFundingRecordForLock(lock);
