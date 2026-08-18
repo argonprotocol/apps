@@ -5,7 +5,11 @@
       <MiningIcon :class="errorMessage ? '' : 'pulse-animation'" class="mx-auto mb-3 block h-28 text-argon-800/80" />
       <h1 class="mt-5 text-5xl font-bold text-center text-argon-600">Initializing Your Miner</h1>
 
-      <p v-if="errorMessage != ''" class="mx-auto w-140 pt-3 text-center font-light">
+      <p
+        v-if="errorMessage != ''"
+        data-testid="MiningIsInstalling.errorMessage"
+        class="mx-auto w-140 pt-3 text-center font-light"
+      >
         There was an error setting up your miner: <span class="text-red-700">{{ errorMessage }}</span>
       </p>
 

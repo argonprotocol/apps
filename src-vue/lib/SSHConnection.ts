@@ -112,11 +112,14 @@ export class SSHConnection {
     remotePath: string,
     progressCallback: (progress: number) => void,
     timeout: number,
+    retries = 1,
   ): Promise<void> {
     const eventProgressKey = localRelativePath.replace(/[^a-zA-Z0-9]/g, '_') + '_up_progress';
+    let lastProgress = 0;
     const unsub = await listen(eventProgressKey, event => {
-      progressCallback(event.payload as number);
-      if (event.payload === 100) {
+      lastProgress = event.payload as number;
+      progressCallback(lastProgress);
+      if (lastProgress === 100) {
         unsub(); // Unsubscribe when upload is complete
       }
     });
@@ -129,9 +132,28 @@ export class SSHConnection {
         timeoutMs: timeout,
       };
       await invokeWithTimeout('ssh_upload_embedded_file', payload, timeout + 5_000);
-    } catch (e) {
+    } catch (error) {
       unsub();
-      throw e;
+      const errorMessage = String(error).toLowerCase();
+      const transferTimedOut = error instanceof InvokeTimeout || errorMessage.includes('ssh upload timed out');
+      if (retries > 0 && !this.isDestroyed && transferTimedOut) {
+        console.warn(
+          `[SSHConnection] Embedded upload to ${remotePath} timed out at ${lastProgress}%; ` +
+            'retrying with a fresh transfer connection',
+        );
+        return await this.uploadEmbeddedFileWithTimeout(
+          localRelativePath,
+          remotePath,
+          progressCallback,
+          timeout,
+          retries - 1,
+        );
+      }
+      if (transferTimedOut) {
+        const phase = lastProgress >= 100 ? 'awaiting remote completion' : 'streaming';
+        throw new Error(`${String(error)} (${phase}, last progress ${lastProgress}%)`);
+      }
+      throw error;
     }
   }
 
