@@ -526,6 +526,7 @@ function createScenarioTransactionInfo<Metadata>(options: {
   metadata: Metadata;
   status?: TransactionStatus;
   error?: Error;
+  progress?: { progressPct: number; confirmations: number; expectedConfirmations: number };
   onCleanup?: (cleanup: VoidFunction) => void;
 }): TransactionInfo<Metadata> {
   const status = options.status ?? (options.error ? TransactionStatus.Error : TransactionStatus.InBlock);
@@ -568,6 +569,13 @@ function createScenarioTransactionInfo<Metadata>(options: {
   if (options.error) txResult.submissionError = options.error;
 
   const info = new TransactionInfo<Metadata>({ tx, txResult });
+  const progress = options.progress;
+  if (progress) {
+    spyOn(info, 'subscribeToProgress').mockImplementation(callback => {
+      void callback({ ...progress, progressMessage: '', isMaxed: false });
+      return () => undefined;
+    });
+  }
   const finalize = () => {
     txResult.blockHash ??= new Uint8Array([1, 2, 3, 4]);
     txResult.blockNumber ??= 18_511;

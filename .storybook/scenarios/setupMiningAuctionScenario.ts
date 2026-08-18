@@ -1,6 +1,8 @@
 import * as Vue from 'vue';
 import { type IWinningBid, NetworkConfig } from '@argonprotocol/apps-core';
-import { fn, mocked } from 'storybook/test';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import { fn, mocked, spyOn } from 'storybook/test';
 import { MiningSetupStatus, TopTab } from '../../src-vue/interfaces/IConfig.ts';
 import { getBot } from '../../src-vue/stores/bot.ts';
 import { getConfig } from '../../src-vue/stores/config.ts';
@@ -8,6 +10,8 @@ import { getInstaller } from '../../src-vue/stores/installer.ts';
 import { getBiddingCalculator, getMining } from '../../src-vue/stores/mainchain.ts';
 import { getMyMiningSeats } from '../../src-vue/stores/myMiningSeats.ts';
 import { setupAppScenario } from './setupAppScenario.ts';
+
+dayjs.extend(utc);
 
 export type MiningAuctionScenario =
   | 'connecting'
@@ -22,6 +26,7 @@ export type MiningAuctionScenario =
 
 const tickAtStartOfNextCohort = Date.UTC(2030, 0, 1) / NetworkConfig.tickMillis;
 const tickAtStartOfAuctionClosing = Date.UTC(2030, 0, 2) / NetworkConfig.tickMillis;
+const auctionScenarioNow = dayjs.utc('2029-12-31T14:36:36.000Z');
 const microgonRequirement = 500_000_000n;
 const micronotRequirement = 250_000_000n;
 const zeroSeatScenarios = new Set<MiningAuctionScenario>([
@@ -31,7 +36,10 @@ const zeroSeatScenarios = new Set<MiningAuctionScenario>([
   'bidLimitExceeded',
 ]);
 
-export function setupMiningAuctionScenario(state: MiningAuctionScenario): void {
+export function setupMiningAuctionScenario(state: MiningAuctionScenario): VoidFunction {
+  mocked(dayjs.utc).mockRestore?.();
+  const utcNow = dayjs.utc;
+  const clock = spyOn(dayjs, 'utc').mockImplementation((...args) => (args.length ? utcNow(...args) : auctionScenarioNow));
   const { config, wallets } = setupAppScenario({
     selectedTab: TopTab.Mining,
     config: {
@@ -102,7 +110,7 @@ export function setupMiningAuctionScenario(state: MiningAuctionScenario): void {
 
   if (state === 'winningOne' || state === 'winningMany') {
     config.hasMiningBids = true;
-    return;
+    return () => clock.mockRestore();
   }
 
   if (state === 'argonShortage' || state === 'bothShortage') {
@@ -111,6 +119,8 @@ export function setupMiningAuctionScenario(state: MiningAuctionScenario): void {
   if (state === 'argonotShortage' || state === 'bothShortage') {
     Object.assign(wallets, { totalMiningMicronots: 0n });
   }
+
+  return () => clock.mockRestore();
 }
 
 function createWinningBids(count: number): IWinningBid[] {

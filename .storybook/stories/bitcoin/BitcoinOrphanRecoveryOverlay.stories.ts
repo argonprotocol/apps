@@ -184,6 +184,7 @@ export const ArgonRequest: Story = {
       scenario.createTransactionInfo({
         status: TransactionStatus.Submitted,
         extrinsicType: ExtrinsicType.BitcoinOrphanedUtxoRelease,
+        progress: { progressPct: 38, confirmations: 1, expectedConfirmations: 4 },
         metadata: {
           releaseKind: 'Orphan',
           utxoId: scenario.lock.utxoId!,
@@ -195,7 +196,9 @@ export const ArgonRequest: Story = {
     return () => scenario.cleanup();
   },
   play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText(/Argon Block/));
+    const body = within(document.body);
+    await expectEventuallyVisible(body.findByText(/Argon Block/));
+    await expectEventuallyVisible(body.findByText('38.00%'));
   },
 };
 

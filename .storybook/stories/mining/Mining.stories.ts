@@ -269,6 +269,7 @@ export const FirstAuctionSubmitting: Story = {
           element?.tagName === 'P' && /The current auction will begin closing in/.test(element.textContent ?? ''),
       ),
     ).toBeVisible();
+    await expect(canvas.getByText('9 hours, 23 minutes and 24 seconds')).toBeVisible();
   },
 };
 
@@ -279,6 +280,7 @@ export const FirstAuctionWinningOne: Story = {
 
     await expect(canvas.getByText('Your First Auction Is Live!')).toBeVisible();
     await expect(canvas.getByText('YOU ARE IN BID POSITION')).toBeVisible();
+    await expect(canvas.getByText(/9 hours, 23 minutes and 24 seconds\./)).toBeVisible();
   },
 };
 
@@ -289,6 +291,7 @@ export const FirstAuctionWinningMany: Story = {
 
     await expect(canvas.getByText('Your First Auction Is Live!')).toBeVisible();
     await expect(canvas.getByText('YOU ARE IN BID POSITIONS')).toBeVisible();
+    await expect(canvas.getByText(/9 hours, 23 minutes and 24 seconds\./)).toBeVisible();
   },
 };
 
