@@ -193,6 +193,47 @@ describe('CrosschainHistory', () => {
     expect(history.getSponsoredTransferValue(4_000_000n)).toBe(13_000_000n);
   });
 
+  it('totals transfer tips without including minting-authority relay activity', () => {
+    const firstAuthorization = transferAuthorizationRecord();
+    const firstAuthorizationDetails = firstAuthorization.details as Extract<
+      ICrosschainHistoryRecord['details'],
+      { kind: 'transferAuthorization' }
+    >;
+    const secondAuthorization: ICrosschainHistoryRecord = {
+      ...firstAuthorization,
+      id: '0xblock:3',
+      details: {
+        ...firstAuthorizationDetails,
+        transferId: '0xsecond-transfer',
+        tip: 75_000n,
+      },
+    };
+    const authorityRelay: ICrosschainHistoryRecord = {
+      ...firstAuthorization,
+      id: '0xblock:4',
+      details: {
+        kind: 'authorityLifecycle',
+        action: 'registered',
+        authoritySigningKey: '0xrelayed-authority',
+        queueNonce: 4n,
+      },
+    };
+    const legacyAuthorization: ICrosschainHistoryRecord = {
+      ...firstAuthorization,
+      id: '0xblock:5',
+      details: {
+        ...firstAuthorizationDetails,
+        tip: undefined,
+        reward: 25_000n,
+        transferId: '0xlegacy-transfer',
+      },
+    };
+    const history = new CrosschainHistory({ vaultingAddress: firstAuthorization.accountId }, {} as any);
+    history.data.records = [firstAuthorization, secondAuthorization, authorityRelay, legacyAuthorization];
+
+    expect(history.getTransferTips()).toBe(150_000n);
+  });
+
   it('keeps this wallet council signatures in its crosschain history', async () => {
     const block = {
       blockNumber: 10,
@@ -318,7 +359,7 @@ function transferAuthorizationRecord(): ICrosschainHistoryRecord {
       destinationAccount: '0xrecipient',
       moveToken: MoveToken.ARGN,
       amount: 5_000_000n,
-      reward: 50_000n,
+      tip: 50_000n,
       microgonCollateral: 10_000_000n,
       micronotCollateral: 1_000_000n,
     },

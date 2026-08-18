@@ -21,7 +21,9 @@ export type ICrosschainHistoryDetails =
       destinationAccount: string;
       moveToken: MoveToken.ARGN | MoveToken.ARGNOT;
       amount: bigint;
-      reward: bigint;
+      tip?: bigint;
+      /** Cached records from before the transfer-tip rename. */
+      reward?: bigint;
       microgonCollateral: bigint;
       micronotCollateral: bigint;
     }
@@ -128,6 +130,13 @@ export class CrosschainHistory {
 
       if (record.details.moveToken === MoveToken.ARGN) return total + record.details.amount;
       return total + (record.details.amount * microgonsPerArgonot) / BigInt(MICRONOTS_PER_ARGONOT);
+    }, 0n);
+  }
+
+  public getTransferTips(): bigint {
+    return this.data.records.reduce((total, record) => {
+      if (record.details.kind !== 'transferAuthorization') return total;
+      return total + (record.details.tip ?? record.details.reward ?? 0n);
     }, 0n);
   }
 
@@ -352,7 +361,7 @@ export class CrosschainHistory {
         destinationAccount: transfer.destinationAccount.toHex(),
         moveToken: transfer.asset.isArgon ? MoveToken.ARGN : MoveToken.ARGNOT,
         amount: transfer.amount.toBigInt(),
-        reward: transfer.mintingAuthorityTip.toBigInt(),
+        tip: transfer.mintingAuthorityTip.toBigInt(),
         microgonCollateral: event.data.microgonCollateral.toBigInt(),
         micronotCollateral: event.data.micronotCollateral.toBigInt(),
       };

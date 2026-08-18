@@ -347,7 +347,7 @@
                   </div>
                 </div>
                 <div v-if="currency.isLoaded" class="opacity-60">
-                  {{ currency.symbol }}{{ microgonToMoneyNm(crosschainNetEarnings).format('0,0.00') }}
+                  {{ currency.symbol }}{{ microgonToMoneyNm(crosschainTransferTips).format('0,0.00') }}
                 </div>
               </div>
             </article>
@@ -553,7 +553,7 @@ import WalletSelector from '../wallets/components/WalletSelector.vue';
 import WalletActions from '../wallets/components/WalletActions.vue';
 import CertificationIcon from '../assets/certification.svg';
 import { ArrowsRightLeftIcon } from '@heroicons/vue/24/outline';
-import { getMyVault } from '../stores/vaults.ts';
+import { getCrosschainHistory, getMyVault } from '../stores/vaults.ts';
 import { getCrosschainAccessState } from '../lib/CrosschainTransferView.ts';
 
 const controller = useCertificationController();
@@ -566,6 +566,7 @@ const financials = useFinancials();
 const miningAssets = useMiningAssetBreakdown();
 const vaultingAssets = useVaultingAssetBreakdown();
 const myVault = getMyVault();
+const crosschainHistory = getCrosschainHistory();
 const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm, micronotToMoneyNm, satToMoneyNm } =
   createNumeralHelpers(currency);
 
@@ -580,6 +581,8 @@ const hasActiveCoupon = Vue.computed(() => {
   const expiresAt = bitcoinLockCoupons.currentCoupon?.expiresAt;
   return expiresAt != null && new Date(expiresAt).getTime() > now.value;
 });
+
+const crosschainTransferTips = Vue.computed(() => crosschainHistory.getTransferTips());
 
 const walletSelections = Vue.computed(() => {
   return getAvailableWalletSelections(wallets.walletRecords, [], config.hasExtensionOperations);
@@ -629,8 +632,6 @@ const hasCrosschainAction = Vue.computed(() => {
     myVault.globalCouncil.data.pendingApprovals.length > 0
   );
 });
-
-const crosschainNetEarnings = Vue.computed(() => myVault.getCrosschainQueueNetEarnings());
 
 const showCrosschainNavigation = Vue.computed(() => {
   return getCrosschainAccessState({

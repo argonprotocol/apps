@@ -79,48 +79,6 @@ describe('MyVault crosschain queue history', () => {
 
     expect(myVault.getCrosschainQueueTxInfos()).toEqual([authorize, councilApproval, collectedCouncilApproval]);
   });
-
-  it('calculates finalized minting-authorization rewards net of their transaction fees', () => {
-    const finalizedAuthorization = createTxInfo({
-      id: 1,
-      extrinsicType: ExtrinsicType.CrosschainTransferAuthorize,
-      status: TransactionStatus.Finalized,
-      txFeePlusTip: 1_000_000n,
-      metadataJson: {
-        actionType: 'authorizeTransfer',
-        authorizations: [{ mintingAuthorityTip: 5_000_000n }, { mintingAuthorityTip: 3_000_000n }],
-      },
-    });
-    const partiallyCompletedAuthorization = createTxInfo({
-      id: 2,
-      extrinsicType: ExtrinsicType.CrosschainTransferAuthorize,
-      status: TransactionStatus.Finalized,
-      txFeePlusTip: 500_000n,
-      blockExtrinsicErrorJson: { message: 'Batch interrupted', batchInterruptedIndex: 2 },
-      metadataJson: {
-        actionType: 'authorizeTransfer',
-        authorizations: [
-          { mintingAuthorityTip: 3_000_000n },
-          { mintingAuthorityTip: 4_000_000n },
-          { mintingAuthorityTip: 5_000_000n },
-        ],
-      },
-    });
-    const pendingAuthorization = createTxInfo({
-      id: 3,
-      extrinsicType: ExtrinsicType.CrosschainTransferAuthorize,
-      txFeePlusTip: 250_000n,
-      metadataJson: {
-        actionType: 'authorizeTransfer',
-        authorizations: [{ mintingAuthorityTip: 10_000_000n }],
-      },
-    });
-    const { myVault } = createVault({
-      txInfos: [finalizedAuthorization, partiallyCompletedAuthorization, pendingAuthorization],
-    });
-
-    expect(myVault.getCrosschainQueueNetEarnings()).toBe(13_500_000n);
-  });
 });
 
 describe('MyVault cosign recovery', () => {

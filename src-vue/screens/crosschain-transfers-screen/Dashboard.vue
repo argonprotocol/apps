@@ -32,16 +32,16 @@
           <label>Total Signed</label>
         </div>
       </Tooltip>
-      <Tooltip :asChild="true" content="Transfer-authorization rewards recovered from your signing history, before fees.">
+      <Tooltip :asChild="true" content="Transfer tips recovered from your signing history, before fees.">
         <div box stat-box class="flex w-1/5 cursor-help flex-col">
-          <span>₳{{ formatArgon(historicalRewardsEarned) }}</span>
-          <label>Rewards Earned</label>
+          <span>₳{{ formatArgon(crosschainHistory.getTransferTips()) }}</span>
+          <label>Transfer Tips</label>
         </div>
       </Tooltip>
-      <Tooltip :asChild="true" content="Rewards offered by transfer requests currently available to your minting authorities.">
+      <Tooltip :asChild="true" content="Tips offered by transfer requests currently available to your minting authorities.">
         <div box stat-box class="flex w-1/5 cursor-help flex-col">
-          <span>₳{{ formatArgon(availableRewards) }}</span>
-          <label>Rewards Available</label>
+          <span>₳{{ formatArgon(availableTips) }}</span>
+          <label>Tips Available</label>
         </div>
       </Tooltip>
     </section>
@@ -135,7 +135,7 @@
               </div>
               <div v-if="row.amount !== undefined" class="shrink-0 text-right">
                 <div class="font-mono font-semibold text-slate-700">{{ formatTokenAmount(row.amount, row.moveToken) }}</div>
-                <div class="mt-0.5 text-xs text-slate-500">{{ formatArgon(row.reward ?? 0n) }} ARGN reward</div>
+                <div class="mt-0.5 text-xs text-slate-500">{{ formatArgon(row.tip ?? 0n) }} ARGN tip</div>
               </div>
               <div class="text-slate-400 transition-transform group-open:rotate-90">›</div>
             </summary>
@@ -176,7 +176,7 @@
                 <template v-if="selectedAuthorizations.length">
                   {{ formatArgon(selectedMicrogonCollateral) }} ARGN +
                   {{ formatArgonot(selectedMicronotCollateral) }} ARGNOT collateral for
-                  {{ formatArgon(selectedRewardMicrogons) }} ARGN reward
+                  {{ formatArgon(selectedTipMicrogons) }} ARGN tip
                 </template>
                 <template v-else>Select one or more transfer requests to fund.</template>
               </div>
@@ -198,7 +198,7 @@
         class="flex min-h-32 flex-col items-center justify-center px-8 text-center text-slate-500">
         <div class="text-lg font-semibold text-slate-600">No minting authority is registered</div>
         <p class="mt-1 max-w-2xl text-sm">
-          A minting authority is required to fund transfer requests and earn authorization rewards. Use Add Authority
+          A minting authority is required to fund transfer requests and earn authorization tips. Use Add Authority
           above to register one.
         </p>
       </div>
@@ -415,7 +415,7 @@ type ITransferQueueRow = {
   transferId: string;
   moveToken?: MoveToken.ARGN | MoveToken.ARGNOT;
   amount?: bigint;
-  reward?: bigint;
+  tip?: bigint;
   sourceAccount?: string;
   sourceIdentity?: ICrosschainSourceIdentity;
   destinationAccount?: string;
@@ -636,7 +636,7 @@ const selectedMicrogonCollateral = Vue.computed(() => {
 const selectedMicronotCollateral = Vue.computed(() => {
   return selectedAuthorizations.value.reduce((total, authorization) => total + authorization.micronotCollateral, 0n);
 });
-const selectedRewardMicrogons = Vue.computed(() => {
+const selectedTipMicrogons = Vue.computed(() => {
   return selectedAuthorizations.value.reduce((total, authorization) => total + authorization.mintingAuthorityTip, 0n);
 });
 const fundingTransferCount = Vue.computed(() => {
@@ -646,12 +646,7 @@ const fundingTransferCount = Vue.computed(() => {
     activeFundingTxInfos.value.flatMap(({ tx }) => tx.metadataJson.authorizations.map(({ transferId }) => transferId)),
   ).size;
 });
-const historicalRewardsEarned = Vue.computed(() => {
-  return crosschainHistory.data.records.reduce((total, record) => {
-    return record.details.kind === 'transferAuthorization' ? total + record.details.reward : total;
-  }, 0n);
-});
-const availableRewards = Vue.computed(() => {
+const availableTips = Vue.computed(() => {
   return myVault.mintingAuthorities.data.pendingMintingAuthorizations.reduce(
     (total, authorization) => total + authorization.mintingAuthorityTip,
     0n,
@@ -765,7 +760,7 @@ function toPendingAuthorizationRow(authorization: IMintingAuthorityAuthorization
     needsAction: true,
     moveToken: authorization.moveToken,
     amount: authorization.finalizeRequest.amount,
-    reward: authorization.mintingAuthorityTip,
+    tip: authorization.mintingAuthorityTip,
     transferId: authorization.transferId,
     sourceAccount: authorization.sourceAccount,
     sourceIdentity: knownSourceIdentities.value.get(authorization.sourceAccount),
@@ -793,7 +788,7 @@ function toBackedTransferRow(transfer: IMintingAuthorityBackedTransfer): ITransf
     needsAction: false,
     moveToken: transfer.moveToken,
     amount: transfer.amount,
-    reward: transfer.mintingAuthorityTip,
+    tip: transfer.mintingAuthorityTip,
     transferId: transfer.transferId,
     sourceAccount: transfer.sourceAccount,
     sourceIdentity: knownSourceIdentities.value.get(transfer.sourceAccount),
@@ -824,7 +819,7 @@ function toPendingSubmissionRow(
     waitingFor: 'Argon finalization',
     needsAction: false,
     transferId,
-    reward: authorization?.mintingAuthorityTip,
+    tip: authorization?.mintingAuthorityTip,
     microgonCollateral: authorization?.microgonCollateral,
     micronotCollateral: authorization?.micronotCollateral,
     argonBlockHeight: txInfo.tx.blockHeight,

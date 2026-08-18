@@ -20,7 +20,9 @@
           <div class="font-mono font-semibold text-slate-700">
             {{ formatTokenAmount(record.details.amount, record.details.moveToken) }}
           </div>
-          <div class="mt-0.5 text-xs text-slate-500">{{ formatArgon(record.details.reward) }} ARGN earned</div>
+          <div class="mt-0.5 text-xs text-slate-500">
+            {{ formatArgon(record.details.tip ?? record.details.reward ?? 0n) }} ARGN tip
+          </div>
         </div>
         <div class="text-slate-400 transition-transform group-open:rotate-90">›</div>
       </summary>
