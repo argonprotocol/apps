@@ -74,6 +74,7 @@ export function setupBitcoinOverlayScenario() {
   const scenarioStartedAt = Date.now();
   const pendingResolvers = new Set<VoidFunction>();
   const cleanupTasks = new Set<VoidFunction>();
+  mocked(BitcoinLocks.getFeeRates).mockRestore?.();
   const getFeeRates = spyOn(BitcoinLocks, 'getFeeRates').mockResolvedValue({
     fast: { feeRate: 3n, estimatedMinutes: 10 },
     medium: { feeRate: 1n, estimatedMinutes: 30 },
