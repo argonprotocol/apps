@@ -41,7 +41,12 @@ import { useTour } from '../../src-vue/stores/tour.ts';
 import { getTransactionTracker } from '../../src-vue/stores/transactions.ts';
 import { useVaultingAssetBreakdown } from '../../src-vue/stores/vaultingAssetBreakdown.ts';
 import { useVaultingStats } from '../../src-vue/stores/vaultingStats.ts';
-import { getMyVault, getVaults } from '../../src-vue/stores/vaults.ts';
+import {
+  getCrosschainHistory,
+  getKnownCrosschainSourceIdentities,
+  getMyVault,
+  getVaults,
+} from '../../src-vue/stores/vaults.ts';
 import { getWalletKeys, useWallets } from '../../src-vue/stores/wallets.ts';
 
 type ScenarioOptions = {
@@ -303,9 +308,21 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {} }: 
     createdVault: null,
     mintingAuthorities,
     globalCouncil,
-    getCrosschainQueueNetEarnings: fn(() => 0n),
+    getCrosschainQueueTxInfos: fn(() => []),
     load: fn(async () => undefined),
   });
+  mocked(getCrosschainHistory, { partial: true }).mockReturnValue({
+    data: Vue.reactive({
+      records: [],
+      isSyncing: false,
+      coverageComplete: true,
+    }),
+    refresh: fn(async () => undefined),
+    hasSeenRecipient: fn(() => false),
+    getSponsoredTransferValue: fn(() => 0n),
+    getTransferTips: fn(() => 0n),
+  });
+  mocked(getKnownCrosschainSourceIdentities).mockReturnValue(new Map());
   mocked(useTour, { partial: true }).mockReturnValue({ registerPositionCheck: fn() });
 
   const controller = useCertificationController();

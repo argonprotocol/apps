@@ -65,7 +65,7 @@ describe('FinancialCacheTable', () => {
             destinationAccount: '0xrecipient',
             moveToken: MoveToken.ARGN,
             amount: 5_000_000n,
-            reward: 50_000n,
+            tip: 50_000n,
             microgonCollateral: 10_000_000n,
             micronotCollateral: 1_000_000n,
           },
