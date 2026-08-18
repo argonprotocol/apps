@@ -7,6 +7,7 @@ import { expect, fn, mocked, within } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import { createScenarioVault } from '../../scenarios/createScenarioVault.ts';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
+import { dateDaysAgo } from '../../support/storyDates.ts';
 import {
   type IConfig,
   InstallStepErrorType,
@@ -239,6 +240,9 @@ export const MemberStates: Story = {
     controller.setOperationalInvites(createMemberInvites());
     controller.hasLoadedOperationalInvites = true;
   },
+  play: async () => {
+    await expect(await within(document.body).findByText('Created 3 days ago')).toBeVisible();
+  },
 };
 
 function setupOnboardingScenario(
@@ -387,7 +391,7 @@ function createInvite(id: number, name: string, overrides: Partial<IMemberInvite
     name,
     fromName: 'Atlas Operator',
     inviteCode: `synthetic-invite-${id}`,
-    createdAt: new Date(Date.UTC(2026, 7, 15 - id, 15, 0, 0)),
+    createdAt: dateDaysAgo(id + 2),
     ...overrides,
   };
 }

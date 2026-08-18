@@ -12,6 +12,7 @@ import * as Vue from 'vue';
 import { expect, fn, mocked, userEvent, within } from 'storybook/test';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 import { expectEventuallyVisible } from '../../support/expectEventuallyVisible.ts';
+import { dateDaysAgo } from '../../support/storyDates.ts';
 import basicEmitter from '../../../src-vue/emitters/basicEmitter.ts';
 import { TopTab } from '../../../src-vue/interfaces/IConfig.ts';
 import MemberDetailsOverlay from '../../../src-vue/overlays/MemberDetailsOverlay.vue';
@@ -299,10 +300,6 @@ export const ExpirationUpdateFailed: Story = {
     await expectEventuallyVisible(canvas.findByText('Expiration update failed.'));
   },
 };
-
-function dateDaysAgo(daysAgo: number) {
-  return new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1_000);
-}
 
 function createInvite(id: number, overrides: Partial<IMemberInvite> = {}): IMemberInvite {
   return {
