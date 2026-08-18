@@ -257,6 +257,7 @@ describe('BitcoinUtxoTracking', () => {
   });
 
   it('still records mempool funding when Argon candidate refresh fails', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const db = await createTestDb();
     const tracking = createTracking(db, {
       mempool: {
@@ -291,6 +292,58 @@ describe('BitcoinUtxoTracking', () => {
     expect(candidates[0].txid).toBe('d'.repeat(64));
     expect(candidates[0].status).toBe(BitcoinUtxoStatus.SeenOnMempool);
     expect(candidates[0].mempoolObservation?.isConfirmed).toBe(true);
+    expect(warning).toHaveBeenCalledWith(
+      '[BitcoinUtxoTracking] Failed to refresh Argon funding candidates',
+      expect.objectContaining({ message: 'rpc timeout' }),
+    );
+    warning.mockRestore();
+  });
+
+  it('still records Argon funding when mempool observation fails', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const db = await createTestDb();
+    const tracking = createTracking(db, {
+      mempool: {
+        getAddressUtxos: vi.fn().mockRejectedValue(new Error('esplora unavailable')),
+      },
+    });
+    const lock = createLock({ status: BitcoinLockStatus.LockPendingFunding, satoshis: 10_000n });
+    const chainTxid = 'e'.repeat(64);
+    const preferredClient = Object.assign(Object.create(null), {
+      query: Object.assign(Object.create(null), {
+        bitcoinUtxos: Object.assign(Object.create(null), {
+          candidateUtxoRefsByUtxoId: vi.fn().mockResolvedValue({
+            entries: () =>
+              [
+                [
+                  {
+                    txid: { toHex: () => chainTxid },
+                    outputIndex: { toNumber: () => 1 },
+                  },
+                  { toBigInt: () => 10_100n },
+                ],
+              ][Symbol.iterator](),
+          }),
+        }),
+        bitcoinLocks: Object.assign(Object.create(null), {
+          orphanedUtxosByAccount: Object.assign(Object.create(null), {
+            entries: vi.fn().mockResolvedValue([]),
+          }),
+        }),
+      }),
+    }) as ArgonClient;
+
+    const hasSignals = await tracking.syncPendingFundingSignals(lock, preferredClient);
+
+    expect(hasSignals).toBe(true);
+    expect(tracking.getFundingCandidateRecords(lock)).toEqual([
+      expect.objectContaining({ txid: chainTxid, status: BitcoinUtxoStatus.FundingCandidate }),
+    ]);
+    expect(warning).toHaveBeenCalledWith(
+      '[BitcoinUtxoTracking] Failed to observe mempool funding',
+      expect.objectContaining({ message: 'esplora unavailable' }),
+    );
+    warning.mockRestore();
   });
 
   it('does not downgrade an Argon funding candidate when mempool observation arrives later', async () => {
