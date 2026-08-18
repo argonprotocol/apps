@@ -236,12 +236,15 @@ export class AppVaultOperator {
       this.config.vaultingRules.baseMicrogonCommitment +
       rewardConfig.treasuryMinimumBonds +
       20n * BigInt(MICROGONS_PER_ARGON);
+    const existingTreasuryMicronots = (
+      await client.query.ownership.account(this.walletKeys.treasuryAddress)
+    ).free.toBigInt();
 
     await sudoFundWallet({
       client,
       address: this.walletKeys.treasuryAddress,
       microgons: requiredVaultingBalance,
-      micronots: 0n,
+      micronots: existingTreasuryMicronots,
     });
 
     await this.ensureVaultReady();

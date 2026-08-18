@@ -4,10 +4,7 @@ import type {
   IBitcoinLockCouponUseRecord,
   ICertificationProgress,
 } from '@argonprotocol/apps-core';
-import type {
-  IBitcoinLockCouponStatus,
-  IMemberInvite,
-} from '@argonprotocol/apps-router';
+import type { IBitcoinLockCouponStatus, IMemberInvite } from '@argonprotocol/apps-router';
 import { MiningFrames, NetworkConfig } from '@argonprotocol/apps-core';
 import { Keyring } from '@polkadot/keyring';
 import { TypeRegistry } from '@polkadot/types';
@@ -188,14 +185,20 @@ export const BalancesUnavailable: Story = {
 export const PreviousRuntimeFeeWaiver: Story = {
   beforeEach: () => {
     const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
+    const currentTick = MiningFrames.calculateCurrentTickFromSystemTime();
     selectedInvite = createInvite(8, {
       lastClickedAt: new Date('2026-08-16T16:00:00.000Z'),
-      bitcoinLockCoupon: createFeeWaiver('previousRuntime'),
+      bitcoinLockCoupon: createFeeWaiver('previousRuntime', currentTick),
     });
     controller.setOperationalInvites([selectedInvite]);
   },
   play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText('This waiver covers one eligible Bitcoin lock.'));
+    const canvas = within(document.body);
+    const heading = await canvas.findByText('Bitcoin Fee Waiver');
+
+    await expect(heading.nextElementSibling).toHaveTextContent(/₳68\s*fee waiver\s*· Unused\s*· expired\s*now/);
+    await expect(heading.nextElementSibling).not.toHaveTextContent('$');
+    await expect(canvas.findByRole('button', { name: 'now' })).resolves.toBeEnabled();
   },
 };
 
@@ -210,7 +213,7 @@ export const FeeWaiverPending: Story = {
     controller.setOperationalInvites([selectedInvite]);
   },
   play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText(/₳20\.40 pending/));
+    await expectEventuallyVisible(within(document.body).findByText(/₳20 pending/));
   },
 };
 
@@ -225,8 +228,10 @@ export const FeeWaiverUsed: Story = {
     controller.setOperationalInvites([selectedInvite]);
   },
   play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText('Bitcoin Fee Waiver'));
-    await expect(within(document.body).findAllByText('₳68')).resolves.toHaveLength(2);
+    const canvas = within(document.body);
+    const heading = await canvas.findByText('Bitcoin Fee Waiver');
+
+    await expect(heading.nextElementSibling).toHaveTextContent(/₳68\s*fee waiver\s*· Used\s*.* ago/);
   },
 };
 
@@ -241,7 +246,11 @@ export const FeeWaiverExpired: Story = {
     controller.setOperationalInvites([selectedInvite]);
   },
   play: async () => {
-    await expectEventuallyVisible(within(document.body).findByRole('button', { name: '2 days ago' }));
+    const canvas = within(document.body);
+    const heading = await canvas.findByText('Bitcoin Fee Waiver');
+
+    await expect(heading.nextElementSibling).toHaveTextContent(/₳68\s*fee waiver\s*· Unused\s*· expired\s*2 days ago/);
+    await expectEventuallyVisible(canvas.findByRole('button', { name: '2 days ago' }));
   },
 };
 
@@ -306,14 +315,14 @@ function createFeeWaiver(
   state: 'available' | 'partiallyUsed' | 'previousRuntime' | 'pending' | 'used' | 'expired' = 'available',
   currentTick = MiningFrames.calculateCurrentTickFromSystemTime(),
 ): IBitcoinLockCouponStatus {
-  const originalFeeCreditMicrogons = 68_000_000n;
+  const originalFeeCreditMicrogons = 68_400_000n;
   let uses: IBitcoinLockCouponUseRecord[] = [];
   if (state === 'partiallyUsed') {
     uses = [createFeeWaiverUse(1, 'Finalized', 40_800_000n)];
   } else if (state === 'pending') {
     uses = [createFeeWaiverUse(1, 'Finalized', 20_400_000n), createFeeWaiverUse(2, 'InBlock', 20_400_000n)];
   } else if (state === 'used') {
-    uses = [createFeeWaiverUse(1, 'Finalized', 68_000_000n)];
+    uses = [createFeeWaiverUse(1, 'Finalized', originalFeeCreditMicrogons)];
   }
 
   let expirationTick: number | undefined;
@@ -336,12 +345,47 @@ function createFeeWaiver(
     expiresAfterTicks: 7 * NetworkConfig.rewardTicksPerFrame,
     createdAt: new Date('2026-08-14T16:00:00.000Z'),
     updatedAt: new Date('2026-08-16T16:00:00.000Z'),
-    ...(state === 'previousRuntime' ? {} : { feeCreditMicrogons: originalFeeCreditMicrogons }),
+    feeCreditMicrogons: originalFeeCreditMicrogons,
     ...(expirationTick == null ? {} : { expirationTick }),
     ...(uses.length ? { accountId: memberAccountId } : {}),
   };
 
-  if (state === 'previousRuntime') return { status: 'Open', coupon };
+  if (state === 'previousRuntime') {
+    return {
+      status: 'Expired',
+      coupon: { ...coupon, expirationTick: currentTick },
+      relay: {
+        id: 1,
+        requestId: 'legacy-relay-failed',
+        status: 'Failed',
+        requestedSatoshis: 25_000_000n,
+        securitizationUsedMicrogons: 20_400_000n,
+        ownerAccountId: memberAccountId,
+        ownerBitcoinPubkey: `02${'44'.repeat(32)}`,
+        microgonsAtTargetPerBtc: 6_800_000_000n,
+        error: 'The delegated initialization expired before it finalized.',
+        delegateAddress: scenarioKeyring.addFromUri('//StorybookDelegate').address,
+        extrinsicHash: `0x${'12'.repeat(32)}`,
+        extrinsicMethodJson: { section: 'bitcoinLocks', method: 'initializeFor' },
+        txNonce: 1,
+        txSubmittedAtBlockHeight: 100,
+        txSubmittedAtTime: new Date('2026-08-15T16:00:00.000Z'),
+        txExpiresAtBlockHeight: 164,
+        txInBlockHeight: null,
+        txInBlockHash: null,
+        txFinalizedHeight: null,
+        txFeePlusTip: null,
+        txTip: null,
+        utxoId: null,
+        createdAt: new Date('2026-08-15T16:00:00.000Z'),
+        updatedAt: new Date('2026-08-15T16:15:00.000Z'),
+      },
+      originalFeeCreditMicrogons,
+      usedFeeCreditMicrogons: 0n,
+      pendingFeeCreditMicrogons: 0n,
+      remainingFeeCreditMicrogons: originalFeeCreditMicrogons,
+    };
+  }
 
   // Derive the visible state from the durable use history consumed by BitcoinLockCouponService.getStatus.
   const usedFeeCreditMicrogons = uses
