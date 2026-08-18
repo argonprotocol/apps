@@ -8,7 +8,7 @@ import { MockProvider } from '@polkadot/rpc-provider/mock';
 import { TypeRegistry } from '@polkadot/types';
 import type { u128, u64, Vec } from '@polkadot/types-codec';
 import type { ITuple } from '@polkadot/types-codec/types';
-import { fn, mocked } from 'storybook/test';
+import { fn, mocked, spyOn } from 'storybook/test';
 import { createScenarioVault } from './createScenarioVault.ts';
 import { setupAppScenario } from './setupAppScenario.ts';
 import { TopTab } from '../../src-vue/interfaces/IConfig.ts';
@@ -74,6 +74,12 @@ export function setupBitcoinOverlayScenario() {
   const scenarioStartedAt = Date.now();
   const pendingResolvers = new Set<VoidFunction>();
   const cleanupTasks = new Set<VoidFunction>();
+  const getFeeRates = spyOn(BitcoinLocks, 'getFeeRates').mockResolvedValue({
+    fast: { feeRate: 3n, estimatedMinutes: 10 },
+    medium: { feeRate: 1n, estimatedMinutes: 30 },
+    slow: { feeRate: 1n, estimatedMinutes: 60 },
+  });
+  cleanupTasks.add(() => getFeeRates.mockRestore());
   const { config, wallets } = setupAppScenario({
     selectedTab: TopTab.BitcoinLocks,
     config: {
