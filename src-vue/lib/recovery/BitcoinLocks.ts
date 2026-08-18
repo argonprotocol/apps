@@ -35,6 +35,7 @@ import type { Db } from '../Db.ts';
 import type { IBitcoinRequestLockMetadata } from '../BitcoinLocks.ts';
 import { ExtrinsicType } from '../db/TransactionsTable.ts';
 import { readRequiredEventBigInt, readRequiredEventField } from './index.ts';
+import { getHistoricalBitcoinLock } from './BitcoinLockHistory.ts';
 
 type BitcoinRecoveryUtxoTracking = Pick<
   BitcoinUtxoTracking,
@@ -376,7 +377,7 @@ export class BitcoinLockRecovery {
       if (liveRecord) await this.prepareHistoryRecoveryLock(liveRecord, options.lockQueueOwnerUuid);
 
       if (event.method === 'BitcoinLockCreated') {
-        const chainLock = await BitcoinLock.get(api, utxoId);
+        const chainLock = await getHistoricalBitcoinLock(api, utxoId);
         if (!chainLock) throw new Error(`Bitcoin lock ${utxoId} is unavailable at its creation block`);
         chainLock.couponFeesPaid = bigIntMax(chainLock.couponFeesPaid, this.readUnchargedSecurityFee(event, block));
 
@@ -482,7 +483,7 @@ export class BitcoinLockRecovery {
         event.method === 'UtxoFundedFromCandidate' ||
         (isUnknownBitcoinLockEvent && record.status === BitcoinLockStatus.LockPendingFunding);
       if (restoresPreFundingState) {
-        const chainLock = await BitcoinLock.get(api, utxoId);
+        const chainLock = await getHistoricalBitcoinLock(api, utxoId);
         if (!chainLock) throw new Error(`Bitcoin lock ${utxoId} is unavailable after ${event.method}`);
 
         const recovered = this.createDetachedRecord(record);
@@ -515,7 +516,7 @@ export class BitcoinLockRecovery {
       } else if (isBitcoinUtxoUnwatched) {
         if (record.status !== BitcoinLockStatus.LockPendingFunding) continue;
 
-        const chainLock = await BitcoinLock.get(api, utxoId);
+        const chainLock = await getHistoricalBitcoinLock(api, utxoId);
         if (chainLock) continue;
 
         const recovered = this.createDetachedRecord(record);
@@ -523,7 +524,7 @@ export class BitcoinLockRecovery {
         else await table.setLockExpiredWaitingForFunding(recovered);
         this.applyRecoveredRecord(recovered);
       } else if (event.method === 'BitcoinLockBackfillChanged' || isUnknownBitcoinLockEvent) {
-        const chainLock = await BitcoinLock.get(api, utxoId);
+        const chainLock = await getHistoricalBitcoinLock(api, utxoId);
         if (!chainLock) {
           throw new Error(
             `bitcoinLocks.${event.method} requires an explicit recovery handler because it removed the lock`,

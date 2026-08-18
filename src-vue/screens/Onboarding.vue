@@ -11,13 +11,6 @@
         @activate="activateOnboarding"
       />
       <BlankSlate v-else-if="config.onboardingSetupStatus === OnboardingSetupStatus.None" />
-      <div v-else-if="inviteLoadError" class="flex h-full items-center justify-center text-red-600">
-        {{ inviteLoadError }}
-      </div>
-
-      <div v-else-if="!controller.hasLoadedOperationalInvites" class="flex h-full items-center justify-center">
-        <div class="text-2xl font-bold text-slate-600/40 uppercase">Loading...</div>
-      </div>
       <Dashboard v-else />
     </template>
 
@@ -40,7 +33,6 @@
 </template>
 
 <script setup lang="ts">
-import * as Vue from 'vue';
 import { NetworkConfig } from '@argonprotocol/apps-core';
 import LockedIcon from '../assets/locked.svg?component';
 import { OnboardingSetupStatus } from '../interfaces/IConfig.ts';
@@ -54,34 +46,11 @@ import SetupInstalling from './onboarding-screen/SetupInstalling.vue';
 const config = getConfig();
 const controller = useCertificationController();
 
-const inviteLoadError = Vue.ref('');
 function activateOnboarding(operatorName: string) {
   controller.onboardingOperatorNameDraft = operatorName;
   config.onboardingSetupStatus = OnboardingSetupStatus.Installing;
   void config.save();
 }
-
-Vue.watch(
-  [
-    () => config.hasExtensionOperations,
-    () => config.onboardingSetupStatus,
-    () => config.isServerInstalled,
-    () => config.serverDetails.ipAddress,
-  ],
-  async ([hasExtensionOperations, setupStatus, isServerInstalled, ipAddress]) => {
-    if (!hasExtensionOperations || setupStatus !== OnboardingSetupStatus.Finished || !isServerInstalled || !ipAddress) {
-      return;
-    }
-
-    inviteLoadError.value = '';
-    try {
-      await controller.loadOperationalInvites();
-    } catch {
-      inviteLoadError.value = 'Unable to load member invites right now.';
-    }
-  },
-  { immediate: true },
-);
 </script>
 
 <style scoped>

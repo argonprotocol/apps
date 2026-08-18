@@ -228,25 +228,13 @@ export const useCertificationController = defineStore('certificationController',
   const completionNoticeQueue = Vue.ref<OperationalStepId[]>([]);
   const operationalInvites = Vue.shallowRef<IMemberInvite[]>([]);
   const hasLoadedOperationalInvites = Vue.ref(false);
+  const operationalInviteLoadError = Vue.ref('');
   const operationalInviteStatusesByCode = Vue.ref<Record<string, IOperationalInviteStatus>>({});
   const operationalInviteServerKey = Vue.computed(() => {
-    if (!config.isLoaded) return '';
-
     const { type, ipAddress, gatewayPort } = config.serverDetails;
     return ipAddress ? `${type}:${ipAddress}:${gatewayPort ?? 443}` : '';
   });
   let operationalInviteLoadVersion = 0;
-
-  Vue.watch(
-    operationalInviteServerKey,
-    serverKey => {
-      operationalInviteLoadVersion += 1;
-      operationalInvites.value = [];
-      operationalInviteStatusesByCode.value = {};
-      hasLoadedOperationalInvites.value = !serverKey;
-    },
-    { immediate: true },
-  );
 
   const certificationStepCount = allCertificationStepIds.length;
   const hasBitcoinFundingSeenOnBitcoin = Vue.computed(() => {
@@ -593,6 +581,18 @@ export const useCertificationController = defineStore('certificationController',
     if (operationalAccountUnsubscribe) return;
 
     Vue.watch(
+      operationalInviteServerKey,
+      serverKey => {
+        operationalInviteLoadVersion += 1;
+        operationalInvites.value = [];
+        operationalInviteStatusesByCode.value = {};
+        operationalInviteLoadError.value = '';
+        hasLoadedOperationalInvites.value = !serverKey;
+      },
+      { immediate: true },
+    );
+
+    Vue.watch(
       [() => config.hasExtensionTreasury, () => wallets.defaultArgonWallet.availableMicrogons],
       () => {
         void refreshTreasuryTransferTotals().catch(error => {
@@ -784,10 +784,13 @@ export const useCertificationController = defineStore('certificationController',
   }
 
   async function loadOperationalInvites() {
+    await config.isLoadedPromise;
+
     const serverKey = operationalInviteServerKey.value;
     if (!serverKey) {
       operationalInvites.value = [];
       operationalInviteStatusesByCode.value = {};
+      operationalInviteLoadError.value = '';
       hasLoadedOperationalInvites.value = true;
       return [];
     }
@@ -800,8 +803,15 @@ export const useCertificationController = defineStore('certificationController',
       }
 
       setOperationalInvites(invites);
+      operationalInviteLoadError.value = '';
 
       return invites;
+    } catch (error) {
+      if (requestVersion === operationalInviteLoadVersion && serverKey === operationalInviteServerKey.value) {
+        operationalInviteLoadError.value =
+          error instanceof Error ? error.message : 'Unable to reach the member onboarding API.';
+      }
+      throw error;
     } finally {
       if (requestVersion === operationalInviteLoadVersion && serverKey === operationalInviteServerKey.value) {
         hasLoadedOperationalInvites.value = true;
@@ -967,6 +977,7 @@ export const useCertificationController = defineStore('certificationController',
     pendingRewardsAmount,
     operationalInvites,
     hasLoadedOperationalInvites,
+    operationalInviteLoadError,
     operationalInviteStatusesByCode,
     activeOperationalInvites,
     activeOperationalInviteCount,

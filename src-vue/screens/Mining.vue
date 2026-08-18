@@ -5,8 +5,8 @@
     <SetupChecklist v-else-if="config.miningSetupStatus === MiningSetupStatus.Checklist" />
     <SetupInstalling v-else-if="config.miningSetupStatus === MiningSetupStatus.Installing" />
     <template v-else-if="config.miningSetupStatus === MiningSetupStatus.Finished">
-      <StartingBot v-if="!bot.isReady && !config.isServerInstalling" />
-      <Dashboard v-else-if="config.hasMiningSeats" />
+      <Dashboard v-if="config.hasMiningSeats && (bot.isReady || config.isServerInstalling)" />
+      <StartingBot v-else-if="!bot.isReady" />
       <FirstAuction v-else />
     </template>
     <SyncingOverlay v-if="bot.isSyncing" />

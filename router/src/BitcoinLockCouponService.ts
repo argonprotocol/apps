@@ -144,6 +144,14 @@ export class BitcoinLockCouponService {
     if (microgonsAtTargetPerBtc == null || microgonsAtTargetPerBtc <= 0n) {
       throw new RouterError('A current bitcoin price quote is required to initialize this bitcoin lock.', 400);
     }
+    if (coupon.relay?.status === 'Failed' && coupon.feeCreditMicrogons) {
+      throw new RouterError(
+        `This failed delegated initialization can be retried with Argon Desktop ${BITCOIN_FEE_COUPON_MINIMUM_DESKTOP_VERSION} or newer. Update Argon Desktop and try again. Your Bitcoin fee waiver remains available.`,
+        426,
+        'DESKTOP_UPGRADE_REQUIRED',
+        BITCOIN_FEE_COUPON_MINIMUM_DESKTOP_VERSION,
+      );
+    }
     if (coupon.relay) {
       this.assertMatchingRelay(coupon.relay, request);
       return this.getStatus(coupon);
@@ -192,7 +200,7 @@ export class BitcoinLockCouponService {
     if (microgonsAtTargetPerBtc == null || microgonsAtTargetPerBtc <= 0n) {
       throw new RouterError('A current bitcoin price quote is required to initialize this bitcoin lock.', 400);
     }
-    if (coupon.relay) {
+    if (coupon.relay && coupon.relay.status !== 'Failed') {
       throw new RouterError('This older Bitcoin gift is already being used through delegated initialization.', 409);
     }
     if (!coupon.feeCreditMicrogons) {
@@ -346,7 +354,9 @@ export class BitcoinLockCouponService {
     let status: IBitcoinLockCouponStatus['status'] = 'Open';
     if (coupon.relay?.status === 'Finalized') {
       status = 'Used';
-    } else if (coupon.relay) {
+    } else if (coupon.relay?.status === 'Failed' && originalFeeCreditMicrogons == null) {
+      status = 'Failed';
+    } else if (coupon.relay?.status === 'Submitted' || coupon.relay?.status === 'InBlock') {
       status = coupon.relay.status;
     } else if (activeUse) {
       status = activeUse.status;
@@ -448,20 +458,44 @@ export class BitcoinLockCouponService {
   }
 
   private async backfillLegacyFeeCredits(): Promise<void> {
-    const coupons = this.db.bitcoinLockCouponsTable.fetchAll().filter(coupon => {
-      return coupon.feeCreditMicrogons == null && !coupon.relayRequestId && !coupon.relay;
-    });
+    const coupons = this.db.bitcoinLockCouponsTable.fetchAll().filter(coupon => coupon.feeCreditMicrogons == null);
     if (!coupons.length) return;
 
+    let client: ArgonClient;
     try {
-      const priceIndex = await new PriceIndex().load(await this.getMainchainClient());
-      for (const coupon of coupons) {
-        const maximumLockValue = BitcoinLock.calculateRedemptionAmountFromSatoshis(priceIndex, coupon.maxSatoshis);
-        const feeCreditMicrogons = percentOf(maximumLockValue, coupon.btcPctFee, true);
-        this.db.bitcoinLockCouponsTable.setFeeCredit(coupon.id, feeCreditMicrogons);
-      }
+      client = await this.getMainchainClient();
     } catch {
       // The legacy coupon remains readable and can be upgraded on a later client poll.
+      return;
+    }
+
+    const unusedCoupons = coupons.filter(coupon => {
+      return (!coupon.relayRequestId && !coupon.relay) || coupon.relay?.status === 'Failed';
+    });
+    if (unusedCoupons.length) {
+      try {
+        const priceIndex = await new PriceIndex().load(client);
+        for (const coupon of unusedCoupons) {
+          const maximumLockValue = BitcoinLock.calculateRedemptionAmountFromSatoshis(priceIndex, coupon.maxSatoshis);
+          const feeCreditMicrogons = percentOf(maximumLockValue, coupon.btcPctFee, true);
+          this.db.bitcoinLockCouponsTable.setFeeCredit(coupon.id, feeCreditMicrogons);
+        }
+      } catch {
+        // Unused legacy coupons can be upgraded from a later price index.
+      }
+    }
+
+    for (const coupon of coupons) {
+      const relay = coupon.relay;
+      if (relay?.status !== 'Finalized' || relay.utxoId == null || !relay.txInBlockHash) continue;
+
+      try {
+        const historicalClient = await client.at(relay.txInBlockHash);
+        const lock = await BitcoinLock.get(historicalClient, relay.utxoId);
+        if (lock) this.db.bitcoinLockCouponsTable.setFeeCredit(coupon.id, lock.couponFeesPaid);
+      } catch {
+        // A finalized coupon can retry its archived lock read on a later client poll.
+      }
     }
   }
 

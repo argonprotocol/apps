@@ -1,14 +1,16 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import { MICROGONS_PER_ARGON, MICRONOTS_PER_ARGONOT, MINING_BID_PROXY_FEE_FLOAT } from '@argonprotocol/apps-core';
-import { expect, userEvent, within } from 'storybook/test';
+import { expect, fn, mocked, userEvent, within } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 import { setupMiningAuctionScenario } from '../../scenarios/setupMiningAuctionScenario.ts';
 import { setupMiningPortfolioScenario } from '../../scenarios/setupMiningPortfolioScenario.ts';
 import { setCertificationGuide } from '../../scenarios/setupCertificationScenario.ts';
-import { MiningSetupStatus, TopTab, type IConfig } from '../../../src-vue/interfaces/IConfig.ts';
+import { InstallStepErrorType, MiningSetupStatus, TopTab, type IConfig } from '../../../src-vue/interfaces/IConfig.ts';
 import { Config } from '../../../src-vue/lib/Config.ts';
+import { getBot } from '../../../src-vue/stores/bot.ts';
 import { getConfig } from '../../../src-vue/stores/config.ts';
+import { getInstaller } from '../../../src-vue/stores/installer.ts';
 import { OperationalStepId } from '../../../src-vue/stores/certificationController.ts';
 import Mining from '../../../src-vue/screens/Mining.vue';
 
@@ -98,6 +100,61 @@ export const ServerInstalling: Story = {
 
     await expect(canvas.getByText('INSTALLING')).toBeVisible();
     await expect(canvas.getByText(/This local computer will be used to run your mining software/)).toBeVisible();
+  },
+};
+
+export const ServerUpdatingWithoutBotApi: Story = {
+  beforeEach: () => {
+    setupMiningPortfolioScenario();
+    Object.assign(getBot(), { isReady: false });
+    getConfig().isServerInstalling = true;
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await expect(canvas.getByRole('heading', { name: 'Updating Your Server' })).toBeVisible();
+    await expect(canvas.getByText(/Mining will reconnect automatically/)).toBeVisible();
+  },
+};
+
+export const ServerUpdatingWithBotApi: Story = {
+  beforeEach: () => {
+    setupMiningPortfolioScenario();
+    getConfig().isServerInstalling = true;
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await expect(canvas.getByTestId('MiningDashboard')).toBeVisible();
+    await expect(canvas.queryByRole('heading', { name: 'Updating Your Server' })).not.toBeInTheDocument();
+  },
+};
+
+export const ServerUpdateFailed: Story = {
+  beforeEach: () => {
+    setupMiningPortfolioScenario();
+    Object.assign(getBot(), { isReady: false });
+
+    const config = getConfig();
+    config.isServerInstalling = true;
+    config.serverInstaller = Config.getDefault('serverInstaller') as IConfig['serverInstaller'];
+    config.serverInstaller.errorType = InstallStepErrorType.ArgonInstall;
+    config.serverInstaller.errorMessage = 'Argon syncstatus returned error JSON too many times';
+
+    mocked(getInstaller, { partial: true }).mockReturnValue({
+      runFailedStep: fn(async () => undefined),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await expect(canvas.getByTestId('LeftBar.goto(TopTab.Mining)')).toHaveClass('Selected');
+    await expect(canvas.getByText('Server Update Failed')).toBeVisible();
+    await expect(canvas.getByText(/Failed to Install Argon/)).toBeVisible();
+    await expect(canvas.getByText('Argon syncstatus returned error JSON too many times')).toBeVisible();
+
+    await userEvent.click(canvas.getByRole('button', { name: 'Retry' }));
+    await expect(getInstaller().runFailedStep).toHaveBeenCalledWith('all');
   },
 };
 

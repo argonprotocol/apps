@@ -124,7 +124,7 @@ describe('BitcoinLockCouponService', () => {
     await expect(service.getByOfferCode(created.coupon.offerCode)).resolves.toMatchObject({ status: 'Expired' });
   });
 
-  it('backfills an unused legacy coupon without changing its offer code', async () => {
+  it('recovers an unused legacy coupon after its delegated relay failed', async () => {
     const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-coupon-backfill-'));
     tempDirs.push(tempDir);
 
@@ -134,6 +134,7 @@ describe('BitcoinLockCouponService', () => {
 
     const member = routerDb.usersTable.insertUser({ role: UserRole.Member, name: 'Casey' });
     routerDb.userInvitesTable.insertInvite(member.id, 'invite-code', 'Operator One');
+    const now = new Date();
     routerDb.bitcoinLockCouponsTable.restore({
       userId: member.id,
       sequence: 1,
@@ -143,15 +144,65 @@ describe('BitcoinLockCouponService', () => {
       estimatedGiftUsd: 16.25,
       btcPctFee: 2.5,
       expiresAfterTicks: 60,
+      expirationTick: 100,
       accountId: 'member-account',
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      relayRequestId: 'failed-legacy-relay',
+      relay: {
+        id: 1,
+        requestId: 'failed-legacy-relay',
+        status: 'Failed',
+        requestedSatoshis: 25_000n,
+        securitizationUsedMicrogons: 100n,
+        ownerAccountId: 'member-account',
+        ownerBitcoinPubkey: '0x1234',
+        microgonsAtTargetPerBtc: 75_000_000n,
+        error: 'Relay expired before it was included in a block.',
+        delegateAddress: 'delegate-account',
+        extrinsicHash: '0xrelay',
+        extrinsicMethodJson: {},
+        txNonce: 1,
+        txSubmittedAtBlockHeight: 8,
+        txSubmittedAtTime: now,
+        txExpiresAtBlockHeight: 16,
+        txInBlockHeight: null,
+        txInBlockHash: null,
+        txFinalizedHeight: null,
+        txFeePlusTip: null,
+        txTip: null,
+        utxoId: null,
+        createdAt: now,
+        updatedAt: now,
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const botClient = new BotUpstreamClient('http://127.0.0.1:1');
+    vi.spyOn(botClient, 'listBitcoinLockRelays').mockRejectedValue(new Error('Bot is offline'));
+    vi.spyOn(botClient, 'signBitcoinLockFeeCoupon').mockResolvedValue({
+      feeDiscount: 100_000n,
+      securitizationSpaceToUnreserve: 0n,
+      expiresAtFrame: 1_000n,
+      nonce: 1n,
+      signature: '0xsignature',
+    });
+    vi.spyOn(MiningFrames, 'calculateCurrentTickFromSystemTime').mockReturnValue(100);
+
+    const unavailableService = new BitcoinLockCouponService({
+      db: routerDb,
+      botClient,
+      getMainchainClient: unavailableMainchainClient,
+    });
+    await unavailableService.reconcile();
+    await expect(unavailableService.getByOfferCode('legacy-offer')).resolves.toMatchObject({
+      coupon: { feeCreditMicrogons: null },
+      relay: { status: 'Failed' },
+      status: 'Failed',
     });
 
     const priceIndex = new PriceIndex();
     vi.spyOn(PriceIndex.prototype, 'load').mockResolvedValue(priceIndex);
     vi.spyOn(BitcoinLock, 'calculateRedemptionAmountFromSatoshis').mockReturnValue(4_000_000n);
-    const botClient = new BotUpstreamClient('http://127.0.0.1:1');
     const service = new BitcoinLockCouponService({
       db: routerDb,
       botClient,
@@ -159,12 +210,144 @@ describe('BitcoinLockCouponService', () => {
     });
 
     await service.reconcile();
+    const restartedService = new BitcoinLockCouponService({
+      db: routerDb,
+      botClient,
+      getMainchainClient: unavailableMainchainClient,
+    });
 
-    await expect(service.getByOfferCode('legacy-offer')).resolves.toMatchObject({
+    await expect(restartedService.getByOfferCode('legacy-offer')).resolves.toMatchObject({
       coupon: { offerCode: 'legacy-offer', feeCreditMicrogons: 100_000n },
+      relay: { requestId: 'failed-legacy-relay', status: 'Failed' },
       originalFeeCreditMicrogons: 100_000n,
       remainingFeeCreditMicrogons: 100_000n,
+      status: 'Expired',
+    });
+
+    const reopened = await restartedService.updateExpiration('legacy-offer', 60);
+    expect(reopened).toMatchObject({
+      coupon: { expirationTick: 160 },
+      relay: { requestId: 'failed-legacy-relay', status: 'Failed' },
+      remainingFeeCreditMicrogons: 100_000n,
       status: 'Open',
+    });
+
+    await expect(
+      service.initialize('legacy-offer', {
+        requestedSatoshis: 25_000n,
+        ownerAccountId: 'member-account',
+        ownerBitcoinPubkey: '0x1234',
+        microgonsAtTargetPerBtc: 75_000_000n,
+      }),
+    ).rejects.toMatchObject({ status: 426, code: 'DESKTOP_UPGRADE_REQUIRED' });
+
+    await expect(
+      restartedService.authorizeInitialization('legacy-offer', {
+        requestId: 'new-fee-coupon-use',
+        execution: 'FeeCoupon',
+        requestedSatoshis: 25_000n,
+        feeCreditMicrogons: 100_000n,
+        ownerAccountId: 'member-account',
+        ownerBitcoinPubkey: '0x1234',
+        microgonsAtTargetPerBtc: 75_000_000n,
+      }),
+    ).resolves.toMatchObject({
+      status: { status: 'Prepared', pendingFeeCreditMicrogons: 100_000n },
+      use: { requestId: 'new-fee-coupon-use', status: 'Prepared' },
+    });
+  });
+
+  it('recovers the fee used by a finalized legacy coupon from its stored Bitcoin lock', async () => {
+    const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'router-finalized-coupon-backfill-'));
+    tempDirs.push(tempDir);
+
+    const routerDb = new Db(Path.join(tempDir, 'router.sqlite'));
+    routerDb.migrate();
+    databases.push(routerDb);
+
+    const member = routerDb.usersTable.insertUser({ role: UserRole.Member, name: 'Casey' });
+    routerDb.userInvitesTable.insertInvite(member.id, 'invite-code', 'Operator One');
+    const now = new Date();
+    routerDb.bitcoinLockCouponsTable.restore({
+      userId: member.id,
+      sequence: 1,
+      offerCode: 'finalized-legacy-offer',
+      vaultId: 10,
+      maxSatoshis: 8_156_469n,
+      estimatedGiftUsd: 266.61,
+      btcPctFee: 5,
+      expiresAfterTicks: 14_400,
+      expirationTick: 29_757_770,
+      accountId: 'member-account',
+      relayRequestId: 'finalized-legacy-relay',
+      relay: {
+        id: 1,
+        requestId: 'finalized-legacy-relay',
+        status: 'Finalized',
+        requestedSatoshis: 8_155_496n,
+        securitizationUsedMicrogons: 4_985_000_240n,
+        ownerAccountId: 'member-account',
+        ownerBitcoinPubkey: '0x1234',
+        microgonsAtTargetPerBtc: 61_678_355_325n,
+        error: null,
+        delegateAddress: 'delegate-account',
+        extrinsicHash: '0xrelay',
+        extrinsicMethodJson: {},
+        txNonce: 1,
+        txSubmittedAtBlockHeight: 832_570,
+        txSubmittedAtTime: now,
+        txExpiresAtBlockHeight: 832_600,
+        txInBlockHeight: 832_575,
+        txInBlockHash: '0xblock',
+        txFinalizedHeight: 832_575,
+        txFeePlusTip: 14n,
+        txTip: 2n,
+        utxoId: 61,
+        createdAt: now,
+        updatedAt: now,
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    vi.spyOn(BitcoinLock, 'get').mockResolvedValue({ couponFeesPaid: 249_250_012n } as BitcoinLock);
+    const botClient = new BotUpstreamClient('http://127.0.0.1:1');
+    vi.spyOn(botClient, 'listBitcoinLockRelays').mockRejectedValue(new Error('Bot is offline'));
+    const unavailableService = new BitcoinLockCouponService({
+      db: routerDb,
+      botClient,
+      getMainchainClient: unavailableMainchainClient,
+    });
+    await unavailableService.reconcile();
+    expect(routerDb.bitcoinLockCouponsTable.fetchByOfferCode('finalized-legacy-offer')).toMatchObject({
+      feeCreditMicrogons: null,
+    });
+
+    const service = new BitcoinLockCouponService({
+      db: routerDb,
+      botClient,
+      getMainchainClient: async () =>
+        ({
+          at: vi.fn(async () => ({})),
+        }) as unknown as ArgonClient,
+    });
+
+    await service.reconcile();
+
+    expect(routerDb.bitcoinLockCouponsTable.fetchByOfferCode('finalized-legacy-offer')).toMatchObject({
+      feeCreditMicrogons: 249_250_012n,
+    });
+
+    const restartedService = new BitcoinLockCouponService({
+      db: routerDb,
+      botClient,
+      getMainchainClient: unavailableMainchainClient,
+    });
+    await expect(restartedService.getByOfferCode('finalized-legacy-offer')).resolves.toMatchObject({
+      originalFeeCreditMicrogons: 249_250_012n,
+      usedFeeCreditMicrogons: 249_250_012n,
+      remainingFeeCreditMicrogons: 0n,
+      status: 'Used',
     });
   });
 

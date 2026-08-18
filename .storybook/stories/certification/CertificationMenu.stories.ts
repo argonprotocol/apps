@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import * as Vue from 'vue';
-import { within } from 'storybook/test';
+import { expect, within } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import { expectEventuallyVisible } from '../../support/expectEventuallyVisible.ts';
 import { setupCertificationMenuScenario } from '../../scenarios/setupCertificationScenario.ts';
@@ -8,6 +8,8 @@ import basicEmitter from '../../../src-vue/emitters/basicEmitter.ts';
 import UpgradeToOperationsOverlay from '../../../src-vue/overlays/UpgradeToOperationsOverlay.vue';
 import Home from '../../../src-vue/screens/Home.vue';
 import CertificationMenu from '../../../src-vue/navigation/CertificationMenu.vue';
+import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
+import { TopTab } from '../../../src-vue/interfaces/IConfig.ts';
 
 const meta = {
   title: 'Certification/Top bar',
@@ -39,6 +41,26 @@ export const TreasuryChecklist: Story = {
     await expectEventuallyVisible(canvas.findByText(/Complete the following steps to unlock/));
     await expectEventuallyVisible(canvas.findByText(/Liquid Lock/));
     await expectEventuallyVisible(canvas.findByText(/Acquire .*Argon Bonds/));
+  },
+};
+
+export const OperationalProgressLoading: Story = {
+  beforeEach: () => {
+    const { controller } = setupAppScenario({
+      selectedTab: TopTab.Home,
+      config: {
+        hasExtensionTreasury: true,
+        hasExtensionOperations: true,
+      },
+    });
+    controller.isLoaded = true;
+    controller.hasLoadedInitialOperationalProgress = false;
+  },
+  render: () => renderCertificationOverview(false),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await expect(canvas.queryByRole('button', { name: /Treasury Certification/ })).not.toBeInTheDocument();
   },
 };
 

@@ -134,6 +134,7 @@ export async function setupCertificationMenuScenario(state: CertificationMenuSce
     config.hasExtensionTreasury = true;
     config.hasExtensionOperations = true;
     config.setCertificationDetails({ hasSavedMnemonic: true });
+    controller.hasLoadedInitialOperationalProgress = true;
     controller.chainProgress = {
       ...controller.chainProgress,
       hasOperationalAccount: true,

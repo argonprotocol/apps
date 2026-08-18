@@ -7,9 +7,13 @@ import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLoc
 import { BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
 import { bigintCodec, numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts';
 import { createLock, createStore, createHistoricalLock, historyBlock, historyEvent } from './helpers/bitcoin.ts';
+import * as BitcoinLockHistory from '../lib/recovery/BitcoinLockHistory.ts';
 
 vi.mock('../stores/mainchain.ts', () => ({
   getMainchainClient: vi.fn(async () => ({})),
+}));
+vi.mock('../lib/recovery/BitcoinLockHistory.ts', () => ({
+  getHistoricalBitcoinLock: vi.fn(),
 }));
 
 describe('BitcoinLocks historical event replay', () => {
@@ -97,11 +101,10 @@ describe('BitcoinLocks historical event replay', () => {
     };
     vi.spyOn(store, 'getTable').mockResolvedValue(table as never);
     vi.spyOn(store.recovery, 'recoverLock').mockResolvedValue(record);
-    vi.spyOn(BitcoinLock, 'get')
+    vi.mocked(BitcoinLockHistory.getHistoricalBitcoinLock)
       .mockResolvedValueOnce(createdLock)
-      .mockResolvedValueOnce(verifiedLock)
-      .mockResolvedValueOnce(ratchetedLock)
-      .mockResolvedValueOnce(twiceRatchetedLock);
+      .mockResolvedValueOnce(verifiedLock);
+    vi.spyOn(BitcoinLock, 'get').mockResolvedValueOnce(ratchetedLock).mockResolvedValueOnce(twiceRatchetedLock);
     vi.spyOn(BitcoinLock.prototype, 'getFundingUtxoRef')
       .mockResolvedValueOnce(undefined)
       .mockResolvedValue({ txid: 'funding-txid', bitcoinTxid: 'funding-txid', vout: 0 });
@@ -289,7 +292,7 @@ describe('BitcoinLocks historical event replay', () => {
       saveRecoveredHistory: vi.fn(async () => undefined),
     };
     vi.spyOn(store, 'getTable').mockResolvedValue(table as never);
-    vi.spyOn(BitcoinLock, 'get')
+    vi.mocked(BitcoinLockHistory.getHistoricalBitcoinLock)
       .mockResolvedValueOnce(
         new BitcoinLock({
           ...createHistoricalLock({ accountId, liquidityPromised: 1_100n, lockedTargetPrice: 1_100n }),
@@ -367,7 +370,7 @@ describe('BitcoinLocks historical event replay', () => {
         lock.status = BitcoinLockStatus.LockExpiredWaitingForFunding;
       }),
     } as never);
-    vi.spyOn(BitcoinLock, 'get').mockResolvedValue(undefined);
+    vi.mocked(BitcoinLockHistory.getHistoricalBitcoinLock).mockResolvedValue(undefined);
 
     await store.recovery.recoverBlock(historyBlock(157), [
       historyEvent(157, 'bitcoinUtxos', 'UtxoUnwatched', { utxoId: 7 }),
@@ -420,7 +423,7 @@ describe('BitcoinLocks historical event replay', () => {
     store.data.locksByUtxoId[7] = record;
     const saveRecoveredHistory = vi.fn(async () => undefined);
     vi.spyOn(store, 'getTable').mockResolvedValue({ saveRecoveredHistory } as never);
-    vi.spyOn(BitcoinLock, 'get').mockResolvedValue(
+    vi.mocked(BitcoinLockHistory.getHistoricalBitcoinLock).mockResolvedValue(
       new BitcoinLock({
         ...createHistoricalLock({ accountId, liquidityPromised: recoveredLiquidity }),
         isFlexible: isBackfill,
@@ -579,7 +582,7 @@ describe('BitcoinLocks historical event replay', () => {
       ownerBitcoinPubkey: hexToU8a(chainLock.ownerPubkey),
     });
     vi.spyOn(store, 'trackDerivedBitcoinLockKey').mockResolvedValue();
-    vi.spyOn(BitcoinLock, 'get').mockResolvedValue(chainLock);
+    vi.mocked(BitcoinLockHistory.getHistoricalBitcoinLock).mockResolvedValue(chainLock);
     const block = historyBlock(151);
     const events = [
       historyEvent(151, 'bitcoinLocks', 'BitcoinLockCreated', {
