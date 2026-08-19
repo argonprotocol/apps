@@ -50,8 +50,15 @@ export function getMyVault(): MyVault {
     });
     mintingAuthorities.data = reactive(mintingAuthorities.data) as any;
     watch(
-      () => [mintingAuthorities.data.authorities.length, globalCouncil.data.isActiveCouncilMember] as const,
-      ([authorityCount, isActiveCouncilMember]) => {
+      () =>
+        [
+          config.isLoaded,
+          mintingAuthorities.data.authorities.length,
+          globalCouncil.data.isActiveCouncilMember,
+        ] as const,
+      ([isConfigLoaded, authorityCount, isActiveCouncilMember]) => {
+        if (!isConfigLoaded) return;
+
         if (
           !getCrosschainAccessState({
             hasActivatedCrosschain: config.hasActivatedCrosschain,
