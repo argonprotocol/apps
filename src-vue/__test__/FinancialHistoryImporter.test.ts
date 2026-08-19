@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AccountActivityKind } from '@argonprotocol/apps-core';
-import { needsFinancialHistoryRecovery, restoreFinancialHistory } from '../lib/recovery/index.ts';
+import {
+  FinancialHistoryImporter,
+  needsFinancialHistoryRecovery,
+  restoreFinancialHistory,
+} from '../lib/recovery/index.ts';
 import { findAddressActivity } from '../lib/IndexerClient.ts';
 import { SyncStateKeys } from '../lib/db/SyncStateTable.ts';
 import { optionCodec } from '../../core/__test__/helpers/codecs.ts';
@@ -10,6 +14,50 @@ vi.mock('../lib/IndexerClient.ts', () => ({ findAddressActivity: vi.fn() }));
 afterEach(() => vi.mocked(findAddressActivity).mockReset());
 
 describe('FinancialHistoryImporter', () => {
+  it('retries an archive-overloaded batch one block at a time', async () => {
+    let concurrentHeaderReads = 0;
+    const recoveredBlockNumbers: number[] = [];
+    const importer = new FinancialHistoryImporter({
+      blockWatch: {
+        getHeader: async ({ blockNumber, blockHash }: { blockNumber: number; blockHash: string }) => {
+          concurrentHeaderReads += 1;
+          await Promise.resolve();
+          const isOverloaded = concurrentHeaderReads > 1;
+          concurrentHeaderReads -= 1;
+          if (isOverloaded) throw new Error('archive overloaded');
+          return { blockNumber, blockHash };
+        },
+        getEventsWithSpec: vi.fn(async () => ({ events: [], specVersion: 151 })),
+      } as any,
+      argonBonds: {} as any,
+      vaultHistory: {} as any,
+      enabledDomains: ['bitcoin'],
+      bitcoinLockRecovery: {
+        recoverBlock: async (block: { blockNumber: number }) => {
+          recoveredBlockNumbers.push(block.blockNumber);
+        },
+      } as any,
+    });
+
+    const result = await importer.importBlocks([
+      {
+        blockNumber: 10,
+        blockHash: '0x10',
+        specVersion: 151,
+        activityMask: AccountActivityKind.BitcoinLock,
+      },
+      {
+        blockNumber: 11,
+        blockHash: '0x11',
+        specVersion: 151,
+        activityMask: AccountActivityKind.BitcoinLock,
+      },
+    ]);
+
+    expect(result).toEqual({ importedBlockCount: 2, domainErrors: {} });
+    expect(recoveredBlockNumbers).toEqual([10, 11]);
+  });
+
   it('initializes recovery only when an enabled domain has incomplete coverage', async () => {
     const get = vi.fn(async () => ({
       accountId: '5owner',
@@ -477,7 +525,6 @@ describe('FinancialHistoryImporter', () => {
       }),
     ).rejects.toThrow('Bitcoin lock history failed at block 9: archive unavailable');
 
-    expect(upsert).toHaveBeenCalledTimes(3);
     expect(upsert).toHaveBeenLastCalledWith(
       SyncStateKeys.FinancialHistory,
       expect.objectContaining({

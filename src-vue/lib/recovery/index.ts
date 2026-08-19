@@ -299,9 +299,17 @@ export class FinancialHistoryImporter {
         );
       });
     });
-    for (let start = 0; start < supportedBacklog.length; start += 8) {
-      const batch = supportedBacklog.slice(start, start + 8);
+    let batchSize = 8;
+    for (let start = 0; start < supportedBacklog.length; ) {
+      const batch = supportedBacklog.slice(start, start + batchSize);
       const loadedBlocks = await Promise.allSettled(batch.map(indexedBlock => this.loadBlock(indexedBlock)));
+      if (batchSize > 1 && loadedBlocks.some(result => result.status === 'rejected')) {
+        // Archive RPCs can satisfy a direct block lookup but time out under concurrent historical reads.
+        // No block has been imported yet, so retry this batch in order and keep the remaining replay bounded.
+        batchSize = 1;
+        continue;
+      }
+
       let lastImportedBlockNumber: number | undefined;
       for (let index = 0; index < loadedBlocks.length; index += 1) {
         const loadedResult = loadedBlocks[index];
@@ -342,6 +350,7 @@ export class FinancialHistoryImporter {
         options.onProgress?.(importedBlockCount, supportedBacklog.length);
       }
       if (lastImportedBlockNumber !== undefined) await options.onCheckpoint?.(lastImportedBlockNumber);
+      start += batch.length;
     }
 
     return {
