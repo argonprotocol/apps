@@ -1,6 +1,6 @@
 import * as Vue from 'vue';
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
-import { fn, within } from 'storybook/test';
+import { expect, fn, within } from 'storybook/test';
 import { expectEventuallyVisible } from '../../support/expectEventuallyVisible.ts';
 import {
   createBitcoinUtxo,
@@ -212,9 +212,10 @@ export const FundingMismatch: Story = {
     scenario.replaceUtxoRecords([candidate]);
   },
   play: async () => {
-    await expectEventuallyVisible(
-      within(document.body).findByText(/Choose whether to keep or return this Bitcoin deposit/i),
-    );
+    const body = within(document.body);
+    await expectEventuallyVisible(body.findByText(/Choose whether to keep or return this Bitcoin deposit/i));
+    await expectEventuallyVisible(body.findByText('1 sat/vbyte'));
+    await expect(body.findByTestId('LockFundingMismatch.feeRate')).resolves.toHaveTextContent('Medium = ~30 min');
   },
 };
 

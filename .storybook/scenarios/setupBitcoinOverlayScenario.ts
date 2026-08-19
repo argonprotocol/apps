@@ -8,7 +8,7 @@ import { MockProvider } from '@polkadot/rpc-provider/mock';
 import { TypeRegistry } from '@polkadot/types';
 import type { u128, u64, Vec } from '@polkadot/types-codec';
 import type { ITuple } from '@polkadot/types-codec/types';
-import { fn, mocked } from 'storybook/test';
+import { fn, mocked, spyOn } from 'storybook/test';
 import { createScenarioVault } from './createScenarioVault.ts';
 import { setupAppScenario } from './setupAppScenario.ts';
 import { TopTab } from '../../src-vue/interfaces/IConfig.ts';
@@ -74,6 +74,13 @@ export function setupBitcoinOverlayScenario() {
   const scenarioStartedAt = Date.now();
   const pendingResolvers = new Set<VoidFunction>();
   const cleanupTasks = new Set<VoidFunction>();
+  mocked(BitcoinLocks.getFeeRates).mockRestore?.();
+  const getFeeRates = spyOn(BitcoinLocks, 'getFeeRates').mockResolvedValue({
+    fast: { feeRate: 3n, estimatedMinutes: 10 },
+    medium: { feeRate: 1n, estimatedMinutes: 30 },
+    slow: { feeRate: 1n, estimatedMinutes: 60 },
+  });
+  cleanupTasks.add(() => getFeeRates.mockRestore());
   const { config, wallets } = setupAppScenario({
     selectedTab: TopTab.BitcoinLocks,
     config: {
@@ -519,6 +526,7 @@ function createScenarioTransactionInfo<Metadata>(options: {
   metadata: Metadata;
   status?: TransactionStatus;
   error?: Error;
+  progress?: { progressPct: number; confirmations: number; expectedConfirmations: number };
   onCleanup?: (cleanup: VoidFunction) => void;
 }): TransactionInfo<Metadata> {
   const status = options.status ?? (options.error ? TransactionStatus.Error : TransactionStatus.InBlock);
@@ -561,6 +569,13 @@ function createScenarioTransactionInfo<Metadata>(options: {
   if (options.error) txResult.submissionError = options.error;
 
   const info = new TransactionInfo<Metadata>({ tx, txResult });
+  const progress = options.progress;
+  if (progress) {
+    spyOn(info, 'subscribeToProgress').mockImplementation(callback => {
+      void callback({ ...progress, progressMessage: '', isMaxed: false });
+      return () => undefined;
+    });
+  }
   const finalize = () => {
     txResult.blockHash ??= new Uint8Array([1, 2, 3, 4]);
     txResult.blockNumber ??= 18_511;
