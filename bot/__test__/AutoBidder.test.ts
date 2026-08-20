@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createTypedEventEmitter } from '@argonprotocol/apps-core';
 import { AutoBidder } from '../src/AutoBidder.ts';
 
 const onBiddingStart = Object.getOwnPropertyDescriptor(AutoBidder.prototype, 'onBiddingStart')!.value as (
@@ -109,5 +110,62 @@ describe('AutoBidder', () => {
 
     expect(planMiningBidProxySetup).not.toHaveBeenCalled();
     expect(createBidderParams).toHaveBeenCalledWith(12);
+  });
+
+  it('reconciles a stale bidder when a new frame arrives without a cohort notification', async () => {
+    const client = {
+      queryMulti: vi.fn().mockResolvedValue(() => undefined),
+      query: {
+        miningSlot: {
+          isNextSlotBiddingOpen: vi.fn().mockResolvedValue({ isFalse: false }),
+          nextFrameId: vi.fn().mockResolvedValue({ toNumber: () => 539 }),
+        },
+      },
+    };
+    const miningFrames = {
+      events: createTypedEventEmitter<{
+        'on-frame': (frame: { frameId: number; blockNumber: number; blockHash: string }) => void;
+      }>(),
+    };
+    const autoBidder = new AutoBidder(
+      {
+        isProxy: false,
+        registerKeys: vi.fn(),
+      } as any,
+      {
+        prunedClientOrArchivePromise: Promise.resolve(client),
+      } as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      miningFrames as any,
+    );
+    const staleBidder = {
+      isBiddingOpen: true,
+      stop: vi.fn().mockResolvedValue(undefined),
+    };
+    const createBidderParams = vi.fn().mockResolvedValue({ maxSeats: 0 });
+    Object.assign(autoBidder, {
+      biddingCalculator: {
+        load: vi.fn(),
+        unload: vi.fn(),
+      },
+      cohortBiddersByActivationFrameId: new Map([[537, staleBidder]]),
+      nextCohortActivationFrameId: 537,
+      createBidderParams,
+    });
+
+    await autoBidder.start('ws://argon-miner:9944');
+
+    miningFrames.events.emit('on-frame', {
+      frameId: 538,
+      blockNumber: 876_000,
+      blockHash: '0xframe538',
+    });
+    await (autoBidder as any).lifecycleQueue;
+
+    expect(autoBidder.currentBidder).toBeUndefined();
+    expect(staleBidder.stop).toHaveBeenCalledOnce();
+    expect(createBidderParams).toHaveBeenCalledWith(539);
   });
 });
