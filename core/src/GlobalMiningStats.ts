@@ -21,8 +21,12 @@ export class GlobalMiningStats {
   public averageAPR: number = 0;
   public averageAPY: number = 0;
 
+  public baseMicrogonRewardsPerBlock = 0n;
+  public baseMicronotRewardsPerBlock = 0n;
+
   public activeBidCosts = 0n;
   public activeBlockRewards = 0n;
+  public activeTDR: number = 0;
   public activeAPR: number = 0;
   public activeAPY: number = 0;
 
@@ -66,6 +70,9 @@ export class GlobalMiningStats {
 
     this.activeSeatCount = activeSeatCount;
     this.aggregatedBidCosts = aggregateBidCosts;
+    const blocksPerCohort = BigInt(NetworkConfig.ticksPerCohort);
+    this.baseMicrogonRewardsPerBlock = aggregateBlockRewards.microgons / blocksPerCohort;
+    this.baseMicronotRewardsPerBlock = aggregateBlockRewards.micronots / blocksPerCohort;
     this.aggregatedBlockRewards = aggregateRewards;
     this.investedCapital = aggregateReturn.eligibleCapitalInvested;
     this.projectedProfit = aggregateReturn.totalProfits;
@@ -74,6 +81,7 @@ export class GlobalMiningStats {
 
     this.activeBidCosts = this.aggregatedBidCosts;
     this.activeBlockRewards = this.aggregatedBlockRewards;
+    this.activeTDR = aggregateReturn.percent;
     this.activeAPR = this.averageAPR;
     this.activeAPY = this.averageAPY;
   }

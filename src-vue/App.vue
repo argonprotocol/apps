@@ -54,7 +54,7 @@
     <template v-if="config.isLoaded">
       <BootingOverlay v-if="config.isBootingUpPreviousWalletHistory && !bot.isSyncing" />
       <ServerConnectPanel />
-      <WalletDialogs />
+      <WalletOverlayController />
       <WalletDisconnectOverlay />
       <TransactionsOverlay />
       <CrosschainHistoryOverlay />
@@ -106,7 +106,7 @@ import Mining from './screens/Mining.vue';
 import Vaulting from './screens/Vaulting.vue';
 import CrosschainTransfers from './screens/CrosschainTransfers.vue';
 import ServerConnectPanel from './panels/ServerConnectPanel.vue';
-import WalletDialogs from './wallets/WalletDialogs.vue';
+import WalletOverlayController from './wallets/WalletOverlayController.vue';
 import WalletDisconnectOverlay from './overlays/WalletDisconnectOverlay.vue';
 import TransactionsOverlay from './overlays/TransactionsOverlay.vue';
 import CrosschainHistoryOverlay from './overlays/CrosschainHistoryOverlay.vue';

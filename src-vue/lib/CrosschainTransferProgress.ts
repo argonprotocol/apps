@@ -145,7 +145,7 @@ export function setInboundEthereumStepProgress(
     };
     steps[1] = {
       ...pendingStep(steps[1]),
-      hint: 'Usually a few minutes once finalized Ethereum state reaches Argon.',
+      hint: 'This step can take several minutes.',
       estimatedDurationMs: getTransferToArgonWaitEstimateMs(),
     };
     steps[2] = pendingStep(steps[2]);
@@ -169,7 +169,7 @@ export function setInboundRelayStepProgress(
       startedAt: steps[1].startedAt ?? Date.now(),
       estimatedDurationMs: steps[1].estimatedDurationMs ?? getTransferToArgonWaitEstimateMs(),
       detail: args.detail,
-      hint: args.hint ?? 'Usually a few minutes once finalized Ethereum state reaches Argon.',
+      hint: args.hint ?? 'This step can take several minutes.',
     };
     steps[2] = pendingStep(steps[2]);
   });

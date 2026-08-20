@@ -2,19 +2,15 @@ import { describe, expect, it } from 'vitest';
 import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
 import { WalletType } from '../lib/Wallet.ts';
 import {
+  closeAddWalletView,
   getAvailableWalletSelections,
   getInitialAddWalletOverlayState,
   getInitialWalletOverlayState,
   getWalletSelectionKey,
   getWalletSelectionName,
-  returnToTransferWalletChooser,
-  selectPrimaryWallet,
-  selectTransferWallet,
-  showAddWalletOnTransferSide,
-  showCustomArgonAddressOnTransferSide,
+  showAddWalletInOverlay,
+  showMainWallet,
   shouldLoadEthereumWalletSelection,
-  toggleWalletTransferDirection,
-  type IWalletOverlayState,
   type IWalletSelection,
   WALLET_MOVE_LABEL,
 } from '../wallets/walletOverlayState.ts';
@@ -47,33 +43,37 @@ const ethereumB = {
   address: '0x0000000000000000000000000000000000000002',
 } satisfies IWalletRecord;
 
-const primaryWallet = {
+const ethereumSelection = {
   walletType: WalletType.ethereum,
   walletRecord: ethereumA,
 } satisfies IWalletSelection;
-const transferWallet = { walletType: WalletType.defaultArgon } satisfies IWalletSelection;
+const defaultArgonSelection = { walletType: WalletType.defaultArgon } satisfies IWalletSelection;
 
 describe('wallet overlay state', () => {
   describe('Ethereum wallet loading', () => {
     it('loads the first wallet when it is already active but has no balance observation', () => {
-      expect(shouldLoadEthereumWalletSelection(primaryWallet, ethereumA.id, undefined)).toBe(true);
+      expect(shouldLoadEthereumWalletSelection(ethereumSelection, ethereumA.id, undefined)).toBe(true);
     });
 
     it('does not reload an already-active wallet with a balance observation', () => {
-      expect(shouldLoadEthereumWalletSelection(primaryWallet, ethereumA.id, new Date('2026-07-22T12:00:00Z'))).toBe(
+      expect(shouldLoadEthereumWalletSelection(ethereumSelection, ethereumA.id, new Date('2026-07-22T12:00:00Z'))).toBe(
         false,
       );
     });
 
     it('loads a different Ethereum wallet', () => {
-      expect(shouldLoadEthereumWalletSelection(primaryWallet, ethereumB.id, new Date('2026-07-22T12:00:00Z'))).toBe(
+      expect(shouldLoadEthereumWalletSelection(ethereumSelection, ethereumB.id, new Date('2026-07-22T12:00:00Z'))).toBe(
         true,
       );
     });
   });
 
-  it('lists built-in wallets and each wallet other than the primary wallet', () => {
-    const available = getAvailableWalletSelections([defaultArgonRecord, ethereumA, ethereumB], [primaryWallet], true);
+  it('lists built-in wallets and each wallet other than the open wallet', () => {
+    const available = getAvailableWalletSelections(
+      [defaultArgonRecord, ethereumA, ethereumB],
+      [ethereumSelection],
+      true,
+    );
 
     expect(available.map(getWalletSelectionKey)).toEqual([
       WalletType.defaultArgon,
@@ -88,72 +88,53 @@ describe('wallet overlay state', () => {
     expect(available.map(getWalletSelectionKey)).toEqual([WalletType.defaultArgon, `ethereum:${ethereumA.id}`]);
   });
 
-  it('opens with only the requested primary wallet', () => {
-    expect(getInitialWalletOverlayState(primaryWallet)).toEqual({ primaryWallet });
+  it('opens the default Argon main view without selecting another wallet', () => {
+    expect(getInitialWalletOverlayState()).toEqual({ centerView: { type: 'main' } });
   });
 
-  it('opens Add Wallet as the main panel without a primary wallet', () => {
-    expect(getInitialAddWalletOverlayState('choice')).toEqual({ primaryAddWalletStep: 'choice' });
-  });
-
-  it('opens and closes a transfer direction without changing the primary wallet', () => {
-    const open = toggleWalletTransferDirection({ primaryWallet }, 'out');
-    expect(open).toEqual({ primaryWallet, transferOut: {} });
-    expect(toggleWalletTransferDirection(open, 'out')).toEqual({ primaryWallet });
-  });
-
-  it('opens both transfer sides without clearing either one', () => {
-    const state = { primaryWallet, transferOut: { wallet: transferWallet } } satisfies IWalletOverlayState;
-    expect(toggleWalletTransferDirection(state, 'in')).toEqual({
-      primaryWallet,
-      transferIn: {},
-      transferOut: { wallet: transferWallet },
+  it('opens the main view with a requested Ethereum connector', () => {
+    expect(getInitialWalletOverlayState({ network: 'ethereum', walletRecordId: ethereumA.id })).toEqual({
+      centerView: { type: 'main' },
+      activeConnector: { network: 'ethereum', walletRecordId: ethereumA.id },
     });
   });
 
-  it('selects a transfer wallet only while a direction is open', () => {
-    expect(selectTransferWallet({ primaryWallet }, 'out', transferWallet)).toEqual({ primaryWallet });
-    expect(selectTransferWallet({ primaryWallet, transferOut: {} }, 'out', transferWallet)).toEqual({
-      primaryWallet,
-      transferOut: { wallet: transferWallet },
+  it('closes a directly opened Add Ethereum view with the overlay', () => {
+    const state = getInitialAddWalletOverlayState('choice', 'closeOverlay');
+    expect(state).toEqual({
+      centerView: { type: 'addEthereum', initialStep: 'choice', closeBehavior: 'closeOverlay' },
+    });
+    expect(closeAddWalletView(state)).toBeUndefined();
+  });
+
+  it('returns an in-overlay Add Ethereum view to the main panel', () => {
+    const state = getInitialWalletOverlayState({ network: 'bitcoin' });
+
+    expect(showAddWalletInOverlay(state, 'external')).toEqual({
+      centerView: { type: 'addEthereum', initialStep: 'external', closeBehavior: 'returnToMain' },
+      activeConnector: undefined,
+    });
+    expect(closeAddWalletView(showAddWalletInOverlay(state, 'external'))).toEqual({
+      centerView: { type: 'main' },
+      activeConnector: undefined,
     });
   });
 
-  it('returns from a transfer wallet to its chooser', () => {
-    expect(returnToTransferWalletChooser({ primaryWallet, transferIn: { wallet: transferWallet } }, 'in')).toEqual({
-      primaryWallet,
-      transferIn: {},
-    });
-  });
+  it('returns to main and targets the newly added Ethereum connector', () => {
+    const addState = showAddWalletInOverlay(getInitialWalletOverlayState(), 'external');
 
-  it('replaces one sidecar chooser with Add Wallet without changing the other side', () => {
-    const state = { primaryWallet, transferIn: {}, transferOut: { wallet: transferWallet } };
-    expect(showAddWalletOnTransferSide(state, 'in', 'external')).toEqual({
-      primaryWallet,
-      transferIn: { addWalletStep: 'external' },
-      transferOut: { wallet: transferWallet },
+    expect(showMainWallet(addState, { network: 'ethereum', walletRecordId: ethereumB.id })).toEqual({
+      centerView: { type: 'main' },
+      activeConnector: { network: 'ethereum', walletRecordId: ethereumB.id },
     });
-  });
-
-  it('opens a custom Argon address on an active transfer side', () => {
-    expect(showCustomArgonAddressOnTransferSide({ primaryWallet, transferOut: {} }, 'out')).toEqual({
-      primaryWallet,
-      transferOut: { customArgonAddress: true },
-    });
-  });
-
-  it('replacing the primary wallet closes both transfer sidecars', () => {
-    expect(
-      selectPrimaryWallet({ primaryWallet, transferIn: {}, transferOut: { wallet: transferWallet } }, transferWallet),
-    ).toEqual({ primaryWallet: transferWallet });
   });
 
   it('keeps the established default Argon wallet name', () => {
-    expect(getWalletSelectionName(transferWallet)).toBe('Internal App Wallet');
+    expect(getWalletSelectionName(defaultArgonSelection)).toBe('Internal App Wallet');
   });
 
   it('appends Wallet to Ethereum display names without duplicating the suffix', () => {
-    expect(getWalletSelectionName(primaryWallet)).toBe('Default Ethereum Wallet');
+    expect(getWalletSelectionName(ethereumSelection)).toBe('Default Ethereum Wallet');
     expect(
       getWalletSelectionName({
         walletType: WalletType.ethereum,

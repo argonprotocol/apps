@@ -86,7 +86,7 @@
     "@polkadot/util": "^14.0.3",
     "@polkadot/util-crypto": "^14.0.3",
     "@scure/bip39": "^1.6.0",
-    "@tailwindcss/vite": "^4.1.12",
+    "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/api": "~2.11.0",
     "@tauri-apps/plugin-autostart": "^2.5.0",
     "@tauri-apps/plugin-dialog": "~2.4.0",
@@ -127,7 +127,7 @@
     "semver": "^7.7.3",
     "sortablejs": "^1.15.7",
     "tailwind-merge": "^3.3.1",
-    "tailwindcss": "^4.1.16",
+    "tailwindcss": "^4.3.3",
     "viem": "^2.48.11",
     "vue": "^3.5.20",
     "zod": "^3.25.55"
