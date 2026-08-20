@@ -7,6 +7,8 @@ import { WalletType } from '../types/srcVue.ts';
 import type { IAppQueryRefs, IEthereumMoveToken, IArgonWalletType } from '../types/srcVue.ts';
 
 const ETHEREUM_MOVE_TIMEOUT_MS = 6 * 60_000;
+const FIRST_ETHEREUM_CONNECTOR_SELECTOR =
+  '[data-wallet-connector-id]:not([data-wallet-connector-id="bitcoin"]) [data-testid="Connector.openConnector()"]';
 const EMPTY_FUNDING_STATE = {
   ethereumAddress: '',
   archiveUrl: '',
@@ -122,9 +124,6 @@ export default new Operation<IAppFundWalletFromEthereumContext, IAppFundWalletFr
         micronots: requiredMicronots > 0n ? requiredMicronots : undefined,
       });
 
-      await context.flow.click('WalletOverlay.toggleTransferIn()', { timeoutMs: 15_000 });
-      await context.flow.click('WalletOverlay.chooseEthereumWallet()', { timeoutMs: 15_000 });
-
       await context.flow.poll<IAppFundWalletFromEthereumState>(
         nextState =>
           nextState.chainState.ethereumMicrogons >= initialState.chainState.ethereumMicrogons + requiredMicrogons &&
@@ -155,9 +154,9 @@ export default new Operation<IAppFundWalletFromEthereumContext, IAppFundWalletFr
       requestedMicronots: requiredMicronots.toString(),
     });
 
-    const overlayCloseButton = await context.flow.isVisible('OverlayBase.clickClose()');
+    const overlayCloseButton = await context.flow.isVisible('WalletOverlay.closeRight()');
     if (overlayCloseButton.clickable) {
-      await context.flow.click('OverlayBase.clickClose()', { timeoutMs: 8_000 });
+      await context.flow.click('WalletOverlay.closeRight()', { timeoutMs: 8_000 });
     }
 
     await context.flow.poll<IAppFundWalletFromEthereumState>(nextState => !nextState.uiState.walletOverlayVisible, {
@@ -175,12 +174,13 @@ async function startMoveAndWaitForSettlement(
   },
 ): Promise<void> {
   const flowName = context.flowName;
-  const moveTestId = `EthereumTop.startMoveFromEthereum(${args.moveToken})`;
-
-  await context.flow.waitFor(moveTestId, { timeoutMs: 30_000 });
-  await context.flow.click(moveTestId, { timeoutMs: 30_000 });
-  await context.flow.waitFor('WalletTransferOverlay.submitTransfer()', { timeoutMs: 30_000 });
-  await context.flow.click('WalletTransferOverlay.submitTransfer()', { timeoutMs: 30_000 });
+  await context.flow.click({ selector: FIRST_ETHEREUM_CONNECTOR_SELECTOR, index: 0 }, { timeoutMs: 30_000 });
+  await context.flow.waitFor('ConnectorTransfer.close()', { timeoutMs: 30_000 });
+  await ensureTransferDirection(context.flow, 'inbound');
+  await context.flow.click({ testId: 'input-menu-trigger', index: 0 }, { timeoutMs: 15_000 });
+  await context.flow.click({ testId: args.moveToken, index: 0 }, { timeoutMs: 15_000 });
+  await context.flow.waitFor('ConnectorTransfer.initiateTransfer()', { state: 'clickable', timeoutMs: 30_000 });
+  await context.flow.click('ConnectorTransfer.initiateTransfer()', { timeoutMs: 30_000 });
 
   await context.flow.poll<IAppFundWalletFromEthereumState>(
     nextState => {
@@ -202,8 +202,23 @@ async function startMoveAndWaitForSettlement(
     },
   );
 
-  await context.flow.waitFor('WalletTransferOverlay.close()', { timeoutMs: 120_000 });
-  await context.flow.click('WalletTransferOverlay.close()', { timeoutMs: 15_000 });
+  await context.flow.waitFor('ConnectorTransfer.close()', { timeoutMs: 120_000 });
+  await context.flow.click('ConnectorTransfer.close()', { timeoutMs: 15_000 });
+}
+
+async function ensureTransferDirection(flow: IE2EFlowRuntime, direction: 'inbound' | 'outbound'): Promise<void> {
+  const currentDirection = await flow.getAttribute('ConnectorTransfer.direction', 'data-direction', {
+    timeoutMs: 15_000,
+  });
+  if (currentDirection === direction) return;
+
+  await flow.click('ConnectorTransfer.toggleTransferDirection()', { timeoutMs: 15_000 });
+  await flow.waitFor(
+    { selector: `[data-testid="ConnectorTransfer.direction"][data-direction="${direction}"]` },
+    {
+      timeoutMs: 15_000,
+    },
+  );
 }
 
 async function readEthereumFundingState(flow: IE2EFlowRuntime, targetWalletType: IArgonWalletType) {

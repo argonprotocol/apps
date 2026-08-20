@@ -18,7 +18,7 @@ export type IOperationalProfileRequest =
     };
 
 export type IWalletOverlayRequest = {
-  walletType: WalletType.defaultArgon | WalletType.miningBot | WalletType.ethereum;
+  connectorType: WalletType.defaultArgon | WalletType.ethereum | 'bitcoin';
   ethereumWalletRecordId?: number;
   showGuidance?: boolean;
   guidanceContext?: IWalletGuidanceContext;
@@ -28,7 +28,7 @@ type IBasicEmitter = {
   openWalletOverlay: IWalletOverlayRequest;
   openWalletDisconnectOverlay: { walletRecordId: number };
   ethereumWalletDisconnected: { walletRecordId: number };
-  openEthereumWalletImportOverlay: 'choice' | 'external';
+  openWalletOverlayAddConnector: 'choice' | 'external';
   openSecuritizationOverlay: { returnToInvite?: boolean } | undefined;
   openBotEditOverlay: void;
   openServerRemoveOverlay: void;

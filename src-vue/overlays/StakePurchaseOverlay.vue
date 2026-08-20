@@ -313,7 +313,7 @@ const projectedEarnings = Vue.computed(() => {
 });
 
 function openWallet() {
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
+  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.defaultArgon });
 }
 
 function selectVault() {

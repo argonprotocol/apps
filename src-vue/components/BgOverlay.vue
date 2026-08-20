@@ -1,18 +1,39 @@
 <!-- prettier-ignore -->
 <template>
   <div :class="[roundedClass]" class="absolute top-0 left-0 w-full h-full pointer-events-none">
-    <div v-if="enableTopBar" :class="[roundedTopClass]" class="absolute top-0 left-0 w-full h-14 pointer-events-none bg-black/40"></div>
+    <div
+      v-if="enableTopBar || blurContent"
+      :class="[
+        roundedTopClass,
+        blurContent ? 'pointer-events-auto' : 'pointer-events-none',
+      ]"
+      class="absolute top-0 left-0 w-full h-14 bg-black/40"
+      data-tauri-drag-region
+    >
+      <div
+        v-if="showWindowControls"
+        class="pointer-events-none absolute top-0 left-0 flex min-h-14 w-full flex-row items-center"
+      >
+        <div @click.stop class="pointer-events-auto relative top-px flex flex-row items-center">
+          <WindowControls />
+        </div>
+      </div>
+    </div>
     <div
       @click="emitClose"
       @pointerdown="handlePointerDown"
       @pointermove="handlePointerMove"
       class="absolute bg-black/40 pointer-events-auto"
-      :class="[enableTopBar ? 'top-14 bottom-0 inset-x-0' : 'inset-0', enableTopBar ? roundedBottomClass : roundedClass]"
+      :class="[
+        enableTopBar || blurContent ? 'top-14 bottom-0 inset-x-0' : 'inset-0',
+        enableTopBar || blurContent ? roundedBottomClass : roundedClass,
+        blurContent ? 'backdrop-blur-xs' : '',
+      ]"
       data-testid="BgOverlay.close()"
       data-tauri-drag-region
     >
       <div
-        v-if="showWindowControls && !enableTopBar"
+        v-if="showWindowControls && !(enableTopBar || blurContent)"
         class="pointer-events-none absolute top-0 left-0 flex min-h-14 w-full flex-row items-center"
       >
         <div @click.stop class="pointer-events-auto relative top-px flex flex-row items-center">
@@ -31,6 +52,7 @@ const props = withDefaults(
   defineProps<{
     showWindowControls?: boolean;
     enableTopBar?: boolean;
+    blurContent?: boolean;
     rounded?: 'none' | 'sm' | 'md' | 'lg';
   }>(),
   {

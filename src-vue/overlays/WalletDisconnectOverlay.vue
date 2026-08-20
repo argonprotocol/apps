@@ -56,6 +56,8 @@ import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
 import { getEthereumWalletDisplayName } from '../lib/Wallet.ts';
 import { useWallets } from '../stores/wallets.ts';
 import OverlayBase from './OverlayBase.vue';
+import { getEthereumMoveTracker } from '../stores/moveFromEthereum.ts';
+import { getEthereumOutboundTransferTracker } from '../stores/moveToEthereum.ts';
 
 const wallets = useWallets();
 const walletRecord = Vue.ref<IWalletRecord>();
@@ -83,6 +85,17 @@ async function disconnectWallet() {
   isDisconnecting.value = true;
   errorMessage.value = '';
   try {
+    const inboundTracker = getEthereumMoveTracker();
+    const outboundTracker = getEthereumOutboundTransferTracker();
+    await Promise.all([inboundTracker.load(), outboundTracker.load()]);
+    if (
+      inboundTracker.hasSignerDependentTransfer(record.address) ||
+      outboundTracker.hasSignerDependentTransfer(record.address)
+    ) {
+      throw new Error(
+        'This wallet is still needed to sign a pending transfer. Wait for it to be submitted before disconnecting.',
+      );
+    }
     await wallets.disconnectEthereumWalletRecord(record.id);
     walletRecord.value = undefined;
     basicEmitter.emit('ethereumWalletDisconnected', { walletRecordId: record.id });

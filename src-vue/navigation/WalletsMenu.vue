@@ -88,12 +88,12 @@ const ethereumWallets = Vue.computed(() => wallets.walletRecords.filter(wallet =
 async function openWallet(wallet: IWalletRecord) {
   await wallets.selectEthereumWalletRecord(wallet.id);
   closeMenu();
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.ethereum });
+  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.ethereum });
 }
 
 function addWallet() {
   closeMenu();
-  basicEmitter.emit('openEthereumWalletImportOverlay', 'choice');
+  basicEmitter.emit('openWalletOverlayAddConnector', 'choice');
 }
 
 function onMouseEnter() {

@@ -12,10 +12,12 @@ These rules apply to implementation and review in this repository. Keep changes 
 ## Vue and UI
 
 - Keep rendering choices visible in Vue templates. Do not move one-use labels, class strings, markup choices, or display conditions into computed values merely to shorten a template.
+- Keep numeral conversion and formatting calls such as `microgonToArgonNm(...)` and `micronotToArgonotNm(...)` directly in Vue templates. Do not move them into script helpers such as `formatAmount` merely to shorten the template.
 - Use computed values for meaningful domain or presentation state that is reused or materially clarifies behavior.
 - When a template becomes difficult to read, reduce states and visual variants or extract a coherent component. Do not hide the same complexity in the script block.
 - Reuse established components, controls, checklist items, overlays, and status sources. Do not add duplicate affordances or fake intermediate states.
 - Reuse the repository's established spacing, typography, control sizes, and responsive patterns. Avoid page-specific size systems, arbitrary Tailwind values, and near-duplicate style variants.
+- Keep a Vue element's opening tag on one line when it has exactly one attribute, regardless of line length. If Prettier would wrap it, add `<!-- prettier-ignore -->` immediately before the element.
 - Keep directly related declarations together, with spacing between separate concerns. Do not crunch setup code into dense blocks or nested ternaries.
 
 ## Storybook UI States
