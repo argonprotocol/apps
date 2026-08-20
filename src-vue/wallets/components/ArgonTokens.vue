@@ -1,7 +1,7 @@
 <template>
   <ul>
     <li
-      class="relative flex flex-row gap-x-2 border-t border-slate-400/50 py-2"
+      class="via-argon-100/20 relative flex flex-row gap-x-2 border-t border-slate-400/50 from-transparent to-transparent py-2 hover:bg-linear-to-r"
       :class="[props.indentLeft ? 'pl-10' : '', props.indentRight ? 'pr-10' : '']"
     >
       <ArgonIcon class="h-6 w-6" />
@@ -35,7 +35,7 @@
       </MoveCapitalButton>
     </li>
     <li
-      class="relative flex flex-row gap-x-2 border-y border-slate-400/50 py-2"
+      class="via-argon-100/20 relative flex flex-row gap-x-2 border-y border-slate-400/50 from-transparent to-transparent py-2 hover:bg-linear-to-r"
       :class="[props.indentLeft ? 'pl-10' : '', props.indentRight ? 'pr-10' : '']"
     >
       <ArgonotIcon class="h-6 w-6" />
@@ -68,7 +68,16 @@
         />
       </MoveCapitalButton>
     </li>
-    <li v-if="props.microgonsToMint" class="relative flex flex-row gap-x-2 border-y border-slate-400/50 py-2">
+    <li
+      v-if="props.showBitcoin"
+      class="via-argon-100/20 relative flex flex-row gap-x-2 border-b border-slate-400/50 from-transparent to-transparent py-2 hover:bg-linear-to-r"
+      :class="[props.indentLeft ? 'pl-10' : '', props.indentRight ? 'pr-10' : '']"
+    >
+      <BitcoinIcon class="h-6 w-6" />
+      <div class="grow">{{ micronotToArgonotNm(props.micronots).format('0,0.[00]') }} BTC</div>
+      <div>{{ currency.symbol }}{{ micronotToMoneyNm(props.micronots).format('0,0.00') }}</div>
+    </li>
+    <li v-if="props.microgonsToMint" class="relative flex flex-row gap-x-2 border-b border-slate-400/50 py-2">
       <ArgonIcon class="h-6 w-6" />
       <div class="grow">{{ microgonToArgonNm(props.microgonsToMint).format('0,0.[00]') }} ARGN waiting to mint</div>
       <div>{{ currency.symbol }}{{ microgonToMoneyNm(props.microgonsToMint).format('0,0.00') }}</div>
@@ -80,6 +89,7 @@ import { computed, ref } from 'vue';
 import { isValidArgonAccountAddress, MoveTo, MoveToken, type MoveFrom } from '@argonprotocol/apps-core';
 import ArgonotIcon from '../../assets/resources/argonot.svg';
 import ArgonIcon from '../../assets/resources/argon.svg';
+import BitcoinIcon from '../../assets/wallets/tokens/bitcoin.svg';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import CrosschainMoveButton from './CrosschainMoveButton.vue';
@@ -106,6 +116,7 @@ const props = withDefaults(
     externalAddress?: string;
     networkName?: string;
     feeTokenSymbol?: string;
+    showBitcoin?: boolean;
   }>(),
   {
     microgonsToMint: () => 0n,

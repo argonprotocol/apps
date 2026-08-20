@@ -85,6 +85,14 @@ export class Currency extends CurrencyBase {
     if (saveToConfig) this.config.defaultCurrencyKey = key;
   }
 
+  public convertWeiToEth(wei: bigint): number {
+    return super.convertWeiToEth(wei);
+  }
+
+  public convertEthToMicrogon(eth: number): bigint {
+    return super.convertEthToMicrogon(eth);
+  }
+
   public convertSatToBtc(sat: bigint): number {
     return super.convertSatToBtc(sat);
   }

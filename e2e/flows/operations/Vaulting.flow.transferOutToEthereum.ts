@@ -2,7 +2,6 @@ import { createVaultingFlowContext, type IVaultingFlowContext } from '../context
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import { readDevEthereumRuntimeState } from '../../devEthereum.ts';
 import { fundDevEthereumAccount } from '../../scripts/fundDevEthereumAccount.ts';
-import { clickIfVisible } from '../helpers/utils.ts';
 import vaultingOnboarding from './Vaulting.flow.onboarding.ts';
 import vaultingActivateTab from './Vaulting.op.activateTab.ts';
 import vaultingTransferOutToEthereum, { openVaultingWalletOverlay } from './Vaulting.op.transferOutToEthereum.ts';
@@ -49,7 +48,6 @@ export default new OperationalFlow<IVaultingFlowContext, ITransferOutToEthereumS
       15_000,
       `${context.flowName}: default Ethereum wallet`,
       async () => {
-        await clickIfVisible(flow, 'WalletOverlay.toggleTransferOut()', { timeoutMs: 1_500 });
         const connection = await flow.queryApp(
           async refs => {
             if (!refs.wallets.isLoaded) {
@@ -124,8 +122,7 @@ export default new OperationalFlow<IVaultingFlowContext, ITransferOutToEthereumS
       amountBaseUnits: DEV_ETHEREUM_TRANSFER_GAS_BUFFER_WEI,
     });
 
-    await clickIfVisible(flow, 'WalletOverlay.closeLeft()', { timeoutMs: 5_000 });
-    await clickIfVisible(flow, 'WalletOverlay.closeRight()', { timeoutMs: 5_000 });
+    await flow.click('WalletOverlay.closeRight()', { timeoutMs: 5_000 });
     await flow.waitFor('WalletOverlay', { state: 'missing', timeoutMs: 10_000 });
 
     if (!(await flow.isVisible('VaultingScreen')).visible) {

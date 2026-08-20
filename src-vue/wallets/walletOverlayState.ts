@@ -7,19 +7,19 @@ export type IWalletSelection =
   | { walletType: WalletType.defaultArgon | WalletType.miningBot }
   | { walletType: WalletType.ethereum; walletRecord: IWalletRecord };
 
-export type IWalletTransferDirection = 'in' | 'out';
 export type IWalletSetupStep = 'choice' | 'external';
-export type IWalletTransferSideState = {
-  wallet?: IWalletSelection;
-  addWalletStep?: IWalletSetupStep;
-  customArgonAddress?: boolean;
-};
+export type IWalletConnectorTarget = { network: 'bitcoin' } | { network: 'ethereum'; walletRecordId: number };
+export type IWalletOverlayCenterView =
+  | { type: 'main' }
+  | {
+      type: 'addEthereum';
+      initialStep: IWalletSetupStep;
+      closeBehavior: 'returnToMain' | 'closeOverlay';
+    };
 
 export type IWalletOverlayState = {
-  primaryWallet?: IWalletSelection;
-  primaryAddWalletStep?: IWalletSetupStep;
-  transferIn?: IWalletTransferSideState;
-  transferOut?: IWalletTransferSideState;
+  centerView: IWalletOverlayCenterView;
+  activeConnector?: IWalletConnectorTarget;
 };
 
 export function getAvailableWalletSelections(
@@ -41,67 +41,38 @@ export function getAvailableWalletSelections(
   return availableWallets.filter(wallet => !openWalletKeys.has(getWalletSelectionKey(wallet)));
 }
 
-export function getInitialWalletOverlayState(requestedWallet: IWalletSelection): IWalletOverlayState {
-  return { primaryWallet: requestedWallet };
+export function getInitialWalletOverlayState(activeConnector?: IWalletConnectorTarget): IWalletOverlayState {
+  return { centerView: { type: 'main' }, activeConnector };
 }
 
-export function selectPrimaryWallet(state: IWalletOverlayState, wallet: IWalletSelection): IWalletOverlayState {
-  return { primaryWallet: wallet };
-}
-
-export function getInitialAddWalletOverlayState(initialStep: IWalletSetupStep): IWalletOverlayState {
-  return { primaryAddWalletStep: initialStep };
-}
-
-export function toggleWalletTransferDirection(
-  state: IWalletOverlayState,
-  direction: IWalletTransferDirection,
-): IWalletOverlayState {
-  const key = direction === 'in' ? 'transferIn' : 'transferOut';
-  if (!state.primaryWallet) return state;
-  return { ...state, [key]: state[key] ? undefined : {} };
-}
-
-export function selectTransferWallet(
-  state: IWalletOverlayState,
-  direction: IWalletTransferDirection,
-  wallet: IWalletSelection,
-): IWalletOverlayState {
-  const key = direction === 'in' ? 'transferIn' : 'transferOut';
-  if (
-    !state.primaryWallet ||
-    !state[key] ||
-    getWalletSelectionKey(state.primaryWallet) === getWalletSelectionKey(wallet)
-  ) {
-    return state;
-  }
-
-  return { ...state, [key]: { wallet } };
-}
-
-export function returnToTransferWalletChooser(
-  state: IWalletOverlayState,
-  direction: IWalletTransferDirection,
-): IWalletOverlayState {
-  const key = direction === 'in' ? 'transferIn' : 'transferOut';
-  return state[key] ? { ...state, [key]: {} } : state;
-}
-
-export function showAddWalletOnTransferSide(
-  state: IWalletOverlayState,
-  direction: IWalletTransferDirection,
+export function getInitialAddWalletOverlayState(
   initialStep: IWalletSetupStep,
+  closeBehavior: 'returnToMain' | 'closeOverlay',
 ): IWalletOverlayState {
-  const key = direction === 'in' ? 'transferIn' : 'transferOut';
-  return state[key] ? { ...state, [key]: { addWalletStep: initialStep } } : state;
+  return {
+    centerView: { type: 'addEthereum', initialStep, closeBehavior },
+  };
 }
 
-export function showCustomArgonAddressOnTransferSide(
+export function showAddWalletInOverlay(state: IWalletOverlayState, initialStep: IWalletSetupStep): IWalletOverlayState {
+  return {
+    ...state,
+    centerView: { type: 'addEthereum', initialStep, closeBehavior: 'returnToMain' },
+    activeConnector: undefined,
+  };
+}
+
+export function closeAddWalletView(state: IWalletOverlayState): IWalletOverlayState | undefined {
+  if (state.centerView.type !== 'addEthereum') return state;
+  if (state.centerView.closeBehavior === 'closeOverlay') return;
+  return showMainWallet(state);
+}
+
+export function showMainWallet(
   state: IWalletOverlayState,
-  direction: IWalletTransferDirection,
+  activeConnector?: IWalletConnectorTarget,
 ): IWalletOverlayState {
-  const key = direction === 'in' ? 'transferIn' : 'transferOut';
-  return state[key] ? { ...state, [key]: { customArgonAddress: true } } : state;
+  return { ...state, centerView: { type: 'main' }, activeConnector };
 }
 
 export function getWalletSelectionKey(wallet: IWalletSelection): string {

@@ -3,6 +3,7 @@ import type { IEthereumInboundTransferState } from '../../interfaces/IEthereumIn
 import type { IEthereumOutboundTransferState } from '../../lib/EthereumOutboundTransferTracker.ts';
 
 export type IWalletCrosschainTransferState = IEthereumOutboundTransferState | IEthereumInboundTransferState;
+export type ICrosschainTransferDirection = 'inbound' | 'outbound';
 
 export type ITransferProgressView = {
   progressPct: number;
@@ -19,6 +20,10 @@ export function isCrosschainTransferPending(transferState: IWalletCrosschainTran
   }
 
   return transferState.isSubmitting || transferState.hasPersistedTransfer;
+}
+
+export function isCrosschainTransferActive(transferState: IWalletCrosschainTransferState | undefined) {
+  return isCrosschainTransferPending(transferState) && !transferState?.needsAttention && !transferState?.isComplete;
 }
 
 export function isCrosschainTransferComplete(transferState: IWalletCrosschainTransferState | undefined) {

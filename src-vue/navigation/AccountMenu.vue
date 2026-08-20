@@ -63,6 +63,10 @@
             />
           </NavigationMenuLink>
           <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+          <NavigationMenuLink MenuItem @click="openWallet">
+            <header>Internal App Wallet</header>
+          </NavigationMenuLink>
+          <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
           <li>
             <NavigationMenuSub
               :model-value="walletsMenuValue"
@@ -78,16 +82,29 @@
                     :class="submenuTriggerClass"
                   >
                     <ChevronLeftIcon class="absolute top-1/2 left-0.5 h-5 w-5 -translate-y-1/2 text-gray-400" />
-                    <header>In-App Wallets</header>
+                    <header>Ethereum Wallets</header>
                   </NavigationMenuTrigger>
                   <NavigationMenuContent class="absolute top-0 left-0 w-full sm:w-auto">
                     <ul class="min-w-50 bg-argon-menu-bg flex shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-                      <NavigationMenuLink MenuItem @click="openWallet(WalletType.defaultArgon)">
-                        <header>Internal App Wallet</header>
+                      <NavigationMenuLink
+                        v-for="wallet in ethereumWallets"
+                        :key="wallet.id"
+                        MenuItem
+                        @click="openEthereumWallet(wallet)"
+                      >
+                        <header>{{ getEthereumWalletDisplayName(wallet.name) }}</header>
+                        <p>{{ abbreviateAddress(wallet.address, 8) }}</p>
+                      </NavigationMenuLink>
+                      <NavigationMenuLink v-if="ethereumWallets.length === 0" disabled MenuItem>
+                        <header>No wallets yet</header>
+                        <p>Add an Ethereum wallet to get started.</p>
                       </NavigationMenuLink>
                       <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-                      <NavigationMenuLink MenuItem @click="openWallet(WalletType.ethereum)">
-                        <header>Ethereum Wallet</header>
+                      <NavigationMenuLink MenuItem @click="addEthereumWallet">
+                        <div class="flex flex-row items-center justify-end gap-x-2">
+                          <PlusIcon class="h-4 w-4 text-argon-600" />
+                          <header>Add New Wallet</header>
+                        </div>
                       </NavigationMenuLink>
                     </ul>
                   </NavigationMenuContent>
@@ -170,24 +187,29 @@ import {
 } from 'reka-ui';
 import ConfigIcon from '../assets/config.svg?component';
 import basicEmitter from '../emitters/basicEmitter.ts';
-import { ChevronLeftIcon } from '@heroicons/vue/24/outline';
+import { ChevronLeftIcon, PlusIcon } from '@heroicons/vue/24/outline';
 import { useTour } from '../stores/tour.ts';
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
 import { OperationalStepId, useCertificationController } from '../stores/certificationController.ts';
 import { useBasics } from '../stores/basics.ts';
-import { WalletType } from '../lib/Wallet.ts';
+import { getEthereumWalletDisplayName, WalletType } from '../lib/Wallet.ts';
 import { getConfig } from '../stores/config.ts';
 import { NetworkConfig } from '@argonprotocol/apps-core';
+import { useWallets } from '../stores/wallets.ts';
+import { abbreviateAddress } from '../lib/Utils.ts';
+import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
 
 const tour = useTour();
 const basics = useBasics();
 const config = getConfig();
 const controller = useCertificationController();
+const wallets = useWallets();
 
 const rootRef = Vue.ref<HTMLElement>();
 const walletsMenuValue = Vue.ref('');
 const resourcesMenuValue = Vue.ref('');
+const ethereumWallets = Vue.computed(() => wallets.walletRecords.filter(wallet => wallet.walletType === 'ethereum'));
 let walletsMenuCloseTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
 let resourcesMenuCloseTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
 
@@ -239,8 +261,21 @@ function takeTheTour() {
   tour.start();
 }
 
-function openWallet(walletType: WalletType) {
-  basicEmitter.emit('openWalletOverlay', { walletType: walletType as any });
+function openWallet() {
+  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.defaultArgon });
+}
+
+function openEthereumWallet(wallet: IWalletRecord) {
+  closeWalletsMenu();
+  basicEmitter.emit('openWalletOverlay', {
+    connectorType: WalletType.ethereum,
+    ethereumWalletRecordId: wallet.id,
+  });
+}
+
+function addEthereumWallet() {
+  closeWalletsMenu();
+  basicEmitter.emit('openWalletOverlayAddConnector', 'choice');
 }
 
 function setWalletsMenuValue(value: string) {
