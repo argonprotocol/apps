@@ -1,5 +1,5 @@
 <template>
-  <div DashBox class="relative flex h-full grow flex-col items-center justify-center">
+  <div DashBox class="relative flex grow flex-col items-center justify-start">
     <div class="relative w-full px-4 py-3">
       <div class="text-argon-600/60 relative z-20 flex flex-row">
         <div class="w-1/3 grow text-left">
@@ -49,9 +49,9 @@
 
     <div
       :class="[wallets.walletRecords.length === 1 ? 'pb-10' : 'pb-0']"
-      class="mx-auto flex max-w-180 grow flex-col justify-center px-[5%] xl:max-w-220"
+      class="mx-auto flex max-w-180 grow flex-col justify-start px-[5%] xl:max-w-220"
     >
-      <h1 class="mt-2 text-4xl font-bold whitespace-nowrap opacity-80 xl:text-5xl">
+      <h1 class="mt-10 text-4xl font-bold whitespace-nowrap opacity-80 xl:text-5xl">
         {{ config.postWelcomeLaunchCount > 0 ? 'Welcome Back to Argon Desktop!' : 'Your Gateway to Argon' }}
       </h1>
 
@@ -70,83 +70,104 @@
         <p v-else>
           This app has three levels of features. You’re currently approved for level one. This means you have full use
           of Argon's cross-chain wallet functionality and bridgeless transfers. Click the Upgrade to Treasury button
-          above to access level two, or click a wallet below to open.
+          above to access level two, or click a connector to open the transfer portal.
         </p>
       </section>
 
-      <section class="mt-10 grid grid-cols-2 gap-3 border-y border-slate-600/20 py-4">
-        <article
-          v-for="wallet of wallets.walletRecords"
-          :key="wallet.id"
-          class="group hover:bg-argon-300/5 cursor-pointer rounded-lg border border-slate-500/30 has-[.wallet-actions:hover]:bg-transparent"
-          @click="openWallet(wallet)"
-        >
-          <div class="mx-2 flex flex-row items-center border-b border-slate-500/20 py-1 pr-1 pl-2">
-            <div class="mr-1 w-4.5 border-r border-slate-500/30 pr-1 opacity-70">
-              <ArgonNetworkLogo v-if="wallet.walletType === 'argon'" class="relative -top-px h-full" />
-              <EthereumNetworkLogo v-else-if="wallet.walletType === 'ethereum'" class="h-full" />
-            </div>
-            <span class="grow font-bold opacity-40">
-              {{ wallet.walletType === 'ethereum' ? getEthereumWalletDisplayName(wallet.name) : wallet.name }}
-            </span>
-            <WalletActions
-              :selection="getWalletSelection(wallet)"
-              :wallet="getWalletData(wallet)"
-              :walletAddressTestId="`AccountOverview.${wallet.id}.address`"
-              :canExportPrivateKey="wallet.role === 'defaultEthereum'"
-              class="wallet-actions justify-end gap-x-0!"
-              @click.stop
-            />
-          </div>
-          <div class="flex cursor-pointer flex-col justify-center pt-5 pb-4">
-            <div class="text-argon-600/70 group-hover:text-argon-600 flex flex-row justify-center text-4xl font-bold">
+      <section class="mt-10 grid grid-cols-2 gap-x-6 text-center">
+        <article class="border-t border-slate-500/30 py-2">
+          <div @click="openWallet" class="hover:bg-argon-100/20 cursor-pointer rounded py-4">
+            <div class="text-argon-600/70 flex flex-row justify-center text-3xl font-bold xl:text-4xl">
               <span>{{ currency.symbol }}</span>
-              <FormattedMoney :isLoaded="walletBalanceIsLoaded(wallet)" :value="getWalletBalance(wallet)" />
+              <FormattedMoney
+                :isLoaded="walletBalanceIsLoaded(internalWallet)"
+                :value="getWalletBalance(internalWallet)"
+              />
             </div>
-            <div
-              v-if="walletBalanceIsLoaded(wallet) && wallet.walletType === 'argon'"
-              class="mx-auto mt-2 w-fit border-t border-slate-500/30 pt-2 text-center opacity-50"
-            >
-              {{ currency.symbol
-              }}{{ microgonToMoneyNm(getWalletBalance(wallet) - financials.savingsTotalPending).format('0,0.00') }}
-              is immediately usable
+            <div class="mt-1 font-light opacity-70">Immediately Usable In Wallet</div>
+          </div>
+        </article>
+
+        <article
+          class="relative border-t border-slate-500/30 py-2 before:absolute before:top-2 before:bottom-2 before:-left-3 before:w-px before:bg-slate-500/30"
+        >
+          <div @click="openWallet" class="hover:bg-argon-100/20 cursor-pointer rounded py-4">
+            <div class="text-argon-600/70 flex flex-row justify-center text-3xl font-bold xl:text-4xl">
+              <span>{{ currency.symbol }}</span>
+              <FormattedMoney
+                :isLoaded="walletBalanceIsLoaded(internalWallet)"
+                :value="getOtherTokenValue(internalWallet)"
+              />
             </div>
-            <div
-              v-else-if="walletBalanceIsLoaded(wallet) && wallet.walletType === 'ethereum'"
-              class="mx-auto mt-2 flex w-fit gap-x-2 border-t border-slate-500/30 pt-2 text-center opacity-50"
-            >
-              {{ currency.symbol }}{{ microgonToMoneyNm(getOtherTokenValue(wallet)).format('0,0.00') }} is in eth or
-              other tokens
+            <div class="mt-1 font-light opacity-70">Actively Minting In Wallet</div>
+          </div>
+        </article>
+        <article class="border-t border-slate-500/30 py-2">
+          <div class="hover:bg-argon-100/20 cursor-pointer rounded py-4">
+            <div class="text-argon-600/70 flex items-baseline justify-center text-3xl font-bold xl:text-4xl">
+              <span>₳0</span>
+              <span class="text-argon-300">.00</span>
             </div>
+            <div class="mt-1 font-light opacity-70">Invested In Treasury</div>
           </div>
         </article>
         <article
-          @click="openAddEthereumWallet"
-          :class="[wallets.walletRecords.length % 2 === 0 ? 'col-span-2 flex-row gap-x-1' : 'flex-col']"
-          class="hover:text-argon-600 hover:bg-argon-300/5 flex cursor-pointer items-center justify-center rounded-lg border border-dashed border-slate-500/40 py-5 font-bold text-slate-800/40"
+          class="relative border-t border-slate-500/30 py-2 before:absolute before:top-2 before:bottom-2 before:-left-3 before:w-px before:bg-slate-500/30"
         >
-          <span
-            class="relative"
-            :class="[wallets.walletRecords.length % 2 === 0 ? '-top-0.5 gap-x-1 text-2xl' : 'mt-3 mb-1 text-4xl']"
-          >
-            +
-          </span>
-          <span>{{ wallets.walletRecords.length <= 1 ? 'Connect' : 'Add Another' }}</span>
-          <span>Ethereum Wallet</span>
+          <div class="hover:bg-argon-100/20 cursor-pointer rounded py-4">
+            <div class="text-argon-600/70 flex items-baseline justify-center text-3xl font-bold xl:text-4xl">
+              <span>₳0</span>
+              <span class="text-argon-300">.00</span>
+            </div>
+            <div class="mt-1 font-light opacity-70">Invested In Operations</div>
+          </div>
         </article>
       </section>
+
+      <section class="mt-1 border-y border-slate-600/20 pt-5 pb-12">
+        <p class="font-light text-slate-900/70">You can connect up to 6 external transfer portals...</p>
+        <div class="text-argon-600/70 mt-5 flex flex-row justify-between">
+          <article
+            @click="openBitcoinConnector()"
+            class="hover:bg-argon-300/5 relative flex size-22 cursor-pointer items-center justify-center rounded-full border-2 border-dashed border-slate-500/30 text-center"
+          >
+            <BitcoinNetworkLogo class="size-10" />
+            <p class="text-argon-600 absolute -bottom-8 mt-1 w-22 font-bold opacity-50">Bitcoin</p>
+          </article>
+          <article
+            v-for="wallet of externalConnectors"
+            :key="wallet.id"
+            class="hover:bg-argon-300/5 relative flex size-22 cursor-pointer items-center justify-center rounded-full border-2 border-dashed border-slate-500/30 text-center"
+            @click="openEthereumConnector(wallet)"
+          >
+            <EthereumNetworkLogo class="size-12" />
+            <p class="text-argon-600 absolute -bottom-8 mt-1 w-22 max-w-full truncate font-bold opacity-50">
+              {{ wallet.walletType === 'ethereum' ? getEthereumWalletDisplayName(wallet.name) : wallet.name }}
+            </p>
+          </article>
+          <article
+            v-for="slot in Math.max(0, 5 - externalConnectors.length)"
+            :key="`add-external-connector-${slot}`"
+            @click="openAddConnector"
+            class="hover:text-argon-600 hover:bg-argon-300/5 flex size-22 cursor-pointer items-center justify-center rounded-full border-2 border-dashed border-slate-500/20 text-center"
+          >
+            <span class="relative -top-1 text-6xl font-light opacity-30">+</span>
+          </article>
+        </div>
+      </section>
+
       <div
-        v-if="wallets.walletRecords.length <= 1"
-        class="relative -top-2 flex flex-row items-start justify-end gap-x-3 pr-[24%]"
+        v-if="!externalConnectors.length"
+        class="relative -top-8 left-[21%] flex flex-row items-end justify-start gap-x-3"
       >
-        <div class="relative top-[75%] text-slate-900/40">
+        <div class="relative">
+          <div class="absolute top-[30px] left-[2px] h-1 w-6 bg-white" />
+          <img src="/arrow.png" class="relative z-10 -scale-x-100" />
+        </div>
+        <div class="relative top-[75%] text-right text-slate-900/40">
           You must connect an Ethereum wallet
           <br />
           to use Argon’s bridgeless transfer.
-        </div>
-        <div class="relative">
-          <div class="absolute top-[6px] right-[-3px] h-1 w-6 bg-white" />
-          <img src="/arrow.png" class="relative z-10" />
         </div>
       </div>
     </div>
@@ -170,9 +191,8 @@ import type { IWalletSelection } from '../wallets/walletOverlayState.ts';
 import { useFinancials } from '../stores/financials.ts';
 import { getConfig } from '../stores/config.ts';
 import { useWallets } from '../stores/wallets.ts';
-import ArgonNetworkLogo from '../assets/wallets/networks/argon.svg';
 import EthereumNetworkLogo from '../assets/wallets/networks/ethereum.svg';
-import WalletActions from '../wallets/components/WalletActions.vue';
+import BitcoinNetworkLogo from '../assets/networks/bitcoin.svg';
 
 const financials = useFinancials();
 const currency = getCurrency();
@@ -186,6 +206,14 @@ const { microgonToNm, microgonToMoneyNm } = createNumeralHelpers(currency);
 const targetDiff = Vue.computed(() => {
   const adjusted = currency.adjustByTargetOffset(oneArgon);
   return bigIntAbs(adjusted - oneArgon);
+});
+
+const internalWallet = Vue.computed<IWalletRecord>(() => {
+  return wallets.walletRecords.filter(x => x.walletType === 'argon')[0];
+});
+
+const externalConnectors = Vue.computed<IWalletRecord[]>(() => {
+  return wallets.walletRecords.filter(x => x.walletType !== 'argon');
 });
 
 function getWalletSelection(walletRecord: IWalletRecord): IWalletSelection {
@@ -220,20 +248,23 @@ function getOtherTokenValue(walletRecord: IWalletRecord): bigint {
   }, 0n);
 }
 
-function openWallet(walletRecord: IWalletRecord) {
-  if (walletRecord.walletType === 'ethereum') {
-    basicEmitter.emit('openWalletOverlay', {
-      walletType: WalletType.ethereum,
-      ethereumWalletRecordId: walletRecord.id,
-    });
-    return;
-  }
-
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
+function openWallet() {
+  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.defaultArgon });
 }
 
-function openAddEthereumWallet() {
-  basicEmitter.emit('openEthereumWalletImportOverlay', 'external');
+function openEthereumConnector(walletRecord: IWalletRecord) {
+  basicEmitter.emit('openWalletOverlay', {
+    connectorType: WalletType.ethereum,
+    ethereumWalletRecordId: walletRecord.id,
+  });
+}
+
+function openBitcoinConnector() {
+  basicEmitter.emit('openWalletOverlay', { connectorType: 'bitcoin' });
+}
+
+function openAddConnector() {
+  basicEmitter.emit('openWalletOverlayAddConnector', 'external');
 }
 </script>
 

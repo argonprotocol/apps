@@ -58,7 +58,7 @@ const isOpen = Vue.ref(false);
 const floatingZIndex = useFloatingZIndex();
 
 function openWalletOverlay() {
-  basicEmitter.emit('openWalletOverlay', { walletType: props.walletType });
+  basicEmitter.emit('openWalletOverlay', { connectorType: props.walletType });
 }
 
 let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;

@@ -1,30 +1,27 @@
 <!-- prettier-ignore -->
 <template>
-  <div ref="rootRef" class="pointer-events-auto relative flex flex-row items-center" @mouseenter="onMouseEnter" @mouseleave="onMouseLeave">
+  <div ref="rootRef" data-wallet-menu-surface class="pointer-events-auto relative flex flex-row items-center" @mouseenter="onMouseEnter" @mouseleave="onMouseLeave">
     <DropdownMenuRoot :openDelay="0" :closeDelay="0" v-model:open="isOpen">
       <DropdownMenuTrigger
         Trigger
         :data-testid="props.testIdPrefix ? `${props.testIdPrefix}.openMenu()` : undefined"
-        class="focus:outline-none"
-        :class="
-          $slots.trigger
-            ? 'cursor-pointer'
-            : [
-                'group relative flex cursor-pointer flex-col items-center justify-center gap-y-[2px] rounded-md text-slate-400 hover:bg-slate-400/10 hover:text-slate-500 data-[state=open]:bg-slate-400/10 data-[state=open]:text-slate-500',
-                props.showBorders ? 'h-[34px] w-[34px] border border-slate-400/60' : 'h-[22px] w-[22px]',
-              ]
-        "
+        class="focus:outline-none cursor-pointer"
       >
-        <slot v-if="$slots.trigger" name="trigger" />
-        <template v-else>
-          <span class="h-1 w-1 rounded-full bg-current" />
-          <span class="h-1 w-1 rounded-full bg-current" />
-          <span class="h-1 w-1 rounded-full bg-current" />
-        </template>
+        <span
+          class="flex h-[34px] w-[34px] cursor-pointer items-center justify-center rounded-md border text-slate-500/60 hover:bg-[#f1f3f7]"
+          :class="
+            props.showBorders
+              ? 'border-slate-400/60 hover:border-slate-500/60'
+              : 'border-transparent hover:border-slate-500/30'
+          "
+        >
+          <MoreIcon class="h-4" />
+        </span>
       </DropdownMenuTrigger>
 
       <DropdownMenuPortal>
         <DropdownMenuContent
+          data-wallet-menu-surface
           @mouseenter="onMouseEnter"
           @mouseleave="onMouseLeave"
           @pointerDownOutside="clickOutside"
@@ -46,16 +43,37 @@
             </template>
             <DropdownMenuItem MenuItem @select="toggleQRCode" class="pl-0!">
               <div v-if="!showQrCode" ItemWrapper>
-                <header>{{ showQrCode ? 'Hide' : 'Show' }} Wallet QR Code</header>
-                <QrCodeIcon class="w-4 h-4" />
+                <header>Send Tokens</header>
+                <SendIcon class="w-4 h-4" />
               </div>
-<!--              <DropdownMenuSeparator v-if="showQrCode" divider class="my-1 h-[1px] w-full bg-slate-400/30" />-->
+              <img v-if="showQrCode" :src="qrCode" class="w-40 max-w-full mt-1.5" :alt="`QR Code Wallet Address`" />
+            </DropdownMenuItem>
+            <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            <DropdownMenuItem MenuItem @select="toggleQRCode" class="pl-0!">
+              <div v-if="!showQrCode" ItemWrapper>
+                <header>Receive Tokens</header>
+                <SendIcon class="w-4 h-4 scale-x-[-1]" />
+              </div>
               <img v-if="showQrCode" :src="qrCode" class="w-40 max-w-full mt-1.5" :alt="`QR Code Wallet Address`" />
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
             <DropdownMenuItem MenuItem @click="() => openRecovery()" >
+              <CopyToClipboard
+                :content="props.wallet.address"
+              >
+                <div ItemWrapper>
+                  <header>{{ isEthereumWalletSelection(props.selection) ? 'Copy Ethereum Address' : 'Copy Argon Address' }}</header>
+                  <CopyIcon class="w-3.5" />
+                </div>
+                <template #copying>
+                  <CopyIcon class="w-3.5" />
+                </template>
+              </CopyToClipboard>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
+            <DropdownMenuItem MenuItem @click="() => openRecovery()" >
               <div ItemWrapper>
-                <header>Open Recovery Phrase</header>
+                <header>View Private Key</header>
                 <ShieldCheckIcon class="w-4 h-4" />
               </div>
             </DropdownMenuItem>
@@ -69,13 +87,6 @@
               </DropdownMenuItem>
             </template>
             <template v-if="isEthereumWalletSelection(props.selection)">
-              <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
-              <DropdownMenuItem MenuItem @click="updateTokens">
-                <div ItemWrapper>
-                  <header>Update Tokens</header>
-                  <ArrowPathIcon class="h-4 w-4" />
-                </div>
-              </DropdownMenuItem>
               <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
               <DropdownMenuItem MenuItem @click="disconnectWallet">
                 <div ItemWrapper>
@@ -106,18 +117,14 @@ import {
 import type { PointerDownOutsideEvent } from 'reka-ui';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { WalletType } from '../../lib/Wallet.ts';
-import {
-  ArrowPathIcon,
-  KeyIcon,
-  LinkSlashIcon,
-  WindowIcon,
-  QrCodeIcon,
-  ShieldCheckIcon,
-} from '@heroicons/vue/24/outline';
+import { KeyIcon, LinkSlashIcon, WindowIcon, ShieldCheckIcon } from '@heroicons/vue/24/outline';
 import QRCode from 'qrcode';
 import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 import { isEthereumWalletSelection, type IWalletSelection } from '../walletOverlayState.ts';
-import { useWallets } from '../../stores/wallets.ts';
+import CopyToClipboard from '../../components/CopyToClipboard.vue';
+import CopyIcon from '../../assets/copy.svg';
+import MoreIcon from '../../assets/more.svg';
+import SendIcon from '../../assets/send.svg';
 
 const props = withDefaults(
   defineProps<{
@@ -137,10 +144,13 @@ const props = withDefaults(
 
 const rootRef = Vue.ref<HTMLElement>();
 const isOpen = Vue.ref(false);
-const floatingZIndex = useFloatingZIndex();
+const floatingZIndex = useFloatingZIndex(2);
 const showQrCode = Vue.ref(false);
 const qrCode = Vue.ref('');
-const wallets = useWallets();
+type PortalSubmenu = 'outgoing' | 'incoming';
+const activePortalSubmenu = Vue.ref<PortalSubmenu>();
+const hoveredPortalSubmenu = Vue.ref<PortalSubmenu>();
+let portalSubmenuCloseTimeoutId: ReturnType<typeof setTimeout> | undefined;
 
 // Expose the root element to parent components
 defineExpose({
@@ -169,12 +179,6 @@ function disconnectWallet() {
   basicEmitter.emit('openWalletDisconnectOverlay', { walletRecordId: props.selection.walletRecord.id });
 }
 
-function updateTokens() {
-  if (!isEthereumWalletSelection(props.selection)) return;
-  isOpen.value = false;
-  void wallets.refreshEthereumWalletRecord(props.selection.walletRecord.id);
-}
-
 function openRecovery() {
   basicEmitter.emit('openSecuritySettingsOverlay', { screen: 'mnemonics' });
 }
@@ -186,13 +190,13 @@ function openEthereumPrivateKeyExport() {
 function openWallet() {
   if (isEthereumWalletSelection(props.selection)) {
     basicEmitter.emit('openWalletOverlay', {
-      walletType: WalletType.ethereum,
+      connectorType: WalletType.ethereum,
       ethereumWalletRecordId: props.selection.walletRecord.id,
     });
     return;
   }
 
-  basicEmitter.emit('openWalletOverlay', { walletType: props.selection.walletType });
+  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.defaultArgon });
 }
 
 let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
@@ -205,7 +209,9 @@ function onMouseEnter() {
   isOpen.value = true;
 }
 
-function onMouseLeave() {
+function onMouseLeave(event: MouseEvent) {
+  if ((event.relatedTarget as HTMLElement | null)?.closest('[data-wallet-menu-surface]')) return;
+
   if (mouseLeaveTimeoutId) {
     clearTimeout(mouseLeaveTimeoutId);
   }
@@ -228,8 +234,22 @@ function clickOutside(e: PointerDownOutsideEvent) {
   e.preventDefault();
   return false;
 }
+
+Vue.watch(isOpen, open => {
+  if (open) return;
+  if (portalSubmenuCloseTimeoutId) clearTimeout(portalSubmenuCloseTimeoutId);
+  portalSubmenuCloseTimeoutId = undefined;
+  activePortalSubmenu.value = undefined;
+  hoveredPortalSubmenu.value = undefined;
+});
+
 Vue.onMounted(() => {
   void loadQRCode();
+});
+
+Vue.onBeforeUnmount(() => {
+  if (mouseLeaveTimeoutId) clearTimeout(mouseLeaveTimeoutId);
+  if (portalSubmenuCloseTimeoutId) clearTimeout(portalSubmenuCloseTimeoutId);
 });
 </script>
 

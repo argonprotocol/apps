@@ -281,7 +281,7 @@ function goBackToInvite() {
 
 function openWallet() {
   closeOverlay();
-  basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
+  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.defaultArgon });
 }
 
 async function useWalletMaximum() {

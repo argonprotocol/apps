@@ -19,6 +19,7 @@ import { SATS_PER_BTC } from './BitcoinLock.js';
 const TWENTY_FOUR_HOURS_IN_MILLISECONDS = 24 * 60 * 60e3;
 const HISTORICAL_MAINCHAIN_RATE_CACHE_SIZE = 256;
 
+export const WEI_PER_ETH = 1_000_000_000_000_000_000n;
 export const SATOSHIS_PER_BITCOIN = SATS_PER_BTC;
 export const MICRONOTS_PER_ARGONOT = 1_000_000;
 
@@ -281,13 +282,25 @@ export class Currency {
     }
   }
 
-  public convertSatToBtc(sats: bigint): number {
-    if (!sats) return 0;
-    return Number(sats) / Number(SATOSHIS_PER_BITCOIN);
+  public convertWeiToEth(wei: bigint): number {
+    if (!wei) return 0;
+    const ethBn = BigNumber(wei).dividedBy(WEI_PER_ETH);
+    return ethBn.toNumber();
   }
 
-  public convertBtcToMicrogon(bitcoins: number): bigint {
-    const microgonsBn = BigNumber(bitcoins).multipliedBy(this.microgonsPer.BTC);
+  public convertEthToMicrogon(eth: number): bigint {
+    const microgonsBn = BigNumber(eth).multipliedBy(this.microgonsPer.ETH);
+    return BigInt(Math.floor(microgonsBn.toNumber()));
+  }
+
+  public convertSatToBtc(sats: bigint): number {
+    if (!sats) return 0;
+    const btcBn = BigNumber(sats).dividedBy(SATOSHIS_PER_BITCOIN);
+    return btcBn.toNumber();
+  }
+
+  public convertBtcToMicrogon(btc: number): bigint {
+    const microgonsBn = BigNumber(btc).multipliedBy(this.microgonsPer.BTC);
     return BigInt(Math.floor(microgonsBn.toNumber()));
   }
 

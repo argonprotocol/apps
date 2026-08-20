@@ -1231,7 +1231,7 @@ async function getAppQueryRefs(): Promise<IAppQueryRefs> {
     getEthereumOutboundTransferTracker,
     getMainchainClient,
     openWalletOverlay(walletType) {
-      basicEmitter.emit('openWalletOverlay', { walletType });
+      basicEmitter.emit('openWalletOverlay', { connectorType: walletType });
     },
   };
 }
