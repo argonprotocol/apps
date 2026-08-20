@@ -85,13 +85,32 @@ export function createNumeralHelpers(currency: Currency | Vue.Reactive<Currency>
       return numeral(currency.convertMicronotTo(micronots, toUnit));
     },
 
+    weiToEthNm(this: void, wei: bigint): Numeral {
+      let eth = currency.convertWeiToEth(wei);
+      if (eth > 0 && eth < 0.000001) {
+        eth = 0.000001;
+      }
+      return numeral(eth);
+    },
+    weiToMoneyNm(this: void, wei: bigint): Numeral {
+      let eth = currency.convertWeiToEth(wei);
+      if (eth > 0 && eth < 0.000001) {
+        eth = 0.000001;
+      }
+      const microgons = currency.convertEthToMicrogon(eth);
+      return numeral(currency.convertMicrogonTo(microgons, currency.key));
+    },
+
     satToMoneyNm(this: void, sats: bigint): Numeral {
       const btc = currency.convertSatToBtc(sats);
       const microgons = currency.convertBtcToMicrogon(btc);
       return numeral(currency.convertMicrogonTo(microgons, currency.key));
     },
     satToBtcNm(this: void, sats: bigint): Numeral {
-      const btc = currency.convertSatToBtc(sats);
+      let btc = currency.convertSatToBtc(sats);
+      if (btc > 0 && btc < 0.000001) {
+        btc = 0.000001;
+      }
       return numeral(btc);
     },
     satToNm(this: void, sats: bigint, toUnit: UnitOfMeasurement): Numeral {

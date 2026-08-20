@@ -59,6 +59,11 @@ export function getWalletTotalValue(wallet: IWallet, currency: Currency): bigint
   return wallet.totalMicrogons + micronotValue + otherTokenValue;
 }
 
+export function getWalletArgonValue(wallet: IWallet, currency: Currency): bigint {
+  const micronotValue = currency.convertMicronotTo(wallet.totalMicronots, UnitOfMeasurement.Microgon);
+  return wallet.totalMicrogons + micronotValue;
+}
+
 export function getEthereumWalletDisplayName(name: string): string {
   const trimmedName = name.trim();
   return /(?:^|\s)wallet$/i.test(trimmedName) ? trimmedName : `${trimmedName} Wallet`;

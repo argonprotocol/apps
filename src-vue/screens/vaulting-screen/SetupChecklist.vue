@@ -290,7 +290,7 @@ function openVaultCreateOverlay() {
 
 function openFundVaultingAccountOverlay() {
   basicEmitter.emit('openWalletOverlay', {
-    walletType: WalletType.defaultArgon,
+    connectorType: WalletType.defaultArgon,
     showGuidance: true,
     guidanceContext: 'vaulting',
   });

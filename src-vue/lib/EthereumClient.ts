@@ -50,6 +50,7 @@ import { getMainchainClient } from '../stores/mainchain.ts';
 import { SERVER_ENV_VARS } from './Env.ts';
 import { getArgonFinalityMillis } from './TransactionInfo.ts';
 import type { WalletKeys } from './WalletKeys.ts';
+import type { IWalletRecord } from './db/WalletsTable.ts';
 
 export type { IEthereumMoveToken } from '../interfaces/IEthereumInboundTransferTracker.ts';
 
@@ -57,6 +58,7 @@ export type IEthereumTransferToArgon = {
   moveToken: IEthereumMoveToken;
   amountBaseUnits: bigint;
   destinationAddress: string;
+  sourceAddress?: string;
   executionRpcUrl: string;
   sourceTxHash: Hash;
   sourceBlockNumber?: number;
@@ -184,12 +186,14 @@ type IPreparedGatewayRelay = IEthereumGatewayRelayPreview & {
 
 export class EthereumClient {
   #outboundFinalizationQueue = new SingleFileQueue();
+  #inboundSubmissionQueues = new Map<string, SingleFileQueue>();
 
   constructor(
     private readonly walletKeys: Pick<
       WalletKeys,
       | 'configureEthereumSignerPolicy'
       | 'ethereumAddress'
+      | 'ethereumHdPath'
       | 'signEthereumPermit'
       | 'signEthereumTransaction'
       | 'vaultingAddress'
@@ -241,40 +245,58 @@ export class EthereumClient {
     moveToken: IEthereumMoveToken;
     amountBaseUnits: bigint;
     destinationAddress: string;
+    ethereumWallet?: IWalletRecord;
   }): Promise<IEthereumTransferToArgon> {
-    const { moveToken, amountBaseUnits, destinationAddress } = args;
-    const { publicClient, transaction, unsignedTransaction } = await this.prepareTransferToArgon(args);
-    const signature = await this.walletKeys.signEthereumTransaction(unsignedTransaction);
-    const sourceTxHash = await submitEthereumTransaction({
-      publicClient,
-      serializedTransaction: serializeTransaction(transaction, signature),
-      fallbackErrorMessage: 'Unable to submit the Ethereum transaction right now.',
-    });
+    const sourceAddress = (args.ethereumWallet?.address ?? this.walletKeys.ethereumAddress).toLowerCase();
+    let queue = this.#inboundSubmissionQueues.get(sourceAddress);
+    if (!queue) {
+      queue = new SingleFileQueue();
+      this.#inboundSubmissionQueues.set(sourceAddress, queue);
+    }
 
-    return {
-      moveToken,
-      amountBaseUnits,
-      destinationAddress,
-      executionRpcUrl: this.executionRpcUrl,
-      sourceTxHash,
-    };
+    return await queue.add(async () => {
+      const { moveToken, amountBaseUnits, destinationAddress } = args;
+      const { publicClient, transaction, unsignedTransaction } = await this.prepareTransferToArgon(args);
+      const signature = await this.walletKeys.signEthereumTransaction(
+        unsignedTransaction,
+        this.walletKeys.ethereumHdPath,
+        args.ethereumWallet,
+      );
+      const sourceTxHash = await submitEthereumTransaction({
+        publicClient,
+        serializedTransaction: serializeTransaction(transaction, signature),
+        fallbackErrorMessage: 'Unable to submit the Ethereum transaction right now.',
+      });
+
+      return {
+        moveToken,
+        amountBaseUnits,
+        destinationAddress,
+        sourceAddress,
+        executionRpcUrl: this.executionRpcUrl,
+        sourceTxHash,
+      };
+    }).promise;
   }
 
   public async estimateTransferToArgonFee(args: {
     moveToken: IEthereumMoveToken;
     amountBaseUnits: bigint;
     destinationAddress: string;
+    ethereumWallet?: IWalletRecord;
   }): Promise<bigint> {
     const { feeEstimateWei } = await this.prepareTransferToArgon(args);
     return feeEstimateWei;
   }
 
-  public async estimateFinalizeTransferOutOfArgonFee(args: IEthereumFinalizeTransferOutOfArgonArgs): Promise<bigint> {
+  public async estimateFinalizeTransferOutOfArgonFee(
+    args: IEthereumFinalizeTransferOutOfArgonArgs & { ethereumWallet?: IWalletRecord; ethereumAddress?: string },
+  ): Promise<bigint> {
     const chainConfig = await this.loadChainConfig();
     const { chain, publicClient } = await this.createExecutionClient();
     const { feeEstimateWei } = await buildEthereumUnsignedTransaction({
       publicClient,
-      from: getAddress(this.walletKeys.ethereumAddress),
+      from: getAddress(args.ethereumWallet?.address ?? args.ethereumAddress ?? this.walletKeys.ethereumAddress),
       chainId: chain.id,
       to: chainConfig.gatewayAddress,
       data: encodeFunctionData({
@@ -310,10 +332,10 @@ export class EthereumClient {
     );
   }
 
-  public async getNativeBalanceWei(): Promise<bigint> {
+  public async getNativeBalanceWei(ethereumWallet?: IWalletRecord): Promise<bigint> {
     const { publicClient } = await this.createExecutionClient();
     return await publicClient.getBalance({
-      address: getAddress(this.walletKeys.ethereumAddress),
+      address: getAddress(ethereumWallet?.address ?? this.walletKeys.ethereumAddress),
     });
   }
 
@@ -495,13 +517,15 @@ export class EthereumClient {
     }
   }
 
-  public async finalizeTransferOutOfArgon(args: IEthereumFinalizeTransferOutOfArgonArgs): Promise<Hash> {
+  public async finalizeTransferOutOfArgon(
+    args: IEthereumFinalizeTransferOutOfArgonArgs & { ethereumWallet?: IWalletRecord },
+  ): Promise<Hash> {
     return await this.#outboundFinalizationQueue.add(async () => {
       const chainConfig = await this.loadChainConfig();
       const { chain, publicClient } = await this.createExecutionClient();
       const { transaction, unsignedTransaction } = await buildEthereumUnsignedTransaction({
         publicClient,
-        from: getAddress(this.walletKeys.ethereumAddress),
+        from: getAddress(args.ethereumWallet?.address ?? this.walletKeys.ethereumAddress),
         chainId: chain.id,
         to: chainConfig.gatewayAddress,
         data: encodeFunctionData({
@@ -511,7 +535,11 @@ export class EthereumClient {
         }),
       });
       await this.ensureEthereumSignerPolicyConfigured(chainConfig);
-      const signature = await this.walletKeys.signEthereumTransaction(unsignedTransaction);
+      const signature = await this.walletKeys.signEthereumTransaction(
+        unsignedTransaction,
+        this.walletKeys.ethereumHdPath,
+        args.ethereumWallet,
+      );
       return await submitEthereumTransaction({
         publicClient,
         serializedTransaction: serializeTransaction(transaction, signature),
@@ -802,6 +830,7 @@ export class EthereumClient {
     moveToken: IEthereumMoveToken;
     amountBaseUnits: bigint;
     destinationAddress: string;
+    ethereumWallet?: IWalletRecord;
   }) {
     const { moveToken, amountBaseUnits, destinationAddress } = args;
     const mainchainClient = await getMainchainClient(false);
@@ -809,7 +838,7 @@ export class EthereumClient {
     const tokenAddress =
       moveToken === MoveToken.ARGNOT ? chainConfig.argonotTokenAddress : chainConfig.argonTokenAddress;
     const { chain, publicClient } = await this.createExecutionClient();
-    const from = getAddress(this.walletKeys.ethereumAddress);
+    const from = getAddress(args.ethereumWallet?.address ?? this.walletKeys.ethereumAddress);
     const runtimeAmount = convertEthereumBaseUnitsToRuntimeAmount(amountBaseUnits);
     const latestBlock = await publicClient.getBlock();
     const permitDeadline = latestBlock.timestamp + 3600n;
@@ -833,6 +862,7 @@ export class EthereumClient {
       value: amountBaseUnits,
       nonce: permitNonce,
       deadline: permitDeadline,
+      walletRecord: args.ethereumWallet,
     });
     const argonDestination = mainchainClient.createType('AccountId32', destinationAddress).toHex();
     const callData = encodeFunctionData({

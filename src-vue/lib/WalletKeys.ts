@@ -300,15 +300,19 @@ export class WalletKeys {
     );
   }
 
-  public async signEthereumTransaction(unsignedTransaction: Hex, hdPath = this.ethereumHdPath): Promise<Signature> {
+  public async signEthereumTransaction(
+    unsignedTransaction: Hex,
+    hdPath = this.ethereumHdPath,
+    walletRecord = this.activeEthereumWalletRecord,
+  ): Promise<Signature> {
     this.requireSigningAccess();
-    if (hdPath === this.ethereumHdPath && this.canUseExternalEthereumSigner()) {
+    if (hdPath === this.ethereumHdPath && this.canUseExternalEthereumSigner(walletRecord)) {
       return await invokeWithTimeout<Signature>(
         'sign_external_ethereum_transaction',
         {
-          encryptedSecret: this.activeEthereumWalletRecord!.encryptedSecret,
-          secretKind: this.activeEthereumWalletRecord!.secretKind,
-          hdPath: this.activeEthereumWalletRecord!.derivationPath,
+          encryptedSecret: walletRecord!.encryptedSecret,
+          secretKind: walletRecord!.secretKind,
+          hdPath: walletRecord!.derivationPath,
           request: { unsignedTransaction },
         },
         60e3,
@@ -327,6 +331,7 @@ export class WalletKeys {
     value: bigint;
     nonce: bigint;
     deadline: bigint;
+    walletRecord?: IWalletRecord;
   }): Promise<{ v: number; r: string; s: string }> {
     this.requireSigningAccess();
     const request = {
@@ -336,13 +341,14 @@ export class WalletKeys {
       nonce: args.nonce.toString(),
       deadline: args.deadline.toString(),
     };
-    if (this.canUseExternalEthereumSigner()) {
+    const walletRecord = args.walletRecord ?? this.activeEthereumWalletRecord;
+    if (this.canUseExternalEthereumSigner(walletRecord)) {
       return await invokeWithTimeout<{ v: number; r: string; s: string }>(
         'sign_external_ethereum_permit',
         {
-          encryptedSecret: this.activeEthereumWalletRecord!.encryptedSecret,
-          secretKind: this.activeEthereumWalletRecord!.secretKind,
-          hdPath: this.activeEthereumWalletRecord!.derivationPath,
+          encryptedSecret: walletRecord!.encryptedSecret,
+          secretKind: walletRecord!.secretKind,
+          hdPath: walletRecord!.derivationPath,
           request,
         },
         60e3,
@@ -453,12 +459,8 @@ export class WalletKeys {
     if (!this.canSign) throw new WalletSigningUnavailableError();
   }
 
-  private canUseExternalEthereumSigner(): boolean {
-    return (
-      this.activeEthereumWalletRecord?.role === 'externalEthereum' &&
-      !!this.activeEthereumWalletRecord.encryptedSecret &&
-      !!this.activeEthereumWalletRecord.secretKind
-    );
+  private canUseExternalEthereumSigner(walletRecord = this.activeEthereumWalletRecord): boolean {
+    return walletRecord?.role === 'externalEthereum' && !!walletRecord.encryptedSecret && !!walletRecord.secretKind;
   }
 }
 
