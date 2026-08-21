@@ -189,7 +189,7 @@
                   <template v-if="selectedTipMicronots > 0n">
                     {{ formatArgonot(selectedTipMicronots) }} ARGNOT
                   </template>
-                  <template v-if="selectedTipMicrogons === 0n && selectedTipMicronots === 0n">0 ARGN</template>
+                  <template v-if="selectedTipMicrogons === 0n && selectedTipMicronots === 0n">0</template>
                   tip
                 </template>
                 <template v-else>Select one or more transfer requests to fund.</template>

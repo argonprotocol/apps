@@ -304,9 +304,7 @@ export async function activateOperationalAccountSetup(args: {
   if (!operatorName) {
     operatorName = currentOperatorName;
     const setupAttempt = await args.transactionTracker.findLatestTxAttempt<{ operatorName?: string }>({
-      extrinsicType: createdVault
-        ? ExtrinsicType.VaultSetBitcoinLockDelegate
-        : ExtrinsicType.OperationalSetProfileName,
+      extrinsicType: createdVault ? ExtrinsicType.VaultSetBitcoinLockDelegate : ExtrinsicType.OperationalSetProfileName,
       waitForConfirmations: 2,
     });
     if (!operatorName && setupAttempt && setupAttempt.txAttemptState !== TxAttemptState.Replace) {
