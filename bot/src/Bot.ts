@@ -407,12 +407,8 @@ export default class Bot {
     if (!bitcoinBlockNumbers.mainNode) return false;
     if (bitcoinBlockNumbers.localNode < bitcoinBlockNumbers.mainNode) return false;
 
-    const argonBlockNumbers = await DockerStatus.getArgonBlockNumbers();
-    if (!argonBlockNumbers.mainNode) return false;
-    if (argonBlockNumbers.localNode < argonBlockNumbers.mainNode) return false;
-
-    const isArgonMinerReady = await DockerStatus.isArgonMinerReady();
-    if (!isArgonMinerReady) return false;
+    const argonSyncPercent = await DockerStatus.getArgonSyncPercent();
+    if (argonSyncPercent !== 100) return false;
 
     return true;
   }
