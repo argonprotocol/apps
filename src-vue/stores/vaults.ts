@@ -40,15 +40,14 @@ export function getVaults(): Vaults {
 
         void vaults
           .subscribeToOperatorName(vaultId, name => {
-            if (!isCurrent) return;
+            if (!isCurrent || !name) return;
 
             const upstreamOperator = config.upstreamOperator;
             if (!upstreamOperator || upstreamOperator.vaultId !== vaultId) return;
 
-            const currentName = name ?? '';
-            if (upstreamOperator.name === currentName) return;
+            if (upstreamOperator.name === name) return;
 
-            config.upstreamOperator = { ...upstreamOperator, name: currentName };
+            config.upstreamOperator = { ...upstreamOperator, name };
             void config.save();
           })
           .then(nextUnsubscribe => {

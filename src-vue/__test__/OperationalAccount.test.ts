@@ -304,9 +304,13 @@ it('restores a finalized operator name transaction when the profile query initia
   };
   const transactionTracker = {
     load: vi.fn(),
-    findLatestTxAttempt: vi.fn().mockResolvedValue({
-      txInfo: profileTransaction,
-      txAttemptState: TxAttemptState.Finalized,
+    findLatestTxAttempt: vi.fn(async ({ extrinsicType }) => {
+      if (extrinsicType !== ExtrinsicType.VaultSetBitcoinLockDelegate) return;
+
+      return {
+        txInfo: profileTransaction,
+        txAttemptState: TxAttemptState.Finalized,
+      };
     }),
   };
   const walletKeys = {
