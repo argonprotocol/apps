@@ -19,7 +19,7 @@
           <p>
             Your vault has
             <strong>
-              {{ currency.symbol }}{{ microgonToMoneyNm(collectRevenue).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+              {{ currency.symbol }}{{ microgonToMoneyNm(collectRevenue).format('0,0.00') }}
             </strong>
             in uncollected revenue.
             <CountdownClock :time="nextCollectDueDate" v-slot="{ hours, minutes, days, seconds }">
@@ -36,7 +36,7 @@
                 if not,
                 <strong>
                   {{ currency.symbol
-                  }}{{ microgonToMoneyNm(myVault.data.expiringCollectAmount).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+                  }}{{ microgonToMoneyNm(myVault.data.expiringCollectAmount).format('0,0.00') }}
                 </strong>
                 will be lost forever.
               </template>
@@ -63,7 +63,7 @@
             will result in your vault forfeiting
             <strong>
               {{ currency.symbol
-              }}{{ microgonToMoneyNm(manualPendingCosignSum).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+              }}{{ microgonToMoneyNm(manualPendingCosignSum).format('0,0.00') }}
             </strong>
             in securitization.
           </template>
@@ -177,7 +177,7 @@
               for
               <strong>
                 {{ currency.symbol
-                }}{{ microgonToMoneyNm(pendingAuthorizedTransferRewardAmount).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+                }}{{ microgonToMoneyNm(pendingAuthorizedTransferRewardAmount).format('0,0.00') }}
               </strong>.
             </template>
             <span v-else>.</span>
@@ -191,7 +191,9 @@
                   type="button"
                   class="focus-visible:ring-argon-500 inline cursor-pointer appearance-none rounded-sm bg-transparent p-0 text-left text-inherit underline decoration-dotted underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1">
                   <strong>
-                    {{ mintingAuthorizeOpportunityCount }} crosschain authorization{{ mintingAuthorizeOpportunityCount === 1 ? '' : 's' }}
+                    {{ mintingAuthorizeOpportunityCount }} crosschain authorization{{
+                      mintingAuthorizeOpportunityCount === 1 ? '' : 's'
+                    }}
                   </strong>
                 </button>
               </PopoverTrigger>
@@ -203,46 +205,82 @@
                   :collisionPadding="24"
                   :avoidCollisions="true"
                   :style="{ zIndex: floatingZIndex }"
-                  class="relative w-[min(560px,calc(100vw-2rem))] rounded-lg border border-gray-300 bg-white text-left text-sm text-slate-700 shadow-lg">
+                  class="relative w-2xl max-w-[calc(100vw-2rem)] rounded-lg border border-gray-300 bg-white text-left text-sm text-slate-700 shadow-lg">
                   <PopoverPanelArrow />
                   <div class="max-h-[min(480px,calc(100vh-3rem))] overflow-y-auto px-5 py-4">
-                    <h2 class="mb-3 text-lg font-bold text-slate-800">Crosschain Authorizations</h2>
-                    <div class="flex flex-col gap-3">
-                      <div
+                    <div class="mb-3">
+                      <h2 class="text-lg font-bold text-slate-800">Crosschain Authorizations</h2>
+                      <p class="text-slate-500">Click a transfer for details.</p>
+                    </div>
+                    <div class="overflow-hidden rounded-md border border-slate-200">
+                      <details
                         v-for="authorization in myVault.mintingAuthorities.data.pendingMintingAuthorizations"
                         :key="authorization.transferId"
-                        class="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
-                        <CrosschainTransferDetails
-                          :transfer="authorization"
-                          :sourceIdentity="getSourceIdentity(authorization.sourceAccount)"
-                          :sourceTotals="getSourceTotals(authorization.sourceAccount)"
-                          :recipientSeen="crosschainHistory.hasSeenRecipient(
-                            authorization.finalizeRequest.recipient,
-                            authorization.transferId,
-                          )"
-                          progress="Waiting for your minting-authority signature"
-                        />
-                      </div>
+                        class="group border-b border-slate-200 last:border-b-0">
+                        <summary class="flex cursor-pointer list-none items-center gap-x-4 px-4 py-3 hover:bg-slate-50">
+                          <div class="min-w-0 grow">
+                            <div class="flex items-center gap-x-2">
+                              <span class="font-semibold text-slate-800">
+                                Authorize {{ authorization.moveToken }} to Ethereum
+                              </span>
+                              <span
+                                v-if="getSourceIdentity(authorization.sourceAccount)"
+                                class="max-w-48 truncate rounded bg-slate-200/70 px-2 py-0.5 text-xs font-medium text-slate-600">
+                                {{ formatCrosschainSourceIdentity(getSourceIdentity(authorization.sourceAccount)!) }}
+                              </span>
+                            </div>
+                            <div class="mt-0.5 text-sm text-slate-500">Waiting for your minting-authority signature</div>
+                          </div>
+                          <div class="shrink-0 text-right">
+                            <div class="font-mono font-semibold text-slate-700">
+                              {{ formatTokenAmount(authorization.finalizeRequest.amount, authorization.moveToken) }}
+                            </div>
+                            <div class="mt-0.5 text-xs text-slate-500">
+                              {{ formatTokenAmount(authorization.mintingAuthorityTipShare, authorization.moveToken) }} tip
+                            </div>
+                          </div>
+                          <div class="text-slate-400 transition-transform group-open:rotate-90">›</div>
+                        </summary>
+
+                        <div class="border-t border-dashed border-slate-200 bg-slate-50/70 px-6 py-4">
+                          <CrosschainTransferDetails
+                            :transfer="authorization"
+                            :sourceIdentity="getSourceIdentity(authorization.sourceAccount)"
+                            :sourceTotals="getSourceTotals(authorization.sourceAccount)"
+                            :recipientSeen="crosschainHistory.hasSeenRecipient(
+                              authorization.finalizeRequest.recipient,
+                              authorization.transferId,
+                            )"
+                            progress="Waiting for your minting-authority signature"
+                          />
+                        </div>
+                      </details>
                     </div>
                   </div>
                 </PopoverContent>
               </PopoverPortal>
             </PopoverRoot>
             <strong v-else>
-              {{ mintingAuthorizeOpportunityCount }} crosschain authorization{{ mintingAuthorizeOpportunityCount === 1 ? '' : 's' }}
+              {{ mintingAuthorizeOpportunityCount }} crosschain authorization{{
+                mintingAuthorizeOpportunityCount === 1 ? '' : 's'
+              }}
             </strong>
             ready on Argon
             <template v-if="mintingAuthorizeRewardAmount > 0n">
               for
               <strong>
                 {{ currency.symbol
-                }}{{ microgonToMoneyNm(mintingAuthorizeRewardAmount).formatIfElse('< 1_000', '0,0.00', '0,0') }}
+                }}{{ microgonToMoneyNm(mintingAuthorizeRewardAmount).format('0,0.00') }}
               </strong>.
             </template>
             <span v-else>.</span>
           </p>
 
-          <p v-else class="mt-2 text-sm text-slate-600">No crosschain authorizations are currently available.</p>
+          <p
+            v-if="!isMintingAuthorizeBusy && mintingAuthorizeOpportunityCount === 0"
+            class="mt-2 text-sm text-slate-600">
+            No crosschain authorizations are currently available.
+          </p>
         </div>
 
         <div
@@ -287,7 +325,7 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
-import { MoveTo } from '@argonprotocol/apps-core';
+import { MICROGONS_PER_ARGON, MICRONOTS_PER_ARGONOT, MoveTo, MoveToken } from '@argonprotocol/apps-core';
 import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui';
 import CountdownClock from '../components/CountdownClock.vue';
 import CrosschainActivityDetails from '../components/CrosschainActivityDetails.vue';
@@ -296,7 +334,7 @@ import PopoverPanelArrow from '../components/PopoverPanelArrow.vue';
 import { getCrosschainHistory, getKnownCrosschainSourceIdentities, getMyVault } from '../stores/vaults.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
-import { formatCouncilTarget } from '../lib/CrosschainTransferView.ts';
+import { formatCouncilTarget, formatCrosschainSourceIdentity } from '../lib/CrosschainTransferView.ts';
 import ProgressBar from '../components/ProgressBar.vue';
 import OverlayBase from './OverlayBase.vue';
 import { getActiveTransactionInfos, trackTransactionProgress } from '../lib/TransactionProgress.ts';
@@ -313,7 +351,7 @@ const emit = defineEmits<{
 const myVault = getMyVault();
 const crosschainHistory = getCrosschainHistory();
 const currency = getCurrency();
-const { microgonToMoneyNm } = createNumeralHelpers(currency);
+const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const knownSourceIdentities = Vue.computed(() => {
   return getKnownCrosschainSourceIdentities();
@@ -484,6 +522,20 @@ function getSourceTotals(accountId: string) {
   return myVault.mintingAuthorities.data.sourceTotalsByAccount.get(accountId);
 }
 
+function formatTokenAmount(amount: bigint, moveToken: MoveToken.ARGN | MoveToken.ARGNOT) {
+  if (moveToken === MoveToken.ARGNOT) {
+    const value =
+      amount > 0n && amount < BigInt(MICRONOTS_PER_ARGONOT) / 100n
+        ? '<0.01'
+        : micronotToArgonotNm(amount).format('0,0.[00]');
+    return `${value} ARGNOT`;
+  }
+
+  const value =
+    amount > 0n && amount < BigInt(MICROGONS_PER_ARGON) / 100n ? '<0.01' : microgonToArgonNm(amount).format('0,0.[00]');
+  return `${value} ARGN`;
+}
+
 function syncNoticeState() {
   const notice = myVault.collectBuilder.getNotice();
   collectRevenue.value = notice?.collectRevenue ?? 0n;
@@ -651,7 +703,7 @@ function getMintingAuthorizeCompletionMessage(txInfos: TransactionInfo[]) {
   let earnedRewardAmount = 0n;
 
   for (const txInfo of txInfos as TransactionInfo<{
-    authorizations: Array<{ mintingAuthorityTip: bigint }>;
+    authorizations: Array<{ mintingAuthorityTip: bigint; mintingAuthorityTipValueMicrogons?: bigint }>;
   }>[]) {
     const errorCode = txInfo.tx.blockExtrinsicErrorJson?.errorCode;
     if (errorCode && errorCode !== 'TransferOutAlreadyReady' && errorCode !== 'InvalidTransferCollateralUpdate') {
@@ -667,7 +719,11 @@ function getMintingAuthorizeCompletionMessage(txInfos: TransactionInfo[]) {
     completedCount += completedForTx;
     earnedRewardAmount += authorizations
       .slice(0, completedForTx)
-      .reduce((sum, { mintingAuthorityTip }) => sum + mintingAuthorityTip, 0n);
+      .reduce(
+        (sum, { mintingAuthorityTip, mintingAuthorityTipValueMicrogons }) =>
+          sum + (mintingAuthorityTipValueMicrogons ?? mintingAuthorityTip),
+        0n,
+      );
   }
 
   if (completedCount === attemptedCount) {
@@ -677,7 +733,7 @@ function getMintingAuthorizeCompletionMessage(txInfos: TransactionInfo[]) {
   if (completedCount > 0) {
     return `Authorized ${completedCount} of ${attemptedCount} crosschain transfer${
       attemptedCount === 1 ? '' : 's'
-    }, earning ${currency.symbol}${microgonToMoneyNm(earnedRewardAmount).formatIfElse('< 1_000', '0,0.00', '0,0')}. Any missed authorizations will stay available as needed.`;
+    }, earning ${currency.symbol}${microgonToMoneyNm(earnedRewardAmount).format('0,0.00')}. Any missed authorizations will stay available as needed.`;
   }
 
   return 'Another minting authority claimed this opportunity before your transaction landed. Any remaining minting authorizations will stay available.';

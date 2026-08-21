@@ -1,17 +1,22 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
-import { MICROGONS_PER_ARGON, MoveToken, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { MICRONOTS_PER_ARGONOT, MoveToken, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import * as Vue from 'vue';
-import { expect, fn, mocked, within } from 'storybook/test';
+import { expect, fn, mocked, waitFor, within } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 import { TopTab } from '../../../src-vue/interfaces/IConfig.ts';
 import { CrosschainHistory, type ICrosschainHistoryRecord } from '../../../src-vue/lib/CrosschainHistory.ts';
 import { createKnownCrosschainSourceIdentities } from '../../../src-vue/lib/CrosschainTransferView.ts';
+import type { IMintingAuthorityAuthorization } from '../../../src-vue/lib/MintingAuthorities.ts';
+import type { IVaultCollectNotice } from '../../../src-vue/lib/VaultCollectBuilder.ts';
+import VaultAlert from '../../../src-vue/alerts/VaultAlert.vue';
+import VaultCollectOverlay from '../../../src-vue/overlays/VaultCollectOverlay.vue';
 import CrosschainTransfers from '../../../src-vue/screens/CrosschainTransfers.vue';
 import { getCurrency } from '../../../src-vue/stores/currency.ts';
 import {
   getCrosschainHistory,
   getKnownCrosschainSourceIdentities,
+  getMyVault,
   getVaults,
 } from '../../../src-vue/stores/vaults.ts';
 import { getWalletKeys } from '../../../src-vue/stores/wallets.ts';
@@ -36,11 +41,9 @@ export const RecoveredTransferTips: Story = {
       config: { hasActivatedCrosschain: true },
     });
 
-    const currency = getCurrency();
-    currency._key = UnitOfMeasurement.ARGN;
-    currency.record = currency.recordsByKey[UnitOfMeasurement.ARGN];
-    currency.symbol = currency.record.symbol;
-    currency.isLoaded = true;
+    selectUsdCurrency();
+
+    getMyVault().globalCouncil.data.transferOutMicrogonsPerArgonot = 10_000_000n;
 
     const vault = createScenarioVault({ operatorAccountId: recoveredSourceAccount });
     const vaults = getVaults();
@@ -84,9 +87,86 @@ export const RecoveredTransferTips: Story = {
     await expect(dashboard).toBeVisible();
     await expect(within(dashboard).getByText('Transfer Tips')).toBeVisible();
     await expect(within(dashboard).getByText('Tips Available')).toBeVisible();
-    await expect(within(dashboard).getByText('1.25 ARGN tip')).toBeVisible();
+    await expect(within(dashboard).getByText('0.5 ARGNOT tip')).toBeVisible();
     await expect(within(dashboard).getAllByText('Atlas')).not.toHaveLength(0);
-    await expect(within(crosschainNavigation).getByText('₳1.25')).toBeVisible();
+    await expect(
+      within(within(dashboard).getByText('Remaining Minting Authority').parentElement!).getByText('$0.00'),
+    ).toBeVisible();
+    await expect(
+      within(within(dashboard).getByText('Transfer Value Sponsored').parentElement!).getByText('$50.00'),
+    ).toBeVisible();
+    await expect(within(within(dashboard).getByText('Transfer Tips').parentElement!).getByText('$2.00')).toBeVisible();
+    await expect(within(within(dashboard).getByText('Tips Available').parentElement!).getByText('$0.00')).toBeVisible();
+    await expect(within(crosschainNavigation).getByText('$2.00')).toBeVisible();
+  },
+};
+
+export const PendingTipAlert: Story = {
+  render: () => ({
+    components: { VaultAlert },
+    setup: () => ({ notice: pendingTipNotice }),
+    template: '<div class="w-screen"><VaultAlert :notice="notice" variant="bar" /></div>',
+  }),
+  beforeEach: () => {
+    setupAppScenario({ selectedTab: TopTab.CrosschainTransfers, config: { hasActivatedCrosschain: true } });
+    selectUsdCurrency();
+  },
+  play: async ({ canvasElement }) => {
+    const alert = within(canvasElement).getByTestId('VaultAlert.bar');
+
+    await expect(alert).toBeVisible();
+    await expect(within(alert).getByText('$2.00 in crosschain authorization tips is processing')).toBeVisible();
+  },
+};
+
+export const PendingAuthorizationOverlay: Story = {
+  render: () => ({
+    components: { VaultCollectOverlay },
+    template: '<VaultCollectOverlay />',
+  }),
+  beforeEach: () => {
+    setupAppScenario({ selectedTab: TopTab.CrosschainTransfers, config: { hasActivatedCrosschain: true } });
+    selectUsdCurrency();
+
+    const myVault = getMyVault();
+    myVault.mintingAuthorities.data.authorities = [
+      {
+        signer: '0xauthority',
+        isPendingActivation: false,
+        isDeactivating: false,
+        isActive: true,
+        gatewayRemainingMicrogonCollateral: 0n,
+        pendingReservedMicrogonCollateral: 0n,
+        gatewayRemainingMicronotCollateral: 2_000_000n,
+        pendingReservedMicronotCollateral: 0n,
+        activePendingTransferIds: [],
+      },
+    ];
+    myVault.mintingAuthorities.data.pendingMintingAuthorizations = [pendingAuthorization];
+    myVault.mintingAuthorities.data.sourceTotalsByAccount.set(pendingAuthorization.sourceAccount, {
+      microgonsOut: 0n,
+      micronotsOut: 5n * BigInt(MICRONOTS_PER_ARGONOT),
+      transferOutCount: 1,
+    });
+    Object.assign(myVault, {
+      collectBuilder: {
+        getNotice: () => pendingAuthorizationNotice,
+      },
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const overlay = within(canvasElement.ownerDocument.body);
+
+    await waitFor(() => expect(overlay.getByRole('button', { name: '1 crosschain authorization' })).toBeVisible());
+    overlay.getByRole('button', { name: '1 crosschain authorization' }).click();
+
+    await waitFor(() => expect(overlay.getByText('5 ARGNOT')).toBeVisible());
+    await expect(overlay.getByText('Click a transfer for details.')).toBeVisible();
+    await expect(overlay.getByText('0.5 ARGNOT tip')).toBeVisible();
+
+    overlay.getByText('Authorize ARGNOT to Ethereum').click();
+    await expect(overlay.getByText('Lifetime sent to Ethereum')).toBeVisible();
+    await expect(overlay.getByText('Waiting for your minting-authority signature', { selector: 'dd' })).toBeVisible();
   },
 };
 
@@ -105,10 +185,75 @@ const recoveredAuthorization: ICrosschainHistoryRecord = {
     authorityOwnerAccount: '5SyntheticVaultingWallet',
     sourceAccount: recoveredSourceAccount,
     destinationAccount: '0xrecipient',
-    moveToken: MoveToken.ARGN,
-    amount: 5n * BigInt(MICROGONS_PER_ARGON),
-    tip: 1_250_000n,
-    microgonCollateral: 10n * BigInt(MICROGONS_PER_ARGON),
-    micronotCollateral: 1_000_000n,
+    moveToken: MoveToken.ARGNOT,
+    amount: 5n * BigInt(MICRONOTS_PER_ARGONOT),
+    microgonsPerArgonot: 4_000_000n,
+    tip: 500_000n,
+    tipValueMicrogons: 2_000_000n,
+    microgonCollateral: 0n,
+    micronotCollateral: 2_000_000n,
   },
 };
+
+const pendingTipNotice: IVaultCollectNotice = {
+  isProcessing: true,
+  collectRevenue: 0n,
+  expiringCollectAmount: 0n,
+  nextCollectDueDate: 0,
+  signatureCount: 0,
+  orphanSignatureCount: 0,
+  nextCosignDueDate: 0,
+  councilApprovalCount: 0,
+  authorizedTransferCount: 0,
+  authorizedTransferRewardAmount: 0n,
+  pendingAuthorizedTransferCount: 1,
+  pendingAuthorizedTransferRewardAmount: 2_000_000n,
+  signaturePenalty: 0n,
+  earningsAmountMicrogons: 0n,
+  amountAtRiskMicrogons: 0n,
+  transactionCount: 1,
+  processing: undefined,
+};
+
+const pendingAuthorization: IMintingAuthorityAuthorization = {
+  transferId: `0x${'01'.repeat(32)}`,
+  authorityIndex: 0,
+  moveToken: MoveToken.ARGNOT,
+  sourceAccount: '5SyntheticSourceWallet',
+  destinationSigningKey: '0xauthority',
+  finalizeRequest: {
+    argonAccountId: `0x${'02'.repeat(32)}`,
+    argonTransferNonce: 1n,
+    chainId: 1n,
+    recipient: `0x${'03'.repeat(20)}`,
+    validUntilBlock: 1_000n,
+    token: `0x${'04'.repeat(20)}`,
+    amount: 5n * BigInt(MICRONOTS_PER_ARGONOT),
+    mintingAuthorityTip: 1_000_000n,
+    microgonsPerArgonot: 4_000_000n,
+  },
+  authorizationHash: `0x${'05'.repeat(32)}`,
+  mintingAuthorityTip: 1_000_000n,
+  mintingAuthorityTipShare: 500_000n,
+  mintingAuthorityTipValueMicrogons: 2_000_000n,
+  microgonCollateral: 0n,
+  micronotCollateral: 2_000_000n,
+  securityAmountMicrogons: 8_000_000n,
+};
+
+const pendingAuthorizationNotice: IVaultCollectNotice = {
+  ...pendingTipNotice,
+  isProcessing: false,
+  authorizedTransferCount: 1,
+  authorizedTransferRewardAmount: 2_000_000n,
+  pendingAuthorizedTransferCount: 0,
+  pendingAuthorizedTransferRewardAmount: 0n,
+};
+
+function selectUsdCurrency() {
+  const currency = getCurrency();
+  currency._key = UnitOfMeasurement.USD;
+  currency.record = currency.recordsByKey[UnitOfMeasurement.USD];
+  currency.symbol = currency.record.symbol;
+  currency.isLoaded = true;
+}

@@ -21,7 +21,7 @@
             {{ formatTokenAmount(record.details.amount, record.details.moveToken) }}
           </div>
           <div class="mt-0.5 text-xs text-slate-500">
-            {{ formatArgon(record.details.tip ?? record.details.reward ?? 0n) }} ARGN tip
+            {{ formatTokenAmount(record.details.tip, record.details.moveToken) }} tip
           </div>
         </div>
         <div class="text-slate-400 transition-transform group-open:rotate-90">›</div>

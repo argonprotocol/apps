@@ -82,7 +82,8 @@ export class VaultCollectBuilder {
     const pendingMintingAuthorizations = myVault.mintingAuthorities.data.pendingMintingAuthorizations;
     const authorizedTransferCount = pendingMintingAuthorizations.length;
     const authorizedTransferRewardAmount = pendingMintingAuthorizations.reduce(
-      (sum, { mintingAuthorityTip }) => sum + mintingAuthorityTip,
+      (sum, { mintingAuthorityTip, mintingAuthorityTipValueMicrogons }) =>
+        sum + (mintingAuthorityTipValueMicrogons ?? mintingAuthorityTip),
       0n,
     );
     const pendingAuthorizeTxInfos = new Map<number, { metadataJson: IMintingAuthorityAuthorizeMetadata }>();
@@ -96,7 +97,8 @@ export class VaultCollectBuilder {
     for (const { metadataJson } of pendingAuthorizeTxInfos.values()) {
       pendingAuthorizedTransferCount += metadataJson.authorizations.length;
       pendingAuthorizedTransferRewardAmount += metadataJson.authorizations.reduce(
-        (sum, { mintingAuthorityTip }) => sum + mintingAuthorityTip,
+        (sum, { mintingAuthorityTip, mintingAuthorityTipValueMicrogons }) =>
+          sum + (mintingAuthorityTipValueMicrogons ?? mintingAuthorityTip),
         0n,
       );
     }

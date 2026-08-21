@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MoveTo, NetworkConfig } from '@argonprotocol/apps-core';
+import { MoveTo, MoveToken, NetworkConfig } from '@argonprotocol/apps-core';
 import { getBitcoinAlertNotices } from '../lib/Alerts.ts';
 import { BITCOIN_BLOCK_MILLIS, TICK_MILLIS } from '../lib/Env.ts';
+import type { IMintingAuthorityAuthorization, IMintingAuthorityAuthorizeMetadata } from '../lib/MintingAuthorities.ts';
 import { VaultCollectBuilder } from '../lib/VaultCollectBuilder.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
@@ -28,7 +29,26 @@ describe('VaultCollectBuilder.getNotice', () => {
         },
         pendingCosignUtxosById: new Map([[11, { targetValue: 50n }]]),
         globalCouncilPendingApprovals: 1,
-        pendingMintingAuthorizationTips: [25n, 15n, 10n],
+        pendingMintingAuthorizations: [
+          {
+            moveToken: MoveToken.ARGNOT,
+            mintingAuthorityTip: 1_000n,
+            mintingAuthorityTipShare: 100n,
+            mintingAuthorityTipValueMicrogons: 25n,
+          },
+          {
+            moveToken: MoveToken.ARGN,
+            mintingAuthorityTip: 15n,
+            mintingAuthorityTipShare: 15n,
+            mintingAuthorityTipValueMicrogons: 15n,
+          },
+          {
+            moveToken: MoveToken.ARGN,
+            mintingAuthorityTip: 10n,
+            mintingAuthorityTipShare: 10n,
+            mintingAuthorityTipValueMicrogons: 10n,
+          },
+        ],
         nextCollectDueDate: 1234,
         nextCosignDueDate: 5678,
       }),
@@ -64,7 +84,14 @@ describe('VaultCollectBuilder.getNotice', () => {
     const notice = createCollectBuilder(
       vaultSource({
         globalCouncilPendingApprovals: 2,
-        pendingMintingAuthorizationTips: [25n],
+        pendingMintingAuthorizations: [
+          {
+            moveToken: MoveToken.ARGNOT,
+            mintingAuthorityTip: 1_000n,
+            mintingAuthorityTipShare: 100n,
+            mintingAuthorityTipValueMicrogons: 25n,
+          },
+        ],
       }),
     ).getNotice();
 
@@ -91,6 +118,39 @@ describe('VaultCollectBuilder.getNotice', () => {
 
   it('returns null when there is nothing to collect or sign', () => {
     expect(createCollectBuilder(vaultSource()).getNotice()).toBeNull();
+  });
+
+  it('keeps the snapshot-valued tip share while an ARGNOT authorization is processing', () => {
+    const metadataJson: IMintingAuthorityAuthorizeMetadata = {
+      actionType: 'authorizeTransfer',
+      authorizations: [
+        {
+          authorityIndex: 0,
+          transferId: '0xtransfer',
+          mintingAuthorityTip: 1_250_000n,
+          mintingAuthorityTipShare: 500_000n,
+          mintingAuthorityTipValueMicrogons: 2_000_000n,
+          microgonCollateral: 0n,
+          micronotCollateral: 2_000_000n,
+        },
+      ],
+    };
+    const notice = createCollectBuilder(
+      vaultSource({
+        pendingMintingAuthorizeTxInfosByTransferId: new Map([
+          [
+            '0xtransfer',
+            {
+              isPostProcessed: false,
+              tx: { id: 1, metadataJson },
+            },
+          ],
+        ]),
+      }),
+    ).getNotice();
+
+    expect(notice?.pendingAuthorizedTransferCount).toBe(1);
+    expect(notice?.pendingAuthorizedTransferRewardAmount).toBe(2_000_000n);
   });
 
   it('surfaces orphan release signatures without other vault work', () => {
@@ -249,15 +309,20 @@ function vaultSource(
     pendingMintingAuthorizeTxInfosByTransferId: Map<
       string,
       {
+        isPostProcessed: boolean;
         tx: {
-          metadataJson: {
-            actionType: 'authorizeTransfer';
-          };
+          id: number;
+          metadataJson: IMintingAuthorityAuthorizeMetadata;
         };
       }
     >;
     globalCouncilPendingApprovals: number;
-    pendingMintingAuthorizationTips: bigint[];
+    pendingMintingAuthorizations: Array<
+      Pick<
+        IMintingAuthorityAuthorization,
+        'moveToken' | 'mintingAuthorityTip' | 'mintingAuthorityTipShare' | 'mintingAuthorityTipValueMicrogons'
+      >
+    >;
     pendingCosignUtxosById: Map<number, { targetValue: bigint }>;
     pendingOrphanCosignCount: number;
     myPendingBitcoinCosignTxInfosByUtxoId: Map<number, unknown>;
@@ -275,9 +340,7 @@ function vaultSource(
     mintingAuthorities: {
       data: {
         authorities: [],
-        pendingMintingAuthorizations: Array.from(data.pendingMintingAuthorizationTips ?? [], mintingAuthorityTip => ({
-          mintingAuthorityTip,
-        })),
+        pendingMintingAuthorizations: data.pendingMintingAuthorizations ?? [],
         pendingMintingAuthorizeTxInfosByTransferId: data.pendingMintingAuthorizeTxInfosByTransferId ?? new Map(),
       },
     },
