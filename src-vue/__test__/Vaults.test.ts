@@ -1,7 +1,8 @@
 import type { IAllVaultStats } from '@argonprotocol/apps-core';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Vaults } from '../lib/Vaults.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
+import { optionCodec } from '../../core/__test__/helpers/codecs.ts';
 
 class TestVaults extends Vaults {
   public async persist(stats: IAllVaultStats): Promise<void> {
@@ -42,5 +43,28 @@ describe('Vaults stats storage', () => {
 
     expect(savedStats).not.toBeNull();
     await expect(vaults.restore()).resolves.toEqual(stats);
+  });
+});
+
+describe('Vault operator names', () => {
+  it('loads requested names from operational profiles', async () => {
+    const client = {
+      query: {
+        operationalAccounts: {
+          operationalAccountBySubAccount: {
+            multi: vi.fn(async () => [optionCodec(`0x${'01'.repeat(32)}`)]),
+          },
+          operationalAccounts: {
+            multi: vi.fn(async () => [optionCodec({ name: optionCodec({ toUtf8: () => 'Atlas' }) })]),
+          },
+        },
+      },
+    };
+    setMainchainClients({ get: vi.fn(async () => client) } as any);
+    const vaults = new Vaults('dev-docker', {} as any, {} as any);
+
+    await vaults.refreshOperatorNames({ vaults: [{ vaultId: 1, operatorAccountId: `0x${'02'.repeat(32)}` }] });
+
+    expect(vaults.operatorNamesByVaultId[1]).toBe('Atlas');
   });
 });

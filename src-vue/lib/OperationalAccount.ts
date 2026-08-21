@@ -211,15 +211,11 @@ export async function ensureOperationalAccountRegistered(
   });
 }
 
-export function usesOperationalProfileNameRuntime(client: ArgonClient): boolean {
-  return !('setName' in client.tx.vaults);
-}
-
 export function getOperationalProfileName(accountRaw: Option<PalletOperationalAccountsOperationalAccount>): string {
-  if (accountRaw.isNone) return '';
+  if (!accountRaw.isSome) return '';
 
   const name = accountRaw.unwrap().name;
-  return name?.isSome ? name.unwrap().toUtf8().trim() : '';
+  return name.isSome ? name.unwrap().toUtf8().trim() : '';
 }
 
 export function getOnboardingSetupStatus(args: {
@@ -228,11 +224,10 @@ export function getOnboardingSetupStatus(args: {
   hasVault: boolean;
   isServerInstalled: boolean;
   operatorName: string;
-  usesOperationalProfile: boolean;
 }): OnboardingSetupStatus {
   if (!args.hasOnboardingHistory) return OnboardingSetupStatus.None;
 
-  const hasRequiredOperation = args.usesOperationalProfile ? args.hasVault || args.hasMiningSeats : args.hasVault;
+  const hasRequiredOperation = args.hasVault || args.hasMiningSeats;
   if (args.isServerInstalled && isValidOperatorName(args.operatorName) && hasRequiredOperation) {
     return OnboardingSetupStatus.Finished;
   }
@@ -266,10 +261,6 @@ export async function setOperationalProfileName(args: {
   }
 
   const client = args.client ?? (await getMainchainClient(false));
-  if (!usesOperationalProfileNameRuntime(client)) {
-    throw new Error('The connected runtime does not support operational profile names.');
-  }
-
   await args.transactionTracker.load();
   const currentName = getOperationalProfileName(await loadOperationalAccount(args.walletKeys, client));
   if (currentName === name) return;
@@ -304,32 +295,22 @@ export async function activateOperationalAccountSetup(args: {
 }): Promise<IOperationalAccountSetup> {
   await Promise.all([args.myVault.load(), args.transactionTracker.load()]);
 
-  const usesOperationalProfile = usesOperationalProfileNameRuntime(args.client);
-  const hasVault = !!args.myVault.createdVault;
-  if (!usesOperationalProfile && !hasVault) {
-    throw new Error('Create a vault before activating member onboarding.');
-  }
+  const createdVault = args.myVault.createdVault;
+  const hasVault = !!createdVault;
+  const operationalAccount = await loadOperationalAccount(args.walletKeys, args.client);
+  const currentOperatorName = getOperationalProfileName(operationalAccount);
 
   let operatorName = args.operatorName.trim();
-  if (!operatorName && usesOperationalProfile) {
-    operatorName = getOperationalProfileName(await loadOperationalAccount(args.walletKeys, args.client));
+  if (!operatorName) {
+    operatorName = currentOperatorName;
     const setupAttempt = await args.transactionTracker.findLatestTxAttempt<{ operatorName?: string }>({
-      extrinsicType: ExtrinsicType.OperationalSetProfileName,
+      extrinsicType: createdVault
+        ? ExtrinsicType.VaultSetBitcoinLockDelegate
+        : ExtrinsicType.OperationalSetProfileName,
       waitForConfirmations: 2,
     });
     if (!operatorName && setupAttempt && setupAttempt.txAttemptState !== TxAttemptState.Replace) {
       operatorName = setupAttempt.txInfo.tx.metadataJson.operatorName?.trim() ?? '';
-    }
-  }
-
-  if (!operatorName && !usesOperationalProfile) {
-    operatorName = args.myVault.createdVault?.name?.trim() ?? '';
-    const setupAttempt = await args.transactionTracker.findLatestTxAttempt<{ vaultName?: string }>({
-      extrinsicType: ExtrinsicType.VaultSetBitcoinLockDelegate,
-      waitForConfirmations: 2,
-    });
-    if (!operatorName && setupAttempt && setupAttempt.txAttemptState !== TxAttemptState.Replace) {
-      operatorName = setupAttempt.txInfo.tx.metadataJson.vaultName?.trim() ?? '';
     }
   }
 
@@ -338,10 +319,7 @@ export async function activateOperationalAccountSetup(args: {
   }
 
   let transaction: TransactionInfo | undefined;
-  if (hasVault) {
-    const currentOperatorName = usesOperationalProfile
-      ? getOperationalProfileName(await loadOperationalAccount(args.walletKeys, args.client))
-      : args.myVault.createdVault?.name;
+  if (createdVault) {
     transaction = await args.myVault.setupVaultInviteProfile({
       operatorName,
       currentOperatorName,
@@ -412,10 +390,7 @@ export async function loadOperationalAccountSetup(args: {
   walletKeys: WalletKeys;
   vault?: Vault;
 }): Promise<IOperationalAccountSetup> {
-  const usesOperationalProfile = usesOperationalProfileNameRuntime(args.client);
-  const operatorName = usesOperationalProfile
-    ? getOperationalProfileName(await loadOperationalAccount(args.walletKeys, args.client))
-    : (args.vault?.name?.trim() ?? '');
+  const operatorName = getOperationalProfileName(await loadOperationalAccount(args.walletKeys, args.client));
 
   let vaultDelegateIsReady = true;
   if (args.vault) {

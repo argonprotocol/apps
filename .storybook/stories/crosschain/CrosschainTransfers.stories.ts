@@ -6,9 +6,16 @@ import AppScreen from '../../components/AppScreen.vue';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 import { TopTab } from '../../../src-vue/interfaces/IConfig.ts';
 import { CrosschainHistory, type ICrosschainHistoryRecord } from '../../../src-vue/lib/CrosschainHistory.ts';
+import { createKnownCrosschainSourceIdentities } from '../../../src-vue/lib/CrosschainTransferView.ts';
 import CrosschainTransfers from '../../../src-vue/screens/CrosschainTransfers.vue';
 import { getCurrency } from '../../../src-vue/stores/currency.ts';
-import { getCrosschainHistory } from '../../../src-vue/stores/vaults.ts';
+import {
+  getCrosschainHistory,
+  getKnownCrosschainSourceIdentities,
+  getVaults,
+} from '../../../src-vue/stores/vaults.ts';
+import { getWalletKeys } from '../../../src-vue/stores/wallets.ts';
+import { createScenarioVault } from '../../scenarios/createScenarioVault.ts';
 
 const meta = {
   title: 'Crosschain/Overview',
@@ -34,6 +41,21 @@ export const RecoveredTransferTips: Story = {
     currency.record = currency.recordsByKey[UnitOfMeasurement.ARGN];
     currency.symbol = currency.record.symbol;
     currency.isLoaded = true;
+
+    const vault = createScenarioVault({ operatorAccountId: recoveredSourceAccount });
+    const vaults = getVaults();
+    vaults.vaultsById[vault.vaultId] = vault;
+    mocked(vaults.load).mockImplementation(async () => {
+      vaults.operatorNamesByVaultId[vault.vaultId] = 'Atlas';
+    });
+    mocked(getKnownCrosschainSourceIdentities).mockImplementation(() =>
+      createKnownCrosschainSourceIdentities({
+        networkName: 'localnet',
+        vaultsById: vaults.vaultsById,
+        operatorNamesByVaultId: vaults.operatorNamesByVaultId,
+        localAccountIds: [getWalletKeys().defaultArgonAddress],
+      }),
+    );
 
     const history = new CrosschainHistory(
       { vaultingAddress: '5SyntheticVaultingWallet' },
@@ -63,10 +85,12 @@ export const RecoveredTransferTips: Story = {
     await expect(within(dashboard).getByText('Transfer Tips')).toBeVisible();
     await expect(within(dashboard).getByText('Tips Available')).toBeVisible();
     await expect(within(dashboard).getByText('1.25 ARGN tip')).toBeVisible();
+    await expect(within(dashboard).getAllByText('Atlas')).not.toHaveLength(0);
     await expect(within(crosschainNavigation).getByText('₳1.25')).toBeVisible();
   },
 };
 
+const recoveredSourceAccount = '5source';
 const recoveredAuthorization: ICrosschainHistoryRecord = {
   accountId: '5SyntheticVaultingWallet',
   id: '0xblock:2',
@@ -79,7 +103,7 @@ const recoveredAuthorization: ICrosschainHistoryRecord = {
     transferId: '0xtransfer',
     authoritySigningKey: '0xauthority',
     authorityOwnerAccount: '5SyntheticVaultingWallet',
-    sourceAccount: '5source',
+    sourceAccount: recoveredSourceAccount,
     destinationAccount: '0xrecipient',
     moveToken: MoveToken.ARGN,
     amount: 5n * BigInt(MICROGONS_PER_ARGON),

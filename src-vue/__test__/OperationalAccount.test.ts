@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { Keyring } from '@argonprotocol/mainchain';
+import { getOfflineRegistry, Keyring } from '@argonprotocol/mainchain';
 import {
   activateOperationalAccountSetup,
   canRequestOperationsUpgrade,
@@ -7,7 +7,6 @@ import {
   getOnboardingSetupStatus,
   isValidOperatorName,
   setOperationalProfileName,
-  usesOperationalProfileNameRuntime,
 } from '../lib/OperationalAccount.ts';
 import { ExtrinsicType } from '../interfaces/ITransactionRecord.ts';
 import { OnboardingSetupStatus } from '../interfaces/IConfig.ts';
@@ -23,6 +22,12 @@ vi.mock('@argonprotocol/apps-core', async importOriginal => ({
   ...(await importOriginal()),
   getVaultByOperator: appsCoreMocks.getVaultByOperator,
 }));
+
+function createOperationalAccount(name: string) {
+  return getOfflineRegistry().createType('Option<PalletOperationalAccountsOperationalAccount>', {
+    name: name || null,
+  });
+}
 
 it.each([
   {
@@ -56,8 +61,7 @@ it.each([
 
 it.each([
   {
-    runtime: 'previous runtime with a vault',
-    usesOperationalProfile: false,
+    operation: 'a vault',
     hasMiningSeats: false,
     hasVault: true,
     isServerInstalled: true,
@@ -65,40 +69,28 @@ it.each([
     expected: OnboardingSetupStatus.Finished,
   },
   {
-    runtime: 'previous runtime without a vault',
-    usesOperationalProfile: false,
+    operation: 'mining seats',
     hasMiningSeats: true,
+    hasVault: false,
+    isServerInstalled: true,
+    operatorName: 'OperatorOne',
+    expected: OnboardingSetupStatus.Finished,
+  },
+  {
+    operation: 'no active operation',
+    hasMiningSeats: false,
     hasVault: false,
     isServerInstalled: true,
     operatorName: 'OperatorOne',
     expected: OnboardingSetupStatus.Checklist,
   },
-  {
-    runtime: 'current runtime with mining seats',
-    usesOperationalProfile: true,
-    hasMiningSeats: true,
-    hasVault: false,
-    isServerInstalled: true,
-    operatorName: 'OperatorOne',
-    expected: OnboardingSetupStatus.Finished,
-  },
-  {
-    runtime: 'current runtime with a vault',
-    usesOperationalProfile: true,
-    hasMiningSeats: false,
-    hasVault: true,
-    isServerInstalled: true,
-    operatorName: 'OperatorOne',
-    expected: OnboardingSetupStatus.Finished,
-  },
-])('derives onboarding recovery for the $runtime', params => {
+])('derives onboarding recovery with $operation', params => {
   const status = getOnboardingSetupStatus({
     hasOnboardingHistory: true,
     hasMiningSeats: params.hasMiningSeats,
     hasVault: params.hasVault,
     isServerInstalled: params.isServerInstalled,
     operatorName: params.operatorName,
-    usesOperationalProfile: params.usesOperationalProfile,
   });
 
   expect(status).toBe(params.expected);
@@ -111,7 +103,6 @@ it('keeps onboarding at the blank slate without authoritative chain history', ()
     hasVault: false,
     isServerInstalled: false,
     operatorName: '',
-    usesOperationalProfile: false,
   });
 
   expect(status).toBe(OnboardingSetupStatus.None);
@@ -143,7 +134,6 @@ it('submits a current-runtime profile name with a funded linked signer', async (
     },
     tx: {
       operationalAccounts: { setName },
-      vaults: {},
     },
   };
   const transactionTracker = {
@@ -163,7 +153,6 @@ it('submits a current-runtime profile name with a funded linked signer', async (
     client: client as any,
   });
 
-  expect(usesOperationalProfileNameRuntime(client as any)).toBe(true);
   expect(setName).toHaveBeenCalledWith('OperatorOne');
   expect(transactionTracker.submitAndWatch).toHaveBeenCalledWith({
     tx,
@@ -191,7 +180,6 @@ it('resumes a pending profile name after restart without submitting it again', a
     },
     tx: {
       operationalAccounts: { setName },
-      vaults: {},
     },
   };
   const transactionTracker = {
@@ -220,18 +208,7 @@ it('resumes a pending profile name after restart without submitting it again', a
   expect(walletKeys.getVaultingKeypair).not.toHaveBeenCalled();
 });
 
-it('keeps names on vaults while both name extrinsics are available', () => {
-  const client = {
-    tx: {
-      operationalAccounts: { setName: vi.fn() },
-      vaults: { setName: vi.fn() },
-    },
-  };
-
-  expect(usesOperationalProfileNameRuntime(client as any)).toBe(false);
-});
-
-it('uses the finalized vault profile before repairing an underfunded delegate', async () => {
+it('uses the finalized operator profile before repairing an underfunded delegate', async () => {
   const profileTransaction = { tx: { id: 1 } };
   const delegateTransaction = { tx: { id: 2 } };
   const account = vi
@@ -239,28 +216,25 @@ it('uses the finalized vault profile before repairing an underfunded delegate', 
     .mockResolvedValueOnce({ data: { free: bigintCodec(999_978n) } })
     .mockResolvedValueOnce({ data: { free: bigintCodec(1_500_000n) } });
   const client = {
-    query: { system: { account } },
+    query: {
+      operationalAccounts: {
+        operationalAccounts: vi.fn().mockResolvedValue(createOperationalAccount('OperatorOne')),
+      },
+      system: { account },
+    },
     tx: {
       operationalAccounts: {},
-      vaults: { setName: vi.fn() },
     },
   };
   const createdVault = {
-    name: '',
+    vaultId: 7,
     delegateAccountId: 'delegate',
   };
-  const finalizedVault = {
-    ...createdVault,
-    name: 'OperatorOne',
-  };
-  const load = vi
-    .fn()
-    .mockResolvedValueOnce(undefined)
-    .mockImplementationOnce(async () => {
-      createdVault.name = 'OperatorOne';
-    });
+  const finalizedVault = { ...createdVault };
+  const load = vi.fn();
   const myVault = {
     createdVault,
+    vaults: { operatorNamesByVaultId: { 7: 'OperatorOne' } },
     load,
     setupVaultInviteProfile: vi.fn().mockResolvedValue(profileTransaction),
     ensureVaultDelegateReady: vi.fn().mockResolvedValue(delegateTransaction),
@@ -293,42 +267,50 @@ it('uses the finalized vault profile before repairing an underfunded delegate', 
   expect(transactions).toEqual([profileTransaction, delegateTransaction]);
 });
 
-it('restores a finalized operator name transaction when the authoritative vault query is unavailable', async () => {
+it('restores a finalized operator name transaction when the profile query initially lags', async () => {
   const profileTransaction = {
     tx: {
       id: 1,
-      metadataJson: { vaultName: 'OperatorOne' },
+      metadataJson: { operatorName: 'OperatorOne' },
     },
   };
+  let savedOperatorName = '';
   const client = {
     query: {
+      operationalAccounts: {
+        operationalAccounts: vi.fn(async () => createOperationalAccount(savedOperatorName)),
+      },
       system: {
         account: vi.fn().mockResolvedValue({ data: { free: bigintCodec(1_500_000n) } }),
       },
     },
     tx: {
       operationalAccounts: {},
-      vaults: { setName: vi.fn() },
     },
   };
   const createdVault = {
-    name: '',
+    vaultId: 7,
     delegateAccountId: 'delegate',
   };
   const myVault = {
     createdVault,
+    vaults: { operatorNamesByVaultId: {} },
     load: vi.fn(),
     setupVaultInviteProfile: vi.fn(async ({ operatorName }) => {
-      createdVault.name = operatorName;
+      savedOperatorName = operatorName;
       return profileTransaction;
     }),
     ensureVaultDelegateReady: vi.fn(),
   };
   const transactionTracker = {
     load: vi.fn(),
-    findLatestTxAttempt: vi.fn().mockResolvedValue({
-      txInfo: profileTransaction,
-      txAttemptState: TxAttemptState.Finalized,
+    findLatestTxAttempt: vi.fn(async ({ extrinsicType }) => {
+      if (extrinsicType !== ExtrinsicType.VaultSetBitcoinLockDelegate) return;
+
+      return {
+        txInfo: profileTransaction,
+        txAttemptState: TxAttemptState.Finalized,
+      };
     }),
   };
   const walletKeys = {

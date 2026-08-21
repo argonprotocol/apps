@@ -207,11 +207,7 @@ import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { supportsFlexibleAssetsRuntime, type IVaultFlexibleAssetChanges } from '../lib/MyVault.ts';
 import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import { generateProgressLabel, isValidOperatorName } from '../lib/Utils.ts';
-import {
-  getOperationalProfileName,
-  loadOperationalAccount,
-  usesOperationalProfileNameRuntime,
-} from '../lib/OperationalAccount.ts';
+import { getOperationalProfileName, loadOperationalAccount } from '../lib/OperationalAccount.ts';
 import { useBasics } from '../stores/basics.ts';
 import { getBitcoinLocks } from '../stores/bitcoin.ts';
 import { getArgonBonds } from '../stores/argonBonds.ts';
@@ -416,9 +412,7 @@ async function loadInviteCapacity(preserveFeeWaiverAmount = false) {
     currentVault.activatedSecuritization() + currentVault.securitizationPendingActivation;
   supportsFlexibleAssets.value = supportsFlexibleAssetsRuntime(client);
   usesDelegatedInitialization.value = BitcoinLock.supportsInitializeFor(client);
-  operatorName.value = usesOperationalProfileNameRuntime(client)
-    ? getOperationalProfileName(await loadOperationalAccount(walletKeys, client))
-    : (currentVault.name?.trim() ?? '');
+  operatorName.value = getOperationalProfileName(await loadOperationalAccount(walletKeys, client));
 
   let projectedFlexibleSecuritizationLocked: bigint | undefined;
   if (flexibleAssetChanges.value) {
@@ -499,7 +493,7 @@ async function submitInvite() {
     let inviteSetupTransaction: TransactionInfo | undefined;
     if (flexibleAssetChanges.value) {
       inviteSetupTransaction = await myVault.prepareMemberInvite({
-        vaultName: fromName,
+        operatorName: fromName,
         ...flexibleAssetChanges.value,
       });
     } else {

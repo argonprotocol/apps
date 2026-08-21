@@ -81,7 +81,7 @@
       <AlertIcon class="h-18 text-yellow-700" />
       <h1 class="mt-8 text-xl font-bold text-yellow-800">{{ vaultLabel }} has no Argon Bond space</h1>
       <p class="mt-4 max-w-150 text-lg leading-relaxed font-light">
-        Contact {{ vaultName || 'the person who invited you' }} to create more Bond space.
+        Contact {{ vaultOperatorName || 'the person who invited you' }} to create more Bond space.
       </p>
     </div>
     <div v-else class="px-10 py-5">
@@ -172,7 +172,7 @@
               <template v-else>
                 {{ vaultLabel }} can only create {{ numeral(maxPurchaseAmount).format('0,0') }} Argon Bonds right now.
               </template>
-              Contact {{ vaultName || 'the person who invited you' }} to create more Bond space.
+              Contact {{ vaultOperatorName || 'the person who invited you' }} to create more Bond space.
             </span>
           </div>
           <WalletFundingCallout v-else-if="neededMicrogons" @open-wallet="openWallet">
@@ -327,10 +327,13 @@ const vaultAvailableCapacity = Vue.computed(() => {
   return argonBonds.availableBondSpace(vault.value);
 });
 
-const vaultName = Vue.computed(() => vault.value?.name?.trim() || config.upstreamOperator?.name?.trim());
+const vaultOperatorName = Vue.computed(() => {
+  const name = vaultId.value === undefined ? undefined : vaults.operatorNamesByVaultId[vaultId.value];
+  return name || config.upstreamOperator?.name?.trim();
+});
 
 const vaultLabel = Vue.computed(() => {
-  if (vaultName.value) return `${vaultName.value}’s Vault`;
+  if (vaultOperatorName.value) return `${vaultOperatorName.value}’s Vault`;
   return 'This vault';
 });
 

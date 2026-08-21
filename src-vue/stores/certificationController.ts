@@ -23,7 +23,6 @@ import {
   type IOperationalChainProgress,
   type IOperationalRewardConfig,
   subscribeOperationalAccount,
-  usesOperationalProfileNameRuntime,
 } from '../lib/OperationalAccount.ts';
 import { getBitcoinLocks } from './bitcoin.ts';
 import { getServerApiClient } from './server.ts';
@@ -667,10 +666,7 @@ export const useCertificationController = defineStore('certificationController',
                 getVaultByOperator({ client: finalizedClient, operatorAddress: walletKeys.vaultingAddress }),
               ]);
               const onboardingProgress = getOperationalChainProgressFromAccount(accountRaw, rewardConfig.value);
-              const usesOperationalProfile = usesOperationalProfileNameRuntime(client);
-              const recoveredOperatorName = usesOperationalProfile
-                ? getOperationalProfileName(accountRaw)
-                : (ownedVault?.name?.trim() ?? '');
+              const recoveredOperatorName = getOperationalProfileName(accountRaw);
               operatorName.value = recoveredOperatorName;
               const setupStatus = getOnboardingSetupStatus({
                 hasOnboardingHistory:
@@ -682,7 +678,6 @@ export const useCertificationController = defineStore('certificationController',
                 hasVault: !!ownedVault,
                 isServerInstalled: config.isServerInstalled,
                 operatorName: recoveredOperatorName,
-                usesOperationalProfile,
               });
 
               let recoveredSetupStatus = setupStatus;

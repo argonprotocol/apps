@@ -72,6 +72,8 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
     if (!args.liveVault && !hasClosed) return [];
 
     const revenueHistory = args.revenueHistory ?? [];
+    const label =
+      (args.liveVault ? this.vault.vaults.operatorNamesByVaultId[vaultId] : undefined) ?? `Vault ${vaultId}`;
     const value = calculateVaultPositionValue({
       securitization,
       uncollectedRevenue,
@@ -106,7 +108,7 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
         'vault',
         {
           id: `vault:${vaultId}`,
-          label: args.liveVault?.name ?? `Vault ${vaultId}`,
+          label,
           lifecycle,
           startedAt: hasCompleteLifecycleTiming ? (created?.blockTime ?? args.liveVault?.openedDate) : undefined,
           endedAt,

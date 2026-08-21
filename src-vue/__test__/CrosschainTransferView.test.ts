@@ -42,11 +42,10 @@ describe('CrosschainTransferView', () => {
     const ownOperatorAccount = `0x${'33'.repeat(32)}`;
     const upstreamOperatorAccount = `0x${'44'.repeat(32)}`;
     const createdVault = {
-      name: 'Atlas',
+      vaultId: 1,
       operatorAccountId: ownOperatorAccount,
     };
     const upstreamVault = {
-      name: 'Beacon',
       operatorAccountId: upstreamOperatorAccount,
     };
 
@@ -54,6 +53,7 @@ describe('CrosschainTransferView', () => {
       networkName: 'dev-docker',
       createdVault,
       vaultsById: { 1: createdVault, 2: upstreamVault },
+      operatorNamesByVaultId: { 1: 'Atlas', 2: 'Beacon' },
       localAccountIds: [defaultAccount, vaultingAccount],
       upstreamOperator: { name: 'Beacon', vaultId: 2 },
     });
@@ -71,10 +71,10 @@ describe('CrosschainTransferView', () => {
       networkName: 'dev-docker',
       vaultsById: {
         2: {
-          name: 'dev-docker-On-chain Operator',
           operatorAccountId: upstreamAccount,
         },
       },
+      operatorNamesByVaultId: { 2: 'dev-docker-On-chain Operator' },
       localAccountIds: [localAccount],
       upstreamOperator: { name: 'Configured Upstream', vaultId: 2 },
     });
@@ -95,10 +95,10 @@ describe('CrosschainTransferView', () => {
       networkName: 'dev-docker',
       vaultsById: {
         3: {
-          name: 'dev-docker-JC',
           operatorAccountId: sponsorVaultAccount,
         },
       },
+      operatorNamesByVaultId: { 3: 'dev-docker-JC' },
       localAccountIds: [],
       sourceUpstreamVaultAccountsByAccount: new Map([[sourceAccount, sponsorVaultAccount]]),
     });

@@ -285,6 +285,8 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {} }: 
   mocked(useVaultingStats, { partial: true }).mockReturnValue({ update: fn(async () => undefined) });
   mocked(getVaults, { partial: true }).mockReturnValue({
     load: fn(async () => undefined),
+    operatorNamesByVaultId: Vue.reactive({}),
+    vaultsById: {},
     updateRevenue: fn(async () => ({
       synchedToFrame: 0,
       argonotStakingByFrame: [],
@@ -310,7 +312,7 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {} }: 
     mintingAuthorities,
     globalCouncil,
     getCrosschainQueueTxInfos: fn(() => []),
-    load: fn(async () => undefined),
+    load: fn(async () => getVaults().load()),
   });
   mocked(getCrosschainHistory, { partial: true }).mockReturnValue({
     data: Vue.reactive({

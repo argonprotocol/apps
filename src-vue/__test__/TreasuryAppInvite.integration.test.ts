@@ -129,19 +129,11 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       const operatorClient = await operatorHarness.clients.get(false);
       expect(BitcoinLock.supportsInitializeFor(operatorClient)).toBe(false);
 
-      const supportsVaultName = 'setName' in operatorClient.tx.vaults;
       const expectedFromName = 'OperatorOne';
       const delegateKeypair = await operatorHarness.walletKeys.getVaultDelegateKeypair();
 
-      if (supportsVaultName) {
-        const delegateSetupTx = await operatorHarness.myVault.setupVaultInviteProfile({
-          operatorName: expectedFromName,
-        });
-        await delegateSetupTx?.txResult.waitForFinalizedBlock;
-      } else {
-        const delegateSetupTx = await operatorHarness.myVault.ensureVaultDelegateReady();
-        await delegateSetupTx?.txResult.waitForFinalizedBlock;
-      }
+      const delegateSetupTx = await operatorHarness.myVault.ensureVaultDelegateReady();
+      await delegateSetupTx?.txResult.waitForFinalizedBlock;
 
       await waitFor(45e3, 'bitcoin lock delegate ready', async () => {
         const client = await operatorHarness.clients.get(false);

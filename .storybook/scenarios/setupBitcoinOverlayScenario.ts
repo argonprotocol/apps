@@ -347,6 +347,7 @@ export function setupBitcoinOverlayScenario() {
   });
 
   mocked(getVaults, { partial: true }).mockReturnValue({
+    operatorNamesByVaultId: { [vault.vaultId]: 'Atlas Operator' },
     vaultsById: { [vault.vaultId]: vault },
     fetchAndCalculateRedemptionAmount: fn(async () => 825_000_000n),
     load: fn(async () => undefined),

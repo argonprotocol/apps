@@ -1842,6 +1842,7 @@ describe('financial position accounting', () => {
     const source = new VaultFinancials({
       load: vi.fn(async () => undefined),
       createdVault: { vaultId: 10, securitization: 8n, isClosed: false } as Vault,
+      vaults: { operatorNamesByVaultId: {} },
       data: {
         pendingCollectRevenue: 100n,
         argonotCommitment: { committedMicronots: 500n },

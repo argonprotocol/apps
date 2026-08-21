@@ -25,7 +25,9 @@
         </div>
         <div class="flex grow flex-col">
           <div class="flex flex-row items-center gap-x-2">
-            <span class="font-bold text-slate-800">{{ vault.name || 'Unnamed' }} Vault</span>
+            <span class="font-bold text-slate-800">
+              {{ vaultStore.operatorNamesByVaultId[vault.vaultId] || 'Unnamed' }} Vault
+            </span>
             <span class="font-light">({{ abbreviateAddress(vault.operatorAccountId, 10) }})</span>
           </div>
           <div class="mt-2 flex w-full flex-row gap-x-3 pb-px text-center">
@@ -74,6 +76,7 @@ import { useFinancials } from '../stores/financials.ts';
 import { getArgonBonds } from '../stores/argonBonds.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
+import { getVaults } from '../stores/vaults.ts';
 
 const emit = defineEmits<{
   (e: 'load', vaults: Vault[]): void;
@@ -93,6 +96,7 @@ const currency = getCurrency();
 const financials = useFinancials();
 const argonBonds = getArgonBonds();
 const walletKeys = getWalletKeys();
+const vaultStore = getVaults();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 

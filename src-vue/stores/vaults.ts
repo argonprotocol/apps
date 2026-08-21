@@ -24,6 +24,40 @@ let crosschainHistory: CrosschainHistory;
 export function getVaults(): Vaults {
   if (!vaults) {
     vaults = new Vaults(NETWORK_NAME, getCurrency(), getMiningFrames());
+    vaults.operatorNamesByVaultId = reactive(vaults.operatorNamesByVaultId);
+
+    const config = getConfig();
+    watch(
+      () => (config.isLoaded ? config.upstreamOperator?.vaultId : undefined),
+      (vaultId, _, onCleanup) => {
+        let isCurrent = true;
+        let unsubscribe: VoidFunction | undefined;
+        onCleanup(() => {
+          isCurrent = false;
+          unsubscribe?.();
+        });
+        if (!vaultId) return;
+
+        void vaults
+          .subscribeToOperatorName(vaultId, name => {
+            if (!isCurrent || !name) return;
+
+            const upstreamOperator = config.upstreamOperator;
+            if (!upstreamOperator || upstreamOperator.vaultId !== vaultId) return;
+
+            if (upstreamOperator.name === name) return;
+
+            config.upstreamOperator = { ...upstreamOperator, name };
+            void config.save();
+          })
+          .then(nextUnsubscribe => {
+            unsubscribe = nextUnsubscribe;
+            if (!isCurrent) unsubscribe();
+          })
+          .catch(error => console.warn(`[Vaults] Unable to subscribe to upstream vault ${vaultId}`, error));
+      },
+      { immediate: true },
+    );
   }
 
   return vaults;
@@ -118,6 +152,7 @@ export function getKnownCrosschainSourceIdentities() {
     networkName: NETWORK_NAME,
     createdVault: vault.createdVault ?? undefined,
     vaultsById: vault.vaults.vaultsById,
+    operatorNamesByVaultId: vault.vaults.operatorNamesByVaultId,
     localAccountIds: [walletKeys.defaultArgonAddress, walletKeys.vaultingAddress, walletKeys.operationalAddress],
     upstreamOperator: config.upstreamOperator,
     sourceUpstreamVaultAccountsByAccount: vault.mintingAuthorities.data.sourceUpstreamVaultAccountsByAccount,

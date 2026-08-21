@@ -304,7 +304,7 @@ const { microgonToArgonNm, microgonToNm } = createNumeralHelpers(currency);
 const argonSymbol = currency.recordsByKey[UnitOfMeasurement.ARGN].symbol;
 const usdSymbol = currency.recordsByKey[UnitOfMeasurement.USD].symbol;
 const vaultLabel = Vue.computed(() => {
-  const name = props.vault.name?.trim();
+  const name = vaults.operatorNamesByVaultId[props.vault.vaultId];
   if (name) return `${name}’s Vault`;
   return 'This vault';
 });

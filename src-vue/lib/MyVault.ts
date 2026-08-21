@@ -420,15 +420,12 @@ export class MyVault {
         this.refreshFinalizedBitcoinCosignState(finalizedClient, vaultId),
       ]);
 
-      // update stats live
-      const sub = await client.query.vaults.vaultsById(vaultId, vault => {
-        if (!vault.isSome) return;
-
-        const raw = vault.unwrap();
-        const nextVault = new Vault(vaultId, raw, NetworkConfig.tickMillis);
-        this.vaults.vaultsById[vaultId] = nextVault;
-        this.data.createdVault = nextVault;
-      });
+      const [sub, operatorNameSub] = await Promise.all([
+        this.vaults.subscribeToVault(vaultId, nextVault => {
+          this.data.createdVault = nextVault;
+        }),
+        this.vaults.subscribeToOperatorName(vaultId, () => undefined),
+      ]);
 
       const sub2 = await client.query.vaults.lastCollectFrameByVaultId(vaultId, () => {
         this.updateCollectDeadlines();
@@ -506,7 +503,7 @@ export class MyVault {
 
       await Promise.all([this.globalCouncil.subscribe(), this.mintingAuthorities.subscribe()]);
 
-      this.#subscriptions.push(sub, sub2, sub3, sub4, sub5, sub6, sub7);
+      this.#subscriptions.push(sub, operatorNameSub, sub2, sub3, sub4, sub5, sub6, sub7);
     } finally {
       this.#isSubscribing = false;
     }
@@ -711,47 +708,15 @@ export class MyVault {
     }
   }
 
-  public async setVaultName(vaultName?: string | null): Promise<TransactionInfo | undefined> {
-    if (!this.createdVault) return;
-
-    const currentVaultName = this.createdVault.name;
-    const nextVaultName = vaultName?.trim();
-    if (!nextVaultName) {
-      throw new Error('A vault name is required to enable member invites.');
-    }
-    if (!isValidOperatorName(nextVaultName)) {
-      throw new Error(OPERATOR_NAME_REQUIREMENTS);
-    }
-    if (currentVaultName === nextVaultName) {
-      return;
-    }
-
-    return await this.#vaultQueue.add(async () => {
-      const client = await getMainchainClient(false);
-      const txSigner = await this.walletKeys.getVaultingKeypair();
-      const txInfo = await this.#transactionTracker.submitAndWatch({
-        tx: this.buildOperatorNameTx(client, nextVaultName),
-        txSigner,
-        extrinsicType: ExtrinsicType.VaultModifySettings,
-        metadata: {
-          vaultId: this.createdVault!.vaultId,
-          vaultName: nextVaultName,
-        },
-      });
-      void this.onModifySettings(txInfo);
-      return txInfo;
-    }).promise;
-  }
-
   public async setupVaultInviteProfile(args: {
     operatorName: string;
-    currentOperatorName?: string;
+    currentOperatorName: string;
   }): Promise<TransactionInfo | undefined> {
     if (!this.createdVault) return;
 
     const operatorName = args.operatorName.trim();
     if (!operatorName) {
-      throw new Error('A vault name is required to enable member invites.');
+      throw new Error('An operator name is required to enable member invites.');
     }
     if (!isValidOperatorName(operatorName)) {
       throw new Error(OPERATOR_NAME_REQUIREMENTS);
@@ -763,6 +728,8 @@ export class MyVault {
       const pendingAttempt = await this.#transactionTracker.findLatestTxAttempt<{
         vaultId?: number;
         delegateAddress?: string;
+        operatorName?: string;
+        // Persisted by app versions that stored names on vaults.
         vaultName?: string;
       }>({
         extrinsicType: ExtrinsicType.VaultSetBitcoinLockDelegate,
@@ -771,7 +738,7 @@ export class MyVault {
           return (
             txInfo.tx.metadataJson.vaultId === vaultId &&
             txInfo.tx.metadataJson.delegateAddress === delegateAddress &&
-            txInfo.tx.metadataJson.vaultName === operatorName
+            (txInfo.tx.metadataJson.operatorName ?? txInfo.tx.metadataJson.vaultName) === operatorName
           );
         },
       });
@@ -792,9 +759,8 @@ export class MyVault {
         client,
         delegateAddress,
       });
-      const currentOperatorName = args.currentOperatorName ?? this.createdVault?.name;
-      if (currentOperatorName?.trim() !== operatorName) {
-        txs.push(this.buildOperatorNameTx(client, operatorName));
+      if (args.currentOperatorName.trim() !== operatorName) {
+        txs.push(client.tx.operationalAccounts.setName(operatorName));
       }
       if (!txs.length) return;
 
@@ -806,11 +772,12 @@ export class MyVault {
         const txInfo = await this.#transactionTracker.submitAndWatch({
           tx: client.tx.utility.batchAll(txs),
           txSigner,
+          useLatestNonce: true,
           extrinsicType: ExtrinsicType.VaultSetBitcoinLockDelegate,
           metadata: {
             vaultId,
             delegateAddress,
-            vaultName: operatorName,
+            operatorName,
           },
         });
         deferred.resolve(txInfo);
@@ -854,10 +821,10 @@ export class MyVault {
   }
 
   public async prepareMemberInvite({
-    vaultName,
+    operatorName,
     bitcoinChanges,
     bondChanges,
-  }: IVaultFlexibleAssetChanges & { vaultName: string }): Promise<
+  }: IVaultFlexibleAssetChanges & { operatorName: string }): Promise<
     TransactionInfo<IVaultFlexibleAssetMetadata> | undefined
   > {
     const vault = this.createdVault;
@@ -865,11 +832,11 @@ export class MyVault {
       throw new Error('Create your vault before sending member invites.');
     }
 
-    const nextVaultName = vaultName.trim();
-    if (!nextVaultName) {
-      throw new Error('A vault name is required to enable member invites.');
+    const nextOperatorName = operatorName.trim();
+    if (!nextOperatorName) {
+      throw new Error('An operator name is required to enable member invites.');
     }
-    if (!isValidOperatorName(nextVaultName)) {
+    if (!isValidOperatorName(nextOperatorName)) {
       throw new Error(OPERATOR_NAME_REQUIREMENTS);
     }
 
@@ -878,10 +845,6 @@ export class MyVault {
       const signer = await this.walletKeys.getVaultingKeypair();
       const delegateAddress = await this.walletKeys.getVaultDelegateKeypair().then(x => x.address);
       const { txs } = await this.buildVaultDelegateSetupTxs({ client, delegateAddress });
-
-      if (vault.name !== nextVaultName) {
-        txs.push(this.buildOperatorNameTx(client, nextVaultName));
-      }
 
       txs.push(
         ...(await this.buildFlexibleAssetTxs({
@@ -1785,15 +1748,6 @@ export class MyVault {
       needsSetup: needsDelegateSetup || !!registerCouncilSignerTx,
       txs,
     };
-  }
-
-  private buildOperatorNameTx(client: ArgonClient, name: string): SubmittableExtrinsic {
-    const vaults = client.tx.vaults as ArgonClient['tx']['vaults'] | RuntimeSpec157.Transactions<'promise'>['vaults'];
-    if ('setName' in vaults) {
-      return vaults.setName(name);
-    }
-
-    return client.tx.operationalAccounts.setName(name);
   }
 
   private async buildFlexibleAssetTxs({
