@@ -1,5 +1,6 @@
 import {
   BitcoinLock,
+  PriceIndex,
   u8aEq,
   u8aToHex,
   type ApiDecoration,
@@ -424,6 +425,8 @@ export class BitcoinLockRecovery {
                 lockedTargetPrice: creationTargetPrice,
                 extrinsicIndex,
               };
+              // The active-lock fallback stores current liquidity here; the creation event restores the real baseline.
+              delete recovered.ratchets[creationRatchetIndex].liquidityPromised;
               recovered.lockDetails = chainLock;
               await this.saveRecoveredHistory(table, recovered, new Date(block.blockTime));
               this.applyRecoveredRecord(recovered);
@@ -1049,10 +1052,17 @@ export class BitcoinLockRecovery {
     }
 
     const isUpRatchet = lockedTargetPrice > oldTargetPrice;
-    if (isUpRatchet && cumulativeLiquidity < previousLiquidity) {
-      throw new Error(`Bitcoin lock ${record.utxoId} up-ratchet reduced its promised liquidity`);
+    let mintAmount = isUpRatchet ? cumulativeLiquidity - previousLiquidity : cumulativeLiquidity;
+    // Before runtime spec 158 (v1.4.12, 2026-08-13), upward ratchets recorded a fresh total while minting only the increment.
+    if (mintAmount < 0n) {
+      if (api.runtimeVersion.specVersion.toNumber() >= 158) {
+        throw new Error(`Bitcoin lock ${record.utxoId} up-ratchet reduced its promised liquidity`);
+      }
+      mintAmount = BitcoinLock.calculateRedemptionAmount(
+        await new PriceIndex().load(api),
+        lockedTargetPrice - oldTargetPrice,
+      );
     }
-    const mintAmount = isUpRatchet ? cumulativeLiquidity - previousLiquidity : cumulativeLiquidity;
     const burned = readRequiredEventBigInt(event, ['amountBurned'], block);
     if (!this.isRetiredHistoryRecord(recovered) && recovered.status !== BitcoinLockStatus.Releasing) {
       recovered.status = BitcoinLockStatus.LockedAndIsMinting;
@@ -1224,11 +1234,18 @@ export class BitcoinLockRecovery {
     for (let index = 0; index < record.ratchets.length; index += 1) {
       const ratchet = record.ratchets[index];
       recoveredLiquidity = this.getRatchetLiquidity(record.ratchets, index);
-      const expectedMint =
-        previousTargetPrice === undefined || ratchet.lockedTargetPrice < previousTargetPrice
-          ? recoveredLiquidity
-          : recoveredLiquidity - this.getRatchetLiquidity(record.ratchets, index - 1);
-      if (expectedMint < 0n || ratchet.mintAmount !== expectedMint) return false;
+      const previousLiquidity = this.getRatchetLiquidity(record.ratchets, index - 1);
+      let expectedMint = recoveredLiquidity;
+      if (previousTargetPrice !== undefined) {
+        if (ratchet.lockedTargetPrice >= previousTargetPrice) {
+          expectedMint -= previousLiquidity;
+        }
+      }
+      if (expectedMint < 0n) {
+        if (ratchet.mintAmount <= 0n) return false;
+      } else if (ratchet.mintAmount !== expectedMint) {
+        return false;
+      }
       if (ratchet.mintPending < 0n || ratchet.mintPending > ratchet.mintAmount) return false;
       previousTargetPrice = ratchet.lockedTargetPrice;
     }

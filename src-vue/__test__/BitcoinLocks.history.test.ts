@@ -255,29 +255,45 @@ describe('BitcoinLocks historical event replay', () => {
     expect(activeLocks).toHaveBeenCalledWith([7, 8]);
   });
 
-  it('replays securitization and candidate-funding transitions', async () => {
+  it('rebuilds current snapshot economics before replaying historical ratchets', async () => {
     const accountId = encodeAddress(new Uint8Array(32).fill(0x33));
+    const api = {
+      query: {
+        bitcoinUtxos: {
+          confirmedBitcoinBlockTip: vi.fn(async () => optionCodec({ blockHeight: numberCodec(600) })),
+        },
+        bitcoinLocks: {
+          utxoIdsByOwnerAccount: { keys: vi.fn(async () => [{ args: [{}, numberCodec(7)] }]) },
+          locksByUtxoId: {
+            multi: vi.fn(async () => [
+              optionCodec({ liquidityPromised: bigintCodec(1_400n), lockedTargetPrice: bigintCodec(1_500n) }),
+            ]),
+          },
+        },
+      },
+    };
     const store = createStore({
-      blockWatch: { getApi: vi.fn(async () => ({})) } as unknown as BlockWatch,
+      blockWatch: { getApi: vi.fn(async () => api) } as unknown as BlockWatch,
       walletKeys: { defaultArgonAddress: accountId } as WalletKeys,
     });
     const record = createLock({
       uuid: 'pre-funding-history',
       utxoId: 7,
-      status: BitcoinLockStatus.LockPendingFunding,
+      status: BitcoinLockStatus.LockedAndIsMinting,
       createdAt: '2026-01-01T00:00:00Z',
     });
-    record.liquidityPromised = 1_000n;
-    record.lockedTargetPrice = 1_000n;
+    record.liquidityPromised = 1_400n;
+    record.lockedTargetPrice = 1_500n;
     record.lockDetails = new BitcoinLock({
-      ...createHistoricalLock({ accountId, liquidityPromised: 1_000n }),
-      isFunded: false,
+      ...createHistoricalLock({ accountId, liquidityPromised: 1_400n, lockedTargetPrice: 1_500n }),
+      utxoId: 7,
     });
     record.ratchets = [
       {
-        mintAmount: 1_000n,
-        mintPending: 1_000n,
-        lockedTargetPrice: 1_000n,
+        mintAmount: 1_400n,
+        mintPending: 0n,
+        liquidityPromised: 1_400n,
+        lockedTargetPrice: 1_500n,
         securityFee: 20n,
         txFee: 11n,
         burned: 0n,
@@ -295,8 +311,7 @@ describe('BitcoinLocks historical event replay', () => {
     vi.mocked(BitcoinLockHistory.getHistoricalBitcoinLock)
       .mockResolvedValueOnce(
         new BitcoinLock({
-          ...createHistoricalLock({ accountId, liquidityPromised: 1_100n, lockedTargetPrice: 1_100n }),
-          satoshis: 11_000n,
+          ...createHistoricalLock({ accountId, liquidityPromised: 1_000n, lockedTargetPrice: 1_000n }),
           isFunded: false,
         }),
       )
@@ -307,30 +322,30 @@ describe('BitcoinLocks historical event replay', () => {
         }),
       );
     vi.spyOn(BitcoinLock.prototype, 'getFundingUtxoRef').mockResolvedValue(undefined);
+    vi.spyOn(BitcoinLock, 'get')
+      .mockResolvedValueOnce(
+        new BitcoinLock(createHistoricalLock({ accountId, liquidityPromised: 1_200n, lockedTargetPrice: 1_300n })),
+      )
+      .mockResolvedValueOnce(
+        new BitcoinLock(createHistoricalLock({ accountId, liquidityPromised: 1_400n, lockedTargetPrice: 1_500n })),
+      );
 
-    await store.recovery.recoverBlock(historyBlock(152), [
-      historyEvent(147, 'bitcoinLocks', 'SecuritizationIncreased', {
+    await store.recovery.recoverBlock(historyBlock(151), [
+      historyEvent(157, 'bitcoinLocks', 'BitcoinLockCreated', {
         utxoId: 7,
         vaultId: 1,
-        newSatoshis: 11_000n,
+        liquidityPromised: 1_000n,
+        securitization: 1_000n,
+        lockedTargetPrice: 1_000n,
         accountId,
+        securityFee: 20n,
       }),
     ]);
 
-    expect(record).toMatchObject({
-      status: BitcoinLockStatus.LockPendingFunding,
-      satoshis: 11_000n,
-      liquidityPromised: 1_100n,
-      lockedTargetPrice: 1_100n,
-    });
-    expect(record.ratchets[0]).toMatchObject({
-      mintAmount: 1_100n,
-      mintPending: 1_100n,
-      lockedTargetPrice: 1_100n,
-    });
+    expect(record.ratchets[0].liquidityPromised).toBeUndefined();
 
     await store.recovery.recoverBlock(historyBlock(153), [
-      historyEvent(147, 'bitcoinLocks', 'UtxoFundedFromCandidate', {
+      historyEvent(157, 'bitcoinLocks', 'UtxoFundedFromCandidate', {
         utxoId: 7,
         utxoRef: { txid: `0x${'44'.repeat(32)}`, outputIndex: 2 },
         vaultId: 1,
@@ -350,7 +365,43 @@ describe('BitcoinLocks historical event replay', () => {
       lockedTargetPrice: 1_050n,
     });
 
-    expect(table.saveRecoveredHistory).toHaveBeenCalledTimes(2);
+    await store.recovery.recoverBlock(historyBlock(154), [
+      historyEvent(158, 'bitcoinLocks', 'BitcoinLockRatcheted', {
+        utxoId: 7,
+        vaultId: 1,
+        liquidityPromised: 1_200n,
+        oldTargetPrice: 1_050n,
+        securityFee: 25n,
+        newTargetPrice: 1_300n,
+        amountBurned: 0n,
+        accountId,
+      }),
+      historyEvent(
+        158,
+        'bitcoinLocks',
+        'BitcoinLockRatcheted',
+        {
+          utxoId: 7,
+          vaultId: 1,
+          liquidityPromised: 1_400n,
+          oldTargetPrice: 1_300n,
+          securityFee: 30n,
+          newTargetPrice: 1_500n,
+          amountBurned: 0n,
+          accountId,
+        },
+        3,
+      ),
+    ]);
+
+    expect(record.ratchets).toEqual([
+      expect.objectContaining({ mintAmount: 1_050n, lockedTargetPrice: 1_050n }),
+      expect.objectContaining({ mintAmount: 150n, lockedTargetPrice: 1_300n }),
+      expect.objectContaining({ mintAmount: 200n, lockedTargetPrice: 1_500n }),
+    ]);
+    await expect(store.recovery.findMissingActiveLockIds(api as never)).resolves.toEqual([]);
+
+    expect(table.saveRecoveredHistory).toHaveBeenCalledTimes(4);
   });
 
   it('expires an unfunded lock when its UTXO is no longer watched', async () => {
@@ -525,6 +576,116 @@ describe('BitcoinLocks historical event replay', () => {
       burned: 800n,
     });
     expect(saveRecoveredHistory).toHaveBeenCalledWith(recovered);
+  });
+
+  it('recovers a pre-158 promise reset but rejects the regression in newer history', async () => {
+    const accountId = encodeAddress(new Uint8Array(32).fill(0x42));
+    const record = createLock({
+      uuid: 'legacy-up-ratchet',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockedAndMinted,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    record.liquidityPromised = 800n;
+    record.lockedTargetPrice = 1_400n;
+    record.ratchets = [
+      {
+        mintAmount: 1_000n,
+        mintPending: 0n,
+        lockedTargetPrice: 1_000n,
+        securityFee: 20n,
+        txFee: 11n,
+        burned: 0n,
+        blockHeight: 151,
+        extrinsicIndex: 2,
+        oracleBitcoinBlockHeight: 500,
+      },
+    ];
+    const api = {
+      runtimeVersion: { specVersion: numberCodec(156) },
+      query: {
+        bitcoinUtxos: {
+          confirmedBitcoinBlockTip: vi.fn(async () => optionCodec({ blockHeight: numberCodec(600) })),
+        },
+        priceIndex: {
+          current: vi.fn(async () =>
+            optionCodec({
+              btcUsdPrice: bigintCodec(1_000_000_000_000_000_000n),
+              argonotUsdPrice: bigintCodec(1_000_000_000_000_000_000n),
+              argonUsdPrice: bigintCodec(500_000_000_000_000_000n),
+              argonUsdTargetPrice: bigintCodec(1_000_000_000_000_000_000n),
+              argonTimeWeightedAverageLiquidity: bigintCodec(1_000_000_000_000_000_000n),
+              tick: numberCodec(152),
+            }),
+          ),
+        },
+        bitcoinLocks: {
+          utxoIdsByOwnerAccount: { keys: vi.fn(async () => [{ args: [{}, numberCodec(7)] }]) },
+          locksByUtxoId: {
+            multi: vi.fn(async () => [
+              optionCodec({ liquidityPromised: bigintCodec(800n), lockedTargetPrice: bigintCodec(1_400n) }),
+            ]),
+          },
+        },
+      },
+    };
+    const newerApi = { ...api, runtimeVersion: { specVersion: numberCodec(158) } };
+    const store = createStore({
+      blockWatch: {
+        getApi: vi.fn().mockResolvedValueOnce(api).mockResolvedValueOnce(newerApi),
+      } as unknown as BlockWatch,
+      walletKeys: { defaultArgonAddress: accountId } as WalletKeys,
+    });
+    store.data.locksByUtxoId[7] = record;
+    const saveRecoveredHistory = vi.fn(async () => undefined);
+    vi.spyOn(store, 'getTable').mockResolvedValue({
+      getByUtxoId: vi.fn(async () => record),
+      saveRecoveredHistory,
+    } as never);
+    vi.spyOn(BitcoinLock, 'get').mockResolvedValue(
+      new BitcoinLock(createHistoricalLock({ accountId, liquidityPromised: 800n, lockedTargetPrice: 1_400n })),
+    );
+
+    await store.recovery.recoverBlock(historyBlock(152), [
+      historyEvent(156, 'bitcoinLocks', 'BitcoinLockRatcheted', {
+        utxoId: 7,
+        vaultId: 1,
+        liquidityPromised: 800n,
+        oldTargetPrice: 1_000n,
+        securityFee: 25n,
+        newTargetPrice: 1_400n,
+        amountBurned: 0n,
+        accountId,
+      }),
+    ]);
+
+    const recovered = store.data.locksByUtxoId[7];
+    expect(recovered).toMatchObject({ liquidityPromised: 800n, lockedTargetPrice: 1_400n });
+    expect(recovered.ratchets.at(-1)).toMatchObject({
+      mintAmount: 540n,
+      mintPending: 540n,
+      liquidityPromised: 800n,
+      lockedTargetPrice: 1_400n,
+    });
+    await expect(store.recovery.findMissingActiveLockIds(api as never)).resolves.toEqual([]);
+    expect(saveRecoveredHistory).toHaveBeenCalledWith(recovered);
+
+    await expect(
+      store.recovery.recoverBlock(historyBlock(153), [
+        historyEvent(158, 'bitcoinLocks', 'BitcoinLockRatcheted', {
+          utxoId: 7,
+          vaultId: 1,
+          liquidityPromised: 700n,
+          oldTargetPrice: 1_400n,
+          securityFee: 30n,
+          newTargetPrice: 1_500n,
+          amountBurned: 0n,
+          accountId,
+        }),
+      ]),
+    ).rejects.toThrow('Bitcoin lock 7 up-ratchet reduced its promised liquidity');
+    expect(store.data.locksByUtxoId[7]).toBe(recovered);
+    expect(saveRecoveredHistory).toHaveBeenCalledTimes(1);
   });
 
   it('finishes creation provenance after finalization persisted but history save failed', async () => {

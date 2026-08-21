@@ -132,7 +132,7 @@ export class BondLot {
       releaseFrame: lot.releaseFrameId.isSome ? lot.releaseFrameId.unwrap().toNumber() : null,
       releaseReason: lot.releaseReason.isSome ? lot.releaseReason.unwrap().type : undefined,
       isReleasing: lot.releaseReason.isSome,
-      isFlexible: 'isFlexible' in lot ? lot.isFlexible.valueOf() : lot.isBackfill.valueOf(),
+      isFlexible: Boolean(lot.get('isFlexible')?.valueOf() ?? lot.get('isBackfill')?.valueOf()),
       isOwn: accountId === ownAddress,
       canRelease: accountId === ownAddress,
     });
