@@ -18,13 +18,15 @@ export class DockerStatus {
     }
   }
 
-  public static async isArgonMinerReady(): Promise<boolean> {
+  public static async getArgonSyncPercent(): Promise<number> {
     try {
-      const result = await fetch(`${routerApi}/argon/iscomplete`).then(res => res.text());
-      return result === 'true';
+      const syncStatus = await fetch(`${routerApi}/argon/syncstatus`).then(
+        res => res.json() as Promise<ILatestBlocks & { syncPercent: number }>,
+      );
+      return syncStatus.syncPercent;
     } catch (e) {
-      console.error('isArgonMinerReady Error:', e);
-      return false;
+      console.error('getArgonSyncPercent Error:', e);
+      return 0;
     }
   }
 
