@@ -15,10 +15,7 @@ import {
   TopTab,
 } from '../../../src-vue/interfaces/IConfig.ts';
 import { Config } from '../../../src-vue/lib/Config.ts';
-import {
-  activateOperationalAccountSetup,
-  usesOperationalProfileNameRuntime,
-} from '../../../src-vue/lib/OperationalAccount.ts';
+import { activateOperationalAccountSetup } from '../../../src-vue/lib/OperationalAccount.ts';
 import { useCertificationController } from '../../../src-vue/stores/certificationController.ts';
 import { getConfig } from '../../../src-vue/stores/config.ts';
 import { getInstaller } from '../../../src-vue/stores/installer.ts';
@@ -279,7 +276,6 @@ function setupOnboardingScenario(
   const createdVault = options.hasOperation ? createScenarioVault() : null;
   const currentMyVault = getMyVault();
 
-  mocked(usesOperationalProfileNameRuntime).mockReturnValue(false);
   mocked(getMainchainClient).mockResolvedValue({
     tx: { bitcoinLocks: {}, treasury: {} },
   } as Awaited<ReturnType<typeof getMainchainClient>>);

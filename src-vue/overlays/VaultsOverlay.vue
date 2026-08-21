@@ -48,10 +48,12 @@ import { useBasics } from '../stores/basics.ts';
 import { getConfig } from '../stores/config.ts';
 import { Vault } from '@argonprotocol/mainchain';
 import { useFinancials } from '../stores/financials.ts';
+import { getVaults } from '../stores/vaults.ts';
 
 const basics = useBasics();
 const financials = useFinancials();
 const config = getConfig();
+const vaults = getVaults();
 
 const isOpen = Vue.ref(false);
 const tmpVault = Vue.ref<Vault>();
@@ -71,7 +73,7 @@ async function saveVault() {
   if (!vault) return;
 
   config.upstreamOperator = {
-    name: vault.name ?? '',
+    name: vaults.operatorNamesByVaultId[vault.vaultId] ?? '',
     vaultId: vault.vaultId,
     accountId: config.upstreamOperator?.accountId,
   };

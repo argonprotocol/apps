@@ -71,7 +71,7 @@
             <Checkbox :isChecked="hasRequiredOperation" />
             <div class="px-4 text-slate-600">
               <h2 class="text-argon-600 relative inline-block text-2xl font-bold">
-                Create a Vault<template v-if="!usesOperationalProfile">*</template> or Win Mining Seats
+                Create a Vault or Win Mining Seats
               </h2>
               <p v-if="hasRequiredOperation">Your operation is ready to begin onboarding members.</p>
               <p v-else>
@@ -84,7 +84,6 @@
                   winning mining seats
                 </button>.
               </p>
-              <p v-if="!usesOperationalProfile" class="text-xs">* currently required.</p>
             </div>
           </div>
         </section>
@@ -108,7 +107,6 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { getVaultByOperator } from '@argonprotocol/apps-core';
 import { ArrowLeftIcon } from '@heroicons/vue/24/outline';
 import Checkbox from '../../components/Checkbox.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
@@ -117,7 +115,6 @@ import {
   getOperationalProfileName,
   isValidOperatorName,
   loadOperationalAccount,
-  usesOperationalProfileNameRuntime,
 } from '../../lib/OperationalAccount.ts';
 import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import { getConfig } from '../../stores/config.ts';
@@ -134,7 +131,6 @@ const controller = useCertificationController();
 const myVault = getMyVault();
 const walletKeys = getWalletKeys();
 
-const usesOperationalProfile = Vue.ref(false);
 const isLoaded = Vue.ref(false);
 const errorMessage = Vue.ref('');
 
@@ -143,7 +139,7 @@ const hasVaultOrMiningSeats = Vue.computed(() => {
 });
 
 const hasRequiredOperation = Vue.computed(() => {
-  return usesOperationalProfile.value ? hasVaultOrMiningSeats.value : !!myVault.createdVault;
+  return hasVaultOrMiningSeats.value;
 });
 
 const canContinue = Vue.computed(() => {
@@ -194,22 +190,12 @@ function goBack() {
 Vue.onMounted(async () => {
   try {
     const client = await getMainchainClient(false);
-    usesOperationalProfile.value = usesOperationalProfileNameRuntime(client);
 
     await myVault.load();
-    if (controller.onboardingOperatorNameDraft == null && usesOperationalProfile.value) {
+    if (controller.onboardingOperatorNameDraft == null) {
       controller.onboardingOperatorNameDraft = getOperationalProfileName(
         await loadOperationalAccount(walletKeys, client),
       );
-    } else if (controller.onboardingOperatorNameDraft == null) {
-      controller.onboardingOperatorNameDraft = myVault.createdVault?.name ?? '';
-      if (!controller.onboardingOperatorNameDraft) {
-        const ownedVault = await getVaultByOperator({
-          client,
-          operatorAddress: walletKeys.vaultingAddress,
-        });
-        controller.onboardingOperatorNameDraft = ownedVault?.name ?? '';
-      }
     }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : 'Unable to load your operation right now.';

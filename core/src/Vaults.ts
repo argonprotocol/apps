@@ -1,6 +1,8 @@
 import {
   BitcoinLock,
   type IArgonQueryable,
+  type Option,
+  type PalletOperationalAccountsOperationalAccount,
   type PalletVaultsVaultFrameRevenue,
   u128,
   Vault,
@@ -37,6 +39,7 @@ export const VAULT_STATS_FORMAT_VERSION = 2;
 export class Vaults {
   public readonly vaultsById: { [id: number]: Vault } = {};
   public readonly vaultSatoshisById: { [id: number]: { lockedSatoshis: bigint; securitizedSatoshis: bigint } } = {};
+  public operatorNamesByVaultId: { [id: number]: string } = {};
   public stats?: IAllVaultStats;
 
   constructor(
@@ -69,6 +72,7 @@ export class Vaults {
           securitizedSatoshis: raw.securitizedSatoshis.toBigInt(),
         };
       }
+      await this.refreshOperatorNames({ client, vaults: Object.values(this.vaultsById) });
       this.stats ??= await this.loadStats();
 
       this.waitForLoad.resolve();
@@ -84,6 +88,7 @@ export class Vaults {
     if (!vaultOption.isSome) {
       delete this.vaultsById[vaultId];
       delete this.vaultSatoshisById[vaultId];
+      delete this.operatorNamesByVaultId[vaultId];
       return;
     }
 
@@ -95,6 +100,40 @@ export class Vaults {
       securitizedSatoshis: raw.securitizedSatoshis.toBigInt(),
     };
     return vault;
+  }
+
+  public async refreshOperatorNames(args: {
+    vaults: Pick<Vault, 'vaultId' | 'operatorAccountId'>[];
+    client?: IArgonQueryable;
+  }): Promise<void> {
+    if (!args.vaults.length) return;
+
+    try {
+      const client = args.client ?? (await this.mainchainClients.get(false));
+      const operationalAccountOptions = await client.query.operationalAccounts.operationalAccountBySubAccount.multi(
+        args.vaults.map(vault => vault.operatorAccountId),
+      );
+      const vaultsWithOperationalAccounts = [];
+
+      for (const [index, vault] of args.vaults.entries()) {
+        const operationalAccountId = operationalAccountOptions[index];
+        if (operationalAccountId?.isSome) {
+          vaultsWithOperationalAccounts.push([vault, operationalAccountId.unwrap()] as const);
+        } else {
+          this.setOperatorName(vault.vaultId);
+        }
+      }
+      if (!vaultsWithOperationalAccounts.length) return;
+
+      const profileOptions = await client.query.operationalAccounts.operationalAccounts.multi(
+        vaultsWithOperationalAccounts.map(([, operationalAccountId]) => operationalAccountId),
+      );
+      for (const [index, [vault]] of vaultsWithOperationalAccounts.entries()) {
+        this.setOperatorName(vault.vaultId, profileOptions[index]);
+      }
+    } catch (error) {
+      console.warn('[Vaults] Unable to load operator profile names', error);
+    }
   }
 
   public async subscribeToVault(vaultId: number, onUpdate: (vault: Vault) => void): Promise<() => void> {
@@ -110,6 +149,17 @@ export class Vaults {
       };
       onUpdate(this.vaultsById[vaultId]);
     });
+  }
+
+  protected setOperatorName(
+    vaultId: number,
+    profile?: Option<PalletOperationalAccountsOperationalAccount>,
+  ): string | undefined {
+    const profileName = profile?.isSome ? profile.unwrap().name : undefined;
+    const name = profileName?.isSome ? profileName.unwrap().toUtf8().trim() : undefined;
+    if (name) this.operatorNamesByVaultId[vaultId] = name;
+    else delete this.operatorNamesByVaultId[vaultId];
+    return name;
   }
 
   public async updateVaultRevenue(vaultId: number, frameRevenues: PalletVaultsVaultFrameRevenue[], skipSaving = false) {

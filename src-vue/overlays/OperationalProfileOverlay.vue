@@ -51,10 +51,6 @@
         Loading...
       </div>
 
-      <div v-else-if="requiresVault && !hasVault" class="text-center my-16 text-slate-700/50">
-        You need to create a vault before setting up your profile.
-      </div>
-
       <div v-else class="pt-2">
         <div v-if="errorMessage" class="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {{ errorMessage }}
@@ -127,7 +123,6 @@ import {
   isValidOperatorName,
   loadOperationalAccount,
   setOperationalProfileName,
-  usesOperationalProfileNameRuntime,
 } from '../lib/OperationalAccount.ts';
 import { useBasics } from '../stores/basics.ts';
 import { useCertificationController } from '../stores/certificationController.ts';
@@ -142,7 +137,7 @@ import {
   normalizeOperatorNameInput,
   OPERATOR_NAME_REQUIREMENTS,
 } from '../lib/Utils.ts';
-import { MyVault, supportsFlexibleAssetsRuntime } from '../lib/MyVault.ts';
+import { supportsFlexibleAssetsRuntime } from '../lib/MyVault.ts';
 
 const basics = useBasics();
 const controller = useCertificationController();
@@ -156,7 +151,6 @@ const isSaving = Vue.ref(false);
 const errorMessage = Vue.ref('');
 const operatorName = Vue.ref('');
 const operatorNameInputNotice = Vue.ref('');
-const requiresVault = Vue.ref(true);
 const setupTxInfo = Vue.ref<TransactionInfo | null>(null);
 const setupProgressPct = Vue.ref(0);
 const setupProgressMessage = Vue.ref('');
@@ -169,10 +163,6 @@ let unsubSetupProgress: (() => void) | undefined;
 let selectDraftName: ((operatorName: string) => void) | undefined;
 let openRequestId = 0;
 
-const hasVault = Vue.computed(() => {
-  return !!myVault.createdVault?.vaultId;
-});
-
 async function load(request?: IOperationalProfileRequest) {
   const profileRequest = request && 'draftName' in request ? request : undefined;
   errorMessage.value = '';
@@ -182,15 +172,8 @@ async function load(request?: IOperationalProfileRequest) {
 
   try {
     const client = await getMainchainClient(false);
-    requiresVault.value = !usesOperationalProfileNameRuntime(client);
-
-    if (requiresVault.value) {
-      await myVault.load();
-      operatorName.value = profileRequest?.draftName || myVault.createdVault?.name || '';
-    } else {
-      const savedName = getOperationalProfileName(await loadOperationalAccount(walletKeys, client));
-      operatorName.value = profileRequest?.draftName || savedName;
-    }
+    const savedName = getOperationalProfileName(await loadOperationalAccount(walletKeys, client));
+    operatorName.value = profileRequest?.draftName || savedName;
   } catch (error) {
     operatorName.value = profileRequest?.draftName ?? '';
     errorMessage.value = error instanceof Error ? error.message : 'Unable to load your profile right now.';
@@ -229,21 +212,12 @@ async function saveProfile() {
 
   try {
     const client = await getMainchainClient(false);
-    let txInfo: TransactionInfo | undefined;
-    if (usesOperationalProfileNameRuntime(client)) {
-      txInfo = await setOperationalProfileName({ transactionTracker, walletKeys, name: nextOperatorName, client });
-    } else {
-      await myVault.load();
-      const createdVault = myVault.createdVault;
-      if (!createdVault) {
-        throw new Error('You need to create a vault before saving your profile.');
-      }
-      const delegateAddress = await walletKeys.getVaultDelegateKeypair().then(keypair => keypair.address);
-      const delegateIsReady = await MyVault.isVaultDelegateReady(client, createdVault, delegateAddress);
-      txInfo = delegateIsReady
-        ? await myVault.setVaultName(nextOperatorName)
-        : await myVault.setupVaultInviteProfile({ operatorName: nextOperatorName });
-    }
+    const txInfo = await setOperationalProfileName({
+      transactionTracker,
+      walletKeys,
+      name: nextOperatorName,
+      client,
+    });
     await waitForSetupTransaction(txInfo);
     controller.operatorName = nextOperatorName;
 

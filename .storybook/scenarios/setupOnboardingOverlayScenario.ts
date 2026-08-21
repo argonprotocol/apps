@@ -12,7 +12,6 @@ import {
   getOperationalProfileName,
   getOperationalRewardsClaimAvailability,
   loadOperationalAccount,
-  usesOperationalProfileNameRuntime,
 } from '../../src-vue/lib/OperationalAccount.ts';
 import { getArgonBonds } from '../../src-vue/stores/argonBonds.ts';
 import { getBitcoinLocks } from '../../src-vue/stores/bitcoin.ts';
@@ -24,9 +23,7 @@ import type { TransactionInfo } from '../../src-vue/lib/TransactionInfo.ts';
 import { createScenarioVault } from './createScenarioVault.ts';
 import { setupAppScenario } from './setupAppScenario.ts';
 
-export function setupOperationalProfileScenario(
-  state: 'draft' | 'vaultRequired' | 'loadError' | 'settingsFlexible' | 'settingsBasic',
-) {
+export function setupOperationalProfileScenario(state: 'draft' | 'loadError' | 'settingsFlexible' | 'settingsBasic') {
   const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
 
   if (state === 'settingsFlexible' || state === 'settingsBasic') {
@@ -39,7 +36,6 @@ export function setupOperationalProfileScenario(
       },
     } as unknown as Awaited<ReturnType<typeof getMainchainClient>>;
     mocked(getMainchainClient).mockResolvedValue(client);
-    mocked(usesOperationalProfileNameRuntime).mockReturnValue(true);
     mocked(loadOperationalAccount).mockResolvedValue({} as Awaited<ReturnType<typeof loadOperationalAccount>>);
     mocked(getOperationalProfileName).mockReturnValue('AtlasOperator');
     return;
@@ -56,7 +52,6 @@ export function setupOperationalProfileScenario(
     } as unknown as ReturnType<typeof getMyVault>);
   }
 
-  mocked(usesOperationalProfileNameRuntime).mockReturnValue(state === 'draft');
   mocked(loadOperationalAccount).mockResolvedValue({} as Awaited<ReturnType<typeof loadOperationalAccount>>);
   mocked(getOperationalProfileName).mockReturnValue('AtlasOperator');
   mocked(getMainchainClient).mockImplementation(async () => {
@@ -148,7 +143,6 @@ export function setupMemberInviteScenario(
 
   const currentMyVault = getMyVault();
   const createdVault = createScenarioVault({
-    name: state === 'onboardingInactive' ? 'Atlas Operator' : 'AtlasOperator',
     terms: {
       bitcoinAnnualPercentRate: BigNumber(0.034),
       bitcoinBaseFee: 2_000_000n,
@@ -175,10 +169,14 @@ export function setupMemberInviteScenario(
           ...(state === 'previousRuntime' ? { initializeFor: fn() } : {}),
         },
         treasury: { setBondLotFlexible: fn() },
-        vaults: { setName: fn() },
+        operationalAccounts: { setName: fn() },
       },
     } as unknown as Awaited<ReturnType<typeof getMainchainClient>>;
     mocked(getMainchainClient).mockResolvedValue(client);
+    mocked(loadOperationalAccount).mockResolvedValue({} as Awaited<ReturnType<typeof loadOperationalAccount>>);
+    mocked(getOperationalProfileName).mockReturnValue(
+      state === 'onboardingInactive' ? 'Atlas Operator' : 'AtlasOperator',
+    );
     mocked(getArgonBonds, { partial: true }).mockReturnValue({
       availableBondSpace: fn(() => (state === 'insufficientBondCapacity' ? 100_000_000n : 300_000_000n)),
     });

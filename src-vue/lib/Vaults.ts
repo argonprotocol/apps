@@ -6,7 +6,7 @@ import {
   Vaults as VaultsBase,
 } from '@argonprotocol/apps-core';
 import { BaseDirectory, mkdir, readTextFile, rename, writeTextFile } from '@tauri-apps/plugin-fs';
-import { getMainchainClients } from '../stores/mainchain.ts';
+import { getMainchainClient, getMainchainClients } from '../stores/mainchain.ts';
 import { INSTANCE_NAME, NETWORK_NAME } from './Env.ts';
 
 export interface IVaultStatsStorage {
@@ -23,6 +23,29 @@ export class Vaults extends VaultsBase {
   ) {
     const clients = getMainchainClients();
     super(network, currency, miningFrames, clients);
+  }
+
+  public async subscribeToOperatorName(vaultId: number, onUpdate: (name?: string) => void): Promise<VoidFunction> {
+    try {
+      const vault = this.vaultsById[vaultId] ?? (await this.refreshVault(vaultId));
+      if (!vault) return () => undefined;
+
+      const client = await getMainchainClient(false);
+      const operationalAccountId = await client.query.operationalAccounts.operationalAccountBySubAccount(
+        vault.operatorAccountId,
+      );
+      if (!operationalAccountId.isSome) {
+        onUpdate(this.setOperatorName(vaultId));
+        return () => undefined;
+      }
+
+      return await client.query.operationalAccounts.operationalAccounts(operationalAccountId.unwrap(), profileOption =>
+        onUpdate(this.setOperatorName(vaultId, profileOption)),
+      );
+    } catch (error) {
+      console.warn(`[Vaults] Unable to subscribe to the operator profile for vault ${vaultId}`, error);
+      return () => undefined;
+    }
   }
 
   private statsDirectory() {

@@ -30,8 +30,9 @@ export function isAccountInGlobalIssuanceCouncil(
 
 export function createKnownCrosschainSourceIdentities(args: {
   networkName: string;
-  createdVault?: Pick<Vault, 'name' | 'operatorAccountId'>;
-  vaultsById: Record<number, Pick<Vault, 'name' | 'operatorAccountId'>>;
+  createdVault?: Pick<Vault, 'vaultId' | 'operatorAccountId'>;
+  vaultsById: Record<number, Pick<Vault, 'operatorAccountId'>>;
+  operatorNamesByVaultId: Record<number, string | undefined>;
   localAccountIds: string[];
   upstreamOperator?: IConnectedVault;
   sourceUpstreamVaultAccountsByAccount?: ReadonlyMap<string, string>;
@@ -48,14 +49,15 @@ export function createKnownCrosschainSourceIdentities(args: {
     identities.set(accountId, { name: trimmedName, kind });
   };
 
-  for (const vault of Object.values(args.vaultsById)) {
-    addIdentity(vault.operatorAccountId, vault.name, 'vault');
+  for (const [vaultId, vault] of Object.entries(args.vaultsById)) {
+    addIdentity(vault.operatorAccountId, args.operatorNamesByVaultId[Number(vaultId)], 'vault');
   }
 
-  if (args.createdVault?.name?.trim()) {
-    addIdentity(args.createdVault.operatorAccountId, args.createdVault.name, 'vault');
+  const createdOperatorName = args.operatorNamesByVaultId[args.createdVault?.vaultId ?? -1];
+  if (args.createdVault && createdOperatorName) {
+    addIdentity(args.createdVault.operatorAccountId, createdOperatorName, 'vault');
     for (const accountId of args.localAccountIds) {
-      addIdentity(accountId, args.createdVault.name, 'vault');
+      addIdentity(accountId, createdOperatorName, 'vault');
     }
   } else {
     for (const accountId of args.localAccountIds) {

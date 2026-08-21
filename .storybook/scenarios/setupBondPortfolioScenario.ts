@@ -64,10 +64,11 @@ export function setupBondPortfolioScenario(programType: BondLot['programType']) 
     getFrameDate: fn((frameId: number) => new Date(Date.UTC(2026, 7, 15, 12 + (frameId - 10_000), 0, 0))),
   });
   mocked(getVaults).mockReturnValue({
+    operatorNamesByVaultId: { 7: 'Atlas', 12: 'Beacon' },
     vaultsById: {
-      7: { name: 'Atlas', operatorAccountId: '5AtlasOperator' },
-      12: { name: 'Beacon', operatorAccountId: '5BeaconOperator' },
-      21: { name: '', operatorAccountId: '5UnnamedOperator' },
+      7: { vaultId: 7, operatorAccountId: '5AtlasOperator' },
+      12: { vaultId: 12, operatorAccountId: '5BeaconOperator' },
+      21: { vaultId: 21, operatorAccountId: '5UnnamedOperator' },
     },
     subscribeToVault: fn(async () => fn()),
   } as unknown as ReturnType<typeof getVaults>);

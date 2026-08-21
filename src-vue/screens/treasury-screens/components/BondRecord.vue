@@ -133,8 +133,7 @@ const vaultLabel = Vue.computed(() => {
     return 'Vault Bond';
   }
 
-  const vault = vaults.vaultsById[vaultId];
-  const name = vault?.name?.trim();
+  const name = vaults.operatorNamesByVaultId[vaultId];
   return name ? `${name} Vault` : `Vault #${vaultId}`;
 });
 </script>

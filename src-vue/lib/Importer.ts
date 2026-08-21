@@ -23,7 +23,6 @@ import {
   getOnboardingSetupStatus,
   getOperationalChainProgressFromAccount,
   getOperationalProfileName,
-  usesOperationalProfileNameRuntime,
 } from './OperationalAccount.ts';
 import { findAddressActivity } from './IndexerClient.ts';
 
@@ -124,17 +123,13 @@ export default class Importer {
       operationalProgress.hasOperationalAccount || hasMiningActivity || hasVaultActivity || hasCrosschainHistory;
     hasTreasuryHistory ||= hasOperationsHistory;
 
-    const usesOperationalProfile = usesOperationalProfileNameRuntime(mainchainClient);
-    const operatorName = usesOperationalProfile
-      ? getOperationalProfileName(operationalAccount)
-      : (ownedVault?.name?.trim() ?? '');
+    const operatorName = getOperationalProfileName(operationalAccount);
     const onboardingSetupStatus = getOnboardingSetupStatus({
       hasOnboardingHistory: hasOperationsHistory,
       hasMiningSeats,
       hasVault: !!ownedVault,
       isServerInstalled: false,
       operatorName,
-      usesOperationalProfile,
     });
 
     const hasPreviousLife = hasExistingWalletValue || hasTreasuryHistory;

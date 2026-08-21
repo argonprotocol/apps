@@ -62,8 +62,7 @@ const emit = defineEmits<{
 const isActionHovered = Vue.ref(false);
 const lockRecord = Vue.computed(() => props.lockSummary.record);
 const vaultLabel = Vue.computed(() => {
-  const vault = vaults.vaultsById[props.lockSummary.record.vaultId];
-  const name = vault?.name?.trim();
+  const name = vaults.operatorNamesByVaultId[props.lockSummary.record.vaultId];
   return name ? `${name} Vault` : `Vault #${props.lockSummary.record.vaultId}`;
 });
 const mismatchAcceptProgress = Vue.computed(() => {

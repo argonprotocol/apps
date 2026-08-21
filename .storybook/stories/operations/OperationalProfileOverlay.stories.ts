@@ -30,13 +30,6 @@ export const DraftName: Story = {
   },
 };
 
-export const VaultRequired: Story = {
-  beforeEach: () => {
-    profileRequest = { draftName: 'AtlasOperator', onSelect: () => undefined };
-    setupOperationalProfileScenario('vaultRequired');
-  },
-};
-
 export const LoadFailed: Story = {
   beforeEach: () => {
     profileRequest = { draftName: 'AtlasOperator', onSelect: () => undefined };

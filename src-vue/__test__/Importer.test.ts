@@ -47,7 +47,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   importMocks.getOperatorVaultId.mockResolvedValue({ isSome: false });
   importMocks.getMainchainClient.mockResolvedValue({
-    tx: { operationalAccounts: {}, vaults: { setName: vi.fn() } },
+    tx: { operationalAccounts: { setName: vi.fn() } },
   });
 });
 
@@ -60,7 +60,9 @@ it('stops background sync before importing and keeps the current database on fai
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
-        operationalAccounts: vi.fn().mockResolvedValue({ isSome: false }),
+        operationalAccounts: vi.fn().mockResolvedValue({
+          isSome: false,
+        }),
       },
       vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
     },
@@ -107,6 +109,7 @@ it('restores completed mining setup from imported operational account state', as
     isOperationallyCertified: { toPrimitive: () => false },
     miningSeatAccrual: { toNumber: () => 0 },
     miningSeatAppliedTotal: { toNumber: () => 1 },
+    name: { isSome: false },
     operationalCertificationsCount: { toNumber: () => 0 },
     rewardsCollectedAmount: { toBigInt: () => 0n },
     rewardsEarnedAmount: { toBigInt: () => 0n },
@@ -321,7 +324,9 @@ it.each([
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
-        operationalAccounts: vi.fn().mockResolvedValue({ isSome: false }),
+        operationalAccounts: vi.fn().mockResolvedValue({
+          isSome: false,
+        }),
       },
       vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
       crosschainTransfer: {
@@ -382,7 +387,9 @@ it('preserves Operations history without granting Crosschain access from an owne
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
-        operationalAccounts: vi.fn().mockResolvedValue({ isSome: false }),
+        operationalAccounts: vi.fn().mockResolvedValue({
+          isSome: false,
+        }),
       },
       vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
       crosschainTransfer: {
@@ -435,9 +442,7 @@ it('does not infer treasury from an unattributed account hold', async () => {
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
-        operationalAccounts: vi.fn().mockResolvedValue({
-          isSome: false,
-        }),
+        operationalAccounts: vi.fn().mockResolvedValue({ isSome: false }),
       },
       vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
     },
@@ -497,9 +502,7 @@ it.each([
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
-        operationalAccounts: vi.fn().mockResolvedValue({
-          isSome: false,
-        }),
+        operationalAccounts: vi.fn().mockResolvedValue({ isSome: false }),
       },
       vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
     },
@@ -550,9 +553,7 @@ it('does not block account import when fallback index history is unavailable', a
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
-        operationalAccounts: vi.fn().mockResolvedValue({
-          isSome: false,
-        }),
+        operationalAccounts: vi.fn().mockResolvedValue({ isSome: false }),
       },
       vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
     },

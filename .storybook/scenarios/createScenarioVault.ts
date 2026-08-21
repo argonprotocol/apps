@@ -24,7 +24,6 @@ export function createScenarioVault(overrides: Partial<Vault> = {}): Vault {
     flexibleSecuritizationLocked: 0n,
     reservedSecuritizationSpace: 0n,
     flexibleSecuritizedSatoshis: 0,
-    name: 'Atlas Operator',
     ...overrides,
   });
 }
