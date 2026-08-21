@@ -39,7 +39,7 @@
           <button
             type="button"
             class="text-argon-600 hover:text-argon-700 cursor-pointer text-sm font-semibold disabled:cursor-not-allowed disabled:text-slate-300"
-            :disabled="isProcessing || hasCompleted"
+            :disabled="isProcessing"
             @click="useWalletMaximum"
           >
             Wallet Max
@@ -51,7 +51,7 @@
           :min="0n"
           suffix=" ARGN"
           class="w-full"
-          :disabled="isProcessing || hasCompleted"
+          :disabled="isProcessing"
           @change="updateFee"
         />
 
@@ -65,7 +65,7 @@
             <button
               type="button"
               class="text-argon-600 hover:text-argon-700 cursor-pointer text-sm font-semibold disabled:cursor-not-allowed disabled:text-slate-300"
-              :disabled="isProcessing || hasCompleted || wallets.defaultArgonWallet.totalMicronots <= 0n"
+              :disabled="isProcessing || wallets.defaultArgonWallet.totalMicronots <= 0n"
               @click="useArgonotWalletMaximum"
             >
               Wallet Max
@@ -77,7 +77,7 @@
             :min="0n"
             suffix=" ARGNOT"
             class="w-full"
-            :disabled="isProcessing || hasCompleted"
+            :disabled="isProcessing"
             @change="updateFee"
           />
 
@@ -104,7 +104,7 @@
         </div>
 
         <div
-          v-if="walletShortfall > 0n || argonotWalletShortfall > 0n"
+          v-if="!isProcessing && (walletShortfall > 0n || argonotWalletShortfall > 0n)"
           class="mt-4 flex items-center gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800"
         >
           <ExclamationCircleIcon class="size-5 shrink-0" />
@@ -120,7 +120,7 @@
           </button>
         </div>
 
-        <div v-if="isProcessing || hasCompleted" class="mt-8 rounded-md border border-slate-200 px-6 py-7">
+        <div v-if="isProcessing" class="mt-8 rounded-md border border-slate-200 px-6 py-7">
           <ProgressBar :progress="progressPct" :hasError="!!transactionError" />
           <div class="mt-3 text-center text-sm text-slate-500">{{ progressLabel }}</div>
         </div>
@@ -139,10 +139,9 @@
           class="rounded-md border border-slate-300 px-6 py-2.5 font-semibold text-slate-600 hover:bg-slate-50"
           @click="closeOverlay"
         >
-          {{ hasCompleted ? 'Close' : 'Cancel' }}
+          Cancel
         </button>
         <button
-          v-if="!hasCompleted"
           type="button"
           class="bg-argon-button hover:bg-argon-button-hover rounded-md px-8 py-2.5 font-semibold text-white disabled:cursor-default disabled:opacity-40"
           :disabled="
@@ -150,12 +149,11 @@
             !hasSecuritizationChange ||
             walletShortfall > 0n ||
             argonotWalletShortfall > 0n ||
-            argonotEncumbranceShortfall > 0n ||
-            !!transactionError
+            argonotEncumbranceShortfall > 0n
           "
           @click="updateSecuritization"
         >
-          Update Securitization
+          {{ isSubmitting ? 'Submitting…' : 'Update Securitization' }}
         </button>
       </div>
     </div>
@@ -169,15 +167,10 @@ import { bigIntMax, NetworkConfig, TreasuryBonds } from '@argonprotocol/apps-cor
 import basicEmitter from '../emitters/basicEmitter.ts';
 import InputToken from '../components/InputToken.vue';
 import ProgressBar from '../components/ProgressBar.vue';
-import type { IVaultIncreaseAllocationMetadata } from '../lib/MyVault.ts';
-import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import { WalletType } from '../lib/Wallet.ts';
-import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
-import { getArgonBonds } from '../stores/argonBonds.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
-import { getTransactionTracker } from '../stores/transactions.ts';
 import { getMyVault } from '../stores/vaults.ts';
 import { useWallets } from '../stores/wallets.ts';
 import { useVaultingAssetBreakdown } from '../stores/vaultingAssetBreakdown.ts';
@@ -186,8 +179,6 @@ import OverlayBase from './OverlayBase.vue';
 const currency = getCurrency();
 const wallets = useWallets();
 const myVault = getMyVault();
-const argonBonds = getArgonBonds();
-const transactionTracker = getTransactionTracker();
 const vaultingAssets = useVaultingAssetBreakdown();
 const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
@@ -198,13 +189,14 @@ const committedMicronots = Vue.ref(0n);
 const totalArgonIssuanceMicrogons = Vue.ref(0n);
 const totalArgonotIssuanceMicronots = Vue.ref(0n);
 const txFee = Vue.ref(0n);
-const isProcessing = Vue.ref(false);
-const hasCompleted = Vue.ref(false);
+const isSubmitting = Vue.ref(false);
 const progressPct = Vue.ref(0);
 const progressLabel = Vue.ref('');
 const transactionError = Vue.ref('');
 const circulationError = Vue.ref('');
-let unsubscribeProgress: VoidFunction | undefined;
+
+const pendingTransaction = Vue.computed(() => myVault.data.pendingAllocateTxInfo);
+const isProcessing = Vue.computed(() => isSubmitting.value || !!pendingTransaction.value);
 
 const finalArgonotTarget = Vue.computed(() => {
   return TreasuryBonds.getVaultArgonotSecuritizationTarget({
@@ -215,9 +207,15 @@ const finalArgonotTarget = Vue.computed(() => {
 });
 
 const securitizationChangeMicrogons = Vue.computed(() => {
+  if (pendingTransaction.value) {
+    return pendingTransaction.value.tx.metadataJson.securitizationChangeMicrogons ?? 0n;
+  }
   return securitizationMicrogons.value - vaultingAssets.securityMicrogons;
 });
 const argonotChangeMicronots = Vue.computed(() => {
+  if (pendingTransaction.value) {
+    return pendingTransaction.value.tx.metadataJson.argonotChangeMicronots ?? 0n;
+  }
   return committedMicronots.value - vaultingAssets.securityMicronots;
 });
 
@@ -244,31 +242,26 @@ function closeOverlay() {
 }
 
 function openOverlay(request?: { returnToInvite?: boolean }) {
+  const pendingMetadata = pendingTransaction.value?.tx.metadataJson;
   returnToInvite.value = request?.returnToInvite ?? false;
   isOpen.value = true;
-  if (!isProcessing.value) {
-    securitizationMicrogons.value = vaultingAssets.securityMicrogons;
-    committedMicronots.value = vaultingAssets.securityMicronots;
-    txFee.value = 0n;
-    hasCompleted.value = false;
-    progressPct.value = 0;
-    progressLabel.value = '';
-    transactionError.value = '';
-    circulationError.value = '';
-    void recoverPendingTransaction();
+  securitizationMicrogons.value = pendingMetadata?.securitizationMicrogons ?? vaultingAssets.securityMicrogons;
+  committedMicronots.value = pendingMetadata?.committedMicronots ?? vaultingAssets.securityMicronots;
+  txFee.value = 0n;
+  transactionError.value = '';
+  circulationError.value = '';
 
-    void Promise.all([currency.fetchMicrogonsInCirculation(), currency.fetchMicronotsInCirculation()])
-      .then(([argonIssuance, argonotIssuance]) => {
-        totalArgonIssuanceMicrogons.value = argonIssuance;
-        totalArgonotIssuanceMicronots.value = argonotIssuance;
-      })
-      .catch(error => {
-        circulationError.value =
-          error instanceof Error
-            ? `Unable to load current token circulation: ${error.message}`
-            : 'Unable to load current token circulation.';
-      });
-  }
+  void Promise.all([currency.fetchMicrogonsInCirculation(), currency.fetchMicronotsInCirculation()])
+    .then(([argonIssuance, argonotIssuance]) => {
+      totalArgonIssuanceMicrogons.value = argonIssuance;
+      totalArgonotIssuanceMicronots.value = argonotIssuance;
+    })
+    .catch(error => {
+      circulationError.value =
+        error instanceof Error
+          ? `Unable to load current token circulation: ${error.message}`
+          : 'Unable to load current token circulation.';
+    });
 }
 
 function goBackToInvite() {
@@ -300,6 +293,8 @@ async function useArgonotWalletMaximum() {
 }
 
 async function updateFee() {
+  if (isProcessing.value) return;
+
   transactionError.value = '';
   if (!hasSecuritizationChange.value || argonotEncumbranceShortfall.value > 0n) {
     txFee.value = 0n;
@@ -338,7 +333,7 @@ async function updateSecuritization() {
     return;
   }
 
-  isProcessing.value = true;
+  isSubmitting.value = true;
   progressPct.value = 0;
   progressLabel.value = 'Preparing transaction…';
 
@@ -351,71 +346,45 @@ async function updateSecuritization() {
       change.committedMicronots = committedMicronots.value;
     }
 
-    const info = await myVault.setVaultSecuritization(change);
-    trackTransaction(info);
+    await myVault.setVaultSecuritization(change);
   } catch (error) {
     transactionError.value = error instanceof Error ? error.message : 'Unable to update securitization.';
-    isProcessing.value = false;
+  } finally {
+    isSubmitting.value = false;
   }
 }
 
-function trackTransaction(info: TransactionInfo) {
-  isProcessing.value = true;
-  hasCompleted.value = false;
-  transactionError.value = '';
-  unsubscribeProgress?.();
-  unsubscribeProgress = info.subscribeToProgress(async (progress, error) => {
-    progressPct.value = progress.progressPct;
-    progressLabel.value = progress.progressMessage;
-
-    if (error) {
-      transactionError.value = error.message ?? 'Unable to update securitization.';
-      isProcessing.value = false;
+Vue.watch(
+  pendingTransaction,
+  (txInfo, _, onCleanup) => {
+    if (!txInfo) {
+      progressPct.value = 0;
+      progressLabel.value = '';
       return;
     }
-    if (progress.progressPct < 100 || hasCompleted.value) return;
 
-    try {
-      const vault = myVault.createdVault;
-      await Promise.all([
-        myVault.load(true),
-        vault
-          ? argonBonds.refreshVault({
-              vaultId: vault.vaultId,
-              operatorAddress: vault.operatorAccountId,
-              accountId: myVault.walletKeys.vaultingAddress,
-            })
-          : Promise.resolve(),
-      ]);
-      hasCompleted.value = true;
-      progressLabel.value = 'Securitization updated.';
-    } catch (refreshError) {
-      transactionError.value =
-        refreshError instanceof Error
-          ? `Securitization was updated, but the latest vault state could not be loaded: ${refreshError.message}`
-          : 'Securitization was updated, but the latest vault state could not be loaded.';
-    } finally {
-      isProcessing.value = false;
+    transactionError.value = '';
+    if (isOpen.value) {
+      securitizationMicrogons.value =
+        txInfo.tx.metadataJson.securitizationMicrogons ?? vaultingAssets.securityMicrogons;
+      committedMicronots.value = txInfo.tx.metadataJson.committedMicronots ?? vaultingAssets.securityMicronots;
+      txFee.value = 0n;
     }
-  });
-}
+    const status = txInfo.getStatus();
+    progressPct.value = status.progressPct;
+    progressLabel.value = status.isFinalized ? 'Finalizing securitization details…' : 'Waiting for transaction status…';
 
-async function recoverPendingTransaction() {
-  await transactionTracker.load();
-  const vaultId = myVault.vaultId;
-  if (vaultId == null) return;
-
-  const pending = transactionTracker.findLatestTxInfo<IVaultIncreaseAllocationMetadata>(candidate => {
-    if (candidate.tx.extrinsicType !== ExtrinsicType.VaultIncreaseAllocation) return false;
-    if (candidate.tx.metadataJson.vaultId !== vaultId) return false;
-    return candidate.tx.status === TransactionStatus.Submitted || candidate.tx.status === TransactionStatus.InBlock;
-  });
-  if (!pending) return;
-
-  securitizationMicrogons.value = pending.tx.metadataJson.securitizationMicrogons ?? vaultingAssets.securityMicrogons;
-  committedMicronots.value = pending.tx.metadataJson.committedMicronots ?? vaultingAssets.securityMicronots;
-  trackTransaction(pending);
-}
+    const unsubscribe = txInfo.subscribeToProgress((progress, error) => {
+      progressPct.value = progress.progressPct;
+      progressLabel.value = progress.progressMessage;
+      if (error) {
+        transactionError.value = error.message;
+      }
+    });
+    onCleanup(unsubscribe);
+  },
+  { immediate: true },
+);
 
 function formatArgons(microgons: bigint) {
   return microgonToArgonNm(microgons).format('0,0.[00]');
@@ -434,7 +403,6 @@ function formatAdjustment(amount: bigint, formatter: (value: bigint) => string, 
 basicEmitter.on('openSecuritizationOverlay', openOverlay);
 
 Vue.onBeforeUnmount(() => {
-  unsubscribeProgress?.();
   basicEmitter.off('openSecuritizationOverlay', openOverlay);
 });
 </script>

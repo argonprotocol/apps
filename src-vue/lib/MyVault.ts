@@ -88,7 +88,9 @@ export type IVaultInitialAllocateMetadata = {
 
 export type IVaultIncreaseAllocationMetadata = {
   securitizationMicrogons?: bigint;
+  securitizationChangeMicrogons?: bigint;
   committedMicronots?: bigint;
+  argonotChangeMicronots?: bigint;
   addedSecuritizationMicrogons?: bigint;
   addedMicronots?: bigint;
   vaultId: number;
@@ -310,7 +312,7 @@ export class MyVault {
         } else if (tx.extrinsicType === ExtrinsicType.VaultModifySettings) {
           void this.onModifySettings(txInfo);
         } else if (tx.extrinsicType === ExtrinsicType.VaultIncreaseAllocation) {
-          void this.onIncreaseVaultSecuritization(txInfo);
+          void this.onIncreaseVaultSecuritization(txInfo as TransactionInfo<IVaultIncreaseAllocationMetadata>);
         } else if (tx.extrinsicType === ExtrinsicType.VaultCosignBitcoinRelease) {
           void this.onCosignResult(txInfo);
         } else if (tx.extrinsicType === ExtrinsicType.VaultCosignOrphanedUtxoRelease) {
@@ -2184,6 +2186,8 @@ export class MyVault {
     if (!vault) {
       throw new Error('No vault created to get changes needed');
     }
+    const currentSecuritizationMicrogons = vault.securitization;
+    const currentCommittedMicronots = this.data.argonotCommitment.committedMicronots;
 
     const change: Parameters<MyVault['buildSecuritizationTx']>[0] = {};
     if (args.securitizationMicrogons !== undefined) {
@@ -2206,16 +2210,17 @@ export class MyVault {
     };
     if (args.securitizationMicrogons !== undefined) {
       metadata.securitizationMicrogons = args.securitizationMicrogons;
+      metadata.securitizationChangeMicrogons = args.securitizationMicrogons - currentSecuritizationMicrogons;
     }
     if (args.committedMicronots !== undefined) {
       metadata.committedMicronots = args.committedMicronots;
+      metadata.argonotChangeMicronots = args.committedMicronots - currentCommittedMicronots;
     }
     const info = await this.#transactionTracker.trackTxResult({
       txResult,
       extrinsicType: ExtrinsicType.VaultIncreaseAllocation,
       metadata,
     });
-    this.data.pendingAllocateTxInfo = info;
     void this.onIncreaseVaultSecuritization(info);
     return info;
   }
@@ -2258,7 +2263,10 @@ export class MyVault {
     return txs.length === 1 ? txs[0] : client.tx.utility.batchAll(txs);
   }
 
-  private async onIncreaseVaultSecuritization(txInfo: TransactionInfo): Promise<void> {
+  private async onIncreaseVaultSecuritization(
+    txInfo: TransactionInfo<IVaultIncreaseAllocationMetadata>,
+  ): Promise<void> {
+    this.data.pendingAllocateTxInfo = txInfo;
     const { txResult } = txInfo;
     const postProcessor = txInfo.createPostProcessor();
     try {
@@ -2270,7 +2278,9 @@ export class MyVault {
       postProcessor.reject(error as Error);
       throw error;
     } finally {
-      this.data.pendingAllocateTxInfo = null;
+      if (this.data.pendingAllocateTxInfo?.tx.id === txInfo.tx.id) {
+        this.data.pendingAllocateTxInfo = null;
+      }
     }
   }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { targetVaultDelegateBalance, type MiningFrames } from '@argonprotocol/apps-core';
 import { reactive } from 'vue';
-import { MyVault } from '../lib/MyVault.ts';
+import { MyVault, type IVaultIncreaseAllocationMetadata } from '../lib/MyVault.ts';
 import type BitcoinLocks from '../lib/BitcoinLocks.ts';
 import { TransactionInfo } from '../lib/TransactionInfo.ts';
 import { TxAttemptState, type TransactionTracker } from '../lib/TransactionTracker.ts';
@@ -37,6 +37,7 @@ type IMyVaultTestTarget = {
   trackTxResultFee(txResult: unknown): Promise<void>;
   recordFee(txResult: { finalFee?: bigint; finalFeeTip?: bigint }): void;
   onVaultCreated(txInfo: TransactionInfo<{ masterXpubPath: string }>): Promise<Vault>;
+  onIncreaseVaultSecuritization(txInfo: TransactionInfo<IVaultIncreaseAllocationMetadata>): Promise<void>;
 };
 
 describe('MyVaultRecovery', () => {
@@ -604,6 +605,7 @@ describe('MyVault cosign recovery', () => {
       securitization: 1_000n,
       securitizationRatio: 1,
     } as any;
+    myVault.data.argonotCommitment.committedMicronots = 100n;
     const buildSecuritizationTx = vi
       .spyOn(myVault as unknown as { buildSecuritizationTx: MyVault['buildSecuritizationTx'] }, 'buildSecuritizationTx')
       .mockResolvedValue(tx as any);
@@ -656,7 +658,9 @@ describe('MyVault cosign recovery', () => {
       extrinsicType: ExtrinsicType.VaultIncreaseAllocation,
       metadata: {
         securitizationMicrogons: 1_100n,
+        securitizationChangeMicrogons: 100n,
         committedMicronots: 350n,
+        argonotChangeMicronots: 250n,
         vaultId: 7,
         moveFrom: 'VaultingHold',
         moveTo: 'VaultingSecurity',
@@ -665,6 +669,39 @@ describe('MyVault cosign recovery', () => {
     expect(result).toBe(txResultInfo);
 
     getMainchainClient.mockRestore();
+  });
+
+  it('publishes the current securitization transaction until its post-processing finishes', async () => {
+    const finalizationResolvers: Array<() => void> = [];
+    const createPendingTxInfo = (id: number) => {
+      const waitForFinalizedBlock = new Promise<void>(resolve => finalizationResolvers.push(resolve));
+      return {
+        tx: { id },
+        txResult: { waitForFinalizedBlock },
+        createPostProcessor: vi.fn(() => ({ resolve: vi.fn(), reject: vi.fn() })),
+      } as unknown as TransactionInfo<IVaultIncreaseAllocationMetadata>;
+    };
+    const firstTxInfo = createPendingTxInfo(41);
+    const secondTxInfo = createPendingTxInfo(42);
+    const { myVault } = createVault();
+    myVault.data = reactive(myVault.data) as typeof myVault.data;
+    const testVault = myVault as unknown as IMyVaultTestTarget;
+    vi.spyOn(testVault, 'trackTxResultFee').mockResolvedValue(undefined);
+    vi.spyOn(myVault, 'recordFinalizedVaultCapital').mockResolvedValue(undefined);
+
+    const firstProcessing = testVault.onIncreaseVaultSecuritization(firstTxInfo);
+    expect(myVault.data.pendingAllocateTxInfo?.tx.id).toBe(41);
+
+    const secondProcessing = testVault.onIncreaseVaultSecuritization(secondTxInfo);
+    expect(myVault.data.pendingAllocateTxInfo?.tx.id).toBe(42);
+
+    finalizationResolvers[0]();
+    await firstProcessing;
+    expect(myVault.data.pendingAllocateTxInfo?.tx.id).toBe(42);
+
+    finalizationResolvers[1]();
+    await secondProcessing;
+    expect(myVault.data.pendingAllocateTxInfo).toBeNull();
   });
 
   it('uses the selected final ARGN and ARGNOT securitization amounts', async () => {
