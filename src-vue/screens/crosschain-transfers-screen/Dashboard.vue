@@ -4,7 +4,7 @@
     <section class="flex h-[14%] min-h-24 shrink-0 flex-row gap-x-2">
       <Tooltip :asChild="true">
         <div box stat-box class="flex w-1/5 cursor-help flex-col">
-          <span>₳{{ formatCapacity(remainingMintingAuthority.valueMicrogons) }}</span>
+          <span>{{ currency.symbol }}{{ formatValue(remainingMintingAuthority.valueMicrogons) }}</span>
           <label>Remaining Minting Authority</label>
         </div>
         <template #content>
@@ -19,10 +19,10 @@
       </Tooltip>
       <Tooltip
         :asChild="true"
-        content="Deduplicated ARGN-equivalent value of transfer requests you authorized, using the current transfer-out quote."
+        content="Deduplicated value of transfer requests you authorized in your selected currency, using the current transfer-out quote."
       >
         <div box stat-box class="flex w-1/5 cursor-help flex-col">
-          <span>₳{{ formatCapacity(sponsoredTransferValue) }}</span>
+          <span>{{ currency.symbol }}{{ formatValue(sponsoredTransferValue) }}</span>
           <label>Transfer Value Sponsored</label>
         </div>
       </Tooltip>
@@ -32,15 +32,21 @@
           <label>Total Signed</label>
         </div>
       </Tooltip>
-      <Tooltip :asChild="true" content="Transfer tips recovered from your signing history, before fees.">
+      <Tooltip
+        :asChild="true"
+        content="Value of your transfer-tip share recovered from signing history in your selected currency, using each transfer's snapshotted quote."
+      >
         <div box stat-box class="flex w-1/5 cursor-help flex-col">
-          <span>₳{{ formatArgon(crosschainHistory.getTransferTips()) }}</span>
+          <span>{{ currency.symbol }}{{ formatValue(crosschainHistory.getTransferTips()) }}</span>
           <label>Transfer Tips</label>
         </div>
       </Tooltip>
-      <Tooltip :asChild="true" content="Tips offered by transfer requests currently available to your minting authorities.">
+      <Tooltip
+        :asChild="true"
+        content="Value of your minting authorities' available tip shares in your selected currency, using each transfer's snapshotted quote."
+      >
         <div box stat-box class="flex w-1/5 cursor-help flex-col">
-          <span>₳{{ formatArgon(availableTips) }}</span>
+          <span>{{ currency.symbol }}{{ formatValue(availableTipValueMicrogons) }}</span>
           <label>Tips Available</label>
         </div>
       </Tooltip>
@@ -135,7 +141,9 @@
               </div>
               <div v-if="row.amount !== undefined" class="shrink-0 text-right">
                 <div class="font-mono font-semibold text-slate-700">{{ formatTokenAmount(row.amount, row.moveToken) }}</div>
-                <div class="mt-0.5 text-xs text-slate-500">{{ formatArgon(row.tip ?? 0n) }} ARGN tip</div>
+                <div class="mt-0.5 text-xs text-slate-500">
+                  {{ formatTokenAmount(row.tip ?? 0n, row.moveToken) }} tip
+                </div>
               </div>
               <div class="text-slate-400 transition-transform group-open:rotate-90">›</div>
             </summary>
@@ -176,7 +184,13 @@
                 <template v-if="selectedAuthorizations.length">
                   {{ formatArgon(selectedMicrogonCollateral) }} ARGN +
                   {{ formatArgonot(selectedMicronotCollateral) }} ARGNOT collateral for
-                  {{ formatArgon(selectedTipMicrogons) }} ARGN tip
+                  <template v-if="selectedTipMicrogons > 0n">{{ formatArgon(selectedTipMicrogons) }} ARGN</template>
+                  <template v-if="selectedTipMicrogons > 0n && selectedTipMicronots > 0n"> + </template>
+                  <template v-if="selectedTipMicronots > 0n">
+                    {{ formatArgonot(selectedTipMicronots) }} ARGNOT
+                  </template>
+                  <template v-if="selectedTipMicrogons === 0n && selectedTipMicronots === 0n">0 ARGN</template>
+                  tip
                 </template>
                 <template v-else>Select one or more transfer requests to fund.</template>
               </div>
@@ -447,7 +461,7 @@ const crosschainHistory = getCrosschainHistory();
 const bot = getBot();
 const config = getConfig();
 const currency = getCurrency();
-const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
+const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const accessState = Vue.computed(() =>
   getCrosschainAccessState({
@@ -637,7 +651,14 @@ const selectedMicronotCollateral = Vue.computed(() => {
   return selectedAuthorizations.value.reduce((total, authorization) => total + authorization.micronotCollateral, 0n);
 });
 const selectedTipMicrogons = Vue.computed(() => {
-  return selectedAuthorizations.value.reduce((total, authorization) => total + authorization.mintingAuthorityTip, 0n);
+  return selectedAuthorizations.value.reduce((total, authorization) => {
+    return authorization.moveToken === MoveToken.ARGN ? total + authorization.mintingAuthorityTipShare : total;
+  }, 0n);
+});
+const selectedTipMicronots = Vue.computed(() => {
+  return selectedAuthorizations.value.reduce((total, authorization) => {
+    return authorization.moveToken === MoveToken.ARGNOT ? total + authorization.mintingAuthorityTipShare : total;
+  }, 0n);
 });
 const fundingTransferCount = Vue.computed(() => {
   if (!activeFundingTxInfos.value.length) return selectedAuthorizations.value.length;
@@ -646,9 +667,9 @@ const fundingTransferCount = Vue.computed(() => {
     activeFundingTxInfos.value.flatMap(({ tx }) => tx.metadataJson.authorizations.map(({ transferId }) => transferId)),
   ).size;
 });
-const availableTips = Vue.computed(() => {
+const availableTipValueMicrogons = Vue.computed(() => {
   return myVault.mintingAuthorities.data.pendingMintingAuthorizations.reduce(
-    (total, authorization) => total + authorization.mintingAuthorityTip,
+    (total, authorization) => total + authorization.mintingAuthorityTipValueMicrogons,
     0n,
   );
 });
@@ -760,7 +781,7 @@ function toPendingAuthorizationRow(authorization: IMintingAuthorityAuthorization
     needsAction: true,
     moveToken: authorization.moveToken,
     amount: authorization.finalizeRequest.amount,
-    tip: authorization.mintingAuthorityTip,
+    tip: authorization.mintingAuthorityTipShare,
     transferId: authorization.transferId,
     sourceAccount: authorization.sourceAccount,
     sourceIdentity: knownSourceIdentities.value.get(authorization.sourceAccount),
@@ -788,7 +809,7 @@ function toBackedTransferRow(transfer: IMintingAuthorityBackedTransfer): ITransf
     needsAction: false,
     moveToken: transfer.moveToken,
     amount: transfer.amount,
-    tip: transfer.mintingAuthorityTip,
+    tip: transfer.mintingAuthorityTipShare,
     transferId: transfer.transferId,
     sourceAccount: transfer.sourceAccount,
     sourceIdentity: knownSourceIdentities.value.get(transfer.sourceAccount),
@@ -819,7 +840,7 @@ function toPendingSubmissionRow(
     waitingFor: 'Argon finalization',
     needsAction: false,
     transferId,
-    tip: authorization?.mintingAuthorityTip,
+    tip: authorization?.mintingAuthorityTipShare ?? authorization?.mintingAuthorityTip,
     microgonCollateral: authorization?.microgonCollateral,
     micronotCollateral: authorization?.micronotCollateral,
     argonBlockHeight: txInfo.tx.blockHeight,
@@ -903,8 +924,8 @@ function formatArgonot(amount: bigint) {
   return micronotToArgonotNm(amount).format('0,0.[00]');
 }
 
-function formatCapacity(amount: bigint) {
-  return microgonToArgonNm(amount).formatIfElse('< 1_000', '0,0.[00]', '0,0');
+function formatValue(amount: bigint) {
+  return microgonToMoneyNm(amount).format('0,0.00');
 }
 
 function getTransferProgress(row: ITransferQueueRow) {

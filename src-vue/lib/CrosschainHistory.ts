@@ -1,11 +1,16 @@
 import {
   AccountActivityKind,
+  bigIntMax,
+  bigNumberToBigInt,
   type BlockWatch,
+  Currency,
   type IIndexerSpec,
+  MICROGONS_PER_ARGON,
   MICRONOTS_PER_ARGONOT,
   MoveToken,
 } from '@argonprotocol/apps-core';
 import type { FrameSystemEventRecord } from '@argonprotocol/mainchain';
+import BigNumber from 'bignumber.js';
 import { findAddressActivity } from './IndexerClient.ts';
 import type { IGlobalCouncilApproval, IGlobalCouncilChange } from './GlobalCouncil.ts';
 import type { WalletKeys } from './WalletKeys.ts';
@@ -21,9 +26,9 @@ export type ICrosschainHistoryDetails =
       destinationAccount: string;
       moveToken: MoveToken.ARGN | MoveToken.ARGNOT;
       amount: bigint;
-      tip?: bigint;
-      /** Cached records from before the transfer-tip rename. */
-      reward?: bigint;
+      microgonsPerArgonot: bigint;
+      tip: bigint;
+      tipValueMicrogons: bigint;
       microgonCollateral: bigint;
       micronotCollateral: bigint;
     }
@@ -136,7 +141,7 @@ export class CrosschainHistory {
   public getTransferTips(): bigint {
     return this.data.records.reduce((total, record) => {
       if (record.details.kind !== 'transferAuthorization') return total;
-      return total + (record.details.tip ?? record.details.reward ?? 0n);
+      return total + record.details.tipValueMicrogons;
     }, 0n);
   }
 
@@ -199,6 +204,16 @@ export class CrosschainHistory {
       const accountId = this.walletKeys.vaultingAddress;
       const cached = await cache?.get(FinancialCacheTypes.CrosschainHistory, accountId);
       if (!cached) return;
+      if (
+        cached.records.some(record => {
+          return (
+            record.details.kind === 'transferAuthorization' &&
+            (record.details.microgonsPerArgonot == null || record.details.tipValueMicrogons == null)
+          );
+        })
+      ) {
+        return;
+      }
 
       this.data.records = cached.records;
       this.refreshedThroughBlock = cached.refreshedThroughBlock;
@@ -352,6 +367,20 @@ export class CrosschainHistory {
       if (transferOption.isNone) return;
 
       const transfer = transferOption.unwrap();
+      const moveToken = transfer.asset.isArgon ? MoveToken.ARGN : MoveToken.ARGNOT;
+      const microgonsPerArgonot = transfer.microgonsPerArgonot.toBigInt();
+      const tip = transfer.mintingAuthorityTip.toBigInt();
+      const microgonCollateral = event.data.microgonCollateral.toBigInt();
+      const micronotCollateral = event.data.micronotCollateral.toBigInt();
+      const amount = transfer.amount.toBigInt();
+      const authorityTip = calculateMintingAuthorityTipShare({
+        moveToken,
+        mintingAuthorityTip: tip,
+        totalCollateral: bigIntMax(amount, transfer.totalAttachedCollateral.toBigInt()),
+        microgonsPerArgonot,
+        microgonCollateral,
+        micronotCollateral,
+      });
       return {
         kind: 'transferAuthorization',
         transferId,
@@ -359,11 +388,17 @@ export class CrosschainHistory {
         authorityOwnerAccount,
         sourceAccount: transfer.argonAccountId.toString(),
         destinationAccount: transfer.destinationAccount.toHex(),
-        moveToken: transfer.asset.isArgon ? MoveToken.ARGN : MoveToken.ARGNOT,
-        amount: transfer.amount.toBigInt(),
-        tip: transfer.mintingAuthorityTip.toBigInt(),
-        microgonCollateral: event.data.microgonCollateral.toBigInt(),
-        micronotCollateral: event.data.micronotCollateral.toBigInt(),
+        moveToken,
+        amount,
+        microgonsPerArgonot,
+        tip: authorityTip,
+        tipValueMicrogons: convertMintingAuthorityTipToMicrogons({
+          moveToken,
+          mintingAuthorityTip: authorityTip,
+          microgonsPerArgonot,
+        }),
+        microgonCollateral,
+        micronotCollateral,
       };
     }
 
@@ -377,4 +412,43 @@ export class CrosschainHistory {
       };
     }
   }
+}
+
+export function calculateMintingAuthorityTipShare(args: {
+  moveToken: MoveToken.ARGN | MoveToken.ARGNOT;
+  mintingAuthorityTip: bigint;
+  totalCollateral: bigint;
+  microgonsPerArgonot: bigint;
+  microgonCollateral: bigint;
+  micronotCollateral: bigint;
+}): bigint {
+  const {
+    moveToken,
+    mintingAuthorityTip,
+    totalCollateral,
+    microgonsPerArgonot,
+    microgonCollateral,
+    micronotCollateral,
+  } = args;
+  if (mintingAuthorityTip <= 0n || totalCollateral <= 0n) return 0n;
+
+  const collateralShare =
+    moveToken === MoveToken.ARGNOT
+      ? micronotCollateral
+      : microgonCollateral +
+        bigNumberToBigInt(
+          BigNumber(micronotCollateral).multipliedBy(microgonsPerArgonot).dividedBy(MICROGONS_PER_ARGON),
+        );
+
+  return bigNumberToBigInt(BigNumber(mintingAuthorityTip).multipliedBy(collateralShare).dividedBy(totalCollateral));
+}
+
+export function convertMintingAuthorityTipToMicrogons(args: {
+  moveToken: MoveToken.ARGN | MoveToken.ARGNOT;
+  mintingAuthorityTip: bigint;
+  microgonsPerArgonot: bigint;
+}): bigint {
+  const { moveToken, mintingAuthorityTip, microgonsPerArgonot } = args;
+  if (moveToken === MoveToken.ARGN) return mintingAuthorityTip;
+  return Currency.convertMicronotToMicrogonAtPrice(mintingAuthorityTip, microgonsPerArgonot);
 }

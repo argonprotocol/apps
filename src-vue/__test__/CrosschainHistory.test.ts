@@ -68,6 +68,44 @@ describe('CrosschainHistory', () => {
     expect(updateCachedHistory).not.toHaveBeenCalled();
   });
 
+  it('replays cached ARGNOT history that predates transfer quote snapshots', async () => {
+    const record = transferAuthorizationRecord();
+    const details = record.details as Extract<ICrosschainHistoryRecord['details'], { kind: 'transferAuthorization' }>;
+    const { microgonsPerArgonot: _, ...legacyDetails } = details;
+    const legacyRecord = { ...record, details: legacyDetails } as ICrosschainHistoryRecord;
+    const findActivity = vi.fn(async () => ({
+      blocks: [],
+      asOfBlock: 12,
+      definitionVersion: 4,
+      coverage: { fromBlock: 0, toBlock: 12, gaps: [] },
+    }));
+    const history = new CrosschainHistory(
+      { vaultingAddress: record.accountId },
+      {
+        start: vi.fn(async () => undefined),
+        finalizedBlockHeader: { blockNumber: 12 },
+      } as any,
+      Promise.resolve({
+        get: vi.fn(async () => ({
+          records: [legacyRecord],
+          definitionVersion: 4,
+          refreshedThroughBlock: 10,
+        })),
+        upsert: vi.fn(async () => undefined),
+      } as unknown as FinancialCacheTable),
+      findActivity,
+    );
+
+    await history.refresh();
+
+    expect(findActivity).toHaveBeenCalledWith('5vault', {
+      afterBlock: 0,
+      toBlock: 12,
+      activityMask: AccountActivityKind.Fee,
+    });
+    expect(history.data.records).toEqual([]);
+  });
+
   it('caches a complete refreshed history snapshot', async () => {
     const record = transferAuthorizationRecord();
     const updateCachedHistory = vi.fn(async () => undefined);
@@ -193,7 +231,7 @@ describe('CrosschainHistory', () => {
     expect(history.getSponsoredTransferValue(4_000_000n)).toBe(13_000_000n);
   });
 
-  it('totals transfer tips without including minting-authority relay activity', () => {
+  it("values only this wallet's transfer-tip share at each transfer's quote", () => {
     const firstAuthorization = transferAuthorizationRecord();
     const firstAuthorizationDetails = firstAuthorization.details as Extract<
       ICrosschainHistoryRecord['details'],
@@ -205,7 +243,12 @@ describe('CrosschainHistory', () => {
       details: {
         ...firstAuthorizationDetails,
         transferId: '0xsecond-transfer',
-        tip: 75_000n,
+        moveToken: MoveToken.ARGNOT,
+        microgonsPerArgonot: 4_000_000n,
+        tip: 15_000n,
+        tipValueMicrogons: 60_000n,
+        microgonCollateral: 0n,
+        micronotCollateral: 1_000_000n,
       },
     };
     const authorityRelay: ICrosschainHistoryRecord = {
@@ -218,20 +261,20 @@ describe('CrosschainHistory', () => {
         queueNonce: 4n,
       },
     };
-    const legacyAuthorization: ICrosschainHistoryRecord = {
+    const thirdAuthorization: ICrosschainHistoryRecord = {
       ...firstAuthorization,
       id: '0xblock:5',
       details: {
         ...firstAuthorizationDetails,
-        tip: undefined,
-        reward: 25_000n,
-        transferId: '0xlegacy-transfer',
+        tip: 25_000n,
+        tipValueMicrogons: 25_000n,
+        transferId: '0xthird-transfer',
       },
     };
     const history = new CrosschainHistory({ vaultingAddress: firstAuthorization.accountId }, {} as any);
-    history.data.records = [firstAuthorization, secondAuthorization, authorityRelay, legacyAuthorization];
+    history.data.records = [firstAuthorization, secondAuthorization, authorityRelay, thirdAuthorization];
 
-    expect(history.getTransferTips()).toBe(150_000n);
+    expect(history.getTransferTips()).toBe(110_000n);
   });
 
   it('keeps this wallet council signatures in its crosschain history', async () => {
@@ -359,9 +402,11 @@ function transferAuthorizationRecord(): ICrosschainHistoryRecord {
       destinationAccount: '0xrecipient',
       moveToken: MoveToken.ARGN,
       amount: 5_000_000n,
-      tip: 50_000n,
-      microgonCollateral: 10_000_000n,
-      micronotCollateral: 1_000_000n,
+      microgonsPerArgonot: 2_000_000n,
+      tip: 25_000n,
+      tipValueMicrogons: 25_000n,
+      microgonCollateral: 2_500_000n,
+      micronotCollateral: 0n,
     },
   };
 }

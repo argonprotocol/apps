@@ -392,6 +392,8 @@ describe('MintingAuthorities', () => {
           authorityIndex: 0,
           transferId: '0x' + '01'.repeat(32),
           mintingAuthorityTip: 0n,
+          mintingAuthorityTipShare: 0n,
+          mintingAuthorityTipValueMicrogons: 0n,
           microgonCollateral: 30n,
           micronotCollateral: 0n,
         },
@@ -440,6 +442,81 @@ describe('MintingAuthorities', () => {
     expect(client.query.crosschainTransfer.pendingCollateralizationRequestsByChain).not.toHaveBeenCalled();
   });
 
+  it("values an ARGNOT authorization's tip share at the transfer snapshot quote", async () => {
+    const signer = '0x' + '11'.repeat(20);
+    const transferId = '0x' + '01'.repeat(32);
+    const authority = {
+      signer,
+      authorityIndex: 0,
+      isPendingActivation: false,
+      isDeactivating: false,
+      isActive: true,
+      gatewayRemainingMicrogonCollateral: 0n,
+      pendingReservedMicrogonCollateral: 0n,
+      gatewayRemainingMicronotCollateral: 2_000_000n,
+      pendingReservedMicronotCollateral: 0n,
+      activePendingTransferIds: [],
+    } as IEthereumMintingAuthority;
+    const client = {
+      consts: {
+        crosschainTransfer: {
+          minTransferCollateralIncrement: bigintValue(1n),
+        },
+      },
+      query: {
+        crosschainTransfer: {
+          chainConfigBySourceChain: vi.fn(async () => ({
+            isNone: false,
+            unwrap: () => ({
+              isEvm: true,
+              asEvm: {
+                chainId: bigintValue(1n),
+                gateway: hexValue('0x' + 'aa'.repeat(20)),
+                argonToken: hexValue('0x' + 'bb'.repeat(20)),
+                argonotToken: hexValue('0x' + 'cc'.repeat(20)),
+              },
+            }),
+          })),
+          pendingCollateralizationRequestsByChain: vi.fn(async () => [
+            {
+              transferId: hexValue(transferId),
+              remainingCollateral: bigintValue(5_000_000n),
+            },
+          ]),
+          transferOutById: {
+            multi: vi.fn(async () => [
+              {
+                isNone: false,
+                unwrap: () => ({
+                  microgonsPerArgonot: bigintValue(4_000_000n),
+                  mintingAuthorityCollateralBySigner: { keys: () => [] },
+                  asset: { isArgon: false },
+                  argonAccountId: accountValue('0x' + 'dd'.repeat(32), '5SourceAccount'),
+                  argonTransferNonce: bigintValue(1n),
+                  destinationAccount: hexValue('0x' + 'ee'.repeat(20)),
+                  validUntilEthereumBlock: bigintValue(123n),
+                  amount: bigintValue(5_000_000n),
+                  mintingAuthorityTip: bigintValue(1_250_000n),
+                }),
+              },
+            ]),
+          },
+        },
+      },
+    };
+
+    const [authorization] = await getPendingMintingAuthorizations(client as any, [authority]);
+
+    expect(authorization).toMatchObject({
+      moveToken: MoveToken.ARGNOT,
+      mintingAuthorityTip: 1_250_000n,
+      mintingAuthorityTipShare: 500_000n,
+      mintingAuthorityTipValueMicrogons: 2_000_000n,
+      microgonCollateral: 0n,
+      micronotCollateral: 2_000_000n,
+    });
+  });
+
   it('loads transfers already backed by an owned minting authority', async () => {
     const signer = '0x' + '11'.repeat(20);
     const transferId = '0x' + '01'.repeat(32);
@@ -460,6 +537,7 @@ describe('MintingAuthorities', () => {
                   amount: bigintValue(80n),
                   validUntilEthereumBlock: bigintValue(123n),
                   mintingAuthorityTip: bigintValue(2n),
+                  microgonsPerArgonot: bigintValue(1_000_000n),
                   totalAttachedCollateral: bigintValue(60n),
                   mintingAuthorityCollateralBySigner: new Map([
                     [
@@ -494,6 +572,7 @@ describe('MintingAuthorities', () => {
         amount: 80n,
         validUntilEthereumBlock: 123n,
         mintingAuthorityTip: 2n,
+        mintingAuthorityTipShare: 1n,
         totalAttachedCollateral: 60n,
         ownedMicrogonCollateral: 40n,
         ownedMicronotCollateral: 20n,
@@ -602,6 +681,8 @@ describe('MintingAuthorities', () => {
         authorityIndex: 2,
         authorizationHash: '0x' + 'aa'.repeat(32),
         mintingAuthorityTip: 11n,
+        mintingAuthorityTipShare: 5n,
+        mintingAuthorityTipValueMicrogons: 5n,
         microgonCollateral: 10n,
         micronotCollateral: 0n,
       },
@@ -610,6 +691,8 @@ describe('MintingAuthorities', () => {
         authorityIndex: 3,
         authorizationHash: '0x' + 'bb'.repeat(32),
         mintingAuthorityTip: 22n,
+        mintingAuthorityTipShare: 11n,
+        mintingAuthorityTipValueMicrogons: 44n,
         microgonCollateral: 0n,
         micronotCollateral: 20n,
       },
@@ -618,6 +701,8 @@ describe('MintingAuthorities', () => {
         authorityIndex: 4,
         authorizationHash: '0x' + 'cc'.repeat(32),
         mintingAuthorityTip: 33n,
+        mintingAuthorityTipShare: 16n,
+        mintingAuthorityTipValueMicrogons: 16n,
         microgonCollateral: 30n,
         micronotCollateral: 40n,
       },
@@ -689,6 +774,8 @@ describe('MintingAuthorities', () => {
               authorityIndex: pendingMintingAuthorizations[1].authorityIndex,
               transferId: pendingMintingAuthorizations[1].transferId,
               mintingAuthorityTip: pendingMintingAuthorizations[1].mintingAuthorityTip,
+              mintingAuthorityTipShare: pendingMintingAuthorizations[1].mintingAuthorityTipShare,
+              mintingAuthorityTipValueMicrogons: pendingMintingAuthorizations[1].mintingAuthorityTipValueMicrogons,
               microgonCollateral: pendingMintingAuthorizations[1].microgonCollateral,
               micronotCollateral: pendingMintingAuthorizations[1].micronotCollateral,
             },
@@ -696,6 +783,8 @@ describe('MintingAuthorities', () => {
               authorityIndex: pendingMintingAuthorizations[2].authorityIndex,
               transferId: pendingMintingAuthorizations[2].transferId,
               mintingAuthorityTip: pendingMintingAuthorizations[2].mintingAuthorityTip,
+              mintingAuthorityTipShare: pendingMintingAuthorizations[2].mintingAuthorityTipShare,
+              mintingAuthorityTipValueMicrogons: pendingMintingAuthorizations[2].mintingAuthorityTipValueMicrogons,
               microgonCollateral: pendingMintingAuthorizations[2].microgonCollateral,
               micronotCollateral: pendingMintingAuthorizations[2].micronotCollateral,
             },
@@ -721,10 +810,20 @@ describe('MintingAuthorities', () => {
         metadata: {
           actionType: 'authorizeTransfer',
           authorizations: pendingMintingAuthorizations.map(
-            ({ authorityIndex, transferId, mintingAuthorityTip, microgonCollateral, micronotCollateral }) => ({
+            ({
               authorityIndex,
               transferId,
               mintingAuthorityTip,
+              mintingAuthorityTipShare,
+              mintingAuthorityTipValueMicrogons,
+              microgonCollateral,
+              micronotCollateral,
+            }) => ({
+              authorityIndex,
+              transferId,
+              mintingAuthorityTip,
+              mintingAuthorityTipShare,
+              mintingAuthorityTipValueMicrogons,
               microgonCollateral,
               micronotCollateral,
             }),

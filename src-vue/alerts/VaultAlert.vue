@@ -24,7 +24,7 @@
         <template v-if="notice.pendingAuthorizedTransferCount > 0">
           <strong>
             <template v-if="notice.pendingAuthorizedTransferRewardAmount > 0n">
-              {{ formatMoney(notice.pendingAuthorizedTransferRewardAmount) }} in crosschain authorization rewards
+              {{ formatMoney(notice.pendingAuthorizedTransferRewardAmount) }} in crosschain authorization tips
             </template>
             <template v-else>Crosschain transfer authorization</template>
             is processing
@@ -344,7 +344,7 @@ function getCardTitle(notice: IVaultCollectNotice): string {
   if (notice.isProcessing) {
     if (notice.pendingAuthorizedTransferCount > 0) {
       return notice.pendingAuthorizedTransferRewardAmount > 0n
-        ? `${formatMoney(notice.pendingAuthorizedTransferRewardAmount)} in crosschain authorization rewards is processing`
+        ? `${formatMoney(notice.pendingAuthorizedTransferRewardAmount)} in crosschain authorization tips is processing`
         : 'Crosschain transfer authorization is processing';
     }
 
@@ -424,7 +424,7 @@ function getCardTooltipContent(notice: IVaultCollectNotice): string {
 }
 
 function formatMoney(value: bigint): string {
-  return `${currency.symbol}${microgonToMoneyNm(value).formatIfElse('< 1_000', '0,0.00', '0,0')}`;
+  return `${currency.symbol}${microgonToMoneyNm(value).format('0,0.00')}`;
 }
 
 function getAuthorizationOpportunityText(notice: IVaultCollectNotice): string {

@@ -2,6 +2,7 @@ import { bigIntMax, bigIntMin, createDeferred, IDeferred, MiningFrames, MoveToke
 import { ApiDecoration, EvmContracts, MICROGONS_PER_ARGON, u8aToHex } from '@argonprotocol/mainchain';
 import { u8aConcat } from '@polkadot/util';
 import type { Db } from './Db.ts';
+import { calculateMintingAuthorityTipShare, convertMintingAuthorityTipToMicrogons } from './CrosschainHistory.ts';
 import { getGatewayActivityWaitEstimateMs } from './EthereumClient.ts';
 import { requestEthereumGatewayCatchup } from './EthereumGatewayCatchup.ts';
 import type { ServerApiClient } from './ServerApiClient.ts';
@@ -39,6 +40,8 @@ export type IMintingAuthorityAuthorization = {
   finalizeRequest: EvmContracts.MintingGatewayTransferOutOfArgonRequest;
   authorizationHash: string;
   mintingAuthorityTip: bigint;
+  mintingAuthorityTipShare: bigint;
+  mintingAuthorityTipValueMicrogons: bigint;
   microgonCollateral: bigint;
   micronotCollateral: bigint;
   securityAmountMicrogons: bigint;
@@ -54,6 +57,7 @@ export type IMintingAuthorityBackedTransfer = {
   amount: bigint;
   validUntilEthereumBlock: bigint;
   mintingAuthorityTip: bigint;
+  mintingAuthorityTipShare: bigint;
   totalAttachedCollateral: bigint;
   ownedMicrogonCollateral: bigint;
   ownedMicronotCollateral: bigint;
@@ -72,6 +76,8 @@ export type IMintingAuthorityAuthorizeMetadata = {
     authorityIndex: number;
     transferId: string;
     mintingAuthorityTip: bigint;
+    mintingAuthorityTipShare: bigint;
+    mintingAuthorityTipValueMicrogons: bigint;
     microgonCollateral: bigint;
     micronotCollateral: bigint;
   }>;
@@ -570,12 +576,16 @@ export class MintingAuthorities {
             authorityIndex,
             transferId: nextTransferId,
             mintingAuthorityTip,
+            mintingAuthorityTipShare,
+            mintingAuthorityTipValueMicrogons,
             microgonCollateral,
             micronotCollateral,
           }) => ({
             authorityIndex,
             transferId: nextTransferId,
             mintingAuthorityTip,
+            mintingAuthorityTipShare,
+            mintingAuthorityTipValueMicrogons,
             microgonCollateral,
             micronotCollateral,
           }),
@@ -920,11 +930,25 @@ export async function getPendingMintingAuthorizations(
         mintingAuthorityTip: transfer.mintingAuthorityTip.toBigInt(),
         microgonsPerArgonot: epochMicrogonsPerArgonot,
       };
+      const moveToken = transfer.asset.isArgon ? MoveToken.ARGN : MoveToken.ARGNOT;
+      const transferAmount = transfer.amount.toBigInt();
+      const expectedTotalCollateral = bigIntMax(
+        transferAmount,
+        transferAmount - pendingRequest.remainingCollateral.toBigInt() + plannedCollateral.collateralShare,
+      );
+      const mintingAuthorityTipShare = calculateMintingAuthorityTipShare({
+        moveToken,
+        mintingAuthorityTip: finalizeRequest.mintingAuthorityTip,
+        totalCollateral: expectedTotalCollateral,
+        microgonsPerArgonot: epochMicrogonsPerArgonot,
+        microgonCollateral: plannedCollateral.microgonCollateral,
+        micronotCollateral: plannedCollateral.micronotCollateral,
+      });
 
       authorizations.push({
         transferId,
         authorityIndex: authority.authorityIndex,
-        moveToken: transfer.asset.isArgon ? MoveToken.ARGN : MoveToken.ARGNOT,
+        moveToken,
         sourceAccount: transfer.argonAccountId.toString(),
         destinationSigningKey: authority.signer,
         finalizeRequest,
@@ -940,6 +964,12 @@ export async function getPendingMintingAuthorizations(
           },
         ),
         mintingAuthorityTip: finalizeRequest.mintingAuthorityTip,
+        mintingAuthorityTipShare,
+        mintingAuthorityTipValueMicrogons: convertMintingAuthorityTipToMicrogons({
+          moveToken,
+          mintingAuthorityTip: mintingAuthorityTipShare,
+          microgonsPerArgonot: epochMicrogonsPerArgonot,
+        }),
         microgonCollateral: plannedCollateral.microgonCollateral,
         micronotCollateral: plannedCollateral.micronotCollateral,
         securityAmountMicrogons: plannedCollateral.collateralShare,
@@ -985,17 +1015,30 @@ export async function getMintingAuthorityBackedTransfers(
 
     if (ownedAuthoritySigners.length === 0) continue;
 
+    const moveToken = transfer.asset.isArgon ? MoveToken.ARGN : MoveToken.ARGNOT;
+    const amount = transfer.amount.toBigInt();
+    const totalAttachedCollateral = transfer.totalAttachedCollateral.toBigInt();
+    const mintingAuthorityTip = transfer.mintingAuthorityTip.toBigInt();
+
     backedTransfers.push({
       transferId: transferIds[index],
       status: transfer.state.isReady ? 'readyForEthereum' : 'waitingForAuthorizations',
-      moveToken: transfer.asset.isArgon ? MoveToken.ARGN : MoveToken.ARGNOT,
+      moveToken,
       sourceAccount: transfer.argonAccountId.toString(),
       sourceTransferNonce: transfer.argonTransferNonce.toBigInt(),
       destinationAccount: transfer.destinationAccount.toHex(),
-      amount: transfer.amount.toBigInt(),
+      amount,
       validUntilEthereumBlock: transfer.validUntilEthereumBlock.toBigInt(),
-      mintingAuthorityTip: transfer.mintingAuthorityTip.toBigInt(),
-      totalAttachedCollateral: transfer.totalAttachedCollateral.toBigInt(),
+      mintingAuthorityTip,
+      mintingAuthorityTipShare: calculateMintingAuthorityTipShare({
+        moveToken,
+        mintingAuthorityTip,
+        totalCollateral: bigIntMax(amount, totalAttachedCollateral),
+        microgonsPerArgonot: transfer.microgonsPerArgonot.toBigInt(),
+        microgonCollateral: ownedMicrogonCollateral,
+        micronotCollateral: ownedMicronotCollateral,
+      }),
+      totalAttachedCollateral,
       ownedMicrogonCollateral,
       ownedMicronotCollateral,
       authoritySigners: ownedAuthoritySigners,
