@@ -208,13 +208,21 @@ const finalArgonotTarget = Vue.computed(() => {
 
 const securitizationChangeMicrogons = Vue.computed(() => {
   if (pendingTransaction.value) {
-    return pendingTransaction.value.tx.metadataJson.securitizationChangeMicrogons ?? 0n;
+    const metadata = pendingTransaction.value.tx.metadataJson;
+    return (
+      metadata.securitizationChangeMicrogons ??
+      (metadata.securitizationMicrogons ?? vaultingAssets.securityMicrogons) - vaultingAssets.securityMicrogons
+    );
   }
   return securitizationMicrogons.value - vaultingAssets.securityMicrogons;
 });
 const argonotChangeMicronots = Vue.computed(() => {
   if (pendingTransaction.value) {
-    return pendingTransaction.value.tx.metadataJson.argonotChangeMicronots ?? 0n;
+    const metadata = pendingTransaction.value.tx.metadataJson;
+    return (
+      metadata.argonotChangeMicronots ??
+      (metadata.committedMicronots ?? vaultingAssets.securityMicronots) - vaultingAssets.securityMicronots
+    );
   }
   return committedMicronots.value - vaultingAssets.securityMicronots;
 });

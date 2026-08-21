@@ -78,6 +78,21 @@ export const RestoredPending: Story = {
   },
 };
 
+export const RestoredPendingFromPreviousVersion: Story = {
+  beforeEach: () => setupSecuritizationScenario('restoring'),
+  play: async () => {
+    const body = within(document.body);
+    const txInfo = createSecuritizationTransaction();
+    delete txInfo.tx.metadataJson.securitizationChangeMicrogons;
+    txInfo.tx.metadataJson.committedMicronots = 750_000_000n;
+
+    getMyVault().data.pendingAllocateTxInfo = txInfo;
+
+    await waitFor(() => expect(body.getAllByText('Adding 1,300 ARGN').at(-1)).toBeVisible());
+    await waitFor(() => expect(body.getAllByText('Adding 750 ARGNOT').at(-1)).toBeVisible());
+  },
+};
+
 export const Completed: Story = {
   beforeEach: () => setupSecuritizationScenario('completed'),
   play: async () => {
