@@ -31,6 +31,7 @@ export class AutoBidder {
   private nextCohortActivationFrameId: number | null = null;
   private isStopped = false;
   private unsubscribe?: () => void;
+  private unsubscribeFrame?: () => void;
   private biddingCalculator?: BiddingCalculator;
   private onUpdatedFn?: () => void;
   private localRpcUrl?: string;
@@ -67,12 +68,17 @@ export class AutoBidder {
     if (this.unsubscribe) {
       this.unsubscribe();
     }
+    this.unsubscribeFrame?.();
     const { unsubscribe } = await this.mining.onCohortChange({
       onBiddingStart: cohortActivationFrameId =>
         this.queueLifecycle(() => this.onBiddingStart(cohortActivationFrameId)),
       onBiddingEnd: cohortActivationFrameId => this.queueLifecycle(() => this.onBiddingEnd(cohortActivationFrameId)),
     });
     this.unsubscribe = unsubscribe;
+    this.unsubscribeFrame = this.miningFrames.events.on('on-frame', () => {
+      if (this.isStopped) return;
+      void this.queueLifecycle(() => this.reloadActiveCohort());
+    });
 
     if (!this.biddingRules || !this.biddingCalculator) {
       return;
@@ -92,6 +98,8 @@ export class AutoBidder {
     console.log('AUTOBIDDER STOPPING');
     this.unsubscribe?.();
     this.unsubscribe = undefined;
+    this.unsubscribeFrame?.();
+    this.unsubscribeFrame = undefined;
     if (this.pendingProxyRetryTimeout) {
       clearTimeout(this.pendingProxyRetryTimeout);
       this.pendingProxyRetryTimeout = undefined;
@@ -176,6 +184,12 @@ export class AutoBidder {
 
   private async onBiddingStart(cohortActivationFrameId: number) {
     if (this.isStopped || !this.biddingRules || !this.biddingCalculator) return;
+    if (
+      this.nextCohortActivationFrameId === cohortActivationFrameId &&
+      this.cohortBiddersByActivationFrameId.has(cohortActivationFrameId)
+    ) {
+      return;
+    }
 
     try {
       if (this.accountset.isProxy) {
@@ -337,7 +351,14 @@ export class AutoBidder {
     }
 
     const cohortActivationFrameId = await this.mining.fetchNextFrameId(client);
-    await this.onBiddingEnd(cohortActivationFrameId, false);
+    if (
+      this.nextCohortActivationFrameId === cohortActivationFrameId &&
+      this.cohortBiddersByActivationFrameId.has(cohortActivationFrameId)
+    ) {
+      return;
+    }
+
+    await this.stopActiveBidders(false);
     await this.onBiddingStart(cohortActivationFrameId);
   }
 }
