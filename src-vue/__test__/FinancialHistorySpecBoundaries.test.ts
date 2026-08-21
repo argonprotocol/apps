@@ -232,7 +232,7 @@ describe('financial history spec boundaries', () => {
     ]);
   });
 
-  it.each([151, 155, 156])('recovers the spec %s BondLot storage shape', async specVersion => {
+  it.each([151, 155, 156, 157])('recovers the spec %s BondLot storage shape', async specVersion => {
     const db = await createTestDb();
     const lot = createBondLot(specVersion);
     const lotOption = optionCodec(lot);
@@ -323,6 +323,31 @@ function createBondLot(specVersion: number) {
       releaseFrameId: 'Option<u64>',
       releaseReason: 'Option<PalletTreasuryBondReleaseReason>',
     },
+    AppBondLotSpec156: {
+      owner: 'AccountId32',
+      program: 'PalletTreasuryBondProgram',
+      bonds: 'Compact<u32>',
+      createdFrameId: 'Compact<u64>',
+      participatedFrames: 'Compact<u32>',
+      lastFrameEarningsFrameId: 'Option<u64>',
+      lastFrameEarnings: 'Option<u128>',
+      cumulativeEarnings: 'Compact<u128>',
+      releaseFrameId: 'Option<u64>',
+      releaseReason: 'Option<PalletTreasuryBondReleaseReason>',
+    },
+    AppBondLotSpec157: {
+      owner: 'AccountId32',
+      program: 'PalletTreasuryBondProgram',
+      bonds: 'Compact<u32>',
+      createdFrameId: 'Compact<u64>',
+      participatedFrames: 'Compact<u32>',
+      lastFrameEarningsFrameId: 'Option<u64>',
+      lastFrameEarnings: 'Option<u128>',
+      cumulativeEarnings: 'Compact<u128>',
+      releaseFrameId: 'Option<u64>',
+      releaseReason: 'Option<PalletTreasuryBondReleaseReason>',
+      isBackfill: 'bool',
+    },
   });
   const value = {
     owner: accountId,
@@ -345,6 +370,19 @@ function createBondLot(specVersion: number) {
       ...value,
       sharingPercent: 250_000,
       bonusPercent: 100_000,
+    });
+  }
+  if (specVersion === 156) {
+    return registry.createType('AppBondLotSpec156', {
+      ...value,
+      program: { Vault: { vaultId: 4, sharingPercent: 300_000, bonusPercent: 150_000 } },
+    });
+  }
+  if (specVersion === 157) {
+    return registry.createType('AppBondLotSpec157', {
+      ...value,
+      program: { Vault: { vaultId: 4, sharingPercent: 300_000, bonusPercent: 150_000 } },
+      isBackfill: true,
     });
   }
   return registry.createType('PalletTreasuryBondLot', {
