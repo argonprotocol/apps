@@ -131,8 +131,8 @@ describe
         currency,
       });
       const legacyMiningHoldWallet = new WalletForArgon(
-        walletKeys.legacyMiningHoldAddress,
         'miningBot',
+        walletKeys.legacyMiningHoldAddress,
         Promise.resolve(db),
       );
       const onRecovered = vi.fn();
@@ -211,8 +211,8 @@ describe
         currency,
       });
       const legacyMiningHoldWallet = new WalletForArgon(
-        walletKeys.legacyMiningHoldAddress,
         'miningBot',
+        walletKeys.legacyMiningHoldAddress,
         Promise.resolve(db),
       );
       const walletHistoryRecovery = new WalletHistoryRecovery({
@@ -279,8 +279,8 @@ describe
         currency,
       });
       const legacyMiningHoldWallet = new WalletForArgon(
-        walletKeys.legacyMiningHoldAddress,
         'miningBot',
+        walletKeys.legacyMiningHoldAddress,
         Promise.resolve(db),
       );
       const walletHistoryRecovery = new WalletHistoryRecovery({
@@ -359,8 +359,8 @@ describe
         currency,
       });
       const legacyMiningHoldWallet = new WalletForArgon(
-        walletKeys.legacyMiningHoldAddress,
         'miningBot',
+        walletKeys.legacyMiningHoldAddress,
         Promise.resolve(db),
       );
       const walletHistoryRecovery = new WalletHistoryRecovery({

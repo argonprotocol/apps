@@ -43,49 +43,18 @@ export default new OperationalFlow<IVaultingFlowContext, ITransferOutToEthereumS
     await flow.run(vaultingOnboarding);
     await openVaultingWalletOverlay(flow);
 
-    let didCreateDefaultEthereumWallet = false;
-    const ethereumConnection = await waitFor(
-      15_000,
-      `${context.flowName}: default Ethereum wallet`,
-      async () => {
-        const connection = await flow.queryApp(
-          async refs => {
-            if (!refs.wallets.isLoaded) {
-              await refs.wallets.load().catch(() => undefined);
-            }
-            const tracker = refs.getEthereumOutboundTransferTracker();
-
-            return {
-              ethereumAddress: refs.wallets.ethereumWallet.address,
-              executionRpcUrl: tracker.executionRpcUrl,
-            };
-          },
-          {
-            timeoutMs: 15_000,
-          },
-        );
-
-        if (connection?.ethereumAddress) {
-          return connection;
-        }
-
-        if (!didCreateDefaultEthereumWallet) {
-          await flow.queryApp(async refs => {
-            const wallets = refs.wallets as typeof refs.wallets & {
-              createDefaultEthereumWallet(): Promise<unknown>;
-            };
-            await wallets.createDefaultEthereumWallet();
-          });
-          didCreateDefaultEthereumWallet = true;
-        }
+    const ethereumConnection = await flow.queryApp(
+      refs => {
+        const tracker = refs.getEthereumOutboundTransferTracker();
+        return {
+          ethereumAddress: refs.coreEthereumAddress,
+          executionRpcUrl: tracker.executionRpcUrl,
+        };
       },
-      {
-        pollMs: 250,
-        timeoutMessage: `${context.flowName}: missing default Ethereum wallet address.`,
-      },
+      { timeoutMs: 15_000 },
     );
 
-    if (!ethereumConnection.executionRpcUrl) {
+    if (!ethereumConnection?.executionRpcUrl) {
       throw new Error(`${context.flowName}: missing Ethereum execution RPC URL.`);
     }
     const { ethereumAddress, executionRpcUrl } = ethereumConnection;
@@ -101,7 +70,7 @@ export default new OperationalFlow<IVaultingFlowContext, ITransferOutToEthereumS
       `${context.flowName}: backend minting authority readiness`,
       async () => {
         const runtimeState = await readDevEthereumRuntimeState(executionRpcUrl, runtimeStateDir);
-        if (runtimeState?.executionRpcUrl !== executionRpcUrl) {
+        if (!runtimeState || runtimeState.executionRpcUrl !== executionRpcUrl) {
           return;
         }
         if (runtimeState.setupStatus !== 'ready' || runtimeState.mintingAuthorityStatus !== 'ready') {
@@ -121,6 +90,22 @@ export default new OperationalFlow<IVaultingFlowContext, ITransferOutToEthereumS
       rpcUrl: executionRpcUrl,
       amountBaseUnits: DEV_ETHEREUM_TRANSFER_GAS_BUFFER_WEI,
     });
+
+    await flow.queryApp(refs => refs.wallets.load(), { timeoutMs: 15_000 });
+    await waitFor(
+      15_000,
+      `${context.flowName}: default Ethereum wallet discovery`,
+      async () =>
+        flow.queryApp(refs =>
+          refs.wallets.ethereumWallets.some(
+            ({ wallet }) => wallet.address.toLowerCase() === refs.coreEthereumAddress.toLowerCase(),
+          ),
+        ),
+      {
+        pollMs: 250,
+        timeoutMessage: `${context.flowName}: funded default Ethereum wallet was not discovered.`,
+      },
+    );
 
     await flow.click('WalletOverlay.closeRight()', { timeoutMs: 5_000 });
     await flow.waitFor('WalletOverlay', { state: 'missing', timeoutMs: 10_000 });

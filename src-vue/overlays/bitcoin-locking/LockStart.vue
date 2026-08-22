@@ -392,7 +392,7 @@ const couponProviderLabel = Vue.computed(() => {
 });
 
 const availableMicrogons = Vue.computed(() => {
-  return wallets.liquidLockingWallet.availableMicrogons;
+  return wallets.defaultArgonWallet.availableMicrogons;
 });
 
 const neededMicrogons = Vue.computed(() => {
@@ -405,7 +405,7 @@ const neededMicrogons = Vue.computed(() => {
 });
 
 function openWallet() {
-  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.defaultArgon });
+  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon });
 }
 
 const oneTimeLockFee = Vue.computed(() => {

@@ -27,14 +27,13 @@
           class="pointer-events-auto absolute z-10 flex min-h-140 items-stretch focus:outline-none"
           @mousedown="emit('focus')"
         >
-          <div :class="selectedConnectorId ? '' : ''">
+          <div>
             <div
-              :class="props.centerView.type === 'main' ? 'bg-neutral-600' : ''"
+              :class="props.centerView.type !== 'addEthereum' ? 'bg-neutral-600' : ''"
               class="relative z-20 flex h-full w-120 shrink-0 p-2"
             >
               <svg
-                v-if="props.centerView.type === 'main'"
-                :class="selectedConnectorId ? '' : ''"
+                v-if="props.centerView.type !== 'addEthereum'"
                 class="pointer-events-none absolute inset-0 h-full w-full text-neutral-400 shadow-sm/40"
               >
                 <rect
@@ -50,22 +49,52 @@
                 />
               </svg>
               <div
-                :class="selectedConnectorId ? 'bg-neutral-200' : 'bg-white'"
+                :class="activeConnectorId ? 'bg-neutral-200' : 'bg-white'"
                 class="absolute top-2 right-2 bottom-2 left-2 rounded-lg border border-black/60 shadow-sm/30"
               />
               <section
-                :class="selectedConnectorId ? 'pointer-events-none opacity-70' : ''"
+                :class="activeConnectorId ? 'pointer-events-none opacity-70' : ''"
                 class="relative w-full overflow-visible"
               >
-                <WalletOverlayMain
+                <WalletViewMain
                   v-if="props.centerView.type === 'main'"
                   :isDragging="draggable.isDragging"
                   :showGuidance="props.showGuidance"
                   :guidanceContext="props.guidanceContext"
                   @dragStart="draggable.onMouseDown($event)"
+                  @goto="emit('goto', $event)"
                   @close="emit('close')"
                 />
-                <WalletOverlayAddConnector
+                <WalletViewSend
+                  v-else-if="props.centerView.type === 'send'"
+                  :isDragging="draggable.isDragging"
+                  :activeConnector="props.activeConnector"
+                  :showGuidance="props.showGuidance"
+                  :guidanceContext="props.guidanceContext"
+                  @dragStart="draggable.onMouseDown($event)"
+                  @selectDestinationConnector="selectSendDestinationConnector"
+                  @goto="emit('goto', $event)"
+                  @close="emit('close')"
+                />
+                <WalletViewReceive
+                  v-else-if="props.centerView.type === 'receive'"
+                  :isDragging="draggable.isDragging"
+                  :showGuidance="props.showGuidance"
+                  :guidanceContext="props.guidanceContext"
+                  @dragStart="draggable.onMouseDown($event)"
+                  @goto="emit('goto', $event)"
+                  @close="emit('close')"
+                />
+                <WalletViewPrivateKey
+                  v-else-if="props.centerView.type === 'privateKey'"
+                  :isDragging="draggable.isDragging"
+                  :showGuidance="props.showGuidance"
+                  :guidanceContext="props.guidanceContext"
+                  @dragStart="draggable.onMouseDown($event)"
+                  @goto="emit('goto', $event)"
+                  @close="emit('close')"
+                />
+                <WalletViewAddConnector
                   v-else
                   :initialStep="props.centerView.initialStep"
                   :isDragging="draggable.isDragging"
@@ -76,12 +105,14 @@
               </section>
             </div>
             <section
-              v-if="props.centerView.type === 'main'"
+              v-if="props.centerView.type !== 'addEthereum'"
               class="absolute top-0 right-full flex h-full flex-col justify-between py-5"
             >
               <article
                 :class="
-                  selectedConnectorId && selectedConnectorId !== 'bitcoin' ? 'pointer-events-none opacity-20' : ''
+                  connectorSelectionIsActive && highlightedConnectorId !== 'bitcoin'
+                    ? 'pointer-events-none opacity-20'
+                    : ''
                 "
                 class="flex flex-row items-center"
               >
@@ -99,7 +130,7 @@
                 v-for="selection of leftExternalConnectors"
                 :key="selection.walletRecord.id"
                 :class="
-                  selectedConnectorId && selectedConnectorId !== selection.walletRecord.id
+                  connectorSelectionIsActive && highlightedConnectorId !== selection.walletRecord.id
                     ? 'pointer-events-none opacity-20'
                     : ''
                 "
@@ -121,7 +152,7 @@
               <article
                 v-for="slot in 2 - leftExternalConnectors.length"
                 :key="`left-external-connector-${slot}`"
-                :class="selectedConnectorId ? 'pointer-events-none opacity-20' : ''"
+                :class="connectorSelectionIsActive ? 'pointer-events-none opacity-20' : ''"
                 class="flex flex-row items-center"
               >
                 <Connector :network="undefined" direction="left" :open="false" @addConnector="emit('addConnector')" />
@@ -132,14 +163,14 @@
             </section>
 
             <section
-              v-if="props.centerView.type === 'main'"
+              v-if="props.centerView.type !== 'addEthereum'"
               class="absolute top-0 left-full flex h-full flex-col justify-between py-5"
             >
               <article
                 v-for="selection of rightExternalConnectors"
                 :key="selection.walletRecord.id"
                 :class="
-                  selectedConnectorId && selectedConnectorId !== selection.walletRecord.id
+                  connectorSelectionIsActive && highlightedConnectorId !== selection.walletRecord.id
                     ? 'pointer-events-none opacity-20'
                     : ''
                 "
@@ -161,7 +192,7 @@
               <article
                 v-for="slot in 3 - rightExternalConnectors.length"
                 :key="`right-external-connector-${slot}`"
-                :class="selectedConnectorId ? 'pointer-events-none opacity-20' : ''"
+                :class="connectorSelectionIsActive ? 'pointer-events-none opacity-20' : ''"
                 class="flex flex-row items-center"
               >
                 <svg aria-hidden="true" class="relative mx-1 h-1 w-40 text-neutral-400/80 shadow-sm/40">
@@ -172,7 +203,10 @@
             </section>
           </div>
         </div>
-        <WalletBottomBar v-if="props.centerView.type === 'main'" :class="selectedConnectorId ? 'opacity-30' : ''" />
+        <WalletBottomBar
+          v-if="props.centerView.type !== 'addEthereum'"
+          :class="activeConnectorId ? 'opacity-30' : ''"
+        />
       </DialogContent>
     </DialogPortal>
   </DialogRoot>
@@ -188,13 +222,17 @@ import Draggable from '../overlays/helpers/Draggable.ts';
 import { getOverlayBackdropZIndex, provideOverlayContentZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 import type { IWalletGuidanceContext } from '../emitters/basicEmitter.ts';
 import BgOverlay from '../components/BgOverlay.vue';
-import WalletOverlayAddConnector from './components/WalletOverlayAddConnector.vue';
-import WalletOverlayMain from './components/WalletOverlayMain.vue';
+import WalletViewAddConnector from './components/WalletViewAddConnector.vue';
+import WalletViewMain from './components/WalletViewMain.vue';
+import WalletViewPrivateKey from './components/WalletViewPrivateKey.vue';
+import WalletViewReceive from './components/WalletViewReceive.vue';
+import WalletViewSend from './components/WalletViewSend.vue';
 import {
   isEthereumWalletSelection,
   type IWalletConnectorTarget,
   type IWalletOverlayCenterView,
   type IWalletSelection,
+  type IWalletView,
 } from './walletOverlayState.ts';
 import WalletBottomBar from './components/WalletBottomBar.vue';
 import Connector from './components/Connector.vue';
@@ -213,15 +251,24 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: 'focus'): void;
   (event: 'updateActiveConnector', target: IWalletConnectorTarget | undefined): void;
+  (event: 'goto', view: IWalletView): void;
   (event: 'addConnector'): void;
   (event: 'closeAddConnector'): void;
   (event: 'completeAddConnector', walletRecord: IWalletRecord): void;
   (event: 'close'): void;
 }>();
 
-const selectedConnectorId = Vue.computed<string | number | undefined>(() => {
+const sendDestinationConnectorId = Vue.ref<string | number>();
+const activeConnectorId = Vue.computed<string | number | undefined>(() => {
   if (props.activeConnector?.network === 'bitcoin') return 'bitcoin';
   return props.activeConnector?.walletRecordId;
+});
+const connectorSelectionIsActive = Vue.computed(
+  () => activeConnectorId.value !== undefined || props.centerView.type === 'send',
+);
+const highlightedConnectorId = Vue.computed(() => {
+  if (activeConnectorId.value !== undefined) return activeConnectorId.value;
+  return props.centerView.type === 'send' ? sendDestinationConnectorId.value : undefined;
 });
 const draggable = Vue.reactive(new Draggable({ constrainToViewport: false }));
 const inboundTracker = getEthereumMoveTracker();
@@ -273,6 +320,10 @@ function isEthereumConnectorOpen(walletRecordId: number) {
 
 function getTransferDirections(walletRecordId: number) {
   return activeTransferDirectionsByWalletRecordId.value.get(walletRecordId) ?? [];
+}
+
+function selectSendDestinationConnector(connectorId: string | number | undefined) {
+  sendDestinationConnectorId.value = connectorId;
 }
 
 function updateBitcoinConnector(isOpen: boolean) {

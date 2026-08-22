@@ -530,7 +530,7 @@ const acceptTotalFeeMicrogons = Vue.computed(() => {
   return acceptTransactionFeeMicrogons.value + acceptAdditionalSecuritizationFeeMicrogons.value;
 });
 
-const availableMicrogons = Vue.computed(() => wallets.liquidLockingWallet.availableMicrogons ?? 0n);
+const availableMicrogons = Vue.computed(() => wallets.defaultArgonWallet.availableMicrogons ?? 0n);
 const canAffordAccept = Vue.computed(() => availableMicrogons.value >= acceptTotalFeeMicrogons.value);
 const canAffordReturn = Vue.computed(() => availableMicrogons.value >= returnTransactionFeeMicrogons.value);
 const isSubmittingReturn = Vue.computed(() => isSubmitting.value && lastAction.value === 'return');

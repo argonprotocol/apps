@@ -5,7 +5,7 @@ import { setupAppScenario } from './setupAppScenario.ts';
 import { TopTab } from '../../src-vue/interfaces/IConfig.ts';
 import { getCurrency } from '../../src-vue/stores/currency.ts';
 import { useFinancials } from '../../src-vue/stores/financials.ts';
-import { defaultWalletData, type IWallet } from '../../src-vue/lib/Wallet.ts';
+import { defaultWalletData, type IWallet, WalletType } from '../../src-vue/lib/Wallet.ts';
 import type { IWalletRecord } from '../../src-vue/lib/db/WalletsTable.ts';
 
 export type HomeScenario = 'loading' | 'basic' | 'treasury' | 'operations' | 'priceUnavailable';
@@ -29,7 +29,6 @@ export function setupHomeScenario(
   const internalWallet = createWalletRecord({
     id: 1,
     walletType: 'argon',
-    role: 'defaultArgon',
     name: 'Internal App Wallet',
     address: wallets.defaultArgonWallet.address,
   });
@@ -37,14 +36,12 @@ export function setupHomeScenario(
     createWalletRecord({
       id: 2,
       walletType: 'ethereum',
-      role: 'defaultEthereum',
       name: 'Main',
       address: '0x1111111111111111111111111111111111111111',
     }),
     createWalletRecord({
       id: 3,
       walletType: 'ethereum',
-      role: 'externalEthereum',
       name: 'Treasury',
       address: '0x2222222222222222222222222222222222222222',
     }),
@@ -62,6 +59,7 @@ export function setupHomeScenario(
       record.id,
       {
         ...defaultWalletData,
+        type: WalletType.ethereum,
         address: record.address,
         availableMicrogons: 25n * 1_000_000n,
         otherTokens: [],
@@ -97,7 +95,7 @@ export function setupHomeScenario(
 }
 
 function createWalletRecord(
-  record: Pick<IWalletRecord, 'id' | 'walletType' | 'role' | 'name' | 'address'>,
+  record: Pick<IWalletRecord, 'id' | 'walletType' | 'name' | 'address'>,
 ): IWalletRecord {
   const timestamp = new Date('2026-08-16T00:00:00.000Z');
   return { ...record, sortOrder: record.id, createdAt: timestamp, updatedAt: timestamp };

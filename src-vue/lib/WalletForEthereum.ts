@@ -1,7 +1,7 @@
 import { type Address, erc20Abi, getAddress } from 'viem';
 import { NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { EvmContracts } from '@argonprotocol/mainchain';
-import { defaultWalletData, type IOtherToken, type IOtherTokenDefinition, type IWallet } from './Wallet.ts';
+import { type IOtherToken, type IOtherTokenDefinition, WalletForChain, WalletType } from './Wallet.ts';
 import { createEthereumPublicClient, type IEthereumChainConfig, loadEthereumChainConfig } from './EthereumClient.ts';
 import type { Currency } from './Currency.ts';
 import { createFinancialPosition, type IEthereumWalletFinancialPosition } from '../interfaces/IFinancialPosition.ts';
@@ -10,6 +10,7 @@ import {
   restoreCachedExternalWalletBalances,
   type FinancialCacheTable,
 } from './db/FinancialCacheTable.ts';
+import type { IWalletRecord } from './db/WalletsTable.ts';
 
 type ITokenBalanceClient = {
   readContract(args: {
@@ -53,11 +54,7 @@ const trackedOtherEthereumTokens = [
 ] as const satisfies readonly IOtherTokenDefinition[];
 const ETHEREUM_MAINNET_CHAIN_ID = 1;
 
-export class WalletForEthereum {
-  public data: IWallet = {
-    ...defaultWalletData,
-  };
-
+export class WalletForEthereum extends WalletForChain<WalletType.ethereum> {
   private lastBalanceLoadAt = 0;
   private balanceRefreshIsStarted = false;
   private balanceRefreshIntervalId?: number;
@@ -72,10 +69,11 @@ export class WalletForEthereum {
   };
 
   constructor(
-    public readonly address: string,
+    address: string,
     private readonly financialCache?: Promise<FinancialCacheTable>,
+    record?: IWalletRecord,
   ) {
-    this.data.address = address;
+    super({ address, type: WalletType.ethereum, record });
   }
 
   public createFinancialPositions(currency: Currency): IEthereumWalletFinancialPosition[] {

@@ -513,13 +513,13 @@ function onMouseLeave() {
 
 function openFundMiningAccountOverlay() {
   isOpen.value = false;
-  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.defaultArgon });
+  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon });
 }
 
 function openFundVaultingAccountOverlay() {
   isOpen.value = false;
   basicEmitter.emit('openWalletOverlay', {
-    connectorType: WalletType.defaultArgon,
+    connectorType: WalletType.argon,
     showGuidance: true,
     guidanceContext: 'vaulting',
   });

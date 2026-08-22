@@ -110,7 +110,7 @@ export async function createMenu() {
       {
         id: 'token-transfer-to-mining',
         text: 'Open Mining Wallet',
-        action: () => basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.defaultArgon }),
+        action: () => basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon }),
       },
     ],
   });
@@ -126,7 +126,7 @@ export async function createMenu() {
       {
         id: 'token-transfer-to-vaulting',
         text: 'Open Internal App Wallet',
-        action: () => basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.defaultArgon }),
+        action: () => basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon }),
       },
       ...(IS_LOCAL_BUILD && NETWORK_NAME === 'dev-docker'
         ? [

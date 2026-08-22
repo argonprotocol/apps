@@ -44,10 +44,10 @@ export class MoveCapital {
     this.transactionTracker = transactionTracker;
   }
 
-  public getWalletTypeFromMove(moveFrom: MoveFrom): WalletType.defaultArgon | WalletType.miningBot {
+  public getWalletTypeFromMove(moveFrom: MoveFrom): WalletType.argon | WalletType.miningBot {
     switch (moveFrom) {
       case MoveFrom.DefaultArgon:
-        return WalletType.defaultArgon;
+        return WalletType.argon;
 
       case MoveFrom.MiningBot:
         return WalletType.miningBot;

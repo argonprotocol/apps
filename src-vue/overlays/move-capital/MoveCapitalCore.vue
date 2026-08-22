@@ -180,7 +180,7 @@ import { existentialDepositMicrogons } from '../../lib/WalletForArgon.ts';
 const props = withDefaults(
   defineProps<{
     class?: string;
-    walletType?: WalletType.defaultArgon;
+    walletType?: WalletType.argon;
     moveFrom?: MoveFrom;
     showInputMenus?: boolean;
     externalAddress?: string;
@@ -266,7 +266,7 @@ const moveFromWalletType = Vue.computed(() => {
 });
 
 const moveFromOptions = Vue.computed(() => {
-  if (moveFromWalletType.value === WalletType.defaultArgon || moveFromWalletType.value === WalletType.miningBot) {
+  if (moveFromWalletType.value === WalletType.argon || moveFromWalletType.value === WalletType.miningBot) {
     return [
       { name: 'Internal App Wallet', value: MoveFrom.DefaultArgon },
       { name: 'Mining Bids', value: MoveFrom.MiningBot },
@@ -295,7 +295,7 @@ const moveTokenOptions = Vue.computed(() => {
 function getMoveToOptions(moveFromValue: MoveFrom) {
   const options = [];
   const walletFrom = moveCapital.getWalletTypeFromMove(moveFromValue);
-  if (walletFrom === WalletType.defaultArgon) {
+  if (walletFrom === WalletType.argon) {
     options.push({ name: 'Mining Bids', value: MoveTo.MiningBot });
   } else if (walletFrom === WalletType.miningBot) {
     options.push({ name: 'Internal App Wallet', value: MoveTo.DefaultArgon });
@@ -333,7 +333,7 @@ const moveTo = Vue.ref<MoveTo>(props.moveTo ?? moveToOptions.value[0].value);
 function getWalletFrom(): IWallet {
   const walletType = moveCapital.getWalletTypeFromMove(moveFrom.value);
   switch (walletType) {
-    case WalletType.defaultArgon:
+    case WalletType.argon:
       return wallets.defaultArgonWallet;
     case WalletType.miningBot:
       return wallets.miningBotWallet;

@@ -34,10 +34,6 @@ export const usePortfolio = defineStore('portfolio', () => {
     return vaultingExternalInvested.value + miningExternalInvested.value;
   });
 
-  const projectedApy = Vue.computed(() => {
-    return calculateAPY(originalCapitalInvested.value, wallets.totalOperationalResources, myMiningSeats.activeFrames);
-  });
-
   async function updateExternalFunding() {
     const db = await dbPromise;
     const microgonsPerArgonot = currency.convertMicronotTo(BigInt(MICRONOTS_PER_ARGONOT), UnitOfMeasurement.Microgon);
@@ -92,7 +88,5 @@ export const usePortfolio = defineStore('portfolio', () => {
     miningExternalInvested,
 
     originalCapitalInvested,
-
-    projectedApy,
   };
 });

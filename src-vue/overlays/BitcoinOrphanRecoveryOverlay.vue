@@ -323,7 +323,7 @@ let stopArgonRequestProgress: (() => void) | undefined;
 let isDisposed = false;
 
 Vue.watch(
-  [trimmedDestination, feeRatePerSatVb, () => wallets.liquidLockingWallet.availableMicrogons],
+  [trimmedDestination, feeRatePerSatVb, () => wallets.defaultArgonWallet.availableMicrogons],
   () => {
     if (feeQuoteTimeout) clearTimeout(feeQuoteTimeout);
     const runId = ++feeQuoteRunId;

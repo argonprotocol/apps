@@ -14,7 +14,7 @@
     </template>
 
     <div v-if="walletRecord" class="px-6 py-5 text-gray-700">
-      <p v-if="walletRecord.role === 'defaultEthereum'" class="mt-1">
+      <p v-if="isCoreEthereumWallet" class="mt-1">
         The app will refresh this wallet and verify that all tracked token balances are zero. A wallet containing any
         tokens cannot be disconnected.
       </p>
@@ -51,16 +51,19 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import basicEmitter from '../emitters/basicEmitter.ts';
-import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
-import { getEthereumWalletDisplayName } from '../lib/Wallet.ts';
-import { useWallets } from '../stores/wallets.ts';
-import OverlayBase from './OverlayBase.vue';
-import { getEthereumMoveTracker } from '../stores/moveFromEthereum.ts';
-import { getEthereumOutboundTransferTracker } from '../stores/moveToEthereum.ts';
+import basicEmitter from '../../emitters/basicEmitter.ts';
+import type { IWalletRecord } from '../../lib/db/WalletsTable.ts';
+import { getEthereumWalletDisplayName } from '../../lib/Wallet.ts';
+import { useWallets } from '../../stores/wallets.ts';
+import OverlayBase from '../../overlays/OverlayBase.vue';
+import { getEthereumMoveTracker } from '../../stores/moveFromEthereum.ts';
+import { getEthereumOutboundTransferTracker } from '../../stores/moveToEthereum.ts';
 
 const wallets = useWallets();
 const walletRecord = Vue.ref<IWalletRecord>();
+
+// const coreEthereumWalletRecord = walletRecords.value.find(record => walletKeys.isCoreEthereumWallet(record));
+const isCoreEthereumWallet = Vue.computed(() => false);
 const isDisconnecting = Vue.ref(false);
 const errorMessage = Vue.ref('');
 

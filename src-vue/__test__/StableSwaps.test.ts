@@ -21,7 +21,7 @@ const stableSwapFinancials = new StableSwapFinancials({} as any);
 import { type IStableSwapPurchaseRecord, StableSwapProofStatus } from '../lib/db/StableSwapPurchasesTable.ts';
 import { type IStableSwapSyncStateRecord } from '../lib/db/StableSwapSyncStateTable.ts';
 import { NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
-import { defaultWalletData } from '../lib/Wallet.ts';
+import { defaultWalletData, WalletType } from '../lib/Wallet.ts';
 
 const NOW = new Date('2026-04-06T12:00:00Z');
 
@@ -94,6 +94,7 @@ describe('StableSwaps', () => {
     const [position] = stableSwapFinancials.createFinancialPositions({
       wallet: {
         ...defaultWalletData,
+        type: WalletType.ethereum,
         address: syncState.walletAddress,
         availableMicrogons: 1_000_000n,
       },
@@ -117,6 +118,7 @@ describe('StableSwaps', () => {
     const [position] = stableSwapFinancials.createFinancialPositions({
       wallet: {
         ...defaultWalletData,
+        type: WalletType.ethereum,
         address: syncState.walletAddress,
         availableMicrogons: 2_000_000n,
       },
