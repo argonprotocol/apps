@@ -277,7 +277,7 @@ export class GlobalCouncil {
       finalizedClient,
       delegateAddress,
       {
-        address: this.walletKeys.ethereumAddress,
+        address: this.walletKeys.coreEthereumAddress,
         hdPath: this.walletKeys.ethereumHdPath,
       },
       options,
@@ -302,7 +302,7 @@ export class GlobalCouncil {
       finalizedClient,
       delegateAddress,
       {
-        address: this.walletKeys.ethereumAddress,
+        address: this.walletKeys.coreEthereumAddress,
         hdPath: this.walletKeys.ethereumHdPath,
       },
       options,

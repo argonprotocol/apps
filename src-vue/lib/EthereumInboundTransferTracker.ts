@@ -310,14 +310,14 @@ export class EthereumInboundTransferTracker {
     const transfer = this.trackTransfer(record.id, moveToken);
     let targetWalletType: IArgonWalletType | undefined;
     if (record.argonDestinationAddress === this.walletKeys.defaultArgonAddress) {
-      targetWalletType = WalletType.defaultArgon;
+      targetWalletType = WalletType.argon;
     } else if (record.argonDestinationAddress === this.walletKeys.miningBotAddress) {
       targetWalletType = WalletType.miningBot;
     } else if (
       record.argonDestinationAddress === this.walletKeys.vaultingAddress ||
       record.argonDestinationAddress === this.walletKeys.legacyVaultingAddress
     ) {
-      targetWalletType = WalletType.defaultArgon;
+      targetWalletType = WalletType.argon;
     }
     transfer.persistedRecord = record;
     transfer.startedAt = record.createdAt.getTime();

@@ -70,7 +70,7 @@ export function enrollUpstreamRecovery(): Promise<void> {
 
     const wallets = getWalletsForArgon();
     stopWatchingUpstreamRecoveryFunds ??= wallets.events.on('balance-change', (balance, type) => {
-      if (type !== 'defaultArgon' || balance.availableMicrogons <= 0n) return;
+      if (type !== 'argon' || balance.availableMicrogons <= 0n) return;
 
       void enrollUpstreamRecovery().catch(error => {
         console.warn('Unable to enroll upstream endpoint recovery', error);
@@ -226,7 +226,7 @@ export async function recoverOwnServer(): Promise<void> {
 
 function watchOwnServerFunds(wallets: ReturnType<typeof getWalletsForArgon>): void {
   stopWatchingOwnServerFunds ??= wallets.events.on('balance-change', (balance, type) => {
-    if (type !== 'defaultArgon' || balance.availableMicrogons <= 0n) return;
+    if (type !== 'argon' || balance.availableMicrogons <= 0n) return;
 
     stopWatchingOwnServerFunds?.();
     stopWatchingOwnServerFunds = undefined;

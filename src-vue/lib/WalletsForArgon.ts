@@ -48,9 +48,9 @@ export class WalletsForArgon {
   public deferredLoading = createDeferred<void>(false);
   public events = createTypedEventEmitter<IWalletEvents>();
 
-  public miningBotWallet: WalletForArgon;
-  public operationalWallet: WalletForArgon;
-  public defaultArgonWallet: WalletForArgon;
+  public miningBotWallet: WalletForArgon<'miningBot'>;
+  public operationalWallet: WalletForArgon<'operational'>;
+  public defaultArgonWallet: WalletForArgon<'argon'>;
 
   public bestBlock?: IBlockHeaderInfo;
   public finalizedBlock?: IBlockHeaderInfo;
@@ -110,13 +110,13 @@ export class WalletsForArgon {
     this.blockWatch = blockWatch;
     this.currency = currency;
     this.legacyMiningHoldAddress = walletKeys.legacyMiningHoldAddress;
-    this.defaultArgonWallet = new WalletForArgon(walletKeys.defaultArgonAddress, 'defaultArgon', dbPromise);
-    this.miningBotWallet = new WalletForArgon(walletKeys.miningBotAddress, 'miningBot', dbPromise);
-    this.operationalWallet = new WalletForArgon(walletKeys.operationalAddress, 'operational', dbPromise);
+    this.defaultArgonWallet = new WalletForArgon('argon', walletKeys.defaultArgonAddress, dbPromise);
+    this.miningBotWallet = new WalletForArgon('miningBot', walletKeys.miningBotAddress, dbPromise);
+    this.operationalWallet = new WalletForArgon('operational', walletKeys.operationalAddress, dbPromise);
   }
 
   public configureDefaultArgonWallet(address: string): void {
-    this.defaultArgonWallet.address = address;
+    this.defaultArgonWallet.data.address = address;
   }
 
   public async readAccountSnapshot({

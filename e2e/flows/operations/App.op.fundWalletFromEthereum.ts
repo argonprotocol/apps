@@ -42,7 +42,7 @@ export default new Operation<IAppFundWalletFromEthereumContext, IAppFundWalletFr
     {
       key: 'targetWalletType',
       required: true,
-      description: 'Target Argon wallet type: defaultArgon.',
+      description: 'Target Argon wallet type: argon.',
     },
     {
       key: 'extraMicrogons',
@@ -245,15 +245,18 @@ async function readEthereumFundingState(flow: IE2EFlowRuntime, targetWalletType:
         : false;
       const argnTransfer = ethereumMoveTracker.getTransferStateForToken(args.argnMoveToken);
       const argnotTransfer = ethereumMoveTracker.getTransferStateForToken(args.argnotMoveToken);
+      const ethereumWallet = refs.wallets.ethereumWallets.find(
+        ({ wallet }) => wallet.address.toLowerCase() === refs.coreEthereumAddress.toLowerCase(),
+      )?.wallet;
 
       return {
-        ethereumAddress: refs.wallets.ethereumWallet.address,
+        ethereumAddress: ethereumWallet?.address ?? refs.coreEthereumAddress,
         archiveUrl,
         ethereumRpcUrl: refs.getEthereumOutboundTransferTracker().executionRpcUrl ?? '',
         ethereumChainConfigReady,
-        ethereumFetchErrorMsg: refs.wallets.ethereumWallet.fetchErrorMsg,
-        ethereumMicrogons: refs.wallets.ethereumWallet.availableMicrogons.toString(),
-        ethereumMicronots: refs.wallets.ethereumWallet.availableMicronots.toString(),
+        ethereumFetchErrorMsg: ethereumWallet?.fetchErrorMsg ?? '',
+        ethereumMicrogons: (ethereumWallet?.availableMicrogons ?? 0n).toString(),
+        ethereumMicronots: (ethereumWallet?.availableMicronots ?? 0n).toString(),
         argnMoveSettled:
           !argnTransfer.isSubmitting &&
           !argnTransfer.hasPersistedTransfer &&
@@ -298,7 +301,7 @@ async function readEthereumFundingState(flow: IE2EFlowRuntime, targetWalletType:
 }
 
 function parseTargetWalletType(value: unknown): IArgonWalletType | undefined {
-  if (value === WalletType.defaultArgon) {
-    return WalletType.defaultArgon;
+  if (value === WalletType.argon) {
+    return WalletType.argon;
   }
 }

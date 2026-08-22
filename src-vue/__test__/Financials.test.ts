@@ -12,7 +12,7 @@ import type {
   IFinancialPosition,
 } from '../interfaces/IFinancialPosition.ts';
 import { financialGroups } from '../interfaces/IFinancialPosition.ts';
-import type { IWallet } from '../lib/Wallet.ts';
+import { type IWallet, WalletType } from '../lib/Wallet.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
 import type { Currency } from '../lib/Currency.ts';
 import type { IWalletTransferRecord } from '../lib/db/WalletTransfersTable.ts';
@@ -29,6 +29,7 @@ import { calculatePositionReturn, FinancialPositionBook, reduceFinancialPosition
 import { WalletFinancials } from '../lib/financials/WalletBalances.ts';
 
 const wallet: IWallet = {
+  type: WalletType.argon,
   address: '5wallet',
   availableMicrogons: 0n,
   availableMicronots: 0n,
@@ -2174,7 +2175,7 @@ function createWalletTransfer(
 
   return {
     walletAddress: '5default',
-    walletName: 'defaultArgon',
+    walletName: 'argon',
     currency: 'argonot',
     transferType: 'transfer',
     isInternal: false,

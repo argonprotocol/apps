@@ -55,7 +55,7 @@
       <BootingOverlay v-if="config.isBootingUpPreviousWalletHistory && !bot.isSyncing" />
       <ServerConnectPanel />
       <WalletOverlayController />
-      <WalletDisconnectOverlay />
+      <ConnectorDisconnectOverlay />
       <TransactionsOverlay />
       <CrosschainHistoryOverlay />
       <SecuritizationOverlay />
@@ -107,7 +107,7 @@ import Vaulting from './screens/Vaulting.vue';
 import CrosschainTransfers from './screens/CrosschainTransfers.vue';
 import ServerConnectPanel from './panels/ServerConnectPanel.vue';
 import WalletOverlayController from './wallets/WalletOverlayController.vue';
-import WalletDisconnectOverlay from './overlays/WalletDisconnectOverlay.vue';
+import ConnectorDisconnectOverlay from './wallets/components/ConnectorDisconnectOverlay.vue';
 import TransactionsOverlay from './overlays/TransactionsOverlay.vue';
 import CrosschainHistoryOverlay from './overlays/CrosschainHistoryOverlay.vue';
 import ServerRemoveOverlay from './overlays/ServerRemoveOverlay.vue';

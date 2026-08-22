@@ -169,7 +169,7 @@ describe('EthereumClient', () => {
             argonTransferNonce,
             chainId: 1n,
             microgonsPerArgonot: 3n,
-            recipient: getAddress(walletKeys.ethereumAddress),
+            recipient: getAddress(walletKeys.coreEthereumAddress),
             validUntilBlock: 500n,
             token: repeatHex('22', 20),
             amount: 100n,
@@ -257,7 +257,7 @@ describe('EthereumClient', () => {
       fixture.finalizedClient as any,
       fixture.walletKeys.vaultingAddress,
       {
-        address: fixture.walletKeys.ethereumAddress,
+        address: fixture.walletKeys.coreEthereumAddress,
         hdPath: `m/44'/60'/0'/0'`,
       },
       { allowUncompensatedRelay: true },
@@ -363,7 +363,7 @@ describe('EthereumClient', () => {
       fixture.finalizedClient as any,
       fixture.walletKeys.vaultingAddress,
       {
-        address: fixture.walletKeys.ethereumAddress,
+        address: fixture.walletKeys.coreEthereumAddress,
         hdPath: `m/44'/60'/0'/0'`,
       },
       { allowUncompensatedRelay: true },
@@ -399,7 +399,7 @@ describe('EthereumClient', () => {
         fixture.finalizedClient as any,
         fixture.walletKeys.vaultingAddress,
         {
-          address: fixture.walletKeys.ethereumAddress,
+          address: fixture.walletKeys.coreEthereumAddress,
           hdPath: `m/44'/60'/0'/0'`,
         },
         { allowUncompensatedRelay: true },

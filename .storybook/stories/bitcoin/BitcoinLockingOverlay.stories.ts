@@ -120,7 +120,7 @@ export const FeeWaiverNeedsWalletFunding: Story = {
   beforeEach: () => {
     scenario = setupBitcoinOverlayScenario();
     requestedLock = undefined;
-    scenario.liquidLockingWallet.availableMicrogons = 0n;
+    scenario.defaultArgonWallet.availableMicrogons = 0n;
     scenario.bitcoinLocks.getInitializeFeeEstimate = fn(async () => ({
       canAfford: false,
       requiredWalletBalanceMicrogons: 2_125_000n,

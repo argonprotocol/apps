@@ -12,11 +12,13 @@ import type { WalletForArgon } from '../lib/WalletForArgon.ts';
 import type { IMiningCohortFinancialRecord } from '../interfaces/db/ICohortFrameRecord.ts';
 import type { IVaultCapitalHistoryRecord } from '../lib/db/VaultCapitalHistoryTable.ts';
 import type { IVaultRevenueEventsRecord } from '../lib/db/VaultRevenueEventsTable.ts';
+import type { IWallet } from '../lib/Wallet.ts';
 
 type FinancialHistoryRestoreArgs = Parameters<typeof import('../lib/recovery/index.ts').restoreFinancialHistory>[0];
 
 const mocks = vi.hoisted(() => {
-  const wallet = (address: string) => ({
+  const wallet = (address: string, type: IWallet['type']) => ({
+    type,
     address,
     availableMicrogons: 0n,
     availableMicronots: 0n,
@@ -119,16 +121,21 @@ const mocks = vi.hoisted(() => {
     db: {},
     wallets: {
       isLoadedPromise: Promise.resolve(),
-      defaultArgonWallet: wallet('5default'),
-      miningBotWallet: wallet('5miner'),
-      operationalWallet: wallet('5operational'),
-      ethereumWallet: { ...wallet('0xethereum'), balanceUpdatedAt: new Date('2026-07-17T12:00:00Z') },
+      defaultArgonWallet: wallet('5default', 'argon'),
+      miningBotWallet: wallet('5miner', 'miningBot'),
+      operationalWallet: wallet('5operational', 'operational'),
+      ethereumWallet: {
+        ...wallet('0xethereum', 'ethereum'),
+        balanceUpdatedAt: new Date('2026-07-17T12:00:00Z'),
+      },
       ethereumWallets: [
         {
-          wallet: { ...wallet('0xethereum'), balanceUpdatedAt: new Date('2026-07-17T12:00:00Z') },
+          wallet: {
+            ...wallet('0xethereum', 'ethereum'),
+            balanceUpdatedAt: new Date('2026-07-17T12:00:00Z'),
+          },
         },
       ],
-      baseWallet: { ...wallet('0xbase'), balanceUpdatedAt: new Date('2026-07-17T12:00:00Z') },
       ethereumFinancialPositions: [] as IFinancialPosition[],
       on: vi.fn(),
     },
@@ -902,7 +909,7 @@ function createAccountSnapshot(
     accounts: [
       {
         address: '5default',
-        wallet: mocks.wallets.defaultArgonWallet as WalletForArgon,
+        wallet: mocks.wallets.defaultArgonWallet as unknown as WalletForArgon,
         availableMicrogons,
         reservedMicrogons: 0n,
         availableMicronots: 0n,

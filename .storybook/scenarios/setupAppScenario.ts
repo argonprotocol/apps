@@ -17,7 +17,7 @@ import { calculatePositionReturn, reduceFinancialPositions } from '../../src-vue
 import { GlobalCouncil } from '../../src-vue/lib/GlobalCouncil.ts';
 import { MintingAuthorities } from '../../src-vue/lib/MintingAuthorities.ts';
 import { getOperationalRewardConfig } from '../../src-vue/lib/OperationalAccount.ts';
-import { defaultWalletData } from '../../src-vue/lib/Wallet.ts';
+import { defaultWalletData, WalletType } from '../../src-vue/lib/Wallet.ts';
 import { getArgonBonds } from '../../src-vue/stores/argonBonds.ts';
 import { useBasics } from '../../src-vue/stores/basics.ts';
 import { getBitcoinLockCoupons, getBitcoinLocks } from '../../src-vue/stores/bitcoin.ts';
@@ -92,11 +92,13 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {} }: 
   });
   const defaultArgonWallet = Vue.reactive({
     ...defaultWalletData,
+    type: WalletType.argon,
     address: '5SyntheticInternalWallet',
     otherTokens: [],
   });
   const miningBotWallet = Vue.reactive({
     ...defaultWalletData,
+    type: WalletType.miningBot,
     address: '5SyntheticMiningWallet',
     otherTokens: [],
   });
@@ -173,6 +175,7 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {} }: 
     defaultArgonAddress: defaultArgonWallet.address,
     vaultingAddress: '5SyntheticVaultingWallet',
     liquidLockingAddress: '5SyntheticLiquidLockingWallet',
+    exportDefaultArgonPrivateKey: fn(async () => `0x${'12'.repeat(32)}`),
     getMiningBotSubaccounts: fn(async () => ({})),
   });
   mocked(getBot, { partial: true }).mockReturnValue(

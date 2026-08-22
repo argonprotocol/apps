@@ -230,7 +230,7 @@ describe('wallet transfer parsing', () => {
     const db = await createTestDb();
     const transfer = {
       walletAddress: '5default',
-      walletName: 'defaultArgon',
+      walletName: 'argon',
       amount: 25n,
       currency: 'argon' as const,
       transferType: 'ethereum' as const,

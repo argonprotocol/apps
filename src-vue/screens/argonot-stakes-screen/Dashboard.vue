@@ -201,7 +201,7 @@ async function refreshMarketData() {
 }
 
 function openArgonWallet() {
-  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.defaultArgon });
+  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon });
 }
 
 let unsubVault: (() => void) | undefined;

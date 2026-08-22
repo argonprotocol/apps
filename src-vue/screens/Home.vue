@@ -221,7 +221,7 @@ function getWalletSelection(walletRecord: IWalletRecord): IWalletSelection {
     return { walletType: WalletType.ethereum, walletRecord };
   }
 
-  return { walletType: WalletType.defaultArgon };
+  return { walletType: WalletType.argon };
 }
 
 function getWalletData(walletRecord: IWalletRecord): IWallet {
@@ -249,7 +249,7 @@ function getOtherTokenValue(walletRecord: IWalletRecord): bigint {
 }
 
 function openWallet() {
-  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.defaultArgon });
+  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon });
 }
 
 function openEthereumConnector(walletRecord: IWalletRecord) {
