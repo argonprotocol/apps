@@ -7,8 +7,9 @@
       </div>
     </template>
 
-    <div v-if="isLoadingPreview" class="min-h-20">
-      Loading...
+    <div v-if="isLoadingPreview && !ratchetPreview" class="flex min-h-32 items-center justify-center gap-2 text-slate-500">
+      <Spinner class="h-5 w-5" />
+      <span>Loading ratchet details...</span>
     </div>
     <div v-else-if="ratchetPreview" class="min-h-20 space-y-3 text-md px-5 pt-5">
       <div class="grid grid-cols-2 gap-x-4 gap-y-1">
@@ -61,10 +62,10 @@
       </div>
       <button
         @click="submitRatchet"
-        :disabled="isSubmitting || isLoadingPreview || !ratchetPreview?.canRatchet"
+        :disabled="isSubmitting || isLoadingPreview || !ratchetPreview?.canRatchet || !ratchetRateMicrogonsPerBtc"
         class="bg-argon-600 inline-flex items-center px-5 py-1 text-white border border-argon-800 rounded disabled:opacity-50 cursor-pointer"
       >
-        <Spinner v-if="isSubmitting" class="Inverse mr-2 h-4 min-h-4 w-4 min-w-4" />
+        <Spinner v-if="isSubmitting" class="Inverse mr-2 ml-2 h-4 min-h-4 w-4 min-w-4" />
         {{ submitLabel }}
       </button>
       <div v-if="errorMessage" class="mt-3 text-sm text-red-600">{{ errorMessage }}</div>
@@ -77,6 +78,7 @@
 import * as Vue from 'vue';
 import OverlayBase from './OverlayBase.vue';
 import { getWalletKeys } from '../stores/wallets.ts';
+import { getMainchainClient, getMiningFrames } from '../stores/mainchain.ts';
 import { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { getCurrency } from '../stores/currency.ts';
@@ -89,15 +91,20 @@ import Spinner from '../components/Spinner.vue';
 const currency = getCurrency();
 const bitcoinLocks = getBitcoinLocks();
 const walletKeys = getWalletKeys();
+const miningFrames = getMiningFrames();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 const isSubmitting = Vue.ref(false);
 const isLoadingPreview = Vue.ref(true);
 const errorMessage = Vue.ref('');
 const ratchetPreview = Vue.ref<IBitcoinRatchetPreview>();
+const ratchetRateMicrogonsPerBtc = Vue.ref<bigint>();
 const txInfo = Vue.shallowRef<TransactionInfo<IBitcoinRatchetMetadata>>();
 const progressPct = Vue.ref(0);
 const progressLabel = Vue.ref('');
 let unsubscribeProgress: (() => void) | undefined;
+let unsubscribeTicks: (() => void) | undefined;
+let pendingPreviewLoad: Promise<void> | undefined;
+let lastPreviewRefreshTick = 0;
 let isDisposed = false;
 
 const props = defineProps<{
@@ -107,6 +114,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'completed'): void;
+  (e: 'preparing', state: { isPreparing: boolean; utxoId?: number }): void;
 }>();
 
 const submitLabel = Vue.computed(() => {
@@ -115,39 +123,76 @@ const submitLabel = Vue.computed(() => {
   return 'Finish Ratchet';
 });
 
-async function loadRatchetPreview() {
-  isLoadingPreview.value = true;
-  errorMessage.value = '';
+function loadRatchetPreview(): Promise<void> {
+  if (pendingPreviewLoad) return pendingPreviewLoad;
 
-  try {
-    ratchetPreview.value = await bitcoinLocks.getRatchetPreview(props.personalLock);
-  } catch (error) {
-    ratchetPreview.value = undefined;
-    errorMessage.value = error instanceof Error ? error.message : 'Unable to load ratchet details.';
-  } finally {
-    isLoadingPreview.value = false;
-  }
+  pendingPreviewLoad = (async () => {
+    isLoadingPreview.value = true;
+    errorMessage.value = '';
+
+    try {
+      const quoteClient = await getMainchainClient(false);
+      const [, eligibleRates] = await Promise.all([
+        currency.fetchMainchainRates(quoteClient, { ignoreCache: true }),
+        quoteClient.query.bitcoinLocks.microgonPerBtcHistory(),
+      ]);
+      const rate = eligibleRates.at(-1)?.[1].toBigInt();
+      if (!rate) throw new Error('Network bitcoin pricing is currently unavailable. Please try again later.');
+
+      const preview = await bitcoinLocks.getRatchetPreview(props.personalLock, rate);
+      if (isDisposed) return;
+
+      ratchetRateMicrogonsPerBtc.value = rate;
+      ratchetPreview.value = preview;
+    } catch (error) {
+      ratchetRateMicrogonsPerBtc.value = undefined;
+      errorMessage.value = error instanceof Error ? error.message : 'Unable to load ratchet details.';
+    } finally {
+      isLoadingPreview.value = false;
+    }
+  })().finally(() => {
+    pendingPreviewLoad = undefined;
+  });
+
+  return pendingPreviewLoad;
 }
 
 async function submitRatchet() {
   if (isSubmitting.value || !ratchetPreview.value?.canRatchet) return;
 
   isSubmitting.value = true;
+  setPreparing(true);
   errorMessage.value = '';
 
   try {
+    await loadRatchetPreview();
+    if (!ratchetPreview.value?.canRatchet || !ratchetRateMicrogonsPerBtc.value) {
+      isSubmitting.value = false;
+      setPreparing(false);
+      return;
+    }
+
     const txSigner =
       ratchetPreview.value.securitizationToAdd > 0n
         ? await walletKeys.getVaultingKeypair()
         : await walletKeys.getLiquidLockingKeypair();
     // This overlay instance can be disposed while the signer loads; do not start a transaction afterward.
-    if (isDisposed) return;
-    const info = await bitcoinLocks.ratchet(props.personalLock, txSigner);
+    if (isDisposed) {
+      setPreparing(false);
+      return;
+    }
+    const info = await bitcoinLocks.ratchet(props.personalLock, txSigner, ratchetRateMicrogonsPerBtc.value);
     trackTransaction(info);
+    setPreparing(false);
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : 'Unable to ratchet this Bitcoin lock.';
     isSubmitting.value = false;
+    setPreparing(false);
   }
+}
+
+function setPreparing(isPreparing: boolean) {
+  emit('preparing', { isPreparing, utxoId: props.personalLock.utxoId });
 }
 
 function trackTransaction(info: TransactionInfo<IBitcoinRatchetMetadata>) {
@@ -190,7 +235,7 @@ function trackTransaction(info: TransactionInfo<IBitcoinRatchetMetadata>) {
 }
 
 Vue.onMounted(async () => {
-  await bitcoinLocks.load();
+  await Promise.all([bitcoinLocks.load(), miningFrames.load()]);
   // This overlay instance can be disposed while recovered state loads; do not subscribe afterward.
   if (isDisposed) return;
   const pendingTxInfo = bitcoinLocks.getPendingRatchetTxInfo(props.personalLock);
@@ -201,10 +246,20 @@ Vue.onMounted(async () => {
   }
 
   await loadRatchetPreview();
+  if (isDisposed) return;
+
+  lastPreviewRefreshTick = miningFrames.currentTick;
+  unsubscribeTicks = miningFrames.onTick(() => {
+    if (isSubmitting.value || miningFrames.currentTick - lastPreviewRefreshTick < 10) return;
+
+    lastPreviewRefreshTick = miningFrames.currentTick;
+    void loadRatchetPreview();
+  }).unsubscribe;
 });
 
 Vue.onUnmounted(() => {
   isDisposed = true;
   unsubscribeProgress?.();
+  unsubscribeTicks?.();
 });
 </script>

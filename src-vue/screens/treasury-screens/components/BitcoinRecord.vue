@@ -198,16 +198,17 @@
             @mouseleave="isActionHovered = false"
           >
             <button
+              RatchetButton
               @click.stop="openRatchetingOverlay($event, lockSummary)"
               :class="[
                 displayedRatchetPercent || isRatchetPending
                   ? 'bg-argon-600 border-argon-800 hover:bg-argon-700 text-white hover:shadow-lg'
-                  : 'cursor-default border-slate-800/20 text-slate-600/40',
+                  : 'border-slate-800/20 text-slate-600/40',
               ]"
-              class="inline-flex cursor-pointer items-center rounded-md border px-2"
+              class="inline-flex items-center gap-2"
             >
               <template v-if="isRatchetPending">
-                <Spinner class="Inverse mr-1.5 h-3 min-h-3 w-3 min-w-3" />
+                <Spinner class="Inverse" />
                 Ratcheting...
               </template>
               <span v-else-if="displayedRatchetPercent">
@@ -275,9 +276,15 @@ const financials = useFinancials();
 
 const { microgonToMoneyNm, satToBtcNm, satToMoneyNm } = createNumeralHelpers(currency);
 
-const props = defineProps<{
-  lockSummary: IBitcoinLockSummary;
-}>();
+const props = withDefaults(
+  defineProps<{
+    isRatchetPreparing?: boolean;
+    lockSummary: IBitcoinLockSummary;
+  }>(),
+  {
+    isRatchetPreparing: false,
+  },
+);
 
 const emit = defineEmits<{
   ratchet: [event: MouseEvent, lock: IBitcoinLockSummary];
@@ -288,7 +295,7 @@ const isActionHovered = Vue.ref(false);
 const lockRecord = Vue.computed(() => props.lockSummary.record);
 const fundingExpirationTime = Vue.computed(() => dayjs.utc(bitcoinLocks.verifyExpirationTime(lockRecord.value)));
 const isHistoryRecoveryPaused = Vue.computed(() => financials.historyRecovery.state === 'error');
-const isRatchetPending = Vue.computed(() => !!bitcoinLocks.getPendingRatchetTxInfo(lockRecord.value));
+const isRatchetPending = Vue.ref(false);
 const displayedRatchetPercent = Vue.computed(() => Math.round(props.lockSummary.ratchetPercent * 100) / 100);
 const releaseState = Vue.computed(() => bitcoinLocks.getLockUnlockReleaseState(lockRecord.value));
 const mismatchAcceptProgress = Vue.computed(() => {
@@ -300,6 +307,17 @@ const mismatchAcceptProgress = Vue.computed(() => {
     progressPct: txStatus?.progressPct ?? 0,
     error: '',
   };
+});
+
+Vue.watchEffect(onCleanup => {
+  const pendingRatchet = bitcoinLocks.getPendingRatchetTxInfo(lockRecord.value);
+  isRatchetPending.value = props.isRatchetPreparing || !!pendingRatchet;
+  if (!pendingRatchet) return;
+
+  const unsubscribe = pendingRatchet.subscribeToProgress(() => {
+    isRatchetPending.value = props.isRatchetPreparing || !pendingRatchet.isPostProcessed;
+  });
+  onCleanup(unsubscribe);
 });
 
 function expirationDate(lock: IBitcoinLockRecord) {
@@ -314,7 +332,6 @@ function formatTimeRemaining(days: number, hours: number, minutes: number, secon
 }
 
 function openRatchetingOverlay(event: MouseEvent, lock: IBitcoinLockSummary) {
-  if (!displayedRatchetPercent.value && !isRatchetPending.value) return;
   emit('ratchet', event, lock);
 }
 
@@ -350,8 +367,17 @@ async function acknowledgeExpiredNotice() {
   [ContentWrapper] {
     @apply grow pl-2;
 
+    button[PrimaryButton],
+    button[RatchetButton] {
+      @apply text-md cursor-pointer rounded-md border px-4 py-0.5 font-semibold whitespace-nowrap;
+    }
+
     button[PrimaryButton] {
-      @apply bg-argon-600 border-argon-800 text-md hover:bg-argon-700 cursor-pointer rounded-md border px-4 py-0.5 font-semibold whitespace-nowrap text-white hover:shadow-lg;
+      @apply bg-argon-600 border-argon-800 hover:bg-argon-700 text-white hover:shadow-lg;
+    }
+
+    button[RatchetButton] .Spinner {
+      @apply static m-0 h-4 min-h-4 w-4 min-w-4 border-4;
     }
 
     button[SecondaryButton] {

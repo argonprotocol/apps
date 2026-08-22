@@ -36,6 +36,10 @@ export class TransactionInfo<MetadataType = unknown> {
     return this.postProcessor?.isSettled ?? true;
   }
 
+  public get hasPendingPostProcessing(): boolean {
+    return this.postProcessor ? !this.postProcessor.isSettled : false;
+  }
+
   public get waitForPostProcessing(): Promise<void> {
     return this.postProcessor?.promise ?? this.txResult.waitForFinalizedBlock.then(() => undefined);
   }

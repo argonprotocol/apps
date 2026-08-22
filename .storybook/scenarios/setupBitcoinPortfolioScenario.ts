@@ -6,11 +6,21 @@ import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../src-vue/interf
 import type { IBitcoinLockSummary } from '../../src-vue/interfaces/IBitcoinLockSummary.ts';
 import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../../src-vue/interfaces/IBitcoinUtxoRecord.ts';
 import { TopTab } from '../../src-vue/interfaces/IConfig.ts';
-import BitcoinLocks, { type IBitcoinMismatchViewState } from '../../src-vue/lib/BitcoinLocks.ts';
+import BitcoinLocks, {
+  type IBitcoinMismatchViewState,
+  type IBitcoinRatchetMetadata,
+  type IBitcoinRatchetPreview,
+} from '../../src-vue/lib/BitcoinLocks.ts';
+import type { TransactionInfo } from '../../src-vue/lib/TransactionInfo.ts';
 import { getBitcoinLockCoupons, getBitcoinLocks } from '../../src-vue/stores/bitcoin.ts';
+import { getCurrency } from '../../src-vue/stores/currency.ts';
 import { useFinancials } from '../../src-vue/stores/financials.ts';
+import { getMainchainClient } from '../../src-vue/stores/mainchain.ts';
+import { getWalletKeys } from '../../src-vue/stores/wallets.ts';
 
-export function setupBitcoinPortfolioScenario(options: { feeWaiver?: boolean } = {}) {
+export function setupBitcoinPortfolioScenario(
+  options: { atParRatchet?: boolean; feeWaiver?: boolean; pendingRatchet?: boolean } = {},
+) {
   setupAppScenario({
     selectedTab: TopTab.BitcoinLocks,
     config: options.feeWaiver ? { upstreamOperator: { name: 'Atlas Operator', vaultId: 7 } } : undefined,
@@ -37,7 +47,7 @@ export function setupBitcoinPortfolioScenario(options: { feeWaiver?: boolean } =
     createSummary(8, BitcoinLockStatus.LockedAndIsMinting, {
       pendingLiquidity: 85_000_000n,
       receivedLiquidity: 510_000_000n,
-      ratchetPercent: 4.75,
+      ratchetPercent: options.atParRatchet ? 0 : 4.75,
     }),
     createSummary(9, BitcoinLockStatus.LockedAndMinted, {
       receivedLiquidity: 1_125_000_000n,
@@ -115,6 +125,44 @@ export function setupBitcoinPortfolioScenario(options: { feeWaiver?: boolean } =
   const recordsByUtxoId = new Map(records.map(record => [record.utxoId, record]));
   const summariesByUuid = new Map([...displayRecords, ...archived].map(summary => [summary.uuid, summary]));
   const fundingRecordsByLockUtxoId = new Map(fundingRecords.map(record => [record.lockUtxoId, record]));
+  const pendingRatchetProgressCallbacks = new Set<Parameters<TransactionInfo['subscribeToProgress']>[0]>();
+  let isRatchetPending = options.pendingRatchet ?? false;
+  const pendingRatchet: Pick<
+    TransactionInfo,
+    'getStatus' | 'isPostProcessed' | 'subscribeToProgress' | 'waitForPostProcessing'
+  > = {
+    getStatus: fn(() => ({
+      progressPct: 50,
+      confirmations: 2,
+      expectedConfirmations: 4,
+      error: undefined,
+      isFinalized: false,
+      isMaxed: false,
+    })),
+    get isPostProcessed() {
+      return !isRatchetPending;
+    },
+    waitForPostProcessing: new Promise<void>(() => undefined),
+    subscribeToProgress: fn(callback => {
+      pendingRatchetProgressCallbacks.add(callback);
+      return () => pendingRatchetProgressCallbacks.delete(callback);
+    }),
+  };
+  const pendingRatchetTxInfo = Vue.shallowRef(isRatchetPending ? pendingRatchet : undefined);
+  const ratchetSubmission = new Promise<TransactionInfo<IBitcoinRatchetMetadata>>(() => undefined);
+  const ratchetPreview: IBitcoinRatchetPreview = {
+    additionalLiquidityToMint: 72_000_000n,
+    availableVaultFunds: 1_400_000_000n,
+    burnAmount: 0n,
+    canRatchet: true,
+    currentLiquidityPromised: summaries[7].record.liquidityPromised,
+    newLiquidityPromised: summaries[7].record.liquidityPromised + 72_000_000n,
+    ratchetingFee: 1_250_000n,
+    requiredVaultFunds: 950_000_000n,
+    securitizationToAdd: 0n,
+    shortfall: 0n,
+    vaultId: summaries[7].record.vaultId,
+  };
 
   const bitcoinLocks: BitcoinLocks = Object.assign(Object.create(BitcoinLocks.prototype), {
     data: Vue.reactive({ isReconciliationPending: false }),
@@ -135,7 +183,11 @@ export function setupBitcoinPortfolioScenario(options: { feeWaiver?: boolean } =
     createLockSummary: fn((record: IBitcoinLockRecord) => summariesByUuid.get(record.uuid)!),
     verifyExpirationTime: fn(() => Date.UTC(2026, 7, 16, 16, 0, 0)),
     unlockDeadlineTime: fn(() => Date.UTC(2026, 11, 15, 16, 0, 0)),
-    getPendingRatchetTxInfo: fn(() => undefined),
+    getPendingRatchetTxInfo: fn((record: IBitcoinLockRecord) =>
+      record.utxoId === summaries[7].record.utxoId ? pendingRatchetTxInfo.value : undefined,
+    ),
+    getRatchetPreview: fn(async () => ratchetPreview),
+    ratchet: fn(() => ratchetSubmission),
     getLatestMismatchAcceptTxInfo: fn(() => undefined),
     getReceivedFundingSatoshis: fn((record: IBitcoinLockRecord) => record.satoshis + 25_000n),
     getMismatchViewState: fn((record: IBitcoinLockRecord): IBitcoinMismatchViewState => {
@@ -181,6 +233,17 @@ export function setupBitcoinPortfolioScenario(options: { feeWaiver?: boolean } =
   });
 
   mocked(getBitcoinLocks).mockReturnValue(bitcoinLocks as unknown as ReturnType<typeof getBitcoinLocks>);
+  mocked(getMainchainClient).mockResolvedValue({
+    query: {
+      bitcoinLocks: {
+        microgonPerBtcHistory: fn(async () => [[0, { toBigInt: () => 6_800_000_000n }]]),
+      },
+    },
+  } as never);
+  Object.assign(getCurrency(), { fetchMainchainRates: fn(async () => ({})) });
+  Object.assign(getWalletKeys(), {
+    getLiquidLockingKeypair: fn(async () => ({ address: '5SyntheticLiquidLockingWallet' }) as never),
+  });
   const currentCoupon: IBitcoinLockCouponStatus | undefined = options.feeWaiver
     ? {
         status: 'Open',
@@ -225,6 +288,26 @@ export function setupBitcoinPortfolioScenario(options: { feeWaiver?: boolean } =
       },
     }) as unknown as ReturnType<typeof useFinancials>,
   );
+
+  return {
+    startPendingRatchet() {
+      isRatchetPending = true;
+      pendingRatchetTxInfo.value = pendingRatchet;
+    },
+    completePendingRatchet() {
+      isRatchetPending = false;
+      pendingRatchetTxInfo.value = undefined;
+      for (const callback of pendingRatchetProgressCallbacks) {
+        void callback({
+          progressPct: 100,
+          progressMessage: 'Finalized',
+          confirmations: 4,
+          expectedConfirmations: 4,
+          isMaxed: false,
+        });
+      }
+    },
+  };
 }
 
 export function setupBitcoinEmptyScenario(options: { loading?: boolean; recovering?: boolean } = {}) {

@@ -1,6 +1,6 @@
 import * as Vue from 'vue';
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
-import { expect, fn, within } from 'storybook/test';
+import { expect, fn, waitFor, within } from 'storybook/test';
 import { expectEventuallyVisible } from '../../support/expectEventuallyVisible.ts';
 import {
   setupBitcoinOverlayScenario,
@@ -47,7 +47,7 @@ export const Loading: Story = {
     return () => scenario.cleanup();
   },
   play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText('Loading...'));
+    await expectEventuallyVisible(within(document.body).findByText('Loading ratchet details...'));
   },
 };
 
@@ -56,7 +56,8 @@ export const Available: Story = {
     scenario = setupBitcoinOverlayScenario();
   },
   play: async () => {
-    await expect(await within(document.body).findByRole('button', { name: 'Finish Ratchet' })).toBeEnabled();
+    const submitButton = await within(document.body).findByRole('button', { name: 'Finish Ratchet' });
+    await waitFor(() => expect(submitButton).toBeEnabled());
   },
 };
 
