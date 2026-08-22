@@ -4,13 +4,17 @@ import { getEthereumWalletDisplayName, WalletType } from '../lib/Wallet.ts';
 export const WALLET_MOVE_LABEL = 'MOVE';
 
 export type IWalletSelection =
-  | { walletType: WalletType.defaultArgon | WalletType.miningBot }
+  | { walletType: WalletType.argon | WalletType.miningBot }
   | { walletType: WalletType.ethereum; walletRecord: IWalletRecord };
 
 export type IWalletSetupStep = 'choice' | 'external';
 export type IWalletConnectorTarget = { network: 'bitcoin' } | { network: 'ethereum'; walletRecordId: number };
+export type IWalletView = 'main' | 'send' | 'receive' | 'privateKey';
 export type IWalletOverlayCenterView =
   | { type: 'main' }
+  | { type: 'send' }
+  | { type: 'receive' }
+  | { type: 'privateKey' }
   | {
       type: 'addEthereum';
       initialStep: IWalletSetupStep;
@@ -28,7 +32,7 @@ export function getAvailableWalletSelections(
   includeMiningWallet: boolean,
 ): IWalletSelection[] {
   const openWalletKeys = new Set(openWallets.map(getWalletSelectionKey));
-  const availableWallets: IWalletSelection[] = [{ walletType: WalletType.defaultArgon }];
+  const availableWallets: IWalletSelection[] = [{ walletType: WalletType.argon }];
   if (includeMiningWallet) {
     availableWallets.push({ walletType: WalletType.miningBot });
   }
@@ -65,14 +69,15 @@ export function showAddWalletInOverlay(state: IWalletOverlayState, initialStep: 
 export function closeAddWalletView(state: IWalletOverlayState): IWalletOverlayState | undefined {
   if (state.centerView.type !== 'addEthereum') return state;
   if (state.centerView.closeBehavior === 'closeOverlay') return;
-  return showMainWallet(state);
+  return showWalletView(state, 'main', state.activeConnector);
 }
 
-export function showMainWallet(
+export function showWalletView(
   state: IWalletOverlayState,
-  activeConnector?: IWalletConnectorTarget,
+  view: IWalletView,
+  activeConnector: IWalletConnectorTarget | undefined,
 ): IWalletOverlayState {
-  return { ...state, centerView: { type: 'main' }, activeConnector };
+  return { ...state, centerView: { type: view }, activeConnector };
 }
 
 export function getWalletSelectionKey(wallet: IWalletSelection): string {
@@ -95,14 +100,4 @@ export function isEthereumWalletSelection(
   wallet: IWalletSelection,
 ): wallet is Extract<IWalletSelection, { walletType: WalletType.ethereum }> {
   return wallet.walletType === WalletType.ethereum;
-}
-
-export function shouldLoadEthereumWalletSelection(
-  wallet: IWalletSelection,
-  activeEthereumWalletRecordId: number | undefined,
-  balanceUpdatedAt: Date | undefined,
-): wallet is Extract<IWalletSelection, { walletType: WalletType.ethereum }> {
-  return (
-    isEthereumWalletSelection(wallet) && (activeEthereumWalletRecordId !== wallet.walletRecord.id || !balanceUpdatedAt)
-  );
 }

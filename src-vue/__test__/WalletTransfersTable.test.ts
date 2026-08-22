@@ -7,7 +7,7 @@ describe('WalletTransfersTable', () => {
     const blockTime = new Date('2026-07-15T00:00:00Z');
     const transfer = {
       walletAddress: '5default',
-      walletName: 'defaultArgon',
+      walletName: 'argon',
       amount: 1n,
       currency: 'argon' as const,
       otherParty: '5other',
@@ -118,7 +118,7 @@ describe('WalletTransfersTable', () => {
   it('loads only external flows inside the owned-wallet boundary', async () => {
     const db = await createTestDb();
     const baseTransfer = {
-      walletName: 'defaultArgon',
+      walletName: 'argon',
       currency: 'argon' as const,
       transferType: 'transfer' as const,
       extrinsicIndex: 0,

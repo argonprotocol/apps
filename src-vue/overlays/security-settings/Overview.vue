@@ -23,32 +23,20 @@
       <EncryptionFileIcon class="w-5 h-5 mr-2 opacity-70 group-hover:text-argon-600" />
       Set Encryption Passphrase
     </li>
-    <template v-if="props.hasDefaultEthereumWallet">
-      <li class="h-[1px] border-t border-slate-300 border-dashed my-4" />
-      <li
-        @click="goTo('ethereum-export')"
-        class="group flex flex-row items-center cursor-pointer hover:text-argon-600 hover:bg-gradient-to-r hover:from-transparent hover:to-argon-menu-hover/70 rounded-md py-4"
-      >
-        <ExportIcon class="w-5 h-5 mr-2 opacity-70 group-hover:text-argon-600" />
-        Export Default Ethereum Private Key
-      </li>
-    </template>
   </ul>
 </template>
 
 <script setup lang="ts">
 import EncryptionFileIcon from '../../assets/encryption-file.svg?component';
 import PasswordIcon from '../../assets/password.svg?component';
-import ExportIcon from '../../assets/export.svg?component';
 import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 
 const controller = useCertificationController();
-const props = defineProps<{ hasDefaultEthereumWallet: boolean }>();
 
 const emit = defineEmits(['close', 'goTo']);
 
-function goTo(screen: 'encrypt' | 'mnemonics' | 'ethereum-export') {
+function goTo(screen: 'encrypt' | 'mnemonics') {
   emit('goTo', screen);
 }
 </script>

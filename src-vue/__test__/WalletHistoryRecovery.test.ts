@@ -33,8 +33,8 @@ describe('WalletHistoryRecovery', () => {
       blockWatch: { clients: { events: { on: vi.fn() } } } as any,
       currency: {} as any,
       recoveryWallets: [
-        new WalletForArgon('5default', 'defaultArgon', dbPromise),
-        new WalletForArgon('5operational', 'operational', dbPromise),
+        new WalletForArgon('argon', '5default', dbPromise),
+        new WalletForArgon('operational', '5operational', dbPromise),
       ],
       ownedAddresses: ['5default', '5operational'],
     });
@@ -67,7 +67,7 @@ describe('WalletHistoryRecovery', () => {
       dbPromise,
       blockWatch: blockWatch as any,
       currency: { fetchMainchainRatesAtBlock } as any,
-      recoveryWallets: [new WalletForArgon('5default', 'defaultArgon', dbPromise)],
+      recoveryWallets: [new WalletForArgon('argon', '5default', dbPromise)],
       ownedAddresses: ['5default'],
       onRecovered,
     });
@@ -159,7 +159,7 @@ describe('WalletHistoryRecovery', () => {
       dbPromise,
       blockWatch: blockWatch as any,
       currency: { fetchMainchainRatesAtBlock: vi.fn(async () => ({ USD: 1n, ARGNOT: 2n })) } as any,
-      recoveryWallets: [new WalletForArgon('5default', 'defaultArgon', dbPromise)],
+      recoveryWallets: [new WalletForArgon('argon', '5default', dbPromise)],
       ownedAddresses: ['5default'],
     });
     vi.spyOn(recovery, 'findActivityBlocks').mockImplementation(async (_address, blocks) => {

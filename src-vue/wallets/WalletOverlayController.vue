@@ -9,6 +9,7 @@
     :zIndex="openWallet.zIndex"
     @focus="focusWallet"
     @updateActiveConnector="updateActiveConnector"
+    @goto="showView"
     @addConnector="openAddConnectorFromOverlay"
     @closeAddConnector="closeAddConnector"
     @completeAddConnector="completeAddConnector"
@@ -36,11 +37,11 @@ import {
   getInitialAddWalletOverlayState,
   getInitialWalletOverlayState,
   showAddWalletInOverlay,
-  showMainWallet,
-  shouldLoadEthereumWalletSelection,
+  showWalletView,
   type IWalletConnectorTarget,
   type IWalletOverlayState,
   type IWalletSelection,
+  type IWalletView,
 } from './walletOverlayState.ts';
 
 type IOpenWallet = IWalletOverlayState & {
@@ -78,28 +79,34 @@ const openWalletOverlay = async (request: IWalletOverlayRequest) => {
 
   const activeConnector = getRequestedConnector(request);
   if (request.connectorType === WalletType.ethereum && !activeConnector) {
-    await openAddWalletPanel('external', request.showGuidance ?? false, request.guidanceContext);
+    console.error(`Ethereum wallet record not found: ${request.ethereumWalletRecordId}`);
     return;
   }
 
-  if (activeConnector?.network === 'ethereum') await activateEthereumWallet(activeConnector.walletRecordId);
+  if (activeConnector?.network === 'ethereum') await refreshEthereumWalletIfNeeded(activeConnector.walletRecordId);
 
   if (openWallet.value) {
-    Object.assign(openWallet.value, showMainWallet(openWallet.value, activeConnector));
+    Object.assign(openWallet.value, showWalletView(openWallet.value, request.view ?? 'main', activeConnector));
     openWallet.value.showGuidance = request.showGuidance ?? false;
     openWallet.value.guidanceContext = request.guidanceContext;
     focusWallet();
     return;
   }
 
+  const initialState = getInitialWalletOverlayState(activeConnector);
   openWallet.value = {
-    ...getInitialWalletOverlayState(activeConnector),
+    ...showWalletView(initialState, request.view ?? 'main', activeConnector),
     showGuidance: request.showGuidance ?? false,
     guidanceContext: request.guidanceContext,
     zIndex: reserveOverlayZIndex(),
   };
   syncOverlayState();
 };
+
+function showView(view: IWalletView) {
+  if (!openWallet.value) return;
+  Object.assign(openWallet.value, showWalletView(openWallet.value, view, openWallet.value.activeConnector));
+}
 
 function openAddConnectorFromOverlay() {
   if (!openWallet.value) return;
@@ -118,10 +125,10 @@ function closeAddConnector() {
 
 async function completeAddConnector(walletRecord: IWalletRecord) {
   if (!openWallet.value) return;
-  await activateEthereumWallet(walletRecord.id);
+  await refreshEthereumWalletIfNeeded(walletRecord.id);
   Object.assign(
     openWallet.value,
-    showMainWallet(openWallet.value, { network: 'ethereum', walletRecordId: walletRecord.id }),
+    showWalletView(openWallet.value, 'main', { network: 'ethereum', walletRecordId: walletRecord.id }),
   );
 }
 
@@ -154,23 +161,17 @@ async function openAddWalletPanel(
 }
 
 function getRequestedConnector(request: IWalletOverlayRequest): IWalletConnectorTarget | undefined {
-  if (request.connectorType === WalletType.defaultArgon) return;
+  if (request.connectorType === WalletType.argon) return;
   if (request.connectorType === 'bitcoin') return { network: 'bitcoin' };
-  const walletRecord = request.ethereumWalletRecordId
-    ? walletStore.walletRecords.find(record => record.id === request.ethereumWalletRecordId)
-    : (walletStore.walletRecords.find(record => record.id === walletStore.activeEthereumWalletRecordId) ??
-      walletStore.walletRecords.find(record => record.walletType === 'ethereum'));
+  const walletRecord = walletStore.walletRecords.find(
+    record => record.walletType === 'ethereum' && record.id === request.ethereumWalletRecordId,
+  );
   return walletRecord ? { network: 'ethereum', walletRecordId: walletRecord.id } : undefined;
 }
 
-async function activateEthereumWallet(walletRecordId: number) {
-  const walletRecord = walletStore.walletRecords.find(record => record.id === walletRecordId);
-  if (!walletRecord) return;
-  const wallet = { walletType: WalletType.ethereum, walletRecord } as const;
+async function refreshEthereumWalletIfNeeded(walletRecordId: number) {
   const balanceUpdatedAt = walletStore.getEthereumWalletRecord(walletRecordId).balanceUpdatedAt;
-  if (shouldLoadEthereumWalletSelection(wallet, walletStore.activeEthereumWalletRecordId, balanceUpdatedAt)) {
-    await walletStore.selectEthereumWalletRecord(walletRecordId);
-  }
+  if (!balanceUpdatedAt) await walletStore.refreshEthereumWalletRecord(walletRecordId);
 }
 
 function ethereumWalletDisconnected({ walletRecordId }: { walletRecordId: number }) {

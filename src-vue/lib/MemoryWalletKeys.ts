@@ -218,7 +218,7 @@ export class MemoryWalletKeys extends WalletKeys {
         },
         primaryType: 'Permit',
         message: {
-          owner: this.ethereumAddress as Address,
+          owner: this.coreEthereumAddress as Address,
           spender: this.ethereumSignerPolicy.gatewayAddress as Address,
           value: args.value,
           nonce: args.nonce,

@@ -146,7 +146,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
           balance: TEST_ACCOUNT.balance,
         },
         // The app wallet needs ETH for gateway tx gas, even when token balances come from Argon.
-        [walletKeys.ethereumAddress]: {
+        [walletKeys.coreEthereumAddress]: {
           balance: TEST_ACCOUNT.balance,
         },
         [councilSignerAddress as Address]: {
@@ -350,8 +350,8 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
         )
       )?.toLowerCase();
       expect(councilSigner).toBe(councilSignerAddress.toLowerCase());
-      expect(councilSignerAddress.toLowerCase()).not.toBe(walletKeys.ethereumAddress.toLowerCase());
-      expect(mintingAuthoritySigner.toLowerCase()).not.toBe(walletKeys.ethereumAddress.toLowerCase());
+      expect(councilSignerAddress.toLowerCase()).not.toBe(walletKeys.coreEthereumAddress.toLowerCase());
+      expect(mintingAuthoritySigner.toLowerCase()).not.toBe(walletKeys.coreEthereumAddress.toLowerCase());
       expect(mintingAuthoritySigner.toLowerCase()).not.toBe(councilSignerAddress.toLowerCase());
 
       await submitAndFinalize(
@@ -485,7 +485,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
 
       await submitAndFinalize(
         client,
-        client.tx.crosschainTransfer.transferOut('Ethereum', 'Argon', walletKeys.ethereumAddress, 10_000n),
+        client.tx.crosschainTransfer.transferOut('Ethereum', 'Argon', walletKeys.coreEthereumAddress, 10_000n),
         await walletKeys.getVaultingKeypair(),
         { useLatestNonce: true },
       );
@@ -499,7 +499,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
           address: argonTokenAddress,
           abi: EvmContracts.argonTokenArtifact.abi,
           functionName: 'balanceOf',
-          args: [walletKeys.ethereumAddress as Address],
+          args: [walletKeys.coreEthereumAddress as Address],
         })) as bigint,
       );
 
@@ -589,13 +589,13 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
           address: argonTokenAddress,
           abi: EvmContracts.argonTokenArtifact.abi,
           functionName: 'balanceOf',
-          args: [walletKeys.ethereumAddress as Address],
+          args: [walletKeys.coreEthereumAddress as Address],
         }),
         publicClient.readContract({
           address: argonotTokenAddress,
           abi: EvmContracts.argonotTokenArtifact.abi,
           functionName: 'balanceOf',
-          args: [walletKeys.ethereumAddress as Address],
+          args: [walletKeys.coreEthereumAddress as Address],
         }),
       ]);
       const finalArgonBalance = BigInt(argonBalance as bigint);
@@ -676,7 +676,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       const transfer = await tracker.startMove({
         moveToken: MoveToken.ARGN,
         amountBaseUnits,
-        targetWalletType: WalletType.defaultArgon,
+        targetWalletType: WalletType.argon,
       });
       expect(transfer).toBeDefined();
 
@@ -719,7 +719,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       const transferState = tracker.getTransferStateForToken(MoveToken.ARGN);
       expect(transferState.isSubmitting).toBe(false);
       expect(transferState.hasPersistedTransfer).toBe(false);
-      expect(transferState.targetWalletType).toBe(WalletType.defaultArgon);
+      expect(transferState.targetWalletType).toBe(WalletType.argon);
       expect(transferState.progress.overallProgressPct).toBe(100);
       expect(transferState.error).toBe('');
     },

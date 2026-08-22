@@ -262,7 +262,7 @@ function takeTheTour() {
 }
 
 function openWallet() {
-  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.defaultArgon });
+  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon });
 }
 
 function openEthereumWallet(wallet: IWalletRecord) {
