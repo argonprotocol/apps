@@ -20,7 +20,7 @@
     </div>
 
     <div
-      v-if="showGuidance && walletType === WalletType.defaultArgon"
+      v-if="showGuidance && walletType === WalletType.argon"
       class="text-argon-700/80 mt-5 rounded-md border border-[#CFA3EC] bg-[#FEF2FF] px-1 text-center"
     >
       <div class="border-argon-600/20 border-b py-5 text-lg font-bold">

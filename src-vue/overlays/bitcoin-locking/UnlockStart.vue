@@ -111,10 +111,10 @@ const canAfford = Vue.computed(() => {
 
 const neededMicrogons = Vue.computed(() => {
   const amountNeeded = releasePrice.value + 25_000n; // 25,000 txfee buffer
-  if (wallets.liquidLockingWallet.availableMicrogons >= amountNeeded) {
+  if (wallets.defaultArgonWallet.availableMicrogons >= amountNeeded) {
     return 0n;
   }
-  return amountNeeded - wallets.liquidLockingWallet.availableMicrogons;
+  return amountNeeded - wallets.defaultArgonWallet.availableMicrogons;
 });
 
 const trimmedDestinationAddress = Vue.computed(() => destinationAddress.value.trim());

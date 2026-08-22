@@ -277,7 +277,7 @@ export function setupBitcoinOverlayScenario() {
         feeCreditMicrogons: 68_000_000n,
         expiresAfterTicks: 7,
         expirationTick: 10_100,
-        accountId: liquidLockingWallet.address,
+        accountId: defaultArgonWallet.address,
         createdAt: new Date(scenarioStartedAt - 24 * 60 * 60 * 1_000),
         updatedAt: new Date(scenarioStartedAt),
       },
@@ -350,7 +350,7 @@ export function setupBitcoinOverlayScenario() {
     [UnitOfMeasurement.BTC]: 6_800_000_000n,
   }));
 
-  const liquidLockingWallet = Vue.reactive({
+  const defaultArgonWallet = Vue.reactive({
     address: '5SyntheticLiquidLockingWallet',
     availableMicrogons: 3_000_000_000n,
     availableMicronots: 0n,
@@ -361,10 +361,9 @@ export function setupBitcoinOverlayScenario() {
     otherTokens: [],
     fetchErrorMsg: '',
   });
-  Object.assign(wallets, { liquidLockingWallet });
+  Object.assign(wallets, { defaultArgonWallet });
   mocked(getWalletKeys, { partial: true }).mockReturnValue({
     defaultArgonAddress: '5SyntheticInternalWallet',
-    liquidLockingAddress: liquidLockingWallet.address,
     vaultingAddress: '5SyntheticVaultingWallet',
   });
 
@@ -390,7 +389,7 @@ export function setupBitcoinOverlayScenario() {
     config,
     financials,
     fundingRecord,
-    liquidLockingWallet,
+    defaultArgonWallet,
     lock,
     locks,
     lockProcessing,

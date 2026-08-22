@@ -4,21 +4,17 @@
     class="z-20 mx-1 flex shrink-0 flex-row items-center gap-x-2.5 border-b border-slate-400/50 pt-3 pr-3 pb-2 pl-2 text-2xl font-bold text-slate-800/70 select-none"
     @mousedown="emit('dragStart', $event)"
   >
-    <span class="min-w-0 grow px-1 text-left text-xl font-bold text-slate-800/70">Internal App Wallet</span>
-    <CopyToClipboard
-      NotDraggable
-      :content="defaultArgonWallet.address"
-      class="relative z-10 flex h-[34px] w-[34px] cursor-pointer items-center justify-center rounded-md border border-slate-400/60 text-sm/6 font-semibold hover:border-slate-500/60 hover:bg-[#f1f3f7] focus:outline-none"
-    >
-      <CopyIcon class="pointer-events-none h-5 w-5 stroke-2 text-slate-500/60" />
-      <template #copying>
-        <div class="flex h-full w-full items-center justify-center rounded-md bg-[#f1f3f7]">
-          <CheckIcon class="pointer-events-none h-5 w-5 stroke-2 text-green-600" />
-        </div>
-      </template>
-    </CopyToClipboard>
+    <span class="grow flex flex-row items-center">
+      <span
+        v-if="props.showHome"
+        class="group flex cursor-pointer flex-row items-center rounded-md py-1 pl-1 pr-2 h-8 hover:bg-argon-100/20"
+      >
+        <BackIcon @click="emit('goto', 'main')" class="relative -top-0.25 w-4 cursor-pointer opacity-50 group-hover:opacity-100" />
+      </span>
+      <span class=" min-w-0 grow text-left text-xl font-bold text-slate-800/70">{{ props.name }}</span>
+    </span>
+    <ButtonCopy address="defaultArgonWallet.address" />
     <WalletMenu
-      :selection="defaultArgonSelection"
       :wallet="defaultArgonWallet"
       :walletIsOpen="true"
       :showBorders="true"
@@ -28,34 +24,32 @@
       @pointerdown.stop
       @mousedown.stop
     />
-    <button
-      NotDraggable
-      data-testid="WalletOverlay.closeRight()"
-      @click="emit('close')"
-      class="relative z-10 flex h-[34px] w-[34px] cursor-pointer items-center justify-center rounded-md border border-slate-400/60 text-sm/6 font-semibold hover:border-slate-500/60 hover:bg-[#f1f3f7] focus:outline-none"
-    >
-      <XMarkIcon class="pointer-events-none h-5 w-5 stroke-2 text-slate-500/60" />
-    </button>
+    <ButtonClose @close="emit('close')" />
   </h2>
 </template>
+
 <script setup lang="ts">
 import { computed } from 'vue';
-import CopyToClipboard from '../../components/CopyToClipboard.vue';
-import { CheckIcon, XMarkIcon } from '@heroicons/vue/24/outline';
-import CopyIcon from '../../assets/copy.svg';
-import { WalletType } from '../../lib/Wallet.ts';
+import BackIcon from '../../assets/back.svg';
 import { useWallets } from '../../stores/wallets.ts';
-import type { IWalletSelection } from '../walletOverlayState.ts';
+import type { IWalletView } from '../walletOverlayState.ts';
 import WalletMenu from './WalletMenu.vue';
+import ButtonCopy from './ButtonCopy.vue';
+import ButtonClose from './ButtonClose.vue';
 
-const props = defineProps<{ isDragging: boolean }>();
+const props = defineProps<{
+  name: string;
+  isDragging: boolean;
+  showHome?: boolean;
+}>();
 
 const emit = defineEmits<{
   (event: 'dragStart', mouseEvent: MouseEvent): void;
   (event: 'close'): void;
+  (event: 'goto', view: IWalletView): void;
 }>();
 
 const wallets = useWallets();
+
 const defaultArgonWallet = computed(() => wallets.defaultArgonWallet);
-const defaultArgonSelection = { walletType: WalletType.defaultArgon } satisfies IWalletSelection;
 </script>

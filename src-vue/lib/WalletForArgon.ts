@@ -1,6 +1,7 @@
 import { bigIntMax, MICROGONS_PER_ARGON, type IBlockHeaderInfo, type IExtrinsicEvent } from '@argonprotocol/apps-core';
 import { Db } from './Db.ts';
-import { type IWallet, WalletType } from './Wallet.ts';
+import { WalletForChain, WalletType } from './Wallet.ts';
+import type { IWalletRecord } from './db/WalletsTable.ts';
 
 export type IWalletBalanceTransfer = {
   to: string;
@@ -54,17 +55,33 @@ export function hasArgonWalletValue(balance: {
   return false;
 }
 
-export class WalletForArgon implements IWallet {
-  public balanceHistory: IBalanceChange[];
-  public fetchErrorMsg = '';
-  public otherTokens = [];
+export class WalletForArgon<TType extends IArgonWalletType = IArgonWalletType> extends WalletForChain<TType> {
+  private _balanceHistory: IBalanceChange[] = [];
 
   constructor(
-    public address: string,
-    public type: IArgonWalletType,
+    type: TType,
+    address: string,
     private db: Promise<Db>,
+    record?: IWalletRecord,
   ) {
-    this.balanceHistory = [];
+    super({ address, type, record });
+  }
+
+  public get balanceHistory(): IBalanceChange[] {
+    return this._balanceHistory;
+  }
+
+  public set balanceHistory(balanceHistory: IBalanceChange[]) {
+    this._balanceHistory = balanceHistory;
+    const balance = this.latestBalanceChange;
+    if (!balance) return;
+
+    this.data.availableMicrogons = balance.availableMicrogons;
+    this.data.availableMicronots = balance.availableMicronots;
+    this.data.reservedMicrogons = balance.reservedMicrogons;
+    this.data.reservedMicronots = balance.reservedMicronots;
+    this.data.totalMicrogons = balance.availableMicrogons + balance.reservedMicrogons;
+    this.data.totalMicronots = balance.availableMicronots + balance.reservedMicronots;
   }
 
   public get latestBalanceChange(): IBalanceChange | undefined {
@@ -72,27 +89,27 @@ export class WalletForArgon implements IWallet {
   }
 
   public get availableMicrogons(): bigint {
-    return this.latestBalanceChange?.availableMicrogons ?? 0n;
+    return this.data.availableMicrogons;
   }
 
   public get availableMicronots(): bigint {
-    return this.latestBalanceChange?.availableMicronots ?? 0n;
+    return this.data.availableMicronots;
   }
 
   public get reservedMicrogons(): bigint {
-    return this.latestBalanceChange?.reservedMicrogons ?? 0n;
+    return this.data.reservedMicrogons;
   }
 
   public get reservedMicronots(): bigint {
-    return this.latestBalanceChange?.reservedMicronots ?? 0n;
+    return this.data.reservedMicronots;
   }
 
   public get totalMicrogons(): bigint {
-    return this.availableMicrogons + this.reservedMicrogons;
+    return this.data.totalMicrogons;
   }
 
   public get totalMicronots(): bigint {
-    return this.availableMicronots + this.reservedMicronots;
+    return this.data.totalMicronots;
   }
 
   public hasValue(): boolean {

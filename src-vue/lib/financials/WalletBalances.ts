@@ -310,7 +310,7 @@ function createResidualWalletBalancePositions(args: {
             label: `${balanceType === 'transferable' ? 'Available' : 'Other held'} ${asset}`,
             lifecycle: balanceType === 'transferable' ? 'available' : 'held',
             currentValue,
-            wallet: account.wallet,
+            wallet: account.wallet.data,
             balanceType,
             asset,
             accountId: account.address,

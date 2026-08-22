@@ -51,7 +51,7 @@ import { WalletType } from '../../lib/Wallet.ts';
 import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 
 const props = defineProps<{
-  walletType: WalletType.defaultArgon;
+  walletType: WalletType.argon;
 }>();
 
 const isOpen = Vue.ref(false);

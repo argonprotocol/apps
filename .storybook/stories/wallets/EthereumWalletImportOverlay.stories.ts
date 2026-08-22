@@ -4,15 +4,14 @@ import { expect, userEvent, waitFor, within } from 'storybook/test';
 import { setupWalletScenario } from '../../scenarios/setupWalletScenario.ts';
 import { expectEventuallyVisible } from '../../support/expectEventuallyVisible.ts';
 import basicEmitter from '../../../src-vue/emitters/basicEmitter.ts';
-import { WalletType } from '../../../src-vue/lib/Wallet.ts';
-import WalletDialogs from '../../../src-vue/wallets/WalletDialogs.vue';
+import WalletOverlayController from '../../../src-vue/wallets/WalletOverlayController.vue';
 
 const syntheticMnemonic = 'synthetic alpha beta gamma delta epsilon zeta eta theta iota kappa lambda';
 
 const meta = {
   title: 'Wallets/Ethereum import',
   render: () => ({
-    components: { WalletDialogs },
+    components: { WalletOverlayController },
     setup() {
       const disableDocsLinks = () => {
         document
@@ -39,7 +38,7 @@ const meta = {
       document.addEventListener('keydown', blockDocsLink, true);
       docsObserver.observe(document.body, { childList: true, subtree: true });
       Vue.onMounted(() => {
-        basicEmitter.emit('openWalletOverlay', { walletType: WalletType.defaultArgon });
+        basicEmitter.emit('openWalletOverlayAddConnector', 'external');
         void Vue.nextTick(disableDocsLinks);
       });
       Vue.onUnmounted(() => {
@@ -50,11 +49,11 @@ const meta = {
     },
     template: `
       <div class="relative h-screen w-screen overflow-hidden">
-        <WalletDialogs />
+        <WalletOverlayController />
       </div>
     `,
   }),
-} satisfies Meta<typeof WalletDialogs>;
+} satisfies Meta<typeof WalletOverlayController>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -67,12 +66,7 @@ function useScenario(state: Parameters<typeof setupWalletScenario>[0]) {
 async function openEthereumImport() {
   const canvas = within(document.body);
 
-  await expect(canvas.findByText('Internal App Wallet')).resolves.toBeVisible();
-  await userEvent.click(canvas.getByTestId('WalletOverlay.toggleTransferIn()'));
-
-  const transferPanel = await canvas.findByTestId('WalletOverlay.transferInPanel');
-  await userEvent.click(within(transferPanel).getByTestId('WalletOverlay.addNewWallet()'));
-  await expect(transferPanel).toHaveTextContent('Add Wallet');
+  await expect(canvas.findByRole('heading', { name: 'Connect Ethereum Wallet' })).resolves.toBeVisible();
   return canvas;
 }
 

@@ -312,7 +312,7 @@ async function activateDevEthereumMintingAuthority(args: {
     throw new Error(`${logPrefix}: minting authority activation approval disappeared before it could be signed.`);
   }
 
-  const relaySignerAddress = getAddress(actor.walletKeys.ethereumAddress);
+  const relaySignerAddress = getAddress(actor.walletKeys.coreEthereumAddress);
   const relaySignerBalance = await createPublicClient({
     transport: http(executionRpcUrl, { retryCount: 1, timeout: 15_000 }),
   }).getBalance({

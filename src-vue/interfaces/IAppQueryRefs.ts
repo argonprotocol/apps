@@ -12,11 +12,12 @@ export interface IAppQueryRefs {
   bitcoinLocks: IBitcoinLocksQueryRef;
   myVault: IMyVaultQueryRef;
   wallets: IWalletsQueryRef;
+  coreEthereumAddress: string;
   overlayIsOpen: boolean;
   getEthereumMoveTracker(): IEthereumMoveTrackerQueryRef;
   getEthereumOutboundTransferTracker(): EthereumOutboundTransferTracker;
   getMainchainClient(needsHistoricalAccess: boolean): Promise<ArgonClient>;
-  openWalletOverlay(walletType: WalletType.defaultArgon | WalletType.ethereum): void;
+  openWalletOverlay(walletType: WalletType.argon): void;
 }
 
 export type IAppQueryFn<TResult = unknown, TArgs extends Record<string, unknown> = Record<string, never>> = (

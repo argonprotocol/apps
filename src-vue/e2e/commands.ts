@@ -4,7 +4,7 @@ import { getConfig } from '../stores/config';
 import { getMainchainClient, getMiningFrames } from '../stores/mainchain';
 import { getBitcoinLocks } from '../stores/bitcoin';
 import { getMyVault } from '../stores/vaults';
-import { useWallets } from '../stores/wallets.ts';
+import { getWalletKeys, useWallets } from '../stores/wallets.ts';
 import { useBasics } from '../stores/basics.ts';
 import { getEthereumMoveTracker } from '../stores/moveFromEthereum.ts';
 import { getEthereumOutboundTransferTracker } from '../stores/moveToEthereum.ts';
@@ -1226,6 +1226,7 @@ async function getAppQueryRefs(): Promise<IAppQueryRefs> {
     bitcoinLocks,
     myVault,
     wallets: useWallets(),
+    coreEthereumAddress: getWalletKeys().coreEthereumAddress,
     overlayIsOpen: basics.overlayIsOpen,
     getEthereumMoveTracker,
     getEthereumOutboundTransferTracker,

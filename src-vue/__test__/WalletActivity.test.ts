@@ -10,7 +10,7 @@ function createTransfer(overrides: Partial<IWalletTransferRecord> = {}): IWallet
   return {
     id: 1,
     walletAddress,
-    walletName: 'defaultArgon',
+    walletName: 'argon',
     amount: 25n,
     currency: 'argon',
     otherParty: '5Other',

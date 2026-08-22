@@ -842,7 +842,7 @@ export async function getNextMintingAuthoritySigner(args: {
     scopeKey,
   });
   const blockedSigners = new Set(
-    [walletKeys.ethereumAddress, councilSigner, ...existingSigners, ...trackedSigners.map(x => x.address)]
+    [walletKeys.coreEthereumAddress, councilSigner, ...existingSigners, ...trackedSigners.map(x => x.address)]
       .filter(Boolean)
       .map(signer => signer!.toLowerCase()),
   );

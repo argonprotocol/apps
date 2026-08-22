@@ -2,13 +2,11 @@ import { BaseTable, type IFieldTypes } from './BaseTable.ts';
 import { convertFromSqliteFields, toSqlParams } from '../Utils.ts';
 
 export type IWalletRecordType = 'argon' | 'ethereum';
-export type IWalletRecordRole = 'defaultArgon' | 'defaultEthereum' | 'externalEthereum';
 export type IWalletSecretKind = 'coreMnemonic' | 'privateKey' | 'mnemonic';
 
 export interface IWalletRecord {
   id: number;
   walletType: IWalletRecordType;
-  role: IWalletRecordRole;
   name: string;
   address: string;
   sortOrder: number;
@@ -19,9 +17,6 @@ export interface IWalletRecord {
   createdAt: Date;
   updatedAt: Date;
 }
-
-export type IWalletRecordInsert = Pick<IWalletRecord, 'walletType' | 'role' | 'name' | 'address'> &
-  Partial<Pick<IWalletRecord, 'sortOrder' | 'keyReference' | 'derivationPath' | 'secretKind' | 'encryptedSecret'>>;
 
 export class WalletsTable extends BaseTable {
   private readonly fieldTypes: IFieldTypes = {
@@ -47,14 +42,7 @@ export class WalletsTable extends BaseTable {
 
   public async getDefaultArgon(): Promise<IWalletRecord | undefined> {
     const rows = await this.db.select<IWalletRecord[]>(
-      `SELECT * FROM Wallets WHERE role = 'defaultArgon' ORDER BY id ASC LIMIT 1`,
-    );
-    return rows[0] ? this.toRecord(rows[0]) : undefined;
-  }
-
-  public async getDefaultEthereum(): Promise<IWalletRecord | undefined> {
-    const rows = await this.db.select<IWalletRecord[]>(
-      `SELECT * FROM Wallets WHERE role = 'defaultEthereum' ORDER BY id ASC LIMIT 1`,
+      `SELECT * FROM Wallets WHERE walletType = 'argon' ORDER BY id ASC LIMIT 1`,
     );
     return rows[0] ? this.toRecord(rows[0]) : undefined;
   }
@@ -67,9 +55,9 @@ export class WalletsTable extends BaseTable {
   }): Promise<IWalletRecord> {
     const rows = await this.db.select<IWalletRecord[]>(
       `INSERT INTO Wallets (
-        walletType, role, name, address, sortOrder, keyReference
+        walletType, name, address, sortOrder, keyReference
       ) VALUES (
-        'argon', 'defaultArgon', ?, ?, ?, ?
+        'argon', ?, ?, ?, ?
       )
       ON CONFLICT(walletType) WHERE walletType = 'argon' DO UPDATE SET
         name = excluded.name,
@@ -89,14 +77,16 @@ export class WalletsTable extends BaseTable {
   }): Promise<IWalletRecord> {
     const rows = await this.db.select<IWalletRecord[]>(
       `INSERT INTO Wallets (
-        walletType, role, name, address, sortOrder, derivationPath, secretKind
+        walletType, name, address, sortOrder, derivationPath, secretKind
       ) VALUES (
-        'ethereum', 'defaultEthereum', 'Default Ethereum', ?, ?, ?, 'coreMnemonic'
+        'ethereum', 'Default Ethereum', ?, ?, ?, 'coreMnemonic'
       )
-      ON CONFLICT(role) WHERE role = 'defaultEthereum' DO UPDATE SET
-        address = excluded.address,
+      ON CONFLICT(address) DO UPDATE SET
+        name = excluded.name,
+        sortOrder = excluded.sortOrder,
         derivationPath = excluded.derivationPath,
-        secretKind = excluded.secretKind
+        secretKind = excluded.secretKind,
+        encryptedSecret = NULL
       RETURNING *`,
       toSqlParams([args.address.toLowerCase(), args.sortOrder ?? 1, args.derivationPath]),
     );
@@ -106,16 +96,21 @@ export class WalletsTable extends BaseTable {
   public async importExternalEthereum(args: {
     name?: string;
     address: string;
+    coreEthereumAddress: string;
     derivationPath?: string;
     secretKind: Extract<IWalletSecretKind, 'privateKey' | 'mnemonic'>;
     encryptedSecret: string;
     sortOrder?: number;
   }): Promise<IWalletRecord> {
+    if (args.address.toLowerCase() === args.coreEthereumAddress.toLowerCase()) {
+      throw new Error("This is already the app's core Ethereum wallet.");
+    }
+
     const rows = await this.db.select<IWalletRecord[]>(
       `INSERT INTO Wallets (
-        walletType, role, name, address, sortOrder, derivationPath, secretKind, encryptedSecret
+        walletType, name, address, sortOrder, derivationPath, secretKind, encryptedSecret
       ) VALUES (
-        'ethereum', 'externalEthereum', ?, ?, ?, ?, ?, ?
+        'ethereum', ?, ?, ?, ?, ?, ?
       )
       ON CONFLICT(address) DO UPDATE SET
         name = excluded.name,

@@ -261,7 +261,7 @@ async function claimRewards() {
       extrinsicType: ExtrinsicType.OperationalClaimRewards,
       metadata: {
         amount: claimableNow.value,
-        claimAccount: 'defaultArgon',
+        claimAccount: 'argon',
       },
     });
 
