@@ -371,7 +371,7 @@ function bondToMoneyNm(bonds: number) {
 }
 
 function openWallet() {
-  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.defaultArgon });
+  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon });
 }
 
 const operatorName = Vue.computed(() => (myVault.createdVault ? 'Yours' : config.upstreamOperator?.name));

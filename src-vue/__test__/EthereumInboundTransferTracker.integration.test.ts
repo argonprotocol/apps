@@ -58,7 +58,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       createBlockWatch(mainchainClient),
       walletKeys,
       createEthereumClient({
-        sourceAddress: walletKeys.ethereumAddress,
+        sourceAddress: walletKeys.coreEthereumAddress,
         destinationAddress: walletKeys.defaultArgonAddress,
         sourceTxHash: `0x${'11'.repeat(32)}`,
         sourceBlockNumber: 42,
@@ -76,7 +76,7 @@ describe('EthereumInboundTransferTracker integration', () => {
     const activeTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGN,
       amountBaseUnits: 5_000_000_000_000n,
-      targetWalletType: WalletType.defaultArgon,
+      targetWalletType: WalletType.argon,
     });
     expect(activeTransfer?.transferState.amount).toBe(convertEthereumTokenBaseUnitsToRuntimeAmount(5_000_000_000_000n));
 
@@ -130,7 +130,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       createBlockWatch(mainchainClient),
       walletKeys,
       createEthereumClient({
-        sourceAddress: walletKeys.ethereumAddress,
+        sourceAddress: walletKeys.coreEthereumAddress,
         destinationAddress: walletKeys.defaultArgonAddress,
         sourceTxHash: `0x${'33'.repeat(32)}`,
         sourceBlockNumber: 42,
@@ -151,7 +151,7 @@ describe('EthereumInboundTransferTracker integration', () => {
     const activeTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGN,
       amountBaseUnits: 5_000_000_000_000n,
-      targetWalletType: WalletType.defaultArgon,
+      targetWalletType: WalletType.argon,
     });
 
     await vi.waitFor(() => {
@@ -190,7 +190,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       createBlockWatch(mainchainClient),
       walletKeys,
       createEthereumClient({
-        sourceAddress: walletKeys.ethereumAddress,
+        sourceAddress: walletKeys.coreEthereumAddress,
         destinationAddress: walletKeys.defaultArgonAddress,
         sourceTxHash: `0x${'35'.repeat(32)}`,
         sourceBlockNumber: 42,
@@ -220,7 +220,7 @@ describe('EthereumInboundTransferTracker integration', () => {
     const activeTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGN,
       amountBaseUnits: 5_000_000_000_000n,
-      targetWalletType: WalletType.defaultArgon,
+      targetWalletType: WalletType.argon,
     });
 
     expect(activeTransfer?.transferState.error).toBe('');
@@ -251,7 +251,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       createBlockWatch(mainchainClient),
       walletKeys,
       createEthereumClient({
-        sourceAddress: walletKeys.ethereumAddress,
+        sourceAddress: walletKeys.coreEthereumAddress,
         destinationAddress: walletKeys.defaultArgonAddress,
         sourceTxHash: `0x${'39'.repeat(32)}`,
         sourceBlockNumber: 42,
@@ -282,7 +282,7 @@ describe('EthereumInboundTransferTracker integration', () => {
     const activeTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGN,
       amountBaseUnits: 5_000_000_000_000n,
-      targetWalletType: WalletType.defaultArgon,
+      targetWalletType: WalletType.argon,
     });
 
     await vi.waitFor(() => {
@@ -306,7 +306,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       createBlockWatch(mainchainClient),
       walletKeys,
       createEthereumClient({
-        sourceAddress: walletKeys.ethereumAddress,
+        sourceAddress: walletKeys.coreEthereumAddress,
         destinationAddress: walletKeys.defaultArgonAddress,
         sourceTxHash: `0x${'3a'.repeat(32)}`,
         sourceBlockNumber: 42,
@@ -334,7 +334,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       },
     );
 
-    const persistedRecord = await insertTransferRecord(db, walletKeys.ethereumAddress, {
+    const persistedRecord = await insertTransferRecord(db, walletKeys.coreEthereumAddress, {
       id: nanoid(),
       token: MoveToken.ARGN,
       argonDestinationAddress: walletKeys.defaultArgonAddress,
@@ -357,7 +357,7 @@ describe('EthereumInboundTransferTracker integration', () => {
         ...tracker.getTransferStateForToken(MoveToken.ARGN),
         hasPersistedTransfer: true,
         isSubmitting: true,
-        targetWalletType: WalletType.defaultArgon,
+        targetWalletType: WalletType.argon,
         progress,
       },
     };
@@ -405,7 +405,7 @@ describe('EthereumInboundTransferTracker integration', () => {
         createBlockWatch(mainchainClient),
         walletKeys,
         createEthereumClient({
-          sourceAddress: walletKeys.ethereumAddress,
+          sourceAddress: walletKeys.coreEthereumAddress,
           destinationAddress: walletKeys.defaultArgonAddress,
           sourceTxHash: `0x${'37'.repeat(32)}`,
           sourceBlockNumber: 42,
@@ -424,7 +424,7 @@ describe('EthereumInboundTransferTracker integration', () => {
         },
       );
 
-      const persistedRecord = await insertTransferRecord(db, walletKeys.ethereumAddress, {
+      const persistedRecord = await insertTransferRecord(db, walletKeys.coreEthereumAddress, {
         id: nanoid(),
         token: MoveToken.ARGN,
         argonDestinationAddress: walletKeys.defaultArgonAddress,
@@ -447,7 +447,7 @@ describe('EthereumInboundTransferTracker integration', () => {
           ...tracker.getTransferStateForToken(MoveToken.ARGN),
           hasPersistedTransfer: true,
           isSubmitting: true,
-          targetWalletType: WalletType.defaultArgon,
+          targetWalletType: WalletType.argon,
           progress,
         },
       };
@@ -508,7 +508,7 @@ describe('EthereumInboundTransferTracker integration', () => {
         createBlockWatch(mainchainClient),
         walletKeys,
         createEthereumClient({
-          sourceAddress: walletKeys.ethereumAddress,
+          sourceAddress: walletKeys.coreEthereumAddress,
           destinationAddress: walletKeys.defaultArgonAddress,
           sourceTxHash: `0x${'38'.repeat(32)}`,
           sourceBlockNumber: 42,
@@ -527,7 +527,7 @@ describe('EthereumInboundTransferTracker integration', () => {
         },
       );
 
-      const persistedRecord = await insertTransferRecord(db, walletKeys.ethereumAddress, {
+      const persistedRecord = await insertTransferRecord(db, walletKeys.coreEthereumAddress, {
         id: nanoid(),
         token: MoveToken.ARGN,
         argonDestinationAddress: walletKeys.defaultArgonAddress,
@@ -550,7 +550,7 @@ describe('EthereumInboundTransferTracker integration', () => {
           ...tracker.getTransferStateForToken(MoveToken.ARGN),
           hasPersistedTransfer: true,
           isSubmitting: true,
-          targetWalletType: WalletType.defaultArgon,
+          targetWalletType: WalletType.argon,
           progress,
         },
       };
@@ -604,7 +604,7 @@ describe('EthereumInboundTransferTracker integration', () => {
         createBlockWatch(mainchainClient),
         walletKeys,
         createEthereumClient({
-          sourceAddress: walletKeys.ethereumAddress,
+          sourceAddress: walletKeys.coreEthereumAddress,
           destinationAddress: walletKeys.defaultArgonAddress,
           sourceTxHash: `0x${'39'.repeat(32)}`,
           sourceBlockNumber: 42,
@@ -623,7 +623,7 @@ describe('EthereumInboundTransferTracker integration', () => {
         },
       );
 
-      const persistedRecord = await insertTransferRecord(db, walletKeys.ethereumAddress, {
+      const persistedRecord = await insertTransferRecord(db, walletKeys.coreEthereumAddress, {
         id: nanoid(),
         token: MoveToken.ARGN,
         argonDestinationAddress: walletKeys.defaultArgonAddress,
@@ -646,7 +646,7 @@ describe('EthereumInboundTransferTracker integration', () => {
           ...tracker.getTransferStateForToken(MoveToken.ARGN),
           hasPersistedTransfer: true,
           isSubmitting: true,
-          targetWalletType: WalletType.defaultArgon,
+          targetWalletType: WalletType.argon,
           progress,
         },
       };
@@ -709,7 +709,7 @@ describe('EthereumInboundTransferTracker integration', () => {
         blockWatch,
         walletKeys,
         createEthereumClient({
-          sourceAddress: walletKeys.ethereumAddress,
+          sourceAddress: walletKeys.coreEthereumAddress,
           destinationAddress: walletKeys.defaultArgonAddress,
           sourceTxHash: `0x${'57'.repeat(32)}`,
           sourceBlockNumber: 42,
@@ -728,7 +728,7 @@ describe('EthereumInboundTransferTracker integration', () => {
         },
       );
 
-      const persistedRecord = await insertTransferRecord(db, walletKeys.ethereumAddress, {
+      const persistedRecord = await insertTransferRecord(db, walletKeys.coreEthereumAddress, {
         id: nanoid(),
         token: MoveToken.ARGN,
         argonDestinationAddress: walletKeys.defaultArgonAddress,
@@ -752,7 +752,7 @@ describe('EthereumInboundTransferTracker integration', () => {
           ...tracker.getTransferStateForToken(MoveToken.ARGN),
           hasPersistedTransfer: true,
           isSubmitting: true,
-          targetWalletType: WalletType.defaultArgon,
+          targetWalletType: WalletType.argon,
           progress,
         },
       };
@@ -801,7 +801,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       createBlockWatch(mainchainClient),
       walletKeys,
       createEthereumClient({
-        sourceAddress: walletKeys.ethereumAddress,
+        sourceAddress: walletKeys.coreEthereumAddress,
         destinationAddress: walletKeys.defaultArgonAddress,
         sourceTxHash: `0x${'36'.repeat(32)}`,
         sourceBlockNumber: 42,
@@ -823,7 +823,7 @@ describe('EthereumInboundTransferTracker integration', () => {
     const activeTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGN,
       amountBaseUnits: 5_000_000_000_000n,
-      targetWalletType: WalletType.defaultArgon,
+      targetWalletType: WalletType.argon,
     });
 
     await vi.waitFor(() => {
@@ -854,7 +854,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       getProvenNonce: () => 9n,
     });
 
-    const persistedRecord = await insertTransferRecord(db, walletKeys.ethereumAddress, {
+    const persistedRecord = await insertTransferRecord(db, walletKeys.coreEthereumAddress, {
       id: 'eth-transfer-1',
       token: MoveToken.ARGNOT,
       argonDestinationAddress: legacyNativeArgonAddress,
@@ -872,7 +872,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       createBlockWatch(mainchainClient),
       walletKeys,
       createEthereumClient({
-        sourceAddress: walletKeys.ethereumAddress,
+        sourceAddress: walletKeys.coreEthereumAddress,
         destinationAddress: persistedRecord.argonDestinationAddress,
         sourceTxHash: persistedRecord.sourceTxHash!,
         sourceBlockNumber: persistedRecord.sourceBlockNumber!,
@@ -903,7 +903,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       amount: convertEthereumTokenBaseUnitsToRuntimeAmount(persistedRecord.amountBaseUnits),
       isSubmitting: false,
       hasPersistedTransfer: false,
-      targetWalletType: WalletType.defaultArgon,
+      targetWalletType: WalletType.argon,
       error: '',
     });
     expect(transferState.progress.overallProgressPct).toBe(100);
@@ -917,7 +917,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       getProvenNonce: () => 9n,
     });
 
-    const persistedRecord = await insertTransferRecord(db, walletKeys.ethereumAddress, {
+    const persistedRecord = await insertTransferRecord(db, walletKeys.coreEthereumAddress, {
       id: 'eth-transfer-midflight',
       token: MoveToken.ARGN,
       argonDestinationAddress: walletKeys.defaultArgonAddress,
@@ -938,7 +938,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       isFinalized: true,
     } satisfies IEthereumTransactionProgress;
     const ethereumClient = createEthereumClient({
-      sourceAddress: walletKeys.ethereumAddress,
+      sourceAddress: walletKeys.coreEthereumAddress,
       destinationAddress: persistedRecord.argonDestinationAddress,
       sourceTxHash: persistedRecord.sourceTxHash!,
       sourceBlockNumber: finalizedProgress.blockNumber,
@@ -996,7 +996,7 @@ describe('EthereumInboundTransferTracker integration', () => {
     });
 
     const ethereumClient = createEthereumClient({
-      sourceAddress: walletKeys.ethereumAddress,
+      sourceAddress: walletKeys.coreEthereumAddress,
       destinationAddress: walletKeys.vaultingAddress,
       sourceTxHash: `0x${'91'.repeat(32)}`,
       sourceBlockNumber: 44,
@@ -1037,7 +1037,7 @@ describe('EthereumInboundTransferTracker integration', () => {
     const activeTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGN,
       amountBaseUnits: 5_000_000_000_000n,
-      targetWalletType: WalletType.defaultArgon,
+      targetWalletType: WalletType.argon,
     });
 
     await vi.waitFor(async () => {
@@ -1054,7 +1054,7 @@ describe('EthereumInboundTransferTracker integration', () => {
     const db = await createTestDb();
     const walletKeys = createMockWalletKeys();
     const sourceTxHash = `0x${'93'.repeat(32)}` as const;
-    const persistedRecord = await insertTransferRecord(db, walletKeys.ethereumAddress, {
+    const persistedRecord = await insertTransferRecord(db, walletKeys.coreEthereumAddress, {
       id: 'eth-transfer-reverted',
       token: MoveToken.ARGNOT,
       argonDestinationAddress: walletKeys.defaultArgonAddress,
@@ -1062,7 +1062,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       status: CrosschainInboundTransferStatus.SourceSubmitted,
     });
     const ethereumClient = createEthereumClient({
-      sourceAddress: walletKeys.ethereumAddress,
+      sourceAddress: walletKeys.coreEthereumAddress,
       destinationAddress: persistedRecord.argonDestinationAddress,
       sourceTxHash,
       sourceBlockNumber: 54,
@@ -1186,7 +1186,7 @@ describe('EthereumInboundTransferTracker integration', () => {
     const db = await createTestDb();
     const walletKeys = createMockWalletKeys();
     const ethereumClient = createEthereumClient({
-      sourceAddress: walletKeys.ethereumAddress,
+      sourceAddress: walletKeys.coreEthereumAddress,
       destinationAddress: walletKeys.defaultArgonAddress,
       sourceTxHash: `0x${'77'.repeat(32)}`,
       sourceBlockNumber: 42,
@@ -1216,7 +1216,7 @@ describe('EthereumInboundTransferTracker integration', () => {
     const activeTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGN,
       amountBaseUnits: 5_000_000_000_000n,
-      targetWalletType: WalletType.defaultArgon,
+      targetWalletType: WalletType.argon,
     });
 
     await vi.waitFor(() => {
@@ -1256,7 +1256,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       blockWatch,
       walletKeys,
       createEthereumClient({
-        sourceAddress: walletKeys.ethereumAddress,
+        sourceAddress: walletKeys.coreEthereumAddress,
         destinationAddress: walletKeys.vaultingAddress,
         sourceTxHash: `0x${'93'.repeat(32)}`,
         sourceBlockNumber: 44,
@@ -1274,7 +1274,7 @@ describe('EthereumInboundTransferTracker integration', () => {
     const activeTransfer = await tracker.startMove({
       moveToken: MoveToken.ARGN,
       amountBaseUnits: 5_000_000_000_000n,
-      targetWalletType: WalletType.defaultArgon,
+      targetWalletType: WalletType.argon,
     });
 
     await vi.waitFor(async () => {

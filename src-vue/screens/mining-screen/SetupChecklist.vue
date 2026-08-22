@@ -342,7 +342,7 @@ function openBotCreateOverlay() {
 }
 
 function openFundMiningAccountOverlay() {
-  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.defaultArgon, showGuidance: true });
+  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon, showGuidance: true });
 }
 
 function openServerConnectPanel() {

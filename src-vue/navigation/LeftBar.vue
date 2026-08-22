@@ -458,7 +458,7 @@
                 <div class="grow" />
                 <CopyToClipboard
                   NotDraggable
-                  :content="selectedWalletData.address"
+                  :content="selectedWallet.address"
                   class="wallet-summary-actions relative -right-2 z-10 flex h-[34px] w-[34px] cursor-pointer items-center justify-center rounded-md border border-transparent text-sm/6 font-semibold text-slate-500/60 hover:border-slate-500/30 hover:bg-[#f1f3f7] focus:outline-none"
                   @click.stop
                 >
@@ -470,10 +470,8 @@
                   </template>
                 </CopyToClipboard>
                 <WalletMenu
-                  :selection="selectedWallet"
-                  :wallet="selectedWalletData"
+                  :wallet="selectedWallet"
                   :testIdPrefix="selectedWalletAddressTestId"
-                  :canExportPrivateKey="false"
                   :showBorders="false"
                   class="wallet-summary-actions relative -right-2 justify-end gap-x-0! pr-0"
                   @click.stop
@@ -541,7 +539,6 @@ import VaultIcon from '../assets/vault-small.svg';
 import WorldNetworkIcon from '../assets/world-network.svg';
 import OnboardingIcon from '../assets/onboarding.svg';
 import ExternalIcon from '../assets/external.svg';
-import { getWalletSelectionKey, type IWalletSelection } from '../wallets/walletOverlayState.ts';
 import WalletMenu from '../wallets/components/WalletMenu.vue';
 import CertificationIcon from '../assets/certification.svg';
 import { ArrowsRightLeftIcon, CheckIcon } from '@heroicons/vue/24/outline';
@@ -565,7 +562,6 @@ const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm, micronotToMon
   createNumeralHelpers(currency);
 
 const showOperationsNavigationCallouts = Vue.ref(false);
-const selectedWallet = Vue.ref<IWalletSelection>({ walletType: WalletType.defaultArgon });
 const now = Vue.ref(Date.now());
 const couponExpirationInterval = setInterval(() => {
   now.value = Date.now();
@@ -578,14 +574,12 @@ const hasActiveCoupon = Vue.computed(() => {
 
 const crosschainTransferTips = Vue.computed(() => crosschainHistory.getTransferTips());
 
-const selectedWalletData = Vue.computed<IWallet>(() => {
+const selectedWallet = Vue.computed<IWallet>(() => {
   return wallets.defaultArgonWallet;
 });
 
-const selectedWalletKey = Vue.computed(() => getWalletSelectionKey(selectedWallet.value));
-
 const selectedWalletAddressTestId = Vue.computed(() => {
-  return `LeftBar.${selectedWalletKey.value}Address`;
+  return `LeftBar.${selectedWallet.value.type}Address`;
 });
 
 const selectedWalletBalanceIsLoaded = Vue.computed(() => {
@@ -621,7 +615,7 @@ Vue.watch(
 );
 
 function openSelectedWallet() {
-  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.defaultArgon });
+  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon });
 }
 
 function formatFinancialGroupValue(group: FinancialGroup): string {
@@ -641,7 +635,7 @@ function formatBondValue(asset: 'ARGN' | 'ARGNOT'): string {
 }
 
 function openDefaultArgonWallet() {
-  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.defaultArgon });
+  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon });
 }
 
 function openSecuritization() {

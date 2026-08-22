@@ -318,7 +318,7 @@ async function activateDevEthereumMintingAuthority(args: {
     }
   }
 
-  const relaySignerAddress = getAddress(actor.walletKeys.ethereumAddress);
+  const relaySignerAddress = getAddress(actor.walletKeys.coreEthereumAddress);
   const relaySignerBalance = await createPublicClient({
     transport: http(executionRpcUrl, { retryCount: 1, timeout: 15_000 }),
   }).getBalance({

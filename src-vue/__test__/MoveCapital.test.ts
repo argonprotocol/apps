@@ -6,7 +6,7 @@ import {
   existentialDepositMicronots,
   defaultArgonOperationalReserveMicrogons,
 } from '../lib/WalletForArgon.ts';
-import { type IWallet } from '../lib/Wallet.ts';
+import { type IWallet, WalletType } from '../lib/Wallet.ts';
 import * as MiningAccount from '../lib/MiningAccount.ts';
 import { Config } from '../lib/Config.ts';
 import { WalletKeys } from '../lib/WalletKeys.ts';
@@ -542,6 +542,7 @@ function createMockFeeTx(fee: bigint): MockFeeTx {
 
 function createWallet(partial: Partial<IWallet>): IWallet {
   return {
+    type: WalletType.argon,
     address: 'mining-hold-address',
     availableMicrogons: 0n,
     availableMicronots: 0n,
@@ -557,7 +558,7 @@ function createWallet(partial: Partial<IWallet>): IWallet {
 
 function createMiningTransferArgs(
   defaultWallet: IWallet,
-  miningBotWallet = createWallet({ address: 'mining-bot-address' }),
+  miningBotWallet = createWallet({ type: WalletType.miningBot, address: 'mining-bot-address' }),
 ) {
   return {
     defaultWallet,

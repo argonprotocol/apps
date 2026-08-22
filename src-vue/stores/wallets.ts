@@ -9,7 +9,7 @@ import { getCurrency } from './currency.ts';
 import { WalletKeys } from '../lib/WalletKeys.ts';
 import { CAN_SIGN, SECURITY } from '../lib/Env.ts';
 import { getSpendableDefaultArgonMicrogons, IArgonWalletType, WalletForArgon } from '../lib/WalletForArgon.ts';
-import { IWallet, defaultWalletData } from '../lib/Wallet.ts';
+import { IWallet, defaultWalletData, WalletType } from '../lib/Wallet.ts';
 import { WalletsForArgon, IWalletEvents, readArgonWalletBalanceValues } from '../lib/WalletsForArgon.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
 import { getBlockWatch, getFinalizedClient, getMainchainClient } from './mainchain.ts';
@@ -27,6 +27,7 @@ const DEFAULT_ETHEREUM_HD_PATH = "m/44'/60'/0'/0'/0'";
 const EXTERNAL_ETHEREUM_HD_PREFIX = "m/44'/60'/0'/0";
 let legacyMiningHoldCleanupPromise: Promise<void> | undefined;
 
+// Wallet Keys //////////////////
 let walletKeys: WalletKeys;
 export function getWalletKeys() {
   walletKeys ??= new WalletKeys(
@@ -61,6 +62,7 @@ export function getWalletsForArgon() {
   return walletsForArgon;
 }
 
+// Wallet History //////////////////
 let walletHistoryRecoveryInstance: WalletHistoryRecovery | undefined;
 export function getWalletHistoryRecovery() {
   if (walletHistoryRecoveryInstance) return walletHistoryRecoveryInstance;
@@ -68,7 +70,7 @@ export function getWalletHistoryRecovery() {
   const dbPromise = getDbPromise();
   const wallets = getWalletsForArgon();
   const keys = getWalletKeys();
-  const legacyMiningHoldWallet = new WalletForArgon(keys.legacyMiningHoldAddress, 'miningBot', dbPromise);
+  const legacyMiningHoldWallet = new WalletForArgon('miningBot', keys.legacyMiningHoldAddress, dbPromise);
   const recoveryWallets = [
     wallets.defaultArgonWallet,
     wallets.miningBotWallet,
@@ -98,12 +100,13 @@ export const useWallets = defineStore('wallets', () => {
   const isLoaded = Vue.ref(false);
   const { promise: isLoadedPromise, resolve: isLoadedResolve, reject: isLoadedReject } = createDeferred<void>();
 
-  const walletsForArgon = getWalletsForArgon();
   let walletHistoryRecovery: WalletHistoryRecovery | undefined;
+
+  const walletsForArgon = getWalletsForArgon();
   const ethereumWalletLoaders = new Map<number, WalletForEthereum>();
-  const walletForBase = new WalletForBase(walletKeys.defaultEthereumAddress, financialCache);
+
+  const walletForBase = new WalletForBase(walletKeys.coreEthereumAddress, financialCache);
   const walletRecords = Vue.ref<IWalletRecord[]>([]);
-  const activeEthereumWalletRecordId = Vue.ref<number>();
 
   void config.isLoadedPromise.then(() => refreshEthereumSignerPolicy()).catch(handleFatalError);
 
@@ -151,18 +154,18 @@ export const useWallets = defineStore('wallets', () => {
     Vue.onScopeDispose(() => window.removeEventListener('focus', onFocus));
   }
 
-  const defaultArgonWallet = Vue.reactive<IWallet>({ ...defaultWalletData, address: walletKeys.defaultArgonAddress });
-  const miningBotWallet = Vue.reactive<IWallet>({ ...defaultWalletData, address: walletKeys.miningBotAddress });
-  const operationalWallet = Vue.reactive<IWallet>({ ...defaultWalletData, address: walletKeys.operationalAddress });
+  const defaultArgonWalletData = Vue.reactive(walletsForArgon.defaultArgonWallet.data);
+  walletsForArgon.defaultArgonWallet.data = defaultArgonWalletData;
+  const defaultArgonWallet: IWallet = defaultArgonWalletData;
 
-  const emptyEthereumWallet = Vue.reactive<IWallet>({ ...defaultWalletData });
-  const activeEthereumWallet = Vue.computed(() => {
-    if (!activeEthereumWalletRecordId.value) return;
-    return ethereumWalletLoaders.get(activeEthereumWalletRecordId.value);
-  });
-  const ethereumWallet = Vue.computed(() => {
-    return activeEthereumWallet.value?.data ?? emptyEthereumWallet;
-  });
+  const miningBotWalletData = Vue.reactive(walletsForArgon.miningBotWallet.data);
+  walletsForArgon.miningBotWallet.data = miningBotWalletData;
+  const miningBotWallet: IWallet = miningBotWalletData;
+
+  const operationalWalletData = Vue.reactive(walletsForArgon.operationalWallet.data);
+  walletsForArgon.operationalWallet.data = operationalWalletData;
+  const operationalWallet: IWallet = operationalWalletData;
+
   const ethereumWallets = Vue.computed(() => {
     return walletRecords.value
       .filter(record => record.walletType === 'ethereum')
@@ -171,16 +174,11 @@ export const useWallets = defineStore('wallets', () => {
         wallet: ensureEthereumWalletLoader(record).data,
       }));
   });
-  const baseWallet = Vue.reactive<IWallet>(walletForBase.data);
-  walletForBase.data = baseWallet;
+
   const ethereumFinancialPositions = Vue.computed(() => {
     return ethereumWallets.value.flatMap(({ record }) =>
       ensureEthereumWalletLoader(record).createFinancialPositions(currency),
     );
-  });
-
-  const liquidLockingWallet = Vue.computed(() => {
-    return defaultArgonWallet;
   });
 
   const defaultArgonSpendableMicrogons = Vue.computed(() => {
@@ -294,28 +292,14 @@ export const useWallets = defineStore('wallets', () => {
     );
   });
 
-  const totalVaultingResources = Vue.computed(() => {
-    return (
-      defaultArgonWallet.availableMicrogons +
-      defaultArgonWallet.reservedMicrogons +
-      currency.convertMicronotTo(defaultArgonWallet.availableMicronots, UnitOfMeasurement.Microgon) +
-      currency.convertMicronotTo(defaultArgonWallet.reservedMicronots, UnitOfMeasurement.Microgon)
-    );
-  });
-
-  const totalOperationalResources = Vue.computed(() => {
-    return totalMiningResources.value + totalVaultingResources.value;
-  });
-
   const totalWalletMicrogons = Vue.ref(0n);
   const totalWalletMicronots = Vue.ref(0n);
 
   const walletMapping = {
-    defaultArgon: defaultArgonWallet,
-    miningBot: miningBotWallet,
-    operational: operationalWallet,
+    [WalletType.argon]: defaultArgonWallet,
+    [WalletType.miningBot]: miningBotWallet,
+    [WalletType.operational]: operationalWallet,
   } satisfies Record<IArgonWalletType, IWallet>;
-
   let walletHistoryPreparation: Promise<boolean> | undefined;
   function queueWalletHistoryRecovery({
     blockNumber,
@@ -341,12 +325,9 @@ export const useWallets = defineStore('wallets', () => {
   }
 
   //////////////////////////////////////////////////////////////////////////////
-  const unsubscribeBalanceChanges = walletsForArgon.events.on('balance-change', (entry, type) => {
+  const unsubscribeBalanceChanges = walletsForArgon.events.on('balance-change', (_entry, type) => {
     const wallet = walletMapping[type];
     if (!wallet) return;
-    Object.assign(wallet, entry);
-    wallet.totalMicrogons = wallet.availableMicrogons + wallet.reservedMicrogons;
-    wallet.totalMicronots = wallet.availableMicronots + wallet.reservedMicronots;
 
     totalWalletMicrogons.value = 0n;
     totalWalletMicronots.value = 0n;
@@ -407,14 +388,6 @@ export const useWallets = defineStore('wallets', () => {
 
         totalWalletMicrogons.value = walletsForArgon.totalWalletMicrogons;
         totalWalletMicronots.value = walletsForArgon.totalWalletMicronots;
-        for (const [walletType, wallet] of Object.entries(walletMapping)) {
-          const key = walletType as keyof typeof walletMapping;
-          const walletEntry = walletsForArgon[`${key}Wallet`];
-          if (!walletEntry) continue;
-          Object.assign(wallet, walletEntry.latestBalanceChange);
-          wallet.totalMicrogons = walletEntry.totalMicrogons;
-          wallet.totalMicronots = walletEntry.totalMicronots;
-        }
         await currency.isLoadedPromise;
         isLoadedResolve();
         isLoaded.value = true;
@@ -475,7 +448,7 @@ export const useWallets = defineStore('wallets', () => {
       walletsForArgon.configureDefaultArgonWallet(defaultArgon.address);
     }
 
-    walletRecords.value = await db.walletsTable.fetchAll();
+    setWalletRecords(await db.walletsTable.fetchAll());
     const currentDefaultArgon = await db.walletsTable.getDefaultArgon();
     if (currentDefaultArgon) {
       defaultArgonWallet.address = currentDefaultArgon.address;
@@ -483,10 +456,11 @@ export const useWallets = defineStore('wallets', () => {
   }
 
   async function seedLegacyDefaultEthereumIfNeeded() {
-    if (walletRecords.value.some(record => record.walletType === 'ethereum')) return;
-    if (!walletKeys.defaultEthereumAddress) return;
+    const coreEthereumWalletRecord = walletRecords.value.find(record => walletKeys.isCoreEthereumWallet(record));
+    if (coreEthereumWalletRecord) return;
+    if (!walletKeys.coreEthereumAddress) return;
 
-    const legacyWallet = new WalletForEthereum(walletKeys.defaultEthereumAddress, financialCache);
+    const legacyWallet = new WalletForEthereum(walletKeys.coreEthereumAddress, financialCache);
     await legacyWallet.load().catch(error => {
       console.warn('Unable to inspect legacy default Ethereum wallet during wallet seeding', error);
     });
@@ -497,11 +471,13 @@ export const useWallets = defineStore('wallets', () => {
     ) {
       const db = await getDbPromise();
       const record = await db.walletsTable.createDefaultEthereum({
-        address: walletKeys.defaultEthereumAddress,
+        address: walletKeys.coreEthereumAddress,
         derivationPath: DEFAULT_ETHEREUM_HD_PATH,
       });
+      legacyWallet.setRecord(record);
+      walletForBase.setRecord(record);
       walletRecords.value.push(record);
-      legacyWallet.data = Vue.reactive<IWallet>(legacyWallet.data);
+      legacyWallet.data = Vue.reactive(legacyWallet.data);
       ethereumWalletLoaders.set(record.id, legacyWallet);
       return legacyWallet;
     }
@@ -511,7 +487,6 @@ export const useWallets = defineStore('wallets', () => {
     const externalLoadStartedAt = performance.now();
     const ethereumLoad = (async () => {
       const seededWallet = await seedLegacyDefaultEthereumIfNeeded();
-      ensureActiveEthereumWallet();
       const ethereumWallets = walletRecords.value
         .filter(record => record.walletType === 'ethereum')
         .map(record => ensureEthereumWalletLoader(record));
@@ -540,37 +515,25 @@ export const useWallets = defineStore('wallets', () => {
     await Promise.all([baseLoad, ethereumLoad]);
   }
 
-  function ensureActiveEthereumWallet(preferredRecordId = activeEthereumWalletRecordId.value) {
-    const ethereumWallets = walletRecords.value.filter(record => record.walletType === 'ethereum');
-    const preferredEthereum = preferredRecordId
-      ? ethereumWallets.find(record => record.id === preferredRecordId)
-      : undefined;
-    const defaultEthereum = ethereumWallets.find(record => record.role === 'defaultEthereum');
-    const activeEthereum = preferredEthereum ?? defaultEthereum ?? ethereumWallets[0];
-    activeEthereumWalletRecordId.value = activeEthereum?.id;
-    walletKeys.configureEthereumWallet(activeEthereum);
-    return activeEthereum ? ensureEthereumWalletLoader(activeEthereum) : undefined;
-  }
-
   async function refreshWalletRecords() {
     const db = await getDbPromise();
-    walletRecords.value = await db.walletsTable.fetchAll();
-    ensureActiveEthereumWallet();
+    setWalletRecords(await db.walletsTable.fetchAll());
   }
 
-  async function selectEthereumWalletRecord(recordId: number) {
-    const selectedWallet = ensureActiveEthereumWallet(recordId);
-    await selectedWallet?.load();
-  }
+  function setWalletRecords(records: IWalletRecord[]): void {
+    walletRecords.value = records;
+    walletsForArgon.defaultArgonWallet.setRecord(records.find(record => record.walletType === 'argon'));
+    walletForBase.setRecord(records.find(record => walletKeys.isCoreEthereumWallet(record)));
 
-  async function createDefaultEthereumWallet() {
-    const db = await getDbPromise();
-    const record = await db.walletsTable.createDefaultEthereum({
-      address: walletKeys.defaultEthereumAddress,
-      derivationPath: DEFAULT_ETHEREUM_HD_PATH,
-    });
-    await refreshWalletRecords();
-    return record;
+    for (const [recordId, wallet] of ethereumWalletLoaders) {
+      const record = records.find(candidate => candidate.id === recordId && candidate.walletType === 'ethereum');
+      if (!record || record.address.toLowerCase() !== wallet.address.toLowerCase()) {
+        wallet.setRecord(undefined);
+      }
+    }
+    for (const record of records) {
+      if (record.walletType === 'ethereum') ensureEthereumWalletLoader(record);
+    }
   }
 
   async function previewExternalEthereumMnemonic(mnemonic: string, count = 10) {
@@ -599,6 +562,7 @@ export const useWallets = defineStore('wallets', () => {
     const record = await db.walletsTable.importExternalEthereum({
       name: args.name,
       address,
+      coreEthereumAddress: walletKeys.coreEthereumAddress,
       secretKind: 'privateKey',
       encryptedSecret,
     });
@@ -617,6 +581,7 @@ export const useWallets = defineStore('wallets', () => {
     const record = await db.walletsTable.importExternalEthereum({
       name: args.name,
       address: args.address,
+      coreEthereumAddress: walletKeys.coreEthereumAddress,
       derivationPath: args.derivationPath,
       secretKind: 'mnemonic',
       encryptedSecret,
@@ -663,6 +628,7 @@ export const useWallets = defineStore('wallets', () => {
       await moveCapital.moveLegacyMiningHoldToDefault(
         {
           ...defaultWalletData,
+          type: WalletType.argon,
           address: walletKeys.legacyMiningHoldAddress,
           ...balance,
           totalMicrogons: balance.availableMicrogons + balance.reservedMicrogons,
@@ -679,18 +645,12 @@ export const useWallets = defineStore('wallets', () => {
     }
   }
 
-  async function updateWalletRecordSortOrder(records: Pick<IWalletRecord, 'id' | 'sortOrder'>[]) {
-    const db = await getDbPromise();
-    await db.walletsTable.updateSortOrder(records);
-    await refreshWalletRecords();
-  }
-
   async function disconnectEthereumWalletRecord(recordId: number) {
     const record = walletRecords.value.find(wallet => wallet.id === recordId && wallet.walletType === 'ethereum');
     if (!record) throw new Error('Ethereum wallet not found.');
 
     const loader = ensureEthereumWalletLoader(record);
-    if (record.role === 'defaultEthereum') {
+    if (walletKeys.isCoreEthereumWallet(record)) {
       await loader.load({ force: true });
       if (loader.data.fetchErrorMsg) {
         throw new Error('Unable to verify that the Default Ethereum wallet is empty. Please try again.');
@@ -731,11 +691,12 @@ export const useWallets = defineStore('wallets', () => {
   function ensureEthereumWalletLoader(record: IWalletRecord) {
     const existingWallet = ethereumWalletLoaders.get(record.id);
     if (existingWallet?.address.toLowerCase() === record.address.toLowerCase()) {
+      existingWallet.setRecord(record);
       return existingWallet;
     }
 
-    const wallet = new WalletForEthereum(record.address, financialCache);
-    wallet.data = Vue.reactive<IWallet>(wallet.data);
+    const wallet = new WalletForEthereum(record.address, financialCache, record);
+    wallet.data = Vue.reactive(wallet.data);
     ethereumWalletLoaders.set(record.id, wallet);
     return wallet;
   }
@@ -751,28 +712,23 @@ export const useWallets = defineStore('wallets', () => {
 
     load,
     walletRecords,
-    activeEthereumWalletRecordId,
-    refreshWalletRecords,
-    selectEthereumWalletRecord,
+
     getEthereumWalletRecord,
     refreshEthereumWalletRecord,
-    createDefaultEthereumWallet,
+
     previewExternalEthereumMnemonic,
     importExternalEthereumPrivateKey,
     importExternalEthereumMnemonic,
     scanEthereumWalletBalances,
-    updateWalletRecordSortOrder,
+
     disconnectEthereumWalletRecord,
+    ethereumWallets,
 
     defaultArgonWallet,
     miningBotWallet,
     operationalWallet,
-    ethereumWallet,
-    ethereumWallets,
-    baseWallet,
-    ethereumFinancialPositions,
-    liquidLockingWallet,
 
+    ethereumFinancialPositions,
     defaultArgonSpendableMicrogons,
     defaultArgonDisplayedMicrogons,
     totalWalletMicrogons,
@@ -789,8 +745,6 @@ export const useWallets = defineStore('wallets', () => {
     totalMiningMicronots,
     totalVaultingMicrogons,
     totalMiningResources,
-    totalVaultingResources,
-    totalOperationalResources,
 
     on<K extends keyof IWalletEvents>(event: K, cb: IWalletEvents[K]): () => void {
       const unsub = walletsForArgon.events.on(event, cb);

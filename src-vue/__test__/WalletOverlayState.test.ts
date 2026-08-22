@@ -9,8 +9,7 @@ import {
   getWalletSelectionKey,
   getWalletSelectionName,
   showAddWalletInOverlay,
-  showMainWallet,
-  shouldLoadEthereumWalletSelection,
+  showWalletView,
   type IWalletSelection,
   WALLET_MOVE_LABEL,
 } from '../wallets/walletOverlayState.ts';
@@ -18,7 +17,6 @@ import {
 const defaultArgonRecord = {
   id: 1,
   walletType: 'argon',
-  role: 'defaultArgon',
   name: 'Internal App Wallet',
   address: 'argon-address',
   sortOrder: 0,
@@ -30,7 +28,6 @@ const ethereumA = {
   ...defaultArgonRecord,
   id: 2,
   walletType: 'ethereum',
-  role: 'defaultEthereum',
   name: 'Default Ethereum',
   address: '0x0000000000000000000000000000000000000001',
 } satisfies IWalletRecord;
@@ -38,7 +35,6 @@ const ethereumA = {
 const ethereumB = {
   ...ethereumA,
   id: 3,
-  role: 'externalEthereum',
   name: 'External Ethereum',
   address: '0x0000000000000000000000000000000000000002',
 } satisfies IWalletRecord;
@@ -47,27 +43,9 @@ const ethereumSelection = {
   walletType: WalletType.ethereum,
   walletRecord: ethereumA,
 } satisfies IWalletSelection;
-const defaultArgonSelection = { walletType: WalletType.defaultArgon } satisfies IWalletSelection;
+const defaultArgonSelection = { walletType: WalletType.argon } satisfies IWalletSelection;
 
 describe('wallet overlay state', () => {
-  describe('Ethereum wallet loading', () => {
-    it('loads the first wallet when it is already active but has no balance observation', () => {
-      expect(shouldLoadEthereumWalletSelection(ethereumSelection, ethereumA.id, undefined)).toBe(true);
-    });
-
-    it('does not reload an already-active wallet with a balance observation', () => {
-      expect(shouldLoadEthereumWalletSelection(ethereumSelection, ethereumA.id, new Date('2026-07-22T12:00:00Z'))).toBe(
-        false,
-      );
-    });
-
-    it('loads a different Ethereum wallet', () => {
-      expect(shouldLoadEthereumWalletSelection(ethereumSelection, ethereumB.id, new Date('2026-07-22T12:00:00Z'))).toBe(
-        true,
-      );
-    });
-  });
-
   it('lists built-in wallets and each wallet other than the open wallet', () => {
     const available = getAvailableWalletSelections(
       [defaultArgonRecord, ethereumA, ethereumB],
@@ -76,7 +54,7 @@ describe('wallet overlay state', () => {
     );
 
     expect(available.map(getWalletSelectionKey)).toEqual([
-      WalletType.defaultArgon,
+      WalletType.argon,
       WalletType.miningBot,
       `ethereum:${ethereumB.id}`,
     ]);
@@ -85,7 +63,7 @@ describe('wallet overlay state', () => {
   it('hides the mining wallet without the Operations extension', () => {
     const available = getAvailableWalletSelections([ethereumA], [], false);
 
-    expect(available.map(getWalletSelectionKey)).toEqual([WalletType.defaultArgon, `ethereum:${ethereumA.id}`]);
+    expect(available.map(getWalletSelectionKey)).toEqual([WalletType.argon, `ethereum:${ethereumA.id}`]);
   });
 
   it('opens the default Argon main view without selecting another wallet', () => {
@@ -123,9 +101,31 @@ describe('wallet overlay state', () => {
   it('returns to main and targets the newly added Ethereum connector', () => {
     const addState = showAddWalletInOverlay(getInitialWalletOverlayState(), 'external');
 
-    expect(showMainWallet(addState, { network: 'ethereum', walletRecordId: ethereumB.id })).toEqual({
+    expect(showWalletView(addState, 'main', { network: 'ethereum', walletRecordId: ethereumB.id })).toEqual({
       centerView: { type: 'main' },
       activeConnector: { network: 'ethereum', walletRecordId: ethereumB.id },
+    });
+  });
+
+  it('navigates between wallet views while preserving the active connector', () => {
+    const state = getInitialWalletOverlayState({ network: 'bitcoin' });
+
+    const sendState = showWalletView(state, 'send', state.activeConnector);
+    expect(sendState).toEqual({
+      centerView: { type: 'send' },
+      activeConnector: { network: 'bitcoin' },
+    });
+    expect(showWalletView(sendState, 'receive', sendState.activeConnector)).toEqual({
+      centerView: { type: 'receive' },
+      activeConnector: { network: 'bitcoin' },
+    });
+    expect(showWalletView(sendState, 'privateKey', sendState.activeConnector)).toEqual({
+      centerView: { type: 'privateKey' },
+      activeConnector: { network: 'bitcoin' },
+    });
+    expect(showWalletView(sendState, 'main', sendState.activeConnector)).toEqual({
+      centerView: { type: 'main' },
+      activeConnector: { network: 'bitcoin' },
     });
   });
 

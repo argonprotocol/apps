@@ -6,6 +6,7 @@ import { ICurrencyKey, type BondLot } from '@argonprotocol/apps-core';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import type { IVaultFlexibleAssetChanges } from '../lib/MyVault.ts';
 import type { IMemberInvite } from '@argonprotocol/apps-router';
+import type { IWalletView } from '../wallets/walletOverlayState.ts';
 
 export type IWalletGuidanceContext = 'mining' | 'vaulting';
 
@@ -17,12 +18,17 @@ export type IOperationalProfileRequest =
       onSelect: (operatorName: string) => void;
     };
 
-export type IWalletOverlayRequest = {
-  connectorType: WalletType.defaultArgon | WalletType.ethereum | 'bitcoin';
-  ethereumWalletRecordId?: number;
+type IWalletOverlayOptions = {
+  view?: IWalletView;
   showGuidance?: boolean;
   guidanceContext?: IWalletGuidanceContext;
 };
+
+export type IWalletOverlayRequest = IWalletOverlayOptions &
+  (
+    | { connectorType: WalletType.argon | 'bitcoin' }
+    | { connectorType: WalletType.ethereum; ethereumWalletRecordId: number }
+  );
 
 type IBasicEmitter = {
   openWalletOverlay: IWalletOverlayRequest;
@@ -32,7 +38,7 @@ type IBasicEmitter = {
   openSecuritizationOverlay: { returnToInvite?: boolean } | undefined;
   openBotEditOverlay: void;
   openServerRemoveOverlay: void;
-  openSecuritySettingsOverlay: { screen: 'overview' | 'mnemonics' | 'encrypt' | 'ethereum-export' } | undefined;
+  openSecuritySettingsOverlay: { screen: 'overview' | 'mnemonics' | 'encrypt' } | undefined;
   openProvisioningCompleteOverlay: void;
   openServerConnectPanel: void;
   closeAllOverlays: void;

@@ -38,8 +38,7 @@
     </component>
     <div
       v-if="props.network"
-      class="text-md text-argon-900/70 absolute -top-2 flex flex-row gap-x-1"
-      :class="[props.direction === 'left' ? 'right-0' : 'left-0']"
+      class="text-md text-argon-900/70 absolute -top-2 flex flex-row left-1/2 -translate-x-1/2"
     >
       <ConnectorTokensMenu
         :connectorId="connectorId"
@@ -59,25 +58,25 @@
           </button>
         </template>
       </ConnectorTokensMenu>
-      <div class="rounded-lg border border-black/80 bg-white">
-        <ConnectorMenu
-          :connectorId="connectorId"
-          :network="props.network"
-          :direction="props.direction"
-          :selection="props.selection"
-        >
-          <template #default="{ isOpen }">
-            <button
-              class="hover:bg-argon-900/10 flex h-full cursor-pointer flex-row items-center justify-center gap-x-1 rounded-lg px-2 inset-shadow-xs inset-shadow-white focus:outline-none"
-              :class="isOpen ? 'bg-argon-900/10' : 'bg-argon-900/20'"
-            >
-              <span class="bg-argon-900/70 size-[3px] rounded-full" />
-              <span class="bg-argon-900/70 size-[3px] rounded-full" />
-              <span class="bg-argon-900/70 size-[3px] rounded-full" />
-            </button>
-          </template>
-        </ConnectorMenu>
-      </div>
+<!--      <div class="rounded-lg border border-black/80 bg-white">-->
+<!--        <ConnectorMenu-->
+<!--          :connectorId="connectorId"-->
+<!--          :network="props.network"-->
+<!--          :direction="props.direction"-->
+<!--          :selection="props.selection"-->
+<!--        >-->
+<!--          <template #default="{ isOpen }">-->
+<!--            <button-->
+<!--              class="hover:bg-argon-900/10 flex h-full cursor-pointer flex-row items-center justify-center gap-x-1 rounded-lg px-2 inset-shadow-xs inset-shadow-white focus:outline-none"-->
+<!--              :class="isOpen ? 'bg-argon-900/10' : 'bg-argon-900/20'"-->
+<!--            >-->
+<!--              <span class="bg-argon-900/70 size-[3px] rounded-full" />-->
+<!--              <span class="bg-argon-900/70 size-[3px] rounded-full" />-->
+<!--              <span class="bg-argon-900/70 size-[3px] rounded-full" />-->
+<!--            </button>-->
+<!--          </template>-->
+<!--        </ConnectorMenu>-->
+<!--      </div>-->
     </div>
     <div
       v-if="props.network"

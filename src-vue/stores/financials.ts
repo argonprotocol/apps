@@ -19,7 +19,6 @@ import BigNumber from 'bignumber.js';
 import { getVaults, getMyVault } from './vaults.ts';
 import {
   financialGroups,
-  type IFinancialObservation,
   type IFinancialPosition,
 } from '../interfaces/IFinancialPosition.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
@@ -31,7 +30,7 @@ import {
 } from '../lib/recovery/index.ts';
 import { FinalizedHistoryScheduler } from '../lib/recovery/Scheduler.ts';
 import { getMyMiningSeats } from './myMiningSeats.ts';
-import { calculatePositionReturn, FinancialPositionBook, reduceFinancialPositions } from '../lib/financials/index.ts';
+import { calculatePositionReturn, FinancialPositionBook, reduceFinancialPositions } from '../lib/financials';
 import { BitcoinFinancials } from '../lib/financials/BitcoinLocks.ts';
 import type { IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
 import { VaultFinancials } from '../lib/financials/MyVault.ts';
@@ -150,18 +149,18 @@ export const useFinancials = defineStore('financials', () => {
     const refresh = financialPositionBook.beginRefresh('ethereum');
     const positions: IFinancialPosition[] = [...wallets.ethereumFinancialPositions];
 
-    if (config.hasActivatedStableSwaps && !wallets.ethereumWallet.fetchErrorMsg) {
-      const [stableSwapPosition] = stableSwapFinancials.createFinancialPositions({
-        wallet: wallets.ethereumWallet,
-        walletSnapshot: stableSwaps.walletSnapshot,
-        currentPriceMicrogons: stableSwaps.marketSnapshot?.currentPriceMicrogons,
-      });
-      if (stableSwapPosition?.currentValue !== undefined) {
-        const argonPositionIndex = positions.findIndex(position => position.id === stableSwapPosition.id);
-        if (argonPositionIndex === -1) positions.push(stableSwapPosition);
-        else positions[argonPositionIndex] = stableSwapPosition;
-      }
-    }
+    // if (config.hasActivatedStableSwaps && !wallets.ethereumWallet.fetchErrorMsg) {
+    //   const [stableSwapPosition] = stableSwapFinancials.createFinancialPositions({
+    //     wallet: wallets.ethereumWallet,
+    //     walletSnapshot: stableSwaps.walletSnapshot,
+    //     currentPriceMicrogons: stableSwaps.marketSnapshot?.currentPriceMicrogons,
+    //   });
+    //   if (stableSwapPosition?.currentValue !== undefined) {
+    //     const argonPositionIndex = positions.findIndex(position => position.id === stableSwapPosition.id);
+    //     if (argonPositionIndex === -1) positions.push(stableSwapPosition);
+    //     else positions[argonPositionIndex] = stableSwapPosition;
+    //   }
+    // }
 
     financialPositionBook.publish(refresh, positions, {
       observedAt: new Date(),
@@ -513,21 +512,21 @@ export const useFinancials = defineStore('financials', () => {
   }
 
   async function refreshStableSwapPosition(): Promise<void> {
-    if (!config.hasExtensionTreasury || !config.hasActivatedStableSwaps) {
-      publishEthereumWallet();
-      return;
-    }
-
-    try {
-      if (stableSwaps.marketSnapshot) {
-        await stableSwaps.refreshWalletSnapshot();
-      } else {
-        await stableSwapFinancials.loadPositions({ wallet: wallets.ethereumWallet });
-      }
-    } catch (error) {
-      console.error('Unable to load stable swap history', error);
-    }
-    publishEthereumWallet();
+    // if (!config.hasExtensionTreasury || !config.hasActivatedStableSwaps) {
+    //   publishEthereumWallet();
+    //   return;
+    // }
+    //
+    // try {
+    //   if (stableSwaps.marketSnapshot) {
+    //     await stableSwaps.refreshWalletSnapshot();
+    //   } else {
+    //     await stableSwapFinancials.loadPositions({ wallet: wallets.ethereumWallet });
+    //   }
+    // } catch (error) {
+    //   console.error('Unable to load stable swap history', error);
+    // }
+    // publishEthereumWallet();
   }
 
   // Vaults ////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -786,19 +785,19 @@ export const useFinancials = defineStore('financials', () => {
     { deep: true },
   );
 
-  Vue.watch(
-    () => [wallets.ethereumWallet.address, wallets.ethereumWallet.availableMicrogons],
-    ([address], [previousAddress]) => {
-      if (!isLoaded.value) return;
-      if (!config.hasActivatedStableSwaps) return;
-      if (
-        address !== previousAddress ||
-        (!stableSwaps.marketSnapshot && wallets.ethereumWallet.availableMicrogons > 0n)
-      ) {
-        void refreshStableSwapPosition();
-      }
-    },
-  );
+  // Vue.watch(
+  //   () => [wallets.ethereumWallet.address, wallets.ethereumWallet.availableMicrogons],
+  //   ([address], [previousAddress]) => {
+  //     if (!isLoaded.value) return;
+  //     if (!config.hasActivatedStableSwaps) return;
+  //     if (
+  //       address !== previousAddress ||
+  //       (!stableSwaps.marketSnapshot && wallets.ethereumWallet.availableMicrogons > 0n)
+  //     ) {
+  //       void refreshStableSwapPosition();
+  //     }
+  //   },
+  // );
 
   Vue.watch(
     () => config.isLoaded && config.hasActivatedStableSwaps,
@@ -932,15 +931,16 @@ export const useFinancials = defineStore('financials', () => {
   // Stable Swaps //////////////////////////////////////////////////////////////////////////////////////////////////////
 
   const swapsTotalValue = Vue.computed(() => {
-    const micronotValue = currency.convertMicronotTo(
-      wallets.ethereumWallet.availableMicronots,
-      UnitOfMeasurement.Microgon,
-    );
-    const otherTokenValue = wallets.ethereumWallet.otherTokens.reduce((totalValue, token) => {
-      return totalValue + currency.convertOtherToMicrogon(token);
-    }, 0n);
-
-    return wallets.ethereumWallet.availableMicrogons + micronotValue + otherTokenValue;
+    return 0n;
+    // const micronotValue = currency.convertMicronotTo(
+    //   wallets.ethereumWallet.availableMicronots,
+    //   UnitOfMeasurement.Microgon,
+    // );
+    // const otherTokenValue = wallets.ethereumWallet.otherTokens.reduce((totalValue, token) => {
+    //   return totalValue + currency.convertOtherToMicrogon(token);
+    // }, 0n);
+    //
+    // return wallets.ethereumWallet.availableMicrogons + micronotValue + otherTokenValue;
   });
 
   const stableSwapPerformanceReturn = Vue.computed(() => {
