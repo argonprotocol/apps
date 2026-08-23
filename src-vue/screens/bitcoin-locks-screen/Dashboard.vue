@@ -85,6 +85,7 @@
             v-for="lockSummary in financials.bitcoinLockDisplayRecords"
             :key="lockSummary.uuid ?? lockSummary.utxoId"
             :lockSummary="lockSummary"
+            :isRatchetPreparing="ratchetPreparingUtxoId === lockSummary.utxoId"
             @click="openDetail(lockSummary)"
             @ratchet="openRatchetingOverlay"
             @unlock="openUnlockingOverlay"
@@ -177,8 +178,9 @@
   <BitcoinRatchetingOverlay
     v-if="showRatchetingOverlay && selectedLock"
     :personalLock="selectedLock.record"
-    @close="showRatchetingOverlay = false"
+    @close="closeRatchetingOverlay"
     @completed="onRatchetCompleted"
+    @preparing="updateRatchetPreparation"
   />
 
   <BitcoinOrphanRecoveryOverlay
@@ -232,6 +234,7 @@ const pageSourcesAreLoaded = Vue.ref(false);
 const showDetailOverlay = Vue.ref(false);
 const showUnlockingOverlay = Vue.ref(false);
 const showRatchetingOverlay = Vue.ref(false);
+const ratchetPreparingUtxoId = Vue.ref<number>();
 const showReturnedOrphans = Vue.ref(false);
 const selectedLock = Vue.ref<IBitcoinLockSummary>();
 const selectedOrphan = Vue.ref<IBitcoinUtxoRecord>();
@@ -354,8 +357,21 @@ function openRatchetingOverlay(event: MouseEvent, lock: IBitcoinLockSummary) {
   showRatchetingOverlay.value = true;
 }
 
-async function onRatchetCompleted() {
+function updateRatchetPreparation({ isPreparing, utxoId }: { isPreparing: boolean; utxoId?: number }) {
+  if (isPreparing) {
+    ratchetPreparingUtxoId.value = utxoId;
+    return;
+  }
+  if (ratchetPreparingUtxoId.value === utxoId) ratchetPreparingUtxoId.value = undefined;
+}
+
+function closeRatchetingOverlay() {
   showRatchetingOverlay.value = false;
+  ratchetPreparingUtxoId.value = undefined;
+}
+
+async function onRatchetCompleted() {
+  closeRatchetingOverlay();
   await bitcoinLocks.load();
 }
 

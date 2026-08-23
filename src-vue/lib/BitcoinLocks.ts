@@ -62,7 +62,6 @@ import {
   IDeferred,
   MiningFrames,
   NetworkConfig,
-  readEventField,
   SATOSHIS_PER_BITCOIN,
   SingleFileQueue,
 } from '@argonprotocol/apps-core';
@@ -1591,9 +1590,12 @@ export default class BitcoinLocks {
     return Math.round(Number(((totalMint - totalPending) * 100n) / totalMint));
   }
 
-  public async getRatchetPreview(lock: IBitcoinLockRecord): Promise<IBitcoinRatchetPreview> {
+  public async getRatchetPreview(
+    lock: IBitcoinLockRecord,
+    microgonsAtTargetPerBtc: bigint,
+  ): Promise<IBitcoinRatchetPreview> {
     const context = await this.getRatchetContext(lock);
-    return await this.calculateRatchetPreview(lock, context);
+    return await this.calculateRatchetPreview(lock, context, microgonsAtTargetPerBtc);
   }
 
   private async getRatchetContext(lock: IBitcoinLockRecord) {
@@ -1619,7 +1621,12 @@ export default class BitcoinLocks {
     return fromFixedNumber(rawLock.unwrap().securitizationRatio.toBigInt(), FIXED_U128_DECIMALS);
   }
 
-  public async ratchet(lock: IBitcoinLockRecord, txSigner: TxSigningAccount, tip = 0n) {
+  public async ratchet(
+    lock: IBitcoinLockRecord,
+    txSigner: TxSigningAccount,
+    microgonsAtTargetPerBtc: bigint,
+    tip = 0n,
+  ) {
     return await this.runInQueueForUtxo(lock, 180e3, async () => {
       const existingTxInfo = this.getPendingRatchetTxInfo(lock);
       if (existingTxInfo) return existingTxInfo;
@@ -1630,16 +1637,13 @@ export default class BitcoinLocks {
 
       const context = await this.getRatchetContext(lock);
       const { client, vault } = context;
-      const preview = await this.calculateRatchetPreview(lock, context);
+      const preview = await this.calculateRatchetPreview(lock, context, microgonsAtTargetPerBtc);
       if (!preview.canRatchet) {
         if (preview.shortfall > 0n) {
           throw new Error(`Vault #${lock.vaultId} needs ${formatArgons(preview.shortfall)} more to ratchet this lock.`);
         }
         throw new Error('No ratcheting is available for this Bitcoin lock.');
       }
-
-      // Use whatever is loaded into the price index at this time. NOTE: this could be old, but is likely what the user has seen
-      const microgonsAtTargetPerBtc = this.#currency.priceIndex.getSatoshiPriceInTargetMicrogons(SATOSHIS_PER_BITCOIN);
 
       const ratchetTx = client.tx.bitcoinLocks.ratchet(lock.utxoId!, {
         V1: { microgonsAtTargetPerBtc },
@@ -1688,8 +1692,8 @@ export default class BitcoinLocks {
   private async calculateRatchetPreview(
     lock: IBitcoinLockRecord,
     { bitcoinLock, client, vault }: Awaited<ReturnType<BitcoinLocks['getRatchetContext']>>,
+    microgonsAtTargetPerBtc: bigint,
   ): Promise<IBitcoinRatchetPreview> {
-    const microgonsAtTargetPerBtc = this.#currency.priceIndex.getSatoshiPriceInTargetMicrogons(SATOSHIS_PER_BITCOIN);
     const { burnAmount, ratchetingFee: grossRatchetingFee } = await bitcoinLock.calculateRatchetingCosts(
       client,
       this.#currency.priceIndex,
@@ -1699,7 +1703,7 @@ export default class BitcoinLocks {
     const ratchetingFee = bitcoinLock.ownerAccount === vault.operatorAccountId ? 0n : grossRatchetingFee;
 
     const oldTargetPrice = bitcoinLock.lockedTargetPrice;
-    const newTargetPrice = this.#currency.priceIndex.getSatoshiPriceInTargetMicrogons(lock.satoshis);
+    const newTargetPrice = (microgonsAtTargetPerBtc * lock.satoshis) / SATOSHIS_PER_BITCOIN;
     const securitizationRatio = (await this.getLockSecuritizationRatio(client, lock)) ?? vault.securitizationRatioBN();
     const availableVaultFunds = vault.availableSecuritizationSpace(bitcoinLock.ownerAccount);
     const isUpRatchet = newTargetPrice > oldTargetPrice;
@@ -1759,7 +1763,7 @@ export default class BitcoinLocks {
       if (txInfo.tx.extrinsicType !== ExtrinsicType.BitcoinRatchet) return false;
       if (txInfo.tx.metadataJson.utxoId !== lock.utxoId) return false;
       if (getTransactionFailureMessage(txInfo)) return false;
-      return !txInfo.isPostProcessed;
+      return !txInfo.tx.isFinalized || !txInfo.isPostProcessed;
     });
   }
 
@@ -1767,7 +1771,7 @@ export default class BitcoinLocks {
     lock: IBitcoinLockRecord,
     txInfo: TransactionInfo<IBitcoinRatchetMetadata>,
   ): Promise<void> {
-    if (!txInfo.isPostProcessed) return;
+    if (txInfo.hasPendingPostProcessing) return;
 
     const postProcessor = txInfo.createPostProcessor();
 
@@ -1794,35 +1798,75 @@ export default class BitcoinLocks {
             throw new Error(`Ratchet transaction #${txInfo.tx.id} finalized without a block height`);
           }
 
-          const block = await this.blockWatch.getHeaderByBlockNumber(blockHeight);
-          if (block.blockHash.toLowerCase() !== u8aToHex(blockHash).toLowerCase()) {
-            throw new Error(`Ratchet transaction #${txInfo.tx.id} finalized in an unexpected block`);
-          }
-
-          const blockEvents = await this.blockWatch.getEvents(block);
-          let extrinsicIndex = txInfo.tx.blockExtrinsicIndex ?? txInfo.txResult.extrinsicIndex;
-          if (extrinsicIndex === undefined) {
-            const ratchetEvent = blockEvents.find(event => {
-              if (!event.phase.isApplyExtrinsic) return false;
-              if (event.event.section !== 'bitcoinLocks' || event.event.method !== 'BitcoinLockRatcheted') return false;
-
-              return Number(readEventField(event.event, 'utxoId')?.toString().replace(/,/g, '')) === lock.utxoId;
-            });
-            extrinsicIndex = ratchetEvent?.phase.asApplyExtrinsic.toNumber();
-          }
-          if (extrinsicIndex === undefined) {
-            console.warn(
-              `[BitcoinLocks] Ratchet transaction #${txInfo.tx.id} finalized without recoverable event identity; leaving it for history recovery`,
-            );
+          const extrinsicIndex = txInfo.tx.blockExtrinsicIndex ?? txInfo.txResult.extrinsicIndex;
+          const existingRatchet = lock.ratchets.some(ratchet => {
+            if (ratchet.blockHeight !== blockHeight) return false;
+            if (ratchet.extrinsicIndex === undefined || extrinsicIndex === undefined) return true;
+            return ratchet.extrinsicIndex === extrinsicIndex;
+          });
+          if (existingRatchet) {
             postProcessor.resolve();
             return;
           }
-          const events = blockEvents.filter(event => {
-            return event.phase.isApplyExtrinsic && event.phase.asApplyExtrinsic.toNumber() === extrinsicIndex;
+
+          await this.#transactionTracker.ensureStoredEvents(txInfo);
+          const client = await getMainchainClient(false);
+          // BitcoinLock.ratchet reads this same tracked event; this path submits a batch when vault security is added.
+          const ratchetEvent = txInfo.txResult.events.find(event => {
+            return client.events.bitcoinLocks.BitcoinLockRatcheted.is(event);
           });
-          await this.recovery.recoverBlock(block, events, { lockQueueOwnerUuid: lock.uuid });
+          if (!ratchetEvent) throw new Error(`Ratchet transaction #${txInfo.tx.id} is missing its result event`);
+
+          const api = await client.at(blockHash);
+          const bitcoinLock = await BitcoinLock.get(api, lock.utxoId!);
+          if (!bitcoinLock) throw new Error(`Bitcoin lock ${lock.utxoId} is unavailable after ratchet`);
+
+          const { amountBurned, liquidityPromised, newTargetPrice, oldTargetPrice, securityFee } = ratchetEvent.data;
+          const previousLiquidity = lock.liquidityPromised;
+          const previousTargetPrice = oldTargetPrice.toBigInt();
+          const nextLiquidity = liquidityPromised.toBigInt();
+          const nextTargetPrice = newTargetPrice.toBigInt();
+          if (lock.lockedTargetPrice !== previousTargetPrice) {
+            throw new Error(`Bitcoin lock ${lock.utxoId} has the wrong prior target price`);
+          }
+
+          const isUpRatchet = nextTargetPrice > previousTargetPrice;
+          const mintAmount = isUpRatchet ? nextLiquidity - previousLiquidity : nextLiquidity;
+          if (mintAmount < 0n) throw new Error(`Bitcoin lock ${lock.utxoId} ratchet reduced its promised liquidity`);
+
+          const oracleBitcoinBlockHeight = await api.query.bitcoinUtxos
+            .confirmedBitcoinBlockTip()
+            .then(tip => (tip.isSome ? tip.unwrap().blockHeight.toNumber() : 0));
+          const updatedLock: IBitcoinLockRecord = {
+            ...lock,
+            liquidityPromised: nextLiquidity,
+            lockedTargetPrice: nextTargetPrice,
+            ratchets: [
+              ...lock.ratchets,
+              {
+                mintAmount,
+                mintPending: mintAmount,
+                liquidityPromised: nextLiquidity,
+                lockedTargetPrice: nextTargetPrice,
+                txFee: txInfo.txResult.finalFee ?? txInfo.tx.txFeePlusTip ?? 0n,
+                burned: amountBurned.toBigInt(),
+                securityFee: securityFee.toBigInt(),
+                blockHeight,
+                extrinsicIndex,
+                oracleBitcoinBlockHeight,
+              },
+            ],
+          };
+          this.applyLatestLockDetails(updatedLock, bitcoinLock);
+
+          const table = await this.getTable();
+          await table.saveNewRatchet(updatedLock);
+          Object.assign(lock, updatedLock);
+
           if (txInfo.tx.metadataJson.addedSecuritizationMicrogons) {
-            await this.myVault?.load(true);
+            await this.myVault?.load(true).catch(error => {
+              console.warn(`[BitcoinLocks] Unable to refresh vault after ratchet transaction #${txInfo.tx.id}`, error);
+            });
           }
           postProcessor.resolve();
         },

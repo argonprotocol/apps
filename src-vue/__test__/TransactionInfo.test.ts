@@ -128,11 +128,15 @@ it('rejects waitForPostProcessing when post-processing fails', async () => {
       waitForFinalizedBlock: Promise.resolve(undefined),
     } as unknown as TxResult,
   });
+  expect(txInfo.hasPendingPostProcessing).toBe(false);
+
   const postProcessor = txInfo.createPostProcessor();
   const error = new Error('vault setup failed');
   const waitForPostProcessing = txInfo.waitForPostProcessing;
+  expect(txInfo.hasPendingPostProcessing).toBe(true);
 
   postProcessor.reject(error);
 
   await expect(waitForPostProcessing).rejects.toThrow('vault setup failed');
+  expect(txInfo.hasPendingPostProcessing).toBe(false);
 });

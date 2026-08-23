@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
-import { expect, within } from 'storybook/test';
+import { expect, userEvent, waitFor, within } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import {
   setupBitcoinEmptyScenario,
@@ -21,6 +21,7 @@ const meta = {
 
 export default meta;
 type Story = StoryObj<typeof meta>;
+let portfolioScenario: ReturnType<typeof setupBitcoinPortfolioScenario>;
 
 export const Loading: Story = {
   beforeEach: () => setupBitcoinEmptyScenario({ loading: true }),
@@ -35,7 +36,9 @@ export const RestoringHistory: Story = {
 };
 
 export const Portfolio: Story = {
-  beforeEach: () => setupBitcoinPortfolioScenario(),
+  beforeEach: () => {
+    portfolioScenario = setupBitcoinPortfolioScenario();
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
@@ -49,10 +52,94 @@ export const Portfolio: Story = {
 };
 
 export const PortfolioWithFeeWaiver: Story = {
-  beforeEach: () => setupBitcoinPortfolioScenario({ feeWaiver: true }),
+  beforeEach: () => {
+    setupBitcoinPortfolioScenario({ feeWaiver: true });
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.getByText(/fee waiver from Atlas Operator has ₳27\.20 remaining/)).toBeVisible();
+  },
+};
+
+export const AtParRatchet: Story = {
+  beforeEach: () => {
+    setupBitcoinPortfolioScenario({ atParRatchet: true });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await userEvent.click(canvas.getByRole('button', { name: 'Price Is at Par' }));
+    await waitFor(() => expect(within(document.body).getByText(/Ratchet Your/)).toBeVisible());
+  },
+};
+
+export const PendingRatchet: Story = {
+  beforeEach: () => {
+    setupBitcoinPortfolioScenario({ pendingRatchet: true });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const ratchetButton = canvas.getByRole('button', { name: 'Ratcheting...' });
+    const spinner = ratchetButton.querySelector('[data-testid="Spinner"]');
+    const unlockButton = ratchetButton.parentElement?.querySelector('[PrimaryButton]');
+
+    await expect(ratchetButton).toBeVisible();
+    await expect(spinner).toBeVisible();
+    await expect(ratchetButton.getBoundingClientRect().height).toBe(unlockButton?.getBoundingClientRect().height);
+
+    await userEvent.click(ratchetButton);
+    await waitFor(() =>
+      expect(within(document.body).getByRole('button', { name: 'Ratchet pending...' })).toBeVisible(),
+    );
+  },
+};
+
+export const RatchetStartsWhileMounted: Story = {
+  beforeEach: () => {
+    setupBitcoinPortfolioScenario();
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const body = within(document.body);
+
+    await expect(canvas.queryByRole('button', { name: 'Ratcheting...' })).not.toBeInTheDocument();
+    await userEvent.click(canvas.getByRole('button', { name: 'Ratchet +4.75%' }));
+    await userEvent.click(await body.findByRole('button', { name: 'Finish Ratchet' }));
+
+    const ratchetButton = canvas.getByText('Ratcheting...').closest('button')!;
+    await expect(ratchetButton.querySelector('[data-testid="Spinner"]')).toBeVisible();
+  },
+};
+
+export const RatchetPreparationCancelled: Story = {
+  beforeEach: () => {
+    setupBitcoinPortfolioScenario();
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const body = within(document.body);
+
+    await userEvent.click(canvas.getByRole('button', { name: 'Ratchet +4.75%' }));
+    await userEvent.click(await body.findByRole('button', { name: 'Finish Ratchet' }));
+    await expect(canvas.getByText('Ratcheting...')).toBeVisible();
+
+    await userEvent.keyboard('{Escape}');
+
+    await waitFor(() => expect(canvas.queryByText('Ratcheting...')).not.toBeInTheDocument());
+  },
+};
+
+export const RatchetCompletion: Story = {
+  beforeEach: () => {
+    portfolioScenario = setupBitcoinPortfolioScenario({ pendingRatchet: true });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText('Ratcheting...')).toBeVisible();
+
+    portfolioScenario.completePendingRatchet();
+
+    await waitFor(() => expect(canvas.queryByText('Ratcheting...')).not.toBeInTheDocument());
   },
 };
 
