@@ -586,18 +586,19 @@ async function createLock(
   expect(targetLiquidity).toBeGreaterThan(0n);
   const satoshis = await harness.bitcoinLocks.satoshisForArgonLiquidity(targetLiquidity);
 
-  await harness.bitcoinLocks.initializeLock({
+  const { pendingLock, txInfo } = await harness.bitcoinLocks.initializeLock({
     satoshis,
     vault,
   });
-  return await waitFor(120e3, 'pending bitcoin lock finalization', () => {
-    const lock = Object.values(harness.bitcoinLocks.data.locksByUtxoId)
-      .filter(record => record.vaultId === vault.vaultId)
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
-    if (!lock) return;
-    if (lock.status !== BitcoinLockStatus.LockPendingFunding) return;
-    return lock;
-  });
+  expect(txInfo).toBeTruthy();
+
+  await txInfo!.txResult.waitForFinalizedBlock;
+  await txInfo!.waitForPostProcessing;
+
+  const lock = Object.values(harness.bitcoinLocks.data.locksByUtxoId).find(record => record.uuid === pendingLock.uuid);
+  expect(lock?.status).toBe(BitcoinLockStatus.LockPendingFunding);
+  if (!lock) throw new Error('Finalized bitcoin lock was not published.');
+  return lock;
 }
 
 async function observeMismatchCandidate(

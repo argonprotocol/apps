@@ -1,12 +1,13 @@
 import { flowNameFromFile } from '../helpers/flowNameFromFile.ts';
 import { logDefaultAppFailureDiagnostics, withStateContext } from '../helpers/operationFailure.ts';
 import { captureE2EScreenshot } from '../helpers/screenshotMode.ts';
-import type {
-  IE2EFlowRuntime,
-  IE2EPollOptions,
-  IE2EOperationState,
-  IE2ERunOperationOptions,
-  IE2EWaitUntilRunnableOptions,
+import {
+  E2EGlobalInterruptionError,
+  type IE2EFlowRuntime,
+  type IE2EPollOptions,
+  type IE2EOperationState,
+  type IE2ERunOperationOptions,
+  type IE2EWaitUntilRunnableOptions,
 } from '../types.ts';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 
@@ -88,17 +89,25 @@ export async function runOperation<Context, State>(
   operation: Operation<Context, State>,
   options: IE2ERunOperationOptions<Context> = {},
 ): Promise<void> {
-  if (!options.throwIfNotReady) {
-    await waitUntilRunnable(context, operation, {
-      timeoutMs: options.timeoutMs,
-      pollMs: options.pollMs,
-      timeoutMessage: options.timeoutMessage,
-      onNotReadyPoll: async (waitContext, state) => {
-        await options.onNotReadyPoll?.(operation as unknown as AnyOperation<Context>, waitContext, state);
-      },
-    });
+  for (let globalInterruptionRetries = 0; ; globalInterruptionRetries += 1) {
+    try {
+      if (!options.throwIfNotReady) {
+        await waitUntilRunnable(context, operation, {
+          timeoutMs: options.timeoutMs,
+          pollMs: options.pollMs,
+          timeoutMessage: options.timeoutMessage,
+          onNotReadyPoll: async (waitContext, state) => {
+            await options.onNotReadyPoll?.(operation as unknown as AnyOperation<Context>, waitContext, state);
+          },
+        });
+      }
+      await runOperationNow(context, operation);
+      return;
+    } catch (error) {
+      if (!(error instanceof E2EGlobalInterruptionError) || globalInterruptionRetries >= 3) throw error;
+      console.info(`[E2E] operation:restart ${operation.name} after global UI interruption`);
+    }
   }
-  await runOperationNow(context, operation);
 }
 
 async function runOperationNow<Context, State>(context: Context, operation: Operation<Context, State>): Promise<void> {
@@ -143,6 +152,8 @@ async function runOperationNow<Context, State>(context: Context, operation: Oper
     }
     console.info(`[E2E] operation:done ${operation.name}`);
   } catch (error) {
+    if (error instanceof E2EGlobalInterruptionError) throw error;
+
     await captureOperationScreenshot(context, operation.name, 'failure');
     if (!hasState) {
       throw error;

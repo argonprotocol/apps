@@ -1,6 +1,8 @@
 import type { AnyOperation } from './operations/index.ts';
 import type { IAppQueryFn } from './types/srcVue.ts';
 
+export class E2EGlobalInterruptionError extends Error {}
+
 export type E2ECommandArgs = Record<string, unknown>;
 
 export type E2ETarget = string | { testId?: string; selector?: string; index?: number };
