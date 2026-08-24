@@ -12,6 +12,7 @@ const npmDeclarationPath = 'package/lib/types/interfaces/augment-api-events.d.ts
 const npmBundleDeclarationPath = 'package/lib/index.d.ts';
 const npmTypeLookupPath = 'package/src/interfaces/types-lookup.ts';
 const npmTypeLookupDeclarationPath = 'package/lib/types/interfaces/types-lookup.d.ts';
+const rootPackageJsonPath = Path.resolve(import.meta.dirname, '../../package.json');
 const includedSections = new Set([
   'balances',
   'bitcoinLocks',
@@ -90,6 +91,7 @@ const sources = {
   155: ['1.4.9'],
   156: ['1.4.10'],
   157: ['1.4.11'],
+  158: ['1.4.12'],
 } as const;
 
 type EventFields = Record<string, string>;
@@ -100,6 +102,8 @@ type SourceDeclarations = {
   events: Record<string, Record<string, EventFields>>;
   types: SourceTypeDeclarations;
 };
+
+await verifyPinnedRuntimeSource();
 
 const changes: EventChanges = [];
 const sourceLabels: Record<number, string> = {};
@@ -171,7 +175,34 @@ export const historicalEventSpecSources = ${JSON.stringify(sourceLabels)} as con
 export const historicalEventChanges = ${JSON.stringify(changes)} as const;
 `;
 const prettierConfig = await resolveConfig(outputPath);
-await Fs.writeFile(outputPath, await format(output, { ...prettierConfig, parser: 'typescript' }));
+const formattedOutput = await format(output, { ...prettierConfig, parser: 'typescript' });
+if (process.argv.includes('--check')) {
+  const currentOutput = await Fs.readFile(outputPath, 'utf8');
+  if (currentOutput !== formattedOutput) {
+    throw new Error('HistoricalEventSpecs.generated.ts is out of date; run the historical event generator');
+  }
+} else {
+  await Fs.writeFile(outputPath, formattedOutput);
+}
+
+async function verifyPinnedRuntimeSource(): Promise<void> {
+  const packageJson = JSON.parse(await Fs.readFile(rootPackageJsonPath, 'utf8')) as {
+    resolutions?: Record<string, string>;
+  };
+  const pinnedVersion = packageJson.resolutions?.[npmPackage];
+  if (!pinnedVersion) throw new Error(`${npmPackage} is missing from package.json resolutions`);
+  if (pinnedVersion.startsWith('portal:')) return;
+
+  const isRegistered = Object.values(sources).some(sourceVersions => {
+    return sourceVersions.some(source => source === pinnedVersion);
+  });
+  if (!isRegistered) {
+    throw new Error(
+      `${npmPackage}@${pinnedVersion} is not registered in this generator's runtime sources. ` +
+        'Add its runtime spec mapping and disposition every structural event change.',
+    );
+  }
+}
 
 async function readSourceDeclarations(source: string): Promise<SourceDeclarations> {
   const contents = source.startsWith('argonprotocol/') ? await fetchGitSource(source) : await fetchNpmSource(source);

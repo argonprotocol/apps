@@ -107,6 +107,7 @@ export async function restoreFinancialHistory(args: {
       totalBlockCount: number;
     },
   ) => void;
+  onDomainComplete?: (result: { domain: IFinancialHistoryDomain; asOfBlock: number; error?: string }) => void;
 }): Promise<IFinancialHistoryRestoreResult> {
   const { db, blockWatch, accountId, argonBonds, bitcoinLockRecovery, vaultHistory } = args;
   const enabledDomains = [...new Set(args.enabledDomains)];
@@ -129,6 +130,14 @@ export async function restoreFinancialHistory(args: {
   const checkpointDomains = enabledDomains.filter(
     domain => domainCheckpoints[domain] || domainsToRestore.includes(domain),
   );
+  for (const domain of enabledDomains) {
+    if (domainsToRestore.includes(domain)) continue;
+
+    args.onDomainComplete?.({
+      domain,
+      asOfBlock: domainCheckpoints[domain]?.asOfBlock ?? targetBlock,
+    });
+  }
   if (!domainsToRestore.length) {
     const asOfBlock = checkpointDomains.length
       ? Math.min(...checkpointDomains.map(domain => domainCheckpoints[domain]!.asOfBlock))
@@ -170,7 +179,13 @@ export async function restoreFinancialHistory(args: {
   for (const domain of domainsToRestore) {
     let checkpoint = domainCheckpoints[domain];
     const isBitcoinReplay = domain === 'bitcoin' && !!bitcoinLockRecovery;
-    args.onProgress?.(importedBlockCount);
+    let domainAsOfBlock = checkpoint?.asOfBlock ?? 0;
+    let domainError: string | undefined;
+    args.onProgress?.(importedBlockCount, {
+      domain,
+      recoveredBlockCount: 0,
+      totalBlockCount: 0,
+    });
 
     try {
       let result!: Awaited<ReturnType<typeof restoreFinancialHistoryDomain>>;
@@ -199,9 +214,10 @@ export async function restoreFinancialHistory(args: {
         });
 
         if (isBitcoinReplay) {
-          await bitcoinLockRecovery.commitHistoryReplay(!result.error && result.checkpoint.asOfBlock >= targetBlock);
+          await bitcoinLockRecovery.commitHistoryReplay(true);
         }
         await saveDomainCheckpoint(domain, result.checkpoint);
+        domainAsOfBlock = result.checkpoint.asOfBlock;
 
         if (attempt > 0 || !isBitcoinReplay || !result.retryFromStart) break;
         checkpoint = result.checkpoint;
@@ -217,12 +233,19 @@ export async function restoreFinancialHistory(args: {
           console.warn('Unable to release active Bitcoin locks after history recovery failed:', recoveryError);
         }
       }
-      recoveryErrors.push(error instanceof Error ? error.message : `Unable to restore ${domain} history`);
+      domainError = error instanceof Error ? error.message : `Unable to restore ${domain} history`;
+      recoveryErrors.push(domainError);
       if (isBitcoinReplay && args.mainchainClients) {
         await bitcoinLockRecovery.recoverActiveLockCreationDetails(args.mainchainClients).catch(recoveryError => {
           console.warn('Unable to restore active Bitcoin lock creation details:', recoveryError);
         });
       }
+    } finally {
+      args.onDomainComplete?.({
+        domain,
+        asOfBlock: domainAsOfBlock,
+        ...(domainError ? { error: domainError } : {}),
+      });
     }
   }
 
@@ -237,7 +260,7 @@ export class FinancialHistoryImporter {
   private readonly argonBonds: Pick<ArgonBonds, 'importHistoryBlock'>;
   private readonly vaultHistory: Pick<VaultHistory, 'importBlock'>;
   private readonly enabledDomains: readonly IFinancialHistoryDomain[];
-  private readonly bitcoinLockRecovery?: Pick<BitcoinLockRecovery, 'recoverBlock'>;
+  private readonly bitcoinLockRecovery?: Pick<BitcoinLockRecovery, 'markHistoryReplayFailure' | 'recoverBlock'>;
 
   constructor({
     blockWatch,
@@ -250,7 +273,7 @@ export class FinancialHistoryImporter {
     argonBonds: Pick<ArgonBonds, 'importHistoryBlock'>;
     vaultHistory: Pick<VaultHistory, 'importBlock'>;
     enabledDomains: readonly IFinancialHistoryDomain[];
-    bitcoinLockRecovery?: Pick<BitcoinLockRecovery, 'recoverBlock'>;
+    bitcoinLockRecovery?: Pick<BitcoinLockRecovery, 'markHistoryReplayFailure' | 'recoverBlock'>;
   }) {
     this.blockWatch = blockWatch;
     this.argonBonds = argonBonds;
@@ -274,6 +297,7 @@ export class FinancialHistoryImporter {
     const domainErrors: Partial<Record<IFinancialHistoryDomain, string>> = {};
     let failedAtBlock: number | undefined;
     let importedBlockCount = 0;
+    let lastCheckpointedBlockNumber: number | undefined;
 
     for (const indexedBlock of backlog) {
       for (const domain of this.enabledDomains) {
@@ -281,17 +305,17 @@ export class FinancialHistoryImporter {
         const earliestSupportedSpecVersion = earliestSupportedSpecVersions[domain];
         if (indexedBlock.specVersion >= earliestSupportedSpecVersion) continue;
 
-        domainErrors[domain] ??=
+        const error =
           `Block ${indexedBlock.blockNumber.toLocaleString()} uses unsupported runtime spec ${indexedBlock.specVersion}; ` +
           `earliest supported for ${domain} is ${earliestSupportedSpecVersion}`;
+        domainErrors[domain] ??= error;
+        console.warn(`[FinancialHistory] ${error}; skipping this ${domain} block`);
         if (this.enabledDomains.length === 1) {
-          failedAtBlock =
-            failedAtBlock === undefined ? indexedBlock.blockNumber : Math.min(failedAtBlock, indexedBlock.blockNumber);
+          failedAtBlock = Math.min(failedAtBlock ?? indexedBlock.blockNumber, indexedBlock.blockNumber);
         }
       }
     }
     const supportedBacklog = backlog.filter(indexedBlock => {
-      if (failedAtBlock !== undefined && indexedBlock.blockNumber >= failedAtBlock) return false;
       return this.enabledDomains.some(domain => {
         return (
           (indexedBlock.activityMask & domainActivityMasks[domain]) !== 0 &&
@@ -323,33 +347,38 @@ export class FinancialHistoryImporter {
             let label: 'bitcoin' | 'bond' | 'vault' = 'vault';
             if (domain === 'bonds') label = 'bond';
             if (domain === 'bitcoin') label = 'bitcoin';
-            domainErrors[domain] ??= describeDomainError(label, indexedBlock.blockNumber, detail);
+            const error = describeDomainError(label, indexedBlock.blockNumber, detail);
+            domainErrors[domain] ??= error;
+            console.warn(`[FinancialHistory] ${error}; skipping this block`);
           }
-          return {
-            importedBlockCount,
-            domainErrors,
-            failedAtBlock: indexedBlock.blockNumber,
-          };
+          failedAtBlock = Math.min(failedAtBlock ?? indexedBlock.blockNumber, indexedBlock.blockNumber);
+          continue;
         }
 
         const loadedBlock = loadedResult.value;
-        const domainsWithErrors = new Set(Object.keys(domainErrors));
-        await this.importBlock(loadedBlock, domainErrors);
-        const hasNewError = this.enabledDomains.some(domain => {
-          return !domainsWithErrors.has(domain) && domainErrors[domain] !== undefined;
-        });
-        if (hasNewError && this.enabledDomains.length === 1) {
-          return {
-            importedBlockCount,
-            domainErrors,
-            failedAtBlock: loadedBlock.indexedBlock.blockNumber,
-          };
+        const hasImportError = await this.importBlock(loadedBlock, domainErrors);
+        if (hasImportError && this.enabledDomains.length === 1) {
+          failedAtBlock = Math.min(
+            failedAtBlock ?? loadedBlock.indexedBlock.blockNumber,
+            loadedBlock.indexedBlock.blockNumber,
+          );
+          continue;
         }
         importedBlockCount += 1;
         lastImportedBlockNumber = loadedBlock.indexedBlock.blockNumber;
         options.onProgress?.(importedBlockCount, supportedBacklog.length);
       }
-      if (lastImportedBlockNumber !== undefined) await options.onCheckpoint?.(lastImportedBlockNumber);
+      if (lastImportedBlockNumber !== undefined) {
+        const checkpointBlockNumber =
+          failedAtBlock === undefined ? lastImportedBlockNumber : Math.min(lastImportedBlockNumber, failedAtBlock - 1);
+        if (
+          checkpointBlockNumber >= 0 &&
+          (lastCheckpointedBlockNumber === undefined || checkpointBlockNumber > lastCheckpointedBlockNumber)
+        ) {
+          await options.onCheckpoint?.(checkpointBlockNumber);
+          lastCheckpointedBlockNumber = checkpointBlockNumber;
+        }
+      }
       start += batch.length;
     }
 
@@ -380,8 +409,9 @@ export class FinancialHistoryImporter {
   private async importBlock(
     loadedBlock: Awaited<ReturnType<FinancialHistoryImporter['loadBlock']>>,
     domainErrors: Partial<Record<IFinancialHistoryDomain, string>>,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const { indexedBlock, block, events } = loadedBlock;
+    let hasError = false;
     if (
       this.enabledDomains.includes('bonds') &&
       indexedBlock.specVersion >= earliestSupportedSpecVersions.bonds &&
@@ -390,7 +420,10 @@ export class FinancialHistoryImporter {
       try {
         await this.argonBonds.importHistoryBlock(block, events);
       } catch (error) {
-        domainErrors.bonds ??= describeDomainError('bond', block.blockNumber, error);
+        const detail = describeDomainError('bond', block.blockNumber, error);
+        domainErrors.bonds ??= detail;
+        console.warn(`[FinancialHistory] ${detail}; skipping this bond block`);
+        hasError = true;
       }
     }
     if (
@@ -401,7 +434,10 @@ export class FinancialHistoryImporter {
       try {
         await this.vaultHistory.importBlock(block, events);
       } catch (error) {
-        domainErrors.vaulting ??= describeDomainError('vault', block.blockNumber, error);
+        const detail = describeDomainError('vault', block.blockNumber, error);
+        domainErrors.vaulting ??= detail;
+        console.warn(`[FinancialHistory] ${detail}; skipping this vault block`);
+        hasError = true;
       }
     }
     if (
@@ -413,9 +449,14 @@ export class FinancialHistoryImporter {
         if (!this.bitcoinLockRecovery) throw new Error('Bitcoin lock history recovery is not configured');
         await this.bitcoinLockRecovery.recoverBlock(block, events);
       } catch (error) {
-        domainErrors.bitcoin ??= describeDomainError('bitcoin', block.blockNumber, error);
+        this.bitcoinLockRecovery?.markHistoryReplayFailure();
+        const detail = describeDomainError('bitcoin', block.blockNumber, error);
+        domainErrors.bitcoin ??= detail;
+        console.warn(`[FinancialHistory] ${detail}; skipping this Bitcoin block`);
+        hasError = true;
       }
     }
+    return hasError;
   }
 }
 
@@ -467,9 +508,10 @@ async function restoreFinancialHistoryDomain(args: {
     toBlock: args.targetBlock,
     activityMask: domainActivityMasks[domain],
   });
-  if (indexedHistory.definitionVersion < ACCOUNT_ACTIVITY_DEFINITION_VERSION) {
+  const minimumCompatibleDefinitionVersion = ACCOUNT_ACTIVITY_DEFINITION_VERSION - 1;
+  if (indexedHistory.definitionVersion < minimumCompatibleDefinitionVersion) {
     throw new Error(
-      `Activity index definition ${indexedHistory.definitionVersion} is older than required definition ${ACCOUNT_ACTIVITY_DEFINITION_VERSION}`,
+      `Activity index definition ${indexedHistory.definitionVersion} is older than the minimum compatible definition ${minimumCompatibleDefinitionVersion}`,
     );
   }
 

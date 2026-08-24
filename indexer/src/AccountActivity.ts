@@ -373,6 +373,7 @@ const vaultBitcoinLockEvents = new Set([
 // updates are deliberately excluded.
 const vaultPositionEvents = new Set([
   'BackfillSecuritizationReservedChanged',
+  'ReservedSecuritizationSpaceChanged',
   'VaultClosed',
   'VaultCreated',
   'VaultModified',
@@ -397,6 +398,7 @@ const vaultPositionEvents = new Set([
 // the block's runtime metadata resolves that shape change before account collection.
 const treasuryBondPositionEvents = new Set([
   'BondLotBackfillChanged',
+  'BondLotFlexibilityChanged',
   'BondLotPurchased',
   'BondLotReleased',
   'BondLotReleaseScheduled',
@@ -412,6 +414,7 @@ const treasuryVaultPositionEvents = new Set([
   'ErrorRefundingTreasuryCapital',
   'NextBidPoolCapitalLocked',
   'RefundedTreasuryCapital',
+  'ReservedBondSpaceChanged',
   'VaultFunderAllocation',
   'VaultOperatorPrebond',
 ]);

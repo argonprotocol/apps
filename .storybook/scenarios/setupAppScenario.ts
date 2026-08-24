@@ -216,6 +216,11 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {} }: 
       liquidTotalSatoshis: 0n,
       financialPositionAggregate: Vue.shallowRef(reduceFinancialPositions([])),
       historyRecovery: Vue.ref({ state: 'ready' as const, recoveredBlockCount: 0 }),
+      historyRecoveryByDomain: Vue.reactive({
+        bitcoin: { state: 'ready' as const, recoveredBlockCount: 0 },
+        bonds: { state: 'ready' as const, recoveredBlockCount: 0 },
+        vaulting: { state: 'ready' as const, recoveredBlockCount: 0 },
+      }),
       isHistoryRecoveryInProgress: Vue.ref(false),
       bondSummariesByAsset: Vue.shallowRef({
         ARGN: { currentValue: 0n, returnSummary: calculatePositionReturn([]) },

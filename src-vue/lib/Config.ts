@@ -133,30 +133,32 @@ export class Config implements IConfig {
     };
   }
 
-  public async restoreToConnection(sql: PluginSql): Promise<void> {
-    const preserveFields: (keyof IConfig)[] = [
-      'upstreamOperator',
-      'bootstrapDetails',
-      'hasExtensionTreasury',
-      'hasExtensionOperations',
-      'hasActivatedCrosschain',
-      'serverAdd',
-      'serverDetails',
-      'isServerInstalled',
-      'biddingRules',
-      'vaultingRules',
-      'miningSetupStatus',
-      'vaultingSetupStatus',
-      'onboardingSetupStatus',
-      'hasMiningBids',
-      'hasMiningSeats',
-      'oldestFrameIdToSync',
-      'miningBotAccountPreviousHistory',
-      'walletAccountsHadPreviousLife',
-      'walletPreviousLifeRecovered',
-      'defaultCurrencyKey',
-      'requiresPassword',
-    ];
+  public async restoreToConnection(sql: PluginSql, replacementData?: Partial<Omit<IConfig, 'version'>>): Promise<void> {
+    const preserveFields: (keyof IConfig)[] = replacementData
+      ? []
+      : [
+          'upstreamOperator',
+          'bootstrapDetails',
+          'hasExtensionTreasury',
+          'hasExtensionOperations',
+          'hasActivatedCrosschain',
+          'serverAdd',
+          'serverDetails',
+          'isServerInstalled',
+          'biddingRules',
+          'vaultingRules',
+          'miningSetupStatus',
+          'vaultingSetupStatus',
+          'onboardingSetupStatus',
+          'hasMiningBids',
+          'hasMiningSeats',
+          'oldestFrameIdToSync',
+          'miningBotAccountPreviousHistory',
+          'walletAccountsHadPreviousLife',
+          'walletPreviousLifeRecovered',
+          'defaultCurrencyKey',
+          'requiresPassword',
+        ];
 
     for (const key of Object.keys(defaults) as (keyof IConfig)[]) {
       this._fieldsToSave.add(key);
@@ -164,6 +166,12 @@ export class Config implements IConfig {
         const defaultValue = await defaults[key as keyof IConfigDefaults]();
         this._rawData[key] = JsonExt.stringify(defaultValue, 2);
         (this._loadedData as any)[key] = defaultValue as any;
+      }
+    }
+    if (replacementData) {
+      Object.assign(this._loadedData, replacementData);
+      for (const [key, value] of Object.entries(replacementData)) {
+        this._tryFieldsToSave(key as keyof typeof dbFields, value);
       }
     }
     const data = Config.extractDataToSave(this._fieldsToSave, this._rawData);
@@ -331,13 +339,14 @@ export class Config implements IConfig {
       this._loadedData = loadedData as IConfig;
       this._rawData = rawData;
       this._loadedDeferred.resolve();
-      if (this.walletAccountsHadPreviousLife && !this.walletPreviousLifeRecovered) {
-        this._isRecoveringPreviousWalletHistory = true;
-        try {
-          await this._bootupFromAccountPreviousHistory();
-        } finally {
-          this._isRecoveringPreviousWalletHistory = false;
-        }
+      try {
+        await this.recoverPreviousWalletHistory();
+      } catch (error) {
+        console.error('Config: Unable to recover previous wallet history', error);
+        void tauriMessage(
+          'Argon Desktop could not finish restoring this account history. The app will continue; use Find Missing Data in Troubleshooting to retry.',
+          { title: 'Account Recovery Incomplete', kind: 'warning' },
+        );
       }
     } catch (e) {
       this._loadedDeferred.reject(e);
@@ -369,15 +378,23 @@ export class Config implements IConfig {
   }
 
   public get isBootingUpPreviousWalletHistory(): boolean {
-    return (
-      this._isRecoveringPreviousWalletHistory ||
-      (this._loadedData.walletAccountsHadPreviousLife && !this._loadedData.walletPreviousLifeRecovered)
-    );
+    return this._isRecoveringPreviousWalletHistory;
   }
 
   public get walletPreviousHistoryLoadPct(): number {
     if (!this.isBootingUpPreviousWalletHistory) return 100;
     return Math.min(this._walletPreviousHistoryLoadPct, 100);
+  }
+
+  public async recoverPreviousWalletHistory(): Promise<void> {
+    if (!this.walletAccountsHadPreviousLife || this.walletPreviousLifeRecovered) return;
+
+    this._isRecoveringPreviousWalletHistory = true;
+    try {
+      await this._bootupFromAccountPreviousHistory();
+    } finally {
+      this._isRecoveringPreviousWalletHistory = false;
+    }
   }
 
   public get miningSetupStatus(): MiningSetupStatus {

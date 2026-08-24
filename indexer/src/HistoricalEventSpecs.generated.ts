@@ -1553,9 +1553,27 @@ export type HistoricalEventDeclaration =
         readonly liquidity: u128;
       };
     }
-
-
-
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultClosed';
+      readonly fields: { readonly vaultId: u32; readonly remainingSecuritization: u128; readonly released: u128 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultCreated';
+      readonly fields: {
+        readonly vaultId: u32;
+        readonly securitization: u128;
+        readonly securitizationRatio: u128;
+        readonly operatorAccountId: AccountId32;
+        readonly openedTick: u64;
+      };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'VaultModified';
+      readonly fields: { readonly vaultId: u32; readonly securitization: u128; readonly securitizationRatio: u128 };
+    }
   | {
       readonly section: 'vaults';
       readonly method: 'ObligationCompleted';
@@ -2723,6 +2741,26 @@ export type HistoricalEventDeclaration =
       readonly section: 'vaults';
       readonly method: 'BackfillSecuritizationReservedChanged';
       readonly fields: { readonly vaultId: u32; readonly backfillSecuritizationReserved: u128 };
+    }
+  | {
+      readonly section: 'bitcoinLocks';
+      readonly method: 'BitcoinLockFlexibleChanged';
+      readonly fields: { readonly utxoId: u64; readonly vaultId: u32; readonly isFlexible: bool };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'BondLotFlexibilityChanged';
+      readonly fields: { readonly vaultId: u32; readonly bondLotId: u64; readonly isFlexible: bool };
+    }
+  | {
+      readonly section: 'treasury';
+      readonly method: 'ReservedBondSpaceChanged';
+      readonly fields: { readonly vaultId: u32; readonly reservedBondSpace: u32 };
+    }
+  | {
+      readonly section: 'vaults';
+      readonly method: 'ReservedSecuritizationSpaceChanged';
+      readonly fields: { readonly vaultId: u32; readonly reservedSecuritizationSpace: u128 };
     };
 
 export const historicalEventSpecSources = {
@@ -2784,6 +2822,7 @@ export const historicalEventSpecSources = {
   '155': '@argonprotocol/mainchain@1.4.9',
   '156': '@argonprotocol/mainchain@1.4.10',
   '157': '@argonprotocol/mainchain@1.4.11',
+  '158': '@argonprotocol/mainchain@1.4.12',
 } as const;
 
 export const historicalEventChanges = [
@@ -4629,5 +4668,33 @@ export const historicalEventChanges = [
     section: 'vaults',
     method: 'BackfillSecuritizationReservedChanged',
     fields: { vaultId: 'u32', backfillSecuritizationReserved: 'u128' },
+  },
+  { spec: 158, section: 'bitcoinLocks', method: 'BitcoinLockBackfillChanged', fields: null },
+  {
+    spec: 158,
+    section: 'bitcoinLocks',
+    method: 'BitcoinLockFlexibleChanged',
+    fields: { utxoId: 'u64', vaultId: 'u32', isFlexible: 'bool' },
+  },
+  { spec: 158, section: 'treasury', method: 'BackfillBondsReservedChanged', fields: null },
+  { spec: 158, section: 'treasury', method: 'BondLotBackfillChanged', fields: null },
+  {
+    spec: 158,
+    section: 'treasury',
+    method: 'BondLotFlexibilityChanged',
+    fields: { vaultId: 'u32', bondLotId: 'u64', isFlexible: 'bool' },
+  },
+  {
+    spec: 158,
+    section: 'treasury',
+    method: 'ReservedBondSpaceChanged',
+    fields: { vaultId: 'u32', reservedBondSpace: 'u32' },
+  },
+  { spec: 158, section: 'vaults', method: 'BackfillSecuritizationReservedChanged', fields: null },
+  {
+    spec: 158,
+    section: 'vaults',
+    method: 'ReservedSecuritizationSpaceChanged',
+    fields: { vaultId: 'u32', reservedSecuritizationSpace: 'u128' },
   },
 ] as const;

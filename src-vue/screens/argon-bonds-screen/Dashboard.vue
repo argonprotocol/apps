@@ -13,7 +13,7 @@
         <div class="text-argon-600 inline-flex text-5xl font-bold">
           <span>{{ currency.symbol }}</span>
           <FormattedMoney
-            :isLoaded="isSummaryReady && financials.historyRecovery.state === 'ready'"
+            :isLoaded="isSummaryReady && financials.historyRecoveryByDomain.bonds.state === 'ready'"
             :value="bondsSummary?.returnSummary.paidIncome ?? 0n"
           />
         </div>

@@ -52,6 +52,25 @@ it('keeps mnemonic-restored accounts eligible for financial history without mini
   expect(config.walletPreviousLifeRecovered).toBe(true);
 });
 
+it('leaves failed previous-life recovery retryable after config finishes loading', async () => {
+  const dbPromise = createMockedDbPromise();
+  const { walletKeys } = createTestWallet('//Alice');
+  vi.spyOn(walletKeys, 'didWalletHavePreviousLife').mockResolvedValueOnce(true);
+  const recoverAccount = vi.fn().mockRejectedValueOnce(new Error('history unavailable')).mockResolvedValueOnce({});
+  instanceChecks.delete(Config.prototype.constructor);
+  const config = new Config(dbPromise, walletKeys, recoverAccount);
+
+  await config.load();
+
+  expect(config.walletPreviousLifeRecovered).toBe(false);
+  expect(config.isBootingUpPreviousWalletHistory).toBe(false);
+
+  await config.recoverPreviousWalletHistory();
+
+  expect(config.walletPreviousLifeRecovered).toBe(true);
+  expect(recoverAccount).toHaveBeenCalledTimes(2);
+});
+
 it('reserves the final recovery progress for applying and saving config', async () => {
   const dbPromise = createMockedDbPromise();
   const { walletKeys } = createTestWallet('//Alice');

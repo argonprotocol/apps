@@ -294,7 +294,7 @@ const emit = defineEmits<{
 const isActionHovered = Vue.ref(false);
 const lockRecord = Vue.computed(() => props.lockSummary.record);
 const fundingExpirationTime = Vue.computed(() => dayjs.utc(bitcoinLocks.verifyExpirationTime(lockRecord.value)));
-const isHistoryRecoveryPaused = Vue.computed(() => financials.historyRecovery.state === 'error');
+const isHistoryRecoveryPaused = Vue.computed(() => financials.historyRecoveryByDomain.bitcoin.state === 'error');
 const isRatchetPending = Vue.ref(false);
 const displayedRatchetPercent = Vue.computed(() => Math.round(props.lockSummary.ratchetPercent * 100) / 100);
 const releaseState = Vue.computed(() => bitcoinLocks.getLockUnlockReleaseState(lockRecord.value));

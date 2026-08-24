@@ -76,6 +76,11 @@ export function setupBondPortfolioScenario(programType: BondLot['programType']) 
     Vue.reactive({
       savingsTotalReadyToUse: 250n * microgonsPerArgon,
       historyRecovery: { state: 'ready', recoveredBlockCount: 0 },
+      historyRecoveryByDomain: {
+        bitcoin: { state: 'ready', recoveredBlockCount: 0 },
+        bonds: { state: 'ready', recoveredBlockCount: 0 },
+        vaulting: { state: 'ready', recoveredBlockCount: 0 },
+      },
       bondSummariesByAsset: {
         ARGN: {
           currentValue: programType === 'Vault' ? 153_400_000n : 0n,

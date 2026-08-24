@@ -71,7 +71,7 @@ Object.defineProperties(scenarioMainchainClient, {
 });
 
 export function setupBitcoinOverlayScenario() {
-  const scenarioStartedAt = Date.now();
+  const scenarioStartedAt = new Date('2026-08-17T14:00:00.000Z').getTime();
   const pendingResolvers = new Set<VoidFunction>();
   const cleanupTasks = new Set<VoidFunction>();
   mocked(BitcoinLocks.getFeeRates).mockRestore?.();
@@ -248,7 +248,10 @@ export function setupBitcoinOverlayScenario() {
     estimatedReleaseArgonTxFee: fn(async () => 125_000n),
     formatP2wshAddress: fn((scriptHex: string) => BitcoinLocks.formatP2wshAddress(scriptHex, BitcoinNetwork.Bitcoin)),
     verifyExpirationTime: fn(() => scenarioStartedAt + 24 * 60 * 60 * 1_000),
-    unlockDeadlineTime: fn(() => scenarioStartedAt + 48 * 60 * 60 * 1_000),
+    isFundingWindowExpired: fn(
+      (record: IBitcoinLockRecord) => bitcoinLocks.verifyExpirationTime(record) <= scenarioStartedAt,
+    ),
+    unlockDeadlineTime: fn(() => scenarioStartedAt + 24 * 60 * 60 * 1_000),
     getFundingWindowProgress: fn(() => 45),
     getRequestReleaseByVaultProgress: fn(() => releaseVaultWaitProgress.value),
     getCosignDeadlineProgress: fn(() => 65),
@@ -373,6 +376,7 @@ export function setupBitcoinOverlayScenario() {
     releaseProcessing,
     releaseVaultWaitProgress,
     replaceUtxoRecords,
+    scenarioStartedAt,
     setFeeWaiver,
     vault,
     defer() {

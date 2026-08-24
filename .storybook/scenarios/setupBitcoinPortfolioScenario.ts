@@ -283,6 +283,11 @@ export function setupBitcoinPortfolioScenario(
       activeBitcoinLockCount: 2,
       isHistoryRecoveryInProgress: false,
       historyRecovery: { state: 'ready', recoveredBlockCount: 0 },
+      historyRecoveryByDomain: {
+        bitcoin: { state: 'ready', recoveredBlockCount: 0 },
+        bonds: { state: 'ready', recoveredBlockCount: 0 },
+        vaulting: { state: 'ready', recoveredBlockCount: 0 },
+      },
       bitcoinLockPerformanceByUuid: {
         [archived[0].uuid]: { profit: 81_000_000n, percent: 9.72 },
       },
@@ -327,6 +332,11 @@ export function setupBitcoinEmptyScenario(options: { loading?: boolean; recoveri
       activeBitcoinLockCount: options.recovering ? 2 : 0,
       isHistoryRecoveryInProgress: options.recovering ?? false,
       historyRecovery: { state: options.recovering ? 'restoring' : 'ready', recoveredBlockCount: 0 },
+      historyRecoveryByDomain: {
+        bitcoin: { state: options.recovering ? 'restoring' : 'ready', recoveredBlockCount: 0 },
+        bonds: { state: 'ready', recoveredBlockCount: 0 },
+        vaulting: { state: 'ready', recoveredBlockCount: 0 },
+      },
     }) as unknown as ReturnType<typeof useFinancials>,
   );
 }
