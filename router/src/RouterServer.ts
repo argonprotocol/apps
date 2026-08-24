@@ -34,10 +34,11 @@ import { RouterAuthService, type IRouterAuthServiceOptions } from './RouterAuthS
 import { UserInviteService } from './UserInviteService.ts';
 import type { IUserInviteRecord } from './db/UserInvitesTable.ts';
 import type {
-  IBitcoinLockRelayRequest,
+  IBitcoinLockCouponRequest,
   IBitcoinLockCouponUseUpdateRequest,
   IBitcoinLockStatusResponse,
   ICreateInviteRequest,
+  IInitializeBitcoinLockResponse,
   IUpdateBitcoinLockCouponExpirationRequest,
   IInviteResponse,
   IListBitcoinLockCouponsResponse,
@@ -647,28 +648,22 @@ export class RouterServer {
     app.post(
       '/bitcoin-lock-coupons/:offerCode/initialize',
       express.text({ type: '*/*' }),
-      safeJsonRoute<IBitcoinLockStatusResponse>(async req => {
-        const body = requireBody<IBitcoinLockRelayRequest>(req);
+      safeJsonRoute<IInitializeBitcoinLockResponse>(async req => {
+        const body = requireBody<IBitcoinLockCouponRequest>(req);
         routerAuth.requireMemberSession(req, body.ownerAccountId);
 
         if (body.microgonsAtTargetPerBtc == null) {
           throw new RouterError('A current bitcoin price quote is required to initialize this bitcoin lock.');
         }
 
-        if (body.execution === 'FeeCoupon') {
-          const authorization = await bitcoinLockCouponService.authorizeInitialization(req.params.offerCode, body);
-          return {
-            bitcoinLock: authorization.status,
-            execution: {
-              type: 'FeeCoupon',
-              requestId: authorization.use.requestId,
-              feeCoupon: authorization.use.feeCoupon!,
-            },
-          };
-        }
-
+        const authorization = await bitcoinLockCouponService.authorizeInitialization(req.params.offerCode, body);
         return {
-          bitcoinLock: await bitcoinLockCouponService.initialize(req.params.offerCode, body),
+          bitcoinLock: authorization.status,
+          execution: {
+            type: 'FeeCoupon',
+            requestId: authorization.use.requestId,
+            feeCoupon: authorization.use.feeCoupon!,
+          },
         };
       }),
     );

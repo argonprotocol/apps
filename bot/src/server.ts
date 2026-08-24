@@ -4,7 +4,6 @@ import express from 'express';
 import cors from 'cors';
 import { DockerStatus } from './DockerStatus.ts';
 import type {
-  IBitcoinLockRelayJobRequest,
   ISignBitcoinLockFeeCouponRequest,
   IBotApiMethod,
   IBotApiResponse,
@@ -56,7 +55,7 @@ export class BotServer {
     const app = express();
     const wss = new WebSocketServer({ noServer: true });
     const bot = this.bot;
-    const relayService = bot.relayService;
+    const bitcoinLockFeeCouponService = bot.bitcoinLockFeeCouponService;
     const ethereumGatewayProverService = bot.ethereumGatewayProverService;
     this.wss = wss;
 
@@ -74,28 +73,9 @@ export class BotServer {
       });
     });
 
-    app.post('/bitcoin-lock-relays/initialize', express.text({ type: '*/*' }), async (req, res) => {
-      await safeJsonRoute(res, async () => {
-        const request = requireBody<IBitcoinLockRelayJobRequest>(req.body);
-        return await relayService.relayBitcoinLock(request);
-      });
-    });
-
     app.post('/bitcoin-lock-fee-coupons/sign', express.text({ type: '*/*' }), async (req, res) => {
       await safeJsonRoute(res, async () => {
-        return await relayService.signFeeCoupon(requireBody<ISignBitcoinLockFeeCouponRequest>(req.body));
-      });
-    });
-
-    app.get('/bitcoin-lock-relays', async (_req, res) => {
-      await safeJsonRoute(res, async () => {
-        return relayService.getBitcoinLockRelays();
-      });
-    });
-
-    app.get('/bitcoin-lock-relays/:requestId', async (req, res) => {
-      await safeJsonRoute(res, async () => {
-        return relayService.getBitcoinLockRelay(req.params.requestId);
+        return await bitcoinLockFeeCouponService.sign(requireBody<ISignBitcoinLockFeeCouponRequest>(req.body));
       });
     });
 

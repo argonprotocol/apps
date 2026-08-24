@@ -40,6 +40,7 @@ export default class BiddingCalculator {
   public pivotPoint: null | 'ExpectedGrowth' | 'StartingBid' | 'MaximumBid' = null;
 
   private readonly onLoadSubscribers = new Set<() => void>();
+  private hasCalculatedBidAmounts = false;
   private onFrameSubscription: Promise<{ unsubscribe: () => void }> | null = null;
 
   constructor(calculatorData: BiddingCalculatorData, biddingRules: IBiddingRules) {
@@ -49,7 +50,7 @@ export default class BiddingCalculator {
 
   public onLoad(callbackFn: () => void): { unsubscribe: () => void } {
     this.onLoadSubscribers.add(callbackFn);
-    void this.data.loadedFrameIdPromise?.then(callbackFn);
+    if (this.hasCalculatedBidAmounts) callbackFn();
     return {
       unsubscribe: () => {
         this.onLoadSubscribers.delete(callbackFn);
@@ -77,6 +78,7 @@ export default class BiddingCalculator {
         try {
           await this.data.load(frameId);
           this.calculateBidAmounts();
+          this.hasCalculatedBidAmounts = true;
           for (const callbackFn of this.onLoadSubscribers) {
             callbackFn();
           }

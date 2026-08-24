@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { DatabaseSync, type SQLOutputValue } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
 import {
   bigIntMax,
   convertFromSqliteFields,
@@ -8,9 +8,7 @@ import {
   type IBitcoinLockCouponRecord,
   type IBitcoinLockCouponStatus,
   type IBitcoinLockCouponUseRecord,
-  type IBitcoinLockRelayJobRequest,
-  type IBitcoinLockRelayRecord,
-  type IBitcoinLockRelayRequest,
+  type IBitcoinLockCouponRequest,
   type ICreateBitcoinLockCouponRequest,
   percentOf,
 } from '@argonprotocol/apps-core';
@@ -20,9 +18,6 @@ import type { BotUpstreamClient } from './BotUpstreamClient.ts';
 import type { Db } from './Db.ts';
 import { RouterError } from './RouterError.ts';
 import type { IBitcoinLockCouponRow } from './db/BitcoinLockCouponsTable.ts';
-import { BITCOIN_FEE_COUPON_MINIMUM_DESKTOP_VERSION } from './interfaces/IRouterApi.ts';
-
-type SqlRow = Record<string, SQLOutputValue>;
 
 export class BitcoinLockCouponService {
   private legacyImportPromise?: Promise<void>;
@@ -125,65 +120,9 @@ export class BitcoinLockCouponService {
     return coupons;
   }
 
-  public async initialize(offerCode: string, request: IBitcoinLockRelayRequest): Promise<IBitcoinLockCouponStatus> {
-    await this.ensureLegacyCouponsImported();
-
-    let coupon = this.db.bitcoinLockCouponsTable.fetchByOfferCode(offerCode);
-    if (!coupon) throw new RouterError('Bitcoin lock coupon not found.', 404);
-    if (!coupon.accountId) throw new RouterError('This invite has not been accepted yet.', 400);
-    if (coupon.accountId !== request.ownerAccountId) {
-      throw new RouterError('This invite is claimed by a different account.', 409);
-    }
-    if (request.requestedSatoshis > coupon.maxSatoshis) {
-      throw new RouterError('Requested satoshis exceed this offer limit.', 400);
-    }
-    if (coupon.expirationTick != null && MiningFrames.calculateCurrentTickFromSystemTime() >= coupon.expirationTick) {
-      throw new RouterError('This bitcoin lock coupon has expired.', 400);
-    }
-    const microgonsAtTargetPerBtc = request.microgonsAtTargetPerBtc;
-    if (microgonsAtTargetPerBtc == null || microgonsAtTargetPerBtc <= 0n) {
-      throw new RouterError('A current bitcoin price quote is required to initialize this bitcoin lock.', 400);
-    }
-    if (coupon.relay?.status === 'Failed' && coupon.feeCreditMicrogons) {
-      throw new RouterError(
-        `This failed delegated initialization can be retried with Argon Desktop ${BITCOIN_FEE_COUPON_MINIMUM_DESKTOP_VERSION} or newer. Update Argon Desktop and try again. Your Bitcoin fee waiver remains available.`,
-        426,
-        'DESKTOP_UPGRADE_REQUIRED',
-        BITCOIN_FEE_COUPON_MINIMUM_DESKTOP_VERSION,
-      );
-    }
-    if (coupon.relay) {
-      this.assertMatchingRelay(coupon.relay, request);
-      return this.getStatus(coupon);
-    }
-
-    const client = await this.getMainchainClient();
-    if (!BitcoinLock.supportsInitializeFor(client)) {
-      throw new RouterError(
-        `This upstream requires Argon Desktop ${BITCOIN_FEE_COUPON_MINIMUM_DESKTOP_VERSION} or newer to initialize a Bitcoin lock on the current network. Update Argon Desktop and try again. Your Bitcoin fee gift remains available.`,
-        426,
-        'DESKTOP_UPGRADE_REQUIRED',
-        BITCOIN_FEE_COUPON_MINIMUM_DESKTOP_VERSION,
-      );
-    }
-    if (this.db.bitcoinLockCouponsTable.fetchUsesByCouponId(coupon.id).some(use => use.status !== 'Failed')) {
-      throw new RouterError('This Bitcoin gift is already being used through fee coupons.', 409);
-    }
-
-    coupon = this.db.bitcoinLockCouponsTable.assignRelayRequest(coupon.id, coupon.relayRequestId ?? nanoid());
-    const relayRequest: IBitcoinLockRelayJobRequest = {
-      ...request,
-      requestId: coupon.relayRequestId!,
-      vaultId: coupon.vaultId,
-      microgonsAtTargetPerBtc,
-    };
-    const relay = await this.botClient.initializeBitcoinLock(relayRequest);
-    return this.getStatus(this.db.bitcoinLockCouponsTable.recordRelay(coupon.id, relay));
-  }
-
   public async authorizeInitialization(
     offerCode: string,
-    request: IBitcoinLockRelayRequest,
+    request: IBitcoinLockCouponRequest,
   ): Promise<{ status: IBitcoinLockCouponStatus; use: IBitcoinLockCouponUseRecord }> {
     await this.ensureLegacyCouponsImported();
 
@@ -200,11 +139,10 @@ export class BitcoinLockCouponService {
     if (microgonsAtTargetPerBtc == null || microgonsAtTargetPerBtc <= 0n) {
       throw new RouterError('A current bitcoin price quote is required to initialize this bitcoin lock.', 400);
     }
-    if (coupon.relay && coupon.relay.status !== 'Failed') {
-      throw new RouterError('This older Bitcoin gift is already being used through delegated initialization.', 409);
-    }
+    // Direct locks are limited by the granted fee credit. maxSatoshis remains an invite estimate and legacy
+    // backfill input, not a separate authorization ceiling.
     if (!coupon.feeCreditMicrogons) {
-      throw new RouterError('This older Bitcoin gift must use delegated initialization.', 409);
+      throw new RouterError('This Bitcoin fee gift has no remaining credit.', 409);
     }
     const feeCreditMicrogons = request.feeCreditMicrogons;
     if (!feeCreditMicrogons || feeCreditMicrogons <= 0n) {
@@ -328,22 +266,13 @@ export class BitcoinLockCouponService {
   private getStatus(coupon: IBitcoinLockCouponRow): IBitcoinLockCouponStatus {
     const uses = this.db.bitcoinLockCouponsTable.fetchUsesByCouponId(coupon.id);
     const originalFeeCreditMicrogons = coupon.feeCreditMicrogons;
-    let usedFeeCreditMicrogons = uses
+    const usedFeeCreditMicrogons = uses
       .filter(use => use.status === 'Finalized')
       .reduce((total, use) => total + use.feeCreditMicrogons, 0n);
     const activeUses = uses.filter(
       use => use.status === 'Prepared' || use.status === 'Submitted' || use.status === 'InBlock',
     );
-    let pendingFeeCreditMicrogons = activeUses.reduce((total, use) => total + use.feeCreditMicrogons, 0n);
-
-    if (originalFeeCreditMicrogons != null && coupon.relay?.status === 'Finalized') {
-      usedFeeCreditMicrogons = originalFeeCreditMicrogons;
-    } else if (
-      originalFeeCreditMicrogons != null &&
-      (coupon.relay?.status === 'Submitted' || coupon.relay?.status === 'InBlock')
-    ) {
-      pendingFeeCreditMicrogons = originalFeeCreditMicrogons;
-    }
+    const pendingFeeCreditMicrogons = activeUses.reduce((total, use) => total + use.feeCreditMicrogons, 0n);
 
     const activeUse = activeUses[0];
     const remainingFeeCreditMicrogons =
@@ -352,13 +281,7 @@ export class BitcoinLockCouponService {
         : bigIntMax(originalFeeCreditMicrogons - usedFeeCreditMicrogons - pendingFeeCreditMicrogons, 0n);
 
     let status: IBitcoinLockCouponStatus['status'] = 'Open';
-    if (coupon.relay?.status === 'Finalized') {
-      status = 'Used';
-    } else if (coupon.relay?.status === 'Failed' && originalFeeCreditMicrogons == null) {
-      status = 'Failed';
-    } else if (coupon.relay?.status === 'Submitted' || coupon.relay?.status === 'InBlock') {
-      status = coupon.relay.status;
-    } else if (activeUse) {
+    if (activeUse) {
       status = activeUse.status;
     } else if (originalFeeCreditMicrogons != null && usedFeeCreditMicrogons >= originalFeeCreditMicrogons) {
       status = 'Used';
@@ -369,10 +292,8 @@ export class BitcoinLockCouponService {
       status = 'Expired';
     }
 
-    const { relayRequestId: _relayRequestId, relay, ...publicCoupon } = coupon;
     return {
-      coupon: publicCoupon,
-      relay,
+      coupon,
       ...(uses.length ? { uses } : {}),
       ...(originalFeeCreditMicrogons != null
         ? {
@@ -385,27 +306,6 @@ export class BitcoinLockCouponService {
       status,
       ...(coupon.expirationTick != null ? { expiresAt: MiningFrames.getTickDate(coupon.expirationTick) } : {}),
     };
-  }
-
-  private async refreshRelays(): Promise<void> {
-    const couponsByRequestId = new Map(
-      this.db.bitcoinLockCouponsTable
-        .fetchAll()
-        .flatMap(coupon => (coupon.relayRequestId ? [[coupon.relayRequestId, coupon] as const] : [])),
-    );
-    if (!couponsByRequestId.size) return;
-
-    let relays: IBitcoinLockRelayRecord[];
-    try {
-      relays = await this.botClient.listBitcoinLockRelays();
-    } catch {
-      return;
-    }
-
-    for (const relay of relays) {
-      const coupon = couponsByRequestId.get(relay.requestId);
-      if (coupon) this.db.bitcoinLockCouponsTable.recordRelay(coupon.id, relay);
-    }
   }
 
   private async refreshFeeCouponUses(couponId?: number): Promise<void> {
@@ -445,11 +345,7 @@ export class BitcoinLockCouponService {
   }
 
   private refreshRemoteState(): Promise<void> {
-    this.remoteStateRefreshPromise ??= Promise.all([
-      this.refreshRelays(),
-      this.refreshFeeCouponUses(),
-      this.backfillLegacyFeeCredits(),
-    ])
+    this.remoteStateRefreshPromise ??= Promise.all([this.refreshFeeCouponUses(), this.backfillLegacyFeeCredits()])
       .then(() => undefined)
       .finally(() => {
         this.remoteStateRefreshPromise = undefined;
@@ -469,39 +365,22 @@ export class BitcoinLockCouponService {
       return;
     }
 
-    const unusedCoupons = coupons.filter(coupon => {
-      return (!coupon.relayRequestId && !coupon.relay) || coupon.relay?.status === 'Failed';
-    });
-    if (unusedCoupons.length) {
-      try {
-        const priceIndex = await new PriceIndex().load(client);
-        for (const coupon of unusedCoupons) {
-          const maximumLockValue = BitcoinLock.calculateRedemptionAmountFromSatoshis(priceIndex, coupon.maxSatoshis);
-          const feeCreditMicrogons = percentOf(maximumLockValue, coupon.btcPctFee, true);
-          this.db.bitcoinLockCouponsTable.setFeeCredit(coupon.id, feeCreditMicrogons);
-        }
-      } catch {
-        // Unused legacy coupons can be upgraded from a later price index.
+    try {
+      const priceIndex = await new PriceIndex().load(client);
+      for (const coupon of coupons) {
+        const maximumLockValue = BitcoinLock.calculateRedemptionAmountFromSatoshis(priceIndex, coupon.maxSatoshis);
+        const feeCreditMicrogons = percentOf(maximumLockValue, coupon.btcPctFee, true);
+        this.db.bitcoinLockCouponsTable.setFeeCredit(coupon.id, feeCreditMicrogons);
       }
-    }
-
-    for (const coupon of coupons) {
-      const relay = coupon.relay;
-      if (relay?.status !== 'Finalized' || relay.utxoId == null || !relay.txInBlockHash) continue;
-
-      try {
-        const historicalClient = await client.at(relay.txInBlockHash);
-        const lock = await BitcoinLock.get(historicalClient, relay.utxoId);
-        if (lock) this.db.bitcoinLockCouponsTable.setFeeCredit(coupon.id, lock.couponFeesPaid);
-      } catch {
-        // A finalized coupon can retry its archived lock read on a later client poll.
-      }
+    } catch {
+      // Unused legacy coupons can be upgraded from a later price index.
     }
   }
 
   private async ensureLegacyCouponsImported(): Promise<void> {
     this.legacyImportPromise ??= Promise.resolve().then(() => {
       this.importLegacyCoupons();
+      this.db.bitcoinLockCouponsTable.retireDelegatedCoupons();
       this.db.bitcoinLockCouponsTable.failUnsignedPreparedUses();
     });
     try {
@@ -523,41 +402,24 @@ export class BitcoinLockCouponService {
       };
       if (!hasTable('BitcoinLockCoupons')) return;
 
-      const relaysByCouponId = new Map<number, IBitcoinLockRelayRecord>();
+      const delegatedCouponIds = new Set<number>();
       if (hasTable('BitcoinLockRelays')) {
-        const relayRows = legacyDb.prepare('SELECT * FROM BitcoinLockRelays ORDER BY id ASC').all() as SqlRow[];
+        const relayRows = legacyDb.prepare('SELECT * FROM BitcoinLockRelays ORDER BY id ASC').all() as Array<{
+          legacyCouponId?: number;
+          couponId?: number;
+        }>;
         for (const row of relayRows) {
-          // Upgraded bot databases keep this one field only so the router can import their historical coupon relay.
           const couponId = row.legacyCouponId ?? row.couponId;
           if (couponId == null) continue;
-          const relay = convertFromSqliteFields<IBitcoinLockRelayRecord>(
-            {
-              ...row,
-              requestId: row.requestId?.toString() ?? `legacy-${String(row.id)}`,
-              microgonsAtTargetPerBtc: row.microgonsAtTargetPerBtc ?? row.microgonsPerBtc,
-            },
-            {
-              bigint: [
-                'requestedSatoshis',
-                'securitizationUsedMicrogons',
-                'microgonsAtTargetPerBtc',
-                'txFeePlusTip',
-                'txTip',
-              ],
-              json: ['extrinsicMethodJson'],
-              date: ['txSubmittedAtTime', 'createdAt', 'updatedAt'],
-            },
-          );
-          relaysByCouponId.set(Number(couponId), relay);
+          delegatedCouponIds.add(Number(couponId));
         }
       }
 
-      const couponRows = legacyDb.prepare('SELECT * FROM BitcoinLockCoupons ORDER BY id ASC').all() as SqlRow[];
+      const couponRows = legacyDb.prepare('SELECT * FROM BitcoinLockCoupons ORDER BY id ASC').all();
       for (const row of couponRows) {
         const userId = Number(row.userId);
         if (!this.db.userInvitesTable.fetchById(userId)) continue;
 
-        const relay = relaysByCouponId.get(Number(row.id));
         const coupon = convertFromSqliteFields<IBitcoinLockCouponRecord>(
           {
             ...row,
@@ -572,23 +434,11 @@ export class BitcoinLockCouponService {
         );
         this.db.bitcoinLockCouponsTable.restore({
           ...coupon,
-          relayRequestId: relay?.requestId,
-          relay,
+          ...(delegatedCouponIds.has(Number(row.id)) ? { feeCreditMicrogons: 0n } : {}),
         });
       }
     } finally {
       legacyDb.close();
-    }
-  }
-
-  private assertMatchingRelay(relay: IBitcoinLockRelayRecord, request: IBitcoinLockRelayRequest): void {
-    if (
-      relay.requestedSatoshis !== request.requestedSatoshis ||
-      relay.ownerAccountId !== request.ownerAccountId ||
-      relay.ownerBitcoinPubkey !== request.ownerBitcoinPubkey ||
-      relay.microgonsAtTargetPerBtc !== request.microgonsAtTargetPerBtc
-    ) {
-      throw new RouterError('This invite already has a different relay request in progress.', 409);
     }
   }
 }

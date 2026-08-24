@@ -12,6 +12,7 @@ import { numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts'
 
 const registry = getOfflineRegistry();
 const accountId = encodeAddress(new Uint8Array(32).fill(0x33));
+const withBackgroundArchiveRead = async <T>(read: () => Promise<T>): Promise<T> => await read();
 
 describe('financial history spec boundaries', () => {
   it.each([
@@ -49,6 +50,7 @@ describe('financial history spec boundaries', () => {
     const recoverBitcoin = vi.fn(async () => undefined);
     const importBondHistory = vi.fn(async () => undefined);
     const blockWatch = {
+      withBackgroundArchiveRead,
       getHeader: vi.fn(async ({ blockNumber, blockHash }) => ({
         blockNumber,
         blockHash,
@@ -89,6 +91,7 @@ describe('financial history spec boundaries', () => {
     const db = await createTestDb();
     const checkpoints: number[] = [];
     const blockWatch = {
+      withBackgroundArchiveRead,
       getHeader: vi.fn(async ({ blockNumber }: { blockNumber: number }) => ({
         blockNumber,
         blockHash: blockNumber === 10 ? '0xdifferent' : `0x${blockNumber}`,
@@ -188,6 +191,7 @@ describe('financial history spec boundaries', () => {
       ],
     ]);
     const blockWatch = {
+      withBackgroundArchiveRead,
       getHeader: vi.fn(async ({ blockNumber }: { blockNumber: number }) => ({
         blockNumber,
         blockHash: `0x${blockNumber}`,

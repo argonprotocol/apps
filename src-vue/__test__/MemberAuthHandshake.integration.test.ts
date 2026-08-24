@@ -394,19 +394,9 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
     const botDb = new BotDb(Path.join(tempDir, 'bot'));
     botDb.migrate();
     botDbs.push(botDb);
-    const relayService = {
-      relayBitcoinLock: async () => {
-        throw new Error('Bitcoin relay is not used by this recovery test.');
-      },
-      getBitcoinLockRelays: () => [],
-      getBitcoinLockRelay: () => {
-        throw new Error('Bitcoin relay is not used by this recovery test.');
-      },
-    };
     const botServer = startBotServer(
       {
         db: botDb,
-        relayService,
         ethereumGatewayProverService: {},
         state: async () => ({}),
         getHistoryForFrame: async () => ({}),

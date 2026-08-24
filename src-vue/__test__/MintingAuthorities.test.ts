@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MoveToken } from '@argonprotocol/apps-core';
+import { createDeferred, MoveToken } from '@argonprotocol/apps-core';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { createTestDb } from './helpers/db.ts';
 import {
@@ -65,6 +65,80 @@ describe('MintingAuthorities', () => {
       micronots: 4_000_000n,
       valueMicrogons: 16_000_000n,
     });
+  });
+
+  it('publishes core authority state when source transfer totals are temporarily unavailable', async () => {
+    const db = await createTestDb();
+    const walletKeys = createWalletKeysStub();
+    const signer = '0x' + '11'.repeat(20);
+    await trackMintingAuthoritySigner(db, walletKeys, signer, 0);
+    const sourceTotalsError = new Error('archive unavailable');
+    const client = createRefreshClient({
+      signer,
+      sourceAccount: '5CurrentSource',
+      loadSourceTotals: async () => {
+        throw sourceTotalsError;
+      },
+    });
+    const mintingAuthorities = new MintingAuthorities(
+      Promise.resolve(db),
+      walletKeys as unknown as WalletKeys,
+      {} as any,
+      { data: { txInfos: [] } } as any,
+    );
+    mintingAuthorities.data.sourceTotalsByAccount.set('5PreviousSource', {
+      microgonsOut: 3n,
+      micronotsOut: 4n,
+      transferOutCount: 5,
+    });
+
+    await mintingAuthorities.refresh(client as any);
+
+    expect(mintingAuthorities.data.authorities).toHaveLength(1);
+    expect(mintingAuthorities.data.backedTransfers).toMatchObject([{ sourceAccount: '5CurrentSource' }]);
+    expect(mintingAuthorities.data.sourceTotalsByAccount).toEqual(
+      new Map([['5PreviousSource', { microgonsOut: 3n, micronotsOut: 4n, transferOutCount: 5 }]]),
+    );
+  });
+
+  it('does not let an older source-total read overwrite a newer authority refresh', async () => {
+    const db = await createTestDb();
+    const walletKeys = createWalletKeysStub();
+    const firstSigner = '0x' + '11'.repeat(20);
+    const secondSigner = '0x' + '22'.repeat(20);
+    await trackMintingAuthoritySigner(db, walletKeys, firstSigner, 0);
+    await trackMintingAuthoritySigner(db, walletKeys, secondSigner, 1);
+    const releaseFirstTotals = createDeferred<ReturnType<typeof sourceTotalsValue>[]>();
+    const firstClient = createRefreshClient({
+      signer: firstSigner,
+      sourceAccount: '5FirstSource',
+      loadSourceTotals: () => releaseFirstTotals.promise,
+    });
+    const secondClient = createRefreshClient({
+      signer: secondSigner,
+      sourceAccount: '5SecondSource',
+      loadSourceTotals: async () => [sourceTotalsValue(20n)],
+    });
+    const mintingAuthorities = new MintingAuthorities(
+      Promise.resolve(db),
+      walletKeys as unknown as WalletKeys,
+      {} as any,
+      { data: { txInfos: [] } } as any,
+    );
+
+    const firstRefresh = mintingAuthorities.refresh(firstClient as any);
+    await vi.waitFor(() =>
+      expect(firstClient.query.crosschainTransfer.transferTotalsByAccount.multi).toHaveBeenCalled(),
+    );
+    await mintingAuthorities.refresh(secondClient as any);
+    releaseFirstTotals.resolve([sourceTotalsValue(10n)]);
+    await firstRefresh;
+
+    expect(mintingAuthorities.data.authorities).toMatchObject([{ signer: secondSigner }]);
+    expect(mintingAuthorities.data.backedTransfers).toMatchObject([{ sourceAccount: '5SecondSource' }]);
+    expect(mintingAuthorities.data.sourceTotalsByAccount).toEqual(
+      new Map([['5SecondSource', { microgonsOut: 20n, micronotsOut: 40n, transferOutCount: 5 }]]),
+    );
   });
 
   it('restores an imported active authority without local signer-index records', async () => {
@@ -929,7 +1003,7 @@ describe('MintingAuthorities', () => {
   });
 });
 
-function someAuthority(accountId: string, signer: string) {
+function someAuthority(accountId: string, signer: string, activePendingTransferIds: unknown[] = []) {
   return {
     isSome: true,
     unwrap: () => ({
@@ -945,8 +1019,89 @@ function someAuthority(accountId: string, signer: string) {
       pendingReservedMicrogonCollateral: { toBigInt: () => 0n },
       gatewayRemainingMicronotCollateral: { toBigInt: () => 0n },
       pendingReservedMicronotCollateral: { toBigInt: () => 0n },
-      activePendingTransferIds: [],
+      activePendingTransferIds,
     }),
+  };
+}
+
+async function trackMintingAuthoritySigner(
+  db: Awaited<ReturnType<typeof createTestDb>>,
+  walletKeys: ReturnType<typeof createWalletKeysStub>,
+  signer: string,
+  hdIndex: number,
+) {
+  await db.walletHdKeysTable.upsert({
+    keyRole: 'mintingAuthority',
+    scopeKey: walletKeys.vaultingAddress.toLowerCase(),
+    hdIndex,
+    hdPath: walletKeys.getMintingAuthorityEthereumHdPath(hdIndex),
+    address: signer,
+    publicKeyHex: null,
+  });
+}
+
+function createRefreshClient(args: {
+  signer: string;
+  sourceAccount: string;
+  loadSourceTotals: () => Promise<ReturnType<typeof sourceTotalsValue>[]>;
+}) {
+  const transferId = `0x${'01'.repeat(32)}`;
+  return {
+    query: {
+      crosschainTransfer: {
+        mintingAuthoritiesBySigner: {
+          multi: vi.fn(async (signers: string[]) =>
+            signers.map(signer =>
+              signer === args.signer
+                ? someAuthority('5VaultingAddress', signer, [hexValue(transferId)])
+                : noneAuthority(),
+            ),
+          ),
+        },
+        chainConfigBySourceChain: vi.fn(async () => ({ isNone: true })),
+        transferOutById: {
+          multi: vi.fn(async () => [backedTransfer(args.signer, args.sourceAccount)]),
+        },
+        transferTotalsByAccount: {
+          multi: vi.fn(args.loadSourceTotals),
+        },
+      },
+      operationalAccounts: {
+        operationalAccountBySubAccount: {
+          multi: vi.fn(async (sourceAccounts: string[]) => sourceAccounts.map(() => ({ isSome: false }))),
+        },
+      },
+    },
+  };
+}
+
+function backedTransfer(signer: string, sourceAccount: string) {
+  return {
+    isNone: false,
+    unwrap: () => ({
+      state: { isReady: true },
+      asset: { isArgon: true },
+      argonAccountId: accountValue(`0x${'aa'.repeat(32)}`, sourceAccount),
+      argonTransferNonce: bigintValue(7n),
+      destinationAccount: hexValue(`0x${'bb'.repeat(20)}`),
+      amount: bigintValue(80n),
+      validUntilEthereumBlock: bigintValue(123n),
+      mintingAuthorityTip: bigintValue(2n),
+      microgonsPerArgonot: bigintValue(1n),
+      totalAttachedCollateral: bigintValue(60n),
+      mintingAuthorityCollateralBySigner: new Map([
+        [hexValue(signer), { microgonCollateral: bigintValue(40n), micronotCollateral: bigintValue(20n) }],
+      ]),
+    }),
+  };
+}
+
+function sourceTotalsValue(microgonsOut: bigint) {
+  return {
+    microgonsOut: bigintValue(microgonsOut),
+    micronotsOut: bigintValue(microgonsOut * 2n),
+    argonTransfersOutCount: { toNumber: () => 2 },
+    argonotTransfersOutCount: { toNumber: () => 3 },
   };
 }
 

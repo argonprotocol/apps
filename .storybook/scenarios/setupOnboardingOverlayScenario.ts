@@ -129,7 +129,6 @@ export function setupMemberInviteScenario(
     | 'loading'
     | 'loadError'
     | 'currentRuntime'
-    | 'previousRuntime'
     | 'onboardingInactive'
     | 'bitcoinSpaceRequired'
     | 'insufficientBitcoinWaiver'
@@ -166,7 +165,6 @@ export function setupMemberInviteScenario(
       tx: {
         bitcoinLocks: {
           setFlexible: fn(),
-          ...(state === 'previousRuntime' ? { initializeFor: fn() } : {}),
         },
         treasury: { setBondLotFlexible: fn() },
         operationalAccounts: { setName: fn() },

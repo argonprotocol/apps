@@ -992,7 +992,7 @@ export class BitcoinLockRecovery {
     return this.applyRecoveredRecord(record);
   }
 
-  public recoverActiveLocks(): Promise<IBitcoinLockRecord[]> {
+  public recoverActiveLocks(options?: { requireComplete?: boolean }): Promise<IBitcoinLockRecord[]> {
     this.activeLockRecoveryPromise ??= (async () => {
       this.activeLocksByUtxoId.clear();
       const api = await this.blockWatch.getFinalizedApi();
@@ -1053,7 +1053,14 @@ export class BitcoinLockRecovery {
     })().finally(() => {
       this.activeLockRecoveryPromise = undefined;
     });
-    return this.activeLockRecoveryPromise;
+    if (!options?.requireComplete) return this.activeLockRecoveryPromise;
+
+    return this.activeLockRecoveryPromise.then(records => {
+      if (this.activeLockRecoveryFailedUtxoIds.size) {
+        throw new Error('Active Bitcoin lock recovery is incomplete.');
+      }
+      return records;
+    });
   }
 
   public async recoverActiveLockCreationDetails(mainchainClients: MainchainClients): Promise<void> {

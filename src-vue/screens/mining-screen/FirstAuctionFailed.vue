@@ -111,8 +111,6 @@ Vue.onMounted(async () => {
   if (isDisposed) return;
 
   calculatorSubscription = calculator.onLoad(() => {
-    // onLoad also queues this callback through loadedFrameIdPromise, which unsubscribe cannot cancel.
-    if (isDisposed) return;
     const projections = calculator.runProjections(config.biddingRules, 'maximum');
     microgonRequirement.value = projections.microgonRequirement;
     micronotRequirement.value = projections.micronotRequirement;

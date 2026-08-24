@@ -6,7 +6,6 @@ import { BitcoinLock, Vault } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
 import {
   bigIntMax,
-  BlockWatch,
   type IBotState,
   type IMiningFrameDetail,
   JsonExt,
@@ -34,10 +33,9 @@ import {
 } from './helpers/bitcoinLocksHarness.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
 import {
-  BitcoinLockRelayService,
+  BitcoinLockFeeCouponService,
   type Bot,
   type BotServer,
-  Db as BotDb,
   DelegateSubmitLane,
   startServer as startBotServer,
 } from '@argonprotocol/apps-bot';
@@ -117,18 +115,13 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
     });
     const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), 'treasury-app-invite-'));
 
-    let relayBlockWatch: BlockWatch | undefined;
-    let relayService: BitcoinLockRelayService | undefined;
+    let bitcoinLockFeeCouponService: BitcoinLockFeeCouponService | undefined;
     let botServer: BotServer | undefined;
-    let botDb: BotDb | undefined;
     let routerDb: RouterDb | undefined;
     let routerServer: RouterServer | undefined;
 
     try {
       const operatorVault = operatorHarness.myVault.createdVault!;
-      const operatorClient = await operatorHarness.clients.get(false);
-      expect(BitcoinLock.supportsInitializeFor(operatorClient)).toBe(false);
-
       const expectedFromName = 'OperatorOne';
       const delegateKeypair = await operatorHarness.walletKeys.getVaultDelegateKeypair();
 
@@ -149,22 +142,16 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
         return true;
       });
 
-      botDb = new BotDb(Path.join(tempDir, 'bot'));
-      botDb.migrate();
-      relayBlockWatch = new BlockWatch(operatorHarness.clients);
       const submitLane = new DelegateSubmitLane(delegateKeypair);
       submitLane.client = await operatorHarness.clients.get(false);
-      relayService = new BitcoinLockRelayService(
-        botDb,
+      bitcoinLockFeeCouponService = new BitcoinLockFeeCouponService(
         operatorHarness.clients,
-        relayBlockWatch,
         operatorHarness.walletKeys.vaultingAddress,
         submitLane,
       );
-      const activeRelayService = relayService;
       const botApi = {
         isReady: true,
-        relayService: activeRelayService,
+        bitcoinLockFeeCouponService,
         state: async () => ({ isReady: true }) as unknown as IBotState,
         getHistoryForFrame: async () => ({ activities: [] }),
         getMiningFrameDetail: async () =>
@@ -174,7 +161,10 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
             winningBids: [],
             slots: [],
           }) satisfies IMiningFrameDetail,
-      } satisfies Pick<Bot, 'isReady' | 'relayService' | 'state' | 'getHistoryForFrame' | 'getMiningFrameDetail'>;
+      } satisfies Pick<
+        Bot,
+        'isReady' | 'bitcoinLockFeeCouponService' | 'state' | 'getHistoryForFrame' | 'getMiningFrameDetail'
+      >;
       botServer = startBotServer(botApi as unknown as Bot, 0);
       await botServer.waitForListening();
 
@@ -299,7 +289,6 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
         },
       });
       expect(firstInitialization.txInfo).toBeDefined();
-      expect(firstInitialization.pendingLock.relayMetadataJson).toBeNull();
       await firstInitialization.txInfo!.txResult.waitForFinalizedBlock;
       await firstInitialization.txInfo!.waitForPostProcessing;
 
@@ -365,9 +354,6 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       await routerServer?.close().catch(() => undefined);
       routerDb?.close();
       await botServer?.close().catch(() => undefined);
-      await relayService?.shutdown().catch(() => undefined);
-      relayBlockWatch?.stop();
-      botDb?.close();
       await Fs.promises.rm(tempDir, { recursive: true, force: true });
       await cleanupBitcoinLocksHarness(operatorHarness);
       await cleanupBitcoinLocksClientHarness(treasuryHarness);

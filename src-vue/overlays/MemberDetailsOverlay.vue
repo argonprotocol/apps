@@ -403,11 +403,7 @@ const canUpdateBitcoinFeeWaiverExpiration = Vue.computed(() => {
 const bitcoinFeeWaiverAppliedAt = Vue.computed(() => {
   const coupon = invite.value?.bitcoinLockCoupon;
   if (coupon?.status !== 'Used') return;
-  return (
-    coupon.relay?.updatedAt ??
-    coupon.coupon.usedAt ??
-    coupon.uses?.filter(use => use.status === 'Finalized').at(-1)?.updatedAt
-  );
+  return coupon.coupon.usedAt ?? coupon.uses?.filter(use => use.status === 'Finalized').at(-1)?.updatedAt;
 });
 const isBitcoinFeeWaiverExpired = Vue.computed(() => {
   const coupon = invite.value?.bitcoinLockCoupon;

@@ -5,13 +5,13 @@ import type {
   RouterAuthRole,
   UserRole,
 } from '@argonprotocol/apps-core';
-import type { IBitcoinLockCouponStatus, IBitcoinLockRelayRequest } from './IBitcoinLockRelay.js';
+import type { IBitcoinLockCouponRequest, IBitcoinLockCouponStatus } from './IBitcoinLockCoupon.js';
 import type { BitcoinLockFeeCoupon } from '@argonprotocol/mainchain';
 import type { ITreasuryUserInvite } from './ITreasuryUserInvite.js';
 
 export const BITCOIN_FEE_COUPON_MINIMUM_DESKTOP_VERSION = '2.3.5';
 
-export type IInitializeBitcoinLockRequest = IBitcoinLockRelayRequest;
+export type IInitializeBitcoinLockRequest = IBitcoinLockCouponRequest;
 export type InviteRole = UserRole;
 
 export interface ICreateInviteRequest {
@@ -120,7 +120,10 @@ export interface IOpenInviteResponse {
 
 export interface IBitcoinLockStatusResponse {
   bitcoinLock: IBitcoinLockCouponStatus;
-  execution?: {
+}
+
+export interface IInitializeBitcoinLockResponse extends IBitcoinLockStatusResponse {
+  execution: {
     type: 'FeeCoupon';
     requestId: string;
     feeCoupon: BitcoinLockFeeCoupon;

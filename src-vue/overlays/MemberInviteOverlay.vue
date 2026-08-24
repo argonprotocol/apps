@@ -39,9 +39,7 @@
               <div class="text-sm font-semibold text-slate-700">Attach Bitcoin Lock Fees Waivers</div>
               <p class="mt-1 text-sm leading-5 text-slate-500">
                 Choose how much of this member's Bitcoin locking fees to waive.
-                <template v-if="!usesDelegatedInitialization">
-                  The waiver can be applied across eligible locks until its amount is exhausted or it expires.
-                </template>
+                The waiver can be applied across eligible locks until its amount is exhausted or it expires.
                 The maximum waiver is based on your current
                 {{
                   numeral(inviteVaultSnapshot?.terms.bitcoinAnnualPercentRate.times(100).toNumber() ?? 0).format(
@@ -67,7 +65,7 @@
             <SliderRoot
               v-model="feeWaiverPercentage"
               :disabled="!!inviteCreationBlockedReason"
-              :min="minimumFeeWaiverPercentage"
+              :min="1"
               :max="100"
               :step="1"
               class="relative mt-3 flex h-5 w-full touch-none items-center select-none"
@@ -96,22 +94,10 @@
 
         <div class="mt-5 space-y-2">
           <div
-            v-if="usesDelegatedInitialization || hasInsufficientBitcoinWaiver || hasInsufficientBondCapacity"
+            v-if="hasInsufficientBitcoinWaiver || hasInsufficientBondCapacity"
             class="flex items-start rounded border border-yellow-400/70 bg-yellow-100 px-3 py-2.5 text-sm text-yellow-900"
           >
             <ul class="grow list-disc space-y-1 pl-4">
-              <li v-if="usesDelegatedInitialization">
-                This waiver works on a single Bitcoin lock until the system is upgraded.
-                <Tooltip
-                  as-child
-                  side="top"
-                  content="Until the upgrade, fee waivers are good for a single bitcoin lock. After the upgrade, the user will be able to use your full waived fee amount across multiple bitcoin locks."
-                >
-                  <span class="ml-1 inline-flex cursor-help align-text-bottom">
-                    <InformationCircleIcon class="size-4 text-yellow-700" />
-                  </span>
-                </Tooltip>
-              </li>
               <li v-if="hasInsufficientBitcoinWaiver">
                 {{ inviteName.trim() || 'This member' }} will not be able to lock enough Bitcoin for Treasury
                 verification with this waiver.
@@ -138,7 +124,12 @@
             <AlertIcon class="mr-2 size-4 shrink-0 text-yellow-700" />
             <span>
               {{ inviteCreationBlockedReason }}
-              <template v-if="myVault.createdVault">
+              <template v-if="myVault.createdVault && !isValidOperatorName(operatorName)">
+                <a href="#" class="font-semibold underline" @click.prevent="openOperationalProfile"
+                  >Activate member onboarding</a
+                >.
+              </template>
+              <template v-else-if="myVault.createdVault">
                 <a href="#" class="font-semibold underline" @click.prevent="openSecuritization">Add securitization</a>
                 <template v-if="supportsFlexibleAssets">
                   or
@@ -242,7 +233,6 @@ const operatorName = Vue.ref('');
 const inviteName = Vue.ref('');
 const feeCreditMicrogons = Vue.ref(0n);
 const feeWaiverExpirationDays = Vue.ref(7);
-const usesDelegatedInitialization = Vue.ref(false);
 const maxLockableSatoshis = Vue.ref(0n);
 const maxLockableLiquidityMicrogons = Vue.ref(0n);
 const memberBondCapacityMicrogons = Vue.ref(0n);
@@ -267,18 +257,7 @@ const maximumFeeCreditMicrogons = Vue.computed(() => {
   if (!vault || maxLockableLiquidityMicrogons.value <= 0n) return 0n;
 
   const maximumFee = vault.calculateBitcoinFee(maxLockableLiquidityMicrogons.value);
-  return usesDelegatedInitialization.value ? maximumFee : bigIntMax(maximumFee - vault.terms.bitcoinBaseFee, 0n);
-});
-const minimumFeeWaiverPercentage = Vue.computed(() => {
-  const vault = inviteVaultSnapshot.value;
-  const maximumFeeCredit = maximumFeeCreditMicrogons.value;
-  if (!vault || !usesDelegatedInitialization.value || maximumFeeCredit <= 0n) return 1;
-
-  const minimumFeeCredit = vault.terms.bitcoinAnnualPercentRate.isZero()
-    ? vault.terms.bitcoinBaseFee
-    : vault.terms.bitcoinBaseFee + 1n;
-  const minimumPercentage = (minimumFeeCredit * 100n + maximumFeeCredit - 1n) / maximumFeeCredit;
-  return Math.min(Math.max(Number(minimumPercentage), 1), 100);
+  return bigIntMax(maximumFee - vault.terms.bitcoinBaseFee, 0n);
 });
 const feeWaiverPercentage = Vue.computed<number[]>({
   get: () => {
@@ -296,14 +275,8 @@ const maximumBitcoinLockMicrogons = Vue.computed(() => {
   const vault = inviteVaultSnapshot.value;
   if (!vault || feeCreditMicrogons.value <= 0n || maxLockableLiquidityMicrogons.value <= 0n) return 0n;
 
-  let variableFeeCredit = feeCreditMicrogons.value;
-  if (usesDelegatedInitialization.value) {
-    if (variableFeeCredit < vault.terms.bitcoinBaseFee) return 0n;
-    variableFeeCredit -= vault.terms.bitcoinBaseFee;
-  }
-  if (vault.terms.bitcoinAnnualPercentRate.isZero()) {
-    return usesDelegatedInitialization.value ? maxLockableLiquidityMicrogons.value : 0n;
-  }
+  const variableFeeCredit = feeCreditMicrogons.value;
+  if (vault.terms.bitcoinAnnualPercentRate.isZero()) return 0n;
 
   const coveredLockValue = bigNumberToBigInt(
     BigNumber(variableFeeCredit.toString())
@@ -411,7 +384,6 @@ async function loadInviteCapacity(preserveFeeWaiverAmount = false) {
   memberBondTotalCapacityMicrogons.value =
     currentVault.activatedSecuritization() + currentVault.securitizationPendingActivation;
   supportsFlexibleAssets.value = supportsFlexibleAssetsRuntime(client);
-  usesDelegatedInitialization.value = BitcoinLock.supportsInitializeFor(client);
   operatorName.value = getOperationalProfileName(await loadOperationalAccount(walletKeys, client));
 
   let projectedFlexibleSecuritizationLocked: bigint | undefined;
@@ -566,6 +538,16 @@ function openFlexibleAssets() {
   basicEmitter.emit('openFlexibleAssetsOverlay', {
     returnTo: 'memberInvite',
     flexibleAssetChanges: flexibleAssetChanges.value,
+  });
+}
+
+function openOperationalProfile() {
+  if (isSubmitting.value) return;
+
+  isOpen.value = false;
+  basics.overlayIsOpen = false;
+  basicEmitter.emit('openOperationalProfileOverlay', {
+    onSaved: () => basicEmitter.emit('openMemberInviteOverlay', { preserveDraft: true }),
   });
 }
 

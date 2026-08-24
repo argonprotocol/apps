@@ -5,31 +5,14 @@ import {
   type IEthereumGatewayCatchUpResponse,
   type IEthereumGatewayRelayStatus,
   type ISignBitcoinLockFeeCouponRequest,
-  type IBitcoinLockRelayRecord,
   type IBotStateStarting,
 } from '@argonprotocol/apps-core';
 import type { BitcoinLockFeeCoupon } from '@argonprotocol/mainchain';
-import type { IBitcoinLockRelayJobRequest, IRouterErrorResponse } from './interfaces/index.ts';
+import type { IRouterErrorResponse } from './interfaces/index.ts';
 import { RouterError } from './RouterError.ts';
 
 export class BotUpstreamClient {
   constructor(private readonly botInternalUrl: string) {}
-
-  public async initializeBitcoinLock(request: IBitcoinLockRelayJobRequest): Promise<IBitcoinLockRelayRecord> {
-    return await this.request('/bitcoin-lock-relays/initialize', {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JsonExt.stringify(request),
-    });
-  }
-
-  public async getBitcoinLockRelay(requestId: string): Promise<IBitcoinLockRelayRecord> {
-    return await this.request(`/bitcoin-lock-relays/${encodeURIComponent(requestId)}`);
-  }
-
-  public async listBitcoinLockRelays(): Promise<IBitcoinLockRelayRecord[]> {
-    return await this.request('/bitcoin-lock-relays');
-  }
 
   public async signBitcoinLockFeeCoupon(request: ISignBitcoinLockFeeCouponRequest): Promise<BitcoinLockFeeCoupon> {
     return await this.request('/bitcoin-lock-fee-coupons/sign', {

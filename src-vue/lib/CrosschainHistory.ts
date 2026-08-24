@@ -59,6 +59,8 @@ export type ICrosschainHistoryRecord = {
 
 type IFindAddressActivity = typeof findAddressActivity;
 type IIndexedActivity = IIndexerSpec['/v2/activity/:address']['responseType'];
+const INCOMPLETE_COVERAGE_RETRY_MILLIS = 2_500;
+const INCOMPLETE_COVERAGE_RETRIES = 3;
 
 export class CrosschainHistory {
   public data: {
@@ -99,10 +101,21 @@ export class CrosschainHistory {
     const refresh = async () => {
       if (this.financialCache) await this.cacheRestorePromise;
 
+      let incompleteCoverageRetries = 0;
+      let retryIncompleteCoverage = false;
       do {
         this.refreshRequested = false;
         await this.refreshHistory();
-      } while (this.refreshRequested);
+        retryIncompleteCoverage =
+          !this.data.coverageComplete && !this.data.error && incompleteCoverageRetries < INCOMPLETE_COVERAGE_RETRIES;
+        if (retryIncompleteCoverage) {
+          incompleteCoverageRetries += 1;
+          await new Promise(resolve => setTimeout(resolve, INCOMPLETE_COVERAGE_RETRY_MILLIS));
+        }
+      } while (this.refreshRequested || retryIncompleteCoverage);
+      if (!this.data.coverageComplete && !this.data.error) {
+        this.data.error = 'Crosschain history is waiting for activity index coverage';
+      }
     };
     this.refreshPromise = refresh().finally(() => {
       this.refreshPromise = undefined;

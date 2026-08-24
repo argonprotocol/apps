@@ -1,6 +1,6 @@
 import * as Vue from 'vue';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
-import { UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { type IBitcoinLockCouponUseRecord, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 import { TxResult, type IBitcoinLock } from '@argonprotocol/mainchain';
 import { ApiPromise } from '@polkadot/api';
@@ -262,7 +262,7 @@ export function setupBitcoinOverlayScenario() {
   });
   mocked(getBitcoinLocks).mockReturnValue(bitcoinLocks);
 
-  function setFeeWaiver(remainingFeeCreditMicrogons = 20_400_000n) {
+  function setFeeWaiver(remainingFeeCreditMicrogons = 20_400_000n, resumableRequestedSatoshis?: bigint) {
     Object.assign(vault, {
       terms: { ...vault.terms, bitcoinBaseFee: 2_000_000n },
       calculateBitcoinFee: fn(() => 22_400_000n),
@@ -292,8 +292,45 @@ export function setupBitcoinOverlayScenario() {
         updatedAt: new Date(scenarioStartedAt),
       },
     };
+    let resumableCoupon: IBitcoinLockCouponStatus | undefined;
+    if (resumableRequestedSatoshis != null) {
+      const pendingInitialization: IBitcoinLockCouponUseRecord = {
+        id: 2,
+        couponId: 2,
+        requestId: 'synthetic-signed-initialization',
+        status: 'Prepared',
+        feeCreditMicrogons: remainingFeeCreditMicrogons,
+        requestedSatoshis: resumableRequestedSatoshis,
+        ownerAccountId: liquidLockingWallet.address,
+        ownerBitcoinPubkey: `02${'55'.repeat(32)}`,
+        microgonsAtTargetPerBtc: 6_800_000_000n,
+        feeCoupon: {
+          feeDiscount: remainingFeeCreditMicrogons,
+          securitizationSpaceToUnreserve: 0n,
+          expiresAtFrame: 10_100n,
+          nonce: 2n,
+          signature: '0xsignature',
+        },
+        createdAt: new Date(scenarioStartedAt - 60_000),
+        updatedAt: new Date(scenarioStartedAt),
+      };
+      resumableCoupon = {
+        ...coupon,
+        status: 'Prepared',
+        pendingFeeCreditMicrogons: remainingFeeCreditMicrogons,
+        remainingFeeCreditMicrogons: 0n,
+        coupon: {
+          ...coupon.coupon,
+          id: 2,
+          sequence: 0,
+          offerCode: 'synthetic-resumable-fee-waiver',
+        },
+        uses: [pendingInitialization],
+      };
+    }
     const bitcoinLockCoupons = Vue.reactive({
       currentCoupon: coupon,
+      ...(resumableCoupon ? { resumableCoupon } : {}),
       refresh: fn(async () => undefined),
     }) as unknown as ReturnType<typeof getBitcoinLockCoupons>;
     mocked(getBitcoinLockCoupons).mockReturnValue(bitcoinLockCoupons);

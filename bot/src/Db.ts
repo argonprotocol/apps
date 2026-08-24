@@ -2,12 +2,10 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { runSqliteMigrations } from '@argonprotocol/apps-core';
-import { BitcoinLockRelaysTable } from './db/BitcoinLockRelaysTable.ts';
 import { migrations } from './db/migrations/index.ts';
 
 export class Db {
   public readonly sql: DatabaseSync;
-  #bitcoinLockRelaysTable?: BitcoinLockRelaysTable;
 
   constructor(datadir: string) {
     const dbPath = join(datadir, 'vault.sqlite');
@@ -17,11 +15,6 @@ export class Db {
 
   public migrate(): void {
     runSqliteMigrations(this.sql, migrations);
-  }
-
-  public get bitcoinLockRelaysTable(): BitcoinLockRelaysTable {
-    this.#bitcoinLockRelaysTable ??= new BitcoinLockRelaysTable(this);
-    return this.#bitcoinLockRelaysTable;
   }
 
   public close(): void {

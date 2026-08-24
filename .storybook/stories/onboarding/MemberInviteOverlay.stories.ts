@@ -53,21 +53,12 @@ export const FeeWaiverAvailabilityOpen: Story = {
   },
 };
 
-export const PreviousRuntime: Story = {
-  beforeEach: () => setupMemberInviteScenario('previousRuntime'),
-  play: async () => {
-    await expectEventuallyVisible(
-      within(document.body).findByText('This waiver works on a single Bitcoin lock until the system is upgraded.'),
-    );
-  },
-};
-
 export const OnboardingInactive: Story = {
   beforeEach: () => setupMemberInviteScenario('onboardingInactive'),
   play: async () => {
-    await expectEventuallyVisible(
-      within(document.body).findByText(/Activate member onboarding before creating an invite/),
-    );
+    const canvas = within(document.body);
+    await expectEventuallyVisible(canvas.findByText(/Activate member onboarding before creating an invite/));
+    await expect(canvas.findByRole('link', { name: 'Activate member onboarding' })).resolves.toBeVisible();
   },
 };
 

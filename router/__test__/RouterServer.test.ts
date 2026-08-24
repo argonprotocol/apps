@@ -27,10 +27,10 @@ import {
 import { Db as RouterDb } from '../src/Db.ts';
 import { RouterServer } from '../src/RouterServer.ts';
 import type { IRouterAuthServiceOptions } from '../src/RouterAuthService.ts';
-import { BITCOIN_FEE_COUPON_MINIMUM_DESKTOP_VERSION } from '../src/interfaces/index.ts';
 import type {
   IBitcoinLockCouponStatus,
   IBitcoinLockStatusResponse,
+  IInitializeBitcoinLockResponse,
   IInviteResponse,
   IListBitcoinLockCouponsResponse,
   IListInvitesResponse,
@@ -706,11 +706,6 @@ describe('RouterServer', () => {
   it('requires a matching member session for member coupon routes', async () => {
     routerDb = createDb('router-server-member-coupon-auth-');
 
-    const bitcoinLocksTx: { initializeFor?: ReturnType<typeof vi.fn> } = { initializeFor: vi.fn() };
-    const runtimeClient = {
-      disconnect: vi.fn().mockResolvedValue(undefined),
-      tx: { bitcoinLocks: bitcoinLocksTx },
-    };
     mainchainMocks.getClient.mockRejectedValue(new Error('Mainchain is not needed before initialization'));
 
     const operator = new Keyring({ type: 'sr25519' }).addFromUri('//RouterOperator');
@@ -746,40 +741,6 @@ describe('RouterServer', () => {
     const started = await startRouterServer(
       routerDb,
       request => {
-        if (request.method === 'POST' && request.path === '/bitcoin-lock-relays/initialize') {
-          const body = request.body as {
-            requestId: string;
-            requestedSatoshis: bigint;
-            ownerAccountId: string;
-            ownerBitcoinPubkey: string;
-            microgonsAtTargetPerBtc: bigint;
-          };
-          return {
-            status: 200,
-            body: {
-              id: 1,
-              ...body,
-              status: 'Submitted',
-              securitizationUsedMicrogons: 10_000n,
-              error: null,
-              delegateAddress: '5Delegate',
-              extrinsicHash: '0x1234',
-              extrinsicMethodJson: { section: 'bitcoinLocks', method: 'initializeFor' },
-              txNonce: 1,
-              txSubmittedAtBlockHeight: 10,
-              txSubmittedAtTime: new Date('2026-06-20T12:00:00.000Z'),
-              txExpiresAtBlockHeight: 20,
-              txInBlockHeight: null,
-              txInBlockHash: null,
-              txFinalizedHeight: null,
-              txFeePlusTip: null,
-              txTip: null,
-              utxoId: null,
-              createdAt: new Date('2026-06-20T12:00:00.000Z'),
-              updatedAt: new Date('2026-06-20T12:00:00.000Z'),
-            },
-          };
-        }
         if (request.method === 'POST' && request.path === '/bitcoin-lock-fee-coupons/sign') {
           const body = request.body as {
             vaultId: number;
@@ -833,9 +794,22 @@ describe('RouterServer', () => {
       ],
     });
 
-    const initializePath = '/bitcoin-lock-coupons/offer-code-1/initialize';
+    insertCoupon(routerDb, {
+      userId: invite.id,
+      offerCode: 'fee-credit-1',
+      vaultId: 12,
+      maxSatoshis: 25_000n,
+      estimatedGiftUsd: 16.25,
+      btcPctFee: 2.5,
+      feeCreditMicrogons: 1_000n,
+      accountId: member.address,
+      expirationTick: MiningFrames.calculateCurrentTickFromSystemTime() + 60,
+    });
+    const initializePath = '/bitcoin-lock-coupons/fee-credit-1/initialize';
     const initializeBody = {
+      requestId: 'lock-2',
       requestedSatoshis: 10_000n,
+      feeCreditMicrogons: 400n,
       ownerAccountId: member.address,
       ownerBitcoinPubkey: '03b28f34af9b5e623aa640f82bf9f09ffcc287d5826ac7ef84b96eddb71543fdae',
       microgonsAtTargetPerBtc: 125_000_000n,
@@ -851,48 +825,13 @@ describe('RouterServer', () => {
     );
     expect(mismatchedInitializeResponse.status).toBe(403);
 
-    mainchainMocks.getClient.mockResolvedValue(runtimeClient);
     const authenticatedInitializeResponse = await requestJson(
       started.routerAddress,
       withSessionId(initializePath, session.sessionId),
       initializeBody,
     );
     expect(authenticatedInitializeResponse.status).toBe(200);
-    const initializedResponse = JsonExt.parse<{ bitcoinLock: IBitcoinLockCouponStatus; execution?: unknown }>(
-      await authenticatedInitializeResponse.text(),
-    );
-    expect(Object.keys(initializedResponse)).toEqual(['bitcoinLock']);
-    const initialized = initializedResponse.bitcoinLock;
-    expect(initialized.coupon).toEqual({
-      ...listedCoupon,
-      updatedAt: initialized.coupon.updatedAt,
-    });
-    expect(initialized.status).toBe('Submitted');
-    expect(initialized.relay?.requestedSatoshis).toBe(10_000n);
-
-    insertCoupon(routerDb, {
-      userId: invite.id,
-      offerCode: 'fee-credit-1',
-      vaultId: 12,
-      maxSatoshis: 25_000n,
-      estimatedGiftUsd: 16.25,
-      btcPctFee: 2.5,
-      feeCreditMicrogons: 1_000n,
-      accountId: member.address,
-      expirationTick: MiningFrames.calculateCurrentTickFromSystemTime() + 60,
-    });
-    const signedCouponResponse = await requestJson(
-      started.routerAddress,
-      withSessionId('/bitcoin-lock-coupons/fee-credit-1/initialize', session.sessionId),
-      {
-        ...initializeBody,
-        requestId: 'lock-2',
-        execution: 'FeeCoupon',
-        feeCreditMicrogons: 400n,
-      },
-    );
-    expect(signedCouponResponse.status).toBe(200);
-    const signedCoupon = JsonExt.parse<IBitcoinLockStatusResponse>(await signedCouponResponse.text());
+    const signedCoupon = JsonExt.parse<IInitializeBitcoinLockResponse>(await authenticatedInitializeResponse.text());
     expect(signedCoupon.execution).toMatchObject({
       type: 'FeeCoupon',
       requestId: 'lock-2',
@@ -906,43 +845,6 @@ describe('RouterServer', () => {
       pendingFeeCreditMicrogons: 400n,
       remainingFeeCreditMicrogons: 600n,
     });
-
-    const upgradeCoupon = insertCoupon(routerDb, {
-      userId: invite.id,
-      offerCode: 'upgrade-required',
-      vaultId: 12,
-      maxSatoshis: 25_000n,
-      estimatedGiftUsd: 16.25,
-      btcPctFee: 2.5,
-      feeCreditMicrogons: 1_000n,
-      accountId: member.address,
-      expirationTick: MiningFrames.calculateCurrentTickFromSystemTime() + 60,
-    });
-    bitcoinLocksTx.initializeFor = undefined;
-    const existingRelayResponse = await requestJson(
-      started.routerAddress,
-      withSessionId(initializePath, session.sessionId),
-      initializeBody,
-    );
-    expect(existingRelayResponse.status).toBe(200);
-    expect(JsonExt.parse<IBitcoinLockStatusResponse>(await existingRelayResponse.text()).bitcoinLock).toMatchObject({
-      status: 'Submitted',
-      relay: { requestedSatoshis: 10_000n },
-    });
-
-    const upgradeResponse = await requestJson(
-      started.routerAddress,
-      withSessionId('/bitcoin-lock-coupons/upgrade-required/initialize', session.sessionId),
-      initializeBody,
-    );
-    expect(upgradeResponse.status).toBe(426);
-    expect(JsonExt.parse(await upgradeResponse.text())).toEqual({
-      error: `This upstream requires Argon Desktop ${BITCOIN_FEE_COUPON_MINIMUM_DESKTOP_VERSION} or newer to initialize a Bitcoin lock on the current network. Update Argon Desktop and try again. Your Bitcoin fee gift remains available.`,
-      code: 'DESKTOP_UPGRADE_REQUIRED',
-      minimumDesktopVersion: BITCOIN_FEE_COUPON_MINIMUM_DESKTOP_VERSION,
-    });
-    expect(routerDb.bitcoinLockCouponsTable.fetchById(upgradeCoupon.id)).toMatchObject({ relayRequestId: null });
-    expect(routerDb.bitcoinLockCouponsTable.fetchUsesByCouponId(upgradeCoupon.id)).toEqual([]);
   });
 
   it('lets a member request an operations upgrade once and lets the operator mark it complete', async () => {
@@ -1349,11 +1251,7 @@ function insertCoupon(
   },
 ): IBitcoinLockCouponStatus['coupon'] {
   const createdAt = args.createdAt ?? new Date('2026-06-20T12:00:00.000Z');
-  const {
-    relayRequestId: _relayRequestId,
-    relay: _relay,
-    ...coupon
-  } = db.bitcoinLockCouponsTable.restore({
+  const coupon = db.bitcoinLockCouponsTable.restore({
     ...args,
     sequence: 1,
     expiresAfterTicks: args.expiresAfterTicks ?? 60,

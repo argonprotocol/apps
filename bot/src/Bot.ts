@@ -4,7 +4,7 @@ import { type ArgonClient, type KeyringPair } from '@argonprotocol/mainchain';
 import { Storage } from './Storage.ts';
 import { AutoBidder } from './AutoBidder.ts';
 import { BlockSync } from './BlockSync.ts';
-import { BitcoinLockRelayService } from './BitcoinLockRelayService.ts';
+import { BitcoinLockFeeCouponService } from './BitcoinLockFeeCouponService.ts';
 import { Db } from './Db.ts';
 import { DockerStatus } from './DockerStatus.ts';
 import { setTimeout } from 'node:timers/promises';
@@ -57,7 +57,7 @@ export default class Bot {
   public blockWatch!: BlockWatch;
   public miningFrameHistory!: MiningFrameHistory;
   public db: Db;
-  public relayService: BitcoinLockRelayService;
+  public bitcoinLockFeeCouponService: BitcoinLockFeeCouponService;
   public ethereumGatewayProverService: EthereumGatewayProverService;
 
   public isStarting: boolean = false;
@@ -91,10 +91,8 @@ export default class Bot {
     );
     this.blockWatch = new BlockWatch(this.mainchainClients, true);
     this.delegateSubmitLane = new DelegateSubmitLane(this.options.bitcoinInitializerDelegateKeypair);
-    this.relayService = new BitcoinLockRelayService(
-      this.db,
+    this.bitcoinLockFeeCouponService = new BitcoinLockFeeCouponService(
       this.mainchainClients,
-      this.blockWatch,
       this.options.vaultOperatorAddress,
       this.delegateSubmitLane,
     );
@@ -248,7 +246,6 @@ export default class Bot {
       // Ethereum sync should report its own status, but it should not block bot readiness.
       void this.ethereumBeaconSyncService.start();
       void this.ethereumGatewayProverService.start();
-      await this.relayService.start();
 
       this.biddingRules = this.loadBiddingRules();
       this.biddingRulesJson = this.biddingRules ? JsonExt.stringify(this.biddingRules) : null;
@@ -357,7 +354,6 @@ export default class Bot {
       Fs.unwatchFile(this.options.biddingRulesPath);
     }
     await this.autobidder.stop();
-    await this.relayService.shutdown();
     await this.ethereumBeaconSyncService?.shutdown();
     await this.ethereumGatewayProverService.shutdown();
     this.blockWatch.stop();

@@ -34,6 +34,31 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
+export const NavigationRefreshesRecoveredTips: Story = {
+  render: () => ({
+    components: { AppScreen },
+    template: '<AppScreen><div data-testid="AccountOverview" /></AppScreen>',
+  }),
+  beforeEach: () => {
+    setupAppScenario({
+      selectedTab: TopTab.Home,
+      config: { hasActivatedCrosschain: true },
+    });
+    setupCurrency();
+
+    const history = createHistory();
+    history.refresh = fn(async () => {
+      history.data.records = [recoveredAuthorization];
+    });
+    mocked(getCrosschainHistory).mockReturnValue(history);
+  },
+  play: async ({ canvasElement }) => {
+    const crosschainNavigation = within(canvasElement).getByTestId('LeftBar.goto(TopTab.CrosschainTransfers)');
+
+    await waitFor(() => expect(within(crosschainNavigation).getByText('₳2.00')).toBeVisible());
+  },
+};
+
 export const RecoveredTransferTips: Story = {
   beforeEach: () => {
     setupAppScenario({
@@ -60,21 +85,7 @@ export const RecoveredTransferTips: Story = {
       }),
     );
 
-    const history = new CrosschainHistory(
-      { vaultingAddress: '5SyntheticVaultingWallet' },
-      {
-        start: fn(async () => undefined),
-        finalizedBlockHeader: { blockNumber: 10 },
-      } as any,
-      undefined,
-      fn(async () => ({
-        blocks: [],
-        asOfBlock: 10,
-        definitionVersion: 1,
-        coverage: { fromBlock: 0, toBlock: 10, gaps: [] },
-      })),
-    );
-    history.data = Vue.reactive(history.data) as typeof history.data;
+    const history = createHistory();
     history.data.records = [recoveredAuthorization];
 
     mocked(getCrosschainHistory).mockReturnValue(history);
@@ -171,6 +182,34 @@ export const PendingAuthorizationOverlay: Story = {
 };
 
 const recoveredSourceAccount = '5source';
+
+function setupCurrency() {
+  const currency = getCurrency();
+  currency._key = UnitOfMeasurement.ARGN;
+  currency.record = currency.recordsByKey[UnitOfMeasurement.ARGN];
+  currency.symbol = currency.record.symbol;
+  currency.isLoaded = true;
+}
+
+function createHistory() {
+  const history = new CrosschainHistory(
+    { vaultingAddress: '5SyntheticVaultingWallet' },
+    {
+      start: fn(async () => undefined),
+      finalizedBlockHeader: { blockNumber: 10 },
+    } as any,
+    undefined,
+    fn(async () => ({
+      blocks: [],
+      asOfBlock: 10,
+      definitionVersion: 1,
+      coverage: { fromBlock: 0, toBlock: 10, gaps: [] },
+    })),
+  );
+  history.data = Vue.reactive(history.data) as typeof history.data;
+  return history;
+}
+
 const recoveredAuthorization: ICrosschainHistoryRecord = {
   accountId: '5SyntheticVaultingWallet',
   id: '0xblock:2',
