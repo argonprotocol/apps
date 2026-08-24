@@ -230,11 +230,12 @@ export class AccountActivityIndexer {
     const batchRpcUrl = this.batchRpcUrl;
     if (!batchRpcUrl) throw new Error('Batch RPC URL is not configured');
 
-    // The public archive endpoints accept JSON-RPC batches of 500. Preserve request order because
+    // The public archive endpoints accept JSON-RPC batches of 50. Preserve request order because
     // JSON-RPC responses may arrive reordered and each result must stay paired with its block.
+    const batchSize = 50;
     const batches: { method: string; params: unknown[] }[][] = [];
-    for (let start = 0; start < requests.length; start += 500) {
-      batches.push(requests.slice(start, start + 500));
+    for (let start = 0; start < requests.length; start += batchSize) {
+      batches.push(requests.slice(start, start + batchSize));
     }
 
     const results: T[][] = new Array(batches.length);
@@ -262,7 +263,7 @@ export class AccountActivityIndexer {
             const record = byId.get(id);
             if (!record || record.error || !('result' in record)) {
               throw new Error(
-                `Batch RPC request ${batchIndex * 500 + id} failed: ${record?.error?.message ?? 'missing response'}`,
+                `Batch RPC request ${batchIndex * batchSize + id} failed: ${record?.error?.message ?? 'missing response'}`,
               );
             }
             return record.result as T;

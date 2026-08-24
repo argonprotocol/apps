@@ -110,6 +110,49 @@ it('starts syncing when the first finalized block arrives after genesis startup'
   }
 });
 
+it('indexes through an archive endpoint that limits JSON-RPC batches to 50 requests', async () => {
+  const directory = fs.mkdtempSync(Path.join(os.tmpdir(), 'activity-batch-limit-'));
+  const db = new IndexerDb(Path.join(directory, 'test.db'));
+  const runtime = eventApi(156, new Map([['0x01', []]]), ['0x01']);
+  const runtimeClient = activityClient({
+    latestBlock: 101,
+    specVersions: new Map([['0x01', 156]]),
+    apis: new Map([['0x01', runtime.api]]),
+  });
+  const readHeader = vi.spyOn(BlockWatch, 'readHeader').mockReturnValue(header(101));
+  const fetchRpc = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+    const requests = JSON.parse(String(init?.body)) as { id: number; method: string }[];
+    if (requests.length > 50) {
+      return Response.json({
+        jsonrpc: '2.0',
+        id: null,
+        error: { code: -32010, message: 'The batch request was too large', data: 'Exceeded max limit of 50' },
+      });
+    }
+
+    return Response.json(
+      requests.map(({ id }) => ({
+        jsonrpc: '2.0',
+        id,
+        result: '0x01',
+      })),
+    );
+  });
+  const indexer = new AccountActivityIndexer(db, 'https://archive.test');
+
+  try {
+    await indexer.start(runtimeClient.client);
+    await indexer.close({ drain: true, maxDurationMs: 1_000 });
+
+    expect(db.latestSyncedBlock).toBe(101);
+  } finally {
+    fetchRpc.mockRestore();
+    readHeader.mockRestore();
+    db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 it('attributes council votes to the signed source account without loading unrelated block bodies', async () => {
   const directory = fs.mkdtempSync(Path.join(os.tmpdir(), 'activity-gateway-source-'));
   const db = new IndexerDb(Path.join(directory, 'test.db'));
