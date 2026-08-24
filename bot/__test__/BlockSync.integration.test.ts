@@ -24,7 +24,7 @@ beforeAll(async () => {
   clientAddress = result.archiveUrl;
 });
 
-it.skipIf(skipE2E)('can backfill sync data', async () => {
+it.skipIf(skipE2E)('rebuilds a stale pending block queue after restart', async () => {
   const client = await getClient(clientAddress);
 
   const botDataDir = fs.mkdtempSync(Path.join(os.tmpdir(), 'block-sync-'));
@@ -104,7 +104,32 @@ it.skipIf(skipE2E)('can backfill sync data', async () => {
     remaining: result!.bestBlockNumber - 1,
   });
 
-  await expect(blockSync.syncToLatest()).resolves.toBeUndefined();
-  const status = await blockSync.botStateFile.get();
+  await blockSync.blockSyncFile.mutate(state => {
+    state.blocksByNumber[2].hash = `0x${'ff'.repeat(32)}`;
+  });
+  await storage.close();
+
+  const restartedStorage = new Storage(botDataDir);
+  const restartedClients = new MainchainClients(clientAddress);
+  await restartedClients.setPrunedClient(clientAddress);
+  const restartedBlockWatch = new BlockWatch(restartedClients);
+  const restartedMiningFrames = new MiningFrames(restartedClients, restartedBlockWatch);
+  const restartedBlockSync = new BlockSync(
+    accountset,
+    restartedStorage,
+    restartedClients,
+    restartedMiningFrames,
+    restartedBlockWatch,
+    0,
+  );
+  const processedAfterRestart: number[] = [];
+  restartedBlockSync.didProcessBlock = ({ blockNumber: processedBlockNumber }) => {
+    processedAfterRestart.push(processedBlockNumber);
+  };
+
+  await expect(restartedBlockSync.load()).resolves.toBeUndefined();
+  expect(processedAfterRestart.at(0)).toBe(2);
+
+  const status = await restartedBlockSync.botStateFile.get();
   expect(status.syncProgress).toBe(100);
 });
