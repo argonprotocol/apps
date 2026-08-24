@@ -2,20 +2,22 @@ import type { DriverClient } from '../driver/client.ts';
 import { captureE2EScreenshot, getE2EScreenshotMode } from './helpers/screenshotMode.ts';
 import { isRetryableAppConnectionError, sleep } from './helpers/utils.ts';
 import { runOperation } from './operations/index.ts';
-import type {
-  E2ECommandArgs,
-  IE2EClipboardOptions,
-  IE2EFlowDefinition,
-  IE2EFlowExecutionOptions,
-  IE2EFlowExecutionResult,
-  IE2EFlowRuntime,
-  IE2EQueryAppOptions,
-  IE2ERunOperationOptions,
-  E2ETarget,
-  IE2EClickOptions,
-  IE2ETimeoutOptions,
-  IE2ETypeOptions,
-  IE2EWaitOptions,
+import {
+  E2EGlobalInterruptionError,
+  type E2ECommandArgs,
+  type IE2EClipboardOptions,
+  type IE2EFlowDefinition,
+  type IE2EFlowExecutionOptions,
+  type IE2EFlowExecutionResult,
+  type IE2EFlowRuntime,
+  type IE2EVisibilityState,
+  type IE2EQueryAppOptions,
+  type IE2ERunOperationOptions,
+  type E2ETarget,
+  type IE2EClickOptions,
+  type IE2ETimeoutOptions,
+  type IE2ETypeOptions,
+  type IE2EWaitOptions,
 } from './types.ts';
 import type { IAppQueryFn } from './types/srcVue.ts';
 
@@ -54,6 +56,8 @@ export async function executeFlow(
   const defaultTimeoutMs = flow.defaultTimeoutMs ?? DEFAULT_FLOW_TIMEOUT_MS;
   let activeOperationName = '';
   let screenshotSequence = 0;
+  let globalInterruptionDismissal: Promise<boolean> | null = null;
+  let globalInterruptionsEnabled = false;
 
   const withCommandMeta = (args?: E2ECommandArgs): E2ECommandArgs => {
     const payload: E2ECommandArgs = { ...(args ?? {}) };
@@ -82,10 +86,44 @@ export async function executeFlow(
     return null;
   };
 
+  const dismissGlobalInterruption = async (): Promise<boolean> => {
+    if (!globalInterruptionsEnabled) return false;
+    if (globalInterruptionDismissal) return await globalInterruptionDismissal;
+
+    globalInterruptionDismissal = (async () => {
+      const dismissal = await driver
+        .command<IE2EVisibilityState>('ui.isVisible', withCommandMeta({ selector: '[data-e2e-root-dismiss]' }))
+        .catch(error => {
+          if (isRetryableAppConnectionError(error)) return undefined;
+          throw error;
+        });
+      if (!dismissal?.clickable) return false;
+
+      console.info('[E2E] root dismissing global UI interruption');
+      await driver.command(
+        'ui.click',
+        withCommandMeta({
+          selector: '[data-e2e-root-dismiss]',
+          timeoutMs: defaultTimeoutMs,
+        }),
+      );
+      return true;
+    })();
+
+    try {
+      return await globalInterruptionDismissal;
+    } finally {
+      globalInterruptionDismissal = null;
+    }
+  };
+
   const runDriverCommand = async <Result>(command: string, args?: E2ECommandArgs): Promise<Result> => {
     const payload = withCommandMeta(args);
     if (command === 'app.captureScreenshot') {
       return await driver.command<Result>(command, payload);
+    }
+    if (await dismissGlobalInterruption()) {
+      throw new E2EGlobalInterruptionError('The root E2E runtime dismissed a global UI interruption.');
     }
     const screenshotMode = getE2EScreenshotMode();
     const shouldCaptureCommandScreenshot = isMutatingUiCommand(command) && screenshotMode === 'on';
@@ -133,6 +171,9 @@ export async function executeFlow(
         !errorMessage.includes('Driver socket closed')
       ) {
         await captureCommandScreenshot('failure', 'interaction');
+      }
+      if (await dismissGlobalInterruption()) {
+        throw new E2EGlobalInterruptionError('The root E2E runtime dismissed a global UI interruption.');
       }
       throw error;
     }
@@ -296,6 +337,7 @@ export async function executeFlow(
   };
 
   await ensureRuntimeUiReady(runtime);
+  globalInterruptionsEnabled = true;
   await flow.run(runtime);
 
   return {

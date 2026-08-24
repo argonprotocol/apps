@@ -35,6 +35,8 @@
 
       <button
         @click="closeOverlay"
+        data-testid="BotCreatePriceChangeOverlay.acknowledge()"
+        data-e2e-root-dismiss
         class="w-full mt-8 inner-button-shadow px-4 py-2 rounded-lg focus:outline-none cursor-pointer bg-argon-600 hover:bg-argon-700 border-argon-700 text-white"
       >
         Ok

@@ -39,7 +39,7 @@ export default new Operation<IMiningFlowContext, IFundWalletState>(import.meta, 
     const walletFullyFunded = fundingState?.walletFullyFunded ?? false;
     const dashboardVisible = dashboard.visible;
     const isComplete = dashboardVisible || walletFullyFunded;
-    const canRun = fundOverlayEntry.visible && !dashboardVisible && !walletFullyFunded;
+    const canRun = (fundOverlayEntry.visible || walletOverlayEntry.visible) && !dashboardVisible && !walletFullyFunded;
     let operationState: 'complete' | 'runnable' | 'processing' = 'processing';
     if (isComplete) {
       operationState = 'complete';
@@ -48,7 +48,9 @@ export default new Operation<IMiningFlowContext, IFundWalletState>(import.meta, 
     }
 
     const blockers: string[] = [];
-    if (!isComplete && !fundOverlayEntry.visible) blockers.push('Mining fund-wallet checklist step is not visible.');
+    if (!isComplete && !fundOverlayEntry.visible && !walletOverlayEntry.visible) {
+      blockers.push('Mining fund-wallet checklist step and wallet overlay are not visible.');
+    }
     return {
       chainState: fundingState ?? {
         walletFullyFunded: false,
@@ -68,13 +70,19 @@ export default new Operation<IMiningFlowContext, IFundWalletState>(import.meta, 
     };
   },
   async run({ flow, flowName, input }, state) {
-    if (state.walletFullyFunded || state.dashboardVisible || !state.fundOverlayVisible) {
+    if (
+      state.walletFullyFunded ||
+      state.dashboardVisible ||
+      (!state.fundOverlayVisible && !state.walletOverlayVisible)
+    ) {
       return;
     }
 
-    await flow.click('SetupChecklist.openFundMiningAccountOverlay()');
-    await flow.waitFor('WalletOverlay.micronotsNeeded', { state: 'exists' });
-    await flow.waitFor('WalletOverlay.microgonsNeeded', { state: 'exists' });
+    if (!state.walletOverlayVisible) {
+      await flow.click('SetupChecklist.openFundMiningAccountOverlay()');
+      await flow.waitFor('WalletOverlay.micronotsNeeded', { state: 'exists' });
+      await flow.waitFor('WalletOverlay.microgonsNeeded', { state: 'exists' });
+    }
 
     const microgonsNeededRaw = await flow.getAttribute('WalletOverlay.microgonsNeeded', 'data-value');
     const micronotsNeededRaw = await flow
