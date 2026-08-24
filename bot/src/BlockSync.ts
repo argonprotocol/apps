@@ -125,17 +125,43 @@ export class BlockSync {
 
     await this.backfillBestBlockHeader(this.blockWatch.bestBlockHeader, true);
 
-    const data = await this.blockSyncFile.get();
+    let data = await this.blockSyncFile.get();
     console.log('[BlockSync] After initial sync state', {
       ...data,
       blocksByNumber: Object.keys(data.blocksByNumber).length,
     });
 
-    const oldestBlock =
+    let oldestBlock =
       data.blocksByNumber[data.syncedToBlockNumber + 1] ?? data.blocksByNumber[data.syncedToBlockNumber];
     if (!oldestBlock) {
       throw new Error(`No block found to start syncing from at ${data.syncedToBlockNumber + 1}`);
     }
+
+    const canonicalOldestBlockHash = await this.archiveClient.rpc.chain
+      .getBlockHash(oldestBlock.number)
+      .then(x => x.toHex());
+    if (canonicalOldestBlockHash !== oldestBlock.hash) {
+      console.warn('[BlockSync] Pending block queue is stale; rebuilding from the last processed block', {
+        blockNumber: oldestBlock.number,
+        queuedHash: oldestBlock.hash,
+        canonicalHash: canonicalOldestBlockHash,
+        syncedToBlockNumber: data.syncedToBlockNumber,
+      });
+      await this.blockSyncFile.mutate(state => {
+        for (const blockNumber of Object.keys(state.blocksByNumber).map(Number)) {
+          if (blockNumber > state.syncedToBlockNumber) {
+            delete state.blocksByNumber[blockNumber];
+          }
+        }
+      });
+      await this.backfillBestBlockHeader(this.blockWatch.bestBlockHeader, true);
+      data = await this.blockSyncFile.get();
+      oldestBlock = data.blocksByNumber[data.syncedToBlockNumber + 1] ?? data.blocksByNumber[data.syncedToBlockNumber];
+      if (!oldestBlock) {
+        throw new Error(`No block found after rebuilding from ${data.syncedToBlockNumber}`);
+      }
+    }
+
     const accountMinersClient = await this.archiveClient.at(oldestBlock.hash);
     const startingMinerState = await this.accountset.loadRegisteredMiners(accountMinersClient);
     const registeredMiners = startingMinerState
