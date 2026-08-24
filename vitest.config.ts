@@ -97,6 +97,7 @@ export default defineConfig({
           testTimeout: 240_000,
           hookTimeout: 120_000,
           include: [INTEGRATION_TEST_GLOB],
+          globalSetup: './src-vue/__test__/RecoverySeed.globalSetup.ts',
           setupFiles: APP_SETUP_FILE,
           fileParallelism: false,
           maxWorkers: 1,

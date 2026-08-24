@@ -13,6 +13,7 @@
     "build": "yarn build:version && yarn build:server && vue-tsc --noEmit && vite build",
     "build:workspace": "yarn workspaces foreach --all run build",
     "build:indexer": "yarn workspace @argonprotocol/apps-indexer run build",
+    "capture:recovery-seed": "RECOVERY_SEED_CAPTURE=1 vitest --run --project=integration RecoverySeed.integration.test.ts",
     "build:server": "yarn workspace @argonprotocol/apps-bot run build && yarn workspace @argonprotocol/apps-router run build && tsx scripts/buildServer.ts",
     "build:version": "tsx scripts/syncVersions.ts",
     "build:config": "tsx scripts/updateNetworkConfigs.ts",

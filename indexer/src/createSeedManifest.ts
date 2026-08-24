@@ -18,6 +18,7 @@ const manifest = {
       definitionVersion: number;
       schemaVersion: number;
       blockCount: number;
+      runtimeVersionCount: number;
       accountBlockCount: number;
       caughtUp: boolean;
       targetBlockNumber: number;
@@ -80,11 +81,40 @@ for (const network of networks) {
       version: number;
     };
     const blocks = database
-      .prepare('SELECT COUNT(*) AS count, MIN(blockNumber) AS first, MAX(blockNumber) AS last FROM Blocks')
-      .get() as { count: number; first: number; last: number };
+      .prepare(
+        `SELECT COUNT(*) AS count,
+                MIN(blockNumber) AS first,
+                MAX(blockNumber) AS last,
+                COUNT(systemEvents) AS eventPayloadCount,
+                COUNT(DISTINCT specVersion) AS runtimeVersionCount
+         FROM Blocks`,
+      )
+      .get() as {
+      count: number;
+      first: number;
+      last: number;
+      eventPayloadCount: number;
+      runtimeVersionCount: number;
+    };
     if (blocks.first !== 1 || blocks.last !== sync.blockNumber || blocks.count !== sync.blockNumber) {
       throw new Error(
         `${databaseFile} block coverage is not contiguous: count ${blocks.count}, range ${blocks.first}-${blocks.last}, checkpoint ${sync.blockNumber}`,
+      );
+    }
+    if (blocks.eventPayloadCount !== blocks.count) {
+      throw new Error(`${databaseFile} has ${blocks.count - blocks.eventPayloadCount} blocks without System.Events`);
+    }
+
+    const metadata = database
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM RuntimeMetadata
+         WHERE specVersion IN (SELECT DISTINCT specVersion FROM Blocks)`,
+      )
+      .get() as { count: number };
+    if (metadata.count !== blocks.runtimeVersionCount) {
+      throw new Error(
+        `${databaseFile} has runtime metadata for ${metadata.count} of ${blocks.runtimeVersionCount} stored runtime versions`,
       );
     }
 
@@ -116,6 +146,7 @@ for (const network of networks) {
       definitionVersion: sync.definitionVersion,
       schemaVersion: schema.version,
       blockCount: blocks.count,
+      runtimeVersionCount: blocks.runtimeVersionCount,
       accountBlockCount: accountBlocks.count,
       caughtUp,
       targetBlockNumber,

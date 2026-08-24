@@ -5,10 +5,10 @@ import { IncompatibleAccountActivityDatabaseError, IndexerDb, upgradeAccountActi
 import { AccountActivityIndexer } from './AccountActivityIndexer.ts';
 
 const seeds = [
-  { network: 'mainnet', rpc: 'wss://rpc.argon.network', batchRpc: 'https://rpc.argon.network' },
+  { network: 'mainnet', rpc: 'https://rpc.argon.network', batchRpc: 'https://rpc.argon.network' },
   {
     network: 'testnet',
-    rpc: 'wss://rpc.testnet.argonprotocol.org',
+    rpc: 'https://rpc.testnet.argonprotocol.org',
     batchRpc: 'https://rpc.testnet.argonprotocol.org',
   },
 ];
@@ -40,12 +40,12 @@ for (const seed of seeds.filter(seed => !requestedNetworks.size || requestedNetw
   const indexer = new AccountActivityIndexer(db, seed.batchRpc);
 
   try {
-    const finalizedHash = await client.rpc.chain.getFinalizedHead();
-    const finalizedHeader = await client.rpc.chain.getHeader(finalizedHash);
-    const targetBlock = finalizedHeader.number.toNumber();
-    const targetBlockHash = finalizedHash.toHex();
+    // Seed runs capture one finalized target. Live subscriptions would make the
+    // artifact depend on blocks finalized after that recorded target.
+    const targetHeader = await indexer.start(client, { subscribe: false });
+    const targetBlock = targetHeader.blockNumber;
+    const targetBlockHash = targetHeader.blockHash;
 
-    await indexer.start(client);
     await indexer.close({
       drain: true,
       maxDurationMs: maxSyncMinutes ? maxSyncMinutes * 60_000 : undefined,
