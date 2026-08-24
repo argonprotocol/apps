@@ -326,7 +326,9 @@ export class FinancialHistoryImporter {
     let batchSize = 8;
     for (let start = 0; start < supportedBacklog.length; ) {
       const batch = supportedBacklog.slice(start, start + batchSize);
-      const loadedBlocks = await Promise.allSettled(batch.map(indexedBlock => this.loadBlock(indexedBlock)));
+      const loadedBlocks = await Promise.allSettled(
+        batch.map(indexedBlock => this.blockWatch.withBackgroundArchiveRead(() => this.loadBlock(indexedBlock))),
+      );
       if (batchSize > 1 && loadedBlocks.some(result => result.status === 'rejected')) {
         // Archive RPCs can satisfy a direct block lookup but time out under concurrent historical reads.
         // No block has been imported yet, so retry this batch in order and keep the remaining replay bounded.

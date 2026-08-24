@@ -232,28 +232,36 @@ export class MintingAuthorities {
     ];
     const [sourceTotals, sourceUpstreamVaultAccountsByAccount] = await Promise.all([
       sourceAccounts.length
-        ? finalizedClient.query.crosschainTransfer.transferTotalsByAccount.multi(sourceAccounts)
+        ? finalizedClient.query.crosschainTransfer.transferTotalsByAccount.multi(sourceAccounts).catch(error => {
+            console.warn('[MintingAuthorities] Unable to refresh source transfer totals', error);
+            return undefined;
+          })
         : [],
       this.loadSourceUpstreamVaultAccounts(finalizedClient, sourceAccounts),
     ]);
+    if (updateSeq !== this.#updateSeq) {
+      return this.data.pendingMintingAuthorizations;
+    }
 
     this.data.authorities = authorities;
     this.data.pendingMintingAuthorizations = pendingMintingAuthorizations;
     this.data.backedTransfers = backedTransfers;
     this.data.backedTransfersError = backedTransfersError;
-    this.data.sourceTotalsByAccount = new Map(
-      sourceAccounts.map((accountId, index) => {
-        const totals = sourceTotals[index];
-        return [
-          accountId,
-          {
-            microgonsOut: totals.microgonsOut.toBigInt(),
-            micronotsOut: totals.micronotsOut.toBigInt(),
-            transferOutCount: totals.argonTransfersOutCount.toNumber() + totals.argonotTransfersOutCount.toNumber(),
-          },
-        ];
-      }),
-    );
+    if (sourceTotals) {
+      this.data.sourceTotalsByAccount = new Map(
+        sourceAccounts.map((accountId, index) => {
+          const totals = sourceTotals[index];
+          return [
+            accountId,
+            {
+              microgonsOut: totals.microgonsOut.toBigInt(),
+              micronotsOut: totals.micronotsOut.toBigInt(),
+              transferOutCount: totals.argonTransfersOutCount.toNumber() + totals.argonotTransfersOutCount.toNumber(),
+            },
+          ];
+        }),
+      );
+    }
     this.data.sourceUpstreamVaultAccountsByAccount = sourceUpstreamVaultAccountsByAccount;
     void this.syncPendingActivationRelay(authorities).catch(error =>
       console.error(`Error requesting pending minting-authority activation relay`, error),

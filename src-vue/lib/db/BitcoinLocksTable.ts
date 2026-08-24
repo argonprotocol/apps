@@ -7,14 +7,12 @@ import {
   type IBitcoinLockBlockExtrinsicError,
   BitcoinLockStatus,
   type IBitcoinLockRecord,
-  type IBitcoinLockRelayMetadata,
   type IRatchet,
 } from '../../interfaces/IBitcoinLockRecord.ts';
 export {
   type IBitcoinLockBlockExtrinsicError,
   BitcoinLockStatus,
   type IBitcoinLockRecord,
-  type IBitcoinLockRelayMetadata,
   type IRatchet,
 } from '../../interfaces/IBitcoinLockRecord.ts';
 
@@ -78,7 +76,7 @@ export class BitcoinLocksTable extends BaseTable {
       'btcPriceAtRemovalMicrogons',
     ],
     boolean: ['isHistoryRecoveryPending'],
-    json: ['lockDetails', 'ratchets', 'relayMetadataJson', 'blockExtrinsicErrorJson'],
+    json: ['lockDetails', 'ratchets', 'blockExtrinsicErrorJson'],
     date: ['removalBlockTime', 'createdAt', 'updatedAt'],
   };
 
@@ -134,17 +132,13 @@ export class BitcoinLocksTable extends BaseTable {
     lock: Pick<
       IBitcoinLockRecord,
       'uuid' | 'status' | 'satoshis' | 'cosignVersion' | 'network' | 'hdPath' | 'vaultId'
-    > & {
-      lockedTargetPrice?: bigint;
-      liquidityPromised?: bigint;
-      relayMetadataJson?: IBitcoinLockRelayMetadata | null;
-    },
+    > & { lockedTargetPrice?: bigint; liquidityPromised?: bigint },
   ): Promise<IBitcoinLockRecord> {
     const rawRecords = await this.db.select<IBitcoinLockRecord[]>(
       `INSERT INTO BitcoinLocks (
-        uuid, status, satoshis, lockedTargetPrice, liquidityPromised, cosignVersion, network, hdPath, vaultId, fundingUtxoRecordId, relayMetadataJson
+        uuid, status, satoshis, lockedTargetPrice, liquidityPromised, cosignVersion, network, hdPath, vaultId, fundingUtxoRecordId
       ) VALUES (
-        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       ) RETURNING *`,
       toSqlParams([
         lock.uuid,
@@ -157,7 +151,6 @@ export class BitcoinLocksTable extends BaseTable {
         lock.hdPath,
         lock.vaultId,
         null,
-        lock.relayMetadataJson ?? null,
       ]),
     );
     if (!rawRecords.length) {
@@ -316,15 +309,25 @@ export class BitcoinLocksTable extends BaseTable {
     );
   }
 
-  public async setRelayMetadata(
-    lock: IBitcoinLockRecord,
-    relayMetadataJson: IBitcoinLockRelayMetadata | null,
-  ): Promise<void> {
-    lock.relayMetadataJson = relayMetadataJson;
-    await this.db.execute(
-      `UPDATE BitcoinLocks SET relayMetadataJson = ? WHERE uuid = ?`,
-      toSqlParams([relayMetadataJson, lock.uuid]),
+  public async retireDelegatedPendingLocks(): Promise<IBitcoinLockRecord[]> {
+    const records = await this.db.select<IBitcoinLockRecord[]>(
+      `UPDATE BitcoinLocks
+       SET status = ?, blockExtrinsicErrorJson = ?, relayMetadataJson = NULL
+       WHERE utxoId IS NULL AND relayMetadataJson IS NOT NULL
+       RETURNING *`,
+      toSqlParams([
+        BitcoinLockStatus.LockFailed,
+        { message: 'Delegated Bitcoin lock initialization is no longer supported.' },
+      ]),
     );
+    return records.map(record => this.toLockRecord(record));
+  }
+
+  public async hasDelegatedPendingLocks(): Promise<boolean> {
+    const records = await this.db.select<Array<{ found: number }>>(
+      'SELECT 1 AS found FROM BitcoinLocks WHERE utxoId IS NULL AND relayMetadataJson IS NOT NULL LIMIT 1',
+    );
+    return !!records[0]?.found;
   }
 
   public async setLockExpiredWaitingForFunding(lock: IBitcoinLockRecord): Promise<void> {
@@ -497,8 +500,12 @@ export class BitcoinLocksTable extends BaseTable {
     if (releaseRemovalReason) lock.removalReason ??= releaseRemovalReason;
   }
 
-  private toLockRecord(rawRecord: IBitcoinLockRecord): IBitcoinLockRecord {
-    const record = convertFromSqliteFields<IBitcoinLockRecord>(rawRecord, this.fieldTypes);
+  private toLockRecord(rawRecord: IBitcoinLockRecord & { relayMetadataJson?: unknown }): IBitcoinLockRecord {
+    const mapped = convertFromSqliteFields<IBitcoinLockRecord & { relayMetadataJson?: unknown }>(
+      rawRecord,
+      this.fieldTypes,
+    );
+    const { relayMetadataJson: _relayMetadataJson, ...record } = mapped;
     record.fundingUtxoRecord = undefined;
     return record;
   }

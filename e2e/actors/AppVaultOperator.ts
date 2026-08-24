@@ -7,6 +7,7 @@ import {
   MainchainClients,
   MiningFrames,
   MoveTo,
+  NetworkConfig,
   TreasuryBonds,
 } from '@argonprotocol/apps-core';
 import {
@@ -23,6 +24,7 @@ import type { IInviteResponse, IListInvitesResponse } from '@argonprotocol/apps-
 import { DelegateSubmitLane } from '../../bot/src/DelegateSubmitLane.ts';
 import { EthereumGatewayProverService } from '../../bot/src/EthereumGatewayProverService.ts';
 import BitcoinLocks from '../../src-vue/lib/BitcoinLocks.ts';
+import BitcoinMempool from '../../src-vue/lib/BitcoinMempool.ts';
 import { Config } from '../../src-vue/lib/Config.ts';
 import { loadEthereumChainConfig } from '../../src-vue/lib/EthereumClient.ts';
 import { GlobalCouncil } from '../../src-vue/lib/GlobalCouncil.ts';
@@ -108,7 +110,14 @@ export class AppVaultOperator {
     const miningFrames = new MiningFrames(clients);
     const currency = new Currency(clients);
     const transactionTracker = new TransactionTracker(dbPromise, miningFrames.blockWatch);
-    const bitcoinLocks = new BitcoinLocks(dbPromise, walletKeys, miningFrames.blockWatch, currency, transactionTracker);
+    const bitcoinLocks = new BitcoinLocks(
+      dbPromise,
+      walletKeys,
+      miningFrames.blockWatch,
+      currency,
+      transactionTracker,
+      new BitcoinMempool(NetworkConfig.get().esploraHost),
+    );
     const globalCouncil = new GlobalCouncil(dbPromise, walletKeys, miningFrames);
     const relaySubmitLane = new DelegateSubmitLane(new Keyring({ type: 'sr25519' }).createFromUri('//Charlie'));
     const ethereumGatewayProverService = new EthereumGatewayProverService(relaySubmitLane, {

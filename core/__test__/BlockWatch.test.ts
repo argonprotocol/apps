@@ -7,6 +7,61 @@ type IBlockApi = Awaited<ReturnType<BlockWatch['getApi']>>;
 describe('BlockWatch archive recovery', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('limits concurrent background archive reads across callers', async () => {
+    vi.useFakeTimers();
+    const blockWatch = new BlockWatch(createClients({}, {}) as any);
+    let activeReads = 0;
+    let maximumActiveReads = 0;
+
+    const reads = Array.from({ length: 7 }, (_, index) =>
+      blockWatch.withBackgroundArchiveRead(async () => {
+        activeReads += 1;
+        maximumActiveReads = Math.max(maximumActiveReads, activeReads);
+        await new Promise(resolve => setTimeout(resolve, 10));
+        activeReads -= 1;
+        return index;
+      }),
+    );
+
+    await vi.advanceTimersByTimeAsync(100);
+    await expect(Promise.all(reads)).resolves.toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(maximumActiveReads).toBe(3);
+  });
+
+  it('backs off and retries a rate-limited archive read', async () => {
+    vi.useFakeTimers();
+    const blockWatch = new BlockWatch(createClients({}, {}) as any);
+    let attempts = 0;
+
+    const read = blockWatch.withBackgroundArchiveRead(async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error('429 Too Many Requests');
+      return 'ok';
+    });
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    await expect(read).resolves.toBe('ok');
+    expect(attempts).toBe(2);
+  });
+
+  it('stops retrying a persistently rate-limited read and continues processing', async () => {
+    vi.useFakeTimers();
+    const blockWatch = new BlockWatch(createClients({}, {}) as any);
+    let attempts = 0;
+
+    const failedRead = blockWatch.withBackgroundArchiveRead(async () => {
+      attempts += 1;
+      throw new Error('429 Too Many Requests');
+    });
+    const rejection = expect(failedRead).rejects.toThrow('429 Too Many Requests');
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    await rejection;
+    expect(attempts).toBe(4);
+    await expect(blockWatch.withBackgroundArchiveRead(async () => 'next')).resolves.toBe('next');
   });
 
   it('retries parent header lookup on archive when pruned state was discarded', async () => {

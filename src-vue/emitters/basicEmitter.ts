@@ -11,6 +11,7 @@ export type IWalletGuidanceContext = 'mining' | 'vaulting';
 
 export type IOperationalProfileRequest =
   | { screen: 'settings' }
+  | { onSaved: VoidFunction }
   | {
       draftName: string;
       onSelect: (operatorName: string) => void;

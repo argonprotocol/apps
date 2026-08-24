@@ -2,6 +2,41 @@ import { describe, expect, it, vi } from 'vitest';
 import BiddingCalculator from '../src/BiddingCalculator.ts';
 
 describe('BiddingCalculator loading', () => {
+  it('notifies subscribers only after bid amounts are calculated', async () => {
+    let resolveFrameLoad!: () => void;
+    const loadedFrameIdPromise = new Promise<number>(resolve => {
+      resolveFrameLoad = () => resolve(1);
+    });
+    const calculator = new BiddingCalculator(
+      {
+        loadedFrameIdPromise,
+        load: async () => await loadedFrameIdPromise,
+        miningFrames: {
+          load: vi.fn().mockResolvedValue(undefined),
+          onFrameId: (callback: (frameId: number) => Promise<void> | void) => {
+            void callback(1);
+            return { unsubscribe: vi.fn() };
+          },
+        },
+      } as any,
+      {} as any,
+    );
+    vi.spyOn(calculator, 'calculateBidAmounts').mockImplementation(() => {
+      calculator.startingBidAmount = 1n;
+      calculator.maximumBidAmount = 5n;
+    });
+    const observedMaximumBids: (bigint | undefined)[] = [];
+
+    calculator.onLoad(() => observedMaximumBids.push(calculator.maximumBidAmount));
+    const load = calculator.load();
+    await Promise.resolve();
+    resolveFrameLoad();
+    await load;
+    await Promise.resolve();
+
+    expect(observedMaximumBids).toEqual([5n]);
+  });
+
   it('keeps the frame subscription after a later frame load failure', async () => {
     const error = new Error('Unable to retrieve header and parent from supplied hash');
     const load = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(error).mockResolvedValueOnce(undefined);

@@ -1,5 +1,4 @@
 import type { IBitcoinLock } from '@argonprotocol/mainchain';
-import type { BitcoinLockRelayStatus } from '@argonprotocol/apps-router';
 import type { IBitcoinUtxoRecord } from './IBitcoinUtxoRecord.ts';
 
 export interface IRatchet {
@@ -15,14 +14,6 @@ export interface IRatchet {
   blockHeight: number;
   extrinsicIndex?: number;
   oracleBitcoinBlockHeight: number;
-}
-
-export interface IBitcoinLockRelayMetadata {
-  operatorHost?: string;
-  offerCode: string;
-  status: BitcoinLockRelayStatus;
-  error?: string;
-  expiresAtBlockHeight?: number;
 }
 
 export interface IBitcoinLockBlockExtrinsicError {
@@ -64,7 +55,6 @@ export interface IBitcoinLockRecord {
   network: string;
   hdPath: string;
   vaultId: number;
-  relayMetadataJson?: IBitcoinLockRelayMetadata | null;
   blockExtrinsicErrorJson?: IBitcoinLockBlockExtrinsicError | null;
   releaseRedemptionMicrogons?: bigint;
   releaseArgonTxFeeMicrogons?: bigint;

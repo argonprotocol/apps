@@ -128,13 +128,12 @@
           <span class="shrink-0">
             One-time fee:
             <template v-if="isVaultOperator">Waived</template>
-            <template v-else-if="isDirectFeeCouponLock">
+            <template v-else-if="operatorCoupon">
               <span class="line-through">
                 {{ argonSymbol }}{{ microgonToArgonNm(oneTimeLockFee).format('0,0.00') }}
               </span>
               {{ argonSymbol }}{{ microgonToArgonNm(securityFee).format('0,0.00') }} after gift
             </template>
-            <template v-else-if="isOperatorCouponLock">Covered</template>
             <template v-else>
               {{ argonSymbol }}{{ microgonToArgonNm(securityFee).format('0,0.00') }}, paid from your wallet
             </template>
@@ -187,7 +186,7 @@
               <header class="font-bold opacity-40">ONE-TIME LOCK FEE</header>
               <div class="text-argon-600 py-1 text-3xl font-bold">
                 <template v-if="isVaultOperator">Waived</template>
-                <template v-else-if="isDirectFeeCouponLock">
+                <template v-else-if="operatorCoupon">
                   <span class="text-slate-400 line-through">
                     {{ argonSymbol }}{{ microgonToArgonNm(securityFee + coveredFee).format('0,0.00') }}
                   </span>
@@ -196,7 +195,7 @@
                 <template v-else>{{ argonSymbol }}{{ microgonToArgonNm(securityFee).format('0,0.00') }}</template>
               </div>
               <div class="font-light opacity-80">
-                <template v-if="isOperatorCouponLock">
+                <template v-if="operatorCoupon">
                   {{ argonSymbol }}{{ microgonToArgonNm(coveredFee).format('0,0.00') }} fee waiver from
                   {{ couponProviderLabel }}
                 </template>
@@ -322,7 +321,6 @@ const bitcoinAmount = Vue.ref(0);
 const liquidityToReceive = Vue.ref(0n);
 const lockSatoshis = Vue.ref(0n);
 const securityFee = Vue.ref(0n);
-const usesDirectFeeCoupon = Vue.ref(false);
 const requiredWalletBalanceMicrogons = Vue.ref<bigint>();
 const isCheckingWalletBalance = Vue.ref(false);
 const amountSelection = Vue.ref<'bitcoin' | 'minimum' | 'certification' | 'maximum'>();
@@ -348,33 +346,21 @@ const isVaultOperator = Vue.computed(() => {
   return walletKeys.defaultArgonAddress === props.vault.operatorAccountId;
 });
 
-const operatorCouponStatus = Vue.computed(() => {
-  const currentCoupon = bitcoinLockCoupons.currentCoupon;
-  if (currentCoupon?.coupon.vaultId === props.vault.vaultId) return currentCoupon;
-
+const operatorCoupon = Vue.computed(() => {
   const resumableCoupon = bitcoinLockCoupons.resumableCoupon;
-  if (resumableCoupon?.coupon.vaultId === props.vault.vaultId) return resumableCoupon;
-});
+  const currentCoupon = bitcoinLockCoupons.currentCoupon;
 
-const hasCouponForVault = Vue.computed(() => {
-  const coupon = operatorCouponStatus.value;
-  return coupon?.coupon.vaultId === props.vault.vaultId;
-});
+  let coupon;
+  if (resumableCoupon?.coupon.vaultId === props.vault.vaultId) coupon = resumableCoupon;
+  else if (currentCoupon?.coupon.vaultId === props.vault.vaultId) coupon = currentCoupon;
 
-const isOperatorCouponExpired = Vue.computed(() => {
-  const coupon = operatorCouponStatus.value;
-  return (
-    coupon?.coupon.expirationTick != null &&
+  if (!coupon) return;
+  if (
+    coupon.coupon.expirationTick != null &&
     props.currentTick != null &&
     props.currentTick >= coupon.coupon.expirationTick
-  );
-});
-
-const operatorCoupon = Vue.computed(() => {
-  const coupon = operatorCouponStatus.value;
-  if (!hasCouponForVault.value || isOperatorCouponExpired.value || !coupon) {
-    return undefined;
-  }
+  )
+    return;
 
   const pendingInitialization = coupon.uses?.find(use => use.status === 'Prepared' && use.feeCoupon);
 
@@ -387,16 +373,8 @@ const operatorCoupon = Vue.computed(() => {
   };
 });
 
-const isOperatorCouponLock = Vue.computed(() => {
-  return !!operatorCoupon.value;
-});
-
-const isDirectFeeCouponLock = Vue.computed(() => {
-  return isOperatorCouponLock.value && usesDirectFeeCoupon.value;
-});
-
 const capacityLockOwner = Vue.computed(() => {
-  return isOperatorCouponLock.value ? undefined : walletKeys.liquidLockingAddress;
+  return operatorCoupon.value ? undefined : walletKeys.liquidLockingAddress;
 });
 
 const couponProviderLabel = Vue.computed(() => {
@@ -410,7 +388,7 @@ const availableMicrogons = Vue.computed(() => {
 
 const neededMicrogons = Vue.computed(() => {
   if (!wallets.isLoaded) return 0n;
-  if (isDirectFeeCouponLock.value && requiredWalletBalanceMicrogons.value == null) return 0n;
+  if (operatorCoupon.value && requiredWalletBalanceMicrogons.value == null) return 0n;
   const requiredBalance = requiredWalletBalanceMicrogons.value ?? securityFee.value;
   if (requiredBalance <= 0n) return 0n;
   if (availableMicrogons.value >= requiredBalance) return 0n;
@@ -426,18 +404,13 @@ const oneTimeLockFee = Vue.computed(() => {
   return props.vault.calculateBitcoinFee(liquidityToReceive.value);
 });
 
-const variableFeeCovered = Vue.computed(() => {
-  if (!isDirectFeeCouponLock.value) return 0n;
+const coveredFee = Vue.computed(() => {
+  if (!operatorCoupon.value) return 0n;
   const variableFee = bigIntMax(oneTimeLockFee.value - props.vault.terms.bitcoinBaseFee, 0n);
   const feeCredit =
     (operatorCoupon.value?.pendingInitialization?.feeCreditMicrogons ?? 0n) +
     (operatorCoupon.value?.remainingFeeCreditMicrogons ?? 0n);
   return bigIntMin(variableFee, feeCredit);
-});
-
-const coveredFee = Vue.computed(() => {
-  if (!isOperatorCouponLock.value) return 0n;
-  return isDirectFeeCouponLock.value ? variableFeeCovered.value : oneTimeLockFee.value;
 });
 
 const projectedEarnings = Vue.computed(() => {
@@ -451,7 +424,7 @@ const cannotContinue = Vue.computed(() => {
     isLoadingLiquidity.value ||
     !wallets.isLoaded ||
     isCheckingWalletBalance.value ||
-    (isDirectFeeCouponLock.value && requiredWalletBalanceMicrogons.value == null) ||
+    (operatorCoupon.value && requiredWalletBalanceMicrogons.value == null) ||
     lockSatoshis.value <= 0n ||
     liquidityToReceive.value <= 0n ||
     liquidityToReceive.value > availableLiquidityMicrogons.value ||
@@ -511,14 +484,14 @@ const estimateWalletBalance = useDebounceFn(
   { maxWait: 200 },
 );
 
-Vue.watch([coveredFee, usesDirectFeeCoupon], updateFeeEstimate);
+Vue.watch(coveredFee, updateFeeEstimate);
 Vue.watch(
-  [isDirectFeeCouponLock, lockSatoshis, conversionQuoteMicrogonsPerBtc, coveredFee],
+  [() => !!operatorCoupon.value, lockSatoshis, conversionQuoteMicrogonsPerBtc, coveredFee],
   () => {
     const syncId = ++walletBalanceEstimateSyncId;
     requiredWalletBalanceMicrogons.value = undefined;
     isCheckingWalletBalance.value =
-      isDirectFeeCouponLock.value && lockSatoshis.value > 0n && conversionQuoteMicrogonsPerBtc.value > 0n;
+      !!operatorCoupon.value && lockSatoshis.value > 0n && conversionQuoteMicrogonsPerBtc.value > 0n;
 
     if (isCheckingWalletBalance.value) void estimateWalletBalance(syncId);
   },
@@ -675,7 +648,7 @@ async function setLiquidityVariables() {
     bitcoinLocks.getLockableBitcoinCapacity({
       vault: props.vault,
       lockOwner: capacityLockOwner.value,
-      maxSatoshis: isOperatorCouponLock.value ? bitcoinLockCoupons.maximumCoveredLockSatoshis : undefined,
+      maxSatoshis: operatorCoupon.value ? bitcoinLockCoupons.maximumCoveredLockSatoshis : undefined,
       microgonsAtTargetPerBtc: conversionQuoteMicrogonsPerBtc.value,
     }),
     bitcoinLocks.minimumSatoshiPerLock(),
@@ -748,7 +721,6 @@ async function refreshConversionQuote(): Promise<boolean> {
 
   const refresh = (async () => {
     const quoteClient = await getMainchainClient(false);
-    usesDirectFeeCoupon.value = !BitcoinLock.supportsInitializeFor(quoteClient);
     const [, eligibleRates, currentTick] = await Promise.all([
       currency.fetchMainchainRates(quoteClient, { ignoreCache: true }),
       quoteClient.query.bitcoinLocks.microgonPerBtcHistory(),
@@ -816,12 +788,7 @@ function handleConversionQuoteRefreshError(error: unknown) {
 function scheduleFeeCouponRefresh(delay = 5e3) {
   if (feeCouponRefreshTimeout) clearTimeout(feeCouponRefreshTimeout);
   feeCouponRefreshTimeout = undefined;
-  if (
-    isUnmounted ||
-    !usesDirectFeeCoupon.value ||
-    !operatorCoupon.value ||
-    operatorCoupon.value.remainingFeeCreditMicrogons != null
-  ) {
+  if (isUnmounted || !operatorCoupon.value || operatorCoupon.value.remainingFeeCreditMicrogons != null) {
     return;
   }
 
@@ -834,9 +801,11 @@ function scheduleFeeCouponRefresh(delay = 5e3) {
 }
 
 Vue.watch(
-  [usesDirectFeeCoupon, () => operatorCoupon.value?.remainingFeeCreditMicrogons],
+  () => operatorCoupon.value?.remainingFeeCreditMicrogons,
   () => scheduleFeeCouponRefresh(0),
-  { immediate: true },
+  {
+    immediate: true,
+  },
 );
 
 Vue.onMounted(async () => {

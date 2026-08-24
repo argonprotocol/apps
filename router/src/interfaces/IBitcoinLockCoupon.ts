@@ -1,10 +1,8 @@
 export type {
   BitcoinLockCouponStatus,
-  BitcoinLockRelayStatus,
   IActivateBitcoinLockCouponRequest,
   IBitcoinLockCouponRecord,
+  IBitcoinLockCouponRequest,
   IBitcoinLockCouponStatus,
-  IBitcoinLockRelayJobRequest,
-  IBitcoinLockRelayRequest,
   ICreateBitcoinLockCouponRequest,
 } from '@argonprotocol/apps-core';

@@ -12,6 +12,7 @@ import type {
   IBitcoinLockStatusResponse,
   IInviteResponse,
   IInitializeBitcoinLockRequest,
+  IInitializeBitcoinLockResponse,
   IListBitcoinLockCouponsResponse,
   IMemberInvite,
   IOpenInviteResponse,
@@ -126,10 +127,10 @@ export class UpstreamOperatorClient {
   public async initializeBitcoinLock(
     offerCode: string,
     payload: IInitializeBitcoinLockRequest,
-  ): Promise<IBitcoinLockStatusResponse> {
+  ): Promise<IInitializeBitcoinLockResponse> {
     return await this.requestWithOperatorHost(async operatorHost =>
       this.requestWithSessionRetry(this.getMemberSessionAuth(operatorHost), sessionId =>
-        UpstreamOperatorClient.postJson<IBitcoinLockStatusResponse>(
+        UpstreamOperatorClient.postJson<IInitializeBitcoinLockResponse>(
           operatorHost,
           `/bitcoin-lock-coupons/${encodeURIComponent(offerCode)}/initialize`,
           payload,

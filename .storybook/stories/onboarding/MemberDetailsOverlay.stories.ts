@@ -183,26 +183,6 @@ export const BalancesUnavailable: Story = {
   },
 };
 
-export const PreviousRuntimeFeeWaiver: Story = {
-  beforeEach: () => {
-    const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
-    const currentTick = MiningFrames.calculateCurrentTickFromSystemTime();
-    selectedInvite = createInvite(8, {
-      lastClickedAt: dateDaysAgo(1),
-      bitcoinLockCoupon: createFeeWaiver('previousRuntime', currentTick),
-    });
-    controller.setOperationalInvites([selectedInvite]);
-  },
-  play: async () => {
-    const canvas = within(document.body);
-    const heading = await canvas.findByText('Bitcoin Fee Waiver');
-
-    await expect(heading.nextElementSibling).toHaveTextContent(/₳68\s*fee waiver\s*· Unused\s*· expired\s*now/);
-    await expect(heading.nextElementSibling).not.toHaveTextContent('$');
-    await expect(canvas.findByRole('button', { name: 'now' })).resolves.toBeEnabled();
-  },
-};
-
 export const FeeWaiverPending: Story = {
   beforeEach: () => {
     const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
@@ -313,7 +293,7 @@ function createInvite(id: number, overrides: Partial<IMemberInvite> = {}): IMemb
 }
 
 function createFeeWaiver(
-  state: 'available' | 'partiallyUsed' | 'previousRuntime' | 'pending' | 'used' | 'expired' = 'available',
+  state: 'available' | 'partiallyUsed' | 'pending' | 'used' | 'expired' = 'available',
   currentTick = MiningFrames.calculateCurrentTickFromSystemTime(),
 ): IBitcoinLockCouponStatus {
   const originalFeeCreditMicrogons = 68_400_000n;
@@ -326,13 +306,10 @@ function createFeeWaiver(
     uses = [createFeeWaiverUse(1, 'Finalized', originalFeeCreditMicrogons)];
   }
 
-  let expirationTick: number | undefined;
-  if (state !== 'previousRuntime') {
-    expirationTick =
-      state === 'expired'
-        ? currentTick - 2 * NetworkConfig.rewardTicksPerFrame
-        : currentTick + 7 * NetworkConfig.rewardTicksPerFrame;
-  }
+  const expirationTick =
+    state === 'expired'
+      ? currentTick - 2 * NetworkConfig.rewardTicksPerFrame
+      : currentTick + 7 * NetworkConfig.rewardTicksPerFrame;
 
   const coupon: IBitcoinLockCouponStatus['coupon'] = {
     id: 1,
@@ -347,46 +324,9 @@ function createFeeWaiver(
     createdAt: dateDaysAgo(3),
     updatedAt: dateDaysAgo(1),
     feeCreditMicrogons: originalFeeCreditMicrogons,
-    ...(expirationTick == null ? {} : { expirationTick }),
+    expirationTick,
     ...(uses.length ? { accountId: memberAccountId } : {}),
   };
-
-  if (state === 'previousRuntime') {
-    return {
-      status: 'Expired',
-      coupon: { ...coupon, expirationTick: currentTick },
-      relay: {
-        id: 1,
-        requestId: 'legacy-relay-failed',
-        status: 'Failed',
-        requestedSatoshis: 25_000_000n,
-        securitizationUsedMicrogons: 20_400_000n,
-        ownerAccountId: memberAccountId,
-        ownerBitcoinPubkey: `02${'44'.repeat(32)}`,
-        microgonsAtTargetPerBtc: 6_800_000_000n,
-        error: 'The delegated initialization expired before it finalized.',
-        delegateAddress: scenarioKeyring.addFromUri('//StorybookDelegate').address,
-        extrinsicHash: `0x${'12'.repeat(32)}`,
-        extrinsicMethodJson: { section: 'bitcoinLocks', method: 'initializeFor' },
-        txNonce: 1,
-        txSubmittedAtBlockHeight: 100,
-        txSubmittedAtTime: new Date('2026-08-15T16:00:00.000Z'),
-        txExpiresAtBlockHeight: 164,
-        txInBlockHeight: null,
-        txInBlockHash: null,
-        txFinalizedHeight: null,
-        txFeePlusTip: null,
-        txTip: null,
-        utxoId: null,
-        createdAt: new Date('2026-08-15T16:00:00.000Z'),
-        updatedAt: new Date('2026-08-15T16:15:00.000Z'),
-      },
-      originalFeeCreditMicrogons,
-      usedFeeCreditMicrogons: 0n,
-      pendingFeeCreditMicrogons: 0n,
-      remainingFeeCreditMicrogons: originalFeeCreditMicrogons,
-    };
-  }
 
   // Derive the visible state from the durable use history consumed by BitcoinLockCouponService.getStatus.
   const usedFeeCreditMicrogons = uses

@@ -1,6 +1,6 @@
 import type { ICertificationProgress, IOperationalAccessProof } from '@argonprotocol/apps-core';
 import type { IUserInviteRecord } from '../db/UserInvitesTable.ts';
-import type { IBitcoinLockCouponStatus } from './IBitcoinLockRelay.js';
+import type { IBitcoinLockCouponStatus } from './IBitcoinLockCoupon.js';
 
 export type IUserInvite = Omit<IUserInviteRecord, 'operationsAccessProofSignature'> & {
   accessProof?: IOperationalAccessProof;

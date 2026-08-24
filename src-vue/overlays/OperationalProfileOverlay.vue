@@ -161,6 +161,7 @@ const supportsFlexibleAssets = Vue.ref(false);
 
 let unsubSetupProgress: (() => void) | undefined;
 let selectDraftName: ((operatorName: string) => void) | undefined;
+let onProfileSaved: VoidFunction | undefined;
 let openRequestId = 0;
 
 async function load(request?: IOperationalProfileRequest) {
@@ -221,7 +222,9 @@ async function saveProfile() {
     await waitForSetupTransaction(txInfo);
     controller.operatorName = nextOperatorName;
 
+    const onSaved = onProfileSaved;
     closeOverlay();
+    onSaved?.();
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : 'Unable to save your profile right now.';
   } finally {
@@ -273,11 +276,13 @@ function clearSetupProgress() {
 function closeOverlay() {
   isOpen.value = false;
   selectDraftName = undefined;
+  onProfileSaved = undefined;
   basics.overlayIsOpen = false;
 }
 
 async function openOperationalProfileOverlay(request: void | IOperationalProfileRequest) {
   const requestId = ++openRequestId;
+  onProfileSaved = request && 'onSaved' in request ? request.onSaved : undefined;
   openedFromSettings.value = !!request && 'screen' in request;
   currentScreen.value = openedFromSettings.value ? 'settings' : 'name';
   if (openedFromSettings.value) {

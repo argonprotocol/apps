@@ -103,6 +103,19 @@ export const FeeWaiver: Story = {
   },
 };
 
+export const FeeWaiverResumeSignedInitialization: Story = {
+  beforeEach: () => {
+    scenario = setupBitcoinOverlayScenario();
+    requestedLock = undefined;
+    scenario.setFeeWaiver(20_400_000n, 12_500_000n);
+  },
+  play: async () => {
+    const amount = await within(document.body).findByTestId('LockStart.bitcoinAmount');
+    await expectEventuallyVisible(Promise.resolve(amount));
+    await expect(amount).toHaveAttribute('data-synced-satoshis', '12500000');
+  },
+};
+
 export const FeeWaiverNeedsWalletFunding: Story = {
   beforeEach: () => {
     scenario = setupBitcoinOverlayScenario();

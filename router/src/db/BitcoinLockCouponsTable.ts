@@ -6,17 +6,13 @@ import {
   toSqliteParams,
   type IBitcoinLockCouponRecord,
   type IBitcoinLockCouponUseRecord,
-  type IBitcoinLockRelayRecord,
 } from '@argonprotocol/apps-core';
 import { RouterError } from '../RouterError.ts';
 import { BaseTable } from './BaseTable.ts';
 
 type SqlRow = Record<string, SQLOutputValue>;
 
-export type IBitcoinLockCouponRow = IBitcoinLockCouponRecord & {
-  relayRequestId?: string;
-  relay?: IBitcoinLockRelayRecord;
-};
+export type IBitcoinLockCouponRow = IBitcoinLockCouponRecord;
 
 type InsertCoupon = Omit<
   IBitcoinLockCouponRecord,
@@ -85,23 +81,23 @@ export class BitcoinLockCouponsTable extends BaseTable {
     const existing = this.fetchByOfferCode(coupon.offerCode);
     if (existing) return existing;
 
-    const { id: _id, feeCoupon, relay, ...fields } = coupon;
+    const { id: _id, feeCoupon, ...fields } = coupon;
     const record = this.db.sql
       .prepare(
         `
         INSERT INTO BitcoinLockCoupons (
           userId, sequence, offerCode, vaultId, maxSatoshis, estimatedGiftUsd,
           btcPctFee, feeCreditMicrogons, expiresAfterTicks, expirationTick, accountId,
-          feeCouponJson, usedAt, relayRequestId, relayJson, createdAt, updatedAt
+          feeCouponJson, usedAt, createdAt, updatedAt
         ) VALUES (
           $userId, $sequence, $offerCode, $vaultId, $maxSatoshis, $estimatedGiftUsd,
           $btcPctFee, $feeCreditMicrogons, $expiresAfterTicks, $expirationTick, $accountId,
-          $feeCouponJson, $usedAt, $relayRequestId, $relayJson, $createdAt, $updatedAt
+          $feeCouponJson, $usedAt, $createdAt, $updatedAt
         )
         RETURNING *
       `,
       )
-      .get(toSqliteParams({ ...fields, feeCouponJson: feeCoupon, relayJson: relay })) as SqlRow;
+      .get(toSqliteParams({ ...fields, feeCouponJson: feeCoupon })) as SqlRow;
     return this.map(record);
   }
 
@@ -122,21 +118,6 @@ export class BitcoinLockCouponsTable extends BaseTable {
     return this.map(record);
   }
 
-  public assignRelayRequest(id: number, requestId: string): IBitcoinLockCouponRow {
-    const record = this.db.sql
-      .prepare(
-        `
-        UPDATE BitcoinLockCoupons
-        SET relayRequestId = COALESCE(relayRequestId, $requestId), updatedAt = $updatedAt
-        WHERE id = $id
-        RETURNING *
-      `,
-      )
-      .get(toSqliteParams({ id, requestId, updatedAt: new Date() })) as SqlRow | undefined;
-    if (!record) throw new RouterError('Bitcoin lock coupon not found.', 404);
-    return this.map(record);
-  }
-
   public setFeeCredit(id: number, feeCreditMicrogons: bigint): IBitcoinLockCouponRow {
     const record = this.db.sql
       .prepare(
@@ -152,26 +133,16 @@ export class BitcoinLockCouponsTable extends BaseTable {
     return this.map(record);
   }
 
-  public recordRelay(id: number, relay: IBitcoinLockRelayRecord): IBitcoinLockCouponRow {
-    const record = this.db.sql
+  public retireDelegatedCoupons(): void {
+    this.db.sql
       .prepare(
         `
         UPDATE BitcoinLockCoupons
-        SET relayRequestId = $relayRequestId, relayJson = $relayJson, updatedAt = $updatedAt
-        WHERE id = $id
-        RETURNING *
+        SET feeCreditMicrogons = '0', relayRequestId = NULL, relayJson = NULL, updatedAt = $updatedAt
+        WHERE relayRequestId IS NOT NULL OR relayJson IS NOT NULL
       `,
       )
-      .get(
-        toSqliteParams({
-          id,
-          relayRequestId: relay.requestId,
-          relayJson: relay,
-          updatedAt: new Date(),
-        }),
-      ) as SqlRow | undefined;
-    if (!record) throw new RouterError('Bitcoin lock coupon not found.', 404);
-    return this.map(record);
+      .run(toSqliteParams({ updatedAt: new Date() }));
   }
 
   public updateExpiration(id: number, expirationTick: number): IBitcoinLockCouponRow {
@@ -394,7 +365,7 @@ export class BitcoinLockCouponsTable extends BaseTable {
     const existing = this.fetchUseByRequestId(use.requestId);
     if (existing) return existing;
 
-    const { feeCoupon, relay, ...fields } = use;
+    const { feeCoupon, ...fields } = use;
     if (fields.status === 'Prepared' && !feeCoupon) fields.status = 'Failed';
     const record = this.db.sql
       .prepare(
@@ -402,16 +373,16 @@ export class BitcoinLockCouponsTable extends BaseTable {
         INSERT INTO BitcoinLockCouponUses (
           couponId, requestId, status, feeCreditMicrogons, requestedSatoshis,
           ownerAccountId, ownerBitcoinPubkey, microgonsAtTargetPerBtc,
-          feeCouponJson, relayJson, createdAt, updatedAt
+          feeCouponJson, createdAt, updatedAt
         ) VALUES (
           $couponId, $requestId, $status, $feeCreditMicrogons, $requestedSatoshis,
           $ownerAccountId, $ownerBitcoinPubkey, $microgonsAtTargetPerBtc,
-          $feeCouponJson, $relayJson, $createdAt, $updatedAt
+          $feeCouponJson, $createdAt, $updatedAt
         )
         RETURNING *
       `,
       )
-      .get(toSqliteParams({ ...fields, couponId, feeCouponJson: feeCoupon, relayJson: relay })) as SqlRow;
+      .get(toSqliteParams({ ...fields, couponId, feeCouponJson: feeCoupon })) as SqlRow;
     return this.mapUse(record);
   }
 
@@ -432,39 +403,38 @@ export class BitcoinLockCouponsTable extends BaseTable {
 
   private map(record: SqlRow): IBitcoinLockCouponRow {
     const mapped = convertFromSqliteFields<
-      Omit<IBitcoinLockCouponRow, 'feeCoupon' | 'relay'> & {
+      IBitcoinLockCouponRow & {
         feeCouponJson?: IBitcoinLockCouponRecord['feeCoupon'] | null;
-        relayJson?: IBitcoinLockRelayRecord | null;
+        relayJson?: unknown;
+        relayRequestId?: string;
       }
     >(record, {
       bigint: ['maxSatoshis', 'feeCreditMicrogons'],
       date: ['usedAt', 'createdAt', 'updatedAt'],
       json: ['feeCouponJson', 'relayJson'],
     });
-    const { feeCouponJson, relayJson, ...coupon } = mapped;
+    const { feeCouponJson, relayJson: _relayJson, relayRequestId: _relayRequestId, ...coupon } = mapped;
     return {
       ...coupon,
       feeCoupon: feeCouponJson ?? undefined,
-      relay: relayJson ?? undefined,
     };
   }
 
   private mapUse(record: SqlRow): IBitcoinLockCouponUseRecord {
     const mapped = convertFromSqliteFields<
-      Omit<IBitcoinLockCouponUseRecord, 'feeCoupon' | 'relay'> & {
+      IBitcoinLockCouponUseRecord & {
         feeCouponJson?: IBitcoinLockCouponUseRecord['feeCoupon'] | null;
-        relayJson?: IBitcoinLockRelayRecord | null;
+        relayJson?: unknown;
       }
     >(record, {
       bigint: ['feeCreditMicrogons', 'requestedSatoshis', 'microgonsAtTargetPerBtc'],
       date: ['createdAt', 'updatedAt'],
       json: ['feeCouponJson', 'relayJson'],
     });
-    const { feeCouponJson, relayJson, ...use } = mapped;
+    const { feeCouponJson, relayJson: _relayJson, ...use } = mapped;
     return {
       ...use,
       feeCoupon: feeCouponJson ?? undefined,
-      relay: relayJson ?? undefined,
     };
   }
 }

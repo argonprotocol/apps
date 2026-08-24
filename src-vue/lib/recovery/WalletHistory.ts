@@ -211,23 +211,25 @@ export class WalletHistoryRecovery {
     for (let offset = 0; offset < backlog.length; offset += archivePrefetchSize) {
       const chunk = backlog.slice(offset, offset + archivePrefetchSize);
       const prefetchedBlocks = await Promise.all(
-        chunk.map(async indexedBlock => {
-          const block = await this.blockWatch.getHeader(indexedBlock.blockNumber);
-          if (block.blockHash.toLowerCase() !== indexedBlock.blockHash.toLowerCase()) {
-            throw new Error(
-              `Wallet history index hash mismatch at block ${indexedBlock.blockNumber.toLocaleString()}: expected ${indexedBlock.blockHash}, received ${block.blockHash}`,
-            );
-          }
+        chunk.map(indexedBlock =>
+          this.blockWatch.withBackgroundArchiveRead(async () => {
+            const block = await this.blockWatch.getHeader(indexedBlock.blockNumber);
+            if (block.blockHash.toLowerCase() !== indexedBlock.blockHash.toLowerCase()) {
+              throw new Error(
+                `Wallet history index hash mismatch at block ${indexedBlock.blockNumber.toLocaleString()}: expected ${indexedBlock.blockHash}, received ${block.blockHash}`,
+              );
+            }
 
-          const eventSnapshot = await this.blockWatch.getEventsWithSpec(block);
-          if (eventSnapshot.specVersion !== indexedBlock.specVersion) {
-            throw new Error(
-              `Wallet history index runtime mismatch at block ${indexedBlock.blockNumber.toLocaleString()}: expected spec ${indexedBlock.specVersion}, received ${eventSnapshot.specVersion}`,
-            );
-          }
+            const eventSnapshot = await this.blockWatch.getEventsWithSpec(block);
+            if (eventSnapshot.specVersion !== indexedBlock.specVersion) {
+              throw new Error(
+                `Wallet history index runtime mismatch at block ${indexedBlock.blockNumber.toLocaleString()}: expected spec ${indexedBlock.specVersion}, received ${eventSnapshot.specVersion}`,
+              );
+            }
 
-          return { block, eventSnapshot };
-        }),
+            return { block, eventSnapshot };
+          }),
+        ),
       );
 
       // Archive reads are parallel within a small window, while database writes

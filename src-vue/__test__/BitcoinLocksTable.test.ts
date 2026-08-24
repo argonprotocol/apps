@@ -19,6 +19,24 @@ async function createPendingLock(overrides: Partial<IBitcoinLockRecord> = {}) {
 }
 
 describe('BitcoinLocksTable', () => {
+  it('retires a delegated pending lock after authoritative recovery finds no lock', async () => {
+    const { db, table, lock } = await createPendingLock({ uuid: 'retired-delegated-lock' });
+    await db.execute('UPDATE BitcoinLocks SET relayMetadataJson = ? WHERE uuid = ?', [
+      JSON.stringify({ offerCode: 'old-offer' }),
+      lock.uuid,
+    ]);
+
+    const retired = await table.retireDelegatedPendingLocks();
+
+    expect(retired).toMatchObject([
+      {
+        uuid: lock.uuid,
+        status: BitcoinLockStatus.LockFailed,
+        blockExtrinsicErrorJson: { message: 'Delegated Bitcoin lock initialization is no longer supported.' },
+      },
+    ]);
+  });
+
   it('finalizes idempotently, persists the verified amount, and allows the owner key to be reused', async () => {
     const { table, lock } = await createPendingLock({ uuid: 'finalize-idempotent' });
 

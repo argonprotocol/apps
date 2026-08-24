@@ -32,6 +32,9 @@ type ISubscriptionSource = 'archive' | 'pruned';
 
 export class BlockWatch {
   private static readonly queryTimeoutMs = 120e3;
+  private static readonly backgroundArchiveReadConcurrency = 3;
+  private static readonly backgroundArchiveReadRetryDelayMs = 250;
+  private static readonly maxBackgroundArchiveReadRetries = 3;
 
   public get finalizedBlockHeader(): IBlockHeaderInfo {
     return this.latestHeaders.at(0)!;
@@ -53,6 +56,8 @@ export class BlockWatch {
   public isLoaded = createDeferred(false);
   private currentStateReady = createDeferred(false);
   private processingQueue = new SingleFileQueue();
+  private backgroundArchiveReadQueue: (() => Promise<void>)[] = [];
+  private activeBackgroundArchiveReadWorkers = 0;
   private apiByBlockHash = new Map<string, Promise<ApiDecoration<'promise'>>>();
   private eventsByBlockHash = new Map<
     string,
@@ -361,6 +366,57 @@ export class BlockWatch {
   public async getBlockTime(blockNumber: number): Promise<Date> {
     const header = await this.getHeader(blockNumber);
     return new Date(header.blockTime);
+  }
+
+  public withBackgroundArchiveRead<T>(read: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      this.backgroundArchiveReadQueue.push(async () => {
+        for (let attempt = 0; attempt <= BlockWatch.maxBackgroundArchiveReadRetries; attempt += 1) {
+          try {
+            resolve(await read());
+            return;
+          } catch (error) {
+            const message = String(error).toLowerCase();
+            const isRateLimited =
+              message.includes('429') ||
+              message.includes('too many requests') ||
+              message.includes('rate limit') ||
+              message.includes('throttl');
+            if (!isRateLimited || attempt === BlockWatch.maxBackgroundArchiveReadRetries) {
+              reject(error);
+              return;
+            }
+
+            const exponentialDelay = BlockWatch.backgroundArchiveReadRetryDelayMs * 2 ** attempt;
+            const jitter = Math.floor(Math.random() * BlockWatch.backgroundArchiveReadRetryDelayMs);
+            const retryAfter = String(error).match(/retry[- ]after\s*[:=]\s*(\d+)/i)?.[1];
+            await new Promise(resolve =>
+              setTimeout(resolve, retryAfter ? Number(retryAfter) * 1_000 : exponentialDelay + jitter),
+            );
+          }
+        }
+      });
+
+      while (
+        this.activeBackgroundArchiveReadWorkers < BlockWatch.backgroundArchiveReadConcurrency &&
+        this.backgroundArchiveReadQueue.length
+      ) {
+        this.activeBackgroundArchiveReadWorkers += 1;
+        void this.runBackgroundArchiveReadWorker();
+      }
+    });
+  }
+
+  private async runBackgroundArchiveReadWorker(): Promise<void> {
+    try {
+      let read = this.backgroundArchiveReadQueue.shift();
+      while (read) {
+        await read();
+        read = this.backgroundArchiveReadQueue.shift();
+      }
+    } finally {
+      this.activeBackgroundArchiveReadWorkers -= 1;
+    }
   }
 
   public async getFinalizedApi(): Promise<ApiDecoration<'promise'>> {

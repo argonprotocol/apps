@@ -606,7 +606,9 @@ describe('BitcoinLocks recovery', () => {
     });
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
-    await expect(store.recovery.recoverActiveLocks()).resolves.toEqual([recoveredRecord]);
+    await expect(store.recovery.recoverActiveLocks({ requireComplete: true })).rejects.toThrow(
+      'Active Bitcoin lock recovery is incomplete.',
+    );
     expect(store.recovery.hasPendingHistoryRecovery).toBe(true);
 
     await expect(store.recovery.recoverActiveLocks()).resolves.toEqual([recoveredRecord, retriedRecord]);

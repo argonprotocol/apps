@@ -1,9 +1,11 @@
 import { AccountActivityKind, createDeferred, MoveToken } from '@argonprotocol/apps-core';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CrosschainHistory, type ICrosschainHistoryRecord } from '../lib/CrosschainHistory.ts';
 import { FinancialCacheTypes, type FinancialCacheTable } from '../lib/db/FinancialCacheTable.ts';
 
 describe('CrosschainHistory', () => {
+  afterEach(() => vi.useRealTimers());
+
   it('keeps loaded history visible when a refresh fails', async () => {
     const record = transferAuthorizationRecord();
     const history = new CrosschainHistory(
@@ -136,6 +138,39 @@ describe('CrosschainHistory', () => {
       definitionVersion: 4,
       refreshedThroughBlock: 12,
     });
+  });
+
+  it('refreshes again when indexed coverage is behind finalized state', async () => {
+    vi.useFakeTimers();
+    const findActivity = vi
+      .fn()
+      .mockResolvedValueOnce({
+        blocks: [],
+        asOfBlock: 11,
+        definitionVersion: 1,
+        coverage: { fromBlock: 0, toBlock: 11, gaps: [] },
+      })
+      .mockResolvedValueOnce({
+        blocks: [],
+        asOfBlock: 12,
+        definitionVersion: 1,
+        coverage: { fromBlock: 11, toBlock: 12, gaps: [] },
+      });
+    const history = new CrosschainHistory(
+      { vaultingAddress: '5vault' },
+      {
+        start: vi.fn(async () => undefined),
+        finalizedBlockHeader: { blockNumber: 12 },
+      } as any,
+      undefined,
+      findActivity,
+    );
+
+    const refresh = history.refresh();
+    await vi.advanceTimersByTimeAsync(2_500);
+    await refresh;
+    expect(findActivity).toHaveBeenCalledTimes(2);
+    expect(history.data.coverageComplete).toBe(true);
   });
 
   it('refreshes again when finalized state advances during an active refresh', async () => {

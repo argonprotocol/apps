@@ -5,6 +5,8 @@ import { WalletForArgon } from '../lib/WalletForArgon.ts';
 import { WalletHistoryRecovery } from '../lib/recovery/WalletHistory.ts';
 import { SyncStateKeys } from '../lib/db/SyncStateTable.ts';
 
+const withBackgroundArchiveRead = async <T>(read: () => Promise<T>): Promise<T> => await read();
+
 describe('WalletHistoryRecovery', () => {
   afterEach(() => {
     setFetchImplementation();
@@ -145,6 +147,7 @@ describe('WalletHistoryRecovery', () => {
     };
     const blockWatch = {
       clients: { events: { on: vi.fn() } },
+      withBackgroundArchiveRead,
       getHeader: vi.fn(async blockNumber => ({
         blockNumber,
         blockHash: `0x${blockNumber}`,

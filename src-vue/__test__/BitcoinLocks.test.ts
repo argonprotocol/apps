@@ -93,7 +93,6 @@ describe('BitcoinLocks fee coupon recovery', () => {
       };
     });
     const upstreamOperatorClient = Object.assign(Object.create(null), {
-      resolveOperatorHost: async () => 'http://operator.test',
       initializeBitcoinLock,
       recordBitcoinLockFeeCouponUse: async () => undefined,
     }) as UpstreamOperatorClient;

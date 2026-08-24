@@ -14,7 +14,6 @@ import {
 } from '@argonprotocol/apps-core';
 import { DockerStatus } from '../src/DockerStatus.js';
 import { Db } from '../src/Db.ts';
-import { BitcoinLockRelayService } from '../src/BitcoinLockRelayService.ts';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 
@@ -112,7 +111,6 @@ it.skipIf(skipE2E)(
         localNodeBlockTime: 0,
       };
     });
-    vi.spyOn(BitcoinLockRelayService.prototype, 'start').mockResolvedValue();
 
     const db = new Db(botDataDir);
     db.migrate();

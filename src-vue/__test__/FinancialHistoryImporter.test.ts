@@ -13,12 +13,15 @@ vi.mock('../lib/IndexerClient.ts', () => ({ findAddressActivity: vi.fn() }));
 
 afterEach(() => vi.mocked(findAddressActivity).mockReset());
 
+const withBackgroundArchiveRead = async <T>(read: () => Promise<T>): Promise<T> => await read();
+
 describe('FinancialHistoryImporter', () => {
   it('retries an archive-overloaded batch one block at a time', async () => {
     let concurrentHeaderReads = 0;
     const recoveredBlockNumbers: number[] = [];
     const importer = new FinancialHistoryImporter({
       blockWatch: {
+        withBackgroundArchiveRead,
         getHeader: async ({ blockNumber, blockHash }: { blockNumber: number; blockHash: string }) => {
           concurrentHeaderReads += 1;
           await Promise.resolve();
@@ -65,6 +68,7 @@ describe('FinancialHistoryImporter', () => {
     const markHistoryReplayFailure = vi.fn();
     const importer = new FinancialHistoryImporter({
       blockWatch: {
+        withBackgroundArchiveRead,
         getHeader: vi.fn(async ({ blockNumber, blockHash }) => ({ blockNumber, blockHash })),
         getEventsWithSpec: vi.fn(async () => ({ events: [], specVersion: 151 })),
       } as any,
@@ -397,6 +401,7 @@ describe('FinancialHistoryImporter', () => {
         } as any,
         blockWatch: {
           finalizedBlockHeader: { blockNumber: 100 },
+          withBackgroundArchiveRead,
           getHeader: vi.fn(async ({ blockNumber, blockHash }) => ({ blockNumber, blockHash })),
           getEventsWithSpec: vi.fn(async () => ({ events: [], specVersion: 151 })),
           getFinalizedApi: vi.fn(async () => ({})),
@@ -632,6 +637,7 @@ describe('FinancialHistoryImporter', () => {
         } as any,
         blockWatch: {
           finalizedBlockHeader: { blockNumber: 10 },
+          withBackgroundArchiveRead,
           getHeader: vi.fn(async ({ blockNumber }: { blockNumber: number }) => {
             if (blockNumber === 9) throw new Error('archive unavailable');
             return { blockNumber, blockHash: `0x${blockNumber}` };
@@ -736,6 +742,7 @@ describe('FinancialHistoryImporter', () => {
       } as any,
       blockWatch: {
         finalizedBlockHeader: { blockNumber: 100 },
+        withBackgroundArchiveRead,
         getFinalizedApi: vi.fn(async () => ({})),
         getHeader: vi.fn(async () => ({ blockNumber: 80, blockHash: '0x80' })),
         getEventsWithSpec,

@@ -3,7 +3,6 @@ import {
   type IBitcoinLockCouponRecord,
   type IBitcoinLockCouponStatus,
   type IBitcoinLockCouponUseRecord,
-  type IBitcoinLockRelayRecord,
   type IRouterAuthAccountBinding,
   JsonExt,
   UserRole,
@@ -37,7 +36,6 @@ type IRestorePackagePayload = {
   member: IRestoreMember;
   bitcoinLockCoupon?: {
     coupon: Omit<IBitcoinLockCouponRecord, 'id' | 'userId' | 'accountId'>;
-    relay?: IBitcoinLockRelayRecord;
     uses?: Omit<IBitcoinLockCouponUseRecord, 'id' | 'couponId'>[];
   };
 };
@@ -115,15 +113,13 @@ export class MemberRestoreService {
       if (!payload.bitcoinLockCoupon) return;
 
       if (payload.version === 3) {
-        const { coupon, relay } = payload.bitcoinLockCoupon;
+        const { coupon, uses = [] } = payload.bitcoinLockCoupon;
         const restoredCoupon = this.db.bitcoinLockCouponsTable.restore({
           ...coupon,
           userId: payload.member.id,
           accountId: memberAccounts.accountId,
-          relayRequestId: relay?.requestId,
-          relay,
         });
-        for (const use of payload.bitcoinLockCoupon.uses ?? []) {
+        for (const use of uses) {
           this.db.bitcoinLockCouponsTable.restoreUse(restoredCoupon.id, use);
         }
         return;
@@ -132,6 +128,7 @@ export class MemberRestoreService {
       if (payload.version === 2) {
         this.db.bitcoinLockCouponsTable.restore({
           ...payload.bitcoinLockCoupon,
+          ...(payload.bitcoinLockCoupon.feeCreditMicrogons != null ? { feeCreditMicrogons: 0n } : {}),
           userId: payload.member.id,
           accountId: memberAccounts.accountId,
         });
@@ -141,6 +138,7 @@ export class MemberRestoreService {
       const { id: _id, userId: _userId, accountId: _accountId, ...coupon } = payload.bitcoinLockCoupon;
       this.db.bitcoinLockCouponsTable.restore({
         ...coupon,
+        ...(coupon.feeCreditMicrogons != null ? { feeCreditMicrogons: 0n } : {}),
         userId: payload.member.id,
         accountId: memberAccounts.accountId,
       });
@@ -176,7 +174,6 @@ export class MemberRestoreService {
       const { id: _id, userId: _userId, accountId: _accountId, ...couponDetails } = bitcoinLockCoupon.coupon;
       coupon = {
         coupon: couponDetails,
-        relay: bitcoinLockCoupon.relay,
         uses: bitcoinLockCoupon.uses?.map(({ id: _id, couponId: _couponId, ...use }) => use),
       };
     }

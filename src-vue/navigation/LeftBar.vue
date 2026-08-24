@@ -641,6 +641,14 @@ const showCrosschainNavigation = Vue.computed(() => {
   }).hasAccess;
 });
 
+Vue.watch(
+  showCrosschainNavigation,
+  hasAccess => {
+    if (hasAccess && controller.selectedTab !== TopTab.CrosschainTransfers) void crosschainHistory.refresh();
+  },
+  { immediate: true },
+);
+
 function selectWallet(wallet: IWalletSelection) {
   if (isEthereumWalletSelection(wallet)) {
     basicEmitter.emit('openWalletOverlay', {

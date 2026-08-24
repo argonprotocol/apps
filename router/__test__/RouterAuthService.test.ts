@@ -356,7 +356,7 @@ describe('RouterAuthService', () => {
     expect(restoredCoupon).toMatchObject({
       accountId: member.address,
       maxSatoshis: 25_000n,
-      feeCreditMicrogons: 1_000n,
+      feeCreditMicrogons: 0n,
     });
     expect(db!.bitcoinLockCouponsTable.fetchUsesByCouponId(restoredCoupon!.id)).toEqual([]);
   });
