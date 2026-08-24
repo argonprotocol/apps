@@ -115,6 +115,7 @@ export const useFinancials = defineStore('financials', () => {
     );
   });
   let hasConfirmedFinancialHistoryCoverage = false;
+  const confirmedFinancialHistoryDomains = new Set<IFinancialHistoryDomain>();
   let queuedAccountHeader: IBlockHeaderInfo | undefined;
   let queuedAccountReconciliation = false;
   let activeAccountHash = '';
@@ -269,7 +270,7 @@ export const useFinancials = defineStore('financials', () => {
     const positions = await bondFinancials.loadPositions({
       account,
       clientAt,
-      hasConfirmedBondHistoryCoverage: hasConfirmedFinancialHistoryCoverage,
+      hasConfirmedBondHistoryCoverage: confirmedFinancialHistoryDomains.has('bonds'),
       liveArgonotRateMicrogons: currency.microgonsPer.ARGNOT,
       ownedVaultId: myVault.createdVault?.vaultId,
     });
@@ -301,7 +302,7 @@ export const useFinancials = defineStore('financials', () => {
     const positions = await vaultFinancials.loadPositions({
       account,
       liveArgonotRateMicrogons: currency.microgonsPer.ARGNOT,
-      hasConfirmedHistoryCoverage: hasConfirmedFinancialHistoryCoverage,
+      hasConfirmedHistoryCoverage: confirmedFinancialHistoryDomains.has('vaulting'),
     });
     return { positions, claimsHolds: Boolean(myVault.createdVault) };
   }
@@ -501,7 +502,7 @@ export const useFinancials = defineStore('financials', () => {
     const bitcoin = await bitcoinFinancials.loadSnapshot({
       clientAt,
       hasCurrentPrice,
-      hasConfirmedHistoryCoverage: hasConfirmedFinancialHistoryCoverage,
+      hasConfirmedHistoryCoverage: confirmedFinancialHistoryDomains.has('bitcoin'),
     });
 
     return {
@@ -969,6 +970,9 @@ export const useFinancials = defineStore('financials', () => {
     const configReadyAt = performance.now();
     if (!config.walletAccountsHadPreviousLife) {
       hasConfirmedFinancialHistoryCoverage = true;
+      for (const domain of ['bitcoin', 'bonds', 'vaulting'] as const) {
+        confirmedFinancialHistoryDomains.add(domain);
+      }
       historyRecovery.value = { state: 'ready', recoveredBlockCount: 0 };
     }
     await Promise.all([wallets.isLoadedPromise, currency.isLoadedPromise]);
@@ -1048,6 +1052,9 @@ export const useFinancials = defineStore('financials', () => {
     });
     if (needsRecovery) {
       hasConfirmedFinancialHistoryCoverage = false;
+      for (const domain of enabledDomains) {
+        confirmedFinancialHistoryDomains.delete(domain);
+      }
       historyRecovery.value = { state: 'checking', recoveredBlockCount: 0 };
       await restoreFinancialHistory(false, targetBlock);
       return;
@@ -1055,6 +1062,9 @@ export const useFinancials = defineStore('financials', () => {
 
     if (!hasConfirmedFinancialHistoryCoverage) {
       hasConfirmedFinancialHistoryCoverage = true;
+      for (const domain of enabledDomains) {
+        confirmedFinancialHistoryDomains.add(domain);
+      }
       await queueAccountRefresh({ force: true });
     }
     for (const domain of enabledDomains) {
@@ -1134,6 +1144,9 @@ export const useFinancials = defineStore('financials', () => {
           };
         },
         onDomainComplete({ domain, asOfBlock, error }) {
+          if (!error && asOfBlock >= targetBlock) {
+            confirmedFinancialHistoryDomains.add(domain);
+          }
           if (!shouldShowRecovery) return;
 
           if (error) {
@@ -1159,6 +1172,9 @@ export const useFinancials = defineStore('financials', () => {
       const isRecoveryComplete = result.asOfBlock >= targetBlock;
       if (isRecoveryComplete) {
         hasConfirmedFinancialHistoryCoverage = true;
+        for (const domain of enabledDomains) {
+          confirmedFinancialHistoryDomains.add(domain);
+        }
       } else if (shouldShowRecovery) {
         historyRecovery.value = {
           state: 'waiting',
