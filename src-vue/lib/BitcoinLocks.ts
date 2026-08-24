@@ -271,6 +271,17 @@ export default class BitcoinLocks {
         const queue = this.#txQueueByUuid[lock.uuid];
         if (queue) await queue.add(async () => undefined).promise;
       },
+      findConfirmedRecoveredRelease: async ({ lock, fundingRecord }) => {
+        let txid = fundingRecord.releaseTxid;
+        if (!txid) {
+          if (!this.utxoTracking.canSubmitFundingRecordReleaseToBitcoin(fundingRecord)) return;
+          txid = (await this.ownerCosignAndGenerateTxBytes(lock, fundingRecord)).txid;
+        }
+
+        const status = await this.#mempool.getTxStatus(txid, this.oracleBitcoinBlockHeight);
+        if (!status?.isConfirmed) return;
+        return { ...status, txid };
+      },
       onHistoryRecoveryComplete: locks => this.resumeAfterHistoryRecovery(locks),
       insertPending: this.insertPending.bind(this),
       dbPromise,
@@ -1886,7 +1897,7 @@ export default class BitcoinLocks {
 
     try {
       await this.utxoTracking.clearStatusError(fundingRecord);
-      const { bytes, txid } = await this.ownerCosignAndGenerateTxBytes(lock);
+      const { bytes, txid } = await this.ownerCosignAndGenerateTxBytes(lock, fundingRecord);
       const existingTxStatus = await this.#mempool.getTxStatus(txid, this.oracleBitcoinBlockHeight);
       if (existingTxStatus?.isConfirmed) {
         await this.utxoTracking.setReleaseSeenOnBitcoin(fundingRecord, txid, existingTxStatus.transactionBlockHeight);
@@ -1904,13 +1915,13 @@ export default class BitcoinLocks {
 
   private async ownerCosignAndGenerateTxBytes(
     lock: IBitcoinLockRecord,
+    fundingRecord: IBitcoinUtxoRecord,
     addTx?: string,
   ): Promise<{ txid: string; bytes: Uint8Array }> {
     if (lock.cosignVersion !== 'v1') {
       throw new Error(`Unsupported cosign version: ${lock.cosignVersion}`);
     }
 
-    const fundingRecord = await this.getFundingRecordOrThrow(lock);
     if (!fundingRecord.releaseCosignVaultSignature) {
       throw new Error(`Lock with ID ${lock.utxoId} has not been cosigned yet.`);
     }
@@ -3156,6 +3167,7 @@ export default class BitcoinLocks {
         });
       }
 
+      const queueOptions = { waitForHistoryRecovery: true };
       const promises = Object.values(this.data.locksByUtxoId)
         .map(lockRecord => {
           if (this.isHistoryRecoveryPendingForLock(lockRecord)) {
@@ -3168,7 +3180,7 @@ export default class BitcoinLocks {
               lockRecord,
               30e3,
               () => this.syncMintPendingState(lockRecord, table, clientAt),
-              { waitForHistoryRecovery: true },
+              queueOptions,
             ).catch(err => {
               console.warn(`[BitcoinLocks] Error syncing pending liquidity for utxo ${lockRecord.uuid}`, err);
             });
@@ -3177,62 +3189,70 @@ export default class BitcoinLocks {
             // waiting for a utxo to be found
             return undefined;
           }
-          return this.runInQueueForUtxo(lockRecord, 30e3, async () => {
-            const isPendingFunding = lockRecord.status === BitcoinLockStatus.LockPendingFunding;
-            const shouldTrackFundingSignals = this.isFundingSignalTrackingStatus(lockRecord.status);
-            const shouldSyncLockingState =
-              isPendingFunding ||
-              (this.isLockedStatus(lockRecord) && (!lockRecord.fundingUtxoRecordId || hasBitcoinLockFlexibilityChange));
+          return this.runInQueueForUtxo(
+            lockRecord,
+            30e3,
+            async () => {
+              const isPendingFunding = lockRecord.status === BitcoinLockStatus.LockPendingFunding;
+              const shouldTrackFundingSignals = this.isFundingSignalTrackingStatus(lockRecord.status);
+              const shouldSyncLockingState =
+                isPendingFunding ||
+                (this.isLockedStatus(lockRecord) &&
+                  (!lockRecord.fundingUtxoRecordId || hasBitcoinLockFlexibilityChange));
 
-            // Phase 1: lock sync.
-            if (shouldSyncLockingState) {
-              await this.updateLockingStatus(lockRecord, clientAt).catch(err =>
-                console.warn(`[BitcoinLocks] Error updating locking status for utxo ${lockRecord.uuid}`, err),
-              );
-            }
-
-            // Phase 2: funding sync.
-            if (!lockRecord.fundingUtxoRecordId) {
-              await this.ensureFundingUtxoRecordPointer(lockRecord).catch(err =>
-                console.warn(`[BitcoinLocks] Error linking funding UTXO record for utxo ${lockRecord.uuid}`, err),
-              );
-            }
-            if (shouldTrackFundingSignals && hasNewOracleBitcoinBlockHeight) {
-              await this.utxoTracking.updateFundingLastConfirmationCheck(lockRecord).catch(err => {
-                console.warn(
-                  `[BitcoinLocks] Error updating funding confirmation check for utxo ${lockRecord.uuid}`,
-                  err,
+              // Phase 1: lock sync.
+              if (shouldSyncLockingState) {
+                await this.updateLockingStatus(lockRecord, clientAt).catch(err =>
+                  console.warn(`[BitcoinLocks] Error updating locking status for utxo ${lockRecord.uuid}`, err),
                 );
+              }
+
+              // Phase 2: funding sync.
+              if (!lockRecord.fundingUtxoRecordId) {
+                await this.ensureFundingUtxoRecordPointer(lockRecord).catch(err =>
+                  console.warn(`[BitcoinLocks] Error linking funding UTXO record for utxo ${lockRecord.uuid}`, err),
+                );
+              }
+              if (shouldTrackFundingSignals && hasNewOracleBitcoinBlockHeight) {
+                await this.utxoTracking.updateFundingLastConfirmationCheck(lockRecord).catch(err => {
+                  console.warn(
+                    `[BitcoinLocks] Error updating funding confirmation check for utxo ${lockRecord.uuid}`,
+                    err,
+                  );
+                });
+              }
+              if (shouldTrackFundingSignals) {
+                await this.syncPendingFundingSignals(lockRecord, clientAt).catch(err => {
+                  console.warn(`[BitcoinLocks] Error syncing funding signals for utxo ${lockRecord.uuid}`, err);
+                });
+              }
+
+              // Phase 3: mismatch sync.
+              await this.reconcileMismatchState(lockRecord).catch(err => {
+                console.warn(`[BitcoinLocks] Error reconciling mismatch state for utxo ${lockRecord.uuid}`, err);
               });
-            }
-            if (shouldTrackFundingSignals) {
-              await this.syncPendingFundingSignals(lockRecord, clientAt).catch(err => {
-                console.warn(`[BitcoinLocks] Error syncing funding signals for utxo ${lockRecord.uuid}`, err);
+
+              // Phase 4: mismatch return sync.
+              await this.orphanReleases.reconcileCandidateReturns(lockRecord).catch(err => {
+                console.warn(`[BitcoinLocks] Error reconciling mismatch return for utxo ${lockRecord.uuid}`, err);
               });
-            }
 
-            // Phase 3: mismatch sync.
-            await this.reconcileMismatchState(lockRecord).catch(err => {
-              console.warn(`[BitcoinLocks] Error reconciling mismatch state for utxo ${lockRecord.uuid}`, err);
-            });
+              await this.orphanReleases.reconcileOrphanReturns(lockRecord).catch(err => {
+                console.warn(`[BitcoinLocks] Error reconciling orphan return for utxo ${lockRecord.uuid}`, err);
+              });
 
-            // Phase 4: mismatch return sync.
-            await this.orphanReleases.reconcileCandidateReturns(lockRecord).catch(err => {
-              console.warn(`[BitcoinLocks] Error reconciling mismatch return for utxo ${lockRecord.uuid}`, err);
-            });
+              // Phase 5: accepted funding release sync.
+              await this.reconcileAcceptedFundingReleaseOnBlock(lockRecord, hasNewOracleBitcoinBlockHeight).catch(
+                err => {
+                  console.warn(`[BitcoinLocks] Error reconciling accepted release for utxo ${lockRecord.uuid}`, err);
+                },
+              );
 
-            await this.orphanReleases.reconcileOrphanReturns(lockRecord).catch(err => {
-              console.warn(`[BitcoinLocks] Error reconciling orphan return for utxo ${lockRecord.uuid}`, err);
-            });
-
-            // Phase 5: accepted funding release sync.
-            await this.reconcileAcceptedFundingReleaseOnBlock(lockRecord, hasNewOracleBitcoinBlockHeight).catch(err => {
-              console.warn(`[BitcoinLocks] Error reconciling accepted release for utxo ${lockRecord.uuid}`, err);
-            });
-
-            // Phase 6: mint sync.
-            await this.syncMintPendingState(lockRecord, table, clientAt);
-          }).catch(err => {
+              // Phase 6: mint sync.
+              await this.syncMintPendingState(lockRecord, table, clientAt);
+            },
+            queueOptions,
+          ).catch(err => {
             console.warn(`[BitcoinLocks] Error processing lock for utxo ${lockRecord.uuid}`, err);
           });
         })

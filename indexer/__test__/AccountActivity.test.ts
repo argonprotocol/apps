@@ -528,6 +528,7 @@ const vaultPositionMethods = [
   'CommittedArgonotsSet',
   'FundsReleased',
   'FundsScheduledForRelease',
+  'ReservedSecuritizationSpaceChanged',
   'VaultBondedArgonsChangeScheduled',
   'VaultBondedArgonsIncreased',
   'VaultClosed',
@@ -545,6 +546,7 @@ const ignoredVaultMethods = [
 const indexedBitcoinLockMethods = [
   'BitcoinCosignPastDue',
   'BitcoinLockBackfillChanged',
+  'BitcoinLockFlexibleChanged',
   'BitcoinLockBurned',
   'BitcoinLockCreated',
   'BitcoinLockRatcheted',
@@ -569,6 +571,7 @@ const ignoredBitcoinUtxoMethods = [
 ];
 const treasuryBondMethods = [
   'BondLotBackfillChanged',
+  'BondLotFlexibilityChanged',
   'BondLotPurchased',
   'BondLotReleased',
   'BondLotReleaseScheduled',
@@ -581,6 +584,7 @@ const treasuryVaultMethods = [
   'ErrorRefundingTreasuryCapital',
   'NextBidPoolCapitalLocked',
   'RefundedTreasuryCapital',
+  'ReservedBondSpaceChanged',
   'VaultFunderAllocation',
   'VaultOperatorPrebond',
 ];

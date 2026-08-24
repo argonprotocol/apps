@@ -3,14 +3,13 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { AccountActivityKind, JsonExt, Mining } from '@argonprotocol/apps-core';
 import Importer from '../lib/Importer.ts';
 import { Config } from '../lib/Config.ts';
-import { createMockedDbPromise } from './helpers/db.ts';
+import { createMockedDbPromise, createTestDb } from './helpers/db.ts';
 import { createTestWallet } from './helpers/wallet.ts';
 import { instanceChecks } from '../lib/Utils.ts';
 import { SSH } from '../lib/SSH.ts';
 import { type IConfig, MiningSetupStatus, OnboardingSetupStatus, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 import Restarter from '../lib/Restarter.ts';
 import { MemoryWalletKeys } from '../lib/MemoryWalletKeys.ts';
-import type { Db } from '../lib/Db.ts';
 import { invokeWithTimeout } from '../lib/tauriApi.ts';
 import { Vault } from '@argonprotocol/mainchain';
 
@@ -43,6 +42,16 @@ vi.mock('../lib/IndexerClient.ts', () => ({
   findAddressActivity: importMocks.findMiningActivity,
 }));
 
+const testJurisdiction = {
+  ipAddress: '',
+  city: '',
+  region: '',
+  countryName: '',
+  countryCode: '',
+  latitude: '',
+  longitude: '',
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   importMocks.getOperatorVaultId.mockResolvedValue({ isSome: false });
@@ -51,12 +60,24 @@ beforeEach(() => {
   });
 });
 
+async function createImporterConfig(walletKeys: MemoryWalletKeys) {
+  const db = await createTestDb();
+  await db.configTable.insertOrReplace({
+    showWelcomeOverlay: 'true',
+    userJurisdiction: JsonExt.stringify(testJurisdiction, 2),
+  });
+  const dbPromise = Promise.resolve(db);
+  vi.spyOn(db, 'reconnect').mockResolvedValue();
+  instanceChecks.delete(Config.prototype.constructor);
+  const config = new Config(dbPromise, walletKeys);
+  await config.load();
+
+  return { config, db, dbPromise };
+}
+
 it('stops background sync before importing and keeps the current database on failure', async () => {
   const { mnemonic, walletKeys } = createTestWallet('//Alice');
-  const db = {
-    reconnect: vi.fn(),
-    configTable: { insertOrReplace: vi.fn() },
-  } as unknown as Db;
+  const { config, dbPromise } = await createImporterConfig(walletKeys);
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
@@ -78,9 +99,9 @@ it('stops background sync before importing and keeps the current database on fai
   vi.mocked(invokeWithTimeout).mockRejectedValueOnce(new Error('import failed'));
   const deleteDatabase = vi.spyOn(Restarter.prototype, 'deleteAndCreateLocalDatabase').mockResolvedValue();
 
-  await expect(
-    new Importer({} as Config, walletKeys, Promise.resolve(db)).importFromMnemonic(mnemonic),
-  ).rejects.toThrow('import failed');
+  await expect(new Importer(config, walletKeys, dbPromise).importFromMnemonic(mnemonic)).rejects.toThrow(
+    'import failed',
+  );
 
   expect(invokeWithTimeout).toHaveBeenCalledWith('import_mnemonic', { mnemonic }, 10_000);
   expect(importMocks.closeWallets).toHaveBeenCalledOnce();
@@ -97,11 +118,7 @@ it('restores completed mining setup from imported operational account state', as
     substrateSuri: mnemonic,
     masterMnemonic: mnemonic,
   });
-  const insertOrReplace = vi.fn();
-  const db = {
-    reconnect: vi.fn(),
-    configTable: { insertOrReplace },
-  } as unknown as Db;
+  const { config, db, dbPromise } = await createImporterConfig(walletKeys);
   const operationalDetails = {
     accountBitcoinAmount: { toBigInt: () => 0n },
     accountVaultBondAmount: { toBigInt: () => 0n },
@@ -144,22 +161,28 @@ it('restores completed mining setup from imported operational account state', as
   vi.spyOn(Restarter.prototype, 'deleteAndCreateLocalDatabase').mockResolvedValue();
   const restart = vi.spyOn(Restarter.prototype, 'restart').mockImplementation(() => undefined);
 
-  await new Importer({} as Config, walletKeys, Promise.resolve(db)).importFromMnemonic(mnemonic);
+  await new Importer(config, walletKeys, dbPromise).importFromMnemonic(mnemonic);
 
-  expect(insertOrReplace).toHaveBeenCalledWith({
-    showWelcomeOverlay: 'false',
-    walletAccountsHadPreviousLife: 'true',
-    walletPreviousLifeRecovered: 'false',
-    hasExtensionTreasury: 'true',
-    hasExtensionOperations: 'true',
-    hasActivatedCrosschain: 'false',
-    certificationDetails: JsonExt.stringify({ hasSavedMnemonic: true }, 2),
-    miningSetupStatus: JsonExt.stringify(MiningSetupStatus.Finished, 2),
-    vaultingSetupStatus: JsonExt.stringify(VaultingSetupStatus.Finished, 2),
-    onboardingSetupStatus: JsonExt.stringify(OnboardingSetupStatus.Checklist, 2),
-    hasMiningBids: 'true',
-    hasMiningSeats: 'true',
-  });
+  expect(config.hasExtensionTreasury).toBe(true);
+  expect(config.hasExtensionOperations).toBe(true);
+  expect(config.miningSetupStatus).toBe(MiningSetupStatus.Finished);
+  expect(config.certificationDetails?.hasSavedMnemonic).toBe(true);
+  expect(await db.configTable.fetchAllAsObject()).toEqual(
+    expect.objectContaining({
+      showWelcomeOverlay: 'false',
+      walletAccountsHadPreviousLife: 'true',
+      walletPreviousLifeRecovered: 'false',
+      hasExtensionTreasury: 'true',
+      hasExtensionOperations: 'true',
+      hasActivatedCrosschain: 'false',
+      certificationDetails: JsonExt.stringify({ hasSavedMnemonic: true }, 2),
+      miningSetupStatus: JsonExt.stringify(MiningSetupStatus.Finished, 2),
+      vaultingSetupStatus: JsonExt.stringify(VaultingSetupStatus.Finished, 2),
+      onboardingSetupStatus: JsonExt.stringify(OnboardingSetupStatus.Checklist, 2),
+      hasMiningBids: 'true',
+      hasMiningSeats: 'true',
+    }),
+  );
   expect(fetchMiningSeats).not.toHaveBeenCalled();
   expect(importMocks.findMiningActivity).not.toHaveBeenCalled();
   expect(restart).toHaveBeenCalledOnce();
@@ -182,11 +205,7 @@ it.each([
     substrateSuri: mnemonic,
     masterMnemonic: mnemonic,
   });
-  const insertOrReplace = vi.fn();
-  const db = {
-    reconnect: vi.fn(),
-    configTable: { insertOrReplace },
-  } as unknown as Db;
+  const { config, db, dbPromise } = await createImporterConfig(walletKeys);
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
@@ -206,12 +225,12 @@ it.each([
   vi.spyOn(Restarter.prototype, 'deleteAndCreateLocalDatabase').mockResolvedValue();
   vi.spyOn(Restarter.prototype, 'restart').mockImplementation(() => undefined);
 
-  await new Importer({} as Config, walletKeys, Promise.resolve(db)).importFromMnemonic(mnemonic);
+  await new Importer(config, walletKeys, dbPromise).importFromMnemonic(mnemonic);
 
   expect(importMocks.findMiningActivity).toHaveBeenCalledWith(importWalletKeys.miningBotAddress, {
     activityMask: AccountActivityKind.MiningBid | AccountActivityKind.MiningSeat,
   });
-  expect(insertOrReplace).toHaveBeenCalledWith(
+  expect(await db.configTable.fetchAllAsObject()).toEqual(
     expect.objectContaining({
       miningSetupStatus: JsonExt.stringify(MiningSetupStatus.Finished, 2),
       hasMiningBids: 'true',
@@ -233,11 +252,7 @@ it.each([
   const { mnemonic, walletKeys } = createTestWallet('//Alice');
   const balances = [emptyBalance, emptyBalance, emptyBalance, emptyBalance];
   balances[params.balanceIndex] = { ...emptyBalance, availableMicrogons: 1n };
-  const insertOrReplace = vi.fn();
-  const db = {
-    reconnect: vi.fn(),
-    configTable: { insertOrReplace },
-  } as unknown as Db;
+  const { config, db, dbPromise } = await createImporterConfig(walletKeys);
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
@@ -254,9 +269,9 @@ it.each([
   vi.spyOn(Restarter.prototype, 'deleteAndCreateLocalDatabase').mockResolvedValue();
   vi.spyOn(Restarter.prototype, 'restart').mockImplementation(() => undefined);
 
-  await new Importer({} as Config, walletKeys, Promise.resolve(db)).importFromMnemonic(mnemonic);
+  await new Importer(config, walletKeys, dbPromise).importFromMnemonic(mnemonic);
 
-  expect(insertOrReplace).toHaveBeenCalledWith(
+  expect(await db.configTable.fetchAllAsObject()).toEqual(
     expect.objectContaining({
       hasExtensionTreasury: 'true',
       hasExtensionOperations: 'true',
@@ -269,11 +284,7 @@ it.each([
 
 it('does not invent extensions from an imported basic wallet balance', async () => {
   const { mnemonic, walletKeys } = createTestWallet('//Alice');
-  const insertOrReplace = vi.fn();
-  const db = {
-    reconnect: vi.fn(),
-    configTable: { insertOrReplace },
-  } as unknown as Db;
+  const { config, db, dbPromise } = await createImporterConfig(walletKeys);
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
@@ -295,9 +306,9 @@ it('does not invent extensions from an imported basic wallet balance', async () 
   vi.spyOn(Restarter.prototype, 'deleteAndCreateLocalDatabase').mockResolvedValue();
   vi.spyOn(Restarter.prototype, 'restart').mockImplementation(() => undefined);
 
-  await new Importer({} as Config, walletKeys, Promise.resolve(db)).importFromMnemonic(mnemonic);
+  await new Importer(config, walletKeys, dbPromise).importFromMnemonic(mnemonic);
 
-  expect(insertOrReplace).toHaveBeenCalledWith(
+  expect(await db.configTable.fetchAllAsObject()).toEqual(
     expect.objectContaining({
       walletAccountsHadPreviousLife: 'true',
       hasExtensionTreasury: 'false',
@@ -316,11 +327,7 @@ it.each([
     substrateSuri: mnemonic,
     masterMnemonic: mnemonic,
   });
-  const insertOrReplace = vi.fn();
-  const db = {
-    reconnect: vi.fn(),
-    configTable: { insertOrReplace },
-  } as unknown as Db;
+  const { config, db, dbPromise } = await createImporterConfig(walletKeys);
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
@@ -361,9 +368,9 @@ it.each([
   vi.spyOn(Restarter.prototype, 'deleteAndCreateLocalDatabase').mockResolvedValue();
   vi.spyOn(Restarter.prototype, 'restart').mockImplementation(() => undefined);
 
-  await new Importer({} as Config, walletKeys, Promise.resolve(db)).importFromMnemonic(mnemonic);
+  await new Importer(config, walletKeys, dbPromise).importFromMnemonic(mnemonic);
 
-  expect(insertOrReplace).toHaveBeenCalledWith(
+  expect(await db.configTable.fetchAllAsObject()).toEqual(
     expect.objectContaining({
       walletAccountsHadPreviousLife: `${isActive}`,
       hasExtensionTreasury: `${isActive}`,
@@ -379,11 +386,7 @@ it('preserves Operations history without granting Crosschain access from an owne
     substrateSuri: mnemonic,
     masterMnemonic: mnemonic,
   });
-  const insertOrReplace = vi.fn();
-  const db = {
-    reconnect: vi.fn(),
-    configTable: { insertOrReplace },
-  } as unknown as Db;
+  const { config, db, dbPromise } = await createImporterConfig(walletKeys);
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
@@ -420,9 +423,9 @@ it('preserves Operations history without granting Crosschain access from an owne
   vi.spyOn(Restarter.prototype, 'deleteAndCreateLocalDatabase').mockResolvedValue();
   vi.spyOn(Restarter.prototype, 'restart').mockImplementation(() => undefined);
 
-  await new Importer({} as Config, walletKeys, Promise.resolve(db)).importFromMnemonic(mnemonic);
+  await new Importer(config, walletKeys, dbPromise).importFromMnemonic(mnemonic);
 
-  expect(insertOrReplace).toHaveBeenCalledWith(
+  expect(await db.configTable.fetchAllAsObject()).toEqual(
     expect.objectContaining({
       walletAccountsHadPreviousLife: 'true',
       hasExtensionTreasury: 'true',
@@ -434,11 +437,7 @@ it('preserves Operations history without granting Crosschain access from an owne
 
 it('does not infer treasury from an unattributed account hold', async () => {
   const { mnemonic, walletKeys } = createTestWallet('//Alice');
-  const insertOrReplace = vi.fn();
-  const db = {
-    reconnect: vi.fn(),
-    configTable: { insertOrReplace },
-  } as unknown as Db;
+  const { config, db, dbPromise } = await createImporterConfig(walletKeys);
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
@@ -458,9 +457,9 @@ it('does not infer treasury from an unattributed account hold', async () => {
   vi.spyOn(Restarter.prototype, 'deleteAndCreateLocalDatabase').mockResolvedValue();
   vi.spyOn(Restarter.prototype, 'restart').mockImplementation(() => undefined);
 
-  await new Importer({} as Config, walletKeys, Promise.resolve(db)).importFromMnemonic(mnemonic);
+  await new Importer(config, walletKeys, dbPromise).importFromMnemonic(mnemonic);
 
-  expect(insertOrReplace).toHaveBeenCalledWith(
+  expect(await db.configTable.fetchAllAsObject()).toEqual(
     expect.objectContaining({
       walletAccountsHadPreviousLife: 'true',
       hasExtensionTreasury: 'false',
@@ -494,11 +493,7 @@ it.each([
     substrateSuri: mnemonic,
     masterMnemonic: mnemonic,
   });
-  const insertOrReplace = vi.fn();
-  const db = {
-    reconnect: vi.fn(),
-    configTable: { insertOrReplace },
-  } as unknown as Db;
+  const { config, db, dbPromise } = await createImporterConfig(walletKeys);
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
@@ -524,14 +519,14 @@ it.each([
   vi.spyOn(Restarter.prototype, 'deleteAndCreateLocalDatabase').mockResolvedValue();
   vi.spyOn(Restarter.prototype, 'restart').mockImplementation(() => undefined);
 
-  await new Importer({} as Config, walletKeys, Promise.resolve(db)).importFromMnemonic(mnemonic);
+  await new Importer(config, walletKeys, dbPromise).importFromMnemonic(mnemonic);
 
   expect(importMocks.findMiningActivity).toHaveBeenCalledWith(importWalletKeys.defaultArgonAddress, {
     activityMask: AccountActivityKind.BondPosition | AccountActivityKind.BitcoinLock | AccountActivityKind.BitcoinMint,
   });
   expect(importMocks.getOperatorVaultId).toHaveBeenCalledWith(importWalletKeys.vaultingAddress);
   expect(getVault).toHaveBeenCalledTimes(params.activityKind === 'vault' ? 1 : 0);
-  expect(insertOrReplace).toHaveBeenCalledWith(
+  expect(await db.configTable.fetchAllAsObject()).toEqual(
     expect.objectContaining({
       walletAccountsHadPreviousLife: 'true',
       hasExtensionTreasury: 'true',
@@ -543,13 +538,9 @@ it.each([
   getVault.mockRestore();
 });
 
-it('does not block account import when fallback index history is unavailable', async () => {
+it('keeps proven account state when index history is unavailable during repair', async () => {
   const { mnemonic, walletKeys } = createTestWallet('//Alice');
-  const insertOrReplace = vi.fn();
-  const db = {
-    reconnect: vi.fn(),
-    configTable: { insertOrReplace },
-  } as unknown as Db;
+  const { config, db, dbPromise } = await createImporterConfig(walletKeys);
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
@@ -564,9 +555,9 @@ it('does not block account import when fallback index history is unavailable', a
   vi.spyOn(Restarter.prototype, 'deleteAndCreateLocalDatabase').mockResolvedValue();
   const restart = vi.spyOn(Restarter.prototype, 'restart').mockImplementation(() => undefined);
 
-  await new Importer({} as Config, walletKeys, Promise.resolve(db)).importFromMnemonic(mnemonic);
+  await new Importer(config, walletKeys, dbPromise).importFromMnemonic(mnemonic);
 
-  expect(insertOrReplace).toHaveBeenCalledWith(
+  expect(await db.configTable.fetchAllAsObject()).toEqual(
     expect.objectContaining({
       hasExtensionTreasury: 'false',
       hasExtensionOperations: 'false',
@@ -575,6 +566,86 @@ it('does not block account import when fallback index history is unavailable', a
     }),
   );
   expect(restart).toHaveBeenCalledOnce();
+
+  importMocks.readBalances.mockResolvedValue([
+    emptyBalance,
+    { ...emptyBalance, availableMicrogons: 1n },
+    emptyBalance,
+    emptyBalance,
+  ]);
+  importMocks.getOperatorVaultId.mockRejectedValueOnce(new Error('vault lookup unavailable'));
+
+  await new Importer(config, walletKeys, dbPromise).recoverCurrentAccountState();
+
+  expect(config.walletAccountsHadPreviousLife).toBe(true);
+  expect(config.hasExtensionTreasury).toBe(true);
+  expect(config.hasExtensionOperations).toBe(true);
+  expect(await db.configTable.fetchAllAsObject()).toEqual(
+    expect.objectContaining({
+      walletAccountsHadPreviousLife: 'true',
+      hasExtensionTreasury: 'true',
+      hasExtensionOperations: 'true',
+    }),
+  );
+});
+
+it('non-destructively recovers the current wallet setup', async () => {
+  const db = await createTestDb();
+  await db.configTable.insertOrReplace({
+    walletAccountsHadPreviousLife: 'false',
+    hasExtensionTreasury: 'false',
+    hasExtensionOperations: 'false',
+    certificationDetails: JsonExt.stringify({ hasSavedMnemonic: false }, 2),
+    walletPreviousLifeRecovered: 'false',
+    requiresPassword: 'true',
+    userJurisdiction: JsonExt.stringify(testJurisdiction, 2),
+  });
+  const dbPromise = Promise.resolve(db);
+  const { walletKeys } = createTestWallet('//Alice');
+  instanceChecks.delete(Config.prototype.constructor);
+  const config = new Config(dbPromise, walletKeys);
+  await config.load();
+  importMocks.getFinalizedClient.mockResolvedValue({
+    query: {
+      operationalAccounts: {
+        operationalAccounts: vi.fn().mockResolvedValue({ isSome: false }),
+      },
+      vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
+    },
+  });
+  importMocks.readBalances.mockResolvedValue([
+    emptyBalance,
+    { ...emptyBalance, availableMicrogons: 1n },
+    emptyBalance,
+    emptyBalance,
+  ]);
+  importMocks.findMiningActivity.mockResolvedValue({ blocks: [], coverage: { gaps: [] } });
+  vi.spyOn(Mining, 'fetchMiningSeatsForAccount').mockResolvedValue({});
+
+  await new Importer(config, walletKeys, dbPromise).recoverCurrentAccountState();
+
+  expect(config.walletAccountsHadPreviousLife).toBe(true);
+  expect(config.walletPreviousLifeRecovered).toBe(false);
+  expect(config.isBootingUpPreviousWalletHistory).toBe(false);
+  expect(config.hasExtensionTreasury).toBe(true);
+  expect(config.hasExtensionOperations).toBe(true);
+  expect(config.miningSetupStatus).toBe(MiningSetupStatus.Checklist);
+  expect(config.certificationDetails?.hasSavedMnemonic).toBe(false);
+
+  instanceChecks.delete(Config.prototype.constructor);
+  const recoverAccount = vi.fn(async () => ({}));
+  const restartedConfig = new Config(dbPromise, walletKeys, recoverAccount);
+  await restartedConfig.load();
+
+  expect(recoverAccount).toHaveBeenCalledOnce();
+  expect(restartedConfig.walletAccountsHadPreviousLife).toBe(true);
+  expect(restartedConfig.walletPreviousLifeRecovered).toBe(true);
+  expect(restartedConfig.isBootingUpPreviousWalletHistory).toBe(false);
+  expect(restartedConfig.hasExtensionTreasury).toBe(true);
+  expect(restartedConfig.hasExtensionOperations).toBe(true);
+  expect(restartedConfig.miningSetupStatus).toBe(MiningSetupStatus.Checklist);
+  expect(restartedConfig.certificationDetails?.hasSavedMnemonic).toBe(false);
+  expect(restartedConfig.requiresPassword).toBe(true);
 });
 
 it('restores a matching server without completing mining setup when bidding rules are absent', async () => {

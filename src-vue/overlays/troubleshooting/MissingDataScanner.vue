@@ -80,12 +80,18 @@ import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { MyVaultRecovery } from '../../lib/recovery/MyVaultRecovery.ts';
 import { getBlockWatch, getMainchainClients, getFinalizedClient } from '../../stores/mainchain.ts';
 import { useFinancials } from '../../stores/financials.ts';
+import { getConfig } from '../../stores/config.ts';
+import { getDbPromise } from '../../stores/helpers/dbPromise.ts';
+import Importer from '../../lib/Importer.ts';
+import type { Config } from '../../lib/Config.ts';
 
 const wallets = useWallets();
 const walletKeys = getWalletKeys();
 const myVault = getMyVault();
 const bitcoinLocks = getBitcoinLocks();
 const financials = useFinancials();
+const config = getConfig() as Config;
+const accountImporter = new Importer(config, walletKeys, getDbPromise());
 
 const containerRef = Vue.ref<HTMLElement>();
 
@@ -104,6 +110,8 @@ function scrollToBottom() {
 }
 
 async function checkWalletHistory() {
+  await accountImporter.recoverCurrentAccountState();
+  await config.recoverPreviousWalletHistory();
   await wallets.isLoadedPromise;
   const walletHistoryRecovery = getWalletHistoryRecovery();
   await walletHistoryRecovery.prepare();

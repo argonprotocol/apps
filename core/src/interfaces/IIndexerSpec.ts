@@ -27,7 +27,7 @@ export enum AccountActivityKind {
   GatewayOperations = 1 << 13,
 }
 
-export const ACCOUNT_ACTIVITY_DEFINITION_VERSION = 2;
+export const ACCOUNT_ACTIVITY_DEFINITION_VERSION = 3;
 
 export interface IAccountActivityQuery {
   afterBlock?: number;

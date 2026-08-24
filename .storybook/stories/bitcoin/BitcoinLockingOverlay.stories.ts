@@ -338,7 +338,7 @@ export const MismatchReturned: Story = {
     scenario = setupBitcoinOverlayScenario();
     requestedLock = scenario.lock;
     scenario.lock.status = BitcoinLockStatus.LockExpiredWaitingForFunding;
-    scenario.bitcoinLocks.verifyExpirationTime = fn(() => Date.now() - 1_000);
+    scenario.bitcoinLocks.verifyExpirationTime = fn(() => scenario.scenarioStartedAt - 1_000);
     scenario.replaceUtxoRecords([
       createMismatchCandidate(306, BitcoinUtxoStatus.ReleaseComplete, {
         requestedReleaseAtTick: 10_010,

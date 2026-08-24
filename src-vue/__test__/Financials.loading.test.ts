@@ -11,6 +11,8 @@ import type { IArgonAccountSnapshot } from '../lib/WalletsForArgon.ts';
 import type { WalletForArgon } from '../lib/WalletForArgon.ts';
 import type { IMiningCohortFinancialRecord } from '../interfaces/db/ICohortFrameRecord.ts';
 
+type FinancialHistoryRestoreArgs = Parameters<typeof import('../lib/recovery/index.ts').restoreFinancialHistory>[0];
+
 const mocks = vi.hoisted(() => {
   const wallet = (address: string) => ({
     address,
@@ -162,8 +164,12 @@ const mocks = vi.hoisted(() => {
       ),
       fetchArgonotCustody,
     },
-    restoreFinancialHistory: vi.fn(async () => ({ asOfBlock: 1, importedBlockCount: 0 })),
+    restoreFinancialHistory: vi.fn(async (_args?: FinancialHistoryRestoreArgs) => ({
+      asOfBlock: 1,
+      importedBlockCount: 0,
+    })),
     needsFinancialHistoryRecovery: vi.fn(async () => true),
+    getEnabledFinancialHistoryDomains: vi.fn(() => [] as ('bitcoin' | 'bonds' | 'vaulting')[]),
   };
 });
 
@@ -194,7 +200,7 @@ vi.mock('../stores/vaultingStats.ts', () => ({ useVaultingStats: () => mocks.vau
 vi.mock('../stores/config.ts', () => ({ getConfig: () => mocks.config }));
 vi.mock('../stores/stableSwaps.ts', () => ({ useStableSwaps: () => mocks.stableSwaps }));
 vi.mock('../lib/recovery/index.ts', () => ({
-  getEnabledFinancialHistoryDomains: vi.fn(() => []),
+  getEnabledFinancialHistoryDomains: mocks.getEnabledFinancialHistoryDomains,
   needsFinancialHistoryRecovery: mocks.needsFinancialHistoryRecovery,
   restoreFinancialHistory: mocks.restoreFinancialHistory,
 }));
@@ -252,6 +258,7 @@ describe('financials store lifecycle', () => {
     mocks.restoreFinancialHistory.mockClear();
     mocks.needsFinancialHistoryRecovery.mockResolvedValue(false);
     mocks.needsFinancialHistoryRecovery.mockClear();
+    mocks.getEnabledFinancialHistoryDomains.mockReturnValue([]);
     mocks.blockWatch.bestBlockHeader = {
       blockNumber: 1,
       blockHash: '0x1',
@@ -633,10 +640,17 @@ describe('financials store lifecycle', () => {
     });
   });
 
-  it('does not poll the indexer when imported-account recovery was already initialized', async () => {
+  it('keeps enabled domains pending until imported-account coverage is confirmed', async () => {
     mocks.config.hasExtensionTreasury = true;
     mocks.config.walletAccountsHadPreviousLife = true;
-    mocks.needsFinancialHistoryRecovery.mockResolvedValue(false);
+    mocks.getEnabledFinancialHistoryDomains.mockReturnValue(['bitcoin', 'bonds', 'vaulting']);
+    let finishCoverageCheck: ((needsRecovery: boolean) => void) | undefined;
+    mocks.needsFinancialHistoryRecovery.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          finishCoverageCheck = resolve;
+        }),
+    );
 
     const financials = useFinancials();
 
@@ -644,6 +658,11 @@ describe('financials store lifecycle', () => {
       expect(financials.financialPositionAggregate.groupSummaries.liquid.state).toBe('ready');
     });
     await vi.waitFor(() => expect(mocks.needsFinancialHistoryRecovery).toHaveBeenCalled());
+    expect(financials.historyRecoveryByDomain.bonds.state).toBe('checking');
+    expect(financials.historyRecoveryByDomain.bitcoin.state).toBe('checking');
+
+    finishCoverageCheck?.(false);
+    await vi.waitFor(() => expect(financials.historyRecoveryByDomain.bonds.state).toBe('ready'));
     expect(financials.historyRecovery.state).toBe('ready');
     expect(mocks.restoreFinancialHistory).not.toHaveBeenCalled();
     expect(mocks.walletsForArgon.readAccountSnapshot).toHaveBeenCalledTimes(2);
@@ -651,12 +670,15 @@ describe('financials store lifecycle', () => {
 
   it('resumes and surfaces pending domain recovery without imported-account history', async () => {
     mocks.config.hasExtensionTreasury = true;
+    mocks.getEnabledFinancialHistoryDomains.mockReturnValue(['bitcoin', 'bonds']);
     mocks.needsFinancialHistoryRecovery.mockResolvedValue(true);
     mocks.restoreFinancialHistory.mockRejectedValue(new Error('history unavailable'));
 
     const financials = useFinancials();
 
     await vi.waitFor(() => expect(financials.historyRecovery.state).toBe('error'));
+    expect(financials.historyRecoveryByDomain.bitcoin.state).toBe('error');
+    expect(financials.historyRecoveryByDomain.bonds.state).toBe('error');
     expect(mocks.needsFinancialHistoryRecovery).toHaveBeenCalledWith(
       expect.objectContaining({
         bitcoinLockRecovery: mocks.bitcoinLocks.recovery,
@@ -779,7 +801,7 @@ describe('financials store lifecycle', () => {
     expect(mocks.restoreFinancialHistory).toHaveBeenCalledWith(expect.objectContaining({ minimumAsOfBlock: 10 }));
   });
 
-  it('publishes repaired positions when later history recovery fails', async () => {
+  it('publishes repaired positions without making a Bitcoin failure hide bond history', async () => {
     const staleSummary = {
       ...createBitcoinSummary(0n),
       totalFees: 6_059_946n,
@@ -791,7 +813,11 @@ describe('financials store lifecycle', () => {
     mocks.config.hasExtensionTreasury = true;
     mocks.config.walletAccountsHadPreviousLife = true;
     mocks.needsFinancialHistoryRecovery.mockResolvedValue(true);
-    mocks.restoreFinancialHistory.mockRejectedValue(new Error('indexer unavailable'));
+    mocks.restoreFinancialHistory.mockImplementation(async (args?: FinancialHistoryRestoreArgs) => {
+      args?.onDomainComplete?.({ domain: 'bonds', asOfBlock: 1 });
+      args?.onDomainComplete?.({ domain: 'bitcoin', asOfBlock: 0, error: 'indexer unavailable' });
+      throw new Error('indexer unavailable');
+    });
     mocks.bitcoinLocks.getAllLocks.mockReturnValue([staleSummary.record]);
     mocks.bitcoinLocks.createLockSummaryAt.mockResolvedValueOnce(staleSummary).mockResolvedValue(recoveredSummary);
 
@@ -803,6 +829,8 @@ describe('financials store lifecycle', () => {
     await vi.waitFor(() => {
       expect(financials.bitcoinLockDisplayRecords[0]?.totalFees).toBe(59_946n);
     });
+    expect(financials.historyRecoveryByDomain.bonds.state).toBe('ready');
+    expect(financials.historyRecoveryByDomain.bitcoin.state).toBe('error');
     expect(financials.financialPositionAggregate.groupSummaries.liquid.state).toBe('ready');
   });
 });

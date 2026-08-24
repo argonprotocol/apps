@@ -45,23 +45,23 @@ describe('financial history spec boundaries', () => {
     expect(client.query.bitcoinLocks.locksByUtxoId).toHaveBeenCalledOnce();
   });
 
-  it('passes spec 137 Bitcoin activity to recovery while rejecting bond history before spec 151', async () => {
+  it('passes supported activity through runtime boundaries while skipping only an unsupported domain block', async () => {
     const recoverBitcoin = vi.fn(async () => undefined);
     const importBondHistory = vi.fn(async () => undefined);
     const blockWatch = {
-      getHeader: vi.fn(async () => ({
-        blockNumber: 137,
-        blockHash: '0x137',
+      getHeader: vi.fn(async ({ blockNumber, blockHash }) => ({
+        blockNumber,
+        blockHash,
         blockTime: new Date('2026-01-01T00:00:00Z'),
       })),
-      getEventsWithSpec: vi.fn(async () => ({ events: [], specVersion: 137 })),
+      getEventsWithSpec: vi.fn(async ({ blockNumber }) => ({ events: [], specVersion: blockNumber })),
     };
     const importer = new FinancialHistoryImporter({
       blockWatch: blockWatch as any,
       argonBonds: { importHistoryBlock: importBondHistory },
       vaultHistory: { importBlock: vi.fn() },
       enabledDomains: ['bitcoin', 'bonds'],
-      bitcoinLockRecovery: { recoverBlock: recoverBitcoin },
+      bitcoinLockRecovery: { markHistoryReplayFailure: vi.fn(), recoverBlock: recoverBitcoin },
     });
 
     const result = await importer.importBlocks([
@@ -71,12 +71,78 @@ describe('financial history spec boundaries', () => {
         specVersion: 137,
         activityMask: AccountActivityKind.BitcoinLock | AccountActivityKind.BondPosition,
       },
+      {
+        blockNumber: 151,
+        blockHash: '0x151',
+        specVersion: 151,
+        activityMask: AccountActivityKind.BondPosition,
+      },
     ]);
 
     expect(recoverBitcoin).toHaveBeenCalledOnce();
-    expect(importBondHistory).not.toHaveBeenCalled();
+    expect(importBondHistory).toHaveBeenCalledOnce();
     expect(result.domainErrors.bitcoin).toBeUndefined();
     expect(result.domainErrors.bonds).toContain('earliest supported for bonds is 151');
+  });
+
+  it('persists later valid history while retaining the retry point before a mismatched block', async () => {
+    const db = await createTestDb();
+    const checkpoints: number[] = [];
+    const blockWatch = {
+      getHeader: vi.fn(async ({ blockNumber }: { blockNumber: number }) => ({
+        blockNumber,
+        blockHash: blockNumber === 10 ? '0xdifferent' : `0x${blockNumber}`,
+        blockTime: new Date('2026-01-01T00:00:00Z').getTime(),
+      })),
+      getEventsWithSpec: vi.fn(async () => ({
+        events: [
+          eventRecord(
+            116,
+            'VaultCreated',
+            {
+              vaultId: 7,
+              lockedBitcoinArgons: 1_000n,
+              bondedBitcoinArgons: 500n,
+              addedSecuritizationPercent: 2_000_000_000_000_000_000n,
+              operatorAccountId: accountId,
+              activationTick: 1,
+            },
+            1,
+          ),
+        ],
+        specVersion: 116,
+      })),
+    };
+    const importer = new FinancialHistoryImporter({
+      blockWatch: blockWatch as any,
+      argonBonds: { importHistoryBlock: vi.fn() },
+      vaultHistory: new VaultHistory(Promise.resolve(db), accountId),
+      enabledDomains: ['vaulting'],
+    });
+
+    const result = await importer.importBlocks(
+      [10, 11].map(blockNumber => ({
+        blockNumber,
+        blockHash: `0x${blockNumber}`,
+        specVersion: 116,
+        activityMask: AccountActivityKind.VaultPosition,
+      })),
+      {
+        onCheckpoint: async blockNumber => {
+          checkpoints.push(blockNumber);
+        },
+      },
+    );
+
+    expect(await db.vaultCapitalHistoryTable.fetchAll(accountId, 7)).toEqual([
+      expect.objectContaining({ eventType: 'created', blockNumber: 11, securitization: 3_500n }),
+    ]);
+    expect(checkpoints).toEqual([9]);
+    expect(result).toEqual({
+      importedBlockCount: 1,
+      domainErrors: { vaulting: expect.stringContaining('Indexer hash mismatch at block 10') },
+      failedAtBlock: 10,
+    });
   });
 
   it('recovers the mainnet vault fields from spec 137 through the target-aware fields introduced at 147', async () => {

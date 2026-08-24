@@ -1,3 +1,4 @@
+import Fs from 'node:fs';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import { ACCOUNT_ACTIVITY_DEFINITION_VERSION, type IAccountActivityQuery } from '@argonprotocol/apps-core';
 import { accountActivityKindNames } from './AccountActivity.js';
@@ -274,6 +275,48 @@ export class IndexerDb {
       );
     }
     return result?.blockNumber ?? 0;
+  }
+}
+
+export function upgradeAccountActivitySeedFromV2(databasePath: string): boolean {
+  // This correction only covers the v2 definition's missing spec-158 classifications.
+  if (ACCOUNT_ACTIVITY_DEFINITION_VERSION !== 3 || !Fs.existsSync(databasePath)) return false;
+
+  const database = new DatabaseSync(databasePath, { open: true });
+  try {
+    const sync = database
+      .prepare(`SELECT blockNumber, definitionVersion FROM SyncState WHERE id = :id`)
+      .get({ id: syncStateId }) as { blockNumber: number; definitionVersion: number } | undefined;
+    if (sync?.definitionVersion !== 2) return false;
+
+    const changedRuntime = database
+      .prepare(`SELECT MIN(blockNumber) AS blockNumber FROM Blocks WHERE specVersion = 158`)
+      .get() as { blockNumber: number | null };
+    const replayFromBlock = changedRuntime.blockNumber;
+
+    database.exec('BEGIN IMMEDIATE TRANSACTION;');
+    if (replayFromBlock !== null) {
+      database.prepare(`DELETE FROM AccountBlocks WHERE blockNumber >= ?`).run(replayFromBlock);
+      database.prepare(`DELETE FROM Blocks WHERE blockNumber >= ?`).run(replayFromBlock);
+    }
+    database
+      .prepare(
+        `UPDATE SyncState
+         SET blockNumber = ?, definitionVersion = ?, syncedAt = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+      )
+      .run(
+        replayFromBlock === null ? sync.blockNumber : replayFromBlock - 1,
+        ACCOUNT_ACTIVITY_DEFINITION_VERSION,
+        syncStateId,
+      );
+    database.exec('COMMIT;');
+    return true;
+  } catch (error) {
+    if (database.isTransaction) database.exec('ROLLBACK;');
+    throw error;
+  } finally {
+    database.close();
   }
 }
 

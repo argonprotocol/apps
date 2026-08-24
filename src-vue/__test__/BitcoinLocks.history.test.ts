@@ -45,6 +45,9 @@ describe('BitcoinLocks historical event replay', () => {
     const setReleaseRequest = vi.spyOn(store.utxoTracking, 'setReleaseRequest').mockImplementation(async funding => {
       funding.status = BitcoinUtxoStatus.ReleaseIsProcessingOnArgon;
     });
+    vi.spyOn(store.utxoTracking, 'setReleaseCosign').mockImplementation(async (funding, cosign) => {
+      Object.assign(funding, cosign);
+    });
     const createdLock = new BitcoinLock(createHistoricalLock({ accountId, liquidityPromised: 1_000n }));
     const verifiedLock = new BitcoinLock({
       ...createHistoricalLock({ accountId, liquidityPromised: 900n, lockedTargetPrice: 900n }),
@@ -245,6 +248,10 @@ describe('BitcoinLocks historical event replay', () => {
       btcPriceAtRemovalMicrogons: 4_000_000n,
     });
     expect(recovered.removalReason).toBeUndefined();
+    expect(fundingRecord).toMatchObject({
+      releaseCosignVaultSignature: hexToU8a('0x11'),
+      releaseCosignHeight: 155,
+    });
     expect(table.setFundingUtxoRecordId).toHaveBeenCalledWith(expect.anything(), fundingRecordId);
     expect(table.recordReleaseCosign).toHaveBeenCalledOnce();
     expect(setReleaseRequest).toHaveBeenCalledOnce();
@@ -495,6 +502,65 @@ describe('BitcoinLocks historical event replay', () => {
 
     await expect(replay).resolves.toBeUndefined();
     expect(record.lockDetails.isFlexible).toBe(true);
+    expect(saveRecoveredHistory).toHaveBeenCalledWith(record);
+  });
+
+  it('replays a flexibility change without replacing later lock economics', async () => {
+    const accountId = encodeAddress(new Uint8Array(32).fill(0x33));
+    const store = createStore({
+      blockWatch: { getApi: vi.fn(async () => ({})) } as unknown as BlockWatch,
+    });
+    const record = createLock({
+      uuid: 'flexibility-change',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockedAndMinted,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    record.liquidityPromised = 1_100n;
+    record.lockedTargetPrice = 1_100n;
+    record.lockDetails = new BitcoinLock(
+      createHistoricalLock({ accountId, liquidityPromised: 1_100n, lockedTargetPrice: 1_100n }),
+    );
+    record.ratchets = [
+      {
+        mintAmount: 1_000n,
+        mintPending: 0n,
+        lockedTargetPrice: 1_000n,
+        securityFee: 20n,
+        txFee: 11n,
+        burned: 0n,
+        blockHeight: 151,
+        oracleBitcoinBlockHeight: 500,
+      },
+      {
+        mintAmount: 100n,
+        mintPending: 0n,
+        liquidityPromised: 1_100n,
+        lockedTargetPrice: 1_100n,
+        securityFee: 2n,
+        txFee: 3n,
+        burned: 0n,
+        blockHeight: 201,
+        oracleBitcoinBlockHeight: 600,
+      },
+    ];
+    store.data.locksByUtxoId[7] = record;
+    const saveRecoveredHistory = vi.fn(async () => undefined);
+    vi.spyOn(store, 'getTable').mockResolvedValue({ saveRecoveredHistory } as never);
+    vi.mocked(BitcoinLockHistory.getHistoricalBitcoinLock).mockResolvedValue(
+      new BitcoinLock(createHistoricalLock({ accountId, liquidityPromised: 1_000n })),
+    );
+    const event = historyEvent(158, 'bitcoinLocks', 'BitcoinLockFlexibleChanged', {
+      utxoId: 7,
+      vaultId: 1,
+      isFlexible: true,
+    });
+
+    await expect(store.recovery.recoverBlock(historyBlock(200), [event])).resolves.toBeUndefined();
+
+    expect(record.lockDetails.isFlexible).toBe(true);
+    expect(record.liquidityPromised).toBe(1_100n);
+    expect(record.lockedTargetPrice).toBe(1_100n);
     expect(saveRecoveredHistory).toHaveBeenCalledWith(record);
   });
 

@@ -92,14 +92,20 @@ export const useFinancials = defineStore('financials', () => {
 
     return { microgons, micronots };
   });
-  const historyRecovery = Vue.ref<{
+  type IFinancialHistoryRecoveryState = {
     state: 'checking' | 'restoring' | 'waiting' | 'ready' | 'error';
     recoveredBlockCount: number;
     currentDomain?: IFinancialHistoryDomain;
     currentDomainRecoveredBlockCount?: number;
     currentDomainTotalBlockCount?: number;
     message?: string;
-  }>({ state: 'ready', recoveredBlockCount: 0 });
+  };
+  const historyRecovery = Vue.ref<IFinancialHistoryRecoveryState>({ state: 'ready', recoveredBlockCount: 0 });
+  const historyRecoveryByDomain = Vue.reactive<Record<IFinancialHistoryDomain, IFinancialHistoryRecoveryState>>({
+    bitcoin: { state: 'ready', recoveredBlockCount: 0 },
+    bonds: { state: 'ready', recoveredBlockCount: 0 },
+    vaulting: { state: 'ready', recoveredBlockCount: 0 },
+  });
   const activeBitcoinLockCount = Vue.ref<number>();
   const isHistoryRecoveryInProgress = Vue.computed(() => {
     return (
@@ -994,6 +1000,21 @@ export const useFinancials = defineStore('financials', () => {
     isLoaded.value = true;
     if (config.hasExtensionTreasury || config.hasExtensionOperations) {
       void initializeFinancialHistoryRecovery().catch(error => {
+        const message = error instanceof Error ? error.message : 'Unable to restore investment history';
+        const enabledDomains = getEnabledFinancialHistoryDomains({
+          force: false,
+          hasExtensionTreasury: config.hasExtensionTreasury,
+          hasExtensionOperations: config.hasExtensionOperations,
+          walletAccountsHadPreviousLife: config.walletAccountsHadPreviousLife,
+        });
+        for (const domain of enabledDomains) {
+          if (!['checking', 'restoring'].includes(historyRecoveryByDomain[domain].state)) continue;
+          historyRecoveryByDomain[domain] = {
+            state: 'error',
+            recoveredBlockCount: historyRecoveryByDomain[domain].recoveredBlockCount,
+            message,
+          };
+        }
         console.error('[FinancialHistory] Unable to initialize recovery', error);
       });
     }
@@ -1010,6 +1031,11 @@ export const useFinancials = defineStore('financials', () => {
       hasExtensionOperations: config.hasExtensionOperations,
       walletAccountsHadPreviousLife: config.walletAccountsHadPreviousLife,
     });
+    if (!hasConfirmedFinancialHistoryCoverage) {
+      for (const domain of enabledDomains) {
+        historyRecoveryByDomain[domain] = { state: 'checking', recoveredBlockCount: 0 };
+      }
+    }
     const db = await getDbPromise();
     const targetBlock = getBlockWatch().finalizedBlockHeader.blockNumber;
     const recoverMissingCheckpointsFor = getMissingCheckpointDomains(enabledDomains);
@@ -1031,6 +1057,9 @@ export const useFinancials = defineStore('financials', () => {
       hasConfirmedFinancialHistoryCoverage = true;
       await queueAccountRefresh({ force: true });
     }
+    for (const domain of enabledDomains) {
+      historyRecoveryByDomain[domain] = { state: 'ready', recoveredBlockCount: 0 };
+    }
     historyRecovery.value = { state: 'ready', recoveredBlockCount: 0 };
   }
 
@@ -1041,15 +1070,20 @@ export const useFinancials = defineStore('financials', () => {
 
   async function runFinancialHistoryRecovery(force: boolean, targetBlock: number): Promise<number> {
     const shouldShowRecovery = force || !hasConfirmedFinancialHistoryCoverage;
+    const enabledDomains = getEnabledFinancialHistoryDomains({
+      force,
+      hasExtensionTreasury: config.hasExtensionTreasury,
+      hasExtensionOperations: config.hasExtensionOperations,
+      walletAccountsHadPreviousLife: config.walletAccountsHadPreviousLife,
+    });
+    if (shouldShowRecovery) {
+      for (const domain of enabledDomains) {
+        historyRecoveryByDomain[domain] = { state: 'checking', recoveredBlockCount: 0 };
+      }
+    }
 
     try {
       const db = await getDbPromise();
-      const enabledDomains = getEnabledFinancialHistoryDomains({
-        force,
-        hasExtensionTreasury: config.hasExtensionTreasury,
-        hasExtensionOperations: config.hasExtensionOperations,
-        walletAccountsHadPreviousLife: config.walletAccountsHadPreviousLife,
-      });
       const historyLoads: Promise<unknown>[] = [];
       if (enabledDomains.includes('bonds')) historyLoads.push(argonBonds.load());
       if (enabledDomains.includes('bitcoin')) historyLoads.push(bitcoinLocks.load());
@@ -1078,18 +1112,48 @@ export const useFinancials = defineStore('financials', () => {
         },
         onProgress(recoveredBlockCount, domainProgress) {
           if (!shouldShowRecovery) return;
-          historyRecovery.value = domainProgress
-            ? {
-                state: 'restoring',
-                recoveredBlockCount,
-                currentDomain: domainProgress.domain,
-                currentDomainRecoveredBlockCount: domainProgress.recoveredBlockCount,
-                currentDomainTotalBlockCount: domainProgress.totalBlockCount,
-              }
-            : {
-                state: 'checking',
-                recoveredBlockCount,
-              };
+          if (!domainProgress) {
+            historyRecovery.value = { state: 'checking', recoveredBlockCount };
+            return;
+          }
+
+          const state: IFinancialHistoryRecoveryState['state'] = domainProgress.totalBlockCount
+            ? 'restoring'
+            : 'checking';
+          const domainState = {
+            state,
+            recoveredBlockCount: domainProgress.recoveredBlockCount,
+            currentDomain: domainProgress.domain,
+            currentDomainRecoveredBlockCount: domainProgress.recoveredBlockCount,
+            currentDomainTotalBlockCount: domainProgress.totalBlockCount,
+          };
+          historyRecoveryByDomain[domainProgress.domain] = domainState;
+          historyRecovery.value = {
+            ...domainState,
+            recoveredBlockCount,
+          };
+        },
+        onDomainComplete({ domain, asOfBlock, error }) {
+          if (!shouldShowRecovery) return;
+
+          if (error) {
+            historyRecoveryByDomain[domain] = {
+              state: 'error',
+              recoveredBlockCount: historyRecoveryByDomain[domain].recoveredBlockCount,
+              message: error,
+            };
+          } else if (asOfBlock >= targetBlock) {
+            historyRecoveryByDomain[domain] = {
+              state: 'ready',
+              recoveredBlockCount: historyRecoveryByDomain[domain].recoveredBlockCount,
+            };
+          } else {
+            historyRecoveryByDomain[domain] = {
+              state: 'waiting',
+              recoveredBlockCount: historyRecoveryByDomain[domain].recoveredBlockCount,
+              message: `History is indexed through block ${asOfBlock.toLocaleString()} and is still catching up`,
+            };
+          }
         },
       });
       const isRecoveryComplete = result.asOfBlock >= targetBlock;
@@ -1108,10 +1172,19 @@ export const useFinancials = defineStore('financials', () => {
       return result.asOfBlock;
     } catch (error) {
       if (shouldShowRecovery) {
+        const message = error instanceof Error ? error.message : 'Unable to restore investment history';
+        for (const domain of enabledDomains) {
+          if (!['checking', 'restoring'].includes(historyRecoveryByDomain[domain].state)) continue;
+          historyRecoveryByDomain[domain] = {
+            state: 'error',
+            recoveredBlockCount: historyRecoveryByDomain[domain].recoveredBlockCount,
+            message,
+          };
+        }
         historyRecovery.value = {
           ...historyRecovery.value,
           state: 'error',
-          message: error instanceof Error ? error.message : 'Unable to restore investment history',
+          message,
         };
       }
       throw error;
@@ -1193,6 +1266,7 @@ export const useFinancials = defineStore('financials', () => {
     liquidNativeBalances,
     activeBitcoinLockCount,
     historyRecovery,
+    historyRecoveryByDomain,
     isHistoryRecoveryInProgress,
     restoreFinancialHistory,
   };

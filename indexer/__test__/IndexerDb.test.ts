@@ -5,7 +5,11 @@ import { DatabaseSync } from 'node:sqlite';
 import { expect, it } from 'vitest';
 import { encodeAddress } from '@argonprotocol/mainchain';
 import { AccountActivityKind } from '../src/AccountActivity.ts';
-import { IncompatibleAccountActivityDatabaseError, IndexerDb } from '../src/IndexerDb.ts';
+import {
+  IncompatibleAccountActivityDatabaseError,
+  IndexerDb,
+  upgradeAccountActivitySeedFromV2,
+} from '../src/IndexerDb.ts';
 
 const alice = encodeAddress(new Uint8Array(32).fill(1));
 
@@ -204,6 +208,69 @@ it('refuses to resume an existing index with a different activity definition', (
   try {
     expect(() => new IndexerDb(databasePath)).toThrow(IncompatibleAccountActivityDatabaseError);
   } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it('replays spec 158 while preserving the owner indexes needed to attribute it', () => {
+  const directory = fs.mkdtempSync(Path.join(os.tmpdir(), 'account-activity-'));
+  const databasePath = Path.join(directory, 'test.db');
+  const db = new IndexerDb(databasePath);
+
+  db.recordBlocks([
+    {
+      blockNumber: 1,
+      blockHash: Uint8Array.of(1),
+      specVersion: 157,
+      accounts: [],
+      vaults: [],
+      vaultOwners: [{ vaultId: 7, address: alice }],
+      bitcoinLocks: [],
+      bitcoinLockOwners: [{ utxoId: 9, address: alice }],
+    },
+    {
+      blockNumber: 2,
+      blockHash: Uint8Array.of(2),
+      specVersion: 158,
+      accounts: [],
+      vaults: [{ vaultId: 7, mask: AccountActivityKind.VaultPosition }],
+      vaultOwners: [],
+      bitcoinLocks: [{ utxoId: 9, mask: AccountActivityKind.BitcoinLock }],
+      bitcoinLockOwners: [],
+    },
+  ]);
+  db.close();
+
+  const oldSeed = new DatabaseSync(databasePath);
+  oldSeed.prepare(`UPDATE SyncState SET definitionVersion = 2 WHERE id = 'accountActivity'`).run();
+  oldSeed.close();
+
+  upgradeAccountActivitySeedFromV2(databasePath);
+
+  const replayed = new IndexerDb(databasePath);
+  try {
+    expect(replayed.latestSyncedBlock).toBe(1);
+    replayed.recordBlocks([
+      {
+        blockNumber: 2,
+        blockHash: Uint8Array.of(2),
+        specVersion: 158,
+        accounts: [],
+        vaults: [{ vaultId: 7, mask: AccountActivityKind.VaultPosition }],
+        vaultOwners: [],
+        bitcoinLocks: [{ utxoId: 9, mask: AccountActivityKind.BitcoinLock }],
+        bitcoinLockOwners: [],
+      },
+    ]);
+
+    expect(replayed.findAddressActivity(alice)).toMatchObject([
+      {
+        blockNumber: 2,
+        activityMask: AccountActivityKind.VaultPosition | AccountActivityKind.BitcoinLock,
+      },
+    ]);
+  } finally {
+    replayed.close();
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });

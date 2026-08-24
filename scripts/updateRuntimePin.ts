@@ -169,6 +169,17 @@ async function main(): Promise<void> {
     shell: true,
     stdio: 'inherit',
   });
+  if (!resolvedPin.runtimePackageResolutions) {
+    console.info('Regenerating historical runtime events');
+    execFileSync('yarn', ['workspace', '@argonprotocol/apps-indexer', 'generate:historical-events'], {
+      cwd: REPO_ROOT,
+      env: process.env,
+      shell: true,
+      stdio: 'inherit',
+    });
+  } else {
+    console.info('Skipping published historical runtime registration for the local dev portal');
+  }
   console.info('Building server');
   execFileSync('yarn', ['build:server'], {
     cwd: REPO_ROOT,

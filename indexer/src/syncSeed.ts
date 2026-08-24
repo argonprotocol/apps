@@ -1,7 +1,7 @@
 import Fs from 'node:fs';
 import Path from 'node:path';
 import { getClient } from '@argonprotocol/mainchain';
-import { IncompatibleAccountActivityDatabaseError, IndexerDb } from './IndexerDb.ts';
+import { IncompatibleAccountActivityDatabaseError, IndexerDb, upgradeAccountActivitySeedFromV2 } from './IndexerDb.ts';
 import { AccountActivityIndexer } from './AccountActivityIndexer.ts';
 
 const seeds = [
@@ -23,6 +23,10 @@ for (const seed of seeds.filter(seed => !requestedNetworks.size || requestedNetw
   console.log(`Syncing indexer seed for ${seed.network} from RPC: ${seed.rpc}`);
   const client = await getClient(seed.rpc);
   const databasePath = Path.join(seedDirectory, `${seed.network}-activity-v2.db`);
+  if (upgradeAccountActivitySeedFromV2(databasePath)) {
+    console.log(`Upgraded ${seed.network} account activity seed to definition 3; replaying runtime spec 158`);
+  }
+
   let db: IndexerDb;
   try {
     db = new IndexerDb(databasePath);

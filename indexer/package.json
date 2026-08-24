@@ -8,6 +8,7 @@
     "build": "tsup",
     "watch": "tsup --watch",
     "generate:historical-events": "tsx src/generateHistoricalEventSpecs.ts",
+    "check:historical-events": "tsx src/generateHistoricalEventSpecs.ts --check",
     "sync": "tsx src/syncSeed.ts",
     "extract": "tsx src/seedArtifacts.ts extract",
     "manifest": "tsx src/createSeedManifest.ts"
