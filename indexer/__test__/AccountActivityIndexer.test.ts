@@ -250,6 +250,7 @@ function activityClient(args: {
   });
   const client = {
     at,
+    getBlockRegistry: vi.fn(async () => ({ metadata: { toU8a: () => Uint8Array.of() } })),
     query: { system: { events: { key: () => '0xevents' } } },
     rpc: {
       chain: {

@@ -15,6 +15,7 @@ export interface IAccountActivityBlock {
   blockNumber: number;
   blockHash: Uint8Array;
   specVersion: number;
+  systemEvents: Uint8Array;
   accounts: { address: string; mask: number }[];
   vaults: { vaultId: number; mask: number }[];
   vaultOwners: { vaultId: number; address: string }[];
@@ -25,6 +26,7 @@ export interface IAccountActivityBlock {
 }
 
 const syncStateId = 'accountActivity';
+const currentSchemaVersion = 2;
 
 export class IncompatibleAccountActivityDatabaseError extends Error {}
 
@@ -34,6 +36,7 @@ type StatementName =
   | 'insertBitcoinLockOwner'
   | 'insertBlock'
   | 'insertMintingAuthorityOwner'
+  | 'insertRuntimeMetadata'
   | 'insertVaultOwner'
   | 'updateSync';
 
@@ -84,6 +87,15 @@ export class IndexerDb {
     }) as unknown as IAccountActivityRecord[];
   }
 
+  public hasRuntimeMetadata(specVersion: number): boolean {
+    return Boolean(this.database.prepare('SELECT 1 FROM RuntimeMetadata WHERE specVersion = ?').get(specVersion));
+  }
+
+  public recordRuntimeMetadata(runtime: { specVersion: number; blockHash: Uint8Array; metadata: Uint8Array }): void {
+    this.prepareWriteStatements();
+    this.statements.insertRuntimeMetadata.run(runtime);
+  }
+
   public recordBlocks(blocks: IAccountActivityBlock[]): void {
     const pendingBlocks = blocks.filter(block => block.blockNumber > this.latestSyncedBlock);
     if (!pendingBlocks.length) return;
@@ -100,8 +112,8 @@ export class IndexerDb {
           blockNumber: block.blockNumber,
           blockHash: block.blockHash,
           specVersion: block.specVersion,
+          systemEvents: block.systemEvents,
         });
-
         for (const { vaultId, address } of block.vaultOwners) {
           this.statements.insertVaultOwner.run({ vaultId, accountId: address });
           pendingVaultOwners.set(vaultId, address);
@@ -181,12 +193,14 @@ export class IndexerDb {
       );
     `);
 
-    const currentVersion = Number(
+    let currentVersion = Number(
       this.database.prepare(`SELECT COALESCE(MAX(version), 0) AS version FROM SchemaVersion`).get()?.version ?? 0,
     );
     console.log(`Current account activity DB schema version: ${currentVersion}`);
-    if (currentVersion < 1) this.database.exec(CurrentSchema);
-
+    if (currentVersion < 1) {
+      this.database.exec(CurrentSchema);
+      currentVersion = currentSchemaVersion;
+    }
     const tables = new Set(
       (
         this.database.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as unknown as {
@@ -202,10 +216,29 @@ export class IndexerDb {
       'MintingAuthorityOwners',
       'ActivityKinds',
       'SyncState',
+      'RuntimeMetadata',
     ].find(table => !tables.has(table));
     if (missingTable) {
       throw new IncompatibleAccountActivityDatabaseError(
         `Account activity database is missing ${missingTable}; replace or rebuild the account activity database`,
+      );
+    }
+    if (currentVersion !== currentSchemaVersion) {
+      throw new IncompatibleAccountActivityDatabaseError(
+        `Account activity database schema ${currentVersion} cannot resume with schema ${currentSchemaVersion}; replace or rebuild the account activity database`,
+      );
+    }
+
+    const blockColumns = new Set(
+      (
+        this.database.prepare(`PRAGMA table_info(Blocks)`).all() as unknown as {
+          name: string;
+        }[]
+      ).map(record => record.name),
+    );
+    if (!blockColumns.has('systemEvents')) {
+      throw new IncompatibleAccountActivityDatabaseError(
+        'Account activity database is missing Blocks.systemEvents; replace or rebuild the account activity database',
       );
     }
 
@@ -239,8 +272,12 @@ export class IndexerDb {
 
   private prepareWriteStatements(): void {
     this.statements.insertBlock ??= this.database.prepare(`
-      INSERT INTO Blocks (blockNumber, blockHash, specVersion)
-      VALUES (:blockNumber, :blockHash, :specVersion)
+      INSERT INTO Blocks (blockNumber, blockHash, specVersion, systemEvents)
+      VALUES (:blockNumber, :blockHash, :specVersion, :systemEvents)
+    `);
+    this.statements.insertRuntimeMetadata ??= this.database.prepare(`
+      INSERT OR IGNORE INTO RuntimeMetadata (specVersion, blockHash, metadata)
+      VALUES (:specVersion, :blockHash, :metadata)
     `);
     this.statements.insertAccountBlock ??= this.database.prepare(`
       INSERT INTO AccountBlocks (accountId, blockNumber, activityMask)
@@ -323,7 +360,13 @@ export function upgradeAccountActivitySeedFromV2(databasePath: string): boolean 
 const CurrentSchema = `CREATE TABLE Blocks (
     blockNumber INTEGER PRIMARY KEY,
     blockHash BLOB NOT NULL,
-    specVersion INTEGER NOT NULL
+    specVersion INTEGER NOT NULL,
+    systemEvents BLOB NOT NULL
+  );
+  CREATE TABLE RuntimeMetadata (
+    specVersion INTEGER PRIMARY KEY,
+    blockHash BLOB NOT NULL,
+    metadata BLOB NOT NULL
   );
   -- The composite primary key is also the account timeline index; avoid storing a duplicate rowid tree.
   CREATE TABLE AccountBlocks (
@@ -355,5 +398,5 @@ const CurrentSchema = `CREATE TABLE Blocks (
     syncedAt DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
-  INSERT INTO SchemaVersion (version) VALUES (1);
+  INSERT INTO SchemaVersion (version) VALUES (${currentSchemaVersion});
 `;

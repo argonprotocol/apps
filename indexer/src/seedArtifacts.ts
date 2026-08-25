@@ -9,16 +9,20 @@ const seedNetworks = ['mainnet', 'testnet'] as const;
 export async function compressSeeds(seedDirectory: string): Promise<void> {
   for (const network of seedNetworks) {
     const databasePath = Path.join(seedDirectory, `${network}-activity-v2.db`);
-    if (!Fs.existsSync(databasePath)) throw new Error(`Missing seed ${databasePath}`);
-
-    await writeAtomically(`${databasePath}.gz`, temporaryPath => {
-      return pipeline(
-        Fs.createReadStream(databasePath),
-        createGzip({ level: constants.Z_BEST_COMPRESSION }),
-        Fs.createWriteStream(temporaryPath),
-      );
-    });
+    await compressSeed(databasePath, `${databasePath}.gz`);
   }
+}
+
+export async function compressSeed(databasePath: string, compressedPath: string): Promise<void> {
+  if (!Fs.existsSync(databasePath)) throw new Error(`Missing seed ${databasePath}`);
+
+  await writeAtomically(compressedPath, temporaryPath => {
+    return pipeline(
+      Fs.createReadStream(databasePath),
+      createGzip({ level: constants.Z_BEST_COMPRESSION }),
+      Fs.createWriteStream(temporaryPath),
+    );
+  });
 }
 
 export async function extractSeeds(seedDirectory: string): Promise<void> {
@@ -43,15 +47,30 @@ const command = process.argv[2];
 if (process.argv[1] && Path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const seedDirectory = Path.join(import.meta.dirname, '../seeds');
   if (command === 'extract') {
-    await extractSeeds(seedDirectory);
+    const requestedNetwork = process.argv[3];
+    const network = seedNetworks.find(network => network === requestedNetwork);
+    if (requestedNetwork && !network) {
+      throw new Error(`Unknown seed network ${requestedNetwork}`);
+    }
+    if (network) {
+      const databasePath = Path.join(seedDirectory, `${network}-activity-v2.db`);
+      const compressedPath = `${databasePath}.gz`;
+      if (Fs.existsSync(compressedPath)) {
+        await extractSeed(compressedPath, databasePath);
+      } else if (!Fs.existsSync(databasePath)) {
+        throw new Error(`Missing compressed seed ${compressedPath}`);
+      }
+    } else {
+      await extractSeeds(seedDirectory);
+    }
   } else if (command === 'compress') {
     await compressSeeds(seedDirectory);
   } else {
-    throw new Error('Usage: seedArtifacts.ts <extract|compress>');
+    throw new Error('Usage: seedArtifacts.ts <extract [mainnet|testnet]|compress>');
   }
 }
 
-async function writeAtomically(
+export async function writeAtomically(
   destinationPath: string,
   write: (temporaryPath: string) => Promise<void>,
 ): Promise<void> {

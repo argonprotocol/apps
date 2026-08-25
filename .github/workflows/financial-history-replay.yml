@@ -1,0 +1,115 @@
+name: Financial history replay corpus
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: argonprotocol/financial-history-replay-corpus
+  INDEXER_IMAGE: argonprotocol/argon-indexer
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Install nodejs
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 24
+          cache: yarn
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Login to container registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Restore the previous replay checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          replay_image="${REGISTRY}/${IMAGE_NAME}:latest"
+          if docker pull "${replay_image}"; then
+            yarn download:financial-history-replay "${replay_image}"
+            exit 0
+          fi
+
+          indexer_image="${REGISTRY}/${INDEXER_IMAGE}:hourly"
+          docker pull "${indexer_image}"
+          container_id=$(docker create "${indexer_image}")
+          trap 'docker rm -f "${container_id}" >/dev/null 2>&1 || true' EXIT
+          docker cp "${container_id}:/usr/src/app/seeds/mainnet-activity-v2.db.gz" indexer/seeds/
+          yarn workspace @argonprotocol/apps-indexer extract mainnet
+
+      - name: Capture and verify current mainnet history
+        run: yarn capture:financial-history-replay
+
+      - name: Package and verify offline replay
+        run: |
+          yarn package:financial-history-replay
+          yarn extract:financial-history-replay
+          yarn vitest --run --project=integration FinancialHistoryReplay.integration.test.ts
+
+      - name: Read corpus identity
+        id: corpus
+        shell: bash
+        run: |
+          block_number=$(node -p "require('./indexer/seeds/financial-history-replay-manifest.json').blockNumber")
+          echo "block_number=${block_number}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+
+      - name: Set up tags
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value=block-${{ steps.corpus.outputs.block_number }}-${{ github.sha }}
+
+      - name: Publish replay corpus
+        id: push
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25
+        with:
+          platforms: linux/amd64,linux/arm64
+          context: .
+          file: scripts/financial-history-replay.Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Report corpus identity
+        run: |
+          {
+            echo "Replay block: ${{ steps.corpus.outputs.block_number }}"
+            echo "Image digest: ${{ steps.push.outputs.digest }}"
+            echo "Immutable tag: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:block-${{ steps.corpus.outputs.block_number }}-${{ github.sha }}"
+          } >> "$GITHUB_STEP_SUMMARY"

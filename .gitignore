@@ -44,8 +44,13 @@ server/.env
 /indexer/lib
 /indexer/seeds/*-old.db
 /indexer/seeds/*-activity-v2.db*
+/indexer/seeds/*-financial-history-replay.db*
 /indexer/seeds/.*-seed-target.json
 /indexer/seeds/seed-manifest.json
+/indexer/seeds/financial-history-replay-manifest.json
+/indexer/seeds/.recovery-capture-*/
+/indexer/seeds/.financial-history-replay-*/
+/indexer/seeds/.hourly-seed-*/
 /e2e/argon/chainspec*.json
 /e2e/artifacts
 /.superpowers/

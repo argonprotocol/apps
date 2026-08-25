@@ -18,6 +18,7 @@ it('replaces an incompatible persisted activity database', () => {
       blockNumber: 1,
       blockHash: Uint8Array.of(1),
       specVersion: 156,
+      systemEvents: Uint8Array.of(),
       accounts: [{ address: 'old-account', mask: AccountActivityKind.Transfer }],
       vaults: [],
       vaultOwners: [],

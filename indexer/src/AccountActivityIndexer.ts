@@ -21,18 +21,21 @@ export class AccountActivityIndexer {
     private readonly batchRpcUrl?: string,
   ) {}
 
-  public async start(client: ArgonClient): Promise<void> {
+  public async start(client: ArgonClient, options: { subscribe?: boolean } = {}): Promise<IBlockHeaderInfo> {
     this.isClosed = false;
     const finalized = await client.rpc.chain.getFinalizedHead();
     const finalizedHeader = await client.rpc.chain.getHeader(finalized);
-    this.latestFinalizedHeader = BlockWatch.readHeader(finalizedHeader, true);
+    const startingHeader = BlockWatch.readHeader(finalizedHeader, true);
+    this.latestFinalizedHeader = startingHeader;
     this.queueSync(client);
 
+    if (options.subscribe === false) return startingHeader;
     this.unsubscribe = await client.rpc.chain.subscribeFinalizedHeads(header => {
       this.latestFinalizedHeader = BlockWatch.readHeader(header, true);
       if (this.coverageGap) this.coverageGap.toBlock = this.latestFinalizedHeader.blockNumber;
       this.queueSync(client);
     });
+    return startingHeader;
   }
 
   public async close(options: { drain?: boolean; maxDurationMs?: number } = {}): Promise<void> {
@@ -72,8 +75,15 @@ export class AccountActivityIndexer {
       while (!this.isClosed && nextBlock <= latestBlock) {
         const chunkSize = this.batchRpcUrl ? 5_000 : 100;
         const chunkEnd = Math.min(nextBlock + chunkSize - 1, latestBlock);
-        const { blocks, runtimeUpgraded } = await this.decodeBlocks(client, api, nextBlock, chunkEnd);
+        const { blocks, runtimeMetadata, runtimeUpgraded } = await this.decodeBlocks(client, api, nextBlock, chunkEnd);
         console.log(`Syncing account activity blocks ${nextBlock} to ${blocks.at(-1)!.blockNumber}...`);
+        if (runtimeMetadata) {
+          this.db.recordRuntimeMetadata({
+            specVersion: blocks[0].specVersion,
+            blockHash: blocks[0].blockHash,
+            metadata: runtimeMetadata,
+          });
+        }
         this.db.recordBlocks(blocks);
 
         nextBlock = blocks.at(-1)!.blockNumber + 1;
@@ -119,7 +129,7 @@ export class AccountActivityIndexer {
     api: ApiDecoration<'promise'>,
     firstBlock: number,
     lastBlock: number,
-  ): Promise<{ blocks: IAccountActivityBlock[]; runtimeUpgraded: boolean }> {
+  ): Promise<{ blocks: IAccountActivityBlock[]; runtimeMetadata?: Uint8Array; runtimeUpgraded: boolean }> {
     const blockNumbers = getRange(firstBlock, lastBlock + 1);
     // Proxy and batch context comes from emitted events. Replay never needs the
     // signed block or its extrinsic call bodies.
@@ -127,10 +137,10 @@ export class AccountActivityIndexer {
     let blockHashes: string[];
 
     if (this.batchRpcUrl) {
-      // Hash responses are small enough to keep four 500-request batches in flight.
+      // Preserve the prior 2,000-call concurrency envelope with smaller batches.
       blockHashes = await this.batchRpc<string>(
         blockNumbers.map(blockNumber => ({ method: 'chain_getBlockHash', params: [blockNumber] })),
-        4,
+        40,
       );
     } else {
       const blockHashCodecs = await Promise.all(
@@ -148,10 +158,10 @@ export class AccountActivityIndexer {
     const decodedBlockHashes = blockHashes.slice(0, blockCount);
     let rawEventsByBlock: (string | null)[];
     if (this.batchRpcUrl) {
-      // Event payloads are larger, so keep their batch concurrency lower.
+      // Event payloads are larger, so keep the prior 1,000-call envelope lower.
       rawEventsByBlock = await this.batchRpc<string | null>(
         decodedBlockHashes.map(blockHash => ({ method: 'state_getStorage', params: [eventsKey, blockHash] })),
-        2,
+        20,
       );
     } else {
       const rawEventCodecs = await Promise.all(
@@ -163,6 +173,9 @@ export class AccountActivityIndexer {
     const eventsByBlock = rawEventsByBlock.map(rawEvents => {
       return api.registry.createType<Vec<FrameSystemEventRecord>>('Vec<FrameSystemEventRecord>', rawEvents ?? '0x00');
     });
+    const runtimeMetadata = this.db.hasRuntimeMetadata(specVersion)
+      ? undefined
+      : (await client.getBlockRegistry(hexToU8a(decodedBlockHashes[0]))).metadata.toU8a();
     const sourceAccountsByBlock = await Promise.all(
       eventsByBlock.map(async (events, index) => {
         if (!events.some(({ event }) => isGatewayOperationSourceEvent(event))) return;
@@ -188,6 +201,7 @@ export class AccountActivityIndexer {
         blockNumber,
         blockHash: hexToU8a(blockHashes[index]),
         specVersion,
+        systemEvents: hexToU8a(rawEventsByBlock[index] ?? '0x00'),
         accounts: activity.accounts,
         vaults: activity.vaults,
         vaultOwners: activity.vaultOwners,
@@ -198,7 +212,7 @@ export class AccountActivityIndexer {
       };
     });
 
-    return { blocks, runtimeUpgraded: runtimeUpgradeIndex !== -1 };
+    return { blocks, runtimeMetadata, runtimeUpgraded: runtimeUpgradeIndex !== -1 };
   }
 
   private async findRuntimeUpgradeIndex(
