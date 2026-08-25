@@ -9,19 +9,17 @@
       @close="emit('close')"
     />
 
-    <div class="py-4 px-6">
+    <div class="px-6 py-4">
       <p class="text-md">
         Anyone can use the following address to send Argons and Argonots tokens directly to your wallet.
       </p>
 
-      <div class="my-3 border border-slate-400/50 rounded-md px-2 py-1.5 text-sm text-slate-700 overflow-hidden">
+      <div class="my-3 overflow-hidden rounded-md border border-slate-400/50 px-2 py-1.5 text-sm text-slate-700">
         {{ defaultArgonWallet.address }}
       </div>
 
-      <p class="py-3 text-md">
-        The following QR code also encodes the same wallet address:
-      </p>
-      <img :src="qrCode" class="w-40 max-w-full mt-1.5" :alt="`QR Code Wallet Address`" />
+      <p class="text-md py-3">The following QR code also encodes the same wallet address:</p>
+      <img :src="qrCode" class="mt-1.5 w-40 max-w-full" :alt="`QR Code Wallet Address`" />
     </div>
   </div>
 </template>

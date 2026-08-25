@@ -18,10 +18,10 @@
         class="data-[side=bottom]:animate-slideUpAndFade data-[side=right]:animate-slideLeftAndFade data-[side=left]:animate-slideRightAndFade data-[side=top]:animate-slideDownAndFade data-[state=open]:transition-all"
       >
         <div class="bg-argon-menu-bg flex min-w-66 shrink flex-col rounded p-1 text-sm/6 font-semibold text-gray-900 shadow-lg ring-1 ring-gray-900/20">
-          <template v-if="props.network === 'ethereum'">
+          <template v-if="walletType === WalletType.ethereum">
             <DropdownMenuItem MenuItem @click="() => openRecovery()" >
               <CopyToClipboard
-                :content="props.selection?.walletRecord.address ?? ''"
+                :content="props.wallet?.address ?? ''"
               >
                 <div ItemWrapper>
                   <header>Copy Ethereum Address</header>
@@ -34,7 +34,7 @@
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
           </template>
-          <template v-if="props.network === 'bitcoin'">
+          <template v-if="walletType === WalletType.bitcoin">
             <DropdownMenuItem MenuItem @click="() => openRecovery()" >
               <div ItemWrapper>
                 <header>Create New Channel</header>
@@ -59,7 +59,7 @@
             </DropdownMenuItem>
             <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
           </template>
-          <DropdownMenuItem MenuItem @click="disconnectWallet" :class="props.network === 'bitcoin' ? 'opacity-30 pointer-events-none' : ''">
+          <DropdownMenuItem MenuItem @click="disconnectWallet" :class="walletType === WalletType.bitcoin ? 'opacity-30 pointer-events-none' : ''">
             <div ItemWrapper>
               <header>Disconnect from App</header>
               <LinkSlashIcon class="h-4 w-4" />
@@ -86,25 +86,22 @@ import {
 import type { PointerDownOutsideEvent } from 'reka-ui';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { WalletType } from '../../lib/Wallet.ts';
+import type { WalletForBitcoin } from '../../lib/WalletForBitcoin.ts';
+import type { WalletForEthereum } from '../../lib/WalletForEthereum.ts';
 import { ArrowPathIcon, KeyIcon, LinkSlashIcon, WindowIcon, ShieldCheckIcon } from '@heroicons/vue/24/outline';
 import QRCode from 'qrcode';
 import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
-import type { IWalletSelection } from '../walletOverlayState.ts';
-import { useWallets } from '../../stores/wallets.ts';
 import CopyToClipboard from '../../components/CopyToClipboard.vue';
 import CopyIcon from '../../assets/copy.svg';
 import MoreIcon from '../../assets/more.svg';
 import BitcoinIcon from '../../assets/wallets/networks/bitcoin.svg';
 import SendIcon from '../../assets/send.svg';
 
-type IEthereumWalletSelection = Extract<IWalletSelection, { walletType: WalletType.ethereum }>;
-
 const props = withDefaults(
   defineProps<{
     connectorId?: string;
-    network?: 'bitcoin' | 'ethereum' | undefined;
     direction: 'right' | 'left';
-    selection?: IEthereumWalletSelection;
+    wallet?: WalletForBitcoin | WalletForEthereum;
   }>(),
   {},
 );
@@ -114,7 +111,7 @@ const isOpen = Vue.ref(false);
 const floatingZIndex = useFloatingZIndex(2);
 const showQrCode = Vue.ref(false);
 const qrCode = Vue.ref('');
-const wallets = useWallets();
+const walletType = Vue.computed(() => props.wallet?.type);
 
 // Expose the root element to parent components
 defineExpose({
@@ -127,7 +124,7 @@ function toggleQRCode(event: Event) {
 }
 
 async function loadQRCode() {
-  // const address = props.selection?.walletRecord.address;
+  // const address = props.wallet?.address;
   // qrCode.value = await QRCode.toDataURL(address, {
   //   margin: 0,
   //   color: {
@@ -138,9 +135,9 @@ async function loadQRCode() {
 }
 
 function disconnectWallet() {
-  if (!props.selection) return;
+  if (props.wallet?.type !== WalletType.ethereum) return;
   isOpen.value = false;
-  basicEmitter.emit('openWalletDisconnectOverlay', { walletRecordId: props.selection.walletRecord.id });
+  basicEmitter.emit('openWalletDisconnectOverlay', { wallet: props.wallet });
 }
 
 function openRecovery() {
@@ -148,9 +145,9 @@ function openRecovery() {
 }
 
 function updateTokens() {
-  if (!props.selection) return;
+  if (props.wallet?.type !== WalletType.ethereum) return;
   isOpen.value = false;
-  void wallets.refreshEthereumWalletRecord(props.selection.walletRecord.id);
+  void props.wallet.refresh();
 }
 
 Vue.watch(isOpen, open => {

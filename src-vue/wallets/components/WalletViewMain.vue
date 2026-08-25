@@ -16,11 +16,22 @@
 
     <div class="relative pt-1">
       <div class="mb-2 flex flex-row gap-x-2 px-4">
-        <button class="font-bold border-b-3 border-argon-600 cursor-pointer">Tokens</button>
-        <button class="cursor-pointer text-argon-900/50">Transactions</button>
+        <button class="border-argon-600 cursor-pointer border-b-3 font-bold">Tokens</button>
+        <button class="text-argon-900/50 cursor-pointer">Transactions</button>
         <div class="grow" />
-        <button @click="emit('goto', 'send')" class="text-md border border-argon-600/50 text-argon-600/70 px-2 rounded-lg cursor-pointer hover:bg-argon-100/20">Send</button>
-        <button @click="emit('goto', 'receive')" class="text-md border border-argon-600/50 text-argon-600/70 px-2 rounded-lg cursor-pointer hover:bg-argon-100/20">Receive</button>
+        <button
+          data-testid="WalletViewMain.openSend()"
+          @click="emit('goto', 'send')"
+          class="text-md border-argon-600/50 text-argon-600/70 hover:bg-argon-100/20 cursor-pointer rounded-lg border px-2"
+        >
+          Send
+        </button>
+        <button
+          @click="emit('goto', 'receive')"
+          class="text-md border-argon-600/50 text-argon-600/70 hover:bg-argon-100/20 cursor-pointer rounded-lg border px-2"
+        >
+          Receive
+        </button>
       </div>
       <div class="relative px-4">
         <ArgonTokens

@@ -1,6 +1,6 @@
 <template>
   <OverlayBase
-    :isOpen="!!walletRecord"
+    :isOpen="!!wallet"
     :disallowClose="isDisconnecting"
     class="w-xl"
     @close="closeOverlay"
@@ -8,12 +8,11 @@
   >
     <template #title>
       <div class="grow text-2xl font-bold">
-        Disconnect{{ walletRecord ? '' : 'ing' }}
-        {{ walletRecord ? getEthereumWalletDisplayName(walletRecord.name) : '' }}?
+        Disconnect{{ wallet ? '' : 'ing' }} {{ wallet ? getEthereumWalletDisplayName(wallet.name) : '' }}?
       </div>
     </template>
 
-    <div v-if="walletRecord" class="px-6 py-5 text-gray-700">
+    <div v-if="wallet" class="px-6 py-5 text-gray-700">
       <p v-if="isCoreEthereumWallet" class="mt-1">
         The app will refresh this wallet and verify that all tracked token balances are zero. A wallet containing any
         tokens cannot be disconnected.
@@ -52,7 +51,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
-import type { IWalletRecord } from '../../lib/db/WalletsTable.ts';
+import type { WalletForEthereum } from '../../lib/WalletForEthereum.ts';
 import { getEthereumWalletDisplayName } from '../../lib/Wallet.ts';
 import { useWallets } from '../../stores/wallets.ts';
 import OverlayBase from '../../overlays/OverlayBase.vue';
@@ -60,30 +59,27 @@ import { getEthereumMoveTracker } from '../../stores/moveFromEthereum.ts';
 import { getEthereumOutboundTransferTracker } from '../../stores/moveToEthereum.ts';
 
 const wallets = useWallets();
-const walletRecord = Vue.ref<IWalletRecord>();
+const wallet = Vue.ref<WalletForEthereum>();
 
-// const coreEthereumWalletRecord = walletRecords.value.find(record => walletKeys.isCoreEthereumWallet(record));
-const isCoreEthereumWallet = Vue.computed(() => false);
+const isCoreEthereumWallet = Vue.computed(() => wallet.value?.isCore ?? false);
 const isDisconnecting = Vue.ref(false);
 const errorMessage = Vue.ref('');
 
-function openOverlay({ walletRecordId }: { walletRecordId: number }) {
-  walletRecord.value = wallets.walletRecords.find(
-    record => record.id === walletRecordId && record.walletType === 'ethereum',
-  );
+function openOverlay(request: { wallet: WalletForEthereum }) {
+  wallet.value = wallets.ethereumWallets.persistedWallets.includes(request.wallet) ? request.wallet : undefined;
   errorMessage.value = '';
   isDisconnecting.value = false;
 }
 
 function closeOverlay() {
   if (isDisconnecting.value) return;
-  walletRecord.value = undefined;
+  wallet.value = undefined;
   errorMessage.value = '';
 }
 
 async function disconnectWallet() {
-  const record = walletRecord.value;
-  if (!record || isDisconnecting.value) return;
+  const selectedWallet = wallet.value;
+  if (!selectedWallet || isDisconnecting.value) return;
 
   isDisconnecting.value = true;
   errorMessage.value = '';
@@ -92,16 +88,16 @@ async function disconnectWallet() {
     const outboundTracker = getEthereumOutboundTransferTracker();
     await Promise.all([inboundTracker.load(), outboundTracker.load()]);
     if (
-      inboundTracker.hasSignerDependentTransfer(record.address) ||
-      outboundTracker.hasSignerDependentTransfer(record.address)
+      inboundTracker.hasSignerDependentTransfer(selectedWallet.address) ||
+      outboundTracker.hasSignerDependentTransfer(selectedWallet.address)
     ) {
       throw new Error(
         'This wallet is still needed to sign a pending transfer. Wait for it to be submitted before disconnecting.',
       );
     }
-    await wallets.disconnectEthereumWalletRecord(record.id);
-    walletRecord.value = undefined;
-    basicEmitter.emit('ethereumWalletDisconnected', { walletRecordId: record.id });
+    await wallets.ethereumWallets.disconnect(selectedWallet);
+    wallet.value = undefined;
+    basicEmitter.emit('ethereumWalletDisconnected', { wallet: selectedWallet });
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : 'Unable to disconnect the wallet.';
   } finally {

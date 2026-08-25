@@ -29,8 +29,11 @@ import {
   type IEthereumOutboundActiveTransfer,
   type IEthereumOutboundTransferState,
 } from '../../src-vue/lib/EthereumOutboundTransferTracker.ts';
-import { defaultWalletData, type IWallet, WalletType } from '../../src-vue/lib/Wallet.ts';
-import { convertEthereumTokenBaseUnitsToRuntimeAmount } from '../../src-vue/lib/WalletForEthereum.ts';
+import { defaultWalletData, type IWallet, type IWalletData, WalletType } from '../../src-vue/lib/Wallet.ts';
+import {
+  convertEthereumTokenBaseUnitsToRuntimeAmount,
+  WalletForEthereum,
+} from '../../src-vue/lib/WalletForEthereum.ts';
 import { getCurrency } from '../../src-vue/stores/currency.ts';
 import { useFinancials } from '../../src-vue/stores/financials.ts';
 import { getEthereumMoveTracker } from '../../src-vue/stores/moveFromEthereum.ts';
@@ -50,10 +53,15 @@ export type WalletScenario =
 
 export type WalletTransferScenario =
   | 'inboundForm'
+  | 'inboundEmpty'
+  | 'inboundArgonOnly'
   | 'outboundForm'
+  | 'outboundBitcoin'
   | 'feeLoading'
   | 'feeUnavailable'
   | 'insufficientEth'
+  | 'existingInbound'
+  | 'existingOutbound'
   | 'submittingInbound'
   | 'inboundEthereum'
   | 'inboundRelay'
@@ -70,7 +78,7 @@ type WalletScenarioState = {
   cleanup?: () => void;
 };
 
-type EthereumBalanceScan = Awaited<ReturnType<ReturnType<typeof useWallets>['scanEthereumWalletBalances']>>;
+type EthereumBalanceScan = WalletForEthereum[];
 
 const argon = BigInt(MICROGONS_PER_ARGON);
 const argonot = BigInt(MICRONOTS_PER_ARGONOT);
@@ -112,10 +120,10 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
     createdAt: now,
     updatedAt: now,
   };
-  const ethereumWallets = new Map<number, IWallet>([
+  const ethereumWallets = new Map<number, WalletForEthereum>([
     [
       ethereumTreasury.id,
-      Vue.reactive<IWallet>({
+      createEthereumWallet(ethereumTreasury, {
         ...defaultWalletData,
         type: WalletType.ethereum,
         address: ethereumTreasury.address,
@@ -128,7 +136,7 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
     ],
     [
       ethereumSavings.id,
-      Vue.reactive<IWallet>({
+      createEthereumWallet(ethereumSavings, {
         ...defaultWalletData,
         type: WalletType.ethereum,
         address: ethereumSavings.address,
@@ -156,7 +164,6 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
   Object.assign(wallets, {
     isLoaded: true,
     load: fn(async () => undefined),
-    walletRecords: [ethereumTreasury, ethereumSavings],
     defaultArgonWallet: Vue.reactive<IWallet>({
       ...defaultWalletData,
       type: WalletType.argon,
@@ -175,25 +182,28 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
       totalMicrogons: 425n * argon,
       totalMicronots: 125n * argonot,
     }),
-    getEthereumWalletRecord: fn((recordId: number) => {
-      const wallet = ethereumWallets.get(recordId);
-      if (!wallet) throw new Error(`Ethereum wallet record not found: ${recordId}`);
-      return wallet;
-    }),
-    refreshEthereumWalletRecord: fn(async () => undefined),
-    previewExternalEthereumMnemonic: fn(async () => [
-      { address: ethereumTreasury.address, derivationPath: "m/44'/60'/0'/0/0" },
-      { address: ethereumSavings.address, derivationPath: "m/44'/60'/0'/0/1" },
-    ]),
-    importExternalEthereumPrivateKey:
-      state === 'importFailure'
-        ? fn(async () => {
-            throw new Error('Synthetic import service failure.');
-          })
-        : fn(async () => importedWallet),
-    importExternalEthereumMnemonic: fn(async () => importedWallet),
-    scanEthereumWalletBalances: ethereumBalanceScan.mock,
+    ethereumWallets: {
+      persistedWallets: [...ethereumWallets.values()],
+      length: ethereumWallets.size,
+      find: fn((recordId: number) => ethereumWallets.get(recordId)),
+      findByAddress: fn((address: string) =>
+        [...ethereumWallets.values()].find(wallet => wallet.address.toLowerCase() === address.toLowerCase()),
+      ),
+      importPrivateKey:
+        state === 'importFailure'
+          ? fn(async () => {
+              throw new Error('Synthetic import service failure.');
+            })
+          : fn(async () => createEthereumWallet(importedWallet)),
+      importMnemonic: fn(async () => createEthereumWallet(importedWallet)),
+    },
   });
+  wallets.argonWallets.defaultArgonWallet.data = wallets.defaultArgonWallet;
+  WalletForEthereum.previewMnemonic = fn(async () => [
+    { address: ethereumTreasury.address, derivationPath: "m/44'/60'/0'/0/0" },
+    { address: ethereumSavings.address, derivationPath: "m/44'/60'/0'/0/1" },
+  ]);
+  WalletForEthereum.inspect = ethereumBalanceScan.mock;
   mocked(loadEthereumChainConfig).mockResolvedValue(undefined);
   mocked(getEthereumMoveTracker).mockReturnValue(createInboundTransferTracker());
   mocked(getEthereumOutboundTransferTracker).mockReturnValue(
@@ -211,17 +221,39 @@ export function setupWalletTransferScenario(state: WalletTransferScenario): Wall
 
   const inboundTransfer = createInboundTransfer(state);
   const outboundTransfer = createOutboundTransfer(state);
-  const inboundTracker = createInboundTransferTracker(inboundTransfer);
-  const outbound = createOutboundTransferTracker(outboundTransfer, state);
+  const inboundTracker = createInboundTransferTracker(
+    state === 'existingInbound' ? inboundTransfer : undefined,
+    inboundTransfer,
+  );
+  const outbound = createOutboundTransferTracker(
+    state === 'existingOutbound' ? outboundTransfer : undefined,
+    state,
+    outboundTransfer,
+  );
   const wallets = useWallets();
-  const ethereumWallet = Vue.reactive<IWallet>({
+  const ethereumWallet = wallets.ethereumWallets.find(41);
+  if (!ethereumWallet) throw new Error('Ethereum Treasury story wallet is missing.');
+  wallets.argonWallets.defaultArgonWallet.data.otherTokens =
+    state === 'outboundBitcoin'
+      ? [
+          {
+            symbol: 'BTC',
+            decimals: 8,
+            address: null,
+            chain: 'ethereum',
+            unitOfMeasurement: UnitOfMeasurement.BTC,
+            value: 25_000_000n,
+          },
+        ]
+      : [];
+  Object.assign(ethereumWallet.data, {
     ...defaultWalletData,
     type: WalletType.ethereum,
     address: '0x1111111111111111111111111111111111111111',
-    availableMicrogons: 175n * argon,
-    availableMicronots: 48n * argonot,
-    totalMicrogons: 175n * argon,
-    totalMicronots: 48n * argonot,
+    availableMicrogons: state === 'inboundEmpty' ? 0n : 175n * argon,
+    availableMicronots: state === 'inboundEmpty' || state === 'inboundArgonOnly' ? 0n : 48n * argonot,
+    totalMicrogons: state === 'inboundEmpty' ? 0n : 175n * argon,
+    totalMicronots: state === 'inboundEmpty' || state === 'inboundArgonOnly' ? 0n : 48n * argonot,
     otherTokens: [
       {
         symbol: 'ETH',
@@ -233,11 +265,6 @@ export function setupWalletTransferScenario(state: WalletTransferScenario): Wall
       },
     ],
     balanceUpdatedAt: new Date('2026-08-16T12:00:00.000Z'),
-  });
-
-  Object.assign(wallets, {
-    ethereumWallet,
-    getEthereumWalletRecord: fn(() => ethereumWallet),
   });
 
   mocked(loadEthereumChainConfig).mockResolvedValue({
@@ -259,7 +286,7 @@ function getScanEthereumWalletBalances(
   state: WalletScenario,
   ethereumTreasury: IWalletRecord,
   ethereumSavings: IWalletRecord,
-  ethereumWallets: Map<number, IWallet>,
+  ethereumWallets: Map<number, WalletForEthereum>,
 ) {
   if (state === 'importScanning') {
     let resolveScan: ((balances: EthereumBalanceScan) => void) | undefined;
@@ -278,24 +305,24 @@ function getScanEthereumWalletBalances(
     mock: fn(async () => {
       const unavailable = state === 'importUnavailable';
       return [
-        {
-          address: ethereumTreasury.address,
-          wallet: unavailable
-            ? Vue.reactive<IWallet>({
-                ...defaultWalletData,
-                type: WalletType.ethereum,
-                address: ethereumTreasury.address,
-                fetchErrorMsg: 'Synthetic network error.',
-              })
-            : ethereumWallets.get(ethereumTreasury.id)!,
-        },
-        {
-          address: ethereumSavings.address,
-          wallet: ethereumWallets.get(ethereumSavings.id)!,
-        },
+        unavailable
+          ? createEthereumWallet(ethereumTreasury, {
+              ...defaultWalletData,
+              type: WalletType.ethereum,
+              address: ethereumTreasury.address,
+              fetchErrorMsg: 'Synthetic network error.',
+            })
+          : ethereumWallets.get(ethereumTreasury.id)!,
+        ethereumWallets.get(ethereumSavings.id)!,
       ];
     }),
   };
+}
+
+function createEthereumWallet(record: IWalletRecord, data?: IWalletData<WalletType.ethereum>): WalletForEthereum {
+  const wallet = new WalletForEthereum(record.address, undefined, record);
+  if (data) wallet.data = Vue.reactive(data);
+  return wallet;
 }
 
 function createInboundTransfer(state: WalletTransferScenario): IEthereumInboundActiveTransfer | undefined {
@@ -314,6 +341,7 @@ function createInboundTransfer(state: WalletTransferScenario): IEthereumInboundA
       });
       break;
     case 'inboundEthereum':
+    case 'existingInbound':
       progress = setInboundEthereumStepProgress(progress, {
         progressPct: 42,
         detail: formatCrosschainBlockStepDetail({
@@ -386,6 +414,7 @@ function createOutboundTransfer(state: WalletTransferScenario): IEthereumOutboun
       });
       break;
     case 'outboundArgon':
+    case 'existingOutbound':
       progress = setOutboundArgonStepProgress(progress, {
         progressPct: 67,
         detail: formatCrosschainBlockStepDetail({
@@ -454,6 +483,7 @@ function createOutboundTransfer(state: WalletTransferScenario): IEthereumOutboun
 
 function createInboundTransferTracker(
   initialTransfer?: IEthereumInboundActiveTransfer,
+  submittedTransfer?: IEthereumInboundActiveTransfer,
 ): EthereumInboundTransferTracker {
   const tracker = Object.create(EthereumInboundTransferTracker.prototype) as EthereumInboundTransferTracker;
   tracker.data = Vue.reactive({
@@ -462,6 +492,12 @@ function createInboundTransferTracker(
   });
   tracker.estimateFeeWei = fn(async () => eth / 1_000n);
   tracker.startMove = fn(async args => {
+    if (submittedTransfer) {
+      tracker.data.transfersById[submittedTransfer.id] = submittedTransfer;
+      tracker.data.latestTransferIdByToken[submittedTransfer.moveToken] = submittedTransfer.id;
+      return submittedTransfer;
+    }
+
     const transfer: IEthereumInboundActiveTransfer = {
       id: 'storybook-inbound-submission',
       moveToken: args.moveToken,
@@ -498,6 +534,7 @@ function createInboundTransferTracker(
 function createOutboundTransferTracker(
   initialTransfer: IEthereumOutboundActiveTransfer | undefined,
   state: WalletTransferScenario,
+  submittedTransfer?: IEthereumOutboundActiveTransfer,
 ): { tracker: EthereumOutboundTransferTracker; cleanup?: () => void } {
   const tracker = Object.create(EthereumOutboundTransferTracker.prototype) as EthereumOutboundTransferTracker;
   tracker.data = Vue.reactive({
@@ -535,6 +572,12 @@ function createOutboundTransferTracker(
   }
 
   tracker.startMove = fn(async args => {
+    if (submittedTransfer) {
+      tracker.data.transfersById[submittedTransfer.id] = submittedTransfer;
+      tracker.data.latestTransferIdByToken[submittedTransfer.moveToken] = submittedTransfer.id;
+      return submittedTransfer;
+    }
+
     const transfer: IEthereumOutboundActiveTransfer = {
       id: 'storybook-outbound-submission',
       moveToken: args.moveToken,

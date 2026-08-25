@@ -193,12 +193,12 @@ import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
 import { OperationalStepId, useCertificationController } from '../stores/certificationController.ts';
 import { useBasics } from '../stores/basics.ts';
-import { getEthereumWalletDisplayName, WalletType } from '../lib/Wallet.ts';
+import { getEthereumWalletDisplayName } from '../lib/Wallet.ts';
 import { getConfig } from '../stores/config.ts';
 import { NetworkConfig } from '@argonprotocol/apps-core';
 import { useWallets } from '../stores/wallets.ts';
 import { abbreviateAddress } from '../lib/Utils.ts';
-import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
+import type { WalletForEthereum } from '../lib/WalletForEthereum.ts';
 
 const tour = useTour();
 const basics = useBasics();
@@ -209,7 +209,7 @@ const wallets = useWallets();
 const rootRef = Vue.ref<HTMLElement>();
 const walletsMenuValue = Vue.ref('');
 const resourcesMenuValue = Vue.ref('');
-const ethereumWallets = Vue.computed(() => wallets.walletRecords.filter(wallet => wallet.walletType === 'ethereum'));
+const ethereumWallets = Vue.computed(() => wallets.ethereumWallets.persistedWallets);
 let walletsMenuCloseTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
 let resourcesMenuCloseTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
 
@@ -262,14 +262,13 @@ function takeTheTour() {
 }
 
 function openWallet() {
-  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon });
+  basicEmitter.emit('openWalletOverlay', { wallet: wallets.argonWallets.defaultArgonWallet });
 }
 
-function openEthereumWallet(wallet: IWalletRecord) {
+function openEthereumWallet(wallet: WalletForEthereum) {
   closeWalletsMenu();
   basicEmitter.emit('openWalletOverlay', {
-    connectorType: WalletType.ethereum,
-    ethereumWalletRecordId: wallet.id,
+    wallet,
   });
 }
 
