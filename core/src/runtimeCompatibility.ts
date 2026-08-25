@@ -67,7 +67,7 @@ import type { ApplyExtrinsicResult, Event } from '@polkadot/types/interfaces/sys
 import type { TransactionSource, TransactionValidity } from '@polkadot/types/interfaces/txqueue';
 import type { IExtrinsic, Observable } from '@polkadot/types/types';
 
-export namespace RuntimeSpec157 {
+export namespace PreviousRuntimeSpec {
   /** @name FrameSystemAccountInfo (3) */
   export interface FrameSystemAccountInfo extends Struct {
     readonly nonce: u32;

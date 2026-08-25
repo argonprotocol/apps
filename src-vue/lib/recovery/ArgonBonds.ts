@@ -1,7 +1,7 @@
 import type { FrameSystemEventRecord } from '@argonprotocol/mainchain';
 import { BondLot, type Currency, type IBlockHeaderInfo, type MiningFrames } from '@argonprotocol/apps-core';
+import type { HistoricalEvent } from '../../../indexer/src/HistoricalEventSpecs.ts';
 import type { Db } from '../Db.ts';
-import { readRequiredEventField, readRequiredEventNumber } from './index.ts';
 import type { WalletKeys } from '../WalletKeys.ts';
 import type { TransactionTracker } from '../TransactionTracker.ts';
 import { ExtrinsicType } from '../db/TransactionsTable.ts';
@@ -63,13 +63,14 @@ export class ArgonBondsRecovery {
           throw new Error(`stored transaction hash does not match finalized block ${tx.blockHeight}`);
         }
 
-        for (const event of txInfo.txResult.events) {
+        for (const rawEvent of txInfo.txResult.events) {
+          const event = rawEvent as HistoricalEvent;
           if (event.section !== 'treasury' || event.method !== 'BondLotPurchased') continue;
-          if (readRequiredEventField(event, 'accountId', block).toString() !== this.walletKeys.defaultArgonAddress) {
+          if (event.data.accountId.toString() !== this.walletKeys.defaultArgonAddress) {
             continue;
           }
 
-          const bondLotId = readRequiredEventNumber(event, 'bondLotId', block);
+          const bondLotId = event.data.bondLotId.toNumber();
           if (!missingBondLotIds.has(bondLotId)) continue;
 
           await this.recordPurchase(block, bondLotId, tx.blockExtrinsicIndex);
@@ -87,13 +88,15 @@ export class ArgonBondsRecovery {
   }
 
   public async importBlock(block: IBlockHeaderInfo, events: readonly FrameSystemEventRecord[]): Promise<void> {
-    for (const { event, phase } of events) {
-      if (event.section !== 'treasury' || !['BondLotPurchased', 'BondLotReleased'].includes(event.method)) continue;
+    for (const { event: rawEvent, phase } of events) {
+      const event = rawEvent as HistoricalEvent;
+      if (event.section !== 'treasury' || (event.method !== 'BondLotPurchased' && event.method !== 'BondLotReleased')) {
+        continue;
+      }
 
-      const accountId = readRequiredEventField(event, 'accountId', block);
-      if (accountId.toString() !== this.walletKeys.defaultArgonAddress) continue;
+      if (event.data.accountId.toString() !== this.walletKeys.defaultArgonAddress) continue;
 
-      const bondLotId = readRequiredEventNumber(event, 'bondLotId', block);
+      const bondLotId = event.data.bondLotId.toNumber();
       const extrinsicIndex = phase.isApplyExtrinsic ? phase.asApplyExtrinsic.toNumber() : undefined;
       if (event.method === 'BondLotPurchased') {
         await this.recordPurchase(block, bondLotId, extrinsicIndex);

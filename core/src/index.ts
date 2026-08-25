@@ -49,7 +49,7 @@ export * from './GlobalVaultingStats.js';
 export * from './GlobalMiningStats.js';
 export * from './BondLot.js';
 export * from './VaultDelegateFunding.js';
-export type { RuntimeSpec157 } from './runtimeCompatibility.js';
+export type { PreviousRuntimeSpec } from './runtimeCompatibility.js';
 
 export * from './utils.js';
 

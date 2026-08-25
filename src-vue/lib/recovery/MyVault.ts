@@ -1,9 +1,9 @@
-import { FIXED_U128_DECIMALS, type FrameSystemEventRecord, type GenericEvent } from '@argonprotocol/mainchain';
-import { readEventField, type IBlockHeaderInfo } from '@argonprotocol/apps-core';
+import { FIXED_U128_DECIMALS, type FrameSystemEventRecord } from '@argonprotocol/mainchain';
+import type { IBlockHeaderInfo } from '@argonprotocol/apps-core';
+import type { HistoricalEvent } from '../../../indexer/src/HistoricalEventSpecs.ts';
 import type { Db } from '../Db.ts';
 import type { IVaultCapitalHistoryRecord } from '../db/VaultCapitalHistoryTable.ts';
 import type { IVaultRevenueEventsRecord } from '../db/VaultRevenueEventsTable.ts';
-import { readRequiredEventBigInt, readRequiredEventField, readRequiredEventNumber } from './index.ts';
 
 export class VaultHistory {
   private readonly vaultIds = new Set<number>();
@@ -32,7 +32,8 @@ export class VaultHistory {
       this.isLoaded = true;
     }
 
-    for (const { event, phase } of events) {
+    for (const { event: rawEvent, phase } of events) {
+      const event = rawEvent as HistoricalEvent;
       if (event.section !== 'vaults') continue;
 
       const extrinsicIndex = phase.isApplyExtrinsic ? phase.asApplyExtrinsic.toNumber() : undefined;
@@ -43,23 +44,33 @@ export class VaultHistory {
   private async importEvent(
     db: Db,
     block: IBlockHeaderInfo,
-    event: GenericEvent,
+    event: HistoricalEvent,
     extrinsicIndex: number | undefined,
     accountId: string,
   ): Promise<void> {
-    if (!vaultHistoryEventMethods.has(event.method)) return;
+    if (
+      event.section !== 'vaults' ||
+      (event.method !== 'VaultCreated' &&
+        event.method !== 'VaultModified' &&
+        event.method !== 'FundsScheduledForRelease' &&
+        event.method !== 'FundsReleased' &&
+        event.method !== 'VaultClosed' &&
+        event.method !== 'LostBitcoinCompensated' &&
+        event.method !== 'VaultCollected')
+    ) {
+      return;
+    }
 
-    const vaultId = readRequiredEventNumber(event, 'vaultId', block);
+    const vaultId = event.data.vaultId.toNumber();
     if (event.method === 'VaultCreated') {
-      const operatorAccountId = readRequiredEventField(event, 'operatorAccountId', block);
-      if (operatorAccountId.toString() !== accountId) return;
+      if (event.data.operatorAccountId.toString() !== accountId) return;
 
       this.vaultIds.add(vaultId);
       await db.vaultCapitalHistoryTable.insert({
         eventType: 'created',
         walletAddress: accountId,
         vaultId,
-        securitization: readVaultSecuritization(event, block),
+        securitization: readVaultSecuritization(event),
         blockNumber: block.blockNumber,
         blockHash: block.blockHash,
         blockTime: new Date(block.blockTime),
@@ -78,11 +89,10 @@ export class VaultHistory {
       extrinsicIndex,
     };
     if (event.method === 'VaultModified') {
-      const securitization = readVaultSecuritization(event, block);
+      const securitization = readVaultSecuritization(event);
       // Older events only contain securitization; newer events also expose the
       // long-term target while already-committed funds roll off.
-      const target = readEventField(event, 'securitizationTarget');
-      const securitizationTarget = target === undefined ? securitization : BigInt(target.toString());
+      const securitizationTarget = event.data.securitizationTarget?.toBigInt() ?? securitization;
       await db.vaultCapitalHistoryTable.insert({
         ...eventIdentity,
         eventType: 'modified',
@@ -93,36 +103,32 @@ export class VaultHistory {
       await db.vaultCapitalHistoryTable.insert({
         ...eventIdentity,
         eventType: 'releaseScheduled',
-        securitization: readRequiredEventBigInt(event, ['securitization', 'amount'], block),
-        releaseHeight: readRequiredEventBigInt(event, ['releaseHeight'], block),
+        securitization: event.data.securitization?.toBigInt() ?? event.data.amount?.toBigInt() ?? 0n,
+        releaseHeight: event.data.releaseHeight.toBigInt(),
       });
     } else if (event.method === 'FundsReleased') {
       await db.vaultCapitalHistoryTable.insert({
         ...eventIdentity,
         eventType: 'released',
-        securitization: readRequiredEventBigInt(event, ['securitization', 'amount'], block),
+        securitization: event.data.securitization?.toBigInt() ?? event.data.amount?.toBigInt() ?? 0n,
       });
     } else if (event.method === 'VaultClosed') {
       await db.vaultCapitalHistoryTable.insert({
         ...eventIdentity,
         eventType: 'closed',
-        securitizationRemaining: readRequiredEventBigInt(
-          event,
-          ['securitizationRemaining', 'remainingSecuritization'],
-          block,
-        ),
-        securitizationReleased: readRequiredEventBigInt(event, ['securitizationReleased', 'released'], block),
+        securitizationRemaining:
+          event.data.securitizationRemaining?.toBigInt() ?? event.data.remainingSecuritization?.toBigInt() ?? 0n,
+        securitizationReleased: event.data.securitizationReleased?.toBigInt() ?? event.data.released?.toBigInt() ?? 0n,
       });
     } else if (event.method === 'LostBitcoinCompensated') {
       await db.vaultCapitalHistoryTable.insert({
         ...eventIdentity,
         eventType: 'capitalLost',
-        amount:
-          readRequiredEventBigInt(event, ['toBeneficiary'], block) + readRequiredEventBigInt(event, ['burned'], block),
+        amount: event.data.toBeneficiary.toBigInt() + event.data.burned.toBigInt(),
       });
     } else if (event.method === 'VaultCollected') {
       await db.vaultRevenueEventsTable.insert({
-        amount: readRequiredEventBigInt(event, ['revenue'], block),
+        amount: event.data.revenue.toBigInt(),
         source: 'vaultCollect',
         extrinsicIndex,
         blockNumber: block.blockNumber,
@@ -169,25 +175,17 @@ export class VaultHistory {
   }
 }
 
-function readVaultSecuritization(event: GenericEvent, block: IBlockHeaderInfo): bigint {
-  const securitization = readEventField(event, 'securitization');
-  if (securitization !== undefined) return BigInt(securitization.toString());
+function readVaultSecuritization(
+  event: Extract<HistoricalEvent, { section: 'vaults'; method: 'VaultCreated' | 'VaultModified' }>,
+): bigint {
+  const securitization = event.data.securitization?.toBigInt();
+  if (securitization !== undefined) return securitization;
 
   // The first spec-116 runtime still reported the three components held under
   // EnterVault. Its added percentage applied only to locked Bitcoin capital.
-  const locked = readRequiredEventBigInt(event, ['lockedBitcoinArgons'], block);
-  const bonded = readRequiredEventBigInt(event, ['bondedBitcoinArgons'], block);
-  const addedPercent = readRequiredEventBigInt(event, ['addedSecuritizationPercent'], block);
+  const locked = event.data.lockedBitcoinArgons?.toBigInt() ?? 0n;
+  const bonded = event.data.bondedBitcoinArgons?.toBigInt() ?? 0n;
+  const addedPercent = event.data.addedSecuritizationPercent?.toBigInt() ?? 0n;
   const addedSecuritization = (locked * addedPercent) / 10n ** BigInt(FIXED_U128_DECIMALS);
   return locked + bonded + addedSecuritization;
 }
-
-const vaultHistoryEventMethods = new Set([
-  'VaultCreated',
-  'VaultModified',
-  'FundsScheduledForRelease',
-  'FundsReleased',
-  'VaultClosed',
-  'LostBitcoinCompensated',
-  'VaultCollected',
-]);

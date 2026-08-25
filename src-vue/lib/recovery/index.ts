@@ -1,8 +1,6 @@
-import type { GenericEvent } from '@argonprotocol/mainchain';
 import {
   ACCOUNT_ACTIVITY_DEFINITION_VERSION,
   AccountActivityKind,
-  readEventField,
   type BlockWatch,
   type BondLot,
   type IBlockHeaderInfo,
@@ -687,45 +685,4 @@ function getDomainCheckpoints(
     };
   }
   return domainCheckpoints;
-}
-
-export function readRequiredEventField(
-  event: Pick<GenericEvent, 'data' | 'method' | 'section'>,
-  name: string,
-  block: IBlockHeaderInfo,
-) {
-  const value = readEventField(event, name);
-  if (value !== undefined) return value;
-
-  throw new Error(
-    `Historical ${event.section}.${event.method} at block ${block.blockNumber.toLocaleString()} is missing ${name}`,
-  );
-}
-
-export function readRequiredEventNumber(
-  event: Pick<GenericEvent, 'data' | 'method' | 'section'>,
-  name: string,
-  block: IBlockHeaderInfo,
-): number {
-  const value = Number(readRequiredEventField(event, name, block).toString());
-  if (Number.isSafeInteger(value)) return value;
-
-  throw new Error(
-    `Historical ${event.section}.${event.method} at block ${block.blockNumber.toLocaleString()} has invalid ${name}`,
-  );
-}
-
-export function readRequiredEventBigInt(
-  event: Pick<GenericEvent, 'data' | 'method' | 'section'>,
-  names: readonly string[],
-  block: IBlockHeaderInfo,
-): bigint {
-  for (const name of names) {
-    const value = readEventField(event, name);
-    if (value !== undefined) return BigInt(value.toString());
-  }
-
-  throw new Error(
-    `Historical ${event.section}.${event.method} at block ${block.blockNumber.toLocaleString()} is missing ${names.join(' or ')}`,
-  );
 }

@@ -12,10 +12,10 @@ const provenance = {
 };
 
 describe('runtime compatibility type extraction', () => {
-  it('turns generated global augmentations into one namespaced module', () => {
+  it('turns generated global augmentations into a stable previous-runtime namespace', () => {
     const generated = createRuntimeCompatibilityModule(createSources(), provenance);
 
-    expect(generated).toContain('export namespace RuntimeSpec157 {');
+    expect(generated).toContain('export namespace PreviousRuntimeSpec {');
     expect(generated).toContain('export interface PreviousValue extends Struct');
     expect(generated).toContain('export type PreviousMarker = Null');
     expect(generated).toContain('export interface Transactions');
@@ -102,6 +102,6 @@ declare module '${moduleName}' {
 function withoutVersionLines(value: string): string {
   return value
     .split('\n')
-    .filter(line => !line.includes('Runtime compatibility source:') && !line.startsWith('export namespace RuntimeSpec'))
+    .filter(line => !line.includes('Runtime compatibility source:'))
     .join('\n');
 }

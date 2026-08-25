@@ -1,10 +1,5 @@
 import { Option, type GenericEvent } from '@argonprotocol/mainchain';
-import {
-  AccountActivityKind,
-  groupEventsByExtrinsic,
-  isUserTransferEventSet,
-  readEventField,
-} from '@argonprotocol/apps-core';
+import { AccountActivityKind, groupEventsByExtrinsic, isUserTransferEventSet } from '@argonprotocol/apps-core';
 import { AccountActivityCoverageError, hasNamedEventData, type HistoricalEvent } from './HistoricalEventSpecs.js';
 
 export { AccountActivityKind };
@@ -190,8 +185,8 @@ export function classifyEvent(
     if (legacyBitcoinBondEvents.has(method)) return AccountActivityKind.BitcoinLock;
     if (method !== 'BondCreated') return 0;
 
-    const utxoId = readEventField(event, 'utxoId');
-    return utxoId?.toHuman() === null ? 0 : AccountActivityKind.BitcoinLock;
+    const bondCreated = event as Extract<HistoricalEvent, { section: 'bonds'; method: 'BondCreated' }>;
+    return bondCreated.data.utxoId.isNone ? 0 : AccountActivityKind.BitcoinLock;
   }
 
   // ChainTransfer was renamed LocalchainTransfer. TokenGateway is the older
@@ -461,7 +456,7 @@ function collectEventAccounts(event: HistoricalEvent, sourceAccount?: string): s
 
 function collectMintingAuthoritySigningKeys(event: HistoricalEvent): string[] {
   const { data } = event;
-  return 'destinationSigningKey' in data ? [data.destinationSigningKey.toHex()] : [];
+  return data.destinationSigningKey ? [data.destinationSigningKey.toHex()] : [];
 }
 
 export function isGatewayOperationSourceEvent(event: Pick<GenericEvent, 'method' | 'section'>): boolean {
@@ -473,16 +468,16 @@ export function isGatewayOperationSourceEvent(event: Pick<GenericEvent, 'method'
 
 function collectEventVaultIds(event: HistoricalEvent): number[] {
   const { data } = event;
-  if ('vaultId' in data) return [data.vaultId.toNumber()];
-  if ('programId' in data && data.programId.isVault) return [data.programId.asVault.vaultId.toNumber()];
+  const vaultId = data.vaultId?.toNumber();
+  if (vaultId !== undefined) return [vaultId];
+  if (data.programId?.isVault) return [data.programId.asVault.vaultId.toNumber()];
   return [];
 }
 
 function collectEventBitcoinLockIds(event: HistoricalEvent): number[] {
   const { data } = event;
-  if (!('utxoId' in data)) return [];
-
   const { utxoId } = data;
+  if (!utxoId) return [];
   if (utxoId instanceof Option) return utxoId.isSome ? [utxoId.unwrap().toNumber()] : [];
   return [utxoId.toNumber()];
 }

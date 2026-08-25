@@ -8,11 +8,11 @@ import {
 
 import { MICRONOTS_PER_ARGONOT } from './Currency.js';
 import { calculateAnnualPercentageYield } from './FinancialReturns.js';
-import type { RuntimeSpec157 } from './runtimeCompatibility.js';
+import type { PreviousRuntimeSpec } from './runtimeCompatibility.js';
 
 export interface IBondLotSource {
   id: number;
-  lot: PalletTreasuryBondLot | RuntimeSpec157.PalletTreasuryBondLot;
+  lot: PalletTreasuryBondLot | PreviousRuntimeSpec.PalletTreasuryBondLot;
 }
 
 export type IBondLotTotals = {
@@ -96,7 +96,7 @@ export class BondLot {
 
   public static fromRuntime(
     id: number,
-    lot: PalletTreasuryBondLot | RuntimeSpec157.PalletTreasuryBondLot,
+    lot: PalletTreasuryBondLot | PreviousRuntimeSpec.PalletTreasuryBondLot,
     ownAddress?: string,
   ): BondLot {
     const accountId = lot.owner.toString();
