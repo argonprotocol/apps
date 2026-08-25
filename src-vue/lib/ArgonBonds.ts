@@ -6,7 +6,7 @@ import {
   type IBlockHeaderInfo,
   type IFrameBondLot,
   type MiningFrames,
-  type RuntimeSpec157,
+  type PreviousRuntimeSpec,
   TreasuryBonds,
   type VaultBondCapacityState,
   type Vault,
@@ -319,7 +319,7 @@ export class ArgonBonds {
     const typeClient = await getMainchainClient(false);
     const treasuryEvents = typeClient.events.treasury as
       | ArgonClient['events']['treasury']
-      | RuntimeSpec157.Events<'promise'>['treasury'];
+      | PreviousRuntimeSpec.Events<'promise'>['treasury'];
     const bondLotFlexibilityChanged =
       'BondLotFlexibilityChanged' in treasuryEvents
         ? treasuryEvents.BondLotFlexibilityChanged

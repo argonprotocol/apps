@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { encodeAddress } from '@argonprotocol/mainchain';
+import { encodeAddress, getOfflineRegistry } from '@argonprotocol/mainchain';
 import { AccountActivityDecoder, AccountActivityKind, classifyEvent } from '../src/AccountActivity.ts';
 import { historicalEventChanges } from '../src/HistoricalEventSpecs.generated.ts';
-import { humanCodec } from './helpers/codecs.ts';
 import { createHistoricalEventData } from './helpers/historicalEvents.ts';
 
 const emptyEventData = Object.assign([], { names: [], typeDef: [] });
@@ -489,10 +488,10 @@ describe('AccountActivityDecoder', () => {
   });
 
   it('does not classify a legacy bond without Bitcoin backing as Bitcoin activity', () => {
-    const createBondData = (utxoId: number | null) =>
-      Object.assign([humanCodec(`0x${'33'.repeat(32)}`), humanCodec(utxoId), humanCodec(1_000)], {
-        names: ['accountId', 'utxoId', 'amount'],
-      });
+    const createBondData = (utxoId: number | null) => {
+      const codec = getOfflineRegistry().createType('Option<u64>', utxoId);
+      return Object.assign([], { utxoId: codec });
+    };
 
     expect(classifyEvent({ section: 'bonds', method: 'BondCreated', data: createBondData(null) } as any)).toBe(0);
     expect(classifyEvent({ section: 'bonds', method: 'BondCreated', data: createBondData(9) } as any)).toBe(

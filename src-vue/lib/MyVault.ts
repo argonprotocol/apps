@@ -32,7 +32,7 @@ import {
   MoveFrom,
   MoveTo,
   NetworkConfig,
-  type RuntimeSpec157,
+  type PreviousRuntimeSpec,
   SingleFileQueue,
   TreasuryBonds,
   targetVaultDelegateBalance,
@@ -569,7 +569,7 @@ export class MyVault {
     const typeClient = await getMainchainClient(false);
     const bitcoinLockEvents = typeClient.events.bitcoinLocks as
       | ArgonClient['events']['bitcoinLocks']
-      | RuntimeSpec157.Events<'promise'>['bitcoinLocks'];
+      | PreviousRuntimeSpec.Events<'promise'>['bitcoinLocks'];
     const bitcoinLockFlexibilityChanged =
       'BitcoinLockFlexibleChanged' in bitcoinLockEvents
         ? bitcoinLockEvents.BitcoinLockFlexibleChanged
@@ -1780,10 +1780,10 @@ export class MyVault {
     const txs: SubmittableExtrinsic[] = [];
     const bitcoinLocks = client.tx.bitcoinLocks as
       | ArgonClient['tx']['bitcoinLocks']
-      | RuntimeSpec157.Transactions<'promise'>['bitcoinLocks'];
+      | PreviousRuntimeSpec.Transactions<'promise'>['bitcoinLocks'];
     const treasury = client.tx.treasury as
       | ArgonClient['tx']['treasury']
-      | RuntimeSpec157.Transactions<'promise'>['treasury'];
+      | PreviousRuntimeSpec.Transactions<'promise'>['treasury'];
     const setBitcoinFlexible = 'setFlexible' in bitcoinLocks ? bitcoinLocks.setFlexible : bitcoinLocks.setAsBackfill;
     const setBondLotFlexible =
       'setBondLotFlexible' in treasury ? treasury.setBondLotFlexible : treasury.setBondLotAsBackfill;

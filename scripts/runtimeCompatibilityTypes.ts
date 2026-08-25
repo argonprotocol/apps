@@ -73,7 +73,7 @@ export function createRuntimeCompatibilityModule(
     '',
     imports,
     '',
-    `export namespace RuntimeSpec${provenance.specVersion} {`,
+    'export namespace PreviousRuntimeSpec {',
     indent(namespaceBody),
     '}',
     '',

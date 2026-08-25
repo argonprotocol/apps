@@ -8,10 +8,9 @@ import {
 } from '@argonprotocol/mainchain';
 import BigNumber from 'bignumber.js';
 import type { ApiDecoration } from '@polkadot/api/types';
-import type { Bytes } from '@polkadot/types-codec';
-import type { RuntimeSpec157 } from './runtimeCompatibility.js';
+import type { PreviousRuntimeSpec } from './runtimeCompatibility.js';
 
-type RuntimeVault = ArgonPrimitivesVault | RuntimeSpec157.ArgonPrimitivesVault;
+type RuntimeVault = ArgonPrimitivesVault | PreviousRuntimeSpec.ArgonPrimitivesVault;
 
 export class Vault {
   public securitization!: bigint;
@@ -36,8 +35,6 @@ export class Vault {
   public flexibleSecuritizationLocked!: bigint;
   public reservedSecuritizationSpace!: bigint;
   public flexibleSecuritizedSatoshis!: number;
-  public name?: string;
-  public lastNameChangeTick?: number;
   public delegateAccountId?: string;
 
   constructor(
@@ -81,8 +78,6 @@ export class Vault {
     this.isClosed = vault.isClosed.valueOf();
     this.pendingTerms = undefined;
     this.pendingTermsChangeTick = undefined;
-    this.name = undefined;
-    this.lastNameChangeTick = undefined;
     this.delegateAccountId = undefined;
     if (vault.pendingTerms.isSome) {
       const [tickApply, terms] = vault.pendingTerms.value;
@@ -92,12 +87,6 @@ export class Vault {
         bitcoinBaseFee: terms.bitcoinBaseFee.toBigInt(),
         treasuryProfitSharing: fromFixedNumber(terms.treasuryProfitSharing.toBigInt(), PERMILL_DECIMALS),
       };
-    }
-    if ('name' in vault && vault.name.isSome) {
-      this.name = decodeVaultName(vault.name.unwrap());
-    }
-    if ('lastNameChangeTick' in vault && vault.lastNameChangeTick.isSome) {
-      this.lastNameChangeTick = vault.lastNameChangeTick.unwrap().toNumber();
     }
     if (vault.delegateAccountId.isSome) {
       this.delegateAccountId = vault.delegateAccountId.unwrap().toHuman();
@@ -171,8 +160,4 @@ export interface ITerms {
 
 function bigNumberToBigInt(bn: BigNumber): bigint {
   return BigInt(bn.integerValue(BigNumber.ROUND_DOWN).toString());
-}
-
-function decodeVaultName(name: Bytes): string {
-  return new TextDecoder().decode(Uint8Array.from(name));
 }

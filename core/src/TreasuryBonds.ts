@@ -13,7 +13,7 @@ import BigNumber from 'bignumber.js';
 import { BondLot, type IBondLotSource } from './BondLot.js';
 import { MICRONOTS_PER_ARGONOT } from './Currency.js';
 import type { ArgonQueryClient } from './MainchainClients.js';
-import type { RuntimeSpec157 } from './runtimeCompatibility.js';
+import type { PreviousRuntimeSpec } from './runtimeCompatibility.js';
 import type { Vault } from './Vault.js';
 
 const U32_MAX = 4_294_967_295n;
@@ -278,11 +278,11 @@ export class TreasuryBonds {
       };
     }
 
-    let vaultCapital: PalletTreasuryVaultCapital | RuntimeSpec157.PalletTreasuryVaultCapital | undefined;
+    let vaultCapital: PalletTreasuryVaultCapital | PreviousRuntimeSpec.PalletTreasuryVaultCapital | undefined;
     for (const [nextVaultId, capital] of frameCapitalRaw.unwrap().vaults.entries()) {
       if (nextVaultId.toNumber() !== vaultId) continue;
 
-      vaultCapital = capital as PalletTreasuryVaultCapital | RuntimeSpec157.PalletTreasuryVaultCapital;
+      vaultCapital = capital as PalletTreasuryVaultCapital | PreviousRuntimeSpec.PalletTreasuryVaultCapital;
       break;
     }
     if (!vaultCapital) {
@@ -412,8 +412,8 @@ export class TreasuryBonds {
   private static async getVaultBondSources(client: ArgonQueryClient, vaultId: number) {
     const vaultState = (await client.query.treasury.bondLotsByVault(vaultId)) as
       | PalletTreasuryVaultBondState
-      | RuntimeSpec157.PalletTreasuryVaultBondState;
-    let summaries: Iterable<PalletTreasuryBondLotSummary | RuntimeSpec157.PalletTreasuryBondLotSummary>;
+      | PreviousRuntimeSpec.PalletTreasuryVaultBondState;
+    let summaries: Iterable<PalletTreasuryBondLotSummary | PreviousRuntimeSpec.PalletTreasuryBondLotSummary>;
     let flexibleBonds = 0;
     let reservedBondSpace = 0;
 

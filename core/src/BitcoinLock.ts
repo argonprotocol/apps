@@ -17,15 +17,17 @@ import { u8aToHex } from '@polkadot/util';
 import type { ApiDecoration } from '@polkadot/api/types';
 import type { Vault } from './Vault.js';
 import BigNumber from 'bignumber.js';
-import type { RuntimeSpec157 } from './runtimeCompatibility.js';
+import type { PreviousRuntimeSpec } from './runtimeCompatibility.js';
 import type { BitcoinLockFeeCoupon } from './interfaces/IBitcoinLockCoupon.js';
 
 export const SATS_PER_BTC = 100_000_000n;
 
 type IQueryableClient = ArgonClient | ApiDecoration<'promise'>;
 type UtxoRefInput = { txid: string; outputIndex: number };
-type RuntimeBitcoinLock = PalletBitcoinLocksLockedBitcoin | RuntimeSpec157.PalletBitcoinLocksLockedBitcoin;
-type RuntimeReleaseRequest = PalletBitcoinLocksLockReleaseRequest | RuntimeSpec157.PalletBitcoinLocksLockReleaseRequest;
+type RuntimeBitcoinLock = PalletBitcoinLocksLockedBitcoin | PreviousRuntimeSpec.PalletBitcoinLocksLockedBitcoin;
+type RuntimeReleaseRequest =
+  | PalletBitcoinLocksLockReleaseRequest
+  | PreviousRuntimeSpec.PalletBitcoinLocksLockReleaseRequest;
 
 type BitcoinLockInitializationTerms =
   | {
@@ -481,7 +483,7 @@ export class BitcoinLock implements IBitcoinLock {
 
     const bitcoinLocks = client.tx.bitcoinLocks as
       | ArgonClient['tx']['bitcoinLocks']
-      | RuntimeSpec157.Transactions<'promise'>['bitcoinLocks'];
+      | PreviousRuntimeSpec.Transactions<'promise'>['bitcoinLocks'];
 
     let tx: SubmittableExtrinsic;
     if ('initializeFor' in bitcoinLocks) {

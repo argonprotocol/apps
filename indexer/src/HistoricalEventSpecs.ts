@@ -7,27 +7,45 @@ import type { HistoricalEventDeclaration } from './HistoricalEventSpecs.generate
 
 type HistoricalEventFields = Readonly<Record<string, string>>;
 type HistoricalEventVersion = { spec: number; fields: HistoricalEventFields[] };
-type HistoricalEventData<Fields extends Readonly<Record<string, Codec>>> = GenericEvent['data'] & {
-  readonly [Field in keyof Fields]: Fields[Field];
-};
-type HistoricalEventFromDeclaration<Declaration> = Declaration extends {
-  section: infer Section extends string;
-  method: infer Method extends string;
-  fields: infer Fields extends Readonly<Record<string, Codec>>;
-}
-  ? {
-      readonly section: Section;
-      readonly method: Method;
-      readonly data: HistoricalEventData<Fields>;
-    }
-  : never;
-
-export type HistoricalEvent = HistoricalEventFromDeclaration<HistoricalEventDeclaration>;
-type HistoricalEventSection = HistoricalEvent['section'];
+type HistoricalEventSection = HistoricalEventDeclaration['section'];
 type HistoricalEventMethod<Section extends HistoricalEventSection> = Extract<
-  HistoricalEvent,
+  HistoricalEventDeclaration,
   { section: Section }
 >['method'];
+type HistoricalEventDeclarations<Section extends HistoricalEventSection, Method extends string> = Extract<
+  HistoricalEventDeclaration,
+  { section: Section; method: Method }
+>;
+type HistoricalEventFieldKeys<Fields> = Fields extends Fields ? keyof Fields : never;
+type HistoricalEventRequiredFieldKeys<Fields> = {
+  [Field in HistoricalEventFieldKeys<Fields>]: [Fields] extends [Readonly<Record<Field, Codec>>] ? Field : never;
+}[HistoricalEventFieldKeys<Fields>];
+type HistoricalEventFieldCodec<Fields, Field extends PropertyKey> =
+  Fields extends Readonly<Record<Field, infer FieldCodec extends Codec>> ? FieldCodec : never;
+type HistoricalEventData<Fields> = GenericEvent['data'] & {
+  readonly [Field in HistoricalEventFieldKeys<HistoricalEventDeclaration['fields']>]?: HistoricalEventFieldCodec<
+    HistoricalEventDeclaration['fields'],
+    Field
+  >;
+} & {
+  readonly [Field in HistoricalEventRequiredFieldKeys<Fields>]: HistoricalEventFieldCodec<Fields, Field>;
+} & {
+  readonly [Field in Exclude<
+    HistoricalEventFieldKeys<Fields>,
+    HistoricalEventRequiredFieldKeys<Fields>
+  >]?: HistoricalEventFieldCodec<Fields, Field>;
+};
+type HistoricalEventFor<Section extends HistoricalEventSection, Method extends string> = {
+  readonly section: Section;
+  readonly method: Method;
+  readonly data: HistoricalEventData<HistoricalEventDeclarations<Section, Method>['fields']>;
+};
+
+export type HistoricalEvent = {
+  [Section in HistoricalEventSection]: {
+    [Method in HistoricalEventMethod<Section>]: HistoricalEventFor<Section, Method>;
+  }[HistoricalEventMethod<Section>];
+}[HistoricalEventSection];
 
 export class AccountActivityCoverageError extends Error {}
 

@@ -14,7 +14,7 @@ import {
   getVaultByOperator,
   type IOperationalAccessProof,
   MICROGONS_PER_ARGON,
-  type RuntimeSpec157,
+  type PreviousRuntimeSpec,
   type Vault,
 } from '@argonprotocol/apps-core';
 import { stringToU8a } from '@polkadot/util';
@@ -550,7 +550,7 @@ export function getOperationalChainProgressFromAccount(
   const account = accountRaw.unwrap();
   const currentOrPreviousAccount = account as
     | PalletOperationalAccountsOperationalAccount
-    | RuntimeSpec157.PalletOperationalAccountsOperationalAccount;
+    | PreviousRuntimeSpec.PalletOperationalAccountsOperationalAccount;
   const certificationProgress = getCertificationProgressFromOperationalAccount(accountRaw, rewardConfig);
 
   const operationalMinimumUniswapTransfer = rewardConfig?.operationalMinimumUniswapTransfer ?? 0n;
