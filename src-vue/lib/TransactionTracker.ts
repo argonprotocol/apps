@@ -4,19 +4,25 @@ import {
   type GenericEvent,
   hexToU8a,
   isOutdatedTransactionError,
-  ISubmittableOptions,
   type ISubmittableResult,
   SignedBlock,
   SubmittableExtrinsic,
-  type TxSigningAccount,
-  TxResult,
   TxSubmissionError,
   TxSubmissionErrorCode,
 } from '@argonprotocol/mainchain';
 import * as Vue from 'vue';
 import { Db } from './Db.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
-import { BlockWatch, createDeferred, IBlockHeaderInfo, IDeferred, TransactionEvents } from '@argonprotocol/apps-core';
+import {
+  BlockWatch,
+  createDeferred,
+  IBlockHeaderInfo,
+  IDeferred,
+  TransactionEvents,
+  ISubmittableOptions,
+  type TxSigningAccount,
+  TxResult,
+} from '@argonprotocol/apps-core';
 import { ExtrinsicType, ITransactionRecord, TransactionsTable, TransactionStatus } from './db/TransactionsTable.ts';
 import { LRU } from 'tiny-lru';
 import { TransactionInfo } from './TransactionInfo.ts';

@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, expect, it } from 'vitest';
 import { runOnTeardown, teardown } from '@argonprotocol/testing';
-import { getClient, Keyring, TxSubmitter } from '@argonprotocol/mainchain';
+import { TxSubmitter } from '@argonprotocol/apps-core';
+import { getClient, Keyring } from '@argonprotocol/mainchain';
 import fs from 'node:fs';
 import os from 'node:os';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';

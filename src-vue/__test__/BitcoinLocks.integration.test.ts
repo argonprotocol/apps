@@ -1,9 +1,9 @@
 import Path from 'node:path';
 import docker from 'docker-compose';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { BitcoinLock, Vault } from '@argonprotocol/mainchain';
+
 import { teardown } from '@argonprotocol/testing';
-import { MainchainClients, MoveTo, NetworkConfig } from '@argonprotocol/apps-core';
+import { MainchainClients, MoveTo, NetworkConfig, BitcoinLock, Vault } from '@argonprotocol/apps-core';
 import {
   startArgonTestNetwork,
   type StartedArgonTestNetwork,
@@ -269,7 +269,9 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
             observed.lock.lockDetails.createdAtHeight + expirationConfig.pendingConfirmationExpirationBlocks + 1;
 
           const preExpiryClient = await clients.get(false);
-          const preExpiryBitcoinHeight = await BitcoinLock.getBitcoinConfirmedBlockHeight(preExpiryClient);
+          const preExpiryBitcoinHeight = await preExpiryClient.query.bitcoinUtxos
+            .confirmedBitcoinBlockTip()
+            .then(x => x.value?.blockHeight.toNumber() ?? 0);
           const preExpiryChainLock = await BitcoinLock.get(preExpiryClient, observed.lock.utxoId!);
           const preExpiryCandidates = await preExpiryClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(
             observed.lock.utxoId!,
@@ -290,7 +292,9 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
             'separate operator lock expiration height',
             async () => {
               const chainClient = await clients.get(false);
-              const currentBitcoinHeight = await BitcoinLock.getBitcoinConfirmedBlockHeight(chainClient);
+              const currentBitcoinHeight = await chainClient.query.bitcoinUtxos
+                .confirmedBitcoinBlockTip()
+                .then(x => x.value?.blockHeight.toNumber() ?? 0);
               if (currentBitcoinHeight >= orphaningBitcoinHeight) return true;
               mineBitcoinBlocks(orphaningBitcoinHeight - currentBitcoinHeight, minerAddress);
               return;
@@ -938,7 +942,9 @@ async function returnExpiredMismatchAndWaitForChainRestore(
     'bitcoin lock expiration height',
     async () => {
       const chainClient = await clients.get(false);
-      const currentBitcoinHeight = await BitcoinLock.getBitcoinConfirmedBlockHeight(chainClient);
+      const currentBitcoinHeight = await chainClient.query.bitcoinUtxos
+        .confirmedBitcoinBlockTip()
+        .then(x => x.value?.blockHeight.toNumber() ?? 0);
       if (currentBitcoinHeight >= orphaningBitcoinHeight) return true;
       mineBitcoinBlocks(orphaningBitcoinHeight - currentBitcoinHeight, minerAddress);
       return;

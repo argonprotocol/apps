@@ -1,12 +1,6 @@
-import {
-  type ArgonClient,
-  createKeyringPair,
-  getClient,
-  mnemonicGenerate,
-  TxSubmitter,
-} from '@argonprotocol/mainchain';
+import { type ArgonClient, createKeyringPair, getClient, mnemonicGenerate } from '@argonprotocol/mainchain';
 import { sudo, teardown } from '@argonprotocol/testing';
-import { Accountset, getRange } from '@argonprotocol/apps-core';
+import { Accountset, getRange, TxSubmitter } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startArgonTestNetwork } from './startArgonTestNetwork.ts';
 import Path from 'path';

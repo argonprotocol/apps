@@ -8,13 +8,14 @@ import {
 import type { IBitcoinLockSummary } from '../../interfaces/IBitcoinLockSummary.ts';
 import type { IBitcoinLockRecord } from '../../interfaces/IBitcoinLockRecord.ts';
 import type BitcoinLocks from '../BitcoinLocks.ts';
-import { type ApiDecoration, BitcoinLock } from '@argonprotocol/mainchain';
+import { type ApiDecoration } from '@argonprotocol/mainchain';
 import {
   bigIntMax,
   getPercent,
   SATOSHIS_PER_BITCOIN,
   type Currency,
   type IPerformanceReturnInput,
+  BitcoinLock,
 } from '@argonprotocol/apps-core';
 
 const activeBitcoinLockStatuses = [BitcoinLockStatus.LockedAndIsMinting, BitcoinLockStatus.LockedAndMinted];

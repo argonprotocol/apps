@@ -4,14 +4,13 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { NetworkConfigSettings } from '@argonprotocol/apps-core';
+import { NetworkConfigSettings, TxSubmitter } from '@argonprotocol/apps-core';
 import {
   dispatchErrorToString,
   EvmContracts,
   getClient,
   type IArgonQueryable,
   Keyring,
-  TxSubmitter,
 } from '@argonprotocol/mainchain';
 import { createPublicClient, encodeFunctionData, getAddress, http } from 'viem';
 import { resolveDevEthereumRpcUrl, sendDevEthereumAdminTransaction } from '../devEthereum.ts';

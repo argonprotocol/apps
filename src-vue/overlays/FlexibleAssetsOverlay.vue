@@ -138,8 +138,8 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { type BondLot } from '@argonprotocol/apps-core';
-import type { BitcoinLock } from '@argonprotocol/mainchain';
+import { type BondLot, type BitcoinLock } from '@argonprotocol/apps-core';
+
 import OverlayBase from './OverlayBase.vue';
 import ProgressBar from '../components/ProgressBar.vue';
 import Checkbox from '../components/Checkbox.vue';

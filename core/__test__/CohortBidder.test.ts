@@ -10,7 +10,8 @@ import {
 } from '../src/index.ts';
 import { sudo } from '@argonprotocol/testing';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { type ArgonClient, mnemonicGenerate, TxResult } from '@argonprotocol/mainchain';
+import { TxResult } from '@argonprotocol/apps-core';
+import { type ArgonClient, mnemonicGenerate } from '@argonprotocol/mainchain';
 import { createTypedEventEmitter } from '../src/utils.ts';
 
 afterEach(() => {

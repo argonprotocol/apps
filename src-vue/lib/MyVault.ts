@@ -2,23 +2,17 @@ import {
   ApiDecoration,
   ArgonClient,
   type ArgonPrimitivesVaultVaultArgonotCommitment,
-  BitcoinLock,
   FIXED_U128_DECIMALS,
   hexToU8a,
-  IBitcoinLock,
   type IArgonQueryable,
-  ITxProgressCallback,
   MICROGONS_PER_ARGON,
   PalletVaultsVaultFrameRevenue,
   type Option,
   PERMILL_DECIMALS,
   SubmittableExtrinsic,
   toFixedNumber,
-  TxResult,
-  TxSubmitter,
   u64,
   u8aToHex,
-  Vault,
   Vec,
 } from '@argonprotocol/mainchain';
 import { BitcoinNetwork, CosignScript, getBitcoinNetworkFromApi, HDKey } from '@argonprotocol/bitcoin';
@@ -43,6 +37,12 @@ import {
   TreasuryBonds,
   targetVaultDelegateBalance,
   vaultDelegateFeeBuffer,
+  BitcoinLock,
+  IBitcoinLock,
+  ITxProgressCallback,
+  TxResult,
+  TxSubmitter,
+  Vault,
 } from '@argonprotocol/apps-core';
 import { IVaultRecord, VaultsTable } from './db/VaultsTable.ts';
 import { IVaultingRules } from '../interfaces/IVaultingRules.ts';

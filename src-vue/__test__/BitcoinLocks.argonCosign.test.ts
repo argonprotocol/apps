@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BitcoinLock, type ArgonClient } from '@argonprotocol/mainchain';
+import { BitcoinLock } from '@argonprotocol/apps-core';
+import { type ArgonClient } from '@argonprotocol/mainchain';
 import type { BlockWatch, Currency as CurrencyBase } from '@argonprotocol/apps-core';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import type { Db } from '../lib/Db.ts';

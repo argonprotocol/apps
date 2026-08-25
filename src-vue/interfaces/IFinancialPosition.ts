@@ -1,5 +1,5 @@
-import type { BondLot, ICapitalFlow, IInvestmentPositionValue } from '@argonprotocol/apps-core';
-import type { Vault } from '@argonprotocol/mainchain';
+import type { BondLot, ICapitalFlow, IInvestmentPositionValue, Vault } from '@argonprotocol/apps-core';
+
 import type { IWallet } from '../lib/Wallet.ts';
 import type { IStableSwapPurchaseRecord } from '../lib/db/StableSwapPurchasesTable.ts';
 import type { IBondLotHistoryRecord } from '../lib/db/BondLotHistoryTable.ts';

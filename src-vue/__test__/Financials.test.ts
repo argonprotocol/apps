@@ -1,12 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  BitcoinLock,
   type FrameSupportTokensMiscIdAmountRuntimeHoldReason,
   getOfflineRegistry,
   type PalletTreasuryBondLot,
-  type Vault,
 } from '@argonprotocol/mainchain';
-import { BondLot } from '@argonprotocol/apps-core';
+import { BondLot, BitcoinLock, type Vault } from '@argonprotocol/apps-core';
 import type { IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
 import type {
   IFinancialGroupSnapshot,

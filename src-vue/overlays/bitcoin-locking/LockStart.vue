@@ -260,7 +260,7 @@ import InputNumber from '../../components/InputNumber.vue';
 import Tooltip from '../../components/Tooltip.vue';
 import { createNumeralHelpers, formatBtc } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
-import { BitcoinLock, MICROGONS_PER_ARGON, SATS_PER_BTC, Vault } from '@argonprotocol/mainchain';
+import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 import { useDebounceFn } from '@vueuse/core';
 import { getBitcoinLockCoupons, getBitcoinLocks } from '../../stores/bitcoin.ts';
@@ -270,7 +270,16 @@ import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
 import { getMainchainClient } from '../../stores/mainchain.ts';
 import type { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { BitcoinLockWalletFundingError } from '../../lib/BitcoinLocks.ts';
-import { bigIntMax, bigIntMin, bigNumberToBigInt, NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import {
+  bigIntMax,
+  bigIntMin,
+  bigNumberToBigInt,
+  NetworkConfig,
+  UnitOfMeasurement,
+  BitcoinLock,
+  SATS_PER_BTC,
+  Vault,
+} from '@argonprotocol/apps-core';
 import WalletFundingCallout from '../../components/WalletFundingCallout.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { WalletType } from '../../lib/Wallet.ts';

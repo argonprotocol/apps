@@ -1,4 +1,4 @@
-import type { IBitcoinLock } from '@argonprotocol/mainchain';
+import { type IBitcoinLock } from '@argonprotocol/apps-core';
 import type { IBitcoinUtxoRecord } from './IBitcoinUtxoRecord.ts';
 
 export interface IRatchet {

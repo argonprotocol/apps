@@ -1,5 +1,5 @@
-import { stripNetworkPrefix } from '@argonprotocol/apps-core';
-import type { PalletCrosschainTransferGlobalIssuanceCouncil, Vault } from '@argonprotocol/mainchain';
+import { stripNetworkPrefix, type Vault } from '@argonprotocol/apps-core';
+import type { PalletCrosschainTransferGlobalIssuanceCouncil } from '@argonprotocol/mainchain';
 import type { IConnectedVault } from '../interfaces/IConfig.ts';
 import type { IGlobalCouncilQueueItem } from './GlobalCouncil.ts';
 

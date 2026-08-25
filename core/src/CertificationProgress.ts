@@ -1,12 +1,12 @@
 import {
   type ArgonClient,
-  type BitcoinLock,
   type Option,
   type PalletCrosschainTransferAccountTransferTotals,
   type PalletOperationalAccountsOperationalAccount,
 } from '@argonprotocol/mainchain';
 import { BondLot } from './BondLot.js';
 import { TreasuryBonds } from './TreasuryBonds.js';
+import type { BitcoinLock } from './BitcoinLock.js';
 
 export interface ICertificationProgress {
   hasOperationalAccount: boolean;

@@ -249,8 +249,8 @@
 import * as Vue from 'vue';
 import { NavigationMenuContent, NavigationMenuItem, NavigationMenuTrigger } from 'reka-ui';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
-import { MICROGONS_PER_ARGON, NetworkConfig } from '@argonprotocol/apps-core';
-import { BitcoinLock } from '@argonprotocol/mainchain';
+import { MICROGONS_PER_ARGON, NetworkConfig, BitcoinLock } from '@argonprotocol/apps-core';
+
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { getConfig } from '../stores/config.ts';
 import { getCurrency } from '../stores/currency.ts';

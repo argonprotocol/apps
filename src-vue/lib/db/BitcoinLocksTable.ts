@@ -1,6 +1,6 @@
 import { BaseTable, IFieldTypes } from './BaseTable';
-import { type IBitcoinLock, BitcoinLock } from '@argonprotocol/mainchain';
-import { bigIntMax, JsonExt } from '@argonprotocol/apps-core';
+
+import { bigIntMax, JsonExt, type IBitcoinLock, BitcoinLock } from '@argonprotocol/apps-core';
 import { convertFromSqliteFields, toSqlParams } from '../Utils.ts';
 import { nanoid } from 'nanoid';
 import {

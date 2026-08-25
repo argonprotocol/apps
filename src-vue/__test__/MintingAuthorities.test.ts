@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createDeferred, MoveToken } from '@argonprotocol/apps-core';
+import { createDeferred, MoveToken, type TxResult } from '@argonprotocol/apps-core';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { createTestDb } from './helpers/db.ts';
 import {
@@ -18,7 +18,6 @@ import { DEFAULT_MEMORY_WALLET_KEYS_ETHEREUM_HD_PREFIXES } from '../lib/MemoryWa
 import { mnemonicToAccount } from 'viem/accounts';
 import { TransactionInfo } from '../lib/TransactionInfo.ts';
 import type { ITransactionRecord } from '../lib/db/TransactionsTable.ts';
-import type { TxResult } from '@argonprotocol/mainchain';
 
 const TEST_MNEMONIC = 'test test test test test test test test test test test junk';
 

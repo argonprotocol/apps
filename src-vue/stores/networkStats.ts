@@ -7,9 +7,10 @@ import {
   MICRONOTS_PER_ARGONOT,
   NetworkConfig,
   UnitOfMeasurement,
+  type Vault,
 } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
-import type { Vault } from '@argonprotocol/mainchain';
+
 import { getMainchainClient, getMining, getMiningFrames } from './mainchain.ts';
 import { getVaults } from './vaults.ts';
 import { getCurrency } from './currency.ts';

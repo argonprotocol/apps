@@ -13,19 +13,13 @@ import { Address, OutScript } from '@scure/btc-signer';
 import {
   ApiDecoration,
   ArgonClient,
-  BitcoinLock,
   FIXED_U128_DECIMALS,
   formatArgons,
   fromFixedNumber,
   hexToU8a,
   toFixedNumber,
-  type IBitcoinLockConfig,
   type SubmittableExtrinsic,
-  TxResult,
-  TxSubmitter,
-  type TxSigningAccount,
   u8aToHex,
-  Vault,
 } from '@argonprotocol/mainchain';
 import { Db } from './Db.ts';
 import {
@@ -63,6 +57,12 @@ import {
   NetworkConfig,
   SATOSHIS_PER_BITCOIN,
   SingleFileQueue,
+  BitcoinLock,
+  type IBitcoinLockConfig,
+  TxResult,
+  TxSubmitter,
+  type TxSigningAccount,
+  Vault,
 } from '@argonprotocol/apps-core';
 import { TransactionTracker, TxAttemptState } from './TransactionTracker.ts';
 import { deriveBitcoinLockHdKey, WalletKeys } from './WalletKeys.ts';
@@ -3315,7 +3315,7 @@ export default class BitcoinLocks {
   ): Promise<{ blockHeight: number; signature: Uint8Array } | undefined> {
     archiveClient ??= await getMainchainClient(true);
     const bitcoinLock = new BitcoinLock(lock.lockDetails);
-    return await bitcoinLock.findVaultCosignSignature(archiveClient, true);
+    return await bitcoinLock.findVaultCosignSignature(archiveClient);
   }
 
   private getSatoshisForLiquidityAtLockRate(lock: IBitcoinLockRecord, microgons: bigint): bigint {

@@ -1,6 +1,6 @@
 import './helpers/mocks.ts';
 import { beforeEach, expect, it, vi } from 'vitest';
-import { AccountActivityKind, JsonExt, Mining } from '@argonprotocol/apps-core';
+import { AccountActivityKind, JsonExt, Mining, Vault } from '@argonprotocol/apps-core';
 import Importer from '../lib/Importer.ts';
 import { Config } from '../lib/Config.ts';
 import { createMockedDbPromise, createTestDb } from './helpers/db.ts';
@@ -11,7 +11,6 @@ import { type IConfig, MiningSetupStatus, OnboardingSetupStatus, VaultingSetupSt
 import Restarter from '../lib/Restarter.ts';
 import { MemoryWalletKeys } from '../lib/MemoryWalletKeys.ts';
 import { invokeWithTimeout } from '../lib/tauriApi.ts';
-import { Vault } from '@argonprotocol/mainchain';
 
 const importMocks = vi.hoisted(() => ({
   closeWallets: vi.fn(),

@@ -1,7 +1,7 @@
 import * as Vue from 'vue';
-import { bigIntMin, BondLot } from '@argonprotocol/apps-core';
+import { bigIntMin, BondLot, Vault } from '@argonprotocol/apps-core';
 import type { IMemberInvite } from '@argonprotocol/apps-router';
-import { Vault } from '@argonprotocol/mainchain';
+
 import BigNumber from 'bignumber.js';
 import { fn, mocked, spyOn } from 'storybook/test';
 import { TopTab } from '../../src-vue/interfaces/IConfig.ts';

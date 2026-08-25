@@ -179,7 +179,7 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import BigNumber from 'bignumber.js';
-import { BitcoinLock, Vault } from '@argonprotocol/mainchain';
+
 import { InformationCircleIcon } from '@heroicons/vue/24/outline';
 import { SliderRange, SliderRoot, SliderThumb, SliderTrack } from 'reka-ui';
 import AlertIcon from '../assets/alert.svg?component';
@@ -190,6 +190,8 @@ import {
   MICROGONS_PER_ARGON,
   NetworkConfig,
   UnitOfMeasurement,
+  BitcoinLock,
+  Vault,
 } from '@argonprotocol/apps-core';
 import ProgressBar from '../components/ProgressBar.vue';
 import Tooltip from '../components/Tooltip.vue';

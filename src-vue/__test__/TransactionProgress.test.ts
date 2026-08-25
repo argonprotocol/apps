@@ -1,5 +1,6 @@
 import * as Vue from 'vue';
-import { TxResult } from '@argonprotocol/mainchain';
+import { TxResult } from '@argonprotocol/apps-core';
+
 import { describe, expect, it, vi } from 'vitest';
 import { getActiveTransactionInfos, trackTransactionProgress } from '../lib/TransactionProgress.ts';
 import { TransactionInfo } from '../lib/TransactionInfo.ts';

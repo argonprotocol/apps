@@ -1,11 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createDeferred, StorageFinder, TransactionEvents, type BlockWatch } from '@argonprotocol/apps-core';
+import {
+  createDeferred,
+  StorageFinder,
+  TransactionEvents,
+  type BlockWatch,
+  BitcoinLock,
+} from '@argonprotocol/apps-core';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import { BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
 import { ExtrinsicType } from '../lib/db/TransactionsTable.ts';
-import { BitcoinLock, hexToU8a } from '@argonprotocol/mainchain';
+import { hexToU8a } from '@argonprotocol/mainchain';
 import { historicalEventChanges } from '../../indexer/src/HistoricalEventSpecs.generated.ts';
 import { bigintCodec, numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts';
 import { encodeAddress } from '@polkadot/util-crypto';

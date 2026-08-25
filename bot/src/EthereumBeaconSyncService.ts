@@ -6,6 +6,7 @@ import {
   raceWithTimeout,
   SingleFileQueue,
   type IEthereumSyncStatus,
+  TxSubmitter,
 } from '@argonprotocol/apps-core';
 import {
   type ArgonClient,
@@ -15,7 +16,6 @@ import {
   getNextEthereumBeaconSyncTxs,
   isOutdatedTransactionError,
   isTxSubmissionError,
-  TxSubmitter,
 } from '@argonprotocol/mainchain';
 import { DelegateSubmitLane } from './DelegateSubmitLane.ts';
 import { createEthereumExecutionClient } from './EthereumExecutionClient.ts';

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import BigNumber from 'bignumber.js';
-import { createDeferred } from '@argonprotocol/apps-core';
-import { BitcoinLock, FIXED_U128_DECIMALS, toFixedNumber, TxSubmitter } from '@argonprotocol/mainchain';
+import { createDeferred, BitcoinLock, TxSubmitter } from '@argonprotocol/apps-core';
+import { FIXED_U128_DECIMALS, toFixedNumber } from '@argonprotocol/mainchain';
 import { type TransactionTracker, TxAttemptState } from '../lib/TransactionTracker.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
@@ -35,7 +35,6 @@ describe('BitcoinLocks fee coupon recovery', () => {
     vi.spyOn(BitcoinLock, 'createInitializeTx').mockResolvedValue({
       tx: {} as never,
       securityFee: 70n,
-      txFee: 3n,
       txFeePlusTip: 3n,
       availableBalance: 0n,
       canAfford: false,
@@ -134,7 +133,6 @@ describe('BitcoinLocks fee coupon recovery', () => {
     const createInitializeTx = vi.spyOn(BitcoinLock, 'createInitializeTx').mockImplementation(async args => ({
       tx: {} as never,
       securityFee: args.feeCoupon ? 10n : 410n,
-      txFee: 1n,
       txFeePlusTip: 1n,
       availableBalance: canAfford ? 16n : 15n,
       canAfford,

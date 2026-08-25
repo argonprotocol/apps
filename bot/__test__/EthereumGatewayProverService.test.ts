@@ -94,6 +94,14 @@ vi.mock('@argonprotocol/mainchain', async () => {
     ...actual,
     buildGatewayActivityProofPayload: mainchainMock.buildGatewayActivityProofPayload,
     getLatestArgonFinalizedExecutionHeader: mainchainMock.getLatestArgonFinalizedExecutionHeader,
+  };
+});
+
+vi.mock('@argonprotocol/apps-core', async () => {
+  const actual = await vi.importActual<typeof import('@argonprotocol/apps-core')>('@argonprotocol/apps-core');
+
+  return {
+    ...actual,
     TxSubmitter: mainchainMock.TxSubmitter,
   };
 });

@@ -1,6 +1,6 @@
-import { ExtrinsicError, TxResult } from '@argonprotocol/mainchain';
+import { ExtrinsicError } from '@argonprotocol/mainchain';
 import { ITransactionRecord, TransactionStatus } from './db/TransactionsTable';
-import { createDeferred, IDeferred } from '@argonprotocol/apps-core';
+import { createDeferred, IDeferred, TxResult } from '@argonprotocol/apps-core';
 import { TICK_MILLIS } from './Env.ts';
 import { BlockProgress } from './BlockProgress.ts';
 import dayjs from 'dayjs';

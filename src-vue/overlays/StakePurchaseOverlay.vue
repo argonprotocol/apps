@@ -206,8 +206,14 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import OverlayBase from './OverlayBase.vue';
-import { Vault } from '@argonprotocol/mainchain';
-import { bigNumberToBigInt, MICRONOTS_PER_ARGONOT, NetworkConfig, TreasuryBonds } from '@argonprotocol/apps-core';
+
+import {
+  bigNumberToBigInt,
+  MICRONOTS_PER_ARGONOT,
+  NetworkConfig,
+  TreasuryBonds,
+  Vault,
+} from '@argonprotocol/apps-core';
 import { getWalletKeys, useWallets } from '../stores/wallets.ts';
 import { getArgonBonds } from '../stores/argonBonds.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';

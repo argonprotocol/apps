@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { TransactionInfo } from '../lib/TransactionInfo';
 import { ITransactionRecord } from '../lib/db/TransactionsTable';
-import { TxResult } from '@argonprotocol/mainchain';
+import { TxResult } from '@argonprotocol/apps-core';
 
 it('should update progress before the transaction has been added to a block', async () => {
   const progressUpdates: { progressPct: number; confirmations: number }[] = [];
