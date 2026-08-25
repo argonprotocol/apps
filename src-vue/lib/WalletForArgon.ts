@@ -39,8 +39,7 @@ export function getSpendableDefaultArgonMicrogons(availableMicrogons: bigint): b
   return getSpendableMicrogons(availableMicrogons, defaultArgonOperationalReserveMicrogons);
 }
 
-export type IWalletType = keyof typeof WalletType;
-export type IArgonWalletType = Exclude<IWalletType, 'ethereum'>;
+export type IArgonWalletType = 'argon' | 'miningBot' | 'operational';
 
 export function hasArgonWalletValue(balance: {
   availableMicrogons: bigint;

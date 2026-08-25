@@ -21,7 +21,7 @@ import {
 } from '../lib/db/CrosschainInboundTransfersTable.ts';
 import type { TransactionTracker } from '../lib/TransactionTracker.ts';
 import { WalletType } from '../lib/Wallet.ts';
-import { convertEthereumTokenBaseUnitsToRuntimeAmount } from '../lib/WalletForEthereum.ts';
+import { convertEthereumTokenBaseUnitsToRuntimeAmount, WalletForEthereum } from '../lib/WalletForEthereum.ts';
 
 type IWaitForTransactionFinalityArgs = Parameters<EthereumClient['waitForTransactionFinality']>[0];
 
@@ -73,9 +73,10 @@ describe('EthereumInboundTransferTracker integration', () => {
     );
 
     const activeTransfer = await tracker.startMove({
-      moveToken: MoveToken.ARGN,
+      moveToken: MoveToken.ARGN as MoveToken.ARGN,
       amountBaseUnits: 5_000_000_000_000n,
       targetWalletType: WalletType.argon,
+      ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
     });
     expect(activeTransfer?.transferState.amount).toBe(convertEthereumTokenBaseUnitsToRuntimeAmount(5_000_000_000_000n));
 
@@ -148,9 +149,10 @@ describe('EthereumInboundTransferTracker integration', () => {
     );
 
     const activeTransfer = await tracker.startMove({
-      moveToken: MoveToken.ARGN,
+      moveToken: MoveToken.ARGN as MoveToken.ARGN,
       amountBaseUnits: 5_000_000_000_000n,
       targetWalletType: WalletType.argon,
+      ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
     });
 
     await vi.waitFor(() => {
@@ -220,6 +222,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       moveToken: MoveToken.ARGN,
       amountBaseUnits: 5_000_000_000_000n,
       targetWalletType: WalletType.argon,
+      ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
     });
 
     expect(activeTransfer?.transferState.error).toBe('');
@@ -282,6 +285,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       moveToken: MoveToken.ARGN,
       amountBaseUnits: 5_000_000_000_000n,
       targetWalletType: WalletType.argon,
+      ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
     });
 
     await vi.waitFor(() => {
@@ -823,6 +827,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       moveToken: MoveToken.ARGN,
       amountBaseUnits: 5_000_000_000_000n,
       targetWalletType: WalletType.argon,
+      ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
     });
 
     await vi.waitFor(() => {
@@ -1037,6 +1042,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       moveToken: MoveToken.ARGN,
       amountBaseUnits: 5_000_000_000_000n,
       targetWalletType: WalletType.argon,
+      ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
     });
 
     await vi.waitFor(async () => {
@@ -1152,6 +1158,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       moveToken: MoveToken.ARGN,
       amountBaseUnits: 5_000_000_000_000n,
       targetWalletType: WalletType.argon,
+      ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
     });
 
     await vi.waitFor(() => {
@@ -1210,6 +1217,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       moveToken: MoveToken.ARGN,
       amountBaseUnits: 5_000_000_000_000n,
       targetWalletType: WalletType.argon,
+      ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
     });
 
     await vi.waitFor(async () => {
@@ -1262,7 +1270,7 @@ function createEthereumClient(args: {
     sourceAddress: args.sourceAddress,
     executionRpcUrl: 'http://ethereum.test',
     startTransferToArgon: vi.fn(async () => ({
-      moveToken: MoveToken.ARGN,
+      moveToken: MoveToken.ARGN as MoveToken.ARGN,
       amountBaseUnits: 5_000_000_000_000n,
       destinationAddress: args.destinationAddress,
       executionRpcUrl: 'http://ethereum.test',
@@ -1271,7 +1279,7 @@ function createEthereumClient(args: {
     estimateTransferToArgonFee: vi.fn(async () => args.feeEstimateWei ?? 1n),
     getNativeBalanceWei: vi.fn(async () => args.nativeBalanceWei ?? 10n),
     confirmTransferToArgon: vi.fn(async () => ({
-      moveToken: MoveToken.ARGN,
+      moveToken: MoveToken.ARGN as MoveToken.ARGN,
       amountBaseUnits: 5_000_000_000_000n,
       destinationAddress: args.destinationAddress,
       executionRpcUrl: 'http://ethereum.test',

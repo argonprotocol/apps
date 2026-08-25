@@ -47,18 +47,18 @@ import {
   PointerDownOutsideEvent,
 } from 'reka-ui';
 import basicEmitter from '../../emitters/basicEmitter.ts';
-import { WalletType } from '../../lib/Wallet.ts';
+import type { WalletForArgon } from '../../lib/WalletForArgon.ts';
 import { useFloatingZIndex } from '../../overlays/helpers/OverlayZIndex.ts';
 
 const props = defineProps<{
-  walletType: WalletType.argon;
+  wallet: WalletForArgon<'argon'>;
 }>();
 
 const isOpen = Vue.ref(false);
 const floatingZIndex = useFloatingZIndex();
 
 function openWalletOverlay() {
-  basicEmitter.emit('openWalletOverlay', { connectorType: props.walletType });
+  basicEmitter.emit('openWalletOverlay', { wallet: props.wallet });
 }
 
 let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;

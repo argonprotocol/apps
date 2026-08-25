@@ -4,14 +4,14 @@ import { expect, userEvent, waitFor, within } from 'storybook/test';
 import { setupWalletScenario } from '../../scenarios/setupWalletScenario.ts';
 import { expectEventuallyVisible } from '../../support/expectEventuallyVisible.ts';
 import basicEmitter from '../../../src-vue/emitters/basicEmitter.ts';
-import WalletOverlayController from '../../../src-vue/wallets/WalletOverlayController.vue';
+import WalletOverlay from '../../../src-vue/wallets/WalletOverlay.vue';
 
 const syntheticMnemonic = 'synthetic alpha beta gamma delta epsilon zeta eta theta iota kappa lambda';
 
 const meta = {
   title: 'Wallets/Ethereum import',
   render: () => ({
-    components: { WalletOverlayController },
+    components: { WalletOverlay },
     setup() {
       const disableDocsLinks = () => {
         document
@@ -49,11 +49,11 @@ const meta = {
     },
     template: `
       <div class="relative h-screen w-screen overflow-hidden">
-        <WalletOverlayController />
+        <WalletOverlay />
       </div>
     `,
   }),
-} satisfies Meta<typeof WalletOverlayController>;
+} satisfies Meta<typeof WalletOverlay>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;

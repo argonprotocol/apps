@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MoveToken, UnitOfMeasurement } from '@argonprotocol/apps-core';
-import { FinancialCacheTypes } from '../lib/db/FinancialCacheTable.ts';
+import { FinancialCacheTypes, type ICrosschainHistoryCacheRecord } from '../lib/db/FinancialCacheTable.ts';
 import { createTestDb } from './helpers/db.ts';
 
 describe('FinancialCacheTable', () => {
@@ -75,7 +75,7 @@ describe('FinancialCacheTable', () => {
       ],
       definitionVersion: 3,
       refreshedThroughBlock: 10,
-    };
+    } satisfies ICrosschainHistoryCacheRecord;
 
     await db.financialCacheTable.upsert(FinancialCacheTypes.CrosschainHistory, '5vault', snapshot);
 

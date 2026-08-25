@@ -14,6 +14,7 @@ import { invokeWithTimeout } from './tauriApi.ts';
 import { NETWORK_NAME } from './Env.ts';
 import { WalletType } from './Wallet.ts';
 import type { IWalletRecord } from './db/WalletsTable.ts';
+import type { WalletForEthereum } from './WalletForEthereum.ts';
 
 export type EthereumHdPathPrefix = `m/44'/60'/${string}`;
 
@@ -263,15 +264,16 @@ export class WalletKeys {
   public async signEthereumTransaction(
     unsignedTransaction: Hex,
     hdPath = this.ethereumHdPath,
-    walletRecord?: IWalletRecord,
+    wallet?: WalletForEthereum,
   ): Promise<Signature> {
-    if (hdPath === this.ethereumHdPath && this.canUseExternalEthereumSigner(walletRecord)) {
+    const record = wallet?.record;
+    if (hdPath === this.ethereumHdPath && this.canUseExternalEthereumSigner(wallet)) {
       return await invokeWithTimeout<Signature>(
         'sign_external_ethereum_transaction',
         {
-          encryptedSecret: walletRecord!.encryptedSecret,
-          secretKind: walletRecord!.secretKind,
-          hdPath: walletRecord!.derivationPath,
+          encryptedSecret: record!.encryptedSecret,
+          secretKind: record!.secretKind,
+          hdPath: record!.derivationPath,
           request: { unsignedTransaction },
         },
         60e3,
@@ -290,7 +292,7 @@ export class WalletKeys {
     value: bigint;
     nonce: bigint;
     deadline: bigint;
-    walletRecord?: IWalletRecord;
+    wallet?: WalletForEthereum;
   }): Promise<{ v: number; r: string; s: string }> {
     const request = {
       tokenAddress: args.tokenAddress,
@@ -299,14 +301,15 @@ export class WalletKeys {
       nonce: args.nonce.toString(),
       deadline: args.deadline.toString(),
     };
-    const walletRecord = args.walletRecord;
-    if (this.canUseExternalEthereumSigner(walletRecord)) {
+    const wallet = args.wallet;
+    const record = wallet?.record;
+    if (this.canUseExternalEthereumSigner(wallet)) {
       return await invokeWithTimeout<{ v: number; r: string; s: string }>(
         'sign_external_ethereum_permit',
         {
-          encryptedSecret: walletRecord!.encryptedSecret,
-          secretKind: walletRecord!.secretKind,
-          hdPath: walletRecord!.derivationPath,
+          encryptedSecret: record!.encryptedSecret,
+          secretKind: record!.secretKind,
+          hdPath: record!.derivationPath,
           request,
         },
         60e3,
@@ -361,6 +364,8 @@ export class WalletKeys {
         return this.operationalAddress;
       case WalletType.ethereum:
         return this.coreEthereumAddress;
+      case WalletType.bitcoin:
+        throw new Error('Bitcoin wallet addresses are managed by WalletForBitcoin.');
     }
 
     throw new Error('Unsupported wallet type.');
@@ -376,6 +381,8 @@ export class WalletKeys {
         return await this.getOperationalKeypair();
       case WalletType.ethereum:
         throw new Error('Ethereum wallets do not have an Argon keypair.');
+      case WalletType.bitcoin:
+        throw new Error('Bitcoin wallet signing is managed by WalletForBitcoin.');
     }
 
     throw new Error('Unsupported wallet type.');
@@ -410,12 +417,13 @@ export class WalletKeys {
     return HDKey.fromExtendedKey(extendedKey, bip32Version);
   }
 
-  private canUseExternalEthereumSigner(walletRecord?: IWalletRecord): boolean {
+  private canUseExternalEthereumSigner(wallet?: WalletForEthereum): boolean {
+    const record = wallet?.record;
     return (
-      !!walletRecord &&
-      !this.isCoreEthereumWallet(walletRecord) &&
-      !!walletRecord.encryptedSecret &&
-      (walletRecord.secretKind === 'privateKey' || walletRecord.secretKind === 'mnemonic')
+      !!record &&
+      !wallet.isCore &&
+      !!record.encryptedSecret &&
+      (record.secretKind === 'privateKey' || record.secretKind === 'mnemonic')
     );
   }
 }

@@ -1,5 +1,4 @@
 import type { IWallet } from '../lib/Wallet.ts';
-import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
 
 export interface IWalletsQueryRef {
   isLoaded: boolean;
@@ -7,5 +6,8 @@ export interface IWalletsQueryRef {
   totalMiningMicrogons: bigint;
   defaultArgonWallet: IWallet;
   miningBotWallet: IWallet;
-  ethereumWallets: { record: IWalletRecord; wallet: IWallet }[];
+  ethereumWallets: {
+    length: number;
+    persistedWallets: Array<{ address: string; data: IWallet }>;
+  };
 }

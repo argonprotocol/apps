@@ -9,9 +9,6 @@ import { clickIfVisible, pollEvery } from '../helpers/utils.ts';
 const TRANSFER_OUT_MICROGONS = 10n * BigInt(MICROGONS_PER_ARGON);
 const ETHEREUM_TRANSFER_TIMEOUT_MS = 12 * 60_000;
 const UI_TRANSITION_TIMEOUT_MS = 30_000;
-const FIRST_ETHEREUM_CONNECTOR_SELECTOR =
-  '[data-wallet-connector-id]:not([data-wallet-connector-id="bitcoin"]) [data-testid="Connector.openConnector()"]';
-
 type ITransferOutToEthereumChainState = {
   availableMicrogons: bigint;
   amount: bigint;
@@ -101,10 +98,9 @@ export default new Operation<IVaultingFlowContext, ITransferOutToEthereumState>(
         await flow.waitFor('WalletOverlay', { timeoutMs: 30_000 });
       }
 
-      await flow.click({ selector: FIRST_ETHEREUM_CONNECTOR_SELECTOR, index: 0 }, { timeoutMs: 30_000 });
-      await flow.waitFor('ConnectorTransfer.close()', { timeoutMs: 30_000 });
-      await ensureTransferDirection(flow, 'outbound');
-      await flow.type({ selector: '[data-testid="ConnectorTransfer.amount"] [data-testid="input-number"]' }, '10', {
+      await flow.click('WalletViewMain.openSend()', { timeoutMs: 30_000 });
+      await flow.waitFor('WalletViewSend.destination', { timeoutMs: 30_000 });
+      await flow.type({ selector: '[data-testid="WalletViewSend.amount"] [data-testid="input-number"]' }, '10', {
         clear: true,
         timeoutMs: 15_000,
       });
@@ -120,7 +116,7 @@ export default new Operation<IVaultingFlowContext, ITransferOutToEthereumState>(
             return true;
           }
 
-          await clickIfVisible(flow, 'ConnectorTransfer.initiateTransfer()', { timeoutMs: 1_500 });
+          await clickIfVisible(flow, 'WalletViewSend.initiateTransfer()', { timeoutMs: 1_500 });
           return false;
         },
         {
@@ -149,8 +145,8 @@ export default new Operation<IVaultingFlowContext, ITransferOutToEthereumState>(
       },
     );
 
-    if ((await flow.isVisible('ConnectorTransfer.close()')).clickable) {
-      await flow.click('ConnectorTransfer.close()', { timeoutMs: 15_000 });
+    if ((await flow.isVisible('WalletOverlay.closeRight()')).clickable) {
+      await flow.click('WalletOverlay.closeRight()', { timeoutMs: 15_000 });
     }
 
     const overlayCloseButton = await flow.isVisible('WalletOverlay.closeRight()');
@@ -162,27 +158,9 @@ export default new Operation<IVaultingFlowContext, ITransferOutToEthereumState>(
   },
 });
 
-async function ensureTransferDirection(
-  flow: IVaultingFlowContext['flow'],
-  direction: 'inbound' | 'outbound',
-): Promise<void> {
-  const currentDirection = await flow.getAttribute('ConnectorTransfer.direction', 'data-direction', {
-    timeoutMs: 15_000,
-  });
-  if (currentDirection === direction) return;
-
-  await flow.click('ConnectorTransfer.toggleTransferDirection()', { timeoutMs: 15_000 });
-  await flow.waitFor(
-    { selector: `[data-testid="ConnectorTransfer.direction"][data-direction="${direction}"]` },
-    {
-      timeoutMs: 15_000,
-    },
-  );
-}
-
 async function readOutboundTransferState(flow: IVaultingFlowContext['flow']) {
   const state = (await flow.queryApp(
-    async (refs, args: { moveToken: MoveToken }) => {
+    async (refs, args: { moveToken: MoveToken.ARGN | MoveToken.ARGNOT }) => {
       await refs.wallets.load().catch(() => undefined);
 
       const tracker = refs.getEthereumOutboundTransferTracker();

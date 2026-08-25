@@ -100,7 +100,6 @@ import { getConfig } from '../../stores/config.ts';
 import { BondLot, NetworkConfig } from '@argonprotocol/apps-core';
 import { getArgonBonds } from '../../stores/argonBonds.ts';
 import basicEmitter from '../../emitters/basicEmitter.ts';
-import { WalletType } from '../../lib/Wallet.ts';
 import FormattedMoney from '../../components/FormattedMoney.vue';
 import { useFinancials } from '../../stores/financials.ts';
 import { calculatePositionReturn } from '../../lib/financials';
@@ -201,7 +200,7 @@ async function refreshMarketData() {
 }
 
 function openArgonWallet() {
-  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon });
+  basicEmitter.emit('openWalletOverlay', { wallet: wallets.argonWallets.defaultArgonWallet });
 }
 
 let unsubVault: (() => void) | undefined;

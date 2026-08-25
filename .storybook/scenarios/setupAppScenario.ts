@@ -17,7 +17,9 @@ import { calculatePositionReturn, reduceFinancialPositions } from '../../src-vue
 import { GlobalCouncil } from '../../src-vue/lib/GlobalCouncil.ts';
 import { MintingAuthorities } from '../../src-vue/lib/MintingAuthorities.ts';
 import { getOperationalRewardConfig } from '../../src-vue/lib/OperationalAccount.ts';
-import { defaultWalletData, WalletType } from '../../src-vue/lib/Wallet.ts';
+import { defaultWalletData, type IWalletData, WalletType } from '../../src-vue/lib/Wallet.ts';
+import { WalletForArgon } from '../../src-vue/lib/WalletForArgon.ts';
+import { WalletForBitcoin } from '../../src-vue/lib/WalletForBitcoin.ts';
 import { getArgonBonds } from '../../src-vue/stores/argonBonds.ts';
 import { useBasics } from '../../src-vue/stores/basics.ts';
 import { getBitcoinLockCoupons, getBitcoinLocks } from '../../src-vue/stores/bitcoin.ts';
@@ -56,6 +58,7 @@ type ScenarioOptions = {
 
 export function setupAppScenario({ selectedTab, config: configOverrides = {} }: ScenarioOptions) {
   setActivePinia(createPinia());
+  mocked(getDbPromise, { partial: true }).mockReturnValue(Promise.resolve({}));
 
   const certificationDetails: NonNullable<IConfig['certificationDetails']> = {
     hasSavedMnemonic: false,
@@ -90,7 +93,7 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {} }: 
     setCertificationDetails,
     ...configOverrides,
   });
-  const defaultArgonWallet = Vue.reactive({
+  const defaultArgonWallet = Vue.reactive<IWalletData<WalletType.argon>>({
     ...defaultWalletData,
     type: WalletType.argon,
     address: '5SyntheticInternalWallet',
@@ -102,10 +105,16 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {} }: 
     address: '5SyntheticMiningWallet',
     otherTokens: [],
   });
+  const defaultArgonDomainWallet = new WalletForArgon(WalletType.argon, defaultArgonWallet.address, getDbPromise());
+  defaultArgonDomainWallet.data = defaultArgonWallet;
+  const bitcoinWallet = new WalletForBitcoin(getBitcoinLocks, () => getWalletKeys().liquidLockingAddress);
+  bitcoinWallet.data = Vue.reactive(bitcoinWallet.data);
   const wallets = Vue.reactive({
     isLoaded: true,
-    walletRecords: [],
-    ethereumWallets: [],
+    ethereumWallets: {
+      persistedWallets: [],
+      length: 0,
+    },
     totalMiningMicrogons: 0n,
     totalVaultingMicrogons: 0n,
     defaultArgonSpendableMicrogons: 0n,
@@ -117,6 +126,10 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {} }: 
     miningSeatMicronots: 0n,
     defaultArgonWallet,
     miningBotWallet,
+    argonWallets: Vue.markRaw({
+      defaultArgonWallet: Vue.markRaw(defaultArgonDomainWallet),
+    }),
+    bitcoinWallet: Vue.markRaw(bitcoinWallet),
   });
   const myVaultData: ReturnType<typeof getMyVault>['data'] = {
     isReady: true,
@@ -144,7 +157,6 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {} }: 
   mocked(getConfig, { partial: true }).mockReturnValue(config);
   mocked(getMainchainClient).mockReturnValue(new Promise(() => undefined));
   mocked(getOperationalRewardConfig).mockReturnValue(new Promise(() => undefined));
-  mocked(getDbPromise, { partial: true }).mockReturnValue(Promise.resolve({}));
   mocked(getBitcoinLocks, { partial: true }).mockReturnValue({
     getAllLocks: fn(() => []),
     load: fn(async () => undefined),
@@ -237,7 +249,7 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {} }: 
   mocked(useVaultingAssetBreakdown, { partial: true }).mockReturnValue(
     Vue.reactive({ securityMicrogons: 0n, securityMicronots: 0n, totalVaultValue: 0n }),
   );
-  mocked(useWallets, { partial: true }).mockReturnValue(wallets);
+  mocked(useWallets, { partial: true }).mockReturnValue(wallets as unknown as ReturnType<typeof useWallets>);
   mocked(getBiddingCalculator, { partial: true }).mockReturnValue({
     averageAPY: 0,
     fastGrowthRewards: 0n,

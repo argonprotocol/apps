@@ -177,7 +177,6 @@ import VaultCapital from '../../overlays/vault/VaultCapital.vue';
 import VaultReturns from '../../overlays/vault/VaultReturns.vue';
 import VaultCreatePanel from '../../panels/VaultCreatePanel.vue';
 import { useCertificationController, OperationalStepId } from '../../stores/certificationController.ts';
-import { WalletType } from '../../lib/Wallet.ts';
 import { TopTab, VaultingSetupStatus } from '../../interfaces/IConfig.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 import { useBasics } from '../../stores/basics.ts';
@@ -290,7 +289,7 @@ function openVaultCreateOverlay() {
 
 function openFundVaultingAccountOverlay() {
   basicEmitter.emit('openWalletOverlay', {
-    connectorType: WalletType.argon,
+    wallet: wallets.argonWallets.defaultArgonWallet,
     showGuidance: true,
     guidanceContext: 'vaulting',
   });

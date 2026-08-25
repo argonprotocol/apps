@@ -5,8 +5,9 @@ import { setupAppScenario } from './setupAppScenario.ts';
 import { TopTab } from '../../src-vue/interfaces/IConfig.ts';
 import { getCurrency } from '../../src-vue/stores/currency.ts';
 import { useFinancials } from '../../src-vue/stores/financials.ts';
-import { defaultWalletData, type IWallet, WalletType } from '../../src-vue/lib/Wallet.ts';
+import { defaultWalletData, type IWalletData, WalletType } from '../../src-vue/lib/Wallet.ts';
 import type { IWalletRecord } from '../../src-vue/lib/db/WalletsTable.ts';
+import { WalletForEthereum } from '../../src-vue/lib/WalletForEthereum.ts';
 
 export type HomeScenario = 'loading' | 'basic' | 'treasury' | 'operations' | 'priceUnavailable';
 
@@ -26,13 +27,7 @@ export function setupHomeScenario(
 
   const currency = getCurrency();
   const financials = useFinancials();
-  const internalWallet = createWalletRecord({
-    id: 1,
-    walletType: 'argon',
-    name: 'Internal App Wallet',
-    address: wallets.defaultArgonWallet.address,
-  });
-  const ethereumWallets = [
+  const ethereumWalletRecords = [
     createWalletRecord({
       id: 2,
       walletType: 'ethereum',
@@ -47,15 +42,13 @@ export function setupHomeScenario(
     }),
   ];
 
-  (wallets.walletRecords as IWalletRecord[]) =
-    state === 'treasury' || state === 'operations' ? [internalWallet, ...ethereumWallets] : [internalWallet];
   wallets.defaultArgonWallet.availableMicrogons = 125n * 1_000_000n;
   wallets.defaultArgonWallet.totalMicrogons = wallets.defaultArgonWallet.availableMicrogons;
   wallets.isLoaded = state !== 'loading';
   financials.savingsIsLoaded = state !== 'loading';
 
-  const ethereumWalletData = new Map<number, IWallet>(
-    ethereumWallets.map(record => [
+  const ethereumWalletData = new Map<number, IWalletData<WalletType.ethereum>>(
+    ethereumWalletRecords.map(record => [
       record.id,
       {
         ...defaultWalletData,
@@ -67,12 +60,20 @@ export function setupHomeScenario(
       },
     ]),
   );
-  const getEthereumWalletRecord: (recordId: number) => IWallet = recordId => {
-    const wallet = ethereumWalletData.get(recordId);
-    if (!wallet) throw new Error(`Synthetic Ethereum wallet record not found: ${recordId}`);
-    return wallet;
-  };
-  Object.assign(wallets, { getEthereumWalletRecord });
+  const persistedWallets =
+    state === 'treasury' || state === 'operations'
+      ? ethereumWalletRecords.map(record => {
+          const wallet = new WalletForEthereum(record.address, undefined, record);
+          wallet.data = ethereumWalletData.get(record.id)!;
+          return wallet;
+        })
+      : [];
+  Object.assign(wallets, {
+    ethereumWallets: {
+      persistedWallets,
+      length: persistedWallets.length,
+    },
+  });
 
   Object.assign(currency, {
     isLoaded: state !== 'loading',
@@ -94,9 +95,7 @@ export function setupHomeScenario(
   return scenario;
 }
 
-function createWalletRecord(
-  record: Pick<IWalletRecord, 'id' | 'walletType' | 'name' | 'address'>,
-): IWalletRecord {
+function createWalletRecord(record: Pick<IWalletRecord, 'id' | 'walletType' | 'name' | 'address'>): IWalletRecord {
   const timestamp = new Date('2026-08-16T00:00:00.000Z');
   return { ...record, sortOrder: record.id, createdAt: timestamp, updatedAt: timestamp };
 }

@@ -92,7 +92,7 @@ export const useStableSwaps = defineStore('stableSwaps', () => {
   }
 
   async function refreshWalletSnapshot(): Promise<void> {
-    const walletAddress = wallets.ethereumWallet.address;
+    const walletAddress = wallets.ethereumWallets.coreWallet.address;
     if (!marketSnapshot.value || !walletAddress) {
       walletSnapshot.value = null;
       walletError.value = '';

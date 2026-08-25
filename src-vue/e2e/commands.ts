@@ -4,7 +4,7 @@ import { getConfig } from '../stores/config';
 import { getMainchainClient, getMiningFrames } from '../stores/mainchain';
 import { getBitcoinLocks } from '../stores/bitcoin';
 import { getMyVault } from '../stores/vaults';
-import { getWalletKeys, useWallets } from '../stores/wallets.ts';
+import { getWalletKeys, getWalletsForArgon, useWallets } from '../stores/wallets.ts';
 import { useBasics } from '../stores/basics.ts';
 import { getEthereumMoveTracker } from '../stores/moveFromEthereum.ts';
 import { getEthereumOutboundTransferTracker } from '../stores/moveToEthereum.ts';
@@ -1231,8 +1231,8 @@ async function getAppQueryRefs(): Promise<IAppQueryRefs> {
     getEthereumMoveTracker,
     getEthereumOutboundTransferTracker,
     getMainchainClient,
-    openWalletOverlay(walletType) {
-      basicEmitter.emit('openWalletOverlay', { connectorType: walletType });
+    openWalletOverlay(_walletType) {
+      basicEmitter.emit('openWalletOverlay', { wallet: getWalletsForArgon().defaultArgonWallet });
     },
   };
 }

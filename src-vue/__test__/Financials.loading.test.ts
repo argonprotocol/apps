@@ -129,14 +129,18 @@ const mocks = vi.hoisted(() => {
         ...wallet('0xethereum', 'ethereum'),
         balanceUpdatedAt: new Date('2026-07-17T12:00:00Z'),
       },
-      ethereumWallets: [
-        {
-          wallet: {
-            ...wallet('0xethereum', 'ethereum'),
-            balanceUpdatedAt: new Date('2026-07-17T12:00:00Z'),
+      ethereumWallets: {
+        persistedWallets: [
+          {
+            address: '0xethereum',
+            data: {
+              ...wallet('0xethereum', 'ethereum'),
+              balanceUpdatedAt: new Date('2026-07-17T12:00:00Z'),
+            },
           },
-        },
-      ],
+        ],
+        length: 1,
+      },
       ethereumFinancialPositions: [] as IFinancialPosition[],
       on: vi.fn(),
     },
@@ -296,14 +300,18 @@ describe('financials store lifecycle', () => {
     mocks.walletsForArgon.fetchArgonotCustody.mockResolvedValue([]);
     mocks.walletsForArgon.fetchArgonotCustody.mockClear();
     mocks.wallets.on.mockClear();
-    mocks.wallets.ethereumWallets = [
-      {
-        wallet: {
-          ...mocks.wallets.ethereumWallet,
-          balanceUpdatedAt: new Date('2026-07-17T12:00:00Z'),
+    mocks.wallets.ethereumWallets = {
+      persistedWallets: [
+        {
+          address: '0xethereum',
+          data: {
+            ...mocks.wallets.ethereumWallet,
+            balanceUpdatedAt: new Date('2026-07-17T12:00:00Z'),
+          },
         },
-      },
-    ];
+      ],
+      length: 1,
+    };
     mocks.wallets.ethereumFinancialPositions = [];
     mocks.myVault.history.loadPositionHistory.mockResolvedValue({ capital: [], revenue: [] });
     mocks.myVault.history.loadPositionHistory.mockClear();
@@ -330,7 +338,13 @@ describe('financials store lifecycle', () => {
       totalMicronots: 0n,
       balanceUpdatedAt: new Date('2026-07-17T12:00:00Z'),
     };
-    mocks.wallets.ethereumWallets = [{ wallet: firstWallet }, { wallet: secondWallet }];
+    mocks.wallets.ethereumWallets = {
+      persistedWallets: [
+        { address: firstWallet.address, data: firstWallet },
+        { address: secondWallet.address, data: secondWallet },
+      ],
+      length: 2,
+    };
     mocks.wallets.ethereumFinancialPositions = [
       {
         id: '0xethereum1:ethereum:ARGN',

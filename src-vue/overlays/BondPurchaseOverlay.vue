@@ -271,7 +271,6 @@ import type { IBuyVaultBondMetadata } from '../lib/ArgonBonds.ts';
 import StepsHeader, { IStepHeaderItem } from '../components/StepsHeader.vue';
 import ArgonIcon from '../assets/wallets/tokens/argon.svg?component';
 import { useVaultingStats } from '../stores/vaultingStats.ts';
-import { WalletType } from '../lib/Wallet.ts';
 import WalletFundingCallout from '../components/WalletFundingCallout.vue';
 import AlertIcon from '../assets/alert.svg?component';
 import BondPurchaseComplete from './BondPurchaseComplete.vue';
@@ -371,7 +370,7 @@ function bondToMoneyNm(bonds: number) {
 }
 
 function openWallet() {
-  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon });
+  basicEmitter.emit('openWalletOverlay', { wallet: wallets.argonWallets.defaultArgonWallet });
 }
 
 const operatorName = Vue.computed(() => (myVault.createdVault ? 'Yours' : config.upstreamOperator?.name));
