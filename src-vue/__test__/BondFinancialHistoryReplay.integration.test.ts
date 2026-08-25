@@ -21,20 +21,21 @@ import { CapturedHistoryReader } from './helpers/CapturedHistoryReader.ts';
 import { createTestDb } from './helpers/db.ts';
 import { runRecoveryLifecycle } from './helpers/RecoveryLifecycleRunner.ts';
 
-const seedPath =
-  process.env.RECOVERY_SEED_PATH ?? Path.resolve(import.meta.dirname, '../../indexer/seeds/mainnet-activity-v2.db');
-const runWithSeed = Fs.existsSync(seedPath) ? describe : describe.skip;
+const replayPath =
+  process.env.FINANCIAL_HISTORY_REPLAY_PATH ??
+  Path.resolve(import.meta.dirname, '../../indexer/seeds/mainnet-financial-history-replay.db');
+const runWithReplay = Fs.existsSync(replayPath) ? describe : describe.skip;
 const recordingClient =
-  process.env.RECOVERY_SEED_CAPTURE === '1' ? await getClient('https://rpc.argon.network') : undefined;
+  process.env.FINANCIAL_HISTORY_REPLAY_CAPTURE === '1' ? await getClient('https://rpc.argon.network') : undefined;
 
 afterAll(async () => recordingClient?.disconnect());
 
-runWithSeed('Bond recovery seed corpus', () => {
+runWithReplay('Bond financial history replay corpus', () => {
   it('recovers every event-backed bond and retains active pre-event Vault lots after restart', async () => {
     const previousNetwork = NetworkConfig.networkName;
     NetworkConfig.setNetwork('mainnet');
 
-    const reader = new CapturedHistoryReader(seedPath, recordingClient);
+    const reader = new CapturedHistoryReader(replayPath, recordingClient);
     const db = await createTestDb();
 
     try {
@@ -44,7 +45,9 @@ runWithSeed('Bond recovery seed corpus', () => {
       const activityBlocksByAccount = new Map(
         accountIds.map(accountId => [
           accountId,
-          reader.findActivityBlocks(accountId, { activityMask: AccountActivityKind.BondPosition }),
+          reader
+            .findActivityBlocks(accountId, { activityMask: AccountActivityKind.BondPosition })
+            .filter(block => block.specVersion >= 151),
         ]),
       );
       const capturedLifecycleEvents: {
@@ -135,12 +138,8 @@ runWithSeed('Bond recovery seed corpus', () => {
             });
             const result = await importer.importBlocks(blocks);
             importedBlockCount += result.importedBlockCount;
-            expectedBlockCount += blocks.filter(block => block.specVersion >= 151).length;
-            failures.push(
-              ...Object.values(result.domainErrors)
-                .filter(error => !error.includes('uses unsupported runtime spec'))
-                .map(error => `${accountId}: ${error}`),
-            );
+            expectedBlockCount += blocks.length;
+            failures.push(...Object.values(result.domainErrors).map(error => `${accountId}: ${error}`));
           }
 
           resultsByPhase.push({ importedBlockCount, expectedBlockCount, failures });

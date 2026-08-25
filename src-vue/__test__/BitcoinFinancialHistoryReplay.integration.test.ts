@@ -15,19 +15,20 @@ import { createTestDb } from './helpers/db.ts';
 import { runRecoveryLifecycle } from './helpers/RecoveryLifecycleRunner.ts';
 import { CapturedHistoryReader } from './helpers/CapturedHistoryReader.ts';
 
-const seedPath =
-  process.env.RECOVERY_SEED_PATH ?? Path.resolve(import.meta.dirname, '../../indexer/seeds/mainnet-activity-v2.db');
-const runWithSeed = Fs.existsSync(seedPath) ? describe : describe.skip;
+const replayPath =
+  process.env.FINANCIAL_HISTORY_REPLAY_PATH ??
+  Path.resolve(import.meta.dirname, '../../indexer/seeds/mainnet-financial-history-replay.db');
+const runWithReplay = Fs.existsSync(replayPath) ? describe : describe.skip;
 const recordingClient =
-  process.env.RECOVERY_SEED_CAPTURE === '1' ? await getClient('https://rpc.argon.network') : undefined;
+  process.env.FINANCIAL_HISTORY_REPLAY_CAPTURE === '1' ? await getClient('https://rpc.argon.network') : undefined;
 
 afterAll(async () => recordingClient?.disconnect());
 
-runWithSeed('Bitcoin recovery seed corpus', () => {
+runWithReplay('Bitcoin financial history replay corpus', () => {
   it(
     'recovers every indexed Bitcoin history from current chain state and remains stable after restart',
     async () => {
-      const corpusReader = new CapturedHistoryReader(seedPath, recordingClient);
+      const corpusReader = new CapturedHistoryReader(replayPath, recordingClient);
       try {
         const accountIds = corpusReader.findBitcoinOwners(130);
         expect(accountIds.length).toBeGreaterThan(0);
@@ -68,17 +69,16 @@ runWithSeed('Bitcoin recovery seed corpus', () => {
           const derivedLocks = [...historicalLocks.values()].sort((left, right) => {
             return left.firstBlockNumber - right.firstBlockNumber || left.lock.utxoId - right.lock.utxoId;
           });
-          const reader = new CapturedHistoryReader(seedPath, recordingClient);
           const db = await createTestDb();
 
           try {
             const { blocks, recovered, results } = await replayBitcoinAccount({
               accountId,
-              blockWatch: reader as unknown as BlockWatch,
+              blockWatch: corpusReader as unknown as BlockWatch,
               currentLocks,
               db,
               derivedLocks,
-              reader,
+              reader: corpusReader,
             });
             const errors = results.flatMap(result => Object.values(result.domainErrors));
             if (errors.length) {
@@ -106,7 +106,6 @@ runWithSeed('Bitcoin recovery seed corpus', () => {
             }
             recoveredLockCount += recovered.locks.length;
           } finally {
-            reader.close();
             await db.close();
           }
         }

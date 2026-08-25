@@ -216,6 +216,7 @@ export class IndexerDb {
       'MintingAuthorityOwners',
       'ActivityKinds',
       'SyncState',
+      'RuntimeMetadata',
     ].find(table => !tables.has(table));
     if (missingTable) {
       throw new IncompatibleAccountActivityDatabaseError(

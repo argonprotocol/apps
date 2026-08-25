@@ -155,6 +155,10 @@ export class CapturedHistoryReader {
     this.database.close();
   }
 
+  public withBackgroundArchiveRead<T>(read: () => Promise<T>): Promise<T> {
+    return read();
+  }
+
   public async getHeader(
     block: number | Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>,
   ): Promise<IBlockHeaderInfo> {

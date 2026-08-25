@@ -8,13 +8,14 @@ import { CapturedHistoryReader } from './helpers/CapturedHistoryReader.ts';
 import { createTestDb } from './helpers/db.ts';
 import { runRecoveryLifecycle } from './helpers/RecoveryLifecycleRunner.ts';
 
-const seedPath =
-  process.env.RECOVERY_SEED_PATH ?? Path.resolve(import.meta.dirname, '../../indexer/seeds/mainnet-activity-v2.db');
-const runWithSeed = Fs.existsSync(seedPath) ? describe : describe.skip;
+const replayPath =
+  process.env.FINANCIAL_HISTORY_REPLAY_PATH ??
+  Path.resolve(import.meta.dirname, '../../indexer/seeds/mainnet-financial-history-replay.db');
+const runWithReplay = Fs.existsSync(replayPath) ? describe : describe.skip;
 
-runWithSeed('Vault recovery seed corpus', () => {
+runWithReplay('Vault financial history replay corpus', () => {
   it('recovers every supported indexed vault history and remains stable after restart', async () => {
-    const reader = new CapturedHistoryReader(seedPath);
+    const reader = new CapturedHistoryReader(replayPath);
     const recoveryFailures: string[] = [];
     let recoveredCapitalCount = 0;
     let recoveredRevenueCount = 0;
