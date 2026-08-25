@@ -96,7 +96,11 @@ for (const network of networks) {
       eventPayloadCount: number;
       runtimeVersionCount: number;
     };
-    if (blocks.first !== 1 || blocks.last !== sync.blockNumber || blocks.count !== sync.blockNumber) {
+    const isEmpty = sync.blockNumber === 0;
+    if (
+      (isEmpty && blocks.count !== 0) ||
+      (!isEmpty && (blocks.first !== 1 || blocks.last !== sync.blockNumber || blocks.count !== sync.blockNumber))
+    ) {
       throw new Error(
         `${databaseFile} block coverage is not contiguous: count ${blocks.count}, range ${blocks.first}-${blocks.last}, checkpoint ${sync.blockNumber}`,
       );
@@ -120,7 +124,12 @@ for (const network of networks) {
 
     const blockHashQuery = database.prepare('SELECT blockHash FROM Blocks WHERE blockNumber = ?');
     const checkpointBlock = blockHashQuery.get(sync.blockNumber) as { blockHash: Uint8Array } | undefined;
-    const checkpointHash = checkpointBlock ? `0x${Buffer.from(checkpointBlock.blockHash).toString('hex')}` : undefined;
+    let checkpointHash: string | undefined;
+    if (checkpointBlock) {
+      checkpointHash = `0x${Buffer.from(checkpointBlock.blockHash).toString('hex')}`;
+    } else if (isEmpty) {
+      checkpointHash = seedState.blockHash;
+    }
     if (checkpointHash?.toLowerCase() !== seedState.blockHash.toLowerCase()) {
       throw new Error(
         `${databaseFile} checkpoint hash ${checkpointHash ?? 'missing'} does not match captured seed hash ${seedState.blockHash}`,

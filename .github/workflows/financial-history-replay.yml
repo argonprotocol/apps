@@ -2,9 +2,11 @@ name: Financial history replay corpus
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 11 * * *'
 
 concurrency:
-  group: ${{ github.workflow }}
+  group: account-activity-seed-sync
   cancel-in-progress: false
 
 env:
@@ -43,16 +45,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Restore the previous replay checkpoint
+      - name: Restore the current indexer checkpoint
         shell: bash
         run: |
           set -euo pipefail
-          replay_image="${REGISTRY}/${IMAGE_NAME}:latest"
-          if docker pull "${replay_image}"; then
-            yarn download:financial-history-replay "${replay_image}"
-            exit 0
-          fi
-
           indexer_image="${REGISTRY}/${INDEXER_IMAGE}:hourly"
           docker pull "${indexer_image}"
           container_id=$(docker create "${indexer_image}")
@@ -60,7 +56,16 @@ jobs:
           docker cp "${container_id}:/usr/src/app/seeds/mainnet-activity-v2.db.gz" indexer/seeds/
           yarn workspace @argonprotocol/apps-indexer extract mainnet
 
-      - name: Capture and verify current mainnet history
+      - name: Restore the previous recovery capture
+        run: |
+          replay_image="${REGISTRY}/${IMAGE_NAME}:latest"
+          if yarn download:financial-history-replay "${replay_image}"; then
+            echo "Restored recovery capture from ${replay_image}"
+          else
+            echo "No previous recovery capture found; all required state will be captured from the archive."
+          fi
+
+      - name: Capture recovery data from the indexer checkpoint
         run: yarn capture:financial-history-replay
 
       - name: Package and verify offline replay

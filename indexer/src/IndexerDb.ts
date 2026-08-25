@@ -244,6 +244,12 @@ export class IndexerDb {
 
     const insertKind = this.database.prepare(`INSERT OR IGNORE INTO ActivityKinds (bit, name) VALUES (:bit, :name)`);
     for (const [bit, name] of accountActivityKindNames) insertKind.run({ bit, name });
+    const hasStoredBlocks = Boolean(this.database.prepare(`SELECT 1 FROM Blocks LIMIT 1`).get());
+    if (!hasStoredBlocks) {
+      this.database
+        .prepare(`INSERT OR IGNORE INTO SyncState (id, blockNumber, definitionVersion) VALUES (?, 0, ?)`)
+        .run(syncStateId, ACCOUNT_ACTIVITY_DEFINITION_VERSION);
+    }
 
     const vaultOwners = this.database.prepare(`SELECT vaultId, accountId FROM VaultOwners`).all() as unknown as {
       vaultId: number;
@@ -306,12 +312,21 @@ export class IndexerDb {
       .prepare(`SELECT blockNumber, definitionVersion FROM SyncState WHERE id = :id`)
       .get({ id: syncStateId }) as { blockNumber: number; definitionVersion: number } | undefined;
 
-    if (result && result.definitionVersion !== ACCOUNT_ACTIVITY_DEFINITION_VERSION) {
+    if (!result) {
+      const hasStoredBlocks = Boolean(this.database.prepare(`SELECT 1 FROM Blocks LIMIT 1`).get());
+      if (hasStoredBlocks) {
+        throw new IncompatibleAccountActivityDatabaseError(
+          'Account activity database has blocks without an activity checkpoint; replace or rebuild the account activity database',
+        );
+      }
+      return 0;
+    }
+    if (result.definitionVersion !== ACCOUNT_ACTIVITY_DEFINITION_VERSION) {
       throw new IncompatibleAccountActivityDatabaseError(
         `Account activity definition ${result.definitionVersion} cannot resume with definition ${ACCOUNT_ACTIVITY_DEFINITION_VERSION}; replace or rebuild the account activity database`,
       );
     }
-    return result?.blockNumber ?? 0;
+    return result.blockNumber;
   }
 }
 
