@@ -220,7 +220,6 @@ import BotCreatePanel from '../../panels/BotCreatePanel.vue';
 import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import BotCreatePriceChangeOverlay from '../../overlays/BotCreatePriceChangeOverlay.vue';
 import { UnitOfMeasurement } from '../../lib/Currency.ts';
-import { WalletType } from '../../lib/Wallet.ts';
 import { MiningSetupStatus, TopTab } from '../../interfaces/IConfig.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 import { useBasics } from '../../stores/basics.ts';
@@ -342,7 +341,10 @@ function openBotCreateOverlay() {
 }
 
 function openFundMiningAccountOverlay() {
-  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon, showGuidance: true });
+  basicEmitter.emit('openWalletOverlay', {
+    wallet: wallets.argonWallets.defaultArgonWallet,
+    showGuidance: true,
+  });
 }
 
 function openServerConnectPanel() {

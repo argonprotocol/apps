@@ -159,7 +159,9 @@ describe('32-wallet-identities migration', () => {
       const transactionMetadata = await db.all<{ extrinsicHash: string; metadataJson: string }[]>(
         'SELECT extrinsicHash, metadataJson FROM Transactions ORDER BY id',
       );
-      expect(transactionMetadata.map(record => [record.extrinsicHash, JsonExt.parse(record.metadataJson)])).toEqual([
+      expect(
+        transactionMetadata.map(record => [record.extrinsicHash, JsonExt.parse<unknown>(record.metadataJson)]),
+      ).toEqual([
         ['0xoutbound', { sourceWalletType: 'argon', amount: 10n, note: 'defaultArgon' }],
         ['0xactivate', { rewardAccount: 'argon', claimedMicrogons: 20n }],
         ['0xclaim', { claimAccount: 'argon', amount: 30n }],

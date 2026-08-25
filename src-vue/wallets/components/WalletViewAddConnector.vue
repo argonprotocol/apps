@@ -155,10 +155,10 @@
               </span>
             </span>
             <span class="shrink-0 text-right text-sm font-semibold text-slate-600">
-              <template v-if="account.wallet?.fetchErrorMsg">Unavailable</template>
+              <template v-if="account.wallet?.data.fetchErrorMsg">Unavailable</template>
               <template v-else-if="account.wallet">
-                <span class="block">{{ formatArgn(account.wallet.availableMicrogons) }} ARGN</span>
-                <span class="block">{{ formatArgnot(account.wallet.availableMicronots) }} ARGNOT</span>
+                <span class="block">{{ formatArgn(account.wallet.data.availableMicrogons) }} ARGN</span>
+                <span class="block">{{ formatArgnot(account.wallet.data.availableMicronots) }} ARGNOT</span>
               </template>
               <template v-else-if="isScanningBalances">—</template>
             </span>
@@ -201,8 +201,7 @@ import * as Vue from 'vue';
 import { NetworkConfig } from '@argonprotocol/apps-core';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
 import Unicon from '../../components/Unicon.vue';
-import type { IWalletRecord } from '../../lib/db/WalletsTable.ts';
-import type { IWallet } from '../../lib/Wallet.ts';
+import { WalletForEthereum } from '../../lib/WalletForEthereum.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { useWallets } from '../../stores/wallets.ts';
@@ -216,7 +215,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: 'dragStart', mouseEvent: MouseEvent): void;
   (event: 'close'): void;
-  (event: 'complete', walletRecord: IWalletRecord): void;
+  (event: 'complete', wallet: WalletForEthereum): void;
 }>();
 
 const wallets = useWallets();
@@ -229,7 +228,7 @@ const ethereumWalletNameInput = Vue.ref('');
 const ethereumImportError = Vue.ref('');
 const isImportingEthereum = Vue.ref(false);
 const isScanningBalances = Vue.ref(false);
-const mnemonicAccounts = Vue.ref<{ address: string; derivationPath: string; wallet?: IWallet }[]>([]);
+const mnemonicAccounts = Vue.shallowRef<{ address: string; derivationPath: string; wallet?: WalletForEthereum }[]>([]);
 const selectedMnemonicPath = Vue.ref('');
 
 function openEthereumImport() {
@@ -266,12 +265,12 @@ async function continueExternalImport() {
   isImportingEthereum.value = true;
   try {
     if (ethereumImportMode.value === 'privateKey') {
-      const walletRecord = await wallets.importExternalEthereumPrivateKey({
+      const wallet = await wallets.ethereumWallets.importPrivateKey({
         name: walletName,
         privateKey: ethereumSecretInput.value.trim(),
       });
       resetEthereumImport();
-      emit('complete', walletRecord);
+      emit('complete', wallet);
       return;
     }
     const mnemonic = normalizeEthereumMnemonic(ethereumSecretInput.value);
@@ -281,7 +280,7 @@ async function continueExternalImport() {
       return;
     }
     ethereumSecretInput.value = mnemonic;
-    mnemonicAccounts.value = await wallets.previewExternalEthereumMnemonic(mnemonic);
+    mnemonicAccounts.value = await WalletForEthereum.previewMnemonic(mnemonic);
     selectedMnemonicPath.value = mnemonicAccounts.value[0]?.derivationPath ?? '';
     ethereumImportStep.value = 'mnemonicAccounts';
     await scanMnemonicBalances();
@@ -295,9 +294,9 @@ async function continueExternalImport() {
 async function scanMnemonicBalances() {
   isScanningBalances.value = true;
   try {
-    const balances = await wallets.scanEthereumWalletBalances(mnemonicAccounts.value.map(account => account.address));
+    const balances = await WalletForEthereum.inspect(mnemonicAccounts.value.map(account => account.address));
     mnemonicAccounts.value = mnemonicAccounts.value.map(account => {
-      const wallet = balances.find(x => x.address === account.address)?.wallet;
+      const wallet = balances.find(x => x.address === account.address);
       return wallet ? { ...account, wallet } : account;
     });
   } finally {
@@ -309,8 +308,8 @@ function abbreviateEthereumAddress(address: string) {
   return `${address.slice(0, 8)}...${address.slice(-6)}`;
 }
 
-function hasTrackedBalance(wallet: IWallet) {
-  return wallet.availableMicrogons > 0n || wallet.availableMicronots > 0n;
+function hasTrackedBalance(wallet: WalletForEthereum) {
+  return wallet.data.availableMicrogons > 0n || wallet.data.availableMicronots > 0n;
 }
 
 function formatArgn(microgons: bigint) {
@@ -331,14 +330,14 @@ async function importSelectedMnemonicAccount() {
   }
   isImportingEthereum.value = true;
   try {
-    const walletRecord = await wallets.importExternalEthereumMnemonic({
+    const wallet = await wallets.ethereumWallets.importMnemonic({
       name: walletName,
       mnemonic: ethereumSecretInput.value.trim(),
       address: account.address,
       derivationPath: account.derivationPath,
     });
     resetEthereumImport();
-    emit('complete', walletRecord);
+    emit('complete', wallet);
   } catch (error) {
     ethereumImportError.value = error instanceof Error ? error.message : 'Unable to import Ethereum wallet.';
   } finally {

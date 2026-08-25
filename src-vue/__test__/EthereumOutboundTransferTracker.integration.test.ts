@@ -4,6 +4,7 @@ import { MoveToken } from '@argonprotocol/apps-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getAddress } from 'viem';
 import { EthereumOutboundTransferTracker } from '../lib/EthereumOutboundTransferTracker.ts';
+import { WalletForEthereum } from '../lib/WalletForEthereum.ts';
 import type {
   IEthereumTransactionProgress,
   IEthereumTransferOutOfArgon,
@@ -202,6 +203,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       moveToken: MoveToken.ARGN,
       amount: 100n,
       sourceWalletType: WalletType.argon,
+      ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
     });
 
     await vi.waitFor(async () => {
@@ -363,6 +365,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       moveToken: MoveToken.ARGN,
       amount: 100n,
       sourceWalletType: WalletType.argon,
+      ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
     });
 
     await vi.waitFor(async () => {
@@ -491,6 +494,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       moveToken: MoveToken.ARGN,
       amount: 100n,
       sourceWalletType: WalletType.argon,
+      ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
     });
 
     await vi.waitFor(async () => {
@@ -746,6 +750,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
         moveToken: MoveToken.ARGN,
         amount: 100n,
         sourceWalletType: WalletType.argon,
+        ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
       });
 
       await vi.waitFor(() => {
@@ -848,6 +853,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       moveToken: MoveToken.ARGN,
       amount: 100n,
       sourceWalletType: WalletType.argon,
+      ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
     });
 
     await vi.waitFor(async () => {
@@ -1208,6 +1214,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
       moveToken: MoveToken.ARGN,
       amount: 100n,
       sourceWalletType: WalletType.argon,
+      ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
     });
 
     await vi.waitFor(async () => {
@@ -1968,6 +1975,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
         amount: 205088571428n,
         availableAmount: 205293660000n,
         sourceWalletType: WalletType.argon,
+        ethereumWallet: new WalletForEthereum('0x0000000000000000000000000000000000000001'),
       }),
     ).rejects.toThrow('A small ARGNOT tip is reserved and the account must keep its minimum balance');
   });

@@ -477,14 +477,12 @@
                   @click.stop
                 />
               </header>
-              <div class="my-2 flex flex-col justify-center rounded pt-5 pb-1">
+              <div class="my-2 flex flex-col justify-center rounded pt-3 pb-1">
                 <div class="wallet-summary-total text-argon-600/70 flex flex-row justify-center text-5xl font-bold">
                   <span>{{ currency.symbol }}</span>
                   <FormattedMoney :isLoaded="selectedWalletBalanceIsLoaded" :value="selectedWalletBalance" />
                 </div>
-                <div
-                  class="wallet-summary-detail mx-auto mt-2 w-fit border-t border-slate-500/30 pt-2 text-center opacity-50"
-                >
+                <div class="wallet-summary-detail mx-auto w-fit border-t border-slate-500/30 text-center opacity-50">
                   {{ currency.symbol
                   }}{{
                     selectedWalletBalanceIsLoaded
@@ -515,7 +513,7 @@ import { getConfig } from '../stores/config.ts';
 import FormattedMoney from '../components/FormattedMoney.vue';
 import { getBitcoinLockCoupons } from '../stores/bitcoin.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
-import { type IWallet, WalletType } from '../lib/Wallet.ts';
+import type { IWallet } from '../lib/Wallet.ts';
 import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
 import { useWallets } from '../stores/wallets.ts';
 import { getCurrency } from '../stores/currency.ts';
@@ -615,7 +613,7 @@ Vue.watch(
 );
 
 function openSelectedWallet() {
-  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon });
+  basicEmitter.emit('openWalletOverlay', { wallet: wallets.argonWallets.defaultArgonWallet });
 }
 
 function formatFinancialGroupValue(group: FinancialGroup): string {
@@ -635,7 +633,7 @@ function formatBondValue(asset: 'ARGN' | 'ARGNOT'): string {
 }
 
 function openDefaultArgonWallet() {
-  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon });
+  basicEmitter.emit('openWalletOverlay', { wallet: wallets.argonWallets.defaultArgonWallet });
 }
 
 function openSecuritization() {
@@ -791,16 +789,12 @@ ul li {
       }
     }
 
-    .wallet-summary {
-      @apply my-1 py-3;
-    }
-
     .wallet-summary-total {
       @apply text-[45px];
     }
 
     .wallet-summary-detail {
-      @apply mt-1 pt-1 text-sm;
+      @apply mt-2 pt-2 text-sm;
     }
   }
 }
@@ -833,10 +827,6 @@ ul li {
 
     ul li article {
       @apply py-1;
-    }
-
-    .wallet-summary {
-      @apply py-2;
     }
 
     .wallet-summary-total {

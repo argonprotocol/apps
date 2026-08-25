@@ -265,9 +265,9 @@ import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 import { useDebounceFn } from '@vueuse/core';
 import { getBitcoinLockCoupons, getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { getConfig } from '../../stores/config.ts';
-import { getVaults } from '../../stores/vaults.ts';
 import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
 import { getMainchainClient } from '../../stores/mainchain.ts';
+import { getVaults } from '../../stores/vaults.ts';
 import type { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { BitcoinLockWalletFundingError } from '../../lib/BitcoinLocks.ts';
 import {
@@ -282,7 +282,6 @@ import {
 } from '@argonprotocol/apps-core';
 import WalletFundingCallout from '../../components/WalletFundingCallout.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
-import { WalletType } from '../../lib/Wallet.ts';
 import AlertIcon from '../../assets/alert.svg?component';
 import BigNumber from 'bignumber.js';
 import { useVaultingStats } from '../../stores/vaultingStats.ts';
@@ -300,12 +299,12 @@ const emit = defineEmits<{
 }>();
 
 const currency = getCurrency();
-const vaults = getVaults();
 const bitcoinLocks = getBitcoinLocks();
 const bitcoinLockCoupons = getBitcoinLockCoupons();
 const config = getConfig();
 const wallets = useWallets();
 const walletKeys = getWalletKeys();
+const vaults = getVaults();
 const vaultingStats = useVaultingStats();
 
 const { microgonToArgonNm, microgonToNm } = createNumeralHelpers(currency);
@@ -405,7 +404,7 @@ const neededMicrogons = Vue.computed(() => {
 });
 
 function openWallet() {
-  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon });
+  basicEmitter.emit('openWalletOverlay', { wallet: wallets.argonWallets.defaultArgonWallet });
 }
 
 const oneTimeLockFee = Vue.computed(() => {

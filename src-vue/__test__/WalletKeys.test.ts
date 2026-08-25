@@ -2,6 +2,7 @@ import { expect, it, vi } from 'vitest';
 import { WalletKeys } from '../lib/WalletKeys.ts';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
 import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
+import { WalletForEthereum } from '../lib/WalletForEthereum.ts';
 import { createTestWallet } from './helpers/wallet.ts';
 
 const invokeWithTimeout = vi.hoisted(() => vi.fn());
@@ -53,9 +54,10 @@ it('uses an explicit external wallet without changing the core Ethereum signer',
   const coreSignature = { r: '0x03', s: '0x04', v: 28n };
   invokeWithTimeout.mockResolvedValueOnce(externalSignature).mockResolvedValueOnce(coreSignature);
 
-  await expect(walletKeys.signEthereumTransaction('0x01', walletKeys.ethereumHdPath, externalWallet)).resolves.toBe(
-    externalSignature,
-  );
+  const externalEthereumWallet = new WalletForEthereum(externalWallet.address, undefined, externalWallet);
+  await expect(
+    walletKeys.signEthereumTransaction('0x01', walletKeys.ethereumHdPath, externalEthereumWallet),
+  ).resolves.toBe(externalSignature);
   await expect(walletKeys.signEthereumTransaction('0x02')).resolves.toBe(coreSignature);
 
   expect(invokeWithTimeout).toHaveBeenNthCalledWith(
@@ -159,7 +161,7 @@ it('rejects protected key operations with a recognizable error when signing is u
       miningBotAddress: sourceWalletKeys.miningBotAddress,
       vaultingAddress: sourceWalletKeys.defaultArgonAddress,
       operationalAddress: sourceWalletKeys.operationalAddress,
-      ethereumAddress: sourceWalletKeys.defaultEthereumAddress,
+      ethereumAddress: sourceWalletKeys.coreEthereumAddress,
       ethereumHdPrefixes: sourceWalletKeys.ethereumHdPrefixes,
     },
     async () => false,

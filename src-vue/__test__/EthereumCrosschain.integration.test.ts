@@ -45,6 +45,7 @@ import { Vaults } from '../lib/Vaults.ts';
 import { CrosschainInboundTransferStatus } from '../lib/db/CrosschainInboundTransfersTable.ts';
 import { CrosschainOutboundTransferStatus } from '../lib/db/CrosschainOutboundTransfersTable.ts';
 import { WalletType } from '../lib/Wallet.ts';
+import { WalletForEthereum } from '../lib/WalletForEthereum.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
 import { createTestDb } from './helpers/db.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
@@ -677,6 +678,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
         moveToken: MoveToken.ARGN,
         amountBaseUnits,
         targetWalletType: WalletType.argon,
+        ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
       });
       expect(transfer).toBeDefined();
 

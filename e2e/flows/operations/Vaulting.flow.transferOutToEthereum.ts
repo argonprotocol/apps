@@ -97,8 +97,8 @@ export default new OperationalFlow<IVaultingFlowContext, ITransferOutToEthereumS
       `${context.flowName}: default Ethereum wallet discovery`,
       async () =>
         flow.queryApp(refs =>
-          refs.wallets.ethereumWallets.some(
-            ({ wallet }) => wallet.address.toLowerCase() === refs.coreEthereumAddress.toLowerCase(),
+          refs.wallets.ethereumWallets.persistedWallets.some(
+            wallet => wallet.address.toLowerCase() === refs.coreEthereumAddress.toLowerCase(),
           ),
         ),
       {

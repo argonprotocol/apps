@@ -1,18 +1,18 @@
 <template>
   <div
     :data-wallet-connector-id="connectorId"
-    :class="[props.network ? 'bg-white' : 'bg-black']"
+    :class="[props.wallet ? 'bg-white' : 'bg-black']"
     class="relative z-20 size-24 rounded-full border border-black shadow-md/25"
   >
     <component
-      :is="props.network === 'bitcoin' ? ConnectorChannel : ConnectorTransfer"
+      :is="walletType === WalletType.bitcoin ? ConnectorChannel : ConnectorTransfer"
       v-model:open="isConnectorPopoverOpen"
       :connectorId="connectorId"
       :direction="props.direction"
       v-bind="
-        props.network === 'bitcoin'
-          ? {}
-          : { moveToken: selectedTransferToken, walletName: props.selection?.walletRecord.name }
+        walletType === WalletType.bitcoin
+          ? { wallet: bitcoinWallet }
+          : { moveToken: selectedTransferToken, walletName: ethereumWallet?.name }
       "
     >
       <button
@@ -22,7 +22,7 @@
         <div>
           <div
             :class="[
-              props.network ? 'bg-argon-900/20 hover:bg-argon-900/10' : 'bg-argon-100/30 hover:bg-argon-100/40',
+              props.wallet ? 'bg-argon-900/20 hover:bg-argon-900/10' : 'bg-argon-100/30 hover:bg-argon-100/40',
               isConnectorPopoverOpen ? 'bg-argon-900/10!' : '',
               transferPulseClass,
             ]"
@@ -31,20 +31,17 @@
             <div class="h-full w-full rounded-full border border-dashed border-black" />
           </div>
         </div>
-        <BitcoinNetworkLogo v-if="props.network === 'bitcoin'" class="relative z-10 w-10" />
-        <EthereumNetworkLogo v-else-if="props.network === 'ethereum'" class="relative z-10 w-10" />
+        <BitcoinNetworkLogo v-if="walletType === WalletType.bitcoin" class="relative z-10 w-10" />
+        <EthereumNetworkLogo v-else-if="walletType === WalletType.ethereum" class="relative z-10 w-10" />
         <span v-else class="text relative -top-1 z-10 text-7xl font-light text-white/20">+</span>
       </button>
     </component>
-    <div
-      v-if="props.network"
-      class="text-md text-argon-900/70 absolute -top-2 flex flex-row left-1/2 -translate-x-1/2"
-    >
+    <div v-if="props.wallet" class="text-md text-argon-900/70 absolute -top-2 left-1/2 flex -translate-x-1/2 flex-row">
       <ConnectorTokensMenu
         :connectorId="connectorId"
         :disabled="!ethereumWallet"
-        :microgons="ethereumWallet?.availableMicrogons"
-        :micronots="ethereumWallet?.availableMicronots"
+        :microgons="ethereumWallet?.data.availableMicrogons"
+        :micronots="ethereumWallet?.data.availableMicronots"
         @selectToken="openTransferPopover"
       >
         <template #default="{ isOpen }">
@@ -58,36 +55,35 @@
           </button>
         </template>
       </ConnectorTokensMenu>
-<!--      <div class="rounded-lg border border-black/80 bg-white">-->
-<!--        <ConnectorMenu-->
-<!--          :connectorId="connectorId"-->
-<!--          :network="props.network"-->
-<!--          :direction="props.direction"-->
-<!--          :selection="props.selection"-->
-<!--        >-->
-<!--          <template #default="{ isOpen }">-->
-<!--            <button-->
-<!--              class="hover:bg-argon-900/10 flex h-full cursor-pointer flex-row items-center justify-center gap-x-1 rounded-lg px-2 inset-shadow-xs inset-shadow-white focus:outline-none"-->
-<!--              :class="isOpen ? 'bg-argon-900/10' : 'bg-argon-900/20'"-->
-<!--            >-->
-<!--              <span class="bg-argon-900/70 size-[3px] rounded-full" />-->
-<!--              <span class="bg-argon-900/70 size-[3px] rounded-full" />-->
-<!--              <span class="bg-argon-900/70 size-[3px] rounded-full" />-->
-<!--            </button>-->
-<!--          </template>-->
-<!--        </ConnectorMenu>-->
-<!--      </div>-->
+      <!--      <div class="rounded-lg border border-black/80 bg-white">-->
+      <!--        <ConnectorMenu-->
+      <!--          :connectorId="connectorId"-->
+      <!--          :direction="props.direction"-->
+      <!--          :wallet="props.wallet"-->
+      <!--        >-->
+      <!--          <template #default="{ isOpen }">-->
+      <!--            <button-->
+      <!--              class="hover:bg-argon-900/10 flex h-full cursor-pointer flex-row items-center justify-center gap-x-1 rounded-lg px-2 inset-shadow-xs inset-shadow-white focus:outline-none"-->
+      <!--              :class="isOpen ? 'bg-argon-900/10' : 'bg-argon-900/20'"-->
+      <!--            >-->
+      <!--              <span class="bg-argon-900/70 size-[3px] rounded-full" />-->
+      <!--              <span class="bg-argon-900/70 size-[3px] rounded-full" />-->
+      <!--              <span class="bg-argon-900/70 size-[3px] rounded-full" />-->
+      <!--            </button>-->
+      <!--          </template>-->
+      <!--        </ConnectorMenu>-->
+      <!--      </div>-->
     </div>
     <div
-      v-if="props.network"
+      v-if="props.wallet"
       class="absolute top-full left-1/2 -translate-x-1/2 translate-y-1 text-center whitespace-nowrap text-white"
     >
       <div class="text-lg font-bold opacity-60">
-        <template v-if="props.network === 'bitcoin'">Bitcoin</template>
-        <template v-else-if="selection">{{ selection.walletRecord.name }}</template>
+        <template v-if="walletType === WalletType.bitcoin">Bitcoin</template>
+        <template v-else-if="ethereumWallet">{{ ethereumWallet.name }}</template>
       </div>
-      <template v-if="props.network === 'bitcoin'">
-        <div class="text-md relative -top-0.5 font-light italic opacity-60">Add Channel</div>
+      <template v-if="walletType === WalletType.bitcoin">
+        <div class="text-md relative -top-0.5 font-light italic opacity-60">Create Channel</div>
       </template>
       <template v-else></template>
     </div>
@@ -105,18 +101,15 @@ import ConnectorTokensMenu from './ConnectorTokensMenu.vue';
 import ConnectorTransfer from './ConnectorTransfer.vue';
 import { getCurrency } from '../../stores/currency.ts';
 import { getWalletArgonValue, WalletType } from '../../lib/Wallet.ts';
-import { useWallets } from '../../stores/wallets.ts';
+import type { WalletForBitcoin } from '../../lib/WalletForBitcoin.ts';
+import type { WalletForEthereum } from '../../lib/WalletForEthereum.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
-import type { IWalletSelection } from '../walletOverlayState.ts';
 import type { ICrosschainTransferDirection } from './crosschainTransferView.ts';
-
-type IEthereumWalletSelection = Extract<IWalletSelection, { walletType: WalletType.ethereum }>;
 
 const props = withDefaults(
   defineProps<{
-    network?: 'bitcoin' | 'ethereum' | undefined;
     direction: 'right' | 'left';
-    selection?: IEthereumWalletSelection;
+    wallet?: WalletForBitcoin | WalletForEthereum;
     open: boolean;
     transferDirections?: ICrosschainTransferDirection[];
   }>(),
@@ -129,15 +122,21 @@ const emit = defineEmits<{
 }>();
 
 const currency = getCurrency();
-const wallets = useWallets();
 const isConnectorPopoverOpen = Vue.computed({
   get: () => props.open,
   set: value => emit('update:open', value),
 });
 const selectedTransferToken = Vue.ref<MoveToken.ARGN | MoveToken.ARGNOT>();
+const walletType = Vue.computed(() => props.wallet?.type);
+const ethereumWallet = Vue.computed(() => {
+  return props.wallet?.type === WalletType.ethereum ? props.wallet : undefined;
+});
+const bitcoinWallet = Vue.computed(() => {
+  return props.wallet?.type === WalletType.bitcoin ? props.wallet : undefined;
+});
 const connectorId = Vue.computed(() => {
-  if (props.network === 'bitcoin') return 'bitcoin';
-  return props.selection?.walletRecord.id.toString();
+  if (walletType.value === WalletType.bitcoin) return WalletType.bitcoin;
+  return ethereumWallet.value?.id?.toString();
 });
 const transferPulseClass = Vue.computed(() => {
   if (props.transferDirections?.length === 2) return 'connector-transfer-pulse-both';
@@ -148,14 +147,9 @@ const transferPulseClass = Vue.computed(() => {
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
-const ethereumWallet = Vue.computed(() => {
-  if (!props.selection) return;
-  return wallets.getEthereumWalletRecord(props.selection.walletRecord.id);
-});
-
 const walletTotalValue = Vue.computed(() => {
   if (!ethereumWallet.value) return 0n;
-  return getWalletArgonValue(ethereumWallet.value, currency);
+  return getWalletArgonValue(ethereumWallet.value.data, currency);
 });
 
 function openTransferPopover(moveToken: MoveToken.ARGN | MoveToken.ARGNOT) {
@@ -165,7 +159,7 @@ function openTransferPopover(moveToken: MoveToken.ARGN | MoveToken.ARGNOT) {
 
 function openConnector() {
   selectedTransferToken.value = undefined;
-  if (!props.network) emit('addConnector');
+  if (!props.wallet) emit('addConnector');
 }
 </script>
 

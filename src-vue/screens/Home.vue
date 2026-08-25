@@ -48,7 +48,7 @@
     </div>
 
     <div
-      :class="[wallets.walletRecords.length === 1 ? 'pb-10' : 'pb-0']"
+      :class="[wallets.ethereumWallets.length === 0 ? 'pb-10' : 'pb-0']"
       class="mx-auto flex max-w-180 grow flex-col justify-start px-[5%] xl:max-w-220"
     >
       <h1 class="mt-10 text-4xl font-bold whitespace-nowrap opacity-80 xl:text-5xl">
@@ -142,7 +142,7 @@
           >
             <EthereumNetworkLogo class="size-12" />
             <p class="text-argon-600 absolute -bottom-8 mt-1 w-22 max-w-full truncate font-bold opacity-50">
-              {{ wallet.walletType === 'ethereum' ? getEthereumWalletDisplayName(wallet.name) : wallet.name }}
+              {{ getEthereumWalletDisplayName(wallet.name) }}
             </p>
           </article>
           <article
@@ -182,12 +182,11 @@ import * as Vue from 'vue';
 import { bigIntAbs, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { getCurrency } from '../stores/currency.ts';
-import { getEthereumWalletDisplayName, getWalletTotalValue, WalletType, type IWallet } from '../lib/Wallet.ts';
-import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
+import { getEthereumWalletDisplayName, type IWallet } from '../lib/Wallet.ts';
+import type { WalletForEthereum } from '../lib/WalletForEthereum.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import FormattedMoney from '../components/FormattedMoney.vue';
-import type { IWalletSelection } from '../wallets/walletOverlayState.ts';
 import { useFinancials } from '../stores/financials.ts';
 import { getConfig } from '../stores/config.ts';
 import { useWallets } from '../stores/wallets.ts';
@@ -208,59 +207,37 @@ const targetDiff = Vue.computed(() => {
   return bigIntAbs(adjusted - oneArgon);
 });
 
-const internalWallet = Vue.computed<IWalletRecord>(() => {
-  return wallets.walletRecords.filter(x => x.walletType === 'argon')[0];
-});
+const internalWallet = Vue.computed(() => wallets.defaultArgonWallet);
 
-const externalConnectors = Vue.computed<IWalletRecord[]>(() => {
-  return wallets.walletRecords.filter(x => x.walletType !== 'argon');
-});
+const externalConnectors = Vue.computed(() => wallets.ethereumWallets.persistedWallets);
 
-function getWalletSelection(walletRecord: IWalletRecord): IWalletSelection {
-  if (walletRecord.walletType === 'ethereum') {
-    return { walletType: WalletType.ethereum, walletRecord };
-  }
-
-  return { walletType: WalletType.argon };
+function walletBalanceIsLoaded(_wallet: IWallet): boolean {
+  return financials.savingsIsLoaded;
 }
 
-function getWalletData(walletRecord: IWalletRecord): IWallet {
-  if (walletRecord.walletType === 'ethereum') {
-    return wallets.getEthereumWalletRecord(walletRecord.id);
-  }
-
-  return wallets.defaultArgonWallet;
-}
-
-function walletBalanceIsLoaded(walletRecord: IWalletRecord): boolean {
-  return walletRecord.walletType === 'argon' ? financials.savingsIsLoaded : wallets.isLoaded;
-}
-
-function getWalletBalance(walletRecord: IWalletRecord): bigint {
+function getWalletBalance(_wallet: IWallet): bigint {
   if (!currency.isLoaded) return 0n;
-  if (walletRecord.walletType === 'argon') return financials.savingsTotalValue;
-  return getWalletTotalValue(getWalletData(walletRecord), currency);
+  return financials.savingsTotalValue;
 }
 
-function getOtherTokenValue(walletRecord: IWalletRecord): bigint {
-  return getWalletData(walletRecord).otherTokens.reduce((total, token) => {
+function getOtherTokenValue(wallet: IWallet): bigint {
+  return wallet.otherTokens.reduce((total, token) => {
     return total + currency.convertOtherToMicrogon(token);
   }, 0n);
 }
 
 function openWallet() {
-  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon });
+  basicEmitter.emit('openWalletOverlay', { wallet: wallets.argonWallets.defaultArgonWallet });
 }
 
-function openEthereumConnector(walletRecord: IWalletRecord) {
+function openEthereumConnector(wallet: WalletForEthereum) {
   basicEmitter.emit('openWalletOverlay', {
-    connectorType: WalletType.ethereum,
-    ethereumWalletRecordId: walletRecord.id,
+    wallet,
   });
 }
 
 function openBitcoinConnector() {
-  basicEmitter.emit('openWalletOverlay', { connectorType: 'bitcoin' });
+  basicEmitter.emit('openWalletOverlay', { wallet: wallets.bitcoinWallet });
 }
 
 function openAddConnector() {

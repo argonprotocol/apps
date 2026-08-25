@@ -11,7 +11,7 @@ import { checkInstallerIfCloseAllowed, getInstaller } from './stores/installer.t
 import { getBot } from './stores/bot.ts';
 import { getConfig } from './stores/config.ts';
 import { useTour } from './stores/tour.ts';
-import { WalletType } from './lib/Wallet.ts';
+import { getWalletsForArgon } from './stores/wallets.ts';
 import { IS_LOCAL_BUILD, NETWORK_NAME } from './lib/Env.ts';
 
 function openAboutOverlay() {
@@ -110,7 +110,7 @@ export async function createMenu() {
       {
         id: 'token-transfer-to-mining',
         text: 'Open Mining Wallet',
-        action: () => basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon }),
+        action: () => basicEmitter.emit('openWalletOverlay', { wallet: getWalletsForArgon().defaultArgonWallet }),
       },
     ],
   });
@@ -126,7 +126,7 @@ export async function createMenu() {
       {
         id: 'token-transfer-to-vaulting',
         text: 'Open Internal App Wallet',
-        action: () => basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon }),
+        action: () => basicEmitter.emit('openWalletOverlay', { wallet: getWalletsForArgon().defaultArgonWallet }),
       },
       ...(IS_LOCAL_BUILD && NETWORK_NAME === 'dev-docker'
         ? [

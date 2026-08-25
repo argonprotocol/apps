@@ -78,10 +78,10 @@
                 </div>
                 <div
                   v-for="entry in ethereumWalletRows"
-                  :key="entry.record.id"
+                  :key="entry.wallet.id"
                   class="flex items-start justify-between gap-6 py-1"
                 >
-                  <div class="font-normal text-slate-600">{{ getEthereumWalletDisplayName(entry.record.name) }}</div>
+                  <div class="font-normal text-slate-600">{{ getEthereumWalletDisplayName(entry.wallet.name) }}</div>
                   <div class="font-mono font-normal text-slate-600">
                     {{ entry.isLoaded ? `${currency.symbol}${formatValue(entry.totalValue)}` : '--' }}
                   </div>
@@ -375,11 +375,10 @@ const visibleGroups = Vue.computed(() => {
   });
 });
 const ethereumWalletRows = Vue.computed(() => {
-  return wallets.ethereumWallets.map(({ record, wallet }) => ({
-    record,
+  return wallets.ethereumWallets.persistedWallets.map(wallet => ({
     wallet,
-    totalValue: getWalletTotalValue(wallet, currency),
-    isLoaded: !!wallet.balanceUpdatedAt,
+    totalValue: getWalletTotalValue(wallet.data, currency),
+    isLoaded: !!wallet.data.balanceUpdatedAt,
   }));
 });
 const internalWalletTokenRows = Vue.computed(() => [
