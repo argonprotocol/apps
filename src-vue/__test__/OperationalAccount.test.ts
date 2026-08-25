@@ -2,7 +2,6 @@ import { expect, it, vi } from 'vitest';
 import { getOfflineRegistry, Keyring } from '@argonprotocol/mainchain';
 import {
   activateOperationalAccountSetup,
-  canRequestOperationsUpgrade,
   ensureOperationalAccountRegistered,
   getOnboardingSetupStatus,
   isValidOperatorName,
@@ -28,36 +27,6 @@ function createOperationalAccount(name: string) {
     name: name || null,
   });
 }
-
-it.each([
-  {
-    state: 'before restored chain progress loads',
-    hasLoadedInitialOperationalProgress: false,
-    isUpgradedToOperations: false,
-    expected: false,
-  },
-  {
-    state: 'after an active operational account loads',
-    hasLoadedInitialOperationalProgress: true,
-    isUpgradedToOperations: true,
-    expected: false,
-  },
-  {
-    state: 'after an eligible treasury account loads',
-    hasLoadedInitialOperationalProgress: true,
-    isUpgradedToOperations: false,
-    expected: true,
-  },
-])('allows an Operations upgrade only $state', params => {
-  expect(
-    canRequestOperationsUpgrade({
-      hasLoadedInitialOperationalProgress: params.hasLoadedInitialOperationalProgress,
-      hasExtensionTreasury: true,
-      hasCompletedTreasuryCertification: true,
-      isUpgradedToOperations: params.isUpgradedToOperations,
-    }),
-  ).toBe(params.expected);
-});
 
 it.each([
   {

@@ -450,6 +450,17 @@ export const useCertificationController = defineStore('certificationController',
   let operationalAccountUnsubscribe: VoidFunction | undefined;
   let previousCompletionByStepId: Record<OperationalStepId, boolean> | undefined;
   const hasLoadedInitialOperationalProgress = Vue.ref(false);
+  const canRequestTreasuryUpgrade = Vue.computed(() => {
+    if (!config.isLoaded || config.hasExtensionTreasury || config.hasExtensionOperations) return false;
+
+    return hasLoadedInitialOperationalProgress.value;
+  });
+  const canRequestOperationsUpgrade = Vue.computed(() => {
+    if (!config.isLoaded || config.hasExtensionOperations) return false;
+    if (!config.hasExtensionTreasury || !hasLoadedInitialOperationalProgress.value) return false;
+
+    return isTreasuryCertificationChecklistComplete.value;
+  });
   let hasRecoveredOnboardingSetup = false;
   let isRecoveringOnboardingSetup = false;
 
@@ -978,6 +989,8 @@ export const useCertificationController = defineStore('certificationController',
     activeOperationalInviteCount,
     isFullyOperational,
     hasLoadedInitialOperationalProgress,
+    canRequestTreasuryUpgrade,
+    canRequestOperationsUpgrade,
     isOperationalActivationReady,
     isOperationalRewardsFlowActive,
     pendingCompletionNoticeStepId,

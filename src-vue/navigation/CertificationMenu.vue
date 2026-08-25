@@ -144,7 +144,7 @@
 <!--    </div>-->
 
     <div
-      v-if="!config.hasExtensionTreasury"
+      v-if="controller.canRequestTreasuryUpgrade"
       class="flex h-[30px] cursor-pointer flex-row items-center justify-center overflow-hidden rounded-md border border-slate-400/50 text-base font-semibold whitespace-nowrap text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
       @click="openUpgradeToTreasuryOverlay"
     >
@@ -267,7 +267,6 @@ import {
 import DiamondIcon from '../assets/diamond.svg';
 import CertificationIcon from '../assets/certification.svg';
 import { hasOperationsUpgradeRequest } from '../lib/UpstreamOperatorClient.ts';
-import { canRequestOperationsUpgrade } from '../lib/OperationalAccount.ts';
 
 const config = getConfig();
 const controller = useCertificationController();
@@ -325,13 +324,7 @@ const isShowingActivatedTooltip = Vue.computed(() => {
 
 const isShowingUpgradeButton = Vue.computed(() => {
   return (
-    canRequestOperationsUpgrade({
-      hasLoadedInitialOperationalProgress: controller.hasLoadedInitialOperationalProgress,
-      hasExtensionTreasury: config.hasExtensionTreasury,
-      hasCompletedTreasuryCertification:
-        controller.completedTreasuryCertificationStepCount === treasuryCertificationStepIds.length,
-      isUpgradedToOperations: controller.chainProgress.isUpgradedToOperations,
-    }) &&
+    controller.canRequestOperationsUpgrade &&
     !completionNoticeStepId.value &&
     !controller.isOperationalRewardsFlowActive
   );
