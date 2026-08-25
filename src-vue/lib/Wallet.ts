@@ -19,6 +19,7 @@ export type IOtherToken = IOtherTokenDefinition & {
 
 export enum WalletType {
   argon = 'argon',
+  bitcoin = 'bitcoin',
   miningBot = 'miningBot',
   operational = 'operational',
   ethereum = 'ethereum',

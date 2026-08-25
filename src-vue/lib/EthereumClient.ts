@@ -50,7 +50,7 @@ import { getMainchainClient } from '../stores/mainchain.ts';
 import { SERVER_ENV_VARS } from './Env.ts';
 import { getArgonFinalityMillis } from './TransactionInfo.ts';
 import type { WalletKeys } from './WalletKeys.ts';
-import type { IWalletRecord } from './db/WalletsTable.ts';
+import type { WalletForEthereum } from './WalletForEthereum.ts';
 
 export type { IEthereumMoveToken } from '../interfaces/IEthereumInboundTransferTracker.ts';
 
@@ -236,9 +236,9 @@ export class EthereumClient {
     moveToken: IEthereumMoveToken;
     amountBaseUnits: bigint;
     destinationAddress: string;
-    ethereumWallet?: IWalletRecord;
+    ethereumWallet: WalletForEthereum;
   }): Promise<IEthereumTransferToArgon> {
-    const sourceAddress = (args.ethereumWallet?.address ?? this.walletKeys.coreEthereumAddress).toLowerCase();
+    const sourceAddress = args.ethereumWallet.address.toLowerCase();
     let queue = this.#inboundSubmissionQueues.get(sourceAddress);
     if (!queue) {
       queue = new SingleFileQueue();
@@ -274,20 +274,20 @@ export class EthereumClient {
     moveToken: IEthereumMoveToken;
     amountBaseUnits: bigint;
     destinationAddress: string;
-    ethereumWallet?: IWalletRecord;
+    ethereumWallet: WalletForEthereum;
   }): Promise<bigint> {
     const { feeEstimateWei } = await this.prepareTransferToArgon(args);
     return feeEstimateWei;
   }
 
   public async estimateFinalizeTransferOutOfArgonFee(
-    args: IEthereumFinalizeTransferOutOfArgonArgs & { ethereumWallet?: IWalletRecord; ethereumAddress?: string },
+    args: IEthereumFinalizeTransferOutOfArgonArgs & { ethereumWallet: WalletForEthereum },
   ): Promise<bigint> {
     const chainConfig = await this.loadChainConfig();
     const { chain, publicClient } = await this.createExecutionClient();
     const { feeEstimateWei } = await buildEthereumUnsignedTransaction({
       publicClient,
-      from: getAddress(args.ethereumWallet?.address ?? args.ethereumAddress ?? this.walletKeys.coreEthereumAddress),
+      from: getAddress(args.ethereumWallet.address),
       chainId: chain.id,
       to: chainConfig.gatewayAddress,
       data: encodeFunctionData({
@@ -323,10 +323,10 @@ export class EthereumClient {
     );
   }
 
-  public async getNativeBalanceWei(ethereumWallet?: IWalletRecord): Promise<bigint> {
+  public async getNativeBalanceWei(ethereumWallet: WalletForEthereum): Promise<bigint> {
     const { publicClient } = await this.createExecutionClient();
     return await publicClient.getBalance({
-      address: getAddress(ethereumWallet?.address ?? this.walletKeys.coreEthereumAddress),
+      address: getAddress(ethereumWallet.address),
     });
   }
 
@@ -496,14 +496,14 @@ export class EthereumClient {
   }
 
   public async finalizeTransferOutOfArgon(
-    args: IEthereumFinalizeTransferOutOfArgonArgs & { ethereumWallet?: IWalletRecord },
+    args: IEthereumFinalizeTransferOutOfArgonArgs & { ethereumWallet: WalletForEthereum },
   ): Promise<Hash> {
     return await this.#outboundFinalizationQueue.add(async () => {
       const chainConfig = await this.loadChainConfig();
       const { chain, publicClient } = await this.createExecutionClient();
       const { transaction, unsignedTransaction } = await buildEthereumUnsignedTransaction({
         publicClient,
-        from: getAddress(args.ethereumWallet?.address ?? this.walletKeys.coreEthereumAddress),
+        from: getAddress(args.ethereumWallet.address),
         chainId: chain.id,
         to: chainConfig.gatewayAddress,
         data: encodeFunctionData({
@@ -808,7 +808,7 @@ export class EthereumClient {
     moveToken: IEthereumMoveToken;
     amountBaseUnits: bigint;
     destinationAddress: string;
-    ethereumWallet?: IWalletRecord;
+    ethereumWallet: WalletForEthereum;
   }) {
     const { moveToken, amountBaseUnits, destinationAddress } = args;
     const mainchainClient = await getMainchainClient(false);
@@ -816,7 +816,7 @@ export class EthereumClient {
     const tokenAddress =
       moveToken === MoveToken.ARGNOT ? chainConfig.argonotTokenAddress : chainConfig.argonTokenAddress;
     const { chain, publicClient } = await this.createExecutionClient();
-    const from = getAddress(args.ethereumWallet?.address ?? this.walletKeys.coreEthereumAddress);
+    const from = getAddress(args.ethereumWallet.address);
     const runtimeAmount = convertEthereumBaseUnitsToRuntimeAmount(amountBaseUnits);
     const latestBlock = await publicClient.getBlock();
     const permitDeadline = latestBlock.timestamp + 3600n;
@@ -840,7 +840,7 @@ export class EthereumClient {
       value: amountBaseUnits,
       nonce: permitNonce,
       deadline: permitDeadline,
-      walletRecord: args.ethereumWallet,
+      wallet: args.ethereumWallet,
     });
     const argonDestination = mainchainClient.createType('AccountId32', destinationAddress).toHex();
     const callData = encodeFunctionData({

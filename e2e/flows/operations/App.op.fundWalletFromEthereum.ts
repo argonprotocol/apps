@@ -176,7 +176,6 @@ async function startMoveAndWaitForSettlement(
   const flowName = context.flowName;
   await context.flow.click({ selector: FIRST_ETHEREUM_CONNECTOR_SELECTOR, index: 0 }, { timeoutMs: 30_000 });
   await context.flow.waitFor('ConnectorTransfer.close()', { timeoutMs: 30_000 });
-  await ensureTransferDirection(context.flow, 'inbound');
   await context.flow.click({ testId: 'input-menu-trigger', index: 0 }, { timeoutMs: 15_000 });
   await context.flow.click({ testId: args.moveToken, index: 0 }, { timeoutMs: 15_000 });
   await context.flow.waitFor('ConnectorTransfer.initiateTransfer()', { state: 'clickable', timeoutMs: 30_000 });
@@ -206,21 +205,6 @@ async function startMoveAndWaitForSettlement(
   await context.flow.click('ConnectorTransfer.close()', { timeoutMs: 15_000 });
 }
 
-async function ensureTransferDirection(flow: IE2EFlowRuntime, direction: 'inbound' | 'outbound'): Promise<void> {
-  const currentDirection = await flow.getAttribute('ConnectorTransfer.direction', 'data-direction', {
-    timeoutMs: 15_000,
-  });
-  if (currentDirection === direction) return;
-
-  await flow.click('ConnectorTransfer.toggleTransferDirection()', { timeoutMs: 15_000 });
-  await flow.waitFor(
-    { selector: `[data-testid="ConnectorTransfer.direction"][data-direction="${direction}"]` },
-    {
-      timeoutMs: 15_000,
-    },
-  );
-}
-
 async function readEthereumFundingState(flow: IE2EFlowRuntime, targetWalletType: IArgonWalletType) {
   const state = await flow.queryApp(
     async (
@@ -245,9 +229,9 @@ async function readEthereumFundingState(flow: IE2EFlowRuntime, targetWalletType:
         : false;
       const argnTransfer = ethereumMoveTracker.getTransferStateForToken(args.argnMoveToken);
       const argnotTransfer = ethereumMoveTracker.getTransferStateForToken(args.argnotMoveToken);
-      const ethereumWallet = refs.wallets.ethereumWallets.find(
-        ({ wallet }) => wallet.address.toLowerCase() === refs.coreEthereumAddress.toLowerCase(),
-      )?.wallet;
+      const ethereumWallet = refs.wallets.ethereumWallets.persistedWallets.find(
+        wallet => wallet.address.toLowerCase() === refs.coreEthereumAddress.toLowerCase(),
+      )?.data;
 
       return {
         ethereumAddress: ethereumWallet?.address ?? refs.coreEthereumAddress,

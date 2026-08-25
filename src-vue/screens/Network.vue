@@ -121,9 +121,6 @@
           <label>Active Mining Seats</label>
         </div>
       </div>
-
-      <BlankSlateBlocks />
-
     </section>
   </div>
 </template>
@@ -140,7 +137,6 @@ import { useVaultingStats } from '../stores/vaultingStats.ts';
 import { getVaults } from '../stores/vaults.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { UnitOfMeasurement } from '../lib/Currency.ts';
-import BlankSlateBlocks from './network-screen/BlankSlateBlocks.vue';
 
 dayjs.extend(utc);
 

@@ -51,7 +51,7 @@ const props = withDefaults(
     class?: string;
     moveFrom?: MoveFrom;
     moveTo?: MoveTo;
-    moveToken?: MoveToken;
+    moveToken?: MoveToken.ARGN | MoveToken.ARGNOT;
     externalAddress?: string;
     side?: 'top' | 'right' | 'bottom' | 'left';
   }>(),

@@ -231,7 +231,6 @@ import ArgonotIcon from '../assets/wallets/tokens/argonot.svg?component';
 import StepsHeader, { type IStepHeaderItem } from '../components/StepsHeader.vue';
 import BigNumber from 'bignumber.js';
 import { useVaultingStats } from '../stores/vaultingStats.ts';
-import { WalletType } from '../lib/Wallet.ts';
 import WalletFundingCallout from '../components/WalletFundingCallout.vue';
 import AlertIcon from '../assets/alert.svg?component';
 import BondPurchaseComplete from './BondPurchaseComplete.vue';
@@ -313,7 +312,7 @@ const projectedEarnings = Vue.computed(() => {
 });
 
 function openWallet() {
-  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon });
+  basicEmitter.emit('openWalletOverlay', { wallet: wallets.argonWallets.defaultArgonWallet });
 }
 
 function selectVault() {

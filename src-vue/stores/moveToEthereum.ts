@@ -7,7 +7,7 @@ import { getDbPromise } from './helpers/dbPromise.ts';
 import { getBlockWatch } from './mainchain.ts';
 import { getTransactionTracker } from './transactions.ts';
 import { getMyVault } from './vaults.ts';
-import { getWalletKeys } from './wallets.ts';
+import { getWalletKeys, getWalletsForEthereum } from './wallets.ts';
 
 let ethereumOutboundTransferTracker: EthereumOutboundTransferTracker;
 
@@ -27,6 +27,7 @@ export function getEthereumOutboundTransferTracker(): EthereumOutboundTransferTr
       new EthereumClient(walletKeys, executionRpcUrl),
       getMyVault().mintingAuthorities,
       executionRpcUrl,
+      address => getWalletsForEthereum().resolve(address),
     );
     ethereumOutboundTransferTracker.data = reactive(ethereumOutboundTransferTracker.data) as any;
     ethereumOutboundTransferTracker.load().catch(handleFatalError.bind(ethereumOutboundTransferTracker));

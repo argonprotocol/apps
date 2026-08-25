@@ -21,6 +21,7 @@ import {
   submitEthereumTransaction,
 } from '../lib/EthereumClient.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
+import { WalletForEthereum } from '../lib/WalletForEthereum.ts';
 
 const runtimeFetchMock = vi.fn();
 
@@ -176,6 +177,7 @@ describe('EthereumClient', () => {
             mintingAuthorityTip: 1n,
           },
           proof,
+          ethereumWallet: new WalletForEthereum(walletKeys.coreEthereumAddress, undefined, undefined, true),
         }),
       ),
     );
