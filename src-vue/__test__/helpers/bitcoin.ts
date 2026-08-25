@@ -1,5 +1,4 @@
-import type { IBitcoinLock, IBitcoinLockConfig } from '@argonprotocol/mainchain';
-import { type BlockWatch, type Currency } from '@argonprotocol/apps-core';
+import { type BlockWatch, type Currency, type IBitcoinLock, type IBitcoinLockConfig } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 import { createHistoricalEventData } from '../../../indexer/__test__/helpers/historicalEvents.ts';
 import { numberCodec } from '../../../core/__test__/helpers/codecs.ts';

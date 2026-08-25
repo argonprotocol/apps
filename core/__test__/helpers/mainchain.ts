@@ -1,10 +1,5 @@
-import {
-  type ArgonClient,
-  type ISubmittableOptions,
-  type SubmittableExtrinsic,
-  type TxSigningAccount,
-  TxSubmitter,
-} from '@argonprotocol/mainchain';
+import { type ISubmittableOptions, type TxSigningAccount, TxSubmitter } from '@argonprotocol/apps-core';
+import { type ArgonClient, type SubmittableExtrinsic } from '@argonprotocol/mainchain';
 import { sudo } from '@argonprotocol/testing';
 
 export async function getFinalizedClient(client: ArgonClient) {

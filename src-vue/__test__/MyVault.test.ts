@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { targetVaultDelegateBalance, type MiningFrames } from '@argonprotocol/apps-core';
+import { targetVaultDelegateBalance, type MiningFrames, Vault } from '@argonprotocol/apps-core';
 import { reactive } from 'vue';
 import { MyVault, type IVaultIncreaseAllocationMetadata } from '../lib/MyVault.ts';
 import type BitcoinLocks from '../lib/BitcoinLocks.ts';
@@ -13,7 +13,7 @@ import {
 } from '../lib/db/TransactionStatusHistoryTable.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
 import { bigintCodec, numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts';
-import { getOfflineRegistry, type ArgonPrimitivesVault, Vault } from '@argonprotocol/mainchain';
+import { getOfflineRegistry, type ArgonPrimitivesVault } from '@argonprotocol/mainchain';
 import BigNumber from 'bignumber.js';
 import { MyVaultRecovery } from '../lib/recovery/MyVaultRecovery.ts';
 

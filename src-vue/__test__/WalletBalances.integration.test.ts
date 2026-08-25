@@ -5,6 +5,7 @@ import {
   Currency,
   MainchainClients,
   NetworkConfig,
+  TxSubmitter,
 } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
@@ -14,7 +15,7 @@ import Path from 'path';
 import { WalletsForArgon } from '../lib/WalletsForArgon.ts';
 import { type IIndexedWalletActivityBlock, WalletHistoryRecovery } from '../lib/recovery/WalletHistory.ts';
 import { createTestWallet } from './helpers/wallet.ts';
-import { Keyring, TxSubmitter } from '@argonprotocol/mainchain';
+import { Keyring } from '@argonprotocol/mainchain';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
 import { SyncStateKeys } from '../lib/db/SyncStateTable.ts';
 import { WalletForArgon } from '../lib/WalletForArgon.ts';

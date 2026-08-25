@@ -1,4 +1,4 @@
-import { ITuple, Option, U8aFixed, u8aToHex, Vault } from '@argonprotocol/mainchain';
+import { ITuple, Option, U8aFixed, u8aToHex } from '@argonprotocol/mainchain';
 import { IVaultingRules } from '../../interfaces/IVaultingRules.ts';
 import BigNumber from 'bignumber.js';
 import {
@@ -7,6 +7,7 @@ import {
   MainchainClients,
   StorageFinder,
   TransactionEvents,
+  Vault,
 } from '@argonprotocol/apps-core';
 import { TICK_MILLIS } from '../Env.ts';
 import { Config } from '../Config.ts';

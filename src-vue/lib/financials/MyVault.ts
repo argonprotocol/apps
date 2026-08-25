@@ -1,5 +1,4 @@
-import { type Vault } from '@argonprotocol/mainchain';
-import { calculateVaultPositionValue, Currency, type ICapitalFlow } from '@argonprotocol/apps-core';
+import { calculateVaultPositionValue, Currency, type ICapitalFlow, type Vault } from '@argonprotocol/apps-core';
 import {
   createFinancialPosition,
   type IFinancialPositionSource,

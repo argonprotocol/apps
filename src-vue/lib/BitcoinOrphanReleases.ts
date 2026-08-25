@@ -1,5 +1,6 @@
+import { BitcoinLock, TxSubmitter } from '@argonprotocol/apps-core';
 import { addressBytesHex, CosignScript } from '@argonprotocol/bitcoin';
-import { ArgonClient, BitcoinLock, type SubmittableExtrinsic, TxSubmitter, u8aToHex } from '@argonprotocol/mainchain';
+import { ArgonClient, type SubmittableExtrinsic, u8aToHex } from '@argonprotocol/mainchain';
 import type { BlockWatch } from '@argonprotocol/apps-core';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import type { IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';

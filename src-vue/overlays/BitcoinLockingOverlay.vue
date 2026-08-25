@@ -89,6 +89,7 @@
 </template>
 
 <script lang="ts">
+import { SATS_PER_BTC, Vault } from '@argonprotocol/apps-core';
 enum LockStep {
   SelectVault = 'SelectVault',
   Start = 'Start',
@@ -116,7 +117,7 @@ import LockMinting from './bitcoin-locking/LockMinting.vue';
 import { getBitcoinLocks } from '../stores/bitcoin.ts';
 import { getConfig } from '../stores/config.ts';
 import { getMyVault, getVaults } from '../stores/vaults.ts';
-import { SATS_PER_BTC, Vault } from '@argonprotocol/mainchain';
+
 import SelectAVault from '../components/SelectAVault.vue';
 import StepsHeader, { IStepHeaderItem } from '../components/StepsHeader.vue';
 import BitcoinIcon from '../assets/wallets/bitcoin.svg?component';

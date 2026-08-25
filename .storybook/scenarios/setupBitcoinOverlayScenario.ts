@@ -1,8 +1,13 @@
 import * as Vue from 'vue';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
-import { type IBitcoinLockCouponUseRecord, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import {
+  type IBitcoinLockCouponUseRecord,
+  UnitOfMeasurement,
+  TxResult,
+  type IBitcoinLock,
+} from '@argonprotocol/apps-core';
 import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
-import { TxResult, type IBitcoinLock } from '@argonprotocol/mainchain';
+
 import { ApiPromise } from '@polkadot/api';
 import { MockProvider } from '@polkadot/rpc-provider/mock';
 import { TypeRegistry } from '@polkadot/types';

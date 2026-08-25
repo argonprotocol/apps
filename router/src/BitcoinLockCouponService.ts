@@ -11,8 +11,9 @@ import {
   type IBitcoinLockCouponRequest,
   type ICreateBitcoinLockCouponRequest,
   percentOf,
+  BitcoinLock,
 } from '@argonprotocol/apps-core';
-import { BitcoinLock, PriceIndex } from '@argonprotocol/mainchain';
+import { PriceIndex } from '@argonprotocol/mainchain';
 import { nanoid } from 'nanoid';
 import type { BotUpstreamClient } from './BotUpstreamClient.ts';
 import type { Db } from './Db.ts';

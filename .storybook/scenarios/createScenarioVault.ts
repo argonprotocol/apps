@@ -1,4 +1,5 @@
-import { Vault } from '@argonprotocol/mainchain';
+import { Vault } from '@argonprotocol/apps-core';
+
 import BigNumber from 'bignumber.js';
 
 export function createScenarioVault(overrides: Partial<Vault> = {}): Vault {

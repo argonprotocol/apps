@@ -39,6 +39,7 @@
 </template>
 
 <script setup lang="ts">
+import { Vault } from '@argonprotocol/apps-core';
 import * as Vue from 'vue';
 import OverlayBase from './OverlayBase.vue';
 import { DialogTitle } from 'reka-ui';
@@ -46,7 +47,7 @@ import basicEmitter from '../emitters/basicEmitter.ts';
 import SelectAVault from '../components/SelectAVault.vue';
 import { useBasics } from '../stores/basics.ts';
 import { getConfig } from '../stores/config.ts';
-import { Vault } from '@argonprotocol/mainchain';
+
 import { useFinancials } from '../stores/financials.ts';
 import { getVaults } from '../stores/vaults.ts';
 

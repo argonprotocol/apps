@@ -127,6 +127,7 @@
 </template>
 
 <script setup lang="ts">
+import { SATS_PER_BTC } from '@argonprotocol/apps-core';
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
@@ -139,7 +140,7 @@ import AlertIcon from '../../assets/alert.svg?component';
 import CopyIcon from '../../assets/copy.svg?component';
 import ClockIcon from '../../assets/clock.svg?component';
 import { IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
-import { SATS_PER_BTC } from '@argonprotocol/mainchain';
+
 import { getCurrency } from '../../stores/currency.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { TooltipArrow, TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger } from 'reka-ui';

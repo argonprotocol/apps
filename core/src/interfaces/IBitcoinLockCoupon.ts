@@ -1,4 +1,10 @@
-import type { BitcoinLockFeeCoupon } from '@argonprotocol/mainchain';
+export type BitcoinLockFeeCoupon = {
+  feeDiscount: bigint;
+  securitizationSpaceToUnreserve: bigint;
+  expiresAtFrame: bigint;
+  nonce: bigint;
+  signature: string;
+};
 
 export type BitcoinLockCouponUseStatus = 'Prepared' | 'Submitted' | 'InBlock' | 'Finalized' | 'Failed';
 export type BitcoinLockCouponStatus = 'Open' | 'Expired' | 'Used' | BitcoinLockCouponUseStatus;

@@ -1,4 +1,5 @@
 import type {
+  BitcoinLockFeeCoupon,
   IOperationalAccessProof,
   IRouterAuthAccountBinding,
   IRouterAuthChallenge,
@@ -6,7 +7,7 @@ import type {
   UserRole,
 } from '@argonprotocol/apps-core';
 import type { IBitcoinLockCouponRequest, IBitcoinLockCouponStatus } from './IBitcoinLockCoupon.js';
-import type { BitcoinLockFeeCoupon } from '@argonprotocol/mainchain';
+
 import type { ITreasuryUserInvite } from './ITreasuryUserInvite.js';
 
 export const BITCOIN_FEE_COUPON_MINIMUM_DESKTOP_VERSION = '2.3.5';

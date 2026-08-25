@@ -1,11 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, disposePinia, setActivePinia, type Pinia } from 'pinia';
-import { type ArgonQueryClient, BondLot, type IBlockHeaderInfo } from '@argonprotocol/apps-core';
+import { type ArgonQueryClient, BondLot, type IBlockHeaderInfo, type Vault } from '@argonprotocol/apps-core';
 import {
   type FrameSupportTokensMiscIdAmountRuntimeHoldReason,
   getOfflineRegistry,
   type PalletTreasuryBondLot,
-  type Vault,
 } from '@argonprotocol/mainchain';
 import type { IFinancialPosition } from '../interfaces/IFinancialPosition.ts';
 import type { IArgonAccountSnapshot } from '../lib/WalletsForArgon.ts';

@@ -5,7 +5,6 @@ import {
   ExtrinsicError,
   formatArgons,
   hexToU8a,
-  type TxResult,
   Vec,
 } from '@argonprotocol/mainchain';
 import { subscribeToFinalizedStorageChanges } from './StorageSubscriber.js';
@@ -14,6 +13,7 @@ import type { MiningFrames } from './MiningFrames.js';
 import { createDeferred } from './Deferred.js';
 import { planBidWithFeeEstimate, type IBidPlanBid, type IBidPlanSubaccount } from './BidPlan.js';
 import { TransactionEvents } from './TransactionEvents.js';
+import type { TxResult } from './TxResult.js';
 
 interface IBidDetail extends IBidPlanBid {
   bidAtTick: number;

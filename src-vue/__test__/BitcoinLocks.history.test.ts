@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { BlockWatch } from '@argonprotocol/apps-core';
-import { BitcoinLock, hexToU8a } from '@argonprotocol/mainchain';
+import { BitcoinLock } from '@argonprotocol/apps-core';
+import { hexToU8a } from '@argonprotocol/mainchain';
 import { encodeAddress } from '@polkadot/util-crypto';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
@@ -110,13 +111,11 @@ describe('BitcoinLocks historical event replay', () => {
     vi.spyOn(BitcoinLock, 'get').mockResolvedValueOnce(ratchetedLock).mockResolvedValueOnce(twiceRatchetedLock);
     vi.spyOn(BitcoinLock.prototype, 'getFundingUtxoRef')
       .mockResolvedValueOnce(undefined)
-      .mockResolvedValue({ txid: 'funding-txid', bitcoinTxid: 'funding-txid', vout: 0 });
+      .mockResolvedValue({ txid: 'funding-txid', vout: 0 });
     vi.spyOn(BitcoinLock.prototype, 'findPendingMints').mockResolvedValueOnce([]).mockResolvedValue([100n]);
     vi.spyOn(BitcoinLock.prototype, 'getReleaseRequest').mockResolvedValue({
       toScriptPubkey: '0x0014',
       bitcoinNetworkFee: 8n,
-      dueFrame: 20,
-      vaultId: 1,
       redemptionAmount: 900n,
     });
     const ownerLockKeys = vi.fn(async () => [{ args: [{}, numberCodec(7)] }, { args: [{}, numberCodec(8)] }]);

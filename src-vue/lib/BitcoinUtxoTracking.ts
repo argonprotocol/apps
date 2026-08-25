@@ -1,8 +1,8 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
-import { getPercent, MiningFrames, NetworkConfig } from '@argonprotocol/apps-core';
-import { type ApiDecoration, type ArgonClient, type IBitcoinLockConfig, u8aToHex } from '@argonprotocol/mainchain';
+import { getPercent, MiningFrames, NetworkConfig, type IBitcoinLockConfig } from '@argonprotocol/apps-core';
+import { type ApiDecoration, type ArgonClient, u8aToHex } from '@argonprotocol/mainchain';
 import {
   BitcoinUtxosTable,
   BitcoinUtxoStatus,

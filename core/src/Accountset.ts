@@ -7,12 +7,12 @@ import {
   type KeyringPair,
   MICROGONS_PER_ARGON,
   type SubmittableExtrinsic,
-  TxSubmitter,
   u8aToHex,
 } from '@argonprotocol/mainchain';
 import { blake2AsU8a, ed25519DeriveHard, keyExtractSuri, mnemonicToMiniSecret } from '@polkadot/util-crypto';
 import { DEV_PHRASE } from '@polkadot/keyring';
 import { Mining } from './Mining.js';
+import { TxSubmitter } from './TxSubmitter.js';
 
 export type SubaccountRange = readonly number[];
 

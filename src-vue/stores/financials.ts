@@ -12,9 +12,10 @@ import {
   type IBlockHeaderInfo,
   type IPerformanceReturnInput,
   UnitOfMeasurement,
+  Vault,
 } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
-import { Vault } from '@argonprotocol/mainchain';
+
 import { getVaults, getMyVault } from './vaults.ts';
 import {
   financialGroups,

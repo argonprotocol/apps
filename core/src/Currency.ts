@@ -7,7 +7,6 @@ import {
   fromFixedNumber,
   MICROGONS_PER_ARGON,
   PriceIndex,
-  SATS_PER_BTC,
 } from '@argonprotocol/mainchain';
 import { createDeferred } from './Deferred.js';
 import type IDeferred from './interfaces/IDeferred.js';
@@ -15,6 +14,7 @@ import { NetworkConfig } from './NetworkConfig.js';
 import type { MainchainClients } from './MainchainClients.ts';
 import type { IBlockHeaderInfo } from './BlockWatch.js';
 import { fetch } from './fetch.js';
+import { SATS_PER_BTC } from './BitcoinLock.js';
 
 const TWENTY_FOUR_HOURS_IN_MILLISECONDS = 24 * 60 * 60e3;
 const HISTORICAL_MAINCHAIN_RATE_CACHE_SIZE = 256;

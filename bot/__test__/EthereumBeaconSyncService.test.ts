@@ -83,6 +83,14 @@ vi.mock('@argonprotocol/mainchain', async () => {
     getEthereumBeaconSyncBootstrapTx: mainchainMock.getEthereumBeaconSyncBootstrapTx,
     getEthereumBeaconSyncState: mainchainMock.getEthereumBeaconSyncState,
     getNextEthereumBeaconSyncTxs: mainchainMock.getNextEthereumBeaconSyncTxs,
+  };
+});
+
+vi.mock('@argonprotocol/apps-core', async () => {
+  const actual = await vi.importActual<typeof import('@argonprotocol/apps-core')>('@argonprotocol/apps-core');
+
+  return {
+    ...actual,
     TxSubmitter: mainchainMock.TxSubmitter,
   };
 });

@@ -1,5 +1,5 @@
 import { runOnTeardown, sudo, teardown } from '@argonprotocol/testing';
-import { getClient, Keyring, mnemonicGenerate, toFixedNumber, TxSubmitter } from '@argonprotocol/mainchain';
+import { getClient, Keyring, mnemonicGenerate, toFixedNumber } from '@argonprotocol/mainchain';
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import os from 'node:os';
@@ -11,6 +11,7 @@ import {
   type IBiddingRules,
   MINING_BID_PROXY_FEE_FLOAT,
   NetworkConfig,
+  TxSubmitter,
 } from '@argonprotocol/apps-core';
 import { DockerStatus } from '../src/DockerStatus.js';
 import { Db } from '../src/Db.ts';

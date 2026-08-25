@@ -8,6 +8,7 @@ import {
   type IEthereumGatewayCatchUpResponse,
   type IEthereumGatewayRelayStatus,
   type IEthereumSyncStatus,
+  TxSubmitter,
 } from '@argonprotocol/apps-core';
 import {
   buildGatewayActivityProofPayload,
@@ -17,7 +18,6 @@ import {
   isOutdatedTransactionError,
   isTxSubmissionError,
   type EthereumGatewayActivity,
-  TxSubmitter,
 } from '@argonprotocol/mainchain';
 import process from 'node:process';
 import { createHash } from 'node:crypto';

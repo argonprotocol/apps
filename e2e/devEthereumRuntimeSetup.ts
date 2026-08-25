@@ -1,3 +1,4 @@
+import { TxSubmitter } from '@argonprotocol/apps-core';
 import {
   dispatchErrorToString,
   type ArgonClient,
@@ -7,7 +8,6 @@ import {
   type IArgonQueryable,
   type KeyringPair,
   MICROGONS_PER_ARGON,
-  TxSubmitter,
 } from '@argonprotocol/mainchain';
 import {
   createPublicClient,

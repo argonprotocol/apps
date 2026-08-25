@@ -15,9 +15,9 @@ import {
   type IEthereumGatewayCatchUpResponse,
   type IEthereumGatewayRelayStatus,
   type RouterAuthRole,
+  BitcoinLock,
 } from '@argonprotocol/apps-core';
 import {
-  BitcoinLock,
   getOfflineRegistry,
   Keyring,
   PriceIndex,

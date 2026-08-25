@@ -1,11 +1,9 @@
 import {
-  BitcoinLock,
   type IArgonQueryable,
   type Option,
   type PalletOperationalAccountsOperationalAccount,
   type PalletVaultsVaultFrameRevenue,
   u128,
-  Vault,
 } from '@argonprotocol/mainchain';
 import {
   bigNumberToBigInt,
@@ -26,6 +24,8 @@ import BigNumber from 'bignumber.js';
 import mainnetVaultRevenueHistory from './data/vaultRevenue.mainnet.json' with { type: 'json' };
 import testnetVaultRevenueHistory from './data/vaultRevenue.testnet.json' with { type: 'json' };
 import { TreasuryBonds } from './TreasuryBonds.js';
+import { BitcoinLock } from './BitcoinLock.js';
+import { Vault } from './Vault.js';
 import {
   calculateAggregateReturn,
   calculateAnnualPercentageRate,

@@ -6,7 +6,6 @@ import {
   type PalletOperationalAccountsOperationalAccount,
   type SubmittableExtrinsic,
   u8aToHex,
-  type Vault,
 } from '@argonprotocol/mainchain';
 import {
   createDeferred,
@@ -16,6 +15,7 @@ import {
   type IOperationalAccessProof,
   MICROGONS_PER_ARGON,
   type RuntimeSpec157,
+  type Vault,
 } from '@argonprotocol/apps-core';
 import { stringToU8a } from '@polkadot/util';
 import { blake2AsU8a, signatureVerify } from '@polkadot/util-crypto';

@@ -57,8 +57,9 @@
   </OverlayBase>
 </template>
 <script setup lang="ts">
+import { BitcoinLock } from '@argonprotocol/apps-core';
 import * as Vue from 'vue';
-import { BitcoinLock } from '@argonprotocol/mainchain';
+
 import OverlayBase from './OverlayBase.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import { getConfig } from '../stores/config.ts';

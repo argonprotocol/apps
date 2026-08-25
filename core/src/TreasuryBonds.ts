@@ -6,7 +6,6 @@ import {
   type PalletTreasuryVaultBondState,
   type PalletTreasuryVaultCapital,
   type SubmittableExtrinsic,
-  type Vault,
 } from '@argonprotocol/mainchain';
 import { stringToU8a, u8aConcat } from '@polkadot/util';
 import { bigNumberToBigInt } from './utils.js';
@@ -15,6 +14,7 @@ import { BondLot, type IBondLotSource } from './BondLot.js';
 import { MICRONOTS_PER_ARGONOT } from './Currency.js';
 import type { ArgonQueryClient } from './MainchainClients.js';
 import type { RuntimeSpec157 } from './runtimeCompatibility.js';
+import type { Vault } from './Vault.js';
 
 const U32_MAX = 4_294_967_295n;
 
@@ -43,10 +43,7 @@ export interface INextFrameBondAvailability {
   nextFrameAvailableBonds: number;
 }
 
-export type VaultBondCapacityState = Extract<
-  NonNullable<Parameters<Vault['availableBondSpace']>[1]>,
-  Iterable<{ activeBonds: number }>
->;
+export type VaultBondCapacityState = { activeBonds: number }[];
 
 export class TreasuryBonds {
   public static async getActiveBonds(

@@ -14,10 +14,11 @@ import {
   MICROGONS_PER_ARGON,
   NetworkConfig,
   UserRole,
+  TxSubmitter,
 } from '@argonprotocol/apps-core';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
-import { type ArgonClient, TxSubmitter, u8aToHex } from '@argonprotocol/mainchain';
+import { type ArgonClient, u8aToHex } from '@argonprotocol/mainchain';
 import { sudo, teardown } from '@argonprotocol/testing';
 import { type BotServer, Db as BotDb, startServer as startBotServer, type Bot } from '@argonprotocol/apps-bot';
 import type { IInviteResponse, IRouterAuthSessionResponse } from '@argonprotocol/apps-router';

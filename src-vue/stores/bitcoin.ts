@@ -1,7 +1,7 @@
 import * as Vue from 'vue';
 import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
-import { BitcoinPrices, BitcoinFees } from '@argonprotocol/apps-core';
-import type { Vault } from '@argonprotocol/mainchain';
+import { BitcoinPrices, BitcoinFees, type Vault } from '@argonprotocol/apps-core';
+
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import { getDbPromise } from './helpers/dbPromise';
 import handleFatalError from './helpers/handleFatalError.ts';

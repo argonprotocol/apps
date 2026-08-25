@@ -6,8 +6,9 @@ import {
   type IEthereumGatewayRelayStatus,
   type ISignBitcoinLockFeeCouponRequest,
   type IBotStateStarting,
+  type BitcoinLockFeeCoupon,
 } from '@argonprotocol/apps-core';
-import type { BitcoinLockFeeCoupon } from '@argonprotocol/mainchain';
+
 import type { IRouterErrorResponse } from './interfaces/index.ts';
 import { RouterError } from './RouterError.ts';
 

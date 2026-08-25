@@ -1,9 +1,24 @@
-import { type ArgonClient, getClient, Keyring, mnemonicGenerate, Vault } from '@argonprotocol/mainchain';
+import {
+  type ArgonClient,
+  FIXED_U128_DECIMALS,
+  getClient,
+  Keyring,
+  mnemonicGenerate,
+  PERMILL_DECIMALS,
+  toFixedNumber,
+} from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
-import { MainchainClients, NetworkConfig, StorageFinder, TransactionEvents } from '@argonprotocol/apps-core';
+import {
+  MainchainClients,
+  NetworkConfig,
+  StorageFinder,
+  TransactionEvents,
+  TxSubmitter,
+} from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startArgonTestNetwork } from './startArgonTestNetwork.ts';
 import { bip39, BitcoinNetwork, getChildXpriv, getXpubFromXpriv } from '@argonprotocol/bitcoin';
+import bs58check from 'bs58check';
 import Path from 'path';
 
 afterAll(teardown);
@@ -34,19 +49,26 @@ describe.skipIf(skipE2E)('Storage/Fees Finder tests', () => {
     );
     // get the xpub from the xpriv
     const vaultMasterXpub = getXpubFromXpriv(vaultXpriv);
-    const vaultResult = await Vault.create(client, alice, {
+    const createVaultTx = client.tx.vaults.create({
+      terms: {
+        bitcoinAnnualPercentRate: toFixedNumber(0.05, FIXED_U128_DECIMALS),
+        bitcoinBaseFee: 500_000n,
+        treasuryProfitSharing: toFixedNumber(0.5, PERMILL_DECIMALS),
+        treasuryBonusProfitSharing: toFixedNumber(0, PERMILL_DECIMALS),
+      },
+      securitizationRatio: toFixedNumber(1, FIXED_U128_DECIMALS),
       securitization: 10_000_000n,
-      securitizationRatio: 1,
-      annualPercentRate: 0.05,
-      baseFee: 500_000n,
-      bitcoinXpub: vaultMasterXpub,
-      treasuryProfitSharing: 0.5,
+      bitcoinXpubkey: bs58check.decode(vaultMasterXpub),
+      delegateAccountId: null,
     });
-    const vault = await vaultResult.getVault();
-    const txResult = vaultResult.txResult;
+    const txResult = await new TxSubmitter(client, createVaultTx, alice).submit({ useLatestNonce: true });
+    await txResult.waitForFinalizedBlock;
+    const vaultCreated = txResult.events.find(event => client.events.vaults.VaultCreated.is(event));
+    if (!vaultCreated) throw new Error('VaultCreated event not found');
+
     const actualBlock = await client.rpc.chain.getHeader(await txResult.waitForFinalizedBlock);
     console.log('txResult block', actualBlock.toHuman());
-    const storageKey = client.query.vaults.vaultsById.key(vault.vaultId);
+    const storageKey = client.query.vaults.vaultsById.key(vaultCreated.data.vaultId);
     const binarySearch = await StorageFinder.binarySearchForStorageAddition(
       new MainchainClients(mainchainUrl),
       storageKey,

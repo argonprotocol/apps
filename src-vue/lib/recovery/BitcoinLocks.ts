@@ -1,5 +1,4 @@
 import {
-  BitcoinLock,
   PriceIndex,
   u8aEq,
   u8aToHex,
@@ -20,6 +19,7 @@ import {
   readEventField,
   StorageFinder,
   TransactionEvents,
+  BitcoinLock,
 } from '@argonprotocol/apps-core';
 import {
   applyCanonicalPreFundingState,

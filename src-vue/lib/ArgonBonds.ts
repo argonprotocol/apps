@@ -1,4 +1,4 @@
-import type { ArgonClient, FrameSystemEventRecord, Vault } from '@argonprotocol/mainchain';
+import type { ArgonClient, FrameSystemEventRecord } from '@argonprotocol/mainchain';
 import {
   type ArgonQueryClient,
   BondLot,
@@ -9,6 +9,7 @@ import {
   type RuntimeSpec157,
   TreasuryBonds,
   type VaultBondCapacityState,
+  type Vault,
 } from '@argonprotocol/apps-core';
 import type { Config } from './Config.ts';
 import type { Db } from './Db.ts';

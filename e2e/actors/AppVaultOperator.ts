@@ -9,6 +9,8 @@ import {
   MoveTo,
   NetworkConfig,
   TreasuryBonds,
+  BitcoinLock,
+  TxSubmitter,
 } from '@argonprotocol/apps-core';
 import {
   createBitcoinAddress,
@@ -16,7 +18,7 @@ import {
   sendBitcoinToAddress,
 } from '@argonprotocol/apps-core/__test__/helpers/bitcoinCli.ts';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
-import { BitcoinLock, Keyring, MICROGONS_PER_ARGON, TxSubmitter } from '@argonprotocol/mainchain';
+import { Keyring, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import type { ApiDecoration, ArgonClient, SubmittableExtrinsic } from '@argonprotocol/mainchain';
 import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
 import { sudo } from '@argonprotocol/testing';

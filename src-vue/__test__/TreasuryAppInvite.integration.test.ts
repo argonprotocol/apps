@@ -2,7 +2,7 @@ import * as Fs from 'node:fs';
 import os from 'node:os';
 import Path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { BitcoinLock, Vault } from '@argonprotocol/mainchain';
+
 import { teardown } from '@argonprotocol/testing';
 import {
   bigIntMax,
@@ -12,6 +12,8 @@ import {
   MainchainClients,
   NetworkConfig,
   SATOSHIS_PER_BITCOIN,
+  BitcoinLock,
+  Vault,
 } from '@argonprotocol/apps-core';
 import {
   startArgonTestNetwork,

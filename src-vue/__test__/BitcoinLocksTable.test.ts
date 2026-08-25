@@ -1,4 +1,5 @@
-import type { IBitcoinLock } from '@argonprotocol/mainchain';
+import type { IBitcoinLock } from '@argonprotocol/apps-core';
+
 import { describe, expect, it } from 'vitest';
 import { createTestDb } from './helpers/db.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';

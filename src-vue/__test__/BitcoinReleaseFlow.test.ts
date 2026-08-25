@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BitcoinLock, type ArgonClient } from '@argonprotocol/mainchain';
+import { BitcoinLock } from '@argonprotocol/apps-core';
+import { type ArgonClient } from '@argonprotocol/mainchain';
 import type { BlockWatch, Currency as CurrencyBase } from '@argonprotocol/apps-core';
 import { CosignScript } from '@argonprotocol/bitcoin';
 import { createTestDb } from './helpers/db.ts';
@@ -121,8 +122,6 @@ describe('BitcoinLocks release status sync', () => {
     const getReleaseRequestSpy = vi.spyOn(BitcoinLock.prototype, 'getReleaseRequest').mockResolvedValue({
       toScriptPubkey: '0014canonical',
       bitcoinNetworkFee: 9n,
-      dueFrame: 44,
-      vaultId: 1,
       redemptionAmount: 123n,
     });
 

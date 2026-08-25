@@ -1,5 +1,11 @@
-import { type ISignBitcoinLockFeeCouponRequest, type MainchainClients, NetworkConfig } from '@argonprotocol/apps-core';
-import { type BitcoinLockFeeCoupon, getOfflineRegistry, u8aToHex, Vault } from '@argonprotocol/mainchain';
+import {
+  type ISignBitcoinLockFeeCouponRequest,
+  type MainchainClients,
+  NetworkConfig,
+  type BitcoinLockFeeCoupon,
+  Vault,
+} from '@argonprotocol/apps-core';
+import { getOfflineRegistry, u8aToHex } from '@argonprotocol/mainchain';
 import { stringToU8a } from '@polkadot/util';
 import { blake2AsU8a } from '@polkadot/util-crypto';
 import type { DelegateSubmitLane } from './DelegateSubmitLane.ts';

@@ -1,5 +1,5 @@
+import { BitcoinLock } from '@argonprotocol/apps-core';
 import {
-  BitcoinLock,
   FIXED_U128_DECIMALS,
   fromFixedNumber,
   getBigIntFallback,

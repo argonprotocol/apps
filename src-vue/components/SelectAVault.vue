@@ -67,11 +67,12 @@
 </template>
 
 <script setup lang="ts">
+import { Vault } from '@argonprotocol/apps-core';
 import * as Vue from 'vue';
 import { getCurrency } from '../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import { abbreviateAddress } from '../lib/Utils.ts';
-import { Vault } from '@argonprotocol/mainchain';
+
 import { useFinancials } from '../stores/financials.ts';
 import { getArgonBonds } from '../stores/argonBonds.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';

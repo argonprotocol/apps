@@ -12,8 +12,14 @@ import {
 } from '@argonprotocol/apps-core/__test__/helpers/bitcoinCli.ts';
 import { submitAndFinalize } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
-import { loadCertificationProgress, MICROGONS_PER_ARGON, TreasuryBonds } from '@argonprotocol/apps-core';
-import { BitcoinLock, getClient, TxSubmitter, type ArgonClient } from '@argonprotocol/mainchain';
+import {
+  loadCertificationProgress,
+  MICROGONS_PER_ARGON,
+  TreasuryBonds,
+  BitcoinLock,
+  TxSubmitter,
+} from '@argonprotocol/apps-core';
+import { getClient, type ArgonClient } from '@argonprotocol/mainchain';
 import type { IConfig } from '../interfaces/IConfig.ts';
 import {
   cleanupBitcoinLocksHarness,
