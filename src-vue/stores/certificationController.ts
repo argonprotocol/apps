@@ -459,7 +459,7 @@ export const useCertificationController = defineStore('certificationController',
     if (!config.isLoaded || config.hasExtensionOperations) return false;
     if (!config.hasExtensionTreasury || !hasLoadedInitialOperationalProgress.value) return false;
 
-    return isTreasuryCertificationChecklistComplete.value;
+    return !chainProgress.value.isUpgradedToOperations && isTreasuryCertificationChecklistComplete.value;
   });
   let hasRecoveredOnboardingSetup = false;
   let isRecoveringOnboardingSetup = false;
