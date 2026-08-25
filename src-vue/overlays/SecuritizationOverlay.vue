@@ -168,6 +168,9 @@ import basicEmitter from '../emitters/basicEmitter.ts';
 import InputToken from '../components/InputToken.vue';
 import ProgressBar from '../components/ProgressBar.vue';
 import { WalletType } from '../lib/Wallet.ts';
+import type { IVaultIncreaseAllocationMetadata } from '../lib/MyVault.ts';
+import type { TransactionInfo } from '../lib/TransactionInfo.ts';
+import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
@@ -281,7 +284,7 @@ function goBackToInvite() {
 
 function openWallet() {
   closeOverlay();
-  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon });
+  basicEmitter.emit('openWalletOverlay', { wallet: wallets.argonWallets.defaultArgonWallet });
 }
 
 async function useWalletMaximum() {

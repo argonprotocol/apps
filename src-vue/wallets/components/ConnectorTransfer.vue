@@ -4,21 +4,26 @@
     <PopoverPortal>
       <PopoverContent
         side="bottom"
-        align="center"
+        :align="props.direction === 'left' ? 'start' : 'end'"
+        :alignOffset="-150"
         :sideOffset="-20"
         :collisionPadding="30"
         :style="floatingZIndex"
-        class="w-96 rounded-lg shadow-2xl"
+        class="w-108 rounded-lg shadow-2xl"
         @pointerDownOutside="keepOpenForRelatedConnector"
       >
-        <div class="flex max-h-[var(--reka-popover-content-available-height)] flex-col rounded-lg border border-black/50 bg-white text-left text-gray-700">
-          <h2 class="z-20 mx-1 flex items-center gap-x-2.5 border-b border-slate-400/50 pt-3 pr-3 pb-2 pl-2 select-none">
+        <div
+          class="flex max-h-[var(--reka-popover-content-available-height)] flex-col rounded-lg border border-black/50 bg-white text-left text-gray-700"
+        >
+          <h2
+            class="z-20 mx-1 flex items-center gap-x-2.5 border-b border-slate-400/50 pt-3 pr-3 pb-2 pl-2 select-none"
+          >
             <span class="min-w-0 grow px-1 text-xl font-bold text-slate-800/70">
               {{ activeTransfer ? 'Sending' : 'Send' }} from
               {{ walletDisplayName }}
             </span>
             <ButtonCopy :address="connectedWallet?.address!" />
-            <ButtonClose @close="emit('update:open', false)" />
+            <ButtonClose data-testid="ConnectorTransfer.close()" @close="emit('update:open', false)" />
           </h2>
 
           <div
@@ -67,40 +72,30 @@
           </div>
 
           <div v-else class="min-h-0 overflow-y-auto px-5 pb-4">
-            <template v-if="showTransferForm">
+            <template v-if="connectedWallet">
               <WalletTransferForm
-                :from=""
-                :toOptions=""
-
-                :tokensToMove="tokensToMove"
-                :selectedMoveToken="selectedMoveToken"
-                :maxValue="availableAmount"
-                destinationLabel="Internal App Wallet"
-
-                :feeEstimateWei="feeEstimateWei"
-                :ethereumFeeEstimateError="ethereumFeeEstimateError"
-                :ethereumBalanceWei="ethereumBalanceWei"
-                :hasSufficientFeeBalance="hasSufficientFeeBalance"
-                :isEstimatingFees="isEstimatingFees"
-                :formError="formError"
-
+                :fromWallet="connectedWallet"
+                :toWallets="[wallets.argonWallets.defaultArgonWallet]"
                 testIdPrefix="ConnectorTransfer"
                 ref="transferForm"
               />
-              <div class="mt-8 mb-2 flex flex-row gap-x-2">
-                <button
-                  :disabled="!canInitiateTransfer"
-                  class="border-argon-700 bg-argon-600 grow cursor-pointer rounded-lg border px-5 py-1 text-white disabled:cursor-default disabled:border-gray-400 disabled:bg-gray-300 disabled:text-gray-500"
-                  @click="initiateTransfer"
-                >
-                  &laquo; {{ isInitiatingTransfer ? 'Initiating Transfer...' : `Initiate Transfer` }}
-                </button>
+              <div
+                class="mt-8 mb-2 flex gap-x-2"
+                :class="props.direction === 'right' ? 'flex-row-reverse' : 'flex-row'"
+              >
                 <button
                   v-if="!isInitiatingTransfer"
                   class="border-argon-600 text-argon-600 cursor-pointer rounded-lg border px-5 py-1"
                   @click="emit('update:open', false)"
                 >
                   Cancel
+                </button>
+                <button
+                  :disabled="!canInitiateTransfer"
+                  class="border-argon-700 bg-argon-600 grow cursor-pointer rounded-lg border px-5 py-1 text-white disabled:cursor-default disabled:border-gray-400 disabled:bg-gray-300 disabled:text-gray-500"
+                  @click="initiateTransfer"
+                >
+                  &laquo; {{ isInitiatingTransfer ? 'Initiating Transfer...' : `Initiate Transfer` }}
                 </button>
               </div>
             </template>
@@ -118,9 +113,8 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { bigIntMax, MoveToken } from '@argonprotocol/apps-core';
+import { MoveToken } from '@argonprotocol/apps-core';
 import { EvmContracts } from '@argonprotocol/mainchain';
-import { ArrowPathIcon } from '@heroicons/vue/24/outline';
 import {
   PopoverArrow,
   PopoverContent,
@@ -161,85 +155,46 @@ const { microgonToArgonNm } = createNumeralHelpers(currency);
 const transferForm = Vue.ref<InstanceType<typeof WalletTransferForm>>();
 
 const floatingZIndex = useFloatingZIndex();
-const selectedMoveToken = Vue.ref<MoveToken.ARGN | MoveToken.ARGNOT>(MoveToken.ARGN);
-const tokensToMove = Vue.ref(0n);
-
-const feeEstimateWei = Vue.ref<bigint>();
-const ethereumFeeEstimateError = Vue.ref('');
-const isEstimatingFees = Vue.ref(false);
-
 const activeTransfer = Vue.ref<IEthereumInboundActiveTransfer>();
-const formError = Vue.ref('');
 const isInitiatingTransfer = Vue.ref(false);
-const isRefreshingTokenData = Vue.ref(false);
 const progressNow = Vue.ref(Date.now());
 let progressRefreshInterval: ReturnType<typeof setInterval> | undefined;
 
-const connectedWalletRecord = Vue.computed(() =>
-  wallets.walletRecords.find(record => record.id === Number(props.connectorId) && record.walletType === 'ethereum'),
-);
+const connectedWallet = Vue.computed(() => wallets.ethereumWallets.find(Number(props.connectorId)));
 
-const connectedWallet = Vue.computed(() =>
-  connectedWalletRecord.value ? wallets.getEthereumWalletRecord(connectedWalletRecord.value.id) : undefined,
-);
-
-const walletDisplayName = Vue.computed(
-  () => props.walletName ?? connectedWalletRecord.value?.name ?? 'Ethereum Wallet',
-);
-const balancesAreLoaded = Vue.computed(() => wallets.isLoaded && !!connectedWallet.value?.balanceUpdatedAt);
-const ethereumBalanceWei = Vue.computed(
-  () => connectedWallet.value?.otherTokens.find(token => token.symbol === 'ETH')?.value ?? 0n,
-);
-
-function getAvailableAmount(moveToken: MoveToken.ARGN | MoveToken.ARGNOT) {
-  const wallet = connectedWallet.value;
-  const rawAmount =
-    moveToken === MoveToken.ARGN ? (wallet?.availableMicrogons ?? 0n) : (wallet?.availableMicronots ?? 0n);
-  const ethereumAddress = connectedWalletRecord.value?.address;
-  if (!ethereumAddress) return 0n;
-  const reserved = inboundTracker.getPendingAmount(ethereumAddress, moveToken, connectedWallet.value?.balanceUpdatedAt);
-  return bigIntMax(rawAmount - reserved, 0n);
-}
-
-const availableAmount = Vue.computed(() => getAvailableAmount(selectedMoveToken.value));
-const hasTokensToMove = Vue.computed(() =>
-  ([MoveToken.ARGN, MoveToken.ARGNOT] as const).some(token => getAvailableAmount(token) > 0n),
-);
-const showTransferForm = Vue.computed(() => !balancesAreLoaded.value || hasTokensToMove.value);
-const hasSufficientFeeBalance = Vue.computed(
-  () => feeEstimateWei.value != null && ethereumBalanceWei.value >= feeEstimateWei.value,
-);
+const walletDisplayName = Vue.computed(() => props.walletName ?? connectedWallet.value?.name ?? 'Ethereum Wallet');
 const canInitiateTransfer = Vue.computed(
-  () =>
-    transferForm.value?.isReady &&
-    !!connectedWalletRecord.value &&
-    !isInitiatingTransfer.value &&
-    !isEstimatingFees.value &&
-    !ethereumFeeEstimateError.value &&
-    feeEstimateWei.value != null &&
-    hasSufficientFeeBalance.value &&
-    tokensToMove.value > 0n &&
-    tokensToMove.value <= availableAmount.value,
+  () => transferForm.value?.isReady && !!connectedWallet.value && !isInitiatingTransfer.value,
 );
 const progressView = Vue.computed(() =>
   getCrosschainTransferProgressView(activeTransfer.value?.transferState, progressNow.value),
 );
 
 async function initiateTransfer() {
-  const ethereumWallet = connectedWalletRecord.value;
-  if (!ethereumWallet || !canInitiateTransfer.value) return;
+  const form = transferForm.value;
+  const ethereumWallet = connectedWallet.value;
+  const moveToken = form?.selectedMoveToken;
+  const amount = form?.tokensToMove;
+  if (
+    !form ||
+    !ethereumWallet ||
+    !canInitiateTransfer.value ||
+    amount == null ||
+    (moveToken !== MoveToken.ARGN && moveToken !== MoveToken.ARGNOT)
+  )
+    return;
   isInitiatingTransfer.value = true;
-  formError.value = '';
+  form.setFormError('');
   try {
     const transfer = await inboundTracker.startMove({
-      moveToken: selectedMoveToken.value,
-      amountBaseUnits: tokensToMove.value * EvmContracts.MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE,
+      moveToken,
+      amountBaseUnits: amount * EvmContracts.MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE,
       targetWalletType: WalletType.argon,
       ethereumWallet,
     });
     if (transfer) activeTransfer.value = transfer;
   } catch (error) {
-    formError.value = error instanceof Error ? error.message : 'Unable to start the transfer.';
+    transferForm.value?.setFormError(error instanceof Error ? error.message : 'Unable to start the transfer.');
   } finally {
     isInitiatingTransfer.value = false;
   }
@@ -253,44 +208,6 @@ async function createAnotherTransaction() {
     inboundTracker.clearCompletedTransfer(current.id);
   }
   activeTransfer.value = undefined;
-  tokensToMove.value = availableAmount.value;
-  formError.value = '';
-}
-
-async function refreshTokenData() {
-  if (!connectedWalletRecord.value || isRefreshingTokenData.value) return;
-  isRefreshingTokenData.value = true;
-  try {
-    await wallets.refreshEthereumWalletRecord(connectedWalletRecord.value.id);
-  } finally {
-    isRefreshingTokenData.value = false;
-  }
-}
-
-async function updateFees(onCleanup: (cleanupFn: () => void) => void) {
-  ethereumFeeEstimateError.value = '';
-  isEstimatingFees.value = tokensToMove.value > 0n && !!connectedWalletRecord.value;
-  if (tokensToMove.value <= 0n || !connectedWalletRecord.value) return;
-
-  let cancelled = false;
-  onCleanup(() => (cancelled = true));
-  try {
-    const ethereumFeeEstimate = await inboundTracker.estimateFeeWei({
-      moveToken: selectedMoveToken.value,
-      amountBaseUnits: tokensToMove.value * EvmContracts.MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE,
-      targetWalletType: WalletType.argon,
-      ethereumWallet: connectedWalletRecord.value,
-    });
-    if (!cancelled) {
-      feeEstimateWei.value = ethereumFeeEstimate;
-    }
-  } catch (error) {
-    if (!cancelled) {
-      ethereumFeeEstimateError.value = error instanceof Error ? error.message : 'Unable to estimate the transfer fees.';
-    }
-  } finally {
-    if (!cancelled) isEstimatingFees.value = false;
-  }
 }
 
 function keepOpenForRelatedConnector(event: PointerDownOutsideEvent) {
@@ -302,34 +219,17 @@ function keepOpenForRelatedConnector(event: PointerDownOutsideEvent) {
 
 Vue.watch(
   () => props.moveToken,
-  token => (selectedMoveToken.value = token ?? MoveToken.ARGN),
-  { immediate: true },
+  async token => {
+    await Vue.nextTick();
+    transferForm.value?.setMoveToken(token ?? MoveToken.ARGN);
+  },
+  { immediate: true, flush: 'post' },
 );
 Vue.watch(
   () => props.open,
   open => {
     if (!open) activeTransfer.value = undefined;
   },
-);
-Vue.watch(
-  () => [props.open, inboundTracker.data.latestTransferIdByToken[selectedMoveToken.value]] as const,
-  ([open, transferId]) => {
-    if (!open || !transferId) return;
-    const transfer = inboundTracker.getTransfer(transferId);
-    const sourceAddress = transfer?.persistedRecord?.sourceAddress ?? transfer?.sourceAddress;
-    if (sourceAddress?.toLowerCase() === connectedWalletRecord.value?.address.toLowerCase()) {
-      activeTransfer.value = transfer;
-    }
-  },
-  { immediate: true },
-);
-
-Vue.watch(
-  availableAmount,
-  max => {
-    if (tokensToMove.value === 0n || tokensToMove.value > max) tokensToMove.value = max;
-  },
-  { immediate: true },
 );
 Vue.onMounted(() => {
   progressRefreshInterval = setInterval(() => (progressNow.value = Date.now()), 1_000);

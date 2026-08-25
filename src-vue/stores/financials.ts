@@ -17,10 +17,7 @@ import {
 import BigNumber from 'bignumber.js';
 
 import { getVaults, getMyVault } from './vaults.ts';
-import {
-  financialGroups,
-  type IFinancialPosition,
-} from '../interfaces/IFinancialPosition.ts';
+import { financialGroups, type IFinancialPosition } from '../interfaces/IFinancialPosition.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
 import {
   getEnabledFinancialHistoryDomains,
@@ -144,7 +141,12 @@ export const useFinancials = defineStore('financials', () => {
       financialPositionBook.publish(financialPositionBook.beginRefresh('ethereum'), [], { observedAt: new Date() });
       return;
     }
-    if (wallets.ethereumWallets.some(({ wallet }) => !wallet.balanceUpdatedAt && !wallet.fetchErrorMsg)) return;
+    if (
+      wallets.ethereumWallets.persistedWallets.some(
+        wallet => !wallet.data.balanceUpdatedAt && !wallet.data.fetchErrorMsg,
+      )
+    )
+      return;
 
     const refresh = financialPositionBook.beginRefresh('ethereum');
     const positions: IFinancialPosition[] = [...wallets.ethereumFinancialPositions];
@@ -165,7 +167,7 @@ export const useFinancials = defineStore('financials', () => {
     financialPositionBook.publish(refresh, positions, {
       observedAt: new Date(),
     });
-    if (wallets.ethereumWallets.some(({ wallet }) => wallet.balanceIsCached)) {
+    if (wallets.ethereumWallets.persistedWallets.some(wallet => wallet.data.balanceIsCached)) {
       financialPositionBook.fail(refresh, 'Refreshing cached Ethereum balances');
     }
   }
@@ -777,7 +779,16 @@ export const useFinancials = defineStore('financials', () => {
   );
 
   Vue.watch(
-    () => wallets.ethereumWallets,
+    () =>
+      wallets.ethereumWallets.persistedWallets.map(wallet => [
+        wallet.id,
+        wallet.data.balanceUpdatedAt,
+        wallet.data.balanceIsCached,
+        wallet.data.fetchErrorMsg,
+        wallet.data.availableMicrogons,
+        wallet.data.availableMicronots,
+        wallet.data.otherTokens,
+      ]),
     () => {
       if (!isLoaded.value) return;
       publishEthereumWallet();
@@ -957,7 +968,7 @@ export const useFinancials = defineStore('financials', () => {
       wallets.defaultArgonWallet.address,
       wallets.miningBotWallet.address,
       wallets.operationalWallet.address,
-      ...wallets.ethereumWallets.map(({ wallet }) => wallet.address),
+      ...wallets.ethereumWallets.persistedWallets.map(wallet => wallet.address),
     ].filter(Boolean);
     financialPositionBook.setScope({
       ownedAccounts: [...new Set(ownedAccounts)],
@@ -1003,6 +1014,7 @@ export const useFinancials = defineStore('financials', () => {
     if (config.hasExtensionTreasury) startLockSummaryProgressRefresh();
 
     isLoaded.value = true;
+    publishEthereumWallet();
     if (config.hasExtensionTreasury || config.hasExtensionOperations) {
       void initializeFinancialHistoryRecovery().catch(error => {
         const message = error instanceof Error ? error.message : 'Unable to restore investment history';

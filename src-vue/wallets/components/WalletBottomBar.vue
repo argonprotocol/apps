@@ -167,9 +167,7 @@ const pendingTransfers = Vue.computed<PendingTransfer[]>(() => {
 });
 
 function getEthereumWalletLabel(address: string) {
-  const wallet = wallets.walletRecords.find(
-    record => record.walletType === 'ethereum' && record.address.toLowerCase() === address.toLowerCase(),
-  );
+  const wallet = wallets.ethereumWallets.findByAddress(address);
   if (wallet) return getEthereumWalletDisplayName(wallet.name);
   return address ? abbreviateAddress(address, 8) : 'Ethereum Wallet';
 }

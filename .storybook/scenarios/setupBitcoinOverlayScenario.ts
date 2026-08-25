@@ -291,7 +291,7 @@ export function setupBitcoinOverlayScenario() {
         status: 'Prepared',
         feeCreditMicrogons: remainingFeeCreditMicrogons,
         requestedSatoshis: resumableRequestedSatoshis,
-        ownerAccountId: liquidLockingWallet.address,
+        ownerAccountId: defaultArgonWallet.address,
         ownerBitcoinPubkey: `02${'55'.repeat(32)}`,
         microgonsAtTargetPerBtc: 6_800_000_000n,
         feeCoupon: {

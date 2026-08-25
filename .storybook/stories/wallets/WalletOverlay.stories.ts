@@ -2,24 +2,25 @@ import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import * as Vue from 'vue';
 import { expect, userEvent, within } from 'storybook/test';
 import { setupWalletScenario } from '../../scenarios/setupWalletScenario.ts';
-import basicEmitter, { type IWalletOverlayRequest } from '../../../src-vue/emitters/basicEmitter.ts';
+import basicEmitter, { type IWalletOverlayOptions } from '../../../src-vue/emitters/basicEmitter.ts';
 import { WalletType } from '../../../src-vue/lib/Wallet.ts';
-import WalletOverlayController from '../../../src-vue/wallets/WalletOverlayController.vue';
+import WalletOverlay from '../../../src-vue/wallets/WalletOverlay.vue';
+import { useWallets } from '../../../src-vue/stores/wallets.ts';
 
-let request: IWalletOverlayRequest = { connectorType: WalletType.argon };
+let request: IWalletOverlayOptions;
 let isInteractive = false;
 
 const meta = {
   title: 'Wallets/Overview',
   render: () => ({
-    components: { WalletOverlayController },
+    components: { WalletOverlay },
     setup() {
       Vue.onMounted(() => basicEmitter.emit('openWalletOverlay', request));
       return { isInteractive };
     },
     template: `
       <div class="relative h-screen w-screen overflow-hidden">
-        <WalletOverlayController />
+        <WalletOverlay />
         <div
           v-if="!isInteractive"
           data-testid="WalletOverlay.fixedPreviewGuard"
@@ -34,19 +35,23 @@ const meta = {
       </div>
     `,
   }),
-} satisfies Meta<typeof WalletOverlayController>;
+} satisfies Meta<typeof WalletOverlay>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
 function useScenario(
-  connectorType: WalletType.argon | 'bitcoin',
-  view?: IWalletOverlayRequest['view'],
+  walletType: WalletType.argon | WalletType.bitcoin,
+  view?: IWalletOverlayOptions['view'],
   scenario: 'defaultArgon' | 'privateKeyError' = 'defaultArgon',
   interactive = false,
 ) {
   setupWalletScenario(scenario);
-  request = { connectorType, view };
+  const wallets = useWallets();
+  request = {
+    wallet: walletType === WalletType.argon ? wallets.argonWallets.defaultArgonWallet : wallets.bitcoinWallet,
+    view,
+  };
   isInteractive = interactive;
 }
 
@@ -63,7 +68,7 @@ export const MainWallet: Story = {
 };
 
 export const BitcoinConnector: Story = {
-  beforeEach: () => useScenario('bitcoin'),
+  beforeEach: () => useScenario(WalletType.bitcoin),
   play: async () => {
     const canvas = within(document.body);
 
@@ -80,6 +85,18 @@ export const SendTokens: Story = {
     await expect(canvas.findByRole('heading', { name: 'Send From Internal' })).resolves.toBeVisible();
     await expect(canvas.findByTestId('WalletViewSend.destination')).resolves.toBeVisible();
     await expect(canvas.getByTestId('WalletOverlay.fixedPreviewGuard')).toBeVisible();
+  },
+};
+
+export const CloseReturnsToMain: Story = {
+  beforeEach: () => useScenario(WalletType.argon, 'send', 'defaultArgon', true),
+  play: async () => {
+    const canvas = within(document.body);
+
+    await expect(canvas.findByRole('heading', { name: 'Send From Internal' })).resolves.toBeVisible();
+    await userEvent.click(canvas.getByTestId('WalletOverlay.closeRight()'));
+    await expect(canvas.findByText('Internal App Wallet')).resolves.toBeVisible();
+    await expect(canvas.getByTestId('WalletOverlay')).toBeVisible();
   },
 };
 

@@ -70,7 +70,7 @@ const props = withDefaults(
     height: number | 'auto';
     tooltipSide?: 'right' | 'top';
     moveFrom?: MoveFrom;
-    moveToken?: MoveToken;
+    moveToken?: MoveToken.ARGN | MoveToken.ARGNOT;
     actionLabel?: string;
     hideConnector?: boolean;
   }>(),

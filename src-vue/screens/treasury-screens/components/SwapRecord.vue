@@ -102,10 +102,12 @@ const walletInputAmount = Vue.computed(() => {
   let amount = 0n;
 
   if (props.swap.inputToken === UnitOfMeasurement.ARGNOT) {
-    const micronots = wallets.ethereumWallet.availableMicronots;
+    const micronots = wallets.ethereumWallets.coreWallet.data.availableMicronots;
     amount = currency.convertMicronotTo(micronots, UnitOfMeasurement.Microgon);
   } else {
-    const otherToken = wallets.ethereumWallet.otherTokens.find(x => x.symbol === props.swap.inputToken);
+    const otherToken = wallets.ethereumWallets.coreWallet.data.otherTokens.find(
+      x => x.symbol === props.swap.inputToken,
+    );
     if (otherToken) {
       amount = currency.convertOtherToMicrogon(otherToken);
     }

@@ -58,7 +58,6 @@ import { getCurrency } from '../../stores/currency.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { bigIntMax, bigIntMin } from '@argonprotocol/apps-core';
 import { getMyMiningSeats } from '../../stores/myMiningSeats.ts';
-import { WalletType } from '../../lib/Wallet.ts';
 import { getBot } from '../../stores/bot.ts';
 
 dayjs.extend(utc);
@@ -101,7 +100,7 @@ function openBiddingBudgetOverlay() {
 }
 
 function openWalletFunding() {
-  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon });
+  basicEmitter.emit('openWalletOverlay', { wallet: wallets.argonWallets.defaultArgonWallet });
 }
 
 Vue.onMounted(async () => {

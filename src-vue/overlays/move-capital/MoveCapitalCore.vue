@@ -186,7 +186,7 @@ const props = withDefaults(
     externalAddress?: string;
     moveTo?: MoveTo;
     maxAmount?: bigint;
-    moveToken?: MoveToken;
+    moveToken?: MoveToken.ARGN | MoveToken.ARGNOT;
     isOpen: boolean;
     side?: 'top' | 'right' | 'bottom' | 'left';
   }>(),
@@ -285,7 +285,9 @@ const moveFromInputOptions = Vue.computed(() => {
 
 const moveTokenOptions = Vue.computed(() => {
   const hasArgonots = [MoveFrom.DefaultArgon, MoveFrom.MiningBot].includes(moveFrom.value);
-  const options = [{ name: MoveToken.ARGN, value: MoveToken.ARGN }];
+  const options: { name: string; value: MoveToken.ARGN | MoveToken.ARGNOT }[] = [
+    { name: MoveToken.ARGN, value: MoveToken.ARGN },
+  ];
   if (hasArgonots) {
     options.push({ name: MoveToken.ARGNOT, value: MoveToken.ARGNOT });
   }

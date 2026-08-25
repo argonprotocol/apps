@@ -73,7 +73,7 @@
               <DropdownMenuSeparator divider class="my-1 h-[1px] w-full bg-slate-400/30" />
               <DropdownMenuItem MenuItem @click="viewPrivateKey">
                 <div ItemWrapper>
-                  <header>Private Key</header>
+                  <header>View Private Key</header>
                   <ShieldCheckIcon class="w-4 h-4" />
                 </div>
               </DropdownMenuItem>
@@ -129,11 +129,9 @@ const isOpen = Vue.ref(false);
 const floatingZIndex = useFloatingZIndex(2);
 
 const isEthereumWallet = Vue.computed(() => props.wallet.type === WalletType.ethereum);
-const ethereumWalletRecord = Vue.computed(() => {
+const ethereumWallet = Vue.computed(() => {
   if (!isEthereumWallet.value) return;
-  return wallets.walletRecords.find(
-    record => record.walletType === 'ethereum' && record.address.toLowerCase() === props.wallet.address.toLowerCase(),
-  );
+  return wallets.ethereumWallets.findByAddress(props.wallet.address);
 });
 
 // Expose the root element to parent components
@@ -159,16 +157,15 @@ function sendTokens() {
 
 function openWalletView(view: IWalletView) {
   isOpen.value = false;
-  if (ethereumWalletRecord.value) {
+  if (ethereumWallet.value?.isPersisted) {
     basicEmitter.emit('openWalletOverlay', {
-      connectorType: WalletType.ethereum,
-      ethereumWalletRecordId: ethereumWalletRecord.value.id,
+      wallet: ethereumWallet.value,
       view,
     });
     return;
   }
 
-  basicEmitter.emit('openWalletOverlay', { connectorType: WalletType.argon, view });
+  basicEmitter.emit('openWalletOverlay', { wallet: wallets.argonWallets.defaultArgonWallet, view });
 }
 
 let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
