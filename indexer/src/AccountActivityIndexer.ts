@@ -137,10 +137,10 @@ export class AccountActivityIndexer {
     let blockHashes: string[];
 
     if (this.batchRpcUrl) {
-      // Preserve the prior 2,000-call concurrency envelope with smaller batches.
+      // Hash responses are small enough to keep four 50-request batches in flight.
       blockHashes = await this.batchRpc<string>(
         blockNumbers.map(blockNumber => ({ method: 'chain_getBlockHash', params: [blockNumber] })),
-        40,
+        4,
       );
     } else {
       const blockHashCodecs = await Promise.all(
@@ -158,10 +158,10 @@ export class AccountActivityIndexer {
     const decodedBlockHashes = blockHashes.slice(0, blockCount);
     let rawEventsByBlock: (string | null)[];
     if (this.batchRpcUrl) {
-      // Event payloads are larger, so keep the prior 1,000-call envelope lower.
+      // Event payloads are larger, so keep their batch concurrency lower.
       rawEventsByBlock = await this.batchRpc<string | null>(
         decodedBlockHashes.map(blockHash => ({ method: 'state_getStorage', params: [eventsKey, blockHash] })),
-        20,
+        2,
       );
     } else {
       const rawEventCodecs = await Promise.all(
@@ -257,31 +257,47 @@ export class AccountActivityIndexer {
       await Promise.all(
         batches.slice(start, start + concurrency).map(async (batch, offset) => {
           const batchIndex = start + offset;
-          const response = await fetch(batchRpcUrl, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(batch.map(({ method, params }, id) => ({ jsonrpc: '2.0', id, method, params }))),
-            signal: AbortSignal.timeout(60_000),
-          });
-          if (!response.ok) {
-            throw new Error(`Batch RPC failed with ${response.status} ${response.statusText}`);
-          }
+          let attempts = 0;
+          while (!this.isClosed) {
+            try {
+              const response = await fetch(batchRpcUrl, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(batch.map(({ method, params }, id) => ({ jsonrpc: '2.0', id, method, params }))),
+                signal: AbortSignal.timeout(60_000),
+              });
+              if (!response.ok) {
+                throw new Error(`Batch RPC failed with ${response.status} ${response.statusText}`);
+              }
 
-          const records = (await response.json()) as { id: number; result?: T; error?: { message?: string } }[];
-          if (!Array.isArray(records) || records.length !== batch.length) {
-            throw new Error(`Batch RPC returned ${Array.isArray(records) ? records.length : 'invalid'} responses`);
-          }
+              const records = (await response.json()) as { id: number; result?: T; error?: { message?: string } }[];
+              if (!Array.isArray(records) || records.length !== batch.length) {
+                throw new Error(`Batch RPC returned ${Array.isArray(records) ? records.length : 'invalid'} responses`);
+              }
 
-          const byId = new Map(records.map(record => [record.id, record]));
-          results[batchIndex] = batch.map((_, id) => {
-            const record = byId.get(id);
-            if (!record || record.error || !('result' in record)) {
-              throw new Error(
-                `Batch RPC request ${batchIndex * batchSize + id} failed: ${record?.error?.message ?? 'missing response'}`,
+              const byId = new Map(records.map(record => [record.id, record]));
+              results[batchIndex] = batch.map((_, id) => {
+                const record = byId.get(id);
+                if (!record || record.error || !('result' in record)) {
+                  throw new Error(
+                    `Batch RPC request ${batchIndex * batchSize + id} failed: ${record?.error?.message ?? 'missing response'}`,
+                  );
+                }
+                return record.result as T;
+              });
+              return;
+            } catch (error) {
+              if (!(error instanceof DOMException && error.name === 'TimeoutError')) throw error;
+
+              attempts += 1;
+              const delayMs = Math.min(1_000 * 2 ** (attempts - 1), 10_000);
+              console.warn(
+                `Archive RPC batch ${batchIndex + 1} timed out; retrying it in ${delayMs / 1_000}s without discarding completed batches`,
               );
+              await new Promise(resolve => setTimeout(resolve, delayMs));
             }
-            return record.result as T;
-          });
+          }
+          throw new Error('Account activity sync stopped while retrying an archive RPC batch');
         }),
       );
     }

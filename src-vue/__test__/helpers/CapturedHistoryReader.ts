@@ -309,9 +309,9 @@ export class CapturedHistoryReader {
     const client = this.recordingClient!;
     await this.recordHeader(block);
     const api = await client.at(block.blockHash);
-    const expectedSpecVersion = this.getRuntime(block.blockNumber).specVersion;
-    if (api.runtimeVersion.specVersion.toNumber() !== expectedSpecVersion) {
-      throw new Error(`Archive runtime at block ${block.blockNumber} does not match spec ${expectedSpecVersion}`);
+    const runtime = this.getRuntime(block.blockNumber);
+    if (api.runtimeVersion.specVersion.toNumber() !== runtime.specVersion) {
+      throw new Error(`Archive runtime at block ${block.blockNumber} does not match spec ${runtime.specVersion}`);
     }
 
     const query = new Proxy(api.query, {
@@ -323,30 +323,54 @@ export class CapturedHistoryReader {
           get: (storageEntries, method) => {
             const entry = Reflect.get(storageEntries, method) as QueryableStorageEntry<'promise'> | undefined;
             if (!entry || typeof method !== 'string') return entry;
+            const storageDefinition = runtime.storage[section][method];
 
             return new Proxy(entry, {
-              apply: async (storageEntry, thisArg, args: unknown[]) => {
-                const result: unknown = await Reflect.apply(storageEntry, thisArg, args);
+              apply: async (storageEntry, _thisArg, args: unknown[]) => {
                 await this.recordStorage(block, [storageEntry.key(...args)]);
-                return result;
+                return this.readStorage(block.blockNumber, block.blockHash, runtime, storageDefinition, args, true)!;
               },
               get: (storageEntry, property) => {
                 if (property === 'keys') {
                   return async (...args: unknown[]) => {
-                    const keys = await storageEntry.keys(...args);
-                    await this.recordStorage(
-                      block,
-                      keys.map(key => key.toHex()),
-                    );
-                    return keys;
+                    const storagePrefix = storageDefinition.keyPrefix(...args);
+                    const recorded = this.database
+                      .prepare(
+                        `SELECT 1 FROM RecoveryStorageKeyEnumerations
+                         WHERE blockNumber = ? AND storagePrefix = ?`,
+                      )
+                      .get(block.blockNumber, storagePrefix);
+                    if (!recorded) {
+                      const keys = await storageEntry.keys(...args);
+                      await this.recordStorage(
+                        block,
+                        keys.map(key => key.toHex()),
+                      );
+                      this.database
+                        .prepare(
+                          `INSERT OR IGNORE INTO RecoveryStorageKeyEnumerations (blockNumber, storagePrefix)
+                           VALUES (?, ?)`,
+                        )
+                        .run(block.blockNumber, storagePrefix);
+                    }
+                    return this.readStorageKeys(block.blockNumber, runtime, storageDefinition, args);
                   };
                 }
                 if (property === 'multi') {
                   return async (argsList: unknown[]) => {
-                    const result = await storageEntry.multi(argsList);
                     const keys = argsList.map(args => storageEntry.key(...(Array.isArray(args) ? args : [args])));
                     await this.recordStorage(block, keys);
-                    return result;
+                    return argsList.map(args => {
+                      const entryArgs = Array.isArray(args) ? args : [args];
+                      return this.readStorage(
+                        block.blockNumber,
+                        block.blockHash,
+                        runtime,
+                        storageDefinition,
+                        entryArgs,
+                        true,
+                      )!;
+                    });
                   };
                 }
                 const propertyValue: unknown = Reflect.get(storageEntry, property);
@@ -407,16 +431,24 @@ export class CapturedHistoryReader {
   ): Promise<void> {
     if (!storageKeys.length) return;
 
-    const storageValues = await this.recordingClient!.rpc.state.queryStorageAt<Codec[]>(storageKeys, block.blockHash);
+    const findRecorded = this.database.prepare(
+      'SELECT 1 FROM RecoveryStorage WHERE blockNumber = ? AND storageKey = ?',
+    );
+    const missingKeys = [...new Set(storageKeys)].filter(storageKey => {
+      return !findRecorded.get(block.blockNumber, hexToU8a(storageKey));
+    });
+    if (!missingKeys.length) return;
+
+    const storageValues = await this.recordingClient!.rpc.state.queryStorageAt<Codec[]>(missingKeys, block.blockHash);
     const insert = this.database.prepare(`
       INSERT OR REPLACE INTO RecoveryStorage (blockNumber, storageKey, storageValue)
       VALUES (:blockNumber, :storageKey, :storageValue)
     `);
-    for (let index = 0; index < storageKeys.length; index += 1) {
+    for (let index = 0; index < missingKeys.length; index += 1) {
       const storageValue = storageValues[index];
       insert.run({
         blockNumber: block.blockNumber,
-        storageKey: hexToU8a(storageKeys[index]),
+        storageKey: hexToU8a(missingKeys[index]),
         storageValue: !storageValue || storageValue.isEmpty ? null : hexToU8a(storageValue.toHex()),
       });
     }

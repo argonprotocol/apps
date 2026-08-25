@@ -151,10 +151,13 @@ function inspectReplayDatabase(path: string) {
     const recoveryStorage = database.prepare('SELECT COUNT(*) AS count FROM RecoveryStorage').get() as {
       count: number;
     };
+    const recoveryStorageKeyEnumerations = database
+      .prepare('SELECT COUNT(*) AS count FROM RecoveryStorageKeyEnumerations')
+      .get() as { count: number };
     const recoveryHeaders = database.prepare('SELECT COUNT(*) AS count FROM RecoveryHeaders').get() as {
       count: number;
     };
-    if (!recoveryStorage.count || !recoveryHeaders.count) {
+    if (!recoveryStorage.count || !recoveryStorageKeyEnumerations.count || !recoveryHeaders.count) {
       throw new Error('Financial history replay database has no captured recovery state');
     }
 
@@ -167,6 +170,7 @@ function inspectReplayDatabase(path: string) {
       runtimeVersionCount: blocks.runtimeVersionCount,
       accountBlockCount: accountBlocks.count,
       recoveryStorageCount: recoveryStorage.count,
+      recoveryStorageKeyEnumerationCount: recoveryStorageKeyEnumerations.count,
       recoveryHeaderCount: recoveryHeaders.count,
     };
   } finally {
