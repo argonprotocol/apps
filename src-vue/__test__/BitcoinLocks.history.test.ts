@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { BlockWatch } from '@argonprotocol/apps-core';
-import { BitcoinLock } from '@argonprotocol/apps-core';
+import { BitcoinLock, type ArgonApi, type BlockWatch } from '@argonprotocol/apps-core';
 import { hexToU8a } from '@argonprotocol/mainchain';
+import { runtimeClient } from '@argonprotocol/runtime-client';
 import { encodeAddress } from '@polkadot/util-crypto';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
@@ -14,6 +14,66 @@ vi.mock('../stores/mainchain.ts', () => ({
   getMainchainClient: vi.fn(async () => ({})),
 }));
 describe('BitcoinLocks historical event replay', () => {
+  it('reads funding and pending mints from the legacy Bitcoin storage', async () => {
+    const accountId = encodeAddress(new Uint8Array(32).fill(0x33));
+    const lock = new BitcoinLock({
+      ...createHistoricalLock({ accountId, liquidityPromised: 771_378_259n }),
+      utxoId: 45,
+    });
+    const api = runtimeClient({
+      query: {
+        bitcoinUtxos: {
+          utxoIdToRef: async () => ({ txid: '0xfunding', outputIndex: 27 }),
+        },
+        mint: {
+          pendingMintUtxos: async () => [[45n, accountId, 771_378_259n] as const],
+        },
+      },
+    }) as unknown as ArgonApi;
+
+    await expect(lock.getFundingUtxoRef(api)).resolves.toEqual({ txid: '0xfunding', vout: 27 });
+    await expect(lock.findPendingMints(api)).resolves.toEqual([771_378_259n]);
+  });
+
+  it('does not read legacy Bitcoin storage when the current queries are installed but empty', async () => {
+    const accountId = encodeAddress(new Uint8Array(32).fill(0x33));
+    const lock = new BitcoinLock(createHistoricalLock({ accountId, liquidityPromised: 1_000n }));
+    const api = runtimeClient({
+      query: {
+        bitcoinUtxos: {
+          utxoIdToFundingUtxoRef: async () => null,
+          utxoIdToRef: async () => {
+            throw new Error('legacy funding storage should not be read');
+          },
+        },
+        mint: {
+          pendingMintUtxoIdLookup: async () => [],
+          pendingMintUtxos: async () => {
+            throw new Error('legacy pending mint storage should not be read');
+          },
+        },
+      },
+    }) as unknown as ArgonApi;
+
+    await expect(lock.getFundingUtxoRef(api)).resolves.toBeUndefined();
+    await expect(lock.findPendingMints(api)).resolves.toEqual([]);
+  });
+
+  it('rejects a legacy pending mint owned by another account', async () => {
+    const accountId = encodeAddress(new Uint8Array(32).fill(0x33));
+    const otherAccountId = encodeAddress(new Uint8Array(32).fill(0x44));
+    const lock = new BitcoinLock(createHistoricalLock({ accountId, liquidityPromised: 1_000n }));
+    const api = runtimeClient({
+      query: {
+        mint: {
+          pendingMintUtxos: async () => [[7n, otherAccountId, 1_000n] as const],
+        },
+      },
+    }) as unknown as ArgonApi;
+
+    await expect(lock.findPendingMints(api)).rejects.toThrow('Bitcoin lock 7 pending mint belongs to another account');
+  });
+
   it('replays creation, ratchet, mint, and release with historical codec events', async () => {
     const accountId = encodeAddress(new Uint8Array(32).fill(0x33));
     const getApi = vi.fn();

@@ -12,6 +12,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import type { Db } from '../lib/Db.ts';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
+import { BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
 import { BitcoinLockRecovery } from '../lib/recovery/BitcoinLocks.ts';
 import { VaultHistory } from '../lib/recovery/MyVault.ts';
 import { FinancialHistoryImporter } from '../lib/recovery/index.ts';
@@ -35,6 +36,15 @@ runWithReplay('Bitcoin financial history replay corpus', () => {
     async () => {
       const corpusReader = new CapturedHistoryReader(replayPath, recordingClient);
       try {
+        const legacyFundingBlock = await corpusReader.getHeader(591_620);
+        const legacyFundingApi = await corpusReader.getApi(legacyFundingBlock);
+        const legacyLock = await BitcoinLock.get(legacyFundingApi, 45);
+        expect(await legacyLock?.getFundingUtxoRef(legacyFundingApi)).toEqual({
+          txid: '0x4e8e026cdfc456579fc90e80d68b4b82266193813d97454ed4e98ca534d24b1a',
+          vout: 27,
+        });
+        expect(await legacyLock?.findPendingMints(legacyFundingApi)).toEqual([771_378_259n]);
+
         const accountIds = corpusReader.findBitcoinOwners(130);
         expect(accountIds.length).toBeGreaterThan(0);
         let migratedActiveLockCount = 0;
@@ -106,6 +116,20 @@ runWithReplay('Bitcoin financial history replay corpus', () => {
                   0,
                 );
               }
+            }
+            if (accountId === '5Cz3PZVcLitGyqc1Su4KYcvseoLhn93pUHtXDNBLx5aoKsF5') {
+              expect(recovered.utxos).toContainEqual(
+                expect.objectContaining({
+                  lockUtxoId: 45,
+                  txid: '0x4e8e026cdfc456579fc90e80d68b4b82266193813d97454ed4e98ca534d24b1a',
+                  vout: 27,
+                  satoshis: 1_057_558n,
+                  status: BitcoinUtxoStatus.FundingUtxo,
+                }),
+              );
+              expect(recovered.locks.find(lock => lock.utxoId === 45)?.ratchets).toContainEqual(
+                expect.objectContaining({ mintAmount: 771_378_259n, mintPending: 0n }),
+              );
             }
             recoveredLockCount += recovered.locks.length;
           } finally {
