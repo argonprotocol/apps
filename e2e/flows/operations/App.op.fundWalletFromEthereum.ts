@@ -225,7 +225,7 @@ async function readEthereumFundingState(flow: IE2EFlowRuntime, targetWalletType:
       const ethereumChainConfigReady = mainchainClient
         ? await mainchainClient.query.crosschainTransfer
             .chainConfigBySourceChain('Ethereum')
-            .then(config => config.isSome && config.unwrap().isEvm)
+            .then(config => config?.type === 'Evm')
             .catch(() => false)
         : false;
       const argnTransfer = ethereumMoveTracker.getTransferStateForToken(args.argnMoveToken);

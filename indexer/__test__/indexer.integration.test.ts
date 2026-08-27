@@ -1,13 +1,14 @@
 import { afterAll, afterEach, beforeAll, expect, it } from 'vitest';
 import { runOnTeardown, teardown } from '@argonprotocol/testing';
 import { TxSubmitter } from '@argonprotocol/apps-core';
-import { getClient, Keyring } from '@argonprotocol/mainchain';
+import { Keyring } from '@argonprotocol/mainchain';
 import fs from 'node:fs';
 import os from 'node:os';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import Path from 'path';
 import { IndexerServer } from '../src/IndexerServer.ts';
 import { AccountActivityKind } from '../src/AccountActivity.ts';
+import { getTestMainchainClient } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
@@ -28,7 +29,7 @@ it.skipIf(skipE2E)('indexes account activity blocks', async () => {
 
   const indexerDir = fs.mkdtempSync(Path.join(os.tmpdir(), 'indexer-'));
 
-  const client = await getClient(clientAddress);
+  const client = await getTestMainchainClient(clientAddress);
   const indexer = new IndexerServer({
     port: 0,
     dbDir: indexerDir,

@@ -6,17 +6,13 @@ import { encodeAddress } from '@polkadot/util-crypto';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import { BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
-import { bigintCodec, numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts';
+import { numberCodec } from '../../core/__test__/helpers/codecs.ts';
 import { createLock, createStore, createHistoricalLock, historyBlock, historyEvent } from './helpers/bitcoin.ts';
-import * as BitcoinLockHistory from '../lib/recovery/BitcoinLockHistory.ts';
+import BigNumber from 'bignumber.js';
 
 vi.mock('../stores/mainchain.ts', () => ({
   getMainchainClient: vi.fn(async () => ({})),
 }));
-vi.mock('../lib/recovery/BitcoinLockHistory.ts', () => ({
-  getHistoricalBitcoinLock: vi.fn(),
-}));
-
 describe('BitcoinLocks historical event replay', () => {
   it('replays creation, ratchet, mint, and release with historical codec events', async () => {
     const accountId = encodeAddress(new Uint8Array(32).fill(0x33));
@@ -105,10 +101,11 @@ describe('BitcoinLocks historical event replay', () => {
     };
     vi.spyOn(store, 'getTable').mockResolvedValue(table as never);
     vi.spyOn(store.recovery, 'recoverLock').mockResolvedValue(record);
-    vi.mocked(BitcoinLockHistory.getHistoricalBitcoinLock)
+    vi.spyOn(BitcoinLock, 'get')
       .mockResolvedValueOnce(createdLock)
-      .mockResolvedValueOnce(verifiedLock);
-    vi.spyOn(BitcoinLock, 'get').mockResolvedValueOnce(ratchetedLock).mockResolvedValueOnce(twiceRatchetedLock);
+      .mockResolvedValueOnce(verifiedLock)
+      .mockResolvedValueOnce(ratchetedLock)
+      .mockResolvedValueOnce(twiceRatchetedLock);
     vi.spyOn(BitcoinLock.prototype, 'getFundingUtxoRef')
       .mockResolvedValueOnce(undefined)
       .mockResolvedValue({ txid: 'funding-txid', vout: 0 });
@@ -118,26 +115,29 @@ describe('BitcoinLocks historical event replay', () => {
       bitcoinNetworkFee: 8n,
       redemptionAmount: 900n,
     });
-    const ownerLockKeys = vi.fn(async () => [{ args: [{}, numberCodec(7)] }, { args: [{}, numberCodec(8)] }]);
+    const ownerLockKeys = vi.fn(async () => [{ args: [accountId, 7] }, { args: [accountId, 8] }]);
     const activeLocks = vi.fn(async () => [
-      optionCodec({
-        liquidityPromised: bigintCodec(1_400n),
-        lockedTargetPrice: bigintCodec(1_500n),
-      }),
-      optionCodec({
-        liquidityPromised: bigintCodec(2_000n),
-        lockedTargetPrice: bigintCodec(2_000n),
-      }),
+      {
+        liquidityPromised: 1_400n,
+        lockedTargetPrice: 1_500n,
+      },
+      {
+        liquidityPromised: 2_000n,
+        lockedTargetPrice: 2_000n,
+      },
     ]);
     const api = {
       query: {
-        ticks: { currentTick: vi.fn(async () => numberCodec(700)) },
+        ticks: { currentTick: vi.fn(async () => 700) },
         bitcoinUtxos: {
-          confirmedBitcoinBlockTip: vi.fn(async () => optionCodec({ blockHeight: numberCodec(600) })),
+          confirmedBitcoinBlockTip: vi.fn(async () => ({ blockHeight: 600, blockHash: '0x600' })),
         },
         bitcoinLocks: {
           utxoIdsByOwnerAccount: { keys: ownerLockKeys },
-          locksByUtxoId: { multi: activeLocks },
+          locksByUtxoId: Object.assign(
+            vi.fn(async () => null),
+            { multi: activeLocks },
+          ),
         },
       },
     };
@@ -266,15 +266,16 @@ describe('BitcoinLocks historical event replay', () => {
     const api = {
       query: {
         bitcoinUtxos: {
-          confirmedBitcoinBlockTip: vi.fn(async () => optionCodec({ blockHeight: numberCodec(600) })),
+          confirmedBitcoinBlockTip: vi.fn(async () => ({ blockHeight: 600, blockHash: '0x600' })),
         },
         bitcoinLocks: {
-          utxoIdsByOwnerAccount: { keys: vi.fn(async () => [{ args: [{}, numberCodec(7)] }]) },
-          locksByUtxoId: {
-            multi: vi.fn(async () => [
-              optionCodec({ liquidityPromised: bigintCodec(1_400n), lockedTargetPrice: bigintCodec(1_500n) }),
-            ]),
-          },
+          utxoIdsByOwnerAccount: { keys: vi.fn(async () => [{ args: [accountId, 7] }]) },
+          locksByUtxoId: Object.assign(
+            vi.fn(async () => null),
+            {
+              multi: vi.fn(async () => [{ liquidityPromised: 1_400n, lockedTargetPrice: 1_500n }]),
+            },
+          ),
         },
       },
     };
@@ -314,7 +315,7 @@ describe('BitcoinLocks historical event replay', () => {
       saveRecoveredHistory: vi.fn(async () => undefined),
     };
     vi.spyOn(store, 'getTable').mockResolvedValue(table as never);
-    vi.mocked(BitcoinLockHistory.getHistoricalBitcoinLock)
+    vi.spyOn(BitcoinLock, 'get')
       .mockResolvedValueOnce(
         new BitcoinLock({
           ...createHistoricalLock({ accountId, liquidityPromised: 1_000n, lockedTargetPrice: 1_000n }),
@@ -326,15 +327,14 @@ describe('BitcoinLocks historical event replay', () => {
           ...createHistoricalLock({ accountId, liquidityPromised: 1_050n, lockedTargetPrice: 1_050n }),
           satoshis: 10_500n,
         }),
-      );
-    vi.spyOn(BitcoinLock.prototype, 'getFundingUtxoRef').mockResolvedValue(undefined);
-    vi.spyOn(BitcoinLock, 'get')
+      )
       .mockResolvedValueOnce(
         new BitcoinLock(createHistoricalLock({ accountId, liquidityPromised: 1_200n, lockedTargetPrice: 1_300n })),
       )
       .mockResolvedValueOnce(
         new BitcoinLock(createHistoricalLock({ accountId, liquidityPromised: 1_400n, lockedTargetPrice: 1_500n })),
       );
+    vi.spyOn(BitcoinLock.prototype, 'getFundingUtxoRef').mockResolvedValue(undefined);
 
     await store.recovery.recoverBlock(historyBlock(151), [
       historyEvent(157, 'bitcoinLocks', 'BitcoinLockCreated', {
@@ -427,7 +427,7 @@ describe('BitcoinLocks historical event replay', () => {
         lock.status = BitcoinLockStatus.LockExpiredWaitingForFunding;
       }),
     } as never);
-    vi.mocked(BitcoinLockHistory.getHistoricalBitcoinLock).mockResolvedValue(undefined);
+    vi.spyOn(BitcoinLock, 'get').mockResolvedValue(undefined);
 
     await store.recovery.recoverBlock(historyBlock(157), [
       historyEvent(157, 'bitcoinUtxos', 'UtxoUnwatched', { utxoId: 7 }),
@@ -480,7 +480,7 @@ describe('BitcoinLocks historical event replay', () => {
     store.data.locksByUtxoId[7] = record;
     const saveRecoveredHistory = vi.fn(async () => undefined);
     vi.spyOn(store, 'getTable').mockResolvedValue({ saveRecoveredHistory } as never);
-    vi.mocked(BitcoinLockHistory.getHistoricalBitcoinLock).mockResolvedValue(
+    vi.spyOn(BitcoinLock, 'get').mockResolvedValue(
       new BitcoinLock({
         ...createHistoricalLock({ accountId, liquidityPromised: recoveredLiquidity }),
         isFlexible: isBackfill,
@@ -491,7 +491,7 @@ describe('BitcoinLocks historical event replay', () => {
       vaultId: 1,
       isBackfill,
     });
-    unknownEvent.event.method = method;
+    Object.defineProperty(unknownEvent.event, 'method', { value: method });
 
     const replay = store.recovery.recoverBlock(historyBlock(157), [unknownEvent]);
     if (expectedError) {
@@ -546,9 +546,6 @@ describe('BitcoinLocks historical event replay', () => {
     store.data.locksByUtxoId[7] = record;
     const saveRecoveredHistory = vi.fn(async () => undefined);
     vi.spyOn(store, 'getTable').mockResolvedValue({ saveRecoveredHistory } as never);
-    vi.mocked(BitcoinLockHistory.getHistoricalBitcoinLock).mockResolvedValue(
-      new BitcoinLock(createHistoricalLock({ accountId, liquidityPromised: 1_000n })),
-    );
     const event = historyEvent(158, 'bitcoinLocks', 'BitcoinLockFlexibleChanged', {
       utxoId: 7,
       vaultId: 1,
@@ -599,7 +596,7 @@ describe('BitcoinLocks historical event replay', () => {
     const api = {
       query: {
         bitcoinUtxos: {
-          confirmedBitcoinBlockTip: vi.fn(async () => optionCodec({ blockHeight: numberCodec(600) })),
+          confirmedBitcoinBlockTip: vi.fn(async () => ({ blockHeight: 600, blockHash: '0x600' })),
         },
       },
     };
@@ -670,27 +667,26 @@ describe('BitcoinLocks historical event replay', () => {
       runtimeVersion: { specVersion: numberCodec(156) },
       query: {
         bitcoinUtxos: {
-          confirmedBitcoinBlockTip: vi.fn(async () => optionCodec({ blockHeight: numberCodec(600) })),
+          confirmedBitcoinBlockTip: vi.fn(async () => ({ blockHeight: 600, blockHash: '0x600' })),
         },
         priceIndex: {
-          current: vi.fn(async () =>
-            optionCodec({
-              btcUsdPrice: bigintCodec(1_000_000_000_000_000_000n),
-              argonotUsdPrice: bigintCodec(1_000_000_000_000_000_000n),
-              argonUsdPrice: bigintCodec(500_000_000_000_000_000n),
-              argonUsdTargetPrice: bigintCodec(1_000_000_000_000_000_000n),
-              argonTimeWeightedAverageLiquidity: bigintCodec(1_000_000_000_000_000_000n),
-              tick: numberCodec(152),
-            }),
-          ),
+          current: vi.fn(async () => ({
+            btcUsdPrice: new BigNumber(1),
+            argonotUsdPrice: new BigNumber(1),
+            argonUsdPrice: new BigNumber(0.5),
+            argonUsdTargetPrice: new BigNumber(1),
+            argonTimeWeightedAverageLiquidity: new BigNumber(1),
+            tick: 152,
+          })),
         },
         bitcoinLocks: {
-          utxoIdsByOwnerAccount: { keys: vi.fn(async () => [{ args: [{}, numberCodec(7)] }]) },
-          locksByUtxoId: {
-            multi: vi.fn(async () => [
-              optionCodec({ liquidityPromised: bigintCodec(800n), lockedTargetPrice: bigintCodec(1_400n) }),
-            ]),
-          },
+          utxoIdsByOwnerAccount: { keys: vi.fn(async () => [{ args: [accountId, 7] }]) },
+          locksByUtxoId: Object.assign(
+            vi.fn(async () => null),
+            {
+              multi: vi.fn(async () => [{ liquidityPromised: 800n, lockedTargetPrice: 1_400n }]),
+            },
+          ),
         },
       },
     };
@@ -808,7 +804,7 @@ describe('BitcoinLocks historical event replay', () => {
       ownerBitcoinPubkey: hexToU8a(chainLock.ownerPubkey),
     });
     vi.spyOn(store, 'trackDerivedBitcoinLockKey').mockResolvedValue();
-    vi.mocked(BitcoinLockHistory.getHistoricalBitcoinLock).mockResolvedValue(chainLock);
+    vi.spyOn(BitcoinLock, 'get').mockResolvedValue(chainLock);
     const block = historyBlock(151);
     const events = [
       historyEvent(151, 'bitcoinLocks', 'BitcoinLockCreated', {

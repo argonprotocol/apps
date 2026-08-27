@@ -1,5 +1,5 @@
 import { MainchainClients } from '../MainchainClients.js';
-import { type ArgonClient, getClient } from '@argonprotocol/mainchain';
+import { getClient } from '@argonprotocol/mainchain';
 import { NetworkConfig, NetworkConfigSettings } from '../NetworkConfig.js';
 import * as fs from 'node:fs';
 import * as Path from 'path';
@@ -26,10 +26,10 @@ const ARCHIVE_URL = process.env.ARGON_ARCHIVE_URL;
     console.log(`\n--- Processing network: ${name} ---`, filePath);
     try {
       console.log(`Updating ${name}: ${config.archiveUrl}`);
-      const client = (await Promise.race([
+      const client = await Promise.race([
         getClient(config.archiveUrl),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), 1e3)),
-      ])) as ArgonClient;
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), 1e3)),
+      ]);
       while ((await client.rpc.chain.getHeader().then(x => x.number.toNumber())) === 0) {
         await new Promise(res => setTimeout(res, 100));
         process.stdout.write('..');

@@ -6,8 +6,9 @@ import {
   getOfflineRegistry,
   type PalletTreasuryBondLot,
 } from '@argonprotocol/mainchain';
+import { toPlain, type TreasuryBondLotByIdResult } from '@argonprotocol/runtime-client';
 import type { IFinancialPosition } from '../interfaces/IFinancialPosition.ts';
-import type { IArgonAccountSnapshot } from '../lib/WalletsForArgon.ts';
+import type { IArgonAccountBalance, IArgonAccountSnapshot } from '../lib/WalletsForArgon.ts';
 import type { WalletForArgon } from '../lib/WalletForArgon.ts';
 import type { IMiningCohortFinancialRecord } from '../interfaces/db/ICohortFrameRecord.ts';
 import type { IVaultCapitalHistoryRecord } from '../lib/db/VaultCapitalHistoryTable.ts';
@@ -479,25 +480,29 @@ describe('financials store lifecycle', () => {
       blockHash: '0xbest3',
       blockTime: Date.parse('2026-07-16T12:02:00Z'),
     };
-    const runtimeLot = registry.createType<PalletTreasuryBondLot>('PalletTreasuryBondLot', {
-      owner: `0x${'11'.repeat(32)}`,
-      program: { Argonot: null },
-      bonds: 20,
-      createdFrameId: 1,
-      participatedFrames: 0,
-      lastFrameEarningsFrameId: 1,
-      lastFrameEarnings: 0,
-      cumulativeEarnings: 0,
-      releaseFrameId: null,
-      releaseReason: null,
-    });
-    const treasuryHold = registry.createType<FrameSupportTokensMiscIdAmountRuntimeHoldReason>(
-      'FrameSupportTokensMiscIdAmountRuntimeHoldReason',
-      {
-        id: { Treasury: 'ContributedToTreasury' },
-        amount: 20_000_000n,
-      },
-    );
+    const runtimeLot = toPlain(
+      registry.createType<PalletTreasuryBondLot>('PalletTreasuryBondLot', {
+        owner: `0x${'11'.repeat(32)}`,
+        program: { Argonot: null },
+        bonds: 20,
+        createdFrameId: 1,
+        participatedFrames: 0,
+        lastFrameEarningsFrameId: 1,
+        lastFrameEarnings: 0,
+        cumulativeEarnings: 0,
+        releaseFrameId: null,
+        releaseReason: null,
+      }),
+    ) as NonNullable<TreasuryBondLotByIdResult>;
+    const treasuryHold = toPlain(
+      registry.createType<FrameSupportTokensMiscIdAmountRuntimeHoldReason>(
+        'FrameSupportTokensMiscIdAmountRuntimeHoldReason',
+        {
+          id: { Treasury: 'ContributedToTreasury' },
+          amount: 20_000_000n,
+        },
+      ),
+    ) as IArgonAccountBalance['micronotHolds'][number];
     const pendingSummary = createBitcoinSummary(50n);
     const mintedSummary = createBitcoinSummary(0n);
     const firstSnapshot = createAccountSnapshot(best1, 50n);
@@ -523,7 +528,7 @@ describe('financials store lifecycle', () => {
       if (header.blockHash === best2.blockHash) return best2Client;
       return finalizedClient;
     });
-    const bondLot = BondLot.fromRuntime(1, runtimeLot, runtimeLot.owner.toString());
+    const bondLot = BondLot.fromRuntime(1, runtimeLot, runtimeLot.owner);
     mocks.argonBonds.data.bondLots = [];
     mocks.argonBonds.getOwnBondLots.mockImplementation(async clientAt => {
       return clientAt === best1Client || clientAt === best2Client ? [bondLot] : [];
@@ -809,32 +814,38 @@ describe('financials store lifecycle', () => {
 
   it('publishes successful domain history when Bitcoin recovery fails', async () => {
     const registry = getOfflineRegistry();
-    const runtimeLot = registry.createType<PalletTreasuryBondLot>('PalletTreasuryBondLot', {
-      owner: `0x${'11'.repeat(32)}`,
-      program: { Vault: { vaultId: 4, sharingPercent: 0, bonusPercent: 0 } },
-      bonds: 10,
-      createdFrameId: 1,
-      participatedFrames: 0,
-      lastFrameEarningsFrameId: 1,
-      lastFrameEarnings: 0,
-      cumulativeEarnings: 1_000_000,
-      releaseFrameId: null,
-      releaseReason: null,
-    });
-    const treasuryHold = registry.createType<FrameSupportTokensMiscIdAmountRuntimeHoldReason>(
-      'FrameSupportTokensMiscIdAmountRuntimeHoldReason',
-      {
-        id: { Treasury: 'ContributedToTreasury' },
-        amount: 10_000_000n,
-      },
-    );
-    const vaultHold = registry.createType<FrameSupportTokensMiscIdAmountRuntimeHoldReason>(
-      'FrameSupportTokensMiscIdAmountRuntimeHoldReason',
-      {
-        id: { Vaults: 'EnterVault' },
-        amount: 8_000_000n,
-      },
-    );
+    const runtimeLot = toPlain(
+      registry.createType<PalletTreasuryBondLot>('PalletTreasuryBondLot', {
+        owner: `0x${'11'.repeat(32)}`,
+        program: { Vault: { vaultId: 4, sharingPercent: 0, bonusPercent: 0 } },
+        bonds: 10,
+        createdFrameId: 1,
+        participatedFrames: 0,
+        lastFrameEarningsFrameId: 1,
+        lastFrameEarnings: 0,
+        cumulativeEarnings: 1_000_000,
+        releaseFrameId: null,
+        releaseReason: null,
+      }),
+    ) as NonNullable<TreasuryBondLotByIdResult>;
+    const treasuryHold = toPlain(
+      registry.createType<FrameSupportTokensMiscIdAmountRuntimeHoldReason>(
+        'FrameSupportTokensMiscIdAmountRuntimeHoldReason',
+        {
+          id: { Treasury: 'ContributedToTreasury' },
+          amount: 10_000_000n,
+        },
+      ),
+    ) as IArgonAccountBalance['microgonHolds'][number];
+    const vaultHold = toPlain(
+      registry.createType<FrameSupportTokensMiscIdAmountRuntimeHoldReason>(
+        'FrameSupportTokensMiscIdAmountRuntimeHoldReason',
+        {
+          id: { Vaults: 'EnterVault' },
+          amount: 8_000_000n,
+        },
+      ),
+    ) as IArgonAccountBalance['microgonHolds'][number];
     const snapshot = createAccountSnapshot(mocks.blockWatch.bestBlockHeader);
     snapshot.accounts[0].reservedMicrogons = 18_000_000n;
     snapshot.accounts[0].microgonHolds = [treasuryHold, vaultHold];

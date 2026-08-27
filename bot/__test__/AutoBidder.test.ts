@@ -117,8 +117,8 @@ describe('AutoBidder', () => {
       queryMulti: vi.fn().mockResolvedValue(() => undefined),
       query: {
         miningSlot: {
-          isNextSlotBiddingOpen: vi.fn().mockResolvedValue({ isFalse: false }),
-          nextFrameId: vi.fn().mockResolvedValue({ toNumber: () => 539 }),
+          isNextSlotBiddingOpen: vi.fn().mockResolvedValue(true),
+          nextFrameId: vi.fn().mockResolvedValue(539),
         },
       },
     };

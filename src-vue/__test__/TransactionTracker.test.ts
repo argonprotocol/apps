@@ -681,7 +681,7 @@ describe('TransactionTracker', () => {
       getApi: vi.fn(async () => ({
         query: {
           system: {
-            account: vi.fn(async () => ({ nonce: numberCodec(8) })),
+            account: vi.fn(async () => ({ nonce: 8 })),
           },
         },
       })),
@@ -1359,7 +1359,7 @@ async function createTracker(args: {
   let insertedId = Math.max(0, ...args.txs.map(tx => tx.id));
   const finalizedAccountQuery = vi.fn(async () => {
     if (args.finalizedAccountError) throw args.finalizedAccountError;
-    return { nonce: numberCodec(args.finalizedAccountNonce ?? 0) };
+    return { nonce: args.finalizedAccountNonce ?? 0 };
   });
   const table = {
     fetchAll: vi.fn().mockResolvedValue(args.txs),

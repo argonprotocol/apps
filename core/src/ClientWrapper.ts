@@ -1,5 +1,6 @@
 // util.ts
 import { type ArgonClient, u8aToHex } from '@argonprotocol/mainchain';
+import { runtimeClient, type CurrentRuntimeQueries, type RuntimeClient } from '@argonprotocol/runtime-client';
 
 type AnyFn = (...args: unknown[]) => unknown;
 
@@ -208,14 +209,18 @@ export interface ICallbacks {
 
 const installedSymbol = Symbol('ArgonClientWrapper.installed');
 /** Wrap a Polkadot.js ApiPromise so all calls & callbacks get augmented stacks. */
-export function wrapApi<T extends ArgonClient>(api: T, logid: string, callbacks: ICallbacks): T {
-  if (installedSymbol in (api as object)) {
-    return api; // Already wrapped
-  }
+export function wrapApi<T extends ArgonClient>(
+  api: T,
+  logid: string,
+  callbacks: ICallbacks,
+): RuntimeClient<T, CurrentRuntimeQueries> {
+  const existing = Reflect.get(api, installedSymbol) as RuntimeClient<T, CurrentRuntimeQueries> | undefined;
+  if (existing) return existing;
+
   const ctx = createProxyContext();
-  const result = deepProxy(api, logid, '', callbacks, ctx);
+  const result = runtimeClient(deepProxy(api, logid, '', callbacks, ctx));
   Object.defineProperty(api, installedSymbol, {
-    value: true,
+    value: result,
     enumerable: false,
     configurable: false,
   });

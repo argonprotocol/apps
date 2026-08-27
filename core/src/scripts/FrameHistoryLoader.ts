@@ -1,7 +1,7 @@
-import { MainchainClients } from '../MainchainClients.ts';
+import { type ArgonClient, MainchainClients } from '../MainchainClients.ts';
 import type { IFrameHistory, IFramesHistory } from '../interfaces/IFramesHistory.ts';
 import { NetworkConfig } from '../NetworkConfig.ts';
-import { type ArgonClient, getTickFromHeader } from '@argonprotocol/mainchain';
+import { getTickFromHeader } from '@argonprotocol/mainchain';
 
 export class FrameHistoryLoader {
   constructor(
@@ -28,11 +28,13 @@ export class FrameHistoryLoader {
       const blockNumber = queue.shift()!;
       const blockHash = await archiveClient.rpc.chain.getBlockHash(blockNumber).then(x => x.toHex());
       const api = await archiveClient.at(blockHash);
-      const tick = await api.query.ticks.currentTick().then(x => x.toNumber());
+      const tick = await api.query.ticks.currentTick();
       const specVersion = api.runtimeVersion.specVersion.toNumber();
       let frameId = -1;
       if (specVersion >= 124) {
-        frameId = await api.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1);
+        const nextFrameId = await api.query.miningSlot.nextFrameId();
+        if (nextFrameId === null) break;
+        frameId = nextFrameId - 1;
       } else {
         break;
       }
@@ -284,11 +286,11 @@ export class FrameHistoryLoader {
     const api = await client.at(blockHash);
 
     const rawFrameStartBlocks = await api.query.miningSlot.frameStartBlockNumbers();
-    return rawFrameStartBlocks.map(x => x.toNumber());
+    return rawFrameStartBlocks ? [...rawFrameStartBlocks] : [];
   }
 
   private async getGenesisTick(client: ArgonClient): Promise<number> {
-    return await client.query.ticks.genesisTick().then((x: { toNumber: () => number }) => x.toNumber());
+    return await client.query.ticks.genesisTick();
   }
 
   public static calculatePreSpec141TickForFrame(frameId: number): number {

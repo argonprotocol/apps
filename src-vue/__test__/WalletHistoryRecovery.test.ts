@@ -1,6 +1,5 @@
 import { AccountActivityKind, NetworkConfig, setFetchImplementation } from '@argonprotocol/apps-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { bigintCodec, hexCodec, humanCodec, numberCodec } from '../../core/__test__/helpers/codecs.ts';
 import { WalletForArgon } from '../lib/WalletForArgon.ts';
 import { WalletHistoryRecovery } from '../lib/recovery/WalletHistory.ts';
 import { SyncStateKeys } from '../lib/db/SyncStateTable.ts';
@@ -112,24 +111,14 @@ describe('WalletHistoryRecovery', () => {
       },
       walletTransfersTable: { insert, revision: 0, argonotCustodyRevision: 0 },
     };
-    const eventData = Object.assign(
-      [
-        humanCodec('Ethereum'),
-        hexCodec('0xtransfer'),
-        humanCodec('5default'),
-        { isArgon: false },
-        bigintCodec(40n),
-        bigintCodec(0n),
-      ],
-      {
-        destinationChain: humanCodec('Ethereum'),
-        transferId: hexCodec('0xtransfer'),
-        accountId: humanCodec('5default'),
-        asset: { isArgon: false },
-        amount: bigintCodec(40n),
-        toHuman: () => ({}),
-      },
-    );
+    const eventData = {
+      destinationChain: { type: 'Ethereum' },
+      transferId: '0xtransfer',
+      accountId: '5default',
+      asset: { type: 'Argonot' },
+      amount: 40n,
+      mintingAuthorityTip: 0n,
+    };
     const api = {
       events: {
         balances: { BalanceSet: { is: () => false }, Transfer: { is: () => false } },
@@ -160,7 +149,7 @@ describe('WalletHistoryRecovery', () => {
         events: [
           {
             event: { section: 'crosschainTransfer', method: 'TransferOutStarted', data: eventData },
-            phase: { isApplyExtrinsic: true, asApplyExtrinsic: numberCodec(2) },
+            phase: { type: 'ApplyExtrinsic', value: 2 },
           },
         ],
       })),

@@ -1,4 +1,9 @@
-import { NetworkConfig, NetworkConfigSettings, type INetworkConfigOverride } from '@argonprotocol/apps-core';
+import {
+  NetworkConfig,
+  NetworkConfigSettings,
+  createArgonClient,
+  type INetworkConfigOverride,
+} from '@argonprotocol/apps-core';
 import { getClient } from '@argonprotocol/mainchain';
 
 export async function configureNetwork(archiveUrl?: string): Promise<void> {
@@ -17,7 +22,7 @@ export async function configureNetwork(archiveUrl?: string): Promise<void> {
   NetworkConfig.setNetwork(networkName);
 
   if (networkName === 'localnet' || networkName === 'dev-docker') {
-    const client = await getClient(archiveUrl ?? NetworkConfigSettings[networkName].archiveUrl);
+    const client = createArgonClient(await getClient(archiveUrl ?? NetworkConfigSettings[networkName].archiveUrl));
     await NetworkConfig.updateConfig(client);
     await client.disconnect();
   }

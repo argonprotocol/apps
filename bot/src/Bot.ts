@@ -1,6 +1,6 @@
 import * as Fs from 'node:fs';
 import { promises as fs } from 'node:fs';
-import { type ArgonClient, type KeyringPair } from '@argonprotocol/mainchain';
+import { type KeyringPair } from '@argonprotocol/mainchain';
 import { Storage } from './Storage.ts';
 import { AutoBidder } from './AutoBidder.ts';
 import { BlockSync } from './BlockSync.ts';
@@ -11,6 +11,7 @@ import { setTimeout } from 'node:timers/promises';
 import { EthereumBeaconSyncService } from './EthereumBeaconSyncService.ts';
 import {
   Accountset,
+  type ArgonClient,
   type AccountsetOptions,
   createDeferred,
   FatalError,
@@ -206,7 +207,7 @@ export default class Bot {
       let currentFrameId = await this.currentFrameId.catch(() => 0);
       try {
         const client = await this.mainchainClients.archiveClientPromise;
-        currentFrameId = await client.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1);
+        currentFrameId = await client.query.miningSlot.nextFrameId().then(x => x - 1);
       } catch (error) {
         console.error('Error initializing archive client', error);
         throw error;

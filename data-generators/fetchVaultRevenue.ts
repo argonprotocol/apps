@@ -54,10 +54,10 @@ export async function fetchVaultRevenue() {
 
       const client = await mainchain.prunedClientOrArchivePromise;
       const utxos = await client.query.bitcoinLocks.locksByUtxoId.entries();
-      for (const [_utxoId, utxo] of utxos) {
-        const vaultId = utxo.unwrap().vaultId.toNumber();
-        const satoshis = utxo.unwrap().satoshis.toBigInt();
-        const liquidityPromised = utxo.unwrap().liquidityPromised.toBigInt();
+      for (const [, utxo] of utxos) {
+        if (!utxo) continue;
+
+        const { vaultId, satoshis, liquidityPromised } = utxo;
         const vaultStats = data.vaultsById[vaultId].baseline;
         vaultStats.bitcoinLocks += 1;
         vaultStats.satoshis += satoshis;

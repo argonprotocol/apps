@@ -1,13 +1,13 @@
-import { type FrameSystemEventRecord, getOfflineRegistry, type PalletTreasuryBondLot } from '@argonprotocol/mainchain';
+import { type FrameSystemEventRecord, getOfflineRegistry } from '@argonprotocol/mainchain';
+import { toPlain, type TreasuryBondLotByIdResult } from '@argonprotocol/runtime-client';
 import { describe, expect, it, vi } from 'vitest';
 import { ArgonBonds } from '../lib/ArgonBonds.ts';
 import { ArgonBondsFinancials } from '../lib/financials/ArgonBonds.ts';
 import { createTestDb } from './helpers/db.ts';
-import { createHistoricalEventData } from '../../indexer/__test__/helpers/historicalEvents.ts';
 import { BondLot, createDeferred, Currency, TreasuryBonds } from '@argonprotocol/apps-core';
 import type { WalletForArgon } from '../lib/WalletForArgon.ts';
 import { encodeAddress } from '@polkadot/util-crypto';
-import { bigintCodec, numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts';
+import { numberCodec } from '../../core/__test__/helpers/codecs.ts';
 import { ExtrinsicType } from '../lib/db/TransactionsTable.ts';
 
 const registry = getOfflineRegistry();
@@ -15,7 +15,7 @@ const accountId = encodeAddress(new Uint8Array(32).fill(0x22));
 
 describe('ArgonBonds', () => {
   it('keeps best-chain bond purchases visible during active-state recovery', async () => {
-    const lotCodec = registry.createType<PalletTreasuryBondLot>('PalletTreasuryBondLot', {
+    const lotCodec = createRuntimeBondLot({
       owner: accountId,
       program: { Argonot: null },
       bonds: 20,
@@ -56,7 +56,7 @@ describe('ArgonBonds', () => {
 
   it('records automatic releases from finalized frame blocks', async () => {
     const db = await createTestDb();
-    const lot = registry.createType<PalletTreasuryBondLot>('PalletTreasuryBondLot', {
+    const lot = createRuntimeBondLot({
       owner: accountId,
       program: { Vault: { vaultId: 4, sharingPercent: 0, bonusPercent: 0 } },
       bonds: 10,
@@ -78,7 +78,7 @@ describe('ArgonBonds', () => {
       runtimeVersion: { specVersion: numberCodec(156) },
       query: {
         treasury: {
-          bondLotById: vi.fn(async () => optionCodec(lot)),
+          bondLotById: vi.fn(async () => lot),
         },
       },
     };
@@ -105,17 +105,17 @@ describe('ArgonBonds', () => {
       { defaultArgonAddress: accountId } as any,
       {} as any,
     );
-    const data = createHistoricalEventData(156, 'treasury', 'BondLotPurchased', {
-      programId: { Vault: { vaultId: 4 } },
+    const data = {
+      programId: { type: 'Vault', value: { vaultId: 4 } },
       bondLotId: 7,
       accountId,
       bonds: 10,
-    });
+    };
 
     await argonBonds.importHistoryBlock(block as any, [
       {
         event: { section: 'treasury', method: 'BondLotPurchased', data },
-        phase: { isApplyExtrinsic: true, asApplyExtrinsic: numberCodec(2) },
+        phase: { type: 'ApplyExtrinsic', value: 2 },
       } as any,
     ]);
     const releaseBlock = { ...block, blockNumber: 110, blockHash: '0x110', isNewFrame: true };
@@ -124,15 +124,15 @@ describe('ArgonBonds', () => {
         event: {
           section: 'treasury',
           method: 'BondLotReleased',
-          data: createHistoricalEventData(156, 'treasury', 'BondLotReleased', {
+          data: {
             frameId: 12,
-            programId: { Vault: { vaultId: 4 } },
+            programId: { type: 'Vault', value: { vaultId: 4 } },
             bondLotId: 7,
             accountId,
             bonds: 10,
-          }),
+          },
         },
-        phase: { isApplyExtrinsic: false },
+        phase: { type: 'Initialization' },
       } as any,
     ];
 
@@ -157,7 +157,7 @@ describe('ArgonBonds', () => {
 
   it('records a finalized liquidation without a progress subscriber', async () => {
     const db = await createTestDb();
-    const activeCodec = registry.createType<PalletTreasuryBondLot>('PalletTreasuryBondLot', {
+    const activeCodec = createRuntimeBondLot({
       owner: accountId,
       program: { Argonot: null },
       bonds: 10,
@@ -169,7 +169,7 @@ describe('ArgonBonds', () => {
       releaseFrameId: null,
       releaseReason: null,
     });
-    const releasingCodec = registry.createType<PalletTreasuryBondLot>('PalletTreasuryBondLot', {
+    const releasingCodec = createRuntimeBondLot({
       owner: accountId,
       program: { Argonot: null },
       bonds: 10,
@@ -197,7 +197,11 @@ describe('ArgonBonds', () => {
     const blockWatch = {
       getHeader: vi.fn(async () => block),
       getApi: vi.fn(async () => ({
-        query: { treasury: { bondLotById: vi.fn(async () => optionCodec(releasingCodec)) } },
+        query: {
+          treasury: {
+            bondLotById: vi.fn(async () => releasingCodec),
+          },
+        },
       })),
     };
     const argonBonds = new ArgonBonds(
@@ -231,7 +235,7 @@ describe('ArgonBonds', () => {
 
   it('repairs missing purchase provenance from finalized local transactions without blocking load', async () => {
     const db = await createTestDb();
-    const vaultCodec = registry.createType<PalletTreasuryBondLot>('PalletTreasuryBondLot', {
+    const vaultCodec = createRuntimeBondLot({
       owner: accountId,
       program: { Vault: { vaultId: 4, sharingPercent: 0, bonusPercent: 0 } },
       bonds: 10,
@@ -243,7 +247,7 @@ describe('ArgonBonds', () => {
       releaseFrameId: null,
       releaseReason: null,
     });
-    const argonotCodec = registry.createType<PalletTreasuryBondLot>('PalletTreasuryBondLot', {
+    const argonotCodec = createRuntimeBondLot({
       owner: accountId,
       program: { Argonot: null },
       bonds: 20,
@@ -291,13 +295,15 @@ describe('ArgonBonds', () => {
               {
                 section: 'treasury',
                 method: 'BondLotPurchased',
-                data: createHistoricalEventData(156, 'treasury', 'BondLotPurchased', {
+                data: {
                   programId:
-                    bondLot.programType === 'Argonot' ? { Argonot: null } : { Vault: { vaultId: bondLot.vaultId } },
+                    bondLot.programType === 'Argonot'
+                      ? { type: 'Argonot' }
+                      : { type: 'Vault', value: { vaultId: bondLot.vaultId } },
                   bondLotId: bondLot.id,
                   accountId,
                   bonds: bondLot.bonds,
-                }),
+                },
               },
             ],
           },
@@ -315,7 +321,7 @@ describe('ArgonBonds', () => {
         query: {
           treasury: {
             bondLotById: vi.fn(async (bondLotId: number) => {
-              return optionCodec(bondLotId === 7 ? vaultCodec : argonotCodec);
+              return bondLotId === 7 ? vaultCodec : argonotCodec;
             }),
           },
         },
@@ -356,7 +362,7 @@ describe('ArgonBonds', () => {
   });
 
   it('rejects bond positions when Treasury holds do not match their principal', async () => {
-    const lot = registry.createType<PalletTreasuryBondLot>('PalletTreasuryBondLot', {
+    const lot = createRuntimeBondLot({
       owner: accountId,
       program: { Vault: { vaultId: 4, sharingPercent: 0, bonusPercent: 0 } },
       bonds: 10,
@@ -389,8 +395,8 @@ describe('ArgonBonds', () => {
       reservedMicronots: 0n,
       microgonHolds: [
         {
-          id: { isTreasury: true },
-          amount: bigintCodec(9_000_000n),
+          id: { type: 'Treasury' },
+          amount: 9_000_000n,
         },
       ],
       micronotHolds: [],
@@ -405,3 +411,7 @@ describe('ArgonBonds', () => {
     ).rejects.toThrow(`ARGN Treasury holds do not match live bond principal for ${accountId}`);
   });
 });
+
+function createRuntimeBondLot(value: unknown): NonNullable<TreasuryBondLotByIdResult> {
+  return toPlain(registry.createType('PalletTreasuryBondLot', value)) as NonNullable<TreasuryBondLotByIdResult>;
+}

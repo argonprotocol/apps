@@ -204,7 +204,7 @@ async function loadData() {
       vaultingStats.update(),
     ]);
 
-    currentBlockNumber.value = blockNumber.toNumber();
+    currentBlockNumber.value = blockNumber;
     microgonsInCirculation.value = microgons;
     micronotsInCirculation.value = micronots;
 

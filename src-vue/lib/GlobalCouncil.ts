@@ -1,12 +1,13 @@
-import { createDeferred, MiningFrames } from '@argonprotocol/apps-core';
+import {
+  type ArgonClient,
+  type ArgonQueryClient,
+  createDeferred,
+  MiningFrames,
+  IDeferred,
+} from '@argonprotocol/apps-core';
 import { u8aToHex } from '@argonprotocol/mainchain';
-import type { IDeferred } from '@argonprotocol/apps-core';
-import type {
-  ApiDecoration,
-  ArgonClient,
-  PalletCrosschainTransferCouncilApprovalQueueEntry,
-  SubmittableExtrinsic,
-} from '@argonprotocol/mainchain';
+import type { SubmittableExtrinsic } from '@argonprotocol/mainchain';
+import type { CrosschainTransferCouncilApprovalQueueByDestinationChainAndNonceResultSpec151 } from '@argonprotocol/runtime-client';
 import { u8aConcat } from '@polkadot/util';
 import type { Db } from './Db.ts';
 import type { WalletKeys } from './WalletKeys.ts';
@@ -128,7 +129,7 @@ export class GlobalCouncil {
   }
 
   public async refresh(
-    finalizedClient: ApiDecoration<'promise'>,
+    finalizedClient: ArgonQueryClient,
     updateSeq = ++this.#updateSeq,
   ): Promise<IGlobalCouncilApproval[]> {
     const db = await this.dbPromise;
@@ -214,10 +215,7 @@ export class GlobalCouncil {
       client.query.crosschainTransfer.pendingCouncilSignerByDestinationChainAndAccountId('Ethereum', accountId),
     ]);
 
-    if (
-      (activeSigner.isSome && activeSigner.unwrap().toHex().toLowerCase() === signer) ||
-      (pendingSigner.isSome && pendingSigner.unwrap().toHex().toLowerCase() === signer)
-    ) {
+    if (activeSigner?.toLowerCase() === signer || pendingSigner?.toLowerCase() === signer) {
       return;
     }
 
@@ -421,7 +419,7 @@ export class GlobalCouncil {
 }
 
 async function getPendingCouncilApprovals(
-  finalizeClient: ApiDecoration<'promise'>,
+  finalizeClient: ArgonQueryClient,
   walletKeys: WalletKeys,
   walletHdKeysTable: WalletHdKeysTable,
 ): Promise<{
@@ -467,24 +465,22 @@ async function getPendingCouncilApprovals(
     finalizeClient.query.crosschainTransfer.transferOutQuoteMicrogonsPerArgonotByDestinationChain?.('Ethereum'),
   ]);
 
-  const councilSigner = councilSignerOption.isSome ? councilSignerOption.unwrap().toHex() : undefined;
+  const councilSigner = councilSignerOption ?? undefined;
   const pendingApprovals: IGlobalCouncilApproval[] = [];
   const approvalQueue: IGlobalCouncilQueueItem[] = [];
   const approvalQueueCandidates: Array<{
     approval: IGlobalCouncilApproval;
-    entry: PalletCrosschainTransferCouncilApprovalQueueEntry;
+    entry: NonNullable<CrosschainTransferCouncilApprovalQueueByDestinationChainAndNonceResultSpec151>;
     hasLocalSignature: boolean;
   }> = [];
   const canSignCouncilApprovals = councilSigner?.toLowerCase() === councilSignerAddress.toLowerCase();
   let sharedRelayQueueKey: string | undefined;
-  const gatewayActivityCount = gatewayStateOption.isSome
-    ? (gatewayStateOption.unwrap().gatewayActivityNonce?.toBigInt() ?? 0n)
-    : 0n;
+  const gatewayActivityCount = gatewayStateOption?.gatewayActivityNonce ?? 0n;
 
-  if (canSignCouncilApprovals && !councilApprovalCursorOption.isNone) {
-    const lastSyncedNonce = gatewayStateOption.isSome ? gatewayStateOption.unwrap().argonApprovalsNonce.toBigInt() : 0n;
-    const lastSignedNonce = councilApprovalCursorOption.unwrap().toBigInt();
-    const nextPendingQueueNonce = nextQueueNonce.toBigInt();
+  if (canSignCouncilApprovals && councilApprovalCursorOption !== null) {
+    const lastSyncedNonce = gatewayStateOption?.argonApprovalsNonce ?? 0n;
+    const lastSignedNonce = councilApprovalCursorOption;
+    const nextPendingQueueNonce = nextQueueNonce ?? 0n;
     let reachedQueueEnd = false;
     for (
       let batchStartNonce = lastSyncedNonce + 1n;
@@ -504,68 +500,64 @@ async function getPendingCouncilApprovals(
         await finalizeClient.query.crosschainTransfer.councilApprovalQueueByDestinationChainAndNonce.multi(
           batchNonces.map(queueNonce => ['Ethereum', queueNonce]),
         );
-      for (const [index, entryOption] of entryOptions.entries()) {
-        if (entryOption.isNone) {
+      for (const [index, entry] of (entryOptions ?? []).entries()) {
+        if (!entry) {
           reachedQueueEnd = true;
           break;
         }
 
         const queueNonce = batchNonces[index];
-        const entry = entryOption.unwrap();
-        const approvalHash = entry.approvalHash.toHex();
+        const approvalHash = entry.approvalHash;
         let approval: IGlobalCouncilApproval;
-        if (entry.target.isMintingAuthorityActivation) {
+        if (entry.target.type === 'MintingAuthorityActivation') {
           approval = {
             approvalHash,
             queueNonce,
             targetKind: 'mintingAuthorityActivation',
-            targetSigningKey: entry.target.asMintingAuthorityActivation.toHex(),
+            targetSigningKey: entry.target.value,
           };
-        } else if (entry.target.isMintingAuthorityDeactivation) {
+        } else if (entry.target.type === 'MintingAuthorityDeactivation') {
           approval = {
             approvalHash,
             queueNonce,
             targetKind: 'mintingAuthorityDeactivation',
-            targetSigningKey: entry.target.asMintingAuthorityDeactivation.toHex(),
+            targetSigningKey: entry.target.value,
           };
-        } else if (entry.target.isGlobalIssuanceCouncilRotation) {
+        } else if (entry.target.type === 'GlobalIssuanceCouncilRotation') {
           approval = {
             approvalHash,
             queueNonce,
             targetKind: 'globalIssuanceCouncilRotation',
-            targetCouncilHash: entry.target.asGlobalIssuanceCouncilRotation.toHex(),
+            targetCouncilHash: entry.target.value,
           };
         } else {
-          throw new Error(`Unsupported approval queue target ${entry.target.type}`);
+          continue;
         }
 
         approvalQueueCandidates.push({ approval, entry, hasLocalSignature: queueNonce <= lastSignedNonce });
       }
     }
 
-    const approvingCouncilHashes = [
-      ...new Set(approvalQueueCandidates.map(({ entry }) => entry.approvingCouncilHash.toHex())),
-    ];
+    const approvingCouncilHashes = [...new Set(approvalQueueCandidates.map(({ entry }) => entry.approvingCouncilHash))];
     const approvingCouncilOptions = approvingCouncilHashes.length
       ? await finalizeClient.query.crosschainTransfer.globalIssuanceCouncilByHash.multi(approvingCouncilHashes)
       : [];
     const approvingCouncilsByHash = new Map(
-      approvingCouncilHashes.map((hash, index) => [hash, approvingCouncilOptions[index]]),
+      approvingCouncilHashes.map((hash, index) => [hash, approvingCouncilOptions?.[index]]),
     );
 
     for (const { approval, entry, hasLocalSignature } of approvalQueueCandidates) {
-      const approvingCouncilHash = entry.approvingCouncilHash.toHex();
-      const approvingCouncilOption = approvingCouncilsByHash.get(approvingCouncilHash);
-      if (!approvingCouncilOption?.isSome) {
+      const approvingCouncilHash = entry.approvingCouncilHash;
+      const approvingCouncil = approvingCouncilsByHash.get(approvingCouncilHash);
+      if (!approvingCouncil) {
         throw new Error(`GlobalIssuanceCouncil ${approvingCouncilHash} not found.`);
       }
 
-      const approvingCouncil = approvingCouncilOption.unwrap();
       const approvalProgress = {
-        approvedWeight: entry.approvedTotalWeight.toBigInt(),
-        totalWeight: approvingCouncil.totalWeight.toBigInt(),
-        signatureCount: entry.signatures.size,
-        memberCount: approvingCouncil.members.size,
+        approvedWeight: entry.approvedTotalWeight,
+        totalWeight: approvingCouncil.totalWeight,
+        signatureCount: Object.keys(entry.signatures).length,
+        memberCount: Object.keys(approvingCouncil.members).length,
       };
       const isReadyForRelay = hasGatewayApprovalQuorum(approvalProgress);
       const status = isReadyForRelay ? 'readyForRelay' : hasLocalSignature ? 'awaitingCouncilQuorum' : 'needsSignature';
@@ -588,35 +580,34 @@ async function getPendingCouncilApprovals(
       )
     : [];
   for (const [index, approval] of authorityApprovals.entries()) {
-    const authorityOption = authorityOptions[index];
-    if (authorityOption.isSome) approval.authorityOwnerAccount = authorityOption.unwrap().accountId.toString();
+    const authority = authorityOptions?.[index];
+    if (authority) approval.authorityOwnerAccount = authority.accountId;
   }
 
   const councilApprovals = approvalQueue.filter(approval => approval.targetKind === 'globalIssuanceCouncilRotation');
   const councilHashes = [
-    ...(activeCouncilHashOption?.isSome ? [activeCouncilHashOption.unwrap().toHex()] : []),
+    ...(activeCouncilHashOption ? [activeCouncilHashOption] : []),
     ...councilApprovals.map(approval => approval.targetCouncilHash),
   ];
   const councilOptions = councilHashes.length
     ? await finalizeClient.query.crosschainTransfer.globalIssuanceCouncilByHash.multi(councilHashes)
     : [];
-  const activeCouncil = activeCouncilHashOption?.isSome ? councilOptions[0]?.unwrap() : undefined;
+  const activeCouncil = activeCouncilHashOption ? (councilOptions?.[0] ?? undefined) : undefined;
   const isActiveCouncilMember = isAccountInGlobalIssuanceCouncil(activeCouncil, walletKeys.vaultingAddress);
   const activeMemberAccounts = new Set(
-    activeCouncil ? [...activeCouncil.members.values()].map(member => member.accountId.toString()) : [],
+    activeCouncil ? Object.values(activeCouncil.members).map(member => member.accountId) : [],
   );
-  const targetOffset = activeCouncilHashOption?.isSome ? 1 : 0;
+  const targetOffset = activeCouncilHashOption ? 1 : 0;
   for (const [index, approval] of councilApprovals.entries()) {
-    const councilOption = councilOptions[index + targetOffset];
-    if (!councilOption?.isSome) continue;
+    const council = councilOptions?.[index + targetOffset];
+    if (!council) continue;
 
-    const council = councilOption.unwrap();
-    const targetMemberAccounts = new Set([...council.members.values()].map(member => member.accountId.toString()));
+    const targetMemberAccounts = new Set(Object.values(council.members).map(member => member.accountId));
     approval.councilChange = {
       vaultCount: targetMemberAccounts.size,
       newVaultCount: [...targetMemberAccounts].filter(accountId => !activeMemberAccounts.has(accountId)).length,
       leavingVaultCount: [...activeMemberAccounts].filter(accountId => !targetMemberAccounts.has(accountId)).length,
-      epochMicrogonsPerArgonot: council.epochMicrogonsPerArgonot.toBigInt(),
+      epochMicrogonsPerArgonot: council.epochMicrogonsPerArgonot,
     };
   }
   for (const pendingApproval of pendingApprovals) {
@@ -641,10 +632,8 @@ async function getPendingCouncilApprovals(
     pendingApprovals,
     approvalQueue,
     gatewayActivityCount,
-    activeEpochMicrogonsPerArgonot: activeCouncil?.epochMicrogonsPerArgonot.toBigInt(),
-    transferOutMicrogonsPerArgonot: transferOutQuoteOption?.isSome
-      ? transferOutQuoteOption.unwrap().toBigInt()
-      : activeCouncil?.epochMicrogonsPerArgonot.toBigInt(),
+    activeEpochMicrogonsPerArgonot: activeCouncil?.epochMicrogonsPerArgonot,
+    transferOutMicrogonsPerArgonot: transferOutQuoteOption ?? activeCouncil?.epochMicrogonsPerArgonot,
     hasReadyGatewayUpdates,
     sharedRelayQueueKey,
   };

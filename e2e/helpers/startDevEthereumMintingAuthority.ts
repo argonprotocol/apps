@@ -1,6 +1,10 @@
-import { MainchainClients, minimumVaultDelegateBalance, NetworkConfig } from '@argonprotocol/apps-core';
+import {
+  type ArgonClient,
+  MainchainClients,
+  minimumVaultDelegateBalance,
+  NetworkConfig,
+} from '@argonprotocol/apps-core';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
-import type { ArgonClient } from '@argonprotocol/mainchain';
 import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { createPublicClient, getAddress, http } from 'viem';
 import { sudoSubmitAndFinalize } from '../../core/__test__/helpers/mainchain.ts';
@@ -394,8 +398,8 @@ async function ensureArgonBalance(args: {
   micronots: bigint;
 }) {
   const [microgonBalance, micronotBalance] = await Promise.all([
-    args.client.query.system.account(args.address).then(x => x.data.free.toBigInt()),
-    args.client.query.ownership.account(args.address).then(x => x.free.toBigInt()),
+    args.client.query.system.account(args.address).then(x => x.data.free),
+    args.client.query.ownership.account(args.address).then(x => x.free),
   ]);
   const neededMicrogons = args.microgons > microgonBalance ? args.microgons - microgonBalance : 0n;
   const neededMicronots = args.micronots > micronotBalance ? args.micronots - micronotBalance : 0n;
@@ -414,7 +418,7 @@ async function ensureArgonBalance(args: {
 async function ensureMinimumMintingAuthorityValue(client: ArgonClient) {
   const currentMinimum =
     await client.query.crosschainTransfer.minimumMintingAuthorityValueByDestinationChain('Ethereum');
-  if (currentMinimum.toBigInt() === 1n) {
+  if (currentMinimum === 1n) {
     return;
   }
 

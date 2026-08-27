@@ -8,7 +8,6 @@ import {
   type MainchainClients,
   MiningFrames,
   NetworkConfig,
-  readEventField,
 } from '@argonprotocol/apps-core';
 import { getClient } from '@argonprotocol/mainchain';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -66,12 +65,12 @@ runWithReplay('Bond financial history replay corpus', () => {
             if (
               event.section !== 'treasury' ||
               (event.method !== 'BondLotPurchased' && event.method !== 'BondLotReleased') ||
-              readEventField(event, 'accountId')?.toString() !== accountId
+              event.data.accountId !== accountId
             ) {
               continue;
             }
 
-            const bondLotId = Number(readEventField(event, 'bondLotId')?.toString());
+            const bondLotId = event.data.bondLotId;
             if (!Number.isSafeInteger(bondLotId)) continue;
 
             capturedLifecycleEvents.push({

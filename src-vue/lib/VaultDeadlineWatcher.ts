@@ -73,15 +73,15 @@ export class VaultDeadlineWatcher {
     await this.miningFrames.load();
 
     const sub1 = await client.query.miningSlot.nextFrameId(frameId => {
-      this.currentFrameId = frameId.toNumber() - 1;
+      this.currentFrameId = frameId - 1;
       this.emitState();
     });
 
     const sub2 = await client.query.vaults.revenuePerFrameByVault(this.vaultId, frameRevenues => {
       this.collectFrames = [...frameRevenues]
         .map(frameRevenue => ({
-          frameId: frameRevenue.frameId.toNumber(),
-          uncollectedEarnings: frameRevenue.uncollectedRevenue.toBigInt(),
+          frameId: frameRevenue.frameId,
+          uncollectedEarnings: frameRevenue.uncollectedRevenue,
         }))
         .sort((left, right) => right.frameId - left.frameId);
       this.pendingCollectRevenue = this.collectFrames.reduce((total, frame) => total + frame.uncollectedEarnings, 0n);
@@ -107,11 +107,11 @@ export class VaultDeadlineWatcher {
 
   private async updateCosignDueFrames(
     client: ArgonClient,
-    rawUtxoIds: Iterable<{ toNumber(): number }>,
+    rawUtxoIds: Iterable<number>,
     updateSeq: number,
   ): Promise<void> {
     const priorDueFrames = this.cosignDueFrames;
-    const utxoIds = Array.from(rawUtxoIds, utxoId => utxoId.toNumber());
+    const utxoIds = Array.from(rawUtxoIds);
     const newDueFrames = new Map<number, number | undefined>();
 
     const releaseRequests = utxoIds.length
@@ -124,8 +124,8 @@ export class VaultDeadlineWatcher {
 
     for (let i = 0; i < utxoIds.length; i += 1) {
       const id = utxoIds[i];
-      const releaseRaw = releaseRequests[i];
-      const dueFrame = releaseRaw.isSome ? releaseRaw.unwrap().cosignDueFrame.toNumber() : priorDueFrames.get(id);
+      const release = releaseRequests[i];
+      const dueFrame = release ? Number(release.cosignDueFrame) : priorDueFrames.get(id);
       newDueFrames.set(id, dueFrame);
     }
 

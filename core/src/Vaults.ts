@@ -1,11 +1,7 @@
+import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
+import { u8aToString } from '@polkadot/util';
 import {
-  type IArgonQueryable,
-  type Option,
-  type PalletOperationalAccountsOperationalAccount,
-  type PalletVaultsVaultFrameRevenue,
-  u128,
-} from '@argonprotocol/mainchain';
-import {
+  type ArgonQueryClient,
   bigNumberToBigInt,
   convertBigIntStringToNumber,
   createDeferred,
@@ -35,6 +31,8 @@ import {
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1_000;
 export const VAULT_REVENUE_COUPON_SPEC_VERSION = 145;
 export const VAULT_STATS_FORMAT_VERSION = 2;
+type RuntimeOperationalAccount = NonNullable<HistoricalQueryRecord<'operationalAccounts', 'operationalAccounts'>>;
+type RuntimeVaultFrameRevenue = NonNullable<HistoricalQueryRecord<'vaults', 'revenuePerFrameByVault'>>[number];
 
 export class Vaults {
   public readonly vaultsById: { [id: number]: Vault } = {};
@@ -64,12 +62,13 @@ export class Vaults {
       await this.miningFrames.load();
       const vaults = await client.query.vaults.vaultsById.entries();
       for (const [vaultIdRaw, vaultRaw] of vaults) {
-        const id = vaultIdRaw.args[0].toNumber();
-        const raw = vaultRaw.unwrap();
+        if (!vaultRaw) continue;
+        const id = vaultIdRaw.args[0];
+        const raw = vaultRaw;
         this.vaultsById[id] = new Vault(id, raw, NetworkConfig.tickMillis);
         this.vaultSatoshisById[id] = {
-          lockedSatoshis: raw.lockedSatoshis.toBigInt(),
-          securitizedSatoshis: raw.securitizedSatoshis.toBigInt(),
+          lockedSatoshis: raw.lockedSatoshis,
+          securitizedSatoshis: raw.securitizedSatoshis,
         };
       }
       await this.refreshOperatorNames({ client, vaults: Object.values(this.vaultsById) });
@@ -85,51 +84,53 @@ export class Vaults {
   public async refreshVault(vaultId: number): Promise<Vault | undefined> {
     const client = await this.mainchainClients.get(false);
     const vaultOption = await client.query.vaults.vaultsById(vaultId);
-    if (!vaultOption.isSome) {
+    if (!vaultOption) {
       delete this.vaultsById[vaultId];
       delete this.vaultSatoshisById[vaultId];
       delete this.operatorNamesByVaultId[vaultId];
       return;
     }
 
-    const raw = vaultOption.unwrap();
+    const raw = vaultOption;
     const vault = new Vault(vaultId, raw, NetworkConfig.tickMillis);
     this.vaultsById[vaultId] = vault;
     this.vaultSatoshisById[vaultId] = {
-      lockedSatoshis: raw.lockedSatoshis.toBigInt(),
-      securitizedSatoshis: raw.securitizedSatoshis.toBigInt(),
+      lockedSatoshis: raw.lockedSatoshis,
+      securitizedSatoshis: raw.securitizedSatoshis,
     };
     return vault;
   }
 
   public async refreshOperatorNames(args: {
     vaults: Pick<Vault, 'vaultId' | 'operatorAccountId'>[];
-    client?: IArgonQueryable;
+    client?: ArgonQueryClient;
   }): Promise<void> {
     if (!args.vaults.length) return;
 
     try {
       const client = args.client ?? (await this.mainchainClients.get(false));
-      const operationalAccountOptions = await client.query.operationalAccounts.operationalAccountBySubAccount.multi(
-        args.vaults.map(vault => vault.operatorAccountId),
-      );
-      const vaultsWithOperationalAccounts = [];
+      const operationalAccountOptions =
+        (await client.query.operationalAccounts.operationalAccountBySubAccount.multi(
+          args.vaults.map(vault => vault.operatorAccountId),
+        )) ?? [];
+      const vaultsWithOperationalAccounts: [Pick<Vault, 'vaultId' | 'operatorAccountId'>, string][] = [];
 
       for (const [index, vault] of args.vaults.entries()) {
         const operationalAccountId = operationalAccountOptions[index];
-        if (operationalAccountId?.isSome) {
-          vaultsWithOperationalAccounts.push([vault, operationalAccountId.unwrap()] as const);
+        if (operationalAccountId) {
+          vaultsWithOperationalAccounts.push([vault, operationalAccountId]);
         } else {
           this.setOperatorName(vault.vaultId);
         }
       }
       if (!vaultsWithOperationalAccounts.length) return;
 
-      const profileOptions = await client.query.operationalAccounts.operationalAccounts.multi(
-        vaultsWithOperationalAccounts.map(([, operationalAccountId]) => operationalAccountId),
-      );
+      const profileOptions =
+        (await client.query.operationalAccounts.operationalAccounts.multi(
+          vaultsWithOperationalAccounts.map(([, operationalAccountId]) => operationalAccountId),
+        )) ?? [];
       for (const [index, [vault]] of vaultsWithOperationalAccounts.entries()) {
-        this.setOperatorName(vault.vaultId, profileOptions[index]);
+        this.setOperatorName(vault.vaultId, profileOptions[index] ?? undefined);
       }
     } catch (error) {
       console.warn('[Vaults] Unable to load operator profile names', error);
@@ -140,29 +141,30 @@ export class Vaults {
     const client = await this.mainchainClients.get(false);
 
     return await client.query.vaults.vaultsById(vaultId, vaultOption => {
-      if (!vaultOption.isSome) return;
-      const raw = vaultOption.unwrap();
+      if (!vaultOption) return;
+      const raw = vaultOption;
       this.vaultsById[vaultId] = new Vault(vaultId, raw, NetworkConfig.tickMillis);
       this.vaultSatoshisById[vaultId] = {
-        lockedSatoshis: raw.lockedSatoshis.toBigInt(),
-        securitizedSatoshis: raw.securitizedSatoshis.toBigInt(),
+        lockedSatoshis: raw.lockedSatoshis,
+        securitizedSatoshis: raw.securitizedSatoshis,
       };
       onUpdate(this.vaultsById[vaultId]);
     });
   }
 
-  protected setOperatorName(
-    vaultId: number,
-    profile?: Option<PalletOperationalAccountsOperationalAccount>,
-  ): string | undefined {
-    const profileName = profile?.isSome ? profile.unwrap().name : undefined;
-    const name = profileName?.isSome ? profileName.unwrap().toUtf8().trim() : undefined;
+  protected setOperatorName(vaultId: number, profile?: RuntimeOperationalAccount): string | undefined {
+    const profileName = profile && 'name' in profile ? profile.name : undefined;
+    const name = profileName ? u8aToString(profileName).trim() : undefined;
     if (name) this.operatorNamesByVaultId[vaultId] = name;
     else delete this.operatorNamesByVaultId[vaultId];
     return name;
   }
 
-  public async updateVaultRevenue(vaultId: number, frameRevenues: PalletVaultsVaultFrameRevenue[], skipSaving = false) {
+  public async updateVaultRevenue(
+    vaultId: number,
+    frameRevenues: readonly RuntimeVaultFrameRevenue[],
+    skipSaving = false,
+  ) {
     this.stats ??= {
       formatVersion: VAULT_STATS_FORMAT_VERSION,
       synchedToFrame: 0,
@@ -182,50 +184,59 @@ export class Vaults {
 
     const frameChanges = this.stats.vaultsById[vaultId].changesByFrame;
     for (const frameRevenue of frameRevenues) {
-      const frameId = frameRevenue.frameId.toNumber();
+      const frameId = frameRevenue.frameId;
       const existing = frameChanges.find(x => frameId === x.frameId);
 
-      const revenue = frameRevenue as PalletVaultsVaultFrameRevenue & {
-        // renamed to treasury in 133
-        liquidityPoolTotalEarnings?: u128;
-        liquidityPoolVaultEarnings?: u128;
-        liquidityPoolExternalCapital?: u128;
-        liquidityPoolVaultCapital?: u128;
-        // <= 133
-        bitcoinLocksMarketValue?: u128; // renamed to bitcoin_locks_new_liquidity_promised
-        bitcoinLocksTotalSatoshis?: u128; // renamed to bitcoin_locks_added_satoshis
-        satoshisReleased?: u128; // renamed to bitcoin_locks_released_satoshis
-        // new version 134
-        securitizationRelockable?: u128;
-        bitcoinLocksNewLiquidityPromised?: u128;
-        bitcoinLocksAddedSatoshis?: u128;
-        bitcoinLocksReleasedSatoshis?: u128;
-        bitcoinLocksReleasedLiquidity?: u128;
-      };
-
       const microgonsAdded =
-        (revenue.bitcoinLocksNewLiquidityPromised ?? revenue.bitcoinLocksMarketValue)?.toBigInt() ?? 0n;
-      const microgonsRemoved = revenue.bitcoinLocksReleasedLiquidity?.toBigInt() ?? 0n;
-      const newSatoshis = (revenue.bitcoinLocksAddedSatoshis ?? revenue.bitcoinLocksTotalSatoshis)?.toBigInt() ?? 0n;
-      const releasedSatoshis = (revenue.bitcoinLocksReleasedSatoshis ?? revenue.satoshisReleased)?.toBigInt() ?? 0n;
+        ('bitcoinLocksNewLiquidityPromised' in frameRevenue
+          ? frameRevenue.bitcoinLocksNewLiquidityPromised
+          : frameRevenue.bitcoinLocksMarketValue) ?? 0n;
+      const microgonsRemoved =
+        ('bitcoinLocksReleasedLiquidity' in frameRevenue ? frameRevenue.bitcoinLocksReleasedLiquidity : 0n) ?? 0n;
+      const newSatoshis =
+        ('bitcoinLocksAddedSatoshis' in frameRevenue
+          ? frameRevenue.bitcoinLocksAddedSatoshis
+          : frameRevenue.bitcoinLocksTotalSatoshis) ?? 0n;
+      const releasedSatoshis =
+        ('bitcoinLocksReleasedSatoshis' in frameRevenue
+          ? frameRevenue.bitcoinLocksReleasedSatoshis
+          : frameRevenue.satoshisReleased) ?? 0n;
+      const totalEarnings =
+        'liquidityPoolTotalEarnings' in frameRevenue
+          ? frameRevenue.liquidityPoolTotalEarnings
+          : frameRevenue.treasuryTotalEarnings;
+      const vaultEarnings =
+        'liquidityPoolVaultEarnings' in frameRevenue
+          ? frameRevenue.liquidityPoolVaultEarnings
+          : frameRevenue.treasuryVaultEarnings;
+      const externalCapital =
+        'liquidityPoolExternalCapital' in frameRevenue
+          ? frameRevenue.liquidityPoolExternalCapital
+          : frameRevenue.treasuryExternalCapital;
+      const vaultCapital =
+        'liquidityPoolVaultCapital' in frameRevenue
+          ? frameRevenue.liquidityPoolVaultCapital
+          : frameRevenue.treasuryVaultCapital;
 
       const entry = {
         satoshisAdded: newSatoshis - releasedSatoshis,
         frameId,
         microgonLiquidityAdded: microgonsAdded - microgonsRemoved,
-        bitcoinFeeRevenue: revenue.bitcoinLockFeeRevenue.toBigInt(),
-        bitcoinFeeCouponValueUsed: revenue.bitcoinLockFeeCouponValueUsed?.toBigInt(),
-        bitcoinLocksCreated: revenue.bitcoinLocksCreated.toNumber(),
+        bitcoinFeeRevenue: frameRevenue.bitcoinLockFeeRevenue,
+        bitcoinFeeCouponValueUsed:
+          'bitcoinLockFeeCouponValueUsed' in frameRevenue ? frameRevenue.bitcoinLockFeeCouponValueUsed : undefined,
+        bitcoinLocksCreated: frameRevenue.bitcoinLocksCreated,
         treasuryPool: {
-          totalEarnings: (revenue.liquidityPoolTotalEarnings ?? revenue.treasuryTotalEarnings).toBigInt(),
-          vaultEarnings: (revenue.liquidityPoolVaultEarnings ?? revenue.treasuryVaultEarnings).toBigInt(),
-          externalCapital: (revenue.liquidityPoolExternalCapital ?? revenue.treasuryExternalCapital).toBigInt(),
-          vaultCapital: (revenue.liquidityPoolVaultCapital ?? revenue.treasuryVaultCapital).toBigInt(),
+          totalEarnings,
+          vaultEarnings,
+          externalCapital,
+          vaultCapital,
         },
-        securitization: revenue.securitization.toBigInt(),
-        securitizationActivated: revenue.securitizationActivated.toBigInt(),
-        securitizationRelockable: revenue.securitizationRelockable?.toBigInt() ?? 0n,
-        uncollectedEarnings: revenue.uncollectedRevenue.toBigInt(),
+        securitization: frameRevenue.securitization,
+        securitizationActivated: frameRevenue.securitizationActivated,
+        securitizationRelockable:
+          ('securitizationRelockable' in frameRevenue ? frameRevenue.securitizationRelockable : 0n) ?? 0n,
+        uncollectedEarnings: frameRevenue.uncollectedRevenue,
       } as IVaultFrameStats;
       if (existing) {
         Object.assign(existing, entry);
@@ -299,33 +310,30 @@ export class Vaults {
               api.query.system.events(),
             ]);
 
-            if (participantsOption.isSome) {
-              const participants = participantsOption.unwrap();
-              argonotCapitalByFrame.set(participants.frameId.toNumber(), {
-                participatingBonds: participants.totalBonds.toNumber(),
+            if (participantsOption) {
+              argonotCapitalByFrame.set(participantsOption.frameId, {
+                participatingBonds: participantsOption.totalBonds,
                 microgonsPerArgonot: rates.ARGNOT,
               });
             }
 
             for (const { event } of events) {
               if (
-                api.events.treasury.FrameEarningsDistributed.is(event) &&
+                event.section === 'treasury' &&
+                event.method === 'FrameEarningsDistributed' &&
                 'argonotBondPoolDistributed' in event.data
               ) {
-                argonotPoolsByFrame.set(
-                  event.data.frameId.toNumber(),
-                  event.data.argonotBondPoolDistributed.toBigInt(),
-                );
+                argonotPoolsByFrame.set(event.data.frameId, event.data.argonotBondPoolDistributed!);
               }
             }
           }
 
           const vaultRevenues = await api.query.vaults.revenuePerFrameByVault.entries();
 
-          for (const [vaultIdRaw, frameRevenues] of vaultRevenues) {
-            const vaultId = vaultIdRaw.args[0].toNumber();
+          for (const [vaultIdRaw, frameRevenues] of vaultRevenues ?? []) {
+            const vaultId = vaultIdRaw.args[0];
             for (const frameRevenue of frameRevenues) {
-              const frameId = frameRevenue.frameId.toNumber();
+              const frameId = frameRevenue.frameId;
               const vaultFrame = `${vaultId}:${frameId}`;
               if (!vaultFramesSeen.has(vaultFrame)) {
                 await this.updateVaultRevenue(vaultId, [frameRevenue], true);
@@ -749,9 +757,9 @@ export class Vaults {
     const vaultRevenue = await client.query.vaults.revenuePerFrameByVault.entries();
     let totalActivatedCapital = 0n;
     let participatingVaults = 0;
-    for (const [_vaultId, revenue] of vaultRevenue) {
+    for (const [_vaultId, revenue] of vaultRevenue ?? []) {
       for (const entry of revenue) {
-        const capital = entry.treasuryVaultCapital.toBigInt() + entry.treasuryExternalCapital.toBigInt();
+        const capital = entry.treasuryVaultCapital + entry.treasuryExternalCapital;
         if (capital > 0n) {
           participatingVaults++;
           totalActivatedCapital += capital;
@@ -772,12 +780,12 @@ export class Vaults {
 }
 
 export async function getVaultByOperator(args: {
-  client: IArgonQueryable;
+  client: ArgonQueryClient;
   operatorAddress: string;
   tickDurationMillis?: number;
 }): Promise<Vault | undefined> {
   const vaultId = await args.client.query.vaults.vaultIdByOperator(args.operatorAddress);
-  if (!vaultId.isSome) return;
+  if (vaultId === null) return;
 
-  return await Vault.get(args.client, vaultId.unwrap().toNumber(), args.tickDurationMillis);
+  return await Vault.get(args.client, vaultId, args.tickDurationMillis);
 }

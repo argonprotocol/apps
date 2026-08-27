@@ -3,7 +3,7 @@ import accountCli from './accountCli.js';
 import { configDotenv } from 'dotenv';
 import Path from 'node:path';
 import miningCli from './miningCli.js';
-import { Accountset, NetworkConfig, type AccountsetOptions } from '@argonprotocol/apps-core';
+import { Accountset, createArgonClient, NetworkConfig, type AccountsetOptions } from '@argonprotocol/apps-core';
 import { getClient, keyringFromSuri, type KeyringPair } from '@argonprotocol/mainchain';
 import { keyringFromFile, saveKeyringPair } from './keyringStore.js';
 
@@ -95,7 +95,7 @@ export async function accountsetFromCli(program: Command, proxyForAddress?: stri
     throw new Error('No ACCOUNT account loaded (either ACCOUNT_SURI or ACCOUNT_JSON_PATH required)');
   }
 
-  const client = await getClient(opts.mainchainUrl, { throwOnConnect: true });
+  const client = createArgonClient(await getClient(opts.mainchainUrl, { throwOnConnect: true }));
   if (!opts.network) {
     const chain = await client.rpc.system.chain().then(x => x.toString());
     if (chain === 'Argon Testnet') {

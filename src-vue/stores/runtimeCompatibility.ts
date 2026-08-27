@@ -1,7 +1,6 @@
 import * as Vue from 'vue';
 import { defineStore } from 'pinia';
-import { fetch, SingleFileQueue } from '@argonprotocol/apps-core';
-import type { ArgonClient } from '@argonprotocol/mainchain';
+import { fetch, SingleFileQueue, type ArgonClient } from '@argonprotocol/apps-core';
 import { ENABLE_AUTO_UPDATE, IS_EXPERIMENTAL_BUILD } from '../lib/Env.ts';
 import { getMainchainClients } from './mainchain.ts';
 import { useAppUpdater } from './appUpdater.ts';

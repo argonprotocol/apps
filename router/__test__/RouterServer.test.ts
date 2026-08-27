@@ -22,7 +22,6 @@ import {
   Keyring,
   PriceIndex,
   type KeyringPair,
-  type PalletTreasuryVaultBondState,
 } from '@argonprotocol/mainchain';
 import { Db as RouterDb } from '../src/Db.ts';
 import { RouterServer } from '../src/RouterServer.ts';
@@ -265,13 +264,11 @@ describe('RouterServer', () => {
       }),
     );
     const registry = getOfflineRegistry();
-    const bondLotsByVault = vi.fn().mockResolvedValue(
-      registry.createType<PalletTreasuryVaultBondState>('PalletTreasuryVaultBondState', {
-        regularBondLots: [],
-        flexibleBonds: 0,
-        reservedBondSpace: 0,
-      }),
-    );
+    const bondLotsByVault = vi.fn().mockResolvedValue({
+      regularBondLots: [],
+      flexibleBonds: 0,
+      reservedBondSpace: 0,
+    });
     const bondLotIdsByAccount = vi.fn().mockResolvedValue([]);
     const utxoIdsByAccount = new Map([
       [members[1].address, [101]],
@@ -281,7 +278,7 @@ describe('RouterServer', () => {
     ]);
     const utxoIdsByOwnerAccount = vi.fn(async (accountId: string) => {
       return (utxoIdsByAccount.get(accountId) ?? []).map(id => ({
-        args: [null, registry.createType('u64', id)],
+        args: [null, id],
       }));
     });
     const lockByUtxoId = new Map([
@@ -307,7 +304,7 @@ describe('RouterServer', () => {
       query: {
         operationalAccounts: {
           operationalAccountBySubAccount: {
-            multi: vi.fn(async (accountIds: string[]) => accountIds.map(() => ({ isSome: false }))),
+            multi: vi.fn(async (accountIds: string[]) => accountIds.map(() => null)),
           },
         },
         treasury: {
@@ -324,12 +321,9 @@ describe('RouterServer', () => {
               return ids.map(id => {
                 const lock = lockByUtxoId.get(id)!;
                 return {
-                  isSome: true,
-                  unwrap: () => ({
-                    vaultId: registry.createType('u32', lock.vaultId),
-                    liquidityPromised: registry.createType('u128', lock.liquidityPromised),
-                    isFunded: { toJSON: () => lock.isFunded },
-                  }),
+                  vaultId: lock.vaultId,
+                  liquidityPromised: BigInt(lock.liquidityPromised),
+                  isFunded: lock.isFunded,
                 };
               });
             }),
@@ -337,7 +331,7 @@ describe('RouterServer', () => {
         },
         crosschainTransfer: {
           transferTotalsByAccount: vi.fn().mockResolvedValue({
-            microgonsIn: registry.createType('u128', 1),
+            microgonsIn: 1n,
           }),
         },
       },
@@ -862,21 +856,16 @@ describe('RouterServer', () => {
     routerDb.userInvitesTable.claimInvite(invite.id, member.address, memberAuth.address);
 
     const loadOperationalAccounts = vi.fn(async (accountIds: string[]) => {
-      return accountIds.map((accountId, index) => ({
-        isSome: index === 0 && accountId === operator.address,
-        unwrap: () => ({
-          availableAccessCodes: {
-            toNumber: () => 1,
-          },
-        }),
-      }));
+      return accountIds.map((accountId, index) =>
+        index === 0 && accountId === operator.address ? { availableAccessCodes: 1 } : null,
+      );
     });
     mainchainMocks.getClient.mockResolvedValue({
       disconnect: vi.fn().mockResolvedValue(undefined),
       query: {
         operationalAccounts: {
           operationalAccountBySubAccount: {
-            multi: vi.fn().mockResolvedValue([{ isSome: false }]),
+            multi: vi.fn().mockResolvedValue([null]),
           },
           operationalAccounts: {
             multi: loadOperationalAccounts,

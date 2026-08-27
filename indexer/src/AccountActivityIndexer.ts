@@ -5,7 +5,7 @@ import type { Bytes, Vec } from '@polkadot/types-codec';
 import { hexToU8a } from '@polkadot/util';
 import { AccountActivityDecoder, isGatewayOperationSourceEvent } from './AccountActivity.js';
 import type { IAccountActivityBlock, IndexerDb } from './IndexerDb.js';
-import { AccountActivityCoverageError } from './HistoricalEventSpecs.js';
+import { AccountActivityCoverageError } from '@argonprotocol/runtime-client/events';
 
 export class AccountActivityIndexer {
   public coverageGap?: { fromBlock: number; toBlock: number; reason: string };

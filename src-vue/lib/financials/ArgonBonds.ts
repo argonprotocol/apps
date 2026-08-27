@@ -39,11 +39,11 @@ export class ArgonBondsFinancials
     const bondLots = await this.bonds.getOwnBondLots(clientAt);
 
     const treasuryMicrogons = args.account.microgonHolds
-      .filter(hold => hold.id.isTreasury)
-      .reduce((sum, hold) => sum + hold.amount.toBigInt(), 0n);
+      .filter(hold => hold.id.type === 'Treasury')
+      .reduce((sum, hold) => sum + hold.amount, 0n);
     const treasuryMicronots = args.account.micronotHolds
-      .filter(hold => hold.id.isTreasury)
-      .reduce((sum, hold) => sum + hold.amount.toBigInt(), 0n);
+      .filter(hold => hold.id.type === 'Treasury')
+      .reduce((sum, hold) => sum + hold.amount, 0n);
     const totals = BondLot.getTotals(bondLots);
     if (treasuryMicrogons !== totals.totalBondMicrogons) {
       throw new Error(`ARGN Treasury holds do not match live bond principal for ${args.account.address}`);

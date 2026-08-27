@@ -1,8 +1,15 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
-import { getPercent, MiningFrames, NetworkConfig, type IBitcoinLockConfig } from '@argonprotocol/apps-core';
-import { type ApiDecoration, type ArgonClient, u8aToHex } from '@argonprotocol/mainchain';
+import {
+  type ArgonClient,
+  type ArgonQueryClient,
+  getPercent,
+  MiningFrames,
+  NetworkConfig,
+  type IBitcoinLockConfig,
+} from '@argonprotocol/apps-core';
+import { u8aToHex } from '@argonprotocol/mainchain';
 import {
   BitcoinUtxosTable,
   BitcoinUtxoStatus,
@@ -149,13 +156,10 @@ export default class BitcoinUtxoTracking {
     lock.fundingUtxoRecord = record;
   }
 
-  public async refreshFundingCandidates(
-    lock: IBitcoinLockRecord,
-    preferredClient?: ApiDecoration<'promise'>,
-  ): Promise<void> {
+  public async refreshFundingCandidates(lock: IBitcoinLockRecord, preferredClient?: ArgonQueryClient): Promise<void> {
     if (!lock.utxoId) return;
 
-    const seenClients = new Set<ApiDecoration<'promise'>>();
+    const seenClients = new Set<ArgonQueryClient>();
     for (const client of [preferredClient, await this.deps.getMainchainClient(true)]) {
       if (!client || seenClients.has(client)) continue;
       seenClients.add(client);
@@ -174,7 +178,7 @@ export default class BitcoinUtxoTracking {
 
   public async syncArgonFundingCandidates(
     lock: IBitcoinLockRecord,
-    apiClient: ApiDecoration<'promise'>,
+    apiClient: ArgonQueryClient,
   ): Promise<IBitcoinUtxoRecord[]> {
     if (!lock.utxoId) return [];
 
@@ -182,10 +186,10 @@ export default class BitcoinUtxoTracking {
     const queryValue = await apiClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(lock.utxoId);
     if (!queryValue) return [];
 
-    for (const [utxoRef, sats] of queryValue.entries()) {
-      const txid = utxoRef.txid.toHex();
-      const vout = utxoRef.outputIndex.toNumber();
-      const satoshis = sats.toBigInt();
+    for (const [serializedUtxoRef, satoshis] of Object.entries(queryValue)) {
+      const utxoRef = JSON.parse(serializedUtxoRef) as { txid: string; outputIndex: number };
+      const txid = utxoRef.txid;
+      const vout = utxoRef.outputIndex;
       const record = await this.upsertUtxoRecord(
         lock,
         {
@@ -202,7 +206,7 @@ export default class BitcoinUtxoTracking {
 
   public async syncArgonOrphans(
     locks: IBitcoinLockRecord[],
-    apiClient: ApiDecoration<'promise'>,
+    apiClient: ArgonQueryClient,
   ): Promise<IBitcoinUtxoRecord[]> {
     const locksByOwner = new Map<string, IBitcoinLockRecord[]>();
     const records: IBitcoinUtxoRecord[] = [];
@@ -216,31 +220,31 @@ export default class BitcoinUtxoTracking {
 
     for (const [ownerAccount, ownerLocks] of locksByOwner) {
       const locksByUtxoId = new Map(ownerLocks.map(lock => [lock.utxoId, lock]));
-      const entries = await apiClient.query.bitcoinLocks.orphanedUtxosByAccount.entries(ownerAccount);
+      const entries = (await apiClient.query.bitcoinLocks.orphanedUtxosByAccount.entries(ownerAccount)) ?? [];
 
       for (const [orphanKey, orphanMaybe] of entries) {
-        if (orphanMaybe.isNone) continue;
-        const orphan = orphanMaybe.unwrap();
-        const lock = locksByUtxoId.get(orphan.utxoId.toNumber());
+        if (!orphanMaybe) continue;
+        const orphan = orphanMaybe;
+        const lock = locksByUtxoId.get(orphan.utxoId);
         if (!lock) continue;
 
         const utxoRef = orphanKey.args[1];
         const record = await this.upsertUtxoRecord(
           lock,
           {
-            txid: utxoRef.txid.toHex(),
-            vout: utxoRef.outputIndex.toNumber(),
-            satoshis: orphan.satoshis.toBigInt(),
+            txid: utxoRef.txid,
+            vout: utxoRef.outputIndex,
+            satoshis: orphan.satoshis,
           },
           { markOrphaned: true },
         );
         records.push(record);
 
-        if (orphan.cosignRequest.isSome) {
-          const request = orphan.cosignRequest.unwrap();
+        if (orphan.cosignRequest) {
+          const request = orphan.cosignRequest;
           await this.setReleaseIsProcessingOnArgon(record, {
             releaseToDestinationAddress: u8aToHex(request.toScriptPubkey, undefined, false),
-            releaseBitcoinNetworkFee: request.bitcoinNetworkFee.toBigInt(),
+            releaseBitcoinNetworkFee: request.bitcoinNetworkFee,
           });
         }
       }
@@ -286,7 +290,7 @@ export default class BitcoinUtxoTracking {
 
   public async syncPendingFundingSignals(
     lock: IBitcoinLockRecord,
-    preferredClient?: ApiDecoration<'promise'>,
+    preferredClient?: ArgonQueryClient,
   ): Promise<boolean> {
     if (!lock.utxoId || !this.isFundingSignalTrackingStatus(lock.status)) return false;
 

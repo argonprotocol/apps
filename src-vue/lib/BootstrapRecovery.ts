@@ -8,13 +8,14 @@ import {
   getBootstrapEndpointPubkey,
   type IBootstrapEndpointPayload,
   type IBootstrapRecoveryPayload,
+  ArgonClient,
 } from '@argonprotocol/apps-core';
 import {
-  type ArgonClient,
   hexToU8a,
   Keyring,
   type KeyringPair,
   type SubmittableExtrinsic,
+  u8aEq,
   u8aToHex,
 } from '@argonprotocol/mainchain';
 import type { WalletKeys } from './WalletKeys.ts';
@@ -92,34 +93,20 @@ export class BootstrapRecovery {
     );
   }
 
-  public static isAvailable(client: ArgonClient): boolean {
-    return !!(
-      Reflect.has(client.query, 'bootstrap') &&
-      Reflect.has(client.tx, 'bootstrap') &&
-      Reflect.has(client.query.bootstrap, 'encryptedRecoveryPayloadByPubkey') &&
-      Reflect.has(client.query.bootstrap, 'encryptedEndpointByPubkey') &&
-      Reflect.has(client.query.bootstrap, 'endpointOwnerByPubkey') &&
-      Reflect.has(client.tx.bootstrap, 'setRecoveryPayload') &&
-      Reflect.has(client.tx.bootstrap, 'setEndpoint')
-    );
-  }
-
   public async recoverEndpoint(
     client: ArgonClient,
     context: BootstrapRecoveryContext,
     minimumSequence = 0,
   ): Promise<IRecoveredBootstrapEndpoint | undefined> {
-    if (!BootstrapRecovery.isAvailable(client)) return;
-
     const recoverySeed =
       context === BootstrapRecoveryContext.Upstream
         ? await this.walletKeys.getUpstreamEndpointRecoverySeed()
         : await this.walletKeys.getOwnServerEndpointRecoverySeed();
     const recoveryKeypair = new Keyring({ type: 'ed25519' }).addFromSeed(hexToU8a(recoverySeed));
     const encryptedRecovery = await client.query.bootstrap.encryptedRecoveryPayloadByPubkey(recoveryKeypair.publicKey);
-    if (encryptedRecovery.isNone) return;
+    if (!encryptedRecovery) return;
 
-    const recovery = await decryptBootstrapRecovery(encryptedRecovery.unwrap(), recoverySeed);
+    const recovery = await decryptBootstrapRecovery(encryptedRecovery, recoverySeed);
     let bootstrapEndpointSecret = recovery.endpointSecret;
     if (context === BootstrapRecoveryContext.OwnServer) {
       if (recovery.endpointIndex === undefined) {
@@ -147,13 +134,11 @@ export class BootstrapRecovery {
     bootstrapEndpointSecret: string,
     minimumSequence = 0,
   ): Promise<IRecoveredBootstrapEndpoint | undefined> {
-    if (!BootstrapRecovery.isAvailable(client)) return;
-
     const bootstrapEndpointPubkey = getBootstrapEndpointPubkey(bootstrapEndpointSecret);
     const encryptedEndpoint = await client.query.bootstrap.encryptedEndpointByPubkey(bootstrapEndpointPubkey);
-    if (encryptedEndpoint.isNone) return;
+    if (!encryptedEndpoint) return;
 
-    const endpoint = await decryptBootstrapEndpoint(encryptedEndpoint.unwrap(), bootstrapEndpointSecret);
+    const endpoint = await decryptBootstrapEndpoint(encryptedEndpoint, bootstrapEndpointSecret);
     if (endpoint.sequence < minimumSequence) {
       throw new Error('The recovered upstream endpoint is older than the cached endpoint.');
     }
@@ -181,19 +166,17 @@ export class BootstrapRecovery {
         }
     ),
   ): Promise<SubmittableExtrinsic | undefined> {
-    if (!BootstrapRecovery.isAvailable(args.client)) return;
-
     const recoverySeed =
       args.context === BootstrapRecoveryContext.Upstream
         ? await this.walletKeys.getUpstreamEndpointRecoverySeed()
         : await this.walletKeys.getOwnServerEndpointRecoverySeed();
     const recoveryKeypair = new Keyring({ type: 'ed25519' }).addFromSeed(hexToU8a(recoverySeed));
     const current = await args.client.query.bootstrap.encryptedRecoveryPayloadByPubkey(recoveryKeypair.publicKey);
-    if (args.context === BootstrapRecoveryContext.Upstream && current.unwrapOrDefault().eq(args.encryptedRecovery)) {
+    if (args.context === BootstrapRecoveryContext.Upstream && current && u8aEq(current, args.encryptedRecovery)) {
       return;
     }
-    if (args.context === BootstrapRecoveryContext.OwnServer && current.isSome) {
-      const currentRecovery = await decryptBootstrapRecovery(current.unwrap(), recoverySeed);
+    if (args.context === BootstrapRecoveryContext.OwnServer && current) {
+      const currentRecovery = await decryptBootstrapRecovery(current, recoverySeed);
       if (
         currentRecovery.endpointSecret === args.bootstrapEndpointSecret &&
         currentRecovery.endpointIndex === args.bootstrapEndpointIndex &&
@@ -233,19 +216,17 @@ export class BootstrapRecovery {
     port: number,
     bootstrapEndpointSecret: string,
   ): Promise<[SubmittableExtrinsic | undefined, IBootstrapEndpointPayload | undefined]> {
-    if (!BootstrapRecovery.isAvailable(client)) return [undefined, undefined];
-
     const bootstrapEndpointPubkey = getBootstrapEndpointPubkey(bootstrapEndpointSecret);
     const [currentEncryptedEndpoint, currentOwner] = await Promise.all([
       client.query.bootstrap.encryptedEndpointByPubkey(bootstrapEndpointPubkey),
       client.query.bootstrap.endpointOwnerByPubkey(bootstrapEndpointPubkey),
     ]);
-    if (currentOwner.isSome && currentOwner.unwrap().toString() !== endpointOwner.address) {
+    if (currentOwner && currentOwner !== endpointOwner.address) {
       throw new Error('The bootstrap endpoint is owned by a different account.');
     }
 
-    const currentEndpoint = currentEncryptedEndpoint.isSome
-      ? await decryptBootstrapEndpoint(currentEncryptedEndpoint.unwrap(), bootstrapEndpointSecret)
+    const currentEndpoint = currentEncryptedEndpoint
+      ? await decryptBootstrapEndpoint(currentEncryptedEndpoint, bootstrapEndpointSecret)
       : undefined;
     const endpoint = createBootstrapEndpointUpdate(currentEndpoint, host, port);
     if (!endpoint) return [undefined, currentEndpoint];

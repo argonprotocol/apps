@@ -21,8 +21,8 @@ describe('Mining seat slot construction', () => {
             ]),
           },
           bidsForNextSlotCohort: vi.fn().mockResolvedValue([createBid(13, 'bidder-1')]),
-          nextCohortSize: vi.fn().mockResolvedValue(numberCodec(17)),
-          nextFrameId: vi.fn().mockResolvedValue(numberCodec(13)),
+          nextCohortSize: vi.fn().mockResolvedValue(17),
+          nextFrameId: vi.fn().mockResolvedValue(13),
         },
       },
     };
@@ -73,20 +73,20 @@ describe('Mining network returns', () => {
       query: {
         blockRewards: {
           blockRewardsByCohort: vi.fn().mockResolvedValue([
-            [numberCodec(1), bigintCodec(100n)],
-            [numberCodec(2), bigintCodec(200n)],
-            [numberCodec(3), bigintCodec(300n)],
+            [1, 100n],
+            [2, 200n],
+            [3, 300n],
           ]),
         },
         miningSlot: {
-          activeMinersCount: vi.fn().mockResolvedValue(numberCodec(4)),
-          frameRewardTicksRemaining: vi.fn().mockResolvedValue(numberCodec(1)),
+          activeMinersCount: vi.fn().mockResolvedValue(4),
+          frameRewardTicksRemaining: vi.fn().mockResolvedValue(1),
           minersByCohort: {
             entries: vi.fn().mockResolvedValue(cohorts),
           },
         },
         ticks: {
-          currentTick: vi.fn().mockResolvedValue(numberCodec(2)),
+          currentTick: vi.fn().mockResolvedValue(2),
         },
       },
     };
@@ -111,7 +111,7 @@ describe('Mining network returns', () => {
           blockRewardsByCohort: vi.fn().mockResolvedValue([]),
         },
         miningSlot: {
-          activeMinersCount: vi.fn().mockResolvedValue(numberCodec(0)),
+          activeMinersCount: vi.fn().mockResolvedValue(0),
           minersByCohort: {
             entries: vi.fn().mockResolvedValue([]),
           },
@@ -193,23 +193,23 @@ describe('Mining network returns', () => {
 });
 
 function createCohortKey(startingFrameId: number) {
-  return { args: [numberCodec(startingFrameId)] };
+  return { args: [startingFrameId] };
 }
 
 function createMember(address: string) {
   return {
-    accountId: { toHuman: () => address },
-    externalFundingAccount: { value: { toHuman: () => 'managed-account' } },
-    bid: { toBigInt: () => 100n },
-    argonots: bigintCodec(50n),
+    accountId: address,
+    externalFundingAccount: 'managed-account',
+    bid: 100n,
+    argonots: 50n,
   };
 }
 
 function createBid(startingFrameId: number, address: string) {
   return {
-    startingFrameId: numberCodec(startingFrameId),
-    accountId: { toHuman: () => address },
-    bid: { toBigInt: () => 200n },
-    argonots: bigintCodec(75n),
+    startingFrameId,
+    accountId: address,
+    bid: 200n,
+    argonots: 75n,
   };
 }

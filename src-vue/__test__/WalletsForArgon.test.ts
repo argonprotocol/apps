@@ -3,7 +3,6 @@ import { AccountEventsFilter, createDeferred, type IBlockHeaderInfo } from '@arg
 import { WalletsForArgon } from '../lib/WalletsForArgon.ts';
 import { WalletForArgon } from '../lib/WalletForArgon.ts';
 import { SyncStateKeys } from '../lib/db/SyncStateTable.ts';
-import { bigintCodec } from '../../core/__test__/helpers/codecs.ts';
 import { WalletFinancials } from '../lib/financials/WalletBalances.ts';
 
 describe('WalletsForArgon live balance tracking', () => {
@@ -112,14 +111,12 @@ describe('WalletsForArgon live balance tracking', () => {
       query: {
         system: {
           account: {
-            multi: async (addresses: string[]) =>
-              addresses.map(() => ({ data: { free: bigintCodec(0n), reserved: bigintCodec(0n) } })),
+            multi: async (addresses: string[]) => addresses.map(() => ({ data: { free: 0n, reserved: 0n } })),
           },
         },
         ownership: {
           account: {
-            multi: async (addresses: string[]) =>
-              addresses.map(() => ({ free: bigintCodec(0n), reserved: bigintCodec(0n) })),
+            multi: async (addresses: string[]) => addresses.map(() => ({ free: 0n, reserved: 0n })),
           },
         },
       },
@@ -153,14 +150,12 @@ describe('WalletsForArgon live balance tracking', () => {
       query: {
         system: {
           account: {
-            multi: async (addresses: string[]) =>
-              addresses.map(() => ({ data: { free: bigintCodec(0n), reserved: bigintCodec(0n) } })),
+            multi: async (addresses: string[]) => addresses.map(() => ({ data: { free: 0n, reserved: 0n } })),
           },
         },
         ownership: {
           account: {
-            multi: async (addresses: string[]) =>
-              addresses.map(() => ({ free: bigintCodec(0n), reserved: bigintCodec(0n) })),
+            multi: async (addresses: string[]) => addresses.map(() => ({ free: 0n, reserved: 0n })),
           },
         },
       },
@@ -230,14 +225,12 @@ describe('WalletsForArgon live balance tracking', () => {
         query: {
           system: {
             account: {
-              multi: async (addresses: string[]) =>
-                addresses.map(() => ({ data: { free: bigintCodec(0n), reserved: bigintCodec(0n) } })),
+              multi: async (addresses: string[]) => addresses.map(() => ({ data: { free: 0n, reserved: 0n } })),
             },
           },
           ownership: {
             account: {
-              multi: async (addresses: string[]) =>
-                addresses.map(() => ({ free: bigintCodec(0n), reserved: bigintCodec(0n) })),
+              multi: async (addresses: string[]) => addresses.map(() => ({ free: 0n, reserved: 0n })),
             },
           },
         },
@@ -629,16 +622,15 @@ function balanceApi(defaultAvailableMicrogons: bigint) {
           multi: async (addresses: string[]) =>
             addresses.map((_, index) => ({
               data: {
-                free: bigintCodec(index === 0 ? defaultAvailableMicrogons : 0n),
-                reserved: bigintCodec(0n),
+                free: index === 0 ? defaultAvailableMicrogons : 0n,
+                reserved: 0n,
               },
             })),
         },
       },
       ownership: {
         account: {
-          multi: async (addresses: string[]) =>
-            addresses.map(() => ({ free: bigintCodec(0n), reserved: bigintCodec(0n) })),
+          multi: async (addresses: string[]) => addresses.map(() => ({ free: 0n, reserved: 0n })),
         },
       },
     },

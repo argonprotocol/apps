@@ -147,8 +147,8 @@ describe('MintingAuthorities', () => {
     const finalizedClient = {
       query: {
         crosschainTransfer: {
-          chainConfigBySourceChain: vi.fn(async () => ({ isNone: true })),
-          councilSignerByDestinationChainAndAccountId: vi.fn(async () => ({ isNone: false })),
+          chainConfigBySourceChain: vi.fn(async () => null),
+          councilSignerByDestinationChainAndAccountId: vi.fn(async () => '0xcouncil'),
           mintingAuthoritiesBySigner: {
             multi: vi.fn(async (signers: string[]) =>
               signers.map(candidate =>
@@ -186,7 +186,7 @@ describe('MintingAuthorities', () => {
     const signer = (await walletKeys.getEthereumAddresses([walletKeys.getMintingAuthorityEthereumHdPath(0)]))[0];
     const deriveAuthoritySigners = vi.spyOn(walletKeys, 'getEthereumAddresses');
     deriveAuthoritySigners.mockClear();
-    const councilSignerByDestinationChainAndAccountId = vi.fn(async () => ({ isNone: true }));
+    const councilSignerByDestinationChainAndAccountId = vi.fn(async (): Promise<string | null> => null);
     const finalizedClient = {
       events: {
         crosschainTransfer: {
@@ -220,9 +220,9 @@ describe('MintingAuthorities', () => {
               section: 'crosschainTransfer',
               method: 'MintingAuthorityRegistered',
               data: {
-                destinationChain: { isEthereum: true },
-                accountId: { toString: () => walletKeys.vaultingAddress },
-                destinationSigningKey: { toHex: () => signer },
+                destinationChain: { type: 'Ethereum' },
+                accountId: walletKeys.vaultingAddress,
+                destinationSigningKey: signer,
               },
             },
           },
@@ -258,7 +258,7 @@ describe('MintingAuthorities', () => {
     );
     expect(deriveAuthoritySigners).not.toHaveBeenCalled();
 
-    councilSignerByDestinationChainAndAccountId.mockResolvedValue({ isNone: false });
+    councilSignerByDestinationChainAndAccountId.mockResolvedValue('0xcouncil');
     onFinalized([{ blockNumber: 2, blockHash: '0x02' }]);
 
     await vi.waitFor(() => expect(mintingAuthorities.data.authorities).toHaveLength(1), { timeout: 5_000 });
@@ -427,25 +427,22 @@ describe('MintingAuthorities', () => {
       query: {
         crosschainTransfer: {
           chainConfigBySourceChain: vi.fn().mockResolvedValue({
-            isNone: false,
-            unwrap: () => ({
-              isEvm: true,
-              asEvm: {
-                chainId: { toBigInt: () => 1n },
-                gateway: { toHex: () => '0x' + 'aa'.repeat(20) },
-                argonToken: { toHex: () => '0x' + 'bb'.repeat(20) },
-                argonotToken: { toHex: () => '0x' + 'cc'.repeat(20) },
-              },
-            }),
+            type: 'Evm',
+            value: {
+              chainId: 1n,
+              gateway: '0x' + 'aa'.repeat(20),
+              argonToken: '0x' + 'bb'.repeat(20),
+              argonotToken: '0x' + 'cc'.repeat(20),
+            },
           }),
           pendingCollateralizationRequestsByChain: vi.fn().mockResolvedValue([
             {
-              transferId: { toHex: () => '0x' + '01'.repeat(32) },
-              remainingCollateral: { toBigInt: () => 30n },
+              transferId: '0x' + '01'.repeat(32),
+              remainingCollateral: 30n,
             },
             {
-              transferId: { toHex: () => '0x' + '02'.repeat(32) },
-              remainingCollateral: { toBigInt: () => 80n },
+              transferId: '0x' + '02'.repeat(32),
+              remainingCollateral: 80n,
             },
           ]),
           transferOutById: {
@@ -478,7 +475,7 @@ describe('MintingAuthorities', () => {
       transferId: '0x' + '02'.repeat(32),
       authorityIndex: 0,
       moveToken: MoveToken.ARGN,
-      sourceAccount: '5SourceAccount',
+      sourceAccount: '0x' + 'aa'.repeat(32),
       destinationSigningKey: authority.signer,
       finalizeRequest: {
         argonAccountId: '0x' + 'aa'.repeat(32),
@@ -539,38 +536,32 @@ describe('MintingAuthorities', () => {
       query: {
         crosschainTransfer: {
           chainConfigBySourceChain: vi.fn(async () => ({
-            isNone: false,
-            unwrap: () => ({
-              isEvm: true,
-              asEvm: {
-                chainId: bigintValue(1n),
-                gateway: hexValue('0x' + 'aa'.repeat(20)),
-                argonToken: hexValue('0x' + 'bb'.repeat(20)),
-                argonotToken: hexValue('0x' + 'cc'.repeat(20)),
-              },
-            }),
+            type: 'Evm',
+            value: {
+              chainId: 1n,
+              gateway: '0x' + 'aa'.repeat(20),
+              argonToken: '0x' + 'bb'.repeat(20),
+              argonotToken: '0x' + 'cc'.repeat(20),
+            },
           })),
           pendingCollateralizationRequestsByChain: vi.fn(async () => [
             {
-              transferId: hexValue(transferId),
-              remainingCollateral: bigintValue(5_000_000n),
+              transferId,
+              remainingCollateral: 5_000_000n,
             },
           ]),
           transferOutById: {
             multi: vi.fn(async () => [
               {
-                isNone: false,
-                unwrap: () => ({
-                  microgonsPerArgonot: bigintValue(4_000_000n),
-                  mintingAuthorityCollateralBySigner: { keys: () => [] },
-                  asset: { isArgon: false },
-                  argonAccountId: accountValue('0x' + 'dd'.repeat(32), '5SourceAccount'),
-                  argonTransferNonce: bigintValue(1n),
-                  destinationAccount: hexValue('0x' + 'ee'.repeat(20)),
-                  validUntilEthereumBlock: bigintValue(123n),
-                  amount: bigintValue(5_000_000n),
-                  mintingAuthorityTip: bigintValue(1_250_000n),
-                }),
+                microgonsPerArgonot: 4_000_000n,
+                mintingAuthorityCollateralBySigner: {},
+                asset: { type: 'Argonot' },
+                argonAccountId: '0x' + 'dd'.repeat(32),
+                argonTransferNonce: 1n,
+                destinationAccount: '0x' + 'ee'.repeat(20),
+                validUntilEthereumBlock: 123n,
+                amount: 5_000_000n,
+                mintingAuthorityTip: 1_250_000n,
               },
             ]),
           },
@@ -600,28 +591,22 @@ describe('MintingAuthorities', () => {
           transferOutById: {
             multi: vi.fn(async () => [
               {
-                isNone: false,
-                unwrap: () => ({
-                  state: { isReady },
-                  asset: { isArgon: true },
-                  argonAccountId: accountValue('0x' + 'aa'.repeat(32), '5SourceAccount'),
-                  argonTransferNonce: bigintValue(7n),
-                  destinationAccount: hexValue('0x' + 'bb'.repeat(20)),
-                  amount: bigintValue(80n),
-                  validUntilEthereumBlock: bigintValue(123n),
-                  mintingAuthorityTip: bigintValue(2n),
-                  microgonsPerArgonot: bigintValue(1_000_000n),
-                  totalAttachedCollateral: bigintValue(60n),
-                  mintingAuthorityCollateralBySigner: new Map([
-                    [
-                      hexValue(signer),
-                      {
-                        microgonCollateral: bigintValue(40n),
-                        micronotCollateral: bigintValue(20n),
-                      },
-                    ],
-                  ]),
-                }),
+                state: { type: isReady ? 'Ready' : 'Started' },
+                asset: { type: 'Argon' },
+                argonAccountId: '0x' + 'aa'.repeat(32),
+                argonTransferNonce: 7n,
+                destinationAccount: '0x' + 'bb'.repeat(20),
+                amount: 80n,
+                validUntilEthereumBlock: 123n,
+                mintingAuthorityTip: 2n,
+                microgonsPerArgonot: 1_000_000n,
+                totalAttachedCollateral: 60n,
+                mintingAuthorityCollateralBySigner: {
+                  [signer]: {
+                    microgonCollateral: 40n,
+                    micronotCollateral: 20n,
+                  },
+                },
               },
             ]),
           },
@@ -639,7 +624,7 @@ describe('MintingAuthorities', () => {
         transferId,
         status: 'waitingForAuthorizations',
         moveToken: MoveToken.ARGN,
-        sourceAccount: '5SourceAccount',
+        sourceAccount: '0x' + 'aa'.repeat(32),
         sourceTransferNonce: 7n,
         destinationAccount: '0x' + 'bb'.repeat(20),
         amount: 80n,
@@ -683,25 +668,22 @@ describe('MintingAuthorities', () => {
       query: {
         crosschainTransfer: {
           chainConfigBySourceChain: vi.fn().mockResolvedValue({
-            isNone: false,
-            unwrap: () => ({
-              isEvm: true,
-              asEvm: {
-                chainId: { toBigInt: () => 1n },
-                gateway: { toHex: () => '0x' + 'aa'.repeat(20) },
-                argonToken: { toHex: () => '0x' + 'bb'.repeat(20) },
-                argonotToken: { toHex: () => '0x' + 'cc'.repeat(20) },
-              },
-            }),
+            type: 'Evm',
+            value: {
+              chainId: 1n,
+              gateway: '0x' + 'aa'.repeat(20),
+              argonToken: '0x' + 'bb'.repeat(20),
+              argonotToken: '0x' + 'cc'.repeat(20),
+            },
           }),
           pendingCollateralizationRequestsByChain: vi.fn().mockResolvedValue([
             {
-              transferId: { toHex: () => firstTransferId },
-              remainingCollateral: { toBigInt: () => 100n },
+              transferId: firstTransferId,
+              remainingCollateral: 100n,
             },
             {
-              transferId: { toHex: () => secondTransferId },
-              remainingCollateral: { toBigInt: () => 100n },
+              transferId: secondTransferId,
+              remainingCollateral: 100n,
             },
           ]),
           transferOutById: {
@@ -918,12 +900,7 @@ describe('MintingAuthorities', () => {
             get: vi.fn(async () => ({
               query: {
                 crosschainTransfer: {
-                  gatewayStateBySourceChain: vi.fn(async () => ({
-                    isSome: true,
-                    unwrap: () => ({
-                      gatewayActivityNonce: { toBigInt: () => 7n },
-                    }),
-                  })),
+                  gatewayStateBySourceChain: vi.fn(async () => ({ gatewayActivityNonce: 7n })),
                 },
               },
             })),
@@ -967,12 +944,7 @@ describe('MintingAuthorities', () => {
             get: vi.fn(async () => ({
               query: {
                 crosschainTransfer: {
-                  gatewayStateBySourceChain: vi.fn(async () => ({
-                    isSome: true,
-                    unwrap: () => ({
-                      gatewayActivityNonce: { toBigInt: () => 7n },
-                    }),
-                  })),
+                  gatewayStateBySourceChain: vi.fn(async () => ({ gatewayActivityNonce: 7n })),
                 },
               },
             })),
@@ -1002,24 +974,17 @@ describe('MintingAuthorities', () => {
   });
 });
 
-function someAuthority(accountId: string, signer: string, activePendingTransferIds: unknown[] = []) {
+function someAuthority(accountId: string, signer: string, activePendingTransferIds: string[] = []) {
   return {
-    isSome: true,
-    unwrap: () => ({
-      accountId: { toString: () => accountId },
-      destinationChain: { isEthereum: true },
-      destinationSigningKey: { toHex: () => signer },
-      state: {
-        isActive: true,
-        isDeactivating: false,
-        isPendingActivation: false,
-      },
-      gatewayRemainingMicrogonCollateral: { toBigInt: () => 0n },
-      pendingReservedMicrogonCollateral: { toBigInt: () => 0n },
-      gatewayRemainingMicronotCollateral: { toBigInt: () => 0n },
-      pendingReservedMicronotCollateral: { toBigInt: () => 0n },
-      activePendingTransferIds,
-    }),
+    accountId,
+    destinationChain: { type: 'Ethereum' },
+    destinationSigningKey: signer,
+    state: { type: 'Active' },
+    gatewayRemainingMicrogonCollateral: 0n,
+    pendingReservedMicrogonCollateral: 0n,
+    gatewayRemainingMicronotCollateral: 0n,
+    pendingReservedMicronotCollateral: 0n,
+    activePendingTransferIds,
   };
 }
 
@@ -1051,13 +1016,11 @@ function createRefreshClient(args: {
         mintingAuthoritiesBySigner: {
           multi: vi.fn(async (signers: string[]) =>
             signers.map(signer =>
-              signer === args.signer
-                ? someAuthority('5VaultingAddress', signer, [hexValue(transferId)])
-                : noneAuthority(),
+              signer === args.signer ? someAuthority('5VaultingAddress', signer, [transferId]) : noneAuthority(),
             ),
           ),
         },
-        chainConfigBySourceChain: vi.fn(async () => ({ isNone: true })),
+        chainConfigBySourceChain: vi.fn(async () => null),
         transferOutById: {
           multi: vi.fn(async () => [backedTransfer(args.signer, args.sourceAccount)]),
         },
@@ -1067,7 +1030,7 @@ function createRefreshClient(args: {
       },
       operationalAccounts: {
         operationalAccountBySubAccount: {
-          multi: vi.fn(async (sourceAccounts: string[]) => sourceAccounts.map(() => ({ isSome: false }))),
+          multi: vi.fn(async (sourceAccounts: string[]) => sourceAccounts.map(() => null)),
         },
       },
     },
@@ -1076,38 +1039,33 @@ function createRefreshClient(args: {
 
 function backedTransfer(signer: string, sourceAccount: string) {
   return {
-    isNone: false,
-    unwrap: () => ({
-      state: { isReady: true },
-      asset: { isArgon: true },
-      argonAccountId: accountValue(`0x${'aa'.repeat(32)}`, sourceAccount),
-      argonTransferNonce: bigintValue(7n),
-      destinationAccount: hexValue(`0x${'bb'.repeat(20)}`),
-      amount: bigintValue(80n),
-      validUntilEthereumBlock: bigintValue(123n),
-      mintingAuthorityTip: bigintValue(2n),
-      microgonsPerArgonot: bigintValue(1n),
-      totalAttachedCollateral: bigintValue(60n),
-      mintingAuthorityCollateralBySigner: new Map([
-        [hexValue(signer), { microgonCollateral: bigintValue(40n), micronotCollateral: bigintValue(20n) }],
-      ]),
-    }),
+    state: { type: 'Ready' },
+    asset: { type: 'Argon' },
+    argonAccountId: sourceAccount,
+    argonTransferNonce: 7n,
+    destinationAccount: `0x${'bb'.repeat(20)}`,
+    amount: 80n,
+    validUntilEthereumBlock: 123n,
+    mintingAuthorityTip: 2n,
+    microgonsPerArgonot: 1n,
+    totalAttachedCollateral: 60n,
+    mintingAuthorityCollateralBySigner: {
+      [signer]: { microgonCollateral: 40n, micronotCollateral: 20n },
+    },
   };
 }
 
 function sourceTotalsValue(microgonsOut: bigint) {
   return {
-    microgonsOut: bigintValue(microgonsOut),
-    micronotsOut: bigintValue(microgonsOut * 2n),
-    argonTransfersOutCount: { toNumber: () => 2 },
-    argonotTransfersOutCount: { toNumber: () => 3 },
+    microgonsOut,
+    micronotsOut: microgonsOut * 2n,
+    argonTransfersOutCount: 2,
+    argonotTransfersOutCount: 3,
   };
 }
 
 function noneAuthority() {
-  return {
-    isNone: true,
-  };
+  return null;
 }
 
 function bigintValue(value: bigint) {
@@ -1124,20 +1082,16 @@ function accountValue(hex: string, address: string) {
 
 function someTransfer(transferId: string) {
   return {
-    isNone: false,
-    isSome: true,
-    unwrap: () => ({
-      microgonsPerArgonot: { toBigInt: () => 1_000_000n },
-      mintingAuthorityCollateralBySigner: { keys: () => [] },
-      asset: { isArgon: true },
-      argonAccountId: accountValue('0x' + 'aa'.repeat(32), '5SourceAccount'),
-      argonTransferNonce: { toBigInt: () => 1n },
-      destinationAccount: { toHex: () => '0x' + 'bb'.repeat(20) },
-      validUntilEthereumBlock: { toBigInt: () => 123n },
-      amount: { toBigInt: () => 80n },
-      mintingAuthorityTip: { toBigInt: () => 1n },
-      transferId,
-    }),
+    microgonsPerArgonot: 1_000_000n,
+    mintingAuthorityCollateralBySigner: {},
+    asset: { type: 'Argon' },
+    argonAccountId: '0x' + 'aa'.repeat(32),
+    argonTransferNonce: 1n,
+    destinationAccount: '0x' + 'bb'.repeat(20),
+    validUntilEthereumBlock: 123n,
+    amount: 80n,
+    mintingAuthorityTip: 1n,
+    transferId,
   };
 }
 

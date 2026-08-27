@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
-import { TxResult } from '@argonprotocol/apps-core';
-import { type ArgonClient } from '@argonprotocol/mainchain';
+import { type ArgonClient, TxResult } from '@argonprotocol/apps-core';
 import * as Vue from 'vue';
 import { expect, fn, mocked, spyOn, userEvent, waitFor, within } from 'storybook/test';
 import { TopTab } from '../../../src-vue/interfaces/IConfig.ts';

@@ -8,8 +8,8 @@ import {
   MICROGONS_PER_ARGON,
   MICRONOTS_PER_ARGONOT,
   MoveToken,
+  type RuntimeSystemEventRecord,
 } from '@argonprotocol/apps-core';
-import type { FrameSystemEventRecord } from '@argonprotocol/mainchain';
 import BigNumber from 'bignumber.js';
 import { findAddressActivity } from './IndexerClient.ts';
 import type { IGlobalCouncilApproval, IGlobalCouncilChange } from './GlobalCouncil.ts';
@@ -271,9 +271,7 @@ export class CrosschainHistory {
         const details = await this.recoverOwnedEventDetails(api, signedBlock, eventRecord);
         if (!details) continue;
 
-        const extrinsicIndex = eventRecord.phase.isApplyExtrinsic
-          ? eventRecord.phase.asApplyExtrinsic.toNumber()
-          : undefined;
+        const extrinsicIndex = eventRecord.phase.type === 'ApplyExtrinsic' ? eventRecord.phase.value : undefined;
         records.push({
           accountId: this.walletKeys.vaultingAddress,
           id: `${block.blockHash}:${eventIndex}`,
@@ -292,60 +290,58 @@ export class CrosschainHistory {
   private async recoverOwnedEventDetails(
     api: Awaited<ReturnType<BlockWatch['getApi']>>,
     signedBlock: Awaited<ReturnType<BlockWatch['getBlock']>>,
-    eventRecord: FrameSystemEventRecord,
+    eventRecord: RuntimeSystemEventRecord,
   ): Promise<ICrosschainHistoryDetails | undefined> {
     const { event, phase } = eventRecord;
     if (event.section !== 'crosschainTransfer') return;
 
-    if (api.events.crosschainTransfer.QueueEntryApprovalRecorded.is(event)) {
-      if (!phase.isApplyExtrinsic) return;
-      const extrinsic = signedBlock.block.extrinsics[phase.asApplyExtrinsic.toNumber()];
+    if (event.method === 'QueueEntryApprovalRecorded') {
+      if (phase.type !== 'ApplyExtrinsic') return;
+      const extrinsic = signedBlock.block.extrinsics[phase.value];
       if (!extrinsic?.isSigned || extrinsic.signer.toString() !== this.walletKeys.vaultingAddress) return;
 
       const { target, approvalQueueNonce } = event.data;
-      if (target.isMintingAuthorityActivation) {
-        const targetValue = target.asMintingAuthorityActivation.toHex();
-        const authorityOption = await api.query.crosschainTransfer.mintingAuthoritiesBySigner(targetValue);
+      if (target.type === 'MintingAuthorityActivation') {
+        const targetValue = target.value;
+        const authority = await api.query.crosschainTransfer.mintingAuthoritiesBySigner(targetValue);
         return {
           kind: 'councilApproval',
-          queueNonce: approvalQueueNonce.toBigInt(),
+          queueNonce: approvalQueueNonce,
           targetKind: 'mintingAuthorityActivation',
           targetValue,
-          ...(authorityOption.isSome ? { authorityOwnerAccount: authorityOption.unwrap().accountId.toString() } : {}),
+          ...(authority ? { authorityOwnerAccount: authority.accountId } : {}),
         };
       }
-      if (target.isMintingAuthorityDeactivation) {
-        const targetValue = target.asMintingAuthorityDeactivation.toHex();
-        const authorityOption = await api.query.crosschainTransfer.mintingAuthoritiesBySigner(targetValue);
+      if (target.type === 'MintingAuthorityDeactivation') {
+        const targetValue = target.value;
+        const authority = await api.query.crosschainTransfer.mintingAuthoritiesBySigner(targetValue);
         return {
           kind: 'councilApproval',
-          queueNonce: approvalQueueNonce.toBigInt(),
+          queueNonce: approvalQueueNonce,
           targetKind: 'mintingAuthorityDeactivation',
           targetValue,
-          ...(authorityOption.isSome ? { authorityOwnerAccount: authorityOption.unwrap().accountId.toString() } : {}),
+          ...(authority ? { authorityOwnerAccount: authority.accountId } : {}),
         };
       }
-      if (target.isGlobalIssuanceCouncilRotation) {
-        const targetValue = target.asGlobalIssuanceCouncilRotation.toHex();
+      if (target.type === 'GlobalIssuanceCouncilRotation') {
+        const targetValue = target.value;
         const [activeCouncilHashOption, targetCouncilOption] = await Promise.all([
           api.query.crosschainTransfer.activeGlobalIssuanceCouncilByDestinationChain('Ethereum'),
           api.query.crosschainTransfer.globalIssuanceCouncilByHash(targetValue),
         ]);
-        const activeCouncilOption = activeCouncilHashOption.isSome
-          ? await api.query.crosschainTransfer.globalIssuanceCouncilByHash(activeCouncilHashOption.unwrap())
+        const activeCouncil = activeCouncilHashOption
+          ? await api.query.crosschainTransfer.globalIssuanceCouncilByHash(activeCouncilHashOption)
           : undefined;
         const activeMemberAccounts = new Set(
-          activeCouncilOption?.isSome
-            ? [...activeCouncilOption.unwrap().members.values()].map(member => member.accountId.toString())
-            : [],
+          activeCouncil ? Object.values(activeCouncil.members).map(member => member.accountId) : [],
         );
-        const targetCouncil = targetCouncilOption.isSome ? targetCouncilOption.unwrap() : undefined;
+        const targetCouncil = targetCouncilOption ?? undefined;
         const targetMemberAccounts = new Set(
-          targetCouncil ? [...targetCouncil.members.values()].map(member => member.accountId.toString()) : [],
+          targetCouncil ? Object.values(targetCouncil.members).map(member => member.accountId) : [],
         );
         return {
           kind: 'councilApproval',
-          queueNonce: approvalQueueNonce.toBigInt(),
+          queueNonce: approvalQueueNonce,
           targetKind: 'globalIssuanceCouncilRotation',
           targetValue,
           ...(targetCouncil
@@ -356,7 +352,7 @@ export class CrosschainHistory {
                     .length,
                   leavingVaultCount: [...activeMemberAccounts].filter(accountId => !targetMemberAccounts.has(accountId))
                     .length,
-                  epochMicrogonsPerArgonot: targetCouncil.epochMicrogonsPerArgonot.toBigInt(),
+                  epochMicrogonsPerArgonot: targetCouncil.epochMicrogonsPerArgonot,
                 },
               }
             : {}),
@@ -365,31 +361,30 @@ export class CrosschainHistory {
       return;
     }
 
-    if (api.events.crosschainTransfer.TransferCollateralized.is(event)) {
-      const transferId = event.data.transferId.toHex();
-      const authoritySigningKey = event.data.destinationSigningKey.toHex();
+    if (event.method === 'TransferCollateralized') {
+      const transferId = event.data.transferId;
+      const authoritySigningKey = event.data.destinationSigningKey;
 
-      const authorityOption = await api.query.crosschainTransfer.mintingAuthoritiesBySigner(authoritySigningKey);
-      if (authorityOption.isNone) return;
+      const authority = await api.query.crosschainTransfer.mintingAuthoritiesBySigner(authoritySigningKey);
+      if (!authority) return;
 
-      const authorityOwnerAccount = authorityOption.unwrap().accountId.toString();
+      const authorityOwnerAccount = authority.accountId;
       if (authorityOwnerAccount !== this.walletKeys.vaultingAddress) {
         return;
       }
-      const transferOption = await api.query.crosschainTransfer.transferOutById(transferId);
-      if (transferOption.isNone) return;
+      const transfer = await api.query.crosschainTransfer.transferOutById(transferId);
+      if (!transfer) return;
 
-      const transfer = transferOption.unwrap();
-      const moveToken = transfer.asset.isArgon ? MoveToken.ARGN : MoveToken.ARGNOT;
-      const microgonsPerArgonot = transfer.microgonsPerArgonot.toBigInt();
-      const tip = transfer.mintingAuthorityTip.toBigInt();
-      const microgonCollateral = event.data.microgonCollateral.toBigInt();
-      const micronotCollateral = event.data.micronotCollateral.toBigInt();
-      const amount = transfer.amount.toBigInt();
+      const moveToken = transfer.asset.type === 'Argon' ? MoveToken.ARGN : MoveToken.ARGNOT;
+      const microgonsPerArgonot = transfer.microgonsPerArgonot;
+      const tip = transfer.mintingAuthorityTip;
+      const microgonCollateral = event.data.microgonCollateral;
+      const micronotCollateral = event.data.micronotCollateral;
+      const amount = transfer.amount;
       const authorityTip = calculateMintingAuthorityTipShare({
         moveToken,
         mintingAuthorityTip: tip,
-        totalCollateral: bigIntMax(amount, transfer.totalAttachedCollateral.toBigInt()),
+        totalCollateral: bigIntMax(amount, transfer.totalAttachedCollateral),
         microgonsPerArgonot,
         microgonCollateral,
         micronotCollateral,
@@ -399,8 +394,8 @@ export class CrosschainHistory {
         transferId,
         authoritySigningKey,
         authorityOwnerAccount,
-        sourceAccount: transfer.argonAccountId.toString(),
-        destinationAccount: transfer.destinationAccount.toHex(),
+        sourceAccount: transfer.argonAccountId,
+        destinationAccount: transfer.destinationAccount,
         moveToken,
         amount,
         microgonsPerArgonot,
@@ -415,13 +410,13 @@ export class CrosschainHistory {
       };
     }
 
-    if (api.events.crosschainTransfer.MintingAuthorityRegistered.is(event)) {
-      if (event.data.accountId.toString() !== this.walletKeys.vaultingAddress) return;
+    if (event.method === 'MintingAuthorityRegistered') {
+      if (event.data.accountId !== this.walletKeys.vaultingAddress) return;
       return {
         kind: 'authorityLifecycle',
         action: 'registered',
-        authoritySigningKey: event.data.destinationSigningKey.toHex(),
-        queueNonce: event.data.approvalQueueNonce.toBigInt(),
+        authoritySigningKey: event.data.destinationSigningKey,
+        queueNonce: event.data.approvalQueueNonce,
       };
     }
   }

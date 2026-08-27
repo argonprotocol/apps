@@ -10,16 +10,16 @@ import {
   generateBlocks,
   sendBitcoinToAddress,
 } from '@argonprotocol/apps-core/__test__/helpers/bitcoinCli.ts';
-import { submitAndFinalize } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
+import { getTestMainchainClient, submitAndFinalize } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import {
   loadCertificationProgress,
+  type ArgonClient,
   MICROGONS_PER_ARGON,
   TreasuryBonds,
   BitcoinLock,
   TxSubmitter,
 } from '@argonprotocol/apps-core';
-import { getClient, type ArgonClient } from '@argonprotocol/mainchain';
 import type { IConfig } from '../interfaces/IConfig.ts';
 import {
   cleanupBitcoinLocksHarness,
@@ -48,7 +48,7 @@ describe.skipIf(skipE2E).sequential('OperationalAccount integration tests', { ti
       chainStartPollMs: 250,
     });
 
-    client = await getClient(network.archiveUrl);
+    client = await getTestMainchainClient(network.archiveUrl);
     previousComposeProjectName = process.env.COMPOSE_PROJECT_NAME;
     process.env.COMPOSE_PROJECT_NAME = network.composeEnv.COMPOSE_PROJECT_NAME;
   });
@@ -67,11 +67,9 @@ describe.skipIf(skipE2E).sequential('OperationalAccount integration tests', { ti
     const runtimeClient = client!;
     await waitFor(90_000, 'price oracle update', async () => {
       const current = await runtimeClient.query.priceIndex.current();
-      if (current.isNone) return;
-
-      const priceIndex = current.unwrap();
-      if (priceIndex.btcUsdPrice.toBigInt() <= 0n) return;
-      if (priceIndex.argonUsdPrice.toBigInt() <= 0n) return;
+      if (!current) return;
+      if (current.btcUsdPrice.isLessThanOrEqualTo(0)) return;
+      if (current.argonUsdPrice.isLessThanOrEqualTo(0)) return;
       return true;
     });
 
@@ -167,7 +165,7 @@ describe.skipIf(skipE2E).sequential('OperationalAccount integration tests', { ti
       expect(result.extrinsicError).toBeUndefined();
 
       const registered = await loadOperationalAccount(walletKeys, runtimeClient);
-      expect(registered.isSome).toBe(true);
+      expect(registered).not.toBeNull();
     } finally {
       await cleanupBitcoinLocksHarness(harness);
     }

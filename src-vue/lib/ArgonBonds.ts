@@ -1,12 +1,12 @@
-import type { ArgonClient, FrameSystemEventRecord } from '@argonprotocol/mainchain';
 import {
+  type ArgonClient,
   type ArgonQueryClient,
   BondLot,
   type Currency,
   type IBlockHeaderInfo,
   type IFrameBondLot,
   type MiningFrames,
-  type PreviousRuntimeSpec,
+  type RuntimeSystemEventRecord,
   TreasuryBonds,
   type VaultBondCapacityState,
   type Vault,
@@ -282,7 +282,7 @@ export class ArgonBonds {
     });
   }
 
-  public async importHistoryBlock(block: IBlockHeaderInfo, events: readonly FrameSystemEventRecord[]): Promise<void> {
+  public async importHistoryBlock(block: IBlockHeaderInfo, events: readonly RuntimeSystemEventRecord[]): Promise<void> {
     await this.historyRecovery.importBlock(block, events);
   }
 
@@ -316,43 +316,35 @@ export class ArgonBonds {
     let refreshMarket = false;
     let refreshBidPool = false;
     let latestRefreshBlock: IBlockHeaderInfo | undefined;
-    const typeClient = await getMainchainClient(false);
-    const treasuryEvents = typeClient.events.treasury as
-      | ArgonClient['events']['treasury']
-      | PreviousRuntimeSpec.Events<'promise'>['treasury'];
-    const bondLotFlexibilityChanged =
-      'BondLotFlexibilityChanged' in treasuryEvents
-        ? treasuryEvents.BondLotFlexibilityChanged
-        : treasuryEvents.BondLotBackfillChanged;
-    const reservedBondSpaceChanged =
-      'ReservedBondSpaceChanged' in treasuryEvents
-        ? treasuryEvents.ReservedBondSpaceChanged
-        : treasuryEvents.BackfillBondsReservedChanged;
-
     for (const block of blocks) {
       if (block.frameId != null) this.data.currentFrameId = block.frameId;
 
       const events = await this.miningFrames.blockWatch.getEvents(block);
       for (const { event } of events) {
-        if (typeClient.events.miningSlot.SlotBidderAdded.is(event) && event.data.bidAmount.toBigInt() > 0n) {
+        if (event.section === 'miningSlot' && event.method === 'SlotBidderAdded' && event.data.bidAmount > 0n) {
           refreshBidPool = true;
-        } else if (typeClient.events.miningSlot.SlotBidderDropped.is(event)) {
+        } else if (event.section === 'miningSlot' && event.method === 'SlotBidderDropped') {
           refreshBidPool = true;
-        } else if (typeClient.events.treasury.FrameEarningsDistributed.is(event)) {
+        } else if (event.section === 'treasury' && event.method === 'FrameEarningsDistributed') {
           refreshBonds = true;
           refreshMarket = true;
-          if (event.data.bidPoolDistributed.toBigInt() > 0n) refreshBidPool = true;
-        } else if (typeClient.events.treasury.FrameVaultCapitalLocked.is(event)) {
+          if (event.data.bidPoolDistributed > 0n) refreshBidPool = true;
+        } else if (event.section === 'treasury' && event.method === 'FrameVaultCapitalLocked') {
           refreshMarket = true;
         } else if (
-          typeClient.events.treasury.BondLotPurchased.is(event) ||
-          typeClient.events.treasury.BondLotReleaseScheduled.is(event) ||
-          typeClient.events.treasury.BondLotReleased.is(event) ||
-          bondLotFlexibilityChanged.is(event)
+          event.section === 'treasury' &&
+          (event.method === 'BondLotPurchased' ||
+            event.method === 'BondLotReleaseScheduled' ||
+            event.method === 'BondLotReleased' ||
+            event.method === 'BondLotFlexibilityChanged' ||
+            event.method === 'BondLotBackfillChanged')
         ) {
           refreshBonds = true;
           refreshMarket = true;
-        } else if (reservedBondSpaceChanged.is(event)) {
+        } else if (
+          event.section === 'treasury' &&
+          (event.method === 'ReservedBondSpaceChanged' || event.method === 'BackfillBondsReservedChanged')
+        ) {
           refreshMarket = true;
         }
       }
@@ -414,17 +406,18 @@ export class ArgonBonds {
     const api = await this.miningFrames.blockWatch.getApi(block);
     const event = info.txResult.events.find(event => {
       return (
-        api.events.treasury.BondLotPurchased.is(event) &&
-        event.data.accountId.toString() === this.walletKeys.defaultArgonAddress
+        event.section === 'treasury' &&
+        event.method === 'BondLotPurchased' &&
+        event.data.accountId === this.walletKeys.defaultArgonAddress
       );
     });
-    if (!event || !api.events.treasury.BondLotPurchased.is(event)) {
+    if (!event || event.section !== 'treasury' || event.method !== 'BondLotPurchased') {
       throw new Error('BondLotPurchased event not found in transaction result');
     }
 
     await this.historyRecovery.recordPurchase(
       block,
-      event.data.bondLotId.toNumber(),
+      event.data.bondLotId,
       info.tx.blockExtrinsicIndex ?? info.txResult.extrinsicIndex,
     );
   }
@@ -432,18 +425,18 @@ export class ArgonBonds {
   private async recordFinalizedLiquidation(lotAtSubmission: BondLot, info: TransactionInfo): Promise<void> {
     const block = await this.getFinalizedTransactionBlock(info);
     const api = await this.miningFrames.blockWatch.getApi(block);
-    const lotOption = await api.query.treasury.bondLotById(lotAtSubmission.id);
-    if (lotOption.isNone) {
+    const lot = await api.query.treasury.bondLotById(lotAtSubmission.id);
+    if (!lot) {
       throw new Error(`Liquidated bond lot ${lotAtSubmission.id} not found at finalized block`);
     }
 
     const accountId = this.walletKeys.defaultArgonAddress;
-    const lot = BondLot.fromRuntime(lotAtSubmission.id, lotOption.unwrap(), accountId);
-    const nativePrincipal = lot.principalMicrogons ?? lot.principalMicronots;
+    const restoredLot = BondLot.fromRuntime(lotAtSubmission.id, lot, accountId);
+    const nativePrincipal = restoredLot.principalMicrogons ?? restoredLot.principalMicronots;
     const submittedNativePrincipal = lotAtSubmission.principalMicrogons ?? lotAtSubmission.principalMicronots;
     if (
-      lot.accountId !== lotAtSubmission.accountId ||
-      lot.programType !== lotAtSubmission.programType ||
+      restoredLot.accountId !== lotAtSubmission.accountId ||
+      restoredLot.programType !== lotAtSubmission.programType ||
       nativePrincipal !== submittedNativePrincipal
     ) {
       throw new Error(`Liquidated bond lot ${lotAtSubmission.id} no longer matches its submitted identity`);
@@ -452,7 +445,7 @@ export class ArgonBonds {
     await (
       await this.dbPromise
     ).bondLotHistoryTable.recordObservation({
-      lot,
+      lot: restoredLot,
       blockNumber: block.blockNumber,
       blockHash: block.blockHash,
     });

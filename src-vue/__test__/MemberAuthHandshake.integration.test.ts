@@ -15,10 +15,11 @@ import {
   NetworkConfig,
   UserRole,
   TxSubmitter,
+  type ArgonClient,
 } from '@argonprotocol/apps-core';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
-import { type ArgonClient, u8aToHex } from '@argonprotocol/mainchain';
+import { u8aToHex } from '@argonprotocol/mainchain';
 import { sudo, teardown } from '@argonprotocol/testing';
 import { type BotServer, Db as BotDb, startServer as startBotServer, type Bot } from '@argonprotocol/apps-bot';
 import type { IInviteResponse, IRouterAuthSessionResponse } from '@argonprotocol/apps-router';
@@ -153,7 +154,7 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
     });
     const bootstrapEndpointPubkey = getBootstrapEndpointPubkey(bootstrapEndpointSecret);
     const endpointOwner = await client.query.bootstrap.endpointOwnerByPubkey(bootstrapEndpointPubkey);
-    expect(endpointOwner.unwrap().toString()).toBe(operatorWalletKeys.defaultArgonAddress);
+    expect(endpointOwner).toBe(operatorWalletKeys.defaultArgonAddress);
     await expect(operatorRecovery.recoverEndpoint(client, BootstrapRecoveryContext.OwnServer)).resolves.toMatchObject({
       host: sourceUrl.hostname,
       port: Number(sourceUrl.port),

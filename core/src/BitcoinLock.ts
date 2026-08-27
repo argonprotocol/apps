@@ -1,33 +1,20 @@
 // Source: @argonprotocol/mainchain 1.4.12, the last release that exported this model.
-import {
-  type ArgonClient,
-  type ArgonPrimitivesBitcoinBitcoinNetwork,
-  FIXED_U128_DECIMALS,
-  formatArgons,
-  fromFixedNumber,
-  type PalletBitcoinLocksLockedBitcoin,
-  type PalletBitcoinLocksLockReleaseRequest,
-  PriceIndex,
-} from '@argonprotocol/mainchain';
-import type { GenericEvent } from '@polkadot/types';
+import { formatArgons, PriceIndex } from '@argonprotocol/mainchain';
 import type { SubmittableExtrinsic } from '@polkadot/api/promise/types';
 import { TxSubmitter, type TxSigningAccount } from './TxSubmitter.js';
-import { TxResult } from './TxResult.js';
-import { u8aToHex } from '@polkadot/util';
-import type { ApiDecoration } from '@polkadot/api/types';
+import { TxResult, type RuntimeEvent } from './TxResult.js';
+import { hexToU8a, u8aToHex } from '@polkadot/util';
 import type { Vault } from './Vault.js';
 import BigNumber from 'bignumber.js';
-import type { PreviousRuntimeSpec } from './runtimeCompatibility.js';
 import type { BitcoinLockFeeCoupon } from './interfaces/IBitcoinLockCoupon.js';
+import type { ArgonClient, ArgonQueryClient } from './MainchainClients.js';
+import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
+import type { PreviousRuntimeSpec } from './runtimeCompatibility.js';
 
 export const SATS_PER_BTC = 100_000_000n;
 
-type IQueryableClient = ArgonClient | ApiDecoration<'promise'>;
+type IQueryableClient = ArgonQueryClient;
 type UtxoRefInput = { txid: string; outputIndex: number };
-type RuntimeBitcoinLock = PalletBitcoinLocksLockedBitcoin | PreviousRuntimeSpec.PalletBitcoinLocksLockedBitcoin;
-type RuntimeReleaseRequest =
-  | PalletBitcoinLocksLockReleaseRequest
-  | PreviousRuntimeSpec.PalletBitcoinLocksLockReleaseRequest;
 
 type BitcoinLockInitializationTerms =
   | {
@@ -100,26 +87,22 @@ export class BitcoinLock implements IBitcoinLock {
    * @return.vout - The output index of the UTXO in the transaction.
    */
   public async getFundingUtxoRef(client: IQueryableClient): Promise<{ txid: string; vout: number } | undefined> {
-    const refRaw = await client.query.bitcoinUtxos.utxoIdToFundingUtxoRef(this.utxoId);
-    if (refRaw.isNone) {
-      return;
-    }
-    const ref = refRaw.unwrap();
+    const ref = await client.query.bitcoinUtxos.utxoIdToFundingUtxoRef(this.utxoId);
+    if (!ref) return;
 
-    const txid = u8aToHex(ref.txid);
-    const vout = ref.outputIndex.toNumber();
+    const txid = ref.txid;
+    const vout = ref.outputIndex;
     return { txid, vout };
   }
 
   public async findPendingMints(client: IQueryableClient): Promise<bigint[]> {
     const mintsPending: bigint[] = [];
     const pendingMintIndices = await client.query.mint.pendingMintUtxoIdLookup(this.utxoId);
+    if (!pendingMintIndices) return mintsPending;
 
     for (const pendingMintIndex of pendingMintIndices) {
       const pendingMint = await client.query.mint.pendingMintUtxosByIndex(pendingMintIndex);
-      if (pendingMint.isSome) {
-        mintsPending.push(pendingMint.unwrap().remainingAmount.toBigInt());
-      }
+      if (pendingMint) mintsPending.push(pendingMint.remainingAmount);
     }
     return mintsPending;
   }
@@ -145,7 +128,7 @@ export class BitcoinLock implements IBitcoinLock {
 
       const currentBitcoinHeight = await client.query.bitcoinUtxos
         .confirmedBitcoinBlockTip()
-        .then(tip => (tip.isSome ? tip.unwrap().blockHeight.toNumber() : 0));
+        .then(tip => tip?.blockHeight ?? 0);
       const fullTerm = Math.max(1, vaultClaimHeight - createdAtHeight);
       const elapsedBlocks = Math.max(0, currentBitcoinHeight - createdAtHeight);
       const cappedRemainingBlocks = Math.max(0, fullTerm - elapsedBlocks);
@@ -208,15 +191,17 @@ export class BitcoinLock implements IBitcoinLock {
   }
 
   public async getReleaseRequest(client: IQueryableClient): Promise<IReleaseRequestDetails | undefined> {
-    const requestMaybe = await client.query.bitcoinLocks.lockReleaseRequestsByUtxoId(this.utxoId);
-    if (!requestMaybe.isSome) {
-      return undefined;
-    }
-    const request = requestMaybe.unwrap() as RuntimeReleaseRequest;
+    const request: HistoricalQueryRecord<'bitcoinLocks', 'lockReleaseRequestsByUtxoId'> =
+      await client.query.bitcoinLocks.lockReleaseRequestsByUtxoId(this.utxoId);
+    if (!request) return;
+
+    const redemptionAmount = request.redemptionAmount ?? request.redemptionPrice;
+    if (redemptionAmount === undefined) return;
+
     return {
-      toScriptPubkey: request.toScriptPubkey.toHex(),
-      bitcoinNetworkFee: request.bitcoinNetworkFee.toBigInt(),
-      redemptionAmount: request.redemptionAmount.toBigInt(),
+      toScriptPubkey: u8aToHex(request.toScriptPubkey),
+      bitcoinNetworkFee: request.bitcoinNetworkFee,
+      redemptionAmount,
     };
   }
 
@@ -230,8 +215,8 @@ export class BitcoinLock implements IBitcoinLock {
     const finalizedHead = await client.rpc.chain.getFinalizedHead();
     const queryClient = await client.at(finalizedHead);
     const releaseHeight = await queryClient.query.bitcoinLocks.lockReleaseCosignHeightById(this.utxoId);
-    if (releaseHeight.isSome) {
-      const releaseHeightValue = releaseHeight.unwrap().toNumber();
+    if (releaseHeight !== null) {
+      const releaseHeightValue = releaseHeight;
       const signature = await this.getVaultCosignSignature(client, releaseHeightValue);
       if (signature) {
         return { blockHeight: releaseHeightValue, signature };
@@ -243,22 +228,16 @@ export class BitcoinLock implements IBitcoinLock {
   private async getVaultCosignSignature(client: ArgonClient, atHeight: number): Promise<Uint8Array | undefined> {
     const blockHash = await client.rpc.chain.getBlockHash(atHeight);
     const blockEvents = await client.at(blockHash).then(api => api.query.system.events());
-    for (const event of blockEvents) {
-      if (client.events.bitcoinLocks.BitcoinUtxoCosigned.is(event.event)) {
-        const { utxoId: id, signature } = event.event.data;
-        if (id.toNumber() === this.utxoId) {
-          return new Uint8Array(signature);
-        }
-      }
+    for (const { event } of blockEvents) {
+      if (event.section !== 'bitcoinLocks' || event.method !== 'BitcoinUtxoCosigned') continue;
+      if (event.data.utxoId === this.utxoId) return event.data.signature;
     }
     return undefined;
   }
 
-  private static async getUtxoIdFromEvents(client: IQueryableClient, events: GenericEvent[]) {
+  private static async getUtxoIdFromEvents(events: RuntimeEvent[]) {
     for (const event of events) {
-      if (client.events.bitcoinLocks.BitcoinLockCreated.is(event)) {
-        return event.data.utxoId.toNumber();
-      }
+      if (event.section === 'bitcoinLocks' && event.method === 'BitcoinLockCreated') return event.data.utxoId;
     }
     return undefined;
   }
@@ -313,7 +292,7 @@ export class BitcoinLock implements IBitcoinLock {
     return {
       lockReleaseCosignDeadlineFrames: client.consts.bitcoinLocks.lockReleaseCosignDeadlineFrames.toNumber(),
       pendingConfirmationExpirationBlocks: client.consts.bitcoinUtxos.maxPendingConfirmationBlocks.toNumber(),
-      tickDurationMillis: await client.query.ticks.genesisTicker().then(x => x.tickDurationMillis.toNumber()),
+      tickDurationMillis: await client.query.ticks.genesisTicker().then(x => x.tickDurationMillis),
       bitcoinNetwork,
       lockSatoshiAllowedVariance: client.consts.bitcoinUtxos.maximumSatoshiThresholdFromExpected?.toNumber() ?? 10_000,
     };
@@ -386,66 +365,54 @@ export class BitcoinLock implements IBitcoinLock {
   }
 
   public static async get(client: IQueryableClient, utxoId: number): Promise<BitcoinLock | undefined> {
-    const utxoRaw = await client.query.bitcoinLocks.locksByUtxoId(utxoId);
-    if (!utxoRaw.isSome) {
-      return;
-    }
-    const utxo = utxoRaw.unwrap() as RuntimeBitcoinLock;
-    const p2shBytesPrefix = '0020';
-    const wscriptHash = utxo.utxoScriptPubkey.asP2wsh.wscriptHash.toHex().replace('0x', '');
-    const p2wshScriptHashHex = `0x${p2shBytesPrefix}${wscriptHash}`;
-    const vaultId = utxo.vaultId.toNumber();
-    const lockedTargetPrice = utxo.lockedTargetPrice.toBigInt();
-    const liquidityPromised = utxo.liquidityPromised.toBigInt();
-    const ownerAccount = utxo.ownerAccount.toHuman();
-    const securitizationRatio = fromFixedNumber(utxo.securitizationRatio.toBigInt(), FIXED_U128_DECIMALS).toNumber();
-    const satoshis = utxo.satoshis.toBigInt();
-    const utxoSatoshis = utxo.utxoSatoshis?.isSome ? utxo.utxoSatoshis.value.toBigInt() : undefined;
-    const vaultPubkey = utxo.vaultPubkey.toHex();
-    const vaultClaimPubkey = utxo.vaultClaimPubkey.toHex();
-    const ownerPubkey = utxo.ownerPubkey.toHex();
-    const [fingerprint, cosign_hd_index, claim_hd_index] = utxo.vaultXpubSources;
-    const vaultXpubSources = {
-      parentFingerprint: new Uint8Array(fingerprint),
-      cosignHdIndex: cosign_hd_index.toNumber(),
-      claimHdIndex: claim_hd_index.toNumber(),
-    };
+    const lock: HistoricalQueryRecord<'bitcoinLocks', 'locksByUtxoId'> =
+      await client.query.bitcoinLocks.locksByUtxoId(utxoId);
+    if (!lock) return;
 
-    const createdAtArgonBlock = utxo.createdAtArgonBlock.toNumber();
-    const securityFees = utxo.securityFees.toBigInt();
-    const vaultClaimHeight = utxo.vaultClaimHeight.toNumber();
-    const openClaimHeight = utxo.openClaimHeight.toNumber();
-    const createdAtHeight = utxo.createdAtHeight.toNumber();
-    const isFunded = utxo.isFunded.toJSON();
-    const isFlexible = 'isFlexible' in utxo ? utxo.isFlexible.toJSON() : utxo.isBackfill.toJSON();
+    const lockedTargetPrice = lock.lockedTargetPrice ?? lock.lockedMarketRate ?? lock.peggedPrice ?? lock.lockPrice;
+    if (lockedTargetPrice === undefined || lock.liquidityPromised === undefined || lock.securityFees === undefined) {
+      throw new Error(`Bitcoin lock ${utxoId} predates recoverable financial storage`);
+    }
+    if (lock.utxoScriptPubkey.type !== 'P2WSH' && lock.utxoScriptPubkey.type !== 'P2wsh') {
+      throw new Error(`Bitcoin lock ${utxoId} does not use P2WSH`);
+    }
+
+    const p2shBytesPrefix = '0020';
+    const wscriptHash = lock.utxoScriptPubkey.value.wscriptHash.replace('0x', '');
+    const p2wshScriptHashHex = `0x${p2shBytesPrefix}${wscriptHash}`;
+    const [fingerprint, cosignHdIndex, claimHdIndex] = lock.vaultXpubSources;
+    const vaultXpubSources = {
+      parentFingerprint: hexToU8a(fingerprint),
+      cosignHdIndex,
+      claimHdIndex,
+    };
     const fundHoldExtensionsByBitcoinExpirationHeight = Object.fromEntries(
-      [...utxo.fundHoldExtensions.entries()].map(([x, y]) => [x.toNumber(), y.toBigInt()]),
+      Object.entries(lock.fundHoldExtensions ?? {}).map(([height, amount]) => [Number(height), amount]),
     );
-    const couponFeesPaid = utxo.couponPaidFees.toBigInt();
 
     return new BitcoinLock({
       utxoId,
       p2wshScriptHashHex,
-      vaultId,
+      vaultId: lock.vaultId,
       lockedTargetPrice,
-      liquidityPromised,
-      ownerAccount,
-      securitizationRatio,
-      satoshis,
-      utxoSatoshis,
-      vaultPubkey,
-      vaultClaimPubkey,
-      ownerPubkey,
+      liquidityPromised: lock.liquidityPromised,
+      ownerAccount: lock.ownerAccount,
+      securitizationRatio: lock.securitizationRatio?.toNumber() ?? 1,
+      satoshis: lock.satoshis,
+      utxoSatoshis: lock.utxoSatoshis ?? undefined,
+      vaultPubkey: lock.vaultPubkey,
+      vaultClaimPubkey: lock.vaultClaimPubkey,
+      ownerPubkey: lock.ownerPubkey,
       vaultXpubSources,
-      vaultClaimHeight,
-      openClaimHeight,
-      createdAtHeight,
-      securityFees,
-      isFunded,
-      isFlexible,
-      couponFeesPaid,
+      vaultClaimHeight: lock.vaultClaimHeight,
+      openClaimHeight: lock.openClaimHeight,
+      createdAtHeight: lock.createdAtHeight,
+      securityFees: lock.securityFees,
+      isFunded: lock.isFunded ?? lock.isVerified ?? false,
+      isFlexible: lock.isFlexible ?? lock.isBackfill ?? false,
+      couponFeesPaid: lock.couponPaidFees ?? 0n,
       fundHoldExtensionsByBitcoinExpirationHeight,
-      createdAtArgonBlock,
+      createdAtArgonBlock: lock.createdAtArgonBlock ?? 0,
     });
   }
 
@@ -547,7 +514,7 @@ export class BitcoinLock implements IBitcoinLock {
   }> {
     await txResult.waitForFinalizedBlock;
     const blockHeight = txResult.blockNumber!;
-    const utxoId = (await this.getUtxoIdFromEvents(client, txResult.events)) ?? 0;
+    const utxoId = (await this.getUtxoIdFromEvents(txResult.events)) ?? 0;
     if (utxoId === 0) {
       throw new Error('Bitcoin lock creation failed, no UTXO ID found in transaction events');
     }
@@ -596,7 +563,7 @@ export interface IBitcoinLockConfig {
   lockReleaseCosignDeadlineFrames: number;
   pendingConfirmationExpirationBlocks: number;
   tickDurationMillis: number;
-  bitcoinNetwork: ArgonPrimitivesBitcoinBitcoinNetwork;
+  bitcoinNetwork: HistoricalQueryRecord<'bitcoinUtxos', 'bitcoinNetwork'>;
   lockSatoshiAllowedVariance: number;
 }
 export interface IReleaseRequest {

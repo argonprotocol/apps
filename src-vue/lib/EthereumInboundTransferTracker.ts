@@ -552,18 +552,12 @@ export class EthereumInboundTransferTracker {
     const finalizedArgonHeight = finalizedHeader.blockNumber;
     const latestRetainedAnchorHash =
       await finalizedClient.query.ethereumVerifier.latestExecutionHeaderAnchorBlockHash();
-    const latestRetainedAnchor = latestRetainedAnchorHash.isNone
-      ? undefined
-      : await finalizedClient.query.ethereumVerifier.executionHeaderAnchors(latestRetainedAnchorHash.unwrap().toHex());
-    const latestRetainedBlockNumber =
-      latestRetainedAnchor && latestRetainedAnchor.isSome
-        ? Number(latestRetainedAnchor.unwrap().blockNumber.toBigInt())
-        : undefined;
+    const latestRetainedAnchor = latestRetainedAnchorHash
+      ? await finalizedClient.query.ethereumVerifier.executionHeaderAnchors(latestRetainedAnchorHash)
+      : undefined;
+    const latestRetainedBlockNumber = latestRetainedAnchor ? Number(latestRetainedAnchor.blockNumber) : undefined;
     const gatewayState = await finalizedClient.query.crosschainTransfer.gatewayStateBySourceChain('Ethereum');
-    if (
-      gatewayState.isSome &&
-      gatewayState.unwrap().gatewayActivityNonce.toBigInt() >= persistedRecord.gatewayActivityNonce
-    ) {
+    if (gatewayState && gatewayState.gatewayActivityNonce >= persistedRecord.gatewayActivityNonce) {
       transfer.persistedRecord = await db.crosschainInboundTransfersTable.recordArgonFinalized({
         id: persistedRecord.id,
         argonBlockNumber: finalizedArgonHeight,
@@ -649,24 +643,20 @@ export class EthereumInboundTransferTracker {
 
     const latestRetainedAnchorHash =
       await finalizedClient.query.ethereumVerifier.latestExecutionHeaderAnchorBlockHash();
-    if (latestRetainedAnchorHash.isNone) {
-      return;
-    }
+    if (!latestRetainedAnchorHash) return;
 
-    const latestRetainedAnchor = await finalizedClient.query.ethereumVerifier.executionHeaderAnchors(
-      latestRetainedAnchorHash.unwrap().toHex(),
-    );
-    if (latestRetainedAnchor.isNone) {
-      throw new Error(`Argon finalized execution header ${latestRetainedAnchorHash.unwrap().toHex()} is missing.`);
-    }
+    const latestRetainedAnchor =
+      await finalizedClient.query.ethereumVerifier.executionHeaderAnchors(latestRetainedAnchorHash);
+    if (!latestRetainedAnchor)
+      throw new Error(`Argon finalized execution header ${latestRetainedAnchorHash} is missing.`);
 
-    if (latestRetainedAnchor.unwrap().blockNumber.toBigInt() < BigInt(record.sourceBlockNumber)) {
+    if (latestRetainedAnchor.blockNumber < BigInt(record.sourceBlockNumber)) {
       return;
     }
 
     const throughGatewayActivityNonce = record.gatewayActivityNonce;
     const gatewayState = await finalizedClient.query.crosschainTransfer.gatewayStateBySourceChain('Ethereum');
-    const argonGatewayActivityNonce = gatewayState.isSome ? gatewayState.unwrap().gatewayActivityNonce.toBigInt() : 0n;
+    const argonGatewayActivityNonce = gatewayState?.gatewayActivityNonce ?? 0n;
     const relayProgressKey = `${argonGatewayActivityNonce}:${throughGatewayActivityNonce}`;
     const now = Date.now();
     if (this.#lastCatchUpProgressKey.get(record.id) !== relayProgressKey) {

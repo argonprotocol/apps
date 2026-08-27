@@ -1,5 +1,5 @@
 import { runOnTeardown, sudo, teardown } from '@argonprotocol/testing';
-import { getClient, Keyring, mnemonicGenerate, toFixedNumber } from '@argonprotocol/mainchain';
+import { Keyring, mnemonicGenerate, toFixedNumber } from '@argonprotocol/mainchain';
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import os from 'node:os';
@@ -17,6 +17,7 @@ import { DockerStatus } from '../src/DockerStatus.js';
 import { Db } from '../src/Db.ts';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
+import { getTestMainchainClient } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
@@ -41,7 +42,7 @@ afterAll(async () => {
 it.skipIf(skipE2E)(
   'can autobid and store stats',
   async () => {
-    const client = await getClient(clientAddress);
+    const client = await getTestMainchainClient(clientAddress);
     runOnTeardown(async () => {
       await client.disconnect().catch(() => undefined);
     });
@@ -60,7 +61,7 @@ it.skipIf(skipE2E)(
           argonotUsdPrice: toFixedNumber(2.0, 18),
           argonUsdTargetPrice: toFixedNumber(1.0, 18),
           argonTimeWeightedAverageLiquidity: toFixedNumber(1_000, 18),
-          tick: currentTick.toBigInt(),
+          tick: BigInt(currentTick),
         },
         null,
       ),
@@ -158,10 +159,10 @@ it.skipIf(skipE2E)(
     let lastSeenBlockNumber = 0;
     const targetVoteBlocks = 1;
     const frameIdsWithVoteBlocks = new Set<number>();
-    if ((await client.query.miningSlot.activeMinersCount().then(x => x.toNumber())) > 0) {
+    if ((await client.query.miningSlot.activeMinersCount()) > 0) {
       firstCohortActivationFrameId = await client.query.miningSlot.minersByCohort.keys().then(x => {
         if (!x.length) return 0;
-        return x[0].args[0].toNumber();
+        return x[0].args[0];
       });
     }
     // wait for first finalized vote block
@@ -171,19 +172,21 @@ it.skipIf(skipE2E)(
         if (firstCohortActivationFrameId === undefined) {
           const events = await api.query.system.events();
           for (const e of events) {
-            if (client.events.miningSlot.NewMiners.is(e.event)) {
+            if (e.event.section === 'miningSlot' && e.event.method === 'NewMiners') {
               const { frameId, newMiners } = e.event.data;
               if (newMiners.length > 0) {
-                firstCohortActivationFrameId = frameId.toNumber();
+                firstCohortActivationFrameId = frameId;
               }
             }
           }
         }
-        const isVoteBlock = await api.query.blockSeal.isBlockFromVoteSeal().then(x => x.isTrue);
+        const isVoteBlock = await api.query.blockSeal.isBlockFromVoteSeal();
         lastSeenBlockNumber = x.number.toNumber();
         if (isVoteBlock) {
           console.log(`Block ${x.number.toNumber()} is vote block`);
-          const earningsFrameId = (await api.query.miningSlot.nextFrameId().then(x => x.toNumber())) - 1;
+          const nextFrameId = await api.query.miningSlot.nextFrameId();
+          if (nextFrameId === null) throw new Error('Mining frame storage is unavailable');
+          const earningsFrameId = nextFrameId - 1;
           frameIdsWithVoteBlocks.add(earningsFrameId);
           voteBlocks++;
           if (voteBlocks >= targetVoteBlocks) {

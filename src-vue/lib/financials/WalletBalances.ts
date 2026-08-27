@@ -203,8 +203,8 @@ function getBalanceBuckets(
   account: IArgonAccountBalance,
   claimedHolds: { treasury: boolean; miningSlot: boolean; vaults: boolean },
 ) {
-  const totalMicrogonHolds = account.microgonHolds.reduce((sum, hold) => sum + hold.amount.toBigInt(), 0n);
-  const totalMicronotHolds = account.micronotHolds.reduce((sum, hold) => sum + hold.amount.toBigInt(), 0n);
+  const totalMicrogonHolds = account.microgonHolds.reduce((sum, hold) => sum + hold.amount, 0n);
+  const totalMicronotHolds = account.micronotHolds.reduce((sum, hold) => sum + hold.amount, 0n);
   if (totalMicrogonHolds > account.reservedMicrogons) {
     throw new Error(`ARGN holds exceed reserved balance for ${account.address}`);
   }
@@ -213,10 +213,10 @@ function getBalanceBuckets(
   }
 
   const claimedMicrogons = account.microgonHolds.reduce((sum, hold) => {
-    return isClaimedFinancialHold(hold, claimedHolds) ? sum + hold.amount.toBigInt() : sum;
+    return isClaimedFinancialHold(hold, claimedHolds) ? sum + hold.amount : sum;
   }, 0n);
   const claimedMicronots = account.micronotHolds.reduce((sum, hold) => {
-    return isClaimedFinancialHold(hold, claimedHolds) ? sum + hold.amount.toBigInt() : sum;
+    return isClaimedFinancialHold(hold, claimedHolds) ? sum + hold.amount : sum;
   }, 0n);
 
   return [
@@ -239,10 +239,10 @@ function isClaimedFinancialHold(
   hold: IArgonAccountBalance['microgonHolds'][number],
   claimedHolds: { treasury: boolean; miningSlot: boolean; vaults: boolean },
 ): boolean {
-  if (hold.id.isTreasury) return claimedHolds.treasury;
-  if (hold.id.isMiningSlot) return claimedHolds.miningSlot;
-  if (!hold.id.isVaults) return false;
-  return claimedHolds.vaults && (hold.id.asVaults.isEnterVault || hold.id.asVaults.isPendingCollect);
+  if (hold.id.type === 'Treasury') return claimedHolds.treasury;
+  if (hold.id.type === 'MiningSlot') return claimedHolds.miningSlot;
+  if (hold.id.type !== 'Vaults') return false;
+  return claimedHolds.vaults && (hold.id.value.type === 'EnterVault' || hold.id.value.type === 'PendingCollect');
 }
 
 function createResidualWalletBalancePositions(args: {

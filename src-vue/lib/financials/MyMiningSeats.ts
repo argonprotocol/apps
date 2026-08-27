@@ -529,5 +529,5 @@ function closeMiningArgonotLots(
 }
 
 function getMiningHolds(holds: IArgonAccountBalance['microgonHolds']): bigint {
-  return holds.filter(hold => hold.id.isMiningSlot).reduce((sum, hold) => sum + hold.amount.toBigInt(), 0n);
+  return holds.filter(hold => hold.id.type === 'MiningSlot').reduce((sum, hold) => sum + hold.amount, 0n);
 }

@@ -2,7 +2,6 @@ import type { IAllVaultStats } from '@argonprotocol/apps-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Vaults } from '../lib/Vaults.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
-import { optionCodec } from '../../core/__test__/helpers/codecs.ts';
 
 class TestVaults extends Vaults {
   public async persist(stats: IAllVaultStats): Promise<void> {
@@ -52,10 +51,10 @@ describe('Vault operator names', () => {
       query: {
         operationalAccounts: {
           operationalAccountBySubAccount: {
-            multi: vi.fn(async () => [optionCodec(`0x${'01'.repeat(32)}`)]),
+            multi: vi.fn(async () => [`0x${'01'.repeat(32)}`]),
           },
           operationalAccounts: {
-            multi: vi.fn(async () => [optionCodec({ name: optionCodec({ toUtf8: () => 'Atlas' }) })]),
+            multi: vi.fn(async () => [{ name: new TextEncoder().encode('Atlas') }]),
           },
         },
       },

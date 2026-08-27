@@ -1,7 +1,7 @@
 import { BaseTable, IFieldTypes } from './BaseTable';
 import { convertFromSqliteFields, toSqlParams } from '../Utils';
-import { ExtrinsicError, GenericEvent } from '@argonprotocol/mainchain';
-import { filterUndefined } from '@argonprotocol/apps-core';
+import { ExtrinsicError } from '@argonprotocol/mainchain';
+import { filterUndefined, type RuntimeEvent } from '@argonprotocol/apps-core';
 import {
   TransactionHistorySource,
   TransactionHistoryStatus,
@@ -131,7 +131,7 @@ export class TransactionsTable extends BaseTable {
       feePlusTip: bigint;
       extrinsicError?: ExtrinsicError;
       extrinsicIndex: number;
-      transactionEvents: GenericEvent[];
+      transactionEvents: RuntimeEvent[];
     },
   ): Promise<ITransactionRecord> {
     const { blockNumber, blockHash, blockTime, feePlusTip, tip } = block;
@@ -147,12 +147,8 @@ export class TransactionsTable extends BaseTable {
       ? { batchInterruptedIndex, errorCode, details, message: message ?? 'Unknown Error' }
       : undefined;
     record.blockExtrinsicEventsJson = block.transactionEvents.map(event => {
-      return {
-        raw: event.toHex(),
-        human: event.toHuman(),
-      };
+      return { event };
     });
-    console.log('Events for extrinsic', record.extrinsicHash, record.blockExtrinsicEventsJson);
     await this.db.execute(
       `UPDATE Transactions SET 
           blockHeight = ?,

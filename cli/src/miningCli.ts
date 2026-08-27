@@ -1,6 +1,13 @@
 import { Command } from '@commander-js/extra-typings';
-import { CohortBidder, MainchainClients, Mining, MiningFrames } from '@argonprotocol/apps-core';
-import { getClient, type KeyringPair, MICROGONS_PER_ARGON, TxSubmitter } from '@argonprotocol/mainchain';
+import {
+  CohortBidder,
+  createArgonClient,
+  MainchainClients,
+  Mining,
+  MiningFrames,
+  TxSubmitter,
+} from '@argonprotocol/apps-core';
+import { getClient, type KeyringPair, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 
 import { accountsetFromCli, globalOptions, saveKeyringPair } from './index.js';
 
@@ -110,7 +117,7 @@ export default function miningCli() {
     .option('--proxy-passphrase <passphrase>', 'The passphrase for your proxy account')
     .action(async ({ outfile, proxyPassphrase, feeArgons }) => {
       const { mainchainUrl } = globalOptions(program);
-      const client = await getClient(mainchainUrl);
+      const client = createArgonClient(await getClient(mainchainUrl));
 
       const keyringPair = await saveKeyringPair({
         filePath: outfile,

@@ -470,20 +470,20 @@ function createMemberClient(availableMicrogons: bigint, balancesError?: Error) {
         account: {
           multi: fn(async () => {
             if (balancesError) throw balancesError;
-            return [{ data: { free: amount(availableMicrogons), reserved: amount(0n) } }];
+            return [{ data: { free: availableMicrogons, reserved: 0n } }];
           }),
         },
       },
       ownership: {
         account: {
-          multi: fn(async () => [{ free: amount(0n), reserved: amount(0n) }]),
+          multi: fn(async () => [{ free: 0n, reserved: 0n }]),
         },
       },
       bitcoinLocks: {
         utxoIdsByOwnerAccount: { keys: fn(() => Promise.reject(new Error('Use invite progress fixture.'))) },
       },
       crosschainTransfer: {
-        transferTotalsByAccount: fn(async () => ({ microgonsIn: amount(0n) })),
+        transferTotalsByAccount: fn(async () => ({ microgonsIn: 0n })),
       },
       operationalAccounts: {
         operationalAccounts: fn(() => Promise.reject(new Error('Use invite progress fixture.'))),

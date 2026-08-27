@@ -1,24 +1,20 @@
 import {
-  ApiDecoration,
-  ArgonClient,
-  type ArgonPrimitivesVaultVaultArgonotCommitment,
   FIXED_U128_DECIMALS,
   hexToU8a,
   type IArgonQueryable,
   MICROGONS_PER_ARGON,
-  PalletVaultsVaultFrameRevenue,
-  type Option,
   PERMILL_DECIMALS,
   SubmittableExtrinsic,
   toFixedNumber,
-  u64,
   u8aToHex,
-  Vec,
 } from '@argonprotocol/mainchain';
-import { BitcoinNetwork, CosignScript, getBitcoinNetworkFromApi, HDKey } from '@argonprotocol/bitcoin';
+import { BitcoinNetwork, CosignScript, HDKey } from '@argonprotocol/bitcoin';
+import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
 import { Db } from './Db.ts';
 import { getFinalizedClient, getMainchainClient, getMainchainClients } from '../stores/mainchain.ts';
 import {
+  type ArgonClient,
+  type ArgonApi,
   ArgonQueryClient,
   bigIntMax,
   BondLot,
@@ -71,6 +67,8 @@ type IPendingCosignUtxo = {
   targetValue: bigint;
   dueFrame?: number;
 };
+
+type RuntimeVaultFrameRevenues = NonNullable<HistoricalQueryRecord<'vaults', 'revenuePerFrameByVault'>>;
 
 export interface IExternalBitcoinLock {
   utxoId: number;
@@ -131,8 +129,8 @@ export type IVaultFlexibleAssetChanges = {
 const COSIGN_ATTEMPT_CONFIRMATIONS_TO_WAIT = 2;
 
 export class MyVault {
-  public static async getVaultDelegateTopUpAmount(client: IArgonQueryable, delegateAddress: string): Promise<bigint> {
-    const delegateBalance = await client.query.system.account(delegateAddress).then(x => x.data.free.toBigInt());
+  public static async getVaultDelegateTopUpAmount(client: ArgonQueryClient, delegateAddress: string): Promise<bigint> {
+    const delegateBalance = await client.query.system.account(delegateAddress).then(x => x.data.free);
     if (delegateBalance >= minimumVaultDelegateBalance) {
       return 0n;
     }
@@ -140,7 +138,7 @@ export class MyVault {
   }
 
   public static async isVaultDelegateReady(
-    client: IArgonQueryable,
+    client: ArgonQueryClient,
     vault: Pick<Vault, 'delegateAccountId'>,
     delegateAddress: string,
   ): Promise<boolean> {
@@ -250,7 +248,7 @@ export class MyVault {
     }
     const client = await getMainchainClient(false);
     const bitcoinNetwork = await client.query.bitcoinUtxos.bitcoinNetwork();
-    this.#bitcoinNetwork = getBitcoinNetworkFromApi(bitcoinNetwork);
+    this.#bitcoinNetwork = BitcoinNetwork[bitcoinNetwork.type];
     return this.#bitcoinNetwork;
   }
 
@@ -447,30 +445,32 @@ export class MyVault {
 
       const sub6 = this.miningFrames.blockWatch.events.on('finalized', async headers => {
         try {
-          let latestBitcoinClient: ApiDecoration<'promise'> | undefined;
-          let latestRevenueClient: ApiDecoration<'promise'> | undefined;
+          let latestBitcoinClient: ArgonApi | undefined;
+          let latestRevenueClient: ArgonApi | undefined;
           for (const header of headers) {
             const { api, events } = await this.miningFrames.blockWatch.getEventsWithSpec(header);
             if (header.isNewFrame) latestRevenueClient = api;
 
             for (const { event } of events) {
-              if (
-                api.events.bitcoinLocks.BitcoinUtxoCosignRequested.is(event) ||
-                api.events.bitcoinLocks.BitcoinUtxoCosigned.is(event) ||
-                api.events.bitcoinLocks.BitcoinCosignPastDue.is(event) ||
-                api.events.bitcoinLocks.OrphanedUtxoReleaseRequested.is(event) ||
-                api.events.bitcoinLocks.OrphanedUtxoCosigned.is(event)
-              ) {
-                if (event.data.vaultId.toNumber() === vaultId) latestBitcoinClient = api;
-                continue;
+              if (event.section === 'bitcoinLocks') {
+                switch (event.method) {
+                  case 'BitcoinUtxoCosignRequested':
+                  case 'BitcoinUtxoCosigned':
+                  case 'BitcoinCosignPastDue':
+                  case 'OrphanedUtxoReleaseRequested':
+                  case 'OrphanedUtxoCosigned':
+                    if (event.data.vaultId === vaultId) latestBitcoinClient = api;
+                    continue;
+                }
               }
 
-              if (
-                api.events.vaults.FundsLocked.is(event) ||
-                api.events.vaults.VaultCollected.is(event) ||
-                api.events.vaults.VaultRevenueUncollected.is(event)
-              ) {
-                if (event.data.vaultId.toNumber() === vaultId) latestRevenueClient = api;
+              if (event.section === 'vaults') {
+                switch (event.method) {
+                  case 'FundsLocked':
+                  case 'VaultCollected':
+                  case 'VaultRevenueUncollected':
+                    if (event.data.vaultId === vaultId) latestRevenueClient = api;
+                }
               }
             }
           }
@@ -527,8 +527,8 @@ export class MyVault {
     await Promise.all(refreshes);
   }
 
-  private updateArgonotCommitment(commitment: Option<ArgonPrimitivesVaultVaultArgonotCommitment>): void {
-    if (commitment.isNone) {
+  private updateArgonotCommitment(commitment: HistoricalQueryRecord<'vaults', 'argonotCommitmentByVaultId'>): void {
+    if (!commitment) {
       this.data.argonotCommitment = {
         committedMicronots: 0n,
         encumberedMicronots: 0n,
@@ -536,10 +536,9 @@ export class MyVault {
       return;
     }
 
-    const value = commitment.unwrap();
     this.data.argonotCommitment = {
-      committedMicronots: value.committedMicronots.toBigInt(),
-      encumberedMicronots: value.encumberedMicronots.toBigInt(),
+      committedMicronots: commitment.committedMicronots,
+      encumberedMicronots: commitment.encumberedMicronots,
     };
   }
 
@@ -551,14 +550,14 @@ export class MyVault {
     ]);
     if (updateSeq !== this.#finalizedBitcoinCosignUpdateSeq) return;
 
-    await this.recordPendingCosignUtxos(pendingCosignUtxos, ++this.#pendingCosignUpdateSeq, client);
+    await this.recordPendingCosignUtxos(pendingCosignUtxos ?? [], ++this.#pendingCosignUpdateSeq, client);
     if (updateSeq !== this.#finalizedBitcoinCosignUpdateSeq) return;
 
-    this.data.pendingOrphanCosignCount = orphanCosignEntries.reduce((total, [, count]) => total + count.toNumber(), 0);
+    this.data.pendingOrphanCosignCount = (orphanCosignEntries ?? []).reduce((total, [, count]) => total + count, 0);
   }
 
   private async refreshFinalizedRevenueState(client: ArgonQueryClient, vaultId: number): Promise<void> {
-    await this.updateRevenueStats(await client.query.vaults.revenuePerFrameByVault(vaultId));
+    await this.updateRevenueStats((await client.query.vaults.revenuePerFrameByVault(vaultId)) ?? []);
     this.updateCollectDeadlines();
   }
 
@@ -566,34 +565,25 @@ export class MyVault {
     const vaultId = this.vaultId;
     if (vaultId == null) return;
 
-    const typeClient = await getMainchainClient(false);
-    const bitcoinLockEvents = typeClient.events.bitcoinLocks as
-      | ArgonClient['events']['bitcoinLocks']
-      | PreviousRuntimeSpec.Events<'promise'>['bitcoinLocks'];
-    const bitcoinLockFlexibilityChanged =
-      'BitcoinLockFlexibleChanged' in bitcoinLockEvents
-        ? bitcoinLockEvents.BitcoinLockFlexibleChanged
-        : bitcoinLockEvents.BitcoinLockBackfillChanged;
-    let latestApiClient: ApiDecoration<'promise'> | undefined;
+    let latestApiClient: ArgonApi | undefined;
     for (const header of headers) {
       const events = await this.miningFrames.blockWatch.getEvents(header);
       let shouldRefreshExternalLocks = false;
       for (const { event } of events) {
-        if (
-          typeClient.events.bitcoinLocks.BitcoinLockCreated.is(event) ||
-          typeClient.events.bitcoinLocks.BitcoinLockRatcheted.is(event) ||
-          typeClient.events.bitcoinLocks.UtxoFundedFromCandidate?.is(event) ||
-          typeClient.events.bitcoinLocks.SecuritizationIncreased?.is(event) ||
-          bitcoinLockFlexibilityChanged.is(event) ||
-          typeClient.events.bitcoinLocks.BitcoinUtxoCosignRequested.is(event) ||
-          typeClient.events.bitcoinLocks.BitcoinUtxoCosigned.is(event) ||
-          typeClient.events.bitcoinLocks.BitcoinCosignPastDue.is(event) ||
-          typeClient.events.bitcoinLocks.BitcoinLockBurned.is(event) ||
-          typeClient.events.bitcoinLocks.BitcoinSpentAfterRelease?.is(event)
-        ) {
-          if (vaultId === event.data.vaultId.toNumber()) {
-            shouldRefreshExternalLocks = true;
-          }
+        if (event.section !== 'bitcoinLocks') continue;
+        switch (event.method) {
+          case 'BitcoinLockCreated':
+          case 'BitcoinLockRatcheted':
+          case 'UtxoFundedFromCandidate':
+          case 'SecuritizationIncreased':
+          case 'BitcoinLockFlexibleChanged':
+          case 'BitcoinLockBackfillChanged':
+          case 'BitcoinUtxoCosignRequested':
+          case 'BitcoinUtxoCosigned':
+          case 'BitcoinCosignPastDue':
+          case 'BitcoinLockBurned':
+          case 'BitcoinSpentAfterRelease':
+            if (vaultId === event.data.vaultId) shouldRefreshExternalLocks = true;
         }
       }
       if (shouldRefreshExternalLocks) {
@@ -618,17 +608,14 @@ export class MyVault {
     this.data.nextCosignDueDate = nextCosignFrame ? this.miningFrames.getFrameDate(nextCosignFrame).getTime() : 0;
   }
 
-  private async recordPendingCosignUtxos(rawUtxoIds: Iterable<u64>, updateSeq: number, client: ArgonQueryClient) {
+  private async recordPendingCosignUtxos(rawUtxoIds: readonly number[], updateSeq: number, client: ArgonQueryClient) {
     const previousPendingCosignsById = new Map(this.data.pendingCosignUtxosById);
     const pendingCosignUtxosById = new Map<number, IPendingCosignUtxo>();
-    for (const utxoId of rawUtxoIds) {
-      const id = utxoId.toNumber();
+    for (const id of rawUtxoIds) {
       const lock = await BitcoinLock.get(client, id);
       const previousPending = previousPendingCosignsById.get(id);
       const pendingReleaseRaw = await client.query.bitcoinLocks.lockReleaseRequestsByUtxoId(id);
-      const dueFrame = pendingReleaseRaw.isSome
-        ? pendingReleaseRaw.unwrap().cosignDueFrame.toNumber()
-        : previousPending?.dueFrame;
+      const dueFrame = pendingReleaseRaw?.cosignDueFrame ?? previousPending?.dueFrame;
       const targetValue = lock?.lockedTargetPrice ?? previousPending?.targetValue ?? 0n;
       pendingCosignUtxosById.set(id, { targetValue, dueFrame });
     }
@@ -1322,27 +1309,26 @@ export class MyVault {
     vaultId: number;
   }): Promise<{ tx: SubmittableExtrinsic; metadata: ICollectOrphanCosignMetadata }[]> {
     const { finalizedClient, submitClient, vaultId } = args;
-    const ownerEntries = await finalizedClient.query.vaults.orphanedUtxoAccountsByVaultId.entries(vaultId);
+    const ownerEntries = (await finalizedClient.query.vaults.orphanedUtxoAccountsByVaultId.entries(vaultId)) ?? [];
     const vaultXpriv = await this.getVaultXpriv();
     const bitcoinNetwork = await this.getBitcoinNetwork();
     const queued = new Set<string>();
     const txs: { tx: SubmittableExtrinsic; metadata: ICollectOrphanCosignMetadata }[] = [];
 
     for (const [ownerKey, pendingCountRaw] of ownerEntries) {
-      if (pendingCountRaw.toNumber() <= 0) continue;
-      const ownerAccount = ownerKey.args[1].toString();
-      const orphanEntries = await finalizedClient.query.bitcoinLocks.orphanedUtxosByAccount.entries(ownerAccount);
+      if (pendingCountRaw <= 0) continue;
+      const ownerAccount = ownerKey.args[1];
+      const orphanEntries =
+        (await finalizedClient.query.bitcoinLocks.orphanedUtxosByAccount.entries(ownerAccount)) ?? [];
 
       for (const [orphanKey, orphanMaybe] of orphanEntries) {
-        if (orphanMaybe.isNone) continue;
-        const orphan = orphanMaybe.unwrap();
-        if (orphan.vaultId.toNumber() !== vaultId) continue;
-        if (orphan.cosignRequest.isNone) continue;
+        if (!orphanMaybe || orphanMaybe.vaultId !== vaultId || !orphanMaybe.cosignRequest) continue;
+        const orphan = orphanMaybe;
 
         const utxoRef = orphanKey.args[1];
-        const txid = utxoRef.txid.toHex();
-        const vout = utxoRef.outputIndex.toNumber();
-        const lockUtxoId = orphan.utxoId.toNumber();
+        const txid = utxoRef.txid;
+        const vout = utxoRef.outputIndex;
+        const lockUtxoId = orphan.utxoId;
         const key = `${ownerAccount}:${txid}:${vout}`;
         if (queued.has(key)) continue;
         const latestTxAttempt = await this.findLatestOrphanCosignTxAttempt({
@@ -1360,7 +1346,7 @@ export class MyVault {
         queued.add(key);
 
         // The orphan is written during this block, so recover its lock from the pre-orphan state.
-        const blockNumber = orphan.recordedArgonBlockNumber.toNumber() - 1;
+        const blockNumber = orphan.recordedArgonBlockNumber - 1;
         const apiNode = await this.miningFrames.blockWatch.getRpcClient(blockNumber);
         const blockHash = await apiNode.rpc.chain.getBlockHash(blockNumber);
         const apiClient = await apiNode.at(blockHash);
@@ -1371,16 +1357,17 @@ export class MyVault {
           continue;
         }
 
-        const cosignRequest = orphan.cosignRequest.unwrap();
-        const toScriptPubkey = cosignRequest.toScriptPubkey.toHex();
-        const bitcoinNetworkFee = cosignRequest.bitcoinNetworkFee.toBigInt();
+        const cosignRequest = orphan.cosignRequest;
+        if (!cosignRequest) continue;
+        const toScriptPubkey = u8aToHex(cosignRequest.toScriptPubkey);
+        const bitcoinNetworkFee = cosignRequest.bitcoinNetworkFee;
         const result = await this.buildOrphanCosignSubmission({
           submitClient,
           lock,
           ownerAccount,
           txid,
           vout,
-          satoshis: orphan.satoshis.toBigInt(),
+          satoshis: orphan.satoshis,
           bitcoinNetworkFee,
           toScriptPubkey,
           vaultXpriv,
@@ -1474,7 +1461,7 @@ export class MyVault {
       this.data.createdVault = vault;
       this.updateArgonotCommitment(argonotCommitment);
 
-      const block = await this.miningFrames.blockWatch.getHeader(blockNumber.toNumber());
+      const block = await this.miningFrames.blockWatch.getHeader(blockNumber);
       const db = await this.dbPromise;
       await db.vaultCapitalHistoryTable.insert({
         eventType: 'modified',
@@ -1482,7 +1469,7 @@ export class MyVault {
         vaultId,
         securitization: vault.securitization,
         securitizationTarget: bigIntMax(vault.securitization - vault.getRelockCapacity(), 0n),
-        blockNumber: blockNumber.toNumber(),
+        blockNumber,
         blockHash: u8aToHex(finalizedBlockHash),
         blockTime: new Date(block.blockTime),
         extrinsicIndex: txInfo.tx.blockExtrinsicIndex ?? txInfo.txResult.extrinsicIndex,
@@ -1504,11 +1491,11 @@ export class MyVault {
       await this.trackTxResultFee(txResult);
       await this.#transactionTracker.ensureStoredEvents(txInfo);
       const collectedEvent = txResult.events.find(event => {
-        return client.events.vaults.VaultCollected.is(event) && event.data.vaultId.toNumber() === vaultId;
+        return event.section === 'vaults' && event.method === 'VaultCollected' && event.data.vaultId === vaultId;
       });
       const revenue =
-        collectedEvent && client.events.vaults.VaultCollected.is(collectedEvent)
-          ? collectedEvent.data.revenue.toBigInt()
+        collectedEvent?.section === 'vaults' && collectedEvent.method === 'VaultCollected'
+          ? collectedEvent.data.revenue
           : undefined;
       if (revenue !== undefined) {
         try {
@@ -1537,7 +1524,7 @@ export class MyVault {
           const clientAt = await client.at(blockHash);
           const balanceAtBlock = await clientAt.query.system
             .account(this.walletKeys.vaultingAddress)
-            .then(x => x.data.free.toBigInt());
+            .then(x => x.data.free);
 
           // Make sure the collect amount doesn't drain the account below operational reserves
           const maxAmountToMove = getSpendableDefaultArgonMicrogons(balanceAtBlock);
@@ -1568,7 +1555,7 @@ export class MyVault {
       }
 
       const finalizedClient = await getFinalizedClient();
-      const frameRevenues = await finalizedClient.query.vaults.revenuePerFrameByVault(vaultId);
+      const frameRevenues = (await finalizedClient.query.vaults.revenuePerFrameByVault(vaultId)) ?? [];
       await Promise.all([
         this.updateRevenueStats(frameRevenues),
         this.globalCouncil.refresh(finalizedClient),
@@ -1673,8 +1660,8 @@ export class MyVault {
       const blockNumber = await api.query.system.number();
       let vaultId: number | undefined;
       for (const event of txResult.events) {
-        if (client.events.vaults.VaultCreated.is(event)) {
-          vaultId = event.data.vaultId.toNumber();
+        if (event.section === 'vaults' && event.method === 'VaultCreated') {
+          vaultId = event.data.vaultId;
           break;
         }
       }
@@ -1684,20 +1671,20 @@ export class MyVault {
       const vault = await Vault.get(api, vaultId);
       await this.recordVault({
         vault,
-        createBlockNumber: blockNumber.toNumber(),
+        createBlockNumber: blockNumber,
         txFee: txResult.finalFee ?? 0n,
         masterXpubPath: tx.metadataJson.masterXpubPath,
       });
 
       try {
-        const block = await this.miningFrames.blockWatch.getHeader(blockNumber.toNumber());
+        const block = await this.miningFrames.blockWatch.getHeader(blockNumber);
         const db = await this.dbPromise;
         await db.vaultCapitalHistoryTable.insert({
           eventType: 'created',
           walletAddress: this.walletKeys.defaultArgonAddress,
           vaultId,
           securitization: vault.securitization,
-          blockNumber: blockNumber.toNumber(),
+          blockNumber,
           blockHash: u8aToHex(finalizedBlockHash),
           blockTime: new Date(block.blockTime),
           extrinsicIndex: tx.blockExtrinsicIndex ?? txResult.extrinsicIndex,
@@ -1724,7 +1711,7 @@ export class MyVault {
     if (needsDelegateSetup) {
       const vaultBalance = await args.client.query.system
         .account(this.createdVault!.operatorAccountId)
-        .then(x => x.data.free.toBigInt());
+        .then(x => x.data.free);
       if (vaultBalance < amountToFund + vaultDelegateFeeBuffer) {
         throw new Error(
           `Your Argon wallet must have a minimum of ${amountToFund + vaultDelegateFeeBuffer} balance to activate the vault delegate.`,
@@ -1800,17 +1787,17 @@ export class MyVault {
     return txs;
   }
 
-  public async updateRevenueStats(frameRevenues?: Vec<PalletVaultsVaultFrameRevenue>): Promise<void> {
+  public async updateRevenueStats(frameRevenues?: RuntimeVaultFrameRevenues): Promise<void> {
     if (!this.createdVault) {
       throw new Error('No vault created to update revenue');
     }
     const client = await getMainchainClient(false);
     const vaultId = this.createdVault.vaultId;
-    frameRevenues ??= await client.query.vaults.revenuePerFrameByVault(vaultId);
+    frameRevenues ??= (await client.query.vaults.revenuePerFrameByVault(vaultId)) ?? [];
     this.#collectFrames = frameRevenues
       .map(frameRevenue => ({
-        frameId: frameRevenue.frameId.toNumber(),
-        uncollectedEarnings: frameRevenue.uncollectedRevenue.toBigInt(),
+        frameId: frameRevenue.frameId,
+        uncollectedEarnings: frameRevenue.uncollectedRevenue,
       }))
       .sort((a, b) => b.frameId - a.frameId);
     this.vaults.vaultsById[vaultId] = this.createdVault;
@@ -1842,9 +1829,7 @@ export class MyVault {
 
     const client = clientArg ?? (await getMainchainClient(false));
 
-    const utxoIds = await client.query.bitcoinLocks.utxoIdsByVaultId
-      .keys(vaultId)
-      .then(keys => keys.map(key => key.args[1].toNumber()));
+    const utxoIds = (await client.query.bitcoinLocks.utxoIdsByVaultId?.keys(vaultId))?.map(key => key.args[1]) ?? [];
 
     const next: { [utxoId: number]: IExternalBitcoinLock } = {};
     for (const utxoId of utxoIds) {

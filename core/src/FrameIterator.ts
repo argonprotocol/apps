@@ -1,8 +1,5 @@
-import type { MainchainClients } from './MainchainClients.js';
-import { type ApiDecoration } from '@argonprotocol/mainchain';
+import type { ArgonApi, MainchainClients } from './MainchainClients.js';
 import { MiningFrames } from './MiningFrames.js';
-
-export { type ApiDecoration };
 
 export type ICallbackFirstBlockMeta = {
   specVersion: number;
@@ -14,7 +11,7 @@ export type ICallbackFirstBlockMeta = {
 export type ICallbackForFrame<T> = (
   frameId: number,
   firstBlockMeta: ICallbackFirstBlockMeta,
-  api: ApiDecoration<'promise'>,
+  api: ArgonApi,
   abortController: AbortController,
 ) => Promise<T>;
 

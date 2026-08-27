@@ -1,13 +1,9 @@
-import {
-  type ArgonClient,
-  type FrameSystemEventRecord,
-  type GenericEvent,
-  type Header,
-  type SpRuntimeDispatchError,
-} from '@argonprotocol/mainchain';
+import { type Header } from '@argonprotocol/mainchain';
 import {
   AccountMiners,
   type Accountset,
+  type ArgonClient,
+  findRuntimeModuleError,
   type IBlock,
   type IBlockSyncFile,
   type IBotStateFile,
@@ -19,9 +15,14 @@ import {
   NetworkConfig,
   Currency,
 } from '@argonprotocol/apps-core';
+import type { HistoricalEvent } from '@argonprotocol/runtime-client/events';
 import { type Storage } from './Storage.ts';
 import { JsonStore } from './JsonStore.ts';
-import type { BlockWatch, IBlockHeaderInfo } from '@argonprotocol/apps-core/src/BlockWatch.ts';
+import type {
+  BlockWatch,
+  IBlockHeaderInfo,
+  RuntimeSystemEventRecord,
+} from '@argonprotocol/apps-core/src/BlockWatch.ts';
 
 export interface ILastProcessed {
   date: Date;
@@ -365,7 +366,6 @@ export class BlockSync {
 
     console.log(`[BlockSync] Processing block ${blockNumber}`, blockMeta);
 
-    const client = this.getRpcClient(blockNumber);
     const { api, events } = await this.blockWatch.getEventsWithSpec({
       blockNumber,
       blockHash: blockMeta.hash,
@@ -383,7 +383,8 @@ export class BlockSync {
     // The previous miners earn the rewards for the frame transition.
     const earningsFrameId = Math.max(0, isFrameChange ? currentFrameId - 1 : currentFrameId);
     let microgonExchangeRateTo = events.some(
-      ({ event, phase }) => phase.isFinalization && client.events.miningSlot.NewMiners.is(event),
+      ({ event, phase }) =>
+        phase.type === 'Finalization' && event.section === 'miningSlot' && event.method === 'NewMiners',
     )
       ? await this.currency.fetchMainchainRates(api, { updateOffchainRates: false })
       : undefined;
@@ -430,7 +431,7 @@ export class BlockSync {
           authorCohortActivationFrameId: Number(miningEarnings[0]),
           authorAddress: blockMeta.author,
           blockMinedAt: tickDate.toString(),
-          microgonFeesCollected: await api.query.blockRewards.blockFees().then(x => x.toBigInt()),
+          microgonFeesCollected: await (api.query.blockRewards.blockFees() ?? Promise.resolve(0n)),
           micronotsMined,
           microgonsMined,
           microgonsMinted,
@@ -507,7 +508,7 @@ export class BlockSync {
     currentFrameId: number,
     biddingFrameId: number,
     block: IBlock,
-    events: readonly FrameSystemEventRecord[],
+    events: readonly RuntimeSystemEventRecord[],
     argonotPriceAtBid?: bigint,
   ): Promise<{ hasMiningBids: boolean; hasMiningSeats: boolean; transactionFeesTotal: bigint }> {
     const client = this.getRpcClient(block.number);
@@ -520,35 +521,42 @@ export class BlockSync {
     let hasMiningSeats = false;
 
     for (const { event, phase } of events) {
-      if (phase.isApplyExtrinsic) {
-        const extrinsicIndex = phase.asApplyExtrinsic.toNumber();
+      if (phase.type === 'ApplyExtrinsic') {
+        const extrinsicIndex = phase.value;
         const extrinsicEvents = events.filter(
-          x => x.phase.isApplyExtrinsic && x.phase.asApplyExtrinsic.toNumber() === extrinsicIndex,
+          x => x.phase.type === 'ApplyExtrinsic' && x.phase.value === extrinsicIndex,
         );
         biddingTransactionFees += await this.extractOwnPaidTransactionFee(client, event, extrinsicEvents);
       }
 
-      if (phase.isFinalization && client.events.miningSlot.MiningBidsClosed.is(event)) {
-        const closedFrameId = event.data.frameId.toNumber();
+      if (phase.type === 'Finalization' && event.section === 'miningSlot' && event.method === 'MiningBidsClosed') {
+        const closedFrameId = event.data.frameId;
+        if (closedFrameId === undefined) continue;
+
         const historicalBidsPerSlot = await api.query.miningSlot.historicalBidsPerSlot();
         const latestHistoricalBidStats = historicalBidsPerSlot[0];
 
         await this.storage.miningFrameFile(closedFrameId).mutate(x => {
           x.auctionCloseTick = block.tick;
-          x.totalBidCount = latestHistoricalBidStats?.bidsCount.toNumber() ?? x.totalBidCount;
+          x.totalBidCount = latestHistoricalBidStats?.bidsCount ?? x.totalBidCount;
         });
       }
 
-      if (phase.isFinalization && client.events.miningSlot.NewMiners.is(event)) {
+      if (phase.type === 'Finalization' && event.section === 'miningSlot' && event.method === 'NewMiners') {
+        let activationFrameIdOfNewCohort = event.data.frameId ?? event.data.cohortFrameId;
+        if (activationFrameIdOfNewCohort === undefined && event.data.cohortId !== undefined) {
+          activationFrameIdOfNewCohort = Number(event.data.cohortId);
+        }
+        if (activationFrameIdOfNewCohort === undefined) continue;
+
         console.log(
-          `[BlockSync] New miners event for frame #${event.data.frameId.toNumber()} (${event.data.newMiners.length} miners added).`,
+          `[BlockSync] New miners event for frame #${activationFrameIdOfNewCohort} (${event.data.newMiners.length} miners added).`,
         );
-        const { frameId, newMiners } = event.data;
-        const activationFrameIdOfNewCohort = frameId.toNumber();
+        const { newMiners } = event.data;
         const biddingFrameIdOfNewCohort = activationFrameIdOfNewCohort - 1;
         const historicalBidsPerSlot = await api.query.miningSlot.historicalBidsPerSlot();
         const latestClosedBidStats = historicalBidsPerSlot[1];
-        const activeMiners = await api.query.miningSlot.activeMinersCount().then(x => x.toNumber());
+        const activeMiners = await api.query.miningSlot.activeMinersCount();
         const lastBidsFile = this.storage.bidsFile(biddingFrameIdOfNewCohort, activationFrameIdOfNewCohort);
         const firstFrameTick = this.miningFrames.getTickStart(biddingFrameIdOfNewCohort);
         argonotPriceAtBid ??= await this.currency
@@ -566,7 +574,7 @@ export class BlockSync {
           x.allMinersCount = activeMiners;
 
           if (x.micronotsStakedPerSeat === 0n) {
-            x.micronotsStakedPerSeat = await api.query.miningSlot.argonotsPerMiningSeat().then(x => x.toBigInt());
+            x.micronotsStakedPerSeat = await (api.query.miningSlot.argonotsPerMiningSeat() ?? Promise.resolve(0n));
           }
           if (x.microgonsToBeMinedPerBlock === 0n) {
             x.microgonsToBeMinedPerBlock = await this.mining.fetchMicrogonsPerBlockForMiner(
@@ -577,8 +585,10 @@ export class BlockSync {
 
           let bidPosition = 0;
           for (const miner of newMiners) {
-            const address = miner.accountId.toHuman();
-            const microgonsPerSeat = miner.bid.toBigInt();
+            if (!('bid' in miner)) continue;
+            const address = miner.accountId;
+            const microgonsPerSeat = miner.bid;
+            const lastBidAtTick = 'bidAtTick' in miner ? miner.bidAtTick : undefined;
             const ourSubAccount = this.accountset.subAccountsByAddress[address];
             if (ourSubAccount) {
               hasMiningSeats = true;
@@ -588,14 +598,14 @@ export class BlockSync {
             x.winningBids.push({
               address,
               subAccountIndex: ourSubAccount?.index,
-              lastBidAtTick: miner.bidAtTick?.toNumber(),
+              lastBidAtTick,
               bidPosition,
               microgonsPerSeat,
             });
             winningBids.push({
               address,
               subAccountIndex: ourSubAccount?.index,
-              lastBidAtTick: miner.bidAtTick?.toNumber(),
+              lastBidAtTick,
               bidPosition,
               microgonsPerSeat,
               micronotsStakedPerSeat: x.micronotsStakedPerSeat,
@@ -605,7 +615,7 @@ export class BlockSync {
         });
         await this.storage.miningFrameFile(biddingFrameIdOfNewCohort).mutate(x => {
           x.auctionCloseTick ??= block.tick;
-          x.totalBidCount ||= latestClosedBidStats?.bidsCount.toNumber() ?? 0;
+          x.totalBidCount ||= latestClosedBidStats?.bidsCount ?? 0;
           x.winningBids = winningBids;
         });
       }
@@ -614,12 +624,13 @@ export class BlockSync {
     const currentCohortActivationFrameId = currentFrameId + 1;
     const currentBidsFile = this.storage.bidsFile(currentFrameId, currentCohortActivationFrameId);
     const feeBidsFile = this.storage.bidsFile(biddingFrameId, biddingFrameId + 1);
-    const nextCohort = await api.query.miningSlot.bidsForNextSlotCohort();
+    const nextCohortQuery = api.query.miningSlot.bidsForNextSlotCohort();
+    const nextCohort = nextCohortQuery ? await nextCohortQuery : [];
     let transactionFeesTotal = 0n;
 
     await currentBidsFile.mutate(async x => {
       if (x.micronotsStakedPerSeat === 0n) {
-        x.micronotsStakedPerSeat = await api.query.miningSlot.argonotsPerMiningSeat().then(x => x.toBigInt());
+        x.micronotsStakedPerSeat = await (api.query.miningSlot.argonotsPerMiningSeat() ?? Promise.resolve(0n));
       }
       if (x.microgonsToBeMinedPerBlock === 0n) {
         x.microgonsToBeMinedPerBlock = await this.mining.fetchMicrogonsPerBlockForMiner(
@@ -631,8 +642,8 @@ export class BlockSync {
       x.biddingFrameRewardTicksRemaining = this.miningFrames.getFrameRewardTicksRemaining(currentFrameId);
       x.lastBlockNumber = blockNumber;
       x.winningBids = nextCohort.map((c, i): IWinningBid => {
-        const address = c.accountId.toHuman();
-        const microgonsPerSeat = c.bid.toBigInt();
+        const address = c.accountId;
+        const microgonsPerSeat = c.bid;
         const ourSubAccount = this.accountset.subAccountsByAddress[address];
         if (ourSubAccount) {
           hasMiningBids = true;
@@ -640,7 +651,7 @@ export class BlockSync {
         return {
           address,
           subAccountIndex: ourSubAccount?.index,
-          lastBidAtTick: c.bidAtTick?.toNumber(),
+          lastBidAtTick: c.bidAtTick,
           bidPosition: i,
           microgonsPerSeat,
         };
@@ -706,41 +717,28 @@ export class BlockSync {
 
   private async extractOwnPaidTransactionFee(
     client: ArgonClient,
-    event: GenericEvent,
-    extrinsicEvents: FrameSystemEventRecord[],
+    event: HistoricalEvent,
+    extrinsicEvents: readonly RuntimeSystemEventRecord[],
   ) {
-    if (!client.events.transactionPayment.TransactionFeePaid.is(event)) {
-      return 0n;
-    }
+    if (event.section !== 'transactionPayment' || event.method !== 'TransactionFeePaid') return 0n;
 
-    const [account, fee] = event.data;
-    const feePayer = account.toHuman();
+    const { who: feePayer, actualFee } = event.data;
     if (feePayer !== this.accountset.fundingAccountId && feePayer !== this.accountset.txSubmitterPair.address) {
       return 0n;
     }
     const isMiningTx = extrinsicEvents.some(x => {
-      let dispatchError: SpRuntimeDispatchError | undefined;
-      if (client.events.utility.BatchInterrupted.is(x.event)) {
-        const [_index, error] = x.event.data;
-        dispatchError = error;
+      let dispatchError;
+      if (x.event.section === 'utility' && x.event.method === 'BatchInterrupted') {
+        dispatchError = x.event.data.error;
       }
-      if (client.events.system.ExtrinsicFailed.is(x.event)) {
-        dispatchError = x.event.data[0];
+      if (x.event.section === 'system' && x.event.method === 'ExtrinsicFailed') {
+        dispatchError = x.event.data.dispatchError;
       }
-      if (dispatchError && dispatchError.isModule) {
-        const decoded = client.registry.findMetaError(dispatchError.asModule);
-        if (decoded.section === 'miningSlot') {
-          return true;
-        }
-      }
-      if (client.events.miningSlot.SlotBidderAdded.is(x.event)) {
-        return true;
-      }
+      const decoded = dispatchError ? findRuntimeModuleError(client, dispatchError) : undefined;
+      if (decoded?.section === 'miningSlot') return true;
+      if (x.event.section === 'miningSlot' && x.event.method === 'SlotBidderAdded') return true;
     });
-    if (isMiningTx) {
-      return fee.toBigInt();
-    }
-    return 0n;
+    return isMiningTx ? actualFee : 0n;
   }
 
   private calculateProgress(tick: number | undefined, tickRange: [number, number] | undefined): number {

@@ -7,25 +7,14 @@ describe('BlockSync mining transaction fees', () => {
     ['proxy signer', 'proxy-account'],
   ])('tracks a mining fee paid by the %s', async (_label, accountAddress) => {
     const feeEvent = {
-      type: 'fee',
-      data: [{ toHuman: () => accountAddress }, { toBigInt: () => 12_345n }],
+      section: 'transactionPayment',
+      method: 'TransactionFeePaid',
+      data: { who: accountAddress, actualFee: 12_345n, tip: 0n },
     };
-    const miningBidEvent = { type: 'mining-bid' };
-    const client = {
-      events: {
-        transactionPayment: {
-          TransactionFeePaid: { is: (event: { type: string }) => event.type === 'fee' },
-        },
-        utility: {
-          BatchInterrupted: { is: () => false },
-        },
-        system: {
-          ExtrinsicFailed: { is: () => false },
-        },
-        miningSlot: {
-          SlotBidderAdded: { is: (event: { type: string }) => event.type === 'mining-bid' },
-        },
-      },
+    const miningBidEvent = {
+      section: 'miningSlot',
+      method: 'SlotBidderAdded',
+      data: {},
     };
     const blockSync = Object.create(BlockSync.prototype) as BlockSync;
     blockSync.accountset = {
@@ -37,7 +26,7 @@ describe('BlockSync mining transaction fees', () => {
       blockSync as unknown as {
         extractOwnPaidTransactionFee(client: unknown, event: unknown, events: unknown[]): Promise<bigint>;
       }
-    ).extractOwnPaidTransactionFee(client, feeEvent, [{ event: miningBidEvent }]);
+    ).extractOwnPaidTransactionFee({} as any, feeEvent, [{ event: miningBidEvent }]);
 
     expect(fee).toBe(12_345n);
   });

@@ -1,18 +1,14 @@
-import {
-  fromFixedNumber,
-  MICROGONS_PER_ARGON,
-  type PalletTreasuryBondLot,
-  type PalletTreasuryBondReleaseReason,
-  PERMILL_DECIMALS,
-} from '@argonprotocol/mainchain';
+import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
+import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
 
 import { MICRONOTS_PER_ARGONOT } from './Currency.js';
 import { calculateAnnualPercentageYield } from './FinancialReturns.js';
-import type { PreviousRuntimeSpec } from './runtimeCompatibility.js';
+
+type RuntimeBondLot = NonNullable<HistoricalQueryRecord<'treasury', 'bondLotById'>>;
 
 export interface IBondLotSource {
   id: number;
-  lot: PalletTreasuryBondLot | PreviousRuntimeSpec.PalletTreasuryBondLot;
+  lot: RuntimeBondLot;
 }
 
 export type IBondLotTotals = {
@@ -42,7 +38,7 @@ type IBondLotModel = {
   sharingPercent?: number;
   bonusPercent: number;
   releaseFrame: number | null;
-  releaseReason?: PalletTreasuryBondReleaseReason['type'];
+  releaseReason?: NonNullable<RuntimeBondLot['releaseReason']>['type'];
   isReleasing: boolean;
   isFlexible: boolean;
   isOwn: boolean;
@@ -65,7 +61,7 @@ export class BondLot {
   public sharingPercent?: number;
   public readonly bonusPercent: number;
   public readonly releaseFrame: number | null;
-  public readonly releaseReason?: PalletTreasuryBondReleaseReason['type'];
+  public readonly releaseReason?: NonNullable<RuntimeBondLot['releaseReason']>['type'];
   public readonly isReleasing: boolean;
   public readonly isFlexible: boolean;
   public readonly isOwn: boolean;
@@ -94,24 +90,20 @@ export class BondLot {
     this.canRelease = model.canRelease;
   }
 
-  public static fromRuntime(
-    id: number,
-    lot: PalletTreasuryBondLot | PreviousRuntimeSpec.PalletTreasuryBondLot,
-    ownAddress?: string,
-  ): BondLot {
-    const accountId = lot.owner.toString();
-    const bonds = lot.bonds.toNumber();
-    const participatedFrames = lot.participatedFrames.toNumber();
-    const programType = lot.program.isArgonot ? 'Argonot' : 'Vault';
+  public static fromRuntime(id: number, lot: RuntimeBondLot, ownAddress?: string): BondLot {
+    const accountId = lot.owner;
+    const bonds = lot.bonds;
+    const participatedFrames = lot.participatedFrames;
+    const programType = lot.program?.type ?? 'Vault';
     let vaultId: number | undefined;
     let sharingPercent: number | undefined;
     let bonusPercent = 0;
 
     if (programType === 'Vault') {
-      const vaultTerms = lot.program.asVault;
-      vaultId = vaultTerms.vaultId.toNumber();
-      sharingPercent = permillToPercent(vaultTerms.sharingPercent.toBigInt());
-      bonusPercent = permillToPercent(vaultTerms.bonusPercent.toBigInt());
+      const vaultTerms = lot.program?.type === 'Vault' ? lot.program.value : undefined;
+      vaultId = vaultTerms?.vaultId ?? lot.vaultId;
+      sharingPercent = (vaultTerms?.sharingPercent ?? lot.sharingPercent)?.times(100).toNumber();
+      bonusPercent = (vaultTerms?.bonusPercent ?? lot.bonusPercent)?.times(100).toNumber() ?? 0;
     }
 
     return new BondLot({
@@ -120,19 +112,19 @@ export class BondLot {
       accountId,
       vaultId,
       bonds,
-      createdFrame: lot.createdFrameId.toNumber(),
+      createdFrame: lot.createdFrameId,
       participatedFrames,
-      lastEarningsFrame: lot.lastFrameEarningsFrameId.isSome ? lot.lastFrameEarningsFrameId.unwrap().toNumber() : null,
-      lastEarnings: lot.lastFrameEarnings.isSome ? lot.lastFrameEarnings.unwrap().toBigInt() : 0n,
-      lifetimeEarnings: lot.cumulativeEarnings.toBigInt(),
+      lastEarningsFrame: lot.lastFrameEarningsFrameId,
+      lastEarnings: lot.lastFrameEarnings ?? 0n,
+      lifetimeEarnings: lot.cumulativeEarnings,
       lifetimeBondedFrameMicrogons:
         programType === 'Vault' ? BondLot.bondsToMicrogons(bonds) * BigInt(participatedFrames) : 0n,
       sharingPercent,
       bonusPercent,
-      releaseFrame: lot.releaseFrameId.isSome ? lot.releaseFrameId.unwrap().toNumber() : null,
-      releaseReason: lot.releaseReason.isSome ? lot.releaseReason.unwrap().type : undefined,
-      isReleasing: lot.releaseReason.isSome,
-      isFlexible: Boolean(lot.get('isFlexible')?.valueOf() ?? lot.get('isBackfill')?.valueOf()),
+      releaseFrame: lot.releaseFrameId,
+      releaseReason: lot.releaseReason?.type,
+      isReleasing: lot.releaseReason !== null,
+      isFlexible: lot.isFlexible ?? lot.isBackfill ?? false,
       isOwn: accountId === ownAddress,
       canRelease: accountId === ownAddress,
     });
@@ -239,8 +231,4 @@ export class BondLot {
     if (next == null) return current;
     return current == null ? next : Math.min(current, next);
   }
-}
-
-function permillToPercent(value: bigint): number {
-  return fromFixedNumber(value, PERMILL_DECIMALS).times(100).toNumber();
 }

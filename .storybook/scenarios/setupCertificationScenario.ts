@@ -1,6 +1,4 @@
 import { MICROGONS_PER_ARGON } from '@argonprotocol/apps-core';
-import { ApiPromise } from '@polkadot/api';
-import { MockProvider } from '@polkadot/rpc-provider/mock';
 import { TypeRegistry } from '@polkadot/types';
 import * as Vue from 'vue';
 import { fn, mocked } from 'storybook/test';
@@ -35,38 +33,29 @@ const certificationRewardConfig = {
   maxAvailableUpgradeCodes: 3,
 };
 const scenarioRegistry = new TypeRegistry();
-const scenarioMainchainClient = new ApiPromise({
-  provider: new MockProvider(scenarioRegistry),
-  noInitWarn: true,
-});
-void scenarioMainchainClient.isReady.catch(() => undefined);
-Object.defineProperties(scenarioMainchainClient, {
+const scenarioMainchainClient = {
   query: {
-    value: {
-      bitcoinLocks: {
-        utxoIdsByOwnerAccount: { keys: fn(async () => []) },
-      },
-      crosschainTransfer: {
-        transferTotalsByAccount: fn(async () => ({ microgonsIn: scenarioRegistry.createType('u128', 0) })),
-      },
-      treasury: {
-        bondLotIdsByAccount: { keys: fn(async () => []) },
-      },
+    bitcoinLocks: {
+      utxoIdsByOwnerAccount: { keys: fn(async () => []) },
+    },
+    crosschainTransfer: {
+      transferTotalsByAccount: fn(async () => ({ microgonsIn: 0n })),
+    },
+    treasury: {
+      bondLotIdsByAccount: { keys: fn(async () => []) },
     },
   },
   consts: {
-    value: {
-      operationalAccounts: {
-        minimumBitcoin: scenarioRegistry.createType('u128', 600n * microgonsPerArgon),
-        minimumBonds: scenarioRegistry.createType('u128', 500n * microgonsPerArgon),
-        minimumUniswapTransfer: scenarioRegistry.createType('u128', 1_000n * microgonsPerArgon),
-        operationalMinimumUniswapTransfer: scenarioRegistry.createType('u128', 2_000n * microgonsPerArgon),
-        operationalMinimumVaultSecuritization: scenarioRegistry.createType('u128', 1_000n * microgonsPerArgon),
-        miningSeatsForOperational: scenarioRegistry.createType('u32', 2),
-      },
+    operationalAccounts: {
+      minimumBitcoin: scenarioRegistry.createType('u128', 600n * microgonsPerArgon),
+      minimumBonds: scenarioRegistry.createType('u128', 500n * microgonsPerArgon),
+      minimumUniswapTransfer: scenarioRegistry.createType('u128', 1_000n * microgonsPerArgon),
+      operationalMinimumUniswapTransfer: scenarioRegistry.createType('u128', 2_000n * microgonsPerArgon),
+      operationalMinimumVaultSecuritization: scenarioRegistry.createType('u128', 1_000n * microgonsPerArgon),
+      miningSeatsForOperational: scenarioRegistry.createType('u32', 2),
     },
   },
-});
+} as unknown as Awaited<ReturnType<typeof getMainchainClient>>;
 
 export type CertificationMenuScenario =
   | 'treasuryChecklist'

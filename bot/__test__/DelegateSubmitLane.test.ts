@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ArgonClient } from '@argonprotocol/mainchain';
+import type { ArgonClient } from '@argonprotocol/apps-core';
 import { DelegateSubmitLane } from '../src/DelegateSubmitLane.ts';
 
 const keypair = { address: 'delegate-account' } as any;
@@ -182,9 +182,7 @@ function createClient(nonceState: { bestBlock: number; pool: number; nonceByBloc
       return {
         query: {
           system: {
-            account: vi.fn(async () => ({
-              nonce: { toNumber: () => nonceState.nonceByBlock.get(blockNumber) ?? 0 },
-            })),
+            account: vi.fn(async () => ({ nonce: nonceState.nonceByBlock.get(blockNumber) ?? 0 })),
           },
         },
       };

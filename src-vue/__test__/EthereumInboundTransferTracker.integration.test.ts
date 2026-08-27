@@ -697,14 +697,7 @@ describe('EthereumInboundTransferTracker integration', () => {
           crosschainTransfer: mainchainClient.query.crosschainTransfer,
           ethereumVerifier: {
             ...mainchainClient.query.ethereumVerifier,
-            executionHeaderAnchors: vi.fn(async () => ({
-              isNone: false,
-              unwrap: () => ({
-                blockNumber: {
-                  toBigInt: () => retainedAnchorBlockNumber,
-                },
-              }),
-            })),
+            executionHeaderAnchors: vi.fn(async () => ({ blockNumber: retainedAnchorBlockNumber })),
           },
         },
       }));
@@ -1360,48 +1353,21 @@ function createMainchainClient(args: {
   const query = {
     crosschainTransfer: {
       chainConfigBySourceChain: vi.fn(async () => ({
-        isNone: false,
-        unwrap: () => ({
-          isEthereum: true,
-          asEthereum: {
-            gateway: {
-              toHex: () => '0xgateway',
-            },
-          },
-        }),
+        type: 'Evm',
+        value: { gateway: '0xgateway' },
       })),
       gatewayStateBySourceChain: vi.fn(async () => ({
-        isNone: false,
-        isSome: true,
-        unwrap: () => ({
-          gatewayActivityNonce: {
-            toBigInt: () => args.getProvenNonce(),
-          },
-        }),
+        gatewayActivityNonce: args.getProvenNonce(),
       })),
     },
     ethereumVerifier: {
-      latestExecutionHeaderAnchorBlockHash: vi.fn(async () => ({
-        isNone: false,
-        unwrap: () => ({
-          toHex: () => `0x${'bb'.repeat(32)}`,
-        }),
-      })),
-      executionHeaderAnchors: vi.fn(async () => ({
-        isNone: false,
-        unwrap: () => ({
-          blockNumber: {
-            toBigInt: (): bigint => 999n,
-          },
-        }),
-      })),
+      latestExecutionHeaderAnchorBlockHash: vi.fn(async () => `0x${'bb'.repeat(32)}`),
+      executionHeaderAnchors: vi.fn(async () => ({ blockNumber: 999n })),
     },
     system: {
       account: vi.fn(async () => ({
         data: {
-          free: {
-            toBigInt: () => 1_000_000n,
-          },
+          free: 1_000_000n,
         },
       })),
     },

@@ -5,6 +5,7 @@ import {
   MoveTo,
   MainchainClients,
   MiningFrames,
+  getLatestArgonFinalizedExecutionHeader,
   minimumVaultDelegateBalance,
   MoveToken,
   NetworkConfig,
@@ -19,13 +20,7 @@ import {
   sudoSubmitAndFinalize,
 } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
 import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
-import {
-  buildGatewayActivityProofPayload,
-  EvmContracts,
-  getLatestArgonFinalizedExecutionHeader,
-  Keyring,
-  toFixedNumber,
-} from '@argonprotocol/mainchain';
+import { buildGatewayActivityProofPayload, EvmContracts, Keyring, toFixedNumber } from '@argonprotocol/mainchain';
 import {
   sudo,
   teardown,
@@ -234,7 +229,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
           argonotUsdPrice: toFixedNumber(1, 18),
           argonUsdTargetPrice: toFixedNumber(1, 18),
           argonTimeWeightedAverageLiquidity: toFixedNumber(1_000_000, 18),
-          tick: currentTick.toBigInt(),
+          tick: BigInt(currentTick),
         },
         null,
       ),
@@ -348,9 +343,12 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
         walletKeys.councilSignerEthereumHdPath,
         walletKeys.getMintingAuthorityEthereumHdPath(0),
       ]);
-      const councilSigner = await finalizedClient.query.crosschainTransfer
-        .councilSignerByDestinationChainAndAccountId('Ethereum', walletKeys.vaultingAddress)
-        .then(x => (x.isSome ? x.unwrap().toHex().toLowerCase() : undefined));
+      const councilSigner = (
+        await finalizedClient.query.crosschainTransfer.councilSignerByDestinationChainAndAccountId(
+          'Ethereum',
+          walletKeys.vaultingAddress,
+        )
+      )?.toLowerCase();
       expect(councilSigner).toBe(councilSignerAddress.toLowerCase());
       expect(councilSignerAddress.toLowerCase()).not.toBe(walletKeys.ethereumAddress.toLowerCase());
       expect(mintingAuthoritySigner.toLowerCase()).not.toBe(walletKeys.ethereumAddress.toLowerCase());
@@ -449,7 +447,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
         expect(anchor.blockNumber).toBeGreaterThanOrEqual(latestExecutionBlockNumber);
       }, 120_000);
 
-      const activationProofPayload = await buildGatewayActivityProofPayload(client, {
+      const activationProofPayload = await buildGatewayActivityProofPayload(client.raw, {
         executionRpcUrl: ethereum.executionRpcUrl!,
         gatewayAddress,
         throughExecutionBlockNumber: latestExecutionBlockNumber,
@@ -646,7 +644,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
         const transferOption = await getFinalizedClient(client).then(nextClient =>
           nextClient.query.crosschainTransfer.transferOutById(transferId),
         );
-        expect(transferOption.isNone).toBe(true);
+        expect(transferOption).toBeNull();
       }, 120_000);
 
       await mintingAuthorities.refresh(await getFinalizedClient(client));
@@ -674,7 +672,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       const amountBaseUnits = 250n * EvmContracts.MINTING_GATEWAY_RUNTIME_TO_ERC20_SCALE;
       const startingBalance = await submitLane.client.query.system
         .account(walletKeys.defaultArgonAddress)
-        .then(x => x.data.free.toBigInt());
+        .then(x => x.data.free);
       const transfer = await tracker.startMove({
         moveToken: MoveToken.ARGN,
         amountBaseUnits,
@@ -714,7 +712,7 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       await vi.waitFor(async () => {
         const balance = await submitLane.client.query.system
           .account(walletKeys.defaultArgonAddress)
-          .then(x => x.data.free.toBigInt());
+          .then(x => x.data.free);
         expect(balance).toBe(startingBalance + 250n);
       }, 30_000);
 

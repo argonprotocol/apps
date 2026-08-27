@@ -4,6 +4,7 @@ import {
   bigIntMax,
   convertFromSqliteFields,
   type ArgonClient,
+  Currency,
   MiningFrames,
   type IBitcoinLockCouponRecord,
   type IBitcoinLockCouponStatus,
@@ -13,7 +14,6 @@ import {
   percentOf,
   BitcoinLock,
 } from '@argonprotocol/apps-core';
-import { PriceIndex } from '@argonprotocol/mainchain';
 import { nanoid } from 'nanoid';
 import type { BotUpstreamClient } from './BotUpstreamClient.ts';
 import type { Db } from './Db.ts';
@@ -324,12 +324,19 @@ export class BitcoinLockCouponService {
         if (!coupon) continue;
 
         try {
+          const nextFrameIdQuery = finalizedClient.query.miningSlot.nextFrameId();
+          if (!nextFrameIdQuery) continue;
+
+          const lastNonceQuery = finalizedClient.query.bitcoinLocks.lastFeeCouponNonceByVaultAndAccount(
+            coupon.vaultId,
+            use.ownerAccountId,
+          );
           const [lastNonce, nextFrameId] = await Promise.all([
-            finalizedClient.query.bitcoinLocks.lastFeeCouponNonceByVaultAndAccount(coupon.vaultId, use.ownerAccountId),
-            finalizedClient.query.miningSlot.nextFrameId(),
+            lastNonceQuery ?? Promise.resolve(null),
+            nextFrameIdQuery,
           ]);
-          const consumedNonce = lastNonce.isSome ? lastNonce.unwrap().toBigInt() : 0n;
-          const currentFrameId = nextFrameId.toBigInt() - 1n;
+          const consumedNonce = lastNonce ?? 0n;
+          const currentFrameId = BigInt(nextFrameId - 1);
 
           if (consumedNonce >= feeCoupon.nonce) {
             this.db.bitcoinLockCouponsTable.recordUse(use.requestId, { status: 'Finalized' });
@@ -367,7 +374,7 @@ export class BitcoinLockCouponService {
     }
 
     try {
-      const priceIndex = await new PriceIndex().load(client);
+      const priceIndex = await Currency.fetchPriceIndex(client);
       for (const coupon of coupons) {
         const maximumLockValue = BitcoinLock.calculateRedemptionAmountFromSatoshis(priceIndex, coupon.maxSatoshis);
         const feeCreditMicrogons = percentOf(maximumLockValue, coupon.btcPctFee, true);

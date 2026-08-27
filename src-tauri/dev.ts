@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from 'child_process';
-import { type INetworkConfigOverride, NetworkConfig } from '@argonprotocol/apps-core';
+import { createArgonClient, type INetworkConfigOverride, NetworkConfig } from '@argonprotocol/apps-core';
 import { getClient } from '@argonprotocol/mainchain';
 import { ensureDevGatewayCerts } from '../scripts/devGatewayCerts.ts';
 import {
@@ -587,7 +587,7 @@ async function resolveRuntimeEthereumUsdcTokenAddress(
 }
 
 async function loadRuntimeConfig(archiveUrl: string): Promise<RuntimeChainConfig> {
-  const client = await getClient(archiveUrl);
+  const client = createArgonClient(await getClient(archiveUrl));
   try {
     while ((await client.rpc.chain.getHeader().then(x => x.number.toNumber())) === 0) {
       await sleep(100);

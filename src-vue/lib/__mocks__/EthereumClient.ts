@@ -23,6 +23,8 @@ export const getEthereumBeaconApiUrl = fn<EthereumClientModule['getEthereumBeaco
   configuredBeaconApiUrl => configuredBeaconApiUrl,
 );
 export const hasGatewayApprovalQuorum = fn<EthereumClientModule['hasGatewayApprovalQuorum']>(() => false);
+export const toHexValue = fn<EthereumClientModule['toHexValue']>(value => value as `0x${string}`);
+export const toArgonAccountIdHex = fn<EthereumClientModule['toArgonAccountIdHex']>();
 export const toEvmRecoverableSignature = fn<EthereumClientModule['toEvmRecoverableSignature']>(signature => signature);
 export const getEthereumFinalityMillis = fn<EthereumClientModule['getEthereumFinalityMillis']>(() => 60_000);
 export const getTransferToArgonWaitEstimateMs = fn<EthereumClientModule['getTransferToArgonWaitEstimateMs']>(

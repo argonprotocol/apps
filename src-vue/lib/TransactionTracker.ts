@@ -1,5 +1,4 @@
 import {
-  type ArgonClient,
   ExtrinsicError,
   type GenericEvent,
   hexToU8a,
@@ -10,11 +9,13 @@ import {
   TxSubmissionError,
   TxSubmissionErrorCode,
 } from '@argonprotocol/mainchain';
+import { toRuntimeEvent, type HistoricalEvent } from '@argonprotocol/runtime-client';
 import * as Vue from 'vue';
 import { Db } from './Db.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import {
   BlockWatch,
+  type ArgonClient,
   createDeferred,
   IBlockHeaderInfo,
   IDeferred,
@@ -188,36 +189,40 @@ export class TransactionTracker {
       return;
     }
 
-    const client = await getMainchainClient(false);
-    const decodeStoredEvents = ({ registry }: Pick<typeof client, 'registry'>): GenericEvent[] =>
-      txInfo.tx.blockExtrinsicEventsJson.map(({ raw }) =>
-        registry.createType<GenericEvent>('GenericEvent', hexToU8a(raw)),
-      );
+    const storedEvents = txInfo.tx.blockExtrinsicEventsJson as (
+      | { raw: string; human: unknown }
+      | { event: HistoricalEvent }
+    )[];
+    const nativeEvents = storedEvents.flatMap(storedEvent => ('event' in storedEvent ? [storedEvent.event] : []));
+    if (nativeEvents.length === storedEvents.length) {
+      txInfo.txResult.events = nativeEvents;
+      return;
+    }
+
+    const decodeStoredEvents = ({ registry }: Pick<ArgonClient, 'registry'>): HistoricalEvent[] =>
+      storedEvents.flatMap(storedEvent => {
+        if ('event' in storedEvent) return [storedEvent.event];
+
+        const event = registry.createType<GenericEvent>('GenericEvent', hexToU8a(storedEvent.raw));
+        return toRuntimeEvent(event) ?? [];
+      });
 
     try {
-      txInfo.txResult.events = decodeStoredEvents(client);
-      return;
-    } catch (error) {
-      let restoreError = error;
+      // Existing rows retain raw codec bytes and are decoded lazily against their block metadata.
       if (txInfo.tx.blockHash && txInfo.tx.blockHeight != null && this.blockWatch.getApi) {
-        try {
-          const historicalApi = await this.blockWatch.getApi({
-            blockNumber: txInfo.tx.blockHeight,
-            blockHash: txInfo.tx.blockHash,
-          });
-          txInfo.txResult.events = decodeStoredEvents(historicalApi);
-          restoreError = undefined;
-        } catch (historicalError) {
-          restoreError = historicalError;
-        }
+        const historicalApi = await this.blockWatch.getApi({
+          blockNumber: txInfo.tx.blockHeight,
+          blockHash: txInfo.tx.blockHash,
+        });
+        txInfo.txResult.events = decodeStoredEvents(historicalApi);
+      } else {
+        txInfo.txResult.events = decodeStoredEvents(await getMainchainClient(false));
       }
-
-      if (restoreError) {
-        console.error(
-          `[TransactionTracker] Error restoring events for transaction #${txInfo.tx.id} (${txInfo.tx.extrinsicType})`,
-          restoreError,
-        );
-      }
+    } catch (error) {
+      console.error(
+        `[TransactionTracker] Error restoring events for transaction #${txInfo.tx.id} (${txInfo.tx.extrinsicType})`,
+        error,
+      );
     }
   }
 
@@ -659,7 +664,7 @@ export class TransactionTracker {
           console.log('[TransactionTracker] No change in block', {
             id: tx.id,
             ...txResultDetails,
-            transactionEvents: extrinsicEvents.map(x => x.toHuman()),
+            transactionEvents: extrinsicEvents,
           });
         } else {
           const { blockHash, blockNumber, blockTime, fee, tip, error, extrinsicEvents, extrinsicIndex } =
@@ -703,7 +708,7 @@ export class TransactionTracker {
               try {
                 const api = await this.blockWatch.getApi(finalizedBlockHeader);
                 const account = await api.query.system.account(tx.accountAddress);
-                return account.nonce.toNumber();
+                return account.nonce;
               } catch (error) {
                 console.warn('[TransactionTracker] Unable to check finalized account nonce', {
                   accountAddress: tx.accountAddress,

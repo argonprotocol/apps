@@ -1,12 +1,7 @@
 import type { Accountset } from './Accountset.js';
-import {
-  type ArgonClient,
-  type ArgonPrimitivesBlockSealMiningRegistration,
-  ExtrinsicError,
-  formatArgons,
-  hexToU8a,
-  Vec,
-} from '@argonprotocol/mainchain';
+import { ExtrinsicError, formatArgons, hexToU8a } from '@argonprotocol/mainchain';
+import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
+import type { ArgonClient } from './MainchainClients.js';
 import { subscribeToFinalizedStorageChanges } from './StorageSubscriber.js';
 import { BlockWatch, type IBlockHeaderInfo } from './BlockWatch.js';
 import type { MiningFrames } from './MiningFrames.js';
@@ -153,9 +148,7 @@ export class CohortBidder {
     const client = this.client;
     this.minIncrement = client.consts.miningSlot.bidIncrements.toBigInt();
     this.bidsForNextSlotCohortKey = client.query.miningSlot.bidsForNextSlotCohort.key();
-    this.ticksBeforeVrfClose = await client.query.miningSlot
-      .miningConfig()
-      .then(x => x.ticksBeforeBidEndForVrfClose.toNumber());
+    this.ticksBeforeVrfClose = await client.query.miningSlot.miningConfig().then(x => x.ticksBeforeBidEndForVrfClose);
     const minBidIncrement = this.options.minBid % this.minIncrement;
     if (minBidIncrement !== 0n) {
       this.options.minBid -= minBidIncrement;
@@ -185,8 +178,8 @@ export class CohortBidder {
       subaccounts: this.subaccounts,
     });
 
-    this.nextCohortSize = await client.query.miningSlot.nextCohortSize().then(x => x.toNumber());
-    this.micronotsPerSeat = await client.query.miningSlot.argonotsPerMiningSeat().then(x => x.toBigInt());
+    this.nextCohortSize = await client.query.miningSlot.nextCohortSize();
+    this.micronotsPerSeat = await client.query.miningSlot.argonotsPerMiningSeat();
     if (this.subaccounts.length > this.nextCohortSize) {
       this.info(`Cohort size ${this.nextCohortSize} is less than provided subaccounts ${this.subaccounts.length}.`);
       this.subaccounts.length = this.nextCohortSize;
@@ -227,7 +220,7 @@ export class CohortBidder {
           // wait for the finalized block to the be the next frame or later
           const finalizedClient = await this.client.at(finalizedBlock.blockHash);
           const isBiddingOpen = await finalizedClient.query.miningSlot.isNextSlotBiddingOpen();
-          if (isBiddingOpen.isTrue) {
+          if (isBiddingOpen) {
             this.log('Bidding is still open, waiting for it to close');
             // we need to wait for either of these things to be true
             await new Promise<void>(async resolve => {
@@ -236,8 +229,8 @@ export class CohortBidder {
                   key: this.client.query.miningSlot.isNextSlotBiddingOpen.key(),
                   handler: async api => {
                     const isOpen = await api.query.miningSlot.isNextSlotBiddingOpen();
-                    this.log('miningSlot.isNextSlotBiddingOpen changed', isOpen.toHuman());
-                    if (isOpen.isFalse) {
+                    this.log('miningSlot.isNextSlotBiddingOpen changed', isOpen);
+                    if (!isOpen) {
                       unsub.unsubscribe();
                       resolve();
                     }
@@ -247,8 +240,8 @@ export class CohortBidder {
                   key: this.client.query.miningSlot.nextFrameId.key(),
                   handler: async api => {
                     const frameId = await api.query.miningSlot.nextFrameId();
-                    this.log('miningSlot.nextFrameId changed', frameId.toNumber());
-                    if (frameId.toNumber() > this.cohortStartingFrameId) {
+                    this.log('miningSlot.nextFrameId changed', frameId);
+                    if (frameId !== null && frameId > this.cohortStartingFrameId) {
                       unsub.unsubscribe();
                       resolve();
                     }
@@ -264,19 +257,17 @@ export class CohortBidder {
 
         const stopBlockHash = await this.client.rpc.chain.getFinalizedHead();
         const stopApi = await this.client.at(stopBlockHash);
-        const blockNumber = await stopApi.query.system.number().then(x => x.toNumber());
-        const cohortWinners = await stopApi.query.miningSlot.minersByCohort(this.cohortStartingFrameId);
+        const blockNumber = await stopApi.query.system.number();
+        const cohortWinners = (await stopApi.query.miningSlot.minersByCohort(this.cohortStartingFrameId)) ?? [];
         this.myWinningBids = cohortWinners
           .filter(
-            x =>
-              x.externalFundingAccount.isSome &&
-              this.accountset.fundingAccountId === x.externalFundingAccount.value.toHuman(),
+            x => x.externalFundingAccount !== null && this.accountset.fundingAccountId === x.externalFundingAccount,
           )
           .map(x => {
             return {
-              address: x.accountId.toHuman(),
-              micronotsStaked: x.argonots.toBigInt(),
-              bidMicrogons: x.bid.toBigInt(),
+              address: x.accountId,
+              micronotsStaked: x.argonots,
+              bidMicrogons: x.bid,
               bidAtTick: this.currentBids.atTick,
             };
           });
@@ -322,7 +313,7 @@ export class CohortBidder {
         const rawBids = await clientAt.query.miningSlot.bidsForNextSlotCohort();
 
         this.lastBidsHash = latestCohortBidsHash;
-        this.updateBidList(rawBids, blockNumber, tick, isFirstLoad);
+        this.updateBidList(rawBids ?? [], blockNumber, tick, isFirstLoad);
 
         await this.planNextBid(header.frameRewardTicksRemaining!);
       } catch (error) {
@@ -336,7 +327,7 @@ export class CohortBidder {
       const fundingBalanceChanged = events.some(({ event }) => {
         if (event.section !== 'balances' && event.section !== 'ownership') return false;
 
-        return [...event.data].some(value => value.toString() === this.accountset.fundingAccountId);
+        return Object.values(event.data).includes(this.accountset.fundingAccountId);
       });
 
       if (fundingBalanceChanged) {
@@ -607,7 +598,7 @@ export class CohortBidder {
       }
 
       const api = txResult.blockHash ? await client.at(txResult.blockHash) : client;
-      const bidAtTick = await api.query.ticks.currentTick().then(x => x.toNumber());
+      const bidAtTick = await api.query.ticks.currentTick();
       const successfulBids = txResult.batchInterruptedIndex ?? (txResult.extrinsicError ? 0 : subaccounts.length);
       this.lastBid = {
         submittedAtTick: bidAtTick,
@@ -743,8 +734,8 @@ export class CohortBidder {
       const bidError = await txResult.waitForFinalizedBlock.then(() => undefined).catch((x: ExtrinsicError) => x);
       const client = this.client;
       const api = txResult.blockHash ? await client.at(txResult.blockHash) : client;
-      const blockNumber: number = txResult.blockNumber ?? (await api.query.system.number().then(x => x.toNumber()));
-      const bidAtTick = await api.query.ticks.currentTick().then(x => x.toNumber());
+      const blockNumber: number = txResult.blockNumber ?? (await api.query.system.number());
+      const bidAtTick = await api.query.ticks.currentTick();
       const successfulBids =
         txResult.batchInterruptedIndex ?? (bidError || txResult.extrinsicError ? 0 : submittedCount);
 
@@ -814,7 +805,7 @@ export class CohortBidder {
   }
 
   private updateBidList(
-    rawBids: Vec<ArgonPrimitivesBlockSealMiningRegistration>,
+    rawBids: NonNullable<HistoricalQueryRecord<'miningSlot', 'bidsForNextSlotCohort'>>,
     blockNumber: number,
     tick: number,
     isReloadingInitialState = false,
@@ -822,12 +813,12 @@ export class CohortBidder {
     try {
       let mostRecentBidTick = 0;
       const bids = rawBids.map(rawBid => {
-        const bidAtTick = rawBid.bidAtTick.toNumber();
+        const bidAtTick = rawBid.bidAtTick;
         mostRecentBidTick = Math.max(bidAtTick, mostRecentBidTick);
         return {
-          address: rawBid.accountId.toHuman(),
-          micronotsStaked: rawBid.argonots.toBigInt(),
-          bidMicrogons: rawBid.bid.toBigInt(),
+          address: rawBid.accountId,
+          micronotsStaked: rawBid.argonots,
+          bidMicrogons: rawBid.bid,
           bidAtTick,
         };
       });

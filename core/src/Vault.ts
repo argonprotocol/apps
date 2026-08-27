@@ -1,16 +1,12 @@
 // Source: @argonprotocol/mainchain 1.4.12, the last release that exported this model.
-import {
-  type ArgonClient,
-  type ArgonPrimitivesVault,
-  FIXED_U128_DECIMALS,
-  fromFixedNumber,
-  PERMILL_DECIMALS,
-} from '@argonprotocol/mainchain';
+import type {
+  VaultsVaultsByIdResultSpec157Variant13,
+  VaultsVaultsByIdResultSpec158Variant14,
+} from '@argonprotocol/runtime-client';
 import BigNumber from 'bignumber.js';
-import type { ApiDecoration } from '@polkadot/api/types';
-import type { PreviousRuntimeSpec } from './runtimeCompatibility.js';
+import type { ArgonQueryClient } from './MainchainClients.js';
 
-type RuntimeVault = ArgonPrimitivesVault | PreviousRuntimeSpec.ArgonPrimitivesVault;
+type RuntimeVault = NonNullable<VaultsVaultsByIdResultSpec157Variant13 | VaultsVaultsByIdResultSpec158Variant14>;
 
 export class Vault {
   public securitization!: bigint;
@@ -30,11 +26,11 @@ export class Vault {
   public openedTick: number;
   public securitizationRatio!: number;
 
-  public lockedSatoshis!: number;
-  public securitizedSatoshis!: number;
+  public lockedSatoshis!: bigint;
+  public securitizedSatoshis!: bigint;
   public flexibleSecuritizationLocked!: bigint;
   public reservedSecuritizationSpace!: bigint;
-  public flexibleSecuritizedSatoshis!: number;
+  public flexibleSecuritizedSatoshis!: bigint;
   public delegateAccountId?: string;
 
   constructor(
@@ -43,54 +39,49 @@ export class Vault {
     public tickDuration: number,
   ) {
     this.vaultId = id;
-    this.openedTick = vault.openedTick.toNumber();
+    this.openedTick = vault.openedTick;
     this.openedDate = new Date(this.openedTick * this.tickDuration);
     this.securitizationReleaseSchedule = new Map();
 
-    this.securitization = vault.securitization.toBigInt();
-    this.securitizationRatio = fromFixedNumber(vault.securitizationRatio.toBigInt(), FIXED_U128_DECIMALS).toNumber();
-    this.securitizationLocked = vault.securitizationLocked.toBigInt();
-    this.securitizationPendingActivation = vault.securitizationPendingActivation.toBigInt();
-    const schedule = vault.securitizationReleaseSchedule;
-    if (schedule.size > 0) {
-      for (const [bitcoinHeight, amount] of schedule.entries()) {
-        this.securitizationReleaseSchedule.set(bitcoinHeight.toNumber(), amount.toBigInt());
-      }
+    this.securitization = vault.securitization;
+    this.securitizationRatio = vault.securitizationRatio.toNumber();
+    this.securitizationLocked = vault.securitizationLocked;
+    this.securitizationPendingActivation = vault.securitizationPendingActivation;
+    for (const [bitcoinHeight, amount] of Object.entries(vault.securitizationReleaseSchedule)) {
+      this.securitizationReleaseSchedule.set(Number(bitcoinHeight), amount);
     }
     this.terms = {
-      bitcoinAnnualPercentRate: fromFixedNumber(vault.terms.bitcoinAnnualPercentRate.toBigInt(), FIXED_U128_DECIMALS),
-      bitcoinBaseFee: vault.terms.bitcoinBaseFee.toBigInt(),
-      treasuryProfitSharing: fromFixedNumber(vault.terms.treasuryProfitSharing.toBigInt(), PERMILL_DECIMALS),
+      bitcoinAnnualPercentRate: vault.terms.bitcoinAnnualPercentRate,
+      bitcoinBaseFee: vault.terms.bitcoinBaseFee,
+      treasuryProfitSharing: vault.terms.treasuryProfitSharing,
     };
-    this.lockedSatoshis = vault.lockedSatoshis.toNumber();
-    this.securitizedSatoshis = vault.securitizedSatoshis.toNumber();
+    this.lockedSatoshis = vault.lockedSatoshis;
+    this.securitizedSatoshis = vault.securitizedSatoshis;
     if ('flexibleSecuritizationLocked' in vault) {
-      this.flexibleSecuritizationLocked = vault.flexibleSecuritizationLocked.toBigInt();
-      this.reservedSecuritizationSpace = vault.reservedSecuritizationSpace.toBigInt();
-      this.flexibleSecuritizedSatoshis = vault.flexibleSecuritizedSatoshis.toNumber();
+      this.flexibleSecuritizationLocked = vault.flexibleSecuritizationLocked;
+      this.reservedSecuritizationSpace = vault.reservedSecuritizationSpace;
+      this.flexibleSecuritizedSatoshis = vault.flexibleSecuritizedSatoshis;
     } else {
-      this.flexibleSecuritizationLocked = vault.backfillSecuritizationLocked.toBigInt();
-      this.reservedSecuritizationSpace = vault.backfillSecuritizationReserved.toBigInt();
-      this.flexibleSecuritizedSatoshis = vault.backfillSecuritizedSatoshis.toNumber();
+      this.flexibleSecuritizationLocked = vault.backfillSecuritizationLocked;
+      this.reservedSecuritizationSpace = vault.backfillSecuritizationReserved;
+      this.flexibleSecuritizedSatoshis = vault.backfillSecuritizedSatoshis;
     }
 
-    this.operatorAccountId = vault.operatorAccountId.toString();
-    this.isClosed = vault.isClosed.valueOf();
+    this.operatorAccountId = vault.operatorAccountId;
+    this.isClosed = vault.isClosed;
     this.pendingTerms = undefined;
     this.pendingTermsChangeTick = undefined;
     this.delegateAccountId = undefined;
-    if (vault.pendingTerms.isSome) {
-      const [tickApply, terms] = vault.pendingTerms.value;
-      this.pendingTermsChangeTick = tickApply.toNumber();
+    if (vault.pendingTerms) {
+      const [tickApply, terms] = vault.pendingTerms;
+      this.pendingTermsChangeTick = Number(tickApply);
       this.pendingTerms = {
-        bitcoinAnnualPercentRate: fromFixedNumber(terms.bitcoinAnnualPercentRate.toBigInt(), FIXED_U128_DECIMALS),
-        bitcoinBaseFee: terms.bitcoinBaseFee.toBigInt(),
-        treasuryProfitSharing: fromFixedNumber(terms.treasuryProfitSharing.toBigInt(), PERMILL_DECIMALS),
+        bitcoinAnnualPercentRate: terms.bitcoinAnnualPercentRate,
+        bitcoinBaseFee: terms.bitcoinBaseFee,
+        treasuryProfitSharing: terms.treasuryProfitSharing,
       };
     }
-    if (vault.delegateAccountId.isSome) {
-      this.delegateAccountId = vault.delegateAccountId.unwrap().toHuman();
-    }
+    this.delegateAccountId = vault.delegateAccountId ?? undefined;
   }
 
   public availableBitcoinSpace(lockOwner?: string): bigint {
@@ -137,18 +128,28 @@ export class Vault {
     return BigInt(feeBn.toString()) + this.terms.bitcoinBaseFee;
   }
 
-  public static async get(
-    client: ArgonClient | ApiDecoration<'promise'>,
-    vaultId: number,
-    tickDurationMillis?: number,
-  ): Promise<Vault> {
+  public static async get(client: ArgonQueryClient, vaultId: number, tickDurationMillis?: number): Promise<Vault> {
     const rawVault = await client.query.vaults.vaultsById(vaultId);
-    if (rawVault.isNone) {
+    if (!rawVault) {
       throw new Error(`Vault with id ${vaultId} not found`);
     }
+    if (
+      rawVault.securitization === undefined ||
+      rawVault.securitizationLocked === undefined ||
+      rawVault.securitizationPendingActivation === undefined ||
+      rawVault.lockedSatoshis === undefined ||
+      rawVault.securitizedSatoshis === undefined ||
+      rawVault.securitizationReleaseSchedule === undefined ||
+      rawVault.securitizationRatio === undefined ||
+      rawVault.openedTick === undefined ||
+      !rawVault.terms ||
+      (!('flexibleSecuritizationLocked' in rawVault) && !('backfillSecuritizationLocked' in rawVault))
+    ) {
+      throw new Error(`Vault ${vaultId} predates the supported runtime compatibility window`);
+    }
     const tickDuration =
-      tickDurationMillis ?? (await client.query.ticks.genesisTicker().then(x => x.tickDurationMillis.toNumber()))!;
-    return new Vault(vaultId, rawVault.unwrap() as RuntimeVault, tickDuration);
+      tickDurationMillis ?? (await client.query.ticks.genesisTicker().then(x => x.tickDurationMillis))!;
+    return new Vault(vaultId, rawVault as RuntimeVault, tickDuration);
   }
 }
 

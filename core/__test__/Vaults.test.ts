@@ -3,7 +3,6 @@ import { calculateRestabilizationLeverage } from '../src/GlobalVaultingStats.ts'
 import type { IAllVaultStats, IVaultFrameStats, IVaultStats } from '../src/interfaces/IVaultStats.ts';
 import { NetworkConfig } from '../src/NetworkConfig.ts';
 import { VAULT_STATS_FORMAT_VERSION, Vaults } from '../src/Vaults.ts';
-import { bigintCodec, numberCodec } from './helpers/codecs.ts';
 
 beforeEach(() => {
   NetworkConfig.setNetwork('mainnet');
@@ -180,26 +179,26 @@ describe('Vault and bond network returns', () => {
   it('records current coupon usage and preserves missing historical coupon data', async () => {
     const vaults = createVaults();
     const frameRevenue = {
-      frameId: numberCodec(20),
-      bitcoinLocksNewLiquidityPromised: bigintCodec(0n),
-      bitcoinLocksReleasedLiquidity: bigintCodec(0n),
-      bitcoinLocksAddedSatoshis: bigintCodec(0n),
-      bitcoinLocksReleasedSatoshis: bigintCodec(0n),
-      bitcoinLockFeeRevenue: bigintCodec(100n),
-      bitcoinLockFeeCouponValueUsed: bigintCodec(40n),
-      bitcoinLocksCreated: numberCodec(0),
-      treasuryTotalEarnings: bigintCodec(0n),
-      treasuryVaultEarnings: bigintCodec(0n),
-      treasuryExternalCapital: bigintCodec(0n),
-      treasuryVaultCapital: bigintCodec(0n),
-      securitization: bigintCodec(1_000n),
-      securitizationActivated: bigintCodec(1_000n),
-      securitizationRelockable: bigintCodec(0n),
-      uncollectedRevenue: bigintCodec(0n),
+      frameId: 20,
+      bitcoinLocksNewLiquidityPromised: 0n,
+      bitcoinLocksReleasedLiquidity: 0n,
+      bitcoinLocksAddedSatoshis: 0n,
+      bitcoinLocksReleasedSatoshis: 0n,
+      bitcoinLockFeeRevenue: 100n,
+      bitcoinLockFeeCouponValueUsed: 40n,
+      bitcoinLocksCreated: 0,
+      treasuryTotalEarnings: 0n,
+      treasuryVaultEarnings: 0n,
+      treasuryExternalCapital: 0n,
+      treasuryVaultCapital: 0n,
+      securitization: 1_000n,
+      securitizationActivated: 1_000n,
+      securitizationRelockable: 0n,
+      uncollectedRevenue: 0n,
     };
     const { bitcoinLockFeeCouponValueUsed: _coupon, ...historicalFrameRevenue } = {
       ...frameRevenue,
-      frameId: numberCodec(19),
+      frameId: 19,
     };
 
     await vaults.updateVaultRevenue(1, [frameRevenue, historicalFrameRevenue] as any);

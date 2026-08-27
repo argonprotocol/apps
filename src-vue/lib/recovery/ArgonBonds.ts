@@ -1,10 +1,17 @@
-import type { FrameSystemEventRecord } from '@argonprotocol/mainchain';
-import { BondLot, type Currency, type IBlockHeaderInfo, type MiningFrames } from '@argonprotocol/apps-core';
-import type { HistoricalEvent } from '../../../indexer/src/HistoricalEventSpecs.ts';
+import {
+  BondLot,
+  type Currency,
+  type IBlockHeaderInfo,
+  type MiningFrames,
+  type RuntimeSystemEventRecord,
+} from '@argonprotocol/apps-core';
+import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
 import type { Db } from '../Db.ts';
 import type { WalletKeys } from '../WalletKeys.ts';
 import type { TransactionTracker } from '../TransactionTracker.ts';
 import { ExtrinsicType } from '../db/TransactionsTable.ts';
+
+type HistoricalBondLot = NonNullable<HistoricalQueryRecord<'treasury', 'bondLotById'>>;
 
 export class ArgonBondsRecovery {
   private readonly dbPromise: Promise<Db>;
@@ -58,19 +65,19 @@ export class ArgonBondsRecovery {
 
       try {
         await this.transactionTracker.ensureStoredEvents(txInfo);
+        const events = txInfo.txResult.events;
         const block = await this.miningFrames.blockWatch.getHeader(tx.blockHeight);
         if (block.blockHash.toLowerCase() !== tx.blockHash.toLowerCase()) {
           throw new Error(`stored transaction hash does not match finalized block ${tx.blockHeight}`);
         }
 
-        for (const rawEvent of txInfo.txResult.events) {
-          const event = rawEvent as HistoricalEvent;
+        for (const event of events) {
           if (event.section !== 'treasury' || event.method !== 'BondLotPurchased') continue;
-          if (event.data.accountId.toString() !== this.walletKeys.defaultArgonAddress) {
+          if (event.data.accountId !== this.walletKeys.defaultArgonAddress) {
             continue;
           }
 
-          const bondLotId = event.data.bondLotId.toNumber();
+          const { bondLotId } = event.data;
           if (!missingBondLotIds.has(bondLotId)) continue;
 
           await this.recordPurchase(block, bondLotId, tx.blockExtrinsicIndex);
@@ -87,17 +94,16 @@ export class ArgonBondsRecovery {
     return didRepair;
   }
 
-  public async importBlock(block: IBlockHeaderInfo, events: readonly FrameSystemEventRecord[]): Promise<void> {
-    for (const { event: rawEvent, phase } of events) {
-      const event = rawEvent as HistoricalEvent;
+  public async importBlock(block: IBlockHeaderInfo, events: readonly RuntimeSystemEventRecord[]): Promise<void> {
+    for (const { event, phase } of events) {
       if (event.section !== 'treasury' || (event.method !== 'BondLotPurchased' && event.method !== 'BondLotReleased')) {
         continue;
       }
 
-      if (event.data.accountId.toString() !== this.walletKeys.defaultArgonAddress) continue;
+      if (event.data.accountId !== this.walletKeys.defaultArgonAddress) continue;
 
-      const bondLotId = event.data.bondLotId.toNumber();
-      const extrinsicIndex = phase.isApplyExtrinsic ? phase.asApplyExtrinsic.toNumber() : undefined;
+      const { bondLotId } = event.data;
+      const extrinsicIndex = phase.type === 'ApplyExtrinsic' ? phase.value : undefined;
       if (event.method === 'BondLotPurchased') {
         await this.recordPurchase(block, bondLotId, extrinsicIndex);
       } else {
@@ -108,12 +114,15 @@ export class ArgonBondsRecovery {
 
   public async recordPurchase(block: IBlockHeaderInfo, bondLotId: number, extrinsicIndex?: number): Promise<void> {
     const api = await this.miningFrames.blockWatch.getApi(block);
-    const lotOption = await api.query.treasury.bondLotById(bondLotId);
-    if (lotOption.isNone) {
+    const lotQuery = api.query.treasury.bondLotById(bondLotId);
+    if (!lotQuery) throw new Error(`Bond lot storage is unavailable at block ${block.blockNumber}`);
+
+    const storedLot = await lotQuery;
+    if (!storedLot) {
       throw new Error(`Purchased bond lot ${bondLotId} is unavailable at block ${block.blockNumber}`);
     }
 
-    const lot = this.decodeStoredBondLot(bondLotId, lotOption.unwrap());
+    const lot = this.decodeStoredBondLot(bondLotId, storedLot);
     await (
       await this.dbPromise
     ).bondLotHistoryTable.recordObservation({
@@ -142,12 +151,15 @@ export class ArgonBondsRecovery {
       parent = await this.miningFrames.blockWatch.getHeader(block.blockNumber - 1);
     }
     const parentApi = await this.miningFrames.blockWatch.getApi(parent);
-    const lotOption = await parentApi.query.treasury.bondLotById(bondLotId);
-    if (lotOption.isNone) {
+    const lotQuery = parentApi.query.treasury.bondLotById(bondLotId);
+    if (!lotQuery) throw new Error(`Bond lot storage is unavailable before block ${block.blockNumber}`);
+
+    const storedLot = await lotQuery;
+    if (!storedLot) {
       throw new Error(`Released bond lot ${bondLotId} is unavailable before block ${block.blockNumber}`);
     }
 
-    const lot = this.decodeStoredBondLot(bondLotId, lotOption.unwrap());
+    const lot = this.decodeStoredBondLot(bondLotId, storedLot);
     await (
       await this.dbPromise
     ).bondLotHistoryTable.recordRelease({
@@ -164,39 +176,38 @@ export class ArgonBondsRecovery {
     });
   }
 
-  private decodeStoredBondLot(id: number, lot: Parameters<typeof BondLot.fromRuntime>[1]): BondLot {
-    if (lot.get('program')) {
-      return BondLot.fromRuntime(id, lot, this.walletKeys.defaultArgonAddress);
+  private decodeStoredBondLot(id: number, lot: HistoricalBondLot): BondLot {
+    const vaultTerms = lot.program?.type === 'Vault' ? lot.program.value : undefined;
+    const vaultId = vaultTerms?.vaultId ?? lot.vaultId;
+    const programType = lot.program?.type === 'Argonot' ? 'Argonot' : 'Vault';
+    if (programType === 'Vault' && vaultId === undefined) {
+      throw new Error(`Historical vault bond lot ${id} is missing its vault`);
     }
 
-    // Historical archive storage predates the program field and has no
-    // sharing/bonus fields. Supported live runtime codecs continue through
-    // BondLot.fromRuntime.
-    const vaultId = lot.get('vaultId');
-    if (!vaultId) throw new Error(`Historical vault bond lot ${id} is missing its vault`);
-
-    const accountId = lot.owner.toString();
-    const bonds = lot.bonds.toNumber();
-    const participatedFrames = lot.participatedFrames.toNumber();
+    const sharingRatio = vaultTerms?.sharingPercent ?? lot.sharingPercent;
+    const bonusRatio = vaultTerms?.bonusPercent ?? lot.bonusPercent;
+    const participatedFrames = lot.participatedFrames;
     return new BondLot({
       id,
-      programType: 'Vault',
-      accountId,
-      vaultId: Number(vaultId.toString()),
-      bonds,
-      createdFrame: lot.createdFrameId.toNumber(),
+      programType,
+      accountId: lot.owner,
+      vaultId,
+      bonds: lot.bonds,
+      createdFrame: Number(lot.createdFrameId),
       participatedFrames,
-      lastEarningsFrame: lot.lastFrameEarningsFrameId.isSome ? lot.lastFrameEarningsFrameId.unwrap().toNumber() : null,
-      lastEarnings: lot.lastFrameEarnings.isSome ? lot.lastFrameEarnings.unwrap().toBigInt() : 0n,
-      lifetimeEarnings: lot.cumulativeEarnings.toBigInt(),
-      lifetimeBondedFrameMicrogons: BondLot.bondsToMicrogons(bonds) * BigInt(participatedFrames),
-      bonusPercent: 0,
-      releaseFrame: lot.releaseFrameId.isSome ? lot.releaseFrameId.unwrap().toNumber() : null,
-      releaseReason: lot.releaseReason.isSome ? lot.releaseReason.unwrap().type : undefined,
-      isReleasing: lot.releaseReason.isSome,
-      isFlexible: false,
-      isOwn: accountId === this.walletKeys.defaultArgonAddress,
-      canRelease: accountId === this.walletKeys.defaultArgonAddress,
+      lastEarningsFrame: lot.lastFrameEarningsFrameId === null ? null : Number(lot.lastFrameEarningsFrameId),
+      lastEarnings: lot.lastFrameEarnings ?? 0n,
+      lifetimeEarnings: lot.cumulativeEarnings,
+      lifetimeBondedFrameMicrogons:
+        programType === 'Vault' ? BondLot.bondsToMicrogons(lot.bonds) * BigInt(participatedFrames) : 0n,
+      sharingPercent: sharingRatio?.times(100).toNumber(),
+      bonusPercent: bonusRatio?.times(100).toNumber() ?? 0,
+      releaseFrame: lot.releaseFrameId === null ? null : Number(lot.releaseFrameId),
+      releaseReason: lot.releaseReason?.type,
+      isReleasing: lot.releaseReason != null,
+      isFlexible: lot.isFlexible ?? lot.isBackfill ?? false,
+      isOwn: lot.owner === this.walletKeys.defaultArgonAddress,
+      canRelease: lot.owner === this.walletKeys.defaultArgonAddress,
     });
   }
 

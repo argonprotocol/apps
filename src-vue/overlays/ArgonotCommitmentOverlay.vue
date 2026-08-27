@@ -317,10 +317,9 @@ async function loadState() {
 
     const [commitmentOption] = await Promise.all([client.query.vaults.argonotCommitmentByVaultId(vaultId.value)]);
 
-    if (commitmentOption.isSome) {
-      const commitment = commitmentOption.unwrap();
-      currentCommittedMicronots.value = commitment.committedMicronots.toBigInt();
-      currentEncumberedMicronots.value = commitment.encumberedMicronots.toBigInt();
+    if (commitmentOption) {
+      currentCommittedMicronots.value = commitmentOption.committedMicronots;
+      currentEncumberedMicronots.value = commitmentOption.encumberedMicronots;
     } else {
       currentCommittedMicronots.value = wallets.defaultArgonWallet.reservedMicronots;
       currentEncumberedMicronots.value = 0n;

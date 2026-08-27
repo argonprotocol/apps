@@ -178,10 +178,8 @@ export default class Importer {
     const activeCouncilPromise = crosschainTransfer
       ?.activeGlobalIssuanceCouncilByDestinationChain?.('Ethereum')
       ?.then(async councilHash => {
-        if (councilHash.isNone) return;
-
-        const council = await crosschainTransfer.globalIssuanceCouncilByHash(councilHash.unwrap());
-        return council.isSome ? council.unwrap() : undefined;
+        if (!councilHash) return;
+        return (await crosschainTransfer.globalIssuanceCouncilByHash(councilHash)) ?? undefined;
       });
     const ownedMintingAuthoritySignersPromise = findOwnedEthereumMintingAuthoritySigners(finalizedApi, walletKeys);
     const [balances, operationalAccount, ownedVault, activeCouncil, ownedMintingAuthoritySigners] = await Promise.all([

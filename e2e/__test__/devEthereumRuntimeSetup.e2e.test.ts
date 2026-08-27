@@ -108,19 +108,13 @@ describe('syncEthereumGatewayActiveCouncilToArgon', () => {
       finalizedClient: {
         query: {
           crosschainTransfer: {
-            activeGlobalIssuanceCouncilByDestinationChain: vi.fn(async () => ({
-              isNone: false,
-              unwrap: () => `0x${'99'.repeat(32)}`,
-            })),
+            activeGlobalIssuanceCouncilByDestinationChain: vi.fn(async () => `0x${'99'.repeat(32)}`),
             globalIssuanceCouncilByHash: vi.fn(async () => ({
-              isNone: false,
-              unwrap: () => ({
-                epochMicrogonsPerArgonot: { toBigInt: () => nextMicrogonsPerArgonot },
-                members: new Map([
-                  [{ toHex: () => signerB }, { weight: { toBigInt: () => 4n } }],
-                  [{ toHex: () => signerA }, { weight: { toBigInt: () => 7n } }],
-                ]),
-              }),
+              epochMicrogonsPerArgonot: nextMicrogonsPerArgonot,
+              members: {
+                [signerB]: { weight: 4n },
+                [signerA]: { weight: 7n },
+              },
             })),
           },
         },
@@ -168,16 +162,10 @@ describe('syncEthereumGatewayActiveCouncilToArgon', () => {
       finalizedClient: {
         query: {
           crosschainTransfer: {
-            activeGlobalIssuanceCouncilByDestinationChain: vi.fn(async () => ({
-              isNone: false,
-              unwrap: () => `0x${'77'.repeat(32)}`,
-            })),
+            activeGlobalIssuanceCouncilByDestinationChain: vi.fn(async () => `0x${'77'.repeat(32)}`),
             globalIssuanceCouncilByHash: vi.fn(async () => ({
-              isNone: false,
-              unwrap: () => ({
-                epochMicrogonsPerArgonot: { toBigInt: () => microgonsPerArgonot },
-                members: new Map([[{ toHex: () => signer }, { weight: { toBigInt: () => 1n } }]]),
-              }),
+              epochMicrogonsPerArgonot: microgonsPerArgonot,
+              members: { [signer]: { weight: 1n } },
             })),
           },
         },

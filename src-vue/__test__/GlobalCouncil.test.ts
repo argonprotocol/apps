@@ -161,9 +161,9 @@ describe('GlobalCouncil', () => {
       )
       .mockResolvedValue(undefined);
 
-    const approvalHashOne = { toHex: () => '0x11' };
-    const approvalHashTwo = { toHex: () => '0x22' };
-    const approvalHashThree = { toHex: () => '0x33' };
+    const approvalHashOne = '0x11';
+    const approvalHashTwo = '0x22';
+    const approvalHashThree = '0x33';
     const finalizedClient = {
       query: {
         crosschainTransfer: {
@@ -188,9 +188,7 @@ describe('GlobalCouncil', () => {
             ),
           },
           mintingAuthoritiesBySigner: {
-            multi: vi.fn(async (signers: string[]) =>
-              signers.map(signer => some({ accountId: { toString: () => `owner-${signer}` } })),
-            ),
+            multi: vi.fn(async (signers: string[]) => signers.map(signer => some({ accountId: `owner-${signer}` }))),
           },
           councilApprovalQueueByDestinationChainAndNonce: {
             multi: vi.fn(async (keys: Array<[string, bigint]>) =>
@@ -199,13 +197,8 @@ describe('GlobalCouncil', () => {
                   return some({
                     approvingCouncilHash: hexValue('0xactive'),
                     approvedTotalWeight: bigintValue(0n),
-                    signatures: new Map(),
-                    target: {
-                      isMintingAuthorityActivation: true,
-                      isMintingAuthorityDeactivation: false,
-                      isGlobalIssuanceCouncilRotation: false,
-                      asMintingAuthorityActivation: hexValue('0xaaaa'),
-                    },
+                    signatures: {},
+                    target: { type: 'MintingAuthorityActivation', value: '0xaaaa' },
                     approvalHash: approvalHashOne,
                   });
                 }
@@ -213,13 +206,8 @@ describe('GlobalCouncil', () => {
                   return some({
                     approvingCouncilHash: hexValue('0xactive'),
                     approvedTotalWeight: bigintValue(0n),
-                    signatures: new Map(),
-                    target: {
-                      isMintingAuthorityActivation: false,
-                      isMintingAuthorityDeactivation: true,
-                      isGlobalIssuanceCouncilRotation: false,
-                      asMintingAuthorityDeactivation: hexValue('0xbbbb'),
-                    },
+                    signatures: {},
+                    target: { type: 'MintingAuthorityDeactivation', value: '0xbbbb' },
                     approvalHash: approvalHashTwo,
                   });
                 }
@@ -227,13 +215,8 @@ describe('GlobalCouncil', () => {
                   return some({
                     approvingCouncilHash: hexValue('0xactive'),
                     approvedTotalWeight: bigintValue(0n),
-                    signatures: new Map(),
-                    target: {
-                      isMintingAuthorityActivation: false,
-                      isMintingAuthorityDeactivation: false,
-                      isGlobalIssuanceCouncilRotation: true,
-                      asGlobalIssuanceCouncilRotation: hexValue('0xcccc'),
-                    },
+                    signatures: {},
+                    target: { type: 'GlobalIssuanceCouncilRotation', value: '0xcccc' },
                     approvalHash: approvalHashThree,
                   });
                 }
@@ -241,12 +224,10 @@ describe('GlobalCouncil', () => {
                   return some({
                     approvingCouncilHash: hexValue('0xactive'),
                     approvedTotalWeight: bigintValue(0n),
-                    signatures: new Map(),
+                    signatures: {},
                     target: {
-                      isMintingAuthorityActivation: true,
-                      isMintingAuthorityDeactivation: false,
-                      isGlobalIssuanceCouncilRotation: false,
-                      asMintingAuthorityActivation: hexValue(`0x${nonce.toString(16).padStart(4, '0')}`),
+                      type: 'MintingAuthorityActivation',
+                      value: `0x${nonce.toString(16).padStart(4, '0')}`,
                     },
                     approvalHash: hexValue(`0x${nonce.toString(16).padStart(2, '0')}`),
                   });
@@ -377,20 +358,15 @@ describe('GlobalCouncil', () => {
             multi: vi.fn(async () => [some(council(['5council-member'], 1_000_000n))]),
           },
           mintingAuthoritiesBySigner: {
-            multi: vi.fn(async () => [some({ accountId: { toString: () => '5authority-owner' } })]),
+            multi: vi.fn(async () => [some({ accountId: '5authority-owner' })]),
           },
           councilApprovalQueueByDestinationChainAndNonce: {
             multi: vi.fn(async () => [
               some({
                 approvingCouncilHash: hexValue('0xapproving'),
                 approvedTotalWeight: bigintValue(approvedWeight),
-                signatures: new Map([['0xabc', '0xsig']]),
-                target: {
-                  isMintingAuthorityActivation: true,
-                  isMintingAuthorityDeactivation: false,
-                  isGlobalIssuanceCouncilRotation: false,
-                  asMintingAuthorityActivation: hexValue('0xaaaa'),
-                },
+                signatures: { '0xabc': '0xsig' },
+                target: { type: 'MintingAuthorityActivation', value: '0xaaaa' },
                 approvalHash: hexValue('0x11'),
               }),
             ]),
@@ -438,39 +414,25 @@ describe('GlobalCouncil', () => {
 });
 
 function bigintValue(value: bigint) {
-  return {
-    toBigInt: () => value,
-  };
+  return value;
 }
 
 function hexValue(value: string) {
-  return {
-    toHex: () => value,
-    toLowerCase: () => value.toLowerCase(),
-  };
+  return value;
 }
 
 function some<T>(value: T) {
-  return {
-    isSome: true,
-    isNone: false,
-    unwrap: () => value,
-  };
+  return value;
 }
 
 function none() {
-  return {
-    isSome: false,
-    isNone: true,
-  };
+  return null;
 }
 
 function council(accountIds: string[], epochMicrogonsPerArgonot: bigint) {
   return {
-    members: new Map(
-      accountIds.map((accountId, index) => [`0x${index}`, { accountId: { toString: () => accountId } }]),
-    ),
-    totalWeight: bigintValue(BigInt(accountIds.length)),
-    epochMicrogonsPerArgonot: bigintValue(epochMicrogonsPerArgonot),
+    members: Object.fromEntries(accountIds.map((accountId, index) => [`0x${index}`, { accountId }])),
+    totalWeight: BigInt(accountIds.length),
+    epochMicrogonsPerArgonot,
   };
 }

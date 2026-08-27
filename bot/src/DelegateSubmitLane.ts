@@ -1,6 +1,6 @@
 import { setTimeout as sleep } from 'node:timers/promises';
-import { isUnreadableBlockError, raceWithTimeout, SingleFileQueue } from '@argonprotocol/apps-core';
-import { type ArgonClient, type KeyringPair } from '@argonprotocol/mainchain';
+import { type ArgonClient, isUnreadableBlockError, raceWithTimeout, SingleFileQueue } from '@argonprotocol/apps-core';
+import { type KeyringPair } from '@argonprotocol/mainchain';
 
 const NONCE_STABILITY_BLOCKS = 2;
 const NONCE_WAIT_TIMEOUT_MS = 10 * 60_000;
@@ -49,7 +49,7 @@ export class DelegateSubmitLane {
                 ]);
                 return {
                   stableBlockNumber,
-                  stableNonce: account.nonce.toNumber(),
+                  stableNonce: account.nonce,
                   poolNextIndex: nextIndex.toNumber(),
                 };
               })(),

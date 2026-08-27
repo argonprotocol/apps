@@ -1,7 +1,5 @@
 import {
-  type ArgonClient,
   FIXED_U128_DECIMALS,
-  getClient,
   Keyring,
   mnemonicGenerate,
   PERMILL_DECIMALS,
@@ -9,6 +7,7 @@ import {
 } from '@argonprotocol/mainchain';
 import { teardown } from '@argonprotocol/testing';
 import {
+  type ArgonClient,
   MainchainClients,
   NetworkConfig,
   StorageFinder,
@@ -20,6 +19,7 @@ import { startArgonTestNetwork } from './startArgonTestNetwork.ts';
 import { bip39, BitcoinNetwork, getChildXpriv, getXpubFromXpriv } from '@argonprotocol/bitcoin';
 import bs58check from 'bs58check';
 import Path from 'path';
+import { getTestMainchainClient } from './helpers/mainchain.ts';
 
 afterAll(teardown);
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
@@ -31,7 +31,7 @@ describe.skipIf(skipE2E)('Storage/Fees Finder tests', () => {
     const network = await startArgonTestNetwork(Path.basename(import.meta.filename), { profiles: ['bob'] });
 
     mainchainUrl = network.archiveUrl;
-    client = await getClient(mainchainUrl);
+    client = await getTestMainchainClient(mainchainUrl);
     NetworkConfig.setNetwork('dev-docker');
   });
 
@@ -63,7 +63,7 @@ describe.skipIf(skipE2E)('Storage/Fees Finder tests', () => {
     });
     const txResult = await new TxSubmitter(client, createVaultTx, alice).submit({ useLatestNonce: true });
     await txResult.waitForFinalizedBlock;
-    const vaultCreated = txResult.events.find(event => client.events.vaults.VaultCreated.is(event));
+    const vaultCreated = txResult.events.find(event => event.section === 'vaults' && event.method === 'VaultCreated');
     if (!vaultCreated) throw new Error('VaultCreated event not found');
 
     const actualBlock = await client.rpc.chain.getHeader(await txResult.waitForFinalizedBlock);
@@ -93,7 +93,7 @@ describe.skipIf(skipE2E)('Storage/Fees Finder tests', () => {
     const result = await TransactionEvents.findFromFeePaidEvent({
       client,
       accountAddress: alice.address,
-      isMatchingEvent: ev => client.events.vaults.VaultCreated.is(ev),
+      isMatchingEvent: event => event.section === 'vaults' && event.method === 'VaultCreated',
       blockHash: binarySearch.blockHash,
     });
     expect(result).toBeDefined();

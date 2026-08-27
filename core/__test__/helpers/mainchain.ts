@@ -1,6 +1,17 @@
-import { type ISubmittableOptions, type TxSigningAccount, TxSubmitter } from '@argonprotocol/apps-core';
-import { type ArgonClient, type SubmittableExtrinsic } from '@argonprotocol/mainchain';
+import {
+  createArgonClient,
+  type ArgonClient,
+  type ISubmittableOptions,
+  type TxSigningAccount,
+  TxSubmitter,
+} from '@argonprotocol/apps-core';
+import { getClient, type SubmittableExtrinsic } from '@argonprotocol/mainchain';
+import type { ApiOptions } from '@polkadot/api/types';
 import { sudo } from '@argonprotocol/testing';
+
+export async function getTestMainchainClient(host: string, options?: ApiOptions): Promise<ArgonClient> {
+  return createArgonClient(await getClient(host, options));
+}
 
 export async function getFinalizedClient(client: ArgonClient) {
   return await client.at(await client.rpc.chain.getFinalizedHead());

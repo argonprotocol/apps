@@ -1,5 +1,6 @@
-import { type AccountId32, type FrameSystemEventRecord, type GenericEvent, Struct } from '@argonprotocol/mainchain';
-import type { ArgonQueryClient } from './MainchainClients.js';
+import { type FrameSystemEventRecord, type GenericEvent } from '@argonprotocol/mainchain';
+import type { RuntimeSystemEventRecord } from './BlockWatch.js';
+import type { HistoricalEvent } from '@argonprotocol/runtime-client/events';
 
 export type IEventInfo = {
   pallet: string;
@@ -30,19 +31,18 @@ export class AccountEventsFilter {
     private readonly ownedAddresses: readonly string[],
   ) {}
 
-  public process(client: ArgonQueryClient, allEvents: readonly FrameSystemEventRecord[]): void {
+  public process(allEvents: readonly RuntimeSystemEventRecord[]): void {
     for (const { extrinsicEvents, extrinsicIndex } of groupEventsByExtrinsic(allEvents)) {
       let isMine = false;
       const groupTransfers: IBalanceTransfer[] = [];
 
       for (let eventIndex = 0; eventIndex < extrinsicEvents.length; eventIndex += 1) {
         const event = extrinsicEvents[eventIndex];
-        if (client.events.transactionPayment.TransactionFeePaid.is(event)) {
-          const [who] = event.data;
-          if (this.isAccountIdMe(who)) isMine = true;
+        if (event.section === 'transactionPayment' && event.method === 'TransactionFeePaid') {
+          if (this.isAccountIdMe(event.data.who)) isMine = true;
         }
 
-        const transfer = this.readTransfer(client, event, eventIndex, extrinsicEvents, extrinsicIndex);
+        const transfer = this.readTransfer(event, eventIndex, extrinsicEvents, extrinsicIndex);
         if (!transfer) continue;
 
         const existing =
@@ -72,81 +72,69 @@ export class AccountEventsFilter {
         ...extrinsicEvents.map(event => ({
           pallet: event.section,
           method: event.method,
-          data: event.data.toHuman(),
+          data: event.data,
         })),
       ]);
     }
   }
 
   private readTransfer(
-    client: ArgonQueryClient,
-    event: GenericEvent,
+    event: HistoricalEvent,
     eventIndex: number,
-    extrinsicEvents: readonly GenericEvent[],
+    extrinsicEvents: readonly HistoricalEvent[],
     extrinsicIndex?: number,
   ): IBalanceTransfer | undefined {
     if (extrinsicIndex === undefined) return;
 
-    if (client.events.balances.BalanceSet.is(event)) {
-      const [who, free] = event.data;
+    if (event.section === 'balances' && event.method === 'BalanceSet') {
+      const { who, free } = event.data;
       if (!this.isAccountIdMe(who)) return;
-      return this.createInboundTransfer(who, free.toBigInt(), 'faucet', 'argon', extrinsicIndex);
+      return this.createInboundTransfer(who, free, 'faucet', 'argon', extrinsicIndex);
     }
-    if (client.events.ownership.BalanceSet.is(event)) {
-      const [who, free] = event.data;
+    if (event.section === 'ownership' && event.method === 'BalanceSet') {
+      const { who, free } = event.data;
       if (!this.isAccountIdMe(who)) return;
-      return this.createInboundTransfer(who, free.toBigInt(), 'faucet', 'argonot', extrinsicIndex);
+      return this.createInboundTransfer(who, free, 'faucet', 'argonot', extrinsicIndex);
     }
-    if (
-      event.section === 'crosschainTransfer' &&
-      event.method === 'TransferToArgonSettled' &&
-      client.events.crosschainTransfer.TransferToArgonSettled.is(event)
-    ) {
-      const [, transfer] = event.data;
+    if (event.section === 'crosschainTransfer' && event.method === 'TransferToArgonSettled') {
+      const { transfer } = event.data;
       if (!this.isAccountIdMe(transfer.to)) return;
       return this.createInboundTransfer(
         transfer.to,
-        transfer.amount.toBigInt(),
+        transfer.amount,
         'ethereum',
-        transfer.asset.isArgon ? 'argon' : 'argonot',
+        transfer.asset.type === 'Argon' ? 'argon' : 'argonot',
         extrinsicIndex,
       );
     }
-    if (
-      event.section === 'crosschainTransfer' &&
-      event.method === 'TransferOutStarted' &&
-      client.events.crosschainTransfer.TransferOutStarted.is(event)
-    ) {
+    if (event.section === 'crosschainTransfer' && event.method === 'TransferOutStarted') {
       const { accountId, amount, asset, destinationChain, transferId } = event.data;
       if (!this.isAccountIdMe(accountId)) return;
 
       return {
-        to: destinationChain.toString(),
-        from: accountId.toString(),
+        to: destinationChain.type,
+        from: accountId,
         transferType: 'ethereum',
-        amount: amount.toBigInt(),
+        amount,
         isInternal: false,
         isInbound: false,
-        currency: asset.isArgon ? 'argon' : 'argonot',
+        currency: asset.type === 'Argon' ? 'argon' : 'argonot',
         extrinsicIndex,
-        tokenGatewayCommitmentHash: transferId.toHex(),
+        tokenGatewayCommitmentHash: transferId,
       };
     }
 
-    // Specs 100-150 used tokenGateway before crosschainTransfer. The block's
-    // typed API no longer exposes those guards, so use its codec field names.
-    if (event.section === 'tokenGateway' && ['AssetReceived', 'AssetRefunded'].includes(event.method)) {
-      const beneficiary = readEventField(event, 'beneficiary');
-      const amount = readEventField(event, 'amount');
-      if (!beneficiary || !amount || beneficiary.toString() !== this.address) return;
+    if (event.section === 'tokenGateway' && (event.method === 'AssetReceived' || event.method === 'AssetRefunded')) {
+      const { beneficiary, amount } = event.data;
+      if (beneficiary !== this.address) return;
 
       const next = extrinsicEvents[eventIndex + 1];
-      const request = next?.section === 'ismp' && next.method === 'PostRequestHandled' ? next.data[0] : undefined;
-      const commitment = request instanceof Struct ? request.get('commitment')?.toString() : undefined;
+      const commitment =
+        next?.section === 'ismp' && next.method === 'PostRequestHandled' ? next.data[0].commitment : undefined;
       return {
         ...this.createInboundTransfer(
           beneficiary,
-          BigInt(amount.toString()),
+          amount,
           'tokenGateway',
           extrinsicEvents[eventIndex - 1]?.section === 'ownership' ? 'argonot' : 'argon',
           extrinsicIndex,
@@ -156,75 +144,67 @@ export class AccountEventsFilter {
     }
 
     if (event.section === 'tokenGateway' && event.method === 'AssetTeleported') {
-      const from = readEventField(event, 'from');
-      const to = readEventField(event, 'to');
-      const amount = readEventField(event, 'amount');
-      const commitment = readEventField(event, 'commitment');
-      if (!from || !to || !amount || !commitment || from.toString() !== this.address) return;
+      const { from, to, amount, commitment } = event.data;
+      if (from !== this.address) return;
 
       const hasArgonotBurn = extrinsicEvents.some(candidate => {
         if (candidate.section !== 'ownership' || candidate.method !== 'Burned') return false;
-        return (
-          readEventField(candidate, 'who')?.toString() === from.toString() &&
-          readEventField(candidate, 'amount')?.toString() === amount.toString()
-        );
+        return candidate.data.who === from && candidate.data.amount === amount;
       });
       return {
-        to: to.toString(),
-        from: from.toString(),
+        to,
+        from,
         transferType: 'tokenGateway',
-        amount: BigInt(amount.toString()),
+        amount,
         isInternal: false,
         isInbound: false,
         currency: hasArgonotBurn ? 'argonot' : 'argon',
         extrinsicIndex,
-        tokenGatewayCommitmentHash: commitment.toString(),
+        tokenGatewayCommitmentHash: commitment,
       };
     }
 
     if (!isUserTransferEventSet(extrinsicEvents, eventIndex)) return;
-    if (client.events.balances.Transfer.is(event)) {
-      const [from, to, amount] = event.data;
-      return this.createTransfer(from, to, amount.toBigInt(), 'argon', extrinsicIndex);
+    if (event.section === 'balances' && event.method === 'Transfer') {
+      const { from, to, amount } = event.data;
+      return this.createTransfer(from, to, amount, 'argon', extrinsicIndex);
     }
-    if (client.events.ownership.Transfer.is(event)) {
-      const [from, to, amount] = event.data;
-      return this.createTransfer(from, to, amount.toBigInt(), 'argonot', extrinsicIndex);
+    if (event.section === 'ownership' && event.method === 'Transfer') {
+      const { from, to, amount } = event.data;
+      return this.createTransfer(from, to, amount, 'argonot', extrinsicIndex);
     }
   }
 
   private createTransfer(
-    from: AccountId32,
-    to: AccountId32,
+    from: string,
+    to: string,
     amount: bigint,
     currency: IBalanceTransfer['currency'],
     extrinsicIndex: number,
   ): IBalanceTransfer | undefined {
     if (!this.isAccountIdMe(from) && !this.isAccountIdMe(to)) return;
 
-    const fromAddress = from.toHuman();
-    const toAddress = to.toHuman();
     return {
-      to: toAddress,
-      from: fromAddress,
+      to,
+      from,
       transferType: 'transfer',
-      isInbound: toAddress === this.address,
+      isInbound: to === this.address,
       amount,
-      isInternal: this.ownedAddresses.includes(fromAddress) && this.ownedAddresses.includes(toAddress),
+      isInternal: this.ownedAddresses.includes(from) && this.ownedAddresses.includes(to),
       currency,
       extrinsicIndex,
     };
   }
 
   private createInboundTransfer(
-    to: { toString(): string },
+    to: string,
     amount: bigint,
     transferType: IBalanceTransfer['transferType'],
     currency: IBalanceTransfer['currency'],
     extrinsicIndex: number,
   ): IBalanceTransfer {
     return {
-      to: to.toString(),
+      to,
       transferType,
       isInbound: true,
       amount,
@@ -234,22 +214,34 @@ export class AccountEventsFilter {
     };
   }
 
-  private isAccountIdMe(accountId: AccountId32): boolean {
-    return accountId.toString() === this.address;
+  private isAccountIdMe(accountId: string): boolean {
+    return accountId === this.address;
   }
 }
 
-export function groupEventsByExtrinsic(events: readonly FrameSystemEventRecord[]) {
-  const groups: { extrinsicEvents: GenericEvent[]; extrinsicIndex?: number }[] = [];
-  const groupsByExtrinsic = new Map<number, GenericEvent[]>();
+export function groupEventsByExtrinsic(
+  events: readonly RuntimeSystemEventRecord[],
+): { extrinsicEvents: HistoricalEvent[]; extrinsicIndex?: number }[];
+export function groupEventsByExtrinsic(
+  events: readonly FrameSystemEventRecord[],
+): { extrinsicEvents: GenericEvent[]; extrinsicIndex?: number }[];
+export function groupEventsByExtrinsic(events: readonly (RuntimeSystemEventRecord | FrameSystemEventRecord)[]) {
+  const groups: { extrinsicEvents: (HistoricalEvent | GenericEvent)[]; extrinsicIndex?: number }[] = [];
+  const groupsByExtrinsic = new Map<number, (HistoricalEvent | GenericEvent)[]>();
 
   for (const { event, phase } of events) {
-    if (!phase.isApplyExtrinsic) {
+    let extrinsicIndex: number | undefined;
+    if ('isApplyExtrinsic' in phase) {
+      if (phase.isApplyExtrinsic) extrinsicIndex = phase.asApplyExtrinsic.toNumber();
+    } else if (phase.type === 'ApplyExtrinsic') {
+      extrinsicIndex = phase.value;
+    }
+
+    if (extrinsicIndex === undefined) {
       groups.push({ extrinsicEvents: [event] });
       continue;
     }
 
-    const extrinsicIndex = phase.asApplyExtrinsic.toNumber();
     const existing = groupsByExtrinsic.get(extrinsicIndex);
     if (existing) existing.push(event);
     else {
@@ -262,7 +254,7 @@ export function groupEventsByExtrinsic(events: readonly FrameSystemEventRecord[]
 }
 
 export function isUserTransferEventSet(
-  events: readonly Pick<GenericEvent, 'section' | 'method'>[],
+  events: readonly { section: string; method: string }[],
   transferEventIndex?: number,
 ): boolean {
   let relevantEvents = events;
@@ -296,8 +288,3 @@ const allowedTransferEvents: Readonly<Record<string, '*' | readonly string[]>> =
   ownership: ['Transfer', 'Endowed', 'Deposit', 'Withdraw'],
   transactionPayment: '*',
 };
-
-export function readEventField(event: Pick<GenericEvent, 'data'>, field: string) {
-  const index = (event.data.names ?? []).indexOf(field);
-  return index < 0 ? undefined : event.data[index];
-}

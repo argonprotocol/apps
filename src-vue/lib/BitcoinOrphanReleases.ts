@@ -1,7 +1,6 @@
-import { BitcoinLock, TxSubmitter } from '@argonprotocol/apps-core';
+import { BitcoinLock, type ArgonClient, TxSubmitter, BlockWatch } from '@argonprotocol/apps-core';
 import { addressBytesHex, CosignScript } from '@argonprotocol/bitcoin';
-import { ArgonClient, type SubmittableExtrinsic, u8aToHex } from '@argonprotocol/mainchain';
-import type { BlockWatch } from '@argonprotocol/apps-core';
+import { type SubmittableExtrinsic, u8aToHex } from '@argonprotocol/mainchain';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import type { IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
 import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from './db/BitcoinUtxosTable.ts';
@@ -268,7 +267,7 @@ export default class BitcoinOrphanReleases {
 
       let previousCount: number | undefined;
       const unsubscribe = await client.query.vaults.orphanedUtxoAccountsByVaultId(vaultId, ownerAccount, count => {
-        const nextCount = count.toNumber();
+        const nextCount = count;
         if (previousCount !== undefined && nextCount < previousCount) {
           const bestBlockNumber = this.blockWatch.bestBlockHeader.blockNumber;
           const scanThroughBlock = bestBlockNumber + 1;
@@ -524,12 +523,8 @@ export default class BitcoinOrphanReleases {
 
     const txs: SubmittableExtrinsic[] = [];
     const candidateRefs = await args.client.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(args.lock.utxoId!);
-    const candidateStillOnChain = [...candidateRefs.entries()].some(([utxoRef]) => {
-      return (
-        utxoRef.txid.toHex() === args.request.utxoRef.txid &&
-        utxoRef.outputIndex.toNumber() === args.request.utxoRef.vout
-      );
-    });
+    const candidateKey = JSON.stringify({ txid: args.request.utxoRef.txid, outputIndex: args.request.utxoRef.vout });
+    const candidateStillOnChain = candidateKey in candidateRefs;
     if (candidateStillOnChain) {
       txs.push(
         args.client.tx.bitcoinUtxos.rejectUtxoCandidate(args.lock.utxoId!, {
@@ -604,7 +599,7 @@ export default class BitcoinOrphanReleases {
     const blockHash = txInfo.tx.blockHash ?? (await txInfo.txResult.waitForInFirstBlock);
     const client = await getMainchainClient(false);
     const api = await client.at(blockHash);
-    const requestedReleaseAtTick = await api.query.ticks.currentTick().then(x => x.toNumber());
+    const requestedReleaseAtTick = await api.query.ticks.currentTick();
 
     await this.bitcoinLocks.utxoTracking.setReleaseIsProcessingOnArgon(record, {
       requestedReleaseAtTick,
@@ -621,20 +616,20 @@ export default class BitcoinOrphanReleases {
       txid: record.txid,
       outputIndex: record.vout,
     });
-    if (!orphanMaybe.isSome) return false;
+    if (!orphanMaybe) return false;
 
-    const orphan = orphanMaybe.unwrap();
-    if (orphan.utxoId.toNumber() !== lock.utxoId || orphan.cosignRequest.isNone) return false;
+    const orphan = orphanMaybe;
+    if (orphan.utxoId !== lock.utxoId || !orphan.cosignRequest) return false;
 
-    const request = orphan.cosignRequest.unwrap();
-    const blockHash = await client.rpc.chain.getBlockHash(request.createdAtArgonBlockNumber.toNumber());
+    const request = orphan.cosignRequest;
+    const blockHash = await client.rpc.chain.getBlockHash(request.createdAtArgonBlockNumber);
     const apiAt = await client.at(blockHash);
-    const requestedReleaseAtTick = await apiAt.query.ticks.currentTick().then(x => x.toNumber());
+    const requestedReleaseAtTick = await apiAt.query.ticks.currentTick();
 
     await this.bitcoinLocks.utxoTracking.setReleaseIsProcessingOnArgon(record, {
       requestedReleaseAtTick,
       releaseToDestinationAddress: u8aToHex(request.toScriptPubkey, undefined, false),
-      releaseBitcoinNetworkFee: request.bitcoinNetworkFee.toBigInt(),
+      releaseBitcoinNetworkFee: request.bitcoinNetworkFee,
     });
     return true;
   }

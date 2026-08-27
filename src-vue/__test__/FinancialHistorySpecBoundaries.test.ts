@@ -1,14 +1,15 @@
-import { AccountActivityKind, BondLot, Currency } from '@argonprotocol/apps-core';
+import { AccountActivityKind, BitcoinLock, Currency } from '@argonprotocol/apps-core';
 import { getOfflineRegistry } from '@argonprotocol/mainchain';
+import type { Codec } from '@polkadot/types-codec/types';
 import { describe, expect, it, vi } from 'vitest';
 import { ArgonBonds } from '../lib/ArgonBonds.ts';
 import { FinancialHistoryImporter } from '../lib/recovery/index.ts';
-import { getHistoricalBitcoinLock } from '../lib/recovery/BitcoinLockHistory.ts';
 import { VaultHistory } from '../lib/recovery/MyVault.ts';
 import { createTestDb } from './helpers/db.ts';
 import { createHistoricalEventData } from '../../indexer/__test__/helpers/historicalEvents.ts';
 import { encodeAddress } from '@polkadot/util-crypto';
-import { numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts';
+import { numberCodec } from '../../core/__test__/helpers/codecs.ts';
+import { runtimeClient, toHistoricalEvent } from '@argonprotocol/runtime-client';
 
 const registry = getOfflineRegistry();
 const accountId = encodeAddress(new Uint8Array(32).fill(0x33));
@@ -22,9 +23,9 @@ describe('financial history spec boundaries', () => {
     { specVersion: 154, priceField: 'lockedTargetPrice' },
     { specVersion: 157, priceField: 'lockedTargetPrice' },
   ] as const)('decodes the complete spec $specVersion Bitcoin lock storage shape', async variant => {
-    const client = createBitcoinLockClient(variant);
+    const rawClient = createBitcoinLockClient(variant);
 
-    const lock = await getHistoricalBitcoinLock(client as never, 10);
+    const lock = await BitcoinLock.get(runtimeClient(rawClient) as never, 10);
 
     expect(lock).toMatchObject({
       utxoId: 10,
@@ -43,7 +44,7 @@ describe('financial history spec boundaries', () => {
       createdAtArgonBlock: variant.specVersion >= 146 ? 472_519 : 0,
     });
     expect(lock?.utxoSatoshis).toBe(variant.specVersion >= 146 ? 488_275n : undefined);
-    expect(client.query.bitcoinLocks.locksByUtxoId).toHaveBeenCalledOnce();
+    expect(rawClient.query.bitcoinLocks.locksByUtxoId).toHaveBeenCalledOnce();
   });
 
   it('passes supported activity through runtime boundaries while skipping only an unsupported domain block', async () => {
@@ -304,8 +305,7 @@ describe('financial history spec boundaries', () => {
 
   it.each([151, 155, 156, 157])('recovers the spec %s BondLot storage shape', async specVersion => {
     const db = await createTestDb();
-    const lot = createBondLot(specVersion);
-    const lotOption = optionCodec(lot);
+    const lotOption = createBondLot(specVersion);
     const block = {
       blockNumber: specVersion,
       blockHash: `0x${specVersion}`,
@@ -313,10 +313,12 @@ describe('financial history spec boundaries', () => {
       isFinalized: true,
     };
     const blockWatch = {
-      getApi: vi.fn(async () => ({
-        runtimeVersion: { specVersion: numberCodec(specVersion) },
-        query: { treasury: { bondLotById: vi.fn(async () => lotOption) } },
-      })),
+      getApi: vi.fn(async () =>
+        runtimeClient({
+          runtimeVersion: { specVersion: numberCodec(specVersion) },
+          query: { treasury: { bondLotById: vi.fn(async () => lotOption) } },
+        }),
+      ),
     };
     const argonBonds = new ArgonBonds(
       Promise.resolve(db),
@@ -335,11 +337,11 @@ describe('financial history spec boundaries', () => {
         : { programId: { Vault: { vaultId: 4 } }, bondLotId: 7, accountId, bonds: 10 },
     );
 
+    const event = toHistoricalEvent({ section: 'treasury', method: 'BondLotPurchased', data: eventData });
+    if (!event) throw new Error('treasury.BondLotPurchased is not a historical event');
+
     await argonBonds.importHistoryBlock(block as any, [
-      {
-        event: { section: 'treasury', method: 'BondLotPurchased', data: eventData },
-        phase: { isApplyExtrinsic: true, asApplyExtrinsic: numberCodec(2) },
-      } as any,
+      { event, phase: { type: 'ApplyExtrinsic', value: 2 }, topics: [] },
     ]);
 
     expect(await db.bondLotHistoryTable.fetchAll(accountId)).toEqual([
@@ -354,13 +356,17 @@ describe('financial history spec boundaries', () => {
 });
 
 function eventRecord(specVersion: number, method: string, values: Readonly<Record<string, unknown>>, index: number) {
+  const event = toHistoricalEvent({
+    section: 'vaults',
+    method,
+    data: createHistoricalEventData(specVersion, 'vaults', method, values),
+  });
+  if (!event) throw new Error(`vaults.${method} is not a historical event`);
+
   return {
-    event: {
-      section: 'vaults',
-      method,
-      data: createHistoricalEventData(specVersion, 'vaults', method, values),
-    },
-    phase: { isApplyExtrinsic: true, asApplyExtrinsic: numberCodec(index) },
+    event,
+    phase: { type: 'ApplyExtrinsic' as const, value: index },
+    topics: [],
   };
 }
 
@@ -433,29 +439,29 @@ function createBondLot(specVersion: number) {
   };
 
   if (specVersion === 151) {
-    return registry.createType('AppBondLotSpec151', value);
+    return registry.createType('Option<AppBondLotSpec151>', value);
   }
   if (specVersion === 155) {
-    return registry.createType('AppBondLotSpec155', {
+    return registry.createType('Option<AppBondLotSpec155>', {
       ...value,
       sharingPercent: 250_000,
       bonusPercent: 100_000,
     });
   }
   if (specVersion === 156) {
-    return registry.createType('AppBondLotSpec156', {
+    return registry.createType('Option<AppBondLotSpec156>', {
       ...value,
       program: { Vault: { vaultId: 4, sharingPercent: 300_000, bonusPercent: 150_000 } },
     });
   }
   if (specVersion === 157) {
-    return registry.createType('AppBondLotSpec157', {
+    return registry.createType('Option<AppBondLotSpec157>', {
       ...value,
       program: { Vault: { vaultId: 4, sharingPercent: 300_000, bonusPercent: 150_000 } },
       isBackfill: true,
     });
   }
-  return registry.createType('PalletTreasuryBondLot', {
+  return registry.createType('Option<PalletTreasuryBondLot>', {
     ...value,
     program: { Vault: { vaultId: 4, sharingPercent: 300_000, bonusPercent: 150_000 } },
   });
@@ -521,7 +527,9 @@ function createBitcoinLockClient({
   });
   return {
     query: {
-      bitcoinLocks: { locksByUtxoId: vi.fn(async () => optionCodec(lock)) },
+      bitcoinLocks: {
+        locksByUtxoId: vi.fn(async () => registry.createType<Codec>(`Option<${lockType}>`, lock)),
+      },
     },
   };
 }

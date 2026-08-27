@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { runOnTeardown, sudo, teardown } from '@argonprotocol/testing';
-import { getClient, mnemonicGenerate } from '@argonprotocol/mainchain';
+import { mnemonicGenerate } from '@argonprotocol/mainchain';
 import { AccountMiners, Accountset, MainchainClients, MiningFrames, NetworkConfig } from '@argonprotocol/apps-core';
 import { BlockSync } from '../src/BlockSync.js';
 import fs from 'node:fs';
@@ -10,6 +10,7 @@ import { DockerStatus } from '../src/DockerStatus.js';
 import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startArgonTestNetwork.js';
 import Path from 'path';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
+import { getTestMainchainClient } from '@argonprotocol/apps-core/__test__/helpers/mainchain.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
@@ -25,7 +26,7 @@ beforeAll(async () => {
 });
 
 it.skipIf(skipE2E)('rebuilds a stale pending block queue after restart', async () => {
-  const client = await getClient(clientAddress);
+  const client = await getTestMainchainClient(clientAddress);
 
   const botDataDir = fs.mkdtempSync(Path.join(os.tmpdir(), 'block-sync-'));
   runOnTeardown(() => fs.promises.rm(botDataDir, { recursive: true, force: true }));
@@ -53,8 +54,8 @@ it.skipIf(skipE2E)('rebuilds a stale pending block queue after restart', async (
 
   const blockNumber = await new Promise<number>(async resolve => {
     const unsub = await client.query.system.number(x => {
-      if (x.toNumber() >= 20) {
-        resolve(x.toNumber());
+      if (x >= 20) {
+        resolve(x);
         unsub();
       }
     });

@@ -236,7 +236,7 @@ export function setupBitcoinPortfolioScenario(
   mocked(getMainchainClient).mockResolvedValue({
     query: {
       bitcoinLocks: {
-        microgonPerBtcHistory: fn(async () => [[0, { toBigInt: () => 6_800_000_000n }]]),
+        microgonPerBtcHistory: fn(async () => [[0n, 6_800_000_000n] as const]),
       },
     },
   } as never);

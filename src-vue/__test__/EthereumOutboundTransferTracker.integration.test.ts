@@ -85,17 +85,14 @@ describe('EthereumOutboundTransferTracker integration', () => {
               crosschainTransfer: {
                 pendingCollateralizationRequestsByChain: vi.fn(async () => [
                   {
-                    transferId: { toHex: () => onChainTransferId },
-                    remainingCollateral: { toBigInt: () => 100n },
+                    transferId: onChainTransferId,
+                    remainingCollateral: 100n,
                   },
                 ]),
                 transferOutById: vi.fn(async () => ({
-                  isNone: false,
-                  unwrap: () => ({
-                    state: { isReady: false },
-                    amount: { toBigInt: () => 100n },
-                    totalAttachedCollateral: { toBigInt: () => 0n },
-                  }),
+                  state: { type: 'Started' },
+                  amount: 100n,
+                  totalAttachedCollateral: 0n,
                 })),
               },
             },
@@ -108,39 +105,30 @@ describe('EthereumOutboundTransferTracker integration', () => {
             crosschainTransfer: {
               pendingCollateralizationRequestsByChain: vi.fn(async () => []),
               transferOutById: vi.fn(async () => ({
-                isNone: false,
-                unwrap: () => ({
-                  state: { isReady: true },
-                  mintingAuthorityCollateralBySigner: new Map([
-                    [
-                      '0xsigner',
-                      {
-                        microgonCollateral: { toBigInt: () => 100n },
-                        micronotCollateral: { toBigInt: () => 0n },
-                        signature: { toHex: () => `0x${'00'.repeat(64)}01` },
-                      },
-                    ],
-                  ]),
-                  asset: { isArgon: true },
-                  argonAccountId: { toHex: () => `0x${'22'.repeat(32)}` },
-                  argonTransferNonce: { toBigInt: () => 1n },
-                  microgonsPerArgonot: { toBigInt: () => 3n },
-                  destinationAccount: { toHex: () => walletKeys.ethereumAddress },
-                  validUntilEthereumBlock: { toBigInt: () => 500n },
-                  amount: { toBigInt: () => 100n },
-                  mintingAuthorityTip: { toBigInt: () => 1n },
-                }),
+                state: { type: 'Ready' },
+                mintingAuthorityCollateralBySigner: {
+                  '0xsigner': {
+                    microgonCollateral: 100n,
+                    micronotCollateral: 0n,
+                    signature: `0x${'00'.repeat(64)}01`,
+                  },
+                },
+                asset: { type: 'Argon' },
+                argonAccountId: `0x${'22'.repeat(32)}`,
+                argonTransferNonce: 1n,
+                microgonsPerArgonot: 3n,
+                destinationAccount: walletKeys.ethereumAddress,
+                validUntilEthereumBlock: 500n,
+                amount: 100n,
+                mintingAuthorityTip: 1n,
               })),
               chainConfigBySourceChain: vi.fn(async () => ({
-                isNone: false,
-                unwrap: () => ({
-                  isEvm: true,
-                  asEvm: {
-                    chainId: { toBigInt: () => 1n },
-                    argonToken: { toHex: () => `0x${'44'.repeat(20)}` },
-                    argonotToken: { toHex: () => `0x${'55'.repeat(20)}` },
-                  },
-                }),
+                type: 'Evm',
+                value: {
+                  chainId: 1n,
+                  argonToken: `0x${'44'.repeat(20)}`,
+                  argonotToken: `0x${'55'.repeat(20)}`,
+                },
               })),
             },
           },
@@ -286,39 +274,30 @@ describe('EthereumOutboundTransferTracker integration', () => {
               query: {
                 crosschainTransfer: {
                   transferOutById: vi.fn(async () => ({
-                    isNone: false,
-                    unwrap: () => ({
-                      state: { isReady: true },
-                      mintingAuthorityCollateralBySigner: new Map([
-                        [
-                          '0xsigner',
-                          {
-                            microgonCollateral: { toBigInt: () => 100n },
-                            micronotCollateral: { toBigInt: () => 0n },
-                            signature: { toHex: () => `0x${'00'.repeat(64)}01` },
-                          },
-                        ],
-                      ]),
-                      asset: { isArgon: true },
-                      argonAccountId: { toHex: () => `0x${'22'.repeat(32)}` },
-                      argonTransferNonce: { toBigInt: () => 1n },
-                      microgonsPerArgonot: { toBigInt: () => 3n },
-                      destinationAccount: { toHex: () => walletKeys.ethereumAddress },
-                      validUntilEthereumBlock: { toBigInt: () => 500n },
-                      amount: { toBigInt: () => 100n },
-                      mintingAuthorityTip: { toBigInt: () => 1n },
-                    }),
+                    state: { type: 'Ready' },
+                    mintingAuthorityCollateralBySigner: {
+                      '0xsigner': {
+                        microgonCollateral: 100n,
+                        micronotCollateral: 0n,
+                        signature: `0x${'00'.repeat(64)}01`,
+                      },
+                    },
+                    asset: { type: 'Argon' },
+                    argonAccountId: `0x${'22'.repeat(32)}`,
+                    argonTransferNonce: 1n,
+                    microgonsPerArgonot: 3n,
+                    destinationAccount: walletKeys.ethereumAddress,
+                    validUntilEthereumBlock: 500n,
+                    amount: 100n,
+                    mintingAuthorityTip: 1n,
                   })),
                   chainConfigBySourceChain: vi.fn(async () => ({
-                    isNone: false,
-                    unwrap: () => ({
-                      isEvm: true,
-                      asEvm: {
-                        chainId: { toBigInt: () => 1n },
-                        argonToken: { toHex: () => `0x${'44'.repeat(20)}` },
-                        argonotToken: { toHex: () => `0x${'55'.repeat(20)}` },
-                      },
-                    }),
+                    type: 'Evm',
+                    value: {
+                      chainId: 1n,
+                      argonToken: `0x${'44'.repeat(20)}`,
+                      argonotToken: `0x${'55'.repeat(20)}`,
+                    },
                   })),
                 },
               },
@@ -414,28 +393,22 @@ describe('EthereumOutboundTransferTracker integration', () => {
     const finalizedTxHash = `0x${'7b'.repeat(32)}` as const;
     const firstTransferRead = createDeferredPromise<unknown>();
     const readyTransferOption = {
-      isNone: false,
-      unwrap: () => ({
-        state: { isReady: true },
-        mintingAuthorityCollateralBySigner: new Map([
-          [
-            '0xsigner',
-            {
-              microgonCollateral: { toBigInt: () => 100n },
-              micronotCollateral: { toBigInt: () => 0n },
-              signature: { toHex: () => `0x${'00'.repeat(64)}01` },
-            },
-          ],
-        ]),
-        asset: { isArgon: true },
-        argonAccountId: { toHex: () => `0x${'22'.repeat(32)}` },
-        argonTransferNonce: { toBigInt: () => 1n },
-        microgonsPerArgonot: { toBigInt: () => 3n },
-        destinationAccount: { toHex: () => walletKeys.ethereumAddress },
-        validUntilEthereumBlock: { toBigInt: () => 500n },
-        amount: { toBigInt: () => 100n },
-        mintingAuthorityTip: { toBigInt: () => 1n },
-      }),
+      state: { type: 'Ready' },
+      mintingAuthorityCollateralBySigner: {
+        '0xsigner': {
+          microgonCollateral: 100n,
+          micronotCollateral: 0n,
+          signature: `0x${'00'.repeat(64)}01`,
+        },
+      },
+      asset: { type: 'Argon' },
+      argonAccountId: `0x${'22'.repeat(32)}`,
+      argonTransferNonce: 1n,
+      microgonsPerArgonot: 3n,
+      destinationAccount: walletKeys.ethereumAddress,
+      validUntilEthereumBlock: 500n,
+      amount: 100n,
+      mintingAuthorityTip: 1n,
     };
     const finalizedProgress = {
       blockNumber: 42,
@@ -467,15 +440,12 @@ describe('EthereumOutboundTransferTracker integration', () => {
               return readyTransferOption;
             }),
             chainConfigBySourceChain: vi.fn(async () => ({
-              isNone: false,
-              unwrap: () => ({
-                isEvm: true,
-                asEvm: {
-                  chainId: { toBigInt: () => 1n },
-                  argonToken: { toHex: () => `0x${'44'.repeat(20)}` },
-                  argonotToken: { toHex: () => `0x${'55'.repeat(20)}` },
-                },
-              }),
+              type: 'Evm',
+              value: {
+                chainId: 1n,
+                argonToken: `0x${'44'.repeat(20)}`,
+                argonotToken: `0x${'55'.repeat(20)}`,
+              },
             })),
           },
         },
@@ -569,12 +539,9 @@ describe('EthereumOutboundTransferTracker integration', () => {
               query: {
                 crosschainTransfer: {
                   transferOutById: vi.fn(async () => ({
-                    isNone: false,
-                    unwrap: () => ({
-                      state: { isReady: false },
-                      amount: { toBigInt: () => 100n },
-                      totalAttachedCollateral: { toBigInt: () => 40n },
-                    }),
+                    state: { type: 'Started' },
+                    amount: 100n,
+                    totalAttachedCollateral: 40n,
                   })),
                 },
               },
@@ -584,40 +551,31 @@ describe('EthereumOutboundTransferTracker integration', () => {
               query: {
                 crosschainTransfer: {
                   transferOutById: vi.fn(async () => ({
-                    isNone: false,
-                    unwrap: () => ({
-                      state: { isReady: true },
-                      totalAttachedCollateral: { toBigInt: () => 100n },
-                      mintingAuthorityCollateralBySigner: new Map([
-                        [
-                          '0xsigner',
-                          {
-                            microgonCollateral: { toBigInt: () => 100n },
-                            micronotCollateral: { toBigInt: () => 0n },
-                            signature: { toHex: () => `0x${'00'.repeat(64)}01` },
-                          },
-                        ],
-                      ]),
-                      asset: { isArgon: true },
-                      argonAccountId: { toHex: () => `0x${'22'.repeat(32)}` },
-                      argonTransferNonce: { toBigInt: () => 1n },
-                      microgonsPerArgonot: { toBigInt: () => 3n },
-                      destinationAccount: { toHex: () => walletKeys.ethereumAddress },
-                      validUntilEthereumBlock: { toBigInt: () => 500n },
-                      amount: { toBigInt: () => 100n },
-                      mintingAuthorityTip: { toBigInt: () => 1n },
-                    }),
+                    state: { type: 'Ready' },
+                    totalAttachedCollateral: 100n,
+                    mintingAuthorityCollateralBySigner: {
+                      '0xsigner': {
+                        microgonCollateral: 100n,
+                        micronotCollateral: 0n,
+                        signature: `0x${'00'.repeat(64)}01`,
+                      },
+                    },
+                    asset: { type: 'Argon' },
+                    argonAccountId: `0x${'22'.repeat(32)}`,
+                    argonTransferNonce: 1n,
+                    microgonsPerArgonot: 3n,
+                    destinationAccount: walletKeys.ethereumAddress,
+                    validUntilEthereumBlock: 500n,
+                    amount: 100n,
+                    mintingAuthorityTip: 1n,
                   })),
                   chainConfigBySourceChain: vi.fn(async () => ({
-                    isNone: false,
-                    unwrap: () => ({
-                      isEvm: true,
-                      asEvm: {
-                        chainId: { toBigInt: () => 1n },
-                        argonToken: { toHex: () => `0x${'44'.repeat(20)}` },
-                        argonotToken: { toHex: () => `0x${'55'.repeat(20)}` },
-                      },
-                    }),
+                    type: 'Evm',
+                    value: {
+                      chainId: 1n,
+                      argonToken: `0x${'44'.repeat(20)}`,
+                      argonotToken: `0x${'55'.repeat(20)}`,
+                    },
                   })),
                 },
               },
@@ -737,12 +695,9 @@ describe('EthereumOutboundTransferTracker integration', () => {
           crosschainTransfer: {
             pendingCollateralizationRequestsByChain: vi.fn(async () => []),
             transferOutById: vi.fn(async () => ({
-              isNone: false,
-              unwrap: () => ({
-                state: { isReady: false },
-                amount: { toBigInt: () => 100n },
-                totalAttachedCollateral: { toBigInt: () => 0n },
-              }),
+              state: { type: 'Started' },
+              amount: 100n,
+              totalAttachedCollateral: 0n,
             })),
           },
         },
@@ -839,17 +794,14 @@ describe('EthereumOutboundTransferTracker integration', () => {
           crosschainTransfer: {
             pendingCollateralizationRequestsByChain: vi.fn(async () => [
               {
-                transferId: { toHex: () => onChainTransferId },
-                remainingCollateral: { toBigInt: () => 100n },
+                transferId: onChainTransferId,
+                remainingCollateral: 100n,
               },
             ]),
             transferOutById: vi.fn(async () => ({
-              isNone: false,
-              unwrap: () => ({
-                state: { isReady: false },
-                amount: { toBigInt: () => 100n },
-                totalAttachedCollateral: { toBigInt: () => 0n },
-              }),
+              state: { type: 'Started' },
+              amount: 100n,
+              totalAttachedCollateral: 0n,
             })),
           },
         },
@@ -996,12 +948,9 @@ describe('EthereumOutboundTransferTracker integration', () => {
         query: {
           crosschainTransfer: {
             transferOutById: vi.fn(async () => ({
-              isNone: false,
-              unwrap: () => ({
-                state: { isReady: false },
-                amount: { toBigInt: () => 100n },
-                totalAttachedCollateral: { toBigInt: () => 0n },
-              }),
+              state: { type: 'Started' },
+              amount: 100n,
+              totalAttachedCollateral: 0n,
             })),
           },
         },
@@ -1152,17 +1101,14 @@ describe('EthereumOutboundTransferTracker integration', () => {
           crosschainTransfer: {
             pendingCollateralizationRequestsByChain: vi.fn(async () => [
               {
-                transferId: { toHex: () => onChainTransferId },
-                remainingCollateral: { toBigInt: () => 100n },
+                transferId: onChainTransferId,
+                remainingCollateral: 100n,
               },
             ]),
             transferOutById: vi.fn(async () => ({
-              isNone: false,
-              unwrap: () => ({
-                state: { isReady: false },
-                amount: { toBigInt: () => 100n },
-                totalAttachedCollateral: { toBigInt: () => 0n },
-              }),
+              state: { type: 'Started' },
+              amount: 100n,
+              totalAttachedCollateral: 0n,
             })),
           },
         },
@@ -1295,17 +1241,14 @@ describe('EthereumOutboundTransferTracker integration', () => {
           crosschainTransfer: {
             pendingCollateralizationRequestsByChain: vi.fn(async () => [
               {
-                transferId: { toHex: () => onChainTransferId },
-                remainingCollateral: { toBigInt: () => 50n },
+                transferId: onChainTransferId,
+                remainingCollateral: 50n,
               },
             ]),
             transferOutById: vi.fn(async () => ({
-              isNone: false,
-              unwrap: () => ({
-                state: { isReady: false },
-                amount: { toBigInt: () => 100n },
-                totalAttachedCollateral: { toBigInt: () => 50n },
-              }),
+              state: { type: 'Started' },
+              amount: 100n,
+              totalAttachedCollateral: 50n,
             })),
           },
         },
@@ -1457,39 +1400,30 @@ describe('EthereumOutboundTransferTracker integration', () => {
           crosschainTransfer: {
             pendingCollateralizationRequestsByChain: vi.fn(async () => []),
             transferOutById: vi.fn(async () => ({
-              isNone: false,
-              unwrap: () => ({
-                state: { isReady: true },
-                mintingAuthorityCollateralBySigner: new Map([
-                  [
-                    '0xsigner',
-                    {
-                      microgonCollateral: { toBigInt: () => 100n },
-                      micronotCollateral: { toBigInt: () => 0n },
-                      signature: { toHex: () => `0x${'00'.repeat(64)}01` },
-                    },
-                  ],
-                ]),
-                asset: { isArgon: true },
-                argonAccountId: { toHex: () => `0x${'22'.repeat(32)}` },
-                argonTransferNonce: { toBigInt: () => 1n },
-                microgonsPerArgonot: { toBigInt: () => 3n },
-                destinationAccount: { toHex: () => walletKeys.ethereumAddress },
-                validUntilEthereumBlock: { toBigInt: () => 500n },
-                amount: { toBigInt: () => 100n },
-                mintingAuthorityTip: { toBigInt: () => 1n },
-              }),
+              state: { type: 'Ready' },
+              mintingAuthorityCollateralBySigner: {
+                '0xsigner': {
+                  microgonCollateral: 100n,
+                  micronotCollateral: 0n,
+                  signature: `0x${'00'.repeat(64)}01`,
+                },
+              },
+              asset: { type: 'Argon' },
+              argonAccountId: `0x${'22'.repeat(32)}`,
+              argonTransferNonce: 1n,
+              microgonsPerArgonot: 3n,
+              destinationAccount: walletKeys.ethereumAddress,
+              validUntilEthereumBlock: 500n,
+              amount: 100n,
+              mintingAuthorityTip: 1n,
             })),
             chainConfigBySourceChain: vi.fn(async () => ({
-              isNone: false,
-              unwrap: () => ({
-                isEvm: true,
-                asEvm: {
-                  chainId: { toBigInt: () => 1n },
-                  argonToken: { toHex: () => `0x${'44'.repeat(20)}` },
-                  argonotToken: { toHex: () => `0x${'55'.repeat(20)}` },
-                },
-              }),
+              type: 'Evm',
+              value: {
+                chainId: 1n,
+                argonToken: `0x${'44'.repeat(20)}`,
+                argonotToken: `0x${'55'.repeat(20)}`,
+              },
             })),
           },
         },
@@ -2050,16 +1984,8 @@ function createMainchainClient() {
     },
     query: {
       ethereumVerifier: {
-        latestExecutionHeaderAnchorBlockHash: vi.fn(async () => ({
-          isNone: false,
-          unwrap: () => ({ toHex: () => `0x${'aa'.repeat(32)}` }),
-        })),
-        executionHeaderAnchors: vi.fn(async () => ({
-          isNone: false,
-          unwrap: () => ({
-            timestampMillis: { toBigInt: () => now },
-          }),
-        })),
+        latestExecutionHeaderAnchorBlockHash: vi.fn(async () => `0x${'aa'.repeat(32)}`),
+        executionHeaderAnchors: vi.fn(async () => ({ timestampMillis: now })),
       },
     },
     consts: {
@@ -2131,7 +2057,7 @@ function createTransferOutTxInfo(args: {
           section: 'crosschainTransfer',
           method: 'TransferOutStarted',
           data: {
-            transferId: { toHex: () => args.transferId },
+            transferId: args.transferId,
           },
         },
       ],

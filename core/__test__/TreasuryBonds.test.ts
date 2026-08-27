@@ -10,10 +10,10 @@ import {
   toFixedNumber,
 } from '@argonprotocol/mainchain';
 import { encodeAddress } from '@polkadot/util-crypto';
+import { toPlain } from '@argonprotocol/runtime-client';
 
 import { MICRONOTS_PER_ARGONOT } from '../src/Currency.ts';
 import { TreasuryBonds } from '../src/TreasuryBonds.ts';
-import { numberCodec, optionCodec } from './helpers/codecs.ts';
 
 const registry = getOfflineRegistry();
 registry.register({
@@ -302,12 +302,12 @@ function createVaultBondClient(vaultState: Codec, lotsById: Map<number, Codec>, 
   return {
     query: {
       treasury: {
-        bondLotsByVault: vi.fn(async () => vaultState),
+        bondLotsByVault: vi.fn(async () => toPlain(vaultState)),
         bondLotIdsByAccount: {
-          keys: vi.fn(async () => ownerLotIds.map(id => ({ args: [undefined, numberCodec(id)] }))),
+          keys: vi.fn(async () => ownerLotIds.map(id => ({ args: [undefined, id] }))),
         },
         bondLotById: {
-          multi: vi.fn(async (ids: number[]) => ids.map(id => optionCodec(lotsById.get(id)))),
+          multi: vi.fn(async (ids: number[]) => ids.map(id => toPlain(lotsById.get(id)) ?? null)),
         },
       },
     },
@@ -318,9 +318,9 @@ function createFrameBondClient(frameCapital: Codec, lotsById: Map<number, Codec>
   return {
     query: {
       treasury: {
-        currentFrameVaultCapital: vi.fn(async () => optionCodec(frameCapital)),
+        currentFrameVaultCapital: vi.fn(async () => toPlain(frameCapital)),
         bondLotById: {
-          multi: vi.fn(async (ids: number[]) => ids.map(id => optionCodec(lotsById.get(id)))),
+          multi: vi.fn(async (ids: number[]) => ids.map(id => toPlain(lotsById.get(id)) ?? null)),
         },
       },
     },

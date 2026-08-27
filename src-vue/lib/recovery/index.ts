@@ -620,8 +620,8 @@ async function restoreFinancialHistoryDomain(args: {
     if (domain === 'vaulting') {
       const finalizedApi = await blockWatch.getFinalizedApi();
       const vaultId = await finalizedApi.query.vaults.vaultIdByOperator(accountId);
-      if (vaultId.isSome) {
-        const capitalHistory = await db.vaultCapitalHistoryTable.fetchAll(accountId, vaultId.unwrap().toNumber());
+      if (vaultId !== null) {
+        const capitalHistory = await db.vaultCapitalHistoryTable.fetchAll(accountId, vaultId);
         if (capitalHistory[0]?.eventType !== 'created') {
           throw new Error('The indexer has not restored the vault creation event yet');
         }

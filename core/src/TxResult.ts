@@ -1,16 +1,18 @@
 // Source: @argonprotocol/mainchain 1.4.12, the last release that exported this model.
 import {
-  type ArgonClient,
-  dispatchErrorToExtrinsicError,
   type ExtrinsicError,
   type GenericEvent,
-  type SpRuntimeDispatchError,
   TxSubmissionError,
   TxSubmissionErrorCode,
   u8aEq,
 } from '@argonprotocol/mainchain';
+import { toRuntimeEvent, type HistoricalEvent } from '@argonprotocol/runtime-client';
 import type { ISubmittableResult } from '@polkadot/types/types/extrinsic';
-import type { DispatchError } from '@polkadot/types/interfaces';
+import type { ArgonClient } from './MainchainClients.js';
+import { runtimeDispatchErrorToExtrinsicError, type RuntimeDispatchError } from './RuntimeDispatchError.js';
+
+type RuntimeEventInput = GenericEvent | HistoricalEvent;
+export type RuntimeEvent = HistoricalEvent;
 
 export type ITxProgressCallback = (progressToInBlock: number, result?: TxResult) => void;
 
@@ -18,7 +20,7 @@ type IBlockInclusion = {
   blockHash: Uint8Array;
   blockNumber?: number;
   extrinsicIndex: number;
-  events: GenericEvent[];
+  events: RuntimeEventInput[];
 };
 
 type IPendingInBlock = Omit<IBlockInclusion, 'blockNumber'>;
@@ -52,7 +54,7 @@ export class TxResult {
 
   public waitForFinalizedBlock: Promise<Uint8Array>;
   public waitForInFirstBlock: Promise<Uint8Array>;
-  public events: GenericEvent[] = [];
+  public events: RuntimeEvent[] = [];
 
   public extrinsicError: ExtrinsicError | Error | undefined;
   public extrinsicIndex: number | undefined;
@@ -291,42 +293,38 @@ export class TxResult {
     this.txProgressCallback?.(this.txProgress);
   }
 
-  private parseEvents(events: GenericEvent[]) {
-    let encounteredError: SpRuntimeDispatchError | undefined;
-    for (const event of events) {
-      if (this.client.events.system.ExtrinsicFailed.is(event)) {
-        const { dispatchError } = event.data;
-        encounteredError ??= dispatchError;
-      }
-      if (this.client.events.utility.BatchInterrupted.is(event)) {
-        const { index, error } = event.data;
-        this.batchInterruptedIndex = index.toNumber();
-        encounteredError = error;
-      }
-      if (this.client.events.transactionPayment.TransactionFeePaid.is(event)) {
-        const { actualFee, tip } = event.data;
-        this.finalFee = actualFee.toBigInt();
-        this.finalFeeTip = tip.toBigInt();
+  private parseEvents(events: RuntimeEventInput[]) {
+    const runtimeEvents = events.flatMap(event => toRuntimeEvent(event) ?? []);
+    let encounteredError: RuntimeDispatchError | undefined;
+    for (const event of runtimeEvents) {
+      if (event.section === 'system' && event.method === 'ExtrinsicFailed') {
+        encounteredError ??= event.data.dispatchError;
+      } else if (event.section === 'utility' && event.method === 'BatchInterrupted') {
+        this.batchInterruptedIndex = event.data.index;
+        encounteredError = event.data.error;
+      } else if (event.section === 'transactionPayment' && event.method === 'TransactionFeePaid') {
+        this.finalFee = event.data.actualFee;
+        this.finalFeeTip = event.data.tip;
       }
     }
     if (encounteredError) {
-      this.extrinsicError = dispatchErrorToExtrinsicError(
+      this.extrinsicError = runtimeDispatchErrorToExtrinsicError(
         this.client,
-        encounteredError as unknown as DispatchError,
+        encounteredError,
         this.batchInterruptedIndex,
         this.finalFee,
       );
     } else {
       this.extrinsicError = undefined;
     }
-    this.events = events;
+    this.events = runtimeEvents;
   }
 }
 
 function createPendingInBlock(
   blockHash: Uint8Array,
   extrinsicIndex: number | undefined,
-  events: GenericEvent[],
+  events: RuntimeEventInput[],
 ): IPendingInBlock {
   if (extrinsicIndex === undefined) {
     throw new Error('Cannot publish transaction block state before extrinsic index is known');

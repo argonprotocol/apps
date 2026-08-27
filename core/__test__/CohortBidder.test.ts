@@ -7,11 +7,12 @@ import {
   type IBlockHeaderInfo,
   type MiningFrames,
   TransactionEvents,
+  type ArgonClient,
+  TxResult,
 } from '../src/index.ts';
 import { sudo } from '@argonprotocol/testing';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { TxResult } from '@argonprotocol/apps-core';
-import { type ArgonClient, mnemonicGenerate } from '@argonprotocol/mainchain';
+import { mnemonicGenerate } from '@argonprotocol/mainchain';
 import { createTypedEventEmitter } from '../src/utils.ts';
 
 afterEach(() => {
@@ -459,7 +460,7 @@ describe('CohortBidder unit tests', () => {
       at: vi.fn(),
       query: {
         ticks: {
-          currentTick: vi.fn().mockResolvedValue({ toNumber: () => currentTick }),
+          currentTick: vi.fn().mockResolvedValue(currentTick),
         },
       },
     };
@@ -520,7 +521,7 @@ describe('CohortBidder unit tests', () => {
       at: vi.fn(),
       query: {
         ticks: {
-          currentTick: vi.fn().mockResolvedValue({ toNumber: () => currentTick }),
+          currentTick: vi.fn().mockResolvedValue(currentTick),
         },
       },
     };
@@ -665,7 +666,7 @@ describe('CohortBidder unit tests', () => {
         {
           event: {
             section: options.eventSection,
-            data: [{ toString: () => accountset.fundingAccountId }],
+            data: { who: accountset.fundingAccountId },
           },
         },
       ]),
@@ -793,7 +794,7 @@ describe('CohortBidder unit tests', () => {
         },
         query: {
           ticks: {
-            currentTick: vi.fn().mockResolvedValue({ toNumber: () => currentTick }),
+            currentTick: vi.fn().mockResolvedValue(currentTick),
           },
         },
       };
@@ -1020,8 +1021,8 @@ describe('CohortBidder unit tests', () => {
     const stopApi = {
       query: {
         miningSlot: { minersByCohort: vi.fn().mockResolvedValue([]) },
-        system: { number: vi.fn().mockResolvedValue({ toNumber: () => finalizedHeader.blockNumber }) },
-        ticks: { currentTick: vi.fn().mockResolvedValue({ toNumber: () => finalizedHeader.tick }) },
+        system: { number: vi.fn().mockResolvedValue(finalizedHeader.blockNumber) },
+        ticks: { currentTick: vi.fn().mockResolvedValue(finalizedHeader.tick) },
       },
     };
     const mortalEra = { asMortalEra: { death: () => 108 } };

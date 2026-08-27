@@ -35,12 +35,11 @@ export class BitcoinLockFeeCouponService {
     }
 
     const client = await this.clients.get(false);
-    const vaultIdOption = await client.query.vaults.vaultIdByOperator(this.vaultOperatorAddress);
-    if (!vaultIdOption.isSome) {
+    const vaultId = await client.query.vaults.vaultIdByOperator(this.vaultOperatorAddress);
+    if (vaultId === null) {
       throw new HttpError(`No vault was found for operator ${this.vaultOperatorAddress}.`, 404);
     }
 
-    const vaultId = vaultIdOption.unwrap().toNumber();
     const vault = await Vault.get(client, vaultId, NetworkConfig.tickMillis);
     if (!vault || vaultId !== request.vaultId) {
       throw new HttpError('This Bitcoin fee coupon does not match the configured vault.', 400);
@@ -54,8 +53,8 @@ export class BitcoinLockFeeCouponService {
       client.query.miningSlot.nextFrameId(),
       client.query.bitcoinLocks.lastFeeCouponNonceByVaultAndAccount(vaultId, beneficiary),
     ]);
-    const currentFrame = nextFrameId.toBigInt() - 1n;
-    const nextNonce = previousNonce.isSome ? previousNonce.unwrap().toBigInt() + 1n : 1n;
+    const currentFrame = BigInt(nextFrameId - 1);
+    const nextNonce = (previousNonce ?? 0n) + 1n;
     if (request.feeCouponNonce != null && request.feeCouponNonce !== nextNonce) {
       throw new HttpError('This Bitcoin fee coupon nonce is no longer available.', 409);
     }

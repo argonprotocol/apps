@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BitcoinLock } from '@argonprotocol/apps-core';
-import { type ArgonClient } from '@argonprotocol/mainchain';
-import type { BlockWatch, Currency as CurrencyBase } from '@argonprotocol/apps-core';
+import { type ArgonClient, BlockWatch, Currency as CurrencyBase } from '@argonprotocol/apps-core';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import type { Db } from '../lib/Db.ts';
 import type { TransactionTracker } from '../lib/TransactionTracker.ts';
@@ -239,7 +238,7 @@ describe('BitcoinLocks Argon cosign gating', () => {
     const secondLock = createLock({ uuid: 'lock-2', utxoId: 12, vaultId: 2 });
     const sameVaultLock = createLock({ uuid: 'lock-3', utxoId: 13, vaultId: 1 });
     const subscribe = vi.fn(async (_vaultId: number, _owner: string, callback: (count: unknown) => void) => {
-      callback({ toNumber: () => 1 });
+      callback(1);
       return vi.fn();
     });
     const client = {
@@ -269,14 +268,12 @@ describe('BitcoinLocks Argon cosign gating', () => {
   it('reads orphan cosign events only after an owner vault counter decreases', async () => {
     const lock = createLock({ status: BitcoinLockStatus.Released });
     const orphanRecord = createFundingRecord();
-    const counterCallbacks: Array<(count: { toNumber: () => number }) => void> = [];
-    const subscribe = vi.fn(
-      async (_vaultId: number, _owner: string, callback: (count: { toNumber: () => number }) => void) => {
-        counterCallbacks.push(callback);
-        callback({ toNumber: () => 1 });
-        return vi.fn();
-      },
-    );
+    const counterCallbacks: Array<(count: number) => void> = [];
+    const subscribe = vi.fn(async (_vaultId: number, _owner: string, callback: (count: number) => void) => {
+      counterCallbacks.push(callback);
+      callback(1);
+      return vi.fn();
+    });
     const subscriptionClient = {
       query: { vaults: { orphanedUtxoAccountsByVaultId: subscribe } },
     } as unknown as ArgonClient;
@@ -288,7 +285,7 @@ describe('BitcoinLocks Argon cosign gating', () => {
       event: {
         section: 'bitcoinLocks',
         method: 'OrphanedUtxoCosigned',
-        data: Object.assign([], { names: [] }),
+        data: {},
       },
     };
     const getEvents = vi.fn(async (block: { blockNumber: number }) => {
@@ -297,7 +294,7 @@ describe('BitcoinLocks Argon cosign gating', () => {
     const blockApi = {
       query: {
         bitcoinUtxos: {
-          confirmedBitcoinBlockTip: vi.fn().mockResolvedValue({ isSome: false }),
+          confirmedBitcoinBlockTip: vi.fn().mockResolvedValue(null),
         },
       },
     };
@@ -332,7 +329,7 @@ describe('BitcoinLocks Argon cosign gating', () => {
     await testStore.checkIncomingArgonBlock({ blockNumber: 102, blockHash: '0x102' });
     expect(recoverBlock).not.toHaveBeenCalled();
 
-    counterCallbacks[0]({ toNumber: () => 0 });
+    counterCallbacks[0](0);
     blockWatchStub.bestBlockHeader = { blockNumber: 102, blockHash: '0x102' };
     await testStore.checkIncomingArgonBlock({ blockNumber: 103, blockHash: '0x103' });
 
