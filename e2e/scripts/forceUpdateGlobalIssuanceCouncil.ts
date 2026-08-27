@@ -4,14 +4,8 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { NetworkConfigSettings, TxSubmitter } from '@argonprotocol/apps-core';
-import {
-  dispatchErrorToString,
-  EvmContracts,
-  getClient,
-  type IArgonQueryable,
-  Keyring,
-} from '@argonprotocol/mainchain';
+import { type ArgonApi, createArgonClient, NetworkConfigSettings, TxSubmitter } from '@argonprotocol/apps-core';
+import { EvmContracts, getClient, Keyring } from '@argonprotocol/mainchain';
 import { createPublicClient, encodeFunctionData, getAddress, http } from 'viem';
 import { resolveDevEthereumRpcUrl, sendDevEthereumAdminTransaction } from '../devEthereum.ts';
 import { syncEthereumGatewayActiveCouncilToArgon } from '../devEthereumRuntimeSetup.ts';
@@ -71,7 +65,7 @@ export async function forceUpdateGlobalIssuanceCouncil(args: ForceUpdateGlobalIs
     rpcUrl: args.executionRpcUrl,
     logPrefix: 'force-update-global-issuance-council',
   });
-  const client = await getClient(archiveUrl);
+  const client = createArgonClient(await getClient(archiveUrl));
 
   try {
     const finalizedClient = await client.at(await client.rpc.chain.getFinalizedHead());
@@ -84,14 +78,13 @@ export async function forceUpdateGlobalIssuanceCouncil(args: ForceUpdateGlobalIs
       );
     }
 
-    const chainConfigOption = await finalizedClient.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
-    if (chainConfigOption.isNone || !chainConfigOption.unwrap().isEvm) {
+    const chainConfig = await finalizedClient.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
+    if (chainConfig?.type !== 'Evm') {
       throw new Error('Ethereum transfer gateway is not configured on this network.');
     }
 
-    const afterNonce = await finalizedClient.query.crosschainTransfer
-      .gatewayStateBySourceChain('Ethereum')
-      .then(x => (x.isSome ? x.unwrap().argonApprovalsNonce.toBigInt() : 0n));
+    const gatewayState = await finalizedClient.query.crosschainTransfer.gatewayStateBySourceChain('Ethereum');
+    const afterNonce = gatewayState?.argonApprovalsNonce ?? 0n;
     const sudoKeypair = new Keyring({ type: 'sr25519' }).createFromUri('//Alice');
     const txResult = await new TxSubmitter(
       client,
@@ -104,21 +97,19 @@ export async function forceUpdateGlobalIssuanceCouncil(args: ForceUpdateGlobalIs
     });
     await txResult.waitForInFirstBlock;
 
-    const sudoResultEvent = txResult.events.find(event => client.events.sudo.Sudid.is(event));
-    if (!sudoResultEvent || !client.events.sudo.Sudid.is(sudoResultEvent)) {
+    const sudoResultEvent = txResult.events.find(event => event.section === 'sudo' && event.method === 'Sudid');
+    if (!sudoResultEvent || sudoResultEvent.section !== 'sudo' || sudoResultEvent.method !== 'Sudid') {
       throw new Error('Force-set Ethereum council transaction did not emit sudo.Sudid.');
     }
-    if (sudoResultEvent.data.sudoResult.isErr) {
-      throw new Error(
-        `Force-set Ethereum council failed: ${dispatchErrorToString(client, sudoResultEvent.data.sudoResult.asErr as any)}`,
-      );
+    if (sudoResultEvent.data.sudoResult.type === 'Err') {
+      throw new Error(`Force-set Ethereum council failed: ${JSON.stringify(sudoResultEvent.data.sudoResult.value)}`);
     }
 
     await txResult.waitForFinalizedBlock;
     const publicClient = createPublicClient({
       transport: http(executionRpcUrl, { retryCount: 1, timeout: 15_000 }),
     });
-    const gatewayAddress = getAddress(chainConfigOption.unwrap().asEvm.gateway.toHex());
+    const gatewayAddress = getAddress(chainConfig.value.gateway);
     const syncResult = await syncEthereumGatewayActiveCouncilToArgon({
       finalizedClient: await client.at(await client.rpc.chain.getFinalizedHead()),
       gatewayAddress,
@@ -211,24 +202,25 @@ Notes:
 `);
 }
 
-export async function collectVaultOperatorsByEffectiveCouncilSigner(finalizedClient: IArgonQueryable) {
+export async function collectVaultOperatorsByEffectiveCouncilSigner(finalizedClient: ArgonApi) {
   const activeEntries =
-    await finalizedClient.query.crosschainTransfer.councilSignerByDestinationChainAndAccountId.entries('Ethereum');
+    (await finalizedClient.query.crosschainTransfer.councilSignerByDestinationChainAndAccountId.entries('Ethereum')) ??
+    [];
   const pendingEntries =
-    await finalizedClient.query.crosschainTransfer.pendingCouncilSignerByDestinationChainAndAccountId.entries(
+    (await finalizedClient.query.crosschainTransfer.pendingCouncilSignerByDestinationChainAndAccountId.entries(
       'Ethereum',
-    );
+    )) ?? [];
   const activeByAccountId = new Map<string, string>();
   const pendingByAccountId = new Map<string, string>();
 
   for (const [key, signer] of activeEntries) {
-    if (!signer.isSome) continue;
-    activeByAccountId.set(getStorageEntryAccountId(key), signer.unwrap().toString());
+    if (!signer) continue;
+    activeByAccountId.set(getStorageEntryAccountId(key), signer);
   }
 
   for (const [key, signer] of pendingEntries) {
-    if (!signer.isSome) continue;
-    pendingByAccountId.set(getStorageEntryAccountId(key), signer.unwrap().toString());
+    if (!signer) continue;
+    pendingByAccountId.set(getStorageEntryAccountId(key), signer);
   }
 
   const accountsByEffectiveSigner = new Map<string, { accountId: string; signer: string }>();
@@ -237,7 +229,7 @@ export async function collectVaultOperatorsByEffectiveCouncilSigner(finalizedCli
     if (!effectiveSigner) continue;
 
     const vaultId = await finalizedClient.query.vaults.vaultIdByOperator(accountId);
-    if (vaultId.isNone) continue;
+    if (vaultId === null) continue;
 
     const signer = getAddress(effectiveSigner);
     const signerKey = signer.toLowerCase();
@@ -256,9 +248,9 @@ export async function collectVaultOperatorsByEffectiveCouncilSigner(finalizedCli
   );
 }
 
-function getStorageEntryAccountId(key: { args: Array<{ toString(): string }> }) {
-  const accountId = key.args.at(-1)?.toString();
-  if (!accountId) {
+function getStorageEntryAccountId(key: { readonly args: readonly unknown[] }) {
+  const accountId = key.args.at(-1);
+  if (typeof accountId !== 'string') {
     throw new Error('Unable to read council signer registration account id from storage entry key');
   }
 

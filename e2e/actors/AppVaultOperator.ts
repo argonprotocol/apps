@@ -11,6 +11,8 @@ import {
   TreasuryBonds,
   BitcoinLock,
   TxSubmitter,
+  type ArgonApi,
+  type ArgonClient,
 } from '@argonprotocol/apps-core';
 import {
   createBitcoinAddress,
@@ -19,7 +21,7 @@ import {
 } from '@argonprotocol/apps-core/__test__/helpers/bitcoinCli.ts';
 import { waitFor } from '@argonprotocol/apps-core/__test__/helpers/waitFor.ts';
 import { Keyring, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
-import type { ApiDecoration, ArgonClient, SubmittableExtrinsic } from '@argonprotocol/mainchain';
+import type { SubmittableExtrinsic } from '@argonprotocol/mainchain';
 import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
 import { sudo } from '@argonprotocol/testing';
 import type { IInviteResponse, IListInvitesResponse } from '@argonprotocol/apps-router';
@@ -247,9 +249,7 @@ export class AppVaultOperator {
       this.config.vaultingRules.baseMicrogonCommitment +
       rewardConfig.treasuryMinimumBonds +
       20n * BigInt(MICROGONS_PER_ARGON);
-    const existingTreasuryMicronots = (
-      await client.query.ownership.account(this.walletKeys.treasuryAddress)
-    ).free.toBigInt();
+    const existingTreasuryMicronots = (await client.query.ownership.account(this.walletKeys.treasuryAddress)).free;
 
     await sudoFundWallet({
       client,
@@ -282,7 +282,7 @@ export class AppVaultOperator {
       return;
     }
 
-    if (!existingOperationalAccount.isSome) {
+    if (!existingOperationalAccount) {
       const satoshis = await this.#bitcoinLocks.satoshisForArgonLiquidity(rewardConfig.treasuryMinimumBitcoin);
       const { txInfo } = await this.#bitcoinLocks.initializeLock({
         vault,
@@ -545,9 +545,7 @@ export class AppVaultOperator {
 
     while (Date.now() - startedAt < timeoutMs) {
       const authority = await client.query.crosschainTransfer.mintingAuthoritiesBySigner(signingKey);
-      if (authority.isSome) {
-        return authority.unwrap();
-      }
+      if (authority) return authority;
       await new Promise(resolve => setTimeout(resolve, 1_000));
     }
 
@@ -582,23 +580,22 @@ export class AppVaultOperator {
   }
 
   public async getRequiredMintingAuthorityMicronotCollateral(args: {
-    finalizedClient: ApiDecoration<'promise'>;
+    finalizedClient: ArgonApi;
     microgonCollateral: bigint;
   }): Promise<bigint> {
     const activeCouncilHash =
       await args.finalizedClient.query.crosschainTransfer.activeGlobalIssuanceCouncilByDestinationChain('Ethereum');
-    if (activeCouncilHash.isNone) {
+    if (!activeCouncilHash) {
       throw new Error('No active Ethereum council is available to price the minting authority collateral.');
     }
 
-    const activeCouncil = await args.finalizedClient.query.crosschainTransfer.globalIssuanceCouncilByHash(
-      activeCouncilHash.unwrap().toHex(),
-    );
-    if (activeCouncil.isNone) {
+    const activeCouncil =
+      await args.finalizedClient.query.crosschainTransfer.globalIssuanceCouncilByHash(activeCouncilHash);
+    if (!activeCouncil) {
       throw new Error('The active Ethereum council snapshot could not be loaded for minting authority collateral.');
     }
 
-    const epochMicrogonsPerArgonot = activeCouncil.unwrap().epochMicrogonsPerArgonot.toBigInt();
+    const epochMicrogonsPerArgonot = activeCouncil.epochMicrogonsPerArgonot;
     if (epochMicrogonsPerArgonot <= 0n) {
       throw new Error('The active Ethereum council has an invalid microgonsPerArgonot price floor.');
     }
@@ -625,17 +622,17 @@ export class AppVaultOperator {
         this.globalCouncil.refresh(finalizedClient),
       ]);
 
-    const authority = authorityOption.isSome ? authorityOption.unwrap() : undefined;
+    const authority = authorityOption ?? undefined;
     const gatewayPauseReason = (await getEthereumGatewayPauseReason(finalizedClient)) ?? '';
 
     return {
       ...setup,
-      authorityActive: authority?.state.isActive ?? false,
-      authorityPendingActivation: authority?.state.isPendingActivation ?? false,
+      authorityActive: authority?.state.type === 'Active',
+      authorityPendingActivation: authority?.state.type === 'PendingActivation',
       gatewayPauseReason,
-      hasActivationRepaymentPricing: activationRepaymentPricing.isSome,
-      hasActiveCouncil: activeCouncilHash.isSome,
-      hasEthereumChainConfig: chainConfig.isSome && chainConfig.unwrap().isEvm,
+      hasActivationRepaymentPricing: activationRepaymentPricing !== null,
+      hasActiveCouncil: activeCouncilHash !== null,
+      hasEthereumChainConfig: chainConfig?.type === 'Evm',
       pendingApprovals: pendingApprovals.length,
     };
   }

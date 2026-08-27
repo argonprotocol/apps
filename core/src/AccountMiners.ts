@@ -1,6 +1,6 @@
 import { Accountset, type IMiningIndex, type ISubaccountMiner } from './Accountset.js';
-import { GenericEvent } from '@argonprotocol/mainchain';
 import type { IBlock } from './interfaces/index.ts';
+import type { HistoricalEvent } from '@argonprotocol/runtime-client/events';
 
 interface IMinerStartingFrameInfo {
   [address: string]: number;
@@ -23,7 +23,7 @@ export class AccountMiners {
     }
   }
 
-  public async onBlock(blockInfo: IBlock, events: GenericEvent[]) {
+  public async onBlock(blockInfo: IBlock, events: HistoricalEvent[]) {
     const { author, number: blockNumber } = blockInfo;
     if (blockNumber < this.currentBlockNumber) {
       const previousStartingFrameIds = this.startingFrameIdsByBlock[blockNumber - 1];
@@ -32,7 +32,6 @@ export class AccountMiners {
       }
     }
 
-    const client = this.accountset.client;
     let newMiners: { frameId: number; addresses: string[] } | undefined;
     const dataByCohort: {
       [cohortStartingFrameId: number]: {
@@ -42,13 +41,17 @@ export class AccountMiners {
       };
     } = {};
     for (const event of events) {
-      if (client.events.miningSlot.NewMiners.is(event)) {
+      if (event.section === 'miningSlot' && event.method === 'NewMiners') {
+        let frameId = event.data.frameId ?? event.data.cohortFrameId;
+        if (frameId === undefined && event.data.cohortId !== undefined) frameId = Number(event.data.cohortId);
+        if (frameId === undefined) continue;
+
         newMiners = {
-          frameId: event.data.frameId.toNumber(),
-          addresses: event.data.newMiners.map(x => x.accountId.toHuman()),
+          frameId,
+          addresses: event.data.newMiners.map(x => x.accountId),
         };
       }
-      if (client.events.blockRewards.RewardCreated.is(event)) {
+      if (event.section === 'blockRewards' && event.method === 'RewardCreated') {
         const { rewards } = event.data;
         for (const reward of rewards) {
           const { argons, ownership } = reward;
@@ -60,14 +63,14 @@ export class AccountMiners {
               argonsMined: 0n,
               argonotsMined: 0n,
             };
-            dataByCohort[startingFrameId].argonotsMined += ownership.toBigInt();
-            dataByCohort[startingFrameId].argonsMined += argons.toBigInt();
+            dataByCohort[startingFrameId].argonotsMined += ownership;
+            dataByCohort[startingFrameId].argonsMined += argons;
           }
         }
       }
-      if (client.events.mint.MiningMint.is(event)) {
-        const { perMiner } = event.data;
-        const amountPerMiner = perMiner.toBigInt();
+      if (event.section === 'mint' && event.method === 'MiningMint') {
+        const amountPerMiner = event.data.perMiner;
+        if (amountPerMiner === undefined) continue;
         if (amountPerMiner > 0n) {
           for (const [_address, startingFrameId] of Object.entries(this.startingFrameIdByAddress)) {
             dataByCohort[startingFrameId] ??= {

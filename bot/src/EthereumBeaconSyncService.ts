@@ -1,18 +1,18 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import {
   getEthereumExecutionRpcUrls,
+  getLatestArgonFinalizedExecutionHeader,
   minimumVaultDelegateBalance,
   NetworkConfig,
   raceWithTimeout,
   SingleFileQueue,
+  type ArgonClient,
   type IEthereumSyncStatus,
   TxSubmitter,
 } from '@argonprotocol/apps-core';
 import {
-  type ArgonClient,
   ExtrinsicError,
   getEthereumBeaconSyncState,
-  getLatestArgonFinalizedExecutionHeader,
   getNextEthereumBeaconSyncTxs,
   isOutdatedTransactionError,
   isTxSubmissionError,
@@ -136,16 +136,14 @@ export class EthereumBeaconSyncService {
       delete this.stateData.lastSubmittedTxHash;
     }
 
-    const delegateBalance = await this.client.query.system
-      .account(submitLane.address)
-      .then(x => x.data.free.toBigInt());
+    const delegateBalance = await this.client.query.system.account(submitLane.address).then(x => x.data.free);
     if (delegateBalance < minimumVaultDelegateBalance) {
       this.stateData.mode = 'idle';
       this.stateData.lastError = 'Vault delegate needs more funds before Ethereum beacon sync can run.';
       return;
     }
 
-    const syncState = await getEthereumBeaconSyncState(this.client);
+    const syncState = await getEthereumBeaconSyncState(this.client.raw);
 
     this.stateData.latestSyncCommitteeUpdatePeriod = syncState.latestSyncCommitteeUpdatePeriod;
     delete this.stateData.lastError;
@@ -161,7 +159,7 @@ export class EthereumBeaconSyncService {
 
     let txs;
     try {
-      txs = await getNextEthereumBeaconSyncTxs(this.client, beaconApiUrl);
+      txs = await getNextEthereumBeaconSyncTxs(this.client.raw, beaconApiUrl);
     } catch (error) {
       if (isLightClientFinalityUpdateNotReady(error)) {
         this.stateData.mode = 'idle';
@@ -181,9 +179,7 @@ export class EthereumBeaconSyncService {
 
       try {
         const result = await submitLane.runExclusive(async (client, getNonce) => {
-          const currentDelegateBalance = await client.query.system
-            .account(submitLane.address)
-            .then(x => x.data.free.toBigInt());
+          const currentDelegateBalance = await client.query.system.account(submitLane.address).then(x => x.data.free);
           if (currentDelegateBalance < minimumVaultDelegateBalance) {
             this.stateData.mode = 'idle';
             this.stateData.lastError = 'Vault delegate needs more funds before Ethereum beacon sync can run.';
@@ -239,7 +235,7 @@ export class EthereumBeaconSyncService {
       }
     }
 
-    const refreshedState = await getEthereumBeaconSyncState(this.client);
+    const refreshedState = await getEthereumBeaconSyncState(this.client.raw);
     this.stateData.latestSyncCommitteeUpdatePeriod = refreshedState.latestSyncCommitteeUpdatePeriod;
     this.stateData.latestFinalizedSlot = refreshedState.isBootstrapped ? refreshedState.latestFinalizedSlot : undefined;
     this.stateData.mode = refreshedState.isBootstrapped ? 'idle' : 'needsBootstrap';
@@ -257,7 +253,7 @@ export class EthereumBeaconSyncService {
     }
 
     const chainConfig = await this.client.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
-    this.hasEthereumTransferGatewayConfig = chainConfig.isSome && chainConfig.unwrap().isEvm;
+    this.hasEthereumTransferGatewayConfig = chainConfig?.type === 'Evm';
     return this.hasEthereumTransferGatewayConfig;
   }
 

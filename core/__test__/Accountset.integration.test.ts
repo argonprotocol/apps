@@ -1,9 +1,10 @@
-import { type ArgonClient, createKeyringPair, getClient, mnemonicGenerate } from '@argonprotocol/mainchain';
+import { createKeyringPair, mnemonicGenerate } from '@argonprotocol/mainchain';
 import { sudo, teardown } from '@argonprotocol/testing';
-import { Accountset, getRange, TxSubmitter } from '@argonprotocol/apps-core';
+import { Accountset, type ArgonClient, getRange, TxSubmitter } from '@argonprotocol/apps-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startArgonTestNetwork } from './startArgonTestNetwork.ts';
 import Path from 'path';
+import { getTestMainchainClient } from './helpers/mainchain.ts';
 
 afterAll(teardown);
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
@@ -16,7 +17,7 @@ describe.skipIf(skipE2E)('Accountset tests', {}, () => {
     const network = await startArgonTestNetwork(Path.basename(import.meta.filename), { profiles: ['bob'] });
 
     mainchainUrl = network.archiveUrl;
-    client = await getClient(mainchainUrl);
+    client = await getTestMainchainClient(mainchainUrl);
   });
 
   it('can derive multiple accounts', async () => {

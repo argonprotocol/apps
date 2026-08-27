@@ -1,4 +1,4 @@
-import { ITuple, Option, U8aFixed, u8aToHex } from '@argonprotocol/mainchain';
+import { u8aToHex } from '@argonprotocol/mainchain';
 import { IVaultingRules } from '../../interfaces/IVaultingRules.ts';
 import BigNumber from 'bignumber.js';
 import {
@@ -17,6 +17,7 @@ import { hexToU8a } from '@polkadot/util';
 import { DEFAULT_MASTER_XPUB_PATH } from '../MyVault.ts';
 import { WalletKeys } from '../WalletKeys.ts';
 import { findAddressActivity } from '../IndexerClient.ts';
+import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
 
 export class MyVaultRecovery {
   public static rebuildRules(args: {
@@ -97,8 +98,7 @@ export class MyVaultRecovery {
         accountAddress: vaultingAddress,
         blockHash,
         isMatchingEvent(event) {
-          if (!client.events.vaults.VaultCreated.is(event)) return false;
-          return event.data.vaultId.toNumber() === vaultId;
+          return event.section === 'vaults' && event.method === 'VaultCreated' && event.data.vaultId === vaultId;
         },
       });
     };
@@ -155,15 +155,15 @@ export class MyVaultRecovery {
   private static async recoverXpubPath(param: {
     bitcoinNetwork: BitcoinNetwork;
     vaultId: number;
-    storedXpubMaybe: Option<ITuple<[{ publicKey: U8aFixed }, any]>>;
+    storedXpubMaybe: HistoricalQueryRecord<'vaults', 'vaultXPubById'>;
     walletKeys: WalletKeys;
   }) {
     const { walletKeys, storedXpubMaybe, vaultId } = param;
     const masterXpubPath = DEFAULT_MASTER_XPUB_PATH;
     const vaultXpriv = await walletKeys.getBitcoinChildXpriv(masterXpubPath, param.bitcoinNetwork);
     const masterXpub = vaultXpriv.publicExtendedKey;
-    if (storedXpubMaybe.isNone) throw new Error(`Vault with id ${vaultId} xpub not found`);
-    const storedXpubPubkey = storedXpubMaybe.unwrap()[0].publicKey.toHex().replace('0x', '');
+    if (!storedXpubMaybe) throw new Error(`Vault with id ${vaultId} xpub not found`);
+    const storedXpubPubkey = storedXpubMaybe[0].publicKey.replace('0x', '');
     const expectedXpubHex = u8aToHex(bs58check.decode(masterXpub), undefined, false);
     if (!expectedXpubHex.includes(storedXpubPubkey)) {
       throw new Error(

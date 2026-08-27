@@ -52,14 +52,18 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
       if (!args.account) throw new Error('Vault operator account is missing from the Argon wallet snapshot');
 
       securitization = args.account.microgonHolds
-        .filter(hold => hold.id.isVaults && hold.id.asVaults.isEnterVault)
-        .reduce((sum, hold) => sum + hold.amount.toBigInt(), 0n);
+        .filter(hold => hold.id.type === 'Vaults' && hold.id.value.type === 'EnterVault')
+        .reduce((sum, hold) => sum + hold.amount, 0n);
       uncollectedRevenue = args.account.microgonHolds
-        .filter(hold => hold.id.isVaults && hold.id.asVaults.isPendingCollect)
-        .reduce((sum, hold) => sum + hold.amount.toBigInt(), 0n);
+        .filter(hold => hold.id.type === 'Vaults' && hold.id.value.type === 'PendingCollect')
+        .reduce((sum, hold) => sum + hold.amount, 0n);
       committedMicronots = args.account.micronotHolds
-        .filter(hold => hold.id.isVaults && (hold.id.asVaults.isEnterVault || hold.id.asVaults.isPendingCollect))
-        .reduce((sum, hold) => sum + hold.amount.toBigInt(), 0n);
+        .filter(
+          hold =>
+            hold.id.type === 'Vaults' &&
+            (hold.id.value.type === 'EnterVault' || hold.id.value.type === 'PendingCollect'),
+        )
+        .reduce((sum, hold) => sum + hold.amount, 0n);
     }
 
     const capitalHistory = args.capitalHistory ?? [];

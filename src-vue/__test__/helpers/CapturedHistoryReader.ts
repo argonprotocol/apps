@@ -2,10 +2,12 @@ import { DatabaseSync } from 'node:sqlite';
 import type { ArgonClient, Codec, FrameSystemEventRecord } from '@argonprotocol/mainchain';
 import {
   AccountActivityKind,
+  type ArgonApi,
   BlockWatch,
   type IAccountActivityQuery,
   type IBlockHeaderInfo,
   type IIndexerSpec,
+  type RuntimeSystemEventRecord,
 } from '@argonprotocol/apps-core';
 import { TypeRegistry } from '@polkadot/types/create';
 import type { QueryableModuleStorage, QueryableStorageEntry } from '@polkadot/api-base/types/storage';
@@ -16,6 +18,8 @@ import { unwrapStorageSi } from '@polkadot/types/util';
 import type { StorageEntry } from '@polkadot/types/primitive/types';
 import type { Vec } from '@polkadot/types-codec';
 import { compactStripLength, hexToU8a, u8aToHex } from '@polkadot/util';
+import { runtimeClient, toPlain, type RuntimeQueries } from '@argonprotocol/runtime-client';
+import { toHistoricalEvent } from '@argonprotocol/runtime-client/events';
 
 type IIndexedActivityBlock = IIndexerSpec['/v2/activity/:address']['responseType']['blocks'][number];
 
@@ -244,7 +248,7 @@ export class CapturedHistoryReader {
     return this.recordingClient ? this.recordHeader(parent) : parent;
   }
 
-  public async getApi(block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>) {
+  public async getApi(block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>): Promise<ArgonApi> {
     if (this.recordingClient) return this.getRecordingApi(block);
 
     const runtime = this.getRuntime(block.blockNumber);
@@ -272,17 +276,17 @@ export class CapturedHistoryReader {
       }
     }
 
-    return {
+    return runtimeClient({
       query,
       runtimeVersion: {
         specVersion: runtime.registry.createType('u32', runtime.specVersion),
       },
-    };
+    }) as ArgonApi;
   }
 
   public async getEventsWithSpec(
     block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>,
-  ): Promise<{ events: FrameSystemEventRecord[]; specVersion: number }> {
+  ): Promise<{ events: RuntimeSystemEventRecord[]; specVersion: number }> {
     const record = this.database
       .prepare(
         `SELECT blocks.blockHash, blocks.specVersion, blocks.systemEvents, runtime.metadata
@@ -301,8 +305,21 @@ export class CapturedHistoryReader {
     }
 
     const { registry } = this.getRuntime(block.blockNumber, record);
-    const events = registry.createType<Vec<FrameSystemEventRecord>>('Vec<FrameSystemEventRecord>', record.systemEvents);
-    return { events: [...events], specVersion: record.specVersion };
+    const codecEvents = registry.createType<Vec<FrameSystemEventRecord>>(
+      'Vec<FrameSystemEventRecord>',
+      record.systemEvents,
+    );
+    const events = [...codecEvents].map(({ event, phase, topics }) => {
+      const historicalEvent = toHistoricalEvent(event);
+      if (!historicalEvent) throw new Error(`${event.section}.${event.method} is not a historical event`);
+
+      return {
+        event: historicalEvent,
+        phase: toPlain(phase) as RuntimeSystemEventRecord['phase'],
+        topics: topics.map(topic => topic.toHex()),
+      };
+    });
+    return { events, specVersion: record.specVersion };
   }
 
   private async getRecordingApi(block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>) {
@@ -382,13 +399,14 @@ export class CapturedHistoryReader {
       },
     });
 
-    return new Proxy(api, {
+    const recordingApi = new Proxy(api, {
       get: (liveApi, property, receiver) => {
         if (property === 'query') return query;
         const propertyValue: unknown = Reflect.get(liveApi, property, receiver);
         return propertyValue;
       },
     });
+    return runtimeClient<typeof recordingApi, RuntimeQueries>(recordingApi);
   }
 
   private async recordHeader(block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>): Promise<IBlockHeaderInfo> {

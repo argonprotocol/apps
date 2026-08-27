@@ -237,7 +237,9 @@ function refreshFinalizedStateOnFocus() {
     if (blockHash === lastForegroundFinalizedHash) return;
 
     const finalizedClient = await archiveClient.at(finalizedHash);
-    const currentFrameId = await finalizedClient.query.miningSlot.nextFrameId().then(frameId => frameId.toNumber() - 1);
+    const nextFrameId = await finalizedClient.query.miningSlot.nextFrameId();
+    if (nextFrameId === null) return;
+    const currentFrameId = nextFrameId - 1;
     const myVault = getMyVault();
     const argonBonds = getArgonBonds();
 

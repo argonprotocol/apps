@@ -5,6 +5,7 @@ import {
   type PalletTreasuryBondLot,
 } from '@argonprotocol/mainchain';
 import { BondLot, BitcoinLock, type Vault } from '@argonprotocol/apps-core';
+import { toPlain, type TreasuryBondLotByIdResult } from '@argonprotocol/runtime-client';
 import type { IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
 import type {
   IFinancialGroupSnapshot,
@@ -2118,17 +2119,11 @@ function createWalletsForFinancialTest(
 
 function createArgonAccount(
   values: Partial<
-    Pick<
-      IArgonAccountBalance,
-      | 'availableMicrogons'
-      | 'reservedMicrogons'
-      | 'availableMicronots'
-      | 'reservedMicronots'
-      | 'microgonHolds'
-      | 'micronotHolds'
-    >
+    Pick<IArgonAccountBalance, 'availableMicrogons' | 'reservedMicrogons' | 'availableMicronots' | 'reservedMicronots'>
   > & {
     address?: string;
+    microgonHolds?: unknown[];
+    micronotHolds?: unknown[];
     microgonTreasuryHold?: bigint;
     micronotTreasuryHold?: bigint;
   },
@@ -2161,8 +2156,8 @@ function createArgonAccount(
     reservedMicrogons: values.reservedMicrogons ?? 0n,
     availableMicronots: values.availableMicronots ?? 0n,
     reservedMicronots: values.reservedMicronots ?? 0n,
-    microgonHolds,
-    micronotHolds,
+    microgonHolds: microgonHolds.map(hold => toPlain(hold)) as IArgonAccountBalance['microgonHolds'],
+    micronotHolds: micronotHolds.map(hold => toPlain(hold)) as IArgonAccountBalance['micronotHolds'],
   };
 }
 
@@ -2231,5 +2226,5 @@ function createBondLot(args: {
     releaseReason: null,
   });
 
-  return BondLot.fromRuntime(args.id, lot, lot.owner.toString());
+  return BondLot.fromRuntime(args.id, toPlain(lot) as NonNullable<TreasuryBondLotByIdResult>, lot.owner.toString());
 }

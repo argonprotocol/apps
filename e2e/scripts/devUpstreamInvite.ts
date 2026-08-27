@@ -43,19 +43,13 @@ try {
   await currency.load(true);
 
   const client = await clients.get(false);
-  if (BootstrapRecovery.isAvailable(client)) {
-    const bootstrapEndpointPubkey = getBootstrapEndpointPubkey(await walletKeys.getOwnServerBootstrapEndpointSecret());
-    const [encryptedEndpoint, endpointOwner] = await Promise.all([
-      client.query.bootstrap.encryptedEndpointByPubkey(bootstrapEndpointPubkey),
-      client.query.bootstrap.endpointOwnerByPubkey(bootstrapEndpointPubkey),
-    ]);
-    if (
-      encryptedEndpoint.isNone ||
-      endpointOwner.isNone ||
-      endpointOwner.unwrap().toString() !== walletKeys.defaultArgonAddress
-    ) {
-      throw new Error('The upstream server is not bootstrap-ready yet. Start the upstream server first.');
-    }
+  const bootstrapEndpointPubkey = getBootstrapEndpointPubkey(await walletKeys.getOwnServerBootstrapEndpointSecret());
+  const [encryptedEndpoint, endpointOwner] = await Promise.all([
+    client.query.bootstrap.encryptedEndpointByPubkey(bootstrapEndpointPubkey),
+    client.query.bootstrap.endpointOwnerByPubkey(bootstrapEndpointPubkey),
+  ]);
+  if (!encryptedEndpoint || endpointOwner !== walletKeys.defaultArgonAddress) {
+    throw new Error('The upstream server is not bootstrap-ready yet. Start the upstream server first.');
   }
 
   const readyOperator = await waitFor(

@@ -114,7 +114,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
             argonotUsdPrice: toFixedNumber(12.0, 18),
             argonUsdTargetPrice: toFixedNumber(1.0, 18),
             argonTimeWeightedAverageLiquidity: toFixedNumber(1_000, 18),
-            tick: currentTick.toBigInt(),
+            tick: BigInt(currentTick),
           },
           null,
         ),
@@ -169,7 +169,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       expect(createdVault.vaultId).toBe(1);
       expect(createdVault.operatorAccountId).toBe(walletKeys.vaultingAddress);
       const delegateAddress = await walletKeys.getVaultDelegateKeypair().then(x => x.address);
-      const delegateBalance = await client.query.system.account(delegateAddress).then(x => x.data.free.toBigInt());
+      const delegateBalance = await client.query.system.account(delegateAddress).then(x => x.data.free);
       expect(createdVault.delegateAccountId).toBe(delegateAddress);
       expect(delegateBalance).toBeGreaterThanOrEqual(minimumVaultDelegateBalance);
 

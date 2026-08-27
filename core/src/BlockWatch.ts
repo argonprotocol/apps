@@ -1,7 +1,4 @@
 import {
-  type ApiDecoration,
-  type ArgonClient,
-  type FrameSystemEventRecord,
   getAuthorFromHeader,
   getFrameInfoFromHeader,
   getOfflineRegistry,
@@ -9,8 +6,9 @@ import {
   getTickFromHeader,
   type Header,
 } from '@argonprotocol/mainchain';
+import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
 import { createDeferred } from './Deferred.js';
-import type { MainchainClients } from './MainchainClients.js';
+import type { ArgonApi, ArgonClient, MainchainClients } from './MainchainClients.js';
 import { NetworkConfig } from './NetworkConfig.js';
 import { createTypedEventEmitter } from './utils.js';
 import { SingleFileQueue } from './SingleFileQueue.js';
@@ -29,6 +27,7 @@ export interface IBlockHeaderInfo {
 }
 
 type ISubscriptionSource = 'archive' | 'pruned';
+export type RuntimeSystemEventRecord = HistoricalQueryRecord<'system', 'events'>[number];
 
 export class BlockWatch {
   private static readonly queryTimeoutMs = 120e3;
@@ -58,10 +57,10 @@ export class BlockWatch {
   private processingQueue = new SingleFileQueue();
   private backgroundArchiveReadQueue: (() => Promise<void>)[] = [];
   private activeBackgroundArchiveReadWorkers = 0;
-  private apiByBlockHash = new Map<string, Promise<ApiDecoration<'promise'>>>();
+  private apiByBlockHash = new Map<string, Promise<ArgonApi>>();
   private eventsByBlockHash = new Map<
     string,
-    Promise<{ events: FrameSystemEventRecord[]; specVersion: number; api: ApiDecoration<'promise'> }>
+    Promise<{ events: RuntimeSystemEventRecord[]; specVersion: number; api: ArgonApi }>
   >();
 
   public subscriptionClient!: ArgonClient;
@@ -419,11 +418,11 @@ export class BlockWatch {
     }
   }
 
-  public async getFinalizedApi(): Promise<ApiDecoration<'promise'>> {
+  public async getFinalizedApi(): Promise<ArgonApi> {
     return this.getApi(this.finalizedBlockHeader);
   }
 
-  public async getCurrentApi(): Promise<ApiDecoration<'promise'>> {
+  public async getCurrentApi(): Promise<ArgonApi> {
     const initialBestHeader = this.bestBlockHeader;
     try {
       return await this.getApi(initialBestHeader);
@@ -464,7 +463,7 @@ export class BlockWatch {
     }
   }
 
-  public async getApi(block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>): Promise<ApiDecoration<'promise'>> {
+  public async getApi(block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>): Promise<ArgonApi> {
     const cached = this.apiByBlockHash.get(block.blockHash);
     if (cached) return await cached;
 
@@ -486,7 +485,7 @@ export class BlockWatch {
 
   public async getEventsWithSpec(
     block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>,
-  ): Promise<{ events: FrameSystemEventRecord[]; specVersion: number; api: ApiDecoration<'promise'> }> {
+  ): Promise<{ events: RuntimeSystemEventRecord[]; specVersion: number; api: ArgonApi }> {
     const cached = this.eventsByBlockHash.get(block.blockHash);
     if (cached) return await cached;
 
@@ -512,7 +511,7 @@ export class BlockWatch {
 
   public async getEvents(
     block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>,
-  ): Promise<FrameSystemEventRecord[]> {
+  ): Promise<RuntimeSystemEventRecord[]> {
     return (await this.getEventsWithSpec(block)).events;
   }
 

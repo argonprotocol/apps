@@ -1,5 +1,5 @@
 import { stripNetworkPrefix, type Vault } from '@argonprotocol/apps-core';
-import type { PalletCrosschainTransferGlobalIssuanceCouncil } from '@argonprotocol/mainchain';
+import type { CrosschainTransferGlobalIssuanceCouncilByHashResultSpec151 } from '@argonprotocol/runtime-client';
 import type { IConnectedVault } from '../interfaces/IConfig.ts';
 import type { IGlobalCouncilQueueItem } from './GlobalCouncil.ts';
 
@@ -22,10 +22,10 @@ export function getCrosschainAccessState(args: {
 }
 
 export function isAccountInGlobalIssuanceCouncil(
-  council: PalletCrosschainTransferGlobalIssuanceCouncil | undefined,
+  council: CrosschainTransferGlobalIssuanceCouncilByHashResultSpec151 | undefined,
   accountId: string,
 ): boolean {
-  return !!council && [...council.members.values()].some(member => member.accountId.toString() === accountId);
+  return !!council && Object.values(council.members).some(member => member.accountId === accountId);
 }
 
 export function createKnownCrosschainSourceIdentities(args: {

@@ -51,7 +51,7 @@ export class MiningFrameHistory {
     const [rawWinningBids, slots, totalBidCount, expectedAuctionCloseTick] = await Promise.all([
       Mining.fetchWinningBids(api),
       Mining.fetchMiningSeats(this.accountset.fundingAccountId, api),
-      api.query.miningSlot.historicalBidsPerSlot().then(h => h[0]?.bidsCount.toNumber() ?? 0),
+      api.query.miningSlot.historicalBidsPerSlot().then(h => h[0]?.bidsCount ?? 0),
       mining.fetchTickAtStartOfAuctionClosing(api),
     ]);
     const winningBids = rawWinningBids.map(({ managedByAddress: _, ...bid }) => bid);
@@ -99,32 +99,31 @@ export class MiningFrameHistory {
     let winningBids = persisted?.winningBids ?? [];
     if (!winningBids.length && api) {
       const cohortActivationFrameId = frameId + 1;
-      const [miners, micronotsPerSeat] = await Promise.all([
-        api.query.miningSlot.minersByCohort(cohortActivationFrameId),
-        api.query.miningSlot.argonotsPerMiningSeat().then(x => x.toBigInt()),
-      ]);
-      winningBids = miners.map((miner, i) => {
-        const address = miner.accountId.toHuman();
-        const managedBy = miner.externalFundingAccount.isSome
-          ? miner.externalFundingAccount.value.toHuman()
-          : undefined;
-        return {
-          address,
-          subAccountIndex:
-            managedBy === this.accountset.fundingAccountId
-              ? this.accountset.subAccountsByAddress[address]?.index
-              : undefined,
-          bidPosition: i,
-          microgonsPerSeat: miner.bid.toBigInt(),
-          micronotsStakedPerSeat: micronotsPerSeat,
-        };
-      });
+      const minersQuery = api.query.miningSlot.minersByCohort(cohortActivationFrameId);
+      const micronotsPerSeatQuery = api.query.miningSlot.argonotsPerMiningSeat();
+      if (minersQuery && micronotsPerSeatQuery) {
+        const [miners, micronotsPerSeat] = await Promise.all([minersQuery, micronotsPerSeatQuery]);
+        winningBids = miners.map((miner, i) => {
+          const address = miner.accountId;
+          const managedBy = miner.externalFundingAccount ?? undefined;
+          return {
+            address,
+            subAccountIndex:
+              managedBy === this.accountset.fundingAccountId
+                ? this.accountset.subAccountsByAddress[address]?.index
+                : undefined,
+            bidPosition: i,
+            microgonsPerSeat: miner.bid,
+            micronotsStakedPerSeat: micronotsPerSeat,
+          };
+        });
+      }
     }
 
     let totalBidCount = persisted?.totalBidCount ?? 0;
     if (!totalBidCount && api) {
       const historical = await api.query.miningSlot.historicalBidsPerSlot();
-      totalBidCount = historical[1]?.bidsCount.toNumber() ?? 0;
+      totalBidCount = historical[1]?.bidsCount ?? 0;
     }
 
     let auctionCloseTick = persisted?.auctionCloseTick;

@@ -54,17 +54,18 @@ export const useBlockchainStore = defineStore('blockchain', () => {
       const events = await clientAt.query.system.events();
       let microgons = 0n;
       let micronots = 0n;
-      events.find(({ event }: { event: any }) => {
-        if (clientAt.events.blockRewards.RewardCreated.is(event)) {
-          for (const x of event.data.rewards) {
-            if (x.rewardType.isMiner) {
-              microgons += x.argons.toBigInt();
-              micronots += x.ownership.toBigInt();
-            }
-          }
-          return true;
-        }
+
+      const rewardEvent = events.find(({ event }) => {
+        return event.section === 'blockRewards' && event.method === 'RewardCreated';
       });
+      if (rewardEvent?.event.section === 'blockRewards' && rewardEvent.event.method === 'RewardCreated') {
+        for (const reward of rewardEvent.event.data.rewards) {
+          if (reward.rewardType.type === 'Miner') {
+            microgons += reward.argons;
+            micronots += reward.ownership;
+          }
+        }
+      }
 
       return {
         number: blockNumber,

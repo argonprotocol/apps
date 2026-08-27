@@ -1,7 +1,13 @@
-import { type BlockWatch, type Currency, type IBitcoinLock, type IBitcoinLockConfig } from '@argonprotocol/apps-core';
+import {
+  type BlockWatch,
+  Currency,
+  type IBitcoinLock,
+  type IBitcoinLockConfig,
+  type RuntimeSystemEventRecord,
+} from '@argonprotocol/apps-core';
+import { toHistoricalEvent } from '@argonprotocol/runtime-client/events';
 import BigNumber from 'bignumber.js';
 import { createHistoricalEventData } from '../../../indexer/__test__/helpers/historicalEvents.ts';
-import { numberCodec } from '../../../core/__test__/helpers/codecs.ts';
 import BitcoinLocks from '../../lib/BitcoinLocks.ts';
 import type { Db } from '../../lib/Db.ts';
 import type { TransactionTracker } from '../../lib/TransactionTracker.ts';
@@ -62,6 +68,7 @@ export function createStore(
     priceIndex: { btcUsdPrice: BigNumber(1), getSatoshiPriceInTargetMicrogons: () => 2_000n },
     convertSatToBtc: () => 0,
     convertBtcToMicrogon: () => 0n,
+    fetchPriceIndex: (api: Parameters<typeof Currency.fetchPriceIndex>[0]) => Currency.fetchPriceIndex(api),
     fetchMainchainRatesAtBlock: async () => ({ BTC: 4_000_000n, ARGNOT: 1_000_000n, USD: 1_000_000n }),
   }) as Currency;
   const transactionTracker =
@@ -166,13 +173,17 @@ export function historyEvent(
   method: string,
   values: Readonly<Record<string, unknown>>,
   extrinsicIndex = 2,
-) {
+): RuntimeSystemEventRecord {
+  const event = toHistoricalEvent({
+    section,
+    method,
+    data: createHistoricalEventData(specVersion, section, method, values),
+  });
+  if (!event) throw new Error(`${section}.${method} is not a historical event`);
+
   return {
-    event: {
-      section,
-      method,
-      data: createHistoricalEventData(specVersion, section, method, values),
-    },
-    phase: { isApplyExtrinsic: true, asApplyExtrinsic: numberCodec(extrinsicIndex) },
+    event,
+    phase: { type: 'ApplyExtrinsic', value: extrinsicIndex },
+    topics: [],
   };
 }

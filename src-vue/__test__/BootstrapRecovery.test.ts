@@ -6,8 +6,9 @@ import {
   getBootstrapEndpointPubkey,
   type IBootstrapEndpointPayload,
   type IBootstrapRecoveryPayload,
+  type ArgonClient,
 } from '@argonprotocol/apps-core';
-import { getOfflineRegistry, hexToU8a, Keyring, type ArgonClient, u8aToHex } from '@argonprotocol/mainchain';
+import { getOfflineRegistry, hexToU8a, Keyring, u8aToHex } from '@argonprotocol/mainchain';
 import { stringToU8a } from '@polkadot/util';
 import { blake2AsU8a, cryptoWaitReady, signatureVerify } from '@polkadot/util-crypto';
 import { BootstrapRecovery, BootstrapRecoveryContext } from '../lib/BootstrapRecovery.ts';
@@ -162,25 +163,16 @@ async function createBootstrapClient(args: {
       },
       args.endpointSecret,
     ));
-  const registry = getOfflineRegistry();
-  const optionBytes = (value?: Uint8Array) => {
-    return registry.createType('Option<Bytes>', value ? u8aToHex(value) : null);
-  };
-
   return {
     query: {
       bootstrap: {
         encryptedRecoveryPayloadByPubkey: (pubkey: Uint8Array) => {
-          return Promise.resolve(
-            optionBytes(u8aToHex(pubkey) === u8aToHex(recoveryPubkey) ? encryptedRecovery : undefined),
-          );
+          return Promise.resolve(u8aToHex(pubkey) === u8aToHex(recoveryPubkey) ? encryptedRecovery : null);
         },
         encryptedEndpointByPubkey: (pubkey: Uint8Array) => {
-          return Promise.resolve(
-            optionBytes(u8aToHex(pubkey) === u8aToHex(endpointPubkey) ? encryptedEndpoint : undefined),
-          );
+          return Promise.resolve(u8aToHex(pubkey) === u8aToHex(endpointPubkey) ? encryptedEndpoint : null);
         },
-        endpointOwnerByPubkey: () => Promise.resolve(registry.createType('Option<AccountId>', null)),
+        endpointOwnerByPubkey: () => Promise.resolve(null),
       },
     },
     tx: {

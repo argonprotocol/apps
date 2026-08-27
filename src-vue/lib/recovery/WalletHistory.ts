@@ -238,7 +238,7 @@ export class WalletHistoryRecovery {
         let prices: { USD: bigint; ARGNOT: bigint } | undefined;
         for (const wallet of this.recoveryWallets) {
           const filter = new AccountEventsFilter(wallet.address, this.ownedAddresses);
-          filter.process(eventSnapshot.api, eventSnapshot.events);
+          filter.process(eventSnapshot.events);
           if (!filter.transfers.length) continue;
 
           prices ??= await this.currency.fetchMainchainRatesAtBlock({

@@ -1,9 +1,11 @@
 import {
   getEthereumExecutionRpcUrls,
+  getLatestArgonFinalizedExecutionHeader,
   logEthereumExecutionRpcFallback,
   minimumVaultDelegateBalance,
   NetworkConfig,
   raceWithTimeout,
+  type ArgonClient,
   type IEthereumGatewayCatchUpRequest,
   type IEthereumGatewayCatchUpResponse,
   type IEthereumGatewayRelayStatus,
@@ -14,7 +16,6 @@ import {
   buildGatewayActivityProofPayload,
   EvmContracts,
   type EthereumGatewayActivityProofPayload,
-  getLatestArgonFinalizedExecutionHeader,
   isOutdatedTransactionError,
   isTxSubmissionError,
   type EthereumGatewayActivity,
@@ -97,20 +98,20 @@ export class EthereumGatewayProverService {
       this.requireExecutionRpcUrls();
       await this.loadGatewayAddress();
       const gatewaySyncPause = await client.query.crosschainTransfer.gatewaySyncPauseBySourceChain('Ethereum');
-      if (!gatewaySyncPause.isNone) {
-        const pause = gatewaySyncPause.unwrap();
+      if (gatewaySyncPause) {
+        const pause = gatewaySyncPause;
         return {
           isReady: false,
           reasonCode: 'gatewayPaused',
           reason:
-            `Ethereum gateway sync is paused at activity ${pause.failedGatewayActivityNonce.toBigInt()}` +
+            `Ethereum gateway sync is paused at activity ${pause.failedGatewayActivityNonce}` +
             ` (${pause.reason.type}).`,
         };
       }
 
       const latestExecutionHeaderAnchorHash =
         await client.query.ethereumVerifier.latestExecutionHeaderAnchorBlockHash();
-      if (latestExecutionHeaderAnchorHash.isNone) {
+      if (!latestExecutionHeaderAnchorHash) {
         return {
           isReady: false,
           reasonCode: 'missingExecutionAnchor',
@@ -118,9 +119,7 @@ export class EthereumGatewayProverService {
         };
       }
 
-      const delegateBalance = await client.query.system
-        .account(this.submitLane.address)
-        .then(x => x.data.free.toBigInt());
+      const delegateBalance = await client.query.system.account(this.submitLane.address).then(x => x.data.free);
       if (delegateBalance < minimumVaultDelegateBalance) {
         return {
           isReady: false,
@@ -403,15 +402,15 @@ export class EthereumGatewayProverService {
 
     while (true) {
       const gatewaySyncPause = await client.query.crosschainTransfer.gatewaySyncPauseBySourceChain('Ethereum');
-      if (!gatewaySyncPause.isNone) {
-        const pause = gatewaySyncPause.unwrap();
+      if (gatewaySyncPause) {
+        const pause = gatewaySyncPause;
         return {
           outcome: 'Rejected',
           reasonCode: 'gatewayPaused',
           reason:
-            `Ethereum gateway sync is paused at activity ${pause.failedGatewayActivityNonce.toBigInt()}` +
+            `Ethereum gateway sync is paused at activity ${pause.failedGatewayActivityNonce}` +
             ` (${pause.reason.type}).`,
-          throughGatewayActivityNonce: pause.lastGoodGatewayActivityNonce.toBigInt(),
+          throughGatewayActivityNonce: pause.lastGoodGatewayActivityNonce,
         };
       }
 
@@ -455,9 +454,7 @@ export class EthereumGatewayProverService {
         proofPayload.proof,
       );
       const estimatedFee = (await tx.paymentInfo(this.submitLane.address)).partialFee.toBigInt();
-      const delegateBalance = await client.query.system
-        .account(this.submitLane.address)
-        .then(x => x.data.free.toBigInt());
+      const delegateBalance = await client.query.system.account(this.submitLane.address).then(x => x.data.free);
       const existentialDeposit = client.consts.balances.existentialDeposit.toBigInt();
       const minimumRequiredBalance = estimatedFee + existentialDeposit;
 
@@ -569,11 +566,11 @@ export class EthereumGatewayProverService {
       }
 
       const chainConfig = await client.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
-      if (chainConfig.isNone || !chainConfig.unwrap().isEvm) {
+      if (chainConfig?.type !== 'Evm') {
         throw new HttpError('Ethereum transfer gateway is not configured on this network.', 503);
       }
 
-      return chainConfig.unwrap().asEvm.gateway.toHex();
+      return chainConfig.value.gateway as Hex;
     })();
 
     try {
@@ -606,11 +603,7 @@ export class EthereumGatewayProverService {
     client: ReturnType<EthereumGatewayProverService['requireClient']>,
   ): Promise<bigint> {
     const gatewayState = await client.query.crosschainTransfer.gatewayStateBySourceChain('Ethereum');
-    if (gatewayState.isNone) {
-      return 0n;
-    }
-
-    return gatewayState.unwrap().gatewayActivityNonce.toBigInt();
+    return gatewayState?.gatewayActivityNonce ?? 0n;
   }
 
   private async hasOwnedRelayActivity(
@@ -636,9 +629,9 @@ export class EthereumGatewayProverService {
         const signerAddress = signingKey.toLowerCase();
         if (!this.ownedAuthoritySignerByAddress.has(signerAddress)) {
           const authorityOption = await client.query.crosschainTransfer.mintingAuthoritiesBySigner(signingKey);
-          const authority = authorityOption.isSome ? authorityOption.unwrap() : undefined;
+          const authority = authorityOption ?? undefined;
           const isOwnedAuthority =
-            authority?.destinationChain.isEthereum === true && authority.accountId.toString() === vaultOperatorAddress;
+            authority?.destinationChain.type === 'Ethereum' && authority.accountId === vaultOperatorAddress;
           this.ownedAuthoritySignerByAddress.set(signerAddress, isOwnedAuthority);
           if (isOwnedAuthority) {
             return true;
@@ -714,7 +707,7 @@ export class EthereumGatewayProverService {
 }
 
 async function buildGatewayActivityProofPayloadWithFallback(
-  client: Parameters<typeof buildGatewayActivityProofPayload>[0],
+  client: ArgonClient,
   executionRpcUrls: string[],
   args: Omit<Parameters<typeof buildGatewayActivityProofPayload>[1], 'executionRpcUrl'>,
 ): ReturnType<typeof buildGatewayActivityProofPayload> {
@@ -722,7 +715,7 @@ async function buildGatewayActivityProofPayloadWithFallback(
 
   for (const executionRpcUrl of executionRpcUrls) {
     try {
-      return await buildGatewayActivityProofPayload(client, {
+      return await buildGatewayActivityProofPayload(client.raw, {
         ...args,
         executionRpcUrl,
       });

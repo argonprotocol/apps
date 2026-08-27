@@ -8,11 +8,7 @@ import {
 } from '@argonprotocol/apps-core';
 import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 
-import { ApiPromise } from '@polkadot/api';
-import { MockProvider } from '@polkadot/rpc-provider/mock';
 import { TypeRegistry } from '@polkadot/types';
-import type { u128, u64, Vec } from '@polkadot/types-codec';
-import type { ITuple } from '@polkadot/types-codec/types';
 import { fn, mocked, spyOn } from 'storybook/test';
 import { createScenarioVault } from './createScenarioVault.ts';
 import { setupAppScenario } from './setupAppScenario.ts';
@@ -51,29 +47,18 @@ import { useVaultingStats } from '../../src-vue/stores/vaultingStats.ts';
 export type BitcoinOverlayScenario = ReturnType<typeof setupBitcoinOverlayScenario>;
 
 const scenarioRegistry = new TypeRegistry();
-const scenarioMainchainClient = new ApiPromise({
-  provider: new MockProvider(scenarioRegistry),
-  noInitWarn: true,
-});
-void scenarioMainchainClient.isReady.catch(() => undefined);
-Object.defineProperties(scenarioMainchainClient, {
+const scenarioMainchainClient = {
   query: {
-    value: {
-      bitcoinLocks: {
-        microgonPerBtcHistory: fn(async () =>
-          scenarioRegistry.createType<Vec<ITuple<[u64, u128]>>>('Vec<(u64,u128)>', [[10_000, 6_800_000_000n]]),
-        ),
-      },
-      ticks: { currentTick: fn(async () => scenarioRegistry.createType('u64', 10_001)) },
+    bitcoinLocks: {
+      microgonPerBtcHistory: fn(async () => [[10_000n, 6_800_000_000n] as const]),
     },
+    ticks: { currentTick: fn(async () => 10_001) },
   },
   consts: {
-    value: { bitcoinLocks: { maxBtcPriceTickAge: scenarioRegistry.createType('u32', 100) } },
+    bitcoinLocks: { maxBtcPriceTickAge: scenarioRegistry.createType('u32', 100) },
   },
-  tx: {
-    value: { bitcoinLocks: {} },
-  },
-});
+  tx: { bitcoinLocks: {} },
+} as unknown as Awaited<ReturnType<typeof getMainchainClient>>;
 
 export function setupBitcoinOverlayScenario() {
   const scenarioStartedAt = new Date('2026-08-17T14:00:00.000Z').getTime();

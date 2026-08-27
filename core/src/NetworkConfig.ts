@@ -1,5 +1,5 @@
 import NetworkConfigSettings from '../network.config.json' with { type: 'json' };
-import type { ArgonClient } from '@argonprotocol/mainchain';
+import type { ArgonQueryClient } from './MainchainClients.js';
 
 export { NetworkConfigSettings };
 export type INetworkConfigOverride = Partial<Omit<INetworkConfig, 'ethereumNetwork' | 'baseNetwork'>> & {
@@ -84,7 +84,7 @@ export class NetworkConfig {
     return this.get().websiteHost;
   }
 
-  public static async updateConfig(client: ArgonClient): Promise<void> {
+  public static async updateConfig(client: ArgonQueryClient): Promise<void> {
     if (!this.networkName) {
       throw new Error(`Network name must be defined prior to loading configs`);
     }
@@ -98,7 +98,7 @@ export class NetworkConfig {
    * @param client
    */
   public static async loadConfigs(
-    client: ArgonClient,
+    client: ArgonQueryClient,
   ): Promise<
     Omit<
       INetworkConfig,
@@ -111,17 +111,16 @@ export class NetworkConfig {
       | 'baseNetwork'
     >
   > {
-    const config = await client.query.miningSlot.miningConfig().then(x => ({
-      ticksBetweenSlots: x.ticksBetweenSlots.toNumber(),
-      slotBiddingStartAfterTicks: x.slotBiddingStartAfterTicks.toNumber(),
-    }));
-    const genesisTick = await client.query.ticks.genesisTick().then((x: { toNumber: () => number }) => x.toNumber());
+    const config = await client.query.miningSlot.miningConfig();
+    const genesisTick = await client.query.ticks.genesisTick();
+    const ticksBetweenFrames = 'ticksBetweenSlots' in config ? config.ticksBetweenSlots : config.blocksBetweenSlots;
+    if (ticksBetweenFrames === undefined) throw new Error('Runtime mining configuration has no frame duration');
 
     return {
-      ticksBetweenFrames: config.ticksBetweenSlots,
+      ticksBetweenFrames,
       slotBiddingStartAfterTicks: config.slotBiddingStartAfterTicks,
       genesisTick,
-      tickMillis: await client.query.ticks.genesisTicker().then(x => x.tickDurationMillis.toNumber()),
+      tickMillis: await client.query.ticks.genesisTicker().then(x => x.tickDurationMillis),
       biddingStartTick: genesisTick + config.slotBiddingStartAfterTicks,
     };
   }

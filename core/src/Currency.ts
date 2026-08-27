@@ -1,20 +1,14 @@
 import BigNumber from 'bignumber.js';
 import { bigNumberToBigInt } from './utils.js';
-import {
-  type ApiDecoration,
-  type ArgonClient,
-  FIXED_U128_DECIMALS,
-  fromFixedNumber,
-  MICROGONS_PER_ARGON,
-  PriceIndex,
-} from '@argonprotocol/mainchain';
+import { MICROGONS_PER_ARGON, PriceIndex } from '@argonprotocol/mainchain';
 import { createDeferred } from './Deferred.js';
 import type IDeferred from './interfaces/IDeferred.js';
 import { NetworkConfig } from './NetworkConfig.js';
-import type { MainchainClients } from './MainchainClients.ts';
+import type { ArgonClient, ArgonQueryClient, MainchainClients } from './MainchainClients.ts';
 import type { IBlockHeaderInfo } from './BlockWatch.js';
 import { fetch } from './fetch.js';
 import { SATS_PER_BTC } from './BitcoinLock.js';
+import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
 
 const TWENTY_FOUR_HOURS_IN_MILLISECONDS = 24 * 60 * 60e3;
 const HISTORICAL_MAINCHAIN_RATE_CACHE_SIZE = 256;
@@ -76,20 +70,7 @@ export interface IFetchMainchainRatesOptions {
   updateOffchainRates?: boolean;
 }
 
-type IRawPriceIndex = {
-  btcUsdPrice: { toBigInt(): bigint };
-  argonotUsdPrice: { toBigInt(): bigint };
-  argonUsdPrice: { toBigInt(): bigint };
-  argonUsdTargetPrice: { toBigInt(): bigint };
-  argonTimeWeightedAverageLiquidity: { toBigInt(): bigint };
-  tick: { toNumber(): number };
-};
-
-type IRawPriceIndexOption = {
-  isSome: boolean;
-  unwrap(): IRawPriceIndex;
-  toHex?(): string;
-};
+type RuntimePriceIndex = HistoricalQueryRecord<'priceIndex', 'current'>;
 
 export const defaultMicrogonsPer: IMicrogonsPer = {
   Microgon: 1n,
@@ -296,33 +277,45 @@ export class Currency {
     return BigInt(Math.floor(microgonsBn.toNumber()));
   }
 
-  public async fetchMicrogonsInCirculation(api?: ApiDecoration<'promise'>): Promise<bigint> {
+  public async fetchMicrogonsInCirculation(api?: ArgonQueryClient): Promise<bigint> {
     const client = api ?? (await this.clients.prunedClientOrArchivePromise);
-    return (await client.query.balances.totalIssuance()).toBigInt();
+    return client.query.balances.totalIssuance();
   }
 
   public async fetchMicronotsInCirculation(): Promise<bigint> {
     const client = await this.clients.prunedClientOrArchivePromise;
-    return (await client.query.ownership.totalIssuance()).toBigInt();
+    return client.query.ownership.totalIssuance();
   }
 
   public async fetchBitcoinLiquidityReceived(): Promise<bigint> {
     const client = await this.clients.prunedClientOrArchivePromise;
-    return (await client.query.mint.mintedBitcoinMicrogons()).toBigInt();
+    return client.query.mint.mintedBitcoinMicrogons();
   }
 
   public async fetchMainchainRates(
-    api?: ApiDecoration<'promise'>,
+    api?: ArgonQueryClient,
     options: IFetchMainchainRatesOptions = {},
   ): Promise<IMainchainRates> {
     api ??= await this.clients.prunedClientOrArchivePromise;
     const current = await api.query.priceIndex.current();
 
-    return await this.updateMainchainRatesFromPriceIndex(current as IRawPriceIndexOption, options);
+    return await this.updateMainchainRatesFromPriceIndex(current, options);
+  }
+
+  public async fetchPriceIndex(api?: ArgonQueryClient): Promise<PriceIndex> {
+    api ??= await this.clients.prunedClientOrArchivePromise;
+    return Currency.fetchPriceIndex(api);
+  }
+
+  public static async fetchPriceIndex(api: ArgonQueryClient): Promise<PriceIndex> {
+    const current = await api.query.priceIndex.current();
+    const priceIndex = new PriceIndex();
+    this.setPriceIndex(priceIndex, current);
+    return priceIndex;
   }
 
   public fetchMainchainRatesAtBlock(args: {
-    api: ApiDecoration<'promise'>;
+    api: ArgonQueryClient;
     block: Pick<IBlockHeaderInfo, 'blockHash'>;
   }): Promise<IMainchainRates> {
     const { api, block } = args;
@@ -334,9 +327,7 @@ export class Currency {
       return cached;
     }
 
-    const ratesPromise = api.query.priceIndex
-      .current()
-      .then(current => this.calculateMainchainRates(current as IRawPriceIndexOption));
+    const ratesPromise = api.query.priceIndex.current().then(current => this.calculateMainchainRates(current));
     this.historicalMainchainRates.set(blockHash, ratesPromise);
 
     if (this.historicalMainchainRates.size > HISTORICAL_MAINCHAIN_RATE_CACHE_SIZE) {
@@ -381,10 +372,10 @@ export class Currency {
   private async startPriceIndexSubscription(client?: ArgonClient): Promise<void> {
     const subscriptionClient = client ?? (await this.clients.prunedClientOrArchivePromise);
     const unsubscribe = await subscriptionClient.query.priceIndex.current(current => {
-      const storageValue = this.getPriceIndexStorageValue(current as IRawPriceIndexOption);
+      const storageValue = JSON.stringify(current);
       if (storageValue && storageValue === this.lastPriceIndexStorageValue) return;
 
-      void this.updateMainchainRatesFromPriceIndex(current as IRawPriceIndexOption, { ignoreCache: false }).catch(e =>
+      void this.updateMainchainRatesFromPriceIndex(current, { ignoreCache: false }).catch(e =>
         console.error('[Currency] Error updating subscribed price index', e),
       );
     });
@@ -396,7 +387,7 @@ export class Currency {
   }
 
   private async updateMainchainRatesFromPriceIndex(
-    current: IRawPriceIndexOption,
+    current: RuntimePriceIndex,
     options: IFetchMainchainRatesOptions = {},
   ): Promise<IMainchainRates> {
     const { ignoreCache = true, updateOffchainRates = true } = options;
@@ -422,22 +413,18 @@ export class Currency {
     };
   }
 
-  private calculateMainchainRates(current: IRawPriceIndexOption): IMainchainRates {
+  private calculateMainchainRates(current: RuntimePriceIndex): IMainchainRates {
     const rates = {
       ARGNOT: BigInt(MICROGONS_PER_ARGON),
       BTC: BigInt(MICROGONS_PER_ARGON),
       USD: BigInt(MICROGONS_PER_ARGON),
     };
-    if (!current.isSome) return rates;
+    if (!current) return rates;
 
-    const priceIndex = current.unwrap();
-    const argonUsdTargetPrice = fromFixedNumber(priceIndex.argonUsdTargetPrice.toBigInt(), FIXED_U128_DECIMALS);
-    const argonotUsdPrice = fromFixedNumber(priceIndex.argonotUsdPrice.toBigInt(), FIXED_U128_DECIMALS);
+    const argonUsdTargetPrice = current.argonUsdTargetPrice;
+    const argonotUsdPrice = current.argonotUsdPrice ?? new BigNumber(0);
     rates.USD = this.calculateExchangeRateInMicrogons(BigNumber(1), argonUsdTargetPrice);
-    rates.BTC = this.calculateExchangeRateInMicrogons(
-      fromFixedNumber(priceIndex.btcUsdPrice.toBigInt(), FIXED_U128_DECIMALS),
-      argonUsdTargetPrice,
-    );
+    rates.BTC = this.calculateExchangeRateInMicrogons(current.btcUsdPrice, argonUsdTargetPrice);
     rates.ARGNOT = this.calculateExchangeRateInMicrogons(argonotUsdPrice, argonUsdTargetPrice);
 
     const networkIsLocal = NetworkConfig.networkName === 'dev-docker' || NetworkConfig.networkName === 'localnet';
@@ -445,33 +432,28 @@ export class Currency {
     return rates;
   }
 
-  private loadPriceIndex(current: IRawPriceIndexOption): void {
-    this.lastPriceIndexStorageValue = this.getPriceIndexStorageValue(current);
+  private loadPriceIndex(current: RuntimePriceIndex): void {
+    this.lastPriceIndexStorageValue = JSON.stringify(current);
+    Currency.setPriceIndex(this.priceIndex, current);
+  }
 
-    if (!current.isSome) {
-      this.priceIndex.argonUsdPrice = undefined;
-      this.priceIndex.argonotUsdPrice = undefined;
-      this.priceIndex.btcUsdPrice = undefined;
-      this.priceIndex.argonUsdTargetPrice = undefined;
-      this.priceIndex.argonTimeWeightedAverageLiquidity = undefined;
-      this.priceIndex.lastUpdatedTick = undefined;
+  private static setPriceIndex(priceIndex: PriceIndex, current: RuntimePriceIndex): void {
+    if (!current) {
+      priceIndex.argonUsdPrice = undefined;
+      priceIndex.argonotUsdPrice = undefined;
+      priceIndex.btcUsdPrice = undefined;
+      priceIndex.argonUsdTargetPrice = undefined;
+      priceIndex.argonTimeWeightedAverageLiquidity = undefined;
+      priceIndex.lastUpdatedTick = undefined;
       return;
     }
 
-    const value = current.unwrap();
-    this.priceIndex.btcUsdPrice = fromFixedNumber(value.btcUsdPrice.toBigInt(), FIXED_U128_DECIMALS);
-    this.priceIndex.argonotUsdPrice = fromFixedNumber(value.argonotUsdPrice.toBigInt(), FIXED_U128_DECIMALS);
-    this.priceIndex.argonUsdPrice = fromFixedNumber(value.argonUsdPrice.toBigInt(), FIXED_U128_DECIMALS);
-    this.priceIndex.argonUsdTargetPrice = fromFixedNumber(value.argonUsdTargetPrice.toBigInt(), FIXED_U128_DECIMALS);
-    this.priceIndex.argonTimeWeightedAverageLiquidity = fromFixedNumber(
-      value.argonTimeWeightedAverageLiquidity.toBigInt(),
-      FIXED_U128_DECIMALS,
-    );
-    this.priceIndex.lastUpdatedTick = value.tick.toNumber();
-  }
-
-  private getPriceIndexStorageValue(current: IRawPriceIndexOption): string | undefined {
-    return current.toHex?.();
+    priceIndex.btcUsdPrice = current.btcUsdPrice;
+    priceIndex.argonotUsdPrice = current.argonotUsdPrice;
+    priceIndex.argonUsdPrice = current.argonUsdPrice;
+    priceIndex.argonUsdTargetPrice = current.argonUsdTargetPrice;
+    priceIndex.argonTimeWeightedAverageLiquidity = current.argonTimeWeightedAverageLiquidity;
+    priceIndex.lastUpdatedTick = current.tick;
   }
 
   private scheduleOffchainRatesRefresh(): void {

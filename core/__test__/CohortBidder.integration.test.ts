@@ -3,10 +3,11 @@ import { startArgonTestNetwork, waitForQueryableClient } from './startArgonTestN
 import { SKIP_E2E, sudo, teardown } from '@argonprotocol/testing';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { inspect } from 'util';
-import { getAuthorFromHeader, getClient, Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
+import { getAuthorFromHeader, Keyring, mnemonicGenerate } from '@argonprotocol/mainchain';
 import Path from 'path';
 import { subscribeToFinalizedStorageChanges } from '../src/StorageSubscriber.ts';
 import { sudoFundWallet } from './helpers/sudoFundWallet.ts';
+import { getTestMainchainClient } from './helpers/mainchain.ts';
 
 // set the default log depth to 10
 inspect.defaultOptions.depth = 10;
@@ -29,7 +30,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
   it('can compete on bids', async () => {
     const network = await startArgonTestNetwork(Path.basename(import.meta.filename), { profiles: ['bob'] });
 
-    const aliceClientPromise = getClient(network.archiveUrl);
+    const aliceClientPromise = getTestMainchainClient(network.archiveUrl);
     const aliceClient = await aliceClientPromise;
     const clients = trackMainchainClients(new MainchainClients(network.archiveUrl, () => false, aliceClient));
     const bobRing = new Keyring({ type: 'sr25519' }).addFromUri('//Bob');
@@ -79,7 +80,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
     const startingCohort = await aliceClient.query.miningSlot.nextFrameId();
     await new Promise(resolve => {
       const unsub = aliceClient.query.miningSlot.nextFrameId(x => {
-        if (x.toNumber() > startingCohort.toNumber()) {
+        if (x > startingCohort) {
           resolve(true);
           unsub.then();
         }
@@ -185,7 +186,8 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
     const finalizedBlock = await aliceClient.rpc.chain.getFinalizedHead();
     const finalizedClient = await aliceClient.at(finalizedBlock);
     const finalizedNextFrameId = await finalizedClient.query.miningSlot.nextFrameId();
-    if (finalizedNextFrameId.toNumber() === bobBidder!.cohortStartingFrameId) {
+    if (finalizedNextFrameId === null) throw new Error('Mining frame storage is unavailable');
+    if (finalizedNextFrameId === bobBidder!.cohortStartingFrameId) {
       await new Promise(resolve =>
         // this is overkill here, but it's a place to test it
         subscribeToFinalizedStorageChanges(aliceClient, [
@@ -193,7 +195,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
             key: aliceClient.query.miningSlot.nextFrameId.key(),
             handler: async api => {
               const y = await api.query.miningSlot.nextFrameId();
-              if (y.toNumber() !== bobBidder!.cohortStartingFrameId) {
+              if (y !== null && y !== bobBidder!.cohortStartingFrameId) {
                 resolve(true);
               }
             },
@@ -217,12 +219,13 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
     const finalizedHead = await aliceClient.rpc.chain.getFinalizedHead();
     const finalizedApi = await aliceClient.at(finalizedHead);
     const cohortSeats = await finalizedApi.query.miningSlot.minersByCohort(cohortStartingFrameId);
+    if (!cohortSeats) throw new Error('Mining cohort storage is unavailable');
 
     const bobSeatsWonOnChain = cohortSeats.filter(x => {
-      return x.externalFundingAccount.isSome && x.externalFundingAccount.value.toHuman() === bob.fundingAccountId;
+      return x.externalFundingAccount === bob.fundingAccountId;
     }).length;
     const aliceSeatsWonOnChain = cohortSeats.filter(x => {
-      return x.externalFundingAccount.isSome && x.externalFundingAccount.value.toHuman() === alice.fundingAccountId;
+      return x.externalFundingAccount === alice.fundingAccountId;
     }).length;
     const bidLevels = new Set(
       [...bobBidEvents, ...aliceBidEvents].map(({ microgonsPerSeat }) => microgonsPerSeat.toString()),

@@ -15,15 +15,15 @@ describe('MiningFrames frame refresh recovery', () => {
     const currentApi = {
       query: {
         miningSlot: {
-          frameStartBlockNumbers: vi.fn().mockResolvedValue([createNumberLike(181)]),
+          frameStartBlockNumbers: vi.fn().mockResolvedValue([181]),
         },
       },
     };
     const frameApi = {
       query: {
         miningSlot: {
-          nextFrameId: vi.fn().mockResolvedValue(createNumberLike(19)),
-          frameStartBlockNumbers: vi.fn().mockResolvedValue([createNumberLike(181)]),
+          nextFrameId: vi.fn().mockResolvedValue(19),
+          frameStartBlockNumbers: vi.fn().mockResolvedValue([181]),
         },
       },
       runtimeVersion: {
@@ -69,14 +69,14 @@ describe('MiningFrames frame refresh recovery', () => {
     const currentApi = {
       query: {
         miningSlot: {
-          frameStartBlockNumbers: vi.fn().mockResolvedValue([createNumberLike(191), createNumberLike(181)]),
+          frameStartBlockNumbers: vi.fn().mockResolvedValue([191, 181]),
         },
       },
     };
     const frameApi = {
       query: {
         miningSlot: {
-          frameStartBlockNumbers: vi.fn().mockResolvedValue([createNumberLike(181)]),
+          frameStartBlockNumbers: vi.fn().mockResolvedValue([181]),
         },
       },
       runtimeVersion: {
@@ -152,7 +152,7 @@ describe('MiningFrames frame refresh recovery', () => {
     const currentApi = {
       query: {
         miningSlot: {
-          frameStartBlockNumbers: vi.fn().mockResolvedValue([createNumberLike(181)]),
+          frameStartBlockNumbers: vi.fn().mockResolvedValue([181]),
         },
       },
     };

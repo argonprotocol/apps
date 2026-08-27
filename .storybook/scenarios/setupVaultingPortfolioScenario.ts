@@ -33,8 +33,8 @@ export function setupVaultingPortfolioScenario() {
     securitization: 2_400n * microgonsPerArgon,
     securitizationLocked: 1_550n * microgonsPerArgon,
     securitizationPendingActivation: 150n * microgonsPerArgon,
-    lockedSatoshis: 22_500_000,
-    securitizedSatoshis: 22_500_000,
+    lockedSatoshis: 22_500_000n,
+    securitizedSatoshis: 22_500_000n,
   });
   const localLocks = [
     createLock(1, BitcoinLockStatus.LockedAndMinted, 8_000_000n, 480n * microgonsPerArgon),
@@ -271,11 +271,6 @@ function createFrameBondLot(details: BondLot, isOperator: boolean): IFrameBondLo
 }
 
 function createMainchainClient(): Awaited<ReturnType<typeof getMainchainClient>> {
-  const vaultCapital = new Map([
-    [{ toNumber: () => 7 }, { eligibleBonds: { toNumber: () => 1_040 } }],
-    [{ toNumber: () => 12 }, { eligibleBonds: { toNumber: () => 7_360 } }],
-  ]);
-
   return {
     consts: {
       treasury: {
@@ -288,12 +283,14 @@ function createMainchainClient(): Awaited<ReturnType<typeof getMainchainClient>>
     },
     query: {
       system: {
-        account: async () => ({ data: { free: { toBigInt: () => 4_800n * microgonsPerArgon } } }),
+        account: async () => ({ data: { free: 4_800n * microgonsPerArgon } }),
       },
       treasury: {
         currentFrameVaultCapital: async () => ({
-          isNone: false,
-          unwrap: () => ({ vaults: vaultCapital }),
+          vaults: {
+            7: { eligibleBonds: 1_040 },
+            12: { eligibleBonds: 7_360 },
+          },
         }),
       },
     },

@@ -136,7 +136,7 @@ function loadRatchetPreview(): Promise<void> {
         currency.fetchMainchainRates(quoteClient, { ignoreCache: true }),
         quoteClient.query.bitcoinLocks.microgonPerBtcHistory(),
       ]);
-      const rate = eligibleRates.at(-1)?.[1].toBigInt();
+      const rate = eligibleRates.at(-1)?.[1];
       if (!rate) throw new Error('Network bitcoin pricing is currently unavailable. Please try again later.');
 
       const preview = await bitcoinLocks.getRatchetPreview(props.personalLock, rate);

@@ -1,9 +1,10 @@
 // Source: @argonprotocol/mainchain 1.4.12, the last release that exported this model.
-import { type ArgonClient, waitForLoad } from '@argonprotocol/mainchain';
+import { waitForLoad } from '@argonprotocol/mainchain';
 import type { SignerOptions } from '@polkadot/api-base/types';
 import type { SubmittableExtrinsic } from '@polkadot/api/promise/types';
 import type { KeyringPair } from '@polkadot/keyring/types';
 import { type ITxProgressCallback, TxResult } from './TxResult.js';
+import type { ArgonClient } from './MainchainClients.js';
 
 export type TxSigningAccount = KeyringPair | { address: string; signer: NonNullable<SignerOptions['signer']> };
 
@@ -40,7 +41,7 @@ export class TxSubmitter {
   ): Promise<{ canAfford: boolean; availableBalance: bigint; txFee: bigint }> {
     const { tip, unavailableBalance } = options;
     const account = await this.client.query.system.account(this.address);
-    let availableBalance = account.data.free.toBigInt();
+    let availableBalance = account.data.free;
     const userBalance = availableBalance;
     if (unavailableBalance) {
       availableBalance -= unavailableBalance;

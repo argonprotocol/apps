@@ -1,5 +1,10 @@
-import { Accountset, type MiningBidProxySetupMetadata, type MiningBidProxySetupPlan } from '@argonprotocol/apps-core';
-import { type ArgonClient, type KeyringPair } from '@argonprotocol/mainchain';
+import {
+  Accountset,
+  type ArgonClient,
+  type MiningBidProxySetupMetadata,
+  type MiningBidProxySetupPlan,
+} from '@argonprotocol/apps-core';
+import { type KeyringPair } from '@argonprotocol/mainchain';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
 import { type TransactionInfo } from './TransactionInfo.ts';

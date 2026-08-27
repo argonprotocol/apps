@@ -549,7 +549,7 @@ async function loadLiveFrameDetailFromChain(frameId: number): Promise<IMiningFra
   const [winningBids, slots, totalBidCount, expectedAuctionCloseTick] = await Promise.all([
     Mining.fetchWinningBids(client),
     mining.fetchCurrentMiningSeats(wallets.miningBotWallet.address),
-    client.query.miningSlot.historicalBidsPerSlot().then(x => x[0]?.bidsCount.toNumber() ?? 0),
+    client.query.miningSlot.historicalBidsPerSlot().then(x => x[0]?.bidsCount ?? 0),
     mining.fetchTickAtStartOfAuctionClosing(client),
   ]);
 

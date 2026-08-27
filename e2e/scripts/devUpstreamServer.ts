@@ -8,6 +8,7 @@ import { config as loadDotEnv } from 'dotenv';
 import { parseEnv, promisify } from 'node:util';
 import {
   BidAmountFormulaType,
+  createArgonClient,
   type IEthereumGatewayRelayStatus,
   JsonExt,
   MainchainClients,
@@ -202,11 +203,10 @@ export async function startDevUpstreamServer(args: {
     microgons: 100_000_000n * BigInt(MICROGONS_PER_ARGON),
     micronots: 100_000_000n * BigInt(MICRONOTS_PER_ARGONOT),
   };
-  const fundingClient = await getClient(args.archiveUrl);
+  const fundingClient = createArgonClient(await getClient(args.archiveUrl));
   try {
-    const existingTreasuryMicronots = (
-      await fundingClient.query.ownership.account(walletKeys.defaultArgonAddress)
-    ).free.toBigInt();
+    const existingTreasuryMicronots = (await fundingClient.query.ownership.account(walletKeys.defaultArgonAddress))
+      .free;
 
     await sudoFundWallet({
       client: fundingClient,
@@ -296,49 +296,47 @@ export async function startDevUpstreamServer(args: {
   try {
     const client = await clients.get(false);
     const { botPort, gatewayPort, routerPort } = await readDevUpstreamServerPorts(context);
-    if (BootstrapRecovery.isAvailable(client)) {
-      await bootstrapRecovery.publishEndpoint({
-        client,
-        transactionTracker: actor.transactionTracker,
-        bootstrapEndpointSecret,
-        host: '127.0.0.1',
-        port: Number(gatewayPort),
-      });
-      publishedGatewayPort = gatewayPort;
+    await bootstrapRecovery.publishEndpoint({
+      client,
+      transactionTracker: actor.transactionTracker,
+      bootstrapEndpointSecret,
+      host: '127.0.0.1',
+      port: Number(gatewayPort),
+    });
+    publishedGatewayPort = gatewayPort;
 
-      endpointMonitor = setInterval(() => {
-        if (isEndpointRefreshRunning) return;
-        isEndpointRefreshRunning = true;
+    endpointMonitor = setInterval(() => {
+      if (isEndpointRefreshRunning) return;
+      isEndpointRefreshRunning = true;
 
-        void readComposePortWithRetry({
-          context,
-          service: 'upstream-nginx',
-          port: 443,
-          optional: true,
-          timeoutMs: 1_500,
-        })
-          .then(async currentGatewayPort => {
-            if (!currentGatewayPort || currentGatewayPort === publishedGatewayPort) return;
+      void readComposePortWithRetry({
+        context,
+        service: 'upstream-nginx',
+        port: 443,
+        optional: true,
+        timeoutMs: 1_500,
+      })
+        .then(async currentGatewayPort => {
+          if (!currentGatewayPort || currentGatewayPort === publishedGatewayPort) return;
 
-            await bootstrapRecovery.publishEndpoint({
-              client,
-              transactionTracker: actor.transactionTracker,
-              bootstrapEndpointSecret,
-              host: '127.0.0.1',
-              port: Number(currentGatewayPort),
-            });
-            publishedGatewayPort = currentGatewayPort;
-            console.log(`[dev-upstream] Published updated gateway port ${currentGatewayPort}`);
-          })
-          .catch(error => {
-            console.warn(`[dev-upstream] Unable to publish updated gateway: ${(error as Error).message}`);
-          })
-          .finally(() => {
-            isEndpointRefreshRunning = false;
+          await bootstrapRecovery.publishEndpoint({
+            client,
+            transactionTracker: actor.transactionTracker,
+            bootstrapEndpointSecret,
+            host: '127.0.0.1',
+            port: Number(currentGatewayPort),
           });
-      }, 2_000);
-      endpointMonitor.unref();
-    }
+          publishedGatewayPort = currentGatewayPort;
+          console.log(`[dev-upstream] Published updated gateway port ${currentGatewayPort}`);
+        })
+        .catch(error => {
+          console.warn(`[dev-upstream] Unable to publish updated gateway: ${(error as Error).message}`);
+        })
+        .finally(() => {
+          isEndpointRefreshRunning = false;
+        });
+    }, 2_000);
+    endpointMonitor.unref();
 
     await actor.bootstrapUpstreamOperator({
       client,

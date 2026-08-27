@@ -1,5 +1,6 @@
 import {
   AccountEventsFilter,
+  type ArgonQueryClient,
   BlockWatch,
   createDeferred,
   createTypedEventEmitter,
@@ -10,9 +11,9 @@ import {
 import { WalletKeys } from './WalletKeys.ts';
 import { IArgonWalletType, IBalanceChange, type IWalletBalanceTransfer, WalletForArgon } from './WalletForArgon.ts';
 import { Db } from './Db.ts';
-import { ApiDecoration, type FrameSupportTokensMiscIdAmountRuntimeHoldReason } from '@argonprotocol/mainchain';
 import { SyncStateKeys } from './db/SyncStateTable.ts';
 import { type IFinancialObservation } from '../interfaces/IFinancialPosition.ts';
+import type { HistoricalQueryResultVariants } from '@argonprotocol/runtime-client';
 
 export type IWalletHistoryRevisions = {
   transfers: number;
@@ -31,9 +32,12 @@ export interface IWalletEvents {
 export type IArgonAccountBalance = Awaited<ReturnType<typeof readArgonWalletBalanceValues>>[number] & {
   address: string;
   wallet: WalletForArgon;
-  microgonHolds: FrameSupportTokensMiscIdAmountRuntimeHoldReason[];
-  micronotHolds: FrameSupportTokensMiscIdAmountRuntimeHoldReason[];
+  microgonHolds: RuntimeHold<'balances'>[];
+  micronotHolds: RuntimeHold<'ownership'>[];
 };
+
+type RuntimeHold<Section extends 'balances' | 'ownership'> =
+  HistoricalQueryResultVariants<Section, 'holds'> extends readonly (infer Hold)[] ? Hold : never;
 
 export interface IArgonAccountSnapshot {
   accounts: IArgonAccountBalance[];
@@ -124,7 +128,7 @@ export class WalletsForArgon {
     header,
     includeHolds = true,
   }: {
-    api: ApiDecoration<'promise'>;
+    api: ArgonQueryClient;
     header: IBlockHeaderInfo;
     includeHolds?: boolean;
   }): Promise<IArgonAccountSnapshot> {
@@ -132,11 +136,12 @@ export class WalletsForArgon {
       return all.findIndex(candidate => candidate.address === wallet.address) === index;
     });
     const addresses = wallets.map(wallet => wallet.address);
-    const emptyHolds = addresses.map(() => [] as FrameSupportTokensMiscIdAmountRuntimeHoldReason[]);
+    const emptyMicrogonHolds = addresses.map(() => [] as RuntimeHold<'balances'>[]);
+    const emptyMicronotHolds = addresses.map(() => [] as RuntimeHold<'ownership'>[]);
     const [balances, microgonHolds, micronotHolds] = await Promise.all([
       readArgonWalletBalanceValues(api, addresses),
-      includeHolds ? api.query.balances.holds.multi(addresses) : Promise.resolve(emptyHolds),
-      includeHolds ? api.query.ownership.holds.multi(addresses) : Promise.resolve(emptyHolds),
+      includeHolds ? api.query.balances.holds.multi(addresses) : Promise.resolve(emptyMicrogonHolds),
+      includeHolds ? api.query.ownership.holds.multi(addresses) : Promise.resolve(emptyMicronotHolds),
     ]);
 
     return {
@@ -323,7 +328,7 @@ export class WalletsForArgon {
     block: IBalanceChange['block'],
   ): Promise<{
     balances: IBalanceChange[];
-    api: ApiDecoration<'promise'>;
+    api: ArgonQueryClient;
   }> {
     const api = await this.blockWatch.getApi(block);
     const balances = await readArgonWalletBalances(api, addresses, block);
@@ -337,7 +342,7 @@ export class WalletsForArgon {
     const transfersByWallet: IWalletBalanceTransfer[][] = [];
     for (let index = 0; index < wallets.length; index += 1) {
       const filter = new AccountEventsFilter(wallets[index].address, this.ownedAddresses);
-      filter.process(api, events);
+      filter.process(events);
       transfersByWallet.push(filter.transfers);
     }
 
@@ -388,7 +393,7 @@ export class WalletsForArgon {
 }
 
 export async function readArgonWalletBalanceValues(
-  api: ApiDecoration<'promise'>,
+  api: ArgonQueryClient,
   addresses: string[],
 ): Promise<
   Pick<IBalanceChange, 'availableMicrogons' | 'reservedMicrogons' | 'availableMicronots' | 'reservedMicronots'>[]
@@ -399,15 +404,15 @@ export async function readArgonWalletBalanceValues(
   ]);
 
   return addresses.map((_, index) => ({
-    availableMicrogons: microgons[index]?.free.toBigInt() ?? 0n,
-    reservedMicrogons: microgons[index]?.reserved.toBigInt() ?? 0n,
-    availableMicronots: micronots[index]?.free.toBigInt() ?? 0n,
-    reservedMicronots: micronots[index]?.reserved.toBigInt() ?? 0n,
+    availableMicrogons: microgons[index]?.free ?? 0n,
+    reservedMicrogons: microgons[index]?.reserved ?? 0n,
+    availableMicronots: micronots[index]?.free ?? 0n,
+    reservedMicronots: micronots[index]?.reserved ?? 0n,
   }));
 }
 
 export async function readArgonWalletBalances(
-  api: ApiDecoration<'promise'>,
+  api: ArgonQueryClient,
   addresses: string[],
   block: IBalanceChange['block'],
 ): Promise<IBalanceChange[]> {

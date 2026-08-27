@@ -1,6 +1,7 @@
 import BigNumber from 'bignumber.js';
 import { describe, expect, it } from 'vitest';
-import { getOfflineRegistry, MICROGONS_PER_ARGON, type PalletTreasuryBondLot } from '@argonprotocol/mainchain';
+import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
+import type { TreasuryBondLotByIdResult } from '@argonprotocol/runtime-client';
 
 import { BondLot } from '../src/BondLot.ts';
 import { compoundXTimes } from '../src/utils.ts';
@@ -167,15 +168,26 @@ function createBondLot(args: {
   cumulativeEarnings?: bigint;
   releaseReason?: 'UserLiquidation' | 'Bumped' | 'VaultClosed';
   program?: { Vault: { vaultId: number; sharingPercent: number; bonusPercent: number } } | { Argonot: null };
-}): PalletTreasuryBondLot {
+}): NonNullable<TreasuryBondLotByIdResult> {
   let releaseReason = args.releaseReason;
   if (releaseReason === undefined && args.isReleasing) {
     releaseReason = 'UserLiquidation';
   }
 
-  return getOfflineRegistry().createType('PalletTreasuryBondLot', {
+  const program = args.program ?? { Vault: { vaultId: 1, sharingPercent: 0, bonusPercent: 0 } };
+  return {
     owner: args.owner,
-    program: args.program ?? { Vault: { vaultId: 1, sharingPercent: 0, bonusPercent: 0 } },
+    program:
+      'Vault' in program
+        ? {
+            type: 'Vault',
+            value: {
+              vaultId: program.Vault.vaultId,
+              sharingPercent: new BigNumber(program.Vault.sharingPercent),
+              bonusPercent: new BigNumber(program.Vault.bonusPercent),
+            },
+          }
+        : { type: 'Argonot' },
     bonds: args.bonds,
     isFlexible: args.isFlexible ?? false,
     createdFrameId: args.createdFrame ?? 0,
@@ -184,6 +196,6 @@ function createBondLot(args: {
     lastFrameEarnings: args.lastFrameEarnings ?? null,
     cumulativeEarnings: args.cumulativeEarnings ?? 0n,
     releaseFrameId: args.releaseFrame ?? null,
-    releaseReason: releaseReason ?? null,
-  });
+    releaseReason: releaseReason ? { type: releaseReason } : null,
+  };
 }

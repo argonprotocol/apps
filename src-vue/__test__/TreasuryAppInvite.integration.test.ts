@@ -84,14 +84,10 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       async () => {
         const client = await clients.get(false);
         const current = await client.query.priceIndex.current();
-        const priceIndex = current.toJSON() as {
-          btcUsdPrice?: string;
-          argonUsdPrice?: string;
-          tick?: string | number;
-        };
-        if (!priceIndex.btcUsdPrice || BigInt(priceIndex.btcUsdPrice) <= 0n) return;
-        if (!priceIndex.argonUsdPrice || BigInt(priceIndex.argonUsdPrice) <= 0n) return;
-        if (priceIndex.tick == null || BigInt(priceIndex.tick) <= 0n) return;
+        if (!current) return;
+        if (current.btcUsdPrice.isLessThanOrEqualTo(0)) return;
+        if (current.argonUsdPrice.isLessThanOrEqualTo(0)) return;
+        if (current.tick <= 0) return;
         return true;
       },
       { pollMs: 1e3 },
@@ -136,9 +132,7 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
         if (!vault) return;
         if (vault.delegateAccountId !== delegateKeypair.address) return;
 
-        const delegateBalance = await client.query.system
-          .account(delegateKeypair.address)
-          .then(x => x.data.free.toBigInt());
+        const delegateBalance = await client.query.system.account(delegateKeypair.address).then(x => x.data.free);
         if (delegateBalance < 100_000n) return;
 
         return true;
@@ -351,7 +345,7 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
         operatorVault.vaultId,
         defaultAccountId,
       );
-      expect(lastNonce.unwrap().toBigInt()).toBe(2n);
+      expect(lastNonce).toBe(2n);
     } finally {
       await routerServer?.close().catch(() => undefined);
       routerDb?.close();

@@ -1,6 +1,11 @@
-import { Option, type GenericEvent } from '@argonprotocol/mainchain';
+import type { GenericEvent } from '@argonprotocol/mainchain';
 import { AccountActivityKind, groupEventsByExtrinsic, isUserTransferEventSet } from '@argonprotocol/apps-core';
-import { AccountActivityCoverageError, hasNamedEventData, type HistoricalEvent } from './HistoricalEventSpecs.js';
+import {
+  AccountActivityCoverageError,
+  getHistoricalEventFieldAlternatives,
+  toHistoricalEvent,
+  type HistoricalEvent,
+} from '@argonprotocol/runtime-client/events';
 
 export { AccountActivityKind };
 
@@ -130,29 +135,30 @@ export class AccountActivityDecoder {
   }
 
   private decodeEvent(
-    event: IAccountActivityEvent,
+    rawEvent: IAccountActivityEvent,
     specVersion: number,
     isCustodyTransfer: boolean,
     sourceAccount?: string,
   ): IDecodedAccountActivityEvent {
-    const mask = classifyEvent(event, { isCustodyTransfer });
+    const event = toHistoricalEvent(rawEvent);
+    const mask = classifyEventKind(rawEvent, event, { isCustodyTransfer });
     if (!mask) {
       return { mask, accounts: [], vaultIds: [], bitcoinLockIds: [], mintingAuthoritySigningKeys: [] };
     }
-    if (isGatewayOperationSourceEvent(event) && !sourceAccount) {
+    if (isGatewayOperationSourceEvent(rawEvent) && !sourceAccount) {
       throw new AccountActivityCoverageError(
-        `${event.method} at runtime spec ${specVersion} has no signed source account`,
+        `${rawEvent.method} at runtime spec ${specVersion} has no signed source account`,
       );
     }
-    if (!hasNamedEventData(event)) {
+    if (!event) {
       throw new AccountActivityCoverageError(
-        `${event.section}.${event.method} at runtime spec ${specVersion} does not expose complete named metadata`,
+        `${rawEvent.section}.${rawEvent.method} at runtime spec ${specVersion} does not expose complete named metadata`,
       );
     }
 
     return {
       mask,
-      accounts: collectEventAccounts(event, sourceAccount),
+      accounts: collectEventAccounts(event, specVersion, sourceAccount),
       vaultIds: collectEventVaultIds(event),
       bitcoinLockIds: collectEventBitcoinLockIds(event),
       mintingAuthoritySigningKeys: collectMintingAuthoritySigningKeys(event),
@@ -162,6 +168,14 @@ export class AccountActivityDecoder {
 
 export function classifyEvent(
   event: Pick<GenericEvent, 'data' | 'method' | 'section'>,
+  options: { isCustodyTransfer?: boolean } = {},
+): number {
+  return classifyEventKind(event, toHistoricalEvent(event), options);
+}
+
+function classifyEventKind(
+  event: Pick<GenericEvent, 'method' | 'section'>,
+  historicalEvent: HistoricalEvent | null,
   options: { isCustodyTransfer?: boolean } = {},
 ): number {
   const { section, method } = event;
@@ -185,8 +199,10 @@ export function classifyEvent(
     if (legacyBitcoinBondEvents.has(method)) return AccountActivityKind.BitcoinLock;
     if (method !== 'BondCreated') return 0;
 
-    const bondCreated = event as Extract<HistoricalEvent, { section: 'bonds'; method: 'BondCreated' }>;
-    return bondCreated.data.utxoId.isNone ? 0 : AccountActivityKind.BitcoinLock;
+    if (!historicalEvent || historicalEvent.section !== 'bonds' || historicalEvent.method !== 'BondCreated') {
+      return AccountActivityKind.BitcoinLock;
+    }
+    return historicalEvent.data.utxoId === null ? 0 : AccountActivityKind.BitcoinLock;
   }
 
   // ChainTransfer was renamed LocalchainTransfer. TokenGateway is the older
@@ -219,13 +235,12 @@ export function classifyEvent(
   if (section === 'mint') {
     // ArgonsMinted carried both sources before the runtime split the event.
     if (method === 'ArgonsMinted') {
-      if (!hasNamedEventData(event, { section: 'mint', method: 'ArgonsMinted' })) {
+      if (!historicalEvent || historicalEvent.section !== 'mint' || historicalEvent.method !== 'ArgonsMinted') {
         return AccountActivityKind.AccountBalance;
       }
 
-      const mintType = event.data.mintType.toString().toLowerCase();
-      if (mintType?.includes('bitcoin')) return AccountActivityKind.BitcoinMint;
-      if (mintType?.includes('mining')) return AccountActivityKind.MiningSeat;
+      if (historicalEvent.data.mintType.type === 'Bitcoin') return AccountActivityKind.BitcoinMint;
+      if (historicalEvent.data.mintType.type === 'Mining') return AccountActivityKind.MiningSeat;
       return AccountActivityKind.AccountBalance;
     }
 
@@ -420,35 +435,40 @@ const treasuryVaultRevenueEvents = new Set([
   'CouldNotFundTreasury',
 ]);
 
-function collectEventAccounts(event: HistoricalEvent, sourceAccount?: string): string[] {
-  const accounts = event.data.flatMap((value, index) => {
-    return event.data.typeDef[index].type.includes('AccountId') ? [value.toString()] : [];
+function collectEventAccounts(event: HistoricalEvent, specVersion: number, sourceAccount?: string): string[] {
+  const accountFields = new Set(
+    getHistoricalEventFieldAlternatives(specVersion, event.section, event.method).flatMap(fields => {
+      return Object.entries(fields).flatMap(([name, type]) => (type.includes('AccountId') ? [name] : []));
+    }),
+  );
+  const accounts = Object.entries(event.data).flatMap(([name, value]) => {
+    return accountFields.has(name) && value !== null && value !== undefined ? [String(value)] : [];
   });
 
   if (sourceAccount && isGatewayOperationSourceEvent(event)) accounts.push(sourceAccount);
 
   if (event.section === 'miningSlot' && event.method === 'NewMiners') {
     for (const miner of event.data.newMiners) {
-      accounts.push(miner.accountId.toString());
+      accounts.push(miner.accountId);
 
-      if ('externalFundingAccount' in miner && miner.externalFundingAccount.isSome) {
-        accounts.push(miner.externalFundingAccount.unwrap().toString());
+      if ('externalFundingAccount' in miner && miner.externalFundingAccount) {
+        accounts.push(miner.externalFundingAccount);
       }
-      if ('rewardDestination' in miner && miner.rewardDestination.isAccount) {
-        accounts.push(miner.rewardDestination.asAccount.toString());
+      if ('rewardDestination' in miner && miner.rewardDestination.type === 'Account') {
+        accounts.push(miner.rewardDestination.value);
       }
-      if ('rewardSharing' in miner && miner.rewardSharing.isSome) {
-        accounts.push(miner.rewardSharing.unwrap().accountId.toString());
+      if ('rewardSharing' in miner && miner.rewardSharing) {
+        accounts.push(miner.rewardSharing.accountId);
       }
     }
   }
 
   if (event.section === 'blockRewards' && (event.method === 'RewardCreated' || event.method === 'RewardUnlocked')) {
-    accounts.push(...event.data.rewards.map(reward => reward.accountId.toString()));
+    accounts.push(...event.data.rewards.map(reward => reward.accountId));
   }
 
   if (event.section === 'crosschainTransfer' && event.method === 'TransferToArgonSettled') {
-    accounts.push(event.data.transfer.to.toString());
+    accounts.push(event.data.transfer.to);
   }
 
   return accounts;
@@ -456,7 +476,7 @@ function collectEventAccounts(event: HistoricalEvent, sourceAccount?: string): s
 
 function collectMintingAuthoritySigningKeys(event: HistoricalEvent): string[] {
   const { data } = event;
-  return data.destinationSigningKey ? [data.destinationSigningKey.toHex()] : [];
+  return 'destinationSigningKey' in data && data.destinationSigningKey ? [data.destinationSigningKey] : [];
 }
 
 export function isGatewayOperationSourceEvent(event: Pick<GenericEvent, 'method' | 'section'>): boolean {
@@ -468,16 +488,17 @@ export function isGatewayOperationSourceEvent(event: Pick<GenericEvent, 'method'
 
 function collectEventVaultIds(event: HistoricalEvent): number[] {
   const { data } = event;
-  const vaultId = data.vaultId?.toNumber();
-  if (vaultId !== undefined) return [vaultId];
-  if (data.programId?.isVault) return [data.programId.asVault.vaultId.toNumber()];
+  if ('vaultId' in data && data.vaultId !== undefined) return [data.vaultId];
+  if ('programId' in data && data.programId?.type === 'Vault') return [data.programId.value.vaultId];
   return [];
 }
 
 function collectEventBitcoinLockIds(event: HistoricalEvent): number[] {
   const { data } = event;
+  if (!('utxoId' in data)) return [];
   const { utxoId } = data;
-  if (!utxoId) return [];
-  if (utxoId instanceof Option) return utxoId.isSome ? [utxoId.unwrap().toNumber()] : [];
-  return [utxoId.toNumber()];
+  if (utxoId === null || utxoId === undefined) return [];
+  const value = Number(utxoId);
+  if (Number.isSafeInteger(value)) return [value];
+  throw new AccountActivityCoverageError(`${event.section}.${event.method} contains unsafe Bitcoin lock id ${utxoId}`);
 }

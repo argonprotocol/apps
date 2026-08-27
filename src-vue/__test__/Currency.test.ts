@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import BigNumber from 'bignumber.js';
-import { bigintCodec, numberCodec } from '../../core/__test__/helpers/codecs.ts';
 import { Currency, UnitOfMeasurement } from '../lib/Currency.ts';
 
 describe('Currency', () => {
@@ -95,18 +94,15 @@ describe('Currency', () => {
   });
 
   it('shares historical rate reads by block hash without changing current rates', async () => {
-    const option = {
-      isSome: true,
-      unwrap: () => ({
-        btcUsdPrice: bigintCodec(20_000_000_000_000_000_000n),
-        argonotUsdPrice: bigintCodec(4_000_000_000_000_000_000n),
-        argonUsdPrice: bigintCodec(2_000_000_000_000_000_000n),
-        argonUsdTargetPrice: bigintCodec(2_000_000_000_000_000_000n),
-        argonTimeWeightedAverageLiquidity: bigintCodec(0n),
-        tick: numberCodec(1),
-      }),
+    const priceIndex = {
+      btcUsdPrice: BigNumber(20),
+      argonotUsdPrice: BigNumber(4),
+      argonUsdPrice: BigNumber(2),
+      argonUsdTargetPrice: BigNumber(2),
+      argonTimeWeightedAverageLiquidity: BigNumber(0),
+      tick: 1,
     };
-    const current = vi.fn(async () => option);
+    const current = vi.fn(async () => priceIndex);
     const currency = new Currency(
       { events: { on: vi.fn() } } as any,
       { isLoadedPromise: Promise.resolve(), defaultCurrencyKey: UnitOfMeasurement.USD } as any,
@@ -134,19 +130,13 @@ describe('Currency', () => {
 });
 
 function createCurrentPriceIndexQuery() {
-  const option = {
-    isSome: false,
-    toHex: () => '0x00',
-    unwrap: () => {
-      throw new Error('should not unwrap an empty price index');
-    },
-  };
+  const current = null;
 
-  return vi.fn((callback?: (value: typeof option) => void) => {
+  return vi.fn((callback?: (value: typeof current) => void) => {
     if (callback) {
-      callback(option);
+      callback(current);
       return Promise.resolve(() => undefined);
     }
-    return Promise.resolve(option);
+    return Promise.resolve(current);
   });
 }

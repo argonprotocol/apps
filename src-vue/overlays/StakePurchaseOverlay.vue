@@ -490,7 +490,7 @@ async function initializePurchase(session = ++purchaseSession) {
 
   const maxActiveLots = client.consts.treasury.maxActiveArgonotBondLots.toNumber();
   const smallestActiveLotBonds = activeLots.length
-    ? activeLots.reduce((smallest, lot) => Math.min(smallest, lot.bonds.toNumber()), Number.POSITIVE_INFINITY)
+    ? activeLots.reduce((smallest, lot) => Math.min(smallest, lot.bonds), Number.POSITIVE_INFINITY)
     : undefined;
   const isReplacingActiveLot = activeLots.length >= maxActiveLots;
 
@@ -502,13 +502,13 @@ async function initializePurchase(session = ++purchaseSession) {
   });
 
   argonotBondCapacity.value = TreasuryBonds.getArgonotBondPurchaseCapacity({
-    totalIssuanceMicronots: totalIssuance.toBigInt(),
+    totalIssuanceMicronots: totalIssuance,
     maxBondedPercent: client.consts.treasury.maxArgonotBondedPercentOfCirculation.toNumber(),
-    totalActiveBonds: totalActiveBonds.toNumber(),
+    totalActiveBonds,
     replacedBonds: isReplacingActiveLot ? smallestActiveLotBonds : undefined,
   });
   argonotBondPurchaseLimit.value = TreasuryBonds.getArgonotBondPurchaseLimit({
-    totalIssuanceMicronots: totalIssuance.toBigInt(),
+    totalIssuanceMicronots: totalIssuance,
     maxBondedPercent: client.consts.treasury.maxArgonotBondedPercentOfCirculation.toNumber(),
   });
 

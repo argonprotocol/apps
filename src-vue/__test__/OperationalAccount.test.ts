@@ -24,9 +24,7 @@ vi.mock('@argonprotocol/apps-core', async importOriginal => ({
 }));
 
 function createOperationalAccount(name: string) {
-  return getOfflineRegistry().createType('Option<PalletOperationalAccountsOperationalAccount>', {
-    name: name || null,
-  });
+  return { name: name ? new TextEncoder().encode(name) : null };
 }
 
 it.each([
@@ -129,7 +127,7 @@ it('submits a current-runtime profile name with a funded linked signer', async (
   const client = {
     query: {
       operationalAccounts: {
-        operationalAccounts: vi.fn().mockResolvedValue({ isNone: true }),
+        operationalAccounts: vi.fn().mockResolvedValue(null),
       },
     },
     tx: {
@@ -175,7 +173,7 @@ it('resumes a pending profile name after restart without submitting it again', a
   const client = {
     query: {
       operationalAccounts: {
-        operationalAccounts: vi.fn().mockResolvedValue({ isNone: true }),
+        operationalAccounts: vi.fn().mockResolvedValue(null),
       },
     },
     tx: {
@@ -213,8 +211,8 @@ it('uses the finalized operator profile before repairing an underfunded delegate
   const delegateTransaction = { tx: { id: 2 } };
   const account = vi
     .fn()
-    .mockResolvedValueOnce({ data: { free: bigintCodec(999_978n) } })
-    .mockResolvedValueOnce({ data: { free: bigintCodec(1_500_000n) } });
+    .mockResolvedValueOnce({ data: { free: 999_978n } })
+    .mockResolvedValueOnce({ data: { free: 1_500_000n } });
   const client = {
     query: {
       operationalAccounts: {
@@ -281,7 +279,7 @@ it('restores a finalized operator name transaction when the profile query initia
         operationalAccounts: vi.fn(async () => createOperationalAccount(savedOperatorName)),
       },
       system: {
-        account: vi.fn().mockResolvedValue({ data: { free: bigintCodec(1_500_000n) } }),
+        account: vi.fn().mockResolvedValue({ data: { free: 1_500_000n } }),
       },
     },
     tx: {
@@ -353,7 +351,7 @@ it('submits operational registration once the treasury wallet can afford it', as
     },
     query: {
       operationalAccounts: {
-        operationalAccounts: vi.fn().mockResolvedValue({ isSome: false }),
+        operationalAccounts: vi.fn().mockResolvedValue(null),
         encryptedServerByDownstreamAccount: vi.fn(),
       },
     },
@@ -420,7 +418,7 @@ it('waits for more treasury funds before submitting operational registration', a
     },
     query: {
       operationalAccounts: {
-        operationalAccounts: vi.fn().mockResolvedValue({ isSome: false }),
+        operationalAccounts: vi.fn().mockResolvedValue(null),
         encryptedServerByDownstreamAccount: vi.fn(),
       },
     },
@@ -477,7 +475,7 @@ it('waits for the runtime upgrade before submitting an access-proof registration
     },
     query: {
       operationalAccounts: {
-        operationalAccounts: vi.fn().mockResolvedValue({ isSome: false }),
+        operationalAccounts: vi.fn().mockResolvedValue(null),
       },
     },
     tx: {

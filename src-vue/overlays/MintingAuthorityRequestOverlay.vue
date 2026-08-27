@@ -554,18 +554,17 @@ async function loadState() {
       finalizedClient.query.system.account(delegateKeypair.address),
     ]);
 
-    if (commitmentOption.isSome) {
-      const commitment = commitmentOption.unwrap();
-      const committedMicronots = BigInt(commitment.committedMicronots.toString());
-      const encumberedMicronots = BigInt(commitment.encumberedMicronots.toString());
+    if (commitmentOption) {
+      const committedMicronots = commitmentOption.committedMicronots;
+      const encumberedMicronots = commitmentOption.encumberedMicronots;
       remainingCommittedMicronots.value = bigintMax(committedMicronots - encumberedMicronots, 0n);
     }
 
     const bondTotals = BondLot.getTotals(bondLots);
-    remainingBondMicrogons.value = bigintMax(bondTotals.activeBondMicrogons - encumberedBondMicrogons.toBigInt(), 0n);
+    remainingBondMicrogons.value = bigintMax(bondTotals.activeBondMicrogons - (encumberedBondMicrogons ?? 0n), 0n);
 
-    minimumRequiredMicrogons.value = minimumMintingAuthorityValue.toBigInt();
-    relayDelegateBalance.value = relayDelegateAccount.data.free.toBigInt();
+    minimumRequiredMicrogons.value = minimumMintingAuthorityValue ?? 0n;
+    relayDelegateBalance.value = relayDelegateAccount.data.free;
     relayDelegateTopUpAmount.value =
       relayDelegateBalance.value >= minimumVaultDelegateBalance
         ? 0n
@@ -573,13 +572,10 @@ async function loadState() {
 
     councilSigner.value = myVault.globalCouncil.data.councilSigner ?? localCouncilSigner;
 
-    if (activeCouncilHashOption.isSome) {
-      const councilOption = await finalizedClient.query.crosschainTransfer.globalIssuanceCouncilByHash(
-        activeCouncilHashOption.unwrap().toHex(),
-      );
-      if (councilOption.isSome) {
-        epochMicrogonsPerArgonot.value = councilOption.unwrap().epochMicrogonsPerArgonot.toBigInt();
-      }
+    if (activeCouncilHashOption) {
+      const councilOption =
+        await finalizedClient.query.crosschainTransfer.globalIssuanceCouncilByHash(activeCouncilHashOption);
+      if (councilOption) epochMicrogonsPerArgonot.value = councilOption.epochMicrogonsPerArgonot;
     }
 
     currentAuthorities.value = myVault.mintingAuthorities.data.authorities.map(

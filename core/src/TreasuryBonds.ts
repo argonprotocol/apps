@@ -1,19 +1,10 @@
-import {
-  type ArgonClient,
-  FIXED_U128_DECIMALS,
-  fromFixedNumber,
-  type PalletTreasuryBondLotSummary,
-  type PalletTreasuryVaultBondState,
-  type PalletTreasuryVaultCapital,
-  type SubmittableExtrinsic,
-} from '@argonprotocol/mainchain';
+import { FIXED_U128_DECIMALS, fromFixedNumber, type SubmittableExtrinsic } from '@argonprotocol/mainchain';
 import { stringToU8a, u8aConcat } from '@polkadot/util';
 import { bigNumberToBigInt } from './utils.js';
 import BigNumber from 'bignumber.js';
 import { BondLot, type IBondLotSource } from './BondLot.js';
 import { MICRONOTS_PER_ARGONOT } from './Currency.js';
-import type { ArgonQueryClient } from './MainchainClients.js';
-import type { PreviousRuntimeSpec } from './runtimeCompatibility.js';
+import type { ArgonClient, ArgonQueryClient } from './MainchainClients.js';
 import type { Vault } from './Vault.js';
 
 const U32_MAX = 4_294_967_295n;
@@ -54,7 +45,7 @@ export class TreasuryBonds {
     vaultActiveBonds: number;
   }> {
     const frameCapitalRaw = await client.query.treasury.currentFrameVaultCapital();
-    if (frameCapitalRaw.isNone) {
+    if (!frameCapitalRaw) {
       return {
         totalActiveBonds: 0,
         vaultActiveBonds: 0,
@@ -63,11 +54,11 @@ export class TreasuryBonds {
 
     let totalActiveBonds = 0;
     let vaultActiveBonds = 0;
-    for (const [nextVaultId, capital] of frameCapitalRaw.unwrap().vaults.entries()) {
-      const activeBonds = capital.eligibleBonds.toNumber();
+    for (const [nextVaultId, capital] of Object.entries(frameCapitalRaw.vaults)) {
+      const activeBonds = capital.eligibleBonds;
       totalActiveBonds += activeBonds;
 
-      if (nextVaultId.toNumber() === vaultId) {
+      if (Number(nextVaultId) === vaultId) {
         vaultActiveBonds = activeBonds;
       }
     }
@@ -90,7 +81,7 @@ export class TreasuryBonds {
   public static async getDistributableBidPool(client: ArgonQueryClient): Promise<bigint> {
     const bidPoolAccountId = TreasuryBonds.getBidPoolAccountId(client);
     const accountInfo = await client.query.system.account(bidPoolAccountId);
-    const revenue = accountInfo.data.free.toBigInt();
+    const revenue = accountInfo.data.free;
     const percentForVaults = TreasuryBonds.getBidPoolPercentForVaults(client);
     return bigNumberToBigInt(BigNumber(revenue).times(percentForVaults));
   }
@@ -216,11 +207,11 @@ export class TreasuryBonds {
   public static async getVaultBondState(client: ArgonQueryClient, vaultId: number, ownAddress?: string) {
     const { summaries, capacityState, ordinaryBonds, flexibleBonds, reservedBondSpace } =
       await TreasuryBonds.getVaultBondSources(client, vaultId);
-    const idsBySourceOrder = [...summaries].map(summary => summary.bondLotId.toNumber());
+    const idsBySourceOrder = [...summaries].map(summary => Number(summary.bondLotId));
 
     if (ownAddress) {
       const accountKeys = await client.query.treasury.bondLotIdsByAccount.keys(ownAddress);
-      idsBySourceOrder.push(...accountKeys.map(key => key.args[1].toNumber()));
+      idsBySourceOrder.push(...(accountKeys ?? []).map(key => Number(key.args[1])));
     }
 
     const ids = [...new Set(idsBySourceOrder)];
@@ -258,7 +249,7 @@ export class TreasuryBonds {
 
   public static async getBondLotsByAccount(client: ArgonQueryClient, accountId: string): Promise<BondLot[]> {
     const accountKeys = await client.query.treasury.bondLotIdsByAccount.keys(accountId);
-    const ids = [...new Set(accountKeys.map(key => key.args[1].toNumber()))];
+    const ids = [...new Set((accountKeys ?? []).map(key => Number(key.args[1])))];
     const lotsById = await TreasuryBonds.getBondLotsById(client, ids);
 
     return ids.flatMap(id => {
@@ -270,7 +261,7 @@ export class TreasuryBonds {
   public static async getCurrentFrameBondLots(client: ArgonQueryClient, vaultId: number, operatorAddress: string) {
     const bondLots: IFrameBondLot[] = [];
     const frameCapitalRaw = await client.query.treasury.currentFrameVaultCapital();
-    if (frameCapitalRaw.isNone) {
+    if (!frameCapitalRaw) {
       return {
         bondLots,
         totalActiveBonds: 0,
@@ -278,13 +269,7 @@ export class TreasuryBonds {
       };
     }
 
-    let vaultCapital: PalletTreasuryVaultCapital | PreviousRuntimeSpec.PalletTreasuryVaultCapital | undefined;
-    for (const [nextVaultId, capital] of frameCapitalRaw.unwrap().vaults.entries()) {
-      if (nextVaultId.toNumber() !== vaultId) continue;
-
-      vaultCapital = capital as PalletTreasuryVaultCapital | PreviousRuntimeSpec.PalletTreasuryVaultCapital;
-      break;
-    }
+    const vaultCapital = frameCapitalRaw.vaults[String(vaultId)];
     if (!vaultCapital) {
       return {
         bondLots,
@@ -293,19 +278,19 @@ export class TreasuryBonds {
       };
     }
 
-    const totalActiveBonds = vaultCapital.eligibleBonds.toNumber();
+    const totalActiveBonds = vaultCapital.eligibleBonds;
     const allocations =
       'regularBondAllocations' in vaultCapital ? vaultCapital.regularBondAllocations : vaultCapital.bondLotAllocations;
-    const bondLotIds = allocations.map(allocation => allocation.bondLotId.toNumber());
+    const bondLotIds = allocations.map(allocation => Number(allocation.bondLotId));
     const bondLotsById = await TreasuryBonds.getBondLotsById(client, bondLotIds);
 
     for (const allocation of allocations) {
-      const bondLotId = allocation.bondLotId.toNumber();
-      const prorata = allocation.prorata.toBigInt();
+      const bondLotId = Number(allocation.bondLotId);
+      const prorata = bigNumberToBigInt(allocation.prorata.times(10 ** FIXED_U128_DECIMALS));
       const lot = bondLotsById.get(bondLotId);
       if (!lot) continue;
 
-      const accountId = lot.owner.toString();
+      const accountId = lot.owner;
       const bonds = TreasuryBonds.getProrataBonds(totalActiveBonds, prorata);
       const entry = {
         id: `lot:${bondLotId}`,
@@ -356,11 +341,11 @@ export class TreasuryBonds {
     const result: Array<{ frameId: number; bonds: number; earnings: bigint }> = [];
 
     for (const { lot } of await TreasuryBonds.getBondLotsForVault(client, vaultId)) {
-      if (lot.owner.toString() !== accountId || lot.lastFrameEarningsFrameId.isNone) continue;
+      if (lot.owner !== accountId || lot.lastFrameEarningsFrameId === null) continue;
 
-      const frameId = lot.lastFrameEarningsFrameId.unwrap().toNumber();
-      const bonds = lot.bonds.toNumber();
-      const earnings = lot.lastFrameEarnings.isSome ? lot.lastFrameEarnings.unwrap().toBigInt() : 0n;
+      const frameId = lot.lastFrameEarningsFrameId;
+      const bonds = lot.bonds;
+      const earnings = lot.lastFrameEarnings ?? 0n;
 
       result.push({ frameId, bonds, earnings });
     }
@@ -400,7 +385,7 @@ export class TreasuryBonds {
 
   private static async getBondLotsForVault(client: ArgonQueryClient, vaultId: number): Promise<IBondLotSource[]> {
     const { summaries } = await TreasuryBonds.getVaultBondSources(client, vaultId);
-    const ids = [...summaries].map(summary => summary.bondLotId.toNumber());
+    const ids = [...summaries].map(summary => Number(summary.bondLotId));
     const lotsById = await TreasuryBonds.getBondLotsById(client, ids);
 
     return ids.flatMap(id => {
@@ -410,25 +395,25 @@ export class TreasuryBonds {
   }
 
   private static async getVaultBondSources(client: ArgonQueryClient, vaultId: number) {
-    const vaultState = (await client.query.treasury.bondLotsByVault(vaultId)) as
-      | PalletTreasuryVaultBondState
-      | PreviousRuntimeSpec.PalletTreasuryVaultBondState;
-    let summaries: Iterable<PalletTreasuryBondLotSummary | PreviousRuntimeSpec.PalletTreasuryBondLotSummary>;
+    const vaultState = await client.query.treasury.bondLotsByVault(vaultId);
+    let summaries: readonly { readonly bondLotId: number; readonly bonds: number }[] = [];
     let flexibleBonds = 0;
     let reservedBondSpace = 0;
 
-    if ('regularBondLots' in vaultState) {
+    if (vaultState && 'regularBondLots' in vaultState) {
       summaries = vaultState.regularBondLots;
-      flexibleBonds = vaultState.flexibleBonds.toNumber();
-      reservedBondSpace = vaultState.reservedBondSpace.toNumber();
-    } else {
+      flexibleBonds = vaultState.flexibleBonds;
+      reservedBondSpace = vaultState.reservedBondSpace;
+    } else if (vaultState && 'bondLots' in vaultState) {
       summaries = vaultState.bondLots;
-      flexibleBonds = vaultState.backfillBonds.toNumber();
-      reservedBondSpace = vaultState.backfillBondsReserved.toNumber();
+      flexibleBonds = vaultState.backfillBonds;
+      reservedBondSpace = vaultState.backfillBondsReserved;
+    } else if (vaultState) {
+      summaries = vaultState;
     }
 
     const capacityState = [...summaries].map(summary => ({
-      activeBonds: summary.bonds.toNumber(),
+      activeBonds: summary.bonds,
     }));
     const ordinaryBonds = capacityState.reduce((total, summary) => total + summary.activeBonds, 0);
     if (reservedBondSpace > 0) {
@@ -452,14 +437,12 @@ export class TreasuryBonds {
   ): Promise<Map<number, IBondLotSource['lot']>> {
     if (ids.length === 0) return new Map();
 
-    const lots = await client.query.treasury.bondLotById.multi(ids);
+    const lots = (await client.query.treasury.bondLotById.multi(ids)) ?? [];
     const result = new Map<number, IBondLotSource['lot']>();
 
     for (let i = 0; i < ids.length; i += 1) {
       const lot = lots[i];
-      if (lot.isSome) {
-        result.set(ids[i], lot.unwrap() as IBondLotSource['lot']);
-      }
+      if (lot) result.set(ids[i], lot);
     }
 
     return result;

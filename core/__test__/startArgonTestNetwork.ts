@@ -6,7 +6,8 @@ import docker from 'docker-compose';
 import { runOnTeardown } from '@argonprotocol/testing';
 import { NetworkConfig, NetworkConfigSettings } from '../src/NetworkConfig.ts';
 import { stripNetworkPrefix, toComposeProjectName } from '../src/utils.ts';
-import { type ArgonClient, getClient } from '@argonprotocol/mainchain';
+import { type ArgonClient as PolkadotArgonClient, getClient } from '@argonprotocol/mainchain';
+import { createArgonClient, type ArgonClient } from '../src/MainchainClients.ts';
 
 type StartProfile = 'miners' | 'bob' | 'dave' | 'all' | 'price-oracle';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -207,7 +208,7 @@ export async function startArgonTestNetwork(
   const port = portResult.data.port;
   const archiveUrl = `ws://127.0.0.1:${port}`;
   const archiveRpcUrl = `ws://127.0.0.1:${archiveRpcPortResult.data.port}`;
-  const client = await getClient(archiveUrl);
+  const client = createArgonClient(await getClient(archiveUrl));
   await waitForFirstMainchainBlock(client, archiveUrl, {
     timeoutMs: Number.isFinite(options.chainStartTimeoutMs ?? NaN)
       ? Number(options.chainStartTimeoutMs)
@@ -282,7 +283,7 @@ export async function waitForQueryableClient(
   const label = options.label ?? url;
 
   while (Date.now() - startedAt <= timeoutMs) {
-    let client: ArgonClient | undefined;
+    let client: PolkadotArgonClient | undefined;
     try {
       client = await getClient(url);
       await client.query.ticks.genesisTick();

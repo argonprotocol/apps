@@ -66,10 +66,10 @@ export function setupStakePurchaseScenario(state: StakePurchaseState) {
 
     return {
       query: {
-        ownership: { totalIssuance: fn(async () => ({ toBigInt: () => 10_000n * unitsPerStake })) },
+        ownership: { totalIssuance: fn(async () => 10_000n * unitsPerStake) },
         treasury: {
-          totalActiveArgonotBonds: fn(async () => ({ toNumber: () => 1_000 })),
-          argonotBondLots: fn(async () => [{ bonds: { toNumber: () => 125 } }]),
+          totalActiveArgonotBonds: fn(async () => 1_000),
+          argonotBondLots: fn(async () => [{ bondLotId: 1, bonds: 125 }]),
         },
       },
       consts: {

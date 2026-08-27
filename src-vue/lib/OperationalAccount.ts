@@ -1,23 +1,16 @@
+import { getOfflineRegistry, type KeyringPair, type SubmittableExtrinsic, u8aToHex } from '@argonprotocol/mainchain';
 import {
-  ArgonClient,
-  getOfflineRegistry,
-  type KeyringPair,
-  type Option,
-  type PalletOperationalAccountsOperationalAccount,
-  type SubmittableExtrinsic,
-  u8aToHex,
-} from '@argonprotocol/mainchain';
-import {
+  type ArgonClient,
   createDeferred,
   getCertificationProgressFromOperationalAccount,
   getCertificationThresholds,
   getVaultByOperator,
   type IOperationalAccessProof,
   MICROGONS_PER_ARGON,
-  type PreviousRuntimeSpec,
   type Vault,
 } from '@argonprotocol/apps-core';
-import { stringToU8a } from '@polkadot/util';
+import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
+import { stringToU8a, u8aToString } from '@polkadot/util';
 import { blake2AsU8a, signatureVerify } from '@polkadot/util-crypto';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
@@ -33,6 +26,7 @@ export { isValidOperatorName } from './Utils.ts';
 const OPERATIONAL_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_primary_account';
 const VAULT_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_vault_account';
 const MINING_ACCOUNT_PROOF_MESSAGE_KEY = 'operational_mining_account';
+type RuntimeOperationalAccount = HistoricalQueryRecord<'operationalAccounts', 'operationalAccounts'>;
 const OPERATIONAL_REWARDS_UPGRADE_ERROR = 'Reward claims cannot be submitted until the next Argon upgrade is active.';
 
 export type IOperationalRewardConfig = {
@@ -123,7 +117,7 @@ export async function buildOperatorAccountRegistrationTx(
   const { walletKeys, accessProof } = args;
   const client = args.client ?? (await getMainchainClient(false));
   const existing = await loadOperationalAccount(walletKeys, client);
-  if (existing.isSome) return;
+  if (existing) return;
   if (!('minimumBitcoin' in client.consts.operationalAccounts)) return;
 
   const [operationalAccount, operationalEncryptionKey, vaultingAccount, miningBotAccount] = await Promise.all([
@@ -211,11 +205,8 @@ export async function ensureOperationalAccountRegistered(
   });
 }
 
-export function getOperationalProfileName(accountRaw: Option<PalletOperationalAccountsOperationalAccount>): string {
-  if (!accountRaw.isSome) return '';
-
-  const name = accountRaw.unwrap().name;
-  return name.isSome ? name.unwrap().toUtf8().trim() : '';
+export function getOperationalProfileName(account: RuntimeOperationalAccount): string {
+  return account?.name ? u8aToString(account.name).trim() : '';
 }
 
 export function getOnboardingSetupStatus(args: {
@@ -412,9 +403,9 @@ export async function getOperationalRewardConfig(client?: ArgonClient): Promise<
 
   return {
     operationalActivationReward:
-      rewards?.operationalCertificationReward?.toBigInt() ?? consts.operationalCertificationReward.toBigInt(),
+      rewards?.operationalCertificationReward ?? consts.operationalCertificationReward.toBigInt(),
     operationalReferralBonusReward:
-      rewards?.operationalCertificationBonusReward?.toBigInt() ?? consts.operationalCertificationBonusReward.toBigInt(),
+      rewards?.operationalCertificationBonusReward ?? consts.operationalCertificationBonusReward.toBigInt(),
     operationalReferralsPerBonusReward: consts.operationalCertificationsPerBonusReward.toNumber(),
     operationalMinimumUniswapTransfer: consts.operationalMinimumUniswapTransfer.toBigInt(),
     operationalMinimumVaultLockTicks: client.consts.vaults.operationalMinimumVaultLockTicks.toBigInt(),
@@ -452,10 +443,7 @@ export async function getOperationalRewardsClaimAvailability(
   client ??= await getMainchainClient(false);
 
   const accountRaw = await loadOperationalAccount(walletKeys, client);
-  const account = accountRaw.isSome ? accountRaw.unwrap() : undefined;
-  const rawPendingRewards = account
-    ? account.rewardsEarnedAmount.toBigInt() - account.rewardsCollectedAmount.toBigInt()
-    : 0n;
+  const rawPendingRewards = accountRaw ? accountRaw.rewardsEarnedAmount - accountRaw.rewardsCollectedAmount : 0n;
   const pendingRewards = rawPendingRewards > 0n ? rawPendingRewards : 0n;
   const canClaimRewards = 'claimRewards' in client.tx.operationalAccounts;
   const treasuryReserves = canClaimRewards ? await getTreasuryReserveBalance(client) : undefined;
@@ -513,17 +501,17 @@ export async function subscribeOperationalAccount(
 export async function loadOperationalAccount(
   walletKeys: WalletKeys,
   client?: ArgonClient,
-): Promise<Option<PalletOperationalAccountsOperationalAccount>> {
+): Promise<RuntimeOperationalAccount> {
   client ??= await getMainchainClient(false);
   return await client.query.operationalAccounts.operationalAccounts(walletKeys.operationalAddress);
 }
 
 export function getOperationalChainProgressFromAccount(
-  accountRaw: Option<PalletOperationalAccountsOperationalAccount>,
+  account: RuntimeOperationalAccount,
   rewardConfig?: IOperationalRewardConfig,
 ): IOperationalChainProgress {
   const entry: IOperationalChainProgress = {
-    hasOperationalAccount: accountRaw.isSome,
+    hasOperationalAccount: !!account,
     hasVault: false,
     hasUniswapTransfer: false,
     hasTreasuryUniswapTransfer: false,
@@ -545,45 +533,39 @@ export function getOperationalChainProgressFromAccount(
     hasUpstreamAccount: false,
   };
 
-  if (!accountRaw.isSome) return entry;
+  if (!account) return entry;
 
-  const account = accountRaw.unwrap();
-  const currentOrPreviousAccount = account as
-    | PalletOperationalAccountsOperationalAccount
-    | PreviousRuntimeSpec.PalletOperationalAccountsOperationalAccount;
-  const certificationProgress = getCertificationProgressFromOperationalAccount(accountRaw, rewardConfig);
+  const certificationProgress = getCertificationProgressFromOperationalAccount(account, rewardConfig);
 
   const operationalMinimumUniswapTransfer = rewardConfig?.operationalMinimumUniswapTransfer ?? 0n;
 
-  const bitcoinAccrual = account.vaultBitcoinAccrual.toBigInt();
-  const miningSeatAccrualValue = account.miningSeatAccrual.toNumber();
-  const uniswapArgonTransfersInAmountValue = account.uniswapArgonTransfersInAmount.toBigInt();
-  let accessCodePending = entry.accessCodePending;
-  if ('accessCodePending' in currentOrPreviousAccount) {
-    accessCodePending = currentOrPreviousAccount.accessCodePending.toPrimitive();
-  }
+  const bitcoinAccrual = account.vaultBitcoinAccrual ?? account.bitcoinAccrual ?? 0n;
+  const miningSeatAccrualValue = account.miningSeatAccrual;
+  const uniswapArgonTransfersInAmountValue = account.uniswapArgonTransfersInAmount ?? 0n;
 
   return {
     hasOperationalAccount: certificationProgress.hasOperationalAccount,
-    hasVault: account.vaultCreated.toPrimitive(),
+    hasVault: account.vaultCreated,
     hasUniswapTransfer: uniswapArgonTransfersInAmountValue >= operationalMinimumUniswapTransfer,
     hasTreasuryUniswapTransfer: certificationProgress.hasTreasuryUniswapTransfer,
     hasTreasuryBondParticipation: certificationProgress.hasTreasuryBonds,
-    hasFirstMiningSeat: miningSeatAccrualValue + account.miningSeatAppliedTotal.toNumber() >= 1,
-    hasSecondMiningSeat: miningSeatAccrualValue + account.miningSeatAppliedTotal.toNumber() >= 2,
+    hasFirstMiningSeat: miningSeatAccrualValue + (account.miningSeatAppliedTotal ?? 0) >= 1,
+    hasSecondMiningSeat: miningSeatAccrualValue + (account.miningSeatAppliedTotal ?? 0) >= 2,
     hasBitcoinLock: certificationProgress.hasTreasuryBitcoin,
     bitcoinAccrual,
     miningSeatAccrual: miningSeatAccrualValue,
-    operationalCertificationsCount: account.operationalCertificationsCount.toNumber(),
-    accessCodePending,
-    availableAccessCodes: account.availableAccessCodes.toNumber(),
-    unactivatedAccessCodes: entry.unactivatedAccessCodes,
-    rewardsEarnedCount: account.rewardsEarnedCount.toNumber(),
-    rewardsEarnedAmount: account.rewardsEarnedAmount.toBigInt(),
-    rewardsCollectedAmount: account.rewardsCollectedAmount.toBigInt(),
+    operationalCertificationsCount: account.operationalCertificationsCount ?? account.operationalReferralsCount ?? 0,
+    accessCodePending:
+      account.accessCodePending ?? account.referralAccessCodePending ?? account.referralPending ?? false,
+    availableAccessCodes:
+      account.availableAccessCodes ?? account.issuableAccessCodes ?? account.availableReferrals ?? 0,
+    unactivatedAccessCodes: account.unactivatedAccessCodes ?? 0,
+    rewardsEarnedCount: account.rewardsEarnedCount,
+    rewardsEarnedAmount: account.rewardsEarnedAmount,
+    rewardsCollectedAmount: account.rewardsCollectedAmount,
     isUpgradedToOperations: certificationProgress.isUpgradedToOperations,
     isOperational: certificationProgress.isOperationallyCertified,
-    hasUpstreamAccount: account.upstreamAccount.isSome,
+    hasUpstreamAccount: !!account.upstreamAccount || !!account.sponsor,
   };
 }
 
@@ -592,5 +574,5 @@ async function getTreasuryReserveBalance(client: ArgonClient): Promise<bigint | 
   if (!treasuryReservesAccount) return;
 
   const account = await client.query.system.account(treasuryReservesAccount.toString());
-  return account.data.free.toBigInt();
+  return account.data.free;
 }

@@ -612,15 +612,13 @@ Vue.watch(
         return lock.isFunded ? total : total + lock.liquidityPromised;
       }, 0n);
 
-      if (operationalAccountRaw?.isSome) {
-        const account = operationalAccountRaw.unwrap();
-        memberUniswapTransferMicrogons.value = account.uniswapArgonTransfersInAmount.toBigInt();
-        memberOperationalVaultMicrogons.value =
-          account.vaultBitcoinAccrual.toBigInt() + account.vaultBitcoinAppliedTotal.toBigInt();
-        memberOperationalMiningSeatCount.value =
-          account.miningSeatAccrual.toNumber() + account.miningSeatAppliedTotal.toNumber();
+      if (operationalAccountRaw) {
+        const account = operationalAccountRaw;
+        memberUniswapTransferMicrogons.value = account.uniswapArgonTransfersInAmount;
+        memberOperationalVaultMicrogons.value = account.vaultBitcoinAccrual + account.vaultBitcoinAppliedTotal;
+        memberOperationalMiningSeatCount.value = account.miningSeatAccrual + account.miningSeatAppliedTotal;
       } else {
-        memberUniswapTransferMicrogons.value = transferTotals.microgonsIn.toBigInt();
+        memberUniswapTransferMicrogons.value = transferTotals.microgonsIn;
       }
     } catch (error) {
       console.warn('[Member Details] Unable to load member details.', error);

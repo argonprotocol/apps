@@ -34,13 +34,13 @@ export class Vaults extends VaultsBase {
       const operationalAccountId = await client.query.operationalAccounts.operationalAccountBySubAccount(
         vault.operatorAccountId,
       );
-      if (!operationalAccountId.isSome) {
+      if (!operationalAccountId) {
         onUpdate(this.setOperatorName(vaultId));
         return () => undefined;
       }
 
-      return await client.query.operationalAccounts.operationalAccounts(operationalAccountId.unwrap(), profileOption =>
-        onUpdate(this.setOperatorName(vaultId, profileOption)),
+      return await client.query.operationalAccounts.operationalAccounts(operationalAccountId, profileOption =>
+        onUpdate(this.setOperatorName(vaultId, profileOption ?? undefined)),
       );
     } catch (error) {
       console.warn(`[Vaults] Unable to subscribe to the operator profile for vault ${vaultId}`, error);

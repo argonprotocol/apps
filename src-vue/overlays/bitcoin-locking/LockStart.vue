@@ -738,15 +738,13 @@ async function refreshConversionQuote(): Promise<boolean> {
 
     const previousQuote = conversionQuoteMicrogonsPerBtc.value;
     const eligibleRate = eligibleRates.at(-1);
-    if (!eligibleRate || eligibleRate[1].toBigInt() <= 0n) {
+    if (!eligibleRate || eligibleRate[1] <= 0n) {
       throw new Error('Network bitcoin pricing is currently unavailable. Please try again later.');
     }
-    const nextQuote = eligibleRate[1].toBigInt();
+    const nextQuote = eligibleRate[1];
     const quoteTicksRemaining = Math.max(
       1,
-      eligibleRate[0].toNumber() +
-        quoteClient.consts.bitcoinLocks.maxBtcPriceTickAge.toNumber() -
-        currentTick.toNumber(),
+      Number(eligibleRate[0]) + quoteClient.consts.bitcoinLocks.maxBtcPriceTickAge.toNumber() - currentTick,
     );
     const quoteDurationMillis = quoteTicksRemaining * NetworkConfig.tickMillis;
     conversionQuoteMicrogonsPerBtc.value = nextQuote;

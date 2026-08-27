@@ -13,6 +13,7 @@ import {
   type RuntimeCompatibilityProvenance,
   type RuntimeInterfaceSources,
 } from './runtimeCompatibilityTypes.ts';
+import { readArgonSpecVersion } from '../runtime-client/src/history/runtimeSources.ts';
 
 const RUNTIME_PACKAGES = ['@argonprotocol/mainchain', '@argonprotocol/testing', '@argonprotocol/bitcoin'] as const;
 const AUTHORITATIVE_RUNTIME_PACKAGE = '@argonprotocol/mainchain' as const;
@@ -63,6 +64,7 @@ async function main(): Promise<void> {
   const ref = normalizeRef(args[0]);
   const isTagPin = isSemverLike(ref);
   const resolvedPin = resolveRuntimePin(ref);
+  const runtimeSpecVersion = await resolvePinnedRuntimeSpecVersion(resolvedPin.mainRepoCommitHash);
   const envRaw = Fs.readFileSync(ARGON_ENV_PATH, 'utf8');
   const serverEnvRaw = Fs.readFileSync(SERVER_DEV_DOCKER_ENV_PATH, 'utf8');
   const rootPackageJsonRaw = Fs.readFileSync(ROOT_PACKAGE_JSON_PATH, 'utf8');
@@ -156,6 +158,7 @@ async function main(): Promise<void> {
   if (resolvedPin.mainRepoCommitHash) {
     console.info(`- main repo commit: ${resolvedPin.mainRepoCommitHash}`);
   }
+  console.info(`- runtime spec: ${runtimeSpecVersion}`);
   if (Fs.existsSync(WORKSPACE_MAINCHAIN_PATH)) {
     console.info(
       '- note: workspace docker mode (`yarn docker:up:workspace`) uses ../mainchain directly and does not read these pinned npm versions.',
@@ -169,17 +172,23 @@ async function main(): Promise<void> {
     shell: true,
     stdio: 'inherit',
   });
-  if (!resolvedPin.runtimePackageResolutions) {
-    console.info('Regenerating historical runtime events');
-    execFileSync('yarn', ['workspace', '@argonprotocol/apps-indexer', 'generate:historical-events'], {
-      cwd: REPO_ROOT,
-      env: process.env,
-      shell: true,
-      stdio: 'inherit',
-    });
-  } else {
-    console.info('Skipping published historical runtime registration for the local dev portal');
-  }
+  console.info('Regenerating runtime query and historical event types');
+  const generatorArgs = [
+    'workspace',
+    '@argonprotocol/runtime-client',
+    'generate',
+    '--source',
+    resolvedPin.runtimePackageVersions[AUTHORITATIVE_RUNTIME_PACKAGE],
+    '--spec',
+    String(runtimeSpecVersion),
+  ];
+  if (resolvedPin.runtimePackageResolutions) generatorArgs.push('--local');
+  execFileSync('yarn', generatorArgs, {
+    cwd: REPO_ROOT,
+    env: process.env,
+    shell: true,
+    stdio: 'inherit',
+  });
   console.info('Building server');
   execFileSync('yarn', ['build:server'], {
     cwd: REPO_ROOT,
@@ -437,6 +446,7 @@ function resolveRuntimePin(ref: string): {
     return {
       dockerVersion: toDockerVersionFromCommitHash(commitHash),
       runtimePackageVersions: createRuntimePackageVersions(sharedRuntimeVersion),
+      mainRepoCommitHash: commitHash,
     };
   }
 
@@ -445,10 +455,28 @@ function resolveRuntimePin(ref: string): {
   }
 
   const npmVersion = toNpmVersion(ref);
+  const mainRepoCommitHash = resolveMainRepoTagCommitHash(npmVersion);
   return {
     dockerVersion: toDockerVersionFromNpmVersion(npmVersion),
     runtimePackageVersions: createRuntimePackageVersions(npmVersion),
+    mainRepoCommitHash,
   };
+}
+
+async function resolvePinnedRuntimeSpecVersion(commitHash?: string): Promise<number> {
+  if (!commitHash) {
+    const runtimeSourcePath = Path.join(WORKSPACE_MAINCHAIN_PATH, 'runtime/argon/src/lib.rs');
+    if (!Fs.existsSync(runtimeSourcePath)) {
+      throw new Error(`Missing dev runtime source: ${runtimeSourcePath}`);
+    }
+    return readArgonSpecVersion(Fs.readFileSync(runtimeSourcePath, 'utf8'));
+  }
+
+  const response = await fetch(
+    `https://raw.githubusercontent.com/argonprotocol/mainchain/${commitHash}/runtime/argon/src/lib.rs`,
+  );
+  if (!response.ok) throw new Error(`Unable to read Argon runtime spec at ${commitHash}: ${response.status}`);
+  return readArgonSpecVersion(await response.text());
 }
 
 function readDevRuntimePackageVersions(): Record<RuntimePackage, string> {
@@ -524,6 +552,27 @@ function resolveMainRepoCommitHash(): string {
     throw new Error(`Failed to resolve main commit hash from ${MAINCHAIN_GIT_REPO}`);
   }
   return hash.toLowerCase();
+}
+
+function resolveMainRepoTagCommitHash(version: string): string {
+  const tags = [`v${version}`, version];
+  const refs = tags.flatMap(tag => [`refs/tags/${tag}`, `refs/tags/${tag}^{}`]);
+  const output = execFileSync('git', ['ls-remote', '--tags', MAINCHAIN_GIT_REPO, ...refs], {
+    encoding: 'utf8',
+  }).trim();
+  const entries = output
+    .split('\n')
+    .filter(Boolean)
+    .map(line => line.trim().split(/\s+/))
+    .filter((entry): entry is [string, string] => Boolean(entry[0] && entry[1]));
+
+  for (const tag of tags) {
+    const peeled = entries.find(([, ref]) => ref === `refs/tags/${tag}^{}`)?.[0];
+    const direct = entries.find(([, ref]) => ref === `refs/tags/${tag}`)?.[0];
+    const commit = peeled ?? direct;
+    if (commit && isCommitHash(commit)) return commit.toLowerCase();
+  }
+  throw new Error(`Unable to resolve mainchain tag for runtime package ${version}`);
 }
 
 function getPublishedPackageVersions(packageName: RuntimePackage): string[] {

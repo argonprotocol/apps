@@ -1,6 +1,6 @@
 import { getOfflineRegistry, type GenericEvent } from '@argonprotocol/mainchain';
 import { getTypeDef } from '@polkadot/types-create';
-import { getHistoricalEventFieldAlternatives } from '../../src/HistoricalEventSpecs.ts';
+import { getHistoricalEventFieldAlternatives } from '@argonprotocol/runtime-client/events';
 
 export function createHistoricalEventData(
   specVersion: number,

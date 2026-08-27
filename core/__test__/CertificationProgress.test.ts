@@ -6,7 +6,7 @@ import {
   getCertificationThresholds,
   loadCertificationProgress,
 } from '../src/CertificationProgress.ts';
-import { bigintCodec, boolCodec, numberCodec } from './helpers/codecs.ts';
+import { bigintCodec, numberCodec } from './helpers/codecs.ts';
 
 describe('CertificationProgress', () => {
   afterEach(() => {
@@ -15,18 +15,22 @@ describe('CertificationProgress', () => {
 
   it('uses operational account thresholds and upstream access to determine certification progress', () => {
     const progress = getCertificationProgressFromOperationalAccount(
-      some({
-        vaultCreated: boolCodec(true),
-        upstreamAccount: someOption('//UpstreamOperator'),
-        isOperationallyCertified: boolCodec(true),
-        miningSeatAccrual: numberCodec(1),
-        miningSeatAppliedTotal: numberCodec(1),
-        uniswapArgonTransfersInAmount: bigintCodec(14n),
-        vaultBitcoinAccrual: bigintCodec(7n),
-        vaultBitcoinAppliedTotal: bigintCodec(6n),
-        accountBitcoinAmount: bigintCodec(12n),
-        accountVaultBondAmount: bigintCodec(9n),
-      }),
+      {
+        vaultAccount: '//VaultOperator',
+        vaultCreated: true,
+        upstreamAccount: '//UpstreamOperator',
+        isOperationallyCertified: true,
+        miningSeatAccrual: 1,
+        miningSeatAppliedTotal: 1,
+        uniswapArgonTransfersInAmount: 14n,
+        vaultBitcoinAccrual: 7n,
+        vaultBitcoinAppliedTotal: 6n,
+        accountBitcoinAmount: 12n,
+        accountVaultBondAmount: 9n,
+        rewardsEarnedCount: 0,
+        rewardsEarnedAmount: 0n,
+        rewardsCollectedAmount: 0n,
+      },
       {
         treasuryMinimumBitcoin: 10n,
         treasuryMinimumBonds: 8n,
@@ -81,7 +85,7 @@ describe('CertificationProgress', () => {
     const client = {
       query: {
         operationalAccounts: {
-          operationalAccounts: vi.fn().mockResolvedValue(none()),
+          operationalAccounts: vi.fn().mockResolvedValue(null),
         },
         treasury: {
           bondLotIdsByAccount: {
@@ -93,7 +97,7 @@ describe('CertificationProgress', () => {
         },
         crosschainTransfer: {
           transferTotalsByAccount: vi.fn().mockResolvedValue({
-            microgonsIn: bigintCodec(14n),
+            microgonsIn: 14n,
           }),
         },
         bitcoinLocks: {
@@ -131,23 +135,3 @@ describe('CertificationProgress', () => {
     expect(client.query.crosschainTransfer.transferTotalsByAccount).toHaveBeenCalledWith('5Default');
   });
 });
-
-function some<T>(value: T): any {
-  return {
-    isSome: true,
-    unwrap: () => value,
-  };
-}
-
-function none(): any {
-  return {
-    isSome: false,
-  };
-}
-
-function someOption(value: unknown): any {
-  return {
-    isSome: true,
-    unwrap: () => value,
-  };
-}

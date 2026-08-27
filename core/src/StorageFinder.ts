@@ -1,5 +1,5 @@
-import { type ArgonClient, getTickFromHeader } from '@argonprotocol/mainchain';
-import { MainchainClients } from './MainchainClients.js';
+import { getTickFromHeader } from '@argonprotocol/mainchain';
+import { type ArgonClient, MainchainClients } from './MainchainClients.js';
 import { NetworkConfig } from './NetworkConfig.js';
 
 export class StorageFinder {

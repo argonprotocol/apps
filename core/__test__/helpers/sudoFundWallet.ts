@@ -1,13 +1,8 @@
-import {
-  getClient,
-  type ArgonClient,
-  isOutdatedTransactionError,
-  isTxSubmissionError,
-  TxSubmissionErrorCode,
-} from '@argonprotocol/mainchain';
+import { isOutdatedTransactionError, isTxSubmissionError, TxSubmissionErrorCode } from '@argonprotocol/mainchain';
+import type { ArgonClient } from '@argonprotocol/apps-core';
 import { sudo } from '@argonprotocol/testing';
 import { NetworkConfigSettings } from '../../src/NetworkConfig.ts';
-import { submitAndFinalize } from './mainchain.ts';
+import { getTestMainchainClient, submitAndFinalize } from './mainchain.ts';
 
 export interface ISudoFundWalletInput {
   address: string;
@@ -26,7 +21,7 @@ export interface ISudoFundWalletResult {
 }
 
 export async function sudoFundWallet(input: ISudoFundWalletInput): Promise<ISudoFundWalletResult> {
-  const client = input.client ?? (await getClient(resolveArchiveUrl(input.archiveUrl)));
+  const client = input.client ?? (await getTestMainchainClient(resolveArchiveUrl(input.archiveUrl)));
   const ownsClient = !input.client;
   try {
     for (let attempt = 1; ; attempt += 1) {
@@ -70,8 +65,8 @@ export async function sudoFundWallet(input: ISudoFundWalletInput): Promise<ISudo
     while (Date.now() - startedAt < 30_000) {
       const microgonBalance = await client.query.system.account(input.address);
       const micronotBalance = await client.query.ownership.account(input.address);
-      fundedMicrogons = microgonBalance.data.free.toBigInt();
-      fundedMicronots = micronotBalance.free.toBigInt();
+      fundedMicrogons = microgonBalance.data.free;
+      fundedMicronots = micronotBalance.free;
 
       if (fundedMicrogons >= input.microgons && fundedMicronots >= input.micronots) {
         break;

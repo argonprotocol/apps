@@ -3,7 +3,8 @@ import BiddingCalculatorData from './BiddingCalculatorData.js';
 import bitcoinPrices from './data/bitcoinPrices.json' with { type: 'json' };
 import bitcoinFees from './data/bitcoinFees.json' with { type: 'json' };
 
-export { type ArgonClient, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
+export { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
+export { runtimeClient } from '@argonprotocol/runtime-client';
 
 export * from './interfaces/index.js';
 export * from './FinancialReturns.js';
@@ -28,6 +29,7 @@ export * from './StorageFinder.js';
 export * from './TransactionEvents.js';
 export * from './TxResult.js';
 export * from './TxSubmitter.js';
+export * from './RuntimeDispatchError.js';
 export * from './Vaults.js';
 export * from './Vault.js';
 export * from './BitcoinLock.js';
@@ -47,6 +49,7 @@ export * from './SqliteUtils.js';
 export * from './fetch.js';
 export * from './GlobalVaultingStats.js';
 export * from './GlobalMiningStats.js';
+export * from './Ethereum.js';
 export * from './BondLot.js';
 export * from './VaultDelegateFunding.js';
 export type { PreviousRuntimeSpec } from './runtimeCompatibility.js';

@@ -2,10 +2,11 @@ import BigNumber from 'bignumber.js';
 import { Mining } from './Mining.js';
 import { Currency } from './Currency.js';
 import { bigIntMax, bigIntMin, bigNumberToBigInt, percentOf } from './utils.js';
-import { type ArgonClient, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
+import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { type IBiddingRules, SeatGoalInterval, SeatGoalType } from './interfaces/index.js';
 import { NetworkConfig } from './NetworkConfig.js';
 import type { MiningFrames } from './MiningFrames.ts';
+import type { ArgonClient } from './MainchainClients.js';
 
 const MINING_BID_COLLATERAL_MULTIPLE_SPEC_VERSION = 154;
 

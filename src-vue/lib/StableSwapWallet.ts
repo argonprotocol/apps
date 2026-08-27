@@ -1,5 +1,4 @@
-import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
-import { PriceIndex } from '@argonprotocol/mainchain';
+import { BlockWatch, Currency } from '@argonprotocol/apps-core';
 import { decodeEventLog, isAddressEqual, type Address, type Hash, type PublicClient } from 'viem';
 import { getMainchainClientAt } from '../stores/mainchain.ts';
 import type {
@@ -406,8 +405,7 @@ async function getArgonPriceSnapshotAtTimestamp(
 
   const header = await blockWatch.getHeader(matchedBlockNumber);
   const clientAt = await getMainchainClientAt(matchedBlockNumber, true);
-  const priceIndex = new PriceIndex();
-  await priceIndex.load(clientAt);
+  const priceIndex = await Currency.fetchPriceIndex(clientAt);
 
   const argonTargetPriceFixed18 = priceIndex.argonUsdTargetPrice
     ? decimalToFixed18(priceIndex.argonUsdTargetPrice.toString())

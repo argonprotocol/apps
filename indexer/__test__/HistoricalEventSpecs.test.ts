@@ -3,17 +3,21 @@ import { getTypeDef } from '@polkadot/types-create';
 import {
   getHistoricalEventFieldAlternatives,
   getHistoricalEventFields,
-  hasNamedEventData,
   historicalEventSpecSources,
   supportedHistoricalEventSpecs,
+  toHistoricalEvent,
   type HistoricalEvent,
-} from '../src/HistoricalEventSpecs.ts';
-import { historicalEventChanges } from '../src/HistoricalEventSpecs.generated.ts';
+} from '@argonprotocol/runtime-client/events';
+import { historicalEventChanges } from '@argonprotocol/runtime-client/events.generated';
 import { createHistoricalEventData } from './helpers/historicalEvents.ts';
 
 type HistoricalBondCreated = Extract<HistoricalEvent, { section: 'bonds'; method: 'BondCreated' }>;
-expectTypeOf<HistoricalBondCreated['data']['bondType']['isBitcoin']>().toEqualTypeOf<boolean>();
-expectTypeOf<HistoricalBondCreated['data']['expiration']['asBitcoinBlock']['toNumber']>().toEqualTypeOf<() => number>();
+expectTypeOf<HistoricalBondCreated['data']['bondType']>().toMatchTypeOf<
+  { readonly type: 'Mining' } | { readonly type: 'Bitcoin' }
+>();
+expectTypeOf<HistoricalBondCreated['data']['expiration']>().toMatchTypeOf<
+  { readonly type: 'ArgonBlock'; readonly value: number } | { readonly type: 'BitcoinBlock'; readonly value: bigint }
+>();
 
 describe('HistoricalEventSpecs', () => {
   it('covers every published-chain runtime spec', () => {
@@ -131,9 +135,11 @@ describe('HistoricalEventSpecs', () => {
     });
     data.typeDef[2] = getTypeDef('u64');
 
-    expect(
-      hasNamedEventData({ section: 'balances', method: 'Transfer', data }, { section: 'balances', method: 'Transfer' }),
-    ).toBe(true);
+    expect(toHistoricalEvent({ section: 'balances', method: 'Transfer', data })).toMatchObject({
+      section: 'balances',
+      method: 'Transfer',
+      data: { amount: 1_000n },
+    });
   });
 
   it('uses the newest declarations for future runtime specs', () => {

@@ -415,33 +415,6 @@ function repeatHex(byte: string, count: number): Hex {
   return `0x${byte.repeat(count)}`;
 }
 
-function amount(value: bigint) {
-  return {
-    toBigInt: () => value,
-  };
-}
-
-function hexValue(value: Hex) {
-  return {
-    toHex: () => value,
-  };
-}
-
-function some<T>(value: T) {
-  return {
-    isSome: true,
-    isNone: false,
-    unwrap: () => value,
-  };
-}
-
-function none() {
-  return {
-    isSome: false,
-    isNone: true,
-  };
-}
-
 function createCouncilRotationRelayFixture(corruption?: 'council' | 'payload' | 'approval') {
   const gatewayAddress = repeatHex('11', 20);
   const authoritySigningKey = repeatHex('22', 20);
@@ -496,41 +469,29 @@ function createCouncilRotationRelayFixture(corruption?: 'council' | 'payload' | 
     [
       1n,
       {
-        approvingCouncilHash: hexValue(currentCouncilHash),
-        target: {
-          isGlobalIssuanceCouncilRotation: true,
-          isMintingAuthorityActivation: false,
-          isMintingAuthorityDeactivation: false,
-          asGlobalIssuanceCouncilRotation: hexValue(queuedRotatedCouncilHash),
-          type: 'GlobalIssuanceCouncilRotation',
+        approvingCouncilHash: currentCouncilHash,
+        target: { type: 'GlobalIssuanceCouncilRotation', value: queuedRotatedCouncilHash },
+        targetPayloadHash: corruption === 'payload' ? repeatHex('dd', 32) : rotationPayloadHash,
+        previousApprovalHash: ZERO_HASH,
+        approvalHash: queuedRotationApprovalHash,
+        signatures: {
+          [currentCouncilSignerB]: currentCouncilSignatures[1],
+          [currentCouncilSignerA]: currentCouncilSignatures[0],
         },
-        targetPayloadHash: hexValue(corruption === 'payload' ? repeatHex('dd', 32) : rotationPayloadHash),
-        previousApprovalHash: hexValue(ZERO_HASH),
-        approvalHash: hexValue(queuedRotationApprovalHash),
-        signatures: new Map([
-          [hexValue(currentCouncilSignerB), hexValue(currentCouncilSignatures[1])],
-          [hexValue(currentCouncilSignerA), hexValue(currentCouncilSignatures[0])],
-        ]),
       },
     ],
     [
       2n,
       {
-        approvingCouncilHash: hexValue(rotatedCouncilHash),
-        target: {
-          isGlobalIssuanceCouncilRotation: false,
-          isMintingAuthorityActivation: true,
-          isMintingAuthorityDeactivation: false,
-          asMintingAuthorityActivation: hexValue(authoritySigningKey),
-          type: 'MintingAuthorityActivation',
+        approvingCouncilHash: rotatedCouncilHash,
+        target: { type: 'MintingAuthorityActivation', value: authoritySigningKey },
+        targetPayloadHash: activationPayloadHash,
+        previousApprovalHash: queuedRotationApprovalHash,
+        approvalHash: activationApprovalHash,
+        signatures: {
+          [rotatedCouncilSignerB]: rotatedCouncilSignatures[1],
+          [rotatedCouncilSignerA]: rotatedCouncilSignatures[0],
         },
-        targetPayloadHash: hexValue(activationPayloadHash),
-        previousApprovalHash: hexValue(queuedRotationApprovalHash),
-        approvalHash: hexValue(activationApprovalHash),
-        signatures: new Map([
-          [hexValue(rotatedCouncilSignerB), hexValue(rotatedCouncilSignatures[1])],
-          [hexValue(rotatedCouncilSignerA), hexValue(rotatedCouncilSignatures[0])],
-        ]),
       },
     ],
   ]);
@@ -538,40 +499,39 @@ function createCouncilRotationRelayFixture(corruption?: 'council' | 'payload' | 
   const finalizedClient = {
     query: {
       crosschainTransfer: {
-        activeGlobalIssuanceCouncilByDestinationChain: async () => some(hexValue(currentCouncilHash)),
+        activeGlobalIssuanceCouncilByDestinationChain: async () => currentCouncilHash,
         globalIssuanceCouncilByHash: async (hash: Hex) => {
           if (hash === currentCouncilHash) {
-            return some({
-              epochMicrogonsPerArgonot: amount(2_000_000n),
-              totalWeight: amount(100n),
-              members: new Map([
-                [hexValue(currentCouncilSignerB), { weight: amount(30n) }],
-                [hexValue(currentCouncilSignerA), { weight: amount(70n) }],
-              ]),
-            });
+            return {
+              epochMicrogonsPerArgonot: 2_000_000n,
+              totalWeight: 100n,
+              members: {
+                [currentCouncilSignerB]: { weight: 30n },
+                [currentCouncilSignerA]: { weight: 70n },
+              },
+            };
           }
 
-          return some({
-            epochMicrogonsPerArgonot: amount(rotationTarget.epochMicrogonsPerArgonot),
-            totalWeight: amount(100n),
-            members: new Map([
-              [hexValue(rotatedCouncilSignerB), { weight: amount(40n) }],
-              [hexValue(rotatedCouncilSignerA), { weight: amount(60n) }],
-            ]),
-          });
+          return {
+            epochMicrogonsPerArgonot: rotationTarget.epochMicrogonsPerArgonot,
+            totalWeight: 100n,
+            members: {
+              [rotatedCouncilSignerB]: { weight: 40n },
+              [rotatedCouncilSignerA]: { weight: 60n },
+            },
+          };
         },
-        mintingAuthorityActivationRepaymentPricingByDestinationChain: async () => none(),
+        mintingAuthorityActivationRepaymentPricingByDestinationChain: async () => null,
         councilApprovalQueueByDestinationChainAndNonce: async (_chain: string, nonce: bigint) =>
-          entries.has(nonce) ? some(entries.get(nonce)) : none(),
-        mintingAuthoritiesBySigner: async () =>
-          some({
-            accountId: hexValue(toHex(decodeAddress(walletKeys.vaultingAddress), { size: 32 })),
-            destinationChain: { type: 'Ethereum' },
-            gatewayRemainingMicrogonCollateral: amount(activationTarget.microgonCollateral),
-            gatewayRemainingMicronotCollateral: amount(activationTarget.micronotCollateral),
-            activationBaseRepaymentQuote: amount(0n),
-            activationSignatureRepaymentQuote: amount(0n),
-          }),
+          entries.get(nonce) ?? null,
+        mintingAuthoritiesBySigner: async () => ({
+          accountId: walletKeys.vaultingAddress,
+          destinationChain: { type: 'Ethereum' },
+          gatewayRemainingMicrogonCollateral: activationTarget.microgonCollateral,
+          gatewayRemainingMicronotCollateral: activationTarget.micronotCollateral,
+          activationBaseRepaymentQuote: 0n,
+          activationSignatureRepaymentQuote: 0n,
+        }),
       },
     },
   };

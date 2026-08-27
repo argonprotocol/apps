@@ -1,44 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { AccountEventsFilter } from '@argonprotocol/apps-core';
-import type { ApiDecoration, FrameSystemEventRecord, GenericEvent } from '@argonprotocol/mainchain';
-import { bigintCodec, hexCodec, humanCodec, numberCodec } from '../../core/__test__/helpers/codecs.ts';
+import { AccountEventsFilter, type RuntimeSystemEventRecord } from '@argonprotocol/apps-core';
 import { createTestDb } from './helpers/db.ts';
-
-const api = {
-  events: {
-    balances: {
-      BalanceSet: eventGuard('balances', 'BalanceSet'),
-      Transfer: eventGuard('balances', 'Transfer'),
-    },
-    ownership: {
-      BalanceSet: eventGuard('ownership', 'BalanceSet'),
-      Transfer: eventGuard('ownership', 'Transfer'),
-    },
-    crosschainTransfer: {
-      TransferOutStarted: eventGuard('crosschainTransfer', 'TransferOutStarted'),
-      TransferToArgonSettled: eventGuard('crosschainTransfer', 'TransferToArgonSettled'),
-    },
-    transactionPayment: {
-      TransactionFeePaid: eventGuard('transactionPayment', 'TransactionFeePaid'),
-    },
-  },
-} as unknown as ApiDecoration<'promise'>;
 
 describe('wallet transfer parsing', () => {
   it('records direct ARGN and ARGNOT transfers inside proxy and batch event sets', () => {
     const argon = [
       event('proxy', 'ProxyExecuted', []),
-      event('balances', 'Transfer', [humanCodec('5outside'), humanCodec('5default'), bigintCodec(25n)]),
+      event('balances', 'Transfer', ['5outside', '5default', 25n]),
       event('system', 'ExtrinsicSuccess', []),
     ];
     const argonot = [
       event('utility', 'ItemCompleted', []),
-      event('ownership', 'Transfer', [humanCodec('5default'), humanCodec('5mining'), bigintCodec(9n)]),
+      event('ownership', 'Transfer', ['5default', '5mining', 9n]),
       event('system', 'ExtrinsicSuccess', []),
     ];
 
     const argonFilter = new AccountEventsFilter('5default', ['5default', '5mining']);
-    argonFilter.process(api, argon);
+    argonFilter.process(argon);
     expect(argonFilter.transfers).toEqual([
       expect.objectContaining({
         from: '5outside',
@@ -50,7 +28,7 @@ describe('wallet transfer parsing', () => {
       }),
     ]);
     const argonotFilter = new AccountEventsFilter('5default', ['5default', '5mining']);
-    argonotFilter.process(api, argonot);
+    argonotFilter.process(argonot);
     expect(argonotFilter.transfers).toEqual([
       expect.objectContaining({
         from: '5default',
@@ -66,25 +44,25 @@ describe('wallet transfer parsing', () => {
   it('does not mistake a balance movement from another operation for a user transfer', () => {
     const records = [
       event('vaults', 'VaultCollected', []),
-      event('balances', 'Transfer', [humanCodec('5vault'), humanCodec('5default'), bigintCodec(25n)]),
+      event('balances', 'Transfer', ['5vault', '5default', 25n]),
       event('system', 'ExtrinsicSuccess', []),
     ];
 
     const filter = new AccountEventsFilter('5default', ['5default']);
-    filter.process(api, records);
+    filter.process(records);
     expect(filter.transfers).toEqual([]);
   });
 
   it('combines identical transfers emitted by one batch', () => {
     const records = [
       event('utility', 'ItemCompleted', []),
-      event('balances', 'Transfer', [humanCodec('5default'), humanCodec('5outside'), bigintCodec(25n)]),
-      event('balances', 'Transfer', [humanCodec('5default'), humanCodec('5outside'), bigintCodec(25n)]),
+      event('balances', 'Transfer', ['5default', '5outside', 25n]),
+      event('balances', 'Transfer', ['5default', '5outside', 25n]),
       event('system', 'ExtrinsicSuccess', []),
     ];
 
     const filter = new AccountEventsFilter('5default', ['5default']);
-    filter.process(api, records);
+    filter.process(records);
     expect(filter.transfers).toEqual([
       expect.objectContaining({ from: '5default', to: '5outside', amount: 50n, isInbound: false }),
     ]);
@@ -94,14 +72,14 @@ describe('wallet transfer parsing', () => {
     const records = [
       event('vaults', 'VaultModified', []),
       event('utility', 'ItemCompleted', []),
-      event('balances', 'Transfer', [humanCodec('5default'), humanCodec('5outside'), bigintCodec(25n)]),
+      event('balances', 'Transfer', ['5default', '5outside', 25n]),
       event('utility', 'ItemCompleted', []),
       event('utility', 'BatchCompleted', []),
       event('system', 'ExtrinsicSuccess', []),
     ];
 
     const filter = new AccountEventsFilter('5default', ['5default']);
-    filter.process(api, records);
+    filter.process(records);
     expect(filter.transfers).toEqual([
       expect.objectContaining({ from: '5default', to: '5outside', amount: 25n, isInbound: false }),
     ]);
@@ -109,21 +87,21 @@ describe('wallet transfer parsing', () => {
 
   it('records faucet funding and current cross-chain settlement', () => {
     const records = [
-      event('balances', 'BalanceSet', [humanCodec('5default'), bigintCodec(100n)]),
-      event('ownership', 'BalanceSet', [humanCodec('5default'), bigintCodec(7n)]),
+      event('balances', 'BalanceSet', ['5default', 100n]),
+      event('ownership', 'BalanceSet', ['5default', 7n]),
       event('crosschainTransfer', 'TransferToArgonSettled', [
         {},
         {
-          to: humanCodec('5default'),
-          from: hexCodec('0xsender'),
-          amount: bigintCodec(40n),
-          asset: { isArgon: false },
+          to: '5default',
+          from: '0xsender',
+          amount: 40n,
+          asset: { type: 'Argonot' },
         },
       ]),
     ];
 
     const filter = new AccountEventsFilter('5default', ['5default']);
-    filter.process(api, records);
+    filter.process(records);
     expect(filter.transfers).toEqual([
       expect.objectContaining({ transferType: 'faucet', currency: 'argon', amount: 100n }),
       expect.objectContaining({ transferType: 'faucet', currency: 'argonot', amount: 7n }),
@@ -137,23 +115,16 @@ describe('wallet transfer parsing', () => {
 
   it('records current cross-chain sends from the lifecycle event', () => {
     const outbound = event('crosschainTransfer', 'TransferOutStarted', [
-      humanCodec('Ethereum'),
-      hexCodec('0xtransfer'),
-      humanCodec('5default'),
-      { isArgon: false },
-      bigintCodec(40n),
-      bigintCodec(0n),
+      { type: 'Ethereum' },
+      '0xtransfer',
+      '5default',
+      { type: 'Argonot' },
+      40n,
+      0n,
     ]);
-    Object.assign(outbound.event.data, {
-      destinationChain: humanCodec('Ethereum'),
-      transferId: hexCodec('0xtransfer'),
-      accountId: humanCodec('5default'),
-      asset: { isArgon: false },
-      amount: bigintCodec(40n),
-    });
 
     const filter = new AccountEventsFilter('5default', ['5default']);
-    filter.process(api, [outbound]);
+    filter.process([outbound]);
 
     expect(filter.transfers).toEqual([
       expect.objectContaining({
@@ -169,15 +140,11 @@ describe('wallet transfer parsing', () => {
   });
 
   it('retains only the fee event group paid by this account', () => {
-    const ownFee = [
-      event('transactionPayment', 'TransactionFeePaid', [humanCodec('5default'), bigintCodec(2n), bigintCodec(0n)]),
-    ];
-    const otherFee = [
-      event('transactionPayment', 'TransactionFeePaid', [humanCodec('5other'), bigintCodec(2n), bigintCodec(0n)], 3),
-    ];
+    const ownFee = [event('transactionPayment', 'TransactionFeePaid', ['5default', 2n, 0n])];
+    const otherFee = [event('transactionPayment', 'TransactionFeePaid', ['5other', 2n, 0n], 3)];
     const filter = new AccountEventsFilter('5default', ['5default']);
 
-    filter.process(api, [...ownFee, ...otherFee]);
+    filter.process([...ownFee, ...otherFee]);
 
     expect(filter.transfers).toEqual([]);
     expect(filter.eventsByExtrinsic).toHaveLength(1);
@@ -188,23 +155,14 @@ describe('wallet transfer parsing', () => {
   });
 
   it('records historical token-gateway receipts and sends', () => {
-    const received = [
-      event('ownership', 'Minted', []),
-      event('tokenGateway', 'AssetReceived', [humanCodec('5default'), bigintCodec(60n), {}]),
-    ];
+    const received = [event('ownership', 'Minted', []), event('tokenGateway', 'AssetReceived', ['5default', 60n, {}])];
     const sent = [
-      event('ownership', 'Burned', [humanCodec('5default'), bigintCodec(30n)]),
-      event('tokenGateway', 'AssetTeleported', [
-        humanCodec('5default'),
-        hexCodec('0xrecipient'),
-        bigintCodec(30n),
-        {},
-        hexCodec('0xcommitment'),
-      ]),
+      event('ownership', 'Burned', ['5default', 30n]),
+      event('tokenGateway', 'AssetTeleported', ['5default', '0xrecipient', 30n, {}, '0xcommitment']),
     ];
 
     const receivedFilter = new AccountEventsFilter('5default', ['5default']);
-    receivedFilter.process(api, received);
+    receivedFilter.process(received);
     expect(receivedFilter.transfers).toEqual([
       expect.objectContaining({
         transferType: 'tokenGateway',
@@ -214,7 +172,7 @@ describe('wallet transfer parsing', () => {
       }),
     ]);
     const sentFilter = new AccountEventsFilter('5default', ['5default']);
-    sentFilter.process(api, sent);
+    sentFilter.process(sent);
     expect(sentFilter.transfers).toEqual([
       expect.objectContaining({
         transferType: 'tokenGateway',
@@ -255,8 +213,12 @@ describe('wallet transfer parsing', () => {
   });
 });
 
-function event(section: string, method: string, values: unknown[], extrinsicIndex = 2): FrameSystemEventRecord {
+function event(section: string, method: string, values: unknown[], extrinsicIndex = 2): RuntimeSystemEventRecord {
   const fieldNames: Record<string, string[]> = {
+    'balances.BalanceSet': ['who', 'free'],
+    'balances.Transfer': ['from', 'to', 'amount'],
+    'ownership.BalanceSet': ['who', 'free'],
+    'ownership.Transfer': ['from', 'to', 'amount'],
     'crosschainTransfer.TransferOutStarted': [
       'destinationChain',
       'transferId',
@@ -265,26 +227,20 @@ function event(section: string, method: string, values: unknown[], extrinsicInde
       'amount',
       'mintingAuthorityTip',
     ],
+    'crosschainTransfer.TransferToArgonSettled': ['transferId', 'transfer'],
+    'transactionPayment.TransactionFeePaid': ['who', 'actualFee', 'tip'],
     'tokenGateway.AssetReceived': ['beneficiary', 'amount', 'source'],
     'tokenGateway.AssetTeleported': ['from', 'to', 'amount', 'dest', 'commitment'],
     'ownership.Burned': ['who', 'amount'],
   };
   const names = fieldNames[`${section}.${method}`] ?? [];
-  const data = Object.assign(values, {
-    names,
-    toHuman: () => ({}),
-  });
   return {
-    event: { section, method, data } as GenericEvent,
-    phase: {
-      isApplyExtrinsic: true,
-      asApplyExtrinsic: numberCodec(extrinsicIndex),
-    },
-  } as FrameSystemEventRecord;
-}
-
-function eventGuard(section: string, method: string) {
-  return {
-    is: (event: GenericEvent) => event.section === section && event.method === method,
+    event: {
+      section,
+      method,
+      data: Object.fromEntries(names.map((name, index) => [name, values[index]])),
+    } as RuntimeSystemEventRecord['event'],
+    phase: { type: 'ApplyExtrinsic', value: extrinsicIndex },
+    topics: [],
   };
 }

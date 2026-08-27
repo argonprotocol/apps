@@ -136,7 +136,7 @@ describe('BitcoinLocks release status sync', () => {
       const apiClient = {
         query: {
           ticks: {
-            currentTick: vi.fn().mockResolvedValue({ toNumber: () => 123 }),
+            currentTick: vi.fn().mockResolvedValue(123),
           },
         },
       } as unknown as ArgonClient;

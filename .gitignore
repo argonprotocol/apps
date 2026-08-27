@@ -56,3 +56,4 @@ server/.env
 /.superpowers/
 /docs/superpowers
 /docs/plans
+/runtime-client/src/*.generated.ts

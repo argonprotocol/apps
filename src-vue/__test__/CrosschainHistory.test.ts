@@ -319,18 +319,13 @@ describe('CrosschainHistory', () => {
       blockTime: Date.parse('2026-08-15T12:00:00.000Z'),
     };
     const approvalEvent = (queueNonce: bigint, signer: string) => ({
-      phase: { isApplyExtrinsic: true, asApplyExtrinsic: { toNumber: () => 1 } },
+      phase: { type: 'ApplyExtrinsic', value: 1 },
       event: {
         section: 'crosschainTransfer',
         method: 'QueueEntryApprovalRecorded',
         data: {
-          approvalQueueNonce: { toBigInt: () => queueNonce },
-          target: {
-            isMintingAuthorityActivation: true,
-            isMintingAuthorityDeactivation: false,
-            isGlobalIssuanceCouncilRotation: false,
-            asMintingAuthorityActivation: { toHex: () => signer },
-          },
+          approvalQueueNonce: queueNonce,
+          target: { type: 'MintingAuthorityActivation', value: signer },
         },
       },
     });
@@ -347,10 +342,7 @@ describe('CrosschainHistory', () => {
       },
       query: {
         crosschainTransfer: {
-          mintingAuthoritiesBySigner: vi.fn(async () => ({
-            isSome: true,
-            unwrap: () => ({ accountId: { toString: () => '5owner' } }),
-          })),
+          mintingAuthoritiesBySigner: vi.fn(async () => ({ accountId: '5owner' })),
         },
       },
     };

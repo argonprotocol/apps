@@ -7,7 +7,6 @@ import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
 import * as vaultStore from '../stores/vaults.ts';
-import { bigintCodec, numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts';
 import { createBitcoinLockConfig, createLock, createStore } from './helpers/bitcoin.ts';
 import { createTestDb } from './helpers/db.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
@@ -124,7 +123,7 @@ describe('BitcoinLocks fee coupon recovery', () => {
     };
     const client = {
       consts: { balances: { existentialDeposit: { toBigInt: () => 5n } } },
-      query: { bitcoinLocks: { minimumSatoshis: async () => ({ toBigInt: () => 1n }) } },
+      query: { bitcoinLocks: { minimumSatoshis: async () => 1n } },
       tx: { bitcoinLocks: { initialize: vi.fn() } },
     };
     vi.mocked(getMainchainClient).mockResolvedValue(client as never);
@@ -298,7 +297,7 @@ describe('BitcoinLocks ratchet preview', () => {
     const client = {
       query: {
         bitcoinLocks: {
-          locksByUtxoId: vi.fn(async () => ({ isSome: false })),
+          locksByUtxoId: vi.fn(async () => null),
         },
       },
     };
@@ -352,12 +351,7 @@ describe('BitcoinLocks ratchet preview', () => {
         client: {
           query: {
             bitcoinLocks: {
-              locksByUtxoId: async () => ({
-                isSome: true,
-                unwrap: () => ({
-                  securitizationRatio: { toBigInt: () => toFixedNumber(1, FIXED_U128_DECIMALS) },
-                }),
-              }),
+              locksByUtxoId: async () => ({ securitizationRatio: BigNumber(1) }),
             },
           },
         },
@@ -504,12 +498,14 @@ describe('BitcoinLocks ratchet transaction tracking', () => {
     const finalization = createDeferred<Uint8Array>();
     const postProcessing = createDeferred<void>(false);
     const ratchetEvent = {
+      section: 'bitcoinLocks',
+      method: 'BitcoinLockRatcheted',
       data: {
-        amountBurned: bigintCodec(100n),
-        liquidityPromised: bigintCodec(1_300n),
-        newTargetPrice: bigintCodec(1_300n),
-        oldTargetPrice: bigintCodec(1_000n),
-        securityFee: bigintCodec(50n),
+        amountBurned: 100n,
+        liquidityPromised: 1_300n,
+        newTargetPrice: 1_300n,
+        oldTargetPrice: 1_000n,
+        securityFee: 50n,
       },
     };
     const txResult = {
@@ -573,10 +569,7 @@ describe('BitcoinLocks ratchet transaction tracking', () => {
     const client = {
       query: {
         bitcoinLocks: {
-          locksByUtxoId: vi.fn(async () => ({
-            isSome: true,
-            unwrap: () => ({ securitizationRatio: { toBigInt: () => 0n } }),
-          })),
+          locksByUtxoId: vi.fn(async () => ({ securitizationRatio: BigNumber(0) })),
         },
       },
       tx: {
@@ -639,7 +632,7 @@ describe('BitcoinLocks ratchet transaction tracking', () => {
     const api = {
       query: {
         bitcoinUtxos: {
-          confirmedBitcoinBlockTip: vi.fn(async () => optionCodec({ blockHeight: numberCodec(450) })),
+          confirmedBitcoinBlockTip: vi.fn(async () => ({ blockHeight: 450 })),
         },
       },
     };
@@ -739,7 +732,7 @@ describe('BitcoinLocks live state processing', () => {
     const clientAt = {
       query: {
         bitcoinUtxos: {
-          confirmedBitcoinBlockTip: vi.fn(async () => optionCodec({ blockHeight: numberCodec(600) })),
+          confirmedBitcoinBlockTip: vi.fn(async () => ({ blockHeight: 600 })),
         },
       },
     };

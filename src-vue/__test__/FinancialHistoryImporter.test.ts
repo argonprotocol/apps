@@ -555,7 +555,7 @@ describe('FinancialHistoryImporter', () => {
       blockWatch: {
         finalizedBlockHeader: { blockNumber: 100 },
         getFinalizedApi: vi.fn(async () => ({
-          query: { vaults: { vaultIdByOperator: vi.fn(async () => optionCodec()) } },
+          query: { vaults: { vaultIdByOperator: vi.fn(async () => null) } },
         })),
       } as any,
       accountId: '5owner',

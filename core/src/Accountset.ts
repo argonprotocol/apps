@@ -1,6 +1,4 @@
 import {
-  type ApiDecoration,
-  type ArgonClient,
   getClient,
   getOfflineRegistry,
   Keyring,
@@ -13,6 +11,7 @@ import { blake2AsU8a, ed25519DeriveHard, keyExtractSuri, mnemonicToMiniSecret } 
 import { DEV_PHRASE } from '@polkadot/keyring';
 import { Mining } from './Mining.js';
 import { TxSubmitter } from './TxSubmitter.js';
+import type { ArgonClient, ArgonQueryClient } from './MainchainClients.js';
 
 export type SubaccountRange = readonly number[];
 
@@ -102,7 +101,7 @@ export class Accountset {
     const api = blockHash ? await client.at(blockHash) : client;
     const accountData = await api.query.system.account(this.fundingAccountId);
 
-    return accountData.data.free.toBigInt();
+    return accountData.data.free;
   }
 
   public async accountMicronots(blockHash?: Uint8Array): Promise<bigint> {
@@ -110,7 +109,7 @@ export class Accountset {
     const api = blockHash ? await client.at(blockHash) : client;
     const accountData = await api.query.ownership.account(this.fundingAccountId);
 
-    return accountData.free.toBigInt();
+    return accountData.free;
   }
 
   public async balance(blockHash?: Uint8Array): Promise<bigint> {
@@ -118,7 +117,7 @@ export class Accountset {
     const api = blockHash ? await client.at(blockHash) : client;
     const accountData = await api.query.system.account(this.fundingAccountId);
 
-    return accountData.data.free.toBigInt();
+    return accountData.data.free;
   }
 
   public async getAvailableMinerAccounts(
@@ -144,7 +143,7 @@ export class Accountset {
     return subaccountRange;
   }
 
-  public async loadRegisteredMiners(api: ApiDecoration<'promise'>): Promise<ISubaccountMiner[]> {
+  public async loadRegisteredMiners(api: ArgonQueryClient): Promise<ISubaccountMiner[]> {
     const addressToMiningIndex = await Mining.fetchMiningSeatsForAccount(this.fundingAccountId, api);
 
     return Object.entries(this.subAccountsByAddress).map(([address, { index }]) => {
@@ -157,7 +156,7 @@ export class Accountset {
     });
   }
 
-  public async miningSeatsAndBids(api?: ApiDecoration<'promise'>): Promise<
+  public async miningSeatsAndBids(api?: ArgonQueryClient): Promise<
     (ISubaccountMiner & {
       hasWinningBid: boolean;
       bidAmount?: bigint;
@@ -284,7 +283,7 @@ export class Accountset {
     ]);
 
     const isProxyRegistered = proxyDefinitions.some(def => {
-      return def.delegate.toString() === proxyAccountId && def.proxyType.isMiningBidRealPaysFee;
+      return def.delegate === proxyAccountId && def.proxyType.type === 'MiningBidRealPaysFee';
     });
     if (isProxyRegistered) {
       return { kind: 'ready' };

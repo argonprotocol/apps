@@ -1,13 +1,18 @@
 import Fs from 'node:fs';
 import Path from 'node:path';
-import { AccountActivityKind, type BlockWatch, Currency, type MainchainClients } from '@argonprotocol/apps-core';
-import { getClient, hexToU8a, type ApiDecoration } from '@argonprotocol/mainchain';
+import {
+  AccountActivityKind,
+  BitcoinLock,
+  type BlockWatch,
+  Currency,
+  type MainchainClients,
+} from '@argonprotocol/apps-core';
+import { getClient, hexToU8a } from '@argonprotocol/mainchain';
 import { afterAll, describe, expect, it } from 'vitest';
 import type { Db } from '../lib/Db.ts';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
 import { BitcoinLockRecovery } from '../lib/recovery/BitcoinLocks.ts';
-import { getHistoricalBitcoinLock } from '../lib/recovery/BitcoinLockHistory.ts';
 import { VaultHistory } from '../lib/recovery/MyVault.ts';
 import { FinancialHistoryImporter } from '../lib/recovery/index.ts';
 import { createStore } from './helpers/bitcoin.ts';
@@ -45,20 +50,18 @@ runWithReplay('Bitcoin financial history replay corpus', () => {
           const utxoIds = corpusReader.findBitcoinLockIds(accountId);
           const latestBlock = await corpusReader.getHeader(corpusReader.latestBlockNumber);
           const latestApi = await corpusReader.getApi(latestBlock);
-          const currentLocks = (
-            await Promise.all(
-              utxoIds.map(utxoId => getHistoricalBitcoinLock(latestApi as unknown as ApiDecoration<'promise'>, utxoId)),
-            )
-          ).filter(lock => lock !== undefined);
+          const currentLocks = (await Promise.all(utxoIds.map(utxoId => BitcoinLock.get(latestApi, utxoId)))).filter(
+            lock => lock !== undefined,
+          );
           const historicalLocks = new Map<
             number,
-            { firstBlockNumber: number; lock: NonNullable<Awaited<ReturnType<typeof getHistoricalBitcoinLock>>> }
+            { firstBlockNumber: number; lock: NonNullable<Awaited<ReturnType<typeof BitcoinLock.get>>> }
           >();
           for (const utxoId of utxoIds) {
             for (const indexedBlock of blocks) {
               const block = await corpusReader.getHeader(indexedBlock);
               const api = await corpusReader.getApi(block);
-              const lock = await getHistoricalBitcoinLock(api as unknown as ApiDecoration<'promise'>, utxoId);
+              const lock = await BitcoinLock.get(api, utxoId);
               if (!lock) continue;
 
               historicalLocks.set(utxoId, { firstBlockNumber: block.blockNumber, lock });
@@ -123,11 +126,11 @@ runWithReplay('Bitcoin financial history replay corpus', () => {
 async function replayBitcoinAccount(args: {
   accountId: string;
   blockWatch: BlockWatch;
-  currentLocks: NonNullable<Awaited<ReturnType<typeof getHistoricalBitcoinLock>>>[];
+  currentLocks: NonNullable<Awaited<ReturnType<typeof BitcoinLock.get>>>[];
   db: Db;
   derivedLocks: {
     firstBlockNumber: number;
-    lock: NonNullable<Awaited<ReturnType<typeof getHistoricalBitcoinLock>>>;
+    lock: NonNullable<Awaited<ReturnType<typeof BitcoinLock.get>>>;
   }[];
   reader: CapturedHistoryReader;
 }) {

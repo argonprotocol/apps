@@ -1,0 +1,29 @@
+{
+  "name": "@argonprotocol/runtime-client",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./events": "./src/events.ts",
+    "./events.generated": "./src/HistoricalEvents.generated.ts"
+  },
+  "scripts": {
+    "generate": "tsx --no-cache src/generateRuntimeClient.ts",
+    "tsc": "tsc"
+  },
+  "dependencies": {
+    "@argonprotocol/mainchain": "1.4.12",
+    "@polkadot/api-base": "16.5.6",
+    "@polkadot/types-codec": "16.5.6",
+    "bignumber.js": "^9.3.1"
+  },
+  "devDependencies": {
+    "@polkadot/types": "16.5.6",
+    "prettier": "^3.6.2",
+    "tsx": "^4.20.5",
+    "typescript": "~5.9.2"
+  },
+  "packageManager": "yarn@4.10.3"
+}

@@ -1,11 +1,10 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
-import { type ApiDecoration } from '@argonprotocol/mainchain';
+import type { ArgonApi, MainchainClients } from './MainchainClients.js';
 import type { IFrameHistory, IFrameHistoryMap } from './interfaces/IFramesHistory.js';
 import { NetworkConfig } from './NetworkConfig.js';
 import FramesHistoryTestnet from './data/frames.testnet.json' with { type: 'json' };
 import FramesHistoryMainnet from './data/frames.mainnet.json' with { type: 'json' };
-import type { MainchainClients } from './MainchainClients.js';
 import { createDeferred } from './Deferred.js';
 import { createTypedEventEmitter, getPercent, raceWithTimeout } from './utils.js';
 import { SingleFileQueue } from './SingleFileQueue.js';
@@ -150,11 +149,11 @@ export class MiningFrames {
     return this.loadDeferred.promise;
   }
 
-  public async clientAt(block: { blockHash: string; blockNumber: number }): Promise<ApiDecoration<'promise'>> {
+  public async clientAt(block: { blockHash: string; blockNumber: number }): Promise<ArgonApi> {
     return await this.blockWatch.getApi(block);
   }
 
-  public async getFrameStart(frameId: number): Promise<{ frame: IFrameHistory; api: ApiDecoration<'promise'> }> {
+  public async getFrameStart(frameId: number): Promise<{ frame: IFrameHistory; api: ArgonApi }> {
     const frame = this.framesById[frameId];
     if (!frame?.firstBlockHash || frame.firstBlockNumber == null) {
       throw new Error(`No starting block for frame ${frameId}`);
@@ -211,9 +210,8 @@ export class MiningFrames {
           this.currentFrameRewardTicksRemaining = latest.frameRewardTicksRemaining;
         } else {
           const client = await this.clientAt(latest);
-          this.currentFrameRewardTicksRemaining = await client.query.miningSlot
-            .frameRewardTicksRemaining()
-            .then(x => x.toNumber());
+          this.currentFrameRewardTicksRemaining =
+            (await client.query.miningSlot.frameRewardTicksRemaining()) ?? this.currentFrameRewardTicksRemaining;
         }
       }
     });
@@ -473,8 +471,9 @@ export class MiningFrames {
     try {
       const latestApi = await this.clientAt(latestHeader);
       const rawFrameStartBlocks = await latestApi.query.miningSlot.frameStartBlockNumbers();
+      if (!rawFrameStartBlocks) return;
 
-      const queue = rawFrameStartBlocks.map(x => x.toNumber());
+      const queue = [...rawFrameStartBlocks];
       if (!queue.length) {
         console.warn('[Mining Frames] No frame start block numbers found');
         return;
@@ -485,8 +484,9 @@ export class MiningFrames {
         const header = await this.blockWatch.getHeader(blockNumber);
         const blockHash = header.blockHash;
         const api = await this.clientAt(header);
-        const frameId: number =
-          header.frameId ?? (await api.query.miningSlot.nextFrameId().then(x => x.toNumber() - 1));
+        const nextFrameId = header.frameId === undefined ? await api.query.miningSlot.nextFrameId() : null;
+        if (header.frameId === undefined && nextFrameId === null) break;
+        const frameId = header.frameId ?? nextFrameId! - 1;
 
         const existing = this.framesById[frameId];
         const matchesExisting = existing?.firstBlockHash === blockHash && existing.firstBlockNumber === blockNumber;
@@ -518,10 +518,9 @@ export class MiningFrames {
 
         if (queue.length === 0) {
           const frameStartBlockNumbers = await api.query.miningSlot.frameStartBlockNumbers();
-          for (const bn of frameStartBlockNumbers) {
-            const bnNumber = bn.toNumber();
-            if (bnNumber < blockNumber) {
-              queue.push(bnNumber);
+          for (const bn of frameStartBlockNumbers ?? []) {
+            if (bn < blockNumber) {
+              queue.push(bn);
             }
           }
         }

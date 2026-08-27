@@ -2,7 +2,7 @@ import Fs from 'node:fs';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import { ACCOUNT_ACTIVITY_DEFINITION_VERSION, type IAccountActivityQuery } from '@argonprotocol/apps-core';
 import { accountActivityKindNames } from './AccountActivity.js';
-import { AccountActivityCoverageError } from './HistoricalEventSpecs.js';
+import { AccountActivityCoverageError } from '@argonprotocol/runtime-client/events';
 
 export interface IAccountActivityRecord {
   blockNumber: number;

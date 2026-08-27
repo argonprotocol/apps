@@ -1,4 +1,5 @@
 import {
+  type ArgonApi,
   ArgonClient,
   BiddingCalculator,
   BiddingCalculatorData,
@@ -7,7 +8,6 @@ import {
   Mining,
   MiningFrames,
 } from '@argonprotocol/apps-core';
-import { ApiDecoration } from '@argonprotocol/mainchain';
 import { INSTANCE_NAME, LOG_DEBUG, NETWORK_NAME, NETWORK_URL } from '../lib/Env.ts';
 import { getConfig } from './config';
 import { botEmitter } from '../lib/Bot.ts';
@@ -33,7 +33,7 @@ let shouldRefreshPrunedClient = false;
 export async function getMainchainClientAt(
   height: number,
   isPriorToFinalizedHeight: boolean = true,
-): Promise<ApiDecoration<'promise'>> {
+): Promise<ArgonApi> {
   const client = await getMainchainClients().get(isPriorToFinalizedHeight);
   const blockHash = await client.rpc.chain.getBlockHash(height);
   return client.at(blockHash);
@@ -42,23 +42,18 @@ export function getMainchainClient(needsHistoricalAccess: boolean): Promise<Argo
   return getMainchainClients().get(needsHistoricalAccess);
 }
 
-export async function getFinalizedClient(client?: ArgonClient): Promise<ApiDecoration<'promise'>> {
+export async function getFinalizedClient(client?: ArgonClient): Promise<ArgonApi> {
   client ??= await getMainchainClient(false);
   const finalized = await client.rpc.chain.getFinalizedHead();
   return client.at(finalized);
 }
 
-export async function getEthereumGatewayPauseReason(
-  finalizedClient?: ApiDecoration<'promise'>,
-): Promise<string | undefined> {
+export async function getEthereumGatewayPauseReason(finalizedClient?: ArgonApi): Promise<string | undefined> {
   const client = finalizedClient ?? (await getFinalizedClient());
   const gatewaySyncPause = await client.query.crosschainTransfer.gatewaySyncPauseBySourceChain('Ethereum');
-  if (gatewaySyncPause.isNone) {
-    return;
-  }
+  if (!gatewaySyncPause) return;
 
-  const pause = gatewaySyncPause.unwrap();
-  return `Ethereum gateway sync is paused at activity ${pause.failedGatewayActivityNonce.toBigInt()} (${pause.reason.type}).`;
+  return `Ethereum gateway sync is paused at activity ${gatewaySyncPause.failedGatewayActivityNonce} (${gatewaySyncPause.reason.type}).`;
 }
 
 export function setArchiveClientUrl(url: string) {

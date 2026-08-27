@@ -1,10 +1,24 @@
-import { type ApiDecoration, type ArgonClient, getClient } from '@argonprotocol/mainchain';
+import { type ApiDecoration, type ArgonClient as PolkadotArgonClient, getClient } from '@argonprotocol/mainchain';
+import {
+  isRuntimeClient,
+  runtimeClient,
+  type CurrentRuntimeQueries,
+  type RuntimeClient,
+  type RuntimeQueries,
+} from '@argonprotocol/runtime-client';
 import { wrapApi } from './ClientWrapper.js';
 import { createDeferred, type IDeferred } from './Deferred.js';
 import { createTypedEventEmitter, raceWithTimeout } from './utils.js';
 
-export type ArgonQueryClient = ArgonClient | ApiDecoration<'promise'>;
+export type ArgonApi = RuntimeClient<ApiDecoration<'promise'>, RuntimeQueries>;
+export type ArgonCurrentApi = RuntimeClient<PolkadotArgonClient, CurrentRuntimeQueries>;
+export type ArgonClient = ArgonCurrentApi;
+export type ArgonQueryClient = ArgonCurrentApi | ArgonApi;
 const stringifyApiLogValue = (_key: string, value: unknown) => (typeof value === 'bigint' ? value.toString() : value);
+
+export function createArgonClient(client: PolkadotArgonClient): ArgonClient {
+  return runtimeClient(client);
+}
 
 interface ILastErrorInfo {
   errors: Error[];
@@ -67,12 +81,16 @@ export class MainchainClients {
   constructor(
     archiveUrl: string,
     private enableApiLogging = () => true,
-    connectedArchiveClient?: ArgonClient,
+    connectedArchiveClient?: PolkadotArgonClient | ArgonClient,
   ) {
     this.archiveUrl = archiveUrl;
-    this.archiveClientPromise = (
-      connectedArchiveClient ? Promise.resolve(connectedArchiveClient) : getMainchainClientOrThrow(archiveUrl)
-    ).then(client => this.wrapClient(client, 'archive'));
+    if (connectedArchiveClient && isRuntimeClient<PolkadotArgonClient, CurrentRuntimeQueries>(connectedArchiveClient)) {
+      this.archiveClientPromise = Promise.resolve(connectedArchiveClient);
+    } else {
+      this.archiveClientPromise = (
+        connectedArchiveClient ? Promise.resolve(connectedArchiveClient) : getMainchainClientOrThrow(archiveUrl)
+      ).then(client => this.wrapClient(client, 'archive'));
+    }
   }
 
   public async setArchiveClient(url: string) {
@@ -188,7 +206,7 @@ export class MainchainClients {
     return this.connectionStateByClient.pruned === 'connected';
   }
 
-  private wrapClient(client: ArgonClient, clientType: IClientType): ArgonClient {
+  private wrapClient(client: PolkadotArgonClient, clientType: IClientType): ArgonClient {
     let apiError: Error | undefined;
     const name = clientType === 'archive' ? 'ARCHIVE_RPC' : 'PRUNED_RPC';
     const api = wrapApi(client, name, {
@@ -237,7 +255,7 @@ export class MainchainClients {
           console.log(`[${name}] ${path}(${JSON.stringify(argsJson, stringifyApiLogValue)})`, resultJson);
         }
       },
-    });
+    }) as unknown as ArgonClient;
     this.currentClientByType[clientType] = api;
     this.setConnectionState(clientType, 'connected');
     api.on('disconnected', () => {
@@ -399,6 +417,6 @@ function getJson(a: unknown): any {
   return a;
 }
 
-async function getMainchainClientOrThrow(host: string): Promise<ArgonClient> {
+async function getMainchainClientOrThrow(host: string): Promise<PolkadotArgonClient> {
   return getClient(host, { throwOnConnect: true });
 }

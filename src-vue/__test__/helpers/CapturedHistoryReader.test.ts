@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import Path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { type ApiDecoration, type ArgonClient, getOfflineRegistry } from '@argonprotocol/mainchain';
+import { type ArgonClient, getOfflineRegistry } from '@argonprotocol/mainchain';
 import { Metadata } from '@polkadot/types/metadata';
 import { decorateStorage } from '@polkadot/types/metadata/decorate/storage';
 import { compactStripLength, hexToU8a, u8aConcat, u8aToHex } from '@polkadot/util';
@@ -126,29 +126,29 @@ describe('CapturedHistoryReader storage capture', () => {
     database
       .prepare('INSERT INTO RecoveryStorage (blockNumber, storageKey, storageValue) VALUES (?, ?, ?)')
       .run(1, hexToU8a(cachedStorageKey), hexToU8a(cachedHash));
-    const api = (await reader.getApi({ blockNumber: 1, blockHash })) as ApiDecoration<'promise'>;
+    const api = await reader.getApi({ blockNumber: 1, blockHash });
 
     const direct = await api.query.system.blockHash(1);
 
-    expect(direct.toHex()).toBe(cachedHash);
+    expect(direct).toBe(cachedHash);
     expect(liveQuery).not.toHaveBeenCalled();
     expect(queryStorageAt).not.toHaveBeenCalled();
 
     const multiple = await api.query.system.blockHash.multi([1, 2]);
 
-    expect(multiple.map(value => value.toHex())).toEqual([cachedHash, liveHash]);
+    expect(multiple).toEqual([cachedHash, liveHash]);
     expect(liveMulti).not.toHaveBeenCalled();
     expect(queryStorageAt).toHaveBeenCalledOnce();
     expect(queryStorageAt).toHaveBeenCalledWith([missingStorageKey], blockHash);
 
     const captured = await api.query.system.blockHash(2);
 
-    expect(captured.toHex()).toBe(liveHash);
+    expect(captured).toBe(liveHash);
     expect(queryStorageAt).toHaveBeenCalledOnce();
   });
 
   it('records and reuses a completed empty storage-key enumeration', async () => {
-    const api = (await reader.getApi({ blockNumber: 1, blockHash })) as ApiDecoration<'promise'>;
+    const api = await reader.getApi({ blockNumber: 1, blockHash });
 
     const firstKeys = await api.query.system.blockHash.keys();
     const secondKeys = await api.query.system.blockHash.keys();

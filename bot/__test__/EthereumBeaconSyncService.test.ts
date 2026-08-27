@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { minimumVaultDelegateBalance, NetworkConfig } from '@argonprotocol/apps-core';
+import { type ArgonClient, minimumVaultDelegateBalance, NetworkConfig } from '@argonprotocol/apps-core';
 
 type IMockTx = { id: string };
 type IMockSignedTx = {
@@ -95,7 +95,7 @@ vi.mock('@argonprotocol/apps-core', async () => {
   };
 });
 
-import { ExtrinsicError, TxSubmissionError, TxSubmissionErrorCode, type ArgonClient } from '@argonprotocol/mainchain';
+import { ExtrinsicError, TxSubmissionError, TxSubmissionErrorCode } from '@argonprotocol/mainchain';
 import { DelegateSubmitLane } from '../src/DelegateSubmitLane.ts';
 import {
   EthereumBeaconSyncService,
@@ -121,32 +121,23 @@ describe('EthereumBeaconSyncService', () => {
       at: vi.fn(async () => ({
         query: {
           system: {
-            account: vi.fn(async () => ({
-              nonce: { toNumber: () => nonceState.stable },
-            })),
+            account: vi.fn(async () => ({ nonce: nonceState.stable })),
           },
         },
       })),
+      raw: {},
       query: {
         system: {
-          account: vi.fn(async () => ({
-            data: { free: { toBigInt: getDelegateBalance } },
-          })),
+          account: vi.fn(async () => ({ data: { free: getDelegateBalance() } })),
         },
         crosschainTransfer: {
           chainConfigBySourceChain: vi.fn(async () =>
             hasEthereumChainConfig
               ? {
-                  isSome: true,
-                  isNone: false,
-                  unwrap: () => ({
-                    isEvm: true,
-                  }),
+                  type: 'Evm',
+                  value: { chainId: 1n, gateway: '0x1', argonToken: '0x2', argonotToken: '0x3' },
                 }
-              : {
-                  isSome: false,
-                  isNone: true,
-                },
+              : null,
           ),
         },
       },

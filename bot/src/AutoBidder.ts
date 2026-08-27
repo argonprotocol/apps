@@ -345,7 +345,7 @@ export class AutoBidder {
   private async reloadActiveCohort(): Promise<void> {
     const client = await this.mainchainClients.prunedClientOrArchivePromise;
     const isBiddingOpen = await client.query.miningSlot.isNextSlotBiddingOpen();
-    if (isBiddingOpen.isFalse) {
+    if (!isBiddingOpen) {
       await this.stopActiveBidders(false);
       return;
     }

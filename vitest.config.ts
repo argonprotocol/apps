@@ -63,6 +63,12 @@ export default defineConfig({
       },
       {
         test: {
+          name: 'runtime-client',
+          include: ['runtime-client/__test__/**/*.test.ts'],
+        },
+      },
+      {
+        test: {
           name: 'indexer',
           testTimeout: 240_000,
           hookTimeout: 120_000,

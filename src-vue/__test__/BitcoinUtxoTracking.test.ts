@@ -5,8 +5,7 @@ import { createTestDb } from './helpers/db.ts';
 import BitcoinUtxoTracking, { type IUtxoTrackingDeps } from '../lib/BitcoinUtxoTracking.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import { BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
-import type { ArgonClient } from '@argonprotocol/mainchain';
-import type { MiningFrames } from '@argonprotocol/apps-core';
+import type { ArgonClient, MiningFrames } from '@argonprotocol/apps-core';
 import { createBitcoinLockConfig } from './helpers/bitcoin.ts';
 
 type IMempoolTestDeps = Pick<IUtxoTrackingDeps['mempool'], 'getAddressUtxos' | 'getTipHeight' | 'getTxStatus'>;
@@ -217,17 +216,8 @@ describe('BitcoinUtxoTracking', () => {
     const tracking = createTracking(db);
     const lock = createLock({ status: BitcoinLockStatus.LockPendingFunding, satoshis: 10_000n });
     const chainTxid = 'f'.repeat(64);
-    const chainEntries = [
-      [
-        {
-          txid: { toHex: () => chainTxid },
-          outputIndex: { toNumber: () => 2 },
-        },
-        { toBigInt: () => 10_200n },
-      ],
-    ];
     const candidateQuery = vi.fn().mockResolvedValue({
-      entries: () => chainEntries[Symbol.iterator](),
+      [JSON.stringify({ txid: chainTxid, outputIndex: 2 })]: 10_200n,
     });
     const orphanedEntriesQuery = vi.fn().mockResolvedValue([]);
     const preferredClient = Object.assign(Object.create(null), {
@@ -313,16 +303,7 @@ describe('BitcoinUtxoTracking', () => {
       query: Object.assign(Object.create(null), {
         bitcoinUtxos: Object.assign(Object.create(null), {
           candidateUtxoRefsByUtxoId: vi.fn().mockResolvedValue({
-            entries: () =>
-              [
-                [
-                  {
-                    txid: { toHex: () => chainTxid },
-                    outputIndex: { toNumber: () => 1 },
-                  },
-                  { toBigInt: () => 10_100n },
-                ],
-              ][Symbol.iterator](),
+            [JSON.stringify({ txid: chainTxid, outputIndex: 1 })]: 10_100n,
           }),
         }),
         bitcoinLocks: Object.assign(Object.create(null), {
@@ -637,20 +618,11 @@ describe('BitcoinUtxoTracking', () => {
       satoshis: bigint,
       releaseRequest?: { bitcoinNetworkFee: bigint; toScriptPubkey: Uint8Array },
     ) => [
-      { args: [{}, { txid: { toHex: () => txid }, outputIndex: { toNumber: () => vout } }] },
+      { args: [{ type: 'Bitcoin' }, { txid, outputIndex: vout }] },
       {
-        isNone: false,
-        unwrap: () => ({
-          utxoId: { toNumber: () => utxoId },
-          satoshis: { toBigInt: () => satoshis },
-          cosignRequest: {
-            isSome: !!releaseRequest,
-            unwrap: () => ({
-              bitcoinNetworkFee: { toBigInt: () => releaseRequest!.bitcoinNetworkFee },
-              toScriptPubkey: releaseRequest!.toScriptPubkey,
-            }),
-          },
-        }),
+        utxoId,
+        satoshis,
+        cosignRequest: releaseRequest ?? null,
       },
     ];
     const entries = vi.fn().mockImplementation(async (owner: string) => {

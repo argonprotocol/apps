@@ -2,6 +2,7 @@ import express, { type Request, type Response } from 'express';
 import type { Server } from 'node:http';
 import {
   type ArgonClient,
+  createArgonClient,
   type ICertificationProgress,
   JsonExt,
   loadAccountLocks,
@@ -107,10 +108,12 @@ export class RouterServer {
         throw new RouterError('A mainchain node is required.', 503);
       }
 
-      this.mainchainClientPromise ??= getClient(mainchainNodeUrl, { throwOnConnect: true }).catch(error => {
-        this.mainchainClientPromise = undefined;
-        throw error;
-      });
+      this.mainchainClientPromise ??= getClient(mainchainNodeUrl, { throwOnConnect: true })
+        .then(createArgonClient)
+        .catch(error => {
+          this.mainchainClientPromise = undefined;
+          throw error;
+        });
       return await this.mainchainClientPromise;
     };
     const bitcoinLockCouponService = new BitcoinLockCouponService({
@@ -600,12 +603,12 @@ export class RouterServer {
           ...approvedOperationalAccountIds,
         ]);
         const upstreamAccount = operationalAccounts[0];
-        if (!upstreamAccount?.isSome) {
+        if (!upstreamAccount) {
           throw new RouterError('The router operator has not registered an operational account.', 409);
         }
 
         const registeredOperationalAccountIds = new Set(
-          approvedOperationalAccountIds.filter((_, index) => operationalAccounts[index + 1]?.isSome),
+          approvedOperationalAccountIds.filter((_, index) => !!operationalAccounts[index + 1]),
         );
         const invite = inviteService.markOperationsUpgraded({
           inviteCode: req.params.inviteCode,
@@ -614,7 +617,7 @@ export class RouterServer {
             signature: body.signature,
           },
           accessCodeCapacity: {
-            availableAccessCodes: upstreamAccount.unwrap().availableAccessCodes.toNumber(),
+            availableAccessCodes: upstreamAccount.availableAccessCodes,
             registeredOperationalAccountIds,
           },
         });

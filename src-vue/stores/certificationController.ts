@@ -941,7 +941,7 @@ export const useCertificationController = defineStore('certificationController',
     }
 
     const transferTotals = await transferTotalsByAccount(walletKeys.defaultArgonAddress);
-    treasuryTransferredInMicrogons.value = transferTotals.microgonsIn.toBigInt();
+    treasuryTransferredInMicrogons.value = transferTotals?.microgonsIn ?? 0n;
   }
 
   load().catch(handleFatalError.bind('useCertificationController'));

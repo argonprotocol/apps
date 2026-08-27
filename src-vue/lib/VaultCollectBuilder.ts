@@ -1,5 +1,6 @@
-import { bigIntMin, type ArgonQueryClient, type MoveTo } from '@argonprotocol/apps-core';
-import { type ArgonClient, type SubmittableExtrinsic } from '@argonprotocol/mainchain';
+import { type ArgonApi, bigIntMin, type ArgonClient, type MoveTo } from '@argonprotocol/apps-core';
+import { type SubmittableExtrinsic } from '@argonprotocol/mainchain';
+import { u8aToHex } from '@polkadot/util';
 import type { IMintingAuthorityAuthorizeMetadata } from './MintingAuthorities.ts';
 import type { MyVault } from './MyVault.ts';
 import { TxAttemptState } from './TransactionTracker.ts';
@@ -142,7 +143,7 @@ export class VaultCollectBuilder {
 
   public async buildPendingSubmission(args: {
     client: ArgonClient;
-    finalizedClient: ArgonQueryClient;
+    finalizedClient: ArgonApi;
     moveTo: MoveTo;
   }): Promise<IVaultCollectSubmission | undefined> {
     const { myVault } = this;
@@ -160,13 +161,13 @@ export class VaultCollectBuilder {
     });
 
     const frameRevenues = await finalizedClient.query.vaults.revenuePerFrameByVault(vaultId);
-    const expectedCollectRevenue = frameRevenues.reduce(
-      (total, frameRevenue) => total + frameRevenue.uncollectedRevenue.toBigInt(),
+    const expectedCollectRevenue = (frameRevenues ?? []).reduce(
+      (total, frameRevenue) => total + frameRevenue.uncollectedRevenue,
       0n,
     );
     const pendingCouncilApprovals = await myVault.globalCouncil.refresh(finalizedClient);
     const orphanCosignEntries = await finalizedClient.query.vaults.orphanedUtxoAccountsByVaultId.entries(vaultId);
-    const pendingOrphanCosignCount = orphanCosignEntries.reduce((total, [, count]) => total + count.toNumber(), 0);
+    const pendingOrphanCosignCount = (orphanCosignEntries ?? []).reduce((total, [, count]) => total + count, 0);
     const hasUnsubmittedOrphanCosigns = pendingOrphanCosignCount > cosignedOrphanUtxos.length;
     const shouldCollectRevenue = expectedCollectRevenue > 0n && !hasUnsubmittedOrphanCosigns;
     const hasCollectWork = shouldCollectRevenue || bitcoinTxs.length > 0;
@@ -244,7 +245,7 @@ function getStoredCosignCount(
 async function buildCollectBitcoinTxs(args: {
   myVault: MyVault;
   client: ArgonClient;
-  finalizedClient: ArgonQueryClient;
+  finalizedClient: ArgonApi;
   vaultId: number;
 }) {
   const { myVault, client, finalizedClient, vaultId } = args;
@@ -252,8 +253,7 @@ async function buildCollectBitcoinTxs(args: {
   const bitcoinTxs: SubmittableExtrinsic[] = [];
   const cosignedUtxoIds: number[] = [];
 
-  for (const pendingUtxoId of pendingCosignUtxos) {
-    const utxoId = pendingUtxoId.toNumber();
+  for (const utxoId of pendingCosignUtxos ?? []) {
     const latestTxAttempt = await myVault.findLatestReleaseCosignTxAttempt(utxoId);
     if (
       latestTxAttempt &&
@@ -263,15 +263,13 @@ async function buildCollectBitcoinTxs(args: {
       continue;
     }
 
-    const pendingReleaseRaw = await finalizedClient.query.bitcoinLocks.lockReleaseRequestsByUtxoId(utxoId);
-    if (pendingReleaseRaw.isNone) continue;
-
-    const pendingRelease = pendingReleaseRaw.unwrap();
+    const pendingRelease = await finalizedClient.query.bitcoinLocks.lockReleaseRequestsByUtxoId(utxoId);
+    if (!pendingRelease) continue;
     const result = await myVault.buildCosignTx({
       utxoId,
       releaseRequest: {
-        bitcoinNetworkFee: pendingRelease.bitcoinNetworkFee.toBigInt(),
-        toScriptPubkey: pendingRelease.toScriptPubkey.toHex(),
+        bitcoinNetworkFee: pendingRelease.bitcoinNetworkFee,
+        toScriptPubkey: u8aToHex(pendingRelease.toScriptPubkey),
       },
     });
     if (!result) continue;

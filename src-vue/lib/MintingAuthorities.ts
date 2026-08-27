@@ -1,9 +1,18 @@
-import { bigIntMax, bigIntMin, createDeferred, IDeferred, MiningFrames, MoveToken } from '@argonprotocol/apps-core';
-import { ApiDecoration, EvmContracts, MICROGONS_PER_ARGON, u8aToHex } from '@argonprotocol/mainchain';
+import {
+  type ArgonQueryClient,
+  bigIntMax,
+  bigIntMin,
+  createDeferred,
+  IDeferred,
+  MiningFrames,
+  MoveToken,
+} from '@argonprotocol/apps-core';
+import { EvmContracts, MICROGONS_PER_ARGON, u8aToHex } from '@argonprotocol/mainchain';
 import { u8aConcat } from '@polkadot/util';
+import type { Hex } from 'viem';
 import type { Db } from './Db.ts';
 import { calculateMintingAuthorityTipShare, convertMintingAuthorityTipToMicrogons } from './CrosschainHistory.ts';
-import { getGatewayActivityWaitEstimateMs } from './EthereumClient.ts';
+import { getGatewayActivityWaitEstimateMs, toArgonAccountIdHex } from './EthereumClient.ts';
 import { requestEthereumGatewayCatchup } from './EthereumGatewayCatchup.ts';
 import type { ServerApiClient } from './ServerApiClient.ts';
 import type { UpstreamOperatorClient } from './UpstreamOperatorClient.ts';
@@ -198,7 +207,7 @@ export class MintingAuthorities {
   }
 
   public async refresh(
-    finalizedClient: ApiDecoration<'promise'>,
+    finalizedClient: ArgonQueryClient,
     updateSeq = ++this.#updateSeq,
   ): Promise<IMintingAuthorityAuthorization[]> {
     const db = await this.dbPromise;
@@ -232,7 +241,7 @@ export class MintingAuthorities {
     ];
     const [sourceTotals, sourceUpstreamVaultAccountsByAccount] = await Promise.all([
       sourceAccounts.length
-        ? finalizedClient.query.crosschainTransfer.transferTotalsByAccount.multi(sourceAccounts).catch(error => {
+        ? finalizedClient.query.crosschainTransfer.transferTotalsByAccount.multi(sourceAccounts)?.catch(error => {
             console.warn('[MintingAuthorities] Unable to refresh source transfer totals', error);
             return undefined;
           })
@@ -254,9 +263,9 @@ export class MintingAuthorities {
           return [
             accountId,
             {
-              microgonsOut: totals.microgonsOut.toBigInt(),
-              micronotsOut: totals.micronotsOut.toBigInt(),
-              transferOutCount: totals.argonTransfersOutCount.toNumber() + totals.argonotTransfersOutCount.toNumber(),
+              microgonsOut: totals.microgonsOut,
+              micronotsOut: totals.micronotsOut,
+              transferOutCount: totals.argonTransfersOutCount + totals.argonotTransfersOutCount,
             },
           ];
         }),
@@ -270,7 +279,7 @@ export class MintingAuthorities {
   }
 
   private async loadSourceUpstreamVaultAccounts(
-    finalizedClient: ApiDecoration<'promise'>,
+    finalizedClient: ArgonQueryClient,
     sourceAccounts: string[],
   ): Promise<Map<string, string>> {
     if (!sourceAccounts.length) return new Map();
@@ -278,24 +287,24 @@ export class MintingAuthorities {
     try {
       const sourceOperationalAccountIds =
         await finalizedClient.query.operationalAccounts.operationalAccountBySubAccount.multi(sourceAccounts);
+      if (!sourceOperationalAccountIds) return new Map();
       const operationalAccountIds = [
-        ...new Set(
-          sourceOperationalAccountIds.flatMap(accountId => (accountId.isSome ? [accountId.unwrap().toString()] : [])),
-        ),
+        ...new Set(sourceOperationalAccountIds.flatMap(accountId => (accountId ? [accountId] : []))),
       ];
       if (!operationalAccountIds.length) return new Map();
 
       const operationalAccountOptions =
         await finalizedClient.query.operationalAccounts.operationalAccounts.multi(operationalAccountIds);
+      if (!operationalAccountOptions) return new Map();
       const operationalAccountsById = new Map(
         operationalAccountOptions.flatMap((account, index) =>
-          account.isSome ? [[operationalAccountIds[index], account.unwrap()] as const] : [],
+          account ? [[operationalAccountIds[index], account] as const] : [],
         ),
       );
       const upstreamAccountIds = [
         ...new Set(
           [...operationalAccountsById.values()].flatMap(account =>
-            account.upstreamAccount.isSome ? [account.upstreamAccount.unwrap().toString()] : [],
+            account.upstreamAccount ? [account.upstreamAccount] : [],
           ),
         ),
       ];
@@ -303,22 +312,23 @@ export class MintingAuthorities {
 
       const upstreamAccountOptions =
         await finalizedClient.query.operationalAccounts.operationalAccounts.multi(upstreamAccountIds);
+      if (!upstreamAccountOptions) return new Map();
       const upstreamVaultAccountsById = new Map(
         upstreamAccountOptions.flatMap((account, index) =>
-          account.isSome ? [[upstreamAccountIds[index], account.unwrap().vaultAccount.toString()] as const] : [],
+          account ? [[upstreamAccountIds[index], account.vaultAccount] as const] : [],
         ),
       );
       const sourceUpstreamVaultAccounts = new Map<string, string>();
 
       for (const [index, sourceAccount] of sourceAccounts.entries()) {
         const operationalAccountId = sourceOperationalAccountIds[index];
-        if (!operationalAccountId?.isSome) continue;
+        if (!operationalAccountId) continue;
 
-        const operationalAccount = operationalAccountsById.get(operationalAccountId.unwrap().toString());
+        const operationalAccount = operationalAccountsById.get(operationalAccountId);
         const upstreamAccountId = operationalAccount?.upstreamAccount;
-        if (!upstreamAccountId?.isSome) continue;
+        if (!upstreamAccountId) continue;
 
-        const upstreamVaultAccount = upstreamVaultAccountsById.get(upstreamAccountId.unwrap().toString());
+        const upstreamVaultAccount = upstreamVaultAccountsById.get(upstreamAccountId);
         if (upstreamVaultAccount) sourceUpstreamVaultAccounts.set(sourceAccount, upstreamVaultAccount);
       }
 
@@ -330,14 +340,14 @@ export class MintingAuthorities {
   }
 
   public async restoreSignerIndexes(
-    finalizedClient: ApiDecoration<'promise'>,
+    finalizedClient: ArgonQueryClient,
     updateSeq = ++this.#updateSeq,
   ): Promise<IEthereumMintingAuthority[]> {
     const councilSigner = await finalizedClient.query.crosschainTransfer.councilSignerByDestinationChainAndAccountId(
       'Ethereum',
       this.walletKeys.defaultArgonAddress,
     );
-    if (councilSigner.isNone) {
+    if (!councilSigner) {
       return this.data.authorities;
     }
 
@@ -371,7 +381,7 @@ export class MintingAuthorities {
       const sub = this.miningFrames.blockWatch.events.on('finalized', headers => {
         void (async () => {
           const hasPendingActivation = this.data.authorities.some(authority => authority.isPendingActivation);
-          let latestMatchingClient: ApiDecoration<'promise'> | undefined;
+          let latestMatchingClient: ArgonQueryClient | undefined;
           const registeredSigners = new Set<string>();
           for (const header of headers) {
             const { api, events } = await this.miningFrames.blockWatch.getEventsWithSpec(header);
@@ -379,11 +389,10 @@ export class MintingAuthorities {
               if (event.section !== 'crosschainTransfer') continue;
               latestMatchingClient = api;
               if (
-                api.events.crosschainTransfer.MintingAuthorityRegistered.is(event) &&
-                event.data.destinationChain.isEthereum &&
-                event.data.accountId.toString() === this.walletKeys.vaultingAddress
+                event.method === 'MintingAuthorityRegistered' &&
+                event.data.accountId === this.walletKeys.vaultingAddress
               ) {
-                registeredSigners.add(event.data.destinationSigningKey.toHex().toLowerCase());
+                registeredSigners.add(event.data.destinationSigningKey.toLowerCase());
               }
             }
           }
@@ -682,9 +691,7 @@ export class MintingAuthorities {
 
     const client = await this.miningFrames.blockWatch.clients.get(false);
     const gatewayState = await client.query.crosschainTransfer.gatewayStateBySourceChain('Ethereum');
-    const currentRuntimeGatewayActivityNonce = gatewayState.isSome
-      ? gatewayState.unwrap().gatewayActivityNonce.toBigInt()
-      : 0n;
+    const currentRuntimeGatewayActivityNonce = gatewayState?.gatewayActivityNonce ?? 0n;
     const nextGatewayActivityNonce = currentRuntimeGatewayActivityNonce + 1n;
     const relayKey = `${nextGatewayActivityNonce}:${pendingActivationSigners.join(',')}`;
     const now = Date.now();
@@ -721,7 +728,7 @@ export class MintingAuthorities {
 }
 
 export async function getOwnedEthereumMintingAuthorities(
-  finalizedClient: ApiDecoration<'promise'>,
+  finalizedClient: ArgonQueryClient,
   walletKeys: WalletKeys,
   walletHdKeysTable: WalletHdKeysTable,
 ): Promise<IEthereumMintingAuthority[]> {
@@ -737,25 +744,21 @@ export async function getOwnedEthereumMintingAuthorities(
     authorityHdKeys.map(x => x.address),
   );
 
-  return authorities
-    .filter(x => x.isSome)
-    .map(x => x.unwrap())
-    .filter(authority => authority.accountId.toString() === vaultingAddress && authority.destinationChain.isEthereum)
+  return (authorities ?? [])
+    .filter(authority => authority?.accountId === vaultingAddress && authority.destinationChain.type === 'Ethereum')
     .map(authority => {
-      const signer = authority.destinationSigningKey.toHex();
+      const signer = authority!.destinationSigningKey;
       return {
         signer,
         authorityIndex: authorityHdKeysBySigner.get(signer.toLowerCase())?.hdIndex,
-        isPendingActivation: authority.state.isPendingActivation,
-        isDeactivating: authority.state.isDeactivating,
-        isActive: authority.state.isActive,
-        gatewayRemainingMicrogonCollateral: authority.gatewayRemainingMicrogonCollateral.toBigInt(),
-        pendingReservedMicrogonCollateral: authority.pendingReservedMicrogonCollateral.toBigInt(),
-        gatewayRemainingMicronotCollateral: authority.gatewayRemainingMicronotCollateral.toBigInt(),
-        pendingReservedMicronotCollateral: authority.pendingReservedMicronotCollateral.toBigInt(),
-        activePendingTransferIds: [...authority.activePendingTransferIds].map(transferId =>
-          transferId.toHex().toLowerCase(),
-        ),
+        isPendingActivation: authority!.state.type === 'PendingActivation',
+        isDeactivating: authority!.state.type === 'Deactivating',
+        isActive: authority!.state.type === 'Active',
+        gatewayRemainingMicrogonCollateral: authority!.gatewayRemainingMicrogonCollateral,
+        pendingReservedMicrogonCollateral: authority!.pendingReservedMicrogonCollateral,
+        gatewayRemainingMicronotCollateral: authority!.gatewayRemainingMicronotCollateral,
+        pendingReservedMicronotCollateral: authority!.pendingReservedMicronotCollateral,
+        activePendingTransferIds: authority!.activePendingTransferIds.map(transferId => transferId.toLowerCase()),
       };
     })
     .sort((left, right) => {
@@ -769,7 +772,7 @@ export async function getOwnedEthereumMintingAuthorities(
 }
 
 export async function restoreOwnedEthereumMintingAuthorities(
-  finalizedClient: ApiDecoration<'promise'>,
+  finalizedClient: ArgonQueryClient,
   walletKeys: WalletKeys,
   walletHdKeysTable: WalletHdKeysTable,
 ): Promise<IEthereumMintingAuthority[]> {
@@ -791,7 +794,7 @@ export async function restoreOwnedEthereumMintingAuthorities(
 }
 
 export async function findOwnedEthereumMintingAuthoritySigners(
-  finalizedClient: ApiDecoration<'promise'>,
+  finalizedClient: ArgonQueryClient,
   walletKeys: WalletKeys,
 ): Promise<Array<{ authorityIndex: number; signer: string }>> {
   const ownedSigners: Array<{ authorityIndex: number; signer: string }> = [];
@@ -812,11 +815,10 @@ export async function findOwnedEthereumMintingAuthoritySigners(
       : [];
     if (!authorityOptions) return ownedSigners;
 
-    for (const [offset, authorityOption] of authorityOptions.entries()) {
-      if (authorityOption.isNone) continue;
+    for (const [offset, authority] of authorityOptions.entries()) {
+      if (!authority) continue;
 
-      const authority = authorityOption.unwrap();
-      if (authority.accountId.toString() !== walletKeys.vaultingAddress || !authority.destinationChain.isEthereum) {
+      if (authority.accountId !== walletKeys.vaultingAddress || authority.destinationChain.type !== 'Ethereum') {
         continue;
       }
 
@@ -878,7 +880,7 @@ export async function getNextMintingAuthoritySigner(args: {
 }
 
 export async function getPendingMintingAuthorizations(
-  finalizedClient: ApiDecoration<'promise'>,
+  finalizedClient: ArgonQueryClient,
   authorities: IEthereumMintingAuthority[],
   pendingLocalAuthorizations: ILocalPendingAuthorization[] = [],
   preferredTransferId?: string,
@@ -886,12 +888,10 @@ export async function getPendingMintingAuthorizations(
   const activeAuthorities = createActiveAuthorities(authorities, pendingLocalAuthorizations);
   if (activeAuthorities.length === 0) return [];
 
-  const chainConfigOption = await finalizedClient.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
-  if (chainConfigOption.isNone || !chainConfigOption.unwrap().isEvm) {
-    return [];
-  }
+  const chainConfig = await finalizedClient.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
+  if (chainConfig?.type !== 'Evm') return [];
 
-  const evmChainConfig = chainConfigOption.unwrap().asEvm;
+  const evmChainConfig = chainConfig.value;
   const minTransferCollateralIncrement =
     finalizedClient.consts.crosschainTransfer.minTransferCollateralIncrement.toBigInt();
   const pendingTransfers = await loadPendingAuthorizationTransfers(finalizedClient);
@@ -908,41 +908,41 @@ export async function getPendingMintingAuthorizations(
     for (const authority of activeAuthorities) {
       if (authority.activePendingTransferIds.has(transferId.toLowerCase())) continue;
 
-      const hasExistingCollateral = [...transfer.mintingAuthorityCollateralBySigner.keys()].some(
-        signer => signer.toHex().toLowerCase() === authority.signer.toLowerCase(),
+      const hasExistingCollateral = Object.keys(transfer.mintingAuthorityCollateralBySigner).some(
+        signer => signer.toLowerCase() === authority.signer.toLowerCase(),
       );
       if (hasExistingCollateral) continue;
 
       const plannedCollateral = planTransferCollateral({
-        isArgonAsset: transfer.asset.isArgon,
-        remainingCollateral: pendingRequest.remainingCollateral.toBigInt(),
+        isArgonAsset: transfer.asset.type === 'Argon',
+        remainingCollateral: pendingRequest.remainingCollateral,
         availableMicrogons: authority.availableMicrogons,
         availableMicronots: authority.availableMicronots,
         epochMicrogonsPerArgonot,
       });
       if (plannedCollateral.collateralShare === 0n) continue;
 
-      const completesTransfer = plannedCollateral.collateralShare >= pendingRequest.remainingCollateral.toBigInt();
+      const completesTransfer = plannedCollateral.collateralShare >= pendingRequest.remainingCollateral;
       if (plannedCollateral.collateralShare < minTransferCollateralIncrement && !completesTransfer) {
         continue;
       }
 
       const finalizeRequest: EvmContracts.MintingGatewayTransferOutOfArgonRequest = {
-        argonAccountId: transfer.argonAccountId.toHex(),
-        argonTransferNonce: transfer.argonTransferNonce.toBigInt(),
-        chainId: evmChainConfig.chainId.toBigInt(),
-        recipient: transfer.destinationAccount.toHex(),
-        validUntilBlock: transfer.validUntilEthereumBlock.toBigInt(),
-        token: transfer.asset.isArgon ? evmChainConfig.argonToken.toHex() : evmChainConfig.argonotToken.toHex(),
-        amount: transfer.amount.toBigInt(),
-        mintingAuthorityTip: transfer.mintingAuthorityTip.toBigInt(),
+        argonAccountId: toArgonAccountIdHex(transfer.argonAccountId),
+        argonTransferNonce: transfer.argonTransferNonce,
+        chainId: evmChainConfig.chainId,
+        recipient: transfer.destinationAccount as Hex,
+        validUntilBlock: transfer.validUntilEthereumBlock,
+        token: (transfer.asset.type === 'Argon' ? evmChainConfig.argonToken : evmChainConfig.argonotToken) as Hex,
+        amount: transfer.amount,
+        mintingAuthorityTip: transfer.mintingAuthorityTip,
         microgonsPerArgonot: epochMicrogonsPerArgonot,
       };
-      const moveToken = transfer.asset.isArgon ? MoveToken.ARGN : MoveToken.ARGNOT;
-      const transferAmount = transfer.amount.toBigInt();
+      const moveToken = transfer.asset.type === 'Argon' ? MoveToken.ARGN : MoveToken.ARGNOT;
+      const transferAmount = transfer.amount;
       const expectedTotalCollateral = bigIntMax(
         transferAmount,
-        transferAmount - pendingRequest.remainingCollateral.toBigInt() + plannedCollateral.collateralShare,
+        transferAmount - pendingRequest.remainingCollateral + plannedCollateral.collateralShare,
       );
       const mintingAuthorityTipShare = calculateMintingAuthorityTipShare({
         moveToken,
@@ -957,13 +957,13 @@ export async function getPendingMintingAuthorizations(
         transferId,
         authorityIndex: authority.authorityIndex,
         moveToken,
-        sourceAccount: transfer.argonAccountId.toString(),
+        sourceAccount: transfer.argonAccountId,
         destinationSigningKey: authority.signer,
         finalizeRequest,
         authorizationHash: EvmContracts.hashMintingGatewayMintingAuthorization(
           {
-            chainId: evmChainConfig.chainId.toBigInt(),
-            gatewayAddress: evmChainConfig.gateway.toHex(),
+            chainId: evmChainConfig.chainId,
+            gatewayAddress: evmChainConfig.gateway as Hex,
           },
           {
             request: finalizeRequest,
@@ -994,7 +994,7 @@ export async function getPendingMintingAuthorizations(
 }
 
 export async function getMintingAuthorityBackedTransfers(
-  finalizedClient: ApiDecoration<'promise'>,
+  finalizedClient: ArgonQueryClient,
   authorities: IEthereumMintingAuthority[],
 ): Promise<IMintingAuthorityBackedTransfer[]> {
   const authoritySigners = new Set(authorities.map(authority => authority.signer.toLowerCase()));
@@ -1004,45 +1004,42 @@ export async function getMintingAuthorityBackedTransfers(
   const transferOptions = await finalizedClient.query.crosschainTransfer.transferOutById.multi(transferIds);
   const backedTransfers: IMintingAuthorityBackedTransfer[] = [];
 
-  for (const [index, transferOption] of transferOptions.entries()) {
-    if (transferOption.isNone) continue;
-
-    const transfer = transferOption.unwrap();
+  for (const [index, transfer] of (transferOptions ?? []).entries()) {
+    if (!transfer) continue;
     let ownedMicrogonCollateral = 0n;
     let ownedMicronotCollateral = 0n;
     const ownedAuthoritySigners: string[] = [];
 
-    for (const [signer, collateral] of transfer.mintingAuthorityCollateralBySigner.entries()) {
-      const signerAddress = signer.toHex();
+    for (const [signerAddress, collateral] of Object.entries(transfer.mintingAuthorityCollateralBySigner)) {
       if (!authoritySigners.has(signerAddress.toLowerCase())) continue;
 
       ownedAuthoritySigners.push(signerAddress);
-      ownedMicrogonCollateral += collateral.microgonCollateral.toBigInt();
-      ownedMicronotCollateral += collateral.micronotCollateral.toBigInt();
+      ownedMicrogonCollateral += collateral.microgonCollateral;
+      ownedMicronotCollateral += collateral.micronotCollateral;
     }
 
     if (ownedAuthoritySigners.length === 0) continue;
 
-    const moveToken = transfer.asset.isArgon ? MoveToken.ARGN : MoveToken.ARGNOT;
-    const amount = transfer.amount.toBigInt();
-    const totalAttachedCollateral = transfer.totalAttachedCollateral.toBigInt();
-    const mintingAuthorityTip = transfer.mintingAuthorityTip.toBigInt();
+    const moveToken = transfer.asset.type === 'Argon' ? MoveToken.ARGN : MoveToken.ARGNOT;
+    const amount = transfer.amount;
+    const totalAttachedCollateral = transfer.totalAttachedCollateral;
+    const mintingAuthorityTip = transfer.mintingAuthorityTip;
 
     backedTransfers.push({
       transferId: transferIds[index],
-      status: transfer.state.isReady ? 'readyForEthereum' : 'waitingForAuthorizations',
+      status: transfer.state.type === 'Ready' ? 'readyForEthereum' : 'waitingForAuthorizations',
       moveToken,
-      sourceAccount: transfer.argonAccountId.toString(),
-      sourceTransferNonce: transfer.argonTransferNonce.toBigInt(),
-      destinationAccount: transfer.destinationAccount.toHex(),
+      sourceAccount: transfer.argonAccountId,
+      sourceTransferNonce: transfer.argonTransferNonce,
+      destinationAccount: transfer.destinationAccount,
       amount,
-      validUntilEthereumBlock: transfer.validUntilEthereumBlock.toBigInt(),
+      validUntilEthereumBlock: transfer.validUntilEthereumBlock,
       mintingAuthorityTip,
       mintingAuthorityTipShare: calculateMintingAuthorityTipShare({
         moveToken,
         mintingAuthorityTip,
         totalCollateral: bigIntMax(amount, totalAttachedCollateral),
-        microgonsPerArgonot: transfer.microgonsPerArgonot.toBigInt(),
+        microgonsPerArgonot: transfer.microgonsPerArgonot,
         microgonCollateral: ownedMicrogonCollateral,
         micronotCollateral: ownedMicronotCollateral,
       }),
@@ -1083,31 +1080,28 @@ function createActiveAuthorities(
   return activeAuthorities.filter(x => x.availableMicronots > 0n || x.availableMicrogons > 0n);
 }
 
-async function loadPendingAuthorizationTransfers(finalizedClient: ApiDecoration<'promise'>) {
+async function loadPendingAuthorizationTransfers(finalizedClient: ArgonQueryClient) {
   const pendingRequests =
     await finalizedClient.query.crosschainTransfer.pendingCollateralizationRequestsByChain('Ethereum');
-  const transferIds = pendingRequests.map(request => request.transferId.toHex());
+  const transferIds = (pendingRequests ?? []).map(request => request.transferId);
   const transferOptions = transferIds.length
     ? await finalizedClient.query.crosschainTransfer.transferOutById.multi(transferIds)
     : [];
-  type PendingAuthorizationTransfer = {
-    pendingRequest: (typeof pendingRequests)[number];
+  const transfersToPlan = [] as Array<{
+    pendingRequest: NonNullable<typeof pendingRequests>[number];
     transferId: string;
-    transfer: ReturnType<(typeof transferOptions)[number]['unwrap']>;
+    transfer: NonNullable<NonNullable<typeof transferOptions>[number]>;
     epochMicrogonsPerArgonot: bigint;
-  };
-  const transfersToPlan: PendingAuthorizationTransfer[] = [];
+  }>;
 
-  for (const [index, pendingRequest] of pendingRequests.entries()) {
-    const transferOption = transferOptions[index];
-    if (transferOption.isNone) continue;
-
-    const transfer = transferOption.unwrap();
+  for (const [index, pendingRequest] of (pendingRequests ?? []).entries()) {
+    const transfer = transferOptions?.[index];
+    if (!transfer) continue;
     transfersToPlan.push({
       pendingRequest,
       transferId: transferIds[index],
       transfer,
-      epochMicrogonsPerArgonot: transfer.microgonsPerArgonot.toBigInt(),
+      epochMicrogonsPerArgonot: transfer.microgonsPerArgonot,
     });
   }
 

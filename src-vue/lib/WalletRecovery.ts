@@ -104,14 +104,14 @@ export class WalletRecovery {
 
     const bidsRaw = await liveClient.query.miningSlot.bidsForNextSlotCohort();
     for (const [bidPosition, bidRaw] of bidsRaw.entries()) {
-      const address = bidRaw.accountId.toHuman();
+      const address = bidRaw.accountId;
       const isOurAccount = !!accountSubaccounts[address];
       if (!isOurAccount) continue;
 
       currentFrameBids.push({
         bidPosition,
-        microgonsBid: bidRaw.bid.toBigInt(),
-        micronotsStaked: bidRaw.argonots.toBigInt(),
+        microgonsBid: bidRaw.bid,
+        micronotsStaked: bidRaw.argonots,
       });
     }
     onProgress(20);
@@ -136,20 +136,19 @@ export class WalletRecovery {
         }
         console.log(`[MiningHistory] Loading frame ${frameId} (oldest ${earliestFundingFrameId})`);
         const minersByCohort = await api.query.miningSlot.minersByCohort.entries();
+        if (!minersByCohort) return;
         for (const [frameIdRaw, seatsInFrame] of minersByCohort) {
-          const frameId = frameIdRaw.args[0].toNumber();
+          const frameId = frameIdRaw.args[0];
           for (const [seatPosition, seatRaw] of seatsInFrame.entries()) {
-            const address = seatRaw.accountId.toHuman();
+            const address = seatRaw.accountId;
             const isOurAccount =
-              !!accountSubaccounts[address] ||
-              (seatRaw.externalFundingAccount.isSome &&
-                seatRaw.externalFundingAccount.unwrap().toHuman() === this.walletKeys.miningBotAddress);
+              !!accountSubaccounts[address] || seatRaw.externalFundingAccount === this.walletKeys.miningBotAddress;
             if (!isOurAccount) continue;
             dataByFrameId[frameId] ??= { frameId, seats: [], bids: [] };
             dataByFrameId[frameId].seats.push({
               seatPosition,
-              microgonsBid: seatRaw.bid.toBigInt(),
-              micronotsStaked: seatRaw.argonots.toBigInt(),
+              microgonsBid: seatRaw.bid,
+              micronotsStaked: seatRaw.argonots,
             });
           }
         }

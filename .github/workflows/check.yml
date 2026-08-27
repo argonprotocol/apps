@@ -31,9 +31,6 @@ jobs:
       - name: Typecheck
         run: yarn typecheck
 
-      - name: Check historical runtime events
-        run: yarn workspace @argonprotocol/apps-indexer check:historical-events
-
       - name: Run project lint (if defined)
         run: yarn lint:check
   rust-check:

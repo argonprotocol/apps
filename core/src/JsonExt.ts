@@ -1,11 +1,17 @@
+import BigNumber from 'bignumber.js';
+
 /**
- * JSON with support for BigInt in JSON.stringify and JSON.parse
+ * JSON with support for exact numeric values in JSON.stringify and JSON.parse
  */
 export class JsonExt {
   public static stringify(obj: any, space?: number): string {
     return JSON.stringify(
       obj,
-      (_, v) => {
+      function (this: Record<string, unknown>, key, v) {
+        const original = this[key];
+        if (BigNumber.isBigNumber(original)) {
+          return { type: 'BigNumber', value: original.toString() };
+        }
         if (typeof v === 'bigint') {
           return `${v}n`; // Append 'n' to indicate BigInt
         }
@@ -31,6 +37,9 @@ export class JsonExt {
       }
       if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(v)) {
         return new Date(v);
+      }
+      if (typeof v === 'object' && v !== null && v.type === 'BigNumber' && typeof v.value === 'string') {
+        return new BigNumber(v.value);
       }
       // rehydrate Uint8Array objects
       if (typeof v === 'object' && v !== null && v.type === 'Buffer' && Array.isArray(v.data)) {

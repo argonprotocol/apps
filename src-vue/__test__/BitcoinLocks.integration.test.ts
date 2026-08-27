@@ -76,14 +76,10 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
       async () => {
         const client = await clients.get(false);
         const current = await client.query.priceIndex.current();
-        const priceIndex = current.toJSON() as {
-          btcUsdPrice?: string;
-          argonUsdPrice?: string;
-          tick?: string | number;
-        };
-        if (!priceIndex.btcUsdPrice || BigInt(priceIndex.btcUsdPrice) <= 0n) return;
-        if (!priceIndex.argonUsdPrice || BigInt(priceIndex.argonUsdPrice) <= 0n) return;
-        if (priceIndex.tick == null || BigInt(priceIndex.tick) <= 0n) return;
+        if (!current) return;
+        if (current.btcUsdPrice.isLessThanOrEqualTo(0)) return;
+        if (current.argonUsdPrice.isLessThanOrEqualTo(0)) return;
+        if (current.tick <= 0) return;
         return true;
       },
       { pollMs: 1e3 },
@@ -212,7 +208,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           const chainFundingRef = await chainLock.getFundingUtxoRef(chainClient);
           if (chainFundingRef) return;
           const candidateRefs = await chainClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(resumed.utxoId!);
-          if (candidateRefs && [...candidateRefs.entries()].length > 0) return;
+          if (candidateRefs && Object.keys(candidateRefs).length > 0) return;
 
           return true;
         });
@@ -271,17 +267,16 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
           const preExpiryClient = await clients.get(false);
           const preExpiryBitcoinHeight = await preExpiryClient.query.bitcoinUtxos
             .confirmedBitcoinBlockTip()
-            .then(x => x.value?.blockHeight.toNumber() ?? 0);
+            .then(x => x?.blockHeight ?? 0);
           const preExpiryChainLock = await BitcoinLock.get(preExpiryClient, observed.lock.utxoId!);
           const preExpiryCandidates = await preExpiryClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(
             observed.lock.utxoId!,
           );
-          const candidateWasRecordedBeforeExpiry = [...preExpiryCandidates.entries()].some(([utxoRef]) => {
-            return (
-              utxoRef.txid.toHex() === observed.candidate.txid &&
-              utxoRef.outputIndex.toNumber() === observed.candidate.vout
-            );
+          const candidateKey = JSON.stringify({
+            txid: observed.candidate.txid,
+            outputIndex: observed.candidate.vout,
           });
+          const candidateWasRecordedBeforeExpiry = candidateKey in preExpiryCandidates;
 
           expect(preExpiryBitcoinHeight).toBeLessThan(orphaningBitcoinHeight);
           expect(preExpiryChainLock).toBeTruthy();
@@ -294,7 +289,7 @@ describe.skipIf(skipE2E).sequential('BitcoinLocks integration', { timeout: 240e3
               const chainClient = await clients.get(false);
               const currentBitcoinHeight = await chainClient.query.bitcoinUtxos
                 .confirmedBitcoinBlockTip()
-                .then(x => x.value?.blockHeight.toNumber() ?? 0);
+                .then(x => x?.blockHeight ?? 0);
               if (currentBitcoinHeight >= orphaningBitcoinHeight) return true;
               mineBitcoinBlocks(orphaningBitcoinHeight - currentBitcoinHeight, minerAddress);
               return;
@@ -844,14 +839,14 @@ async function returnMismatchAndWaitForReadyToResume(
       if (chainFundingRef) return;
 
       const candidateRefs = await chainClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(refreshed.utxoId!);
-      if (candidateRefs && [...candidateRefs.entries()].length > 0) return;
+      if (candidateRefs && Object.keys(candidateRefs).length > 0) return;
 
       const pendingCosign = await chainClient.query.vaults.pendingCosignByVaultId(refreshed.vaultId);
-      if (JSON.stringify(pendingCosign.toJSON()) !== '[]') return;
+      if (pendingCosign.length > 0) return;
 
       const vault = await chainClient.query.vaults.vaultsById(refreshed.vaultId);
-      if (!vault.isSome) return;
-      if (vault.unwrap().securitizationLocked.toBigInt() <= 0n) return;
+      if (!vault) return;
+      if (vault.securitizationLocked <= 0n) return;
 
       return { lock: refreshed, record };
     },
@@ -910,8 +905,8 @@ async function acceptMismatchFunding(
     if (chainFundingRef?.txid !== observed.candidate.txid) return;
     if (chainFundingRef?.vout !== observed.candidate.vout) return;
     const chainVault = await chainClient.query.vaults.vaultsById(currentLock.vaultId);
-    if (!chainVault.isSome) return;
-    if (chainVault.unwrap().securitizationLocked.toBigInt() <= 0n) return;
+    if (!chainVault) return;
+    if (chainVault.securitizationLocked <= 0n) return;
 
     return {
       lock: currentLock,
@@ -944,7 +939,7 @@ async function returnExpiredMismatchAndWaitForChainRestore(
       const chainClient = await clients.get(false);
       const currentBitcoinHeight = await chainClient.query.bitcoinUtxos
         .confirmedBitcoinBlockTip()
-        .then(x => x.value?.blockHeight.toNumber() ?? 0);
+        .then(x => x?.blockHeight ?? 0);
       if (currentBitcoinHeight >= orphaningBitcoinHeight) return true;
       mineBitcoinBlocks(orphaningBitcoinHeight - currentBitcoinHeight, minerAddress);
       return;
@@ -990,14 +985,14 @@ async function returnExpiredMismatchAndWaitForChainRestore(
       if (chainLock) return;
 
       const candidateRefs = await chainClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(currentLock.utxoId!);
-      if (candidateRefs && [...candidateRefs.entries()].length > 0) return;
+      if (candidateRefs && Object.keys(candidateRefs).length > 0) return;
 
       const pendingCosign = await chainClient.query.vaults.pendingCosignByVaultId(currentLock.vaultId);
-      if (JSON.stringify(pendingCosign.toJSON()) !== '[]') return;
+      if (pendingCosign.length > 0) return;
 
       const vault = await chainClient.query.vaults.vaultsById(currentLock.vaultId);
-      if (!vault.isSome) return;
-      if (vault.unwrap().securitizationLocked.toBigInt() !== 0n) return;
+      if (!vault) return;
+      if (vault.securitizationLocked !== 0n) return;
       if (harness.myVault.createdVault?.availableBitcoinSpace() !== expectedAvailableBitcoinSpace) return;
 
       return {
@@ -1087,12 +1082,12 @@ async function returnExpiredMismatchAndWaitForChainRestore(
       }
 
       const candidateRefs = await chainClient.query.bitcoinUtxos.candidateUtxoRefsByUtxoId(refreshed.utxoId!);
-      if (candidateRefs && [...candidateRefs.entries()].length > 0) return;
+      if (candidateRefs && Object.keys(candidateRefs).length > 0) return;
       const pendingCosign = await chainClient.query.vaults.pendingCosignByVaultId(refreshed.vaultId);
-      if (JSON.stringify(pendingCosign.toJSON()) !== '[]') return;
+      if (pendingCosign.length > 0) return;
       const vault = await chainClient.query.vaults.vaultsById(refreshed.vaultId);
-      if (!vault.isSome) return;
-      if (vault.unwrap().securitizationLocked.toBigInt() !== 0n) return;
+      if (!vault) return;
+      if (vault.securitizationLocked !== 0n) return;
       if (harness.myVault.createdVault?.availableBitcoinSpace() !== expectedAvailableBitcoinSpace) return;
       return { lock: refreshed, record };
     },
@@ -1190,9 +1185,9 @@ async function releaseLockAndWaitForChainRestore(
     if (chainLock) return;
     const pendingCosign = await chainClient.query.vaults.pendingCosignByVaultId(currentLock.vaultId);
     const vault = await chainClient.query.vaults.vaultsById(currentLock.vaultId);
-    if (!vault.isSome) return;
-    if (vault.unwrap().securitizationLocked.toBigInt() !== 0n) return;
-    if (JSON.stringify(pendingCosign.toJSON()) !== '[]') return;
+    if (!vault) return;
+    if (vault.securitizationLocked !== 0n) return;
+    if (pendingCosign.length > 0) return;
     if (harness.myVault.createdVault?.availableBitcoinSpace() !== expectedAvailableBitcoinSpace) return;
     return true;
   });

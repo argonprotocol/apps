@@ -124,9 +124,7 @@ export async function createBitcoinLocksHarness(args: {
   await waitFor(90e3, 'vault wallet finalized funding visibility', async () => {
     const finalizedHead = await archiveClient.rpc.chain.getFinalizedHead();
     const finalizedClient = await archiveClient.at(finalizedHead);
-    const balance = await finalizedClient.query.system
-      .account(walletKeys.defaultArgonAddress)
-      .then(x => x.data.free.toBigInt());
+    const balance = await finalizedClient.query.system.account(walletKeys.defaultArgonAddress).then(x => x.data.free);
     if (balance < fundingMicrogons) return;
     return balance;
   });

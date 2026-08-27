@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { encodeAddress, getOfflineRegistry } from '@argonprotocol/mainchain';
+import { historicalEventChanges } from '@argonprotocol/runtime-client/events.generated';
 import { AccountActivityDecoder, AccountActivityKind, classifyEvent } from '../src/AccountActivity.ts';
-import { historicalEventChanges } from '../src/HistoricalEventSpecs.generated.ts';
 import { createHistoricalEventData } from './helpers/historicalEvents.ts';
 
 const emptyEventData = Object.assign([], { names: [], typeDef: [] });
@@ -488,9 +488,21 @@ describe('AccountActivityDecoder', () => {
   });
 
   it('does not classify a legacy bond without Bitcoin backing as Bitcoin activity', () => {
+    getOfflineRegistry().register({
+      ArgonPrimitivesBondBondType: { _enum: ['Mining', 'Bitcoin'] },
+      ArgonPrimitivesBondBondExpiration: { _enum: { ArgonBlock: 'u32', BitcoinBlock: 'u64' } },
+    });
+
     const createBondData = (utxoId: number | null) => {
-      const codec = getOfflineRegistry().createType('Option<u64>', utxoId);
-      return Object.assign([], { utxoId: codec });
+      return createHistoricalEventData(109, 'bonds', 'BondCreated', {
+        vaultId: 4,
+        bondId: 7,
+        bondType: { Mining: null },
+        bondedAccountId: encodeAddress(new Uint8Array(32).fill(5)),
+        utxoId,
+        amount: 1_000,
+        expiration: { ArgonBlock: 10 },
+      });
     };
 
     expect(classifyEvent({ section: 'bonds', method: 'BondCreated', data: createBondData(null) } as any)).toBe(0);

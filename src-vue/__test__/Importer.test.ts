@@ -53,7 +53,7 @@ const testJurisdiction = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  importMocks.getOperatorVaultId.mockResolvedValue({ isSome: false });
+  importMocks.getOperatorVaultId.mockResolvedValue(null);
   importMocks.getMainchainClient.mockResolvedValue({
     tx: { operationalAccounts: { setName: vi.fn() } },
   });
@@ -80,9 +80,7 @@ it('stops background sync before importing and keeps the current database on fai
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
-        operationalAccounts: vi.fn().mockResolvedValue({
-          isSome: false,
-        }),
+        operationalAccounts: vi.fn().mockResolvedValue(null),
       },
       vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
     },
@@ -119,30 +117,27 @@ it('restores completed mining setup from imported operational account state', as
   });
   const { config, db, dbPromise } = await createImporterConfig(walletKeys);
   const operationalDetails = {
-    accountBitcoinAmount: { toBigInt: () => 0n },
-    accountVaultBondAmount: { toBigInt: () => 0n },
-    availableAccessCodes: { toNumber: () => 0 },
-    isOperationallyCertified: { toPrimitive: () => false },
-    miningSeatAccrual: { toNumber: () => 0 },
-    miningSeatAppliedTotal: { toNumber: () => 1 },
-    name: { isSome: false },
-    operationalCertificationsCount: { toNumber: () => 0 },
-    rewardsCollectedAmount: { toBigInt: () => 0n },
-    rewardsEarnedAmount: { toBigInt: () => 0n },
-    rewardsEarnedCount: { toNumber: () => 0 },
-    uniswapArgonTransfersInAmount: { toBigInt: () => 0n },
-    upstreamAccount: { isSome: false },
-    vaultBitcoinAccrual: { toBigInt: () => 0n },
-    vaultBitcoinAppliedTotal: { toBigInt: () => 0n },
-    vaultCreated: { toPrimitive: () => true },
+    accountBitcoinAmount: 0n,
+    accountVaultBondAmount: 0n,
+    availableAccessCodes: 0,
+    isOperationallyCertified: false,
+    miningSeatAccrual: 0,
+    miningSeatAppliedTotal: 1,
+    name: null,
+    operationalCertificationsCount: 0,
+    rewardsCollectedAmount: 0n,
+    rewardsEarnedAmount: 0n,
+    rewardsEarnedCount: 0,
+    uniswapArgonTransfersInAmount: 0n,
+    upstreamAccount: null,
+    vaultBitcoinAccrual: 0n,
+    vaultBitcoinAppliedTotal: 0n,
+    vaultCreated: true,
   };
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
-        operationalAccounts: vi.fn().mockResolvedValue({
-          isSome: true,
-          unwrap: () => operationalDetails,
-        }),
+        operationalAccounts: vi.fn().mockResolvedValue(operationalDetails),
       },
       vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
     },
@@ -208,9 +203,7 @@ it.each([
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
-        operationalAccounts: vi.fn().mockResolvedValue({
-          isSome: false,
-        }),
+        operationalAccounts: vi.fn().mockResolvedValue(null),
       },
       vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
     },
@@ -255,9 +248,7 @@ it.each([
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
-        operationalAccounts: vi.fn().mockResolvedValue({
-          isSome: false,
-        }),
+        operationalAccounts: vi.fn().mockResolvedValue(null),
       },
       vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
     },
@@ -287,9 +278,7 @@ it('does not invent extensions from an imported basic wallet balance', async () 
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
-        operationalAccounts: vi.fn().mockResolvedValue({
-          isSome: false,
-        }),
+        operationalAccounts: vi.fn().mockResolvedValue(null),
       },
       vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
     },
@@ -330,33 +319,22 @@ it.each([
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
-        operationalAccounts: vi.fn().mockResolvedValue({
-          isSome: false,
-        }),
+        operationalAccounts: vi.fn().mockResolvedValue(null),
       },
       vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
       crosschainTransfer: {
-        councilSignerByDestinationChainAndAccountId: vi.fn().mockResolvedValue({ isSome: true }),
-        activeGlobalIssuanceCouncilByDestinationChain: vi.fn().mockResolvedValue({
-          isSome: true,
-          isNone: false,
-          unwrap: () => '0xactive',
-        }),
+        councilSignerByDestinationChainAndAccountId: vi.fn().mockResolvedValue('0xsigner'),
+        activeGlobalIssuanceCouncilByDestinationChain: vi.fn().mockResolvedValue('0xactive'),
         globalIssuanceCouncilByHash: vi.fn().mockResolvedValue({
-          isSome: true,
-          isNone: false,
-          unwrap: () => ({
-            members: new Map([
-              [
-                '0xsigner',
-                {
-                  accountId: {
-                    toString: () => (isActive ? importWalletKeys.vaultingAddress : '5AnotherCouncilMember'),
-                  },
-                },
-              ],
-            ]),
-          }),
+          epochMicrogonsPerArgonot: 0n,
+          members: {
+            '0xsigner': {
+              accountId: isActive ? importWalletKeys.vaultingAddress : '5AnotherCouncilMember',
+              signer: '0xsigner',
+              weight: 1n,
+            },
+          },
+          totalWeight: 1n,
         }),
       },
     },
@@ -389,27 +367,21 @@ it('preserves Operations history without granting Crosschain access from an owne
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
-        operationalAccounts: vi.fn().mockResolvedValue({
-          isSome: false,
-        }),
+        operationalAccounts: vi.fn().mockResolvedValue(null),
       },
       vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
       crosschainTransfer: {
-        councilSignerByDestinationChainAndAccountId: vi.fn().mockResolvedValue({ isSome: false }),
-        activeGlobalIssuanceCouncilByDestinationChain: vi.fn().mockResolvedValue({ isSome: false, isNone: true }),
+        councilSignerByDestinationChainAndAccountId: vi.fn().mockResolvedValue(null),
+        activeGlobalIssuanceCouncilByDestinationChain: vi.fn().mockResolvedValue(null),
         mintingAuthoritiesBySigner: {
           multi: vi.fn(async (signers: string[]) =>
             signers.map((_, index) =>
               index === 0
                 ? {
-                    isSome: true,
-                    isNone: false,
-                    unwrap: () => ({
-                      accountId: { toString: () => importWalletKeys.vaultingAddress },
-                      destinationChain: { isEthereum: true },
-                    }),
+                    accountId: importWalletKeys.vaultingAddress,
+                    destinationChain: { type: 'Ethereum' },
                   }
-                : { isSome: false, isNone: true },
+                : null,
             ),
           ),
         },
@@ -440,7 +412,7 @@ it('does not infer treasury from an unattributed account hold', async () => {
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
-        operationalAccounts: vi.fn().mockResolvedValue({ isSome: false }),
+        operationalAccounts: vi.fn().mockResolvedValue(null),
       },
       vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
     },
@@ -496,16 +468,13 @@ it.each([
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
-        operationalAccounts: vi.fn().mockResolvedValue({ isSome: false }),
+        operationalAccounts: vi.fn().mockResolvedValue(null),
       },
       vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
     },
   });
   importMocks.readBalances.mockResolvedValue([emptyBalance, emptyBalance, emptyBalance, emptyBalance]);
-  importMocks.getOperatorVaultId.mockResolvedValue({
-    isSome: params.activityKind === 'vault',
-    unwrap: () => ({ toNumber: () => 7 }),
-  });
+  importMocks.getOperatorVaultId.mockResolvedValue(params.activityKind === 'vault' ? 7 : null);
   const getVault = vi.spyOn(Vault, 'get').mockResolvedValue({ vaultId: 7 } as Vault);
   importMocks.findMiningActivity.mockImplementation(async (_address, filters) => {
     return {
@@ -543,7 +512,7 @@ it('keeps proven account state when index history is unavailable during repair',
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
-        operationalAccounts: vi.fn().mockResolvedValue({ isSome: false }),
+        operationalAccounts: vi.fn().mockResolvedValue(null),
       },
       vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
     },
@@ -607,7 +576,7 @@ it('non-destructively recovers the current wallet setup', async () => {
   importMocks.getFinalizedClient.mockResolvedValue({
     query: {
       operationalAccounts: {
-        operationalAccounts: vi.fn().mockResolvedValue({ isSome: false }),
+        operationalAccounts: vi.fn().mockResolvedValue(null),
       },
       vaults: { vaultIdByOperator: importMocks.getOperatorVaultId },
     },

@@ -12,7 +12,9 @@ import {
   getEthereumExecutionRpcUrl,
   getEthereumUserErrorMessage,
   loadEthereumChainConfig,
+  toArgonAccountIdHex,
   toEvmRecoverableSignature,
+  toHexValue,
 } from './EthereumClient.ts';
 import { getCappedPercent } from './Utils.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
@@ -164,19 +166,18 @@ export class EthereumOutboundTransferTracker {
     await this.blockWatch.start();
     const client = await getMainchainClient(false);
     const latestExecutionHeaderAnchorHash = await client.query.ethereumVerifier.latestExecutionHeaderAnchorBlockHash();
-    if (latestExecutionHeaderAnchorHash.isNone) {
+    if (!latestExecutionHeaderAnchorHash) {
       return 'Ethereum state is still syncing. Transfers out will be available once finalized Ethereum state is available on Argon.';
     }
 
     const latestExecutionHeader = await client.query.ethereumVerifier.executionHeaderAnchors(
-      latestExecutionHeaderAnchorHash.unwrap().toHex(),
+      latestExecutionHeaderAnchorHash,
     );
-    if (latestExecutionHeader.isNone) {
+    if (!latestExecutionHeader) {
       return 'Ethereum state is still syncing. Transfers out will be available once finalized Ethereum state is available on Argon.';
     }
 
-    const anchor = latestExecutionHeader.unwrap();
-    const anchorTimestampMillis = anchor.timestampMillis.toBigInt();
+    const anchorTimestampMillis = latestExecutionHeader.timestampMillis;
     const currentBlockTimeMillis = BigInt(this.blockWatch.bestBlockHeader.blockTime);
     const ageMillis =
       currentBlockTimeMillis > anchorTimestampMillis ? currentBlockTimeMillis - anchorTimestampMillis : 0n;
@@ -733,26 +734,24 @@ export class EthereumOutboundTransferTracker {
       });
     }
 
-    let readyTransfer:
-      | {
-          blockHash: string;
-          blockNumber: number;
-          mintingAuthorizedMicrogons: bigint;
-          mintingAuthorizedMicronots: bigint;
-          finalizeArgs: IEthereumFinalizeTransferOutOfArgonArgs;
-        }
-      | undefined;
+    let readyTransfer: {
+      blockHash: string;
+      blockNumber: number;
+      mintingAuthorizedMicrogons: bigint;
+      mintingAuthorizedMicronots: bigint;
+      finalizeArgs: IEthereumFinalizeTransferOutOfArgonArgs;
+    };
     try {
       const finalizedClient = await this.blockWatch.getApi(finalizedHeader);
       const transferOption = await finalizedClient.query.crosschainTransfer.transferOutById(record.transferId);
-      if (transferOption.isNone) {
+      if (!transferOption) {
         throw new OutboundTransferChainError(`Transfer ${record.transferId} is no longer available on Argon.`);
       }
 
-      const chainTransfer = transferOption.unwrap();
-      if (!chainTransfer.state.isReady) {
-        const amount = chainTransfer.amount.toBigInt();
-        const totalAttachedCollateral = chainTransfer.totalAttachedCollateral.toBigInt();
+      const chainTransfer = transferOption;
+      if (chainTransfer.state.type !== 'Ready') {
+        const amount = chainTransfer.amount;
+        const totalAttachedCollateral = chainTransfer.totalAttachedCollateral;
         const remainingMintingAuthorizationMicrogons =
           totalAttachedCollateral >= amount ? 0n : amount - totalAttachedCollateral;
         const approvalPercent = getCappedPercent(amount - remainingMintingAuthorizationMicrogons, amount);
@@ -776,15 +775,15 @@ export class EthereumOutboundTransferTracker {
       }
 
       const chainConfigOption = await finalizedClient.query.crosschainTransfer.chainConfigBySourceChain(NETWORK);
-      if (chainConfigOption.isNone || !chainConfigOption.unwrap().isEvm) {
+      if (!chainConfigOption || chainConfigOption.type !== 'Evm') {
         throw new OutboundTransferChainError('Ethereum transfer gateway is not configured on this network.');
       }
-      const evmChainConfig = chainConfigOption.unwrap().asEvm;
+      const evmChainConfig = chainConfigOption.value;
 
-      const authorizations = Array.from(chainTransfer.mintingAuthorityCollateralBySigner.values()).map(collateral => ({
-        microgonCollateral: collateral.microgonCollateral.toBigInt(),
-        micronotCollateral: collateral.micronotCollateral.toBigInt(),
-        signature: toEvmRecoverableSignature(collateral.signature.toHex()),
+      const authorizations = Object.values(chainTransfer.mintingAuthorityCollateralBySigner).map(collateral => ({
+        microgonCollateral: collateral.microgonCollateral,
+        micronotCollateral: collateral.micronotCollateral,
+        signature: toEvmRecoverableSignature(toHexValue(collateral.signature)),
       }));
       if (!authorizations.length) {
         throw new OutboundTransferChainError(
@@ -799,17 +798,17 @@ export class EthereumOutboundTransferTracker {
         mintingAuthorizedMicronots: sumCollateral(authorizations, 'micronotCollateral'),
         finalizeArgs: {
           request: {
-            argonAccountId: chainTransfer.argonAccountId.toHex(),
-            argonTransferNonce: chainTransfer.argonTransferNonce.toBigInt(),
-            chainId: evmChainConfig.chainId.toBigInt(),
-            recipient: chainTransfer.destinationAccount.toHex(),
-            validUntilBlock: chainTransfer.validUntilEthereumBlock.toBigInt(),
-            token: chainTransfer.asset.isArgon
-              ? evmChainConfig.argonToken.toHex()
-              : evmChainConfig.argonotToken.toHex(),
-            amount: chainTransfer.amount.toBigInt(),
-            mintingAuthorityTip: chainTransfer.mintingAuthorityTip.toBigInt(),
-            microgonsPerArgonot: chainTransfer.microgonsPerArgonot.toBigInt(),
+            argonAccountId: toArgonAccountIdHex(chainTransfer.argonAccountId),
+            argonTransferNonce: chainTransfer.argonTransferNonce,
+            chainId: evmChainConfig.chainId,
+            recipient: toHexValue(chainTransfer.destinationAccount),
+            validUntilBlock: chainTransfer.validUntilEthereumBlock,
+            token: toHexValue(
+              chainTransfer.asset.type === 'Argon' ? evmChainConfig.argonToken : evmChainConfig.argonotToken,
+            ),
+            amount: chainTransfer.amount,
+            mintingAuthorityTip: chainTransfer.mintingAuthorityTip,
+            microgonsPerArgonot: chainTransfer.microgonsPerArgonot,
           },
           proof: { authorizations },
         },
@@ -1428,15 +1427,12 @@ function createOutboundProgressFromRecord(record: ICrosschainOutboundTransferRec
 }
 
 async function extractTransferId(txInfo: TransactionInfo<ICrosschainTransferOutMetadata>) {
-  const client = await getMainchainClient(false);
   await txInfo.txResult.waitForInFirstBlock;
 
   for (const event of txInfo.txResult.events) {
-    if (!client.events.crosschainTransfer.TransferOutStarted.is(event)) {
-      continue;
+    if (event.section === 'crosschainTransfer' && event.method === 'TransferOutStarted') {
+      return event.data.transferId;
     }
-
-    return event.data.transferId.toHex();
   }
 
   throw new Error('TransferOutStarted event not found in transaction events.');

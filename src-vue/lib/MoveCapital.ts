@@ -1,6 +1,7 @@
 import { getMainchainClient } from '../stores/mainchain.ts';
-import { ArgonClient, SubmittableExtrinsic } from '@argonprotocol/mainchain';
+import { SubmittableExtrinsic } from '@argonprotocol/mainchain';
 import {
+  type ArgonClient,
   bigIntMax,
   bigIntMin,
   isDefaultArgonMoveFrom,

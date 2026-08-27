@@ -30,6 +30,8 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { sudoFundWallet } from '../core/__test__/helpers/sudoFundWallet.ts';
+import { createArgonClient } from '@argonprotocol/apps-core';
+import BigNumber from 'bignumber.js';
 import { waitForQueryableClient } from '../core/__test__/startArgonTestNetwork.ts';
 import {
   DEV_ETHEREUM_TOKEN_RESERVE_RUNTIME_AMOUNT,
@@ -265,7 +267,7 @@ export function createDevEthereumSetup(
           argonotTokenAddress: gateway.argonotTokenAddress,
           rootAccountAddress: DEV_ETHEREUM_ADMIN_ACCOUNT.address,
           ensureBacking: async () => {
-            const client = await getClient(archiveUrl);
+            const client = createArgonClient(await getClient(archiveUrl));
 
             try {
               await sudoFundWallet({
@@ -395,20 +397,17 @@ async function doesDevEthereumGatewayMatch(executionRpcUrl: string, gateway: Dev
 
 export async function loadConfiguredDevEthereumGateway(archiveUrl: string): Promise<DevEthereumGateway | undefined> {
   await waitForQueryableClient(archiveUrl, { label: 'dev Ethereum chain-config client' });
-  const client = await getClient(archiveUrl);
+  const client = createArgonClient(await getClient(archiveUrl));
 
   try {
     const chainConfig = await client.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
-    if (chainConfig.isNone) return;
+    if (chainConfig?.type !== 'Evm') return;
 
-    const config = chainConfig.unwrap();
-    if (!config.isEvm) return;
-
-    const ethereum = config.asEvm;
+    const ethereum = chainConfig.value;
     return {
-      gatewayAddress: getAddress(ethereum.gateway.toHex()),
-      argonTokenAddress: getAddress(ethereum.argonToken.toHex()),
-      argonotTokenAddress: getAddress(ethereum.argonotToken.toHex()),
+      gatewayAddress: getAddress(ethereum.gateway),
+      argonTokenAddress: getAddress(ethereum.argonToken),
+      argonotTokenAddress: getAddress(ethereum.argonotToken),
     };
   } finally {
     await client.disconnect().catch(() => undefined);
@@ -513,11 +512,11 @@ async function ensureDevEthereumBeaconBootstrap(
     const attemptNumber = attempt + 1;
     const attemptStartedAt = Date.now();
     console.log(`[tauri-dev] Ethereum verifier bootstrap attempt ${attemptNumber}/3: connecting archive client`);
-    const client = await getClient(archiveUrl);
+    const client = createArgonClient(await getClient(archiveUrl));
 
     try {
       console.log(`[tauri-dev] Ethereum verifier bootstrap attempt ${attemptNumber}/3: reading current verifier state`);
-      const state = await getEthereumBeaconSyncState(client);
+      const state = await getEthereumBeaconSyncState(client.raw);
       if (state.isBootstrapped) {
         console.log(
           `[tauri-dev] Ethereum verifier already bootstrapped (attempt ${attemptNumber}, ${Date.now() - attemptStartedAt}ms)`,
@@ -715,21 +714,19 @@ async function ensureDevEthereumChainConfig(
   devEthereum: Awaited<ReturnType<TestEthereum['deployMintingGatewayFixture']>>,
   sudoKeypair: KeyringPair,
 ): Promise<void> {
-  const client = await getClient(archiveUrl);
+  const client = createArgonClient(await getClient(archiveUrl));
 
   try {
     const finalizedClient = await client.at(await client.rpc.chain.getFinalizedHead());
     const hasMatchingChainConfig = async () => {
       const currentConfig = await client.query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
-      if (currentConfig.isNone || !currentConfig.unwrap().isEvm) {
-        return false;
-      }
+      if (currentConfig?.type !== 'Evm') return false;
 
-      const ethereumConfig = currentConfig.unwrap().asEvm;
+      const ethereumConfig = currentConfig.value;
       return (
-        ethereumConfig.gateway.toHex().toLowerCase() === devEthereum.gatewayAddress.toLowerCase() &&
-        ethereumConfig.argonToken.toHex().toLowerCase() === devEthereum.argonTokenAddress.toLowerCase() &&
-        ethereumConfig.argonotToken.toHex().toLowerCase() === devEthereum.argonotTokenAddress.toLowerCase()
+        ethereumConfig.gateway.toLowerCase() === devEthereum.gatewayAddress.toLowerCase() &&
+        ethereumConfig.argonToken.toLowerCase() === devEthereum.argonTokenAddress.toLowerCase() &&
+        ethereumConfig.argonotToken.toLowerCase() === devEthereum.argonotTokenAddress.toLowerCase()
       );
     };
 
@@ -764,13 +761,13 @@ async function ensureDevEthereumChainConfig(
     const hasMatchingRepaymentPricing = async () => {
       const currentRepaymentPricing =
         await client.query.crosschainTransfer.mintingAuthorityActivationRepaymentPricingByDestinationChain('Ethereum');
-      const repaymentPricing = currentRepaymentPricing.isSome ? currentRepaymentPricing.unwrap() : undefined;
+      const repaymentPricing = currentRepaymentPricing ?? undefined;
 
       return (
-        repaymentPricing?.activationGasCost.toBigInt() === expectedRepaymentPricing.activationGasCost &&
-        repaymentPricing.signatureGasCost.toBigInt() === expectedRepaymentPricing.signatureGasCost &&
-        repaymentPricing.estimatedWeiPerGas.toBigInt() === expectedRepaymentPricing.estimatedWeiPerGas &&
-        repaymentPricing.estimatedMicrogonsPerEth.toBigInt() === expectedRepaymentPricing.estimatedMicrogonsPerEth
+        repaymentPricing?.activationGasCost === expectedRepaymentPricing.activationGasCost &&
+        repaymentPricing.signatureGasCost === expectedRepaymentPricing.signatureGasCost &&
+        repaymentPricing.estimatedWeiPerGas === expectedRepaymentPricing.estimatedWeiPerGas &&
+        repaymentPricing.estimatedMicrogonsPerEth === expectedRepaymentPricing.estimatedMicrogonsPerEth
       );
     };
 
@@ -800,7 +797,7 @@ async function ensureDevEthereumGatewayActiveCouncil(
   executionRpcUrl: string,
   devEthereum: Awaited<ReturnType<TestEthereum['deployMintingGatewayFixture']>>,
 ): Promise<void> {
-  const client = await getClient(archiveUrl);
+  const client = createArgonClient(await getClient(archiveUrl));
   const publicClient = createPublicClient({
     transport: http(executionRpcUrl, { retryCount: 1, timeout: 15_000 }),
   });
@@ -845,26 +842,31 @@ async function ensureDevEthereumGatewayActiveCouncil(
 }
 
 async function loadLocalGatewayCouncilFloorMicrogonsPerArgonot(archiveUrl: string): Promise<bigint> {
-  const client = await getClient(archiveUrl);
+  const client = createArgonClient(await getClient(archiveUrl));
 
   try {
     const finalizedClient = await client.at(await client.rpc.chain.getFinalizedHead());
 
     const priceIndex = await finalizedClient.query.priceIndex.current();
-    if (priceIndex.isNone) {
+    if (!priceIndex) {
       throw new Error('Unable to derive the local Ethereum gateway council floor because priceIndex.current is empty.');
     }
 
-    const current = priceIndex.unwrap();
-    const argonUsdPrice = current.argonUsdPrice.toBigInt();
-    const argonotUsdPrice = current.argonotUsdPrice.toBigInt();
-    if (argonUsdPrice === 0n || argonotUsdPrice === 0n) {
+    const argonUsdPrice = priceIndex.argonUsdPrice;
+    const argonotUsdPrice = priceIndex.argonotUsdPrice;
+    if (!argonotUsdPrice || argonUsdPrice.isZero() || argonotUsdPrice.isZero()) {
       throw new Error(
         'Unable to derive the local Ethereum gateway council floor because the current Argon or Argonot price is zero.',
       );
     }
 
-    return (argonotUsdPrice * BigInt(MICROGONS_PER_ARGON)) / argonUsdPrice;
+    return BigInt(
+      new BigNumber(argonotUsdPrice)
+        .dividedBy(argonUsdPrice)
+        .times(MICROGONS_PER_ARGON)
+        .integerValue(BigNumber.ROUND_FLOOR)
+        .toFixed(0),
+    );
   } finally {
     await client.disconnect().catch(() => undefined);
   }

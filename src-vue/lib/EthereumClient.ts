@@ -8,6 +8,7 @@ import {
   MoveToken,
   NetworkConfig,
   SingleFileQueue,
+  type ArgonQueryClient,
 } from '@argonprotocol/apps-core';
 import {
   decodeAddress,
@@ -16,10 +17,9 @@ import {
   EvmContracts,
   hexToU8a,
   findEthereumTransferToArgonStartedLogIndexes,
-  type IArgonQueryable,
-  type PalletCrosschainTransferCouncilApprovalQueueEntry,
   u8aToHex,
 } from '@argonprotocol/mainchain';
+import type { CrosschainTransferCouncilApprovalQueueByDestinationChainAndNonceResultSpec151 } from '@argonprotocol/runtime-client';
 import {
   type Address,
   type ContractFunctionArgs,
@@ -577,7 +577,7 @@ export class EthereumClient {
   }
 
   public async getReadyGatewayRelayPreview(
-    finalizedClient: IArgonQueryable,
+    finalizedClient: ArgonQueryClient,
     relayerArgonAddress: string,
     signer: { address: string; hdPath: `m/44'/60'/${string}` },
     options: GatewayRelayOptions = {},
@@ -592,7 +592,7 @@ export class EthereumClient {
   }
 
   public async applyReadyGatewayUpdates(
-    finalizedClient: IArgonQueryable,
+    finalizedClient: ArgonQueryClient,
     relayerArgonAddress: string,
     signer: { address: string; hdPath: `m/44'/60'/${string}` },
     options: GatewayRelayOptions = {},
@@ -613,7 +613,7 @@ export class EthereumClient {
   }
 
   private async prepareReadyGatewayRelay(
-    finalizedClient: IArgonQueryable,
+    finalizedClient: ArgonQueryClient,
     relayerArgonAddress: string,
     signer: { address: string; hdPath: `m/44'/60'/${string}` },
     options: GatewayRelayOptions = {},
@@ -877,16 +877,14 @@ async function loadEthereumChainConfigForRpc(executionRpcUrl: string): Promise<I
       config = await (await getMainchainClient(true)).query.crosschainTransfer.chainConfigBySourceChain('Ethereum');
     }
 
-    if (config.isNone || !config.unwrap().isEvm) {
-      return undefined;
-    }
+    if (config?.type !== 'Evm') return undefined;
 
-    const ethereumConfig = config.unwrap().asEvm;
+    const ethereumConfig = config.value;
     return {
       chainId: await ethereumClient.getChainId(),
-      gatewayAddress: getAddress(ethereumConfig.gateway.toHex()),
-      argonTokenAddress: getAddress(ethereumConfig.argonToken.toHex()),
-      argonotTokenAddress: getAddress(ethereumConfig.argonotToken.toHex()),
+      gatewayAddress: getAddress(ethereumConfig.gateway),
+      argonTokenAddress: getAddress(ethereumConfig.argonToken),
+      argonotTokenAddress: getAddress(ethereumConfig.argonotToken),
     };
   })();
   ethereumChainConfigPromises.set(resolvedExecutionRpcUrl, configPromise);
@@ -999,7 +997,7 @@ export function getEthereumBeaconApiUrl(configuredBeaconApiUrl?: string): string
 
 // Keep runtime batching aligned with the integration harness so approval relays hit Ethereum exactly once.
 async function getReadyEthereumGatewayUpdates(
-  finalizedClient: IArgonQueryable,
+  finalizedClient: ArgonQueryClient,
   gatewayClient: Pick<PublicClient, 'readContract'>,
   chainConfig: IEthereumChainConfig,
   relayerArgonAccountId: Hex,
@@ -1014,11 +1012,11 @@ async function getReadyEthereumGatewayUpdates(
 }> {
   const currentCouncilHashOption =
     await finalizedClient.query.crosschainTransfer.activeGlobalIssuanceCouncilByDestinationChain('Ethereum');
-  if (currentCouncilHashOption.isNone) {
+  if (!currentCouncilHashOption) {
     throw new Error('Active GlobalIssuanceCouncil not found for Ethereum.');
   }
 
-  const currentCouncilHash = toHexValue(currentCouncilHashOption.unwrap());
+  const currentCouncilHash = toHexValue(currentCouncilHashOption);
   const councilCache = new Map<Hex, LoadedCouncil>();
   const currentCouncil = councilToSnapshot(await loadCouncilByHash(finalizedClient, currentCouncilHash, councilCache));
   const hashContext = {
@@ -1029,11 +1027,11 @@ async function getReadyEthereumGatewayUpdates(
     await finalizedClient.query.crosschainTransfer.mintingAuthorityActivationRepaymentPricingByDestinationChain(
       'Ethereum',
     );
-  const repaymentPricing = repaymentPricingOption.isSome ? repaymentPricingOption.unwrap() : undefined;
-  const estimatedMicrogonsPerEth = repaymentPricing?.estimatedMicrogonsPerEth.toBigInt() ?? 0n;
+  const repaymentPricing = repaymentPricingOption ?? undefined;
+  const estimatedMicrogonsPerEth = repaymentPricing?.estimatedMicrogonsPerEth ?? 0n;
   const singleSignatureRepaymentQuoteMicrogons = repaymentPricing
     ? convertWeiToMicrogons(
-        repaymentPricing.signatureGasCost.toBigInt() * repaymentPricing.estimatedWeiPerGas.toBigInt(),
+        repaymentPricing.signatureGasCost * repaymentPricing.estimatedWeiPerGas,
         estimatedMicrogonsPerEth,
       )
     : 0n;
@@ -1067,11 +1065,11 @@ async function getReadyEthereumGatewayUpdates(
         'Ethereum',
         queueNonce,
       );
-      if (entryOption.isNone) {
+      if (!entryOption) {
         break;
       }
 
-      const entry = entryOption.unwrap();
+      const entry = entryOption;
       const approvingCouncilHash = toHexValue(entry.approvingCouncilHash);
       const approvingCouncil = await loadCouncilByHash(finalizedClient, approvingCouncilHash, councilCache);
       if (!queueEntryHasQuorum(entry, approvingCouncil)) {
@@ -1137,19 +1135,19 @@ async function getReadyEthereumGatewayUpdates(
 }
 
 async function buildGatewayUpdate(
-  finalizedClient: IArgonQueryable,
+  finalizedClient: ArgonQueryClient,
   hashContext: MintingGatewayHashContext,
   queueNonce: bigint,
   queueItem: {
-    entry: PalletCrosschainTransferCouncilApprovalQueueEntry;
+    entry: NonNullable<CrosschainTransferCouncilApprovalQueueByDestinationChainAndNonceResultSpec151>;
     approvingCouncilHash: Hex;
     councilCache: Map<Hex, LoadedCouncil>;
   },
 ): Promise<RelayableGatewayUpdate> {
   const { entry, approvingCouncilHash, councilCache } = queueItem;
-  if (entry.target.isGlobalIssuanceCouncilRotation) {
+  if (entry.target.type === 'GlobalIssuanceCouncilRotation') {
     const signatures = getSortedSignatures(entry.signatures);
-    const nextCouncilHash = toHexValue(entry.target.asGlobalIssuanceCouncilRotation);
+    const nextCouncilHash = toHexValue(entry.target.value);
     const nextCouncil = await loadCouncilByHash(finalizedClient, nextCouncilHash, councilCache);
     const target: MintingGatewayGlobalIssuanceCouncilRotateTarget = {
       council: councilToSnapshot(nextCouncil),
@@ -1187,14 +1185,13 @@ async function buildGatewayUpdate(
     };
   }
 
-  if (entry.target.isMintingAuthorityDeactivation) {
-    const signingKey = getAddress(toHexValue(entry.target.asMintingAuthorityDeactivation));
-    const authorityOption = await finalizedClient.query.crosschainTransfer.mintingAuthoritiesBySigner(signingKey);
-    if (authorityOption.isNone) {
+  if (entry.target.type === 'MintingAuthorityDeactivation') {
+    const signingKey = getAddress(toHexValue(entry.target.value));
+    const authority = await finalizedClient.query.crosschainTransfer.mintingAuthoritiesBySigner(signingKey);
+    if (!authority) {
       throw new Error(`Minting authority deactivation ${signingKey} not found for queue nonce ${queueNonce}`);
     }
 
-    const authority = authorityOption.unwrap();
     if (authority.destinationChain.type !== 'Ethereum') {
       throw new Error(
         `Minting authority ${signingKey} belongs to ${String(authority.destinationChain.type)}, expected Ethereum`,
@@ -1223,7 +1220,7 @@ async function buildGatewayUpdate(
     }
 
     return {
-      ownerArgonAccountId: toHexValue(authority.accountId),
+      ownerArgonAccountId: toArgonAccountIdHex(authority.accountId),
       update: {
         queueNonce,
         kind: EvmContracts.MINTING_GATEWAY_UPDATE_KINDS.mintingAuthorityDeactivate,
@@ -1233,17 +1230,12 @@ async function buildGatewayUpdate(
     };
   }
 
-  if (!entry.target.isMintingAuthorityActivation) {
-    throw new Error(`Unsupported approval queue target ${entry.target.type}`);
-  }
-
-  const signingKey = getAddress(toHexValue(entry.target.asMintingAuthorityActivation));
-  const authorityOption = await finalizedClient.query.crosschainTransfer.mintingAuthoritiesBySigner(signingKey);
-  if (authorityOption.isNone) {
+  const signingKey = getAddress(toHexValue(entry.target.value));
+  const authority = await finalizedClient.query.crosschainTransfer.mintingAuthoritiesBySigner(signingKey);
+  if (!authority) {
     throw new Error(`Minting authority activation ${signingKey} not found for queue nonce ${queueNonce}`);
   }
 
-  const authority = authorityOption.unwrap();
   if (authority.destinationChain.type !== 'Ethereum') {
     throw new Error(
       `Minting authority ${signingKey} belongs to ${String(authority.destinationChain.type)}, expected Ethereum`,
@@ -1251,8 +1243,8 @@ async function buildGatewayUpdate(
   }
 
   const target = {
-    microgonCollateral: authority.gatewayRemainingMicrogonCollateral.toBigInt(),
-    micronotCollateral: authority.gatewayRemainingMicronotCollateral.toBigInt(),
+    microgonCollateral: authority.gatewayRemainingMicrogonCollateral,
+    micronotCollateral: authority.gatewayRemainingMicronotCollateral,
     signingKey,
   };
   const payload = EvmContracts.encodeMintingGatewayMintingAuthorityActivationTarget(target);
@@ -1275,11 +1267,11 @@ async function buildGatewayUpdate(
     );
   }
 
-  const baseRepaymentQuoteMicrogons = authority.activationBaseRepaymentQuote.toBigInt();
-  const heldRepaymentMicrogons = baseRepaymentQuoteMicrogons + authority.activationSignatureRepaymentQuote.toBigInt();
+  const baseRepaymentQuoteMicrogons = authority.activationBaseRepaymentQuote;
+  const heldRepaymentMicrogons = baseRepaymentQuoteMicrogons + authority.activationSignatureRepaymentQuote;
 
   return {
-    ownerArgonAccountId: toHexValue(authority.accountId),
+    ownerArgonAccountId: toArgonAccountIdHex(authority.accountId),
     activationSettlement: {
       heldRepaymentMicrogons,
       baseRepaymentQuoteMicrogons,
@@ -1294,7 +1286,7 @@ async function buildGatewayUpdate(
 }
 
 async function loadCouncilByHash(
-  client: IArgonQueryable,
+  client: ArgonQueryClient,
   councilHash: Hex,
   cache: Map<Hex, LoadedCouncil>,
 ): Promise<LoadedCouncil> {
@@ -1303,19 +1295,18 @@ async function loadCouncilByHash(
     return cached;
   }
 
-  const councilOption = await client.query.crosschainTransfer.globalIssuanceCouncilByHash(councilHash);
-  if (councilOption.isNone) {
+  const council = await client.query.crosschainTransfer.globalIssuanceCouncilByHash(councilHash);
+  if (!council) {
     throw new Error(`GlobalIssuanceCouncil ${councilHash} not found.`);
   }
 
-  const council = councilOption.unwrap();
   const loaded = {
-    epochMicrogonsPerArgonot: council.epochMicrogonsPerArgonot.toBigInt(),
-    totalWeight: council.totalWeight.toBigInt(),
-    members: [...council.members.entries()]
+    epochMicrogonsPerArgonot: council.epochMicrogonsPerArgonot,
+    totalWeight: council.totalWeight,
+    members: Object.entries(council.members)
       .map(([signer, member]) => ({
         signer: getAddress(toHexValue(signer)),
-        weight: member.weight.toBigInt(),
+        weight: member.weight,
       }))
       .sort((left, right) => left.signer.localeCompare(right.signer)),
   };
@@ -1325,12 +1316,12 @@ async function loadCouncilByHash(
 }
 
 function queueEntryHasQuorum(
-  entry: PalletCrosschainTransferCouncilApprovalQueueEntry,
+  entry: NonNullable<CrosschainTransferCouncilApprovalQueueByDestinationChainAndNonceResultSpec151>,
   council: LoadedCouncil,
 ): boolean {
   let signedWeight = 0n;
 
-  for (const [signer] of entry.signatures.entries()) {
+  for (const signer of Object.keys(entry.signatures)) {
     const signerAddress = getAddress(toHexValue(signer));
     const member = council.members.find(x => x.signer === signerAddress);
     if (!member) {
@@ -1343,7 +1334,7 @@ function queueEntryHasQuorum(
   return hasGatewayApprovalQuorum({
     approvedWeight: signedWeight,
     totalWeight: council.totalWeight,
-    signatureCount: entry.signatures.size,
+    signatureCount: Object.keys(entry.signatures).length,
     memberCount: council.members.length,
   });
 }
@@ -1461,17 +1452,19 @@ function signingKeyTargetId(signingKey: Address): Hex {
   return `0x${signingKey.slice(2).padStart(64, '0').toLowerCase()}`;
 }
 
-function getSortedSignatures(signatures: PalletCrosschainTransferCouncilApprovalQueueEntry['signatures']): Hex[] {
-  return [...signatures.entries()]
+function getSortedSignatures(
+  signatures: NonNullable<CrosschainTransferCouncilApprovalQueueByDestinationChainAndNonceResultSpec151>['signatures'],
+): Hex[] {
+  return Object.entries(signatures)
     .sort(([leftSigner], [rightSigner]) => toHexValue(leftSigner).localeCompare(toHexValue(rightSigner)))
     .map(([, signature]) => toEvmRecoverableSignature(toHexValue(signature)));
 }
 
-function toHexValue(value: { toHex(): string }): Hex {
-  return value.toHex() as Hex;
+export function toHexValue(value: string): Hex {
+  return value as Hex;
 }
 
-function toArgonAccountIdHex(address: string): Hex {
+export function toArgonAccountIdHex(address: string): Hex {
   return toHex(decodeAddress(address), { size: 32 });
 }
 

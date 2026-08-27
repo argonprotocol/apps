@@ -1,17 +1,17 @@
-import {
-  type ArgonClient,
-  dispatchErrorToExtrinsicError,
-  type ExtrinsicError,
-  type FrameSystemEventRecord,
-  type GenericEvent,
-  type SignedBlock,
-  type SpRuntimeDispatchError,
-  u8aToHex,
-} from '@argonprotocol/mainchain';
+import { type ExtrinsicError, type SignedBlock, u8aToHex } from '@argonprotocol/mainchain';
+import type { HistoricalEvent, HistoricalQueryRecord } from '@argonprotocol/runtime-client';
 import { BlockWatch, type IBlockHeaderInfo } from './BlockWatch.js';
+import type { ArgonClient } from './MainchainClients.js';
+import {
+  findRuntimeModuleError,
+  runtimeDispatchErrorToExtrinsicError,
+  type RuntimeDispatchError,
+} from './RuntimeDispatchError.js';
+
+type RuntimeSystemEventRecord = HistoricalQueryRecord<'system', 'events'>[number];
 
 type IsMatchingEventFn = (
-  event: GenericEvent,
+  event: HistoricalEvent,
   registryError?: { section: string; method: string; index: number; name: string },
 ) => boolean;
 
@@ -24,28 +24,28 @@ export class TransactionEvents {
   public static async getErrorAndFeeForTransaction(args: {
     client: ArgonClient;
     extrinsicIndex: number;
-    events: FrameSystemEventRecord[];
-  }): Promise<{ tip: bigint; fee: bigint; error?: ExtrinsicError; extrinsicEvents: GenericEvent[] }> {
+    events: RuntimeSystemEventRecord[];
+  }): Promise<{ tip: bigint; fee: bigint; error?: ExtrinsicError; extrinsicEvents: HistoricalEvent[] }> {
     const { client, events, extrinsicIndex } = args;
 
     const applyExtrinsicEvents = events
-      .filter(x => x.phase.isApplyExtrinsic && x.phase.asApplyExtrinsic.toNumber() === extrinsicIndex)
+      .filter(x => x.phase.type === 'ApplyExtrinsic' && x.phase.value === extrinsicIndex)
       .map(x => x.event);
     let fee = 0n;
     let tip = 0n;
     let extrinsicError: ExtrinsicError | undefined;
 
     for (const event of applyExtrinsicEvents) {
-      if (client.events.transactionPayment.TransactionFeePaid.is(event)) {
+      if (event.section === 'transactionPayment' && event.method === 'TransactionFeePaid') {
         const { actualFee, tip: t } = event.data;
-        fee = actualFee.toBigInt();
-        tip = t.toBigInt();
-      } else if (client.events.utility.BatchInterrupted.is(event)) {
+        fee = actualFee;
+        tip = t;
+      } else if (event.section === 'utility' && event.method === 'BatchInterrupted') {
         const { error, index } = event.data;
-        extrinsicError = dispatchErrorToExtrinsicError(client, error as any, index.toNumber());
-      } else if (client.events.system.ExtrinsicFailed.is(event)) {
+        extrinsicError = runtimeDispatchErrorToExtrinsicError(client, error, index);
+      } else if (event.section === 'system' && event.method === 'ExtrinsicFailed') {
         const { dispatchError } = event.data;
-        extrinsicError = dispatchErrorToExtrinsicError(client, dispatchError as any);
+        extrinsicError = runtimeDispatchErrorToExtrinsicError(client, dispatchError);
       }
     }
 
@@ -62,50 +62,48 @@ export class TransactionEvents {
     blockHash: Uint8Array;
     accountAddress: string;
     isMatchingEvent: IsMatchingEventFn;
-  }): Promise<{ tip: bigint; fee: bigint; error?: ExtrinsicError; extrinsicEvents: GenericEvent[] } | undefined> {
+  }): Promise<{ tip: bigint; fee: bigint; error?: ExtrinsicError; extrinsicEvents: HistoricalEvent[] } | undefined> {
     const { client, blockHash, accountAddress, isMatchingEvent } = args;
     const api = await client.at(blockHash);
 
     const events = await api.query.system.events();
-    const applyExtrinsicEvents = events.filter(x => x.phase.isApplyExtrinsic);
+    const applyExtrinsicEvents = events.filter(x => x.phase.type === 'ApplyExtrinsic');
     for (const { event, phase } of applyExtrinsicEvents) {
-      if (!client.events.transactionPayment.TransactionFeePaid.is(event)) {
+      if (event.section !== 'transactionPayment' || event.method !== 'TransactionFeePaid') {
         continue;
       }
       const { who, actualFee, tip } = event.data;
-      if (who.toHuman() !== accountAddress) {
+      if (who !== accountAddress) {
         continue;
       }
       // now we're filtered to only fees paid by this account
-      const extrinsicIndex = phase.asApplyExtrinsic.toNumber();
+      const extrinsicIndex = phase.type === 'ApplyExtrinsic' ? phase.value : -1;
       for (const extrinsicEvent of applyExtrinsicEvents) {
         // .. match only on the events for this extrinsic
-        if (extrinsicEvent.phase.asApplyExtrinsic.toNumber() !== extrinsicIndex) continue;
+        if (extrinsicEvent.phase.type !== 'ApplyExtrinsic' || extrinsicEvent.phase.value !== extrinsicIndex) continue;
 
-        let dispatchError: SpRuntimeDispatchError | undefined;
+        let dispatchError: RuntimeDispatchError | undefined;
         let batchInterruptedIndex: number | undefined;
-        if (client.events.utility.BatchInterrupted.is(extrinsicEvent.event)) {
+        if (extrinsicEvent.event.section === 'utility' && extrinsicEvent.event.method === 'BatchInterrupted') {
           const { error, index } = extrinsicEvent.event.data;
           dispatchError = error;
-          batchInterruptedIndex = index.toNumber();
+          batchInterruptedIndex = index;
         }
-        if (client.events.system.ExtrinsicFailed.is(extrinsicEvent.event)) {
+        if (extrinsicEvent.event.section === 'system' && extrinsicEvent.event.method === 'ExtrinsicFailed') {
           ({ dispatchError } = extrinsicEvent.event.data);
         }
 
-        const registryError = dispatchError?.isModule
-          ? client.registry.findMetaError(dispatchError.asModule)
-          : undefined;
+        const registryError = dispatchError ? findRuntimeModuleError(client, dispatchError) : undefined;
         if (isMatchingEvent(extrinsicEvent.event, registryError)) {
           const extrinsicError = dispatchError
-            ? dispatchErrorToExtrinsicError(client, dispatchError as any, batchInterruptedIndex)
+            ? runtimeDispatchErrorToExtrinsicError(client, dispatchError, batchInterruptedIndex)
             : undefined;
           return {
-            fee: actualFee.toBigInt(),
-            tip: tip.toBigInt(),
+            fee: actualFee,
+            tip,
             error: extrinsicError,
             extrinsicEvents: applyExtrinsicEvents
-              .filter(x => x.phase.asApplyExtrinsic.toNumber() === extrinsicIndex)
+              .filter(x => x.phase.type === 'ApplyExtrinsic' && x.phase.value === extrinsicIndex)
               .map(event => event.event),
           };
         }
@@ -131,7 +129,7 @@ export class TransactionEvents {
         fee: bigint;
         tip: bigint;
         error?: ExtrinsicError;
-        extrinsicEvents: GenericEvent[];
+        extrinsicEvents: HistoricalEvent[];
       }
     | undefined
   > {
@@ -182,7 +180,7 @@ export class TransactionEvents {
         fee: bigint;
         tip: bigint;
         error?: ExtrinsicError;
-        extrinsicEvents: GenericEvent[];
+        extrinsicEvents: HistoricalEvent[];
       }
     | undefined
   > {

@@ -1,11 +1,8 @@
-import { TxSubmitter } from '@argonprotocol/apps-core';
+import { type ArgonApi, type ArgonClient, TxSubmitter } from '@argonprotocol/apps-core';
 import {
-  dispatchErrorToString,
-  type ArgonClient,
   EvmContracts,
   getEthereumBeaconSyncBootstrapTx,
   getEthereumBeaconSyncState,
-  type IArgonQueryable,
   type KeyringPair,
   MICROGONS_PER_ARGON,
 } from '@argonprotocol/mainchain';
@@ -20,6 +17,7 @@ import {
   type PublicClient,
 } from 'viem';
 import { waitForFinalizedBeaconExecutionAtOrAbove } from '../bot/src/EthereumBeaconSyncService.ts';
+import BigNumber from 'bignumber.js';
 
 export const DEV_ETHEREUM_TOKEN_RESERVE_RUNTIME_AMOUNT = 10_000n * BigInt(MICROGONS_PER_ARGON);
 
@@ -47,7 +45,7 @@ export async function ensureDevEthereumBeaconBootstrapped(
 ): Promise<void> {
   const startedAt = Date.now();
   console.log('[dev-ethereum] Checking beacon bootstrap state');
-  const state = await getEthereumBeaconSyncState(client);
+  const state = await getEthereumBeaconSyncState(client.raw);
   if (state.isBootstrapped) {
     console.log(`[dev-ethereum] Beacon bootstrap already present after ${Date.now() - startedAt}ms`);
     return;
@@ -74,7 +72,7 @@ export async function ensureDevEthereumBeaconBootstrapped(
 
   while (Date.now() - bootstrapTxStartedAt < timeoutMs) {
     try {
-      bootstrapTx = await getEthereumBeaconSyncBootstrapTx(client, beaconApiUrl);
+      bootstrapTx = await getEthereumBeaconSyncBootstrapTx(client.raw, beaconApiUrl);
       console.log(`[dev-ethereum] Built beacon bootstrap transaction after ${Date.now() - bootstrapTxStartedAt}ms`);
       break;
     } catch (error) {
@@ -102,7 +100,7 @@ export async function ensureDevEthereumBeaconBootstrapped(
     client,
     tx: bootstrapTx,
     sudoKeypair,
-    isApplied: async () => (await getEthereumBeaconSyncState(client)).isBootstrapped,
+    isApplied: async () => (await getEthereumBeaconSyncState(client.raw)).isBootstrapped,
     description: 'Bootstrap',
   });
 
@@ -177,7 +175,7 @@ export async function initializeDevEthereumTokenReserve(args: {
 }
 
 export async function loadDevEthereumActivationRepaymentPricing(args: {
-  finalizedClient: IArgonQueryable;
+  finalizedClient: ArgonApi;
   executionRpcUrl: string;
 }) {
   const { finalizedClient, executionRpcUrl } = args;
@@ -195,7 +193,7 @@ export async function loadDevEthereumActivationRepaymentPricing(args: {
 }
 
 export async function syncEthereumGatewayActiveCouncilToArgon(args: {
-  finalizedClient: IArgonQueryable;
+  finalizedClient: ArgonApi;
   gatewayAddress: Address;
   publicClient: Pick<PublicClient, 'readContract' | 'waitForTransactionReceipt'>;
   sendCurrentCouncil: (
@@ -207,28 +205,25 @@ export async function syncEthereumGatewayActiveCouncilToArgon(args: {
   hash?: Hex;
 }> {
   const { finalizedClient, gatewayAddress, publicClient, sendCurrentCouncil } = args;
-  const activeCouncilHashOption =
+  const activeCouncilHash =
     await finalizedClient.query.crosschainTransfer.activeGlobalIssuanceCouncilByDestinationChain('Ethereum');
-  if (activeCouncilHashOption.isNone) {
+  if (!activeCouncilHash) {
     return { status: 'no-active-council' };
   }
 
-  const activeCouncilOption = await finalizedClient.query.crosschainTransfer.globalIssuanceCouncilByHash(
-    activeCouncilHashOption.unwrap(),
-  );
-  if (activeCouncilOption.isNone) {
+  const activeCouncil = await finalizedClient.query.crosschainTransfer.globalIssuanceCouncilByHash(activeCouncilHash);
+  if (!activeCouncil) {
     return { status: 'missing-active-council' };
   }
 
-  const activeCouncil = activeCouncilOption.unwrap();
-  const members = [...activeCouncil.members.entries()].sort(([leftSigner], [rightSigner]) =>
-    leftSigner.toHex().localeCompare(rightSigner.toHex()),
+  const members = Object.entries(activeCouncil.members).sort(([leftSigner], [rightSigner]) =>
+    leftSigner.localeCompare(rightSigner),
   );
   const currentCouncil = {
-    signers: members.map(([signer]) => getAddress(signer.toHex())),
-    weights: members.map(([, member]) => member.weight.toBigInt()),
+    signers: members.map(([signer]) => getAddress(signer)),
+    weights: members.map(([, member]) => member.weight),
   };
-  const nextMicrogonsPerArgonot = activeCouncil.epochMicrogonsPerArgonot.toBigInt();
+  const nextMicrogonsPerArgonot = activeCouncil.epochMicrogonsPerArgonot;
   const gatewayCouncil = await publicClient.readContract({
     address: gatewayAddress,
     abi: EvmContracts.mintingGatewayAbi,
@@ -297,33 +292,38 @@ export async function submitDevSudoTransaction(args: {
       });
       await result.waitForInFirstBlock;
 
-      const sudoResultEvent = result.events.find(event => client.events.sudo.Sudid.is(event));
-      if (!sudoResultEvent || !client.events.sudo.Sudid.is(sudoResultEvent)) {
+      const sudoResultEvent = result.events.find(event => event.section === 'sudo' && event.method === 'Sudid');
+      if (!sudoResultEvent || sudoResultEvent.section !== 'sudo' || sudoResultEvent.method !== 'Sudid') {
         throw new Error(`${description} transaction did not emit sudo.Sudid.`);
       }
-      if (sudoResultEvent.data.sudoResult.isErr) {
-        throw new Error(
-          `${description} failed: ${dispatchErrorToString(client, sudoResultEvent.data.sudoResult.asErr)}`,
-        );
+      if (sudoResultEvent.data.sudoResult.type === 'Err') {
+        throw new Error(`${description} failed: ${String(sudoResultEvent.data.sudoResult.value)}`);
       }
     },
   });
 }
 
-async function deriveEstimatedMicrogonsPerEth(finalizedClient: IArgonQueryable) {
+async function deriveEstimatedMicrogonsPerEth(finalizedClient: ArgonApi) {
   const currentPriceIndex = await finalizedClient.query.priceIndex.current();
-  if (currentPriceIndex.isNone) {
+  if (!currentPriceIndex) {
     throw new Error('Cannot derive dev Ethereum activation repayment pricing because priceIndex.current is empty.');
   }
 
-  const argonUsdTargetPrice = currentPriceIndex.unwrap().argonUsdTargetPrice.toBigInt();
-  if (argonUsdTargetPrice <= 0n) {
+  const argonUsdTargetPrice = currentPriceIndex.argonUsdTargetPrice;
+  if (argonUsdTargetPrice.isLessThanOrEqualTo(0)) {
     throw new Error('Cannot derive dev Ethereum activation repayment pricing because argonUsdTargetPrice is zero.');
   }
 
   try {
     const ethUsdPrice = await getCoinbaseSpotPrice('ETH-USD');
-    return (ethUsdPrice * BigInt(MICROGONS_PER_ARGON)) / argonUsdTargetPrice;
+    return BigInt(
+      new BigNumber(ethUsdPrice.toString())
+        .shiftedBy(-18)
+        .dividedBy(argonUsdTargetPrice)
+        .times(MICROGONS_PER_ARGON)
+        .integerValue(BigNumber.ROUND_FLOOR)
+        .toFixed(0),
+    );
   } catch (error) {
     console.warn(
       `[dev-ethereum] Falling back to offline estimatedMicrogonsPerEth=${FALLBACK_DEV_ETHEREUM_ESTIMATED_MICROGONS_PER_ETH.toString()} because ETH-USD spot lookup failed: ${(error as Error).message}`,

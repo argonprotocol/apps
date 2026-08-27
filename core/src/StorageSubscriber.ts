@@ -1,9 +1,9 @@
-import type { ApiDecoration, ArgonClient } from '@argonprotocol/mainchain';
+import type { ArgonApi, ArgonClient } from './MainchainClients.js';
 import { SingleFileQueue } from './SingleFileQueue.js';
 
 interface StorageItem {
   key: string;
-  handler: (api: ApiDecoration<'promise'>, blockHash: string) => Promise<void>;
+  handler: (api: ArgonApi, blockHash: string) => Promise<void>;
 }
 
 export async function subscribeToFinalizedStorageChanges(

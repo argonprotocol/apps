@@ -12,10 +12,10 @@ import {
   type ITransactionStatusHistoryRecord,
 } from '../lib/db/TransactionStatusHistoryTable.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
-import { bigintCodec, numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts';
 import { getOfflineRegistry, type ArgonPrimitivesVault } from '@argonprotocol/mainchain';
 import BigNumber from 'bignumber.js';
 import { MyVaultRecovery } from '../lib/recovery/MyVaultRecovery.ts';
+import { toPlain } from '@argonprotocol/runtime-client';
 
 type IMyVaultTestTarget = {
   buildPendingOrphanCosignTxs(args: {
@@ -88,18 +88,18 @@ describe('MyVault cosign recovery', () => {
     const subscribeStorage = vi.fn(async () => unsubscribe);
     const frameRevenues = vi
       .fn()
-      .mockResolvedValueOnce([{ frameId: numberCodec(1), uncollectedRevenue: bigintCodec(42n) }])
-      .mockResolvedValueOnce([{ frameId: numberCodec(1), uncollectedRevenue: bigintCodec(84n) }]);
+      .mockResolvedValueOnce([{ frameId: 1, uncollectedRevenue: 42n }])
+      .mockResolvedValueOnce([{ frameId: 1, uncollectedRevenue: 84n }]);
     const orphanEntries = vi
       .fn()
-      .mockResolvedValueOnce([[{}, numberCodec(2)]])
-      .mockResolvedValueOnce([[{}, numberCodec(3)]]);
+      .mockResolvedValueOnce([[{}, 2]])
+      .mockResolvedValueOnce([[{}, 3]]);
     const requestEvent = {
       section: 'bitcoinLocks',
       method: 'OrphanedUtxoReleaseRequested',
-      data: { vaultId: numberCodec(7) },
+      data: { vaultId: 7 },
     };
-    const vaultEvent = { section: 'vaults', method: 'FundsLocked', data: { vaultId: numberCodec(7) } };
+    const vaultEvent = { section: 'vaults', method: 'FundsLocked', data: { vaultId: 7 } };
     const blockEvents: { event: unknown }[] = [{ event: requestEvent }];
     const eventMatcher = (method: string) => ({ is: (event: { method?: string }) => event.method === method });
     const unrelatedEvent = eventMatcher('Unrelated');
@@ -176,9 +176,9 @@ describe('MyVault cosign recovery', () => {
     blockEvents.splice(
       0,
       1,
-      { event: { method: 'BitcoinLockCreated', data: { vaultId: numberCodec(7) } } },
-      { event: { method: 'OrphanedUtxoReleaseRequested', data: { vaultId: numberCodec(8) } } },
-      { event: { method: 'FundsLocked', data: { vaultId: numberCodec(8) } } },
+      { event: { section: 'bitcoinLocks', method: 'BitcoinLockCreated', data: { vaultId: 7 } } },
+      { event: { section: 'bitcoinLocks', method: 'OrphanedUtxoReleaseRequested', data: { vaultId: 8 } } },
+      { event: { section: 'vaults', method: 'FundsLocked', data: { vaultId: 8 } } },
     );
     await onFinalized([{ blockNumber: 9, blockHash: '0x09' }]);
 
@@ -913,9 +913,9 @@ describe('MyVault cosign recovery', () => {
       query: {
         vaults: {
           pendingCosignByVaultId: vi.fn().mockResolvedValue([]),
-          revenuePerFrameByVault: vi.fn().mockResolvedValue([{ uncollectedRevenue: { toBigInt: () => 40n } }]),
+          revenuePerFrameByVault: vi.fn().mockResolvedValue([{ uncollectedRevenue: 40n }]),
           orphanedUtxoAccountsByVaultId: {
-            entries: vi.fn().mockResolvedValue([[{}, numberCodec(2)]]),
+            entries: vi.fn().mockResolvedValue([[{}, 2]]),
           },
         },
       },
@@ -983,7 +983,7 @@ describe('MyVault cosign recovery', () => {
       query: {
         vaults: {
           pendingCosignByVaultId: vi.fn().mockResolvedValue([]),
-          revenuePerFrameByVault: vi.fn().mockResolvedValue([{ uncollectedRevenue: { toBigInt: () => 40n } }]),
+          revenuePerFrameByVault: vi.fn().mockResolvedValue([{ uncollectedRevenue: 40n }]),
           orphanedUtxoAccountsByVaultId: { entries: vi.fn().mockResolvedValue([]) },
         },
       },
@@ -1053,7 +1053,7 @@ describe('MyVault cosign recovery', () => {
       query: {
         vaults: {
           pendingCosignByVaultId: vi.fn().mockResolvedValue([]),
-          revenuePerFrameByVault: vi.fn().mockResolvedValue([{ uncollectedRevenue: { toBigInt: () => 40n } }]),
+          revenuePerFrameByVault: vi.fn().mockResolvedValue([{ uncollectedRevenue: 40n }]),
           orphanedUtxoAccountsByVaultId: { entries: vi.fn().mockResolvedValue([]) },
         },
       },
@@ -1159,7 +1159,7 @@ describe('MyVault cosign recovery', () => {
       },
       query: {
         vaults: {
-          argonotCommitmentByVaultId: vi.fn(async () => optionCodec()),
+          argonotCommitmentByVaultId: vi.fn(async () => null),
         },
       },
       tx: {
@@ -1369,7 +1369,7 @@ describe('MyVault cosign recovery', () => {
         system: {
           account: vi.fn(async address => ({
             data: {
-              free: bigintCodec(address === delegateAddress ? 0n : 100_000_000n),
+              free: address === delegateAddress ? 0n : 100_000_000n,
             },
           })),
         },
@@ -1423,7 +1423,7 @@ describe('MyVault cosign recovery', () => {
     const client = {
       query: {
         system: {
-          account: vi.fn(async () => ({ data: { free: bigintCodec(0n) } })),
+          account: vi.fn(async () => ({ data: { free: 0n } })),
         },
       },
       tx: {
@@ -1472,7 +1472,7 @@ describe('MyVault cosign recovery', () => {
     const client = {
       query: {
         system: {
-          account: vi.fn(async () => ({ data: { free: bigintCodec(0n) } })),
+          account: vi.fn(async () => ({ data: { free: 0n } })),
         },
       },
       tx: {
@@ -1685,12 +1685,10 @@ describe('MyVault cosign recovery', () => {
       },
       query: {
         vaults: {
-          argonotCommitmentByVaultId: vi.fn(async () =>
-            optionCodec({
-              committedMicronots: bigintCodec(25n),
-              encumberedMicronots: bigintCodec(10n),
-            }),
-          ),
+          argonotCommitmentByVaultId: vi.fn(async () => ({
+            committedMicronots: 25n,
+            encumberedMicronots: 10n,
+          })),
         },
       },
     } as any);
@@ -1775,14 +1773,12 @@ describe('MyVault cosign recovery', () => {
     const walletKeys = createMockWalletKeys();
     const api = {
       query: {
-        system: { number: vi.fn(async () => numberCodec(55)) },
+        system: { number: vi.fn(async () => 55) },
         vaults: {
-          argonotCommitmentByVaultId: vi.fn(async () =>
-            optionCodec({
-              committedMicronots: bigintCodec(25n),
-              encumberedMicronots: bigintCodec(10n),
-            }),
-          ),
+          argonotCommitmentByVaultId: vi.fn(async () => ({
+            committedMicronots: 25n,
+            encumberedMicronots: 10n,
+          })),
         },
       },
     };
@@ -1844,14 +1840,14 @@ describe('MyVault cosign recovery', () => {
       },
       txResult: {
         waitForFinalizedBlock: Promise.resolve(finalizedBlockHash),
-        events: [{ data: { vaultId: numberCodec(7) } }],
+        events: [{ section: 'vaults', method: 'VaultCreated', data: { vaultId: 7 } }],
         finalFee: 10n,
       },
       createPostProcessor: vi.fn(() => postProcessor),
     } as unknown as TransactionInfo<{ masterXpubPath: string }>;
     const api = {
       query: {
-        system: { number: vi.fn(async () => numberCodec(55)) },
+        system: { number: vi.fn(async () => 55) },
       },
     };
     const client = {
@@ -2173,7 +2169,7 @@ function createTestVault(args: {
     operationalMinimumReleaseTick: null,
   });
 
-  return new Vault(args.vaultId, rawVault, 1_000);
+  return new Vault(args.vaultId, toPlain(rawVault) as ConstructorParameters<typeof Vault>[1], 1_000);
 }
 
 function createMockTxResultTx() {

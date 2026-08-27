@@ -235,12 +235,9 @@ describe('RouterAuthService', () => {
           at: async () => ({
             query: {
               bitcoinLocks: {
-                lastFeeCouponNonceByVaultAndAccount: async () => ({
-                  isSome: true,
-                  unwrap: () => ({ toBigInt: () => 1n }),
-                }),
+                lastFeeCouponNonceByVaultAndAccount: async () => 1n,
               },
-              miningSlot: { nextFrameId: async () => ({ toBigInt: () => 2n }) },
+              miningSlot: { nextFrameId: async () => 2 },
             },
           }),
         }) as unknown as ArgonClient,

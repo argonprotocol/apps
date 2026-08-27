@@ -8,8 +8,8 @@ import {
 import type { IBitcoinLockSummary } from '../../interfaces/IBitcoinLockSummary.ts';
 import type { IBitcoinLockRecord } from '../../interfaces/IBitcoinLockRecord.ts';
 import type BitcoinLocks from '../BitcoinLocks.ts';
-import { type ApiDecoration } from '@argonprotocol/mainchain';
 import {
+  type ArgonQueryClient,
   bigIntMax,
   getPercent,
   SATOSHIS_PER_BITCOIN,
@@ -30,7 +30,7 @@ type BitcoinFinancialPositionArgs = {
 export class BitcoinFinancials {
   constructor(private readonly locks: BitcoinLocks) {}
 
-  public async loadSnapshot(args: BitcoinFinancialPositionArgs & { clientAt: ApiDecoration<'promise'> }): Promise<{
+  public async loadSnapshot(args: BitcoinFinancialPositionArgs & { clientAt: ArgonQueryClient }): Promise<{
     positions: BitcoinFinancialPosition[];
     summaries: IBitcoinLockSummary[];
     hodlingInvestments: IPerformanceReturnInput[];

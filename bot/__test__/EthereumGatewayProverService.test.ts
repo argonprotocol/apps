@@ -1030,13 +1030,12 @@ function createClient(
     } as const);
 
   return {
+    raw: {},
     at: vi.fn(async () => ({
       query: {
         system: {
           account: vi.fn(async () => ({
-            nonce: {
-              toNumber: () => args.nonceState?.stable ?? args.accountNextNonce ?? 4,
-            },
+            nonce: args.nonceState?.stable ?? args.accountNextNonce ?? 4,
           })),
         },
       },
@@ -1048,68 +1047,38 @@ function createClient(
     },
     query: {
       crosschainTransfer: {
-        gatewayStateBySourceChain: vi.fn(async () => ({
-          isNone: args.runtimeGatewayActivityNonce == null,
-          unwrap: () => ({
-            gatewayActivityNonce: {
-              toBigInt: () => args.runtimeGatewayActivityNonce ?? 0n,
-            },
-          }),
-        })),
-        chainConfigBySourceChain: vi.fn(async () => ({
-          isNone: args.hasEthereumChainConfig === false,
-          unwrap: () => ({
-            isEvm: args.hasEthereumChainConfig !== false,
-            asEvm: {
-              gateway: {
-                toHex: () => '0xgateway',
-              },
-            },
-          }),
-        })),
+        gatewayStateBySourceChain: vi.fn(async () =>
+          args.runtimeGatewayActivityNonce == null ? null : { gatewayActivityNonce: args.runtimeGatewayActivityNonce },
+        ),
+        chainConfigBySourceChain: vi.fn(async () =>
+          args.hasEthereumChainConfig === false ? null : { type: 'Evm', value: { gateway: '0xgateway' } },
+        ),
         mintingAuthoritiesBySigner: vi.fn(async (signingKey: string) => {
           const owner = args.mintingAuthorityOwnersBySigner?.[signingKey.toLowerCase()];
-          return {
-            isNone: owner == null,
-            isSome: owner != null,
-            unwrap: () => ({
-              destinationChain: {
-                isEthereum: true,
-              },
-              accountId: {
-                toString: () => owner,
-              },
-            }),
-          };
+          return owner ? { destinationChain: { type: 'Ethereum' }, accountId: owner } : null;
         }),
-        gatewaySyncPauseBySourceChain: vi.fn(async () => ({
-          isNone: args.gatewaySyncPause == null,
-          unwrap: () => ({
-            failedGatewayActivityNonce: {
-              toBigInt: () => args.gatewaySyncPause?.failedGatewayActivityNonce ?? 0n,
-            },
-            lastGoodGatewayActivityNonce: {
-              toBigInt: () => args.gatewaySyncPause?.lastGoodGatewayActivityNonce ?? 0n,
-            },
-            reason: {
-              type: args.gatewaySyncPause?.reason ?? 'Manual',
-            },
-          }),
-        })),
+        gatewaySyncPauseBySourceChain: vi.fn(async () =>
+          args.gatewaySyncPause
+            ? {
+                failedGatewayActivityNonce: args.gatewaySyncPause.failedGatewayActivityNonce,
+                lastGoodGatewayActivityNonce: args.gatewaySyncPause.lastGoodGatewayActivityNonce,
+                reason: { type: args.gatewaySyncPause.reason },
+              }
+            : null,
+        ),
       },
       system: {
         account: vi.fn(async () => ({
           data: {
-            free: {
-              toBigInt: () => args.balance ?? 1_000_000n,
-            },
+            free: args.balance ?? 1_000_000n,
           },
         })),
       },
       ethereumVerifier: {
-        latestExecutionHeaderAnchorBlockHash: vi.fn(async () => ({
-          isNone: args.hasLatestExecutionHeaderAnchor === false,
-        })),
+        latestExecutionHeaderAnchorBlockHash: vi.fn(async () =>
+          args.hasLatestExecutionHeaderAnchor === false ? null : '0xanchor',
+        ),
+        executionHeaderAnchors: vi.fn(async () => ({ blockNumber: 160n })),
       },
     },
     consts: {
