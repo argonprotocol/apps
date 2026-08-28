@@ -116,7 +116,7 @@ export default new Operation<IMiningFlowContext, IFundWalletState>(import.meta, 
     };
     const fundingNeeded = requiredFunding.microgons > 0n || requiredFunding.micronots > 0n;
     const funding = fundingNeeded ? deriveMiningFunding(flowName, requiredFunding, input.fundingArgons) : undefined;
-    await flow.click('BgOverlay.close()', { timeoutMs: 8_000 });
+    await flow.click('WalletOverlay.closeRight()', { timeoutMs: 8_000 });
     await pollEvery(250, async () => !(await flow.inspect(this)).uiState.walletOverlayVisible, {
       timeoutMs: 20_000,
       timeoutMessage: `${flowName}: mining wallet overlay did not close after funding.`,

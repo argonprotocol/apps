@@ -254,6 +254,7 @@ export class TransactionTracker {
   ): Promise<TransactionInfo<T>> {
     const { client: providedClient, tx, txSigner, extrinsicType, metadata, useLatestNonce, ...providedOptions } = args;
     const client = providedClient ?? (await getMainchainClient(false));
+    const submissionTx = client.tx(tx);
     console.log('[TransactionTracker] SUBMITTING TRANSACTION', extrinsicType);
     const submittedAtBlockHeight = await client.rpc.chain.getHeader().then(x => x.number.toNumber());
     const shouldRetryLatestNonce = useLatestNonce && providedOptions.nonce === undefined;
@@ -262,7 +263,7 @@ export class TransactionTracker {
       ? {
           ...args,
           client,
-          tx: client.tx(tx),
+          tx: submissionTx,
         }
       : undefined;
     let releaseNonceReservation: VoidFunction | undefined;
@@ -277,8 +278,8 @@ export class TransactionTracker {
     try {
       const signedTx =
         'signer' in txSigner
-          ? await tx.signAsync(txSigner.address, { ...apiOptions, signer: txSigner.signer })
-          : await tx.signAsync(txSigner, apiOptions);
+          ? await submissionTx.signAsync(txSigner.address, { ...apiOptions, signer: txSigner.signer })
+          : await submissionTx.signAsync(txSigner, apiOptions);
 
       const txResultExtrinsic = {
         signedHash: signedTx.hash.toHex(),
