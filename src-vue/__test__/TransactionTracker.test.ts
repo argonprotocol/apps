@@ -1205,7 +1205,7 @@ describe('TransactionTracker', () => {
 
   it('reserves local nonces above restored pending submissions for concurrent same-account work', async () => {
     vi.mocked(getMainchainClient).mockResolvedValue({
-      tx: vi.fn(() => ({ signAsync: vi.fn() })),
+      tx: vi.fn((tx: unknown) => tx),
       rpc: {
         chain: {
           getHeader: vi.fn(async () => ({ number: numberCodec(125) })),
@@ -1282,6 +1282,7 @@ describe('TransactionTracker', () => {
       finalizedHeight: 125,
     });
     const client = {
+      tx: vi.fn((tx: unknown) => tx),
       rpc: {
         chain: {
           getHeader: vi.fn(async () => ({ number: numberCodec(126) })),
@@ -1311,6 +1312,67 @@ describe('TransactionTracker', () => {
     expect((txInfo.txResult as unknown as { client: unknown }).client).toBe(client);
   });
 
+  it('submits and tracks on the preferred client when it changes after transaction construction', async () => {
+    const { tracker } = await createTracker({
+      txs: [],
+      finalizedHeight: 125,
+    });
+    const archiveBlockHash = Object.assign(Uint8Array.from([1]), { toHex: () => '0x01' });
+    const prunedBlockHash = Object.assign(Uint8Array.from([2]), { toHex: () => '0x02' });
+    const createFinalizedResult = (blockHash: Uint8Array) => ({
+      events: [],
+      isFinalized: true,
+      txIndex: 0,
+      status: {
+        isBroadcast: false,
+        isInBlock: false,
+        isRetracted: false,
+        isUsurped: false,
+        isDropped: false,
+        isInvalid: false,
+        isFinalized: true,
+        asFinalized: blockHash,
+      },
+    });
+    const createSignedTx = (blockHash: Uint8Array) => ({
+      hash: { toHex: () => '0xsubmitted' },
+      method: { toHuman: () => ({ section: 'balances', method: 'transferAllowDeath' }) },
+      nonce: numberCodec(4),
+      send: vi.fn(async (callback: (result: unknown) => void) => {
+        callback(createFinalizedResult(blockHash));
+      }),
+    });
+    const archiveTx = {
+      signAsync: vi.fn().mockResolvedValue(createSignedTx(archiveBlockHash)),
+    };
+    const prunedTx = {
+      signAsync: vi.fn().mockResolvedValue(createSignedTx(prunedBlockHash)),
+    };
+    const prunedClient = {
+      tx: vi.fn(() => prunedTx),
+      rpc: {
+        chain: {
+          getHeader: vi.fn(async (blockHash?: Uint8Array) => {
+            if (blockHash?.[0] === archiveBlockHash[0]) {
+              throw new Error('Unable to retrieve header and parent from supplied hash');
+            }
+            return { number: numberCodec(126) };
+          }),
+        },
+      },
+    };
+    vi.mocked(getMainchainClient).mockResolvedValue(prunedClient as any);
+
+    const txInfo = await tracker.submitAndWatch({
+      tx: archiveTx as any,
+      txSigner: { address: '5Alice' } as any,
+      extrinsicType: ExtrinsicType.Transfer,
+    });
+
+    await expect(txInfo.txResult.waitForFinalizedBlock).resolves.toEqual(Uint8Array.from([2]));
+    expect(txInfo.txResult.submissionError).toBeUndefined();
+  });
+
   it('submits a signed transaction before scanning pending transaction statuses', async () => {
     const { tracker } = await createTracker({
       txs: [],
@@ -1331,6 +1393,7 @@ describe('TransactionTracker', () => {
     };
     const submission = tracker.submitAndWatch({
       client: {
+        tx: vi.fn((tx: unknown) => tx),
         rpc: {
           chain: {
             getHeader: vi.fn(async () => ({ number: numberCodec(126) })),
