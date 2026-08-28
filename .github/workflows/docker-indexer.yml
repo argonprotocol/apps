@@ -51,8 +51,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Enable Corepack
+        run: corepack enable
+
       - name: Install dependencies
         run: yarn install
+
+      - name: Generate runtime client
+        run: yarn generate:runtime-client
 
       - name: Restore the previous checkpoint
         shell: bash

@@ -47,6 +47,9 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
+      - name: Generate runtime client
+        run: yarn generate:runtime-client
+
       - name: Build router service
         run: yarn workspace @argonprotocol/apps-router run build
 
