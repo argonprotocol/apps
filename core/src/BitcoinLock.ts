@@ -7,7 +7,7 @@ import { hexToU8a, u8aToHex } from '@polkadot/util';
 import type { Vault } from './Vault.js';
 import BigNumber from 'bignumber.js';
 import type { BitcoinLockFeeCoupon } from './interfaces/IBitcoinLockCoupon.js';
-import type { ArgonClient, ArgonQueryClient } from './MainchainClients.js';
+import type { ArgonApi, ArgonClient, ArgonQueryClient } from './MainchainClients.js';
 import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
 import type { PreviousRuntimeSpec } from './runtimeCompatibility.js';
 
@@ -87,7 +87,14 @@ export class BitcoinLock implements IBitcoinLock {
    * @return.vout - The output index of the UTXO in the transaction.
    */
   public async getFundingUtxoRef(client: IQueryableClient): Promise<{ txid: string; vout: number } | undefined> {
-    const ref = await client.query.bitcoinUtxos.utxoIdToFundingUtxoRef(this.utxoId);
+    const fundingRef = client.query.bitcoinUtxos.utxoIdToFundingUtxoRef(this.utxoId);
+    const legacyRef =
+      fundingRef === null ? (client as ArgonApi).query.bitcoinUtxos.utxoIdToRef(this.utxoId) : undefined;
+    if (fundingRef === null && legacyRef === null) {
+      throw new Error('Runtime has no Bitcoin funding UTXO reference storage');
+    }
+
+    const ref = await (fundingRef ?? legacyRef);
     if (!ref) return;
 
     const txid = ref.txid;
@@ -96,12 +103,29 @@ export class BitcoinLock implements IBitcoinLock {
   }
 
   public async findPendingMints(client: IQueryableClient): Promise<bigint[]> {
-    const mintsPending: bigint[] = [];
-    const pendingMintIndices = await client.query.mint.pendingMintUtxoIdLookup(this.utxoId);
-    if (!pendingMintIndices) return mintsPending;
+    const pendingMintLookup = client.query.mint.pendingMintUtxoIdLookup(this.utxoId);
+    if (pendingMintLookup === null) {
+      const legacyPendingMints = (client as ArgonApi).query.mint.pendingMintUtxos();
+      if (legacyPendingMints === null) throw new Error('Runtime has no Bitcoin pending mint storage');
 
+      const mintsPending: bigint[] = [];
+      for (const [utxoId, accountId, remainingAmount] of await legacyPendingMints) {
+        if (Number(utxoId) !== this.utxoId) continue;
+        if (accountId !== this.ownerAccount) {
+          throw new Error(`Bitcoin lock ${this.utxoId} pending mint belongs to another account`);
+        }
+        mintsPending.push(remainingAmount);
+      }
+      return mintsPending;
+    }
+
+    const mintsPending: bigint[] = [];
+    const pendingMintIndices = await pendingMintLookup;
     for (const pendingMintIndex of pendingMintIndices) {
-      const pendingMint = await client.query.mint.pendingMintUtxosByIndex(pendingMintIndex);
+      const indexedPendingMint = client.query.mint.pendingMintUtxosByIndex(pendingMintIndex);
+      if (indexedPendingMint === null) throw new Error('Runtime has no indexed Bitcoin pending mint storage');
+
+      const pendingMint = await indexedPendingMint;
       if (pendingMint) mintsPending.push(pendingMint.remainingAmount);
     }
     return mintsPending;
