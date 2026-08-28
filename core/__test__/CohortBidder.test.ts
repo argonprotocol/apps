@@ -1011,6 +1011,29 @@ describe('CohortBidder unit tests', () => {
     expect(findTransaction).toHaveBeenCalledTimes(1);
   });
 
+  it('waits for an in-flight bid submission during shutdown', async () => {
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 0], {
+      accountBalance: Argons(10),
+    });
+    let resolveSubmission!: () => void;
+    const pendingSubmission = new Promise<void>(resolve => {
+      resolveSubmission = resolve;
+    });
+    // @ts-expect-error reproducing the submission lifecycle
+    cohortBidder.pendingRequest = pendingSubmission;
+
+    let stopped = false;
+    const stopPromise = cohortBidder.stop(false).then(() => {
+      stopped = true;
+    });
+    await new Promise(setImmediate);
+
+    expect(stopped).toBe(false);
+
+    resolveSubmission();
+    await expect(stopPromise).resolves.toBeUndefined();
+  });
+
   it('waits for pending bid mortality at cohort shutdown', async () => {
     const finalizedHeader = {
       ...createBlockHeader(105, `0x${'05'.repeat(32)}`),

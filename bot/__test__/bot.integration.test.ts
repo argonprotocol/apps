@@ -9,8 +9,12 @@ import {
   BidAmountAdjustmentType,
   BidAmountFormulaType,
   type IBiddingRules,
+  JsonExt,
   MINING_BID_PROXY_FEE_FLOAT,
+  MicronotPriceChangeType,
   NetworkConfig,
+  SeatGoalInterval,
+  SeatGoalType,
   TxSubmitter,
 } from '@argonprotocol/apps-core';
 import { DockerStatus } from '../src/DockerStatus.js';
@@ -49,6 +53,8 @@ it.skipIf(skipE2E)(
 
     const botDataDir = fs.mkdtempSync(Path.join(os.tmpdir(), 'bot-'));
     await fs.promises.rm(botDataDir, { recursive: true, force: true });
+    await fs.promises.mkdir(botDataDir, { recursive: true });
+    const biddingRulesPath = Path.resolve(botDataDir, 'rules.json');
     // submit a price index
 
     const currentTick = await client.query.ticks.currentTick();
@@ -69,36 +75,34 @@ it.skipIf(skipE2E)(
     ).submit();
     await res.waitForInFirstBlock;
 
-    vi.spyOn(Bot.prototype as any, 'loadBiddingRules').mockImplementation(() => {
-      /* return an empty object so it's not undefined */
-      return {
-        argonCirculationGrowthPctMin: 0,
-        argonCirculationGrowthPctMax: 0,
-        argonotPriceChangeType: 'Between',
-        argonotPriceChangePctMin: 0,
-        argonotPriceChangePctMax: 0,
-        startingBidFormulaType: BidAmountFormulaType.Custom,
-        startingBidAdjustmentType: BidAmountAdjustmentType.Absolute,
-        startingBidCustom: 10_000n,
-        startingBidAdjustAbsolute: 0n,
-        startingBidAdjustRelative: 0,
-        rebiddingDelay: 0,
-        rebiddingIncrementBy: 10_000n,
-        maximumBidFormulaType: BidAmountFormulaType.Custom,
-        maximumBidAdjustmentType: 'Relative',
-        maximumBidCustom: 100_000_000n,
-        maximumBidAdjustAbsolute: 0n,
-        maximumBidAdjustRelative: 0,
-        seatGoalType: 'Max',
-        seatGoalCount: 10,
-        seatGoalPercent: 0,
-        seatGoalInterval: 'Frame',
-        initialMicrogonRequirement: 0n,
-        initialMicronotRequirement: 0n,
-        sidelinedMicrogons: 0n,
-        sidelinedMicronots: 0n,
-      } as IBiddingRules;
-    });
+    const biddingRules: IBiddingRules = {
+      argonCirculationGrowthPctMin: 0,
+      argonCirculationGrowthPctMax: 0,
+      argonotPriceChangeType: MicronotPriceChangeType.Between,
+      argonotPriceChangePctMin: 0,
+      argonotPriceChangePctMax: 0,
+      startingBidFormulaType: BidAmountFormulaType.Custom,
+      startingBidAdjustmentType: BidAmountAdjustmentType.Absolute,
+      startingBidCustom: 10_000n,
+      startingBidAdjustAbsolute: 0n,
+      startingBidAdjustRelative: 0,
+      rebiddingDelay: 0,
+      rebiddingIncrementBy: 10_000n,
+      maximumBidFormulaType: BidAmountFormulaType.Custom,
+      maximumBidAdjustmentType: BidAmountAdjustmentType.Relative,
+      maximumBidCustom: 100_000_000n,
+      maximumBidAdjustAbsolute: 0n,
+      maximumBidAdjustRelative: 0,
+      seatGoalType: SeatGoalType.Max,
+      seatGoalCount: 10,
+      seatGoalPercent: 0,
+      seatGoalInterval: SeatGoalInterval.Frame,
+      initialMicrogonRequirement: 0n,
+      initialMicronotRequirement: 0n,
+      sidelinedMicrogons: 0n,
+      sidelinedMicronots: 0n,
+    };
+    await fs.promises.writeFile(biddingRulesPath, JsonExt.stringify(biddingRules));
 
     vi.spyOn(DockerStatus, 'getArgonBlockNumbers').mockImplementation(async () => {
       return {
@@ -137,7 +141,7 @@ it.skipIf(skipE2E)(
       bidderKeypair,
       archiveRpcUrl: clientAddress,
       localRpcUrl: clientAddress,
-      biddingRulesPath: Path.resolve(botDataDir, 'rules.json'),
+      biddingRulesPath,
       datadir: botDataDir,
       sessionMiniSecret: mnemonicGenerate(),
       vaultOperatorAddress: sudo().address,
@@ -149,6 +153,24 @@ it.skipIf(skipE2E)(
     });
 
     await expect(bot.start()).resolves.toBeUndefined();
+    const activeBidder = await waitFor(30e3, 'initial active bidder', () => bot.autobidder.currentBidder);
+    const updatedBiddingRules: IBiddingRules = {
+      ...biddingRules,
+      maximumBidCustom: 50_000_000n,
+      rebiddingDelay: 3,
+      rebiddingIncrementBy: 20_000n,
+    };
+    await fs.promises.writeFile(biddingRulesPath, JsonExt.stringify(updatedBiddingRules));
+    await waitFor(30e3, 'updated active bidder', () => {
+      const updatedBidder = bot.autobidder.currentBidder;
+      if (!updatedBidder || updatedBidder === activeBidder) return;
+      expect(updatedBidder.options).toMatchObject({
+        maxBid: 50_000_000n,
+        bidDelay: 3,
+        bidIncrement: 20_000n,
+      });
+      return updatedBidder;
+    });
     const status = await bot.state();
     console.log('BotState', status);
     let firstCohortActivationFrameId: number | undefined = undefined;
@@ -270,7 +292,7 @@ it.skipIf(skipE2E)(
       bidderKeypair,
       archiveRpcUrl: clientAddress,
       localRpcUrl: clientAddress,
-      biddingRulesPath: Path.resolve(botDataDir, 'rules.json'),
+      biddingRulesPath,
       datadir: path2,
       sessionMiniSecret: mnemonicGenerate(),
       vaultOperatorAddress: sudo().address,

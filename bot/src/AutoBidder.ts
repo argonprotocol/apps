@@ -113,32 +113,33 @@ export class AutoBidder {
   }
 
   public async updateBiddingRules(biddingRules: IBiddingRules | null): Promise<void> {
-    this.biddingRules = biddingRules;
-
-    if (!this.biddingRules) {
+    await this.queueLifecycle(async () => {
+      this.biddingRules = biddingRules;
       this.biddingCalculator?.unload();
-      this.biddingCalculator = undefined;
       await this.stopActiveBidders(false);
-      return;
-    }
 
-    this.biddingCalculator?.unload();
-    this.biddingCalculator = new BiddingCalculator(
-      new BiddingCalculatorData(this.mining, this.miningFrames),
-      this.biddingRules,
-    );
+      if (!this.biddingRules) {
+        this.biddingCalculator = undefined;
+        return;
+      }
 
-    if (!this.unsubscribe || !this.localRpcUrl) {
-      return;
-    }
+      this.biddingCalculator = new BiddingCalculator(
+        new BiddingCalculatorData(this.mining, this.miningFrames),
+        this.biddingRules,
+      );
 
-    if (!this.hasRegisteredKeys) {
-      await this.accountset.registerKeys(this.localRpcUrl);
-      this.hasRegisteredKeys = true;
-    }
+      if (!this.unsubscribe || !this.localRpcUrl) {
+        return;
+      }
 
-    await this.biddingCalculator.load();
-    await this.reloadActiveCohort();
+      if (!this.hasRegisteredKeys) {
+        await this.accountset.registerKeys(this.localRpcUrl);
+        this.hasRegisteredKeys = true;
+      }
+
+      await this.biddingCalculator.load();
+      await this.reloadActiveCohort();
+    });
   }
 
   private async createBidderParams(cohortActivationFrameId: number): Promise<IBidderParams> {
