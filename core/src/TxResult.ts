@@ -246,7 +246,9 @@ export class TxResult {
       }
 
       void this.setFinalized().catch(error => {
-        this.submissionError = error as Error;
+        if (!isMissingBlockHeaderError(error)) {
+          this.submissionError = error as Error;
+        }
       });
     }
   }
