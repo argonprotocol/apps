@@ -93,8 +93,14 @@ jobs:
         with:
           workspaces: './src-tauri -> target'
 
+      - name: Enable Corepack
+        run: corepack enable
+
       - name: install frontend dependencies
         run: yarn install
+
+      - name: Generate runtime client
+        run: yarn generate:runtime-client
 
       - name: Read release notes (and ensure they exist)
         shell: bash

@@ -38,6 +38,9 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
+      - name: Generate runtime client
+        run: yarn generate:runtime-client
+
       - name: Login to container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
         with:
