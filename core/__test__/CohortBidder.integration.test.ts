@@ -32,7 +32,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
 
     const aliceClientPromise = getTestMainchainClient(network.archiveUrl);
     const aliceClient = await aliceClientPromise;
-    const clients = trackMainchainClients(new MainchainClients(network.archiveUrl, () => false, aliceClient));
+    const clients = trackMainchainClients(new MainchainClients(network.archiveUrl, () => false));
     const bobRing = new Keyring({ type: 'sr25519' }).addFromUri('//Bob');
 
     const alice = new Accountset({
@@ -95,7 +95,7 @@ describe.skipIf(SKIP_E2E)('Cohort Integration Bidder tests', () => {
       async onBiddingStart(cohortStartingFrameId) {
         if (bobBidder) return;
         console.log(`Cohort ${cohortStartingFrameId} started bidding`);
-        const bobClients = trackMainchainClients(new MainchainClients(bobAddress, () => false, bob.client));
+        const bobClients = trackMainchainClients(new MainchainClients(network.archiveUrl, () => false));
         const bobMiningFrames = trackMiningFrames(new MiningFrames(bobClients));
         const aliceMiningFrames = trackMiningFrames(new MiningFrames(clients));
 

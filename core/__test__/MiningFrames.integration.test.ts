@@ -31,7 +31,7 @@ describe.skipIf(skipE2E)('Mining Frames tests', () => {
   });
 
   it('syncs frames', async () => {
-    mainchainClients = new MainchainClients(mainchainUrl, undefined, client);
+    mainchainClients = new MainchainClients(mainchainUrl);
     const updatesWriter = {
       read: vi.fn().mockImplementation(async () => {}),
       write: vi.fn().mockImplementation(async () => {}),

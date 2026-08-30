@@ -59,6 +59,7 @@ export default defineConfig({
         test: {
           name: 'scripts',
           include: ['scripts/__test__/**/*.test.ts'],
+          exclude: [INTEGRATION_TEST_GLOB],
         },
       },
       {
