@@ -26,25 +26,28 @@ const ARCHIVE_URL = process.env.ARGON_ARCHIVE_URL;
     try {
       console.log(`Updating ${name}: ${config.archiveUrl}`);
       const clients = new MainchainClients(config.archiveUrl, () => true);
-      const client = await Promise.race([
-        clients.archiveClientPromise,
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), 1e3)),
-      ]);
-      while ((await client.rpc.chain.getHeader().then(x => x.number.toNumber())) === 0) {
-        await new Promise(res => setTimeout(res, 100));
-        process.stdout.write('..');
-      }
-      const existingData = await fs.promises.readFile(filePath, 'utf8').catch(() => '[]');
-      const frameHistory = (JSON.parse(existingData) as IFramesHistory) ?? [];
-      console.log(`Loaded ${frameHistory.length} frames from ${name}.json`);
+      try {
+        const client = await Promise.race([
+          clients.archiveClientPromise,
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), 1e3)),
+        ]);
+        while ((await client.rpc.chain.getHeader().then(x => x.number.toNumber())) === 0) {
+          await new Promise(res => setTimeout(res, 100));
+          process.stdout.write('..');
+        }
+        const existingData = await fs.promises.readFile(filePath, 'utf8').catch(() => '[]');
+        const frameHistory = (JSON.parse(existingData) as IFramesHistory) ?? [];
+        console.log(`Loaded ${frameHistory.length} frames from ${name}.json`);
 
-      const hasChanges = await new FrameHistoryLoader(clients, frameHistory).syncToLatestStored();
-      if (hasChanges) {
-        frameHistory.sort((a, b) => a.frameId - b.frameId);
-        fs.writeFileSync(filePath, JSON.stringify(frameHistory, null, 2) + '\n', 'utf-8');
-        console.log(`Updated ${name}.json with latest frame history`);
+        const hasChanges = await new FrameHistoryLoader(clients, frameHistory).syncToLatestStored();
+        if (hasChanges) {
+          frameHistory.sort((a, b) => a.frameId - b.frameId);
+          fs.writeFileSync(filePath, JSON.stringify(frameHistory, null, 2) + '\n', 'utf-8');
+          console.log(`Updated ${name}.json with latest frame history`);
+        }
+      } finally {
+        await clients.disconnect();
       }
-      await clients.disconnect();
     } catch (e) {
       console.warn(`[${name}]`, e);
     }

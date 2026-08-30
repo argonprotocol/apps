@@ -61,6 +61,21 @@ describe('troubleshooting archive inspector', () => {
     expect((await readdir(directory)).sort()).toEqual(['source', 'support.tar.gz']);
   });
 
+  it('rejects TAR compression ratios above the inspection limit', async () => {
+    const directory = await temporaryDirectory();
+    const source = Path.join(directory, 'source');
+    const archive = Path.join(directory, 'support.tar.gz');
+    await mkdir(source, { recursive: true });
+    await writeFile(Path.join(source, 'diagnostics.log'), Buffer.alloc(8 * 1024 * 1024));
+    await tar.create({ cwd: source, file: archive, gzip: true }, ['diagnostics.log']);
+
+    const result = spawnSync('yarn', ['troubleshoot:inspect', archive], { encoding: 'utf8' });
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('decompression ratio');
+    expect((await readdir(directory)).sort()).toEqual(['source', 'support.tar.gz']);
+  });
+
   it('reports GNU long-path TAR bundles without extracting them on the host', async () => {
     const directory = await temporaryDirectory();
     const source = Path.join(directory, 'source');
@@ -194,14 +209,19 @@ describe('troubleshooting archive inspector', () => {
     const archive = Path.join(directory, 'support.zip');
     await mkdir(Path.join(source, 'server'), { recursive: true });
     await mkdir(Path.join(nestedSource, 'data', 'argon'), { recursive: true });
-    await writeFile(Path.join(nestedSource, 'data', 'argon', 'vault.sqlite'), 'not inspected\n');
+    const databaseContents = Buffer.from('not inspected\n');
+    await writeFile(Path.join(nestedSource, 'data', 'argon', 'vault.sqlite'), databaseContents);
     await tar.create({ cwd: nestedSource, file: nestedArchive, gzip: true }, ['data/argon/vault.sqlite']);
-    await createZip(archive, 'server/support.tar.gz', await readFile(nestedArchive), { deflate: true });
+    const nestedArchiveContents = await readFile(nestedArchive);
+    await createZip(archive, 'server/support.tar.gz', nestedArchiveContents, { deflate: true });
 
     const result = spawnSync('yarn', ['troubleshoot:inspect', archive], { encoding: 'utf8' });
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('SAFE: "server/support.tar.gz!/data/argon/vault.sqlite"');
+    expect(result.stdout).toContain(
+      `Declared uncompressed bytes: ${nestedArchiveContents.length + databaseContents.length}`,
+    );
     expect((await readdir(directory)).sort()).toEqual(['source', 'support.zip']);
   });
 

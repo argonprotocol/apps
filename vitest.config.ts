@@ -5,7 +5,6 @@ import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
 
 const INTEGRATION_TEST_GLOB = '**/__test__/**/*.integration.test.ts';
-const TROUBLESHOOTING_ARCHIVE_INTEGRATION_TEST = 'scripts/__test__/inspectTroubleshootingArchive.test.ts';
 const E2E_TEST_GLOB = 'e2e/__test__/**/*.e2e.test.ts';
 const APP_SETUP_FILE = './vitest.setup.ts';
 const dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -60,7 +59,7 @@ export default defineConfig({
         test: {
           name: 'scripts',
           include: ['scripts/__test__/**/*.test.ts'],
-          exclude: [INTEGRATION_TEST_GLOB, TROUBLESHOOTING_ARCHIVE_INTEGRATION_TEST],
+          exclude: [INTEGRATION_TEST_GLOB],
         },
       },
       {
@@ -104,7 +103,7 @@ export default defineConfig({
           name: 'integration',
           testTimeout: 240_000,
           hookTimeout: 120_000,
-          include: [INTEGRATION_TEST_GLOB, TROUBLESHOOTING_ARCHIVE_INTEGRATION_TEST],
+          include: [INTEGRATION_TEST_GLOB],
           globalSetup: './src-vue/__test__/FinancialHistoryReplay.globalSetup.ts',
           setupFiles: APP_SETUP_FILE,
           fileParallelism: false,

@@ -111,15 +111,16 @@ async function inspectArchive(): Promise<void> {
       throw new InspectionError(`archive is larger than ${MAX_ARCHIVE_BYTES} bytes`);
     }
 
-    const { format, entries } = await inspectArchivePath(archivePath, 0, {
+    const context: InspectionContext = {
       declaredUncompressedBytes: 0,
       entryCount: 0,
       nestedArchiveBytes: 0,
-    });
+    };
+    const { format, entries } = await inspectArchivePath(archivePath, 0, context);
     const rejected = hasRejectedEntry(entries);
     console.log(`Format: ${format}`);
     console.log(`Entries: ${entries.length}`);
-    console.log(`Declared uncompressed bytes: ${entries.reduce((total, entry) => total + entry.size, 0)}`);
+    console.log(`Declared uncompressed bytes: ${context.declaredUncompressedBytes}`);
 
     printEntries(entries);
 
@@ -293,7 +294,7 @@ async function inspectTar(archivePath: string, depth: number, context: Inspectio
   const parser = new Tar.Parser({
     strict: true,
     maxMetaEntrySize: MAX_PAX_BYTES,
-    maxDecompressionRatio: Infinity,
+    maxDecompressionRatio: MAX_COMPRESSION_RATIO,
     brotli: false,
     zstd: false,
   });
