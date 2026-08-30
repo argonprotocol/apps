@@ -33,9 +33,13 @@ export default function miningCli() {
     )
     .action(
       async ({ maxSeats, runContinuous, maxBid, minBid, maxBalance, bidDelay, bidIncrement, proxyForAddress }) => {
-        const accountset = await accountsetFromCli(program, proxyForAddress);
+        const { mainchainUrl } = globalOptions(program);
+        const clients = new MainchainClients(mainchainUrl, () => true);
+        const accountset = await accountsetFromCli(program, {
+          proxyForAddress,
+          client: await clients.archiveClientPromise,
+        });
 
-        const clients = new MainchainClients('', () => true, accountset.client);
         const miningBids = new Mining(clients);
         const biddersByFrames: { [frameId: number]: CohortBidder } = {};
         const miningFrames = new MiningFrames(clients);
@@ -131,7 +135,7 @@ export default function miningCli() {
       ]);
       let keypair: KeyringPair;
       try {
-        const accountset = await accountsetFromCli(program);
+        const accountset = await accountsetFromCli(program, { client });
         keypair = accountset.txSubmitterPair;
       } catch (e) {
         const polkadotLink = `https://polkadot.js.org/apps/?rpc=${mainchainUrl}#/extrinsics/decode/${tx.toHex()}`;

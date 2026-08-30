@@ -1,5 +1,4 @@
 import { MainchainClients } from '../MainchainClients.js';
-import { getClient } from '@argonprotocol/mainchain';
 import { NetworkConfig, NetworkConfigSettings } from '../NetworkConfig.js';
 import * as fs from 'node:fs';
 import * as Path from 'path';
@@ -26,15 +25,15 @@ const ARCHIVE_URL = process.env.ARGON_ARCHIVE_URL;
     console.log(`\n--- Processing network: ${name} ---`, filePath);
     try {
       console.log(`Updating ${name}: ${config.archiveUrl}`);
+      const clients = new MainchainClients(config.archiveUrl, () => true);
       const client = await Promise.race([
-        getClient(config.archiveUrl),
+        clients.archiveClientPromise,
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), 1e3)),
       ]);
       while ((await client.rpc.chain.getHeader().then(x => x.number.toNumber())) === 0) {
         await new Promise(res => setTimeout(res, 100));
         process.stdout.write('..');
       }
-      const clients = new MainchainClients(config.archiveUrl, () => true, client);
       const existingData = await fs.promises.readFile(filePath, 'utf8').catch(() => '[]');
       const frameHistory = (JSON.parse(existingData) as IFramesHistory) ?? [];
       console.log(`Loaded ${frameHistory.length} frames from ${name}.json`);
@@ -45,7 +44,7 @@ const ARCHIVE_URL = process.env.ARGON_ARCHIVE_URL;
         fs.writeFileSync(filePath, JSON.stringify(frameHistory, null, 2) + '\n', 'utf-8');
         console.log(`Updated ${name}.json with latest frame history`);
       }
-      await client.disconnect();
+      await clients.disconnect();
     } catch (e) {
       console.warn(`[${name}]`, e);
     }

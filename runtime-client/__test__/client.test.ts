@@ -3,6 +3,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { runtimeClient } from '../src/client.ts';
 
 describe('runtimeClient', () => {
+  it('reflects installed query presence through nested sections', () => {
+    const client = runtimeClient({ query: { treasury: { currentFrameArgonotBondParticipants: vi.fn() } } });
+
+    expect('currentFrameArgonotBondParticipants' in client.query.treasury).toBe(true);
+    expect('bondLotById' in client.query.treasury).toBe(false);
+  });
+
   it('returns null synchronously when a query is absent from the supplied API', () => {
     const client = runtimeClient({ query: {} });
 

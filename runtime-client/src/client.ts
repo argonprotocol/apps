@@ -139,6 +139,13 @@ export function runtimeClient<Api extends { readonly query: object }, Queries ex
             get(_sectionTarget, method) {
               return createRuntimeQuery(api.query, section, method, runtimeQueries);
             },
+            has(_sectionTarget, method) {
+              const querySection = readProperty(api.query, section);
+              if ((typeof querySection !== 'object' || querySection === null) && typeof querySection !== 'function') {
+                return false;
+              }
+              return Reflect.has(querySection, method);
+            },
           },
         );
       },

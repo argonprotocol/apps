@@ -15,15 +15,34 @@ describe('MainchainClients', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const archiveClient = createClient('archive');
     prunedClient = createClient('pruned');
-    getClient.mockImplementation(async () => prunedClient);
-    clients = new MainchainClients('ws://archive', () => false, createClient('archive') as any);
+    getClient.mockImplementation(async (url: string) => (url === 'ws://archive' ? archiveClient : prunedClient));
+    clients = new MainchainClients('ws://archive', () => false);
   });
 
   afterEach(async () => {
     await clients.disconnect();
     getClient.mockReset();
     vi.restoreAllMocks();
+  });
+
+  it('owns creation of the archive client', async () => {
+    const configuredClient = createClient('configured');
+    const suppliedClient = createClient('supplied');
+    getClient.mockResolvedValueOnce(configuredClient);
+    const ownedClients = Reflect.construct(MainchainClients, [
+      'ws://configured',
+      () => false,
+      suppliedClient,
+    ]) as MainchainClients;
+
+    try {
+      const client = await ownedClients.archiveClientPromise;
+      expect((client as unknown as { name: string }).name).toBe('configured');
+    } finally {
+      await ownedClients.disconnect();
+    }
   });
 
   it('selects a connected candidate only after its state probe succeeds', async () => {

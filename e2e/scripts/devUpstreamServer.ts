@@ -255,8 +255,7 @@ export async function startDevUpstreamServer(args: {
 
   NetworkConfig.setNetwork('dev-docker');
 
-  const archiveClient = await getClient(args.archiveUrl);
-  const clients = new MainchainClients(args.archiveUrl, () => false, archiveClient);
+  const clients = new MainchainClients(args.archiveUrl, () => false);
   const actor = await AppVaultOperator.load({
     clients,
     walletKeys,

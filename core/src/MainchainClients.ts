@@ -1,6 +1,5 @@
 import { type ApiDecoration, type ArgonClient as PolkadotArgonClient, getClient } from '@argonprotocol/mainchain';
 import {
-  isRuntimeClient,
   runtimeClient,
   type CurrentRuntimeQueries,
   type RuntimeClient,
@@ -81,16 +80,11 @@ export class MainchainClients {
   constructor(
     archiveUrl: string,
     private enableApiLogging = () => true,
-    connectedArchiveClient?: PolkadotArgonClient | ArgonClient,
   ) {
     this.archiveUrl = archiveUrl;
-    if (connectedArchiveClient && isRuntimeClient<PolkadotArgonClient, CurrentRuntimeQueries>(connectedArchiveClient)) {
-      this.archiveClientPromise = Promise.resolve(connectedArchiveClient);
-    } else {
-      this.archiveClientPromise = (
-        connectedArchiveClient ? Promise.resolve(connectedArchiveClient) : getMainchainClientOrThrow(archiveUrl)
-      ).then(client => this.wrapClient(client, 'archive'));
-    }
+    this.archiveClientPromise = getMainchainClientOrThrow(archiveUrl).then(client =>
+      this.wrapClient(client, 'archive'),
+    );
   }
 
   public async setArchiveClient(url: string) {
