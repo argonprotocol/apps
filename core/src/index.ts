@@ -40,6 +40,7 @@ export * from './UserRole.js';
 export * from './InviteCodes.js';
 export * from './InviteEnvelope.js';
 export * from './RouterAuth.js';
+export * from './DiscordVerification.js';
 export * from './Codecs.js';
 export * from './CertificationProgress.js';
 export * from './OperationalAccessProof.js';

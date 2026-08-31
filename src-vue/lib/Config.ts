@@ -86,6 +86,7 @@ export class Config implements IConfig {
       hasExtensionTreasury: Config.getDefault(dbFields.hasExtensionTreasury) as IConfig['hasExtensionTreasury'],
       hasExtensionOperations: Config.getDefault(dbFields.hasExtensionOperations) as IConfig['hasExtensionOperations'],
       hasActivatedCrosschain: Config.getDefault(dbFields.hasActivatedCrosschain) as IConfig['hasActivatedCrosschain'],
+      hasConnectedDiscord: Config.getDefault(dbFields.hasConnectedDiscord) as IConfig['hasConnectedDiscord'],
       selectedTab: Config.getDefault(dbFields.selectedTab) as IConfig['selectedTab'],
       ethereumBeaconApiUrl: Config.getDefault(dbFields.ethereumBeaconApiUrl) as IConfig['ethereumBeaconApiUrl'],
       ethereumExecutionRpcUrl: Config.getDefault(
@@ -142,6 +143,7 @@ export class Config implements IConfig {
           'hasExtensionTreasury',
           'hasExtensionOperations',
           'hasActivatedCrosschain',
+          'hasConnectedDiscord',
           'serverAdd',
           'serverDetails',
           'isServerInstalled',
@@ -482,6 +484,14 @@ export class Config implements IConfig {
     this.setField('hasActivatedCrosschain', value);
   }
 
+  public get hasConnectedDiscord(): boolean {
+    return this.getField('hasConnectedDiscord');
+  }
+
+  public set hasConnectedDiscord(value: boolean) {
+    this.setField('hasConnectedDiscord', value);
+  }
+
   public get selectedTab(): IConfig['selectedTab'] {
     return this.getField('selectedTab');
   }
@@ -815,6 +825,7 @@ const dbFields = {
   hasExtensionTreasury: 'hasExtensionTreasury',
   hasExtensionOperations: 'hasExtensionOperations',
   hasActivatedCrosschain: 'hasActivatedCrosschain',
+  hasConnectedDiscord: 'hasConnectedDiscord',
   selectedTab: 'selectedTab',
 
   requiresPassword: 'requiresPassword',
@@ -857,6 +868,7 @@ const defaults: IConfigDefaults = {
   hasExtensionTreasury: () => false,
   hasExtensionOperations: () => false,
   hasActivatedCrosschain: () => false,
+  hasConnectedDiscord: () => false,
   selectedTab: () => TopTab.Home,
 
   requiresPassword: () => false,

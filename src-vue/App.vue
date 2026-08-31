@@ -78,6 +78,7 @@
       <AboutOverlay />
       <SoftwareInfoOverlay />
       <OperationalProfileOverlay />
+      <DiscordVerificationOverlay />
       <JurisdictionOverlay />
       <ServerOverlay />
       <TroubleshootingToolsOverlayOverlay />
@@ -144,6 +145,7 @@ import MemberInviteOverlay from './overlays/MemberInviteOverlay.vue';
 import MemberDetailsOverlay from './overlays/MemberDetailsOverlay.vue';
 import { CloseRequestedEvent, getCurrentWindow } from '@tauri-apps/api/window';
 import OperationalProfileOverlay from './overlays/OperationalProfileOverlay.vue';
+import DiscordVerificationOverlay from './overlays/DiscordVerificationOverlay.vue';
 import { checkInstallerIfCloseAllowed } from './stores/installer.ts';
 import RuntimeCompatibilityScreen from './screens/RuntimeCompatibilityScreen.vue';
 import { useAppUpdater } from './stores/appUpdater.ts';

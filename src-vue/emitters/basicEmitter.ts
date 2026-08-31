@@ -57,6 +57,7 @@ type IBasicEmitter = {
   openImportAccountOverlay: void;
 
   openOperationalProfileOverlay: IOperationalProfileRequest | void;
+  openDiscordVerificationOverlay: void;
   openMemberInviteOverlay: { preserveDraft?: boolean; flexibleAssetChanges?: IVaultFlexibleAssetChanges } | undefined;
   openMemberDetailsOverlay: { invite: IMemberInvite };
 

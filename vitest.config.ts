@@ -100,6 +100,15 @@ export default defineConfig({
       },
       {
         test: {
+          name: 'discord-verifier',
+          testTimeout: 120_000,
+          hookTimeout: 120_000,
+          include: ['discord-verifier/__test__/**/*.test.ts'],
+          exclude: [INTEGRATION_TEST_GLOB],
+        },
+      },
+      {
+        test: {
           name: 'integration',
           testTimeout: 240_000,
           hookTimeout: 120_000,
