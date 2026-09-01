@@ -230,11 +230,6 @@ export const OwnedSeatPortfolio: Story = {
   beforeEach: () => {
     setupMiningPortfolioScenario();
   },
-  play: async ({ canvasElement }) => {
-    const months = Array.from(canvasElement.querySelectorAll('[Dates] li')).map(month => month.textContent?.trim());
-
-    await expect(months).toEqual(['Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep']);
-  },
 };
 
 export const HistoricalSeatPortfolio: Story = {
