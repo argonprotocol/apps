@@ -5,12 +5,7 @@
         <div class="min-w-0 grow">
           <div class="flex items-center gap-x-2">
             <span class="font-semibold text-slate-800">{{ title(record) }}</span>
-            <span
-              v-if="sourceIdentity(record)"
-              class="max-w-48 truncate rounded bg-slate-200/70 px-2 py-0.5 text-xs font-medium text-slate-600"
-            >
-              {{ formatCrosschainSourceIdentity(sourceIdentity(record)!) }}
-            </span>
+            <CrosschainIdentityLabel v-if="sourceIdentity(record)" :identity="sourceIdentity(record)!" compact />
           </div>
           <div class="mt-0.5 text-sm text-slate-500">
             Finalized · Argon block {{ record.blockNumber.toLocaleString() }} · {{ formatDate(record.blockTime) }}
@@ -34,9 +29,7 @@
         >
           <dt>Sender</dt>
           <dd>
-            <div v-if="sourceIdentity(record)" class="font-medium">
-              {{ formatCrosschainSourceIdentity(sourceIdentity(record)!) }}
-            </div>
+            <CrosschainIdentityLabel v-if="sourceIdentity(record)" :identity="sourceIdentity(record)!" />
             <CopyableArgonAddress :address="record.details.sourceAccount" />
           </dd>
           <dt>Recipient</dt>
@@ -55,9 +48,7 @@
           </dd>
           <dt>Collateral supplied by</dt>
           <dd :title="`Signing key ${record.details.authoritySigningKey}`">
-            <span v-if="authorityIdentity(record)" class="font-medium">
-              {{ formatCrosschainSourceIdentity(authorityIdentity(record)!) }}
-            </span>
+            <CrosschainIdentityLabel v-if="authorityIdentity(record)" :identity="authorityIdentity(record)!" />
             <CopyableArgonAddress v-else :address="record.details.authorityOwnerAccount ?? record.accountId" />
             <span class="text-slate-500">
               · {{ formatArgon(record.details.microgonCollateral) }} ARGN +
@@ -80,9 +71,7 @@
         <dl v-else class="grid grid-cols-[120px_minmax(0,1fr)_120px_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
           <dt>Minting Authority</dt>
           <dd :title="`Signing key ${record.details.authoritySigningKey}`">
-            <span v-if="recordIdentity(record)" class="font-medium">
-              {{ formatCrosschainSourceIdentity(recordIdentity(record)!) }}
-            </span>
+            <CrosschainIdentityLabel v-if="recordIdentity(record)" :identity="recordIdentity(record)!" />
             <CopyableArgonAddress v-else :address="record.accountId" />
           </dd>
           <template v-if="record.details.queueNonce !== undefined">
@@ -111,10 +100,10 @@ import { ArrowTopRightOnSquareIcon, CheckIcon } from '@heroicons/vue/24/outline'
 import { open as tauriOpenUrl } from '@tauri-apps/plugin-shell';
 import CopyIcon from '../assets/copy.svg';
 import CrosschainActivityDetails from './CrosschainActivityDetails.vue';
+import CrosschainIdentityLabel from './CrosschainIdentityLabel.vue';
 import CopyableArgonAddress from './CopyableArgonAddress.vue';
 import CopyToClipboard from './CopyToClipboard.vue';
 import type { ICrosschainSourceIdentity } from '../lib/CrosschainTransferView.ts';
-import { formatCrosschainSourceIdentity } from '../lib/CrosschainTransferView.ts';
 import type { ICrosschainHistoryRecord } from '../lib/CrosschainHistory.ts';
 import { abbreviateAddress } from '../lib/Utils.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';

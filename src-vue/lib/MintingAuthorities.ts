@@ -21,6 +21,7 @@ import type { WalletHdKeysTable } from './db/WalletHdKeysTable.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { TransactionTracker } from './TransactionTracker.ts';
 import { ExtrinsicType, TransactionStatus } from './db/TransactionsTable.ts';
+import { getOperationalProfileName } from './OperationalAccount.ts';
 import { getFinalizedClient, getMainchainClient } from '../stores/mainchain.ts';
 
 const MINTING_AUTHORITY_SIGNER_SCAN_BATCH_SIZE = 16;
@@ -77,6 +78,11 @@ export type ICrosschainSourceTransferTotals = {
   microgonsOut: bigint;
   micronotsOut: bigint;
   transferOutCount: number;
+};
+
+export type ICrosschainSourceOperatorDetails = {
+  name?: string;
+  upstreamVaultAccount?: string;
 };
 
 export type IMintingAuthorityAuthorizeMetadata = {
@@ -137,7 +143,7 @@ export class MintingAuthorities {
     backedTransfers: IMintingAuthorityBackedTransfer[];
     backedTransfersError?: string;
     sourceTotalsByAccount: Map<string, ICrosschainSourceTransferTotals>;
-    sourceUpstreamVaultAccountsByAccount: Map<string, string>;
+    sourceOperatorDetailsByAccount: Map<string, ICrosschainSourceOperatorDetails>;
     pendingMintingAuthorizeTxInfosByTransferId: Map<string, TransactionInfo<IMintingAuthorityAuthorizeMetadata>>;
   };
   #subscriptions: VoidFunction[] = [];
@@ -164,7 +170,7 @@ export class MintingAuthorities {
       pendingMintingAuthorizations: [],
       backedTransfers: [],
       sourceTotalsByAccount: new Map(),
-      sourceUpstreamVaultAccountsByAccount: new Map(),
+      sourceOperatorDetailsByAccount: new Map(),
       pendingMintingAuthorizeTxInfosByTransferId: new Map(),
     };
   }
@@ -239,14 +245,14 @@ export class MintingAuthorities {
         ...backedTransfers.map(transfer => transfer.sourceAccount),
       ]),
     ];
-    const [sourceTotals, sourceUpstreamVaultAccountsByAccount] = await Promise.all([
+    const [sourceTotals, sourceOperatorDetailsByAccount] = await Promise.all([
       sourceAccounts.length
         ? finalizedClient.query.crosschainTransfer.transferTotalsByAccount.multi(sourceAccounts)?.catch(error => {
             console.warn('[MintingAuthorities] Unable to refresh source transfer totals', error);
             return undefined;
           })
         : [],
-      this.loadSourceUpstreamVaultAccounts(finalizedClient, sourceAccounts),
+      this.loadSourceOperatorDetails(finalizedClient, sourceAccounts),
     ]);
     if (updateSeq !== this.#updateSeq) {
       return this.data.pendingMintingAuthorizations;
@@ -271,17 +277,17 @@ export class MintingAuthorities {
         }),
       );
     }
-    this.data.sourceUpstreamVaultAccountsByAccount = sourceUpstreamVaultAccountsByAccount;
+    this.data.sourceOperatorDetailsByAccount = sourceOperatorDetailsByAccount;
     void this.syncPendingActivationRelay(authorities).catch(error =>
       console.error(`Error requesting pending minting-authority activation relay`, error),
     );
     return pendingMintingAuthorizations;
   }
 
-  private async loadSourceUpstreamVaultAccounts(
+  private async loadSourceOperatorDetails(
     finalizedClient: ArgonQueryClient,
     sourceAccounts: string[],
-  ): Promise<Map<string, string>> {
+  ): Promise<Map<string, ICrosschainSourceOperatorDetails>> {
     if (!sourceAccounts.length) return new Map();
 
     try {
@@ -301,6 +307,14 @@ export class MintingAuthorities {
           account ? [[operationalAccountIds[index], account] as const] : [],
         ),
       );
+      const sourceOperatorDetailsByAccount = new Map<string, ICrosschainSourceOperatorDetails>();
+
+      for (const [index, sourceAccount] of sourceAccounts.entries()) {
+        const operationalAccountId = sourceOperationalAccountIds[index];
+        const operationalAccount = operationalAccountId ? operationalAccountsById.get(operationalAccountId) : undefined;
+        const name = operationalAccount ? getOperationalProfileName(operationalAccount) : '';
+        if (name) sourceOperatorDetailsByAccount.set(sourceAccount, { name });
+      }
       const upstreamAccountIds = [
         ...new Set(
           [...operationalAccountsById.values()].flatMap(account =>
@@ -308,18 +322,16 @@ export class MintingAuthorities {
           ),
         ),
       ];
-      if (!upstreamAccountIds.length) return new Map();
+      if (!upstreamAccountIds.length) return sourceOperatorDetailsByAccount;
 
       const upstreamAccountOptions =
         await finalizedClient.query.operationalAccounts.operationalAccounts.multi(upstreamAccountIds);
-      if (!upstreamAccountOptions) return new Map();
+      if (!upstreamAccountOptions) return sourceOperatorDetailsByAccount;
       const upstreamVaultAccountsById = new Map(
         upstreamAccountOptions.flatMap((account, index) =>
           account ? [[upstreamAccountIds[index], account.vaultAccount] as const] : [],
         ),
       );
-      const sourceUpstreamVaultAccounts = new Map<string, string>();
-
       for (const [index, sourceAccount] of sourceAccounts.entries()) {
         const operationalAccountId = sourceOperationalAccountIds[index];
         if (!operationalAccountId) continue;
@@ -329,10 +341,15 @@ export class MintingAuthorities {
         if (!upstreamAccountId) continue;
 
         const upstreamVaultAccount = upstreamVaultAccountsById.get(upstreamAccountId);
-        if (upstreamVaultAccount) sourceUpstreamVaultAccounts.set(sourceAccount, upstreamVaultAccount);
+        if (upstreamVaultAccount) {
+          sourceOperatorDetailsByAccount.set(sourceAccount, {
+            ...sourceOperatorDetailsByAccount.get(sourceAccount),
+            upstreamVaultAccount,
+          });
+        }
       }
 
-      return sourceUpstreamVaultAccounts;
+      return sourceOperatorDetailsByAccount;
     } catch (error) {
       console.warn('[MintingAuthorities] Unable to resolve transfer source sponsors', error);
       return new Map();
@@ -366,7 +383,7 @@ export class MintingAuthorities {
     this.data.backedTransfers = [];
     this.data.backedTransfersError = undefined;
     this.data.sourceTotalsByAccount = new Map();
-    this.data.sourceUpstreamVaultAccountsByAccount = new Map();
+    this.data.sourceOperatorDetailsByAccount = new Map();
     void this.syncPendingActivationRelay(authorities).catch(error =>
       console.error(`Error requesting restored minting-authority activation relay`, error),
     );

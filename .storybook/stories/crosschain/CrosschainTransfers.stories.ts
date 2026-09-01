@@ -82,11 +82,12 @@ export const RecoveredTransferTips: Story = {
         vaultsById: vaults.vaultsById,
         operatorNamesByVaultId: vaults.operatorNamesByVaultId,
         localAccountIds: [getWalletKeys().defaultArgonAddress],
+        sourceOperatorDetailsByAccount: new Map([[upstreamOnlySourceAccount, { upstreamVaultAccount: recoveredSourceAccount }]]),
       }),
     );
 
     const history = createHistory();
-    history.data.records = [recoveredAuthorization];
+    history.data.records = [recoveredAuthorization, upstreamOnlyRecoveredAuthorization];
 
     mocked(getCrosschainHistory).mockReturnValue(history);
   },
@@ -98,17 +99,18 @@ export const RecoveredTransferTips: Story = {
     await expect(dashboard).toBeVisible();
     await expect(within(dashboard).getByText('Transfer Tips')).toBeVisible();
     await expect(within(dashboard).getByText('Tips Available')).toBeVisible();
-    await expect(within(dashboard).getByText('0.5 ARGNOT tip')).toBeVisible();
+    await expect(within(dashboard).getAllByText('0.5 ARGNOT tip')).toHaveLength(2);
     await expect(within(dashboard).getAllByText('Atlas')).not.toHaveLength(0);
+    await expect(within(dashboard).getAllByText('(Upstream: Atlas)')).not.toHaveLength(0);
     await expect(
       within(within(dashboard).getByText('Remaining Minting Authority').parentElement!).getByText('$0.00'),
     ).toBeVisible();
     await expect(
-      within(within(dashboard).getByText('Transfer Value Sponsored').parentElement!).getByText('$50.00'),
+      within(within(dashboard).getByText('Transfer Value Sponsored').parentElement!).getByText('$100.00'),
     ).toBeVisible();
-    await expect(within(within(dashboard).getByText('Transfer Tips').parentElement!).getByText('$2.00')).toBeVisible();
+    await expect(within(within(dashboard).getByText('Transfer Tips').parentElement!).getByText('$4.00')).toBeVisible();
     await expect(within(within(dashboard).getByText('Tips Available').parentElement!).getByText('$0.00')).toBeVisible();
-    await expect(within(crosschainNavigation).getByText('$2.00')).toBeVisible();
+    await expect(within(crosschainNavigation).getByText('$4.00')).toBeVisible();
   },
 };
 
@@ -159,6 +161,9 @@ export const PendingAuthorizationOverlay: Story = {
       micronotsOut: 5n * BigInt(MICRONOTS_PER_ARGONOT),
       transferOutCount: 1,
     });
+    mocked(getKnownCrosschainSourceIdentities).mockReturnValue(
+      new Map([[pendingAuthorization.sourceAccount, { name: 'Ada', kind: 'operator', upstreamName: 'Beacon' }]]),
+    );
     Object.assign(myVault, {
       collectBuilder: {
         getNotice: () => pendingAuthorizationNotice,
@@ -174,6 +179,8 @@ export const PendingAuthorizationOverlay: Story = {
     await waitFor(() => expect(overlay.getByText('5 ARGNOT')).toBeVisible());
     await expect(overlay.getByText('Click a transfer for details.')).toBeVisible();
     await expect(overlay.getByText('0.5 ARGNOT tip')).toBeVisible();
+    await expect(overlay.getAllByText('Ada')[0]).toBeVisible();
+    await expect(overlay.getAllByText('(Upstream: Beacon)')[0]).toBeVisible();
 
     overlay.getByText('Authorize ARGNOT to Ethereum').click();
     await expect(overlay.getByText('Lifetime sent to Ethereum')).toBeVisible();
@@ -182,6 +189,7 @@ export const PendingAuthorizationOverlay: Story = {
 };
 
 const recoveredSourceAccount = '5source';
+const upstreamOnlySourceAccount = '5upstream-only-source';
 
 function setupCurrency() {
   const currency = getCurrency();
@@ -210,7 +218,7 @@ function createHistory() {
   return history;
 }
 
-const recoveredAuthorization: ICrosschainHistoryRecord = {
+const recoveredAuthorization = {
   accountId: '5SyntheticVaultingWallet',
   id: '0xblock:2',
   blockNumber: 10,
@@ -231,6 +239,17 @@ const recoveredAuthorization: ICrosschainHistoryRecord = {
     tipValueMicrogons: 2_000_000n,
     microgonCollateral: 0n,
     micronotCollateral: 2_000_000n,
+  },
+} satisfies ICrosschainHistoryRecord;
+
+const upstreamOnlyRecoveredAuthorization: ICrosschainHistoryRecord = {
+  ...recoveredAuthorization,
+  id: '0xblock:3',
+  eventIndex: 3,
+  details: {
+    ...recoveredAuthorization.details,
+    transferId: '0xtransfer-upstream-only',
+    sourceAccount: upstreamOnlySourceAccount,
   },
 };
 

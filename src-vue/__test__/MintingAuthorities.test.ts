@@ -100,6 +100,36 @@ describe('MintingAuthorities', () => {
     );
   });
 
+  it('loads each source operator name with its upstream vault account', async () => {
+    const db = await createTestDb();
+    const walletKeys = createWalletKeysStub();
+    const signer = '0x' + '11'.repeat(20);
+    await trackMintingAuthoritySigner(db, walletKeys, signer, 0);
+    const client = createRefreshClient({
+      signer,
+      sourceAccount: '5AdaSource',
+      loadSourceTotals: async () => [sourceTotalsValue(10n)],
+      sourceOperator: {
+        accountId: '5AdaOperator',
+        name: new TextEncoder().encode('Ada'),
+        upstreamAccountId: '5BeaconOperator',
+        upstreamVaultAccount: '5BeaconVault',
+      },
+    });
+    const mintingAuthorities = new MintingAuthorities(
+      Promise.resolve(db),
+      walletKeys as unknown as WalletKeys,
+      {} as any,
+      { data: { txInfos: [] } } as any,
+    );
+
+    await mintingAuthorities.refresh(client as any);
+
+    expect(mintingAuthorities.data.sourceOperatorDetailsByAccount).toEqual(
+      new Map([['5AdaSource', { name: 'Ada', upstreamVaultAccount: '5BeaconVault' }]]),
+    );
+  });
+
   it('does not let an older source-total read overwrite a newer authority refresh', async () => {
     const db = await createTestDb();
     const walletKeys = createWalletKeysStub();
@@ -1008,6 +1038,12 @@ function createRefreshClient(args: {
   signer: string;
   sourceAccount: string;
   loadSourceTotals: () => Promise<ReturnType<typeof sourceTotalsValue>[]>;
+  sourceOperator?: {
+    accountId: string;
+    name: Uint8Array;
+    upstreamAccountId: string;
+    upstreamVaultAccount: string;
+  };
 }) {
   const transferId = `0x${'01'.repeat(32)}`;
   return {
@@ -1030,7 +1066,22 @@ function createRefreshClient(args: {
       },
       operationalAccounts: {
         operationalAccountBySubAccount: {
-          multi: vi.fn(async (sourceAccounts: string[]) => sourceAccounts.map(() => null)),
+          multi: vi.fn(async (sourceAccounts: string[]) =>
+            sourceAccounts.map(() => args.sourceOperator?.accountId ?? null),
+          ),
+        },
+        operationalAccounts: {
+          multi: vi.fn(async (accountIds: string[]) =>
+            accountIds.map(accountId => {
+              if (accountId === args.sourceOperator?.accountId) {
+                return { name: args.sourceOperator.name, upstreamAccount: args.sourceOperator.upstreamAccountId };
+              }
+              if (accountId === args.sourceOperator?.upstreamAccountId) {
+                return { vaultAccount: args.sourceOperator.upstreamVaultAccount };
+              }
+              return null;
+            }),
+          ),
         },
       },
     },

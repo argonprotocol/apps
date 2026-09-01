@@ -2,10 +2,12 @@ import { stripNetworkPrefix, type Vault } from '@argonprotocol/apps-core';
 import type { CrosschainTransferGlobalIssuanceCouncilByHashResultSpec151 } from '@argonprotocol/runtime-client';
 import type { IConnectedVault } from '../interfaces/IConfig.ts';
 import type { IGlobalCouncilQueueItem } from './GlobalCouncil.ts';
+import type { ICrosschainSourceOperatorDetails } from './MintingAuthorities.ts';
 
 export type ICrosschainSourceIdentity = {
   name: string;
-  kind: 'vault' | 'upstream';
+  kind: 'vault' | 'operator' | 'upstream';
+  upstreamName?: string;
 };
 
 export function getCrosschainAccessState(args: {
@@ -35,7 +37,7 @@ export function createKnownCrosschainSourceIdentities(args: {
   operatorNamesByVaultId: Record<number, string | undefined>;
   localAccountIds: string[];
   upstreamOperator?: IConnectedVault;
-  sourceUpstreamVaultAccountsByAccount?: ReadonlyMap<string, string>;
+  sourceOperatorDetailsByAccount?: ReadonlyMap<string, ICrosschainSourceOperatorDetails>;
 }): Map<string, ICrosschainSourceIdentity> {
   const identities = new Map<string, ICrosschainSourceIdentity>();
   const addIdentity = (
@@ -73,18 +75,28 @@ export function createKnownCrosschainSourceIdentities(args: {
     addIdentity(upstreamVault.operatorAccountId, args.upstreamOperator?.name, 'upstream');
   }
 
-  for (const [sourceAccount, upstreamVaultAccount] of args.sourceUpstreamVaultAccountsByAccount ?? []) {
-    const upstreamIdentity = identities.get(upstreamVaultAccount);
-    if (!identities.has(sourceAccount) && upstreamIdentity) {
-      identities.set(sourceAccount, { name: upstreamIdentity.name, kind: 'upstream' });
+  for (const [sourceAccount, details] of args.sourceOperatorDetailsByAccount ?? []) {
+    const sourceName = stripNetworkPrefix(details.name?.trim() ?? '', args.networkName);
+    const upstreamName = details.upstreamVaultAccount ? identities.get(details.upstreamVaultAccount)?.name : undefined;
+    const identity = identities.get(sourceAccount);
+    const configuredUpstreamName = identity?.kind === 'upstream' ? identity.name : undefined;
+    const sourceUpstreamName = upstreamName ?? configuredUpstreamName;
+    if (sourceName) {
+      identities.set(sourceAccount, {
+        name: sourceName,
+        kind: 'operator',
+        ...(sourceUpstreamName && sourceUpstreamName !== sourceName ? { upstreamName: sourceUpstreamName } : {}),
+      });
+    } else if (identity) {
+      if (upstreamName && !identity.upstreamName && identity.name !== upstreamName) {
+        identities.set(sourceAccount, { ...identity, upstreamName });
+      }
+    } else if (upstreamName) {
+      identities.set(sourceAccount, { name: upstreamName, kind: 'upstream' });
     }
   }
 
   return identities;
-}
-
-export function formatCrosschainSourceIdentity(identity: ICrosschainSourceIdentity) {
-  return identity.kind === 'upstream' ? `Upstream: ${identity.name}` : identity.name;
 }
 
 export function formatCouncilTarget(targetKind: IGlobalCouncilQueueItem['targetKind']) {

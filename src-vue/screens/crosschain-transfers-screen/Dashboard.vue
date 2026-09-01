@@ -127,11 +127,7 @@
               <div class="min-w-0 grow">
                 <div class="flex items-center gap-x-2">
                   <span class="font-semibold text-slate-800">{{ row.title }}</span>
-                  <span
-                    v-if="row.sourceIdentity"
-                    class="max-w-48 truncate rounded bg-slate-200/70 px-2 py-0.5 text-xs font-medium text-slate-600">
-                    {{ formatCrosschainSourceIdentity(row.sourceIdentity) }}
-                  </span>
+                  <CrosschainIdentityLabel v-if="row.sourceIdentity" :identity="row.sourceIdentity" compact />
                 </div>
                 <div class="mt-0.5 flex min-w-0 items-center gap-x-2 text-sm">
                   <span class="text-slate-600">{{ row.status }}</span>
@@ -255,11 +251,7 @@
           <div class="min-w-0 grow">
             <div class="flex items-center gap-x-2">
               <span class="font-semibold text-slate-800">{{ row.title }}</span>
-              <span
-                v-if="row.authorityOwnerIdentity"
-                class="max-w-48 truncate rounded bg-slate-200/70 px-2 py-0.5 text-xs font-medium text-slate-600">
-                {{ formatCrosschainSourceIdentity(row.authorityOwnerIdentity) }}
-              </span>
+              <CrosschainIdentityLabel v-if="row.authorityOwnerIdentity" :identity="row.authorityOwnerIdentity" compact />
             </div>
             <div class="mt-0.5 flex min-w-0 items-center gap-x-2 text-sm">
               <span class="text-slate-600">{{ row.status }}</span>
@@ -390,7 +382,6 @@ import basicEmitter from '../../emitters/basicEmitter.ts';
 import { ExtrinsicType, type ITransactionRecord, TransactionStatus } from '../../interfaces/ITransactionRecord.ts';
 import {
   formatCouncilTarget,
-  formatCrosschainSourceIdentity,
   getCrosschainAccessState,
   type ICrosschainSourceIdentity,
 } from '../../lib/CrosschainTransferView.ts';
@@ -409,6 +400,7 @@ import type { ICrosschainOutboundTransferRecord } from '../../lib/db/CrosschainO
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import Checkbox from '../../components/Checkbox.vue';
 import CrosschainActivityDetails from '../../components/CrosschainActivityDetails.vue';
+import CrosschainIdentityLabel from '../../components/CrosschainIdentityLabel.vue';
 import CrosschainHistoryRows from '../../components/CrosschainHistoryRows.vue';
 import CrosschainTransferDetails from '../../components/CrosschainTransferDetails.vue';
 import ProgressBar from '../../components/ProgressBar.vue';

@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  createKnownCrosschainSourceIdentities,
-  formatCrosschainSourceIdentity,
-  getCrosschainAccessState,
-} from '../lib/CrosschainTransferView.ts';
+import { createKnownCrosschainSourceIdentities, getCrosschainAccessState } from '../lib/CrosschainTransferView.ts';
 
 describe('CrosschainTransferView', () => {
   it('does not activate Crosschain for a registered signer outside the active council', () => {
@@ -84,11 +80,9 @@ describe('CrosschainTransferView', () => {
 
     expect(localIdentity).toEqual({ name: 'Configured Upstream', kind: 'upstream' });
     expect(upstreamIdentity).toEqual({ name: 'On-chain Operator', kind: 'vault' });
-    expect(formatCrosschainSourceIdentity(localIdentity!)).toBe('Upstream: Configured Upstream');
-    expect(formatCrosschainSourceIdentity(upstreamIdentity!)).toBe('On-chain Operator');
   });
 
-  it('labels a remote transfer source with its on-chain upstream operator', () => {
+  it('shows a remote transfer source name with its upstream sponsor', () => {
     const sourceAccount = `0x${'77'.repeat(32)}`;
     const sponsorVaultAccount = `0x${'88'.repeat(32)}`;
     const identities = createKnownCrosschainSourceIdentities({
@@ -97,15 +91,19 @@ describe('CrosschainTransferView', () => {
         3: {
           operatorAccountId: sponsorVaultAccount,
         },
+        4: {
+          operatorAccountId: sourceAccount,
+        },
       },
-      operatorNamesByVaultId: { 3: 'dev-docker-JC' },
+      operatorNamesByVaultId: { 3: 'dev-docker-JC', 4: 'dev-docker-Source vault' },
       localAccountIds: [],
-      sourceUpstreamVaultAccountsByAccount: new Map([[sourceAccount, sponsorVaultAccount]]),
+      sourceOperatorDetailsByAccount: new Map([
+        [sourceAccount, { name: 'Ada', upstreamVaultAccount: sponsorVaultAccount }],
+      ]),
     });
 
     const sourceIdentity = identities.get(sourceAccount);
 
-    expect(sourceIdentity).toEqual({ name: 'JC', kind: 'upstream' });
-    expect(formatCrosschainSourceIdentity(sourceIdentity!)).toBe('Upstream: JC');
+    expect(sourceIdentity).toEqual({ name: 'Ada', kind: 'operator', upstreamName: 'JC' });
   });
 });
