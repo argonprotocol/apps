@@ -3,6 +3,22 @@ import { NetworkConfig } from '@argonprotocol/apps-core';
 import { sb } from 'storybook/test';
 import '../src-vue/main.css';
 
+const storyTime = Date.parse('2026-08-15T12:00:00.000Z');
+const RealDate = Date;
+
+class StorybookDate extends RealDate {
+  constructor(...args: ConstructorParameters<typeof Date>) {
+    const time = args.length ? (Reflect.construct(RealDate, args) as Date).getTime() : storyTime;
+    super(time);
+  }
+
+  static now() {
+    return storyTime;
+  }
+}
+
+globalThis.Date = StorybookDate as DateConstructor;
+
 NetworkConfig.setNetwork('localnet');
 
 sb.mock(import('@tauri-apps/plugin-dialog'));
