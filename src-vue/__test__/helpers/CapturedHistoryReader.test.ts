@@ -22,12 +22,14 @@ describe('CapturedHistoryReader storage capture', () => {
   let databasePath: string;
   let database: DatabaseSync;
   let reader: CapturedHistoryReader;
+  let clientAt: ReturnType<typeof vi.fn>;
   let queryStorageAt: ReturnType<typeof vi.fn>;
   let liveQuery: ReturnType<typeof vi.fn>;
   let liveMulti: ReturnType<typeof vi.fn>;
   let liveKeys: ReturnType<typeof vi.fn>;
   let cachedStorageKey: string;
   let missingStorageKey: string;
+  let storagePrefix: string;
 
   beforeEach(async () => {
     temporaryDirectory = await mkdtemp(Path.join(tmpdir(), 'captured-history-reader-'));
@@ -80,6 +82,7 @@ describe('CapturedHistoryReader storage capture', () => {
     const blockHashStorage = storage.system.blockHash;
     cachedStorageKey = u8aToHex(compactStripLength(blockHashStorage(1))[1]);
     missingStorageKey = u8aToHex(compactStripLength(blockHashStorage(2))[1]);
+    storagePrefix = u8aToHex(blockHashStorage.keyPrefix());
     liveQuery = vi.fn(async (blockNumber: number) => {
       const value = blockNumber === 1 ? `0x${'aa'.repeat(32)}` : liveHash;
       return registry.createType('H256', value);
@@ -103,11 +106,12 @@ describe('CapturedHistoryReader storage capture', () => {
         return registry.createType('Bytes', value);
       });
     });
+    clientAt = vi.fn(async () => ({
+      query: { system: { blockHash: liveStorageEntry } },
+      runtimeVersion: { specVersion: registry.createType('u32', 1) },
+    }));
     const client = {
-      at: vi.fn(async () => ({
-        query: { system: { blockHash: liveStorageEntry } },
-        runtimeVersion: { specVersion: registry.createType('u32', 1) },
-      })),
+      at: clientAt,
       rpc: {
         chain: { getHeader: vi.fn() },
         state: { queryStorageAt },
@@ -145,6 +149,15 @@ describe('CapturedHistoryReader storage capture', () => {
 
     expect(captured).toBe(liveHash);
     expect(queryStorageAt).toHaveBeenCalledOnce();
+    expect(clientAt).not.toHaveBeenCalled();
+  });
+
+  it('builds storage keys from captured runtime metadata', async () => {
+    const api = await reader.getApi({ blockNumber: 1, blockHash });
+
+    expect(api.query.system.blockHash.key(1)).toBe(cachedStorageKey);
+    expect(api.query.system.blockHash.keyPrefix()).toBe(storagePrefix);
+    expect(clientAt).not.toHaveBeenCalled();
   });
 
   it('records and reuses a completed empty storage-key enumeration', async () => {
@@ -155,6 +168,7 @@ describe('CapturedHistoryReader storage capture', () => {
 
     expect(firstKeys).toEqual([]);
     expect(secondKeys).toEqual([]);
+    expect(clientAt).toHaveBeenCalledOnce();
     expect(liveKeys).toHaveBeenCalledOnce();
     expect(queryStorageAt).not.toHaveBeenCalled();
   });

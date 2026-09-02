@@ -10,7 +10,7 @@ import {
   type RuntimeSystemEventRecord,
 } from '@argonprotocol/apps-core';
 import { TypeRegistry } from '@polkadot/types/create';
-import type { QueryableModuleStorage, QueryableStorageEntry } from '@polkadot/api-base/types/storage';
+import type { QueryableModuleStorage } from '@polkadot/api-base/types/storage';
 import { decorateStorage } from '@polkadot/types/metadata/decorate/storage';
 import { Metadata } from '@polkadot/types/metadata';
 import { StorageKey } from '@polkadot/types/primitive';
@@ -18,7 +18,7 @@ import { unwrapStorageSi } from '@polkadot/types/util';
 import type { StorageEntry } from '@polkadot/types/primitive/types';
 import type { Vec } from '@polkadot/types-codec';
 import { compactStripLength, hexToU8a, u8aToHex } from '@polkadot/util';
-import { runtimeClient, toPlain, type RuntimeQueries } from '@argonprotocol/runtime-client';
+import { runtimeClient, toPlain } from '@argonprotocol/runtime-client';
 import { toHistoricalEvent } from '@argonprotocol/runtime-client/events';
 
 type IIndexedActivityBlock = IIndexerSpec['/v2/activity/:address']['responseType']['blocks'][number];
@@ -132,20 +132,9 @@ export class CapturedHistoryReader {
 
     const latestBlockNumber = this.latestBlockNumber;
     const latestBlock = await this.getHeader(latestBlockNumber);
-    let activeBondKeys: StorageKey[];
-    if (this.recordingClient) {
-      const api = await this.getRecordingApi(latestBlock);
-      const treasury = api.query.treasury as unknown as QueryableModuleStorage<'promise'>;
-      activeBondKeys = await treasury.bondLotIdsByAccount.keys();
-    } else {
-      const runtime = this.getRuntime(latestBlockNumber);
-      activeBondKeys = this.readStorageKeys(
-        latestBlockNumber,
-        runtime,
-        runtime.storage.treasury.bondLotIdsByAccount,
-        [],
-      );
-    }
+    const api = await this.getApi(latestBlock);
+    const treasury = api.query.treasury as unknown as QueryableModuleStorage<'promise'>;
+    const activeBondKeys = await treasury.bondLotIdsByAccount.keys();
     for (const key of activeBondKeys) accountIds.add(key.args[0].toString());
 
     return [...accountIds].sort();
@@ -249,7 +238,7 @@ export class CapturedHistoryReader {
   }
 
   public async getApi(block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>): Promise<ArgonApi> {
-    if (this.recordingClient) return this.getRecordingApi(block);
+    if (this.recordingClient) await this.recordHeader(block);
 
     const runtime = this.getRuntime(block.blockNumber);
     const query: Record<string, Record<string, unknown>> = {};
@@ -260,12 +249,59 @@ export class CapturedHistoryReader {
         const entry = runtime.storage[section][method];
         query[section][method] = Object.assign(
           async (...args: unknown[]) => {
+            if (this.recordingClient) {
+              const storageKey = u8aToHex(compactStripLength(entry(...args))[1]);
+              await this.recordStorage(block, [storageKey]);
+            }
             const value = this.readStorage(block.blockNumber, block.blockHash, runtime, entry, args, true);
             return value!;
           },
           {
-            keys: async (...args: unknown[]) => this.readStorageKeys(block.blockNumber, runtime, entry, args),
+            key: (...args: unknown[]) => u8aToHex(compactStripLength(entry(...args))[1]),
+            keyPrefix: (...args: unknown[]) => u8aToHex(entry.keyPrefix(...args)),
+            keys: async (...args: unknown[]) => {
+              if (this.recordingClient) {
+                const storagePrefix = entry.keyPrefix(...args);
+                const recorded = this.database
+                  .prepare(
+                    `SELECT 1 FROM RecoveryStorageKeyEnumerations
+                     WHERE blockNumber = ? AND storagePrefix = ?`,
+                  )
+                  .get(block.blockNumber, storagePrefix);
+                if (!recorded) {
+                  const api = await this.recordingClient.at(block.blockHash);
+                  if (api.runtimeVersion.specVersion.toNumber() !== runtime.specVersion) {
+                    throw new Error(
+                      `Archive runtime at block ${block.blockNumber} does not match spec ${runtime.specVersion}`,
+                    );
+                  }
+                  const storageEntry = api.query[section]?.[method];
+                  if (!storageEntry) {
+                    throw new Error(`Archive does not contain ${section}.${method} at block ${block.blockNumber}`);
+                  }
+                  const keys = await storageEntry.keys(...args);
+                  await this.recordStorage(
+                    block,
+                    keys.map(key => key.toHex()),
+                  );
+                  this.database
+                    .prepare(
+                      `INSERT OR IGNORE INTO RecoveryStorageKeyEnumerations (blockNumber, storagePrefix)
+                       VALUES (?, ?)`,
+                    )
+                    .run(block.blockNumber, storagePrefix);
+                }
+              }
+              return this.readStorageKeys(block.blockNumber, runtime, entry, args);
+            },
             multi: async (argsList: unknown[]) => {
+              if (this.recordingClient) {
+                const storageKeys = argsList.map(args => {
+                  const entryArgs = Array.isArray(args) ? args : [args];
+                  return u8aToHex(compactStripLength(entry(...entryArgs))[1]);
+                });
+                await this.recordStorage(block, storageKeys);
+              }
               return argsList.map(args => {
                 const entryArgs = Array.isArray(args) ? args : [args];
                 return this.readStorage(block.blockNumber, block.blockHash, runtime, entry, entryArgs, true)!;
@@ -320,93 +356,6 @@ export class CapturedHistoryReader {
       };
     });
     return { events, specVersion: record.specVersion };
-  }
-
-  private async getRecordingApi(block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>) {
-    const client = this.recordingClient!;
-    await this.recordHeader(block);
-    const api = await client.at(block.blockHash);
-    const runtime = this.getRuntime(block.blockNumber);
-    if (api.runtimeVersion.specVersion.toNumber() !== runtime.specVersion) {
-      throw new Error(`Archive runtime at block ${block.blockNumber} does not match spec ${runtime.specVersion}`);
-    }
-
-    const query = new Proxy(api.query, {
-      get: (sections, section) => {
-        const entries = Reflect.get(sections, section) as QueryableModuleStorage<'promise'> | undefined;
-        if (!entries || typeof section !== 'string') return entries;
-
-        return new Proxy(entries, {
-          get: (storageEntries, method) => {
-            const entry = Reflect.get(storageEntries, method) as QueryableStorageEntry<'promise'> | undefined;
-            if (!entry || typeof method !== 'string') return entry;
-            const storageDefinition = runtime.storage[section][method];
-
-            return new Proxy(entry, {
-              apply: async (storageEntry, _thisArg, args: unknown[]) => {
-                await this.recordStorage(block, [storageEntry.key(...args)]);
-                return this.readStorage(block.blockNumber, block.blockHash, runtime, storageDefinition, args, true)!;
-              },
-              get: (storageEntry, property) => {
-                if (property === 'keys') {
-                  return async (...args: unknown[]) => {
-                    const storagePrefix = storageDefinition.keyPrefix(...args);
-                    const recorded = this.database
-                      .prepare(
-                        `SELECT 1 FROM RecoveryStorageKeyEnumerations
-                         WHERE blockNumber = ? AND storagePrefix = ?`,
-                      )
-                      .get(block.blockNumber, storagePrefix);
-                    if (!recorded) {
-                      const keys = await storageEntry.keys(...args);
-                      await this.recordStorage(
-                        block,
-                        keys.map(key => key.toHex()),
-                      );
-                      this.database
-                        .prepare(
-                          `INSERT OR IGNORE INTO RecoveryStorageKeyEnumerations (blockNumber, storagePrefix)
-                           VALUES (?, ?)`,
-                        )
-                        .run(block.blockNumber, storagePrefix);
-                    }
-                    return this.readStorageKeys(block.blockNumber, runtime, storageDefinition, args);
-                  };
-                }
-                if (property === 'multi') {
-                  return async (argsList: unknown[]) => {
-                    const keys = argsList.map(args => storageEntry.key(...(Array.isArray(args) ? args : [args])));
-                    await this.recordStorage(block, keys);
-                    return argsList.map(args => {
-                      const entryArgs = Array.isArray(args) ? args : [args];
-                      return this.readStorage(
-                        block.blockNumber,
-                        block.blockHash,
-                        runtime,
-                        storageDefinition,
-                        entryArgs,
-                        true,
-                      )!;
-                    });
-                  };
-                }
-                const propertyValue: unknown = Reflect.get(storageEntry, property);
-                return propertyValue;
-              },
-            });
-          },
-        });
-      },
-    });
-
-    const recordingApi = new Proxy(api, {
-      get: (liveApi, property, receiver) => {
-        if (property === 'query') return query;
-        const propertyValue: unknown = Reflect.get(liveApi, property, receiver);
-        return propertyValue;
-      },
-    });
-    return runtimeClient<typeof recordingApi, RuntimeQueries>(recordingApi);
   }
 
   private async recordHeader(block: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>): Promise<IBlockHeaderInfo> {
