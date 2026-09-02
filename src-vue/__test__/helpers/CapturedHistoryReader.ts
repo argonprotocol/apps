@@ -257,6 +257,8 @@ export class CapturedHistoryReader {
             return value!;
           },
           {
+            key: (...args: unknown[]) => u8aToHex(compactStripLength(entry(...args))[1]),
+            keyPrefix: (...args: unknown[]) => u8aToHex(entry.keyPrefix(...args)),
             keys: async (...args: unknown[]) => {
               if (this.recordingClient) {
                 const storagePrefix = entry.keyPrefix(...args);
