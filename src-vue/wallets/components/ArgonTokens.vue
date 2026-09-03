@@ -74,8 +74,8 @@
       :class="[props.indentLeft ? 'pl-10' : '', props.indentRight ? 'pr-10' : '']"
     >
       <BitcoinIcon class="h-6 w-6" />
-      <div class="grow">{{ micronotToArgonotNm(props.micronots).format('0,0.[00]') }} BTC</div>
-      <div>{{ currency.symbol }}{{ micronotToMoneyNm(props.micronots).format('0,0.00') }}</div>
+      <div class="grow">{{ satToBtcNm(props.satoshis).format('0,0.[00000000]') }} BTC</div>
+      <div>{{ currency.symbol }}{{ satToMoneyNm(props.satoshis).format('0,0.00') }}</div>
     </li>
     <li v-if="props.microgonsToMint" class="relative flex flex-row gap-x-2 border-b border-slate-400/50 py-2">
       <ArgonIcon class="h-6 w-6" />
@@ -98,13 +98,15 @@ import MoveArrowButton from './MoveArrowButton.vue';
 
 const currency = getCurrency();
 
-const { microgonToMoneyNm, microgonToArgonNm, micronotToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm, microgonToArgonNm, micronotToMoneyNm, micronotToArgonotNm, satToBtcNm, satToMoneyNm } =
+  createNumeralHelpers(currency);
 
 const props = withDefaults(
   defineProps<{
     microgonsToMint?: bigint;
     microgons?: bigint;
     micronots?: bigint;
+    satoshis?: bigint;
     moveMicrogons?: bigint;
     moveMicronots?: bigint;
     movePlacement?: 'left' | 'right';
@@ -122,6 +124,7 @@ const props = withDefaults(
     microgonsToMint: () => 0n,
     microgons: () => 0n,
     micronots: () => 0n,
+    satoshis: () => 0n,
     networkName: '',
     feeTokenSymbol: '',
     movePlacement: 'right',

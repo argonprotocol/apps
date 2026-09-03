@@ -23,6 +23,7 @@
         :style="[floatingZIndex, { minWidth: menuWidth, maxHeight: 'var(--reka-select-content-available-height)' }]"
         :avoidCollisions="true"
         :bodyLock="true"
+        :disableOutsidePointerEvents="false"
         :collisionPadding="10"
         :sideOffset="-3"
         :sticky="'always'"

@@ -24,7 +24,6 @@ import * as Vue from 'vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import SecuritySettingsOverview from './security-settings/Overview.vue';
 import SecuritySettingsEncrypt from './security-settings/Encrypt.vue';
-import SecuritySettingsExportEthereumPrivateKey from './security-settings/ExportEthereumPrivateKey.vue';
 import SecuritySettingsMnemonics from './security-settings/Mnemonics.vue';
 import OverlayBase from './OverlayBase.vue';
 import { useBasics } from '../stores/basics.ts';

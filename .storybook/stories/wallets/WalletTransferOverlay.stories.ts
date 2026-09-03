@@ -112,7 +112,7 @@ const stories = {
     play: async () => {
       const canvas = await getInboundCanvas();
 
-      await userEvent.click(canvas.getByTestId('input-menu-trigger'));
+      await userEvent.click(canvas.getByTestId('ConnectorTransfer.token'));
       await expect(canvas.getByTestId('ARGN')).not.toHaveClass('opacity-50');
       await expect(canvas.getByTestId('ARGNOT')).toHaveClass('opacity-50');
       await expect(canvas.getByTestId('ARGNOT')).toHaveAttribute('data-disabled');
@@ -126,15 +126,15 @@ const stories = {
 
       await expect(canvas.getByTestId('WalletViewSend.destination')).toHaveTextContent('Ethereum Treasury');
       await waitFor(() => expect(getConnectorArticle(41)).not.toHaveClass('opacity-20'));
-      await waitFor(() => expect(getConnectorArticle(42)).toHaveClass('opacity-20'));
-      await waitFor(() => expect(getConnectorArticle('bitcoin')).toHaveClass('opacity-20'));
+      await waitFor(() => expect(getConnectorArticle(42)).not.toHaveClass('opacity-20'));
+      await waitFor(() => expect(getConnectorArticle('bitcoin')).not.toHaveClass('opacity-20'));
       await waitFor(() => expect(canvas.getByRole('button', { name: /Initiate Transfer/ })).toBeEnabled());
 
       const destination = within(canvas.getByTestId('WalletViewSend.destination'));
-      await userEvent.click(destination.getByTestId('input-menu-trigger'));
+      await userEvent.click(destination.getByTestId('WalletViewSend.destinationMenu'));
       await expect(canvas.queryByTestId('Bitcoin Network Address')).not.toBeInTheDocument();
       await userEvent.click(canvas.getByTestId('Ethereum Savings'));
-      await waitFor(() => expect(getConnectorArticle(41)).toHaveClass('opacity-20'));
+      await waitFor(() => expect(getConnectorArticle(41)).not.toHaveClass('opacity-20'));
       await waitFor(() => expect(getConnectorArticle(42)).not.toHaveClass('opacity-20'));
     },
   },
@@ -163,7 +163,7 @@ const stories = {
     play: async () => {
       const canvas = await getOutboundCanvas();
 
-      await expectEventuallyVisible(canvas.findByText(/Please try again with a higher gas price/));
+      await expectEventuallyVisible(canvas.findByText(/does not have enough ETH/));
       await expect(canvas.getByRole('button', { name: /Initiate Transfer/ })).toBeDisabled();
     },
   },
@@ -329,11 +329,11 @@ export const ArgonAddress: Story = {
     const canvas = await getOutboundCanvas();
     const destination = within(canvas.getByTestId('WalletViewSend.destination'));
 
-    await userEvent.click(destination.getByTestId('input-menu-trigger'));
-    await userEvent.click(canvas.getByTestId('Argon Network Address'));
+    await userEvent.click(destination.getByTestId('WalletViewSend.destinationMenu'));
+    await userEvent.click(canvas.getByTestId('Another Argon Wallet'));
     await expect(canvas.findByPlaceholderText('Enter Argon network address')).resolves.toBeVisible();
-    await waitFor(() => expect(getConnectorArticle(41)).toHaveClass('opacity-20'));
-    await waitFor(() => expect(getConnectorArticle(42)).toHaveClass('opacity-20'));
+    await waitFor(() => expect(getConnectorArticle(41)).not.toHaveClass('opacity-20'));
+    await waitFor(() => expect(getConnectorArticle(42)).not.toHaveClass('opacity-20'));
     await expect(canvas.queryByRole('button', { name: /Initiate Transfer/ })).not.toBeInTheDocument();
   },
 };
@@ -343,19 +343,19 @@ export const BitcoinAddress: Story = {
   play: async () => {
     const canvas = await getOutboundCanvas();
 
-    await userEvent.click(canvas.getAllByTestId('input-menu-trigger')[0]);
+    await userEvent.click(canvas.getByTestId('WalletViewSend.token'));
     await userEvent.click(canvas.getByTestId('BTC'));
 
     const destination = within(canvas.getByTestId('WalletViewSend.destination'));
     await expect(destination.findByText('Bitcoin Network Address')).resolves.toBeVisible();
     await expect(canvas.findByPlaceholderText('Enter Bitcoin network address')).resolves.toBeVisible();
-    await userEvent.click(destination.getByTestId('input-menu-trigger'));
+    await userEvent.click(destination.getByTestId('WalletViewSend.destinationMenu'));
     await expect(canvas.getByTestId('Bitcoin Network Address')).toBeVisible();
     await expect(canvas.queryByTestId('Ethereum Treasury')).not.toBeInTheDocument();
-    await expect(canvas.queryByTestId('Argon Network Address')).not.toBeInTheDocument();
+    await expect(canvas.queryByTestId('Another Argon Wallet')).not.toBeInTheDocument();
     await waitFor(() => expect(getConnectorArticle('bitcoin')).not.toHaveClass('opacity-20'));
-    await waitFor(() => expect(getConnectorArticle(41)).toHaveClass('opacity-20'));
-    await waitFor(() => expect(getConnectorArticle(42)).toHaveClass('opacity-20'));
+    await waitFor(() => expect(getConnectorArticle(41)).not.toHaveClass('opacity-20'));
+    await waitFor(() => expect(getConnectorArticle(42)).not.toHaveClass('opacity-20'));
     await expect(canvas.queryByRole('button', { name: /Initiate Transfer/ })).not.toBeInTheDocument();
   },
 };

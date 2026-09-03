@@ -1,15 +1,17 @@
 // Source: @argonprotocol/mainchain 1.4.12, the last release that exported this model.
-import { formatArgons, PriceIndex } from '@argonprotocol/mainchain';
-import type { SubmittableExtrinsic } from '@polkadot/api/promise/types';
-import { TxSubmitter, type TxSigningAccount } from './TxSubmitter.js';
-import { TxResult, type RuntimeEvent } from './TxResult.js';
+import { PriceIndex } from '@argonprotocol/mainchain';
+import type {
+  BitcoinLocksLocksByUtxoIdResultSpec159Variant12,
+  BitcoinUtxosBitcoinNetworkResultSpec100,
+  HistoricalQueryRecord,
+} from '@argonprotocol/runtime-client';
 import { hexToU8a, u8aToHex } from '@polkadot/util';
-import type { Vault } from './Vault.js';
 import BigNumber from 'bignumber.js';
 import type { BitcoinLockFeeCoupon } from './interfaces/IBitcoinLockCoupon.js';
-import type { ArgonApi, ArgonClient, ArgonQueryClient } from './MainchainClients.js';
-import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
-import type { PreviousRuntimeSpec } from './runtimeCompatibility.js';
+import type { ArgonClient, ArgonQueryClient } from './MainchainClients.js';
+import { TxResult, type RuntimeEvent } from './TxResult.js';
+import { TxSubmitter, type TxSigningAccount } from './TxSubmitter.js';
+import type { Vault } from './Vault.js';
 
 export const SATS_PER_BTC = 100_000_000n;
 
@@ -30,14 +32,17 @@ export class BitcoinLock implements IBitcoinLock {
   public utxoId: number;
   public p2wshScriptHashHex: string;
   public vaultId: number;
-  public lockedTargetPrice: bigint;
-  public liquidityPromised: bigint;
+  public securitizedSatoshis: bigint;
+  public microgonsAtTargetPerBtc: bigint;
+  public securitizationCoverageMicrogons: bigint;
+  public securitizationTick: number;
+  public fundedSatoshis: bigint;
+  public fissionedSatoshis: bigint;
   public ownerAccount: string;
   public securitizationRatio: number;
-  public satoshis: bigint;
-  public utxoSatoshis?: bigint;
-  public vaultPubkey: string;
   public securityFees: bigint;
+  public couponFeesPaid: bigint;
+  public vaultPubkey: string;
   public vaultClaimPubkey: string;
   public ownerPubkey: string;
   public vaultXpubSources: {
@@ -48,396 +53,218 @@ export class BitcoinLock implements IBitcoinLock {
   public vaultClaimHeight: number;
   public openClaimHeight: number;
   public createdAtHeight: number;
-  public isFunded: boolean;
+  public fundingExpirationHeight: number;
   public isFlexible: boolean;
-  public createdAtArgonBlock: number;
   public fundHoldExtensionsByBitcoinExpirationHeight: Record<number, bigint>;
-  public couponFeesPaid: bigint;
+  public createdAtArgonBlock: number;
 
   constructor(data: IBitcoinLock) {
     this.utxoId = data.utxoId;
     this.p2wshScriptHashHex = data.p2wshScriptHashHex;
     this.vaultId = data.vaultId;
-    this.lockedTargetPrice = data.lockedTargetPrice;
-    this.liquidityPromised = data.liquidityPromised;
+    this.securitizedSatoshis = data.securitizedSatoshis;
+    this.microgonsAtTargetPerBtc = data.microgonsAtTargetPerBtc;
+    this.securitizationCoverageMicrogons = data.securitizationCoverageMicrogons;
+    this.securitizationTick = data.securitizationTick;
+    this.fundedSatoshis = data.fundedSatoshis;
+    this.fissionedSatoshis = data.fissionedSatoshis;
     this.ownerAccount = data.ownerAccount;
     this.securitizationRatio = data.securitizationRatio;
-    this.satoshis = data.satoshis;
-    this.utxoSatoshis = data.utxoSatoshis;
-    this.vaultPubkey = data.vaultPubkey;
     this.securityFees = data.securityFees;
+    this.couponFeesPaid = data.couponFeesPaid;
+    this.vaultPubkey = data.vaultPubkey;
     this.vaultClaimPubkey = data.vaultClaimPubkey;
     this.ownerPubkey = data.ownerPubkey;
     this.vaultXpubSources = data.vaultXpubSources;
     this.vaultClaimHeight = data.vaultClaimHeight;
     this.openClaimHeight = data.openClaimHeight;
     this.createdAtHeight = data.createdAtHeight;
-    this.isFunded = data.isFunded;
-    this.isFlexible = data.isFlexible ?? false;
+    this.fundingExpirationHeight = data.fundingExpirationHeight;
+    this.isFlexible = data.isFlexible;
     this.fundHoldExtensionsByBitcoinExpirationHeight = data.fundHoldExtensionsByBitcoinExpirationHeight;
     this.createdAtArgonBlock = data.createdAtArgonBlock;
-    this.couponFeesPaid = data.couponFeesPaid ?? 0n;
   }
 
-  /**
-   * Gets the UTXO reference by ID.
-   * @param client - client at the block height to query the UTXO reference at a specific point in time.
-   * @return An object containing the transaction ID and output index, or undefined if not found.
-   * @return.txid - The Bitcoin transaction ID of the UTXO.
-   * @return.vout - The output index of the UTXO in the transaction.
-   */
-  public async getFundingUtxoRef(client: IQueryableClient): Promise<{ txid: string; vout: number } | undefined> {
-    const fundingRef = client.query.bitcoinUtxos.utxoIdToFundingUtxoRef(this.utxoId);
-    const legacyRef =
-      fundingRef === null ? (client as ArgonApi).query.bitcoinUtxos.utxoIdToRef(this.utxoId) : undefined;
-    if (fundingRef === null && legacyRef === null) {
-      throw new Error('Runtime has no Bitcoin funding UTXO reference storage');
+  public get isFunded(): boolean {
+    return this.fundedSatoshis > 0n;
+  }
+
+  public static async get(client: IQueryableClient, utxoId: number): Promise<BitcoinLock | undefined> {
+    const lock = await client.query.bitcoinLocks.locksByUtxoId(utxoId);
+    if (!lock) return;
+    if (!isCurrentBitcoinLock(lock)) {
+      throw new Error(`Bitcoin lock ${utxoId} is not in the current runtime shape`);
     }
 
-    const ref = await (fundingRef ?? legacyRef);
+    return BitcoinLock.fromRuntime(utxoId, lock);
+  }
+
+  public static async getMany(client: IQueryableClient, utxoIds: number[]): Promise<(BitcoinLock | undefined)[]> {
+    const locks = await client.query.bitcoinLocks.locksByUtxoId.multi(utxoIds);
+    return (locks ?? []).map((lock, index) => {
+      if (!lock) return;
+      if (!isCurrentBitcoinLock(lock)) {
+        throw new Error(`Bitcoin lock ${utxoIds[index]} is not in the current runtime shape`);
+      }
+      return BitcoinLock.fromRuntime(utxoIds[index], lock);
+    });
+  }
+
+  public static async idsByOwner(client: IQueryableClient, ownerAccount: string): Promise<number[]> {
+    const keys = await client.query.bitcoinLocks.utxoIdsByOwnerAccount.keys(ownerAccount);
+    return [...new Set((keys ?? []).map(key => key.args[1]))];
+  }
+
+  public static async getFundingUtxoRef(
+    client: IQueryableClient,
+    utxoId: number,
+  ): Promise<{ txid: string; vout: number } | undefined> {
+    const ref = await client.query.bitcoinLocks.utxoIdToFundingUtxoRef(BigInt(utxoId));
     if (!ref) return;
 
-    const txid = ref.txid;
-    const vout = ref.outputIndex;
-    return { txid, vout };
-  }
-
-  public async findPendingMints(client: IQueryableClient): Promise<bigint[]> {
-    const pendingMintLookup = client.query.mint.pendingMintUtxoIdLookup(this.utxoId);
-    if (pendingMintLookup === null) {
-      const legacyPendingMints = (client as ArgonApi).query.mint.pendingMintUtxos();
-      if (legacyPendingMints === null) throw new Error('Runtime has no Bitcoin pending mint storage');
-
-      const mintsPending: bigint[] = [];
-      for (const [utxoId, accountId, remainingAmount] of await legacyPendingMints) {
-        if (Number(utxoId) !== this.utxoId) continue;
-        if (accountId !== this.ownerAccount) {
-          throw new Error(`Bitcoin lock ${this.utxoId} pending mint belongs to another account`);
-        }
-        mintsPending.push(remainingAmount);
-      }
-      return mintsPending;
-    }
-
-    const mintsPending: bigint[] = [];
-    const pendingMintIndices = await pendingMintLookup;
-    for (const pendingMintIndex of pendingMintIndices) {
-      const indexedPendingMint = client.query.mint.pendingMintUtxosByIndex(pendingMintIndex);
-      if (indexedPendingMint === null) throw new Error('Runtime has no indexed Bitcoin pending mint storage');
-
-      const pendingMint = await indexedPendingMint;
-      if (pendingMint) mintsPending.push(pendingMint.remainingAmount);
-    }
-    return mintsPending;
-  }
-
-  public async calculateRatchetingCosts(
-    client: IQueryableClient,
-    priceIndex: PriceIndex,
-    vault: Vault,
-    microgonsAtTargetPerBtc: bigint,
-  ): Promise<{ burnAmount: bigint; ratchetingFee: bigint }> {
-    const { createdAtHeight, vaultClaimHeight, lockedTargetPrice, satoshis } = this;
-    const currentTargetPrice = (microgonsAtTargetPerBtc * satoshis) / SATS_PER_BTC;
-
-    let ratchetingFee = vault.terms.bitcoinBaseFee;
-    let burnAmount = 0n;
-
-    // ratchet up
-    if (currentTargetPrice > lockedTargetPrice) {
-      const diffTargetAmount = currentTargetPrice - lockedTargetPrice;
-      const amountToMint = BitcoinLock.calculateRedemptionAmount(priceIndex, diffTargetAmount);
-      const bitcoinFee = vault.calculateBitcoinFee(amountToMint);
-      const percentageFee = bitcoinFee - vault.terms.bitcoinBaseFee;
-
-      const currentBitcoinHeight = await client.query.bitcoinUtxos
-        .confirmedBitcoinBlockTip()
-        .then(tip => tip?.blockHeight ?? 0);
-      const fullTerm = Math.max(1, vaultClaimHeight - createdAtHeight);
-      const elapsedBlocks = Math.max(0, currentBitcoinHeight - createdAtHeight);
-      const cappedRemainingBlocks = Math.max(0, fullTerm - elapsedBlocks);
-      const proratedFee = (percentageFee * BigInt(cappedRemainingBlocks)) / BigInt(fullTerm);
-      ratchetingFee = vault.terms.bitcoinBaseFee + proratedFee;
-    } else {
-      burnAmount = BitcoinLock.calculateRedemptionAmount(priceIndex, currentTargetPrice);
-    }
-
     return {
-      ratchetingFee,
-      burnAmount,
+      txid: ref.txid,
+      vout: ref.outputIndex,
     };
   }
 
-  public calculateRedemptionAmount(priceIndex: PriceIndex): bigint {
-    return BitcoinLock.calculateRedemptionAmountFromSatoshis(priceIndex, this.satoshis, this.lockedTargetPrice);
-  }
-
-  public async requestRelease(args: {
-    client: ArgonClient;
-    priceIndex: PriceIndex;
-    releaseRequest: IReleaseRequest;
-    txSigner: TxSigningAccount;
-    disableAutomaticTxTracking: boolean;
-  }): Promise<TxResult> {
-    const {
-      priceIndex,
-      releaseRequest: { bitcoinNetworkFee, toScriptPubkey },
-      txSigner,
-      disableAutomaticTxTracking,
-      client,
-    } = args;
-
-    if (!toScriptPubkey.startsWith('0x')) {
-      throw new Error('toScriptPubkey must be a hex string starting with 0x');
-    }
-
-    const submitter = new TxSubmitter(
-      client,
-      client.tx.bitcoinLocks.requestRelease(this.utxoId, toScriptPubkey, bitcoinNetworkFee),
-      txSigner,
-    );
-
-    const redemptionAmount = this.calculateRedemptionAmount(priceIndex);
-
-    const canAfford = await submitter.canAfford({
-      unavailableBalance: redemptionAmount,
-    });
-
-    if (!canAfford.canAfford) {
-      throw new Error(
-        `Insufficient funds to release lock. Available: ${formatArgons(canAfford.availableBalance)}, Required: ${formatArgons(redemptionAmount + canAfford.txFee)}`,
-      );
-    }
-    return submitter.submit({
-      logResults: true,
-      disableAutomaticTxTracking,
-    });
-  }
-
-  public async getReleaseRequest(client: IQueryableClient): Promise<IReleaseRequestDetails | undefined> {
-    const request: HistoricalQueryRecord<'bitcoinLocks', 'lockReleaseRequestsByUtxoId'> =
-      await client.query.bitcoinLocks.lockReleaseRequestsByUtxoId(this.utxoId);
+  public static async getReleaseRequest(
+    client: IQueryableClient,
+    utxoId: number,
+  ): Promise<IReleaseRequestDetails | undefined> {
+    const request = await client.query.bitcoinLocks.lockReleaseRequestsByUtxoId(utxoId);
     if (!request) return;
-
-    const redemptionAmount = request.redemptionAmount ?? request.redemptionPrice;
-    if (redemptionAmount === undefined) return;
+    if (!('securitizationAtRisk' in request) || request.securitizationAtRisk === undefined) {
+      throw new Error(`Bitcoin lock ${utxoId} release request is not in the current runtime shape`);
+    }
 
     return {
       toScriptPubkey: u8aToHex(request.toScriptPubkey),
       bitcoinNetworkFee: request.bitcoinNetworkFee,
-      redemptionAmount,
+      redemptionAmount: request.securitizationAtRisk,
     };
   }
 
-  /**
-   * Finds the finalized cosign signature for a vault lock by UTXO ID.
-   * @param client - The Argon client with rpc access
-   */
-  public async findVaultCosignSignature(
+  public static async findVaultCosignSignature(
     client: ArgonClient,
+    utxoId: number,
   ): Promise<{ blockHeight: number; signature: Uint8Array } | undefined> {
     const finalizedHead = await client.rpc.chain.getFinalizedHead();
-    const queryClient = await client.at(finalizedHead);
-    const releaseHeight = await queryClient.query.bitcoinLocks.lockReleaseCosignHeightById(this.utxoId);
-    if (releaseHeight !== null) {
-      const releaseHeightValue = releaseHeight;
-      const signature = await this.getVaultCosignSignature(client, releaseHeightValue);
-      if (signature) {
-        return { blockHeight: releaseHeightValue, signature };
-      }
-    }
-    return undefined;
-  }
+    const finalizedClient = await client.at(finalizedHead);
+    const releaseHeight = await finalizedClient.query.bitcoinLocks.lockReleaseCosignHeightById(utxoId);
+    if (releaseHeight === null) return;
 
-  private async getVaultCosignSignature(client: ArgonClient, atHeight: number): Promise<Uint8Array | undefined> {
-    const blockHash = await client.rpc.chain.getBlockHash(atHeight);
+    const blockHeight = releaseHeight;
+    const blockHash = await client.rpc.chain.getBlockHash(blockHeight);
     const blockEvents = await client.at(blockHash).then(api => api.query.system.events());
     for (const { event } of blockEvents) {
       if (event.section !== 'bitcoinLocks' || event.method !== 'BitcoinUtxoCosigned') continue;
-      if (event.data.utxoId === this.utxoId) return event.data.signature;
+      if (event.data.utxoId !== utxoId) continue;
+
+      return {
+        blockHeight,
+        signature: event.data.signature,
+      };
     }
-    return undefined;
   }
 
-  private static async getUtxoIdFromEvents(events: RuntimeEvent[]) {
-    for (const event of events) {
-      if (event.section === 'bitcoinLocks' && event.method === 'BitcoinLockCreated') return event.data.utxoId;
-    }
-    return undefined;
+  public static createReleaseTx(args: {
+    client: ArgonClient;
+    utxoId: number;
+    toScriptPubkey: string;
+    bitcoinNetworkFee: bigint;
+  }) {
+    const { client, utxoId, toScriptPubkey, bitcoinNetworkFee } = args;
+    assertHexScriptPubkey(toScriptPubkey);
+    return client.tx.bitcoinLocks.requestRelease(utxoId, toScriptPubkey, bitcoinNetworkFee);
   }
 
-  public static calculateRedemptionAmountFromSatoshis(
-    priceIndex: PriceIndex,
-    satoshis: bigint,
-    lockedTargetPrice?: bigint,
-  ): bigint {
-    const btcMicrogonsAtTarget = priceIndex.getSatoshiPriceInTargetMicrogons(satoshis);
-    return this.calculateRedemptionAmount(priceIndex, btcMicrogonsAtTarget, lockedTargetPrice);
+  public static createOrphanedReleaseTx(args: {
+    client: ArgonClient;
+    utxoRef: UtxoRefInput;
+    toScriptPubkey: string;
+    bitcoinNetworkFee: bigint;
+  }) {
+    const { client, utxoRef, toScriptPubkey, bitcoinNetworkFee } = args;
+    assertHexScriptPubkey(toScriptPubkey);
+    return client.tx.bitcoinLocks.requestOrphanedUtxoRelease(utxoRef, toScriptPubkey, bitcoinNetworkFee);
   }
 
-  public static calculateRedemptionAmount(
-    priceIndex: PriceIndex,
-    btcMicrogonsAtTarget: bigint,
-    maxMicrogonsAtTarget?: bigint,
-  ): bigint {
-    let price = btcMicrogonsAtTarget;
-    if (maxMicrogonsAtTarget !== undefined && maxMicrogonsAtTarget < btcMicrogonsAtTarget) {
-      price = maxMicrogonsAtTarget;
-    }
-
-    const multiplierBn = this.redemptionMultiplierBn(priceIndex);
-
-    return BigInt(new BigNumber(price.toString()).times(multiplierBn).integerValue(BigNumber.ROUND_DOWN).toFixed(0));
+  public static createReleaseCosignTx(args: { client: ArgonClient; utxoId: number; vaultSignatureHex: string }) {
+    const { client, utxoId, vaultSignatureHex } = args;
+    return client.tx.bitcoinLocks.cosignRelease(utxoId, vaultSignatureHex);
   }
 
-  private static redemptionMultiplierBn(priceIndex: PriceIndex): BigNumber {
-    const r = priceIndex.rValue;
+  public static createOrphanedReleaseCosignTx(args: {
+    client: ArgonClient;
+    ownerAccount: string;
+    utxoRef: UtxoRefInput;
+    vaultSignatureHex: string;
+  }) {
+    const { client, ownerAccount, utxoRef, vaultSignatureHex } = args;
+    return client.tx.bitcoinLocks.cosignOrphanedUtxoRelease(ownerAccount, utxoRef, vaultSignatureHex);
+  }
 
-    if (r.gte(1)) {
-      // Case 1: no penalty
-      return new BigNumber(1);
-    } else if (r.gte(0.9)) {
-      // Case 2: quadratic curve
-      // Formula: 20r² - 38r + 19
-      return new BigNumber(20).times(r.pow(2)).minus(new BigNumber(38).times(r)).plus(19);
-    } else if (r.gte(0.01)) {
-      // Case 3: rational linear formula
-      // Formula: (0.5618r + 0.3944) / r
-      return new BigNumber(0.5618).times(r).plus(0.3944).div(r);
-    } else {
-      // Case 4: extreme deviation
-      // Formula: (1 / r) * (0.576r + 0.4)
-      return new BigNumber(1).div(r).times(new BigNumber(0.576).times(r).plus(0.4));
-    }
+  public static createSetFlexibleTx(args: { client: ArgonClient; utxoId: number; isFlexible: boolean }) {
+    const { client, utxoId, isFlexible } = args;
+    return client.tx.bitcoinLocks.setFlexible(utxoId, isFlexible);
+  }
+
+  public static createResecuritizeTx(args: {
+    client: ArgonClient;
+    utxoId: number;
+    securitizedSatoshis: bigint;
+    microgonsAtTargetPerBtc: bigint;
+    feeCoupon?: BitcoinLockFeeCoupon;
+  }) {
+    const { client, utxoId, securitizedSatoshis, microgonsAtTargetPerBtc, feeCoupon } = args;
+    return client.tx.bitcoinLocks.resecuritize(utxoId, securitizedSatoshis, {
+      microgonsAtTargetPerBtc,
+      feeCoupon: feeCoupon ?? null,
+    });
+  }
+
+  public static calculateResecuritizationFee(args: {
+    vault: Pick<Vault, 'terms'>;
+    currentCoverageMicrogons: bigint;
+    replacementCoverageMicrogons: bigint;
+    createdAtBitcoinHeight: number;
+    vaultClaimBitcoinHeight: number;
+    currentBitcoinHeight: number;
+  }): bigint {
+    const {
+      vault,
+      currentCoverageMicrogons,
+      replacementCoverageMicrogons,
+      createdAtBitcoinHeight,
+      vaultClaimBitcoinHeight,
+      currentBitcoinHeight,
+    } = args;
+    const additionalCoverageMicrogons =
+      replacementCoverageMicrogons > currentCoverageMicrogons
+        ? replacementCoverageMicrogons - currentCoverageMicrogons
+        : 0n;
+    if (additionalCoverageMicrogons === 0n) return 0n;
+
+    const fullTerm = Math.max(vaultClaimBitcoinHeight - createdAtBitcoinHeight, 1);
+    const elapsedBlocks = Math.max(currentBitcoinHeight - createdAtBitcoinHeight, 0);
+    const remainingBlocks = Math.max(fullTerm - elapsedBlocks, 0);
+    const remainingTerm = new BigNumber(remainingBlocks).div(fullTerm);
+    const variableFee = vault.terms.bitcoinAnnualPercentRate
+      .multipliedBy(remainingTerm)
+      .multipliedBy(additionalCoverageMicrogons.toString())
+      .integerValue(BigNumber.ROUND_DOWN);
+    return BigInt(variableFee.toFixed(0)) + vault.terms.bitcoinBaseFee;
   }
 
   public static async getConfig(client: IQueryableClient): Promise<IBitcoinLockConfig> {
     const bitcoinNetwork = await client.query.bitcoinUtxos.bitcoinNetwork();
     return {
       lockReleaseCosignDeadlineFrames: client.consts.bitcoinLocks.lockReleaseCosignDeadlineFrames.toNumber(),
-      pendingConfirmationExpirationBlocks: client.consts.bitcoinUtxos.maxPendingConfirmationBlocks.toNumber(),
+      pendingConfirmationExpirationBlocks: client.consts.bitcoinLocks.maxPendingConfirmationBlocks.toNumber(),
       tickDurationMillis: await client.query.ticks.genesisTicker().then(x => x.tickDurationMillis),
       bitcoinNetwork,
-      lockSatoshiAllowedVariance: client.consts.bitcoinUtxos.maximumSatoshiThresholdFromExpected?.toNumber() ?? 10_000,
     };
-  }
-
-  public static async createIncreaseSecuritizationTx(args: {
-    utxoId: number;
-    client: ArgonClient;
-    newSatoshis: bigint;
-  }): Promise<SubmittableExtrinsic | undefined> {
-    const { client, newSatoshis, utxoId } = args;
-    const txBuilder = client.tx.bitcoinLocks.increaseSecuritization;
-    if (!txBuilder?.meta) {
-      return undefined;
-    }
-    return txBuilder(utxoId, newSatoshis);
-  }
-
-  public static async createFundWithUtxoCandidateTx(args: {
-    client: ArgonClient;
-    utxoId: number;
-    utxoRef: UtxoRefInput;
-  }): Promise<SubmittableExtrinsic | undefined> {
-    const { client, utxoId, utxoRef } = args;
-    const txBuilder = client.tx.bitcoinUtxos?.fundWithUtxoCandidate;
-    if (!txBuilder?.meta) {
-      return undefined;
-    }
-    return txBuilder(utxoId, utxoRef);
-  }
-
-  public static async createOrphanedUtxoReleaseRequestTx(args: {
-    client: ArgonClient;
-    utxoRef: UtxoRefInput;
-    releaseRequest: IReleaseRequest;
-  }): Promise<SubmittableExtrinsic | undefined> {
-    const {
-      client,
-      utxoRef,
-      releaseRequest: { bitcoinNetworkFee, toScriptPubkey },
-    } = args;
-
-    if (!toScriptPubkey.startsWith('0x')) {
-      throw new Error('toScriptPubkey must be a hex string starting with 0x');
-    }
-
-    const txBuilder = client.tx.bitcoinLocks.requestOrphanedUtxoRelease;
-    if (!txBuilder?.meta) {
-      return undefined;
-    }
-
-    return txBuilder(utxoRef, toScriptPubkey, bitcoinNetworkFee);
-  }
-
-  public static async createOrphanedUtxoCosignTx(args: {
-    client: ArgonClient;
-    orphanOwner: string;
-    utxoRef: UtxoRefInput;
-    vaultSignature: Uint8Array;
-  }): Promise<SubmittableExtrinsic | undefined> {
-    const { client, orphanOwner, utxoRef, vaultSignature } = args;
-    if (!vaultSignature || vaultSignature.byteLength < 70 || vaultSignature.byteLength > 73) {
-      throw new Error(`Invalid vault signature length: ${vaultSignature.byteLength}. Must be 70-73 bytes.`);
-    }
-    if (!client.tx.bitcoinLocks.cosignOrphanedUtxoRelease?.meta) {
-      return undefined;
-    }
-    const signature = u8aToHex(vaultSignature);
-    return client.tx.bitcoinLocks.cosignOrphanedUtxoRelease(orphanOwner, utxoRef, signature);
-  }
-
-  public static async get(client: IQueryableClient, utxoId: number): Promise<BitcoinLock | undefined> {
-    const lock: HistoricalQueryRecord<'bitcoinLocks', 'locksByUtxoId'> =
-      await client.query.bitcoinLocks.locksByUtxoId(utxoId);
-    if (!lock) return;
-
-    const lockedTargetPrice = lock.lockedTargetPrice ?? lock.lockedMarketRate ?? lock.peggedPrice ?? lock.lockPrice;
-    if (lockedTargetPrice === undefined || lock.liquidityPromised === undefined || lock.securityFees === undefined) {
-      throw new Error(`Bitcoin lock ${utxoId} predates recoverable financial storage`);
-    }
-    if (lock.utxoScriptPubkey.type !== 'P2WSH' && lock.utxoScriptPubkey.type !== 'P2wsh') {
-      throw new Error(`Bitcoin lock ${utxoId} does not use P2WSH`);
-    }
-
-    const p2shBytesPrefix = '0020';
-    const wscriptHash = lock.utxoScriptPubkey.value.wscriptHash.replace('0x', '');
-    const p2wshScriptHashHex = `0x${p2shBytesPrefix}${wscriptHash}`;
-    const [fingerprint, cosignHdIndex, claimHdIndex] = lock.vaultXpubSources;
-    const vaultXpubSources = {
-      parentFingerprint: hexToU8a(fingerprint),
-      cosignHdIndex,
-      claimHdIndex,
-    };
-    const fundHoldExtensionsByBitcoinExpirationHeight = Object.fromEntries(
-      Object.entries(lock.fundHoldExtensions ?? {}).map(([height, amount]) => [Number(height), amount]),
-    );
-
-    return new BitcoinLock({
-      utxoId,
-      p2wshScriptHashHex,
-      vaultId: lock.vaultId,
-      lockedTargetPrice,
-      liquidityPromised: lock.liquidityPromised,
-      ownerAccount: lock.ownerAccount,
-      securitizationRatio: lock.securitizationRatio?.toNumber() ?? 1,
-      satoshis: lock.satoshis,
-      utxoSatoshis: lock.utxoSatoshis ?? undefined,
-      vaultPubkey: lock.vaultPubkey,
-      vaultClaimPubkey: lock.vaultClaimPubkey,
-      ownerPubkey: lock.ownerPubkey,
-      vaultXpubSources,
-      vaultClaimHeight: lock.vaultClaimHeight,
-      openClaimHeight: lock.openClaimHeight,
-      createdAtHeight: lock.createdAtHeight,
-      securityFees: lock.securityFees,
-      isFunded: lock.isFunded ?? lock.isVerified ?? false,
-      isFlexible: lock.isFlexible ?? lock.isBackfill ?? false,
-      couponFeesPaid: lock.couponPaidFees ?? 0n,
-      fundHoldExtensionsByBitcoinExpirationHeight,
-      createdAtArgonBlock: lock.createdAtArgonBlock ?? 0,
-    });
   }
 
   public static async createInitializeTx(
@@ -462,7 +289,6 @@ export class BitcoinLock implements IBitcoinLock {
       microgonsAtTargetPerBtc,
       feeCoupon,
     } = args;
-    const requestedTargetPrice = microgonsAtTargetPerBtc ?? null;
     if (ownerBitcoinPubkey.length !== 33) {
       throw new Error(
         `Invalid Bitcoin key length: ${ownerBitcoinPubkey.length}. Must be a compressed pubkey (33 bytes).`,
@@ -472,42 +298,19 @@ export class BitcoinLock implements IBitcoinLock {
       throw new Error('microgonsAtTargetPerBtc is required when feeCoupon is provided');
     }
 
-    const bitcoinLocks = client.tx.bitcoinLocks as
-      | ArgonClient['tx']['bitcoinLocks']
-      | PreviousRuntimeSpec.Transactions<'promise'>['bitcoinLocks'];
-
-    let tx: SubmittableExtrinsic;
-    if ('initializeFor' in bitcoinLocks) {
-      if (feeCoupon) {
-        throw new Error('The connected runtime does not support Bitcoin lock fee coupons');
-      }
-      tx = bitcoinLocks.initialize(vault.vaultId, satoshis, ownerBitcoinPubkey, {
-        V1: { microgonsAtTargetPerBtc: requestedTargetPrice },
-      });
-    } else {
-      const options = feeCoupon
-        ? {
-            V2: {
-              microgonsAtTargetPerBtc,
-              feeCoupon,
-            },
-          }
+    const options =
+      microgonsAtTargetPerBtc === undefined
+        ? null
         : {
-            V1: {
-              microgonsAtTargetPerBtc: requestedTargetPrice,
-            },
+            microgonsAtTargetPerBtc,
+            feeCoupon: feeCoupon ?? null,
           };
-      tx = bitcoinLocks.initialize(vault.vaultId, satoshis, ownerBitcoinPubkey, options);
-    }
+    const tx = client.tx.bitcoinLocks.createReceiveAddress(vault.vaultId, satoshis, ownerBitcoinPubkey, options);
     const submitter = new TxSubmitter(client, tx, txSigner);
     const isVaultOwner = txSigner.address === vault.operatorAccountId;
     let securityFee = 0n;
     if (!isVaultOwner) {
-      const targetPrice =
-        requestedTargetPrice !== null
-          ? (requestedTargetPrice * satoshis) / SATS_PER_BTC
-          : priceIndex.getSatoshiPriceInTargetMicrogons(satoshis);
-      const unlockAmount = this.calculateRedemptionAmount(priceIndex, targetPrice);
+      const unlockAmount = this.calculateLiquidityPromised({ priceIndex, satoshis, microgonsAtTargetPerBtc });
       const fullSecurityFee = vault.calculateBitcoinFee(unlockAmount);
       securityFee = fullSecurityFee - (feeCoupon?.feeDiscount ?? 0n);
       if (securityFee < 0n) {
@@ -549,6 +352,42 @@ export class BitcoinLock implements IBitcoinLock {
     return { lock, createdAtHeight: blockHeight };
   }
 
+  public static calculateRedemptionAmountFromSatoshis(
+    priceIndex: PriceIndex,
+    satoshis: bigint,
+    lockedTargetPrice?: bigint,
+  ): bigint {
+    const btcMicrogonsAtTarget = priceIndex.getSatoshiPriceInTargetMicrogons(satoshis);
+    return this.calculateRedemptionAmount(priceIndex, btcMicrogonsAtTarget, lockedTargetPrice);
+  }
+
+  public static calculateLiquidityPromised(args: {
+    priceIndex: PriceIndex;
+    satoshis: bigint;
+    microgonsAtTargetPerBtc?: bigint;
+  }): bigint {
+    const { priceIndex, satoshis, microgonsAtTargetPerBtc } = args;
+    const btcValueInMicrogons =
+      microgonsAtTargetPerBtc === undefined
+        ? priceIndex.getSatoshiPriceInTargetMicrogons(satoshis)
+        : (satoshis * microgonsAtTargetPerBtc) / SATS_PER_BTC;
+    return this.calculateRedemptionAmount(priceIndex, btcValueInMicrogons);
+  }
+
+  public static calculateRedemptionAmount(
+    priceIndex: PriceIndex,
+    btcMicrogonsAtTarget: bigint,
+    maxMicrogonsAtTarget?: bigint,
+  ): bigint {
+    let price = btcMicrogonsAtTarget;
+    if (maxMicrogonsAtTarget !== undefined && maxMicrogonsAtTarget < btcMicrogonsAtTarget) {
+      price = maxMicrogonsAtTarget;
+    }
+
+    const multiplierBn = this.redemptionMultiplierBn(priceIndex);
+    return BigInt(new BigNumber(price.toString()).times(multiplierBn).integerValue(BigNumber.ROUND_DOWN).toFixed(0));
+  }
+
   public static satoshisRequiredForRedemptionAmount(priceIndex: PriceIndex, redemptionAmount: bigint): bigint {
     if (redemptionAmount <= 0n) return 0n;
 
@@ -570,8 +409,6 @@ export class BitcoinLock implements IBitcoinLock {
         .toFixed(0),
     );
 
-    // The forward path floors target microgons from sats, then floors the redemption amount.
-    // Verify the computed sats satisfy both boundaries, then step down to the minimal sat count.
     while (this.calculateRedemptionAmountFromSatoshis(priceIndex, satoshis) < redemptionAmount) {
       satoshis += 1n;
     }
@@ -581,15 +418,83 @@ export class BitcoinLock implements IBitcoinLock {
 
     return satoshis;
   }
+
+  private static async getUtxoIdFromEvents(events: RuntimeEvent[]) {
+    for (const event of events) {
+      if (event.section === 'bitcoinLocks' && event.method === 'BitcoinLockCreated') return event.data.utxoId;
+    }
+    return undefined;
+  }
+
+  private static redemptionMultiplierBn(priceIndex: PriceIndex): BigNumber {
+    const r = priceIndex.rValue;
+
+    if (r.gte(1)) {
+      return new BigNumber(1);
+    } else if (r.gte(0.9)) {
+      return new BigNumber(20).times(r.pow(2)).minus(new BigNumber(38).times(r)).plus(19);
+    } else if (r.gte(0.01)) {
+      return new BigNumber(0.5618).times(r).plus(0.3944).div(r);
+    } else {
+      return new BigNumber(1).div(r).times(new BigNumber(0.576).times(r).plus(0.4));
+    }
+  }
+
+  private static fromRuntime(
+    utxoId: number,
+    lock: NonNullable<BitcoinLocksLocksByUtxoIdResultSpec159Variant12>,
+  ): BitcoinLock {
+    const wscriptHash = lock.utxoScriptPubkey.value.wscriptHash.replace('0x', '');
+    const [fingerprint, cosignHdIndex, claimHdIndex] = lock.vaultXpubSources;
+
+    return new BitcoinLock({
+      utxoId,
+      p2wshScriptHashHex: `0x0020${wscriptHash}`,
+      vaultId: lock.vaultId,
+      securitizedSatoshis: lock.securitizedSatoshis,
+      microgonsAtTargetPerBtc: lock.microgonsAtTargetPerBtc,
+      securitizationCoverageMicrogons: lock.securitizationCoverageMicrogons,
+      securitizationTick: Number(lock.securitizationTick),
+      fundedSatoshis: lock.fundedSatoshis,
+      fissionedSatoshis: lock.fissionedSatoshis,
+      ownerAccount: lock.ownerAccount,
+      securitizationRatio: lock.securitizationRatio.toNumber(),
+      securityFees: lock.securityFees,
+      couponFeesPaid: lock.couponPaidFees,
+      vaultPubkey: lock.vaultPubkey,
+      vaultClaimPubkey: lock.vaultClaimPubkey,
+      ownerPubkey: lock.ownerPubkey,
+      vaultXpubSources: {
+        parentFingerprint: hexToU8a(fingerprint),
+        cosignHdIndex,
+        claimHdIndex,
+      },
+      vaultClaimHeight: lock.vaultClaimHeight,
+      openClaimHeight: lock.openClaimHeight,
+      createdAtHeight: lock.createdAtHeight,
+      fundingExpirationHeight: Number(lock.fundingExpirationHeight),
+      isFlexible: lock.isFlexible,
+      fundHoldExtensionsByBitcoinExpirationHeight: Object.fromEntries(
+        Object.entries(lock.fundHoldExtensions).map(([height, amount]) => [Number(height), amount]),
+      ),
+      createdAtArgonBlock: lock.createdAtArgonBlock,
+    });
+  }
+}
+
+function isCurrentBitcoinLock(
+  lock: NonNullable<HistoricalQueryRecord<'bitcoinLocks', 'locksByUtxoId'>>,
+): lock is NonNullable<BitcoinLocksLocksByUtxoIdResultSpec159Variant12> {
+  return lock.securitizedSatoshis !== undefined;
 }
 
 export interface IBitcoinLockConfig {
   lockReleaseCosignDeadlineFrames: number;
   pendingConfirmationExpirationBlocks: number;
   tickDurationMillis: number;
-  bitcoinNetwork: HistoricalQueryRecord<'bitcoinUtxos', 'bitcoinNetwork'>;
-  lockSatoshiAllowedVariance: number;
+  bitcoinNetwork: BitcoinUtxosBitcoinNetworkResultSpec100;
 }
+
 export interface IReleaseRequest {
   toScriptPubkey: string;
   bitcoinNetworkFee: bigint;
@@ -603,15 +508,17 @@ export interface IBitcoinLock {
   utxoId: number;
   p2wshScriptHashHex: string;
   vaultId: number;
-  lockedTargetPrice: bigint;
-  liquidityPromised: bigint;
+  securitizedSatoshis: bigint;
+  microgonsAtTargetPerBtc: bigint;
+  securitizationCoverageMicrogons: bigint;
+  securitizationTick: number;
+  fundedSatoshis: bigint;
+  fissionedSatoshis: bigint;
   ownerAccount: string;
   securitizationRatio: number;
-  satoshis: bigint;
-  utxoSatoshis?: bigint;
-  vaultPubkey: string;
   securityFees: bigint;
   couponFeesPaid: bigint;
+  vaultPubkey: string;
   vaultClaimPubkey: string;
   ownerPubkey: string;
   vaultXpubSources: {
@@ -622,8 +529,38 @@ export interface IBitcoinLock {
   vaultClaimHeight: number;
   openClaimHeight: number;
   createdAtHeight: number;
-  isFunded: boolean;
+  fundingExpirationHeight: number;
   isFlexible: boolean;
-  createdAtArgonBlock: number;
   fundHoldExtensionsByBitcoinExpirationHeight: Record<number, bigint>;
+  createdAtArgonBlock: number;
+}
+
+export type IBitcoinLockDetails = Pick<
+  IBitcoinLock,
+  | 'utxoId'
+  | 'p2wshScriptHashHex'
+  | 'vaultId'
+  | 'securitizedSatoshis'
+  | 'fundedSatoshis'
+  | 'ownerAccount'
+  | 'securitizationRatio'
+  | 'securityFees'
+  | 'couponFeesPaid'
+  | 'vaultPubkey'
+  | 'vaultClaimPubkey'
+  | 'ownerPubkey'
+  | 'vaultXpubSources'
+  | 'vaultClaimHeight'
+  | 'openClaimHeight'
+  | 'createdAtHeight'
+  | 'fundingExpirationHeight'
+  | 'isFlexible'
+  | 'fundHoldExtensionsByBitcoinExpirationHeight'
+  | 'createdAtArgonBlock'
+>;
+
+function assertHexScriptPubkey(toScriptPubkey: string): void {
+  if (!toScriptPubkey.startsWith('0x')) {
+    throw new Error('toScriptPubkey must be a hex string starting with 0x');
+  }
 }

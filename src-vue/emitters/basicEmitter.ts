@@ -21,6 +21,7 @@ export type IOperationalProfileRequest =
 export type IWalletOverlayOptions = {
   wallet: IWalletOverlayWallet;
   view?: IWalletView;
+  bitcoinChannelUuid?: string;
   showGuidance?: boolean;
   guidanceContext?: IWalletGuidanceContext;
 };
@@ -76,9 +77,8 @@ type IBasicEmitter = {
         flexibleAssetChanges?: IVaultFlexibleAssetChanges;
       }
     | undefined;
-  openBitcoinLock: { lock?: IBitcoinLockRecord } | undefined;
   openBitcoinUnlock: IBitcoinLockRecord;
-  resumeBitcoinFunding: IBitcoinLockRecord;
+  openBitcoinLiquidCreationOverlay: { liquidId: number } | undefined;
 
   openBondPurchaseOverlay: void;
   openStakePurchaseOverlay: void;

@@ -2,14 +2,20 @@
 import type {
   VaultsVaultsByIdResultSpec157Variant13,
   VaultsVaultsByIdResultSpec158Variant14,
+  VaultsVaultsByIdResultSpec159Variant15,
 } from '@argonprotocol/runtime-client';
 import BigNumber from 'bignumber.js';
 import type { ArgonQueryClient } from './MainchainClients.js';
 
-type RuntimeVault = NonNullable<VaultsVaultsByIdResultSpec157Variant13 | VaultsVaultsByIdResultSpec158Variant14>;
+type RuntimeVault = NonNullable<
+  | VaultsVaultsByIdResultSpec157Variant13
+  | VaultsVaultsByIdResultSpec158Variant14
+  | VaultsVaultsByIdResultSpec159Variant15
+>;
 
 export class Vault {
   public securitization!: bigint;
+  public securitizationTarget!: bigint;
   public securitizationLocked!: bigint;
   public securitizationPendingActivation!: bigint;
   /**
@@ -32,6 +38,7 @@ export class Vault {
   public reservedSecuritizationSpace!: bigint;
   public flexibleSecuritizedSatoshis!: bigint;
   public delegateAccountId?: string;
+  public operationalMinimumReleaseTick?: number;
 
   constructor(
     id: number,
@@ -44,6 +51,7 @@ export class Vault {
     this.securitizationReleaseSchedule = new Map();
 
     this.securitization = vault.securitization;
+    this.securitizationTarget = vault.securitizationTarget;
     this.securitizationRatio = vault.securitizationRatio.toNumber();
     this.securitizationLocked = vault.securitizationLocked;
     this.securitizationPendingActivation = vault.securitizationPendingActivation;
@@ -56,11 +64,15 @@ export class Vault {
       treasuryProfitSharing: vault.terms.treasuryProfitSharing,
     };
     this.lockedSatoshis = vault.lockedSatoshis;
-    this.securitizedSatoshis = vault.securitizedSatoshis;
+    this.securitizedSatoshis =
+      'ratioAdjustedSatoshis' in vault ? vault.ratioAdjustedSatoshis : vault.securitizedSatoshis;
     if ('flexibleSecuritizationLocked' in vault) {
       this.flexibleSecuritizationLocked = vault.flexibleSecuritizationLocked;
       this.reservedSecuritizationSpace = vault.reservedSecuritizationSpace;
-      this.flexibleSecuritizedSatoshis = vault.flexibleSecuritizedSatoshis;
+      this.flexibleSecuritizedSatoshis =
+        'flexibleRatioAdjustedSatoshis' in vault
+          ? vault.flexibleRatioAdjustedSatoshis
+          : vault.flexibleSecuritizedSatoshis;
     } else {
       this.flexibleSecuritizationLocked = vault.backfillSecuritizationLocked;
       this.reservedSecuritizationSpace = vault.backfillSecuritizationReserved;
@@ -82,6 +94,8 @@ export class Vault {
       };
     }
     this.delegateAccountId = vault.delegateAccountId ?? undefined;
+    this.operationalMinimumReleaseTick =
+      'operationalMinimumReleaseTick' in vault ? (vault.operationalMinimumReleaseTick ?? undefined) : undefined;
   }
 
   public availableBitcoinSpace(lockOwner?: string): bigint {
@@ -138,7 +152,7 @@ export class Vault {
       rawVault.securitizationLocked === undefined ||
       rawVault.securitizationPendingActivation === undefined ||
       rawVault.lockedSatoshis === undefined ||
-      rawVault.securitizedSatoshis === undefined ||
+      (!('ratioAdjustedSatoshis' in rawVault) && !('securitizedSatoshis' in rawVault)) ||
       rawVault.securitizationReleaseSchedule === undefined ||
       rawVault.securitizationRatio === undefined ||
       rawVault.openedTick === undefined ||

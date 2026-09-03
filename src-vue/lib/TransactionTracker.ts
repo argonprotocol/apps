@@ -10,7 +10,6 @@ import {
   TxSubmissionErrorCode,
 } from '@argonprotocol/mainchain';
 import { toRuntimeEvent, type HistoricalEvent } from '@argonprotocol/runtime-client';
-import * as Vue from 'vue';
 import { Db } from './Db.ts';
 import { getMainchainClient } from '../stores/mainchain.ts';
 import {
@@ -158,8 +157,6 @@ export class TransactionTracker {
         if (tx.isFinalized || txResult.submissionError) {
           await txResult.setFinalized();
         }
-        // Mark txResult as non-reactive to avoid issues with private fields
-        Vue.markRaw(txResult);
         this.data.txInfos.push(txInfo);
         this.data.txInfosByType[tx.extrinsicType] = txInfo;
       }
@@ -326,9 +323,10 @@ export class TransactionTracker {
     return txInfo;
   }
 
-  public shutdown(): void {
+  public async shutdown(): Promise<void> {
     this.#isClosed = true;
     this.stopWatching();
+    await Promise.all(this.#statusLaneByTxId.values());
   }
 
   public createIntentForFollowOnTx<T>(txInfo: TransactionInfo): IDeferred<TransactionInfo<T>> {
@@ -541,8 +539,6 @@ export class TransactionTracker {
       txNonce,
     });
 
-    // Mark txResult as non-reactive to avoid issues with private fields
-    Vue.markRaw(txResult);
     const txInfo = new TransactionInfo<T>({ tx: record, txResult });
     this.data.txInfos.unshift(txInfo);
     this.data.txInfosByType[extrinsicType] = txInfo;

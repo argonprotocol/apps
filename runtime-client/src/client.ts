@@ -38,11 +38,19 @@ export type MergeHistorical<Value> = null extends Value
 
 export type RuntimeStorageKey<Args extends readonly unknown[]> = { readonly args: Args };
 type RuntimeQueryArgs<Args extends readonly unknown[]> = { readonly [Index in keyof Args]: unknown };
+type RuntimeStorageMulti<Result> = {
+  (keys: readonly unknown[]): Promise<readonly Result[]>;
+  (keys: readonly unknown[], callback: (values: readonly Result[]) => void): Promise<() => void>;
+};
+type OptionalRuntimeStorageMulti<Result> = {
+  (keys: readonly unknown[]): Promise<readonly Result[]> | null;
+  (keys: readonly unknown[], callback: (values: readonly Result[]) => void): Promise<() => void> | null;
+};
 
 export type RuntimeQuery<Args extends readonly unknown[], Result> = {
   (...args: RuntimeQueryArgs<Args>): Promise<Result>;
   (...args: [...RuntimeQueryArgs<Args>, callback: (value: Result) => void]): Promise<() => void>;
-  readonly multi: (keys: readonly unknown[]) => Promise<readonly Result[]>;
+  readonly multi: RuntimeStorageMulti<Result>;
   readonly at: (...args: readonly unknown[]) => Promise<Result>;
   readonly entries: (...args: readonly unknown[]) => Promise<readonly (readonly [RuntimeStorageKey<Args>, Result])[]>;
   readonly entriesAt: (...args: readonly unknown[]) => Promise<readonly (readonly [RuntimeStorageKey<Args>, Result])[]>;
@@ -60,7 +68,7 @@ export type RuntimeQuery<Args extends readonly unknown[], Result> = {
 export type OptionalRuntimeQuery<Args extends readonly unknown[], Result> = {
   (...args: RuntimeQueryArgs<Args>): Promise<Result> | null;
   (...args: [...RuntimeQueryArgs<Args>, callback: (value: Result) => void]): Promise<() => void> | null;
-  readonly multi: (keys: readonly unknown[]) => Promise<readonly Result[]> | null;
+  readonly multi: OptionalRuntimeStorageMulti<Result>;
   readonly at: (...args: readonly unknown[]) => Promise<Result> | null;
   readonly entries: (...args: readonly unknown[]) => Promise<readonly (readonly [RuntimeStorageKey<Args>, Result])[]> | null;
   readonly entriesAt: (...args: readonly unknown[]) => Promise<readonly (readonly [RuntimeStorageKey<Args>, Result])[]> | null;
@@ -85,7 +93,7 @@ type RuntimeQueryResult<Query> = Query extends RuntimeQuery<infer _Args, infer R
 type RuntimeQueryMultiResult<Call> = Call extends readonly [infer Query, ...readonly unknown[]]
   ? RuntimeQueryResult<Query>
   : RuntimeQueryResult<Call>;
-type RuntimeQueryMulti = {
+type RuntimeClientQueryMulti = {
   <const Calls extends readonly unknown[]>(
     calls: Calls,
     callback: (values: { readonly [Index in keyof Calls]: RuntimeQueryMultiResult<Calls[Index]> }) => void,
@@ -106,7 +114,7 @@ export type RuntimeClient<
 > = Omit<Api, 'at' | 'query' | 'queryMulti'> & {
   readonly raw: Api;
   readonly query: Queries;
-} & (Api extends { readonly queryMulti: unknown } ? { readonly queryMulti: RuntimeQueryMulti } : object) &
+} & (Api extends { readonly queryMulti: unknown } ? { readonly queryMulti: RuntimeClientQueryMulti } : object) &
   (Api extends { at: (...args: infer Args) => Promise<infer HistoricalApi> }
     ? { at: (...args: Args) => Promise<RuntimeClient<HistoricalApi & { readonly query: object }, RuntimeQueries>> }
     : object);
@@ -245,6 +253,25 @@ function invokeQuery(
 ): unknown {
   const sectionQueries = readProperty(queryRoot, section);
   const query = readProperty(sectionQueries, method);
+  if (attachedMethod === 'multi') {
+    if (typeof query !== 'function') return null;
+
+    const keys = args[0] as readonly unknown[];
+    const override = queryOverride(section, method, attachedMethod);
+    const argOverrides = queryArgOverrides(section, method);
+    const normalize = (values: readonly unknown[]) => values.map(value => toPlain(value, override, argOverrides));
+    const callback = args[1];
+    if (typeof callback === 'function') {
+      const multi = readProperty(query, attachedMethod);
+      if (typeof multi !== 'function') return null;
+
+      const onValues = callback as (values: readonly unknown[]) => void;
+      return Reflect.apply(multi, query, [keys, (values: readonly unknown[]) => onValues(normalize(values))]);
+    }
+
+    return Promise.all(keys.map(key => Reflect.apply(query, query, Array.isArray(key) ? key : [key]))).then(normalize);
+  }
+
   const callable = attachedMethod === undefined ? query : readProperty(query, attachedMethod);
   if (typeof callable !== 'function') return null;
   const override = queryOverride(section, method, attachedMethod);

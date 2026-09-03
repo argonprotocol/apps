@@ -67,7 +67,7 @@
 </template>
 
 <script setup lang="ts">
-import { Vault } from '@argonprotocol/apps-core';
+import type { Vault } from '@argonprotocol/apps-core';
 import * as Vue from 'vue';
 import { getCurrency } from '../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';

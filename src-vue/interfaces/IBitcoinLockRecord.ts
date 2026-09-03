@@ -1,20 +1,17 @@
-import { type IBitcoinLock } from '@argonprotocol/apps-core';
+import type { IBitcoinLockDetails } from '@argonprotocol/apps-core';
 import type { IBitcoinUtxoRecord } from './IBitcoinUtxoRecord.ts';
 
-export interface IRatchet {
-  /** Gross liquidity submitted to the mint queue by this ratchet. */
-  mintAmount: bigint;
-  mintPending: bigint;
-  /** Post-ratchet liquidity promised by the lock. Older records predate this field. */
-  liquidityPromised?: bigint;
-  lockedTargetPrice: bigint;
-  securityFee: bigint;
-  txFee: bigint;
-  burned: bigint;
-  blockHeight: number;
-  extrinsicIndex?: number;
-  oracleBitcoinBlockHeight: number;
-}
+export type IBitcoinLockScriptDetails = Pick<
+  IBitcoinLockDetails,
+  | 'p2wshScriptHashHex'
+  | 'vaultPubkey'
+  | 'vaultClaimPubkey'
+  | 'ownerPubkey'
+  | 'vaultXpubSources'
+  | 'vaultClaimHeight'
+  | 'openClaimHeight'
+  | 'createdAtHeight'
+>;
 
 export interface IBitcoinLockBlockExtrinsicError {
   batchInterruptedIndex?: number;
@@ -25,14 +22,10 @@ export interface IBitcoinLockBlockExtrinsicError {
 
 export enum BitcoinLockStatus {
   LockIsProcessingOnArgon = 'LockIsProcessingOnArgon', // Submitted transaction to the Argon chain but not yet confirmed in block.
-  LockPendingFunding = 'LockPendingFunding', // Argon lock exists and vault securitization is reserved; waiting for Bitcoin funding confirmation/candidate resolution.
-  LockExpiredWaitingForFunding = 'LockExpiredWaitingForFunding', // Lock expired before funding could be verified on Argon.
-  LockExpiredWaitingForFundingAcknowledged = 'LockExpiredWaitingForFundingAcknowledged', // User has seen the fresh funding-expired state.
+  LockPendingFunding = 'LockPendingFunding', // Argon lock exists and vault securitization is reserved; waiting for Bitcoin funding confirmation.
   LockFailedAcknowledged = 'LockFailedAcknowledged', // User has acknowledged the failed Argon-side lock request.
-  LockFundingReadyToResume = 'LockFundingReadyToResume', // A mismatch return finished and the user must explicitly resume funding.
 
-  LockedAndIsMinting = 'LockedAndIsMinting', // Bitcoin is fully locked but minting is still settling.
-  LockedAndMinted = 'LockedAndMinted', // Bitcoin is fully locked and minting is complete.
+  LockFunded = 'LockFunded', // The Lock has an accepted Bitcoin funding UTXO.
 
   Releasing = 'Releasing', // Release lifecycle is in progress (argon request, vault cosign, signing, or bitcoin broadcast).
   Released = 'Released', // Release lifecycle is complete.
@@ -44,14 +37,25 @@ export interface IBitcoinLockRecord {
   uuid: string;
   utxoId?: number;
   status: BitcoinLockStatus;
-  satoshis: bigint;
-  liquidityPromised: bigint;
-  lockedTargetPrice: bigint;
-  ratchets: IRatchet[];
+  securitizedSatoshis: bigint;
+  ownerAccount?: string;
+  microgonsAtTargetPerBtc?: bigint;
+  securitizationCoverageMicrogons?: bigint;
+  securitizationTick?: number;
+  fissionedSatoshis?: bigint;
+  securitizationRatio?: number;
+  securityFees: bigint;
+  couponFeesPaid: bigint;
+  scriptDetails?: IBitcoinLockScriptDetails;
+  fundingExpirationHeight?: number;
+  isFlexible?: boolean;
+  fundHoldExtensionsByBitcoinExpirationHeight: Record<number, bigint>;
+  createdAtArgonBlock?: number;
+  utxos: IBitcoinUtxoRecord[];
+  fundedSatoshis: bigint;
+  fundingUtxo?: IBitcoinUtxoRecord;
+
   cosignVersion: string;
-  lockDetails: IBitcoinLock;
-  fundingUtxoRecordId: number | null;
-  fundingUtxoRecord?: IBitcoinUtxoRecord;
   network: string;
   hdPath: string;
   vaultId: number;

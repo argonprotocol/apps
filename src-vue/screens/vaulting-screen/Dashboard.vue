@@ -280,6 +280,7 @@ import { TopTab } from '../../interfaces/IConfig.ts';
 import { OperationalStepId, useCertificationController } from '../../stores/certificationController.ts';
 import ArrowCalloutButton from '../../components/ArrowCalloutButton.vue';
 import { useFinancials } from '../../stores/financials.ts';
+import { useWallets } from '../../stores/wallets.ts';
 
 dayjs.extend(utc);
 
@@ -291,6 +292,7 @@ const config = getConfig();
 const currency = getCurrency();
 const argonBonds = getArgonBonds();
 const financials = useFinancials();
+const wallets = useWallets();
 
 const vaultingBreakdown = useVaultingAssetBreakdown();
 
@@ -376,20 +378,20 @@ type IBondMapLot = IFrameBondLot & {
 };
 
 function deriveExternalLockStatus(ext: IExternalBitcoinLock): BitcoinLockStatus {
-  // isPending is set from BitcoinLock.isFunded — true means funded
   if (ext.isPending) return BitcoinLockStatus.LockPendingFunding;
   if (ext.isReleasing) return BitcoinLockStatus.Releasing;
-  return BitcoinLockStatus.LockedAndMinted;
+  return BitcoinLockStatus.LockFunded;
 }
 
-function formatLockLabel(lock: { satoshis: bigint }): string {
-  const btc = currency.convertSatToBtc(lock.satoshis);
+function formatLockLabel(lock: { satoshis: bigint } | IBitcoinLockRecord): string {
+  const satoshis = 'satoshis' in lock ? lock.satoshis : lock.fundedSatoshis || lock.securitizedSatoshis;
+  const btc = currency.convertSatToBtc(satoshis);
   return `${numeral(btc).format('0,0.[0000]')} BTC`;
 }
 
 function getLockTileStatus(lock: IBitcoinLockRecord): TileStatus {
   if (lock.isHistoryRecoveryPending) return 'pending';
-  if (bitcoinLocks.isLockedStatus(lock)) return 'active';
+  if (bitcoinLocks.isLockFunded(lock)) return 'active';
   if (bitcoinLocks.isReleaseStatus(lock)) return 'active';
   return 'pending';
 }
@@ -426,7 +428,7 @@ function handleBondTileClick(key: string) {
 
 function handleBitcoinTileClick(key: string) {
   if (key === '__remainder__') {
-    openLockingOverlay();
+    openBitcoinChannel();
     return;
   }
 
@@ -435,10 +437,10 @@ function handleBitcoinTileClick(key: string) {
   if (lock) {
     if (lock.isHistoryRecoveryPending) return;
 
-    if (bitcoinLocks.isLockedStatus(lock) || bitcoinLocks.isReleaseStatus(lock)) {
+    if (bitcoinLocks.isLockFunded(lock) || bitcoinLocks.isReleaseStatus(lock)) {
       openLockDetailOverlay(lock);
     } else {
-      openLockingOverlay(lock);
+      openBitcoinChannel(lock);
     }
     return;
   }
@@ -481,20 +483,20 @@ const bitcoinMapItems = Vue.computed((): MapItem[] => {
   const items: MapItem[] = [];
 
   for (const lock of localVaultLocks.value) {
-    const microgons = bitcoinLocks.getDisplayLiquidityPromised(lock);
+    const microgons = lock.securitizationCoverageMicrogons ?? 0n;
     const tileStatus = getLockTileStatus(lock);
     items.push({
       id: lock.uuid,
       label: formatLockLabel(lock),
       amount: microgons,
       displayValue: formatMoney(microgons),
-      emphasis: bitcoinLocks.isLockedStatus(lock) && !lock.isHistoryRecoveryPending ? 'strong' : 'default',
+      emphasis: bitcoinLocks.isLockFunded(lock) && !lock.isHistoryRecoveryPending ? 'strong' : 'default',
       status: tileStatus,
     });
   }
 
   for (const extLock of Object.values(myVault.data.externalLocks)) {
-    const microgons = extLock.liquidityPromised ?? 0n;
+    const microgons = extLock.securitizationCoverageMicrogons;
     const status: TileStatus = extLock.isPending ? 'pending' : 'active';
     items.push({
       id: `chain:${extLock.utxoId}`,
@@ -629,8 +631,11 @@ const showBondDetailOverlay = Vue.ref(false);
 const selectedLock = Vue.ref<IBitcoinLockRecord | IExternalBitcoinLock | undefined>(undefined);
 const selectedFrameBondLot = Vue.ref<IFrameBondLot | undefined>(undefined);
 
-function openLockingOverlay(lock?: IBitcoinLockRecord) {
-  basicEmitter.emit('openBitcoinLock', { lock });
+function openBitcoinChannel(lock?: IBitcoinLockRecord) {
+  basicEmitter.emit('openWalletOverlay', {
+    wallet: wallets.bitcoinWallet,
+    bitcoinChannelUuid: lock?.uuid,
+  });
 }
 
 function openLockDetailOverlay(lock: IBitcoinLockRecord | IExternalBitcoinLock) {

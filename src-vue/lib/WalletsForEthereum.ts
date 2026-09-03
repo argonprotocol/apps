@@ -4,7 +4,7 @@ import type { Db } from './Db.ts';
 import { WalletForEthereum } from './WalletForEthereum.ts';
 import type { WalletKeys } from './WalletKeys.ts';
 import type { IWalletRecord } from './db/WalletsTable.ts';
-import type { FinancialCacheTable } from './db/FinancialCacheTable.ts';
+import { restoreCachedExternalWalletBalances, type FinancialCacheTable } from './db/FinancialCacheTable.ts';
 import { invokeWithTimeout } from './tauriApi.ts';
 
 const DEFAULT_ETHEREUM_HD_PATH = "m/44'/60'/0'/0'/0'";
@@ -54,8 +54,17 @@ export class WalletsForEthereum {
     return this.persistedWallets.flatMap(wallet => wallet.createFinancialPositions(currency));
   }
 
-  public async load(): Promise<void> {
+  public async loadCachedBalances(): Promise<void> {
     await this.reloadRecords();
+    await Promise.all(
+      this.persistedWallets.map(wallet =>
+        restoreCachedExternalWalletBalances(this.financialCache, 'ethereum', wallet.data),
+      ),
+    );
+  }
+
+  public async load(): Promise<void> {
+    await this.loadCachedBalances();
 
     let inspectedCoreWallet = false;
     if (!this.coreWallet.isPersisted) {

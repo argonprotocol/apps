@@ -67,10 +67,15 @@ import { getWalletKeys, useWallets } from '../stores/wallets.ts';
 import { useBasics } from '../stores/basics.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import { buildWalletActivity, type IWalletActivityRecord } from '../lib/WalletActivity.ts';
-import type { IBitcoinOrphanedUtxoFundingMetadata, IBitcoinRequestLockMetadata } from '../lib/BitcoinLocks.ts';
+import type { IBitcoinRequestLockMetadata } from '../lib/BitcoinLocks.ts';
 import type { IBuyArgonotBondMetadata, IBuyVaultBondMetadata } from '../lib/ArgonBonds.ts';
 import type { ICrosschainTransferOutMetadata } from '../lib/EthereumOutboundTransferTracker.ts';
+import type { IMintingAuthorityRegisterMetadata } from '../lib/MintingAuthorities.ts';
 import type { ITransactionMoveMetadata } from '../lib/MoveCapital.ts';
+import type { IBitcoinLiquidCloseMetadata } from '../lib/txs/BitcoinLiquid.close.ts';
+import type { IBitcoinLiquidCreateMetadata } from '../lib/txs/BitcoinLiquid.create.ts';
+import type { IBitcoinLockReleaseMetadata } from '../lib/txs/BitcoinLock.release.ts';
+import type { IBitcoinResecuritizationMetadata } from '../lib/txs/BitcoinLock.resecuritize.ts';
 import type {
   IVaultCommittedArgonotsMetadata,
   IVaultFlexibleAssetMetadata,
@@ -177,6 +182,8 @@ function transactionLabel(transaction: ITransactionRecord): string {
       return 'Set Up Mining Bid Proxy';
     case ExtrinsicType.OperationalRegister:
       return 'Registered Operational Account';
+    case ExtrinsicType.OperationalSetProfileName:
+      return 'Updated Operational Profile';
     case ExtrinsicType.OperationalActivateAndClaim:
       return 'Activated Operational Account';
     case ExtrinsicType.OperationalClaimRewards:
@@ -187,8 +194,16 @@ function transactionLabel(transaction: ITransactionRecord): string {
       return 'Registered Server Recovery';
     case ExtrinsicType.BitcoinRequestLock:
       return 'Created Bitcoin Lock';
-    case ExtrinsicType.BitcoinRatchet:
-      return 'Ratcheted Bitcoin Lock';
+    case ExtrinsicType.BitcoinLiquidCreate:
+      return 'Created Bitcoin Liquid';
+    case ExtrinsicType.BitcoinLiquidClose:
+      return 'Closed Bitcoin Liquid';
+    case ExtrinsicType.BitcoinResecuritize:
+      return 'Updated Bitcoin Insurance';
+    case ExtrinsicType.BitcoinRatchet: {
+      const metadata = transaction.metadataJson as { liquidId?: number };
+      return metadata.liquidId === undefined ? 'Ratcheted Bitcoin Lock' : 'Ratcheted Bitcoin Liquid';
+    }
     case ExtrinsicType.BitcoinRequestRelease:
       return 'Requested Bitcoin Release';
     case ExtrinsicType.VaultCosignBitcoinRelease:
@@ -257,12 +272,49 @@ function amountLabel(activity: IWalletActivityRecord): string {
 
   switch (transaction.extrinsicType) {
     case ExtrinsicType.BitcoinRequestLock: {
-      const metadata = transaction.metadataJson as IBitcoinRequestLockMetadata;
-      return formatBitcoinAmount(metadata.bitcoin.satoshis);
+      const metadata = transaction.metadataJson as Partial<IBitcoinRequestLockMetadata>;
+      const satoshis = metadata.bitcoin?.satoshis;
+      return satoshis === undefined ? '--' : formatBitcoinAmount(satoshis);
+    }
+    case ExtrinsicType.BitcoinLiquidCreate: {
+      const metadata = transaction.metadataJson as Partial<IBitcoinLiquidCreateMetadata>;
+      if (!metadata.fissions) return '--';
+      return formatBitcoinAmount(metadata.fissions.reduce((total, fission) => total + fission.satoshis, 0n));
+    }
+    case ExtrinsicType.BitcoinLiquidClose: {
+      const metadata = transaction.metadataJson as Partial<IBitcoinLiquidCloseMetadata>;
+      return metadata.redemptionAmount === undefined ? '--' : formatTokenAmount(metadata.redemptionAmount, 'argon');
+    }
+    case ExtrinsicType.BitcoinResecuritize: {
+      const metadata = transaction.metadataJson as Partial<IBitcoinResecuritizationMetadata>;
+      const satoshis = metadata.bitcoin?.securitizedSatoshis;
+      return satoshis === undefined ? '--' : formatBitcoinAmount(satoshis);
+    }
+    case ExtrinsicType.BitcoinRatchet: {
+      const metadata = transaction.metadataJson as { addedSecuritizationMicrogons?: bigint };
+      return metadata.addedSecuritizationMicrogons === undefined
+        ? '--'
+        : formatTokenAmount(metadata.addedSecuritizationMicrogons, 'argon');
+    }
+    case ExtrinsicType.BitcoinRequestRelease: {
+      const metadata = transaction.metadataJson as Partial<IBitcoinLockReleaseMetadata>;
+      return metadata.redemptionAmount === undefined ? '--' : formatTokenAmount(metadata.redemptionAmount, 'argon');
     }
     case ExtrinsicType.BitcoinOrphanedUtxoUseAsFunding: {
-      const metadata = transaction.metadataJson as IBitcoinOrphanedUtxoFundingMetadata;
-      return formatBitcoinAmount(metadata.receivedSatoshis);
+      const metadata = transaction.metadataJson as { receivedSatoshis?: bigint };
+      return metadata.receivedSatoshis === undefined ? '--' : formatBitcoinAmount(metadata.receivedSatoshis);
+    }
+    case ExtrinsicType.OperationalActivateAndClaim: {
+      const metadata = transaction.metadataJson as { claimedMicrogons?: bigint };
+      return metadata.claimedMicrogons === undefined ? '--' : formatTokenAmount(metadata.claimedMicrogons, 'argon');
+    }
+    case ExtrinsicType.OperationalClaimRewards: {
+      const metadata = transaction.metadataJson as { amount?: bigint };
+      return metadata.amount === undefined ? '--' : formatTokenAmount(metadata.amount, 'argon');
+    }
+    case ExtrinsicType.CrosschainTransferRegisterMintingAuthority: {
+      const metadata = transaction.metadataJson as Partial<IMintingAuthorityRegisterMetadata>;
+      return formatAssetAmounts(metadata.microgonCollateral, metadata.micronotCollateral);
     }
     case ExtrinsicType.TreasuryBuyBonds: {
       const metadata = transaction.metadataJson as IBuyVaultBondMetadata;
@@ -273,6 +325,12 @@ function amountLabel(activity: IWalletActivityRecord): string {
       const metadata = transaction.metadataJson as IBuyArgonotBondMetadata;
       if (metadata.bondPurchaseMicronots === undefined) return '--';
       return formatTokenAmount(metadata.bondPurchaseMicronots, 'argonot');
+    }
+    case ExtrinsicType.TreasuryReleaseBondLot: {
+      const metadata = transaction.metadataJson as { releasedBondMicrogons?: bigint };
+      return metadata.releasedBondMicrogons === undefined
+        ? '--'
+        : formatTokenAmount(metadata.releasedBondMicrogons, 'argon');
     }
     case ExtrinsicType.VaultInitialAllocate: {
       const metadata = transaction.metadataJson as IVaultInitialAllocateMetadata;

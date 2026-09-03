@@ -187,8 +187,11 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
 
       const giftLiquidity = operatorVault.availableBitcoinSpace() / 4n;
       const requestedLiquidity = giftLiquidity / 2n;
+      const secondRequestedLiquidity = requestedLiquidity / 2n;
       const maxSatoshis = await treasuryHarness.bitcoinLocks.satoshisForArgonLiquidity(giftLiquidity);
       const requestedSatoshis = await treasuryHarness.bitcoinLocks.satoshisForArgonLiquidity(requestedLiquidity);
+      const secondRequestedSatoshis =
+        await treasuryHarness.bitcoinLocks.satoshisForArgonLiquidity(secondRequestedLiquidity);
       const feeCreditMicrogons = bigIntMax(
         operatorVault.calculateBitcoinFee(giftLiquidity) - operatorVault.terms.bitcoinBaseFee,
         0n,
@@ -273,24 +276,45 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
         ),
       ).rejects.toThrow('Forbidden');
 
-      // The member submits directly with a beneficiary-specific coupon signed by the bot.
-      const firstInitialization = await treasuryHarness.bitcoinLocks.initializeLock({
-        satoshis: requestedSatoshis,
-        vault: operatorVault,
-        operatorCoupon: {
-          vaultId: operatorVault.vaultId,
-          offerCode: coupon.coupon.offerCode,
-          accountId: defaultAccountId,
-          remainingFeeCreditMicrogons: coupon.remainingFeeCreditMicrogons,
-        },
-      });
-      expect(firstInitialization.txInfo).toBeDefined();
-      await firstInitialization.txInfo!.txResult.waitForFinalizedBlock;
-      await firstInitialization.txInfo!.waitForPostProcessing;
+      // The member submits two beneficiary-specific coupon securitizations concurrently.
+      const txSigner = await treasuryHarness.walletKeys.getLiquidLockingKeypair();
+      const [firstTxInfo, secondTxInfo] = await Promise.all([
+        treasuryHarness.bitcoinLockCreate.submit({
+          satoshis: requestedSatoshis,
+          vault: operatorVault,
+          txSigner,
+          operatorCoupon: {
+            vaultId: operatorVault.vaultId,
+            offerCode: coupon.coupon.offerCode,
+            accountId: defaultAccountId,
+            remainingFeeCreditMicrogons: coupon.remainingFeeCreditMicrogons,
+          },
+        }),
+        treasuryHarness.bitcoinLockCreate.submit({
+          satoshis: secondRequestedSatoshis,
+          vault: operatorVault,
+          txSigner,
+          operatorCoupon: {
+            vaultId: operatorVault.vaultId,
+            offerCode: coupon.coupon.offerCode,
+            accountId: defaultAccountId,
+            remainingFeeCreditMicrogons: coupon.remainingFeeCreditMicrogons,
+          },
+        }),
+      ]);
+      expect(secondTxInfo.tx.id).not.toBe(firstTxInfo.tx.id);
 
-      const firstLock = await waitForCouponLock(treasuryHarness, firstInitialization.pendingLock.uuid);
-      const afterFirstUse = await waitForCouponUses(operatorHost, coupon.coupon.offerCode, 1);
-      const firstUse = afterFirstUse.uses![0];
+      const firstPendingLock = treasuryHarness.bitcoinLocks.getLockByUuid(firstTxInfo.tx.metadataJson.bitcoin.uuid)!;
+      const secondPendingLock = treasuryHarness.bitcoinLocks.getLockByUuid(secondTxInfo.tx.metadataJson.bitcoin.uuid)!;
+
+      await Promise.all([firstTxInfo.txResult.waitForFinalizedBlock, secondTxInfo.txResult.waitForFinalizedBlock]);
+      await Promise.all([firstTxInfo.waitForPostProcessing, secondTxInfo.waitForPostProcessing]);
+
+      const firstLock = await waitForCouponLock(treasuryHarness, firstPendingLock.uuid);
+      const secondLock = await waitForCouponLock(treasuryHarness, secondPendingLock.uuid);
+      const afterBothUses = await waitForCouponUses(operatorHost, coupon.coupon.offerCode, 2);
+      const firstUse = afterBothUses.uses!.find(use => use.requestedSatoshis === requestedSatoshis)!;
+      const secondUse = afterBothUses.uses!.find(use => use.requestedSatoshis === secondRequestedSatoshis)!;
 
       expect(firstUse).toMatchObject({
         status: 'Finalized',
@@ -298,46 +322,25 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
         ownerAccountId: defaultAccountId,
       });
       expect(firstUse.microgonsAtTargetPerBtc).toBeGreaterThan(0n);
-      expect(firstUse.feeCoupon).toMatchObject({
-        nonce: 1n,
-      });
+      expect(firstUse.feeCoupon).toBeDefined();
       expect(firstUse.feeCoupon).not.toHaveProperty('beneficiary');
       expect(firstUse.feeCoupon).not.toHaveProperty('requestedSatoshis');
       expect(firstUse.feeCoupon).not.toHaveProperty('microgonsAtTargetPerBtc');
-      expect(afterFirstUse).toMatchObject({
-        status: 'Open',
-        originalFeeCreditMicrogons: feeCreditMicrogons,
-        usedFeeCreditMicrogons: firstUse.feeCreditMicrogons,
-        pendingFeeCreditMicrogons: 0n,
-        remainingFeeCreditMicrogons: feeCreditMicrogons - firstUse.feeCreditMicrogons,
+      expect(secondUse).toMatchObject({
+        status: 'Finalized',
+        requestedSatoshis: secondRequestedSatoshis,
+        ownerAccountId: defaultAccountId,
       });
-      expect(firstLock.satoshis).toBe(requestedSatoshis);
-
-      const secondInitialization = await treasuryHarness.bitcoinLocks.initializeLock({
-        satoshis: requestedSatoshis,
-        vault: operatorVault,
-        operatorCoupon: {
-          vaultId: operatorVault.vaultId,
-          offerCode: coupon.coupon.offerCode,
-          accountId: defaultAccountId,
-          remainingFeeCreditMicrogons: afterFirstUse.remainingFeeCreditMicrogons,
-        },
-      });
-      expect(secondInitialization.txInfo).toBeDefined();
-      await secondInitialization.txInfo!.txResult.waitForFinalizedBlock;
-      await secondInitialization.txInfo!.waitForPostProcessing;
-
-      const secondLock = await waitForCouponLock(treasuryHarness, secondInitialization.pendingLock.uuid);
-      const afterSecondUse = await waitForCouponUses(operatorHost, coupon.coupon.offerCode, 2);
-      const totalUsedFeeCredit = afterSecondUse.uses!.reduce((total, use) => total + use.feeCreditMicrogons, 0n);
-      expect(afterSecondUse.uses?.map(use => use.status)).toEqual(['Finalized', 'Finalized']);
-      expect(afterSecondUse.uses?.map(use => use.feeCoupon?.nonce)).toEqual([1n, 2n]);
-      expect(afterSecondUse).toMatchObject({
+      const totalUsedFeeCredit = afterBothUses.uses!.reduce((total, use) => total + use.feeCreditMicrogons, 0n);
+      expect(afterBothUses.uses?.map(use => use.feeCoupon!.nonce).sort()).toEqual([1n, 2n]);
+      expect(afterBothUses).toMatchObject({
         originalFeeCreditMicrogons: feeCreditMicrogons,
         usedFeeCreditMicrogons: totalUsedFeeCredit,
         pendingFeeCreditMicrogons: 0n,
         remainingFeeCreditMicrogons: feeCreditMicrogons - totalUsedFeeCredit,
       });
+      expect(firstLock.securitizedSatoshis).toBe(requestedSatoshis);
+      expect(secondLock.securitizedSatoshis).toBe(secondRequestedSatoshis);
       expect(secondLock.utxoId).not.toBe(firstLock.utxoId);
 
       const chainClient = await treasuryHarness.clients.get(false);

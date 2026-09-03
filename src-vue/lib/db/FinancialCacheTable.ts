@@ -4,6 +4,7 @@ import { BaseTable, type IFieldTypes } from './BaseTable.ts';
 import { convertFromSqliteFields, logStartupTiming, toSqlParams } from '../Utils.ts';
 
 export enum FinancialCacheTypes {
+  BitcoinSecuritizationHistory = 'BitcoinSecuritizationHistory',
   CrosschainHistory = 'CrosschainHistory',
   ExternalWalletBalance = 'ExternalWalletBalance',
 }
@@ -25,7 +26,13 @@ export type ICrosschainHistoryCacheRecord = {
   refreshedThroughBlock: number;
 };
 
+export type IBitcoinSecuritizationHistoryCacheRecord = {
+  snapshotId: string;
+  asOfBlock: number;
+};
+
 export interface IFinancialCacheSchemas {
+  [FinancialCacheTypes.BitcoinSecuritizationHistory]: IBitcoinSecuritizationHistoryCacheRecord;
   [FinancialCacheTypes.CrosschainHistory]: ICrosschainHistoryCacheRecord;
   [FinancialCacheTypes.ExternalWalletBalance]: IExternalWalletBalanceCacheRecord;
 }

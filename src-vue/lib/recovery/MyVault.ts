@@ -22,6 +22,7 @@ export class VaultHistory {
   constructor(
     private readonly dbPromise: Promise<Db>,
     private readonly accountId: string | (() => string),
+    private readonly onHistoryChanged?: () => void,
   ) {}
 
   public async importBlock(block: IBlockHeaderInfo, events: readonly RuntimeSystemEventRecord[]): Promise<void> {
@@ -33,12 +34,14 @@ export class VaultHistory {
       this.isLoaded = true;
     }
 
+    let didChange = false;
     for (const { event, phase } of events) {
       if (event.section !== 'vaults') continue;
 
       const extrinsicIndex = phase.type === 'ApplyExtrinsic' ? phase.value : undefined;
-      await this.importEvent(db, block, event, extrinsicIndex, accountId);
+      if (await this.importEvent(db, block, event, extrinsicIndex, accountId)) didChange = true;
     }
+    if (didChange) this.onHistoryChanged?.();
   }
 
   private async importEvent(
@@ -47,7 +50,7 @@ export class VaultHistory {
     event: HistoricalVaultEvent,
     extrinsicIndex: number | undefined,
     accountId: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (
       event.section !== 'vaults' ||
       (event.method !== 'VaultCreated' &&
@@ -58,12 +61,12 @@ export class VaultHistory {
         event.method !== 'LostBitcoinCompensated' &&
         event.method !== 'VaultCollected')
     ) {
-      return;
+      return false;
     }
 
     const vaultId = event.data.vaultId;
     if (event.method === 'VaultCreated') {
-      if (event.data.operatorAccountId !== accountId) return;
+      if (event.data.operatorAccountId !== accountId) return false;
 
       this.vaultIds.add(vaultId);
       await db.vaultCapitalHistoryTable.insert({
@@ -76,9 +79,9 @@ export class VaultHistory {
         blockTime: new Date(block.blockTime),
         extrinsicIndex,
       });
-      return;
+      return true;
     }
-    if (!this.vaultIds.has(vaultId)) return;
+    if (!this.vaultIds.has(vaultId)) return false;
 
     const eventIdentity = {
       walletAddress: accountId,
@@ -135,6 +138,7 @@ export class VaultHistory {
         blockTime: new Date(block.blockTime),
       });
     }
+    return true;
   }
 
   public async loadPositionHistory(): Promise<{

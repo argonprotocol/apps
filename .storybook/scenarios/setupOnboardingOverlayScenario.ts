@@ -23,15 +23,15 @@ import type { TransactionInfo } from '../../src-vue/lib/TransactionInfo.ts';
 import { createScenarioVault } from './createScenarioVault.ts';
 import { setupAppScenario } from './setupAppScenario.ts';
 
-export function setupOperationalProfileScenario(state: 'draft' | 'loadError' | 'settingsFlexible' | 'settingsBasic') {
+export function setupOperationalProfileScenario(state: 'draft' | 'loadError' | 'settings') {
   const { controller } = setupAppScenario({ selectedTab: TopTab.Onboarding });
 
-  if (state === 'settingsFlexible' || state === 'settingsBasic') {
+  if (state === 'settings') {
     controller.operatorName = 'AtlasOperator';
     const client = {
       tx: {
-        bitcoinLocks: state === 'settingsFlexible' ? { setFlexible: fn() } : {},
-        treasury: state === 'settingsFlexible' ? { setBondLotFlexible: fn() } : {},
+        bitcoinLocks: { setFlexible: fn() },
+        treasury: { setBondLotFlexible: fn() },
         vaults: {},
       },
     } as unknown as Awaited<ReturnType<typeof getMainchainClient>>;

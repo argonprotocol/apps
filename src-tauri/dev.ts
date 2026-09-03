@@ -15,18 +15,14 @@ import {
   startDevEthereum,
 } from '../e2e/devEthereum.ts';
 import {
-  startDevEthereumMintingAuthority,
-  type IDevEthereumMintingAuthorityRuntime,
-} from '../e2e/helpers/startDevEthereumMintingAuthority.ts';
-import {
   getDevDockerComposeContext,
-  type IDevUpstreamServerRuntime,
   readComposeContainerId,
   readComposePortWithRetry,
+  readDevUpstreamServerPorts,
   resolveDevUpstreamRootDir,
-  startDevUpstreamServer,
   waitForDevUpstreamEthereumRelayReady,
 } from '../e2e/scripts/devUpstreamServer.ts';
+import { ensureDevUpstreamWorker } from '../e2e/scripts/devUpstreamProcess.ts';
 import { isPortAvailable } from '../scripts/utils.ts';
 import fs from 'fs';
 import path from 'path';
@@ -56,18 +52,13 @@ async function main(): Promise<void> {
 
   const tauriEnv: NodeJS.ProcessEnv = { ...process.env };
   const devEthereumConfig = readDevEthereumConfigFromEnv();
-  let shouldStartDevEthereumMintingAuthority = false;
-  let devEthereumMintingAuthorityRuntime: IDevEthereumMintingAuthorityRuntime | undefined;
-  let devEthereumMintingAuthorityPromise: Promise<void> | undefined;
   let devEthereumSetup: IDevEthereumSetup | undefined;
   let devDockerArchiveUrl: string | undefined;
   let devEthereumExecutionRpcUrl: string | undefined;
+  let networkConfigOverride: RuntimeNetworkConfigOverride | undefined;
   let startedDevEthereum: IStartDevEthereumResult | undefined;
   let isShuttingDown = false;
   if (network === 'dev-docker') {
-    const mintingAuthoritySetting = readNonEmpty(process.env.ARGON_DEV_ETHEREUM_MINTING_AUTHORITY)?.toLowerCase();
-    shouldStartDevEthereumMintingAuthority =
-      !!devEthereumConfig && !['0', 'false', 'no', 'off'].includes(mintingAuthoritySetting ?? '');
     await ensureDevGatewayCerts({ appInstance: argonAppInstance, network });
 
     console.log('[tauri-dev] Resolving dev-docker compose ports');
@@ -119,6 +110,7 @@ async function main(): Promise<void> {
     const resolvedOverride = inheritedRuntimeOverride
       ? mergeNetworkConfigOverrides(inheritedRuntimeOverride, runtimeOverride)
       : runtimeOverride;
+    networkConfigOverride = resolvedOverride ?? undefined;
 
     if (resolvedOverride) {
       tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE = JSON.stringify(resolvedOverride);
@@ -143,8 +135,6 @@ async function main(): Promise<void> {
   let devEthereumRuntimeSetupPromise: Promise<void> | undefined;
   let devEthereumRelayReadyPromise: Promise<void> | undefined;
   let devUpstreamPromise: Promise<void> | undefined;
-  let devUpstreamRuntime: IDevUpstreamServerRuntime | undefined;
-  let devUpstreamActorPidPath: string | undefined;
   if (devEthereumSetup) {
     devEthereumRuntimeSetupPromise = devEthereumSetup.start().catch(error => {
       console.error(`[tauri-dev] Failed to configure local Ethereum: ${(error as Error).message}`);
@@ -157,24 +147,17 @@ async function main(): Promise<void> {
     readNonEmpty(process.env.ARGON_DEV_UPSTREAM)?.toLowerCase() ?? '',
   );
   if (devDockerArchiveUrl && shouldStartDevUpstream && (!isE2EAppRun || devEthereumConfig)) {
-    const actorPidPath = path.join(resolveDevUpstreamRootDir(), 'config', 'operator-actor.pid');
-    devUpstreamActorPidPath = actorPidPath;
-    fs.rmSync(actorPidPath, { force: true });
-    devUpstreamPromise = startDevUpstreamServer({
+    devUpstreamPromise = ensureDevUpstreamWorker({
       archiveUrl: devDockerArchiveUrl,
+      env: tauriEnv,
+      networkConfigOverride,
+      rootDir: resolveDevUpstreamRootDir(),
       devEthereum: startedDevEthereum,
       devEthereumConfig,
+      executionRpcUrl: devEthereumExecutionRpcUrl,
     })
-      .then(async runtime => {
-        devUpstreamRuntime = runtime;
-        try {
-          fs.writeFileSync(actorPidPath, `${process.pid}\n`);
-        } catch (error) {
-          await runtime.shutdown().catch(() => undefined);
-          devUpstreamRuntime = undefined;
-          throw error;
-        }
-        console.log(`[tauri-dev][upstream-ready] upstream server is ready (operator actor pid ${process.pid})`);
+      .then(pid => {
+        console.log(`[tauri-dev][upstream-ready] upstream worker is ready (pid ${pid})`);
       })
       .catch(error => {
         console.error(`[tauri-dev] Failed to start upstream server: ${(error as Error).message}`);
@@ -182,18 +165,6 @@ async function main(): Promise<void> {
       });
 
     void devUpstreamPromise.catch(() => undefined);
-
-    process.on('SIGUSR2', () => {
-      void devUpstreamPromise
-        ?.then(async () => {
-          await devUpstreamRuntime?.detachOperator();
-          fs.rmSync(actorPidPath, { force: true });
-          console.log('[tauri-dev] Embedded upstream operator detached');
-        })
-        .catch(error => {
-          console.error(`[tauri-dev] Failed to detach embedded upstream operator: ${(error as Error).message}`);
-        });
-    });
   }
 
   if (devEthereumSetup) {
@@ -206,16 +177,14 @@ async function main(): Promise<void> {
       }
 
       await devUpstreamPromise;
-      if (!devUpstreamRuntime) {
-        throw new Error('Upstream server did not finish startup before Ethereum relay activation.');
-      }
       if (isShuttingDown) {
         return;
       }
 
+      const { botPort } = await readDevUpstreamServerPorts();
       await waitForDevUpstreamEthereumRelayReady({
         archiveUrl: devDockerArchiveUrl,
-        botPort: devUpstreamRuntime.botPort,
+        botPort,
       });
       if (isShuttingDown) {
         return;
@@ -285,54 +254,9 @@ async function main(): Promise<void> {
     }, 5_000).unref();
   });
 
-  if (shouldStartDevEthereumMintingAuthority) {
-    devEthereumMintingAuthorityPromise = (async () => {
-      if (!devEthereumRuntimeSetupPromise || !devUpstreamPromise) {
-        throw new Error('Dev Ethereum or upstream setup did not start before the minting authority.');
-      }
-      await Promise.all([devEthereumRuntimeSetupPromise, devUpstreamPromise]);
-      if (!devUpstreamRuntime) {
-        throw new Error('Upstream operator did not finish startup before the minting authority.');
-      }
-      if (isShuttingDown) {
-        return;
-      }
-
-      console.log('[tauri-dev] Starting local Ethereum minting authority');
-      devEthereumMintingAuthorityRuntime = await startDevEthereumMintingAuthority({
-        archiveUrl: devDockerArchiveUrl!,
-        executionRpcUrl: devEthereumExecutionRpcUrl,
-        logPrefix: 'tauri-dev',
-        operator: devUpstreamRuntime.operator,
-        virtualEnv: {
-          appInstance: argonAppInstance,
-          network,
-          serverEnvVars: tauriEnv,
-        },
-      });
-      console.log('[tauri-dev] local Ethereum minting authority activation is running');
-
-      if (isShuttingDown) {
-        await devEthereumMintingAuthorityRuntime.shutdown().catch(() => undefined);
-        devEthereumMintingAuthorityRuntime = undefined;
-      }
-    })().catch(error => {
-      console.error(`[tauri-dev] Failed to start local Ethereum minting authority: ${(error as Error).message}`);
-    });
-  }
-
   child.on('exit', code => {
     isShuttingDown = true;
-    const shutdownPromise = (async () => {
-      await devUpstreamPromise?.catch(() => undefined);
-      await devEthereumMintingAuthorityPromise;
-      await devEthereumMintingAuthorityRuntime?.shutdown().catch(() => undefined);
-      await devUpstreamRuntime?.shutdown().catch(() => undefined);
-      if (devUpstreamActorPidPath) fs.rmSync(devUpstreamActorPidPath, { force: true });
-    })();
-    void shutdownPromise.finally(() => {
-      process.exit(code ?? 0);
-    });
+    process.exit(code ?? 0);
   });
 }
 

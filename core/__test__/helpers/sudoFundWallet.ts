@@ -24,6 +24,9 @@ export async function sudoFundWallet(input: ISudoFundWalletInput): Promise<ISudo
   const client = input.client ?? (await getTestMainchainClient(resolveArchiveUrl(input.archiveUrl)));
   const ownsClient = !input.client;
   try {
+    let fundedMicrogons = 0n;
+    let fundedMicronots = 0n;
+
     for (let attempt = 1; ; attempt += 1) {
       const tx = client.tx.sudo.sudo(
         client.tx.utility.batch([
@@ -37,6 +40,12 @@ export async function sudoFundWallet(input: ISudoFundWalletInput): Promise<ISudo
         if (result.extrinsicError) {
           throw result.extrinsicError;
         }
+
+        const fundedClient = await client.at(await result.waitForFinalizedBlock);
+        const microgonBalance = await fundedClient.query.system.account(input.address);
+        const micronotBalance = await fundedClient.query.ownership.account(input.address);
+        fundedMicrogons = microgonBalance.data.free;
+        fundedMicronots = micronotBalance.free;
         break;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -56,23 +65,6 @@ export async function sudoFundWallet(input: ISudoFundWalletInput): Promise<ISudo
 
         await new Promise(resolve => setTimeout(resolve, attempt * 500));
       }
-    }
-
-    const startedAt = Date.now();
-    let fundedMicrogons = 0n;
-    let fundedMicronots = 0n;
-
-    while (Date.now() - startedAt < 30_000) {
-      const microgonBalance = await client.query.system.account(input.address);
-      const micronotBalance = await client.query.ownership.account(input.address);
-      fundedMicrogons = microgonBalance.data.free;
-      fundedMicronots = micronotBalance.free;
-
-      if (fundedMicrogons >= input.microgons && fundedMicronots >= input.micronots) {
-        break;
-      }
-
-      await new Promise(resolve => setTimeout(resolve, 1_000));
     }
 
     if (fundedMicrogons < input.microgons) {

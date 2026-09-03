@@ -10,6 +10,7 @@ import {
   BidAmountFormulaType,
   createArgonClient,
   type IEthereumGatewayRelayStatus,
+  type INetworkConfigOverride,
   JsonExt,
   MainchainClients,
   MICROGONS_PER_ARGON,
@@ -27,6 +28,7 @@ import type { IConfig } from 'src-vue/interfaces/IConfig.ts';
 import { BootstrapRecovery } from 'src-vue/lib/BootstrapRecovery.ts';
 import { Config } from 'src-vue/lib/Config.ts';
 import { MemoryWalletKeys } from 'src-vue/lib/MemoryWalletKeys.ts';
+import { DEV_DOCKER_COMPOSE_FILES, type DevDockerComposeContext, getComposeArgs } from './devUpstreamCompose.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -35,30 +37,17 @@ const execFileAsync = promisify(execFile);
 
 export const DEV_UPSTREAM_MASTER_MNEMONIC = 'test test test test test test test test test test test junk';
 
-export const DEV_DOCKER_COMPOSE_FILES = [
-  'docker-compose.yml',
-  'miners.docker-compose.yml',
-  'upstream-server.docker-compose.yml',
-  'indexer.docker-compose.yml',
-] as const;
-const CHAIN_SPEC_COMPOSE_FILE = 'chainspec.docker-compose.yml';
+export { DEV_DOCKER_COMPOSE_FILES } from './devUpstreamCompose.ts';
+export type { DevDockerComposeContext } from './devUpstreamCompose.ts';
 
 const DEFAULT_COMPOSE_PROFILES = ['all'] as const;
 const UPSTREAM_COMPOSE_PROFILES = ['all', 'upstream'] as const;
-
-export interface DevDockerComposeContext {
-  composeDir: string;
-  composeEnv: NodeJS.ProcessEnv;
-  composeProjectName?: string;
-  profiles: readonly string[];
-}
 
 export interface IDevUpstreamServerRuntime {
   operator: AppVaultOperator;
   botPort: string;
   gatewayPort: string;
   routerPort: string;
-  detachOperator(): Promise<void>;
   shutdown(): Promise<void>;
 }
 
@@ -126,7 +115,8 @@ export async function readDevUpstreamServerPorts(
 
 export async function startDevUpstreamServer(args: {
   archiveUrl: string;
-  devEthereum?: IStartDevEthereumResult;
+  networkConfigOverride?: INetworkConfigOverride;
+  devEthereum?: Pick<IStartDevEthereumResult, 'serverBeaconApiUrl' | 'serverExecutionRpcUrl' | 'usdcTokenAddress'>;
   devEthereumConfig?: Pick<IDevEthereumConfig, 'finalityBlocks' | 'finalityMillis'>;
 }): Promise<IDevUpstreamServerRuntime> {
   const upstreamRootDir = resolveDevUpstreamRootDir();
@@ -224,46 +214,57 @@ export async function startDevUpstreamServer(args: {
     await fundingClient.disconnect();
   }
 
-  await execFileAsync(
-    'docker',
-    [...getComposeArgs(context), 'build', 'upstream-router', 'upstream-bot', 'upstream-nginx'],
-    {
-      cwd: context.composeDir,
-      encoding: 'utf8',
-      env: context.composeEnv,
-    },
-  );
+  let clients: MainchainClients | undefined;
+  let actor: AppVaultOperator | undefined;
+  try {
+    await execFileAsync(
+      'docker',
+      [...getComposeArgs(context), 'build', 'upstream-router', 'upstream-bot', 'upstream-nginx'],
+      {
+        cwd: context.composeDir,
+        encoding: 'utf8',
+        env: context.composeEnv,
+      },
+    );
 
-  await execFileAsync(
-    'docker',
-    [
-      ...getComposeArgs(context),
-      'up',
-      '-d',
-      '--wait',
-      'upstream-miner',
-      'upstream-router',
-      'upstream-bot',
-      'upstream-nginx',
-    ],
-    {
-      cwd: context.composeDir,
-      encoding: 'utf8',
-      env: context.composeEnv,
-    },
-  );
+    await execFileAsync(
+      'docker',
+      [
+        ...getComposeArgs(context),
+        'up',
+        '-d',
+        '--wait',
+        'upstream-miner',
+        'upstream-router',
+        'upstream-bot',
+        'upstream-nginx',
+      ],
+      {
+        cwd: context.composeDir,
+        encoding: 'utf8',
+        env: context.composeEnv,
+      },
+    );
 
-  NetworkConfig.setNetwork('dev-docker');
+    NetworkConfig.setNetwork('dev-docker');
 
-  const archiveClient = await getClient(args.archiveUrl);
-  const clients = new MainchainClients(args.archiveUrl, () => false, archiveClient);
-  const actor = await AppVaultOperator.load({
-    clients,
-    walletKeys,
-  });
+    const archiveClient = await getClient(args.archiveUrl);
+    clients = new MainchainClients(args.archiveUrl, () => false, archiveClient);
+    actor = await AppVaultOperator.load({
+      clients,
+      walletKeys,
+      networkConfigOverride: args.networkConfigOverride,
+    });
+  } catch (error) {
+    await actor?.dispose().catch(() => undefined);
+    await clients?.disconnect().catch(() => undefined);
+    throw error;
+  }
+
   const bootstrapRecovery = new BootstrapRecovery(walletKeys);
   const vaultAlertAbortController = new AbortController();
   let isShutdown = false;
+  let shutdownPromise: Promise<void> | undefined;
   let operationsUpgradePoller: { shutdown(): Promise<void> } | undefined;
   let vaultAlertPoller: Promise<void> | undefined;
   let endpointMonitor: NodeJS.Timeout | undefined;
@@ -282,15 +283,21 @@ export async function startDevUpstreamServer(args: {
       actor.myVault.unsubscribe();
     }
   };
-  const shutdown = async () => {
-    if (isShutdown) {
-      return;
-    }
-    isShutdown = true;
-    clearInterval(endpointMonitor);
-    await detachOperator().catch(() => undefined);
-    await actor.dispose().catch(() => undefined);
-    await clients.disconnect().catch(() => undefined);
+  const shutdown = (): Promise<void> => {
+    if (isShutdown) return Promise.resolve();
+    if (shutdownPromise) return shutdownPromise;
+
+    shutdownPromise = (async () => {
+      clearInterval(endpointMonitor);
+      await detachOperator().catch(() => undefined);
+      await actor.dispose().catch(() => undefined);
+      await clients.disconnect().catch(() => undefined);
+      isShutdown = true;
+    })().finally(() => {
+      shutdownPromise = undefined;
+    });
+
+    return shutdownPromise;
   };
 
   try {
@@ -357,7 +364,6 @@ export async function startDevUpstreamServer(args: {
       botPort,
       gatewayPort,
       routerPort,
-      detachOperator,
       shutdown,
     };
   } catch (error) {
@@ -432,20 +438,6 @@ export function readComposeContainerId(args: { context?: DevDockerComposeContext
   }
 
   return containerId;
-}
-
-function getComposeArgs(context: DevDockerComposeContext): string[] {
-  const useChainspec =
-    context.composeEnv.E2E_USE_TEST_NETWORK?.trim() !== '1' ||
-    context.composeEnv.ARGON_CHAIN?.trim() === '/chainspec.raw.json';
-  const composeFiles = useChainspec ? [...DEV_DOCKER_COMPOSE_FILES, CHAIN_SPEC_COMPOSE_FILE] : DEV_DOCKER_COMPOSE_FILES;
-
-  return [
-    'compose',
-    ...context.profiles.flatMap(profile => ['--profile', profile]),
-    ...(context.composeProjectName ? ['--project-name', context.composeProjectName] : []),
-    ...composeFiles.flatMap(file => ['-f', file]),
-  ];
 }
 
 export async function createDevUpstreamWalletKeys(): Promise<MemoryWalletKeys> {

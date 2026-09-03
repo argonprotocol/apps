@@ -1,11 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, disposePinia, setActivePinia, type Pinia } from 'pinia';
-import { type ArgonQueryClient, BondLot, type IBlockHeaderInfo, type Vault } from '@argonprotocol/apps-core';
+import { nextTick, reactive } from 'vue';
+import {
+  BitcoinFission,
+  type ArgonQueryClient,
+  BondLot,
+  type IBlockHeaderInfo,
+  type Vault,
+} from '@argonprotocol/apps-core';
 import {
   type FrameSupportTokensMiscIdAmountRuntimeHoldReason,
   getOfflineRegistry,
+  PriceIndex,
   type PalletTreasuryBondLot,
 } from '@argonprotocol/mainchain';
+import BigNumber from 'bignumber.js';
 import { toPlain, type TreasuryBondLotByIdResult } from '@argonprotocol/runtime-client';
 import type { IFinancialPosition } from '../interfaces/IFinancialPosition.ts';
 import type { IArgonAccountBalance, IArgonAccountSnapshot } from '../lib/WalletsForArgon.ts';
@@ -13,7 +22,9 @@ import type { WalletForArgon } from '../lib/WalletForArgon.ts';
 import type { IMiningCohortFinancialRecord } from '../interfaces/db/ICohortFrameRecord.ts';
 import type { IVaultCapitalHistoryRecord } from '../lib/db/VaultCapitalHistoryTable.ts';
 import type { IVaultRevenueEventsRecord } from '../lib/db/VaultRevenueEventsTable.ts';
+import type { IBitcoinPublishedSecuritizationHistory } from '../lib/db/BitcoinSecuritizationHistoryTable.ts';
 import type { IWallet } from '../lib/Wallet.ts';
+import { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
 
 type FinancialHistoryRestoreArgs = Parameters<typeof import('../lib/recovery/index.ts').restoreFinancialHistory>[0];
 
@@ -32,31 +43,61 @@ const mocks = vi.hoisted(() => {
 
   return {
     argonBonds: {
-      data: { bondLots: [] as BondLot[], bondHistory: [] },
+      data: { bondLots: [] as BondLot[], bondHistory: [], isLoaded: false, financialRevision: 0 },
       completedBondHistory: [],
       miningFrames: { getFrameDate: vi.fn(() => new Date('2026-07-16T12:00:00Z')) },
       load: vi.fn<() => Promise<void>>(),
+      publishRecoveredHistory: vi.fn(async function (this: { data: { financialRevision: number } }) {
+        this.data.financialRevision += 1;
+      }),
       getOwnBondLots: vi.fn<(clientAt: ArgonQueryClient) => Promise<BondLot[]>>(),
       createFinancialPositions: vi.fn(() => []),
     },
     bitcoinLocks: {
-      data: { locksByUtxoId: {}, pendingLocks: [], latestArgonBlock: undefined },
+      data: {
+        locksByUtxoId: {} as Record<number, object>,
+        pendingLocks: [] as object[],
+        latestArgonBlock: undefined as IBlockHeaderInfo | undefined,
+        isLoaded: false,
+        financialRevision: 0,
+      },
       recovery: {},
       load: vi.fn<() => Promise<void>>(),
       getAllLocks: vi.fn((): object[] => []),
       createLockSummary: vi.fn((_lock: object) => createBitcoinSummary(0n)),
-      createLockSummaryAt: vi.fn(async (_lock: object, _api: object) => createBitcoinSummary(0n)),
-      isLockedStatus: vi.fn(() => true),
+      isLockFunded: vi.fn(() => true),
       isFinishedStatus: vi.fn(() => false),
       isReleaseStatus: vi.fn(() => false),
       isInactiveForVaultDisplay: vi.fn(() => false),
       refreshLockSummary: vi.fn(),
     },
+    bitcoinFissions: {
+      data: {
+        fissionsById: {} as Record<number, BitcoinFission>,
+        historyById: {} as Record<number, BitcoinFission>,
+        isLoaded: false,
+        financialRevision: 0,
+      },
+      recovery: {},
+      ownerAccount: '5default',
+      load: vi.fn<() => Promise<void>>(),
+      loadActive: vi.fn(async (_clientAt?: ArgonQueryClient) => [] as BitcoinFission[]),
+      getAll: vi.fn(function (this: { data: { fissionsById: Record<number, BitcoinFission> } }) {
+        return Object.values(this.data.fissionsById);
+      }),
+      getHistory: vi.fn(function (this: { data: { historyById: Record<number, BitcoinFission> } }) {
+        return Object.values(this.data.historyById);
+      }),
+      getLiquids: vi.fn((): { liquidId: number; fissions: BitcoinFission[] }[] => []),
+    },
     blockWatch: {
       bestBlockHeader: { blockNumber: 1, blockHash: '0x1', blockTime: Date.parse('2026-07-16T12:00:00Z') },
       finalizedBlockHeader: { blockNumber: 1, blockHash: '0x1', blockTime: Date.parse('2026-07-16T12:00:00Z') },
       latestHeaders: [{ blockNumber: 1, blockHash: '0x1', blockTime: Date.parse('2026-07-16T12:00:00Z') }],
-      getApi: vi.fn(async (_header: IBlockHeaderInfo) => ({})),
+      finalizedHashes: {} as Record<number, string>,
+      getApi: vi.fn(async (_header: IBlockHeaderInfo) => ({
+        query: { ticks: { currentTick: async () => 1 } },
+      })),
       getHeaderByBlockNumber: vi.fn(async (blockNumber: number) => ({
         blockNumber,
         blockHash: `0x${blockNumber}`,
@@ -79,9 +120,11 @@ const mocks = vi.hoisted(() => {
       usdTarget: 0,
       fetchMicrogonsInCirculation: vi.fn(async () => 0n),
       convertMicronotTo: vi.fn(() => 0n),
+      convertSatToMicrogon: vi.fn(() => 0n),
       convertOtherToMicrogon: vi.fn(() => 0n),
     },
     myMiningSeats: {
+      isLoaded: false,
       isLoadedPromise: Promise.resolve(),
       financialRevision: 0,
       serverState: { argonLocalNodeBlockNumber: 0 },
@@ -93,6 +136,8 @@ const mocks = vi.hoisted(() => {
       createdVault: undefined as Vault | undefined,
       vaults: { operatorNamesByVaultId: {} },
       data: {
+        isLoaded: false,
+        financialRevision: 0,
         pendingCollectRevenue: 0n,
         argonotCommitment: {
           committedMicronots: 0n,
@@ -105,6 +150,9 @@ const mocks = vi.hoisted(() => {
         >(async () => ({ capital: [], revenue: [] })),
       },
       load: vi.fn<() => Promise<void>>(),
+      publishRecoveredHistory: vi.fn(function (this: { data: { financialRevision: number } }) {
+        this.data.financialRevision += 1;
+      }),
     },
     stableSwaps: {
       walletSnapshot: undefined,
@@ -119,7 +167,14 @@ const mocks = vi.hoisted(() => {
       argonBurnCapacity: 0,
     },
     walletHistoryRecovery: { hasCompleteCoverage: vi.fn(async () => false) },
-    db: {},
+    db: {
+      bitcoinFissionsTable: { fetchAll: vi.fn<() => Promise<BitcoinFission[]>>(async () => []) },
+      bitcoinSecuritizationHistoryTable: {
+        getPublishedSnapshot: vi.fn<() => Promise<IBitcoinPublishedSecuritizationHistory | undefined>>(
+          async () => undefined,
+        ),
+      },
+    },
     wallets: {
       isLoadedPromise: Promise.resolve(),
       defaultArgonWallet: wallet('5default', 'argon'),
@@ -195,7 +250,13 @@ vi.mock('../stores/wallets.ts', () => ({
   getWalletsForArgon: () => mocks.walletsForArgon,
   useWallets: () => mocks.wallets,
 }));
-vi.mock('../stores/bitcoin.ts', () => ({ getBitcoinLocks: () => mocks.bitcoinLocks }));
+vi.mock('../stores/bitcoin.ts', () => ({
+  getBitcoinFissions: () => {
+    void mocks.bitcoinFissions.load();
+    return mocks.bitcoinFissions;
+  },
+  getBitcoinLocks: () => mocks.bitcoinLocks,
+}));
 vi.mock('../stores/currency.ts', () => ({ getCurrency: () => mocks.currency }));
 vi.mock('../stores/argonBonds.ts', () => ({ getArgonBonds: () => mocks.argonBonds }));
 vi.mock('../stores/mainchain.ts', () => ({
@@ -223,6 +284,7 @@ vi.mock('../lib/recovery/index.ts', () => ({
 }));
 
 import { useFinancials } from '../stores/financials.ts';
+import { useFinancialHistory } from '../stores/financialHistory.ts';
 
 describe('financials store lifecycle', () => {
   let pinia: Pinia;
@@ -244,21 +306,49 @@ describe('financials store lifecycle', () => {
     mocks.currency.microgonsPer.ARGNOT = 0n;
     mocks.currency.fetchMicrogonsInCirculation.mockResolvedValue(0n);
     mocks.currency.fetchMicrogonsInCirculation.mockClear();
+    mocks.currency.convertSatToMicrogon.mockReturnValue(0n);
+    mocks.currency.convertSatToMicrogon.mockClear();
     mocks.argonBonds.load.mockResolvedValue();
+    mocks.argonBonds.publishRecoveredHistory.mockClear();
     mocks.argonBonds.data.bondLots = [];
     mocks.argonBonds.data.bondHistory = [];
+    mocks.argonBonds.data.isLoaded = true;
+    mocks.argonBonds.data.financialRevision = 0;
     mocks.argonBonds.getOwnBondLots.mockImplementation(async () => mocks.argonBonds.data.bondLots);
     mocks.argonBonds.getOwnBondLots.mockClear();
     mocks.argonBonds.miningFrames.getFrameDate.mockClear();
+    mocks.bitcoinLocks.data = {
+      locksByUtxoId: {},
+      pendingLocks: [],
+      latestArgonBlock: undefined,
+      isLoaded: true,
+      financialRevision: 1,
+    };
     mocks.bitcoinLocks.load.mockResolvedValue();
     mocks.bitcoinLocks.load.mockClear();
     mocks.bitcoinLocks.getAllLocks.mockReturnValue([]);
     mocks.bitcoinLocks.getAllLocks.mockClear();
     mocks.bitcoinLocks.createLockSummary.mockImplementation(() => createBitcoinSummary(0n));
     mocks.bitcoinLocks.createLockSummary.mockClear();
-    mocks.bitcoinLocks.createLockSummaryAt.mockImplementation(async () => createBitcoinSummary(0n));
-    mocks.bitcoinLocks.createLockSummaryAt.mockClear();
-    mocks.bitcoinLocks.isLockedStatus.mockReturnValue(true);
+    mocks.bitcoinFissions.load.mockResolvedValue();
+    mocks.bitcoinFissions.load.mockClear();
+    mocks.bitcoinFissions.loadActive.mockResolvedValue([]);
+    mocks.bitcoinFissions.loadActive.mockClear();
+    mocks.bitcoinFissions.getAll.mockClear();
+    mocks.bitcoinFissions.getHistory.mockClear();
+    mocks.bitcoinFissions.data = {
+      fissionsById: {},
+      historyById: {},
+      isLoaded: true,
+      financialRevision: 1,
+    };
+    mocks.bitcoinFissions.getLiquids.mockReturnValue([]);
+    mocks.bitcoinFissions.getLiquids.mockClear();
+    mocks.db.bitcoinFissionsTable.fetchAll.mockResolvedValue([]);
+    mocks.db.bitcoinFissionsTable.fetchAll.mockClear();
+    mocks.db.bitcoinSecuritizationHistoryTable.getPublishedSnapshot.mockResolvedValue(undefined);
+    mocks.db.bitcoinSecuritizationHistoryTable.getPublishedSnapshot.mockClear();
+    mocks.bitcoinLocks.isLockFunded.mockReturnValue(true);
     mocks.bitcoinLocks.isFinishedStatus.mockReturnValue(false);
     mocks.bitcoinLocks.isReleaseStatus.mockReturnValue(false);
     mocks.bitcoinLocks.isInactiveForVaultDisplay.mockReturnValue(false);
@@ -266,7 +356,12 @@ describe('financials store lifecycle', () => {
     mocks.vaultingStats.argonBurnCapacity = 0;
     mocks.vaultingStats.microgonValueInVaults = 0n;
     mocks.myVault.load.mockResolvedValue();
+    mocks.myVault.publishRecoveredHistory.mockClear();
     mocks.myVault.createdVault = undefined;
+    mocks.myVault.data.isLoaded = true;
+    mocks.myVault.data.financialRevision = 1;
+    mocks.myMiningSeats.isLoaded = true;
+    mocks.myMiningSeats.financialRevision = 1;
     mocks.miningFinancials.loadPositions.mockResolvedValue([]);
     mocks.miningFinancials.loadPositions.mockClear();
     mocks.stableSwaps.load.mockResolvedValue();
@@ -288,6 +383,7 @@ describe('financials store lifecycle', () => {
       blockTime: Date.parse('2026-07-16T12:00:00Z'),
     };
     mocks.blockWatch.latestHeaders = [mocks.blockWatch.finalizedBlockHeader];
+    mocks.blockWatch.finalizedHashes = {};
     mocks.blockWatch.getApi.mockClear();
     mocks.blockWatch.getHeaderByBlockNumber.mockClear();
     mocks.walletHistoryRecovery.hasCompleteCoverage.mockResolvedValue(false);
@@ -392,6 +488,184 @@ describe('financials store lifecycle', () => {
     expect(mocks.vaults.load).not.toHaveBeenCalled();
   });
 
+  it('publishes a locally created Bitcoin lock without rebuilding the account snapshot', async () => {
+    mocks.config.hasExtensionTreasury = true;
+    mocks.bitcoinLocks.data = reactive({
+      locksByUtxoId: {},
+      pendingLocks: [],
+      latestArgonBlock: undefined,
+      isLoaded: true,
+      financialRevision: 1,
+    });
+    mocks.bitcoinFissions.data.isLoaded = true;
+    mocks.bitcoinLocks.getAllLocks.mockImplementation(() => mocks.bitcoinLocks.data.pendingLocks);
+    const summary = createBitcoinSummary(0n);
+    mocks.bitcoinLocks.createLockSummary.mockReturnValue(summary);
+    const financials = useFinancials();
+
+    await vi.waitFor(() => expect(financials.savingsIsLoaded).toBe(true));
+    const publishedRecords = financials.liquidAllRecords;
+    mocks.bitcoinLocks.data.pendingLocks.push(summary.record);
+    await nextTick();
+    await new Promise(resolve => setTimeout(resolve, 25));
+
+    expect(financials.bitcoinLockDisplayRecords.map(record => record.uuid)).toEqual(['bitcoin-lock']);
+    expect(financials.liquidAllRecords).toBe(publishedRecords);
+  });
+
+  it('publishes other financials while Fissions load and refreshes the Liquid breakdown when they are ready', async () => {
+    mocks.config.hasExtensionTreasury = true;
+    mocks.bitcoinFissions.data = reactive({
+      fissionsById: {},
+      historyById: {},
+      isLoaded: false,
+      financialRevision: 0,
+    });
+    mocks.bitcoinFissions.getLiquids.mockImplementation(() => {
+      return Object.values(mocks.bitcoinFissions.data.fissionsById).map(fission => ({
+        liquidId: fission.liquidId,
+        fissions: [fission],
+      }));
+    });
+    const finishFissionLoad = () => {
+      mocks.bitcoinFissions.data.fissionsById[7] = new BitcoinFission({
+        ownerAccount: '5default',
+        fissionId: 7,
+        liquidId: 9,
+        utxoId: 1,
+        satoshis: 100_000n,
+        liquidityPromised: 50n,
+        microgonsAtTargetPerBtc: 100n,
+        createdAtArgonBlock: 1,
+        ratchetNumber: 0,
+        lastUpdatedArgonBlock: 1,
+      });
+      mocks.bitcoinFissions.data.isLoaded = true;
+      mocks.bitcoinFissions.data.financialRevision += 1;
+    };
+
+    const financials = useFinancials();
+
+    await vi.waitFor(() => expect(financials.savingsIsLoaded).toBe(true));
+    expect(financials.bitcoinLiquids).toEqual([]);
+
+    finishFissionLoad();
+    await vi.waitFor(() => expect(financials.bitcoinLiquids.map(liquid => liquid.liquidId)).toEqual([9]));
+  });
+
+  it('publishes a Liquid position when its domain advances its financial revision', async () => {
+    const summary = createBitcoinSummary(0n);
+    const fission = new BitcoinFission({
+      ownerAccount: '5default',
+      fissionId: 7,
+      liquidId: 9,
+      utxoId: summary.utxoId,
+      satoshis: summary.satoshis,
+      liquidityPromised: 50n,
+      microgonsAtTargetPerBtc: 1_000_000n,
+      createdAtArgonBlock: 1,
+      createdAtTick: 0,
+      createdBlockTime: new Date('2026-07-16T12:00:00Z'),
+      ratchetNumber: 0,
+      lastUpdatedArgonBlock: 1,
+      origin: 'created',
+      ratchets: [
+        {
+          source: 'fission',
+          sourceRatchetIndex: 0,
+          ratchetNumber: 0,
+          microgonsAtTargetPerBtc: 1_000_000n,
+          liquidityPromised: 50n,
+          amountMinted: 50n,
+          amountBurned: 0n,
+          mintPending: 0n,
+          txFee: 5n,
+          blockNumber: 1,
+          tick: 0,
+        },
+      ],
+    });
+    mocks.config.hasExtensionTreasury = true;
+    const priceIndex = new PriceIndex();
+    priceIndex.btcUsdPrice = new BigNumber(1);
+    priceIndex.argonUsdPrice = new BigNumber(1);
+    priceIndex.argonUsdTargetPrice = new BigNumber(1);
+    mocks.currency.priceIndex = priceIndex;
+    mocks.bitcoinLocks.getAllLocks.mockReturnValue([summary.record]);
+    mocks.bitcoinLocks.createLockSummary.mockReturnValue(summary);
+    mocks.bitcoinFissions.data = reactive({
+      fissionsById: {},
+      historyById: {},
+      isLoaded: true,
+      financialRevision: 0,
+    });
+    mocks.bitcoinFissions.loadActive.mockImplementation(async () => {
+      return Object.values(mocks.bitcoinFissions.data.fissionsById);
+    });
+    mocks.db.bitcoinFissionsTable.fetchAll.mockImplementation(async () => {
+      return Object.values(mocks.bitcoinFissions.data.historyById);
+    });
+
+    const financials = useFinancials();
+
+    await vi.waitFor(() => expect(financials.savingsIsLoaded).toBe(true));
+    await vi.waitFor(() => {
+      expect(
+        financials.financialPositionAggregate.groupSummaries.bitcoin.positions.some(
+          position => position.kind === 'bitcoin-liquid',
+        ),
+      ).toBe(false);
+    });
+    mocks.bitcoinFissions.data.fissionsById[fission.fissionId] = fission;
+    mocks.bitcoinFissions.data.historyById[fission.fissionId] = fission;
+    mocks.bitcoinFissions.data.financialRevision += 1;
+
+    await vi.waitFor(() => {
+      expect(
+        financials.financialPositionAggregate.groupSummaries.bitcoin.positions.find(
+          position => position.kind === 'bitcoin-liquid',
+        ),
+      ).toMatchObject({
+        liquidId: 9,
+        transactionFees: 5n,
+      });
+    });
+  });
+
+  it('separates funded Bitcoin wallet holdings from the amount allocated to active Liquids', async () => {
+    const summary = createBitcoinSummary(0n);
+    const fission = new BitcoinFission({
+      ownerAccount: '5default',
+      fissionId: 7,
+      liquidId: 9,
+      utxoId: 1,
+      satoshis: 40_000n,
+      liquidityPromised: 50n,
+      microgonsAtTargetPerBtc: 100n,
+      createdAtArgonBlock: 1,
+      ratchetNumber: 0,
+      lastUpdatedArgonBlock: 1,
+    });
+    mocks.config.hasExtensionTreasury = true;
+    const priceIndex = new PriceIndex();
+    priceIndex.btcUsdPrice = new BigNumber(1);
+    priceIndex.argonUsdPrice = new BigNumber(1);
+    priceIndex.argonUsdTargetPrice = new BigNumber(1);
+    mocks.currency.priceIndex = priceIndex;
+    mocks.currency.convertSatToMicrogon.mockReturnValue(23n);
+    mocks.bitcoinLocks.getAllLocks.mockReturnValue([summary.record]);
+    mocks.bitcoinLocks.createLockSummary.mockReturnValue(summary);
+    mocks.bitcoinFissions.getLiquids.mockReturnValue([BitcoinLiquid.create({ liquidId: 9, fissions: [fission] })]);
+
+    const financials = useFinancials();
+
+    await vi.waitFor(() => expect(financials.savingsIsLoaded).toBe(true));
+    expect(financials.bitcoinWalletTotalSatoshis).toBe(100_000n);
+    expect(financials.liquidTotalSatoshis).toBe(40_000n);
+    expect(financials.savingsTotalValue).toBe(23n);
+    expect(mocks.currency.convertSatToMicrogon).toHaveBeenCalledWith(100_000n);
+  });
+
   it.each([
     {
       name: 'configuration',
@@ -410,10 +684,11 @@ describe('financials store lifecycle', () => {
   ])('settles public loading state when $name fails', async ({ fail, message }) => {
     fail();
 
+    const financialHistory = useFinancialHistory();
     const financials = useFinancials();
 
     await vi.waitFor(() => {
-      expect(financials.historyRecovery).toEqual({
+      expect(financialHistory.historyRecovery).toEqual({
         state: 'error',
         recoveredBlockCount: 0,
         message,
@@ -450,7 +725,12 @@ describe('financials store lifecycle', () => {
       group: 'bonds' as const,
       fail: () => {
         mocks.config.hasExtensionTreasury = true;
-        mocks.argonBonds.load.mockRejectedValue(new Error('bond loading failed'));
+        const snapshot = createAccountSnapshot(mocks.blockWatch.bestBlockHeader);
+        snapshot.accounts[0].reservedMicrogons = 1n;
+        snapshot.accounts[0].microgonHolds = [
+          { id: { type: 'Treasury', value: { type: 'ContributedToTreasury' } }, amount: 1n },
+        ];
+        mocks.walletsForArgon.readAccountSnapshot.mockResolvedValue(snapshot);
       },
     },
     {
@@ -524,8 +804,7 @@ describe('financials store lifecycle', () => {
         },
       ),
     ) as IArgonAccountBalance['micronotHolds'][number];
-    const pendingSummary = createBitcoinSummary(50n);
-    const mintedSummary = createBitcoinSummary(0n);
+    const bitcoinSummary = createBitcoinSummary(0n);
     const firstSnapshot = createAccountSnapshot(best1, 50n);
     const secondSnapshot = createAccountSnapshot(best2, 100n);
     for (const snapshot of [firstSnapshot, secondSnapshot]) {
@@ -539,9 +818,9 @@ describe('financials store lifecycle', () => {
       btcUsdPrice: { isZero: () => false },
       argonUsdTargetPrice: { isZero: () => false },
     };
-    const finalizedClient = {};
-    const best1Client = {};
-    const best2Client = {};
+    const finalizedClient = { query: { ticks: { currentTick: async () => 1 } } };
+    const best1Client = { query: { ticks: { currentTick: async () => 1 } } };
+    const best2Client = { query: { ticks: { currentTick: async () => 2 } } };
     mocks.blockWatch.bestBlockHeader = best1;
     mocks.blockWatch.latestHeaders = [finalized, best1];
     mocks.blockWatch.getApi.mockImplementation(async header => {
@@ -550,12 +829,32 @@ describe('financials store lifecycle', () => {
       return finalizedClient;
     });
     const bondLot = BondLot.fromRuntime(1, runtimeLot, runtimeLot.owner);
-    mocks.argonBonds.data.bondLots = [];
-    mocks.argonBonds.getOwnBondLots.mockImplementation(async clientAt => {
-      return clientAt === best1Client || clientAt === best2Client ? [bondLot] : [];
+    mocks.argonBonds.data.bondLots = [bondLot];
+    mocks.bitcoinLocks.getAllLocks.mockReturnValue([bitcoinSummary.record]);
+    mocks.bitcoinLocks.createLockSummary.mockReturnValue(bitcoinSummary);
+    const fission = new BitcoinFission({
+      ownerAccount: '5default',
+      fissionId: 0,
+      liquidId: 0,
+      utxoId: bitcoinSummary.utxoId,
+      satoshis: bitcoinSummary.satoshis,
+      liquidityPromised: 50n,
+      microgonsAtTargetPerBtc: 100n,
+      createdAtArgonBlock: 1,
+      ratchetNumber: 0,
+      lastUpdatedArgonBlock: 1,
     });
-    mocks.bitcoinLocks.getAllLocks.mockReturnValue([pendingSummary.record]);
-    mocks.bitcoinLocks.createLockSummaryAt.mockResolvedValueOnce(pendingSummary).mockResolvedValue(mintedSummary);
+    fission.pendingMints = [
+      {
+        queueIndex: 0,
+        fissionId: fission.fissionId,
+        utxoId: fission.utxoId,
+        ownerAccount: fission.ownerAccount,
+        remainingAmount: 50n,
+        maxAmountPerFrame: 50n,
+      },
+    ];
+    mocks.bitcoinFissions.data.fissionsById[fission.fissionId] = fission;
     mocks.walletsForArgon.readAccountSnapshot
       .mockResolvedValueOnce(firstSnapshot)
       .mockResolvedValueOnce(secondSnapshot);
@@ -570,10 +869,12 @@ describe('financials store lifecycle', () => {
     expect(financials.bondSummariesByAsset.ARGNOT.currentValue).toBe(20_000_000n);
     expect(financials.financialPositionAggregate.netWorth).toBe(20_000_100n);
     expect(mocks.blockWatch.getApi).toHaveBeenCalledWith(best1);
+    expect(mocks.argonBonds.getOwnBondLots).not.toHaveBeenCalled();
     expect(mocks.walletHistoryRecovery.hasCompleteCoverage).toHaveBeenCalledWith(finalized.blockNumber);
 
     mocks.blockWatch.bestBlockHeader = best2;
     mocks.blockWatch.latestHeaders = [finalized, best1, best2];
+    fission.pendingMints = [];
     const balanceListener = mocks.wallets.on.mock.calls.find(([event]) => event === 'balance-change')?.[1] as
       | (() => void)
       | undefined;
@@ -590,6 +891,75 @@ describe('financials store lifecycle', () => {
         blockHash: best2.blockHash,
       });
     }
+  });
+
+  it('does not mix account values and observations when the best block changes during the read', async () => {
+    const firstBest = {
+      blockNumber: 2,
+      blockHash: '0xbest2',
+      blockTime: Date.parse('2026-07-16T12:01:00Z'),
+    };
+    const nextBest = {
+      blockNumber: 3,
+      blockHash: '0xbest3',
+      blockTime: Date.parse('2026-07-16T12:02:00Z'),
+    };
+    mocks.blockWatch.bestBlockHeader = firstBest;
+    mocks.blockWatch.latestHeaders = [mocks.blockWatch.finalizedBlockHeader, firstBest];
+    mocks.walletsForArgon.readAccountSnapshot
+      .mockImplementationOnce(async () => {
+        mocks.blockWatch.bestBlockHeader = nextBest;
+        mocks.blockWatch.latestHeaders = [mocks.blockWatch.finalizedBlockHeader, firstBest, nextBest];
+        return createAccountSnapshot(firstBest, 100n);
+      })
+      .mockResolvedValue(createAccountSnapshot(nextBest, 200n));
+
+    const financials = useFinancials();
+
+    await vi.waitFor(() => expect(financials.savingsIsLoaded).toBe(true));
+    const liquid = financials.financialPositionAggregate.groupSummaries.liquid;
+    expect([
+      [firstBest.blockHash, 100n],
+      [nextBest.blockHash, 200n],
+    ]).toContainEqual([liquid.observation?.blockHash, liquid.currentValue]);
+  });
+
+  it('retries an account snapshot when its block is removed by a reorg', async () => {
+    const replacedBest = {
+      blockNumber: 2,
+      blockHash: '0xreplaced',
+      blockTime: Date.parse('2026-07-16T12:01:00Z'),
+    };
+    const canonicalBest = {
+      blockNumber: 2,
+      blockHash: '0xcanonical',
+      blockTime: Date.parse('2026-07-16T12:01:01Z'),
+    };
+    mocks.blockWatch.bestBlockHeader = replacedBest;
+    mocks.blockWatch.latestHeaders = [mocks.blockWatch.finalizedBlockHeader, replacedBest];
+    mocks.walletsForArgon.readAccountSnapshot
+      .mockImplementationOnce(async () => {
+        mocks.blockWatch.bestBlockHeader = canonicalBest;
+        mocks.blockWatch.latestHeaders = [mocks.blockWatch.finalizedBlockHeader, canonicalBest];
+        return createAccountSnapshot(replacedBest, 100n);
+      })
+      .mockResolvedValueOnce(createAccountSnapshot(canonicalBest, 200n));
+
+    const financials = useFinancials();
+
+    await vi.waitFor(() => {
+      expect(financials.financialPositionAggregate.groupSummaries.liquid).toMatchObject({
+        state: 'ready',
+        currentValue: 200n,
+        observation: {
+          blockNumber: canonicalBest.blockNumber,
+          blockHash: canonicalBest.blockHash,
+        },
+      });
+    });
+    expect(mocks.walletsForArgon.readAccountSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ header: canonicalBest }),
+    );
   });
 
   it('keeps the coherent book visible while a mining source recovers', async () => {
@@ -684,39 +1054,35 @@ describe('financials store lifecycle', () => {
         }),
     );
 
+    const financialHistory = useFinancialHistory();
     const financials = useFinancials();
 
     await vi.waitFor(() => {
       expect(financials.financialPositionAggregate.groupSummaries.liquid.state).toBe('ready');
     });
     await vi.waitFor(() => expect(mocks.needsFinancialHistoryRecovery).toHaveBeenCalled());
-    expect(financials.historyRecoveryByDomain.bonds.state).toBe('checking');
-    expect(financials.historyRecoveryByDomain.bitcoin.state).toBe('checking');
+    expect(financialHistory.historyRecoveryByDomain.bonds.state).toBe('checking');
+    expect(financialHistory.historyRecoveryByDomain.bitcoin.state).toBe('checking');
 
     finishCoverageCheck?.(false);
-    await vi.waitFor(() => expect(financials.historyRecoveryByDomain.bonds.state).toBe('ready'));
-    expect(financials.historyRecovery.state).toBe('ready');
+    await vi.waitFor(() => expect(financialHistory.historyRecoveryByDomain.bonds.state).toBe('ready'));
+    expect(financialHistory.historyRecovery.state).toBe('ready');
     expect(mocks.restoreFinancialHistory).not.toHaveBeenCalled();
-    expect(mocks.walletsForArgon.readAccountSnapshot).toHaveBeenCalledTimes(2);
+    expect(mocks.walletsForArgon.readAccountSnapshot).toHaveBeenCalledOnce();
   });
 
-  it('resumes and surfaces pending domain recovery without imported-account history', async () => {
+  it('does not start global history recovery during ordinary app loading', async () => {
     mocks.config.hasExtensionTreasury = true;
     mocks.getEnabledFinancialHistoryDomains.mockReturnValue(['bitcoin', 'bonds']);
     mocks.needsFinancialHistoryRecovery.mockResolvedValue(true);
-    mocks.restoreFinancialHistory.mockRejectedValue(new Error('history unavailable'));
 
+    const financialHistory = useFinancialHistory();
     const financials = useFinancials();
 
-    await vi.waitFor(() => expect(financials.historyRecovery.state).toBe('error'));
-    expect(financials.historyRecoveryByDomain.bitcoin.state).toBe('error');
-    expect(financials.historyRecoveryByDomain.bonds.state).toBe('error');
-    expect(mocks.needsFinancialHistoryRecovery).toHaveBeenCalledWith(
-      expect.objectContaining({
-        bitcoinLockRecovery: mocks.bitcoinLocks.recovery,
-        recoverMissingCheckpointsFor: [],
-      }),
-    );
+    await vi.waitFor(() => expect(financials.savingsIsLoaded).toBe(true));
+    expect(mocks.needsFinancialHistoryRecovery).not.toHaveBeenCalled();
+    expect(mocks.restoreFinancialHistory).not.toHaveBeenCalled();
+    expect(financialHistory.historyRecovery.state).toBe('ready');
   });
 
   it('exposes persisted Bitcoin rows and settled performance before the complete financial snapshot is ready', () => {
@@ -736,7 +1102,7 @@ describe('financials store lifecycle', () => {
         releaseCompensationMicrogons: 0n,
         btcPriceAtRemovalMicrogons: 1_200_000n,
         isHistoryRecoveryPending: false,
-        fundingUtxoRecord: {
+        fundingUtxo: {
           releaseBitcoinNetworkFee: 1_000n,
         },
       },
@@ -768,14 +1134,102 @@ describe('financials store lifecycle', () => {
     };
     mocks.config.hasExtensionTreasury = true;
     mocks.bitcoinLocks.getAllLocks.mockReturnValue([liveRecord]);
-    mocks.bitcoinLocks.createLockSummaryAt.mockResolvedValue(snapshotSummary);
+    mocks.bitcoinLocks.createLockSummary.mockReturnValue(snapshotSummary);
 
     const financials = useFinancials();
 
     await vi.waitFor(() => {
       expect(financials.financialPositionAggregate.groupSummaries.liquid.state).toBe('ready');
     });
-    expect(financials.bitcoinLockDisplayRecords[0]?.record).toBe(liveRecord);
+    expect(financials.bitcoinLockDisplayRecords[0]?.record).toEqual(liveRecord);
+    expect(financials.bitcoinLockDisplayRecords[0]?.record.isHistoryRecoveryPending).toBe(false);
+  });
+
+  it('publishes recovered Liquid fees through the finalized block while the best block is newer', async () => {
+    const finalized = {
+      blockNumber: 10,
+      blockHash: '0xfinalized10',
+      blockTime: Date.parse('2026-07-16T12:09:00Z'),
+    };
+    const best = {
+      blockNumber: 11,
+      blockHash: '0xbest11',
+      blockTime: Date.parse('2026-07-16T12:10:00Z'),
+    };
+    const summary = createBitcoinSummary(0n);
+    const fission = new BitcoinFission({
+      ownerAccount: '5default',
+      fissionId: 7,
+      liquidId: 9,
+      utxoId: summary.utxoId,
+      satoshis: summary.satoshis,
+      liquidityPromised: 50n,
+      microgonsAtTargetPerBtc: 1_000_000n,
+      createdAtArgonBlock: finalized.blockNumber,
+      createdAtTick: 0,
+      createdBlockTime: new Date(finalized.blockTime),
+      ratchetNumber: 0,
+      lastUpdatedArgonBlock: finalized.blockNumber,
+      origin: 'created',
+      ratchets: [
+        {
+          source: 'fission',
+          sourceRatchetIndex: 0,
+          ratchetNumber: 0,
+          microgonsAtTargetPerBtc: 1_000_000n,
+          liquidityPromised: 50n,
+          amountMinted: 50n,
+          amountBurned: 0n,
+          mintPending: 0n,
+          txFee: 5n,
+          blockNumber: finalized.blockNumber,
+          tick: 0,
+        },
+      ],
+    });
+    mocks.config.hasExtensionTreasury = true;
+    const priceIndex = new PriceIndex();
+    priceIndex.btcUsdPrice = new BigNumber(1);
+    priceIndex.argonUsdPrice = new BigNumber(1);
+    priceIndex.argonUsdTargetPrice = new BigNumber(1);
+    mocks.currency.priceIndex = priceIndex;
+    mocks.blockWatch.finalizedBlockHeader = finalized;
+    mocks.blockWatch.bestBlockHeader = best;
+    mocks.blockWatch.latestHeaders = [finalized, best];
+    mocks.bitcoinLocks.getAllLocks.mockReturnValue([summary.record]);
+    mocks.bitcoinLocks.createLockSummary.mockReturnValue(summary);
+    mocks.bitcoinFissions.data.fissionsById[fission.fissionId] = fission;
+    mocks.bitcoinFissions.data.historyById[fission.fissionId] = fission;
+    mocks.db.bitcoinSecuritizationHistoryTable.getPublishedSnapshot.mockResolvedValue({
+      asOfBlock: finalized.blockNumber,
+      terms: [
+        {
+          utxoId: summary.utxoId,
+          termIndex: 0,
+          origin: 'created',
+          startTick: 0,
+          startBlockNumber: finalized.blockNumber,
+          securitizedSatoshis: summary.satoshis,
+          securitizationCoverageMicrogons: 100n,
+          cumulativeNetSecurityFee: 10n,
+          addedNetSecurityFee: 10n,
+        },
+      ],
+    });
+
+    const financials = useFinancials();
+
+    await vi.waitFor(() => {
+      const liquid = financials.financialPositionAggregate.groupSummaries.bitcoin.positions.find(
+        position => position.kind === 'bitcoin-liquid',
+      );
+      expect(liquid).toMatchObject({
+        insuranceCost: 10n,
+        transactionFees: 5n,
+        totalFees: 15n,
+      });
+      expect(liquid?.totalReturn).toBeTypeOf('number');
+    });
   });
 
   it('archives funded Bitcoin history without presenting abandoned lock requests as transactions', () => {
@@ -783,11 +1237,11 @@ describe('financials store lifecycle', () => {
     const abandonedSummary = {
       ...baseSummary,
       uuid: 'abandoned-lock-request',
-      status: 'LockExpiredWaitingForFundingAcknowledged',
+      status: 'LockFailedAcknowledged',
       record: {
         ...baseSummary.record,
         uuid: 'abandoned-lock-request',
-        status: 'LockExpiredWaitingForFundingAcknowledged',
+        status: 'LockFailedAcknowledged',
       },
     };
     const releasedSummary = {
@@ -810,27 +1264,6 @@ describe('financials store lifecycle', () => {
     const financials = useFinancials();
 
     expect(financials.liquidInvisibleRecords).toEqual([releasedSummary]);
-  });
-
-  it('requests recovery when live wallet tracking reports a history gap', async () => {
-    mocks.config.hasExtensionTreasury = true;
-
-    const financials = useFinancials();
-
-    await vi.waitFor(() => {
-      expect(financials.financialPositionAggregate.groupSummaries.liquid.state).toBe('ready');
-    });
-    const gapListener = mocks.walletsForArgon.events.on.mock.calls.find(([event]) => event === 'history:gap')?.[1] as
-      | ((gap: { afterBlock: number; toBlock: number }) => void)
-      | undefined;
-    expect(gapListener).toBeDefined();
-
-    vi.useFakeTimers();
-    gapListener!({ afterBlock: 1, toBlock: 10 });
-    await vi.advanceTimersByTimeAsync(30_000);
-
-    expect(mocks.restoreFinancialHistory).toHaveBeenCalled();
-    expect(mocks.restoreFinancialHistory).toHaveBeenCalledWith(expect.objectContaining({ minimumAsOfBlock: 10 }));
   });
 
   it('publishes successful domain history when Bitcoin recovery fails', async () => {
@@ -907,14 +1340,15 @@ describe('financials store lifecycle', () => {
       throw new Error('indexer unavailable');
     });
 
+    const financialHistory = useFinancialHistory();
     const financials = useFinancials();
 
     await vi.waitFor(() => {
-      expect(financials.historyRecovery.state).toBe('error');
+      expect(financialHistory.historyRecovery.state).toBe('error');
     });
-    expect(financials.historyRecoveryByDomain.bonds.state).toBe('ready');
-    expect(financials.historyRecoveryByDomain.vaulting.state).toBe('ready');
-    expect(financials.historyRecoveryByDomain.bitcoin.state).toBe('error');
+    expect(financialHistory.historyRecoveryByDomain.bonds.state).toBe('ready');
+    expect(financialHistory.historyRecoveryByDomain.vaulting.state).toBe('ready');
+    expect(financialHistory.historyRecoveryByDomain.bitcoin.state).toBe('error');
     expect(financials.financialPositionAggregate.groupSummaries.bonds.returnSummary).toMatchObject({
       availability: 'available',
       investedCost: 10_000_000n,
@@ -955,7 +1389,7 @@ function createBitcoinSummary(pendingLiquidity: bigint) {
   const record = {
     uuid: 'bitcoin-lock',
     utxoId: 1,
-    status: 'LockedAndIsMinting',
+    status: 'LockFunded',
     satoshis: 100_000n,
     liquidityPromised: 50n,
     lockedTargetPrice: 100n,
@@ -981,8 +1415,6 @@ function createBitcoinSummary(pendingLiquidity: bigint) {
     status: record.status,
     statusDetails: {
       hasObservedFundingSignal: true,
-      showMismatchAccept: false,
-      showFundingMismatch: false,
       showReadyForBitcoin: false,
       isFundingSeenInMempoolOnly: false,
     },

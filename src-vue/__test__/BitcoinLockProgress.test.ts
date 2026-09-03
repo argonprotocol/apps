@@ -44,7 +44,7 @@ describe('bitcoinLockProgress', () => {
   it('uses bitcoin release progress when funding status shows bitcoin processing even if lock status is stale', () => {
     const store = createStoreWithFundingStatus(BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin);
 
-    const lock = createLock(BitcoinLockStatus.LockedAndMinted);
+    const lock = createLock(BitcoinLockStatus.LockFunded);
     store.lock.value = lock;
     store.bitcoinRelease.value = {
       progressPct: 80,
@@ -79,7 +79,6 @@ describe('bitcoinLockProgress', () => {
 
     const lock = createLock(BitcoinLockStatus.LockPendingFunding);
     let fundingStatus: BitcoinUtxoStatus | undefined;
-    const orphanedReturn = { status: undefined as BitcoinUtxoStatus | undefined };
     let isLockProcessing = true;
 
     const bitcoinLocks = {
@@ -88,16 +87,6 @@ describe('bitcoinLockProgress', () => {
         fundingStatus == null
           ? undefined
           : ({ status: fundingStatus } as ReturnType<BitcoinLocks['getAcceptedFundingRecord']>),
-      getMismatchViewState: () =>
-        ({
-          phase: 'none',
-          nextCandidate:
-            orphanedReturn.status == null
-              ? undefined
-              : {
-                  returnRecord: { status: orphanedReturn.status },
-                },
-        }) as ReturnType<BitcoinLocks['getMismatchViewState']>,
       getLockProcessingDetails: () => ({
         progressPct: 25,
         confirmations: 1,
@@ -109,19 +98,9 @@ describe('bitcoinLockProgress', () => {
         expectedConfirmations: 6,
         releaseError: '',
       }),
-      getReleaseLifecycleProgress: () => ({
-        progressPct: 75,
-        confirmations: 3,
-        expectedConfirmations: 6,
-      }),
     } as Pick<
       BitcoinLocks,
-      | 'isLockProcessingStatus'
-      | 'getAcceptedFundingRecord'
-      | 'getMismatchViewState'
-      | 'getLockProcessingDetails'
-      | 'getReleaseProcessingDetails'
-      | 'getReleaseLifecycleProgress'
+      'isLockProcessingStatus' | 'getAcceptedFundingRecord' | 'getLockProcessingDetails' | 'getReleaseProcessingDetails'
     > as BitcoinLocks;
 
     const store = createBitcoinLockProgressStore({
@@ -141,7 +120,6 @@ describe('bitcoinLockProgress', () => {
     expect(setIntervalSpy).toHaveBeenCalledTimes(1);
 
     fundingStatus = undefined;
-    orphanedReturn.status = BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin;
     store.updateLock(lock);
     expect(setIntervalSpy).toHaveBeenCalledTimes(1);
 
@@ -156,16 +134,7 @@ describe('bitcoinLockProgress', () => {
       bitcoinLocks: {
         isLockProcessingStatus: () => false,
         getAcceptedFundingRecord: () => undefined,
-        getMismatchViewState: () => ({
-          phase: 'none',
-          candidateCount: 0,
-          isFundingExpired: false,
-          candidates: [],
-        }),
-      } as Pick<
-        BitcoinLocks,
-        'isLockProcessingStatus' | 'getAcceptedFundingRecord' | 'getMismatchViewState'
-      > as BitcoinLocks,
+      } as Pick<BitcoinLocks, 'isLockProcessingStatus' | 'getAcceptedFundingRecord'> as BitcoinLocks,
       miningFrames: {} as MiningFrames,
     });
 
@@ -202,15 +171,11 @@ describe('bitcoinLockProgress', () => {
           ({ status: BitcoinUtxoStatus.ReleaseIsProcessingOnArgon }) as ReturnType<
             BitcoinLocks['getAcceptedFundingRecord']
           >,
-        getMismatchViewState: () => ({ phase: 'none' }) as ReturnType<BitcoinLocks['getMismatchViewState']>,
         getRequestReleaseByVaultProgress: () => 0,
         isLockProcessingStatus: () => false,
       } as Pick<
         BitcoinLocks,
-        | 'getAcceptedFundingRecord'
-        | 'getMismatchViewState'
-        | 'getRequestReleaseByVaultProgress'
-        | 'isLockProcessingStatus'
+        'getAcceptedFundingRecord' | 'getRequestReleaseByVaultProgress' | 'isLockProcessingStatus'
       > as BitcoinLocks,
       miningFrames: {
         load: () => loading,
@@ -234,12 +199,6 @@ describe('bitcoinLockProgress', () => {
       bitcoinLocks: {
         isLockProcessingStatus: () => true,
         getAcceptedFundingRecord: () => undefined,
-        getMismatchViewState: () => ({
-          phase: 'none',
-          candidateCount: 0,
-          isFundingExpired: false,
-          candidates: [],
-        }),
         getLockProcessingDetails: () => ({
           progressPct: 0,
           confirmations: -1,
@@ -247,7 +206,7 @@ describe('bitcoinLockProgress', () => {
         }),
       } as Pick<
         BitcoinLocks,
-        'isLockProcessingStatus' | 'getAcceptedFundingRecord' | 'getMismatchViewState' | 'getLockProcessingDetails'
+        'isLockProcessingStatus' | 'getAcceptedFundingRecord' | 'getLockProcessingDetails'
       > as BitcoinLocks,
       miningFrames: {} as MiningFrames,
     });
@@ -273,12 +232,6 @@ describe('bitcoinLockProgress', () => {
       bitcoinLocks: {
         isLockProcessingStatus: () => true,
         getAcceptedFundingRecord: () => undefined,
-        getMismatchViewState: () => ({
-          phase: 'none',
-          candidateCount: 0,
-          isFundingExpired: false,
-          candidates: [],
-        }),
         getLockProcessingDetails: () => ({
           progressPct: 0,
           confirmations: 0,
@@ -286,7 +239,7 @@ describe('bitcoinLockProgress', () => {
         }),
       } as Pick<
         BitcoinLocks,
-        'isLockProcessingStatus' | 'getAcceptedFundingRecord' | 'getMismatchViewState' | 'getLockProcessingDetails'
+        'isLockProcessingStatus' | 'getAcceptedFundingRecord' | 'getLockProcessingDetails'
       > as BitcoinLocks,
       miningFrames: {} as MiningFrames,
     });

@@ -1,6 +1,5 @@
-import { MoveToken, NetworkConfig, SingleFileQueue } from '@argonprotocol/apps-core';
+import { MoveToken, NetworkConfig, SingleFileQueue, type ArgonClient } from '@argonprotocol/apps-core';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
-import type { ArgonClient } from '@argonprotocol/mainchain';
 import { nanoid } from 'nanoid';
 import { formatEther } from 'viem';
 import { getEthereumGatewayPauseReason, getMainchainClient } from '../stores/mainchain.ts';
@@ -121,7 +120,7 @@ export class EthereumOutboundTransferTracker {
     private readonly transactionTracker: TransactionTracker,
     private readonly blockWatch: BlockWatch,
     private readonly walletKeys: WalletKeys,
-    private readonly ethereumClient: IEthereumOutboundTransferClient,
+    private readonly ethereumClient: IEthereumOutboundTransferClient | undefined,
     private readonly mintingAuthorities?: Pick<MintingAuthorities, 'data' | 'refresh' | 'authorize'>,
     private readonly configuredExecutionRpcUrl?: string,
     private readonly ethereumWalletResolver?: (address: string) => Promise<WalletForEthereum | undefined>,
@@ -205,6 +204,10 @@ export class EthereumOutboundTransferTracker {
   }
 
   public async getTransferOutUnavailableReason(): Promise<string | undefined> {
+    if (!this.ethereumClient || !this.executionRpcUrl) {
+      return 'Ethereum transfers are unavailable because an Ethereum execution RPC is not configured.';
+    }
+
     await this.blockWatch.start();
     const client = await getMainchainClient(false);
     const latestExecutionHeaderAnchorHash = await client.query.ethereumVerifier.latestExecutionHeaderAnchorBlockHash();
@@ -244,7 +247,9 @@ export class EthereumOutboundTransferTracker {
     if (amount <= 0n) {
       return;
     }
-    if (!this.ethereumClient.estimateLikelyFinalizeTransferOutOfArgonFee) {
+    const ethereumClient = this.ethereumClient;
+    const estimateLikelyFinalizeFee = ethereumClient?.estimateLikelyFinalizeTransferOutOfArgonFee?.bind(ethereumClient);
+    if (!estimateLikelyFinalizeFee) {
       return;
     }
 
@@ -269,7 +274,7 @@ export class EthereumOutboundTransferTracker {
       [1, 3].map(async authorizationCount => {
         let remainingAmount = amount;
 
-        return await this.ethereumClient.estimateLikelyFinalizeTransferOutOfArgonFee!({
+        return await estimateLikelyFinalizeFee({
           request,
           proof: {
             authorizations: Array.from({ length: authorizationCount }, (_, index) => {
@@ -725,6 +730,8 @@ export class EthereumOutboundTransferTracker {
       error: hasFailure ? (record.failureReason ?? '') : '',
     };
 
+    if (!this.ethereumClient) return;
+
     try {
       if (shouldDiscardAcknowledgedFailure) {
         this.discardTransfer(record.id, record.token, record.transferId);
@@ -905,10 +912,11 @@ export class EthereumOutboundTransferTracker {
 
     if (transfer.transferState.ethereumFeeEstimateWei == null) {
       const ethereumWallet = await this.getEthereumWalletForAddress(record.destinationAddress);
-      transfer.transferState.ethereumFeeEstimateWei = await this.ethereumClient.estimateFinalizeTransferOutOfArgonFee({
-        ...readyTransfer.finalizeArgs,
-        ethereumWallet,
-      });
+      transfer.transferState.ethereumFeeEstimateWei =
+        await this.requireEthereumClient().estimateFinalizeTransferOutOfArgonFee({
+          ...readyTransfer.finalizeArgs,
+          ethereumWallet,
+        });
     }
 
     transfer.transferState.progress = setOutboundEthereumStepProgress(transfer.transferState.progress, {
@@ -968,12 +976,12 @@ export class EthereumOutboundTransferTracker {
     if (
       activeRecord.status === CrosschainOutboundTransferStatus.TransferSubmittedToTargetChain &&
       activeRecord.targetTxHash &&
-      this.ethereumClient.isTransactionVisible &&
+      this.requireEthereumClient().isTransactionVisible &&
       Date.now() - activeRecord.updatedAt.getTime() >= ETHEREUM_TRANSACTION_NOT_FOUND_TIMEOUT_MS
     ) {
       try {
         shouldRetrySubmittedTransfer =
-          (await this.ethereumClient.isTransactionVisible(activeRecord.targetTxHash)) === false;
+          (await this.requireEthereumClient().isTransactionVisible!(activeRecord.targetTxHash)) === false;
       } catch (error) {
         console.warn(
           `[EthereumOutboundTransferTracker] Unable to verify Ethereum transaction visibility for ${record.id}; continuing to wait for finality`,
@@ -1004,7 +1012,7 @@ export class EthereumOutboundTransferTracker {
       if (transfer.transferState.ethereumFeeEstimateWei == null) {
         try {
           transfer.transferState.ethereumFeeEstimateWei =
-            await this.ethereumClient.estimateFinalizeTransferOutOfArgonFee({
+            await this.requireEthereumClient().estimateFinalizeTransferOutOfArgonFee({
               request: finalizeRequest,
               proof: finalizeProof,
               ethereumWallet,
@@ -1019,7 +1027,7 @@ export class EthereumOutboundTransferTracker {
         progressPct: 0,
         detail: 'Submitting transfer to Ethereum...',
       });
-      const targetTxHash = await this.ethereumClient.finalizeTransferOutOfArgon({
+      const targetTxHash = await this.requireEthereumClient().finalizeTransferOutOfArgon({
         request: finalizeRequest,
         proof: finalizeProof,
         ethereumWallet,
@@ -1043,7 +1051,7 @@ export class EthereumOutboundTransferTracker {
     }
     const targetTxHash = activeRecord.targetTxHash;
 
-    const finalizedProgress = await this.ethereumClient.waitForTransactionFinality({
+    const finalizedProgress = await this.requireEthereumClient().waitForTransactionFinality({
       txHash: targetTxHash,
       blockNumber: activeRecord.targetBlockNumber,
       blockHash: activeRecord.targetBlockHash,
@@ -1086,7 +1094,7 @@ export class EthereumOutboundTransferTracker {
       },
     });
 
-    const confirmedTarget = await this.ethereumClient.confirmTransferOutOfArgon({
+    const confirmedTarget = await this.requireEthereumClient().confirmTransferOutOfArgon({
       targetTxHash,
       targetBlockNumber: finalizedProgress.blockNumber,
       targetBlockHash: finalizedProgress.blockHash,
@@ -1139,7 +1147,7 @@ export class EthereumOutboundTransferTracker {
   }
 
   private async ensureSufficientEthereumFeeBalance(feeEstimateWei: bigint, ethereumWallet: WalletForEthereum) {
-    const ethereumBalanceWei = await this.ethereumClient.getNativeBalanceWei(ethereumWallet);
+    const ethereumBalanceWei = await this.requireEthereumClient().getNativeBalanceWei(ethereumWallet);
     if (ethereumBalanceWei >= feeEstimateWei) {
       return;
     }
@@ -1412,6 +1420,13 @@ export class EthereumOutboundTransferTracker {
 
     if (latest) this.data.latestTransferIdByToken[moveToken] = latest.id;
     else delete this.data.latestTransferIdByToken[moveToken];
+  }
+
+  private requireEthereumClient(): IEthereumOutboundTransferClient {
+    if (!this.ethereumClient) {
+      throw new Error('Ethereum execution RPC is not configured for this app instance.');
+    }
+    return this.ethereumClient;
   }
 
   private async getEthereumWalletForAddress(address: string): Promise<WalletForEthereum> {

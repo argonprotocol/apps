@@ -1,5 +1,5 @@
 import * as Vue from 'vue';
-import { TxResult } from '@argonprotocol/apps-core';
+import { TxResult, type ArgonClient } from '@argonprotocol/apps-core';
 
 import { describe, expect, it, vi } from 'vitest';
 import { getActiveTransactionInfos, trackTransactionProgress } from '../lib/TransactionProgress.ts';
@@ -80,5 +80,59 @@ describe('TransactionProgress', () => {
     expect(progressLabel.value).toBe('');
     expect(activeTransactionCount.value).toBe(0);
     expect(onIdle).toHaveBeenCalledOnce();
+  });
+
+  it('does not complete a transaction until its post-processing has finished', async () => {
+    const createdAt = new Date('2026-08-28T12:00:00Z');
+    const txResult = new TxResult({} as ArgonClient, {
+      signedHash: '0x09',
+      method: {},
+      submittedTime: createdAt,
+      submittedAtBlockNumber: 10,
+      accountAddress: 'owner',
+      nonce: 1,
+    });
+    const txInfo = new TransactionInfo({
+      tx: {
+        id: 9,
+        accountAddress: 'owner',
+        isFinalized: true,
+        blockHeight: 12,
+        finalizedHeadHeight: 16,
+        createdAt,
+      } as ITransactionRecord,
+      txResult,
+    });
+    const postProcessor = txInfo.createPostProcessor();
+    const isSubmitting = Vue.ref(false);
+    const progressPct = Vue.ref(0);
+    const progressLabel = Vue.ref('');
+    const error = Vue.ref('');
+    const cleanupFns: (() => void)[] = [];
+    let complete: () => void = () => undefined;
+    const completed = new Promise<void>(resolve => {
+      complete = resolve;
+    });
+
+    trackTransactionProgress({
+      txInfos: [txInfo],
+      isSubmitting,
+      progressPct,
+      progressLabel,
+      error,
+      onComplete: complete,
+      onCleanup: cleanupFn => cleanupFns.push(cleanupFn),
+    });
+
+    expect(isSubmitting.value).toBe(true);
+    expect(progressPct.value).not.toBe(100);
+
+    postProcessor.resolve();
+    await completed;
+
+    expect(isSubmitting.value).toBe(false);
+    expect(progressPct.value).toBe(100);
+    expect(error.value).toBe('');
+    cleanupFns.forEach(cleanup => cleanup());
   });
 });

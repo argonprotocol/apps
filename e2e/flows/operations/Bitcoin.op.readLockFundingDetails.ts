@@ -1,114 +1,89 @@
-import type { IBitcoinVaultMismatchState } from '../types/srcVue.ts';
-import type { IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
+import { readBitcoinLockState, type IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
 import { readClipboardWithRetries } from '../helpers/readClipboardWithRetries.ts';
-import { formatUnitsToDecimal, parseDecimalToUnits } from '../helpers/utils.ts';
-import type { IE2EOperationInspectState, IE2EOperationState } from '../types.ts';
-import bitcoinEnsureMismatchActionPanel from './Bitcoin.op.ensureMismatchActionPanel.ts';
+import { pollEvery } from '../helpers/utils.ts';
+import type { IE2EOperationInspectState } from '../types.ts';
+import type { IBitcoinUnlockReleaseState } from '../types/srcVue.ts';
+import bitcoinActivateWallet from './Bitcoin.op.activateWallet.ts';
 import { Operation } from './index.ts';
 
-const SATOSHIS_PER_BTC = 100_000_000n;
-
-type IReadLockFundingDetailsChainState = IBitcoinVaultMismatchState & {
-  hasLockFundingDetails: boolean;
-};
-
-type IReadLockFundingDetailsUiState = {
-  fundingAddressVisible: boolean;
-  fundingAmountVisible: boolean;
-  lockOverlayState: string | null;
-};
-
 type IReadLockFundingDetailsState = IE2EOperationInspectState<
-  IReadLockFundingDetailsChainState,
-  IReadLockFundingDetailsUiState
+  IBitcoinUnlockReleaseState & { hasLockFundingDetails: boolean },
+  { channelState: string | null }
 >;
 
 export default new Operation<IBitcoinFlowContext, IReadLockFundingDetailsState>(import.meta, {
-  async inspect({ flow, state: flowState }) {
-    const hasLockFundingDetails = !!flowState.lockFundingDetails;
-    const [panelState, lockOverlay, fundingAddress, fundingAmount] = await Promise.all([
-      flow.inspect(bitcoinEnsureMismatchActionPanel),
-      flow.isVisible('BitcoinLockingOverlay'),
-      flow.isVisible('LockReadyForBitcoin.address'),
-      flow.isVisible('LockReadyForBitcoin.amount'),
-    ]);
-    const lockOverlayState = lockOverlay.visible
-      ? await flow.getAttribute('BitcoinLockingOverlay', 'data-e2e-state', { timeoutMs: 1_000 }).catch(() => null)
+  async inspect({ flow, state }) {
+    const channel = await flow.isVisible('ConnectorChannel');
+    const channelState = channel.visible
+      ? await flow.getAttribute('ConnectorChannel', 'data-e2e-state', { timeoutMs: 1_000 }).catch(() => null)
       : null;
-    const readyForBitcoinVisible = lockOverlayState === 'ReadyForBitcoin';
-    const fundingDetailsVisible = fundingAddress.visible && fundingAmount.visible;
-    const wrongLockingPhaseVisible =
-      lockOverlay.visible && !!lockOverlayState && lockOverlayState !== 'ReadyForBitcoin';
-    const isComplete = hasLockFundingDetails;
-    const canRun =
-      !isComplete && panelState.chainState.isPendingFunding && readyForBitcoinVisible && fundingDetailsVisible;
-    let operationState: IE2EOperationState = 'processing';
-    if (isComplete) {
-      operationState = 'complete';
-    } else if (wrongLockingPhaseVisible) {
-      operationState = 'uiStateMismatch';
-    } else if (panelState.chainState.isPendingFunding && !readyForBitcoinVisible) {
-      operationState = 'uiStateMismatch';
-    } else if (readyForBitcoinVisible && !fundingDetailsVisible) {
-      operationState = 'uiStateMismatch';
-    } else if (canRun) {
-      operationState = 'runnable';
-    }
+    const chainState = await readBitcoinLockState(flow);
+    const hasLockFundingDetails = !!state.lockFundingDetails;
+    const canRun = !hasLockFundingDetails && chainState.isPendingFunding;
 
-    const blockers: string[] = [];
-    if (!isComplete && !panelState.chainState.isPendingFunding) {
-      blockers.push('Lock is not in pending funding.');
-    }
-    if (!isComplete && wrongLockingPhaseVisible) {
-      blockers.push(`Funding overlay is open in the wrong state: ${lockOverlayState}.`);
-    }
-    if (panelState.chainState.isPendingFunding && !isComplete && !readyForBitcoinVisible) {
-      blockers.push('Backend is in pending funding, but the ReadyForBitcoin funding details UI is not visible.');
-    }
-    if (!isComplete && !readyForBitcoinVisible) {
-      blockers.push('ReadyForBitcoin funding details are not visible.');
-    }
-    if (!isComplete && readyForBitcoinVisible && !fundingDetailsVisible) {
-      blockers.push('ReadyForBitcoin funding address or amount is not visible.');
-    }
     return {
-      chainState: {
-        hasLockFundingDetails,
-        ...panelState.chainState,
-      },
-      uiState: {
-        fundingAddressVisible: fundingAddress.visible,
-        fundingAmountVisible: fundingAmount.visible,
-        lockOverlayState,
-      },
-      state: operationState,
-      phase: lockOverlay.visible && lockOverlayState ? `locking:${lockOverlayState}` : undefined,
-      blockers: canRun ? [] : blockers,
+      chainState: { ...chainState, hasLockFundingDetails },
+      uiState: { channelState },
+      state: hasLockFundingDetails ? 'complete' : canRun ? 'runnable' : 'processing',
+      phase: channelState ? `channel:${channelState}` : undefined,
+      blockers: canRun || hasLockFundingDetails ? [] : ['Bitcoin channel is not awaiting funding.'],
     };
   },
 
-  async run({ flow, flowName, state: flowState }, state) {
-    if (state.state === 'complete') return;
-
-    const visibleLockAddress = (await flow.getText('LockReadyForBitcoin.address')).trim();
-    if (!visibleLockAddress) {
-      throw new Error(`${flowName}: missing lock address`);
-    }
-
-    const lockAddress = await readClipboardWithRetries(
-      flow,
-      () => flow.click('LockReadyForBitcoin.copyAddress()'),
-      value => value === visibleLockAddress,
+  async run({ flow, flowName, state }) {
+    await flow.run(bitcoinActivateWallet);
+    await pollEvery(
+      100,
+      async () => {
+        const channelState = await flow
+          .getAttribute('ConnectorChannel', 'data-e2e-state', { timeoutMs: 1_000 })
+          .catch(() => null);
+        if (channelState === 'Error') {
+          throw new Error(`${flowName}: Bitcoin wallet entered an error state before showing funding details.`);
+        }
+        return channelState === 'ReadyForBitcoin';
+      },
+      {
+        timeoutMs: 20_000,
+        timeoutMessage: `${flowName}: Bitcoin wallet did not become ready for funding.`,
+      },
     );
-    const lockAmount = (await flow.getText('LockReadyForBitcoin.amount')).trim().replaceAll(',', '');
-    if (!lockAmount) {
-      throw new Error(`${flowName}: missing lock amount`);
-    }
-    const lockAmountSatoshis = parseDecimalToUnits(lockAmount, SATOSHIS_PER_BTC, `${flowName}.lockAmount`);
-    flowState.lockFundingDetails = {
-      address: lockAddress,
-      amountBtc: formatUnitsToDecimal(lockAmountSatoshis, SATOSHIS_PER_BTC, `${flowName}.lockAmountSatoshis`),
-      amountSatoshis: lockAmountSatoshis,
+
+    const displayedUuid = await flow.getAttribute('ConnectorChannel', 'data-channel-uuid', { timeoutMs: 1_000 });
+    if (!displayedUuid) throw new Error(`${flowName}: Bitcoin wallet is not displaying a channel.`);
+    await flow.waitFor('ConnectorChannel.fundingAddress', { timeoutMs: 20_000 });
+
+    const visibleAddress = (await flow.getText('ConnectorChannel.fundingAddress')).trim();
+    if (!visibleAddress) throw new Error(`${flowName}: Bitcoin channel funding address is missing.`);
+    const copiedAddress = await readClipboardWithRetries(
+      flow,
+      () =>
+        flow.click({
+          selector: '[data-testid="ConnectorChannel"] [data-testid="ButtonCopy.copyContent()"]',
+        }),
+      value => value === visibleAddress,
+    );
+
+    const funding = await flow.queryApp(
+      async (refs, args: { lockUuid: string }) => {
+        await refs.bitcoinLocks.load();
+        const lock = refs.bitcoinLocks.getLockByUuid(args.lockUuid);
+        return lock
+          ? {
+              uuid: lock.uuid,
+              amountSatoshis: lock.securitizedSatoshis.toString(),
+            }
+          : undefined;
+      },
+      { args: { lockUuid: displayedUuid }, timeoutMs: 3_000 },
+    );
+    if (!funding) throw new Error(`${flowName}: displayed Bitcoin channel ${displayedUuid} is unavailable.`);
+
+    const amountSatoshis = BigInt(funding.amountSatoshis);
+    state.lockFundingDetails = {
+      lockUuid: funding.uuid,
+      address: copiedAddress,
+      amountSatoshis,
     };
   },
 });

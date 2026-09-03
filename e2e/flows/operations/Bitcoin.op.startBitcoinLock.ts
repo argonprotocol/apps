@@ -1,170 +1,125 @@
-import type { IBitcoinVaultMismatchState } from '../types/srcVue.ts';
-import type { IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
-import { clickIfVisible, formatUnitsToDecimal, pollEvery } from '../helpers/utils.ts';
+import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
+import { BitcoinLockStatus } from 'src-vue/interfaces/IBitcoinLockRecord.ts';
+import { readBitcoinLockState, type IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
+import { formatUnitsToDecimal, pollEvery } from '../helpers/utils.ts';
 import type { IE2EOperationInspectState, IE2EOperationState } from '../types.ts';
-import bitcoinEnsureMismatchActionPanel from './Bitcoin.op.ensureMismatchActionPanel.ts';
+import type { IBitcoinUnlockReleaseState } from '../types/srcVue.ts';
+import bitcoinActivateWallet from './Bitcoin.op.activateWallet.ts';
 import { Operation } from './index.ts';
-import bitcoinActivateTab from './Bitcoin.op.activateTab.ts';
-
-const SATOSHIS_PER_BTC = 100_000_000n;
 
 type IStartBitcoinLockUiState = {
-  bitcoinLocksScreenVisible: boolean;
-  lockStartEntryVisible: boolean;
-  lockOverlayVisible: boolean;
-  lockOverlayState: string | null;
-  lockStartVisible: boolean;
+  channelVisible: boolean;
+  channelState: string | null;
 };
 
-type IStartBitcoinLockState = IE2EOperationInspectState<IBitcoinVaultMismatchState, IStartBitcoinLockUiState>;
+type IStartBitcoinLockState = IE2EOperationInspectState<IBitcoinUnlockReleaseState, IStartBitcoinLockUiState>;
 
 export default new Operation<IBitcoinFlowContext, IStartBitcoinLockState>(import.meta, {
   async inspect({ flow }) {
-    const panelState = await flow.inspect(bitcoinEnsureMismatchActionPanel);
-    const [bitcoinLocksScreen, lockStartEntry, lockOverlay, lockStart] = await Promise.all([
-      flow.isVisible('BitcoinLocksScreen'),
-      flow.isVisible('BitcoinLocks.openLockingOverlay()'),
-      flow.isVisible('BitcoinLockingOverlay'),
-      flow.isVisible('LockStart.submitLiquidLock()'),
-    ]);
-    const bitcoinLocksScreenVisible = bitcoinLocksScreen.visible;
-    const lockStartEntryVisible = lockStartEntry.visible;
-    const lockOverlayVisible = lockOverlay.visible;
-    const lockOverlayState = lockOverlay.visible
-      ? await flow.getAttribute('BitcoinLockingOverlay', 'data-e2e-state', { timeoutMs: 1_000 }).catch(() => null)
+    const [chainState, channel] = await Promise.all([readBitcoinLockState(flow), flow.isVisible('ConnectorChannel')]);
+    const channelState = channel.visible
+      ? await flow.getAttribute('ConnectorChannel', 'data-e2e-state', { timeoutMs: 1_000 }).catch(() => null)
       : null;
-    const lockStartVisible = lockStart.visible;
-    const isComplete = panelState.chainState.isPendingFunding || lockOverlayState === 'ReadyForBitcoin';
-    const canRun =
-      !isComplete &&
-      !panelState.chainState.hasActiveLock &&
-      (!bitcoinLocksScreenVisible || lockStartEntryVisible || lockOverlayVisible || lockStartVisible);
+    const isProcessingOnArgon =
+      chainState.lockStatus === BitcoinLockStatus.LockIsProcessingOnArgon || channelState === 'ProcessingOnArgon';
+    const isComplete = chainState.isPendingFunding || channelState === 'ReadyForBitcoin';
+    const canRun = isProcessingOnArgon || (!isComplete && !chainState.hasActiveLock);
     let operationState: IE2EOperationState = 'processing';
-    if (isComplete) {
-      operationState = 'complete';
-    } else if (panelState.chainState.hasActiveLock) {
-      operationState = 'uiStateMismatch';
-    } else if (canRun) {
-      operationState = 'runnable';
-    }
+    if (isComplete) operationState = 'complete';
+    else if (chainState.hasActiveLock && !isProcessingOnArgon) operationState = 'uiStateMismatch';
+    else if (canRun) operationState = 'runnable';
 
-    const blockers: string[] = [];
-    if (!isComplete && panelState.chainState.hasActiveLock) {
-      blockers.push('Another lock is already active.');
-    }
-    if (!isComplete && !lockStartEntryVisible && !lockOverlayVisible && !lockStartVisible) {
-      blockers.push('Bitcoin lock creation UI is not visible.');
-    }
     return {
-      chainState: panelState.chainState,
-      uiState: {
-        bitcoinLocksScreenVisible,
-        lockStartEntryVisible,
-        lockOverlayVisible,
-        lockOverlayState,
-        lockStartVisible,
-      },
+      chainState,
+      uiState: { channelVisible: channel.visible, channelState },
       state: operationState,
-      phase:
-        lockOverlay.visible && lockOverlayState
-          ? `locking:${lockOverlayState}`
-          : lockStartEntryVisible
-            ? 'dashboard:remainder'
-            : undefined,
-      blockers: canRun ? [] : blockers,
+      phase: channelState ? `channel:${channelState}` : undefined,
+      blockers:
+        chainState.hasActiveLock && !isComplete && !isProcessingOnArgon
+          ? ['Another Bitcoin channel is already active.']
+          : [],
     };
   },
 
-  async run({ flow, flowName, input }, state) {
-    if (state.state === 'complete') return;
+  async run({ flow, flowName, input }) {
+    await flow.run(bitcoinActivateWallet);
 
-    if (!state.uiState.lockOverlayVisible && !state.uiState.lockStartVisible) {
-      await flow.run(bitcoinActivateTab);
-      const opened = await clickBitcoinLockStart(flow, { timeoutMs: 5_000 });
-      if (!opened) {
-        throw new Error(`${flowName}: Bitcoin lock entry point is not clickable on the Bitcoin Locks tab.`);
-      }
+    let channelState = await flow.getAttribute('ConnectorChannel', 'data-e2e-state', { timeoutMs: 5_000 });
+    if (channelState === 'Overview') {
+      await flow.click('ConnectorChannel.showChannelForm()');
+      channelState = await waitForChannelState(flow, 'Create');
     }
-    await flow.waitFor('LockStart.submitLiquidLock()', { state: 'enabled', timeoutMs: 10_000 });
+    if (channelState === 'ProcessingOnArgon') {
+      await waitForChannelState(flow, 'ReadyForBitcoin', 60_000);
+      return;
+    }
+    if (channelState === 'ReadyForBitcoin') return;
+    if (channelState !== 'Create') {
+      throw new Error(`${flowName}: Bitcoin wallet cannot create a channel from state ${channelState ?? 'unknown'}.`);
+    }
 
-    let expectedSatoshis = input.minimumLockSatoshis;
-    let amountInputName = `${flowName}.minimumLockSatoshis`;
-    if (input.minimumLockMicrogons != null) {
-      const quote = await flow.getAttribute('LockStart.bitcoinAmount', 'data-microgons-per-btc', {
-        timeoutMs: 3_000,
-      });
-      if (!quote) throw new Error(`${flowName}: Bitcoin conversion quote is unavailable.`);
-
-      const result = await flow.queryApp(
-        async (refs, args: { microgons: string; microgonsPerBtc: string }) => ({
-          satoshis: (
-            await refs.bitcoinLocks.satoshisForArgonLiquidity(BigInt(args.microgons), BigInt(args.microgonsPerBtc))
-          ).toString(),
-        }),
-        {
-          args: {
-            microgons: input.minimumLockMicrogons.toString(),
-            microgonsPerBtc: quote,
+    const calculatedMicrogons = input.minimumLockSatoshis
+      ? await flow.queryApp(
+          (refs, args: { satoshis: string }) =>
+            refs.bitcoinLocks.argonLiquidityForSatoshis(BigInt(args.satoshis)).toString(),
+          {
+            args: { satoshis: input.minimumLockSatoshis.toString() },
+            timeoutMs: 3_000,
           },
-          timeoutMs: 3_000,
-        },
-      );
-      if (!result) throw new Error(`${flowName}: Bitcoin amount could not be calculated.`);
-
-      expectedSatoshis = BigInt(result.satoshis);
-      amountInputName = `${flowName}.minimumLockMicrogons`;
+        )
+      : undefined;
+    const expectedMicrogons = input.minimumLockMicrogons ?? (calculatedMicrogons ? BigInt(calculatedMicrogons) : 0n);
+    if (expectedMicrogons <= 0n) {
+      throw new Error(`${flowName}: Bitcoin channel insurance amount could not be calculated.`);
     }
 
-    if (expectedSatoshis != null) {
-      await flow.type(
-        { selector: '[data-testid="LockStart.bitcoinAmount"] [data-testid="input-number"]' },
-        formatUnitsToDecimal(expectedSatoshis, SATOSHIS_PER_BTC, amountInputName),
-        {
-          clear: true,
-          timeoutMs: 3_000,
-        },
-      );
-      await pollEvery(
-        50,
-        async () =>
-          (await flow
-            .getAttribute('LockStart.bitcoinAmount', 'data-synced-satoshis', { timeoutMs: 1_000 })
-            .catch(() => null)) === expectedSatoshis.toString(),
-        {
-          timeoutMs: 3_000,
-          timeoutMessage: `${flowName}: Bitcoin lock amount did not synchronize to ${expectedSatoshis} satoshis.`,
-        },
-      );
-    }
-
-    const didSubmit = await clickIfVisible(flow, 'LockStart.submitLiquidLock()');
-    if (!didSubmit) {
-      throw new Error(`${flowName}: Bitcoin lock create action is not clickable.`);
-    }
-
-    const lockStartError = await flow.getText('LockStart.errorMessage', { timeoutMs: 300 }).catch(() => null);
-    const normalizedLockStartError = lockStartError?.replace(/\s+/g, ' ').trim();
-    if (normalizedLockStartError) {
-      throw new Error(`${flowName}: lock creation failed: ${normalizedLockStartError}`);
-    }
-
+    await flow.type(
+      { selector: '[data-testid="ConnectorChannel.insuranceAmount"] [data-testid="input-number"]' },
+      formatUnitsToDecimal(expectedMicrogons, BigInt(MICROGONS_PER_ARGON), `${flowName}.minimumLockMicrogons`),
+      { clear: true, timeoutMs: 3_000 },
+    );
     await pollEvery(
-      1_000,
-      async () => {
-        const latest = await flow.inspect(bitcoinEnsureMismatchActionPanel);
-        return latest.chainState.isPendingFunding;
-      },
+      50,
+      async () =>
+        (await flow
+          .getAttribute('ConnectorChannel.insuranceAmount', 'data-microgons', { timeoutMs: 1_000 })
+          .catch(() => null)) === expectedMicrogons.toString(),
       {
-        timeoutMs: 60_000,
-        timeoutMessage: `${flowName}: Bitcoin lock did not enter pending funding in time.`,
+        timeoutMs: 3_000,
+        timeoutMessage: `${flowName}: Bitcoin channel insurance did not synchronize to ${expectedMicrogons}.`,
       },
     );
+
+    await flow.waitFor('ConnectorChannel.createChannel()', { state: 'enabled', timeoutMs: 10_000 });
+    await flow.click('ConnectorChannel.createChannel()');
+    const error = await flow.getText('ConnectorChannel.error', { timeoutMs: 300 }).catch(() => '');
+    if (error.trim()) throw new Error(`${flowName}: channel creation failed: ${error.trim()}`);
+
+    await waitForChannelState(flow, 'ReadyForBitcoin', 60_000);
+    const channelUuid = await flow.getAttribute('ConnectorChannel', 'data-channel-uuid', { timeoutMs: 1_000 });
+    if (!channelUuid) throw new Error(`${flowName}: created Bitcoin channel has no wallet UUID.`);
+
+    await pollEvery(1_000, async () => (await readBitcoinLockState(flow, channelUuid)).isPendingFunding, {
+      timeoutMs: 60_000,
+      timeoutMessage: `${flowName}: Bitcoin channel did not enter pending funding in time.`,
+    });
   },
 });
 
-async function clickBitcoinLockStart(
+async function waitForChannelState(
   flow: IBitcoinFlowContext['flow'],
-  options: { timeoutMs?: number } = {},
-): Promise<boolean> {
-  return await clickIfVisible(flow, 'BitcoinLocks.openLockingOverlay()', options);
+  expected: string,
+  timeoutMs = 5_000,
+): Promise<string> {
+  let state: string | null = null;
+  await pollEvery(
+    50,
+    async () => {
+      state = await flow.getAttribute('ConnectorChannel', 'data-e2e-state', { timeoutMs: 1_000 }).catch(() => null);
+      if (state === 'Error') throw new Error(`Bitcoin wallet entered an error state while waiting for ${expected}.`);
+      return state === expected;
+    },
+    { timeoutMs, timeoutMessage: `Bitcoin wallet did not enter ${expected}.` },
+  );
+  return state!;
 }

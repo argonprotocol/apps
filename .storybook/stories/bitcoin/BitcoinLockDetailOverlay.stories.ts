@@ -47,6 +47,8 @@ export const LocalLock: Story = {
   play: async () => {
     const body = within(document.body);
     await expectEventuallyVisible(body.findByText('YOURS'));
+    await expectEventuallyVisible(body.getByText('Security coverage'));
+    await expectEventuallyVisible(body.getByText('₳850'));
     await expectEventuallyVisible(body.getByText('This bitcoin is locked and generating revenue on Argon.'));
   },
 };
@@ -70,7 +72,7 @@ export const PendingCosign: Story = {
     scenario = setupBitcoinOverlayScenario();
     scenario.releaseVaultWaitProgress.value = 42;
     scenario.myVault.data.pendingCosignUtxosById.set(scenario.lock.utxoId!, {
-      targetValue: scenario.lock.satoshis,
+      targetValue: scenario.lock.fundedSatoshis || scenario.lock.securitizedSatoshis,
       dueFrame: 10_012,
     });
     displayLock = scenario.lock;

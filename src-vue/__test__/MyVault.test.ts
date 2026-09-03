@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { targetVaultDelegateBalance, type MiningFrames, Vault } from '@argonprotocol/apps-core';
+import * as AppsCore from '@argonprotocol/apps-core';
+import { type MiningFrames, Vault, targetVaultDelegateBalance } from '@argonprotocol/apps-core';
 import { reactive } from 'vue';
 import { MyVault, type IVaultIncreaseAllocationMetadata } from '../lib/MyVault.ts';
 import type BitcoinLocks from '../lib/BitcoinLocks.ts';
@@ -12,10 +13,12 @@ import {
   type ITransactionStatusHistoryRecord,
 } from '../lib/db/TransactionStatusHistoryTable.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
+import { bigintCodec, numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts';
 import { getOfflineRegistry, type ArgonPrimitivesVault } from '@argonprotocol/mainchain';
+import { toPlain } from '@argonprotocol/runtime-client';
 import BigNumber from 'bignumber.js';
 import { MyVaultRecovery } from '../lib/recovery/MyVaultRecovery.ts';
-import { toPlain } from '@argonprotocol/runtime-client';
+import { createCurrentLock } from './helpers/bitcoin.ts';
 
 type IMyVaultTestTarget = {
   buildPendingOrphanCosignTxs(args: {
@@ -23,15 +26,6 @@ type IMyVaultTestTarget = {
     submitClient: unknown;
     vaultId: number;
   }): Promise<Array<{ tx: unknown; metadata: unknown }>>;
-  buildCosignTx(args: {
-    utxoId: number;
-    releaseRequest: { toScriptPubkey: string; bitcoinNetworkFee: bigint };
-  }): Promise<{ tx: unknown; vaultSignature: Uint8Array } | undefined>;
-  cosignRelease(args: {
-    utxoId: number;
-    releaseRequest: { toScriptPubkey: string; bitcoinNetworkFee: bigint };
-  }): Promise<{ txInfo: TransactionInfo; vaultSignature: Uint8Array } | undefined>;
-  onCosignResult(txInfo: TransactionInfo<{ utxoId: number }>): Promise<void>;
   recordPendingCosignUtxos(rawUtxoIds: Iterable<unknown>, updateSeq: number): Promise<void>;
   updateCollectDeadlines(): void;
   trackTxResultFee(txResult: unknown): Promise<void>;
@@ -106,18 +100,18 @@ describe('MyVault cosign recovery', () => {
     const bitcoinEvents = {
       BitcoinLockCreated: eventMatcher('BitcoinLockCreated'),
       BitcoinLockFlexibleChanged: unrelatedEvent,
-      BitcoinLockRatcheted: unrelatedEvent,
+      BitcoinLockResecuritized: unrelatedEvent,
       BitcoinUtxoCosignRequested: unrelatedEvent,
       BitcoinUtxoCosigned: unrelatedEvent,
       BitcoinCosignPastDue: unrelatedEvent,
       BitcoinLockBurned: unrelatedEvent,
+      BitcoinSpentAfterRelease: unrelatedEvent,
       OrphanedUtxoReleaseRequested: eventMatcher('OrphanedUtxoReleaseRequested'),
       OrphanedUtxoCosigned: unrelatedEvent,
     };
     const vaultEvents = {
-      FundsLocked: eventMatcher('FundsLocked'),
       VaultCollected: unrelatedEvent,
-      VaultRevenueUncollected: unrelatedEvent,
+      VaultRevenueUncollected: eventMatcher('VaultRevenueUncollected'),
     };
     const client = {
       clientType: 'pruned',
@@ -282,209 +276,6 @@ describe('MyVault cosign recovery', () => {
     expect(latestTxAttempt).toMatchObject({ txInfo, txAttemptState: TxAttemptState.Replace });
   });
 
-  it('resubmits a cosign when the previous in-block attempt was reorged out', async () => {
-    const staleTxInfo = createTxInfo({
-      status: TransactionStatus.InBlock,
-      submittedAtBlockHeight: 100,
-      blockHeight: 100,
-      blockHash: '0xold',
-      extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
-      metadataJson: { utxoId: 14 },
-    });
-    const freshTxInfo = createTxInfo({
-      status: TransactionStatus.Submitted,
-      submittedAtBlockHeight: 103,
-      extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
-      metadataJson: { utxoId: 14 },
-    });
-    const submitAndWatch = vi.fn().mockResolvedValue(freshTxInfo);
-    const { myVault } = createVault({
-      txInfos: [staleTxInfo],
-      finalizedHeight: 103,
-      headerByHeight: { 100: '0xnew' },
-      submitAndWatch,
-    });
-    const testVault = myVault as unknown as IMyVaultTestTarget;
-    vi.spyOn(testVault, 'buildCosignTx').mockResolvedValue({
-      tx: { kind: 'cosign' },
-      vaultSignature: new Uint8Array([1, 2, 3]),
-    });
-    vi.spyOn(testVault, 'onCosignResult').mockResolvedValue(undefined);
-
-    const result = await testVault.cosignRelease({
-      utxoId: 14,
-      releaseRequest: {
-        toScriptPubkey: '0014abcd',
-        bitcoinNetworkFee: 10n,
-      },
-    });
-
-    expect(submitAndWatch).toHaveBeenCalledTimes(1);
-    expect(result).toEqual({
-      txInfo: freshTxInfo,
-      vaultSignature: new Uint8Array([1, 2, 3]),
-    });
-  });
-
-  it('resubmits a dropped cosign and links it as a follow-on attempt', async () => {
-    const staleTxInfo = createTxInfo({
-      id: 21,
-      status: TransactionStatus.Submitted,
-      txNonce: 7,
-      submittedAtBlockHeight: 100,
-      extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
-      metadataJson: { utxoId: 21 },
-    });
-    const freshTxInfo = createTxInfo({
-      id: 22,
-      status: TransactionStatus.Submitted,
-      txNonce: 8,
-      submittedAtBlockHeight: 101,
-      extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
-      metadataJson: { utxoId: 21 },
-    });
-    const submitAndWatch = vi.fn().mockResolvedValue(freshTxInfo);
-    const followOnTx = { resolve: vi.fn(), isSettled: false };
-    const createIntentForFollowOnTx = vi.fn().mockReturnValue(followOnTx);
-    const { myVault } = createVault({
-      txInfos: [staleTxInfo],
-      finalizedHeight: 100,
-      historyByTxId: {
-        21: [{ id: 1, transactionId: 21, status: TransactionHistoryStatus.Dropped }],
-      },
-      submitAndWatch,
-      createIntentForFollowOnTx,
-    });
-    const testVault = myVault as unknown as IMyVaultTestTarget;
-    vi.spyOn(testVault, 'buildCosignTx').mockResolvedValue({
-      tx: { kind: 'cosign' },
-      vaultSignature: new Uint8Array([1, 2, 3]),
-    });
-    vi.spyOn(testVault, 'onCosignResult').mockResolvedValue(undefined);
-
-    const result = await testVault.cosignRelease({
-      utxoId: 21,
-      releaseRequest: {
-        toScriptPubkey: '0014abcd',
-        bitcoinNetworkFee: 10n,
-      },
-    });
-
-    expect(createIntentForFollowOnTx).toHaveBeenCalledWith(staleTxInfo);
-    expect(followOnTx.resolve).toHaveBeenCalledWith(freshTxInfo);
-    expect(submitAndWatch).toHaveBeenCalledTimes(1);
-    expect(result).toEqual({
-      txInfo: freshTxInfo,
-      vaultSignature: new Uint8Array([1, 2, 3]),
-    });
-  });
-
-  it('resubmits from the latest dropped cosign attempt in a retry chain', async () => {
-    const originalTxInfo = createTxInfo({
-      id: 30,
-      status: TransactionStatus.Submitted,
-      txNonce: 7,
-      followOnTxId: 31,
-      submittedAtBlockHeight: 100,
-      extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
-      metadataJson: { utxoId: 30 },
-    });
-    const droppedRetryTxInfo = createTxInfo({
-      id: 31,
-      status: TransactionStatus.Submitted,
-      txNonce: 8,
-      submittedAtBlockHeight: 101,
-      extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
-      metadataJson: { utxoId: 30 },
-    });
-    const freshTxInfo = createTxInfo({
-      id: 32,
-      status: TransactionStatus.Submitted,
-      txNonce: 9,
-      submittedAtBlockHeight: 102,
-      extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
-      metadataJson: { utxoId: 30 },
-    });
-    const submitAndWatch = vi.fn().mockResolvedValue(freshTxInfo);
-    const followOnTx = { resolve: vi.fn(), isSettled: false };
-    const createIntentForFollowOnTx = vi.fn().mockReturnValue(followOnTx);
-    const { myVault } = createVault({
-      txInfos: [droppedRetryTxInfo, originalTxInfo],
-      finalizedHeight: 101,
-      historyByTxId: {
-        31: [{ id: 1, transactionId: 31, status: TransactionHistoryStatus.Dropped }],
-      },
-      submitAndWatch,
-      createIntentForFollowOnTx,
-    });
-    const testVault = myVault as unknown as IMyVaultTestTarget;
-    vi.spyOn(testVault, 'buildCosignTx').mockResolvedValue({
-      tx: { kind: 'cosign' },
-      vaultSignature: new Uint8Array([1, 2, 3]),
-    });
-    vi.spyOn(testVault, 'onCosignResult').mockResolvedValue(undefined);
-
-    const result = await testVault.cosignRelease({
-      utxoId: 30,
-      releaseRequest: {
-        toScriptPubkey: '0014abcd',
-        bitcoinNetworkFee: 10n,
-      },
-    });
-
-    expect(createIntentForFollowOnTx).toHaveBeenCalledTimes(1);
-    expect(createIntentForFollowOnTx).toHaveBeenCalledWith(droppedRetryTxInfo);
-    expect(followOnTx.resolve).toHaveBeenCalledWith(freshTxInfo);
-    expect(submitAndWatch).toHaveBeenCalledTimes(1);
-    expect(result).toEqual({
-      txInfo: freshTxInfo,
-      vaultSignature: new Uint8Array([1, 2, 3]),
-    });
-  });
-
-  it('rejects the follow-on intent if cosign resubmission fails', async () => {
-    const staleTxInfo = createTxInfo({
-      id: 25,
-      status: TransactionStatus.Submitted,
-      txNonce: 7,
-      submittedAtBlockHeight: 100,
-      extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
-      metadataJson: { utxoId: 25 },
-    });
-    const submitError = new Error('submit failed');
-    const submitAndWatch = vi.fn().mockRejectedValue(submitError);
-    const followOnTx = { resolve: vi.fn(), reject: vi.fn(), isSettled: false };
-    const createIntentForFollowOnTx = vi.fn().mockReturnValue(followOnTx);
-    const { myVault } = createVault({
-      txInfos: [staleTxInfo],
-      finalizedHeight: 100,
-      historyByTxId: {
-        25: [{ id: 1, transactionId: 25, status: TransactionHistoryStatus.Dropped }],
-      },
-      submitAndWatch,
-      createIntentForFollowOnTx,
-    });
-    const testVault = myVault as unknown as IMyVaultTestTarget;
-    vi.spyOn(testVault, 'buildCosignTx').mockResolvedValue({
-      tx: { kind: 'cosign' },
-      vaultSignature: new Uint8Array([1, 2, 3]),
-    });
-
-    await expect(
-      testVault.cosignRelease({
-        utxoId: 25,
-        releaseRequest: {
-          toScriptPubkey: '0014abcd',
-          bitcoinNetworkFee: 10n,
-        },
-      }),
-    ).rejects.toThrow('submit failed');
-
-    expect(createIntentForFollowOnTx).toHaveBeenCalledWith(staleTxInfo);
-    expect(followOnTx.reject).toHaveBeenCalledWith(submitError);
-    expect(followOnTx.resolve).not.toHaveBeenCalled();
-  });
-
   it('ignores a retracted cosign once the nonce lane has moved on-chain', async () => {
     const txInfo = createTxInfo({
       id: 23,
@@ -535,37 +326,6 @@ describe('MyVault cosign recovery', () => {
     const latestTxAttempt = await myVault.findLatestReleaseCosignTxAttempt(26);
 
     expect(latestTxAttempt).toMatchObject({ txInfo, txAttemptState: TxAttemptState.Replace });
-  });
-
-  it('tracks standalone cosign submissions while awaiting finalization', async () => {
-    let resolveFinalized: (value: Uint8Array) => void;
-    const waitForFinalizedBlock = new Promise<Uint8Array>(resolve => {
-      resolveFinalized = resolve;
-    });
-    const postProcessor = { resolve: vi.fn() };
-    const txInfo = {
-      tx: {
-        metadataJson: { utxoId: 15 },
-      },
-      txResult: {
-        waitForFinalizedBlock,
-      },
-      createPostProcessor: vi.fn(() => postProcessor),
-    } as unknown as TransactionInfo<{ utxoId: number }>;
-    const { myVault } = createVault();
-    const testVault = myVault as unknown as IMyVaultTestTarget;
-    const trackTxResultFee = vi.spyOn(testVault, 'trackTxResultFee').mockResolvedValue(undefined);
-
-    const pending = testVault.onCosignResult(txInfo);
-
-    expect(myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.get(15)).toBe(txInfo);
-
-    resolveFinalized!(new Uint8Array([1, 2, 3]));
-    await pending;
-
-    expect(trackTxResultFee).toHaveBeenCalledWith(txInfo.txResult);
-    expect(postProcessor.resolve).toHaveBeenCalledTimes(1);
-    expect(myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.size).toBe(0);
   });
 
   it('prunes stale standalone cosign progress when the utxo is no longer pending', async () => {
@@ -1159,7 +919,7 @@ describe('MyVault cosign recovery', () => {
       },
       query: {
         vaults: {
-          argonotCommitmentByVaultId: vi.fn(async () => null),
+          argonotCommitmentByVaultId: vi.fn(async () => optionCodec()),
         },
       },
       tx: {
@@ -1368,9 +1128,7 @@ describe('MyVault cosign recovery', () => {
       query: {
         system: {
           account: vi.fn(async address => ({
-            data: {
-              free: address === delegateAddress ? 0n : 100_000_000n,
-            },
+            data: { free: address === delegateAddress ? 0n : 100_000_000n },
           })),
         },
       },
@@ -1498,88 +1256,15 @@ describe('MyVault cosign recovery', () => {
     getMainchainClient.mockRestore();
   });
 
-  it('prepares a member invite while using prior flexible-asset calls', async () => {
-    const submittedTxInfo = createTxInfo({ extrinsicType: ExtrinsicType.VaultSetFlexibleAssets });
-    const batchAll = vi.fn(txs => ({ kind: 'batch', txs }));
-    const setAsBackfill = vi.fn((utxoId, isFlexible) => ({ kind: 'bitcoin', utxoId, isFlexible }));
-    const setBondLotAsBackfill = vi.fn((bondLotId, isFlexible) => ({ kind: 'bond', bondLotId, isFlexible }));
-    const client = {
-      tx: {
-        utility: { batchAll },
-        bitcoinLocks: { setAsBackfill },
-        treasury: { setBondLotAsBackfill },
-      },
-    };
-    const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
-    const { myVault, submitAndWatch } = createVault({
-      submitAndWatch: vi.fn().mockResolvedValue(submittedTxInfo),
-    });
-    const signer = await myVault.walletKeys.getVaultingKeypair();
-    myVault.data.createdVault = createTestVault({
-      vaultId: 7,
-      operatorAccountId: signer.address,
-      delegateAccountId: null,
-    });
-    vi.spyOn(myVault as any, 'buildVaultDelegateSetupTxs').mockResolvedValue({
-      needsSetup: true,
-      txs: [{ kind: 'delegate' }],
-    });
-
-    const result = await myVault.prepareMemberInvite({
-      operatorName: 'OperatorOne',
-      bitcoinChanges: [
-        {
-          lock: {
-            utxoId: 11,
-            vaultId: 7,
-            isFunded: true,
-            liquidityPromised: 1_000n,
-            ownerAccount: signer.address,
-            getReleaseRequest: vi.fn(async () => undefined),
-          },
-          isFlexible: true,
-        },
-      ],
-      bondChanges: [
-        {
-          lot: {
-            id: 22,
-            vaultId: 7,
-            accountId: signer.address,
-            isOwn: true,
-            programType: 'Vault',
-            isReleasing: false,
-          },
-          isFlexible: true,
-        },
-      ],
-    });
-
-    expect(result).toBe(submittedTxInfo);
-    expect(batchAll).toHaveBeenCalledWith([
-      { kind: 'delegate' },
-      { kind: 'bitcoin', utxoId: 11, isFlexible: true },
-      { kind: 'bond', bondLotId: 22, isFlexible: true },
-    ]);
-    expect(submitAndWatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        extrinsicType: ExtrinsicType.VaultSetFlexibleAssets,
-        metadata: {
-          bitcoinChanges: [{ utxoId: 11, isBackfill: true }],
-          bondChanges: [{ bondLotId: 22, isBackfill: true }],
-        },
-      }),
-    );
-
-    getMainchainClient.mockRestore();
-  });
-
   it('prepares flexible assets with the current runtime calls', async () => {
     const submittedTxInfo = createTxInfo({ extrinsicType: ExtrinsicType.VaultSetFlexibleAssets });
     const batchAll = vi.fn(txs => ({ kind: 'batch', txs }));
     const setFlexible = vi.fn((utxoId, isFlexible) => ({ kind: 'bitcoin', utxoId, isFlexible }));
     const setBondLotFlexible = vi.fn((bondLotId, isFlexible) => ({ kind: 'bond', bondLotId, isFlexible }));
     const client = {
+      query: {
+        bitcoinLocks: { lockReleaseRequestsByUtxoId: vi.fn(async () => null) },
+      },
       tx: {
         utility: { batchAll },
         bitcoinLocks: { setFlexible },
@@ -1600,14 +1285,12 @@ describe('MyVault cosign recovery', () => {
     const result = await myVault.setFlexibleAssets({
       bitcoinChanges: [
         {
-          lock: {
+          lock: createCurrentLock({
             utxoId: 11,
             vaultId: 7,
-            isFunded: true,
-            liquidityPromised: 1_000n,
+            securitizationCoverageMicrogons: 1_000n,
             ownerAccount: signer.address,
-            getReleaseRequest: vi.fn(async () => undefined),
-          },
+          }),
           isFlexible: true,
         },
       ],
@@ -1739,15 +1422,17 @@ describe('MyVault cosign recovery', () => {
     );
 
     vi.spyOn(myVault as any, 'refreshExternalLocks').mockResolvedValue(undefined);
+    const loadBitcoinLockCosigns = vi.spyOn(myVault.bitcoinLockCosign, 'load').mockResolvedValue(undefined);
 
     const loadPromise = myVault.load();
     let isResolved = false;
     void loadPromise.then(() => {
       isResolved = true;
     });
+    expect(loadBitcoinLockCosigns).not.toHaveBeenCalled();
 
     await vi.waitFor(() => {
-      expect(myVault.data.isReady).toBe(true);
+      expect(myVault.data.isLoaded).toBe(true);
     });
     expect(myVault.data.argonotCommitment).toEqual({
       committedMicronots: 25n,
@@ -1756,7 +1441,9 @@ describe('MyVault cosign recovery', () => {
     expect(isResolved).toBe(false);
 
     resolveBitcoinLocksLoad();
-    await Promise.resolve();
+    await vi.waitFor(() => {
+      expect(loadBitcoinLockCosigns).toHaveBeenCalledTimes(1);
+    });
     expect(isResolved).toBe(false);
 
     resolveGlobalCouncilLoad();
@@ -1784,12 +1471,18 @@ describe('MyVault cosign recovery', () => {
     };
     const client = { at: vi.fn(async () => api) };
     const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
-    const liveVault = {
-      vaultId: 7,
-      securitization: 900n,
-      getRelockCapacity: () => 200n,
-    } as Vault;
-    const getVault = vi.spyOn(Vault, 'get').mockResolvedValue(liveVault);
+    const liveVault = Object.assign(
+      createTestVault({
+        vaultId: 7,
+        operatorAccountId: walletKeys.vaultingAddress,
+        delegateAccountId: null,
+      }),
+      {
+        securitization: 900n,
+        securitizationReleaseSchedule: new Map([[0, 200n]]),
+      },
+    );
+    const getVault = vi.spyOn(AppsCore.Vault, 'get').mockResolvedValue(liveVault);
     const { myVault } = createVault({
       db: {
         vaultCapitalHistoryTable: { insert: capitalInsert },
@@ -1859,7 +1552,7 @@ describe('MyVault cosign recovery', () => {
       },
     };
     const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue(client as any);
-    const getVault = vi.spyOn(Vault, 'get').mockResolvedValue(vault);
+    const getVault = vi.spyOn(AppsCore.Vault, 'get').mockResolvedValue(vault);
     const { myVault } = createVault({
       db: {
         vaultsTable: { insert: metadataInsert },
@@ -1903,7 +1596,6 @@ function createVault(args?: {
   headerByHeight?: Record<number, string>;
   submitAndWatch?: ReturnType<typeof vi.fn>;
   trackTxResult?: ReturnType<typeof vi.fn>;
-  createIntentForFollowOnTx?: ReturnType<typeof vi.fn>;
   historyByTxId?: Record<number, Partial<ITransactionStatusHistoryRecord>[]>;
   db?: Record<string, unknown>;
   walletKeys?: ReturnType<typeof createMockWalletKeys>;
@@ -2018,7 +1710,6 @@ function createVault(args?: {
     submitAndWatch,
     trackTxResult,
     ensureStoredEvents: args?.ensureStoredEvents ?? vi.fn(async () => undefined),
-    createIntentForFollowOnTx: args?.createIntentForFollowOnTx ?? vi.fn(),
     findLatestTxInfo: vi.fn((matcher: (txInfo: TransactionInfo) => boolean) => {
       return txInfos.find(matcher);
     }),
@@ -2153,8 +1844,8 @@ function createTestVault(args: {
     reservedSecuritizationSpace: 0n,
     securitizationPendingActivation: 0n,
     lockedSatoshis: 0n,
-    securitizedSatoshis: 0n,
-    flexibleSecuritizedSatoshis: 0,
+    ratioAdjustedSatoshis: 0n,
+    flexibleRatioAdjustedSatoshis: 0n,
     securitizationReleaseSchedule: {},
     securitizationRatio: 1_000_000_000_000_000_000n,
     isClosed: false,

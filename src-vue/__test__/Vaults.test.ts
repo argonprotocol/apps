@@ -1,7 +1,9 @@
-import type { IAllVaultStats } from '@argonprotocol/apps-core';
+import type { ArgonClient, IAllVaultStats } from '@argonprotocol/apps-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Vaults } from '../lib/Vaults.ts';
 import { setMainchainClients } from '../stores/mainchain.ts';
+
+type OperationalAccountListener = Parameters<ArgonClient['query']['operationalAccounts']['operationalAccounts']>[1];
 
 class TestVaults extends Vaults {
   public async persist(stats: IAllVaultStats): Promise<void> {
@@ -65,5 +67,30 @@ describe('Vault operator names', () => {
     await vaults.refreshOperatorNames({ vaults: [{ vaultId: 1, operatorAccountId: `0x${'02'.repeat(32)}` }] });
 
     expect(vaults.operatorNamesByVaultId[1]).toBe('Atlas');
+  });
+
+  it('publishes operator profile subscription updates', async () => {
+    const unsubscribe = vi.fn();
+    const operationalAccountId = `0x${'01'.repeat(32)}`;
+    const client = {
+      query: {
+        operationalAccounts: {
+          operationalAccountBySubAccount: vi.fn(async () => operationalAccountId),
+          operationalAccounts: vi.fn(async (_accountId, onUpdate: OperationalAccountListener) => {
+            onUpdate({ name: new TextEncoder().encode('Atlas') } as Parameters<OperationalAccountListener>[0]);
+            return unsubscribe;
+          }),
+        },
+      },
+    };
+    setMainchainClients({ get: vi.fn(async () => client) } as any);
+    const vaults = new Vaults('dev-docker', {} as any, {} as any);
+    vaults.vaultsById[1] = { operatorAccountId: `0x${'02'.repeat(32)}` } as never;
+    const onUpdate = vi.fn();
+
+    await expect(vaults.subscribeToOperatorName(1, onUpdate)).resolves.toBe(unsubscribe);
+
+    expect(vaults.operatorNamesByVaultId[1]).toBe('Atlas');
+    expect(onUpdate).toHaveBeenCalledWith('Atlas');
   });
 });

@@ -2,14 +2,15 @@ import { JsonExt } from '@argonprotocol/apps-core';
 import { invoke } from '@tauri-apps/api/core';
 import { getConfig } from '../stores/config';
 import { getMainchainClient, getMiningFrames } from '../stores/mainchain';
-import { getBitcoinLocks } from '../stores/bitcoin';
+import { getBitcoinFissions, getBitcoinLocks } from '../stores/bitcoin';
 import { getMyVault } from '../stores/vaults';
-import { getWalletKeys, getWalletsForArgon, useWallets } from '../stores/wallets.ts';
+import { getWalletKeys, useWallets } from '../stores/wallets.ts';
 import { useBasics } from '../stores/basics.ts';
 import { getEthereumMoveTracker } from '../stores/moveFromEthereum.ts';
 import { getEthereumOutboundTransferTracker } from '../stores/moveToEthereum.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import type { IAppQueryFn, IAppQueryRefs } from '../interfaces/IAppQueryRefs.ts';
+import { WalletType } from '../lib/Wallet.ts';
 
 type UnknownRecord = Record<string, unknown>;
 export const LOGGABLE_ARG_KEYS = [
@@ -1217,6 +1218,7 @@ async function getAppQueryRefs(): Promise<IAppQueryRefs> {
   const myVault = getMyVault();
   const bitcoinLocks = getBitcoinLocks();
   const basics = useBasics();
+  const wallets = useWallets();
   await config.isLoadedPromise.catch(() => undefined);
   await myVault.load().catch(() => undefined);
   await bitcoinLocks.load().catch(() => undefined);
@@ -1225,14 +1227,17 @@ async function getAppQueryRefs(): Promise<IAppQueryRefs> {
     config,
     bitcoinLocks,
     myVault,
-    wallets: useWallets(),
+    wallets,
     coreEthereumAddress: getWalletKeys().coreEthereumAddress,
     overlayIsOpen: basics.overlayIsOpen,
+    getBitcoinFissions,
     getEthereumMoveTracker,
     getEthereumOutboundTransferTracker,
     getMainchainClient,
-    openWalletOverlay(_walletType) {
-      basicEmitter.emit('openWalletOverlay', { wallet: getWalletsForArgon().defaultArgonWallet });
+    openWalletOverlay(walletType) {
+      const wallet =
+        walletType === WalletType.bitcoin ? wallets.bitcoinWallet : wallets.argonWallets.defaultArgonWallet;
+      basicEmitter.emit('openWalletOverlay', { wallet });
     },
   };
 }

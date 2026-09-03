@@ -305,14 +305,11 @@ import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import utc from 'dayjs/plugin/utc';
 import {
-  type ICertificationProgress,
   countCompletedOperationalCertificationRequirements,
   countCompletedTreasuryCertificationRequirements,
   createOperationalAccessProof,
   hasCompletedTreasuryCertificationRequirements,
   InviteEnvelope,
-  loadAccountLocks,
-  loadCertificationProgress,
   MICROGONS_PER_ARGON,
   MICRONOTS_PER_ARGONOT,
   MiningFrames,
@@ -354,8 +351,6 @@ const errorMessage = Vue.ref('');
 const expirationDays = Vue.ref(7);
 const memberAvailableMicrogons = Vue.ref<bigint>();
 const memberAvailableMicronots = Vue.ref<bigint>();
-const memberCertificationProgress = Vue.shallowRef<ICertificationProgress>();
-const memberPendingBitcoinMicrogons = Vue.ref<bigint>();
 const memberUniswapTransferMicrogons = Vue.ref<bigint>();
 const memberOperationalVaultMicrogons = Vue.ref<bigint>();
 const memberOperationalMiningSeatCount = Vue.ref<number>();
@@ -371,7 +366,10 @@ const inviteUrl = Vue.computed(() => {
   })}`;
 });
 const certificationProgress = Vue.computed(() => {
-  return memberCertificationProgress.value ?? invite.value?.certificationProgress;
+  return invite.value?.certificationProgress;
+});
+const memberPendingBitcoinMicrogons = Vue.computed(() => {
+  return invite.value?.vaultContribution?.pendingBitcoinAmount ?? 0n;
 });
 const showOperationsCertification = Vue.computed(() => {
   return !!certificationProgress.value?.hasOperationalAccount;
@@ -559,8 +557,6 @@ Vue.watch(
     if (isNewMember) {
       memberAvailableMicrogons.value = undefined;
       memberAvailableMicronots.value = undefined;
-      memberCertificationProgress.value = undefined;
-      memberPendingBitcoinMicrogons.value = undefined;
       memberUniswapTransferMicrogons.value = undefined;
       memberOperationalVaultMicrogons.value = undefined;
       memberOperationalMiningSeatCount.value = undefined;
@@ -570,26 +566,13 @@ Vue.watch(
 
     try {
       const client = await getMainchainClient(false);
-      const accountLocksPromise = loadAccountLocks({ client, defaultAccountId: accountId });
       const operationalAccountPromise = operationalAccountId
         ? client.query.operationalAccounts.operationalAccounts(operationalAccountId)
         : undefined;
       const transferTotalsPromise = client.query.crosschainTransfer.transferTotalsByAccount(accountId);
-      const [balanceResult, certificationResult] = await Promise.allSettled([
+      const [balanceResult, operationalResult] = await Promise.allSettled([
         readArgonWalletBalanceValues(client, [accountId]),
-        Promise.all([
-          loadCertificationProgress({
-            client,
-            defaultAccountId: accountId,
-            operationalAccountId,
-            accountLocksPromise,
-            operationalAccountPromise,
-            transferTotalsPromise,
-          }),
-          accountLocksPromise,
-          transferTotalsPromise,
-          operationalAccountPromise,
-        ]),
+        Promise.all([transferTotalsPromise, operationalAccountPromise]),
       ]);
       if (!isCurrentRequest) return;
 
@@ -601,16 +584,12 @@ Vue.watch(
         console.warn('[Member Details] Unable to load member balances.', balanceResult.reason);
       }
 
-      if (certificationResult.status === 'rejected') {
-        console.warn('[Member Details] Unable to load certification details.', certificationResult.reason);
+      if (operationalResult.status === 'rejected') {
+        console.warn('[Member Details] Unable to load operational details.', operationalResult.reason);
         return;
       }
 
-      const [progress, accountLocks, transferTotals, operationalAccountRaw] = certificationResult.value;
-      memberCertificationProgress.value = progress;
-      memberPendingBitcoinMicrogons.value = accountLocks.reduce((total, lock) => {
-        return lock.isFunded ? total : total + lock.liquidityPromised;
-      }, 0n);
+      const [transferTotals, operationalAccountRaw] = operationalResult.value;
 
       if (operationalAccountRaw) {
         const account = operationalAccountRaw;

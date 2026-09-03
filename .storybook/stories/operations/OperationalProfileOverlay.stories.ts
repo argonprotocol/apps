@@ -40,7 +40,7 @@ export const LoadFailed: Story = {
 export const SettingsWithFlexibleAssets: Story = {
   beforeEach: () => {
     profileRequest = { screen: 'settings' };
-    setupOperationalProfileScenario('settingsFlexible');
+    setupOperationalProfileScenario('settings');
   },
   play: async () => {
     const canvas = within(document.body);
@@ -50,22 +50,10 @@ export const SettingsWithFlexibleAssets: Story = {
   },
 };
 
-export const SettingsWithoutFlexibleAssets: Story = {
-  beforeEach: () => {
-    profileRequest = { screen: 'settings' };
-    setupOperationalProfileScenario('settingsBasic');
-  },
-  play: async () => {
-    const canvas = within(document.body);
-    await expectEventuallyVisible(canvas.findByText('Onboarding Settings'));
-    expect(canvas.queryByRole('button', { name: /Flexible Assets/ })).not.toBeInTheDocument();
-  },
-};
-
 export const EditOperationsNameFromSettings: Story = {
   beforeEach: () => {
     profileRequest = { screen: 'settings' };
-    setupOperationalProfileScenario('settingsFlexible');
+    setupOperationalProfileScenario('settings');
   },
   play: async () => {
     const canvas = within(document.body);

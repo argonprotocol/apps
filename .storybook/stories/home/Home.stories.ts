@@ -26,10 +26,7 @@ export const Loading: Story = {
     const canvas = within(canvasElement);
     const buyingPower = canvas.getByText(/Buying Power vs/);
     const restabilizationPower = canvas.getByText(/Restabilization Power/);
-    const internalWallet = canvas
-      .getAllByText('Internal App Wallet')
-      .map(element => element.closest('article'))
-      .find(Boolean);
+    const internalWallet = canvas.getByText('Immediately Usable In Wallet').closest('article');
 
     if (!internalWallet) throw new Error('Home loading wallet is missing');
 
@@ -48,7 +45,8 @@ export const BasicAccount: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.getByText('Your Gateway to Argon')).toBeVisible();
-    await expect(canvas.getAllByText('Internal App Wallet')).toHaveLength(2);
+    await expect(canvas.getByText('Immediately Usable In Wallet')).toBeVisible();
+    await expect(canvas.getByText('Actively Minting In Wallet')).toBeVisible();
     await expect(canvas.getByText(/connect an Ethereum wallet/i)).toBeVisible();
   },
 };
@@ -60,7 +58,8 @@ export const TreasuryAccount: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.getByText(/upgraded to Treasury/i)).toBeVisible();
-    await expect(canvas.getAllByText('Internal App Wallet')).toHaveLength(2);
+    await expect(canvas.getByText('Immediately Usable In Wallet')).toBeVisible();
+    await expect(canvas.getByText('Actively Minting In Wallet')).toBeVisible();
     await expect(canvas.getByText('Main Wallet')).toBeVisible();
     await expect(canvas.getByText('Treasury Wallet')).toBeVisible();
   },
@@ -85,7 +84,8 @@ export const PriceUnavailable: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.getByText('Argon Price Unavailable')).toBeVisible();
-    await expect(canvas.getAllByText('Internal App Wallet')).toHaveLength(2);
+    await expect(canvas.getByText('Immediately Usable In Wallet')).toBeVisible();
+    await expect(canvas.getByText('Actively Minting In Wallet')).toBeVisible();
   },
 };
 

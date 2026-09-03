@@ -377,9 +377,9 @@ function createFeeWaiverUse(
     microgonsAtTargetPerBtc: 6_800_000_000n,
     feeCoupon: {
       feeDiscount: feeCreditMicrogons,
-      securitizationSpaceToUnreserve: 0n,
       expiresAtFrame: 1_000n,
       nonce: BigInt(id),
+      securitizationSpaceToUnreserve: 0n,
       signature: `0x${'34'.repeat(64)}`,
     },
     createdAt: dateDaysAgo(3 - id),

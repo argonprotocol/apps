@@ -26,22 +26,22 @@ type IBlockInclusion = {
 type IPendingInBlock = Omit<IBlockInclusion, 'blockNumber'>;
 
 export class TxResult {
-  #isBroadcast = false;
-  #submissionError?: Error;
-  #pendingInBlock?: IPendingInBlock;
+  private broadcast = false;
+  private submissionFailure?: Error;
+  private pendingInBlock?: IPendingInBlock;
 
   public set isBroadcast(value: boolean) {
-    this.#isBroadcast = value;
+    this.broadcast = value;
     this.updateProgress();
   }
 
   public get isBroadcast(): boolean {
-    return this.#isBroadcast;
+    return this.broadcast;
   }
 
   public set submissionError(value: Error) {
     if (value) {
-      this.#submissionError = value;
+      this.submissionFailure = value;
       this.finalizedReject(value);
       this.inBlockReject(value);
       this.updateProgress();
@@ -49,7 +49,7 @@ export class TxResult {
   }
 
   public get submissionError(): Error | undefined {
-    return this.#submissionError;
+    return this.submissionFailure;
   }
 
   public waitForFinalizedBlock: Promise<Uint8Array>;
@@ -109,7 +109,7 @@ export class TxResult {
 
   public async setSeenInBlock(block: IBlockInclusion): Promise<void> {
     if (block.blockNumber === undefined) {
-      this.#pendingInBlock = {
+      this.pendingInBlock = {
         blockHash: block.blockHash,
         extrinsicIndex: block.extrinsicIndex,
         events: block.events,
@@ -123,11 +123,11 @@ export class TxResult {
       this.extrinsicIndex === block.extrinsicIndex &&
       u8aEq(this.blockHash, block.blockHash)
     ) {
-      this.#pendingInBlock = undefined;
+      this.pendingInBlock = undefined;
       return;
     }
 
-    this.#pendingInBlock = undefined;
+    this.pendingInBlock = undefined;
     this.parseEvents(block.events);
     this.blockHash = block.blockHash;
     this.blockNumber = block.blockNumber;
@@ -141,7 +141,7 @@ export class TxResult {
   }
 
   public async setFinalized() {
-    const pendingInBlock = this.#pendingInBlock;
+    const pendingInBlock = this.pendingInBlock;
     if (pendingInBlock) {
       await this.publishSeenInBlock(pendingInBlock);
     } else if (this.blockHash && this.blockNumber === undefined) {
@@ -184,7 +184,7 @@ export class TxResult {
     if (status.isInBlock && txIndex !== undefined) {
       try {
         const pendingInBlock = createPendingInBlock(Uint8Array.from(status.asInBlock), txIndex, extrinsicEvents);
-        this.#pendingInBlock = pendingInBlock;
+        this.pendingInBlock = pendingInBlock;
 
         void this.publishSeenInBlock(pendingInBlock).catch(error => {
           if (!isMissingBlockHeaderError(error)) {
@@ -197,8 +197,8 @@ export class TxResult {
     }
     if (status.isRetracted) {
       const retractedHash = Uint8Array.from(status.asRetracted);
-      if (this.#pendingInBlock && u8aEq(this.#pendingInBlock.blockHash, retractedHash)) {
-        this.#pendingInBlock = undefined;
+      if (this.pendingInBlock && u8aEq(this.pendingInBlock.blockHash, retractedHash)) {
+        this.pendingInBlock = undefined;
       }
       if (this.blockHash && u8aEq(this.blockHash, retractedHash)) {
         this.events = [];
@@ -213,21 +213,21 @@ export class TxResult {
       }
     }
     if (status.isUsurped) {
-      this.#pendingInBlock = undefined;
+      this.pendingInBlock = undefined;
       this.submissionError = new TxSubmissionError(
         TxSubmissionErrorCode.Usurped,
         `Transaction was usurped by ${status.asUsurped.toHex()}.`,
       );
     }
     if (status.isDropped) {
-      this.#pendingInBlock = undefined;
+      this.pendingInBlock = undefined;
       this.submissionError = new TxSubmissionError(
         TxSubmissionErrorCode.Dropped,
         'Transaction was dropped before it was included in a block.',
       );
     }
     if (status.isInvalid) {
-      this.#pendingInBlock = undefined;
+      this.pendingInBlock = undefined;
       this.submissionError = new TxSubmissionError(
         TxSubmissionErrorCode.Invalid,
         'Transaction was rejected as invalid by the node.',
@@ -235,9 +235,9 @@ export class TxResult {
     }
     if (isFinalized) {
       try {
-        this.#pendingInBlock = createPendingInBlock(
+        this.pendingInBlock = createPendingInBlock(
           Uint8Array.from(status.asFinalized),
-          txIndex ?? this.#pendingInBlock?.extrinsicIndex ?? this.extrinsicIndex,
+          txIndex ?? this.pendingInBlock?.extrinsicIndex ?? this.extrinsicIndex,
           extrinsicEvents.length ? extrinsicEvents : this.events,
         );
       } catch (error) {
@@ -252,7 +252,7 @@ export class TxResult {
   }
 
   private async publishSeenInBlock(block: IPendingInBlock) {
-    const pendingInBlock = this.#pendingInBlock;
+    const pendingInBlock = this.pendingInBlock;
     if (
       !pendingInBlock ||
       pendingInBlock.extrinsicIndex !== block.extrinsicIndex ||
@@ -263,7 +263,7 @@ export class TxResult {
 
     const blockNumber = await this.client.rpc.chain.getHeader(block.blockHash).then(h => h.number.toNumber());
 
-    const currentPendingInBlock = this.#pendingInBlock;
+    const currentPendingInBlock = this.pendingInBlock;
     if (
       !currentPendingInBlock ||
       currentPendingInBlock.extrinsicIndex !== block.extrinsicIndex ||

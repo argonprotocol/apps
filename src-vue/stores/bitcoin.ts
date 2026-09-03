@@ -3,8 +3,16 @@ import type { IBitcoinLockCouponStatus } from '@argonprotocol/apps-router';
 import { BitcoinPrices, BitcoinFees, type Vault } from '@argonprotocol/apps-core';
 
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
+import { BitcoinFissions } from '../lib/BitcoinFissions.ts';
+import { BitcoinLiquidClose } from '../lib/txs/BitcoinLiquid.close.ts';
+import { BitcoinLiquidCreate } from '../lib/txs/BitcoinLiquid.create.ts';
+import { BitcoinLiquidRatchet } from '../lib/txs/BitcoinLiquid.ratchet.ts';
+import { BitcoinOrphanRelease } from '../lib/txs/BitcoinOrphan.release.ts';
+import { BitcoinLockCreate } from '../lib/txs/BitcoinLock.create.ts';
+import { BitcoinLockRelease } from '../lib/txs/BitcoinLock.release.ts';
+import { BitcoinLockResecuritize } from '../lib/txs/BitcoinLock.resecuritize.ts';
+import { loadTransactionOperations, type TransactionOperations } from '../lib/txs/index.ts';
 import { getDbPromise } from './helpers/dbPromise';
-import handleFatalError from './helpers/handleFatalError.ts';
 import { getBlockWatch } from './mainchain.ts';
 import { getCurrency } from './currency.ts';
 import { getConfig } from './config.ts';
@@ -25,6 +33,9 @@ export function getBitcoinFees() {
 }
 
 let locks: BitcoinLocks;
+let fissions: BitcoinFissions;
+let transactionOperations: TransactionOperations;
+let transactionOperationsLoadPromise: Promise<TransactionOperations> | undefined;
 let bitcoinLockCoupons: ReturnType<typeof createBitcoinLockCouponsState>;
 
 export function getBitcoinLocks(): BitcoinLocks {
@@ -33,21 +44,87 @@ export function getBitcoinLocks(): BitcoinLocks {
     const transactionTracker = getTransactionTracker();
     const keys = getWalletKeys();
     const blockWatch = getBlockWatch();
-    locks = new BitcoinLocks(
-      dbPromise,
-      keys,
-      blockWatch,
-      getCurrency(),
-      transactionTracker,
-      undefined,
-      getUpstreamOperatorClient(),
-    );
+    locks = new BitcoinLocks(dbPromise, keys, blockWatch, getCurrency(), transactionTracker);
     locks.data = Vue.reactive(locks.data) as any;
     locks.utxoTracking.data = Vue.reactive(locks.utxoTracking.data) as any;
   }
-  void locks.load().catch(handleFatalError.bind('useBitcoinLocks'));
+  void locks.load().catch(error => {
+    console.error('[BitcoinLocks] Unable to load current state', error);
+  });
 
   return locks;
+}
+
+export function getBitcoinFissions(): BitcoinFissions {
+  if (!fissions) {
+    fissions = new BitcoinFissions(getDbPromise(), getWalletKeys().defaultArgonAddress, getBlockWatch(), getCurrency());
+    fissions.data = Vue.reactive(fissions.data) as BitcoinFissions['data'];
+  }
+  void fissions.load().catch(error => {
+    console.error('[BitcoinFissions] Unable to load current state', error);
+  });
+
+  return fissions;
+}
+
+export function getBitcoinTransactionOperations(): TransactionOperations {
+  if (!transactionOperations) {
+    const transactionTracker = getTransactionTracker();
+    const bitcoinLocks = getBitcoinLocks();
+    const bitcoinFissions = getBitcoinFissions();
+    const currency = getCurrency();
+    const upstreamOperatorClient = getUpstreamOperatorClient();
+    const bitcoinLockResecuritize = new BitcoinLockResecuritize(
+      bitcoinLocks,
+      transactionTracker,
+      currency,
+      upstreamOperatorClient,
+    );
+
+    transactionOperations = {
+      bitcoinLiquidClose: new BitcoinLiquidClose(bitcoinFissions, transactionTracker, currency),
+      bitcoinLiquidCreate: new BitcoinLiquidCreate(
+        bitcoinFissions,
+        transactionTracker,
+        bitcoinLocks,
+        getVaults(),
+        bitcoinLockResecuritize,
+        upstreamOperatorClient,
+      ),
+      bitcoinLiquidRatchet: new BitcoinLiquidRatchet(
+        bitcoinFissions,
+        transactionTracker,
+        currency,
+        bitcoinLocks,
+        getVaults(),
+        bitcoinLockResecuritize,
+        upstreamOperatorClient,
+      ),
+      bitcoinOrphanRelease: new BitcoinOrphanRelease(bitcoinLocks, bitcoinLocks.orphanReleases, transactionTracker),
+      bitcoinLockCreate: new BitcoinLockCreate(bitcoinLocks, transactionTracker, currency, upstreamOperatorClient),
+      bitcoinLockRelease: new BitcoinLockRelease(bitcoinLocks, transactionTracker, currency),
+      bitcoinLockResecuritize,
+    };
+  }
+  if (!transactionOperationsLoadPromise) {
+    const bitcoinLocks = getBitcoinLocks();
+    const bitcoinFissions = getBitcoinFissions();
+    const loadPromise = loadTransactionOperations(
+      transactionOperations,
+      Promise.all([bitcoinLocks.load(), bitcoinFissions.load()]),
+    );
+    transactionOperationsLoadPromise = loadPromise;
+    void loadPromise.catch(error => {
+      if (transactionOperationsLoadPromise === loadPromise) transactionOperationsLoadPromise = undefined;
+      console.error('[BitcoinTransactions] Unable to restore pending operations', error);
+    });
+  }
+  return transactionOperations;
+}
+
+export function loadBitcoinTransactionOperations(): Promise<TransactionOperations> {
+  getBitcoinTransactionOperations();
+  return transactionOperationsLoadPromise!;
 }
 
 export function getBitcoinLockCoupons() {

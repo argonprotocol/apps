@@ -6,7 +6,7 @@
           <TooltipRoot v-if="item.label" :delayDuration="100" :disabled="props.isLoading">
             <TooltipTrigger
               tabindex="-1"
-              class="flex w-[calc(33.333333%+3rem)] flex-row items-center"
+              class="flex min-w-0 flex-1 flex-row items-center"
               :class="item.click && !props.isLoading ? 'cursor-pointer' : ''"
               @click="props.isLoading ? undefined : item.click?.()"
             >
@@ -14,7 +14,7 @@
                 v-if="index === 0"
                 :is="icon"
                 :class="isActive(item) ? 'text-argon-600/80' : 'text-black/20'"
-                class="relative left-1 mr-2 h-10"
+                class="relative left-1 mr-2 h-10 shrink-0"
               />
               <div
                 :class="
@@ -25,6 +25,10 @@
                 class="relative grow border-y px-1 py-1 text-center text-base font-bold whitespace-nowrap"
               >
                 {{ item.label }}
+                <ExclamationTriangleIcon
+                  v-if="item.hasWarning"
+                  class="ml-1 inline h-4 w-4 align-text-bottom text-amber-500"
+                />
                 <RoundCap class="absolute top-0 left-0" :isSelected="isActive(item)" />
                 <RoundCap align="end" class="absolute top-0 right-[2px]" :isSelected="isActive(item)" />
                 <div
@@ -51,7 +55,7 @@
             <TooltipTrigger asChild tabindex="-1">
               <Arrows
                 :class="isActive(item) ? 'text-argon-600/80 processing-active' : 'text-black/10'"
-                class="ml-5 min-h-[34px] pr-1.5"
+                class="h-9 w-10 shrink-0"
               />
             </TooltipTrigger>
             <TooltipContent
@@ -78,11 +82,13 @@ export interface IStepHeaderItem {
   tooltip: string;
   isActive: () => boolean;
   click?: () => void;
+  hasWarning?: boolean;
 }
 </script>
 
 <script setup lang="ts">
 import type { Component } from 'vue';
+import { ExclamationTriangleIcon } from '@heroicons/vue/20/solid';
 import RoundCap from '../overlays/bitcoin-locking/components/RoundCap.vue';
 import Arrows from '../assets/arrows.svg?component';
 import { TooltipArrow, TooltipContent, TooltipProvider, TooltipRoot, TooltipTrigger } from 'reka-ui';

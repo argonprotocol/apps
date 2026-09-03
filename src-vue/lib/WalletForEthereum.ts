@@ -2,7 +2,12 @@ import { type Address, erc20Abi, getAddress } from 'viem';
 import { NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { EvmContracts } from '@argonprotocol/mainchain';
 import { type IOtherToken, type IOtherTokenDefinition, WalletForChain, WalletType } from './Wallet.ts';
-import { createEthereumPublicClient, type IEthereumChainConfig, loadEthereumChainConfig } from './EthereumClient.ts';
+import {
+  createEthereumPublicClient,
+  getEthereumExecutionRpcUrl,
+  type IEthereumChainConfig,
+  loadEthereumChainConfig,
+} from './EthereumClient.ts';
 import type { Currency } from './Currency.ts';
 import { createFinancialPosition, type IEthereumWalletFinancialPosition } from '../interfaces/IFinancialPosition.ts';
 import {
@@ -67,10 +72,6 @@ export class WalletForEthereum extends WalletForChain<WalletType.ethereum> {
     argonTokens: IOtherTokenDefinition[];
     chainConfig?: IEthereumChainConfig;
   }>;
-  private readonly onWindowFocus = () => {
-    void this.loadBalances();
-  };
-
   constructor(
     address: string,
     private readonly financialCache?: Promise<FinancialCacheTable>,
@@ -189,6 +190,8 @@ export class WalletForEthereum extends WalletForChain<WalletType.ethereum> {
 
   public async load(options: { force?: boolean; startRefresh?: boolean } = {}) {
     await restoreCachedExternalWalletBalances(this.financialCache, 'ethereum', this.data);
+    if (!getEthereumExecutionRpcUrl()) return;
+
     await this.loadBalances({ force: options.force ?? true });
     if (options.startRefresh ?? true) {
       this.startBalanceRefresh();
@@ -197,7 +200,6 @@ export class WalletForEthereum extends WalletForChain<WalletType.ethereum> {
 
   public dispose() {
     if (!this.balanceRefreshIsStarted || typeof window === 'undefined') return;
-    window.removeEventListener('focus', this.onWindowFocus);
     if (this.balanceRefreshIntervalId !== undefined) window.clearInterval(this.balanceRefreshIntervalId);
     this.balanceRefreshIntervalId = undefined;
     this.balanceRefreshIsStarted = false;
@@ -253,8 +255,6 @@ export class WalletForEthereum extends WalletForChain<WalletType.ethereum> {
     }
 
     this.balanceRefreshIsStarted = true;
-
-    window.addEventListener('focus', this.onWindowFocus);
 
     this.balanceRefreshIntervalId = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return;

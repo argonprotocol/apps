@@ -1,4 +1,4 @@
-import { type ArgonApi, bigIntMin, type ArgonClient, type MoveTo } from '@argonprotocol/apps-core';
+import { BitcoinLock, bigIntMin, type ArgonClient, type ArgonQueryClient, type MoveTo } from '@argonprotocol/apps-core';
 import { type SubmittableExtrinsic } from '@argonprotocol/mainchain';
 import { u8aToHex } from '@polkadot/util';
 import type { IMintingAuthorityAuthorizeMetadata } from './MintingAuthorities.ts';
@@ -143,7 +143,7 @@ export class VaultCollectBuilder {
 
   public async buildPendingSubmission(args: {
     client: ArgonClient;
-    finalizedClient: ArgonApi;
+    finalizedClient: ArgonQueryClient;
     moveTo: MoveTo;
   }): Promise<IVaultCollectSubmission | undefined> {
     const { myVault } = this;
@@ -245,7 +245,7 @@ function getStoredCosignCount(
 async function buildCollectBitcoinTxs(args: {
   myVault: MyVault;
   client: ArgonClient;
-  finalizedClient: ArgonApi;
+  finalizedClient: ArgonQueryClient;
   vaultId: number;
 }) {
   const { myVault, client, finalizedClient, vaultId } = args;
@@ -265,16 +265,22 @@ async function buildCollectBitcoinTxs(args: {
 
     const pendingRelease = await finalizedClient.query.bitcoinLocks.lockReleaseRequestsByUtxoId(utxoId);
     if (!pendingRelease) continue;
-    const result = await myVault.buildCosignTx({
+    const signature = await myVault.createVaultSignatureForRelease({
       utxoId,
       releaseRequest: {
         bitcoinNetworkFee: pendingRelease.bitcoinNetworkFee,
         toScriptPubkey: u8aToHex(pendingRelease.toScriptPubkey),
       },
     });
-    if (!result) continue;
+    if (!signature) continue;
 
-    bitcoinTxs.push(result.tx);
+    bitcoinTxs.push(
+      BitcoinLock.createReleaseCosignTx({
+        client,
+        utxoId,
+        vaultSignatureHex: signature.vaultSignatureHex,
+      }),
+    );
     cosignedUtxoIds.push(utxoId);
   }
 

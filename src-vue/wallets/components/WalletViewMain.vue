@@ -38,6 +38,7 @@
           :microgonsToMint="financials.savingsTotalPending"
           :microgons="defaultArgonWallet.availableMicrogons"
           :micronots="defaultArgonWallet.availableMicronots"
+          :satoshis="financials.bitcoinWalletTotalSatoshis"
           :showBitcoin="true"
         />
       </div>
