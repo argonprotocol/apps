@@ -252,45 +252,36 @@ export class WalletsForArgon {
         return;
       }
 
-      let currentHeader = this.blockWatch.bestBlockHeader;
-      while (!this.isClosed) {
-        if (this.bestBlock?.blockHash === currentHeader.blockHash) {
-          return;
-        }
-
-        const { balances } = await this.readBalances(this.addresses, currentHeader);
-        if (this.isClosed) {
-          return;
-        }
-
-        const latestHeader = this.blockWatch.bestBlockHeader;
-        if (latestHeader.blockHash !== currentHeader.blockHash) {
-          currentHeader = latestHeader;
-          continue;
-        }
-
-        const balanceEvents: IWalletFlatList<'balance-change'>[] = [];
-        for (let index = 0; index < this.wallets.length; index += 1) {
-          const wallet = this.wallets[index];
-          const balance = balances[index];
-          const previousBalance = wallet.latestBalanceChange;
-          const didBalanceChange = previousBalance ? wallet.hasDiff(previousBalance, balance) : undefined;
-          wallet.balanceHistory = [balance];
-          if (didBalanceChange ?? wallet.hasValue()) {
-            balanceEvents.push([balance, wallet.type]);
-          }
-        }
-        if (balanceEvents.length === 0) {
-          balanceEvents.push([balances[0], this.defaultArgonWallet.type]);
-        }
-        for (const [balance, type] of balanceEvents) {
-          this.events.emit('balance-change', balance, type);
-          if (!this.deferredLoading.isSettled) this.loadEvents['balance-change'].push([balance, type]);
-        }
-
-        this.bestBlock = currentHeader;
+      const currentHeader = this.blockWatch.bestBlockHeader;
+      if (this.bestBlock?.blockHash === currentHeader.blockHash) {
         return;
       }
+
+      const { balances } = await this.readBalances(this.addresses, currentHeader);
+      if (this.isClosed) {
+        return;
+      }
+
+      const balanceEvents: IWalletFlatList<'balance-change'>[] = [];
+      for (let index = 0; index < this.wallets.length; index += 1) {
+        const wallet = this.wallets[index];
+        const balance = balances[index];
+        const previousBalance = wallet.latestBalanceChange;
+        const didBalanceChange = previousBalance ? wallet.hasDiff(previousBalance, balance) : undefined;
+        wallet.balanceHistory = [balance];
+        if (didBalanceChange ?? wallet.hasValue()) {
+          balanceEvents.push([balance, wallet.type]);
+        }
+      }
+      if (balanceEvents.length === 0 && !this.deferredLoading.isSettled) {
+        balanceEvents.push([balances[0], this.defaultArgonWallet.type]);
+      }
+      for (const [balance, type] of balanceEvents) {
+        this.events.emit('balance-change', balance, type);
+        if (!this.deferredLoading.isSettled) this.loadEvents['balance-change'].push([balance, type]);
+      }
+
+      this.bestBlock = currentHeader;
     }).promise;
   }
 

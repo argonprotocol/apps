@@ -78,7 +78,7 @@ function openDetail(lock: IBitcoinLockSummary) {
 }
 
 function isReturnLoading(lock: IBitcoinLockSummary) {
-  return lock.record.isHistoryRecoveryPending || financials.isHistoryRecoveryInProgress;
+  return lock.record.isHistoryRecoveryPending;
 }
 
 function removalDateLabel(lock: IBitcoinLockRecord) {
@@ -90,7 +90,7 @@ function removalDateLabel(lock: IBitcoinLockRecord) {
 function hasCompleteTransactionFees(lock: IBitcoinLockRecord) {
   return (
     lock.releaseArgonTxFeeMicrogons !== undefined &&
-    lock.fundingUtxoRecord?.releaseBitcoinNetworkFee !== undefined &&
+    lock.fundingUtxo?.releaseBitcoinNetworkFee !== undefined &&
     lock.btcPriceAtRemovalMicrogons !== undefined
   );
 }

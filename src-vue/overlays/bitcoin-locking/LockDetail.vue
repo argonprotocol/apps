@@ -10,7 +10,9 @@
         <span class="text-argon-600 font-mono text-2xl font-bold">{{ formattedBtc }} BTC</span>
         <span v-if="isOwnLock && isReleased" class="text-sm text-slate-500">
           <span>
-            {{ currency.symbol }}{{ microgonToMoneyNm(localLock!.liquidityPromised).format('0,0.[00]') }} liquidity
+            {{ currency.symbol
+            }}{{ microgonToMoneyNm(localLock!.securitizationCoverageMicrogons ?? 0n).format('0,0.[00]') }} security
+            coverage
           </span>
           ·
           <Tooltip :asChild="true" content="The Argons returned to unlock and release this bitcoin.">
@@ -39,9 +41,13 @@
               {{ currency.symbol }}{{ satToMoneyNm(fundingSatoshis).format('0,0.[00]') }} current market
             </span>
           </Tooltip>
-          ·
-          <span>{{ currency.symbol }}{{ microgonToMoneyNm(lock.liquidityPromised).format('0,0.[00]') }} liquidity</span>
-          <span v-if="isOwnLock && isMinting" class="text-slate-400">({{ mintedPct }}% minted)</span>
+          <template v-if="!('uuid' in lock)">
+            ·
+            <span>
+              {{ currency.symbol }}{{ microgonToMoneyNm(lock.securitizationCoverageMicrogons).format('0,0.[00]') }}
+              security coverage
+            </span>
+          </template>
         </span>
       </div>
 
@@ -118,15 +124,13 @@
 
       <div v-else class="mt-4 flex flex-row items-start gap-6">
         <div class="space-y-1.5 text-sm text-slate-600">
-          <div v-if="!isPendingFunding && isOwnLock && unlockPrice > 0n">
-            <Tooltip
-              :asChild="true"
-              content="The argon cost to unlock this bitcoin and return it to your wallet. Includes the redemption rate plus transaction fees."
-            >
+          <div v-if="!isPendingFunding && isOwnLock && localLock?.securitizationCoverageMicrogons !== undefined">
+            <Tooltip :asChild="true" content="The current Argon security coverage for this bitcoin.">
               <span class="cursor-help">
-                Unlock costs
+                Security coverage
                 <span class="font-semibold">
-                  {{ currency.symbol }}{{ microgonToMoneyNm(unlockPrice).format('0,0.[00]') }}
+                  {{ currency.symbol
+                  }}{{ microgonToMoneyNm(localLock.securitizationCoverageMicrogons).format('0,0.[00]') }}
                 </span>
               </span>
             </Tooltip>
@@ -220,8 +224,6 @@ import { getCurrency } from '../../stores/currency.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { getConfig } from '../../stores/config.ts';
 import { getMiningFrames } from '../../stores/mainchain.ts';
-import { getVaults } from '../../stores/vaults.ts';
-import { getWalletKeys } from '../../stores/wallets.ts';
 import { useFinancials } from '../../stores/financials.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../lib/db/BitcoinLocksTable.ts';
 import { ArrowTopRightOnSquareIcon } from '@heroicons/vue/24/outline';
@@ -240,7 +242,6 @@ const currency = getCurrency();
 const bitcoinLocks = getBitcoinLocks();
 const config = getConfig();
 const miningFrames = getMiningFrames();
-const vaults = getVaults();
 const financials = useFinancials();
 const { microgonToMoneyNm, satToMoneyNm } = createNumeralHelpers(currency);
 
@@ -259,10 +260,6 @@ const localLock = Vue.computed(() => ('uuid' in props.lock ? props.lock : undefi
 const externalLock = Vue.computed(() => ('uuid' in props.lock ? undefined : props.lock));
 
 const isOwnLock = Vue.computed(() => !!localLock.value?.uuid);
-
-const isMinting = Vue.computed(() => {
-  return localLock.value?.status === BitcoinLockStatus.LockedAndIsMinting;
-});
 
 const isPendingCosign = Vue.computed(() => {
   return props.pendingCosign != null;
@@ -287,7 +284,7 @@ const settledPerformance = Vue.computed(() => {
 });
 
 const isReturnLoading = Vue.computed(() => {
-  return !!localLock.value?.isHistoryRecoveryPending || financials.isHistoryRecoveryInProgress;
+  return !!localLock.value?.isHistoryRecoveryPending;
 });
 
 const localSummary = Vue.computed(() => {
@@ -328,12 +325,6 @@ const statusMessage = Vue.computed(() => {
   if (isPendingCosign.value) {
     return `This lock has a pending release request. ${vaultLabel.value} will cosign automatically.`;
   }
-  if (isMinting.value) {
-    if (isOwnLock.value) {
-      return 'Minting in progress — argons are being issued to your wallet.';
-    }
-    return 'Minting in progress — argons are being issued to the lock owner.';
-  }
   return 'This bitcoin is locked and generating revenue on Argon.';
 });
 
@@ -346,21 +337,25 @@ const mempool = new BitcoinMempool(ESPLORA_HOST);
 const releaseTxid = Vue.computed(() => fundingUtxoRecord.value?.releaseTxid);
 
 const fundingSatoshis = Vue.computed(() => {
-  return fundingUtxoRecord.value?.satoshis ?? props.lock.satoshis;
+  if (fundingUtxoRecord.value) return fundingUtxoRecord.value.satoshis;
+  return 'uuid' in props.lock ? props.lock.fundedSatoshis || props.lock.securitizedSatoshis : props.lock.satoshis;
 });
 
 const formattedBtc = Vue.computed(() => {
   return numeral(currency.convertSatToBtc(fundingSatoshis.value)).format('0,0.[00000000]');
 });
 
-const mintedPct = Vue.computed(() => {
-  if (!localLock.value) return 0;
-  return bitcoinLocks.getMintPercent(localLock.value);
-});
-
 const vaultFees = Vue.computed(() => {
   if (localSummary.value) return localSummary.value.securityFees;
-  return props.lock.lockDetails?.securityFees ?? 0n;
+  return 'uuid' in props.lock ? props.lock.securityFees : props.lock.lockDetails.securityFees;
+});
+
+const lockTiming = Vue.computed(() => {
+  if ('uuid' in props.lock) return props.lock;
+  return {
+    scriptDetails: props.lock.lockDetails,
+    fundingExpirationHeight: props.lock.lockDetails.fundingExpirationHeight,
+  };
 });
 
 const transactionFees = Vue.computed(() => {
@@ -373,10 +368,7 @@ const bitcoinUnlockCost = Vue.computed(() => {
   const lock = localLock.value;
   if (!lock) return;
 
-  return valueSatoshisAtRate(
-    lock.fundingUtxoRecord?.releaseBitcoinNetworkFee,
-    lock.btcPriceAtRemovalMicrogons ?? undefined,
-  );
+  return valueSatoshisAtRate(lock.fundingUtxo?.releaseBitcoinNetworkFee, lock.btcPriceAtRemovalMicrogons ?? undefined);
 });
 
 const argonTransactionCost = Vue.computed(() => {
@@ -411,7 +403,7 @@ const timerColorClass = Vue.computed(() => {
 });
 
 const termProgress = Vue.computed(() => {
-  if (isPendingFunding.value) return bitcoinLocks.getFundingWindowProgress(props.lock);
+  if (isPendingFunding.value) return bitcoinLocks.getFundingWindowProgress(lockTiming.value);
 
   if (isPendingCosign.value) {
     if (localLock.value) {
@@ -421,7 +413,7 @@ const termProgress = Vue.computed(() => {
     return bitcoinLocks.getCosignDeadlineProgress(props.pendingCosign?.dueFrame, miningFrames);
   }
 
-  return bitcoinLocks.getLockTermProgress(props.lock);
+  return bitcoinLocks.getLockTermProgress(lockTiming.value);
 });
 
 const cosignDueTime = Vue.computed(() => {
@@ -433,7 +425,7 @@ const cosignDueTime = Vue.computed(() => {
 const lockExpirationTime = Vue.computed(() => {
   if (isPendingFunding.value) {
     try {
-      return dayjs.utc(bitcoinLocks.verifyExpirationTime(props.lock));
+      return dayjs.utc(bitcoinLocks.verifyExpirationTime(lockTiming.value));
     } catch {
       return dayjs.utc();
     }
@@ -444,30 +436,4 @@ const lockExpirationTime = Vue.computed(() => {
   const expirationMillis = bitcoinLocks.unlockDeadlineTime(localLock.value);
   return dayjs.utc(expirationMillis);
 });
-
-const unlockPrice = Vue.ref(0n);
-
-async function loadPrices() {
-  if (!localLock.value || !bitcoinLocks.isLockedStatus(localLock.value)) {
-    unlockPrice.value = 0n;
-    return;
-  }
-
-  const liquidLockingAddress = getWalletKeys().liquidLockingAddress;
-  const unlockFee = await bitcoinLocks
-    .estimatedReleaseArgonTxFee({ lock: localLock.value, liquidLockingAddress })
-    .catch(() => 0n);
-
-  unlockPrice.value = (await vaults.fetchAndCalculateRedemptionAmount(localLock.value).catch(() => 0n)) + unlockFee;
-}
-
-Vue.onMounted(() => {
-  void loadPrices();
-});
-
-Vue.watch(
-  () => props.lock,
-  () => void loadPrices(),
-  { deep: true },
-);
 </script>

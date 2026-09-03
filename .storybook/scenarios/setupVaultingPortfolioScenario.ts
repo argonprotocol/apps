@@ -34,13 +34,12 @@ export function setupVaultingPortfolioScenario() {
     securitizationLocked: 1_550n * microgonsPerArgon,
     securitizationPendingActivation: 150n * microgonsPerArgon,
     lockedSatoshis: 22_500_000n,
-    securitizedSatoshis: 22_500_000n,
   });
   const localLocks = [
-    createLock(1, BitcoinLockStatus.LockedAndMinted, 8_000_000n, 480n * microgonsPerArgon),
+    createLock(1, BitcoinLockStatus.LockFunded, 8_000_000n, 480n * microgonsPerArgon),
     createLock(2, BitcoinLockStatus.Releasing, 4_500_000n, 260n * microgonsPerArgon),
     createLock(3, BitcoinLockStatus.LockPendingFunding, 3_200_000n, 190n * microgonsPerArgon),
-    createLock(4, BitcoinLockStatus.LockedAndMinted, 2_400_000n, 140n * microgonsPerArgon, true),
+    createLock(4, BitcoinLockStatus.LockFunded, 2_400_000n, 140n * microgonsPerArgon, true),
   ];
   const externalLocks: Record<number, IExternalBitcoinLock> = {
     2_101: createExternalLock(2_101, 3_700_000n, 220n * microgonsPerArgon),
@@ -118,11 +117,9 @@ export function setupVaultingPortfolioScenario() {
   mocked(getBitcoinLocks).mockReturnValue({
     load: fn(async () => undefined),
     getAllLocks: fn(() => localLocks),
-    getDisplayLiquidityPromised: fn((lock: IBitcoinLockRecord) => lock.liquidityPromised),
+    getDisplayLiquidityPromised: fn((lock: IBitcoinLockRecord) => lock.securitizationCoverageMicrogons ?? 0n),
     isInactiveForVaultDisplay: fn(() => false),
-    isLockedStatus: fn((lock: IBitcoinLockRecord) =>
-      [BitcoinLockStatus.LockedAndIsMinting, BitcoinLockStatus.LockedAndMinted].includes(lock.status),
-    ),
+    isLockFunded: fn((lock: IBitcoinLockRecord) => lock.status === BitcoinLockStatus.LockFunded),
     isReleaseStatus: fn((lock: IBitcoinLockRecord) =>
       [BitcoinLockStatus.Releasing, BitcoinLockStatus.Released].includes(lock.status),
     ),
@@ -196,7 +193,7 @@ function createLock(
   id: number,
   status: BitcoinLockStatus,
   satoshis: bigint,
-  liquidityPromised: bigint,
+  securitizationCoverageMicrogons: bigint,
   isHistoryRecoveryPending = false,
 ): IBitcoinLockRecord {
   const createdAt = new Date(Date.UTC(2026, 7, 15 - id, 14, 0, 0));
@@ -204,13 +201,15 @@ function createLock(
     uuid: `synthetic-vault-lock-${id}`,
     utxoId: 2_000 + id,
     status,
-    satoshis,
-    liquidityPromised,
-    lockedTargetPrice: 6_800n * microgonsPerArgon,
-    ratchets: [],
+    securitizedSatoshis: satoshis,
+    microgonsAtTargetPerBtc: 6_800n * microgonsPerArgon,
+    securitizationCoverageMicrogons,
+    securityFees: 0n,
+    couponFeesPaid: 0n,
+    fundHoldExtensionsByBitcoinExpirationHeight: {},
+    utxos: [],
+    fundedSatoshis: satoshis,
     cosignVersion: 'v1',
-    lockDetails: {} as IBitcoinLockRecord['lockDetails'],
-    fundingUtxoRecordId: null,
     network: 'regtest',
     hdPath: `m/84'/1'/0'/0/${id}`,
     vaultId: 7,
@@ -223,13 +222,13 @@ function createLock(
 function createExternalLock(
   utxoId: number,
   satoshis: bigint,
-  liquidityPromised: bigint,
+  securitizationCoverageMicrogons: bigint,
   isPending = false,
 ): IExternalBitcoinLock {
   return {
     utxoId,
     satoshis,
-    liquidityPromised,
+    securitizationCoverageMicrogons,
     isPending,
     isReleasing: false,
     lockDetails: {} as IExternalBitcoinLock['lockDetails'],

@@ -32,6 +32,7 @@ export * from './TxSubmitter.js';
 export * from './RuntimeDispatchError.js';
 export * from './Vaults.js';
 export * from './Vault.js';
+export * from './BitcoinFission.js';
 export * from './BitcoinLock.js';
 export * from './Currency.js';
 export * from './SingleFileQueue.js';

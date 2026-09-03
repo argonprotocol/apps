@@ -38,7 +38,6 @@ export async function logDefaultAppFailureDiagnostics(
     miningChecklist,
     vaultingChecklist,
     welcomeOverlay,
-    lockOverlay,
     unlockOverlay,
     serverConnectOverlay,
     openDialogsCount,
@@ -56,7 +55,6 @@ export async function logDefaultAppFailureDiagnostics(
     flow
       .isVisible({ selector: '[data-testid="WelcomeOverlay"]' })
       .catch(() => ({ visible: false, exists: false, enabled: false })),
-    flow.isVisible('BitcoinLockingOverlay').catch(() => ({ visible: false, exists: false, enabled: false })),
     flow.isVisible('BitcoinUnlockingOverlay').catch(() => ({ visible: false, exists: false, enabled: false })),
     flow.isVisible('ServerConnectPanel.connect()').catch(() => ({ visible: false, exists: false, enabled: false })),
     flow.count({ selector: '[role="dialog"][data-state="open"]' }).catch(() => -1),
@@ -87,7 +85,6 @@ export async function logDefaultAppFailureDiagnostics(
     miningChecklistVisible: miningChecklist.visible,
     vaultingChecklistVisible: vaultingChecklist.visible,
     welcomeOverlayVisible: welcomeOverlay.visible,
-    lockOverlayVisible: lockOverlay.visible,
     unlockOverlayVisible: unlockOverlay.visible,
     serverConnectOverlayVisible: serverConnectOverlay.visible,
     openDialogsCount,

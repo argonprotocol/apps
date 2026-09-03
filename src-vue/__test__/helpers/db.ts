@@ -10,14 +10,19 @@ import { u8aToHex } from '@argonprotocol/mainchain';
 
 const shouldLogDbQueries = process.env.TEST_DB_DEBUG === '1';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
-let migrationSqlStatementsPromise: Promise<string[]> | null = null;
+let migrationSqlStatementsPromise: Promise<{ version: number; sql: string }[]> | null = null;
 
 export async function createTestDb(): Promise<Db> {
+  return (await createTestDbAtMigration()).db;
+}
+
+export async function createTestDbAtMigration(throughVersion = Number.POSITIVE_INFINITY): Promise<{
+  db: Db;
+  migrateToLatest: () => Promise<void>;
+}> {
   const database = new TestSqliteDb(':memory:');
-  const migrationSqlStatements = await getMigrationSqlStatements();
-  for (const migrationSql of migrationSqlStatements) {
-    await database.exec(migrationSql);
-  }
+  const migrations = await getMigrations();
+  for (const migration of migrations.filter(x => x.version <= throughVersion)) await database.exec(migration.sql);
 
   const plugin = {
     async execute(query: string, bindValues?: unknown[]): Promise<QueryResult> {
@@ -42,7 +47,12 @@ export async function createTestDb(): Promise<Db> {
     },
   } as PluginSql;
 
-  return new Db(plugin, false);
+  return {
+    db: new Db(plugin, false),
+    migrateToLatest: async () => {
+      for (const migration of migrations.filter(x => x.version > throughVersion)) await database.exec(migration.sql);
+    },
+  };
 }
 
 export class TestSqliteDb {
@@ -77,12 +87,12 @@ export class TestSqliteDb {
   }
 }
 
-async function getMigrationSqlStatements(): Promise<string[]> {
+async function getMigrations(): Promise<{ version: number; sql: string }[]> {
   return (migrationSqlStatementsPromise ??= Promise.resolve()
     .then(async () => {
       const baseDir = Path.resolve(__dirname, '../../../src-tauri/migrations');
       const migrations = (await readdir(baseDir)).sort((a, b) => a.localeCompare(b));
-      const statements: string[] = [];
+      const statements: { version: number; sql: string }[] = [];
 
       for (const migration of migrations) {
         const upFile = Path.join(baseDir, migration, 'up.sql');
@@ -91,7 +101,7 @@ async function getMigrationSqlStatements(): Promise<string[]> {
         }
 
         try {
-          statements.push(await readFile(upFile, 'utf8'));
+          statements.push({ version: Number.parseInt(migration, 10), sql: await readFile(upFile, 'utf8') });
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
             continue;

@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import * as Vue from 'vue';
-import { MoveToken } from '@argonprotocol/apps-core';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MoveToken, NetworkConfig } from '@argonprotocol/apps-core';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getAddress } from 'viem';
 import { EthereumOutboundTransferTracker } from '../lib/EthereumOutboundTransferTracker.ts';
 import { WalletForEthereum } from '../lib/WalletForEthereum.ts';
@@ -10,7 +10,11 @@ import type {
   IEthereumTransferOutOfArgon,
   IFinalizedEthereumTransactionProgress,
 } from '../lib/EthereumClient.ts';
-import { createCrosschainTransferProgress } from '../lib/CrosschainTransferProgress.ts';
+import {
+  createCrosschainTransferProgress,
+  OUTBOUND_TRANSFER_STEP_TITLES,
+  setOutboundEthereumStepProgress,
+} from '../lib/CrosschainTransferProgress.ts';
 import { CrosschainOutboundTransferStatus } from '../lib/db/CrosschainOutboundTransfersTable.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { WalletType } from '../lib/Wallet.ts';
@@ -31,7 +35,13 @@ describe('EthereumOutboundTransferTracker integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getEthereumGatewayPauseReasonMock.mockResolvedValue(undefined);
+    NetworkConfig.setNetwork('dev-docker');
+    NetworkConfig.setRuntimeOverride('dev-docker', {
+      ethereumNetwork: { executionRpcUrls: ['https://ethereum.test'] },
+    });
   });
+
+  afterEach(() => NetworkConfig.clearRuntimeOverride('dev-docker'));
 
   it('waits for a finalized head at or after the transfer block before auto-authorizing', async () => {
     const db = await createTestDb();
@@ -1592,7 +1602,7 @@ describe('EthereumOutboundTransferTracker integration', () => {
     expect(tracker.getTransfer(transferId)).toBeUndefined();
   });
 
-  it('keeps a minting-authorized transfer pending when the Ethereum wallet is short on fees', async () => {
+  it('preserves a minting-authorized transfer without Ethereum and resumes once funded', async () => {
     const db = await createTestDb();
     const walletKeys = createMockWalletKeys();
     const transferId = 'outbound-needs-eth';
@@ -1602,6 +1612,17 @@ describe('EthereumOutboundTransferTracker integration', () => {
       getApi: async () => ({}),
     });
     let ethereumBalanceWei = 0n;
+    const transactionTracker = {
+      data: { txInfos: [] },
+      pendingBlockTxInfosAtLoad: [],
+      load: vi.fn(async () => {}),
+      ensureStoredEvents: vi.fn(async () => {}),
+      findLatestTxInfo: vi.fn(() => undefined),
+    };
+    const mintingAuthorizedProgress = setOutboundEthereumStepProgress(
+      createCrosschainTransferProgress(OUTBOUND_TRANSFER_STEP_TITLES),
+      { progressPct: 0, detail: 'Minting Authorization complete.' },
+    );
 
     await db.crosschainOutboundTransfersTable.recordRequestSubmittedToArgon({
       id: transferId,
@@ -1649,22 +1670,34 @@ describe('EthereumOutboundTransferTracker integration', () => {
           },
         ],
       },
-      progressJson: createCrosschainTransferProgress([
-        'Finalizing on Argon',
-        'Waiting for Minting Authorization',
-        'Sending to Ethereum',
-      ]),
+      progressJson: mintingAuthorizedProgress,
     });
+
+    const unavailableTracker = new EthereumOutboundTransferTracker(
+      Promise.resolve(db),
+      transactionTracker as any,
+      blockWatch.instance as any,
+      walletKeys,
+      undefined,
+    );
+    await unavailableTracker.load();
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    expect(unavailableTracker.getTransfer(transferId)?.transferState).toMatchObject({
+      amount: 100n,
+      isSubmitting: true,
+      hasPersistedTransfer: true,
+      needsAttention: false,
+      error: '',
+    });
+    expect(unavailableTracker.getTransfer(transferId)?.transferState.progress.currentStepDetail).toBe(
+      'Minting Authorization complete.',
+    );
+    expect((await db.crosschainOutboundTransfersTable.get(transferId))?.failureReason).toBeNull();
 
     const tracker = new EthereumOutboundTransferTracker(
       Promise.resolve(db),
-      {
-        data: { txInfos: [] },
-        pendingBlockTxInfosAtLoad: [],
-        load: vi.fn(async () => {}),
-        ensureStoredEvents: vi.fn(async () => {}),
-        findLatestTxInfo: vi.fn(() => undefined),
-      } as any,
+      transactionTracker as any,
       blockWatch.instance as any,
       walletKeys,
       {

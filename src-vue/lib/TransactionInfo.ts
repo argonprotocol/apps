@@ -211,7 +211,6 @@ export class TransactionInfo<MetadataType = unknown> {
     }
 
     const error = this.txResult.submissionError ?? this.txResult.extrinsicError;
-
     return {
       progressPct,
       confirmations,

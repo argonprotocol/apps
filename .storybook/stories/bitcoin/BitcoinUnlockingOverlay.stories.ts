@@ -1,7 +1,7 @@
 import * as Vue from 'vue';
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
-import { expect, fn, waitFor, within } from 'storybook/test';
-import { expectEventuallyVisible } from '../../support/expectEventuallyVisible.ts';
+import { expect, fn, within } from 'storybook/test';
+
 import {
   setupBitcoinOverlayScenario,
   type BitcoinOverlayScenario,
@@ -14,7 +14,7 @@ import BitcoinUnlockingOverlay from '../../../src-vue/overlays/BitcoinUnlockingO
 let scenario: BitcoinOverlayScenario;
 
 const meta = {
-  title: 'Bitcoin/Unlocking',
+  title: 'Bitcoin/Send locked Bitcoin',
   component: BitcoinUnlockingOverlay,
   render: () => ({
     components: { BitcoinUnlockingOverlay },
@@ -38,27 +38,16 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Start: Story = {
+export const Form: Story = {
   beforeEach: () => {
     scenario = setupBitcoinOverlayScenario();
-  },
-  play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText(/You are releasing/i));
-  },
-};
-
-export const NearExpiration: Story = {
-  beforeEach: () => {
-    scenario = setupBitcoinOverlayScenario();
-    scenario.bitcoinLocks.unlockDeadlineTime = fn(() => Date.now() + 1_000);
+    return () => scenario.cleanup();
   },
   play: async () => {
     const body = within(document.body);
-    await expectEventuallyVisible(body.findByText(/You are releasing/i));
-    await expectEventuallyVisible(body.findByText('Initiate Unlock'));
-    await waitFor(() =>
-      expect(document.body.querySelector('[data-testid="BitcoinUnlockingOverlay"] svg.text-amber-500')).toBeTruthy(),
-    );
+    await expect(body.findByRole('heading', { name: 'Send Bitcoin', hidden: true })).resolves.toBeInTheDocument();
+    await expect(body.findByTestId('BitcoinSend.destinationAddress')).resolves.toBeInTheDocument();
+    await expect(body.getByRole('button', { name: 'Send Bitcoin' })).toBeDisabled();
   },
 };
 
@@ -78,12 +67,12 @@ export const ArgonRequest: Story = {
   },
   play: async () => {
     const body = within(document.body);
-    await expectEventuallyVisible(body.findByText(/Argon is processing your request to unlock/i));
-    await expectEventuallyVisible(body.getByText(/Argon Block/));
+    await expect(body.findByText(/This process requires several steps/)).resolves.toBeInTheDocument();
+    await expect(body.findByText(/Argon Block/)).resolves.toBeInTheDocument();
   },
 };
 
-export const WaitingForVaultCosign: Story = {
+export const WaitingForCosigner: Story = {
   beforeEach: () => {
     scenario = setupBitcoinOverlayScenario();
     scenario.lock.status = BitcoinLockStatus.Releasing;
@@ -111,7 +100,7 @@ export const WaitingForVaultCosign: Story = {
     return () => scenario.cleanup();
   },
   play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText('Waiting for Vault to Cosign'));
+    await expect(within(document.body).findByText('Waiting for Atlas Operator to sign')).resolves.toBeInTheDocument();
   },
 };
 
@@ -129,11 +118,10 @@ export const BitcoinConfirmations: Story = {
     });
     scenario.releaseProcessing.progressPct = 50;
     scenario.releaseProcessing.confirmations = 3;
+    return () => scenario.cleanup();
   },
   play: async () => {
-    const body = within(document.body);
-    await expectEventuallyVisible(body.findByText(/Argon is processing your request to unlock/i));
-    await expectEventuallyVisible(body.getByText('83.00%'));
+    await expect(within(document.body).findByText(/Bitcoin Block/)).resolves.toBeInTheDocument();
   },
 };
 
@@ -145,13 +133,12 @@ export const Error: Story = {
       status: BitcoinUtxoStatus.ReleaseIsProcessingOnArgon,
       releaseToDestinationAddress: `0014${'55'.repeat(20)}`,
       releaseBitcoinNetworkFee: 18_000n,
-      statusError: 'The vault signature expired before the release could be broadcast.',
+      statusError: 'The cosigner signature expired before the transfer could be broadcast.',
     });
+    return () => scenario.cleanup();
   },
   play: async () => {
-    await expectEventuallyVisible(
-      within(document.body).findByText(/vault signature expired before the release could be broadcast/i),
-    );
+    await expect(within(document.body).findByText(/cosigner signature expired/i)).resolves.toBeInTheDocument();
   },
 };
 
@@ -169,8 +156,11 @@ export const Complete: Story = {
       releaseTxid: 'synthetic-complete-release',
       releasedAtBitcoinHeight: 250_026,
     });
+    return () => scenario.cleanup();
   },
   play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText(/officially unlocked from both/i));
+    const body = within(document.body);
+    await expect(body.findByText('Bitcoin sent')).resolves.toBeInTheDocument();
+    await expect(body.getByRole('button', { name: 'Done' })).toBeInTheDocument();
   },
 };

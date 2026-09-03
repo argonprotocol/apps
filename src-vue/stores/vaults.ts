@@ -59,6 +59,9 @@ export function getVaults(): Vaults {
       { immediate: true },
     );
   }
+  void vaults.load().catch(error => {
+    console.error('[Vaults] Unable to load current state', error);
+  });
 
   return vaults;
 }
@@ -129,6 +132,9 @@ export function getMyVault(): MyVault {
     );
     myVault.data = reactive(myVault.data) as any;
   }
+  void myVault.load().catch(error => {
+    console.error('[MyVault] Unable to load current state', error);
+  });
 
   return myVault;
 }

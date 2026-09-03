@@ -2,28 +2,22 @@ import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import type { IE2EFlowRuntime } from '../types.ts';
 import { normalizeAmountInput, parseDecimalToUnits, parsePositiveBigIntInput } from '../helpers/utils.ts';
 import type { IOperationInputDefinition } from '../operations/index.ts';
+import type { IBitcoinUnlockReleaseState } from '../types/srcVue.ts';
 
 export interface IBitcoinLockFundingDetails {
+  lockUuid: string;
   address: string;
-  amountBtc: string;
   amountSatoshis: bigint;
 }
-
-export type MismatchDirection = 'below' | 'above';
 
 export interface IBitcoinFlowInput {
   minimumLockSatoshis?: bigint;
   minimumLockMicrogons?: bigint;
-  mismatchDirection: MismatchDirection;
-  mismatchOffsetSatoshis?: bigint;
-  enforceOutsideAutoAccept: boolean;
-  ensurePostFirstUnlock: boolean;
 }
 
 export interface IBitcoinFlowState {
-  isCompleted?: boolean;
   lockFundingDetails?: IBitcoinLockFundingDetails;
-  mismatchAmountSatoshis?: bigint;
+  orphanDepositTxid?: string;
 }
 
 export interface IBitcoinFlowContext {
@@ -42,113 +36,60 @@ export const BITCOIN_FLOW_INPUT_DEFINITIONS: ReadonlyArray<IOperationInputDefini
     key: 'minimumLockSatoshis',
     description: 'Minimum lock amount to submit (in satoshis).',
   },
-  {
-    key: 'mismatchDirection',
-    description: 'Mismatch direction ("below" or "above").',
-  },
-  {
-    key: 'mismatchOffsetSatoshis',
-    description: 'Mismatch offset to add/subtract from lock funding amount (satoshis).',
-  },
-  {
-    key: 'enforceOutsideAutoAccept',
-    description: 'Require mismatch offset outside auto-accept variance.',
-  },
-  {
-    key: 'ensurePostFirstUnlock',
-    description: 'Run mismatch flow only after one completed lock/unlock cycle.',
-  },
 ];
 
-interface ICreateBitcoinFlowContextOptions {
-  mismatchDirectionDefault?: MismatchDirection;
-  ensurePostFirstUnlockDefault?: boolean;
-}
-
-export function createBitcoinFlowContext(
-  flow: IE2EFlowRuntime,
-  flowName: string,
-  options: ICreateBitcoinFlowContextOptions = {},
-): IBitcoinFlowContext {
+export function createBitcoinFlowContext(flow: IE2EFlowRuntime, flowName: string): IBitcoinFlowContext {
   return {
     flow,
     flowName,
-    input: parseBitcoinFlowInput(flow, flowName, options),
+    input: parseBitcoinFlowInput(flow, flowName),
     state: {},
   };
 }
 
-function parseBitcoinFlowInput(
-  flow: IE2EFlowRuntime,
-  flowName: string,
-  options: ICreateBitcoinFlowContextOptions,
-): IBitcoinFlowInput {
-  const minimumLockArgons =
-    normalizeAmountInput(
-      flow.input.minimumLockArgons ?? process.env.BITCOIN_MINIMUM_LOCK_ARGONS,
-      `${flowName}.minimumLockArgons`,
-    ) || '50';
-  const mismatchDirection = parseStringChoice(
-    pickUnknown(flow.input.mismatchDirection, process.env.BITCOIN_MISMATCH_DIRECTION),
-    options.mismatchDirectionDefault ?? 'below',
-    ['below', 'above'],
-    `${flowName}.mismatchDirection`,
+export type IBitcoinFlowLockState = IBitcoinUnlockReleaseState & {
+  isSelectedLockActive: boolean;
+  releaseTxid?: string;
+};
+
+export async function readBitcoinLockState(flow: IE2EFlowRuntime, lockUuid?: string): Promise<IBitcoinFlowLockState> {
+  const state = await flow.queryApp(
+    async (refs, args: { lockUuid?: string }) => {
+      await refs.bitcoinLocks.load();
+      const lock = args.lockUuid
+        ? refs.bitcoinLocks.getLockByUuid(args.lockUuid)
+        : refs.bitcoinLocks.getActiveLocks()[0];
+      if (args.lockUuid && !lock) {
+        throw new Error(`Bitcoin channel ${args.lockUuid} is missing from the loaded store.`);
+      }
+      const releaseState = refs.bitcoinLocks.getLockUnlockReleaseState(lock);
+      const fundingRecord = lock ? refs.bitcoinLocks.getAcceptedFundingRecord(lock) : undefined;
+      return {
+        ...releaseState,
+        isSelectedLockActive: !!lock && !refs.bitcoinLocks.isTerminalLock(lock),
+        releaseTxid: fundingRecord?.releaseTxid,
+      };
+    },
+    { args: { lockUuid }, timeoutMs: 20_000 },
   );
+  if (!state) throw new Error('Unable to read Bitcoin channel state from the app.');
+  return state;
+}
+
+function parseBitcoinFlowInput(flow: IE2EFlowRuntime, flowName: string): IBitcoinFlowInput {
+  const minimumLockSatoshis = parsePositiveBigIntInput(
+    flow.input.minimumLockSatoshis ?? process.env.BITCOIN_MINIMUM_LOCK_SATOSHIS,
+    `${flowName}.minimumLockSatoshis`,
+  );
+  const configuredMinimumLockArgons = normalizeAmountInput(
+    flow.input.minimumLockArgons ?? process.env.BITCOIN_MINIMUM_LOCK_ARGONS,
+    `${flowName}.minimumLockArgons`,
+  );
+  const minimumLockArgons = configuredMinimumLockArgons || (minimumLockSatoshis == null ? '50' : '');
   return {
-    minimumLockSatoshis: parsePositiveBigIntInput(
-      flow.input.minimumLockSatoshis ?? process.env.BITCOIN_MINIMUM_LOCK_SATOSHIS,
-      `${flowName}.minimumLockSatoshis`,
-    ),
+    minimumLockSatoshis,
     minimumLockMicrogons: minimumLockArgons
       ? parseDecimalToUnits(minimumLockArgons, BigInt(MICROGONS_PER_ARGON), `${flowName}.minimumLockArgons`)
       : undefined,
-    mismatchDirection,
-    mismatchOffsetSatoshis: parsePositiveBigIntInput(
-      pickUnknown(flow.input.mismatchOffsetSatoshis, process.env.BITCOIN_MISMATCH_OFFSET_SATOSHIS),
-      `${flowName}.mismatchOffsetSatoshis`,
-    ),
-    enforceOutsideAutoAccept: parseBooleanInput(
-      pickUnknown(flow.input.enforceOutsideAutoAccept, process.env.BITCOIN_ENFORCE_OUTSIDE_AUTO_ACCEPT),
-      true,
-    ),
-    ensurePostFirstUnlock: parseBooleanInput(
-      pickUnknown(flow.input.ensurePostFirstUnlock, process.env.BITCOIN_ENSURE_POST_FIRST_UNLOCK),
-      options.ensurePostFirstUnlockDefault ?? false,
-    ),
   };
-}
-
-function pickUnknown(primary: unknown, fallback: string | undefined): unknown {
-  if (primary != null) return primary;
-  return fallback;
-}
-
-function parseBooleanInput(value: unknown, fallback: boolean): boolean {
-  if (value == null) return fallback;
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'number') {
-    if (value === 1) return true;
-    if (value === 0) return false;
-  }
-  if (typeof value !== 'string') {
-    throw new Error(`Expected boolean input, received ${typeof value}`);
-  }
-  const normalized = value.trim().toLowerCase();
-  if (!normalized) return fallback;
-  if (['1', 'true', 'yes', 'y', 'on'].includes(normalized)) return true;
-  if (['0', 'false', 'no', 'n', 'off'].includes(normalized)) return false;
-  throw new Error(`Expected boolean input, received '${value}'`);
-}
-
-function parseStringChoice<T extends string>(value: unknown, fallback: T, options: readonly T[], label: string): T {
-  if (value == null) return fallback;
-  if (typeof value !== 'string') {
-    throw new Error(`${label}: expected one of ${options.join(', ')}`);
-  }
-  const normalized = value.trim().toLowerCase();
-  if (!normalized) return fallback;
-  if ((options as readonly string[]).includes(normalized)) {
-    return normalized as T;
-  }
-  throw new Error(`${label}: expected one of ${options.join(', ')}`);
 }

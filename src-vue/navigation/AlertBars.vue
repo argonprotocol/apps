@@ -59,34 +59,7 @@
         </template>
 
         <div class="pr-3 text-white">
-          <template v-if="singleBitcoinAlert.kind === 'mismatch'">
-            <template
-              v-if="
-                singleBitcoinMismatchView?.phase === 'returningOnArgon' ||
-                singleBitcoinMismatchView?.phase === 'returningOnBitcoin'
-              ">
-              Mismatched Bitcoin deposit return in progress.
-            </template>
-            <template
-              v-else-if="
-                !singleBitcoinMismatchView?.error &&
-                !singleBitcoinMismatchView?.isFundingExpired &&
-                !singleBitcoinMismatchCanAct
-              ">
-              Mismatched Bitcoin deposit detected, awaiting finalization.
-            </template>
-            <template v-else>Mismatched Bitcoin deposit needs decision.</template>
-          </template>
-          <template v-else-if="singleBitcoinAlert.kind === 'resumeFunding'">
-            Mismatched Bitcoin deposit returned. Ready to resume funding.
-          </template>
-          <template v-else-if="singleBitcoinAlert.kind === 'fundingExpiring'">
-            {{
-              isResumedFundingAlert(singleBitcoinAlert)
-                ? 'Mismatched Bitcoin deposit returned. Time to complete funding running out.'
-                : 'Time to fund Bitcoin lock running out.'
-            }}
-          </template>
+          <template v-if="singleBitcoinAlert.kind === 'fundingExpiring'">Time to fund Bitcoin lock running out.</template>
           <template v-else-if="singleBitcoinAlert.kind === 'unlockNeedsAttention'">
             Bitcoin unlock needs attention.
           </template>
@@ -94,10 +67,7 @@
         </div>
         <template #action>
           <button @click="openSingleBitcoinAlert()">
-            <template v-if="singleBitcoinAlert.kind === 'resumeFunding' && !isResumedFundingAlert(singleBitcoinAlert)">
-              Resume Funding
-            </template>
-            <template v-else-if="singleBitcoinAlert.kind === 'unlockExpiring'">Unlock Bitcoin</template>
+            <template v-if="singleBitcoinAlert.kind === 'unlockExpiring'">Unlock Bitcoin</template>
             <template v-else>Open Details</template>
           </button>
         </template>
@@ -168,9 +138,8 @@
                       :key="entry.key"
                       :notice="entry.alert"
                       :isPreview="entry.isPreview"
-                      :isResumedFunding="isResumedFundingAlert(entry.alert)"
                       :isLast="entry.isLast"
-                      @open-lock="openBitcoinLock({ lock: $event.lock })"
+                      @open-lock="openBitcoinChannel($event.lock)"
                       @open-unlock="openBitcoinUnlock($event.lock)" />
 
                     <AlertDetailRow
@@ -295,10 +264,12 @@ import AlertBarRow from '../alerts/AlertBarRow.vue';
 import AlertDetailRow from '../alerts/AlertDetailRow.vue';
 import BitcoinAlert from '../alerts/BitcoinAlert.vue';
 import VaultAlert from '../alerts/VaultAlert.vue';
-import { buildAlertSummary, getBitcoinAlertNotices, sumBitcoinAlertAmount, type IBitcoinAlert } from '../lib/Alerts.ts';
+import { buildAlertSummary, getBitcoinAlertNotices, sumBitcoinAlertAmount } from '../lib/Alerts.ts';
 import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
+import { useWallets } from '../stores/wallets.ts';
 
 const config = getConfig();
+const wallets = useWallets();
 const bot = getBot();
 const installer = getInstaller();
 const dbPromise = getDbPromise();
@@ -317,8 +288,6 @@ const isExpanded = Vue.ref(false);
 const showVaultCollectOverlay = Vue.ref(false);
 const showBitcoinUnlockingOverlay = Vue.ref(false);
 const selectedUnlockLock = Vue.ref<IBitcoinLockRecord | undefined>(undefined);
-const resumedFundingByLockUtxoId = Vue.ref<{ [lockUtxoId: number]: true }>({});
-
 let unsubscribeArgonBondVault: VoidFunction | undefined;
 let operationalInviteRefreshInterval: ReturnType<typeof setInterval> | undefined;
 
@@ -355,26 +324,9 @@ const singleBitcoinAlert = Vue.computed(() => {
   return bitcoinAlerts.value[0];
 });
 
-const singleBitcoinMismatchView = Vue.computed(() => {
-  if (singleBitcoinAlert.value?.kind !== 'mismatch') return null;
-  return bitcoinLocks.getMismatchViewState(singleBitcoinAlert.value.lock);
-});
-
-const singleBitcoinMismatchCanAct = Vue.computed(() => {
-  return (
-    !!singleBitcoinMismatchView.value?.nextCandidate &&
-    (singleBitcoinMismatchView.value.nextCandidate.canAccept || singleBitcoinMismatchView.value.nextCandidate.canReturn)
-  );
-});
-
 clients.events.on('connection-state-changed', hasConnectedClient => {
   isApiClientDegraded.value = !hasConnectedClient;
 });
-
-function markResumedFunding(lock: IBitcoinLockRecord) {
-  if (!lock.utxoId) return;
-  resumedFundingByLockUtxoId.value[lock.utxoId] = true;
-}
 
 function openBotCreateOverlay() {
   basicEmitter.emit('openBotEditOverlay');
@@ -404,11 +356,14 @@ function openVaultCollect() {
   showVaultCollectOverlay.value = true;
 }
 
-function openBitcoinLock(args?: { lock?: IBitcoinLockRecord }) {
+function openBitcoinChannel(lock: IBitcoinLockRecord) {
   isExpanded.value = false;
   closeSharedOverlays();
   selectedUnlockLock.value = undefined;
-  basicEmitter.emit('openBitcoinLock', args);
+  basicEmitter.emit('openWalletOverlay', {
+    wallet: wallets.bitcoinWallet,
+    bitcoinChannelUuid: lock.uuid,
+  });
 }
 
 function openBitcoinUnlock(lock: IBitcoinLockRecord) {
@@ -421,12 +376,8 @@ function openBitcoinUnlock(lock: IBitcoinLockRecord) {
 function openSingleBitcoinAlert() {
   if (!singleBitcoinAlert.value) return;
 
-  if (
-    singleBitcoinAlert.value.kind === 'mismatch' ||
-    singleBitcoinAlert.value.kind === 'resumeFunding' ||
-    singleBitcoinAlert.value.kind === 'fundingExpiring'
-  ) {
-    openBitcoinLock({ lock: singleBitcoinAlert.value.lock });
+  if (singleBitcoinAlert.value.kind === 'fundingExpiring') {
+    openBitcoinChannel(singleBitcoinAlert.value.lock);
     return;
   }
 
@@ -441,11 +392,6 @@ function closeBitcoinUnlockingOverlay() {
 function openOperationsUpgradeRequests() {
   isExpanded.value = false;
   controller.setTab(TopTab.Onboarding);
-}
-
-function isResumedFundingAlert(alert: IBitcoinAlert | null | undefined): boolean {
-  if (!alert?.lock.utxoId) return false;
-  return alert.kind === 'fundingExpiring' && !!resumedFundingByLockUtxoId.value[alert.lock.utxoId];
 }
 
 async function loadAttentionData() {
@@ -492,25 +438,6 @@ Vue.watch(
   { immediate: true },
 );
 
-Vue.watch(
-  bitcoinAlerts,
-  alerts => {
-    const activeFundingExpiringUtxoIds = new Set(
-      alerts
-        .filter(alert => alert.kind === 'fundingExpiring')
-        .map(alert => alert.lock.utxoId)
-        .filter(Boolean) as number[],
-    );
-
-    for (const utxoId of Object.keys(resumedFundingByLockUtxoId.value)) {
-      if (!activeFundingExpiringUtxoIds.has(Number(utxoId))) {
-        delete resumedFundingByLockUtxoId.value[Number(utxoId)];
-      }
-    }
-  },
-  { immediate: true },
-);
-
 function formatAlertMoney(value: bigint): string | undefined {
   return value > 0n
     ? `${currency.symbol}${microgonToMoneyNm(value).formatIfElse('< 1_000', '0,0.00', '0,0')}`
@@ -537,7 +464,6 @@ Vue.onMounted(() => {
   basicEmitter.on('openVaultCollect', openVaultCollect);
   basicEmitter.on('openBitcoinUnlock', openBitcoinUnlock);
   basicEmitter.on('closeAllOverlays', closeSharedOverlays);
-  basicEmitter.on('resumeBitcoinFunding', markResumedFunding);
 });
 
 Vue.onUnmounted(() => {
@@ -547,7 +473,6 @@ Vue.onUnmounted(() => {
   basicEmitter.off('openVaultCollect', openVaultCollect);
   basicEmitter.off('openBitcoinUnlock', openBitcoinUnlock);
   basicEmitter.off('closeAllOverlays', closeSharedOverlays);
-  basicEmitter.off('resumeBitcoinFunding', markResumedFunding);
 });
 </script>
 <style scoped>

@@ -52,4 +52,21 @@ describe('runtimeClient', () => {
     await expect(client.query.treasury.bondLotById(1n, callback)).resolves.toBe(unsubscribe);
     expect(callback).toHaveBeenCalledWith(9n);
   });
+
+  it('forwards every storage key through a historical client query', async () => {
+    const registry = new TypeRegistry();
+    const lastFeeCouponNonceByVaultAndAccount = vi.fn(() => Promise.resolve(registry.createType('Option<u128>', 9)));
+    const historicalApi = {
+      query: { bitcoinLocks: { lastFeeCouponNonceByVaultAndAccount } },
+    };
+    const at = vi.fn((_blockHash: string) => Promise.resolve(historicalApi));
+    const client = runtimeClient({ at, query: {} });
+
+    const historicalClient = await client.at('0x1234');
+    const result = historicalClient.query.bitcoinLocks.lastFeeCouponNonceByVaultAndAccount(7, 'owner-account');
+
+    await expect(result).resolves.toBe(9n);
+    expect(at).toHaveBeenCalledWith('0x1234');
+    expect(lastFeeCouponNonceByVaultAndAccount).toHaveBeenCalledWith(7, 'owner-account');
+  });
 });

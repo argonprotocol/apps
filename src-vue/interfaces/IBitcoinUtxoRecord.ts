@@ -9,9 +9,13 @@ export interface IMempoolFundingObservation {
   argonBitcoinHeight: number;
 }
 
+export enum BitcoinUtxoRole {
+  Funding = 'Funding',
+  Orphan = 'Orphan',
+}
+
 export enum BitcoinUtxoStatus {
-  SeenOnMempool = 'SeenOnMempool', // Found on Bitcoin mempool, but not yet an Argon funding candidate.
-  FundingCandidate = 'FundingCandidate', // Candidate funding UTXO seen by Argon for this lock (pre-acceptance).
+  SeenOnMempool = 'SeenOnMempool', // Found on Bitcoin before the current runtime classifies it as funding or orphaned.
   FundingUtxo = 'FundingUtxo', // Accepted funding UTXO backing this lock.
   Orphaned = 'Orphaned', // Non-accepted deposit that has moved into the return path.
   ReleaseIsProcessingOnArgon = 'ReleaseIsProcessingOnArgon', // Release request submitted to Argon and still in pre-Bitcoin finalization phases.
@@ -27,6 +31,7 @@ export interface IBitcoinUtxoRecord {
   vout: number;
   satoshis: bigint;
   network: string;
+  role?: BitcoinUtxoRole;
   status: BitcoinUtxoStatus;
   statusError?: string;
   mempoolObservation?: IMempoolFundingObservation;

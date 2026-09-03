@@ -5,7 +5,6 @@ export interface IBitcoinLockProcessingDetails {
   confirmations: number;
   expectedConfirmations: number;
   receivedSatoshis?: bigint;
-  isInvalidAmount?: boolean;
 }
 
 export interface IBitcoinLockSummary {
@@ -14,8 +13,6 @@ export interface IBitcoinLockSummary {
   status: BitcoinLockStatus;
   statusDetails: {
     hasObservedFundingSignal: boolean;
-    showMismatchAccept: boolean;
-    showFundingMismatch: boolean;
     showReadyForBitcoin: boolean;
     isFundingSeenInMempoolOnly: boolean;
   };

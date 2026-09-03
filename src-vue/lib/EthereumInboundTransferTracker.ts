@@ -91,7 +91,7 @@ export class EthereumInboundTransferTracker {
     private readonly transactionTracker: TransactionTracker,
     private readonly blockWatch: BlockWatch,
     private readonly walletKeys: WalletKeys,
-    private readonly ethereumClient: IEthereumInboundTransferClient,
+    private readonly ethereumClient: IEthereumInboundTransferClient | undefined,
     private readonly serverApiClientSource: ServerRelayClientSource,
     private readonly upstreamOperatorClient: Pick<
       UpstreamOperatorClient,
@@ -191,6 +191,7 @@ export class EthereumInboundTransferTracker {
     if (amountBaseUnits <= 0n) {
       return;
     }
+    this.requireEthereumClient();
 
     const db = await this.dbPromise;
     const id = nanoid();
@@ -234,7 +235,7 @@ export class EthereumInboundTransferTracker {
     }
 
     const destinationAddress = this.walletKeys.getWalletAddress(targetWalletType);
-    return this.ethereumClient.estimateTransferToArgonFee?.({
+    return this.requireEthereumClient().estimateTransferToArgonFee?.({
       moveToken,
       amountBaseUnits,
       destinationAddress,
@@ -344,6 +345,7 @@ export class EthereumInboundTransferTracker {
       error: record.failureReason ?? '',
     };
 
+    if (!this.ethereumClient) return;
     await this.continueTrackedMove(transfer, moveToken, 'Unable to resume the Ethereum transfer.');
   }
 
@@ -368,7 +370,7 @@ export class EthereumInboundTransferTracker {
         ethereumWallet,
       });
 
-      const submittedTransfer = await this.ethereumClient.startTransferToArgon({
+      const submittedTransfer = await this.requireEthereumClient().startTransferToArgon({
         moveToken,
         amountBaseUnits,
         destinationAddress,
@@ -402,13 +404,14 @@ export class EthereumInboundTransferTracker {
     destinationAddress: string;
     ethereumWallet: WalletForEthereum;
   }) {
-    const feeEstimateWei = await this.ethereumClient.estimateTransferToArgonFee({
+    const ethereumClient = this.requireEthereumClient();
+    const feeEstimateWei = await ethereumClient.estimateTransferToArgonFee({
       moveToken: args.moveToken,
       amountBaseUnits: args.amountBaseUnits,
       destinationAddress: args.destinationAddress,
       ethereumWallet: args.ethereumWallet,
     });
-    const ethereumBalanceWei = await this.ethereumClient.getNativeBalanceWei(args.ethereumWallet);
+    const ethereumBalanceWei = await ethereumClient.getNativeBalanceWei(args.ethereumWallet);
     if (ethereumBalanceWei >= feeEstimateWei) {
       return;
     }
@@ -481,7 +484,7 @@ export class EthereumInboundTransferTracker {
           );
         }
 
-        await sleep(this.ethereumClient.getTransferToArgonPollMs());
+        await sleep(this.requireEthereumClient().getTransferToArgonPollMs());
       }
     } catch (error) {
       await this.failTransfer(transfer.id, error instanceof Error ? error.message : fallbackErrorMessage);
@@ -516,7 +519,8 @@ export class EthereumInboundTransferTracker {
         `Persisted inbound transfer ${record.id} is missing its source transaction hash.`,
       );
     }
-    const finalizedProgress = await this.ethereumClient.waitForTransactionFinality({
+    const ethereumClient = this.requireEthereumClient();
+    const finalizedProgress = await ethereumClient.waitForTransactionFinality({
       txHash: sourceTxHash,
       blockNumber: activeRecord.sourceBlockNumber,
       blockHash: activeRecord.sourceBlockHash,
@@ -542,11 +546,11 @@ export class EthereumInboundTransferTracker {
       },
     });
 
-    const confirmedTransfer = await this.ethereumClient.confirmTransferToArgon({
+    const confirmedTransfer = await ethereumClient.confirmTransferToArgon({
       moveToken,
       amountBaseUnits: activeRecord.amountBaseUnits,
       destinationAddress: activeRecord.argonDestinationAddress,
-      executionRpcUrl: this.ethereumClient.executionRpcUrl,
+      executionRpcUrl: ethereumClient.executionRpcUrl,
       sourceTxHash,
       sourceBlockNumber: finalizedProgress.blockNumber,
       sourceBlockHash: finalizedProgress.blockHash,
@@ -715,7 +719,7 @@ export class EthereumInboundTransferTracker {
 
     const currentStepStartedAt =
       transfer.transferState.progress.steps[transfer.transferState.progress.currentStep - 1]?.startedAt;
-    const waitEstimateMs = this.ethereumClient.getTransferToArgonWaitEstimateMs();
+    const waitEstimateMs = this.requireEthereumClient().getTransferToArgonWaitEstimateMs();
     const hasExceededWaitEstimate = currentStepStartedAt !== undefined && now - currentStepStartedAt >= waitEstimateMs;
     const lastCatchUpRequestAt = this.#lastCatchUpRequestAt.get(record.id);
     if (lastCatchUpRequestAt !== undefined) {
@@ -823,6 +827,13 @@ export class EthereumInboundTransferTracker {
 
     if (latest) this.data.latestTransferIdByToken[moveToken] = latest.id;
     else delete this.data.latestTransferIdByToken[moveToken];
+  }
+
+  private requireEthereumClient(): IEthereumInboundTransferClient {
+    if (!this.ethereumClient) {
+      throw new Error('Ethereum execution RPC is not configured for this app instance.');
+    }
+    return this.ethereumClient;
   }
 
   private async failTransfer(id: string, errorMessage: string) {

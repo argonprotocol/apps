@@ -3,6 +3,7 @@ import { createTestDb } from './helpers/db.ts';
 import {
   type IBitcoinUtxoRecord,
   type IMempoolFundingObservation,
+  BitcoinUtxoRole,
   BitcoinUtxoStatus,
 } from '../lib/db/BitcoinUtxosTable.ts';
 
@@ -15,6 +16,7 @@ async function createRecord(overrides: Partial<IBitcoinUtxoRecord> = {}) {
     vout: overrides.vout ?? 0,
     satoshis: overrides.satoshis ?? 10_000n,
     network: overrides.network ?? 'testnet',
+    role: overrides.role,
     status: overrides.status ?? BitcoinUtxoStatus.SeenOnMempool,
     mempoolObservation: overrides.mempoolObservation,
     firstSeenAt: overrides.firstSeenAt ?? new Date(),
@@ -70,7 +72,10 @@ describe('BitcoinUtxosTable', () => {
   });
 
   it('setReleaseRequest stores release details on the funding record', async () => {
-    const { table, record } = await createRecord({ status: BitcoinUtxoStatus.FundingUtxo });
+    const { table, record } = await createRecord({
+      role: BitcoinUtxoRole.Funding,
+      status: BitcoinUtxoStatus.FundingUtxo,
+    });
 
     await table.setReleaseRequest(record, {
       requestedReleaseAtTick: 77,
@@ -80,6 +85,7 @@ describe('BitcoinUtxosTable', () => {
 
     const updated = (await table.fetchAll()).find(x => x.id === record.id)!;
     expect(updated.status).toBe(BitcoinUtxoStatus.ReleaseIsProcessingOnArgon);
+    expect(updated.role).toBe(BitcoinUtxoRole.Funding);
     expect(updated.requestedReleaseAtTick).toBe(77);
     expect(updated.releaseBitcoinNetworkFee).toBe(333n);
     expect(updated.releaseToDestinationAddress).toBe('0014abcd');
@@ -132,16 +138,18 @@ describe('BitcoinUtxosTable', () => {
 
     const updated = (await table.fetchAll()).find(x => x.id === record.id)!;
     expect(updated.status).toBe(BitcoinUtxoStatus.FundingUtxo);
+    expect(updated.role).toBe(BitcoinUtxoRole.Funding);
     expect(updated.firstSeenOnArgonAt).toBeInstanceOf(Date);
   });
 
   it('setOrphaned records the orphaned status transition', async () => {
-    const { table, record } = await createRecord({ status: BitcoinUtxoStatus.FundingCandidate });
+    const { table, record } = await createRecord({ status: BitcoinUtxoStatus.SeenOnMempool });
 
     await table.setOrphaned(record);
 
     const updated = (await table.fetchAll()).find(x => x.id === record.id)!;
     expect(updated.status).toBe(BitcoinUtxoStatus.Orphaned);
+    expect(updated.role).toBe(BitcoinUtxoRole.Orphan);
     expect(updated.firstSeenOnArgonAt).toBeInstanceOf(Date);
   });
 
@@ -185,7 +193,7 @@ describe('BitcoinUtxosTable', () => {
   });
 
   it('restores the last non-release status when release fails', async () => {
-    const { table, record } = await createRecord({ status: BitcoinUtxoStatus.FundingCandidate });
+    const { table, record } = await createRecord({ status: BitcoinUtxoStatus.SeenOnMempool });
 
     await table.setOrphaned(record);
     await table.setReleaseRequest(record, {
@@ -201,7 +209,7 @@ describe('BitcoinUtxosTable', () => {
     expect(updated.status).toBe(BitcoinUtxoStatus.Orphaned);
     expect(updated.statusError).toBe('temporary failure');
     expect(history.map(entry => entry.newStatus)).toEqual([
-      BitcoinUtxoStatus.FundingCandidate,
+      BitcoinUtxoStatus.SeenOnMempool,
       BitcoinUtxoStatus.Orphaned,
       BitcoinUtxoStatus.ReleaseIsProcessingOnArgon,
       BitcoinUtxoStatus.Orphaned,

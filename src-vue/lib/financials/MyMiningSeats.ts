@@ -84,8 +84,6 @@ export class MiningFinancials
   constructor(private readonly seats: MyMiningSeats) {}
 
   public async loadPositions(args: MiningFinancialPositionArgs): Promise<MiningFinancialPosition[]> {
-    await this.seats.load();
-
     const frameIds = new Set<number>();
     for (const cohort of this.seats.miningCohorts) {
       frameIds.add(cohort.id);

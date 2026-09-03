@@ -1,6 +1,11 @@
 <template>
   <TooltipProvider :disableHoverableContent="true" :disableClosingTrigger="true" :delayDuration="300">
-    <TooltipRoot @update:open="handleOpen" :disableClosingTrigger="true" :disableHoverableContent="true">
+    <TooltipRoot
+      v-bind="props.open === undefined ? {} : { open: props.open }"
+      @update:open="handleOpen"
+      :disableClosingTrigger="true"
+      :disableHoverableContent="true"
+    >
       <TooltipTrigger :asChild="props.asChild || undefined" tooltip>
         <slot />
       </TooltipTrigger>

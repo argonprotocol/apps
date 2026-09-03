@@ -8,7 +8,11 @@ import {
   setupBitcoinOverlayScenario,
   type BitcoinOverlayScenario,
 } from '../../scenarios/setupBitcoinOverlayScenario.ts';
-import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../../../src-vue/interfaces/IBitcoinUtxoRecord.ts';
+import {
+  BitcoinUtxoRole,
+  BitcoinUtxoStatus,
+  type IBitcoinUtxoRecord,
+} from '../../../src-vue/interfaces/IBitcoinUtxoRecord.ts';
 import { ExtrinsicType, TransactionStatus } from '../../../src-vue/interfaces/ITransactionRecord.ts';
 import BitcoinOrphanRecoveryOverlay from '../../../src-vue/overlays/BitcoinOrphanRecoveryOverlay.vue';
 
@@ -42,7 +46,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const DepositMismatch: Story = {
+export const OrphanedDeposit: Story = {
   beforeEach: () => {
     isInteractive.value = false;
     scenario = setupBitcoinOverlayScenario();
@@ -51,7 +55,7 @@ export const DepositMismatch: Story = {
   },
   play: async () => {
     const body = within(document.body);
-    await expectEventuallyVisible(body.findByText('Deposit mismatch'));
+    await expectEventuallyVisible(body.findByText('Orphaned Bitcoin received'));
   },
 };
 
@@ -96,9 +100,9 @@ export const CheckingFee: Story = {
     scenario = setupBitcoinOverlayScenario();
     orphanRecord = createOrphanRecord(404);
     const quote = scenario.defer();
-    scenario.bitcoinLocks.orphanReleases.getOrphanReturnFeeQuote = fn(async () => {
+    scenario.bitcoinOrphanRelease.prepare = fn(async () => {
       await quote.promise;
-      return { canAfford: true, availableBalance: 25_000_000n, txFee: 125_000n };
+      return { canAfford: true, availableBalance: 25_000_000n, txFeePlusTip: 125_000n } as never;
     });
     return () => scenario.cleanup();
   },
@@ -118,11 +122,11 @@ export const InsufficientArgonFee: Story = {
     isInteractive.value = true;
     scenario = setupBitcoinOverlayScenario();
     orphanRecord = createOrphanRecord(405);
-    scenario.bitcoinLocks.orphanReleases.getOrphanReturnFeeQuote = fn(async () => ({
+    scenario.bitcoinOrphanRelease.prepare = fn(async () => ({
       canAfford: false,
       availableBalance: 25_000n,
-      txFee: 125_000n,
-    }));
+      txFeePlusTip: 125_000n,
+    }) as never);
   },
   play: async () => {
     try {
@@ -140,7 +144,7 @@ export const FeeQuoteError: Story = {
     isInteractive.value = true;
     scenario = setupBitcoinOverlayScenario();
     orphanRecord = createOrphanRecord(406);
-    scenario.bitcoinLocks.orphanReleases.getOrphanReturnFeeQuote = fn(async () => {
+    scenario.bitcoinOrphanRelease.prepare = fn(async () => {
       throw new Error('Synthetic quote error');
     });
   },
@@ -278,8 +282,9 @@ function createOrphanRecord(id: number, overrides: Partial<IBitcoinUtxoRecord> =
   return createBitcoinUtxo({
     id,
     lockUtxoId: scenario.lock.utxoId!,
+    role: BitcoinUtxoRole.Orphan,
     status: BitcoinUtxoStatus.Orphaned,
-    satoshis: scenario.lock.satoshis - 1_250_000n,
+    satoshis: scenario.lock.securitizedSatoshis - 1_250_000n,
     ...overrides,
   });
 }
@@ -292,6 +297,7 @@ function createReleaseRecord(
   return createBitcoinUtxo({
     id,
     lockUtxoId: scenario.lock.utxoId!,
+    role: BitcoinUtxoRole.Orphan,
     status,
     releaseToDestinationAddress: `0014${'66'.repeat(20)}`,
     releaseBitcoinNetworkFee: 18_000n,

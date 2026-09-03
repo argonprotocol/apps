@@ -17,7 +17,7 @@ import { loadEthereumChainConfig } from '../lib/EthereumClient.ts';
 import { WalletsForEthereum } from '../lib/WalletsForEthereum.ts';
 import { WalletForBase } from '../lib/WalletForBase.ts';
 import { WalletForBitcoin } from '../lib/WalletForBitcoin.ts';
-import { getBitcoinLocks } from './bitcoin.ts';
+import { getBitcoinLocks, getBitcoinTransactionOperations } from './bitcoin.ts';
 import { invokeWithTimeout } from '../lib/tauriApi.ts';
 import { MoveCapital } from '../lib/MoveCapital.ts';
 import { getTransactionTracker } from './transactions.ts';
@@ -74,7 +74,11 @@ export function getWalletsForEthereum() {
 let walletForBitcoin: Vue.Raw<WalletForBitcoin> | undefined;
 export function getWalletForBitcoin() {
   if (!walletForBitcoin) {
-    walletForBitcoin = new WalletForBitcoin(getBitcoinLocks, () => getWalletKeys().liquidLockingAddress);
+    walletForBitcoin = new WalletForBitcoin(
+      getBitcoinLocks,
+      () => getWalletKeys().liquidLockingAddress,
+      getBitcoinTransactionOperations().bitcoinLockCreate,
+    );
     walletForBitcoin.data = Vue.reactive(walletForBitcoin.data);
     walletForBitcoin = Vue.markRaw(walletForBitcoin);
   }
@@ -462,6 +466,8 @@ export const useWallets = defineStore('wallets', () => {
       defaultArgonWallet.address = currentDefaultArgon.address;
       argonWallets.defaultArgonWallet.setRecord(currentDefaultArgon);
     }
+
+    await ethereumWallets.loadCachedBalances();
   }
 
   async function loadExternalWallets(): Promise<void> {

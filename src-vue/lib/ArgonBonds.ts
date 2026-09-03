@@ -3,7 +3,9 @@ import {
   type ArgonQueryClient,
   BondLot,
   type Currency,
+  createDeferred,
   type IBlockHeaderInfo,
+  type IDeferred,
   type IFrameBondLot,
   type MiningFrames,
   type RuntimeSystemEventRecord,
@@ -60,6 +62,7 @@ export class ArgonBonds {
     bondLots: [] as BondLot[],
     bondHistory: [] as IBondLotHistoryRecord[],
     isLoaded: false,
+    financialRevision: 0,
     vaultId: 0,
     currentFrameId: 0,
     distributableBidPool: 0n,
@@ -70,7 +73,7 @@ export class ArgonBonds {
 
   private blockSubscription?: VoidFunction;
   private finalizedHistorySubscription?: VoidFunction;
-  private loadPromise?: Promise<void>;
+  private waitForLoad?: IDeferred<void>;
   private isGlobalSubscribed = false;
   private readonly vaultSubscriptionArgs = new Map<number, IVaultBondSubscription>();
   private readonly historyRecovery: ArgonBondsRecovery;
@@ -114,9 +117,10 @@ export class ArgonBonds {
   }
 
   public async load(): Promise<void> {
-    if (this.data.isLoaded) return;
+    if (this.waitForLoad?.isRunning || this.waitForLoad?.isResolved) return this.waitForLoad.promise;
 
-    this.loadPromise ??= (async () => {
+    this.waitForLoad = createDeferred<void>();
+    try {
       await this.config.isLoadedPromise;
       await this.currency.isLoadedPromise;
       await this.miningFrames.load();
@@ -143,24 +147,26 @@ export class ArgonBonds {
 
       this.ensureBlockSubscription();
       this.data.isLoaded = true;
+      this.data.financialRevision += 1;
       void this.historyRecovery
         .repairLocalPurchases()
         .then(async didRepair => {
           if (didRepair) await this.refreshHistory();
         })
         .catch(error => console.warn('[ArgonBonds] Unable to restore purchase history from local transactions', error));
-    })().catch(error => {
-      this.loadPromise = undefined;
-      throw error;
-    });
+      this.waitForLoad.resolve();
+    } catch (error) {
+      this.waitForLoad.reject(error);
+    }
 
-    return this.loadPromise;
+    return this.waitForLoad.promise;
   }
 
   public async refreshBondLots(client?: ArgonQueryClient): Promise<void> {
     client ??= await getMainchainClient(false);
     this.data.bondLots = await this.getOwnBondLots(client);
     this.setDisplayVaultId(this.config.upstreamOperator?.vaultId ?? this.data.vaultId);
+    if (this.data.isLoaded) this.data.financialRevision += 1;
   }
 
   public saveBondPurchase(info: TransactionInfo): void {
@@ -198,6 +204,11 @@ export class ArgonBonds {
     this.data.bondHistory = await (
       await this.dbPromise
     ).bondLotHistoryTable.fetchAll(this.walletKeys.defaultArgonAddress);
+    if (this.data.isLoaded) this.data.financialRevision += 1;
+  }
+
+  public async publishRecoveredHistory(): Promise<void> {
+    await this.refreshHistory();
   }
 
   public async refreshActiveState(args: { client: ArgonQueryClient; currentFrameId: number }): Promise<void> {
