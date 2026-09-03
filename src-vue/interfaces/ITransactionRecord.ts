@@ -16,11 +16,14 @@ export enum ExtrinsicType {
   BootstrapPublishRecovery = 'BootstrapPublishRecovery',
 
   BitcoinRequestLock = 'BitcoinRequestLock', // LockIsProcessingOnArgon
+  BitcoinLiquidCreate = 'BitcoinLiquidCreate',
+  BitcoinLiquidClose = 'BitcoinLiquidClose',
+  BitcoinResecuritize = 'BitcoinResecuritize',
   BitcoinRatchet = 'BitcoinRatchet',
   BitcoinRequestRelease = 'BitcoinRequestRelease', // funding UTXO enters release lifecycle on Argon
   VaultCosignBitcoinRelease = 'VaultCosignBitcoinRelease', // vault cosigns release request before bitcoin broadcast
   VaultCosignOrphanedUtxoRelease = 'VaultCosignOrphanedUtxoRelease',
-  BitcoinOrphanedUtxoUseAsFunding = 'BitcoinOrphanedUtxoUseAsFunding',
+  BitcoinOrphanedUtxoUseAsFunding = 'BitcoinOrphanedUtxoUseAsFunding', // Historical stored value.
   BitcoinOrphanedUtxoRelease = 'BitcoinOrphanedUtxoRelease',
   VaultSetFlexibleAssets = 'VaultSetBackfill', // Preserve the stored value used by existing transaction history.
 

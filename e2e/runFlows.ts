@@ -45,16 +45,16 @@ async function main(): Promise<void> {
   });
 
   let session: IFlowSession | null = null;
-  let isClosing = false;
-
-  const closeSession = async (): Promise<void> => {
-    if (isClosing) return;
-    isClosing = true;
-    try {
-      await session?.close();
-    } catch (error) {
-      console.error('[E2E] Failed to close flow session cleanly', error);
-    }
+  let closeSessionPromise: Promise<void> | undefined;
+  const closeSession = (): Promise<void> => {
+    closeSessionPromise ??= (async () => {
+      try {
+        await session?.close();
+      } catch (error) {
+        console.error('[E2E] Failed to close flow session cleanly', error);
+      }
+    })();
+    return closeSessionPromise;
   };
 
   const cleanupTestNetworkArtifacts = (): void => {

@@ -5,26 +5,6 @@ import type { IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
 import type { IVaultCollectNotice } from './VaultCollectBuilder.ts';
 
-type IBitcoinMismatchView = {
-  phase:
-    | 'none'
-    | 'review'
-    | 'accepting'
-    | 'returningOnArgon'
-    | 'returningOnBitcoin'
-    | 'returned'
-    | 'readyToResume'
-    | 'error';
-  error?: string;
-  candidateCount: number;
-  isFundingExpired: boolean;
-  nextCandidate?: {
-    canAccept: boolean;
-    canReturn: boolean;
-    record: IBitcoinUtxoRecord;
-  };
-};
-
 type IBitcoinUnlockReleaseState = {
   isReleaseStatus: boolean;
 };
@@ -35,25 +15,14 @@ type IBitcoinAlertSource = {
   };
   getLockByUtxoId(utxoId: number): IBitcoinLockRecord | undefined;
   getActiveLocks(): IBitcoinLockRecord[];
-  getMismatchViewState(lock: IBitcoinLockRecord): IBitcoinMismatchView;
   getAcceptedFundingRecord(lock: IBitcoinLockRecord): IBitcoinUtxoRecord | undefined;
   getLockUnlockReleaseState(lock: IBitcoinLockRecord): IBitcoinUnlockReleaseState;
-  isLockedStatus(lock: IBitcoinLockRecord): boolean;
+  isLockFunded(lock: IBitcoinLockRecord): boolean;
   unlockDeadlineTime(lock: IBitcoinLockRecord): number;
   verifyExpirationTime(lock: IBitcoinLockRecord): number;
 };
 
 export type IBitcoinAlert =
-  | {
-      kind: 'mismatch';
-      lock: IBitcoinLockRecord;
-      amountMicrogons: bigint;
-    }
-  | {
-      kind: 'resumeFunding';
-      lock: IBitcoinLockRecord;
-      amountMicrogons: bigint;
-    }
   | {
       kind: 'unlockNeedsAttention';
       lock: IBitcoinLockRecord;
@@ -101,51 +70,29 @@ export function getBitcoinAlertNotices(bitcoinLocks: IBitcoinAlertSource, now: n
   const alerts: IBitcoinAlert[] = [];
 
   for (const lock of bitcoinLocks.getActiveLocks()) {
-    const mismatchView = bitcoinLocks.getMismatchViewState(lock);
-    if (mismatchView.phase === 'readyToResume') {
-      alerts.push({
-        kind: 'resumeFunding',
-        lock,
-        amountMicrogons: lock.liquidityPromised,
-      });
-      continue;
-    }
-
-    if (
-      mismatchView.phase === 'error' ||
-      mismatchView.phase === 'review' ||
-      mismatchView.phase === 'returningOnArgon' ||
-      mismatchView.phase === 'returningOnBitcoin'
-    ) {
-      alerts.push({
-        kind: 'mismatch',
-        lock,
-        amountMicrogons: lock.liquidityPromised,
-      });
-      continue;
-    }
-
-    const fundingRecord = bitcoinLocks.getAcceptedFundingRecord(lock) ?? lock.fundingUtxoRecord;
+    const fundingRecord = bitcoinLocks.getAcceptedFundingRecord(lock) ?? lock.fundingUtxo;
     if (bitcoinLocks.getLockUnlockReleaseState(lock).isReleaseStatus && fundingRecord?.statusError) {
       alerts.push({
         kind: 'unlockNeedsAttention',
         lock,
-        amountMicrogons: lock.liquidityPromised,
+        amountMicrogons: lock.securitizationCoverageMicrogons ?? 0n,
         error: fundingRecord.statusError,
       });
       continue;
     }
 
-    const expiresAt = bitcoinLocks.unlockDeadlineTime(lock);
-    if (bitcoinLocks.isLockedStatus(lock) && isAlertLockNearExpiration(expiresAt, now)) {
-      alerts.push({
-        kind: 'unlockExpiring',
-        lock,
-        amountMicrogons: lock.liquidityPromised,
-        expiresAt,
-      });
+    if (bitcoinLocks.isLockFunded(lock)) {
+      const expiresAt = bitcoinLocks.unlockDeadlineTime(lock);
+      if (isAlertLockNearExpiration(expiresAt, now)) {
+        alerts.push({
+          kind: 'unlockExpiring',
+          lock,
+          amountMicrogons: lock.securitizationCoverageMicrogons ?? 0n,
+          expiresAt,
+        });
 
-      continue;
+        continue;
+      }
     }
 
     if (lock.status === BitcoinLockStatus.LockPendingFunding) {
@@ -156,7 +103,7 @@ export function getBitcoinAlertNotices(bitcoinLocks: IBitcoinAlertSource, now: n
         alerts.push({
           kind: 'fundingExpiring',
           lock,
-          amountMicrogons: lock.liquidityPromised,
+          amountMicrogons: lock.securitizationCoverageMicrogons ?? 0n,
           expiresAt: fundingExpiresAt,
         });
       }
@@ -190,10 +137,8 @@ function compareBitcoinAlerts(a: IBitcoinAlert, b: IBitcoinAlert): number {
 
 function getBitcoinAlertPriority(alert: IBitcoinAlert): number {
   if (alert.kind === 'unlockNeedsAttention') return 0;
-  if (alert.kind === 'mismatch') return 1;
-  if (alert.kind === 'unlockExpiring') return 2;
-  if (alert.kind === 'fundingExpiring') return 3;
-  return 4;
+  if (alert.kind === 'unlockExpiring') return 1;
+  return 2;
 }
 
 function isAlertLockNearExpiration(

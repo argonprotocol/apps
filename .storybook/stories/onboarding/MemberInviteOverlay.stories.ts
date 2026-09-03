@@ -66,7 +66,7 @@ export const BitcoinSpaceRequired: Story = {
   beforeEach: () => setupMemberInviteScenario('bitcoinSpaceRequired'),
   play: async () => {
     await expectEventuallyVisible(
-      within(document.body).findByText(/Member invites require at least \$1 of available Bitcoin lock space/),
+      within(document.body).findByText(/Member invites require at least ₳1 of available Bitcoin lock space/),
     );
   },
 };

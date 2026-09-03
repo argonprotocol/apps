@@ -249,7 +249,13 @@ import { InformationCircleIcon } from '@heroicons/vue/24/outline';
 import OverlayBase from './OverlayBase.vue';
 import SelectAVault from '../components/SelectAVault.vue';
 
-import { bigNumberToBigInt, MICROGONS_PER_ARGON, NetworkConfig, TreasuryBonds, Vault } from '@argonprotocol/apps-core';
+import {
+  bigNumberToBigInt,
+  type Vault,
+  MICROGONS_PER_ARGON,
+  NetworkConfig,
+  TreasuryBonds,
+} from '@argonprotocol/apps-core';
 import { getConfig } from '../stores/config.ts';
 import { getMyVault } from '../stores/vaults.ts';
 import { getVaults } from '../stores/vaults.ts';

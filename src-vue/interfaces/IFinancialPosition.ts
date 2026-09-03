@@ -1,6 +1,7 @@
 import type { BondLot, ICapitalFlow, IInvestmentPositionValue, Vault } from '@argonprotocol/apps-core';
 
 import type { IWallet } from '../lib/Wallet.ts';
+import type { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
 import type { IStableSwapPurchaseRecord } from '../lib/db/StableSwapPurchasesTable.ts';
 import type { IBondLotHistoryRecord } from '../lib/db/BondLotHistoryTable.ts';
 import type { IBitcoinLockRecord } from './IBitcoinLockRecord.ts';
@@ -159,11 +160,25 @@ export interface IVaultBalanceFinancialPosition extends IFinancialPositionBase {
   amount: bigint;
 }
 
-export interface IBitcoinAssetFinancialPosition extends IFinancialInvestmentPositionBase {
+export interface IBitcoinFinancialAsset extends IFinancialPositionBase {
   kind: 'bitcoin-asset';
   group: 'bitcoin';
   lock: IBitcoinLockRecord;
-  // Bitcoin keeps its established return model while exposing the asset and redemption liability separately.
+}
+
+export interface IBitcoinLiquidFinancialPosition extends IFinancialInvestmentPositionBase {
+  kind: 'bitcoin-liquid';
+  group: 'bitcoin';
+  liquidId: number;
+  liquid: BitcoinLiquid;
+  locks: readonly IBitcoinLockRecord[];
+  insuranceCost?: bigint;
+  transactionFees?: bigint;
+  totalFees?: bigint;
+  receivedLiquidity: bigint;
+  pendingLiquidity: bigint;
+  repaymentAmount: bigint;
+  totalReturn?: number;
   performanceEndingCapital?: bigint;
 }
 
@@ -189,7 +204,7 @@ export type IFinancialInvestmentPosition =
   | IMiningArgonotFinancialPosition
   | IBondFinancialPosition
   | IVaultFinancialPosition
-  | IBitcoinAssetFinancialPosition
+  | IBitcoinLiquidFinancialPosition
   | IStableSwapFinancialPosition;
 
 export type IFinancialPosition =
@@ -198,6 +213,7 @@ export type IFinancialPosition =
   | IBaseWalletFinancialPosition
   | IMiningBalanceFinancialPosition
   | IVaultBalanceFinancialPosition
+  | IBitcoinFinancialAsset
   | IFinancialInvestmentPosition
   | IBitcoinLiabilityFinancialPosition;
 
@@ -224,6 +240,7 @@ const financialGroupByPositionKind = {
   vault: 'vaulting',
   'vault-balance': 'vaulting',
   'bitcoin-asset': 'bitcoin',
+  'bitcoin-liquid': 'bitcoin',
   'bitcoin-liability': 'bitcoin',
   'stable-swap': 'ethereum',
 } as const satisfies { [Kind in FinancialPositionKind]: IFinancialPositionByKind[Kind]['group'] };

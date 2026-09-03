@@ -4,10 +4,10 @@ import BigNumber from 'bignumber.js';
 import {
   AccountActivityKind,
   getVaultByOperator,
+  type Vault,
   MainchainClients,
   StorageFinder,
   TransactionEvents,
-  Vault,
 } from '@argonprotocol/apps-core';
 import { TICK_MILLIS } from '../Env.ts';
 import { Config } from '../Config.ts';

@@ -29,6 +29,7 @@ const APP_STARTUP_READY_RETRY_DELAY_MS = 1_000;
 const APP_STARTUP_READY_WAIT_TIMEOUT_MS = 15_000;
 const APP_PROCESS_OUTPUT_MAX_LINES = 600;
 const APP_PROCESS_OUTPUT_TAIL_LINES = 120;
+const TROUBLESHOOTING_BUNDLE_TIMEOUT_MS = 30_000;
 const DOCKER_COMPOSE_CONFIG_FILES = ['docker-compose.yml', 'indexer.docker-compose.yml'] as const;
 
 export type E2ESessionMode = 'isolated' | 'stateful';
@@ -66,7 +67,8 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
   console.info(`[E2E] Driver session ${driverServer.session}`);
   let devDockerProcess: ChildProcess | null = null;
   let testNetwork: StartedArgonTestNetwork | null = null;
-  let closed = false;
+  let isClosing = false;
+  let closePromise: Promise<void> | undefined;
   const previousComposeProjectName = process.env.COMPOSE_PROJECT_NAME;
   const previousNetworkConfigOverride = process.env.ARGON_NETWORK_CONFIG_OVERRIDE;
   const previousDevEthereumRuntimeStateDir = process.env.ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR;
@@ -144,9 +146,13 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
     attachAppProcessOutput(devDockerProcess, appProcessOutput);
   } catch (error) {
     driver.close();
-    await driverServer.close();
+    await driverServer.close().catch(closeError => {
+      console.warn(`[E2E] Failed to close driver server after startup error: ${(closeError as Error).message}`);
+    });
     if (testNetwork) {
-      await testNetwork.stop();
+      await testNetwork.stop().catch(error => {
+        console.warn(`[E2E] Failed to stop test network after startup error: ${(error as Error).message}`);
+      });
     }
     if (shouldRunCleanup) {
       runCleanDevDocker(repoRoot, cleanupEnv, 'startup-error');
@@ -160,7 +166,7 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
   }
 
   devDockerProcess.once('exit', code => {
-    if (code !== 0 && !closed) {
+    if (code !== 0 && !isClosing) {
       console.error(`[E2E] dev:docker exited with code ${code}`);
       printAppProcessOutputTail(appProcessOutput, 'process-exit');
     }
@@ -218,16 +224,20 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
         console.error(`[E2E] frontend.startup.error #${index + 1}: ${frontendError}`);
       }
     }
-    closed = true;
+    isClosing = true;
     driver.close();
     await stopChild(devDockerProcess);
     if (testNetwork) {
-      await testNetwork.stop();
+      await testNetwork.stop().catch(error => {
+        console.warn(`[E2E] Failed to stop test network after connection error: ${(error as Error).message}`);
+      });
     }
     if (shouldRunCleanup) {
       runCleanDevDocker(repoRoot, cleanupEnv, 'connect-error');
     }
-    await driverServer.close();
+    await driverServer.close().catch(closeError => {
+      console.warn(`[E2E] Failed to close driver server after connection error: ${(closeError as Error).message}`);
+    });
     restoreComposeProjectName(previousComposeProjectName);
     restoreNetworkConfigOverride(previousNetworkConfigOverride);
     restoreProcessEnv('ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR', previousDevEthereumRuntimeStateDir);
@@ -235,6 +245,35 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
     closeAppProcessOutputTracker(appProcessOutput);
     throw error;
   }
+
+  const close = (): Promise<void> => {
+    closePromise ??= (async () => {
+      isClosing = true;
+      try {
+        driver.close();
+        await stopChild(devDockerProcess);
+        if (testNetwork) {
+          await testNetwork.stop().catch(error => {
+            console.warn(`[E2E] Failed to stop test network during session close: ${(error as Error).message}`);
+          });
+        }
+        if (shouldRunCleanup) {
+          runCleanDevDocker(repoRoot, cleanupEnv, 'session-close');
+          await ensurePortsReleased(REQUIRED_LOCAL_DOCKER_PORTS, 'session-close').catch(error => {
+            console.warn(`[E2E] ${error instanceof Error ? error.message : String(error)}`);
+          });
+        }
+        await driverServer.close();
+      } finally {
+        restoreComposeProjectName(previousComposeProjectName);
+        restoreNetworkConfigOverride(previousNetworkConfigOverride);
+        restoreProcessEnv('ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR', previousDevEthereumRuntimeStateDir);
+        restoreProcessEnv('ARGON_DEV_UPSTREAM_ROOT_DIR', previousDevUpstreamRootDir);
+        closeAppProcessOutputTracker(appProcessOutput);
+      }
+    })();
+    return closePromise;
+  };
 
   return {
     run: async (flowName, input = {}) => {
@@ -264,30 +303,7 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
         throw error;
       }
     },
-    close: async () => {
-      if (closed) return;
-      closed = true;
-      try {
-        driver.close();
-        await stopChild(devDockerProcess);
-        if (testNetwork) {
-          await testNetwork.stop();
-        }
-        if (shouldRunCleanup) {
-          runCleanDevDocker(repoRoot, cleanupEnv, 'session-close');
-          await ensurePortsReleased(REQUIRED_LOCAL_DOCKER_PORTS, 'session-close').catch(error => {
-            console.warn(`[E2E] ${error instanceof Error ? error.message : String(error)}`);
-          });
-        }
-        await driverServer.close();
-      } finally {
-        restoreComposeProjectName(previousComposeProjectName);
-        restoreNetworkConfigOverride(previousNetworkConfigOverride);
-        restoreProcessEnv('ARGON_DEV_ETHEREUM_RUNTIME_STATE_DIR', previousDevEthereumRuntimeStateDir);
-        restoreProcessEnv('ARGON_DEV_UPSTREAM_ROOT_DIR', previousDevUpstreamRootDir);
-        closeAppProcessOutputTracker(appProcessOutput);
-      }
-    },
+    close,
   };
 }
 
@@ -441,6 +457,7 @@ async function createTroubleshootingBundle(appDir: string): Promise<void> {
       env: process.env,
       stdio: ['ignore', 'pipe', 'pipe'],
       maxBuffer: 10 * 1024 * 1024,
+      timeout: TROUBLESHOOTING_BUNDLE_TIMEOUT_MS,
     });
     const archiveMatch = output.match(/Bundle ready: (.+\.tar\.gz)/);
     if (archiveMatch?.[1]) {

@@ -913,7 +913,7 @@ describe('EthereumInboundTransferTracker integration', () => {
     expect(transferState.progress.overallProgressPct).toBe(100);
   });
 
-  it('restores a source-submitted transfer into the Ethereum finalization step before completion', async () => {
+  it('preserves a source-submitted transfer without Ethereum and resumes finalization once available', async () => {
     const db = await createTestDb();
     const walletKeys = createMockWalletKeys();
     const releaseEthereumFinality = createDeferredPromise<void>();
@@ -932,6 +932,29 @@ describe('EthereumInboundTransferTracker integration', () => {
       gatewayActivityNonce: 0n,
       status: CrosschainInboundTransferStatus.SourceSubmitted,
     });
+
+    const unavailableTracker = new EthereumInboundTransferTracker(
+      Promise.resolve(db),
+      createTransactionTracker(),
+      createBlockWatch(mainchainClient),
+      walletKeys,
+      undefined,
+      undefined,
+      {
+        resolveOperatorHost: async () => undefined,
+        requestEthereumGatewayCatchUp: vi.fn(),
+      },
+    );
+    await unavailableTracker.load();
+
+    expect(unavailableTracker.getTransfer(persistedRecord.id)?.transferState).toMatchObject({
+      amount: convertEthereumTokenBaseUnitsToRuntimeAmount(persistedRecord.amountBaseUnits),
+      isSubmitting: true,
+      hasPersistedTransfer: true,
+      needsAttention: false,
+      error: '',
+    });
+    expect((await db.crosschainInboundTransfersTable.get(persistedRecord.id))?.failureReason).toBeNull();
 
     const finalizedProgress = {
       blockNumber: 54,

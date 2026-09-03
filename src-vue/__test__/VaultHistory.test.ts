@@ -104,7 +104,6 @@ describe('VaultHistory financial positions', () => {
 
     const stored = await history.loadPositionHistory();
     const positions = vaultFinancials.createFinancialPositions({
-      hasConfirmedHistoryCoverage: true,
       capitalHistory: stored.capital,
       revenueHistory: stored.revenue,
     });
@@ -136,7 +135,6 @@ describe('VaultHistory financial positions', () => {
     const startedAt = new Date('2026-07-01T00:00:00Z');
     const endedAt = new Date('2026-07-31T00:00:00Z');
     const positions = vaultFinancials.createFinancialPositions({
-      hasConfirmedHistoryCoverage: true,
       capitalHistory: [
         {
           vaultId: 7,
@@ -172,7 +170,6 @@ describe('VaultHistory financial positions', () => {
 
   it('excludes a completed vault until its closing time is known', () => {
     const positions = vaultFinancials.createFinancialPositions({
-      hasConfirmedHistoryCoverage: true,
       capitalHistory: [
         {
           vaultId: 7,

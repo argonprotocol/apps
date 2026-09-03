@@ -3,7 +3,7 @@
   <div data-testid="VaultingScreen" class="h-full">
     <BlankSlate v-if="config.vaultingSetupStatus === VaultingSetupStatus.None" />
     <SetupChecklist v-else-if="config.vaultingSetupStatus === VaultingSetupStatus.Checklist" />
-    <template v-else-if="myVault.data.isReady">
+    <template v-else-if="myVault.data.isLoaded">
       <SetupInstalling v-if="config.vaultingSetupStatus === VaultingSetupStatus.Installing" />
       <Dashboard v-else-if="config.vaultingSetupStatus === VaultingSetupStatus.Finished" />
     </template>

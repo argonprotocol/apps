@@ -19,12 +19,33 @@ export function trackTransactionProgress(args: {
   progressLabel: Vue.Ref<string>;
   activeTransactionCount?: Vue.Ref<number>;
   error: Vue.Ref<string>;
+  onComplete?: () => void;
+  onError?: (error: Error) => void;
   onIdle?: () => void;
   onCleanup: (cleanupFn: () => void) => void;
 }) {
-  const { txInfos, isSubmitting, progressPct, progressLabel, activeTransactionCount, error, onIdle, onCleanup } = args;
+  const {
+    txInfos,
+    isSubmitting,
+    progressPct,
+    progressLabel,
+    activeTransactionCount,
+    error,
+    onComplete,
+    onError,
+    onIdle,
+    onCleanup,
+  } = args;
+
+  function finishWithError(transactionError: Error): void {
+    error.value = transactionError.message;
+    isSubmitting.value = false;
+    if (activeTransactionCount) activeTransactionCount.value = 0;
+    onError?.(transactionError);
+  }
 
   if (txInfos.length > 0) {
+    let isCurrent = true;
     const progressByTxId = new Map(
       txInfos.map(txInfo => [
         txInfo.tx.id,
@@ -38,6 +59,9 @@ export function trackTransactionProgress(args: {
     error.value = '';
     isSubmitting.value = true;
     if (activeTransactionCount) activeTransactionCount.value = txInfos.length;
+    onCleanup(() => {
+      isCurrent = false;
+    });
 
     for (const txInfo of txInfos) {
       const unsubscribe = txInfo.subscribeToProgress((progressArgs, progressError) => {
@@ -61,6 +85,27 @@ export function trackTransactionProgress(args: {
         if (progressError) error.value = progressError.message;
       });
       onCleanup(unsubscribe);
+    }
+
+    if (onComplete || onError) {
+      void Promise.all(txInfos.map(txInfo => txInfo.waitForPostProcessing)).then(
+        () => {
+          if (!isCurrent) return;
+          const transactionError = txInfos.map(txInfo => txInfo.getStatus().error).find(Boolean);
+          if (transactionError) {
+            finishWithError(transactionError);
+            return;
+          }
+
+          progressPct.value = 100;
+          isSubmitting.value = false;
+          if (activeTransactionCount) activeTransactionCount.value = 0;
+          onComplete?.();
+        },
+        reason => {
+          if (isCurrent) finishWithError(reason as Error);
+        },
+      );
     }
 
     return;

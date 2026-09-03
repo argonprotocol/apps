@@ -10,9 +10,11 @@ import {
   NetworkConfig,
   TreasuryBonds,
   BitcoinLock,
+  BitcoinFission,
   TxSubmitter,
   type ArgonApi,
   type ArgonClient,
+  type INetworkConfigOverride,
 } from '@argonprotocol/apps-core';
 import {
   createBitcoinAddress,
@@ -28,6 +30,7 @@ import type { IInviteResponse, IListInvitesResponse } from '@argonprotocol/apps-
 import { DelegateSubmitLane } from '../../bot/src/DelegateSubmitLane.ts';
 import { EthereumGatewayProverService } from '../../bot/src/EthereumGatewayProverService.ts';
 import BitcoinLocks from '../../src-vue/lib/BitcoinLocks.ts';
+import { BitcoinFissions } from '../../src-vue/lib/BitcoinFissions.ts';
 import BitcoinMempool from '../../src-vue/lib/BitcoinMempool.ts';
 import { Config } from '../../src-vue/lib/Config.ts';
 import { loadEthereumChainConfig } from '../../src-vue/lib/EthereumClient.ts';
@@ -43,6 +46,10 @@ import {
   loadOperationalAccount,
 } from '../../src-vue/lib/OperationalAccount.ts';
 import { TransactionTracker } from '../../src-vue/lib/TransactionTracker.ts';
+import { BitcoinLockCreate } from '../../src-vue/lib/txs/BitcoinLock.create.ts';
+import { BitcoinLiquidCreate } from '../../src-vue/lib/txs/BitcoinLiquid.create.ts';
+import { BitcoinLockResecuritize } from '../../src-vue/lib/txs/BitcoinLock.resecuritize.ts';
+import { UpstreamOperatorClient } from '../../src-vue/lib/UpstreamOperatorClient.ts';
 import { Vaults } from '../../src-vue/lib/Vaults.ts';
 import { createTestDb } from '../../src-vue/__test__/helpers/db.ts';
 import { getEthereumGatewayPauseReason, setMainchainClients } from '../../src-vue/stores/mainchain.ts';
@@ -85,6 +92,9 @@ export class AppVaultOperator {
     mintingAuthorities: MintingAuthorities;
     transactionTracker: TransactionTracker;
     bitcoinLocks: BitcoinLocks;
+    bitcoinFissions: BitcoinFissions;
+    bitcoinLockCreate: BitcoinLockCreate;
+    bitcoinLiquidCreate: BitcoinLiquidCreate;
   }) {
     this.#db = args.db;
     this.walletKeys = args.walletKeys;
@@ -95,25 +105,36 @@ export class AppVaultOperator {
     this.mintingAuthorities = args.mintingAuthorities;
     this.transactionTracker = args.transactionTracker;
     this.#bitcoinLocks = args.bitcoinLocks;
+    this.#bitcoinFissions = args.bitcoinFissions;
+    this.#bitcoinLockCreate = args.bitcoinLockCreate;
+    this.#bitcoinLiquidCreate = args.bitcoinLiquidCreate;
   }
 
   #db: Db;
   #miningFrames: MiningFrames;
   #bitcoinLocks: BitcoinLocks;
+  #bitcoinFissions: BitcoinFissions;
+  #bitcoinLockCreate: BitcoinLockCreate;
+  #bitcoinLiquidCreate: BitcoinLiquidCreate;
 
   public static async load(args: {
     clients: MainchainClients;
     walletKeys: MemoryWalletKeys;
+    networkConfigOverride?: INetworkConfigOverride;
   }): Promise<AppVaultOperator> {
-    const { clients, walletKeys } = args;
+    const { clients, walletKeys, networkConfigOverride } = args;
 
     setMainchainClients(clients);
+    if (networkConfigOverride) {
+      NetworkConfig.setRuntimeOverride('dev-docker', networkConfigOverride);
+    }
 
     const db = await createTestDb();
     const dbPromise = Promise.resolve(db);
     const miningFrames = new MiningFrames(clients);
     const currency = new Currency(clients);
     const transactionTracker = new TransactionTracker(dbPromise, miningFrames.blockWatch);
+    const upstreamOperatorClient = new UpstreamOperatorClient();
     const bitcoinLocks = new BitcoinLocks(
       dbPromise,
       walletKeys,
@@ -121,6 +142,13 @@ export class AppVaultOperator {
       currency,
       transactionTracker,
       new BitcoinMempool(NetworkConfig.get().esploraHost),
+    );
+    const bitcoinLockCreate = new BitcoinLockCreate(bitcoinLocks, transactionTracker, currency, upstreamOperatorClient);
+    const bitcoinFissions = new BitcoinFissions(
+      dbPromise,
+      walletKeys.defaultArgonAddress,
+      miningFrames.blockWatch,
+      currency,
     );
     const globalCouncil = new GlobalCouncil(dbPromise, walletKeys, miningFrames);
     const relaySubmitLane = new DelegateSubmitLane(new Keyring({ type: 'sr25519' }).createFromUri('//Charlie'));
@@ -162,6 +190,20 @@ export class AppVaultOperator {
       globalCouncil,
       mintingAuthorities,
     );
+    const bitcoinLockResecuritize = new BitcoinLockResecuritize(
+      bitcoinLocks,
+      transactionTracker,
+      currency,
+      upstreamOperatorClient,
+    );
+    const bitcoinLiquidCreate = new BitcoinLiquidCreate(
+      bitcoinFissions,
+      transactionTracker,
+      bitcoinLocks,
+      vaults,
+      bitcoinLockResecuritize,
+      upstreamOperatorClient,
+    );
     const config = new Config(dbPromise, walletKeys);
 
     Object.assign(vaults, {
@@ -182,6 +224,8 @@ export class AppVaultOperator {
     }
 
     await myVault.load();
+    await bitcoinFissions.load();
+    await Promise.all([bitcoinLockCreate.load(), bitcoinLockResecuritize.load(), bitcoinLiquidCreate.load()]);
 
     return new AppVaultOperator({
       db,
@@ -193,6 +237,9 @@ export class AppVaultOperator {
       mintingAuthorities,
       transactionTracker,
       bitcoinLocks,
+      bitcoinFissions,
+      bitcoinLockCreate,
+      bitcoinLiquidCreate,
     });
   }
 
@@ -273,24 +320,19 @@ export class AppVaultOperator {
       vault,
     });
 
-    if (
+    const operatorIsReady =
       existingSetup.operatorName === operatorName &&
       existingSetup.vaultDelegateIsReady &&
       existingProgress.isOperational &&
-      existingProgress.availableAccessCodes > 0
-    ) {
-      return;
-    }
+      existingProgress.availableAccessCodes > 0;
 
     if (!existingOperationalAccount) {
       const satoshis = await this.#bitcoinLocks.satoshisForArgonLiquidity(rewardConfig.treasuryMinimumBitcoin);
-      const { txInfo } = await this.#bitcoinLocks.initializeLock({
+      const txInfo = await this.#bitcoinLockCreate.submit({
         vault,
         satoshis,
+        txSigner: await this.walletKeys.getLiquidLockingKeypair(),
       });
-      if (!txInfo) {
-        throw new Error('Upstream treasury bitcoin bootstrap did not create a lock transaction.');
-      }
 
       const blockHash = txInfo.tx.blockHash ?? (await txInfo.txResult.waitForInFirstBlock);
       const apiAt = await client.at(blockHash);
@@ -301,12 +343,12 @@ export class AppVaultOperator {
         this.#bitcoinLocks.bitcoinNetwork,
       );
       const minerAddress = createBitcoinAddress();
-      sendBitcoinToAddress(fundingAddress, treasuryLock.satoshis);
+      sendBitcoinToAddress(fundingAddress, treasuryLock.securitizedSatoshis);
       generateBlocks(8, minerAddress);
 
       await waitFor(45e3, 'upstream treasury bitcoin funded', async () => {
         const currentLock = await BitcoinLock.get(client, treasuryLock.utxoId);
-        if (!currentLock?.isFunded) return;
+        if (!currentLock?.fundedSatoshis) return;
         return currentLock;
       });
 
@@ -348,6 +390,10 @@ export class AppVaultOperator {
       });
       await txResult.waitForInFirstBlock;
     }
+
+    await this.ensureOperationalLiquid({ client });
+
+    if (operatorIsReady) return;
 
     const registrationTx = await buildOperatorAccountRegistrationTx({
       walletKeys: this.walletKeys,
@@ -412,6 +458,46 @@ export class AppVaultOperator {
       walletKeys: this.walletKeys,
       operatorName,
     });
+  }
+
+  public async ensureOperationalLiquid(args: { client: ArgonClient }): Promise<void> {
+    const { client } = args;
+    const finalizedBitcoin = await waitFor(45e3, 'upstream treasury finalized Bitcoin funding', async () => {
+      const finalizedClient = await client.at(await client.rpc.chain.getFinalizedHead());
+      const currentFissions = await BitcoinFission.getAllByOwner(finalizedClient, this.walletKeys.defaultArgonAddress);
+      if (currentFissions.length) return { currentFissions };
+
+      const utxoIds = await BitcoinLock.idsByOwner(finalizedClient, this.walletKeys.defaultArgonAddress);
+      const currentLocks = await BitcoinLock.getMany(finalizedClient, utxoIds);
+      const currentLock = currentLocks.find(lock => lock && lock.fundedSatoshis > lock.fissionedSatoshis);
+      if (!currentLock) return;
+      return { currentFissions, currentLock };
+    });
+    if (finalizedBitcoin.currentFissions.length) return;
+
+    const currentLock = finalizedBitcoin.currentLock;
+    if (!currentLock) {
+      throw new Error('AppVaultOperator has no funded Bitcoin available to create its Liquid.');
+    }
+
+    const lock = this.#bitcoinLocks.getLockByUtxoId(currentLock.utxoId);
+    if (!lock) {
+      throw new Error(`AppVaultOperator could not recover Bitcoin Lock #${currentLock.utxoId}.`);
+    }
+
+    const txSigner = await this.walletKeys.getLiquidLockingKeypair();
+    const liquidTxInfo = await this.#bitcoinLiquidCreate.submit({
+      allocations: [{ lock, satoshis: currentLock.fundedSatoshis - currentLock.fissionedSatoshis }],
+      txSigner,
+      client,
+    });
+    await liquidTxInfo.txResult.waitForFinalizedBlock;
+    await liquidTxInfo.waitForPostProcessing;
+
+    await this.#bitcoinFissions.refreshCurrent(client);
+    if (!this.#bitcoinFissions.getAll().length) {
+      throw new Error('AppVaultOperator Liquid was not published after finalization.');
+    }
   }
 
   public async setCommittedArgonots(args: { amount: bigint }): Promise<void> {

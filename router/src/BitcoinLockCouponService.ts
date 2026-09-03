@@ -23,6 +23,7 @@ import type { IBitcoinLockCouponRow } from './db/BitcoinLockCouponsTable.ts';
 export class BitcoinLockCouponService {
   private legacyImportPromise?: Promise<void>;
   private remoteStateRefreshPromise?: Promise<void>;
+  private authorizationLaneByVaultAndAccount = new Map<string, Promise<void>>();
 
   private readonly db: Db;
   private readonly botClient: BotUpstreamClient;
@@ -125,18 +126,27 @@ export class BitcoinLockCouponService {
     offerCode: string,
     request: IBitcoinLockCouponRequest,
   ): Promise<{ status: IBitcoinLockCouponStatus; use: IBitcoinLockCouponUseRecord }> {
+    const {
+      requestId,
+      feeCouponNonce: requestedFeeCouponNonce,
+      requestedSatoshis,
+      ownerAccountId,
+      ownerBitcoinPubkey,
+      utxoId,
+      microgonsAtTargetPerBtc,
+      feeCreditMicrogons,
+    } = request;
     await this.ensureLegacyCouponsImported();
 
     const coupon = this.db.bitcoinLockCouponsTable.fetchByOfferCode(offerCode);
     if (!coupon) throw new RouterError('Bitcoin lock coupon not found.', 404);
     if (!coupon.accountId) throw new RouterError('This invite has not been accepted yet.', 400);
-    if (coupon.accountId !== request.ownerAccountId) {
+    if (coupon.accountId !== ownerAccountId) {
       throw new RouterError('This invite is claimed by a different account.', 409);
     }
     if (coupon.expirationTick != null && MiningFrames.calculateCurrentTickFromSystemTime() >= coupon.expirationTick) {
       throw new RouterError('This bitcoin lock coupon has expired.', 400);
     }
-    const microgonsAtTargetPerBtc = request.microgonsAtTargetPerBtc;
     if (microgonsAtTargetPerBtc == null || microgonsAtTargetPerBtc <= 0n) {
       throw new RouterError('A current bitcoin price quote is required to initialize this bitcoin lock.', 400);
     }
@@ -145,87 +155,119 @@ export class BitcoinLockCouponService {
     if (!coupon.feeCreditMicrogons) {
       throw new RouterError('This Bitcoin fee gift has no remaining credit.', 409);
     }
-    const feeCreditMicrogons = request.feeCreditMicrogons;
     if (!feeCreditMicrogons || feeCreditMicrogons <= 0n) {
       throw new RouterError('A positive Bitcoin fee credit amount is required.', 400);
     }
 
-    await this.refreshRemoteState();
+    const authorizationKey = `${coupon.vaultId}:${ownerAccountId}`;
+    const priorAuthorization = this.authorizationLaneByVaultAndAccount.get(authorizationKey) ?? Promise.resolve();
+    let releaseAuthorization!: () => void;
+    const authorization = new Promise<void>(resolve => {
+      releaseAuthorization = resolve;
+    });
+    const authorizationLane = priorAuthorization.then(() => authorization);
+    this.authorizationLaneByVaultAndAccount.set(authorizationKey, authorizationLane);
+    await priorAuthorization;
 
-    const currentCoupon = this.db.bitcoinLockCouponsTable.fetchById(coupon.id);
-    if (!currentCoupon) throw new RouterError('Bitcoin lock coupon not found.', 404);
-    if (
-      currentCoupon.expirationTick != null &&
-      MiningFrames.calculateCurrentTickFromSystemTime() >= currentCoupon.expirationTick
-    ) {
-      throw new RouterError('This bitcoin lock coupon has expired.', 400);
-    }
+    try {
+      await this.refreshRemoteState();
 
-    let use: IBitcoinLockCouponUseRecord;
-    if (request.feeCouponNonce != null) {
-      const recoveredUse = this.db.bitcoinLockCouponsTable
-        .fetchNonTerminalUses(coupon.id)
-        .find(candidate => candidate.feeCoupon?.nonce === request.feeCouponNonce);
-      if (!recoveredUse) throw new RouterError('This Bitcoin fee coupon nonce is no longer available.', 409);
-      use = recoveredUse;
-    } else {
-      const requestId = request.requestId;
-      if (!requestId) throw new RouterError('A Bitcoin lock request id is required.', 400);
-      use = this.db.bitcoinLockCouponsTable.insertUse({
-        couponId: coupon.id,
-        requestId,
-        feeCreditMicrogons,
-        requestedSatoshis: request.requestedSatoshis,
-        ownerAccountId: request.ownerAccountId,
-        ownerBitcoinPubkey: request.ownerBitcoinPubkey,
-        microgonsAtTargetPerBtc,
-      });
-    }
-    if (use.couponId !== coupon.id || use.ownerAccountId !== request.ownerAccountId) {
-      throw new RouterError('This Bitcoin fee credit request conflicts with an existing use.', 409);
-    }
-    if (use.status === 'Failed') {
-      throw new RouterError('This Bitcoin fee credit request already failed. Start a new Bitcoin lock request.', 409);
-    }
-    if (use.status !== 'Prepared') {
-      throw new RouterError('This Bitcoin lock initialization can no longer be changed.', 409);
-    }
-    const authorizationChanged =
-      use.requestedSatoshis !== request.requestedSatoshis ||
-      use.microgonsAtTargetPerBtc !== microgonsAtTargetPerBtc ||
-      use.feeCoupon?.feeDiscount !== feeCreditMicrogons;
-    if (!use.feeCoupon || authorizationChanged) {
-      const hadSignedCoupon = !!use.feeCoupon;
-      try {
-        const currentTick = MiningFrames.calculateCurrentTickFromSystemTime();
-        const expiresAfterTicks =
-          currentCoupon.expirationTick != null
-            ? currentCoupon.expirationTick - currentTick
-            : currentCoupon.expiresAfterTicks;
-        if (expiresAfterTicks <= 0) throw new RouterError('This bitcoin lock coupon has expired.', 400);
+      const currentCoupon = this.db.bitcoinLockCouponsTable.fetchById(coupon.id);
+      if (!currentCoupon) throw new RouterError('Bitcoin lock coupon not found.', 404);
+      if (
+        currentCoupon.expirationTick != null &&
+        MiningFrames.calculateCurrentTickFromSystemTime() >= currentCoupon.expirationTick
+      ) {
+        throw new RouterError('This bitcoin lock coupon has expired.', 400);
+      }
 
-        const feeCoupon = await this.botClient.signBitcoinLockFeeCoupon({
-          vaultId: coupon.vaultId,
-          beneficiary: request.ownerAccountId,
-          feeCouponNonce: use.feeCoupon?.nonce,
-          requestedSatoshis: request.requestedSatoshis,
-          microgonsAtTargetPerBtc,
-          feeDiscountMicrogons: feeCreditMicrogons,
-          expiresAfterTicks,
-        });
-        use = this.db.bitcoinLockCouponsTable.recordInitializationAuthorization(use.requestId, {
+      let use: IBitcoinLockCouponUseRecord;
+      if (requestedFeeCouponNonce != null) {
+        const recoveredUse = this.db.bitcoinLockCouponsTable
+          .fetchNonTerminalUses(coupon.id)
+          .find(candidate => candidate.feeCoupon?.nonce === requestedFeeCouponNonce);
+        if (!recoveredUse) throw new RouterError('This Bitcoin fee coupon nonce is no longer available.', 409);
+        use = recoveredUse;
+      } else {
+        if (!requestId) throw new RouterError('A Bitcoin lock request id is required.', 400);
+        use = this.db.bitcoinLockCouponsTable.insertUse({
+          couponId: coupon.id,
+          requestId,
           feeCreditMicrogons,
-          requestedSatoshis: request.requestedSatoshis,
+          requestedSatoshis,
+          ownerAccountId,
+          ownerBitcoinPubkey,
+          utxoId,
           microgonsAtTargetPerBtc,
-          feeCoupon,
         });
-      } catch (error) {
-        if (!hadSignedCoupon) this.db.bitcoinLockCouponsTable.recordUse(use.requestId, { status: 'Failed' });
-        throw error;
+      }
+      if (use.couponId !== coupon.id || use.ownerAccountId !== ownerAccountId) {
+        throw new RouterError('This Bitcoin fee credit request conflicts with an existing use.', 409);
+      }
+      if ((use.utxoId ?? undefined) !== utxoId) {
+        throw new RouterError('This Bitcoin fee credit request is for a different Bitcoin Lock.', 409);
+      }
+      if (use.status === 'Failed') {
+        throw new RouterError('This Bitcoin fee credit request already failed. Start a new Bitcoin lock request.', 409);
+      }
+      if (use.status !== 'Prepared') {
+        throw new RouterError('This Bitcoin lock initialization can no longer be changed.', 409);
+      }
+      const authorizationChanged =
+        use.requestedSatoshis !== requestedSatoshis ||
+        use.microgonsAtTargetPerBtc !== microgonsAtTargetPerBtc ||
+        use.feeCoupon?.feeDiscount !== feeCreditMicrogons;
+      if (!use.feeCoupon || authorizationChanged) {
+        const hadSignedCoupon = !!use.feeCoupon;
+        try {
+          const currentTick = MiningFrames.calculateCurrentTickFromSystemTime();
+          const expiresAfterTicks =
+            currentCoupon.expirationTick != null
+              ? currentCoupon.expirationTick - currentTick
+              : currentCoupon.expiresAfterTicks;
+          if (expiresAfterTicks <= 0) throw new RouterError('This bitcoin lock coupon has expired.', 400);
+          const highestReservedNonce = this.db.bitcoinLockCouponsTable
+            .fetchNonTerminalUses()
+            .reduce<bigint | undefined>((highest, candidate) => {
+              if (candidate.id === use.id || candidate.ownerAccountId !== ownerAccountId || !candidate.feeCoupon) {
+                return highest;
+              }
+              const candidateCoupon = this.db.bitcoinLockCouponsTable.fetchById(candidate.couponId);
+              if (candidateCoupon?.vaultId !== coupon.vaultId) return highest;
+              return highest == null || candidate.feeCoupon.nonce > highest ? candidate.feeCoupon.nonce : highest;
+            }, undefined);
+          const feeCouponNonce =
+            use.feeCoupon?.nonce ?? (highestReservedNonce == null ? undefined : highestReservedNonce + 1n);
+
+          const feeCoupon = await this.botClient.signBitcoinLockFeeCoupon({
+            vaultId: coupon.vaultId,
+            beneficiary: ownerAccountId,
+            utxoId,
+            feeCouponNonce,
+            requestedSatoshis,
+            microgonsAtTargetPerBtc,
+            feeDiscountMicrogons: feeCreditMicrogons,
+            expiresAfterTicks,
+          });
+          use = this.db.bitcoinLockCouponsTable.recordInitializationAuthorization(use.requestId, {
+            feeCreditMicrogons,
+            requestedSatoshis,
+            microgonsAtTargetPerBtc,
+            feeCoupon,
+          });
+        } catch (error) {
+          if (!hadSignedCoupon) this.db.bitcoinLockCouponsTable.recordUse(use.requestId, { status: 'Failed' });
+          throw error;
+        }
+      }
+
+      return { status: this.getStatus(coupon), use };
+    } finally {
+      releaseAuthorization();
+      if (this.authorizationLaneByVaultAndAccount.get(authorizationKey) === authorizationLane) {
+        this.authorizationLaneByVaultAndAccount.delete(authorizationKey);
       }
     }
-
-    return { status: this.getStatus(coupon), use };
   }
 
   public async reportFeeCouponUse(requestId: string, accountId: string): Promise<IBitcoinLockCouponStatus> {
@@ -324,17 +366,11 @@ export class BitcoinLockCouponService {
         if (!coupon) continue;
 
         try {
-          const nextFrameIdQuery = finalizedClient.query.miningSlot.nextFrameId();
-          if (!nextFrameIdQuery) continue;
-
-          const lastNonceQuery = finalizedClient.query.bitcoinLocks.lastFeeCouponNonceByVaultAndAccount(
-            coupon.vaultId,
-            use.ownerAccountId,
-          );
           const [lastNonce, nextFrameId] = await Promise.all([
-            lastNonceQuery ?? Promise.resolve(null),
-            nextFrameIdQuery,
+            finalizedClient.query.bitcoinLocks.lastFeeCouponNonceByVaultAndAccount(coupon.vaultId, use.ownerAccountId),
+            finalizedClient.query.miningSlot.nextFrameId(),
           ]);
+          if (nextFrameId === null) continue;
           const consumedNonce = lastNonce ?? 0n;
           const currentFrameId = BigInt(nextFrameId - 1);
 

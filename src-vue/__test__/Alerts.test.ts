@@ -8,16 +8,6 @@ import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLoc
 import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
 import { AppVaultOperator } from '../../e2e/actors/AppVaultOperator.ts';
 
-type TestMismatchPhase =
-  | 'none'
-  | 'review'
-  | 'accepting'
-  | 'returningOnArgon'
-  | 'returningOnBitcoin'
-  | 'returned'
-  | 'readyToResume'
-  | 'error';
-
 describe('VaultCollectBuilder.getNotice', () => {
   it('keeps the collect plan visible while a collect step is in flight', () => {
     const notice = createCollectBuilder(
@@ -215,17 +205,15 @@ describe('AppVaultOperator vault alert poller', () => {
 });
 
 describe('getBitcoinAlertNotices', () => {
-  it('surfaces review mismatches even before an action is available', () => {
-    const alerts = getBitcoinAlertNotices(
-      bitcoinSource({
-        locks: [lock(1)],
-        mismatches: {
-          1: { phase: 'review', candidateCount: 1 },
-        },
-      }),
-    );
+  it('ignores submitted locks until finalized script details exist', () => {
+    const source = bitcoinSource({
+      locks: [lock(2, { status: BitcoinLockStatus.LockIsProcessingOnArgon })],
+    });
+    source.unlockDeadlineTime = () => {
+      throw new Error('Submitted locks do not have script details.');
+    };
 
-    expect(alerts.map(({ kind }) => kind)).toEqual(['mismatch']);
+    expect(getBitcoinAlertNotices(source)).toEqual([]);
   });
 
   it('only shows fundingExpiring once less than 25% of the funding window remains', () => {
@@ -261,13 +249,10 @@ describe('getBitcoinAlertNotices', () => {
       bitcoinSource({
         locks: [
           lock(14),
-          lock(13, { status: BitcoinLockStatus.LockedAndMinted }),
+          lock(13, { status: BitcoinLockStatus.LockFunded }),
           lock(12),
-          lock(11, { status: BitcoinLockStatus.LockedAndMinted }),
+          lock(11, { status: BitcoinLockStatus.LockFunded }),
         ],
-        mismatches: {
-          12: { phase: 'review', candidateCount: 1 },
-        },
         acceptedFundingRecords: {
           11: fundingRecord('vault cosign failed'),
         },
@@ -284,12 +269,7 @@ describe('getBitcoinAlertNotices', () => {
       now,
     );
 
-    expect(alerts.map(({ kind }) => kind)).toEqual([
-      'unlockNeedsAttention',
-      'mismatch',
-      'unlockExpiring',
-      'fundingExpiring',
-    ]);
+    expect(alerts.map(({ kind }) => kind)).toEqual(['unlockNeedsAttention', 'unlockExpiring', 'fundingExpiring']);
   });
 });
 
@@ -370,7 +350,6 @@ function createCollectBuilder(source: ReturnType<typeof vaultSource>) {
 
 function bitcoinSource(args: {
   locks: IBitcoinLockRecord[];
-  mismatches?: Record<number, Partial<{ phase: TestMismatchPhase; candidateCount: number; isFundingExpired: boolean }>>;
   acceptedFundingRecords?: Record<number, IBitcoinUtxoRecord | undefined>;
   releaseStates?: Record<number, { isReleaseStatus: boolean }>;
   unlockDeadlines?: Record<number, number>;
@@ -380,31 +359,10 @@ function bitcoinSource(args: {
     config: { pendingConfirmationExpirationBlocks: 12 },
     getLockByUtxoId: (utxoId: number) => args.locks.find(lock => lock.utxoId === utxoId),
     getActiveLocks: () => args.locks,
-    getMismatchViewState(lock: IBitcoinLockRecord): {
-      phase: TestMismatchPhase;
-      candidateCount: number;
-      isFundingExpired: boolean;
-      error?: string;
-      nextCandidate?: {
-        canAccept: boolean;
-        canReturn: boolean;
-        record: IBitcoinUtxoRecord;
-      };
-    } {
-      return {
-        phase: 'none',
-        candidateCount: 0,
-        isFundingExpired: false,
-        error: undefined,
-        nextCandidate: undefined,
-        ...args.mismatches?.[lock.utxoId ?? 0],
-      };
-    },
     getAcceptedFundingRecord: (lock: IBitcoinLockRecord) => args.acceptedFundingRecords?.[lock.utxoId ?? 0],
     getLockUnlockReleaseState: (lock: IBitcoinLockRecord) =>
       args.releaseStates?.[lock.utxoId ?? 0] ?? { isReleaseStatus: false },
-    isLockedStatus: (lock: IBitcoinLockRecord) =>
-      [BitcoinLockStatus.LockedAndIsMinting, BitcoinLockStatus.LockedAndMinted].includes(lock.status),
+    isLockFunded: (lock: IBitcoinLockRecord) => lock.status === BitcoinLockStatus.LockFunded,
     unlockDeadlineTime: (lock: IBitcoinLockRecord) => args.unlockDeadlines?.[lock.utxoId ?? 0] ?? 0,
     verifyExpirationTime: (lock: IBitcoinLockRecord) => args.fundingDeadlines?.[lock.utxoId ?? 0] ?? 0,
   };

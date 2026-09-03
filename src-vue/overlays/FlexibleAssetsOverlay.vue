@@ -81,11 +81,11 @@
               <span class="grow">
                 <span class="block text-sm font-semibold text-slate-800">Bitcoin lock #{{ index + 1 }}</span>
                 <span class="mt-0.5 block text-xs text-slate-400">
-                  {{ satToBtcNm(lock.satoshis).format('0,0.[00000000]') }} BTC
+                  {{ satToBtcNm(lock.securitizedSatoshis).format('0,0.[00000000]') }} BTC
                 </span>
               </span>
               <span class="font-mono text-sm font-semibold text-slate-800">
-                {{ currency.symbol }}{{ microgonToMoneyNm(lock.liquidityPromised).format('0,0.00') }}
+                {{ currency.symbol }}{{ microgonToMoneyNm(lock.securitizationCoverageMicrogons).format('0,0.00') }}
               </span>
             </label>
           </div>
@@ -138,7 +138,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { type BondLot, type BitcoinLock } from '@argonprotocol/apps-core';
+import { type BondLot, type IBitcoinLock } from '@argonprotocol/apps-core';
 
 import OverlayBase from './OverlayBase.vue';
 import ProgressBar from '../components/ProgressBar.vue';
@@ -167,7 +167,7 @@ const { microgonToMoneyNm, satToBtcNm } = createNumeralHelpers(currency);
 const isOpen = Vue.ref(false);
 const isLoading = Vue.ref(false);
 const returnTo = Vue.ref<'memberInvite' | 'onboardingSettings'>();
-const eligibleLocks = Vue.ref<BitcoinLock[]>([]);
+const eligibleLocks = Vue.ref<IBitcoinLock[]>([]);
 const eligibleBondLots = Vue.ref<BondLot[]>([]);
 const bitcoinSelectionByUtxoId = Vue.ref<Record<number, boolean>>({});
 const bondSelectionById = Vue.ref<Record<number, boolean>>({});

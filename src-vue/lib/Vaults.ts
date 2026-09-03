@@ -5,6 +5,7 @@ import {
   MiningFrames,
   Vaults as VaultsBase,
 } from '@argonprotocol/apps-core';
+import { u8aToString } from '@polkadot/util';
 import { BaseDirectory, mkdir, readTextFile, rename, writeTextFile } from '@tauri-apps/plugin-fs';
 import { getMainchainClient, getMainchainClients } from '../stores/mainchain.ts';
 import { INSTANCE_NAME, NETWORK_NAME } from './Env.ts';
@@ -35,13 +36,17 @@ export class Vaults extends VaultsBase {
         vault.operatorAccountId,
       );
       if (!operationalAccountId) {
-        onUpdate(this.setOperatorName(vaultId));
+        onUpdate();
         return () => undefined;
       }
 
-      return await client.query.operationalAccounts.operationalAccounts(operationalAccountId, profileOption =>
-        onUpdate(this.setOperatorName(vaultId, profileOption ?? undefined)),
-      );
+      return await client.query.operationalAccounts.operationalAccounts(operationalAccountId, profileOption => {
+        const profileName = profileOption?.name;
+        const name = profileName ? u8aToString(profileName).trim() : undefined;
+        if (name) this.operatorNamesByVaultId[vaultId] = name;
+        else delete this.operatorNamesByVaultId[vaultId];
+        onUpdate(name);
+      });
     } catch (error) {
       console.warn(`[Vaults] Unable to subscribe to the operator profile for vault ${vaultId}`, error);
       return () => undefined;

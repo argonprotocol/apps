@@ -9,8 +9,10 @@ import {
   countCompletedTreasuryCertificationRequirements,
   createDeferred,
   getVaultByOperator,
+  loadAccountLocks,
   loadCertificationProgress,
   MICROGONS_PER_ARGON,
+  TreasuryBonds,
   treasuryCertificationRequirementCount,
 } from '@argonprotocol/apps-core';
 import handleFatalError from './helpers/handleFatalError.ts';
@@ -24,7 +26,7 @@ import {
   type IOperationalRewardConfig,
   subscribeOperationalAccount,
 } from '../lib/OperationalAccount.ts';
-import { getBitcoinLocks } from './bitcoin.ts';
+import { getBitcoinFissions, getBitcoinLocks } from './bitcoin.ts';
 import { getServerApiClient } from './server.ts';
 import { getTransactionTracker } from './transactions.ts';
 import { getArgonBonds } from './argonBonds.ts';
@@ -42,7 +44,6 @@ import WinMoreMiningSeats from '../overlays/certification/WinMoreMiningSeats.vue
 import { OnboardingSetupStatus, TopTab, VaultingSetupStatus } from '../interfaces/IConfig.ts';
 import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { TxAttemptState } from '../lib/TransactionTracker.ts';
-import { BitcoinLockStatus } from '../interfaces/IBitcoinLockRecord.ts';
 
 export enum OperationalStepId {
   BootstrapFromNode = 'BootstrapFromNode',
@@ -162,6 +163,7 @@ export const useCertificationController = defineStore('certificationController',
   const dbPromise = getDbPromise();
   const config = getConfig();
   const bitcoinLocks = getBitcoinLocks();
+  const bitcoinFissions = getBitcoinFissions();
   const argonBonds = getArgonBonds();
   const myVault = getMyVault();
   const myMiningSeats = getMyMiningSeats();
@@ -238,10 +240,7 @@ export const useCertificationController = defineStore('certificationController',
   const certificationStepCount = allCertificationStepIds.length;
   const hasBitcoinFundingSeenOnBitcoin = Vue.computed(() => {
     return bitcoinLocks.getAllLocks().some(lock => {
-      const fundingRecord =
-        bitcoinLocks.getAcceptedFundingRecord(lock) ??
-        lock.fundingUtxoRecord ??
-        bitcoinLocks.utxoTracking.getPreferredFundingCandidateRecord(lock);
+      const fundingRecord = bitcoinLocks.getAcceptedFundingRecord(lock) ?? lock.fundingUtxo;
 
       return !!(fundingRecord?.mempoolObservation || fundingRecord?.firstSeenBitcoinHeight);
     });
@@ -281,21 +280,12 @@ export const useCertificationController = defineStore('certificationController',
   });
   const hasCompletedOwnBitcoinLock = Vue.ref(false);
   Vue.watchEffect(() => {
-    const completedOwnBitcoinLockAmount = bitcoinLocks.getAllLocks().reduce((total, lock) => {
-      if (lock.lockDetails.ownerAccount !== walletKeys.defaultArgonAddress) return total;
-      if (
-        ![
-          BitcoinLockStatus.LockedAndIsMinting,
-          BitcoinLockStatus.LockedAndMinted,
-          BitcoinLockStatus.Releasing,
-          BitcoinLockStatus.Released,
-        ].includes(lock.status)
-      ) {
-        return total;
-      }
-
-      return total + lock.liquidityPromised;
-    }, 0n);
+    const history = bitcoinFissions.getHistory();
+    const historicalIds = new Set(history.map(fission => fission.fissionId));
+    const completedOwnBitcoinLockAmount = [
+      ...history,
+      ...bitcoinFissions.getAll().filter(fission => !historicalIds.has(fission.fissionId)),
+    ].reduce((total, fission) => total + fission.liquidityPromised, 0n);
 
     const hasCompletedLock =
       rewardConfig.value.treasuryMinimumBitcoin <= 0n
@@ -616,17 +606,6 @@ export const useCertificationController = defineStore('certificationController',
 
     rewardConfig.value = await getOperationalRewardConfig();
 
-    try {
-      // Mnemonic import rebuilds local Bitcoin records later, so restore this completed step directly from chain.
-      const progress = await loadCertificationProgress({
-        client,
-        defaultAccountId: walletKeys.defaultArgonAddress,
-      });
-      if (progress.hasTreasuryBitcoin) hasCompletedOwnBitcoinLock.value = true;
-    } catch (error) {
-      console.error('[Certification Controller] Unable to load Bitcoin certification progress.', error);
-    }
-
     void subscribeOperationalAccount(
       walletKeys,
       x => {
@@ -722,15 +701,6 @@ export const useCertificationController = defineStore('certificationController',
         console.error('[Certification Controller] Unable to subscribe to operational progress.', error);
       });
 
-    void bitcoinLocks.load().catch(error => {
-      console.error('[Certification Controller] Unable to load bitcoin lock progress.', error);
-    });
-    void myVault.load().catch(error => {
-      console.error('[Certification Controller] Unable to load vault progress.', error);
-    });
-    void argonBonds.load().catch(error => {
-      console.error('[Certification Controller] Unable to load bond progress.', error);
-    });
     // detect newly completed steps and queue completion notices
     Vue.watch(
       getCertificationCompletionByStepId,
@@ -793,14 +763,15 @@ export const useCertificationController = defineStore('certificationController',
     const requestVersion = ++operationalInviteLoadVersion;
     try {
       const invites = await getServerApiClient().getInvites();
+      const invitesWithProgress = await loadOperationalInviteProgress(invites);
       if (requestVersion !== operationalInviteLoadVersion || serverKey !== operationalInviteServerKey.value) {
         return operationalInvites.value;
       }
 
-      setOperationalInvites(invites);
+      setOperationalInvites(invitesWithProgress);
       operationalInviteLoadError.value = '';
 
-      return invites;
+      return invitesWithProgress;
     } catch (error) {
       if (requestVersion === operationalInviteLoadVersion && serverKey === operationalInviteServerKey.value) {
         operationalInviteLoadError.value =
@@ -812,6 +783,93 @@ export const useCertificationController = defineStore('certificationController',
         hasLoadedOperationalInvites.value = true;
       }
     }
+  }
+
+  async function loadOperationalInviteProgress(invites: IMemberInvite[]): Promise<IMemberInvite[]> {
+    const previousInvitesByCode = new Map(operationalInvites.value.map(invite => [invite.inviteCode, invite]));
+    const invitesWithPreviousProgress = invites.map(invite => {
+      const previousInvite = previousInvitesByCode.get(invite.inviteCode);
+      if (!previousInvite || previousInvite.defaultAccountId !== invite.defaultAccountId) return invite;
+
+      const vaultId = invite.bitcoinLockCoupon?.coupon.vaultId ?? invite.vaultId;
+      const previousVaultId = previousInvite.bitcoinLockCoupon?.coupon.vaultId ?? previousInvite.vaultId;
+      return {
+        ...invite,
+        ...(previousInvite.certificationProgress
+          ? { certificationProgress: previousInvite.certificationProgress }
+          : {}),
+        ...(vaultId != null && vaultId === previousVaultId && previousInvite.vaultContribution
+          ? { vaultContribution: previousInvite.vaultContribution }
+          : {}),
+      };
+    });
+
+    if (!invites.some(invite => invite.defaultAccountId)) return invitesWithPreviousProgress;
+
+    const client = await getMainchainClient(false).catch(error => {
+      console.warn('[Certification Controller] Unable to load member certification progress.', error);
+      return undefined;
+    });
+    if (!client) return invitesWithPreviousProgress;
+
+    const bondLotsByVaultId = new Map<number, ReturnType<typeof TreasuryBonds.getBondLots>>();
+    for (const invite of invites) {
+      const vaultId = invite.bitcoinLockCoupon?.coupon.vaultId ?? invite.vaultId;
+      if (!invite.defaultAccountId || vaultId == null || bondLotsByVaultId.has(vaultId)) continue;
+
+      bondLotsByVaultId.set(vaultId, TreasuryBonds.getBondLots(client, vaultId));
+    }
+
+    return await Promise.all(
+      invitesWithPreviousProgress.map(async invite => {
+        const defaultAccountId = invite.defaultAccountId;
+        if (!defaultAccountId) return invite;
+
+        try {
+          const vaultId = invite.bitcoinLockCoupon?.coupon.vaultId ?? invite.vaultId;
+          const bondLotsPromise = vaultId == null ? Promise.resolve([]) : bondLotsByVaultId.get(vaultId)!;
+          const [certificationProgress, accountLocks, bondLots] = await Promise.all([
+            loadCertificationProgress({
+              client,
+              defaultAccountId,
+              operationalAccountId: invite.operationalAccountId ?? undefined,
+            }),
+            vaultId == null ? Promise.resolve([]) : loadAccountLocks({ client, defaultAccountId }),
+            bondLotsPromise,
+          ]);
+          if (vaultId == null) return { ...invite, certificationProgress };
+
+          let bitcoinAmount = 0n;
+          let pendingBitcoinAmount = 0n;
+          for (const lock of accountLocks) {
+            if (lock.vaultId !== vaultId) continue;
+
+            if (lock.isFunded) {
+              bitcoinAmount += lock.securitizationCoverageMicrogons;
+            } else {
+              pendingBitcoinAmount += lock.securitizationCoverageMicrogons;
+            }
+          }
+
+          const bondAmount = bondLots.reduce((total, bondLot) => {
+            return bondLot.accountId === defaultAccountId ? total + bondLot.activeBondMicrogons : total;
+          }, 0n);
+
+          return {
+            ...invite,
+            certificationProgress,
+            vaultContribution: {
+              bitcoinAmount,
+              pendingBitcoinAmount,
+              bondAmount,
+            },
+          };
+        } catch (error) {
+          console.warn('[Certification Controller] Unable to load member certification progress.', error);
+          return invite;
+        }
+      }),
+    );
   }
 
   function setOperationalInvites(invites: IMemberInvite[]) {

@@ -123,6 +123,7 @@ export function setupMiningPortfolioScenario(selectedFrameId = 120) {
   });
   mocked(getDbPromise).mockReturnValue(
     Promise.resolve({
+      bitcoinFissionsTable: { fetchAll: fn(async () => []) },
       cohortsTable: {
         fetchByIds: fn(async (ids: number[]) =>
           ids.map(id => ({

@@ -46,11 +46,9 @@
                     '0.[00]',
                   )
                 }}% vault fee and available Bitcoin lock space.
-                <template v-if="supportsFlexibleAssets">
-                  You can
-                  <a href="#" class="cursor-pointer" @click.prevent="openFlexibleAssets">manage flexible assets</a>
-                  to make more space available.
-                </template>
+                You can
+                <a href="#" class="cursor-pointer" @click.prevent="openFlexibleAssets">manage flexible assets</a>
+                to make more space available.
               </p>
             </div>
           </div>
@@ -131,12 +129,10 @@
               </template>
               <template v-else-if="myVault.createdVault">
                 <a href="#" class="font-semibold underline" @click.prevent="openSecuritization">Add securitization</a>
-                <template v-if="supportsFlexibleAssets">
-                  or
-                  <a href="#" class="font-semibold underline" @click.prevent="openFlexibleAssets"
-                    >manage flexible assets</a
-                  >.
-                </template>
+                or
+                <a href="#" class="font-semibold underline" @click.prevent="openFlexibleAssets"
+                  >manage flexible assets</a
+                >.
               </template>
             </span>
           </div>
@@ -197,7 +193,7 @@ import ProgressBar from '../components/ProgressBar.vue';
 import Tooltip from '../components/Tooltip.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
-import { supportsFlexibleAssetsRuntime, type IVaultFlexibleAssetChanges } from '../lib/MyVault.ts';
+import type { IVaultFlexibleAssetChanges } from '../lib/MyVault.ts';
 import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import { generateProgressLabel, isValidOperatorName } from '../lib/Utils.ts';
 import { getOperationalProfileName, loadOperationalAccount } from '../lib/OperationalAccount.ts';
@@ -240,7 +236,6 @@ const maxLockableLiquidityMicrogons = Vue.ref(0n);
 const memberBondCapacityMicrogons = Vue.ref(0n);
 const memberBondTotalCapacityMicrogons = Vue.ref(0n);
 const inviteVaultSnapshot = Vue.shallowRef<Vault>();
-const supportsFlexibleAssets = Vue.ref(false);
 const inviteCreationBlockedReason = Vue.ref('');
 const errorMessage = Vue.ref('');
 const setupTransaction = Vue.ref<TransactionInfo>();
@@ -379,29 +374,19 @@ async function loadInviteCapacity(preserveFeeWaiverAmount = false) {
   }
 
   const client = await getMainchainClient(false);
-  const currentVault = (await Vault.get(client, vault.vaultId, NetworkConfig.tickMillis)) ?? vault;
+  const currentVault = await Vault.get(client, vault.vaultId, NetworkConfig.tickMillis);
   inviteVaultSnapshot.value = currentVault;
   memberBondCapacityMicrogons.value =
     argonBonds.availableBondSpace(currentVault) + currentVault.securitizationPendingActivation;
   memberBondTotalCapacityMicrogons.value =
     currentVault.activatedSecuritization() + currentVault.securitizationPendingActivation;
-  supportsFlexibleAssets.value = supportsFlexibleAssetsRuntime(client);
   operatorName.value = getOperationalProfileName(await loadOperationalAccount(walletKeys, client));
 
   let projectedFlexibleSecuritizationLocked: bigint | undefined;
   if (flexibleAssetChanges.value) {
-    const bitcoinSecuritizationRatios = await Promise.all(
-      flexibleAssetChanges.value.bitcoinChanges.map(async change => {
-        return (
-          (await bitcoinLocks.getLockSecuritizationRatio(client, change.lock)) ?? currentVault.securitizationRatioBN()
-        );
-      }),
-    );
     let projectedFlexibleMicrogons = currentVault.flexibleSecuritizationLocked;
-    for (const [index, change] of flexibleAssetChanges.value.bitcoinChanges.entries()) {
-      const securitizationMicrogons = bigNumberToBigInt(
-        bitcoinSecuritizationRatios[index].multipliedBy(change.lock.liquidityPromised),
-      );
+    for (const change of flexibleAssetChanges.value.bitcoinChanges) {
+      const securitizationMicrogons = change.lock.securitizationCoverageMicrogons;
       projectedFlexibleMicrogons = change.isFlexible
         ? projectedFlexibleMicrogons + securitizationMicrogons
         : bigIntMax(projectedFlexibleMicrogons - securitizationMicrogons, 0n);
@@ -533,7 +518,7 @@ function clearSetupProgress() {
 }
 
 function openFlexibleAssets() {
-  if (isSubmitting.value || !supportsFlexibleAssets.value) return;
+  if (isSubmitting.value) return;
 
   isOpen.value = false;
   basics.overlayIsOpen = false;

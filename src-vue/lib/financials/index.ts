@@ -277,7 +277,7 @@ export function calculatePositionReturn(positions: readonly IFinancialPosition[]
       position.kind === 'mining-cohort' ||
       position.kind === 'vault' ||
       position.kind === 'bond' ||
-      position.kind === 'bitcoin-asset' ||
+      position.kind === 'bitcoin-liquid' ||
       position.kind === 'stable-swap'
     );
   });
@@ -324,7 +324,7 @@ export function calculatePositionReturn(positions: readonly IFinancialPosition[]
     if (position.kind === 'mining-cohort') {
       if (position.performanceEndingCapital === undefined) continue;
       endingCapital = position.performanceEndingCapital;
-    } else if (position.kind === 'bitcoin-asset' && position.performanceEndingCapital !== undefined) {
+    } else if (position.kind === 'bitcoin-liquid' && position.performanceEndingCapital !== undefined) {
       endingCapital = position.performanceEndingCapital;
     }
 

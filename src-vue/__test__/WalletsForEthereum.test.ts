@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WalletForEthereum } from '../lib/WalletForEthereum.ts';
 import { WalletsForEthereum } from '../lib/WalletsForEthereum.ts';
+import { FinancialCacheTypes } from '../lib/db/FinancialCacheTable.ts';
 import { createTestDb } from './helpers/db.ts';
 
 const coreAddress = '0x0000000000000000000000000000000000000001';
@@ -71,6 +72,41 @@ describe('WalletsForEthereum', () => {
 
       expect(wallets.get(record.id)).toBe(wallet);
       expect(wallets.findByAddress(externalAddress.toUpperCase())).toBe(wallet);
+    } finally {
+      wallets.dispose();
+      await db.close();
+    }
+  });
+
+  it('restores persisted Ethereum balances before the network refresh', async () => {
+    const db = await createTestDb();
+    const record = await db.walletsTable.importExternalEthereum({
+      name: 'External',
+      address: externalAddress,
+      coreEthereumAddress: coreAddress,
+      secretKind: 'privateKey',
+      encryptedSecret: 'encrypted',
+    });
+    await db.financialCacheTable.upsert(FinancialCacheTypes.ExternalWalletBalance, `ethereum:${externalAddress}`, {
+      chain: 'ethereum',
+      address: externalAddress,
+      availableMicrogons: 11n,
+      availableMicronots: 22n,
+      otherTokens: [],
+      observedAt: new Date('2026-08-29T12:00:00.000Z'),
+    });
+    const wallets = createWallets(db);
+
+    try {
+      await wallets.loadCachedBalances();
+
+      expect(wallets.get(record.id).data).toMatchObject({
+        availableMicrogons: 11n,
+        availableMicronots: 22n,
+        totalMicrogons: 11n,
+        totalMicronots: 22n,
+        balanceIsCached: true,
+      });
     } finally {
       wallets.dispose();
       await db.close();

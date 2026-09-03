@@ -7,12 +7,11 @@
     <span class="flex grow flex-row items-center">
       <span
         v-if="props.showHome"
+        data-testid="WalletHeader.back()"
         class="group hover:bg-argon-100/20 flex h-8 cursor-pointer flex-row items-center rounded-md py-1 pr-2 pl-1"
+        @click="emit('goto', 'main')"
       >
-        <BackIcon
-          @click="emit('goto', 'main')"
-          class="relative -top-0.25 w-4 cursor-pointer opacity-50 group-hover:opacity-100"
-        />
+        <BackIcon class="relative -top-0.25 w-4 cursor-pointer opacity-50 group-hover:opacity-100" />
       </span>
       <span class="min-w-0 grow text-left text-xl font-bold text-slate-800/70">{{ props.name }}</span>
     </span>

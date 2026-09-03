@@ -48,30 +48,32 @@ export class BitcoinLockFeeCouponService {
       throw new HttpError('The configured vault delegate is not registered on this vault.', 400);
     }
 
-    const lifetimeFrames = Math.max(1, Math.ceil(request.expiresAfterTicks / NetworkConfig.rewardTicksPerFrame));
     const [nextFrameId, previousNonce] = await Promise.all([
       client.query.miningSlot.nextFrameId(),
       client.query.bitcoinLocks.lastFeeCouponNonceByVaultAndAccount(vaultId, beneficiary),
     ]);
     const currentFrame = BigInt(nextFrameId - 1);
     const nextNonce = (previousNonce ?? 0n) + 1n;
-    if (request.feeCouponNonce != null && request.feeCouponNonce !== nextNonce) {
+    const feeCouponNonce = request.feeCouponNonce ?? nextNonce;
+    if (feeCouponNonce < nextNonce) {
       throw new HttpError('This Bitcoin fee coupon nonce is no longer available.', 409);
     }
 
+    const lifetimeFrames = Math.max(1, Math.ceil(request.expiresAfterTicks / NetworkConfig.rewardTicksPerFrame));
     const feeCoupon: BitcoinLockFeeCoupon = {
       feeDiscount: request.feeDiscountMicrogons,
       securitizationSpaceToUnreserve: 0n,
       expiresAtFrame: currentFrame + BigInt(lifetimeFrames),
-      nonce: nextNonce,
+      nonce: feeCouponNonce,
       signature: '',
     };
     const message = getOfflineRegistry()
-      .createType('(Bytes,H256,u32,AccountId,u64,u128,u128,u128,u64,u64)', [
+      .createType('(Bytes,H256,u32,AccountId,Option<u64>,u64,u128,u128,u128,u64,u64)', [
         u8aToHex(stringToU8a('bitcoin_lock_fee_coupon')),
         client.genesisHash.toHex(),
         vaultId,
         beneficiary,
+        request.utxoId ?? null,
         request.requestedSatoshis,
         request.microgonsAtTargetPerBtc,
         feeCoupon.feeDiscount,

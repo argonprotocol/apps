@@ -17,12 +17,7 @@ import {
   type RouterAuthRole,
   BitcoinLock,
 } from '@argonprotocol/apps-core';
-import {
-  getOfflineRegistry,
-  Keyring,
-  PriceIndex,
-  type KeyringPair,
-} from '@argonprotocol/mainchain';
+import { Keyring, PriceIndex, type KeyringPair } from '@argonprotocol/mainchain';
 import { Db as RouterDb } from '../src/Db.ts';
 import { RouterServer } from '../src/RouterServer.ts';
 import type { IRouterAuthServiceOptions } from '../src/RouterAuthService.ts';
@@ -238,103 +233,22 @@ describe('RouterServer', () => {
     });
   });
 
-  it('separates initialized and funded bitcoin progress in the operator vault', async () => {
-    routerDb = createDb('router-server-list-invite-progress-');
-
-    const members = ['NoLock', 'Pending', 'Funded', 'Mixed', 'OtherVault'].map(name =>
-      new Keyring({ type: 'sr25519' }).addFromUri(`//InviteMember${name}`),
-    );
-    const invites = members.map((member, index) => {
-      const invite = insertMemberInvite(routerDb!, {
-        inviteCode: `member-invite-${index + 1}`,
-        name: `Member ${index + 1}`,
-        fromName: 'Operator One',
-      });
-      routerDb!.userInvitesTable.claimInvite(invite.id, member.address, member.address);
-      return invite;
+  it('lists only invite and coupon metadata', async () => {
+    routerDb = createDb('router-server-list-invite-metadata-');
+    const member = new Keyring({ type: 'sr25519' }).addFromUri('//InviteMember');
+    const invite = insertMemberInvite(routerDb, {
+      inviteCode: 'member-invite-1',
+      name: 'Member One',
+      fromName: 'Operator One',
     });
-    invites.forEach((invite, index) =>
-      insertCoupon(routerDb!, {
-        userId: invite.id,
-        offerCode: `offer-code-${index + 1}`,
-        vaultId: 12,
-        maxSatoshis: 25_000n,
-        estimatedGiftUsd: 16.25,
-        btcPctFee: 2.5,
-      }),
-    );
-    const registry = getOfflineRegistry();
-    const bondLotsByVault = vi.fn().mockResolvedValue({
-      regularBondLots: [],
-      flexibleBonds: 0,
-      reservedBondSpace: 0,
-    });
-    const bondLotIdsByAccount = vi.fn().mockResolvedValue([]);
-    const utxoIdsByAccount = new Map([
-      [members[1].address, [101]],
-      [members[2].address, [102]],
-      [members[3].address, [103, 104, 105]],
-      [members[4].address, [106]],
-    ]);
-    const utxoIdsByOwnerAccount = vi.fn(async (accountId: string) => {
-      return (utxoIdsByAccount.get(accountId) ?? []).map(id => ({
-        args: [null, id],
-      }));
-    });
-    const lockByUtxoId = new Map([
-      [101, { vaultId: 12, liquidityPromised: 5, isFunded: false }],
-      [102, { vaultId: 12, liquidityPromised: 7, isFunded: true }],
-      [103, { vaultId: 12, liquidityPromised: 11, isFunded: false }],
-      [104, { vaultId: 12, liquidityPromised: 13, isFunded: true }],
-      [105, { vaultId: 12, liquidityPromised: 17, isFunded: false }],
-      [106, { vaultId: 99, liquidityPromised: 19, isFunded: false }],
-    ]);
-    mainchainMocks.getClient.mockResolvedValue({
-      disconnect: vi.fn().mockResolvedValue(undefined),
-      consts: {
-        operationalAccounts: {
-          minimumBitcoin: registry.createType('u128', 1),
-          minimumBonds: registry.createType('u128', 1),
-          minimumUniswapTransfer: registry.createType('u128', 1),
-          operationalMinimumUniswapTransfer: registry.createType('u128', 1),
-          operationalMinimumVaultSecuritization: registry.createType('u128', 1),
-          miningSeatsForOperational: registry.createType('u32', 2),
-        },
-      },
-      query: {
-        operationalAccounts: {
-          operationalAccountBySubAccount: {
-            multi: vi.fn(async (accountIds: string[]) => accountIds.map(() => null)),
-          },
-        },
-        treasury: {
-          bondLotsByVault,
-          bondLotIdsByAccount: { keys: bondLotIdsByAccount },
-          bondLotById: {
-            multi: vi.fn().mockResolvedValue([]),
-          },
-        },
-        bitcoinLocks: {
-          utxoIdsByOwnerAccount: { keys: utxoIdsByOwnerAccount },
-          locksByUtxoId: {
-            multi: vi.fn(async (ids: number[]) => {
-              return ids.map(id => {
-                const lock = lockByUtxoId.get(id)!;
-                return {
-                  vaultId: lock.vaultId,
-                  liquidityPromised: BigInt(lock.liquidityPromised),
-                  isFunded: lock.isFunded,
-                };
-              });
-            }),
-          },
-        },
-        crosschainTransfer: {
-          transferTotalsByAccount: vi.fn().mockResolvedValue({
-            microgonsIn: 1n,
-          }),
-        },
-      },
+    routerDb.userInvitesTable.claimInvite(invite.id, member.address, member.address);
+    const coupon = insertCoupon(routerDb, {
+      userId: invite.id,
+      offerCode: 'offer-code-1',
+      vaultId: 12,
+      maxSatoshis: 25_000n,
+      estimatedGiftUsd: 16.25,
+      btcPctFee: 2.5,
     });
 
     const started = await startRouterServer(routerDb, () => ({ status: 404, body: { error: 'Not Found' } }), {
@@ -347,16 +261,20 @@ describe('RouterServer', () => {
     expect(response.status).toBe(200);
 
     const body = JsonExt.parse<IListInvitesResponse>(await response.text());
-    const invitesByCode = new Map(body.invites.map(invite => [invite.inviteCode, invite]));
-    expect(invites.map(invite => invitesByCode.get(invite.inviteCode)?.vaultContribution)).toEqual([
-      { bitcoinAmount: 0n, pendingBitcoinAmount: 0n, bondAmount: 0n },
-      { bitcoinAmount: 0n, pendingBitcoinAmount: 5n, bondAmount: 0n },
-      { bitcoinAmount: 7n, pendingBitcoinAmount: 0n, bondAmount: 0n },
-      { bitcoinAmount: 13n, pendingBitcoinAmount: 28n, bondAmount: 0n },
-      { bitcoinAmount: 0n, pendingBitcoinAmount: 0n, bondAmount: 0n },
-    ]);
-    expect(bondLotsByVault).toHaveBeenCalledOnce();
-    expect(bondLotsByVault).toHaveBeenCalledWith(12);
+    expect(body.invites).toHaveLength(1);
+    expect(body.invites[0]).toMatchObject({
+      inviteCode: invite.inviteCode,
+      defaultAccountId: member.address,
+      bitcoinLockCoupon: {
+        coupon: {
+          offerCode: coupon.offerCode,
+          vaultId: coupon.vaultId,
+        },
+        status: 'Open',
+      },
+    });
+    expect(body.invites[0].certificationProgress).toBeUndefined();
+    expect(body.invites[0].vaultContribution).toBeUndefined();
   });
 
   it('regenerates an expired invite in place', async () => {
@@ -855,21 +773,17 @@ describe('RouterServer', () => {
     });
     routerDb.userInvitesTable.claimInvite(invite.id, member.address, memberAuth.address);
 
-    const loadOperationalAccounts = vi.fn(async (accountIds: string[]) => {
-      return accountIds.map((accountId, index) =>
-        index === 0 && accountId === operator.address ? { availableAccessCodes: 1 } : null,
-      );
-    });
+    const loadOperationalAccount = vi.fn(async (accountId: string) =>
+      accountId === operator.address ? { availableAccessCodes: 1 } : null,
+    );
     mainchainMocks.getClient.mockResolvedValue({
       disconnect: vi.fn().mockResolvedValue(undefined),
       query: {
         operationalAccounts: {
           operationalAccountBySubAccount: {
-            multi: vi.fn().mockResolvedValue([null]),
+            multi: vi.fn().mockResolvedValue([{ isSome: false }]),
           },
-          operationalAccounts: {
-            multi: loadOperationalAccounts,
-          },
+          operationalAccounts: loadOperationalAccount,
         },
       },
     });
@@ -961,7 +875,7 @@ describe('RouterServer', () => {
     expect(storedInvite?.operationsUpgradeRequestedAt).toBeTruthy();
     expect(storedInvite?.operationsUpgradedAt).toBeTruthy();
     expect(storedInvite?.operationsAccessProofSignature).toBe(accessProof.signature);
-    expect(loadOperationalAccounts).toHaveBeenCalledWith([operator.address]);
+    expect(loadOperationalAccount).toHaveBeenCalledWith(operator.address);
   });
 
   it('allows both admin and member sessions to access Ethereum relay routes', async () => {

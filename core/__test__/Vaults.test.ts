@@ -109,6 +109,117 @@ describe('Vault revenue sync', () => {
 
     expect(vaults.stats.synchedToFrame).toBe(19);
   });
+
+  it('saves each 20-frame revenue batch and resumes the next batch after restart', async () => {
+    vi.useFakeTimers();
+
+    let revenueFrameId = 10;
+    const apiAtFrame = (observedAtFrame: number) => ({
+      query: {
+        treasury: {},
+        vaults: {
+          revenuePerFrameByVault: {
+            entries: vi.fn().mockResolvedValue([
+              [
+                { args: [1] },
+                [
+                  {
+                    frameId: revenueFrameId,
+                    bitcoinLocksNewLiquidityPromised: 0n,
+                    bitcoinLocksReleasedLiquidity: 0n,
+                    bitcoinLocksAddedSatoshis: 0n,
+                    bitcoinLocksReleasedSatoshis: 0n,
+                    bitcoinLockFeeRevenue: BigInt(observedAtFrame),
+                    bitcoinLockFeeCouponValueUsed: 0n,
+                    bitcoinLocksCreated: 0,
+                    treasuryTotalEarnings: 0n,
+                    treasuryVaultEarnings: 0n,
+                    treasuryExternalCapital: 0n,
+                    treasuryVaultCapital: 0n,
+                    securitization: 0n,
+                    securitizationActivated: 0n,
+                    securitizationRelockable: 0n,
+                    uncollectedRevenue: 0n,
+                  },
+                ],
+              ],
+            ]),
+          },
+        },
+      },
+    });
+    const mainchainClients = {
+      get: vi.fn().mockResolvedValue({
+        query: {
+          vaults: {
+            vaultsById: { entries: vi.fn().mockResolvedValue([]) },
+          },
+        },
+      }),
+    };
+    const firstReadFrames: number[] = [];
+    const frameIds = Array.from({ length: 41 }, (_, index) => 40 - index);
+    const firstMiningFrames = createRevenueMiningFrames(frameIds, frameId => {
+      firstReadFrames.push(frameId);
+      return { api: apiAtFrame(frameId), specVersion: frameId === 14 ? 144 : 200 };
+    });
+    const firstVaults = new Vaults('mainnet', {} as any, firstMiningFrames as any, mainchainClients as any);
+    firstVaults.stats = createStats([]);
+    firstVaults.stats.formatVersion = VAULT_STATS_FORMAT_VERSION;
+    firstVaults.stats.synchedToFrame = 0;
+    let persistedStats: IAllVaultStats | undefined;
+    vi.spyOn(firstVaults as any, 'saveStats').mockImplementation(async () => {
+      persistedStats = structuredClone(firstVaults.stats);
+    });
+
+    await firstVaults.updateRevenue();
+
+    expect(firstReadFrames).toEqual(Array.from({ length: 20 }, (_, index) => 40 - index));
+    expect(persistedStats).toMatchObject({
+      synchedToFrame: 39,
+      revenueBackfill: { nextFrame: 20, throughFrame: 1 },
+    });
+    expect(persistedStats?.vaultsById[1].changesByFrame[0].bitcoinFeeRevenue).toBe(40n);
+    vi.clearAllTimers();
+
+    const secondReadFrames: number[] = [];
+    const secondMiningFrames = createRevenueMiningFrames(frameIds, frameId => {
+      secondReadFrames.push(frameId);
+      return { api: apiAtFrame(frameId), specVersion: frameId === 14 ? 144 : 200 };
+    });
+    const secondVaults = new CachedVaults(
+      structuredClone(persistedStats!),
+      secondMiningFrames as any,
+      mainchainClients as any,
+    );
+
+    await secondVaults.load();
+    expect(secondReadFrames).toEqual([]);
+    await vi.runOnlyPendingTimersAsync();
+
+    vi.clearAllTimers();
+    vi.useRealTimers();
+
+    expect(secondReadFrames).toEqual([20, 19, 18, 17, 16, 15, 14]);
+    expect(secondVaults.stats).toMatchObject({
+      synchedToFrame: 39,
+    });
+    expect(secondVaults.stats?.revenueBackfill).toBeUndefined();
+    expect(secondVaults.stats?.vaultsById[1].changesByFrame[0].bitcoinFeeRevenue).toBe(40n);
+
+    const revenueHistory = secondVaults.stats!.vaultsById[1].changesByFrame;
+    revenueHistory.push({ ...revenueHistory[0], frameId: 35, bitcoinFeeRevenue: 35n });
+    revenueFrameId = 35;
+    frameIds.unshift(41);
+    secondMiningFrames.currentFrameId = 41;
+    secondMiningFrames.framesById[41] = { firstBlockHash: '0x41' };
+    secondReadFrames.length = 0;
+
+    await secondVaults.updateRevenue();
+
+    expect(secondReadFrames).toEqual(Array.from({ length: 13 }, (_, index) => 41 - index));
+    expect(revenueHistory.find(frame => frame.frameId === 35)?.bitcoinFeeRevenue).toBe(41n);
+  });
 });
 
 describe('Vault and bond network returns', () => {
@@ -347,6 +458,31 @@ function createStats(frames: IVaultFrameStats[]): IAllVaultStats {
     vaultsById: {
       1: createVaultStats(frames),
     },
+  };
+}
+
+function createRevenueMiningFrames(
+  frameIds: number[],
+  readFrame: (frameId: number) => { api: unknown; specVersion: number },
+) {
+  return {
+    load: vi.fn().mockResolvedValue(undefined),
+    currentFrameId: frameIds[0],
+    frameIds,
+    framesById: Object.fromEntries(frameIds.map(frameId => [frameId, { firstBlockHash: `0x${frameId}` }])),
+    getFrameStart: vi.fn(async (frameId: number) => {
+      const { api, specVersion } = readFrame(frameId);
+      return {
+        frame: {
+          firstBlockSpecVersion: specVersion,
+          firstBlockNumber: frameId,
+          firstBlockHash: `0x${frameId}`,
+          firstBlockTick: frameId * 10,
+        },
+        api,
+      };
+    }),
+    blockWatch: { finalizedBlockHeader: { blockNumber: 1_000 } },
   };
 }
 

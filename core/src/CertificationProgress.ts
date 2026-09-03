@@ -4,7 +4,7 @@ import type {
 } from '@argonprotocol/runtime-client';
 import { BondLot } from './BondLot.js';
 import { TreasuryBonds } from './TreasuryBonds.js';
-import type { BitcoinLock } from './BitcoinLock.js';
+import { BitcoinLock } from './BitcoinLock.js';
 import type { ArgonClient } from './MainchainClients.js';
 
 type RuntimeOperationalAccount = NonNullable<HistoricalQueryRecord<'operationalAccounts', 'operationalAccounts'>>;
@@ -186,9 +186,8 @@ export function getCertificationThresholds(client: ArgonClient): ICertificationT
 
 export async function loadAccountLocks(args: { client: ArgonClient; defaultAccountId: string }) {
   const { client, defaultAccountId } = args;
-  const utxoKeys = await client.query.bitcoinLocks.utxoIdsByOwnerAccount.keys(defaultAccountId);
-  const utxoIds = utxoKeys.map(key => key.args[1]);
-  const lockOptions = utxoIds.length ? await client.query.bitcoinLocks.locksByUtxoId.multi(utxoIds) : [];
+  const utxoIds = await BitcoinLock.idsByOwner(client, defaultAccountId);
+  const lockOptions = await BitcoinLock.getMany(client, utxoIds);
 
   return lockOptions.flatMap(lock => {
     if (!lock) return [];
@@ -196,15 +195,15 @@ export async function loadAccountLocks(args: { client: ArgonClient; defaultAccou
     return [
       {
         vaultId: lock.vaultId,
-        liquidityPromised: lock.liquidityPromised,
+        securitizationCoverageMicrogons: lock.securitizationCoverageMicrogons,
         isFunded: lock.isFunded,
-      } satisfies Pick<BitcoinLock, 'vaultId' | 'liquidityPromised' | 'isFunded'>,
+      } satisfies Pick<BitcoinLock, 'vaultId' | 'securitizationCoverageMicrogons' | 'isFunded'>,
     ];
   });
 }
 
-function getAccountBitcoinAmount(locks: Pick<BitcoinLock, 'liquidityPromised' | 'isFunded'>[]): bigint {
+function getAccountBitcoinAmount(locks: Pick<BitcoinLock, 'securitizationCoverageMicrogons' | 'isFunded'>[]): bigint {
   return locks.reduce((total, lock) => {
-    return lock.isFunded ? total + lock.liquidityPromised : total;
+    return lock.isFunded ? total + lock.securitizationCoverageMicrogons : total;
   }, 0n);
 }

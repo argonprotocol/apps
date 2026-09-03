@@ -29,14 +29,13 @@ import {
 } from './FinancialReturns.js';
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1_000;
+const VAULT_REVENUE_BACKFILL_BATCH_FRAMES = 20;
 export const VAULT_REVENUE_COUPON_SPEC_VERSION = 145;
 export const VAULT_STATS_FORMAT_VERSION = 2;
-type RuntimeOperationalAccount = NonNullable<HistoricalQueryRecord<'operationalAccounts', 'operationalAccounts'>>;
 type RuntimeVaultFrameRevenue = NonNullable<HistoricalQueryRecord<'vaults', 'revenuePerFrameByVault'>>[number];
 
 export class Vaults {
   public readonly vaultsById: { [id: number]: Vault } = {};
-  public readonly vaultSatoshisById: { [id: number]: { lockedSatoshis: bigint; securitizedSatoshis: bigint } } = {};
   public operatorNamesByVaultId: { [id: number]: string } = {};
   public stats?: IAllVaultStats;
 
@@ -64,17 +63,14 @@ export class Vaults {
       for (const [vaultIdRaw, vaultRaw] of vaults) {
         if (!vaultRaw) continue;
         const id = vaultIdRaw.args[0];
-        const raw = vaultRaw;
-        this.vaultsById[id] = new Vault(id, raw, NetworkConfig.tickMillis);
-        this.vaultSatoshisById[id] = {
-          lockedSatoshis: raw.lockedSatoshis,
-          securitizedSatoshis: raw.securitizedSatoshis,
-        };
+
+        this.vaultsById[id] = new Vault(id, vaultRaw, NetworkConfig.tickMillis);
       }
       await this.refreshOperatorNames({ client, vaults: Object.values(this.vaultsById) });
       this.stats ??= await this.loadStats();
 
       this.waitForLoad.resolve();
+      if (this.stats.revenueBackfill) this.queueRevenueUpdate();
     } catch (error) {
       this.waitForLoad.reject(error as Error);
     }
@@ -86,7 +82,6 @@ export class Vaults {
     const vaultOption = await client.query.vaults.vaultsById(vaultId);
     if (!vaultOption) {
       delete this.vaultsById[vaultId];
-      delete this.vaultSatoshisById[vaultId];
       delete this.operatorNamesByVaultId[vaultId];
       return;
     }
@@ -94,10 +89,6 @@ export class Vaults {
     const raw = vaultOption;
     const vault = new Vault(vaultId, raw, NetworkConfig.tickMillis);
     this.vaultsById[vaultId] = vault;
-    this.vaultSatoshisById[vaultId] = {
-      lockedSatoshis: raw.lockedSatoshis,
-      securitizedSatoshis: raw.securitizedSatoshis,
-    };
     return vault;
   }
 
@@ -119,8 +110,6 @@ export class Vaults {
         const operationalAccountId = operationalAccountOptions[index];
         if (operationalAccountId) {
           vaultsWithOperationalAccounts.push([vault, operationalAccountId]);
-        } else {
-          this.setOperatorName(vault.vaultId);
         }
       }
       if (!vaultsWithOperationalAccounts.length) return;
@@ -130,7 +119,10 @@ export class Vaults {
           vaultsWithOperationalAccounts.map(([, operationalAccountId]) => operationalAccountId),
         )) ?? [];
       for (const [index, [vault]] of vaultsWithOperationalAccounts.entries()) {
-        this.setOperatorName(vault.vaultId, profileOptions[index] ?? undefined);
+        const profileName = profileOptions[index]?.name;
+        const name = profileName ? u8aToString(profileName).trim() : undefined;
+        if (name) this.operatorNamesByVaultId[vault.vaultId] = name;
+        else delete this.operatorNamesByVaultId[vault.vaultId];
       }
     } catch (error) {
       console.warn('[Vaults] Unable to load operator profile names', error);
@@ -144,20 +136,8 @@ export class Vaults {
       if (!vaultOption) return;
       const raw = vaultOption;
       this.vaultsById[vaultId] = new Vault(vaultId, raw, NetworkConfig.tickMillis);
-      this.vaultSatoshisById[vaultId] = {
-        lockedSatoshis: raw.lockedSatoshis,
-        securitizedSatoshis: raw.securitizedSatoshis,
-      };
       onUpdate(this.vaultsById[vaultId]);
     });
-  }
-
-  protected setOperatorName(vaultId: number, profile?: RuntimeOperationalAccount): string | undefined {
-    const profileName = profile && 'name' in profile ? profile.name : undefined;
-    const name = profileName ? u8aToString(profileName).trim() : undefined;
-    if (name) this.operatorNamesByVaultId[vaultId] = name;
-    else delete this.operatorNamesByVaultId[vaultId];
-    return name;
   }
 
   public async updateVaultRevenue(
@@ -188,11 +168,17 @@ export class Vaults {
       const existing = frameChanges.find(x => frameId === x.frameId);
 
       const microgonsAdded =
-        ('bitcoinLocksNewLiquidityPromised' in frameRevenue
-          ? frameRevenue.bitcoinLocksNewLiquidityPromised
-          : frameRevenue.bitcoinLocksMarketValue) ?? 0n;
+        ('bitcoinLocksNewSecuritization' in frameRevenue
+          ? frameRevenue.bitcoinLocksNewSecuritization
+          : 'bitcoinLocksNewLiquidityPromised' in frameRevenue
+            ? frameRevenue.bitcoinLocksNewLiquidityPromised
+            : frameRevenue.bitcoinLocksMarketValue) ?? 0n;
       const microgonsRemoved =
-        ('bitcoinLocksReleasedLiquidity' in frameRevenue ? frameRevenue.bitcoinLocksReleasedLiquidity : 0n) ?? 0n;
+        ('bitcoinLocksReleasedSecuritization' in frameRevenue
+          ? frameRevenue.bitcoinLocksReleasedSecuritization
+          : 'bitcoinLocksReleasedLiquidity' in frameRevenue
+            ? frameRevenue.bitcoinLocksReleasedLiquidity
+            : 0n) ?? 0n;
       const newSatoshis =
         ('bitcoinLocksAddedSatoshis' in frameRevenue
           ? frameRevenue.bitcoinLocksAddedSatoshis
@@ -258,46 +244,49 @@ export class Vaults {
 
   public async updateRevenue(clients?: MainchainClients): Promise<IAllVaultStats> {
     await this.load();
-    clients ??= this.mainchainClients;
     if (this.refreshingPromise) return this.refreshingPromise;
-    const refreshingDeferred = createDeferred<IAllVaultStats>();
-    this.refreshingPromise = refreshingDeferred.promise;
-
-    const scheduleClearance = () => {
-      setTimeout(() => {
-        if (this.refreshingPromise === refreshingDeferred.promise) {
-          this.refreshingPromise = undefined;
-        }
-      }, 30e3);
-    };
-    try {
+    const refreshClients = clients ?? this.mainchainClients;
+    const refresh = (async () => {
       this.stats ??= {
         formatVersion: VAULT_STATS_FORMAT_VERSION,
         synchedToFrame: 0,
         argonotStakingByFrame: [],
         vaultsById: {},
       };
-      // re-sync the last 10 frames to catch updates to revenue collection
-      const oldestFrameToGet = this.stats.synchedToFrame - 10;
+      this.stats.formatVersion = VAULT_STATS_FORMAT_VERSION;
+
+      const isContinuingBackfill = this.stats.revenueBackfill !== undefined;
+      const revenueBackfill = (this.stats.revenueBackfill ??= {
+        nextFrame: this.miningFrames.currentFrameId,
+        throughFrame: Math.max(1, this.stats.synchedToFrame - 10),
+      });
       const finalizedHead = this.miningFrames.blockWatch.finalizedBlockHeader;
       const frameIdsSeen = new Set<number>();
       const vaultFramesSeen = new Set<string>();
       const argonotPoolsByFrame = new Map<number, bigint>();
       const argonotCapitalByFrame = new Map<number, { participatingBonds: number; microgonsPerArgonot: bigint }>();
-      let newestCompletedFrameSeen = 0;
+      const savedArgonotFrames = new Set(
+        isContinuingBackfill ? this.stats.argonotStakingByFrame.map(frame => frame.frameId) : [],
+      );
+      let newestCompletedFrameSeen = this.stats.synchedToFrame;
+      let framesVisited = 0;
+      let lastFrameVisited: number | undefined;
+      let isBackfillComplete = false;
 
-      await new FrameIterator(clients, this.miningFrames, 'VaultHistory').iterateFramesLimited(
-        async (frameId, firstBlockMeta, api, abortController) => {
-          if (firstBlockMeta.specVersion < VAULT_REVENUE_COUPON_SPEC_VERSION) {
-            console.log(
-              `[VaultHistory] Aborting iteration at frame ${frameId} as it uses specVersion ${firstBlockMeta.specVersion}`,
-            );
-            return abortController.abort();
-          }
-          // don't process until finalized
-          if (firstBlockMeta.blockNumber > finalizedHead.blockNumber) {
-            return;
-          }
+      const frameIterator = new FrameIterator(refreshClients, this.miningFrames, 'VaultHistory');
+      await frameIterator.iterateFramesLimited(async (frameId, firstBlockMeta, api, abortController) => {
+        if (firstBlockMeta.specVersion < VAULT_REVENUE_COUPON_SPEC_VERSION) {
+          console.log(
+            `[VaultHistory] Aborting iteration at frame ${frameId} as it uses specVersion ${firstBlockMeta.specVersion}`,
+          );
+          isBackfillComplete = true;
+          return abortController.abort();
+        }
+
+        framesVisited += 1;
+        lastFrameVisited = frameId;
+
+        if (firstBlockMeta.blockNumber <= finalizedHead.blockNumber) {
           newestCompletedFrameSeen = Math.max(newestCompletedFrameSeen, frameId - 1);
 
           if ('currentFrameArgonotBondParticipants' in api.query.treasury) {
@@ -310,7 +299,11 @@ export class Vaults {
               api.query.system.events(),
             ]);
 
-            if (participantsOption) {
+            if (
+              participantsOption &&
+              !savedArgonotFrames.has(participantsOption.frameId) &&
+              !argonotCapitalByFrame.has(participantsOption.frameId)
+            ) {
               argonotCapitalByFrame.set(participantsOption.frameId, {
                 participatingBonds: participantsOption.totalBonds,
                 microgonsPerArgonot: rates.ARGNOT,
@@ -321,7 +314,9 @@ export class Vaults {
               if (
                 event.section === 'treasury' &&
                 event.method === 'FrameEarningsDistributed' &&
-                'argonotBondPoolDistributed' in event.data
+                'argonotBondPoolDistributed' in event.data &&
+                !savedArgonotFrames.has(event.data.frameId) &&
+                !argonotPoolsByFrame.has(event.data.frameId)
               ) {
                 argonotPoolsByFrame.set(event.data.frameId, event.data.argonotBondPoolDistributed!);
               }
@@ -329,28 +324,32 @@ export class Vaults {
           }
 
           const vaultRevenues = await api.query.vaults.revenuePerFrameByVault.entries();
-
           for (const [vaultIdRaw, frameRevenues] of vaultRevenues ?? []) {
             const vaultId = vaultIdRaw.args[0];
             for (const frameRevenue of frameRevenues) {
-              const frameId = frameRevenue.frameId;
-              const vaultFrame = `${vaultId}:${frameId}`;
-              if (!vaultFramesSeen.has(vaultFrame)) {
+              const revenueFrameId = frameRevenue.frameId;
+              const vaultFrame = `${vaultId}:${revenueFrameId}`;
+              const hasNewerSavedRevenue =
+                isContinuingBackfill &&
+                this.stats?.vaultsById[vaultId]?.changesByFrame.some(change => change.frameId === revenueFrameId);
+              if (!vaultFramesSeen.has(vaultFrame) && !hasNewerSavedRevenue) {
                 await this.updateVaultRevenue(vaultId, [frameRevenue], true);
-                frameIdsSeen.add(frameId);
+                frameIdsSeen.add(revenueFrameId);
                 vaultFramesSeen.add(vaultFrame);
               }
             }
           }
+        }
 
-          if (frameId <= oldestFrameToGet) {
-            console.log(
-              `[VaultHistory] Aborting iteration at frame ${frameId} as it's older than frame ${oldestFrameToGet}`,
-            );
-            return abortController.abort();
-          }
-        },
-      );
+        if (frameId <= revenueBackfill.throughFrame) {
+          isBackfillComplete = true;
+          abortController.abort();
+        } else if (framesVisited >= VAULT_REVENUE_BACKFILL_BATCH_FRAMES) {
+          abortController.abort();
+        }
+      }, revenueBackfill.nextFrame);
+
+      if (framesVisited < VAULT_REVENUE_BACKFILL_BATCH_FRAMES) isBackfillComplete = true;
 
       const refreshedArgonotStats = [...argonotCapitalByFrame.entries()].flatMap(
         ([frameId, { participatingBonds, microgonsPerArgonot }]) => {
@@ -367,17 +366,40 @@ export class Vaults {
         (a, b) => b.frameId - a.frameId,
       );
       this.stats.synchedToFrame = Math.max(newestCompletedFrameSeen, ...frameIdsSeen, this.stats.synchedToFrame);
-      this.stats.formatVersion = VAULT_STATS_FORMAT_VERSION;
+
+      if (isBackfillComplete || lastFrameVisited === undefined) {
+        delete this.stats.revenueBackfill;
+      } else {
+        revenueBackfill.nextFrame = lastFrameVisited - 1;
+      }
+
       await this.saveStats();
-      refreshingDeferred.resolve(this.stats);
-      scheduleClearance();
+      if (this.stats.revenueBackfill) {
+        console.info(`[VaultHistory] Saved revenue backfill through frame ${lastFrameVisited}`);
+        this.queueRevenueUpdate(refreshClients);
+      }
       return this.stats;
+    })();
+    this.refreshingPromise = refresh;
+
+    try {
+      return await refresh;
     } catch (error) {
       console.error('Error refreshing vault revenue stats:', error);
-      refreshingDeferred.reject(error as Error);
-      scheduleClearance();
       throw error;
+    } finally {
+      if (this.refreshingPromise === refresh) this.refreshingPromise = undefined;
     }
+  }
+
+  private queueRevenueUpdate(clients = this.mainchainClients): void {
+    setTimeout(async () => {
+      try {
+        await this.updateRevenue(clients);
+      } catch (error) {
+        console.warn('[VaultHistory] Unable to continue revenue backfill', error);
+      }
+    }, 0);
   }
 
   protected get syncedToFrame(): number {
@@ -473,7 +495,7 @@ export class Vaults {
   }
 
   public getTotalSatoshisLocked(): bigint {
-    return Object.values(this.vaultSatoshisById).reduce((total, vault) => total + vault.lockedSatoshis, 0n);
+    return Object.values(this.vaultsById).reduce((total, vault) => total + vault.lockedSatoshis, 0n);
   }
 
   public async fetchAndCalculateRedemptionAmount(lock: {

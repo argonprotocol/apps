@@ -4,10 +4,10 @@ import {
   type IMiningSeat,
   type IMiningSeatMiner,
   type IMiningSlot,
+  type Vault,
   MICRONOTS_PER_ARGONOT,
   NetworkConfig,
   UnitOfMeasurement,
-  type Vault,
 } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 
@@ -74,7 +74,7 @@ export const useNetworkStats = defineStore('networkStats', () => {
       vault =>
         ({
           valueLabel: 'satoshis',
-          value: Number(vaults.vaultSatoshisById[vault.vaultId]?.lockedSatoshis ?? 0n),
+          value: Number(vault.lockedSatoshis),
           vault,
         }) satisfies IActiveVaultNode,
     ),

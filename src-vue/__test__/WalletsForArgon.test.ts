@@ -60,7 +60,7 @@ describe('WalletsForArgon live balance tracking', () => {
     expect(blockWatch.getApi).toHaveBeenCalledTimes(2);
   });
 
-  it('publishes only the accepted replacement when best changes during a slow read', async () => {
+  it('publishes a completed balance read before catching up to a queued newer head', async () => {
     const finalized = blockHeader(0, 'finalized');
     const firstBest = blockHeader(2, 'same-height-a');
     const replacementBest = blockHeader(2, 'same-height-b');
@@ -100,7 +100,7 @@ describe('WalletsForArgon live balance tracking', () => {
       latestBest.blockHash,
     ]);
     expect(wallets.bestBlock).toEqual(latestBest);
-    expect(balanceHashes).toEqual([latestBest.blockHash]);
+    expect(balanceHashes).toEqual([firstBest.blockHash, latestBest.blockHash]);
   });
 
   it('reports finalized blocks missed since the persisted wallet cursor', async () => {
@@ -135,13 +135,22 @@ describe('WalletsForArgon live balance tracking', () => {
     };
     const wallets = createWallets({ syncStateTable }, blockWatch);
     const gaps: { afterBlock: number; toBlock: number }[] = [];
+    const balanceBlocks: string[] = [];
     wallets.events.on('history:gap', gap => gaps.push(gap));
+    wallets.events.on('balance-change', balance => balanceBlocks.push(balance.block.blockHash));
 
     await wallets.load();
 
+    const unchangedBest = blockHeader(103, 'unchanged-best');
+    blockWatch.bestBlockHeader = unchangedBest;
+    blockWatch.latestHeaders = [currentFinalized, unchangedBest];
+    await wallets.loadBalancesAt(unchangedBest);
+
     expect(gaps).toEqual([{ afterBlock: 90, toBlock: 100 }]);
-    expect(blockWatch.getApi).toHaveBeenCalledOnce();
+    expect(balanceBlocks).toEqual([currentBest.blockHash]);
+    expect(blockWatch.getApi).toHaveBeenCalledTimes(2);
     expect(blockWatch.getApi).toHaveBeenCalledWith(currentBest);
+    expect(blockWatch.getApi).toHaveBeenCalledWith(unchangedBest);
     await vi.waitFor(() => expect(syncStateTable.upsert).toHaveBeenCalled());
   });
 

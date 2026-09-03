@@ -17,6 +17,7 @@ import {
   type ArgonClient,
   MICROGONS_PER_ARGON,
   TreasuryBonds,
+  BitcoinFission,
   BitcoinLock,
   TxSubmitter,
 } from '@argonprotocol/apps-core';
@@ -89,20 +90,22 @@ describe.skipIf(skipE2E).sequential('OperationalAccount integration tests', { ti
     });
 
     try {
-      const { bitcoinLocks, myVault, walletKeys } = harness;
+      const { bitcoinLocks, bitcoinLockCreate, myVault, walletKeys } = harness;
       const vault = myVault.createdVault!;
 
       const satoshis = await bitcoinLocks.satoshisForArgonLiquidity(rewardConfig.treasuryMinimumBitcoin);
-      const { txInfo } = await bitcoinLocks.initializeLock({ vault, satoshis });
-      expect(txInfo).toBeTruthy();
-      if (!txInfo) throw new Error('expected treasury bitcoin lock transaction');
+      const txInfo = await bitcoinLockCreate.submit({
+        vault,
+        satoshis,
+        txSigner: await walletKeys.getLiquidLockingKeypair(),
+      });
 
       const blockHash = txInfo.tx.blockHash ?? (await txInfo.txResult.waitForInFirstBlock);
       const apiAt = await runtimeClient.at(blockHash);
       const { lock } = await BitcoinLock.getBitcoinLockFromTxResult(apiAt, txInfo.txResult);
       const fundingAddress = BitcoinLocks.formatP2wshAddress(lock.p2wshScriptHashHex, bitcoinLocks.bitcoinNetwork);
       const minerAddress = createBitcoinAddress();
-      sendBitcoinToAddress(fundingAddress, lock.satoshis);
+      sendBitcoinToAddress(fundingAddress, lock.securitizedSatoshis);
 
       const bondTx = await TreasuryBonds.buildBuyBondTx({
         client: runtimeClient,
@@ -138,13 +141,25 @@ describe.skipIf(skipE2E).sequential('OperationalAccount integration tests', { ti
         transferResultPromise.then(result => result.waitForInFirstBlock),
         waitFor(45_000, 'treasury bitcoin funded', async () => {
           const currentLock = await BitcoinLock.get(runtimeClient, lock.utxoId);
-          if (!currentLock?.isFunded) return;
+          if (!currentLock?.fundedSatoshis) return;
           return currentLock;
         }),
       ]);
 
-      const bondResult = await new TxSubmitter(runtimeClient, bondTx, treasurySigner).submit({ useLatestNonce: true });
-      await bondResult.waitForInFirstBlock;
+      await submitAndFinalize(runtimeClient, bondTx, treasurySigner, { useLatestNonce: true });
+
+      const fissionId = await BitcoinFission.nextId(runtimeClient, walletKeys.treasuryAddress);
+      const fissionTx = BitcoinFission.createTx({
+        client: runtimeClient,
+        fissionId,
+        liquidId: fissionId,
+        utxoId: lock.utxoId,
+        satoshis: lock.securitizedSatoshis,
+        microgonsAtTargetPerBtc: lock.microgonsAtTargetPerBtc,
+      });
+      await submitAndFinalize(runtimeClient, fissionTx, treasurySigner, {
+        useLatestNonce: true,
+      });
 
       const certification = await loadCertificationProgress({
         client: runtimeClient,

@@ -15,7 +15,7 @@
   "main": "src/index.ts",
   "dependencies": {
     "@argonprotocol/apps-core": "workspace:*",
-    "@argonprotocol/mainchain": "1.4.12",
+    "@argonprotocol/mainchain": "1.4.12-dev.2afa6e4a",
     "@argonprotocol/runtime-client": "workspace:*",
     "bignumber.js": "^9.3.1",
     "cors": "^2.8.5",
@@ -25,7 +25,7 @@
     "tsx": "^4.20.5"
   },
   "devDependencies": {
-    "@argonprotocol/testing": "1.4.12",
+    "@argonprotocol/testing": "1.4.12-dev.2afa6e4a",
     "@types/express": "^5.0.3",
     "tsup": "^8.5.0",
     "typescript": "^5.9.2"

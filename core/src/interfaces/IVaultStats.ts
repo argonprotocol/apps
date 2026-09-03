@@ -1,6 +1,10 @@
 export interface IAllVaultStats {
   formatVersion?: number;
   synchedToFrame: number;
+  revenueBackfill?: {
+    nextFrame: number;
+    throughFrame: number;
+  };
   argonotStakingByFrame: IArgonotStakingFrameStats[];
   vaultsById: {
     [vaultId: number]: IVaultStats;

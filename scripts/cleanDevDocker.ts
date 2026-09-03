@@ -7,6 +7,7 @@ import Path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { stripNetworkPrefix, toComposeProjectName } from '../core/src/utils.ts';
+import { stopDevUpstreamWorkerSync } from '../e2e/scripts/devUpstreamProcess.ts';
 
 const scriptDir = Path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = Path.resolve(scriptDir, '..');
@@ -23,6 +24,7 @@ console.info(
   `[clean:dev:docker] Resetting project="${composeProjectName}" network="${networkName}" instance="${instanceName}"`,
 );
 
+stopDevUpstreamWorkerSync(getDevUpstreamRootDir());
 bringDownArgonComposeProject();
 removeConflictingComposeNetwork(composeProjectName);
 bringDownLocalMachineComposeProjects();
@@ -80,6 +82,10 @@ function runDockerComposeDown(
 }
 
 function bringDownArgonComposeProject(): void {
+  const commandEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    COMPOSE_PROJECT_NAME: composeProjectName,
+  };
   const composeArgs = [
     'compose',
     '--project-name',
@@ -104,7 +110,7 @@ function bringDownArgonComposeProject(): void {
   try {
     execFileSync('docker', composeArgs, {
       cwd: Path.join(repoRoot, 'e2e', 'argon'),
-      env: process.env,
+      env: commandEnv,
       encoding: 'utf8',
     });
   } catch (error) {
@@ -179,9 +185,7 @@ function bringDownLocalMachineComposeProjects(): void {
 }
 
 function removeDevUpstreamFixtureData(): void {
-  const upstreamRootDir = process.env.ARGON_DEV_UPSTREAM_ROOT_DIR?.trim()
-    ? Path.resolve(process.env.ARGON_DEV_UPSTREAM_ROOT_DIR)
-    : Path.join(repoRoot, 'e2e', 'dev-upstream');
+  const upstreamRootDir = getDevUpstreamRootDir();
   const upstreamDataDir = Path.join(upstreamRootDir, 'data');
 
   try {
@@ -193,6 +197,12 @@ function removeDevUpstreamFixtureData(): void {
   } catch (error) {
     console.warn(`[clean:dev:docker] Failed to reset upstream fixture data: ${(error as Error).message}`);
   }
+}
+
+function getDevUpstreamRootDir(): string {
+  return process.env.ARGON_DEV_UPSTREAM_ROOT_DIR?.trim()
+    ? Path.resolve(process.env.ARGON_DEV_UPSTREAM_ROOT_DIR)
+    : Path.join(repoRoot, 'e2e', 'dev-upstream');
 }
 
 function removeDevEthereumEnclaves(): void {

@@ -5,10 +5,11 @@ import {
   type SignedBlock,
   getTickFromHeader,
   type Header,
+  type ApiDecoration,
 } from '@argonprotocol/mainchain';
-import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
+import { runtimeClient, type CurrentRuntimeQueries, type HistoricalQueryRecord } from '@argonprotocol/runtime-client';
 import { createDeferred } from './Deferred.js';
-import type { ArgonApi, ArgonClient, MainchainClients } from './MainchainClients.js';
+import type { ArgonApi, ArgonClient, ArgonCurrentQueryClient, MainchainClients } from './MainchainClients.js';
 import { NetworkConfig } from './NetworkConfig.js';
 import { createTypedEventEmitter } from './utils.js';
 import { SingleFileQueue } from './SingleFileQueue.js';
@@ -418,8 +419,9 @@ export class BlockWatch {
     }
   }
 
-  public async getFinalizedApi(): Promise<ArgonApi> {
-    return this.getApi(this.finalizedBlockHeader);
+  public async getFinalizedApi(): Promise<ArgonCurrentQueryClient> {
+    const api = await this.getApi(this.finalizedBlockHeader);
+    return runtimeClient<ApiDecoration<'promise'>, CurrentRuntimeQueries>(api.raw);
   }
 
   public async getCurrentApi(): Promise<ArgonApi> {

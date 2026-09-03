@@ -12,8 +12,9 @@ import { createTypedEventEmitter, raceWithTimeout } from './utils.js';
 
 export type ArgonApi = RuntimeClient<ApiDecoration<'promise'>, RuntimeQueries>;
 export type ArgonCurrentApi = RuntimeClient<PolkadotArgonClient, CurrentRuntimeQueries>;
+export type ArgonCurrentQueryClient = RuntimeClient<ApiDecoration<'promise'>, CurrentRuntimeQueries>;
 export type ArgonClient = ArgonCurrentApi;
-export type ArgonQueryClient = ArgonCurrentApi | ArgonApi;
+export type ArgonQueryClient = ArgonCurrentApi | ArgonCurrentQueryClient | ArgonApi;
 const stringifyApiLogValue = (_key: string, value: unknown) => (typeof value === 'bigint' ? value.toString() : value);
 
 export function createArgonClient(client: PolkadotArgonClient): ArgonClient {

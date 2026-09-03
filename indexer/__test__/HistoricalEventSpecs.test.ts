@@ -21,13 +21,14 @@ expectTypeOf<HistoricalBondCreated['data']['expiration']>().toMatchTypeOf<
 
 describe('HistoricalEventSpecs', () => {
   it('covers every published-chain runtime spec', () => {
-    expect(supportedHistoricalEventSpecs).toEqual(Array.from({ length: 59 }, (_, index) => index + 100));
+    expect(supportedHistoricalEventSpecs).toEqual(Array.from({ length: 60 }, (_, index) => index + 100));
     expect(historicalEventSpecSources[100]).toBe('@argonprotocol/mainchain@0.0.25');
     expect(historicalEventSpecSources[124]).toBe('argonprotocol/mainchain@1fd3a9e9');
     expect(historicalEventSpecSources[149]).toBe('@argonprotocol/mainchain@1.4.2-dev.9a289267');
     expect(historicalEventSpecSources[152]).toBe('@argonprotocol/mainchain@1.4.6');
     expect(historicalEventSpecSources[157]).toBe('@argonprotocol/mainchain@1.4.11');
     expect(historicalEventSpecSources[158]).toBe('@argonprotocol/mainchain@1.4.12');
+    expect(historicalEventSpecSources[159]).toBe('@argonprotocol/mainchain@1.4.12-dev.2afa6e4a');
   });
 
   it('declares the spec 158 Bitcoin flexibility event', () => {

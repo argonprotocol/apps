@@ -26,6 +26,8 @@ import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import { GlobalCouncil } from '../lib/GlobalCouncil.ts';
 import { MintingAuthorities } from '../lib/MintingAuthorities.ts';
 import { TransactionTracker } from '../lib/TransactionTracker.ts';
+import { BitcoinLockCreate } from '../lib/txs/BitcoinLock.create.ts';
+import { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
 import Path from 'path';
 import { createMockWalletKeys } from './helpers/wallet.ts';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
@@ -39,6 +41,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
   let db: Db;
   let vaultId: number;
   let myVault: MyVault;
+  let bitcoinLockCreate: BitcoinLockCreate;
   const trackedBitcoinLocks: BitcoinLocks[] = [];
   const trackedBlockWatches: BlockWatch[] = [];
   const trackedDbs: Db[] = [];
@@ -129,6 +132,12 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       const bitcoinLocks = trackBitcoinLocks(
         new BitcoinLocks(Promise.resolve(db), walletKeys, miningFrames.blockWatch, currency, transactionTracker),
       );
+      bitcoinLockCreate = new BitcoinLockCreate(
+        bitcoinLocks,
+        transactionTracker,
+        currency,
+        new UpstreamOperatorClient(),
+      );
       const globalCouncil = new GlobalCouncil(Promise.resolve(db), walletKeys, miningFrames);
       const mintingAuthorities = new MintingAuthorities(
         Promise.resolve(db),
@@ -197,19 +206,19 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       expect(targetLiquidity).toBeGreaterThan(0n);
 
       // Create a personal bitcoin lock (previously done by activateSecuritizationAndTreasury)
-      const { txInfo: lockTxInfo } = await bitcoinLocks.initializeLock({
+      const lockTxInfo = await bitcoinLockCreate.submit({
         satoshis: await bitcoinLocks.satoshisForArgonLiquidity(targetLiquidity),
         vault: myVault.createdVault!,
+        txSigner: await walletKeys.getLiquidLockingKeypair(),
       });
-      expect(lockTxInfo).toBeTruthy();
-
-      const trackedLockTxInfo = lockTxInfo!;
+      const trackedLockTxInfo = lockTxInfo;
       await trackedLockTxInfo.txResult.waitForFinalizedBlock;
       const lockCreatedBlockNumber = trackedLockTxInfo.txResult.blockNumber!;
       await trackedLockTxInfo.waitForPostProcessing;
 
-      expect(Object.keys(bitcoinLocks.data.locksByUtxoId)).toHaveLength(1);
-      const bitcoinStored = Object.values(bitcoinLocks.data.locksByUtxoId)[0];
+      expect(bitcoinLocks.getActiveLocks()).toHaveLength(1);
+      const bitcoinStored = bitcoinLocks.getActiveLocks()[0];
+      expect(bitcoinStored.createdAtArgonBlock).toBe(lockCreatedBlockNumber);
 
       // recover again so we get the right securitization
       const recovery = await MyVaultRecovery.findOperatorVault(clients, BitcoinNetwork.Regtest, walletKeys);
@@ -230,19 +239,7 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
       const bitcoins = await bitcoinLocksRecovery.recovery.recoverActiveLocks();
       expect(bitcoins).toHaveLength(1);
       const bitcoin = bitcoins[0];
-      expect(bitcoin.ratchets[0].blockHeight).toBe(lockCreatedBlockNumber);
-
-      await bitcoinLocksRecovery.recovery.recoverActiveLockCreationDetails(clients);
-      console.log('Bitcoin result', {
-        recovered: bitcoin.ratchets[0],
-        original: bitcoinStored.ratchets[0],
-      });
-      expect({ ...bitcoin, createdAt: undefined, updatedAt: undefined }).toEqual({
-        ...bitcoinStored,
-        uuid: expect.any(String),
-        createdAt: undefined,
-        updatedAt: undefined,
-      });
+      expect(bitcoinLocksRecovery.getLockByUtxoId(bitcoin.utxoId)?.scriptDetails).toEqual(bitcoinStored.scriptDetails);
 
       const client = await clients.get(false);
       const treasuryBondLots = await TreasuryBonds.getBondLots(

@@ -20,9 +20,10 @@ import { getOperationalRewardConfig } from '../../src-vue/lib/OperationalAccount
 import { defaultWalletData, type IWalletData, WalletType } from '../../src-vue/lib/Wallet.ts';
 import { WalletForArgon } from '../../src-vue/lib/WalletForArgon.ts';
 import { WalletForBitcoin } from '../../src-vue/lib/WalletForBitcoin.ts';
+import { BitcoinLockCreate } from '../../src-vue/lib/txs/BitcoinLock.create.ts';
 import { getArgonBonds } from '../../src-vue/stores/argonBonds.ts';
 import { useBasics } from '../../src-vue/stores/basics.ts';
-import { getBitcoinLockCoupons, getBitcoinLocks } from '../../src-vue/stores/bitcoin.ts';
+import { getBitcoinFissions, getBitcoinLockCoupons, getBitcoinLocks } from '../../src-vue/stores/bitcoin.ts';
 import { getBot } from '../../src-vue/stores/bot.ts';
 import { useCertificationController } from '../../src-vue/stores/certificationController.ts';
 import { getConfig } from '../../src-vue/stores/config.ts';
@@ -54,11 +55,16 @@ import { getWalletKeys, useWallets } from '../../src-vue/stores/wallets.ts';
 type ScenarioOptions = {
   selectedTab: TopTab;
   config?: Partial<ReturnType<typeof getConfig>>;
+  bitcoinLockCreate?: BitcoinLockCreate;
 };
 
-export function setupAppScenario({ selectedTab, config: configOverrides = {} }: ScenarioOptions) {
+export function setupAppScenario({ selectedTab, config: configOverrides = {}, bitcoinLockCreate }: ScenarioOptions) {
   setActivePinia(createPinia());
-  mocked(getDbPromise, { partial: true }).mockReturnValue(Promise.resolve({}));
+  mocked(getDbPromise, { partial: true }).mockReturnValue(
+    Promise.resolve({
+      bitcoinFissionsTable: { fetchAll: fn(async () => []) },
+    }) as unknown as ReturnType<typeof getDbPromise>,
+  );
 
   const certificationDetails: NonNullable<IConfig['certificationDetails']> = {
     hasSavedMnemonic: false,
@@ -107,7 +113,16 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {} }: 
   });
   const defaultArgonDomainWallet = new WalletForArgon(WalletType.argon, defaultArgonWallet.address, getDbPromise());
   defaultArgonDomainWallet.data = defaultArgonWallet;
-  const bitcoinWallet = new WalletForBitcoin(getBitcoinLocks, () => getWalletKeys().liquidLockingAddress);
+  bitcoinLockCreate ??= Object.assign(Object.create(BitcoinLockCreate.prototype) as BitcoinLockCreate, {
+    submit: fn(async () => {
+      throw new Error('Bitcoin channel creation is unavailable in this fixed scenario.');
+    }),
+  });
+  const bitcoinWallet = new WalletForBitcoin(
+    getBitcoinLocks,
+    () => getWalletKeys().liquidLockingAddress,
+    bitcoinLockCreate,
+  );
   bitcoinWallet.data = Vue.reactive(bitcoinWallet.data);
   const wallets = Vue.reactive({
     isLoaded: true,
@@ -132,7 +147,8 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {} }: 
     bitcoinWallet: Vue.markRaw(bitcoinWallet),
   });
   const myVaultData: ReturnType<typeof getMyVault>['data'] = {
-    isReady: true,
+    isLoaded: true,
+    financialRevision: 1,
     createdVault: null,
     metadata: null,
     stats: null,
@@ -153,12 +169,31 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {} }: 
     externalLocks: {},
     pendingAllocateTxInfo: null,
   };
+  const reactiveMyVaultData = Vue.shallowReactive(myVaultData);
 
   mocked(getConfig, { partial: true }).mockReturnValue(config);
   mocked(getMainchainClient).mockReturnValue(new Promise(() => undefined));
   mocked(getOperationalRewardConfig).mockReturnValue(new Promise(() => undefined));
   mocked(getBitcoinLocks, { partial: true }).mockReturnValue({
     getAllLocks: fn(() => []),
+    getLockByUtxoId: fn(() => undefined),
+    load: fn(async () => undefined),
+    utxoTracking: {
+      getAllOrphanLifecycleUtxos: fn(() => []),
+      isReleaseCompleteStatus: fn(() => false),
+    } as never,
+  });
+  mocked(getBitcoinFissions, { partial: true }).mockReturnValue({
+    data: Vue.reactive({
+      fissionsById: {},
+      historyById: {},
+      minimumRatchetPercent: 5n,
+      isLoaded: true,
+      financialRevision: 1,
+    }),
+    getAll: fn(() => []),
+    getHistory: fn(() => []),
+    getLiquids: fn(() => []),
     load: fn(async () => undefined),
   });
   mocked(getArgonBonds, { partial: true }).mockReturnValue({
@@ -181,6 +216,7 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {} }: 
   });
   mocked(getTransactionTracker, { partial: true }).mockReturnValue({
     load: fn(async () => undefined),
+    pendingBlockTxInfosAtLoad: [],
     findLatestTxInfo: fn(() => undefined) as ReturnType<typeof getTransactionTracker>['findLatestTxInfo'],
   });
   mocked(getWalletKeys, { partial: true }).mockReturnValue({
@@ -202,7 +238,7 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {} }: 
   );
   mocked(getCurrency, { partial: true }).mockReturnValue(
     Object.assign(Object.create(Currency.prototype) as Currency, {
-      _key: UnitOfMeasurement.USD,
+      _key: UnitOfMeasurement.ARGN,
       isLoaded: false,
       microgonsPer: { ...defaultMicrogonsPer },
       priceIndex: Object.assign(new PriceIndex(), {
@@ -218,8 +254,8 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {} }: 
         [UnitOfMeasurement.GBP]: { key: UnitOfMeasurement.GBP, symbol: '£', name: 'Pound' },
         [UnitOfMeasurement.INR]: { key: UnitOfMeasurement.INR, symbol: '₹', name: 'Rupee' },
       },
-      record: { key: UnitOfMeasurement.USD, symbol: '$', name: 'Dollar' },
-      symbol: '$',
+      record: { key: UnitOfMeasurement.ARGN, symbol: '₳', name: 'Argon' },
+      symbol: '₳',
       load: fn(async () => undefined),
     }),
   );
@@ -228,6 +264,7 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {} }: 
       savingsIsLoaded: false,
       savingsTotalValue: 0n,
       savingsTotalPending: 0n,
+      bitcoinWalletTotalSatoshis: 0n,
       liquidTotalSatoshis: 0n,
       financialPositionAggregate: Vue.shallowRef(reduceFinancialPositions([])),
       historyRecovery: Vue.ref({ state: 'ready' as const, recoveredBlockCount: 0 }),
@@ -302,7 +339,10 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {} }: 
     onTick: fn(() => ({ unsubscribe: fn() })),
   });
   mocked(useMiningStats, { partial: true }).mockReturnValue({ update: fn(async () => undefined) });
-  mocked(useVaultingStats, { partial: true }).mockReturnValue({ update: fn(async () => undefined) });
+  mocked(useVaultingStats, { partial: true }).mockReturnValue({
+    bitcoinAPR: 11.4,
+    update: fn(async () => undefined),
+  });
   mocked(getVaults, { partial: true }).mockReturnValue({
     load: fn(async () => undefined),
     operatorNamesByVaultId: Vue.reactive({}),
@@ -327,8 +367,16 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {} }: 
     isReady: true,
   });
   mocked(getMyVault, { partial: true }).mockReturnValue({
-    data: Vue.shallowReactive(myVaultData),
-    createdVault: null,
+    data: reactiveMyVaultData,
+    get createdVault() {
+      return reactiveMyVaultData.createdVault;
+    },
+    get metadata() {
+      return reactiveMyVaultData.metadata;
+    },
+    get vaultId() {
+      return reactiveMyVaultData.metadata?.id;
+    },
     mintingAuthorities,
     globalCouncil,
     getCrosschainQueueTxInfos: fn(() => []),

@@ -1,9 +1,8 @@
-import { type ArgonQueryClient, BondLot, calculatePrincipalPositionValue } from '@argonprotocol/apps-core';
+import { BondLot, calculatePrincipalPositionValue } from '@argonprotocol/apps-core';
 import {
   createFinancialPosition,
   type IBondFinancialPosition,
   type IFinancialPositionSource,
-  withInvestmentBasis,
 } from '../../interfaces/IFinancialPosition.ts';
 import type { IBondLotHistoryRecord } from '../db/BondLotHistoryTable.ts';
 import type { ArgonBonds } from '../ArgonBonds.ts';
@@ -11,8 +10,6 @@ import type { IArgonAccountBalance } from '../WalletsForArgon.ts';
 
 type ArgonBondFinancialPositionArgs = {
   account: IArgonAccountBalance;
-  clientAt: ArgonQueryClient;
-  hasConfirmedBondHistoryCoverage: boolean;
   liveArgonotRateMicrogons?: bigint;
   ownedVaultId?: number;
 };
@@ -20,7 +17,6 @@ type ArgonBondFinancialPositionArgs = {
 type ArgonBondPositionData = {
   bondLots?: readonly BondLot[];
   completedRecords?: readonly IBondLotHistoryRecord[];
-  hasConfirmedBondHistoryCoverage: boolean;
   liveArgonotRateMicrogons?: bigint;
   entryArgonotMarksByLot?: ReadonlyMap<string, bigint>;
   frameDates: ReadonlyMap<number, Date>;
@@ -33,10 +29,7 @@ export class ArgonBondsFinancials
   constructor(private readonly bonds: ArgonBonds) {}
 
   public async loadPositions(args: ArgonBondFinancialPositionArgs): Promise<IBondFinancialPosition[]> {
-    await this.bonds.load();
-
-    const { clientAt, ...positionArgs } = args;
-    const bondLots = await this.bonds.getOwnBondLots(clientAt);
+    const bondLots = this.bonds.data.bondLots;
 
     const treasuryMicrogons = args.account.microgonHolds
       .filter(hold => hold.id.type === 'Treasury')
@@ -68,7 +61,7 @@ export class ArgonBondsFinancials
     );
 
     return this.createFinancialPositions({
-      ...positionArgs,
+      ...args,
       bondLots,
       completedRecords: this.bonds.completedBondHistory,
       entryArgonotMarksByLot,
@@ -79,7 +72,6 @@ export class ArgonBondsFinancials
   public createFinancialPositions({
     bondLots = [],
     completedRecords = [],
-    hasConfirmedBondHistoryCoverage,
     liveArgonotRateMicrogons,
     entryArgonotMarksByLot = new Map(),
     frameDates,
@@ -117,7 +109,7 @@ export class ArgonBondsFinancials
               nativeAsset: 'ARGN',
               nativePrincipal,
             },
-            withInvestmentBasis(value, hasConfirmedBondHistoryCoverage),
+            value,
           ),
         );
         continue;
@@ -149,7 +141,7 @@ export class ArgonBondsFinancials
             entryArgonotRateMicrogons,
             currentArgonotRateMicrogons: canValueArgonot ? currentArgonotRateMicrogons : undefined,
           },
-          withInvestmentBasis(value, hasConfirmedBondHistoryCoverage),
+          value,
         ),
       );
     }
@@ -186,7 +178,7 @@ export class ArgonBondsFinancials
             entryArgonotRateMicrogons: record.entryArgonotRateMicrogons,
             closingArgonotRateMicrogons: record.closingArgonotRateMicrogons,
           },
-          withInvestmentBasis(value, hasConfirmedBondHistoryCoverage),
+          value,
         ),
       );
     }

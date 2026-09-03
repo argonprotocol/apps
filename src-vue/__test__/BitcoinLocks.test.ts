@@ -1,11 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import BigNumber from 'bignumber.js';
-import { createDeferred, BitcoinLock, TxSubmitter } from '@argonprotocol/apps-core';
-import { FIXED_U128_DECIMALS, toFixedNumber } from '@argonprotocol/mainchain';
+import { BitcoinLock, type Currency, type TxSigningAccount } from '@argonprotocol/apps-core';
 import { type TransactionTracker, TxAttemptState } from '../lib/TransactionTracker.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
-import { ExtrinsicType, TransactionStatus } from '../lib/db/TransactionsTable.ts';
-import { BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
+import { ExtrinsicType } from '../lib/db/TransactionsTable.ts';
 import * as vaultStore from '../stores/vaults.ts';
 import { createBitcoinLockConfig, createLock, createStore } from './helpers/bitcoin.ts';
 import { createTestDb } from './helpers/db.ts';
@@ -14,6 +12,7 @@ import type { IBitcoinRequestLockMetadata } from '../lib/BitcoinLocks.ts';
 import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import type { UpstreamOperatorClient } from '../lib/UpstreamOperatorClient.ts';
 import { createMockWalletKeys } from './helpers/wallet.ts';
+import { BitcoinLockCreate } from '../lib/txs/BitcoinLock.create.ts';
 
 vi.mock('../stores/mainchain.ts', () => ({
   getMainchainClient: vi.fn(async () => ({})),
@@ -38,10 +37,20 @@ describe('BitcoinLocks fee coupon recovery', () => {
       availableBalance: 0n,
       canAfford: false,
     });
+    vi.spyOn(store, 'getInitializePreviewPubkey').mockResolvedValue({
+      ownerBitcoinPubkey: new Uint8Array(33).fill(2),
+    } as never);
+    const operation = new BitcoinLockCreate(
+      store,
+      {} as TransactionTracker,
+      { priceIndex: {} } as Currency,
+      {} as UpstreamOperatorClient,
+    );
 
-    const estimate = await store.getInitializeFeeEstimate({
+    const estimate = await operation.preview({
       vault: { vaultId: 12 } as never,
       satoshis: 10_000n,
+      txSigner: { address: walletKeys.liquidLockingAddress } as TxSigningAccount,
       microgonsAtTargetPerBtc: 80_000_000n,
       feeDiscountMicrogons: 68n,
     });
@@ -65,6 +74,7 @@ describe('BitcoinLocks fee coupon recovery', () => {
       throw new Error('submission boundary reached');
     });
     const transactionTracker = Object.assign(Object.create(null), {
+      createIntentForFollowOnTx: () => ({ resolve: vi.fn(), reject: vi.fn() }),
       data: { txInfos: [], txInfosByType: {} },
       findLatestTxAttempt: async (args: {
         matches: (candidate: TransactionInfo<IBitcoinRequestLockMetadata>) => boolean;
@@ -94,10 +104,28 @@ describe('BitcoinLocks fee coupon recovery', () => {
       initializeBitcoinLock,
       recordBitcoinLockFeeCouponUse: async () => undefined,
     }) as UpstreamOperatorClient;
-    const store = createStore({ db, transactionTracker, upstreamOperatorClient, walletKeys });
+    const store = createStore({ db, transactionTracker, walletKeys });
     vi.spyOn(store, 'load').mockResolvedValue();
     vi.spyOn(store, 'minimumSatoshiPerLock').mockResolvedValue(1n);
     vi.spyOn(store, 'argonLiquidityForSatoshis').mockReturnValue(4_000n);
+    vi.spyOn(store, 'getInitializePreviewPubkey').mockResolvedValue({
+      ownerBitcoinPubkey: new Uint8Array(33).fill(2),
+    } as never);
+    vi.spyOn(store, 'allocateUtxoPubkey').mockResolvedValue({
+      ownerBitcoinPubkey: new Uint8Array(33).fill(3),
+      hdPath: '//Bitcoin//0',
+    } as never);
+    const operation = new BitcoinLockCreate(
+      store,
+      transactionTracker,
+      {
+        priceIndex: {
+          btcUsdPrice: BigNumber(1),
+          getSatoshiPriceInTargetMicrogons: () => 80_000_000n,
+        },
+      } as unknown as Currency,
+      upstreamOperatorClient,
+    );
 
     const vaultId = 12;
     const feeCoupon = {
@@ -138,13 +166,14 @@ describe('BitcoinLocks fee coupon recovery', () => {
       feeCoupon: args.feeCoupon,
     }));
     const initialize = () =>
-      store.initializeLock({
+      operation.submit({
         vault: {
           vaultId,
           calculateBitcoinFee: () => 410n,
           terms: { bitcoinBaseFee: 10n },
         } as never,
         satoshis: pendingInitialization.requestedSatoshis + 1n,
+        txSigner: { address: walletKeys.liquidLockingAddress } as TxSigningAccount,
         microgonsAtTargetPerBtc: 80_000_000n,
         operatorCoupon: {
           vaultId,
@@ -193,7 +222,10 @@ describe('BitcoinLocks fee coupon recovery', () => {
     });
     store.data.pendingLocks.push(pendingLock);
     existingAttempt.txInfo = {
+      hasPendingPostProcessing: true,
+      txResult: {},
       tx: {
+        id: 7,
         accountAddress: walletKeys.liquidLockingAddress,
         extrinsicType: ExtrinsicType.BitcoinRequestLock,
         metadataJson: {
@@ -212,7 +244,7 @@ describe('BitcoinLocks fee coupon recovery', () => {
       },
     } as TransactionInfo<IBitcoinRequestLockMetadata>;
 
-    await expect(initialize()).resolves.toEqual({ pendingLock, txInfo: existingAttempt.txInfo });
+    await expect(initialize()).resolves.toBe(existingAttempt.txInfo);
 
     existingAttempt.state = TxAttemptState.Replace;
     store.data.pendingLocks.splice(store.data.pendingLocks.indexOf(pendingLock), 1);
@@ -277,102 +309,6 @@ it('keeps a funding expiration estimate stable until the oracle Bitcoin height c
   store.unsubscribeFromArgonBlocks();
 });
 
-describe('BitcoinLocks ratchet preview', () => {
-  afterEach(() => vi.restoreAllMocks());
-
-  it.each([
-    { operatorAccountId: 'vault-owner', expectedFee: 50n },
-    { operatorAccountId: 'bitcoin-owner', expectedFee: 0n },
-  ])('calculates costs for vault operator $operatorAccountId', async ({ operatorAccountId, expectedFee }) => {
-    const store = createStore();
-    const lock = createLock({
-      uuid: 'ratchet-preview',
-      utxoId: 7,
-      status: BitcoinLockStatus.LockedAndMinted,
-      createdAt: '2026-01-01T00:00:00Z',
-    });
-    lock.lockedTargetPrice = 3_000n;
-    lock.lockDetails.ownerAccount = 'stale-bitcoin-owner';
-
-    const client = {
-      query: {
-        bitcoinLocks: {
-          locksByUtxoId: vi.fn(async () => null),
-        },
-      },
-    };
-    const availableSecuritizationSpace = vi.fn(() => 10_000n);
-    const vault = {
-      operatorAccountId,
-      availableSecuritizationSpace,
-      securitizationRatioBN: () => BigNumber(1),
-    };
-    const calculateRatchetingCosts = vi.fn(async () => ({ burnAmount: 1_500n, ratchetingFee: 50n }));
-    Object.assign(store, {
-      getRatchetContext: async () => ({
-        bitcoinLock: {
-          lockedTargetPrice: 3_000n,
-          liquidityPromised: 3_000n,
-          ownerAccount: 'bitcoin-owner',
-          calculateRatchetingCosts,
-        },
-        client,
-        vault,
-      }),
-    });
-    vi.spyOn(BitcoinLock, 'calculateRedemptionAmount').mockReturnValue(2_000n);
-
-    const preview = await store.getRatchetPreview(lock, 2_000n);
-
-    expect(calculateRatchetingCosts).toHaveBeenCalledWith(client, expect.anything(), vault, 2_000n);
-    expect(availableSecuritizationSpace).toHaveBeenCalledWith('bitcoin-owner');
-    expect(preview.ratchetingFee).toBe(expectedFee);
-  });
-
-  it('includes the security needed to support the projected flexible ratchet', async () => {
-    const store = createStore();
-    const lock = createLock({
-      uuid: 'flexible-ratchet-preview',
-      utxoId: 7,
-      status: BitcoinLockStatus.LockedAndMinted,
-      createdAt: '2026-01-01T00:00:00Z',
-    });
-    lock.lockedTargetPrice = 3_000n;
-
-    Object.assign(store, {
-      getRatchetContext: async () => ({
-        bitcoinLock: {
-          calculateRatchetingCosts: async () => ({ burnAmount: 2_000n, ratchetingFee: 0n }),
-          isFlexible: true,
-          liquidityPromised: 3_000n,
-          lockedTargetPrice: 3_000n,
-          ownerAccount: 'vault-owner',
-        },
-        client: {
-          query: {
-            bitcoinLocks: {
-              locksByUtxoId: async () => ({ securitizationRatio: BigNumber(1) }),
-            },
-          },
-        },
-        vault: {
-          availableSecuritizationSpace: () => 0n,
-          flexibleSecuritizationLocked: 6_000n,
-          operatorAccountId: 'vault-owner',
-          securitization: 5_000n,
-          securitizationLocked: 8_000n,
-        },
-      }),
-    });
-    vi.spyOn(BitcoinLock, 'calculateRedemptionAmount').mockReturnValue(2_000n);
-
-    const preview = await store.getRatchetPreview(lock, 2_000n);
-
-    expect(preview.securitizationToAdd).toBe(2_000n);
-    expect(preview.canRatchet).toBe(true);
-  });
-});
-
 describe('BitcoinLocks capacity owners', () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -430,353 +366,5 @@ describe('BitcoinLocks capacity owners', () => {
 
     expect(availableBitcoinSpace).not.toHaveBeenCalled();
     expect(capacity.vaultCapacityLiquidityMicrogons).toBe(400n);
-  });
-
-  it('uses the existing lock owner for mismatch capacity', () => {
-    const store = createStore();
-    const availableBitcoinSpace = vi.fn(() => 300n);
-    vi.spyOn(vaultStore, 'getVaults').mockReturnValue({
-      vaultsById: { 1: { availableBitcoinSpace } },
-    } as never);
-    const lock = createLock({
-      uuid: 'mismatch-capacity',
-      utxoId: 7,
-      status: BitcoinLockStatus.LockPendingFunding,
-      createdAt: '2026-01-01T00:00:00Z',
-    });
-    lock.satoshis = 100n;
-    lock.liquidityPromised = 100n;
-    lock.lockDetails.ownerAccount = 'bitcoin-owner';
-    const candidate = { satoshis: 500n } as never;
-
-    expect(store.getUnderSecuritizedMicrogons(lock, candidate)).toBe(100n);
-    expect(store.getIncreaseSecuritizationMicrogons(lock, candidate)).toBe(300n);
-    expect(availableBitcoinSpace).toHaveBeenNthCalledWith(1, 'bitcoin-owner');
-    expect(availableBitcoinSpace).toHaveBeenNthCalledWith(2, 'bitcoin-owner');
-  });
-});
-
-describe('BitcoinLocks ratchet transaction tracking', () => {
-  afterEach(() => vi.restoreAllMocks());
-
-  it('keeps a ratchet pending from submission through post-processing', async () => {
-    const pendingTxInfo = {
-      tx: {
-        extrinsicType: ExtrinsicType.BitcoinRatchet,
-        metadataJson: { utxoId: 7 },
-        status: TransactionStatus.Submitted,
-        isFinalized: false,
-      },
-      txResult: {},
-      isPostProcessed: true,
-    };
-    const transactionTracker = Object.assign(Object.create(null), {
-      findLatestTxInfo: vi.fn((matches: (candidate: typeof pendingTxInfo) => boolean) => {
-        return matches(pendingTxInfo) ? pendingTxInfo : undefined;
-      }),
-    }) as TransactionTracker;
-    const store = createStore({ transactionTracker });
-    const lock = createLock({
-      uuid: 'pending-ratchet',
-      utxoId: 7,
-      status: BitcoinLockStatus.LockedAndMinted,
-      createdAt: '2026-01-01T00:00:00Z',
-    });
-
-    await expect(store.ratchet(lock, { address: 'owner' } as never, 2_000n)).resolves.toBe(pendingTxInfo);
-
-    pendingTxInfo.tx.status = TransactionStatus.Finalized;
-    pendingTxInfo.tx.isFinalized = true;
-    pendingTxInfo.isPostProcessed = false;
-    expect(store.getPendingRatchetTxInfo(lock)).toBe(pendingTxInfo);
-
-    pendingTxInfo.isPostProcessed = true;
-    expect(store.getPendingRatchetTxInfo(lock)).toBeUndefined();
-  });
-
-  it('atomically adds missing securitization and saves the finalized ratchet from tracked events', async () => {
-    const finalization = createDeferred<Uint8Array>();
-    const postProcessing = createDeferred<void>(false);
-    const ratchetEvent = {
-      section: 'bitcoinLocks',
-      method: 'BitcoinLockRatcheted',
-      data: {
-        amountBurned: 100n,
-        liquidityPromised: 1_300n,
-        newTargetPrice: 1_300n,
-        oldTargetPrice: 1_000n,
-        securityFee: 50n,
-      },
-    };
-    const txResult = {
-      blockNumber: 220,
-      events: [ratchetEvent],
-      extrinsicIndex: 3,
-      finalFee: 25n,
-      waitForFinalizedBlock: finalization.promise,
-    };
-    const txInfo = {
-      tx: {
-        id: 12,
-        extrinsicType: ExtrinsicType.BitcoinRatchet,
-        isFinalized: false,
-        metadataJson: { utxoId: 7 },
-      },
-      txResult,
-      get isPostProcessed() {
-        return postProcessing.isSettled;
-      },
-      get hasPendingPostProcessing() {
-        return !postProcessing.isSettled && postProcessing.isRunning;
-      },
-      createPostProcessor: () => {
-        postProcessing.setIsRunning(true);
-        return postProcessing;
-      },
-    };
-    const trackTxResult = vi.fn(async () => txInfo);
-    const transactionTracker = Object.assign(Object.create(null), {
-      data: { txInfos: [], txInfosByType: {} },
-      ensureStoredEvents: vi.fn(async () => undefined),
-      findLatestTxInfo: vi.fn(() => undefined),
-      trackTxResult,
-    }) as TransactionTracker;
-    const store = createStore({ transactionTracker });
-    const lock = createLock({
-      uuid: 'ratchet-submit',
-      utxoId: 7,
-      status: BitcoinLockStatus.LockedAndMinted,
-      createdAt: '2026-01-01T00:00:00Z',
-    });
-    lock.liquidityPromised = 1_000n;
-    lock.lockedTargetPrice = 1_000n;
-    lock.ratchets.push({
-      mintAmount: 1_000n,
-      mintPending: 0n,
-      liquidityPromised: 1_000n,
-      lockedTargetPrice: 1_000n,
-      securityFee: 0n,
-      txFee: 10n,
-      burned: 0n,
-      blockHeight: 100,
-      extrinsicIndex: 1,
-      oracleBitcoinBlockHeight: 400,
-    });
-    const increaseSecurityTx = { kind: 'increase-security' };
-    const ratchetTx = { kind: 'ratchet' };
-    const batchTx = { kind: 'batch' };
-    const batchAll = vi.fn(() => batchTx);
-    const client = {
-      query: {
-        bitcoinLocks: {
-          locksByUtxoId: vi.fn(async () => ({ securitizationRatio: BigNumber(0) })),
-        },
-      },
-      tx: {
-        bitcoinLocks: {
-          ratchet: vi.fn(() => ratchetTx),
-        },
-        vaults: {
-          modifyFunding: vi.fn(() => increaseSecurityTx),
-        },
-        utility: { batchAll },
-      },
-    };
-    const calculateRatchetingCosts = vi.fn(async () => ({ burnAmount: 400n, ratchetingFee: 0n }));
-    const getRatchetContext = vi.fn(async () => ({
-      bitcoinLock: {
-        calculateRatchetingCosts,
-        isFlexible: true,
-        liquidityPromised: 1_000n,
-        lockedTargetPrice: 1_000n,
-        ownerAccount: 'owner',
-      },
-      client,
-      vault: {
-        availableSecuritizationSpace: () => 0n,
-        flexibleSecuritizationLocked: 1_000n,
-        operatorAccountId: 'owner',
-        securitization: 0n,
-        securitizationRatio: 1,
-        securitizationLocked: 1_000n,
-      },
-    }));
-    const durableWrite = createDeferred<void>();
-    const saveNewRatchet = vi.fn(() => durableWrite.promise);
-    Object.assign(store, { getRatchetContext, getTable: async () => ({ saveNewRatchet }) });
-    vi.spyOn(BitcoinLock, 'calculateRedemptionAmount').mockReturnValue(1_000n);
-    const canAfford = vi.spyOn(TxSubmitter.prototype, 'canAfford').mockResolvedValue({
-      canAfford: true,
-      availableBalance: 500n,
-      txFee: 1n,
-    });
-    vi.spyOn(TxSubmitter.prototype, 'submit').mockResolvedValue(txResult as never);
-
-    await expect(store.ratchet(lock, { address: 'owner' } as never, 3_000n)).resolves.toBe(txInfo);
-    expect(client.tx.bitcoinLocks.ratchet).toHaveBeenCalledWith(7, {
-      V1: { microgonsAtTargetPerBtc: 3_000n },
-    });
-    expect(client.tx.vaults.modifyFunding).toHaveBeenCalledWith(1, 1_000n, toFixedNumber(1, FIXED_U128_DECIMALS));
-    expect(batchAll).toHaveBeenCalledWith([increaseSecurityTx, ratchetTx]);
-    expect(canAfford).toHaveBeenCalledWith({
-      tip: 0n,
-      unavailableBalance: 1_400n,
-    });
-    expect(getRatchetContext).toHaveBeenCalledOnce();
-    expect(trackTxResult).toHaveBeenCalledWith({
-      txResult,
-      extrinsicType: ExtrinsicType.BitcoinRatchet,
-      metadata: { addedSecuritizationMicrogons: 1_000n, utxoId: 7 },
-    });
-
-    const api = {
-      query: {
-        bitcoinUtxos: {
-          confirmedBitcoinBlockTip: vi.fn(async () => ({ blockHeight: 450 })),
-        },
-      },
-    };
-    const eventClient = {
-      at: vi.fn(async () => api),
-      events: { bitcoinLocks: { BitcoinLockRatcheted: { is: (event: unknown) => event === ratchetEvent } } },
-    };
-    vi.mocked(getMainchainClient).mockResolvedValue(eventClient as never);
-    vi.spyOn(BitcoinLock, 'get').mockResolvedValue({
-      ...lock.lockDetails,
-      couponFeesPaid: 0n,
-      liquidityPromised: 1_300n,
-      lockedTargetPrice: 1_300n,
-    } as never);
-
-    finalization.resolve(new Uint8Array([1, 2, 3]));
-    await vi.waitFor(() => expect(saveNewRatchet).toHaveBeenCalledOnce());
-
-    expect(lock.ratchets).toHaveLength(1);
-    expect(lock.liquidityPromised).toBe(1_000n);
-    expect(lock.lockedTargetPrice).toBe(1_000n);
-
-    durableWrite.resolve();
-    await postProcessing.promise;
-
-    expect(lock.ratchets.at(-1)).toEqual({
-      mintAmount: 300n,
-      mintPending: 300n,
-      liquidityPromised: 1_300n,
-      lockedTargetPrice: 1_300n,
-      txFee: 25n,
-      burned: 100n,
-      securityFee: 50n,
-      blockHeight: 220,
-      extrinsicIndex: 3,
-      oracleBitcoinBlockHeight: 450,
-    });
-    expect(lock.liquidityPromised).toBe(1_300n);
-    expect(lock.lockedTargetPrice).toBe(1_300n);
-  });
-});
-
-describe('BitcoinLocks live state processing', () => {
-  afterEach(() => vi.restoreAllMocks());
-
-  it('reads active pending mint state at the supplied financial block without advancing the settled record', async () => {
-    const store = createStore();
-    const record = createLock({
-      uuid: 'active-financial-lock',
-      utxoId: 7,
-      status: BitcoinLockStatus.LockedAndIsMinting,
-      createdAt: '2026-01-01T00:00:00Z',
-    });
-    record.ratchets = [
-      {
-        mintAmount: 1_000n,
-        mintPending: 1_000n,
-        lockedTargetPrice: 1_000n,
-        securityFee: 0n,
-        txFee: 0n,
-        burned: 0n,
-        blockHeight: 151,
-        oracleBitcoinBlockHeight: 500,
-      },
-    ];
-    vi.spyOn(store.utxoTracking, 'getAcceptedFundingRecordForLock').mockReturnValue({
-      id: 1,
-      status: BitcoinUtxoStatus.FundingUtxo,
-    } as never);
-    const findPendingMints = vi.spyOn(BitcoinLock.prototype, 'findPendingMints').mockResolvedValue([]);
-    vi.spyOn(store, 'getMismatchViewState').mockReturnValue({
-      phase: 'none',
-      candidateCount: 0,
-      isFundingExpired: false,
-      candidates: [],
-    });
-    vi.spyOn(store, 'getLockProcessingDetails').mockReturnValue({
-      progressPct: 100,
-      confirmations: 3,
-      expectedConfirmations: 3,
-    });
-    vi.spyOn(store, 'getLockProcessingError').mockReturnValue('');
-    vi.spyOn(store, 'hasObservedFundingSignal').mockReturnValue(true);
-    vi.spyOn(BitcoinLock, 'calculateRedemptionAmountFromSatoshis').mockReturnValue(0n);
-    const clientAt = { query: {} } as never;
-
-    const summary = await store.createLockSummaryAt(record, clientAt);
-
-    expect(findPendingMints).toHaveBeenCalledWith(clientAt);
-    expect(summary.pendingLiquidity).toBe(0n);
-    expect(summary.receivedLiquidity).toBe(1_000n);
-    expect(summary.record).not.toBe(record);
-    expect(record.ratchets[0].mintPending).toBe(1_000n);
-  });
-
-  it('continues settling pending liquidity after a Bitcoin lock is released', async () => {
-    const clientAt = {
-      query: {
-        bitcoinUtxos: {
-          confirmedBitcoinBlockTip: vi.fn(async () => ({ blockHeight: 600 })),
-        },
-      },
-    };
-    const previousHeader = { blockNumber: 152, blockHash: '0x152' };
-    const blockWatch = {
-      getHeaderByBlockNumber: vi.fn(async () => previousHeader),
-      getEventsWithSpec: vi.fn(async () => ({ api: clientAt, events: [], specVersion: 157 })),
-    };
-    const store = createStore({ blockWatch: blockWatch as never });
-    const record = createLock({
-      uuid: 'released-with-pending-liquidity',
-      utxoId: 7,
-      status: BitcoinLockStatus.Released,
-      createdAt: '2026-01-01T00:00:00Z',
-    });
-    record.removalReason = 'released';
-    record.ratchets = [
-      {
-        mintAmount: 1_000n,
-        mintPending: 1_000n,
-        lockedTargetPrice: 1_000n,
-        securityFee: 0n,
-        txFee: 0n,
-        burned: 0n,
-        blockHeight: 151,
-        oracleBitcoinBlockHeight: 500,
-      },
-    ];
-    store.data.locksByUtxoId[7] = record;
-    store.data.oracleBitcoinBlockHeight = 600;
-    vi.spyOn(store, 'getTable').mockResolvedValue({ updateMintState: vi.fn(async () => undefined) } as never);
-    vi.spyOn(store.utxoTracking, 'syncArgonOrphans').mockResolvedValue([]);
-    vi.spyOn(store.utxoTracking, 'getAcceptedFundingRecordForLock').mockReturnValue({
-      id: 1,
-      status: BitcoinUtxoStatus.ReleaseComplete,
-    } as never);
-    vi.spyOn(BitcoinLock.prototype, 'findPendingMints').mockResolvedValue([400n]);
-
-    await (
-      store as unknown as {
-        checkIncomingArgonBlock: (header: { blockNumber: number; blockHash: string }) => Promise<void>;
-      }
-    ).checkIncomingArgonBlock({ blockNumber: 153, blockHash: '0x153' });
-
-    expect(record.ratchets[0].mintPending).toBe(400n);
   });
 });

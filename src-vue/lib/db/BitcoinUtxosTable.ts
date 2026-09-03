@@ -4,6 +4,7 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import {
   BitcoinUtxoStatus,
+  BitcoinUtxoRole,
   type IBitcoinUtxoRecord,
   type IBitcoinUtxoStatusHistoryRecord,
   type IConfirmedReleaseCosign,
@@ -12,6 +13,7 @@ import {
 dayjs.extend(utc);
 export {
   BitcoinUtxoStatus,
+  BitcoinUtxoRole,
   type IBitcoinUtxoRecord,
   type IBitcoinUtxoStatusHistoryRecord,
   type IConfirmedReleaseCosign,
@@ -68,16 +70,6 @@ export class BitcoinUtxosTable extends BaseTable {
     return convertFromSqliteFields<IBitcoinUtxoStatusHistoryRecord[]>(rawRecords, { date: ['createdAt'] });
   }
 
-  public async fetchOrphanedRecordIds(): Promise<number[]> {
-    const records = await this.db.select<{ utxoRecordId: number }[]>(
-      `SELECT DISTINCT utxoRecordId
-       FROM BitcoinUtxoStatusHistory
-       WHERE newStatus = ?`,
-      toSqlParams([BitcoinUtxoStatus.Orphaned]),
-    );
-    return records.map(record => record.utxoRecordId);
-  }
-
   public async getByLockOutpoint(
     lockUtxoId: number,
     txid: string,
@@ -99,6 +91,7 @@ export class BitcoinUtxosTable extends BaseTable {
         vout,
         satoshis,
         network,
+        role,
         status,
         statusError,
         mempoolObservation,
@@ -120,11 +113,12 @@ export class BitcoinUtxosTable extends BaseTable {
         releaseLastConfirmationCheckAt,
         releaseLastConfirmationCheckOracleHeight,
         releasedAtBitcoinHeight
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(lockUtxoId, txid, vout) DO UPDATE SET
         satoshis = COALESCE(excluded.satoshis, BitcoinUtxos.satoshis),
         mempoolObservation = COALESCE(excluded.mempoolObservation, BitcoinUtxos.mempoolObservation),
         firstSeenOnArgonAt = COALESCE(BitcoinUtxos.firstSeenOnArgonAt, excluded.firstSeenOnArgonAt),
+        role = COALESCE(excluded.role, BitcoinUtxos.role),
         status = COALESCE(excluded.status, BitcoinUtxos.status),
         requestedReleaseAtTick = COALESCE(excluded.requestedReleaseAtTick, BitcoinUtxos.requestedReleaseAtTick),
         releaseBitcoinNetworkFee = COALESCE(excluded.releaseBitcoinNetworkFee, BitcoinUtxos.releaseBitcoinNetworkFee),
@@ -142,6 +136,7 @@ export class BitcoinUtxosTable extends BaseTable {
         record.vout,
         record.satoshis,
         record.network,
+        record.role,
         record.status,
         record.statusError,
         record.mempoolObservation,
@@ -175,7 +170,7 @@ export class BitcoinUtxosTable extends BaseTable {
   public async saveRecoveredHistory(record: IBitcoinUtxoRecord): Promise<void> {
     await this.db.execute(
       `UPDATE BitcoinUtxos SET
-        satoshis = ?, status = ?, statusError = ?, mempoolObservation = ?,
+        satoshis = ?, role = ?, status = ?, statusError = ?, mempoolObservation = ?,
         firstSeenAt = ?, firstSeenOnArgonAt = ?, firstSeenBitcoinHeight = ?, firstSeenOracleHeight = ?,
         lastConfirmationCheckAt = ?, lastConfirmationCheckOracleHeight = ?, requestedReleaseAtTick = ?,
         releaseBitcoinNetworkFee = ?, releaseToDestinationAddress = ?, releaseCosignVaultSignature = ?,
@@ -185,6 +180,7 @@ export class BitcoinUtxosTable extends BaseTable {
        WHERE id = ?`,
       toSqlParams([
         record.satoshis,
+        record.role,
         record.status,
         record.statusError,
         record.mempoolObservation,
@@ -247,32 +243,27 @@ export class BitcoinUtxosTable extends BaseTable {
     );
   }
 
-  public async setArgonCandidateSeen(record: IBitcoinUtxoRecord): Promise<void> {
-    record.status = BitcoinUtxoStatus.FundingCandidate;
-    record.firstSeenOnArgonAt ??= dayjs.utc().toDate();
-    await this.db.execute(
-      `UPDATE BitcoinUtxos SET status = ?, firstSeenOnArgonAt = ? WHERE id = ?`,
-      toSqlParams([record.status, record.firstSeenOnArgonAt, record.id]),
-    );
-  }
-
-  public async updateCandidate(record: IBitcoinUtxoRecord): Promise<void> {
+  public async updateObservedDeposit(record: IBitcoinUtxoRecord): Promise<void> {
     await this.db.execute(
       `UPDATE BitcoinUtxos SET
+        role = ?,
         status = ?,
         satoshis = ?,
         firstSeenOnArgonAt = ?
       WHERE id = ?`,
-      toSqlParams([record.status, record.satoshis, record.firstSeenOnArgonAt, record.id]),
+      toSqlParams([record.role, record.status, record.satoshis, record.firstSeenOnArgonAt, record.id]),
     );
   }
 
   public async setOrphaned(record: IBitcoinUtxoRecord): Promise<void> {
-    record.status = BitcoinUtxoStatus.Orphaned;
+    record.role = BitcoinUtxoRole.Orphan;
+    if (!isBitcoinUtxoReleaseStatus(record.status)) record.status = BitcoinUtxoStatus.Orphaned;
     record.firstSeenOnArgonAt ??= dayjs.utc().toDate();
     await this.db.execute(
-      `UPDATE BitcoinUtxos SET status = ?, firstSeenOnArgonAt = COALESCE(firstSeenOnArgonAt, ?) WHERE id = ?`,
-      toSqlParams([record.status, record.firstSeenOnArgonAt, record.id]),
+      `UPDATE BitcoinUtxos
+       SET role = ?, status = ?, firstSeenOnArgonAt = COALESCE(firstSeenOnArgonAt, ?)
+       WHERE id = ?`,
+      toSqlParams([record.role, record.status, record.firstSeenOnArgonAt, record.id]),
     );
   }
 
@@ -375,21 +366,6 @@ export class BitcoinUtxosTable extends BaseTable {
     );
   }
 
-  public async clearFundingCandidateSignalsByLockUtxoId(lockUtxoId: number): Promise<void> {
-    await this.db.execute(
-      `UPDATE BitcoinUtxos
-       SET mempoolObservation = NULL,
-           firstSeenOnArgonAt = NULL,
-           status = CASE
-             WHEN status IN ('SeenOnMempool', 'FundingCandidate')
-             THEN 'FundingCandidate'
-             ELSE status
-           END
-       WHERE lockUtxoId = ?`,
-      toSqlParams([lockUtxoId]),
-    );
-  }
-
   public async setReleaseIsProcessingOnArgon(
     record: IBitcoinUtxoRecord,
     args: IReleaseProcessingOnArgonUpdate,
@@ -489,14 +465,16 @@ export class BitcoinUtxosTable extends BaseTable {
   }
 
   public async setFundingUtxo(record: IBitcoinUtxoRecord): Promise<void> {
-    record.status = BitcoinUtxoStatus.FundingUtxo;
+    record.role = BitcoinUtxoRole.Funding;
+    if (!isBitcoinUtxoReleaseStatus(record.status)) record.status = BitcoinUtxoStatus.FundingUtxo;
     record.firstSeenOnArgonAt ??= dayjs.utc().toDate();
     await this.db.execute(
       `UPDATE BitcoinUtxos
-       SET status = ?,
+       SET role = ?,
+           status = ?,
            firstSeenOnArgonAt = COALESCE(firstSeenOnArgonAt, ?)
        WHERE id = ?`,
-      toSqlParams([record.status, record.firstSeenOnArgonAt, record.id]),
+      toSqlParams([record.role, record.status, record.firstSeenOnArgonAt, record.id]),
     );
   }
 
@@ -509,6 +487,6 @@ export class BitcoinUtxosTable extends BaseTable {
         return status;
       }
     }
-    return BitcoinUtxoStatus.FundingCandidate;
+    return BitcoinUtxoStatus.SeenOnMempool;
   }
 }
