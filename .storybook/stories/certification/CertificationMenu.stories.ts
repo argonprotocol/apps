@@ -10,6 +10,8 @@ import Home from '../../../src-vue/screens/Home.vue';
 import CertificationMenu from '../../../src-vue/navigation/CertificationMenu.vue';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 import { TopTab } from '../../../src-vue/interfaces/IConfig.ts';
+import { getConfig } from '../../../src-vue/stores/config.ts';
+import { useCertificationController } from '../../../src-vue/stores/certificationController.ts';
 
 const meta = {
   title: 'Certification/Top bar',
@@ -61,6 +63,45 @@ export const OperationalProgressLoading: Story = {
     const canvas = within(canvasElement);
 
     await expect(canvas.queryByRole('button', { name: /Treasury Certification/ })).not.toBeInTheDocument();
+  },
+};
+
+export const ConfigLoading: Story = {
+  beforeEach: () => {
+    setupAppScenario({
+      selectedTab: TopTab.Home,
+      config: {
+        isLoaded: false,
+        hasExtensionTreasury: false,
+        hasExtensionOperations: false,
+      },
+    });
+  },
+  render: () => renderCertificationOverview(false),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await expect(canvas.queryAllByText('Upgrade to Treasury')).toHaveLength(0);
+  },
+};
+
+export const PersistedOperationsDuringLiveStateLoss: Story = {
+  beforeEach: async () => {
+    await setupCertificationMenuScenario('treasuryComplete');
+
+    const config = getConfig();
+    const controller = useCertificationController();
+    config.hasExtensionOperations = true;
+    controller.chainProgress = {
+      ...controller.chainProgress,
+      isUpgradedToOperations: false,
+    };
+  },
+  render: () => renderCertificationOverview(false),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await expect(canvas.queryByText('Upgrade to Operations')).not.toBeInTheDocument();
   },
 };
 

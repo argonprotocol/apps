@@ -90,7 +90,7 @@ import * as Vue from 'vue';
 import type { IMemberInvite } from '@argonprotocol/apps-router';
 import dayjs from 'dayjs';
 import { getConfig } from '../stores/config.ts';
-import { treasuryCertificationStepIds, useCertificationController } from '../stores/certificationController.ts';
+import { useCertificationController } from '../stores/certificationController.ts';
 import { getUpstreamOperatorClient } from '../stores/upstreamOperator.ts';
 import { getWalletKeys } from '../stores/wallets.ts';
 import { useMiningStats } from '../stores/miningStats.ts';
@@ -100,7 +100,6 @@ import AlertIcon from '../assets/alert.svg';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import numeral from '../lib/numeral.ts';
 import { hasOperationsUpgradeRequest } from '../lib/UpstreamOperatorClient.ts';
-import { canRequestOperationsUpgrade } from '../lib/OperationalAccount.ts';
 
 const config = getConfig();
 const controller = useCertificationController();
@@ -123,18 +122,8 @@ const upstreamName = Vue.computed(() => {
   return invite.value?.fromName || config.upstreamOperator?.name || 'your upstream operator';
 });
 
-const isEligibleForUpgrade = Vue.computed(() => {
-  return canRequestOperationsUpgrade({
-    hasLoadedInitialOperationalProgress: controller.hasLoadedInitialOperationalProgress,
-    hasExtensionTreasury: config.hasExtensionTreasury,
-    hasCompletedTreasuryCertification:
-      controller.completedTreasuryCertificationStepCount === treasuryCertificationStepIds.length,
-    isUpgradedToOperations: controller.chainProgress.isUpgradedToOperations,
-  });
-});
-
 const canRequestUpgrade = Vue.computed(() => {
-  if (!isEligibleForUpgrade.value) {
+  if (!controller.canRequestOperationsUpgrade) {
     return false;
   }
 

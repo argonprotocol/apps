@@ -359,7 +359,7 @@
 
     <section DashBox class="flex w-full grow flex-col justify-end px-1">
       <div
-        v-if="config.isLoaded && controller.hasLoadedInitialOperationalProgress && !config.hasExtensionTreasury"
+        v-if="controller.canRequestTreasuryUpgrade"
         class="relative flex grow flex-col items-center justify-center text-center"
       >
         <DiamondsIcon class="text-argon-600/80 mb-2 w-20" />
