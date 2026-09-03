@@ -251,8 +251,10 @@ export class CohortBidder {
             });
           }
         }
-        // wait for any pending request and finalization to finish updating stats
-        void (await this.pendingRequest);
+      }
+      void (await this.pendingRequest);
+      if (waitForFinalBids) {
+        // wait for any pending finalization to finish updating stats
         await Promise.all(this.pendingFinalizations);
 
         const stopBlockHash = await this.client.rpc.chain.getFinalizedHead();
