@@ -47,7 +47,8 @@ if (command === 'package') {
 
   try {
     await execFileAsync('docker', ['pull', image]);
-    containerId = (await execFileAsync('docker', ['create', image])).stdout.trim();
+    // The replay artifact is a data-only scratch image, so supply a command solely to create a stopped container.
+    containerId = (await execFileAsync('docker', ['create', image, '/bin/true'])).stdout.trim();
     await execFileAsync('docker', ['cp', `${containerId}:/replay/${compressedFile}`, downloadedCompressedPath]);
     await execFileAsync('docker', ['cp', `${containerId}:/replay/${manifestFile}`, downloadedManifestPath]);
     await extractAndVerify(downloadedCompressedPath, downloadedManifestPath, downloadedDatabasePath);
