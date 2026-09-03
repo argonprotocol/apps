@@ -38,6 +38,7 @@ let fissions: BitcoinFissions;
 let transactionOperations: TransactionOperations;
 let transactionOperationsLoadPromise: Promise<TransactionOperations> | undefined;
 let bitcoinLockCoupons: ReturnType<typeof createBitcoinLockCouponsState>;
+let unsubscribeFissionStateRefresh: VoidFunction | undefined;
 
 export function getBitcoinLocks(): BitcoinLocks {
   if (!locks) {
@@ -52,6 +53,7 @@ export function getBitcoinLocks(): BitcoinLocks {
   void locks.load().catch(error => {
     console.error('[BitcoinLocks] Unable to load current state', error);
   });
+  connectBitcoinCurrentState();
 
   return locks;
 }
@@ -64,8 +66,19 @@ export function getBitcoinFissions(): BitcoinFissions {
   void fissions.load().catch(error => {
     console.error('[BitcoinFissions] Unable to load current state', error);
   });
+  connectBitcoinCurrentState();
 
   return fissions;
+}
+
+function connectBitcoinCurrentState(): void {
+  if (!locks || !fissions || unsubscribeFissionStateRefresh) return;
+
+  unsubscribeFissionStateRefresh = locks.events.on('fissions:changed', client => {
+    void fissions.refreshCurrent(client).catch(error => {
+      console.warn('[BitcoinFissions] Unable to refresh current state after a chain event', error);
+    });
+  });
 }
 
 export function getBitcoinTransactionOperations(): TransactionOperations {
@@ -106,26 +119,34 @@ export function getBitcoinTransactionOperations(): TransactionOperations {
       bitcoinLockRelease: new BitcoinLockRelease(bitcoinLocks, transactionTracker, currency),
       bitcoinLockResecuritize,
     };
-  }
-  if (!transactionOperationsLoadPromise) {
-    const bitcoinLocks = getBitcoinLocks();
-    const bitcoinFissions = getBitcoinFissions();
-    const loadPromise = loadTransactionOperations(
-      transactionOperations,
-      Promise.all([bitcoinLocks.load(), bitcoinFissions.load()]),
+    Vue.watch(
+      () => [bitcoinLocks.data.readiness, bitcoinFissions.data.readiness] as const,
+      ([lockReadiness, fissionReadiness]) => {
+        if (lockReadiness === 'ready' && fissionReadiness === 'ready') restoreBitcoinTransactionOperations();
+      },
+      { immediate: true },
     );
-    transactionOperationsLoadPromise = loadPromise;
-    void loadPromise.catch(error => {
-      if (transactionOperationsLoadPromise === loadPromise) transactionOperationsLoadPromise = undefined;
-      console.error('[BitcoinTransactions] Unable to restore pending operations', error);
-    });
   }
+  restoreBitcoinTransactionOperations();
   return transactionOperations;
 }
 
-export function loadBitcoinTransactionOperations(): Promise<TransactionOperations> {
-  getBitcoinTransactionOperations();
-  return transactionOperationsLoadPromise!;
+function restoreBitcoinTransactionOperations(): void {
+  if (
+    !transactionOperations ||
+    transactionOperationsLoadPromise ||
+    locks.data.readiness !== 'ready' ||
+    fissions.data.readiness !== 'ready'
+  ) {
+    return;
+  }
+
+  const loadPromise = loadTransactionOperations(transactionOperations);
+  transactionOperationsLoadPromise = loadPromise;
+  void loadPromise.catch(error => {
+    if (transactionOperationsLoadPromise === loadPromise) transactionOperationsLoadPromise = undefined;
+    console.error('[BitcoinTransactions] Unable to restore pending operations', error);
+  });
 }
 
 export function getBitcoinLockCoupons() {

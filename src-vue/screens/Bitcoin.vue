@@ -1,7 +1,18 @@
 <template>
   <div DashBox data-testid="BitcoinScreen" class="flex grow flex-col">
-    <div v-if="!isLoaded" class="flex grow items-center justify-center text-slate-500">Loading…</div>
-    <Dashboard v-else-if="hasBitcoinRecords" />
+    <Dashboard v-if="hasBitcoinRecords" />
+    <div v-else-if="loadError" class="flex grow flex-col items-center justify-center text-slate-600">
+      <div class="font-bold">Bitcoin could not be loaded.</div>
+      <div class="mt-1 text-sm">{{ loadError.message }}</div>
+      <button
+        @click="retryLoad"
+        :disabled="isRetrying"
+        class="border-argon-button text-argon-button hover:border-argon-button-hover hover:text-argon-button-hover mt-4 cursor-pointer rounded border px-4 py-1 font-bold disabled:pointer-events-none disabled:opacity-50"
+      >
+        {{ isRetrying ? 'Retrying…' : 'Retry' }}
+      </button>
+    </div>
+    <div v-else-if="!isLoaded" class="flex grow items-center justify-center text-slate-500">Loading…</div>
     <BlankSlate v-else />
     <BitcoinLiquidCreationController />
   </div>
@@ -20,7 +31,11 @@ const bitcoinLocks = getBitcoinLocks();
 const bitcoinFissions = getBitcoinFissions();
 const currency = getCurrency();
 const financials = useFinancials();
-const isLoaded = Vue.ref(false);
+const isRetrying = Vue.ref(false);
+const isLoaded = Vue.computed(
+  () => currency.isLoaded && bitcoinLocks.data.readiness === 'ready' && bitcoinFissions.data.readiness === 'ready',
+);
+const loadError = Vue.computed(() => bitcoinLocks.data.loadError ?? bitcoinFissions.data.loadError);
 const hasBitcoinRecords = Vue.computed(
   () =>
     financials.bitcoinLockDisplayRecords.length > 0 ||
@@ -29,8 +44,16 @@ const hasBitcoinRecords = Vue.computed(
     bitcoinLocks.utxoTracking.getAllOrphanLifecycleUtxos().length > 0,
 );
 
-Vue.onMounted(async () => {
-  await Promise.all([currency.isLoadedPromise, bitcoinLocks.load(), bitcoinFissions.load()]);
-  isLoaded.value = true;
-});
+async function retryLoad(): Promise<void> {
+  if (isRetrying.value) return;
+
+  isRetrying.value = true;
+  try {
+    await Promise.all([bitcoinLocks.load(), bitcoinFissions.load()]);
+  } catch {
+    // The domain owners publish the retryable error used above.
+  } finally {
+    isRetrying.value = false;
+  }
+}
 </script>

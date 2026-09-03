@@ -312,7 +312,7 @@ export function setupBitcoinPortfolioScenario(
   }
 
   const bitcoinLocks: BitcoinLocks = Object.assign(Object.create(BitcoinLocks.prototype), {
-    data: Vue.reactive({ isReconciliationPending: false }),
+    data: Vue.reactive({ readiness: 'ready', isReconciliationPending: false }),
     recovery: Vue.reactive({ hasPendingHistoryRecovery: false }),
     orphanReleases: { getTransactionInfo: fn(() => undefined) },
     utxoTracking: {
@@ -341,7 +341,7 @@ export function setupBitcoinPortfolioScenario(
       fissionsById: {},
       historyById: {},
       minimumRatchetPercent: 5n,
-      isLoaded: true,
+      readiness: 'ready' as const,
       financialRevision: 1,
     }),
     load: fn(async () => undefined),
@@ -508,7 +508,7 @@ export function setupBitcoinPortfolioScenario(
       liquidTotalSatoshis: liquids
         .filter(liquid => !liquid.isClosed)
         .reduce((total, liquid) => total + liquid.satoshis, 0n),
-      liquidLockedRecords: Vue.shallowRef(
+      fundedBitcoinLockSummaries: Vue.shallowRef(
         summaries.filter(summary => summary.record.status === BitcoinLockStatus.LockFunded),
       ),
       liquidPerformanceReturn: 15.82,
@@ -628,33 +628,37 @@ export function setupBitcoinPortfolioScenario(
   return { bitcoinLiquidCreate };
 }
 
-export function setupBitcoinEmptyScenario(options: { loading?: boolean } = {}) {
+export function setupBitcoinEmptyScenario(options: { loading?: boolean; loadError?: Error } = {}) {
   setupAppScenario({
     selectedTab: TopTab.BitcoinLocks,
     config: { hasExtensionTreasury: true },
   });
+  getCurrency().isLoaded = true;
 
+  const bitcoinLocksData = Vue.reactive({
+    readiness: options.loadError ? ('error' as const) : options.loading ? ('loading' as const) : ('ready' as const),
+    loadError: options.loadError as Error | undefined,
+    isReconciliationPending: false,
+  });
   mocked(getBitcoinLocks).mockReturnValue({
-    data: Vue.reactive({ isReconciliationPending: false }),
+    data: bitcoinLocksData,
     recovery: Vue.reactive({ hasPendingHistoryRecovery: false }),
     utxoTracking: { getAllOrphanLifecycleUtxos: fn(() => []) },
-    load: options.loading ? fn(() => new Promise<void>(() => undefined)) : fn(async () => undefined),
+    load: options.loading
+      ? fn(() => new Promise<void>(() => undefined))
+      : fn(async () => {
+          bitcoinLocksData.readiness = 'loading';
+          bitcoinLocksData.loadError = undefined;
+          await Promise.resolve();
+          bitcoinLocksData.readiness = 'ready';
+        }),
     getAllLocks: fn(() => []),
   } as unknown as ReturnType<typeof getBitcoinLocks>);
-  mocked(useFinancials).mockReturnValue(
-    Vue.reactive({
-      bitcoinLockDisplayRecords: [],
-      liquidInvisibleRecords: [],
-      activeBitcoinLockCount: 0,
-      isHistoryRecoveryInProgress: false,
-      historyRecovery: { state: 'ready', recoveredBlockCount: 0 },
-      historyRecoveryByDomain: {
-        bitcoin: { state: 'ready', recoveredBlockCount: 0 },
-        bonds: { state: 'ready', recoveredBlockCount: 0 },
-        vaulting: { state: 'ready', recoveredBlockCount: 0 },
-      },
-    }) as unknown as ReturnType<typeof useFinancials>,
-  );
+  Object.assign(useFinancials(), {
+    bitcoinLockDisplayRecords: [],
+    liquidInvisibleRecords: [],
+    activeBitcoinLockCount: 0,
+  });
   mocked(getBitcoinTransactionOperations, { partial: true }).mockReturnValue({
     bitcoinLiquidCreate: {
       getPendingLiquidTxInfos: fn(() => []),

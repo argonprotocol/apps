@@ -449,9 +449,10 @@ export class BitcoinFissionRecovery {
       history.liquidId !== active.liquidId ||
       history.utxoId !== active.utxoId ||
       history.satoshis !== active.satoshis ||
+      history.createdAtArgonBlock !== active.createdAtArgonBlock ||
       history.microgonsAtTargetPerBtc !== active.microgonsAtTargetPerBtc ||
       history.liquidityPromised !== active.liquidityPromised ||
-      history.ratchetNumber !== active.ratchetNumber
+      history.lastUpdatedArgonBlock !== active.lastUpdatedArgonBlock
     ) {
       throw new Error(`Active Bitcoin Fission ${active.fissionId} does not match recovered history`);
     }

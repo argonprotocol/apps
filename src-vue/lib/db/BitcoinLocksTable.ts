@@ -1,6 +1,6 @@
 import { BaseTable, IFieldTypes } from './BaseTable';
 
-import { BitcoinLock, bigIntMax, type IBitcoinLock, type IBitcoinLockDetails } from '@argonprotocol/apps-core';
+import { BitcoinLock, type IBitcoinLock, type IBitcoinLockDetails } from '@argonprotocol/apps-core';
 import { convertFromSqliteFields, toSqlParams } from '../Utils.ts';
 import { nanoid } from 'nanoid';
 import {
@@ -262,7 +262,6 @@ export class BitcoinLocksTable extends BaseTable {
   }
 
   public async setCurrentLockFunded(lock: IBitcoinLockRecord, currentLock: IBitcoinLock): Promise<void> {
-    currentLock.couponFeesPaid = bigIntMax(currentLock.couponFeesPaid, lock.couponFeesPaid);
     if (lock.status !== BitcoinLockStatus.Releasing && lock.status !== BitcoinLockStatus.Released) {
       lock.status = BitcoinLockStatus.LockFunded;
     }

@@ -13,6 +13,7 @@ import { bigintCodec, numberCodec, optionCodec } from '../../core/__test__/helpe
 import { encodeAddress } from '@polkadot/util-crypto';
 import { getBitcoinAlertNotices } from '../lib/Alerts.ts';
 import { BitcoinFinancials } from '../lib/financials/BitcoinLocks.ts';
+import { getMainchainClient } from '../stores/mainchain.ts';
 import { createTestDb } from './helpers/db.ts';
 import { bitcoinRecoveryEventPolicies } from '../lib/recovery/BitcoinLockReplay.ts';
 import {
@@ -41,6 +42,40 @@ vi.mock('../stores/mainchain.ts', () => ({
 const getBitcoinLock = vi.spyOn(BitcoinLock, 'get');
 
 describe('BitcoinLocks recovery', () => {
+  it('can retry a failed current-state load without replacing the state owner', async () => {
+    const db = await createTestDb();
+    const transientError = new Error('archive unavailable');
+    const start = vi.fn().mockRejectedValueOnce(transientError).mockResolvedValue(undefined);
+    const blockWatch = {
+      start,
+      events: { on: () => () => undefined },
+      bestBlockHeader: { blockNumber: 0, blockHash: '0x0' },
+    } as unknown as BlockWatch;
+    const archiveClient = {
+      consts: { bitcoinLocks: { argonTicksPerDay: { toNumber: () => 1_440 } } },
+    };
+    vi.mocked(getMainchainClient).mockResolvedValue(archiveClient as never);
+    const configSpy = vi.spyOn(BitcoinLock, 'getConfig').mockResolvedValue(createBitcoinLockConfig());
+    const store = createStore({ blockWatch, db });
+    vi.spyOn(store.utxoTracking, 'load').mockResolvedValue(undefined);
+    vi.spyOn(store.utxoTracking, 'syncArgonOrphans').mockResolvedValue([]);
+    vi.spyOn(store.recovery, 'recoverActiveLocks').mockResolvedValue([]);
+
+    await expect(store.load()).rejects.toBe(transientError);
+    expect(store.data.readiness).toBe('error');
+    expect(store.data.loadError).toBe(transientError);
+
+    const retry = store.load();
+    const concurrentRetry = store.load();
+    expect(store.data.readiness).toBe('loading');
+    await expect(Promise.all([retry, concurrentRetry])).resolves.toEqual([undefined, undefined]);
+    expect(store.data.readiness).toBe('ready');
+    expect(store.data.loadError).toBeUndefined();
+    expect(start).toHaveBeenCalledTimes(2);
+
+    configSpy.mockRestore();
+  });
+
   it('assigns every copied Bitcoin lock event an explicit replay policy', () => {
     const historicalMethods = new Set(
       historicalEventChanges.filter(change => change.section === 'bitcoinLocks').map(change => change.method),
@@ -407,7 +442,8 @@ describe('BitcoinLocks recovery', () => {
       .mockImplementation(lock => (lock === record ? recoverySummary : regularSummary));
     const fissions = {
       ownerAccount: record.ownerAccount,
-      loadActive: vi.fn(async () => []),
+      getAll: () => [],
+      getHistory: () => [],
     };
     const dbPromise = Promise.resolve({
       bitcoinFissionsTable: { fetchAll: async () => [] },
@@ -1310,6 +1346,10 @@ describe('BitcoinLocks history replay publication', () => {
     ]);
     await store.recovery.commitHistoryReplay();
 
+    expect(await db.bitcoinLocksTable.getByUtxoId(7)).toMatchObject({
+      securityFees: 130n,
+      couponFeesPaid: 10n,
+    });
     expect((await db.bitcoinSecuritizationHistoryTable.getPublishedSnapshot(accountId))?.terms).toEqual([
       expect.objectContaining({
         origin: 'created',
@@ -1331,5 +1371,67 @@ describe('BitcoinLocks history replay publication', () => {
         addedNetSecurityFee: 20n,
       }),
     ]);
+  });
+
+  it('preserves the chain-recorded coupon while replaying Lock creation', async () => {
+    const db = await createTestDb();
+    const accountId = encodeAddress(new Uint8Array(32).fill(0x33));
+    const chainLock = {
+      ...createHistoricalLock({ accountId, liquidityPromised: 0n }),
+      securityFees: 3_000_000n,
+      couponFeesPaid: 1_000_000n,
+    };
+    chainLock.ownerPubkey = `0x${chainLock.ownerPubkey}`;
+    await db.transactionsTable.insert({
+      extrinsicHash: `0x${'11'.repeat(32)}`,
+      extrinsicMethodJson: { section: 'bitcoinLocks', method: 'initialize' },
+      extrinsicType: ExtrinsicType.BitcoinRequestLock,
+      metadataJson: {
+        bitcoin: {
+          uuid: 'partial-security-fee-coupon',
+          vaultId: 1,
+          satoshis: 10_000n,
+          hdPath: "m/84'/0'/0'/3",
+          lockedTargetPrice: chainLock.lockedTargetPrice,
+          liquidityPromised: 0n,
+          securityFee: 3_000_000n,
+        },
+      },
+      accountAddress: accountId,
+      submittedAtBlockHeight: 158,
+      submittedAtTime: new Date('2026-01-01T00:00:00Z'),
+      txNonce: 1,
+    });
+    const store = createStore({
+      db,
+      blockWatch: { getApi: vi.fn(async () => ({})) } as unknown as BlockWatch,
+      walletKeys: { defaultArgonAddress: accountId } as WalletKeys,
+    });
+    vi.spyOn(store, 'getDerivedPubkey').mockResolvedValue({
+      address: 'tb1qhistory',
+      hdIndex: 3,
+      hdPath: "m/84'/0'/0'/3",
+      ownerBitcoinPubkey: hexToU8a(`02${'33'.repeat(32)}`),
+    } as Awaited<ReturnType<BitcoinLocks['getDerivedPubkey']>>);
+    vi.mocked(BitcoinHistory.getHistoricalBitcoinLock).mockResolvedValue(chainLock);
+
+    await store.recovery.beginHistoryReplay({ lockScope: 'all' });
+    await store.recovery.recoverBlock({ ...historyBlock(159), tick: 500 }, [
+      historyEvent(159, 'bitcoinLocks', 'BitcoinLockCreated', {
+        utxoId: 7,
+        vaultId: 1,
+        securitizedSatoshis: 10_000n,
+        microgonsAtTargetPerBtc: 1_000n,
+        collateralRequired: 2_000n,
+        accountId,
+        securityFee: 3_000_000n,
+      }),
+    ]);
+    await store.recovery.commitHistoryReplay();
+
+    expect(await db.bitcoinLocksTable.getByUtxoId(7)).toMatchObject({
+      securityFees: 3_000_000n,
+      couponFeesPaid: 1_000_000n,
+    });
   });
 });

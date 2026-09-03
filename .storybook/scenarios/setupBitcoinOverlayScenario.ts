@@ -47,7 +47,6 @@ import {
   getBitcoinLockCoupons,
   getBitcoinLocks,
   getBitcoinTransactionOperations,
-  loadBitcoinTransactionOperations,
 } from '../../src-vue/stores/bitcoin.ts';
 import { getCurrency } from '../../src-vue/stores/currency.ts';
 import { useFinancials } from '../../src-vue/stores/financials.ts';
@@ -393,7 +392,6 @@ export function setupBitcoinOverlayScenario() {
     bitcoinLockRelease: bitcoinLockRelease as never,
     bitcoinLockResecuritize: bitcoinLockResecuritize as never,
   });
-  mocked(loadBitcoinTransactionOperations).mockImplementation(async () => getBitcoinTransactionOperations());
 
   function setFeeWaiver(remainingFeeCreditMicrogons = 20_400_000n, resumableRequestedSatoshis?: bigint) {
     Object.assign(vault, {

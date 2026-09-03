@@ -135,7 +135,7 @@ Vue.onMounted(async () => {
   void bitcoinLockCoupons.refresh().catch(error => {
     console.error('Unable to refresh Bitcoin lock coupons', error);
   });
-  await Promise.all([currency.isLoadedPromise, bitcoinLocks.load(), miningFrames.load()]);
+  await Promise.all([currency.isLoadedPromise, miningFrames.load()]);
 
   currentTick.value = miningFrames.currentTick;
   unsubMiningFrames = miningFrames.onTick(() => {

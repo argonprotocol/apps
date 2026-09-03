@@ -7,6 +7,7 @@ import { BitcoinFissions } from '../lib/BitcoinFissions.ts';
 import { BitcoinFissionsTable } from '../lib/db/BitcoinFissionsTable.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
 import { BitcoinFissionRecovery } from '../lib/recovery/BitcoinFissions.ts';
+import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import { toBitcoinLockDetails } from '../lib/recovery/BitcoinLockHistory.ts';
 import { createHistoricalBitcoinLockRecord } from '../lib/recovery/BitcoinLockReplay.ts';
 import { createTestDb, createTestDbAtMigration } from './helpers/db.ts';
@@ -23,6 +24,37 @@ import { createMockWalletKeys } from './helpers/wallet.ts';
 const ownerAccount = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
 
 describe('Bitcoin Fission current state', () => {
+  it('can retry a failed current-state load without losing the mounted state owner', async () => {
+    const db = await createTestDb();
+    const client = {
+      consts: { bitcoinFissions: { minimumRatchetPercent: { toBigInt: () => 5n } } },
+      query: {
+        bitcoinFissions: { fissionByOwnerAndId: { entries: async () => [] } },
+        mint: {
+          pendingMintUtxoIdLookup: async () => [],
+          pendingMintUtxosByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
+        },
+      },
+    } as unknown as ArgonClient;
+    const transientError = new Error('archive unavailable');
+    const start = vi.fn().mockRejectedValueOnce(transientError).mockResolvedValue(undefined);
+    const blockWatch = { subscriptionClient: client, start } as unknown as BlockWatch;
+    const fissions = new BitcoinFissions(Promise.resolve(db), ownerAccount, blockWatch);
+    fissions.data = Vue.reactive(fissions.data) as BitcoinFissions['data'];
+
+    await expect(fissions.load()).rejects.toBe(transientError);
+    expect(fissions.data.readiness).toBe('error');
+    expect(fissions.data.loadError).toBe(transientError);
+
+    const retry = fissions.load();
+    const concurrentRetry = fissions.load();
+    expect(fissions.data.readiness).toBe('loading');
+    await expect(Promise.all([retry, concurrentRetry])).resolves.toEqual([undefined, undefined]);
+    expect(fissions.data.readiness).toBe('ready');
+    expect(fissions.data.loadError).toBeUndefined();
+    expect(start).toHaveBeenCalledTimes(2);
+  });
+
   it('reassembles computed Liquids when their authoritative Fission state changes', async () => {
     const db = await createTestDb();
     const fissions = new BitcoinFissions(Promise.resolve(db), ownerAccount);
@@ -37,6 +69,84 @@ describe('Bitcoin Fission current state', () => {
 
     expect(liquids.value[0]).not.toBe(initial);
     expect(liquids.value[0].liquidityPromised).toBe(1_800n);
+  });
+
+  it('keeps consecutive current-state refreshes ordered when an older query resolves late', async () => {
+    const db = await createTestDb();
+    const initial = createCurrentFission();
+    let releaseOlderQuery: VoidFunction = () => undefined;
+    const olderQueryGate = new Promise<void>(resolve => {
+      releaseOlderQuery = resolve;
+    });
+    const createClient = (current: IBitcoinFission, wait?: Promise<void>) =>
+      ({
+        consts: { bitcoinFissions: { minimumRatchetPercent: { toBigInt: () => 5n } } },
+        query: {
+          bitcoinFissions: {
+            fissionByOwnerAndId: {
+              entries: vi.fn(async () => {
+                await wait;
+                return [[{ args: [ownerAccount, current.fissionId] }, current]];
+              }),
+            },
+          },
+          mint: {
+            pendingMintUtxoIdLookup: async () => [],
+            pendingMintUtxosByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
+          },
+        },
+      }) as unknown as ArgonClient;
+    const olderClient = createClient({ ...initial, ratchetNumber: 2, lastUpdatedArgonBlock: 170 }, olderQueryGate);
+    const newerClient = createClient({ ...initial, ratchetNumber: 3, lastUpdatedArgonBlock: 171 });
+    const fissions = new BitcoinFissions(Promise.resolve(db), ownerAccount);
+    fissions.data.readiness = 'ready';
+    fissions.data.fissionsById = { [initial.fissionId]: new BitcoinFission(initial) };
+
+    const olderRefresh = fissions.refreshCurrent(olderClient);
+    const newerRefresh = fissions.refreshCurrent(newerClient);
+    await Promise.resolve();
+    await Promise.resolve();
+    releaseOlderQuery();
+    await Promise.all([olderRefresh, newerRefresh]);
+
+    expect(fissions.getAll()).toEqual([expect.objectContaining({ ratchetNumber: 3, lastUpdatedArgonBlock: 171 })]);
+    expect(fissions.data.financialRevision).toBe(2);
+  });
+
+  it('publishes ratcheted and closed current state without requiring recovered history', async () => {
+    const db = await createTestDb();
+    const initial = createCurrentFission();
+    let current: IBitcoinFission | undefined = {
+      ...initial,
+      ratchetNumber: 2,
+      lastUpdatedArgonBlock: 170,
+    };
+    const client = {
+      consts: { bitcoinFissions: { minimumRatchetPercent: { toBigInt: () => 5n } } },
+      query: {
+        bitcoinFissions: {
+          fissionByOwnerAndId: {
+            entries: async () => (current ? [[{ args: [ownerAccount, current.fissionId] }, current]] : []),
+          },
+        },
+        mint: {
+          pendingMintUtxoIdLookup: async () => [],
+          pendingMintUtxosByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
+        },
+      },
+    } as unknown as ArgonClient;
+    const fissions = new BitcoinFissions(Promise.resolve(db), ownerAccount);
+    fissions.data.readiness = 'ready';
+    fissions.data.fissionsById = { [initial.fissionId]: new BitcoinFission(initial) };
+
+    await fissions.refreshCurrent(client);
+    expect(fissions.getAll()).toEqual([expect.objectContaining({ ratchetNumber: 2, lastUpdatedArgonBlock: 170 })]);
+
+    current = undefined;
+    await fissions.refreshCurrent(client);
+    expect(fissions.getAll()).toEqual([]);
+    expect(fissions.getHistory()).toEqual([]);
+    expect(fissions.data.financialRevision).toBe(2);
   });
 
   it('keeps current runtime state authoritative when closed history was published first', async () => {
@@ -176,6 +286,89 @@ describe('Bitcoin Fission current state', () => {
         pendingMints: [expect.objectContaining({ queueIndex: 3 })],
       }),
     ]);
+  });
+
+  it('publishes finalized Fission economics with current chain state', async () => {
+    const db = await createTestDb();
+    const block = { ...historyBlock(159), tick: 500 };
+    const current = {
+      ownerAccount,
+      fissionId: 21,
+      liquidId: 12,
+      utxoId: 7,
+      satoshis: 10_000n,
+      microgonsAtTargetPerBtc: 1_000n,
+      liquidityPromised: 1_000n,
+      createdAtArgonBlock: block.blockNumber,
+      ratchetNumber: 0,
+      lastRatchetTick: block.tick,
+      lastUpdatedArgonBlock: block.blockNumber,
+    };
+    const client = {
+      query: {
+        bitcoinFissions: {
+          fissionByOwnerAndId: {
+            entries: async () => [[{ args: [ownerAccount, current.fissionId] }, current]],
+          },
+        },
+        mint: {
+          pendingMintUtxoIdLookup: async () => [],
+          pendingMintUtxosByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
+        },
+      },
+    } as unknown as ArgonClient;
+    const blockWatch = {
+      subscriptionClient: client,
+      getHeader: async () => block,
+    } as unknown as BlockWatch;
+    const fissions = new BitcoinFissions(Promise.resolve(db), ownerAccount, blockWatch);
+    fissions.data.readiness = 'ready';
+    const events = [
+      historyEvent(159, 'bitcoinFissions', 'FissionCreated', {
+        accountId: ownerAccount,
+        fissionId: current.fissionId,
+        liquidId: current.liquidId,
+        utxoId: current.utxoId,
+        satoshis: current.satoshis,
+        microgonsAtTargetPerBtc: current.microgonsAtTargetPerBtc,
+        liquidityPromised: current.liquidityPromised,
+      }),
+      historyEvent(159, 'transactionPayment', 'TransactionFeePaid', {
+        who: ownerAccount,
+        actualFee: 11n,
+        tip: 0n,
+      }),
+    ];
+
+    await fissions.recordFinalizedTransaction({
+      tx: {
+        id: 1,
+        blockHeight: block.blockNumber,
+        blockHash: block.blockHash,
+        blockExtrinsicIndex: 2,
+      },
+      txResult: {
+        blockNumber: block.blockNumber,
+        extrinsicIndex: 2,
+        events: events.map(record => record.event),
+      },
+    } as unknown as TransactionInfo);
+
+    expect(fissions.getAll()).toEqual([
+      expect.objectContaining({
+        fissionId: current.fissionId,
+        createdAtTick: block.tick,
+        ratchets: [expect.objectContaining({ txFee: 11n })],
+      }),
+    ]);
+    expect(fissions.data.financialRevision).toBe(1);
+
+    const published = fissions.getAll()[0];
+    await fissions.recovery.beginHistoryReplay();
+    await fissions.recovery.commitHistoryReplay();
+
+    expect(fissions.getAll()[0]).toBe(published);
+    expect(fissions.getAll()[0].ratchets).toEqual([expect.objectContaining({ txFee: 11n })]);
   });
 
   it('loads durable closed Fissions and republishes incremental recovery to mounted consumers', async () => {
@@ -470,7 +663,21 @@ describe('Bitcoin Fission recovery', () => {
       },
     ];
 
-    const recovery = new BitcoinFissionRecovery(Promise.resolve(db), ownerAccount);
+    const fissions = new BitcoinFissions(Promise.resolve(db), ownerAccount);
+    const current = new BitcoinFission({
+      ownerAccount,
+      fissionId: 7,
+      liquidId: 7,
+      utxoId: 7,
+      satoshis: historicalLock.fundedSatoshis,
+      microgonsAtTargetPerBtc: 1_600n,
+      liquidityPromised: 1_500n,
+      createdAtArgonBlock: lock.lockDetails.createdAtArgonBlock,
+      ratchetNumber: 3,
+      lastUpdatedArgonBlock: 160,
+    });
+    fissions.data.fissionsById[current.fissionId] = current;
+    const recovery = fissions.recovery;
     await recovery.beginHistoryReplay({ replace: true });
     await recovery.recoverBlock(historyBlock(160), [
       historyEvent(159, 'bitcoinFissions', 'FissionRatcheted', {
@@ -507,6 +714,9 @@ describe('Bitcoin Fission recovery', () => {
       expect.objectContaining({ source: 'lock', mintPending: 400n, blockNumber: 158, tick: 508 }),
       expect.objectContaining({ source: 'fission', ratchetNumber: 1, mintPending: 300n, blockNumber: 160 }),
     ]);
+    expect(fissions.getAll()[0]).toBe(current);
+    expect(current.ratchetNumber).toBe(3);
+    expect(current.ratchets).toEqual(fission.ratchets);
   });
 
   it('reconstructs a completed pre-159 Liquid from its Lock history without a Fission event', async () => {
