@@ -29,6 +29,9 @@ export function getArgonBonds(): ArgonBonds {
       },
     );
   }
+  void argonBonds.load().catch(error => {
+    console.error('[ArgonBonds] Unable to load current state', error);
+  });
 
   return argonBonds;
 }

@@ -79,7 +79,7 @@ import { getMyVault } from '../../stores/vaults.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { MyVaultRecovery } from '../../lib/recovery/MyVaultRecovery.ts';
 import { getBlockWatch, getMainchainClients, getFinalizedClient } from '../../stores/mainchain.ts';
-import { useFinancials } from '../../stores/financials.ts';
+import { useFinancialHistory } from '../../stores/financialHistory.ts';
 import { getConfig } from '../../stores/config.ts';
 import { getDbPromise } from '../../stores/helpers/dbPromise.ts';
 import Importer from '../../lib/Importer.ts';
@@ -89,7 +89,7 @@ const wallets = useWallets();
 const walletKeys = getWalletKeys();
 const myVault = getMyVault();
 const bitcoinLocks = getBitcoinLocks();
-const financials = useFinancials();
+const financialHistory = useFinancialHistory();
 const config = getConfig() as Config;
 const accountImporter = new Importer(config, walletKeys, getDbPromise());
 
@@ -179,14 +179,14 @@ async function checkMintingAuthorities() {
 }
 
 async function checkFinancialHistory() {
-  await financials.restoreFinancialHistory(true);
-  if (financials.historyRecovery.state === 'error') {
-    throw new Error(financials.historyRecovery.message ?? 'Unable to restore investment history');
+  await financialHistory.restoreFinancialHistory(true);
+  if (financialHistory.historyRecovery.state === 'error') {
+    throw new Error(financialHistory.historyRecovery.message ?? 'Unable to restore investment history');
   }
 
   return {
-    isUnchanged: financials.historyRecovery.recoveredBlockCount === 0,
-    recoveredBlocks: financials.historyRecovery.recoveredBlockCount,
+    isUnchanged: financialHistory.historyRecovery.recoveredBlockCount === 0,
+    recoveredBlocks: financialHistory.historyRecovery.recoveredBlockCount,
   };
 }
 

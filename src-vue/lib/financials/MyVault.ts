@@ -4,7 +4,6 @@ import {
   type IFinancialPositionSource,
   type IVaultBalanceFinancialPosition,
   type IVaultFinancialPosition,
-  withInvestmentBasis,
 } from '../../interfaces/IFinancialPosition.ts';
 import type { IArgonAccountBalance } from '../WalletsForArgon.ts';
 import type { IVaultCapitalHistoryRecord } from '../db/VaultCapitalHistoryTable.ts';
@@ -12,7 +11,6 @@ import type { IVaultRevenueEventsRecord } from '../db/VaultRevenueEventsTable.ts
 import type { MyVault } from '../MyVault.ts';
 
 type VaultFinancialPositionArgs = {
-  hasConfirmedHistoryCoverage: boolean;
   account: IArgonAccountBalance;
   liveArgonotRateMicrogons: bigint;
 };
@@ -23,8 +21,6 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
   constructor(private readonly vault: MyVault) {}
 
   public async loadPositions(args: VaultFinancialPositionArgs): Promise<VaultPosition[]> {
-    await this.vault.load();
-
     const history = await this.vault.history.loadPositionHistory();
     const liveVault = this.vault.createdVault ?? undefined;
 
@@ -123,7 +119,7 @@ export class VaultFinancials implements IFinancialPositionSource<VaultFinancialP
           capitalHistory: vaultCapitalHistory,
           revenueHistory,
         },
-        withInvestmentBasis(value, args.hasConfirmedHistoryCoverage),
+        value,
       ),
     ];
 

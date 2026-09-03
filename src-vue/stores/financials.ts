@@ -1,34 +1,31 @@
 import { defineStore } from 'pinia';
 import * as Vue from 'vue';
 import { getWalletHistoryRecovery, getWalletsForArgon, useWallets } from './wallets.ts';
-import { getBitcoinLocks } from './bitcoin.ts';
+import { getBitcoinFissions, getBitcoinLocks } from './bitcoin.ts';
 import { getCurrency } from './currency.ts';
 import { getArgonBonds } from './argonBonds.ts';
-import { getBlockWatch, getMainchainClients } from './mainchain.ts';
+import { getBlockWatch } from './mainchain.ts';
 import {
-  type ArgonQueryClient,
   calculateRestabilizationLeverage,
   calculatePerformanceReturn,
   type IBlockHeaderInfo,
+  type Vault,
   type IPerformanceReturnInput,
   UnitOfMeasurement,
-  Vault,
 } from '@argonprotocol/apps-core';
 import BigNumber from 'bignumber.js';
 
 import { getVaults, getMyVault } from './vaults.ts';
 import { financialGroups, type IFinancialPosition } from '../interfaces/IFinancialPosition.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
-import {
-  getEnabledFinancialHistoryDomains,
-  type IFinancialHistoryDomain,
-  needsFinancialHistoryRecovery,
-  restoreFinancialHistory as restoreFinancialHistoryFromIndex,
-} from '../lib/recovery/index.ts';
-import { FinalizedHistoryScheduler } from '../lib/recovery/Scheduler.ts';
 import { getMyMiningSeats } from './myMiningSeats.ts';
 import { calculatePositionReturn, FinancialPositionBook, reduceFinancialPositions } from '../lib/financials';
-import { BitcoinFinancials } from '../lib/financials/BitcoinLocks.ts';
+import {
+  BitcoinFinancials,
+  calculateBitcoinEndingCapital,
+  calculateBitcoinReturn,
+  valueSatoshisAtRate,
+} from '../lib/financials/BitcoinLocks.ts';
 import type { IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
 import { VaultFinancials } from '../lib/financials/MyVault.ts';
 import type { IArgonAccountSnapshot } from '../lib/WalletsForArgon.ts';
@@ -49,6 +46,7 @@ export const useFinancials = defineStore('financials', () => {
   const walletsForArgon = getWalletsForArgon();
   const argonBonds = getArgonBonds();
   const bitcoinLocks = getBitcoinLocks();
+  const bitcoinFissions = getBitcoinFissions();
   const currency = getCurrency();
   const config = getConfig();
   const vaultStore = getVaults();
@@ -56,7 +54,7 @@ export const useFinancials = defineStore('financials', () => {
   const stableSwaps = useStableSwaps();
   const walletFinancials = new WalletFinancials(walletsForArgon);
   const bondFinancials = new ArgonBondsFinancials(argonBonds);
-  const bitcoinFinancials = new BitcoinFinancials(bitcoinLocks);
+  const bitcoinFinancials = new BitcoinFinancials(bitcoinLocks, bitcoinFissions, getDbPromise());
   const vaultFinancials = new VaultFinancials(myVault);
   const stableSwapFinancials = new StableSwapFinancials(stableSwaps);
   let myMiningSeats: ReturnType<typeof getMyMiningSeats> | undefined;
@@ -89,34 +87,11 @@ export const useFinancials = defineStore('financials', () => {
 
     return { microgons, micronots };
   });
-  type IFinancialHistoryRecoveryState = {
-    state: 'checking' | 'restoring' | 'waiting' | 'ready' | 'error';
-    recoveredBlockCount: number;
-    currentDomain?: IFinancialHistoryDomain;
-    currentDomainRecoveredBlockCount?: number;
-    currentDomainTotalBlockCount?: number;
-    message?: string;
-  };
-  const historyRecovery = Vue.ref<IFinancialHistoryRecoveryState>({ state: 'ready', recoveredBlockCount: 0 });
-  const historyRecoveryByDomain = Vue.reactive<Record<IFinancialHistoryDomain, IFinancialHistoryRecoveryState>>({
-    bitcoin: { state: 'ready', recoveredBlockCount: 0 },
-    bonds: { state: 'ready', recoveredBlockCount: 0 },
-    vaulting: { state: 'ready', recoveredBlockCount: 0 },
-  });
-  const activeBitcoinLockCount = Vue.ref<number>();
-  const isHistoryRecoveryInProgress = Vue.computed(() => {
-    return (
-      historyRecovery.value.state === 'checking' ||
-      historyRecovery.value.state === 'restoring' ||
-      historyRecovery.value.state === 'waiting'
-    );
-  });
-  let hasConfirmedFinancialHistoryCoverage = false;
-  const confirmedFinancialHistoryDomains = new Set<IFinancialHistoryDomain>();
   let queuedAccountHeader: IBlockHeaderInfo | undefined;
   let queuedAccountReconciliation = false;
   let activeAccountHash = '';
   let accountRefreshPromise: Promise<void> | undefined;
+  let accountSourcesAreLoaded = false;
   let accountRefreshRetryTimer: ReturnType<typeof setTimeout> | undefined;
   let accountRefreshRetryAttempts = 0;
   let lastCoveredWalletSnapshotBlock = 0;
@@ -125,13 +100,6 @@ export const useFinancials = defineStore('financials', () => {
   let queuedArgonotCustodyRevision = 0;
   let walletHistoryCoverage: { blockNumber: number; promise: Promise<boolean> } | undefined;
   let walletHistoryRefreshPromise: Promise<void> | undefined;
-  const finalizedHistoryScheduler = new FinalizedHistoryScheduler(async (finalizedBlockNumber, force) => {
-    if (!isLoaded.value) return 0;
-    if (!force && !config.hasExtensionTreasury && !config.hasExtensionOperations) {
-      return finalizedBlockNumber;
-    }
-    return runFinancialHistoryRecovery(force, finalizedBlockNumber);
-  });
   Vue.onScopeDispose(() => {
     resetAccountRefreshRetry();
   });
@@ -205,29 +173,6 @@ export const useFinancials = defineStore('financials', () => {
     return promise;
   }
 
-  async function loadEnabledDomainSources(): Promise<void> {
-    const loads: Promise<unknown>[] = [
-      getVaultingStatsSource().isLoadedPromise,
-      currency.fetchMicrogonsInCirculation().then(value => {
-        microgonsInCirculation.value = value;
-      }),
-    ];
-    if (config.hasExtensionTreasury) {
-      loads.push(argonBonds.load(), bitcoinLocks.load(), vaultStore.load());
-    }
-    if (config.hasExtensionOperations) {
-      loads.push(getMyMiningSeatsSource().isLoadedPromise, myVault.load());
-    }
-    const results = await Promise.allSettled(loads);
-
-    if (config.hasExtensionTreasury) {
-      results.push(...(await Promise.allSettled([loadVaults()])));
-    }
-    for (const result of results) {
-      if (result.status === 'rejected') console.error('Unable to load a financial domain', result.reason);
-    }
-  }
-
   async function prepareWalletPositions({
     snapshot,
     treasuryHoldsAreClaimed,
@@ -261,18 +206,17 @@ export const useFinancials = defineStore('financials', () => {
     });
   }
 
-  async function prepareBondPositions(snapshot: IArgonAccountSnapshot, clientAt: ArgonQueryClient) {
+  async function prepareBondPositions(snapshot: IArgonAccountSnapshot) {
     if (!config.hasExtensionTreasury) {
       return { positions: [], claimsHolds: false };
     }
+    if (!argonBonds.data.isLoaded) return;
 
     const account = snapshot.accounts.find(entry => entry.address === wallets.defaultArgonWallet.address);
     if (!account) throw new Error('Default Argon account is missing from the wallet snapshot');
 
     const positions = await bondFinancials.loadPositions({
       account,
-      clientAt,
-      hasConfirmedBondHistoryCoverage: confirmedFinancialHistoryDomains.has('bonds'),
       liveArgonotRateMicrogons: currency.microgonsPer.ARGNOT,
       ownedVaultId: myVault.createdVault?.vaultId,
     });
@@ -283,6 +227,7 @@ export const useFinancials = defineStore('financials', () => {
     if (!config.hasExtensionOperations) {
       return { positions: [], claimsHolds: false };
     }
+    if (!getMyMiningSeatsSource().isLoaded) return;
 
     const historyCutoff = getBlockWatch().finalizedBlockHeader.blockNumber;
     const hasConfirmedHistoryCoverage = await hasWalletHistoryCoverage(historyCutoff);
@@ -297,6 +242,7 @@ export const useFinancials = defineStore('financials', () => {
 
   async function prepareVaultPositions(snapshot: IArgonAccountSnapshot) {
     if (!config.hasExtensionOperations) return { positions: [], claimsHolds: false };
+    if (!myVault.data.isLoaded) return;
 
     const account = snapshot.accounts.find(entry => entry.address === wallets.defaultArgonWallet.address);
     if (!account) throw new Error('Vault operator account is missing from the Argon wallet snapshot');
@@ -304,7 +250,6 @@ export const useFinancials = defineStore('financials', () => {
     const positions = await vaultFinancials.loadPositions({
       account,
       liveArgonotRateMicrogons: currency.microgonsPer.ARGNOT,
-      hasConfirmedHistoryCoverage: confirmedFinancialHistoryDomains.has('vaulting'),
     });
     return { positions, claimsHolds: Boolean(myVault.createdVault) };
   }
@@ -325,7 +270,7 @@ export const useFinancials = defineStore('financials', () => {
           includeHolds: config.hasExtensionTreasury || config.hasExtensionOperations,
         });
       }
-      if (!isSameBlock(header, getBlockWatch().bestBlockHeader)) {
+      if (!isOnCurrentBestChain(header)) {
         void queueAccountRefresh({ force: true });
         return;
       }
@@ -333,7 +278,7 @@ export const useFinancials = defineStore('financials', () => {
       const [miningResult, vaultingResult, bondsResult, bitcoinResult] = await Promise.allSettled([
         prepareMiningPositions(candidate),
         prepareVaultPositions(candidate),
-        prepareBondPositions(candidate, clientAt),
+        prepareBondPositions(candidate),
         prepareBitcoinPositions(candidate, header),
       ]);
       const currentGroups = financialPositionAggregate.value.groupSummaries;
@@ -341,20 +286,20 @@ export const useFinancials = defineStore('financials', () => {
         prepareWalletPositions({
           snapshot: candidate,
           treasuryHoldsAreClaimed:
-            bondsResult.status === 'fulfilled'
+            bondsResult.status === 'fulfilled' && bondsResult.value
               ? bondsResult.value.claimsHolds
               : currentGroups.bonds.positions.length > 0,
           miningClaimsHolds:
-            miningResult.status === 'fulfilled'
+            miningResult.status === 'fulfilled' && miningResult.value
               ? miningResult.value.claimsHolds
               : currentGroups.mining.positions.length > 0,
           vaultClaimsHolds:
-            vaultingResult.status === 'fulfilled'
+            vaultingResult.status === 'fulfilled' && vaultingResult.value
               ? vaultingResult.value.claimsHolds
               : currentGroups.vaulting.positions.length > 0,
         }),
       ]);
-      if (!isSameBlock(header, getBlockWatch().bestBlockHeader)) {
+      if (!isOnCurrentBestChain(header)) {
         void queueAccountRefresh({ force: true });
         return;
       }
@@ -365,28 +310,28 @@ export const useFinancials = defineStore('financials', () => {
       if (liquidResult.status === 'fulfilled') {
         updates.push({ refresh: liquidRefresh, positions: liquidResult.value, observation: candidate.observation });
       }
-      if (miningResult.status === 'fulfilled') {
+      if (miningResult.status === 'fulfilled' && miningResult.value) {
         updates.push({
           refresh: miningRefresh,
           positions: miningResult.value.positions,
           observation: candidate.observation,
         });
       }
-      if (vaultingResult.status === 'fulfilled') {
+      if (vaultingResult.status === 'fulfilled' && vaultingResult.value) {
         updates.push({
           refresh: vaultingRefresh,
           positions: vaultingResult.value.positions,
           observation: candidate.observation,
         });
       }
-      if (bondsResult.status === 'fulfilled') {
+      if (bondsResult.status === 'fulfilled' && bondsResult.value) {
         updates.push({
           refresh: bondsRefresh,
           positions: bondsResult.value.positions,
           observation: candidate.observation,
         });
       }
-      if (bitcoinResult.status === 'fulfilled') {
+      if (bitcoinResult.status === 'fulfilled' && bitcoinResult.value) {
         updates.push({
           refresh: bitcoinRefresh,
           positions: bitcoinResult.value.positions,
@@ -397,7 +342,7 @@ export const useFinancials = defineStore('financials', () => {
       const didCommit = updates.length === 0 || financialPositionBook.commit(updates);
       if (didCommit) {
         accountSnapshot.value = candidate;
-        if (bitcoinResult.status === 'fulfilled') {
+        if (bitcoinResult.status === 'fulfilled' && bitcoinResult.value) {
           liquidAllRecords.value = bitcoinResult.value.summaries;
           liquidHodlingInvestments.value = bitcoinResult.value.hodlingInvestments;
           liquidCurrentBitcoinDebt.value = bitcoinResult.value.currentBitcoinDebt;
@@ -496,6 +441,7 @@ export const useFinancials = defineStore('financials', () => {
         currentBitcoinDebt: 0n,
       };
     }
+    if (!bitcoinLocks.data.isLoaded || !bitcoinFissions.data.isLoaded) return;
 
     const btcPrice = currency.priceIndex.btcUsdPrice;
     const argonTargetPrice = currency.priceIndex.argonUsdTargetPrice;
@@ -504,7 +450,7 @@ export const useFinancials = defineStore('financials', () => {
     const bitcoin = await bitcoinFinancials.loadSnapshot({
       clientAt,
       hasCurrentPrice,
-      hasConfirmedHistoryCoverage: confirmedFinancialHistoryDomains.has('bitcoin'),
+      ...(hasCurrentPrice && currency.priceIndex.argonUsdPrice ? { priceIndex: currency.priceIndex } : {}),
     });
 
     return {
@@ -559,8 +505,6 @@ export const useFinancials = defineStore('financials', () => {
   async function refreshVaults(vaultIds?: number[]) {
     if (vaultIds?.length) {
       await Promise.all(vaultIds.map(vaultId => vaultStore.refreshVault(vaultId)));
-    } else {
-      await vaultStore.load(true);
     }
     await loadVaults();
   }
@@ -569,13 +513,13 @@ export const useFinancials = defineStore('financials', () => {
 
   const savingsTotalPending = Vue.computed(() => {
     const lockedRecords = liquidVisibleRecords.value.filter(x => {
-      return bitcoinLocks.isLockedStatus(x.record);
+      return bitcoinLocks.isLockFunded(x.record);
     });
     return lockedRecords.reduce((sum, lock) => sum + lock.pendingLiquidity, 0n);
   });
   const savingsTotalReadyToUse = Vue.computed(() => wallets.defaultArgonWallet.availableMicrogons);
   const savingsTotalValue = Vue.computed(() => {
-    let total = savingsTotalPending.value;
+    let total = savingsTotalPending.value + currency.convertSatToMicrogon(bitcoinWalletTotalSatoshis.value);
     for (const position of financialPositionAggregate.value.groupSummaries.liquid.positions) {
       if (position.kind !== 'wallet-balance' && position.kind !== 'wallet-holding') continue;
       if (position.accountId !== wallets.defaultArgonWallet.address || position.lifecycle === 'completed') continue;
@@ -631,6 +575,7 @@ export const useFinancials = defineStore('financials', () => {
   // Bitcoin Liquid Locks ///////////////////////////////////////////////////////////////////////////////////////////////
 
   const liquidAllRecords = Vue.ref<IBitcoinLockSummary[]>([]);
+  const bitcoinLiquids = Vue.computed(() => bitcoinFissions.getLiquids());
 
   const bitcoinLockSummaries = Vue.computed<IBitcoinLockSummary[]>(() => {
     const summariesByUuid = new Map(liquidAllRecords.value.map(summary => [summary.uuid, summary]));
@@ -672,38 +617,33 @@ export const useFinancials = defineStore('financials', () => {
 
   const bitcoinLockPerformanceByUuid = Vue.computed(() => {
     const performanceByUuid: Record<string, { profit: bigint; percent: number }> = {};
-    for (const position of financialPositionAggregate.value.groupSummaries.bitcoin.positions) {
-      if (position.kind !== 'bitcoin-asset') continue;
+    for (const summary of bitcoinLockSummaries.value) {
+      const { record } = summary;
+      if (
+        record.removalReason !== 'released' ||
+        record.isHistoryRecoveryPending ||
+        record.removalBlockTime === undefined ||
+        record.releaseRedemptionMicrogons === undefined ||
+        record.releaseArgonTxFeeMicrogons === undefined ||
+        summary.historicalTotalFees === undefined ||
+        valueSatoshisAtRate(summary.satoshis, record.btcPriceAtRemovalMicrogons) === undefined ||
+        valueSatoshisAtRate(record.fundingUtxo?.releaseBitcoinNetworkFee, record.btcPriceAtRemovalMicrogons) ===
+          undefined
+      ) {
+        continue;
+      }
 
-      const performance = calculatePositionReturn([position]);
-      if (performance.returnAmount === undefined || performance.percent === undefined) continue;
-
-      performanceByUuid[position.lock.uuid] = {
-        profit: performance.returnAmount,
-        percent: performance.percent,
-      };
-    }
-
-    const persistedPositions = bitcoinFinancials.createFinancialPositions({
-      summaries: bitcoinLockSummaries.value.filter(summary => {
-        return (
-          !performanceByUuid[summary.uuid] &&
-          summary.record.removalReason === 'released' &&
-          summary.record.isHistoryRecoveryPending === false
-        );
-      }),
-      hasCurrentPrice: false,
-      hasConfirmedHistoryCoverage: true,
-    });
-    for (const position of persistedPositions) {
-      if (position.kind !== 'bitcoin-asset') continue;
-
-      const performance = calculatePositionReturn([position]);
-      if (performance.returnAmount === undefined || performance.percent === undefined) continue;
-
-      performanceByUuid[position.lock.uuid] = {
-        profit: performance.returnAmount,
-        percent: performance.percent,
+      const endingCapital = calculateBitcoinEndingCapital({
+        bitcoinValue: summary.startingCapital,
+        receivedLiquidity: summary.receivedLiquidity,
+        pendingLiquidity: summary.pendingLiquidity,
+        redemptionAmount: record.releaseRedemptionMicrogons,
+        fees: summary.historicalTotalFees,
+        compensation: record.releaseCompensationMicrogons ?? 0n,
+      });
+      performanceByUuid[summary.uuid] = {
+        profit: endingCapital - summary.startingCapital,
+        percent: calculateBitcoinReturn(summary.startingCapital, endingCapital),
       };
     }
 
@@ -711,11 +651,17 @@ export const useFinancials = defineStore('financials', () => {
   });
 
   const liquidLockedRecords = Vue.computed(() => {
-    return bitcoinLockSummaries.value.filter(lock => bitcoinLocks.isLockedStatus(lock.record));
+    return bitcoinLockSummaries.value.filter(lock => bitcoinLocks.isLockFunded(lock.record));
+  });
+
+  const bitcoinWalletTotalSatoshis = Vue.computed(() => {
+    return liquidLockedRecords.value.reduce((sum, l) => sum + l.satoshis, 0n);
   });
 
   const liquidTotalSatoshis = Vue.computed(() => {
-    return liquidLockedRecords.value.reduce((sum, l) => sum + l.satoshis, 0n);
+    return bitcoinLiquids.value
+      .filter(liquid => !liquid.isClosed)
+      .reduce((total, liquid) => total + liquid.satoshis, 0n);
   });
 
   const liquidPerformanceReturn = Vue.computed(() => {
@@ -750,15 +696,6 @@ export const useFinancials = defineStore('financials', () => {
     if (lockSummaryProgressInterval) return;
     lockSummaryProgressInterval = setInterval(refreshLockSummaryProgress, 1_000);
   }
-
-  Vue.watch(
-    () => [bitcoinLocks.data.locksByUtxoId, bitcoinLocks.data.pendingLocks],
-    () => {
-      if (!isLoaded.value) return;
-      void queueAccountRefresh({ force: true });
-    },
-    { deep: true },
-  );
 
   Vue.watch(
     () => bitcoinLocks.data.latestArgonBlock?.blockNumber,
@@ -831,12 +768,6 @@ export const useFinancials = defineStore('financials', () => {
     void queueAccountRefresh();
   });
 
-  walletsForArgon.events.on('history:gap', gap => {
-    if (!config.hasExtensionTreasury && !config.hasExtensionOperations) return;
-
-    finalizedHistoryScheduler.queue(gap.toBlock);
-  });
-
   walletsForArgon.events.on('history:recovered', revisions => {
     const historyCutoff = getBlockWatch().finalizedBlockHeader.blockNumber;
     if (!isLoaded.value || revisions.asOfBlock < historyCutoff) return;
@@ -873,22 +804,33 @@ export const useFinancials = defineStore('financials', () => {
   });
 
   Vue.watch(
-    () => [argonBonds.data.bondLots, argonBonds.data.bondHistory],
+    () => (config.isLoaded && config.hasExtensionTreasury ? argonBonds.data.financialRevision : 0),
     () => {
-      if (!isLoaded.value || !config.hasExtensionTreasury) return;
+      if (!accountSourcesAreLoaded || !config.hasExtensionTreasury || !argonBonds.data.isLoaded) return;
       void queueAccountRefresh({ force: true });
     },
   );
 
   Vue.watch(
-    () => [
-      myVault.createdVault,
-      myVault.data.pendingCollectRevenue,
-      myVault.data.argonotCommitment.committedMicronots,
-      myVault.data.argonotCommitment.encumberedMicronots,
-    ],
+    () => (config.isLoaded && config.hasExtensionTreasury ? bitcoinLocks.data.financialRevision : 0),
     () => {
-      if (!isLoaded.value || !config.hasExtensionOperations) return;
+      if (!accountSourcesAreLoaded || !config.hasExtensionTreasury || !bitcoinLocks.data.isLoaded) return;
+      void queueAccountRefresh({ force: true });
+    },
+  );
+
+  Vue.watch(
+    () => (config.isLoaded && config.hasExtensionTreasury ? bitcoinFissions.data.financialRevision : 0),
+    () => {
+      if (!accountSourcesAreLoaded || !config.hasExtensionTreasury || !bitcoinFissions.data.isLoaded) return;
+      void queueAccountRefresh({ force: true });
+    },
+  );
+
+  Vue.watch(
+    () => (config.isLoaded && config.hasExtensionOperations ? myVault.data.financialRevision : 0),
+    () => {
+      if (!accountSourcesAreLoaded || !config.hasExtensionOperations || !myVault.data.isLoaded) return;
       void queueAccountRefresh({ force: true });
     },
   );
@@ -904,7 +846,7 @@ export const useFinancials = defineStore('financials', () => {
   Vue.watch(
     () => (config.isLoaded && config.hasExtensionOperations ? getMyMiningSeatsSource().financialRevision : 0),
     () => {
-      if (!isLoaded.value || !config.hasExtensionOperations) return;
+      if (!accountSourcesAreLoaded || !config.hasExtensionOperations || !getMyMiningSeatsSource().isLoaded) return;
       const sourceBlockNumber = getMyMiningSeatsSource().serverState.argonLocalNodeBlockNumber;
       if (sourceBlockNumber && sourceBlockNumber > (accountSnapshot.value?.observation.blockNumber ?? 0)) return;
 
@@ -918,7 +860,6 @@ export const useFinancials = defineStore('financials', () => {
       if (!isLoaded.value) return;
 
       try {
-        await loadEnabledDomainSources();
         if (config.hasExtensionTreasury) {
           startLockSummaryProgressRefresh();
         }
@@ -928,11 +869,6 @@ export const useFinancials = defineStore('financials', () => {
         // block when a domain activates so its positions can claim those holds.
         accountSnapshot.value = undefined;
         await queueAccountRefresh({ force: true });
-        if (config.hasExtensionTreasury || config.hasExtensionOperations) {
-          void initializeFinancialHistoryRecovery().catch(error => {
-            console.error('[FinancialHistory] Unable to initialize recovery', error);
-          });
-        }
       } catch (error) {
         console.error('Unable to activate financial positions', error);
       }
@@ -980,19 +916,10 @@ export const useFinancials = defineStore('financials', () => {
     setFinancialScope();
     await config.isLoadedPromise;
     const configReadyAt = performance.now();
-    if (!config.walletAccountsHadPreviousLife) {
-      hasConfirmedFinancialHistoryCoverage = true;
-      for (const domain of ['bitcoin', 'bonds', 'vaulting'] as const) {
-        confirmedFinancialHistoryDomains.add(domain);
-      }
-      historyRecovery.value = { state: 'ready', recoveredBlockCount: 0 };
-    }
     await Promise.all([wallets.isLoadedPromise, currency.isLoadedPromise]);
+    accountSourcesAreLoaded = true;
     const walletSourcesReadyAt = performance.now();
     setFinancialScope();
-    await loadEnabledDomainSources();
-    const domainSourcesReadyAt = performance.now();
-
     if (!config.hasExtensionTreasury) {
       vaultsIsLoaded.value = true;
     }
@@ -1004,8 +931,7 @@ export const useFinancials = defineStore('financials', () => {
       details: {
         configMs: Math.round(configReadyAt - loadStartedAt),
         walletSourcesMs: Math.round(walletSourcesReadyAt - configReadyAt),
-        domainSourcesMs: Math.round(domainSourcesReadyAt - walletSourcesReadyAt),
-        accountSnapshotMs: Math.round(defaultArgonReadyAt - domainSourcesReadyAt),
+        accountSnapshotMs: Math.round(defaultArgonReadyAt - walletSourcesReadyAt),
       },
     });
     savingsIsLoaded.value = true;
@@ -1015,234 +941,24 @@ export const useFinancials = defineStore('financials', () => {
 
     isLoaded.value = true;
     publishEthereumWallet();
-    if (config.hasExtensionTreasury || config.hasExtensionOperations) {
-      void initializeFinancialHistoryRecovery().catch(error => {
-        const message = error instanceof Error ? error.message : 'Unable to restore investment history';
-        const enabledDomains = getEnabledFinancialHistoryDomains({
-          force: false,
-          hasExtensionTreasury: config.hasExtensionTreasury,
-          hasExtensionOperations: config.hasExtensionOperations,
-          walletAccountsHadPreviousLife: config.walletAccountsHadPreviousLife,
+    void getVaultingStatsSource().isLoadedPromise.catch(error => {
+      console.error('Unable to load vaulting statistics', error);
+    });
+    void currency
+      .fetchMicrogonsInCirculation()
+      .then(value => {
+        microgonsInCirculation.value = value;
+      })
+      .catch(error => {
+        console.error('Unable to load currency circulation', error);
+      });
+    if (config.hasExtensionTreasury) {
+      void getVaultingStatsSource()
+        .isLoadedPromise.then(() => loadVaults())
+        .catch(error => {
+          console.error('Unable to load active vaults', error);
         });
-        for (const domain of enabledDomains) {
-          if (!['checking', 'restoring'].includes(historyRecoveryByDomain[domain].state)) continue;
-          historyRecoveryByDomain[domain] = {
-            state: 'error',
-            recoveredBlockCount: historyRecoveryByDomain[domain].recoveredBlockCount,
-            message,
-          };
-        }
-        console.error('[FinancialHistory] Unable to initialize recovery', error);
-      });
     }
-  }
-
-  async function initializeFinancialHistoryRecovery(): Promise<void> {
-    activeBitcoinLockCount.value = undefined;
-    if (!hasConfirmedFinancialHistoryCoverage) {
-      historyRecovery.value = { state: 'checking', recoveredBlockCount: 0 };
-    }
-    const enabledDomains = getEnabledFinancialHistoryDomains({
-      force: false,
-      hasExtensionTreasury: config.hasExtensionTreasury,
-      hasExtensionOperations: config.hasExtensionOperations,
-      walletAccountsHadPreviousLife: config.walletAccountsHadPreviousLife,
-    });
-    if (!hasConfirmedFinancialHistoryCoverage) {
-      for (const domain of enabledDomains) {
-        historyRecoveryByDomain[domain] = { state: 'checking', recoveredBlockCount: 0 };
-      }
-    }
-    const db = await getDbPromise();
-    const targetBlock = getBlockWatch().finalizedBlockHeader.blockNumber;
-    const recoverMissingCheckpointsFor = getMissingCheckpointDomains(enabledDomains);
-    const needsRecovery = await needsFinancialHistoryRecovery({
-      db,
-      accountId: wallets.defaultArgonWallet.address,
-      enabledDomains,
-      bitcoinLockRecovery: bitcoinLocks.recovery,
-      recoverMissingCheckpointsFor,
-    });
-    if (needsRecovery) {
-      hasConfirmedFinancialHistoryCoverage = false;
-      for (const domain of enabledDomains) {
-        confirmedFinancialHistoryDomains.delete(domain);
-      }
-      historyRecovery.value = { state: 'checking', recoveredBlockCount: 0 };
-      await restoreFinancialHistory(false, targetBlock);
-      return;
-    }
-
-    if (!hasConfirmedFinancialHistoryCoverage) {
-      hasConfirmedFinancialHistoryCoverage = true;
-      for (const domain of enabledDomains) {
-        confirmedFinancialHistoryDomains.add(domain);
-      }
-      await queueAccountRefresh({ force: true });
-    }
-    for (const domain of enabledDomains) {
-      historyRecoveryByDomain[domain] = { state: 'ready', recoveredBlockCount: 0 };
-    }
-    historyRecovery.value = { state: 'ready', recoveredBlockCount: 0 };
-  }
-
-  function restoreFinancialHistory(force = false, minimumAsOfBlock?: number): Promise<void> {
-    const targetBlock = minimumAsOfBlock ?? getBlockWatch().finalizedBlockHeader.blockNumber;
-    return finalizedHistoryScheduler.runNow(targetBlock, force);
-  }
-
-  async function runFinancialHistoryRecovery(force: boolean, targetBlock: number): Promise<number> {
-    const shouldShowRecovery = force || !hasConfirmedFinancialHistoryCoverage;
-    const enabledDomains = getEnabledFinancialHistoryDomains({
-      force,
-      hasExtensionTreasury: config.hasExtensionTreasury,
-      hasExtensionOperations: config.hasExtensionOperations,
-      walletAccountsHadPreviousLife: config.walletAccountsHadPreviousLife,
-    });
-    if (shouldShowRecovery) {
-      for (const domain of enabledDomains) {
-        historyRecoveryByDomain[domain] = { state: 'checking', recoveredBlockCount: 0 };
-      }
-    }
-
-    try {
-      const db = await getDbPromise();
-      const historyLoads: Promise<unknown>[] = [];
-      if (enabledDomains.includes('bonds')) historyLoads.push(argonBonds.load());
-      if (enabledDomains.includes('bitcoin')) historyLoads.push(bitcoinLocks.load());
-      await Promise.all(historyLoads);
-      const recoverMissingCheckpointsFor = getMissingCheckpointDomains(enabledDomains);
-
-      const result = await restoreFinancialHistoryFromIndex({
-        db,
-        blockWatch: getBlockWatch(),
-        accountId: wallets.defaultArgonWallet.address,
-        argonBonds,
-        bitcoinLockRecovery: bitcoinLocks.recovery,
-        vaultHistory: myVault.history,
-        enabledDomains,
-        recoverMissingCheckpointsFor,
-        mainchainClients: getMainchainClients(),
-        force,
-        minimumAsOfBlock: targetBlock,
-        onCheckStart() {
-          if (!shouldShowRecovery) return;
-          historyRecovery.value = { state: 'checking', recoveredBlockCount: 0 };
-        },
-        onActiveBitcoinLocksFound(count) {
-          if (!shouldShowRecovery) return;
-          activeBitcoinLockCount.value = count;
-        },
-        onProgress(recoveredBlockCount, domainProgress) {
-          if (!shouldShowRecovery) return;
-          if (!domainProgress) {
-            historyRecovery.value = { state: 'checking', recoveredBlockCount };
-            return;
-          }
-
-          const state: IFinancialHistoryRecoveryState['state'] = domainProgress.totalBlockCount
-            ? 'restoring'
-            : 'checking';
-          const domainState = {
-            state,
-            recoveredBlockCount: domainProgress.recoveredBlockCount,
-            currentDomain: domainProgress.domain,
-            currentDomainRecoveredBlockCount: domainProgress.recoveredBlockCount,
-            currentDomainTotalBlockCount: domainProgress.totalBlockCount,
-          };
-          historyRecoveryByDomain[domainProgress.domain] = domainState;
-          historyRecovery.value = {
-            ...domainState,
-            recoveredBlockCount,
-          };
-        },
-        onDomainComplete({ domain, asOfBlock, error }) {
-          if (!error && asOfBlock >= targetBlock) {
-            confirmedFinancialHistoryDomains.add(domain);
-          }
-          if (!shouldShowRecovery) return;
-
-          if (error) {
-            historyRecoveryByDomain[domain] = {
-              state: 'error',
-              recoveredBlockCount: historyRecoveryByDomain[domain].recoveredBlockCount,
-              message: error,
-            };
-          } else if (asOfBlock >= targetBlock) {
-            historyRecoveryByDomain[domain] = {
-              state: 'ready',
-              recoveredBlockCount: historyRecoveryByDomain[domain].recoveredBlockCount,
-            };
-          } else {
-            historyRecoveryByDomain[domain] = {
-              state: 'waiting',
-              recoveredBlockCount: historyRecoveryByDomain[domain].recoveredBlockCount,
-              message: `History is indexed through block ${asOfBlock.toLocaleString()} and is still catching up`,
-            };
-          }
-        },
-      });
-      const isRecoveryComplete = result.asOfBlock >= targetBlock;
-      if (isRecoveryComplete) {
-        hasConfirmedFinancialHistoryCoverage = true;
-        for (const domain of enabledDomains) {
-          confirmedFinancialHistoryDomains.add(domain);
-        }
-      } else if (shouldShowRecovery) {
-        historyRecovery.value = {
-          state: 'waiting',
-          recoveredBlockCount: result.importedBlockCount,
-          message: `Investment history is indexed through block ${result.asOfBlock.toLocaleString()} and is still catching up`,
-        };
-      }
-      if (isRecoveryComplete) {
-        historyRecovery.value = { state: 'ready', recoveredBlockCount: result.importedBlockCount };
-      }
-      return result.asOfBlock;
-    } catch (error) {
-      if (shouldShowRecovery) {
-        const message = error instanceof Error ? error.message : 'Unable to restore investment history';
-        for (const domain of enabledDomains) {
-          if (!['checking', 'restoring'].includes(historyRecoveryByDomain[domain].state)) continue;
-          historyRecoveryByDomain[domain] = {
-            state: 'error',
-            recoveredBlockCount: historyRecoveryByDomain[domain].recoveredBlockCount,
-            message,
-          };
-        }
-        historyRecovery.value = {
-          ...historyRecovery.value,
-          state: 'error',
-          message,
-        };
-      }
-      throw error;
-    } finally {
-      // A later history domain can fail after an earlier one repaired durable records.
-      // Publish those repairs even though the overall recovery remains retryable.
-      try {
-        await queueAccountRefresh({ force: true });
-      } catch (error) {
-        console.warn('[FinancialHistory] Unable to publish recovered positions', error);
-      }
-    }
-  }
-
-  function getMissingCheckpointDomains(enabledDomains: readonly IFinancialHistoryDomain[]): IFinancialHistoryDomain[] {
-    if (config.walletAccountsHadPreviousLife) return [...enabledDomains];
-
-    const groups = financialPositionAggregate.value.groupSummaries;
-    const domains: IFinancialHistoryDomain[] = [];
-    if (enabledDomains.includes('bitcoin') && groups.bitcoin.returnSummary.investmentPositionCount > 0) {
-      domains.push('bitcoin');
-    }
-    if (enabledDomains.includes('bonds') && groups.bonds.returnSummary.investmentPositionCount > 0) {
-      domains.push('bonds');
-    }
-    if (enabledDomains.includes('vaulting') && groups.vaulting.returnSummary.investmentPositionCount > 0) {
-      domains.push('vaulting');
-    }
-    return domains;
   }
 
   void load().catch(error => {
@@ -1254,11 +970,6 @@ export const useFinancials = defineStore('financials', () => {
     savingsIsLoaded.value = true;
     vaultsIsLoaded.value = true;
     isLoaded.value = true;
-    historyRecovery.value = {
-      state: 'error',
-      recoveredBlockCount: 0,
-      message,
-    };
   });
 
   return {
@@ -1278,11 +989,13 @@ export const useFinancials = defineStore('financials', () => {
     bondSummariesByAsset,
 
     liquidAllRecords,
+    bitcoinLiquids,
     bitcoinLockDisplayRecords,
     bitcoinLockPerformanceByUuid,
     liquidVisibleRecords,
     liquidInvisibleRecords,
     liquidLockedRecords,
+    bitcoinWalletTotalSatoshis,
     liquidTotalSatoshis,
     liquidCurrentBitcoinDebt,
     liquidPerformanceReturn,
@@ -1293,11 +1006,6 @@ export const useFinancials = defineStore('financials', () => {
 
     financialPositionAggregate,
     liquidNativeBalances,
-    activeBitcoinLockCount,
-    historyRecovery,
-    historyRecoveryByDomain,
-    isHistoryRecoveryInProgress,
-    restoreFinancialHistory,
   };
 });
 
@@ -1307,4 +1015,12 @@ function getErrorMessage(error: unknown, fallback: string): string {
 
 function isSameBlock(left: Pick<IBlockHeaderInfo, 'blockHash'>, right: Pick<IBlockHeaderInfo, 'blockHash'>): boolean {
   return left.blockHash.toLowerCase() === right.blockHash.toLowerCase();
+}
+
+function isOnCurrentBestChain(header: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>): boolean {
+  const blockWatch = getBlockWatch();
+  if (blockWatch.latestHeaders.some(candidate => isSameBlock(candidate, header))) return true;
+
+  const finalizedHash = blockWatch.finalizedHashes[header.blockNumber];
+  return finalizedHash !== undefined && finalizedHash.toLowerCase() === header.blockHash.toLowerCase();
 }

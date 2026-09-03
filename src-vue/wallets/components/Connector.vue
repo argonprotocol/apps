@@ -11,7 +11,7 @@
       :direction="props.direction"
       v-bind="
         walletType === WalletType.bitcoin
-          ? { wallet: bitcoinWallet }
+          ? { wallet: bitcoinWallet, channelUuid: props.bitcoinChannelUuid }
           : { moveToken: selectedTransferToken, walletName: ethereumWallet?.name }
       "
     >
@@ -104,10 +104,12 @@ import { getWalletArgonValue, WalletType } from '../../lib/Wallet.ts';
 import type { WalletForBitcoin } from '../../lib/WalletForBitcoin.ts';
 import type { WalletForEthereum } from '../../lib/WalletForEthereum.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
+import { useFinancials } from '../../stores/financials.ts';
 import type { ICrosschainTransferDirection } from './crosschainTransferView.ts';
 
 const props = withDefaults(
   defineProps<{
+    bitcoinChannelUuid?: string;
     direction: 'right' | 'left';
     wallet?: WalletForBitcoin | WalletForEthereum;
     open: boolean;
@@ -122,6 +124,7 @@ const emit = defineEmits<{
 }>();
 
 const currency = getCurrency();
+const financials = useFinancials();
 const isConnectorPopoverOpen = Vue.computed({
   get: () => props.open,
   set: value => emit('update:open', value),
@@ -148,8 +151,8 @@ const transferPulseClass = Vue.computed(() => {
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 const walletTotalValue = Vue.computed(() => {
-  if (!ethereumWallet.value) return 0n;
-  return getWalletArgonValue(ethereumWallet.value.data, currency);
+  if (bitcoinWallet.value) return currency.convertSatToMicrogon(financials.bitcoinWalletTotalSatoshis);
+  return ethereumWallet.value ? getWalletArgonValue(ethereumWallet.value.data, currency) : 0n;
 });
 
 function openTransferPopover(moveToken: MoveToken.ARGN | MoveToken.ARGNOT) {

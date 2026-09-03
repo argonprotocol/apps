@@ -7,13 +7,24 @@
     class="w-5/12"
   >
     <template #title>
-      <div class="text-xl font-bold text-slate-800/80">Return Orphaned Bitcoin</div>
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          data-testid="BitcoinOrphanRecoveryOverlay.back"
+          aria-label="Back to Bitcoin channels"
+          class="group hover:bg-argon-100/20 flex h-8 cursor-pointer items-center rounded-md py-1 pr-2 pl-1"
+          @click="emit('back')"
+        >
+          <BackIcon class="relative -top-0.25 w-4 opacity-50 group-hover:opacity-100" />
+        </button>
+        <div class="text-xl font-bold text-slate-800/80">Return Orphaned Bitcoin</div>
+      </div>
     </template>
 
     <div class="space-y-5 px-7 py-6">
       <div class="rounded-lg bg-slate-50 px-4 py-4 ring-1 ring-slate-200">
         <div class="text-sm font-semibold tracking-wide text-slate-500 uppercase">
-          {{ isAdditionalDeposit ? 'Additional Bitcoin received' : 'Deposit mismatch' }}
+          {{ isAdditionalDeposit ? 'Additional Bitcoin received' : 'Orphaned Bitcoin received' }}
         </div>
         <div class="mt-3 grid grid-cols-2 divide-x divide-slate-200">
           <div class="pr-4">
@@ -41,7 +52,10 @@
         </div>
       </div>
 
-      <div v-if="record.status === BitcoinUtxoStatus.Orphaned" class="space-y-5">
+      <div
+        v-if="record.role === BitcoinUtxoRole.Orphan && !bitcoinLocks.utxoTracking.isReleaseStatus(record.status)"
+        class="space-y-5"
+      >
         <p v-if="isAdditionalDeposit" class="text-sm text-slate-700">
           This lock was already funded before this Bitcoin arrived. Choose an address you control and return the
           additional payment.
@@ -181,7 +195,6 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
-import { CosignScript } from '@argonprotocol/bitcoin';
 import { MiningFrames } from '@argonprotocol/apps-core';
 import { ArrowTopRightOnSquareIcon } from '@heroicons/vue/24/outline';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
@@ -189,16 +202,17 @@ import OverlayBase from './OverlayBase.vue';
 import ProgressBar from '../components/ProgressBar.vue';
 import BitcoinFeeRateInput from './bitcoin-locking/components/BitcoinFeeRateInput.vue';
 import { getBitcoinNetworkName, validateBitcoinAddressForNetwork } from '../lib/BitcoinAddressValidation.ts';
-import { getBitcoinLocks } from '../stores/bitcoin.ts';
+import { getBitcoinLocks, getBitcoinTransactionOperations } from '../stores/bitcoin.ts';
 import { getCurrency } from '../stores/currency.ts';
-import { useWallets } from '../stores/wallets.ts';
+import { getWalletKeys, useWallets } from '../stores/wallets.ts';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
-import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
+import { BitcoinUtxoRole, BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
 import { TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import BitcoinMempool from '../lib/BitcoinMempool.ts';
 import { ESPLORA_HOST } from '../lib/Env.ts';
 import { generateProgressLabel } from '../lib/Utils.ts';
+import BackIcon from '../assets/back.svg';
 
 dayjs.extend(utc);
 
@@ -206,8 +220,9 @@ const props = defineProps<{
   lock: IBitcoinLockRecord;
   record: IBitcoinUtxoRecord;
 }>();
-const emit = defineEmits<{ close: [] }>();
+const emit = defineEmits<{ back: []; close: [] }>();
 const bitcoinLocks = getBitcoinLocks();
+const { bitcoinOrphanRelease } = getBitcoinTransactionOperations();
 const currency = getCurrency();
 const wallets = useWallets();
 const { microgonToArgonNm } = createNumeralHelpers(currency);
@@ -243,8 +258,8 @@ const isAdditionalDeposit = Vue.computed(() => {
 });
 const comparisonBitcoinAmount = Vue.computed(() => {
   const satoshis = isAdditionalDeposit.value
-    ? (acceptedFundingRecord.value?.satoshis ?? props.lock.satoshis)
-    : props.lock.satoshis;
+    ? (acceptedFundingRecord.value?.satoshis ?? props.lock.fundedSatoshis)
+    : props.lock.fundedSatoshis;
   return numeral(currency.convertSatToBtc(satoshis)).format('0,0.[00000000]');
 });
 const receivedAt = Vue.computed(() => {
@@ -256,7 +271,8 @@ const receivedAt = Vue.computed(() => {
 const trimmedDestination = Vue.computed(() => destinationAddress.value.trim());
 const currentLockAddress = Vue.computed(() => {
   try {
-    return bitcoinLocks.formatP2wshAddress(props.lock.lockDetails.p2wshScriptHashHex);
+    const scriptHash = props.lock.scriptDetails?.p2wshScriptHashHex;
+    return scriptHash ? bitcoinLocks.formatP2wshAddress(scriptHash) : '';
   } catch {
     return '';
   }
@@ -289,7 +305,10 @@ const releaseFeeRate = Vue.computed(() => {
   if (networkFee == null || !destination) return;
 
   try {
-    const cosignScript = new CosignScript(props.lock.lockDetails, bitcoinLocks.bitcoinNetwork);
+    const cosignScript = bitcoinLocks.createCosignScript({
+      lock: props.lock,
+      fundedSatoshis: props.record.satoshis,
+    });
     const oneSatFee = cosignScript.calculateFee(1n, destination);
     const feeRate = (networkFee + oneSatFee / 2n) / oneSatFee;
     if (cosignScript.calculateFee(feeRate, destination) === networkFee) return feeRate;
@@ -356,11 +375,12 @@ async function requestReturn(): Promise<void> {
   requestError.value = '';
 
   try {
-    const txInfo = await bitcoinLocks.orphanReleases.requestOrphanReturn({
+    const txInfo = await bitcoinOrphanRelease.submit({
       lock: props.lock,
       record: props.record,
       toScriptPubkey: trimmedDestination.value,
       feeRatePerSatVb: feeRatePerSatVb.value,
+      txSigner: await getWalletKeys().getLiquidLockingKeypair(),
     });
     trackArgonRequestProgress(txInfo);
   } catch (error) {
@@ -372,7 +392,7 @@ async function requestReturn(): Promise<void> {
 }
 
 function trackArgonRequestProgress(
-  txInfo = bitcoinLocks.orphanReleases.getTransactionInfo(props.record.lockUtxoId, props.record),
+  txInfo = bitcoinOrphanRelease.getPendingReleaseTxInfo(props.record.lockUtxoId, props.record),
 ): void {
   // The request can resolve after this overlay instance is disposed; teardown cannot remove a later subscription.
   if (!txInfo || isDisposed) return;
@@ -390,14 +410,19 @@ function trackArgonRequestProgress(
 
 async function refreshArgonFeeQuote(runId: number): Promise<void> {
   try {
-    const quote = await bitcoinLocks.orphanReleases.getOrphanReturnFeeQuote({
+    const prepared = await bitcoinOrphanRelease.prepare({
       lock: props.lock,
       record: props.record,
       toScriptPubkey: trimmedDestination.value,
       feeRatePerSatVb: feeRatePerSatVb.value,
+      txSigner: await getWalletKeys().getLiquidLockingKeypair(),
     });
     if (runId !== feeQuoteRunId) return;
-    argonFeeQuote.value = quote;
+    argonFeeQuote.value = {
+      canAfford: prepared.canAfford,
+      availableBalance: prepared.availableBalance,
+      txFee: prepared.txFeePlusTip,
+    };
   } catch {
     if (runId !== feeQuoteRunId) return;
     argonFeeQuoteError.value = 'Unable to check the Argon transaction fee. Please try again.';

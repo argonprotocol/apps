@@ -20,10 +20,7 @@ export function getEthereumMoveTracker(): EthereumInboundTransferTracker {
     const transactionTracker = getTransactionTracker();
     const dbPromise = getDbPromise();
     const executionRpcUrl = getEthereumExecutionRpcUrl(config.ethereumExecutionRpcUrl);
-    if (!executionRpcUrl) {
-      throw new Error('Ethereum execution RPC is not configured for this app instance.');
-    }
-    const ethereumClient = new EthereumClient(walletKeys, executionRpcUrl);
+    const ethereumClient = executionRpcUrl ? new EthereumClient(walletKeys, executionRpcUrl) : undefined;
     const upstreamOperatorClient = getUpstreamOperatorClient();
     const myVault = getMyVault();
 

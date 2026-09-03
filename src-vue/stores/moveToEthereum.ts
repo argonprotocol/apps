@@ -15,16 +15,13 @@ export function getEthereumOutboundTransferTracker(): EthereumOutboundTransferTr
   if (!ethereumOutboundTransferTracker) {
     const walletKeys = getWalletKeys();
     const executionRpcUrl = getEthereumExecutionRpcUrl(getConfig().ethereumExecutionRpcUrl);
-    if (!executionRpcUrl) {
-      throw new Error('Ethereum execution RPC is not configured for this app instance.');
-    }
 
     ethereumOutboundTransferTracker = new EthereumOutboundTransferTracker(
       getDbPromise(),
       getTransactionTracker(),
       getBlockWatch(),
       walletKeys,
-      new EthereumClient(walletKeys, executionRpcUrl),
+      executionRpcUrl ? new EthereumClient(walletKeys, executionRpcUrl) : undefined,
       getMyVault().mintingAuthorities,
       executionRpcUrl,
       address => getWalletsForEthereum().resolve(address),

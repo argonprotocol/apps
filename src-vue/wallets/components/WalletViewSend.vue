@@ -72,12 +72,16 @@
           Cancel
         </button>
         <button
-          v-if="selectedEthereumWallet"
+          v-if="selectedEthereumWallet || isBitcoinTransfer"
           :disabled="!canInitiateTransfer"
           class="border-argon-700 bg-argon-600 grow cursor-pointer rounded-lg border px-5 py-1 text-white disabled:cursor-default disabled:border-gray-400 disabled:bg-gray-300 disabled:text-gray-500"
           @click="initiateTransfer"
         >
-          {{ isInitiatingTransfer ? 'Initiating Transfer...' : 'Initiate Transfer' }} &raquo;
+          <template v-if="isInitiatingTransfer">
+            {{ isBitcoinTransfer ? 'Sending Bitcoin...' : 'Initiating Transfer...' }}
+          </template>
+          <template v-else>{{ isBitcoinTransfer ? 'Send Bitcoin' : 'Initiate Transfer' }}</template>
+          &raquo;
         </button>
       </div>
     </div>
@@ -95,7 +99,8 @@ import { createNumeralHelpers } from '../../lib/numeral.ts';
 import numeral from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getEthereumOutboundTransferTracker } from '../../stores/moveToEthereum.ts';
-import { useWallets } from '../../stores/wallets.ts';
+import { getBitcoinTransactionOperations } from '../../stores/bitcoin.ts';
+import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
 import ProgressBar from '../../components/ProgressBar.vue';
 import WalletHeader from './WalletHeader.vue';
 import WalletTransferForm, { type ITransferWallet } from './WalletTransferForm.vue';
@@ -112,13 +117,13 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: 'dragStart', mouseEvent: MouseEvent): void;
   (event: 'goto', view: IWalletView): void;
-  (event: 'selectDestinationConnector', connectorId: string | number | undefined): void;
   (event: 'close'): void;
 }>();
 
 const currency = getCurrency();
 const wallets = useWallets();
 const outboundTracker = getEthereumOutboundTransferTracker();
+const { bitcoinLockRelease } = getBitcoinTransactionOperations();
 const { microgonToArgonNm } = createNumeralHelpers(currency);
 
 const transferForm = Vue.ref<InstanceType<typeof WalletTransferForm>>();
@@ -142,16 +147,21 @@ const toWallets = Vue.computed<ITransferWallet[]>(() => {
 const selectedEthereumWallet = Vue.computed(() =>
   isEthereumWallet(selectedDestinationWallet.value) ? selectedDestinationWallet.value : undefined,
 );
-const canInitiateTransfer = Vue.computed(
-  () => transferForm.value?.isReady && !!selectedEthereumWallet.value && !isInitiatingTransfer.value,
+const isBitcoinTransfer = Vue.computed(
+  () =>
+    transferForm.value?.selectedMoveToken === MoveToken.BTC &&
+    selectedDestinationWallet.value?.type === WalletType.bitcoin,
 );
+const canInitiateTransfer = Vue.computed(() => {
+  if (!transferForm.value?.isReady || isInitiatingTransfer.value) return false;
+  return !!selectedEthereumWallet.value || isBitcoinTransfer.value;
+});
 const progressView = Vue.computed(() =>
   getCrosschainTransferProgressView(activeTransfer.value?.transferState, progressNow.value),
 );
 
 function selectDestinationWallet(wallet: ITransferWallet | undefined) {
   selectedDestinationWallet.value = wallet;
-  emit('selectDestinationConnector', isEthereumWallet(wallet) ? wallet.id : wallet?.type);
 }
 
 function isEthereumWallet(wallet: ITransferWallet | IWalletConnector | undefined): wallet is WalletForEthereum {
@@ -160,14 +170,19 @@ function isEthereumWallet(wallet: ITransferWallet | IWalletConnector | undefined
 
 async function initiateTransfer() {
   const form = transferForm.value;
+  if (!form || !canInitiateTransfer.value) return;
+
+  if (isBitcoinTransfer.value) {
+    await initiateBitcoinTransfer(form);
+    return;
+  }
+
   const ethereumWallet = selectedEthereumWallet.value;
   const moveToken = form?.selectedMoveToken;
   const amount = form?.tokensToMove;
   const availableAmount = form?.availableAmount;
   if (
-    !form ||
     !ethereumWallet ||
-    !canInitiateTransfer.value ||
     amount == null ||
     availableAmount == null ||
     (moveToken !== MoveToken.ARGN && moveToken !== MoveToken.ARGNOT)
@@ -186,6 +201,31 @@ async function initiateTransfer() {
     if (transfer) activeTransfer.value = transfer;
   } catch (error) {
     transferForm.value?.setFormError(error instanceof Error ? error.message : 'Unable to start the transfer.');
+  } finally {
+    isInitiatingTransfer.value = false;
+  }
+}
+
+async function initiateBitcoinTransfer(form: InstanceType<typeof WalletTransferForm>) {
+  const channels = form.selectedBitcoinChannels;
+  const bitcoinFees = form.bitcoinNetworkFees;
+  if (channels.length === 0 || bitcoinFees.length !== channels.length) return;
+
+  isInitiatingTransfer.value = true;
+  form.setFormError('');
+  try {
+    const txSigner = await getWalletKeys().getLiquidLockingKeypair();
+    for (const [index, channel] of channels.entries()) {
+      await bitcoinLockRelease.submit({
+        utxoId: channel.utxoId!,
+        bitcoinNetworkFee: bitcoinFees[index]!,
+        toScriptPubkey: form.destinationAddress,
+        txSigner,
+      });
+    }
+    emit('goto', 'main');
+  } catch (error) {
+    form.setFormError(error instanceof Error ? error.message : 'Unable to send Bitcoin.');
   } finally {
     isInitiatingTransfer.value = false;
   }

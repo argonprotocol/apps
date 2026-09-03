@@ -70,9 +70,10 @@ try {
   );
   const { setup, vault } = readyOperator;
   const inviteLiquidityMicrogons = 1_000n * BigInt(MICROGONS_PER_ARGON);
+  const availableBitcoinSpace = vault.availableBitcoinSpace();
   const maxSatoshis = BitcoinLock.satoshisRequiredForRedemptionAmount(
     currency.priceIndex,
-    inviteLiquidityMicrogons < vault.availableBitcoinSpace() ? inviteLiquidityMicrogons : vault.availableBitcoinSpace(),
+    inviteLiquidityMicrogons < availableBitcoinSpace ? inviteLiquidityMicrogons : availableBitcoinSpace,
   );
   const fullLockAmount = BitcoinLock.calculateRedemptionAmountFromSatoshis(currency.priceIndex, maxSatoshis);
   const estimatedGiftUsd = Number(

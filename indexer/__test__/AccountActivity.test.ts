@@ -184,6 +184,7 @@ describe('AccountActivityDecoder', () => {
       expectedKinds.set(method, AccountActivityKind.VaultPosition | AccountActivityKind.BitcoinLock);
     }
     for (const method of vaultPositionMethods) expectedKinds.set(method, AccountActivityKind.VaultPosition);
+    expectedKinds.set('SecuritizationReserved', AccountActivityKind.VaultPosition | AccountActivityKind.VaultRevenue);
 
     const historicalVaultMethods = new Set(
       historicalEventChanges.filter(change => change.section === 'vaults').map(change => change.method),
@@ -540,6 +541,7 @@ const vaultPositionMethods = [
   'FundsReleased',
   'FundsScheduledForRelease',
   'ReservedSecuritizationSpaceChanged',
+  'SecuritizationReturned',
   'VaultBondedArgonsChangeScheduled',
   'VaultBondedArgonsIncreased',
   'VaultClosed',
@@ -561,6 +563,7 @@ const indexedBitcoinLockMethods = [
   'BitcoinLockBurned',
   'BitcoinLockCreated',
   'BitcoinLockRatcheted',
+  'BitcoinLockResecuritized',
   'BitcoinSpentAfterRelease',
   'BitcoinUtxoCosignRequested',
   'BitcoinUtxoCosigned',
@@ -570,9 +573,16 @@ const indexedBitcoinLockMethods = [
   'SecuritizationIncreased',
   'UtxoFundedFromCandidate',
 ];
-const ignoredBitcoinLockMethods = ['CosignOverdueError', 'LockExpirationError'];
+const ignoredBitcoinLockMethods = [
+  'CosignOverdueError',
+  'LockExpirationError',
+  'OrphanedUtxoCleanupScheduleOverflow',
+  'OrphanedUtxoExpirationError',
+];
 const indexedBitcoinUtxoMethods = ['UtxoUnwatched', 'UtxoVerified'];
 const ignoredBitcoinUtxoMethods = [
+  'UtxoDetected',
+  'UtxoDetectedError',
   'UtxoExpiredError',
   'UtxoRejected',
   'UtxoRejectedError',

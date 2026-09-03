@@ -32,7 +32,7 @@
 
             <ArgonBonds v-else-if="controller.selectedTab === TopTab.ArgonBonds" />
             <ArgonotStakes v-else-if="controller.selectedTab === TopTab.ArgonotStaking" />
-            <BitcoinLocks v-else-if="controller.selectedTab === TopTab.BitcoinLocks" />
+            <Bitcoin v-else-if="controller.selectedTab === TopTab.BitcoinLocks" />
             <StableSwaps v-else-if="controller.selectedTab === TopTab.StableSwaps" />
 
             <Mining v-else-if="controller.selectedTab === TopTab.Mining" />
@@ -90,7 +90,6 @@
       <UpgradeToOperationsOverlay />
       <WelcomeToOperationsOverlay />
       <UpgradeToTreasuryOverlay />
-      <BitcoinLockingOverlay />
       <BondPurchaseOverlay />
       <StakePurchaseOverlay />
     </template>
@@ -118,6 +117,7 @@ import TopBar from './navigation/TopBar.vue';
 import { TopTab } from './interfaces/IConfig.ts';
 import { useCertificationController } from './stores/certificationController.ts';
 import { getConfig } from './stores/config.ts';
+import { loadBitcoinTransactionOperations } from './stores/bitcoin.ts';
 import { useTour } from './stores/tour.ts';
 import { getBot } from './stores/bot.ts';
 import { waitForLoad } from '@argonprotocol/mainchain';
@@ -152,7 +152,7 @@ import { useAppUpdater } from './stores/appUpdater.ts';
 import { useRuntimeCompatibility } from './stores/runtimeCompatibility.ts';
 import { storeToRefs } from 'pinia';
 import ArgonBonds from './screens/ArgonBonds.vue';
-import BitcoinLocks from './screens/BitcoinLocks.vue';
+import Bitcoin from './screens/Bitcoin.vue';
 import LeftBar from './navigation/LeftBar.vue';
 import StableSwaps from './screens/StableSwaps.vue';
 import Home from './screens/Home.vue';
@@ -163,7 +163,6 @@ import WelcomeToOperationsOverlay from './overlays/WelcomeToOperationsOverlay.vu
 import UpgradeToTreasuryOverlay from './overlays/UpgradeToTreasuryOverlay.vue';
 import Onboarding from './screens/Onboarding.vue';
 import ArgonotStakes from './screens/ArgonotStakes.vue';
-import BitcoinLockingOverlay from './overlays/BitcoinLockingOverlay.vue';
 import BondPurchaseOverlay from './overlays/BondPurchaseOverlay.vue';
 import StakePurchaseOverlay from './overlays/StakePurchaseOverlay.vue';
 import SponsorOverlay from './overlays/SponsorOverlay.vue';
@@ -171,6 +170,7 @@ import { getBlockWatch, getMainchainClient, getMainchainClients } from './stores
 import { getMyVault } from './stores/vaults.ts';
 import { getArgonBonds } from './stores/argonBonds.ts';
 import { getEthereumOutboundTransferTracker } from './stores/moveToEthereum.ts';
+import { useFinancialHistory } from './stores/financialHistory.ts';
 
 const runtimeCompatibility = useRuntimeCompatibility();
 const { isBrowserUnsupported, shouldShowCompatibilityScreen } = storeToRefs(runtimeCompatibility);
@@ -187,6 +187,7 @@ let bot!: ReturnType<typeof getBot>;
 
 if (!isBrowserUnsupported.value) {
   controller = useCertificationController();
+  useFinancialHistory();
   config = getConfig();
   tour = useTour();
   bot = getBot();
@@ -267,6 +268,7 @@ Vue.onBeforeMount(async () => {
   }
 
   await waitForLoad();
+  void loadBitcoinTransactionOperations();
 });
 
 Vue.onMounted(async () => {

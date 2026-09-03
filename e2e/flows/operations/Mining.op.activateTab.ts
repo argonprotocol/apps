@@ -2,30 +2,23 @@ import { Operation } from './index.ts';
 import type { IMiningFlowContext } from '../contexts/miningContext.ts';
 import appPrepareAccess from './App.op.prepareAccess.ts';
 import type { IE2EFlowRuntime, IE2EOperationInspectState } from '../types.ts';
-import { dismissOpenLockingOverlay } from '../helpers/utils.ts';
 
 type IActivateTabUiState = {
   activeTabVisible: boolean;
   welcomeOverlayVisible: boolean;
-  bitcoinLockingDialogVisible: boolean;
 };
 
 type IActivateTabState = IE2EOperationInspectState<Record<string, never>, IActivateTabUiState>;
 
-const OPEN_LOCKING_DIALOG_SELECTOR = '[role="dialog"][data-state="open"].BitcoinLockingOverlay';
-
 export default new Operation<IMiningFlowContext, IActivateTabState>(import.meta, {
   async inspect({ flow }) {
-    const [activeTabContent, prepareAccessState, openBitcoinLockingDialogs] = await Promise.all([
+    const [activeTabContent, prepareAccessState] = await Promise.all([
       flow.isVisible('MiningScreen'),
       flow.inspect(appPrepareAccess),
-      flow.count({ selector: OPEN_LOCKING_DIALOG_SELECTOR }).catch(() => 0),
     ]);
     const activeTabVisible = activeTabContent.visible;
     const welcomeOverlayVisible = prepareAccessState.state === 'runnable';
-    const bitcoinLockingDialogVisible = openBitcoinLockingDialogs > 0;
-    const hasBlockingOverlays = welcomeOverlayVisible || bitcoinLockingDialogVisible;
-    const isComplete = activeTabVisible && !hasBlockingOverlays;
+    const isComplete = activeTabVisible && !welcomeOverlayVisible;
     let operationState: 'complete' | 'runnable' = 'runnable';
     if (isComplete) {
       operationState = 'complete';
@@ -36,31 +29,15 @@ export default new Operation<IMiningFlowContext, IActivateTabState>(import.meta,
       uiState: {
         activeTabVisible,
         welcomeOverlayVisible,
-        bitcoinLockingDialogVisible,
       },
       state: operationState,
       blockers: [],
     };
   },
   async run(context) {
-    const { flow, flowName } = context;
+    const { flow } = context;
 
     await flow.run(appPrepareAccess);
-
-    if ((await countOpenLockingDialogs(flow).catch(() => 0)) > 0) {
-      let dismissed = await dismissOpenLockingOverlay(flow, 'LockMinting.closeOverlay()');
-      if (!dismissed) {
-        dismissed = await dismissOpenLockingOverlay(flow, 'LockStart.closeOverlay()');
-      }
-      if (!dismissed) {
-        throw new Error(`${flowName}: blocking bitcoin locking dialog is still open.`);
-      }
-    }
-
-    const remainingDialogs = await countOpenLockingDialogs(flow).catch(() => 0);
-    if (remainingDialogs > 0) {
-      throw new Error(`${flowName}: blocking bitcoin locking dialog is still open.`);
-    }
 
     const activeTabContent = await flow.isVisible('MiningScreen');
     if (activeTabContent.visible) {
@@ -70,7 +47,3 @@ export default new Operation<IMiningFlowContext, IActivateTabState>(import.meta,
     await flow.waitFor('MiningScreen', { timeoutMs: 10_000 });
   },
 });
-
-async function countOpenLockingDialogs(flow: IE2EFlowRuntime): Promise<number> {
-  return flow.count({ selector: OPEN_LOCKING_DIALOG_SELECTOR });
-}

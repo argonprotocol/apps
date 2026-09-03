@@ -65,15 +65,10 @@
                   {{ group.label }}
                 </div>
                 <div
-                  v-if="
-                    isHistoryRecoveryInProgress ||
-                    group.isStale ||
-                    group.returnSummary.availability !== 'available'
-                  "
+                  v-if="group.isStale || group.returnSummary.availability !== 'available'"
                   class="text-xs font-normal text-slate-500"
                 >
-                  <span v-if="isHistoryRecoveryInProgress">Loading</span>
-                  <span v-else-if="group.isStale" class="inline-flex items-center gap-1">
+                  <span v-if="group.isStale" class="inline-flex items-center gap-1">
                     Stale
                     <Tooltip
                       as-child
@@ -115,7 +110,7 @@
             v-if="historyRecovery.state === 'error'"
             class="mt-1 border-t border-slate-400/30 px-3 py-2 text-xs"
           >
-            <button class="font-semibold text-argon-600 hover:text-argon-700" type="button" @click="financials.restoreFinancialHistory()">
+            <button class="font-semibold text-argon-600 hover:text-argon-700" type="button" @click="financialHistory.restoreFinancialHistory()">
               History incomplete · Retry
             </button>
           </li>
@@ -151,6 +146,7 @@ import numeral from '../lib/numeral.ts';
 import ProgressBar from '../components/ProgressBar.vue';
 import Tooltip from '../components/Tooltip.vue';
 import { useFinancials } from '../stores/financials.ts';
+import { useFinancialHistory } from '../stores/financialHistory.ts';
 import { getConfig } from '../stores/config.ts';
 import { bondAssetMenuItems, financialMenuLabels } from './financialMenuLabels.ts';
 
@@ -161,13 +157,10 @@ defineExpose({
 });
 
 const financials = useFinancials();
+const financialHistory = useFinancialHistory();
 const config = getConfig();
-const {
-  financialPositionAggregate: aggregate,
-  historyRecovery,
-  isHistoryRecoveryInProgress,
-  bondSummariesByAsset,
-} = storeToRefs(financials);
+const { financialPositionAggregate: aggregate, bondSummariesByAsset } = storeToRefs(financials);
+const { historyRecovery, isHistoryRecoveryInProgress } = storeToRefs(financialHistory);
 
 const historyRecoveryLabel = Vue.computed(() => {
   if (historyRecovery.value.state === 'checking') return 'Determining history to retrieve';
@@ -202,7 +195,10 @@ const returnRows = Vue.computed(() => {
       });
     }
 
-    const label = group.group === 'ethereum' ? 'Stable swaps' : financialMenuLabels[group.group];
+    let label = financialMenuLabels[group.group];
+    if (group.group === 'ethereum') label = 'Stable swaps';
+    else if (group.group === 'bitcoin') label = 'Bitcoin Liquid';
+
     return [{ ...group, key: group.group, label }];
   });
 });

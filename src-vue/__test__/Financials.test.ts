@@ -2,11 +2,15 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   type FrameSupportTokensMiscIdAmountRuntimeHoldReason,
   getOfflineRegistry,
+  PriceIndex,
   type PalletTreasuryBondLot,
 } from '@argonprotocol/mainchain';
-import { BondLot, BitcoinLock, type Vault } from '@argonprotocol/apps-core';
-import { toPlain, type TreasuryBondLotByIdResult } from '@argonprotocol/runtime-client';
+import BigNumber from 'bignumber.js';
+import { toPlain } from '@argonprotocol/runtime-client';
+import { BitcoinFission, BondLot, BitcoinLock, type Vault } from '@argonprotocol/apps-core';
 import type { IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
+import type { IBitcoinFissionRecord } from '../interfaces/IBitcoinFissionRecord.ts';
+import type { IBitcoinSecuritizationTerm } from '../interfaces/IBitcoinSecuritizationTerm.ts';
 import type {
   IFinancialGroupSnapshot,
   IFinancialObservedGroupSnapshot,
@@ -20,7 +24,12 @@ import type { IWalletTransferRecord } from '../lib/db/WalletTransfersTable.ts';
 import { type IArgonAccountBalance, WalletsForArgon } from '../lib/WalletsForArgon.ts';
 import type { IMiningCohortFinancialRecord } from '../interfaces/db/ICohortFrameRecord.ts';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
-import { BitcoinFinancials, calculateBitcoinLockValuation } from '../lib/financials/BitcoinLocks.ts';
+import type { BitcoinFissions } from '../lib/BitcoinFissions.ts';
+import {
+  BitcoinFinancials,
+  applyBitcoinFissionValuation,
+  createBitcoinLiquidPositions,
+} from '../lib/financials/BitcoinLocks.ts';
 import type { IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
 import { ArgonBondsFinancials } from '../lib/financials/ArgonBonds.ts';
 import type { WalletForArgon } from '../lib/WalletForArgon.ts';
@@ -43,8 +52,63 @@ const wallet: IWallet = {
 };
 const miningFinancials = new MiningFinancials({} as any);
 const bondFinancials = new ArgonBondsFinancials({} as any);
-const bitcoinFinancials = new BitcoinFinancials({} as BitcoinLocks);
+const emptyBitcoinFissions = {
+  ownerAccount: '5owner',
+  loadActive: vi.fn(async () => []),
+} as unknown as BitcoinFissions;
+const emptyBitcoinFissionHistory = Promise.resolve({
+  bitcoinFissionsTable: { fetchAll: vi.fn(async () => []) },
+}) as never;
+const bitcoinFinancials = new BitcoinFinancials({} as BitcoinLocks, emptyBitcoinFissions, emptyBitcoinFissionHistory);
 const vaultFinancials = new VaultFinancials({} as any);
+const bitcoinPriceIndex = new PriceIndex();
+bitcoinPriceIndex.btcUsdPrice = new BigNumber(1);
+bitcoinPriceIndex.argonUsdPrice = new BigNumber(1);
+bitcoinPriceIndex.argonUsdTargetPrice = new BigNumber(1);
+
+function createBitcoinFinancialLock(overrides: Partial<IBitcoinLockRecord> = {}): IBitcoinLockRecord {
+  const now = new Date('2026-01-01T00:00:00Z');
+  return {
+    uuid: 'bitcoin-lock',
+    utxoId: 7,
+    status: BitcoinLockStatus.LockFunded,
+    securitizedSatoshis: 10_000n,
+    ownerAccount: '5owner',
+    securityFees: 0n,
+    couponFeesPaid: 0n,
+    fundHoldExtensionsByBitcoinExpirationHeight: {},
+    utxos: [],
+    fundedSatoshis: 10_000n,
+    cosignVersion: 'v1',
+    network: 'Bitcoin',
+    hdPath: "m/84'/0'/0'",
+    vaultId: 1,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+}
+
+function createBitcoinFissionRecord(overrides: Partial<IBitcoinFissionRecord> = {}): BitcoinFission {
+  const now = new Date('2026-01-01T00:00:00Z');
+  return new BitcoinFission({
+    origin: 'lock-migration',
+    ownerAccount: '5owner',
+    fissionId: 7,
+    liquidId: 7,
+    utxoId: 7,
+    satoshis: 10_000n,
+    microgonsAtTargetPerBtc: 100n,
+    liquidityPromised: 100n,
+    createdAtArgonBlock: 1,
+    ratchetNumber: 0,
+    lastUpdatedArgonBlock: 1,
+    ratchets: [],
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  });
+}
 
 function readySnapshots(positions: IFinancialPosition[] = []): IFinancialObservedGroupSnapshot[] {
   return financialGroups.map(group => ({
@@ -545,10 +609,15 @@ describe('financial position accounting', () => {
       address: '5miner',
       availableMicrogons: 100n,
       microgonHolds: [
-        registry.createType('FrameSupportTokensMiscIdAmountRuntimeHoldReason', {
-          id: { MiningSlot: 'RegisterAsMiner' },
-          amount: 40n,
-        }),
+        toPlain(
+          registry.createType<FrameSupportTokensMiscIdAmountRuntimeHoldReason>(
+            'FrameSupportTokensMiscIdAmountRuntimeHoldReason',
+            {
+              id: { MiningSlot: 'RegisterAsMiner' },
+              amount: 40n,
+            },
+          ),
+        ) as IArgonAccountBalance['microgonHolds'][number],
       ],
     });
     const financials = new MiningFinancials({
@@ -1034,37 +1103,40 @@ describe('financial position accounting', () => {
     ).toThrow('ARGNOT MiningSlot holds exceed the mining account balance');
   });
 
-  it('subtracts burned Bitcoin liquidity while keeping ratchets in one lock position', () => {
-    const lock = {
+  it('subtracts burned Bitcoin liquidity while keeping the lock as an asset instead of an investment position', () => {
+    const lock = createBitcoinFinancialLock({
       uuid: 'lock-1',
-      status: BitcoinLockStatus.LockedAndMinted,
-      satoshis: 10_000n,
-      lockedTargetPrice: 120n,
+      securityFees: 15n,
+      couponFeesPaid: 5n,
+      securitizationCoverageMicrogons: 60n,
+    });
+    const fission = createBitcoinFissionRecord({
+      liquidityPromised: 120n,
       ratchets: [
         {
-          mintAmount: 30n,
+          source: 'lock',
+          sourceRatchetIndex: 0,
+          microgonsAtTargetPerBtc: 100n,
+          amountMinted: 30n,
+          amountBurned: 4n,
           mintPending: 10n,
-          lockedTargetPrice: 100n,
           securityFee: 7n,
           txFee: 3n,
-          burned: 4n,
-          blockHeight: 1,
-          oracleBitcoinBlockHeight: 1,
+          blockNumber: 1,
         },
         {
-          mintAmount: 20n,
+          source: 'lock',
+          sourceRatchetIndex: 1,
+          microgonsAtTargetPerBtc: 120n,
+          amountMinted: 20n,
+          amountBurned: 1n,
           mintPending: 0n,
-          lockedTargetPrice: 120n,
           securityFee: 8n,
           txFee: 2n,
-          burned: 1n,
-          blockHeight: 2,
-          oracleBitcoinBlockHeight: 2,
+          blockNumber: 2,
         },
       ],
-      lockDetails: { couponFeesPaid: 5n },
-      createdAt: new Date('2026-01-01T00:00:00Z'),
-    } as unknown as IBitcoinLockRecord;
+    });
     const currency = {
       priceIndex: {},
       convertSatToBtc: vi.fn(() => 0.0001),
@@ -1078,64 +1150,59 @@ describe('financial position accounting', () => {
       {} as never,
       {} as never,
     );
-    vi.spyOn(bitcoinLocks, 'getMismatchViewState').mockReturnValue({
-      phase: 'none',
-      candidateCount: 0,
-      isFundingExpired: false,
-      candidates: [],
-    });
     vi.spyOn(bitcoinLocks, 'getLockProcessingDetails').mockReturnValue({ confirmations: 3 } as never);
     vi.spyOn(bitcoinLocks, 'getLockProcessingError').mockReturnValue('');
     vi.spyOn(bitcoinLocks, 'hasObservedFundingSignal').mockReturnValue(true);
-    const redemption = vi.spyOn(BitcoinLock, 'calculateRedemptionAmountFromSatoshis').mockReturnValue(60n);
+    const summary = applyBitcoinFissionValuation({
+      summary: bitcoinLocks.createLockSummary(lock),
+      fissions: [fission],
+      activeFissionIds: new Set(),
+    });
+    const positions = bitcoinFinancials.createFinancialPositions({ summaries: [summary], hasCurrentPrice: true });
+    const aggregate = reduceFinancialPositions(readySnapshots(positions));
+    const bitcoin = aggregate.groupSummaries.bitcoin;
 
-    try {
-      const summary = bitcoinLocks.createLockSummary(lock);
-      const positions = bitcoinFinancials.createFinancialPositions({ summaries: [summary], hasCurrentPrice: true });
-      const aggregate = reduceFinancialPositions(readySnapshots(positions));
-      const bitcoin = aggregate.groupSummaries.bitcoin;
-
-      expect(summary).toMatchObject({
-        valueOfBtc: 150n,
-        totalLiquidity: 50n,
-        pendingLiquidity: 10n,
-        receivedLiquidity: 35n,
-        valueBeyondLiquidity: 30n,
-        startingCapital: 45n,
-        endingCapital: 45n,
-        securityFees: 10n,
-        totalFees: 15n,
-        unlockAmount: 60n,
-        totalReturn: 0,
-      });
-      expect(positions.map(position => position.id)).toEqual([
-        `bitcoin-asset:${lock.uuid}`,
-        `bitcoin-liability:${lock.uuid}`,
-      ]);
-      expect(positions.map(position => [position.kind, position.currentValue])).toEqual([
-        ['bitcoin-asset', 160n],
-        ['bitcoin-liability', -60n],
-      ]);
-      expect(positions.every(position => position.lock.uuid === lock.uuid)).toBe(true);
-      expect(positions[0]).toMatchObject({ investedCost: 45n, paidIncome: 20n });
-      expect(bitcoin).toMatchObject({ grossAssets: 160n, grossLiabilities: 60n, currentValue: 100n });
-      expect(bitcoin?.returnSummary.paidIncome).toBe(20n);
-      expect(bitcoin?.returnSummary.returnAmount).toBe(0n);
-      expect(bitcoin?.returnSummary.percent).toBe(0);
-    } finally {
-      redemption.mockRestore();
-    }
+    expect(summary).toMatchObject({
+      valueOfBtc: 150n,
+      totalLiquidity: 50n,
+      pendingLiquidity: 10n,
+      receivedLiquidity: 35n,
+      valueBeyondLiquidity: 30n,
+      startingCapital: 45n,
+      endingCapital: 45n,
+      securityFees: 10n,
+      totalFees: 15n,
+      unlockAmount: 60n,
+      totalReturn: 0,
+    });
+    expect(positions.map(position => position.id)).toEqual([
+      `bitcoin-asset:${lock.uuid}`,
+      `bitcoin-liability:${lock.uuid}`,
+    ]);
+    expect(positions.map(position => [position.kind, position.currentValue])).toEqual([
+      ['bitcoin-asset', 160n],
+      ['bitcoin-liability', -60n],
+    ]);
+    expect(positions.every(position => position.kind === 'bitcoin-liquid' || position.lock.uuid === lock.uuid)).toBe(
+      true,
+    );
+    expect(positions[0]).not.toHaveProperty('investedCost');
+    expect(positions[0]).not.toHaveProperty('paidIncome');
+    expect(bitcoin).toMatchObject({ grossAssets: 160n, grossLiabilities: 60n, currentValue: 100n });
+    expect(bitcoin.returnSummary).toMatchObject({
+      availability: 'not-applicable',
+      eligiblePositionCount: 0,
+      investmentPositionCount: 0,
+    });
   });
 
-  it('keeps Hodling Returns based on the BTC lock value', async () => {
-    const lock = {
+  it('keeps complete Liquid accounting visible when the chain advances beyond its history', async () => {
+    const lock = createBitcoinFinancialLock({
       uuid: 'lock-return-bases',
-      status: BitcoinLockStatus.LockedAndMinted,
-      ratchets: [{ lockedTargetPrice: 100n }],
-      createdAt: new Date('2026-01-01T00:00:00Z'),
-    } as IBitcoinLockRecord;
+    });
     const summary = {
       uuid: lock.uuid,
+      utxoId: lock.utxoId,
       status: lock.status,
       satoshis: 10_000n,
       valueOfBtc: 90n,
@@ -1143,119 +1210,437 @@ describe('financial position accounting', () => {
       endingCapital: 88n,
       pendingLiquidity: 0n,
       receivedLiquidity: 80n,
+      securityFees: 0n,
       totalFees: 0n,
       unlockAmount: 72n,
       record: lock,
     } as IBitcoinLockSummary;
-    const financials = new BitcoinFinancials({
-      load: vi.fn(),
-      getAllLocks: () => [lock],
-      createLockSummaryAt: async () => summary,
-      isLockedStatus: () => true,
-    } as unknown as BitcoinLocks);
+    const fission = createBitcoinFissionRecord({
+      liquidityPromised: 80n,
+      createdAtTick: 1,
+      ratchets: [
+        {
+          source: 'lock',
+          sourceRatchetIndex: 0,
+          microgonsAtTargetPerBtc: 100n,
+          amountMinted: 80n,
+          amountBurned: 0n,
+          mintPending: 0n,
+          txFee: 0n,
+          blockNumber: 1,
+        },
+      ],
+    });
+    const getPublishedSnapshot = vi.fn(async () => ({
+      asOfBlock: 99,
+      terms: [
+        {
+          utxoId: 7,
+          termIndex: 0,
+          origin: 'created' as const,
+          startTick: 0,
+          startBlockNumber: 1,
+          securitizedSatoshis: 10_000n,
+          securitizationCoverageMicrogons: null,
+          cumulativeNetSecurityFee: 10n,
+          addedNetSecurityFee: 10n,
+        },
+      ],
+    }));
+    const financials = new BitcoinFinancials(
+      {
+        load: vi.fn(),
+        getAllLocks: () => [lock],
+        createLockSummary: () => summary,
+        isLockFunded: () => true,
+        isReleaseStatus: () => false,
+      } as unknown as BitcoinLocks,
+      {
+        ownerAccount: '5owner',
+        getAll: () => [fission],
+        getHistory: () => [fission],
+      } as unknown as BitcoinFissions,
+      Promise.resolve({
+        bitcoinFissionsTable: { fetchAll: async () => [fission] },
+        bitcoinSecuritizationHistoryTable: { getPublishedSnapshot },
+      }) as never,
+    );
 
     const snapshot = await financials.loadSnapshot({
       clientAt: {} as never,
       hasCurrentPrice: true,
+      priceIndex: bitcoinPriceIndex,
     });
 
-    expect(snapshot.positions[0]).toMatchObject({ investedCost: 80n });
+    expect(snapshot.positions[0]).not.toHaveProperty('investedCost');
     expect(snapshot.hodlingInvestments[0]).toMatchObject({
       startingCapital: 100n,
       endingCapital: 90n,
     });
+    expect(snapshot.positions.find(position => position.kind === 'bitcoin-liquid')).toMatchObject({
+      insuranceCost: 10n,
+    });
+    expect(snapshot.positions.find(position => position.kind === 'bitcoin-liquid')?.totalReturn).toBeTypeOf('number');
+  });
+
+  it('publishes one return-only financial position per Liquid with inherited insurance cost', () => {
+    const lock = createBitcoinFinancialLock({
+      uuid: 'liquid-lock',
+      fundedSatoshis: 100_000_000n,
+      securitizedSatoshis: 100_000_000n,
+      securitizationCoverageMicrogons: 80n,
+    });
+    const summary = {
+      uuid: lock.uuid,
+      utxoId: lock.utxoId,
+      status: lock.status,
+      satoshis: lock.fundedSatoshis,
+      valueOfBtc: 150n,
+      startingCapital: 100n,
+      endingCapital: 155n,
+      pendingLiquidity: 0n,
+      receivedLiquidity: 100n,
+      securityFees: 10n,
+      totalFees: 15n,
+      unlockAmount: 80n,
+      record: lock,
+    } as IBitcoinLockSummary;
+    const fission = createBitcoinFissionRecord({
+      origin: 'created',
+      fissionId: 21,
+      liquidId: 12,
+      satoshis: 100_000_000n,
+      liquidityPromised: 100n,
+      createdAtTick: 10,
+      ratchets: [
+        {
+          source: 'fission',
+          sourceRatchetIndex: 0,
+          ratchetNumber: 0,
+          microgonsAtTargetPerBtc: 100n,
+          liquidityPromised: 100n,
+          amountMinted: 100n,
+          amountBurned: 0n,
+          mintPending: 0n,
+          txFee: 5n,
+          blockNumber: 159,
+          tick: 10,
+        },
+      ],
+    });
+
+    const terms: IBitcoinSecuritizationTerm[] = [
+      {
+        utxoId: 7,
+        termIndex: 0,
+        origin: 'created',
+        startTick: 0,
+        startBlockNumber: 150,
+        securitizedSatoshis: 100_000_000n,
+        securitizationCoverageMicrogons: 80n,
+        cumulativeNetSecurityFee: 10n,
+        addedNetSecurityFee: 10n,
+      },
+    ];
+    const [position] = createBitcoinLiquidPositions({
+      summaries: [summary],
+      fissions: [fission],
+      terms,
+      activeFissionIds: new Set([21]),
+      hasCurrentPrice: true,
+      priceIndex: bitcoinPriceIndex,
+    });
+
+    expect(position).toMatchObject({
+      id: 'bitcoin-liquid:12',
+      kind: 'bitcoin-liquid',
+      liquidId: 12,
+      lifecycle: 'active',
+      currentValue: 0n,
+      investedCost: 100n,
+      paidIncome: 85n,
+      settledPrincipalValue: 0n,
+      performanceEndingCapital: 135n,
+      insuranceCost: 10n,
+      transactionFees: 5n,
+    });
+
+    const underlying = bitcoinFinancials.createFinancialPositions({
+      summaries: [
+        {
+          ...summary,
+          totalLiquidity: 100n,
+          pendingLiquidity: 0n,
+          receivedLiquidity: 100n,
+          totalFees: 15n,
+        } as IBitcoinLockSummary,
+      ],
+      hasCurrentPrice: true,
+    });
+    const bitcoin = reduceFinancialPositions(readySnapshots([...underlying, position])).groupSummaries.bitcoin;
+
+    expect(bitcoin.currentValue).toBe(70n);
+    expect(bitcoin.returnSummary).toMatchObject({
+      investmentPositionCount: 1,
+      eligiblePositionCount: 1,
+      returnAmount: 35n,
+      percent: 35,
+    });
+
+    const [positionWithoutInsuranceHistory] = createBitcoinLiquidPositions({
+      summaries: [summary],
+      fissions: [fission],
+      terms: [],
+      activeFissionIds: new Set([21]),
+      hasCurrentPrice: true,
+    });
+    expect(positionWithoutInsuranceHistory).toMatchObject({ transactionFees: 5n });
+    expect(positionWithoutInsuranceHistory.insuranceCost).toBeUndefined();
+    expect(positionWithoutInsuranceHistory.totalFees).toBeUndefined();
+    expect(positionWithoutInsuranceHistory.totalReturn).toBeUndefined();
+
+    const incompleteBitcoin = reduceFinancialPositions(readySnapshots([...underlying, positionWithoutInsuranceHistory]))
+      .groupSummaries.bitcoin;
+    expect(incompleteBitcoin.currentValue).toBe(70n);
+    expect(incompleteBitcoin.returnSummary.availability).toBe('unavailable');
+
+    fission.ratchets[0].txFee = undefined;
+    const [positionWithoutTransactionHistory] = createBitcoinLiquidPositions({
+      summaries: [summary],
+      fissions: [fission],
+      terms,
+      activeFissionIds: new Set([21]),
+      hasCurrentPrice: true,
+    });
+    expect(positionWithoutTransactionHistory.transactionFees).toBeUndefined();
+    expect(positionWithoutTransactionHistory.totalFees).toBeUndefined();
+    expect(positionWithoutTransactionHistory.totalReturn).toBeUndefined();
+
+    fission.ratchets[0].txFee = 5n;
+    const [positionBehindCurrentFission] = createBitcoinLiquidPositions({
+      summaries: [summary],
+      fissions: [fission],
+      terms,
+      activeFissionIds: new Set([21]),
+      incompleteFissionIds: new Set([21]),
+      hasCurrentPrice: true,
+    });
+    expect(positionBehindCurrentFission.transactionFees).toBeUndefined();
+    expect(positionBehindCurrentFission.totalReturn).toBeUndefined();
+  });
+
+  it('counts shared create and close fees once for a multi-Fission Liquid', () => {
+    const locks = [
+      createBitcoinFinancialLock({ uuid: 'liquid-lock-1', utxoId: 7, fundedSatoshis: 50_000_000n }),
+      createBitcoinFinancialLock({ uuid: 'liquid-lock-2', utxoId: 8, fundedSatoshis: 50_000_000n }),
+    ];
+    const summaries = locks.map(
+      lock =>
+        ({
+          uuid: lock.uuid,
+          utxoId: lock.utxoId,
+          status: lock.status,
+          satoshis: lock.fundedSatoshis,
+          valueOfBtc: 60n,
+          startingCapital: 50n,
+          endingCapital: 55n,
+          pendingLiquidity: 0n,
+          receivedLiquidity: 50n,
+          securityFees: 0n,
+          totalFees: 0n,
+          unlockAmount: 50n,
+          record: lock,
+        }) as IBitcoinLockSummary,
+    );
+    const fissions = locks.map((lock, index) =>
+      createBitcoinFissionRecord({
+        origin: 'created',
+        fissionId: 21 + index,
+        liquidId: 12,
+        utxoId: lock.utxoId!,
+        satoshis: 50_000_000n,
+        liquidityPromised: 50n,
+        createdAtTick: 10,
+        closedAtArgonBlock: 160,
+        closedAtTick: 11,
+        closedBlockTime: new Date('2026-01-02T00:00:00Z'),
+        closedExtrinsicIndex: 4,
+        closeReason: 'closed',
+        redemptionAmount: 45n,
+        closeTxFee: 4n,
+        btcPriceAtCloseMicrogons: 120n,
+        ratchets: [
+          {
+            source: 'fission',
+            sourceRatchetIndex: 0,
+            ratchetNumber: 0,
+            microgonsAtTargetPerBtc: 100n,
+            liquidityPromised: 50n,
+            amountMinted: 50n,
+            amountBurned: 0n,
+            mintPending: 0n,
+            txFee: 5n,
+            blockNumber: 159,
+            tick: 10,
+            extrinsicIndex: 3,
+          },
+        ],
+      }),
+    );
+
+    const [position] = createBitcoinLiquidPositions({
+      summaries,
+      fissions,
+      terms: [],
+      activeFissionIds: new Set(),
+      hasCurrentPrice: true,
+    });
+
+    expect(position.transactionFees).toBe(9n);
   });
 
   it('keeps historical fees separate from the current Bitcoin value', () => {
-    const lock = {
-      satoshis: 10_000_000n,
-      lockedTargetPrice: 8_000n,
-      ratchets: [
-        {
-          mintAmount: 8_500n,
-          mintPending: 0n,
-          lockedTargetPrice: 9_000n,
-          securityFee: 10n,
-          txFee: 5n,
-          burned: 0n,
-        },
-        {
-          mintAmount: 0n,
-          mintPending: 0n,
-          lockedTargetPrice: 8_000n,
-          securityFee: 0n,
-          txFee: 0n,
-          burned: 0n,
-        },
-      ],
-      lockDetails: { couponFeesPaid: 0n },
+    const lock = createBitcoinFinancialLock({
+      fundedSatoshis: 10_000_000n,
+      securitizedSatoshis: 10_000_000n,
+      securitizationCoverageMicrogons: 8_000n,
+      securityFees: 10n,
       releaseArgonTxFeeMicrogons: 3n,
       btcPriceAtRemovalMicrogons: 60_000n,
-      fundingUtxoRecord: { releaseBitcoinNetworkFee: 100_000n },
-    } as unknown as IBitcoinLockRecord;
+      fundingUtxo: { releaseBitcoinNetworkFee: 100_000n } as never,
+    });
+    const fission = createBitcoinFissionRecord({
+      satoshis: 10_000_000n,
+      liquidityPromised: 8_000n,
+      createdAtTick: 0,
+      closedAtArgonBlock: 3,
+      closedAtTick: 10,
+      closedBlockTime: new Date('2026-01-02T00:00:00Z'),
+      closeReason: 'closed',
+      redemptionAmount: 7_000n,
+      btcPriceAtCloseMicrogons: 60_000n,
+      ratchets: [
+        {
+          source: 'lock',
+          sourceRatchetIndex: 0,
+          microgonsAtTargetPerBtc: 9_000n,
+          amountMinted: 8_500n,
+          amountBurned: 0n,
+          mintPending: 0n,
+          securityFee: 10n,
+          txFee: 5n,
+          blockNumber: 1,
+        },
+        {
+          source: 'lock',
+          sourceRatchetIndex: 1,
+          microgonsAtTargetPerBtc: 8_000n,
+          amountMinted: 0n,
+          amountBurned: 0n,
+          mintPending: 0n,
+          securityFee: 0n,
+          txFee: 0n,
+          blockNumber: 2,
+        },
+      ],
+    });
     const currency = {
       priceIndex: {},
       convertSatToBtc: () => 0.1,
       convertBtcToMicrogon: () => 7_000n,
     } as unknown as Currency;
-    const redemption = vi.spyOn(BitcoinLock, 'calculateRedemptionAmountFromSatoshis').mockReturnValue(8_000n);
-
-    try {
-      const valuation = calculateBitcoinLockValuation({ lock, currency });
-
-      expect(valuation).toMatchObject({
-        valueOfBtc: 7_000n,
-        securityFees: 10n,
-        transactionFees: 5n,
-        totalFees: 15n,
-        historicalTransactionFees: 68n,
-        historicalTotalFees: 78n,
+    const bitcoinLocks = new BitcoinLocks(
+      Promise.resolve({} as never),
+      {} as never,
+      {} as never,
+      currency,
+      {} as never,
+      {} as never,
+    );
+    vi.spyOn(bitcoinLocks, 'getLockProcessingDetails').mockReturnValue({ confirmations: 3 } as never);
+    vi.spyOn(bitcoinLocks, 'getLockProcessingError').mockReturnValue('');
+    vi.spyOn(bitcoinLocks, 'hasObservedFundingSignal').mockReturnValue(true);
+    const applyValuation = () =>
+      applyBitcoinFissionValuation({
+        summary: bitcoinLocks.createLockSummary(lock),
+        fissions: [fission],
+        activeFissionIds: new Set(),
       });
 
-      lock.fundingUtxoRecord = undefined;
-
-      expect(calculateBitcoinLockValuation({ lock, currency })).toMatchObject({
-        historicalTransactionFees: 8n,
-        historicalTotalFees: 18n,
-      });
-    } finally {
-      redemption.mockRestore();
-    }
-  });
-
-  it('reports retained down-ratchet liquidity as Bitcoin locking profit', () => {
-    const lock = {
-      uuid: 'down-ratchet',
-      status: BitcoinLockStatus.LockedAndIsMinting,
-      satoshis: 10_000n,
-      lockedTargetPrice: 100n,
-      ratchets: [
+    const completeSummary = applyValuation();
+    expect(completeSummary).toMatchObject({
+      valueOfBtc: 7_000n,
+      securityFees: 10n,
+      transactionFees: 5n,
+      totalFees: 15n,
+      historicalTransactionFees: 68n,
+      historicalTotalFees: 78n,
+    });
+    const [position] = createBitcoinLiquidPositions({
+      summaries: [completeSummary],
+      fissions: [fission],
+      terms: [
         {
-          mintAmount: 120n,
-          mintPending: 0n,
-          liquidityPromised: 120n,
-          lockedTargetPrice: 120n,
-          securityFee: 0n,
-          txFee: 0n,
-          burned: 0n,
-          blockHeight: 1,
-          oracleBitcoinBlockHeight: 1,
-        },
-        {
-          mintAmount: 100n,
-          mintPending: 100n,
-          liquidityPromised: 100n,
-          lockedTargetPrice: 100n,
-          securityFee: 0n,
-          txFee: 0n,
-          burned: 100n,
-          blockHeight: 2,
-          oracleBitcoinBlockHeight: 2,
+          utxoId: 7,
+          termIndex: 0,
+          origin: 'created',
+          startTick: 0,
+          startBlockNumber: 1,
+          securitizedSatoshis: 10_000_000n,
+          securitizationCoverageMicrogons: null,
+          cumulativeNetSecurityFee: 10n,
+          addedNetSecurityFee: 10n,
+          endTick: 10,
         },
       ],
-      lockDetails: { couponFeesPaid: 0n },
-      createdAt: new Date('2026-01-01T00:00:00Z'),
-    } as unknown as IBitcoinLockRecord;
+      activeFissionIds: new Set(),
+      hasCurrentPrice: false,
+    });
+    expect(position).toMatchObject({ transactionFees: 68n, insuranceCost: 10n, totalFees: 78n });
+
+    lock.fundingUtxo = undefined;
+
+    expect(applyValuation()).toMatchObject({
+      historicalTransactionFees: 8n,
+      historicalTotalFees: 18n,
+    });
+  });
+
+  it('keeps retained down-ratchet liquidity in the Bitcoin asset without treating the lock as an investment', () => {
+    const lock = createBitcoinFinancialLock({
+      uuid: 'down-ratchet',
+      status: BitcoinLockStatus.LockFunded,
+      securitizationCoverageMicrogons: 100n,
+    });
+    const fission = createBitcoinFissionRecord({
+      liquidityPromised: 100n,
+      ratchets: [
+        {
+          source: 'lock',
+          sourceRatchetIndex: 0,
+          microgonsAtTargetPerBtc: 120n,
+          amountMinted: 120n,
+          amountBurned: 0n,
+          mintPending: 0n,
+          liquidityPromised: 120n,
+          securityFee: 0n,
+          txFee: 0n,
+          blockNumber: 1,
+        },
+        {
+          source: 'lock',
+          sourceRatchetIndex: 1,
+          microgonsAtTargetPerBtc: 100n,
+          amountMinted: 100n,
+          amountBurned: 100n,
+          mintPending: 100n,
+          liquidityPromised: 100n,
+          securityFee: 0n,
+          txFee: 0n,
+          blockNumber: 2,
+        },
+      ],
+    });
     const currency = {
       priceIndex: {},
       convertSatToBtc: vi.fn(() => 0.0001),
@@ -1269,58 +1654,47 @@ describe('financial position accounting', () => {
       {} as never,
       {} as never,
     );
-    vi.spyOn(bitcoinLocks, 'getMismatchViewState').mockReturnValue({
-      phase: 'none',
-      candidateCount: 0,
-      isFundingExpired: false,
-      candidates: [],
-    });
     vi.spyOn(bitcoinLocks, 'getLockProcessingDetails').mockReturnValue({ confirmations: 3 } as never);
     vi.spyOn(bitcoinLocks, 'getLockProcessingError').mockReturnValue('');
     vi.spyOn(bitcoinLocks, 'hasObservedFundingSignal').mockReturnValue(true);
-    const redemption = vi.spyOn(BitcoinLock, 'calculateRedemptionAmountFromSatoshis').mockReturnValue(100n);
+    const summary = applyBitcoinFissionValuation({
+      summary: bitcoinLocks.createLockSummary(lock),
+      fissions: [fission],
+      activeFissionIds: new Set(),
+    });
+    const positions = bitcoinFinancials.createFinancialPositions({ summaries: [summary], hasCurrentPrice: true });
+    const bitcoin = reduceFinancialPositions(readySnapshots(positions)).groupSummaries.bitcoin;
 
-    try {
-      const summary = bitcoinLocks.createLockSummary(lock);
-      const positions = bitcoinFinancials.createFinancialPositions({ summaries: [summary], hasCurrentPrice: true });
-      const bitcoin = reduceFinancialPositions(readySnapshots(positions)).groupSummaries.bitcoin;
-
-      expect(summary).toMatchObject({
-        valueOfBtc: 100n,
-        pendingLiquidity: 100n,
-        receivedLiquidity: 20n,
-        startingCapital: 120n,
-        endingCapital: 140n,
-        totalReturn: 16.666666666666668,
-      });
-      expect(bitcoin).toMatchObject({
-        grossAssets: 200n,
-        grossLiabilities: 100n,
-        currentValue: 100n,
-      });
-      expect(bitcoin.returnSummary).toMatchObject({
-        investedCost: 120n,
-        paidIncome: 20n,
-        returnAmount: 20n,
-        percent: 16.67,
-      });
-    } finally {
-      redemption.mockRestore();
-    }
+    expect(summary).toMatchObject({
+      valueOfBtc: 100n,
+      pendingLiquidity: 100n,
+      receivedLiquidity: 20n,
+      startingCapital: 120n,
+      endingCapital: 140n,
+      totalReturn: 16.666666666666668,
+    });
+    expect(bitcoin).toMatchObject({
+      grossAssets: 200n,
+      grossLiabilities: 100n,
+      currentValue: 100n,
+    });
+    expect(bitcoin.returnSummary).toMatchObject({
+      availability: 'not-applicable',
+      eligiblePositionCount: 0,
+      investmentPositionCount: 0,
+    });
   });
 
   it('preserves native Bitcoin quantity while converted values wait for a current price', () => {
-    const lock = {
+    const lock = createBitcoinFinancialLock({
       uuid: 'lock-2',
-      status: BitcoinLockStatus.LockedAndMinted,
-      satoshis: 20_000n,
-      ratchets: [],
-      createdAt: new Date('2026-01-01T00:00:00Z'),
-    } as unknown as IBitcoinLockRecord;
+      fundedSatoshis: 20_000n,
+      securitizedSatoshis: 20_000n,
+    });
     const summary = {
       uuid: lock.uuid,
       status: lock.status,
-      satoshis: lock.satoshis,
+      satoshis: lock.fundedSatoshis,
       valueOfBtc: 1n,
       startingCapital: 100n,
       totalLiquidity: 30n,
@@ -1336,34 +1710,30 @@ describe('financial position accounting', () => {
     const aggregate = reduceFinancialPositions(readySnapshots(positions));
 
     expect(positions).toHaveLength(2);
-    expect(positions[0].lock.satoshis).toBe(20_000n);
-    expect(positions[0]).toMatchObject({ investedCost: 100n });
+    expect(positions[0]?.kind === 'bitcoin-asset' && positions[0].lock.fundedSatoshis).toBe(20_000n);
+    expect(positions[0]).not.toHaveProperty('investedCost');
     expect(positions.every(position => position.currentValue === undefined)).toBe(true);
     expect(aggregate.readiness).toBe('partial');
-    expect(aggregate.groupSummaries.bitcoin.returnSummary.availability).toBe('unavailable');
+    expect(aggregate.groupSummaries.bitcoin.returnSummary.availability).toBe('not-applicable');
   });
 
-  it('settles a released Bitcoin lock from its durable removal economics', () => {
+  it('keeps pending mint from a released Bitcoin lock as an asset', () => {
     const removedAt = new Date('2026-01-31T12:00:00Z');
-    const lock = {
+    const lock = createBitcoinFinancialLock({
       uuid: 'lock-released',
       status: BitcoinLockStatus.Released,
-      satoshis: 10_000n,
-      lockedTargetPrice: 100n,
-      ratchets: [{ mintPending: 0n }],
       releaseRedemptionMicrogons: 40n,
       releaseArgonTxFeeMicrogons: 3n,
       removalBlockTime: removedAt,
       removalReason: 'released',
       btcPriceAtRemovalMicrogons: 1_200_000n,
-      fundingUtxoRecord: { releaseBitcoinNetworkFee: 1_000n },
-      createdAt: new Date('2026-01-01T00:00:00Z'),
+      fundingUtxo: { releaseBitcoinNetworkFee: 1_000n } as never,
       updatedAt: new Date('2026-02-01T00:00:00Z'),
-    } as unknown as IBitcoinLockRecord;
+    });
     const summary = {
       uuid: lock.uuid,
       status: lock.status,
-      satoshis: lock.satoshis,
+      satoshis: lock.fundedSatoshis,
       valueOfBtc: 999n,
       startingCapital: 100n,
       totalLiquidity: 30n,
@@ -1379,7 +1749,6 @@ describe('financial position accounting', () => {
     const positions = bitcoinFinancials.createFinancialPositions({
       summaries: [summary],
       hasCurrentPrice: true,
-      hasConfirmedHistoryCoverage: true,
     });
     const bitcoin = reduceFinancialPositions(readySnapshots(positions)).groupSummaries.bitcoin;
 
@@ -1387,36 +1756,30 @@ describe('financial position accounting', () => {
       expect.objectContaining({
         lifecycle: 'completed',
         currentValue: 10n,
-        investedCost: 100n,
-        paidIncome: 22n,
-        settledPrincipalValue: 68n,
-        performanceEndingCapital: 80n,
-        endedAt: removedAt,
       }),
     ]);
     expect(bitcoin?.currentValue).toBe(10n);
-    expect(bitcoin?.returnSummary.returnAmount).toBe(-20n);
+    expect(bitcoin?.returnSummary.availability).toBe('not-applicable');
   });
 
-  it('reports the liquidity retained after release as Bitcoin locking profit', () => {
-    const lock = {
+  it('does not turn a released Bitcoin lock into an investment position', () => {
+    const lock = createBitcoinFinancialLock({
       uuid: 'lock-released-profit',
       status: BitcoinLockStatus.Released,
-      satoshis: 13_146_391n,
-      lockedTargetPrice: 9_103_964_854n,
-      ratchets: [{ mintPending: 0n }],
+      fundedSatoshis: 13_146_391n,
+      securitizedSatoshis: 13_146_391n,
       releaseRedemptionMicrogons: 7_597_981_840n,
       releaseArgonTxFeeMicrogons: 1_361n,
       removalBlockTime: new Date('2026-07-02T20:51:01Z'),
       removalReason: 'released',
       btcPriceAtRemovalMicrogons: 58_105_590_350n,
-      fundingUtxoRecord: { releaseBitcoinNetworkFee: 847n },
+      fundingUtxo: { releaseBitcoinNetworkFee: 847n } as never,
       createdAt: new Date('2026-06-11T00:00:00Z'),
-    } as unknown as IBitcoinLockRecord;
+    });
     const summary = {
       uuid: lock.uuid,
       status: lock.status,
-      satoshis: lock.satoshis,
+      satoshis: lock.fundedSatoshis,
       valueOfBtc: 7_638_788_100n,
       startingCapital: 8_672_857_884n,
       totalLiquidity: 8_672_857_884n,
@@ -1432,37 +1795,29 @@ describe('financial position accounting', () => {
     const positions = bitcoinFinancials.createFinancialPositions({
       summaries: [summary],
       hasCurrentPrice: true,
-      hasConfirmedHistoryCoverage: true,
     });
     const bitcoin = reduceFinancialPositions(readySnapshots(positions)).groupSummaries.bitcoin;
 
-    expect(positions[0]).toMatchObject({
-      investedCost: 8_672_857_884n,
-      performanceEndingCapital: 9_747_183_619n,
-    });
-    expect(bitcoin?.returnSummary.returnAmount).toBe(1_074_325_735n);
-    expect(bitcoin?.returnSummary.percent).toBe(12.39);
+    expect(positions[0]).not.toHaveProperty('investedCost');
+    expect(positions[0]).not.toHaveProperty('performanceEndingCapital');
+    expect(bitcoin?.returnSummary.availability).toBe('not-applicable');
   });
 
   it('keeps an incomplete released lock visible without inventing a settlement return', () => {
-    const lock = {
+    const lock = createBitcoinFinancialLock({
       uuid: 'lock-released-incomplete',
       status: BitcoinLockStatus.Released,
-      satoshis: 10_000n,
-      lockedTargetPrice: 100n,
-      ratchets: [],
       releaseRedemptionMicrogons: 40n,
       releaseArgonTxFeeMicrogons: 3n,
       removalReason: 'released',
       removalBlockTime: new Date('2026-02-01T00:00:00Z'),
       btcPriceAtRemovalMicrogons: 1_200_000n,
-      fundingUtxoRecord: { releaseBitcoinNetworkFee: 1_000n },
-      createdAt: new Date('2026-01-01T00:00:00Z'),
-    } as unknown as IBitcoinLockRecord;
+      fundingUtxo: { releaseBitcoinNetworkFee: 1_000n } as never,
+    });
     const summary = {
       uuid: lock.uuid,
       status: lock.status,
-      satoshis: lock.satoshis,
+      satoshis: lock.fundedSatoshis,
       valueOfBtc: 999n,
       startingCapital: 100n,
       totalLiquidity: 30n,
@@ -1482,32 +1837,25 @@ describe('financial position accounting', () => {
         id: `bitcoin-asset:${lock.uuid}`,
         lifecycle: 'completed',
         currentValue: 6n,
-        investedCost: undefined,
-        settledPrincipalValue: undefined,
-        performanceEndingCapital: undefined,
       }),
     ]);
     expect(bitcoin?.currentValue).toBe(6n);
-    expect(bitcoin?.returnSummary.availability).toBe('unavailable');
+    expect(bitcoin?.returnSummary.availability).toBe('not-applicable');
     expect(bitcoin?.returnSummary.returnAmount).toBeUndefined();
   });
 
   it('keeps only recovered pending mint after removed Bitcoin locks stop being live', () => {
-    const lock = {
+    const lock = createBitcoinFinancialLock({
       uuid: 'lock-expired-unspent',
       status: BitcoinLockStatus.Releasing,
-      satoshis: 10_000n,
-      lockedTargetPrice: 100n,
-      ratchets: [{ mintPending: 10n }],
       removalReason: 'expired',
       removalBlockTime: new Date('2026-02-01T00:00:00Z'),
       btcPriceAtRemovalMicrogons: 1_200_000n,
-      createdAt: new Date('2026-01-01T00:00:00Z'),
-    } as unknown as IBitcoinLockRecord;
+    });
     const summary = {
       uuid: lock.uuid,
       status: lock.status,
-      satoshis: lock.satoshis,
+      satoshis: lock.fundedSatoshis,
       valueOfBtc: 150n,
       startingCapital: 100n,
       totalLiquidity: 30n,
@@ -1545,36 +1893,27 @@ describe('financial position accounting', () => {
         label: 'Expired Bitcoin lock',
         lifecycle: 'held',
         currentValue: 160n,
-        investedCost: undefined,
-        settledPrincipalValue: undefined,
       }),
       expect.objectContaining({
         id: `bitcoin-asset:${spentLock.uuid}`,
         label: 'Spent Bitcoin lock',
         lifecycle: 'completed',
         currentValue: 7n,
-        investedCost: undefined,
-        settledPrincipalValue: undefined,
       }),
     ]);
     expect(bitcoin?.grossAssets).toBe(167n);
     expect(bitcoin?.grossLiabilities).toBe(0n);
-    expect(bitcoin?.returnSummary.availability).toBe('unavailable');
+    expect(bitcoin?.returnSummary.availability).toBe('not-applicable');
   });
 
-  it('does not make current Bitcoin returns partial for a zero-value spent lock', () => {
-    const lock = {
+  it('does not make an active Bitcoin lock an investment when a spent lock has no value', () => {
+    const lock = createBitcoinFinancialLock({
       uuid: 'lock-active',
-      status: BitcoinLockStatus.LockedAndMinted,
-      satoshis: 10_000n,
-      lockedTargetPrice: 100n,
-      ratchets: [{ mintPending: 0n }],
-      createdAt: new Date('2026-01-01T00:00:00Z'),
-    } as unknown as IBitcoinLockRecord;
+    });
     const summary = {
       uuid: lock.uuid,
       status: lock.status,
-      satoshis: lock.satoshis,
+      satoshis: lock.fundedSatoshis,
       valueOfBtc: 150n,
       startingCapital: 100n,
       totalLiquidity: 100n,
@@ -1605,7 +1944,6 @@ describe('financial position accounting', () => {
     const positions = bitcoinFinancials.createFinancialPositions({
       summaries: [summary, spentSummary],
       hasCurrentPrice: true,
-      hasConfirmedHistoryCoverage: true,
     });
     const bitcoin = reduceFinancialPositions(readySnapshots(positions)).groupSummaries.bitcoin;
 
@@ -1614,9 +1952,9 @@ describe('financial position accounting', () => {
       `bitcoin-liability:${lock.uuid}`,
     ]);
     expect(bitcoin.returnSummary).toMatchObject({
-      availability: 'available',
-      eligiblePositionCount: 1,
-      investmentPositionCount: 1,
+      availability: 'not-applicable',
+      eligiblePositionCount: 0,
+      investmentPositionCount: 0,
     });
   });
 
@@ -1644,7 +1982,6 @@ describe('financial position accounting', () => {
     });
     const bonds = bondFinancials.createFinancialPositions({
       bondLots: [vaultLot, argonotLot],
-      hasConfirmedBondHistoryCoverage: true,
       liveArgonotRateMicrogons: 3_000_000n,
       entryArgonotMarksByLot: new Map([
         [`${argonotLot.accountId}:${argonotLot.programType}:${argonotLot.id}`, 2_000_000n],
@@ -1684,7 +2021,6 @@ describe('financial position accounting', () => {
 
     const [operatorBond] = bondFinancials.createFinancialPositions({
       bondLots: [vaultLot],
-      hasConfirmedBondHistoryCoverage: true,
       entryArgonotMarksByLot: new Map(),
       frameDates: new Map([[vaultLot.createdFrame, new Date('2026-01-01T00:00:00Z')]]),
       ownedVaultId: vaultLot.vaultId,
@@ -1732,20 +2068,35 @@ describe('financial position accounting', () => {
       availableMicronots: 300n,
       reservedMicronots: 200n,
       microgonHolds: [
-        registry.createType('FrameSupportTokensMiscIdAmountRuntimeHoldReason', {
-          id: { BlockRewards: 'MaturationPeriod' },
-          amount: 10n,
-        }),
-        registry.createType('FrameSupportTokensMiscIdAmountRuntimeHoldReason', {
-          id: { MiningSlot: 'RegisterAsMiner' },
-          amount: 5n,
-        }),
+        toPlain(
+          registry.createType<FrameSupportTokensMiscIdAmountRuntimeHoldReason>(
+            'FrameSupportTokensMiscIdAmountRuntimeHoldReason',
+            {
+              id: { BlockRewards: 'MaturationPeriod' },
+              amount: 10n,
+            },
+          ),
+        ) as IArgonAccountBalance['microgonHolds'][number],
+        toPlain(
+          registry.createType<FrameSupportTokensMiscIdAmountRuntimeHoldReason>(
+            'FrameSupportTokensMiscIdAmountRuntimeHoldReason',
+            {
+              id: { MiningSlot: 'RegisterAsMiner' },
+              amount: 5n,
+            },
+          ),
+        ) as IArgonAccountBalance['microgonHolds'][number],
       ],
       micronotHolds: [
-        registry.createType('FrameSupportTokensMiscIdAmountRuntimeHoldReason', {
-          id: { CrosschainTransfer: 'TransferOutMintingAuthorityTip' },
-          amount: 100n,
-        }),
+        toPlain(
+          registry.createType<FrameSupportTokensMiscIdAmountRuntimeHoldReason>(
+            'FrameSupportTokensMiscIdAmountRuntimeHoldReason',
+            {
+              id: { CrosschainTransfer: 'TransferOutMintingAuthorityTip' },
+              amount: 100n,
+            },
+          ),
+        ) as IArgonAccountBalance['micronotHolds'][number],
       ],
     });
     const result = await createWalletsForFinancialTest(account.address).loadPositions({
@@ -1769,10 +2120,15 @@ describe('financial position accounting', () => {
       availableMicronots: 7n,
       reservedMicronots: 10n,
       micronotHolds: [
-        registry.createType('FrameSupportTokensMiscIdAmountRuntimeHoldReason', {
-          id: { Vaults: 'EnterVault' },
-          amount: 10n,
-        }),
+        toPlain(
+          registry.createType<FrameSupportTokensMiscIdAmountRuntimeHoldReason>(
+            'FrameSupportTokensMiscIdAmountRuntimeHoldReason',
+            {
+              id: { Vaults: 'EnterVault' },
+              amount: 10n,
+            },
+          ),
+        ) as IArgonAccountBalance['micronotHolds'][number],
       ],
     });
     const result = await createWalletsForFinancialTest(account.address, [
@@ -1827,20 +2183,31 @@ describe('financial position accounting', () => {
       reservedMicrogons: 8n,
       reservedMicronots: 400n,
       microgonHolds: [
-        registry.createType('FrameSupportTokensMiscIdAmountRuntimeHoldReason', {
-          id: { Vaults: 'EnterVault' },
-          amount: 8n,
-        }),
+        toPlain(
+          registry.createType<FrameSupportTokensMiscIdAmountRuntimeHoldReason>(
+            'FrameSupportTokensMiscIdAmountRuntimeHoldReason',
+            {
+              id: { Vaults: 'EnterVault' },
+              amount: 8n,
+            },
+          ),
+        ) as IArgonAccountBalance['microgonHolds'][number],
       ],
       micronotHolds: [
-        registry.createType('FrameSupportTokensMiscIdAmountRuntimeHoldReason', {
-          id: { Vaults: 'EnterVault' },
-          amount: 400n,
-        }),
+        toPlain(
+          registry.createType<FrameSupportTokensMiscIdAmountRuntimeHoldReason>(
+            'FrameSupportTokensMiscIdAmountRuntimeHoldReason',
+            {
+              id: { Vaults: 'EnterVault' },
+              amount: 400n,
+            },
+          ),
+        ) as IArgonAccountBalance['micronotHolds'][number],
       ],
     });
+    const loadVault = vi.fn(async () => undefined);
     const source = new VaultFinancials({
-      load: vi.fn(async () => undefined),
+      load: loadVault,
       createdVault: { vaultId: 10, securitization: 8n, isClosed: false } as Vault,
       vaults: { operatorNamesByVaultId: {} },
       data: {
@@ -1852,10 +2219,11 @@ describe('financial position accounting', () => {
       },
     } as any);
     const positions = await source.loadPositions({
-      hasConfirmedHistoryCoverage: true,
       account,
       liveArgonotRateMicrogons: 1_000_000n,
     });
+
+    expect(loadVault).not.toHaveBeenCalled();
 
     expect(positions).toEqual(
       expect.arrayContaining([
@@ -1950,8 +2318,6 @@ describe('financial group snapshots', () => {
         lifecycle: 'active',
 
         currentValue: 20n,
-        paidIncome: 0n,
-        settledPrincipalValue: 0n,
         lock: { uuid: 'lock-1' } as IBitcoinLockRecord,
       },
       {
@@ -2120,11 +2486,17 @@ function createWalletsForFinancialTest(
 
 function createArgonAccount(
   values: Partial<
-    Pick<IArgonAccountBalance, 'availableMicrogons' | 'reservedMicrogons' | 'availableMicronots' | 'reservedMicronots'>
+    Pick<
+      IArgonAccountBalance,
+      | 'availableMicrogons'
+      | 'reservedMicrogons'
+      | 'availableMicronots'
+      | 'reservedMicronots'
+      | 'microgonHolds'
+      | 'micronotHolds'
+    >
   > & {
     address?: string;
-    microgonHolds?: unknown[];
-    micronotHolds?: unknown[];
     microgonTreasuryHold?: bigint;
     micronotTreasuryHold?: bigint;
   },
@@ -2135,18 +2507,28 @@ function createArgonAccount(
 
   if (values.microgonTreasuryHold !== undefined) {
     microgonHolds.push(
-      registry.createType('FrameSupportTokensMiscIdAmountRuntimeHoldReason', {
-        id: { Treasury: 'ContributedToTreasury' },
-        amount: values.microgonTreasuryHold,
-      }),
+      toPlain(
+        registry.createType<FrameSupportTokensMiscIdAmountRuntimeHoldReason>(
+          'FrameSupportTokensMiscIdAmountRuntimeHoldReason',
+          {
+            id: { Treasury: 'ContributedToTreasury' },
+            amount: values.microgonTreasuryHold,
+          },
+        ),
+      ) as IArgonAccountBalance['microgonHolds'][number],
     );
   }
   if (values.micronotTreasuryHold !== undefined) {
     micronotHolds.push(
-      registry.createType('FrameSupportTokensMiscIdAmountRuntimeHoldReason', {
-        id: { Treasury: 'ContributedToTreasury' },
-        amount: values.micronotTreasuryHold,
-      }),
+      toPlain(
+        registry.createType<FrameSupportTokensMiscIdAmountRuntimeHoldReason>(
+          'FrameSupportTokensMiscIdAmountRuntimeHoldReason',
+          {
+            id: { Treasury: 'ContributedToTreasury' },
+            amount: values.micronotTreasuryHold,
+          },
+        ),
+      ) as IArgonAccountBalance['micronotHolds'][number],
     );
   }
 
@@ -2157,8 +2539,8 @@ function createArgonAccount(
     reservedMicrogons: values.reservedMicrogons ?? 0n,
     availableMicronots: values.availableMicronots ?? 0n,
     reservedMicronots: values.reservedMicronots ?? 0n,
-    microgonHolds: microgonHolds.map(hold => toPlain(hold)) as IArgonAccountBalance['microgonHolds'],
-    micronotHolds: micronotHolds.map(hold => toPlain(hold)) as IArgonAccountBalance['micronotHolds'],
+    microgonHolds,
+    micronotHolds,
   };
 }
 
@@ -2227,5 +2609,5 @@ function createBondLot(args: {
     releaseReason: null,
   });
 
-  return BondLot.fromRuntime(args.id, toPlain(lot) as NonNullable<TreasuryBondLotByIdResult>, lot.owner.toString());
+  return BondLot.fromRuntime(args.id, toPlain(lot) as Parameters<typeof BondLot.fromRuntime>[1], lot.owner.toString());
 }

@@ -7,7 +7,7 @@ export const financialMenuLabels: Record<FinancialGroup, string> = {
   mining: 'Mining',
   vaulting: 'Vaulting',
   bonds: 'Argon(ot) Bonds',
-  bitcoin: 'Bitcoin locks',
+  bitcoin: 'Bitcoin',
 };
 
 export const bondAssetMenuItems = [

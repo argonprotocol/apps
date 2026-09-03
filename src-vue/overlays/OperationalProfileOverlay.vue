@@ -27,23 +27,21 @@
         <span class="text-sm text-slate-500">{{ controller.operatorName || 'Not set' }}</span>
       </button>
 
-      <template v-if="supportsFlexibleAssets">
-        <div class="my-4 border-t border-dashed border-slate-300" />
-        <button
-          type="button"
-          class="hover:text-argon-600 hover:to-argon-menu-hover/70 flex w-full cursor-pointer items-center justify-between rounded-md py-4 text-left hover:bg-gradient-to-r hover:from-transparent"
-          @click="
-            closeOverlay();
-            basicEmitter.emit('openFlexibleAssetsOverlay', { returnTo: 'onboardingSettings' });
-          "
-        >
-          <span class="flex items-center">
-            <ArrowsUpDownIcon class="mr-2 size-5 opacity-70" />
-            Flexible Assets
-          </span>
-          <span class="text-sm text-slate-500">Manage</span>
-        </button>
-      </template>
+      <div class="my-4 border-t border-dashed border-slate-300" />
+      <button
+        type="button"
+        class="hover:text-argon-600 hover:to-argon-menu-hover/70 flex w-full cursor-pointer items-center justify-between rounded-md py-4 text-left hover:bg-gradient-to-r hover:from-transparent"
+        @click="
+          closeOverlay();
+          basicEmitter.emit('openFlexibleAssetsOverlay', { returnTo: 'onboardingSettings' });
+        "
+      >
+        <span class="flex items-center">
+          <ArrowsUpDownIcon class="mr-2 size-5 opacity-70" />
+          Flexible Assets
+        </span>
+        <span class="text-sm text-slate-500">Manage</span>
+      </button>
     </div>
 
     <div v-else class="flex flex-col w-full pt-3 pb-5 px-5 gap-x-5">
@@ -137,7 +135,6 @@ import {
   normalizeOperatorNameInput,
   OPERATOR_NAME_REQUIREMENTS,
 } from '../lib/Utils.ts';
-import { supportsFlexibleAssetsRuntime } from '../lib/MyVault.ts';
 
 const basics = useBasics();
 const controller = useCertificationController();
@@ -157,7 +154,6 @@ const setupProgressMessage = Vue.ref('');
 const setupProgressError = Vue.ref<string | null>(null);
 const currentScreen = Vue.ref<'settings' | 'name'>('name');
 const openedFromSettings = Vue.ref(false);
-const supportsFlexibleAssets = Vue.ref(false);
 
 let unsubSetupProgress: (() => void) | undefined;
 let selectDraftName: ((operatorName: string) => void) | undefined;
@@ -285,12 +281,7 @@ async function openOperationalProfileOverlay(request: void | IOperationalProfile
   onProfileSaved = request && 'onSaved' in request ? request.onSaved : undefined;
   openedFromSettings.value = !!request && 'screen' in request;
   currentScreen.value = openedFromSettings.value ? 'settings' : 'name';
-  if (openedFromSettings.value) {
-    const client = await getMainchainClient(false);
-    supportsFlexibleAssets.value = supportsFlexibleAssetsRuntime(client);
-  } else {
-    await load(request || undefined);
-  }
+  if (!openedFromSettings.value) await load(request || undefined);
   // Runtime compatibility can unmount this global overlay while the profile load is pending.
   if (requestId !== openRequestId) return;
   isOpen.value = true;

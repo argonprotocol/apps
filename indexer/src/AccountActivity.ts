@@ -105,7 +105,9 @@ export class AccountActivityDecoder {
         // earlier local seed is unavailable. The old Bonds pallet also attached
         // an optional Bitcoin UTXO to BondCreated.
         if (
-          (event.section === 'bitcoinLocks' || (event.section === 'bonds' && event.method === 'BondCreated')) &&
+          (event.section === 'bitcoinLocks' ||
+            (event.section === 'bitcoinFissions' && event.method === 'FissionCreated') ||
+            (event.section === 'bonds' && event.method === 'BondCreated')) &&
           eventAccounts.length === 1
         ) {
           const address = eventAccounts[0];
@@ -188,6 +190,7 @@ function classifyEventKind(
   if (section === 'bitcoinLocks') {
     return ignoredBitcoinLockEvents.has(method) ? 0 : AccountActivityKind.BitcoinLock;
   }
+  if (section === 'bitcoinFissions') return AccountActivityKind.BitcoinLock;
 
   // Most BitcoinUtxos events are global candidate observations. Verification and
   // unwatching are durable lock transitions, and the lock-owner index resolves
@@ -244,6 +247,11 @@ function classifyEventKind(
       return AccountActivityKind.AccountBalance;
     }
 
+    if (historicalEvent?.section === 'mint' && historicalEvent.method === 'MintError') {
+      if (historicalEvent.data.mintType.type === 'Bitcoin') return AccountActivityKind.BitcoinMint;
+      if (historicalEvent.data.mintType.type === 'Mining') return AccountActivityKind.MiningSeat;
+    }
+
     // MiningMint is a global floor adjustment correlated to active seat ranges.
     // BitcoinMint names its recipient directly and remains a distinct cash-flow type.
     if (method === 'BitcoinMint') return AccountActivityKind.BitcoinMint;
@@ -252,6 +260,9 @@ function classifyEventKind(
   }
 
   if (section === 'vaults') {
+    if (method === 'SecuritizationReserved') {
+      return AccountActivityKind.VaultPosition | AccountActivityKind.VaultRevenue;
+    }
     // FundsLocked changes the vault's committed capital and creates/ratchets a
     // customer's Bitcoin position, so one block can legitimately carry both bits.
     if (method === 'FundsLocked' || vaultBitcoinLockEvents.has(method)) {
@@ -286,7 +297,12 @@ const miningBidEvents = new Set([
   'SlotBidderOut',
   'SlotBidderReplaced',
 ]);
-const ignoredBitcoinLockEvents = new Set(['CosignOverdueError', 'LockExpirationError']);
+const ignoredBitcoinLockEvents = new Set([
+  'CosignOverdueError',
+  'LockExpirationError',
+  'OrphanedUtxoCleanupScheduleOverflow',
+  'OrphanedUtxoExpirationError',
+]);
 const legacyBitcoinBondEvents = new Set([
   'BitcoinBondBurned',
   'BitcoinCosignPastDue',
@@ -384,6 +400,7 @@ const vaultBitcoinLockEvents = new Set([
 const vaultPositionEvents = new Set([
   'BackfillSecuritizationReservedChanged',
   'ReservedSecuritizationSpaceChanged',
+  'SecuritizationReturned',
   'VaultClosed',
   'VaultCreated',
   'VaultModified',
