@@ -4,8 +4,8 @@
     :class="wide ? 'grid-cols-[110px_minmax(0,1fr)_110px_minmax(0,1fr)]' : 'grid-cols-[110px_minmax(0,1fr)]'"
   >
     <dt>Sender</dt>
-    <dd>
-      <div v-if="sourceIdentity" class="font-medium">{{ formatCrosschainSourceIdentity(sourceIdentity) }}</div>
+    <dd class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+      <CrosschainIdentityLabel v-if="sourceIdentity" :identity="sourceIdentity" />
       <CopyableArgonAddress :address="sourceAccount" />
     </dd>
 
@@ -47,9 +47,10 @@ import * as Vue from 'vue';
 import { MICROGONS_PER_ARGON, MICRONOTS_PER_ARGONOT } from '@argonprotocol/apps-core';
 import { CheckIcon } from '@heroicons/vue/24/outline';
 import CopyIcon from '../assets/copy.svg';
+import CrosschainIdentityLabel from './CrosschainIdentityLabel.vue';
 import CopyableArgonAddress from './CopyableArgonAddress.vue';
 import CopyToClipboard from './CopyToClipboard.vue';
-import { formatCrosschainSourceIdentity, type ICrosschainSourceIdentity } from '../lib/CrosschainTransferView.ts';
+import type { ICrosschainSourceIdentity } from '../lib/CrosschainTransferView.ts';
 import type {
   ICrosschainSourceTransferTotals,
   IMintingAuthorityAuthorization,

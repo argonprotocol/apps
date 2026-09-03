@@ -43,9 +43,7 @@
     <template v-else>
       <dt>Minting Authority</dt>
       <dd :title="`Signing key ${targetValue}`" class="flex min-w-0 items-center gap-x-2">
-        <span v-if="authorityOwnerIdentity" class="shrink-0 font-medium">
-          {{ formatCrosschainSourceIdentity(authorityOwnerIdentity) }}
-        </span>
+        <CrosschainIdentityLabel v-if="authorityOwnerIdentity" :identity="authorityOwnerIdentity" />
         <CopyableArgonAddress v-if="authorityOwnerAccount" :address="authorityOwnerAccount" />
         <span v-if="!authorityOwnerIdentity && !authorityOwnerAccount">Owner unavailable</span>
       </dd>
@@ -56,7 +54,8 @@
 <script setup lang="ts">
 import * as Vue from 'vue';
 import CopyableArgonAddress from './CopyableArgonAddress.vue';
-import { formatCrosschainSourceIdentity, type ICrosschainSourceIdentity } from '../lib/CrosschainTransferView.ts';
+import CrosschainIdentityLabel from './CrosschainIdentityLabel.vue';
+import type { ICrosschainSourceIdentity } from '../lib/CrosschainTransferView.ts';
 import type { IGlobalCouncilApproval, IGlobalCouncilChange, IGlobalCouncilQueueItem } from '../lib/GlobalCouncil.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
 import { getCurrency } from '../stores/currency.ts';

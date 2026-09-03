@@ -155,6 +155,6 @@ export function getKnownCrosschainSourceIdentities() {
     operatorNamesByVaultId: vault.vaults.operatorNamesByVaultId,
     localAccountIds: [walletKeys.defaultArgonAddress, walletKeys.vaultingAddress, walletKeys.operationalAddress],
     upstreamOperator: config.upstreamOperator,
-    sourceUpstreamVaultAccountsByAccount: vault.mintingAuthorities.data.sourceUpstreamVaultAccountsByAccount,
+    sourceOperatorDetailsByAccount: vault.mintingAuthorities.data.sourceOperatorDetailsByAccount,
   });
 }

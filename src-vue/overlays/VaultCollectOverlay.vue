@@ -223,11 +223,11 @@
                               <span class="font-semibold text-slate-800">
                                 Authorize {{ authorization.moveToken }} to Ethereum
                               </span>
-                              <span
+                              <CrosschainIdentityLabel
                                 v-if="getSourceIdentity(authorization.sourceAccount)"
-                                class="max-w-48 truncate rounded bg-slate-200/70 px-2 py-0.5 text-xs font-medium text-slate-600">
-                                {{ formatCrosschainSourceIdentity(getSourceIdentity(authorization.sourceAccount)!) }}
-                              </span>
+                                :identity="getSourceIdentity(authorization.sourceAccount)!"
+                                compact
+                              />
                             </div>
                             <div class="mt-0.5 text-sm text-slate-500">Waiting for your minting-authority signature</div>
                           </div>
@@ -329,12 +329,13 @@ import { MICROGONS_PER_ARGON, MICRONOTS_PER_ARGONOT, MoveTo, MoveToken } from '@
 import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui';
 import CountdownClock from '../components/CountdownClock.vue';
 import CrosschainActivityDetails from '../components/CrosschainActivityDetails.vue';
+import CrosschainIdentityLabel from '../components/CrosschainIdentityLabel.vue';
 import CrosschainTransferDetails from '../components/CrosschainTransferDetails.vue';
 import PopoverPanelArrow from '../components/PopoverPanelArrow.vue';
 import { getCrosschainHistory, getKnownCrosschainSourceIdentities, getMyVault } from '../stores/vaults.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
-import { formatCouncilTarget, formatCrosschainSourceIdentity } from '../lib/CrosschainTransferView.ts';
+import { formatCouncilTarget } from '../lib/CrosschainTransferView.ts';
 import ProgressBar from '../components/ProgressBar.vue';
 import OverlayBase from './OverlayBase.vue';
 import { getActiveTransactionInfos, trackTransactionProgress } from '../lib/TransactionProgress.ts';
