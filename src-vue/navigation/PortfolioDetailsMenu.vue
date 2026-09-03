@@ -291,7 +291,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { bigIntMax, MICROGONS_PER_ARGON, MICRONOTS_PER_ARGONOT, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { MICROGONS_PER_ARGON, MICRONOTS_PER_ARGONOT, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { storeToRefs } from 'pinia';
 import { NavigationMenuContent, NavigationMenuItem, NavigationMenuTrigger } from 'reka-ui';
 import { InformationCircleIcon, MinusIcon, PlusIcon } from '@heroicons/vue/20/solid';
@@ -328,7 +328,7 @@ const argonotStakesAreExpanded = Vue.ref(false);
 const bitcoinLocksAreExpanded = Vue.ref(false);
 const {
   financialPositionAggregate: aggregate,
-  liquidLockedRecords,
+  fundedBitcoinLockSummaries,
   liquidNativeBalances,
   bondSummariesByAsset,
 } = storeToRefs(financials);
@@ -425,20 +425,13 @@ const vaultPositionBreakdown = Vue.computed(() => {
   );
 });
 const bitcoinPositionBreakdown = Vue.computed(() => {
-  const lockSummariesByUtxoId = new Map(liquidLockedRecords.value.map(lock => [lock.utxoId, lock]));
-  const walletBitcoin = liquidLockedRecords.value.reduce((total, lock) => total + lock.valueOfBtc, 0n);
-  let liquidBitcoin = 0n;
-  let pendingMint = 0n;
+  const channelBitcoin = fundedBitcoinLockSummaries.value.reduce((total, lock) => total + lock.valueOfBtc, 0n);
+  let liquidity = 0n;
 
   for (const position of aggregate.value.groupSummaries.bitcoin.positions) {
     if (position.kind !== 'bitcoin-liquid' || position.lifecycle !== 'active') continue;
 
-    pendingMint += position.pendingLiquidity;
-    for (const fission of position.liquid.fissions) {
-      const summary = lockSummariesByUtxoId.get(fission.utxoId);
-      if (!summary?.satoshis) continue;
-      liquidBitcoin += (summary.valueOfBtc * fission.satoshis) / summary.satoshis;
-    }
+    liquidity += position.receivedLiquidity + position.pendingLiquidity;
   }
 
   const debt = aggregate.value.groupSummaries.bitcoin.positions.reduce((total, position) => {
@@ -446,8 +439,8 @@ const bitcoinPositionBreakdown = Vue.computed(() => {
   }, 0n);
 
   return {
-    channelBitcoin: bigIntMax(walletBitcoin - liquidBitcoin, 0n),
-    liquid: liquidBitcoin + pendingMint,
+    channelBitcoin,
+    liquid: liquidity,
     debt,
   };
 });

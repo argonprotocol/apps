@@ -117,7 +117,7 @@ import TopBar from './navigation/TopBar.vue';
 import { TopTab } from './interfaces/IConfig.ts';
 import { useCertificationController } from './stores/certificationController.ts';
 import { getConfig } from './stores/config.ts';
-import { loadBitcoinTransactionOperations } from './stores/bitcoin.ts';
+import { getBitcoinTransactionOperations } from './stores/bitcoin.ts';
 import { useTour } from './stores/tour.ts';
 import { getBot } from './stores/bot.ts';
 import { waitForLoad } from '@argonprotocol/mainchain';
@@ -268,7 +268,7 @@ Vue.onBeforeMount(async () => {
   }
 
   await waitForLoad();
-  void loadBitcoinTransactionOperations();
+  getBitcoinTransactionOperations();
 });
 
 Vue.onMounted(async () => {

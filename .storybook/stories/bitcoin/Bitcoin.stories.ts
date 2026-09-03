@@ -24,6 +24,18 @@ export const Loading: Story = {
   beforeEach: () => setupBitcoinEmptyScenario({ loading: true }),
 };
 
+export const LoadError: Story = {
+  beforeEach: () => setupBitcoinEmptyScenario({ loadError: new Error('Archive node is temporarily unavailable.') }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText('Bitcoin could not be loaded.')).toBeVisible();
+    await expect(canvas.getByText('Archive node is temporarily unavailable.')).toBeVisible();
+    await userEvent.click(canvas.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(canvas.getByRole('button', { name: 'Create Your First Liquid' })).toBeVisible());
+    await expect(canvas.queryByText('Bitcoin could not be loaded.')).not.toBeInTheDocument();
+  },
+};
+
 export const Empty: Story = {
   beforeEach: () => setupBitcoinEmptyScenario(),
   play: async ({ canvasElement }) => {
@@ -138,6 +150,22 @@ export const LiquidDetails: Story = {
     await expect(overlay.getByText(/insurance · .* transactions/)).toBeVisible();
     await expect(overlay.getByText(/Would unlock/)).toBeVisible();
     await expect(overlay.queryByText(/Cannot read properties/)).not.toBeInTheDocument();
+  },
+};
+
+export const LiquidDetailsWithoutRatchet: Story = {
+  beforeEach: () => {
+    setupBitcoinPortfolioScenario();
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getAllByText(/BTC Liquid$/)[0]);
+    const body = within(canvasElement.ownerDocument.body);
+    const details = await body.findByRole('dialog', { name: 'Bitcoin Liquid Details' });
+    await waitFor(() => expect(details).toBeVisible());
+    const overlay = within(details);
+    await expect(overlay.getByText('A ratchet requires at least a 5% Bitcoin price change.')).toBeVisible();
+    await expect(overlay.queryByText('Fees unavailable')).not.toBeInTheDocument();
   },
 };
 

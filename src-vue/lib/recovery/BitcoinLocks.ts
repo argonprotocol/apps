@@ -535,10 +535,6 @@ export class BitcoinLockRecovery {
         const chainLock = await getHistoricalBitcoinLock(api, utxoId);
         if (!chainLock) throw new Error(`Bitcoin lock ${utxoId} is unavailable at its creation block`);
         this.recordSecuritizationTerm(block, eventRecords[eventIndex], chainLock, 'created');
-        const securityFee = event.data.securityFee ?? 0n;
-        if (event.data.accountId === this.walletKeys.defaultArgonAddress) {
-          chainLock.couponFeesPaid = bigIntMax(chainLock.couponFeesPaid, securityFee);
-        }
         const creationLiquidity = event.data.liquidityPromised ?? 0n;
         const creationTargetPrice =
           event.data.lockedTargetPrice ??
@@ -729,7 +725,6 @@ export class BitcoinLockRecovery {
         }
 
         const recovered = this.createDetachedRecord(record);
-        chainLock.couponFeesPaid = bigIntMax(chainLock.couponFeesPaid, recovered.lockDetails?.couponFeesPaid ?? 0n);
         this.applyHistoricalLockSnapshot(recovered, chainLock);
         await this.saveRecoveredHistory(table, recovered);
         this.applyRecoveredRecord(recovered);
@@ -1293,11 +1288,6 @@ export class BitcoinLockRecovery {
     if (followsCurrentState || matchesCurrentState) {
       recovered.lockedTargetPrice = lockedTargetPrice;
       recovered.liquidityPromised = cumulativeLiquidity;
-      chainLock.couponFeesPaid = bigIntMax(
-        chainLock.couponFeesPaid,
-        (record.lockDetails?.couponFeesPaid ?? 0n) +
-          (event.data.accountId.toString() === this.walletKeys.defaultArgonAddress ? securityFee : 0n),
-      );
       recovered.lockDetails = toBitcoinLockDetails(chainLock);
     }
     this.assertSafePendingMint(recovered);
@@ -1316,7 +1306,6 @@ export class BitcoinLockRecovery {
     chainLock: IHistoricalBitcoinLock,
   ): IBitcoinLockDetails {
     const lockDetails = toBitcoinLockDetails(chainLock);
-    lockDetails.couponFeesPaid = bigIntMax(lockDetails.couponFeesPaid, record.couponFeesPaid);
     Object.assign(record, {
       satoshis: lockDetails.fundedSatoshis || lockDetails.securitizedSatoshis,
       liquidityPromised: chainLock.liquidityPromised,

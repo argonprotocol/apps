@@ -1289,6 +1289,9 @@ describe('financial position accounting', () => {
       fundedSatoshis: 100_000_000n,
       securitizedSatoshis: 100_000_000n,
       securitizationCoverageMicrogons: 80n,
+      securitizationTick: 0,
+      securityFees: 10n,
+      createdAtArgonBlock: 150,
     });
     const summary = {
       uuid: lock.uuid,
@@ -1387,22 +1390,26 @@ describe('financial position accounting', () => {
       percent: 35,
     });
 
-    const [positionWithoutInsuranceHistory] = createBitcoinLiquidPositions({
+    const [positionWithoutRecoveredInsuranceHistory] = createBitcoinLiquidPositions({
       summaries: [summary],
       fissions: [fission],
       terms: [],
       activeFissionIds: new Set([21]),
       hasCurrentPrice: true,
+      priceIndex: bitcoinPriceIndex,
     });
-    expect(positionWithoutInsuranceHistory).toMatchObject({ transactionFees: 5n });
-    expect(positionWithoutInsuranceHistory.insuranceCost).toBeUndefined();
-    expect(positionWithoutInsuranceHistory.totalFees).toBeUndefined();
-    expect(positionWithoutInsuranceHistory.totalReturn).toBeUndefined();
+    expect(positionWithoutRecoveredInsuranceHistory).toMatchObject({
+      insuranceCost: 10n,
+      transactionFees: 5n,
+      totalFees: 15n,
+    });
+    expect(positionWithoutRecoveredInsuranceHistory.totalReturn).toBeTypeOf('number');
 
-    const incompleteBitcoin = reduceFinancialPositions(readySnapshots([...underlying, positionWithoutInsuranceHistory]))
-      .groupSummaries.bitcoin;
-    expect(incompleteBitcoin.currentValue).toBe(70n);
-    expect(incompleteBitcoin.returnSummary.availability).toBe('unavailable');
+    const currentBitcoin = reduceFinancialPositions(
+      readySnapshots([...underlying, positionWithoutRecoveredInsuranceHistory]),
+    ).groupSummaries.bitcoin;
+    expect(currentBitcoin.currentValue).toBe(70n);
+    expect(currentBitcoin.returnSummary.availability).toBe('available');
 
     fission.ratchets[0].txFee = undefined;
     const [positionWithoutTransactionHistory] = createBitcoinLiquidPositions({
@@ -1415,18 +1422,94 @@ describe('financial position accounting', () => {
     expect(positionWithoutTransactionHistory.transactionFees).toBeUndefined();
     expect(positionWithoutTransactionHistory.totalFees).toBeUndefined();
     expect(positionWithoutTransactionHistory.totalReturn).toBeUndefined();
+  });
 
-    fission.ratchets[0].txFee = 5n;
-    const [positionBehindCurrentFission] = createBitcoinLiquidPositions({
+  it('keeps completed Liquid financials when its funded Lock remains current', () => {
+    const lock = createBitcoinFinancialLock({
+      fundedSatoshis: 100_000_000n,
+      securitizedSatoshis: 100_000_000n,
+      securitizationCoverageMicrogons: 80n,
+      securitizationTick: 0,
+      securityFees: 10n,
+      createdAtArgonBlock: 150,
+    });
+    const summary = {
+      uuid: lock.uuid,
+      utxoId: lock.utxoId,
+      status: lock.status,
+      satoshis: lock.fundedSatoshis,
+      valueOfBtc: 150n,
+      startingCapital: 100n,
+      endingCapital: 155n,
+      pendingLiquidity: 0n,
+      receivedLiquidity: 100n,
+      securityFees: 10n,
+      totalFees: 22n,
+      unlockAmount: 80n,
+      record: lock,
+    } as IBitcoinLockSummary;
+    const fission = createBitcoinFissionRecord({
+      origin: 'created',
+      fissionId: 21,
+      liquidId: 12,
+      satoshis: 100_000_000n,
+      liquidityPromised: 100n,
+      createdAtTick: 10,
+      ratchets: [
+        {
+          source: 'fission',
+          sourceRatchetIndex: 0,
+          ratchetNumber: 0,
+          microgonsAtTargetPerBtc: 100n,
+          liquidityPromised: 100n,
+          amountMinted: 100n,
+          amountBurned: 0n,
+          mintPending: 0n,
+          txFee: 5n,
+          blockNumber: 159,
+          tick: 10,
+        },
+      ],
+    });
+
+    const [activePosition] = createBitcoinLiquidPositions({
       summaries: [summary],
       fissions: [fission],
-      terms,
+      terms: [],
       activeFissionIds: new Set([21]),
-      incompleteFissionIds: new Set([21]),
       hasCurrentPrice: true,
+      priceIndex: bitcoinPriceIndex,
     });
-    expect(positionBehindCurrentFission.transactionFees).toBeUndefined();
-    expect(positionBehindCurrentFission.totalReturn).toBeUndefined();
+    expect(activePosition).toMatchObject({ lifecycle: 'active', insuranceCost: 10n, totalFees: 15n });
+    expect(activePosition.totalReturn).toBeTypeOf('number');
+
+    Object.assign(fission, {
+      closedAtArgonBlock: 170,
+      closedAtTick: 20,
+      closedBlockTime: new Date('2026-01-02T00:00:00Z'),
+      closeReason: 'closed',
+      redemptionAmount: 90n,
+      closeTxFee: 7n,
+      btcPriceAtCloseMicrogons: 150n,
+    });
+
+    const [position] = createBitcoinLiquidPositions({
+      summaries: [summary],
+      fissions: [fission],
+      terms: [],
+      activeFissionIds: new Set(),
+      hasCurrentPrice: true,
+      priceIndex: bitcoinPriceIndex,
+    });
+
+    expect(position).toMatchObject({
+      lifecycle: 'completed',
+      insuranceCost: 10n,
+      transactionFees: 12n,
+      totalFees: 22n,
+      performanceEndingCapital: 138n,
+      totalReturn: 38,
+    });
   });
 
   it('counts shared create and close fees once for a multi-Fission Liquid', () => {

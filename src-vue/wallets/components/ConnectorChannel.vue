@@ -693,12 +693,7 @@ import AlertIcon from '../../assets/alert.svg?component';
 import ClockIcon from '../../assets/clock.svg?component';
 import ProgressBar from '../../components/ProgressBar.vue';
 import Tooltip from '../../components/Tooltip.vue';
-import {
-  getBitcoinLockCoupons,
-  getBitcoinLocks,
-  getBitcoinTransactionOperations,
-  loadBitcoinTransactionOperations,
-} from '../../stores/bitcoin.ts';
+import { getBitcoinLockCoupons, getBitcoinLocks, getBitcoinTransactionOperations } from '../../stores/bitcoin.ts';
 import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
 import { getWalletKeys } from '../../stores/wallets.ts';
 import BitcoinOrphanRecoveryOverlay from '../../overlays/BitcoinOrphanRecoveryOverlay.vue';
@@ -1087,7 +1082,7 @@ async function loadChannels(sessionKey = channelSessionKey, onCleanup?: (cleanup
   isLoadingChannels.value = true;
   channelLoadError.value = '';
   try {
-    await Promise.all([props.wallet.loadChannels(), loadBitcoinTransactionOperations()]);
+    await props.wallet.loadChannels();
     if (cancelled || sessionKey !== channelSessionKey || !props.open) return;
     const channel = props.channelUuid ? props.wallet.getChannel(props.channelUuid) : latestActiveChannel.value;
     if (props.channelUuid && !channel) throw new Error('The requested Bitcoin channel is no longer available.');

@@ -30,6 +30,7 @@ import {
   BitcoinLock,
   BlockWatch,
   createDeferred,
+  createTypedEventEmitter,
   Currency as CurrencyBase,
   getPercent,
   type IBitcoinLock,
@@ -83,12 +84,17 @@ export interface IBitcoinRequestLockMetadata {
 }
 
 export default class BitcoinLocks {
+  public readonly events = createTypedEventEmitter<{
+    'fissions:changed': (client: ArgonQueryClient) => void;
+  }>();
+
   public data: {
     pendingLocks: IBitcoinLockRecord[];
     locksByUtxoId: { [utxoId: number]: IBitcoinLockRecord };
     oracleBitcoinBlockHeight: number;
     bitcoinNetwork: BitcoinNetwork;
-    isLoaded: boolean;
+    readiness: 'idle' | 'loading' | 'ready' | 'error';
+    loadError?: Error;
     financialRevision: number;
     isReconciliationPending: boolean;
     latestArgonBlock?: Pick<IBlockHeaderInfo, 'blockNumber' | 'blockHash'>;
@@ -147,7 +153,7 @@ export default class BitcoinLocks {
       locksByUtxoId: {},
       oracleBitcoinBlockHeight: 0,
       bitcoinNetwork: BitcoinNetwork.Bitcoin,
-      isLoaded: false,
+      readiness: 'idle',
       financialRevision: 0,
       isReconciliationPending: false,
     };
@@ -430,6 +436,8 @@ export default class BitcoinLocks {
     } else {
       this.#waitForLoad ??= createDeferred<void>();
     }
+    this.data.readiness = 'loading';
+    this.data.loadError = undefined;
     try {
       const archiveClient = await getMainchainClient(true);
       this.#config ??= await BitcoinLock.getConfig(archiveClient);
@@ -516,11 +524,13 @@ export default class BitcoinLocks {
           await this.runPendingLoadReconciliation();
         });
       });
-      this.data.isLoaded = true;
+      this.data.readiness = 'ready';
       this.data.financialRevision += 1;
       this.#waitForLoad.resolve();
     } catch (error) {
       console.error('Error loading BitcoinLocks:', error);
+      this.data.readiness = 'error';
+      this.data.loadError = error instanceof Error ? error : new Error(String(error));
       this.#waitForLoad.reject(error);
     }
     return this.#waitForLoad.promise;
@@ -787,9 +797,6 @@ export default class BitcoinLocks {
   }
 
   public async finalizeCreatedLock(uuid: string, lock: IBitcoinLock): Promise<IBitcoinLockRecord> {
-    if (lock.ownerAccount === this.walletKeys.defaultArgonAddress) {
-      lock.couponFeesPaid = bigIntMax(lock.couponFeesPaid, lock.securityFees);
-    }
     return await this.finalizePendingRecord({ uuid }, lock);
   }
 
@@ -1514,6 +1521,15 @@ export default class BitcoinLocks {
       const hasBitcoinStateEvent = events.some(({ event }) => {
         return event.section === 'bitcoinLocks' || event.section === 'bitcoinUtxos';
       });
+      const hasFissionStateEvent = events.some(({ event }) => {
+        return (
+          event.section === 'bitcoinFissions' &&
+          (event.method === 'FissionCreated' ||
+            event.method === 'FissionRatcheted' ||
+            event.method === 'FissionClosed' ||
+            event.method === 'FissionClosedByLock')
+        );
+      });
       const hasBitcoinLockFlexibilityChange = events.some(({ event }) => {
         return (
           event.section === 'bitcoinLocks' &&
@@ -1608,6 +1624,7 @@ export default class BitcoinLocks {
         blockHash: header.blockHash,
       };
       if (hasBitcoinStateEvent || hasNewOracleBitcoinBlockHeight) this.publishFinancialRevision();
+      if (hasFissionStateEvent) this.events.emit('fissions:changed', clientAt);
     } catch (error) {
       console.warn('[BitcoinLocks] Failed to process incoming Argon block, will retry on the next block', {
         blockNumber: newestHeader.blockNumber,
@@ -1624,12 +1641,6 @@ export default class BitcoinLocks {
   ): Promise<void> {
     latestBitcoinLock ??= await BitcoinLock.get(apiClient, lock.utxoId!);
     if (!latestBitcoinLock || latestBitcoinLock.fundedSatoshis === 0n) return;
-
-    latestBitcoinLock.couponFeesPaid = bigIntMax(
-      latestBitcoinLock.couponFeesPaid,
-      lock.couponFeesPaid,
-      latestBitcoinLock.ownerAccount === this.walletKeys.defaultArgonAddress ? latestBitcoinLock.securityFees : 0n,
-    );
 
     let fundingRecord = this.getAcceptedFundingRecord(lock);
     if (!fundingRecord) {
@@ -1752,7 +1763,7 @@ export default class BitcoinLocks {
   }
 
   private publishFinancialRevision(): void {
-    if (this.data.isLoaded) this.data.financialRevision += 1;
+    if (this.data.readiness === 'ready') this.data.financialRevision += 1;
   }
 
   private async getReleaseCosignOnChain(

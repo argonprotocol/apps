@@ -107,7 +107,7 @@
                       </span>
                     </div>
                   </div>
-                  <div v-if="ratchetPreview || ratchetTransaction.status !== 'idle'" class="text-right text-sm">
+                  <div v-if="isRatchetAvailable || ratchetTransaction.status !== 'idle'" class="text-right text-sm">
                     <div class="flex justify-end gap-x-2 font-semibold">
                       <span v-if="ratchetPreview?.amountToMint" class="text-slate-600">
                         Would unlock

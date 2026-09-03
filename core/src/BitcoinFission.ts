@@ -69,18 +69,16 @@ export class BitcoinFission implements IBitcoinFission {
     this.pendingMints = [];
   }
 
-  public static fromCurrentAndHistory(current: BitcoinFission, history: BitcoinFission): BitcoinFission {
-    const fission = new BitcoinFission(current);
-    fission.pendingMints = current.pendingMints;
-    fission.origin = history.origin;
-    fission.ratchets = history.ratchets;
-    fission.createdAtTick = history.createdAtTick;
-    fission.createdBlockHash = history.createdBlockHash;
-    fission.createdBlockTime = history.createdBlockTime;
-    fission.createdExtrinsicIndex = history.createdExtrinsicIndex;
-    fission.createdAt = history.createdAt;
-    fission.updatedAt = history.updatedAt;
-    return fission;
+  public applyRecordedHistory(history: IBitcoinFission): this {
+    this.origin = history.origin;
+    this.ratchets = history.ratchets ?? [];
+    this.createdAtTick = history.createdAtTick;
+    this.createdBlockHash = history.createdBlockHash;
+    this.createdBlockTime = history.createdBlockTime;
+    this.createdExtrinsicIndex = history.createdExtrinsicIndex;
+    this.createdAt = history.createdAt;
+    this.updatedAt = history.updatedAt;
+    return this;
   }
 
   public isRatchetAvailable(args: { microgonsAtTargetPerBtc: bigint; minimumRatchetPercent: bigint }): boolean {

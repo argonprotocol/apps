@@ -36,7 +36,10 @@ export const BitcoinWalletHolding: Story = {
 
     await userEvent.click(body.getByRole('button', { name: 'View portfolio details' }));
     await userEvent.click(await body.findByRole('button', { name: 'Toggle Bitcoin details' }));
-    await expect(body.getByText('Channel BTC')).toBeVisible();
+    const channelBitcoinRow = body.getByText('Channel BTC').parentElement;
+    if (!channelBitcoinRow) throw new Error('Channel BTC row is missing');
+    await expect(channelBitcoinRow).toBeVisible();
+    await expect(channelBitcoinRow).not.toHaveTextContent('₳0.00');
     await expect(body.getByText('Liquid')).toBeVisible();
     await expect(body.queryByText('Bitcoin in wallet')).not.toBeInTheDocument();
     await expect(body.queryByText('Pending mint')).not.toBeInTheDocument();

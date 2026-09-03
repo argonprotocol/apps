@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BitcoinLock } from '@argonprotocol/apps-core';
-import { type ArgonClient, BlockWatch, Currency as CurrencyBase } from '@argonprotocol/apps-core';
+import {
+  type ArgonClient,
+  type ArgonQueryClient,
+  BlockWatch,
+  Currency as CurrencyBase,
+} from '@argonprotocol/apps-core';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import type { Db } from '../lib/Db.ts';
 import type { TransactionTracker } from '../lib/TransactionTracker.ts';
@@ -9,6 +14,7 @@ import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLoc
 import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
 import { TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { createCurrentLock } from './helpers/bitcoin.ts';
+import { createTestDb } from './helpers/db.ts';
 
 vi.mock('../stores/mainchain.ts', () => ({
   getMainchainClient: vi.fn(async () => ({})),
@@ -22,6 +28,86 @@ type IBitcoinLocksTestTarget = {
 };
 
 describe('BitcoinLocks Argon cosign gating', () => {
+  it.each(['FissionCreated', 'FissionRatcheted', 'FissionClosed', 'FissionClosedByLock'])(
+    'publishes one Fission-state change signal after a %s event batch',
+    async method => {
+      const blockApi = {
+        query: {
+          bitcoinUtxos: {
+            confirmedBitcoinBlockTip: vi.fn().mockResolvedValue(null),
+          },
+        },
+      };
+      const blockWatch = {
+        getHeaderByBlockNumber: vi.fn(async (blockNumber: number) => ({
+          blockNumber,
+          blockHash: `0x${blockNumber}`,
+        })),
+        getEventsWithSpec: vi.fn(async () => ({
+          api: blockApi,
+          events: [
+            { event: { section: 'bitcoinFissions', method, data: {} } },
+            { event: { section: 'bitcoinFissions', method, data: {} } },
+          ],
+          specVersion: 159,
+        })),
+      } as unknown as BlockWatch;
+      const store = new BitcoinLocks(
+        Promise.resolve({} as Db),
+        Object.create(null) as WalletKeys,
+        blockWatch,
+        Object.create(null) as CurrencyBase,
+        Object.create(null) as TransactionTracker,
+      );
+      vi.spyOn(store.orphanReleases, 'recoverPendingCosignEvents').mockResolvedValue(undefined);
+      const refreshes: ArgonQueryClient[] = [];
+      store.events.on('fissions:changed', client => refreshes.push(client));
+
+      await (store as unknown as IBitcoinLocksTestTarget).checkIncomingArgonBlock({
+        blockNumber: 102,
+        blockHash: '0x102',
+      });
+
+      expect(refreshes).toEqual([blockApi]);
+    },
+  );
+
+  it('preserves the runtime coupon amount when a member Lock is finalized', async () => {
+    const db = await createTestDb();
+    const defaultAccount = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+    const pending = await db.bitcoinLocksTable.insertPending({
+      uuid: 'member-lock',
+      status: BitcoinLockStatus.LockIsProcessingOnArgon,
+      securitizedSatoshis: 10_000n,
+      cosignVersion: 'v1',
+      network: 'testnet',
+      hdPath: "m/84'/0'/0'",
+      vaultId: 1,
+    });
+    const store = new BitcoinLocks(
+      Promise.resolve(db),
+      { defaultArgonAddress: defaultAccount } as WalletKeys,
+      {} as BlockWatch,
+      {} as CurrencyBase,
+      {} as TransactionTracker,
+    );
+    store.data.pendingLocks = [pending];
+    const currentLock = new BitcoinLock(
+      createCurrentLock({
+        utxoId: 7,
+        ownerAccount: defaultAccount,
+        securityFees: 3_000_000n,
+        couponFeesPaid: 1_000_000n,
+      }),
+    );
+
+    const finalized = await store.finalizeCreatedLock(pending.uuid, currentLock);
+
+    expect(finalized.securityFees).toBe(3_000_000n);
+    expect(finalized.couponFeesPaid).toBe(1_000_000n);
+    expect((await db.bitcoinLocksTable.getByUtxoId(7))?.couponFeesPaid).toBe(1_000_000n);
+  });
+
   it('formats block extrinsic errors with the concrete error name', () => {
     expect(
       BitcoinLocks.formatBlockExtrinsicError({
@@ -57,7 +143,7 @@ describe('BitcoinLocks Argon cosign gating', () => {
       Object.create(null) as TransactionTracker,
     );
     store.data.pendingLocks = [lock];
-    store.data.isLoaded = true;
+    store.data.readiness = 'ready';
     const setLockFailed = vi.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined);
     Object.assign(store, {
       getTable: vi.fn().mockResolvedValue({
@@ -190,39 +276,6 @@ describe('BitcoinLocks Argon cosign gating', () => {
       releaseCosignHeight: 77,
     });
     expect(ensureLockReleaseProcessing).toHaveBeenCalledTimes(1);
-  });
-
-  it('preserves recovered self-lock fee reimbursement when refreshing chain state', async () => {
-    const defaultAccount = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
-    const lock = createLock({
-      ownerAccount: defaultAccount,
-      securityFees: 148_296_012n,
-      couponFeesPaid: 148_296_012n,
-    });
-    const latestLock = new BitcoinLock(
-      createCurrentLock({
-        utxoId: lock.utxoId,
-        ownerAccount: defaultAccount,
-        couponFeesPaid: 0n,
-      }),
-    );
-    vi.spyOn(BitcoinLock, 'get').mockResolvedValue(latestLock);
-    const fundingRecord = createFundingRecord();
-    const setCurrentLockFunded = vi.fn(async (record: IBitcoinLockRecord, currentLock: BitcoinLock) => {
-      record.couponFeesPaid =
-        record.couponFeesPaid > currentLock.couponFeesPaid ? record.couponFeesPaid : currentLock.couponFeesPaid;
-    });
-
-    const store = Object.assign(Object.create(BitcoinLocks.prototype), {
-      walletKeys: { defaultArgonAddress: defaultAccount },
-      utxoTracking: { getAcceptedFundingRecordForLock: vi.fn().mockReturnValue(fundingRecord) },
-      getTable: vi.fn().mockResolvedValue({ setCurrentLockFunded }),
-      syncLockReleaseArgonRequest: vi.fn().mockResolvedValue(undefined),
-    }) as BitcoinLocks;
-
-    await (store as unknown as IBitcoinLocksTestTarget).checkForMissingBitcoinLockState(lock);
-
-    expect(lock.couponFeesPaid).toBe(148_296_012n);
   });
 
   it('subscribes to orphan counters for every vault receiving an owner return request', async () => {

@@ -58,7 +58,7 @@ const mocks = vi.hoisted(() => {
         locksByUtxoId: {} as Record<number, object>,
         pendingLocks: [] as object[],
         latestArgonBlock: undefined as IBlockHeaderInfo | undefined,
-        isLoaded: false,
+        readiness: 'idle' as 'idle' | 'loading' | 'ready' | 'error',
         financialRevision: 0,
       },
       recovery: {},
@@ -75,7 +75,7 @@ const mocks = vi.hoisted(() => {
       data: {
         fissionsById: {} as Record<number, BitcoinFission>,
         historyById: {} as Record<number, BitcoinFission>,
-        isLoaded: false,
+        readiness: 'idle' as 'idle' | 'loading' | 'ready' | 'error',
         financialRevision: 0,
       },
       recovery: {},
@@ -321,7 +321,7 @@ describe('financials store lifecycle', () => {
       locksByUtxoId: {},
       pendingLocks: [],
       latestArgonBlock: undefined,
-      isLoaded: true,
+      readiness: 'ready',
       financialRevision: 1,
     };
     mocks.bitcoinLocks.load.mockResolvedValue();
@@ -339,7 +339,7 @@ describe('financials store lifecycle', () => {
     mocks.bitcoinFissions.data = {
       fissionsById: {},
       historyById: {},
-      isLoaded: true,
+      readiness: 'ready',
       financialRevision: 1,
     };
     mocks.bitcoinFissions.getLiquids.mockReturnValue([]);
@@ -494,10 +494,10 @@ describe('financials store lifecycle', () => {
       locksByUtxoId: {},
       pendingLocks: [],
       latestArgonBlock: undefined,
-      isLoaded: true,
+      readiness: 'ready',
       financialRevision: 1,
     });
-    mocks.bitcoinFissions.data.isLoaded = true;
+    mocks.bitcoinFissions.data.readiness = 'ready';
     mocks.bitcoinLocks.getAllLocks.mockImplementation(() => mocks.bitcoinLocks.data.pendingLocks);
     const summary = createBitcoinSummary(0n);
     mocks.bitcoinLocks.createLockSummary.mockReturnValue(summary);
@@ -518,7 +518,7 @@ describe('financials store lifecycle', () => {
     mocks.bitcoinFissions.data = reactive({
       fissionsById: {},
       historyById: {},
-      isLoaded: false,
+      readiness: 'loading',
       financialRevision: 0,
     });
     mocks.bitcoinFissions.getLiquids.mockImplementation(() => {
@@ -540,7 +540,7 @@ describe('financials store lifecycle', () => {
         ratchetNumber: 0,
         lastUpdatedArgonBlock: 1,
       });
-      mocks.bitcoinFissions.data.isLoaded = true;
+      mocks.bitcoinFissions.data.readiness = 'ready';
       mocks.bitcoinFissions.data.financialRevision += 1;
     };
 
@@ -596,7 +596,7 @@ describe('financials store lifecycle', () => {
     mocks.bitcoinFissions.data = reactive({
       fissionsById: {},
       historyById: {},
-      isLoaded: true,
+      readiness: 'ready',
       financialRevision: 0,
     });
     mocks.bitcoinFissions.loadActive.mockImplementation(async () => {

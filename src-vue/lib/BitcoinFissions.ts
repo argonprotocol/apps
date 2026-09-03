@@ -8,6 +8,7 @@ import {
   type IDeferred,
   type IBitcoinPendingMint,
   type RuntimeSystemEventRecord,
+  SingleFileQueue,
 } from '@argonprotocol/apps-core';
 
 import { getMainchainClient } from '../stores/mainchain.ts';
@@ -23,13 +24,15 @@ export class BitcoinFissions {
     fissionsById: Record<number, BitcoinFission>;
     historyById: Record<number, IBitcoinFissionRecord>;
     minimumRatchetPercent: bigint;
-    isLoaded: boolean;
+    readiness: 'idle' | 'loading' | 'ready' | 'error';
+    loadError?: Error;
     financialRevision: number;
   };
 
   public readonly recovery: BitcoinFissionRecovery;
   private waitForLoad?: IDeferred<void>;
   private readonly pendingMintSubscriptions = new Map<number, VoidFunction>();
+  private readonly currentStateQueue = new SingleFileQueue();
 
   constructor(
     private readonly dbPromise: Promise<Db>,
@@ -41,7 +44,7 @@ export class BitcoinFissions {
       fissionsById: {},
       historyById: {},
       minimumRatchetPercent: 0n,
-      isLoaded: false,
+      readiness: 'idle',
       financialRevision: 0,
     };
     this.recovery = new BitcoinFissionRecovery(
@@ -57,29 +60,37 @@ export class BitcoinFissions {
     if (this.waitForLoad?.isRunning || this.waitForLoad?.isResolved) return this.waitForLoad.promise;
 
     this.waitForLoad = createDeferred<void>();
+    this.data.readiness = 'loading';
+    this.data.loadError = undefined;
     try {
       await this.loadState();
+      this.data.readiness = 'ready';
+      this.data.financialRevision += 1;
       this.waitForLoad.resolve();
     } catch (error) {
+      this.data.readiness = 'error';
+      this.data.loadError = error instanceof Error ? error : new Error(String(error));
       this.waitForLoad.reject(error);
     }
     return this.waitForLoad.promise;
   }
 
   public async refreshCurrent(client?: ArgonQueryClient): Promise<BitcoinFission[]> {
-    const queryClient = client ?? this.blockWatch?.subscriptionClient ?? (await getMainchainClient(false));
-    const active = await this.loadActive(queryClient);
+    return await this.currentStateQueue.add(async () => {
+      const queryClient = client ?? this.blockWatch?.subscriptionClient ?? (await getMainchainClient(false));
+      const active = await this.loadActive(queryClient);
 
-    this.data.minimumRatchetPercent = queryClient.consts.bitcoinFissions.minimumRatchetPercent.toBigInt();
-    this.publishFinancialState({ fissions: active });
-    if (this.blockWatch?.subscriptionClient) {
-      try {
-        await this.syncPendingMintSubscriptions(this.blockWatch.subscriptionClient);
-      } catch (error) {
-        console.warn('[BitcoinFissions] Unable to subscribe to pending mints', error);
+      this.data.minimumRatchetPercent = queryClient.consts.bitcoinFissions.minimumRatchetPercent.toBigInt();
+      this.publishFinancialState({ fissions: active });
+      if (this.blockWatch?.subscriptionClient) {
+        try {
+          await this.syncPendingMintSubscriptions(this.blockWatch.subscriptionClient);
+        } catch (error) {
+          console.warn('[BitcoinFissions] Unable to subscribe to pending mints', error);
+        }
       }
-    }
-    return active;
+      return active;
+    }).promise;
   }
 
   public async recordFinalizedTransaction(txInfo: TransactionInfo): Promise<void> {
@@ -148,8 +159,7 @@ export class BitcoinFissions {
   public getLiquids(): BitcoinLiquid[] {
     const fissionsById = new Map(this.getHistory().map(history => [history.fissionId, new BitcoinFission(history)]));
     for (const active of this.getAll()) {
-      const history = fissionsById.get(active.fissionId);
-      fissionsById.set(active.fissionId, history ? BitcoinFission.fromCurrentAndHistory(active, history) : active);
+      fissionsById.set(active.fissionId, active);
     }
     return createBitcoinLiquids({ fissions: [...fissionsById.values()] });
   }
@@ -168,21 +178,34 @@ export class BitcoinFissions {
     await this.loadHistory();
     if (this.blockWatch) await this.blockWatch.start();
     await this.refreshCurrent(this.blockWatch?.subscriptionClient);
-    this.data.isLoaded = true;
-    this.data.financialRevision += 1;
   }
 
   private publishFinancialState(args: {
     fissions?: readonly BitcoinFission[];
     history?: readonly IBitcoinFissionRecord[];
   }): void {
-    if (args.fissions) {
-      this.data.fissionsById = Object.fromEntries(args.fissions.map(fission => [fission.fissionId, fission]));
-    }
     if (args.history) {
       this.data.historyById = Object.fromEntries(args.history.map(record => [record.fissionId, record]));
     }
-    if (this.data.isLoaded) this.data.financialRevision += 1;
+    if (args.fissions) {
+      this.data.fissionsById = Object.fromEntries(args.fissions.map(fission => [fission.fissionId, fission]));
+    }
+    for (const current of Object.values(this.data.fissionsById)) {
+      const history = this.data.historyById[current.fissionId];
+      if (
+        history &&
+        history.lastUpdatedArgonBlock === current.lastUpdatedArgonBlock &&
+        history.liquidId === current.liquidId &&
+        history.utxoId === current.utxoId &&
+        history.satoshis === current.satoshis &&
+        history.createdAtArgonBlock === current.createdAtArgonBlock &&
+        history.microgonsAtTargetPerBtc === current.microgonsAtTargetPerBtc &&
+        history.liquidityPromised === current.liquidityPromised
+      ) {
+        current.applyRecordedHistory(history);
+      }
+    }
+    if (this.data.readiness === 'ready') this.data.financialRevision += 1;
   }
 
   private async syncPendingMintSubscriptions(client: ArgonClient): Promise<void> {

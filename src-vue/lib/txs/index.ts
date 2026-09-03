@@ -16,12 +16,7 @@ export interface TransactionOperations {
   bitcoinLockResecuritize: BitcoinLockResecuritize;
 }
 
-export async function loadTransactionOperations(
-  operations: TransactionOperations,
-  bitcoinStateLoad: Promise<unknown>,
-): Promise<TransactionOperations> {
-  await bitcoinStateLoad;
-
+export async function loadTransactionOperations(operations: TransactionOperations): Promise<TransactionOperations> {
   const {
     bitcoinLiquidClose,
     bitcoinLiquidCreate,

@@ -441,7 +441,7 @@ export const useFinancials = defineStore('financials', () => {
         currentBitcoinDebt: 0n,
       };
     }
-    if (!bitcoinLocks.data.isLoaded || !bitcoinFissions.data.isLoaded) return;
+    if (bitcoinLocks.data.readiness !== 'ready' || bitcoinFissions.data.readiness !== 'ready') return;
 
     const btcPrice = currency.priceIndex.btcUsdPrice;
     const argonTargetPrice = currency.priceIndex.argonUsdTargetPrice;
@@ -650,12 +650,12 @@ export const useFinancials = defineStore('financials', () => {
     return performanceByUuid;
   });
 
-  const liquidLockedRecords = Vue.computed(() => {
+  const fundedBitcoinLockSummaries = Vue.computed(() => {
     return bitcoinLockSummaries.value.filter(lock => bitcoinLocks.isLockFunded(lock.record));
   });
 
   const bitcoinWalletTotalSatoshis = Vue.computed(() => {
-    return liquidLockedRecords.value.reduce((sum, l) => sum + l.satoshis, 0n);
+    return fundedBitcoinLockSummaries.value.reduce((sum, lock) => sum + lock.satoshis, 0n);
   });
 
   const liquidTotalSatoshis = Vue.computed(() => {
@@ -814,7 +814,7 @@ export const useFinancials = defineStore('financials', () => {
   Vue.watch(
     () => (config.isLoaded && config.hasExtensionTreasury ? bitcoinLocks.data.financialRevision : 0),
     () => {
-      if (!accountSourcesAreLoaded || !config.hasExtensionTreasury || !bitcoinLocks.data.isLoaded) return;
+      if (!accountSourcesAreLoaded || !config.hasExtensionTreasury || bitcoinLocks.data.readiness !== 'ready') return;
       void queueAccountRefresh({ force: true });
     },
   );
@@ -822,7 +822,8 @@ export const useFinancials = defineStore('financials', () => {
   Vue.watch(
     () => (config.isLoaded && config.hasExtensionTreasury ? bitcoinFissions.data.financialRevision : 0),
     () => {
-      if (!accountSourcesAreLoaded || !config.hasExtensionTreasury || !bitcoinFissions.data.isLoaded) return;
+      if (!accountSourcesAreLoaded || !config.hasExtensionTreasury || bitcoinFissions.data.readiness !== 'ready')
+        return;
       void queueAccountRefresh({ force: true });
     },
   );
@@ -994,7 +995,7 @@ export const useFinancials = defineStore('financials', () => {
     bitcoinLockPerformanceByUuid,
     liquidVisibleRecords,
     liquidInvisibleRecords,
-    liquidLockedRecords,
+    fundedBitcoinLockSummaries,
     bitcoinWalletTotalSatoshis,
     liquidTotalSatoshis,
     liquidCurrentBitcoinDebt,

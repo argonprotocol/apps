@@ -195,6 +195,29 @@ describe('BitcoinLocksTable', () => {
     });
   });
 
+  it('repairs a persisted coupon amount from authoritative current Lock state', async () => {
+    const { table, lock } = await createPendingLock({ uuid: 'repair-coupon' });
+    const stale = await table.finalizePending({
+      uuid: lock.uuid,
+      lock: createCurrentLock({
+        utxoId: 7,
+        securityFees: 3_000_000n,
+        couponFeesPaid: 3_000_000n,
+      }),
+    });
+    const current = createCurrentLock({
+      utxoId: 7,
+      securityFees: 3_000_000n,
+      couponFeesPaid: 1_000_000n,
+    });
+
+    await table.setCurrentLockFunded(stale, current);
+
+    expect(stale.securityFees).toBe(3_000_000n);
+    expect(stale.couponFeesPaid).toBe(1_000_000n);
+    expect((await table.getByUtxoId(7))?.couponFeesPaid).toBe(1_000_000n);
+  });
+
   it('persists release economics separately from the terminal removal mark', async () => {
     const { table, lock } = await createPendingLock({
       uuid: 'release-financials',

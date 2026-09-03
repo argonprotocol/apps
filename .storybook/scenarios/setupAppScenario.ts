@@ -188,7 +188,7 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {}, bi
       fissionsById: {},
       historyById: {},
       minimumRatchetPercent: 5n,
-      isLoaded: true,
+      readiness: 'ready' as const,
       financialRevision: 1,
     }),
     getAll: fn(() => []),
