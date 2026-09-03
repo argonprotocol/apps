@@ -35,6 +35,7 @@ it('can load config defaults', async () => {
   expect(config.hasMiningBids).toBe(false);
   expect(config.biddingRules).toBeTruthy();
   expect(config.postWelcomeLaunchCount).toBe(0);
+  expect(config.hasConnectedDiscord).toBe(false);
 });
 
 it('keeps mnemonic-restored accounts eligible for financial history without mining or vault history', async () => {
@@ -128,6 +129,24 @@ it('keeps Crosschain Transfers available after it has been activated', async () 
   await restoredConfig.load();
 
   expect(restoredConfig.hasActivatedCrosschain).toBe(true);
+  await db.close();
+});
+
+it('remembers that Discord was connected after config reloads', async () => {
+  const db = await createTestDb();
+  const { walletKeys } = createTestWallet('//Alice');
+  instanceChecks.delete(Config.prototype.constructor);
+  const config = new Config(Promise.resolve(db), walletKeys);
+  await config.load();
+
+  config.hasConnectedDiscord = true;
+  await config.save();
+
+  instanceChecks.delete(Config.prototype.constructor);
+  const restoredConfig = new Config(Promise.resolve(db), walletKeys);
+  await restoredConfig.load();
+
+  expect(restoredConfig.hasConnectedDiscord).toBe(true);
   await db.close();
 });
 

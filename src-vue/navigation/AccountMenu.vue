@@ -45,6 +45,10 @@
             </NavigationMenuLink>
             <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
           </template>
+          <NavigationMenuLink MenuItem @click="basicEmitter.emit('openDiscordVerificationOverlay')">
+            <header>Connect to Discord</header>
+          </NavigationMenuLink>
+          <li divider class="my-1 h-[1px] w-full bg-slate-400/30" />
           <NavigationMenuLink MenuItem @click="() => openJurisdictionOverlay()" >
             <header>Manage Default Jurisdiction</header>
           </NavigationMenuLink>

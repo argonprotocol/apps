@@ -214,6 +214,7 @@ export const ConfigSchema = z.object({
   hasExtensionTreasury: z.boolean(),
   hasExtensionOperations: z.boolean(),
   hasActivatedCrosschain: z.boolean(),
+  hasConnectedDiscord: z.boolean(),
   selectedTab: z.nativeEnum(TopTab),
 
   serverAdd: ConfigServerAddSchema.optional(),
@@ -291,6 +292,7 @@ export interface IConfigDefaults {
   hasExtensionTreasury: () => IConfig['hasExtensionTreasury'];
   hasExtensionOperations: () => IConfig['hasExtensionOperations'];
   hasActivatedCrosschain: () => IConfig['hasActivatedCrosschain'];
+  hasConnectedDiscord: () => IConfig['hasConnectedDiscord'];
   selectedTab: () => IConfig['selectedTab'];
 
   serverAdd: () => IConfig['serverAdd'];

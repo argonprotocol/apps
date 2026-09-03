@@ -29,6 +29,7 @@ storybook-static
 bot/alice.json
 bot/caleb.json
 bot/.env
+discord-verifier/.env
 tsconfig.*.tsbuildinfo
 *.pem
 .yarn/install-state.gz
