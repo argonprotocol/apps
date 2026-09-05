@@ -43,16 +43,19 @@
         <span>0 {{ selectedMoveToken }}</span>
         <span v-if="selectedMoveToken === MoveToken.BTC" :data-testid="props.testIdPrefix + '.maximum'">
           {{ satToBtcNm(maxValue).format('0,0.[00000000]') }} BTC{{
-            liquidLockedSatoshis > 0n && !isBitcoinEntirelyLocked ? '*' : ''
+            liquidLockedChannelDetails.length && !isBitcoinEntirelyLocked ? '*' : ''
           }}
         </span>
         <span v-else>{{ microgonToArgonNm(maxValue).format('0,0.[00]') }} {{ selectedMoveToken }}</span>
       </div>
-      <PopoverRoot v-if="selectedMoveToken === MoveToken.BTC && liquidLockedSatoshis > 0n">
+      <PopoverRoot v-if="selectedMoveToken === MoveToken.BTC && liquidLockedChannelDetails.length">
         <WalletFundingCallout v-if="isBitcoinEntirelyLocked" :showAction="false" :showArrow="false" class="text-sm">
           <AlertIcon class="mr-2 h-4 shrink-0 text-yellow-700" />
           <span>
-            No Bitcoin is available to send. Channels must have no active Liquids to send BTC.
+            No Bitcoin is available to send.
+            {{ satToBtcNm(liquidBackingSatoshis).format('0,0.[00000000]') }} BTC backs Liquids, and the remaining
+            {{ satToBtcNm(liquidBlockedRemainderSatoshis).format('0,0.[00000000]') }} BTC is unavailable to send until
+            the whole Channel is releasable.
             <PopoverTrigger asChild>
               <button class="cursor-pointer font-semibold hover:underline" type="button">Details</button>
             </PopoverTrigger>
@@ -60,7 +63,9 @@
         </WalletFundingCallout>
         <PopoverTrigger v-else asChild>
           <button type="button" class="text-argon-600 inline-flex items-center gap-1 self-end text-xs hover:underline">
-            * {{ satToBtcNm(liquidLockedSatoshis).format('0,0.[00000000]') }} BTC is used by Liquids
+            * {{ satToBtcNm(liquidBackingSatoshis).format('0,0.[00000000]') }} BTC backs Liquids; the remaining
+            {{ satToBtcNm(liquidBlockedRemainderSatoshis).format('0,0.[00000000]') }} BTC is unavailable to send until
+            the whole Channel is releasable
             <InformationCircleIcon class="h-4 w-4" />
           </button>
         </PopoverTrigger>
@@ -74,7 +79,7 @@
             class="w-80 rounded-lg shadow-2xl"
           >
             <div class="rounded-lg border border-black/50 bg-white p-4 text-left text-sm text-gray-700">
-              <p>Bitcoin used by active Liquids cannot be sent until those Liquids are closed.</p>
+              <p>Each Channel must be entirely unused by Liquids before it can be sent.</p>
               <div class="mt-3 border-t border-slate-300 pt-3">
                 <div
                   v-for="(detail, index) in liquidLockedChannelDetails"
@@ -82,7 +87,10 @@
                   :class="index ? 'mt-3' : ''"
                 >
                   <div class="flex items-center gap-3">
-                    <span class="min-w-0 grow">Cosigner: {{ detail.cosigner }}</span>
+                    <span class="min-w-0 grow">
+                      <template v-if="detail.isMyVault">In my Vault</template>
+                      <template v-else>Cosigner: {{ detail.cosigner }}</template>
+                    </span>
                     <span class="shrink-0">
                       {{ satToBtcNm(detail.channel.fundedSatoshis).format('0,0.[00000000]') }} BTC channel
                     </span>
@@ -153,12 +161,16 @@
     <div v-if="showFees" :data-testid="props.testIdPrefix + '.cost'" class="mt-6 flex flex-col gap-x-3">
       <label class="mb-1 font-bold text-gray-500/80">Cost of Send</label>
       <div class="border-b border-gray-300 text-sm">
-        <div v-if="bitcoinFeeEstimate" class="flex flex-row border-t border-gray-300 py-2">
+        <div v-if="isBitcoinTransfer" class="flex flex-row border-t border-gray-300 py-2">
           <div class="grow">Bitcoin Network</div>
           <div class="relative ml-4 text-right">
             <span :class="{ 'opacity-20': isEstimatingFees }">
-              {{ satToBtcNm(bitcoinFeeEstimate.bitcoinFee).format('0,0.[00000000]') }} BTC ({{ currency.symbol
-              }}{{ microgonToMoneyNm(currency.convertSatToMicrogon(bitcoinFeeEstimate.bitcoinFee)).format('0,0.000') }})
+              {{ satToBtcNm(bitcoinFeeEstimate?.bitcoinFee ?? 0n).format('0,0.[00000000]') }} BTC ({{ currency.symbol
+              }}{{
+                microgonToMoneyNm(currency.convertSatToMicrogon(bitcoinFeeEstimate?.bitcoinFee ?? 0n)).format(
+                  '0,0.000',
+                )
+              }})
             </span>
             <span
               v-if="isEstimatingFees"
@@ -179,12 +191,12 @@
             />
           </div>
         </div>
-        <div v-if="argonFeeEstimate != null" class="flex flex-row border-t border-gray-300 py-2">
+        <div v-if="isBitcoinTransfer || argonFeeEstimate != null" class="flex flex-row border-t border-gray-300 py-2">
           <div class="grow">Argon Network</div>
           <div class="relative">
             <span :class="{ 'opacity-20': isEstimatingFees }">
-              {{ microgonToArgonNm(argonFeeEstimate).format('0.[00000000]') }} ARGN ({{ currency.symbol
-              }}{{ microgonToMoneyNm(argonFeeEstimate).format('0,0.000') }})
+              {{ microgonToArgonNm(argonFeeEstimate ?? 0n).format('0.[00000000]') }} ARGN ({{ currency.symbol
+              }}{{ microgonToMoneyNm(argonFeeEstimate ?? 0n).format('0,0.000') }})
             </span>
             <span
               v-if="isEstimatingFees"
@@ -214,15 +226,27 @@
         class="mt-3 flex flex-row items-center rounded border border-red-100 bg-red-100/50 px-2 py-2 text-sm text-red-500"
       >
         <AlertIcon class="mr-2 w-5" />
-        <template v-if="feeEstimateError">
-          {{ feeEstimateError }}
-        </template>
-        <template v-else-if="isBitcoinTransfer">Your Internal App Wallet does not have enough ARGN.</template>
-        <template v-else>Your {{ destinationLabel }} wallet does not have enough ETH.</template>
+        <span class="grow">
+          <template v-if="feeEstimateError">{{ feeEstimateError }}</template>
+          <template v-else-if="isBitcoinTransfer">Your Internal App Wallet does not have enough ARGN.</template>
+          <template v-else>Your {{ destinationLabel }} wallet does not have enough ETH.</template>
+        </span>
+        <button
+          v-if="feeEstimateError"
+          type="button"
+          class="ml-3 shrink-0 cursor-pointer font-semibold underline"
+          @click="feeEstimateRetry += 1"
+        >
+          Retry fee estimate
+        </button>
       </div>
     </div>
 
-    <div v-if="formError" class="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+    <div
+      v-if="formError"
+      data-testid="WalletTransferForm.error"
+      class="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+    >
       {{ formError }}
     </div>
   </div>
@@ -231,7 +255,13 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { bigIntMax, bigNumberToBigInt, MoveToken, SATOSHIS_PER_BITCOIN } from '@argonprotocol/apps-core';
+import {
+  bigIntMax,
+  bigNumberToBigInt,
+  MoveToken,
+  raceWithTimeout,
+  SATOSHIS_PER_BITCOIN,
+} from '@argonprotocol/apps-core';
 import { EvmContracts } from '@argonprotocol/mainchain';
 import BigNumber from 'bignumber.js';
 import { InformationCircleIcon } from '@heroicons/vue/24/outline';
@@ -266,7 +296,7 @@ import { getConfig } from '../../stores/config.ts';
 import { getBitcoinLocks, getBitcoinTransactionOperations } from '../../stores/bitcoin.ts';
 import { getEthereumMoveTracker } from '../../stores/moveFromEthereum.ts';
 import { getEthereumOutboundTransferTracker } from '../../stores/moveToEthereum.ts';
-import { getVaults } from '../../stores/vaults.ts';
+import { getMyVault, getVaults } from '../../stores/vaults.ts';
 import { getWalletKeys } from '../../stores/wallets.ts';
 
 type ITransferArgonWallet = WalletForArgon<'argon'> | WalletForArgon<'miningBot'>;
@@ -287,6 +317,7 @@ const emit = defineEmits<{
 const currency = getCurrency();
 const config = getConfig();
 const vaults = getVaults();
+const myVault = getMyVault();
 const bitcoinLocks = getBitcoinLocks();
 const { bitcoinLockRelease } = getBitcoinTransactionOperations();
 const inboundTracker = getEthereumMoveTracker();
@@ -324,6 +355,7 @@ const bitcoinFeeRateOptions = Vue.ref<IOption[]>([
 ]);
 const selectedBitcoinFeeRateKey = Vue.ref('medium');
 const feeEstimateError = Vue.ref('');
+const feeEstimateRetry = Vue.ref(0);
 const maximumTransferError = Vue.ref('');
 const submissionError = Vue.ref('');
 const isCalculatingMaximum = Vue.ref(false);
@@ -348,6 +380,7 @@ const liquidLockedChannelDetails = Vue.computed(() => {
     }
     return {
       channel,
+      isMyVault: channel.vaultId === myVault.vaultId,
       cosigner:
         vaults.operatorNamesByVaultId[channel.vaultId] ??
         (config.upstreamOperator?.vaultId === channel.vaultId ? config.upstreamOperator.name : undefined) ??
@@ -356,17 +389,20 @@ const liquidLockedChannelDetails = Vue.computed(() => {
     };
   });
 });
-const liquidLockedSatoshis = Vue.computed(() =>
+const liquidBackingSatoshis = Vue.computed(() =>
   liquidLockedChannelDetails.value.reduce((total, detail) => total + (detail.channel.fissionedSatoshis ?? 0n), 0n),
+);
+const liquidBlockedRemainderSatoshis = Vue.computed(() =>
+  liquidLockedChannelDetails.value.reduce(
+    (total, detail) => total + bigIntMax(detail.channel.fundedSatoshis - (detail.channel.fissionedSatoshis ?? 0n), 0n),
+    0n,
+  ),
 );
 const isBitcoinEntirelyLocked = Vue.computed(
   () =>
     selectedMoveToken.value === MoveToken.BTC &&
     sendableBitcoinChannels.value.length === 0 &&
-    liquidLockedSatoshis.value > 0n,
-);
-const hasFundedBitcoinChannels = Vue.computed(
-  () => sendableBitcoinChannels.value.length > 0 || liquidLockedChannelDetails.value.length > 0,
+    liquidLockedChannelDetails.value.length > 0,
 );
 const bitcoinTransferAmounts = Vue.computed(() => {
   let total = 0n;
@@ -404,7 +440,6 @@ const tokenOptions = Vue.computed<IOption[]>(() => [
         {
           name: 'BTC',
           value: MoveToken.BTC,
-          disabled: !hasFundedBitcoinChannels.value,
         },
       ]
     : []),
@@ -413,9 +448,7 @@ const hasTokens = Vue.computed(() => {
   const sourceWallet = props.fromWallet;
   const hasArgonTokens = sourceWallet.data.availableMicrogons > 0n || sourceWallet.data.availableMicronots > 0n;
   if (isEthereumWallet(sourceWallet)) return hasArgonTokens;
-  if (isArgonWallet(sourceWallet)) {
-    return hasArgonTokens || hasFundedBitcoinChannels.value;
-  }
+  if (isArgonWallet(sourceWallet)) return true;
   return false;
 });
 const destinationWallets = Vue.computed(() =>
@@ -663,6 +696,7 @@ Vue.watch(
       destination.value,
       destinationAddress.value,
       bitcoinFeeRatePerSatVb.value,
+      feeEstimateRetry.value,
     ] as const,
   async ([sliding, amount], _oldValues, onCleanup) => {
     feeEstimateError.value = '';
@@ -687,22 +721,30 @@ Vue.watch(
       onCleanup(() => (cancelled = true));
       isEstimatingFees.value = true;
       try {
-        const txSigner = await getWalletKeys().getLiquidLockingKeypair();
-        const estimates = await Promise.all(
-          channels.map(async channel => {
-            const bitcoinFee = await bitcoinLocks.calculateBitcoinNetworkFee(
-              channel,
-              bitcoinFeeRatePerSatVb.value,
-              toScriptPubkey,
+        const estimates = await raceWithTimeout(
+          (async () => {
+            const txSigner = await getWalletKeys().getLiquidLockingKeypair();
+            return await Promise.all(
+              channels.map(async channel => {
+                const bitcoinFee = await bitcoinLocks.calculateBitcoinNetworkFee(
+                  channel,
+                  bitcoinFeeRatePerSatVb.value,
+                  toScriptPubkey,
+                );
+                const prepared = await bitcoinLockRelease.prepare({
+                  utxoId: channel.utxoId!,
+                  bitcoinNetworkFee: bitcoinFee,
+                  toScriptPubkey,
+                  txSigner,
+                });
+                return { bitcoinFee, prepared };
+              }),
             );
-            const prepared = await bitcoinLockRelease.prepare({
-              utxoId: channel.utxoId!,
-              bitcoinNetworkFee: bitcoinFee,
-              toScriptPubkey,
-              txSigner,
-            });
-            return { bitcoinFee, prepared };
-          }),
+          })(),
+          30_000,
+          () => {
+            throw new Error('Fee estimation timed out. Check your connection and try again.');
+          },
         );
         if (!cancelled) {
           const argonFee = estimates.reduce((total, estimate) => total + estimate.prepared.txFeePlusTip, 0n);

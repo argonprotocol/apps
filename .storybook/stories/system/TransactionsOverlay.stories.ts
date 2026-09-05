@@ -108,9 +108,9 @@ export const CurrentAndPriorRecords: Story = {
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body);
 
-    await waitFor(() => expect(body.getByRole('row', { name: /Updated Bitcoin Insurance/ })).toBeVisible());
+    await waitFor(() => expect(body.getByRole('row', { name: /Updated Bitcoin Securitization/ })).toBeVisible());
     await expect(
-      within(body.getByRole('row', { name: /Updated Bitcoin Insurance/ })).getByText('0.0070914 BTC'),
+      within(body.getByRole('row', { name: /Updated Bitcoin Securitization/ })).getByText('0.0070914 BTC'),
     ).toBeVisible();
     await expect(body.getByRole('row', { name: /Requested Bitcoin Release --/ })).toBeVisible();
     await expect(body.getByRole('row', { name: /Requested Bitcoin Release 16.5 ARGN/ })).toBeVisible();

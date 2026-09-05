@@ -194,7 +194,7 @@ export class BitcoinLiquidCreate extends TransactionOperation<
       for (const allocation of allocations) {
         const { input, lock: currentLock, vault, securitizedSatoshis, totalSecurityFee } = allocation;
         const { lock, operatorCoupon } = input;
-        await table.setCurrentLockFunded(lock, currentLock);
+        await table.updateFromCurrentLock(lock, currentLock);
         if (
           securitizedSatoshis === currentLock.securitizedSatoshis &&
           allocation.microgonsAtTargetPerBtc === currentLock.microgonsAtTargetPerBtc
@@ -283,7 +283,6 @@ export class BitcoinLiquidCreate extends TransactionOperation<
         this.bitcoinLockResecuritize.finalizeResecuritization(metadata, blockHash),
       ),
     );
-    await this.fissions.load();
     await this.transactionTracker.ensureStoredEvents(txInfo);
     await this.fissions.recordFinalizedTransaction(txInfo);
   }

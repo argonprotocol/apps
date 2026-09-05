@@ -24,17 +24,42 @@ export interface IWalletTransferRecord {
 
 // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
 type IWalletTransferRecordKey = keyof IWalletTransferRecord & string;
-export class WalletTransfersTable extends BaseTable {
-  public revision = 0;
-  public argonotCustodyRevision = 0;
-  private argonotCustodyCache = new LRU<{
+
+export interface IWalletTransfersTableState {
+  revision: number;
+  argonotCustodyRevision: number;
+  argonotCustodyCache: LRU<{
     revision: number;
     promise: Promise<IWalletTransferRecord[]>;
-  }>(10);
+  }>;
+}
+
+export class WalletTransfersTable extends BaseTable {
+  public readonly state = this.getState<IWalletTransfersTableState>(() => ({
+    revision: 0,
+    argonotCustodyRevision: 0,
+    argonotCustodyCache: new LRU(10),
+  }));
   private bigIntFields: IWalletTransferRecordKey[] = ['amount', 'microgonsForArgonot', 'microgonsForUsd'];
   private dateFields: IWalletTransferRecordKey[] = ['blockTime', 'createdAt', 'updatedAt'];
   private jsonFields: IWalletTransferRecordKey[] = [];
   private booleanFields: IWalletTransferRecordKey[] = ['isInternal'];
+
+  public get revision(): number {
+    return this.state.revision;
+  }
+
+  public set revision(value: number) {
+    this.state.revision = value;
+  }
+
+  public get argonotCustodyRevision(): number {
+    return this.state.argonotCustodyRevision;
+  }
+
+  public set argonotCustodyRevision(value: number) {
+    this.state.argonotCustodyRevision = value;
+  }
 
   private get fields(): IFieldTypes {
     return {
@@ -204,13 +229,13 @@ export class WalletTransfersTable extends BaseTable {
     key: string,
     load: () => Promise<IWalletTransferRecord[]>,
   ): Promise<IWalletTransferRecord[]> {
-    const cached = this.argonotCustodyCache.get(key);
+    const cached = this.state.argonotCustodyCache.get(key);
     if (cached?.revision === this.argonotCustodyRevision) return cached.promise;
 
     const promise = load();
-    this.argonotCustodyCache.set(key, { revision: this.argonotCustodyRevision, promise });
+    this.state.argonotCustodyCache.set(key, { revision: this.argonotCustodyRevision, promise });
     void promise.catch(() => {
-      if (this.argonotCustodyCache.get(key)?.promise === promise) this.argonotCustodyCache.delete(key);
+      if (this.state.argonotCustodyCache.get(key)?.promise === promise) this.state.argonotCustodyCache.delete(key);
     });
     return promise;
   }

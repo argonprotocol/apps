@@ -773,8 +773,8 @@ describe('RouterServer', () => {
     });
     routerDb.userInvitesTable.claimInvite(invite.id, member.address, memberAuth.address);
 
-    const loadOperationalAccount = vi.fn(async (accountId: string) =>
-      accountId === operator.address ? { availableAccessCodes: 1 } : null,
+    const loadOperationalAccounts = vi.fn(async (accountIds: string[]) =>
+      accountIds.map(accountId => (accountId === operator.address ? { availableAccessCodes: 1 } : null)),
     );
     mainchainMocks.getClient.mockResolvedValue({
       disconnect: vi.fn().mockResolvedValue(undefined),
@@ -783,7 +783,7 @@ describe('RouterServer', () => {
           operationalAccountBySubAccount: {
             multi: vi.fn().mockResolvedValue([{ isSome: false }]),
           },
-          operationalAccounts: loadOperationalAccount,
+          operationalAccounts: { multi: loadOperationalAccounts },
         },
       },
     });
@@ -875,7 +875,7 @@ describe('RouterServer', () => {
     expect(storedInvite?.operationsUpgradeRequestedAt).toBeTruthy();
     expect(storedInvite?.operationsUpgradedAt).toBeTruthy();
     expect(storedInvite?.operationsAccessProofSignature).toBe(accessProof.signature);
-    expect(loadOperationalAccount).toHaveBeenCalledWith(operator.address);
+    expect(loadOperationalAccounts).toHaveBeenCalledWith([operator.address]);
   });
 
   it('allows both admin and member sessions to access Ethereum relay routes', async () => {

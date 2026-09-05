@@ -24,6 +24,7 @@ export function allocateBitcoinInsuranceCosts(args: {
 }): IBitcoinInsuranceAllocation {
   const costByLiquidId = new Map<number, bigint>();
   const incompleteLiquidIds = new Set<number>();
+  const incompleteUtxoIds = new Set<number>();
   let unallocatedCost = 0n;
   const fissionsByUtxoId = new Map<number, IBitcoinFission[]>();
   for (const fission of args.fissions) {
@@ -42,22 +43,37 @@ export function allocateBitcoinInsuranceCosts(args: {
     const terms = termsByUtxoId.get(utxoId);
     if (!terms?.length) {
       for (const fission of fissions) incompleteLiquidIds.add(fission.liquidId);
+      incompleteUtxoIds.add(utxoId);
       continue;
     }
 
+    const orderedTerms = [...terms].sort((left, right) => left.termIndex - right.termIndex);
+    const hasCompleteTermSequence = orderedTerms.every((term, index) => term.termIndex === index);
+    let hasMissingOpeningTerm = !hasCompleteTermSequence;
     for (const fission of fissions) {
-      if (fission.createdAtTick == null) continue;
+      if (fission.createdAtTick == null) {
+        hasMissingOpeningTerm = true;
+        continue;
+      }
       const hasOpeningTerm = terms.some(term => {
         return (
           term.startTick <= fission.createdAtTick! && (term.endTick == null || fission.createdAtTick! < term.endTick)
         );
       });
-      if (!hasOpeningTerm) incompleteLiquidIds.add(fission.liquidId);
+      if (!hasOpeningTerm) hasMissingOpeningTerm = true;
+    }
+    if (hasMissingOpeningTerm) {
+      incompleteUtxoIds.add(utxoId);
+      for (const fission of fissions) incompleteLiquidIds.add(fission.liquidId);
     }
   }
 
   for (const [utxoId, terms] of termsByUtxoId) {
     const fissions = fissionsByUtxoId.get(utxoId) ?? [];
+    if (incompleteUtxoIds.has(utxoId)) {
+      unallocatedCost += terms.reduce((total, term) => total + term.addedNetSecurityFee, 0n);
+      continue;
+    }
     const hasMissingTicks = fissions.some(
       fission => fission.createdAtTick == null || (fission.closedAtArgonBlock != null && fission.closedAtTick == null),
     );

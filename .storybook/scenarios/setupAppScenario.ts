@@ -56,9 +56,15 @@ type ScenarioOptions = {
   selectedTab: TopTab;
   config?: Partial<ReturnType<typeof getConfig>>;
   bitcoinLockCreate?: BitcoinLockCreate;
+  myVaultId?: number;
 };
 
-export function setupAppScenario({ selectedTab, config: configOverrides = {}, bitcoinLockCreate }: ScenarioOptions) {
+export function setupAppScenario({
+  selectedTab,
+  config: configOverrides = {},
+  bitcoinLockCreate,
+  myVaultId,
+}: ScenarioOptions) {
   setActivePinia(createPinia());
   mocked(getDbPromise, { partial: true }).mockReturnValue(
     Promise.resolve({
@@ -150,7 +156,17 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {}, bi
     isLoaded: true,
     financialRevision: 1,
     createdVault: null,
-    metadata: null,
+    metadata:
+      myVaultId === undefined
+        ? null
+        : {
+            id: myVaultId,
+            hdPath: "m/44'/354'/0'/0/0",
+            createdAtBlockHeight: 1,
+            isClosed: false,
+            createdAt: new Date('2026-01-01T00:00:00.000Z'),
+            updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+          },
     stats: null,
     argonotCommitment: {
       committedMicronots: 0n,
@@ -178,23 +194,27 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {}, bi
     getAllLocks: fn(() => []),
     getLockByUtxoId: fn(() => undefined),
     load: fn(async () => undefined),
+    currentLoadPromise: Promise.resolve(),
     utxoTracking: {
       getAllOrphanLifecycleUtxos: fn(() => []),
+      getUnresolvedOrphanRecords: fn(() => []),
       isReleaseCompleteStatus: fn(() => false),
     } as never,
   });
   mocked(getBitcoinFissions, { partial: true }).mockReturnValue({
     data: Vue.reactive({
       fissionsById: {},
-      historyById: {},
+      activeFissionIds: new Set<number>(),
       minimumRatchetPercent: 5n,
       readiness: 'ready' as const,
       financialRevision: 1,
     }),
     getAll: fn(() => []),
-    getHistory: fn(() => []),
+    getArchived: fn(() => []),
+    getRecords: fn(() => []),
     getLiquids: fn(() => []),
     load: fn(async () => undefined),
+    currentLoadPromise: Promise.resolve(),
   });
   mocked(getArgonBonds, { partial: true }).mockReturnValue({
     bondTotals: BondLot.getTotals([]),
@@ -266,7 +286,7 @@ export function setupAppScenario({ selectedTab, config: configOverrides = {}, bi
     Vue.reactive({
       savingsIsLoaded: false,
       savingsTotalValue: 0n,
-      savingsTotalPending: 0n,
+      bitcoinLiquidPendingMintMicrogons: 0n,
       bitcoinWalletTotalSatoshis: 0n,
       liquidTotalSatoshis: 0n,
       financialPositionAggregate: Vue.shallowRef(reduceFinancialPositions([])),

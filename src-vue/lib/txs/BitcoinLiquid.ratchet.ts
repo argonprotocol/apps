@@ -122,9 +122,10 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
       throw new Error(`Liquid #${liquidId} changed before its ratchet could be submitted.`);
     }
 
+    const operatorHost = await this.upstreamOperatorClient.resolveOperatorHost();
     const [bitcoinTip, currentCoupons] = await Promise.all([
       snapshotClient.query.bitcoinUtxos.confirmedBitcoinBlockTip(),
-      this.upstreamOperatorClient.getBitcoinLockCoupons(),
+      operatorHost ? this.upstreamOperatorClient.getBitcoinLockCoupons() : [],
     ]);
     const currentBitcoinHeight = bitcoinTip?.blockHeight ?? 0;
     const resecuritizations: IBitcoinResecuritizationMetadata[] = [];
@@ -291,7 +292,6 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
         this.bitcoinLockResecuritize.finalizeResecuritization(metadata, blockHash),
       ),
     );
-    await this.fissions.load();
     await this.transactionTracker.ensureStoredEvents(txInfo);
     await this.fissions.recordFinalizedTransaction(txInfo);
   }
@@ -380,7 +380,7 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
           remainingCoverageByVaultId.get(vault.vaultId) ?? vault.availableBitcoinSpace(this.fissions.ownerAccount);
         if (additionalCoverageMicrogons > remainingCoverage) {
           const cosigner = this.vaults.operatorNamesByVaultId[vault.vaultId] ?? 'The cosigner';
-          errors.push(`${cosigner} does not have enough available insurance for this ratchet.`);
+          errors.push(`${cosigner} does not have enough available securitization for this ratchet.`);
         } else {
           remainingCoverageByVaultId.set(vault.vaultId, remainingCoverage - additionalCoverageMicrogons);
         }
@@ -448,11 +448,11 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
         remainingCoverageByVaultId.get(vault.vaultId) ?? vault.availableBitcoinSpace(txSigner.address);
       if (additionalCoverageMicrogons > remainingCoverage) {
         const cosigner = this.vaults.operatorNamesByVaultId[vault.vaultId] ?? 'The cosigner';
-        throw new Error(`${cosigner} does not have enough available insurance for this ratchet.`);
+        throw new Error(`${cosigner} does not have enough available securitization for this ratchet.`);
       }
       remainingCoverageByVaultId.set(vault.vaultId, remainingCoverage - additionalCoverageMicrogons);
 
-      await table.setCurrentLockFunded(lock, currentLock);
+      await table.updateFromCurrentLock(lock, currentLock);
       const operatorCoupon = this.getCouponForLock(currentCoupons, currentLock.vaultId, utxoId);
       const availableFeeCredit = operatorCoupon
         ? (remainingFeeCreditByCouponId.get(operatorCoupon.coupon.id) ?? 0n)

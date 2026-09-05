@@ -280,12 +280,9 @@ export const useCertificationController = defineStore('certificationController',
   });
   const hasCompletedOwnBitcoinLock = Vue.ref(false);
   Vue.watchEffect(() => {
-    const history = bitcoinFissions.getHistory();
-    const historicalIds = new Set(history.map(fission => fission.fissionId));
-    const completedOwnBitcoinLockAmount = [
-      ...history,
-      ...bitcoinFissions.getAll().filter(fission => !historicalIds.has(fission.fissionId)),
-    ].reduce((total, fission) => total + fission.liquidityPromised, 0n);
+    const completedOwnBitcoinLockAmount = bitcoinFissions
+      .getRecords()
+      .reduce((total, fission) => total + fission.liquidityPromised, 0n);
 
     const hasCompletedLock =
       rewardConfig.value.treasuryMinimumBitcoin <= 0n

@@ -115,6 +115,7 @@ export function setupVaultingPortfolioScenario() {
   } as unknown as ReturnType<typeof getVaults>);
 
   mocked(getBitcoinLocks).mockReturnValue({
+    data: Vue.reactive({ financialRevision: 1 }),
     load: fn(async () => undefined),
     getAllLocks: fn(() => localLocks),
     getDisplayLiquidityPromised: fn((lock: IBitcoinLockRecord) => lock.securitizationCoverageMicrogons ?? 0n),

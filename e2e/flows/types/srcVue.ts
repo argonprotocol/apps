@@ -1,5 +1,6 @@
 export type { IAppQueryFn, IAppQueryRefs } from '../../../src-vue/interfaces/IAppQueryRefs.ts';
 export { MiningSetupStatus, VaultingSetupStatus } from '../../../src-vue/interfaces/IConfig.ts';
+export { BitcoinLockStatus } from '../../../src-vue/interfaces/IBitcoinLockRecord.ts';
 export { WalletType } from '../../../src-vue/lib/Wallet.ts';
 export type {
   IBitcoinUnlockReleaseState,

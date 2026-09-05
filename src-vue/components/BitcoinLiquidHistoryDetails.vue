@@ -52,7 +52,7 @@
       </dd>
     </div>
     <div :class="props.inline ? '' : 'contents'">
-      <dt class="text-slate-500">Insurance fee</dt>
+      <dt class="text-slate-500">Securitization fee</dt>
       <dd :class="props.inline ? 'mt-0.5 font-semibold text-slate-700' : 'text-right'">
         <template v-if="entry.securityFee !== undefined">
           {{ argonSymbol }}{{ microgonToArgonNm(entry.securityFee).format('0,0.00') }}

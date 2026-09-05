@@ -4,7 +4,7 @@
       <div class="min-w-0 grow">
         <div v-if="entry.kind === 'closed'" class="flex items-baseline gap-x-2">
           <strong v-if="entry.repaymentAmount !== undefined" class="text-slate-700">
-            {{ argonSymbol }}{{ microgonToArgonNm(entry.repaymentAmount).format('0,0.00') }} repaid
+            {{ argonSymbol }}{{ microgonToArgonNm(entry.repaymentAmount).format('0,0.00[0000]') }} repaid
           </strong>
           <strong v-else class="text-slate-500">Repayment unavailable</strong>
           <span class="text-sm text-slate-400">
@@ -32,7 +32,7 @@
 
       <div v-if="entry.kind === 'closed'" class="text-right text-sm font-normal text-slate-500">
         <template v-if="entry.transactionFee !== undefined">
-          {{ argonSymbol }}{{ microgonToArgonNm(entry.transactionFee).format('0,0.00') }} fees
+          {{ argonSymbol }}{{ microgonToArgonNm(entry.transactionFee).format('0,0.00[0000]') }} fees
         </template>
         <template v-else>Fees unavailable</template>
       </div>
@@ -104,8 +104,8 @@
 
     <p v-if="entry.kind === 'closed'" class="mt-1 text-sm text-slate-500">
       <template v-if="entry.totalCloseCost !== undefined">
-        Total close cost was {{ argonSymbol }}{{ microgonToArgonNm(entry.totalCloseCost).format('0,0.00') }}, including
-        transaction fees.
+        Total close cost was {{ argonSymbol }}{{ microgonToArgonNm(entry.totalCloseCost).format('0,0.00[0000]') }},
+        including transaction fees.
       </template>
       <template v-else>This Liquid closed; its total close cost is unavailable.</template>
     </p>

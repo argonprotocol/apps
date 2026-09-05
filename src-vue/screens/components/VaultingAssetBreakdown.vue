@@ -303,7 +303,6 @@ import Expenses from '../../components/asset-breakdown/Expenses.vue';
 import Total from '../../components/asset-breakdown/Total.vue';
 import { MoveFrom, MoveToken } from '@argonprotocol/apps-core';
 import { getMyVault, getVaults } from '../../stores/vaults.ts';
-import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { ExclamationTriangleIcon } from '@heroicons/vue/20/solid';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 
@@ -324,15 +323,10 @@ const currency = getCurrency();
 const myVault = getMyVault();
 const vaults = getVaults();
 const miningFrames = vaults.miningFrames;
-const bitcoinLocks = getBitcoinLocks();
 
 Vue.onMounted(async () => {
   await miningFrames.load();
   await myVault.load();
-  if (!myVault.createdVault) {
-    return;
-  }
-  await bitcoinLocks.load();
 });
 const { microgonToMoneyNm, microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 

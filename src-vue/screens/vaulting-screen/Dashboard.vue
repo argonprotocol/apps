@@ -764,10 +764,9 @@ let onTickSubscription: { unsubscribe: () => void };
 Vue.onMounted(async () => {
   await miningFrames.load();
   await myVault.load();
-  await bitcoinLocks.load();
 
   Vue.watch(
-    () => vaults.stats!.vaultsById,
+    () => [vaults.stats!.vaultsById, bitcoinLocks.data.financialRevision] as const,
     () => loadChartData(),
     { deep: true },
   );
@@ -789,8 +788,8 @@ Vue.onMounted(async () => {
 });
 
 Vue.onUnmounted(() => {
-  onFrameSubscription.unsubscribe();
-  onTickSubscription.unsubscribe();
+  onFrameSubscription?.unsubscribe();
+  onTickSubscription?.unsubscribe();
 });
 </script>
 

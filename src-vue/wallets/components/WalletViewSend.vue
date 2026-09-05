@@ -215,14 +215,18 @@ async function initiateBitcoinTransfer(form: InstanceType<typeof WalletTransferF
   form.setFormError('');
   try {
     const txSigner = await getWalletKeys().getLiquidLockingKeypair();
-    for (const [index, channel] of channels.entries()) {
-      await bitcoinLockRelease.submit({
-        utxoId: channel.utxoId!,
-        bitcoinNetworkFee: bitcoinFees[index]!,
-        toScriptPubkey: form.destinationAddress,
-        txSigner,
-      });
-    }
+    const releaseResults = await Promise.allSettled(
+      channels.map((channel, index) =>
+        bitcoinLockRelease.submit({
+          utxoId: channel.utxoId!,
+          bitcoinNetworkFee: bitcoinFees[index]!,
+          toScriptPubkey: form.destinationAddress,
+          txSigner,
+        }),
+      ),
+    );
+    const failedRelease = releaseResults.find(result => result.status === 'rejected');
+    if (failedRelease?.status === 'rejected') throw failedRelease.reason;
     emit('goto', 'main');
   } catch (error) {
     form.setFormError(error instanceof Error ? error.message : 'Unable to send Bitcoin.');

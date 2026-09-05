@@ -40,14 +40,17 @@ import {
 } from 'reka-ui';
 import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 
-const props = defineProps<
-  TooltipRootProps & {
-    content?: string;
-    side?: 'top' | 'bottom' | 'left' | 'right';
-    asChild?: boolean;
-    calculateWidth?: () => string | undefined;
-  }
->();
+const props = withDefaults(
+  defineProps<
+    TooltipRootProps & {
+      content?: string;
+      side?: 'top' | 'bottom' | 'left' | 'right';
+      asChild?: boolean;
+      calculateWidth?: () => string | undefined;
+    }
+  >(),
+  { open: undefined },
+);
 const emits = defineEmits<TooltipRootEmits>();
 
 const width = Vue.ref('fit-content');

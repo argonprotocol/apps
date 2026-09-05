@@ -16,6 +16,7 @@ export interface TransactionOperationBuild<Metadata> {
 }
 
 export type PreparedTransactionOperation<Metadata, Build extends TransactionOperationBuild<Metadata>> = Build & {
+  operationKey: string;
   tx: SubmittableExtrinsic;
   txFeePlusTip: bigint;
   availableBalance: bigint;
@@ -48,6 +49,7 @@ export abstract class TransactionOperation<Input, Metadata, Build extends Transa
 
     return {
       ...build,
+      operationKey: this.getOperationKey(input),
       tx,
       txFeePlusTip: txFee + (tip ?? 0n),
       availableBalance,
@@ -55,12 +57,18 @@ export abstract class TransactionOperation<Input, Metadata, Build extends Transa
     };
   }
 
-  public async submit(input: Input): Promise<TransactionInfo<Metadata>> {
+  public async submit(
+    input: Input,
+    prepared?: PreparedTransactionOperation<Metadata, Build>,
+  ): Promise<TransactionInfo<Metadata>> {
     const key = this.getOperationKey(input);
     const activeSubmission = this.submissionsByKey.get(key);
     if (activeSubmission) return await activeSubmission;
+    if (prepared && prepared.operationKey !== key) {
+      throw new Error('The prepared transaction does not match this operation.');
+    }
 
-    const submission = this.submitOperation(input).finally(() => {
+    const submission = this.submitOperation(input, prepared).finally(() => {
       if (this.submissionsByKey.get(key) === submission) this.submissionsByKey.delete(key);
     });
     this.submissionsByKey.set(key, submission);
@@ -97,13 +105,16 @@ export abstract class TransactionOperation<Input, Metadata, Build extends Transa
     const txInfos = this.transactionTracker.data.txInfos.filter(candidate => {
       if (candidate.tx.extrinsicType !== this.extrinsicType) return false;
       if (getTransactionFailureMessage(candidate)) return false;
-      if (candidate.tx.isFinalized && candidate.isPostProcessed) return false;
+      if (candidate.tx.isFinalized && candidate.isPostProcessed && !candidate.hasFailedPostProcessing) return false;
       return matches(candidate as TransactionInfo<Metadata>);
     }) as TransactionInfo<Metadata>[];
     return txInfos;
   }
 
-  private async submitOperation(input: Input): Promise<TransactionInfo<Metadata>> {
+  private async submitOperation(
+    input: Input,
+    preparedOperation?: PreparedTransactionOperation<Metadata, Build>,
+  ): Promise<TransactionInfo<Metadata>> {
     const existing = await this.transactionTracker.findLatestTxAttempt<Metadata>({
       extrinsicType: this.extrinsicType,
       waitForConfirmations: 2,
@@ -115,7 +126,7 @@ export abstract class TransactionOperation<Input, Metadata, Build extends Transa
       return existing.txInfo;
     }
 
-    const prepared = await this.prepare(input);
+    const prepared = preparedOperation ?? (await this.prepare(input));
     if (!prepared.canAfford) {
       const error = this.createInsufficientFundsError(prepared);
       await this.onSubmissionFailed?.(prepared, error);
@@ -213,6 +224,7 @@ export abstract class TransactionOperation<Input, Metadata, Build extends Transa
   private matchesActiveTransaction(input: Input, txInfo: TransactionInfo<Metadata>): boolean {
     if (!this.matches(input, txInfo)) return false;
     if (getTransactionFailureMessage(txInfo)) return true;
+    if (txInfo.hasFailedPostProcessing) return true;
     return !txInfo.tx.isFinalized || !txInfo.isPostProcessed;
   }
 }

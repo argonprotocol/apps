@@ -30,6 +30,8 @@ Recovery may start only at one of these boundaries:
 
 Domains own normal finalized-event ingestion and concrete gap repair. The `financialHistory` store coordinates only account-import reconstruction and the explicit Find Missing Data command. It writes through each domain's recovery boundary, then the domain atomically publishes a new financial revision after merging backfill behind any newer live observations. Financial projections consume that published domain state and recompute when it changes; they do not require recovery to reach the moving chain head and do not use a global recovery flag to invalidate otherwise complete positions.
 
+Recovery publication is atomic at the smallest independently coherent record or domain unit, not necessarily across the account or the full recovery run. A completed Lock, Fission, Liquid, or equivalent unit may become visible while other units continue in the background. Replay state stays detached until that unit contains the facts its consumers require; it must not trigger alerts or replace a previously valid unit with a partial reconstruction.
+
 Completeness is evaluated at the affected record and field. If a return needs a missing fee, price, or capital event, that return remains unavailable until the domain supplies the fact. Unrelated positions and already-valid current values remain visible.
 
 ## ARGNOT handling

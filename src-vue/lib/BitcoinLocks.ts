@@ -40,6 +40,7 @@ import {
   IDeferred,
   MiningFrames,
   NetworkConfig,
+  type RuntimeSystemEventRecord,
   SingleFileQueue,
   type Vault,
 } from '@argonprotocol/apps-core';
@@ -85,7 +86,11 @@ export interface IBitcoinRequestLockMetadata {
 
 export default class BitcoinLocks {
   public readonly events = createTypedEventEmitter<{
-    'fissions:changed': (client: ArgonQueryClient) => void;
+    'fissions:changed': (change: {
+      block: IBlockHeaderInfo;
+      client: ArgonQueryClient;
+      events: readonly RuntimeSystemEventRecord[];
+    }) => void;
   }>();
 
   public data: {
@@ -198,7 +203,8 @@ export default class BitcoinLocks {
         if (!status?.isConfirmed) return;
         return { ...status, txid };
       },
-      onHistoryRecoveryComplete: locks => this.resumeAfterHistoryRecovery(locks),
+      onHistoryRecoveryComplete: (locks, didPublish) => this.resumeAfterHistoryRecovery(locks, didPublish),
+      onHistoryPublished: () => this.publishFinancialRevision(),
       insertPending: this.insertPending.bind(this),
       dbPromise,
       getTable: () => this.getTable(),
@@ -501,24 +507,24 @@ export default class BitcoinLocks {
         console.warn('[BitcoinLocks] Unable to watch orphan return counters', error);
       });
       this.data.isReconciliationPending = true;
-      const initialBestBlock = this.blockWatch.bestBlockHeader;
+      const initialFinalizedBlock = this.blockWatch.finalizedBlockHeader;
       void this.#blockQueue
         .add(async () => {
-          await this.checkIncomingArgonBlock(initialBestBlock);
+          await this.checkIncomingArgonBlock(initialFinalizedBlock);
           await this.runPendingLoadReconciliation();
         })
         .promise.catch(error => {
           console.warn(
             '[BitcoinLocks] Initial Argon block sync did not finish during load; continuing in the background',
             {
-              blockNumber: initialBestBlock.blockNumber,
-              blockHash: initialBestBlock.blockHash,
+              blockNumber: initialFinalizedBlock.blockNumber,
+              blockHash: initialFinalizedBlock.blockHash,
               error,
             },
           );
         });
       this.#subscription?.();
-      this.#subscription = this.blockWatch.events.on('best-blocks', async headers => {
+      this.#subscription = this.blockWatch.events.on('finalized', async headers => {
         void this.#blockQueue.add(async () => {
           await this.checkIncomingArgonBlock(headers.at(-1)!);
           await this.runPendingLoadReconciliation();
@@ -533,6 +539,11 @@ export default class BitcoinLocks {
       this.data.loadError = error instanceof Error ? error : new Error(String(error));
       this.#waitForLoad.reject(error);
     }
+    return this.#waitForLoad.promise;
+  }
+
+  public get currentLoadPromise(): Promise<void> {
+    if (!this.#waitForLoad) throw new Error('Bitcoin Lock loading has not started.');
     return this.#waitForLoad.promise;
   }
 
@@ -576,10 +587,14 @@ export default class BitcoinLocks {
       this.utxoTracking.getAcceptedFundingRecordForLock(lock);
     }
     const archiveClient = await getMainchainClient(true);
-    const bitcoinLock = await BitcoinLock.get(archiveClient, lock.utxoId);
+    const finalizedApi = await this.blockWatch.getFinalizedApi();
+    const bitcoinLock = await BitcoinLock.get(finalizedApi, lock.utxoId);
     if (bitcoinLock) {
-      await this.tryUpdateFundingUtxo(lock, archiveClient, bitcoinLock);
-      await this.syncLockReleaseArgonRequest(lock, archiveClient);
+      if (lock.status === BitcoinLockStatus.LockFunded && bitcoinLock.fundedSatoshis === 0n) {
+        await (await this.getTable()).setStatus(lock, BitcoinLockStatus.LockPendingFunding);
+      }
+      await this.tryUpdateFundingUtxo(lock, finalizedApi, bitcoinLock);
+      await this.syncLockReleaseArgonRequest(lock, finalizedApi);
     } else {
       await this.syncLockReleaseArgonCosign(lock, archiveClient);
       const fundingRecord = this.getAcceptedFundingRecord(lock);
@@ -1116,6 +1131,11 @@ export default class BitcoinLocks {
     return db.bitcoinLocksTable;
   }
 
+  public async updateCurrentLock(lock: IBitcoinLockRecord, currentLock: IBitcoinLock): Promise<void> {
+    await (await this.getTable()).updateFromCurrentLock(lock, currentLock);
+    this.publishFinancialRevision();
+  }
+
   public async publishReleaseSubmission(lock: IBitcoinLockRecord): Promise<void> {
     await this.runInQueueForUtxo(lock, () => this.ensureLockReleaseProcessing(lock), {
       waitForHistoryRecovery: true,
@@ -1499,18 +1519,8 @@ export default class BitcoinLocks {
     );
   }
 
-  private async checkIncomingArgonBlock(
-    newestHeader: Pick<IBlockHeaderInfo, 'blockHash' | 'blockNumber'>,
-  ): Promise<void> {
-    if (newestHeader.blockNumber === 0) {
-      return;
-    }
-
+  private async checkIncomingArgonBlock(header: IBlockHeaderInfo): Promise<void> {
     try {
-      // Keep the original one-block settling lag, but resolve the header by block number so we do not
-      // get stuck retrying a transient best-head hash that the pruned node has already discarded.
-      const header = await this.blockWatch.getHeaderByBlockNumber(newestHeader.blockNumber - 1);
-
       await this.orphanReleases.recoverPendingCosignEvents(header.blockNumber);
       if (header.blockNumber <= (this.data.latestArgonBlock?.blockNumber ?? 0)) {
         return;
@@ -1530,6 +1540,14 @@ export default class BitcoinLocks {
             event.method === 'FissionClosedByLock')
         );
       });
+      const hasFissionRefreshEvent =
+        hasFissionStateEvent ||
+        events.some(({ event }) => {
+          return (
+            event.section === 'bitcoinLocks' &&
+            (event.method === 'BitcoinLockBurned' || event.method === 'BitcoinSpentAfterRelease')
+          );
+        });
       const hasBitcoinLockFlexibilityChange = events.some(({ event }) => {
         return (
           event.section === 'bitcoinLocks' &&
@@ -1567,7 +1585,8 @@ export default class BitcoinLocks {
               const shouldTrackFundingSignals = this.isFundingSignalTrackingStatus(lockRecord.status);
               const shouldSyncLockingState =
                 isPendingFunding ||
-                (this.isLockFunded(lockRecord) && (!lockRecord.fundingUtxo || hasBitcoinLockFlexibilityChange));
+                (this.isLockFunded(lockRecord) &&
+                  (!lockRecord.fundingUtxo || hasBitcoinLockFlexibilityChange || hasFissionStateEvent));
 
               // Phase 1: lock sync.
               if (shouldSyncLockingState) {
@@ -1623,12 +1642,14 @@ export default class BitcoinLocks {
         blockNumber: header.blockNumber,
         blockHash: header.blockHash,
       };
-      if (hasBitcoinStateEvent || hasNewOracleBitcoinBlockHeight) this.publishFinancialRevision();
-      if (hasFissionStateEvent) this.events.emit('fissions:changed', clientAt);
+      if (hasBitcoinStateEvent || hasFissionStateEvent || hasNewOracleBitcoinBlockHeight) {
+        this.publishFinancialRevision();
+      }
+      if (hasFissionRefreshEvent) this.events.emit('fissions:changed', { block: header, client: clientAt, events });
     } catch (error) {
       console.warn('[BitcoinLocks] Failed to process incoming Argon block, will retry on the next block', {
-        blockNumber: newestHeader.blockNumber,
-        blockHash: newestHeader.blockHash,
+        blockNumber: header.blockNumber,
+        blockHash: header.blockHash,
         error,
       });
     }
@@ -1659,7 +1680,7 @@ export default class BitcoinLocks {
       await this.utxoTracking.setAcceptedFundingRecordForLock(lock, fundingRecord);
     }
     const table = await this.getTable();
-    await table.setCurrentLockFunded(lock, latestBitcoinLock);
+    await table.updateFromCurrentLock(lock, latestBitcoinLock);
   }
 
   private async ensureFundingUtxo(lock: IBitcoinLockRecord): Promise<void> {
@@ -1735,7 +1756,7 @@ export default class BitcoinLocks {
     return this.#historyRecoveryWaitersByUuid[lock.uuid].promise;
   }
 
-  private resumeAfterHistoryRecovery(locks: IBitcoinLockRecord[]): void {
+  private resumeAfterHistoryRecovery(locks: IBitcoinLockRecord[], didPublish = true): void {
     for (const lock of locks) {
       const waiter = this.#historyRecoveryWaitersByUuid[lock.uuid];
       if (!waiter) continue;
@@ -1745,7 +1766,7 @@ export default class BitcoinLocks {
     }
     if (!locks.length) return;
 
-    this.publishFinancialRevision();
+    if (didPublish) this.publishFinancialRevision();
     this.data.isReconciliationPending = true;
     void this.#blockQueue
       .add(async () => {

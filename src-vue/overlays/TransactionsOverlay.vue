@@ -199,7 +199,7 @@ function transactionLabel(transaction: ITransactionRecord): string {
     case ExtrinsicType.BitcoinLiquidClose:
       return 'Closed Bitcoin Liquid';
     case ExtrinsicType.BitcoinResecuritize:
-      return 'Updated Bitcoin Insurance';
+      return 'Updated Bitcoin Securitization';
     case ExtrinsicType.BitcoinRatchet: {
       const metadata = transaction.metadataJson as { liquidId?: number };
       return metadata.liquidId === undefined ? 'Ratcheted Bitcoin Lock' : 'Ratcheted Bitcoin Liquid';

@@ -16,6 +16,7 @@
         @escapeKeyDown.prevent="closeOverlay"
         class="pointer-events-none! fixed inset-0"
       >
+        <DialogTitle class="sr-only">Internal App Wallet</DialogTitle>
         <div
           :ref="setWalletRef"
           data-testid="WalletOverlay"
@@ -214,7 +215,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { DialogContent, DialogOverlay, DialogPortal, DialogRoot } from 'reka-ui';
+import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
 import BgOverlay from '../components/BgOverlay.vue';
 import basicEmitter, { type IWalletGuidanceContext, type IWalletOverlayOptions } from '../emitters/basicEmitter.ts';
 import type { WalletForEthereum } from '../lib/WalletForEthereum.ts';

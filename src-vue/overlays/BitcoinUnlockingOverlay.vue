@@ -71,7 +71,7 @@ const releaseE2eState = Vue.computed(() => {
 const cosignerLabel = Vue.computed(() => {
   const lock = personalLock.value;
   if (!lock) return undefined;
-  if (lock.vaultId === myVault.vaultId) return 'My Vault';
+  if (lock.vaultId === myVault.vaultId) return 'your Vault';
   return vaults.operatorNamesByVaultId[lock.vaultId] ?? config.upstreamOperator?.name ?? `Vault ${lock.vaultId}`;
 });
 

@@ -1344,14 +1344,10 @@ describe('MyVault cosign recovery', () => {
     getMainchainClient.mockRestore();
   });
 
-  it('renders ready before load resolves, but still waits for council and authority state', async () => {
-    let resolveBitcoinLocksLoad!: () => void;
+  it('loads independently of Bitcoin Lock readiness', async () => {
     let resolveGlobalCouncilLoad!: () => void;
     let resolveMintingAuthoritiesLoad!: () => void;
 
-    const bitcoinLocksLoad = new Promise<void>(resolve => {
-      resolveBitcoinLocksLoad = resolve;
-    });
     const globalCouncilLoad = new Promise<void>(resolve => {
       resolveGlobalCouncilLoad = resolve;
     });
@@ -1401,7 +1397,7 @@ describe('MyVault cosign recovery', () => {
         data: { txInfosByType: {} },
       } as any,
       {
-        load: vi.fn(() => bitcoinLocksLoad),
+        load: vi.fn(() => new Promise<void>(() => undefined)),
       } as any,
       {
         load: vi.fn(async () => undefined),
@@ -1422,14 +1418,12 @@ describe('MyVault cosign recovery', () => {
     );
 
     vi.spyOn(myVault as any, 'refreshExternalLocks').mockResolvedValue(undefined);
-    const loadBitcoinLockCosigns = vi.spyOn(myVault.bitcoinLockCosign, 'load').mockResolvedValue(undefined);
 
     const loadPromise = myVault.load();
     let isResolved = false;
     void loadPromise.then(() => {
       isResolved = true;
     });
-    expect(loadBitcoinLockCosigns).not.toHaveBeenCalled();
 
     await vi.waitFor(() => {
       expect(myVault.data.isLoaded).toBe(true);
@@ -1437,12 +1431,6 @@ describe('MyVault cosign recovery', () => {
     expect(myVault.data.argonotCommitment).toEqual({
       committedMicronots: 25n,
       encumberedMicronots: 10n,
-    });
-    expect(isResolved).toBe(false);
-
-    resolveBitcoinLocksLoad();
-    await vi.waitFor(() => {
-      expect(loadBitcoinLockCosigns).toHaveBeenCalledTimes(1);
     });
     expect(isResolved).toBe(false);
 

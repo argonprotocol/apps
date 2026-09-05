@@ -60,6 +60,7 @@ export function createStore(
     (Object.assign(Object.create(null), {
       start: async () => undefined,
       events: { on: () => () => undefined },
+      finalizedBlockHeader: { blockNumber: 0, blockHash: '0x0' },
       bestBlockHeader: { blockNumber: 0, blockHash: '0x0' },
     }) as BlockWatch);
   const currency = Object.assign(Object.create(null), {
@@ -113,7 +114,7 @@ export function createLock(args: {
   };
   return {
     uuid: args.uuid,
-    utxoId: args.utxoId,
+    utxoId: args.utxoId ?? 0,
     status: args.status,
     securitizedSatoshis: 10_000n,
     ownerAccount,

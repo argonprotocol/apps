@@ -16,9 +16,6 @@ type ILiquidCloseState = IE2EOperationInspectState<
   }
 >;
 
-const DETAIL_BUTTON = 'Dashboard.selectedDetailLiquid = liquid';
-const OPEN_CLOSE_REVIEW = 'BitcoinLiquidDetailOverlay.openCloseReview';
-
 export default new Operation<IBitcoinFlowContext, ILiquidCloseState>(import.meta, {
   async inspect({ flow }) {
     const [chainState, detailOverlay, closeReview, closeSubmit] = await Promise.all([
@@ -34,7 +31,7 @@ export default new Operation<IBitcoinFlowContext, ILiquidCloseState>(import.meta
         };
       }),
       flow.isVisible('BitcoinLiquidDetailOverlay'),
-      flow.isVisible(OPEN_CLOSE_REVIEW),
+      flow.isVisible('BitcoinLiquidDetailOverlay.openCloseReview'),
       flow.isVisible('BitcoinLiquidDetailOverlay.confirmClose()'),
     ]);
     const current = chainState ?? {
@@ -52,7 +49,7 @@ export default new Operation<IBitcoinFlowContext, ILiquidCloseState>(import.meta
       !isComplete &&
       current.activeFissionCount === 1 &&
       current.activeLiquidCount === 1 &&
-      (detailOverlay.visible || (await flow.isVisible(DETAIL_BUTTON)).clickable);
+      (detailOverlay.visible || (await flow.isVisible('Dashboard.openLiquidDetails(liquid)')).clickable);
     let state: IE2EOperationState = 'processing';
     if (isComplete) state = 'complete';
     else if (canRun) state = 'runnable';
@@ -86,11 +83,11 @@ export default new Operation<IBitcoinFlowContext, ILiquidCloseState>(import.meta
   async run({ flow, flowName }) {
     const state = await flow.inspect<ILiquidCloseState>();
     if (!state.uiState.detailOverlayVisible) {
-      await flow.click(DETAIL_BUTTON, { timeoutMs: 20_000 });
+      await flow.click('Dashboard.openLiquidDetails(liquid)', { timeoutMs: 20_000 });
       await flow.waitFor('BitcoinLiquidDetailOverlay', { timeoutMs: 20_000 });
     }
     if (!state.uiState.closeSubmitEnabled) {
-      await flow.click(OPEN_CLOSE_REVIEW, { timeoutMs: 20_000 });
+      await flow.click('BitcoinLiquidDetailOverlay.openCloseReview', { timeoutMs: 20_000 });
       await flow.poll<ILiquidCloseState>(latest => latest.uiState.closeSubmitEnabled, {
         pollMs: 500,
         timeoutMs: 30_000,

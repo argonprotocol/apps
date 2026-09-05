@@ -105,8 +105,8 @@ describe('BitcoinUtxosTable', () => {
     });
 
     const updated = (await table.fetchAll()).find(x => x.id === record.id)!;
-    expect(updated.releaseCosignVaultSignature).toBeNull();
-    expect(updated.releaseCosignHeight).toBeNull();
+    expect(updated.releaseCosignVaultSignature).toBeUndefined();
+    expect(updated.releaseCosignHeight).toBeUndefined();
   });
 
   it('setReleaseSeenOnBitcoin records release tx metadata', async () => {

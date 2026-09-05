@@ -131,12 +131,14 @@ export class EthereumOutboundTransferTracker {
   }
 
   public async load(): Promise<void> {
-    if (this.#loadPromise) {
-      return this.#loadPromise;
-    }
+    if (this.#loadPromise) return this.#loadPromise;
 
-    this.#loadPromise = this.loadPendingTransfers();
-    return this.#loadPromise;
+    const loadPromise = this.loadPendingTransfers().catch(error => {
+      if (this.#loadPromise === loadPromise) this.#loadPromise = undefined;
+      throw error;
+    });
+    this.#loadPromise = loadPromise;
+    return loadPromise;
   }
 
   public getTransfer(id: string): IEthereumOutboundActiveTransfer | undefined {
@@ -452,7 +454,6 @@ export class EthereumOutboundTransferTracker {
       return;
     }
 
-    this.#hasLoadedTransfers = true;
     await this.transactionTracker.load();
     await this.blockWatch.start();
     this.subscribeToFinalizedBlocks();
@@ -528,6 +529,7 @@ export class EthereumOutboundTransferTracker {
       });
       void this.resumePendingTransferOut(txInfo, transfer);
     }
+    this.#hasLoadedTransfers = true;
   }
 
   private async runStartMove(args: {

@@ -26,6 +26,7 @@ mod e2e_screenshots;
 mod ethereum_signer;
 mod migrations;
 mod security;
+mod sql;
 mod ssh;
 mod ssh_access;
 mod ssh_pool;
@@ -854,6 +855,7 @@ pub fn run() {
             app.manage(EthereumSignerPolicyState {
                 policy: Mutex::new(None),
             });
+            app.manage(sql::SqlTransactions::default());
             app.manage(ssh_access::SshAccessState {
                 access: Mutex::new(None),
             });
@@ -983,6 +985,11 @@ pub fn run() {
             load_instance,
             report_empty_app_root_after_activation,
             e2e_capture_main_window_screenshot,
+            sql::sql_begin_transaction,
+            sql::sql_execute,
+            sql::sql_select,
+            sql::sql_commit_transaction,
+            sql::sql_rollback_transaction,
         ])
         .run(context)
         .expect("error while running tauri application");

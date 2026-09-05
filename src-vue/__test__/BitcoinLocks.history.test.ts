@@ -99,6 +99,7 @@ describe('BitcoinLocks historical event replay', () => {
       runtimeVersion: { specVersion: numberCodec(158) },
       query: {
         ticks: { currentTick: vi.fn(async () => 700) },
+        vaults: { vaultsById: vi.fn(async () => undefined) },
         bitcoinUtxos: {
           confirmedBitcoinBlockTip: vi.fn(async () => ({ blockHeight: 600 })),
         },
@@ -365,28 +366,6 @@ describe('BitcoinLocks historical event replay', () => {
     ]);
   });
 
-  it('keeps an unfunded Lock pending when its UTXO is no longer watched', async () => {
-    const store = createStore({
-      blockWatch: { getApi: vi.fn(async () => ({})) } as unknown as BlockWatch,
-    });
-    const record = createLock({
-      uuid: 'unwatched-lock',
-      utxoId: 7,
-      status: BitcoinLockStatus.LockPendingFunding,
-      createdAt: '2026-01-01T00:00:00Z',
-    });
-    store.data.locksByUtxoId[7] = record;
-    vi.spyOn(store, 'getTable').mockResolvedValue({ getByUtxoId: vi.fn(async () => record) } as never);
-    vi.mocked(BitcoinHistory.getHistoricalBitcoinLock).mockResolvedValue(undefined);
-
-    await store.recovery.recoverBlock(historyBlock(157), [
-      historyEvent(157, 'bitcoinUtxos', 'UtxoUnwatched', { utxoId: 7 }),
-    ]);
-
-    expect(store.data.locksByUtxoId[7].status).toBe(BitcoinLockStatus.LockPendingFunding);
-    expect(store.data.locksByUtxoId[7].removalReason).toBeUndefined();
-  });
-
   it.each([
     {
       name: 'restores an unknown transition when canonical state is sufficient',
@@ -432,7 +411,7 @@ describe('BitcoinLocks historical event replay', () => {
     const saveRecoveredHistory = vi.fn(async () => undefined);
     vi.spyOn(store, 'getTable').mockResolvedValue({ saveRecoveredHistory } as never);
     vi.mocked(BitcoinHistory.getHistoricalBitcoinLock).mockResolvedValue({
-      ...createHistoricalLock({ accountId, liquidityPromised: recoveredLiquidity }),
+      ...createHistoricalLock({ accountId, liquidityPromised: recoveredLiquidity, lockedTargetPrice: 1_000n }),
       isFlexible: isBackfill,
     });
     const unknownEvent = historyEvent(157, 'bitcoinLocks', 'BitcoinLockBackfillChanged', {

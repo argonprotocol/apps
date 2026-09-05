@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { IBitcoinFissionRecord } from '../interfaces/IBitcoinFissionRecord.ts';
 import type { IBitcoinSecuritizationTerm } from '../interfaces/IBitcoinSecuritizationTerm.ts';
@@ -108,6 +108,35 @@ describe('Bitcoin Liquid insurance allocation', () => {
 
     expect(allocation.costByLiquidId).toEqual(new Map());
     expect(allocation.incompleteLiquidIds).toEqual(new Set([7]));
+  });
+
+  it('does not assign a cumulative current term to the latest Liquid when the first term is missing', () => {
+    const fissions = [
+      createFission({ fissionId: 1, liquidId: 1, createdAtTick: 10, closedAtArgonBlock: 40, closedAtTick: 40 }),
+      createFission({ fissionId: 2, liquidId: 2, createdAtTick: 60 }),
+    ];
+    const allocation = allocateBitcoinInsuranceCosts({
+      terms: [createTerm({ startTick: 50, endTick: undefined })],
+      fissions,
+    });
+
+    expect(allocation.costByLiquidId).toEqual(new Map());
+    expect(allocation.incompleteLiquidIds).toEqual(new Set([1, 2]));
+    expect(allocation.unallocatedCost).toBe(1_000n);
+  });
+
+  it('recomputes the same fixed allocation at different wall-clock times until a recorded event arrives', () => {
+    vi.useFakeTimers();
+    const terms = [createTerm({ endTick: undefined })];
+    const first = createFission({ fissionId: 1, liquidId: 1, createdAtTick: 10 });
+    vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+    const initial = allocateBitcoinInsuranceCosts({ terms, fissions: [first] });
+    vi.setSystemTime(new Date('2027-01-01T00:00:00Z'));
+    const later = allocateBitcoinInsuranceCosts({ terms, fissions: [first] });
+    vi.useRealTimers();
+
+    expect(later.costByLiquidId).toEqual(initial.costByLiquidId);
+    expect(later.unallocatedCost).toBe(initial.unallocatedCost);
   });
 });
 

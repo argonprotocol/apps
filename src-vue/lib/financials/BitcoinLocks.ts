@@ -15,8 +15,8 @@ import type { IBitcoinSecuritizationTerm } from '../../interfaces/IBitcoinSecuri
 import { allocateBitcoinInsuranceCosts } from './BitcoinInsurance.ts';
 import {
   type ArgonApi,
-  BitcoinFission,
   bigIntMax,
+  BitcoinFission,
   getPercent,
   SATOSHIS_PER_BITCOIN,
   type Currency,
@@ -53,16 +53,15 @@ export class BitcoinFinancials {
     const securitizationHistory = await this.dbPromise.then(db =>
       db.bitcoinSecuritizationHistoryTable.getPublishedSnapshot(this.fissions.ownerAccount),
     );
-    const active = this.fissions.getAll();
-    const history = this.fissions.getHistory();
-    const activeFissionIds = new Set(active.map(fission => fission.fissionId));
-    const fissionsById = new Map(history.map(record => [record.fissionId, new BitcoinFission(record)]));
-    for (const fission of active) {
-      fissionsById.set(fission.fissionId, fission);
-    }
-    const fissions = [...fissionsById.values()];
+    const fissions = this.fissions.getRecords();
+    const activeFissionIds = new Set<number>();
+    const activeLiquidUtxoIds = new Set<number>();
     const fissionsByUtxoId = new Map<IBitcoinLockRecord['utxoId'], BitcoinFission[]>();
     for (const fission of fissions) {
+      if (fission.closedAtArgonBlock === undefined) {
+        activeFissionIds.add(fission.fissionId);
+        activeLiquidUtxoIds.add(fission.utxoId);
+      }
       const lockFissions = fissionsByUtxoId.get(fission.utxoId) ?? [];
       lockFissions.push(fission);
       fissionsByUtxoId.set(fission.utxoId, lockFissions);
@@ -81,7 +80,9 @@ export class BitcoinFinancials {
     for (const summary of summaries) {
       const lock = summary.record;
 
-      if (this.locks.isLockFunded(lock)) currentBitcoinDebt += summary.unlockAmount;
+      if (this.locks.isLockFunded(lock) && lock.utxoId !== undefined && activeLiquidUtxoIds.has(lock.utxoId)) {
+        currentBitcoinDebt += summary.unlockAmount;
+      }
       if (
         !lock.isHistoryRecoveryPending &&
         (this.locks.isLockFunded(lock) || this.locks.isReleaseStatus(lock)) &&
@@ -108,7 +109,9 @@ export class BitcoinFinancials {
       }
     }
 
-    const lockPositions = this.createFinancialPositions({ ...args, summaries });
+    const lockPositions = summaries.flatMap(summary =>
+      createBitcoinLockPositions(summary, args.hasCurrentPrice, activeLiquidUtxoIds),
+    );
     const liquidPositions = createBitcoinLiquidPositions({
       ...args,
       summaries,
@@ -142,14 +145,21 @@ export function createBitcoinLiquidPositions(
 ): IBitcoinLiquidFinancialPosition[] {
   const { summaries, fissions, terms, activeFissionIds } = args;
   const currentInsuranceTerms = mergeCurrentInsuranceTerms({ summaries, fissions, terms });
-  const insurance = allocateBitcoinInsuranceCosts({ terms: currentInsuranceTerms, fissions });
+  const insurance = allocateBitcoinInsuranceCosts({
+    terms: currentInsuranceTerms,
+    fissions,
+  });
   const summariesByUtxoId = new Map<number, IBitcoinLockSummary>();
   for (const summary of summaries) {
     if (summary.utxoId !== undefined) summariesByUtxoId.set(summary.utxoId, summary);
   }
   const positions: IBitcoinLiquidFinancialPosition[] = [];
 
-  for (const liquid of createBitcoinLiquids({ fissions, terms })) {
+  for (const liquid of createBitcoinLiquids({
+    fissions,
+    terms: currentInsuranceTerms,
+    securitizationCostsByLiquidId: insurance.costByLiquidId,
+  })) {
     const { liquidId, fissions: liquidFissions } = liquid;
     const locks = liquidFissions.flatMap(fission => {
       const lock = summariesByUtxoId.get(fission.utxoId)?.record;
@@ -171,8 +181,9 @@ export function createBitcoinLiquidPositions(
 
     for (const fission of liquidFissions) {
       const summary = summariesByUtxoId.get(fission.utxoId);
-      const opening = fission.ratchets[0];
-      const latest = fission.ratchets.at(-1);
+      const ratchets = fission.ratchets;
+      const opening = ratchets[0];
+      const latest = ratchets.at(-1);
       if (!summary || !opening || !latest || summary.satoshis <= 0n) {
         hasCompleteEconomics = false;
         continue;
@@ -183,21 +194,22 @@ export function createBitcoinLiquidPositions(
         ? getFissionTargetValue(fission, fission.microgonsAtTargetPerBtc, 'fission')
         : getFissionTargetValue(fission, latest.microgonsAtTargetPerBtc, latest.source);
       startingCapital += openingTarget;
-      const minted = fission.ratchets.reduce((total, ratchet) => total + ratchet.amountMinted, 0n);
-      const burned = fission.ratchets.reduce((total, ratchet) => total + ratchet.amountBurned, 0n);
+      const minted = ratchets.reduce((total, ratchet) => total + ratchet.amountMinted, 0n);
+      const burned = ratchets.reduce((total, ratchet) => total + ratchet.amountBurned, 0n);
       const pending = activeFissionIds.has(fission.fissionId)
         ? fission.pendingMints.reduce((total, mint) => total + mint.remainingAmount, 0n)
-        : fission.ratchets.reduce((total, ratchet) => total + ratchet.mintPending, 0n);
+        : ratchets.reduce((total, ratchet) => total + ratchet.mintPending, 0n);
       pendingLiquidity += pending;
       receivedLiquidity += bigIntMax((minted || fission.liquidityPromised) - pending - burned, 0n);
 
       let fissionBitcoinValue: bigint | undefined;
       if (activeFissionIds.has(fission.fissionId)) {
-        if (args.hasCurrentPrice) {
-          fissionBitcoinValue = (summary.valueOfBtc * fission.satoshis) / summary.satoshis;
+        if (args.hasCurrentPrice && args.priceIndex) {
+          fissionBitcoinValue = args.priceIndex.getSatoshiPriceInTargetMicrogons(fission.satoshis);
+          repaymentAmount += fission.calculateRedemptionAmount(args.priceIndex);
+        } else {
+          hasCompleteEconomics = false;
         }
-        if (args.priceIndex) repaymentAmount += fission.calculateRedemptionAmount(args.priceIndex);
-        else hasCompleteEconomics = false;
       } else {
         const closingPrice =
           fission.btcPriceAtCloseMicrogons ??
@@ -252,7 +264,9 @@ export function createBitcoinLiquidPositions(
       fees: totalFees ?? transactionFees,
     });
     const startedAt = liquidFissions
-      .map(fission => fission.createdBlockTime ?? fission.createdAt)
+      .map(fission => {
+        return fission.createdBlockTime ?? fission.createdAt;
+      })
       .filter((date): date is Date => date !== undefined)
       .sort((left, right) => left.getTime() - right.getTime())[0];
     const endedAt = isActive
@@ -312,6 +326,12 @@ function mergeCurrentInsuranceTerms(args: {
   terms: readonly IBitcoinSecuritizationTerm[];
 }): IBitcoinSecuritizationTerm[] {
   const fissionUtxoIds = new Set(args.fissions.map(fission => fission.utxoId));
+  const liquidIdsByUtxoId = new Map<number, Set<number>>();
+  for (const fission of args.fissions) {
+    const liquidIds = liquidIdsByUtxoId.get(fission.utxoId) ?? new Set<number>();
+    liquidIds.add(fission.liquidId);
+    liquidIdsByUtxoId.set(fission.utxoId, liquidIds);
+  }
   const termsByUtxoId = new Map<number, IBitcoinSecuritizationTerm[]>();
   for (const term of args.terms) {
     const terms = termsByUtxoId.get(term.utxoId) ?? [];
@@ -332,6 +352,7 @@ function mergeCurrentInsuranceTerms(args: {
     }
 
     const terms = termsByUtxoId.get(utxoId) ?? [];
+    if (!terms.length && (liquidIdsByUtxoId.get(utxoId)?.size ?? 0) > 1) continue;
     terms.sort((left, right) => left.termIndex - right.termIndex);
     const latest = terms.at(-1);
     const existing = latest?.startTick === record.securitizationTick ? latest : undefined;
@@ -343,7 +364,7 @@ function mergeCurrentInsuranceTerms(args: {
       startTick: record.securitizationTick,
       startBlockNumber: existing?.startBlockNumber ?? record.createdAtArgonBlock ?? 0,
       securitizedSatoshis: record.securitizedSatoshis,
-      securitizationCoverageMicrogons: record.securitizationCoverageMicrogons ?? null,
+      securitizationCoverageMicrogons: record.securitizationCoverageMicrogons,
       cumulativeNetSecurityFee: summary.securityFees,
       addedNetSecurityFee: bigIntMax(summary.securityFees - (previous?.cumulativeNetSecurityFee ?? 0n), 0n),
     };
@@ -381,7 +402,7 @@ export function applyBitcoinFissionValuation(args: {
   let transactionFees = 0n;
 
   for (const fission of fissions) {
-    const ratchets = fission.ratchets ?? [];
+    const ratchets = fission.ratchets;
     const minted = ratchets.reduce((total, ratchet) => total + ratchet.amountMinted, 0n);
     totalLiquidity += minted || fission.liquidityPromised;
     burnedLiquidity += ratchets.reduce((total, ratchet) => total + ratchet.amountBurned, 0n);
@@ -444,7 +465,11 @@ function getFissionTargetValue(
   return (fission.satoshis * rate) / SATOSHIS_PER_BITCOIN;
 }
 
-function createBitcoinLockPositions(summary: IBitcoinLockSummary, hasCurrentPrice: boolean): BitcoinFinancialRecord[] {
+function createBitcoinLockPositions(
+  summary: IBitcoinLockSummary,
+  hasCurrentPrice: boolean,
+  activeLiquidUtxoIds?: ReadonlySet<number>,
+): BitcoinFinancialRecord[] {
   const { record } = summary;
 
   if (record.removalReason || summary.status === BitcoinLockStatus.Released) {
@@ -482,7 +507,7 @@ function createBitcoinLockPositions(summary: IBitcoinLockSummary, hasCurrentPric
 
   const currentValue = hasCurrentPrice ? summary.valueOfBtc + summary.pendingLiquidity : undefined;
 
-  return [
+  const positions: BitcoinFinancialRecord[] = [
     createFinancialPosition('bitcoin-asset', {
       id: `bitcoin-asset:${record.uuid}`,
       label: 'Locked Bitcoin',
@@ -490,14 +515,22 @@ function createBitcoinLockPositions(summary: IBitcoinLockSummary, hasCurrentPric
       currentValue,
       lock: summary.record,
     }),
-    createFinancialPosition('bitcoin-liability', {
-      id: `bitcoin-liability:${record.uuid}`,
-      label: 'Bitcoin redemption',
-      lifecycle: isReleasing ? 'releasing' : 'active',
-      currentValue: hasCurrentPrice ? -summary.unlockAmount : undefined,
-      lock: summary.record,
-    }),
   ];
+  const hasActiveLiquid = activeLiquidUtxoIds
+    ? record.utxoId !== undefined && activeLiquidUtxoIds.has(record.utxoId)
+    : record.fissionedSatoshis !== 0n;
+  if (hasActiveLiquid) {
+    positions.push(
+      createFinancialPosition('bitcoin-liability', {
+        id: `bitcoin-liability:${record.uuid}`,
+        label: 'Bitcoin redemption',
+        lifecycle: isReleasing ? 'releasing' : 'active',
+        currentValue: hasCurrentPrice ? -summary.unlockAmount : undefined,
+        lock: summary.record,
+      }),
+    );
+  }
+  return positions;
 }
 
 export function calculateBitcoinLockValuation({ lock, currency }: { lock: IBitcoinLockRecord; currency: Currency }) {

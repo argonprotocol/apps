@@ -74,8 +74,8 @@ export function getBitcoinFissions(): BitcoinFissions {
 function connectBitcoinCurrentState(): void {
   if (!locks || !fissions || unsubscribeFissionStateRefresh) return;
 
-  unsubscribeFissionStateRefresh = locks.events.on('fissions:changed', client => {
-    void fissions.refreshCurrent(client).catch(error => {
+  unsubscribeFissionStateRefresh = locks.events.on('fissions:changed', change => {
+    void fissions.syncFinalizedBlock(change.block, change.events, change.client).catch(error => {
       console.warn('[BitcoinFissions] Unable to refresh current state after a chain event', error);
     });
   });
@@ -288,7 +288,7 @@ export function createBitcoinLockCouponsState({
   }
 
   async function refreshCoupons(subscriptionKey: number): Promise<void> {
-    await Promise.all([config.isLoadedPromise, bitcoinLocks.load(), vaults.load().catch(() => null)]);
+    await Promise.all([config.isLoadedPromise, bitcoinLocks.currentLoadPromise, vaults.load().catch(() => null)]);
 
     if (!(await upstreamOperatorClient.resolveOperatorHost())) {
       if (subscriptionKey !== selectedVaultSubscriptionKey) return;

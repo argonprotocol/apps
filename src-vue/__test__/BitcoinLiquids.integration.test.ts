@@ -303,7 +303,9 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         harness.currency.priceIndex,
       );
       expect(unsupportedPreview.canRatchet).toBe(false);
-      expect(unsupportedPreview.errors).toEqual(['Testing does not have enough available insurance for this ratchet.']);
+      expect(unsupportedPreview.errors).toEqual([
+        'Testing does not have enough available securitization for this ratchet.',
+      ]);
 
       const ratchetRate = await submitBitcoinPrice(client, {
         btcUsdPrice: 150_000,

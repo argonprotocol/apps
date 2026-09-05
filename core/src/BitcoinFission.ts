@@ -33,6 +33,7 @@ export class BitcoinFission implements IBitcoinFission {
   public redemptionAmount?: bigint;
   public closeTxFee?: bigint;
   public btcPriceAtCloseMicrogons?: bigint;
+  public feeHistoryCompleteThroughBlock?: number;
   public createdAt?: Date;
   public updatedAt?: Date;
   public pendingMints: IBitcoinPendingMint[];
@@ -64,21 +65,10 @@ export class BitcoinFission implements IBitcoinFission {
     this.redemptionAmount = data.redemptionAmount;
     this.closeTxFee = data.closeTxFee;
     this.btcPriceAtCloseMicrogons = data.btcPriceAtCloseMicrogons;
+    this.feeHistoryCompleteThroughBlock = data.feeHistoryCompleteThroughBlock;
     this.createdAt = data.createdAt;
     this.updatedAt = data.updatedAt;
     this.pendingMints = [];
-  }
-
-  public applyRecordedHistory(history: IBitcoinFission): this {
-    this.origin = history.origin;
-    this.ratchets = history.ratchets ?? [];
-    this.createdAtTick = history.createdAtTick;
-    this.createdBlockHash = history.createdBlockHash;
-    this.createdBlockTime = history.createdBlockTime;
-    this.createdExtrinsicIndex = history.createdExtrinsicIndex;
-    this.createdAt = history.createdAt;
-    this.updatedAt = history.updatedAt;
-    return this;
   }
 
   public isRatchetAvailable(args: { microgonsAtTargetPerBtc: bigint; minimumRatchetPercent: bigint }): boolean {
@@ -245,6 +235,7 @@ export interface IBitcoinFission {
   redemptionAmount?: bigint;
   closeTxFee?: bigint;
   btcPriceAtCloseMicrogons?: bigint;
+  feeHistoryCompleteThroughBlock?: number;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -259,6 +250,7 @@ export interface IBitcoinFissionRatchet {
   amountBurned: bigint;
   mintPending: bigint;
   securityFee?: bigint;
+  securityFeeCoupon?: bigint;
   txFee?: bigint;
   blockNumber: number;
   tick?: number;

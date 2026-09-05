@@ -706,7 +706,7 @@ describe('TransactionTracker', () => {
       const originalStoredTx = storedTxs.find(record => record.id === originalTxInfo.tx.id)!;
       const history = await db.transactionStatusHistoryTable.fetchByTransactionId(originalTxInfo.tx.id);
       expect(storedTxs).toHaveLength(1);
-      expect(originalStoredTx.followOnTxId).toBeNull();
+      expect(originalStoredTx.followOnTxId).toBeUndefined();
       expect(originalStoredTx.status).toBe(TransactionStatus.Error);
       expect(originalStoredTx.submissionErrorJson?.message).toBe(
         'Transaction nonce was already used by another transaction.',

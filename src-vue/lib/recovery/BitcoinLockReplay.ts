@@ -38,7 +38,8 @@ export interface IHistoricalBitcoinLockRatchet {
   liquidityPromised?: bigint;
   lockedTargetPrice: bigint;
   securityFee: bigint;
-  txFee: bigint;
+  securityFeeCoupon?: bigint;
+  txFee?: bigint;
   burned: bigint;
   blockHeight: number;
   tick?: number;
@@ -46,7 +47,8 @@ export interface IHistoricalBitcoinLockRatchet {
   oracleBitcoinBlockHeight: number;
 }
 
-export type IHistoricalBitcoinLockRecord = IBitcoinLockRecord & {
+export type IHistoricalBitcoinLockRecord = Omit<IBitcoinLockRecord, 'utxoId'> & {
+  utxoId: number;
   removalTick?: number;
   satoshis: bigint;
   lockedTargetPrice: bigint;
@@ -65,12 +67,13 @@ export function createHistoricalBitcoinLockRecord(
       utxos: [...record.utxos],
     };
   }
-  if (record.utxoId === undefined || !record.ownerAccount || !record.scriptDetails) {
+  if (record.utxoId == null || !record.ownerAccount || !record.scriptDetails) {
     throw new Error(`Bitcoin lock ${record.uuid} does not have enough chain state for historical replay`);
   }
 
   return {
     ...record,
+    utxoId: record.utxoId,
     utxos: [...record.utxos],
     satoshis: record.fundedSatoshis || record.securitizedSatoshis,
     lockedTargetPrice: 0n,
@@ -96,6 +99,7 @@ export function createHistoricalBitcoinLockRecord(
 
 export type BitcoinHistoryReplaySession = {
   commitStarted: boolean;
+  purpose: 'financial-backfill' | 'operational-repair';
   currentLockUtxoId?: number;
   locksByUtxoId: Record<number, IHistoricalBitcoinLockRecord>;
   originalLocksByUtxoId: Record<number, IHistoricalBitcoinLockRecord>;

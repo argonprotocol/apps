@@ -5,8 +5,12 @@ import BigNumber from 'bignumber.js';
 import { bigNumberToBigInt, NetworkConfig } from '@argonprotocol/apps-core';
 import type { IMiningCohortFinancialRecord } from '../../interfaces/db/ICohortFrameRecord.ts';
 
+export interface ICohortsTableState {
+  storedCohorts: { [id: number]: boolean };
+}
+
 export class CohortsTable extends BaseTable {
-  private storedCohorts: { [id: number]: boolean } = {};
+  public readonly state = this.getState<ICohortsTableState>(() => ({ storedCohorts: {} }));
   private bigIntFields: string[] = [
     'transactionFeesTotal',
     'microgonsBidPerSeat',
@@ -20,7 +24,7 @@ export class CohortsTable extends BaseTable {
   public override async loadState(): Promise<void> {
     const allCohorts = await this.db.select<{ id: number }[]>('SELECT id FROM Cohorts ORDER BY id ASC');
     for (const cohort of allCohorts) {
-      this.storedCohorts[cohort.id] = true;
+      this.state.storedCohorts[cohort.id] = true;
     }
   }
 
@@ -35,7 +39,7 @@ export class CohortsTable extends BaseTable {
   public async fetchCohortIdsSince(idStart: number, limit = 10): Promise<number[]> {
     const ids = [];
     for (let id = idStart; id < idStart + limit; id++) {
-      if (!this.storedCohorts[id]) break;
+      if (!this.state.storedCohorts[id]) break;
       ids.push(id);
     }
     return ids;
@@ -235,7 +239,7 @@ export class CohortsTable extends BaseTable {
         argonotPriceAtBid,
       ]),
     );
-    this.storedCohorts[id] = true;
+    this.state.storedCohorts[id] = true;
   }
 
   public async fetchCount(): Promise<number> {

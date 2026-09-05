@@ -1,6 +1,7 @@
-import { bigIntMax, BitcoinFission, SATOSHIS_PER_BITCOIN, type IBitcoinFissionRatchet } from '@argonprotocol/apps-core';
+import { bigIntMax, bigIntMin, BitcoinFission, SATOSHIS_PER_BITCOIN } from '@argonprotocol/apps-core';
 import type { PriceIndex } from '@argonprotocol/mainchain';
 
+import type { IBitcoinFissionRatchetRecord } from '../interfaces/IBitcoinFissionRecord.ts';
 import type { IBitcoinSecuritizationTerm } from '../interfaces/IBitcoinSecuritizationTerm.ts';
 
 export interface IBitcoinLiquidHistoryEntry {
@@ -62,9 +63,10 @@ export class BitcoinLiquid {
     liquidId: number;
     fissions: readonly BitcoinFission[];
     terms?: readonly IBitcoinSecuritizationTerm[];
+    securitizationCost?: bigint;
   }): BitcoinLiquid {
-    const { liquidId, fissions, terms = [] } = args;
-    return createBitcoinLiquid(liquidId, [...fissions], terms);
+    const { liquidId, fissions, terms = [], securitizationCost } = args;
+    return createBitcoinLiquid(liquidId, [...fissions], terms, securitizationCost);
   }
 
   public get isClosed(): boolean {
@@ -126,6 +128,31 @@ export class BitcoinLiquid {
     );
   }
 
+  public get expectedMintPerFrame(): bigint {
+    return this.fissions.reduce(
+      (total, fission) =>
+        total +
+        fission.pendingMints.reduce(
+          (pending, mint) => pending + bigIntMin(mint.remainingAmount, mint.maxAmountPerFrame),
+          0n,
+        ),
+      0n,
+    );
+  }
+
+  public get estimatedMintFramesRemaining(): number | undefined {
+    let framesRemaining = 0n;
+    for (const mint of this.fissions.flatMap(fission => fission.pendingMints)) {
+      if (mint.remainingAmount <= 0n) continue;
+      if (mint.maxAmountPerFrame <= 0n) return;
+      framesRemaining = bigIntMax(
+        framesRemaining,
+        (mint.remainingAmount + mint.maxAmountPerFrame - 1n) / mint.maxAmountPerFrame,
+      );
+    }
+    return Number(framesRemaining);
+  }
+
   public get receivedLiquidity(): bigint {
     return bigIntMax(this.liquidityPromised - this.pendingLiquidity, 0n);
   }
@@ -158,7 +185,7 @@ export class BitcoinLiquid {
 
 type FissionHistoryFragment = {
   fission: BitcoinFission;
-  ratchet: IBitcoinFissionRatchet;
+  ratchet: IBitcoinFissionRatchetRecord;
   liabilityBefore: bigint;
   liabilityAfter: bigint;
 };
@@ -167,6 +194,7 @@ function createBitcoinLiquid(
   liquidId: number,
   fissions: BitcoinFission[],
   terms: readonly IBitcoinSecuritizationTerm[],
+  securitizationCost?: bigint,
 ): BitcoinLiquid {
   const fragmentsByTransaction = new Map<string, FissionHistoryFragment[]>();
   for (const fission of fissions) {
@@ -252,8 +280,11 @@ function createBitcoinLiquid(
               );
             });
       const securityFee = hasHistoricalSecurityFees
-        ? historicalSecurityFees.reduce((total, { ratchet }) => total + (ratchet.securityFee ?? 0n), 0n) +
-          directlyCreatedTerms.reduce((total, term) => total + term.addedNetSecurityFee, 0n)
+        ? historicalSecurityFees.reduce(
+            (total, { ratchet }) =>
+              total + bigIntMax((ratchet.securityFee ?? 0n) - (ratchet.securityFeeCoupon ?? 0n), 0n),
+            0n,
+          ) + directlyCreatedTerms.reduce((total, term) => total + term.addedNetSecurityFee, 0n)
         : undefined;
       const liabilityAfter = totalLiability;
 
@@ -283,6 +314,20 @@ function createBitcoinLiquid(
         affectedSatoshis,
       };
     });
+  if (securitizationCost !== undefined) {
+    let remainingCost = securitizationCost;
+    for (const entry of history) {
+      if (entry.kind === 'created') continue;
+      entry.securityFee = entry.securityFee === undefined ? 0n : bigIntMin(entry.securityFee, remainingCost);
+      entry.actionFees = entry.transactionFee === undefined ? undefined : entry.transactionFee + entry.securityFee;
+      remainingCost -= entry.securityFee;
+    }
+    const creation = history.find(entry => entry.kind === 'created');
+    if (creation) {
+      creation.securityFee = remainingCost;
+      creation.actionFees = creation.transactionFee === undefined ? undefined : creation.transactionFee + remainingCost;
+    }
+  }
   const closeFeesByTransaction = new Map<string, bigint | undefined>();
   for (const fission of fissions) {
     if (fission.closedAtArgonBlock === undefined) continue;
@@ -294,12 +339,22 @@ function createBitcoinLiquid(
   }
   const historyFees = history.map(entry => entry.transactionFee);
   const closeFees = [...closeFeesByTransaction.values()];
-  const historyTransactionFees = historyFees.every(fee => fee !== undefined)
-    ? historyFees.reduce((total, fee) => total + (fee ?? 0n), 0n)
-    : undefined;
-  const closeTransactionFees = closeFees.every(fee => fee !== undefined)
-    ? closeFees.reduce((total, fee) => total + (fee ?? 0n), 0n)
-    : undefined;
+  const hasCompleteFeeHistory = fissions.every(fission => {
+    const requiredThroughBlock =
+      fission.origin === 'lock-migration'
+        ? fission.lastUpdatedArgonBlock
+        : Math.max(fission.lastUpdatedArgonBlock, fission.closedAtArgonBlock ?? 0);
+    const completeThroughBlock = fission.feeHistoryCompleteThroughBlock;
+    return completeThroughBlock != null && completeThroughBlock >= requiredThroughBlock;
+  });
+  const historyTransactionFees =
+    hasCompleteFeeHistory && historyFees.every(fee => fee !== undefined)
+      ? historyFees.reduce((total, fee) => total + (fee ?? 0n), 0n)
+      : undefined;
+  const closeTransactionFees =
+    hasCompleteFeeHistory && closeFees.every(fee => fee !== undefined)
+      ? closeFees.reduce((total, fee) => total + (fee ?? 0n), 0n)
+      : undefined;
 
   return new BitcoinLiquid({
     liquidId,
@@ -310,7 +365,7 @@ function createBitcoinLiquid(
   });
 }
 
-function getTransactionKey(fission: BitcoinFission, ratchet: IBitcoinFissionRatchet): string {
+function getTransactionKey(fission: BitcoinFission, ratchet: IBitcoinFissionRatchetRecord): string {
   if (ratchet.extrinsicIndex === undefined) {
     return `${ratchet.blockHash ?? ratchet.blockNumber}:fission:${fission.fissionId}:${ratchet.sourceRatchetIndex}`;
   }

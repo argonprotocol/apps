@@ -11,10 +11,11 @@ import type { Db } from '../lib/Db.ts';
 import type { TransactionTracker } from '../lib/TransactionTracker.ts';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
-import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
+import { BitcoinUtxoRole, BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
 import { TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import { createCurrentLock } from './helpers/bitcoin.ts';
 import { createTestDb } from './helpers/db.ts';
+import { WalletForBitcoin } from '../lib/WalletForBitcoin.ts';
 
 vi.mock('../stores/mainchain.ts', () => ({
   getMainchainClient: vi.fn(async () => ({})),
@@ -28,49 +29,124 @@ type IBitcoinLocksTestTarget = {
 };
 
 describe('BitcoinLocks Argon cosign gating', () => {
-  it.each(['FissionCreated', 'FissionRatcheted', 'FissionClosed', 'FissionClosedByLock'])(
-    'publishes one Fission-state change signal after a %s event batch',
-    async method => {
-      const blockApi = {
-        query: {
-          bitcoinUtxos: {
-            confirmedBitcoinBlockTip: vi.fn().mockResolvedValue(null),
-          },
+  it.each([
+    'FissionCreated',
+    'FissionRatcheted',
+    'FissionClosed',
+    'FissionClosedByLock',
+    'BitcoinLockBurned',
+    'BitcoinSpentAfterRelease',
+  ])('publishes one Fission-state change signal after a %s event batch', async method => {
+    const section = method.startsWith('Fission') ? 'bitcoinFissions' : 'bitcoinLocks';
+    const blockApi = {
+      query: {
+        bitcoinUtxos: {
+          confirmedBitcoinBlockTip: vi.fn().mockResolvedValue(null),
         },
-      };
-      const blockWatch = {
-        getHeaderByBlockNumber: vi.fn(async (blockNumber: number) => ({
-          blockNumber,
-          blockHash: `0x${blockNumber}`,
-        })),
-        getEventsWithSpec: vi.fn(async () => ({
-          api: blockApi,
-          events: [
-            { event: { section: 'bitcoinFissions', method, data: {} } },
-            { event: { section: 'bitcoinFissions', method, data: {} } },
-          ],
-          specVersion: 159,
-        })),
-      } as unknown as BlockWatch;
-      const store = new BitcoinLocks(
-        Promise.resolve({} as Db),
-        Object.create(null) as WalletKeys,
-        blockWatch,
-        Object.create(null) as CurrencyBase,
-        Object.create(null) as TransactionTracker,
-      );
-      vi.spyOn(store.orphanReleases, 'recoverPendingCosignEvents').mockResolvedValue(undefined);
-      const refreshes: ArgonQueryClient[] = [];
-      store.events.on('fissions:changed', client => refreshes.push(client));
+      },
+    };
+    const blockWatch = {
+      getHeaderByBlockNumber: vi.fn(async (blockNumber: number) => ({
+        blockNumber,
+        blockHash: `0x${blockNumber}`,
+      })),
+      getEventsWithSpec: vi.fn(async () => ({
+        api: blockApi,
+        events: [{ event: { section, method, data: {} } }, { event: { section, method, data: {} } }],
+        specVersion: 159,
+      })),
+    } as unknown as BlockWatch;
+    const store = new BitcoinLocks(
+      Promise.resolve({} as Db),
+      Object.create(null) as WalletKeys,
+      blockWatch,
+      Object.create(null) as CurrencyBase,
+      Object.create(null) as TransactionTracker,
+    );
+    vi.spyOn(store.orphanReleases, 'recoverPendingCosignEvents').mockResolvedValue(undefined);
+    const refreshes: ArgonQueryClient[] = [];
+    store.events.on('fissions:changed', change => refreshes.push(change.client));
 
-      await (store as unknown as IBitcoinLocksTestTarget).checkIncomingArgonBlock({
-        blockNumber: 102,
-        blockHash: '0x102',
-      });
+    await (store as unknown as IBitcoinLocksTestTarget).checkIncomingArgonBlock({
+      blockNumber: 102,
+      blockHash: '0x102',
+    });
 
-      expect(refreshes).toEqual([blockApi]);
-    },
-  );
+    expect(refreshes).toEqual([blockApi]);
+  });
+
+  it('updates a mounted wallet when Fissions allocate and release its current Lock', async () => {
+    const db = await createTestDb();
+    const pending = await db.bitcoinLocksTable.insertPending({
+      uuid: 'wallet-lock',
+      status: BitcoinLockStatus.LockIsProcessingOnArgon,
+      securitizedSatoshis: 10_000n,
+      cosignVersion: 'v1',
+      network: 'testnet',
+      hdPath: "m/84'/0'/0'",
+      vaultId: 1,
+    });
+    const record = await db.bitcoinLocksTable.finalizePending({ uuid: pending.uuid, lock: createCurrentLock() });
+    await db.bitcoinLocksTable.setStatus(record, BitcoinLockStatus.LockFunded);
+    const fundingUtxo = { role: BitcoinUtxoRole.Funding, satoshis: 10_000n } as IBitcoinUtxoRecord;
+    record.utxos.push(fundingUtxo);
+    record.fundingUtxo = fundingUtxo;
+    let eventMethod = 'FissionCreated';
+    let currentLock = createCurrentLock({ fissionedSatoshis: 6_000n });
+    const blockApi = { query: { bitcoinUtxos: { confirmedBitcoinBlockTip: vi.fn().mockResolvedValue(null) } } };
+    const blockWatch = {
+      getHeaderByBlockNumber: vi.fn(async (blockNumber: number) => ({ blockNumber, blockHash: `0x${blockNumber}` })),
+      getEventsWithSpec: vi.fn(async () => ({
+        api: blockApi,
+        events: [{ event: { section: 'bitcoinFissions', method: eventMethod, data: {} } }],
+        specVersion: 159,
+      })),
+    } as unknown as BlockWatch;
+    const store = new BitcoinLocks(
+      Promise.resolve(db),
+      Object.create(null) as WalletKeys,
+      blockWatch,
+      Object.create(null) as CurrencyBase,
+      Object.create(null) as TransactionTracker,
+    );
+    store.data.locksByUtxoId[record.utxoId!] = record;
+    store.utxoTracking.data.utxosByLockUtxoId[record.utxoId!] = [fundingUtxo];
+    vi.spyOn(BitcoinLock, 'get').mockImplementation(async () => currentLock as BitcoinLock);
+    vi.spyOn(store.orphanReleases, 'recoverPendingCosignEvents').mockResolvedValue(undefined);
+    vi.spyOn(store.orphanReleases, 'reconcileOrphanReturns').mockResolvedValue(undefined);
+    vi.spyOn(
+      store as unknown as { syncPendingFundingSignals(): Promise<void> },
+      'syncPendingFundingSignals',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      store as unknown as { reconcileAcceptedFundingReleaseOnBlock(): Promise<void> },
+      'reconcileAcceptedFundingReleaseOnBlock',
+    ).mockResolvedValue(undefined);
+    const wallet = new WalletForBitcoin(
+      () => store,
+      () => record.ownerAccount!,
+      Object.create(null) as never,
+    );
+
+    expect(wallet.getSendableChannels()).toEqual([record]);
+    await (store as unknown as IBitcoinLocksTestTarget).checkIncomingArgonBlock({
+      blockNumber: 102,
+      blockHash: '0x102',
+    });
+    expect(record.fissionedSatoshis).toBe(6_000n);
+    expect(wallet.getSendableChannels()).toEqual([]);
+    expect(wallet.getLiquidLockedChannels()).toEqual([record]);
+
+    eventMethod = 'FissionClosed';
+    currentLock = createCurrentLock({ fissionedSatoshis: 0n });
+    await (store as unknown as IBitcoinLocksTestTarget).checkIncomingArgonBlock({
+      blockNumber: 103,
+      blockHash: '0x103',
+    });
+    expect(record.fissionedSatoshis).toBe(0n);
+    expect(wallet.getSendableChannels()).toEqual([record]);
+    expect(wallet.getLiquidLockedChannels()).toEqual([]);
+  });
 
   it('preserves the runtime coupon amount when a member Lock is finalized', async () => {
     const db = await createTestDb();
@@ -372,12 +448,12 @@ describe('BitcoinLocks Argon cosign gating', () => {
     const testStore = store as unknown as IBitcoinLocksTestTarget;
 
     await store.orphanReleases.syncCosignCounterSubscriptions(subscriptionClient);
-    await testStore.checkIncomingArgonBlock({ blockNumber: 102, blockHash: '0x102' });
+    await testStore.checkIncomingArgonBlock({ blockNumber: 101, blockHash: '0x101' });
     expect(recoverBlock).not.toHaveBeenCalled();
 
     counterCallbacks[0](0);
     blockWatchStub.bestBlockHeader = { blockNumber: 102, blockHash: '0x102' };
-    await testStore.checkIncomingArgonBlock({ blockNumber: 103, blockHash: '0x103' });
+    await testStore.checkIncomingArgonBlock({ blockNumber: 102, blockHash: '0x102' });
 
     expect(recoverBlock).toHaveBeenCalledWith(blockHeaders.get(102), [cosignEvent]);
   });

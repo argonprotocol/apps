@@ -9,6 +9,9 @@ import {
 
 type HistoricalBitcoinLock = NonNullable<HistoricalQueryRecord<'bitcoinLocks', 'locksByUtxoId'>>;
 
+// Historical runtimes through spec 158 enforced this window without exposing it as a constant.
+const LEGACY_PENDING_CONFIRMATION_BLOCKS = 144;
+
 export interface IHistoricalBitcoinLock extends IBitcoinLockDetails {
   lockedTargetPrice: bigint;
   liquidityPromised: bigint;
@@ -71,7 +74,9 @@ export async function getHistoricalBitcoinLock(
     createdAtHeight,
     fundingExpirationHeight:
       (lock.fundingExpirationHeight === undefined ? undefined : Number(lock.fundingExpirationHeight)) ??
-      createdAtHeight + client.consts.bitcoinLocks.maxPendingConfirmationBlocks.toNumber(),
+      createdAtHeight +
+        (client.consts.bitcoinLocks.maxPendingConfirmationBlocks?.toNumber() ?? LEGACY_PENDING_CONFIRMATION_BLOCKS) +
+        1,
     securityFees: lock.securityFees ?? 0n,
     isFlexible: lock.isFlexible ?? lock.isBackfill ?? false,
     couponFeesPaid: lock.couponPaidFees ?? 0n,

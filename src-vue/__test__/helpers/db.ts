@@ -48,11 +48,25 @@ export async function createTestDbAtMigration(throughVersion = Number.POSITIVE_I
   } as PluginSql;
 
   return {
-    db: new Db(plugin, false),
+    db: new TestDb(plugin, false),
     migrateToLatest: async () => {
       for (const migration of migrations.filter(x => x.version > throughVersion)) await database.exec(migration.sql);
     },
   };
+}
+
+class TestDb extends Db {
+  public override async transaction<T>(callback: (transaction: Db) => Promise<T>): Promise<T> {
+    await this.sql.execute('BEGIN IMMEDIATE');
+    try {
+      const result = await callback(this);
+      await this.sql.execute('COMMIT');
+      return result;
+    } catch (error) {
+      await this.sql.execute('ROLLBACK');
+      throw error;
+    }
+  }
 }
 
 export class TestSqliteDb {

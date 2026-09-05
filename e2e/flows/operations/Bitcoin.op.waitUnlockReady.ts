@@ -1,29 +1,29 @@
 import { readBitcoinLockState, type IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
-import type { IBitcoinUnlockReleaseState, IBitcoinVaultUnlockStateDetails } from '../types/srcVue.ts';
-import bitcoinActivateWallet from './Bitcoin.op.activateWallet.ts';
+import { WalletType, type IBitcoinUnlockReleaseState, type IBitcoinVaultUnlockStateDetails } from '../types/srcVue.ts';
+import appPrepareAccess from './App.op.prepareAccess.ts';
 import { Operation } from './index.ts';
 
-type IWaitUnlockReadyState = IE2EOperationInspectState<IBitcoinUnlockReleaseState, { channelState: string | null }>;
+type IWaitUnlockReadyState = IE2EOperationInspectState<IBitcoinUnlockReleaseState, { fundedChannelVisible: boolean }>;
 
 export default new Operation<IBitcoinFlowContext, IWaitUnlockReadyState>(import.meta, {
   async inspect({ flow, state }) {
-    const [chainState, channel] = await Promise.all([
-      readBitcoinLockState(flow, state.lockFundingDetails?.lockUuid),
-      flow.isVisible('ConnectorChannel'),
+    const lockUuid = state.lockFundingDetails?.lockUuid;
+    const [chainState, fundedChannel] = await Promise.all([
+      readBitcoinLockState(flow, lockUuid),
+      flow.isVisible({
+        selector: `[data-testid="WalletViewMain.bitcoinChannel"][data-channel-uuid="${lockUuid ?? ''}"]`,
+      }),
     ]);
-    const channelState = channel.visible
-      ? await flow.getAttribute('ConnectorChannel', 'data-e2e-state', { timeoutMs: 1_000 }).catch(() => null)
-      : null;
     const releaseInFlight = chainState.isReleaseStatus && !chainState.isReleaseComplete;
-    const isComplete = releaseInFlight || (chainState.isLockReadyForUnlock && channelState === 'Funded');
+    const isComplete = releaseInFlight || fundedChannel.visible;
     const canRun = !isComplete && chainState.hasActiveLock;
 
     return {
       chainState,
-      uiState: { channelState },
+      uiState: { fundedChannelVisible: fundedChannel.visible },
       state: isComplete ? 'complete' : canRun ? 'runnable' : 'processing',
-      phase: channelState ? `channel:${channelState}` : undefined,
+      phase: fundedChannel.visible ? 'wallet:funded' : undefined,
       blockers: canRun || isComplete ? [] : ['NO_ACTIVE_LOCK'],
     };
   },
@@ -32,16 +32,22 @@ export default new Operation<IBitcoinFlowContext, IWaitUnlockReadyState>(import.
     const lockUuid = state.lockFundingDetails?.lockUuid;
     if (!lockUuid) throw new Error(`${flowName}: active Bitcoin channel is unavailable.`);
 
-    await flow.run(bitcoinActivateWallet);
-    const channelState = await flow.getAttribute('ConnectorChannel', 'data-e2e-state', { timeoutMs: 5_000 });
-    if (channelState === 'Overview') {
-      await flow.click({ selector: `[data-channel-uuid="${lockUuid}"]` });
-    }
+    await flow.run(appPrepareAccess);
+    await flow.queryApp((refs, args: { walletType: WalletType.argon }) => refs.openWalletOverlay(args.walletType), {
+      args: { walletType: WalletType.argon },
+      timeoutMs: 10_000,
+    });
+    await flow.waitFor('WalletOverlay', { timeoutMs: 10_000 });
+    await flow.waitFor('WalletViewMain.toggleBitcoinDetails()', { timeoutMs: 240_000 });
+    const fundedChannel = await flow.isVisible({
+      selector: `[data-testid="WalletViewMain.bitcoinChannel"][data-channel-uuid="${lockUuid}"]`,
+    });
+    if (!fundedChannel.visible) await flow.click('WalletViewMain.toggleBitcoinDetails()');
 
     await flow.poll<IWaitUnlockReadyState>(latest => latest.state === 'complete', {
       pollMs: 1_000,
       timeoutMs: 240_000,
-      timeoutMessage: `${flowName}: Bitcoin channel did not become ready for return in time.`,
+      timeoutMessage: `${flowName}: funded Bitcoin did not appear in the wallet in time.`,
     });
   },
 

@@ -1,15 +1,23 @@
 import * as Vue from 'vue';
-import { MICROGONS_PER_ARGON, MICRONOTS_PER_ARGONOT, MoveToken, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import {
+  BitcoinLock,
+  MICROGONS_PER_ARGON,
+  MICRONOTS_PER_ARGONOT,
+  MoveToken,
+  UnitOfMeasurement,
+} from '@argonprotocol/apps-core';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
 import { fn, mocked, spyOn } from 'storybook/test';
 import type { IEthereumInboundTransferState } from '../../src-vue/interfaces/IEthereumInboundTransferTracker.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../src-vue/interfaces/IBitcoinLockRecord.ts';
+import type { IBitcoinLockSummary } from '../../src-vue/interfaces/IBitcoinLockSummary.ts';
 import {
   BitcoinUtxoRole,
   BitcoinUtxoStatus,
   type IBitcoinUtxoRecord,
 } from '../../src-vue/interfaces/IBitcoinUtxoRecord.ts';
 import type { IWalletRecord } from '../../src-vue/lib/db/WalletsTable.ts';
+import { ExtrinsicType } from '../../src-vue/interfaces/ITransactionRecord.ts';
 import BitcoinLocks from '../../src-vue/lib/BitcoinLocks.ts';
 import {
   completeInboundTransferProgress,
@@ -50,6 +58,9 @@ import { getEthereumOutboundTransferTracker } from '../../src-vue/stores/moveToE
 import { getVaults } from '../../src-vue/stores/vaults.ts';
 import { getWalletKeys, useWallets } from '../../src-vue/stores/wallets.ts';
 import { TopTab } from '../../src-vue/interfaces/IConfig.ts';
+import { getMainchainClient } from '../../src-vue/stores/mainchain.ts';
+import { createScenarioTransactionInfo } from './setupBitcoinOverlayScenario.ts';
+import { createScenarioVault } from './createScenarioVault.ts';
 import { setupAppScenario } from './setupAppScenario.ts';
 
 export type WalletScenario =
@@ -58,6 +69,12 @@ export type WalletScenario =
   | 'pendingBitcoinRelease'
   | 'bitcoinSend'
   | 'bitcoinSendLocked'
+  | 'bitcoinWalletDetails'
+  | 'bitcoinWalletInsurancePending'
+  | 'bitcoinWalletInsuranceUnavailable'
+  | 'bitcoinWalletInsurancePriceIncrease'
+  | 'bitcoinWalletInsuranceSubmitting'
+  | 'bitcoinWalletInsuranceError'
   | 'importReady'
   | 'importScanning'
   | 'importAccounts'
@@ -104,7 +121,18 @@ type WalletTransferScenarioState = {
 };
 
 export function setupWalletScenario(state: WalletScenario): WalletScenarioState {
-  const { wallets } = setupAppScenario({ selectedTab: TopTab.Home });
+  const isBitcoinWalletDetails =
+    state === 'bitcoinWalletDetails' ||
+    state === 'bitcoinWalletInsurancePending' ||
+    state === 'bitcoinWalletInsuranceUnavailable' ||
+    state === 'bitcoinWalletInsurancePriceIncrease' ||
+    state === 'bitcoinWalletInsuranceSubmitting' ||
+    state === 'bitcoinWalletInsuranceError';
+  const insuranceRateMicrogonsPerBtc = state === 'bitcoinWalletInsuranceUnavailable' ? 6_800_000_000n : 68_000_000_000n;
+  const { wallets } = setupAppScenario({
+    selectedTab: TopTab.Home,
+    config: isBitcoinWalletDetails ? { hasExtensionTreasury: true } : undefined,
+  });
   Object.assign(getVaults().operatorNamesByVaultId, { 7: 'Testing', 101: 'Testing', 102: 'Testing', 103: 'Testing' });
   const currency = getCurrency();
   const financials = useFinancials();
@@ -138,7 +166,7 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
     createdAt: now,
     updatedAt: now,
   };
-  const bitcoinChannels: IBitcoinLockRecord[] = [];
+  const bitcoinChannels = Vue.reactive<IBitcoinLockRecord[]>([]);
   if (state === 'bitcoinSend') {
     bitcoinChannels.push(
       createBitcoinChannel('storybook-sendable-channel-one', 101, 1_000_000n),
@@ -147,6 +175,21 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
     );
   } else if (state === 'bitcoinSendLocked') {
     bitcoinChannels.push(createBitcoinChannel('storybook-liquid-channel', 103, 5_000_000n, 4_000_000n));
+  } else if (isBitcoinWalletDetails) {
+    Object.assign(getVaults().operatorNamesByVaultId, { 101: 'Testing', 103: 'Backup' });
+    bitcoinChannels.push(
+      createBitcoinChannel('storybook-wallet-channel-one', 101, 1_000_000n),
+      createBitcoinChannel('storybook-wallet-channel-two', 102, 2_000_000n, 0n, 101),
+      createBitcoinChannel('storybook-wallet-partial-channel', 103, 5_000_000n, 4_000_000n),
+      createBitcoinChannel('storybook-wallet-fully-allocated-channel', 104, 5_000_000n, 5_000_000n),
+    );
+    bitcoinChannels[0].securitizationCoverageMicrogons = 500n * argon;
+    bitcoinChannels[1].securitizationCoverageMicrogons = 750n * argon;
+    bitcoinChannels[2].securitizationCoverageMicrogons = 350n * argon;
+    if (state === 'bitcoinWalletInsurancePriceIncrease') {
+      bitcoinChannels[0].microgonsAtTargetPerBtc = 34_000_000_000n;
+      bitcoinChannels[0].securitizationCoverageMicrogons = 340n * argon;
+    }
   } else if (state === 'pendingBitcoinFunding' || state === 'pendingBitcoinRelease') {
     const isRelease = state === 'pendingBitcoinRelease';
     const fundingRecord: IBitcoinUtxoRecord = {
@@ -191,9 +234,11 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
   const bitcoinLocks: BitcoinLocks = Object.assign(Object.create(BitcoinLocks.prototype) as BitcoinLocks, {
     data: {
       bitcoinNetwork: BitcoinNetwork.Bitcoin,
+      oracleBitcoinBlockHeight: 250_050,
     },
     utxoTracking: {
       getAllOrphanLifecycleUtxos: fn(() => []),
+      getUnresolvedOrphanRecords: fn(() => []),
       isReleaseCompleteStatus: fn(() => false),
     },
     load: fn(async () => undefined),
@@ -207,14 +252,123 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
     })),
     getLockProcessingError: fn(() => ''),
     getAcceptedFundingRecord: fn((lock: IBitcoinLockRecord) => lock.fundingUtxo),
+    createLockSummary: fn((lock: IBitcoinLockRecord): IBitcoinLockSummary => {
+      const satoshis = lock.fundedSatoshis || lock.securitizedSatoshis;
+      const valueOfBtc = currency.convertSatToMicrogon(satoshis);
+      const securityFees = lock.securityFees - lock.couponFeesPaid;
+      const unlockAmount = lock.securitizationCoverageMicrogons ?? 0n;
+      return {
+        uuid: lock.uuid,
+        utxoId: lock.utxoId,
+        status: lock.status,
+        statusDetails: {
+          hasObservedFundingSignal: true,
+          showReadyForBitcoin: false,
+          isFundingSeenInMempoolOnly: false,
+        },
+        lockProcessingDetails: {
+          progressPct: 100,
+          confirmations: 6,
+          expectedConfirmations: 6,
+          receivedSatoshis: satoshis,
+        },
+        lockProcessingError: '',
+        satoshis,
+        valueOfBtc,
+        totalLiquidity: 0n,
+        pendingLiquidity: 0n,
+        receivedLiquidity: 0n,
+        valueBeyondLiquidity: valueOfBtc,
+        startingCapital: valueOfBtc,
+        endingCapital: valueOfBtc - unlockAmount - securityFees,
+        ratchetPercent: 0,
+        totalReturn: 0,
+        securityFees,
+        transactionFees: 0n,
+        totalFees: securityFees,
+        unlockAmount,
+        createdAt: lock.createdAt,
+        record: lock,
+      };
+    }),
     getReleaseProcessingDetails: fn(() => ({
       progressPct: 42,
       confirmations: 1,
       expectedConfirmations: 4,
     })),
+    getLockUnlockReleaseState: fn((lock: IBitcoinLockRecord) => ({
+      isReleaseStatus: lock.status === BitcoinLockStatus.Releasing,
+      isReleaseComplete: false,
+      isWaitingForVaultCosign: false,
+      isBitcoinReleaseProcessing: lock.status === BitcoinLockStatus.Releasing,
+    })),
     isLockFunded: fn((lock: IBitcoinLockRecord) => lock.status === BitcoinLockStatus.LockFunded),
+    getLockTermProgress: fn(() => 35),
+    unlockDeadlineTime: fn(() => new Date('2026-10-16T12:00:00.000Z').getTime()),
     calculateBitcoinNetworkFee: fn(async () => 12_000n),
   });
+  if (isBitcoinWalletDetails) {
+    const insuranceVaults = Object.fromEntries(
+      [101, 102, 103].map(vaultId => [vaultId, createScenarioVault({ vaultId })]),
+    );
+    Object.assign(getVaults(), {
+      vaultsById: insuranceVaults,
+      refreshVault: fn(async (vaultId: number) => insuranceVaults[vaultId]),
+    });
+    Object.assign(bitcoinLocks, {
+      getTable: fn(async () => ({ updateFromCurrentLock: fn(async () => undefined) })),
+      satoshisForArgonLiquidity: fn(
+        async (microgons: bigint) => (microgons * 100_000_000n) / insuranceRateMicrogonsPerBtc,
+      ),
+    });
+    currency.fetchMainchainRates = fn(async () => ({
+      [UnitOfMeasurement.ARGNOT]: 14_000_000n,
+      [UnitOfMeasurement.USD]: 1_000_000n,
+      [UnitOfMeasurement.BTC]: insuranceRateMicrogonsPerBtc,
+    }));
+    mocked(getMainchainClient).mockResolvedValue({
+      query: {
+        bitcoinLocks: {
+          microgonPerBtcHistory: fn(async () => [[10_000, insuranceRateMicrogonsPerBtc]]),
+        },
+        crosschainTransfer: {
+          transferTotalsByAccount: fn(async () => ({ microgonsIn: 0n })),
+        },
+      },
+    } as never);
+    spyOn(BitcoinLock, 'get').mockImplementation(async (_client, utxoId) => {
+      const record = bitcoinChannels.find(channel => channel.utxoId === utxoId);
+      const scriptDetails = record?.scriptDetails;
+      if (!record || !scriptDetails) return;
+
+      return new BitcoinLock({
+        utxoId,
+        p2wshScriptHashHex: scriptDetails.p2wshScriptHashHex,
+        vaultId: record.vaultId,
+        securitizedSatoshis: record.securitizedSatoshis,
+        microgonsAtTargetPerBtc: record.microgonsAtTargetPerBtc ?? insuranceRateMicrogonsPerBtc,
+        securitizationCoverageMicrogons: record.securitizationCoverageMicrogons ?? 0n,
+        securitizationTick: record.securitizationTick ?? 10_000,
+        fundedSatoshis: record.fundedSatoshis,
+        fissionedSatoshis: record.fissionedSatoshis ?? 0n,
+        ownerAccount: record.ownerAccount ?? wallets.defaultArgonWallet.address,
+        securitizationRatio: record.securitizationRatio ?? 1,
+        securityFees: record.securityFees,
+        couponFeesPaid: record.couponFeesPaid,
+        vaultPubkey: scriptDetails.vaultPubkey,
+        vaultClaimPubkey: scriptDetails.vaultClaimPubkey,
+        ownerPubkey: scriptDetails.ownerPubkey,
+        vaultXpubSources: scriptDetails.vaultXpubSources,
+        vaultClaimHeight: scriptDetails.vaultClaimHeight,
+        openClaimHeight: scriptDetails.openClaimHeight,
+        createdAtHeight: scriptDetails.createdAtHeight,
+        fundingExpirationHeight: record.fundingExpirationHeight!,
+        isFlexible: record.isFlexible ?? false,
+        fundHoldExtensionsByBitcoinExpirationHeight: record.fundHoldExtensionsByBitcoinExpirationHeight,
+        createdAtArgonBlock: record.createdAtArgonBlock ?? 1,
+      });
+    });
+  }
   const ethereumWallets = new Map<number, WalletForEthereum>([
     [
       ethereumTreasury.id,
@@ -249,7 +403,11 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
   Object.assign(financials, {
     savingsIsLoaded: true,
     savingsTotalValue: 900n * argon,
-    savingsTotalPending: 20n * argon,
+    bitcoinLiquidPendingMintMicrogons: 20n * argon,
+    bitcoinWalletTotalSatoshis: bitcoinChannels.reduce(
+      (total, lock) => total + lock.fundedSatoshis - (lock.fissionedSatoshis ?? 0n),
+      0n,
+    ),
   });
   if (state === 'privateKeyError') {
     getWalletKeys().exportDefaultArgonPrivateKey = fn(async () => {
@@ -294,6 +452,11 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
     },
   });
   wallets.argonWallets.defaultArgonWallet.data = wallets.defaultArgonWallet;
+  Object.assign(wallets.bitcoinWallet, {
+    getBitcoinLocks: () => bitcoinLocks,
+    loadChannels: fn(async () => undefined),
+    getChannelFundingAddress: fn((lock: IBitcoinLockRecord) => `bc1qstorybook${lock.utxoId}`),
+  });
   WalletForEthereum.previewMnemonic = fn(async () => [
     { address: ethereumTreasury.address, derivationPath: "m/44'/60'/0'/0/0" },
     { address: ethereumSavings.address, derivationPath: "m/44'/60'/0'/0/1" },
@@ -301,7 +464,38 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
   WalletForEthereum.inspect = ethereumBalanceScan.mock;
   mocked(loadEthereumChainConfig).mockResolvedValue(undefined);
   mocked(getBitcoinLocks).mockReturnValue(bitcoinLocks);
+  const pendingInsuranceTransaction =
+    state === 'bitcoinWalletInsurancePending'
+      ? createScenarioTransactionInfo({
+          extrinsicType: ExtrinsicType.BitcoinResecuritize,
+          metadata: {
+            bitcoin: {
+              utxoId: bitcoinChannels[0].utxoId!,
+              vaultId: bitcoinChannels[0].vaultId,
+              securitizedSatoshis: bitcoinChannels[0].fundedSatoshis,
+              microgonsAtTargetPerBtc: 68_000_000_000n,
+              securityFee: 4_500_000n,
+            },
+          },
+          progress: { progressPct: 45, confirmations: 1, expectedConfirmations: 4 },
+        })
+      : undefined;
   mocked(getBitcoinTransactionOperations).mockReturnValue({
+    bitcoinLockResecuritize: {
+      getPendingResecuritizationTxInfo: fn((utxoId: number) =>
+        pendingInsuranceTransaction?.tx.metadataJson.bitcoin.utxoId === utxoId
+          ? pendingInsuranceTransaction
+          : undefined,
+      ),
+      submit:
+        state === 'bitcoinWalletInsuranceSubmitting'
+          ? fn(() => new Promise(() => undefined))
+          : state === 'bitcoinWalletInsuranceError'
+            ? fn(async () => {
+                throw new Error('Synthetic insurance transaction failure.');
+              })
+            : fn(async () => undefined),
+    },
     bitcoinLockRelease: {
       prepare: fn(async () => ({
         canAfford: true,
@@ -328,6 +522,7 @@ function createBitcoinChannel(
   utxoId: number,
   fundedSatoshis: bigint,
   fissionedSatoshis = 0n,
+  vaultId = utxoId,
 ): IBitcoinLockRecord {
   const now = new Date('2026-08-16T14:00:00.000Z');
   return {
@@ -338,13 +533,24 @@ function createBitcoinChannel(
     fissionedSatoshis,
     securityFees: 0n,
     couponFeesPaid: 0n,
+    scriptDetails: {
+      p2wshScriptHashHex: `0020${utxoId.toString(16).padStart(64, '0')}`,
+      vaultPubkey: `02${'22'.repeat(32)}`,
+      vaultClaimPubkey: `02${'33'.repeat(32)}`,
+      ownerPubkey: `02${'44'.repeat(32)}`,
+      vaultXpubSources: { parentFingerprint: new Uint8Array(4), cosignHdIndex: 0, claimHdIndex: 0 },
+      vaultClaimHeight: 250_100,
+      openClaimHeight: 250_200,
+      createdAtHeight: 250_000,
+    },
+    fundingExpirationHeight: 250_006,
     fundHoldExtensionsByBitcoinExpirationHeight: {},
     utxos: [],
     fundedSatoshis,
     cosignVersion: 'v1',
     network: 'bitcoin',
     hdPath: `m/84'/0'/0'/0/${utxoId}`,
-    vaultId: utxoId,
+    vaultId,
     createdAt: now,
     updatedAt: now,
   };
@@ -623,6 +829,7 @@ function createInboundTransferTracker(
     transfersById: initialTransfer ? { [initialTransfer.id]: initialTransfer } : {},
     latestTransferIdByToken: initialTransfer ? { [initialTransfer.moveToken]: initialTransfer.id } : {},
   });
+  tracker.load = fn(async () => undefined);
   tracker.estimateFeeWei = fn(async () => eth / 1_000n);
   tracker.startMove = fn(async args => {
     if (submittedTransfer) {
@@ -674,6 +881,7 @@ function createOutboundTransferTracker(
     transfersById: initialTransfer ? { [initialTransfer.id]: initialTransfer } : {},
     latestTransferIdByToken: initialTransfer ? { [initialTransfer.moveToken]: initialTransfer.id } : {},
   });
+  tracker.load = fn(async () => undefined);
   tracker.getTransfer = fn((id: string) => tracker.data.transfersById[id]);
   tracker.getPendingAmount = fn(() => 0n);
   tracker.getMaximumTransferOutAmount = fn(async () => 875n * argon);

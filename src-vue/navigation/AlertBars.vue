@@ -395,7 +395,6 @@ function openOperationsUpgradeRequests() {
 }
 
 async function loadAttentionData() {
-  await bitcoinLocks.load().catch(() => undefined);
   await myVault.load().catch(() => undefined);
   if (myVault.createdVault) {
     await myVault.subscribe().catch(() => undefined);

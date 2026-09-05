@@ -7,6 +7,54 @@ import type { IBitcoinSecuritizationTerm } from '../interfaces/IBitcoinSecuritiz
 import { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
 
 describe('Bitcoin Liquid structure', () => {
+  it('projects the next payout and remaining daily payout count from current pending mints', () => {
+    const first = new BitcoinFission({
+      ownerAccount: 'owner-account',
+      fissionId: 1,
+      liquidId: 10,
+      utxoId: 101,
+      satoshis: 60_000_000n,
+      microgonsAtTargetPerBtc: 100n,
+      liquidityPromised: 25n,
+      createdAtArgonBlock: 100,
+      ratchetNumber: 0,
+      lastUpdatedArgonBlock: 100,
+    });
+    first.pendingMints.push({
+      queueIndex: 1,
+      fissionId: 1,
+      utxoId: 101,
+      ownerAccount: 'owner-account',
+      remainingAmount: 25n,
+      maxAmountPerFrame: 10n,
+    });
+    const second = new BitcoinFission({
+      ownerAccount: 'owner-account',
+      fissionId: 2,
+      liquidId: 10,
+      utxoId: 202,
+      satoshis: 40_000_000n,
+      microgonsAtTargetPerBtc: 100n,
+      liquidityPromised: 9n,
+      createdAtArgonBlock: 100,
+      ratchetNumber: 0,
+      lastUpdatedArgonBlock: 100,
+    });
+    second.pendingMints.push({
+      queueIndex: 2,
+      fissionId: 2,
+      utxoId: 202,
+      ownerAccount: 'owner-account',
+      remainingAmount: 9n,
+      maxAmountPerFrame: 4n,
+    });
+
+    const liquid = BitcoinLiquid.create({ liquidId: 10, fissions: [first, second] });
+
+    expect(liquid.expectedMintPerFrame).toBe(14n);
+    expect(liquid.estimatedMintFramesRemaining).toBe(3);
+  });
+
   it('uses the runtime Fission redemption calculation for the current repayment amount', () => {
     const priceIndex = new PriceIndex();
     priceIndex.btcUsdPrice = new BigNumber(100);
@@ -168,6 +216,12 @@ describe('Bitcoin Liquid structure', () => {
       remainingAmount: 10n,
       maxAmountPerFrame: 10n,
     });
+    for (const fission of fissions) {
+      fission.origin = 'created';
+      fission.feeHistoryCompleteThroughBlock = 200;
+      fission.createdAt = creationTime;
+      fission.updatedAt = ratchetTime;
+    }
 
     const liquid = BitcoinLiquid.create({ liquidId: 10, fissions, terms });
 
@@ -253,6 +307,12 @@ describe('Bitcoin Liquid structure', () => {
         closeTxFee: 4n,
       }),
     ];
+    for (const fission of fissions) {
+      fission.origin = 'created';
+      fission.feeHistoryCompleteThroughBlock = 200;
+      fission.createdAt = closedBlockTime;
+      fission.updatedAt = closedBlockTime;
+    }
 
     const liquid = BitcoinLiquid.create({ liquidId: 10, fissions });
 

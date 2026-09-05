@@ -6,6 +6,7 @@ import { expect, fn, mocked, userEvent, waitFor, within } from 'storybook/test';
 
 import { TopTab } from '../../../src-vue/interfaces/IConfig.ts';
 import type { IBitcoinLockSummary } from '../../../src-vue/interfaces/IBitcoinLockSummary.ts';
+import type { IBitcoinSecuritizationTerm } from '../../../src-vue/interfaces/IBitcoinSecuritizationTerm.ts';
 import { createFinancialPosition } from '../../../src-vue/interfaces/IFinancialPosition.ts';
 import { BitcoinLiquid } from '../../../src-vue/lib/BitcoinLiquid.ts';
 import { reduceFinancialPositions } from '../../../src-vue/lib/financials/index.ts';
@@ -19,7 +20,6 @@ import { getCurrency } from '../../../src-vue/stores/currency.ts';
 import { useFinancials } from '../../../src-vue/stores/financials.ts';
 import { getMainchainClient } from '../../../src-vue/stores/mainchain.ts';
 import { getVaults } from '../../../src-vue/stores/vaults.ts';
-import { useVaultingStats } from '../../../src-vue/stores/vaultingStats.ts';
 import { getWalletKeys } from '../../../src-vue/stores/wallets.ts';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 
@@ -45,7 +45,6 @@ const fissions = [
         amountMinted: 19_200_000_000n,
         amountBurned: 0n,
         mintPending: 0n,
-        securityFee: 4_000_000n,
         txFee: 180_000n,
         blockNumber: 12_400,
         blockTime: new Date('2026-04-03T15:00:00Z'),
@@ -60,7 +59,6 @@ const fissions = [
         amountMinted: 1_200_000_000n,
         amountBurned: 0n,
         mintPending: 0n,
-        securityFee: 1_600_000n,
         txFee: 190_000n,
         blockNumber: 18_200,
         blockTime: new Date('2026-07-18T11:30:00Z'),
@@ -89,7 +87,6 @@ const fissions = [
         amountMinted: 12_800_000_000n,
         amountBurned: 0n,
         mintPending: 0n,
-        securityFee: 2_750_000n,
         txFee: 180_000n,
         blockNumber: 12_400,
         blockTime: new Date('2026-04-03T15:00:00Z'),
@@ -104,7 +101,6 @@ const fissions = [
         amountMinted: 800_000_000n,
         amountBurned: 0n,
         mintPending: 0n,
-        securityFee: 1_100_000n,
         txFee: 190_000n,
         blockNumber: 18_200,
         blockTime: new Date('2026-07-18T11:30:00Z'),
@@ -112,6 +108,53 @@ const fissions = [
       },
     ],
   }),
+];
+
+const securitizationTerms: IBitcoinSecuritizationTerm[] = [
+  {
+    utxoId: 101,
+    termIndex: 0,
+    origin: 'created',
+    startTick: 0,
+    startBlockNumber: 12_400,
+    startExtrinsicIndex: 2,
+    securitizedSatoshis: 30_000_000n,
+    cumulativeNetSecurityFee: 4_000_000n,
+    addedNetSecurityFee: 4_000_000n,
+  },
+  {
+    utxoId: 202,
+    termIndex: 0,
+    origin: 'created',
+    startTick: 0,
+    startBlockNumber: 12_400,
+    startExtrinsicIndex: 2,
+    securitizedSatoshis: 20_000_000n,
+    cumulativeNetSecurityFee: 2_750_000n,
+    addedNetSecurityFee: 2_750_000n,
+  },
+  {
+    utxoId: 101,
+    termIndex: 1,
+    origin: 'resecuritized',
+    startTick: 0,
+    startBlockNumber: 18_200,
+    startExtrinsicIndex: 1,
+    securitizedSatoshis: 30_000_000n,
+    cumulativeNetSecurityFee: 5_600_000n,
+    addedNetSecurityFee: 1_600_000n,
+  },
+  {
+    utxoId: 202,
+    termIndex: 1,
+    origin: 'resecuritized',
+    startTick: 0,
+    startBlockNumber: 18_200,
+    startExtrinsicIndex: 1,
+    securitizedSatoshis: 20_000_000n,
+    cumulativeNetSecurityFee: 3_850_000n,
+    addedNetSecurityFee: 1_100_000n,
+  },
 ];
 
 const creationOnlyFissions = fissions.map(
@@ -186,6 +229,12 @@ const defaultRatchetPreview: IBitcoinLiquidRatchetPreview = {
   errors: [],
   canRatchet: true,
 };
+const unavailableRatchetPreview: IBitcoinLiquidRatchetPreview = {
+  ...defaultRatchetPreview,
+  newLiquidity: defaultRatchetPreview.sourceLiquidity,
+  amountToMint: 0n,
+  canRatchet: false,
+};
 const downRatchetPreview: IBitcoinLiquidRatchetPreview = {
   ...defaultRatchetPreview,
   newLiquidity: 30_000_000_000n,
@@ -207,16 +256,24 @@ function setupDetails(
     ratchetRequiredWalletBalanceMicrogons?: bigint;
     ratchetAvailableWalletBalanceMicrogons?: bigint;
     ratchetUnavailableReason?: string;
+    ratchetQuoteError?: string;
     pendingLiquidity?: bigint;
+    pendingMintPerFrame?: bigint;
+    myVaultId?: number;
+    closeQuoteDelayMs?: number;
     isClosing?: boolean;
     closeProgressPct?: number;
     closeProgressLabel?: string;
     closeError?: string;
+    closeQuoteError?: string;
+    closeFeeMicrogons?: bigint;
     closeAvailableWalletBalanceMicrogons?: bigint;
     fissions?: BitcoinFission[];
+    displayLiquidWithoutTerms?: boolean;
   } = {},
 ) {
-  setupAppScenario({ selectedTab: TopTab.BitcoinLocks });
+  setupAppScenario({ selectedTab: TopTab.BitcoinLocks, myVaultId: args.myVaultId });
+  getCurrency().priceIndex = Vue.shallowReactive(getCurrency().priceIndex);
   const ratchetPercent = args.ratchetPercent ?? 4.75;
   const ratchetRate = BigInt(Math.round(68_000_000_000 * (1 + ratchetPercent / 100)));
   getCurrency().priceIndex.btcUsdPrice = BigNumber(ratchetRate.toString()).dividedBy(1_000_000);
@@ -234,11 +291,18 @@ function setupDetails(
       utxoId: scenarioFissions[0].utxoId,
       ownerAccount: scenarioFissions[0].ownerAccount,
       remainingAmount: pendingLiquidity,
-      maxAmountPerFrame: pendingLiquidity,
+      maxAmountPerFrame: args.pendingMintPerFrame ?? 680_000_000n,
     });
   }
 
-  liquid = BitcoinLiquid.create({ liquidId: scenarioFissions[0].liquidId, fissions: scenarioFissions });
+  const financialLiquid = BitcoinLiquid.create({
+    liquidId: scenarioFissions[0].liquidId,
+    fissions: scenarioFissions,
+    terms: securitizationTerms,
+  });
+  liquid = args.displayLiquidWithoutTerms
+    ? BitcoinLiquid.create({ liquidId: scenarioFissions[0].liquidId, fissions: scenarioFissions })
+    : financialLiquid;
   const lockSummaries = [
     {
       utxoId: 101,
@@ -260,7 +324,7 @@ function setupDetails(
       label: 'Bitcoin Liquid 1',
       lifecycle: 'active',
       liquidId: 1,
-      liquid,
+      liquid: financialLiquid,
       locks: lockSummaries.map(summary => summary.record),
       insuranceCost: 12_000_000n,
       transactionFees: 500_000n,
@@ -268,6 +332,7 @@ function setupDetails(
       receivedLiquidity: liquid.receivedLiquidity,
       pendingLiquidity: liquid.pendingLiquidity,
       repaymentAmount: 34_000_000_000n,
+      totalReturn: 40.4,
       startedAt: new Date('2026-04-03T15:00:00Z'),
     },
     {
@@ -296,17 +361,16 @@ function setupDetails(
       22: 'Meridian Vault',
     }),
   });
-  mocked(useVaultingStats, { partial: true }).mockReturnValue({ bitcoinAPR: 40.4 });
-
   const isRatchetAvailable = args.isRatchetAvailable ?? false;
   const unavailableReason =
     args.ratchetUnavailableReason ?? 'No locked Bitcoin has reached the minimum 5% price change.';
   const preview = {
-    ...(args.ratchetPreview ?? defaultRatchetPreview),
+    ...(args.ratchetPreview ?? (isRatchetAvailable ? defaultRatchetPreview : unavailableRatchetPreview)),
     canRatchet: isRatchetAvailable,
     errors: isRatchetAvailable ? [] : [unavailableReason],
   };
   const ratchetRequiredWalletBalanceMicrogons = args.ratchetRequiredWalletBalanceMicrogons ?? 3_500_000n;
+  let ratchetQuoteAttempts = 0;
   const bitcoinLiquidRatchet = Object.assign(Object.create(BitcoinLiquidRatchet.prototype), {
     getPendingRatchetTxInfo: fn(() =>
       args.isRatcheting
@@ -314,15 +378,19 @@ function setupDetails(
         : undefined,
     ),
     previewRatchet: fn(async () => preview),
-    prepare: fn(async () => ({
-      client: { consts: { balances: { existentialDeposit: { toBigInt: () => 0n } } } },
-      includeExistentialDeposit: false,
-      unavailableBalance: ratchetRequiredWalletBalanceMicrogons - 2_500_000n,
-      txFeePlusTip: 2_500_000n,
-      availableBalance: args.ratchetAvailableWalletBalanceMicrogons ?? 10_000_000n,
-    })),
+    prepare: fn(async () => {
+      if (args.ratchetQuoteError && ratchetQuoteAttempts++ === 0) throw new Error(args.ratchetQuoteError);
+      return {
+        client: { consts: { balances: { existentialDeposit: { toBigInt: () => 0n } } } },
+        includeExistentialDeposit: false,
+        unavailableBalance: ratchetRequiredWalletBalanceMicrogons - 2_500_000n,
+        txFeePlusTip: 2_500_000n,
+        availableBalance: args.ratchetAvailableWalletBalanceMicrogons ?? 10_000_000n,
+      };
+    }),
     submit: fn(async () => createPendingTransaction(0, 'Preparing transaction...')),
   });
+  let closeQuoteAttempts = 0;
   const bitcoinLiquidClose = Object.assign(Object.create(BitcoinLiquidClose.prototype), {
     getPendingLiquidTxInfo: fn(() => {
       if (args.closeError) return createPendingTransaction(0, '', args.closeError);
@@ -330,12 +398,16 @@ function setupDetails(
         return createPendingTransaction(args.closeProgressPct ?? 0, args.closeProgressLabel ?? '');
       }
     }),
-    prepare: fn(async () => ({
-      client: { consts: { balances: { existentialDeposit: { toBigInt: () => 0n } } } },
-      unavailableBalance: 34_000_000_000n,
-      txFeePlusTip: 500_000n,
-      availableBalance: args.closeAvailableWalletBalanceMicrogons ?? 40_000_000_000n,
-    })),
+    prepare: fn(async () => {
+      if (args.closeQuoteDelayMs) await new Promise(resolve => setTimeout(resolve, args.closeQuoteDelayMs));
+      if (args.closeQuoteError && closeQuoteAttempts++ === 0) throw new Error(args.closeQuoteError);
+      return {
+        client: { consts: { balances: { existentialDeposit: { toBigInt: () => 0n } } } },
+        unavailableBalance: 33_999_998_867n,
+        txFeePlusTip: args.closeFeeMicrogons ?? 500_000n,
+        availableBalance: args.closeAvailableWalletBalanceMicrogons ?? 40_000_000_000n,
+      };
+    }),
     submit: fn(async () => createPendingTransaction(0, 'Preparing transaction...')),
   });
   mocked(getBitcoinTransactionOperations, { partial: true }).mockReturnValue({
@@ -388,9 +460,22 @@ export const Active: Story = {
     const canvas = within(canvasElement.ownerDocument.body);
     await expect(canvas.findByText('TOTAL FEES')).resolves.toBeTruthy();
     await expect(canvas.findByText(/12.50/)).resolves.toBeTruthy();
-    await expect(canvas.findByText(/12.00 insurance/)).resolves.toBeTruthy();
-    await expect(canvas.findByText(/0.50 transactions/)).resolves.toBeTruthy();
+    await expect(canvas.findByText('Recorded costs to date')).resolves.toBeTruthy();
+    await expect(canvas.findByText('RETURN TO DATE')).resolves.toBeTruthy();
+    await expect(canvas.findByText('40.4%')).resolves.toBeTruthy();
+    await expect(canvas.findByText('Since this Liquid opened')).resolves.toBeTruthy();
+    await userEvent.hover(canvas.getByRole('button', { name: /₳6,800.00 still minting/ }));
+    await expect(canvas.findByRole('heading', { name: 'Pending mint schedule' })).resolves.toBeTruthy();
+    await expect(canvas.findAllByText('Next daily payout')).resolves.toBeTruthy();
+    await expect(canvas.findAllByText('₳680.00')).resolves.toBeTruthy();
+    await expect(canvas.findAllByText(/10 daily payouts remaining/)).resolves.toBeTruthy();
+    await expect(canvas.queryByText(/12.00 insurance/)).not.toBeInTheDocument();
+    await expect(canvas.findByRole('heading', { name: 'RATCHET OPPORTUNITY' })).resolves.toBeTruthy();
+    await expect(canvas.findByRole('heading', { name: 'HISTORY' })).resolves.toBeTruthy();
     await expect(canvas.findByText(/Would unlock/)).resolves.toBeTruthy();
+    await userEvent.hover(canvas.getByRole('button', { name: 'What is a ratchet?' }));
+    const explanations = await canvas.findAllByText(/A ratchet updates the Liquid to Bitcoin's latest price/);
+    await expect(explanations.some(element => element.getClientRects().length > 0)).toBe(true);
   },
 };
 
@@ -398,10 +483,17 @@ export const PartialRatchetAvailable: Story = {
   beforeEach: () => setupDetails({ ratchetPercent: 2.55, isRatchetAvailable: true }),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
-    await userEvent.click(canvas.getByRole('button', { name: 'Review Ratchet' }));
+    await userEvent.click(canvas.getByRole('button', { name: 'Start Ratchet' }));
     await expect(canvas.findByRole('heading', { name: 'Review this ratchet' })).resolves.toBeTruthy();
     await expect(canvas.findByText(/additional liquidity at the new Bitcoin price/)).resolves.toBeTruthy();
     await expect(canvas.findByText(/This ratchet costs/)).resolves.toBeTruthy();
+    const confirmButton = await canvas.findByRole('button', { name: 'Confirm Ratchet' });
+    await waitFor(async () => {
+      await expect(confirmButton.getBoundingClientRect().top).toBeGreaterThanOrEqual(0);
+      await expect(confirmButton.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+        canvasElement.ownerDocument.documentElement.clientHeight,
+      );
+    });
   },
 };
 
@@ -416,7 +508,7 @@ export const DownRatchetAvailable: Story = {
     }),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
-    await userEvent.click(canvas.getByRole('button', { name: 'Review Ratchet' }));
+    await userEvent.click(canvas.getByRole('button', { name: 'Start Ratchet' }));
     await expect(canvas.findByText(/A downward ratchet requires/)).resolves.toBeTruthy();
   },
 };
@@ -434,7 +526,18 @@ export const PriceAtPar: Story = {
 export const LockedBitcoin: Story = {
   beforeEach: () => setupDetails(),
   play: async ({ canvasElement }) => {
-    await userEvent.click(within(canvasElement.ownerDocument.body).getByTitle('View locked Bitcoin'));
+    const canvas = within(canvasElement.ownerDocument.body);
+    await expect(canvas.findByText('Cosigners: Atlas Operator and Meridian Vault')).resolves.toBeTruthy();
+    await userEvent.click(canvas.getByTitle('Show locked Bitcoin details'));
+    await expect(canvas.findByText('Cosigner: Atlas Operator')).resolves.toBeTruthy();
+    await expect(canvas.findByText('Cosigner: Meridian Vault')).resolves.toBeTruthy();
+  },
+};
+
+export const LockedBitcoinInMyVault: Story = {
+  beforeEach: () => setupDetails({ fissions: [fissions[0]], myVaultId: 11 }),
+  play: async ({ canvasElement }) => {
+    await expect(within(canvasElement.ownerDocument.body).findByText('In my Vault')).resolves.toBeTruthy();
   },
 };
 
@@ -444,16 +547,22 @@ export const History: Story = {
     const canvas = within(canvasElement.ownerDocument.body);
     await expect(canvas.findByText(/^₳34,000\.00$/, { selector: 'strong' })).resolves.toBeTruthy();
     await expect(canvas.findByText(/^₳32,000\.00$/, { selector: 'strong' })).resolves.toBeTruthy();
+    await expect(canvas.findByText('₳2.89 fees')).resolves.toBeTruthy();
     await userEvent.hover(canvas.getByRole('button', { name: /unlocked/ }));
     await expect(canvas.findByText('Bitcoin price target')).resolves.toBeTruthy();
+    await expect(canvas.findByText('Transaction fee')).resolves.toBeTruthy();
+    await expect(canvas.findByText(/^₳0\.19$/)).resolves.toBeTruthy();
+    await expect(canvas.findByText('Securitization fee')).resolves.toBeTruthy();
+    await expect(canvas.findByText(/^₳2\.70$/)).resolves.toBeTruthy();
   },
 };
 
 export const CreationHistory: Story = {
-  beforeEach: () => setupDetails({ fissions: creationOnlyFissions }),
+  beforeEach: () => setupDetails({ fissions: creationOnlyFissions, displayLiquidWithoutTerms: true }),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
     await expect(canvas.findByText(/^₳32,000\.00$/, { selector: 'strong' })).resolves.toBeTruthy();
+    await expect(canvas.findByText('₳6.93 fees')).resolves.toBeTruthy();
   },
 };
 
@@ -466,7 +575,7 @@ export const RatchetAvailabilityLoading: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
     await expect(canvas.findByText(/^₳32,000\.00$/, { selector: 'strong' })).resolves.toBeTruthy();
-    await expect(canvas.findByText('(BTC +4.75%)')).resolves.toBeTruthy();
+    await expect(canvas.findByText('(BTC change +4.75%)')).resolves.toBeTruthy();
     await expect(canvas.queryByText(/Would unlock/)).not.toBeInTheDocument();
   },
 };
@@ -480,14 +589,11 @@ export const RatchetBelowMinimum: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
     const reason = 'No locked Bitcoin has reached the minimum 5% price change.';
+    const amounts = await canvas.findAllByText(/^₳34,000\.00$/, { selector: 'strong' });
+    await expect(amounts.some(element => element.getClientRects().length > 0)).toBe(true);
     const rowReasons = await canvas.findAllByText(reason, { selector: 'p' });
     await expect(rowReasons.some(element => element.getClientRects().length > 0)).toBe(true);
-    await userEvent.hover(canvas.getByRole('button', { name: 'Review Ratchet' }).parentElement!);
-    await waitFor(() =>
-      expect(canvas.getAllByText(reason).filter(element => element.getClientRects().length > 0).length).toBeGreaterThan(
-        1,
-      ),
-    );
+    await expect(canvas.getByRole('button', { name: 'Start Ratchet' })).toBeDisabled();
   },
 };
 
@@ -495,22 +601,49 @@ export const RatchetWithoutCosignerCapacity: Story = {
   beforeEach: () =>
     setupDetails({
       ratchetPercent: 8.25,
-      ratchetUnavailableReason: 'Testing does not have enough available insurance for this ratchet.',
+      ratchetPreview: defaultRatchetPreview,
+      ratchetUnavailableReason: 'Testing does not have enough available securitization for this ratchet.',
     }),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
-    const reason = 'Testing does not have enough available insurance for this ratchet.';
+    const reason = 'Testing does not have enough available securitization for this ratchet.';
     await expect(canvas.findByText(/^₳35,600\.00$/, { selector: 'strong' })).resolves.toBeTruthy();
     await expect(canvas.findByText(/Would unlock ₳1,600\.00/)).resolves.toBeTruthy();
-    await expect(canvas.findByText('(BTC +8.25%)')).resolves.toBeTruthy();
+    await expect(canvas.findByText('(BTC change +8.25%)')).resolves.toBeTruthy();
     const rowReasons = await canvas.findAllByText(reason, { selector: 'p' });
     await expect(rowReasons.some(element => element.getClientRects().length > 0)).toBe(true);
-    await userEvent.hover(canvas.getByRole('button', { name: 'Review Ratchet' }).parentElement!);
-    await waitFor(() =>
-      expect(canvas.getAllByText(reason).filter(element => element.getClientRects().length > 0).length).toBeGreaterThan(
-        1,
-      ),
-    );
+    await expect(canvas.queryByText('Fees unavailable')).not.toBeInTheDocument();
+    await expect(canvas.getByRole('button', { name: 'Start Ratchet' })).toBeDisabled();
+  },
+};
+
+export const RatchetFeeUnavailable: Story = {
+  beforeEach: () =>
+    setupDetails({
+      isRatchetAvailable: true,
+      ratchetQuoteError: 'The transaction fee service is temporarily unavailable.',
+    }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body);
+    await userEvent.click(canvas.getByRole('button', { name: 'Start Ratchet' }));
+    await expect(canvas.findByText('The transaction fee service is temporarily unavailable.')).resolves.toBeTruthy();
+    await expect(canvas.getByRole('button', { name: 'Retry fee estimate' })).toBeEnabled();
+    await expect(canvas.getByRole('button', { name: 'Confirm Ratchet' })).toBeDisabled();
+  },
+};
+
+export const RatchetFeeRetry: Story = {
+  beforeEach: () =>
+    setupDetails({
+      isRatchetAvailable: true,
+      ratchetQuoteError: 'The transaction fee service is temporarily unavailable.',
+    }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body);
+    await userEvent.click(canvas.getByRole('button', { name: 'Start Ratchet' }));
+    await userEvent.click(canvas.getByRole('button', { name: 'Retry fee estimate' }));
+    await expect(canvas.findByText(/This ratchet costs/)).resolves.toBeTruthy();
+    await expect(canvas.getByRole('button', { name: 'Confirm Ratchet' })).toBeEnabled();
   },
 };
 
@@ -525,7 +658,7 @@ export const RatchetWithoutEnoughWalletBalance: Story = {
     }),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
-    await userEvent.click(canvas.getByRole('button', { name: 'Review Ratchet' }));
+    await userEvent.click(canvas.getByRole('button', { name: 'Start Ratchet' }));
     await expect(canvas.findByText(/Your Internal App Wallet needs/)).resolves.toBeTruthy();
     await expect(canvas.getByRole('button', { name: 'Confirm Ratchet' })).toBeDisabled();
   },
@@ -544,14 +677,39 @@ export const FullHistory: Story = {
 };
 
 export const CloseConfirmation: Story = {
-  beforeEach: () => setupDetails(),
+  beforeEach: () => setupDetails({ closeFeeMicrogons: 1_688n }),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
     await userEvent.click(canvas.getByRole('button', { name: /Repay .* Close Liquid/ }));
-    await expect(
-      canvas.findByText(/This unlocks your Bitcoin, which remains in your Bitcoin wallet/),
-    ).resolves.toBeTruthy();
-    await expect(canvas.findByText('Estimated fees')).resolves.toBeTruthy();
+    await expect(canvas.findByText(/unlock .* BTC in your Bitcoin wallet/)).resolves.toBeTruthy();
+    const closeReview = canvas.getByRole('heading', { name: 'Close this Liquid' }).parentElement!;
+    await expect(within(closeReview).getByText('Repayment amount')).toBeVisible();
+    await expect(within(closeReview).getByText('Estimated fees')).toBeVisible();
+    await expect(within(closeReview).getByText('₳33,999.998867')).toBeVisible();
+    await expect(within(closeReview).getByText('₳0.001688')).toBeVisible();
+    await expect(within(closeReview).getByText('Amount removed from wallet')).toBeVisible();
+    await expect(within(closeReview).getByText('₳34,000.000555')).toBeVisible();
+  },
+};
+
+export const CloseQuoteWhilePriceUpdates: Story = {
+  beforeEach: () => setupDetails({ closeQuoteDelayMs: 250 }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body);
+    await userEvent.click(canvas.getByRole('button', { name: /Repay .* Close Liquid/ }));
+    await expect(canvas.findAllByText('Calculating...')).resolves.toHaveLength(2);
+
+    let price = 68_000;
+    const priceUpdates = setInterval(() => {
+      getCurrency().priceIndex.btcUsdPrice = new BigNumber(++price);
+    }, 50);
+    try {
+      await waitFor(() => expect(canvas.getByRole('button', { name: 'Repay & Close Liquid' })).toBeEnabled(), {
+        timeout: 700,
+      });
+    } finally {
+      clearInterval(priceUpdates);
+    }
   },
 };
 
@@ -562,6 +720,27 @@ export const CloseWithoutEnoughWalletBalance: Story = {
     await userEvent.click(canvas.getByRole('button', { name: /Repay .* Close Liquid/ }));
     await expect(canvas.findByText(/Your Internal App Wallet needs/)).resolves.toBeTruthy();
     await expect(canvas.getByRole('button', { name: 'Repay & Close Liquid' })).toBeDisabled();
+  },
+};
+
+export const CloseFeeUnavailable: Story = {
+  beforeEach: () => setupDetails({ closeQuoteError: 'The close fee service is temporarily unavailable.' }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body);
+    await userEvent.click(canvas.getByRole('button', { name: /Repay .* Close Liquid/ }));
+    await expect(canvas.findByText('The close fee service is temporarily unavailable.')).resolves.toBeTruthy();
+    await expect(canvas.getByRole('button', { name: 'Retry fee estimate' })).toBeEnabled();
+    await expect(canvas.getByRole('button', { name: 'Repay & Close Liquid' })).toBeDisabled();
+  },
+};
+
+export const CloseFeeRetry: Story = {
+  beforeEach: () => setupDetails({ closeQuoteError: 'The close fee service is temporarily unavailable.' }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body);
+    await userEvent.click(canvas.getByRole('button', { name: /Repay .* Close Liquid/ }));
+    await userEvent.click(canvas.getByRole('button', { name: 'Retry fee estimate' }));
+    await expect(canvas.getByRole('button', { name: 'Repay & Close Liquid' })).toBeEnabled();
   },
 };
 

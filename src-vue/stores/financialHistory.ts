@@ -113,7 +113,9 @@ export const useFinancialHistory = defineStore('financialHistory', () => {
     try {
       const historyLoads: Promise<unknown>[] = [];
       if (enabledDomains.includes('bonds')) historyLoads.push(argonBonds.load());
-      if (enabledDomains.includes('bitcoin')) historyLoads.push(bitcoinLocks.load(), bitcoinFissions.load());
+      if (enabledDomains.includes('bitcoin')) {
+        historyLoads.push(bitcoinLocks.currentLoadPromise, bitcoinFissions.currentLoadPromise);
+      }
       if (enabledDomains.includes('vaulting')) historyLoads.push(myVault.load());
       await Promise.all(historyLoads);
 
