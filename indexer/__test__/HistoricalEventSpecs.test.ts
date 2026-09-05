@@ -28,7 +28,7 @@ describe('HistoricalEventSpecs', () => {
     expect(historicalEventSpecSources[152]).toBe('@argonprotocol/mainchain@1.4.6');
     expect(historicalEventSpecSources[157]).toBe('@argonprotocol/mainchain@1.4.11');
     expect(historicalEventSpecSources[158]).toBe('@argonprotocol/mainchain@1.4.12');
-    expect(historicalEventSpecSources[159]).toBe('@argonprotocol/mainchain@1.4.12-dev.2afa6e4a');
+    expect(historicalEventSpecSources[159]).toBe('@argonprotocol/mainchain@1.4.12-dev.9e9b31a9');
   });
 
   it('declares the spec 158 Bitcoin flexibility event', () => {

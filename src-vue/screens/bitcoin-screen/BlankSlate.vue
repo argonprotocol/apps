@@ -2,7 +2,7 @@
   <div class="flex grow flex-col">
     <div class="flex grow flex-col items-center justify-center">
       <div class="relative flex w-10/12 max-w-300 flex-col items-center py-10 text-center">
-        <header class="text-argon-600/70 text-2xl font-normal tracking-widest">BITCOIN LIQUID</header>
+        <header class="text-argon-600/70 text-2xl font-normal tracking-widest">BITCOIN LIQUIDS</header>
         <h1 class="mt-2 text-4xl font-bold opacity-80 xl:text-5xl">Turn Bitcoin Into Liquid Capital</h1>
         <p class="mx-10 mt-3 flex-col text-xl leading-relaxed text-slate-900/60 xl:mx-10 2xl:mx-auto 2xl:flex">
           <span>Lock your bitcoin at today’s market rate, receive its full value in stablecoins,</span>

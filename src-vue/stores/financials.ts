@@ -6,6 +6,7 @@ import { getCurrency } from './currency.ts';
 import { getArgonBonds } from './argonBonds.ts';
 import { getBlockWatch } from './mainchain.ts';
 import {
+  bigIntMax,
   calculateRestabilizationLeverage,
   calculatePerformanceReturn,
   type IBlockHeaderInfo,
@@ -511,7 +512,7 @@ export const useFinancials = defineStore('financials', () => {
 
   // Savings ///////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-  const savingsTotalPending = Vue.computed(() => {
+  const bitcoinLiquidPendingMintMicrogons = Vue.computed(() => {
     const lockedRecords = liquidVisibleRecords.value.filter(x => {
       return bitcoinLocks.isLockFunded(x.record);
     });
@@ -519,7 +520,8 @@ export const useFinancials = defineStore('financials', () => {
   });
   const savingsTotalReadyToUse = Vue.computed(() => wallets.defaultArgonWallet.availableMicrogons);
   const savingsTotalValue = Vue.computed(() => {
-    let total = savingsTotalPending.value + currency.convertSatToMicrogon(bitcoinWalletTotalSatoshis.value);
+    let total =
+      bitcoinLiquidPendingMintMicrogons.value + currency.convertSatToMicrogon(bitcoinWalletTotalSatoshis.value);
     for (const position of financialPositionAggregate.value.groupSummaries.liquid.positions) {
       if (position.kind !== 'wallet-balance' && position.kind !== 'wallet-holding') continue;
       if (position.accountId !== wallets.defaultArgonWallet.address || position.lifecycle === 'completed') continue;
@@ -655,7 +657,10 @@ export const useFinancials = defineStore('financials', () => {
   });
 
   const bitcoinWalletTotalSatoshis = Vue.computed(() => {
-    return fundedBitcoinLockSummaries.value.reduce((sum, lock) => sum + lock.satoshis, 0n);
+    return fundedBitcoinLockSummaries.value.reduce(
+      (sum, lock) => sum + bigIntMax(lock.satoshis - (lock.record.fissionedSatoshis ?? 0n), 0n),
+      0n,
+    );
   });
 
   const liquidTotalSatoshis = Vue.computed(() => {
@@ -978,7 +983,7 @@ export const useFinancials = defineStore('financials', () => {
     vaultsIsLoaded,
     refreshVaults,
 
-    savingsTotalPending,
+    bitcoinLiquidPendingMintMicrogons,
     savingsTotalReadyToUse,
     savingsTotalValue,
     savingsAllTimeFiatKey,

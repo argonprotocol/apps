@@ -117,10 +117,10 @@ describe('BitcoinLocksTable', () => {
         ownerPubkey: '0x04',
       },
     });
-    expect(lock.microgonsAtTargetPerBtc).toBeNull();
-    expect(lock.securitizationCoverageMicrogons).toBeNull();
-    expect(lock.securitizationTick).toBeNull();
-    expect(lock.fissionedSatoshis).toBeNull();
+    expect(lock.microgonsAtTargetPerBtc).toBeUndefined();
+    expect(lock.securitizationCoverageMicrogons).toBeUndefined();
+    expect(lock.securitizationTick).toBeUndefined();
+    expect(lock.fissionedSatoshis).toBeUndefined();
     expect(lock.utxos).toHaveLength(2);
     expect(lock.fundedSatoshis).toBe(1_200n);
     expect(lock.fundingUtxo).toMatchObject({ txid: 'funding-tx', vout: 0, satoshis: 1_200n });
@@ -185,9 +185,11 @@ describe('BitcoinLocksTable', () => {
     expect(second.securitizationCoverageMicrogons).toBe(bitcoinLock.securitizationCoverageMicrogons);
     expect(second.securitizationTick).toBe(bitcoinLock.securitizationTick);
     expect(second.fissionedSatoshis).toBe(bitcoinLock.fissionedSatoshis);
-    expect(await table.findPendingByHdPath(lock.hdPath)).toMatchObject({ uuid: next.uuid, utxoId: null });
+    const pending = await table.findPendingByHdPath(lock.hdPath);
+    expect(pending).toMatchObject({ uuid: next.uuid });
+    expect(pending?.utxoId).toBeUndefined();
 
-    await table.setCurrentLockFunded(second, bitcoinLock);
+    await table.updateFromCurrentLock(second, bitcoinLock);
 
     expect((await table.fetchAll()).find(record => record.uuid === second.uuid)).toMatchObject({
       securitizedSatoshis: bitcoinLock.securitizedSatoshis,
@@ -211,7 +213,7 @@ describe('BitcoinLocksTable', () => {
       couponFeesPaid: 1_000_000n,
     });
 
-    await table.setCurrentLockFunded(stale, current);
+    await table.updateFromCurrentLock(stale, current);
 
     expect(stale.securityFees).toBe(3_000_000n);
     expect(stale.couponFeesPaid).toBe(1_000_000n);
@@ -248,7 +250,7 @@ describe('BitcoinLocksTable', () => {
       removalExtrinsicIndex: 3,
       btcPriceAtRemovalMicrogons: 4_000_000n,
     });
-    expect(recoveredRelease.removalReason).toBeNull();
+    expect(recoveredRelease.removalReason).toBeUndefined();
 
     await table.setReleased(recoveredRelease);
     expect(recoveredRelease).toMatchObject({

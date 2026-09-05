@@ -1,9 +1,8 @@
 import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
-import { BitcoinLockStatus } from 'src-vue/interfaces/IBitcoinLockRecord.ts';
 import { readBitcoinLockState, type IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
 import { formatUnitsToDecimal, pollEvery } from '../helpers/utils.ts';
 import type { IE2EOperationInspectState, IE2EOperationState } from '../types.ts';
-import type { IBitcoinUnlockReleaseState } from '../types/srcVue.ts';
+import { BitcoinLockStatus, type IBitcoinUnlockReleaseState } from '../types/srcVue.ts';
 import bitcoinActivateWallet from './Bitcoin.op.activateWallet.ts';
 import { Operation } from './index.ts';
 

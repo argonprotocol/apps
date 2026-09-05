@@ -1,5 +1,13 @@
 import { type ChildProcess, execFile, execFileSync, spawn } from 'node:child_process';
-import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, type WriteStream } from 'node:fs';
+import {
+  copyFileSync,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  type WriteStream,
+} from 'node:fs';
 import os from 'node:os';
 import Path from 'node:path';
 import process from 'node:process';
@@ -102,6 +110,7 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
     appPort,
   });
   const isolatedDataEnv: NodeJS.ProcessEnv = {};
+  let priceIndexFilePath: string | undefined;
   if (sessionMode === 'isolated') {
     const testDataDir = resolveTestSessionDataDir({
       rootDir: process.env.CI_TEMP_DIR?.trim() || os.tmpdir(),
@@ -113,6 +122,12 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
       ARGON_APP_INSTANCE_DIR: appInstanceDirectory,
     });
     sessionData.devEthereumRuntimeStateDir = devEthereumRuntimeStateDir;
+    if (useTestNetwork) {
+      priceIndexFilePath = Path.join(testDataDir, 'price-index.json');
+      mkdirSync(testDataDir, { recursive: true });
+      copyFileSync(Path.join(repoRoot, 'e2e/argon/oracle/test-price-index.json'), priceIndexFilePath);
+      sessionData.priceIndexFilePath = priceIndexFilePath;
+    }
   }
   const cleanupEnv: NodeJS.ProcessEnv = { ...commandEnv, ...isolatedDataEnv };
   const tauriEnv: NodeJS.ProcessEnv = {
@@ -140,11 +155,17 @@ export async function createFlowSession(options: IFlowSessionOptions = {}): Prom
         await ensurePortsReleased(REQUIRED_LOCAL_DOCKER_PORTS, 'startup');
       }
 
-      testNetwork = await startArgonTestNetwork(sessionIdentity.sessionName, {
-        profiles: ['price-oracle'],
-        registerTeardown: false,
-        composeProjectName,
-      });
+      const previousPriceIndexFilePath = process.env.PRICE_INDEX_FILE_PATH;
+      if (priceIndexFilePath) process.env.PRICE_INDEX_FILE_PATH = priceIndexFilePath;
+      try {
+        testNetwork = await startArgonTestNetwork(sessionIdentity.sessionName, {
+          profiles: ['price-oracle'],
+          registerTeardown: false,
+          composeProjectName,
+        });
+      } finally {
+        restoreProcessEnv('PRICE_INDEX_FILE_PATH', previousPriceIndexFilePath);
+      }
       sessionData.sessionArchiveUrl = testNetwork.networkConfigOverride.archiveUrl;
       tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE = JSON.stringify(testNetwork.networkConfigOverride);
       process.env.ARGON_NETWORK_CONFIG_OVERRIDE = tauriEnv.ARGON_NETWORK_CONFIG_OVERRIDE;

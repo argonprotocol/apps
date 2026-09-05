@@ -1,4 +1,5 @@
 import { WebSocket, type RawData } from 'ws';
+import { JsonExt } from '@argonprotocol/apps-core';
 
 type UnknownRecord = Record<string, unknown>;
 const DEFAULT_COMMAND_TIMEOUT_MS = 15 * 60_000;
@@ -114,7 +115,7 @@ export class DriverClient {
     this.socket.on('message', (data: RawData) => {
       let payload: UnknownRecord;
       try {
-        payload = JSON.parse(rawDataToString(data)) as UnknownRecord;
+        payload = JsonExt.parse<UnknownRecord>(rawDataToString(data));
       } catch (_error) {
         return;
       }
@@ -295,7 +296,7 @@ export class DriverClient {
 
   private send(payload: UnknownRecord): void {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
-    this.socket.send(JSON.stringify(payload));
+    this.socket.send(JsonExt.stringify(payload));
   }
 
   private rejectAllPending(error: Error): void {

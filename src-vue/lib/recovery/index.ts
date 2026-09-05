@@ -212,31 +212,67 @@ export async function restoreFinancialHistory(args: {
               recoveredBlockCount,
               totalBlockCount,
             }),
-          onCheckpoint: checkpoint => saveDomainCheckpoint(domain, checkpoint),
+          onCheckpoint: checkpoint => (isBitcoinReplay ? Promise.resolve() : saveDomainCheckpoint(domain, checkpoint)),
         });
 
+        let publicationError: Error | undefined;
         if (isBitcoinReplay) {
+          const fissionRecovery = bitcoinFissionRecovery;
+          const preparedFissions = fissionRecovery
+            ? await fissionRecovery.prepareHistoryReplay(bitcoinLockRecovery.getPreparedHistoryLocks())
+            : undefined;
           const lockCommitStartedAt = performance.now();
-          const recoveredLocks = await bitcoinLockRecovery.commitHistoryReplay(true, result.checkpoint.asOfBlock);
+          try {
+            if (preparedFissions && fissionRecovery) {
+              await bitcoinLockRecovery.commitHistoryReplay(true, result.checkpoint.asOfBlock, {
+                fissions: preparedFissions.records,
+                fissionFailuresByUtxoId: preparedFissions.failuresByUtxoId,
+                onUnitPublished: fissions => fissionRecovery.publishRecoveredRecords(fissions),
+              });
+            } else {
+              await bitcoinLockRecovery.commitHistoryReplay(true, result.checkpoint.asOfBlock);
+            }
+          } catch (error) {
+            publicationError = error instanceof Error ? error : new Error(String(error));
+          } finally {
+            if (preparedFissions && fissionRecovery) {
+              try {
+                const finalizedFissions = await fissionRecovery.finishHistoryReplay();
+                await fissionRecovery.publishRecoveredRecords(finalizedFissions);
+              } catch (finalizedError) {
+                fissionRecovery.cancelHistoryReplay();
+                if (!publicationError) {
+                  publicationError =
+                    finalizedError instanceof Error ? finalizedError : new Error(String(finalizedError));
+                } else {
+                  console.warn(
+                    'Unable to preserve finalized Bitcoin Fissions after history publication failed:',
+                    finalizedError,
+                  );
+                }
+              }
+            }
+          }
           console.info(
-            `[FinancialHistory] Published Bitcoin lock history through block ${result.checkpoint.asOfBlock.toLocaleString()} in ${Math.round(performance.now() - lockCommitStartedAt)}ms`,
-          );
-
-          const fissionCommitStartedAt = performance.now();
-          await bitcoinFissionRecovery?.commitHistoryReplay(recoveredLocks);
-          console.info(
-            `[FinancialHistory] Published Bitcoin Fission history through block ${result.checkpoint.asOfBlock.toLocaleString()} in ${Math.round(performance.now() - fissionCommitStartedAt)}ms`,
+            `[FinancialHistory] Published Bitcoin history units through block ${result.checkpoint.asOfBlock.toLocaleString()} in ${Math.round(performance.now() - lockCommitStartedAt)}ms`,
           );
         }
+        if (result.error) {
+          if (attempt === 0 && result.retryFromStart) {
+            checkpoint = result.checkpoint;
+            continue;
+          }
+          throw new Error(result.error);
+        }
+        if (publicationError) throw publicationError;
+
         await saveDomainCheckpoint(domain, result.checkpoint);
         domainAsOfBlock = result.checkpoint.asOfBlock;
 
-        if (attempt > 0 || !isBitcoinReplay || !result.retryFromStart) break;
-        checkpoint = result.checkpoint;
+        break;
       }
 
       importedBlockCount += result.importedBlockCount;
-      if (result.error) throw new Error(result.error);
     } catch (error) {
       if (isBitcoinReplay) {
         try {
@@ -459,14 +495,24 @@ export class FinancialHistoryImporter {
       indexedBlock.specVersion >= earliestSupportedSpecVersions.bitcoin &&
       indexedBlock.activityMask & domainActivityMasks.bitcoin
     ) {
+      let bitcoinError: unknown;
+      if (!this.bitcoinLockRecovery) bitcoinError = new Error('Bitcoin lock history recovery is not configured');
+      else {
+        try {
+          await this.bitcoinLockRecovery.recoverBlock(block, events);
+        } catch (error) {
+          this.bitcoinLockRecovery.markHistoryReplayFailure();
+          bitcoinError = error;
+        }
+      }
       try {
-        if (!this.bitcoinLockRecovery) throw new Error('Bitcoin lock history recovery is not configured');
-        await this.bitcoinLockRecovery.recoverBlock(block, events);
-        await this.bitcoinFissionRecovery?.recoverBlock(block, events);
+        if (this.bitcoinFissionRecovery) await this.bitcoinFissionRecovery.recoverBlock(block, events);
       } catch (error) {
-        this.bitcoinLockRecovery?.markHistoryReplayFailure();
-        this.bitcoinFissionRecovery?.markHistoryReplayFailure();
-        const detail = describeDomainError('bitcoin', block.blockNumber, error);
+        this.bitcoinFissionRecovery?.markHistoryReplayFailure(error);
+        bitcoinError ??= error;
+      }
+      if (bitcoinError) {
+        const detail = describeDomainError('bitcoin', block.blockNumber, bitcoinError);
         domainErrors.bitcoin ??= detail;
         console.warn(`[FinancialHistory] ${detail}; skipping this Bitcoin block`);
         hasError = true;
@@ -570,7 +616,7 @@ async function restoreFinancialHistoryDomain(args: {
       (!!checkpoint || !args.recoverMissingCheckpointsFor.includes(domain));
     if (canRepairOnlyPendingLocks) lockScope = 'pending';
 
-    await bitcoinLockRecovery.beginHistoryReplay({ lockScope });
+    await bitcoinLockRecovery.beginHistoryReplay({ lockScope, purpose: 'financial-backfill' });
     await bitcoinFissionRecovery?.beginHistoryReplay({ replace: afterBlock === 0 });
   }
 

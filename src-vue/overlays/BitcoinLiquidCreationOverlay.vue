@@ -6,12 +6,102 @@
     @close="emit('close')"
     @pressEsc="emit('close')"
   >
-    <div class="flex flex-col px-10 py-5">
+    <template #title>
+      <StepsHeader :isLoading="false" :hasError="false" :icon="BitcoinIcon" :items="stepItems" />
+    </template>
+    <div v-if="props.state.stage === 'complete'" data-testid="BitcoinLiquidCreationOverlay.collectArgons">
+      <div v-if="props.liquid" class="flex flex-col items-center px-10 py-8 text-center">
+        <BitcoinFissionVaultIllustration class="text-argon-600 h-28 w-86" role="img" aria-label="Liquid created" />
+
+        <h1 class="mt-5 text-2xl font-bold">Your Bitcoin Liquid Is Active</h1>
+        <p class="mt-2 text-lg text-slate-700">
+          Your {{ satToBtcNm(props.liquid.satoshis).format('0,0.[00000000]') }} BTC Liquid is now collecting Argons.
+        </p>
+
+        <section class="mt-7 w-full rounded-md border border-slate-300 bg-slate-50 px-8 py-6">
+          <h2 class="text-argon-600 text-xl font-bold">Collect Argons Daily</h2>
+          <p
+            v-if="props.liquid.estimatedMintFramesRemaining === 1"
+            class="mt-2 leading-relaxed font-light text-slate-700"
+          >
+            At the current schedule, the remaining {{ argonSymbol
+            }}{{ microgonToArgonNm(props.liquid.pendingLiquidity).format('0,0.00') }} is expected in the next daily
+            payout to your Internal App Wallet.
+          </p>
+          <p
+            v-else-if="props.liquid.estimatedMintFramesRemaining"
+            class="mt-2 leading-relaxed font-light text-slate-700"
+          >
+            At the current schedule, {{ argonSymbol
+            }}{{ microgonToArgonNm(props.liquid.expectedMintPerFrame).format('0,0.00') }} is expected in each daily
+            payout. The remaining {{ argonSymbol
+            }}{{ microgonToArgonNm(props.liquid.pendingLiquidity).format('0,0.00') }} should reach your Internal App
+            Wallet by about {{ estimatedMintCompletionDate }}.
+          </p>
+          <p v-else class="mt-2 leading-relaxed font-light text-slate-700">
+            Argons will be deposited into your Internal App Wallet as network minting capacity becomes available.
+          </p>
+          <p v-if="props.liquid.pendingLiquidity" class="mt-4 border-t border-slate-200 pt-3 text-sm text-slate-500">
+            Network minting capacity can delay payouts.
+          </p>
+        </section>
+
+        <div class="mt-7 flex w-full justify-end border-t border-slate-200 pt-4">
+          <button
+            type="button"
+            data-testid="BitcoinLiquidCreationOverlay.done"
+            class="bg-argon-button hover:bg-argon-button-hover cursor-pointer rounded-md px-6 py-2 font-semibold text-white"
+            @click="emit('close')"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+      <div v-else class="flex min-h-60 flex-col items-center justify-center gap-4 px-10 py-8 text-center">
+        <AlertIcon class="h-12 text-yellow-700" />
+        <h1 class="text-xl font-bold text-slate-800">Your Bitcoin Liquid Is Active</h1>
+        <p class="max-w-150 text-slate-600">{{ props.state.errorMessage }}</p>
+        <button
+          type="button"
+          data-testid="BitcoinLiquidCreationOverlay.done"
+          class="cursor-pointer rounded-md border border-slate-300 px-6 py-2 text-slate-600 hover:bg-slate-50"
+          @click="emit('close')"
+        >
+          Done
+        </button>
+      </div>
+    </div>
+    <div v-else-if="props.state.stage === 'creating'" class="px-6 py-5">
+      <div class="space-y-5">
+        <div class="space-y-3">
+          <div class="text-sm font-medium text-slate-600">Creating Liquid...</div>
+          <ProgressBar :progress="props.state.progressPct" :hasError="!!props.state.errorMessage" />
+          <div class="text-xs text-slate-500">{{ props.state.progressLabel || 'Preparing transaction...' }}</div>
+          <div
+            v-if="props.state.errorMessage"
+            class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+          >
+            {{ props.state.errorMessage }}
+          </div>
+        </div>
+
+        <div v-if="props.state.errorMessage" class="flex flex-row justify-end gap-3 pt-1">
+          <button
+            type="button"
+            class="rounded border border-slate-300 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+            @click="emit('retry')"
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    </div>
+    <div v-else class="flex flex-col px-10 py-5">
       <div class="flex flex-col pt-3">
         <p class="leading-relaxed font-light">
-          Fission your Bitcoin into a claim ticket for your BTC and its full market value in Argons. When you’re ready
-          to unlock your Bitcoin, re-fuse the original Argon value and close the Liquid. Any price difference is yours
-          to keep.
+          Your Bitcoin Liquid helps stabilize the Argon stablecoin while giving you your Bitcoin’s full market value in
+          unencumbered Argons. Use these Argons to make a profit on Bitcoin's price volatility. Your Bitcoin will remain
+          securely locked on the Argon mainchain and is yours to release when you desire.
           <a :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/bitcoin-locks`" target="_blank">
             Learn more.
           </a>
@@ -21,20 +111,20 @@
         <div class="mt-5 flex flex-col">
           <div class="flex items-center">
             <label class="mb-2 grow font-bold text-gray-600/60">Liquid Amount</label>
-            <span v-if="selectedSatoshis === props.minimumLiquidSatoshis" class="text-sm text-gray-600/60">
+            <span v-if="selectedSatoshis === minimumLiquidSatoshis" class="text-sm text-gray-600/60">
               You're At Min Amount
             </span>
             <button
               v-else
               type="button"
               class="text-argon-600 hover:text-argon-700 cursor-pointer text-sm"
-              @click="selectSatoshis(props.minimumLiquidSatoshis)"
+              @click="selectSatoshis(minimumLiquidSatoshis)"
             >
               Min
             </button>
             <span class="mx-3 h-4 border-l border-gray-300" />
             <Tooltip
-              v-if="!props.isTreasuryCertified && props.treasuryCertificationRequiredSatoshis"
+              v-if="!isTreasuryCertified && props.state.treasuryCertificationRequiredSatoshis"
               :asChild="true"
               content="Sets this Liquid to the Bitcoin amount still needed for Treasury Certification."
               side="top"
@@ -55,7 +145,7 @@
               </span>
             </Tooltip>
             <span
-              v-if="!props.isTreasuryCertified && props.treasuryCertificationRequiredSatoshis"
+              v-if="!isTreasuryCertified && props.state.treasuryCertificationRequiredSatoshis"
               class="mx-3 h-4 border-l border-gray-300"
             />
             <span v-if="selectedSatoshis === maximumLiquidSatoshis" class="text-sm text-gray-600/60">
@@ -71,7 +161,7 @@
             </button>
             <Tooltip
               v-if="maximumLiquidSatoshis < availableSatoshis"
-              :content="`Your wallet has ${satToBtcNm(availableSatoshis).format('0,0.[00000000]')} BTC available, but your cosigners can currently securitize ${satToBtcNm(maximumLiquidSatoshis).format('0,0.[00000000]')} BTC for this Liquid.`"
+              :content="`Your wallet has ${satToBtcNm(availableSatoshis).format('0,0.[00000000]')} BTC available, but ${selectedVaults.capacitySubject} can currently securitize ${satToBtcNm(maximumLiquidSatoshis).format('0,0.[00000000]')} BTC for this Liquid.`"
               side="top"
             >
               <InformationCircleIcon class="ml-1 size-3.5 cursor-help text-gray-400" />
@@ -79,13 +169,13 @@
           </div>
           <InputNumber
             v-model="selectedBitcoin"
-            :min="currency.convertSatToBtc(props.minimumLiquidSatoshis)"
+            :min="currency.convertSatToBtc(bigIntMin(minimumLiquidSatoshis, maximumLiquidSatoshis))"
             :max="currency.convertSatToBtc(maximumLiquidSatoshis)"
             :dragBy="0.001"
             :dragByMin="0.00000001"
             :minDecimals="1"
             :maxDecimals="8"
-            :disabled="props.isSubmitting"
+            :disabled="props.state.isSubmitting"
             suffix=" BTC"
             class="px-1 py-2 text-[17px]!"
           />
@@ -95,19 +185,24 @@
           </WalletFundingCallout>
           <div class="mt-2 text-sm text-gray-600/70">
             One-time fees:
-            <template v-if="props.couponCreditMicrogons">
+            <template v-if="couponCreditMicrogons">
               <span class="line-through">
-                {{ argonSymbol
-                }}{{ microgonToArgonNm(props.feeMicrogons + props.couponCreditMicrogons).format('0,0.00') }}
+                {{ argonSymbol }}{{ microgonToArgonNm(feeMicrogons + couponCreditMicrogons).format('0,0.00') }}
               </span>
-              {{ argonSymbol }}{{ microgonToArgonNm(props.feeMicrogons).format('0,0.00') }} · {{ argonSymbol
-              }}{{ microgonToArgonNm(props.couponCreditMicrogons).format('0,0.00') }} gift from
-              {{ props.feeGiftProvider ?? 'your upstream operator' }}
+              {{ argonSymbol }}{{ microgonToArgonNm(feeMicrogons).format('0,0.00') }} · {{ argonSymbol
+              }}{{ microgonToArgonNm(couponCreditMicrogons).format('0,0.00') }} gift from
+              {{ config.upstreamOperator?.name ?? 'your upstream operator' }}
             </template>
             <template v-else>
-              {{ argonSymbol }}{{ microgonToArgonNm(props.feeMicrogons).format('0,0.00') }} will be pulled from your
-              Internal App Wallet.
+              {{ argonSymbol }}{{ microgonToArgonNm(feeMicrogons).format('0,0.00') }} will be pulled from your Internal
+              App Wallet.
             </template>
+          </div>
+          <div
+            v-if="availableSatoshis && !props.state.preview && !props.state.errorMessage"
+            class="mt-2 text-sm text-slate-500"
+          >
+            Checking available securitization…
           </div>
           <WalletFundingCallout v-if="availableSatoshis && walletShortfallMicrogons" @open-wallet="openArgonWallet">
             <AlertIcon class="mr-2 h-4 shrink-0 text-yellow-700" />
@@ -133,7 +228,7 @@
                 <sup>&dagger;</sup>
               </header>
               <div class="text-argon-600 py-1 text-3xl font-bold">
-                {{ argonSymbol }}{{ microgonToArgonNm(props.liquidityMicrogons).format('0,0.00') }}
+                {{ argonSymbol }}{{ microgonToArgonNm(liquidityMicrogons).format('0,0.00') }}
               </div>
               <div class="text-sm font-light opacity-80">In Argon Liquidity</div>
             </div>
@@ -141,7 +236,7 @@
             <div class="w-1/3 px-3">
               <header class="text-sm font-bold opacity-40">PROJECTED EARNINGS</header>
               <div class="text-argon-600 py-1 text-3xl font-bold">
-                +{{ argonSymbol }}{{ microgonToArgonNm(props.projectedEarningsMicrogons).format('0,0.00') }}
+                +{{ argonSymbol }}{{ microgonToArgonNm(projectedEarningsMicrogons).format('0,0.00') }}
               </div>
               <div class="text-sm font-light opacity-80">Modeled Over One Year</div>
             </div>
@@ -152,13 +247,13 @@
                 <sup>&dagger;</sup>
               </header>
               <div class="text-argon-600 py-1 text-3xl font-bold">
-                {{ argonSymbol }}{{ microgonToArgonNm(props.liquidityMicrogons).format('0,0.00') }}
+                {{ argonSymbol }}{{ microgonToArgonNm(liquidityMicrogons).format('0,0.00') }}
               </div>
               <div class="text-sm font-light opacity-80">Capped at Market Value</div>
             </div>
           </div>
           <div class="mx-2 border-t border-slate-600/30 px-2 py-3 text-sm font-light opacity-80">
-            &dagger; The {{ argonSymbol }}{{ microgonToArgonNm(props.liquidityMicrogons).format('0,0.00') }} in Argon
+            &dagger; The {{ argonSymbol }}{{ microgonToArgonNm(liquidityMicrogons).format('0,0.00') }} in Argon
             liquidity you receive is also your maximum repayment amount. If your Bitcoin's market value is lower when
             you close, you repay the lower amount.
             <a :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/bitcoin-locks`" target="_blank">
@@ -170,21 +265,13 @@
 
       <div class="mt-3 py-3">
         <div
-          v-if="props.errorMessage && !props.isSubmitting"
+          v-if="props.state.errorMessage"
           class="mb-3 flex items-center rounded border border-yellow-400/70 bg-yellow-100 px-3 py-3 text-yellow-900"
         >
           <AlertIcon class="mr-2 h-4 shrink-0 text-yellow-700" />
-          {{ props.errorMessage }}
+          {{ props.state.errorMessage }}
         </div>
-        <div v-if="props.isSubmitting" class="space-y-2 text-sm text-slate-500">
-          <div class="flex items-center gap-x-4">
-            <div class="grow font-medium text-slate-600">Creating Liquid...</div>
-            <div>{{ props.progressLabel || submissionProgressLabel }}</div>
-          </div>
-          <ProgressBar :progress="props.progressPct" />
-          <div>You can close this window without stopping the transaction.</div>
-        </div>
-        <div v-else class="flex flex-row items-center justify-end gap-x-3">
+        <div class="flex flex-row items-center justify-end gap-x-3">
           <button
             class="cursor-pointer rounded-md border border-slate-300 px-10 py-2 text-slate-600 hover:bg-slate-50"
             @click="emit('close')"
@@ -193,12 +280,16 @@
           </button>
           <button
             :disabled="
-              !availableSatoshis || !selectedSatoshis || !props.microgonsAtTargetPerBtc || !!walletShortfallMicrogons
+              props.state.isSubmitting ||
+              !availableSatoshis ||
+              !selectedSatoshis ||
+              !props.state.preview?.microgonsAtTargetPerBtc ||
+              !!walletShortfallMicrogons
             "
             class="bg-argon-button enabled:hover:bg-argon-button-hover cursor-pointer rounded-md px-10 py-2 font-semibold text-white disabled:cursor-default disabled:opacity-40"
             @click="submit"
           >
-            Create Liquid
+            {{ props.state.isSubmitting ? 'Submitting...' : 'Create Liquid' }}
           </button>
         </div>
       </div>
@@ -208,94 +299,149 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import BigNumber from 'bignumber.js';
+import { bigIntMin, bigNumberToBigInt, NetworkConfig, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { InformationCircleIcon } from '@heroicons/vue/24/outline';
+import dayjs from 'dayjs';
 
 import AlertIcon from '../assets/alert.svg?component';
+import BitcoinIcon from '../assets/wallets/tokens/bitcoin.svg?component';
+import BitcoinFissionVaultIllustration from '../components/BitcoinFissionVaultIllustration.vue';
 import InputNumber from '../components/InputNumber.vue';
 import ProgressBar from '../components/ProgressBar.vue';
+import StepsHeader, { type IStepHeaderItem } from '../components/StepsHeader.vue';
 import Tooltip from '../components/Tooltip.vue';
 import WalletFundingCallout from '../components/WalletFundingCallout.vue';
 import basicEmitter from '../emitters/basicEmitter.ts';
-import type { IBitcoinLiquidSource } from '../interfaces/IBitcoinLiquidSource.ts';
+import type { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
 import { createNumeralHelpers } from '../lib/numeral.ts';
-import { generateProgressLabel } from '../lib/Utils.ts';
+import { OperationalStepId, useCertificationController } from '../stores/certificationController.ts';
+import { getConfig } from '../stores/config.ts';
 import { getCurrency } from '../stores/currency.ts';
 import { useWallets } from '../stores/wallets.ts';
+import { useVaultingStats } from '../stores/vaultingStats.ts';
 import OverlayBase from './OverlayBase.vue';
+import type { BitcoinLiquidCreationState } from './BitcoinLiquidCreationState.ts';
 
-const props = withDefaults(
-  defineProps<{
-    sources: IBitcoinLiquidSource[];
-    feeMicrogons: bigint;
-    liquidityMicrogons: bigint;
-    projectedEarningsMicrogons: bigint;
-    couponCreditMicrogons?: bigint;
-    feeGiftProvider?: string;
-    isSubmitting?: boolean;
-    progressPct?: number;
-    confirmations?: number;
-    expectedConfirmations?: number;
-    availableWalletMicrogons?: bigint;
-    isTreasuryCertified?: boolean;
-    treasuryCertificationRequiredSatoshis?: bigint;
-    minimumLiquidSatoshis?: bigint;
-    microgonsAtTargetPerBtc?: bigint;
-    errorMessage?: string;
-    progressLabel?: string;
-  }>(),
-  {
-    couponCreditMicrogons: () => 0n,
-    isSubmitting: false,
-    progressPct: 0,
-    confirmations: -1,
-    expectedConfirmations: 4,
-    isTreasuryCertified: false,
-    treasuryCertificationRequiredSatoshis: () => 0n,
-    minimumLiquidSatoshis: () => 100_000n,
-    errorMessage: '',
-    progressLabel: '',
-  },
-);
+const props = defineProps<{
+  state: BitcoinLiquidCreationState;
+  liquid?: BitcoinLiquid;
+}>();
 
 const emit = defineEmits<{
   close: [];
+  retry: [];
   submit: [{ satoshis: bigint }];
   amountChanged: [{ satoshis: bigint }];
 }>();
 
 const currency = getCurrency();
+const config = getConfig();
+const certification = useCertificationController();
 const wallets = useWallets();
+const vaultingStats = useVaultingStats();
 const { microgonToArgonNm, satToBtcNm } = createNumeralHelpers(currency);
 const argonSymbol = currency.recordsByKey[UnitOfMeasurement.ARGN].symbol;
+const minimumLiquidSatoshis = 100_000n;
+const feeMicrogons = Vue.computed(() => props.state.preview?.securityFeeMicrogons ?? 0n);
+const couponCreditMicrogons = Vue.computed(() => props.state.preview?.couponCreditMicrogons ?? 0n);
+const liquidityMicrogons = Vue.computed(() => props.state.preview?.liquidityMicrogons ?? 0n);
+const projectedEarningsMicrogons = Vue.computed(() =>
+  bigNumberToBigInt(
+    BigNumber(liquidityMicrogons.value.toString()).multipliedBy(vaultingStats.bitcoinAPR).dividedBy(100),
+  ),
+);
+const isTreasuryCertified = Vue.computed(() => certification.isCertificationStepComplete(OperationalStepId.LiquidLock));
 const availableSatoshis = Vue.computed(() =>
-  props.sources.reduce((total, source) => total + source.unallocatedSatoshis, 0n),
+  props.state.sources.reduce((total, source) => total + source.unallocatedSatoshis, 0n),
 );
 const maximumLiquidSatoshis = Vue.computed(() =>
-  props.sources.reduce((total, source) => total + source.maximumLiquidSatoshis, 0n),
+  props.state.sources.reduce((total, source) => total + source.maximumLiquidSatoshis, 0n),
 );
 const selectedBitcoin = Vue.ref(
-  currency.convertSatToBtc(props.sources.reduce((total, source) => total + source.selectedSatoshis, 0n)),
+  currency.convertSatToBtc(props.state.sources.reduce((total, source) => total + source.selectedSatoshis, 0n)),
 );
 const selectedSatoshis = Vue.computed(() => BigInt(Math.round(selectedBitcoin.value * 100_000_000)));
+const selectedSources = Vue.computed(() => props.state.sources.filter(source => source.selectedSatoshis > 0n));
+const selectedVaults = Vue.computed(() => {
+  const sources = selectedSources.value;
+  const externalCosigners = sources.filter(source => !source.isMyVault).map(source => source.cosigner);
+  const includesMyVault = sources.some(source => source.isMyVault);
+
+  if (includesMyVault && !externalCosigners.length) {
+    return {
+      label: 'In my Vault',
+      tooltip: 'This Bitcoin is in your Vault.',
+      capacitySubject: 'your Vault',
+    };
+  }
+  if (!includesMyVault && externalCosigners.length === 1) {
+    return {
+      label: 'Co-signer',
+      value: externalCosigners[0],
+      tooltip: `Selected co-signer: ${externalCosigners[0]}.`,
+      capacitySubject: externalCosigners[0],
+    };
+  }
+
+  const names = [...externalCosigners, ...(includesMyVault ? ['my Vault'] : [])];
+  return {
+    label: 'Vaults',
+    value: sources.length ? `${sources.length} selected` : undefined,
+    tooltip: names.length ? `Selected vaults: ${new Intl.ListFormat('en').format(names)}.` : 'No vaults selected.',
+    capacitySubject: 'the selected vaults',
+  };
+});
 const certificationSelectionSatoshis = Vue.computed(() => {
-  return props.treasuryCertificationRequiredSatoshis < maximumLiquidSatoshis.value
-    ? props.treasuryCertificationRequiredSatoshis
+  return props.state.treasuryCertificationRequiredSatoshis < maximumLiquidSatoshis.value
+    ? props.state.treasuryCertificationRequiredSatoshis
     : maximumLiquidSatoshis.value;
 });
-const submissionProgressLabel = Vue.computed(() =>
-  generateProgressLabel(props.confirmations, props.expectedConfirmations, { blockType: 'Argon' }),
-);
 const walletShortfallMicrogons = Vue.computed(() => {
-  const available = props.availableWalletMicrogons ?? props.feeMicrogons;
-  return props.feeMicrogons > available ? props.feeMicrogons - available : 0n;
-});
-const treasuryCertificationShortfallSatoshis = Vue.computed(() => {
-  if (props.isTreasuryCertified) return 0n;
-  return props.treasuryCertificationRequiredSatoshis > selectedSatoshis.value
-    ? props.treasuryCertificationRequiredSatoshis - selectedSatoshis.value
+  return feeMicrogons.value > wallets.defaultArgonSpendableMicrogons
+    ? feeMicrogons.value - wallets.defaultArgonSpendableMicrogons
     : 0n;
 });
+const treasuryCertificationShortfallSatoshis = Vue.computed(() => {
+  if (isTreasuryCertified.value) return 0n;
+  return props.state.treasuryCertificationRequiredSatoshis > selectedSatoshis.value
+    ? props.state.treasuryCertificationRequiredSatoshis - selectedSatoshis.value
+    : 0n;
+});
+const estimatedMintCompletionDate = Vue.computed(() =>
+  dayjs()
+    .add(props.liquid?.estimatedMintFramesRemaining ?? 0, 'day')
+    .format('MMM D'),
+);
+const stepItems = Vue.computed<IStepHeaderItem[]>(() => [
+  {
+    label: selectedVaults.value.label,
+    value: selectedVaults.value.value,
+    tooltip: selectedVaults.value.tooltip,
+    isActive: () => false,
+  },
+  {
+    label: '',
+    tooltip: 'Your Channel allocation determines which vaults are used.',
+    isActive: () => false,
+  },
+  {
+    label: 'Choose Amount',
+    value: props.liquid ? `${satToBtcNm(props.liquid.satoshis).format('0,0.[00000000]')} BTC` : undefined,
+    tooltip: 'Choose how much Bitcoin to use for this Liquid.',
+    isActive: () => props.state.stage === 'form',
+  },
+  {
+    label: '',
+    tooltip: 'Your Liquid settles directly on the blockchain.',
+    isActive: () => props.state.stage === 'creating',
+  },
+  {
+    label: 'Collect Argons',
+    tooltip: 'Collect the Argons minted by this Liquid.',
+    isActive: () => props.state.stage === 'complete',
+  },
+]);
 
 function selectSatoshis(satoshis: bigint): void {
   selectedBitcoin.value = currency.convertSatToBtc(satoshis);
@@ -316,7 +462,7 @@ function openArgonWallet(): void {
 }
 
 function submit(): void {
-  if (props.isSubmitting) return;
+  if (props.state.isSubmitting) return;
   emit('submit', { satoshis: selectedSatoshis.value });
 }
 </script>

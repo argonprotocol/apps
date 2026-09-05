@@ -74,7 +74,7 @@
                 <div class="mr-1 w-6">
                   <BitcoinIcon class="w-6" />
                 </div>
-                Bitcoin Liquid
+                Bitcoin Liquids
                 <GiftIcon v-if="hasActiveCoupon" class="text-argon-800/50 ml-2 w-4" />
               </div>
               <div class="flex items-center gap-x-2">
@@ -87,7 +87,7 @@
                   controller.activeGuideId === OperationalStepId.LiquidLock &&
                   controller.selectedTab !== TopTab.BitcoinLocks
                 "
-                guidance="Open Bitcoin Liquid to continue this task."
+                guidance="Open Bitcoin Liquids to continue this task."
                 class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
               />
             </article>
@@ -486,7 +486,9 @@
                   {{ currency.symbol
                   }}{{
                     selectedWalletBalanceIsLoaded
-                      ? microgonToMoneyNm(selectedWalletBalance - financials.savingsTotalPending).format('0,0.00')
+                      ? microgonToMoneyNm(selectedWalletBalance - financials.bitcoinLiquidPendingMintMicrogons).format(
+                          '0,0.00',
+                        )
                       : '-.--'
                   }}
                   is immediately usable

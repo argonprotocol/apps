@@ -55,8 +55,7 @@
               class="text-argon-600 relative cursor-pointer"
               @click="basicEmitter.emit('openBitcoinLiquidCreationOverlay', undefined)"
             >
-              Create Liquid · {{ numeral(currency.convertSatToBtc(totalUnallocatedSatoshis)).format('0,0.[00000000]') }}
-              BTC Available
+              Create Liquid
             </button>
             <div class="w-px bg-slate-400/50" />
             <a
@@ -79,7 +78,7 @@
           >
             <BitcoinIcon class="text-argon-600/60 w-20 animate-spin opacity-50" />
             <div class="grow pl-2">
-              <div class="flex flex-row items-center gap-1 pt-3 pb-2 text-slate-800">
+              <div class="flex flex-row items-center gap-2 pt-3 pb-2 text-slate-800">
                 <span class="grow text-lg font-semibold">
                   {{ satToBtcNm(liquid.satoshis).format('0,0.[0000]') }} BTC Liquid Is Being Created
                 </span>
@@ -103,13 +102,30 @@
             @click="openLiquidDetails(liquid)"
           >
             <BitcoinIcon class="text-argon-600/60 w-20" />
-            <div class="grow pl-2">
-              <div class="flex flex-row items-center gap-1 pt-3 pb-2 text-slate-800">
-                <span class="text-lg font-semibold">
+            <div class="liquid-row-content min-w-0 grow pl-2">
+              <div class="flex flex-row items-center gap-2 pt-3 pb-2 text-slate-800">
+                <span class="shrink-0 text-lg font-semibold">
                   {{ satToBtcNm(liquid.model.satoshis).format('0,0.[0000]') }} BTC Liquid
                 </span>
-                <span v-if="liquid.model.history[0]?.blockTime" class="font-light">
-                  created {{ dayjs().diff(dayjs(liquid.model.history[0].blockTime), 'days') }} days ago
+                <span v-if="liquid.model.history[0]?.blockTime" class="liquid-created-at shrink-0 font-light">
+                  created {{ dayjs(liquid.model.history[0].blockTime).fromNow() }}
+                </span>
+                <span
+                  v-if="liquid.model.history[0]?.blockTime && (liquid.isInMyVault || liquid.cosignerNames.length)"
+                  class="liquid-created-at shrink-0 font-light text-slate-400"
+                >
+                  ·
+                </span>
+                <span
+                  v-if="liquid.isInMyVault || liquid.cosignerNames.length"
+                  class="shrink-0 font-light text-slate-500"
+                >
+                  <template v-if="liquid.isInMyVault">In my Vault</template>
+                  <span v-if="liquid.isInMyVault && liquid.cosignerNames.length" class="mx-2 text-slate-400">·</span>
+                  <template v-if="liquid.cosignerNames.length">
+                    {{ liquid.cosignerNames.length === 1 ? 'Cosigner' : 'Cosigners' }}:
+                    {{ cosignerListFormatter.format(liquid.cosignerNames) }}
+                  </template>
                 </span>
                 <div class="flex grow flex-row items-center justify-end gap-x-2 text-right">
                   <span v-if="isRatchetPending(liquid.model.liquidId)" class="font-semibold text-slate-500">
@@ -179,13 +195,30 @@
               @click="openLiquidDetails(liquid)"
             >
               <BitcoinIcon class="text-argon-600/60 w-20" />
-              <div class="grow pl-2">
-                <div class="flex flex-row items-center gap-1 pt-3 pb-2 text-slate-800">
-                  <span class="text-lg font-semibold">
+              <div class="liquid-row-content min-w-0 grow pl-2">
+                <div class="flex flex-row items-center gap-2 pt-3 pb-2 text-slate-800">
+                  <span class="shrink-0 text-lg font-semibold">
                     {{ satToBtcNm(liquid.model.satoshis).format('0,0.[0000]') }} BTC Liquid
                   </span>
-                  <span v-if="liquid.model.closedAt" class="font-light">
-                    closed {{ dayjs().diff(dayjs(liquid.model.closedAt), 'days') }} days ago
+                  <span v-if="liquid.model.closedAt" class="liquid-created-at shrink-0 font-light">
+                    closed {{ dayjs(liquid.model.closedAt).fromNow() }}
+                  </span>
+                  <span
+                    v-if="liquid.model.closedAt && (liquid.isInMyVault || liquid.cosignerNames.length)"
+                    class="liquid-created-at shrink-0 font-light text-slate-400"
+                  >
+                    ·
+                  </span>
+                  <span
+                    v-if="liquid.isInMyVault || liquid.cosignerNames.length"
+                    class="shrink-0 font-light text-slate-500"
+                  >
+                    <template v-if="liquid.isInMyVault">In my Vault</template>
+                    <span v-if="liquid.isInMyVault && liquid.cosignerNames.length" class="mx-2 text-slate-400">·</span>
+                    <template v-if="liquid.cosignerNames.length">
+                      {{ liquid.cosignerNames.length === 1 ? 'Cosigner' : 'Cosigners' }}:
+                      {{ cosignerListFormatter.format(liquid.cosignerNames) }}
+                    </template>
                   </span>
                   <span class="ml-auto font-semibold text-slate-500">Archived</span>
                 </div>
@@ -212,9 +245,9 @@
                   <span class="tabular-nums">
                     <template v-if="liquid.position?.insuranceCost !== undefined">
                       {{ currency.symbol
-                      }}{{ microgonToMoneyNm(liquid.position.insuranceCost).format('0,0.00') }} insurance fees
+                      }}{{ microgonToMoneyNm(liquid.position.insuranceCost).format('0,0.00') }} securitization fees
                     </template>
-                    <template v-else>Insurance fees unavailable</template>
+                    <template v-else>Securitization fees unavailable</template>
                   </span>
                   <div class="flex grow flex-row items-stretch justify-center">
                     <span class="h-full w-px bg-slate-400/50" />
@@ -259,7 +292,7 @@
 import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import { bigIntMax, NetworkConfig, SATOSHIS_PER_BITCOIN, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { NetworkConfig, SATOSHIS_PER_BITCOIN, UnitOfMeasurement } from '@argonprotocol/apps-core';
 
 import BitcoinIcon from '../../assets/wallets/bitcoin.svg?component';
 import FormattedMoney from '../../components/FormattedMoney.vue';
@@ -267,18 +300,13 @@ import ProgressBar from '../../components/ProgressBar.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import type { BitcoinLiquid } from '../../lib/BitcoinLiquid.ts';
-import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../interfaces/IBitcoinLockRecord.ts';
 import type { IBitcoinLockSummary } from '../../interfaces/IBitcoinLockSummary.ts';
 import type { IBitcoinLiquidFinancialPosition } from '../../interfaces/IFinancialPosition.ts';
-import {
-  getBitcoinFissions,
-  getBitcoinLockCoupons,
-  getBitcoinLocks,
-  getBitcoinTransactionOperations,
-} from '../../stores/bitcoin.ts';
+import { getBitcoinFissions, getBitcoinLockCoupons, getBitcoinTransactionOperations } from '../../stores/bitcoin.ts';
 import { getConfig } from '../../stores/config.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { useFinancials } from '../../stores/financials.ts';
+import { getMyVault, getVaults } from '../../stores/vaults.ts';
 import BitcoinLiquidDetailOverlay from '../../overlays/BitcoinLiquidDetailOverlay.vue';
 
 type LiquidDisplay = {
@@ -287,6 +315,8 @@ type LiquidDisplay = {
   repaymentAmount: bigint;
   ratchet: ReturnType<BitcoinLiquid['getRatchetStatus']>;
   lockSummaries: IBitcoinLockSummary[];
+  isInMyVault: boolean;
+  cosignerNames: string[];
 };
 
 type PendingLiquidDisplay = {
@@ -300,51 +330,19 @@ dayjs.extend(relativeTime);
 const currency = getCurrency();
 const config = getConfig();
 const financials = useFinancials();
-const bitcoinLocks = getBitcoinLocks();
+const myVault = getMyVault();
+const vaults = getVaults();
 const bitcoinFissions = getBitcoinFissions();
 const { bitcoinLiquidCreate, bitcoinLiquidRatchet } = getBitcoinTransactionOperations();
 const selectedLiquidId = Vue.ref<number>();
 const bitcoinLockCoupons = getBitcoinLockCoupons();
 const { microgonToArgonNm, microgonToMoneyNm, satToBtcNm } = createNumeralHelpers(currency);
+const cosignerListFormatter = new Intl.ListFormat('en');
 
 const now = Vue.ref(Date.now());
 
 const activeFissions = Vue.computed(() => bitcoinFissions.getAll());
 const pendingLiquidCreateTxInfos = Vue.computed(() => bitcoinLiquidCreate.getPendingLiquidTxInfos());
-const activeLocks = Vue.computed(() =>
-  bitcoinLocks.getAllLocks().filter(lock => lock.status === BitcoinLockStatus.LockFunded),
-);
-
-const allocatedSatoshisByUtxoId = Vue.computed(() => {
-  const byUtxoId = new Map<IBitcoinLockRecord['utxoId'], bigint>();
-  const allocatedFissionIds = new Set<number>();
-  for (const fission of activeFissions.value) {
-    byUtxoId.set(fission.utxoId, (byUtxoId.get(fission.utxoId) ?? 0n) + fission.satoshis);
-    allocatedFissionIds.add(fission.fissionId);
-  }
-  for (const txInfo of pendingLiquidCreateTxInfos.value) {
-    for (const fission of txInfo.tx.metadataJson.fissions) {
-      if (allocatedFissionIds.has(fission.fissionId)) continue;
-      byUtxoId.set(fission.utxoId, (byUtxoId.get(fission.utxoId) ?? 0n) + fission.satoshis);
-      allocatedFissionIds.add(fission.fissionId);
-    }
-  }
-  return byUtxoId;
-});
-
-const lockAvailability = Vue.computed(() =>
-  activeLocks.value.map(lock => {
-    const allocatedSatoshis = allocatedSatoshisByUtxoId.value.get(lock.utxoId) ?? 0n;
-    const unallocatedSatoshis = bigIntMax(lock.fundedSatoshis - allocatedSatoshis, 0n);
-    return {
-      unallocatedSatoshis,
-    };
-  }),
-);
-
-const totalUnallocatedSatoshis = Vue.computed(() =>
-  lockAvailability.value.reduce((total, lock) => total + lock.unallocatedSatoshis, 0n),
-);
 const totalLiquidSatoshis = Vue.computed(() =>
   activeFissions.value.reduce((total, fission) => total + fission.satoshis, 0n),
 );
@@ -383,6 +381,14 @@ const liquidRows = Vue.computed<LiquidDisplay[]>(() =>
               minimumRatchetPercent: bitcoinFissions.data.minimumRatchetPercent,
             }),
       lockSummaries,
+      isInMyVault: lockSummaries.some(summary => summary.record.vaultId === myVault.vaultId),
+      cosignerNames: [
+        ...new Set(
+          lockSummaries
+            .filter(summary => summary.record.vaultId !== myVault.vaultId)
+            .map(summary => vaults.operatorNamesByVaultId[summary.record.vaultId] ?? `Vault ${summary.record.vaultId}`),
+        ),
+      ],
     };
   }),
 );
@@ -408,9 +414,10 @@ const pendingLiquidRows = Vue.computed<PendingLiquidDisplay[]>(() => {
 
   return rows;
 });
-const selectedLiquid = Vue.computed(
-  () => liquidRows.value.find(liquid => liquid.model.liquidId === selectedLiquidId.value)?.model,
-);
+const selectedLiquid = Vue.computed(() => {
+  const selected = liquidRows.value.find(liquid => liquid.model.liquidId === selectedLiquidId.value);
+  return selected?.position?.liquid ?? selected?.model;
+});
 
 const remainingFeeWaiver = Vue.computed(() => {
   const coupon = bitcoinLockCoupons.currentCoupon;
@@ -455,3 +462,15 @@ Vue.onUnmounted(() => {
   clearInterval(feeWaiverCountdownInterval);
 });
 </script>
+
+<style scoped>
+.liquid-row-content {
+  container-type: inline-size;
+}
+
+@container (max-width: 48rem) {
+  .liquid-created-at {
+    display: none;
+  }
+}
+</style>

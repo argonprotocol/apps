@@ -7,7 +7,7 @@ export interface IBitcoinSecuritizationTerm {
   startBlockHash?: string;
   startExtrinsicIndex?: number;
   securitizedSatoshis: bigint;
-  securitizationCoverageMicrogons: bigint | null;
+  securitizationCoverageMicrogons?: bigint;
   cumulativeNetSecurityFee: bigint;
   addedNetSecurityFee: bigint;
   endTick?: number;

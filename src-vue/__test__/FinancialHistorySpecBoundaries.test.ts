@@ -24,6 +24,7 @@ describe('financial history spec boundaries', () => {
     { specVersion: 150, priceField: 'lockedMarketRate' },
     { specVersion: 154, priceField: 'lockedTargetPrice' },
     { specVersion: 157, priceField: 'lockedTargetPrice' },
+    { specVersion: 158, priceField: 'lockedTargetPrice' },
   ] as const)('decodes the complete spec $specVersion Bitcoin lock storage shape', async variant => {
     const rawClient = createBitcoinLockClient(variant);
 
@@ -37,11 +38,11 @@ describe('financial history spec boundaries', () => {
       ownerAccount: accountId,
       securitizationRatio: 1,
       securitizedSatoshis: 488_274n,
-      fundingExpirationHeight: 923_363,
+      fundingExpirationHeight: 923_496,
       vaultClaimHeight: 975_911,
       openClaimHeight: 980_231,
       createdAtHeight: 923_351,
-      isFlexible: variant.specVersion === 157,
+      isFlexible: variant.specVersion >= 157,
       couponFeesPaid: variant.specVersion >= 146 ? 2_000_000n : 0n,
       createdAtArgonBlock: variant.specVersion >= 146 ? 472_519 : 0,
     });
@@ -542,6 +543,7 @@ function createBitcoinLockClient({
     [specVersion >= 150 ? 'isFunded' : 'isVerified']: 'bool',
     ...(specVersion < 146 ? { isRejectedNeedsRelease: 'bool' } : {}),
     ...(specVersion === 157 ? { isBackfill: 'bool' } : {}),
+    ...(specVersion >= 158 ? { isFlexible: 'bool' } : {}),
     fundHoldExtensions: 'BTreeMap<u64,u128>',
     ...(specVersion >= 146 ? { createdAtArgonBlock: specVersion >= 150 ? 'Compact<u32>' : 'u32' } : {}),
   };
@@ -569,12 +571,13 @@ function createBitcoinLockClient({
     [specVersion >= 150 ? 'isFunded' : 'isVerified']: true,
     ...(specVersion < 146 ? { isRejectedNeedsRelease: false } : {}),
     ...(specVersion === 157 ? { isBackfill: true } : {}),
+    ...(specVersion >= 158 ? { isFlexible: true } : {}),
     fundHoldExtensions: {},
     ...(specVersion >= 146 ? { createdAtArgonBlock: 472_519 } : {}),
   });
   return {
     consts: {
-      bitcoinLocks: { maxPendingConfirmationBlocks: numberCodec(12) },
+      bitcoinLocks: {},
     },
     query: {
       bitcoinLocks: {

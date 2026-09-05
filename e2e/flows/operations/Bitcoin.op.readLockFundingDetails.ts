@@ -59,7 +59,7 @@ export default new Operation<IBitcoinFlowContext, IReadLockFundingDetailsState>(
       flow,
       () =>
         flow.click({
-          selector: '[data-testid="ConnectorChannel"] [data-testid="ButtonCopy.copyContent()"]',
+          selector: '[data-testid="ConnectorChannel"] [data-testid="CopyToClipboard.copyContent()"]',
         }),
       value => value === visibleAddress,
     );

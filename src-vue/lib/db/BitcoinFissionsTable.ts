@@ -1,8 +1,8 @@
 import { convertFromSqliteFields, toSqlParams } from '../Utils.ts';
-import type { IBitcoinFissionRatchet, IBitcoinFissionRecord } from '../../interfaces/IBitcoinFissionRecord.ts';
+import type { IBitcoinFissionRatchetRecord, IBitcoinFissionRecord } from '../../interfaces/IBitcoinFissionRecord.ts';
 import { BaseTable, type IFieldTypes } from './BaseTable.ts';
 
-type StoredFissionRatchet = IBitcoinFissionRatchet & Pick<IBitcoinFissionRecord, 'fissionId'>;
+type StoredFissionRatchet = IBitcoinFissionRatchetRecord & Pick<IBitcoinFissionRecord, 'fissionId'>;
 
 export class BitcoinFissionsTable extends BaseTable {
   private readonly recordFieldTypes: IFieldTypes = {
@@ -25,9 +25,10 @@ export class BitcoinFissionsTable extends BaseTable {
       'amountBurned',
       'mintPending',
       'securityFee',
+      'securityFeeCoupon',
       'txFee',
-    ] satisfies (keyof IBitcoinFissionRatchet)[],
-    date: ['blockTime'] satisfies (keyof IBitcoinFissionRatchet)[],
+    ] satisfies (keyof IBitcoinFissionRatchetRecord)[],
+    date: ['blockTime'] satisfies (keyof IBitcoinFissionRatchetRecord)[],
   };
 
   public async fetchAll(ownerAccount: string): Promise<IBitcoinFissionRecord[]> {
@@ -44,6 +45,7 @@ export class BitcoinFissionsTable extends BaseTable {
          fissions.createdAtArgonBlock,
          fissions.ratchetNumber,
          fissions.lastUpdatedArgonBlock,
+         fissions.feeHistoryCompleteThroughBlock,
          fissions.createdAtTick,
          fissions.createdBlockHash,
          fissions.createdBlockTime,
@@ -81,6 +83,7 @@ export class BitcoinFissionsTable extends BaseTable {
          amountBurned,
          mintPending,
          securityFee,
+         securityFeeCoupon,
          txFee,
          blockNumber,
          tick,
@@ -93,7 +96,7 @@ export class BitcoinFissionsTable extends BaseTable {
       toSqlParams([ownerAccount]),
     );
     const ratchets = convertFromSqliteFields<StoredFissionRatchet[]>(storedRatchets, this.ratchetFieldTypes);
-    const ratchetsByFissionId = new Map<number, IBitcoinFissionRatchet[]>();
+    const ratchetsByFissionId = new Map<number, IBitcoinFissionRatchetRecord[]>();
 
     for (const { fissionId, ...ratchet } of ratchets) {
       const fissionRatchets = ratchetsByFissionId.get(fissionId) ?? [];
@@ -107,11 +110,19 @@ export class BitcoinFissionsTable extends BaseTable {
     }));
   }
 
-  public async upsertRecoveredHistory(records: readonly IBitcoinFissionRecord[]): Promise<void> {
-    for (const record of records) {
-      await this.upsertFission(record);
-      for (const ratchet of record.ratchets) await this.upsertRatchet(record, ratchet);
-    }
+  public async replaceRecords(records: readonly IBitcoinFissionRecord[]): Promise<void> {
+    await this.db.transaction(async transaction => {
+      for (const record of records) await transaction.bitcoinFissionsTable.replaceRecord(record);
+    });
+  }
+
+  public async replaceRecord(record: IBitcoinFissionRecord): Promise<void> {
+    await this.upsertFission(record);
+    await this.db.execute(
+      'DELETE FROM BitcoinFissionRatchets WHERE ownerAccount = ? AND fissionId = ?',
+      toSqlParams([record.ownerAccount, record.fissionId]),
+    );
+    for (const ratchet of record.ratchets) await this.upsertRatchet(record, ratchet);
   }
 
   private async upsertFission(record: IBitcoinFissionRecord): Promise<void> {
@@ -128,6 +139,7 @@ export class BitcoinFissionsTable extends BaseTable {
          createdAtArgonBlock,
          ratchetNumber,
          lastUpdatedArgonBlock,
+         feeHistoryCompleteThroughBlock,
          createdAtTick,
          createdBlockHash,
          createdBlockTime,
@@ -143,7 +155,7 @@ export class BitcoinFissionsTable extends BaseTable {
          btcPriceAtCloseMicrogons,
          createdAt,
          updatedAt
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(ownerAccount, fissionId) DO UPDATE SET
          origin = excluded.origin,
          liquidId = excluded.liquidId,
@@ -154,6 +166,7 @@ export class BitcoinFissionsTable extends BaseTable {
          createdAtArgonBlock = excluded.createdAtArgonBlock,
          ratchetNumber = excluded.ratchetNumber,
          lastUpdatedArgonBlock = excluded.lastUpdatedArgonBlock,
+         feeHistoryCompleteThroughBlock = excluded.feeHistoryCompleteThroughBlock,
          createdAtTick = excluded.createdAtTick,
          createdBlockHash = excluded.createdBlockHash,
          createdBlockTime = excluded.createdBlockTime,
@@ -181,6 +194,7 @@ export class BitcoinFissionsTable extends BaseTable {
         record.createdAtArgonBlock,
         record.ratchetNumber,
         record.lastUpdatedArgonBlock,
+        record.feeHistoryCompleteThroughBlock,
         record.createdAtTick,
         record.createdBlockHash,
         record.createdBlockTime,
@@ -200,7 +214,7 @@ export class BitcoinFissionsTable extends BaseTable {
     );
   }
 
-  private async upsertRatchet(record: IBitcoinFissionRecord, ratchet: IBitcoinFissionRatchet): Promise<void> {
+  private async upsertRatchet(record: IBitcoinFissionRecord, ratchet: IBitcoinFissionRatchetRecord): Promise<void> {
     await this.db.execute(
       `INSERT INTO BitcoinFissionRatchets (
          ownerAccount,
@@ -216,13 +230,14 @@ export class BitcoinFissionsTable extends BaseTable {
          amountBurned,
          mintPending,
          securityFee,
+         securityFeeCoupon,
          txFee,
          blockNumber,
          tick,
          blockHash,
          blockTime,
          extrinsicIndex
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(ownerAccount, fissionId, source, sourceRatchetIndex) DO UPDATE SET
          liquidId = excluded.liquidId,
          utxoId = excluded.utxoId,
@@ -233,6 +248,7 @@ export class BitcoinFissionsTable extends BaseTable {
          amountBurned = excluded.amountBurned,
          mintPending = excluded.mintPending,
          securityFee = excluded.securityFee,
+         securityFeeCoupon = excluded.securityFeeCoupon,
          txFee = excluded.txFee,
          blockNumber = excluded.blockNumber,
          tick = excluded.tick,
@@ -254,6 +270,7 @@ export class BitcoinFissionsTable extends BaseTable {
         ratchet.amountBurned,
         ratchet.mintPending,
         ratchet.securityFee,
+        ratchet.securityFeeCoupon,
         ratchet.txFee,
         ratchet.blockNumber,
         ratchet.tick,

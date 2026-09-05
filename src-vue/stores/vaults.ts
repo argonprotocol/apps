@@ -19,6 +19,7 @@ export { type Vaults };
 
 let vaults: Vaults;
 let myVault: MyVault;
+let myVaultBitcoinLocks: ReturnType<typeof getBitcoinLocks>;
 let crosschainHistory: CrosschainHistory;
 
 export function getVaults(): Vaults {
@@ -73,6 +74,7 @@ export function getMyVault(): MyVault {
     const vaults = getVaults();
     const transactionTracker = getTransactionTracker();
     const bitcoinLocks = getBitcoinLocks();
+    myVaultBitcoinLocks = bitcoinLocks;
     const keys = getWalletKeys();
     const miningFrames = getMiningFrames();
     const globalCouncil = new GlobalCouncil(dbPromise, keys, miningFrames, () => config.ethereumExecutionRpcUrl);
@@ -131,12 +133,30 @@ export function getMyVault(): MyVault {
       mintingAuthorities,
     );
     myVault.data = reactive(myVault.data) as any;
+    watch(
+      () => [myVault.data.isLoaded, bitcoinLocks.data.readiness] as const,
+      ([isMyVaultLoaded, bitcoinReadiness]) => {
+        if (isMyVaultLoaded && bitcoinReadiness === 'ready') restoreBitcoinLockCosign();
+      },
+      { immediate: true },
+    );
   }
   void myVault.load().catch(error => {
     console.error('[MyVault] Unable to load current state', error);
   });
+  restoreBitcoinLockCosign();
 
   return myVault;
+}
+
+function restoreBitcoinLockCosign(): void {
+  if (!myVault || !myVault.data.isLoaded || myVaultBitcoinLocks.data.readiness !== 'ready') {
+    return;
+  }
+
+  void myVault.bitcoinLockCosign.load().catch(error => {
+    console.error('[BitcoinLockCosign] Unable to restore pending operations', error);
+  });
 }
 
 export function getCrosschainHistory(): CrosschainHistory {

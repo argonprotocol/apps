@@ -17,6 +17,7 @@ import {
 import BigNumber from 'bignumber.js';
 import { toPlain, type TreasuryBondLotByIdResult } from '@argonprotocol/runtime-client';
 import type { IFinancialPosition } from '../interfaces/IFinancialPosition.ts';
+import type { IBitcoinFissionRecord } from '../interfaces/IBitcoinFissionRecord.ts';
 import type { IArgonAccountBalance, IArgonAccountSnapshot } from '../lib/WalletsForArgon.ts';
 import type { WalletForArgon } from '../lib/WalletForArgon.ts';
 import type { IMiningCohortFinancialRecord } from '../interfaces/db/ICohortFrameRecord.ts';
@@ -25,6 +26,7 @@ import type { IVaultRevenueEventsRecord } from '../lib/db/VaultRevenueEventsTabl
 import type { IBitcoinPublishedSecuritizationHistory } from '../lib/db/BitcoinSecuritizationHistoryTable.ts';
 import type { IWallet } from '../lib/Wallet.ts';
 import { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
+import { createBitcoinLiquids } from '../lib/BitcoinFissions.ts';
 
 type FinancialHistoryRestoreArgs = Parameters<typeof import('../lib/recovery/index.ts').restoreFinancialHistory>[0];
 
@@ -63,6 +65,7 @@ const mocks = vi.hoisted(() => {
       },
       recovery: {},
       load: vi.fn<() => Promise<void>>(),
+      currentLoadPromise: Promise.resolve(),
       getAllLocks: vi.fn((): object[] => []),
       createLockSummary: vi.fn((_lock: object) => createBitcoinSummary(0n)),
       isLockFunded: vi.fn(() => true),
@@ -74,19 +77,22 @@ const mocks = vi.hoisted(() => {
     bitcoinFissions: {
       data: {
         fissionsById: {} as Record<number, BitcoinFission>,
-        historyById: {} as Record<number, BitcoinFission>,
         readiness: 'idle' as 'idle' | 'loading' | 'ready' | 'error',
         financialRevision: 0,
       },
       recovery: {},
       ownerAccount: '5default',
       load: vi.fn<() => Promise<void>>(),
+      currentLoadPromise: Promise.resolve(),
       loadActive: vi.fn(async (_clientAt?: ArgonQueryClient) => [] as BitcoinFission[]),
       getAll: vi.fn(function (this: { data: { fissionsById: Record<number, BitcoinFission> } }) {
-        return Object.values(this.data.fissionsById);
+        return Object.values(this.data.fissionsById).filter(fission => fission.closedAtArgonBlock === undefined);
       }),
-      getHistory: vi.fn(function (this: { data: { historyById: Record<number, BitcoinFission> } }) {
-        return Object.values(this.data.historyById);
+      getArchived: vi.fn(function (this: { data: { fissionsById: Record<number, BitcoinFission> } }) {
+        return Object.values(this.data.fissionsById).filter(fission => fission.closedAtArgonBlock !== undefined);
+      }),
+      getRecords: vi.fn(function (this: { data: { fissionsById: Record<number, BitcoinFission> } }) {
+        return Object.values(this.data.fissionsById);
       }),
       getLiquids: vi.fn((): { liquidId: number; fissions: BitcoinFission[] }[] => []),
     },
@@ -168,7 +174,7 @@ const mocks = vi.hoisted(() => {
     },
     walletHistoryRecovery: { hasCompleteCoverage: vi.fn(async () => false) },
     db: {
-      bitcoinFissionsTable: { fetchAll: vi.fn<() => Promise<BitcoinFission[]>>(async () => []) },
+      bitcoinFissionsTable: { fetchAll: vi.fn<() => Promise<IBitcoinFissionRecord[]>>(async () => []) },
       bitcoinSecuritizationHistoryTable: {
         getPublishedSnapshot: vi.fn<() => Promise<IBitcoinPublishedSecuritizationHistory | undefined>>(
           async () => undefined,
@@ -286,6 +292,10 @@ vi.mock('../lib/recovery/index.ts', () => ({
 import { useFinancials } from '../stores/financials.ts';
 import { useFinancialHistory } from '../stores/financialHistory.ts';
 
+function getMockBitcoinLiquids() {
+  return createBitcoinLiquids({ fissions: Object.values(mocks.bitcoinFissions.data.fissionsById) });
+}
+
 describe('financials store lifecycle', () => {
   let pinia: Pinia;
 
@@ -335,14 +345,14 @@ describe('financials store lifecycle', () => {
     mocks.bitcoinFissions.loadActive.mockResolvedValue([]);
     mocks.bitcoinFissions.loadActive.mockClear();
     mocks.bitcoinFissions.getAll.mockClear();
-    mocks.bitcoinFissions.getHistory.mockClear();
+    mocks.bitcoinFissions.getArchived.mockClear();
+    mocks.bitcoinFissions.getRecords.mockClear();
     mocks.bitcoinFissions.data = {
       fissionsById: {},
-      historyById: {},
       readiness: 'ready',
       financialRevision: 1,
     };
-    mocks.bitcoinFissions.getLiquids.mockReturnValue([]);
+    mocks.bitcoinFissions.getLiquids.mockImplementation(getMockBitcoinLiquids);
     mocks.bitcoinFissions.getLiquids.mockClear();
     mocks.db.bitcoinFissionsTable.fetchAll.mockResolvedValue([]);
     mocks.db.bitcoinFissionsTable.fetchAll.mockClear();
@@ -517,16 +527,15 @@ describe('financials store lifecycle', () => {
     mocks.config.hasExtensionTreasury = true;
     mocks.bitcoinFissions.data = reactive({
       fissionsById: {},
-      historyById: {},
       readiness: 'loading',
       financialRevision: 0,
     });
-    mocks.bitcoinFissions.getLiquids.mockImplementation(() => {
-      return Object.values(mocks.bitcoinFissions.data.fissionsById).map(fission => ({
+    mocks.bitcoinFissions.getLiquids.mockImplementation(() =>
+      Object.values(mocks.bitcoinFissions.data.fissionsById).map(fission => ({
         liquidId: fission.liquidId,
         fissions: [fission],
-      }));
-    });
+      })),
+    );
     const finishFissionLoad = () => {
       mocks.bitcoinFissions.data.fissionsById[7] = new BitcoinFission({
         ownerAccount: '5default',
@@ -585,6 +594,14 @@ describe('financials store lifecycle', () => {
         },
       ],
     });
+    const recovered: IBitcoinFissionRecord = {
+      ...fission,
+      origin: 'created',
+      ratchets: fission.ratchets,
+      feeHistoryCompleteThroughBlock: 1,
+      createdAt: new Date('2026-07-16T12:00:00Z'),
+      updatedAt: new Date('2026-07-16T12:00:00Z'),
+    };
     mocks.config.hasExtensionTreasury = true;
     const priceIndex = new PriceIndex();
     priceIndex.btcUsdPrice = new BigNumber(1);
@@ -595,16 +612,13 @@ describe('financials store lifecycle', () => {
     mocks.bitcoinLocks.createLockSummary.mockReturnValue(summary);
     mocks.bitcoinFissions.data = reactive({
       fissionsById: {},
-      historyById: {},
       readiness: 'ready',
       financialRevision: 0,
     });
     mocks.bitcoinFissions.loadActive.mockImplementation(async () => {
       return Object.values(mocks.bitcoinFissions.data.fissionsById);
     });
-    mocks.db.bitcoinFissionsTable.fetchAll.mockImplementation(async () => {
-      return Object.values(mocks.bitcoinFissions.data.historyById);
-    });
+    mocks.db.bitcoinFissionsTable.fetchAll.mockImplementation(async () => []);
 
     const financials = useFinancials();
 
@@ -616,8 +630,7 @@ describe('financials store lifecycle', () => {
         ),
       ).toBe(false);
     });
-    mocks.bitcoinFissions.data.fissionsById[fission.fissionId] = fission;
-    mocks.bitcoinFissions.data.historyById[fission.fissionId] = fission;
+    mocks.bitcoinFissions.data.fissionsById[fission.fissionId] = new BitcoinFission(recovered);
     mocks.bitcoinFissions.data.financialRevision += 1;
 
     await vi.waitFor(() => {
@@ -633,7 +646,8 @@ describe('financials store lifecycle', () => {
   });
 
   it('separates funded Bitcoin wallet holdings from the amount allocated to active Liquids', async () => {
-    const summary = createBitcoinSummary(0n);
+    const summary = createBitcoinSummary(0n, 40_000n);
+    summary.record = reactive(summary.record) as typeof summary.record;
     const fission = new BitcoinFission({
       ownerAccount: '5default',
       fissionId: 7,
@@ -660,10 +674,15 @@ describe('financials store lifecycle', () => {
     const financials = useFinancials();
 
     await vi.waitFor(() => expect(financials.savingsIsLoaded).toBe(true));
-    expect(financials.bitcoinWalletTotalSatoshis).toBe(100_000n);
+    expect(financials.bitcoinWalletTotalSatoshis).toBe(60_000n);
     expect(financials.liquidTotalSatoshis).toBe(40_000n);
     expect(financials.savingsTotalValue).toBe(23n);
-    expect(mocks.currency.convertSatToMicrogon).toHaveBeenCalledWith(100_000n);
+    expect(mocks.currency.convertSatToMicrogon).toHaveBeenCalledWith(60_000n);
+
+    summary.record.fissionedSatoshis = summary.record.satoshis;
+    await nextTick();
+
+    expect(financials.bitcoinWalletTotalSatoshis).toBe(0n);
   });
 
   it.each([
@@ -861,7 +880,7 @@ describe('financials store lifecycle', () => {
 
     const financials = useFinancials();
 
-    await vi.waitFor(() => expect(financials.savingsTotalPending).toBe(50n));
+    await vi.waitFor(() => expect(financials.bitcoinLiquidPendingMintMicrogons).toBe(50n));
     expect(financials.savingsTotalValue).toBe(100n);
     expect(financials.liquidNativeBalances.micronots).toBe(0n);
     expect(financials.financialPositionAggregate.groupSummaries.bonds.currentValue).toBe(20_000_000n);
@@ -880,7 +899,7 @@ describe('financials store lifecycle', () => {
       | undefined;
     balanceListener!();
 
-    await vi.waitFor(() => expect(financials.savingsTotalPending).toBe(0n));
+    await vi.waitFor(() => expect(financials.bitcoinLiquidPendingMintMicrogons).toBe(0n));
     expect(financials.savingsTotalValue).toBe(100n);
     expect(financials.liquidNativeBalances.micronots).toBe(0n);
     expect(financials.financialPositionAggregate.groupSummaries.bonds.currentValue).toBe(20_000_000n);
@@ -1071,6 +1090,25 @@ describe('financials store lifecycle', () => {
     expect(mocks.walletsForArgon.readAccountSnapshot).toHaveBeenCalledOnce();
   });
 
+  it('runs background Bitcoin history recovery from domain readiness without reloading current state', async () => {
+    mocks.config.hasExtensionTreasury = true;
+    mocks.config.walletAccountsHadPreviousLife = true;
+    mocks.getEnabledFinancialHistoryDomains.mockReturnValue(['bitcoin']);
+    mocks.needsFinancialHistoryRecovery.mockResolvedValue(true);
+    mocks.bitcoinLocks.load.mockImplementation(() => new Promise<void>(() => undefined));
+    mocks.bitcoinFissions.load.mockImplementation(() => new Promise<void>(() => undefined));
+    mocks.restoreFinancialHistory.mockImplementation(async args => {
+      args?.onDomainComplete?.({ domain: 'bitcoin', asOfBlock: 1 });
+      return { asOfBlock: 1, importedBlockCount: 0 };
+    });
+
+    const financialHistory = useFinancialHistory();
+
+    await vi.waitFor(() => expect(mocks.restoreFinancialHistory).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(financialHistory.historyRecoveryByDomain.bitcoin.state).toBe('ready'));
+    expect(financialHistory.historyRecovery.state).toBe('ready');
+  });
+
   it('does not start global history recovery during ordinary app loading', async () => {
     mocks.config.hasExtensionTreasury = true;
     mocks.getEnabledFinancialHistoryDomains.mockReturnValue(['bitcoin', 'bonds']);
@@ -1187,6 +1225,14 @@ describe('financials store lifecycle', () => {
         },
       ],
     });
+    const recovered: IBitcoinFissionRecord = {
+      ...fission,
+      origin: 'created',
+      ratchets: fission.ratchets,
+      feeHistoryCompleteThroughBlock: finalized.blockNumber,
+      createdAt: new Date(finalized.blockTime),
+      updatedAt: new Date(finalized.blockTime),
+    };
     mocks.config.hasExtensionTreasury = true;
     const priceIndex = new PriceIndex();
     priceIndex.btcUsdPrice = new BigNumber(1);
@@ -1198,8 +1244,7 @@ describe('financials store lifecycle', () => {
     mocks.blockWatch.latestHeaders = [finalized, best];
     mocks.bitcoinLocks.getAllLocks.mockReturnValue([summary.record]);
     mocks.bitcoinLocks.createLockSummary.mockReturnValue(summary);
-    mocks.bitcoinFissions.data.fissionsById[fission.fissionId] = fission;
-    mocks.bitcoinFissions.data.historyById[fission.fissionId] = fission;
+    mocks.bitcoinFissions.data.fissionsById[fission.fissionId] = new BitcoinFission(recovered);
     mocks.db.bitcoinSecuritizationHistoryTable.getPublishedSnapshot.mockResolvedValue({
       asOfBlock: finalized.blockNumber,
       terms: [
@@ -1385,7 +1430,7 @@ function createAccountSnapshot(
   };
 }
 
-function createBitcoinSummary(pendingLiquidity: bigint) {
+function createBitcoinSummary(pendingLiquidity: bigint, fissionedSatoshis = 0n) {
   const record = {
     uuid: 'bitcoin-lock',
     utxoId: 1,
@@ -1394,6 +1439,7 @@ function createBitcoinSummary(pendingLiquidity: bigint) {
     liquidityPromised: 50n,
     lockedTargetPrice: 100n,
     isHistoryRecoveryPending: false,
+    fissionedSatoshis,
     ratchets: [
       {
         mintAmount: 50n,

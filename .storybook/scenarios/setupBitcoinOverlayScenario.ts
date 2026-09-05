@@ -246,6 +246,7 @@ export function setupBitcoinOverlayScenario() {
       oracleBitcoinBlockHeight: 250_020,
       bitcoinNetwork: BitcoinNetwork.Bitcoin,
       isReconciliationPending: false,
+      readiness: 'ready',
     }),
     orphanReleases: {},
     utxoTracking,
@@ -257,7 +258,7 @@ export function setupBitcoinOverlayScenario() {
     getTable: fn(async () => ({
       getUtxoIdByUuid: fn(async (uuid: string) => locks.find(candidate => candidate.uuid === uuid)?.utxoId),
       getByUtxoId: fn(async (utxoId: number) => locks.find(candidate => candidate.utxoId === utxoId)),
-      setCurrentLockFunded: fn(async () => undefined),
+      updateFromCurrentLock: fn(async () => undefined),
     })),
     getLockProcessingDetails: fn(() => lockProcessing),
     getLockProcessingError: fn((record: IBitcoinLockRecord) => record.blockExtrinsicErrorJson?.message ?? ''),
@@ -283,6 +284,11 @@ export function setupBitcoinOverlayScenario() {
     getLockTermProgress: fn(() => 58),
     getMintPercent: fn(() => 64),
     acknowledgeFailed: fn(async () => undefined),
+  });
+  Object.defineProperty(bitcoinLocks, 'currentLoadPromise', {
+    configurable: true,
+    writable: true,
+    value: Promise.resolve(),
   });
   mocked(getBitcoinLocks).mockReturnValue(bitcoinLocks);
   const getBitcoinLock = spyOn(BitcoinLock, 'get').mockImplementation(async (_client, utxoId) => {
@@ -350,6 +356,11 @@ export function setupBitcoinOverlayScenario() {
       fissionsById: { [currentFission.fissionId]: currentFission },
     }),
     load: fn(async () => undefined),
+  });
+  Object.defineProperty(bitcoinFissions, 'currentLoadPromise', {
+    configurable: true,
+    writable: true,
+    value: Promise.resolve(),
   });
   const bitcoinLiquidRatchets: BitcoinLiquidRatchet = Object.assign(Object.create(BitcoinLiquidRatchet.prototype), {
     previewRatchet: fn(async () => ratchetPreview.value),
@@ -739,7 +750,7 @@ function createBitcoinLockSummary(lock: IBitcoinLockRecord): IBitcoinLockSummary
   };
 }
 
-function createScenarioTransactionInfo<Metadata>(options: {
+export function createScenarioTransactionInfo<Metadata>(options: {
   extrinsicType: ExtrinsicType;
   metadata: Metadata;
   status?: TransactionStatus;

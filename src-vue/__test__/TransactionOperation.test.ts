@@ -54,6 +54,38 @@ it('resumes restored transactions at load without restarting them when pending s
   expect(operation.finalizationCount).toBe(1);
 });
 
+it('retries failed post-processing on the finalized transaction', async () => {
+  const txInfo = new TransactionInfo({
+    tx: {
+      id: 1,
+      status: TransactionStatus.Finalized,
+      extrinsicType: ExtrinsicType.Transfer,
+      isFinalized: true,
+      createdAt: new Date(),
+    } as ITransactionRecord,
+    txResult: {
+      isFinalized: true,
+      waitForFinalizedBlock: Promise.resolve(),
+    } as unknown as TxResult,
+  });
+  const transactionTracker = {
+    data: { txInfos: [txInfo] },
+  } as unknown as TransactionTracker;
+  const operation = new TestTransactionOperation(transactionTracker);
+  operation.finalizationError = new Error('local publication failed');
+
+  operation.resume(txInfo);
+  await expect(txInfo.waitForPostProcessing).rejects.toThrow('local publication failed');
+  expect(operation.readPendingTransactions()).toEqual([txInfo]);
+
+  operation.finalizationError = undefined;
+  operation.resume(txInfo);
+  await txInfo.waitForPostProcessing;
+
+  expect(operation.finalizationCount).toBe(2);
+  expect(operation.readPendingTransactions()).toEqual([]);
+});
+
 it('finds the pending insurance transaction for a restored Bitcoin channel', () => {
   const otherChannel = createResecuritizationTxInfo(1, 100);
   const pendingChannel = createResecuritizationTxInfo(2, 101);
@@ -94,6 +126,7 @@ function createResecuritizationTxInfo(id: number, utxoId: number): TransactionIn
 
 class TestTransactionOperation extends TransactionOperation<void, unknown, TransactionOperationBuild<unknown>> {
   public finalizationCount = 0;
+  public finalizationError?: Error;
   protected readonly extrinsicType = ExtrinsicType.Transfer;
 
   public readPendingTransactions(): TransactionInfo[] {
@@ -114,5 +147,6 @@ class TestTransactionOperation extends TransactionOperation<void, unknown, Trans
 
   protected async onFinalized(): Promise<void> {
     this.finalizationCount += 1;
+    if (this.finalizationError) throw this.finalizationError;
   }
 }

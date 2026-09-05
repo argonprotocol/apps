@@ -11,6 +11,7 @@ import {
 } from '@argonprotocol/apps-core';
 import { TypeRegistry } from '@polkadot/types/create';
 import type { QueryableModuleStorage } from '@polkadot/api-base/types/storage';
+import { decorateConstants } from '@polkadot/types/metadata/decorate/constants';
 import { decorateStorage } from '@polkadot/types/metadata/decorate/storage';
 import { Metadata } from '@polkadot/types/metadata';
 import { StorageKey } from '@polkadot/types/primitive';
@@ -27,7 +28,12 @@ export class CapturedHistoryReader {
   private readonly database: DatabaseSync;
   private readonly runtimes = new Map<
     number,
-    { registry: TypeRegistry; specVersion: number; storage: ReturnType<typeof decorateStorage> }
+    {
+      consts: ReturnType<typeof decorateConstants>;
+      registry: TypeRegistry;
+      specVersion: number;
+      storage: ReturnType<typeof decorateStorage>;
+    }
   >();
   private readonly hasRecoveryStorage: boolean;
   private readonly hasRecoveryHeaders: boolean;
@@ -313,11 +319,12 @@ export class CapturedHistoryReader {
     }
 
     return runtimeClient({
+      consts: runtime.consts,
       query,
       runtimeVersion: {
         specVersion: runtime.registry.createType('u32', runtime.specVersion),
       },
-    }) as ArgonApi;
+    }) as unknown as ArgonApi;
   }
 
   public async getEventsWithSpec(
@@ -424,7 +431,12 @@ export class CapturedHistoryReader {
   private getRuntime(
     blockNumber: number,
     blockRecord?: { specVersion: number; metadata: Uint8Array },
-  ): { registry: TypeRegistry; specVersion: number; storage: ReturnType<typeof decorateStorage> } {
+  ): {
+    consts: ReturnType<typeof decorateConstants>;
+    registry: TypeRegistry;
+    specVersion: number;
+    storage: ReturnType<typeof decorateStorage>;
+  } {
     blockRecord ??= this.database
       .prepare(
         `SELECT blocks.specVersion, runtime.metadata
@@ -441,6 +453,7 @@ export class CapturedHistoryReader {
       const metadata = new Metadata(registry, blockRecord.metadata);
       registry.setMetadata(metadata, undefined, undefined, true);
       runtime = {
+        consts: decorateConstants(registry, metadata.asLatest, metadata.version),
         registry,
         specVersion: blockRecord.specVersion,
         storage: decorateStorage(registry, metadata.asLatest, metadata.version),

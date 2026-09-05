@@ -108,6 +108,28 @@ runWithReplay('Bitcoin financial history replay corpus', () => {
                 ).toBeGreaterThan(0);
               }
             }
+            if (accountId === '5ERobxNTfGFsGEboBavwiHEVGDYuWquVwQTPNkhMZJAguSro') {
+              expect(recovered.locks).toEqual([
+                expect.objectContaining({
+                  utxoId: 112,
+                  status: BitcoinLockStatus.LockFailedAcknowledged,
+                  fundedSatoshis: 0n,
+                }),
+              ]);
+              expect(recovered.fissions).toEqual([]);
+            }
+            if (accountId === '5Fs8wHUnwBHwXdKvUTNMKyENQrm92Rf2B96GCjqGANvcxhrL') {
+              expect(recovered.locks.find(record => record.utxoId === 110)?.couponFeesPaid).toBe(177_420_171n);
+              expect(recovered.fissions.find(record => record.utxoId === 110)?.ratchets[0]).toMatchObject({
+                securityFee: 144_528_009n,
+                securityFeeCoupon: 144_528_009n,
+              });
+              expect(recovered.securitization?.terms.find(term => term.utxoId === 110)).toMatchObject({
+                securitizedSatoshis: 6_692_135n,
+                cumulativeNetSecurityFee: 0n,
+                addedNetSecurityFee: 0n,
+              });
+            }
             recoveredLockCount += recovered.locks.length;
           } finally {
             await db.close();
@@ -171,6 +193,7 @@ async function replayBitcoinAccount(args: {
         getPendingLocks: () => bitcoinLocks.data.pendingLocks,
         waitForLockIdle: async () => undefined,
         onHistoryRecoveryComplete: () => undefined,
+        onHistoryPublished: () => undefined,
         utxoTracking: bitcoinLocks.utxoTracking,
         dbPromise: Promise.resolve(db),
         insertPending: details =>
@@ -231,14 +254,28 @@ async function replayBitcoinAccount(args: {
         }),
       );
       return {
-        locks: (await db.bitcoinLocksTable.fetchAll()).map(({ updatedAt: _updatedAt, ...lock }) => lock),
+        locks: (await db.bitcoinLocksTable.fetchAll()).map(
+          ({ updatedAt: _updatedAt, fundingUtxo, utxos, ...lock }) => ({
+            ...lock,
+            fundingUtxo: fundingUtxo ? omitUpdatedAt(fundingUtxo) : fundingUtxo,
+            utxos: utxos.map(omitUpdatedAt),
+          }),
+        ),
         fissions: (await db.bitcoinFissionsTable.fetchAll(accountId)).map(
           ({ updatedAt: _updatedAt, ...fission }) => fission,
         ),
-        utxos: (await db.bitcoinUtxosTable.fetchAll()).map(({ updatedAt: _updatedAt, ...utxo }) => utxo),
+        securitization: await db.bitcoinSecuritizationHistoryTable.getPublishedSnapshot(accountId),
+        utxos: (await db.bitcoinUtxosTable.fetchAll()).map(omitUpdatedAt),
         hdKeys: hdKeys.flat(),
       };
     },
   });
   return { blocks, recovered, results };
+}
+
+function omitUpdatedAt<T extends { updatedAt?: unknown }>({
+  updatedAt: _updatedAt,
+  ...record
+}: T): Omit<T, 'updatedAt'> {
+  return record;
 }

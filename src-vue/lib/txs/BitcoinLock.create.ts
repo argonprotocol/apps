@@ -110,6 +110,7 @@ export class BitcoinLockCreate extends TransactionOperation<
     const build = await this.build(input);
     return {
       ...build,
+      operationKey: this.getOperationKey(input),
       tx: build.txs[0],
       availableBalance: build.availableBalance,
       canAfford: build.canAfford,

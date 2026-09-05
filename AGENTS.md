@@ -38,6 +38,7 @@ These rules apply to implementation and review in this repository. Keep changes 
 - Domain stores start their idempotent current-state load on first access. Ordinary consumers observe readiness; they do not call or await domain `load()` methods.
 - Treat background domain load failures as retryable unless application identity or durable local state is unusable. Do not route transient chain, block, or service failures through the global fatal-error dialog.
 - Map the user-visible state at every durable transition. Recovery, replay, refresh, or migration must not replace valid visible data with less information merely because newer reconstruction is incomplete. Preserve last-known-valid state when safe, identify exactly what becomes unavailable, and publish repaired state atomically at its declared boundary.
+- Historical recovery must define its coherent publication boundary. Keep reconstructed state detached until every fact required at that boundary is coherent; never expose mid-replay state, trigger alerts from replay state, or replace previously valid state with a partial reconstruction.
 - Every visible loading, pending, blocked, or recovery state must have a reachable exit: success, bounded retry, explicit quarantine, or an actionable terminal error. Verify that already-mounted consumers cannot remain stuck after the underlying state becomes valid.
 - Run the `stateful-workflow-review` skill for changes involving persistence, events, replay, recovery, retries, migrations, backfills, subscriptions, or reconstructed state.
 

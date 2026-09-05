@@ -261,7 +261,7 @@ export class BitcoinLocksTable extends BaseTable {
     if (createdAt) lock.createdAt = createdAt;
   }
 
-  public async setCurrentLockFunded(lock: IBitcoinLockRecord, currentLock: IBitcoinLock): Promise<void> {
+  public async updateFromCurrentLock(lock: IBitcoinLockRecord, currentLock: IBitcoinLock): Promise<void> {
     if (lock.status !== BitcoinLockStatus.Releasing && lock.status !== BitcoinLockStatus.Released) {
       lock.status = BitcoinLockStatus.LockFunded;
     }

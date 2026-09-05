@@ -40,6 +40,31 @@ describe('EthereumInboundTransferTracker integration', () => {
     getEthereumGatewayPauseReasonMock.mockResolvedValue(undefined);
   });
 
+  it('retries pending-transfer restoration after a transient database failure', async () => {
+    const db = await createTestDb();
+    const fetchAll = vi
+      .spyOn(db.crosschainInboundTransfersTable, 'fetchAll')
+      .mockRejectedValueOnce(new Error('temporary inbound read failure'));
+    const walletKeys = createMockWalletKeys();
+    const mainchainClient = createMainchainClient({ getProvenNonce: () => 0n });
+    const tracker = new EthereumInboundTransferTracker(
+      Promise.resolve(db),
+      createTransactionTracker(),
+      createBlockWatch(mainchainClient),
+      walletKeys,
+      undefined,
+      undefined,
+      {
+        resolveOperatorHost: async () => undefined,
+        requestEthereumGatewayCatchUp: vi.fn(),
+      },
+    );
+
+    await expect(tracker.load()).rejects.toThrow('temporary inbound read failure');
+    await expect(tracker.load()).resolves.toBeUndefined();
+    expect(fetchAll).toHaveBeenCalledTimes(2);
+  });
+
   it('persists a confirmed transfer and silently nudges the upstream server until Argon catches up', async () => {
     const db = await createTestDb();
     const walletKeys = createMockWalletKeys();
@@ -955,7 +980,7 @@ describe('EthereumInboundTransferTracker integration', () => {
       needsAttention: false,
       error: '',
     });
-    expect((await db.crosschainInboundTransfersTable.get(persistedRecord.id))?.failureReason).toBeNull();
+    expect((await db.crosschainInboundTransfersTable.get(persistedRecord.id))?.failureReason).toBeUndefined();
 
     const finalizedProgress = {
       blockNumber: 54,
@@ -1072,7 +1097,7 @@ describe('EthereumInboundTransferTracker integration', () => {
     await vi.waitFor(async () => {
       const persisted = await db.crosschainInboundTransfersTable.get(activeTransfer!.id);
       expect(persisted?.status).toBe(CrosschainInboundTransferStatus.ArgonFinalized);
-      expect(persisted?.failureReason).toBeNull();
+      expect(persisted?.failureReason).toBeUndefined();
       expect(activeTransfer?.transferState.needsAttention).toBe(false);
       expect(activeTransfer?.transferState.error).toBe('');
     });
@@ -1311,7 +1336,7 @@ describe('EthereumInboundTransferTracker integration', () => {
     await vi.waitFor(async () => {
       const persisted = await db.crosschainInboundTransfersTable.get(activeTransfer!.id);
       expect(persisted?.status).toBe(CrosschainInboundTransferStatus.ArgonFinalized);
-      expect(persisted?.failureReason).toBeNull();
+      expect(persisted?.failureReason).toBeUndefined();
       expect(activeTransfer?.transferState.needsAttention).toBe(false);
       expect(activeTransfer?.transferState.error).toBe('');
     });

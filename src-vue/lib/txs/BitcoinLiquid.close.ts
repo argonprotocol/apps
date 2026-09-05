@@ -90,7 +90,6 @@ export class BitcoinLiquidClose extends TransactionOperation<
   }
 
   protected async onFinalized(txInfo: TransactionInfo<IBitcoinLiquidCloseMetadata>): Promise<void> {
-    await this.fissions.load();
     await this.transactionTracker.ensureStoredEvents(txInfo);
     await this.fissions.recordFinalizedTransaction(txInfo);
   }

@@ -197,7 +197,7 @@ const returnRows = Vue.computed(() => {
 
     let label = financialMenuLabels[group.group];
     if (group.group === 'ethereum') label = 'Stable swaps';
-    else if (group.group === 'bitcoin') label = 'Bitcoin Liquid';
+    else if (group.group === 'bitcoin') label = 'Bitcoin Liquids';
 
     return [{ ...group, key: group.group, label }];
   });

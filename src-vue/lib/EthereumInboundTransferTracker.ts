@@ -101,12 +101,14 @@ export class EthereumInboundTransferTracker {
   ) {}
 
   public async load(): Promise<void> {
-    if (this.#loadPromise) {
-      return this.#loadPromise;
-    }
+    if (this.#loadPromise) return this.#loadPromise;
 
-    this.#loadPromise = this.loadPendingMoves();
-    return this.#loadPromise;
+    const loadPromise = this.loadPendingMoves().catch(error => {
+      if (this.#loadPromise === loadPromise) this.#loadPromise = undefined;
+      throw error;
+    });
+    this.#loadPromise = loadPromise;
+    return loadPromise;
   }
 
   public getTransfer(id: string): IEthereumInboundActiveTransfer | undefined {
@@ -267,7 +269,6 @@ export class EthereumInboundTransferTracker {
       return;
     }
 
-    this.#hasLoadedPendingMoves = true;
     await this.transactionTracker.load();
     await this.blockWatch.start();
 
@@ -287,6 +288,7 @@ export class EthereumInboundTransferTracker {
       this.data.latestTransferIdByToken[moveToken] ??= record.id;
       void this.resumeTrackedMove(record);
     }
+    this.#hasLoadedPendingMoves = true;
   }
 
   private async resumeTrackedMove(record: ICrosschainInboundTransferRecord) {

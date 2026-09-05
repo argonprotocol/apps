@@ -72,6 +72,15 @@
       </DropdownMenuRoot>
 
       <div>
+        <button
+          v-if="loadError"
+          type="button"
+          class="mr-4 cursor-pointer font-semibold underline"
+          :disabled="isLoadingTransfers"
+          @click="loadPendingTransfers"
+        >
+          {{ isLoadingTransfers ? 'Retrying...' : 'Retry' }}
+        </button>
         <a :href="`${NetworkConfig.websiteHost}/docs/bridgeless-transfers`" target="_blank">
           Learn how transfers work --&gt;
         </a>
@@ -274,14 +283,23 @@ function formatStartedAt(timestamp: number) {
 
 Vue.onMounted(async () => {
   progressRefreshInterval = setInterval(() => (progressNow.value = Date.now()), 1_000);
-  try {
-    await Promise.all([inboundTracker.load(), outboundTracker.load(), wallets.bitcoinWallet.loadChannels()]);
-  } catch (error) {
-    loadError.value = error instanceof Error ? error.message : 'Unable to load all pending transfers.';
-  } finally {
-    isLoadingTransfers.value = false;
-  }
+  await loadPendingTransfers();
 });
+
+async function loadPendingTransfers(): Promise<void> {
+  isLoadingTransfers.value = true;
+  loadError.value = '';
+  const results = await Promise.allSettled([
+    inboundTracker.load(),
+    outboundTracker.load(),
+    wallets.bitcoinWallet.loadChannels(),
+  ]);
+  const errors = results
+    .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+    .map(result => (result.reason instanceof Error ? result.reason.message : String(result.reason)));
+  loadError.value = errors.join(' ');
+  isLoadingTransfers.value = false;
+}
 
 Vue.onUnmounted(() => {
   if (progressRefreshInterval) clearInterval(progressRefreshInterval);

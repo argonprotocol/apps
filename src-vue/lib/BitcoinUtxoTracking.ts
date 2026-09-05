@@ -300,7 +300,7 @@ export default class BitcoinUtxoTracking {
       timeOfLastBlock: dayjs.utc(timeOfLastBlock),
     });
 
-    const progressPct = blockProgress.getProgress();
+    const { progressPct } = blockProgress.getProgress();
     const confirmations = blockProgress.getConfirmations();
     expectedConfirmations = blockProgress.expectedConfirmations;
 
@@ -338,7 +338,7 @@ export default class BitcoinUtxoTracking {
       timeOfLastBlock: dayjs.utc(timeOfLastBlock),
     });
 
-    const progressPct = blockProgress.getProgress();
+    const { progressPct } = blockProgress.getProgress();
     const confirmations = blockProgress.getConfirmations();
     expectedConfirmations = blockProgress.expectedConfirmations;
 

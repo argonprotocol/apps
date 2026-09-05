@@ -35,12 +35,17 @@ export const BitcoinWalletHolding: Story = {
     const body = within(canvasElement.ownerDocument.body);
 
     await userEvent.click(body.getByRole('button', { name: 'View portfolio details' }));
+    await userEvent.click(await body.findByRole('button', { name: 'Toggle Internal App Wallet tokens' }));
+    const bitcoinWalletRow = body.getByText(/ BTC$/).parentElement;
+    if (!bitcoinWalletRow) throw new Error('Internal wallet BTC row is missing');
+    await expect(bitcoinWalletRow).toBeVisible();
+    await expect(bitcoinWalletRow).not.toHaveTextContent('₳0.00');
+    await expect(body.getByText(/ARGN waiting to mint$/)).toBeVisible();
     await userEvent.click(await body.findByRole('button', { name: 'Toggle Bitcoin details' }));
-    const channelBitcoinRow = body.getByText('Channel BTC').parentElement;
-    if (!channelBitcoinRow) throw new Error('Channel BTC row is missing');
-    await expect(channelBitcoinRow).toBeVisible();
-    await expect(channelBitcoinRow).not.toHaveTextContent('₳0.00');
-    await expect(body.getByText('Liquid')).toBeVisible();
+    await expect(body.getByText('Locked BTC')).toBeVisible();
+    await expect(body.getByText('Debt')).toBeVisible();
+    await expect(body.queryByText('Liquid Value')).not.toBeInTheDocument();
+    await expect(body.queryByText('Channel BTC')).not.toBeInTheDocument();
     await expect(body.queryByText('Bitcoin in wallet')).not.toBeInTheDocument();
     await expect(body.queryByText('Pending mint')).not.toBeInTheDocument();
   },
@@ -54,8 +59,12 @@ export const SettledBitcoinLiquid: Story = {
     const body = within(canvasElement.ownerDocument.body);
 
     await userEvent.click(body.getByRole('button', { name: 'View portfolio details' }));
+    await userEvent.click(await body.findByRole('button', { name: 'Toggle Internal App Wallet tokens' }));
+    await expect(body.queryByText(/ARGN waiting to mint$/)).not.toBeInTheDocument();
     await userEvent.click(await body.findByRole('button', { name: 'Toggle Bitcoin details' }));
-    await expect(body.getByText('Channel BTC')).toBeVisible();
-    await expect(body.getByText('Liquid')).toBeVisible();
+    await expect(body.getByText('Locked BTC')).toBeVisible();
+    await expect(body.getByText('Debt')).toBeVisible();
+    await expect(body.queryByText('Liquid Value')).not.toBeInTheDocument();
+    await expect(body.queryByText('Channel BTC')).not.toBeInTheDocument();
   },
 };

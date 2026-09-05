@@ -279,6 +279,7 @@ it('keeps a funding expiration estimate stable until the oracle Bitcoin height c
   const blockWatch = {
     start: async () => undefined,
     events: { on: () => () => undefined },
+    finalizedBlockHeader: { blockNumber: 0, blockHash: '0x0' },
     bestBlockHeader: { blockNumber: 0, blockHash: '0x0' },
     getFinalizedApi: vi.fn(async () => archiveClient),
   };

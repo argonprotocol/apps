@@ -74,9 +74,13 @@
       :class="[props.indentLeft ? 'pl-10' : '', props.indentRight ? 'pr-10' : '']"
     >
       <BitcoinIcon class="h-6 w-6" />
-      <div class="grow">{{ satToBtcNm(props.satoshis).format('0,0.[00000000]') }} BTC</div>
+      <div class="flex grow items-center gap-1">
+        <span>{{ satToBtcNm(props.satoshis).format('0,0.[00000000]') }} BTC</span>
+        <slot name="bitcoinAction" />
+      </div>
       <div>{{ currency.symbol }}{{ satToMoneyNm(props.satoshis).format('0,0.00') }}</div>
     </li>
+    <slot name="bitcoinDetails" />
     <li v-if="props.microgonsToMint" class="relative flex flex-row gap-x-2 border-b border-slate-400/50 py-2">
       <ArgonIcon class="h-6 w-6" />
       <div class="grow">{{ microgonToArgonNm(props.microgonsToMint).format('0,0.[00]') }} ARGN waiting to mint</div>

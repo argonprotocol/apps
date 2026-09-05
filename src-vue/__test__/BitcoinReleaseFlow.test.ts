@@ -167,7 +167,7 @@ describe('BitcoinLocks release status sync', () => {
   });
 
   it('release flow continues once the local cosign tx reaches its first block', async () => {
-    const harness = createReleaseFlowHarness();
+    const harness = await createReleaseFlowHarness();
 
     // @ts-expect-error - private access
     await harness.store.syncLockReleaseArgonCosign(harness.lock, createArgonClientStub());
@@ -195,7 +195,7 @@ describe('BitcoinLocks release status sync', () => {
   });
 
   it('release reconciliation stops cleanly when local vault signing is unavailable', async () => {
-    const harness = createReleaseFlowHarness({ canSign: false });
+    const harness = await createReleaseFlowHarness({ canSign: false });
 
     await expect(
       // @ts-expect-error - private access
@@ -848,11 +848,12 @@ function createOrphanReleasesStub({ bitcoinLocks, ...overrides }: any): BitcoinO
   }) as BitcoinOrphanReleases;
 }
 
-function createReleaseFlowHarness(args?: {
+async function createReleaseFlowHarness(args?: {
   canSign?: boolean;
   waitForInFirstBlock?: Promise<unknown>;
   waitForFinalizedBlock?: Promise<unknown>;
 }) {
+  const db = await createTestDb();
   const lock = createLockRecord({
     uuid: 'lock-1',
     utxoId: 11,
@@ -925,8 +926,7 @@ function createReleaseFlowHarness(args?: {
     setStatusError: vi.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined),
   };
 
-  const store = createStoreStub({
-    walletKeys: { canSign: args?.canSign ?? true },
+  const store = createRuntimeStore(db, {
     utxoTracking,
     myVault: {
       vaultId: 1,
@@ -939,6 +939,8 @@ function createReleaseFlowHarness(args?: {
     syncLockReleaseArgonRequest: vi.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined),
     syncLockReleaseBitcoinComplete: vi.fn<(...args: any[]) => Promise<boolean>>().mockResolvedValue(false),
     ownerCosignAndSendToBitcoin,
+  }, {
+    walletKeys: { canSign: args?.canSign ?? true } as WalletKeys,
   });
 
   return {

@@ -357,7 +357,6 @@ export class MyVault {
       // Let the vault screen render once the core vault record is ready while bitcoin lock recovery finishes.
       this.data.isLoaded = true;
 
-      const bitcoinLocksLoad = this.bitcoinLocks.load(reload);
       const globalCouncilLoad = this.globalCouncil.load(reload).catch(error => {
         console.error('[MyVault] Error loading global council data', error);
       });
@@ -365,8 +364,6 @@ export class MyVault {
         console.error('[MyVault] Error loading minting authorities', error);
       });
 
-      await bitcoinLocksLoad;
-      await this.bitcoinLockCosign.load();
       await Promise.all([globalCouncilLoad, mintingAuthoritiesLoad]);
 
       this.data.financialRevision += 1;

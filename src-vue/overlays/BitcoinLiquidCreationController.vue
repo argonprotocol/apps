@@ -1,21 +1,10 @@
 <template>
   <BitcoinLiquidCreationOverlay
     v-if="isOpen"
-    :sources="sources"
-    :feeMicrogons="feeMicrogons"
-    :liquidityMicrogons="liquidityMicrogons"
-    :projectedEarningsMicrogons="projectedEarningsMicrogons"
-    :couponCreditMicrogons="couponCreditMicrogons"
-    :feeGiftProvider="config.upstreamOperator?.name"
-    :isSubmitting="isSubmitting"
-    :progressPct="progressPct"
-    :progressLabel="progressLabel"
-    :availableWalletMicrogons="wallets.defaultArgonSpendableMicrogons"
-    :isTreasuryCertified="isTreasuryCertified"
-    :treasuryCertificationRequiredSatoshis="treasuryCertificationRequiredSatoshis"
-    :microgonsAtTargetPerBtc="microgonsAtTargetPerBtc"
-    :errorMessage="errorMessage"
+    :state="state"
+    :liquid="completedLiquid"
     @close="close"
+    @retry="retryTransaction"
     @amountChanged="queuePreview($event.satoshis)"
     @submit="submit($event.satoshis)"
   />
@@ -23,16 +12,18 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import BigNumber from 'bignumber.js';
-import { bigIntMax, bigIntMin, bigNumberToBigInt, SATOSHIS_PER_BITCOIN } from '@argonprotocol/apps-core';
+import { bigIntMax, bigIntMin } from '@argonprotocol/apps-core';
 
 import basicEmitter from '../emitters/basicEmitter.ts';
 import type { IBitcoinLiquidSource } from '../interfaces/IBitcoinLiquidSource.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
+import type { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
+import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import { trackTransactionProgress } from '../lib/TransactionProgress.ts';
 import {
   BitcoinLiquidCreateStateChangedError,
   type BitcoinLiquidCreateAllocation,
+  type IBitcoinLiquidCreateMetadata,
 } from '../lib/txs/BitcoinLiquid.create.ts';
 import {
   getBitcoinFissions,
@@ -40,40 +31,43 @@ import {
   getBitcoinLocks,
   getBitcoinTransactionOperations,
 } from '../stores/bitcoin.ts';
-import { OperationalStepId, useCertificationController } from '../stores/certificationController.ts';
-import { getConfig } from '../stores/config.ts';
+import {
+  OperationalStepId,
+  treasuryBitcoinCertificationDisplayAmount,
+  useCertificationController,
+} from '../stores/certificationController.ts';
 import { getMiningFrames } from '../stores/mainchain.ts';
-import { getVaults } from '../stores/vaults.ts';
-import { getWalletKeys, useWallets } from '../stores/wallets.ts';
-import { useVaultingStats } from '../stores/vaultingStats.ts';
+import { getMyVault, getVaults } from '../stores/vaults.ts';
+import { getWalletKeys } from '../stores/wallets.ts';
 import BitcoinLiquidCreationOverlay from './BitcoinLiquidCreationOverlay.vue';
+import type { BitcoinLiquidCreationState } from './BitcoinLiquidCreationState.ts';
 
-const config = getConfig();
 const controller = useCertificationController();
-const vaultingStats = useVaultingStats();
 const vaults = getVaults();
-const wallets = useWallets();
 const walletKeys = getWalletKeys();
 const bitcoinLocks = getBitcoinLocks();
 const bitcoinFissions = getBitcoinFissions();
 const bitcoinLockCoupons = getBitcoinLockCoupons();
 const miningFrames = getMiningFrames();
 const { bitcoinLiquidCreate } = getBitcoinTransactionOperations();
+const myVault = getMyVault();
 
 const isOpen = Vue.ref(false);
-const isSubmitting = Vue.ref(false);
-const sources = Vue.ref<IBitcoinLiquidSource[]>([]);
-const feeMicrogons = Vue.ref(0n);
-const liquidityMicrogons = Vue.ref(0n);
-const couponCreditMicrogons = Vue.ref(0n);
-const projectedEarningsMicrogons = Vue.ref(0n);
-const microgonsAtTargetPerBtc = Vue.ref<bigint>();
-const progressPct = Vue.ref(0);
-const progressLabel = Vue.ref('');
-const errorMessage = Vue.ref('');
+const isTrackingTransaction = Vue.ref(false);
+const transactionInfo = Vue.shallowRef<TransactionInfo<IBitcoinLiquidCreateMetadata>>();
+const state = Vue.reactive<BitcoinLiquidCreationState>({
+  stage: 'form',
+  sources: [],
+  isSubmitting: false,
+  progressPct: 0,
+  progressLabel: '',
+  errorMessage: '',
+  treasuryCertificationRequiredSatoshis: 0n,
+});
+const { isSubmitting, progressPct, progressLabel, errorMessage } = Vue.toRefs(state);
 const selectedSatoshis = Vue.ref(0n);
 const maximumSatoshisByUtxoId = Vue.ref<Record<number, bigint>>({});
-const treasuryCertificationRequiredSatoshis = Vue.ref(0n);
+const completedLiquidId = Vue.ref<number>();
 
 let previewTimeout: ReturnType<typeof setTimeout> | undefined;
 let previewRunId = 0;
@@ -120,6 +114,12 @@ const totalUnallocatedSatoshis = Vue.computed(() =>
   lockAvailability.value.reduce((total, lock) => total + lock.unallocatedSatoshis, 0n),
 );
 const isTreasuryCertified = Vue.computed(() => controller.isCertificationStepComplete(OperationalStepId.LiquidLock));
+const completedLiquid = Vue.computed<BitcoinLiquid | undefined>(() => {
+  if (completedLiquidId.value === undefined) return;
+
+  void bitcoinFissions.data.financialRevision;
+  return bitcoinFissions.getLiquids().find(liquid => liquid.liquidId === completedLiquidId.value);
+});
 
 function open(options?: { liquidId: number }): void {
   if (options) {
@@ -128,6 +128,12 @@ function open(options?: { liquidId: number }): void {
   }
 
   errorMessage.value = '';
+  state.stage = 'form';
+  state.preview = undefined;
+  isSubmitting.value = false;
+  isTrackingTransaction.value = false;
+  transactionInfo.value = undefined;
+  completedLiquidId.value = undefined;
   progressPct.value = 0;
   progressLabel.value = '';
   maximumSatoshisByUtxoId.value = Object.fromEntries(
@@ -136,7 +142,7 @@ function open(options?: { liquidId: number }): void {
       .map((lock, index) => [lock.utxoId!, lockAvailability.value[index].unallocatedSatoshis]),
   );
   selectedSatoshis.value = totalUnallocatedSatoshis.value;
-  sources.value = createSourcesForAllocations(allocate(totalUnallocatedSatoshis.value));
+  state.sources = createSourcesForAllocations(allocate(totalUnallocatedSatoshis.value));
   isOpen.value = true;
   void refreshCoupons();
   void refreshPreview(totalUnallocatedSatoshis.value);
@@ -146,21 +152,13 @@ function openPending(liquidId: number): void {
   const txInfo = pendingLiquidCreateTxInfos.value.find(candidate => candidate.tx.metadataJson.liquidId === liquidId);
   if (!txInfo) return;
 
-  const { fissions, resecuritizations } = txInfo.tx.metadataJson;
+  const { fissions } = txInfo.tx.metadataJson;
   const satoshis = fissions.reduce((total, fission) => total + fission.satoshis, 0n);
-  const promised = fissions.reduce(
-    (total, fission) => total + (fission.satoshis * fission.microgonsAtTargetPerBtc) / SATOSHIS_PER_BITCOIN,
-    0n,
-  );
-  const insuranceFees = resecuritizations.reduce(
-    (total, resecuritization) => total + resecuritization.bitcoin.securityFee,
-    0n,
-  );
-
-  sources.value = fissions.map(fission => {
+  state.sources = fissions.map(fission => {
     const lock = activeLocks.value.find(candidate => candidate.utxoId === fission.utxoId);
     return {
       key: lock?.uuid ?? `pending-liquid-${liquidId}-${fission.utxoId}`,
+      isMyVault: lock?.vaultId === myVault.vaultId,
       cosigner:
         lock === undefined
           ? 'Unknown cosigner'
@@ -171,28 +169,14 @@ function openPending(liquidId: number): void {
     };
   });
   selectedSatoshis.value = satoshis;
-  feeMicrogons.value = insuranceFees + (txInfo.tx.txFeePlusTip ?? 0n);
-  liquidityMicrogons.value = promised;
-  couponCreditMicrogons.value = 0n;
-  projectedEarningsMicrogons.value = bigNumberToBigInt(
-    BigNumber(promised.toString()).multipliedBy(vaultingStats.bitcoinAPR).dividedBy(100),
-  );
-  microgonsAtTargetPerBtc.value = fissions[0]?.microgonsAtTargetPerBtc;
+  state.preview = undefined;
   progressPct.value = txInfo.getStatus().progressPct;
   progressLabel.value = '';
   errorMessage.value = '';
+  completedLiquidId.value = undefined;
   isOpen.value = true;
 
-  cleanupTransactionProgress();
-  trackTransactionProgress({
-    txInfos: [txInfo],
-    isSubmitting,
-    progressPct,
-    progressLabel,
-    error: errorMessage,
-    onComplete: close,
-    onCleanup: cleanup => transactionProgressCleanupFns.push(cleanup),
-  });
+  trackCreateTransaction(txInfo);
 }
 
 async function refreshCoupons(): Promise<void> {
@@ -203,7 +187,7 @@ async function refreshCoupons(): Promise<void> {
     if (runId !== couponRefreshRunId || isUnmounted) return;
 
     couponsAreCurrent = true;
-    if (isOpen.value && !isSubmitting.value) void refreshPreview(selectedSatoshis.value);
+    if (isOpen.value && !isSubmitting.value && !transactionInfo.value) void refreshPreview(selectedSatoshis.value);
   } catch (error) {
     if (runId !== couponRefreshRunId) return;
     console.warn('[BitcoinLiquid] Unable to refresh fee waivers', error);
@@ -218,9 +202,9 @@ function queuePreview(satoshis: bigint): void {
 
 async function refreshPreview(requestedSatoshis: bigint): Promise<boolean> {
   const runId = ++previewRunId;
-  errorMessage.value = '';
   let allocations = allocate(requestedSatoshis);
   if (!allocations.length) return false;
+  errorMessage.value = '';
 
   try {
     let preview;
@@ -232,12 +216,36 @@ async function refreshPreview(requestedSatoshis: bigint): Promise<boolean> {
     } catch (error) {
       if (!(error instanceof BitcoinLiquidCreateStateChangedError)) throw error;
       if (!Object.keys(error.maximumSatoshisByUtxoId).length) throw error;
+      if (runId !== previewRunId) return false;
 
       maximumSatoshisByUtxoId.value = {
         ...maximumSatoshisByUtxoId.value,
         ...error.maximumSatoshisByUtxoId,
       };
       allocations = allocate(requestedSatoshis);
+      selectedSatoshis.value = allocations.reduce((total, allocation) => total + allocation.satoshis, 0n);
+      state.preview = undefined;
+      state.sources = createSourcesForAllocations(allocations);
+      if (!allocations.length) {
+        const constrainedVaultIds = [
+          ...new Set(
+            state.sources
+              .filter(source => source.maximumLiquidSatoshis === 0n)
+              .map(source => activeLocks.value.find(lock => lock.uuid === source.key)?.vaultId)
+              .filter((vaultId): vaultId is number => vaultId !== undefined),
+          ),
+        ];
+        if (constrainedVaultIds.length === 1) {
+          const vaultId = constrainedVaultIds[0];
+          errorMessage.value =
+            vaultId === myVault.vaultId
+              ? 'Your Vault does not have enough securitization to create another Liquid.'
+              : `${vaults.operatorNamesByVaultId[vaultId] ?? `Vault ${vaultId}`} does not have enough securitization to create another Liquid.`;
+        } else {
+          errorMessage.value = 'The selected vaults do not have enough securitization to create another Liquid.';
+        }
+        return false;
+      }
       preview = await bitcoinLiquidCreate.preview({
         allocations,
         txSigner: await walletKeys.getLiquidLockingKeypair(),
@@ -250,15 +258,9 @@ async function refreshPreview(requestedSatoshis: bigint): Promise<boolean> {
       ...preview.maximumSatoshisByUtxoId,
     };
     selectedSatoshis.value = allocations.reduce((total, allocation) => total + allocation.satoshis, 0n);
-    microgonsAtTargetPerBtc.value = preview.microgonsAtTargetPerBtc;
+    state.preview = preview;
     quoteTick = preview.microgonsAtTargetPerBtcTick;
-    feeMicrogons.value = preview.securityFeeMicrogons;
-    liquidityMicrogons.value = preview.liquidityMicrogons;
-    couponCreditMicrogons.value = preview.couponCreditMicrogons;
-    projectedEarningsMicrogons.value = bigNumberToBigInt(
-      BigNumber(preview.liquidityMicrogons.toString()).multipliedBy(vaultingStats.bitcoinAPR).dividedBy(100),
-    );
-    sources.value = createSourcesForAllocations(allocations);
+    state.sources = createSourcesForAllocations(allocations);
     await updateTreasuryCertificationRequirement(preview.microgonsAtTargetPerBtc);
     return true;
   } catch (error) {
@@ -284,16 +286,7 @@ async function submit(satoshis: bigint): Promise<void> {
       allocations: allocate(selectedSatoshis.value),
       txSigner: await walletKeys.getLiquidLockingKeypair(),
     });
-    cleanupTransactionProgress();
-    trackTransactionProgress({
-      txInfos: [txInfo],
-      isSubmitting,
-      progressPct,
-      progressLabel,
-      error: errorMessage,
-      onComplete: close,
-      onCleanup: cleanup => transactionProgressCleanupFns.push(cleanup),
-    });
+    trackCreateTransaction(txInfo);
   } catch (error) {
     isSubmitting.value = false;
     errorMessage.value = error instanceof Error ? error.message : 'Unable to create this Liquid.';
@@ -305,6 +298,45 @@ async function submit(satoshis: bigint): Promise<void> {
       await refreshPreview(satoshis);
     }
   }
+}
+
+function retryTransaction(): void {
+  const txInfo = transactionInfo.value;
+  if (txInfo?.hasFailedPostProcessing) {
+    bitcoinLiquidCreate.resume(txInfo);
+    trackCreateTransaction(txInfo);
+    return;
+  }
+
+  cleanupTransactionProgress();
+  transactionInfo.value = undefined;
+  state.stage = 'form';
+  isTrackingTransaction.value = false;
+  progressPct.value = 0;
+  progressLabel.value = '';
+  errorMessage.value = '';
+  void refreshPreview(selectedSatoshis.value);
+}
+
+function trackCreateTransaction(txInfo: TransactionInfo<IBitcoinLiquidCreateMetadata>): void {
+  transactionInfo.value = txInfo;
+  state.stage = 'creating';
+  isSubmitting.value = false;
+  cleanupTransactionProgress();
+  trackTransactionProgress({
+    txInfos: [txInfo],
+    isSubmitting: isTrackingTransaction,
+    progressPct,
+    progressLabel,
+    error: errorMessage,
+    onComplete: () => showCollectArgons(txInfo.tx.metadataJson.liquidId),
+    onError: error => {
+      if (txInfo.hasFailedPostProcessing) {
+        errorMessage.value = `The Liquid was created on-chain, but the app could not finish updating it. ${error.message}`;
+      }
+    },
+    onCleanup: cleanup => transactionProgressCleanupFns.push(cleanup),
+  });
 }
 
 function allocate(satoshis: bigint): BitcoinLiquidCreateAllocation[] {
@@ -336,6 +368,7 @@ function createSourcesForAllocations(allocations: BitcoinLiquidCreateAllocation[
     return [
       {
         key: lock.uuid,
+        isMyVault: lock.vaultId === myVault.vaultId,
         cosigner: vaults.operatorNamesByVaultId[lock.vaultId] ?? `Vault ${lock.vaultId}`,
         unallocatedSatoshis: lockAvailability.value[index].unallocatedSatoshis,
         maximumLiquidSatoshis:
@@ -346,14 +379,26 @@ function createSourcesForAllocations(allocations: BitcoinLiquidCreateAllocation[
   });
 }
 
+function showCollectArgons(liquidId: number): void {
+  completedLiquidId.value = liquidId;
+  state.stage = 'complete';
+  if (!completedLiquid.value) {
+    errorMessage.value =
+      'The Liquid was created, but its minting schedule is not available yet. Open it from Bitcoin Liquids when it appears.';
+    return;
+  }
+
+  errorMessage.value = '';
+}
+
 async function updateTreasuryCertificationRequirement(rate: bigint): Promise<void> {
   if (isTreasuryCertified.value) {
-    treasuryCertificationRequiredSatoshis.value = 0n;
+    state.treasuryCertificationRequiredSatoshis = 0n;
     return;
   }
   const currentLiquidity = activeFissions.value.reduce((total, fission) => total + fission.liquidityPromised, 0n);
-  const remainingLiquidity = bigIntMax(controller.rewardConfig.treasuryMinimumBitcoin - currentLiquidity, 0n);
-  treasuryCertificationRequiredSatoshis.value = remainingLiquidity
+  const remainingLiquidity = bigIntMax(treasuryBitcoinCertificationDisplayAmount - currentLiquidity, 0n);
+  state.treasuryCertificationRequiredSatoshis = remainingLiquidity
     ? await bitcoinLocks.satoshisForArgonLiquidity(remainingLiquidity, rate)
     : 0n;
 }
@@ -361,6 +406,7 @@ async function updateTreasuryCertificationRequirement(rate: bigint): Promise<voi
 function close(): void {
   isOpen.value = false;
   errorMessage.value = '';
+  completedLiquidId.value = undefined;
   if (previewTimeout) clearTimeout(previewTimeout);
 }
 
@@ -377,6 +423,7 @@ Vue.onMounted(async () => {
     if (
       !isOpen.value ||
       isSubmitting.value ||
+      !!transactionInfo.value ||
       !selectedSatoshis.value ||
       (quoteTick !== undefined && miningFrames.currentTick - quoteTick < 10)
     ) {
