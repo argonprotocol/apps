@@ -175,6 +175,7 @@ describe('MoveCapital', () => {
         id: 1,
         status: TransactionStatus.Submitted,
         extrinsicType: ExtrinsicType.Transfer,
+        accountAddress: 'default-address',
         isFinalized: false,
         metadataJson: {
           moveFrom: MoveFrom.DefaultArgon,
@@ -262,7 +263,7 @@ describe('MoveCapital', () => {
       hasPendingPostProcessing: false,
     } as unknown as TransactionInfo<ITransactionMoveMetadata>;
     const moveCapital = new MoveCapital(
-      {} as WalletKeys,
+      { defaultArgonAddress: 'default-address' } as WalletKeys,
       {
         data: { txInfos: [failedLeg, root] },
         pendingBlockTxInfosAtLoad: [],

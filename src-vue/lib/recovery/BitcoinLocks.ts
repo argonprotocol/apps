@@ -1453,8 +1453,10 @@ export class BitcoinLockRecovery {
       await this.waitForLockIdle(lock, lock.uuid === lockQueueOwnerUuid);
     }
     const snapshot = this.createDetachedRecord(lock);
+    const db = await this.dbPromise;
+    const durableLock = await db.bitcoinLocksTable.getByUtxoId(utxoId);
     this.historyReplay.locksByUtxoId[utxoId] = snapshot;
-    this.historyReplay.originalLocksByUtxoId[utxoId] = this.createDetachedRecord(snapshot);
+    this.historyReplay.originalLocksByUtxoId[utxoId] = this.createDetachedRecord(durableLock ?? snapshot);
   }
 
   private isRetiredHistoryRecord(lock: Pick<IBitcoinLockRecord, 'status' | 'removalReason'>): boolean {

@@ -41,6 +41,11 @@ pub async fn create_local_vm(app: AppHandle, env_text: String) -> Result<u16, St
 }
 
 #[tauri::command]
+pub fn has_local_vm(app: AppHandle) -> bool {
+    has_vm_definition(&get_vm_path(&app))
+}
+
+#[tauri::command]
 pub async fn activate_local_vm(app: AppHandle) -> Result<Option<u16>, String> {
     let vm_path = get_vm_path(&app);
     if !has_vm_definition(&vm_path) {

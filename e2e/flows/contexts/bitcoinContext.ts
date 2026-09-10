@@ -76,6 +76,30 @@ export async function readBitcoinLockState(flow: IE2EFlowRuntime, lockUuid?: str
   return state;
 }
 
+export async function readBitcoinOrphanReturnState(
+  flow: IE2EFlowRuntime,
+  txid: string | undefined,
+): Promise<{ orphanExists: boolean; returnTxid?: string; returnComplete: boolean }> {
+  if (!txid) return { orphanExists: false, returnComplete: false };
+  const argonTxid = `0x${txid.match(/.{2}/g)?.reverse().join('') ?? txid}`;
+
+  return (
+    (await flow.queryApp(
+      (refs, args: { argonTxid: string }) => {
+        const record = refs.bitcoinLocks.utxoTracking
+          .getAllOrphanLifecycleUtxos()
+          .find(record => record.txid === args.argonTxid);
+        return {
+          orphanExists: !!record,
+          returnTxid: record?.releaseTxid,
+          returnComplete: refs.bitcoinLocks.utxoTracking.isReleaseCompleteStatus(record?.status),
+        };
+      },
+      { args: { argonTxid }, timeoutMs: 20_000 },
+    )) ?? { orphanExists: false, returnComplete: false }
+  );
+}
+
 function parseBitcoinFlowInput(flow: IE2EFlowRuntime, flowName: string): IBitcoinFlowInput {
   const minimumLockSatoshis = parsePositiveBigIntInput(
     flow.input.minimumLockSatoshis ?? process.env.BITCOIN_MINIMUM_LOCK_SATOSHIS,

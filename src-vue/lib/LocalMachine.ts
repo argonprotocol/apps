@@ -27,6 +27,8 @@ export class LocalMachine {
 
   public static async activate(): Promise<{ sshPort: number } | undefined> {
     console.log(`Loading local machine`);
+    if (!(await invokeWithTimeout<boolean>('has_local_vm', {}, 10_000))) return;
+
     while (!(await this.isDockerRunning())) {
       await message(`Docker does not appear to be running. Please open Docker Desktop and try again.`, {
         title: 'Docker Not Running',

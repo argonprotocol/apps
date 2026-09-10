@@ -89,6 +89,36 @@ describe('MiningSetup', () => {
     expect(followOn.resolve).toHaveBeenCalledWith(proxy);
   });
 
+  it('resumes setup from a funding transaction created before workflow metadata was added', async () => {
+    const funding = createTxInfo(
+      1,
+      ExtrinsicType.Transfer,
+      {
+        moveFrom: MoveFrom.DefaultArgon,
+        moveTo: MoveTo.MiningBot,
+        assetsToMove: { [MoveToken.ARGN]: 2_000_000n },
+      },
+      true,
+    );
+    const proxy = createTxInfo(
+      2,
+      ExtrinsicType.MiningBidProxySetup,
+      { fundingAccountId: 'mining-address', proxyAccountId: 'proxy-address' },
+      true,
+    );
+    const transactionTracker = createTransactionTracker([funding]);
+    const proxySetup = createProxySetup({ kind: 'transaction', txInfo: proxy });
+    const miningSetup = new MiningSetup({} as any, transactionTracker as any, proxySetup as any);
+    const submit = vi.spyOn(getFundingTransfer(miningSetup), 'submit');
+
+    const result = await miningSetup.ensure(createInput({ miningBotMicrogons: 2_000_000n }));
+
+    expect(result.kind).toBe('transaction');
+    if (result.kind !== 'transaction') throw new Error('Expected the recovered proxy transaction.');
+    expect(result.txInfo).toBe(proxy);
+    expect(submit).not.toHaveBeenCalled();
+  });
+
   it('waits on the linked proxy transaction when restarting during phase two', async () => {
     const funding = createTxInfo(
       1,

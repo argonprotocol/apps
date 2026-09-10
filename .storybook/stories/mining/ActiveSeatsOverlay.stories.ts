@@ -62,6 +62,12 @@ export const NoActiveSeats: Story = {
   },
 };
 
+export const Unavailable: Story = {
+  beforeEach: () => {
+    fetchCurrentMiningSeats.mockRejectedValue(new Error('Chain unavailable'));
+  },
+};
+
 export const PendingHistory: Story = {
   beforeEach: () => {
     Object.assign(getMyMiningSeats(), { miningCohorts: [] });

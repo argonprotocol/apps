@@ -138,7 +138,7 @@ describe('DelegateSubmitLane', () => {
     );
     const accountNextIndex = vi.mocked(lane.client.rpc.system.accountNextIndex);
     await vi.waitFor(() => expect(accountNextIndex).toHaveBeenCalledOnce());
-    await vi.advanceTimersByTimeAsync(600_000);
+    await vi.advanceTimersByTimeAsync(600_001);
 
     await rejection;
   });
