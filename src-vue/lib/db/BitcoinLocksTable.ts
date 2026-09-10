@@ -214,7 +214,7 @@ export class BitcoinLocksTable extends BaseTable {
   }
 
   public async saveRecoveredHistory(lock: IBitcoinLockRecord, createdAt?: Date): Promise<void> {
-    await this.db.execute(
+    const [updated] = await this.db.select<IBitcoinLockRecord[]>(
       `UPDATE BitcoinLocks SET
         status = ?, utxoId = COALESCE(utxoId, ?), securitizedSatoshis = ?, ownerAccount = ?,
         microgonsAtTargetPerBtc = COALESCE(microgonsAtTargetPerBtc, ?),
@@ -226,8 +226,8 @@ export class BitcoinLocksTable extends BaseTable {
         releaseRedemptionMicrogons = ?, releaseArgonTxFeeMicrogons = ?, releaseCompensationMicrogons = ?,
         removalBlockNumber = ?, removalBlockHash = ?, removalBlockTime = ?, removalExtrinsicIndex = ?,
         removalReason = ?, btcPriceAtRemovalMicrogons = ?,
-        createdAt = COALESCE(?, createdAt)
-       WHERE uuid = ?`,
+        createdAt = COALESCE(?, createdAt), updatedAt = CURRENT_TIMESTAMP
+       WHERE uuid = ? RETURNING *`,
       toSqlParams([
         lock.status,
         lock.utxoId,
@@ -259,6 +259,7 @@ export class BitcoinLocksTable extends BaseTable {
       ]),
     );
     if (createdAt) lock.createdAt = createdAt;
+    if (updated) lock.updatedAt = this.toLockRecord(updated).updatedAt;
   }
 
   public async updateFromCurrentLock(lock: IBitcoinLockRecord, currentLock: IBitcoinLock): Promise<void> {

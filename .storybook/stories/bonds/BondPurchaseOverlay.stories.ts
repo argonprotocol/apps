@@ -39,3 +39,7 @@ export const NoActiveVaults: Story = {
 export const MarketValuedCapacity: Story = {
   beforeEach: () => setupBondPurchaseScenario('available'),
 };
+
+export const VaultSelection: Story = {
+  beforeEach: () => setupBondPurchaseScenario('selection'),
+};

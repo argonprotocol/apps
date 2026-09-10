@@ -22,6 +22,7 @@ export type IWalletOverlayOptions = {
   wallet: IWalletOverlayWallet;
   view?: IWalletView;
   bitcoinChannelUuid?: string;
+  bitcoinChannelVaultId?: number;
   showGuidance?: boolean;
   guidanceContext?: IWalletGuidanceContext;
 };

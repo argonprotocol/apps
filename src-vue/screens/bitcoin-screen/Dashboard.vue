@@ -111,21 +111,13 @@
                   created {{ dayjs(liquid.model.history[0].blockTime).fromNow() }}
                 </span>
                 <span
-                  v-if="liquid.model.history[0]?.blockTime && (liquid.isInMyVault || liquid.cosignerNames.length)"
+                  v-if="liquid.model.history[0]?.blockTime && liquid.sourceLabel"
                   class="liquid-created-at shrink-0 font-light text-slate-400"
                 >
                   ·
                 </span>
-                <span
-                  v-if="liquid.isInMyVault || liquid.cosignerNames.length"
-                  class="shrink-0 font-light text-slate-500"
-                >
-                  <template v-if="liquid.isInMyVault">In my Vault</template>
-                  <span v-if="liquid.isInMyVault && liquid.cosignerNames.length" class="mx-2 text-slate-400">·</span>
-                  <template v-if="liquid.cosignerNames.length">
-                    {{ liquid.cosignerNames.length === 1 ? 'Cosigner' : 'Cosigners' }}:
-                    {{ cosignerListFormatter.format(liquid.cosignerNames) }}
-                  </template>
+                <span v-if="liquid.sourceLabel" class="shrink-0 font-light text-slate-500">
+                  {{ liquid.sourceLabel }}
                 </span>
                 <div class="flex grow flex-row items-center justify-end gap-x-2 text-right">
                   <span v-if="isRatchetPending(liquid.model.liquidId)" class="font-semibold text-slate-500">
@@ -204,21 +196,13 @@
                     closed {{ dayjs(liquid.model.closedAt).fromNow() }}
                   </span>
                   <span
-                    v-if="liquid.model.closedAt && (liquid.isInMyVault || liquid.cosignerNames.length)"
+                    v-if="liquid.model.closedAt && liquid.sourceLabel"
                     class="liquid-created-at shrink-0 font-light text-slate-400"
                   >
                     ·
                   </span>
-                  <span
-                    v-if="liquid.isInMyVault || liquid.cosignerNames.length"
-                    class="shrink-0 font-light text-slate-500"
-                  >
-                    <template v-if="liquid.isInMyVault">In my Vault</template>
-                    <span v-if="liquid.isInMyVault && liquid.cosignerNames.length" class="mx-2 text-slate-400">·</span>
-                    <template v-if="liquid.cosignerNames.length">
-                      {{ liquid.cosignerNames.length === 1 ? 'Cosigner' : 'Cosigners' }}:
-                      {{ cosignerListFormatter.format(liquid.cosignerNames) }}
-                    </template>
+                  <span v-if="liquid.sourceLabel" class="shrink-0 font-light text-slate-500">
+                    {{ liquid.sourceLabel }}
                   </span>
                   <span class="ml-auto font-semibold text-slate-500">Archived</span>
                 </div>
@@ -315,8 +299,7 @@ type LiquidDisplay = {
   repaymentAmount: bigint;
   ratchet: ReturnType<BitcoinLiquid['getRatchetStatus']>;
   lockSummaries: IBitcoinLockSummary[];
-  isInMyVault: boolean;
-  cosignerNames: string[];
+  sourceLabel?: string;
 };
 
 type PendingLiquidDisplay = {
@@ -337,8 +320,6 @@ const { bitcoinLiquidCreate, bitcoinLiquidRatchet } = getBitcoinTransactionOpera
 const selectedLiquidId = Vue.ref<number>();
 const bitcoinLockCoupons = getBitcoinLockCoupons();
 const { microgonToArgonNm, microgonToMoneyNm, satToBtcNm } = createNumeralHelpers(currency);
-const cosignerListFormatter = new Intl.ListFormat('en');
-
 const now = Vue.ref(Date.now());
 
 const activeFissions = Vue.computed(() => bitcoinFissions.getAll());
@@ -348,49 +329,59 @@ const totalLiquidSatoshis = Vue.computed(() =>
 );
 
 const liquidRows = Vue.computed<LiquidDisplay[]>(() =>
-  bitcoinFissions.getLiquids().map(liquid => {
-    const financialPosition = financials.financialPositionAggregate.groupSummaries.bitcoin.positions.find(
-      (position): position is IBitcoinLiquidFinancialPosition =>
-        position.kind === 'bitcoin-liquid' && position.liquidId === liquid.liquidId,
-    );
-    const lockSummaries: IBitcoinLockSummary[] = [];
-    const includedLockIds = new Set<number>();
-    const currentRate = currency.priceIndex.btcUsdPrice
-      ? currency.priceIndex.getSatoshiPriceInTargetMicrogons(SATOSHIS_PER_BITCOIN)
-      : undefined;
+  bitcoinFissions
+    .getLiquids()
+    .toSorted((left, right) => right.liquidId - left.liquidId)
+    .map(liquid => {
+      const financialPosition = financials.financialPositionAggregate.groupSummaries.bitcoin.positions.find(
+        (position): position is IBitcoinLiquidFinancialPosition =>
+          position.kind === 'bitcoin-liquid' && position.liquidId === liquid.liquidId,
+      );
+      const lockSummaries: IBitcoinLockSummary[] = [];
+      const includedLockIds = new Set<number>();
+      const currentRate = currency.priceIndex.btcUsdPrice
+        ? currency.priceIndex.getSatoshiPriceInTargetMicrogons(SATOSHIS_PER_BITCOIN)
+        : undefined;
 
-    for (const fission of liquid.fissions) {
-      const lockSummary = financials.bitcoinLockDisplayRecords.find(summary => summary.utxoId === fission.utxoId);
-      if (!lockSummary?.satoshis) continue;
+      for (const fission of liquid.fissions) {
+        const lockSummary = financials.bitcoinLockDisplayRecords.find(summary => summary.utxoId === fission.utxoId);
+        if (!lockSummary?.satoshis) continue;
 
-      if (!includedLockIds.has(fission.utxoId)) {
-        lockSummaries.push(lockSummary);
-        includedLockIds.add(fission.utxoId);
+        if (!includedLockIds.has(fission.utxoId)) {
+          lockSummaries.push(lockSummary);
+          includedLockIds.add(fission.utxoId);
+        }
       }
-    }
 
-    return {
-      model: liquid,
-      position: financialPosition,
-      repaymentAmount: liquid.getRepaymentAmount(currency.priceIndex),
-      ratchet:
-        currentRate === undefined
-          ? { percent: 0, isAvailable: false }
-          : liquid.getRatchetStatus({
-              microgonsAtTargetPerBtc: currentRate,
-              minimumRatchetPercent: bitcoinFissions.data.minimumRatchetPercent,
-            }),
-      lockSummaries,
-      isInMyVault: lockSummaries.some(summary => summary.record.vaultId === myVault.vaultId),
-      cosignerNames: [
+      const vaultNames = [
         ...new Set(
-          lockSummaries
-            .filter(summary => summary.record.vaultId !== myVault.vaultId)
-            .map(summary => vaults.operatorNamesByVaultId[summary.record.vaultId] ?? `Vault ${summary.record.vaultId}`),
+          lockSummaries.map(summary => {
+            const vaultId = summary.record.vaultId;
+            return vaultId === myVault.vaultId
+              ? 'My Vault'
+              : (vaults.operatorNamesByVaultId[vaultId] ?? `Vault ${vaultId}`);
+          }),
         ),
-      ],
-    };
-  }),
+      ];
+      let sourceLabel: string | undefined;
+      if (vaultNames.length === 1) sourceLabel = `Vault: ${vaultNames[0]}`;
+      else if (vaultNames.length > 1) sourceLabel = `${vaultNames.length} Vaults`;
+
+      return {
+        model: liquid,
+        position: financialPosition,
+        repaymentAmount: liquid.getRepaymentAmount(currency.priceIndex),
+        ratchet:
+          currentRate === undefined
+            ? { percent: 0, isAvailable: false }
+            : liquid.getRatchetStatus({
+                microgonsAtTargetPerBtc: currentRate,
+                minimumRatchetPercent: bitcoinFissions.data.minimumRatchetPercent,
+              }),
+        lockSummaries,
+        sourceLabel,
+      };
+    }),
 );
 const activeLiquidRows = Vue.computed(() => liquidRows.value.filter(liquid => !liquid.model.isClosed));
 const closedLiquidRows = Vue.computed(() => liquidRows.value.filter(liquid => liquid.model.isClosed));

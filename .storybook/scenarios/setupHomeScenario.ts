@@ -45,7 +45,22 @@ export function setupHomeScenario(
   wallets.defaultArgonWallet.availableMicrogons = 125n * 1_000_000n;
   wallets.defaultArgonWallet.totalMicrogons = wallets.defaultArgonWallet.availableMicrogons;
   wallets.isLoaded = state !== 'loading';
-  financials.savingsIsLoaded = state !== 'loading';
+  Object.assign(financials, {
+    savingsIsLoaded: state !== 'loading',
+    savingsTotalReadyToUse: wallets.defaultArgonWallet.availableMicrogons,
+    savingsTotalValue: 165n * 1_000_000n,
+    bitcoinLiquidPendingMintMicrogons: 40n * 1_000_000n,
+    liquidTotalSatoshis: 100_000n,
+    liquidCurrentBitcoinDebt: 50n * 1_000_000n,
+  });
+  for (const group of financials.financialPositionAggregate.groups) {
+    Object.assign(group, { state: state === 'loading' ? 'loading' : 'ready' });
+  }
+  Object.assign(financials.financialPositionAggregate.groupSummaries.bonds, { currentValue: 75n * 1_000_000n });
+  Object.assign(financials.bondSummariesByAsset.ARGN, { currentValue: 45n * 1_000_000n });
+  Object.assign(financials.bondSummariesByAsset.ARGNOT, { currentValue: 30n * 1_000_000n });
+  Object.assign(financials.financialPositionAggregate.groupSummaries.mining, { currentValue: 40n * 1_000_000n });
+  Object.assign(financials.financialPositionAggregate.groupSummaries.vaulting, { currentValue: 35n * 1_000_000n });
 
   const ethereumWalletData = new Map<number, IWalletData<WalletType.ethereum>>(
     ethereumWalletRecords.map(record => [
@@ -77,7 +92,7 @@ export function setupHomeScenario(
 
   Object.assign(currency, {
     isLoaded: state !== 'loading',
-    microgonsPer: { ...defaultMicrogonsPer },
+    microgonsPer: { ...defaultMicrogonsPer, BTC: 68_000n * 1_000_000n },
     priceIndex: Object.assign(new PriceIndex(), {
       argonUsdPrice: BigNumber(state === 'loading' || state === 'priceUnavailable' ? 0 : 1),
       argonUsdTargetPrice: BigNumber(state === 'loading' || state === 'priceUnavailable' ? 0 : 1),

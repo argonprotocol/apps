@@ -80,8 +80,8 @@
             <div class="text-argon-600/70 flex flex-row justify-center text-3xl font-bold xl:text-4xl">
               <span>{{ currency.symbol }}</span>
               <FormattedMoney
-                :isLoaded="walletBalanceIsLoaded(internalWallet)"
-                :value="getWalletBalance(internalWallet)"
+                :isLoaded="financials.savingsIsLoaded && currency.isLoaded"
+                :value="financials.savingsTotalReadyToUse"
               />
             </div>
             <div class="mt-1 font-light opacity-70">Immediately Usable In Wallet</div>
@@ -95,8 +95,8 @@
             <div class="text-argon-600/70 flex flex-row justify-center text-3xl font-bold xl:text-4xl">
               <span>{{ currency.symbol }}</span>
               <FormattedMoney
-                :isLoaded="walletBalanceIsLoaded(internalWallet)"
-                :value="getOtherTokenValue(internalWallet)"
+                :isLoaded="bitcoinLiquidInvestment.isLoaded"
+                :value="financials.bitcoinLiquidPendingMintMicrogons"
               />
             </div>
             <div class="mt-1 font-light opacity-70">Actively Minting In Wallet</div>
@@ -104,9 +104,9 @@
         </article>
         <article class="border-t border-slate-500/30 py-2">
           <div class="hover:bg-argon-100/20 cursor-pointer rounded py-4">
-            <div class="text-argon-600/70 flex items-baseline justify-center text-3xl font-bold xl:text-4xl">
-              <span>₳0</span>
-              <span class="text-argon-300">.00</span>
+            <div class="text-argon-600/70 flex flex-row justify-center text-3xl font-bold xl:text-4xl">
+              <span>{{ currency.symbol }}</span>
+              <FormattedMoney :isLoaded="treasuryInvestment.isLoaded" :value="treasuryInvestment.value" />
             </div>
             <div class="mt-1 font-light opacity-70">Invested In Treasury</div>
           </div>
@@ -115,9 +115,9 @@
           class="relative border-t border-slate-500/30 py-2 before:absolute before:top-2 before:bottom-2 before:-left-3 before:w-px before:bg-slate-500/30"
         >
           <div class="hover:bg-argon-100/20 cursor-pointer rounded py-4">
-            <div class="text-argon-600/70 flex items-baseline justify-center text-3xl font-bold xl:text-4xl">
-              <span>₳0</span>
-              <span class="text-argon-300">.00</span>
+            <div class="text-argon-600/70 flex flex-row justify-center text-3xl font-bold xl:text-4xl">
+              <span>{{ currency.symbol }}</span>
+              <FormattedMoney :isLoaded="operationsInvestment.isLoaded" :value="operationsInvestment.value" />
             </div>
             <div class="mt-1 font-light opacity-70">Invested In Operations</div>
           </div>
@@ -182,11 +182,12 @@ import * as Vue from 'vue';
 import { bigIntAbs, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { getCurrency } from '../stores/currency.ts';
-import { getEthereumWalletDisplayName, type IWallet } from '../lib/Wallet.ts';
+import { getEthereumWalletDisplayName } from '../lib/Wallet.ts';
 import type { WalletForEthereum } from '../lib/WalletForEthereum.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import FormattedMoney from '../components/FormattedMoney.vue';
+import type { IFinancialGroupSummary } from '../interfaces/IFinancialPosition.ts';
 import { useFinancials } from '../stores/financials.ts';
 import { getConfig } from '../stores/config.ts';
 import { useWallets } from '../stores/wallets.ts';
@@ -207,23 +208,34 @@ const targetDiff = Vue.computed(() => {
   return bigIntAbs(adjusted - oneArgon);
 });
 
-const internalWallet = Vue.computed(() => wallets.defaultArgonWallet);
+const bitcoinLiquidInvestment = Vue.computed(() => {
+  const bitcoin = financials.financialPositionAggregate.groupSummaries.bitcoin;
+  return {
+    isLoaded: currency.isLoaded && isFinancialGroupLoaded(bitcoin),
+    value: currency.convertSatToMicrogon(financials.liquidTotalSatoshis),
+  };
+});
+
+const treasuryInvestment = Vue.computed(() => {
+  const bonds = financials.financialPositionAggregate.groupSummaries.bonds;
+  return {
+    isLoaded: bitcoinLiquidInvestment.value.isLoaded && isFinancialGroupLoaded(bonds),
+    value: bonds.currentValue + bitcoinLiquidInvestment.value.value,
+  };
+});
+
+const operationsInvestment = Vue.computed(() => {
+  const { mining, vaulting } = financials.financialPositionAggregate.groupSummaries;
+  return {
+    isLoaded: currency.isLoaded && isFinancialGroupLoaded(mining) && isFinancialGroupLoaded(vaulting),
+    value: mining.currentValue + vaulting.currentValue,
+  };
+});
 
 const externalConnectors = Vue.computed(() => wallets.ethereumWallets.persistedWallets);
 
-function walletBalanceIsLoaded(_wallet: IWallet): boolean {
-  return financials.savingsIsLoaded;
-}
-
-function getWalletBalance(_wallet: IWallet): bigint {
-  if (!currency.isLoaded) return 0n;
-  return financials.savingsTotalValue;
-}
-
-function getOtherTokenValue(wallet: IWallet): bigint {
-  return wallet.otherTokens.reduce((total, token) => {
-    return total + currency.convertOtherToMicrogon(token);
-  }, 0n);
+function isFinancialGroupLoaded(group: IFinancialGroupSummary): boolean {
+  return group.state === 'ready' || (group.state === 'stale' && group.positions.length > 0);
 }
 
 function openWallet() {

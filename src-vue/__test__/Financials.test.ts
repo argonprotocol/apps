@@ -1166,6 +1166,7 @@ describe('financial position accounting', () => {
       summary: bitcoinLocks.createLockSummary(lock),
       fissions: [fission],
       activeFissionIds: new Set(),
+      currentRedemptionAmount: undefined,
     });
     const positions = bitcoinFinancials.createFinancialPositions({ summaries: [summary], hasCurrentPrice: true });
     const aggregate = reduceFinancialPositions(readySnapshots(positions));
@@ -1221,7 +1222,7 @@ describe('financial position accounting', () => {
       receivedLiquidity: 80n,
       securityFees: 0n,
       totalFees: 0n,
-      unlockAmount: 72n,
+      unlockAmount: 120n,
       record: lock,
     } as IBitcoinLockSummary;
     const fission = createBitcoinFissionFixture({
@@ -1288,6 +1289,12 @@ describe('financial position accounting', () => {
       insuranceCost: 10n,
     });
     expect(snapshot.positions.find(position => position.kind === 'bitcoin-liquid')?.totalReturn).toBeTypeOf('number');
+    const currentRedemptionAmount = fission.calculateRedemptionAmount(bitcoinPriceIndex);
+    expect(snapshot.currentBitcoinDebt).toBe(currentRedemptionAmount);
+    expect(snapshot.positions.find(position => position.kind === 'bitcoin-liability')).toMatchObject({
+      currentValue: -currentRedemptionAmount,
+    });
+    expect(reduceFinancialPositions(readySnapshots(snapshot.positions)).groupSummaries.bitcoin.currentValue).toBe(90n);
   });
 
   it('publishes one return-only financial position per Liquid with inherited insurance cost', () => {
@@ -1296,7 +1303,7 @@ describe('financial position accounting', () => {
       fundedSatoshis: 100_000_000n,
       securitizedSatoshis: 100_000_000n,
       securitizationCoverageMicrogons: 80n,
-      securitizationTick: 0,
+      securitizationTick: 5,
       securityFees: 10n,
       createdAtArgonBlock: 150,
     });
@@ -1344,7 +1351,7 @@ describe('financial position accounting', () => {
         utxoId: 7,
         termIndex: 0,
         origin: 'created',
-        startTick: 0,
+        startTick: 10,
         startBlockNumber: 150,
         securitizedSatoshis: 100_000_000n,
         securitizationCoverageMicrogons: 80n,
@@ -1374,11 +1381,41 @@ describe('financial position accounting', () => {
       investedCost: 100n,
       paidIncome: 85n,
       settledPrincipalValue: 0n,
-      performanceEndingCapital: 135n,
+      performanceEndingCapital: 85n,
+      totalReturn: -15,
       insuranceCost: 10n,
       transactionFees: 5n,
     });
     expect(position.liquid.history[0]).toMatchObject({ securityFee: 10n, transactionFee: 5n, actionFees: 15n });
+
+    const lowerPrice = new PriceIndex();
+    lowerPrice.btcUsdPrice = new BigNumber(0.00008);
+    lowerPrice.argonUsdPrice = new BigNumber(1);
+    lowerPrice.argonUsdTargetPrice = new BigNumber(1);
+    const [positionAfterPriceDrop] = createBitcoinLiquidPositions({
+      summaries: [summary],
+      fissions: [fission],
+      terms,
+      activeFissionIds: new Set([21]),
+      hasCurrentPrice: true,
+      priceIndex: lowerPrice,
+    });
+    expect(positionAfterPriceDrop).toMatchObject({
+      performanceEndingCapital: 85n,
+      totalReturn: -15,
+    });
+
+    const [positionWithoutCurrentPrice] = createBitcoinLiquidPositions({
+      summaries: [summary],
+      fissions: [fission],
+      terms,
+      activeFissionIds: new Set([21]),
+      hasCurrentPrice: false,
+    });
+    expect(positionWithoutCurrentPrice).toMatchObject({
+      performanceEndingCapital: 85n,
+      totalReturn: -15,
+    });
 
     const underlying = bitcoinFinancials.createFinancialPositions({
       summaries: [
@@ -1399,8 +1436,8 @@ describe('financial position accounting', () => {
     expect(bitcoin.returnSummary).toMatchObject({
       investmentPositionCount: 1,
       eligiblePositionCount: 1,
-      returnAmount: 35n,
-      percent: 35,
+      returnAmount: -15n,
+      percent: -15,
     });
 
     const [positionWithoutRecoveredInsuranceHistory] = createBitcoinLiquidPositions({
@@ -1423,6 +1460,37 @@ describe('financial position accounting', () => {
     ).groupSummaries.bitcoin;
     expect(currentBitcoin.currentValue).toBe(70n);
     expect(currentBitcoin.returnSummary.availability).toBe('available');
+
+    fission.ratchets.push({
+      source: 'fission',
+      sourceRatchetIndex: 1,
+      ratchetNumber: 1,
+      microgonsAtTargetPerBtc: 80n,
+      liquidityPromised: 80n,
+      amountMinted: 80n,
+      amountBurned: 80n,
+      mintPending: 0n,
+      txFee: 2n,
+      blockNumber: 160,
+      tick: 20,
+    });
+    fission.microgonsAtTargetPerBtc = 80n;
+    fission.liquidityPromised = 80n;
+    fission.ratchetNumber = 1;
+    fission.lastUpdatedArgonBlock = 160;
+    fission.feeHistoryCompleteThroughBlock = 160;
+    const [positionAfterDownRatchet] = createBitcoinLiquidPositions({
+      summaries: [summary],
+      fissions: [fission],
+      terms,
+      activeFissionIds: new Set([21]),
+      hasCurrentPrice: true,
+      priceIndex: lowerPrice,
+    });
+    expect(positionAfterDownRatchet).toMatchObject({
+      performanceEndingCapital: 103n,
+      totalReturn: 3,
+    });
 
     fission.ratchets[0].txFee = undefined;
     const [positionWithoutTransactionHistory] = createBitcoinLiquidPositions({
@@ -1525,6 +1593,32 @@ describe('financial position accounting', () => {
       performanceEndingCapital: 138n,
       totalReturn: 38,
     });
+
+    fission.btcPriceAtCloseMicrogons = 80n;
+    fission.redemptionAmount = 80n;
+    const [positionClosedBelowTarget] = createBitcoinLiquidPositions({
+      summaries: [summary],
+      fissions: [fission],
+      terms: [],
+      activeFissionIds: new Set(),
+      hasCurrentPrice: true,
+      priceIndex: bitcoinPriceIndex,
+    });
+    expect(positionClosedBelowTarget).toMatchObject({
+      performanceEndingCapital: 78n,
+      totalReturn: -22,
+    });
+
+    fission.btcPriceAtCloseMicrogons = undefined;
+    const [positionMissingClosingPrice] = createBitcoinLiquidPositions({
+      summaries: [summary],
+      fissions: [fission],
+      terms: [],
+      activeFissionIds: new Set(),
+      hasCurrentPrice: true,
+      priceIndex: bitcoinPriceIndex,
+    });
+    expect(positionMissingClosingPrice.totalReturn).toBeUndefined();
   });
 
   it('uses recovered fee history without enriching the current Fission model', () => {
@@ -1974,6 +2068,7 @@ describe('financial position accounting', () => {
         summary: bitcoinLocks.createLockSummary(lock),
         fissions: [fission],
         activeFissionIds: new Set(),
+        currentRedemptionAmount: undefined,
       });
 
     const completeSummary = applyValuation();
@@ -2069,6 +2164,7 @@ describe('financial position accounting', () => {
       summary: bitcoinLocks.createLockSummary(lock),
       fissions: [fission],
       activeFissionIds: new Set(),
+      currentRedemptionAmount: undefined,
     });
     const positions = bitcoinFinancials.createFinancialPositions({ summaries: [summary], hasCurrentPrice: true });
     const bitcoin = reduceFinancialPositions(readySnapshots(positions)).groupSummaries.bitcoin;

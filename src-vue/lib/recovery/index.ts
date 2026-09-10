@@ -8,12 +8,14 @@ import {
   type MainchainClients,
 } from '@argonprotocol/apps-core';
 import type { Db } from '../Db.ts';
+import type { IBitcoinFissionRecord } from '../../interfaces/IBitcoinFissionRecord.ts';
+import type { IBitcoinLockRecord } from '../db/BitcoinLocksTable.ts';
 import { findAddressActivity } from '../IndexerClient.ts';
 import { SyncStateKeys, type IFinancialHistoryDomain, type ISyncSchemas } from '../db/SyncStateTable.ts';
 import type { ArgonBonds } from '../ArgonBonds.ts';
 import type { VaultHistory } from './MyVault.ts';
 import type { BitcoinLockRecovery } from './BitcoinLocks.ts';
-import type { BitcoinHistoryReplayLockScope } from './BitcoinLockReplay.ts';
+import type { BitcoinHistoryReplayLockScope, IHistoricalBitcoinLockRecord } from './BitcoinLockReplay.ts';
 import type { BitcoinFissionRecovery } from './BitcoinFissions.ts';
 
 type IIndexedActivityBlock = IIndexerSpec['/v2/activity/:address']['responseType']['blocks'][number];
@@ -217,41 +219,16 @@ export async function restoreFinancialHistory(args: {
 
         let publicationError: Error | undefined;
         if (isBitcoinReplay) {
-          const fissionRecovery = bitcoinFissionRecovery;
-          const preparedFissions = fissionRecovery
-            ? await fissionRecovery.prepareHistoryReplay(bitcoinLockRecovery.getPreparedHistoryLocks())
-            : undefined;
           const lockCommitStartedAt = performance.now();
           try {
-            if (preparedFissions && fissionRecovery) {
-              await bitcoinLockRecovery.commitHistoryReplay(true, result.checkpoint.asOfBlock, {
-                fissions: preparedFissions.records,
-                fissionFailuresByUtxoId: preparedFissions.failuresByUtxoId,
-                onUnitPublished: fissions => fissionRecovery.publishRecoveredRecords(fissions),
-              });
-            } else {
-              await bitcoinLockRecovery.commitHistoryReplay(true, result.checkpoint.asOfBlock);
-            }
+            await publishBitcoinHistoryReplay({
+              db,
+              bitcoinLockRecovery,
+              bitcoinFissionRecovery,
+              asOfBlock: result.checkpoint.asOfBlock,
+            });
           } catch (error) {
             publicationError = error instanceof Error ? error : new Error(String(error));
-          } finally {
-            if (preparedFissions && fissionRecovery) {
-              try {
-                const finalizedFissions = await fissionRecovery.finishHistoryReplay();
-                await fissionRecovery.publishRecoveredRecords(finalizedFissions);
-              } catch (finalizedError) {
-                fissionRecovery.cancelHistoryReplay();
-                if (!publicationError) {
-                  publicationError =
-                    finalizedError instanceof Error ? finalizedError : new Error(String(finalizedError));
-                } else {
-                  console.warn(
-                    'Unable to preserve finalized Bitcoin Fissions after history publication failed:',
-                    finalizedError,
-                  );
-                }
-              }
-            }
           }
           console.info(
             `[FinancialHistory] Published Bitcoin history units through block ${result.checkpoint.asOfBlock.toLocaleString()} in ${Math.round(performance.now() - lockCommitStartedAt)}ms`,
@@ -297,6 +274,82 @@ export async function restoreFinancialHistory(args: {
 
   const asOfBlock = Math.min(...checkpointDomains.map(domain => domainCheckpoints[domain]!.asOfBlock));
   return { importedBlockCount, asOfBlock, targetBlock };
+}
+
+export async function publishBitcoinHistoryReplay({
+  db,
+  bitcoinLockRecovery,
+  bitcoinFissionRecovery,
+  asOfBlock,
+}: {
+  db: Db;
+  bitcoinLockRecovery: BitcoinLockRecovery;
+  bitcoinFissionRecovery?: BitcoinFissionRecovery;
+  asOfBlock: number;
+}): Promise<readonly IHistoricalBitcoinLockRecord[]> {
+  const preparedLocks = await bitcoinLockRecovery.prepareHistoryReplay();
+  const preparedFissions = await bitcoinFissionRecovery?.prepareHistoryReplay(preparedLocks.records);
+  if (preparedLocks.hasUnscopedFailure) {
+    await bitcoinLockRecovery.cancelHistoryReplay();
+    bitcoinFissionRecovery?.cancelHistoryReplay();
+    throw new Error('Bitcoin history replay failed outside a recoverable Lock unit');
+  }
+
+  const fissionsByUtxoId = new Map<number, IBitcoinFissionRecord[]>();
+  for (const fission of preparedFissions?.records ?? []) {
+    const records = fissionsByUtxoId.get(fission.utxoId) ?? [];
+    records.push(fission);
+    fissionsByUtxoId.set(fission.utxoId, records);
+  }
+
+  const failedUtxoIds = new Set([
+    ...preparedLocks.failuresByUtxoId.keys(),
+    ...(preparedFissions?.failuresByUtxoId.keys() ?? []),
+  ]);
+  const errors = [
+    ...[...preparedLocks.failuresByUtxoId].map(([utxoId, message]) => `Bitcoin lock ${utxoId}: ${message}`),
+    ...[...(preparedFissions?.failuresByUtxoId ?? [])].map(
+      ([utxoId, message]) => `Bitcoin Fission history for lock ${utxoId}: ${message}`,
+    ),
+  ];
+  const unitUtxoIds = new Set([...preparedLocks.unitUtxoIds, ...fissionsByUtxoId.keys(), ...failedUtxoIds]);
+
+  for (const utxoId of unitUtxoIds) {
+    if (failedUtxoIds.has(utxoId)) continue;
+
+    const fissions = fissionsByUtxoId.get(utxoId) ?? [];
+    try {
+      let persistedLock: IBitcoinLockRecord | undefined;
+      let persistedFissions = fissions;
+      await db.transaction(async transaction => {
+        persistedLock = await bitcoinLockRecovery.persistHistoryReplayUnit(transaction, utxoId, asOfBlock);
+        if (bitcoinFissionRecovery && fissions.length) {
+          persistedFissions = await bitcoinFissionRecovery.persistHistoryReplayUnit(transaction, fissions);
+        }
+      });
+      if (persistedLock) bitcoinLockRecovery.publishHistoryReplayUnit(persistedLock);
+      await bitcoinFissionRecovery?.publishHistoryReplayUnit(persistedFissions);
+    } catch (error) {
+      failedUtxoIds.add(utxoId);
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(`Bitcoin history for lock ${utxoId}: ${message}`);
+      console.warn(`Unable to persist recovered Bitcoin history for lock ${utxoId}; leaving it retryable`, error);
+    }
+  }
+
+  try {
+    await bitcoinLockRecovery.finishHistoryReplay(failedUtxoIds);
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : String(error));
+  }
+  try {
+    await bitcoinFissionRecovery?.finishHistoryReplay();
+  } catch (error) {
+    bitcoinFissionRecovery?.cancelHistoryReplay();
+    errors.push(error instanceof Error ? error.message : String(error));
+  }
+  if (errors.length) throw new Error(errors.join(' '));
+  return preparedLocks.records;
 }
 
 export class FinancialHistoryImporter {

@@ -287,7 +287,7 @@ export class BitcoinLockCreate extends TransactionOperation<
     const archiveClient = await getMainchainClient(true);
     await this.transactionTracker.ensureStoredEvents(txInfo);
     const { lock } = await BitcoinLock.getBitcoinLockFromTxResult(await archiveClient.at(blockHash), txInfo.txResult);
-    await this.bitcoinLocks.finalizeCreatedLock(txInfo.tx.metadataJson.bitcoin.uuid, lock);
+    await this.bitcoinLocks.finalizeCreatedLock(txInfo.tx.metadataJson.bitcoin.uuid, lock, txInfo);
     const feeCouponRequestId = txInfo.tx.metadataJson.bitcoin.feeCouponRequestId;
     if (feeCouponRequestId) {
       await this.upstreamOperatorClient.recordBitcoinLockFeeCouponUse(feeCouponRequestId, 'Finalized');

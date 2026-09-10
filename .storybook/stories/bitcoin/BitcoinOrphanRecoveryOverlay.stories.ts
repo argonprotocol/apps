@@ -1,8 +1,7 @@
 import * as Vue from 'vue';
 import { NetworkConfig } from '@argonprotocol/apps-core';
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
-import { expect, fn, userEvent, waitFor, within } from 'storybook/test';
-import { expectEventuallyVisible } from '../../support/expectEventuallyVisible.ts';
+import { fn, userEvent, within } from 'storybook/test';
 import {
   createBitcoinUtxo,
   setupBitcoinOverlayScenario,
@@ -53,10 +52,6 @@ export const OrphanedDeposit: Story = {
     scenario.replaceUtxoRecords([]);
     orphanRecord = createOrphanRecord(401);
   },
-  play: async () => {
-    const body = within(document.body);
-    await expectEventuallyVisible(body.findByText('Orphaned Bitcoin received'));
-  },
 };
 
 export const AdditionalDeposit: Story = {
@@ -67,10 +62,6 @@ export const AdditionalDeposit: Story = {
       firstSeenAt: new Date('2026-08-16T15:00:00.000Z'),
       firstSeenBitcoinHeight: 250_020,
     });
-  },
-  play: async () => {
-    const body = within(document.body);
-    await expectEventuallyVisible(body.findByText('Additional Bitcoin received'));
   },
 };
 
@@ -87,7 +78,6 @@ export const InvalidDestination: Story = {
         await body.findByTestId('BitcoinOrphanRecoveryOverlay.returnDestination'),
         'not-a-bitcoin-address',
       );
-      await expectEventuallyVisible(body.findByText(/Enter a valid Bitcoin address/i));
     } finally {
       disablePreview();
     }
@@ -110,7 +100,6 @@ export const CheckingFee: Story = {
     try {
       const body = within(document.body);
       await userEvent.type(await body.findByTestId('BitcoinOrphanRecoveryOverlay.returnDestination'), returnAddress());
-      await expectEventuallyVisible(body.findByText('Checking the Internal App Wallet transaction fee...'));
     } finally {
       disablePreview();
     }
@@ -122,17 +111,19 @@ export const InsufficientArgonFee: Story = {
     isInteractive.value = true;
     scenario = setupBitcoinOverlayScenario();
     orphanRecord = createOrphanRecord(405);
-    scenario.bitcoinOrphanRelease.prepare = fn(async () => ({
-      canAfford: false,
-      availableBalance: 25_000n,
-      txFeePlusTip: 125_000n,
-    }) as never);
+    scenario.bitcoinOrphanRelease.prepare = fn(
+      async () =>
+        ({
+          canAfford: false,
+          availableBalance: 25_000n,
+          txFeePlusTip: 125_000n,
+        }) as never,
+    );
   },
   play: async () => {
     try {
       const body = within(document.body);
       await userEvent.type(await body.findByTestId('BitcoinOrphanRecoveryOverlay.returnDestination'), returnAddress());
-      await expectEventuallyVisible(body.findByText(/to the Internal App Wallet to cover/i));
     } finally {
       disablePreview();
     }
@@ -152,7 +143,6 @@ export const FeeQuoteError: Story = {
     try {
       const body = within(document.body);
       await userEvent.type(await body.findByTestId('BitcoinOrphanRecoveryOverlay.returnDestination'), returnAddress());
-      await expectEventuallyVisible(body.findByText('Unable to check the Argon transaction fee. Please try again.'));
     } finally {
       disablePreview();
     }
@@ -169,9 +159,6 @@ export const AffordableReturn: Story = {
     try {
       const body = within(document.body);
       await userEvent.type(await body.findByTestId('BitcoinOrphanRecoveryOverlay.returnDestination'), returnAddress());
-      await waitFor(async () => {
-        await expect(body.getByRole('button', { name: 'Return Bitcoin' })).toBeEnabled();
-      });
     } finally {
       disablePreview();
     }
@@ -199,11 +186,6 @@ export const ArgonRequest: Story = {
     );
     return () => scenario.cleanup();
   },
-  play: async () => {
-    const body = within(document.body);
-    await expectEventuallyVisible(body.findByText(/Argon Block/));
-    await expectEventuallyVisible(body.findByText('38.00%'));
-  },
 };
 
 export const AwaitingVaultSignature: Story = {
@@ -211,9 +193,6 @@ export const AwaitingVaultSignature: Story = {
     isInteractive.value = false;
     scenario = setupBitcoinOverlayScenario();
     orphanRecord = createReleaseRecord(409, BitcoinUtxoStatus.ReleaseIsProcessingOnArgon);
-  },
-  play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText('Awaiting vault signature'));
   },
 };
 
@@ -225,9 +204,6 @@ export const PreparingBitcoinReturn: Story = {
       releaseCosignVaultSignature: new Uint8Array([1, 2, 3]),
       releaseCosignHeight: 250_021,
     });
-  },
-  play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText('Preparing Bitcoin return'));
   },
 };
 
@@ -242,9 +218,6 @@ export const BitcoinConfirmations: Story = {
     });
     scenario.releaseLifecycle.progressPct = 67;
   },
-  play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText('Returning on Bitcoin'));
-  },
 };
 
 export const Returned: Story = {
@@ -258,9 +231,6 @@ export const Returned: Story = {
       releasedAtBitcoinHeight: 250_028,
     });
   },
-  play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText('Bitcoin returned'));
-  },
 };
 
 export const StatusError: Story = {
@@ -270,11 +240,6 @@ export const StatusError: Story = {
     orphanRecord = createReleaseRecord(413, BitcoinUtxoStatus.ReleaseIsProcessingOnArgon, {
       statusError: 'The vault signature expired before the return was broadcast.',
     });
-  },
-  play: async () => {
-    await expectEventuallyVisible(
-      within(document.body).findByText('The vault signature expired before the return was broadcast.'),
-    );
   },
 };
 

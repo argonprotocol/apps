@@ -3,11 +3,15 @@ import Path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { readRuntimeQueries } from '../src/generation/queryDeclarations.ts';
+import type { RuntimeTypeOverrides } from '../src/typeOverrides.ts';
 
 const packageRoot = Path.resolve(Path.dirname(fileURLToPath(import.meta.resolve('@argonprotocol/mainchain'))), '..');
 const querySource = Fs.readFileSync(Path.join(packageRoot, 'src/interfaces/augment-api-query.ts'), 'utf8');
 const lookupSource = Fs.readFileSync(Path.join(packageRoot, 'src/interfaces/types-lookup.ts'), 'utf8');
 const definitionSource = Fs.readFileSync(Path.join(packageRoot, 'src/interfaces/lookup.ts'), 'utf8');
+const typeOverrides = JSON.parse(
+  Fs.readFileSync(Path.resolve(import.meta.dirname, '../../runtime-type-overrides.json'), 'utf8'),
+) as RuntimeTypeOverrides;
 
 describe('native runtime query types', () => {
   it('erases real Bond and Bitcoin storage codecs into exact native values', () => {
@@ -30,5 +34,20 @@ describe('native runtime query types', () => {
     expect(queries.bitcoinLocks?.microgonPerBtcHistory?.result).toBe('readonly (readonly [bigint, bigint])[]');
     expect(queries.system?.extrinsicData?.result).toBe('Uint8Array');
     expect(queries.system?.blockHash?.result).toBe('string');
+  });
+
+  it('uses native numbers throughout the Bitcoin Fission query boundary', () => {
+    const queries = readRuntimeQueries(querySource, lookupSource, definitionSource, typeOverrides);
+
+    expect(queries.bitcoinFissions?.fissionByOwnerAndId).toMatchObject({
+      args: ['string', 'number'],
+      result: expect.stringContaining('readonly liquidId: number'),
+    });
+    expect(queries.bitcoinFissions?.fissionByOwnerAndId?.result).toContain('readonly lastRatchetTick: number');
+    expect(queries.bitcoinFissions?.fissionIdsByLockId).toEqual({
+      args: ['number'],
+      result: 'readonly number[]',
+    });
+    expect(queries.bitcoinFissions?.nextFissionIdByOwner?.result).toBe('number');
   });
 });

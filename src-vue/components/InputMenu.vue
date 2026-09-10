@@ -3,6 +3,7 @@
   <SelectRoot v-model="selectedOption" @update:open="handleToggleOpen" @update:modelValue="handleUpdateModelValue">
     <SelectTrigger
       :data-testid="triggerTestId"
+      :aria-label="props.ariaLabel"
       ref="triggerInstance"
       :class="triggerClasses"
     >
@@ -106,6 +107,7 @@ const props = withDefaults(
     selectFirst?: boolean;
     class?: string;
     dataTestid?: string;
+    ariaLabel?: string;
   }>(),
   {
     disabled: false,

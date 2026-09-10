@@ -277,12 +277,10 @@ export class BitcoinLiquidCreate extends TransactionOperation<
   }
 
   protected async onFinalized(txInfo: TransactionInfo<IBitcoinLiquidCreateMetadata>): Promise<void> {
-    const blockHash = await txInfo.txResult.waitForFinalizedBlock;
-    await Promise.all(
-      txInfo.tx.metadataJson.resecuritizations.map(metadata =>
-        this.bitcoinLockResecuritize.finalizeResecuritization(metadata, blockHash),
-      ),
-    );
+    await txInfo.txResult.waitForFinalizedBlock;
+    for (const metadata of txInfo.tx.metadataJson.resecuritizations) {
+      await this.bitcoinLockResecuritize.finalizeResecuritization(metadata, txInfo);
+    }
     await this.transactionTracker.ensureStoredEvents(txInfo);
     await this.fissions.recordFinalizedTransaction(txInfo);
   }
@@ -381,7 +379,7 @@ export class BitcoinLiquidCreate extends TransactionOperation<
       try {
         vault = await Vault.get(snapshotClient, lock.vaultId, NetworkConfig.tickMillis);
       } catch {
-        throw new BitcoinLiquidCreateStateChangedError(`The cosigner for Bitcoin Lock #${utxoId} is unavailable.`);
+        throw new BitcoinLiquidCreateStateChangedError(`The vault for Bitcoin Lock #${utxoId} is unavailable.`);
       }
       this.vaults.vaultsById[vault.vaultId] = vault;
       const remainingCoverage =
@@ -425,7 +423,7 @@ export class BitcoinLiquidCreate extends TransactionOperation<
 
     if (capacityChanged) {
       throw new BitcoinLiquidCreateStateChangedError(
-        'Your cosigners can no longer insure the full selected Bitcoin amount.',
+        'The selected vaults can no longer insure the full selected Bitcoin amount.',
         maximumSatoshisByUtxoId,
       );
     }

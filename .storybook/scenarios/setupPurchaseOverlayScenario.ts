@@ -12,16 +12,26 @@ import { getVaults } from '../../src-vue/stores/vaults.ts';
 import { createScenarioVault } from './createScenarioVault.ts';
 import { setupAppScenario } from './setupAppScenario.ts';
 
-type BondPurchaseState = 'loading' | 'loadError' | 'ready' | 'available';
+type BondPurchaseState = 'loading' | 'loadError' | 'ready' | 'available' | 'selection';
 type StakePurchaseState = 'loadError' | 'ready' | 'fundingRequired' | 'progress' | 'progressError' | 'complete';
 
 export function setupBondPurchaseScenario(state: BondPurchaseState) {
   setupAppScenario({ selectedTab: TopTab.ArgonBonds });
-  const vault = createScenarioVault({
-    securitizationLocked: 1_052_698_425n,
-    lockedSatoshis: 1_408_910n,
-    securitizedSatoshis: 1_408_910n,
-  });
+  const vaults =
+    state === 'selection'
+      ? [
+          createScenarioVault({ vaultId: 7, operatorAccountId: '5AtlasVaultOperator' }),
+          createScenarioVault({ vaultId: 12, operatorAccountId: '5NorthstarVaultOperator' }),
+        ]
+      : state === 'available'
+        ? [
+            createScenarioVault({
+              securitizationLocked: 1_052_698_425n,
+              lockedSatoshis: 1_408_910n,
+              securitizedSatoshis: 1_408_910n,
+            }),
+          ]
+        : [];
   let refresh = fn(async () => undefined);
   if (state === 'loading') {
     refresh = fn(() => new Promise<void>(() => undefined));
@@ -37,14 +47,21 @@ export function setupBondPurchaseScenario(state: BondPurchaseState) {
     refreshBondLots: fn(async () => undefined),
     subscribeGlobal: fn(async () => undefined),
     subscribeVault: fn(async () => fn()),
-    availableBondSpace: fn(() => (state === 'available' ? 1_026_000_000n : 0n)),
+    availableBondSpace: fn(vault =>
+      state === 'available' ? 1_026_000_000n : vault.vaultId === 7 ? 120_000_000n : 80_000_000n,
+    ),
   } as unknown as ReturnType<typeof getArgonBonds>);
-  getVaults().operatorNamesByVaultId[vault.vaultId] = 'Market Vault';
+  mocked(getVaults, { partial: true }).mockReturnValue({
+    load: fn(async () => undefined),
+    operatorNamesByVaultId: Vue.reactive({ 1: 'Market Vault', 7: 'Atlas', 12: 'Northstar' }),
+    vaultsById: Object.fromEntries(vaults.map(vault => [vault.vaultId, vault])),
+    calculateArgonBondsApr: fn(vaultId => (vaultId === 7 ? 14.8 : 11.2)),
+  });
   mocked(useFinancials).mockReturnValue(
     Vue.reactive({
       refreshVaults: refresh,
       vaultsIsLoaded: true,
-      vaultsActiveRecords: state === 'available' ? [vault] : [],
+      vaultsActiveRecords: vaults,
     }) as unknown as ReturnType<typeof useFinancials>,
   );
   mocked(getMainchainClient).mockResolvedValue({

@@ -38,4 +38,41 @@ describe('runtime events', () => {
       },
     });
   });
+
+  it('normalizes Bitcoin Fission and Liquid IDs to native numbers', () => {
+    const registry = getOfflineRegistry();
+    const accountId = new Uint8Array(32).fill(7);
+    const data = registry.createType<GenericEvent['data']>(
+      '(AccountId32,u64,u64,u64,u64,u128,u128)',
+      [accountId, 9, 4, 12, 1_000, 2_000, 3_000],
+    );
+    Object.defineProperties(data, {
+      names: {
+        value: [
+          'accountId',
+          'fissionId',
+          'liquidId',
+          'utxoId',
+          'satoshis',
+          'microgonsAtTargetPerBtc',
+          'liquidityPromised',
+        ],
+      },
+      typeDef: {
+        value: [
+          getTypeDef('AccountId32'),
+          getTypeDef('u64'),
+          getTypeDef('u64'),
+          getTypeDef('u64'),
+          getTypeDef('u64'),
+          getTypeDef('u128'),
+          getTypeDef('u128'),
+        ],
+      },
+    });
+
+    const event = events.toHistoricalEvent({ section: 'bitcoinFissions', method: 'FissionCreated', data });
+
+    expect(event?.data).toMatchObject({ fissionId: 9, liquidId: 4, utxoId: 12 });
+  });
 });

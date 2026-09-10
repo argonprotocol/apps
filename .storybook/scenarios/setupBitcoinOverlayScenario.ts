@@ -184,6 +184,11 @@ export function setupBitcoinOverlayScenario() {
     vaultId: 7,
     securitization: 2_000_000_000n,
   });
+  const ownVault = createScenarioVault({
+    vaultId: 8,
+    operatorAccountId: '5SyntheticInternalWallet',
+    securitization: 1_500_000_000n,
+  });
   const fundingRecord = createBitcoinUtxo({
     id: 201,
     lockUtxoId: lock.utxoId!,
@@ -534,13 +539,14 @@ export function setupBitcoinOverlayScenario() {
     getTxInfoByType: fn(() => undefined),
   });
 
-  mocked(getVaults, { partial: true }).mockReturnValue({
+  const vaults = {
     operatorNamesByVaultId: { [vault.vaultId]: 'Atlas Operator' },
-    vaultsById: { [vault.vaultId]: vault },
+    vaultsById: { [vault.vaultId]: vault, [ownVault.vaultId]: ownVault },
     fetchAndCalculateRedemptionAmount: fn(async () => 825_000_000n),
     load: fn(async () => undefined),
-    refreshVault: fn(async () => vault),
-  });
+    refreshVault: fn(async (vaultId: number) => vaults.vaultsById[vaultId]),
+  };
+  mocked(getVaults, { partial: true }).mockReturnValue(vaults);
   mocked(useVaultingStats, { partial: true }).mockReturnValue({ bitcoinAPR: 8.4 });
   mocked(getMainchainClient).mockResolvedValue(scenarioMainchainClient);
 
@@ -560,6 +566,7 @@ export function setupBitcoinOverlayScenario() {
     locks,
     lockProcessing,
     myVault,
+    ownVault,
     orphanTransactions,
     releaseLifecycle,
     releaseProcessing,
@@ -571,6 +578,7 @@ export function setupBitcoinOverlayScenario() {
     scenarioStartedAt,
     setFeeWaiver,
     vault,
+    vaults,
     defer() {
       let resolve!: VoidFunction;
       const promise = new Promise<void>(resolvePromise => {

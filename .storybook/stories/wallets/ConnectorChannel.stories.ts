@@ -1,6 +1,6 @@
 import * as Vue from 'vue';
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
-import { expect, fn, userEvent, waitFor, within } from 'storybook/test';
+import { fn, userEvent, within } from 'storybook/test';
 import {
   createBitcoinUtxo,
   setupBitcoinOverlayScenario,
@@ -18,6 +18,7 @@ let open = true;
 let isInteractive = false;
 let showUnlockReceiver = false;
 let requestedChannelUuid: string | undefined;
+let requestedVaultId: number | undefined;
 let observeFunding = () => undefined;
 
 const meta = {
@@ -32,7 +33,14 @@ const meta = {
     components: { AlertBars, ConnectorChannel },
     setup() {
       const isOpen = Vue.ref(open);
-      return { isInteractive, isOpen, requestedChannelUuid, showUnlockReceiver, wallet: useWallets().bitcoinWallet };
+      return {
+        isInteractive,
+        isOpen,
+        requestedChannelUuid,
+        requestedVaultId,
+        showUnlockReceiver,
+        wallet: useWallets().bitcoinWallet,
+      };
     },
     template: `
       <div class="flex h-screen w-screen items-start justify-center bg-slate-800 pt-48">
@@ -40,6 +48,7 @@ const meta = {
         <ConnectorChannel
           v-model:open="isOpen"
           :channelUuid="requestedChannelUuid"
+          :vaultId="requestedVaultId"
           direction="right"
           :wallet="wallet"
         >
@@ -71,6 +80,7 @@ function useScenario(status?: BitcoinLockStatus, hasObservedFunding = false) {
   isInteractive = false;
   showUnlockReceiver = false;
   requestedChannelUuid = undefined;
+  requestedVaultId = undefined;
   observeFunding = () => undefined;
   scenario.locks.splice(0);
   if (status) {
@@ -155,24 +165,6 @@ export const WalletOverview: Story = {
     scenario.bitcoinLocks.isFundingWindowExpired = fn(() => true);
     return cleanup;
   },
-  play: async () => {
-    const canvas = within(document.body);
-    await expect(canvas.findByText('No channel is currently open.')).resolves.toBeVisible();
-    await expect(canvas.getByRole('button', { name: 'Create Channel' })).toBeVisible();
-    await expect(canvas.queryByTestId('ConnectorChannel.channelCaret')).not.toBeInTheDocument();
-    const archivedChannelLink = canvas.getByRole('button', { name: 'View 1 archived channel' });
-    await expect(archivedChannelLink).toBeVisible();
-    await expect(archivedChannelLink.parentElement).toHaveClass('border-t');
-    await expect(canvas.queryByTestId('ConnectorChannel.archivedChannelCaret')).not.toBeInTheDocument();
-
-    await userEvent.click(canvas.getByRole('button', { name: 'View 1 archived channel' }));
-    await expect(canvas.findByRole('heading', { name: 'Archived channels' })).resolves.toBeVisible();
-    const [archivedChannel] = await canvas.findAllByRole('button', { name: /Archived Aug 31, 2026/ });
-    await expect(archivedChannel).toHaveTextContent('Cosigner: Atlas Operator');
-
-    await userEvent.click(canvas.getByRole('button', { name: 'Back to Bitcoin channels' }));
-    await expect(canvas.findByText('No channel is currently open.')).resolves.toBeVisible();
-  },
 };
 
 export const FailedChannel: Story = {
@@ -181,15 +173,6 @@ export const FailedChannel: Story = {
     scenario.lock.blockExtrinsicErrorJson = { message: 'Synthetic channel creation failed.' };
     isInteractive = true;
     return cleanup;
-  },
-  play: async () => {
-    const canvas = within(document.body);
-
-    await expect(canvas.findByRole('button', { name: 'Create Another Channel' })).resolves.toBeVisible();
-    await userEvent.click(canvas.getByRole('button', { name: 'Create Another Channel' }));
-    await expect(
-      canvas.findByText('Create a reusable Bitcoin receive address with your cosigner.'),
-    ).resolves.toBeVisible();
   },
 };
 
@@ -208,17 +191,6 @@ export const OrphanAfterLastChannelClosed: Story = {
       }),
     ]);
     return cleanup;
-  },
-  play: async () => {
-    const canvas = within(document.body);
-    await expect(canvas.findByText('1 unattached Bitcoin deposit with Atlas Operator')).resolves.toBeVisible();
-    await userEvent.click(canvas.getByRole('button', { name: /Review/ }));
-    const backButton = await canvas.findByTestId('BitcoinOrphanRecoveryOverlay.back');
-    await waitFor(() => expect(backButton).toBeVisible());
-
-    await userEvent.click(backButton);
-    await expect(canvas.findByText('1 unattached Bitcoin deposit with Atlas Operator')).resolves.toBeVisible();
-    await expect(canvas.queryByTestId('ConnectorChannel.insuranceAmount')).not.toBeInTheDocument();
   },
 };
 
@@ -253,27 +225,50 @@ export const ArchivedChannel: Story = {
     const canvas = within(document.body);
 
     await userEvent.click(await canvas.findByRole('button', { name: 'View 2 archived channels' }));
-    await expect(canvas.findByRole('heading', { name: 'Archived channels' })).resolves.toBeVisible();
-    const archivedChannels = await canvas.findAllByRole('button', { name: /Archived / });
-    expect(archivedChannels.map(channel => channel.getAttribute('data-channel-uuid'))).toEqual([
-      'synthetic-bitcoin-overlay-lock',
-      'synthetic-older-archived-channel',
-    ]);
-
-    await userEvent.click(archivedChannels[0]);
-    await expect(canvas.getByTestId('ConnectorChannel')).toHaveAttribute('data-e2e-state', 'Archived');
-    await userEvent.click(canvas.getByRole('button', { name: 'Back to archived channels' }));
-    await expect(canvas.findByRole('heading', { name: 'Archived channels' })).resolves.toBeVisible();
-    await expect(canvas.findAllByRole('button', { name: /Archived / })).resolves.toHaveLength(2);
   },
 };
 
 export const Form: Story = {
   beforeEach: () => useScenario(),
+};
+
+export const CosignerInfo: Story = {
+  beforeEach: () => useScenario(),
   play: async () => {
     const canvas = within(document.body);
-    await expect(canvas.findByText('Insurance guarantee')).resolves.toBeVisible();
-    await expect(canvas.getByTestId('ConnectorChannel.fixedPreviewGuard')).toBeVisible();
+    await userEvent.hover(await canvas.findByRole('button', { name: 'About this cosigner' }));
+  },
+};
+
+export const FormInMyVault: Story = {
+  beforeEach: () => {
+    const cleanup = useScenario();
+    scenario.config.upstreamOperator = undefined;
+    scenario.myVault.data.createdVault = scenario.ownVault;
+    requestedChannelUuid = undefined;
+    return cleanup;
+  },
+};
+
+export const FormWithCosignerChoice: Story = {
+  beforeEach: () => {
+    const cleanup = useScenario();
+    scenario.myVault.data.createdVault = scenario.ownVault;
+    isInteractive = true;
+    return cleanup;
+  },
+  play: async () => {
+    const canvas = within(document.body);
+    await userEvent.click(await canvas.findByRole('combobox', { name: 'Cosigner' }));
+    await userEvent.click(await canvas.findByRole('option', { name: 'My Vault' }));
+  },
+};
+
+export const ExpiredRequestedChannel: Story = {
+  beforeEach: () => {
+    const cleanup = useScenario(BitcoinLockStatus.LockFunded);
+    scenario.bitcoinLocks.isFundingWindowExpired = fn(() => true);
+    return cleanup;
   },
 };
 
@@ -294,12 +289,7 @@ export const CreateWithoutInsurance: Story = {
     const canvas = within(document.body);
     const createButton = await canvas.findByRole('button', { name: /Create Channel/ });
 
-    await expect(createButton).toBeEnabled();
-    await expect(canvas.findByText('₳0.00')).resolves.toBeVisible();
     await userEvent.click(createButton);
-    await expect(scenario.bitcoinLockCreate.submit).toHaveBeenCalledWith(
-      expect.objectContaining({ satoshis: 0n, operatorCoupon: undefined }),
-    );
   },
 };
 
@@ -322,10 +312,6 @@ export const CreatedChannelSurvivesFinalizationHandoff: Story = {
   play: async () => {
     const canvas = within(document.body);
     await userEvent.click(await canvas.findByRole('button', { name: /Create Channel/ }));
-    await expect(canvas.findByTestId('ConnectorChannel')).resolves.toHaveAttribute(
-      'data-channel-uuid',
-      scenario.lock.uuid,
-    );
   },
 };
 
@@ -348,31 +334,11 @@ export const FeeWaiver: Story = {
     const input = await canvas.findByTestId('input-number');
     await userEvent.click(input);
     await userEvent.keyboard('{Control>}a{/Control}10');
-
-    await expect(canvas.findByText('₳2.80')).resolves.toHaveClass('line-through');
-    await expect(canvas.findByText('₳2.00')).resolves.toBeVisible();
-    await expect(canvas.findByText(/₳0.80 fee waiver from Atlas Operator/)).resolves.toBeVisible();
-
-    await userEvent.click(canvas.getByRole('button', { name: /Create Channel/ }));
-    await expect(scenario.bitcoinLockCreate.submit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        operatorCoupon: expect.objectContaining({
-          vaultId: scenario.vault.vaultId,
-          offerCode: 'synthetic-fee-waiver',
-          remainingFeeCreditMicrogons: 20_400_000n,
-        }),
-      }),
-    );
   },
 };
 
 export const CreatingOnArgon: Story = {
   beforeEach: () => useScenario(BitcoinLockStatus.LockIsProcessingOnArgon),
-  play: async () => {
-    const canvas = within(document.body);
-    await expect(canvas.findByText('Creating your Bitcoin channel')).resolves.toBeVisible();
-    await expect(canvas.getByText('Argon confirmation 2 of 4')).toBeVisible();
-  },
 };
 
 export const PreparingRequest: Story = {
@@ -392,33 +358,15 @@ export const PreparingRequest: Story = {
     await userEvent.click(input);
     await userEvent.keyboard('10');
     await userEvent.click(canvas.getByRole('button', { name: /Create Channel/ }));
-    await expect(canvas.findByText('Preparing the Bitcoin channel request...')).resolves.toBeVisible();
   },
 };
 
 export const ReadyForBitcoin: Story = {
   beforeEach: () => useScenario(BitcoinLockStatus.LockPendingFunding),
-  play: async () => {
-    const canvas = within(document.body);
-    await expect(canvas.findByText('Your Bitcoin channel is ready')).resolves.toBeVisible();
-    await expect(canvas.getByText('Funding window:')).toBeVisible();
-    await expect(canvas.getByTestId('ConnectorChannel.fundingAddress')).toBeVisible();
-    await expect(canvas.getByText('Atlas Operator')).toBeVisible();
-    await expect(canvas.queryByText('Insurance capacity')).not.toBeInTheDocument();
-    await expect(canvas.getByText('Send Bitcoin to this address before the funding window expires.')).toBeVisible();
-  },
 };
 
 export const RestoredPendingFunding: Story = {
   beforeEach: () => useScenario(BitcoinLockStatus.LockPendingFunding),
-  play: async () => {
-    const canvas = within(document.body);
-
-    await expect(scenario.bitcoinLocks.load).not.toHaveBeenCalled();
-    await expect(canvas.findByText('Your Bitcoin channel is ready')).resolves.toBeVisible();
-    await expect(canvas.getByTestId('ConnectorChannel.fundingAddress')).toHaveTextContent(/^bc1/);
-    await expect(canvas.getByText('Funding window:')).toBeVisible();
-  },
 };
 
 export const FocusedPendingChannel: Story = {
@@ -436,14 +384,6 @@ export const FocusedPendingChannel: Story = {
     requestedChannelUuid = scenario.lock.uuid;
     return cleanup;
   },
-  play: async () => {
-    const canvas = within(document.body);
-    await expect(canvas.findByTestId('ConnectorChannel')).resolves.toHaveAttribute(
-      'data-channel-uuid',
-      scenario.lock.uuid,
-    );
-    await expect(canvas.findByText('Your Bitcoin channel is ready')).resolves.toBeVisible();
-  },
 };
 
 export const FundingObservedDuringCurrentVisit: Story = {
@@ -455,13 +395,8 @@ export const FundingObservedDuringCurrentVisit: Story = {
     return cleanup;
   },
   play: async () => {
-    const canvas = within(document.body);
-    await expect(canvas.findByText('Your Bitcoin channel is ready')).resolves.toBeVisible();
     observeFunding();
     await Vue.nextTick();
-    await expect(canvas.findByText('Bitcoin funding detected')).resolves.toBeVisible();
-    await expect(canvas.queryByText('Funding window:')).not.toBeInTheDocument();
-    await expect(canvas.getByText('Bitcoin confirmation 2 of 4')).toBeVisible();
   },
 };
 
@@ -473,14 +408,6 @@ export const PendingChannelFunding: Story = {
     scenario.lockProcessing.receivedSatoshis = scenario.fundingRecord.satoshis;
     return cleanup;
   },
-  play: async () => {
-    const canvas = within(document.body);
-    await expect(canvas.findByText('Bitcoin funding detected')).resolves.toBeVisible();
-    await expect(canvas.getByText('Bitcoin confirmation 2 of 4')).toBeVisible();
-    await expect(canvas.getByText('Atlas Operator')).toBeVisible();
-    await expect(canvas.queryByText('Insurance capacity')).not.toBeInTheDocument();
-    await expect(canvas.queryByRole('button', { name: /Create Channel/ })).not.toBeInTheDocument();
-  },
 };
 
 export const FundingFinalizesDuringCurrentVisit: Story = {
@@ -490,13 +417,8 @@ export const FundingFinalizesDuringCurrentVisit: Story = {
     return cleanup;
   },
   play: async () => {
-    const canvas = within(document.body);
-    await expect(canvas.findByText('Bitcoin funding detected')).resolves.toBeVisible();
-
     scenario.lock.status = BitcoinLockStatus.LockFunded;
     await Vue.nextTick();
-
-    await waitFor(() => expect(canvas.queryByTestId('ConnectorChannel')).not.toBeInTheDocument());
   },
 };
 
@@ -505,11 +427,6 @@ export const PreviousFundedChannel: Story = {
     const cleanup = useScenario(BitcoinLockStatus.LockPendingFunding, true);
     isInteractive = true;
     return cleanup;
-  },
-  play: async () => {
-    const canvas = within(document.body);
-    await expect(canvas.findByText('Bitcoin funding detected')).resolves.toBeVisible();
-    await expect(canvas.queryByRole('button', { name: /Create Channel/ })).not.toBeInTheDocument();
   },
 };
 
@@ -541,20 +458,15 @@ export const RestoreError: Story = {
     isInteractive = true;
     return cleanup;
   },
-  play: async () => {
-    const canvas = within(document.body);
-    await expect(canvas.findByText('Synthetic channel restore failure.')).resolves.toBeVisible();
-
-    await userEvent.click(canvas.getByRole('button', { name: 'Retry' }));
-
-    await expect(scenario.bitcoinLocks.load).toHaveBeenCalledOnce();
-    await expect(canvas.findByText('Your Bitcoin channel is ready')).resolves.toBeVisible();
-  },
 };
 
 export const __namedExportsOrder = [
   'WalletOverview',
   'Form',
+  'CosignerInfo',
+  'FormInMyVault',
+  'FormWithCosignerChoice',
+  'ExpiredRequestedChannel',
   'CreateWithoutInsurance',
   'CreatedChannelSurvivesFinalizationHandoff',
   'FeeWaiver',

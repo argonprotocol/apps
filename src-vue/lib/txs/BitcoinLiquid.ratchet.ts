@@ -286,12 +286,10 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
   }
 
   protected async onFinalized(txInfo: TransactionInfo<IBitcoinLiquidRatchetMetadata>): Promise<void> {
-    const blockHash = await txInfo.txResult.waitForFinalizedBlock;
-    await Promise.all(
-      (txInfo.tx.metadataJson.resecuritizations ?? []).map(metadata =>
-        this.bitcoinLockResecuritize.finalizeResecuritization(metadata, blockHash),
-      ),
-    );
+    await txInfo.txResult.waitForFinalizedBlock;
+    for (const metadata of txInfo.tx.metadataJson.resecuritizations ?? []) {
+      await this.bitcoinLockResecuritize.finalizeResecuritization(metadata, txInfo);
+    }
     await this.transactionTracker.ensureStoredEvents(txInfo);
     await this.fissions.recordFinalizedTransaction(txInfo);
   }
@@ -379,8 +377,8 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
         const remainingCoverage =
           remainingCoverageByVaultId.get(vault.vaultId) ?? vault.availableBitcoinSpace(this.fissions.ownerAccount);
         if (additionalCoverageMicrogons > remainingCoverage) {
-          const cosigner = this.vaults.operatorNamesByVaultId[vault.vaultId] ?? 'The cosigner';
-          errors.push(`${cosigner} does not have enough available securitization for this ratchet.`);
+          const vaultName = this.vaults.operatorNamesByVaultId[vault.vaultId] ?? 'The vault';
+          errors.push(`${vaultName} does not have enough available securitization for this ratchet.`);
         } else {
           remainingCoverageByVaultId.set(vault.vaultId, remainingCoverage - additionalCoverageMicrogons);
         }
@@ -447,8 +445,8 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
       const remainingCoverage =
         remainingCoverageByVaultId.get(vault.vaultId) ?? vault.availableBitcoinSpace(txSigner.address);
       if (additionalCoverageMicrogons > remainingCoverage) {
-        const cosigner = this.vaults.operatorNamesByVaultId[vault.vaultId] ?? 'The cosigner';
-        throw new Error(`${cosigner} does not have enough available securitization for this ratchet.`);
+        const vaultName = this.vaults.operatorNamesByVaultId[vault.vaultId] ?? 'The vault';
+        throw new Error(`${vaultName} does not have enough available securitization for this ratchet.`);
       }
       remainingCoverageByVaultId.set(vault.vaultId, remainingCoverage - additionalCoverageMicrogons);
 

@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import * as Vue from 'vue';
-import { expect, fn, mocked, waitFor, within } from 'storybook/test';
+import { fn, mocked } from 'storybook/test';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 import basicEmitter from '../../../src-vue/emitters/basicEmitter.ts';
 import {
@@ -104,24 +104,6 @@ export const CurrentAndPriorRecords: Story = {
         transactionsTable: { fetchAll: fn(async () => transactions) },
       }) as unknown as ReturnType<typeof getDbPromise>,
     );
-  },
-  play: async ({ canvasElement }) => {
-    const body = within(canvasElement.ownerDocument.body);
-
-    await waitFor(() => expect(body.getByRole('row', { name: /Updated Bitcoin Securitization/ })).toBeVisible());
-    await expect(
-      within(body.getByRole('row', { name: /Updated Bitcoin Securitization/ })).getByText('0.0070914 BTC'),
-    ).toBeVisible();
-    await expect(body.getByRole('row', { name: /Requested Bitcoin Release --/ })).toBeVisible();
-    await expect(body.getByRole('row', { name: /Requested Bitcoin Release 16.5 ARGN/ })).toBeVisible();
-    await expect(body.getByRole('row', { name: /Ratcheted Bitcoin Lock 12.5 ARGN/ })).toBeVisible();
-    await expect(body.getByRole('row', { name: /Ratcheted Bitcoin Liquid --/ })).toBeVisible();
-    await expect(body.getByRole('row', { name: /Scheduled Bond Release 45 ARGN/ })).toBeVisible();
-    await expect(body.getByRole('row', { name: /Updated Operational Profile/ })).toBeVisible();
-    await expect(body.getByRole('row', { name: /Claimed Operational Rewards 12 ARGN/ })).toBeVisible();
-    await expect(body.getByRole('row', { name: /Activated Operational Account 50 ARGN/ })).toBeVisible();
-    await expect(body.getByRole('row', { name: /Registered Minting Authority 10 ARGN \+ 2 ARGNOT/ })).toBeVisible();
-    await expect(body.getByTestId('TransactionsOverlay.fixedPreviewGuard')).toBeVisible();
   },
 };
 

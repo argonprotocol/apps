@@ -1,8 +1,8 @@
-import type { TxSigningAccount, Vault } from '@argonprotocol/apps-core';
+import { bigIntMax, type TxSigningAccount, type Vault } from '@argonprotocol/apps-core';
 import * as Vue from 'vue';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
 import type { IBitcoinLockProcessingDetails } from '../interfaces/IBitcoinLockSummary.ts';
-import type { IBitcoinUtxoRecord } from '../interfaces/IBitcoinUtxoRecord.ts';
+import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../interfaces/IBitcoinUtxoRecord.ts';
 import BitcoinLocks, { type IOperatorBitcoinLockCouponRoute } from './BitcoinLocks.ts';
 import type { BitcoinLockCreate } from './txs/BitcoinLock.create.ts';
 import { WalletForChain, WalletType } from './Wallet.ts';
@@ -24,17 +24,17 @@ export class WalletForBitcoin extends WalletForChain<WalletType.bitcoin> {
   }
 
   public getOpenInboundChannel(): IBitcoinLockRecord | undefined {
-    const bitcoinLocks = this.getBitcoinLocks();
-    return bitcoinLocks
+    return this.getBitcoinLocks()
       .getAllLocks()
-      .filter(lock => {
-        if (lock.status === BitcoinLockStatus.LockIsProcessingOnArgon) return true;
-        return (
-          (lock.status === BitcoinLockStatus.LockPendingFunding || lock.status === BitcoinLockStatus.LockFunded) &&
-          !bitcoinLocks.isFundingWindowExpired(lock)
-        );
-      })
+      .filter(lock => this.isOpenInboundChannel(lock))
       .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())[0];
+  }
+
+  public isOpenInboundChannel(lock: IBitcoinLockRecord): boolean {
+    if (lock.status === BitcoinLockStatus.LockIsProcessingOnArgon) return true;
+    const canReceiveFunding =
+      lock.status === BitcoinLockStatus.LockPendingFunding || lock.status === BitcoinLockStatus.LockFunded;
+    return canReceiveFunding && !this.getBitcoinLocks().isFundingWindowExpired(lock);
   }
 
   public getArchivedChannels(): IBitcoinLockRecord[] {
@@ -86,6 +86,37 @@ export class WalletForBitcoin extends WalletForChain<WalletType.bitcoin> {
   public getUnresolvedOrphanDeposits(): IBitcoinUtxoRecord[] {
     const bitcoinLocks = this.getBitcoinLocks();
     return bitcoinLocks.utxoTracking.getUnresolvedOrphanRecords(bitcoinLocks.getAllLocks());
+  }
+
+  public getPendingUnattachedDeposits(): IBitcoinUtxoRecord[] {
+    const bitcoinLocks = this.getBitcoinLocks();
+    return bitcoinLocks
+      .getAllLocks()
+      .flatMap(lock => {
+        const records = bitcoinLocks.utxoTracking.getUtxosForLock(lock);
+        const acceptedFundingId = lock.fundingUtxo?.id;
+        const observedFundingId =
+          lock.status === BitcoinLockStatus.LockPendingFunding && !bitcoinLocks.isFundingWindowExpired(lock)
+            ? bitcoinLocks.utxoTracking.getObservedFundingRecord(lock)?.id
+            : undefined;
+        return records.filter(record => {
+          return (
+            record.status === BitcoinUtxoStatus.SeenOnMempool &&
+            record.id !== acceptedFundingId &&
+            record.id !== observedFundingId
+          );
+        });
+      })
+      .sort((left, right) => right.firstSeenAt.getTime() - left.firstSeenAt.getTime());
+  }
+
+  public getRemainingChannelInsurance(lock: IBitcoinLockRecord): bigint {
+    const bitcoinLocks = this.getBitcoinLocks();
+    const filledInsuranceMicrogons = bitcoinLocks.argonLiquidityForSatoshis(
+      lock.fundedSatoshis,
+      lock.microgonsAtTargetPerBtc,
+    );
+    return bigIntMax((lock.securitizationCoverageMicrogons ?? 0n) - filledInsuranceMicrogons, 0n);
   }
 
   public getChannel(uuid: string): IBitcoinLockRecord | undefined {

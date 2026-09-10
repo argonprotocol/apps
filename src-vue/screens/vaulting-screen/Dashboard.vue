@@ -635,6 +635,7 @@ function openBitcoinChannel(lock?: IBitcoinLockRecord) {
   basicEmitter.emit('openWalletOverlay', {
     wallet: wallets.bitcoinWallet,
     bitcoinChannelUuid: lock?.uuid,
+    bitcoinChannelVaultId: myVault.createdVault?.vaultId,
   });
 }
 

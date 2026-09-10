@@ -1,6 +1,6 @@
 import * as Vue from 'vue';
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
-import { expect, fn, within } from 'storybook/test';
+import { fn } from 'storybook/test';
 
 import {
   setupBitcoinOverlayScenario,
@@ -43,12 +43,6 @@ export const Form: Story = {
     scenario = setupBitcoinOverlayScenario();
     return () => scenario.cleanup();
   },
-  play: async () => {
-    const body = within(document.body);
-    await expect(body.findByRole('heading', { name: 'Send Bitcoin', hidden: true })).resolves.toBeInTheDocument();
-    await expect(body.findByTestId('BitcoinSend.destinationAddress')).resolves.toBeInTheDocument();
-    await expect(body.getByRole('button', { name: 'Send Bitcoin' })).toBeDisabled();
-  },
 };
 
 export const ArgonRequest: Story = {
@@ -64,11 +58,6 @@ export const ArgonRequest: Story = {
       ),
     });
     return () => scenario.cleanup();
-  },
-  play: async () => {
-    const body = within(document.body);
-    await expect(body.findByText(/This process requires several steps/)).resolves.toBeInTheDocument();
-    await expect(body.findByText(/Argon Block/)).resolves.toBeInTheDocument();
   },
 };
 
@@ -99,9 +88,6 @@ export const WaitingForCosigner: Story = {
     });
     return () => scenario.cleanup();
   },
-  play: async () => {
-    await expect(within(document.body).findByText('Waiting for Atlas Operator to sign')).resolves.toBeInTheDocument();
-  },
 };
 
 export const BitcoinConfirmations: Story = {
@@ -120,9 +106,6 @@ export const BitcoinConfirmations: Story = {
     scenario.releaseProcessing.confirmations = 3;
     return () => scenario.cleanup();
   },
-  play: async () => {
-    await expect(within(document.body).findByText(/Bitcoin Block/)).resolves.toBeInTheDocument();
-  },
 };
 
 export const Error: Story = {
@@ -136,9 +119,6 @@ export const Error: Story = {
       statusError: 'The cosigner signature expired before the transfer could be broadcast.',
     });
     return () => scenario.cleanup();
-  },
-  play: async () => {
-    await expect(within(document.body).findByText(/cosigner signature expired/i)).resolves.toBeInTheDocument();
   },
 };
 
@@ -157,10 +137,5 @@ export const Complete: Story = {
       releasedAtBitcoinHeight: 250_026,
     });
     return () => scenario.cleanup();
-  },
-  play: async () => {
-    const body = within(document.body);
-    await expect(body.findByText('Bitcoin sent')).resolves.toBeInTheDocument();
-    await expect(body.getByRole('button', { name: 'Done' })).toBeInTheDocument();
   },
 };

@@ -70,7 +70,6 @@
             :position="bondPositionsByLotId.get(bondLot.id)"
             :returnPercent="bondReturnsByLotId.get(bondLot.id)"
             @click="openDetail(bondLot)"
-            @liquidate="openDetail"
           />
         </section>
         <div class="relative px-0.5 pb-0.5">

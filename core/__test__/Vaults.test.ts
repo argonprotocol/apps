@@ -301,6 +301,8 @@ describe('Vault and bond network returns', () => {
             bitcoinFeeRevenue: 100n,
             bitcoinFeeCouponValueUsed: 0n,
             securitization: 1_000n,
+            externalCapital: 1_000n,
+            totalEarnings: 60n,
           }),
         ]),
         2: createVaultStats([
@@ -308,6 +310,7 @@ describe('Vault and bond network returns', () => {
             frameId: 20,
             bitcoinFeeCouponValueUsed: 0n,
             securitization: 9_000n,
+            externalCapital: 9_000n,
           }),
         ]),
       },
@@ -316,6 +319,9 @@ describe('Vault and bond network returns', () => {
     expect(vaults.calculateVaultApr(1)).toBeCloseTo(3_650);
     expect(vaults.calculateVaultApr(2)).toBe(0);
     expect(vaults.calculateApr()).toBeCloseTo(365);
+    expect(vaults.calculateArgonBondsApr(1)).toBeCloseTo(2_190);
+    expect(vaults.calculateArgonBondsApr(2)).toBe(0);
+    expect(vaults.calculateArgonBondsApr()).toBeCloseTo(219);
   });
 
   it('records current coupon usage and preserves missing historical coupon data', async () => {

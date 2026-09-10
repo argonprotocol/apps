@@ -5,7 +5,24 @@
       :isDragging="props.isDragging"
       @dragStart="emit('dragStart', $event)"
       @close="emit('close')"
-    />
+    >
+      <template #name>
+        <span class="flex items-center">
+          Internal App Wallet
+          <Tooltip v-if="bitcoinDepositAttention" :content="bitcoinDepositAttention" side="top" :asChild="true">
+            <button
+              type="button"
+              aria-label="Review unattached Bitcoin deposits"
+              class="ml-1.5 inline-flex cursor-pointer"
+              @mousedown.stop
+              @click.stop="reviewBitcoinDeposit"
+            >
+              <AlertIcon class="size-5" />
+            </button>
+          </Tooltip>
+        </span>
+      </template>
+    </WalletHeader>
 
     <div class="mx-1 px-4 py-6 text-center">
       <div class="text-argon-700/70 flex flex-row justify-center text-6xl font-bold">
@@ -64,8 +81,7 @@
             >
               <section v-for="group in walletBitcoinLockGroups" :key="group.vaultId" class="py-1 first:pt-0 last:pb-0">
                 <div class="mb-1 text-xs font-semibold tracking-wide text-slate-400 uppercase">
-                  <template v-if="group.isMyVault">In my Vault</template>
-                  <template v-else>Cosigner: {{ group.cosigner }}</template>
+                  Cosigner: {{ group.cosigner }}
                 </div>
                 <ConnectorChannel
                   v-for="entry in group.entries"
@@ -81,7 +97,7 @@
                     type="button"
                     data-testid="WalletViewMain.bitcoinChannel"
                     :data-channel-uuid="entry.lock.uuid"
-                    :aria-label="group.isMyVault ? 'Channel in my Vault' : `${group.cosigner} Channel`"
+                    :aria-label="`${group.cosigner} Channel`"
                     class="flex w-full cursor-pointer items-center gap-3 rounded px-2 py-1.5 text-left text-sm text-slate-600"
                     :class="
                       openInsuranceChannelUuid === entry.lock.uuid
@@ -119,17 +135,26 @@
       />
     </div>
   </div>
+  <BitcoinOrphanRecoveryOverlay
+    v-if="selectedOrphan && selectedOrphanLock"
+    :record="selectedOrphan"
+    :lock="selectedOrphanLock"
+    @close="selectedOrphan = undefined"
+    @back="selectedOrphan = undefined"
+  />
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { bigIntMax } from '@argonprotocol/apps-core';
 import { ChevronRightIcon, MinusIcon, PlusIcon } from '@heroicons/vue/20/solid';
+import AlertIcon from '../../assets/alert.svg?component';
 import type { IWalletGuidanceContext } from '../../emitters/basicEmitter.ts';
 import { WalletType } from '../../lib/Wallet.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { abbreviateAddress } from '../../lib/Utils.ts';
 import type { IBitcoinLockRecord } from '../../interfaces/IBitcoinLockRecord.ts';
+import type { IBitcoinUtxoRecord } from '../../lib/db/BitcoinUtxosTable.ts';
 import { getBitcoinLocks } from '../../stores/bitcoin.ts';
 import { getConfig } from '../../stores/config.ts';
 import { getCurrency } from '../../stores/currency.ts';
@@ -137,11 +162,13 @@ import { useFinancials } from '../../stores/financials.ts';
 import { getMyVault, getVaults } from '../../stores/vaults.ts';
 import { useWallets } from '../../stores/wallets.ts';
 import FormattedMoney from '../../components/FormattedMoney.vue';
+import Tooltip from '../../components/Tooltip.vue';
+import BitcoinOrphanRecoveryOverlay from '../../overlays/BitcoinOrphanRecoveryOverlay.vue';
 import ArgonBottom from './ArgonBottom.vue';
 import ArgonTokens from './ArgonTokens.vue';
 import ConnectorChannel from './ConnectorChannel.vue';
 import WalletHeader from './WalletHeader.vue';
-import type { IWalletView } from '../walletOverlayState.ts';
+import { getBitcoinDepositAttention, type IWalletView } from '../walletOverlayState.ts';
 
 const props = defineProps<{
   isDragging: boolean;
@@ -152,6 +179,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: 'dragStart', mouseEvent: MouseEvent): void;
   (event: 'goto', view: IWalletView): void;
+  (event: 'openBitcoinConnector'): void;
   (event: 'close'): void;
 }>();
 
@@ -165,9 +193,19 @@ const wallets = useWallets();
 const { microgonToArgonNm, satToBtcNm } = createNumeralHelpers(currency);
 const bitcoinDetailsAreExpanded = ref(false);
 const openInsuranceChannelUuid = ref<string>();
+const selectedOrphan = ref<IBitcoinUtxoRecord>();
 const defaultArgonWallet = computed(() => wallets.defaultArgonWallet);
 const walletValueIsLoaded = computed(() => financials.savingsIsLoaded);
 const walletTotalValue = computed(() => financials.savingsTotalValue);
+const bitcoinDepositAttention = computed(() => {
+  return getBitcoinDepositAttention(wallets.bitcoinWallet, satoshis => {
+    return satToBtcNm(satoshis).format('0,0.[00000000]');
+  });
+});
+const selectedOrphanLock = computed(() => {
+  const utxoId = selectedOrphan.value?.lockUtxoId;
+  return utxoId == null ? undefined : bitcoinLocks.getLockByUtxoId(utxoId);
+});
 const walletBitcoinLockGroups = computed(() => {
   const locksByVaultId = new Map<number, { lock: IBitcoinLockRecord; unusedSatoshis: bigint }[]>();
 
@@ -184,15 +222,27 @@ const walletBitcoinLockGroups = computed(() => {
 
   return [...locksByVaultId].map(([vaultId, locks]) => ({
     vaultId,
-    isMyVault: vaultId === myVault.vaultId,
     cosigner:
-      vaults.operatorNamesByVaultId[vaultId] ??
-      (config.upstreamOperator?.vaultId === vaultId ? config.upstreamOperator.name : undefined) ??
-      `Vault ${vaultId}`,
+      vaultId === (myVault.createdVault?.vaultId ?? myVault.vaultId)
+        ? 'My Vault'
+        : (vaults.operatorNamesByVaultId[vaultId] ??
+          (config.upstreamOperator?.vaultId === vaultId ? config.upstreamOperator.name : undefined) ??
+          `Vault ${vaultId}`),
     entries: locks.map(entry => ({
       ...entry,
       address: locks.length > 1 ? wallets.bitcoinWallet.getChannelFundingAddress(entry.lock) : undefined,
     })),
   }));
 });
+
+function reviewBitcoinDeposit(): void {
+  const orphan = wallets.bitcoinWallet.getUnresolvedOrphanDeposits()[0];
+  const lock = orphan ? bitcoinLocks.getLockByUtxoId(orphan.lockUtxoId) : undefined;
+  if (!orphan || !lock) {
+    emit('openBitcoinConnector');
+    return;
+  }
+
+  selectedOrphan.value = orphan;
+}
 </script>

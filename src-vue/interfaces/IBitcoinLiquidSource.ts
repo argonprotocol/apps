@@ -1,7 +1,7 @@
 export interface IBitcoinLiquidSource {
   key: string;
-  cosigner: string;
-  isMyVault: boolean;
+  vaultId: number;
+  vaultName: string;
   unallocatedSatoshis: bigint;
   maximumLiquidSatoshis: bigint;
   selectedSatoshis: bigint;

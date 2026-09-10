@@ -13,7 +13,9 @@
       >
         <BackIcon class="relative -top-0.25 w-4 cursor-pointer opacity-50 group-hover:opacity-100" />
       </span>
-      <span class="min-w-0 grow text-left text-xl font-bold text-slate-800/70">{{ props.name }}</span>
+      <span class="min-w-0 grow text-left text-xl font-bold text-slate-800/70">
+        <slot name="name">{{ props.name }}</slot>
+      </span>
     </span>
     <ButtonCopy :address="defaultArgonWallet.address" />
     <WalletMenu

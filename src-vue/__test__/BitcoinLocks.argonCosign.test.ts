@@ -9,11 +9,12 @@ import {
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import type { Db } from '../lib/Db.ts';
 import type { TransactionTracker } from '../lib/TransactionTracker.ts';
+import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import { BitcoinUtxoRole, BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
 import { TransactionStatus } from '../lib/db/TransactionsTable.ts';
-import { createCurrentLock } from './helpers/bitcoin.ts';
+import { createCurrentLock, historyBlock } from './helpers/bitcoin.ts';
 import { createTestDb } from './helpers/db.ts';
 import { WalletForBitcoin } from '../lib/WalletForBitcoin.ts';
 
@@ -163,7 +164,7 @@ describe('BitcoinLocks Argon cosign gating', () => {
     const store = new BitcoinLocks(
       Promise.resolve(db),
       { defaultArgonAddress: defaultAccount } as WalletKeys,
-      {} as BlockWatch,
+      { getHeader: vi.fn(async () => historyBlock(159)) } as unknown as BlockWatch,
       {} as CurrencyBase,
       {} as TransactionTracker,
     );
@@ -177,11 +178,21 @@ describe('BitcoinLocks Argon cosign gating', () => {
       }),
     );
 
-    const finalized = await store.finalizeCreatedLock(pending.uuid, currentLock);
+    const finalized = await store.finalizeCreatedLock(pending.uuid, currentLock, {
+      tx: { id: 1, blockHeight: 159, blockHash: '0x159', blockExtrinsicIndex: 2 },
+      txResult: {},
+    } as TransactionInfo);
 
     expect(finalized.securityFees).toBe(3_000_000n);
     expect(finalized.couponFeesPaid).toBe(1_000_000n);
     expect((await db.bitcoinLocksTable.getByUtxoId(7))?.couponFeesPaid).toBe(1_000_000n);
+    expect((await db.bitcoinSecuritizationHistoryTable.getPublishedSnapshot(defaultAccount))?.terms).toEqual([
+      expect.objectContaining({
+        utxoId: 7,
+        cumulativeNetSecurityFee: 2_000_000n,
+        addedNetSecurityFee: 2_000_000n,
+      }),
+    ]);
   });
 
   it('formats block extrinsic errors with the concrete error name', () => {
