@@ -27,6 +27,21 @@ export function getInitialWalletOverlayState(activeConnector?: IWalletConnector)
   return { centerView: { type: 'main' }, activeConnector };
 }
 
+export function getBitcoinDepositAttention(
+  wallet: WalletForBitcoin | undefined,
+  formatSatoshis: (satoshis: bigint) => string,
+): string | undefined {
+  if (!wallet) return;
+
+  const pendingSatoshis = wallet.getPendingUnattachedDeposits().reduce((total, record) => total + record.satoshis, 0n);
+  if (pendingSatoshis > 0n) {
+    return `${formatSatoshis(pendingSatoshis)} BTC unattached deposit pending confirmation`;
+  }
+
+  const orphanCount = wallet.getUnresolvedOrphanDeposits().length;
+  if (orphanCount) return `${orphanCount} unattached Bitcoin deposit${orphanCount === 1 ? '' : 's'} need review`;
+}
+
 export function getInitialAddWalletOverlayState(initialStep: IWalletSetupStep): IWalletOverlayState {
   return {
     centerView: { type: 'addEthereum', initialStep },

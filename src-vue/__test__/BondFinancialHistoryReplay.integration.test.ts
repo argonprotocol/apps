@@ -188,7 +188,7 @@ runWithReplay('Bond financial history replay corpus', () => {
         expect(record, `${lot.programType} bond lot ${lot.id} for ${lot.accountId}`).toBeDefined();
 
         if (lot.programType === 'Vault' && lot.createdFrame < earliestEventBackedBondFrame) {
-          expect(record?.purchaseBlockHash, `Migrated Vault bond lot ${lot.id}`).toBeNull();
+          expect(record?.purchaseBlockHash, `Migrated Vault bond lot ${lot.id}`).toBeUndefined();
         } else {
           expect(record?.purchaseBlockHash, `${lot.programType} bond lot ${lot.id}`).toBeDefined();
         }

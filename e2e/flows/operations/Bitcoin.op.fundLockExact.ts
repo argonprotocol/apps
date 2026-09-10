@@ -1,136 +1,65 @@
 import {
   createBitcoinAddress,
-  mineBitcoinSingleBlock,
   sendBitcoinToAddress,
+  waitForBitcoinTransactionConfirmations,
   waitForBitcoinTransactionOutputSatoshis,
 } from '@argonprotocol/apps-core/__test__/helpers/bitcoinCli.ts';
-import type { IBitcoinVaultMismatchState } from '../types/srcVue.ts';
+import { readBitcoinLockState, type IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
+import type { IE2EOperationInspectState } from '../types.ts';
+import type { IBitcoinUnlockReleaseState } from '../types/srcVue.ts';
+import bitcoinActivateWallet from './Bitcoin.op.activateWallet.ts';
 import { Operation } from './index.ts';
-import type { IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
-import type { IE2EOperationInspectState, IE2EOperationState } from '../types.ts';
-import { clickIfVisible } from '../helpers/utils.ts';
-import bitcoinEnsureMismatchActionPanel from './Bitcoin.op.ensureMismatchActionPanel.ts';
-import { BITCOIN_LOCK_ENTRY_SELECTOR } from './Bitcoin.op.activateTab.ts';
 
-type IFundLockExactChainState = IBitcoinVaultMismatchState;
+type IFundLockExactState = IE2EOperationInspectState<IBitcoinUnlockReleaseState, { channelState: string | null }>;
 
-type IFundLockExactUiState = {
-  lockState?: string;
-  lockingOverlayState: string | null;
-  fundingEntryVisible: boolean;
-};
+export default new Operation<IBitcoinFlowContext, IFundLockExactState>(import.meta, {
+  async inspect({ flow, state }) {
+    const [chainState, channel] = await Promise.all([
+      readBitcoinLockState(flow, state.lockFundingDetails?.lockUuid),
+      flow.isVisible('ConnectorChannel'),
+    ]);
+    const channelState = channel.visible
+      ? await flow.getAttribute('ConnectorChannel', 'data-e2e-state', { timeoutMs: 1_000 }).catch(() => null)
+      : null;
+    const isComplete =
+      chainState.isLockReadyForUnlock || channelState === 'ProcessingOnBitcoin' || channelState === 'Funded';
+    const canRun = !isComplete && chainState.isPendingFunding && !!state.lockFundingDetails;
 
-type IFundLockExactState = IE2EOperationInspectState<IFundLockExactChainState, IFundLockExactUiState>;
+    return {
+      chainState,
+      uiState: { channelState },
+      state: isComplete ? 'complete' : canRun ? 'runnable' : 'processing',
+      phase: channelState ? `channel:${channelState}` : undefined,
+      blockers: canRun || isComplete ? [] : ['Bitcoin channel funding details are unavailable.'],
+    };
+  },
 
-export default createBitcoinFundLockExactOperation();
+  async run({ flow, flowName, state }) {
+    const funding = state.lockFundingDetails;
+    if (!funding) throw new Error(`${flowName}: Bitcoin channel funding details are missing.`);
 
-function createBitcoinFundLockExactOperation(): Operation<IBitcoinFlowContext, IFundLockExactState> {
-  const operation = new Operation<IBitcoinFlowContext, IFundLockExactState>(import.meta, {
-    async inspect({ flow }) {
-      const [panelState, lockingEntryVisible, lockOverlay] = await Promise.all([
-        flow.inspect(bitcoinEnsureMismatchActionPanel),
-        hasBitcoinLockEntry(flow),
-        flow.isVisible('BitcoinLockingOverlay'),
-      ]);
-      const lockingOverlayState = lockOverlay.visible
-        ? await flow.getAttribute('BitcoinLockingOverlay', 'data-e2e-state', { timeoutMs: 1_000 }).catch(() => null)
-        : null;
-      const lockStatus = panelState.chainState.lockStatus;
-      const inFundingState = panelState.chainState.isPendingFunding;
-      const fundingReadyToResume = panelState.chainState.isFundingReadyToResume;
-      const fundingEntryVisible =
-        lockingEntryVisible || (lockOverlay.visible && lockingOverlayState === 'ReadyForBitcoin');
-      const processingOnBitcoinVisible = lockingOverlayState === 'ProcessingOnBitcoin';
-      const isComplete = panelState.chainState.isPostFundingLock || processingOnBitcoinVisible;
-      const canRun =
-        !isComplete &&
-        panelState.chainState.phase === 'none' &&
-        ((inFundingState && fundingEntryVisible) || fundingReadyToResume);
-      let operationState: IE2EOperationState = 'processing';
-      if (isComplete) {
-        operationState = 'complete';
-      } else if (canRun) {
-        operationState = 'runnable';
-      }
+    await flow.run(bitcoinActivateWallet);
+    const minerAddress = createBitcoinAddress();
+    const txid = sendBitcoinToAddress(funding.address, funding.amountSatoshis);
+    await waitForBitcoinTransactionOutputSatoshis({
+      flowName,
+      txid,
+      address: funding.address,
+      minimumSatoshis: funding.amountSatoshis,
+      minerAddress,
+    });
+    await waitForBitcoinTransactionConfirmations({
+      flowName,
+      txid,
+      minimumConfirmations: 8,
+      minerAddress,
+      mineMode: 'missing',
+    });
 
-      const blockers: string[] = [];
-      if (!isComplete && !panelState.chainState.hasActiveLock) {
-        blockers.push('No active lock found for current vault.');
-      }
-      if (!isComplete && !inFundingState && !fundingReadyToResume) {
-        blockers.push('Lock is not ready for bitcoin funding.');
-      }
-      if (!isComplete && panelState.chainState.phase !== 'none') {
-        blockers.push('Mismatch flow is active; exact funding should not be resent.');
-      }
-      if (!isComplete && inFundingState && !fundingEntryVisible && !processingOnBitcoinVisible) {
-        blockers.push('Lock funding UI entry point is not visible.');
-      }
-      return {
-        chainState: panelState.chainState,
-        uiState: {
-          lockState: lockStatus,
-          lockingOverlayState,
-          fundingEntryVisible,
-        },
-        state: operationState,
-        phase: lockOverlay.visible && lockingOverlayState ? `locking:${lockingOverlayState}` : undefined,
-        blockers: canRun ? [] : blockers,
-      };
-    },
-    async run({ flow, flowName, state: flowState }) {
-      const state = await flow.inspect<IFundLockExactState>();
-      if (state.state !== 'runnable') {
-        return;
-      }
-
-      if (!flowState.lockFundingDetails) {
-        throw new Error(`${flowName}: lock funding details are missing. Read them before funding the lock.`);
-      }
-
-      const txid = sendBitcoinToAddress(
-        flowState.lockFundingDetails.address,
-        flowState.lockFundingDetails.amountSatoshis,
-      );
-      const minerAddress = createBitcoinAddress();
-      await waitForBitcoinTransactionOutputSatoshis({
-        flowName,
-        txid,
-        address: flowState.lockFundingDetails.address,
-        minimumSatoshis: flowState.lockFundingDetails.amountSatoshis,
-        minerAddress,
-      });
-      const checkedForTransfer = await clickIfVisible(flow, 'LockReadyForBitcoin.checkForBitcoin()');
-      if (!checkedForTransfer) {
-        const latest = await flow.inspect<IFundLockExactState>();
-        if (latest.uiState.lockingOverlayState !== 'ProcessingOnBitcoin') {
-          throw new Error(`${flowName}: the Bitcoin transfer check was not clickable.`);
-        }
-      }
-      await flow.poll<IFundLockExactState>(
-        latest => {
-          if (latest.state === 'uiStateMismatch') {
-            const blockerMessage = latest.blockers.join(', ') || 'backend/ui state mismatch';
-            throw new Error(`${flowName}: ${blockerMessage}`);
-          }
-          if (latest.state === 'complete') {
-            return true;
-          }
-          mineBitcoinSingleBlock(minerAddress);
-          return false;
-        },
-        {
-          pollMs: 1_000,
-          timeoutMs: 180_000,
-          timeoutMessage: `${flowName}: exact funding did not advance beyond the funding entry state.`,
-        },
-      );
-    },
-  });
-
-  return operation;
-}
-
-async function hasBitcoinLockEntry(flow: IBitcoinFlowContext['flow']): Promise<boolean> {
-  return (await flow.isVisible({ selector: BITCOIN_LOCK_ENTRY_SELECTOR, index: 0 })).visible;
-}
+    await flow.poll<IFundLockExactState>(latest => latest.state === 'complete', {
+      pollMs: 1_000,
+      timeoutMs: 180_000,
+      timeoutMessage: `${flowName}: exact funding did not advance the Bitcoin channel.`,
+    });
+  },
+});

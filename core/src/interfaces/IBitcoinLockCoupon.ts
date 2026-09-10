@@ -37,6 +37,7 @@ export interface IBitcoinLockCouponUseRecord {
   requestedSatoshis: bigint;
   ownerAccountId: string;
   ownerBitcoinPubkey: string;
+  utxoId?: number;
   microgonsAtTargetPerBtc: bigint;
   feeCoupon?: BitcoinLockFeeCoupon;
   createdAt: Date;
@@ -64,6 +65,7 @@ export interface IBitcoinLockCouponRequest {
   requestedSatoshis: bigint;
   ownerAccountId: string;
   ownerBitcoinPubkey: string;
+  utxoId?: number;
   microgonsAtTargetPerBtc?: bigint;
   feeCreditMicrogons?: bigint;
 }
@@ -82,6 +84,7 @@ export interface IBitcoinLockCouponStatus {
 export interface ISignBitcoinLockFeeCouponRequest {
   vaultId: number;
   beneficiary: string;
+  utxoId?: number;
   feeCouponNonce?: bigint;
   requestedSatoshis: bigint;
   microgonsAtTargetPerBtc: bigint;

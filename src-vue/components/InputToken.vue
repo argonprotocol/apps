@@ -36,6 +36,7 @@ const props = withDefaults(
     disabled?: boolean;
     minDecimals?: number;
     maxDecimals?: number;
+    unitsPerToken?: bigint;
     prefix?: string;
     suffix?: string;
   }>(),
@@ -46,6 +47,7 @@ const props = withDefaults(
     disabled: false,
     minDecimals: 2,
     maxDecimals: 2,
+    unitsPerToken: () => BigInt(MICROGONS_PER_ARGON),
     prefix: '',
     suffix: '',
   },
@@ -60,41 +62,41 @@ const emit = defineEmits<{
 const prefix = Vue.computed(() => props.prefix);
 
 const modelValue = Vue.computed(() => {
-  return BigNumber(props.modelValue).dividedBy(MICROGONS_PER_ARGON).toNumber();
+  return BigNumber(props.modelValue).dividedBy(props.unitsPerToken).toNumber();
 });
 
 const min = Vue.computed<number | undefined>(() => {
   if (props.min === undefined) return undefined;
-  return BigNumber(props.min).dividedBy(MICROGONS_PER_ARGON).toNumber();
+  return BigNumber(props.min).dividedBy(props.unitsPerToken).toNumber();
 });
 
 const max = Vue.computed<number | undefined>(() => {
   if (props.max === undefined) return undefined;
-  return BigNumber(props.max).dividedBy(MICROGONS_PER_ARGON).toNumber();
+  return BigNumber(props.max).dividedBy(props.unitsPerToken).toNumber();
 });
 
 const dragBy = Vue.computed<number | undefined>(() => {
   if (!props.dragBy) return undefined;
-  return BigNumber(props.dragBy).dividedBy(MICROGONS_PER_ARGON).toNumber();
+  return BigNumber(props.dragBy).dividedBy(props.unitsPerToken).toNumber();
 });
 
 const dragByMin = Vue.computed<number | undefined>(() => {
   if (!props.dragByMin) return undefined;
-  return BigNumber(props.dragByMin).dividedBy(MICROGONS_PER_ARGON).toNumber();
+  return BigNumber(props.dragByMin).dividedBy(props.unitsPerToken).toNumber();
 });
 
 const handleUpdate = (value: number) => {
-  const valueBn = BigNumber(value).multipliedBy(MICROGONS_PER_ARGON);
+  const valueBn = BigNumber(value).multipliedBy(props.unitsPerToken);
   emit('update:modelValue', bigNumberToBigInt(valueBn));
 };
 
 const handleChange = (value: number) => {
-  const valueBn = BigNumber(value).multipliedBy(MICROGONS_PER_ARGON);
+  const valueBn = BigNumber(value).multipliedBy(props.unitsPerToken);
   emit('change', bigNumberToBigInt(valueBn));
 };
 
 const handleInput = (value: number) => {
-  const valueBn = BigNumber(value).multipliedBy(MICROGONS_PER_ARGON);
+  const valueBn = BigNumber(value).multipliedBy(props.unitsPerToken);
   emit('input', bigNumberToBigInt(valueBn));
 };
 </script>

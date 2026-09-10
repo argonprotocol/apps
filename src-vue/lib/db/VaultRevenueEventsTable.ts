@@ -13,13 +13,25 @@ export interface IVaultRevenueEventsRecord {
   updatedAt: Date;
 }
 
+export interface IVaultRevenueEventsTableState {
+  revision: number;
+}
+
 export class VaultRevenueEventsTable extends BaseTable {
-  public revision = 0;
+  public readonly state = this.getState<IVaultRevenueEventsTableState>(() => ({ revision: 0 }));
 
   private fields: IFieldTypes = {
     bigint: ['amount'],
     date: ['blockTime', 'createdAt', 'updatedAt'],
   };
+
+  public get revision(): number {
+    return this.state.revision;
+  }
+
+  public set revision(value: number) {
+    this.state.revision = value;
+  }
 
   public async insert(
     args: Omit<IVaultRevenueEventsRecord, 'id' | 'createdAt' | 'updatedAt'>,

@@ -103,8 +103,8 @@ export class SSHConnection {
   }
 
   public async uploadFileWithTimeout(contents: string, remotePath: string, timeout: number): Promise<void> {
-    const payload = { address: this.address, contents, remotePath };
-    return await invokeWithTimeout('ssh_upload_file', payload, timeout);
+    const payload = { address: this.address, contents, remotePath, timeoutMs: timeout };
+    await invokeWithTimeout('ssh_upload_file', payload, timeout + 5_000);
   }
 
   public async uploadEmbeddedFileWithTimeout(

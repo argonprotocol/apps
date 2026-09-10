@@ -465,18 +465,35 @@ function resolveRuntimePin(ref: string): {
 
 async function resolvePinnedRuntimeSpecVersion(commitHash?: string): Promise<number> {
   if (!commitHash) {
-    const runtimeSourcePath = Path.join(WORKSPACE_MAINCHAIN_PATH, 'runtime/argon/src/lib.rs');
-    if (!Fs.existsSync(runtimeSourcePath)) {
-      throw new Error(`Missing dev runtime source: ${runtimeSourcePath}`);
+    const runtimeSourcePaths = [
+      Path.join(WORKSPACE_MAINCHAIN_PATH, 'runtime/argon/src/lib.rs'),
+      Path.join(WORKSPACE_MAINCHAIN_PATH, 'runtime/common/src/lib.rs'),
+    ];
+    for (const runtimeSourcePath of runtimeSourcePaths) {
+      if (!Fs.existsSync(runtimeSourcePath)) continue;
+      const source = Fs.readFileSync(runtimeSourcePath, 'utf8');
+      try {
+        return readArgonSpecVersion(source);
+      } catch {
+        // Continue to the shared runtime source when the chain runtime imports VERSION.
+      }
     }
-    return readArgonSpecVersion(Fs.readFileSync(runtimeSourcePath, 'utf8'));
+    throw new Error(`Missing dev runtime version in ${runtimeSourcePaths.join(' or ')}`);
   }
 
-  const response = await fetch(
-    `https://raw.githubusercontent.com/argonprotocol/mainchain/${commitHash}/runtime/argon/src/lib.rs`,
-  );
-  if (!response.ok) throw new Error(`Unable to read Argon runtime spec at ${commitHash}: ${response.status}`);
-  return readArgonSpecVersion(await response.text());
+  const runtimeSourcePaths = ['runtime/argon/src/lib.rs', 'runtime/common/src/lib.rs'];
+  for (const runtimeSourcePath of runtimeSourcePaths) {
+    const response = await fetch(
+      `https://raw.githubusercontent.com/argonprotocol/mainchain/${commitHash}/${runtimeSourcePath}`,
+    );
+    if (!response.ok) continue;
+    try {
+      return readArgonSpecVersion(await response.text());
+    } catch {
+      // Continue to the shared runtime source when the chain runtime imports VERSION.
+    }
+  }
+  throw new Error(`Unable to read Argon runtime spec at ${commitHash}`);
 }
 
 function readDevRuntimePackageVersions(): Record<RuntimePackage, string> {

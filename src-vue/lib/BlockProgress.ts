@@ -3,8 +3,6 @@ import utc from 'dayjs/plugin/utc';
 dayjs.extend(utc);
 
 export class BlockProgress {
-  public isMaxed: boolean = false;
-
   public blockHeightCurrent: number | undefined;
   private minimumConfirmations: number;
   private millisPerBlock: number;
@@ -13,8 +11,7 @@ export class BlockProgress {
   private timeOfLastBlock: dayjs.Dayjs;
 
   private isFinalized: boolean = false;
-
-  private _expectedConfirmations: number | undefined;
+  private expectedConfirmationsAtInclusion: number | undefined;
 
   constructor(args: {
     blockHeightGoal: number | undefined;
@@ -28,23 +25,17 @@ export class BlockProgress {
     this.minimumConfirmations = args.minimumConfirmations;
     this.millisPerBlock = args.millisPerBlock;
     this.timeOfLastBlock = args.timeOfLastBlock || dayjs().utc();
+    this.captureExpectedConfirmations();
   }
 
   public get expectedConfirmations(): number {
-    if (this._expectedConfirmations !== undefined) {
-      return this._expectedConfirmations;
-    }
-    if (!this.blockHeightCurrent || !this.blockHeightGoal) {
-      return this.minimumConfirmations;
-    }
-    const elapsedBlocks = this.blockHeightGoal - this.blockHeightCurrent;
-    this._expectedConfirmations = Math.max(elapsedBlocks, this.minimumConfirmations);
-    return this._expectedConfirmations;
+    return this.expectedConfirmationsAtInclusion ?? this.minimumConfirmations;
   }
 
   public setCurrentBlockHeight(value: number) {
     if (value === this.blockHeightCurrent) return;
     this.blockHeightCurrent = value;
+    this.captureExpectedConfirmations();
     this.resetTimeOfLastBlock();
   }
 
@@ -55,21 +46,17 @@ export class BlockProgress {
   public setBlockHeightGoal(value: number | undefined) {
     if (value) {
       this.blockHeightGoal = value;
+      this.captureExpectedConfirmations();
     }
   }
 
-  public getProgress(): number {
-    this.isMaxed = false;
-
+  public getProgress(): { progressPct: number; isMaxed: boolean } {
     if (!this.blockHeightCurrent || !this.blockHeightGoal) {
       const maxPercentBeforeBlockHeight = 10;
-      const { progressPct, isMaxed } = this.calculateProgress(0, maxPercentBeforeBlockHeight);
-      this.isMaxed = isMaxed;
-      return progressPct;
+      return this.calculateProgress(0, maxPercentBeforeBlockHeight);
     }
     if (this.isFinalized) {
-      this.isMaxed = true;
-      return 100;
+      return { progressPct: 100, isMaxed: true };
     }
 
     const confirmations = this.getConfirmations();
@@ -77,10 +64,7 @@ export class BlockProgress {
     const minBlockPercent = ((100 * confirmations) / requiredFinalizationSteps) * 0.9 + 10;
     const maxBlockPercent = ((100 * (confirmations + 1)) / requiredFinalizationSteps) * 0.9 + 10;
 
-    const { progressPct, isMaxed } = this.calculateProgress(minBlockPercent, maxBlockPercent);
-    this.isMaxed = isMaxed;
-
-    return progressPct;
+    return this.calculateProgress(minBlockPercent, maxBlockPercent);
   }
 
   public getConfirmations(): number {
@@ -114,5 +98,12 @@ export class BlockProgress {
     const isMaxed = progressPct === 99 || progressPct >= maxPercent;
 
     return { progressPct, isMaxed };
+  }
+
+  private captureExpectedConfirmations(): void {
+    if (this.expectedConfirmationsAtInclusion !== undefined || !this.blockHeightCurrent || !this.blockHeightGoal)
+      return;
+    const elapsedBlocks = this.blockHeightGoal - this.blockHeightCurrent;
+    this.expectedConfirmationsAtInclusion = Math.max(elapsedBlocks, this.minimumConfirmations);
   }
 }

@@ -40,6 +40,10 @@ export class TransactionInfo<MetadataType = unknown> {
     return this.postProcessor ? !this.postProcessor.isSettled : false;
   }
 
+  public get hasFailedPostProcessing(): boolean {
+    return this.postProcessor?.isRejected ?? false;
+  }
+
   public get waitForPostProcessing(): Promise<void> {
     return this.postProcessor?.promise ?? this.txResult.waitForFinalizedBlock.then(() => undefined);
   }
@@ -74,7 +78,7 @@ export class TransactionInfo<MetadataType = unknown> {
   }
 
   public createPostProcessor(): IDeferred {
-    if (!this.postProcessor) {
+    if (!this.postProcessor || this.postProcessor.isRejected) {
       this.postProcessor = createDeferred(false);
       void this.postProcessor.promise.then(
         () => this.updateProgress(),
@@ -202,7 +206,8 @@ export class TransactionInfo<MetadataType = unknown> {
 
     this.blockProgress.setIsFinalized(isFinalized);
     this.blockProgress.setBlockHeightGoal(this.tx.blockHeight);
-    let progressPct = this.blockProgress.getProgress();
+    const progress = this.blockProgress.getProgress();
+    let progressPct = progress.progressPct;
     const confirmations = this.blockProgress.getConfirmations();
     const expectedConfirmations = this.blockProgress.expectedConfirmations;
 
@@ -211,14 +216,13 @@ export class TransactionInfo<MetadataType = unknown> {
     }
 
     const error = this.txResult.submissionError ?? this.txResult.extrinsicError;
-
     return {
       progressPct,
       confirmations,
       expectedConfirmations,
       error,
       isFinalized,
-      isMaxed: this.blockProgress.isMaxed,
+      isMaxed: progress.isMaxed,
     };
   }
 

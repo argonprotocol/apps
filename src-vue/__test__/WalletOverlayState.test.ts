@@ -40,6 +40,7 @@ const ethereumWalletB = new WalletForEthereum(ethereumB.address, undefined, ethe
 const bitcoinWallet = new WalletForBitcoin(
   () => ({}) as never,
   () => '5BitcoinLockOwner',
+  {} as never,
 );
 
 describe('wallet overlay state', () => {

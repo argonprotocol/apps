@@ -4,6 +4,7 @@
     <NavigationMenuItem class="pointer-events-auto">
       <NavigationMenuTrigger
         Trigger
+        aria-label="View portfolio details"
         class="flex h-[30px] shrink-0 cursor-pointer flex-row items-center justify-center rounded-l-md border border-r-0 border-slate-400/50 px-3.5 font-mono text-[17px] font-semibold text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
       >
         <ArgonSign v-if="!currency?.record?.key || currency?.record?.key === 'ARGN'" class="relative top-0 h-[13px]" />
@@ -112,7 +113,7 @@
                   <div v-else-if="group.isStale" class="text-sm font-normal text-slate-500">Stale</div>
                 </div>
                 <div class="font-mono font-semibold text-slate-700">
-                  {{ group.state === 'ready' || (group.state === 'stale' && group.positions.length) ? `${currency.symbol}${formatValue(group.currentValue)}` : '--' }}
+                  {{ group.state === 'ready' || (group.state === 'stale' && group.positions.length) ? `${currency.symbol}${formatValue(group.currentValue + bitcoinWalletValue + financials.bitcoinLiquidPendingMintMicrogons)}` : '--' }}
                 </div>
               </div>
               <div v-if="internalWalletIsExpanded" class="mt-1 ml-2 border-l border-slate-300/70 pl-2">
@@ -124,6 +125,17 @@
                   <div class="font-normal text-slate-600">{{ token.nativeAmount }} {{ token.symbol }}</div>
                   <div class="font-mono font-normal text-slate-600">
                     {{ currency.symbol }}{{ formatValue(token.value) }}
+                  </div>
+                </div>
+                <div
+                  v-if="financials.bitcoinLiquidPendingMintMicrogons"
+                  class="flex items-start justify-between gap-6 py-1"
+                >
+                  <div class="font-normal text-slate-600">
+                    {{ microgonToArgonNm(financials.bitcoinLiquidPendingMintMicrogons).format('0,0.[00]') }} ARGN waiting to mint
+                  </div>
+                  <div class="font-mono font-normal text-slate-600">
+                    {{ currency.symbol }}{{ formatValue(financials.bitcoinLiquidPendingMintMicrogons) }}
                   </div>
                 </div>
               </div>
@@ -181,7 +193,7 @@
                       type="button"
                       class="ml-1 flex cursor-pointer items-center text-slate-500 hover:text-slate-700"
                       :aria-expanded="bitcoinLocksAreExpanded"
-                      aria-label="Toggle Bitcoin lock details"
+                      aria-label="Toggle Bitcoin details"
                       @click.stop="bitcoinLocksAreExpanded = !bitcoinLocksAreExpanded"
                     >
                       (<MinusIcon v-if="bitcoinLocksAreExpanded" class="size-3" /><PlusIcon v-else class="size-3" />)
@@ -196,20 +208,14 @@
                   <div v-else-if="group.isStale" class="text-sm font-normal text-slate-500">Stale</div>
                 </div>
                 <div class="font-mono font-semibold text-slate-700">
-                  {{ group.state === 'ready' || (group.state === 'stale' && group.positions.length) ? `${currency.symbol}${formatValue(group.currentValue)}` : '--' }}
+                  {{ group.state === 'ready' || (group.state === 'stale' && group.positions.length) ? `${currency.symbol}${formatValue(bitcoinPositionBreakdown.netValue)}` : '--' }}
                 </div>
               </div>
               <div v-if="bitcoinLocksAreExpanded" class="mt-1 ml-2 border-l border-slate-300/70 pl-2">
                 <div class="flex items-center justify-between gap-6 py-1">
                   <div class="font-normal text-slate-600">Locked BTC</div>
                   <div class="font-mono font-normal text-slate-600">
-                    {{ currency.symbol }}{{ formatValue(bitcoinPositionBreakdown.lockedBtc) }}
-                  </div>
-                </div>
-                <div v-if="bitcoinPositionBreakdown.pendingMint" class="flex items-center justify-between gap-6 py-1">
-                  <div class="font-normal text-slate-600">Pending mint</div>
-                  <div class="font-mono font-normal text-slate-600">
-                    {{ currency.symbol }}{{ formatValue(bitcoinPositionBreakdown.pendingMint) }}
+                    {{ currency.symbol }}{{ formatValue(bitcoinPositionBreakdown.lockedBitcoin) }}
                   </div>
                 </div>
                 <div class="flex items-center justify-between gap-6 py-1">
@@ -319,18 +325,13 @@ const currency = getCurrency();
 const config = getConfig();
 const financials = useFinancials();
 const wallets = useWallets();
-const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm } = createNumeralHelpers(currency);
+const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm, satToBtcNm } = createNumeralHelpers(currency);
 const ethereumWalletsAreExpanded = Vue.ref(false);
 const internalWalletIsExpanded = Vue.ref(false);
 const argonBondsAreExpanded = Vue.ref(false);
 const argonotStakesAreExpanded = Vue.ref(false);
 const bitcoinLocksAreExpanded = Vue.ref(false);
-const {
-  financialPositionAggregate: aggregate,
-  liquidLockedRecords,
-  liquidNativeBalances,
-  bondSummariesByAsset,
-} = storeToRefs(financials);
+const { financialPositionAggregate: aggregate, liquidNativeBalances, bondSummariesByAsset } = storeToRefs(financials);
 const bondAssetRows = Vue.computed(() => {
   const bondPositions = aggregate.value.groupSummaries.bonds.positions.filter(position => position.kind === 'bond');
   const positions = bondPositions.filter(position => position.lifecycle !== 'completed');
@@ -392,7 +393,13 @@ const internalWalletTokenRows = Vue.computed(() => [
     nativeAmount: micronotToArgonotNm(liquidNativeBalances.value.micronots).format('0,0.[00]'),
     value: currency.convertMicronotTo(liquidNativeBalances.value.micronots, UnitOfMeasurement.Microgon),
   },
+  {
+    symbol: 'BTC',
+    nativeAmount: satToBtcNm(financials.bitcoinWalletTotalSatoshis).format('0,0.[00000000]'),
+    value: bitcoinWalletValue.value,
+  },
 ]);
+const bitcoinWalletValue = Vue.computed(() => currency.convertSatToMicrogon(financials.bitcoinWalletTotalSatoshis));
 const miningPositionBreakdown = Vue.computed(() => {
   const mining = aggregate.value.groupSummaries.mining;
 
@@ -424,15 +431,16 @@ const vaultPositionBreakdown = Vue.computed(() => {
   );
 });
 const bitcoinPositionBreakdown = Vue.computed(() => {
-  return liquidLockedRecords.value.reduce(
-    (total, lock) => {
-      total.lockedBtc += lock.valueOfBtc;
-      total.pendingMint += lock.pendingLiquidity;
-      total.debt += lock.unlockAmount;
-      return total;
-    },
-    { lockedBtc: 0n, pendingMint: 0n, debt: 0n },
-  );
+  const debt = aggregate.value.groupSummaries.bitcoin.positions.reduce((total, position) => {
+    return position.kind === 'bitcoin-liability' ? total - (position.currentValue ?? 0n) : total;
+  }, 0n);
+  const lockedBitcoin = currency.convertSatToMicrogon(financials.liquidTotalSatoshis);
+
+  return {
+    lockedBitcoin,
+    debt,
+    netValue: lockedBitcoin - debt,
+  };
 });
 const formattedNetWorth = Vue.computed(() => {
   if (!currency.isLoaded || aggregate.value.netWorth === undefined) return '--';

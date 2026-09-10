@@ -2,6 +2,7 @@ import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { URL } from 'node:url';
 import { WebSocketServer, WebSocket, type RawData } from 'ws';
+import { JsonExt } from '@argonprotocol/apps-core';
 
 type UnknownRecord = Record<string, unknown>;
 const DRIVER_TRACE_ENABLED = (process.env.E2E_DRIVER_TRACE ?? '0').trim() !== '0';
@@ -135,7 +136,7 @@ function logDriverTrace(message: string): void {
 
 function send(socket: WebSocket, payload: UnknownRecord) {
   if (socket.readyState !== WebSocket.OPEN) return;
-  socket.send(JSON.stringify(payload));
+  socket.send(JsonExt.stringify(payload));
 }
 
 export async function startDriverServer(): Promise<DriverServer> {
@@ -268,7 +269,7 @@ export async function startDriverServer(): Promise<DriverServer> {
     socket.on('message', (raw: RawData) => {
       let payload: UnknownRecord;
       try {
-        payload = JSON.parse(rawDataToString(raw)) as UnknownRecord;
+        payload = JsonExt.parse<UnknownRecord>(rawDataToString(raw));
       } catch (_error) {
         return;
       }

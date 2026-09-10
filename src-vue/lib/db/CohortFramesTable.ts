@@ -3,8 +3,15 @@ import { BaseTable } from './BaseTable';
 import { toSqliteBigInt } from '../Utils';
 import { LRU } from 'tiny-lru';
 
+export interface ICohortFramesTableState {
+  cache: LRU<Partial<ICohortFrameRecord>>;
+}
+
 export class CohortFramesTable extends BaseTable {
-  private cache = new LRU<Partial<ICohortFrameRecord>>(25);
+  public readonly state = this.getState<ICohortFramesTableState>(() => ({
+    cache: new LRU<Partial<ICohortFrameRecord>>(25),
+  }));
+
   public async insertOrUpdate(args: {
     frameId: number;
     cohortActivationFrameId: number;
@@ -24,7 +31,7 @@ export class CohortFramesTable extends BaseTable {
       microgonFeesCollectedTotal,
     } = args;
     const cacheKey = `${frameId}:${cohortActivationFrameId}`;
-    const cache = this.cache.get(cacheKey);
+    const cache = this.state.cache.get(cacheKey);
     if (cache) {
       // If nothing has changed, skip the database write
       if (
@@ -37,7 +44,7 @@ export class CohortFramesTable extends BaseTable {
         return;
       }
     }
-    this.cache.set(cacheKey, {
+    this.state.cache.set(cacheKey, {
       frameId,
       cohortId: cohortActivationFrameId,
       blocksMinedTotal,

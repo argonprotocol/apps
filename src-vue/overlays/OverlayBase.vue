@@ -43,6 +43,7 @@
                 props.class,
               )"
             >
+              <DialogTitle v-if="$slots.title && props.title" class="sr-only">{{ props.title }}</DialogTitle>
               <h2
                 v-if="!props.leaveBlank"
                 :class="[props.showGoBack ? 'pb-4 px-3' : 'pb-3 pl-2 pr-3', props.hasHeaderBorder ? 'border-b' : '']"

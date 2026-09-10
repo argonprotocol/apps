@@ -3,12 +3,8 @@ import type { Server } from 'node:http';
 import {
   type ArgonClient,
   createArgonClient,
-  type ICertificationProgress,
   JsonExt,
-  loadAccountLocks,
-  loadCertificationProgress,
   NetworkConfig,
-  TreasuryBonds,
   UserRole,
   type IEthereumGatewayCatchUpRequest,
   type IEthereumGatewayCatchUpResponse,
@@ -451,88 +447,12 @@ export class RouterServer {
       safeJsonRoute<IListInvitesResponse>(async () => {
         const couponsByUserId = await bitcoinLockCouponService.getLatestByUserId();
         const invites = db.userInvitesTable.fetchByRole(UserRole.Member);
-        const inviteVaultId = couponsByUserId.values().next().value?.coupon.vaultId;
-        const vaultBondAmountsByAccountId = new Map<string, bigint>();
-        let mainchainClient: ArgonClient | undefined;
-
-        if (mainchainNodeUrl) {
-          try {
-            const client = await getMainchainClient();
-            const bondLots = inviteVaultId ? await TreasuryBonds.getBondLots(client, inviteVaultId) : [];
-
-            for (const bondLot of bondLots) {
-              const currentAmount = vaultBondAmountsByAccountId.get(bondLot.accountId) ?? 0n;
-              vaultBondAmountsByAccountId.set(bondLot.accountId, currentAmount + bondLot.activeBondMicrogons);
-            }
-            mainchainClient = client;
-          } catch (error) {
-            this.mainchainClientPromise = undefined;
-            console.warn('[router] Unable to load invite certification progress.', error);
-          }
-        }
 
         return {
-          invites: await Promise.all(
-            invites.map(async invite => {
-              const bitcoinLockCoupon = couponsByUserId.get(invite.id);
-              let certificationProgress: ICertificationProgress | undefined;
-              const client = mainchainClient;
-              const defaultAccountId = invite.defaultAccountId;
-              if (client && defaultAccountId) {
-                try {
-                  const accountLocksPromise = loadAccountLocks({ client, defaultAccountId });
-                  const [progress, accountLocks] = await Promise.all([
-                    loadCertificationProgress({
-                      client,
-                      defaultAccountId,
-                      operationalAccountId: invite.operationalAccountId ?? undefined,
-                      accountLocksPromise,
-                    }),
-                    accountLocksPromise,
-                  ]);
-
-                  certificationProgress = progress;
-                  let vaultContribution;
-                  if (inviteVaultId) {
-                    let bitcoinAmount = 0n;
-                    let pendingBitcoinAmount = 0n;
-
-                    for (const lock of accountLocks) {
-                      if (lock.vaultId !== inviteVaultId) continue;
-
-                      if (lock.isFunded) {
-                        bitcoinAmount += lock.liquidityPromised;
-                      } else {
-                        pendingBitcoinAmount += lock.liquidityPromised;
-                      }
-                    }
-
-                    vaultContribution = {
-                      bitcoinAmount,
-                      pendingBitcoinAmount,
-                      bondAmount: vaultBondAmountsByAccountId.get(defaultAccountId) ?? 0n,
-                    };
-                  }
-
-                  return {
-                    ...toTreasuryUserInvite(invite),
-                    bitcoinLockCoupon,
-                    certificationProgress,
-                    vaultContribution,
-                  };
-                } catch (error) {
-                  this.mainchainClientPromise = undefined;
-                  console.warn('[router] Unable to load invite certification progress.', error);
-                }
-              }
-
-              return {
-                ...toTreasuryUserInvite(invite),
-                bitcoinLockCoupon,
-                certificationProgress,
-              };
-            }),
-          ),
+          invites: invites.map(invite => ({
+            ...toTreasuryUserInvite(invite),
+            bitcoinLockCoupon: couponsByUserId.get(invite.id),
+          })),
         };
       }),
     );

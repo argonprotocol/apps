@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import * as Vue from 'vue';
-import { expect, within } from 'storybook/test';
+import { expect, waitFor, within } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import { expectEventuallyVisible } from '../../support/expectEventuallyVisible.ts';
 import { setupCertificationMenuScenario } from '../../scenarios/setupCertificationScenario.ts';
@@ -108,7 +108,7 @@ export const PersistedOperationsDuringLiveStateLoss: Story = {
 export const TreasuryChecklistComplete: Story = {
   name: 'Treasury complete',
   beforeEach: () => setupCertificationMenuScenario('treasuryComplete'),
-  render: () => renderCertificationOverview(true),
+  render: () => renderCertificationOverview(false),
   play: async () => {
     const canvas = within(document.body);
 
@@ -137,6 +137,37 @@ export const StepCompletedNotice: Story = {
     await expectEventuallyVisible(canvas.findByText('Step Completed'));
     await expectEventuallyVisible(canvas.findByText('Transfer Argons from Uniswap'));
     await expectEventuallyVisible(canvas.findByText(/is now complete/));
+    const notice = document.querySelector<HTMLElement>('[alertmenu]');
+    const arrow = notice?.querySelector<SVGElement>('.Component.Arrow');
+    await expect(arrow).toBeInTheDocument();
+    await expect(arrow!.getBoundingClientRect().bottom).toBeGreaterThan(notice!.getBoundingClientRect().top);
+  },
+};
+
+export const StepCompletedNoticeAfterOperationsAccessLoads: Story = {
+  beforeEach: async () => {
+    await setupCertificationMenuScenario('stepCompleted');
+    getConfig().hasExtensionOperations = false;
+  },
+  render: () => renderCertificationOverview(false),
+  play: async () => {
+    const canvas = within(document.body);
+    const noticeHeading = await canvas.findByText('Step Completed');
+    const notice = noticeHeading.closest<HTMLElement>('[alertmenu]');
+    if (!notice) throw new Error('Certification notice container is missing');
+
+    getConfig().hasExtensionOperations = true;
+    await Vue.nextTick();
+
+    const certificationButton = canvas.getByRole('button', { name: /Certification \(/ });
+    await waitFor(() => {
+      expect(
+        Math.abs(notice.getBoundingClientRect().right - certificationButton.getBoundingClientRect().right),
+      ).toBeLessThan(2);
+      expect(notice.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+        certificationButton.getBoundingClientRect().bottom,
+      );
+    });
   },
 };
 
@@ -149,6 +180,7 @@ export const UpgradeAvailableNotice: Story = {
     await expectEventuallyVisible(canvas.findByText('Upgrade to Operations', { selector: '.text-xl' }));
     await expectEventuallyVisible(canvas.findByText(/Treasury certification is complete/));
     await expectEventuallyVisible(canvas.findByText('Atlas Operator'));
+    await expect(document.querySelector('[alertmenu] .Component.Arrow')).toBeInTheDocument();
   },
 };
 

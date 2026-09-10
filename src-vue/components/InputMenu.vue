@@ -3,6 +3,7 @@
   <SelectRoot v-model="selectedOption" @update:open="handleToggleOpen" @update:modelValue="handleUpdateModelValue">
     <SelectTrigger
       :data-testid="triggerTestId"
+      :aria-label="props.ariaLabel"
       ref="triggerInstance"
       :class="triggerClasses"
     >
@@ -23,6 +24,7 @@
         :style="[floatingZIndex, { minWidth: menuWidth, maxHeight: 'var(--reka-select-content-available-height)' }]"
         :avoidCollisions="true"
         :bodyLock="true"
+        :disableOutsidePointerEvents="false"
         :collisionPadding="10"
         :sideOffset="-3"
         :sticky="'always'"
@@ -105,6 +107,7 @@ const props = withDefaults(
     selectFirst?: boolean;
     class?: string;
     dataTestid?: string;
+    ariaLabel?: string;
   }>(),
   {
     disabled: false,

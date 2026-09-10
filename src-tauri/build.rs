@@ -85,14 +85,15 @@ fn link_development_resources() {
         return;
     }
 
-    if std::fs::symlink_metadata(&runtime_resources).is_ok() {
-        if runtime_resources.is_dir() && !runtime_resources.is_symlink() {
+    match std::fs::symlink_metadata(&runtime_resources) {
+        Ok(metadata) if metadata.file_type().is_dir() => {
             std::fs::remove_dir_all(&runtime_resources)
                 .expect("Unable to replace the development resource directory");
-        } else {
-            std::fs::remove_file(&runtime_resources)
-                .expect("Unable to replace the development resource link");
         }
+        Ok(_) => std::fs::remove_file(&runtime_resources)
+            .expect("Unable to replace the development resource link"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => panic!("Unable to inspect the development resource path: {error}"),
     }
     std::fs::create_dir_all(runtime_resources.parent().unwrap())
         .expect("Unable to create the development resource directory");

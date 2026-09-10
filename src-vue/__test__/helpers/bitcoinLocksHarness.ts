@@ -15,7 +15,9 @@ import type { IVaultingRules } from '../../interfaces/IVaultingRules.ts';
 import { MintingAuthorities } from '../../lib/MintingAuthorities.ts';
 import { DEFAULT_MASTER_XPUB_PATH, MyVault } from '../../lib/MyVault.ts';
 import { TransactionTracker } from '../../lib/TransactionTracker.ts';
-import type { UpstreamOperatorClient } from '../../lib/UpstreamOperatorClient.ts';
+import { BitcoinLockCreate } from '../../lib/txs/BitcoinLock.create.ts';
+import { BitcoinOrphanRelease } from '../../lib/txs/BitcoinOrphan.release.ts';
+import { UpstreamOperatorClient } from '../../lib/UpstreamOperatorClient.ts';
 import { Vaults } from '../../lib/Vaults.ts';
 import type { WalletKeys } from '../../lib/WalletKeys.ts';
 import { setDbPromise } from '../../stores/helpers/dbPromise.ts';
@@ -45,6 +47,8 @@ export type BitcoinLocksClientHarness = {
   currency: CurrencyBase;
   transactionTracker: TransactionTracker;
   bitcoinLocks: BitcoinLocks;
+  bitcoinLockCreate: BitcoinLockCreate;
+  bitcoinOrphanRelease: BitcoinOrphanRelease;
   miningFrames: MiningFrames;
 };
 
@@ -82,9 +86,17 @@ export async function createBitcoinLocksClientHarness(args: {
     currency,
     transactionTracker,
     new BitcoinMempool(esploraHost),
-    upstreamOperatorClient,
   );
   await bitcoinLocks.load();
+  const bitcoinOrphanRelease = new BitcoinOrphanRelease(bitcoinLocks, bitcoinLocks.orphanReleases, transactionTracker);
+  await bitcoinOrphanRelease.load();
+  const bitcoinLockCreate = new BitcoinLockCreate(
+    bitcoinLocks,
+    transactionTracker,
+    currency,
+    upstreamOperatorClient ?? new UpstreamOperatorClient(),
+  );
+  await bitcoinLockCreate.load();
 
   return {
     db,
@@ -93,6 +105,8 @@ export async function createBitcoinLocksClientHarness(args: {
     currency,
     transactionTracker,
     bitcoinLocks,
+    bitcoinLockCreate,
+    bitcoinOrphanRelease,
     miningFrames,
   };
 }
@@ -101,6 +115,7 @@ export async function createBitcoinLocksHarness(args: {
   archiveUrl: string;
   esploraHost: string;
   network: string;
+  walletKeys?: WalletKeys;
   vaultRules?: IVaultingRules;
   walletFundingMicrogons?: bigint;
 }): Promise<BitcoinLocksHarness> {
@@ -109,6 +124,7 @@ export async function createBitcoinLocksHarness(args: {
     archiveUrl,
     esploraHost,
     network,
+    walletKeys: args.walletKeys,
   });
   const { db, clients, walletKeys, currency, transactionTracker, bitcoinLocks, miningFrames } = clientHarness;
   const fundingMicrogons = args.walletFundingMicrogons ?? walletFundingMicrogons;
@@ -166,10 +182,8 @@ export async function createBitcoinLocksHarness(args: {
   await vaultCreation.waitForPostProcessing;
   await myVault.subscribe();
 
-  await waitFor(
-    60e3,
-    'vault securitization availability',
-    () => (myVault.createdVault?.availableBitcoinSpace() ?? 0n) > 0n,
+  await waitFor(60e3, 'vault securitization availability', () =>
+    myVault.createdVault ? myVault.createdVault.availableBitcoinSpace() > 0n : false,
   );
 
   return {
@@ -181,7 +195,7 @@ export async function createBitcoinLocksHarness(args: {
 
 export async function cleanupBitcoinLocksClientHarness(harness: BitcoinLocksClientHarness): Promise<void> {
   await harness.bitcoinLocks.shutdown();
-  harness.transactionTracker.shutdown();
+  await harness.transactionTracker.shutdown();
   harness.miningFrames.blockWatch.stop();
   await harness.db.close();
   await harness.clients.disconnect();

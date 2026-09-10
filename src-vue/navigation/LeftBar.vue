@@ -74,7 +74,7 @@
                 <div class="mr-1 w-6">
                   <BitcoinIcon class="w-6" />
                 </div>
-                Bitcoin Locks
+                Bitcoin Liquids
                 <GiftIcon v-if="hasActiveCoupon" class="text-argon-800/50 ml-2 w-4" />
               </div>
               <div class="flex items-center gap-x-2">
@@ -87,7 +87,7 @@
                   controller.activeGuideId === OperationalStepId.LiquidLock &&
                   controller.selectedTab !== TopTab.BitcoinLocks
                 "
-                guidance="Open Bitcoin Locks to continue this task."
+                guidance="Open Bitcoin Liquids to continue this task."
                 class="absolute top-1/2 right-0 z-50 translate-x-[calc(100%+0.75rem)] -translate-y-1/2"
               />
             </article>
@@ -455,6 +455,11 @@
             <div @click="openSelectedWallet" class="wallet-summary cursor-pointer rounded px-2">
               <header class="flex w-full flex-row items-center border-b border-slate-500/20 pt-1! pb-1.5!">
                 <div class="capitalize">Internal App Wallet</div>
+                <Tooltip v-if="bitcoinDepositAttention" :content="bitcoinDepositAttention" side="top" :asChild="true">
+                  <span data-testid="LeftBar.bitcoinDepositAttention" class="ml-1.5 inline-flex">
+                    <AlertIcon class="size-5" />
+                  </span>
+                </Tooltip>
                 <div class="grow" />
                 <CopyToClipboard
                   NotDraggable
@@ -482,11 +487,15 @@
                   <span>{{ currency.symbol }}</span>
                   <FormattedMoney :isLoaded="selectedWalletBalanceIsLoaded" :value="selectedWalletBalance" />
                 </div>
-                <div class="wallet-summary-detail mx-auto w-fit border-t border-slate-500/30 text-center opacity-50">
+                <div
+                  class="wallet-summary-detail mx-auto mt-2 w-fit border-t border-slate-500/30 pt-2 text-center opacity-50"
+                >
                   {{ currency.symbol
                   }}{{
                     selectedWalletBalanceIsLoaded
-                      ? microgonToMoneyNm(selectedWalletBalance - financials.savingsTotalPending).format('0,0.00')
+                      ? microgonToMoneyNm(selectedWalletBalance - financials.bitcoinLiquidPendingMintMicrogons).format(
+                          '0,0.00',
+                        )
                       : '-.--'
                   }}
                   is immediately usable
@@ -515,9 +524,12 @@ import { getBitcoinLockCoupons } from '../stores/bitcoin.ts';
 import basicEmitter from '../emitters/basicEmitter.ts';
 import type { IWallet } from '../lib/Wallet.ts';
 import ArrowCalloutButton from '../components/ArrowCalloutButton.vue';
+import AlertIcon from '../assets/alert.svg?component';
+import Tooltip from '../components/Tooltip.vue';
 import { useWallets } from '../stores/wallets.ts';
 import { getCurrency } from '../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
+import { getBitcoinDepositAttention } from '../wallets/walletOverlayState.ts';
 import { useFinancials } from '../stores/financials.ts';
 import { useMiningAssetBreakdown } from '../stores/miningAssetBreakdown.ts';
 import { useVaultingAssetBreakdown } from '../stores/vaultingAssetBreakdown.ts';
@@ -556,7 +568,7 @@ const miningAssets = useMiningAssetBreakdown();
 const vaultingAssets = useVaultingAssetBreakdown();
 const myVault = getMyVault();
 const crosschainHistory = getCrosschainHistory();
-const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm, micronotToMoneyNm, satToMoneyNm } =
+const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm, micronotToMoneyNm, satToBtcNm, satToMoneyNm } =
   createNumeralHelpers(currency);
 
 const showOperationsNavigationCallouts = Vue.ref(false);
@@ -587,6 +599,12 @@ const selectedWalletBalanceIsLoaded = Vue.computed(() => {
 const selectedWalletBalance = Vue.computed(() => {
   if (!currency.isLoaded) return 0n;
   return financials.savingsTotalValue;
+});
+
+const bitcoinDepositAttention = Vue.computed(() => {
+  return getBitcoinDepositAttention(wallets.bitcoinWallet, satoshis => {
+    return satToBtcNm(satoshis).format('0,0.[00000000]');
+  });
 });
 
 const hasCrosschainAction = Vue.computed(() => {
@@ -794,7 +812,7 @@ ul li {
     }
 
     .wallet-summary-detail {
-      @apply mt-2 pt-2 text-sm;
+      @apply text-sm;
     }
   }
 }
@@ -834,7 +852,7 @@ ul li {
     }
 
     .wallet-summary-detail {
-      @apply text-xs;
+      @apply mt-1 pt-1 text-xs;
     }
   }
 }

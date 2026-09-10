@@ -1,15 +1,17 @@
-import { AccountActivityKind, BitcoinLock, Currency } from '@argonprotocol/apps-core';
+import { AccountActivityKind, BondLot, Currency } from '@argonprotocol/apps-core';
 import { getOfflineRegistry } from '@argonprotocol/mainchain';
 import type { Codec } from '@polkadot/types-codec/types';
 import { describe, expect, it, vi } from 'vitest';
 import { ArgonBonds } from '../lib/ArgonBonds.ts';
 import { FinancialHistoryImporter } from '../lib/recovery/index.ts';
+import { getHistoricalBitcoinLock } from '../lib/recovery/BitcoinLockHistory.ts';
 import { VaultHistory } from '../lib/recovery/MyVault.ts';
 import { createTestDb } from './helpers/db.ts';
 import { createHistoricalEventData } from '../../indexer/__test__/helpers/historicalEvents.ts';
 import { encodeAddress } from '@polkadot/util-crypto';
 import { numberCodec } from '../../core/__test__/helpers/codecs.ts';
 import { runtimeClient, toHistoricalEvent } from '@argonprotocol/runtime-client';
+import BigNumber from 'bignumber.js';
 
 const registry = getOfflineRegistry();
 const accountId = encodeAddress(new Uint8Array(32).fill(0x33));
@@ -22,10 +24,11 @@ describe('financial history spec boundaries', () => {
     { specVersion: 150, priceField: 'lockedMarketRate' },
     { specVersion: 154, priceField: 'lockedTargetPrice' },
     { specVersion: 157, priceField: 'lockedTargetPrice' },
+    { specVersion: 158, priceField: 'lockedTargetPrice' },
   ] as const)('decodes the complete spec $specVersion Bitcoin lock storage shape', async variant => {
     const rawClient = createBitcoinLockClient(variant);
 
-    const lock = await BitcoinLock.get(runtimeClient(rawClient) as never, 10);
+    const lock = await getHistoricalBitcoinLock(runtimeClient(rawClient) as never, 10);
 
     expect(lock).toMatchObject({
       utxoId: 10,
@@ -34,17 +37,62 @@ describe('financial history spec boundaries', () => {
       liquidityPromised: 499_433_743n,
       ownerAccount: accountId,
       securitizationRatio: 1,
-      satoshis: 488_274n,
+      securitizedSatoshis: 488_274n,
+      fundingExpirationHeight: 923_496,
       vaultClaimHeight: 975_911,
       openClaimHeight: 980_231,
       createdAtHeight: 923_351,
-      isFunded: true,
-      isFlexible: variant.specVersion === 157,
+      isFlexible: variant.specVersion >= 157,
       couponFeesPaid: variant.specVersion >= 146 ? 2_000_000n : 0n,
       createdAtArgonBlock: variant.specVersion >= 146 ? 472_519 : 0,
     });
-    expect(lock?.utxoSatoshis).toBe(variant.specVersion >= 146 ? 488_275n : undefined);
+    expect(lock?.fundedSatoshis).toBe(variant.specVersion >= 146 ? 488_275n : 0n);
     expect(rawClient.query.bitcoinLocks.locksByUtxoId).toHaveBeenCalledOnce();
+  });
+
+  it('normalizes the native spec 159 Lock shape without inventing pre-Fission liquidity', async () => {
+    const locksByUtxoId = vi.fn(async () => ({
+      vaultId: 3,
+      securitizedSatoshis: 488_274n,
+      microgonsAtTargetPerBtc: 516_350_021n,
+      securitizationCoverageMicrogons: 499_433_743n,
+      securitizationTick: 923_350n,
+      fundedSatoshis: 488_275n,
+      fissionedSatoshis: 200_000n,
+      ownerAccount: accountId,
+      securitizationRatio: new BigNumber(1),
+      securityFees: 3_000_000n,
+      couponPaidFees: 2_000_000n,
+      vaultPubkey: `0x02${'11'.repeat(32)}`,
+      vaultClaimPubkey: `0x02${'22'.repeat(32)}`,
+      vaultXpubSources: ['0x01020304', 1, 2],
+      ownerPubkey: `0x03${'33'.repeat(32)}`,
+      vaultClaimHeight: 975_911,
+      openClaimHeight: 980_231,
+      createdAtHeight: 923_351,
+      fundingExpirationHeight: 923_363n,
+      utxoScriptPubkey: { type: 'P2WSH', value: { wscriptHash: `0x${'44'.repeat(32)}` } },
+      isFlexible: true,
+      fundHoldExtensions: {},
+      createdAtArgonBlock: 472_519,
+    }));
+    const rawClient = {
+      consts: { bitcoinLocks: { maxPendingConfirmationBlocks: numberCodec(12) } },
+      query: { bitcoinLocks: { locksByUtxoId } },
+    };
+
+    const lock = await getHistoricalBitcoinLock(runtimeClient(rawClient) as never, 10);
+
+    expect(lock).toMatchObject({
+      utxoId: 10,
+      securitizedSatoshis: 488_274n,
+      fundedSatoshis: 488_275n,
+      lockedTargetPrice: 516_350_021n,
+      liquidityPromised: 0n,
+      securitizationCoverageMicrogons: 499_433_743n,
+      securityFees: 3_000_000n,
+      couponFeesPaid: 2_000_000n,
+    });
   });
 
   it('passes supported activity through runtime boundaries while skipping only an unsupported domain block', async () => {
@@ -495,6 +543,7 @@ function createBitcoinLockClient({
     [specVersion >= 150 ? 'isFunded' : 'isVerified']: 'bool',
     ...(specVersion < 146 ? { isRejectedNeedsRelease: 'bool' } : {}),
     ...(specVersion === 157 ? { isBackfill: 'bool' } : {}),
+    ...(specVersion >= 158 ? { isFlexible: 'bool' } : {}),
     fundHoldExtensions: 'BTreeMap<u64,u128>',
     ...(specVersion >= 146 ? { createdAtArgonBlock: specVersion >= 150 ? 'Compact<u32>' : 'u32' } : {}),
   };
@@ -522,10 +571,14 @@ function createBitcoinLockClient({
     [specVersion >= 150 ? 'isFunded' : 'isVerified']: true,
     ...(specVersion < 146 ? { isRejectedNeedsRelease: false } : {}),
     ...(specVersion === 157 ? { isBackfill: true } : {}),
+    ...(specVersion >= 158 ? { isFlexible: true } : {}),
     fundHoldExtensions: {},
     ...(specVersion >= 146 ? { createdAtArgonBlock: 472_519 } : {}),
   });
   return {
+    consts: {
+      bitcoinLocks: {},
+    },
     query: {
       bitcoinLocks: {
         locksByUtxoId: vi.fn(async () => registry.createType<Codec>(`Option<${lockType}>`, lock)),

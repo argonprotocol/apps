@@ -15,8 +15,12 @@ export type IVaultCapitalHistoryRecord = IVaultCapitalHistoryInput & {
   createdAt: Date;
 };
 
+export interface IVaultCapitalHistoryTableState {
+  revision: number;
+}
+
 export class VaultCapitalHistoryTable extends BaseTable {
-  public revision = 0;
+  public readonly state = this.getState<IVaultCapitalHistoryTableState>(() => ({ revision: 0 }));
 
   private fields: IFieldTypes = {
     bigint: [
@@ -29,6 +33,14 @@ export class VaultCapitalHistoryTable extends BaseTable {
     ],
     date: ['blockTime', 'createdAt'],
   };
+
+  public get revision(): number {
+    return this.state.revision;
+  }
+
+  public set revision(value: number) {
+    this.state.revision = value;
+  }
 
   public async insert(args: IVaultCapitalHistoryInput): Promise<IVaultCapitalHistoryRecord | undefined> {
     const { walletAddress, vaultId, eventType, blockNumber, blockHash, blockTime, extrinsicIndex } = args;

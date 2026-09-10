@@ -55,7 +55,8 @@ it('refreshes fee waivers while mounted and drops stale state when the upstream 
   });
   const vault = { vaultId: 12 };
   const bitcoinLocks = {
-    load: vi.fn().mockResolvedValue(undefined),
+    load: vi.fn(() => new Promise<void>(() => undefined)),
+    currentLoadPromise: Promise.resolve(),
     getLockableBitcoinCapacity: vi.fn().mockReturnValue(capacity),
   } as unknown as BitcoinLocks;
   const vaults = {

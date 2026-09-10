@@ -26,6 +26,7 @@ mod e2e_screenshots;
 mod ethereum_signer;
 mod migrations;
 mod security;
+mod sql;
 mod ssh;
 mod ssh_access;
 mod ssh_pool;
@@ -94,15 +95,20 @@ async fn ssh_upload_file(
     address: &str,
     contents: String,
     remote_path: String,
+    timeout_ms: u64,
 ) -> Result<String, String> {
     log::info!("ssh_upload_file: {remote_path}");
     let ssh: ssh::SSH = ssh_pool::get_connection(address)
         .await
         .map_err(|e| e.to_string())?
         .ok_or("No SSH connection")?;
-    ssh.upload_file(contents.as_bytes(), &remote_path)
-        .await
-        .map_err(|e| e.to_string())?;
+    ssh.upload_file(
+        contents.as_bytes(),
+        &remote_path,
+        Duration::from_millis(timeout_ms),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     Ok("success".to_string())
 }
 
@@ -854,6 +860,7 @@ pub fn run() {
             app.manage(EthereumSignerPolicyState {
                 policy: Mutex::new(None),
             });
+            app.manage(sql::SqlTransactions::default());
             app.manage(ssh_access::SshAccessState {
                 access: Mutex::new(None),
             });
@@ -983,6 +990,11 @@ pub fn run() {
             load_instance,
             report_empty_app_root_after_activation,
             e2e_capture_main_window_screenshot,
+            sql::sql_begin_transaction,
+            sql::sql_execute,
+            sql::sql_select,
+            sql::sql_commit_transaction,
+            sql::sql_rollback_transaction,
         ])
         .run(context)
         .expect("error while running tauri application");

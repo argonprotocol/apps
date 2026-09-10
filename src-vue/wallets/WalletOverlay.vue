@@ -16,6 +16,7 @@
         @escapeKeyDown.prevent="closeOverlay"
         class="pointer-events-none! fixed inset-0"
       >
+        <DialogTitle class="sr-only">Internal App Wallet</DialogTitle>
         <div
           :ref="setWalletRef"
           data-testid="WalletOverlay"
@@ -37,22 +38,25 @@
               "
               class="relative z-20 flex h-full w-120 shrink-0 p-2"
             >
-              <svg
+              <div
                 v-if="openWallet.centerView.type !== 'addEthereum'"
-                class="pointer-events-none absolute inset-0 h-full w-full text-neutral-400 shadow-sm/40"
+                aria-hidden="true"
+                class="pointer-events-none absolute inset-0.5 shadow-sm/40"
               >
-                <rect
-                  x="1.25"
-                  y="1.25"
-                  width="calc(100% - 2.5px)"
-                  height="calc(100% - 2.5px)"
-                  rx="8"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="4"
-                  stroke-dasharray="8 4"
-                />
-              </svg>
+                <svg class="h-full w-full overflow-visible text-neutral-400">
+                  <rect
+                    x="0"
+                    y="0"
+                    width="100%"
+                    height="100%"
+                    rx="8"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="4"
+                    stroke-dasharray="8 4"
+                  />
+                </svg>
+              </div>
               <div
                 :class="activeConnectorId ? 'bg-neutral-300/80' : 'bg-white'"
                 class="absolute top-2 right-2 bottom-2 left-2 rounded-lg border border-black/60 shadow-sm/30"
@@ -68,6 +72,7 @@
                   :guidanceContext="openWallet.guidanceContext"
                   @dragStart="draggable.onMouseDown($event)"
                   @goto="showView"
+                  @openBitcoinConnector="openBitcoinConnector"
                   @close="closeWalletViewOrOverlay"
                 />
                 <WalletViewSend
@@ -77,7 +82,6 @@
                   :showGuidance="openWallet.showGuidance"
                   :guidanceContext="openWallet.guidanceContext"
                   @dragStart="draggable.onMouseDown($event)"
-                  @selectDestinationConnector="selectSendDestinationConnector"
                   @goto="showView"
                   @close="closeWalletViewOrOverlay"
                 />
@@ -88,6 +92,7 @@
                   :guidanceContext="openWallet.guidanceContext"
                   @dragStart="draggable.onMouseDown($event)"
                   @goto="showView"
+                  @openBitcoinConnector="openBitcoinConnector"
                   @close="closeWalletViewOrOverlay"
                 />
                 <WalletViewPrivateKey
@@ -123,13 +128,14 @@
               >
                 <Connector
                   :wallet="walletStore.bitcoinWallet"
+                  :bitcoinChannelUuid="openWallet.bitcoinChannelUuid"
+                  :bitcoinChannelVaultId="openWallet.bitcoinChannelVaultId"
                   direction="left"
                   :open="openWallet.activeConnector === walletStore.bitcoinWallet"
+                  :transferDirections="bitcoinTransferDirections"
                   @update:open="updateBitcoinConnector($event)"
                 />
-                <svg aria-hidden="true" class="relative mx-1 h-1 w-40 text-neutral-400/80 shadow-sm/40">
-                  <line x1="0" x2="100%" y1="2" y2="2" stroke="currentColor" stroke-width="4" stroke-dasharray="8 4" />
-                </svg>
+                <ConnectorTransferActivity side="left" :transferDirections="bitcoinTransferDirections" />
               </article>
               <article
                 v-for="wallet of leftExternalConnectors"
@@ -211,7 +217,7 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { DialogContent, DialogOverlay, DialogPortal, DialogRoot } from 'reka-ui';
+import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
 import BgOverlay from '../components/BgOverlay.vue';
 import basicEmitter, { type IWalletGuidanceContext, type IWalletOverlayOptions } from '../emitters/basicEmitter.ts';
 import type { WalletForEthereum } from '../lib/WalletForEthereum.ts';
@@ -249,6 +255,8 @@ import {
 import { twMerge } from 'tailwind-merge';
 
 type IOpenWallet = IWalletOverlayState & {
+  bitcoinChannelUuid?: string;
+  bitcoinChannelVaultId?: number;
   showGuidance: boolean;
   guidanceContext?: IWalletGuidanceContext;
   zIndex: number;
@@ -259,18 +267,12 @@ const walletStore = useWallets();
 const openWallet = Vue.ref<IOpenWallet>();
 const ethereumWallets = Vue.computed(() => walletStore.ethereumWallets.persistedWallets);
 
-const sendDestinationConnectorId = Vue.ref<string | number>();
 const activeConnectorId = Vue.computed<string | number | undefined>(() => {
   if (openWallet.value?.activeConnector?.type === WalletType.bitcoin) return WalletType.bitcoin;
   return openWallet.value?.activeConnector?.id;
 });
-const connectorSelectionIsActive = Vue.computed(
-  () => activeConnectorId.value !== undefined || openWallet.value?.centerView.type === 'send',
-);
-const highlightedConnectorId = Vue.computed(() => {
-  if (activeConnectorId.value !== undefined) return activeConnectorId.value;
-  return openWallet.value?.centerView.type === 'send' ? sendDestinationConnectorId.value : undefined;
-});
+const connectorSelectionIsActive = Vue.computed(() => activeConnectorId.value !== undefined);
+const highlightedConnectorId = activeConnectorId;
 const draggable = Vue.reactive(new Draggable({ constrainToViewport: false }));
 const inboundTracker = getEthereumMoveTracker();
 const outboundTracker = getEthereumOutboundTransferTracker();
@@ -279,6 +281,12 @@ const leftExternalConnectors = Vue.computed(() => {
 });
 const rightExternalConnectors = Vue.computed(() => {
   return ethereumWallets.value.filter((_, index) => index % 2 === 0).slice(0, 3);
+});
+const bitcoinTransferDirections = Vue.computed<ICrosschainTransferDirection[]>(() => {
+  const directions: ICrosschainTransferDirection[] = [];
+  if (walletStore.bitcoinWallet.getPendingChannelFundings().length > 0) directions.push('inbound');
+  if (walletStore.bitcoinWallet.getPendingChannelReleases().length > 0) directions.push('outbound');
+  return directions;
 });
 const activeTransferDirectionsByWalletRecordId = Vue.computed(() => {
   const walletRecordIdByAddress = new Map(
@@ -338,6 +346,8 @@ const openWalletOverlay = async (options: IWalletOverlayOptions) => {
 
   if (openWallet.value) {
     Object.assign(openWallet.value, showWalletView(openWallet.value, options.view ?? 'main', activeConnector));
+    openWallet.value.bitcoinChannelUuid = options.bitcoinChannelUuid;
+    openWallet.value.bitcoinChannelVaultId = options.bitcoinChannelVaultId;
     openWallet.value.showGuidance = options.showGuidance ?? false;
     openWallet.value.guidanceContext = options.guidanceContext;
     focusWallet();
@@ -348,6 +358,8 @@ const openWalletOverlay = async (options: IWalletOverlayOptions) => {
   const initialState = getInitialWalletOverlayState(activeConnector);
   openWallet.value = {
     ...showWalletView(initialState, options.view ?? 'main', activeConnector),
+    bitcoinChannelUuid: options.bitcoinChannelUuid,
+    bitcoinChannelVaultId: options.bitcoinChannelVaultId,
     showGuidance: options.showGuidance ?? false,
     guidanceContext: options.guidanceContext,
     zIndex: reserveOverlayZIndex(),
@@ -363,6 +375,11 @@ function showView(view: IWalletView) {
 function openAddConnectorFromOverlay() {
   if (!openWallet.value) return;
   Object.assign(openWallet.value, showAddWalletInOverlay(openWallet.value, 'external'));
+}
+
+function openBitcoinConnector() {
+  if (!openWallet.value) return;
+  Object.assign(openWallet.value, showWalletView(openWallet.value, 'main', walletStore.bitcoinWallet));
 }
 
 function closeWalletViewOrOverlay() {
@@ -421,6 +438,13 @@ async function refreshEthereumWalletIfNeeded(wallet: WalletForEthereum) {
   if (!wallet.data.balanceUpdatedAt) await wallet.refresh();
 }
 
+function refreshEthereumBalancesOnFocus() {
+  if (!openWallet.value) return;
+  void Promise.all(ethereumWallets.value.map(wallet => wallet.refresh())).catch(error => {
+    console.error('Failed to refresh Ethereum balances after window focus', error);
+  });
+}
+
 function ethereumWalletDisconnected({ wallet }: { wallet: WalletForEthereum }) {
   if (openWallet.value?.activeConnector === wallet) {
     openWallet.value.activeConnector = undefined;
@@ -443,10 +467,6 @@ function isEthereumConnectorOpen(wallet: WalletForEthereum) {
 
 function getTransferDirections(walletRecordId: number) {
   return activeTransferDirectionsByWalletRecordId.value.get(walletRecordId) ?? [];
-}
-
-function selectSendDestinationConnector(connectorId: string | number | undefined) {
-  sendDestinationConnectorId.value = connectorId;
 }
 
 function updateBitcoinConnector(isOpen: boolean) {
@@ -472,7 +492,6 @@ function closeFromBackdrop() {
 }
 
 function resetOverlayPresentation() {
-  sendDestinationConnectorId.value = undefined;
   draggable.modalPosition.x = 0;
   draggable.modalPosition.y = 0;
   dialogDismissRequested = false;
@@ -481,10 +500,12 @@ function resetOverlayPresentation() {
 basicEmitter.on('openWalletOverlay', openWalletOverlay);
 basicEmitter.on('openWalletOverlayAddConnector', openAddWalletPanel);
 basicEmitter.on('ethereumWalletDisconnected', ethereumWalletDisconnected);
+window.addEventListener('focus', refreshEthereumBalancesOnFocus);
 Vue.onUnmounted(() => {
   basicEmitter.off('openWalletOverlay', openWalletOverlay);
   basicEmitter.off('openWalletOverlayAddConnector', openAddWalletPanel);
   basicEmitter.off('ethereumWalletDisconnected', ethereumWalletDisconnected);
+  window.removeEventListener('focus', refreshEthereumBalancesOnFocus);
   closeOverlay();
 });
 </script>

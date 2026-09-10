@@ -2,7 +2,7 @@ use crate::utils::Utils;
 use include_dir::{Dir, include_dir};
 use std::fs;
 use std::net::TcpListener;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::AppHandle;
 
@@ -75,12 +75,24 @@ fn get_uid_gid() -> (u32, u32) {
 }
 
 impl Vm {
-    pub fn activate(vm_path: &PathBuf, work_dir: &PathBuf) -> anyhow::Result<Vm, String> {
+    pub fn activate(vm_path: &Path, work_dir: &Path) -> anyhow::Result<Vm, String> {
         if !vm_path.exists() {
             return Err(format!("VM path {} does not exist", vm_path.display()));
         }
         Self::run_compose_command(vm_path, &["up", "-d"])?;
-        Self::run_compose_command(work_dir, &["up", "-d"])?;
+        let server_dir = work_dir.join("server");
+        if let Some(compose_dir) = [work_dir, server_dir.as_path()].into_iter().find(|dir| {
+            [
+                "compose.yaml",
+                "compose.yml",
+                "docker-compose.yaml",
+                "docker-compose.yml",
+            ]
+            .iter()
+            .any(|file_name| dir.join(file_name).exists())
+        }) {
+            Self::run_compose_command(compose_dir, &["up", "-d"])?;
+        }
         Self::get_vm(vm_path)
     }
 
@@ -152,7 +164,7 @@ impl Vm {
         Self::get_vm(&vm_path)
     }
 
-    pub fn get_vm(vm_path: &PathBuf) -> anyhow::Result<Vm, String> {
+    pub fn get_vm(vm_path: &Path) -> anyhow::Result<Vm, String> {
         if !vm_path.exists() {
             return Err(format!("VM path {} does not exist", vm_path.display()));
         }
@@ -166,7 +178,7 @@ impl Vm {
         Ok(Vm { ssh_port: vm_port })
     }
 
-    pub fn destroy(vm_path: &PathBuf) -> anyhow::Result<(), String> {
+    pub fn destroy(vm_path: &Path) -> anyhow::Result<(), String> {
         log::info!("Removing local VM at {}", vm_path.display());
         if !vm_path.exists() {
             return Ok(());
@@ -183,7 +195,7 @@ impl Vm {
         Ok(())
     }
 
-    fn run_compose_command(vm_path: &PathBuf, args: &[&str]) -> anyhow::Result<String, String> {
+    fn run_compose_command(vm_path: &Path, args: &[&str]) -> anyhow::Result<String, String> {
         let output = Command::new("docker")
             .args(["compose"].iter().chain(args))
             .current_dir(vm_path)

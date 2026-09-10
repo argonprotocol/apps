@@ -14,6 +14,12 @@ vi.mock('../lib/IndexerClient.ts', () => ({ findAddressActivity: vi.fn() }));
 afterEach(() => vi.mocked(findAddressActivity).mockReset());
 
 const withBackgroundArchiveRead = async <T>(read: () => Promise<T>): Promise<T> => await read();
+const emptyPreparedBitcoinHistory = () => ({
+  records: [],
+  failuresByUtxoId: new Map(),
+  unitUtxoIds: new Set(),
+  hasUnscopedFailure: false,
+});
 
 describe('FinancialHistoryImporter', () => {
   it('retries an archive-overloaded batch one block at a time', async () => {
@@ -235,7 +241,7 @@ describe('FinancialHistoryImporter', () => {
               asOfBlock: 100,
               domains: ['bitcoin'],
               domainCheckpoints: {
-                bitcoin: { asOfBlock: 100, definitionVersion: 1, recoveryVersion: 8 },
+                bitcoin: { asOfBlock: 100, definitionVersion: 1, recoveryVersion: 9 },
               },
             })),
             upsert: vi.fn(async () => undefined),
@@ -309,7 +315,7 @@ describe('FinancialHistoryImporter', () => {
                 bitcoin: {
                   asOfBlock: 100,
                   definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-                  recoveryVersion: 8,
+                  recoveryVersion: 9,
                 },
               },
             })),
@@ -340,8 +346,10 @@ describe('FinancialHistoryImporter', () => {
 
   it('retries incomplete incremental Bitcoin history from the beginning in the same recovery', async () => {
     const beginHistoryReplay = vi.fn();
-    const commitHistoryReplay = vi.fn();
+    const prepareHistoryReplay = vi.fn(async () => emptyPreparedBitcoinHistory());
+    const finishHistoryReplay = vi.fn();
     const markHistoryReplayFailure = vi.fn();
+    const upsert = vi.fn(async (..._args: unknown[]) => undefined);
     const recoverBlock = vi
       .fn()
       .mockRejectedValueOnce(new Error('Bitcoin lock 44 pending mint exceeds recovered history'))
@@ -392,11 +400,11 @@ describe('FinancialHistoryImporter', () => {
                 bitcoin: {
                   asOfBlock: 90,
                   definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-                  recoveryVersion: 8,
+                  recoveryVersion: 9,
                 },
               },
             })),
-            upsert: vi.fn(async () => undefined),
+            upsert,
           },
         } as any,
         blockWatch: {
@@ -414,7 +422,8 @@ describe('FinancialHistoryImporter', () => {
           markHistoryReplayFailure,
           recoverBlock,
           findMissingActiveLockIds: vi.fn(async () => []),
-          commitHistoryReplay,
+          prepareHistoryReplay,
+          finishHistoryReplay,
           cancelHistoryReplay: vi.fn(),
         } as any,
         vaultHistory: {} as any,
@@ -434,17 +443,31 @@ describe('FinancialHistoryImporter', () => {
       toBlock: 100,
       activityMask: AccountActivityKind.BitcoinLock | AccountActivityKind.BitcoinMint,
     });
-    expect(beginHistoryReplay).toHaveBeenNthCalledWith(1, { lockScope: 'encountered' });
-    expect(beginHistoryReplay).toHaveBeenNthCalledWith(2, { lockScope: 'all' });
+    expect(beginHistoryReplay).toHaveBeenNthCalledWith(1, {
+      lockScope: 'encountered',
+      purpose: 'financial-backfill',
+    });
+    expect(beginHistoryReplay).toHaveBeenNthCalledWith(2, { lockScope: 'all', purpose: 'financial-backfill' });
     expect(markHistoryReplayFailure).toHaveBeenCalledOnce();
-    expect(commitHistoryReplay).toHaveBeenNthCalledWith(1, true);
-    expect(commitHistoryReplay).toHaveBeenNthCalledWith(2, true);
+    expect(prepareHistoryReplay).toHaveBeenCalledTimes(2);
+    expect(finishHistoryReplay).toHaveBeenNthCalledWith(1, new Set());
+    expect(finishHistoryReplay).toHaveBeenNthCalledWith(2, new Set());
+    expect(upsert).toHaveBeenCalledOnce();
+    expect(upsert).toHaveBeenCalledWith(
+      SyncStateKeys.FinancialHistory,
+      expect.objectContaining({
+        domainCheckpoints: {
+          bitcoin: expect.objectContaining({ asOfBlock: 100 }),
+        },
+      }),
+    );
   });
 
   it('repairs only pending Bitcoin locks when a fresh wallet has no recovery checkpoint', async () => {
     const upsert = vi.fn(async () => undefined);
     const beginHistoryReplay = vi.fn();
-    const commitHistoryReplay = vi.fn();
+    const prepareHistoryReplay = vi.fn(async () => emptyPreparedBitcoinHistory());
+    const finishHistoryReplay = vi.fn();
     vi.mocked(findAddressActivity).mockResolvedValue({
       asOfBlock: 100,
       definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
@@ -466,7 +489,8 @@ describe('FinancialHistoryImporter', () => {
         hasPendingHistoryRecovery: true,
         beginHistoryReplay,
         findMissingActiveLockIds: vi.fn(async () => []),
-        commitHistoryReplay,
+        prepareHistoryReplay,
+        finishHistoryReplay,
         cancelHistoryReplay: vi.fn(),
       } as any,
       vaultHistory: {} as any,
@@ -478,8 +502,9 @@ describe('FinancialHistoryImporter', () => {
     await restoreFinancialHistory(restoreArgs);
 
     expect(findAddressActivity).toHaveBeenCalledOnce();
-    expect(beginHistoryReplay).toHaveBeenCalledWith({ lockScope: 'pending' });
-    expect(commitHistoryReplay).toHaveBeenCalledWith(true);
+    expect(beginHistoryReplay).toHaveBeenCalledWith({ lockScope: 'pending', purpose: 'financial-backfill' });
+    expect(prepareHistoryReplay).toHaveBeenCalledOnce();
+    expect(finishHistoryReplay).toHaveBeenCalledWith(new Set());
     expect(upsert).toHaveBeenLastCalledWith(
       SyncStateKeys.FinancialHistory,
       expect.objectContaining({
@@ -489,7 +514,7 @@ describe('FinancialHistoryImporter', () => {
           bitcoin: {
             asOfBlock: 100,
             definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-            recoveryVersion: 8,
+            recoveryVersion: 9,
           },
         },
       }),
@@ -587,13 +612,13 @@ describe('FinancialHistoryImporter', () => {
     );
   });
 
-  it('keeps active Bitcoin recovery ahead of history and fills creation details after history fails', async () => {
+  it('keeps active Bitcoin recovery ahead of history and preserves it when history fails', async () => {
     const upsert = vi.fn(async () => undefined);
     const beginHistoryReplay = vi.fn();
     const recoverBlock = vi.fn(async () => undefined);
     const recoverActiveLocks = vi.fn(async () => [{ utxoId: 12 }]);
-    const recoverActiveLockCreationDetails = vi.fn(async () => undefined);
-    const commitHistoryReplay = vi.fn();
+    const prepareHistoryReplay = vi.fn(async () => emptyPreparedBitcoinHistory());
+    const finishHistoryReplay = vi.fn();
     const cancelHistoryReplay = vi.fn();
     vi.mocked(findAddressActivity)
       .mockResolvedValueOnce({
@@ -653,9 +678,9 @@ describe('FinancialHistoryImporter', () => {
         bitcoinLockRecovery: {
           beginHistoryReplay,
           recoverActiveLocks,
-          recoverActiveLockCreationDetails,
           recoverBlock,
-          commitHistoryReplay,
+          prepareHistoryReplay,
+          finishHistoryReplay,
           cancelHistoryReplay,
         } as any,
         mainchainClients: {} as any,
@@ -675,12 +700,6 @@ describe('FinancialHistoryImporter', () => {
             definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
             recoveryVersion: 1,
           },
-          bitcoin: {
-            asOfBlock: 8,
-            definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-            recoveryVersion: 8,
-            partialRecovery: true,
-          },
         },
       }),
     );
@@ -689,23 +708,23 @@ describe('FinancialHistoryImporter', () => {
     expect(recoverActiveLocks.mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(findAddressActivity).mock.invocationCallOrder[1],
     );
-    expect(commitHistoryReplay).toHaveBeenCalledWith(true);
+    expect(prepareHistoryReplay).toHaveBeenCalledOnce();
+    expect(finishHistoryReplay).toHaveBeenCalledWith(new Set());
     expect(cancelHistoryReplay).toHaveBeenCalledOnce();
     expect(beginHistoryReplay.mock.invocationCallOrder[0]).toBeLessThan(recoverBlock.mock.invocationCallOrder[0]);
     expect(recoverBlock.mock.invocationCallOrder[0]).toBeLessThan(cancelHistoryReplay.mock.invocationCallOrder[0]);
-    expect(recoverActiveLockCreationDetails).toHaveBeenCalledOnce();
   });
 
   it('replays only index-selected Bitcoin blocks when its app recovery version changes', async () => {
     const beginHistoryReplay = vi.fn();
     const recoverBlock = vi.fn(async () => undefined);
     const upsert = vi.fn(async () => undefined);
-    const commitHistoryReplay = vi.fn();
+    const prepareHistoryReplay = vi.fn(async () => emptyPreparedBitcoinHistory());
+    const finishHistoryReplay = vi.fn();
     const cancelHistoryReplay = vi.fn();
     const onProgress = vi.fn();
     const onActiveBitcoinLocksFound = vi.fn();
     const recoverActiveLocks = vi.fn(async () => [{ utxoId: 12 }]);
-    const recoverActiveLockCreationDetails = vi.fn(async () => undefined);
     const getEventsWithSpec = vi.fn(async () => ({ events: [], specVersion: 151 }));
     vi.mocked(findAddressActivity).mockResolvedValueOnce({
       asOfBlock: 100,
@@ -753,9 +772,9 @@ describe('FinancialHistoryImporter', () => {
         beginHistoryReplay,
         recoverBlock,
         recoverActiveLocks,
-        recoverActiveLockCreationDetails,
         findMissingActiveLockIds: vi.fn(async () => []),
-        commitHistoryReplay,
+        prepareHistoryReplay,
+        finishHistoryReplay,
         cancelHistoryReplay,
       } as any,
       mainchainClients: {} as any,
@@ -777,22 +796,21 @@ describe('FinancialHistoryImporter', () => {
       SyncStateKeys.FinancialHistory,
       expect.objectContaining({
         asOfBlock: 100,
-        recoveryVersions: { bitcoin: 8 },
+        recoveryVersions: { bitcoin: 9 },
         domainCheckpoints: {
           bitcoin: {
             asOfBlock: 100,
             definitionVersion: ACCOUNT_ACTIVITY_DEFINITION_VERSION,
-            recoveryVersion: 8,
+            recoveryVersion: 9,
           },
         },
       }),
     );
     expect(beginHistoryReplay).toHaveBeenCalledOnce();
-    expect(beginHistoryReplay).toHaveBeenCalledWith({ lockScope: 'all' });
-    expect(commitHistoryReplay).toHaveBeenCalledOnce();
-    expect(commitHistoryReplay).toHaveBeenCalledWith(true);
+    expect(beginHistoryReplay).toHaveBeenCalledWith({ lockScope: 'all', purpose: 'financial-backfill' });
+    expect(prepareHistoryReplay).toHaveBeenCalledOnce();
+    expect(finishHistoryReplay).toHaveBeenCalledWith(new Set());
     expect(cancelHistoryReplay).not.toHaveBeenCalled();
-    expect(recoverActiveLockCreationDetails).not.toHaveBeenCalled();
     expect(onActiveBitcoinLocksFound).toHaveBeenCalledWith(1);
     expect(onProgress).toHaveBeenLastCalledWith(1, {
       domain: 'bitcoin',
@@ -803,9 +821,8 @@ describe('FinancialHistoryImporter', () => {
     expect(recoverActiveLocks.mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(findAddressActivity).mock.invocationCallOrder[0],
     );
-    expect(recoverBlock.mock.invocationCallOrder[0]).toBeLessThan(commitHistoryReplay.mock.invocationCallOrder[0]);
-    expect(upsert.mock.invocationCallOrder[0]).toBeLessThan(commitHistoryReplay.mock.invocationCallOrder[0]);
-    expect(commitHistoryReplay.mock.invocationCallOrder[0]).toBeLessThan(upsert.mock.invocationCallOrder.at(-1)!);
+    expect(recoverBlock.mock.invocationCallOrder[0]).toBeLessThan(prepareHistoryReplay.mock.invocationCallOrder[0]);
+    expect(finishHistoryReplay.mock.invocationCallOrder[0]).toBeLessThan(upsert.mock.invocationCallOrder[0]);
   });
 
   it('does not let another account checkpoint hide missing active bond history', async () => {

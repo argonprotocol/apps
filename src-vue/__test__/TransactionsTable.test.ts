@@ -70,7 +70,7 @@ describe('TransactionsTable', () => {
       [TransactionHistoryStatus.Finalized, TransactionHistorySource.Block],
     ]);
     expect(history[1].blockHash).toBe('0xabc');
-    expect(history[2].blockHash).toBeNull();
+    expect(history[2].blockHash).toBeUndefined();
     expect(history[2].blockHeight).toBe(106);
   });
 

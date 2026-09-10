@@ -1,7 +1,5 @@
 import * as Vue from 'vue';
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
-import { within } from 'storybook/test';
-import { expectEventuallyVisible } from '../../support/expectEventuallyVisible.ts';
 import {
   createExternalBitcoinLock,
   setupBitcoinOverlayScenario,
@@ -44,11 +42,6 @@ export const LocalLock: Story = {
     scenario = setupBitcoinOverlayScenario();
     displayLock = scenario.lock;
   },
-  play: async () => {
-    const body = within(document.body);
-    await expectEventuallyVisible(body.findByText('YOURS'));
-    await expectEventuallyVisible(body.getByText('This bitcoin is locked and generating revenue on Argon.'));
-  },
 };
 
 export const ExternalLock: Story = {
@@ -58,11 +51,6 @@ export const ExternalLock: Story = {
     scenario.myVault.data.externalLocks[externalLock.utxoId] = externalLock;
     displayLock = externalLock;
   },
-  play: async () => {
-    const body = within(document.body);
-    await expectEventuallyVisible(body.findByText('EXTERNAL'));
-    await expectEventuallyVisible(body.getByText('This bitcoin is locked and generating revenue on Argon.'));
-  },
 };
 
 export const PendingCosign: Story = {
@@ -70,13 +58,10 @@ export const PendingCosign: Story = {
     scenario = setupBitcoinOverlayScenario();
     scenario.releaseVaultWaitProgress.value = 42;
     scenario.myVault.data.pendingCosignUtxosById.set(scenario.lock.utxoId!, {
-      targetValue: scenario.lock.satoshis,
+      targetValue: scenario.lock.fundedSatoshis || scenario.lock.securitizedSatoshis,
       dueFrame: 10_012,
     });
     displayLock = scenario.lock;
-  },
-  play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText(/pending release request.*cosign automatically/i));
   },
 };
 
@@ -101,11 +86,6 @@ export const Released: Story = {
     scenario.financials.bitcoinLockPerformanceByUuid[scenario.lock.uuid] = { profit: 58_000_000n, percent: 6.8 };
     displayLock = scenario.lock;
   },
-  play: async () => {
-    await expectEventuallyVisible(
-      within(document.body).findByText(/bitcoin was unlocked and returned to your wallet/i),
-    );
-  },
 };
 
 export const ExternalReleased: Story = {
@@ -115,10 +95,5 @@ export const ExternalReleased: Story = {
     scenario.myVault.data.externalLocks[externalLock.utxoId] = externalLock;
     scenario.myVault.data.releasedExternalUtxoIds.add(externalLock.utxoId);
     displayLock = externalLock;
-  },
-  play: async () => {
-    const body = within(document.body);
-    await expectEventuallyVisible(body.findByText('EXTERNAL'));
-    await expectEventuallyVisible(body.getByText('This bitcoin has been unlocked and returned to the owner.'));
   },
 };

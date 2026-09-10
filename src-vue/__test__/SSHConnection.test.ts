@@ -124,6 +124,31 @@ describe('SSHConnection', () => {
     warning.mockRestore();
   });
 
+  it('passes the small upload deadline to the backend', async () => {
+    invokeWithTimeout.mockResolvedValueOnce('success');
+
+    const connection = new SSHConnection({
+      type: ServerType.LocalComputer,
+      ipAddress: '127.0.0.1',
+      sshPort: 55404,
+      sshUser: 'root',
+      workDir: '/app',
+    });
+
+    await expect(connection.uploadFileWithTimeout('manifest', '~/.argon-server.json', 10_000)).resolves.toBeUndefined();
+
+    expect(invokeWithTimeout).toHaveBeenCalledWith(
+      'ssh_upload_file',
+      {
+        address: '127.0.0.1:55404',
+        contents: 'manifest',
+        remotePath: '~/.argon-server.json',
+        timeoutMs: 10_000,
+      },
+      15_000,
+    );
+  });
+
   it('reports upload progress when the final transfer attempt times out', async () => {
     let emitProgress: ((event: { payload: number }) => void) | undefined;
     listen.mockImplementation(async (_eventName, callback) => {

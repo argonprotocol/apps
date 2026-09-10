@@ -1,7 +1,10 @@
-import { createBitcoinFlowContext, type IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
+import {
+  createBitcoinFlowContext,
+  readBitcoinLockState,
+  type IBitcoinFlowContext,
+} from '../contexts/bitcoinContext.ts';
 import { createVaultingFlowContext } from '../contexts/vaultingContext.ts';
 import bitcoinFundLockExact from './Bitcoin.op.fundLockExact.ts';
-import bitcoinOpenLockFundingOverlay from './Bitcoin.op.openLockFundingOverlay.ts';
 import bitcoinReadLockFundingDetails from './Bitcoin.op.readLockFundingDetails.ts';
 import bitcoinStartBitcoinLock from './Bitcoin.op.startBitcoinLock.ts';
 import bitcoinUnlockBitcoin from './Bitcoin.op.unlockBitcoin.ts';
@@ -16,23 +19,24 @@ export default new OperationalFlow<IBitcoinFlowContext, ILockUnlockState>(import
   description: 'Perform one bitcoin lock and unlock cycle using an operational vault.',
   defaultTimeoutMs: 20_000,
   createContext: createBitcoinFlowContext,
-  async inspect({ state }) {
+  async inspect({ flow, state }) {
+    const lockUuid = state.lockFundingDetails?.lockUuid;
+    const releaseState = lockUuid ? await readBitcoinLockState(flow, lockUuid) : undefined;
+    const isComplete = !!releaseState?.isReleaseComplete && !releaseState.isSelectedLockActive;
     return {
       chainState: {},
       uiState: {},
-      state: state.isCompleted ? 'complete' : 'runnable',
+      state: isComplete ? 'complete' : 'runnable',
       blockers: [],
     };
   },
-  async run({ flow, flowName, state }) {
+  async run({ flow, flowName }) {
     const vaultingContext = createVaultingFlowContext(flow, flowName);
     await flow.run(vaultingContext, vaultingOnboarding);
     await flow.run(bitcoinStartBitcoinLock);
-    await flow.run(bitcoinOpenLockFundingOverlay);
     await flow.run(bitcoinReadLockFundingDetails);
     await flow.run(bitcoinFundLockExact);
     await flow.run(bitcoinWaitUnlockReady);
     await flow.run(bitcoinUnlockBitcoin);
-    state.isCompleted = true;
   },
 });

@@ -255,6 +255,30 @@ it('loads a copied local-server configuration without activating the server', as
   expect(config.serverDetails.sshPort).toBe(55116);
 });
 
+it('refreshes the local-server port while recovering an interrupted install', async () => {
+  const dbPromise = createMockedDbPromise({
+    serverDetails: JsonExt.stringify({
+      ipAddress: '127.0.0.1',
+      sshPort: 55116,
+      sshUser: 'argon',
+      type: ServerType.LocalComputer,
+      workDir: '/app',
+    }),
+    serverAdd: JsonExt.stringify({ localComputer: {} }),
+    isServerInstalling: 'true',
+  });
+  vi.spyOn(LocalMachine, 'activate').mockResolvedValue({ sshPort: 55222 });
+  const save = vi.spyOn((await dbPromise).configTable, 'insertOrReplace');
+  const { walletKeys } = createTestWallet('//Alice');
+  instanceChecks.delete(Config.prototype.constructor);
+  const config = new Config(dbPromise, walletKeys);
+
+  await config.load();
+
+  expect(config.serverDetails.sshPort).toBe(55222);
+  expect(save).toHaveBeenCalledWith(expect.objectContaining({ serverDetails: expect.stringContaining('55222') }));
+});
+
 it.each(['loading', 'ARGON_NETWORK_NAME'])('clears fake upstream state stored with %s', async routerHost => {
   const dbPromise = createMockedDbPromise({
     bootstrapDetails: JsonExt.stringify({ type: BootstrapType.Public, routerHost }),

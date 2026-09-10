@@ -170,21 +170,6 @@ export class BitcoinLockCouponsTable extends BaseTable {
       const coupon = this.fetchById(use.couponId);
       if (!coupon?.feeCreditMicrogons) throw new RouterError('Bitcoin fee credit is not available.', 409);
 
-      // Fee coupons use the beneficiary's next on-chain nonce, so only one can remain unfinalized per member.
-      const activeUse = this.db.sql
-        .prepare(
-          `
-          SELECT 1
-          FROM BitcoinLockCouponUses
-          JOIN BitcoinLockCoupons ON BitcoinLockCoupons.id = BitcoinLockCouponUses.couponId
-          WHERE BitcoinLockCoupons.userId = $userId
-            AND BitcoinLockCouponUses.status IN ('Prepared', 'Submitted', 'InBlock')
-          LIMIT 1
-        `,
-        )
-        .get({ $userId: coupon.userId });
-      if (activeUse) throw new RouterError('This member already has a Bitcoin lock in progress.', 409);
-
       if (this.getAllocatedFeeCreditMicrogons(use.couponId) + use.feeCreditMicrogons > coupon.feeCreditMicrogons) {
         throw new RouterError('This Bitcoin fee credit does not have enough remaining.', 409);
       }
@@ -194,10 +179,10 @@ export class BitcoinLockCouponsTable extends BaseTable {
           `
           INSERT INTO BitcoinLockCouponUses (
             couponId, requestId, status, feeCreditMicrogons, requestedSatoshis,
-            ownerAccountId, ownerBitcoinPubkey, microgonsAtTargetPerBtc
+            ownerAccountId, ownerBitcoinPubkey, utxoId, microgonsAtTargetPerBtc
           ) VALUES (
             $couponId, $requestId, 'Prepared', $feeCreditMicrogons, $requestedSatoshis,
-            $ownerAccountId, $ownerBitcoinPubkey, $microgonsAtTargetPerBtc
+            $ownerAccountId, $ownerBitcoinPubkey, $utxoId, $microgonsAtTargetPerBtc
           )
           RETURNING *
         `,
@@ -372,17 +357,17 @@ export class BitcoinLockCouponsTable extends BaseTable {
         `
         INSERT INTO BitcoinLockCouponUses (
           couponId, requestId, status, feeCreditMicrogons, requestedSatoshis,
-          ownerAccountId, ownerBitcoinPubkey, microgonsAtTargetPerBtc,
+          ownerAccountId, ownerBitcoinPubkey, utxoId, microgonsAtTargetPerBtc,
           feeCouponJson, createdAt, updatedAt
         ) VALUES (
           $couponId, $requestId, $status, $feeCreditMicrogons, $requestedSatoshis,
-          $ownerAccountId, $ownerBitcoinPubkey, $microgonsAtTargetPerBtc,
+          $ownerAccountId, $ownerBitcoinPubkey, $utxoId, $microgonsAtTargetPerBtc,
           $feeCouponJson, $createdAt, $updatedAt
         )
         RETURNING *
       `,
       )
-      .get(toSqliteParams({ ...fields, couponId, feeCouponJson: feeCoupon })) as SqlRow;
+      .get(toSqliteParams({ ...fields, couponId, utxoId: fields.utxoId, feeCouponJson: feeCoupon })) as SqlRow;
     return this.mapUse(record);
   }
 

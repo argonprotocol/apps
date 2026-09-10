@@ -1,4 +1,5 @@
 import PluginSql, { QueryResult } from '@tauri-apps/plugin-sql';
+import { invoke } from '@tauri-apps/api/core';
 import { CohortFramesTable } from './db/CohortFramesTable';
 import { CohortsTable } from './db/CohortsTable';
 import { ConfigTable } from './db/ConfigTable';
@@ -24,6 +25,8 @@ import { WalletsTable } from './db/WalletsTable.ts';
 import { BondLotHistoryTable } from './db/BondLotHistoryTable.ts';
 import { VaultCapitalHistoryTable } from './db/VaultCapitalHistoryTable.ts';
 import { FinancialCacheTable } from './db/FinancialCacheTable.ts';
+import { BitcoinFissionsTable } from './db/BitcoinFissionsTable.ts';
+import { BitcoinSecuritizationHistoryTable } from './db/BitcoinSecuritizationHistoryTable.ts';
 
 export class Db {
   public sql: PluginSql;
@@ -50,12 +53,22 @@ export class Db {
   public bondLotHistoryTable: BondLotHistoryTable;
   public vaultCapitalHistoryTable: VaultCapitalHistoryTable;
   public financialCacheTable: FinancialCacheTable;
+  public bitcoinFissionsTable: BitcoinFissionsTable;
+  public bitcoinSecuritizationHistoryTable: BitcoinSecuritizationHistoryTable;
+  private readonly transactionId?: number;
+  private readonly tableStates: Map<object, unknown>;
 
-  constructor(sql: PluginSql, hasMigrationError: boolean) {
-    ensureOnlyOneInstance(this.constructor);
+  constructor(
+    sql: PluginSql,
+    hasMigrationError: boolean,
+    transaction?: { id: number; tableStates: Map<object, unknown> },
+  ) {
+    if (!transaction) ensureOnlyOneInstance(this.constructor);
 
     this.sql = sql;
     this.hasMigrationError = hasMigrationError;
+    this.transactionId = transaction?.id;
+    this.tableStates = transaction?.tableStates ?? new Map();
     this.syncStateTable = new SyncStateTable(this);
     this.cohortFramesTable = new CohortFramesTable(this);
     this.cohortsTable = new CohortsTable(this);
@@ -78,6 +91,13 @@ export class Db {
     this.bondLotHistoryTable = new BondLotHistoryTable(this);
     this.vaultCapitalHistoryTable = new VaultCapitalHistoryTable(this);
     this.financialCacheTable = new FinancialCacheTable(this);
+    this.bitcoinFissionsTable = new BitcoinFissionsTable(this);
+    this.bitcoinSecuritizationHistoryTable = new BitcoinSecuritizationHistoryTable(this);
+  }
+
+  public getTableState<State>(table: object, initialize: () => State): State {
+    if (!this.tableStates.has(table)) this.tableStates.set(table, initialize());
+    return this.tableStates.get(table) as State;
   }
 
   public static async load(retries: number = 0): Promise<Db> {
@@ -105,6 +125,13 @@ export class Db {
       return { rowsAffected: 0 };
     }
     try {
+      if (this.transactionId !== undefined) {
+        return await invoke<QueryResult>('sql_execute', {
+          transactionId: this.transactionId,
+          query,
+          values: bindValues ?? [],
+        });
+      }
       return await this.sql.execute(query, bindValues);
     } catch (error) {
       console.error('Error executing query:', { query, error });
@@ -114,11 +141,44 @@ export class Db {
 
   public async select<T>(query: string, bindValues?: unknown[]): Promise<T> {
     try {
-      return await this.sql.select<T>(query, bindValues);
+      if (this.transactionId !== undefined) {
+        const rows = await invoke<T>('sql_select', {
+          transactionId: this.transactionId,
+          query,
+          values: bindValues ?? [],
+        });
+        return normalizeSqlRows(rows);
+      }
+      const rows = await this.sql.select<T>(query, bindValues);
+      return normalizeSqlRows(rows);
     } catch (error) {
       console.error('Error selecting query:', { query, error });
       throw error;
     }
+  }
+
+  // Transaction tables share their root table's state. Keep cache and revision mutations outside
+  // the callback so a database rollback cannot leave in-memory state published.
+  public async transaction<T>(callback: (transaction: Db) => Promise<T>): Promise<T> {
+    if (this.transactionId !== undefined) throw new Error('Nested SQL transactions are not supported');
+    if (this.writesPaused) throw new Error('Cannot start a SQL transaction while database writes are paused');
+
+    const transactionId = await invoke<number>('sql_begin_transaction', { db: this.sql.path });
+    const transaction = new Db(this.sql, this.hasMigrationError, { id: transactionId, tableStates: this.tableStates });
+    let result: T;
+    try {
+      result = await callback(transaction);
+    } catch (error) {
+      try {
+        await invoke('sql_rollback_transaction', { transactionId });
+      } catch (rollbackError) {
+        console.warn(`Unable to roll back SQL transaction ${transactionId}`, rollbackError);
+      }
+      throw error;
+    }
+
+    await invoke('sql_commit_transaction', { transactionId });
+    return result;
   }
 
   public async close() {
@@ -146,4 +206,16 @@ export class Db {
   public static get relativePath() {
     return `${this.relativeDir}/database.sqlite`;
   }
+}
+
+function normalizeSqlRows<T>(rows: T): T {
+  if (!Array.isArray(rows)) return rows;
+
+  for (const row of rows) {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+    for (const [field, value] of Object.entries(row)) {
+      if (value === null) delete (row as Record<string, unknown>)[field];
+    }
+  }
+  return rows;
 }

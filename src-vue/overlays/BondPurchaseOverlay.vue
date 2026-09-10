@@ -27,12 +27,23 @@
       distributionSource="Vault revenue"
       @close="closeOverlay"
     />
-    <div v-else-if="!vaultId" class="px-6 pt-2 pb-7">
-      <SelectAVault unitType="ArgonBond" @select="handleVaultSelected" />
-      <div class="flex flex-row justify-end gap-3 pt-3 px-3 mt-4 mb-3 border-t border-slate-300">
+    <div v-else-if="isSelectingVault || !vaultId" class="flex flex-col px-10 py-5">
+      <p class="pt-3 leading-relaxed font-light">
+        Argon Bonds help secure the network’s stabilization vaults. Each Bond earns a share of vault revenue while
+        your principal is protected by onchain rules.
+        <a :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/argon-bonds`" target="_blank">Learn more.</a>
+      </p>
+      <div class="mt-5 border-b border-slate-200" />
+      <p class="mt-5 text-sm font-medium text-slate-600">Select the vault to use for this Bond purchase.</p>
+      <SelectAVault
+        unitType="ArgonBond"
+        :selectedVaultIds="vaultId === undefined ? [] : [vaultId]"
+        @select="handleVaultSelected"
+      />
+      <div class="mt-4 flex flex-row justify-end gap-3 border-t border-slate-200 pt-4">
         <button
           type="button"
-          class="rounded border border-slate-300 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+          class="cursor-pointer rounded-md border border-slate-300 px-10 py-2 text-slate-600 hover:bg-slate-50"
           @click="closeOverlay"
         >
           Cancel
@@ -40,7 +51,7 @@
         <button
           type="button"
           :disabled="!tmpVaultId"
-          class="bg-argon-button hover:bg-argon-button-hover rounded px-5 py-2 text-sm font-semibold text-white disabled:opacity-40"
+          class="bg-argon-button enabled:hover:bg-argon-button-hover cursor-pointer rounded-md px-10 py-2 font-semibold text-white disabled:cursor-default disabled:opacity-40"
           @click="selectVault"
         >
           Select Vault
@@ -249,7 +260,13 @@ import { InformationCircleIcon } from '@heroicons/vue/24/outline';
 import OverlayBase from './OverlayBase.vue';
 import SelectAVault from '../components/SelectAVault.vue';
 
-import { bigNumberToBigInt, MICROGONS_PER_ARGON, NetworkConfig, TreasuryBonds, Vault } from '@argonprotocol/apps-core';
+import {
+  bigNumberToBigInt,
+  type Vault,
+  MICROGONS_PER_ARGON,
+  NetworkConfig,
+  TreasuryBonds,
+} from '@argonprotocol/apps-core';
 import { getConfig } from '../stores/config.ts';
 import { getMyVault } from '../stores/vaults.ts';
 import { getVaults } from '../stores/vaults.ts';
@@ -296,6 +313,7 @@ const { microgonToArgonNm, microgonToMoneyNm } = createNumeralHelpers(currency);
 const isOpen = Vue.ref(false);
 const isLoading = Vue.ref(false);
 const loadError = Vue.ref('');
+const isSelectingVault = Vue.ref(false);
 const tmpVaultId = Vue.ref<number>();
 const selectedVaultId = Vue.ref<number>();
 const vault = Vue.ref<Vault>();
@@ -373,14 +391,18 @@ function openWallet() {
   basicEmitter.emit('openWalletOverlay', { wallet: wallets.argonWallets.defaultArgonWallet });
 }
 
-const operatorName = Vue.computed(() => (myVault.createdVault ? 'Yours' : config.upstreamOperator?.name));
+function showVaultSelection() {
+  tmpVaultId.value = vaultId.value;
+  isSelectingVault.value = true;
+}
 
 const stepItems = Vue.computed<IStepHeaderItem[]>(() => [
   {
-    label: 'Select Vault',
-    value: operatorName.value,
+    label: isSelectingVault.value || !vaultId.value ? 'Choose Vault' : 'Vault',
+    value: vaultOperatorName.value,
     tooltip: 'Pick the vault you want to use for your bond purchase.',
-    isActive: () => !vaultId.value && !txInfo.value && !isComplete.value,
+    isActive: () => (isSelectingVault.value || !vaultId.value) && !txInfo.value && !isComplete.value,
+    click: vaultId.value && !txInfo.value && !isComplete.value ? showVaultSelection : undefined,
   },
   {
     label: '',
@@ -391,7 +413,7 @@ const stepItems = Vue.computed<IStepHeaderItem[]>(() => [
     label: 'Choose Amount',
     value: completedPurchaseAmount.value > 0 ? numeral(completedPurchaseAmount.value).format('0,0') : undefined,
     tooltip: 'Choose how many Argon Bonds you want to purchase.',
-    isActive: () => !!vaultId.value && !txInfo.value && !isComplete.value,
+    isActive: () => !isSelectingVault.value && !!vaultId.value && !txInfo.value && !isComplete.value,
   },
   {
     label: '',
@@ -429,6 +451,7 @@ function cleanupPurchase() {
 }
 
 function resetPurchase() {
+  isSelectingVault.value = false;
   vault.value = undefined;
   purchaseAmount.value = 0;
   completedPurchaseAmount.value = 0;
@@ -594,6 +617,7 @@ function handleVaultSelected(v: Vault) {
 
 async function selectVault() {
   selectedVaultId.value = tmpVaultId.value;
+  isSelectingVault.value = false;
   await initializePurchase();
 }
 

@@ -212,7 +212,7 @@ import {
   MICRONOTS_PER_ARGONOT,
   NetworkConfig,
   TreasuryBonds,
-  Vault,
+  type Vault,
 } from '@argonprotocol/apps-core';
 import { getWalletKeys, useWallets } from '../stores/wallets.ts';
 import { getArgonBonds } from '../stores/argonBonds.ts';
