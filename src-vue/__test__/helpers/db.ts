@@ -56,15 +56,25 @@ export async function createTestDbAtMigration(throughVersion = Number.POSITIVE_I
 }
 
 class TestDb extends Db {
+  private transactionQueue: Promise<void> = Promise.resolve();
+
   public override async transaction<T>(callback: (transaction: Db) => Promise<T>): Promise<T> {
-    await this.sql.execute('BEGIN IMMEDIATE');
+    const previousTransaction = this.transactionQueue.catch(() => undefined);
+    let finishTransaction!: () => void;
+    const currentTransaction = new Promise<void>(resolve => (finishTransaction = resolve));
+    this.transactionQueue = previousTransaction.then(() => currentTransaction);
+
+    await previousTransaction;
     try {
+      await this.sql.execute('BEGIN IMMEDIATE');
       const result = await callback(this);
       await this.sql.execute('COMMIT');
       return result;
     } catch (error) {
       await this.sql.execute('ROLLBACK');
       throw error;
+    } finally {
+      finishTransaction();
     }
   }
 }
