@@ -983,7 +983,7 @@ export class TransactionTracker {
       if (findTransactionResult) {
         const table = await this.getTable();
         const {
-          blockNumber: canonicalBlockNumber,
+          blockNumber: includedBlockNumber,
           blockHash,
           blockTime,
           fee,
@@ -994,7 +994,7 @@ export class TransactionTracker {
         } = findTransactionResult;
 
         await table.recordInBlock(record, {
-          blockNumber: canonicalBlockNumber,
+          blockNumber: includedBlockNumber,
           blockHash,
           blockTime: new Date(blockTime),
           feePlusTip: fee,
@@ -1005,15 +1005,18 @@ export class TransactionTracker {
         });
 
         if (isFinalized) {
-          const finalizedBlockNumber = Math.max(this.blockWatch.finalizedBlockHeader.blockNumber, canonicalBlockNumber);
-          const finalizedBlockTime =
-            finalizedBlockNumber === canonicalBlockNumber
+          const finalizedHeadBlockNumber = Math.max(
+            this.blockWatch.finalizedBlockHeader.blockNumber,
+            includedBlockNumber,
+          );
+          const finalizedHeadBlockTime =
+            finalizedHeadBlockNumber === includedBlockNumber
               ? new Date(blockTime)
               : new Date(this.blockWatch.finalizedBlockHeader.blockTime);
 
           await table.markFinalized(record, {
-            blockNumber: finalizedBlockNumber,
-            blockTime: finalizedBlockTime,
+            blockNumber: finalizedHeadBlockNumber,
+            blockTime: finalizedHeadBlockTime,
           });
         }
       }

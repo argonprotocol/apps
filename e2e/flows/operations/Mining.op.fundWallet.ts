@@ -1,6 +1,5 @@
-import { isAddress, MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
+import { MICROGONS_PER_ARGON } from '@argonprotocol/mainchain';
 import { sudoFundWallet, type ISudoFundWalletInput } from '../helpers/sudoFundWallet.ts';
-import { readClipboardWithRetries } from '../helpers/readClipboardWithRetries.ts';
 import { parseDecimalToUnits, pollEvery } from '../helpers/utils.ts';
 import { Operation } from './index.ts';
 import type { IMiningFlowContext } from '../contexts/miningContext.ts';
@@ -88,19 +87,7 @@ export default new Operation<IMiningFlowContext, IFundWalletState>(import.meta, 
     const micronotsNeededRaw = await flow
       .getAttribute('WalletOverlay.micronotsNeeded', 'data-value', { timeoutMs: 1_000 })
       .catch(() => null);
-    const walletAddress = await readClipboardWithRetries(
-      flow,
-      async () => {
-        const copyAction = await flow.isVisible('defaultArgonWalletAddress.copyContent()');
-        if (!copyAction.clickable) {
-          await flow.click('defaultArgonWalletAddress.openMenu()', { timeoutMs: 5_000 });
-          await flow.waitFor('defaultArgonWalletAddress.copyContent()', { timeoutMs: 5_000 });
-        }
-        await flow.click('defaultArgonWalletAddress.copyContent()', { timeoutMs: 5_000 });
-      },
-      value => isAddress(value),
-      { label: 'default Argon wallet address' },
-    );
+    const walletAddress = await flow.queryApp(refs => refs.defaultArgonAddress, { timeoutMs: 10_000 });
 
     if (!walletAddress) {
       throw new Error(`${flowName}: missing default Argon wallet address.`);

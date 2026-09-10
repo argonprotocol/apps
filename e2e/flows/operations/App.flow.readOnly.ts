@@ -6,7 +6,7 @@ interface IReadOnlyFlowContext {
 }
 
 type IReadOnlyFlowState = IE2EOperationInspectState<
-  Record<string, never>,
+  { archivedBitcoinLiquidId?: number },
   {
     canSign: boolean;
     defaultArgonAddress?: string;
@@ -22,7 +22,7 @@ type IReadOnlyFlowState = IE2EOperationInspectState<
     upstreamName?: string;
     upstreamVisible: boolean;
     vaultId?: number;
-    bitcoinLockEntryVisible: boolean;
+    archivedBitcoinLiquidVisible: boolean;
   }
 >;
 
@@ -31,28 +31,44 @@ export default new OperationalFlow<IReadOnlyFlowContext, IReadOnlyFlowState>(imp
   defaultTimeoutMs: 60_000,
   createContext: flow => ({ flow }),
   async inspect({ flow }) {
-    const appState = await flow.queryApp(refs => ({
-      canSign: refs.canSign,
-      defaultArgonAddress: refs.defaultArgonAddress,
-      defaultEthereumAddress: refs.defaultEthereumAddress,
-      hasOperationsAccess: refs.config.hasExtensionOperations,
-      configuredServerLoaded: refs.config.isServerAdded,
-      recoveryInProgress: refs.config.isBootingUpPreviousWalletHistory,
-      upstreamName: refs.config.upstreamOperator?.name,
-      vaultId: refs.myVault.vaultId,
-    }));
+    const expectsBitcoinLiquid = flow.input.expectsBitcoinLiquid === true;
+    const appState = await flow.queryApp(
+      (refs, args: { expectsBitcoinLiquid: boolean }) => ({
+        canSign: refs.canSign,
+        defaultArgonAddress: refs.defaultArgonAddress,
+        defaultEthereumAddress: refs.defaultEthereumAddress,
+        hasOperationsAccess: refs.config.hasExtensionOperations,
+        configuredServerLoaded: refs.config.isServerAdded,
+        recoveryInProgress: refs.config.isBootingUpPreviousWalletHistory,
+        upstreamName: refs.config.upstreamOperator?.name,
+        vaultId: refs.myVault.vaultId,
+        archivedBitcoinLiquidId: args.expectsBitcoinLiquid
+          ? refs
+              .getBitcoinFissions()
+              .getLiquids()
+              .find(liquid => liquid.isClosed)?.liquidId
+          : undefined,
+      }),
+      { args: { expectsBitcoinLiquid } },
+    );
     const badgeVisible = (await flow.isVisible({ selector: '[data-read-only]' })).visible;
     const serverUnavailableVisible = (await flow.isVisible({ selector: '[data-server-unavailable]' })).visible;
     const upstreamVisible = (await flow.isVisible({ selector: '[data-upstream-operator]' })).visible;
-    const bitcoinLockEntryVisible = (await flow.isVisible({ selector: '[data-testid^="BitcoinLocks.lockEntry."]' }))
-      .visible;
+    const archivedBitcoinLiquidVisible =
+      expectsBitcoinLiquid && appState?.archivedBitcoinLiquidId !== undefined
+        ? (
+            await flow.isVisible({
+              testId: `BitcoinLiquid.archived-${appState.archivedBitcoinLiquidId}`,
+            })
+          ).visible
+        : !expectsBitcoinLiquid;
     const expectedDefaultArgonAddress = String(flow.input.expectedDefaultArgonAddress ?? '');
     const expectedEthereumAddress = String(flow.input.expectedEthereumAddress ?? '');
     const expectsConfiguredServer = flow.input.expectsConfiguredServer !== false;
     const expectsUpstream = flow.input.expectsUpstream !== false;
     const expectsVault = flow.input.expectsVault !== false;
     const expectsOperations = flow.input.expectsOperations !== false;
-    const expectsBitcoinLock = flow.input.expectsBitcoinLock === true;
+    const hasRecoveredBitcoinLiquid = !expectsBitcoinLiquid || appState?.archivedBitcoinLiquidId !== undefined;
     const hasExpectedIdentity = expectedDefaultArgonAddress
       ? appState?.defaultArgonAddress === expectedDefaultArgonAddress
       : !!expectedEthereumAddress &&
@@ -72,10 +88,11 @@ export default new OperationalFlow<IReadOnlyFlowContext, IReadOnlyFlowState>(imp
       hasExpectedServerState &&
       hasExpectedUpstreamState &&
       (!expectsVault || appState?.vaultId != null) &&
-      (!expectsBitcoinLock || bitcoinLockEntryVisible);
+      hasRecoveredBitcoinLiquid &&
+      archivedBitcoinLiquidVisible;
 
     return {
-      chainState: {},
+      chainState: { archivedBitcoinLiquidId: appState?.archivedBitcoinLiquidId },
       uiState: {
         canSign: appState?.canSign ?? true,
         defaultArgonAddress: appState?.defaultArgonAddress,
@@ -90,7 +107,7 @@ export default new OperationalFlow<IReadOnlyFlowContext, IReadOnlyFlowState>(imp
         upstreamName: appState?.upstreamName,
         upstreamVisible,
         vaultId: appState?.vaultId,
-        bitcoinLockEntryVisible,
+        archivedBitcoinLiquidVisible,
       },
       state: isComplete ? 'complete' : 'runnable',
       blockers: [
@@ -104,21 +121,22 @@ export default new OperationalFlow<IReadOnlyFlowContext, IReadOnlyFlowState>(imp
         ...(hasExpectedServerState ? [] : ['configured server state does not match the account package']),
         ...(hasExpectedUpstreamState ? [] : ['upstream operator state does not match the account package']),
         ...(!expectsVault || appState?.vaultId != null ? [] : ['on-chain vault state was not loaded']),
-        ...(!expectsBitcoinLock || bitcoinLockEntryVisible ? [] : ['Bitcoin lock is not visible']),
+        ...(hasRecoveredBitcoinLiquid ? [] : ['archived Bitcoin Liquid was not recovered']),
+        ...(archivedBitcoinLiquidVisible ? [] : ['archived Bitcoin Liquid row is not visible']),
       ],
     };
   },
   async run({ flow }) {
-    if (flow.input.expectsBitcoinLock === true) {
+    if (flow.input.expectsBitcoinLiquid === true) {
       await flow.poll<IReadOnlyFlowState>(latest => !latest.uiState.recoveryInProgress, {
         pollMs: 1_000,
         timeoutMs: 60_000,
         timeoutMessage: 'Account did not finish loading its readonly state before Bitcoin navigation.',
       });
-      const bitcoinLocksScreen = await flow.isVisible('BitcoinLocksScreen');
-      if (!bitcoinLocksScreen.visible) {
+      const bitcoinScreen = await flow.isVisible('BitcoinScreen');
+      if (!bitcoinScreen.visible) {
         await flow.click('LeftBar.goto(TopTab.BitcoinLocks)', { timeoutMs: 10_000 });
-        await flow.waitFor('BitcoinLocksScreen', { timeoutMs: 10_000 });
+        await flow.waitFor('BitcoinScreen', { timeoutMs: 10_000 });
       }
     }
     await flow.poll<IReadOnlyFlowState>(latest => latest.state === 'complete', {

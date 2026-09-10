@@ -1,7 +1,12 @@
-import { createBitcoinFlowContext, type IBitcoinFlowContext } from '../contexts/bitcoinContext.ts';
+import {
+  createBitcoinFlowContext,
+  readBitcoinOrphanReturnState,
+  type IBitcoinFlowContext,
+} from '../contexts/bitcoinContext.ts';
 import { createVaultingFlowContext } from '../contexts/vaultingContext.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
-import bitcoinClaimOrphan, { readBitcoinOrphanReturnState } from './Bitcoin.op.claimOrphan.ts';
+import bitcoinClaimOrphan from './Bitcoin.op.claimOrphan.ts';
+import bitcoinFundAdditionalUtxo from './Bitcoin.op.fundAdditionalUtxo.ts';
 import bitcoinFundLockExact from './Bitcoin.op.fundLockExact.ts';
 import bitcoinReadLockFundingDetails from './Bitcoin.op.readLockFundingDetails.ts';
 import bitcoinStartBitcoinLock from './Bitcoin.op.startBitcoinLock.ts';
@@ -16,7 +21,7 @@ type IOrphanClaimState = IE2EOperationInspectState<
 >;
 
 export default new OperationalFlow<IBitcoinFlowContext, IOrphanClaimState>(import.meta, {
-  description: 'Claim a late Bitcoin deposit sent to a completed lock receive address.',
+  description: 'Claim an additional Bitcoin deposit retained after its original lock completes.',
   defaultTimeoutMs: 20_000,
   createContext: createBitcoinFlowContext,
   async inspect({ flow, state }) {
@@ -35,6 +40,7 @@ export default new OperationalFlow<IBitcoinFlowContext, IOrphanClaimState>(impor
     await flow.run(bitcoinReadLockFundingDetails);
     await flow.run(bitcoinFundLockExact);
     await flow.run(bitcoinWaitUnlockReady);
+    await flow.run(bitcoinFundAdditionalUtxo);
     await flow.run(bitcoinUnlockBitcoin);
     await flow.run(bitcoinClaimOrphan);
   },

@@ -45,16 +45,17 @@ export interface ITransactionMoveMetadata {
   externalAddress?: string;
   assetsToMove: IAssetsToMove;
   allocationChange?: IAllocationChange;
-  workflow?: 'miningSetup';
+  workflow?: 'miningSetup' | 'legacyMiningHoldCleanup';
 }
 
 export interface BalanceTransferInput {
-  moveFrom: MoveFrom.DefaultArgon | MoveFrom.MiningBot;
+  moveFrom: MoveFrom.DefaultArgon | MoveFrom.MiningBot | 'MiningHold';
   moveTo: MoveTo.DefaultArgon | MoveTo.MiningBot | MoveTo.External;
   assetsToMove: IAssetsToMove;
   externalAddress?: string;
   allocationChange?: IAllocationChange;
-  workflow?: 'miningSetup';
+  workflow?: 'miningSetup' | 'legacyMiningHoldCleanup';
+  txSigner?: TxSigningAccount;
   client?: ArgonClient;
 }
 
@@ -92,7 +93,7 @@ export class BalanceTransfer extends TransactionOperation<
     if (!txs.length) return 0n;
 
     const tx = txs.length === 1 ? txs[0] : client.tx.utility.batchAll(txs);
-    const signer = await this.getSigner(input.moveFrom);
+    const signer = input.txSigner ?? (await this.getSigner(input.moveFrom));
     return await tx.paymentInfo(signer.address).then(fee => fee.partialFee.toBigInt());
   }
 
@@ -103,7 +104,7 @@ export class BalanceTransfer extends TransactionOperation<
     return {
       client,
       txs: this.createTransactions(client, destinationAddress, input.assetsToMove),
-      txSigner: await this.getSigner(input.moveFrom),
+      txSigner: input.txSigner ?? (await this.getSigner(input.moveFrom)),
       unavailableBalance: input.assetsToMove[MoveToken.ARGN] ?? 0n,
       metadata: {
         moveFrom: input.moveFrom,
@@ -179,9 +180,9 @@ export class BalanceTransfer extends TransactionOperation<
     return address;
   }
 
-  private async getSigner(moveFrom: MoveFrom.DefaultArgon | MoveFrom.MiningBot): Promise<TxSigningAccount> {
-    return moveFrom === MoveFrom.MiningBot
-      ? await this.walletKeys.getMiningBotKeypair()
-      : await this.walletKeys.getDefaultArgonKeypair();
+  private async getSigner(moveFrom: BalanceTransferInput['moveFrom']): Promise<TxSigningAccount> {
+    if (moveFrom === MoveFrom.MiningBot) return await this.walletKeys.getMiningBotKeypair();
+    if (moveFrom === MoveFrom.DefaultArgon) return await this.walletKeys.getDefaultArgonKeypair();
+    throw new Error(`A signer is required for ${moveFrom} transfers.`);
   }
 }

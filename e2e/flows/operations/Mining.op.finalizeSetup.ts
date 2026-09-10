@@ -48,7 +48,7 @@ export default new Operation<IMiningFlowContext, IFinalizeSetupState>(import.met
 
     if (!dashboard.visible) {
       let operationState: 'complete' | 'runnable' | 'processing' = 'processing';
-      if (launchBot.clickable) {
+      if (launchBot.clickable || installingVisible || startingBot.visible || firstAuction.visible) {
         operationState = 'runnable';
       }
 

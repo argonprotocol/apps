@@ -51,7 +51,7 @@ export class MiningSetup {
     private readonly proxySetup: MiningBidProxySetup,
   ) {
     this.fundingTransfer = new BalanceTransfer(walletKeys, transactionTracker, {
-      ownsTransfer: txInfo => txInfo.tx.metadataJson?.workflow === 'miningSetup',
+      ownsTransfer: txInfo => this.isFundingTransfer(txInfo),
       onFinalized: txInfo => this.completeFunding(txInfo),
     });
   }
@@ -238,11 +238,9 @@ export class MiningSetup {
 
   private async findIncompleteFundingTransaction(): Promise<TransactionInfo<ITransactionMoveMetadata> | undefined> {
     const fundingTransactions = this.transactionTracker.data.txInfos.filter(txInfo => {
-      const metadata = txInfo.tx.metadataJson as ITransactionMoveMetadata | undefined;
       return (
         txInfo.tx.extrinsicType === ExtrinsicType.Transfer &&
-        metadata?.workflow === 'miningSetup' &&
-        !getTransactionFailureMessage(txInfo)
+        this.isFundingTransfer(txInfo as TransactionInfo<ITransactionMoveMetadata>)
       );
     }) as TransactionInfo<ITransactionMoveMetadata>[];
     const latest = fundingTransactions.reduce<TransactionInfo<ITransactionMoveMetadata> | undefined>(
@@ -271,5 +269,18 @@ export class MiningSetup {
 
     const state = await this.transactionTracker.getTxAttemptState(latest, 2);
     if (state === TxAttemptState.Pending || latest.tx.isFinalized) return latest;
+  }
+
+  private isFundingTransfer(txInfo: TransactionInfo<ITransactionMoveMetadata>): boolean {
+    const metadata = txInfo.tx.metadataJson;
+    return Boolean(
+      metadata &&
+        !getTransactionFailureMessage(txInfo) &&
+        (metadata.workflow === 'miningSetup' ||
+          (!metadata.workflow &&
+            !metadata.allocationChange &&
+            metadata.moveFrom === MoveFrom.DefaultArgon &&
+            metadata.moveTo === MoveTo.MiningBot)),
+    );
   }
 }

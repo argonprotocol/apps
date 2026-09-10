@@ -70,7 +70,15 @@ export class MoveCapital {
     private readonly transactionTracker: TransactionTracker,
   ) {
     this.balanceTransfers = new BalanceTransfer(walletKeys, transactionTracker, {
-      ownsTransfer: txInfo => !txInfo.tx.metadataJson?.workflow,
+      ownsTransfer: txInfo => {
+        const metadata = txInfo.tx.metadataJson;
+        return (
+          Boolean(metadata?.allocationChange) ||
+          (txInfo.tx.accountAddress === walletKeys.defaultArgonAddress &&
+            metadata?.moveFrom === MoveFrom.DefaultArgon &&
+            metadata.moveTo === MoveTo.External)
+        );
+      },
       onFinalized: async txInfo => {
         const allocationChange = txInfo.tx.metadataJson.allocationChange;
         if (allocationChange) await this.continueAllocationChange(txInfo, allocationChange);

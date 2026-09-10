@@ -883,8 +883,10 @@ describe('BitcoinLocks historical event replay', () => {
       historyEvent(151, 'mint', 'BitcoinMint', { accountId, utxoId: 7, amount: 400n }),
     ]);
 
-    expect(getByUtxoId).toHaveBeenCalledOnce();
+    expect(getByUtxoId).toHaveBeenCalledWith(7);
     expect(getByUtxoId).toHaveBeenCalledWith(97);
+    expect(getByUtxoId).not.toHaveBeenCalledWith(98);
+    expect(getByUtxoId).not.toHaveBeenCalledWith(99);
     expect(getLock).not.toHaveBeenCalled();
     const [recovered] = await publishRecoveredHistory(db, store.recovery);
     expect(recovered.ratchets[0].mintPending).toBe(600n);

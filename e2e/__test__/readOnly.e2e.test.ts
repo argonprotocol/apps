@@ -28,7 +28,7 @@ describe.skipIf(skipE2E)('Read-only account', () => {
 
       try {
         await session.run('App.flow.claimDevUpstream');
-        await session.run('Bitcoin.flow.lockUnlock');
+        await session.run('Bitcoin.flow.liquidCreate');
         await session.checkpointDatabase();
 
         mkdirSync(readOnlyInstanceDirectory, { recursive: true });
@@ -43,7 +43,7 @@ describe.skipIf(skipE2E)('Read-only account', () => {
         await session.loadInstance(readOnlyInstanceName);
         await session.run('App.flow.readOnly', {
           expectedEthereumAddress: wallet.meta.ethereumAddress,
-          expectsBitcoinLock: true,
+          expectsBitcoinLiquid: true,
         });
 
         const sourceWallet = JSON.parse(
@@ -92,7 +92,7 @@ describe.skipIf(skipE2E)('Read-only account', () => {
           expectedDefaultArgonAddress: sourceWallet.meta.vaultingAddress,
           expectsConfiguredServer: false,
           expectsUpstream: false,
-          expectsBitcoinLock: true,
+          expectsBitcoinLiquid: true,
         });
       } finally {
         await session.close();

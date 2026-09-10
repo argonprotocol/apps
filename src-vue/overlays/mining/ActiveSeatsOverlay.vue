@@ -8,6 +8,15 @@
     @pressEsc="emit('close')"
   >
     <div class="px-8 py-6 text-slate-700">
+      <div
+        v-if="loadError"
+        class="mb-4 flex items-center justify-between gap-4 rounded-md bg-red-50 px-4 py-3 text-red-800"
+      >
+        <span>{{ seats.length ? 'Unable to refresh active seats. Showing the last loaded results.' : loadError }}</span>
+        <button type="button" class="shrink-0 font-semibold underline underline-offset-2" @click="refreshSeats">
+          Try Again
+        </button>
+      </div>
       <TooltipProvider :delayDuration="300" :skipDelayDuration="0">
         <table class="w-full" aria-label="Your active mining seats">
           <thead class="sticky top-0 bg-white">
@@ -20,7 +29,10 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-if="seats.length === 0">
+            <tr v-if="isLoading && seats.length === 0">
+              <td colspan="5" class="py-4 text-slate-500">Loading active mining seats…</td>
+            </tr>
+            <tr v-else-if="!loadError && seats.length === 0">
               <td colspan="5" class="py-4 text-slate-500">You do not have any active mining seats.</td>
             </tr>
             <TooltipRoot v-for="row in seats" v-else :key="row.seat.id">
@@ -134,10 +146,14 @@ const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency
 const ourBidAddresses = new Set<string>();
 const floatingZIndex = useTopOverlayFloatingZIndex();
 const seats = Vue.ref<IActiveMiningSeatRow[]>([]);
+const isLoading = Vue.ref(false);
+const loadError = Vue.ref<string>();
 let refreshRequestId = 0;
 
 async function refreshSeats() {
   const requestId = ++refreshRequestId;
+  isLoading.value = true;
+  loadError.value = undefined;
   try {
     await myMiningSeats.isLoadedPromise;
     const slots = await mining.fetchCurrentMiningSeats(wallets.miningBotWallet.address);
@@ -181,6 +197,9 @@ async function refreshSeats() {
     if (requestId === refreshRequestId) seats.value = refreshedSeats;
   } catch (error) {
     console.error('[Active Seats Overlay] Unable to load active seats', error);
+    if (requestId === refreshRequestId) loadError.value = 'Active seats are temporarily unavailable.';
+  } finally {
+    if (requestId === refreshRequestId) isLoading.value = false;
   }
 }
 

@@ -3,16 +3,22 @@ import { defineStore } from 'pinia';
 import { ask as askDialog } from '@tauri-apps/plugin-dialog';
 import handleFatalError from './helpers/handleFatalError.ts';
 import { getConfig } from './config.ts';
-import { createDeferred, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { createDeferred, MoveTo, MoveToken, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { getMyMiningSeats } from './myMiningSeats.ts';
 import { getCurrency } from './currency.ts';
 import { WalletKeys } from '../lib/WalletKeys.ts';
 import { CAN_SIGN, SECURITY } from '../lib/Env.ts';
-import { getSpendableDefaultArgonMicrogons, IArgonWalletType, WalletForArgon } from '../lib/WalletForArgon.ts';
+import {
+  existentialDepositMicrogons,
+  getSpendableDefaultArgonMicrogons,
+  getSpendableMicrogons,
+  IArgonWalletType,
+  WalletForArgon,
+} from '../lib/WalletForArgon.ts';
 import { IWallet, WalletType } from '../lib/Wallet.ts';
-import { WalletsForArgon, IWalletEvents } from '../lib/WalletsForArgon.ts';
+import { WalletsForArgon, IWalletEvents, readArgonWalletBalanceValues } from '../lib/WalletsForArgon.ts';
 import { getDbPromise } from './helpers/dbPromise.ts';
-import { getBlockWatch, getMainchainClient } from './mainchain.ts';
+import { getBlockWatch, getFinalizedClient, getMainchainClient } from './mainchain.ts';
 import { loadEthereumChainConfig } from '../lib/EthereumClient.ts';
 import { WalletsForEthereum } from '../lib/WalletsForEthereum.ts';
 import { WalletForBase } from '../lib/WalletForBase.ts';
@@ -22,9 +28,13 @@ import { invokeWithTimeout } from '../lib/tauriApi.ts';
 import { MoveCapital } from '../lib/MoveCapital.ts';
 import { MiningSetup } from '../lib/MiningSetup.ts';
 import { MiningBidProxySetup } from '../lib/txs/MiningBidProxy.setup.ts';
+import { BalanceTransfer, type ITransactionMoveMetadata } from '../lib/txs/Balance.transfer.ts';
+import type { TransactionInfo } from '../lib/TransactionInfo.ts';
 import { getTransactionTracker } from './transactions.ts';
 import { WalletHistoryRecovery } from '../lib/recovery/WalletHistory.ts';
 import { logStartupTiming } from '../lib/Utils.ts';
+
+let legacyMiningHoldCleanupPromise: Promise<void> | undefined;
 
 // Wallet Keys //////////////////
 let walletKeys: WalletKeys;
@@ -123,7 +133,14 @@ export function getWalletHistoryRecovery() {
 
   const dbPromise = getDbPromise();
   const wallets = getWalletsForArgon();
-  const recoveryWallets = [wallets.defaultArgonWallet, wallets.miningBotWallet, wallets.operationalWallet]
+  const keys = getWalletKeys();
+  const legacyMiningHoldWallet = new WalletForArgon('miningBot', keys.legacyMiningHoldAddress, dbPromise);
+  const recoveryWallets = [
+    wallets.defaultArgonWallet,
+    wallets.miningBotWallet,
+    legacyMiningHoldWallet,
+    wallets.operationalWallet,
+  ]
     .filter(wallet => wallet.address)
     .filter((wallet, index, all) => all.findIndex(candidate => candidate.address === wallet.address) === index);
   walletHistoryRecoveryInstance = new WalletHistoryRecovery({
@@ -416,6 +433,12 @@ export const useWallets = defineStore('wallets', () => {
           blockNumber: argonWallets.finalizedBlock?.blockNumber ?? getBlockWatch().finalizedBlockHeader.blockNumber,
           onlyIfIncomplete: true,
         });
+        if (walletKeys.canSign) {
+          await ensureLegacyMiningHoldCleanup().catch(error => {
+            console.warn('Legacy mining hold cleanup failed', error);
+          });
+        }
+        const legacyCleanupReadyAt = performance.now();
         totalWalletMicrogons.value = argonWallets.totalWalletMicrogons;
         totalWalletMicronots.value = argonWallets.totalWalletMicronots;
         await currency.isLoadedPromise;
@@ -429,7 +452,8 @@ export const useWallets = defineStore('wallets', () => {
             configMs: Math.round(configReadyAt - loadStartedAt),
             walletIdentitiesMs: Math.round(walletIdentitiesReadyAt - configReadyAt),
             argonBalancesMs: Math.round(argonBalancesReadyAt - walletIdentitiesReadyAt),
-            currencyMs: Math.round(performance.now() - argonBalancesReadyAt),
+            legacyCleanupMs: Math.round(legacyCleanupReadyAt - argonBalancesReadyAt),
+            currencyMs: Math.round(performance.now() - legacyCleanupReadyAt),
           },
         });
         void loadExternalWallets().catch(error => {
@@ -512,6 +536,76 @@ export const useWallets = defineStore('wallets', () => {
     });
 
     await Promise.all([baseLoad, ethereumLoad]);
+  }
+
+  async function ensureLegacyMiningHoldCleanup(): Promise<void> {
+    if (legacyMiningHoldCleanupPromise) return await legacyMiningHoldCleanupPromise;
+
+    legacyMiningHoldCleanupPromise = (async () => {
+      const legacyAddress = walletKeys.legacyMiningHoldAddress;
+      if (!legacyAddress || legacyAddress === walletKeys.defaultArgonAddress) return;
+
+      const transactionTracker = getTransactionTracker();
+      const isLegacyCleanup = (txInfo: TransactionInfo<ITransactionMoveMetadata>) => {
+        const metadata = txInfo.tx.metadataJson;
+        return (
+          metadata?.workflow === 'legacyMiningHoldCleanup' ||
+          (txInfo.tx.accountAddress === legacyAddress &&
+            metadata?.moveTo === MoveTo.External &&
+            metadata.externalAddress === walletKeys.defaultArgonAddress)
+        );
+      };
+      const transfer = new BalanceTransfer(walletKeys, transactionTracker, {
+        ownsTransfer: isLegacyCleanup,
+      });
+      await transfer.load();
+      const pending = transfer.getPendingTransfer(isLegacyCleanup);
+      if (pending) return;
+
+      const finalizedClient = await getFinalizedClient();
+      const [balance] = await readArgonWalletBalanceValues(finalizedClient, [legacyAddress]);
+      const requestedMicrogons = getSpendableMicrogons(balance.availableMicrogons, existentialDepositMicrogons);
+      const assetsToMove = {
+        [MoveToken.ARGN]: requestedMicrogons || undefined,
+        [MoveToken.ARGNOT]: balance.availableMicronots || undefined,
+      };
+      if (!assetsToMove[MoveToken.ARGN] && !assetsToMove[MoveToken.ARGNOT]) return;
+
+      const client = await getMainchainClient(false);
+      const txSigner = await walletKeys.getLegacyMiningHoldKeypair();
+      const fee = await transfer.estimateFee({
+        moveFrom: 'MiningHold',
+        moveTo: MoveTo.DefaultArgon,
+        assetsToMove,
+        workflow: 'legacyMiningHoldCleanup',
+        txSigner,
+        client,
+      });
+      if (fee > balance.availableMicrogons) {
+        throw new Error('The retired mining wallet does not have enough ARGN to return its remaining balance.');
+      }
+
+      const microgons = requestedMicrogons > fee ? requestedMicrogons - fee : 0n;
+      if (!microgons && !assetsToMove[MoveToken.ARGNOT]) return;
+
+      await transfer.submit({
+        moveFrom: 'MiningHold',
+        moveTo: MoveTo.DefaultArgon,
+        assetsToMove: {
+          [MoveToken.ARGN]: microgons || undefined,
+          [MoveToken.ARGNOT]: assetsToMove[MoveToken.ARGNOT],
+        },
+        workflow: 'legacyMiningHoldCleanup',
+        txSigner,
+        client,
+      });
+    })();
+
+    try {
+      await legacyMiningHoldCleanupPromise;
+    } finally {
+      legacyMiningHoldCleanupPromise = undefined;
+    }
   }
 
   load().catch(error => {
