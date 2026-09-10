@@ -225,6 +225,7 @@ export class AppVaultOperator {
     }
 
     await myVault.load();
+    await bitcoinLocks.load();
     await bitcoinFissions.load();
     await Promise.all([bitcoinLockCreate.load(), bitcoinLockResecuritize.load(), bitcoinLiquidCreate.load()]);
 
