@@ -553,7 +553,7 @@ where
         let mut remote_error = String::new();
         while let Some(message) = channel_reader.wait().await {
             match message {
-                ChannelMsg::ExtendedData { data, ext } if ext == 1 => {
+                ChannelMsg::ExtendedData { data, ext: 1 } => {
                     remote_error.push_str(&String::from_utf8_lossy(&data));
                 }
                 ChannelMsg::ExitStatus {
@@ -607,6 +607,22 @@ fn shell_escape_remote_path(remote_path: &str) -> String {
     }
 
     format!("'{}'", escape(remote_path))
+}
+
+struct ClientHandler {}
+
+// Explicitly implement Send for ClientHandler
+unsafe impl Send for ClientHandler {}
+
+impl client::Handler for ClientHandler {
+    type Error = russh::Error;
+
+    async fn check_server_key(
+        &mut self,
+        _server_public_key: &ssh_key::PublicKey,
+    ) -> Result<bool, Self::Error> {
+        Ok(true)
+    }
 }
 
 #[cfg(test)]
@@ -766,21 +782,5 @@ mod tests {
             session.close(channel)?;
             Ok(())
         }
-    }
-}
-
-struct ClientHandler {}
-
-// Explicitly implement Send for ClientHandler
-unsafe impl Send for ClientHandler {}
-
-impl client::Handler for ClientHandler {
-    type Error = russh::Error;
-
-    async fn check_server_key(
-        &mut self,
-        _server_public_key: &ssh_key::PublicKey,
-    ) -> Result<bool, Self::Error> {
-        Ok(true)
     }
 }

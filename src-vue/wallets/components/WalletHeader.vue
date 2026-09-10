@@ -7,9 +7,9 @@
     <span class="flex grow flex-row items-center">
       <span
         v-if="props.showHome"
-        data-testid="WalletHeader.back()"
+        NotDraggable
         class="group hover:bg-argon-100/20 flex h-8 cursor-pointer flex-row items-center rounded-md py-1 pr-2 pl-1"
-        @click="emit('goto', 'main')"
+        @click="back"
       >
         <BackIcon class="relative -top-0.25 w-4 cursor-pointer opacity-50 group-hover:opacity-100" />
       </span>
@@ -56,4 +56,8 @@ const emit = defineEmits<{
 const wallets = useWallets();
 
 const defaultArgonWallet = computed(() => wallets.defaultArgonWallet);
+
+function back() {
+  emit('goto', 'main');
+}
 </script>
