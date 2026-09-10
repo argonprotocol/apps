@@ -10,6 +10,7 @@ use secrecy::{ExposeSecret, SecretString};
 use sp_core::ed25519;
 use std::borrow::Cow;
 use std::fmt::Display;
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
@@ -223,18 +224,26 @@ impl SSH {
         Self::run_command_on_client(&mut client, &self.config, command.to_string()).await
     }
 
-    pub async fn upload_file(&self, contents: &[u8], remote_path: &str) -> Result<()> {
+    pub async fn upload_file(
+        &self,
+        contents: &[u8],
+        remote_path: &str,
+        timeout_duration: Duration,
+    ) -> Result<()> {
         let contents = contents.to_vec();
         let remote_path = remote_path.to_string();
         let transfer_client = self.transfer_client.clone();
         let config = self.config.clone();
-        let timeout_duration = Duration::from_secs(10);
         tauri::async_runtime::spawn_blocking(move || -> Result<()> {
             tauri::async_runtime::block_on(async move {
-                let mut client = transfer_client.lock().await;
-                let client =
-                    Self::get_or_connect_client(&mut client, &config, timeout_duration).await?;
-                Self::upload_file_on_client(client, &config, &contents, &remote_path).await
+                let transfer = async {
+                    let mut client = transfer_client.lock().await;
+                    let client =
+                        Self::get_or_connect_client(&mut client, &config, Duration::from_secs(10))
+                            .await?;
+                    Self::upload_file_on_client(client, &config, &contents, &remote_path).await
+                };
+                run_transfer_with_timeout(&transfer_client, timeout_duration, transfer).await
             })
         })
         .await
@@ -248,18 +257,11 @@ impl SSH {
         remote_path: &str,
     ) -> Result<()> {
         let escaped_remote = shell_escape_remote_path(remote_path);
-        let mut channel = Self::open_channel_on_client(client, config).await?;
+        let channel = Self::open_channel_on_client(client, config).await?;
         let scp_command = format!("cat > {escaped_remote}");
         channel.exec(true, scp_command).await?;
 
-        // Write the contents of the setup script
-        channel.data(contents).await?;
-        channel.eof().await?;
-
-        // Wait for the copy to complete
-        while channel.wait().await.is_some() {}
-
-        Ok(())
+        stream_channel_upload(channel, contents, |_| Ok(())).await
     }
 
     pub async fn upload_embedded_file(
@@ -277,8 +279,8 @@ impl SSH {
         let config = self.config.clone();
         tauri::async_runtime::spawn_blocking(move || -> Result<()> {
             tauri::async_runtime::block_on(async move {
-                let mut client = transfer_client.lock().await;
-                let result = match timeout(timeout_duration, async {
+                let transfer = async {
+                    let mut client = transfer_client.lock().await;
                     let client =
                         Self::get_or_connect_client(&mut client, &config, Duration::from_secs(10))
                             .await?;
@@ -291,20 +293,8 @@ impl SSH {
                         &event_progress_key,
                     )
                     .await
-                })
-                .await
-                {
-                    Ok(result) => result,
-                    Err(_) => Err(anyhow::anyhow!(
-                        "SSH upload timed out after {timeout_duration:?}"
-                    )),
                 };
-
-                if result.is_err() {
-                    *client = None;
-                }
-
-                result
+                run_transfer_with_timeout(&transfer_client, timeout_duration, transfer).await
             })
         })
         .await
@@ -327,27 +317,14 @@ impl SSH {
         let _ =
             Self::run_command_on_client(client, config, format!("rm -f {escaped_remote}")).await;
 
-        let mut channel = Self::open_channel_on_client(client, config).await?;
+        let channel = Self::open_channel_on_client(client, config).await?;
         channel
             .exec(true, format!("cat > {escaped_remote}"))
             .await?;
-        let mut writer = channel.make_writer();
 
         let file_size = file.metadata().await?.len();
-        let mut reader = BufReader::new(file);
-        let mut buffer = [0u8; 64 * 1024];
-        let mut total = 0u64;
         let mut last_percent = -1;
-
-        loop {
-            let n = reader.read(&mut buffer).await?;
-            if n == 0 {
-                break;
-            }
-
-            writer.write_all(&buffer[..n]).await?;
-            total += n as u64;
-
+        stream_channel_upload(channel, BufReader::new(file), |total| {
             if file_size > 0 {
                 let percent = ((total.saturating_mul(100)) / file_size) as i32;
                 if percent != last_percent {
@@ -356,11 +333,9 @@ impl SSH {
                     app.emit(event_progress_key, percent)?;
                 }
             }
-        }
-
-        writer.shutdown().await?;
-        channel.eof().await?;
-        while channel.wait().await.is_some() {}
+            Ok(())
+        })
+        .await?;
 
         if last_percent < 100 {
             app.emit(event_progress_key, 100)?;
@@ -520,6 +495,99 @@ impl SSH {
     }
 }
 
+async fn run_transfer_with_timeout<T, F>(
+    transfer_client: &Mutex<Option<T>>,
+    timeout_duration: Duration,
+    transfer: F,
+) -> Result<()>
+where
+    F: Future<Output = Result<()>>,
+{
+    let result = match timeout(timeout_duration, transfer).await {
+        Ok(result) => result,
+        Err(_) => Err(anyhow::anyhow!(
+            "SSH upload timed out after {timeout_duration:?}"
+        )),
+    };
+
+    if result.is_err()
+        && let Ok(mut client) = transfer_client.try_lock()
+    {
+        *client = None;
+    }
+
+    result
+}
+
+async fn stream_channel_upload<R, P>(
+    channel: Channel<Msg>,
+    mut reader: R,
+    mut on_progress: P,
+) -> Result<()>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    P: FnMut(u64) -> Result<()>,
+{
+    let (mut channel_reader, channel_writer) = channel.split();
+    let write = async {
+        let mut writer = channel_writer.make_writer();
+        let mut buffer = [0u8; 64 * 1024];
+        let mut total = 0u64;
+
+        loop {
+            let count = reader.read(&mut buffer).await?;
+            if count == 0 {
+                break;
+            }
+
+            writer.write_all(&buffer[..count]).await?;
+            total += count as u64;
+            on_progress(total)?;
+        }
+
+        writer.shutdown().await?;
+        Ok(()) as Result<()>
+    };
+    let drain = async {
+        let mut exit_status = None;
+        let mut remote_error = String::new();
+        while let Some(message) = channel_reader.wait().await {
+            match message {
+                ChannelMsg::ExtendedData { data, ext } if ext == 1 => {
+                    remote_error.push_str(&String::from_utf8_lossy(&data));
+                }
+                ChannelMsg::ExitStatus {
+                    exit_status: status,
+                } => exit_status = Some(status),
+                ChannelMsg::WindowAdjusted { new_size } => {
+                    trace!("SSH upload window adjusted to {new_size} bytes");
+                }
+                _ => {}
+            }
+        }
+        Ok((exit_status, remote_error)) as Result<(Option<u32>, String)>
+    };
+
+    tokio::pin!(write, drain);
+    let (exit_status, remote_error) = tokio::select! {
+        biased;
+        result = &mut write => {
+            result?;
+            drain.await?
+        },
+        result = &mut drain => {
+            let (exit_status, remote_error) = result?;
+            anyhow::bail!(
+                "SSH upload command closed before the file was sent (status: {exit_status:?}, error: {remote_error})"
+            );
+        },
+    };
+    if exit_status.is_some_and(|status| status != 0) {
+        anyhow::bail!("SSH upload command failed with status {exit_status:?}: {remote_error}");
+    }
+    Ok(())
+}
+
 fn shell_escape_remote_path(remote_path: &str) -> String {
     let escape = |value: &str| value.replace('\'', "'\\''");
 
@@ -539,6 +607,166 @@ fn shell_escape_remote_path(remote_path: &str) -> String {
     }
 
     format!("'{}'", escape(remote_path))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SSH, SSHConfig, run_transfer_with_timeout, stream_channel_upload};
+    use anyhow::Result;
+    use russh::keys::ssh_key::LineEnding;
+    use russh::server::{self, Auth, Msg, Session};
+    use russh::{Channel, ChannelId};
+    use secrecy::SecretString;
+    use sp_core::Pair;
+    use sp_core::ed25519;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+    use tokio::net::TcpListener;
+    use tokio::sync::Mutex;
+    use tokio::time::{sleep, timeout};
+
+    #[tokio::test]
+    async fn transfer_timeout_invalidates_client_before_retry() {
+        let transfer_client = Mutex::new(Some("stale"));
+        let stalled_transfer = async {
+            let _client = transfer_client.lock().await;
+            sleep(Duration::from_millis(50)).await;
+            Ok(())
+        };
+
+        let error =
+            run_transfer_with_timeout(&transfer_client, Duration::from_millis(1), stalled_transfer)
+                .await
+                .unwrap_err();
+
+        assert!(error.to_string().contains("SSH upload timed out"));
+        assert_eq!(*transfer_client.lock().await, None);
+
+        *transfer_client.lock().await = Some("fresh");
+        let retry = async {
+            let client = transfer_client.lock().await;
+            anyhow::ensure!(*client == Some("fresh"), "retry did not use a fresh client");
+            Ok(()) as Result<()>
+        };
+
+        run_transfer_with_timeout(&transfer_client, Duration::from_millis(10), retry)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn uploads_files_larger_than_the_ssh_channel_window() {
+        let received_bytes = Arc::new(AtomicUsize::new(0));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server_key = test_private_key([1; 32]);
+        let server_config = Arc::new(server::Config {
+            keys: vec![server_key],
+            window_size: 32 * 1024,
+            maximum_packet_size: 16 * 1024,
+            ..Default::default()
+        });
+        let server = UploadServer {
+            received_bytes: received_bytes.clone(),
+        };
+        let server_task = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            server::run_stream(server_config, socket, server)
+                .await
+                .unwrap();
+        });
+
+        let client_key = test_private_key([2; 32]);
+        let client_key_openssh = client_key.to_openssh(LineEnding::LF).unwrap().to_string();
+        let client_config = SSHConfig::new(
+            "127.0.0.1",
+            address.port(),
+            "argon".to_string(),
+            SecretString::from(client_key_openssh),
+        )
+        .unwrap();
+        let mut client = SSH::connect_client(&client_config, Duration::from_secs(2))
+            .await
+            .unwrap();
+        let contents = vec![42; 8 * 1024 * 1024];
+
+        let upload = timeout(Duration::from_secs(2), async {
+            let channel = SSH::open_channel_on_client(&mut client, &client_config).await?;
+            channel.exec(true, "cat > /tmp/server.tar.gz").await?;
+            stream_channel_upload(channel, contents.as_slice(), |_| Ok(())).await
+        })
+        .await;
+
+        assert!(
+            upload.is_ok(),
+            "large SSH upload deadlocked after filling its channel window"
+        );
+        upload.unwrap().unwrap();
+        assert_eq!(received_bytes.load(Ordering::Relaxed), contents.len());
+        server_task.abort();
+    }
+
+    fn test_private_key(seed: [u8; 32]) -> russh::keys::PrivateKey {
+        let pair = ed25519::Pair::from_seed(&seed);
+        let (private_key, _) = SSH::format_as_openssh(pair).unwrap();
+        russh::keys::decode_secret_key(&private_key, None).unwrap()
+    }
+
+    #[derive(Clone)]
+    struct UploadServer {
+        received_bytes: Arc<AtomicUsize>,
+    }
+
+    impl server::Handler for UploadServer {
+        type Error = anyhow::Error;
+
+        async fn auth_publickey(
+            &mut self,
+            _user: &str,
+            _public_key: &russh::keys::ssh_key::PublicKey,
+        ) -> Result<Auth, Self::Error> {
+            Ok(Auth::Accept)
+        }
+
+        async fn channel_open_session(
+            &mut self,
+            _channel: Channel<Msg>,
+            _session: &mut Session,
+        ) -> Result<bool, Self::Error> {
+            Ok(true)
+        }
+
+        async fn exec_request(
+            &mut self,
+            channel: ChannelId,
+            _data: &[u8],
+            session: &mut Session,
+        ) -> Result<(), Self::Error> {
+            session.channel_success(channel)?;
+            Ok(())
+        }
+
+        async fn data(
+            &mut self,
+            _channel: ChannelId,
+            data: &[u8],
+            _session: &mut Session,
+        ) -> Result<(), Self::Error> {
+            self.received_bytes.fetch_add(data.len(), Ordering::Relaxed);
+            Ok(())
+        }
+
+        async fn channel_eof(
+            &mut self,
+            channel: ChannelId,
+            session: &mut Session,
+        ) -> Result<(), Self::Error> {
+            session.exit_status_request(channel, 0)?;
+            session.close(channel)?;
+            Ok(())
+        }
+    }
 }
 
 struct ClientHandler {}

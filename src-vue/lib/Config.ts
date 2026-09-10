@@ -328,7 +328,7 @@ export class Config implements IConfig {
         this._walletKeys.canAccessServer &&
         loadedData.serverDetails.type === ServerType.LocalComputer &&
         loadedData.serverAdd?.localComputer;
-      if (managesLocalComputer && !loadedData.isServerInstalling) {
+      if (managesLocalComputer) {
         const { sshPort } = await LocalMachine.activate();
         if (!IS_TEST && IS_STABLE_BUILD) {
           await invokeWithTimeout('toggle_nosleep', { enable: true }, 5000);
