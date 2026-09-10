@@ -37,7 +37,7 @@
         </template>
       </p>
       <div class="flex flex-row justify-center items-center space-x-6 mt-14">
-        <ActiveBidsOverlayButton />
+        <BiddingBotOverlayButton />
         <BotHistoryOverlayButton />
       </div>
     </div>
@@ -49,7 +49,7 @@ import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { getConfig } from '../../stores/config.ts';
-import ActiveBidsOverlayButton from '../../overlays/ActiveBidsOverlayButton.vue';
+import BiddingBotOverlayButton from '../../overlays/mining/BiddingBotOverlayButton.vue';
 import BotHistoryOverlayButton from '../../overlays/BotHistoryOverlayButton.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { getBiddingCalculator } from '../../stores/mainchain.ts';

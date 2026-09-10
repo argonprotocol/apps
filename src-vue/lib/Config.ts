@@ -329,12 +329,19 @@ export class Config implements IConfig {
         loadedData.serverDetails.type === ServerType.LocalComputer &&
         loadedData.serverAdd?.localComputer;
       if (managesLocalComputer) {
-        const { sshPort } = await LocalMachine.activate();
-        if (!IS_TEST && IS_STABLE_BUILD) {
-          await invokeWithTimeout('toggle_nosleep', { enable: true }, 5000);
+        const localMachine = await LocalMachine.activate();
+        if (localMachine) {
+          if (!IS_TEST && IS_STABLE_BUILD) {
+            await invokeWithTimeout('toggle_nosleep', { enable: true }, 5000);
+          }
+          loadedData.serverDetails.ipAddress = `127.0.0.1`;
+          loadedData.serverDetails.sshPort = localMachine.sshPort;
+        } else if (!loadedData.isServerInstalling) {
+          loadedData.serverDetails = defaults.serverDetails();
+          loadedData.isServerInstalled = false;
+          fieldsToSave.add(dbFields.isServerInstalled);
+          rawData[dbFields.isServerInstalled] = JsonExt.stringify(false);
         }
-        loadedData.serverDetails.ipAddress = `127.0.0.1`;
-        loadedData.serverDetails.sshPort = sshPort;
         fieldsToSave.add(dbFields.serverDetails);
         rawData[dbFields.serverDetails] = JsonExt.stringify(loadedData.serverDetails, 2);
       }

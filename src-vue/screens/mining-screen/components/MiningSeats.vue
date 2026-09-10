@@ -42,21 +42,34 @@
               {{ item.seat.id }}
             </span>
           </TooltipTrigger>
-          <TooltipContent side="bottom" align="center" :sideOffset="-5" :collisionPadding="9" class="relative z-[1000]">
-            <SeatTooltip
-              :seat="item.seat"
-              :frameId="props.frameId"
-              :isLiveFrame="props.isLiveFrame"
-              :startingFrameId="item.startingFrameId"
-              :ourBidAddresses="ourBidAddresses"
-              :hasAuction="item.hasAuction"
-              :isUnavailableForBids="item.isUnavailableForBids"
-              :tooltipStats="
-                item.seat.miner ? seatTooltipStatsByStartingFrameId[item.seat.miner.startingFrameId] : null
-              "
-            />
-            <TooltipArrow :width="27" :height="15" class="z-20 -mt-px fill-white stroke-slate-800/20 stroke-[0.5px]" />
-          </TooltipContent>
+          <TooltipPortal>
+            <TooltipContent
+              side="bottom"
+              align="center"
+              :sideOffset="-5"
+              :collisionPadding="9"
+              :style="floatingZIndex"
+              class="relative"
+            >
+              <SeatTooltip
+                :seat="item.seat"
+                :frameId="props.frameId"
+                :isLiveFrame="props.isLiveFrame"
+                :startingFrameId="item.startingFrameId"
+                :ourBidAddresses="ourBidAddresses"
+                :hasAuction="item.hasAuction"
+                :isUnavailableForBids="item.isUnavailableForBids"
+                :tooltipStats="
+                  item.seat.miner ? seatTooltipStatsByStartingFrameId[item.seat.miner.startingFrameId] : null
+                "
+              />
+              <TooltipArrow
+                :width="27"
+                :height="15"
+                class="z-20 -mt-px fill-white stroke-slate-800/20 stroke-[0.5px]"
+              />
+            </TooltipContent>
+          </TooltipPortal>
         </TooltipRoot>
       </div>
     </div>
@@ -69,13 +82,14 @@ import { twMerge } from 'tailwind-merge';
 import { IMiningSeat, IMiningSlot, IMiningSlotBid, normalizeMiningSeatSlots } from '@argonprotocol/apps-core';
 import { getBlockWatch, getMining, getMiningFrames } from '../../../stores/mainchain.ts';
 import { getWalletKeys, useWallets } from '../../../stores/wallets.ts';
-import { TooltipProvider, TooltipRoot, TooltipTrigger, TooltipContent, TooltipArrow } from 'reka-ui';
+import { TooltipArrow, TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger } from 'reka-ui';
 import { getDbPromise } from '../../../stores/helpers/dbPromise.ts';
+import { getMyMiningSeats } from '../../../stores/myMiningSeats.ts';
 import SeatTooltip from './SeatTooltip.vue';
-import { botEmitter } from '../../../lib/Bot.ts';
 import MinerIcon from '../../../assets/miner.svg?component';
 import { getMiningSeatProgressAtFrame } from '../miningSeatProgress.ts';
 import type { IMiningSeatRewardTerms } from '../../../interfaces/db/ICohortRecord.ts';
+import { useFloatingZIndex } from '../../../overlays/helpers/OverlayZIndex.ts';
 
 type IMiningDisplaySeat = IMiningSeat & {
   startingFrameId?: number | null;
@@ -94,9 +108,11 @@ const props = defineProps<{
 
 const mining = getMining();
 const miningFrames = getMiningFrames();
+const myMiningSeats = getMyMiningSeats();
 const dbPromise = getDbPromise();
 const wallets = useWallets();
 const walletKeys = getWalletKeys();
+const floatingZIndex = useFloatingZIndex();
 
 const currentAuctionSlot = Vue.computed(() => {
   const miningSlotId = (props.frameId % 10) + 1;
@@ -342,6 +358,7 @@ function onLiveSeatsUpdated() {
 }
 
 Vue.watch(seatGridContainerElem, observeSeatGrid, { flush: 'post' });
+Vue.watch(() => myMiningSeats.financialRevision, onLiveSeatsUpdated);
 
 Vue.watch(
   () => [props.frameId, props.isLiveFrame, props.frameSlots],
@@ -361,8 +378,6 @@ Vue.watch(
 Vue.onMounted(() => {
   void refreshSeats();
   observeSeatGrid();
-  botEmitter.on('updated-bids-data', onLiveSeatsUpdated);
-  botEmitter.on('updated-cohort-data', onLiveSeatsUpdated);
 });
 
 Vue.onUnmounted(() => {
@@ -371,8 +386,6 @@ Vue.onUnmounted(() => {
   if (clearHoveredSlotIdTimeout) {
     clearTimeout(clearHoveredSlotIdTimeout);
   }
-  botEmitter.off('updated-bids-data', onLiveSeatsUpdated);
-  botEmitter.off('updated-cohort-data', onLiveSeatsUpdated);
 });
 
 async function refreshSeatTooltipStats(): Promise<void> {

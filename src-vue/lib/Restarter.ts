@@ -8,6 +8,7 @@ import Installer from './Installer.ts';
 import { LocalMachine } from './LocalMachine.ts';
 import { invokeWithTimeout } from './tauriApi.ts';
 import PluginSql from '@tauri-apps/plugin-sql';
+import { ServerType } from '../interfaces/IConfig.ts';
 
 export default class Restarter {
   private readonly dbPromise: Promise<Db>;
@@ -74,6 +75,9 @@ export default class Restarter {
       installer.stop();
       if (isFullServerWipe) {
         this._config.isServerInstalled = false;
+        if (this._config.serverDetails.type === ServerType.LocalComputer) {
+          this._config.resetField('serverDetails');
+        }
       }
       await this.migrateToFreshLocalDatabase(toRestart.has(AdvancedRestartOption.ReloadAppUi));
     }
@@ -86,7 +90,10 @@ export default class Restarter {
   public async migrateToFreshLocalDatabase(restartAfter: boolean = true) {
     const db = await this.dbPromise;
     const config = this._config;
-    const vault = await db.vaultsTable.get().catch(() => undefined);
+    const [vault, wallets] = await Promise.all([
+      db.vaultsTable.get().catch(() => undefined),
+      db.walletsTable.fetchAll(),
+    ]);
 
     await this.deleteAndCreateLocalDatabase();
     if (restartAfter) {
@@ -100,6 +107,9 @@ export default class Restarter {
     await config.restoreToConnection(sql);
     if (vault) {
       await db.vaultsTable.insert(vault, sql);
+    }
+    for (const wallet of wallets) {
+      await db.walletsTable.insert(wallet, sql);
     }
 
     if (restartAfter) {

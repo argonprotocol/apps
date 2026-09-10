@@ -35,6 +35,7 @@ export interface ResolvedTestSessionIdentity {
 export interface TestSessionIdentityOptions {
   networkName?: string;
   rawAppInstance?: string;
+  sessionName?: string;
   fallbackSessionName?: string;
   processEnv?: NodeJS.ProcessEnv;
 }
@@ -43,7 +44,12 @@ export function resolveTestSessionIdentity(options: TestSessionIdentityOptions =
   const env = options.processEnv ?? process.env;
   const networkName = options.networkName?.trim() || env.ARGON_NETWORK_NAME?.trim() || 'dev-docker';
   const normalizedNetworkName = networkName.trim() || 'dev-docker';
-  const [appInstanceName, appInstancePort = ''] = (options.rawAppInstance ?? env.ARGON_APP_INSTANCE ?? '')
+  const [appInstanceName, appInstancePort = ''] = (
+    options.rawAppInstance ??
+    options.sessionName ??
+    env.ARGON_APP_INSTANCE ??
+    ''
+  )
     .trim()
     .split(':');
   const normalizedInstance = stripNetworkPrefix(appInstanceName || '', normalizedNetworkName);
@@ -80,6 +86,7 @@ export function resolveTestSessionCommandEnv(options: TestSessionCommandEnvOptio
   const identity = resolveTestSessionIdentity({
     networkName: options.networkName,
     rawAppInstance: options.rawAppInstance,
+    sessionName: options.sessionName,
     fallbackSessionName: options.fallbackSessionName,
     processEnv: baseEnv,
   });

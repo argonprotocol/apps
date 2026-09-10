@@ -37,7 +37,7 @@ export class AutoBidder {
   private localRpcUrl?: string;
   private hasRegisteredKeys = false;
   private lifecycleQueue = Promise.resolve();
-  private pendingProxyRetryTimeout?: ReturnType<typeof setTimeout>;
+  private pendingBiddingRetryTimeout?: ReturnType<typeof setTimeout>;
 
   constructor(
     private readonly accountset: Accountset,
@@ -100,9 +100,9 @@ export class AutoBidder {
     this.unsubscribe = undefined;
     this.unsubscribeFrame?.();
     this.unsubscribeFrame = undefined;
-    if (this.pendingProxyRetryTimeout) {
-      clearTimeout(this.pendingProxyRetryTimeout);
-      this.pendingProxyRetryTimeout = undefined;
+    if (this.pendingBiddingRetryTimeout) {
+      clearTimeout(this.pendingBiddingRetryTimeout);
+      this.pendingBiddingRetryTimeout = undefined;
     }
     await this.lifecycleQueue;
     await this.stopActiveBidders(false);
@@ -180,6 +180,8 @@ export class AutoBidder {
     if (this.nextCohortActivationFrameId === cohortActivationFrameId) {
       this.nextCohortActivationFrameId = null;
     }
+    this.history.initCohort(cohortActivationFrameId, new Set());
+    this.onUpdatedFn?.();
     console.log('Bidding stopped', { cohortActivationFrameId });
   }
 
@@ -192,6 +194,7 @@ export class AutoBidder {
       return;
     }
 
+    let cohortBidder: CohortBidder | undefined;
     try {
       if (this.accountset.isProxy) {
         const proxySetup = await this.accountset.planMiningBidProxySetup();
@@ -200,17 +203,14 @@ export class AutoBidder {
             cohortActivationFrameId,
             proxySetup: proxySetup.kind,
           });
-          if (!this.pendingProxyRetryTimeout) {
-            this.pendingProxyRetryTimeout = setTimeout(() => {
-              this.pendingProxyRetryTimeout = undefined;
-              void this.queueLifecycle(() => this.reloadActiveCohort());
-            }, 1_000);
-          }
+          this.history.initCohort(cohortActivationFrameId, new Set());
+          this.onUpdatedFn?.();
+          this.scheduleBiddingRetry();
           return;
         }
-        if (this.pendingProxyRetryTimeout) {
-          clearTimeout(this.pendingProxyRetryTimeout);
-          this.pendingProxyRetryTimeout = undefined;
+        if (this.pendingBiddingRetryTimeout) {
+          clearTimeout(this.pendingBiddingRetryTimeout);
+          this.pendingBiddingRetryTimeout = undefined;
         }
       }
 
@@ -218,7 +218,11 @@ export class AutoBidder {
       if (this.isStopped) return;
 
       console.log('Bidder params', params);
-      if (params.maxSeats === 0) return;
+      if (params.maxSeats === 0) {
+        this.history.initCohort(cohortActivationFrameId, new Set());
+        this.onUpdatedFn?.();
+        return;
+      }
 
       const cohortBiddingFrameId = cohortActivationFrameId - 1;
       const bidsFileData = await this.storage.bidsFile(cohortBiddingFrameId, cohortActivationFrameId).get();
@@ -250,7 +254,7 @@ export class AutoBidder {
       }
       if (this.isStopped) return;
 
-      const cohortBidder = new CohortBidder(
+      cohortBidder = new CohortBidder(
         this.accountset,
         this.miningFrames,
         cohortActivationFrameId,
@@ -325,9 +329,24 @@ export class AutoBidder {
         }
       }
       this.history.initCohort(cohortActivationFrameId, cohortBidder.myAddresses);
+      this.onUpdatedFn?.();
       await cohortBidder.start();
+      if (this.pendingBiddingRetryTimeout) {
+        clearTimeout(this.pendingBiddingRetryTimeout);
+        this.pendingBiddingRetryTimeout = undefined;
+      }
     } catch (err) {
       console.error('Error starting bidding for cohort', cohortActivationFrameId, err);
+      if (this.cohortBiddersByActivationFrameId.get(cohortActivationFrameId) === cohortBidder) {
+        this.cohortBiddersByActivationFrameId.delete(cohortActivationFrameId);
+        this.nextCohortActivationFrameId = null;
+      }
+      await cohortBidder?.stop(false).catch(cleanupError => {
+        console.error('Error cleaning up failed cohort bidder', cohortActivationFrameId, cleanupError);
+      });
+      this.history.initCohort(cohortActivationFrameId, new Set());
+      this.onUpdatedFn?.();
+      this.scheduleBiddingRetry();
     }
   }
 
@@ -335,6 +354,18 @@ export class AutoBidder {
     const queuedTask = this.lifecycleQueue.then(task, task);
     this.lifecycleQueue = queuedTask.catch(() => undefined);
     return queuedTask;
+  }
+
+  private scheduleBiddingRetry(): void {
+    if (this.isStopped || this.pendingBiddingRetryTimeout) return;
+
+    this.pendingBiddingRetryTimeout = setTimeout(() => {
+      this.pendingBiddingRetryTimeout = undefined;
+      void this.queueLifecycle(() => this.reloadActiveCohort()).catch(error => {
+        console.error('Error retrying bidding setup', error);
+        this.scheduleBiddingRetry();
+      });
+    }, 1_000);
   }
 
   private async stopActiveBidders(waitForFinalBids: boolean): Promise<void> {

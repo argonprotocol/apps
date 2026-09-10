@@ -1,5 +1,6 @@
 import type { IBlockNumbers } from './IBlockNumbers.ts';
 import type { IBidReductionReason } from '../CohortBidder.js';
+import type { IWinningBid } from './IBidsFile.ts';
 
 export type IEthereumSyncMode = 'disabled' | 'needsBootstrap' | 'idle' | 'submitting' | 'error';
 
@@ -30,6 +31,7 @@ export interface IBotStateStarting {
 export interface IBotSyncStatus extends IBotStateStarting {
   maxSeatsInPlay: number;
   maxSeatsReductionReason?: IBidReductionReason;
+  maximumBidMicrogonsPerSeat?: bigint;
 }
 
 export interface IBotState extends IBotSyncStatus, IBotStateFile {
@@ -38,6 +40,14 @@ export interface IBotState extends IBotSyncStatus, IBotStateFile {
   bidsInCurrentFrame: number;
   bidsInPreviousFrame: number;
   isBiddingOpen: boolean;
+  winningBids: IWinningBid[];
+  currentAuctionSeatCount?: number;
+  currentAuctionMicronotsPerSeat?: bigint;
+  seatGoalCount?: number;
+  botCapital?: {
+    microgons: bigint;
+    micronots: bigint;
+  };
   nextBid?: {
     atTick: number;
     microgonsPerSeat: bigint;

@@ -88,11 +88,17 @@
                   Settings
                 </button>
                 <div class="w-px h-8/12 bg-slate-600/30" />
-                <button class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
+                <button
+                  class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80"
+                  @click="basicEmitter.emit('openMiningBiddingBotOverlay')"
+                >
                   Bidding Bot
                 </button>
                 <div class="w-px h-8/12 bg-slate-600/30" />
-                <button class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80">
+                <button
+                  class="flex flex-row items-center font-light text-base cursor-pointer group hover:opacity-80"
+                  @click="basicEmitter.emit('openMiningActiveSeatsOverlay')"
+                >
                   Active Seats
                 </button>
               </div>
@@ -702,6 +708,8 @@ Vue.watch(isSelectedLiveFrame, isLiveFrame => {
   lastBlockMinerAddress.value = isLiveFrame ? blockWatch.latestHeaders.at(-1)?.author : undefined;
 });
 
+Vue.watch(() => myMiningSeats.financialRevision, refreshLiveFrameDetail);
+
 Vue.onMounted(() => {
   void myMiningSeats.subscribeToDashboard({ selectLatestFrame: true });
   void myMiningSeats.subscribeToActivity();
@@ -724,8 +732,6 @@ Vue.onMounted(() => {
       console.error('[Mining Dashboard] Failed to subscribe to best blocks', error);
     });
 
-  botEmitter.on('updated-bids-data', refreshLiveFrameDetail);
-  botEmitter.on('updated-cohort-data', refreshLiveFrameDetail);
   botEmitter.on('updated-server-state', refreshPendingHistoricalFrameDetail);
   window.addEventListener('focus', onWindowFocus);
   document.addEventListener('visibilitychange', onVisibilityChange);
@@ -735,8 +741,6 @@ Vue.onUnmounted(() => {
   myMiningSeats.unsubscribeFromDashboard();
   myMiningSeats.unsubscribeFromActivity();
   stopBestBlockSubscription?.();
-  botEmitter.off('updated-bids-data', refreshLiveFrameDetail);
-  botEmitter.off('updated-cohort-data', refreshLiveFrameDetail);
   botEmitter.off('updated-server-state', refreshPendingHistoricalFrameDetail);
   window.removeEventListener('focus', onWindowFocus);
   document.removeEventListener('visibilitychange', onVisibilityChange);

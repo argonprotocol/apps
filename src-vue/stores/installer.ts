@@ -2,7 +2,7 @@ import * as Vue from 'vue';
 import { getConfig, type Config } from './config';
 import Installer from '../lib/Installer';
 import handleFatalError from './helpers/handleFatalError';
-import { getWalletKeys } from './wallets.ts';
+import { getMiningBidProxySetup, getWalletKeys } from './wallets.ts';
 import { CloseRequestedEvent } from '@tauri-apps/api/window';
 import { confirm } from '@tauri-apps/plugin-dialog';
 import { refreshPrunedClientFromConfig } from './mainchain.ts';
@@ -23,6 +23,7 @@ export function getInstaller(): Vue.Reactive<Installer> {
         isAppUpdateBlockingInstall: isAppUpdateBlockingServerInstall,
         publishOwnServerEndpoint,
         publishOwnServerRecovery,
+        ensureMiningBidProxy: () => getMiningBidProxySetup().ensure(),
       }),
     );
     installer.load().catch(handleFatalError.bind('useInstaller'));

@@ -58,7 +58,7 @@ import * as Vue from 'vue';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import relativeTime from 'dayjs/plugin/relativeTime';
-import { bigIntAbs, MoveToken } from '@argonprotocol/apps-core';
+import { bigIntAbs, MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
 import { open as openUrl } from '@tauri-apps/plugin-shell';
 import OverlayBase from './OverlayBase.vue';
 import { getCurrency } from '../stores/currency.ts';
@@ -71,7 +71,7 @@ import type { IBitcoinRequestLockMetadata } from '../lib/BitcoinLocks.ts';
 import type { IBuyArgonotBondMetadata, IBuyVaultBondMetadata } from '../lib/ArgonBonds.ts';
 import type { ICrosschainTransferOutMetadata } from '../lib/EthereumOutboundTransferTracker.ts';
 import type { IMintingAuthorityRegisterMetadata } from '../lib/MintingAuthorities.ts';
-import type { ITransactionMoveMetadata } from '../lib/MoveCapital.ts';
+import type { ITransactionMoveMetadata } from '../lib/txs/Balance.transfer.ts';
 import type { IBitcoinLiquidCloseMetadata } from '../lib/txs/BitcoinLiquid.close.ts';
 import type { IBitcoinLiquidCreateMetadata } from '../lib/txs/BitcoinLiquid.create.ts';
 import type { IBitcoinLockReleaseMetadata } from '../lib/txs/BitcoinLock.release.ts';
@@ -123,6 +123,11 @@ async function openOverlay(): Promise<void> {
 }
 
 function activityLabel(activity: IWalletActivityRecord): string {
+  if (activity.transaction && isMiningCapitalChange(activity.transaction)) return 'Changed Mining Capital';
+  if (activity.transaction && isExternalArgonTransfer(activity.transaction)) {
+    const address = (activity.transaction.metadataJson as ITransactionMoveMetadata).externalAddress!;
+    return `Sent to ${formatAddress(address)}`;
+  }
   if (activity.transaction && activity.transaction.extrinsicType !== ExtrinsicType.Transfer) {
     return transactionLabel(activity.transaction);
   }
@@ -139,6 +144,26 @@ function activityLabel(activity: IWalletActivityRecord): string {
     default:
       return 'Wallet Activity';
   }
+}
+
+function isMiningCapitalChange(transaction: ITransactionRecord): boolean {
+  if (transaction.extrinsicType !== ExtrinsicType.Transfer) return false;
+  const allocation = (transaction.metadataJson as ITransactionMoveMetadata | undefined)?.allocationChange;
+  return !!allocation?.legs.every(
+    leg =>
+      (leg.moveFrom === MoveFrom.DefaultArgon && leg.moveTo === MoveTo.MiningBot) ||
+      (leg.moveFrom === MoveFrom.MiningBot && leg.moveTo === MoveTo.DefaultArgon),
+  );
+}
+
+function isExternalArgonTransfer(transaction: ITransactionRecord): boolean {
+  if (transaction.extrinsicType !== ExtrinsicType.Transfer) return false;
+  const metadata = transaction.metadataJson as ITransactionMoveMetadata | undefined;
+  return (
+    metadata?.moveFrom === MoveFrom.DefaultArgon &&
+    metadata.moveTo === MoveTo.External &&
+    Boolean(metadata.externalAddress)
+  );
 }
 
 function transferLabel(activity: IWalletActivityRecord, fallback: string): string {
@@ -245,7 +270,6 @@ function transactionLabel(transaction: ITransactionRecord): string {
 }
 
 function formatAddress(address: string): string {
-  if (address === walletKeys.legacyMiningHoldAddress) return 'MiningHold';
   if (address === walletKeys.miningBotAddress) return 'MiningBot';
   if (address === walletKeys.vaultingAddress) return 'Vaulting';
 
@@ -354,6 +378,16 @@ function amountLabel(activity: IWalletActivityRecord): string {
     }
     case ExtrinsicType.Transfer: {
       const metadata = transaction.metadataJson as ITransactionMoveMetadata;
+      if (metadata.allocationChange) {
+        const amounts = metadata.allocationChange.legs.reduce(
+          (total, leg) => ({
+            microgons: total.microgons + (leg.assetsToMove.ARGN ?? 0n),
+            micronots: total.micronots + (leg.assetsToMove.ARGNOT ?? 0n),
+          }),
+          { microgons: 0n, micronots: 0n },
+        );
+        return formatAssetAmounts(amounts.microgons, amounts.micronots);
+      }
       return formatAssetAmounts(metadata.assetsToMove.ARGN, metadata.assetsToMove.ARGNOT);
     }
     case ExtrinsicType.CrosschainTransferTransferOut: {

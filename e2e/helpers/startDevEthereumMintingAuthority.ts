@@ -16,6 +16,7 @@ import {
 } from '../scripts/forceUpdateGlobalIssuanceCouncil.ts';
 import { fundArgonAccount } from '../scripts/fundArgonAccount.ts';
 import { fundDevEthereumAccount } from '../scripts/fundDevEthereumAccount.ts';
+import { getEthereumUserErrorMessage } from 'src-vue/lib/EthereumClient.ts';
 
 export type IDevEthereumMintingAuthorityRuntime = {
   actor: AppVaultOperator;
@@ -58,6 +59,7 @@ export async function startDevEthereumMintingAuthority(args: {
   let shouldStopAuthorizing = false;
   let authorizeTransfersPromise: Promise<void> | undefined;
   let lastActivationProgressLogAt = 0;
+  let lastAuthorizationErrorLogAt = 0;
   const shutdown = async () => {
     if (isShutdown) {
       return;
@@ -114,7 +116,12 @@ export async function startDevEthereumMintingAuthority(args: {
             await new Promise(resolve => setTimeout(resolve, 1_000));
           }
         } catch (error) {
-          console.warn(`[${logPrefix}] Unable to progress Ethereum minting authority`, error);
+          if (Date.now() - lastAuthorizationErrorLogAt >= 10_000) {
+            lastAuthorizationErrorLogAt = Date.now();
+            console.warn(
+              `[${logPrefix}] Unable to progress Ethereum minting authority: ${getEthereumUserErrorMessage(error, 'Unknown Ethereum error')}`,
+            );
+          }
           await new Promise(resolve => setTimeout(resolve, 1_000));
         }
       }

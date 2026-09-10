@@ -4,11 +4,19 @@ import { fn, mocked } from 'storybook/test';
 import type { IDashboardFrameStats } from '../../src-vue/interfaces/IMiningSeatStats.ts';
 import { MiningSetupStatus, TopTab } from '../../src-vue/interfaces/IConfig.ts';
 import { getBot } from '../../src-vue/stores/bot.ts';
+import { getCurrency } from '../../src-vue/stores/currency.ts';
 import { useFinancials } from '../../src-vue/stores/financials.ts';
 import { getDbPromise } from '../../src-vue/stores/helpers/dbPromise.ts';
-import { getBlockWatch, getMining, getMiningFrames } from '../../src-vue/stores/mainchain.ts';
+import {
+  getBiddingCalculator,
+  getBiddingCalculatorData,
+  getBlockWatch,
+  getMining,
+  getMiningFrames,
+} from '../../src-vue/stores/mainchain.ts';
+import { useMiningAssetBreakdown } from '../../src-vue/stores/miningAssetBreakdown.ts';
 import { getMyMiningSeats } from '../../src-vue/stores/myMiningSeats.ts';
-import { getWalletKeys } from '../../src-vue/stores/wallets.ts';
+import { getWalletKeys, useWallets } from '../../src-vue/stores/wallets.ts';
 import { setupAppScenario } from './setupAppScenario.ts';
 
 export function setupMiningPortfolioScenario(selectedFrameId = 120) {
@@ -31,6 +39,7 @@ export function setupMiningPortfolioScenario(selectedFrameId = 120) {
   ]);
   const myMiningSeats = Vue.reactive({
     isLoaded: true,
+    isLoadedPromise: Promise.resolve(),
     latestFrameId: 120,
     selectedFrameId,
     frames,
@@ -48,6 +57,13 @@ export function setupMiningPortfolioScenario(selectedFrameId = 120) {
     },
     allWinningBids: winningBids,
     currentFrameBids: [],
+    pendingBids: {
+      bidCount: 7,
+      microgonsBidTotal: 57_300_000_000n,
+      micronotsStakedTotal: 39_074_000_000n,
+    },
+    miningCohorts: [],
+    currency: getCurrency(),
     activeSeats: {
       seatCount: 6,
       microgonsBidTotal: 420_000_000n,
@@ -72,11 +88,24 @@ export function setupMiningPortfolioScenario(selectedFrameId = 120) {
   });
 
   mocked(getMyMiningSeats).mockReturnValue(myMiningSeats as unknown as ReturnType<typeof getMyMiningSeats>);
+  const wallets = useWallets();
+  Object.assign(wallets, { defaultArgonSpendableMicrogons: 8_833_860_000n });
+  wallets.defaultArgonWallet.availableMicronots = 250_000n;
+  wallets.miningBotWallet.availableMicrogons = 1_533_860_000n;
+  wallets.miningBotWallet.reservedMicrogons = 57_300_000_000n;
+  wallets.miningBotWallet.availableMicronots = 10_250_000n;
+  wallets.miningBotWallet.reservedMicronots = 39_074_000_000n;
+  mocked(useMiningAssetBreakdown, { partial: true }).mockReturnValue(
+    Vue.reactive({ auctionBidCount: 100, seatActiveCount: 100 }),
+  );
   mocked(getBot).mockReturnValue(
     Vue.reactive({
       isReady: true,
       isSyncing: false,
       state: {
+        isBiddingOpen: true,
+        currentTick: 2_000_100,
+        maxSeatsInPlay: 100,
         finalizedFrameId: 120,
         lastBid: {
           submittedAtTick: 2_000_080,
@@ -104,9 +133,27 @@ export function setupMiningPortfolioScenario(selectedFrameId = 120) {
     currentTick: 2_000_100,
     currentFrameId: 120,
     load: fn(async () => undefined),
+    getTickStart: fn((frameId: number) => 2_000_000 + frameId * 10 - 9),
     getTickEnd: fn((frameId: number) => 2_000_000 + frameId * 10),
+    estimateTickEnd: fn((frameId: number) => 2_000_000 + frameId * 10),
     getCurrentFrameProgress: fn(() => 62),
+    getFrameDate: fn((frameId: number) => new Date(Date.UTC(2026, 7, frameId - 100))),
     onTick: fn(() => ({ unsubscribe: fn() })),
+  });
+  mocked(getBiddingCalculator, { partial: true }).mockReturnValue({
+    maximumBidAmount: 600_000_000n,
+    maximumBidAmountOverride: null,
+    onLoad: fn((callback: () => void) => {
+      callback();
+      return { unsubscribe: fn() };
+    }),
+    load: fn(async () => undefined),
+  });
+  mocked(getBiddingCalculatorData, { partial: true }).mockReturnValue({
+    currentMicronotsForBid: 390_740_000n,
+    nextCohortSize: 144,
+    previousDayLowBid: 573_000_000n,
+    getMaxFrameSeats: fn(() => 100),
   });
   mocked(getBlockWatch).mockReturnValue({
     latestHeaders: [{ author: '5SyntheticOurMiner' }],

@@ -7,15 +7,20 @@
     @pressEsc="emit('close')"
   >
     <template #title>
-      <span class="text-xl font-bold text-slate-800/80">
-        {{ bondLot.programType === 'Argonot' ? 'Stake' : 'Bond' }} Details
-      </span>
-      <span v-if="bondLot.isOwn" class="bg-argon-600 inline-block rounded px-1.5 pb-px align-middle text-sm text-white">
-        YOURS
-      </span>
-      <span v-else class="inline-block rounded bg-slate-500 px-1.5 pb-px align-middle text-sm text-white">
-        EXTERNAL
-      </span>
+      <div class="mr-6 flex min-w-0 grow items-center justify-start gap-2">
+        <span class="text-xl font-bold text-slate-800/80">
+          {{ bondLot.programType === 'Argonot' ? 'Stake' : 'Bond' }} Details
+        </span>
+        <span
+          v-if="bondLot.isOwn"
+          class="bg-argon-600 inline-block rounded px-1.5 pb-px align-middle text-sm text-white"
+        >
+          YOURS
+        </span>
+        <span v-else class="inline-block rounded bg-slate-500 px-1.5 pb-px align-middle text-sm text-white">
+          EXTERNAL
+        </span>
+      </div>
     </template>
 
     <div class="flex flex-row gap-8 px-10 pt-6 pb-8">
