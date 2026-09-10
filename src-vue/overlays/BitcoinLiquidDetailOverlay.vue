@@ -43,10 +43,7 @@
                   :key="lockedBitcoin.utxoId"
                   class="flex items-center border-b border-slate-200 py-3 last:border-b-0"
                 >
-                  <span class="grow">
-                    <template v-if="lockedBitcoin.isMyVault">In my Vault</template>
-                    <template v-else>Cosigner: {{ lockedBitcoin.cosigner }}</template>
-                  </span>
+                  <span class="grow">Vault: {{ lockedBitcoin.vaultName }}</span>
                   <span>{{ satToBtcNm(lockedBitcoin.satoshis).format('0,0.[00000000]') }} BTC</span>
                 </div>
               </div>
@@ -173,12 +170,12 @@
                 </div>
                 <div v-if="ratchetPreview || ratchetTransaction.status !== 'idle'" class="text-right text-sm">
                   <div class="flex justify-end gap-x-2 font-semibold">
-                    <span v-if="ratchetPreview?.amountToMint" class="text-slate-600">
+                    <span v-if="ratchetPocketed" class="text-slate-600">
+                      Would pocket {{ argonSymbol }}{{ microgonToArgonNm(ratchetPocketed).format('0,0.00') }}
+                    </span>
+                    <span v-else-if="ratchetPreview?.amountToMint" class="text-slate-600">
                       Would unlock
                       {{ argonSymbol }}{{ microgonToArgonNm(ratchetPreview.amountToMint).format('0,0.00') }}
-                    </span>
-                    <span v-else-if="ratchetPocketed" class="text-slate-600">
-                      Would pocket {{ argonSymbol }}{{ microgonToArgonNm(ratchetPocketed).format('0,0.00') }}
                     </span>
                     <span
                       v-if="ratchetPreview?.canRatchet && (ratchetPreview.amountToMint || ratchetPocketed)"
@@ -310,7 +307,7 @@
               </div>
               <div class="flex items-end gap-x-5" :class="ratchetPreview ? 'mt-1' : ''">
                 <p v-if="ratchetState.status === 'loading'" class="min-w-0 grow text-sm text-slate-500">
-                  Checking the latest price, eligible locked Bitcoin, and cosigner capacity.
+                  Checking the latest price, eligible locked Bitcoin, and vault capacity.
                 </p>
                 <p v-else-if="!isRatchetAvailable" class="min-w-0 grow text-sm text-slate-500">
                   {{ ratchetUnavailableReason }}
@@ -321,42 +318,46 @@
                 <p v-else class="min-w-0 grow text-sm text-slate-500">
                   A lower floor lets you keep the difference and restores room for a future upward ratchet.
                 </p>
-                <TooltipProvider :delayDuration="100">
-                  <TooltipRoot>
-                    <TooltipTrigger as-child>
-                      <span class="inline-flex">
-                        <PopoverTrigger as-child>
-                          <button
-                            data-testid="BitcoinLiquidDetailOverlay.openRatchetReview"
-                            :disabled="
-                              (!isRatchetAvailable || !ratchetPreview) && ratchetTransaction.status !== 'pending'
-                            "
-                            class="border-argon-600 text-argon-600 hover:bg-argon-600/5 inline-flex cursor-pointer items-center gap-x-1 rounded border px-3 text-sm leading-5 font-semibold whitespace-nowrap disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-300"
+                <PopoverAnchor as-child>
+                  <span class="inline-flex">
+                    <TooltipProvider :delayDuration="100">
+                      <TooltipRoot>
+                        <TooltipTrigger as-child>
+                          <span class="inline-flex">
+                            <PopoverTrigger as-child>
+                              <button
+                                data-testid="BitcoinLiquidDetailOverlay.openRatchetReview"
+                                :disabled="
+                                  (!isRatchetAvailable || !ratchetPreview) && ratchetTransaction.status !== 'pending'
+                                "
+                                class="border-argon-600 text-argon-600 hover:bg-argon-600/5 inline-flex cursor-pointer items-center gap-x-1 rounded border px-3 text-sm leading-5 font-semibold whitespace-nowrap disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-300"
+                              >
+                                {{ ratchetTransaction.status === 'pending' ? 'Ratcheting...' : 'Start Ratchet' }}
+                                <InformationCircleIcon
+                                  v-if="!isRatchetAvailable && ratchetState.status !== 'loading'"
+                                  class="size-4"
+                                />
+                              </button>
+                            </PopoverTrigger>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipPortal v-if="!isRatchetAvailable && ratchetState.status !== 'loading'">
+                          <TooltipContent
+                            side="top"
+                            align="end"
+                            :sideOffset="8"
+                            :collisionPadding="24"
+                            :style="{ zIndex: floatingZIndex }"
+                            class="w-80 rounded-md border border-gray-800/20 bg-white px-4 py-3 text-sm text-slate-600 shadow-xl"
                           >
-                            {{ ratchetTransaction.status === 'pending' ? 'Ratcheting...' : 'Start Ratchet' }}
-                            <InformationCircleIcon
-                              v-if="!isRatchetAvailable && ratchetState.status !== 'loading'"
-                              class="size-4"
-                            />
-                          </button>
-                        </PopoverTrigger>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipPortal v-if="!isRatchetAvailable && ratchetState.status !== 'loading'">
-                      <TooltipContent
-                        side="top"
-                        align="end"
-                        :sideOffset="8"
-                        :collisionPadding="24"
-                        :style="{ zIndex: floatingZIndex }"
-                        class="w-80 rounded-md border border-gray-800/20 bg-white px-4 py-3 text-sm text-slate-600 shadow-xl"
-                      >
-                        {{ ratchetUnavailableReason }}
-                        <TooltipArrow :width="18" :height="9" class="-mt-px fill-white stroke-gray-400/30" />
-                      </TooltipContent>
-                    </TooltipPortal>
-                  </TooltipRoot>
-                </TooltipProvider>
+                            {{ ratchetUnavailableReason }}
+                            <TooltipArrow :width="18" :height="9" class="-mt-px fill-white stroke-gray-400/30" />
+                          </TooltipContent>
+                        </TooltipPortal>
+                      </TooltipRoot>
+                    </TooltipProvider>
+                  </span>
+                </PopoverAnchor>
               </div>
             </PopoverRoot>
           </article>
@@ -627,7 +628,7 @@ const lockSummaries = Vue.computed(() => {
   );
 });
 const lockedBitcoinRows = Vue.computed(() => {
-  const byUtxoId = new Map<number, { utxoId: number; satoshis: bigint; cosigner: string; isMyVault: boolean }>();
+  const byUtxoId = new Map<number, { utxoId: number; satoshis: bigint; vaultName: string }>();
 
   for (const fission of liquid.value.fissions) {
     const existing = byUtxoId.get(fission.utxoId);
@@ -640,22 +641,21 @@ const lockedBitcoinRows = Vue.computed(() => {
     byUtxoId.set(fission.utxoId, {
       utxoId: fission.utxoId,
       satoshis: fission.satoshis,
-      isMyVault: vaultId === myVault.vaultId,
-      cosigner:
-        vaultId === undefined ? 'Unknown cosigner' : (vaults.operatorNamesByVaultId[vaultId] ?? `Vault ${vaultId}`),
+      vaultName:
+        vaultId === undefined
+          ? 'Unknown Vault'
+          : vaultId === myVault.vaultId
+            ? 'My Vault'
+            : (vaults.operatorNamesByVaultId[vaultId] ?? `Vault ${vaultId}`),
     });
   }
 
   return [...byUtxoId.values()];
 });
 const lockedBitcoinSourceLabel = Vue.computed(() => {
-  const rows = lockedBitcoinRows.value;
-  const cosigners = [...new Set(rows.filter(row => !row.isMyVault).map(row => row.cosigner))];
-  const isInMyVault = rows.some(row => row.isMyVault);
-  if (isInMyVault && !cosigners.length) return 'In my Vault';
-  if (!isInMyVault && cosigners.length === 1) return `Cosigner: ${cosigners[0]}`;
-  if (isInMyVault) return `Vaults: ${new Intl.ListFormat('en').format([...cosigners, 'my Vault'])}`;
-  if (cosigners.length) return `Cosigners: ${new Intl.ListFormat('en').format(cosigners)}`;
+  const vaultNames = [...new Set(lockedBitcoinRows.value.map(row => row.vaultName))];
+  if (vaultNames.length === 1) return `Vault: ${vaultNames[0]}`;
+  if (vaultNames.length > 1) return `${vaultNames.length} Vaults`;
 });
 
 const ratchetState = Vue.ref<LiquidDetailsLoadState<BitcoinLiquidRatchetDetails>>({ status: 'idle' });
@@ -782,7 +782,7 @@ function retryRatchet(): void {
     const txInfo = bitcoinLiquidRatchet.getPendingRatchetTxInfo(liquid.value.liquidId);
     if (txInfo) {
       bitcoinLiquidRatchet.resume(txInfo);
-      trackTransaction(txInfo, ratchetTransaction);
+      trackRatchetTransaction(txInfo);
       return;
     }
   }
@@ -795,7 +795,7 @@ function retryClose(): void {
     const txInfo = bitcoinLiquidClose.getPendingLiquidTxInfo(liquid.value.liquidId);
     if (txInfo) {
       bitcoinLiquidClose.resume(txInfo);
-      trackTransaction(txInfo, closeTransaction);
+      trackCloseTransaction(txInfo);
       return;
     }
   }
@@ -830,13 +830,13 @@ function initializeActions(preserveLoadedState = false): void {
 
   const pendingClose = bitcoinLiquidClose.getPendingLiquidTxInfo(liquid.value.liquidId);
   if (pendingClose) {
-    trackTransaction(pendingClose, closeTransaction);
+    trackCloseTransaction(pendingClose);
     return;
   }
 
   const pendingRatchet = bitcoinLiquidRatchet.getPendingRatchetTxInfo(liquid.value.liquidId);
   if (pendingRatchet) {
-    trackTransaction(pendingRatchet, ratchetTransaction);
+    trackRatchetTransaction(pendingRatchet);
     return;
   }
 
@@ -876,7 +876,7 @@ async function submitRatchet(): Promise<void> {
       ratchetQuote.value!.prepared,
     );
     if (liquid.value.liquidId !== currentLiquid.liquidId) return;
-    trackTransaction(txInfo, ratchetTransaction);
+    trackRatchetTransaction(txInfo);
   } catch (error) {
     if (liquid.value.liquidId !== currentLiquid.liquidId) return;
     ratchetTransaction.value = {
@@ -901,7 +901,7 @@ async function submitClose(): Promise<void> {
       closeQuote.value!.prepared,
     );
     if (liquid.value.liquidId !== currentLiquid.liquidId) return;
-    trackTransaction(txInfo, closeTransaction);
+    trackCloseTransaction(txInfo);
   } catch (error) {
     if (liquid.value.liquidId !== currentLiquid.liquidId) return;
     closeTransaction.value = {
@@ -1008,9 +1008,18 @@ async function loadCloseQuote(currentLiquid: BitcoinLiquid, currentLoadId: numbe
   }
 }
 
+function trackRatchetTransaction<Metadata>(txInfo: TransactionInfo<Metadata>): void {
+  trackTransaction(txInfo, ratchetTransaction, initializeActions);
+}
+
+function trackCloseTransaction<Metadata>(txInfo: TransactionInfo<Metadata>): void {
+  trackTransaction(txInfo, closeTransaction, closeOverlay);
+}
+
 function trackTransaction<Metadata>(
   txInfo: TransactionInfo<Metadata>,
   state: Vue.Ref<LiquidDetailsTransactionState>,
+  onComplete: () => void,
 ): void {
   transactionCleanupByState.get(state)?.();
 
@@ -1034,7 +1043,7 @@ function trackTransaction<Metadata>(
         state.value = { status: 'error', error: error.message, retryAction: 'resubmit' };
         return;
       }
-      closeOverlay();
+      onComplete();
     },
     error => {
       if (!isCurrentTransaction) return;

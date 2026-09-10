@@ -13,6 +13,7 @@
         :alignOffset="-150"
         :sideOffset="props.channelUuid ? -8 : -20"
         :collisionPadding="30"
+        :prioritizePosition="isAddingInsurance"
         :style="floatingZIndex"
         class="w-108 rounded-lg shadow-2xl"
         @pointerDownOutside="keepOpenForRelatedConnector"
@@ -38,14 +39,10 @@
             <span class="min-w-0 grow px-1 text-xl font-bold text-slate-800/70">
               <template v-if="isAddingInsurance">
                 {{ insuranceActionLabel }}
-                <template v-if="displayedChannel">
-                  <template v-if="isMyVaultChannel(displayedChannel)">in my Vault</template>
-                  <template v-else>with {{ channelCosignerLabel(displayedChannel) }}</template>
-                </template>
+                <template v-if="displayedChannel">with {{ channelCosignerLabel(displayedChannel) }}</template>
               </template>
               <template v-else-if="displayedChannel">
-                <template v-if="isMyVaultChannel(displayedChannel)">Bitcoin in my Vault</template>
-                <template v-else>Bitcoin with {{ channelCosignerLabel(displayedChannel) }}</template>
+                Bitcoin with {{ channelCosignerLabel(displayedChannel) }}
               </template>
               <template v-else-if="isShowingArchivedChannels">Archived channels</template>
               <template v-else-if="showChannelOverview">Bitcoin</template>
@@ -91,10 +88,7 @@
                 @click="showChannel(channel, true)"
               >
                 <div class="flex items-center">
-                  <span class="grow">
-                    <template v-if="isMyVaultChannel(channel)">In my Vault</template>
-                    <template v-else>Cosigner: {{ channelCosignerLabel(channel) }}</template>
-                  </span>
+                  <span class="grow">Cosigner: {{ channelCosignerLabel(channel) }}</span>
                   <span>{{ satToBtcNm(channel.fundedSatoshis).format('0,0.[00000000]') }} BTC</span>
                   <span data-testid="ConnectorChannel.archivedChannelCaret" class="ml-2 flex shrink-0 items-center">
                     <ChevronRightIcon class="h-4 w-4 text-slate-400" />
@@ -118,7 +112,17 @@
             </div>
             <div v-else-if="showChannelOverview" class="min-h-48 px-5 py-4">
               <div
+                v-if="pendingUnattachedDeposits.length"
+                class="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800"
+              >
+                <h3 class="font-semibold">Unattached Bitcoin deposit</h3>
+                <div class="mt-1">{{ satToBtcNm(pendingUnattachedSatoshis).format('0,0.[00000000]') }} BTC pending</div>
+                <div class="mt-1 text-xs">Waiting for network confirmation before it can be returned.</div>
+              </div>
+
+              <div
                 v-if="openInboundChannel?.status !== BitcoinLockStatus.LockFunded"
+                :class="pendingUnattachedDeposits.length ? 'mt-4' : ''"
                 class="flex items-center rounded-md bg-slate-50 px-4 py-3"
               >
                 <span class="grow text-sm text-slate-600">No channel is currently open.</span>
@@ -144,13 +148,29 @@
                 <button class="flex w-full cursor-pointer items-center text-left" @click="reviewFirstOrphan">
                   <strong class="grow">
                     {{ orphanRecords.length }} unattached Bitcoin deposit{{ orphanRecords.length === 1 ? '' : 's' }}
-                    <template v-if="firstOrphanIsInMyVault">in my Vault</template>
-                    <template v-else-if="firstOrphanCosignerLabel">with {{ firstOrphanCosignerLabel }}</template>
+                    <template v-if="firstOrphanCosignerLabel">with {{ firstOrphanCosignerLabel }}</template>
                   </strong>
                   <span>Review</span>
                 </button>
                 <div class="mt-1 text-xs">These deposits could not attach to their Channels and can be returned.</div>
               </div>
+
+              <button
+                v-if="openInboundChannel?.status === BitcoinLockStatus.LockFunded"
+                type="button"
+                aria-label="View current Bitcoin channel"
+                class="hover:bg-argon-50/40 mt-4 flex w-full cursor-pointer items-center border-t border-slate-300 px-1 pt-3 text-left"
+                @click="showChannel(openInboundChannel)"
+              >
+                <span class="min-w-0 grow">
+                  <span class="block font-semibold text-slate-700">Current channel</span>
+                  <span class="mt-0.5 block text-xs text-slate-500">
+                    {{ satToBtcNm(openInboundChannel.fundedSatoshis).format('0,0.[00000000]') }} BTC with
+                    {{ channelCosignerLabel(openInboundChannel) }}
+                  </span>
+                </span>
+                <ChevronRightIcon class="size-4 shrink-0 text-slate-400" />
+              </button>
             </div>
             <div v-else-if="displayedChannel" class="min-h-48 px-5 py-4">
               <div v-if="channelDisplayError" class="flex flex-col gap-4">
@@ -194,11 +214,8 @@
                     </span>
                   </div>
                   <div class="flex items-center gap-4 border-t border-slate-200 py-3">
-                    <span v-if="isMyVaultChannel(displayedChannel)">In my Vault</span>
-                    <template v-else>
-                      <span class="grow text-slate-500">Cosigner</span>
-                      <span>{{ channelCosignerLabel(displayedChannel) }}</span>
-                    </template>
+                    <span class="grow text-slate-500">Cosigner</span>
+                    <span>{{ channelCosignerLabel(displayedChannel) }}</span>
                   </div>
                 </div>
                 <a
@@ -276,12 +293,7 @@
                     "
                     class="rounded-md bg-amber-50 px-3 py-3 text-sm text-amber-800"
                   >
-                    <template v-if="isMyVaultChannel(displayedChannel)">
-                      Your Vault does not currently have capacity for more insurance.
-                    </template>
-                    <template v-else>
-                      {{ channelCosignerLabel(displayedChannel) }} does not currently have capacity for more insurance.
-                    </template>
+                    {{ channelCosignerLabel(displayedChannel) }} does not currently have capacity for more insurance.
                   </div>
 
                   <div v-if="!isLoadingAddInsuranceTerms" class="flex flex-col gap-x-3">
@@ -375,11 +387,8 @@
                 </div>
                 <div class="mt-4 w-full text-left">
                   <div class="mb-1 text-sm font-semibold text-slate-500">
-                    <template v-if="isMyVaultChannel(displayedChannel)">In my Vault</template>
-                    <template v-else>
-                      Cosigner:
-                      <span class="text-slate-700">{{ channelCosignerLabel(displayedChannel) }}</span>
-                    </template>
+                    Cosigner:
+                    <span class="text-slate-700">{{ channelCosignerLabel(displayedChannel) }}</span>
                   </div>
                   <div class="flex items-center gap-2 rounded-md border border-slate-300 bg-slate-50 px-3 py-2">
                     <span data-testid="ConnectorChannel.fundingAddress" class="min-w-0 grow truncate font-mono text-xs">
@@ -396,33 +405,52 @@
               </div>
             </div>
             <div v-else class="min-h-48 px-5 py-4">
-              <p class="text-md font-light">
-                <template v-if="isMyDefaultVault">Create a reusable Bitcoin receive address in your Vault.</template>
-                <template v-else>Create a reusable Bitcoin receive address with your cosigner.</template>
-              </p>
+              <p class="text-md font-light">Create a reusable Bitcoin receive address with your cosigner.</p>
 
               <div class="mt-4 flex flex-col">
-                <label class="mb-1 font-bold text-gray-500/80">
-                  <template v-if="isMyDefaultVault">In my Vault</template>
-                  <template v-else>
-                    Cosigner
-                    <span class="font-light">(change)</span>
-                  </template>
-                </label>
+                <div class="mb-1 flex items-center gap-1">
+                  <label class="font-bold text-gray-500/80">Cosigner</label>
+                  <Tooltip
+                    :asChild="true"
+                    content="A cosigner is a multisig guarantor of your BTC. They provide insurance against any loss of your underlying BTC so you can re-purchase if necessary."
+                    side="top"
+                  >
+                    <button
+                      type="button"
+                      aria-label="About this cosigner"
+                      class="text-argon-600/30 hover:text-argon-600 cursor-pointer"
+                    >
+                      <InfoIcon class="w-4" />
+                    </button>
+                  </Tooltip>
+                </div>
+                <InputMenu
+                  v-if="cosignerOptions.length > 1"
+                  v-model="selectedVaultId"
+                  :options="cosignerOptions"
+                  dataTestid="ConnectorChannel.cosigner"
+                  ariaLabel="Cosigner"
+                  class="h-9! font-sans! text-sm! text-gray-500/80"
+                />
                 <div
-                  class="relative grow truncate rounded-md border border-slate-900/20 px-2 py-1.5 whitespace-nowrap text-gray-500/80"
+                  v-else
+                  class="grow truncate rounded-md border border-slate-900/20 px-2 py-1.5 whitespace-nowrap text-gray-500/80"
                 >
-                  {{ isMyDefaultVault ? 'My Vault' : upstreamOperatorName }}
-                  <InfoIcon
-                    class="text-argon-600/30 hover:text-argon-600 absolute top-1/2 right-2 w-4 -translate-y-1/2"
-                  />
+                  {{ selectedCosignerLabel }}
                 </div>
               </div>
 
               <div class="relative mt-4 flex flex-col">
                 <div class="flex flex-row items-center">
                   <label class="mb-1 grow font-bold text-gray-500/80">Insurance guarantee</label>
-                  <a href="" class="text-sm opacity-50 hover:opacity-100">Info</a>
+                  <a
+                    :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/bitcoin-locks`"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="text-sm opacity-50 hover:opacity-100"
+                  >
+                    Info
+                  </a>
                 </div>
                 <InputToken
                   v-model="insuranceAmount"
@@ -533,6 +561,7 @@ import ButtonClose from './ButtonClose.vue';
 import ButtonCopy from './ButtonCopy.vue';
 import InputToken from '../../components/InputToken.vue';
 import CountdownClock from '../../components/CountdownClock.vue';
+import Tooltip from '../../components/Tooltip.vue';
 import * as Vue from 'vue';
 import BigNumber from 'bignumber.js';
 import dayjs from 'dayjs';
@@ -543,6 +572,7 @@ import {
   bigIntMin,
   bigNumberToBigInt,
   BitcoinLock,
+  NetworkConfig,
   UnitOfMeasurement,
   type Vault,
 } from '@argonprotocol/apps-core';
@@ -562,6 +592,7 @@ import { getMyVault, getVaults } from '../../stores/vaults.ts';
 import AlertIcon from '../../assets/alert.svg?component';
 import ClockIcon from '../../assets/clock.svg?component';
 import ProgressBar from '../../components/ProgressBar.vue';
+import InputMenu, { type IOption } from '../../components/InputMenu.vue';
 import { getBitcoinLockCoupons, getBitcoinLocks, getBitcoinTransactionOperations } from '../../stores/bitcoin.ts';
 import { getMainchainClient, getMiningFrames } from '../../stores/mainchain.ts';
 import { getWalletKeys } from '../../stores/wallets.ts';
@@ -578,6 +609,7 @@ const props = withDefaults(
     direction: 'right' | 'left';
     mode?: 'channel' | 'insurance';
     open: boolean;
+    vaultId?: number;
     wallet: WalletForBitcoin;
   }>(),
   { mode: 'channel' },
@@ -602,6 +634,7 @@ const { microgonToArgonNm, satToBtcNm } = createNumeralHelpers(currency);
 const argonSymbol = currency.recordsByKey[UnitOfMeasurement.ARGN].symbol;
 
 const isSliding = Vue.ref(false);
+const selectedVaultId = Vue.ref('');
 const insuranceAmount = Vue.ref(0n);
 const maxValue = Vue.ref(0n);
 const isCreatingChannelRequest = Vue.ref(false);
@@ -679,15 +712,39 @@ const upstreamOperatorName = Vue.computed(() => {
 });
 const couponProviderLabel = Vue.computed(() => config.upstreamOperator?.name || 'The vault operator');
 
-const defaultVault = Vue.computed(() => {
-  const vaultId = myVault.vaultId;
-  if (vaultId) return vaults.vaultsById[vaultId] ?? myVault.createdVault;
+const cosignerChoices = Vue.computed(() => {
+  if (props.vaultId != null) {
+    const vault =
+      props.vaultId === myVault.createdVault?.vaultId ? myVault.createdVault : vaults.vaultsById[props.vaultId];
+    if (!vault) return [];
+    return [
+      {
+        vault,
+        name: vault.vaultId === myVault.createdVault?.vaultId ? 'My Vault' : upstreamOperatorName.value,
+      },
+    ];
+  }
 
+  const choices: { vault: Vault; name: string }[] = [];
   const upstreamVaultId = config.upstreamOperator?.vaultId;
-  if (upstreamVaultId) return vaults.vaultsById[upstreamVaultId];
+  const upstreamVault = upstreamVaultId == null ? undefined : vaults.vaultsById[upstreamVaultId];
+  if (upstreamVault) choices.push({ vault: upstreamVault, name: upstreamOperatorName.value });
+  if (myVault.createdVault) choices.push({ vault: myVault.createdVault, name: 'My Vault' });
+  return choices;
 });
-const isMyDefaultVault = Vue.computed(() => defaultVault.value?.vaultId === myVault.vaultId);
-const openInboundChannel = Vue.computed(() => props.wallet.getOpenInboundChannel());
+const cosignerOptions = Vue.computed<IOption[]>(() =>
+  cosignerChoices.value.map(({ vault, name }) => ({ name, value: vault.vaultId.toString() })),
+);
+const defaultVault = Vue.computed(() => {
+  return cosignerChoices.value.find(({ vault }) => vault.vaultId.toString() === selectedVaultId.value)?.vault;
+});
+const selectedCosignerLabel = Vue.computed(() => {
+  return cosignerChoices.value.find(({ vault }) => vault.vaultId.toString() === selectedVaultId.value)?.name ?? '';
+});
+const openInboundChannel = Vue.computed(() => {
+  progressNow.value;
+  return props.wallet.getOpenInboundChannel();
+});
 const displayedChannel = Vue.computed(() => {
   const uuid = sessionChannelUuid.value;
   if (!uuid) return;
@@ -699,9 +756,17 @@ const pendingAddInsuranceTxInfo = Vue.computed(() => {
   return utxoId == null ? undefined : bitcoinLockResecuritize.getPendingResecuritizationTxInfo(utxoId);
 });
 const archivedChannels = Vue.computed(() => props.wallet.getArchivedChannels());
+const pendingUnattachedDeposits = Vue.computed(() => props.wallet.getPendingUnattachedDeposits());
+const pendingUnattachedSatoshis = Vue.computed(() => {
+  return pendingUnattachedDeposits.value.reduce((total, record) => total + record.satoshis, 0n);
+});
 const orphanRecords = Vue.computed(() => props.wallet.getUnresolvedOrphanDeposits());
 const hasChannelOverviewContent = Vue.computed(
-  () => archivedChannels.value.length > 0 || orphanRecords.value.length > 0,
+  () =>
+    archivedChannels.value.length > 0 || pendingUnattachedDeposits.value.length > 0 || orphanRecords.value.length > 0,
+);
+const hasDepositAttention = Vue.computed(
+  () => pendingUnattachedDeposits.value.length > 0 || orphanRecords.value.length > 0,
 );
 const showChannelOverview = Vue.computed(
   () => hasChannelOverviewContent.value && !displayedChannel.value && !isShowingChannelForm.value,
@@ -713,10 +778,6 @@ const selectedOrphanLock = Vue.computed(() => {
 const firstOrphanCosignerLabel = Vue.computed(() => {
   const lock = bitcoinLocks.getLockByUtxoId(orphanRecords.value[0]?.lockUtxoId ?? -1);
   return lock ? channelCosignerLabel(lock) : '';
-});
-const firstOrphanIsInMyVault = Vue.computed(() => {
-  const lock = bitcoinLocks.getLockByUtxoId(orphanRecords.value[0]?.lockUtxoId ?? -1);
-  return lock ? isMyVaultChannel(lock) : false;
 });
 const currentInsuranceCoverageMicrogons = Vue.computed(
   () => displayedChannel.value?.securitizationCoverageMicrogons ?? 0n,
@@ -853,6 +914,14 @@ const channelE2eState = Vue.computed(() => {
 
 Vue.watch(defaultVault, (vault, _, onCleanup) => void updateMaximumInsurance(vault, onCleanup), { immediate: true });
 Vue.watch(
+  cosignerChoices,
+  choices => {
+    if (choices.some(({ vault }) => vault.vaultId.toString() === selectedVaultId.value)) return;
+    selectedVaultId.value = choices[0]?.vault.vaultId.toString() ?? '';
+  },
+  { immediate: true },
+);
+Vue.watch(
   () => [props.open, defaultVault.value?.vaultId, props.channelUuid] as const,
   ([open], _, onCleanup) => {
     const sessionKey = ++channelSessionKey;
@@ -899,11 +968,25 @@ Vue.watch(
 );
 Vue.watch(
   openInboundChannel,
-  channel => {
-    if (props.open && !sessionChannelUuid.value && channel) {
+  (channel, previousChannel) => {
+    if (!props.open || props.mode === 'insurance' || hasDepositAttention.value) return;
+    if (props.vaultId && !sessionChannelUuid.value) return;
+
+    const requestedChannel = displayedChannel.value;
+    if (props.channelUuid && requestedChannel?.uuid === props.channelUuid) {
+      if (requestedChannel.status === BitcoinLockStatus.LockFailed) return;
+      if (props.wallet.isOpenInboundChannel(requestedChannel)) return;
+
       openedChannel.value = channel;
-      sessionChannelUuid.value = channel.uuid;
+      sessionChannelUuid.value = channel?.uuid;
+      return;
     }
+
+    if (props.channelUuid) return;
+    if (sessionChannelUuid.value && sessionChannelUuid.value !== previousChannel?.uuid) return;
+
+    openedChannel.value = channel;
+    sessionChannelUuid.value = channel?.uuid;
   },
   { immediate: true },
 );
@@ -917,15 +1000,16 @@ Vue.watch(
 Vue.watch(
   () => [props.open, props.channelUuid, displayedChannel.value?.uuid, displayedChannel.value?.status] as const,
   ([open, requestedChannelUuid, displayedChannelUuid, status]) => {
-    if (!open || !displayedChannelUuid || status !== BitcoinLockStatus.LockFunded) return;
-    if (props.mode === 'insurance' && requestedChannelUuid) {
-      if (!isAddingInsurance.value) void beginAddInsurance();
+    if (
+      props.mode !== 'insurance' ||
+      !open ||
+      !requestedChannelUuid ||
+      !displayedChannelUuid ||
+      status !== BitcoinLockStatus.LockFunded
+    ) {
       return;
     }
-
-    openedChannel.value = undefined;
-    sessionChannelUuid.value = undefined;
-    if (!hasChannelOverviewContent.value) emit('update:open', false);
+    if (!isAddingInsurance.value) void beginAddInsurance();
   },
   { immediate: true },
 );
@@ -938,8 +1022,20 @@ async function loadChannels(sessionKey = channelSessionKey, onCleanup?: (cleanup
   try {
     await props.wallet.loadChannels();
     if (cancelled || sessionKey !== channelSessionKey || !props.open) return;
-    const channel = props.channelUuid ? props.wallet.getChannel(props.channelUuid) : openInboundChannel.value;
-    if (props.channelUuid && !channel) throw new Error('The requested Bitcoin channel is no longer available.');
+    let channel: IBitcoinLockRecord | undefined;
+    if (props.channelUuid) {
+      const requestedChannel = props.wallet.getChannel(props.channelUuid);
+      if (!requestedChannel) throw new Error('The requested Bitcoin channel is no longer available.');
+      if (
+        props.mode === 'insurance' ||
+        requestedChannel.status === BitcoinLockStatus.LockFailed ||
+        props.wallet.isOpenInboundChannel(requestedChannel)
+      ) {
+        channel = requestedChannel;
+      }
+    } else if (!props.vaultId && !hasDepositAttention.value) {
+      channel = openInboundChannel.value;
+    }
     openedChannel.value = channel;
     sessionChannelUuid.value = channel?.uuid;
   } catch (error) {
@@ -1196,17 +1292,11 @@ async function submitAddInsurance(): Promise<void> {
     if (addInsuranceTargetCoverageMicrogons.value > maximumInsuranceCoverageMicrogons.value) {
       addInsuranceTargetCoverageMicrogons.value = maximumInsuranceCoverageMicrogons.value;
       updateAddInsuranceFee();
-      throw new Error(
-        isMyVaultChannel(channel)
-          ? 'Your Vault capacity changed. Review the updated maximum and try again.'
-          : 'The cosigner capacity changed. Review the updated maximum and try again.',
-      );
+      throw new Error(`${channelCosignerLabel(channel)} capacity changed. Review the updated maximum and try again.`);
     }
     const vault = vaults.vaultsById[channel.vaultId];
     if (!vault) {
-      throw new Error(
-        isMyVaultChannel(channel) ? 'Your Vault is currently unavailable.' : 'This cosigner is currently unavailable.',
-      );
+      throw new Error(`${channelCosignerLabel(channel)} is currently unavailable.`);
     }
 
     const securitizedSatoshis = bigIntMin(
@@ -1283,11 +1373,8 @@ function returnFromOrphan(): void {
 }
 
 function channelCosignerLabel(channel: IBitcoinLockRecord): string {
+  if (channel.vaultId === (myVault.createdVault?.vaultId ?? myVault.vaultId)) return 'My Vault';
   return vaults.operatorNamesByVaultId[channel.vaultId] ?? upstreamOperatorName.value;
-}
-
-function isMyVaultChannel(channel: IBitcoinLockRecord): boolean {
-  return channel.vaultId === myVault.vaultId;
 }
 
 function keepOpenForRelatedConnector(event: PointerDownOutsideEvent) {

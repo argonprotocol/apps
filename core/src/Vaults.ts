@@ -536,8 +536,8 @@ export class Vaults {
     return Math.round((epochPoolCapital / activatedSecuritization) * 100);
   }
 
-  public calculateArgonBondsApr(): number {
-    const frames = this.selectReturnFrames(this.stats);
+  public calculateArgonBondsApr(vaultId?: number): number {
+    const frames = this.selectReturnFrames(this.stats, vaultId);
     const positions = frames.map(frame => {
       const externalEarnings = frame.treasuryPool.totalEarnings - frame.treasuryPool.vaultEarnings;
       const startingCapital = frame.treasuryPool.externalCapital + frame.treasuryPool.vaultCapital;

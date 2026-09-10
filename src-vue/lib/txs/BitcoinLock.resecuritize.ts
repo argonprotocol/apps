@@ -209,22 +209,23 @@ export class BitcoinLockResecuritize extends TransactionOperation<
   }
 
   protected async onFinalized(txInfo: TransactionInfo<IBitcoinResecuritizationMetadata>): Promise<void> {
-    const blockHash = await txInfo.txResult.waitForFinalizedBlock;
+    await txInfo.txResult.waitForFinalizedBlock;
     await this.transactionTracker.ensureStoredEvents(txInfo);
-    await this.finalizeResecuritization(txInfo.tx.metadataJson, blockHash);
+    await this.finalizeResecuritization(txInfo.tx.metadataJson, txInfo);
   }
 
   public async finalizeResecuritization(
     metadata: IBitcoinResecuritizationMetadata,
-    blockHash: Uint8Array,
+    txInfo: TransactionInfo,
   ): Promise<void> {
     const { utxoId, feeCouponRequestId } = metadata.bitcoin;
     const lock = this.bitcoinLocks.getLockByUtxoId(utxoId);
     if (lock) {
       const client = await getMainchainClient(true);
+      const blockHash = await txInfo.txResult.waitForFinalizedBlock;
       const current = await BitcoinLock.get(await client.at(blockHash), utxoId);
       if (!current) throw new Error(`Bitcoin Lock #${utxoId} was not found after resecuritization.`);
-      await this.bitcoinLocks.updateCurrentLock(lock, current);
+      await this.bitcoinLocks.updateCurrentLock(lock, current, txInfo);
     }
     if (feeCouponRequestId) {
       await this.upstreamOperatorClient.recordBitcoinLockFeeCouponUse(feeCouponRequestId, 'Finalized');

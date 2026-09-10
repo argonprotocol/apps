@@ -72,6 +72,7 @@
                   :guidanceContext="openWallet.guidanceContext"
                   @dragStart="draggable.onMouseDown($event)"
                   @goto="showView"
+                  @openBitcoinConnector="openBitcoinConnector"
                   @close="closeWalletViewOrOverlay"
                 />
                 <WalletViewSend
@@ -91,7 +92,7 @@
                   :guidanceContext="openWallet.guidanceContext"
                   @dragStart="draggable.onMouseDown($event)"
                   @goto="showView"
-                  @openBitcoinConnector="openBitcoinConnectorFromReceive"
+                  @openBitcoinConnector="openBitcoinConnector"
                   @close="closeWalletViewOrOverlay"
                 />
                 <WalletViewPrivateKey
@@ -128,6 +129,7 @@
                 <Connector
                   :wallet="walletStore.bitcoinWallet"
                   :bitcoinChannelUuid="openWallet.bitcoinChannelUuid"
+                  :bitcoinChannelVaultId="openWallet.bitcoinChannelVaultId"
                   direction="left"
                   :open="openWallet.activeConnector === walletStore.bitcoinWallet"
                   :transferDirections="bitcoinTransferDirections"
@@ -254,6 +256,7 @@ import { twMerge } from 'tailwind-merge';
 
 type IOpenWallet = IWalletOverlayState & {
   bitcoinChannelUuid?: string;
+  bitcoinChannelVaultId?: number;
   showGuidance: boolean;
   guidanceContext?: IWalletGuidanceContext;
   zIndex: number;
@@ -344,6 +347,7 @@ const openWalletOverlay = async (options: IWalletOverlayOptions) => {
   if (openWallet.value) {
     Object.assign(openWallet.value, showWalletView(openWallet.value, options.view ?? 'main', activeConnector));
     openWallet.value.bitcoinChannelUuid = options.bitcoinChannelUuid;
+    openWallet.value.bitcoinChannelVaultId = options.bitcoinChannelVaultId;
     openWallet.value.showGuidance = options.showGuidance ?? false;
     openWallet.value.guidanceContext = options.guidanceContext;
     focusWallet();
@@ -355,6 +359,7 @@ const openWalletOverlay = async (options: IWalletOverlayOptions) => {
   openWallet.value = {
     ...showWalletView(initialState, options.view ?? 'main', activeConnector),
     bitcoinChannelUuid: options.bitcoinChannelUuid,
+    bitcoinChannelVaultId: options.bitcoinChannelVaultId,
     showGuidance: options.showGuidance ?? false,
     guidanceContext: options.guidanceContext,
     zIndex: reserveOverlayZIndex(),
@@ -372,7 +377,7 @@ function openAddConnectorFromOverlay() {
   Object.assign(openWallet.value, showAddWalletInOverlay(openWallet.value, 'external'));
 }
 
-function openBitcoinConnectorFromReceive() {
+function openBitcoinConnector() {
   if (!openWallet.value) return;
   Object.assign(openWallet.value, showWalletView(openWallet.value, 'main', walletStore.bitcoinWallet));
 }

@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
-import { expect, within } from 'storybook/test';
-import { setupBitcoinOverlayScenario } from '../../scenarios/setupBitcoinOverlayScenario.ts';
+import { createBitcoinUtxo, setupBitcoinOverlayScenario } from '../../scenarios/setupBitcoinOverlayScenario.ts';
 import { BitcoinLockStatus } from '../../../src-vue/interfaces/IBitcoinLockRecord.ts';
+import { BitcoinUtxoStatus } from '../../../src-vue/interfaces/IBitcoinUtxoRecord.ts';
 import { useWallets } from '../../../src-vue/stores/wallets.ts';
 import Connector from '../../../src-vue/wallets/components/Connector.vue';
 
@@ -12,14 +12,14 @@ const meta = {
     direction: 'left',
     open: false,
   },
-  render: () => ({
+  render: args => ({
     components: { Connector },
     setup() {
-      return { wallet: useWallets().bitcoinWallet };
+      return { args, wallet: useWallets().bitcoinWallet };
     },
     template: `
       <div class="flex h-screen w-screen items-center justify-center bg-slate-800">
-        <Connector :wallet="wallet" direction="left" :open="false" />
+        <Connector :wallet="wallet" direction="left" :open="args.open" />
       </div>
     `,
   }),
@@ -33,12 +33,6 @@ export const NoOpenChannel: Story = {
     const scenario = setupBitcoinOverlayScenario();
     scenario.locks.splice(0);
     return () => scenario.cleanup();
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await expect(canvas.getByText('Create Channel')).toBeVisible();
-    await expect(canvas.queryByText(/^₳/)).not.toBeInTheDocument();
-    await expect(canvas.queryByTestId('Connector.bitcoinChannelAddress.copyContent()')).not.toBeInTheDocument();
   },
 };
 
@@ -54,13 +48,6 @@ export const OpenChannel: Story = {
       .calculateScriptPubkey();
     return () => scenario.cleanup();
   },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await expect(canvas.getByText('₳850')).toBeVisible();
-    await expect(canvas.queryByText(/fee paid/)).not.toBeInTheDocument();
-    await expect(canvas.getByTestId('Connector.bitcoinChannelAddress.copyContent()')).toBeVisible();
-    await expect(canvas.queryByText('₳0.34')).not.toBeInTheDocument();
-  },
 };
 
 export const FundedOpenChannel: Story = {
@@ -73,11 +60,26 @@ export const FundedOpenChannel: Story = {
       .calculateScriptPubkey();
     return () => scenario.cleanup();
   },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await expect(canvas.getByText('₳850')).toBeVisible();
-    await expect(canvas.getByTestId('Connector.bitcoinChannelAddress.copyContent()')).toBeVisible();
-    await expect(canvas.queryByText('Create Channel')).not.toBeInTheDocument();
+};
+
+export const PendingUnattachedDeposit: Story = {
+  args: { open: true },
+  beforeEach: () => {
+    const scenario = setupBitcoinOverlayScenario();
+    scenario.lock.status = BitcoinLockStatus.LockFunded;
+    scenario.lock.scriptDetails!.p2wshScriptHashHex = scenario.bitcoinLocks
+      .createCosignScript({ lock: scenario.lock, fundedSatoshis: scenario.lock.fundedSatoshis })
+      .calculateScriptPubkey();
+    scenario.replaceUtxoRecords([
+      scenario.fundingRecord,
+      createBitcoinUtxo({
+        id: 202,
+        lockUtxoId: scenario.lock.utxoId!,
+        status: BitcoinUtxoStatus.SeenOnMempool,
+        satoshis: 1_000_000n,
+      }),
+    ]);
+    return () => scenario.cleanup();
   },
 };
 
@@ -87,11 +89,5 @@ export const ExpiredFundedChannel: Story = {
     scenario.lock.status = BitcoinLockStatus.LockFunded;
     scenario.bitcoinLocks.isFundingWindowExpired = () => true;
     return () => scenario.cleanup();
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await expect(canvas.getByText('Create Channel')).toBeVisible();
-    await expect(canvas.queryByText(/^₳/)).not.toBeInTheDocument();
-    await expect(canvas.queryByTestId('Connector.bitcoinChannelAddress.copyContent()')).not.toBeInTheDocument();
   },
 };

@@ -1,6 +1,6 @@
 <template>
   <div class="BondRecord Component flex flex-col">
-    <section ActiveRecord :class="isActionHovered ? '' : 'hover:bg-slate-50'">
+    <section ActiveRecord>
       <StakeIcon v-if="bondLot.programType === 'Argonot'" MainIcon />
       <BondIcon v-else MainIcon />
       <div ContentWrapper>
@@ -36,20 +36,6 @@
               <span v-else-if="minutes > 0">{{ minutes }}m, {{ seconds }}s</span>
               <span v-else>{{ seconds }}s</span>
             </CountdownClock>
-          </div>
-          <div
-            v-else
-            class="text-md flex grow flex-row items-center justify-end gap-x-2 text-right"
-            @mouseenter="isActionHovered = true"
-            @mouseleave="isActionHovered = false"
-          >
-            <button
-              @click.stop="emit('liquidate', bondLot)"
-              :disabled="isReleasing"
-              class="border-argon-600 hover:bg-argon-500/20 text-argon-600 cursor-pointer rounded-md border bg-white px-5 hover:shadow-lg"
-            >
-              {{ isReleasing ? 'Liquidating...' : 'Liquidate' }}
-            </button>
           </div>
         </div>
         <div SecondRow>
@@ -120,11 +106,6 @@ const props = withDefaults(
   },
 );
 
-const emit = defineEmits<{
-  liquidate: [bondLot: BondLot];
-}>();
-
-const isActionHovered = Vue.ref(false);
 const vaultLabel = Vue.computed(() => {
   if (props.bondLot.programType === 'Argonot') return;
 

@@ -25,6 +25,8 @@
       <div class="rounded-lg bg-slate-50 px-4 py-4 ring-1 ring-slate-200">
         <div class="text-sm font-semibold tracking-wide text-slate-500 uppercase">
           {{ isAdditionalDeposit ? 'Additional Bitcoin received' : 'Orphaned Bitcoin received' }}
+          <span aria-hidden="true">·</span>
+          {{ vaultName }}
         </div>
         <div class="mt-3 grid grid-cols-2 divide-x divide-slate-200">
           <div class="pr-4">
@@ -100,7 +102,17 @@
         <p v-else-if="argonFeeQuote" class="text-sm text-slate-500">
           Argon transaction fee: approximately {{ formatArgon(argonFeeQuote.txFee) }}.
         </p>
-        <p v-else-if="argonFeeQuoteError" class="text-sm text-red-700">{{ argonFeeQuoteError }}</p>
+        <div v-else-if="argonFeeQuoteError" class="flex items-center justify-between gap-3 text-sm text-red-700">
+          <p>{{ argonFeeQuoteError }}</p>
+          <button
+            type="button"
+            data-testid="BitcoinOrphanRecoveryOverlay.retryArgonFeeQuote()"
+            class="text-argon-600 shrink-0 cursor-pointer font-semibold hover:underline"
+            @click="queueArgonFeeQuote"
+          >
+            Try again
+          </button>
+        </div>
       </div>
 
       <div v-else class="space-y-4">
@@ -203,7 +215,9 @@ import ProgressBar from '../components/ProgressBar.vue';
 import BitcoinFeeRateInput from './bitcoin-locking/components/BitcoinFeeRateInput.vue';
 import { getBitcoinNetworkName, validateBitcoinAddressForNetwork } from '../lib/BitcoinAddressValidation.ts';
 import { getBitcoinLocks, getBitcoinTransactionOperations } from '../stores/bitcoin.ts';
+import { getConfig } from '../stores/config.ts';
 import { getCurrency } from '../stores/currency.ts';
+import { getMyVault, getVaults } from '../stores/vaults.ts';
 import { getWalletKeys, useWallets } from '../stores/wallets.ts';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import { BitcoinUtxoRole, BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
@@ -223,7 +237,10 @@ const props = defineProps<{
 const emit = defineEmits<{ back: []; close: [] }>();
 const bitcoinLocks = getBitcoinLocks();
 const { bitcoinOrphanRelease } = getBitcoinTransactionOperations();
+const config = getConfig();
 const currency = getCurrency();
+const myVault = getMyVault();
+const vaults = getVaults();
 const wallets = useWallets();
 const { microgonToArgonNm } = createNumeralHelpers(currency);
 const mempool = new BitcoinMempool(ESPLORA_HOST);
@@ -243,6 +260,13 @@ const isArgonRequestInProgress = Vue.ref(false);
 const bitcoinAmount = Vue.computed(() =>
   numeral(currency.convertSatToBtc(props.record.satoshis)).format('0,0.[00000000]'),
 );
+const vaultName = Vue.computed(() => {
+  if (props.lock.vaultId === (myVault.createdVault?.vaultId ?? myVault.vaultId)) return 'My Vault';
+  const operatorName =
+    vaults.operatorNamesByVaultId[props.lock.vaultId] ??
+    (config.upstreamOperator?.vaultId === props.lock.vaultId ? config.upstreamOperator.name : undefined);
+  return operatorName ? `${operatorName} Vault` : 'Vault';
+});
 const acceptedFundingRecord = Vue.computed(() => bitcoinLocks.getAcceptedFundingRecord(props.lock));
 const isAdditionalDeposit = Vue.computed(() => {
   const fundingRecord = acceptedFundingRecord.value;
@@ -341,23 +365,17 @@ let feeQuoteRunId = 0;
 let stopArgonRequestProgress: (() => void) | undefined;
 let isDisposed = false;
 
+Vue.watch([trimmedDestination, feeRatePerSatVb], queueArgonFeeQuote, { immediate: true });
 Vue.watch(
-  [trimmedDestination, feeRatePerSatVb, () => wallets.defaultArgonWallet.availableMicrogons],
-  () => {
-    if (feeQuoteTimeout) clearTimeout(feeQuoteTimeout);
-    const runId = ++feeQuoteRunId;
-    argonFeeQuote.value = undefined;
-    argonFeeQuoteError.value = '';
-    requestError.value = '';
-    if (!trimmedDestination.value || destinationError.value) {
-      isCheckingArgonFee.value = false;
-      return;
-    }
-
-    isCheckingArgonFee.value = true;
-    feeQuoteTimeout = setTimeout(() => void refreshArgonFeeQuote(runId), 200);
+  () => wallets.defaultArgonWallet.availableMicrogons,
+  availableBalance => {
+    if (!argonFeeQuote.value) return;
+    argonFeeQuote.value = {
+      ...argonFeeQuote.value,
+      availableBalance,
+      canAfford: availableBalance >= argonFeeQuote.value.txFee,
+    };
   },
-  { immediate: true },
 );
 
 Vue.onUnmounted(() => {
@@ -367,6 +385,24 @@ Vue.onUnmounted(() => {
 });
 
 Vue.onMounted(() => trackArgonRequestProgress());
+
+function queueArgonFeeQuote(): void {
+  if (feeQuoteTimeout) clearTimeout(feeQuoteTimeout);
+  const runId = ++feeQuoteRunId;
+  argonFeeQuote.value = undefined;
+  argonFeeQuoteError.value = '';
+  requestError.value = '';
+  if (!trimmedDestination.value || destinationError.value) {
+    isCheckingArgonFee.value = false;
+    return;
+  }
+
+  isCheckingArgonFee.value = true;
+  feeQuoteTimeout = setTimeout(() => {
+    feeQuoteTimeout = undefined;
+    void refreshArgonFeeQuote(runId);
+  }, 200);
+}
 
 async function requestReturn(): Promise<void> {
   if (!canSubmit.value) return;
@@ -423,8 +459,9 @@ async function refreshArgonFeeQuote(runId: number): Promise<void> {
       availableBalance: prepared.availableBalance,
       txFee: prepared.txFeePlusTip,
     };
-  } catch {
+  } catch (error) {
     if (runId !== feeQuoteRunId) return;
+    console.warn('[BitcoinOrphanRecoveryOverlay] Unable to check the Argon transaction fee', error);
     argonFeeQuoteError.value = 'Unable to check the Argon transaction fee. Please try again.';
   } finally {
     if (runId === feeQuoteRunId) isCheckingArgonFee.value = false;

@@ -1,3 +1,5 @@
+import { BitcoinFission } from '@argonprotocol/apps-core';
+
 import { convertFromSqliteFields, toSqlParams } from '../Utils.ts';
 import type { IBitcoinFissionRatchetRecord, IBitcoinFissionRecord } from '../../interfaces/IBitcoinFissionRecord.ts';
 import { BaseTable, type IFieldTypes } from './BaseTable.ts';
@@ -123,6 +125,73 @@ export class BitcoinFissionsTable extends BaseTable {
       toSqlParams([record.ownerAccount, record.fissionId]),
     );
     for (const ratchet of record.ratchets) await this.upsertRatchet(record, ratchet);
+  }
+
+  public async getByFissionId(ownerAccount: string, fissionId: number): Promise<IBitcoinFissionRecord | undefined> {
+    const storedRecords = await this.db.select<Omit<IBitcoinFissionRecord, 'ratchets'>[]>(
+      `SELECT *
+       FROM BitcoinFissions
+       WHERE ownerAccount = ? AND fissionId = ?
+       LIMIT 1`,
+      toSqlParams([ownerAccount, fissionId]),
+    );
+    const [record] = convertFromSqliteFields<Omit<IBitcoinFissionRecord, 'ratchets'>[]>(
+      storedRecords,
+      this.recordFieldTypes,
+    );
+    if (!record) return;
+
+    const storedRatchets = await this.db.select<StoredFissionRatchet[]>(
+      `SELECT *
+       FROM BitcoinFissionRatchets
+       WHERE ownerAccount = ? AND fissionId = ?
+       ORDER BY blockNumber, COALESCE(extrinsicIndex, -1), sourceRatchetIndex, source`,
+      toSqlParams([ownerAccount, fissionId]),
+    );
+    return {
+      ...record,
+      ratchets: convertFromSqliteFields<StoredFissionRatchet[]>(storedRatchets, this.ratchetFieldTypes),
+    };
+  }
+
+  public async saveRecoveredRecord(recovered: IBitcoinFissionRecord): Promise<IBitcoinFissionRecord> {
+    const durable = await this.getByFissionId(recovered.ownerAccount, recovered.fissionId);
+    if (!durable) {
+      await this.replaceRecord(recovered);
+      return recovered;
+    }
+
+    const fission = new BitcoinFission(durable);
+    fission.mergeRecoveredRecord(recovered);
+    const record: IBitcoinFissionRecord = {
+      ...fission,
+      origin: fission.origin ?? durable.origin,
+      createdAt: fission.createdAt ?? durable.createdAt,
+      updatedAt: fission.updatedAt ?? durable.updatedAt,
+    };
+    await this.replaceRecord(record);
+    return record;
+  }
+
+  public async updateMintPending(
+    record: Pick<IBitcoinFissionRecord, 'ownerAccount' | 'fissionId' | 'ratchets'>,
+  ): Promise<void> {
+    await this.db.transaction(async transaction => {
+      for (const ratchet of record.ratchets) {
+        await transaction.execute(
+          `UPDATE BitcoinFissionRatchets
+           SET mintPending = ?
+           WHERE ownerAccount = ? AND fissionId = ? AND source = ? AND sourceRatchetIndex = ?`,
+          toSqlParams([
+            ratchet.mintPending,
+            record.ownerAccount,
+            record.fissionId,
+            ratchet.source,
+            ratchet.sourceRatchetIndex,
+          ]),
+        );
+      }
+    });
   }
 
   private async upsertFission(record: IBitcoinFissionRecord): Promise<void> {

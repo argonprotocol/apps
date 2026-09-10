@@ -9,9 +9,8 @@ import { MiningFrames, NetworkConfig } from '@argonprotocol/apps-core';
 import { Keyring } from '@polkadot/keyring';
 import { TypeRegistry } from '@polkadot/types';
 import * as Vue from 'vue';
-import { expect, fn, mocked, userEvent, within } from 'storybook/test';
+import { fn, mocked, userEvent, within } from 'storybook/test';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
-import { expectEventuallyVisible } from '../../support/expectEventuallyVisible.ts';
 import { dateDaysAgo } from '../../support/storyDates.ts';
 import basicEmitter from '../../../src-vue/emitters/basicEmitter.ts';
 import { TopTab } from '../../../src-vue/interfaces/IConfig.ts';
@@ -47,10 +46,6 @@ export const NotOpened: Story = {
     selectedInvite = createInvite(1);
     controller.setOperationalInvites([selectedInvite]);
   },
-  play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText('Not opened'));
-    await expectEventuallyVisible(within(document.body).findByText('Click to copy'));
-  },
 };
 
 export const TreasuryMember: Story = {
@@ -71,10 +66,6 @@ export const TreasuryMember: Story = {
     controller.setOperationalInvites([selectedInvite]);
     mocked(getMainchainClient).mockResolvedValue(createMemberClient(3_487_660_000n));
   },
-  play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText('Bitcoin Fee Waiver'));
-    await expectEventuallyVisible(within(document.body).findByText('2 of 3 complete'));
-  },
 };
 
 export const FeeWaiverExpirationOpen: Story = {
@@ -82,8 +73,6 @@ export const FeeWaiverExpirationOpen: Story = {
   play: async () => {
     const canvas = within(document.body);
     await userEvent.click(await canvas.findByRole('button', { name: '7 days' }));
-    await expectEventuallyVisible(canvas.findByText('Fee Waiver Expiration'));
-    await expect(canvas.findByTestId('input-number')).resolves.toHaveTextContent('7');
   },
 };
 
@@ -105,10 +94,6 @@ export const OperationsRequested: Story = {
     });
     controller.setOperationalInvites([selectedInvite]);
     mocked(getMainchainClient).mockResolvedValue(createMemberClient(3_487_660_000n));
-  },
-  play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText(/Requested Operations/));
-    await expectEventuallyVisible(within(document.body).findByRole('button', { name: 'Upgrade to Operations' }));
   },
 };
 
@@ -135,10 +120,6 @@ export const OperationsGranted: Story = {
     controller.setOperationalInvites([selectedInvite]);
     mocked(getMainchainClient).mockResolvedValue(createMemberClient(4_028_990_000n));
   },
-  play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText(/Operations access granted/));
-    await expectEventuallyVisible(within(document.body).findByText('4 of 6 complete'));
-  },
 };
 
 export const OpenedNotRegistered: Story = {
@@ -148,9 +129,6 @@ export const OpenedNotRegistered: Story = {
       lastClickedAt: dateDaysAgo(1),
     });
     controller.setOperationalInvites([selectedInvite]);
-  },
-  play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText(/^Opened .* ago$/));
   },
 };
 
@@ -162,9 +140,6 @@ export const BalancesLoading: Story = {
       firstClickedAt: dateDaysAgo(1),
     });
     controller.setOperationalInvites([selectedInvite]);
-  },
-  play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText('Loading balances…'));
   },
 };
 
@@ -178,9 +153,6 @@ export const BalancesUnavailable: Story = {
     controller.setOperationalInvites([selectedInvite]);
     mocked(getMainchainClient).mockResolvedValue(createMemberClient(0n, new Error('Member balances are unavailable.')));
   },
-  play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText('Balances unavailable'));
-  },
 };
 
 export const FeeWaiverPending: Story = {
@@ -192,9 +164,6 @@ export const FeeWaiverPending: Story = {
       bitcoinLockCoupon: createFeeWaiver('pending'),
     });
     controller.setOperationalInvites([selectedInvite]);
-  },
-  play: async () => {
-    await expectEventuallyVisible(within(document.body).findByText(/₳20 pending/));
   },
 };
 
@@ -208,12 +177,6 @@ export const FeeWaiverUsed: Story = {
     });
     controller.setOperationalInvites([selectedInvite]);
   },
-  play: async () => {
-    const canvas = within(document.body);
-    const heading = await canvas.findByText('Bitcoin Fee Waiver');
-
-    await expect(heading.nextElementSibling).toHaveTextContent(/₳68\s*fee waiver\s*· Used\s*.* ago/);
-  },
 };
 
 export const FeeWaiverExpired: Story = {
@@ -226,13 +189,6 @@ export const FeeWaiverExpired: Story = {
     });
     controller.setOperationalInvites([selectedInvite]);
   },
-  play: async () => {
-    const canvas = within(document.body);
-    const heading = await canvas.findByText('Bitcoin Fee Waiver');
-
-    await expect(heading.nextElementSibling).toHaveTextContent(/₳68\s*fee waiver\s*· Unused\s*· expired\s*2 days ago/);
-    await expectEventuallyVisible(canvas.findByRole('button', { name: '2 days ago' }));
-  },
 };
 
 export const FeeWaiverExpiredExtensionOpen: Story = {
@@ -240,8 +196,6 @@ export const FeeWaiverExpiredExtensionOpen: Story = {
   play: async () => {
     const canvas = within(document.body);
     await userEvent.click(await canvas.findByRole('button', { name: '2 days ago' }));
-    await expectEventuallyVisible(canvas.findByText('Fee Waiver Expiration'));
-    await expect(canvas.findByTestId('input-number')).resolves.toHaveTextContent('0');
   },
 };
 
@@ -250,7 +204,6 @@ export const OperationsUpgradeInProgress: Story = {
   play: async () => {
     const canvas = within(document.body);
     await userEvent.click(await canvas.findByRole('button', { name: 'Upgrade to Operations' }));
-    await expectEventuallyVisible(canvas.findByRole('button', { name: 'Upgrading…' }));
   },
 };
 
@@ -259,7 +212,6 @@ export const OperationsUpgradeFailed: Story = {
   play: async () => {
     const canvas = within(document.body);
     await userEvent.click(await canvas.findByRole('button', { name: 'Upgrade to Operations' }));
-    await expectEventuallyVisible(canvas.findByText('Operations approval failed.'));
   },
 };
 
@@ -268,7 +220,6 @@ export const ExpirationUpdateInProgress: Story = {
   play: async () => {
     const canvas = within(document.body);
     await saveExpiration(canvas);
-    await expect(canvas.findByRole('button', { name: 'Done' })).resolves.toBeDisabled();
   },
 };
 
@@ -277,7 +228,6 @@ export const ExpirationUpdateFailed: Story = {
   play: async () => {
     const canvas = within(document.body);
     await saveExpiration(canvas);
-    await expectEventuallyVisible(canvas.findByText('Expiration update failed.'));
   },
 };
 

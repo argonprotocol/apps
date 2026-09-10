@@ -334,6 +334,10 @@ export function setupBitcoinPortfolioScenario(
     utxoTracking: {
       getAllOrphanLifecycleUtxos: fn(() => orphans),
       getUnresolvedOrphanRecords: fn(() => orphans),
+      getUtxosForLock: fn((record: IBitcoinLockRecord) => record.utxos),
+      getObservedFundingRecord: fn((record: IBitcoinLockRecord) => {
+        return record.utxos.find(utxo => utxo.status === BitcoinUtxoStatus.SeenOnMempool);
+      }),
       getAcceptedFundingRecordForLock: fn((record: IBitcoinLockRecord) =>
         fundingRecordsByLockUtxoId.get(record.utxoId ?? -1),
       ),
@@ -572,19 +576,23 @@ export function setupBitcoinPortfolioScenario(
     currentCoupon,
     refresh: fn(() => (options.feeWaiverRefreshPending ? new Promise<void>(() => undefined) : Promise.resolve())),
   });
+  const liquidTotalSatoshis = liquids
+    .filter(liquid => !liquid.isClosed)
+    .reduce((total, liquid) => total + liquid.satoshis, 0n);
+  const bitcoinLiquidPendingMintMicrogons = liquidFissions.reduce((total, fission) => {
+    return total + fission.pendingMints.reduce((mintTotal, mint) => mintTotal + mint.remainingAmount, 0n);
+  }, 0n);
   mocked(useFinancials).mockReturnValue(
     Vue.reactive({
       bitcoinWalletTotalSatoshis: summaries
         .filter(summary => summary.record.status === BitcoinLockStatus.LockFunded)
         .reduce((total, summary) => total + (summary.satoshis - (summary.record.fissionedSatoshis ?? 0n)), 0n),
-      liquidTotalSatoshis: liquids
-        .filter(liquid => !liquid.isClosed)
-        .reduce((total, liquid) => total + liquid.satoshis, 0n),
+      liquidTotalSatoshis,
       fundedBitcoinLockSummaries: Vue.shallowRef(
         summaries.filter(summary => summary.record.status === BitcoinLockStatus.LockFunded),
       ),
       liquidNativeBalances: Vue.shallowRef({ microgons: 12_000_000n, micronots: 3_000_000n }),
-      bitcoinLiquidPendingMintMicrogons: summaries.reduce((total, summary) => total + summary.pendingLiquidity, 0n),
+      bitcoinLiquidPendingMintMicrogons,
       liquidPerformanceReturn: 15.82,
       liquidHodlingReturn: 11.29,
       financialPositionAggregate: Vue.shallowRef(
@@ -732,7 +740,14 @@ export function setupBitcoinEmptyScenario(
   mocked(getBitcoinLocks).mockReturnValue({
     data: bitcoinLocksData,
     recovery: Vue.reactive({ hasPendingHistoryRecovery: false }),
-    utxoTracking: { getAllOrphanLifecycleUtxos: fn(() => []), getUnresolvedOrphanRecords: fn(() => []) },
+    utxoTracking: {
+      getAllOrphanLifecycleUtxos: fn(() => []),
+      getUnresolvedOrphanRecords: fn(() => []),
+      getUtxosForLock: fn((record: IBitcoinLockRecord) => record.utxos),
+      getObservedFundingRecord: fn((record: IBitcoinLockRecord) => {
+        return record.utxos.find(utxo => utxo.status === BitcoinUtxoStatus.SeenOnMempool);
+      }),
+    },
     load: options.loading
       ? fn(() => new Promise<void>(() => undefined))
       : fn(async () => {

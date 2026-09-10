@@ -55,7 +55,7 @@
             <TooltipTrigger asChild tabindex="-1">
               <Arrows
                 :class="isActive(item) ? 'text-argon-600/80 processing-active' : 'text-black/10'"
-                class="h-9 w-10 shrink-0"
+                class="ml-4 h-[24px] w-auto shrink-0 pr-1.5"
               />
             </TooltipTrigger>
             <TooltipContent
@@ -105,3 +105,29 @@ function isActive(item: IStepHeaderItem) {
   return item.isActive();
 }
 </script>
+
+<style scoped>
+.processing-active :deep(path) {
+  animation: processing-arrow-pulse 1.2s ease-in-out infinite;
+}
+
+.processing-active :deep(.arrow2) {
+  animation-delay: 150ms;
+}
+
+.processing-active :deep(.arrow3) {
+  animation-delay: 300ms;
+}
+
+@keyframes processing-arrow-pulse {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+  }
+
+  30% {
+    opacity: 1;
+  }
+}
+</style>

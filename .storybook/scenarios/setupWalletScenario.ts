@@ -239,6 +239,12 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
     utxoTracking: {
       getAllOrphanLifecycleUtxos: fn(() => []),
       getUnresolvedOrphanRecords: fn(() => []),
+      getUtxosForLock: fn((lock: IBitcoinLockRecord) => lock.utxos),
+      getObservedFundingRecord: fn((lock: IBitcoinLockRecord) => {
+        return lock.utxos
+          .filter(record => record.status === BitcoinUtxoStatus.SeenOnMempool)
+          .sort((left, right) => left.firstSeenAt.getTime() - right.firstSeenAt.getTime())[0];
+      }),
       isReleaseCompleteStatus: fn(() => false),
     },
     load: fn(async () => undefined),
@@ -252,6 +258,10 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
     })),
     getLockProcessingError: fn(() => ''),
     getAcceptedFundingRecord: fn((lock: IBitcoinLockRecord) => lock.fundingUtxo),
+    argonLiquidityForSatoshis: fn((satoshis: bigint, microgonsAtTargetPerBtc = insuranceRateMicrogonsPerBtc) => {
+      return (satoshis * microgonsAtTargetPerBtc) / 100_000_000n;
+    }),
+    isFundingWindowExpired: fn(() => false),
     createLockSummary: fn((lock: IBitcoinLockRecord): IBitcoinLockSummary => {
       const satoshis = lock.fundedSatoshis || lock.securitizedSatoshis;
       const valueOfBtc = currency.convertSatToMicrogon(satoshis);

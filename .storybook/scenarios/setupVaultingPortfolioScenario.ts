@@ -119,11 +119,17 @@ export function setupVaultingPortfolioScenario() {
     load: fn(async () => undefined),
     getAllLocks: fn(() => localLocks),
     getDisplayLiquidityPromised: fn((lock: IBitcoinLockRecord) => lock.securitizationCoverageMicrogons ?? 0n),
+    isFundingWindowExpired: fn(() => false),
     isInactiveForVaultDisplay: fn(() => false),
     isLockFunded: fn((lock: IBitcoinLockRecord) => lock.status === BitcoinLockStatus.LockFunded),
     isReleaseStatus: fn((lock: IBitcoinLockRecord) =>
       [BitcoinLockStatus.Releasing, BitcoinLockStatus.Released].includes(lock.status),
     ),
+    utxoTracking: {
+      getUtxosForLock: fn((lock: IBitcoinLockRecord) => lock.utxos),
+      getObservedFundingRecord: fn(() => undefined),
+      getUnresolvedOrphanRecords: fn(() => []),
+    },
   } as unknown as ReturnType<typeof getBitcoinLocks>);
 
   mocked(getArgonBonds).mockReturnValue({

@@ -1,189 +1,146 @@
 <!-- prettier-ignore -->
 <template>
   <div v-if="isCertificationMenuVisible" ref="rootRef">
-    <div AlertMenu v-if="isShowingCompletionTooltip" class="fixed z-50 pt-[12px]" :style="alertMenuStyle">
-      <Arrow
-        class="absolute top-0 h-3.5 w-6"
-        :style="alertArrowStyle"
-        fill="white"
-      />
-      <Arrow
-        class="absolute top-0 h-3.5 w-6"
-        :style="alertArrowStyle"
-        fill="color-mix(in oklab, var(--color-argon-600) 5%, transparent)"
-      />
-      <div class="rounded border border-argon-400/50 bg-white pt-0.5 pl-0.5 shadow-xl">
-        <div class="relative w-108 rounded bg-argon-600/5 px-5 pt-3 pb-5" style="text-shadow: 1px 1px 0 white">
-          <div class="mb-2 flex items-center justify-between border-b border-argon-300/20 pb-2">
-            <div class="text-xl font-bold text-argon-600">Step Completed</div>
-            <button
-              @click="dismissCompletionNotice"
-              class="cursor-pointer rounded-full p-1 text-argon-600/70 hover:bg-white/70 hover:text-argon-800"
-              aria-label="Close tooltip"
+    <NavigationMenuItem value="certification" class="pointer-events-auto">
+      <PopoverRoot :open="isShowingAlert">
+        <PopoverAnchor as-child>
+          <div>
+            <div
+              v-if="controller.canRequestTreasuryUpgrade"
+              class="flex h-[30px] cursor-pointer flex-row items-center justify-center overflow-hidden rounded-md border border-slate-400/50 text-base font-semibold whitespace-nowrap text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
+              @click="openUpgradeToTreasuryOverlay"
             >
-              <XMarkIcon class="h-5 w-5 stroke-[2.5]" />
-            </button>
-          </div>
-          <p class="mt-1 text-argon-600">
-            <span class="font-semibold">{{ completionNoticeStepTitle }}</span> is now complete. Open the menu above to
-            see your updated progress.
-          </p>
-        </div>
-      </div>
-    </div>
-
-    <div AlertMenu v-else-if="isShowingActivatedTooltip" class="fixed z-50 pt-[12px]" :style="alertMenuStyle">
-      <Arrow
-        class="absolute top-0 h-3.5 w-6"
-        :style="alertArrowStyle"
-        fill="white"
-      />
-      <Arrow
-        class="absolute top-0 h-3.5 w-6"
-        :style="alertArrowStyle"
-        fill="color-mix(in oklab, var(--color-argon-600) 5%, transparent)"
-      />
-      <div class="rounded border border-argon-400/50 bg-white pt-0.5 pl-0.5 shadow-xl">
-        <div class="relative w-108 rounded bg-argon-600/5 px-5 pt-3 pb-5" style="text-shadow: 1px 1px 0 white">
-          <div class="mb-2 flex items-center justify-between border-b border-argon-300/20 pb-2">
-            <div class="text-xl font-bold text-argon-600">Operations Activated</div>
-            <button
-              @click="dismissActivatedTooltip"
-              class="cursor-pointer rounded-full p-1 text-argon-600/70 hover:bg-white/70 hover:text-argon-800"
-              aria-label="Close tooltip"
-            >
-              <XMarkIcon class="h-5 w-5 stroke-[2.5]" />
-            </button>
-          </div>
-          <p class="mt-1 text-argon-600">
-            Your upstream approved operations access. Mining and Vaulting are now available in the sidebar.
-          </p>
-          <div class="mt-4 flex justify-end">
-            <button
-              type="button"
-              class="bg-argon-button hover:bg-argon-button-hover rounded-lg px-4 py-2 text-sm font-semibold text-white"
-              @click="openActivatedAction"
-            >
-              Show Mining &amp; Vaulting
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div AlertMenu v-else-if="isShowingUpgradeTooltip" class="fixed z-50 pt-[12px]" :style="alertMenuStyle">
-      <Arrow
-        class="absolute top-0 h-3.5 w-6"
-        :style="alertArrowStyle"
-        fill="white"
-      />
-      <Arrow
-        class="absolute top-0 h-3.5 w-6"
-        :style="alertArrowStyle"
-        fill="color-mix(in oklab, var(--color-argon-600) 5%, transparent)"
-      />
-      <div class="rounded border border-argon-400/50 bg-white pt-0.5 pl-0.5 shadow-xl">
-        <div class="relative w-108 rounded bg-argon-600/5 px-5 pt-3 pb-5" style="text-shadow: 1px 1px 0 white">
-          <div class="mb-2 flex items-center justify-between border-b border-argon-300/20 pb-2">
-            <div class="text-xl font-bold text-argon-600">Upgrade to Operations</div>
-            <button
-              @click="dismissUpgradeTooltip"
-              class="cursor-pointer rounded-full p-1 text-argon-600/70 hover:bg-white/70 hover:text-argon-800"
-              aria-label="Close tooltip"
-            >
-              <XMarkIcon class="h-5 w-5 stroke-[2.5]" />
-            </button>
-          </div>
-          <p class="mt-1 text-argon-600">
-            Treasury certification is complete. Request approval from
-            <span class="font-semibold">{{ upstreamOperatorName }}</span>
-            to unlock mining and vaulting.
-          </p>
-          <div class="mt-4 flex justify-end">
-            <button
-              type="button"
-              class="bg-argon-button hover:bg-argon-button-hover rounded-lg px-4 py-2 text-sm font-semibold text-white"
+              <div class="relative flex flex-row items-center gap-1.5 whitespace-nowrap pl-2.5 pr-3 pt-px">
+                <DiamondIcon class="h-5 relative -top-0.5 mr-1 text-argon-600/80" />
+                Upgrade to Treasury
+              </div>
+            </div>
+            <div
+              v-else-if="isShowingUpgradeButton"
+              class="flex h-[30px] cursor-pointer flex-row items-center justify-center overflow-hidden rounded-md border border-slate-400/50 text-base font-semibold whitespace-nowrap text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
               @click="openUpgradeToOperationsOverlay"
             >
-              Open Details
-            </button>
+              <div class="relative flex flex-row items-center gap-1.5 whitespace-nowrap pl-2.5 pr-3 pt-px">
+                <template v-if="hasRequestedOperationsUpgrade">Operations Requested</template>
+                <template v-else>Upgrade to Operations</template>
+              </div>
+            </div>
+            <NavigationMenuTrigger
+              v-else
+              Trigger
+              class="flex h-[30px] cursor-pointer flex-row items-center justify-center rounded-md border border-slate-400/50 text-base font-semibold whitespace-nowrap text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
+              @mouseenter="onMenuEnter"
+              @mouseleave="onMenuLeave"
+              @focus="onMenuEnter"
+            >
+              <div class="relative flex flex-row items-center whitespace-nowrap pl-2.5 pr-3 pt-px">
+                <CertificationIcon class="relative w-[24px] top-1.5 -left-px pointer-events-none" />
+                <span class="TopBarOptionalLabel ml-1">{{ isUnlockTrack ? 'Treasury' : 'Operator' }}</span>
+                <span class="ml-1">Certification</span>
+                <span class="font-mono ml-1">({{ completedStepCount }}/{{ currentStepIds.length }})</span>
+              </div>
+            </NavigationMenuTrigger>
           </div>
-        </div>
-      </div>
-    </div>
+        </PopoverAnchor>
 
-<!--    <div AlertMenu v-else-if="isShowingBonusTooltip" class="fixed z-50 pt-[12px]" :style="alertMenuStyle">-->
-<!--      <Arrow-->
-<!--        class="absolute top-0 h-3.5 w-6"-->
-<!--        :style="alertArrowStyle"-->
-<!--        fill="white"-->
-<!--      />-->
-<!--      <Arrow-->
-<!--        class="absolute top-0 h-3.5 w-6"-->
-<!--        :style="alertArrowStyle"-->
-<!--        fill="color-mix(in oklab, var(&#45;&#45;color-argon-600) 5%, transparent)"-->
-<!--      />-->
-<!--      <div class="bg-white border border-argon-400/50 rounded shadow-xl pt-0.5 pl-0.5">-->
-<!--        <div class="relative bg-argon-600/5 w-108 rounded px-5 pb-5 pt-3" style="text-shadow: 1px 1px 0 white">-->
-<!--          <div class="flex items-center justify-between border-b border-argon-300/20 pb-2 mb-2">-->
-<!--            <div class="font-bold text-argon-600 text-xl">Collect Your Treasury Bonus</div>-->
-<!--            <button-->
-<!--              @click="dismissMessage"-->
-<!--              class="cursor-pointer rounded-full p-1 text-argon-600/70 hover:bg-white/70 hover:text-argon-800"-->
-<!--              aria-label="Close tooltip"-->
-<!--            >-->
-<!--              <XMarkIcon class="h-5 w-5 stroke-[2.5]" />-->
-<!--            </button>-->
-<!--          </div>-->
-<!--          <p class="text-argon-600 mt-1">-->
-<!--            A bonus of {{ operationalActivationRewardLabel }} has been set aside in Argon's Treasury for your benefit. It-->
-<!--            will be claimable once your account becomes fully operational. Open the menu above to learn more.-->
-<!--          </p>-->
-<!--        </div>-->
-<!--      </div>-->
-<!--    </div>-->
+        <PopoverPortal>
+          <PopoverContent
+            v-if="isShowingAlert"
+            AlertMenu
+            side="bottom"
+            align="end"
+            :sideOffset="6"
+            :collisionPadding="12"
+            :style="floatingZIndex"
+            class="w-108 rounded border border-argon-400/50 bg-white p-0.5 shadow-xl outline-none"
+            @open-auto-focus.prevent
+          >
+           <PopoverArrow as-child>
+              <div class="pointer-events-none relative -mb-[2px] h-3.5 w-6 rotate-180">
+                <Arrow class="absolute inset-x-0 top-0.5 h-3.5 w-6" fill="white" />
+                <Arrow
+                  class="absolute inset-x-0 top-0.5 h-3.5 w-6"
+                  fill="color-mix(in oklab, var(--color-argon-600) 5%, transparent)"
+                />
+              </div>
+            </PopoverArrow>
 
-    <div
-      v-if="controller.canRequestTreasuryUpgrade"
-      class="flex h-[30px] cursor-pointer flex-row items-center justify-center overflow-hidden rounded-md border border-slate-400/50 text-base font-semibold whitespace-nowrap text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
-      @click="openUpgradeToTreasuryOverlay"
-    >
-      <div class="relative flex flex-row items-center gap-1.5 whitespace-nowrap pl-2.5 pr-3 pt-px">
-        <DiamondIcon class="h-5 relative -top-0.5 mr-1 text-argon-600/80" />
-        Upgrade to Treasury
-      </div>
-    </div>
-    <div
-      v-else-if="isShowingUpgradeButton"
-      class="flex h-[30px] cursor-pointer flex-row items-center justify-center overflow-hidden rounded-md border border-slate-400/50 text-base font-semibold whitespace-nowrap text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
-      @click="openUpgradeToOperationsOverlay"
-    >
-      <div class="relative flex flex-row items-center gap-1.5 whitespace-nowrap pl-2.5 pr-3 pt-px">
-        <template v-if="hasRequestedOperationsUpgrade">Operations Requested</template>
-        <template v-else>Upgrade to Operations</template>
-      </div>
-    </div>
-    <NavigationMenuItem
-      v-else
-      value="certification"
-      class="pointer-events-auto"
-      @mouseenter="onMenuEnter"
-      @mouseleave="onMenuLeave"
-    >
-      <NavigationMenuTrigger
-        Trigger
-        class="flex h-[30px] cursor-pointer flex-row items-center justify-center rounded-md border border-slate-400/50 text-base font-semibold whitespace-nowrap text-argon-600/70 hover:border-slate-400/50 hover:bg-slate-400/10 focus:outline-none data-[state=open]:border-slate-400/60 data-[state=open]:bg-slate-400/10"
-        @focus="onMenuEnter"
-      >
-        <div class="relative flex flex-row items-center whitespace-nowrap pl-2.5 pr-3 pt-px">
-          <CertificationIcon class="relative w-[24px] top-1.5 -left-px pointer-events-none" />
-          <span class="TopBarOptionalLabel ml-1">{{ isUnlockTrack ? 'Treasury' : 'Operator' }}</span>
-          <span class="ml-1">Certification</span>
-          <span class="font-mono ml-1">({{ completedStepCount }}/{{ currentStepIds.length }})</span>
-        </div>
-      </NavigationMenuTrigger>
+            <div class="relative rounded bg-argon-600/5 px-5 pt-3 pb-5" style="text-shadow: 1px 1px 0 white">
+              <template v-if="isShowingCompletionTooltip">
+                <div class="mb-2 flex items-center justify-between border-b border-argon-300/20 pb-2">
+                  <div class="text-xl font-bold text-argon-600">Step Completed</div>
+                  <button
+                    class="cursor-pointer rounded-full p-1 text-argon-600/70 hover:bg-white/70 hover:text-argon-800"
+                    aria-label="Close tooltip"
+                    @click="dismissCompletionNotice"
+                  >
+                    <XMarkIcon class="h-5 w-5 stroke-[2.5]" />
+                  </button>
+                </div>
+                <p class="mt-1 text-argon-600">
+                  <span class="font-semibold">{{ completionNoticeStepTitle }}</span> is now complete. Open the menu
+                  above to see your updated progress.
+                </p>
+              </template>
+
+              <template v-else-if="isShowingActivatedTooltip">
+                <div class="mb-2 flex items-center justify-between border-b border-argon-300/20 pb-2">
+                  <div class="text-xl font-bold text-argon-600">Operations Activated</div>
+                  <button
+                    class="cursor-pointer rounded-full p-1 text-argon-600/70 hover:bg-white/70 hover:text-argon-800"
+                    aria-label="Close tooltip"
+                    @click="dismissActivatedTooltip"
+                  >
+                    <XMarkIcon class="h-5 w-5 stroke-[2.5]" />
+                  </button>
+                </div>
+                <p class="mt-1 text-argon-600">
+                  Your upstream approved operations access. Mining and Vaulting are now available in the sidebar.
+                </p>
+                <div class="mt-4 flex justify-end">
+                  <button
+                    type="button"
+                    class="bg-argon-button hover:bg-argon-button-hover rounded-lg px-4 py-2 text-sm font-semibold text-white"
+                    @click="openActivatedAction"
+                  >
+                    Show Mining &amp; Vaulting
+                  </button>
+                </div>
+              </template>
+
+              <template v-else-if="isShowingUpgradeTooltip">
+                <div class="mb-2 flex items-center justify-between border-b border-argon-300/20 pb-2">
+                  <div class="text-xl font-bold text-argon-600">Upgrade to Operations</div>
+                  <button
+                    class="cursor-pointer rounded-full p-1 text-argon-600/70 hover:bg-white/70 hover:text-argon-800"
+                    aria-label="Close tooltip"
+                    @click="dismissUpgradeTooltip"
+                  >
+                    <XMarkIcon class="h-5 w-5 stroke-[2.5]" />
+                  </button>
+                </div>
+                <p class="mt-1 text-argon-600">
+                  Treasury certification is complete. Request approval from
+                  <span class="font-semibold">{{ upstreamOperatorName }}</span>
+                  to unlock mining and vaulting.
+                </p>
+                <div class="mt-4 flex justify-end">
+                  <button
+                    type="button"
+                    class="bg-argon-button hover:bg-argon-button-hover rounded-lg px-4 py-2 text-sm font-semibold text-white"
+                    @click="openUpgradeToOperationsOverlay"
+                  >
+                    Open Details
+                  </button>
+                </div>
+              </template>
+            </div>
+          </PopoverContent>
+        </PopoverPortal>
+      </PopoverRoot>
 
       <NavigationMenuContent
+        v-if="!controller.canRequestTreasuryUpgrade && !isShowingUpgradeButton"
         class="data-[motion=from-start]:animate-enterFromLeft data-[motion=from-end]:animate-enterFromRight data-[motion=to-start]:animate-exitToLeft data-[motion=to-end]:animate-exitToRight absolute top-0 left-0 w-full sm:w-auto"
         @mouseenter="onMenuEnter"
         @mouseleave="onMenuLeave"
@@ -247,7 +204,16 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { NavigationMenuContent, NavigationMenuItem, NavigationMenuTrigger } from 'reka-ui';
+import {
+  NavigationMenuContent,
+  NavigationMenuItem,
+  NavigationMenuTrigger,
+  PopoverAnchor,
+  PopoverArrow,
+  PopoverContent,
+  PopoverPortal,
+  PopoverRoot,
+} from 'reka-ui';
 import { XMarkIcon } from '@heroicons/vue/24/outline';
 import { MICROGONS_PER_ARGON, NetworkConfig, BitcoinLock } from '@argonprotocol/apps-core';
 
@@ -267,6 +233,7 @@ import {
 import DiamondIcon from '../assets/diamond.svg';
 import CertificationIcon from '../assets/certification.svg';
 import { hasOperationsUpgradeRequest } from '../lib/UpstreamOperatorClient.ts';
+import { useFloatingZIndex } from '../overlays/helpers/OverlayZIndex.ts';
 
 const config = getConfig();
 const controller = useCertificationController();
@@ -278,9 +245,8 @@ const emit = defineEmits<{
 const { microgonToArgonNm } = createNumeralHelpers(currency);
 
 const rootRef = Vue.ref<HTMLElement>();
-const alertMenuStyle = Vue.ref<Record<string, string>>({});
-const alertArrowStyle = Vue.ref<Record<string, string>>({});
 const isOpen = Vue.ref(false);
+const floatingZIndex = useFloatingZIndex();
 let mouseLeaveTimeoutId: ReturnType<typeof setTimeout> | undefined = undefined;
 
 const completionNoticeStepId = Vue.computed(() => controller.pendingCompletionNoticeStepId);
@@ -339,17 +305,10 @@ const isShowingUpgradeTooltip = Vue.computed(() => {
   );
 });
 
-const isShowingBonusTooltip = Vue.computed(() => {
-  return (
-    !!config.certificationDetails?.showBonusTooltip &&
-    !isOpen.value &&
-    !!config.upstreamOperator?.name &&
-    !completionNoticeStepId.value &&
-    !isShowingActivatedTooltip.value &&
-    !isShowingUpgradeTooltip.value &&
-    !controller.isOperationalRewardsFlowActive
-  );
+const isShowingAlert = Vue.computed(() => {
+  return isShowingCompletionTooltip.value || isShowingActivatedTooltip.value || isShowingUpgradeTooltip.value;
 });
+
 const upstreamOperatorName = Vue.computed(() => {
   return config.upstreamOperator?.name || 'your upstream operator';
 });
@@ -366,30 +325,8 @@ const checklistDescription = Vue.computed(() => {
   return `Complete the following operations steps, and you'll earn${withUpstream} a ${operationalActivationRewardLabel.value} bonus from the Argon Treasury.`;
 });
 
-function updateAlertMenuPosition() {
-  const rect = rootRef.value?.getBoundingClientRect();
-  if (!rect) return;
-
-  const arrowWidth = 24;
-  const rightOffset = Math.max(8, Math.round(rect.width / 2 - arrowWidth / 2));
-
-  alertMenuStyle.value = {
-    top: `${Math.round(rect.bottom + 6)}px`,
-    left: `${Math.round(rect.right)}px`,
-    transform: 'translateX(-100%)',
-  };
-  alertArrowStyle.value = {
-    right: `${rightOffset}px`,
-  };
-}
-
 function dismissCompletionNotice() {
   controller.dismissCompletionNotice();
-}
-
-function dismissMessage() {
-  config.setCertificationDetails({ showBonusTooltip: false });
-  void config.save();
 }
 
 function dismissUpgradeTooltip() {
@@ -486,33 +423,12 @@ function formatStepTitle(stepId: OperationalStepId) {
   return operationalSteps[stepId].title;
 }
 
-Vue.watch(
-  () =>
-    isShowingCompletionTooltip.value ||
-    isShowingActivatedTooltip.value ||
-    isShowingUpgradeTooltip.value ||
-    isShowingBonusTooltip.value,
-  isShowingAlert => {
-    if (!isShowingAlert) return;
-    void Vue.nextTick().then(updateAlertMenuPosition);
-  },
-  { immediate: true },
-);
-
 Vue.watch(isCertificationMenuVisible, isVisible => {
   if (isVisible) {
     return;
   }
 
   isOpen.value = false;
-});
-
-Vue.onMounted(() => {
-  window.addEventListener('resize', updateAlertMenuPosition);
-});
-
-Vue.onBeforeUnmount(() => {
-  window.removeEventListener('resize', updateAlertMenuPosition);
 });
 
 function formatArgon(amount: bigint) {

@@ -53,7 +53,7 @@
           <AlertIcon class="mr-2 h-4 shrink-0 text-yellow-700" />
           <span>
             No Bitcoin is available to send.
-            {{ satToBtcNm(liquidBackingSatoshis).format('0,0.[00000000]') }} BTC backs Liquids, and the remaining
+            {{ satToBtcNm(liquidBackingSatoshis).format('0,0.[00000000]') }} BTC is locked in Liquids, and the remaining
             {{ satToBtcNm(liquidBlockedRemainderSatoshis).format('0,0.[00000000]') }} BTC is unavailable to send until
             the whole Channel is releasable.
             <PopoverTrigger asChild>
@@ -63,7 +63,7 @@
         </WalletFundingCallout>
         <PopoverTrigger v-else asChild>
           <button type="button" class="text-argon-600 inline-flex items-center gap-1 self-end text-xs hover:underline">
-            * {{ satToBtcNm(liquidBackingSatoshis).format('0,0.[00000000]') }} BTC backs Liquids; the remaining
+            * {{ satToBtcNm(liquidBackingSatoshis).format('0,0.[00000000]') }} BTC is locked in Liquids; the remaining
             {{ satToBtcNm(liquidBlockedRemainderSatoshis).format('0,0.[00000000]') }} BTC is unavailable to send until
             the whole Channel is releasable
             <InformationCircleIcon class="h-4 w-4" />
@@ -87,10 +87,7 @@
                   :class="index ? 'mt-3' : ''"
                 >
                   <div class="flex items-center gap-3">
-                    <span class="min-w-0 grow">
-                      <template v-if="detail.isMyVault">In my Vault</template>
-                      <template v-else>Cosigner: {{ detail.cosigner }}</template>
-                    </span>
+                    <span class="min-w-0 grow">Cosigner: {{ detail.cosigner }}</span>
                     <span class="shrink-0">
                       {{ satToBtcNm(detail.channel.fundedSatoshis).format('0,0.[00000000]') }} BTC channel
                     </span>
@@ -380,11 +377,12 @@ const liquidLockedChannelDetails = Vue.computed(() => {
     }
     return {
       channel,
-      isMyVault: channel.vaultId === myVault.vaultId,
       cosigner:
-        vaults.operatorNamesByVaultId[channel.vaultId] ??
-        (config.upstreamOperator?.vaultId === channel.vaultId ? config.upstreamOperator.name : undefined) ??
-        `Vault ${channel.vaultId}`,
+        channel.vaultId === (myVault.createdVault?.vaultId ?? myVault.vaultId)
+          ? 'My Vault'
+          : (vaults.operatorNamesByVaultId[channel.vaultId] ??
+            (config.upstreamOperator?.vaultId === channel.vaultId ? config.upstreamOperator.name : undefined) ??
+            `Vault ${channel.vaultId}`),
       address,
     };
   });

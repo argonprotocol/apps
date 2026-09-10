@@ -71,6 +71,38 @@
         </button>
       </div>
     </div>
+    <div v-else-if="props.state.stage === 'vaults'" class="flex flex-col px-10 py-5">
+      <p class="pt-3 leading-relaxed font-light">
+        Your Bitcoin Liquid helps stabilize the Argon stablecoin while giving you your Bitcoin’s full market value in
+        unencumbered Argons. Use these Argons to make a profit on Bitcoin's price volatility. Your Bitcoin will remain
+        securely locked on the Argon mainchain and is yours to release when you desire.
+        <a :href="`${NetworkConfig.websiteHost}/docs/assets-and-entities/bitcoin-locks`" target="_blank">Learn more.</a>
+      </p>
+      <div class="mt-5 border-b border-slate-200" />
+      <p class="mt-5 text-sm font-medium text-slate-600">Select the vaults to use for this Liquid.</p>
+      <SelectAVault
+        v-model:selectedVaultIds="selectedVaultIds"
+        multiple
+        :vaultIds="vaultIds"
+        :vaultNamesById="vaultNamesById"
+        :eligibleSatoshisByVaultId="eligibleSatoshisByVaultId"
+      />
+      <div class="flex justify-end gap-3 border-t border-slate-200 pt-4">
+        <button
+          class="cursor-pointer rounded-md border border-slate-300 px-10 py-2 text-slate-600 hover:bg-slate-50"
+          @click="emit('close')"
+        >
+          Cancel
+        </button>
+        <button
+          :disabled="!selectedVaultIds.length"
+          class="bg-argon-button enabled:hover:bg-argon-button-hover cursor-pointer rounded-md px-10 py-2 font-semibold text-white disabled:cursor-default disabled:opacity-40"
+          @click="emit('vaultsSelected', { vaultIds: selectedVaultIds })"
+        >
+          Select Vaults
+        </button>
+      </div>
+    </div>
     <div v-else-if="props.state.stage === 'creating'" class="px-6 py-5">
       <div class="space-y-5">
         <div class="space-y-3">
@@ -309,6 +341,7 @@ import BitcoinIcon from '../assets/wallets/tokens/bitcoin.svg?component';
 import BitcoinFissionVaultIllustration from '../components/BitcoinFissionVaultIllustration.vue';
 import InputNumber from '../components/InputNumber.vue';
 import ProgressBar from '../components/ProgressBar.vue';
+import SelectAVault from '../components/SelectAVault.vue';
 import StepsHeader, { type IStepHeaderItem } from '../components/StepsHeader.vue';
 import Tooltip from '../components/Tooltip.vue';
 import WalletFundingCallout from '../components/WalletFundingCallout.vue';
@@ -331,6 +364,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: [];
   retry: [];
+  chooseVaults: [];
+  vaultsSelected: [{ vaultIds: number[] }];
   submit: [{ satoshis: bigint }];
   amountChanged: [{ satoshis: bigint }];
 }>();
@@ -343,6 +378,24 @@ const vaultingStats = useVaultingStats();
 const { microgonToArgonNm, satToBtcNm } = createNumeralHelpers(currency);
 const argonSymbol = currency.recordsByKey[UnitOfMeasurement.ARGN].symbol;
 const minimumLiquidSatoshis = 100_000n;
+const selectedVaultIds = Vue.ref([...props.state.selectedVaultIds]);
+const vaultIds = Vue.computed(() => [
+  ...new Set(props.state.sources.filter(source => source.unallocatedSatoshis > 0n).map(source => source.vaultId)),
+]);
+const vaultNamesById = Vue.computed(() =>
+  Object.fromEntries(props.state.sources.map(source => [source.vaultId, source.vaultName])),
+);
+const eligibleSatoshisByVaultId = Vue.computed(() =>
+  Object.fromEntries(
+    vaultIds.value.map(vaultId => [
+      vaultId,
+      props.state.sources
+        .filter(source => source.vaultId === vaultId)
+        .reduce((total, source) => total + source.unallocatedSatoshis, 0n),
+    ]),
+  ),
+);
+const selectedSourceVaultIds = Vue.computed(() => new Set(props.state.selectedVaultIds));
 const feeMicrogons = Vue.computed(() => props.state.preview?.securityFeeMicrogons ?? 0n);
 const couponCreditMicrogons = Vue.computed(() => props.state.preview?.couponCreditMicrogons ?? 0n);
 const liquidityMicrogons = Vue.computed(() => props.state.preview?.liquidityMicrogons ?? 0n);
@@ -353,43 +406,37 @@ const projectedEarningsMicrogons = Vue.computed(() =>
 );
 const isTreasuryCertified = Vue.computed(() => certification.isCertificationStepComplete(OperationalStepId.LiquidLock));
 const availableSatoshis = Vue.computed(() =>
-  props.state.sources.reduce((total, source) => total + source.unallocatedSatoshis, 0n),
+  props.state.sources.reduce(
+    (total, source) => total + (selectedSourceVaultIds.value.has(source.vaultId) ? source.unallocatedSatoshis : 0n),
+    0n,
+  ),
 );
 const maximumLiquidSatoshis = Vue.computed(() =>
-  props.state.sources.reduce((total, source) => total + source.maximumLiquidSatoshis, 0n),
+  props.state.sources.reduce(
+    (total, source) => total + (selectedSourceVaultIds.value.has(source.vaultId) ? source.maximumLiquidSatoshis : 0n),
+    0n,
+  ),
 );
 const selectedBitcoin = Vue.ref(
   currency.convertSatToBtc(props.state.sources.reduce((total, source) => total + source.selectedSatoshis, 0n)),
 );
 const selectedSatoshis = Vue.computed(() => BigInt(Math.round(selectedBitcoin.value * 100_000_000)));
-const selectedSources = Vue.computed(() => props.state.sources.filter(source => source.selectedSatoshis > 0n));
 const selectedVaults = Vue.computed(() => {
-  const sources = selectedSources.value;
-  const externalCosigners = sources.filter(source => !source.isMyVault).map(source => source.cosigner);
-  const includesMyVault = sources.some(source => source.isMyVault);
-
-  if (includesMyVault && !externalCosigners.length) {
-    return {
-      label: 'In my Vault',
-      tooltip: 'This Bitcoin is in your Vault.',
-      capacitySubject: 'your Vault',
-    };
-  }
-  if (!includesMyVault && externalCosigners.length === 1) {
-    return {
-      label: 'Co-signer',
-      value: externalCosigners[0],
-      tooltip: `Selected co-signer: ${externalCosigners[0]}.`,
-      capacitySubject: externalCosigners[0],
-    };
-  }
-
-  const names = [...externalCosigners, ...(includesMyVault ? ['my Vault'] : [])];
+  const currentSelectedVaultIds =
+    props.state.stage === 'vaults' ? selectedVaultIds.value : props.state.selectedVaultIds;
+  const names = [
+    ...new Set(
+      currentSelectedVaultIds.flatMap(vaultId => {
+        const source = props.state.sources.find(candidate => candidate.vaultId === vaultId);
+        return source ? [source.vaultName] : [];
+      }),
+    ),
+  ];
   return {
-    label: 'Vaults',
-    value: sources.length ? `${sources.length} selected` : undefined,
-    tooltip: names.length ? `Selected vaults: ${new Intl.ListFormat('en').format(names)}.` : 'No vaults selected.',
-    capacitySubject: 'the selected vaults',
+    label: props.state.stage === 'vaults' ? 'Choose Vaults' : names.length === 1 ? 'Vault' : 'Vaults',
+    value: names.length === 1 ? names[0] : names.length + ' selected',
+    tooltip: names.length ? 'Selected vaults: ' + new Intl.ListFormat('en').format(names) + '.' : 'No vaults selected.',
+    capacitySubject: names.length === 1 ? names[0] : 'the selected vaults',
   };
 });
 const certificationSelectionSatoshis = Vue.computed(() => {
@@ -418,7 +465,8 @@ const stepItems = Vue.computed<IStepHeaderItem[]>(() => [
     label: selectedVaults.value.label,
     value: selectedVaults.value.value,
     tooltip: selectedVaults.value.tooltip,
-    isActive: () => false,
+    isActive: () => props.state.stage === 'vaults',
+    click: vaultIds.value.length > 0 && props.state.stage === 'form' ? () => emit('chooseVaults') : undefined,
   },
   {
     label: '',
@@ -427,7 +475,10 @@ const stepItems = Vue.computed<IStepHeaderItem[]>(() => [
   },
   {
     label: 'Choose Amount',
-    value: props.liquid ? `${satToBtcNm(props.liquid.satoshis).format('0,0.[00000000]')} BTC` : undefined,
+    value:
+      props.liquid || props.state.stage === 'creating'
+        ? `${satToBtcNm(props.liquid?.satoshis ?? selectedSatoshis.value).format('0,0.[00000000]')} BTC`
+        : undefined,
     tooltip: 'Choose how much Bitcoin to use for this Liquid.',
     isActive: () => props.state.stage === 'form',
   },
@@ -450,6 +501,13 @@ function selectSatoshis(satoshis: bigint): void {
 Vue.watch(maximumLiquidSatoshis, maximum => {
   if (selectedSatoshis.value > maximum) selectSatoshis(maximum);
 });
+
+Vue.watch(
+  () => props.state.selectedVaultIds,
+  vaultIds => {
+    selectedVaultIds.value = [...vaultIds];
+  },
+);
 
 Vue.watch(selectedSatoshis, satoshis => emit('amountChanged', { satoshis }));
 

@@ -16,6 +16,7 @@
           :avoidCollisions="true"
           :collisionPadding="30"
           :style="[floatingZIndex, { width: width, maxWidth: maxWidth }]"
+          role="tooltip"
           class="data-[state=delayed-open]:data-[side=top]:animate-slideDownAndFade data-[state=delayed-open]:data-[side=right]:animate-slideLeftAndFade data-[state=delayed-open]:data-[side=left]:animate-slideRightAndFade data-[state=delayed-open]:data-[side=bottom]:animate-slideUpAndFade text-md pointer-events-none rounded-md border border-gray-800/20 bg-white px-4 py-3 text-left leading-5.5 text-gray-600 shadow-xl will-change-[transform,opacity] select-none"
         >
           <slot name="content">{{ content }}</slot>

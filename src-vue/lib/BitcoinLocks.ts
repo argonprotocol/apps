@@ -811,8 +811,35 @@ export default class BitcoinLocks {
     return pendingLock;
   }
 
-  public async finalizeCreatedLock(uuid: string, lock: IBitcoinLock): Promise<IBitcoinLockRecord> {
-    return await this.finalizePendingRecord({ uuid }, lock);
+  public async finalizeCreatedLock(
+    uuid: string,
+    lock: IBitcoinLock,
+    txInfo: TransactionInfo,
+  ): Promise<IBitcoinLockRecord> {
+    const { block, extrinsicIndex } = await this.getFinalizedTransactionLocation(txInfo);
+    return await this.runInQueueForUtxo(
+      { uuid },
+      async () => {
+        const db = await this.dbPromise;
+        const record = await db.transaction(async transaction => {
+          const finalized = await transaction.bitcoinLocksTable.finalizePending({ uuid, lock });
+          await transaction.bitcoinSecuritizationHistoryTable.recordFinalizedSecuritization({
+            ownerAccount: this.walletKeys.defaultArgonAddress,
+            block,
+            extrinsicIndex,
+            lock,
+            origin: 'created',
+          });
+          return finalized;
+        });
+        this.locksByUtxoId[record.utxoId!] = record;
+        const pendingIdx = this.data.pendingLocks.findIndex(pending => pending.uuid === uuid);
+        if (pendingIdx >= 0) this.data.pendingLocks.splice(pendingIdx, 1);
+        this.publishFinancialRevision();
+        return record;
+      },
+      { waitForHistoryRecovery: true },
+    );
   }
 
   public async failPendingLock(uuid: string, error: unknown): Promise<void> {
@@ -1131,8 +1158,25 @@ export default class BitcoinLocks {
     return db.bitcoinLocksTable;
   }
 
-  public async updateCurrentLock(lock: IBitcoinLockRecord, currentLock: IBitcoinLock): Promise<void> {
-    await (await this.getTable()).updateFromCurrentLock(lock, currentLock);
+  public async updateCurrentLock(
+    lock: IBitcoinLockRecord,
+    currentLock: IBitcoinLock,
+    txInfo: TransactionInfo,
+  ): Promise<void> {
+    const { block, extrinsicIndex } = await this.getFinalizedTransactionLocation(txInfo);
+    const updated = { ...lock };
+    const db = await this.dbPromise;
+    await db.transaction(async transaction => {
+      await transaction.bitcoinLocksTable.updateFromCurrentLock(updated, currentLock);
+      await transaction.bitcoinSecuritizationHistoryTable.recordFinalizedSecuritization({
+        ownerAccount: this.walletKeys.defaultArgonAddress,
+        block,
+        extrinsicIndex,
+        lock: currentLock,
+        origin: 'resecuritized',
+      });
+    });
+    Object.assign(lock, updated);
     this.publishFinancialRevision();
   }
 
@@ -1498,25 +1542,22 @@ export default class BitcoinLocks {
     }).promise;
   }
 
-  private async finalizePendingRecord(
-    pendingLock: Pick<IBitcoinLockRecord, 'uuid'>,
-    lock: IBitcoinLock,
-  ): Promise<IBitcoinLockRecord> {
-    return await this.runInQueueForUtxo(
-      pendingLock,
-      async () => {
-        const table = await this.getTable();
-        const record = await table.finalizePending({ uuid: pendingLock.uuid, lock });
-        this.locksByUtxoId[record.utxoId!] = record;
-        const pendingIdx = this.data.pendingLocks.findIndex(lock => lock.uuid === pendingLock.uuid);
-        if (pendingIdx >= 0) {
-          this.data.pendingLocks.splice(pendingIdx, 1);
-        }
-        this.publishFinancialRevision();
-        return record;
-      },
-      { waitForHistoryRecovery: true },
-    );
+  private async getFinalizedTransactionLocation(txInfo: TransactionInfo): Promise<{
+    block: IBlockHeaderInfo;
+    extrinsicIndex: number;
+  }> {
+    const blockNumber = txInfo.tx.blockHeight ?? txInfo.txResult.blockNumber;
+    const blockHash = txInfo.tx.blockHash;
+    const extrinsicIndex = txInfo.tx.blockExtrinsicIndex ?? txInfo.txResult.extrinsicIndex;
+    if (blockNumber === undefined || !blockHash || extrinsicIndex === undefined) {
+      throw new Error(`Finalized transaction #${txInfo.tx.id} is missing its Bitcoin Lock history location`);
+    }
+
+    const block = await this.blockWatch.getHeader(blockNumber);
+    if (block.blockHash.toLowerCase() !== blockHash.toLowerCase()) {
+      throw new Error(`Finalized transaction #${txInfo.tx.id} does not match block ${blockNumber}`);
+    }
+    return { block, extrinsicIndex };
   }
 
   private async checkIncomingArgonBlock(header: IBlockHeaderInfo): Promise<void> {

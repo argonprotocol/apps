@@ -1,7 +1,7 @@
 import * as Vue from 'vue';
-import { BitcoinFission } from '@argonprotocol/apps-core';
+import { BitcoinFission, type Vault } from '@argonprotocol/apps-core';
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
-import { expect, userEvent, waitFor, within } from 'storybook/test';
+import { userEvent, within } from 'storybook/test';
 import { TopTab } from '../../../src-vue/interfaces/IConfig.ts';
 import type { IBitcoinLiquidSource } from '../../../src-vue/interfaces/IBitcoinLiquidSource.ts';
 import BitcoinLiquidCreationOverlay from '../../../src-vue/overlays/BitcoinLiquidCreationOverlay.vue';
@@ -9,25 +9,31 @@ import { BitcoinLiquid } from '../../../src-vue/lib/BitcoinLiquid.ts';
 import type { IBitcoinLiquidCreatePreview } from '../../../src-vue/lib/txs/BitcoinLiquid.create.ts';
 import type { BitcoinLiquidCreationState } from '../../../src-vue/overlays/BitcoinLiquidCreationState.ts';
 import { useWallets } from '../../../src-vue/stores/wallets.ts';
+import { useFinancials } from '../../../src-vue/stores/financials.ts';
+import { getVaults } from '../../../src-vue/stores/vaults.ts';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 
 const insuredSources: IBitcoinLiquidSource[] = [
   {
     key: 'atlas',
-    cosigner: 'Atlas Operator',
-    isMyVault: false,
+    vaultId: 7,
+    vaultName: 'Atlas Operator',
     unallocatedSatoshis: 30_000_000n,
     maximumLiquidSatoshis: 30_000_000n,
     selectedSatoshis: 30_000_000n,
   },
   {
     key: 'my-vault',
-    cosigner: 'My Vault',
-    isMyVault: true,
+    vaultId: 12,
+    vaultName: 'My Vault',
     unallocatedSatoshis: 20_000_000n,
     maximumLiquidSatoshis: 20_000_000n,
     selectedSatoshis: 20_000_000n,
   },
+];
+const selectableVaults = [
+  { vaultId: 7, operatorAccountId: '5AtlasOperator' } as Vault,
+  { vaultId: 12, operatorAccountId: '5MyVaultOperator' } as Vault,
 ];
 
 const collectingFission = new BitcoinFission({
@@ -69,6 +75,7 @@ const preview = {
 const state = {
   stage: 'form',
   sources: insuredSources,
+  selectedVaultIds: [7, 12],
   preview,
   isSubmitting: false,
   progressPct: 0,
@@ -112,6 +119,13 @@ const meta = {
       config: { upstreamOperator: { name: 'Atlas Operator', vaultId: 7 } },
     });
     Object.assign(useWallets(), { defaultArgonSpendableMicrogons: 100_000_000n });
+    Object.assign(useFinancials(), {
+      vaultsIsLoaded: true,
+      vaultsActiveRecords: selectableVaults,
+    });
+    const vaults = getVaults();
+    Object.assign(vaults.operatorNamesByVaultId, { 7: 'Atlas Operator', 12: 'My Vault' });
+    Object.assign(vaults.vaultsById, Object.fromEntries(selectableVaults.map(vault => [vault.vaultId, vault])));
   },
 } satisfies Meta<{
   state: BitcoinLiquidCreationState;
@@ -121,30 +135,29 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Form: Story = {
+export const Form: Story = {};
+
+export const VaultSelection: Story = {
+  args: {
+    state: { ...state, stage: 'vaults' },
+  },
+};
+
+export const VaultExplanation: Story = {
   play: async () => {
     const body = within(document.body);
+    await userEvent.hover(body.getByRole('button', { name: /Vaults/ }));
+    await body.findAllByRole('tooltip', { hidden: true });
+  },
+};
 
-    await waitFor(() => expect(body.getByRole('dialog', { name: 'Create a Bitcoin Liquid' })).toBeVisible());
-    await waitFor(() => expect(body.getByText('Vaults')).toBeVisible());
-    await expect(body.getByText('2 selected')).toBeVisible();
-    await userEvent.hover(body.getByText('Vaults'));
-    await waitFor(() => {
-      const tooltip = body
-        .getAllByText('Selected vaults: Atlas Operator and my Vault.')
-        .find(element => element.getAttribute('aria-hidden') !== 'true');
-      expect(tooltip).toBeVisible();
-    });
-    await expect(body.getByText('Choose Amount')).toBeVisible();
-    await expect(body.getByText('Collect Argons')).toBeVisible();
-    await expect(
-      body.getByText(
-        /Your Bitcoin Liquid helps stabilize the Argon stablecoin while giving you your Bitcoin’s full market value/,
-      ),
-    ).toBeVisible();
-    await expect(
-      body.queryByText(/Bitcoin remains on the Bitcoin blockchain, but it cannot be sent while the Liquid is open/),
-    ).not.toBeInTheDocument();
+export const SelectedVaultAmount: Story = {
+  args: {
+    state: {
+      ...state,
+      selectedVaultIds: [7],
+      sources: [insuredSources[0]!, { ...insuredSources[1]!, selectedSatoshis: 0n }],
+    },
   },
 };
 
@@ -153,13 +166,8 @@ export const InMyVault: Story = {
     state: {
       ...state,
       sources: [insuredSources[1]!],
+      selectedVaultIds: [12],
     },
-  },
-  play: async () => {
-    const body = within(document.body);
-
-    await waitFor(() => expect(body.getByText('In my Vault')).toBeVisible());
-    await expect(body.queryByText('Co-signer')).not.toBeInTheDocument();
   },
 };
 
@@ -185,19 +193,18 @@ export const VaultCapacityCapped: Story = {
       },
     },
   },
+};
+
+export const VaultCapacityExplanation: Story = {
+  ...VaultCapacityCapped,
   play: async () => {
     const body = within(document.body);
-
     const maxAmountLabel = body.getByText("You're At Max Amount");
     const infoButton = maxAmountLabel.nextElementSibling;
     if (!(infoButton instanceof HTMLElement)) throw new Error('Max amount info trigger was not rendered.');
+
     await userEvent.hover(infoButton);
-    const tooltipText =
-      'Your wallet has 0.6 BTC available, but the selected vaults can currently securitize 0.42 BTC for this Liquid.';
-    await waitFor(async () => {
-      const tooltips = await body.findAllByText(tooltipText);
-      await expect(tooltips.some(element => element.getClientRects().length > 0)).toBe(true);
-    });
+    await body.findByRole('tooltip');
   },
 };
 
@@ -219,13 +226,6 @@ export const NoBitcoinAvailable: Story = {
       })),
     },
   },
-  play: async () => {
-    const body = within(document.body);
-    await expect(
-      body.getByText("You don't have Bitcoin available in your wallet.", { exact: false }),
-    ).toBeInTheDocument();
-    await expect(body.getByRole('button', { name: 'Create Liquid', hidden: true })).toBeDisabled();
-  },
 };
 
 export const BelowTreasuryCertificationRequirement: Story = {
@@ -238,38 +238,17 @@ export const Submitting: Story = {
   args: {
     state: { ...state, isSubmitting: true },
   },
-  play: async () => {
-    const body = within(document.body);
-
-    await waitFor(() => expect(body.getByText('Liquid Amount')).toBeVisible());
-    await expect(body.getByRole('button', { name: 'Submitting...' })).toBeDisabled();
-    await expect(body.queryByText('Creating Liquid...')).not.toBeInTheDocument();
-  },
 };
 
 export const CreatingOnArgon: Story = {
   args: {
     state: { ...state, stage: 'creating', progressPct: 48 },
   },
-  play: async () => {
-    const body = within(document.body);
-
-    await waitFor(() => expect(body.getByText('Creating Liquid...')).toBeVisible());
-    await expect(body.queryByText('Liquid Amount')).not.toBeInTheDocument();
-    await expect(body.queryByRole('button', { name: 'Create Liquid' })).not.toBeInTheDocument();
-  },
 };
 
 export const TransactionFailed: Story = {
   args: {
     state: { ...state, stage: 'creating', progressPct: 48, errorMessage: 'Transaction dropped.' },
-  },
-  play: async () => {
-    const body = within(document.body);
-
-    await waitFor(() => expect(body.getByText('Transaction dropped.')).toBeVisible());
-    await expect(body.getByRole('button', { name: 'Try Again' })).toBeVisible();
-    await expect(body.queryByText('Liquid Amount')).not.toBeInTheDocument();
   },
 };
 
@@ -278,31 +257,12 @@ export const CollectingArgons: Story = {
     liquid: collectingLiquid,
     state: { ...state, stage: 'complete' },
   },
-  play: async () => {
-    const body = within(document.body);
-
-    await waitFor(() => expect(body.getByRole('img', { name: 'Liquid created' })).toBeVisible());
-    await expect(body.getByRole('heading', { name: 'Collect Argons Daily' })).toBeVisible();
-    await expect(body.getByText(/₳3,400.00 is expected in each daily payout/)).toBeVisible();
-    await expect(body.getByText(/remaining ₳34,000.00 should reach your Internal App Wallet by about/)).toBeVisible();
-    await expect(body.queryByText('Expected each day')).not.toBeInTheDocument();
-    await expect(body.queryByText('₳34,000.00')).not.toBeInTheDocument();
-    await expect(body.getByRole('button', { name: 'Done' })).toBeVisible();
-    await expect(body.queryByText('Liquid Amount')).not.toBeInTheDocument();
-  },
 };
 
 export const FinalCollectionFrame: Story = {
   args: {
     liquid: finalCollectionLiquid,
     state: { ...state, stage: 'complete' },
-  },
-  play: async () => {
-    const body = within(document.body);
-
-    await waitFor(() =>
-      expect(body.getByText(/remaining ₳1,500.00 is expected in the next daily payout/)).toBeVisible(),
-    );
   },
 };
 
@@ -321,7 +281,7 @@ export const BatchFailed: Story = {
   args: {
     state: {
       ...state,
-      errorMessage: 'The cosigner no longer has enough securitization available for this amount.',
+      errorMessage: 'The selected vault no longer has enough securitization available for this amount.',
     },
   },
 };

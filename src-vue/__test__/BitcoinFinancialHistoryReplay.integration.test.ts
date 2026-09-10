@@ -9,7 +9,7 @@ import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
 import { BitcoinLockRecovery } from '../lib/recovery/BitcoinLocks.ts';
 import { BitcoinFissionRecovery } from '../lib/recovery/BitcoinFissions.ts';
 import { VaultHistory } from '../lib/recovery/MyVault.ts';
-import { FinancialHistoryImporter } from '../lib/recovery/index.ts';
+import { FinancialHistoryImporter, publishBitcoinHistoryReplay } from '../lib/recovery/index.ts';
 import { createStore } from './helpers/bitcoin.ts';
 import { createTestDb } from './helpers/db.ts';
 import { runRecoveryLifecycle } from './helpers/RecoveryLifecycleRunner.ts';
@@ -242,9 +242,17 @@ async function replayBitcoinAccount(args: {
       });
       const result = await importer.importBlocks(blocks);
       results.push(result);
-      const recoveredLocks = await recovery.commitHistoryReplay(!result.domainErrors.bitcoin);
-      if (result.domainErrors.bitcoin) fissionRecovery.cancelHistoryReplay();
-      else await fissionRecovery.commitHistoryReplay(recoveredLocks);
+      if (result.domainErrors.bitcoin) {
+        await recovery.cancelHistoryReplay();
+        fissionRecovery.cancelHistoryReplay();
+      } else {
+        await publishBitcoinHistoryReplay({
+          db,
+          bitcoinLockRecovery: recovery,
+          bitcoinFissionRecovery: fissionRecovery,
+          asOfBlock: blocks.at(-1)?.blockNumber ?? 0,
+        });
+      }
     },
     readDurableState: async () => {
       const vaultIds = new Set(derivedLocks.map(({ lock }) => lock.vaultId));

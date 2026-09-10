@@ -5,7 +5,10 @@ import { hexToU8a } from '@argonprotocol/mainchain';
 import { encodeAddress } from '@polkadot/util-crypto';
 import BigNumber from 'bignumber.js';
 import type { WalletKeys } from '../lib/WalletKeys.ts';
+import type { Db } from '../lib/Db.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
+import type { BitcoinLockRecovery } from '../lib/recovery/BitcoinLocks.ts';
+import { publishBitcoinHistoryReplay } from '../lib/recovery/index.ts';
 import type { IHistoricalBitcoinLockRecord } from '../lib/recovery/BitcoinLockReplay.ts';
 import { BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
 import { bigintCodec, numberCodec, optionCodec } from '../../core/__test__/helpers/codecs.ts';
@@ -22,6 +25,10 @@ vi.mock('../lib/recovery/BitcoinLockHistory.ts', async importOriginal => ({
   getHistoricalBitcoinPendingMints: vi.fn(),
   getHistoricalBitcoinReleaseRequest: vi.fn(),
 }));
+
+async function publishRecoveredHistory(db: Db, recovery: BitcoinLockRecovery) {
+  return publishBitcoinHistoryReplay({ db, bitcoinLockRecovery: recovery, asOfBlock: 0 });
+}
 
 describe('BitcoinLocks historical event replay', () => {
   it('replays creation, ratchet, mint, and release with historical codec events', async () => {
@@ -203,7 +210,7 @@ describe('BitcoinLocks historical event replay', () => {
       });
     await expect(store.recovery.findMissingActiveLockIds(api as never)).resolves.toEqual([8]);
 
-    const [recovered] = await store.recovery.commitHistoryReplay(true);
+    const [recovered] = await publishRecoveredHistory(db, store.recovery);
     const [fundingRecord] = await db.bitcoinUtxosTable.fetchAll();
     expect(recovered.lockDetails.utxoId).toBe(7);
     expect(recovered.satoshis).toBe(9_900n);
@@ -352,7 +359,7 @@ describe('BitcoinLocks historical event replay', () => {
       });
     await expect(store.recovery.findMissingActiveLockIds(api as never)).resolves.toEqual([]);
 
-    const [recovered] = await store.recovery.commitHistoryReplay(true);
+    const [recovered] = await publishRecoveredHistory(db, store.recovery);
     expect(recovered).toMatchObject({
       status: BitcoinLockStatus.LockFunded,
       satoshis: 10_500n,
@@ -666,7 +673,7 @@ describe('BitcoinLocks historical event replay', () => {
       ]),
     ).rejects.toThrow('Bitcoin lock 7 up-ratchet reduced its promised liquidity');
 
-    const [recovered] = await store.recovery.commitHistoryReplay(true);
+    const [recovered] = await publishRecoveredHistory(db, store.recovery);
     expect(recovered).toMatchObject({ liquidityPromised: 800n, lockedTargetPrice: 1_400n });
     expect(recovered.ratchets.at(-1)).toMatchObject({
       mintAmount: 540n,
@@ -780,7 +787,7 @@ describe('BitcoinLocks historical event replay', () => {
       historyEvent(151, 'mint', 'BitcoinMint', { accountId, utxoId: 7, amount: 400n }),
     ]);
 
-    const [recovered] = await store.recovery.commitHistoryReplay(true);
+    const [recovered] = await publishRecoveredHistory(db, store.recovery);
     expect(recovered.ratchets[0].mintPending).toBe(600n);
   });
 
@@ -818,7 +825,7 @@ describe('BitcoinLocks historical event replay', () => {
     await store.recovery.recoverBlock(historyBlock(152), events);
     await store.recovery.recoverBlock(historyBlock(152), events);
 
-    const [recovered] = await store.recovery.commitHistoryReplay(true);
+    const [recovered] = await publishRecoveredHistory(db, store.recovery);
     expect(recovered.ratchets[0].mintPending).toBe(600n);
   });
 
@@ -879,7 +886,7 @@ describe('BitcoinLocks historical event replay', () => {
     expect(getByUtxoId).toHaveBeenCalledOnce();
     expect(getByUtxoId).toHaveBeenCalledWith(97);
     expect(getLock).not.toHaveBeenCalled();
-    const [recovered] = await store.recovery.commitHistoryReplay(true);
+    const [recovered] = await publishRecoveredHistory(db, store.recovery);
     expect(recovered.ratchets[0].mintPending).toBe(600n);
   });
 
@@ -937,7 +944,7 @@ describe('BitcoinLocks historical event replay', () => {
     expect(record.isHistoryRecoveryPending).toBeUndefined();
     expect(untouchedRecord.isHistoryRecoveryPending).toBeUndefined();
 
-    await store.recovery.commitHistoryReplay(false);
+    await store.recovery.cancelHistoryReplay();
 
     expect(record.ratchets[0].mintPending).toBe(1_000n);
     expect(record.isHistoryRecoveryPending).toBeUndefined();

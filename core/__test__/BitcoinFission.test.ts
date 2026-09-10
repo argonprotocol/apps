@@ -5,6 +5,24 @@ import { describe, expect, it } from 'vitest';
 import { BitcoinFission } from '../src/BitcoinFission.ts';
 
 describe('BitcoinFission', () => {
+  it('allocates Liquid Bitcoin from only the selected vaults', () => {
+    const allocations = BitcoinFission.allocateSatoshis({
+      locks: [
+        { utxoId: 11, vaultId: 1 },
+        { utxoId: 22, vaultId: 2 },
+        { utxoId: 33, vaultId: 1 },
+      ],
+      maximumSatoshisByUtxoId: { 11: 20n, 22: 40n, 33: 30n },
+      selectedVaultIds: new Set([1]),
+      requestedSatoshis: 80n,
+    });
+
+    expect(allocations.map(({ lock, satoshis }) => [lock.utxoId, satoshis])).toEqual([
+      [11, 20n],
+      [33, 30n],
+    ]);
+  });
+
   it('uses its stored liquidity as the source of a ratchet', () => {
     const priceIndex = new PriceIndex();
     priceIndex.argonUsdPrice = new BigNumber(0.5);
