@@ -23,13 +23,21 @@ export type PreparedTransactionOperation<Metadata, Build extends TransactionOper
   canAfford: boolean;
 };
 
+export interface TransactionOperationOptions<Metadata> {
+  onFinalized?: (txInfo: TransactionInfo<Metadata>) => Promise<void>;
+  onPostProcessed?: (txInfo: TransactionInfo<Metadata>, error?: Error) => Promise<void>;
+}
+
 export abstract class TransactionOperation<Input, Metadata, Build extends TransactionOperationBuild<Metadata>> {
   protected abstract readonly extrinsicType: ExtrinsicType;
   private readonly submissionsByKey = new Map<string, Promise<TransactionInfo<Metadata>>>();
   private readonly publishedSubmissionIds = new Set<number>();
   private readonly submissionPublicationById = new Map<number, Promise<void>>();
 
-  constructor(protected readonly transactionTracker: TransactionTracker) {}
+  constructor(
+    protected readonly transactionTracker: TransactionTracker,
+    private readonly callbacks: TransactionOperationOptions<Metadata> = {},
+  ) {}
 
   public async load(): Promise<void> {
     await this.restorePendingTransactions();
@@ -81,7 +89,11 @@ export abstract class TransactionOperation<Input, Metadata, Build extends Transa
 
   protected abstract build(input: Input): Promise<Build>;
 
-  protected abstract onFinalized(txInfo: TransactionInfo<Metadata>): Promise<void>;
+  protected onFinalized?(txInfo: TransactionInfo<Metadata>): Promise<void>;
+
+  protected ownsTransaction(_txInfo: TransactionInfo<Metadata>): boolean {
+    return true;
+  }
 
   protected onSubmitted?(txInfo: TransactionInfo<Metadata>): Promise<void>;
 
@@ -168,6 +180,16 @@ export abstract class TransactionOperation<Input, Metadata, Build extends Transa
     if (txInfo.hasPendingPostProcessing) return;
 
     const postProcessor = txInfo.createPostProcessor();
+    if (this.callbacks.onPostProcessed) {
+      void txInfo.waitForPostProcessing
+        .then(
+          () => this.callbacks.onPostProcessed!(txInfo),
+          error => this.callbacks.onPostProcessed!(txInfo, error as Error),
+        )
+        .catch(error => {
+          console.error(`[TransactionOperation] Unable to process transaction #${txInfo.tx.id}`, error);
+        });
+    }
     void this.processFinalization(txInfo).then(postProcessor.resolve, postProcessor.reject);
   }
 
@@ -187,7 +209,8 @@ export abstract class TransactionOperation<Input, Metadata, Build extends Transa
       throw error;
     }
 
-    await this.onFinalized(txInfo);
+    await this.onFinalized?.(txInfo);
+    await this.callbacks.onFinalized?.(txInfo);
   }
 
   private async publishSubmitted(txInfo: TransactionInfo<Metadata>): Promise<void> {
@@ -210,7 +233,10 @@ export abstract class TransactionOperation<Input, Metadata, Build extends Transa
   private async restorePendingTransactions(): Promise<void> {
     await this.transactionTracker.load();
     const pendingTransactions = this.transactionTracker.pendingBlockTxInfosAtLoad
-      .filter(txInfo => txInfo.tx.extrinsicType === this.extrinsicType)
+      .filter(
+        txInfo =>
+          txInfo.tx.extrinsicType === this.extrinsicType && this.ownsTransaction(txInfo as TransactionInfo<Metadata>),
+      )
       .reverse() as TransactionInfo<Metadata>[];
 
     for (const txInfo of pendingTransactions) {

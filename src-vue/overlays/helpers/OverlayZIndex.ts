@@ -3,7 +3,7 @@ import * as Vue from 'vue';
 const OVERLAY_BACKDROP_Z_INDEX = 1000;
 const OVERLAY_Z_INDEX_STEP = 6;
 const ROOT_FLOATING_Z_INDEX = OVERLAY_BACKDROP_Z_INDEX - OVERLAY_Z_INDEX_STEP;
-const openOverlayZIndexes = new Set<number>();
+const openOverlayZIndexes = Vue.reactive(new Set<number>());
 const overlayContentZIndexKey = Symbol('overlay-content-z-index') as Vue.InjectionKey<
   Vue.Ref<number> | Vue.ComputedRef<number>
 >;
@@ -82,5 +82,11 @@ export function useFloatingZIndex(offset = 1) {
 
   return Vue.computed(() => ({
     zIndex: getFloatingZIndex(parentOverlayContentZIndex?.value, offset),
+  }));
+}
+
+export function useTopOverlayFloatingZIndex(offset = 1) {
+  return Vue.computed(() => ({
+    zIndex: getFloatingZIndex(Math.max(0, ...openOverlayZIndexes), offset),
   }));
 }

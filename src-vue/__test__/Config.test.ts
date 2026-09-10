@@ -16,6 +16,7 @@ import { JsonExt } from '@argonprotocol/apps-core';
 import Restarter from '../lib/Restarter.ts';
 import PluginSql from '@tauri-apps/plugin-sql';
 import { LocalMachine } from '../lib/LocalMachine.ts';
+import { AdvancedRestartOption } from '../interfaces/IAdvancedRestartOption.ts';
 
 beforeAll(() => {
   WalletKeys.prototype.didWalletHavePreviousLife = vi.fn().mockResolvedValue(false);
@@ -279,6 +280,32 @@ it('refreshes the local-server port while recovering an interrupted install', as
   expect(save).toHaveBeenCalledWith(expect.objectContaining({ serverDetails: expect.stringContaining('55222') }));
 });
 
+it('returns a configured local server to installation when its VM no longer exists', async () => {
+  const dbPromise = createMockedDbPromise({
+    serverAdd: JsonExt.stringify({ localComputer: {} }),
+    serverDetails: JsonExt.stringify({
+      ipAddress: '127.0.0.1',
+      sshPort: 55116,
+      sshUser: 'argon',
+      type: ServerType.LocalComputer,
+      workDir: '/app',
+    }),
+    isServerInstalled: 'true',
+  });
+  const activate = vi.spyOn(LocalMachine, 'activate').mockResolvedValue(undefined);
+  activate.mockClear();
+  const { walletKeys } = createTestWallet('//Alice');
+  instanceChecks.delete(Config.prototype.constructor);
+  const config = new Config(dbPromise, walletKeys);
+
+  await config.load();
+
+  expect(config.serverAdd).toEqual({ localComputer: {} });
+  expect(config.serverDetails).toEqual(Config.getDefault('serverDetails'));
+  expect(config.isServerInstalled).toBe(false);
+  expect(activate).toHaveBeenCalledOnce();
+});
+
 it.each(['loading', 'ARGON_NETWORK_NAME'])('clears fake upstream state stored with %s', async routerHost => {
   const dbPromise = createMockedDbPromise({
     bootstrapDetails: JsonExt.stringify({ type: BootstrapType.Public, routerHost }),
@@ -385,6 +412,151 @@ it.each([
         }),
       );
     }
+  } finally {
+    pluginSqlLoad.mockRestore();
+    await db.close();
+    await replacementDb.close();
+  }
+});
+
+it('preserves connected Ethereum wallets when recreating the local database', async () => {
+  const db = await createTestDb();
+  const replacementDb = await createTestDb();
+  const pluginSqlLoad = vi.spyOn(PluginSql, 'load').mockResolvedValue(replacementDb.sql);
+
+  try {
+    await db.walletsTable.createDefaultEthereum({
+      address: '0x1111111111111111111111111111111111111111',
+      derivationPath: "m/44'/60'/0'/0'/0'",
+    });
+    await db.walletsTable.importExternalEthereum({
+      name: 'Imported Ethereum',
+      address: '0x2222222222222222222222222222222222222222',
+      coreEthereumAddress: '0x1111111111111111111111111111111111111111',
+      derivationPath: "m/44'/60'/0'/0'/7'",
+      secretKind: 'mnemonic',
+      encryptedSecret: 'encrypted-wallet-secret',
+    });
+    const originalWallets = await db.walletsTable.fetchEthereumWallets();
+
+    const { walletKeys } = createTestWallet('//Alice');
+    instanceChecks.delete(Config.prototype.constructor);
+    const config = new Config(Promise.resolve(db), walletKeys);
+    await config.load();
+
+    const restarter = new Restarter(Promise.resolve(db), config);
+    vi.spyOn(restarter, 'deleteAndCreateLocalDatabase').mockResolvedValue();
+    vi.spyOn(restarter, 'restart').mockImplementation(() => undefined);
+
+    await restarter.migrateToFreshLocalDatabase();
+
+    expect(await replacementDb.walletsTable.fetchEthereumWallets()).toEqual(originalWallets);
+  } finally {
+    pluginSqlLoad.mockRestore();
+    await db.close();
+    await replacementDb.close();
+  }
+});
+
+it('recreates a wiped local server instead of restoring its removed VM connection', async () => {
+  const db = await createTestDb();
+  const replacementDb = await createTestDb();
+  const pluginSqlLoad = vi.spyOn(PluginSql, 'load').mockResolvedValue(replacementDb.sql);
+  const activate = vi.spyOn(LocalMachine, 'activate').mockResolvedValue({ sshPort: 56285 });
+
+  try {
+    await db.configTable.insertOrReplace({
+      serverAdd: JsonExt.stringify({ localComputer: {} }, 2),
+      serverDetails: JsonExt.stringify(
+        {
+          ipAddress: '127.0.0.1',
+          sshPort: 56285,
+          sshUser: 'argon',
+          type: ServerType.LocalComputer,
+          workDir: '/app',
+        },
+        2,
+      ),
+      isServerInstalled: 'true',
+    });
+    const { walletKeys } = createTestWallet('//Alice');
+    instanceChecks.delete(Config.prototype.constructor);
+    const config = new Config(Promise.resolve(db), walletKeys);
+    await config.load();
+    activate.mockClear();
+
+    const restarter = new Restarter(Promise.resolve(db), config);
+    vi.spyOn(restarter, 'getServer').mockResolvedValue({ completelyWipeEverything: vi.fn() } as any);
+    vi.spyOn(restarter, 'deleteAndCreateLocalDatabase').mockResolvedValue();
+    vi.spyOn(restarter, 'restart').mockImplementation(() => undefined);
+
+    await restarter.run(
+      new Set([
+        AdvancedRestartOption.CompletelyWipeAndReinstallCloudMachine,
+        AdvancedRestartOption.RecreateLocalDatabase,
+        AdvancedRestartOption.ReloadAppUi,
+      ]),
+      { stop: vi.fn() } as any,
+    );
+
+    instanceChecks.delete(Config.prototype.constructor);
+    const restoredConfig = new Config(Promise.resolve(replacementDb), walletKeys);
+    await restoredConfig.load();
+
+    expect(restoredConfig.serverAdd).toEqual({ localComputer: {} });
+    expect(restoredConfig.serverDetails).toEqual(Config.getDefault('serverDetails'));
+    expect(restoredConfig.isServerInstalled).toBe(false);
+    expect(activate).not.toHaveBeenCalled();
+  } finally {
+    activate.mockRestore();
+    pluginSqlLoad.mockRestore();
+    await db.close();
+    await replacementDb.close();
+  }
+});
+
+it('preserves a wiped remote server connection for reinstallation', async () => {
+  const db = await createTestDb();
+  const replacementDb = await createTestDb();
+  const pluginSqlLoad = vi.spyOn(PluginSql, 'load').mockResolvedValue(replacementDb.sql);
+  const serverDetails = {
+    ipAddress: '203.0.113.10',
+    sshUser: 'root',
+    type: ServerType.DigitalOcean,
+    workDir: '~',
+  };
+
+  try {
+    await db.configTable.insertOrReplace({
+      serverAdd: JsonExt.stringify({ digitalOcean: { apiKey: 'test-api-key' } }, 2),
+      serverDetails: JsonExt.stringify(serverDetails, 2),
+      isServerInstalled: 'true',
+    });
+    const { walletKeys } = createTestWallet('//Alice');
+    instanceChecks.delete(Config.prototype.constructor);
+    const config = new Config(Promise.resolve(db), walletKeys);
+    await config.load();
+
+    const restarter = new Restarter(Promise.resolve(db), config);
+    vi.spyOn(restarter, 'getServer').mockResolvedValue({ completelyWipeEverything: vi.fn() } as any);
+    vi.spyOn(restarter, 'deleteAndCreateLocalDatabase').mockResolvedValue();
+    vi.spyOn(restarter, 'restart').mockImplementation(() => undefined);
+
+    await restarter.run(
+      new Set([
+        AdvancedRestartOption.CompletelyWipeAndReinstallCloudMachine,
+        AdvancedRestartOption.RecreateLocalDatabase,
+        AdvancedRestartOption.ReloadAppUi,
+      ]),
+      { stop: vi.fn() } as any,
+    );
+
+    instanceChecks.delete(Config.prototype.constructor);
+    const restoredConfig = new Config(Promise.resolve(replacementDb), walletKeys);
+    await restoredConfig.load();
+
+    expect(restoredConfig.serverDetails).toEqual(serverDetails);
+    expect(restoredConfig.isServerInstalled).toBe(false);
   } finally {
     pluginSqlLoad.mockRestore();
     await db.close();

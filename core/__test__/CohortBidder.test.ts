@@ -382,6 +382,104 @@ describe('CohortBidder unit tests', () => {
     expect(onBidParamsAdjusted.mock.calls[0][0].availableMicronots).toBe(10_000n);
   });
 
+  it('publishes restored seat capacity after more bot capital becomes available', async () => {
+    const options = {
+      minBid: Argons(0.5),
+      maxBid: Argons(5),
+      accountBalance: Argons(10),
+      accountMicronots: 20_000n,
+    };
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 9], options);
+    cohortBidder.currentBids.bids = createBids(10, Argons(0.5));
+    cohortBidder.currentBids.atTick = 10;
+    const onBidParamsAdjusted = vi.fn();
+    const onUpdated = vi.fn();
+    cohortBidder.callbacks = { onBidParamsAdjusted };
+    cohortBidder.onUpdatedFn = onUpdated;
+
+    // @ts-expect-error - private var
+    await cohortBidder.planNextBid();
+    expect(onBidParamsAdjusted).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        maxSeats: 2,
+        reason: 'insufficient-argonot-balance',
+      }),
+    );
+
+    options.accountMicronots = 100_000n;
+    onUpdated.mockClear();
+    // @ts-expect-error - private var
+    await cohortBidder.planNextBid();
+
+    expect(onBidParamsAdjusted).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        maxSeats: 10,
+        reason: undefined,
+      }),
+    );
+    expect(onUpdated).toHaveBeenCalled();
+  });
+
+  it('publishes changed bot capital even when capacity is unchanged', async () => {
+    const options = {
+      minBid: Argons(0.5),
+      maxBid: Argons(5),
+      accountBalance: Argons(10),
+      accountMicronots: 100_000n,
+    };
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 9], options);
+    cohortBidder.currentBids.bids = createBids(10, Argons(0.5));
+    cohortBidder.currentBids.atTick = 10;
+    const onUpdated = vi.fn();
+    cohortBidder.onUpdatedFn = onUpdated;
+
+    // @ts-expect-error - private var
+    await cohortBidder.planNextBid();
+    expect(cohortBidder.botCapital).toEqual({
+      microgons: Argons(10),
+      micronots: 100_000n,
+    });
+
+    options.accountBalance = Argons(11);
+    options.accountMicronots = 110_000n;
+    onUpdated.mockClear();
+    // @ts-expect-error - private var
+    await cohortBidder.planNextBid();
+
+    expect(cohortBidder.botCapital).toEqual({
+      microgons: Argons(11),
+      micronots: 110_000n,
+    });
+    expect(onUpdated).toHaveBeenCalledOnce();
+  });
+
+  it('includes capital locked in winning bids in the published bot capital', async () => {
+    const { cohortBidder } = await createBidderWithMocks(accountset, [0, 9], {
+      minBid: Argons(0.5),
+      maxBid: Argons(5),
+      accountBalance: Argons(10),
+      accountMicronots: 100_000n,
+    });
+    cohortBidder.currentBids.bids = [
+      {
+        address: cohortBidder.subaccounts[0].address,
+        bidMicrogons: Argons(0.5),
+        micronotsStaked: 10_000n,
+        bidAtTick: 10,
+      },
+      ...createBids(9, Argons(0.5)),
+    ];
+    cohortBidder.currentBids.atTick = 10;
+
+    // @ts-expect-error - private var
+    await cohortBidder.planNextBid();
+
+    expect(cohortBidder.botCapital).toEqual({
+      microgons: Argons(10.5),
+      micronots: 110_000n,
+    });
+  });
+
   it('retries an unchanged bids snapshot after a transient read failure', async () => {
     const header = createBlockHeader(100, `0x${'01'.repeat(32)}`);
     const bidsForNextSlotCohort = vi.fn().mockResolvedValue([]);

@@ -217,11 +217,12 @@ export class BotSyncer {
       this.botState = botState;
       await this.updateBotState(botState);
       await this.syncServerState(botState);
-      await this.syncCurrentBids();
+      await this.syncCurrentBids(botState);
 
       if (!this.isSyncingThePast) {
+        this.botFns.setBotState(botState);
+        this.botFns.onEvent('updated-mining-state', botState.currentFrameId);
         this.botFns.setStatus(BotStatus.Ready);
-        this.botFns.onEvent('updated-cohort-data', botState.currentFrameId);
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -254,31 +255,25 @@ export class BotSyncer {
     }
   }
 
-  private async syncCurrentBids() {
-    const client = await this.getClient();
-    const activeBidsFile = await client.fetch(`/bids`);
-    console.log('BotSyncer: Syncing bids for bidding frame...', activeBidsFile.cohortBiddingFrameId);
+  private async syncCurrentBids(state: IBotState): Promise<void> {
+    console.log('BotSyncer: Syncing bids for bidding frame...', state.currentFrameId);
     await this.db.frameBidsTable.insertOrUpdate(
-      activeBidsFile.cohortBiddingFrameId,
-      activeBidsFile.lastBlockNumber,
-      [...activeBidsFile.winningBids.entries()].map(([bidPosition, bid]) => {
+      state.currentFrameId,
+      state.botLastActiveBlockNumber,
+      [...state.winningBids.entries()].map(([bidPosition, bid]) => {
         return {
           subAccountIndex: bid.subAccountIndex,
           address: bid.address,
           lastBidAtTick: bid.lastBidAtTick,
           microgonsPerSeat: bid.microgonsPerSeat ?? 0n,
-          micronotsStakedPerSeat: activeBidsFile.micronotsStakedPerSeat,
+          micronotsStakedPerSeat: state.currentAuctionMicronotsPerSeat ?? 0n,
           bidPosition,
         } as IBidEntry;
       }),
     );
-
-    this.botFns.onEvent('updated-bids-data', activeBidsFile.winningBids);
   }
 
   private async updateBotState(botState = this.botState): Promise<void> {
-    this.botFns.setBotState(botState);
-
     if (botState.oldestFrameIdToSync > 0) {
       this.config.oldestFrameIdToSync = botState.oldestFrameIdToSync;
     }
@@ -298,7 +293,6 @@ export class BotSyncer {
       this.botFns.setDbSyncProgress(dbSyncProgress);
       await this.syncThePast(dbSyncProgress, botState);
     } else {
-      this.botFns.setStatus(BotStatus.Ready);
       await this.syncCurrentFrame(botState);
     }
   }
@@ -367,6 +361,9 @@ export class BotSyncer {
         this.botFns.onEvent('updated-cohort-history', currentFrameId);
       } finally {
         this.isSyncingThePast = false;
+        if (!this.isDisposed && framesToSync >= 2) {
+          this.pendingState = this.botState;
+        }
       }
     })();
 

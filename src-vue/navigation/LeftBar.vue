@@ -183,23 +183,31 @@
                 <div class="flex flex-row">
                   <div class="mt-0.5 flex grow flex-row items-center">
                     <div class="Connector" />
-                    <div class="flex grow flex-row items-center border-t border-slate-400/30">
-                      <div class="grow py-1 text-slate-600/80">
+                    <button
+                      type="button"
+                      class="NestedAction flex grow cursor-pointer flex-row items-center border-t border-slate-400/30 text-left"
+                      @click.stop="basicEmitter.emit('openMiningBiddingBotOverlay')"
+                    >
+                      <div class="NestedActionLabel grow py-1 text-slate-600/80">
                         {{ numeral(miningAssets.auctionBidCount).format('0,0') }} Current Bids
                       </div>
                       <ExternalIcon class="w-3.5 opacity-50" />
-                    </div>
+                    </button>
                   </div>
                 </div>
                 <div class="flex flex-row">
                   <div class="flex grow flex-row items-center">
                     <div class="Connector" />
-                    <div class="flex grow flex-row items-center border-t border-slate-400/30">
-                      <div class="grow py-1 text-slate-600/80">
+                    <button
+                      type="button"
+                      class="NestedAction flex grow cursor-pointer flex-row items-center border-t border-slate-400/30 text-left"
+                      @click.stop="basicEmitter.emit('openMiningActiveSeatsOverlay')"
+                    >
+                      <div class="NestedActionLabel grow py-1 text-slate-600/80">
                         {{ numeral(miningAssets.seatActiveCount).format('0,0') }} Active Seats
                       </div>
                       <ExternalIcon class="w-3.5 opacity-50" />
-                    </div>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -238,11 +246,11 @@
                   <button
                     type="button"
                     @click.stop="openSecuritization"
-                    class="mt-0.5 flex grow cursor-pointer flex-row items-center text-left"
+                    class="NestedAction mt-0.5 flex grow cursor-pointer flex-row items-center text-left"
                   >
                     <div class="Connector" />
                     <div class="flex grow flex-row items-center border-t border-slate-400/30">
-                      <div class="grow py-1 text-slate-600/80">
+                      <div class="NestedActionLabel grow py-1 text-slate-600/80">
                         {{ microgonToArgonNm(vaultingAssets.securityMicrogons).format('0,0.[00]') }} ARGN Securitization
                       </div>
                       <ExternalIcon class="w-3.5 opacity-50" />
@@ -253,11 +261,11 @@
                   <button
                     type="button"
                     @click.stop="openSecuritization"
-                    class="flex grow cursor-pointer flex-row items-center text-left"
+                    class="NestedAction flex grow cursor-pointer flex-row items-center text-left"
                   >
                     <div class="Connector" />
                     <div class="flex grow flex-row items-center border-t border-slate-400/30">
-                      <div class="grow py-1 text-slate-600/80">
+                      <div class="NestedActionLabel grow py-1 text-slate-600/80">
                         {{ micronotToArgonotNm(vaultingAssets.securityMicronots).format('0,0.[00]') }} ARGNOT
                         Securitization
                       </div>
@@ -738,6 +746,16 @@ header {
   &:after {
     content: '';
     @apply bg-argon-600/40 absolute top-1/2 left-1/2 h-px w-3.5 translate-x-[-6px];
+  }
+}
+
+.NestedAction:hover {
+  .NestedActionLabel {
+    @apply text-slate-900;
+  }
+
+  svg {
+    @apply opacity-70;
   }
 }
 

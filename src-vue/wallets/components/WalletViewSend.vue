@@ -1,7 +1,7 @@
 <template>
   <div class="flex h-full grow flex-col text-black/90">
     <WalletHeader
-      :name="activeTransfer ? 'Sending From Internal' : 'Send From Internal'"
+      :name="activeTransfer || activeArgonTransfer ? 'Sending From Internal' : 'Send From Internal'"
       :showHome="true"
       :isDragging="props.isDragging"
       @dragStart="emit('dragStart', $event)"
@@ -10,19 +10,21 @@
     />
 
     <div
-      v-if="activeTransfer"
+      v-if="activeTransfer || activeArgonTransfer"
       class="flex min-h-0 grow flex-col gap-4 overflow-y-auto px-5 py-4 text-sm text-slate-700"
     >
       <p class="font-light">
         Moving
         <strong>
-          {{ microgonToArgonNm(activeTransfer.transferState.amount ?? 0n).format('0,0.[00]') }}
-          {{ activeTransfer.moveToken }}
+          <template v-if="activeMoveToken === MoveToken.ARGNOT">
+            {{ micronotToArgonotNm(activeTransferAmount).format('0,0.[00]') }} ARGNOT
+          </template>
+          <template v-else>{{ microgonToArgonNm(activeTransferAmount).format('0,0.[00]') }} ARGN</template>
         </strong>
         from
         <strong>Internal App Wallet</strong>
         to
-        <strong>{{ selectedEthereumWallet?.name }}</strong>
+        <strong>{{ activeDestination }}</strong>
         .
       </p>
       <p class="text-argon-700 text-center text-4xl font-bold">
@@ -72,7 +74,7 @@
           Cancel
         </button>
         <button
-          v-if="selectedEthereumWallet || isBitcoinTransfer"
+          v-if="selectedEthereumWallet || selectedArgonWallet || isBitcoinTransfer"
           :disabled="!canInitiateTransfer"
           class="border-argon-700 bg-argon-600 grow cursor-pointer rounded-lg border px-5 py-1 text-white disabled:cursor-default disabled:border-gray-400 disabled:bg-gray-300 disabled:text-gray-500"
           @click="initiateTransfer"
@@ -93,6 +95,8 @@ import * as Vue from 'vue';
 import { MoveToken } from '@argonprotocol/apps-core';
 import type { IWalletGuidanceContext } from '../../emitters/basicEmitter.ts';
 import type { IEthereumOutboundActiveTransfer } from '../../lib/EthereumOutboundTransferTracker.ts';
+import type { ITransactionMoveMetadata } from '../../lib/txs/Balance.transfer.ts';
+import type { TransactionInfo } from '../../lib/TransactionInfo.ts';
 import { WalletType } from '../../lib/Wallet.ts';
 import type { WalletForEthereum } from '../../lib/WalletForEthereum.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
@@ -100,7 +104,7 @@ import numeral from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getEthereumOutboundTransferTracker } from '../../stores/moveToEthereum.ts';
 import { getBitcoinTransactionOperations } from '../../stores/bitcoin.ts';
-import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
+import { getMoveCapital, getWalletKeys, useWallets } from '../../stores/wallets.ts';
 import ProgressBar from '../../components/ProgressBar.vue';
 import WalletHeader from './WalletHeader.vue';
 import WalletTransferForm, { type ITransferWallet } from './WalletTransferForm.vue';
@@ -123,16 +127,26 @@ const emit = defineEmits<{
 const currency = getCurrency();
 const wallets = useWallets();
 const outboundTracker = getEthereumOutboundTransferTracker();
+const moveCapital = getMoveCapital();
 const { bitcoinLockRelease } = getBitcoinTransactionOperations();
-const { microgonToArgonNm } = createNumeralHelpers(currency);
+const { microgonToArgonNm, micronotToArgonotNm } = createNumeralHelpers(currency);
 
 const transferForm = Vue.ref<InstanceType<typeof WalletTransferForm>>();
 
 const selectedDestinationWallet = Vue.ref<ITransferWallet>();
 const activeTransfer = Vue.ref<IEthereumOutboundActiveTransfer>();
+const activeArgonTransfer = Vue.ref<TransactionInfo<ITransactionMoveMetadata>>();
 const isInitiatingTransfer = Vue.ref(false);
 const progressNow = Vue.ref(Date.now());
+const argonProgress = Vue.reactive({
+  progressPct: 0,
+  stepLabel: 'Finalizing on Argon',
+  detail: 'Preparing transaction...',
+  hint: '',
+  error: '',
+});
 let progressRefreshInterval: ReturnType<typeof setInterval> | undefined;
+let stopArgonProgress: VoidFunction | undefined;
 
 const toWallets = Vue.computed<ITransferWallet[]>(() => {
   const ethereumWallets = [...wallets.ethereumWallets.persistedWallets];
@@ -147,6 +161,9 @@ const toWallets = Vue.computed<ITransferWallet[]>(() => {
 const selectedEthereumWallet = Vue.computed(() =>
   isEthereumWallet(selectedDestinationWallet.value) ? selectedDestinationWallet.value : undefined,
 );
+const selectedArgonWallet = Vue.computed(() =>
+  isArgonWallet(selectedDestinationWallet.value) ? selectedDestinationWallet.value : undefined,
+);
 const isBitcoinTransfer = Vue.computed(
   () =>
     transferForm.value?.selectedMoveToken === MoveToken.BTC &&
@@ -154,11 +171,26 @@ const isBitcoinTransfer = Vue.computed(
 );
 const canInitiateTransfer = Vue.computed(() => {
   if (!transferForm.value?.isReady || isInitiatingTransfer.value) return false;
-  return !!selectedEthereumWallet.value || isBitcoinTransfer.value;
+  return !!selectedEthereumWallet.value || !!selectedArgonWallet.value || isBitcoinTransfer.value;
 });
 const progressView = Vue.computed(() =>
-  getCrosschainTransferProgressView(activeTransfer.value?.transferState, progressNow.value),
+  activeArgonTransfer.value
+    ? argonProgress
+    : getCrosschainTransferProgressView(activeTransfer.value?.transferState, progressNow.value),
 );
+const activeMoveToken = Vue.computed(() => {
+  if (activeTransfer.value) return activeTransfer.value.moveToken;
+  return activeArgonTransfer.value?.tx.metadataJson.assetsToMove[MoveToken.ARGNOT] ? MoveToken.ARGNOT : MoveToken.ARGN;
+});
+const activeTransferAmount = Vue.computed(() => {
+  if (activeTransfer.value) return activeTransfer.value.transferState.amount ?? 0n;
+  return activeArgonTransfer.value?.tx.metadataJson.assetsToMove[activeMoveToken.value] ?? 0n;
+});
+const activeDestination = Vue.computed(() => {
+  if (activeTransfer.value) return selectedEthereumWallet.value?.name ?? 'Ethereum wallet';
+  const address = activeArgonTransfer.value?.tx.metadataJson.externalAddress ?? '';
+  return address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Argon address';
+});
 
 function selectDestinationWallet(wallet: ITransferWallet | undefined) {
   selectedDestinationWallet.value = wallet;
@@ -168,9 +200,18 @@ function isEthereumWallet(wallet: ITransferWallet | IWalletConnector | undefined
   return wallet?.type === WalletType.ethereum;
 }
 
+function isArgonWallet(wallet: ITransferWallet | undefined) {
+  return wallet?.type === WalletType.argon;
+}
+
 async function initiateTransfer() {
   const form = transferForm.value;
   if (!form || !canInitiateTransfer.value) return;
+
+  if (selectedArgonWallet.value) {
+    await initiateArgonTransfer(form);
+    return;
+  }
 
   if (isBitcoinTransfer.value) {
     await initiateBitcoinTransfer(form);
@@ -206,6 +247,29 @@ async function initiateTransfer() {
   }
 }
 
+async function initiateArgonTransfer(form: InstanceType<typeof WalletTransferForm>) {
+  const moveToken = form.selectedMoveToken;
+  const amount = form.tokensToMove;
+  if (moveToken !== MoveToken.ARGN && moveToken !== MoveToken.ARGNOT) return;
+
+  isInitiatingTransfer.value = true;
+  form.setFormError('');
+  try {
+    const txInfo = await moveCapital.sendToAddress({
+      destinationAddress: form.destinationAddress,
+      moveToken,
+      amount,
+      availableMicrogons: wallets.defaultArgonWallet.availableMicrogons,
+      availableMicronots: wallets.defaultArgonWallet.availableMicronots,
+    });
+    trackArgonTransfer(txInfo);
+  } catch (error) {
+    form.setFormError(error instanceof Error ? error.message : 'Unable to send the transfer.');
+  } finally {
+    isInitiatingTransfer.value = false;
+  }
+}
+
 async function initiateBitcoinTransfer(form: InstanceType<typeof WalletTransferForm>) {
   const channels = form.selectedBitcoinChannels;
   const bitcoinFees = form.bitcoinNetworkFees;
@@ -236,6 +300,12 @@ async function initiateBitcoinTransfer(form: InstanceType<typeof WalletTransferF
 }
 
 async function createAnotherTransaction() {
+  if (activeArgonTransfer.value) {
+    stopArgonProgress?.();
+    stopArgonProgress = undefined;
+    activeArgonTransfer.value = undefined;
+    return;
+  }
   const current = activeTransfer.value;
   if (current?.transferState.needsAttention) {
     await outboundTracker.dismissFailedTransfer(current.id);
@@ -245,10 +315,37 @@ async function createAnotherTransaction() {
   activeTransfer.value = undefined;
 }
 
+function trackArgonTransfer(txInfo: TransactionInfo<ITransactionMoveMetadata>) {
+  activeArgonTransfer.value = txInfo;
+  stopArgonProgress?.();
+  const status = txInfo.getStatus();
+  Object.assign(argonProgress, {
+    progressPct: status.progressPct,
+    detail: status.isFinalized ? 'Finalized on Argon.' : 'Preparing transaction...',
+    error: status.error?.message ?? '',
+  });
+  stopArgonProgress = txInfo.subscribeToProgress((progress, error) => {
+    Object.assign(argonProgress, {
+      progressPct: progress.progressPct,
+      detail: progress.progressMessage,
+      error: error?.message ?? '',
+    });
+  });
+}
+
+Vue.watch(
+  () => moveCapital.data.pendingExternalTransfer,
+  txInfo => {
+    if (txInfo) trackArgonTransfer(txInfo);
+  },
+  { immediate: true },
+);
+
 Vue.onMounted(() => {
   progressRefreshInterval = setInterval(() => (progressNow.value = Date.now()), 1_000);
 });
 Vue.onUnmounted(() => {
   if (progressRefreshInterval) clearInterval(progressRefreshInterval);
+  stopArgonProgress?.();
 });
 </script>

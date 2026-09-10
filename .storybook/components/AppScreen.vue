@@ -8,13 +8,13 @@
           : 'border-slate-400/40 bg-white/90 text-slate-600'
       "
     >
-      {{ interactive ? 'Interactive scenario' : 'Fixed state preview' }}
+      {{ scenarioLabel ?? (interactive ? 'Interactive scenario' : 'Fixed state preview') }}
     </div>
     <div inert>
       <TopBar />
     </div>
     <div class="flex min-h-0 grow flex-row gap-x-2 overflow-scroll pt-2 pb-2 pl-2">
-      <div inert class="flex">
+      <div :inert="!interactiveNavigation" class="flex">
         <LeftBar />
       </div>
       <main :inert="!interactive" class="relative flex min-h-0 grow flex-col overflow-hidden">
@@ -32,6 +32,8 @@ import TopBar from '../../src-vue/navigation/TopBar.vue';
 
 defineProps<{
   interactive?: boolean;
+  interactiveNavigation?: boolean;
+  scenarioLabel?: string;
 }>();
 </script>
 

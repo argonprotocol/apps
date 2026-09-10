@@ -41,11 +41,14 @@ pub async fn create_local_vm(app: AppHandle, env_text: String) -> Result<u16, St
 }
 
 #[tauri::command]
-pub async fn activate_local_vm(app: AppHandle) -> Result<u16, String> {
+pub async fn activate_local_vm(app: AppHandle) -> Result<Option<u16>, String> {
     let vm_path = get_vm_path(&app);
+    if !has_vm_definition(&vm_path) {
+        return Ok(None);
+    }
     let work_dir = get_vm_work_dir(&app);
     let vm = Vm::activate(&vm_path, &work_dir)?;
-    Ok(vm.ssh_port)
+    Ok(Some(vm.ssh_port))
 }
 
 #[tauri::command]
@@ -61,6 +64,10 @@ fn get_vm_path(app: &AppHandle) -> PathBuf {
 
 fn get_vm_work_dir(app: &AppHandle) -> PathBuf {
     get_vm_path(app).join("app")
+}
+
+fn has_vm_definition(vm_path: &Path) -> bool {
+    vm_path.join("docker-compose.yml").is_file()
 }
 
 #[cfg(unix)]
@@ -210,5 +217,32 @@ impl Vm {
             ));
         }
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_vm_definition;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn gateway_cert_staging_directory_is_not_an_installed_vm() {
+        let unique_id = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let test_vm_path = std::env::temp_dir().join(format!(
+            "argon-vm-definition-{}-{unique_id}",
+            std::process::id()
+        ));
+        fs::create_dir_all(test_vm_path.join("app/config/nginx-certs")).unwrap();
+
+        assert!(!has_vm_definition(&test_vm_path));
+
+        fs::write(test_vm_path.join("docker-compose.yml"), "services: {}").unwrap();
+        assert!(has_vm_definition(&test_vm_path));
+
+        fs::remove_dir_all(test_vm_path).unwrap();
     }
 }

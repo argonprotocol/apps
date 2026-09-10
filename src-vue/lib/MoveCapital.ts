@@ -1,525 +1,421 @@
-import { getMainchainClient } from '../stores/mainchain.ts';
-import { SubmittableExtrinsic } from '@argonprotocol/mainchain';
 import {
   type ArgonClient,
   bigIntMax,
-  bigIntMin,
-  isDefaultArgonMoveFrom,
   isValidArgonAccountAddress,
-  MINING_BID_PROXY_FEE_FLOAT,
   MoveFrom,
   MoveTo,
   MoveToken,
 } from '@argonprotocol/apps-core';
-import {
-  existentialDepositMicrogons,
-  existentialDepositMicronots,
-  getSpendableDefaultArgonMicrogons,
-  getSpendableMicrogons,
-} from './WalletForArgon.ts';
-import { IWallet, WalletType } from './Wallet.ts';
-import { ExtrinsicType } from './db/TransactionsTable.ts';
-import { TransactionInfo } from './TransactionInfo.ts';
-import { WalletKeys } from './WalletKeys.ts';
-import { TransactionTracker, TxAttemptState } from './TransactionTracker.ts';
-import { ensureMiningBidProxySetup } from './MiningAccount.ts';
-import { Config } from './Config.ts';
+import { nanoid } from 'nanoid';
 
-export interface IAssetsToMove {
-  [MoveToken.ARGN]?: bigint;
-  [MoveToken.ARGNOT]?: bigint;
+import { ExtrinsicType } from './db/TransactionsTable.ts';
+import { getTransactionFailureMessage, type TransactionInfo } from './TransactionInfo.ts';
+import { TxAttemptState, type TransactionTracker } from './TransactionTracker.ts';
+import type { IWallet } from './Wallet.ts';
+import { existentialDepositMicronots } from './WalletForArgon.ts';
+import type { WalletKeys } from './WalletKeys.ts';
+import {
+  BalanceTransfer,
+  type BalanceTransferInput,
+  type IAllocationChange,
+  type IAllocationChangeLeg,
+  type IAssetsToMove,
+  type ITransactionMoveMetadata,
+} from './txs/Balance.transfer.ts';
+
+export interface ExternalTransferInput {
+  destinationAddress: string;
+  moveToken: MoveToken.ARGN | MoveToken.ARGNOT;
+  amount: bigint;
+  availableMicrogons: bigint;
+  availableMicronots: bigint;
+  client?: ArgonClient;
 }
 
-let pendingDefaultArgonMiningTransferPromise: Promise<DefaultArgonMiningTransferResult> | undefined;
-const DEFAULT_ARGON_MINING_TRANSFER_CONFIRMATIONS_TO_WAIT = 2;
+export type ExternalTransferQuoteInput = Omit<ExternalTransferInput, 'amount'>;
+
+export interface ExternalTransferQuote {
+  maximumAmount: bigint;
+  transactionFeeMicrogons: bigint;
+}
+
+export interface ChangeAllocationInput {
+  targetMicrogons: bigint;
+  targetMicronots: bigint;
+  sourceWallet: IWallet;
+  allocatedWallet: IWallet;
+  allocateFrom: MoveFrom.DefaultArgon | MoveFrom.MiningBot;
+  allocateTo: MoveTo.DefaultArgon | MoveTo.MiningBot;
+  client?: ArgonClient;
+}
+
+export interface MoveCapitalData {
+  isLoaded: boolean;
+  loadError?: string;
+  pendingExternalTransfer?: TransactionInfo<ITransactionMoveMetadata>;
+  pendingAllocationChange?: TransactionInfo<ITransactionMoveMetadata>;
+  allocationError?: string;
+}
 
 export class MoveCapital {
-  public transactionError: string = '';
+  public data: MoveCapitalData = { isLoaded: false };
+  private readonly balanceTransfers: BalanceTransfer;
+  private readonly allocationClients = new Map<string, ArgonClient>();
+  private readonly allocationContinuations = new Map<string, Promise<void>>();
+  private allocationSubmission?: Promise<TransactionInfo<ITransactionMoveMetadata> | undefined>;
+  private loading?: Promise<void>;
 
-  private walletKeys: WalletKeys;
-  private transactionTracker: TransactionTracker;
-
-  constructor(walletKeys: WalletKeys, transactionTracker: TransactionTracker) {
-    this.walletKeys = walletKeys;
-    this.transactionTracker = transactionTracker;
-  }
-
-  public getWalletTypeFromMove(moveFrom: MoveFrom): WalletType.argon | WalletType.miningBot {
-    switch (moveFrom) {
-      case MoveFrom.DefaultArgon:
-        return WalletType.argon;
-
-      case MoveFrom.MiningBot:
-        return WalletType.miningBot;
-      default:
-        throw new Error(`Unsupported move source: ${moveFrom}`);
-    }
-  }
-
-  public async move(
-    moveFrom: MoveFrom,
-    moveTo: MoveTo,
-    assetsToMove: IAssetsToMove,
-    fromWallet: IWallet,
-    toAddress: string,
-    shouldDeductFeeFromCapital = false,
-    prependedTxs: SubmittableExtrinsic[] = [],
-    client?: ArgonClient,
-  ): Promise<TransactionInfo> {
-    client ??= await getMainchainClient(false);
-
-    if (shouldDeductFeeFromCapital) {
-      const fee = await this.calculateFee(moveFrom, moveTo, assetsToMove, fromWallet, toAddress, prependedTxs, client);
-      assetsToMove = {
-        [MoveToken.ARGN]: assetsToMove[MoveToken.ARGN] ? assetsToMove[MoveToken.ARGN] - fee : 0n,
-        [MoveToken.ARGNOT]: assetsToMove[MoveToken.ARGNOT] ?? 0n,
-      };
-    }
-    const { tx, metadata } = await this.buildTransaction(
-      moveFrom,
-      moveTo,
-      assetsToMove,
-      toAddress,
-      prependedTxs,
-      client,
-    );
-    const txSigner = await this.getSigner(moveFrom);
-    return await this.transactionTracker.submitAndWatch({
-      tx,
-      txSigner,
-      metadata,
-      extrinsicType: ExtrinsicType.Transfer,
-    });
-  }
-
-  public async moveConfiguredDefaultArgonToBot(
-    args: DefaultArgonMiningTransferArgs,
-  ): Promise<DefaultArgonMiningTransferResult> {
-    if (pendingDefaultArgonMiningTransferPromise) {
-      return await pendingDefaultArgonMiningTransferPromise;
-    }
-
-    const sweepPromise = this.moveConfiguredDefaultArgonToBotInner(args);
-    pendingDefaultArgonMiningTransferPromise = sweepPromise;
-
-    try {
-      return await sweepPromise;
-    } finally {
-      if (pendingDefaultArgonMiningTransferPromise === sweepPromise) {
-        pendingDefaultArgonMiningTransferPromise = undefined;
-      }
-    }
-  }
-
-  public async moveLegacyMiningHoldToDefault(
-    legacyWallet: IWallet,
+  constructor(
     walletKeys: WalletKeys,
-  ): Promise<DefaultArgonMiningTransferResult> {
-    await this.transactionTracker.load();
-    this.transactionError = '';
-
-    const latestSweepTxInfo = this.transactionTracker.findLatestTxInfo<ITransactionMoveMetadata>(txInfo => {
-      const metadata = txInfo.tx.metadataJson;
-      return (
-        txInfo.tx.extrinsicType === ExtrinsicType.Transfer &&
-        isDefaultArgonMoveFrom(metadata?.moveFrom) &&
-        metadata?.moveTo === MoveTo.External &&
-        metadata?.externalAddress === walletKeys.defaultArgonAddress
-      );
+    private readonly transactionTracker: TransactionTracker,
+  ) {
+    this.balanceTransfers = new BalanceTransfer(walletKeys, transactionTracker, {
+      ownsTransfer: txInfo => !txInfo.tx.metadataJson?.workflow,
+      onFinalized: async txInfo => {
+        const allocationChange = txInfo.tx.metadataJson.allocationChange;
+        if (allocationChange) await this.continueAllocationChange(txInfo, allocationChange);
+      },
+      onPostProcessed: async (txInfo, error) => {
+        this.publishPendingTransfers(txInfo.tx.metadataJson.allocationChange ? error : undefined);
+      },
     });
-    if (latestSweepTxInfo) {
-      const txAttemptState = await this.transactionTracker.getTxAttemptState(
-        latestSweepTxInfo,
-        DEFAULT_ARGON_MINING_TRANSFER_CONFIRMATIONS_TO_WAIT,
-      );
-      if (txAttemptState === TxAttemptState.Pending) {
-        return { kind: 'trackingExisting', txInfo: latestSweepTxInfo };
-      }
-    }
-
-    const assetsToMove: IAssetsToMove = {};
-    const spendableMicrogons = getSpendableMicrogons(legacyWallet.availableMicrogons, existentialDepositMicrogons);
-    if (spendableMicrogons > 0n) {
-      assetsToMove[MoveToken.ARGN] = spendableMicrogons;
-    }
-    if (legacyWallet.availableMicronots > 0n) {
-      assetsToMove[MoveToken.ARGNOT] = legacyWallet.availableMicronots;
-    }
-    if (!assetsToMove[MoveToken.ARGN] && !assetsToMove[MoveToken.ARGNOT]) {
-      return { kind: 'noSpendableFundsToSweep' };
-    }
-
-    const client = await getMainchainClient(false);
-    const fee = await this.calculateFee(
-      MoveFrom.DefaultArgon,
-      MoveTo.External,
-      assetsToMove,
-      legacyWallet,
-      walletKeys.defaultArgonAddress,
-      [],
-      client,
-    );
-    if (this.transactionError) {
-      return { kind: 'blocked', error: this.transactionError };
-    }
-
-    const finalAssetsToMove: IAssetsToMove = {
-      [MoveToken.ARGN]: assetsToMove[MoveToken.ARGN] ? bigIntMax(assetsToMove[MoveToken.ARGN] - fee, 0n) : undefined,
-      [MoveToken.ARGNOT]: assetsToMove[MoveToken.ARGNOT],
-    };
-    if (!finalAssetsToMove[MoveToken.ARGN] && !finalAssetsToMove[MoveToken.ARGNOT]) {
-      return { kind: 'noSpendableFundsToSweep' };
-    }
-
-    const { tx, metadata } = await this.buildTransaction(
-      MoveFrom.DefaultArgon,
-      MoveTo.External,
-      finalAssetsToMove,
-      walletKeys.defaultArgonAddress,
-      [],
-      client,
-    );
-    const txSigner = await walletKeys.getLegacyMiningHoldKeypair();
-    const txInfo = await this.transactionTracker.submitAndWatch({
-      tx,
-      txSigner,
-      useLatestNonce: true,
-      extrinsicType: ExtrinsicType.Transfer,
-      metadata,
-    });
-    return { kind: 'submitted', txInfo };
   }
 
-  private async moveConfiguredDefaultArgonToBotInner(
-    args: DefaultArgonMiningTransferArgs,
-  ): Promise<DefaultArgonMiningTransferResult> {
-    const { defaultWallet: wallet, miningBotWallet, config } = args;
+  public async load(): Promise<void> {
+    if (this.loading) return await this.loading;
 
-    await this.transactionTracker.load();
-    this.transactionError = '';
+    const loading = (async () => {
+      await this.balanceTransfers.load();
+      await this.restoreAllocationChange();
+      this.publishPendingTransfers();
+      this.data.loadError = undefined;
+      this.data.isLoaded = true;
+    })();
+    this.loading = loading;
+    try {
+      await loading;
+    } catch (error) {
+      this.data.loadError = error instanceof Error ? error.message : String(error);
+      throw error;
+    } finally {
+      if (this.loading === loading) this.loading = undefined;
+    }
+  }
 
-    const latestDefaultArgonMiningTransferTxInfo = this.transactionTracker.findLatestTxInfo<ITransactionMoveMetadata>(
-      txInfo => {
+  public async move(input: BalanceTransferInput): Promise<TransactionInfo<ITransactionMoveMetadata>> {
+    if (input.moveTo === MoveTo.External && !isValidArgonAccountAddress(input.externalAddress?.trim() ?? '')) {
+      throw new Error('Enter a valid Argon address.');
+    }
+
+    const txInfo = await this.balanceTransfers.submit(input);
+    this.publishPendingTransfers();
+    return txInfo;
+  }
+
+  public async getTransferFee(input: BalanceTransferInput): Promise<bigint> {
+    if (input.moveTo === MoveTo.External && !isValidArgonAccountAddress(input.externalAddress?.trim() ?? '')) {
+      throw new Error('Enter a valid Argon address.');
+    }
+    return await this.balanceTransfers.estimateFee(input);
+  }
+
+  public async getExternalTransferQuote(input: ExternalTransferQuoteInput): Promise<ExternalTransferQuote> {
+    const destinationAddress = input.destinationAddress.trim();
+    if (!isValidArgonAccountAddress(destinationAddress)) throw new Error('Enter a valid Argon address.');
+
+    const availableAmount =
+      input.moveToken === MoveToken.ARGN
+        ? input.availableMicrogons
+        : bigIntMax(input.availableMicronots - existentialDepositMicronots, 0n);
+    if (availableAmount <= 0n) return { maximumAmount: 0n, transactionFeeMicrogons: 0n };
+
+    const transactionFeeMicrogons = await this.getTransferFee({
+      moveFrom: MoveFrom.DefaultArgon,
+      moveTo: MoveTo.External,
+      externalAddress: destinationAddress,
+      assetsToMove: { [input.moveToken]: availableAmount },
+      client: input.client,
+    });
+    if (input.moveToken === MoveToken.ARGNOT && transactionFeeMicrogons > input.availableMicrogons) {
+      throw new Error('Your wallet does not have enough ARGN to pay the network fee.');
+    }
+
+    return {
+      maximumAmount:
+        input.moveToken === MoveToken.ARGN
+          ? bigIntMax(input.availableMicrogons - transactionFeeMicrogons, 0n)
+          : availableAmount,
+      transactionFeeMicrogons,
+    };
+  }
+
+  public async sendToAddress(input: ExternalTransferInput): Promise<TransactionInfo<ITransactionMoveMetadata>> {
+    if (input.amount <= 0n) throw new Error('Enter an amount to send.');
+
+    const quote = await this.getExternalTransferQuote(input);
+    if (input.amount > quote.maximumAmount) {
+      throw new Error(`Transfer amount exceeds the available ${input.moveToken} after fees.`);
+    }
+
+    return await this.move({
+      moveFrom: MoveFrom.DefaultArgon,
+      moveTo: MoveTo.External,
+      externalAddress: input.destinationAddress.trim(),
+      assetsToMove: { [input.moveToken]: input.amount },
+      client: input.client,
+    });
+  }
+
+  public getPendingExternalTransfer(): TransactionInfo<ITransactionMoveMetadata> | undefined {
+    return (
+      this.data.pendingExternalTransfer ??
+      this.balanceTransfers.getPendingTransfer(txInfo => {
         const metadata = txInfo.tx.metadataJson;
         return (
-          txInfo.tx.extrinsicType === ExtrinsicType.Transfer &&
-          isDefaultArgonMoveFrom(metadata?.moveFrom) &&
-          metadata?.moveTo === MoveTo.MiningBot
+          metadata?.moveFrom === MoveFrom.DefaultArgon &&
+          metadata.moveTo === MoveTo.External &&
+          Boolean(metadata.externalAddress)
         );
-      },
+      })
     );
+  }
 
-    const latestDefaultArgonMiningTransferAttempt = latestDefaultArgonMiningTransferTxInfo
-      ? {
-          txInfo: latestDefaultArgonMiningTransferTxInfo,
-          txAttemptState: await this.transactionTracker.getTxAttemptState(
-            latestDefaultArgonMiningTransferTxInfo,
-            DEFAULT_ARGON_MINING_TRANSFER_CONFIRMATIONS_TO_WAIT,
-          ),
-        }
-      : undefined;
+  public async changeAllocation(
+    input: ChangeAllocationInput,
+  ): Promise<TransactionInfo<ITransactionMoveMetadata> | undefined> {
+    if (this.allocationSubmission) return await this.allocationSubmission;
 
-    if (latestDefaultArgonMiningTransferAttempt?.txAttemptState === TxAttemptState.Pending) {
-      return {
-        kind: 'trackingExisting',
-        txInfo: latestDefaultArgonMiningTransferAttempt.txInfo,
-      };
+    const submission = this.changeAllocationInner(input);
+    this.allocationSubmission = submission;
+    try {
+      return await submission;
+    } finally {
+      if (this.allocationSubmission === submission) this.allocationSubmission = undefined;
+    }
+  }
+
+  public getPendingAllocationChange(): TransactionInfo<ITransactionMoveMetadata> | undefined {
+    return this.data.pendingAllocationChange ?? this.findPendingAllocationChange();
+  }
+
+  private findPendingAllocationChange(): TransactionInfo<ITransactionMoveMetadata> | undefined {
+    const operationTransactions = this.getLatestAllocationTransactions();
+    if (!operationTransactions.length) return;
+
+    const root = this.getAllocationRoot(operationTransactions);
+    const operation = root.tx.metadataJson.allocationChange!;
+    const latestByLeg = this.getLatestAllocationTxByLeg(operationTransactions);
+    if ([...latestByLeg.values()].some(getTransactionFailureMessage)) return;
+    if (operation.legs.some((_, legIndex) => !latestByLeg.has(legIndex))) return root;
+    if ([...latestByLeg.values()].some(txInfo => !txInfo.tx.isFinalized || txInfo.hasPendingPostProcessing))
+      return root;
+  }
+
+  private async changeAllocationInner(
+    input: ChangeAllocationInput,
+  ): Promise<TransactionInfo<ITransactionMoveMetadata> | undefined> {
+    await this.load();
+    const existing = this.getPendingAllocationChange();
+    if (existing) return existing;
+    this.data.allocationError = undefined;
+
+    const allocatedMicrogons = input.allocatedWallet.availableMicrogons + input.allocatedWallet.reservedMicrogons;
+    const allocatedMicronots = input.allocatedWallet.availableMicronots + input.allocatedWallet.reservedMicronots;
+    if (input.targetMicrogons < input.allocatedWallet.reservedMicrogons) {
+      throw new Error('Allocation cannot be lower than the ARGN currently reserved by this wallet.');
+    }
+    if (input.targetMicronots < input.allocatedWallet.reservedMicronots) {
+      throw new Error('Allocation cannot be lower than the ARGNOT currently reserved by this wallet.');
     }
 
-    const assetsToMove: IAssetsToMove = {};
-    const spendableMicrogons = getSpendableDefaultArgonMicrogons(wallet.availableMicrogons);
-    const spendableMicronots = bigIntMax(wallet.availableMicronots - existentialDepositMicronots, 0n);
-    const miningBotMicrogons = miningBotWallet.availableMicrogons + miningBotWallet.reservedMicrogons;
-    const miningBotMicronots = miningBotWallet.availableMicronots + miningBotWallet.reservedMicronots;
-    const requiredMicrogons = bigIntMax(
-      config.biddingRules.initialMicrogonRequirement + MINING_BID_PROXY_FEE_FLOAT - miningBotMicrogons,
-      0n,
-    );
-    const requiredMicronots = bigIntMax(config.biddingRules.initialMicronotRequirement - miningBotMicronots, 0n);
+    const assetsToAllocate: IAssetsToMove = {};
+    const assetsToReturn: IAssetsToMove = {};
+    if (input.targetMicrogons > allocatedMicrogons) {
+      assetsToAllocate[MoveToken.ARGN] = input.targetMicrogons - allocatedMicrogons;
+    } else if (input.targetMicrogons < allocatedMicrogons) {
+      assetsToReturn[MoveToken.ARGN] = allocatedMicrogons - input.targetMicrogons;
+    }
+    if (input.targetMicronots > allocatedMicronots) {
+      assetsToAllocate[MoveToken.ARGNOT] = input.targetMicronots - allocatedMicronots;
+    } else if (input.targetMicronots < allocatedMicronots) {
+      assetsToReturn[MoveToken.ARGNOT] = allocatedMicronots - input.targetMicronots;
+    }
+    if (
+      (assetsToAllocate[MoveToken.ARGNOT] ?? 0n) >
+        bigIntMax(input.sourceWallet.availableMicronots - existentialDepositMicronots, 0n) ||
+      (assetsToReturn[MoveToken.ARGNOT] ?? 0n) >
+        bigIntMax(input.allocatedWallet.availableMicronots - existentialDepositMicronots, 0n)
+    ) {
+      throw new Error('Each wallet must keep its minimum ARGNOT balance.');
+    }
 
-    if (spendableMicrogons > 0n && requiredMicrogons > 0n) {
-      assetsToMove[MoveToken.ARGN] = bigIntMax(
-        requiredMicrogons < spendableMicrogons ? requiredMicrogons : spendableMicrogons,
-        0n,
+    const legs: IAllocationChangeLeg[] = [];
+    if (assetsToAllocate[MoveToken.ARGN] || assetsToAllocate[MoveToken.ARGNOT]) {
+      legs.push({ moveFrom: input.allocateFrom, moveTo: input.allocateTo, assetsToMove: assetsToAllocate });
+    }
+    if (assetsToReturn[MoveToken.ARGN] || assetsToReturn[MoveToken.ARGNOT]) {
+      legs.push({
+        moveFrom: input.allocateTo === MoveTo.MiningBot ? MoveFrom.MiningBot : MoveFrom.DefaultArgon,
+        moveTo: input.allocateFrom === MoveFrom.MiningBot ? MoveTo.MiningBot : MoveTo.DefaultArgon,
+        assetsToMove: assetsToReturn,
+      });
+    }
+    if (!legs.length) return;
+
+    // When returning ARGN while adding ARGNOT, return ARGN first so the source wallet can pay the ARGNOT leg's fee.
+    if (legs.length === 2 && assetsToReturn[MoveToken.ARGN]) legs.reverse();
+
+    const allocationChange: IAllocationChange = {
+      id: nanoid(),
+      targetMicrogons: input.targetMicrogons,
+      targetMicronots: input.targetMicronots,
+      legIndex: 0,
+      legs,
+    };
+    if (input.client) this.allocationClients.set(allocationChange.id, input.client);
+    return await this.move({ ...legs[0], allocationChange, client: input.client });
+  }
+
+  private async restoreAllocationChange(client?: ArgonClient): Promise<void> {
+    const operationTransactions = this.getLatestAllocationTransactions();
+    if (!operationTransactions.length) return;
+
+    const root = this.getAllocationRoot(operationTransactions);
+    const operation = root.tx.metadataJson.allocationChange!;
+    if (client) this.allocationClients.set(operation.id, client);
+    const latestByLeg = this.getLatestAllocationTxByLeg(operationTransactions);
+
+    for (let legIndex = 1; legIndex < operation.legs.length; legIndex += 1) {
+      const priorTxInfo = latestByLeg.get(legIndex - 1);
+      const nextTxInfo = latestByLeg.get(legIndex);
+      if (priorTxInfo && nextTxInfo && !priorTxInfo.tx.followOnTxId) {
+        this.transactionTracker.createIntentForFollowOnTx<ITransactionMoveMetadata>(priorTxInfo).resolve(nextTxInfo);
+      }
+    }
+
+    const firstMissingLeg = operation.legs.findIndex((_, legIndex) => !latestByLeg.has(legIndex));
+    const lastStartedLeg = firstMissingLeg === -1 ? operation.legs.length - 1 : firstMissingLeg - 1;
+    const activeTxInfo = latestByLeg.get(lastStartedLeg);
+    if (!activeTxInfo || getTransactionFailureMessage(activeTxInfo)) return;
+
+    const attemptState = await this.transactionTracker.getTxAttemptState(activeTxInfo, 0);
+    if (attemptState === TxAttemptState.Replace) {
+      const leg = operation.legs[lastStartedLeg];
+      await this.move({
+        ...leg,
+        allocationChange: { ...operation, legIndex: lastStartedLeg },
+        client,
+      });
+      return;
+    }
+
+    if (firstMissingLeg !== -1 && attemptState === TxAttemptState.Finalized) {
+      this.balanceTransfers.resume(activeTxInfo);
+    }
+  }
+
+  private async continueAllocationChange(
+    txInfo: TransactionInfo<ITransactionMoveMetadata>,
+    operation: IAllocationChange,
+  ): Promise<void> {
+    const nextLegIndex = operation.legIndex + 1;
+    const nextLeg = operation.legs[nextLegIndex];
+    if (!nextLeg) {
+      this.allocationClients.delete(operation.id);
+      return;
+    }
+
+    const existingContinuation = this.allocationContinuations.get(operation.id);
+    if (existingContinuation) return await existingContinuation;
+
+    const continuation = (async () => {
+      const existingNext = this.getLatestAllocationTransactions().find(
+        candidate => candidate.tx.metadataJson.allocationChange?.legIndex === nextLegIndex,
       );
-    }
-    if (spendableMicronots > 0n && requiredMicronots > 0n) {
-      assetsToMove[MoveToken.ARGNOT] = requiredMicronots < spendableMicronots ? requiredMicronots : spendableMicronots;
-    }
-    if (!assetsToMove[MoveToken.ARGN] && !assetsToMove[MoveToken.ARGNOT]) {
-      return { kind: 'noSpendableFundsToSweep' };
-    }
-
-    const client = await getMainchainClient(false);
-    let fee = await this.calculateFee(
-      MoveFrom.DefaultArgon,
-      MoveTo.MiningBot,
-      assetsToMove,
-      wallet,
-      this.walletKeys.miningBotAddress,
-      [],
-      client,
-    );
-    if (this.transactionError) {
-      console.info('[MoveCapital] Skipping default Argon auto-transfer due to fee calculation error', {
-        error: this.transactionError,
-        availableMicrogons: wallet.availableMicrogons,
-        assetsToMove,
-      });
-      return {
-        kind: 'blocked',
-        error: this.transactionError,
-      };
-    }
-
-    let finalAssetsToMove: IAssetsToMove = {};
-    const availableMicrogonsAfterFee = bigIntMax(spendableMicrogons - fee, 0n);
-    const remainingMicrogons = bigIntMin(assetsToMove[MoveToken.ARGN] ?? 0n, availableMicrogonsAfterFee);
-
-    if (remainingMicrogons >= existentialDepositMicrogons) {
-      finalAssetsToMove[MoveToken.ARGN] = remainingMicrogons;
-    }
-
-    if (assetsToMove[MoveToken.ARGNOT]) {
-      if (remainingMicrogons < existentialDepositMicrogons && assetsToMove[MoveToken.ARGN]) {
-        finalAssetsToMove = { [MoveToken.ARGNOT]: assetsToMove[MoveToken.ARGNOT] };
-        fee = await this.calculateFee(
-          MoveFrom.DefaultArgon,
-          MoveTo.MiningBot,
-          finalAssetsToMove,
-          wallet,
-          this.walletKeys.miningBotAddress,
-          [],
-          client,
-        );
-        if (this.transactionError) {
-          console.info('[MoveCapital] Skipping default Argon auto-transfer due to fee calculation error', {
-            error: this.transactionError,
-            availableMicrogons: wallet.availableMicrogons,
-            assetsToMove: finalAssetsToMove,
-          });
-          return {
-            kind: 'blocked',
-            error: this.transactionError,
-          };
-        }
-      } else {
-        finalAssetsToMove[MoveToken.ARGNOT] = assetsToMove[MoveToken.ARGNOT];
-      }
-    }
-
-    if (!finalAssetsToMove[MoveToken.ARGN] && !finalAssetsToMove[MoveToken.ARGNOT]) {
-      return { kind: 'noSpendableFundsToSweep' };
-    }
-
-    const { tx, metadata } = await this.buildTransaction(
-      MoveFrom.DefaultArgon,
-      MoveTo.MiningBot,
-      finalAssetsToMove,
-      this.walletKeys.miningBotAddress,
-      [],
-      client,
-    );
-    const txSigner = await this.getSigner(MoveFrom.DefaultArgon);
-    const followOnTx =
-      latestDefaultArgonMiningTransferAttempt?.txAttemptState === TxAttemptState.Replace &&
-      latestDefaultArgonMiningTransferAttempt.txInfo &&
-      !latestDefaultArgonMiningTransferAttempt.txInfo.tx.followOnTxId
-        ? this.transactionTracker.createIntentForFollowOnTx(latestDefaultArgonMiningTransferAttempt.txInfo)
+      const followOnTx = !txInfo.tx.followOnTxId
+        ? this.transactionTracker.createIntentForFollowOnTx<ITransactionMoveMetadata>(txInfo)
         : undefined;
-
+      try {
+        const nextTxInfo =
+          existingNext ??
+          (await this.move({
+            ...nextLeg,
+            allocationChange: { ...operation, legIndex: nextLegIndex },
+            client: this.allocationClients.get(operation.id),
+          }));
+        followOnTx?.resolve(nextTxInfo);
+        this.balanceTransfers.resume(nextTxInfo);
+        await nextTxInfo.waitForPostProcessing;
+      } catch (error) {
+        followOnTx?.reject(error as Error);
+        throw error;
+      }
+    })();
+    this.allocationContinuations.set(operation.id, continuation);
     try {
-      const txInfo = await this.transactionTracker.submitAndWatch({
-        tx,
-        txSigner,
-        useLatestNonce: true,
-        extrinsicType: ExtrinsicType.Transfer,
-        metadata,
-      });
-      followOnTx?.resolve(txInfo);
-      void this.postProcessMiningBidProxySetup(txInfo).catch(error => {
-        console.error('[MoveCapital] Failed to post-process mining bid proxy setup', error);
-      });
-      return {
-        kind: 'submitted',
-        txInfo,
-      };
-    } catch (error) {
-      followOnTx?.reject(error);
-      throw error;
+      await continuation;
+    } finally {
+      this.allocationContinuations.delete(operation.id);
     }
   }
 
-  private async getSigner(moveFrom: MoveFrom) {
-    switch (moveFrom) {
-      case MoveFrom.DefaultArgon:
-        return await this.walletKeys.getDefaultArgonKeypair();
-      case MoveFrom.MiningBot:
-        return await this.walletKeys.getMiningBotKeypair();
-      default:
-        throw new Error(`Unsupported move source: ${moveFrom}`);
-    }
+  private publishPendingTransfers(postProcessingError?: Error): void {
+    this.data.pendingExternalTransfer = this.balanceTransfers.getPendingTransfer(txInfo => {
+      const metadata = txInfo.tx.metadataJson;
+      return (
+        metadata?.moveFrom === MoveFrom.DefaultArgon &&
+        metadata.moveTo === MoveTo.External &&
+        Boolean(metadata.externalAddress)
+      );
+    });
+    const allocationTransactions = this.getLatestAllocationTransactions();
+    this.data.pendingAllocationChange = this.findPendingAllocationChange();
+    const failedAllocation = allocationTransactions.reduce<TransactionInfo<ITransactionMoveMetadata> | undefined>(
+      (latest, txInfo) => {
+        if (!getTransactionFailureMessage(txInfo)) return latest;
+        return !latest || txInfo.tx.id > latest.tx.id ? txInfo : latest;
+      },
+      undefined,
+    );
+    this.data.allocationError = postProcessingError?.message ?? getTransactionFailureMessage(failedAllocation);
   }
 
-  private async postProcessMiningBidProxySetup(txInfo: TransactionInfo): Promise<void> {
-    const postProcessor = txInfo.createPostProcessor();
-
-    try {
-      await txInfo.txResult.waitForFinalizedBlock;
-
-      const proxySetup = await ensureMiningBidProxySetup({
-        transactionTracker: this.transactionTracker,
-        walletKeys: this.walletKeys,
-        waitForConfirmations: DEFAULT_ARGON_MINING_TRANSFER_CONFIRMATIONS_TO_WAIT,
-      });
-      if (proxySetup.kind === 'trackingExisting' || proxySetup.kind === 'submitted') {
-        await proxySetup.txInfo.waitForPostProcessing;
-      }
-      if (proxySetup.kind === 'insufficientFunds') {
-        txInfo.txResult.extrinsicError = new Error(proxySetup.error);
-      }
-
-      if (proxySetup.kind === 'insufficientFunds') {
-        postProcessor.reject(txInfo.txResult.extrinsicError);
-        return;
-      }
-
-      postProcessor.resolve();
-    } catch (error) {
-      txInfo.txResult.extrinsicError = error as Error;
-      postProcessor.reject(error as Error);
-    }
+  private getLatestAllocationTransactions(): TransactionInfo<ITransactionMoveMetadata>[] {
+    const transactions = this.transactionTracker.data.txInfos.filter(candidate => {
+      const metadata = candidate.tx.metadataJson as ITransactionMoveMetadata | undefined;
+      return candidate.tx.extrinsicType === ExtrinsicType.Transfer && Boolean(metadata?.allocationChange);
+    }) as TransactionInfo<ITransactionMoveMetadata>[];
+    const latest = transactions.reduce<TransactionInfo<ITransactionMoveMetadata> | undefined>(
+      (selected, candidate) => (!selected || candidate.tx.id > selected.tx.id ? candidate : selected),
+      undefined,
+    );
+    const operationId = latest?.tx.metadataJson.allocationChange?.id;
+    return operationId
+      ? transactions.filter(candidate => candidate.tx.metadataJson.allocationChange?.id === operationId)
+      : [];
   }
 
-  public checkAddressType(address: string): {
-    isArgonAddress: boolean;
-    addressWarning: string;
-  } {
-    const trimmedAddress = (address || '').trim();
-    if (!trimmedAddress) return { isArgonAddress: false, addressWarning: '' };
-
-    const isArgonAddress = isValidArgonAccountAddress(trimmedAddress);
-
-    return {
-      isArgonAddress,
-      addressWarning: isArgonAddress ? '' : 'The address entered is not a valid Argon address.',
-    };
+  private getAllocationRoot(
+    transactions: TransactionInfo<ITransactionMoveMetadata>[],
+  ): TransactionInfo<ITransactionMoveMetadata> {
+    return transactions.reduce((root, candidate) => {
+      const candidateLeg = candidate.tx.metadataJson.allocationChange?.legIndex ?? 0;
+      const rootLeg = root.tx.metadataJson.allocationChange?.legIndex ?? 0;
+      if (candidateLeg !== rootLeg) return candidateLeg < rootLeg ? candidate : root;
+      return candidate.tx.id < root.tx.id ? candidate : root;
+    });
   }
 
-  public async buildTransaction(
-    moveFrom: MoveFrom,
-    moveTo: MoveTo,
-    assetsToMove: IAssetsToMove,
-    toAddress: string,
-    prependedTxs: SubmittableExtrinsic[] = [],
-    client?: ArgonClient,
-  ) {
-    client ??= await getMainchainClient(false);
-    const txs: SubmittableExtrinsic[] = [...prependedTxs];
-
-    if (moveTo === MoveTo.MiningBot) {
-      toAddress = this.walletKeys.miningBotAddress;
-    } else if (moveTo === MoveTo.DefaultArgon) {
-      toAddress = this.walletKeys.defaultArgonAddress;
-    } else if (moveTo === MoveTo.VaultingSecurity) {
-      toAddress = this.walletKeys.vaultingAddress;
+  private getLatestAllocationTxByLeg(
+    transactions: TransactionInfo<ITransactionMoveMetadata>[],
+  ): Map<number, TransactionInfo<ITransactionMoveMetadata>> {
+    const byLeg = new Map<number, TransactionInfo<ITransactionMoveMetadata>>();
+    for (const txInfo of transactions) {
+      const legIndex = txInfo.tx.metadataJson.allocationChange?.legIndex;
+      if (legIndex === undefined) continue;
+      const current = byLeg.get(legIndex);
+      if (!current || txInfo.tx.id > current.tx.id) byLeg.set(legIndex, txInfo);
     }
-
-    const externalMeta = this.checkAddressType(toAddress);
-
-    if (moveTo === MoveTo.External && !externalMeta.isArgonAddress) {
-      throw new Error('The address entered is not a valid Argon address.');
-    }
-
-    if (moveTo === MoveTo.External && !externalMeta.isArgonAddress) {
-      throw new Error('External transfers require a valid Argon address.');
-    }
-
-    for (const [tokenSymbol, assetToMove] of Object.entries(assetsToMove) as Array<[MoveToken, bigint]>) {
-      if (!assetToMove) continue;
-      if (tokenSymbol === MoveToken.ARGN) {
-        txs.push(client.tx.balances.transferAllowDeath(toAddress, assetToMove));
-      } else if (tokenSymbol === MoveToken.ARGNOT) {
-        txs.push(client.tx.ownership.transferAllowDeath(toAddress, assetToMove));
-      }
-    }
-
-    const metadata = this.buildMoveMetadata(moveFrom, moveTo, assetsToMove, toAddress);
-
-    const tx = txs.length === 1 ? txs[0] : client.tx.utility.batch(txs);
-    return { tx, metadata };
-  }
-
-  private buildMoveMetadata(
-    moveFrom: MoveFrom,
-    moveTo: MoveTo,
-    assetsToMove: IAssetsToMove,
-    toAddress: string,
-  ): ITransactionMoveMetadata {
-    return {
-      moveTo,
-      moveFrom,
-      externalAddress: moveTo === MoveTo.External ? toAddress : undefined,
-      assetsToMove,
-    };
-  }
-
-  public async calculateFee(
-    moveFrom: MoveFrom,
-    moveTo: MoveTo,
-    assetsToMove: IAssetsToMove,
-    fromWallet: IWallet,
-    toAddress: string,
-    prependedTxs: SubmittableExtrinsic[] = [],
-    client?: ArgonClient,
-  ): Promise<bigint> {
-    client ??= await getMainchainClient(false);
-    this.transactionError = '';
-    try {
-      const { tx } = await this.buildTransaction(moveFrom, moveTo, assetsToMove, toAddress, prependedTxs, client);
-      const feeObj = await tx.paymentInfo(fromWallet.address);
-      let fee = feeObj.partialFee.toBigInt();
-
-      if (fee > fromWallet.availableMicrogons) {
-        this.transactionError = `Your wallet has insufficient funds for this transaction.`;
-        fee = 0n;
-      }
-
-      return fee;
-    } catch (err) {
-      this.transactionError = 'Unable to calculate transaction fee.';
-      console.error('Error calculating transaction fee: %o', err);
-      return 0n;
-    }
+    return byLeg;
   }
 }
-
-export interface ITransactionMoveMetadata {
-  moveFrom: MoveFrom | 'MiningHold' | 'VaultingHold';
-  moveTo: MoveTo | 'MiningHold' | 'VaultingHold';
-  externalAddress?: string;
-  assetsToMove: IAssetsToMove;
-}
-
-type DefaultArgonMiningTransferArgs = {
-  defaultWallet: IWallet;
-  miningBotWallet: IWallet;
-  config: Config;
-};
-
-export type DefaultArgonMiningTransferResult =
-  | {
-      kind: 'submitted';
-      txInfo: TransactionInfo;
-    }
-  | {
-      kind: 'trackingExisting';
-      txInfo: TransactionInfo;
-    }
-  | {
-      kind: 'noSpendableFundsToSweep';
-    }
-  | {
-      kind: 'blocked';
-      error: string;
-    };

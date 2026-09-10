@@ -7,7 +7,7 @@
     class="BitcoinLockDetailOverlay min-h-60 w-240"
   >
     <template #title>
-      <div class="mr-6 flex grow flex-row items-center gap-2">
+      <div class="mr-6 flex min-w-0 grow items-center justify-start gap-2">
         <span class="text-xl font-bold text-slate-800/80">Bitcoin Lock Details</span>
         <template v-if="config.hasExtensionOperations">
           <span

@@ -80,7 +80,8 @@ export class ServerAdmin {
       },
       2,
     );
-    await this.connection.uploadFileWithTimeout(manifest, '~/.argon-server.json', 10e3);
+    // A reloaded installer may wait behind the previous core archive upload on the shared transfer connection.
+    await this.connection.uploadFileWithTimeout(manifest, '~/.argon-server.json', 130e3);
   }
 
   public async downloadInstallManifest(): Promise<ServerInstallManifest | undefined> {

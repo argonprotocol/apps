@@ -38,6 +38,10 @@ export class MiningFrames {
     'on-tick': (tick: number) => void;
   }>();
 
+  public get isLoadedPromise(): Promise<void> {
+    return this.load();
+  }
+
   public get frameIds(): number[] {
     return Object.keys(this.framesById)
       .map(Number)

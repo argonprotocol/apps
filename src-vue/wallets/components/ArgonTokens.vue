@@ -17,22 +17,6 @@
         :placement="props.movePlacement"
         @openTransferOverlay="openTransferOverlay(MoveToken.ARGN, moveMicrogons)"
       />
-      <MoveCapitalButton
-        v-else-if="props.moveFrom !== undefined && props.moveTo !== undefined"
-        :moveFrom="props.moveFrom"
-        :moveTo="props.moveTo"
-        :moveToken="MoveToken.ARGN"
-        :externalAddress="props.externalAddress"
-        side="top"
-        @transactionPending="updateTransferPending(MoveToken.ARGN, $event)"
-      >
-        <MoveArrowButton
-          :disabled="!moveMicrogons || (!canMoveToDestination && !argonTransferPending)"
-          :pending="argonTransferPending"
-          :placement="props.movePlacement"
-          :title="argonMoveTitle"
-        />
-      </MoveCapitalButton>
     </li>
     <li
       class="via-argon-100/20 relative flex flex-row gap-x-2 border-y border-slate-400/50 from-transparent to-transparent py-2 hover:bg-linear-to-r"
@@ -51,22 +35,6 @@
         :placement="props.movePlacement"
         @openTransferOverlay="openTransferOverlay(MoveToken.ARGNOT, moveMicronots)"
       />
-      <MoveCapitalButton
-        v-else-if="props.moveFrom !== undefined && props.moveTo !== undefined"
-        :moveFrom="props.moveFrom"
-        :moveTo="props.moveTo"
-        :moveToken="MoveToken.ARGNOT"
-        :externalAddress="props.externalAddress"
-        side="top"
-        @transactionPending="updateTransferPending(MoveToken.ARGNOT, $event)"
-      >
-        <MoveArrowButton
-          :disabled="!moveMicronots || (!canMoveToDestination && !argonotTransferPending)"
-          :pending="argonotTransferPending"
-          :placement="props.movePlacement"
-          :title="argonotMoveTitle"
-        />
-      </MoveCapitalButton>
     </li>
     <li
       v-if="props.showBitcoin"
@@ -89,16 +57,14 @@
   </ul>
 </template>
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { isValidArgonAccountAddress, MoveTo, MoveToken, type MoveFrom } from '@argonprotocol/apps-core';
+import { computed } from 'vue';
+import { MoveToken } from '@argonprotocol/apps-core';
 import ArgonotIcon from '../../assets/resources/argonot.svg';
 import ArgonIcon from '../../assets/resources/argon.svg';
 import BitcoinIcon from '../../assets/wallets/tokens/bitcoin.svg';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import CrosschainMoveButton from './CrosschainMoveButton.vue';
-import MoveCapitalButton from '../../overlays/MoveCapitalButton.vue';
-import MoveArrowButton from './MoveArrowButton.vue';
 
 const currency = getCurrency();
 
@@ -117,9 +83,6 @@ const props = withDefaults(
     indentLeft?: boolean;
     indentRight?: boolean;
     moveDirection?: 'transferToArgon' | 'transferOutOfArgon';
-    moveFrom?: MoveFrom;
-    moveTo?: MoveTo;
-    externalAddress?: string;
     networkName?: string;
     feeTokenSymbol?: string;
     showBitcoin?: boolean;
@@ -137,25 +100,6 @@ const props = withDefaults(
 
 const moveMicrogons = computed(() => props.moveMicrogons ?? props.microgons);
 const moveMicronots = computed(() => props.moveMicronots ?? props.micronots);
-const argonTransferPending = ref(false);
-const argonotTransferPending = ref(false);
-const canMoveToDestination = computed(
-  () => props.moveTo !== MoveTo.External || isValidArgonAccountAddress(props.externalAddress?.trim() ?? ''),
-);
-const argonMoveTitle = computed(() =>
-  !moveMicrogons.value
-    ? 'No ARGN available to move'
-    : canMoveToDestination.value
-      ? 'Move ARGN'
-      : 'Enter a valid Argon address',
-);
-const argonotMoveTitle = computed(() =>
-  !moveMicronots.value
-    ? 'No ARGNOT available to move'
-    : canMoveToDestination.value
-      ? 'Move ARGNOT'
-      : 'Enter a valid Argon address',
-);
 
 const emit = defineEmits<{
   (
@@ -165,19 +109,7 @@ const emit = defineEmits<{
       availableAmount: bigint;
     },
   ): void;
-  (e: 'customTransferPending', value: boolean): void;
 }>();
-
-function updateTransferPending(moveToken: MoveToken, isPending: boolean) {
-  if (moveToken === MoveToken.ARGN) {
-    argonTransferPending.value = isPending;
-  } else {
-    argonotTransferPending.value = isPending;
-  }
-  if (props.moveTo === MoveTo.External) {
-    emit('customTransferPending', argonTransferPending.value || argonotTransferPending.value);
-  }
-}
 
 function openTransferOverlay(moveToken: MoveToken.ARGN | MoveToken.ARGNOT, availableAmount: bigint) {
   if (!props.moveDirection) {

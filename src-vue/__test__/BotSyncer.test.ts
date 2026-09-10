@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { IBotState } from '@argonprotocol/apps-core';
 import { BotWsClient } from '../lib/BotWsClient.ts';
 import { BotStatus, BotSyncer, type IBotFns } from '../lib/BotSyncer.ts';
 
@@ -11,6 +12,8 @@ type IBotSyncerTestTarget = {
   syncDbFrame(frameId: number): Promise<void>;
   syncDbCohort(cohortActivationFrameId: number): Promise<void>;
   updateBotState(state: { currentFrameId: number }): Promise<void>;
+  syncServerState(state: { currentFrameId: number }): Promise<void>;
+  syncCurrentBids(state: IBotState): Promise<void>;
 };
 
 describe('BotSyncer', () => {
@@ -118,6 +121,63 @@ describe('BotSyncer', () => {
     });
 
     expect(botFns.setStatus).toHaveBeenCalledWith(BotStatus.Broken);
+  });
+
+  it('publishes one current mining snapshot before reporting ready', async () => {
+    const { syncer, botFns } = createSyncer();
+    const testSyncer = syncer as unknown as IBotSyncerTestTarget;
+    const state = {
+      isReady: true,
+      isSyncing: false,
+      serverError: '',
+      currentFrameId: 424,
+      winningBids: [{ address: 'winning-account' }],
+    };
+    vi.spyOn(testSyncer, 'updateBotState').mockResolvedValue(undefined);
+    vi.spyOn(testSyncer, 'syncServerState').mockResolvedValue(undefined);
+    const syncCurrentBids = vi.spyOn(testSyncer, 'syncCurrentBids').mockImplementation(async currentState => {
+      expect(currentState).toBe(state);
+      expect(botFns.setBotState).not.toHaveBeenCalled();
+    });
+
+    await testSyncer.runSync(state);
+
+    expect(syncCurrentBids).toHaveBeenCalledWith(state);
+    expect(botFns.setBotState).toHaveBeenCalledWith(state);
+    const onEvent = vi.mocked(botFns.onEvent);
+    const setBotState = vi.mocked(botFns.setBotState);
+    const miningStateEvent = onEvent.mock.calls.findIndex(([event]) => event === 'updated-mining-state');
+    expect(miningStateEvent).toBeGreaterThanOrEqual(0);
+    expect(setBotState.mock.invocationCallOrder[0]).toBeLessThan(onEvent.mock.invocationCallOrder[miningStateEvent]);
+    expect(botFns.onEvent).toHaveBeenCalledWith('updated-mining-state', 424);
+    expect(botFns.onEvent).not.toHaveBeenCalledWith('updated-bids-data', expect.anything());
+    expect(botFns.onEvent).not.toHaveBeenCalledWith('updated-cohort-data', expect.anything());
+    expect(onEvent.mock.invocationCallOrder[miningStateEvent]).toBeLessThan(
+      vi.mocked(botFns.setStatus).mock.invocationCallOrder.at(-1)!,
+    );
+    expect(botFns.setStatus).toHaveBeenLastCalledWith(BotStatus.Ready);
+  });
+
+  it('persists bids from the server state without fetching a second snapshot', async () => {
+    const { syncer, frameBidsTable } = createSyncer();
+    const testSyncer = syncer as unknown as IBotSyncerTestTarget;
+    const winningBids = [{ address: 'winning-account', subAccountIndex: 3, microgonsPerSeat: 42n }];
+
+    await testSyncer.syncCurrentBids({
+      currentFrameId: 424,
+      winningBids,
+      botLastActiveBlockNumber: 901,
+      currentAuctionMicronotsPerSeat: 17n,
+    } as IBotState);
+
+    expect(frameBidsTable.insertOrUpdate).toHaveBeenCalledWith(424, 901, [
+      expect.objectContaining({
+        address: 'winning-account',
+        subAccountIndex: 3,
+        microgonsPerSeat: 42n,
+        micronotsStakedPerSeat: 17n,
+      }),
+    ]);
   });
 
   it('owns failures from background historical frame syncs', async () => {
@@ -284,10 +344,13 @@ function createSyncer(options: { gatewayReady?: boolean } = {}) {
   const cohortsTable = {
     fetchCohortIdsSince: vi.fn<() => Promise<number[]>>().mockResolvedValue([]),
   };
+  const frameBidsTable = {
+    insertOrUpdate: vi.fn(),
+  };
 
   const syncer = new BotSyncer(
     config as any,
-    { framesTable, cohortsTable } as any,
+    { framesTable, cohortsTable, frameBidsTable } as any,
     installer as any,
     serverApiClient as any,
     { load: vi.fn() } as any,
@@ -295,5 +358,5 @@ function createSyncer(options: { gatewayReady?: boolean } = {}) {
     botFns,
   );
 
-  return { syncer, botFns, installer, serverApiClient, config, framesTable, cohortsTable };
+  return { syncer, botFns, installer, serverApiClient, config, framesTable, cohortsTable, frameBidsTable };
 }
