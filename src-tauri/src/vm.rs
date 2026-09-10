@@ -2,7 +2,7 @@ use crate::utils::Utils;
 use include_dir::{Dir, include_dir};
 use std::fs;
 use std::net::TcpListener;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::AppHandle;
 
@@ -80,7 +80,23 @@ impl Vm {
             return Err(format!("VM path {} does not exist", vm_path.display()));
         }
         Self::run_compose_command(vm_path, &["up", "-d"])?;
-        Self::run_compose_command(work_dir, &["up", "-d"])?;
+        let server_dir = work_dir.join("server");
+        if let Some(compose_dir) =
+            [work_dir.as_path(), server_dir.as_path()]
+                .into_iter()
+                .find(|dir| {
+                    [
+                        "compose.yaml",
+                        "compose.yml",
+                        "docker-compose.yaml",
+                        "docker-compose.yml",
+                    ]
+                    .iter()
+                    .any(|file_name| dir.join(file_name).exists())
+                })
+        {
+            Self::run_compose_command(compose_dir, &["up", "-d"])?;
+        }
         Self::get_vm(vm_path)
     }
 
@@ -183,7 +199,7 @@ impl Vm {
         Ok(())
     }
 
-    fn run_compose_command(vm_path: &PathBuf, args: &[&str]) -> anyhow::Result<String, String> {
+    fn run_compose_command(vm_path: &Path, args: &[&str]) -> anyhow::Result<String, String> {
         let output = Command::new("docker")
             .args(["compose"].iter().chain(args))
             .current_dir(vm_path)

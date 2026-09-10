@@ -95,15 +95,20 @@ async fn ssh_upload_file(
     address: &str,
     contents: String,
     remote_path: String,
+    timeout_ms: u64,
 ) -> Result<String, String> {
     log::info!("ssh_upload_file: {remote_path}");
     let ssh: ssh::SSH = ssh_pool::get_connection(address)
         .await
         .map_err(|e| e.to_string())?
         .ok_or("No SSH connection")?;
-    ssh.upload_file(contents.as_bytes(), &remote_path)
-        .await
-        .map_err(|e| e.to_string())?;
+    ssh.upload_file(
+        contents.as_bytes(),
+        &remote_path,
+        Duration::from_millis(timeout_ms),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     Ok("success".to_string())
 }
 
