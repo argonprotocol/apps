@@ -926,22 +926,26 @@ async function createReleaseFlowHarness(args?: {
     setStatusError: vi.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined),
   };
 
-  const store = createRuntimeStore(db, {
-    utxoTracking,
-    myVault: {
-      vaultId: 1,
-      cosignMyLock,
+  const store = createRuntimeStore(
+    db,
+    {
+      utxoTracking,
+      myVault: {
+        vaultId: 1,
+        cosignMyLock,
+      },
+      getAcceptedFundingRecord: vi.fn().mockReturnValue(fundingRecord),
+      getReleaseCosignOnChain: vi.fn(async () => state.releaseCosignOnChain),
+      ensureLockReleaseProcessing,
+      syncLockReleaseStatusFromFundingRecord: vi.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined),
+      syncLockReleaseArgonRequest: vi.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined),
+      syncLockReleaseBitcoinComplete: vi.fn<(...args: any[]) => Promise<boolean>>().mockResolvedValue(false),
+      ownerCosignAndSendToBitcoin,
     },
-    getAcceptedFundingRecord: vi.fn().mockReturnValue(fundingRecord),
-    getReleaseCosignOnChain: vi.fn(async () => state.releaseCosignOnChain),
-    ensureLockReleaseProcessing,
-    syncLockReleaseStatusFromFundingRecord: vi.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined),
-    syncLockReleaseArgonRequest: vi.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined),
-    syncLockReleaseBitcoinComplete: vi.fn<(...args: any[]) => Promise<boolean>>().mockResolvedValue(false),
-    ownerCosignAndSendToBitcoin,
-  }, {
-    walletKeys: { canSign: args?.canSign ?? true } as WalletKeys,
-  });
+    {
+      walletKeys: { canSign: args?.canSign ?? true } as WalletKeys,
+    },
+  );
 
   return {
     lock,
