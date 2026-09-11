@@ -132,17 +132,15 @@ describe('DelegateSubmitLane', () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
     const submission = lane.runExclusive(async (_client, getNonce) => await getNonce());
-    const settled = vi.fn();
-    void submission.then(settled, settled);
+    const rejection = expect(submission).rejects.toThrow(
+      'Timed out after 600s waiting for delegate nonce to stabilize. ' +
+        'Last observation: stable block 100 nonce 4, transaction pool next index 5.',
+    );
     const accountNextIndex = vi.mocked(lane.client.rpc.system.accountNextIndex);
     await vi.waitFor(() => expect(accountNextIndex).toHaveBeenCalledOnce());
     await vi.advanceTimersByTimeAsync(600_000);
 
-    await vi.waitFor(() => expect(settled).toHaveBeenCalledOnce());
-    await expect(submission).rejects.toThrow(
-      'Timed out after 600s waiting for delegate nonce to stabilize. ' +
-        'Last observation: stable block 100 nonce 4, transaction pool next index 5.',
-    );
+    await rejection;
   });
 
   it('times out a stalled state read and releases the next submission', async () => {

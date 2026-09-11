@@ -502,7 +502,7 @@ export function setupWalletScenario(state: WalletScenario): WalletScenarioState 
           ? fn(() => new Promise(() => undefined))
           : state === 'bitcoinWalletInsuranceError'
             ? fn(async () => {
-                throw new Error('Synthetic insurance transaction failure.');
+                throw new Error('Unable to update Bitcoin insurance.');
               })
             : fn(async () => undefined),
     },
