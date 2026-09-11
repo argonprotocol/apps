@@ -82,6 +82,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
       await harness.currency.fetchMainchainRates(client, { ignoreCache: true });
       const lock = await createFundedLock(harness, targetLiquidity, { verifyRestoredCreation: true });
+      await submitBitcoinPrice(client, { btcUsdPrice: 121_000 });
       const { createLiquid, fissions } = await createLiquidServices(harness);
       const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
 
@@ -135,6 +136,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       await harness.currency.fetchMainchainRates(client, { ignoreCache: true });
       const firstLock = await createFundedLock(harness, targetLiquidity);
       const secondLock = await createFundedLock(harness, targetLiquidity);
+      await submitBitcoinPrice(client, { btcUsdPrice: 121_000 });
       const allocations = [
         { lock: firstLock, satoshis: firstLock.securitizedSatoshis },
         { lock: secondLock, satoshis: secondLock.securitizedSatoshis },
@@ -187,6 +189,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       await harness.currency.fetchMainchainRates(client, { ignoreCache: true });
       const firstLock = await createFundedLock(harness, targetLiquidity);
       const secondLock = await createFundedLock(harness, targetLiquidity);
+      await submitBitcoinPrice(client, { btcUsdPrice: 121_000 });
       const { createLiquid } = await createLiquidServices(harness);
       const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
 
@@ -242,6 +245,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       const beforeFinalization = await client.at(await client.rpc.chain.getFinalizedHead());
       expect((await BitcoinLock.get(beforeFinalization, lock.utxoId!))?.fundedSatoshis ?? 0n).toBe(0n);
 
+      await submitBitcoinPrice(client, { btcUsdPrice: 121_000 });
       await actor.ensureOperationalLiquid({ client });
       const finalizedClient = await client.at(await client.rpc.chain.getFinalizedHead());
       const fissions = await BitcoinFission.getAllByOwner(finalizedClient, walletKeys.defaultArgonAddress);
@@ -277,6 +281,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
       await harness.currency.fetchMainchainRates(client, { ignoreCache: true });
       const lock = await createFundedLock(harness, targetLiquidity);
+      await submitBitcoinPrice(client, { btcUsdPrice: 121_000 });
       const { createLiquid, ratchetLiquid, fissions } = await createLiquidServices(harness);
       const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
 
@@ -396,6 +401,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       await submitBitcoinPrice(client, { btcUsdPrice: 120_000 });
       await harness.currency.fetchMainchainRates(client, { ignoreCache: true });
       const lock = await createFundedLock(harness, targetLiquidity);
+      await submitBitcoinPrice(client, { btcUsdPrice: 121_000 });
       const { createLiquid, closeLiquid, fissions } = await createLiquidServices(harness);
       const txSigner = await harness.walletKeys.getLiquidLockingKeypair();
 
@@ -535,6 +541,10 @@ async function createFundedLock(
     await expect(restoredCreation).resolves.toBe(pendingLock);
     expect(wallet.isCreatingChannel(vault.vaultId)).toBe(false);
     pendingLockUuid = pendingLock.uuid;
+    const txInfo = harness.bitcoinLockCreate.getPendingLockTxInfo(pendingLockUuid);
+    if (!txInfo) throw new Error('Pending Bitcoin channel transaction was not retained.');
+    await txInfo.txResult.waitForFinalizedBlock;
+    await txInfo.waitForPostProcessing;
   } else {
     const txInfo = await harness.bitcoinLockCreate.submit({
       vault,
@@ -543,14 +553,12 @@ async function createFundedLock(
       client,
     });
     pendingLockUuid = txInfo.tx.metadataJson.bitcoin.uuid;
+    await txInfo.txResult.waitForFinalizedBlock;
+    await txInfo.waitForPostProcessing;
   }
 
-  const lock = await waitFor(90_000, `Bitcoin Lock ${pendingLockUuid} finalization`, () => {
-    const record = Object.values(harness.bitcoinLocks.data.locksByUtxoId).find(
-      record => record.uuid === pendingLockUuid,
-    );
-    return record?.utxoId ? record : undefined;
-  });
+  const lock = Object.values(harness.bitcoinLocks.data.locksByUtxoId).find(record => record.uuid === pendingLockUuid);
+  if (!lock?.utxoId) throw new Error('Finalized Bitcoin Lock was not published.');
   await onCreated?.(lock);
 
   const fundingAddress = harness.bitcoinLocks.formatP2wshAddress(lock.scriptDetails!.p2wshScriptHashHex);
