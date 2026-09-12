@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import { MICROGONS_PER_ARGON, MICRONOTS_PER_ARGONOT, MINING_BID_PROXY_FEE_FLOAT } from '@argonprotocol/apps-core';
-import { fn, mocked, userEvent, within } from 'storybook/test';
+import { expect, fn, mocked, userEvent, within } from 'storybook/test';
 import AppScreen from '../../components/AppScreen.vue';
 import { setupAppScenario } from '../../scenarios/setupAppScenario.ts';
 import { setupMiningAuctionScenario } from '../../scenarios/setupMiningAuctionScenario.ts';
@@ -139,6 +139,8 @@ export const MiningSetupTransactionRetry: Story = {
     const canvas = within(canvasElement);
 
     await userEvent.click(await canvas.findByRole('button', { name: 'Retry Mining Setup' }));
+    await expect(await canvas.findByText(/Your Next Bid (?:In|Pending)/)).toBeVisible();
+    await expect(canvas.queryByText('No Rebid Planned')).not.toBeInTheDocument();
   },
 };
 

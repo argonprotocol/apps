@@ -147,7 +147,7 @@
                         </template>
                       </div>
                     </CountdownClock>
-                    <div>{{ nextBidTimingLabel }}</div>
+                    <div v-else>{{ nextBidTimingLabel }}</div>
                     <div>{{ auctionStatsLabel }}</div>
                     <div>{{ formatBidAmount(lowestWinningBid) }} Is the Lowest Bid</div>
                     <div>{{ formatBidAmount(myLastBidMicrogons) }} Was Your Last Bid</div>
