@@ -1,11 +1,14 @@
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
+import { MoveFrom, MoveTo, MoveToken } from '@argonprotocol/apps-core';
 import * as Vue from 'vue';
-import { userEvent, within } from 'storybook/test';
+import { fn, userEvent, within } from 'storybook/test';
 import { setupWalletTransferScenario, type WalletTransferScenario } from '../../scenarios/setupWalletScenario.ts';
 import basicEmitter, { type IWalletOverlayOptions } from '../../../src-vue/emitters/basicEmitter.ts';
 import { WalletType } from '../../../src-vue/lib/Wallet.ts';
 import WalletOverlay from '../../../src-vue/wallets/WalletOverlay.vue';
-import { useWallets } from '../../../src-vue/stores/wallets.ts';
+import type { ITransactionMoveMetadata } from '../../../src-vue/lib/txs/Balance.transfer.ts';
+import type { TransactionInfo } from '../../../src-vue/lib/TransactionInfo.ts';
+import { getMoveCapital, useWallets } from '../../../src-vue/stores/wallets.ts';
 
 let request: IWalletOverlayOptions;
 
@@ -27,8 +30,35 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-function useScenario(state: WalletTransferScenario) {
+function useScenario(state: WalletTransferScenario, restoreArgonTransfer = false) {
   const scenario = setupWalletTransferScenario(state);
+  if (restoreArgonTransfer) {
+    getMoveCapital().data.pendingExternalTransfer = {
+      tx: {
+        id: 52,
+        metadataJson: {
+          moveFrom: MoveFrom.DefaultArgon,
+          moveTo: MoveTo.External,
+          externalAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+          assetsToMove: { [MoveToken.ARGN]: 125_000_000n },
+        },
+      },
+      getStatus: fn(() => ({ progressPct: 42, isFinalized: false, error: undefined })),
+      subscribeToProgress: fn(callback => {
+        void callback(
+          {
+            progressPct: 42,
+            progressMessage: 'Waiting for 3rd Block...',
+            confirmations: 1,
+            expectedConfirmations: 4,
+            isMaxed: false,
+          },
+          undefined,
+        );
+        return fn();
+      }),
+    } as unknown as TransactionInfo<ITransactionMoveMetadata>;
+  }
   const isInbound = [
     'inboundForm',
     'inboundEmpty',
@@ -233,6 +263,10 @@ export const ArgonAddress: Story = {
     await userEvent.click(destination.getByTestId('WalletViewSend.destinationMenu'));
     await userEvent.click(canvas.getByTestId('Another Argon Wallet'));
   },
+};
+
+export const ExistingArgonAddress: Story = {
+  beforeEach: () => useScenario('outboundForm', true),
 };
 
 export const BitcoinAddress: Story = {

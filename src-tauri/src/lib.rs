@@ -961,6 +961,7 @@ pub fn run() {
             toggle_nosleep,
             calculate_free_space,
             vm::create_local_vm,
+            vm::has_local_vm,
             vm::activate_local_vm,
             vm::remove_local_vm,
             vm::is_docker_running,

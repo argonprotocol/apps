@@ -426,15 +426,15 @@ describe.skipIf(skipE2E || !TestEthereum.isInstalled())('EthereumCrosschain inte
       await collectTx.waitForPostProcessing;
       expect(collectTx.tx.extrinsicType).toBe('CrosschainTransferApproveCouncil');
 
-      const relayApprovalsReceipt = await globalCouncil.relayApprovedGatewayUpdates();
-      expect(relayApprovalsReceipt).toBeDefined();
-
-      const relayedApprovalsNonce = (await publicClient.readContract({
-        address: gatewayAddress,
-        abi: EvmContracts.mintingGatewayArtifact.abi,
-        functionName: 'argonApprovalsNonce',
-      })) as bigint;
-      expect(relayedApprovalsNonce).toBe(1n);
+      await globalCouncil.relayApprovedGatewayUpdates();
+      await vi.waitFor(async () => {
+        const relayedApprovalsNonce = (await publicClient.readContract({
+          address: gatewayAddress,
+          abi: EvmContracts.mintingGatewayArtifact.abi,
+          functionName: 'argonApprovalsNonce',
+        })) as bigint;
+        expect(relayedApprovalsNonce).toBe(1n);
+      }, 30_000);
 
       const latestExecutionBlockNumber = (await publicClient.getBlock()).number;
       expect(latestExecutionBlockNumber).toBeDefined();

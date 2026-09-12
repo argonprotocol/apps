@@ -34,6 +34,8 @@ type IBasicEmitter = {
   openWalletOverlayAddConnector: 'choice' | 'external';
   openSecuritizationOverlay: { returnToInvite?: boolean } | undefined;
   openBotEditOverlay: void;
+  openMiningBiddingBotOverlay: void;
+  openMiningActiveSeatsOverlay: void;
   openServerRemoveOverlay: void;
   openSecuritySettingsOverlay: { screen: 'overview' | 'mnemonics' | 'encrypt' } | undefined;
   openProvisioningCompleteOverlay: void;

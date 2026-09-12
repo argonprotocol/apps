@@ -25,8 +25,10 @@ export class LocalMachine {
     return await invokeWithTimeout<boolean>('is_docker_running', {}, 60e3);
   }
 
-  public static async activate(): Promise<{ sshPort: number }> {
+  public static async activate(): Promise<{ sshPort: number } | undefined> {
     console.log(`Loading local machine`);
+    if (!(await invokeWithTimeout<boolean>('has_local_vm', {}, 10_000))) return;
+
     while (!(await this.isDockerRunning())) {
       await message(`Docker does not appear to be running. Please open Docker Desktop and try again.`, {
         title: 'Docker Not Running',
@@ -34,7 +36,8 @@ export class LocalMachine {
         okLabel: "It's Running Now",
       });
     }
-    const sshPort = await invokeWithTimeout<number>('activate_local_vm', {}, 120_000);
+    const sshPort = await invokeWithTimeout<number | null>('activate_local_vm', {}, 120_000);
+    if (sshPort === null) return;
     console.log(`Local machine SSH port: ${sshPort}`);
     return { sshPort };
   }

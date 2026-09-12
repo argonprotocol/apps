@@ -17,6 +17,7 @@ import {
   EthereumClient,
   getEthereumExecutionRpcUrl,
   getEthereumFinalityMillis,
+  getEthereumUserErrorMessage,
   hasGatewayApprovalQuorum,
   type GatewayRelayOptions,
   type IEthereumGatewayRelayPreview,
@@ -81,7 +82,8 @@ export class GlobalCouncil {
   #isSubscribing = false;
   #waitForLoad?: IDeferred;
   #updateSeq = 0;
-  #pendingRelayPromise?: Promise<void>;
+  #pendingRelayPromise?: ReturnType<GlobalCouncil['applyReadyGatewayUpdates']>;
+  #pendingRelaySyncPromise?: Promise<void>;
   #lastRelayCheckAt = 0;
   #lastSharedRelayQueueKey?: string;
   #lastSharedRelayQueueSeenAt = 0;
@@ -159,9 +161,11 @@ export class GlobalCouncil {
     this.data.ethereumApprovalBlockNumbers = new Map(
       [...this.data.ethereumApprovalBlockNumbers].filter(([queueNonce]) => liveQueueNonces.has(queueNonce)),
     );
-    void this.refreshEthereumApprovalNonce(updateSeq).catch(error =>
-      console.error(`Error refreshing Ethereum gateway approval state`, error),
-    );
+    void this.refreshEthereumApprovalNonce(updateSeq).catch(error => {
+      console.error(
+        `Error refreshing Ethereum gateway approval state: ${getEthereumUserErrorMessage(error, 'Unknown Ethereum error')}`,
+      );
+    });
     void this.syncApprovedGatewayRelay({
       councilSigner,
       hasReadyGatewayUpdates,
@@ -262,6 +266,22 @@ export class GlobalCouncil {
   }
 
   public async relayApprovedGatewayUpdates(options: GatewayRelayOptions = {}) {
+    const precedingRelay = this.#pendingRelayPromise;
+    const relayPromise = (async () => {
+      await precedingRelay?.catch(() => undefined);
+      return await this.applyReadyGatewayUpdates(options);
+    })();
+    this.#pendingRelayPromise = relayPromise;
+    try {
+      return await relayPromise;
+    } finally {
+      if (this.#pendingRelayPromise === relayPromise) {
+        this.#pendingRelayPromise = undefined;
+      }
+    }
+  }
+
+  private async applyReadyGatewayUpdates(options: GatewayRelayOptions) {
     const finalizedClient = await getFinalizedClient();
 
     const executionRpcUrl = getEthereumExecutionRpcUrl(this.getConfiguredExecutionRpcUrl?.());
@@ -342,7 +362,7 @@ export class GlobalCouncil {
     sharedRelayQueueKey?: string;
   }): Promise<void> {
     const { councilSigner, hasReadyGatewayUpdates, sharedRelayQueueKey } = args;
-    if (!this.walletKeys.canSign || !councilSigner || this.#pendingRelayPromise) {
+    if (!this.walletKeys.canSign || !councilSigner || this.#pendingRelaySyncPromise) {
       return;
     }
     if (!hasReadyGatewayUpdates && !sharedRelayQueueKey) {
@@ -395,12 +415,12 @@ export class GlobalCouncil {
 
       await this.relayApprovedGatewayUpdates();
     })();
-    this.#pendingRelayPromise = relayPromise;
+    this.#pendingRelaySyncPromise = relayPromise;
 
     try {
       await relayPromise;
     } finally {
-      this.#pendingRelayPromise = undefined;
+      this.#pendingRelaySyncPromise = undefined;
     }
   }
 

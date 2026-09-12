@@ -1,5 +1,5 @@
 import * as Vue from 'vue';
-import { BondLot, defaultMicrogonsPer, UnitOfMeasurement } from '@argonprotocol/apps-core';
+import { BondLot, defaultMicrogonsPer, MoveFrom, MoveTo, MoveToken, UnitOfMeasurement } from '@argonprotocol/apps-core';
 import { PriceIndex } from '@argonprotocol/mainchain';
 import BigNumber from 'bignumber.js';
 import { createPinia, setActivePinia } from 'pinia';
@@ -16,6 +16,7 @@ import { Currency } from '../../src-vue/lib/Currency.ts';
 import { calculatePositionReturn, reduceFinancialPositions } from '../../src-vue/lib/financials/index.ts';
 import { GlobalCouncil } from '../../src-vue/lib/GlobalCouncil.ts';
 import { MintingAuthorities } from '../../src-vue/lib/MintingAuthorities.ts';
+import { MoveCapital } from '../../src-vue/lib/MoveCapital.ts';
 import { getOperationalRewardConfig } from '../../src-vue/lib/OperationalAccount.ts';
 import { defaultWalletData, type IWalletData, WalletType } from '../../src-vue/lib/Wallet.ts';
 import { WalletForArgon } from '../../src-vue/lib/WalletForArgon.ts';
@@ -50,7 +51,13 @@ import {
   getMyVault,
   getVaults,
 } from '../../src-vue/stores/vaults.ts';
-import { getWalletKeys, useWallets } from '../../src-vue/stores/wallets.ts';
+import {
+  getMiningBidProxySetup,
+  getMiningSetup,
+  getMoveCapital,
+  getWalletKeys,
+  useWallets,
+} from '../../src-vue/stores/wallets.ts';
 
 type ScenarioOptions = {
   selectedTab: TopTab;
@@ -96,6 +103,7 @@ export function setupAppScenario({
     isServerAdded: false,
     isServerInstalled: false,
     isServerInstalling: false,
+    serverInstaller: Config.getDefault('serverInstaller') as IConfig['serverInstaller'],
     serverDetails: Config.getDefault('serverDetails') as IConfig['serverDetails'],
     certificationDetails,
     hasMiningSeats: false,
@@ -249,6 +257,50 @@ export function setupAppScenario({
     getMiningBotSubaccounts: fn(async () => ({})),
   };
   mocked(getWalletKeys, { partial: true }).mockReturnValue(walletKeys);
+  const moveCapital = Object.assign(Object.create(MoveCapital.prototype) as MoveCapital, {
+    data: Vue.shallowReactive({ isLoaded: true }),
+    load: fn(async () => undefined),
+    getExternalTransferQuote: fn(async input => ({
+      maximumAmount:
+        input.moveToken === MoveToken.ARGN ? input.availableMicrogons - 125_000n : input.availableMicronots,
+      transactionFeeMicrogons: 125_000n,
+    })),
+    sendToAddress: fn(async (input: Parameters<MoveCapital['sendToAddress']>[0]) => ({
+      tx: {
+        id: 51,
+        metadataJson: {
+          moveFrom: MoveFrom.DefaultArgon,
+          moveTo: MoveTo.External,
+          externalAddress: input.destinationAddress,
+          assetsToMove: { [input.moveToken]: input.amount },
+        },
+      },
+      getStatus: fn(() => ({ progressPct: 35, isFinalized: false, error: undefined })),
+      subscribeToProgress: fn(callback => {
+        void callback(
+          {
+            progressPct: 35,
+            progressMessage: 'Waiting for 2nd Block...',
+            confirmations: 0,
+            expectedConfirmations: 4,
+            isMaxed: false,
+          },
+          undefined,
+        );
+        return fn();
+      }),
+    })),
+    changeAllocation: fn(async () => undefined),
+  });
+  mocked(getMoveCapital).mockReturnValue(moveCapital);
+  mocked(getMiningSetup, { partial: true }).mockReturnValue({
+    load: fn(async () => undefined),
+    ensure: fn(async () => ({ kind: 'noSpendableFundsToSweep' as const })),
+  });
+  mocked(getMiningBidProxySetup, { partial: true }).mockReturnValue({
+    load: fn(async () => undefined),
+    ensure: fn(async () => ({ kind: 'ready' as const })),
+  });
   mocked(getBot, { partial: true }).mockReturnValue(
     Vue.reactive({
       isReady: false,

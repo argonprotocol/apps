@@ -26,7 +26,7 @@ Register module mocks statically in `.storybook/preview.ts`, provide typed manua
 
 ## Interactions
 
-Use a `play` function when the user causes the transition by clicking, typing, or selecting. Assert the resulting visible state or authoritative production state change.
+Use a `play` function only when clicking, typing, selecting, or hovering is needed to reveal the visual state represented by the story. Keep these interactions minimal and do not assert rendered text, fields, styling, or application behavior in Storybook. Put behavior and domain-state assertions in Vitest or E2E coverage instead.
 
 Progress, connection loss, backend errors, and other externally driven transitions should be separate deterministic stories. Do not use timers to imitate application activity and do not add controls that do not exist in production.
 
@@ -45,6 +45,6 @@ yarn storybook:test
 yarn storybook:build
 ```
 
-`yarn storybook:test` renders every story in headless Chromium and executes every `play` function. The Storybook testing widget runs the same component tests interactively and marks failing stories in the sidebar. Generated output belongs in `storybook-static`, which is ignored by Git.
+`yarn storybook:test` renders every story in headless Chromium and executes the interactions needed to expose its visual state. The Storybook testing widget runs the same story interactions and marks stories that fail to render in the sidebar. Generated output belongs in `storybook-static`, which is ignored by Git.
 
-The pre-commit typecheck includes Storybook configuration, fixtures, and stories. CI reports interaction failures informationally while the initial catalog is stabilized, and runs the full Storybook build because TypeScript alone does not validate Storybook's indexing, module mocks, Vue transforms, assets, or Vite bundle. These checks do not attempt to infer whether a UI change should have added a new story. Chromatic publishes visual changes for review without failing the job solely because snapshots changed.
+The pre-commit typecheck includes Storybook configuration, fixtures, and stories. CI reports rendering or interaction failures informationally while the catalog is stabilized, and runs the full Storybook build because TypeScript alone does not validate Storybook's indexing, module mocks, Vue transforms, assets, or Vite bundle. These checks do not attempt to infer whether a UI change should have added a new story. Chromatic publishes visual changes for review without failing the job solely because snapshots changed.

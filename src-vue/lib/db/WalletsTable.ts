@@ -1,5 +1,6 @@
 import { BaseTable, type IFieldTypes } from './BaseTable.ts';
 import { convertFromSqliteFields, toSqlParams } from '../Utils.ts';
+import type PluginSql from '@tauri-apps/plugin-sql';
 
 export type IWalletRecordType = 'argon' | 'ethereum';
 export type IWalletSecretKind = 'coreMnemonic' | 'privateKey' | 'mnemonic';
@@ -38,6 +39,42 @@ export class WalletsTable extends BaseTable {
   public async count(): Promise<number> {
     const [row] = await this.db.select<{ count: number }[]>('SELECT COUNT(*) as count FROM Wallets');
     return row?.count ?? 0;
+  }
+
+  public async insert(record: IWalletRecord, overrideSqlInstance?: PluginSql): Promise<IWalletRecord> {
+    const sql = overrideSqlInstance ?? this.db;
+    const rows = await sql.select<IWalletRecord[]>(
+      `INSERT INTO Wallets (
+        id, walletType, name, address, sortOrder, keyReference, derivationPath,
+        secretKind, encryptedSecret, createdAt, updatedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        walletType = excluded.walletType,
+        name = excluded.name,
+        address = excluded.address,
+        sortOrder = excluded.sortOrder,
+        keyReference = excluded.keyReference,
+        derivationPath = excluded.derivationPath,
+        secretKind = excluded.secretKind,
+        encryptedSecret = excluded.encryptedSecret,
+        createdAt = excluded.createdAt,
+        updatedAt = excluded.updatedAt
+      RETURNING *`,
+      toSqlParams([
+        record.id,
+        record.walletType,
+        record.name,
+        record.address,
+        record.sortOrder,
+        record.keyReference,
+        record.derivationPath,
+        record.secretKind,
+        record.encryptedSecret,
+        record.createdAt,
+        record.updatedAt,
+      ]),
+    );
+    return this.toRecord(rows[0]);
   }
 
   public async getDefaultArgon(): Promise<IWalletRecord | undefined> {

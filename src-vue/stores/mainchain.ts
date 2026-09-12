@@ -151,6 +151,9 @@ export function getMiningFrames(): MiningFrames {
       write: data => writeTextFile(storageFile, data, dir),
     });
   }
+  void miningFrames.isLoadedPromise.catch(error => {
+    console.warn('[Mining Frames] Unable to load current frame data', error);
+  });
   return miningFrames;
 }
 
@@ -174,6 +177,9 @@ export function getBiddingCalculator(): BiddingCalculator {
       });
     }
   }
+  void biddingCalculator.load().catch(error => {
+    console.warn('[Bidding Calculator] Unable to load current bidding data', error);
+  });
   return biddingCalculator;
 }
 

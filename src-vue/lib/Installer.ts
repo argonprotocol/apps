@@ -22,8 +22,7 @@ import { IS_LOCAL_BUILD, NETWORK_NAME, SERVER_ENV_VARS, TICK_MILLIS } from './En
 import * as semver from 'semver';
 import { getEthereumBeaconApiUrl, getEthereumExecutionRpcUrl } from './EthereumClient.ts';
 import { MyVault } from './MyVault.ts';
-import { ensureMiningBidProxySetup } from './MiningAccount.ts';
-import { getTransactionTracker } from '../stores/transactions.ts';
+import type { MiningBidProxySetupResult } from './txs/MiningBidProxy.setup.ts';
 import { MiningSetupStatus } from '../interfaces/IConfig.ts';
 
 dayjs.extend(utc);
@@ -47,6 +46,7 @@ type InstallerFns = {
   isAppUpdateBlockingInstall?: () => boolean | Promise<boolean>;
   publishOwnServerEndpoint?: () => Promise<void>;
   publishOwnServerRecovery?: () => Promise<void>;
+  ensureMiningBidProxy?: () => Promise<MiningBidProxySetupResult>;
 };
 
 export default class Installer {
@@ -195,8 +195,13 @@ export default class Installer {
     } catch (error) {
       console.error(`[Installer] Load failed at ${stage} after ${Date.now() - loadStartedAt}ms`, error);
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.config.serverInstaller.errorType = InstallStepErrorType.ServerConnect;
+      const activeStep = Object.values(InstallStepKey).find(step =>
+        [InstallStepStatus.Working, InstallStepStatus.Completing].includes(this.config.serverInstaller[step].status),
+      );
+      const failedStep = activeStep ? InstallStepErrorType[activeStep] : InstallStepErrorType.ServerConnect;
+      this.config.serverInstaller.errorType = failedStep;
       this.config.serverInstaller.errorMessage = errorMessage;
+      this.config.serverInstaller[failedStep].status = InstallStepStatus.Failed;
       this.config.serverInstaller = this.config.serverInstaller;
       this.reasonToSkipInstall = ReasonsToSkipInstall.ServerError;
       this.reasonToSkipInstallData = { errorMessage };
@@ -371,6 +376,9 @@ export default class Installer {
       });
       this.config.serverInstaller.errorType = installPhase ?? InstallStepErrorType.Unknown;
       this.config.serverInstaller.errorMessage = e.message ?? `Installation failed - ${String(e)}`;
+      if (installPhase) {
+        this.config.serverInstaller[installPhase].status = InstallStepStatus.Failed;
+      }
       this.config.serverInstaller = this.config.serverInstaller;
     }
 
@@ -449,13 +457,8 @@ export default class Installer {
   private async ensureMiningBidProxyIsReady(): Promise<void> {
     if (this.miningBidProxyIsReady) return;
 
-    const transactionTracker = getTransactionTracker();
-    await transactionTracker.load();
-
-    const proxySetup = await ensureMiningBidProxySetup({
-      transactionTracker,
-      walletKeys: this.walletKeys,
-    });
+    if (!this.fns.ensureMiningBidProxy) return;
+    const proxySetup = await this.fns.ensureMiningBidProxy();
 
     if (proxySetup.kind === 'insufficientFunds') {
       console.warn('[Installer] Skipping mining bid proxy migration until the mining funding account is topped up', {

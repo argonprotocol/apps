@@ -152,6 +152,14 @@ export default class Bot {
           seats: currentBidder.nextBid.subaccounts.length,
         }
       : undefined;
+    const winningBids =
+      currentBidder?.currentBids.bids.map((bid, bidPosition) => ({
+        address: bid.address,
+        subAccountIndex: currentBidder.accountset.subAccountsByAddress[bid.address]?.index,
+        lastBidAtTick: bid.bidAtTick,
+        bidPosition,
+        microgonsPerSeat: bid.bidMicrogons,
+      })) ?? [];
 
     return {
       ...botStateData,
@@ -166,6 +174,12 @@ export default class Bot {
       bitcoinBlockNumbers,
       maxSeatsInPlay: this.maxSeatsInPlay,
       maxSeatsReductionReason: this.maxSeatsReductionReason,
+      maximumBidMicrogonsPerSeat: currentBidder?.options.maxBid,
+      winningBids,
+      currentAuctionSeatCount: currentBidder?.currentAuctionSeatCount,
+      currentAuctionMicronotsPerSeat: currentBidder?.currentAuctionMicronotsPerSeat,
+      seatGoalCount: currentBidder?.seatGoalCount,
+      botCapital: currentBidder?.botCapital,
       bidsInCurrentFrame: currentBidder?.bidsAttempted ?? 0,
       bidsInPreviousFrame: previousBidder?.bidsAttempted ?? 0,
       isBiddingOpen: currentBidder?.isBiddingOpen ?? false,

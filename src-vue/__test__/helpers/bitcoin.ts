@@ -84,6 +84,9 @@ export function createStore(
   const db =
     options.db ??
     (Object.assign(Object.create(null), {
+      bitcoinLocksTable: {
+        getByUtxoId: async () => undefined,
+      },
       bitcoinSecuritizationHistoryTable: {
         getPublishedSnapshot: async () => undefined,
         createSnapshot: async () => ({ ownerAccount: '', snapshotId: '', asOfBlock: 0 }),

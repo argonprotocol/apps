@@ -183,6 +183,7 @@
             <article
               v-for="liquid in closedLiquidRows"
               :key="liquid.model.liquidId"
+              :data-testid="`BitcoinLiquid.archived-${liquid.model.liquidId}`"
               class="flex cursor-pointer flex-row items-center gap-2.5 rounded border border-slate-900/20 bg-slate-50 px-3.5 py-2 opacity-60 hover:opacity-80"
               @click="openLiquidDetails(liquid)"
             >

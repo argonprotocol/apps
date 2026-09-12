@@ -36,7 +36,11 @@ it('resumes restored transactions at load without restarting them when pending s
     load: vi.fn().mockResolvedValue(undefined),
     pendingBlockTxInfosAtLoad: [txInfo],
   } as unknown as TransactionTracker;
-  const operation = new TestTransactionOperation(transactionTracker);
+  let wasPendingWhenPostProcessed: boolean | undefined;
+  const onPostProcessed = vi.fn(async (processedTxInfo: TransactionInfo) => {
+    wasPendingWhenPostProcessed = processedTxInfo.hasPendingPostProcessing;
+  });
+  const operation = new TestTransactionOperation(transactionTracker, { onPostProcessed });
 
   expect(operation.readPendingTransactions()).toEqual([txInfo]);
   expect(txInfo.hasPendingPostProcessing).toBe(false);
@@ -46,7 +50,10 @@ it('resumes restored transactions at load without restarting them when pending s
 
   resolveFinalization();
   await txInfo.waitForPostProcessing;
+  await Promise.resolve();
   expect(operation.finalizationCount).toBe(1);
+  expect(onPostProcessed).toHaveBeenCalledOnce();
+  expect(wasPendingWhenPostProcessed).toBe(false);
 
   operation.readPendingTransactions();
   operation.readPendingTransactions();
@@ -84,6 +91,39 @@ it('retries failed post-processing on the finalized transaction', async () => {
 
   expect(operation.finalizationCount).toBe(2);
   expect(operation.readPendingTransactions()).toEqual([]);
+});
+
+it('publishes a failed restored transaction after post-processing is no longer pending', async () => {
+  const finalizationError = new Error('Transaction failed.');
+  const txInfo = new TransactionInfo({
+    tx: {
+      id: 2,
+      status: TransactionStatus.Submitted,
+      extrinsicType: ExtrinsicType.Transfer,
+      isFinalized: false,
+      createdAt: new Date(),
+    } as ITransactionRecord,
+    txResult: {
+      waitForFinalizedBlock: Promise.reject(finalizationError),
+    } as unknown as TxResult,
+  });
+  const transactionTracker = {
+    data: { txInfos: [txInfo] },
+    load: vi.fn().mockResolvedValue(undefined),
+    pendingBlockTxInfosAtLoad: [txInfo],
+  } as unknown as TransactionTracker;
+  let wasPendingWhenPostProcessed: boolean | undefined;
+  const onPostProcessed = vi.fn(async (processedTxInfo: TransactionInfo) => {
+    wasPendingWhenPostProcessed = processedTxInfo.hasPendingPostProcessing;
+  });
+  const operation = new TestTransactionOperation(transactionTracker, { onPostProcessed });
+
+  await operation.load();
+  await expect(txInfo.waitForPostProcessing).rejects.toThrow('Transaction failed.');
+  await Promise.resolve();
+
+  expect(onPostProcessed).toHaveBeenCalledWith(txInfo, finalizationError);
+  expect(wasPendingWhenPostProcessed).toBe(false);
 });
 
 it('finds the pending insurance transaction for a restored Bitcoin channel', () => {

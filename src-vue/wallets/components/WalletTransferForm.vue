@@ -142,8 +142,10 @@
         autocomplete="off"
         spellcheck="false"
         :placeholder="destinationAddressPlaceholder"
-        class="mt-2 h-[30px] w-full rounded-md border border-slate-700/50 bg-white px-2 font-mono text-sm outline-none placeholder:text-gray-400"
+        class="mt-2 h-[30px] w-full rounded-md border bg-white px-2 font-mono text-sm outline-none placeholder:text-gray-400"
+        :class="destinationAddressError ? 'border-red-400' : 'border-slate-700/50'"
       />
+      <div v-if="destinationAddressError" class="mt-2 text-sm text-red-700">{{ destinationAddressError }}</div>
     </div>
 
     <div v-if="isBitcoinTransfer && !isBitcoinEntirelyLocked" class="mt-6 flex flex-col gap-x-3">
@@ -255,6 +257,7 @@ import * as Vue from 'vue';
 import {
   bigIntMax,
   bigNumberToBigInt,
+  isValidArgonAccountAddress,
   MoveToken,
   raceWithTimeout,
   SATOSHIS_PER_BITCOIN,
@@ -294,7 +297,7 @@ import { getBitcoinLocks, getBitcoinTransactionOperations } from '../../stores/b
 import { getEthereumMoveTracker } from '../../stores/moveFromEthereum.ts';
 import { getEthereumOutboundTransferTracker } from '../../stores/moveToEthereum.ts';
 import { getMyVault, getVaults } from '../../stores/vaults.ts';
-import { getWalletKeys } from '../../stores/wallets.ts';
+import { getMoveCapital, getWalletKeys } from '../../stores/wallets.ts';
 
 type ITransferArgonWallet = WalletForArgon<'argon'> | WalletForArgon<'miningBot'>;
 export type ITransferWallet = ITransferArgonWallet | WalletForEthereum | WalletForBitcoin;
@@ -319,6 +322,7 @@ const bitcoinLocks = getBitcoinLocks();
 const { bitcoinLockRelease } = getBitcoinTransactionOperations();
 const inboundTracker = getEthereumMoveTracker();
 const outboundTracker = getEthereumOutboundTransferTracker();
+const moveCapital = getMoveCapital();
 const floatingZIndex = useFloatingZIndex();
 const {
   microgonToArgonNm,
@@ -338,6 +342,7 @@ const maximumTransferOutAmount = Vue.ref<bigint>();
 const feeEstimateWei = Vue.ref<bigint>();
 const feeEstimateMicrogon = Vue.ref<bigint>();
 const feeEstimateMicronot = Vue.ref<bigint>();
+const directArgonFeeMicrogons = Vue.ref<bigint>();
 const bitcoinFeeEstimate = Vue.ref<{
   argonFee: bigint;
   availableArgons: bigint;
@@ -483,12 +488,18 @@ const selectedEthereumWallet = Vue.computed(() => {
   if (isEthereumWallet(props.fromWallet)) return props.fromWallet;
   return isEthereumWallet(selectedDestinationWallet.value) ? selectedDestinationWallet.value : undefined;
 });
+const isDirectArgonTransfer = Vue.computed(
+  () => isArgonWallet(props.fromWallet) && isArgonWallet(selectedDestinationWallet.value),
+);
 const isBitcoinTransfer = Vue.computed(
   () => selectedMoveToken.value === MoveToken.BTC && selectedDestinationWallet.value?.type === WalletType.bitcoin,
 );
 const showEthereumFees = Vue.computed(() => !!selectedEthereumMoveToken.value && !!selectedEthereumWallet.value);
 const showFees = Vue.computed(
-  () => showEthereumFees.value || (isBitcoinTransfer.value && !isBitcoinEntirelyLocked.value),
+  () =>
+    showEthereumFees.value ||
+    (isDirectArgonTransfer.value && directArgonFeeMicrogons.value !== undefined) ||
+    (isBitcoinTransfer.value && !isBitcoinEntirelyLocked.value),
 );
 const argonFeeEstimate = Vue.computed(() => bitcoinFeeEstimate.value?.argonFee ?? feeEstimateMicrogon.value);
 const ethereumBalanceWei = Vue.computed(
@@ -546,12 +557,23 @@ const bitcoinDestinationError = Vue.computed(() => {
   if (!isBitcoinTransfer.value || !destinationAddress.value.trim()) return '';
   return validateBitcoinAddressForNetwork(destinationAddress.value.trim(), bitcoinLocks.bitcoinNetwork);
 });
+const destinationAddressError = Vue.computed(() => {
+  const address = destinationAddress.value.trim();
+  if (!isDirectArgonTransfer.value || !address || isValidArgonAccountAddress(address)) return '';
+  return 'Enter a valid Argon address.';
+});
 const formError = Vue.computed(
   () =>
-    submissionError.value || maximumTransferError.value || bitcoinAmountError.value || bitcoinDestinationError.value,
+    submissionError.value ||
+    maximumTransferError.value ||
+    bitcoinAmountError.value ||
+    bitcoinDestinationError.value ||
+    destinationAddressError.value,
 );
 const hasValidDestination = Vue.computed(
-  () => !!selectedDestinationWallet.value && (!showDestinationAddress.value || !!destinationAddress.value.trim()),
+  () =>
+    !!selectedDestinationWallet.value &&
+    (!showDestinationAddress.value || (!!destinationAddress.value.trim() && !destinationAddressError.value)),
 );
 const isReady = Vue.computed(
   () =>
@@ -561,6 +583,7 @@ const isReady = Vue.computed(
     !feeEstimateError.value &&
     !formError.value &&
     hasValidDestination.value &&
+    (!isDirectArgonTransfer.value || directArgonFeeMicrogons.value !== undefined) &&
     tokensToMove.value > 0n &&
     tokensToMove.value <= maxValue.value &&
     !bitcoinAmountError.value &&
@@ -648,17 +671,28 @@ Vue.watch(
   () => (submissionError.value = ''),
 );
 Vue.watch(
-  () => [selectedMoveToken.value, destination.value, availableAmount.value] as const,
-  async ([moveToken, _destination, available], _oldValues, onCleanup) => {
+  () =>
+    [
+      selectedMoveToken.value,
+      destination.value,
+      destinationAddress.value,
+      availableAmount.value,
+      props.fromWallet.data.availableMicrogons,
+    ] as const,
+  async ([moveToken, _destination, address, available], _oldValues, onCleanup) => {
     maximumTransferError.value = '';
     maximumTransferOutAmount.value = undefined;
-    const ethereumWallet = selectedDestinationWallet.value;
-    if (
-      !isArgonWallet(props.fromWallet) ||
-      !isEthereumWallet(ethereumWallet) ||
-      moveToken === MoveToken.BTC ||
-      available <= 0n
-    ) {
+    directArgonFeeMicrogons.value = undefined;
+    const destinationWallet = selectedDestinationWallet.value;
+    if (!isArgonWallet(props.fromWallet) || moveToken === MoveToken.BTC || available <= 0n) {
+      isCalculatingMaximum.value = false;
+      return;
+    }
+    if (!isEthereumWallet(destinationWallet) && !isArgonWallet(destinationWallet)) {
+      isCalculatingMaximum.value = false;
+      return;
+    }
+    if (isArgonWallet(destinationWallet) && !isValidArgonAccountAddress(address.trim())) {
       isCalculatingMaximum.value = false;
       return;
     }
@@ -666,8 +700,22 @@ Vue.watch(
     onCleanup(() => (cancelled = true));
     isCalculatingMaximum.value = true;
     try {
-      const maximum = await outboundTracker.getMaximumTransferOutAmount(available, moveToken);
-      if (!cancelled) maximumTransferOutAmount.value = maximum;
+      if (isEthereumWallet(destinationWallet)) {
+        const maximum = await outboundTracker.getMaximumTransferOutAmount(available, moveToken);
+        if (!cancelled) maximumTransferOutAmount.value = maximum;
+      } else {
+        const quote = await moveCapital.getExternalTransferQuote({
+          destinationAddress: address,
+          moveToken,
+          availableMicrogons: props.fromWallet.data.availableMicrogons,
+          availableMicronots: props.fromWallet.data.availableMicronots,
+        });
+        if (!cancelled) {
+          maximumTransferOutAmount.value = quote.maximumAmount;
+          directArgonFeeMicrogons.value = quote.transactionFeeMicrogons;
+          feeEstimateMicrogon.value = quote.transactionFeeMicrogons;
+        }
+      }
     } catch (error) {
       if (!cancelled)
         maximumTransferError.value =
@@ -769,9 +817,9 @@ Vue.watch(
     bitcoinFeeEstimate.value = undefined;
     const moveToken = selectedEthereumMoveToken.value;
     const ethereumWallet = selectedEthereumWallet.value;
-    if (amount <= 0n || !moveToken || !ethereumWallet) {
+    if (isDirectArgonTransfer.value || amount <= 0n || !moveToken || !ethereumWallet) {
       feeEstimateWei.value = undefined;
-      feeEstimateMicrogon.value = undefined;
+      feeEstimateMicrogon.value = directArgonFeeMicrogons.value;
       feeEstimateMicronot.value = undefined;
       isEstimatingFees.value = false;
       return;

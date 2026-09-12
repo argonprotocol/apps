@@ -1378,11 +1378,11 @@ describe('BitcoinLocks history replay publication', () => {
       uuid: pending.uuid,
       lock: createCurrentLock(BitcoinHistory.toBitcoinLockDetails(initialLock)),
     });
-    record.updatedAt = new Date(0);
     await db.bitcoinLocksTable.updateFromCurrentLock(
       record,
       createCurrentLock({ ...BitcoinHistory.toBitcoinLockDetails(initialLock), isFlexible: false }),
     );
+    record.updatedAt = new Date(0);
     const store = createStore({
       db,
       blockWatch: { getApi: vi.fn(async () => ({})) } as unknown as BlockWatch,

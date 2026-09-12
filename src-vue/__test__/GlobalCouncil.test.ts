@@ -3,6 +3,29 @@ import { GlobalCouncil } from '../lib/GlobalCouncil.ts';
 import { getEthereumFinalityMillis } from '../lib/EthereumClient.ts';
 
 describe('GlobalCouncil', () => {
+  it('serializes Ethereum relays so a concurrent caller rechecks after the active transaction', async () => {
+    const globalCouncil = new GlobalCouncil(Promise.resolve({} as any), {} as any, {} as any);
+    let resolveRelay!: (receipt: { transactionHash: string }) => void;
+    const relayResult = new Promise<{ transactionHash: string }>(resolve => {
+      resolveRelay = resolve;
+    });
+    const applyReadyGatewayUpdates = vi.fn().mockReturnValueOnce(relayResult).mockResolvedValueOnce(undefined);
+    (
+      globalCouncil as unknown as {
+        applyReadyGatewayUpdates: typeof applyReadyGatewayUpdates;
+      }
+    ).applyReadyGatewayUpdates = applyReadyGatewayUpdates;
+
+    const firstRelay = globalCouncil.relayApprovedGatewayUpdates();
+    const secondRelay = globalCouncil.relayApprovedGatewayUpdates();
+
+    await Promise.resolve();
+    expect(applyReadyGatewayUpdates).toHaveBeenCalledOnce();
+    resolveRelay({ transactionHash: '0x1234' });
+    await expect(Promise.all([firstRelay, secondRelay])).resolves.toEqual([{ transactionHash: '0x1234' }, undefined]);
+    expect(applyReadyGatewayUpdates).toHaveBeenCalledTimes(2);
+  });
+
   it('relays immediately when our signed approvals are awaiting Ethereum relay', async () => {
     const globalCouncil = new GlobalCouncil(Promise.resolve({} as any), { canSign: true } as any, {} as any);
     const getReadyGatewayRelayPreview = vi

@@ -21,6 +21,15 @@
         <div class="text-gray-500 text-center font-light mt-3">
           {{progressLabel}}
         </div>
+        <button
+          v-if="transactionErrorMessage"
+          type="button"
+          class="bg-argon-button hover:bg-argon-button-hover mx-auto mt-5 cursor-pointer rounded-md px-5 py-2 font-bold text-white disabled:cursor-wait disabled:opacity-60"
+          :disabled="isEnsuringSetupTransfer"
+          @click="ensureMiningSetup(true)"
+        >
+          {{ isEnsuringSetupTransfer ? 'Retrying Mining Setup...' : 'Retry Mining Setup' }}
+        </button>
       </div>
     </div>
   </div>
@@ -28,26 +37,19 @@
 
 <script setup lang="ts">
 import * as Vue from 'vue';
-import { isDefaultArgonMoveFrom, MoveTo } from '@argonprotocol/apps-core';
 import { getConfig } from '../../stores/config.ts';
 import { stepLabels, type IStepLabel } from '../../lib/InstallerStep.ts';
 import { InstallStepStatus, MiningSetupStatus } from '../../interfaces/IConfig.ts';
 import ProgressBar from '../../components/ProgressBar.vue';
 import MiningIcon from '../../assets/mining.svg?component';
-import { useWallets, getWalletKeys } from '../../stores/wallets.ts';
-import { getTransactionTracker } from '../../stores/transactions.ts';
-import { MoveCapital, type ITransactionMoveMetadata } from '../../lib/MoveCapital.ts';
-import { ExtrinsicType } from '../../lib/db/TransactionsTable.ts';
+import { getMiningSetup, useWallets } from '../../stores/wallets.ts';
 import type { TransactionInfo } from '../../lib/TransactionInfo.ts';
-import { TxAttemptState } from '../../lib/TransactionTracker.ts';
 import type { Config } from '../../lib/Config.ts';
 import { getMiningFundingState } from './miningFunding.ts';
 
 const config = getConfig();
 const wallets = useWallets();
-const walletKeys = getWalletKeys();
-const transactionTracker = getTransactionTracker();
-const moveCapital = new MoveCapital(walletKeys, transactionTracker);
+const miningSetup = getMiningSetup();
 
 const transactionErrorMessage = Vue.ref('');
 const progressPct = Vue.ref(0);
@@ -151,29 +153,6 @@ function getStepLabel(stepLabel: IStepLabel, stepStatus: InstallStepStatus): str
   return stepLabel.options[optionIndexByStatus[stepStatus]];
 }
 
-function isMiningSetupTx(txInfo: TransactionInfo): boolean {
-  if (txInfo.tx.extrinsicType === ExtrinsicType.MiningBidProxySetup) {
-    return true;
-  }
-  if (txInfo.tx.extrinsicType !== ExtrinsicType.Transfer) return false;
-
-  const metadata = txInfo.tx.metadataJson as Partial<ITransactionMoveMetadata> | undefined;
-  return isDefaultArgonMoveFrom(metadata?.moveFrom) && metadata?.moveTo === MoveTo.MiningBot;
-}
-
-function findLatestSetupTxInfo(): TransactionInfo | null {
-  let latestTxInfo: TransactionInfo | null = null;
-
-  for (const txInfo of transactionTracker.data.txInfos) {
-    if (!isMiningSetupTx(txInfo)) continue;
-    if (!latestTxInfo || txInfo.tx.id > latestTxInfo.tx.id) {
-      latestTxInfo = txInfo;
-    }
-  }
-
-  return latestTxInfo;
-}
-
 function trackTxInfo(txInfo: TransactionInfo) {
   if (trackedTxId.value === txInfo.tx.id) return;
 
@@ -182,26 +161,36 @@ function trackTxInfo(txInfo: TransactionInfo) {
   trackedTxId.value = txInfo.tx.id;
   transactionErrorMessage.value = '';
 
-  txProgressLabel.value = 'Submitting capital transfer...';
+  txProgressLabel.value = 'Preparing mining account...';
   const currentStatus = txInfo.getStatus();
-  txProgressPct.value = Math.max(txProgressPct.value, currentStatus.progressPct);
+  txProgressPct.value = currentStatus.progressPct;
 
   unsubscribeTxProgress = txInfo.subscribeToProgress((args, error) => {
     txProgressLabel.value = `Submitted to Argon Miners: ${args.progressMessage}`;
-    txProgressPct.value = Math.max(txProgressPct.value, args.progressPct);
+    txProgressPct.value = args.progressPct;
 
     if (args.progressPct === 100 && error) {
       transactionErrorMessage.value = error.message;
     }
-
-    void ensureTrackedSetupTransfer();
   });
+}
 
-  void txInfo.waitForPostProcessing
+function trackSetupTransaction(
+  setupResult: Extract<Awaited<ReturnType<typeof miningSetup.ensure>>, { kind: 'transaction' }>,
+) {
+  trackTxInfo(setupResult.txInfo);
+
+  void setupResult.waitForCompletion
     .then(async () => {
-      txProgressLabel.value = 'Mining capital is ready.';
-      txProgressPct.value = 100;
-      await finalizeMiningSetup();
+      if (fundingState.value.isFullyFunded) {
+        txProgressLabel.value = 'Mining capital is ready.';
+        txProgressPct.value = 100;
+        await finalizeMiningSetup();
+        return;
+      }
+
+      trackedTxId.value = null;
+      await ensureMiningSetup(true);
     })
     .catch(error => {
       transactionErrorMessage.value =
@@ -224,17 +213,8 @@ async function finalizeMiningSetup() {
   }
 }
 
-async function ensureTrackedSetupTransfer(force = false) {
+async function ensureMiningSetup(force = false) {
   if (!hasEnteredTransactionPhase.value) return;
-
-  const txInfo = findLatestSetupTxInfo();
-  if (txInfo) {
-    const txAttemptState = await transactionTracker.getTxAttemptState(txInfo, 2);
-    if (txAttemptState === TxAttemptState.Pending) {
-      trackTxInfo(txInfo);
-      return;
-    }
-  }
 
   if (!wallets.isLoaded || isEnsuringSetupTransfer.value) return;
 
@@ -245,16 +225,23 @@ async function ensureTrackedSetupTransfer(force = false) {
   lastEnsureSetupTransferAt = now;
 
   try {
-    const sweepResult = await moveCapital.moveConfiguredDefaultArgonToBot({
+    const setupResult = await miningSetup.ensure({
       defaultWallet: wallets.defaultArgonWallet,
       miningBotWallet: wallets.miningBotWallet,
       config: config as Config,
     });
-    if (sweepResult.kind === 'submitted' || sweepResult.kind === 'trackingExisting') {
-      trackTxInfo(sweepResult.txInfo);
+    if (setupResult.kind === 'transaction') {
+      trackSetupTransaction(setupResult);
       return;
     }
-    if (sweepResult.kind === 'noSpendableFundsToSweep') {
+    if (setupResult.kind === 'ready') {
+      transactionErrorMessage.value = '';
+      txProgressLabel.value = 'Mining capital is ready.';
+      txProgressPct.value = 100;
+      await finalizeMiningSetup();
+      return;
+    }
+    if (setupResult.kind === 'noSpendableFundsToSweep') {
       if (fundingState.value.isFullyFunded) {
         transactionErrorMessage.value = '';
         txProgressLabel.value = 'Mining capital is ready.';
@@ -271,7 +258,13 @@ async function ensureTrackedSetupTransfer(force = false) {
 
     txProgressPct.value = 0;
     txProgressLabel.value = 'Mining capital needs attention.';
-    transactionErrorMessage.value = sweepResult.error;
+    transactionErrorMessage.value = setupResult.error;
+  } catch (error) {
+    console.error('[Mining Setup] Unable to prepare the mining account', error);
+    txProgressPct.value = 0;
+    txProgressLabel.value = 'Mining capital needs attention.';
+    transactionErrorMessage.value =
+      error instanceof Error ? error.message : 'Unknown error occurred while preparing mining capital.';
   } finally {
     isEnsuringSetupTransfer.value = false;
   }
@@ -285,25 +278,20 @@ Vue.watch(
   { immediate: true },
 );
 
-Vue.watch(
-  () => transactionTracker.data.txInfos.length,
-  () => {
-    if (hasEnteredTransactionPhase.value) {
-      void ensureTrackedSetupTransfer(true);
-    }
-  },
-);
-
 Vue.watch(hasEnteredTransactionPhase, isInTxPhase => {
   if (isInTxPhase) {
-    void ensureTrackedSetupTransfer(true);
+    void ensureMiningSetup(true);
   }
 });
 
-Vue.onMounted(async () => {
-  await transactionTracker.load();
-  await ensureTrackedSetupTransfer(true);
-});
+Vue.watch(
+  () => wallets.isLoaded,
+  isLoaded => {
+    if (isLoaded) void ensureMiningSetup(true);
+  },
+);
+
+Vue.onMounted(() => void ensureMiningSetup(true));
 
 Vue.onUnmounted(() => {
   unsubscribeTxProgress?.();

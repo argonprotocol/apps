@@ -47,7 +47,7 @@
         This page will update automatically when a successful bid is confirmed.
       </p>
       <div class="flex flex-row justify-center items-center space-x-6 mt-10">
-        <ActiveBidsOverlayButton />
+        <BiddingBotOverlayButton />
         <BotHistoryOverlayButton />
       </div>
     </div>
@@ -61,16 +61,14 @@ import utc from 'dayjs/plugin/utc';
 import { getConfig } from '../../stores/config.ts';
 import CountdownClock from '../../components/CountdownClock.vue';
 import ConfettiIcon from '../../assets/confetti.svg?component';
-import ActiveBidsOverlayButton from '../../overlays/ActiveBidsOverlayButton.vue';
+import BiddingBotOverlayButton from '../../overlays/mining/BiddingBotOverlayButton.vue';
 import BotHistoryOverlayButton from '../../overlays/BotHistoryOverlayButton.vue';
 import { MINING_BID_PROXY_FEE_FLOAT, MiningFrames } from '@argonprotocol/apps-core';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import { getBiddingCalculator, getMining } from '../../stores/mainchain.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
-import { useWallets, getWalletKeys } from '../../stores/wallets.ts';
-import { getTransactionTracker } from '../../stores/transactions.ts';
-import { ensureMiningBidProxySetup } from '../../lib/MiningAccount.ts';
+import { getMiningBidProxySetup, useWallets } from '../../stores/wallets.ts';
 
 dayjs.extend(utc);
 
@@ -78,8 +76,7 @@ const mainchain = getMining();
 const config = getConfig();
 const currency = getCurrency();
 const wallets = useWallets();
-const walletKeys = getWalletKeys();
-const transactionTracker = getTransactionTracker();
+const miningBidProxySetup = getMiningBidProxySetup();
 
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
@@ -110,8 +107,8 @@ async function ensureMiningBidProxy() {
 
   isEnsuringMiningBidProxy.value = true;
   try {
-    const proxySetup = await ensureMiningBidProxySetup({ transactionTracker, walletKeys });
-    if (proxySetup.kind === 'submitted' || proxySetup.kind === 'trackingExisting') {
+    const proxySetup = await miningBidProxySetup.ensure();
+    if (proxySetup.kind === 'transaction') {
       await proxySetup.txInfo.waitForPostProcessing;
     }
   } catch (error) {
