@@ -46,8 +46,16 @@ export interface BitcoinLiquidCreateInput {
 export interface IBitcoinLiquidCreateMetadata {
   liquidId: number;
   snapshotBlockHash: string;
-  fissions: Array<Pick<BitcoinFission, 'fissionId' | 'utxoId' | 'satoshis' | 'microgonsAtTargetPerBtc'>>;
+  fissions: IBitcoinLiquidCreateFission[];
   resecuritizations: IBitcoinResecuritizationMetadata[];
+}
+
+export interface IBitcoinLiquidCreateFission {
+  fissionId: number;
+  lockId: number;
+  satoshis: bigint;
+  microgonsAtTargetPerBtc: bigint;
+  liquidityPromised: bigint;
 }
 
 type CurrentAllocation = {
@@ -80,13 +88,13 @@ export interface IBitcoinLiquidCreatePreview {
   totalSecurityFeeMicrogons: bigint;
   securityFeeMicrogons: bigint;
   couponCreditMicrogons: bigint;
-  maximumSatoshisByUtxoId: Readonly<Record<number, bigint>>;
+  maximumSatoshisByLockId: Readonly<Record<number, bigint>>;
 }
 
 export class BitcoinLiquidCreateStateChangedError extends Error {
   constructor(
     message: string,
-    public readonly maximumSatoshisByUtxoId: Readonly<Record<number, bigint>> = {},
+    public readonly maximumSatoshisByLockId: Readonly<Record<number, bigint>> = {},
   ) {
     super(message);
   }
@@ -166,8 +174,8 @@ export class BitcoinLiquidCreate extends TransactionOperation<
       totalSecurityFeeMicrogons,
       securityFeeMicrogons,
       couponCreditMicrogons,
-      maximumSatoshisByUtxoId: Object.fromEntries(
-        allocations.map(({ input, maximumSatoshis }) => [input.lock.utxoId!, maximumSatoshis]),
+      maximumSatoshisByLockId: Object.fromEntries(
+        allocations.map(({ input, maximumSatoshis }) => [input.lock.lockId!, maximumSatoshis]),
       ),
     };
   }
@@ -231,11 +239,16 @@ export class BitcoinLiquidCreate extends TransactionOperation<
     }
 
     const liquidId = nextFissionId;
-    const fissions = allocations.map(({ input }, index) => ({
+    const fissions: IBitcoinLiquidCreateFission[] = allocations.map(({ input }, index) => ({
       fissionId: liquidId + index,
-      utxoId: input.lock.utxoId!,
+      lockId: input.lock.lockId!,
       satoshis: input.satoshis,
       microgonsAtTargetPerBtc,
+      liquidityPromised: BitcoinLock.calculateLiquidityPromised({
+        priceIndex,
+        satoshis: input.satoshis,
+        microgonsAtTargetPerBtc,
+      }),
     }));
     const fissionTxs = fissions.map(fission => BitcoinFission.createTx({ client, liquidId, ...fission }));
 
@@ -252,7 +265,7 @@ export class BitcoinLiquidCreate extends TransactionOperation<
 
   protected getOperationKey(args: BitcoinLiquidCreateInput): string {
     const { allocations, txSigner } = args;
-    return `${txSigner.address}:${allocations.map(({ lock, satoshis }) => `${lock.utxoId}:${satoshis}`).join(',')}`;
+    return `${txSigner.address}:${allocations.map(({ lock, satoshis }) => `${lock.lockId}:${satoshis}`).join(',')}`;
   }
 
   protected matches(args: BitcoinLiquidCreateInput, txInfo: TransactionInfo<IBitcoinLiquidCreateMetadata>): boolean {
@@ -263,17 +276,52 @@ export class BitcoinLiquidCreate extends TransactionOperation<
       fissions.length === allocations.length &&
       fissions.every((fission, index) => {
         const allocation = allocations[index];
-        return fission.utxoId === allocation.lock.utxoId && fission.satoshis === allocation.satoshis;
+        return fission.lockId === allocation.lock.lockId && fission.satoshis === allocation.satoshis;
       })
     );
   }
 
   public getPendingLiquidTxInfo(liquidId: number): TransactionInfo<IBitcoinLiquidCreateMetadata> | undefined {
-    return this.getPendingTransaction(txInfo => txInfo.tx.metadataJson.liquidId === liquidId);
+    return this.getPendingLiquidTxInfos().find(txInfo => txInfo.tx.metadataJson.liquidId === liquidId);
   }
 
   public getPendingLiquidTxInfos(): TransactionInfo<IBitcoinLiquidCreateMetadata>[] {
-    return this.getPendingTransactions(txInfo => txInfo.tx.accountAddress === this.fissions.ownerAccount);
+    const pendingLiquidIds = new Set(this.fissions.getPendingLiquids().map(liquid => liquid.liquidId));
+    const foundLiquidIds = new Set<number>();
+
+    return this.getActiveTransactions(txInfo => {
+      return (
+        txInfo.tx.accountAddress === this.fissions.ownerAccount && pendingLiquidIds.has(txInfo.tx.metadataJson.liquidId)
+      );
+    })
+      .toSorted((left, right) => right.tx.id - left.tx.id)
+      .filter(txInfo => {
+        const { liquidId } = txInfo.tx.metadataJson;
+        if (foundLiquidIds.has(liquidId)) return false;
+
+        foundLiquidIds.add(liquidId);
+        return true;
+      });
+  }
+
+  protected async onSubmitted(txInfo: TransactionInfo<IBitcoinLiquidCreateMetadata>): Promise<void> {
+    const { liquidId, fissions } = txInfo.tx.metadataJson;
+    const now = new Date();
+    this.fissions.publishPendingFissions(
+      fissions.map(
+        fission =>
+          new BitcoinFission({
+            ...fission,
+            ownerAccount: this.fissions.ownerAccount,
+            liquidId,
+            ratchetNumber: 0,
+            origin: 'created',
+            ratchets: [],
+            createdAt: now,
+            updatedAt: now,
+          }),
+      ),
+    );
   }
 
   protected async onFinalized(txInfo: TransactionInfo<IBitcoinLiquidCreateMetadata>): Promise<void> {
@@ -312,7 +360,7 @@ export class BitcoinLiquidCreate extends TransactionOperation<
     if (allocations.some(({ satoshis }) => satoshis <= 0n)) {
       throw new Error('A Liquid cannot include an empty Bitcoin allocation.');
     }
-    if (new Set(allocations.map(({ lock }) => lock.utxoId)).size !== allocations.length) {
+    if (new Set(allocations.map(({ lock }) => lock.lockId)).size !== allocations.length) {
       throw new Error('Each Bitcoin Lock can only be included once in a Liquid.');
     }
     if (txSigner.address !== this.fissions.ownerAccount) {
@@ -342,10 +390,10 @@ export class BitcoinLiquidCreate extends TransactionOperation<
         return { ...allocation, operatorCoupon: currentCoupon };
       });
     }
-    const utxoIds = allocations.map(({ lock }) => lock.utxoId).filter((utxoId): utxoId is number => utxoId != null);
+    const lockIds = allocations.map(({ lock }) => lock.lockId).filter((lockId): lockId is number => lockId != null);
     const [currentLocks, releaseRequests, bitcoinTip, nextFissionId, eligibleRates] = await Promise.all([
-      BitcoinLock.getMany(snapshotClient, utxoIds),
-      Promise.all(utxoIds.map(utxoId => BitcoinLock.getReleaseRequest(snapshotClient, utxoId))),
+      BitcoinLock.getMany(snapshotClient, lockIds),
+      Promise.all(lockIds.map(lockId => BitcoinLock.getReleaseRequest(snapshotClient, lockId))),
       snapshotClient.query.bitcoinUtxos.confirmedBitcoinBlockTip(),
       BitcoinFission.nextId(snapshotClient, txSigner.address),
       snapshotClient.query.bitcoinLocks.microgonPerBtcHistory(),
@@ -357,36 +405,36 @@ export class BitcoinLiquidCreate extends TransactionOperation<
     const [microgonsAtTargetPerBtcTick, microgonsAtTargetPerBtc] = eligibleRate;
     const currentBitcoinHeight = bitcoinTip?.blockHeight ?? 0;
     const remainingCoverageByVaultId = new Map<number, bigint>();
-    const maximumSatoshisByUtxoId: Record<number, bigint> = {};
+    const maximumSatoshisByLockId: Record<number, bigint> = {};
     const currentAllocations: CurrentAllocation[] = [];
     let capacityChanged = false;
 
     for (const [index, input] of allocations.entries()) {
       const { lock: localLock, satoshis } = input;
-      const utxoId = localLock.utxoId;
+      const lockId = localLock.lockId;
       const lock = currentLocks[index];
-      if (utxoId == null || !lock) {
+      if (lockId == null || !lock) {
         throw new BitcoinLiquidCreateStateChangedError('Some of this Bitcoin is no longer available on Argon.');
       }
       if (lock.ownerAccount !== txSigner.address) {
-        throw new Error(`Bitcoin Lock #${utxoId} belongs to a different account.`);
+        throw new Error(`Bitcoin Lock #${lockId} belongs to a different account.`);
       }
       if (releaseRequests[index]) {
-        throw new BitcoinLiquidCreateStateChangedError(`Bitcoin Lock #${utxoId} is already being returned.`);
+        throw new BitcoinLiquidCreateStateChangedError(`Bitcoin Lock #${lockId} is already being returned.`);
       }
 
       let vault: Vault;
       try {
         vault = await Vault.get(snapshotClient, lock.vaultId, NetworkConfig.tickMillis);
       } catch {
-        throw new BitcoinLiquidCreateStateChangedError(`The vault for Bitcoin Lock #${utxoId} is unavailable.`);
+        throw new BitcoinLiquidCreateStateChangedError(`The vault for Bitcoin Lock #${lockId} is unavailable.`);
       }
       this.vaults.vaultsById[vault.vaultId] = vault;
       const remainingCoverage =
         remainingCoverageByVaultId.get(vault.vaultId) ?? vault.availableBitcoinSpace(txSigner.address);
       const lockRate = bigIntMax(lock.microgonsAtTargetPerBtc, microgonsAtTargetPerBtc);
       const maximumSatoshis = this.getMaximumSatoshis(lock, priceIndex, lockRate, remainingCoverage);
-      maximumSatoshisByUtxoId[utxoId] = maximumSatoshis;
+      maximumSatoshisByLockId[lockId] = maximumSatoshis;
       if (satoshis > maximumSatoshis) {
         capacityChanged = true;
       }
@@ -424,7 +472,7 @@ export class BitcoinLiquidCreate extends TransactionOperation<
     if (capacityChanged) {
       throw new BitcoinLiquidCreateStateChangedError(
         'The selected vaults can no longer insure the full selected Bitcoin amount.',
-        maximumSatoshisByUtxoId,
+        maximumSatoshisByLockId,
       );
     }
 
@@ -469,14 +517,14 @@ export class BitcoinLiquidCreate extends TransactionOperation<
   }
 
   private getAvailableFeeCreditByCouponId(allocations: CurrentAllocation[]): Map<number, bigint> {
-    const plannedUtxoIds = new Set(allocations.map(({ lock }) => lock.utxoId));
+    const plannedLockIds = new Set(allocations.map(({ lock }) => lock.lockId));
     const availableByCouponId = new Map<number, bigint>();
     for (const { input } of allocations) {
       const { operatorCoupon } = input;
       if (!operatorCoupon || availableByCouponId.has(operatorCoupon.coupon.id)) continue;
       const resumableCredit =
         operatorCoupon.uses?.reduce((total, use) => {
-          return use.status === 'Prepared' && use.feeCoupon && use.utxoId != null && plannedUtxoIds.has(use.utxoId)
+          return use.status === 'Prepared' && use.feeCoupon && use.utxoId != null && plannedLockIds.has(use.utxoId)
             ? total + use.feeCreditMicrogons
             : total;
         }, 0n) ?? 0n;

@@ -61,7 +61,6 @@ Available flows:
 - `Vaulting.flow.onboarding`
 - `Bitcoin.flow.liquidCreate` (create, ratchet, and close one Liquid)
 - `Bitcoin.flow.lockUnlock`
-- `Bitcoin.flow.orphanClaim`
 - `App.flow.runManual`
 
 Run flow scripts:
@@ -108,7 +107,6 @@ Common flow inputs:
 E2E_FLOWS=Mining.flow.onboarding MINING_FUNDING_ARGONS=500 yarn e2e:docker
 E2E_FLOWS=Vaulting.flow.onboarding VAULTING_EXTRA_FUNDING_ARGONS=1200 yarn e2e:docker
 E2E_FLOWS=Bitcoin.flow.lockUnlock yarn e2e:docker
-E2E_FLOWS=Bitcoin.flow.orphanClaim yarn e2e:docker
 ```
 
 Run operations directly (state-aware debugging on top of current app state):
@@ -135,11 +133,6 @@ E2E_OPERATIONS=Bitcoin.op.waitUnlockReady \
 E2E_OPERATION_MODE=inspect \
 yarn workspace @argonprotocol/apps-e2e run flows
 
-# Claim a late deposit after completing a lock and unlock
-E2E_FLOWS=App.flow.runManual \
-E2E_OPERATION_CONTEXT=bitcoin \
-E2E_OPERATIONS=Bitcoin.op.startBitcoinLock,Bitcoin.op.readLockFundingDetails,Bitcoin.op.fundLockExact,Bitcoin.op.waitUnlockReady,Bitcoin.op.unlockBitcoin,Bitcoin.op.claimOrphan \
-yarn workspace @argonprotocol/apps-e2e run flows
 ```
 
 Run operations interactively (step -> inspect result -> next step in same live session):

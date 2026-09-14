@@ -3,15 +3,21 @@ import { NetworkConfig } from '@argonprotocol/apps-core';
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import { fn, userEvent, within } from 'storybook/test';
 import {
+  createBitcoinRelease,
   createBitcoinUtxo,
   setupBitcoinOverlayScenario,
   type BitcoinOverlayScenario,
 } from '../../scenarios/setupBitcoinOverlayScenario.ts';
 import {
-  BitcoinUtxoRole,
+  BitcoinUtxoSpendStatus,
   BitcoinUtxoStatus,
   type IBitcoinUtxoRecord,
 } from '../../../src-vue/interfaces/IBitcoinUtxoRecord.ts';
+import {
+  BitcoinReleaseKind,
+  BitcoinReleaseStatus,
+  type IBitcoinReleaseRecord,
+} from '../../../src-vue/interfaces/IBitcoinReleaseRecord.ts';
 import { ExtrinsicType, TransactionStatus } from '../../../src-vue/interfaces/ITransactionRecord.ts';
 import BitcoinOrphanRecoveryOverlay from '../../../src-vue/overlays/BitcoinOrphanRecoveryOverlay.vue';
 
@@ -169,7 +175,7 @@ export const ArgonRequest: Story = {
   beforeEach: () => {
     isInteractive.value = false;
     scenario = setupBitcoinOverlayScenario();
-    orphanRecord = createReleaseRecord(408, BitcoinUtxoStatus.ReleaseIsProcessingOnArgon);
+    orphanRecord = createReleaseRecord(408, BitcoinReleaseStatus.SubmittingRequestOnArgon);
     scenario.orphanTransactions.set(
       orphanRecord.id,
       scenario.createTransactionInfo({
@@ -177,8 +183,9 @@ export const ArgonRequest: Story = {
         extrinsicType: ExtrinsicType.BitcoinOrphanedUtxoRelease,
         progress: { progressPct: 38, confirmations: 1, expectedConfirmations: 4 },
         metadata: {
+          releaseId: orphanRecord.activeReleaseId!,
           releaseKind: 'Orphan',
-          utxoId: scenario.lock.utxoId!,
+          lockId: scenario.lock.lockId!,
           utxoRecordId: orphanRecord.id,
           utxoRef: { txid: orphanRecord.txid, vout: orphanRecord.vout },
         },
@@ -192,7 +199,7 @@ export const AwaitingVaultSignature: Story = {
   beforeEach: () => {
     isInteractive.value = false;
     scenario = setupBitcoinOverlayScenario();
-    orphanRecord = createReleaseRecord(409, BitcoinUtxoStatus.ReleaseIsProcessingOnArgon);
+    orphanRecord = createReleaseRecord(409, BitcoinReleaseStatus.WaitingForVaultCosign);
   },
 };
 
@@ -200,9 +207,9 @@ export const PreparingBitcoinReturn: Story = {
   beforeEach: () => {
     isInteractive.value = false;
     scenario = setupBitcoinOverlayScenario();
-    orphanRecord = createReleaseRecord(410, BitcoinUtxoStatus.ReleaseIsProcessingOnArgon, {
-      releaseCosignVaultSignature: new Uint8Array([1, 2, 3]),
-      releaseCosignHeight: 250_021,
+    orphanRecord = createReleaseRecord(410, BitcoinReleaseStatus.ReadyForBitcoinBroadcast, {
+      vaultSignatures: [new Uint8Array([1, 2, 3])],
+      cosignBlockNumber: 250_021,
     });
   },
 };
@@ -211,12 +218,13 @@ export const BitcoinConfirmations: Story = {
   beforeEach: () => {
     isInteractive.value = false;
     scenario = setupBitcoinOverlayScenario();
-    orphanRecord = createReleaseRecord(411, BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin, {
-      releaseCosignVaultSignature: new Uint8Array([1, 2, 3]),
-      releaseCosignHeight: 250_021,
-      releaseTxid: 'synthetic-orphan-return',
+    orphanRecord = createReleaseRecord(411, BitcoinReleaseStatus.ConfirmingOnBitcoin, {
+      vaultSignatures: [new Uint8Array([1, 2, 3])],
+      cosignBlockNumber: 250_021,
+      bitcoinTxid: 'synthetic-orphan-return',
+      bitcoinFirstSeenAt: new Date('2026-08-16T14:30:00.000Z'),
     });
-    scenario.releaseLifecycle.progressPct = 67;
+    scenario.releaseProcessing.progressPct = 67;
   },
 };
 
@@ -224,11 +232,11 @@ export const Returned: Story = {
   beforeEach: () => {
     isInteractive.value = false;
     scenario = setupBitcoinOverlayScenario();
-    orphanRecord = createReleaseRecord(412, BitcoinUtxoStatus.ReleaseComplete, {
-      releaseCosignVaultSignature: new Uint8Array([1, 2, 3]),
-      releaseCosignHeight: 250_021,
-      releaseTxid: 'synthetic-complete-orphan-return',
-      releasedAtBitcoinHeight: 250_028,
+    orphanRecord = createReleaseRecord(412, BitcoinReleaseStatus.Complete, {
+      vaultSignatures: [new Uint8Array([1, 2, 3])],
+      cosignBlockNumber: 250_021,
+      bitcoinTxid: 'synthetic-complete-orphan-return',
+      bitcoinConfirmedHeight: 250_028,
     });
   },
 };
@@ -237,7 +245,7 @@ export const StatusError: Story = {
   beforeEach: () => {
     isInteractive.value = false;
     scenario = setupBitcoinOverlayScenario();
-    orphanRecord = createReleaseRecord(413, BitcoinUtxoStatus.ReleaseIsProcessingOnArgon, {
+    orphanRecord = createReleaseRecord(413, BitcoinReleaseStatus.WaitingForVaultCosign, {
       statusError: 'The vault signature expired before the return was broadcast.',
     });
   },
@@ -246,8 +254,7 @@ export const StatusError: Story = {
 function createOrphanRecord(id: number, overrides: Partial<IBitcoinUtxoRecord> = {}): IBitcoinUtxoRecord {
   return createBitcoinUtxo({
     id,
-    lockUtxoId: scenario.lock.utxoId!,
-    role: BitcoinUtxoRole.Orphan,
+    lockId: scenario.lock.lockId!,
     status: BitcoinUtxoStatus.Orphaned,
     satoshis: scenario.lock.securitizedSatoshis - 1_250_000n,
     ...overrides,
@@ -256,19 +263,26 @@ function createOrphanRecord(id: number, overrides: Partial<IBitcoinUtxoRecord> =
 
 function createReleaseRecord(
   id: number,
-  status: BitcoinUtxoStatus,
-  overrides: Partial<IBitcoinUtxoRecord> = {},
+  status: BitcoinReleaseStatus,
+  overrides: Partial<IBitcoinReleaseRecord> = {},
 ): IBitcoinUtxoRecord {
-  return createBitcoinUtxo({
-    id,
-    lockUtxoId: scenario.lock.utxoId!,
-    role: BitcoinUtxoRole.Orphan,
+  const record = createOrphanRecord(id);
+  const release = createBitcoinRelease({
+    id: `synthetic-orphan-release-${id}`,
+    kind: BitcoinReleaseKind.Orphan,
+    lockId: record.lockId,
     status,
-    releaseToDestinationAddress: `0014${'66'.repeat(20)}`,
-    releaseBitcoinNetworkFee: 18_000n,
+    inputUtxoIds: [record.id],
+    toScriptPubkey: `0014${'66'.repeat(20)}`,
     requestedReleaseAtTick: Math.floor(Date.UTC(2026, 7, 16, 14, 25) / NetworkConfig.tickMillis),
     ...overrides,
   });
+  scenario.setRelease(release, record);
+  if (status === BitcoinReleaseStatus.Complete) {
+    record.spendStatus = BitcoinUtxoSpendStatus.Spent;
+    record.spentByReleaseId = release.id;
+  }
+  return record;
 }
 
 function returnAddress(): string {

@@ -6,7 +6,7 @@ export interface IBitcoinUnlockReleaseState {
   lockStatus?: string;
   isPendingFunding: boolean;
   isLockReadyForUnlock: boolean;
-  hasFundingRecord: boolean;
+  hasFundingUtxos: boolean;
   fundingStatus?: string;
   isReleaseStatus: boolean;
   isArgonSubmitting: boolean;
@@ -21,6 +21,6 @@ export interface IBitcoinUnlockReleaseState {
 export interface IBitcoinVaultUnlockStateDetails {
   activeLocks: Array<{
     lock: IBitcoinLockRecord;
-    fundingRecord?: IBitcoinUtxoRecord;
+    fundingUtxos: IBitcoinUtxoRecord[];
   }>;
 }

@@ -38,7 +38,7 @@ export type IActiveMiningNode = {
 
 export type IActiveVaultNode = {
   valueLabel: 'satoshis';
-  value: number;
+  value: bigint;
   vault: Vault;
 };
 
@@ -74,7 +74,7 @@ export const useNetworkStats = defineStore('networkStats', () => {
       vault =>
         ({
           valueLabel: 'satoshis',
-          value: Number(vault.lockedSatoshis),
+          value: vault.securitizedSatoshis,
           vault,
         }) satisfies IActiveVaultNode,
     ),

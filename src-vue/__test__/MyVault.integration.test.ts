@@ -247,12 +247,12 @@ describe.skipIf(skipE2E).sequential('My Vault tests', {}, () => {
         new BitcoinLocks(Promise.resolve(newDb), walletKeys, blockWatch, myVault.vaults.currency, transactionTracker2),
       );
       await bitcoinLocksRecovery.load();
-      expect(Object.keys(bitcoinLocksRecovery.data.locksByUtxoId)).toHaveLength(1);
+      expect(Object.keys(bitcoinLocksRecovery.data.locksByLockId)).toHaveLength(1);
 
       const bitcoins = await bitcoinLocksRecovery.recovery.recoverActiveLocks();
       expect(bitcoins).toHaveLength(1);
       const bitcoin = bitcoins[0];
-      expect(bitcoinLocksRecovery.getLockByUtxoId(bitcoin.utxoId)?.scriptDetails).toEqual(bitcoinStored.scriptDetails);
+      expect(bitcoinLocksRecovery.getLockById(bitcoin.lockId)?.scriptDetails).toEqual(bitcoinStored.scriptDetails);
 
       const client = await clients.get(false);
       const treasuryBondLots = await TreasuryBonds.getBondLots(

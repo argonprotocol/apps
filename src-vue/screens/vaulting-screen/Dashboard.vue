@@ -445,10 +445,10 @@ function handleBitcoinTileClick(key: string) {
     return;
   }
 
-  // External lock (key is "chain:<utxoId>")
+  // External lock (key is "chain:<lockId>")
   if (key.startsWith('chain:')) {
-    const utxoId = Number(key.slice(6));
-    const extLock = myVault.data.externalLocks[utxoId];
+    const lockId = Number(key.slice(6));
+    const extLock = myVault.data.externalLocks[lockId];
     if (extLock) {
       openLockDetailOverlay(extLock);
     }
@@ -499,7 +499,7 @@ const bitcoinMapItems = Vue.computed((): MapItem[] => {
     const microgons = extLock.securitizationCoverageMicrogons;
     const status: TileStatus = extLock.isPending ? 'pending' : 'active';
     items.push({
-      id: `chain:${extLock.utxoId}`,
+      id: `chain:${extLock.lockId}`,
       label: formatLockLabel(extLock),
       amount: microgons,
       displayValue: formatMoney(microgons),

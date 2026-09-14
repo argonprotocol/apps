@@ -38,7 +38,7 @@ describe('financial history spec boundaries', () => {
       ownerAccount: accountId,
       securitizationRatio: 1,
       securitizedSatoshis: 488_274n,
-      fundingExpirationHeight: 923_496,
+      securitizationHoldExpirationBitcoinHeight: 923_496,
       vaultClaimHeight: 975_911,
       openClaimHeight: 980_231,
       createdAtHeight: 923_351,
@@ -51,13 +51,16 @@ describe('financial history spec boundaries', () => {
   });
 
   it('normalizes the native spec 159 Lock shape without inventing pre-Fission liquidity', async () => {
-    const locksByUtxoId = vi.fn(async () => ({
+    const locksById = vi.fn(async () => ({
       vaultId: 3,
-      securitizedSatoshis: 488_274n,
-      microgonsAtTargetPerBtc: 516_350_021n,
+      securitizationBasis: {
+        satoshis: 488_274n,
+        microgonsAtTargetPerBtc: 516_350_021n,
+      },
       securitizationCoverageMicrogons: 499_433_743n,
       securitizationTick: 923_350n,
       fundedSatoshis: 488_275n,
+      fundingUtxos: [[{ txid: '00'.repeat(32), outputIndex: 0 }, 488_275n]],
       fissionedSatoshis: 200_000n,
       ownerAccount: accountId,
       securitizationRatio: new BigNumber(1),
@@ -70,7 +73,7 @@ describe('financial history spec boundaries', () => {
       vaultClaimHeight: 975_911,
       openClaimHeight: 980_231,
       createdAtHeight: 923_351,
-      fundingExpirationHeight: 923_363n,
+      securitizationHoldExpirationBitcoinHeight: 923_363,
       utxoScriptPubkey: { type: 'P2WSH', value: { wscriptHash: `0x${'44'.repeat(32)}` } },
       isFlexible: true,
       fundHoldExtensions: {},
@@ -78,7 +81,7 @@ describe('financial history spec boundaries', () => {
     }));
     const rawClient = {
       consts: { bitcoinLocks: { maxPendingConfirmationBlocks: numberCodec(12) } },
-      query: { bitcoinLocks: { locksByUtxoId } },
+      query: { bitcoinLocks: { locksById } },
     };
 
     const lock = await getHistoricalBitcoinLock(runtimeClient(rawClient) as never, 10);

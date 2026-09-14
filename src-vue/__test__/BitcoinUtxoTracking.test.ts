@@ -3,33 +3,33 @@ import * as Vue from 'vue';
 import { BitcoinNetwork } from '@argonprotocol/bitcoin';
 import { createTestDb } from './helpers/db.ts';
 import BitcoinUtxoTracking, { type IUtxoTrackingDeps } from '../lib/BitcoinUtxoTracking.ts';
-import { BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
-import { BitcoinUtxoRole, BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
-import type { ArgonClient, MiningFrames } from '@argonprotocol/apps-core';
-import { createBitcoinLockConfig } from './helpers/bitcoin.ts';
+import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
+import type { IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
+import { BitcoinUtxoStatus } from '../lib/db/BitcoinUtxosTable.ts';
+import type { ArgonClient } from '@argonprotocol/apps-core';
+import { createBitcoinLockConfig, createCurrentLock } from './helpers/bitcoin.ts';
 
 type IMempoolTestDeps = Pick<IUtxoTrackingDeps['mempool'], 'getAddressUtxos' | 'getTipHeight' | 'getTxStatus'>;
 
 function createLock(overrides: Partial<IBitcoinLockRecord> = {}): IBitcoinLockRecord {
   return {
     uuid: overrides.uuid ?? 'lock-1',
-    utxoId: overrides.utxoId ?? 1,
+    lockId: overrides.lockId ?? 1,
     status: overrides.status ?? BitcoinLockStatus.LockPendingFunding,
     securitizedSatoshis: overrides.securitizedSatoshis ?? 10_000n,
     ownerAccount: overrides.ownerAccount ?? '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
     securityFees: overrides.securityFees ?? 0n,
     couponFeesPaid: overrides.couponFeesPaid ?? 0n,
     fundHoldExtensionsByBitcoinExpirationHeight: overrides.fundHoldExtensionsByBitcoinExpirationHeight ?? {},
-    utxos: overrides.utxos ?? [],
-    fundedSatoshis: overrides.fundedSatoshis ?? 0n,
     cosignVersion: overrides.cosignVersion ?? 'v1',
     scriptDetails: overrides.scriptDetails ?? createLockDetails(),
-    fundingUtxo: overrides.fundingUtxo,
     network: overrides.network ?? 'testnet',
     hdPath: overrides.hdPath ?? "m/84'/0'/0'",
     vaultId: overrides.vaultId ?? 1,
     createdAt: overrides.createdAt ?? new Date(),
     updatedAt: overrides.updatedAt ?? new Date(),
+    fundedSatoshis: overrides.fundedSatoshis ?? 0n,
+    fundingUtxoIds: overrides.fundingUtxoIds ?? [],
   };
 }
 
@@ -92,14 +92,14 @@ describe('BitcoinUtxoTracking', () => {
       },
     );
 
-    const reloaded = tracking.getUtxoRecord(lock.utxoId!, record.txid, record.vout)!;
+    const reloaded = tracking.getUtxoRecord(lock.lockId!, record.txid, record.vout)!;
     expect(reloaded.status).toBe(BitcoinUtxoStatus.SeenOnMempool);
     expect(reloaded.firstSeenBitcoinHeight).toBe(120);
     expect(reloaded.mempoolObservation?.satoshis).toBe(11_000n);
     expect(tracking.hasObservedFundingSignal(lock)).toBe(true);
   });
 
-  it('uses the earliest observed deposit while funding remains pending', async () => {
+  it('tracks every observed deposit while funding remains pending', async () => {
     const db = await createTestDb();
     const tracking = createTracking(db);
     const lock = createLock({ securitizedSatoshis: 10_000n });
@@ -108,9 +108,84 @@ describe('BitcoinUtxoTracking', () => {
     await tracking.upsertUtxoRecord(lock, { txid: 'b'.repeat(64), vout: 1, satoshis: 10_200n }, {});
     await tracking.upsertUtxoRecord(lock, { txid: 'c'.repeat(64), vout: 2, satoshis: 14_000n }, {});
 
-    const observed = tracking.getObservedFundingRecord(lock);
-    expect(observed?.txid).toBe('a'.repeat(64));
-    expect(tracking.getReceivedFundingSatoshis(lock)).toBe(8_000n);
+    const observed = tracking.getObservedFundingUtxos(lock);
+    expect(observed.map(record => record.txid)).toEqual(['a'.repeat(64), 'b'.repeat(64), 'c'.repeat(64)]);
+    expect(tracking.getReceivedFundingSatoshis(lock)).toBe(32_200n);
+  });
+
+  it('tracks a later observed deposit independently of an already funded lock', async () => {
+    const db = await createTestDb();
+    const tracking = createTracking(db);
+    const lock = createLock({ status: BitcoinLockStatus.LockFunded, fundedSatoshis: 10_000n });
+    const fundingUtxo = await tracking.upsertUtxoRecord(lock, { txid: 'a'.repeat(64), vout: 0, satoshis: 10_000n }, {});
+    await db.bitcoinUtxosTable.setFundingUtxo(fundingUtxo);
+    lock.fundingUtxoIds = [fundingUtxo.id];
+
+    await tracking.upsertUtxoRecord(
+      lock,
+      { txid: 'b'.repeat(64), vout: 1, satoshis: 5_000n },
+      {
+        mempoolObservation: {
+          isConfirmed: false,
+          confirmations: 0,
+          satoshis: 5_000n,
+          txid: 'b'.repeat(64),
+          vout: 1,
+          transactionBlockHeight: 0,
+          transactionBlockTime: 1710000000,
+          argonBitcoinHeight: 110,
+        },
+      },
+    );
+
+    expect(tracking.getLockProcessingDetails(lock)).toMatchObject({
+      progressPct: 0,
+      confirmations: -1,
+      receivedSatoshis: 15_000n,
+    });
+  });
+
+  it('reports confirmation progress for each observed deposit independently', async () => {
+    const db = await createTestDb();
+    let oracleBitcoinBlockHeight = 111;
+    const tracking = createTracking(db, { getOracleBitcoinBlockHeight: () => oracleBitcoinBlockHeight });
+    const lock = createLock({ status: BitcoinLockStatus.LockFunded, fundedSatoshis: 10_000n });
+    const confirmed = await tracking.upsertUtxoRecord(
+      lock,
+      { txid: 'b'.repeat(64), vout: 0, satoshis: 5_000n },
+      {
+        mempoolObservation: {
+          isConfirmed: true,
+          confirmations: 1,
+          satoshis: 5_000n,
+          txid: 'b'.repeat(64),
+          vout: 0,
+          transactionBlockHeight: 120,
+          transactionBlockTime: 1710000000,
+          argonBitcoinHeight: 111,
+        },
+      },
+    );
+    oracleBitcoinBlockHeight = 118;
+    const unconfirmed = await tracking.upsertUtxoRecord(
+      lock,
+      { txid: 'c'.repeat(64), vout: 1, satoshis: 6_000n },
+      {
+        mempoolObservation: {
+          isConfirmed: false,
+          confirmations: 0,
+          satoshis: 6_000n,
+          txid: 'c'.repeat(64),
+          vout: 1,
+          transactionBlockHeight: 0,
+          transactionBlockTime: 1710000000,
+          argonBitcoinHeight: 118,
+        },
+      },
+    );
+
+    expect(tracking.getFundingUtxoProcessingDetails(confirmed).confirmations).toBe(7);
+    expect(tracking.getFundingUtxoProcessingDetails(unconfirmed).confirmations).toBe(-1);
   });
 
   it('captures the oracle height when funding first becomes confirmed', async () => {
@@ -165,44 +240,6 @@ describe('BitcoinUtxoTracking', () => {
     expect(details.expectedConfirmations).toBe(9);
   });
 
-  it('tracks the release lifecycle and restores a missing funding-record pointer', async () => {
-    const db = await createTestDb();
-    const tracking = createTracking(db);
-    const lock = createLock({ status: BitcoinLockStatus.LockFunded });
-
-    const fundingRecord = await tracking.upsertUtxoRecord(
-      lock,
-      { txid: 'f'.repeat(64), vout: 0, satoshis: lock.securitizedSatoshis },
-      { markFundingUtxo: true },
-    );
-
-    expect(fundingRecord.status).toBe(BitcoinUtxoStatus.FundingUtxo);
-    expect(fundingRecord.role).toBe(BitcoinUtxoRole.Funding);
-    expect(fundingRecord.firstSeenOnArgonAt).toBeInstanceOf(Date);
-    expect(tracking.getAcceptedFundingRecordForLock(lock)?.id).toBe(fundingRecord.id);
-
-    await tracking.setReleaseRequest(fundingRecord, {
-      requestedReleaseAtTick: 55,
-      releaseToDestinationAddress: '0014abcd',
-      releaseBitcoinNetworkFee: 400n,
-    });
-    expect(fundingRecord.status).toBe(BitcoinUtxoStatus.ReleaseIsProcessingOnArgon);
-
-    await tracking.setReleaseSeenOnBitcoinAndProcessing(fundingRecord, 'r'.repeat(64), 210);
-    expect(fundingRecord.status).toBe(BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin);
-    expect(tracking.isFundingRecordReleaseProcessingOnBitcoin(fundingRecord)).toBe(true);
-
-    await tracking.setReleaseComplete(fundingRecord, 220);
-    expect(tracking.isReleaseCompleteStatus(fundingRecord.status)).toBe(true);
-    expect(fundingRecord.role).toBe(BitcoinUtxoRole.Funding);
-
-    lock.status = BitcoinLockStatus.Released;
-    lock.fundingUtxo = undefined;
-
-    expect(tracking.getAcceptedFundingRecordForLock(lock)).toBe(fundingRecord);
-    expect(lock.fundingUtxo).toBe(fundingRecord);
-  });
-
   it('hydrates a runtime-classified orphan into the local table', async () => {
     const db = await createTestDb();
     const tracking = createTracking(db);
@@ -212,7 +249,7 @@ describe('BitcoinUtxoTracking', () => {
       [
         { args: [{}, { txid: chainTxid, outputIndex: 2 }] },
         {
-          utxoId: lock.utxoId,
+          lockId: lock.lockId,
           satoshis: 10_200n,
           cosignRequest: null,
         },
@@ -271,7 +308,7 @@ describe('BitcoinUtxoTracking', () => {
     const hasSignals = await tracking.syncPendingFundingSignals(lock, preferredClient);
 
     expect(hasSignals).toBe(true);
-    const observed = tracking.getObservedFundingRecord(lock);
+    const [observed] = tracking.getObservedFundingUtxos(lock);
     expect(observed?.txid).toBe('d'.repeat(64));
     expect(observed?.status).toBe(BitcoinUtxoStatus.SeenOnMempool);
     expect(observed?.mempoolObservation?.isConfirmed).toBe(true);
@@ -295,7 +332,7 @@ describe('BitcoinUtxoTracking', () => {
               [
                 { args: [{}, { txid: chainTxid, outputIndex: 1 }] },
                 {
-                  utxoId: lock.utxoId,
+                  lockId: lock.lockId,
                   satoshis: 10_100n,
                   cosignRequest: null,
                 },
@@ -313,7 +350,7 @@ describe('BitcoinUtxoTracking', () => {
       expect.objectContaining({ txid: chainTxid, status: BitcoinUtxoStatus.Orphaned }),
     ]);
     expect(warning).toHaveBeenCalledWith(
-      '[BitcoinUtxoTracking] Failed to observe mempool funding for lock lock-1 (utxoId 1)',
+      '[BitcoinUtxoTracking] Failed to observe mempool funding for lock lock-1 (lockId 1)',
       expect.objectContaining({ message: 'esplora unavailable' }),
     );
     warning.mockRestore();
@@ -343,31 +380,9 @@ describe('BitcoinUtxoTracking', () => {
       },
     );
 
-    const reloaded = tracking.getUtxoRecord(lock.utxoId!, deposit.txid, deposit.vout)!;
+    const reloaded = tracking.getUtxoRecord(lock.lockId!, deposit.txid, deposit.vout)!;
     expect(reloaded.status).toBe(BitcoinUtxoStatus.SeenOnMempool);
     expect(reloaded.mempoolObservation?.txid).toBe(deposit.txid);
-  });
-
-  it('getRequestReleaseByVaultProgress starts at 0 when release metadata is not ready', async () => {
-    const db = await createTestDb();
-    const tracking = createTracking(db);
-    const lock = createLock({ status: BitcoinLockStatus.Releasing });
-    const miningFrames = {
-      currentTick: 1_000,
-      getForTick: (tick: number) => Math.floor(tick / 10),
-      estimateTickStart: (frame: number) => frame * 10,
-    } satisfies Pick<MiningFrames, 'currentTick' | 'getForTick' | 'estimateTickStart'>;
-
-    expect(tracking.getRequestReleaseByVaultProgress(lock, miningFrames as MiningFrames, 4)).toBe(0);
-
-    const fundingRecord = await tracking.upsertUtxoRecord(
-      lock,
-      { txid: 'e'.repeat(64), vout: 5, satoshis: lock.securitizedSatoshis },
-      { markFundingUtxo: true },
-    );
-    lock.fundingUtxo = fundingRecord;
-
-    expect(tracking.getRequestReleaseByVaultProgress(lock, miningFrames as MiningFrames, 4)).toBe(0);
   });
 
   it('keeps a failed orphan return actionable while lock is pending funding', async () => {
@@ -380,7 +395,7 @@ describe('BitcoinUtxoTracking', () => {
       { txid: '9'.repeat(64), vout: 0, satoshis: 9_900n },
       { markOrphaned: true },
     );
-    await tracking.setReleaseError(orphan, 'temporary failure');
+    await tracking.setStatusError(orphan, 'temporary failure');
 
     const unresolved = tracking.getUnresolvedOrphanRecords([lock]);
     expect(unresolved).toHaveLength(1);
@@ -389,128 +404,17 @@ describe('BitcoinUtxoTracking', () => {
     expect(unresolved[0].statusError).toBe('temporary failure');
   });
 
-  it('ignores a stale funding pointer that belongs to a different lock', async () => {
-    const db = await createTestDb();
-    const tracking = createTracking(db);
-    const firstLock = createLock({ utxoId: 1, uuid: 'lock-1' });
-    const secondLock = createLock({ utxoId: 2, uuid: 'lock-2' });
-
-    const firstFundingRecord = await tracking.upsertUtxoRecord(
-      firstLock,
-      { txid: '1'.repeat(64), vout: 0, satoshis: firstLock.securitizedSatoshis },
-      { markFundingUtxo: true },
-    );
-    const secondFundingRecord = await tracking.upsertUtxoRecord(
-      secondLock,
-      { txid: '2'.repeat(64), vout: 1, satoshis: secondLock.securitizedSatoshis },
-      { markFundingUtxo: true },
-    );
-
-    firstLock.fundingUtxo = secondFundingRecord;
-
-    const resolved = tracking.getAcceptedFundingRecordForLock(firstLock);
-
-    expect(resolved?.id).toBe(firstFundingRecord.id);
-    expect(resolved?.lockUtxoId).toBe(firstLock.utxoId);
-    expect(firstLock.fundingUtxo?.id).toBe(firstFundingRecord.id);
-  });
-
-  it('recovers the accepted funding record when the pointer is missing', async () => {
-    const db = await createTestDb();
-    const tracking = createTracking(db);
-    const lock = createLock({ utxoId: 3, uuid: 'lock-3' });
-
-    const fundingRecord = await tracking.upsertUtxoRecord(
-      lock,
-      { txid: '3'.repeat(64), vout: 0, satoshis: lock.securitizedSatoshis },
-      { markFundingUtxo: true },
-    );
-
-    lock.fundingUtxo = undefined;
-
-    const resolved = tracking.getAcceptedFundingRecordForLock(lock);
-
-    expect(resolved?.id).toBe(fundingRecord.id);
-    expect(lock.fundingUtxo).toBe(fundingRecord);
-  });
-
-  it('clears stale accepted funding pointers when no funding record exists', async () => {
-    const db = await createTestDb();
-    const tracking = createTracking(db);
-    const lock = createLock({
-      utxoId: 4,
-      uuid: 'lock-4',
-      fundingUtxo: { id: 999, lockUtxoId: 9 } as never,
-    });
-
-    const resolved = tracking.getAcceptedFundingRecordForLock(lock);
-
-    expect(resolved).toBeUndefined();
-    expect(lock.fundingUtxo).toBeUndefined();
-  });
-
-  it('does not reuse an old release record as active funding progress', async () => {
-    const db = await createTestDb();
-    const tracking = createTracking(db);
-    const lock = createLock({ status: BitcoinLockStatus.LockPendingFunding, securitizedSatoshis: 10_000n });
-
-    const oldReleaseRecord = await tracking.upsertUtxoRecord(
-      lock,
-      { txid: '5'.repeat(64), vout: 0, satoshis: 9_900n },
-      {
-        mempoolObservation: {
-          isConfirmed: true,
-          confirmations: 6,
-          satoshis: 9_900n,
-          txid: '5'.repeat(64),
-          vout: 0,
-          transactionBlockHeight: 105,
-          transactionBlockTime: 1710000000,
-          argonBitcoinHeight: 104,
-        },
-      },
-    );
-    await tracking.setReleaseComplete(oldReleaseRecord, 105);
-
-    const details = tracking.getLockProcessingDetails(lock);
-
-    expect(details.progressPct).toBe(0);
-    expect(details.confirmations).toBe(-1);
-    expect(details.receivedSatoshis).toBeUndefined();
-    expect(tracking.hasObservedFundingSignal(lock)).toBe(false);
-  });
-
-  it('observeMempoolFunding ignores old Argon-seen release records', async () => {
-    const db = await createTestDb();
-    const getAddressUtxos = vi.fn().mockResolvedValue([
-      {
-        txid: '6'.repeat(64),
-        vout: 1,
-        value: 10_100,
-        status: {
-          confirmed: false,
-          block_height: undefined,
-          block_time: undefined,
-        },
-      },
-    ]);
-    const tracking = createTracking(db, { mempool: { getAddressUtxos } });
-    const lock = createLock({ status: BitcoinLockStatus.LockPendingFunding, securitizedSatoshis: 10_000n });
-
-    const oldRecord = await tracking.upsertUtxoRecord(lock, { txid: '7'.repeat(64), vout: 0, satoshis: 10_000n }, {});
-    await tracking.setReleaseComplete(oldRecord, 105);
-
-    const observation = await tracking.observeMempoolFunding(lock);
-
-    expect(observation?.txid).toBe('6'.repeat(64));
-    expect(observation?.vout).toBe(1);
-  });
-
   it('does not infer that another observed deposit is an orphan when funding is accepted', async () => {
     const db = await createTestDb();
     const tracking = createTracking(db);
     tracking.data = Vue.reactive(tracking.data) as typeof tracking.data;
-    const lock = createLock({ status: BitcoinLockStatus.LockPendingFunding, securitizedSatoshis: 10_000n });
+    const currentLock = createCurrentLock({
+      lockId: 1,
+      fundedSatoshis: 10_000n,
+      fundingUtxos: [{ utxoRef: { txid: '8'.repeat(64), vout: 0 }, satoshis: 10_000n }],
+    });
+    const pending = await db.bitcoinLocksTable.insertPending(createLock({ lockId: undefined }));
+    const lock = await db.bitcoinLocksTable.finalizePending({ uuid: pending.uuid, lock: currentLock });
 
     const acceptedRecord = await tracking.upsertUtxoRecord(
       lock,
@@ -525,7 +429,7 @@ describe('BitcoinUtxoTracking', () => {
     const unresolvedOrphans = Vue.computed(() => tracking.getUnresolvedOrphanRecords([lock]));
     expect(unresolvedOrphans.value).toEqual([]);
 
-    await tracking.setAcceptedFundingRecordForLock(lock, acceptedRecord);
+    await tracking.syncFundingUtxos(lock, currentLock);
 
     expect(acceptedRecord.status).toBe(BitcoinUtxoStatus.FundingUtxo);
     expect(otherObservedDeposit.status).toBe(BitcoinUtxoStatus.SeenOnMempool);
@@ -535,15 +439,88 @@ describe('BitcoinUtxoTracking', () => {
     expect(history.at(-1)?.newStatus).toBe(BitcoinUtxoStatus.SeenOnMempool);
   });
 
+  it('materializes every runtime-accepted funding outpoint without promoting other observations', async () => {
+    const db = await createTestDb();
+    const tracking = createTracking(db);
+    const currentLock = createCurrentLock({
+      lockId: 1,
+      fundedSatoshis: 10_000n,
+      fundingUtxos: [
+        { utxoRef: { txid: '8'.repeat(64), vout: 0 }, satoshis: 4_000n },
+        { utxoRef: { txid: '9'.repeat(64), vout: 2 }, satoshis: 6_000n },
+      ],
+    });
+    const pending = await db.bitcoinLocksTable.insertPending(createLock({ lockId: undefined }));
+    const lock = await db.bitcoinLocksTable.finalizePending({ uuid: pending.uuid, lock: currentLock });
+    lock.fissionedSatoshis = lock.securitizedSatoshis;
+    await tracking.syncFundingUtxos(lock, currentLock);
+    const observed = await tracking.upsertUtxoRecord(lock, { txid: '7'.repeat(64), vout: 3, satoshis: 2_000n }, {});
+
+    const fundingUtxos = tracking.getFundingUtxos(lock);
+    expect(lock.fundingUtxoIds).toEqual(fundingUtxos.map(utxo => utxo.id));
+    expect(lock.fundedSatoshis).toBe(10_000n);
+    expect(lock.fissionedSatoshis).toBe(0n);
+    expect(fundingUtxos).toEqual([
+      expect.objectContaining({ txid: '8'.repeat(64), vout: 0, satoshis: 4_000n }),
+      expect.objectContaining({ txid: '9'.repeat(64), vout: 2, satoshis: 6_000n }),
+    ]);
+    expect(tracking.getUtxosForLock(lock.lockId!)).toContain(observed);
+    expect(observed.status).toBe(BitcoinUtxoStatus.SeenOnMempool);
+
+    const reloadedLock = await db.bitcoinLocksTable.getByLockId(lock.lockId!);
+    const reloadedTracking = createTracking(db);
+    reloadedTracking.load(await db.bitcoinUtxosTable.fetchAll());
+    expect(reloadedLock?.fundingUtxoIds).toEqual(lock.fundingUtxoIds);
+    expect(reloadedLock && reloadedTracking.getFundingUtxos(reloadedLock).map(utxo => utxo.id)).toEqual(
+      lock.fundingUtxoIds,
+    );
+  });
+
+  it('does not overwrite a release transition that completes while funding synchronization publishes', async () => {
+    const db = await createTestDb();
+    const tracking = createTracking(db);
+    const currentLock = createCurrentLock({
+      lockId: 1,
+      fundedSatoshis: 10_000n,
+      fundingUtxos: [{ utxoRef: { txid: '8'.repeat(64), vout: 0 }, satoshis: 10_000n }],
+    });
+    const pending = await db.bitcoinLocksTable.insertPending(createLock({ lockId: undefined }));
+    const lock = await db.bitcoinLocksTable.finalizePending({ uuid: pending.uuid, lock: currentLock });
+    await db.bitcoinLocksTable.setStatus(lock, BitcoinLockStatus.LockFunded);
+
+    let finishFundingSync!: () => void;
+    let fundingSyncPersisted!: () => void;
+    const waitForFundingSyncToPersist = new Promise<void>(resolve => (fundingSyncPersisted = resolve));
+    const waitToPublishFundingSync = new Promise<void>(resolve => (finishFundingSync = resolve));
+    const transaction = db.transaction.bind(db);
+    vi.spyOn(db, 'transaction').mockImplementationOnce(async callback => {
+      const result = await transaction(callback);
+      fundingSyncPersisted();
+      await waitToPublishFundingSync;
+      return result;
+    });
+
+    const fundingSync = tracking.syncFundingUtxos(lock, currentLock);
+    await waitForFundingSyncToPersist;
+    await db.bitcoinLocksTable.setActiveRelease(lock, 'release-1');
+    finishFundingSync();
+    await fundingSync;
+
+    expect(lock.status).toBe(BitcoinLockStatus.Releasing);
+    expect(lock.activeReleaseId).toBe('release-1');
+
+    const staleLock = { ...lock, status: BitcoinLockStatus.LockFunded, activeReleaseId: undefined };
+    await tracking.syncFundingUtxos(staleLock, currentLock);
+    await expect(db.bitcoinLocksTable.getByLockId(lock.lockId!)).resolves.toMatchObject({
+      status: BitcoinLockStatus.Releasing,
+      activeReleaseId: 'release-1',
+    });
+  });
+
   it('selects unresolved orphan records independently from their lock state', async () => {
     const db = await createTestDb();
     const tracking = createTracking(db);
     const lock = createLock({ status: BitcoinLockStatus.LockFunded });
-    const fundingRecord = await tracking.upsertUtxoRecord(
-      lock,
-      { txid: 'a'.repeat(64), vout: 0, satoshis: lock.securitizedSatoshis },
-      { markFundingUtxo: true },
-    );
     const additionalOrphan = await tracking.upsertUtxoRecord(
       lock,
       { txid: 'e'.repeat(64), vout: 4, satoshis: lock.securitizedSatoshis + 1_000n },
@@ -565,19 +542,7 @@ describe('BitcoinUtxoTracking', () => {
       { markOrphaned: true },
     );
 
-    await tracking.setReleaseIsProcessingOnArgon(fundingRecord, {
-      releaseToDestinationAddress: '0014aaaa',
-      releaseBitcoinNetworkFee: 100n,
-    });
-    await tracking.setReleaseIsProcessingOnArgon(additionalOrphan, {
-      releaseToDestinationAddress: '0014cccc',
-      releaseBitcoinNetworkFee: 300n,
-    });
-    await tracking.setReleaseIsProcessingOnArgon(returningOrphan, {
-      releaseToDestinationAddress: '0014bbbb',
-      releaseBitcoinNetworkFee: 200n,
-    });
-    await tracking.setReleaseComplete(returnedOrphan, 120);
+    await db.bitcoinUtxosTable.setSpent(returnedOrphan, 'completed-release');
 
     const records = tracking.getUnresolvedOrphanRecords([lock]);
     expect(records).toHaveLength(3);
@@ -587,25 +552,19 @@ describe('BitcoinUtxoTracking', () => {
   it('synchronizes all chain orphans with one query per owner', async () => {
     const db = await createTestDb();
     const tracking = createTracking(db);
-    const firstLock = createLock({ utxoId: 1, uuid: 'lock-1' });
-    const secondLock = createLock({ utxoId: 2, uuid: 'lock-2' });
+    const firstLock = createLock({ lockId: 1, uuid: 'lock-1' });
+    const secondLock = createLock({ lockId: 2, uuid: 'lock-2' });
     const thirdLock = createLock({
-      utxoId: 3,
+      lockId: 3,
       uuid: 'lock-3',
       ownerAccount: 'owner-2',
     });
-    const orphanEntry = (
-      utxoId: number,
-      txid: string,
-      vout: number,
-      satoshis: bigint,
-      releaseRequest?: { bitcoinNetworkFee: bigint; toScriptPubkey: Uint8Array },
-    ) => [
+    const orphanEntry = (lockId: number, txid: string, vout: number, satoshis: bigint) => [
       { args: [{}, { txid, outputIndex: vout }] },
       {
-        utxoId,
+        lockId,
         satoshis,
-        cosignRequest: releaseRequest ?? null,
+        cosignRequest: null,
       },
     ];
     const entries = vi.fn().mockImplementation(async (owner: string) => {
@@ -613,10 +572,7 @@ describe('BitcoinUtxoTracking', () => {
         return [orphanEntry(3, 'c'.repeat(64), 0, 12_000n)];
       }
       return [
-        orphanEntry(1, 'a'.repeat(64), 0, 10_000n, {
-          bitcoinNetworkFee: 250n,
-          toScriptPubkey: new Uint8Array([0, 20, 171]),
-        }),
+        orphanEntry(1, 'a'.repeat(64), 0, 10_000n),
         orphanEntry(1, 'b'.repeat(64), 1, 11_000n),
         orphanEntry(99, 'f'.repeat(64), 0, 99_000n),
       ];
@@ -628,60 +584,13 @@ describe('BitcoinUtxoTracking', () => {
     const records = await tracking.syncArgonOrphans([firstLock, secondLock, thirdLock], client);
 
     expect(entries).toHaveBeenCalledTimes(2);
-    expect(records.map(record => `${record.lockUtxoId}:${record.txid}:${record.vout}`)).toEqual([
+    expect(records.map(record => `${record.lockId}:${record.txid}:${record.vout}`)).toEqual([
       `1:${'a'.repeat(64)}:0`,
       `1:${'b'.repeat(64)}:1`,
       `3:${'c'.repeat(64)}:0`,
     ]);
-    expect(records[0]).toEqual(
-      expect.objectContaining({
-        releaseBitcoinNetworkFee: 250n,
-        releaseToDestinationAddress: '0014ab',
-      }),
-    );
-
     await tracking.syncArgonOrphans([firstLock, secondLock, thirdLock], client);
-    expect(tracking.getUtxosForLock(firstLock)).toHaveLength(2);
-    expect(tracking.getUtxosForLock(thirdLock)).toHaveLength(1);
-  });
-
-  it('restores an orphan return and its release state after restart', async () => {
-    const db = await createTestDb();
-    const lock = createLock();
-    const tracking = createTracking(db);
-    const record = await tracking.upsertUtxoRecord(
-      lock,
-      { txid: 'a'.repeat(64), vout: 2, satoshis: 12_000n },
-      { markOrphaned: true },
-    );
-
-    await tracking.setReleaseIsProcessingOnArgon(record, {
-      requestedReleaseAtTick: 321,
-      releaseToDestinationAddress: '0014abc123',
-      releaseBitcoinNetworkFee: 200n,
-    });
-    await tracking.setReleaseCosign(record, {
-      releaseCosignVaultSignature: new Uint8Array([1, 2, 3]),
-      releaseCosignHeight: 456,
-    });
-    await tracking.setReleaseSeenOnBitcoinAndProcessing(record, 'b'.repeat(64), 789);
-
-    const restartedTracking = createTracking(db);
-    await restartedTracking.load();
-
-    expect(restartedTracking.getUnresolvedOrphanRecords([lock])).toEqual([
-      expect.objectContaining({
-        id: record.id,
-        role: BitcoinUtxoRole.Orphan,
-        status: BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin,
-        requestedReleaseAtTick: 321,
-        releaseToDestinationAddress: '0014abc123',
-        releaseBitcoinNetworkFee: 200n,
-        releaseCosignVaultSignature: new Uint8Array([1, 2, 3]),
-        releaseCosignHeight: 456,
-        releaseTxid: 'b'.repeat(64),
-        releaseFirstSeenBitcoinHeight: 789,
-      }),
-    ]);
+    expect(tracking.getUtxosForLock(firstLock.lockId!)).toHaveLength(2);
+    expect(tracking.getUtxosForLock(thirdLock.lockId!)).toHaveLength(1);
   });
 });

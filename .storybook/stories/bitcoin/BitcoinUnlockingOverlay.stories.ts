@@ -3,11 +3,12 @@ import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import { fn } from 'storybook/test';
 
 import {
+  createBitcoinRelease,
   setupBitcoinOverlayScenario,
   type BitcoinOverlayScenario,
 } from '../../scenarios/setupBitcoinOverlayScenario.ts';
 import { BitcoinLockStatus } from '../../../src-vue/interfaces/IBitcoinLockRecord.ts';
-import { BitcoinUtxoStatus } from '../../../src-vue/interfaces/IBitcoinUtxoRecord.ts';
+import { BitcoinReleaseStatus } from '../../../src-vue/interfaces/IBitcoinReleaseRecord.ts';
 import { ExtrinsicType, TransactionStatus } from '../../../src-vue/interfaces/ITransactionRecord.ts';
 import BitcoinUnlockingOverlay from '../../../src-vue/overlays/BitcoinUnlockingOverlay.vue';
 
@@ -49,11 +50,12 @@ export const ArgonRequest: Story = {
   beforeEach: () => {
     scenario = setupBitcoinOverlayScenario();
     scenario.lock.status = BitcoinLockStatus.Releasing;
+    scenario.setRelease(createBitcoinRelease({ status: BitcoinReleaseStatus.SubmittingRequestOnArgon }));
     Object.assign(scenario.myVault, {
       getBitcoinReleaseRequestTxInfo: fn(() =>
         scenario.createTransactionInfo({
           extrinsicType: ExtrinsicType.BitcoinRequestRelease,
-          metadata: { utxoId: scenario.lock.utxoId! },
+          metadata: { lockId: scenario.lock.lockId! },
         }),
       ),
     });
@@ -65,24 +67,20 @@ export const WaitingForCosigner: Story = {
   beforeEach: () => {
     scenario = setupBitcoinOverlayScenario();
     scenario.lock.status = BitcoinLockStatus.Releasing;
-    Object.assign(scenario.fundingRecord, {
-      status: BitcoinUtxoStatus.ReleaseIsProcessingOnArgon,
-      releaseToDestinationAddress: `0014${'55'.repeat(20)}`,
-      releaseBitcoinNetworkFee: 18_000n,
-    });
+    scenario.setRelease(createBitcoinRelease({ status: BitcoinReleaseStatus.WaitingForVaultCosign }));
     scenario.releaseVaultWaitProgress.value = 42;
     Object.assign(scenario.myVault, {
       getBitcoinReleaseRequestTxInfo: fn(() =>
         scenario.createTransactionInfo({
           extrinsicType: ExtrinsicType.BitcoinRequestRelease,
-          metadata: { utxoId: scenario.lock.utxoId! },
+          metadata: { lockId: scenario.lock.lockId! },
           status: TransactionStatus.Finalized,
         }),
       ),
       getTxInfoByType: fn(() =>
         scenario.createTransactionInfo({
           extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
-          metadata: { utxoId: scenario.lock.utxoId! },
+          metadata: { lockId: scenario.lock.lockId! },
         }),
       ),
     });
@@ -94,14 +92,15 @@ export const BitcoinConfirmations: Story = {
   beforeEach: () => {
     scenario = setupBitcoinOverlayScenario();
     scenario.lock.status = BitcoinLockStatus.Releasing;
-    Object.assign(scenario.fundingRecord, {
-      status: BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin,
-      releaseToDestinationAddress: `0014${'55'.repeat(20)}`,
-      releaseBitcoinNetworkFee: 18_000n,
-      releaseCosignVaultSignature: new Uint8Array([1, 2, 3]),
-      releaseCosignHeight: 250_020,
-      releaseTxid: 'synthetic-release-transaction',
-    });
+    scenario.setRelease(
+      createBitcoinRelease({
+        status: BitcoinReleaseStatus.ConfirmingOnBitcoin,
+        vaultSignatures: [new Uint8Array([1, 2, 3])],
+        cosignBlockNumber: 250_020,
+        bitcoinTxid: 'synthetic-release-transaction',
+        bitcoinFirstSeenAt: new Date('2026-08-16T14:30:00.000Z'),
+      }),
+    );
     scenario.releaseProcessing.progressPct = 50;
     scenario.releaseProcessing.confirmations = 3;
     return () => scenario.cleanup();
@@ -112,12 +111,12 @@ export const Error: Story = {
   beforeEach: () => {
     scenario = setupBitcoinOverlayScenario();
     scenario.lock.status = BitcoinLockStatus.Releasing;
-    Object.assign(scenario.fundingRecord, {
-      status: BitcoinUtxoStatus.ReleaseIsProcessingOnArgon,
-      releaseToDestinationAddress: `0014${'55'.repeat(20)}`,
-      releaseBitcoinNetworkFee: 18_000n,
-      statusError: 'The cosigner signature expired before the transfer could be broadcast.',
-    });
+    scenario.setRelease(
+      createBitcoinRelease({
+        status: BitcoinReleaseStatus.WaitingForVaultCosign,
+        statusError: 'The cosigner signature expired before the transfer could be broadcast.',
+      }),
+    );
     return () => scenario.cleanup();
   },
 };
@@ -126,16 +125,15 @@ export const Complete: Story = {
   beforeEach: () => {
     scenario = setupBitcoinOverlayScenario();
     scenario.lock.status = BitcoinLockStatus.Released;
-    Object.assign(scenario.fundingRecord, {
-      status: BitcoinUtxoStatus.ReleaseComplete,
-      requestedReleaseAtTick: 10_010,
-      releaseToDestinationAddress: `0014${'55'.repeat(20)}`,
-      releaseBitcoinNetworkFee: 18_000n,
-      releaseCosignVaultSignature: new Uint8Array([1, 2, 3]),
-      releaseCosignHeight: 250_020,
-      releaseTxid: 'synthetic-complete-release',
-      releasedAtBitcoinHeight: 250_026,
-    });
+    scenario.setRelease(
+      createBitcoinRelease({
+        status: BitcoinReleaseStatus.Complete,
+        vaultSignatures: [new Uint8Array([1, 2, 3])],
+        cosignBlockNumber: 250_020,
+        bitcoinTxid: 'synthetic-complete-release',
+        bitcoinConfirmedHeight: 250_026,
+      }),
+    );
     return () => scenario.cleanup();
   },
 };

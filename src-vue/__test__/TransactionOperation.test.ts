@@ -142,7 +142,7 @@ it('finds the pending insurance transaction for a restored Bitcoin channel', () 
   expect(operation.getPendingResecuritizationTxInfo(101)).toBe(pendingChannel);
 });
 
-function createResecuritizationTxInfo(id: number, utxoId: number): TransactionInfo<IBitcoinResecuritizationMetadata> {
+function createResecuritizationTxInfo(id: number, lockId: number): TransactionInfo<IBitcoinResecuritizationMetadata> {
   return new TransactionInfo({
     tx: {
       id,
@@ -151,7 +151,7 @@ function createResecuritizationTxInfo(id: number, utxoId: number): TransactionIn
       isFinalized: false,
       metadataJson: {
         bitcoin: {
-          utxoId,
+          lockId,
           vaultId: 7,
           securitizedSatoshis: 12_500_000n,
           microgonsAtTargetPerBtc: 6_800_000_000n,

@@ -13,7 +13,7 @@
         :alignOffset="-150"
         :sideOffset="props.channelUuid ? -8 : -20"
         :collisionPadding="30"
-        :prioritizePosition="isAddingInsurance"
+        :prioritizePosition="isAddingInsurance || releaseState.isReleaseStatus"
         :style="floatingZIndex"
         class="w-108 rounded-lg shadow-2xl"
         @pointerDownOutside="keepOpenForRelatedConnector"
@@ -112,17 +112,7 @@
             </div>
             <div v-else-if="showChannelOverview" class="min-h-48 px-5 py-4">
               <div
-                v-if="pendingUnattachedDeposits.length"
-                class="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800"
-              >
-                <h3 class="font-semibold">Unattached Bitcoin deposit</h3>
-                <div class="mt-1">{{ satToBtcNm(pendingUnattachedSatoshis).format('0,0.[00000000]') }} BTC pending</div>
-                <div class="mt-1 text-xs">Waiting for network confirmation before it can be returned.</div>
-              </div>
-
-              <div
-                v-if="openInboundChannel?.status !== BitcoinLockStatus.LockFunded"
-                :class="pendingUnattachedDeposits.length ? 'mt-4' : ''"
+                v-if="securitizationHoldChannel?.status !== BitcoinLockStatus.LockFunded"
                 class="flex items-center rounded-md bg-slate-50 px-4 py-3"
               >
                 <span class="grow text-sm text-slate-600">No channel is currently open.</span>
@@ -156,17 +146,17 @@
               </div>
 
               <button
-                v-if="openInboundChannel?.status === BitcoinLockStatus.LockFunded"
+                v-if="securitizationHoldChannel?.status === BitcoinLockStatus.LockFunded"
                 type="button"
                 aria-label="View current Bitcoin channel"
                 class="hover:bg-argon-50/40 mt-4 flex w-full cursor-pointer items-center border-t border-slate-300 px-1 pt-3 text-left"
-                @click="showChannel(openInboundChannel)"
+                @click="showChannel(securitizationHoldChannel)"
               >
                 <span class="min-w-0 grow">
                   <span class="block font-semibold text-slate-700">Current channel</span>
                   <span class="mt-0.5 block text-xs text-slate-500">
-                    {{ satToBtcNm(openInboundChannel.fundedSatoshis).format('0,0.[00000000]') }} BTC with
-                    {{ channelCosignerLabel(openInboundChannel) }}
+                    {{ satToBtcNm(securitizationHoldChannel.fundedSatoshis).format('0,0.[00000000]') }} BTC with
+                    {{ channelCosignerLabel(securitizationHoldChannel) }}
                   </span>
                 </span>
                 <ChevronRightIcon class="size-4 shrink-0 text-slate-400" />
@@ -229,7 +219,16 @@
                   <ArrowTopRightOnSquareIcon class="h-4 w-4" />
                 </a>
               </div>
-              <div v-else-if="displayedChannel.status === BitcoinLockStatus.LockFunded" class="py-1">
+              <BitcoinSend
+                v-else-if="releaseState.isReleaseStatus"
+                :personalLock="displayedChannel"
+                :cosignerLabel="channelCosignerLabel(displayedChannel)"
+                @done="emit('update:open', false)"
+              />
+              <div
+                v-else-if="displayedChannel.status === BitcoinLockStatus.LockFunded && !hasPendingInboundUtxos"
+                class="py-1"
+              >
                 <div v-if="isAddingInsuranceTransaction" class="space-y-4">
                   <ProgressBar :progress="addInsuranceProgressPct" :showLabel="false" class="h-4" />
                   <div class="text-sm text-slate-500">{{ addInsuranceProgressLabel }}</div>
@@ -364,26 +363,22 @@
               </div>
               <div v-else class="flex flex-col items-center py-2 text-center">
                 <div class="text-lg font-semibold text-slate-700">
-                  {{ channelHasObservedFunding ? 'Bitcoin funding detected' : 'Your Bitcoin channel is ready' }}
+                  {{ hasPendingInboundUtxos ? 'Bitcoin funding detected' : 'Your Bitcoin channel is ready' }}
                 </div>
                 <div
-                  v-if="!channelHasObservedFunding"
+                  v-if="!hasPendingInboundUtxos"
                   class="bg-argon-100/30 text-argon-900/80 mt-2 flex items-center rounded-full py-1 pr-3 pl-1 text-sm"
                 >
                   <ClockIcon class="h-4" />
-                  <span class="mr-1">Funding window:</span>
-                  <CountdownClock :time="channelFundingExpirationTime" v-slot="{ days, hours, minutes, seconds }">
+                  <span class="mr-1">Insurance reservation:</span>
+                  <CountdownClock :time="securitizationHoldExpirationTime" v-slot="{ days, hours, minutes, seconds }">
                     <template v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</template>
                     <template v-if="days || hours">{{ hours }}h</template>
                     <template v-else>{{ minutes }}m {{ seconds }}s</template>
                   </CountdownClock>
                 </div>
                 <div class="mt-1 text-sm text-slate-500">
-                  {{
-                    channelHasObservedFunding
-                      ? channelProgressLabel
-                      : 'Send Bitcoin to this address before the funding window expires.'
-                  }}
+                  {{ hasPendingInboundUtxos ? channelProgressLabel : 'Send Bitcoin to add it to this channel.' }}
                 </div>
                 <div class="mt-4 w-full text-left">
                   <div class="mb-1 text-sm font-semibold text-slate-500">
@@ -397,11 +392,7 @@
                     <ButtonCopy :address="channelFundingAddress" />
                   </div>
                 </div>
-                <ProgressBar
-                  v-if="channelHasObservedFunding"
-                  :progress="channelProgress.progressPct"
-                  class="mt-5 h-5"
-                />
+                <ProgressBar v-if="hasPendingInboundUtxos" :progress="channelProgress.progressPct" class="mt-5 h-5" />
               </div>
             </div>
             <div v-else class="min-h-48 px-5 py-4">
@@ -599,6 +590,7 @@ import { getWalletKeys } from '../../stores/wallets.ts';
 import BitcoinOrphanRecoveryOverlay from '../../overlays/BitcoinOrphanRecoveryOverlay.vue';
 import BitcoinMempool from '../../lib/BitcoinMempool.ts';
 import { ESPLORA_HOST } from '../../lib/Env.ts';
+import BitcoinSend from './BitcoinSend.vue';
 
 dayjs.extend(utc);
 
@@ -741,9 +733,18 @@ const defaultVault = Vue.computed(() => {
 const selectedCosignerLabel = Vue.computed(() => {
   return cosignerChoices.value.find(({ vault }) => vault.vaultId.toString() === selectedVaultId.value)?.name ?? '';
 });
-const openInboundChannel = Vue.computed(() => {
+const securitizationHoldChannel = Vue.computed(() => {
   progressNow.value;
-  return props.wallet.getOpenInboundChannel();
+  return props.wallet.getChannelWithActiveSecuritizationHold();
+});
+const defaultDisplayedChannel = Vue.computed(() => {
+  const pendingRelease = props.wallet.getPendingChannelReleases()[0];
+  const pendingLockId = props.wallet.getPendingInboundUtxos()[0]?.lockId;
+  return (
+    pendingRelease ??
+    (pendingLockId === undefined ? undefined : bitcoinLocks.getLockById(pendingLockId)) ??
+    securitizationHoldChannel.value
+  );
 });
 const displayedChannel = Vue.computed(() => {
   const uuid = sessionChannelUuid.value;
@@ -752,31 +753,24 @@ const displayedChannel = Vue.computed(() => {
 });
 const pendingAddInsuranceTxInfo = Vue.computed(() => {
   if (!props.open) return;
-  const utxoId = displayedChannel.value?.utxoId;
-  return utxoId == null ? undefined : bitcoinLockResecuritize.getPendingResecuritizationTxInfo(utxoId);
+  const lockId = displayedChannel.value?.lockId;
+  return lockId == null ? undefined : bitcoinLockResecuritize.getPendingResecuritizationTxInfo(lockId);
 });
 const archivedChannels = Vue.computed(() => props.wallet.getArchivedChannels());
-const pendingUnattachedDeposits = Vue.computed(() => props.wallet.getPendingUnattachedDeposits());
-const pendingUnattachedSatoshis = Vue.computed(() => {
-  return pendingUnattachedDeposits.value.reduce((total, record) => total + record.satoshis, 0n);
-});
 const orphanRecords = Vue.computed(() => props.wallet.getUnresolvedOrphanDeposits());
 const hasChannelOverviewContent = Vue.computed(
-  () =>
-    archivedChannels.value.length > 0 || pendingUnattachedDeposits.value.length > 0 || orphanRecords.value.length > 0,
+  () => archivedChannels.value.length > 0 || orphanRecords.value.length > 0,
 );
-const hasDepositAttention = Vue.computed(
-  () => pendingUnattachedDeposits.value.length > 0 || orphanRecords.value.length > 0,
-);
+const hasDepositAttention = Vue.computed(() => orphanRecords.value.length > 0);
 const showChannelOverview = Vue.computed(
   () => hasChannelOverviewContent.value && !displayedChannel.value && !isShowingChannelForm.value,
 );
 const selectedOrphanLock = Vue.computed(() => {
-  const utxoId = selectedOrphan.value?.lockUtxoId;
-  return utxoId == null ? undefined : bitcoinLocks.getLockByUtxoId(utxoId);
+  const lockId = selectedOrphan.value?.lockId;
+  return lockId == null ? undefined : bitcoinLocks.getLockById(lockId);
 });
 const firstOrphanCosignerLabel = Vue.computed(() => {
-  const lock = bitcoinLocks.getLockByUtxoId(orphanRecords.value[0]?.lockUtxoId ?? -1);
+  const lock = bitcoinLocks.getLockById(orphanRecords.value[0]?.lockId ?? -1);
   return lock ? channelCosignerLabel(lock) : '';
 });
 const currentInsuranceCoverageMicrogons = Vue.computed(
@@ -785,12 +779,12 @@ const currentInsuranceCoverageMicrogons = Vue.computed(
 const insuranceActionLabel = Vue.computed(() =>
   currentInsuranceCoverageMicrogons.value > 0n ? 'Update Insurance' : 'Add Insurance',
 );
-const archivedFundingRecord = Vue.computed(() => {
+const archivedRelease = Vue.computed(() => {
   const channel = displayedChannel.value;
-  return channel?.status === BitcoinLockStatus.Released ? bitcoinLocks.getAcceptedFundingRecord(channel) : undefined;
+  return channel?.status === BitcoinLockStatus.Released ? bitcoinLocks.releases.getLatestForLock(channel) : undefined;
 });
 const archivedDestinationAddress = Vue.computed(() => {
-  const destination = archivedFundingRecord.value?.releaseToDestinationAddress;
+  const destination = archivedRelease.value?.toScriptPubkey;
   if (!destination) return '';
   try {
     return bitcoinLocks.formatAddressBytes(destination);
@@ -798,13 +792,14 @@ const archivedDestinationAddress = Vue.computed(() => {
     return destination;
   }
 });
-const archivedReleaseTxid = Vue.computed(() => archivedFundingRecord.value?.releaseTxid);
+const archivedReleaseTxid = Vue.computed(() => archivedRelease.value?.bitcoinTxid);
+const releaseState = Vue.computed(() => bitcoinLocks.getLockUnlockReleaseState(displayedChannel.value));
 const isArgonChannelProcessing = Vue.computed(
   () => displayedChannel.value?.status === BitcoinLockStatus.LockIsProcessingOnArgon,
 );
-const channelHasObservedFunding = Vue.computed(() => {
+const hasPendingInboundUtxos = Vue.computed(() => {
   const channel = displayedChannel.value;
-  return channel ? props.wallet.hasObservedChannelFunding(channel) : false;
+  return channel ? bitcoinLocks.utxoTracking.getObservedFundingUtxos(channel).length > 0 : false;
 });
 const channelProgress = Vue.computed(() => {
   progressNow.value;
@@ -831,9 +826,9 @@ function channelScriptAddress(channel: IBitcoinLockRecord): string {
     return '';
   }
 }
-const channelFundingExpirationTime = Vue.computed(() => {
+const securitizationHoldExpirationTime = Vue.computed(() => {
   const channel = displayedChannel.value;
-  return channel ? dayjs.utc(bitcoinLocks.verifyExpirationTime(channel)) : dayjs.utc();
+  return channel ? dayjs.utc(bitcoinLocks.getSecuritizationHoldExpirationTime(channel)) : dayjs.utc();
 });
 const channelDisplayError = Vue.computed(() => {
   const channel = displayedChannel.value;
@@ -907,8 +902,9 @@ const channelE2eState = Vue.computed(() => {
   if (showChannelOverview.value) return 'Overview';
   if (!displayedChannel.value) return 'Create';
   if (displayedChannel.value.status === BitcoinLockStatus.Released) return 'Archived';
+  if (releaseState.value.isReleaseStatus) return 'Releasing';
+  if (hasPendingInboundUtxos.value) return 'ProcessingOnBitcoin';
   if (displayedChannel.value.status === BitcoinLockStatus.LockFunded) return 'Funded';
-  if (channelHasObservedFunding.value) return 'ProcessingOnBitcoin';
   return 'ReadyForBitcoin';
 });
 
@@ -967,15 +963,14 @@ Vue.watch(
   },
 );
 Vue.watch(
-  openInboundChannel,
+  defaultDisplayedChannel,
   (channel, previousChannel) => {
     if (!props.open || props.mode === 'insurance' || hasDepositAttention.value) return;
     if (props.vaultId && !sessionChannelUuid.value) return;
 
     const requestedChannel = displayedChannel.value;
     if (props.channelUuid && requestedChannel?.uuid === props.channelUuid) {
-      if (requestedChannel.status === BitcoinLockStatus.LockFailed) return;
-      if (props.wallet.isOpenInboundChannel(requestedChannel)) return;
+      if (shouldDisplayRequestedChannel(requestedChannel)) return;
 
       openedChannel.value = channel;
       sessionChannelUuid.value = channel?.uuid;
@@ -984,6 +979,7 @@ Vue.watch(
 
     if (props.channelUuid) return;
     if (sessionChannelUuid.value && sessionChannelUuid.value !== previousChannel?.uuid) return;
+    if (!channel && displayedChannel.value) return;
 
     openedChannel.value = channel;
     sessionChannelUuid.value = channel?.uuid;
@@ -1026,15 +1022,9 @@ async function loadChannels(sessionKey = channelSessionKey, onCleanup?: (cleanup
     if (props.channelUuid) {
       const requestedChannel = props.wallet.getChannel(props.channelUuid);
       if (!requestedChannel) throw new Error('The requested Bitcoin channel is no longer available.');
-      if (
-        props.mode === 'insurance' ||
-        requestedChannel.status === BitcoinLockStatus.LockFailed ||
-        props.wallet.isOpenInboundChannel(requestedChannel)
-      ) {
-        channel = requestedChannel;
-      }
+      if (shouldDisplayRequestedChannel(requestedChannel)) channel = requestedChannel;
     } else if (!props.vaultId && !hasDepositAttention.value) {
-      channel = openInboundChannel.value;
+      channel = defaultDisplayedChannel.value;
     }
     openedChannel.value = channel;
     sessionChannelUuid.value = channel?.uuid;
@@ -1050,6 +1040,14 @@ async function loadChannels(sessionKey = channelSessionKey, onCleanup?: (cleanup
 async function retryLoadChannels(): Promise<void> {
   void bitcoinLocks.load().catch(() => undefined);
   await loadChannels();
+}
+
+function shouldDisplayRequestedChannel(channel: IBitcoinLockRecord): boolean {
+  if (props.mode === 'insurance') return true;
+  if (channel.status === BitcoinLockStatus.LockFailed) return true;
+  if (bitcoinLocks.getLockUnlockReleaseState(channel).isReleaseStatus) return true;
+  if (props.wallet.hasActiveSecuritizationHold(channel)) return true;
+  return bitcoinLocks.utxoTracking.getObservedFundingUtxos(channel).length > 0;
 }
 
 async function updateMaximumInsurance(vault: Vault | undefined, onCleanup: (cleanup: () => void) => void) {
@@ -1107,7 +1105,7 @@ async function createChannel() {
 }
 
 function showChannelForm() {
-  const channel = openInboundChannel.value;
+  const channel = securitizationHoldChannel.value;
   if (channel) {
     showChannel(channel);
     return;
@@ -1165,9 +1163,9 @@ function stopAddingInsurance(): void {
 
 async function beginAddInsurance(): Promise<void> {
   const channel = displayedChannel.value;
-  if (!channel || channel.utxoId == null) return;
+  if (!channel || channel.lockId == null) return;
 
-  const pendingTxInfo = bitcoinLockResecuritize.getPendingResecuritizationTxInfo(channel.utxoId);
+  const pendingTxInfo = bitcoinLockResecuritize.getPendingResecuritizationTxInfo(channel.lockId);
   if (pendingTxInfo) {
     trackAddInsuranceTransaction(pendingTxInfo);
     return;
@@ -1217,14 +1215,14 @@ async function beginAddInsurance(): Promise<void> {
 
 async function refreshAddInsuranceTerms(): Promise<void> {
   const channel = displayedChannel.value;
-  if (!channel || channel.utxoId == null) throw new Error('This Bitcoin channel is unavailable.');
+  if (!channel || channel.lockId == null) throw new Error('This Bitcoin channel is unavailable.');
 
   const client = await getMainchainClient(false);
   const [, rates, vault, currentLock] = await Promise.all([
     currency.fetchMainchainRates(client, { ignoreCache: true, updateOffchainRates: false }),
     client.query.bitcoinLocks.microgonPerBtcHistory(),
     vaults.refreshVault(channel.vaultId),
-    BitcoinLock.get(client, channel.utxoId),
+    BitcoinLock.get(client, channel.lockId),
   ]);
   const eligibleRate = rates?.at(-1);
   if (!eligibleRate || !vault || !currentLock) throw new Error('Current insurance terms are unavailable.');
@@ -1268,7 +1266,7 @@ function updateAddInsuranceFee(): void {
   });
   const coupon = getAddInsuranceCoupon(channel);
   const pendingCredit =
-    coupon?.uses?.find(use => use.status === 'Prepared' && use.utxoId === channel.utxoId && use.feeCoupon)
+    coupon?.uses?.find(use => use.status === 'Prepared' && use.utxoId === channel.lockId && use.feeCoupon)
       ?.feeCreditMicrogons ?? 0n;
   addInsuranceCouponCreditMicrogons.value = bigIntMin(
     totalFee,
@@ -1357,7 +1355,7 @@ function getAddInsuranceCoupon(channel: IBitcoinLockRecord) {
 function reviewFirstOrphan(): void {
   const orphan = orphanRecords.value[0];
   if (!orphan) return;
-  const lock = bitcoinLocks.getLockByUtxoId(orphan.lockUtxoId);
+  const lock = bitcoinLocks.getLockById(orphan.lockId);
   if (!lock) {
     channelLoadError.value = 'The Bitcoin channel for this deposit is unavailable.';
     return;

@@ -33,7 +33,7 @@ export function setupVaultingPortfolioScenario() {
     securitization: 2_400n * microgonsPerArgon,
     securitizationLocked: 1_550n * microgonsPerArgon,
     securitizationPendingActivation: 150n * microgonsPerArgon,
-    lockedSatoshis: 22_500_000n,
+    securitizedSatoshis: 22_500_000n,
   });
   const localLocks = [
     createLock(1, BitcoinLockStatus.LockFunded, 8_000_000n, 480n * microgonsPerArgon),
@@ -118,16 +118,17 @@ export function setupVaultingPortfolioScenario() {
     data: Vue.reactive({ financialRevision: 1 }),
     load: fn(async () => undefined),
     getAllLocks: fn(() => localLocks),
+    getUtxosForLock: fn(() => []),
     getDisplayLiquidityPromised: fn((lock: IBitcoinLockRecord) => lock.securitizationCoverageMicrogons ?? 0n),
-    isFundingWindowExpired: fn(() => false),
+    isSecuritizationHoldExpired: fn(() => false),
     isInactiveForVaultDisplay: fn(() => false),
     isLockFunded: fn((lock: IBitcoinLockRecord) => lock.status === BitcoinLockStatus.LockFunded),
     isReleaseStatus: fn((lock: IBitcoinLockRecord) =>
       [BitcoinLockStatus.Releasing, BitcoinLockStatus.Released].includes(lock.status),
     ),
     utxoTracking: {
-      getUtxosForLock: fn((lock: IBitcoinLockRecord) => lock.utxos),
-      getObservedFundingRecord: fn(() => undefined),
+      getUtxosForLock: fn(() => []),
+      getObservedFundingUtxos: fn(() => []),
       getUnresolvedOrphanRecords: fn(() => []),
     },
   } as unknown as ReturnType<typeof getBitcoinLocks>);
@@ -206,7 +207,7 @@ function createLock(
   const createdAt = new Date(Date.UTC(2026, 7, 15 - id, 14, 0, 0));
   return {
     uuid: `synthetic-vault-lock-${id}`,
-    utxoId: 2_000 + id,
+    lockId: 2_000 + id,
     status,
     securitizedSatoshis: satoshis,
     microgonsAtTargetPerBtc: 6_800n * microgonsPerArgon,
@@ -214,8 +215,8 @@ function createLock(
     securityFees: 0n,
     couponFeesPaid: 0n,
     fundHoldExtensionsByBitcoinExpirationHeight: {},
-    utxos: [],
     fundedSatoshis: satoshis,
+    fundingUtxoIds: [],
     cosignVersion: 'v1',
     network: 'regtest',
     hdPath: `m/84'/1'/0'/0/${id}`,
@@ -227,13 +228,13 @@ function createLock(
 }
 
 function createExternalLock(
-  utxoId: number,
+  lockId: number,
   satoshis: bigint,
   securitizationCoverageMicrogons: bigint,
   isPending = false,
 ): IExternalBitcoinLock {
   return {
-    utxoId,
+    lockId,
     satoshis,
     securitizationCoverageMicrogons,
     isPending,

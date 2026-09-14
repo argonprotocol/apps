@@ -111,19 +111,19 @@ export class VaultDeadlineWatcher {
     updateSeq: number,
   ): Promise<void> {
     const priorDueFrames = this.cosignDueFrames;
-    const utxoIds = Array.from(rawUtxoIds);
+    const lockIds = Array.from(rawUtxoIds);
     const newDueFrames = new Map<number, number | undefined>();
 
-    const releaseRequests = utxoIds.length
-      ? await client.query.bitcoinLocks.lockReleaseRequestsByUtxoId.multi(utxoIds)
+    const releaseRequests = lockIds.length
+      ? await client.query.bitcoinLocks.lockReleaseRequestsById.multi(lockIds)
       : [];
 
     if (updateSeq !== this.pendingCosignUpdateSeq) {
       return;
     }
 
-    for (let i = 0; i < utxoIds.length; i += 1) {
-      const id = utxoIds[i];
+    for (let i = 0; i < lockIds.length; i += 1) {
+      const id = lockIds[i];
       const release = releaseRequests[i];
       const dueFrame = release ? Number(release.cosignDueFrame) : priorDueFrames.get(id);
       newDueFrames.set(id, dueFrame);

@@ -42,7 +42,7 @@ export const OpenChannel: Story = {
     scenario.lock.status = BitcoinLockStatus.LockPendingFunding;
     scenario.replaceUtxoRecords([]);
     scenario.bitcoinLocks.hasObservedFundingSignal = () => false;
-    scenario.bitcoinLocks.isFundingWindowExpired = () => false;
+    scenario.bitcoinLocks.isSecuritizationHoldExpired = () => false;
     scenario.lock.scriptDetails!.p2wshScriptHashHex = scenario.bitcoinLocks
       .createCosignScript({ lock: scenario.lock, fundedSatoshis: scenario.lock.fundedSatoshis })
       .calculateScriptPubkey();
@@ -54,7 +54,7 @@ export const FundedOpenChannel: Story = {
   beforeEach: () => {
     const scenario = setupBitcoinOverlayScenario();
     scenario.lock.status = BitcoinLockStatus.LockFunded;
-    scenario.bitcoinLocks.isFundingWindowExpired = () => false;
+    scenario.bitcoinLocks.isSecuritizationHoldExpired = () => false;
     scenario.lock.scriptDetails!.p2wshScriptHashHex = scenario.bitcoinLocks
       .createCosignScript({ lock: scenario.lock, fundedSatoshis: scenario.lock.fundedSatoshis })
       .calculateScriptPubkey();
@@ -62,19 +62,20 @@ export const FundedOpenChannel: Story = {
   },
 };
 
-export const PendingUnattachedDeposit: Story = {
+export const AdditionalFundingDetected: Story = {
   args: { open: true },
   beforeEach: () => {
     const scenario = setupBitcoinOverlayScenario();
     scenario.lock.status = BitcoinLockStatus.LockFunded;
+    scenario.bitcoinLocks.isSecuritizationHoldExpired = () => true;
     scenario.lock.scriptDetails!.p2wshScriptHashHex = scenario.bitcoinLocks
       .createCosignScript({ lock: scenario.lock, fundedSatoshis: scenario.lock.fundedSatoshis })
       .calculateScriptPubkey();
     scenario.replaceUtxoRecords([
-      scenario.fundingRecord,
+      scenario.fundingUtxo,
       createBitcoinUtxo({
         id: 202,
-        lockUtxoId: scenario.lock.utxoId!,
+        lockId: scenario.lock.lockId!,
         status: BitcoinUtxoStatus.SeenOnMempool,
         satoshis: 1_000_000n,
       }),
@@ -87,7 +88,7 @@ export const ExpiredFundedChannel: Story = {
   beforeEach: () => {
     const scenario = setupBitcoinOverlayScenario();
     scenario.lock.status = BitcoinLockStatus.LockFunded;
-    scenario.bitcoinLocks.isFundingWindowExpired = () => true;
+    scenario.bitcoinLocks.isSecuritizationHoldExpired = () => true;
     return () => scenario.cleanup();
   },
 };

@@ -502,7 +502,7 @@ export class Vaults {
   }
 
   public getTotalSatoshisLocked(): bigint {
-    return Object.values(this.vaultsById).reduce((total, vault) => total + vault.lockedSatoshis, 0n);
+    return Object.values(this.vaultsById).reduce((total, vault) => total + vault.securitizedSatoshis, 0n);
   }
 
   public async fetchAndCalculateRedemptionAmount(lock: {

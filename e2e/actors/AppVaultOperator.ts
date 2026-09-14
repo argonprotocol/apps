@@ -353,7 +353,7 @@ export class AppVaultOperator {
       generateBlocks(8, minerAddress);
 
       await waitFor(45e3, 'upstream treasury bitcoin funded', async () => {
-        const currentLock = await BitcoinLock.get(client, treasuryLock.utxoId);
+        const currentLock = await BitcoinLock.get(client, treasuryLock.lockId);
         if (!currentLock?.fundedSatoshis) return;
         return currentLock;
       });
@@ -486,9 +486,9 @@ export class AppVaultOperator {
       throw new Error('AppVaultOperator has no funded Bitcoin available to create its Liquid.');
     }
 
-    const lock = this.#bitcoinLocks.getLockByUtxoId(currentLock.utxoId);
+    const lock = this.#bitcoinLocks.getLockById(currentLock.lockId);
     if (!lock) {
-      throw new Error(`AppVaultOperator could not recover Bitcoin Lock #${currentLock.utxoId}.`);
+      throw new Error(`AppVaultOperator could not recover Bitcoin Lock #${currentLock.lockId}.`);
     }
 
     const txSigner = await this.walletKeys.getLiquidLockingKeypair();

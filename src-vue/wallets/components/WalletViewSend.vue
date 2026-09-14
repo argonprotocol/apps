@@ -282,7 +282,7 @@ async function initiateBitcoinTransfer(form: InstanceType<typeof WalletTransferF
     const releaseResults = await Promise.allSettled(
       channels.map((channel, index) =>
         bitcoinLockRelease.submit({
-          utxoId: channel.utxoId!,
+          lockId: channel.lockId!,
           bitcoinNetworkFee: bitcoinFees[index]!,
           toScriptPubkey: form.destinationAddress,
           txSigner,
