@@ -284,7 +284,7 @@ const rightExternalConnectors = Vue.computed(() => {
 });
 const bitcoinTransferDirections = Vue.computed<ICrosschainTransferDirection[]>(() => {
   const directions: ICrosschainTransferDirection[] = [];
-  if (walletStore.bitcoinWallet.getPendingChannelFundings().length > 0) directions.push('inbound');
+  if (walletStore.bitcoinWallet.getPendingInboundUtxos().length > 0) directions.push('inbound');
   if (walletStore.bitcoinWallet.getPendingChannelReleases().length > 0) directions.push('outbound');
   return directions;
 });

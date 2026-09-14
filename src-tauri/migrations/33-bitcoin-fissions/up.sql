@@ -3,7 +3,7 @@ CREATE TABLE BitcoinFissions (
   origin TEXT NOT NULL CHECK(origin IN ('created', 'lock-migration')),
   fissionId INTEGER NOT NULL,
   liquidId INTEGER NOT NULL,
-  utxoId INTEGER NOT NULL,
+  lockId INTEGER NOT NULL,
   satoshis TEXT NOT NULL,
   microgonsAtTargetPerBtc TEXT NOT NULL,
   liquidityPromised TEXT NOT NULL,
@@ -33,7 +33,7 @@ CREATE TABLE BitcoinFissionRatchets (
   ownerAccount TEXT NOT NULL,
   fissionId INTEGER NOT NULL,
   liquidId INTEGER NOT NULL,
-  utxoId INTEGER NOT NULL,
+  lockId INTEGER NOT NULL,
   source TEXT NOT NULL CHECK(source IN ('lock', 'fission')),
   sourceRatchetIndex INTEGER NOT NULL,
   ratchetNumber INTEGER,
@@ -58,9 +58,9 @@ CREATE TABLE BitcoinFissionRatchets (
 -- FissionCreated. Retain that durable financial-history evidence as a migrated
 -- Fission projection; it is not used as current runtime state.
 INSERT INTO BitcoinFissions (
-  ownerAccount, origin, fissionId, liquidId, utxoId, satoshis,
+  ownerAccount, origin, fissionId, liquidId, lockId, satoshis,
   microgonsAtTargetPerBtc, liquidityPromised, createdAtArgonBlock, ratchetNumber,
-  lastUpdatedArgonBlock, createdAt, updatedAt
+  lastUpdatedArgonBlock, redemptionAmount, createdAt, updatedAt
 )
 SELECT
   json_extract(lockDetails, '$.ownerAccount'),
@@ -78,6 +78,7 @@ SELECT
     json_extract(lockDetails, '$.createdAtArgonBlock'),
     0
   ),
+  CASE WHEN status = 'Released' THEN CAST(releaseRedemptionMicrogons AS TEXT) END,
   createdAt,
   updatedAt
 FROM BitcoinLocks
@@ -90,7 +91,7 @@ WHERE utxoId IS NOT NULL
 -- array index is deliberately kept in a separate source namespace from the
 -- runtime's post-159 Fission ratchet number.
 INSERT INTO BitcoinFissionRatchets (
-  ownerAccount, fissionId, liquidId, utxoId, source, sourceRatchetIndex,
+  ownerAccount, fissionId, liquidId, lockId, source, sourceRatchetIndex,
   microgonsAtTargetPerBtc, liquidityPromised, amountMinted, amountBurned,
   mintPending, securityFee, txFee, blockNumber, extrinsicIndex
 )
@@ -117,7 +118,7 @@ WHERE BitcoinLocks.utxoId IS NOT NULL
   AND CAST(BitcoinLocks.liquidityPromised AS INTEGER) > 0
   AND json_extract(BitcoinLocks.lockDetails, '$.ownerAccount') IS NOT NULL;
 
-CREATE INDEX BitcoinFissionsByLock ON BitcoinFissions(ownerAccount, utxoId);
+CREATE INDEX BitcoinFissionsByLock ON BitcoinFissions(ownerAccount, lockId);
 CREATE INDEX BitcoinFissionsByLiquid ON BitcoinFissions(ownerAccount, liquidId);
 CREATE INDEX BitcoinFissionRatchetsByBlock
   ON BitcoinFissionRatchets(ownerAccount, blockNumber, extrinsicIndex);
@@ -125,7 +126,7 @@ CREATE INDEX BitcoinFissionRatchetsByBlock
 CREATE TABLE BitcoinSecuritizationHistory (
   ownerAccount TEXT NOT NULL,
   snapshotId TEXT NOT NULL,
-  utxoId INTEGER NOT NULL,
+  lockId INTEGER NOT NULL,
   termIndex INTEGER NOT NULL,
   origin TEXT NOT NULL CHECK(origin IN ('created', 'resecuritized')),
   startTick INTEGER NOT NULL,
@@ -141,40 +142,265 @@ CREATE TABLE BitcoinSecuritizationHistory (
   endBlockHash TEXT,
   endExtrinsicIndex INTEGER,
   endReason TEXT CHECK(endReason IN ('resecuritized', 'released')),
-  PRIMARY KEY (ownerAccount, snapshotId, utxoId, termIndex)
+  PRIMARY KEY (ownerAccount, snapshotId, lockId, termIndex)
 );
 
 CREATE INDEX BitcoinSecuritizationHistoryBySnapshot
-  ON BitcoinSecuritizationHistory(ownerAccount, snapshotId, utxoId, termIndex);
+  ON BitcoinSecuritizationHistory(ownerAccount, snapshotId, lockId, termIndex);
 
--- Funding versus orphan is durable UTXO identity. It must not be inferred from
--- a release status after the deposit moves through its independent lifecycle.
-ALTER TABLE BitcoinUtxos ADD COLUMN role TEXT CHECK(role IN ('Funding', 'Orphan'));
+-- A Release owns outbound workflow state shared by one or more input UTXOs.
+-- Migration 32 stored the runtime release script on each input UTXO.
+CREATE TABLE BitcoinReleases (
+  id TEXT NOT NULL PRIMARY KEY,
+  kind TEXT NOT NULL CHECK(kind IN ('Lock', 'Orphan')),
+  lockId INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK(status IN (
+    'SubmittingRequestOnArgon',
+    'WaitingForVaultCosign',
+    'ReadyForBitcoinBroadcast',
+    'ConfirmingOnBitcoin',
+    'WaitingForArgonRecognition',
+    'Complete',
+    'Cancelled',
+    'Failed'
+  )),
+  inputUtxoIds JSON NOT NULL,
+  requestedReleaseAtTick INTEGER,
+  toScriptPubkey TEXT NOT NULL,
+  bitcoinNetworkFee TEXT NOT NULL,
+  insuredMicrogons TEXT,
+  argonTxFeeMicrogons TEXT,
+  compensationMicrogons TEXT,
+  vaultSignatures JSON NOT NULL DEFAULT '[]',
+  cosignBlockNumber INTEGER,
+  bitcoinTxid TEXT,
+  bitcoinFirstSeenAt DATETIME,
+  bitcoinFirstSeenHeight INTEGER,
+  bitcoinFirstSeenOracleHeight INTEGER,
+  bitcoinLastConfirmationCheckAt DATETIME,
+  bitcoinLastConfirmationCheckOracleHeight INTEGER,
+  bitcoinConfirmedHeight INTEGER,
+  argonCompletionBlockNumber INTEGER,
+  argonCompletionBlockHash TEXT,
+  argonCompletionBlockTime DATETIME,
+  argonCompletionExtrinsicIndex INTEGER,
+  statusError TEXT,
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 
-UPDATE BitcoinUtxos
-SET role = CASE
-  WHEN EXISTS (
-    SELECT 1
-    FROM BitcoinLocks
-    WHERE BitcoinLocks.fundingUtxoRecordId = BitcoinUtxos.id
-  ) THEN 'Funding'
-  WHEN BitcoinUtxos.status = 'FundingUtxo' THEN 'Funding'
-  WHEN EXISTS (
-    SELECT 1
-    FROM BitcoinUtxoStatusHistory
-    WHERE BitcoinUtxoStatusHistory.utxoRecordId = BitcoinUtxos.id
-      AND BitcoinUtxoStatusHistory.newStatus = 'FundingUtxo'
-  ) THEN 'Funding'
-  WHEN BitcoinUtxos.status = 'Orphaned' THEN 'Orphan'
-  WHEN EXISTS (
-    SELECT 1
-    FROM BitcoinUtxoStatusHistory
-    WHERE BitcoinUtxoStatusHistory.utxoRecordId = BitcoinUtxos.id
-      AND BitcoinUtxoStatusHistory.newStatus = 'Orphaned'
-  ) THEN 'Orphan'
+INSERT INTO BitcoinReleases (
+  id, kind, lockId, status, inputUtxoIds, requestedReleaseAtTick,
+  toScriptPubkey, bitcoinNetworkFee, insuredMicrogons, argonTxFeeMicrogons,
+  compensationMicrogons, vaultSignatures, cosignBlockNumber, bitcoinTxid,
+  bitcoinFirstSeenAt, bitcoinFirstSeenHeight, bitcoinFirstSeenOracleHeight,
+  bitcoinLastConfirmationCheckAt, bitcoinLastConfirmationCheckOracleHeight,
+  bitcoinConfirmedHeight, argonCompletionBlockNumber, argonCompletionBlockHash,
+  argonCompletionBlockTime, argonCompletionExtrinsicIndex, statusError,
+  createdAt, updatedAt
+)
+SELECT
+  'migration-33-release-' || BitcoinUtxos.id,
+  CASE
+    WHEN BitcoinLocks.fundingUtxoRecordId = BitcoinUtxos.id THEN 'Lock'
+    ELSE 'Orphan'
+  END,
+  BitcoinUtxos.lockUtxoId,
+  CASE
+    WHEN BitcoinUtxos.status = 'ReleaseCompleteAcknowledged' OR BitcoinLocks.status = 'Released' THEN 'Complete'
+    WHEN BitcoinUtxos.status = 'ReleaseComplete' THEN 'WaitingForArgonRecognition'
+    WHEN BitcoinUtxos.releaseTxid IS NOT NULL THEN 'ConfirmingOnBitcoin'
+    WHEN BitcoinUtxos.releaseCosignVaultSignature IS NOT NULL THEN 'ReadyForBitcoinBroadcast'
+    WHEN BitcoinUtxos.requestedReleaseAtTick IS NOT NULL THEN 'WaitingForVaultCosign'
+    ELSE 'SubmittingRequestOnArgon'
+  END,
+  json_array(BitcoinUtxos.id),
+  BitcoinUtxos.requestedReleaseAtTick,
+  BitcoinUtxos.releaseToDestinationAddress,
+  CAST(BitcoinUtxos.releaseBitcoinNetworkFee AS TEXT),
+  NULL,
+  CASE
+    WHEN BitcoinLocks.fundingUtxoRecordId = BitcoinUtxos.id THEN BitcoinLocks.releaseArgonTxFeeMicrogons
+    ELSE NULL
+  END,
+  CASE
+    WHEN BitcoinLocks.fundingUtxoRecordId = BitcoinUtxos.id THEN BitcoinLocks.releaseCompensationMicrogons
+    ELSE NULL
+  END,
+  CASE
+    WHEN BitcoinUtxos.releaseCosignVaultSignature IS NULL THEN json_array()
+    WHEN CAST(BitcoinUtxos.releaseCosignVaultSignature AS TEXT) LIKE '0x%'
+      THEN json_array(lower(CAST(BitcoinUtxos.releaseCosignVaultSignature AS TEXT)))
+    ELSE json_array('0x' || lower(hex(BitcoinUtxos.releaseCosignVaultSignature)))
+  END,
+  BitcoinUtxos.releaseCosignHeight,
+  BitcoinUtxos.releaseTxid,
+  BitcoinUtxos.releaseFirstSeenAt,
+  BitcoinUtxos.releaseFirstSeenBitcoinHeight,
+  BitcoinUtxos.releaseFirstSeenOracleHeight,
+  BitcoinUtxos.releaseLastConfirmationCheckAt,
+  BitcoinUtxos.releaseLastConfirmationCheckOracleHeight,
+  BitcoinUtxos.releasedAtBitcoinHeight,
+  CASE WHEN BitcoinUtxos.status = 'ReleaseCompleteAcknowledged' OR BitcoinLocks.status = 'Released'
+    THEN BitcoinLocks.removalBlockNumber END,
+  CASE WHEN BitcoinUtxos.status = 'ReleaseCompleteAcknowledged' OR BitcoinLocks.status = 'Released'
+    THEN BitcoinLocks.removalBlockHash END,
+  CASE WHEN BitcoinUtxos.status = 'ReleaseCompleteAcknowledged' OR BitcoinLocks.status = 'Released'
+    THEN BitcoinLocks.removalBlockTime END,
+  CASE WHEN BitcoinUtxos.status = 'ReleaseCompleteAcknowledged' OR BitcoinLocks.status = 'Released'
+    THEN BitcoinLocks.removalExtrinsicIndex END,
+  BitcoinUtxos.statusError,
+  BitcoinUtxos.createdAt,
+  BitcoinUtxos.updatedAt
+FROM BitcoinUtxos
+JOIN BitcoinLocks ON BitcoinLocks.utxoId = BitcoinUtxos.lockUtxoId
+WHERE BitcoinUtxos.status IN (
+  'ReleaseIsProcessingOnArgon',
+  'ReleaseIsProcessingOnBitcoin',
+  'ReleaseComplete',
+  'ReleaseCompleteAcknowledged'
+);
+
+CREATE INDEX idxBitcoinReleasesLockId ON BitcoinReleases (lockId);
+CREATE INDEX idxBitcoinReleasesStatus ON BitcoinReleases (status);
+
+CREATE TRIGGER BitcoinReleasesUpdateTimestamp
+AFTER UPDATE ON BitcoinReleases
+BEGIN
+  UPDATE BitcoinReleases SET updatedAt = CURRENT_TIMESTAMP WHERE id = NEW.id;
 END;
 
-CREATE INDEX idxBitcoinUtxosRole ON BitcoinUtxos (role);
+-- Keep inbound observation/classification on the UTXO and move all outbound
+-- workflow fields to BitcoinReleases.
+DROP TRIGGER IF EXISTS BitcoinUtxosUpdateTimestamp;
+DROP TRIGGER IF EXISTS BitcoinUtxosStatusInsertHistoryRecorder;
+DROP TRIGGER IF EXISTS BitcoinUtxosStatusChangeHistoryRecorder;
+
+ALTER TABLE BitcoinUtxos RENAME TO BitcoinUtxos_before_release_ownership;
+ALTER TABLE BitcoinUtxoStatusHistory RENAME TO BitcoinUtxoStatusHistory_before_release_ownership;
+
+DROP INDEX IF EXISTS idxBitcoinUtxosLockOutpoint;
+DROP INDEX IF EXISTS idxBitcoinUtxosLockUtxoId;
+DROP INDEX IF EXISTS idxBitcoinUtxosStatus;
+DROP INDEX IF EXISTS idxBitcoinUtxoStatusHistoryUtxoRecordIdCreatedAt;
+
+CREATE TABLE BitcoinUtxos (
+  id INTEGER PRIMARY KEY,
+  lockId INTEGER NOT NULL,
+  txid TEXT NOT NULL,
+  vout INTEGER NOT NULL,
+  satoshis TEXT NOT NULL,
+  network TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('SeenOnMempool', 'FundingUtxo', 'Orphaned')),
+  spendStatus TEXT NOT NULL CHECK(spendStatus IN ('Unspent', 'Spent')) DEFAULT 'Unspent',
+  activeReleaseId TEXT,
+  createdByReleaseId TEXT,
+  spentByReleaseId TEXT,
+  statusError TEXT,
+  mempoolObservation JSON,
+  firstSeenAt DATETIME NOT NULL,
+  firstSeenOnArgonAt DATETIME,
+  firstSeenBitcoinHeight INTEGER NOT NULL,
+  firstSeenOracleHeight INTEGER,
+  lastConfirmationCheckAt DATETIME,
+  lastConfirmationCheckOracleHeight INTEGER,
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO BitcoinUtxos (
+  id, lockId, txid, vout, satoshis, network, status, spendStatus,
+  activeReleaseId, createdByReleaseId, spentByReleaseId, statusError,
+  mempoolObservation, firstSeenAt, firstSeenOnArgonAt, firstSeenBitcoinHeight,
+  firstSeenOracleHeight, lastConfirmationCheckAt,
+  lastConfirmationCheckOracleHeight, createdAt, updatedAt
+)
+SELECT
+  source.id,
+  source.lockUtxoId,
+  source.txid,
+  source.vout,
+  CAST(source.satoshis AS TEXT),
+  source.network,
+  CASE
+    WHEN EXISTS (SELECT 1 FROM BitcoinLocks WHERE fundingUtxoRecordId = source.id) THEN 'FundingUtxo'
+    WHEN EXISTS (
+      SELECT 1 FROM BitcoinUtxoStatusHistory_before_release_ownership history
+      WHERE history.utxoRecordId = source.id AND history.newStatus = 'FundingUtxo'
+    ) THEN 'FundingUtxo'
+    WHEN source.status = 'Orphaned' OR EXISTS (
+      SELECT 1 FROM BitcoinUtxoStatusHistory_before_release_ownership history
+      WHERE history.utxoRecordId = source.id AND history.newStatus = 'Orphaned'
+    ) THEN 'Orphaned'
+    ELSE 'SeenOnMempool'
+  END,
+  CASE WHEN source.status IN ('ReleaseComplete', 'ReleaseCompleteAcknowledged') THEN 'Spent' ELSE 'Unspent' END,
+  CASE
+    WHEN source.status IN ('ReleaseIsProcessingOnArgon', 'ReleaseIsProcessingOnBitcoin', 'ReleaseComplete')
+      AND NOT EXISTS (SELECT 1 FROM BitcoinLocks WHERE fundingUtxoRecordId = source.id)
+    THEN 'migration-33-release-' || source.id
+  END,
+  NULL,
+  CASE WHEN source.status IN ('ReleaseComplete', 'ReleaseCompleteAcknowledged')
+    THEN 'migration-33-release-' || source.id END,
+  CASE
+    WHEN source.status IN ('ReleaseIsProcessingOnArgon', 'ReleaseIsProcessingOnBitcoin', 'ReleaseComplete', 'ReleaseCompleteAcknowledged')
+    THEN NULL
+    ELSE source.statusError
+  END,
+  source.mempoolObservation,
+  source.firstSeenAt,
+  source.firstSeenOnArgonAt,
+  source.firstSeenBitcoinHeight,
+  source.firstSeenOracleHeight,
+  source.lastConfirmationCheckAt,
+  source.lastConfirmationCheckOracleHeight,
+  source.createdAt,
+  source.updatedAt
+FROM BitcoinUtxos_before_release_ownership source;
+
+CREATE TABLE BitcoinUtxoStatusHistory (
+  id INTEGER PRIMARY KEY,
+  utxoRecordId INTEGER NOT NULL,
+  newStatus TEXT NOT NULL CHECK(newStatus IN ('SeenOnMempool', 'FundingUtxo', 'Orphaned')),
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO BitcoinUtxoStatusHistory (id, utxoRecordId, newStatus, createdAt)
+SELECT
+  id,
+  utxoRecordId,
+  CASE WHEN newStatus = 'FundingCandidate' THEN 'SeenOnMempool' ELSE newStatus END,
+  createdAt
+FROM BitcoinUtxoStatusHistory_before_release_ownership
+WHERE newStatus IN ('SeenOnMempool', 'FundingCandidate', 'FundingUtxo', 'Orphaned');
+
+CREATE UNIQUE INDEX idxBitcoinUtxosLockOutpoint ON BitcoinUtxos (lockId, txid, vout);
+CREATE INDEX idxBitcoinUtxosLockId ON BitcoinUtxos (lockId);
+CREATE INDEX idxBitcoinUtxosStatus ON BitcoinUtxos (status);
+CREATE INDEX idxBitcoinUtxoStatusHistoryUtxoRecordIdCreatedAt
+  ON BitcoinUtxoStatusHistory (utxoRecordId, createdAt);
+
+CREATE TRIGGER BitcoinUtxosUpdateTimestamp
+AFTER UPDATE ON BitcoinUtxos
+BEGIN
+  UPDATE BitcoinUtxos SET updatedAt = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER BitcoinUtxosStatusInsertHistoryRecorder
+AFTER INSERT ON BitcoinUtxos
+BEGIN
+  INSERT INTO BitcoinUtxoStatusHistory (utxoRecordId, newStatus, createdAt)
+  VALUES (NEW.id, NEW.status, NEW.createdAt);
+END;
+
+CREATE TRIGGER BitcoinUtxosStatusChangeHistoryRecorder
+AFTER UPDATE OF status ON BitcoinUtxos
+WHEN OLD.status IS NOT NEW.status
+BEGIN
+  INSERT INTO BitcoinUtxoStatusHistory (utxoRecordId, newStatus)
+  VALUES (NEW.id, NEW.status);
+END;
 
 -- Liquidity and ratchet history now live above in the Fission ledger. Rebuild
 -- the Lock row around custody, security, script identity, and local lifecycle.
@@ -194,8 +420,11 @@ CREATE TABLE BitcoinLocks (
     'Releasing',
     'Released'
   )) DEFAULT 'LockIsProcessingOnArgon',
-  utxoId INTEGER,
+  lockId INTEGER,
   securitizedSatoshis TEXT NOT NULL,
+  fundedSatoshis TEXT NOT NULL DEFAULT '0',
+  fundingUtxoIds JSON NOT NULL DEFAULT '[]',
+  activeReleaseId TEXT,
   ownerAccount TEXT,
   microgonsAtTargetPerBtc TEXT,
   securitizationCoverageMicrogons TEXT,
@@ -205,7 +434,7 @@ CREATE TABLE BitcoinLocks (
   securityFees TEXT,
   couponFeesPaid TEXT,
   scriptDetails JSON,
-  fundingExpirationHeight INTEGER,
+  securitizationHoldExpirationBitcoinHeight INTEGER,
   isFlexible BOOLEAN,
   fundHoldExtensionsByBitcoinExpirationHeight JSON,
   createdAtArgonBlock INTEGER,
@@ -215,9 +444,6 @@ CREATE TABLE BitcoinLocks (
   vaultId INTEGER NOT NULL,
   relayMetadataJson JSON,
   blockExtrinsicErrorJson JSON,
-  releaseRedemptionMicrogons TEXT,
-  releaseArgonTxFeeMicrogons TEXT,
-  releaseCompensationMicrogons TEXT,
   removalBlockNumber INTEGER,
   removalBlockHash TEXT,
   removalBlockTime DATETIME,
@@ -230,19 +456,25 @@ CREATE TABLE BitcoinLocks (
 );
 
 INSERT INTO BitcoinLocks (
-  uuid, status, utxoId, securitizedSatoshis, ownerAccount,
+  uuid, status, lockId, securitizedSatoshis, fundedSatoshis, fundingUtxoIds,
+  activeReleaseId, ownerAccount,
   microgonsAtTargetPerBtc, securitizationCoverageMicrogons, securitizationTick,
   fissionedSatoshis, securitizationRatio, securityFees, couponFeesPaid,
-  scriptDetails, fundingExpirationHeight, isFlexible, fundHoldExtensionsByBitcoinExpirationHeight,
+  scriptDetails, securitizationHoldExpirationBitcoinHeight, isFlexible, fundHoldExtensionsByBitcoinExpirationHeight,
   createdAtArgonBlock, cosignVersion, network, hdPath, vaultId, relayMetadataJson,
-  blockExtrinsicErrorJson, releaseRedemptionMicrogons, releaseArgonTxFeeMicrogons,
-  releaseCompensationMicrogons, removalBlockNumber, removalBlockHash, removalBlockTime,
+  blockExtrinsicErrorJson, removalBlockNumber, removalBlockHash, removalBlockTime,
   removalExtrinsicIndex, removalReason, btcPriceAtRemovalMicrogons,
   isHistoryRecoveryPending, createdAt, updatedAt
 )
 SELECT
   uuid,
   CASE
+    WHEN EXISTS (
+      SELECT 1 FROM BitcoinReleases
+      WHERE BitcoinReleases.lockId = BitcoinLocks_before_fissions.utxoId
+        AND BitcoinReleases.kind = 'Lock'
+        AND BitcoinReleases.status NOT IN ('Complete', 'Cancelled', 'Failed')
+    ) THEN 'Releasing'
     WHEN status IN ('LockedAndIsMinting', 'LockedAndMinted') THEN 'LockFunded'
     WHEN status IN (
       'LockExpiredWaitingForFunding',
@@ -255,6 +487,19 @@ SELECT
   COALESCE(
     RTRIM(json_extract(lockDetails, '$.securitizedSatoshis'), 'n'),
     CAST(satoshis AS TEXT)
+  ),
+  COALESCE(
+    (SELECT CAST(satoshis AS TEXT) FROM BitcoinUtxos WHERE id = fundingUtxoRecordId),
+    RTRIM(json_extract(lockDetails, '$.fundedSatoshis'), 'n'),
+    '0'
+  ),
+  CASE WHEN fundingUtxoRecordId IS NULL THEN json_array() ELSE json_array(fundingUtxoRecordId) END,
+  (
+    SELECT id FROM BitcoinReleases
+    WHERE BitcoinReleases.lockId = BitcoinLocks_before_fissions.utxoId
+      AND BitcoinReleases.kind = 'Lock'
+      AND BitcoinReleases.status NOT IN ('Complete', 'Cancelled', 'Failed')
+    LIMIT 1
   ),
   json_extract(lockDetails, '$.ownerAccount'),
   RTRIM(json_extract(lockDetails, '$.microgonsAtTargetPerBtc'), 'n'),
@@ -287,9 +532,6 @@ SELECT
   vaultId,
   relayMetadataJson,
   blockExtrinsicErrorJson,
-  releaseRedemptionMicrogons,
-  releaseArgonTxFeeMicrogons,
-  releaseCompensationMicrogons,
   removalBlockNumber,
   removalBlockHash,
   removalBlockTime,
@@ -302,14 +544,141 @@ SELECT
 FROM BitcoinLocks_before_fissions;
 
 DROP TABLE BitcoinLocks_before_fissions;
+DROP TABLE BitcoinUtxos_before_release_ownership;
+DROP TABLE BitcoinUtxoStatusHistory_before_release_ownership;
 
-CREATE UNIQUE INDEX idxBitcoinLocksPendingHdPath ON BitcoinLocks (hdPath) WHERE utxoId IS NULL;
+CREATE UNIQUE INDEX idxBitcoinLocksPendingHdPath ON BitcoinLocks (hdPath) WHERE lockId IS NULL;
+CREATE UNIQUE INDEX idxBitcoinLocksLockId ON BitcoinLocks (lockId) WHERE lockId IS NOT NULL;
 
 CREATE TRIGGER BitcoinLocksUpdateTimestamp
 AFTER UPDATE ON BitcoinLocks
 BEGIN
   UPDATE BitcoinLocks SET updatedAt = CURRENT_TIMESTAMP WHERE uuid = NEW.uuid;
 END;
+
+-- Persisted transaction history predates the runtime's Lock naming. Preserve
+-- creation UUIDs and output references while normalizing Lock references.
+UPDATE Transactions
+SET metadataJson = json_remove(
+  json_set(metadataJson, '$.lockId', json_extract(metadataJson, '$.utxoId')),
+  '$.utxoId'
+)
+WHERE json_valid(metadataJson)
+  AND json_type(metadataJson, '$.utxoId') IS NOT NULL;
+
+-- Pending release transaction post-processors resolve the workflow directly by
+-- Release ID after the cutover. Attach the deterministic IDs created above to
+-- deployed transaction metadata before those post-processors resume.
+UPDATE Transactions
+SET metadataJson = json_set(
+  metadataJson,
+  '$.releaseId',
+  (
+    SELECT BitcoinReleases.id
+    FROM BitcoinReleases
+    WHERE BitcoinReleases.kind = 'Lock'
+      AND BitcoinReleases.lockId = json_extract(Transactions.metadataJson, '$.lockId')
+    ORDER BY BitcoinReleases.createdAt DESC
+    LIMIT 1
+  )
+)
+WHERE extrinsicType = 'BitcoinRequestRelease'
+  AND json_valid(metadataJson)
+  AND json_type(metadataJson, '$.releaseId') IS NULL
+  AND EXISTS (
+    SELECT 1
+    FROM BitcoinReleases
+    WHERE BitcoinReleases.kind = 'Lock'
+      AND BitcoinReleases.lockId = json_extract(Transactions.metadataJson, '$.lockId')
+  );
+
+UPDATE Transactions
+SET metadataJson = json_set(
+  metadataJson,
+  '$.releaseId',
+  (
+    SELECT BitcoinReleases.id
+    FROM BitcoinReleases
+    WHERE BitcoinReleases.kind = 'Orphan'
+      AND json_extract(BitcoinReleases.inputUtxoIds, '$[0]') = json_extract(Transactions.metadataJson, '$.utxoRecordId')
+    ORDER BY BitcoinReleases.createdAt DESC
+    LIMIT 1
+  )
+)
+WHERE extrinsicType = 'BitcoinOrphanedUtxoRelease'
+  AND json_valid(metadataJson)
+  AND json_type(metadataJson, '$.releaseId') IS NULL
+  AND EXISTS (
+    SELECT 1
+    FROM BitcoinReleases
+    WHERE BitcoinReleases.kind = 'Orphan'
+      AND json_extract(BitcoinReleases.inputUtxoIds, '$[0]') = json_extract(Transactions.metadataJson, '$.utxoRecordId')
+  );
+
+UPDATE Transactions
+SET metadataJson = json_remove(
+  json_set(metadataJson, '$.bitcoin.lockId', json_extract(metadataJson, '$.bitcoin.utxoId')),
+  '$.bitcoin.utxoId'
+)
+WHERE json_valid(metadataJson)
+  AND json_type(metadataJson, '$.bitcoin.utxoId') IS NOT NULL;
+
+UPDATE Transactions
+SET metadataJson = json_set(
+  metadataJson,
+  '$.fissions',
+  (
+    SELECT json_group_array(
+      json(
+        json_remove(
+          json_set(fission.value, '$.lockId', json_extract(fission.value, '$.utxoId')),
+          '$.utxoId'
+        )
+      )
+    )
+    FROM json_each(metadataJson, '$.fissions') fission
+  )
+)
+WHERE json_valid(metadataJson)
+  AND json_type(metadataJson, '$.fissions') = 'array';
+
+UPDATE Transactions
+SET metadataJson = json_set(
+  metadataJson,
+  '$.resecuritizations',
+  (
+    SELECT json_group_array(
+      json(
+        CASE
+          WHEN json_type(resecuritization.value, '$.bitcoin.utxoId') IS NULL THEN resecuritization.value
+          ELSE json_remove(
+            json_set(
+              resecuritization.value,
+              '$.bitcoin.lockId',
+              json_extract(resecuritization.value, '$.bitcoin.utxoId')
+            ),
+            '$.bitcoin.utxoId'
+          )
+        END
+      )
+    )
+    FROM json_each(metadataJson, '$.resecuritizations') resecuritization
+  )
+)
+WHERE json_valid(metadataJson)
+  AND json_type(metadataJson, '$.resecuritizations') = 'array';
+
+UPDATE Transactions
+SET metadataJson = json_remove(
+  json_set(
+    metadataJson,
+    '$.resecuritizedLockIds',
+    json_extract(metadataJson, '$.resecuritizedUtxoIds')
+  ),
+  '$.resecuritizedUtxoIds'
+)
+WHERE json_valid(metadataJson)
+  AND json_type(metadataJson, '$.resecuritizedUtxoIds') = 'array';
 
 CREATE TRIGGER BitcoinLocksStatusChangeHistoryRecorder
 AFTER UPDATE OF status ON BitcoinLocks

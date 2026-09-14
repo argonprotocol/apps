@@ -29,7 +29,7 @@ import {
 } from './TransactionOperation.ts';
 
 export interface IBitcoinLiquidRatchetLockChange {
-  utxoId: number;
+  lockId: number;
   phase: 'before-fissions' | 'after-fissions';
   securitizedSatoshis: bigint;
   microgonsAtTargetPerBtc: bigint;
@@ -51,7 +51,7 @@ export interface IBitcoinLiquidRatchetPreview {
 export interface IBitcoinLiquidRatchetMetadata {
   liquidId: number;
   fissionIds: number[];
-  resecuritizedUtxoIds: number[];
+  resecuritizedLockIds: number[];
   resecuritizations?: IBitcoinResecuritizationMetadata[];
 }
 
@@ -132,7 +132,7 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
     const remainingCoverageByVaultId = new Map<number, bigint>();
     const remainingFeeCreditByCouponId = this.getAvailableFeeCreditByCouponId(
       currentCoupons,
-      preview.lockChanges.map(({ utxoId }) => utxoId),
+      preview.lockChanges.map(({ lockId }) => lockId),
     );
     let securityFee = 0n;
 
@@ -186,7 +186,7 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
     const metadata: IBitcoinLiquidRatchetMetadata = {
       liquidId,
       fissionIds: preview.fissionIds,
-      resecuritizedUtxoIds: preview.lockChanges.map(change => change.utxoId),
+      resecuritizedLockIds: preview.lockChanges.map(change => change.lockId),
       resecuritizations,
     };
 
@@ -320,20 +320,20 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
   }): Promise<IBitcoinLiquidRatchetLockChange[]> {
     const { client, liquidFissions, microgonsAtTargetPerBtc, priceIndex, errors, currentFissions } = args;
     const selectedFissionIds = new Set(liquidFissions.map(fission => fission.fissionId));
-    const utxoIds = [...new Set(liquidFissions.map(fission => fission.utxoId))];
-    const locks = await BitcoinLock.getMany(client, utxoIds);
+    const lockIds = [...new Set(liquidFissions.map(fission => fission.lockId))];
+    const locks = await BitcoinLock.getMany(client, lockIds);
     const lockChanges: IBitcoinLiquidRatchetLockChange[] = [];
     const remainingCoverageByVaultId = new Map<number, bigint>();
 
-    for (let index = 0; index < utxoIds.length; index += 1) {
-      const utxoId = utxoIds[index];
+    for (let index = 0; index < lockIds.length; index += 1) {
+      const lockId = lockIds[index];
       const lock = locks[index];
       if (!lock) {
-        errors.push(`Source lock #${utxoId} is unavailable from current chain state.`);
+        errors.push(`Source lock #${lockId} is unavailable from current chain state.`);
         continue;
       }
 
-      const lockFissions = currentFissions.filter(fission => fission.utxoId === utxoId);
+      const lockFissions = currentFissions.filter(fission => fission.lockId === lockId);
       let requiredLiquidity = 0n;
       let requiredRate = 0n;
       for (const fission of lockFissions) {
@@ -384,7 +384,7 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
         }
       }
       lockChanges.push({
-        utxoId,
+        lockId,
         phase: needsMoreSecurity ? 'before-fissions' : 'after-fissions',
         securitizedSatoshis,
         microgonsAtTargetPerBtc: requiredRate,
@@ -426,10 +426,10 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
     const table = await this.bitcoinLocks.getTable();
 
     for (const change of changes) {
-      const { utxoId, securitizedSatoshis, microgonsAtTargetPerBtc } = change;
-      const lock = this.bitcoinLocks.getLockByUtxoId(utxoId);
-      const currentLock = await BitcoinLock.get(snapshotClient, utxoId);
-      if (!lock || !currentLock) throw new Error(`Bitcoin Lock #${utxoId} is unavailable for this ratchet.`);
+      const { lockId, securitizedSatoshis, microgonsAtTargetPerBtc } = change;
+      const lock = this.bitcoinLocks.getLockById(lockId);
+      const currentLock = await BitcoinLock.get(snapshotClient, lockId);
+      if (!lock || !currentLock) throw new Error(`Bitcoin Lock #${lockId} is unavailable for this ratchet.`);
 
       const vault = await Vault.get(snapshotClient, currentLock.vaultId, NetworkConfig.tickMillis);
       this.vaults.vaultsById[vault.vaultId] = vault;
@@ -451,7 +451,7 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
       remainingCoverageByVaultId.set(vault.vaultId, remainingCoverage - additionalCoverageMicrogons);
 
       await table.updateFromCurrentLock(lock, currentLock);
-      const operatorCoupon = this.getCouponForLock(currentCoupons, currentLock.vaultId, utxoId);
+      const operatorCoupon = this.getCouponForLock(currentCoupons, currentLock.vaultId, lockId);
       const availableFeeCredit = operatorCoupon
         ? (remainingFeeCreditByCouponId.get(operatorCoupon.coupon.id) ?? 0n)
         : 0n;
@@ -485,20 +485,20 @@ export class BitcoinLiquidRatchet extends TransactionOperation<
   private getCouponForLock(
     coupons: IBitcoinLockCouponStatus[],
     vaultId: number,
-    utxoId: number,
+    lockId: number,
   ): IBitcoinLockCouponStatus | undefined {
     const resumableCoupon = coupons.find(coupon => {
       if (coupon.coupon.vaultId !== vaultId) return false;
-      return coupon.uses?.some(use => use.status === 'Prepared' && use.utxoId === utxoId && use.feeCoupon);
+      return coupon.uses?.some(use => use.status === 'Prepared' && use.utxoId === lockId && use.feeCoupon);
     });
     return resumableCoupon ?? coupons.find(coupon => coupon.coupon.vaultId === vaultId && coupon.status === 'Open');
   }
 
   private getAvailableFeeCreditByCouponId(
     coupons: IBitcoinLockCouponStatus[],
-    plannedUtxoIds: number[],
+    plannedLockIds: number[],
   ): Map<number, bigint> {
-    const planned = new Set(plannedUtxoIds);
+    const planned = new Set(plannedLockIds);
     return new Map(
       coupons.map(coupon => {
         const resumableCredit =

@@ -27,6 +27,7 @@ import { VaultCapitalHistoryTable } from './db/VaultCapitalHistoryTable.ts';
 import { FinancialCacheTable } from './db/FinancialCacheTable.ts';
 import { BitcoinFissionsTable } from './db/BitcoinFissionsTable.ts';
 import { BitcoinSecuritizationHistoryTable } from './db/BitcoinSecuritizationHistoryTable.ts';
+import { BitcoinReleasesTable } from './db/BitcoinReleasesTable.ts';
 
 export class Db {
   public sql: PluginSql;
@@ -55,6 +56,7 @@ export class Db {
   public financialCacheTable: FinancialCacheTable;
   public bitcoinFissionsTable: BitcoinFissionsTable;
   public bitcoinSecuritizationHistoryTable: BitcoinSecuritizationHistoryTable;
+  public bitcoinReleasesTable: BitcoinReleasesTable;
   private readonly transactionId?: number;
   private readonly tableStates: Map<object, unknown>;
 
@@ -93,6 +95,7 @@ export class Db {
     this.financialCacheTable = new FinancialCacheTable(this);
     this.bitcoinFissionsTable = new BitcoinFissionsTable(this);
     this.bitcoinSecuritizationHistoryTable = new BitcoinSecuritizationHistoryTable(this);
+    this.bitcoinReleasesTable = new BitcoinReleasesTable(this);
   }
 
   public getTableState<State>(table: object, initialize: () => State): State {

@@ -142,7 +142,7 @@ describe('Bitcoin Liquid insurance allocation', () => {
 
 function createTerm(overrides: Partial<IBitcoinSecuritizationTerm> = {}): IBitcoinSecuritizationTerm {
   return {
-    utxoId: 7,
+    lockId: 7,
     termIndex: 0,
     origin: 'created',
     startTick: 0,
@@ -163,7 +163,7 @@ function createFission(overrides: Partial<IBitcoinFissionRecord>): IBitcoinFissi
     ownerAccount: '5owner',
     fissionId: 1,
     liquidId: 1,
-    utxoId: 7,
+    lockId: 7,
     satoshis: 100n,
     microgonsAtTargetPerBtc: 1_000n,
     liquidityPromised: 1_000n,

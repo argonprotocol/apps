@@ -38,7 +38,7 @@ export class BitcoinSecuritizationHistoryTable extends BaseTable {
     const published = await this.getPublishedSnapshot(ownerAccount);
     const terms = (published?.terms ?? []).map(term => ({ ...term }));
     const lockTerms = terms
-      .filter(term => term.utxoId === lock.utxoId)
+      .filter(term => term.lockId === lock.lockId)
       .sort((left, right) => left.termIndex - right.termIndex);
     const existing = lockTerms.find(term => {
       return term.startBlockHash === block.blockHash && term.startExtrinsicIndex === extrinsicIndex;
@@ -46,7 +46,7 @@ export class BitcoinSecuritizationHistoryTable extends BaseTable {
     const previous = existing ? lockTerms[lockTerms.indexOf(existing) - 1] : lockTerms.at(-1);
     const cumulativeNetSecurityFee = bigIntMax(lock.securityFees - lock.couponFeesPaid, 0n);
     const current: IBitcoinSecuritizationTerm = {
-      utxoId: lock.utxoId,
+      lockId: lock.lockId,
       termIndex: existing?.termIndex ?? lockTerms.length,
       origin,
       startTick: block.tick,
@@ -82,7 +82,7 @@ export class BitcoinSecuritizationHistoryTable extends BaseTable {
     const snapshot = await this.createSnapshot(
       ownerAccount,
       Math.max(published?.asOfBlock ?? 0, block.blockNumber),
-      terms.sort((left, right) => left.utxoId - right.utxoId || left.termIndex - right.termIndex),
+      terms.sort((left, right) => left.lockId - right.lockId || left.termIndex - right.termIndex),
     );
     await this.publishSnapshot(snapshot);
   }
@@ -103,7 +103,7 @@ export class BitcoinSecuritizationHistoryTable extends BaseTable {
         `INSERT INTO BitcoinSecuritizationHistory (
            ownerAccount,
            snapshotId,
-           utxoId,
+           lockId,
            termIndex,
            origin,
            startTick,
@@ -123,7 +123,7 @@ export class BitcoinSecuritizationHistoryTable extends BaseTable {
         toSqlParams([
           ownerAccount,
           snapshotId,
-          term.utxoId,
+          term.lockId,
           term.termIndex,
           term.origin,
           term.startTick,
@@ -189,7 +189,7 @@ export class BitcoinSecuritizationHistoryTable extends BaseTable {
 
     const terms = await this.db.select<IBitcoinSecuritizationTerm[]>(
       `SELECT
-         utxoId,
+         lockId,
          termIndex,
          origin,
          startTick,
@@ -207,7 +207,7 @@ export class BitcoinSecuritizationHistoryTable extends BaseTable {
          endReason
        FROM BitcoinSecuritizationHistory
        WHERE ownerAccount = ? AND snapshotId = ?
-       ORDER BY utxoId, termIndex`,
+       ORDER BY lockId, termIndex`,
       toSqlParams([ownerAccount, publication.snapshotId]),
     );
     return {

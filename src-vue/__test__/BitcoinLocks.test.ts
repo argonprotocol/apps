@@ -284,9 +284,7 @@ it('keeps a funding expiration estimate stable until the oracle Bitcoin height c
     getFinalizedApi: vi.fn(async () => archiveClient),
   };
   vi.mocked(getMainchainClient).mockResolvedValue(archiveClient as never);
-  vi.spyOn(BitcoinLock, 'getConfig').mockResolvedValue(
-    createBitcoinLockConfig({ pendingConfirmationExpirationBlocks: 6 }),
-  );
+  vi.spyOn(BitcoinLock, 'getConfig').mockResolvedValue(createBitcoinLockConfig({ securitizationHoldBlocks: 6 }));
   const store = createStore({ blockWatch: blockWatch as never, db });
 
   await store.load();
@@ -297,15 +295,15 @@ it('keeps a funding expiration estimate stable until the oracle Bitcoin height c
     status: BitcoinLockStatus.LockPendingFunding,
     createdAt: '2026-08-11T18:00:00Z',
   });
-  const initialExpiration = store.verifyExpirationTime(lock);
+  const initialExpiration = store.getSecuritizationHoldExpirationTime(lock);
 
   await vi.advanceTimersByTimeAsync(2_000);
 
-  expect(store.verifyExpirationTime(lock)).toBe(initialExpiration);
+  expect(store.getSecuritizationHoldExpirationTime(lock)).toBe(initialExpiration);
 
   store.data.oracleBitcoinBlockHeight = 101;
 
-  expect(store.verifyExpirationTime(lock)).not.toBe(initialExpiration);
+  expect(store.getSecuritizationHoldExpirationTime(lock)).not.toBe(initialExpiration);
 
   store.unsubscribeFromArgonBlocks();
 });

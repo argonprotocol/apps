@@ -19,7 +19,7 @@ type NamedFissionRecoveryEventRecord = RuntimeSystemEventRecord & { event: Histo
 
 type DeferredFissionEvent = {
   fissionId: number;
-  eventUtxoId: number | undefined;
+  lockId: number | undefined;
   block: IBlockHeaderInfo;
   record: NamedFissionRecoveryEventRecord;
   transactionFee?: bigint;
@@ -29,8 +29,8 @@ type FissionHistoryReplay = {
   recordsByFissionId: Map<number, IBitcoinFissionRecord>;
   deferredEvents: DeferredFissionEvent[];
   currentFissionId?: number;
-  currentFissionUtxoId?: number;
-  failureByFissionId: Map<number, { message: string; utxoId: number }>;
+  currentFissionLockId?: number;
+  failureByFissionId: Map<number, { message: string; lockId: number }>;
   unscopedFailure?: string;
 };
 
@@ -68,7 +68,7 @@ export class BitcoinFissionRecovery {
       this.replay.unscopedFailure = readErrorMessage(error, 'Bitcoin Fission history replay failed');
     }
     this.replay.currentFissionId = undefined;
-    this.replay.currentFissionUtxoId = undefined;
+    this.replay.currentFissionLockId = undefined;
   }
 
   public async recoverBlock(
@@ -91,17 +91,21 @@ export class BitcoinFissionRecovery {
         const { event } = record;
         if (!BitcoinFission.isOwnedEvent(event, this.ownerAccount)) continue;
         const fissionId = event.data.fissionId;
-        const eventUtxoId = 'utxoId' in event.data ? (event.data.utxoId ?? undefined) : undefined;
+        const lockId =
+          event.section === 'bitcoinFissions' &&
+          (event.method === 'FissionCreated' || event.method === 'FissionClosedByLock')
+            ? event.data.lockId
+            : undefined;
         replay.currentFissionId = fissionId;
-        replay.currentFissionUtxoId =
-          eventUtxoId ??
-          replay.recordsByFissionId.get(fissionId)?.utxoId ??
-          this.getActiveFissions().find(fission => fission.fissionId === fissionId)?.utxoId;
+        replay.currentFissionLockId =
+          lockId ??
+          replay.recordsByFissionId.get(fissionId)?.lockId ??
+          this.getActiveFissions().find(fission => fission.fissionId === fissionId)?.lockId;
         if (replay.failureByFissionId.has(fissionId)) continue;
 
         const transactionFee = readTransactionFee(eventRecords, record, this.ownerAccount);
         if (event.method !== 'FissionCreated' && !replay.recordsByFissionId.has(fissionId)) {
-          replay.deferredEvents.push({ fissionId, eventUtxoId, block, record, transactionFee });
+          replay.deferredEvents.push({ fissionId, lockId, block, record, transactionFee });
           continue;
         }
         await this.applyEvent(replay, block, record, transactionFee);
@@ -109,14 +113,16 @@ export class BitcoinFissionRecovery {
         if (!isolateFailures || !this.recordReplayFailure(replay, error)) throw error;
       } finally {
         replay.currentFissionId = undefined;
-        replay.currentFissionUtxoId = undefined;
+        replay.currentFissionLockId = undefined;
       }
     }
   }
 
   public async prepareHistoryReplay(
     migratedLocks: readonly IHistoricalBitcoinLockRecord[] = [],
-  ): Promise<{ records: IBitcoinFissionRecord[]; failuresByUtxoId: Map<number, string> }> {
+    lockIdByHistoricalUtxoId: ReadonlyMap<number, number> = new Map(),
+    historicalLiquidRedemptionByUtxoId: ReadonlyMap<number, bigint> = new Map(),
+  ): Promise<{ records: IBitcoinFissionRecord[]; failuresByLockId: Map<number, string> }> {
     return await this.queueHistoryWrite(async () => {
       const replay = this.requireReplay();
       if (replay.unscopedFailure) throw new Error(replay.unscopedFailure);
@@ -126,13 +132,21 @@ export class BitcoinFissionRecovery {
         if (replay.failureByFissionId.has(fissionId)) continue;
         const activeFission = activeFissions.find(fission => fission.fissionId === fissionId);
         const knownRecord = replay.recordsByFissionId.get(fissionId);
-        const utxoId = knownRecord?.utxoId ?? deferred.eventUtxoId ?? activeFission?.utxoId;
+        const lockId = knownRecord?.lockId ?? deferred.lockId ?? activeFission?.lockId;
 
         try {
           if (!replay.recordsByFissionId.has(fissionId)) {
-            const lock = migratedLocks.find(lock => lock.utxoId === utxoId);
+            const lock = migratedLocks.find(lock => {
+              return (lockIdByHistoricalUtxoId.get(lock.utxoId) ?? lock.utxoId) === lockId;
+            });
             const migrated = lock
-              ? this.createMigratedRecord(lock, deferred.block.blockNumber, activeFission)
+              ? this.createMigratedRecord(
+                  lock,
+                  lockIdByHistoricalUtxoId.get(lock.utxoId) ?? lock.utxoId,
+                  historicalLiquidRedemptionByUtxoId.get(lock.utxoId),
+                  deferred.block.blockNumber,
+                  activeFission,
+                )
               : undefined;
             if (!migrated) throw new Error(`Bitcoin Fission ${fissionId} history is missing its creation event`);
             replay.recordsByFissionId.set(fissionId, migrated);
@@ -140,9 +154,9 @@ export class BitcoinFissionRecovery {
           await this.applyEvent(replay, deferred.block, deferred.record, deferred.transactionFee);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          if (utxoId === undefined) replay.unscopedFailure = message;
+          if (lockId === undefined) replay.unscopedFailure = message;
           else {
-            replay.failureByFissionId.set(fissionId, { message, utxoId });
+            replay.failureByFissionId.set(fissionId, { message, lockId });
           }
         }
       }
@@ -165,39 +179,50 @@ export class BitcoinFissionRecovery {
           } catch (error) {
             replay.failureByFissionId.set(activeFission.fissionId, {
               message: error instanceof Error ? error.message : String(error),
-              utxoId: activeFission.utxoId,
+              lockId: activeFission.lockId,
             });
           }
           continue;
         }
 
-        const lock = migratedLocks.find(lock => lock.utxoId === activeFission.utxoId);
-        const migrated = lock ? this.createMigratedRecord(lock, Number.MAX_SAFE_INTEGER, activeFission) : undefined;
+        const lock = migratedLocks.find(lock => {
+          return (lockIdByHistoricalUtxoId.get(lock.utxoId) ?? lock.utxoId) === activeFission.lockId;
+        });
+        const migrated = lock
+          ? this.createMigratedRecord(
+              lock,
+              lockIdByHistoricalUtxoId.get(lock.utxoId) ?? lock.utxoId,
+              historicalLiquidRedemptionByUtxoId.get(lock.utxoId),
+              Number.MAX_SAFE_INTEGER,
+              activeFission,
+            )
+          : undefined;
         if (!migrated) {
           replay.failureByFissionId.set(activeFission.fissionId, {
             message: `Active Bitcoin Fission ${activeFission.fissionId} is missing its creation history`,
-            utxoId: activeFission.utxoId,
+            lockId: activeFission.lockId,
           });
           continue;
         }
         replay.recordsByFissionId.set(activeFission.fissionId, migrated);
       }
-      const failedUtxoIds = new Set([...replay.failureByFissionId.values()].map(failure => failure.utxoId));
-      const recoveredUtxoIds = new Set([...replay.recordsByFissionId.values()].map(record => record.utxoId));
+      const failedLockIds = new Set([...replay.failureByFissionId.values()].map(failure => failure.lockId));
+      const recoveredLockIds = new Set([...replay.recordsByFissionId.values()].map(record => record.lockId));
       for (const lock of migratedLocks) {
-        if (lock.utxoId === undefined || failedUtxoIds.has(lock.utxoId) || recoveredUtxoIds.has(lock.utxoId)) continue;
-        const migrated = this.createMigratedRecord(lock);
+        const lockId = lockIdByHistoricalUtxoId.get(lock.utxoId) ?? lock.utxoId;
+        if (failedLockIds.has(lockId) || recoveredLockIds.has(lockId)) continue;
+        const migrated = this.createMigratedRecord(lock, lockId, historicalLiquidRedemptionByUtxoId.get(lock.utxoId));
         if (migrated) replay.recordsByFissionId.set(migrated.fissionId, migrated);
       }
-      const failuresByUtxoId = new Map<number, string>();
+      const failuresByLockId = new Map<number, string>();
       for (const failure of replay.failureByFissionId.values()) {
-        failuresByUtxoId.set(failure.utxoId, failure.message);
+        failuresByLockId.set(failure.lockId, failure.message);
       }
       const records = [...replay.recordsByFissionId.values()]
         .filter(record => !replay.failureByFissionId.has(record.fissionId))
         .sort((left, right) => left.fissionId - right.fissionId);
 
-      return { records, failuresByUtxoId };
+      return { records, failuresByLockId };
     });
   }
 
@@ -277,17 +302,18 @@ export class BitcoinFissionRecovery {
 
   private createMigratedRecord(
     lock: IHistoricalBitcoinLockRecord,
+    lockId: number,
+    redemptionAmount?: bigint,
     observedAtBlock?: number,
     activeFission?: IBitcoinFission,
   ): IBitcoinFissionRecord | undefined {
     const fissionId = lock.utxoId;
-    if (fissionId === undefined) return;
     if (lock.status === BitcoinLockStatus.LockFailedAcknowledged && lock.fundedSatoshis === 0n) return;
     if (!lock.ratchets.some(ratchet => ratchet.mintAmount > 0n)) return;
     if (observedAtBlock !== undefined && lock.removalBlockNumber != null && lock.removalBlockNumber < observedAtBlock) {
       return;
     }
-    if (activeFission && !matchesMigratedFission(lock, activeFission)) return;
+    if (activeFission && !matchesMigratedFission(lock, lockId, activeFission)) return;
 
     const ratchets = lock.ratchets.map<IBitcoinFissionRatchetRecord>((ratchet, sourceRatchetIndex) => ({
       source: 'lock',
@@ -304,7 +330,7 @@ export class BitcoinFissionRecovery {
       tick: ratchet.tick,
       extrinsicIndex: ratchet.extrinsicIndex,
     }));
-    const lastUpdatedArgonBlock = ratchets.at(-1)?.blockNumber ?? lock.lockDetails.createdAtArgonBlock;
+    const lastUpdatedArgonBlock = ratchets.at(-1)?.blockNumber ?? lock.createdAtArgonBlock ?? 0;
     const wasReleased = lock.removalReason === 'released';
     const wasSpent = lock.removalReason === 'spent';
     const feeHistoryCompleteThroughBlock =
@@ -314,11 +340,11 @@ export class BitcoinFissionRecovery {
       ownerAccount: this.ownerAccount,
       fissionId,
       liquidId: fissionId,
-      utxoId: fissionId,
+      lockId,
       satoshis: lock.satoshis,
       microgonsAtTargetPerBtc: lock.lockedTargetPrice,
       liquidityPromised: lock.liquidityPromised,
-      createdAtArgonBlock: lock.lockDetails.createdAtArgonBlock,
+      createdAtArgonBlock: lock.createdAtArgonBlock ?? 0,
       ratchetNumber: 0,
       lastUpdatedArgonBlock,
       feeHistoryCompleteThroughBlock,
@@ -332,7 +358,7 @@ export class BitcoinFissionRecovery {
             closedBlockTime: lock.removalBlockTime,
             closedExtrinsicIndex: lock.removalExtrinsicIndex,
             closeReason: wasReleased ? ('closed' as const) : ('lock-spent' as const),
-            redemptionAmount: wasReleased ? lock.releaseRedemptionMicrogons : undefined,
+            redemptionAmount,
             btcPriceAtCloseMicrogons: lock.btcPriceAtRemovalMicrogons,
           }
         : {}),
@@ -347,7 +373,7 @@ export class BitcoinFissionRecovery {
     }
     if (
       history.liquidId !== active.liquidId ||
-      history.utxoId !== active.utxoId ||
+      history.lockId !== active.lockId ||
       history.satoshis !== active.satoshis ||
       history.createdAtArgonBlock !== active.createdAtArgonBlock ||
       history.microgonsAtTargetPerBtc !== active.microgonsAtTargetPerBtc ||
@@ -364,10 +390,10 @@ export class BitcoinFissionRecovery {
   }
 
   private recordReplayFailure(replay: FissionHistoryReplay, error?: unknown): boolean {
-    if (replay.currentFissionId === undefined || replay.currentFissionUtxoId === undefined) return false;
+    if (replay.currentFissionId === undefined || replay.currentFissionLockId === undefined) return false;
     replay.failureByFissionId.set(replay.currentFissionId, {
       message: readErrorMessage(error, 'Bitcoin Fission history replay failed'),
-      utxoId: replay.currentFissionUtxoId,
+      lockId: replay.currentFissionLockId,
     });
     return true;
   }
@@ -419,12 +445,12 @@ function readTransactionFee(
   return feeRecord.event.data.who === ownerAccount ? feeRecord.event.data.actualFee : 0n;
 }
 
-function matchesMigratedFission(lock: IHistoricalBitcoinLockRecord, fission: IBitcoinFission): boolean {
+function matchesMigratedFission(lock: IHistoricalBitcoinLockRecord, lockId: number, fission: IBitcoinFission): boolean {
   return (
     lock.utxoId === fission.fissionId &&
     fission.liquidId === fission.fissionId &&
-    fission.utxoId === fission.fissionId &&
-    fission.createdAtArgonBlock === lock.lockDetails.createdAtArgonBlock
+    fission.lockId === lockId &&
+    fission.createdAtArgonBlock === lock.createdAtArgonBlock
   );
 }
 

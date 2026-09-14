@@ -79,17 +79,21 @@
             <BitcoinIcon class="text-argon-600/60 w-20 animate-spin opacity-50" />
             <div class="grow pl-2">
               <div class="flex flex-row items-center gap-2 pt-3 pb-2 text-slate-800">
-                <span class="grow text-lg font-semibold">
-                  {{ satToBtcNm(liquid.satoshis).format('0,0.[0000]') }} BTC Liquid Is Being Created
+                <span class="grow text-lg font-semibold" :class="liquid.error ? 'text-amber-700' : ''">
+                  {{ satToBtcNm(liquid.satoshis).format('0,0.[0000]') }} BTC Liquid
+                  {{ liquid.error ? 'Needs Attention' : 'Is Being Created' }}
                 </span>
                 <button
                   class="border-argon-800/50 text-argon-600 hover:bg-argon-700 cursor-pointer rounded-md border px-4 py-0.5 font-semibold whitespace-nowrap hover:text-white hover:shadow-lg"
                   @click.stop="openPendingLiquidDetails(liquid)"
                 >
-                  View Progress
+                  {{ liquid.error ? 'Review' : 'View Progress' }}
                 </button>
               </div>
-              <div class="border-t border-slate-400/30 pt-3 pb-3">
+              <div v-if="liquid.error" class="border-t border-slate-400/30 pt-3 pb-3 text-sm text-amber-700">
+                {{ liquid.error }}
+              </div>
+              <div v-else class="border-t border-slate-400/30 pt-3 pb-3">
                 <ProgressBar :progress="liquid.progressPct" class="h-8" />
               </div>
             </div>
@@ -285,6 +289,7 @@ import ProgressBar from '../../components/ProgressBar.vue';
 import basicEmitter from '../../emitters/basicEmitter.ts';
 import numeral, { createNumeralHelpers } from '../../lib/numeral.ts';
 import type { BitcoinLiquid } from '../../lib/BitcoinLiquid.ts';
+import { getTransactionFailureMessage } from '../../lib/TransactionInfo.ts';
 import type { IBitcoinLockSummary } from '../../interfaces/IBitcoinLockSummary.ts';
 import type { IBitcoinLiquidFinancialPosition } from '../../interfaces/IFinancialPosition.ts';
 import { getBitcoinFissions, getBitcoinLockCoupons, getBitcoinTransactionOperations } from '../../stores/bitcoin.ts';
@@ -307,6 +312,7 @@ type PendingLiquidDisplay = {
   liquidId: number;
   satoshis: bigint;
   progressPct: number;
+  error?: string;
 };
 
 dayjs.extend(relativeTime);
@@ -345,12 +351,12 @@ const liquidRows = Vue.computed<LiquidDisplay[]>(() =>
         : undefined;
 
       for (const fission of liquid.fissions) {
-        const lockSummary = financials.bitcoinLockDisplayRecords.find(summary => summary.utxoId === fission.utxoId);
+        const lockSummary = financials.bitcoinLockDisplayRecords.find(summary => summary.lockId === fission.lockId);
         if (!lockSummary?.satoshis) continue;
 
-        if (!includedLockIds.has(fission.utxoId)) {
+        if (!includedLockIds.has(fission.lockId)) {
           lockSummaries.push(lockSummary);
-          includedLockIds.add(fission.utxoId);
+          includedLockIds.add(fission.lockId);
         }
       }
 
@@ -387,24 +393,22 @@ const liquidRows = Vue.computed<LiquidDisplay[]>(() =>
 const activeLiquidRows = Vue.computed(() => liquidRows.value.filter(liquid => !liquid.model.isClosed));
 const closedLiquidRows = Vue.computed(() => liquidRows.value.filter(liquid => liquid.model.isClosed));
 const pendingLiquidRows = Vue.computed<PendingLiquidDisplay[]>(() => {
-  const finalizedLiquidIds = new Set(liquidRows.value.map(liquid => liquid.model.liquidId));
-  const pendingLiquidIds = new Set<number>();
-  const rows: PendingLiquidDisplay[] = [];
+  const txInfoByLiquidId = new Map(
+    pendingLiquidCreateTxInfos.value.map(txInfo => [txInfo.tx.metadataJson.liquidId, txInfo]),
+  );
 
-  for (const txInfo of pendingLiquidCreateTxInfos.value) {
-    const { liquidId, fissions } = txInfo.tx.metadataJson;
-    if (finalizedLiquidIds.has(liquidId) || pendingLiquidIds.has(liquidId)) continue;
-    pendingLiquidIds.add(liquidId);
-
-    const satoshis = fissions.reduce((total, fission) => total + fission.satoshis, 0n);
-    rows.push({
-      liquidId,
-      satoshis,
-      progressPct: txInfo.getStatus().progressPct,
-    });
-  }
-
-  return rows;
+  return bitcoinFissions
+    .getPendingLiquids()
+    .map(liquid => {
+      const txInfo = txInfoByLiquidId.get(liquid.liquidId);
+      return {
+        liquidId: liquid.liquidId,
+        satoshis: liquid.satoshis,
+        progressPct: txInfo?.getStatus().progressPct ?? 0,
+        error: getTransactionFailureMessage(txInfo),
+      };
+    })
+    .toSorted((left, right) => right.liquidId - left.liquidId);
 });
 const selectedLiquid = Vue.computed(() => {
   const selected = liquidRows.value.find(liquid => liquid.model.liquidId === selectedLiquidId.value);

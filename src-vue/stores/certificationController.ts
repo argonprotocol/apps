@@ -240,9 +240,9 @@ export const useCertificationController = defineStore('certificationController',
   const certificationStepCount = allCertificationStepIds.length;
   const hasBitcoinFundingSeenOnBitcoin = Vue.computed(() => {
     return bitcoinLocks.getAllLocks().some(lock => {
-      const fundingRecord = bitcoinLocks.getAcceptedFundingRecord(lock) ?? lock.fundingUtxo;
-
-      return !!(fundingRecord?.mempoolObservation || fundingRecord?.firstSeenBitcoinHeight);
+      return bitcoinLocks
+        .getFundingUtxos(lock)
+        .some(record => record.mempoolObservation || record.firstSeenBitcoinHeight);
     });
   });
 

@@ -36,6 +36,8 @@ runWithReplay('Bitcoin financial history replay corpus', () => {
         let migratedActiveLockCount = 0;
         let recoveredLockCount = 0;
         const recoveryFailures: string[] = [];
+        const latestBlock = await corpusReader.getHeader(corpusReader.latestBlockNumber);
+        const latestApi = await corpusReader.getApi(latestBlock);
 
         for (const accountId of accountIds) {
           const blocks = corpusReader
@@ -44,23 +46,25 @@ runWithReplay('Bitcoin financial history replay corpus', () => {
             })
             .filter(block => block.specVersion >= 130);
           const utxoIds = corpusReader.findBitcoinLockIds(accountId);
-          const latestBlock = await corpusReader.getHeader(corpusReader.latestBlockNumber);
-          const latestApi = await corpusReader.getApi(latestBlock);
           const currentLocks = (
-            await Promise.all(utxoIds.map(utxoId => getHistoricalBitcoinLock(latestApi, utxoId)))
+            await Promise.all(utxoIds.map(lockId => getHistoricalBitcoinLock(latestApi, lockId)))
           ).filter(lock => lock !== undefined);
+          const historicalApis = await Promise.all(
+            blocks.map(async indexedBlock => {
+              const block = await corpusReader.getHeader(indexedBlock);
+              return { block, api: await corpusReader.getApi(block) };
+            }),
+          );
           const historicalLocks = new Map<
             number,
             { firstBlockNumber: number; lock: NonNullable<Awaited<ReturnType<typeof getHistoricalBitcoinLock>>> }
           >();
-          for (const utxoId of utxoIds) {
-            for (const indexedBlock of blocks) {
-              const block = await corpusReader.getHeader(indexedBlock);
-              const api = await corpusReader.getApi(block);
-              const lock = await getHistoricalBitcoinLock(api, utxoId);
+          for (const lockId of utxoIds) {
+            for (const { block, api } of historicalApis) {
+              const lock = await getHistoricalBitcoinLock(api, lockId);
               if (!lock) continue;
 
-              historicalLocks.set(utxoId, { firstBlockNumber: block.blockNumber, lock });
+              historicalLocks.set(lockId, { firstBlockNumber: block.blockNumber, lock });
               break;
             }
           }
@@ -71,13 +75,13 @@ runWithReplay('Bitcoin financial history replay corpus', () => {
           const db = await createTestDb();
 
           try {
-            const { blocks, recovered, results } = await replayBitcoinAccount({
+            const { recovered, results } = await replayBitcoinAccount({
               accountId,
               blockWatch: corpusReader as unknown as BlockWatch,
+              blocks,
               currentLocks,
               db,
               derivedLocks,
-              reader: corpusReader,
             });
             const errors = results.flatMap(result => Object.values(result.domainErrors));
             if (errors.length) {
@@ -90,15 +94,15 @@ runWithReplay('Bitcoin financial history replay corpus', () => {
             ).toEqual([blocks.length, blocks.length]);
 
             for (const currentLock of currentLocks) {
-              const lock = recovered.locks.find(record => record.utxoId === currentLock.utxoId);
-              const fission = recovered.fissions.find(record => record.utxoId === currentLock.utxoId);
+              const lock = recovered.locks.find(record => record.lockId === currentLock.utxoId);
+              const fission = recovered.fissions.find(record => record.lockId === currentLock.utxoId);
               expect(lock, `Active Bitcoin lock ${currentLock.utxoId}`).toMatchObject({
                 isFlexible: currentLock.isFlexible,
                 securitizedSatoshis: currentLock.securitizedSatoshis,
               });
               expect(fission, `Migrated Bitcoin Fission ${currentLock.utxoId}`).toMatchObject({
                 liquidityPromised: currentLock.liquidityPromised,
-                utxoId: currentLock.utxoId,
+                lockId: currentLock.utxoId,
               });
               if (currentLock.createdAtArgonBlock === 0) {
                 migratedActiveLockCount += 1;
@@ -111,7 +115,7 @@ runWithReplay('Bitcoin financial history replay corpus', () => {
             if (accountId === '5ERobxNTfGFsGEboBavwiHEVGDYuWquVwQTPNkhMZJAguSro') {
               expect(recovered.locks).toEqual([
                 expect.objectContaining({
-                  utxoId: 112,
+                  lockId: 112,
                   status: BitcoinLockStatus.LockFailedAcknowledged,
                   fundedSatoshis: 0n,
                 }),
@@ -119,12 +123,12 @@ runWithReplay('Bitcoin financial history replay corpus', () => {
               expect(recovered.fissions).toEqual([]);
             }
             if (accountId === '5Fs8wHUnwBHwXdKvUTNMKyENQrm92Rf2B96GCjqGANvcxhrL') {
-              expect(recovered.locks.find(record => record.utxoId === 110)?.couponFeesPaid).toBe(177_420_171n);
-              expect(recovered.fissions.find(record => record.utxoId === 110)?.ratchets[0]).toMatchObject({
+              expect(recovered.locks.find(record => record.lockId === 110)?.couponFeesPaid).toBe(177_420_171n);
+              expect(recovered.fissions.find(record => record.lockId === 110)?.ratchets[0]).toMatchObject({
                 securityFee: 144_528_009n,
                 securityFeeCoupon: 144_528_009n,
               });
-              expect(recovered.securitization?.terms.find(term => term.utxoId === 110)).toMatchObject({
+              expect(recovered.securitization?.terms.find(term => term.lockId === 110)).toMatchObject({
                 securitizedSatoshis: 6_692_135n,
                 cumulativeNetSecurityFee: 0n,
                 addedNetSecurityFee: 0n,
@@ -149,20 +153,15 @@ runWithReplay('Bitcoin financial history replay corpus', () => {
 async function replayBitcoinAccount(args: {
   accountId: string;
   blockWatch: BlockWatch;
+  blocks: ReturnType<CapturedHistoryReader['findActivityBlocks']>;
   currentLocks: NonNullable<Awaited<ReturnType<typeof getHistoricalBitcoinLock>>>[];
   db: Db;
   derivedLocks: {
     firstBlockNumber: number;
     lock: NonNullable<Awaited<ReturnType<typeof getHistoricalBitcoinLock>>>;
   }[];
-  reader: CapturedHistoryReader;
 }) {
-  const { accountId, blockWatch, currentLocks, db, derivedLocks, reader } = args;
-  const blocks = reader
-    .findActivityBlocks(accountId, {
-      activityMask: AccountActivityKind.BitcoinLock | AccountActivityKind.BitcoinMint,
-    })
-    .filter(block => block.specVersion >= 130);
+  const { accountId, blockWatch, blocks, currentLocks, db, derivedLocks } = args;
 
   const walletKeys = {
     defaultArgonAddress: accountId,
@@ -176,10 +175,14 @@ async function replayBitcoinAccount(args: {
     timeoutMs: recordingClient ? 30_000 : undefined,
     recover: async () => {
       const bitcoinLocks = createStore({ blockWatch, db, walletKeys });
-      for (const persisted of await db.bitcoinLocksTable.fetchAll()) {
-        if (persisted.utxoId !== undefined) bitcoinLocks.data.locksByUtxoId[persisted.utxoId] = persisted;
+      const [persistedLocks, persistedUtxos] = await Promise.all([
+        db.bitcoinLocksTable.fetchAll(),
+        db.bitcoinUtxosTable.fetchAll(),
+      ]);
+      for (const persisted of persistedLocks) {
+        if (persisted.lockId !== undefined) bitcoinLocks.data.locksByLockId[persisted.lockId] = persisted;
       }
-      await bitcoinLocks.utxoTracking.load();
+      bitcoinLocks.utxoTracking.load(persistedUtxos);
 
       const releaseRecovery = {
         findConfirmedRecoveredRelease: async () => undefined,
@@ -189,12 +192,13 @@ async function replayBitcoinAccount(args: {
         walletKeys,
         blockWatch,
         currency,
-        getLocksByUtxoId: () => bitcoinLocks.data.locksByUtxoId,
+        getLocksByLockId: () => bitcoinLocks.data.locksByLockId,
         getPendingLocks: () => bitcoinLocks.data.pendingLocks,
         waitForLockIdle: async () => undefined,
         onHistoryRecoveryComplete: () => undefined,
         onHistoryPublished: () => undefined,
         utxoTracking: bitcoinLocks.utxoTracking,
+        releases: bitcoinLocks.releases,
         dbPromise: Promise.resolve(db),
         insertPending: details =>
           db.bitcoinLocksTable.insertPending({
@@ -261,24 +265,22 @@ async function replayBitcoinAccount(args: {
           return db.walletHdKeysTable.fetchByScope({ keyRole: 'bitcoinLock', scopeKey: scopeKey.toString() });
         }),
       );
+      const [locks, fissions, securitization, utxos] = await Promise.all([
+        db.bitcoinLocksTable.fetchAll(),
+        db.bitcoinFissionsTable.fetchAll(accountId),
+        db.bitcoinSecuritizationHistoryTable.getPublishedSnapshot(accountId),
+        db.bitcoinUtxosTable.fetchAll(),
+      ]);
       return {
-        locks: (await db.bitcoinLocksTable.fetchAll()).map(
-          ({ updatedAt: _updatedAt, fundingUtxo, utxos, ...lock }) => ({
-            ...lock,
-            fundingUtxo: fundingUtxo ? omitUpdatedAt(fundingUtxo) : fundingUtxo,
-            utxos: utxos.map(omitUpdatedAt),
-          }),
-        ),
-        fissions: (await db.bitcoinFissionsTable.fetchAll(accountId)).map(
-          ({ updatedAt: _updatedAt, ...fission }) => fission,
-        ),
-        securitization: await db.bitcoinSecuritizationHistoryTable.getPublishedSnapshot(accountId),
-        utxos: (await db.bitcoinUtxosTable.fetchAll()).map(omitUpdatedAt),
+        locks: locks.map(({ updatedAt: _updatedAt, ...lock }) => lock),
+        fissions: fissions.map(({ updatedAt: _updatedAt, ...fission }) => fission),
+        securitization,
+        utxos: utxos.map(omitUpdatedAt),
         hdKeys: hdKeys.flat(),
       };
     },
   });
-  return { blocks, recovered, results };
+  return { recovered, results };
 }
 
 function omitUpdatedAt<T extends { updatedAt?: unknown }>({

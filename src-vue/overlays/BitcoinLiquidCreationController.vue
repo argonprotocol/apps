@@ -20,7 +20,7 @@ import basicEmitter from '../emitters/basicEmitter.ts';
 import type { IBitcoinLiquidSource } from '../interfaces/IBitcoinLiquidSource.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
 import type { BitcoinLiquid } from '../lib/BitcoinLiquid.ts';
-import type { TransactionInfo } from '../lib/TransactionInfo.ts';
+import { getTransactionFailureMessage, type TransactionInfo } from '../lib/TransactionInfo.ts';
 import { trackTransactionProgress } from '../lib/TransactionProgress.ts';
 import {
   BitcoinLiquidCreateStateChangedError,
@@ -70,7 +70,7 @@ const state = Vue.reactive<BitcoinLiquidCreationState>({
 const { isSubmitting, progressPct, progressLabel, errorMessage } = Vue.toRefs(state);
 const selectedSatoshis = Vue.ref(0n);
 const selectedVaultIds = Vue.ref(new Set<number>());
-const maximumSatoshisByUtxoId = Vue.ref<Record<number, bigint>>({});
+const maximumSatoshisByLockId = Vue.ref<Record<number, bigint>>({});
 const completedLiquidId = Vue.ref<number>();
 
 let previewTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -83,29 +83,30 @@ let isUnmounted = false;
 let transactionProgressCleanupFns: (() => void)[] = [];
 
 const activeFissions = Vue.computed(() => bitcoinFissions.getAll());
+const pendingLiquids = Vue.computed(() => bitcoinFissions.getPendingLiquids());
 const pendingLiquidCreateTxInfos = Vue.computed(() => bitcoinLiquidCreate.getPendingLiquidTxInfos());
 const activeLocks = Vue.computed(() =>
   bitcoinLocks.getAllLocks().filter(lock => lock.status === BitcoinLockStatus.LockFunded),
 );
-const allocatedSatoshisByUtxoId = Vue.computed(() => {
-  const byUtxoId = new Map<IBitcoinLockRecord['utxoId'], bigint>();
+const allocatedSatoshisByLockId = Vue.computed(() => {
+  const byLockId = new Map<IBitcoinLockRecord['lockId'], bigint>();
   const allocatedFissionIds = new Set<number>();
   for (const fission of activeFissions.value) {
-    byUtxoId.set(fission.utxoId, (byUtxoId.get(fission.utxoId) ?? 0n) + fission.satoshis);
+    byLockId.set(fission.lockId, (byLockId.get(fission.lockId) ?? 0n) + fission.satoshis);
     allocatedFissionIds.add(fission.fissionId);
   }
-  for (const txInfo of pendingLiquidCreateTxInfos.value) {
-    for (const fission of txInfo.tx.metadataJson.fissions) {
+  for (const liquid of pendingLiquids.value) {
+    for (const fission of liquid.fissions) {
       if (allocatedFissionIds.has(fission.fissionId)) continue;
-      byUtxoId.set(fission.utxoId, (byUtxoId.get(fission.utxoId) ?? 0n) + fission.satoshis);
+      byLockId.set(fission.lockId, (byLockId.get(fission.lockId) ?? 0n) + fission.satoshis);
       allocatedFissionIds.add(fission.fissionId);
     }
   }
-  return byUtxoId;
+  return byLockId;
 });
 const lockAvailability = Vue.computed(() =>
   activeLocks.value.map(lock => {
-    const allocatedSatoshis = allocatedSatoshisByUtxoId.value.get(lock.utxoId) ?? 0n;
+    const allocatedSatoshis = allocatedSatoshisByLockId.value.get(lock.lockId) ?? 0n;
     const unallocatedSatoshis = bigIntMax(lock.fundedSatoshis - allocatedSatoshis, 0n);
     const unallocatedSecuritizedSatoshis = bigIntMax(lock.securitizedSatoshis - allocatedSatoshis, 0n);
     return {
@@ -139,9 +140,9 @@ function open(options?: { liquidId: number }): void {
   completedLiquidId.value = undefined;
   progressPct.value = 0;
   progressLabel.value = '';
-  maximumSatoshisByUtxoId.value = Object.fromEntries(
+  maximumSatoshisByLockId.value = Object.fromEntries(
     activeLocks.value.flatMap((lock, index) =>
-      lock.utxoId == null ? [] : [[lock.utxoId, lockAvailability.value[index].unallocatedSatoshis]],
+      lock.lockId == null ? [] : [[lock.lockId, lockAvailability.value[index].unallocatedSatoshis]],
     ),
   );
   selectedVaultIds.value = new Set(
@@ -160,14 +161,15 @@ function open(options?: { liquidId: number }): void {
 
 function openPending(liquidId: number): void {
   const txInfo = pendingLiquidCreateTxInfos.value.find(candidate => candidate.tx.metadataJson.liquidId === liquidId);
-  if (!txInfo) return;
+  const liquid = pendingLiquids.value.find(candidate => candidate.liquidId === liquidId);
+  if (!txInfo || !liquid) return;
 
-  const { fissions } = txInfo.tx.metadataJson;
+  const fissions = liquid.fissions;
   const satoshis = fissions.reduce((total, fission) => total + fission.satoshis, 0n);
   state.sources = fissions.map(fission => {
-    const lock = activeLocks.value.find(candidate => candidate.utxoId === fission.utxoId);
+    const lock = activeLocks.value.find(candidate => candidate.lockId === fission.lockId);
     return {
-      key: lock?.uuid ?? `pending-liquid-${liquidId}-${fission.utxoId}`,
+      key: lock?.uuid ?? `pending-liquid-${liquidId}-${fission.lockId}`,
       vaultId: lock?.vaultId ?? 0,
       vaultName:
         lock === undefined
@@ -231,12 +233,12 @@ async function refreshPreview(requestedSatoshis: bigint): Promise<boolean> {
       });
     } catch (error) {
       if (!(error instanceof BitcoinLiquidCreateStateChangedError)) throw error;
-      if (!Object.keys(error.maximumSatoshisByUtxoId).length) throw error;
+      if (!Object.keys(error.maximumSatoshisByLockId).length) throw error;
       if (runId !== previewRunId) return false;
 
-      maximumSatoshisByUtxoId.value = {
-        ...maximumSatoshisByUtxoId.value,
-        ...error.maximumSatoshisByUtxoId,
+      maximumSatoshisByLockId.value = {
+        ...maximumSatoshisByLockId.value,
+        ...error.maximumSatoshisByLockId,
       };
       allocations = allocate(requestedSatoshis);
       selectedSatoshis.value = allocations.reduce((total, allocation) => total + allocation.satoshis, 0n);
@@ -269,9 +271,9 @@ async function refreshPreview(requestedSatoshis: bigint): Promise<boolean> {
     }
     if (runId !== previewRunId) return false;
 
-    maximumSatoshisByUtxoId.value = {
-      ...maximumSatoshisByUtxoId.value,
-      ...preview.maximumSatoshisByUtxoId,
+    maximumSatoshisByLockId.value = {
+      ...maximumSatoshisByLockId.value,
+      ...preview.maximumSatoshisByLockId,
     };
     selectedSatoshis.value = allocations.reduce((total, allocation) => total + allocation.satoshis, 0n);
     state.preview = preview;
@@ -307,23 +309,24 @@ async function submit(satoshis: bigint): Promise<void> {
     isSubmitting.value = false;
     errorMessage.value = error instanceof Error ? error.message : 'Unable to create this Liquid.';
     if (error instanceof BitcoinLiquidCreateStateChangedError) {
-      maximumSatoshisByUtxoId.value = {
-        ...maximumSatoshisByUtxoId.value,
-        ...error.maximumSatoshisByUtxoId,
+      maximumSatoshisByLockId.value = {
+        ...maximumSatoshisByLockId.value,
+        ...error.maximumSatoshisByLockId,
       };
       await refreshPreview(satoshis);
     }
   }
 }
 
-function retryTransaction(): void {
+async function retryTransaction(): Promise<void> {
   const txInfo = transactionInfo.value;
-  if (txInfo?.hasFailedPostProcessing) {
+  if (txInfo?.hasFailedPostProcessing && !getTransactionFailureMessage(txInfo)) {
     bitcoinLiquidCreate.resume(txInfo);
     trackCreateTransaction(txInfo);
     return;
   }
 
+  if (txInfo) bitcoinFissions.discardPendingLiquid(txInfo.tx.metadataJson.liquidId);
   cleanupTransactionProgress();
   transactionInfo.value = undefined;
   state.stage = 'form';
@@ -331,7 +334,7 @@ function retryTransaction(): void {
   progressPct.value = 0;
   progressLabel.value = '';
   errorMessage.value = '';
-  void refreshPreview(selectedSatoshis.value);
+  await refreshPreview(selectedSatoshis.value);
 }
 
 function showVaultSelection(): void {
@@ -368,7 +371,7 @@ function trackCreateTransaction(txInfo: TransactionInfo<IBitcoinLiquidCreateMeta
     error: errorMessage,
     onComplete: () => showCollectArgons(txInfo.tx.metadataJson.liquidId),
     onError: error => {
-      if (txInfo.hasFailedPostProcessing) {
+      if (txInfo.hasFailedPostProcessing && !getTransactionFailureMessage(txInfo)) {
         errorMessage.value = `The Liquid was created on-chain, but the app could not finish updating it. ${error.message}`;
       }
     },
@@ -379,14 +382,14 @@ function trackCreateTransaction(txInfo: TransactionInfo<IBitcoinLiquidCreateMeta
 function allocate(satoshis: bigint): BitcoinLiquidCreateAllocation[] {
   const maximums = Object.fromEntries(
     activeLocks.value.flatMap((lock, index) =>
-      lock.utxoId == null
+      lock.lockId == null
         ? []
         : [
             [
-              lock.utxoId,
+              lock.lockId,
               bigIntMin(
                 lockAvailability.value[index].unallocatedSatoshis,
-                maximumSatoshisByUtxoId.value[lock.utxoId] ?? lockAvailability.value[index].unallocatedSatoshis,
+                maximumSatoshisByLockId.value[lock.lockId] ?? lockAvailability.value[index].unallocatedSatoshis,
               ),
             ],
           ],
@@ -394,7 +397,7 @@ function allocate(satoshis: bigint): BitcoinLiquidCreateAllocation[] {
   );
   return BitcoinFission.allocateSatoshis({
     locks: activeLocks.value,
-    maximumSatoshisByUtxoId: maximums,
+    maximumSatoshisByLockId: maximums,
     selectedVaultIds: selectedVaultIds.value,
     requestedSatoshis: satoshis,
   }).map(({ lock, satoshis }) => {
@@ -408,9 +411,9 @@ function allocate(satoshis: bigint): BitcoinLiquidCreateAllocation[] {
 }
 
 function createSourcesForAllocations(allocations: BitcoinLiquidCreateAllocation[]): IBitcoinLiquidSource[] {
-  const selectedByUtxoId = new Map(allocations.map(allocation => [allocation.lock.utxoId, allocation.satoshis]));
+  const selectedByLockId = new Map(allocations.map(allocation => [allocation.lock.lockId, allocation.satoshis]));
   return activeLocks.value.flatMap((lock, index) => {
-    if (lock.utxoId == null) return [];
+    if (lock.lockId == null) return [];
     return [
       {
         key: lock.uuid,
@@ -421,8 +424,8 @@ function createSourcesForAllocations(allocations: BitcoinLiquidCreateAllocation[
             : (vaults.operatorNamesByVaultId[lock.vaultId] ?? `Vault ${lock.vaultId}`),
         unallocatedSatoshis: lockAvailability.value[index].unallocatedSatoshis,
         maximumLiquidSatoshis:
-          maximumSatoshisByUtxoId.value[lock.utxoId] ?? lockAvailability.value[index].unallocatedSatoshis,
-        selectedSatoshis: selectedByUtxoId.get(lock.utxoId) ?? 0n,
+          maximumSatoshisByLockId.value[lock.lockId] ?? lockAvailability.value[index].unallocatedSatoshis,
+        selectedSatoshis: selectedByLockId.get(lock.lockId) ?? 0n,
       },
     ];
   });

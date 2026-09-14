@@ -19,6 +19,7 @@ import { toPlain } from '@argonprotocol/runtime-client';
 import BigNumber from 'bignumber.js';
 import { MyVaultRecovery } from '../lib/recovery/MyVaultRecovery.ts';
 import { createCurrentLock } from './helpers/bitcoin.ts';
+import { BitcoinNetwork, CosignScript } from '@argonprotocol/bitcoin';
 
 type IMyVaultTestTarget = {
   buildPendingOrphanCosignTxs(args: {
@@ -26,7 +27,7 @@ type IMyVaultTestTarget = {
     submitClient: unknown;
     vaultId: number;
   }): Promise<Array<{ tx: unknown; metadata: unknown }>>;
-  recordPendingCosignUtxos(rawUtxoIds: Iterable<unknown>, updateSeq: number): Promise<void>;
+  recordPendingCosignUtxos(rawLockIds: Iterable<unknown>, updateSeq: number): Promise<void>;
   updateCollectDeadlines(): void;
   trackTxResultFee(txResult: unknown): Promise<void>;
   recordFee(txResult: { finalFee?: bigint; finalFeeTip?: bigint }): void;
@@ -77,6 +78,50 @@ describe('MyVault crosschain queue history', () => {
 });
 
 describe('MyVault cosign recovery', () => {
+  it('creates one ordered vault signature for every funding output in a lock release', async () => {
+    const { myVault } = createVault();
+    const fundingUtxos = [
+      { utxoRef: { txid: '1'.repeat(64), vout: 0 }, satoshis: 4_000n },
+      { utxoRef: { txid: '2'.repeat(64), vout: 2 }, satoshis: 6_000n },
+    ];
+    const lock = createCurrentLock({ lockId: 7, fundedSatoshis: 10_000n, fundingUtxos });
+    const signatures = [new Uint8Array([1]), new Uint8Array([2])];
+    const psbt = { kind: 'unsigned' };
+    const signedPsbt = {
+      getInput: (index: number) => ({ partialSig: [[new Uint8Array([0]), signatures[index]]] }),
+    };
+    const getFinalizedClient = vi.spyOn(mainchainStore, 'getFinalizedClient').mockResolvedValue({} as any);
+    const getLock = vi.spyOn(AppsCore.BitcoinLock, 'get').mockResolvedValue(lock as AppsCore.BitcoinLock);
+    const getBitcoinNetwork = vi.spyOn(myVault, 'getBitcoinNetwork').mockResolvedValue(BitcoinNetwork.Regtest);
+    const getVaultXpriv = vi.spyOn(myVault as any, 'getVaultXpriv').mockResolvedValue({});
+    const getCosignPsbt = vi.spyOn(CosignScript.prototype, 'getCosignPsbt').mockReturnValue(psbt as any);
+    const vaultCosignPsbt = vi.spyOn(CosignScript.prototype, 'vaultCosignPsbt').mockReturnValue(signedPsbt as any);
+
+    try {
+      await expect(
+        myVault.createVaultSignaturesForRelease({
+          lockId: 7,
+          releaseRequest: { toScriptPubkey: '0014abc123', bitcoinNetworkFee: 10n },
+        }),
+      ).resolves.toEqual({
+        fundingUtxos,
+        vaultSignatures: signatures,
+        vaultSignatureHexes: ['0x01', '0x02'],
+      });
+      expect(getCosignPsbt).toHaveBeenCalledWith({
+        utxos: fundingUtxos,
+        releaseRequest: { toScriptPubkey: '0014abc123', bitcoinNetworkFee: 10n },
+      });
+    } finally {
+      getFinalizedClient.mockRestore();
+      getLock.mockRestore();
+      getBitcoinNetwork.mockRestore();
+      getVaultXpriv.mockRestore();
+      getCosignPsbt.mockRestore();
+      vaultCosignPsbt.mockRestore();
+    }
+  });
+
   it('updates collect alert state from finalized data', async () => {
     const unsubscribe = vi.fn();
     const subscribeStorage = vi.fn(async () => unsubscribe);
@@ -210,7 +255,7 @@ describe('MyVault cosign recovery', () => {
       status: TransactionStatus.Submitted,
       submittedAtBlockHeight: 100,
       extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
-      metadataJson: { utxoId: 11 },
+      metadataJson: { lockId: 11 },
     });
     const { myVault } = createVault({ txInfos: [txInfo], finalizedHeight: 101 });
 
@@ -224,7 +269,7 @@ describe('MyVault cosign recovery', () => {
       status: TransactionStatus.Submitted,
       submittedAtBlockHeight: 100,
       extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
-      metadataJson: { utxoId: 12 },
+      metadataJson: { lockId: 12 },
     });
     const { myVault } = createVault({ txInfos: [txInfo], finalizedHeight: 103 });
 
@@ -240,7 +285,7 @@ describe('MyVault cosign recovery', () => {
       txNonce: 7,
       submittedAtBlockHeight: 100,
       extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
-      metadataJson: { utxoId: 20 },
+      metadataJson: { lockId: 20 },
     });
     const { myVault } = createVault({
       txInfos: [txInfo],
@@ -262,7 +307,7 @@ describe('MyVault cosign recovery', () => {
       blockHeight: 100,
       blockHash: '0xold',
       extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
-      metadataJson: { utxoId: 13 },
+      metadataJson: { lockId: 13 },
     });
     const { myVault, blockWatch } = createVault({
       txInfos: [txInfo],
@@ -285,7 +330,7 @@ describe('MyVault cosign recovery', () => {
       blockHeight: 100,
       blockHash: '0xold',
       extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
-      metadataJson: { utxoId: 23 },
+      metadataJson: { lockId: 23 },
     });
     const newerTxInfo = createTxInfo({
       id: 24,
@@ -294,7 +339,7 @@ describe('MyVault cosign recovery', () => {
       submittedAtBlockHeight: 101,
       accountAddress: txInfo.tx.accountAddress,
       extrinsicType: ExtrinsicType.VaultCollect,
-      metadataJson: { cosignedUtxoIds: [] },
+      metadataJson: { cosignedLockIds: [] },
     });
     const { myVault } = createVault({
       txInfos: [txInfo, newerTxInfo],
@@ -315,7 +360,7 @@ describe('MyVault cosign recovery', () => {
       id: 26,
       status: TransactionStatus.Finalized,
       extrinsicType: ExtrinsicType.VaultCollect,
-      metadataJson: { cosignedUtxoIds: [26] },
+      metadataJson: { cosignedLockIds: [26] },
       blockExtrinsicErrorJson: { message: 'PendingCosignsBeforeCollect' },
     });
     const { myVault } = createVault({
@@ -332,20 +377,20 @@ describe('MyVault cosign recovery', () => {
     const txInfo = createTxInfo({
       status: TransactionStatus.Submitted,
       extrinsicType: ExtrinsicType.VaultCosignBitcoinRelease,
-      metadataJson: { utxoId: 16 },
+      metadataJson: { lockId: 16 },
     });
     const { myVault } = createVault();
     const getMainchainClient = vi.spyOn(mainchainStore, 'getMainchainClient').mockResolvedValue({} as any);
     const testVault = myVault as unknown as IMyVaultTestTarget;
     vi.spyOn(testVault, 'updateCollectDeadlines').mockImplementation(() => undefined);
 
-    myVault.data.pendingCosignUtxosById.set(16, { targetValue: 1_000n });
-    myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.set(16, txInfo as TransactionInfo<{ utxoId: number }>);
+    myVault.data.pendingCosignLocksById.set(16, { targetValue: 1_000n });
+    myVault.data.myPendingBitcoinCosignTxInfosByLockId.set(16, txInfo as TransactionInfo<{ lockId: number }>);
 
     await testVault.recordPendingCosignUtxos([], 0);
 
-    expect(myVault.data.pendingCosignUtxosById.size).toBe(0);
-    expect(myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.size).toBe(0);
+    expect(myVault.data.pendingCosignLocksById.size).toBe(0);
+    expect(myVault.data.myPendingBitcoinCosignTxInfosByLockId.size).toBe(0);
 
     getMainchainClient.mockRestore();
   });
@@ -508,7 +553,7 @@ describe('MyVault cosign recovery', () => {
         vaultId: 7,
         actionType: 'collectRevenue',
         expectedCollectRevenue: 0n,
-        cosignedUtxoIds: [],
+        cosignedLockIds: [],
         moveTo: 'VaultingHold',
       },
     }) as TransactionInfo<any>;
@@ -531,7 +576,7 @@ describe('MyVault cosign recovery', () => {
         vaultId: 7,
         actionType: 'collectRevenue',
         expectedCollectRevenue: 40n,
-        cosignedUtxoIds: [],
+        cosignedLockIds: [],
         moveTo: 'VaultingHold',
       },
     }) as TransactionInfo<any>;
@@ -598,7 +643,7 @@ describe('MyVault cosign recovery', () => {
         vaultId: 7,
         actionType: 'collectRevenue',
         expectedCollectRevenue: 40n,
-        cosignedUtxoIds: [],
+        cosignedLockIds: [],
         moveTo: 'VaultingHold',
       },
     }) as TransactionInfo<any>;
@@ -617,11 +662,11 @@ describe('MyVault cosign recovery', () => {
         actionType: 'collectRevenue',
         councilApprovalCount: 0,
         expectedCollectRevenue: 40n,
-        cosignedUtxoIds: [],
+        cosignedLockIds: [],
         cosignedOrphanUtxos: [],
         moveTo: 'VaultingHold' as any,
       },
-      submittedCosignUtxoIds: [],
+      submittedCosignLockIds: [],
     });
     vi.spyOn(myVault as any, 'onVaultCollect').mockRejectedValue(new Error('post-processing failed'));
 
@@ -689,7 +734,7 @@ describe('MyVault cosign recovery', () => {
     myVault.data.createdVault = { vaultId: 7 } as any;
     myVault.data.pendingOrphanCosignCount = 2;
     const firstOrphanMetadata = {
-      lockUtxoId: 8,
+      lockId: 8,
       ownerAccount: 'owner-1',
       txid: 'a'.repeat(64),
       vout: 2,
@@ -797,11 +842,11 @@ describe('MyVault cosign recovery', () => {
         actionType: 'collectRevenue',
         councilApprovalCount: 2,
         expectedCollectRevenue: 40n,
-        cosignedUtxoIds: [],
+        cosignedLockIds: [],
         cosignedOrphanUtxos: [],
         moveTo: 'VaultingHold',
       },
-      submittedCosignUtxoIds: [],
+      submittedCosignLockIds: [],
     });
   });
 
@@ -869,11 +914,11 @@ describe('MyVault cosign recovery', () => {
         actionType: 'collectRevenue',
         councilApprovalCount: 0,
         expectedCollectRevenue: 40n,
-        cosignedUtxoIds: [],
+        cosignedLockIds: [],
         cosignedOrphanUtxos: [],
         moveTo: 'VaultingHold',
       },
-      submittedCosignUtxoIds: [],
+      submittedCosignLockIds: [],
     });
   });
 
@@ -1259,11 +1304,11 @@ describe('MyVault cosign recovery', () => {
   it('prepares flexible assets with the current runtime calls', async () => {
     const submittedTxInfo = createTxInfo({ extrinsicType: ExtrinsicType.VaultSetFlexibleAssets });
     const batchAll = vi.fn(txs => ({ kind: 'batch', txs }));
-    const setFlexible = vi.fn((utxoId, isFlexible) => ({ kind: 'bitcoin', utxoId, isFlexible }));
+    const setFlexible = vi.fn((lockId, isFlexible) => ({ kind: 'bitcoin', lockId, isFlexible }));
     const setBondLotFlexible = vi.fn((bondLotId, isFlexible) => ({ kind: 'bond', bondLotId, isFlexible }));
     const client = {
       query: {
-        bitcoinLocks: { lockReleaseRequestsByUtxoId: vi.fn(async () => null) },
+        bitcoinLocks: { lockReleaseRequestsById: vi.fn(async () => null) },
       },
       tx: {
         utility: { batchAll },
@@ -1286,7 +1331,7 @@ describe('MyVault cosign recovery', () => {
       bitcoinChanges: [
         {
           lock: createCurrentLock({
-            utxoId: 11,
+            lockId: 11,
             vaultId: 7,
             securitizationCoverageMicrogons: 1_000n,
             ownerAccount: signer.address,
@@ -1311,7 +1356,7 @@ describe('MyVault cosign recovery', () => {
 
     expect(result).toBe(submittedTxInfo);
     expect(batchAll).toHaveBeenCalledWith([
-      { kind: 'bitcoin', utxoId: 11, isFlexible: true },
+      { kind: 'bitcoin', lockId: 11, isFlexible: true },
       { kind: 'bond', bondLotId: 22, isFlexible: true },
     ]);
     expect(submitAndWatch).toHaveBeenCalledWith(

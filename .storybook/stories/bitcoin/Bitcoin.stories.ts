@@ -191,12 +191,13 @@ export const CreateLiquidWithoutSecuritization: Story = {
 export const CloseWhileCreatingLiquid: Story = {
   beforeEach: () => {
     setupBitcoinPortfolioScenario({ pendingLiquidCreation: true });
+    getBitcoinFissions().data.fissionsById = {};
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const body = within(canvasElement.ownerDocument.body);
 
-    await userEvent.click(canvas.getByRole('button', { name: 'Create Liquid' }));
+    await userEvent.click(canvas.getByRole('button', { name: /Create.*Liquid/ }));
     await userEvent.click(await body.findByRole('button', { name: 'Select Vaults' }));
     await userEvent.click(await body.findByRole('button', { name: 'Create Liquid' }));
     await body.findByText('Creating Liquid...');

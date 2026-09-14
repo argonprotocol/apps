@@ -18,6 +18,7 @@ import BigNumber from 'bignumber.js';
 import { toPlain, type TreasuryBondLotByIdResult } from '@argonprotocol/runtime-client';
 import type { IFinancialPosition } from '../interfaces/IFinancialPosition.ts';
 import type { IBitcoinFissionRecord } from '../interfaces/IBitcoinFissionRecord.ts';
+import type { IBitcoinReleaseRecord } from '../interfaces/IBitcoinReleaseRecord.ts';
 import type { IArgonAccountBalance, IArgonAccountSnapshot } from '../lib/WalletsForArgon.ts';
 import type { WalletForArgon } from '../lib/WalletForArgon.ts';
 import type { IMiningCohortFinancialRecord } from '../interfaces/db/ICohortFrameRecord.ts';
@@ -57,7 +58,7 @@ const mocks = vi.hoisted(() => {
     },
     bitcoinLocks: {
       data: {
-        locksByUtxoId: {} as Record<number, object>,
+        locksByLockId: {} as Record<number, object>,
         pendingLocks: [] as object[],
         latestArgonBlock: undefined as IBlockHeaderInfo | undefined,
         readiness: 'idle' as 'idle' | 'loading' | 'ready' | 'error',
@@ -72,6 +73,9 @@ const mocks = vi.hoisted(() => {
       isFinishedStatus: vi.fn(() => false),
       isReleaseStatus: vi.fn(() => false),
       isInactiveForVaultDisplay: vi.fn(() => false),
+      releases: {
+        getLatestForLock: vi.fn((): Partial<IBitcoinReleaseRecord> | undefined => undefined),
+      },
       refreshLockSummary: vi.fn(),
     },
     bitcoinFissions: {
@@ -328,7 +332,7 @@ describe('financials store lifecycle', () => {
     mocks.argonBonds.getOwnBondLots.mockClear();
     mocks.argonBonds.miningFrames.getFrameDate.mockClear();
     mocks.bitcoinLocks.data = {
-      locksByUtxoId: {},
+      locksByLockId: {},
       pendingLocks: [],
       latestArgonBlock: undefined,
       readiness: 'ready',
@@ -501,7 +505,7 @@ describe('financials store lifecycle', () => {
   it('publishes a locally created Bitcoin lock without rebuilding the account snapshot', async () => {
     mocks.config.hasExtensionTreasury = true;
     mocks.bitcoinLocks.data = reactive({
-      locksByUtxoId: {},
+      locksByLockId: {},
       pendingLocks: [],
       latestArgonBlock: undefined,
       readiness: 'ready',
@@ -541,7 +545,7 @@ describe('financials store lifecycle', () => {
         ownerAccount: '5default',
         fissionId: 7,
         liquidId: 9,
-        utxoId: 1,
+        lockId: 1,
         satoshis: 100_000n,
         liquidityPromised: 50n,
         microgonsAtTargetPerBtc: 100n,
@@ -568,7 +572,7 @@ describe('financials store lifecycle', () => {
       ownerAccount: '5default',
       fissionId: 7,
       liquidId: 9,
-      utxoId: summary.utxoId,
+      lockId: summary.lockId,
       satoshis: summary.satoshis,
       liquidityPromised: 50n,
       microgonsAtTargetPerBtc: 1_000_000n,
@@ -597,6 +601,8 @@ describe('financials store lifecycle', () => {
     const recovered: IBitcoinFissionRecord = {
       ...fission,
       origin: 'created',
+      createdAtArgonBlock: 1,
+      lastUpdatedArgonBlock: 1,
       ratchets: fission.ratchets,
       feeHistoryCompleteThroughBlock: 1,
       createdAt: new Date('2026-07-16T12:00:00Z'),
@@ -652,7 +658,7 @@ describe('financials store lifecycle', () => {
       ownerAccount: '5default',
       fissionId: 7,
       liquidId: 9,
-      utxoId: 1,
+      lockId: 1,
       satoshis: 40_000n,
       liquidityPromised: 50n,
       microgonsAtTargetPerBtc: 100n,
@@ -855,7 +861,7 @@ describe('financials store lifecycle', () => {
       ownerAccount: '5default',
       fissionId: 0,
       liquidId: 0,
-      utxoId: bitcoinSummary.utxoId,
+      lockId: bitcoinSummary.lockId,
       satoshis: bitcoinSummary.satoshis,
       liquidityPromised: 50n,
       microgonsAtTargetPerBtc: 100n,
@@ -865,9 +871,9 @@ describe('financials store lifecycle', () => {
     });
     fission.pendingMints = [
       {
-        queueIndex: 0,
+        queueIndex: 0n,
         fissionId: fission.fissionId,
-        utxoId: fission.utxoId,
+        lockId: fission.lockId,
         ownerAccount: fission.ownerAccount,
         remainingAmount: 50n,
         maxAmountPerFrame: 50n,
@@ -886,7 +892,7 @@ describe('financials store lifecycle', () => {
     expect(financials.financialPositionAggregate.groupSummaries.bonds.currentValue).toBe(20_000_000n);
     expect(financials.bondSummariesByAsset.ARGN.currentValue).toBe(0n);
     expect(financials.bondSummariesByAsset.ARGNOT.currentValue).toBe(20_000_000n);
-    expect(financials.financialPositionAggregate.netWorth).toBe(20_000_100n);
+    expect(financials.financialPositionAggregate.netWorth).toBe(20_000_200n);
     expect(mocks.blockWatch.getApi).toHaveBeenCalledWith(best1);
     expect(mocks.argonBonds.getOwnBondLots).not.toHaveBeenCalled();
     expect(mocks.walletHistoryRecovery.hasCompleteCoverage).toHaveBeenCalledWith(finalized.blockNumber);
@@ -903,7 +909,7 @@ describe('financials store lifecycle', () => {
     expect(financials.savingsTotalValue).toBe(100n);
     expect(financials.liquidNativeBalances.micronots).toBe(0n);
     expect(financials.financialPositionAggregate.groupSummaries.bonds.currentValue).toBe(20_000_000n);
-    expect(financials.financialPositionAggregate.netWorth).toBe(20_000_100n);
+    expect(financials.financialPositionAggregate.netWorth).toBe(20_000_200n);
     for (const group of ['liquid', 'mining', 'vaulting', 'bonds', 'bitcoin'] as const) {
       expect(financials.financialPositionAggregate.groupSummaries[group].observation).toMatchObject({
         blockNumber: best2.blockNumber,
@@ -1128,6 +1134,7 @@ describe('financials store lifecycle', () => {
     const persistedSummary = {
       ...cachedSummary,
       status: 'Released',
+      unlockAmount: 40n,
       receivedLiquidity: 30n,
       historicalTotalFees: 20n,
       record: {
@@ -1135,20 +1142,19 @@ describe('financials store lifecycle', () => {
         status: 'Released',
         removalReason: 'released',
         removalBlockTime: new Date('2026-07-17T12:00:00Z'),
-        releaseRedemptionMicrogons: 40n,
-        releaseArgonTxFeeMicrogons: 3n,
-        releaseCompensationMicrogons: 0n,
         btcPriceAtRemovalMicrogons: 1_200_000n,
         isHistoryRecoveryPending: false,
-        fundingUtxo: {
-          releaseBitcoinNetworkFee: 1_000n,
-        },
       },
     };
     mocks.config.hasExtensionTreasury = true;
     mocks.wallets.isLoadedPromise = new Promise(() => undefined);
     mocks.bitcoinLocks.getAllLocks.mockReturnValue([persistedSummary.record]);
     mocks.bitcoinLocks.createLockSummary.mockReturnValue(persistedSummary);
+    mocks.bitcoinLocks.releases.getLatestForLock.mockReturnValue({
+      argonTxFeeMicrogons: 3n,
+      bitcoinNetworkFee: 1_000n,
+      compensationMicrogons: 0n,
+    });
 
     const financials = useFinancials();
 
@@ -1199,7 +1205,7 @@ describe('financials store lifecycle', () => {
       ownerAccount: '5default',
       fissionId: 7,
       liquidId: 9,
-      utxoId: summary.utxoId,
+      lockId: summary.lockId,
       satoshis: summary.satoshis,
       liquidityPromised: 50n,
       microgonsAtTargetPerBtc: 1_000_000n,
@@ -1228,6 +1234,8 @@ describe('financials store lifecycle', () => {
     const recovered: IBitcoinFissionRecord = {
       ...fission,
       origin: 'created',
+      createdAtArgonBlock: finalized.blockNumber,
+      lastUpdatedArgonBlock: finalized.blockNumber,
       ratchets: fission.ratchets,
       feeHistoryCompleteThroughBlock: finalized.blockNumber,
       createdAt: new Date(finalized.blockTime),
@@ -1249,7 +1257,7 @@ describe('financials store lifecycle', () => {
       asOfBlock: finalized.blockNumber,
       terms: [
         {
-          utxoId: summary.utxoId,
+          lockId: summary.lockId,
           termIndex: 0,
           origin: 'created',
           startTick: 0,
@@ -1433,7 +1441,7 @@ function createAccountSnapshot(
 function createBitcoinSummary(pendingLiquidity: bigint, fissionedSatoshis = 0n) {
   const record = {
     uuid: 'bitcoin-lock',
-    utxoId: 1,
+    lockId: 1,
     status: 'LockFunded',
     satoshis: 100_000n,
     liquidityPromised: 50n,
@@ -1457,7 +1465,7 @@ function createBitcoinSummary(pendingLiquidity: bigint, fissionedSatoshis = 0n) 
 
   return {
     uuid: record.uuid,
-    utxoId: record.utxoId,
+    lockId: record.lockId,
     status: record.status,
     statusDetails: {
       hasObservedFundingSignal: true,

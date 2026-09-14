@@ -1,9 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { IWalletRecord } from '../lib/db/WalletsTable.ts';
 import { WalletForBitcoin } from '../lib/WalletForBitcoin.ts';
 import { WalletForEthereum } from '../lib/WalletForEthereum.ts';
+import { BitcoinLockStatus } from '../interfaces/IBitcoinLockRecord.ts';
+import { BitcoinUtxoSpendStatus, BitcoinUtxoStatus } from '../interfaces/IBitcoinUtxoRecord.ts';
+import { createLock, createStore } from './helpers/bitcoin.ts';
 import {
   closeWalletView,
+  getBitcoinDepositAttention,
   getInitialAddWalletOverlayState,
   getInitialWalletOverlayState,
   showAddWalletInOverlay,
@@ -125,5 +129,95 @@ describe('wallet overlay state', () => {
 
   it('labels cross-network transfers as moves', () => {
     expect(WALLET_MOVE_LABEL).toBe('MOVE');
+  });
+
+  it('keeps an observed UTXO on an older channel as pending inbound funding', () => {
+    const bitcoinLocks = createStore();
+    const lock = createLock({
+      uuid: 'multi-utxo-lock',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockFunded,
+      createdAt: '2026-09-13T00:00:00.000Z',
+    });
+    lock.fundedSatoshis = 5_000_000n;
+    lock.fundingUtxoIds = [1];
+    bitcoinLocks.data.locksByLockId[lock.lockId!] = lock;
+
+    const firstSeenAt = new Date('2026-09-13T00:01:00.000Z');
+    const observedUtxo = {
+      id: 2,
+      lockId: lock.lockId!,
+      txid: 'b'.repeat(64),
+      vout: 1,
+      satoshis: 5_000_000n,
+      network: 'testnet',
+      status: BitcoinUtxoStatus.SeenOnMempool,
+      spendStatus: BitcoinUtxoSpendStatus.Unspent,
+      firstSeenAt,
+      firstSeenBitcoinHeight: 101,
+      createdAt: firstSeenAt,
+      updatedAt: firstSeenAt,
+    };
+    bitcoinLocks.utxoTracking.load([
+      {
+        id: 1,
+        lockId: lock.lockId!,
+        txid: 'a'.repeat(64),
+        vout: 0,
+        satoshis: 5_000_000n,
+        network: 'testnet',
+        status: BitcoinUtxoStatus.FundingUtxo,
+        spendStatus: BitcoinUtxoSpendStatus.Unspent,
+        firstSeenAt,
+        firstSeenBitcoinHeight: 100,
+        createdAt: firstSeenAt,
+        updatedAt: firstSeenAt,
+      },
+      observedUtxo,
+    ]);
+    vi.spyOn(bitcoinLocks, 'isSecuritizationHoldExpired').mockReturnValue(true);
+    const wallet = new WalletForBitcoin(
+      () => bitcoinLocks,
+      () => lock.ownerAccount!,
+      {} as never,
+    );
+
+    expect(wallet.getPendingInboundUtxos()).toEqual([observedUtxo]);
+    expect(getBitcoinDepositAttention(wallet)).toBeUndefined();
+  });
+
+  it('selects the current channel by its securitization hold rather than its insurance', () => {
+    const bitcoinLocks = createStore();
+    const expired = createLock({
+      uuid: 'expired-hold',
+      utxoId: 7,
+      status: BitcoinLockStatus.LockFunded,
+      createdAt: '2026-09-13T00:00:00.000Z',
+    });
+    const current = createLock({
+      uuid: 'current-hold',
+      utxoId: 8,
+      status: BitcoinLockStatus.LockFunded,
+      createdAt: '2026-09-13T00:01:00.000Z',
+    });
+    const released = createLock({
+      uuid: 'released-hold',
+      utxoId: 9,
+      status: BitcoinLockStatus.Released,
+      createdAt: '2026-09-13T00:02:00.000Z',
+    });
+    current.securitizationCoverageMicrogons = 0n;
+    bitcoinLocks.data.locksByLockId[expired.lockId!] = expired;
+    bitcoinLocks.data.locksByLockId[current.lockId!] = current;
+    bitcoinLocks.data.locksByLockId[released.lockId!] = released;
+    vi.spyOn(bitcoinLocks, 'isSecuritizationHoldExpired').mockImplementation(lock => lock === expired);
+
+    const wallet = new WalletForBitcoin(
+      () => bitcoinLocks,
+      () => current.ownerAccount!,
+      {} as never,
+    );
+
+    expect(wallet.getChannelWithActiveSecuritizationHold()).toBe(current);
   });
 });

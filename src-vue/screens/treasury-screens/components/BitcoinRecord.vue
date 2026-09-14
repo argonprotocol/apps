@@ -79,7 +79,10 @@
         </div>
         <div SecondRow>
           <div class="fade-in-out text-argon-900/60 text-md pointer-events-none font-bold">
-            <CountdownClock :time="fundingExpirationTime" v-slot="{ days, hours, minutes, seconds, isFinished }">
+            <CountdownClock
+              :time="securitizationHoldExpirationTime"
+              v-slot="{ days, hours, minutes, seconds, isFinished }"
+            >
               <template v-if="isFinished">The time to complete this step has expired.</template>
               <template v-else>
                 You have {{ formatTimeRemaining(days, hours, minutes, seconds) }} to complete this step.
@@ -244,11 +247,13 @@ const emit = defineEmits<{
 const isActionHovered = Vue.ref(false);
 const lockRecord = Vue.computed(() => props.lockSummary.record);
 const liquidId = Vue.computed(() => {
-  if (props.lockSummary.utxoId === undefined) return;
-  const liquidIds = bitcoinFissions.getLiquidIdsForLock(props.lockSummary.utxoId);
+  if (props.lockSummary.lockId === undefined) return;
+  const liquidIds = bitcoinFissions.getLiquidIdsForLock(props.lockSummary.lockId);
   if (liquidIds.length === 1) return liquidIds[0];
 });
-const fundingExpirationTime = Vue.computed(() => dayjs.utc(bitcoinLocks.verifyExpirationTime(lockRecord.value)));
+const securitizationHoldExpirationTime = Vue.computed(() =>
+  dayjs.utc(bitcoinLocks.getSecuritizationHoldExpirationTime(lockRecord.value)),
+);
 const isHistoryRecoveryPaused = Vue.computed(() => financialHistory.historyRecoveryByDomain.bitcoin.state === 'error');
 const isRatchetPending = Vue.ref(false);
 const displayedRatchetPercent = Vue.computed(() => Math.round(props.lockSummary.ratchetPercent * 100) / 100);

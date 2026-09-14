@@ -20,14 +20,14 @@ export class BitcoinFission implements IBitcoinFission {
   public ownerAccount: string;
   public fissionId: number;
   public liquidId: number;
-  public utxoId: number;
+  public lockId: number;
   public satoshis: bigint;
   public microgonsAtTargetPerBtc: bigint;
   public liquidityPromised: bigint;
-  public createdAtArgonBlock: number;
+  public createdAtArgonBlock?: number;
   public ratchetNumber: number;
   public lastRatchetTick?: number;
-  public lastUpdatedArgonBlock: number;
+  public lastUpdatedArgonBlock?: number;
   public origin?: 'created' | 'lock-migration';
   public ratchets: IBitcoinFissionRatchet[];
   public createdAtTick?: number;
@@ -52,7 +52,7 @@ export class BitcoinFission implements IBitcoinFission {
     this.ownerAccount = data.ownerAccount;
     this.fissionId = data.fissionId;
     this.liquidId = data.liquidId;
-    this.utxoId = data.utxoId;
+    this.lockId = data.lockId;
     this.satoshis = data.satoshis;
     this.microgonsAtTargetPerBtc = data.microgonsAtTargetPerBtc;
     this.liquidityPromised = data.liquidityPromised;
@@ -81,20 +81,20 @@ export class BitcoinFission implements IBitcoinFission {
     this.pendingMints = [];
   }
 
-  public static allocateSatoshis<T extends { utxoId?: number; vaultId: number }>(args: {
+  public static allocateSatoshis<T extends { lockId?: number; vaultId: number }>(args: {
     locks: T[];
-    maximumSatoshisByUtxoId: Record<number, bigint>;
+    maximumSatoshisByLockId: Record<number, bigint>;
     selectedVaultIds: ReadonlySet<number>;
     requestedSatoshis: bigint;
   }): { lock: T; satoshis: bigint }[] {
-    const { locks, maximumSatoshisByUtxoId, selectedVaultIds, requestedSatoshis } = args;
+    const { locks, maximumSatoshisByLockId, selectedVaultIds, requestedSatoshis } = args;
     let remaining = requestedSatoshis;
     const allocations: { lock: T; satoshis: bigint }[] = [];
 
     for (const lock of locks) {
-      if (lock.utxoId == null || !selectedVaultIds.has(lock.vaultId) || remaining <= 0n) continue;
+      if (lock.lockId == null || !selectedVaultIds.has(lock.vaultId) || remaining <= 0n) continue;
 
-      const satoshis = bigIntMin(maximumSatoshisByUtxoId[lock.utxoId] ?? 0n, remaining);
+      const satoshis = bigIntMin(maximumSatoshisByLockId[lock.lockId] ?? 0n, remaining);
       if (satoshis <= 0n) continue;
 
       allocations.push({ lock, satoshis });
@@ -293,9 +293,11 @@ export class BitcoinFission implements IBitcoinFission {
       record.closedAtArgonBlock === this.closedAtArgonBlock &&
       (record.closedExtrinsicIndex ?? -1) > (this.closedExtrinsicIndex ?? -1);
     const recoveredCloseIsNewer = recoveredCloseIsAtLaterBlock || recoveredCloseIsLaterInSameBlock;
+    const recoveredLastUpdatedBlock = record.lastUpdatedArgonBlock ?? -1;
+    const currentLastUpdatedBlock = this.lastUpdatedArgonBlock ?? -1;
     const recoveredCurrentIsNewer =
-      record.lastUpdatedArgonBlock > this.lastUpdatedArgonBlock ||
-      (record.lastUpdatedArgonBlock === this.lastUpdatedArgonBlock && record.ratchetNumber > this.ratchetNumber);
+      recoveredLastUpdatedBlock > currentLastUpdatedBlock ||
+      (recoveredLastUpdatedBlock === currentLastUpdatedBlock && record.ratchetNumber > this.ratchetNumber);
     if (!recoveredCloseIsNewer && !recoveredCurrentIsNewer) {
       this.enrichRecoveredHistory(record);
       return;
@@ -370,12 +372,12 @@ export class BitcoinFission implements IBitcoinFission {
     client: ArgonClient;
     fissionId: number;
     liquidId: number;
-    utxoId: number;
+    lockId: number;
     satoshis: bigint;
     microgonsAtTargetPerBtc: bigint;
   }) {
-    const { client, fissionId, liquidId, utxoId, satoshis, microgonsAtTargetPerBtc } = args;
-    return client.tx.bitcoinFissions.create(fissionId, liquidId, utxoId, satoshis, microgonsAtTargetPerBtc);
+    const { client, fissionId, liquidId, lockId, satoshis, microgonsAtTargetPerBtc } = args;
+    return client.tx.bitcoinFissions.create(fissionId, liquidId, lockId, satoshis, microgonsAtTargetPerBtc);
   }
 
   public static createRatchetTx(args: { client: ArgonClient; fissionId: number; microgonsAtTargetPerBtc: bigint }) {
@@ -410,8 +412,8 @@ export class BitcoinFission implements IBitcoinFission {
     return BitcoinFission.fromRuntime(ownerAccount, fissionId, rawFission);
   }
 
-  public static async idsByLock(client: IQueryableClient, utxoId: number): Promise<number[]> {
-    const fissionIds = await client.query.bitcoinFissions.fissionIdsByLockId(utxoId);
+  public static async idsByLock(client: IQueryableClient, lockId: number): Promise<number[]> {
+    const fissionIds = await client.query.bitcoinFissions.fissionIdsByLockId(lockId);
     return [...(fissionIds ?? [])];
   }
 
@@ -420,10 +422,10 @@ export class BitcoinFission implements IBitcoinFission {
     return fissionId ?? 0;
   }
 
-  public static async pendingMintsForLock(client: IQueryableClient, utxoId: number): Promise<IBitcoinPendingMint[]> {
-    const pendingIndices = await client.query.mint.pendingMintUtxoIdLookup(utxoId);
+  public static async pendingMintsForLock(client: IQueryableClient, lockId: number): Promise<IBitcoinPendingMint[]> {
+    const pendingIndices = await client.query.mint.pendingMintIndicesByLockId(lockId);
     if (!pendingIndices) return [];
-    const pendingMints = await client.query.mint.pendingMintUtxosByIndex.multi(pendingIndices.map(BigInt));
+    const pendingMints = await client.query.mint.pendingBitcoinMintsByIndex.multi(pendingIndices);
 
     return (pendingMints ?? []).flatMap((rawMint, index) => {
       if (!rawMint || rawMint.fissionId === undefined) return [];
@@ -432,7 +434,7 @@ export class BitcoinFission implements IBitcoinFission {
         {
           queueIndex: pendingIndices[index],
           fissionId: rawMint.fissionId,
-          utxoId: rawMint.utxoId,
+          lockId: rawMint.lockId,
           ownerAccount: rawMint.accountId,
           remainingAmount: rawMint.remainingAmount,
           maxAmountPerFrame: rawMint.maxAmountPerFrame,
@@ -457,7 +459,7 @@ export class BitcoinFission implements IBitcoinFission {
     this.ownerAccount = current.ownerAccount;
     this.fissionId = current.fissionId;
     this.liquidId = current.liquidId;
-    this.utxoId = current.utxoId;
+    this.lockId = current.lockId;
     this.satoshis = current.satoshis;
     this.microgonsAtTargetPerBtc = current.microgonsAtTargetPerBtc;
     this.liquidityPromised = current.liquidityPromised;
@@ -472,14 +474,14 @@ export interface IBitcoinFission {
   ownerAccount: string;
   fissionId: number;
   liquidId: number;
-  utxoId: number;
+  lockId: number;
   satoshis: bigint;
   microgonsAtTargetPerBtc: bigint;
   liquidityPromised: bigint;
-  createdAtArgonBlock: number;
+  createdAtArgonBlock?: number;
   ratchetNumber: number;
   lastRatchetTick?: number;
-  lastUpdatedArgonBlock: number;
+  lastUpdatedArgonBlock?: number;
   origin?: 'created' | 'lock-migration';
   ratchets?: IBitcoinFissionRatchet[];
   createdAtTick?: number;
@@ -501,7 +503,12 @@ export interface IBitcoinFission {
 }
 
 export type IBitcoinFissionRecord = IBitcoinFission &
-  Required<Pick<IBitcoinFission, 'origin' | 'ratchets' | 'createdAt' | 'updatedAt'>>;
+  Required<
+    Pick<
+      IBitcoinFission,
+      'origin' | 'ratchets' | 'createdAtArgonBlock' | 'lastUpdatedArgonBlock' | 'createdAt' | 'updatedAt'
+    >
+  >;
 
 export interface IBitcoinFissionRatchet {
   source: 'lock' | 'fission';
@@ -530,9 +537,9 @@ export interface IBitcoinFissionRatchetAmounts {
 }
 
 export interface IBitcoinPendingMint {
-  queueIndex: number;
+  queueIndex: bigint;
   fissionId: number;
-  utxoId: number;
+  lockId: number;
   ownerAccount: string;
   remainingAmount: bigint;
   maxAmountPerFrame: bigint;

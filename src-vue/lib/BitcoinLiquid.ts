@@ -276,7 +276,7 @@ function createBitcoinLiquid(
               return (
                 term.startBlockNumber === first.blockNumber &&
                 term.startExtrinsicIndex === first.extrinsicIndex &&
-                fragments.some(({ fission }) => fission.utxoId === term.utxoId)
+                fragments.some(({ fission }) => fission.lockId === term.lockId)
               );
             });
       const securityFee = hasHistoricalSecurityFees
@@ -342,8 +342,8 @@ function createBitcoinLiquid(
   const hasCompleteFeeHistory = fissions.every(fission => {
     const requiredThroughBlock =
       fission.origin === 'lock-migration'
-        ? fission.lastUpdatedArgonBlock
-        : Math.max(fission.lastUpdatedArgonBlock, fission.closedAtArgonBlock ?? 0);
+        ? (fission.lastUpdatedArgonBlock ?? 0)
+        : Math.max(fission.lastUpdatedArgonBlock ?? 0, fission.closedAtArgonBlock ?? 0);
     const completeThroughBlock = fission.feeHistoryCompleteThroughBlock;
     return completeThroughBlock != null && completeThroughBlock >= requiredThroughBlock;
   });

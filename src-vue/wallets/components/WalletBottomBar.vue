@@ -101,7 +101,6 @@ import {
   DropdownMenuTrigger,
 } from 'reka-ui';
 import ProgressBar from '../../components/ProgressBar.vue';
-import { BitcoinUtxoStatus } from '../../interfaces/IBitcoinUtxoRecord.ts';
 import { abbreviateAddress } from '../../lib/Utils.ts';
 import { getEthereumWalletDisplayName } from '../../lib/Wallet.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
@@ -179,38 +178,42 @@ const pendingTransfers = Vue.computed<PendingTransfer[]>(() => {
       };
     });
 
-  const bitcoinChannelFundings = wallets.bitcoinWallet.getPendingChannelFundings().map<PendingTransfer>(channel => {
-    const fundingRecord =
-      channel.fundingUtxo ?? channel.utxos.find(record => record.status === BitcoinUtxoStatus.SeenOnMempool);
-    const progress = wallets.bitcoinWallet.getChannelProgress(channel);
+  const bitcoinChannelFundings = wallets.bitcoinWallet.getPendingInboundUtxos().flatMap<PendingTransfer>(utxo => {
+    const channel = bitcoinLocks.getLockById(utxo.lockId);
+    if (!channel) return [];
+
+    const progress = bitcoinLocks.utxoTracking.getFundingUtxoProcessingDetails(utxo);
     let detail = 'Bitcoin funding detected.';
     if (progress.confirmations < 0) {
       detail = 'Detected in the Bitcoin mempool. Waiting for the first confirmation...';
     } else if (progress.expectedConfirmations > 0) {
       detail = `Bitcoin confirmation ${Math.min(progress.confirmations + 1, progress.expectedConfirmations)} of ${progress.expectedConfirmations}`;
     }
-    return {
-      id: channel.uuid,
-      direction: 'inbound',
-      moveToken: MoveToken.BTC,
-      amount: progress.receivedSatoshis ?? fundingRecord?.satoshis ?? 0n,
-      fromLabel: 'Bitcoin Network',
-      toLabel: getBitcoinChannelLabel(channel.vaultId),
-      startedAt: fundingRecord?.firstSeenAt.getTime() ?? channel.updatedAt.getTime(),
-      updatedAt: fundingRecord?.updatedAt.getTime() ?? channel.updatedAt.getTime(),
-      progress: {
-        progressPct: progress.progressPct,
-        stepLabel: 'Funding Bitcoin channel',
-        detail,
-        error: wallets.bitcoinWallet.getChannelError(channel),
+    return [
+      {
+        id: `${channel.uuid}:${utxo.txid}:${utxo.vout}`,
+        direction: 'inbound',
+        moveToken: MoveToken.BTC,
+        amount: utxo.satoshis,
+        fromLabel: 'Bitcoin Network',
+        toLabel: getBitcoinChannelLabel(channel.vaultId),
+        startedAt: utxo.firstSeenAt.getTime(),
+        updatedAt: utxo.updatedAt.getTime(),
+        progress: {
+          progressPct: progress.progressPct,
+          stepLabel: 'Funding Bitcoin channel',
+          detail,
+          error: utxo.statusError ?? wallets.bitcoinWallet.getChannelError(channel),
+        },
       },
-    };
+    ];
   });
 
   const bitcoinChannelReleases = wallets.bitcoinWallet.getPendingChannelReleases().map<PendingTransfer>(channel => {
-    const fundingRecord = bitcoinLocks.getAcceptedFundingRecord(channel) ?? channel.fundingUtxo;
+    const release = bitcoinLocks.releases.getActiveForLock(channel);
+    const releaseDestination = release?.toScriptPubkey;
     const releaseState = bitcoinLocks.getLockUnlockReleaseState(channel);
-    const progress = bitcoinLocks.getReleaseProcessingDetails(channel);
+    const progress = bitcoinLocks.getReleaseProcessingDetails(release);
     let detail = 'Submitting the Bitcoin release on Argon...';
     if (releaseState.isWaitingForVaultCosign) {
       detail = 'Waiting for the channel co-signer';
@@ -221,33 +224,27 @@ const pendingTransfers = Vue.computed<PendingTransfer[]>(() => {
           : `Bitcoin confirmation ${Math.min(progress.confirmations + 1, progress.expectedConfirmations)} of ${progress.expectedConfirmations}`;
     }
     let destinationLabel = 'Bitcoin Network';
-    if (fundingRecord?.releaseToDestinationAddress) {
+    if (releaseDestination) {
       try {
-        destinationLabel = abbreviateAddress(
-          bitcoinLocks.formatAddressBytes(fundingRecord.releaseToDestinationAddress),
-          8,
-        );
+        destinationLabel = abbreviateAddress(bitcoinLocks.formatAddressBytes(releaseDestination), 8);
       } catch {
-        destinationLabel = abbreviateAddress(fundingRecord.releaseToDestinationAddress, 8);
+        destinationLabel = abbreviateAddress(releaseDestination, 8);
       }
     }
     return {
       id: channel.uuid,
       direction: 'outbound',
       moveToken: MoveToken.BTC,
-      amount: fundingRecord?.satoshis ?? channel.fundedSatoshis,
+      amount: channel.fundedSatoshis,
       fromLabel: getBitcoinChannelLabel(channel.vaultId),
       toLabel: destinationLabel,
-      startedAt:
-        fundingRecord?.releaseFirstSeenAt?.getTime() ??
-        fundingRecord?.updatedAt.getTime() ??
-        channel.updatedAt.getTime(),
-      updatedAt: fundingRecord?.releaseLastConfirmationCheckAt?.getTime() ?? channel.updatedAt.getTime(),
+      startedAt: (release?.bitcoinFirstSeenAt ?? release?.createdAt ?? channel.updatedAt).getTime(),
+      updatedAt: (release?.bitcoinLastConfirmationCheckAt ?? release?.updatedAt ?? channel.updatedAt).getTime(),
       progress: {
         progressPct: progress.progressPct,
         stepLabel: 'Sending Bitcoin',
         detail,
-        error: progress.releaseError ?? fundingRecord?.statusError ?? '',
+        error: progress.releaseError ?? '',
       },
     };
   });

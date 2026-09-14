@@ -390,7 +390,7 @@ const mintingAuthorizeUpdateMessage = Vue.ref('');
 const activeMintingAuthorizeTransactionCount = Vue.ref(0);
 
 const latestMyPendingBitcoinCosignTxInfo = Vue.computed(() => {
-  return Array.from(myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.values()).at(-1);
+  return Array.from(myVault.data.myPendingBitcoinCosignTxInfosByLockId.values()).at(-1);
 });
 
 const activeCollectTxInfos = Vue.computed(() => {
@@ -562,9 +562,9 @@ Vue.watch(
     myVault.mintingAuthorities.data.authorities.length,
     myVault.mintingAuthorities.data.pendingMintingAuthorizations.length,
     myVault.mintingAuthorities.data.pendingMintingAuthorizeTxInfosByTransferId.size,
-    myVault.data.pendingCosignUtxosById.size,
+    myVault.data.pendingCosignLocksById.size,
     myVault.data.pendingOrphanCosignCount,
-    myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.size,
+    myVault.data.myPendingBitcoinCosignTxInfosByLockId.size,
   ],
   () => {
     syncNoticeState();

@@ -8,16 +8,16 @@ describe('BitcoinFission', () => {
   it('allocates Liquid Bitcoin from only the selected vaults', () => {
     const allocations = BitcoinFission.allocateSatoshis({
       locks: [
-        { utxoId: 11, vaultId: 1 },
-        { utxoId: 22, vaultId: 2 },
-        { utxoId: 33, vaultId: 1 },
+        { lockId: 11, vaultId: 1 },
+        { lockId: 22, vaultId: 2 },
+        { lockId: 33, vaultId: 1 },
       ],
-      maximumSatoshisByUtxoId: { 11: 20n, 22: 40n, 33: 30n },
+      maximumSatoshisByLockId: { 11: 20n, 22: 40n, 33: 30n },
       selectedVaultIds: new Set([1]),
       requestedSatoshis: 80n,
     });
 
-    expect(allocations.map(({ lock, satoshis }) => [lock.utxoId, satoshis])).toEqual([
+    expect(allocations.map(({ lock, satoshis }) => [lock.lockId, satoshis])).toEqual([
       [11, 20n],
       [33, 30n],
     ]);
@@ -31,7 +31,7 @@ describe('BitcoinFission', () => {
       ownerAccount: 'owner',
       fissionId: 4,
       liquidId: 7,
-      utxoId: 10,
+      lockId: 10,
       satoshis: 50_000_000n,
       microgonsAtTargetPerBtc: 1_000n,
       liquidityPromised: 700n,
@@ -59,7 +59,7 @@ describe('BitcoinFission', () => {
       ownerAccount: 'owner',
       fissionId: 4,
       liquidId: 7,
-      utxoId: 10,
+      lockId: 10,
       satoshis: 50_000_000n,
       microgonsAtTargetPerBtc: 1_000n,
       liquidityPromised: 500n,
@@ -71,7 +71,7 @@ describe('BitcoinFission', () => {
       ownerAccount: 'owner',
       fissionId: 5,
       liquidId: 7,
-      utxoId: 11,
+      lockId: 11,
       satoshis: 50_000_000n,
       microgonsAtTargetPerBtc: 1_080n,
       liquidityPromised: 540n,
@@ -95,7 +95,7 @@ describe('BitcoinFission', () => {
       ownerAccount: 'owner',
       fissionId: 4,
       liquidId: 7,
-      utxoId: 10,
+      lockId: 10,
       satoshis: 50_000_000n,
       microgonsAtTargetPerBtc: 100_000_000_000n,
       liquidityPromised: 67_500_000_000n,

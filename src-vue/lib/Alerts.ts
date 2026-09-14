@@ -1,26 +1,9 @@
 import { NetworkConfig } from '@argonprotocol/apps-core';
 import { BITCOIN_BLOCK_MILLIS, TICK_MILLIS } from '../lib/Env.ts';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
-import type { IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
 import { BitcoinLockStatus } from '../lib/db/BitcoinLocksTable.ts';
+import type BitcoinLocks from './BitcoinLocks.ts';
 import type { IVaultCollectNotice } from './VaultCollectBuilder.ts';
-
-type IBitcoinUnlockReleaseState = {
-  isReleaseStatus: boolean;
-};
-
-type IBitcoinAlertSource = {
-  config: {
-    pendingConfirmationExpirationBlocks: number;
-  };
-  getLockByUtxoId(utxoId: number): IBitcoinLockRecord | undefined;
-  getActiveLocks(): IBitcoinLockRecord[];
-  getAcceptedFundingRecord(lock: IBitcoinLockRecord): IBitcoinUtxoRecord | undefined;
-  getLockUnlockReleaseState(lock: IBitcoinLockRecord): IBitcoinUnlockReleaseState;
-  isLockFunded(lock: IBitcoinLockRecord): boolean;
-  unlockDeadlineTime(lock: IBitcoinLockRecord): number;
-  verifyExpirationTime(lock: IBitcoinLockRecord): number;
-};
 
 export type IBitcoinAlert =
   | {
@@ -36,7 +19,7 @@ export type IBitcoinAlert =
       expiresAt: number;
     }
   | {
-      kind: 'fundingExpiring';
+      kind: 'securitizationHoldExpiring';
       lock: IBitcoinLockRecord;
       amountMicrogons: bigint;
       expiresAt: number;
@@ -66,17 +49,18 @@ export function buildAlertSummary(args: {
   return `You have ${actionLabel} needing your attention worth ${formattedAmount}.`;
 }
 
-export function getBitcoinAlertNotices(bitcoinLocks: IBitcoinAlertSource, now: number = Date.now()): IBitcoinAlert[] {
+export function getBitcoinAlertNotices(bitcoinLocks: BitcoinLocks, now: number = Date.now()): IBitcoinAlert[] {
   const alerts: IBitcoinAlert[] = [];
 
   for (const lock of bitcoinLocks.getActiveLocks()) {
-    const fundingRecord = bitcoinLocks.getAcceptedFundingRecord(lock) ?? lock.fundingUtxo;
-    if (bitcoinLocks.getLockUnlockReleaseState(lock).isReleaseStatus && fundingRecord?.statusError) {
+    const release = bitcoinLocks.releases.getActiveForLock(lock);
+    const releaseError = release?.statusError;
+    if (bitcoinLocks.getLockUnlockReleaseState(lock).isReleaseStatus && releaseError) {
       alerts.push({
         kind: 'unlockNeedsAttention',
         lock,
         amountMicrogons: lock.securitizationCoverageMicrogons ?? 0n,
-        error: fundingRecord.statusError,
+        error: releaseError,
       });
       continue;
     }
@@ -96,15 +80,13 @@ export function getBitcoinAlertNotices(bitcoinLocks: IBitcoinAlertSource, now: n
     }
 
     if (lock.status === BitcoinLockStatus.LockPendingFunding) {
-      const fundingExpiresAt = bitcoinLocks.verifyExpirationTime(lock);
-      if (
-        isFundingWindowNearExpiration(fundingExpiresAt, bitcoinLocks.config.pendingConfirmationExpirationBlocks, now)
-      ) {
+      const holdExpiresAt = bitcoinLocks.getSecuritizationHoldExpirationTime(lock);
+      if (isSecuritizationHoldNearExpiration(holdExpiresAt, bitcoinLocks.config.securitizationHoldBlocks, now)) {
         alerts.push({
-          kind: 'fundingExpiring',
+          kind: 'securitizationHoldExpiring',
           lock,
           amountMicrogons: lock.securitizationCoverageMicrogons ?? 0n,
-          expiresAt: fundingExpiresAt,
+          expiresAt: holdExpiresAt,
         });
       }
     }
@@ -149,16 +131,16 @@ function isAlertLockNearExpiration(
   return expiresAt > now && expiresAt < now + warningWindowMillis;
 }
 
-function isFundingWindowNearExpiration(
+function isSecuritizationHoldNearExpiration(
   expiresAt: number,
-  pendingConfirmationExpirationBlocks: number,
+  securitizationHoldBlocks: number,
   now: number,
   remainingThresholdRatio: number = 0.25,
 ): boolean {
-  if (expiresAt <= now || pendingConfirmationExpirationBlocks <= 0) {
+  if (expiresAt <= now || securitizationHoldBlocks <= 0) {
     return false;
   }
 
-  const totalFundingWindowMillis = pendingConfirmationExpirationBlocks * BITCOIN_BLOCK_MILLIS;
+  const totalFundingWindowMillis = securitizationHoldBlocks * BITCOIN_BLOCK_MILLIS;
   return expiresAt - now <= totalFundingWindowMillis * remainingThresholdRatio;
 }

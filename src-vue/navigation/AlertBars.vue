@@ -59,7 +59,9 @@
         </template>
 
         <div class="pr-3 text-white">
-          <template v-if="singleBitcoinAlert.kind === 'fundingExpiring'">Time to fund Bitcoin lock running out.</template>
+          <template v-if="singleBitcoinAlert.kind === 'securitizationHoldExpiring'">
+            Unused bitcoin insurance is expiring.
+          </template>
           <template v-else-if="singleBitcoinAlert.kind === 'unlockNeedsAttention'">
             Bitcoin unlock needs attention.
           </template>
@@ -306,7 +308,7 @@ const realAlertCount = Vue.computed(() => {
 
 const displayBitcoinAlerts = Vue.computed(() => {
   const alerts = bitcoinAlerts.value.map((alert, index) => ({
-    key: `${alert.kind}:${alert.lock.uuid}:${alert.lock.utxoId ?? 'pending'}:${index}`,
+    key: `${alert.kind}:${alert.lock.uuid}:${alert.lock.lockId ?? 'pending'}:${index}`,
     alert,
     isPreview: false,
     isLast: false,
@@ -376,7 +378,7 @@ function openBitcoinUnlock(lock: IBitcoinLockRecord) {
 function openSingleBitcoinAlert() {
   if (!singleBitcoinAlert.value) return;
 
-  if (singleBitcoinAlert.value.kind === 'fundingExpiring') {
+  if (singleBitcoinAlert.value.kind === 'securitizationHoldExpiring') {
     openBitcoinChannel(singleBitcoinAlert.value.lock);
     return;
   }

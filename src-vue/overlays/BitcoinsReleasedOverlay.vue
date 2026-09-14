@@ -7,7 +7,7 @@
   </div>
   <section
     v-for="lock in financials.liquidInvisibleRecords"
-    :key="lock.uuid ?? lock.utxoId"
+    :key="lock.uuid ?? lock.lockId"
     @click="openDetail(lock)"
     class="flex cursor-pointer flex-row items-center gap-2.5 rounded border border-slate-900/20 bg-slate-50 px-3.5 py-2 opacity-60 hover:opacity-80"
   >
@@ -42,7 +42,7 @@
         <span>
           {{ currency.symbol
           }}{{ microgonToMoneyNm(lock.historicalTransactionFees ?? lock.transactionFees).format('0,0.00') }}
-          {{ hasCompleteTransactionFees(lock.record) ? 'transaction fees' : 'known transaction fees' }}
+          {{ hasCompleteTransactionFees(lock) ? 'transaction fees' : 'known transaction fees' }}
         </span>
         <div class="flex grow flex-row items-stretch justify-center">
           <span class="h-full w-px bg-slate-400/50"></span>
@@ -61,8 +61,8 @@ import dayjs from 'dayjs';
 import BitcoinIcon from '../assets/wallets/bitcoin.svg?component';
 import { getCurrency } from '../stores/currency.ts';
 import numeral, { createNumeralHelpers } from '../lib/numeral.ts';
-import type { IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
 import type { IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
+import type { IBitcoinLockSummary } from '../interfaces/IBitcoinLockSummary.ts';
 import { useFinancials } from '../stores/financials.ts';
 
 const emit = defineEmits<{
@@ -87,11 +87,7 @@ function removalDateLabel(lock: IBitcoinLockRecord) {
   return 'released';
 }
 
-function hasCompleteTransactionFees(lock: IBitcoinLockRecord) {
-  return (
-    lock.releaseArgonTxFeeMicrogons !== undefined &&
-    lock.fundingUtxo?.releaseBitcoinNetworkFee !== undefined &&
-    lock.btcPriceAtRemovalMicrogons !== undefined
-  );
+function hasCompleteTransactionFees(lock: IBitcoinLockSummary) {
+  return lock.historicalTransactionFees !== undefined;
 }
 </script>

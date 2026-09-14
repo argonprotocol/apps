@@ -40,21 +40,29 @@ export default new Operation<IBitcoinFlowContext, IFundLockExactState>(import.me
 
     await flow.run(bitcoinActivateWallet);
     const minerAddress = createBitcoinAddress();
-    const txid = sendBitcoinToAddress(funding.address, funding.amountSatoshis);
-    await waitForBitcoinTransactionOutputSatoshis({
-      flowName,
-      txid,
-      address: funding.address,
-      minimumSatoshis: funding.amountSatoshis,
-      minerAddress,
-    });
-    await waitForBitcoinTransactionConfirmations({
-      flowName,
-      txid,
-      minimumConfirmations: 8,
-      minerAddress,
-      mineMode: 'missing',
-    });
+    const firstSatoshis = funding.amountSatoshis / 3n;
+    const fundingOutputs = [firstSatoshis, funding.amountSatoshis - firstSatoshis].map(satoshis => ({
+      satoshis,
+      txid: sendBitcoinToAddress(funding.address, satoshis),
+    }));
+    for (const { txid, satoshis } of fundingOutputs) {
+      await waitForBitcoinTransactionOutputSatoshis({
+        flowName,
+        txid,
+        address: funding.address,
+        minimumSatoshis: satoshis,
+        minerAddress,
+      });
+    }
+    for (const { txid } of fundingOutputs) {
+      await waitForBitcoinTransactionConfirmations({
+        flowName,
+        txid,
+        minimumConfirmations: 8,
+        minerAddress,
+        mineMode: 'missing',
+      });
+    }
 
     await flow.poll<IFundLockExactState>(latest => latest.state === 'complete', {
       pollMs: 1_000,

@@ -47,7 +47,7 @@ export const CurrentAndPriorRecords: Story = {
     const transactions = [
       createTransaction(1, ExtrinsicType.BitcoinResecuritize, {
         bitcoin: {
-          utxoId: 2,
+          lockId: 2,
           vaultId: 1,
           securitizedSatoshis: 709_140n,
           microgonsAtTargetPerBtc: 113_207_547_169n,
@@ -55,24 +55,24 @@ export const CurrentAndPriorRecords: Story = {
         },
       }),
       createTransaction(2, ExtrinsicType.BitcoinRequestRelease, {
-        utxoId: 2,
+        lockId: 2,
         toScriptPubkey: '0014prior',
         bitcoinNetworkFee: 1_000n,
       }),
       createTransaction(3, ExtrinsicType.BitcoinRequestRelease, {
-        utxoId: 3,
+        lockId: 3,
         toScriptPubkey: '0014current',
         bitcoinNetworkFee: 1_000n,
         redemptionAmount: 16_500_000n,
       }),
       createTransaction(4, ExtrinsicType.BitcoinRatchet, {
-        utxoId: 4,
+        lockId: 4,
         addedSecuritizationMicrogons: 12_500_000n,
       }),
       createTransaction(5, ExtrinsicType.BitcoinRatchet, {
         liquidId: 5,
         fissionIds: [10],
-        resecuritizedUtxoIds: [],
+        resecuritizedLockIds: [],
       }),
       createTransaction(6, ExtrinsicType.TreasuryReleaseBondLot, {
         bondLotId: 6,

@@ -40,7 +40,7 @@ const collectingFission = new BitcoinFission({
   ownerAccount: '5SyntheticLiquidOwner',
   fissionId: 401,
   liquidId: 401,
-  utxoId: 101,
+  lockId: 101,
   satoshis: 50_000_000n,
   microgonsAtTargetPerBtc: 68_000_000_000n,
   liquidityPromised: 34_000_000_000n,
@@ -49,9 +49,9 @@ const collectingFission = new BitcoinFission({
   lastUpdatedArgonBlock: 1_200,
 });
 collectingFission.pendingMints.push({
-  queueIndex: 44,
+  queueIndex: 44n,
   fissionId: 401,
-  utxoId: 101,
+  lockId: 101,
   ownerAccount: collectingFission.ownerAccount,
   remainingAmount: 34_000_000_000n,
   maxAmountPerFrame: 3_400_000_000n,
@@ -70,7 +70,7 @@ const preview = {
   totalSecurityFeeMicrogons: 12_500_000n,
   securityFeeMicrogons: 12_500_000n,
   couponCreditMicrogons: 0n,
-  maximumSatoshisByUtxoId: {},
+  maximumSatoshisByLockId: {},
 } satisfies IBitcoinLiquidCreatePreview;
 const state = {
   stage: 'form',
