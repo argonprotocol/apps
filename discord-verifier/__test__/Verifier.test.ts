@@ -248,6 +248,42 @@ describe('role proofs', () => {
     await verifier.close();
   });
 
+  it('fails closed before canonicalizing conflicting legacy SS58 bindings', () => {
+    const candidate = account('//DiscordCandidate');
+    const firstAlias = encodeAddress(candidate.publicKey, 0);
+    const secondAlias = encodeAddress(candidate.publicKey, 2);
+    const databasePath = temporaryDatabasePath();
+    const database = new DatabaseSync(databasePath);
+    database.exec(`
+      CREATE TABLE VerifiedUsers (
+        discordUserId TEXT PRIMARY KEY,
+        operationalAccountId TEXT NOT NULL UNIQUE,
+        roles TEXT NOT NULL CHECK (json_valid(roles) AND json_type(roles) = 'array'),
+        finalizedBlockNumber INTEGER NOT NULL
+      );
+    `);
+    const insert = database.prepare(
+      `INSERT INTO VerifiedUsers (discordUserId, operationalAccountId, roles, finalizedBlockNumber)
+       VALUES (?, ?, ?, ?)`,
+    );
+    insert.run(DISCORD_USER_ID, firstAlias, '["treasuryCertified"]', 123_456);
+    insert.run(SECOND_DISCORD_USER_ID, secondAlias, '["treasuryCertified"]', 123_456);
+    database.close();
+
+    expect(() => createVerifier(databasePath)).toThrow(
+      'VerifiedUsers contains conflicting Discord bindings for one operational account',
+    );
+
+    const unchanged = new DatabaseSync(databasePath);
+    expect(
+      unchanged.prepare(`SELECT discordUserId, operationalAccountId FROM VerifiedUsers ORDER BY discordUserId`).all(),
+    ).toEqual([
+      { discordUserId: DISCORD_USER_ID, operationalAccountId: firstAlias },
+      { discordUserId: SECOND_DISCORD_USER_ID, operationalAccountId: secondAlias },
+    ]);
+    unchanged.close();
+  });
+
   it('does not let a Discord account replace the operational account behind permanent grants', async () => {
     const upstream = account('//UpstreamOperator');
     const firstCandidate = account('//DiscordCandidate');

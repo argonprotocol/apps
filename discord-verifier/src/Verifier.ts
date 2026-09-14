@@ -251,17 +251,27 @@ export class Verifier {
       discordUserId: string;
       operationalAccountId: string;
     }[];
-    if (
-      !bindings.some(binding => binding.operationalAccountId !== canonicalizeAccountId(binding.operationalAccountId))
-    ) {
-      return;
-    }
+    const boundAccounts = new Set<string>();
+    let requiresCanonicalization = false;
+    const canonicalBindings = bindings.map(binding => {
+      const operationalAccountId = canonicalizeAccountId(binding.operationalAccountId);
+      if (boundAccounts.has(operationalAccountId)) {
+        throw new Error(
+          'VerifiedUsers contains conflicting Discord bindings for one operational account. ' +
+            'Remove all but the correct binding before restarting the verifier.',
+        );
+      }
+      boundAccounts.add(operationalAccountId);
+      requiresCanonicalization ||= binding.operationalAccountId !== operationalAccountId;
+      return { discordUserId: binding.discordUserId, operationalAccountId };
+    });
+    if (!requiresCanonicalization) return;
 
     this.db.exec('BEGIN IMMEDIATE');
     try {
       const update = this.db.prepare(`UPDATE VerifiedUsers SET operationalAccountId = ? WHERE discordUserId = ?`);
-      for (const binding of bindings) {
-        update.run(canonicalizeAccountId(binding.operationalAccountId), binding.discordUserId);
+      for (const binding of canonicalBindings) {
+        update.run(binding.operationalAccountId, binding.discordUserId);
       }
       this.db.exec('COMMIT');
     } catch (error) {
