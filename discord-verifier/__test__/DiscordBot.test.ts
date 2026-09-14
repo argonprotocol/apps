@@ -31,7 +31,7 @@ describe('Discord bot', () => {
         description: 'Create a private code to connect Argon Desktop',
         type: 1,
         integrationTypes: [0, 1],
-        contexts: [0, 1, 2],
+        contexts: [0, 1],
       },
     ]);
   });
@@ -99,9 +99,7 @@ describe('Discord bot', () => {
 
     await bot.grantRoles(DISCORD_USER_ID, ['treasuryUser', 'operationallyCertified']);
 
-    expect(memberRoleIds).toEqual(
-      new Set([existingRoleId, '111111111111111111', '333333333333333333']),
-    );
+    expect(memberRoleIds).toEqual(new Set([existingRoleId, '111111111111111111', '333333333333333333']));
     await bot.close();
     await verifier.close();
   });
@@ -124,7 +122,7 @@ describe('Discord bot', () => {
       reply,
     };
 
-    await (bot as any).handle(interaction);
+    await (bot as unknown as { handle(value: typeof interaction): Promise<void> }).handle(interaction);
 
     expect(reply).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -157,7 +155,7 @@ describe('Discord bot', () => {
       reply: vi.fn(),
     };
 
-    await (bot as any).replyWithError(interaction);
+    await (bot as unknown as { replyWithError(value: typeof interaction): Promise<void> }).replyWithError(interaction);
 
     expect(interaction.editReply).toHaveBeenCalledWith(
       expect.objectContaining({ content: 'Argon role verification is temporarily unavailable.' }),

@@ -57,7 +57,7 @@ export const discordApplicationCommands = [
     description: 'Create a private code to connect Argon Desktop',
     type: ApplicationCommandType.ChatInput,
     integrationTypes: installTypes,
-    contexts,
+    contexts: [InteractionContextType.Guild, InteractionContextType.BotDM],
   },
 ] satisfies ApplicationCommandDataResolvable[];
 

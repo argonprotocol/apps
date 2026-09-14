@@ -4,6 +4,7 @@ import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { getClient, type ArgonClient } from '@argonprotocol/mainchain';
 import { runtimeClient } from '@argonprotocol/runtime-client';
+import { decodeAddress, encodeAddress } from '@polkadot/util-crypto';
 import {
   DISCORD_ROLE_ORDER,
   verifyDiscordRoleProof,
@@ -61,6 +62,7 @@ export class Verifier {
         finalizedBlockNumber INTEGER NOT NULL
       );
     `);
+    this.canonicalizeOperationalAccountIds();
   }
 
   public issueCode(discordUserId: string, now = Date.now()): { code: string; expiresAt: number } {
@@ -98,6 +100,7 @@ export class Verifier {
     if (!verifyDiscordRoleProof(proof, signature)) {
       throw new Error('Discord role proof signature is invalid.');
     }
+    const canonicalOperationalAccountId = canonicalizeAccountId(operationalAccountId);
 
     const roles: DiscordEarnedRole[] = [];
     if (accessProof && verifyOperationalAccessProof(accessProof, operationalAccountId) && upstream?.isRegistered) {
@@ -113,12 +116,12 @@ export class Verifier {
         .prepare(`SELECT operationalAccountId, roles FROM VerifiedUsers WHERE discordUserId = ?`)
         .get(discordUserId) as { operationalAccountId: string; roles: string } | undefined;
       const { operationalAccountId: boundAccountId, roles: currentRoles = '[]' } = currentUser ?? {};
-      if (boundAccountId && boundAccountId !== operationalAccountId) {
+      if (boundAccountId && boundAccountId !== canonicalOperationalAccountId) {
         throw new Error('Discord account is already bound to another operational account.');
       }
       const existing = this.db
         .prepare(`SELECT discordUserId FROM VerifiedUsers WHERE operationalAccountId = ?`)
-        .get(operationalAccountId) as { discordUserId: string } | undefined;
+        .get(canonicalOperationalAccountId) as { discordUserId: string } | undefined;
       const { discordUserId: boundDiscordUserId } = existing ?? {};
       if (boundDiscordUserId && boundDiscordUserId !== discordUserId) {
         throw new Error('Operational account is already bound to another Discord account.');
@@ -136,7 +139,7 @@ export class Verifier {
         )
         .run(
           discordUserId,
-          operationalAccountId,
+          canonicalOperationalAccountId,
           JSON.stringify(DISCORD_ROLE_ORDER.filter(role => granted.has(role))),
           candidate.finalizedBlockNumber,
         );
@@ -193,7 +196,7 @@ export class Verifier {
 
     const user = this.db
       .prepare(`SELECT discordUserId FROM VerifiedUsers WHERE operationalAccountId = ?`)
-      .get(operationalAccountId) as { discordUserId: string } | undefined;
+      .get(canonicalizeAccountId(operationalAccountId)) as { discordUserId: string } | undefined;
     if (!user) throw new Error('Discord account is not connected. Run /connect-desktop-app first.');
     return user;
   }
@@ -242,4 +245,32 @@ export class Verifier {
     await connection?.then(client => client.disconnect()).catch(() => undefined);
     this.db.close();
   }
+
+  private canonicalizeOperationalAccountIds(): void {
+    const bindings = this.db.prepare(`SELECT discordUserId, operationalAccountId FROM VerifiedUsers`).all() as {
+      discordUserId: string;
+      operationalAccountId: string;
+    }[];
+    if (
+      !bindings.some(binding => binding.operationalAccountId !== canonicalizeAccountId(binding.operationalAccountId))
+    ) {
+      return;
+    }
+
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const update = this.db.prepare(`UPDATE VerifiedUsers SET operationalAccountId = ? WHERE discordUserId = ?`);
+      for (const binding of bindings) {
+        update.run(canonicalizeAccountId(binding.operationalAccountId), binding.discordUserId);
+      }
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+}
+
+function canonicalizeAccountId(accountId: string): string {
+  return encodeAddress(decodeAddress(accountId));
 }
