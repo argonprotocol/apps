@@ -44,7 +44,7 @@ import {
   type IHistoricalBitcoinLockRecord,
 } from './BitcoinLockReplay.ts';
 import {
-  getHistoricalBitcoinFundingUtxoRef,
+  getHistoricalBitcoinFundingUtxos,
   getHistoricalBitcoinLock,
   getHistoricalBitcoinPendingMints,
   getHistoricalBitcoinReleaseRequest,
@@ -775,14 +775,9 @@ export class BitcoinLockRecovery {
           if (recovered.status === BitcoinLockStatus.LockPendingFunding) {
             recovered.status = BitcoinLockStatus.LockFunded;
           }
-          const utxoRef = await getHistoricalBitcoinFundingUtxoRef(api, utxoId);
-          if (utxoRef) {
-            await this.syncRecoveredFundingUtxos(recovered, [
-              {
-                utxoRef,
-                satoshis: recovered.satoshis,
-              },
-            ]);
+          const fundingUtxos = await getHistoricalBitcoinFundingUtxos(api, utxoId, recovered.satoshis);
+          if (fundingUtxos.length) {
+            await this.syncRecoveredFundingUtxos(recovered, fundingUtxos);
           }
         }
 
@@ -896,14 +891,9 @@ export class BitcoinLockRecovery {
         }
         let fundingUtxos = this.getRecoveredFundingUtxos(recovered);
         if (!fundingUtxos.length) {
-          const utxoRef = await getHistoricalBitcoinFundingUtxoRef(api, utxoId);
-          if (utxoRef) {
-            fundingUtxos = await this.syncRecoveredFundingUtxos(recovered, [
-              {
-                utxoRef,
-                satoshis: recovered.satoshis,
-              },
-            ]);
+          const recoveredFundingUtxos = await getHistoricalBitcoinFundingUtxos(api, utxoId, recovered.satoshis);
+          if (recoveredFundingUtxos.length) {
+            fundingUtxos = await this.syncRecoveredFundingUtxos(recovered, recoveredFundingUtxos);
           }
         }
         if (!fundingUtxos.length) throw new Error(`Bitcoin lock ${utxoId} release has no recovered funding inputs`);
