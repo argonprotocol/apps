@@ -53,7 +53,7 @@ export async function readInstalledRuntimeSource(packageDirectory: string): Prom
 async function readCachedRuntimeSource(source: string): Promise<RuntimeSourceContents> {
   const cachePath = runtimeSourceCachePath(source);
   const cached = await Fs.readFile(cachePath, 'utf8').catch(() => undefined);
-  if (cached) {
+  if (cached !== undefined) {
     try {
       const parsed: unknown = JSON.parse(cached);
       if (isCachedRuntimeSource(parsed, source)) {
@@ -61,8 +61,9 @@ async function readCachedRuntimeSource(source: string): Promise<RuntimeSourceCon
         return contents;
       }
     } catch {
-      // A cache entry is derived state. Fall through to the authoritative source.
+      // Invalid derived state is handled below.
     }
+    await Fs.rm(cachePath, { force: true }).catch(() => undefined);
   }
 
   const contents = await (source.startsWith('argonprotocol/') ? fetchGitSource(source) : fetchNpmSource(source));
