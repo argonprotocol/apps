@@ -403,6 +403,7 @@ describe('Bitcoin lock release', () => {
       fundingUtxoIds: [fundingUtxo.id],
       activeReleaseId: undefined,
     });
+    expect(restarted.releases.getLatestForLock(restarted.lock)).toBeUndefined();
   });
 });
 

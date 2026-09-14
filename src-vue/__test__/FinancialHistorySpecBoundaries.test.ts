@@ -4,7 +4,7 @@ import type { Codec } from '@polkadot/types-codec/types';
 import { describe, expect, it, vi } from 'vitest';
 import { ArgonBonds } from '../lib/ArgonBonds.ts';
 import { FinancialHistoryImporter } from '../lib/recovery/index.ts';
-import { getHistoricalBitcoinLock } from '../lib/recovery/BitcoinLockHistory.ts';
+import { getHistoricalBitcoinFundingUtxos, getHistoricalBitcoinLock } from '../lib/recovery/BitcoinLockHistory.ts';
 import { VaultHistory } from '../lib/recovery/MyVault.ts';
 import { createTestDb } from './helpers/db.ts';
 import { createHistoricalEventData } from '../../indexer/__test__/helpers/historicalEvents.ts';
@@ -60,7 +60,10 @@ describe('financial history spec boundaries', () => {
       securitizationCoverageMicrogons: 499_433_743n,
       securitizationTick: 923_350n,
       fundedSatoshis: 488_275n,
-      fundingUtxos: [[{ txid: '00'.repeat(32), outputIndex: 0 }, 488_275n]],
+      fundingUtxos: [
+        [{ txid: '00'.repeat(32), outputIndex: 0 }, 288_275n],
+        [{ txid: '11'.repeat(32), outputIndex: 1 }, 200_000n],
+      ],
       fissionedSatoshis: 200_000n,
       ownerAccount: accountId,
       securitizationRatio: new BigNumber(1),
@@ -84,7 +87,9 @@ describe('financial history spec boundaries', () => {
       query: { bitcoinLocks: { locksById } },
     };
 
-    const lock = await getHistoricalBitcoinLock(runtimeClient(rawClient) as never, 10);
+    const client = runtimeClient(rawClient) as never;
+    const lock = await getHistoricalBitcoinLock(client, 10);
+    const fundingUtxos = await getHistoricalBitcoinFundingUtxos(client, 10, 0n);
 
     expect(lock).toMatchObject({
       utxoId: 10,
@@ -96,6 +101,10 @@ describe('financial history spec boundaries', () => {
       securityFees: 3_000_000n,
       couponFeesPaid: 2_000_000n,
     });
+    expect(fundingUtxos).toEqual([
+      { utxoRef: { txid: '00'.repeat(32), vout: 0 }, satoshis: 288_275n },
+      { utxoRef: { txid: '11'.repeat(32), vout: 1 }, satoshis: 200_000n },
+    ]);
   });
 
   it('passes supported activity through runtime boundaries while skipping only an unsupported domain block', async () => {

@@ -21,7 +21,7 @@ vi.mock('../stores/mainchain.ts', () => ({
 }));
 vi.mock('../lib/recovery/BitcoinLockHistory.ts', async importOriginal => ({
   ...(await importOriginal()),
-  getHistoricalBitcoinFundingUtxoRef: vi.fn(),
+  getHistoricalBitcoinFundingUtxos: vi.fn(),
   getHistoricalBitcoinLock: vi.fn(),
   getHistoricalBitcoinPendingMints: vi.fn(),
   getHistoricalBitcoinReleaseRequest: vi.fn(),
@@ -69,9 +69,9 @@ describe('BitcoinLocks historical event replay', () => {
       .mockResolvedValueOnce(verifiedLock)
       .mockResolvedValueOnce(ratchetedLock)
       .mockResolvedValueOnce(twiceRatchetedLock);
-    vi.mocked(BitcoinHistory.getHistoricalBitcoinFundingUtxoRef)
-      .mockResolvedValueOnce(undefined)
-      .mockResolvedValue({ txid: 'funding-txid', vout: 0 });
+    vi.mocked(BitcoinHistory.getHistoricalBitcoinFundingUtxos)
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([{ utxoRef: { txid: 'funding-txid', vout: 0 }, satoshis: verifiedLock.fundedSatoshis }]);
     vi.mocked(BitcoinHistory.getHistoricalBitcoinPendingMints).mockResolvedValueOnce([]).mockResolvedValue([100n]);
     vi.mocked(BitcoinHistory.getHistoricalBitcoinReleaseRequest).mockResolvedValue({
       toScriptPubkey: '0x0014',
@@ -259,7 +259,7 @@ describe('BitcoinLocks historical event replay', () => {
       })
       .mockResolvedValueOnce(createHistoricalLock({ accountId, liquidityPromised: 1_200n, lockedTargetPrice: 1_300n }))
       .mockResolvedValueOnce(createHistoricalLock({ accountId, liquidityPromised: 1_400n, lockedTargetPrice: 1_500n }));
-    vi.mocked(BitcoinHistory.getHistoricalBitcoinFundingUtxoRef).mockResolvedValue(undefined);
+    vi.mocked(BitcoinHistory.getHistoricalBitcoinFundingUtxos).mockResolvedValue([]);
     await store.recovery.beginHistoryReplay();
 
     await store.recovery.recoverBlock(historyBlock(151), [
