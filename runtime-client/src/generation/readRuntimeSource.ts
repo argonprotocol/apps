@@ -1,4 +1,6 @@
+import { createHash, randomUUID } from 'node:crypto';
 import Fs from 'node:fs/promises';
+import Os from 'node:os';
 import Path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
@@ -9,13 +11,15 @@ export type RuntimeSourceContents = {
   definitionSource?: string;
 };
 
+type CachedRuntimeSource = RuntimeSourceContents & { source: string };
+
 const sourceCache = new Map<string, Promise<RuntimeSourceContents>>();
 
 export function readRuntimeSource(source: string): Promise<RuntimeSourceContents> {
   const cached = sourceCache.get(source);
   if (cached) return cached;
 
-  const contents = source.startsWith('argonprotocol/') ? fetchGitSource(source) : fetchNpmSource(source);
+  const contents = readCachedRuntimeSource(source);
   sourceCache.set(source, contents);
   return contents;
 }
@@ -44,6 +48,65 @@ export async function readInstalledRuntimeSource(packageDirectory: string): Prom
     ),
     definitionSource: await Fs.readFile(Path.join(interfaces, 'lookup.ts'), 'utf8').catch(() => undefined),
   };
+}
+
+async function readCachedRuntimeSource(source: string): Promise<RuntimeSourceContents> {
+  const cachePath = runtimeSourceCachePath(source);
+  const cached = await Fs.readFile(cachePath, 'utf8').catch(() => undefined);
+  if (cached) {
+    try {
+      const parsed: unknown = JSON.parse(cached);
+      if (isCachedRuntimeSource(parsed, source)) {
+        const { source: _cachedSource, ...contents } = parsed;
+        return contents;
+      }
+    } catch {
+      // A cache entry is derived state. Fall through to the authoritative source.
+    }
+  }
+
+  const contents = await (source.startsWith('argonprotocol/') ? fetchGitSource(source) : fetchNpmSource(source));
+  await writeCachedRuntimeSource(cachePath, { source, ...contents }).catch(() => undefined);
+  return contents;
+}
+
+async function writeCachedRuntimeSource(cachePath: string, contents: CachedRuntimeSource): Promise<void> {
+  await Fs.mkdir(Path.dirname(cachePath), { recursive: true });
+  const temporaryPath = `${cachePath}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await Fs.writeFile(temporaryPath, JSON.stringify(contents));
+    await Fs.rename(temporaryPath, cachePath);
+  } finally {
+    await Fs.rm(temporaryPath, { force: true });
+  }
+}
+
+function runtimeSourceCachePath(source: string): string {
+  const override = process.env.ARGON_RUNTIME_CLIENT_CACHE?.trim();
+  let cacheDirectory: string;
+  if (override) {
+    cacheDirectory = Path.resolve(override);
+  } else if (process.platform === 'darwin') {
+    cacheDirectory = Path.join(Os.homedir(), 'Library/Caches/argon/runtime-client');
+  } else {
+    const xdgCacheHome = process.env.XDG_CACHE_HOME;
+    const cacheHome = xdgCacheHome && Path.isAbsolute(xdgCacheHome) ? xdgCacheHome : Path.join(Os.homedir(), '.cache');
+    cacheDirectory = Path.join(cacheHome, 'argon/runtime-client');
+  }
+  const sourceHash = createHash('sha256').update(source).digest('hex');
+  return Path.join(cacheDirectory, `${sourceHash}.json`);
+}
+
+function isCachedRuntimeSource(value: unknown, source: string): value is CachedRuntimeSource {
+  if (!value || typeof value !== 'object') return false;
+  const cached = value as Partial<CachedRuntimeSource>;
+  return (
+    cached.source === source &&
+    typeof cached.querySource === 'string' &&
+    typeof cached.eventSource === 'string' &&
+    typeof cached.lookupSource === 'string' &&
+    (cached.definitionSource === undefined || typeof cached.definitionSource === 'string')
+  );
 }
 
 async function fetchNpmSource(version: string): Promise<RuntimeSourceContents> {
