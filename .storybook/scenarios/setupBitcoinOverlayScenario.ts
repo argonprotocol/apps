@@ -18,7 +18,12 @@ import { setupAppScenario } from './setupAppScenario.ts';
 import { TopTab } from '../../src-vue/interfaces/IConfig.ts';
 import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../src-vue/interfaces/IBitcoinLockRecord.ts';
 import {
-  BitcoinUtxoRole,
+  BitcoinReleaseKind,
+  BitcoinReleaseStatus,
+  type IBitcoinReleaseRecord,
+} from '../../src-vue/interfaces/IBitcoinReleaseRecord.ts';
+import {
+  BitcoinUtxoSpendStatus,
   BitcoinUtxoStatus,
   type IBitcoinUtxoRecord,
 } from '../../src-vue/interfaces/IBitcoinUtxoRecord.ts';
@@ -32,6 +37,7 @@ import {
   type ITransactionRecord,
 } from '../../src-vue/interfaces/ITransactionRecord.ts';
 import BitcoinLocks from '../../src-vue/lib/BitcoinLocks.ts';
+import BitcoinReleases from '../../src-vue/lib/BitcoinReleases.ts';
 import { BitcoinFissions } from '../../src-vue/lib/BitcoinFissions.ts';
 import {
   BitcoinLiquidRatchet,
@@ -115,7 +121,7 @@ export function setupBitcoinOverlayScenario() {
         extrinsicType: ExtrinsicType.BitcoinResecuritize,
         metadata: {
           bitcoin: {
-            utxoId: lock.utxoId!,
+            lockId: lock.lockId!,
             vaultId: lock.vaultId,
             securitizedSatoshis: lock.fundedSatoshis,
             microgonsAtTargetPerBtc: lock.microgonsAtTargetPerBtc ?? 6_800_000_000n,
@@ -137,21 +143,21 @@ export function setupBitcoinOverlayScenario() {
     })),
     submit: fn(
       async ({
-        utxoId,
+        lockId,
         toScriptPubkey,
         bitcoinNetworkFee,
       }: {
-        utxoId: number;
+        lockId: number;
         toScriptPubkey: string;
         bitcoinNetworkFee: bigint;
       }) =>
         createScenarioTransactionInfo({
           extrinsicType: ExtrinsicType.BitcoinRequestRelease,
           metadata: {
-            utxoId,
+            releaseId: 'synthetic-lock-release',
+            lockId,
             toScriptPubkey,
             bitcoinNetworkFee,
-            redemptionAmount: 0n,
           },
           onCleanup: task => cleanupTasks.add(task),
         }),
@@ -189,16 +195,13 @@ export function setupBitcoinOverlayScenario() {
     operatorAccountId: '5SyntheticInternalWallet',
     securitization: 1_500_000_000n,
   });
-  const fundingRecord = createBitcoinUtxo({
+  const fundingUtxo = createBitcoinUtxo({
     id: 201,
-    lockUtxoId: lock.utxoId!,
-    role: BitcoinUtxoRole.Funding,
+    lockId: lock.lockId!,
     status: BitcoinUtxoStatus.FundingUtxo,
     satoshis: lock.fundedSatoshis,
   });
-  lock.utxos = [fundingRecord];
-  lock.fundingUtxo = fundingRecord;
-
+  lock.fundingUtxoIds = [fundingUtxo.id];
   const locks = Vue.reactive<IBitcoinLockRecord[]>([lock]);
   const lockProcessing = Vue.reactive<IBitcoinLockProcessingDetails>({
     progressPct: 38,
@@ -211,12 +214,6 @@ export function setupBitcoinOverlayScenario() {
     confirmations: 2,
     expectedConfirmations: 6,
     releaseError: '',
-  });
-  const releaseLifecycle = Vue.reactive({
-    progressPct: 52,
-    confirmations: 2,
-    expectedConfirmations: 6,
-    error: '',
   });
   const releaseVaultWaitProgress = Vue.ref(0);
   const orphanTransactions = new Map<number, TransactionInfo>();
@@ -231,38 +228,48 @@ export function setupBitcoinOverlayScenario() {
   utxoTracking.data = Vue.reactive(utxoTracking.data);
 
   function replaceUtxoRecords(records: IBitcoinUtxoRecord[]) {
-    utxoTracking.data.utxosByLockUtxoId = { [lock.utxoId!]: records };
-    utxoTracking.data.utxosByKey = {};
-    utxoTracking.data.utxosById = Object.fromEntries(records.map(record => [record.id, record]));
-
-    const acceptedFunding = records.find(record => record.role === BitcoinUtxoRole.Funding);
-    lock.utxos = records;
-    lock.fundingUtxo = acceptedFunding;
-    lock.fundedSatoshis = acceptedFunding?.satoshis ?? 0n;
+    utxoTracking.load(records);
+    lock.fundingUtxoIds = records.filter(utxo => utxo.status === BitcoinUtxoStatus.FundingUtxo).map(utxo => utxo.id);
+    lock.fundedSatoshis = utxoTracking.getFundingUtxos(lock).reduce((total, utxo) => total + utxo.satoshis, 0n);
   }
 
-  replaceUtxoRecords([fundingRecord]);
-  utxoTracking.getReleaseLifecycleProgress = fn(() => releaseLifecycle);
+  replaceUtxoRecords([fundingUtxo]);
+  const releases: BitcoinReleases = Object.assign(Object.create(BitcoinReleases.prototype), {
+    data: Vue.reactive({ releasesById: {} }),
+  });
+
+  function setRelease(release: IBitcoinReleaseRecord, inputUtxo?: IBitcoinUtxoRecord) {
+    releases.data.releasesById[release.id] = release;
+    const isActive = ![
+      BitcoinReleaseStatus.Complete,
+      BitcoinReleaseStatus.Cancelled,
+      BitcoinReleaseStatus.Failed,
+    ].includes(release.status);
+    if (release.kind === BitcoinReleaseKind.Lock) lock.activeReleaseId = isActive ? release.id : undefined;
+    if (release.kind === BitcoinReleaseKind.Orphan && inputUtxo) {
+      inputUtxo.activeReleaseId = isActive ? release.id : undefined;
+    }
+  }
 
   const bitcoinLocks: BitcoinLocks = Object.assign(Object.create(BitcoinLocks.prototype) as BitcoinLocks, {
     data: Vue.reactive({
       pendingLocks: [],
-      locksByUtxoId: { [lock.utxoId!]: lock },
+      locksByLockId: { [lock.lockId!]: lock },
       oracleBitcoinBlockHeight: 250_020,
       bitcoinNetwork: BitcoinNetwork.Bitcoin,
       isReconciliationPending: false,
       readiness: 'ready',
     }),
-    orphanReleases: {},
+    releases,
     utxoTracking,
     load: fn(async () => undefined),
     getAllLocks: fn(() => locks),
-    getLockByUtxoId: fn((utxoId: number) => locks.find(candidate => candidate.utxoId === utxoId)),
+    getLockById: fn((lockId: number) => locks.find(candidate => candidate.lockId === lockId)),
     getLockByUuid: fn((uuid: string) => locks.find(candidate => candidate.uuid === uuid)),
     createLockSummary: fn((record: IBitcoinLockRecord) => createBitcoinLockSummary(record)),
     getTable: fn(async () => ({
-      getUtxoIdByUuid: fn(async (uuid: string) => locks.find(candidate => candidate.uuid === uuid)?.utxoId),
-      getByUtxoId: fn(async (utxoId: number) => locks.find(candidate => candidate.utxoId === utxoId)),
+      getLockIdByUuid: fn(async (uuid: string) => locks.find(candidate => candidate.uuid === uuid)?.lockId),
+      getByLockId: fn(async (lockId: number) => locks.find(candidate => candidate.lockId === lockId)),
       updateFromCurrentLock: fn(async () => undefined),
     })),
     getLockProcessingDetails: fn(() => lockProcessing),
@@ -278,12 +285,12 @@ export function setupBitcoinOverlayScenario() {
     argonLiquidityForSatoshis: fn((satoshis: bigint) => (satoshis * 6_800_000_000n) / 100_000_000n),
     calculateBitcoinNetworkFee: fn(async () => 18_000n),
     formatP2wshAddress: fn((scriptHex: string) => BitcoinLocks.formatP2wshAddress(scriptHex, BitcoinNetwork.Bitcoin)),
-    verifyExpirationTime: fn(() => scenarioStartedAt + 24 * 60 * 60 * 1_000),
-    isFundingWindowExpired: fn(
-      (record: IBitcoinLockRecord) => bitcoinLocks.verifyExpirationTime(record) <= scenarioStartedAt,
+    getSecuritizationHoldExpirationTime: fn(() => scenarioStartedAt + 24 * 60 * 60 * 1_000),
+    isSecuritizationHoldExpired: fn(
+      (record: IBitcoinLockRecord) => bitcoinLocks.getSecuritizationHoldExpirationTime(record) <= scenarioStartedAt,
     ),
     unlockDeadlineTime: fn(() => scenarioStartedAt + 24 * 60 * 60 * 1_000),
-    getFundingWindowProgress: fn(() => 45),
+    getSecuritizationHoldProgress: fn(() => 45),
     getRequestReleaseByVaultProgress: fn(() => releaseVaultWaitProgress.value),
     getCosignDeadlineProgress: fn(() => 65),
     getLockTermProgress: fn(() => 58),
@@ -296,13 +303,13 @@ export function setupBitcoinOverlayScenario() {
     value: Promise.resolve(),
   });
   mocked(getBitcoinLocks).mockReturnValue(bitcoinLocks);
-  const getBitcoinLock = spyOn(BitcoinLock, 'get').mockImplementation(async (_client, utxoId) => {
-    const record = locks.find(candidate => candidate.utxoId === utxoId);
+  const getBitcoinLock = spyOn(BitcoinLock, 'get').mockImplementation(async (_client, lockId) => {
+    const record = locks.find(candidate => candidate.lockId === lockId);
     const scriptDetails = record?.scriptDetails;
     if (!record || !scriptDetails) return;
 
     return new BitcoinLock({
-      utxoId,
+      lockId,
       p2wshScriptHashHex: scriptDetails.p2wshScriptHashHex,
       vaultId: record.vaultId,
       securitizedSatoshis: record.securitizedSatoshis,
@@ -310,6 +317,10 @@ export function setupBitcoinOverlayScenario() {
       securitizationCoverageMicrogons: record.securitizationCoverageMicrogons ?? 0n,
       securitizationTick: record.securitizationTick ?? 10_000,
       fundedSatoshis: record.fundedSatoshis,
+      fundingUtxos: utxoTracking.getFundingUtxos(record).map(utxo => ({
+        utxoRef: { txid: utxo.txid, vout: utxo.vout },
+        satoshis: utxo.satoshis,
+      })),
       fissionedSatoshis: record.fissionedSatoshis ?? 0n,
       ownerAccount: record.ownerAccount ?? defaultArgonWallet.address,
       securitizationRatio: record.securitizationRatio ?? 1,
@@ -322,7 +333,7 @@ export function setupBitcoinOverlayScenario() {
       vaultClaimHeight: scriptDetails.vaultClaimHeight,
       openClaimHeight: scriptDetails.openClaimHeight,
       createdAtHeight: scriptDetails.createdAtHeight,
-      fundingExpirationHeight: record.fundingExpirationHeight!,
+      securitizationHoldExpirationBitcoinHeight: record.securitizationHoldExpirationBitcoinHeight!,
       isFlexible: record.isFlexible ?? false,
       fundHoldExtensionsByBitcoinExpirationHeight: record.fundHoldExtensionsByBitcoinExpirationHeight,
       createdAtArgonBlock: record.createdAtArgonBlock!,
@@ -347,7 +358,7 @@ export function setupBitcoinOverlayScenario() {
     ownerAccount: lock.ownerAccount ?? '5SyntheticLiquidLockingWallet',
     fissionId: 1,
     liquidId: 77,
-    utxoId: lock.utxoId!,
+    lockId: lock.lockId!,
     satoshis: lock.fissionedSatoshis ?? lock.securitizedSatoshis,
     microgonsAtTargetPerBtc: lock.microgonsAtTargetPerBtc ?? 6_800_000_000n,
     liquidityPromised: ratchetPreview.value.sourceLiquidity,
@@ -372,7 +383,7 @@ export function setupBitcoinOverlayScenario() {
     submit: fn(async () =>
       createScenarioTransactionInfo({
         extrinsicType: ExtrinsicType.BitcoinRatchet,
-        metadata: { liquidId: 77, fissionIds: [1], resecuritizedUtxoIds: [] },
+        metadata: { liquidId: 77, fissionIds: [1], resecuritizedLockIds: [] },
         onCleanup: task => cleanupTasks.add(task),
       }),
     ),
@@ -384,21 +395,31 @@ export function setupBitcoinOverlayScenario() {
       availableBalance: 25_000_000n,
       txFeePlusTip: 125_000n,
     })),
-    submit: fn(async ({ record }: { record: IBitcoinUtxoRecord }) =>
-      createScenarioTransactionInfo({
-        extrinsicType: ExtrinsicType.BitcoinOrphanedUtxoRelease,
-        metadata: {
-          releaseKind: 'Orphan',
-          utxoId: lock.utxoId!,
-          utxoRecordId: record.id,
-          utxoRef: { txid: record.txid, vout: record.vout },
-          toScriptPubkey: record.releaseToDestinationAddress ?? '',
-          bitcoinNetworkFee: record.releaseBitcoinNetworkFee ?? 18_000n,
-        },
-        onCleanup: task => cleanupTasks.add(task),
-      }),
+    submit: fn(
+      async ({
+        record,
+        toScriptPubkey,
+        bitcoinNetworkFee,
+      }: {
+        record: IBitcoinUtxoRecord;
+        toScriptPubkey: string;
+        bitcoinNetworkFee?: bigint;
+      }) =>
+        createScenarioTransactionInfo({
+          extrinsicType: ExtrinsicType.BitcoinOrphanedUtxoRelease,
+          metadata: {
+            releaseId: `synthetic-orphan-release-${record.id}`,
+            releaseKind: 'Orphan',
+            lockId: lock.lockId!,
+            utxoRecordId: record.id,
+            utxoRef: { txid: record.txid, vout: record.vout },
+            toScriptPubkey,
+            bitcoinNetworkFee: bitcoinNetworkFee ?? 18_000n,
+          },
+          onCleanup: task => cleanupTasks.add(task),
+        }),
     ),
-    getPendingReleaseTxInfo: fn((_lockUtxoId: number, record: IBitcoinUtxoRecord) => orphanTransactions.get(record.id)),
+    getPendingReleaseTxInfo: fn((_lockId: number, record: IBitcoinUtxoRecord) => orphanTransactions.get(record.id)),
   };
   mocked(getBitcoinFissions).mockReturnValue(bitcoinFissions);
   mocked(getBitcoinTransactionOperations, { partial: true }).mockReturnValue({
@@ -488,6 +509,7 @@ export function setupBitcoinOverlayScenario() {
     refreshVaults: fn(async () => undefined),
     vaultsIsLoaded: true,
     vaultsActiveRecords: [vault],
+    liquidAllRecords: [],
     bitcoinLockPerformanceByUuid: {},
     isHistoryRecoveryInProgress: false,
   });
@@ -560,7 +582,7 @@ export function setupBitcoinOverlayScenario() {
     bitcoinOrphanRelease,
     config,
     financials,
-    fundingRecord,
+    fundingUtxo,
     defaultArgonWallet,
     lock,
     locks,
@@ -568,13 +590,13 @@ export function setupBitcoinOverlayScenario() {
     myVault,
     ownVault,
     orphanTransactions,
-    releaseLifecycle,
     releaseProcessing,
     releaseVaultWaitProgress,
     ratchetPreview,
     pendingRatchet,
     pendingResecuritization,
     replaceUtxoRecords,
+    setRelease,
     scenarioStartedAt,
     setFeeWaiver,
     vault,
@@ -607,7 +629,7 @@ export function setupBitcoinOverlayScenario() {
 function createBitcoinLock(overrides: Partial<IBitcoinLockRecord> = {}): IBitcoinLockRecord {
   const timestamp = new Date('2026-08-16T14:00:00.000Z');
   const lockDetails: IBitcoinLockDetails = {
-    utxoId: 101,
+    lockId: 101,
     p2wshScriptHashHex: `0020${'11'.repeat(32)}`,
     vaultId: 7,
     isFlexible: false,
@@ -615,6 +637,7 @@ function createBitcoinLock(overrides: Partial<IBitcoinLockRecord> = {}): IBitcoi
     securitizationRatio: 1,
     securitizedSatoshis: 12_500_000n,
     fundedSatoshis: 12_500_000n,
+    fundingUtxos: [],
     vaultPubkey: `02${'22'.repeat(32)}`,
     securityFees: 4_500_000n,
     couponFeesPaid: 0n,
@@ -624,14 +647,14 @@ function createBitcoinLock(overrides: Partial<IBitcoinLockRecord> = {}): IBitcoi
     vaultClaimHeight: 250_100,
     openClaimHeight: 250_200,
     createdAtHeight: 250_000,
-    fundingExpirationHeight: 250_006,
+    securitizationHoldExpirationBitcoinHeight: 250_006,
     createdAtArgonBlock: 18_500,
     fundHoldExtensionsByBitcoinExpirationHeight: {},
   };
 
   return {
     uuid: 'synthetic-bitcoin-overlay-lock',
-    utxoId: 101,
+    lockId: 101,
     status: BitcoinLockStatus.LockFunded,
     securitizedSatoshis: lockDetails.securitizedSatoshis,
     ownerAccount: lockDetails.ownerAccount,
@@ -652,12 +675,12 @@ function createBitcoinLock(overrides: Partial<IBitcoinLockRecord> = {}): IBitcoi
       openClaimHeight: lockDetails.openClaimHeight,
       createdAtHeight: lockDetails.createdAtHeight,
     },
-    fundingExpirationHeight: lockDetails.fundingExpirationHeight,
+    securitizationHoldExpirationBitcoinHeight: lockDetails.securitizationHoldExpirationBitcoinHeight,
     isFlexible: lockDetails.isFlexible,
     fundHoldExtensionsByBitcoinExpirationHeight: lockDetails.fundHoldExtensionsByBitcoinExpirationHeight,
     createdAtArgonBlock: lockDetails.createdAtArgonBlock,
-    utxos: [],
     fundedSatoshis: lockDetails.fundedSatoshis,
+    fundingUtxoIds: [201],
     cosignVersion: 'v1',
     network: String(BitcoinNetwork.Bitcoin),
     hdPath: "m/84'/0'/0'/0/4",
@@ -669,7 +692,7 @@ function createBitcoinLock(overrides: Partial<IBitcoinLockRecord> = {}): IBitcoi
 }
 
 export function createBitcoinUtxo(
-  overrides: Partial<IBitcoinUtxoRecord> & Pick<IBitcoinUtxoRecord, 'id' | 'lockUtxoId' | 'status'>,
+  overrides: Partial<IBitcoinUtxoRecord> & Pick<IBitcoinUtxoRecord, 'id' | 'lockId' | 'status'>,
 ): IBitcoinUtxoRecord {
   const timestamp = new Date('2026-08-16T14:10:00.000Z');
   return {
@@ -681,6 +704,25 @@ export function createBitcoinUtxo(
     firstSeenOnArgonAt: timestamp,
     firstSeenBitcoinHeight: 250_010,
     firstSeenOracleHeight: 250_010,
+    spendStatus: BitcoinUtxoSpendStatus.Unspent,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    ...overrides,
+  };
+}
+
+export function createBitcoinRelease(overrides: Partial<IBitcoinReleaseRecord> = {}): IBitcoinReleaseRecord {
+  const timestamp = new Date('2026-08-16T14:20:00.000Z');
+  return {
+    id: 'synthetic-bitcoin-release',
+    kind: BitcoinReleaseKind.Lock,
+    lockId: 101,
+    status: BitcoinReleaseStatus.WaitingForVaultCosign,
+    inputUtxoIds: [201],
+    requestedReleaseAtTick: 10_010,
+    toScriptPubkey: `0014${'55'.repeat(20)}`,
+    bitcoinNetworkFee: 18_000n,
+    vaultSignatures: [],
     createdAt: timestamp,
     updatedAt: timestamp,
     ...overrides,
@@ -691,7 +733,7 @@ export function createExternalBitcoinLock(overrides: Partial<IExternalBitcoinLoc
   const local = createBitcoinLock();
   const scriptDetails = local.scriptDetails!;
   const lockDetails: IBitcoinLock = {
-    utxoId: 801,
+    lockId: 801,
     p2wshScriptHashHex: scriptDetails.p2wshScriptHashHex,
     vaultId: local.vaultId,
     securitizedSatoshis: local.securitizedSatoshis,
@@ -699,6 +741,7 @@ export function createExternalBitcoinLock(overrides: Partial<IExternalBitcoinLoc
     securitizationCoverageMicrogons: 1_700_000_000n,
     securitizationTick: 0,
     fundedSatoshis: 25_000_000n,
+    fundingUtxos: [],
     fissionedSatoshis: 0n,
     ownerAccount: '5SyntheticExternalOwner',
     securitizationRatio: local.securitizationRatio!,
@@ -711,13 +754,13 @@ export function createExternalBitcoinLock(overrides: Partial<IExternalBitcoinLoc
     vaultClaimHeight: scriptDetails.vaultClaimHeight,
     openClaimHeight: scriptDetails.openClaimHeight,
     createdAtHeight: scriptDetails.createdAtHeight,
-    fundingExpirationHeight: local.fundingExpirationHeight!,
+    securitizationHoldExpirationBitcoinHeight: local.securitizationHoldExpirationBitcoinHeight!,
     isFlexible: local.isFlexible!,
     fundHoldExtensionsByBitcoinExpirationHeight: local.fundHoldExtensionsByBitcoinExpirationHeight,
     createdAtArgonBlock: local.createdAtArgonBlock!,
   };
   return {
-    utxoId: 801,
+    lockId: 801,
     satoshis: 25_000_000n,
     securitizationCoverageMicrogons: 1_700_000_000n,
     isPending: false,
@@ -730,7 +773,7 @@ export function createExternalBitcoinLock(overrides: Partial<IExternalBitcoinLoc
 function createBitcoinLockSummary(lock: IBitcoinLockRecord): IBitcoinLockSummary {
   return {
     uuid: lock.uuid,
-    utxoId: lock.utxoId,
+    lockId: lock.lockId,
     status: lock.status,
     statusDetails: {
       hasObservedFundingSignal: false,

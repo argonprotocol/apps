@@ -61,6 +61,7 @@ export async function createBitcoinLocksClientHarness(args: {
   archiveUrl: string;
   esploraHost: string;
   network: string;
+  db?: Db;
   upstreamOperatorClient?: UpstreamOperatorClient;
   walletKeys?: WalletKeys;
 }): Promise<BitcoinLocksClientHarness> {
@@ -69,7 +70,7 @@ export async function createBitcoinLocksClientHarness(args: {
   const clients = new MainchainClients(archiveUrl);
   setMainchainClients(clients);
 
-  const db = await createTestDb();
+  const db = args.db ?? (await createTestDb());
   setDbPromise(Promise.resolve(db));
 
   const walletKeys = args.walletKeys ?? createMockWalletKeys();
@@ -88,7 +89,7 @@ export async function createBitcoinLocksClientHarness(args: {
     new BitcoinMempool(esploraHost),
   );
   await bitcoinLocks.load();
-  const bitcoinOrphanRelease = new BitcoinOrphanRelease(bitcoinLocks, bitcoinLocks.orphanReleases, transactionTracker);
+  const bitcoinOrphanRelease = new BitcoinOrphanRelease(bitcoinLocks, transactionTracker);
   await bitcoinOrphanRelease.load();
   const bitcoinLockCreate = new BitcoinLockCreate(
     bitcoinLocks,
@@ -194,10 +195,14 @@ export async function createBitcoinLocksHarness(args: {
 }
 
 export async function cleanupBitcoinLocksClientHarness(harness: BitcoinLocksClientHarness): Promise<void> {
+  await shutdownBitcoinLocksClientHarness(harness);
+  await harness.db.close();
+}
+
+export async function shutdownBitcoinLocksClientHarness(harness: BitcoinLocksClientHarness): Promise<void> {
   await harness.bitcoinLocks.shutdown();
   await harness.transactionTracker.shutdown();
   harness.miningFrames.blockWatch.stop();
-  await harness.db.close();
   await harness.clients.disconnect();
 }
 

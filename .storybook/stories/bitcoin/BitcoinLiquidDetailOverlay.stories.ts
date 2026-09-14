@@ -28,7 +28,7 @@ const fissions = [
     ownerAccount: 'owner-account',
     fissionId: 1,
     liquidId: 1,
-    utxoId: 101,
+    lockId: 101,
     satoshis: 30_000_000n,
     microgonsAtTargetPerBtc: 68_000_000_000n,
     liquidityPromised: 20_400_000_000n,
@@ -70,7 +70,7 @@ const fissions = [
     ownerAccount: 'owner-account',
     fissionId: 2,
     liquidId: 1,
-    utxoId: 202,
+    lockId: 202,
     satoshis: 20_000_000n,
     microgonsAtTargetPerBtc: 68_000_000_000n,
     liquidityPromised: 13_600_000_000n,
@@ -112,7 +112,7 @@ const fissions = [
 
 const securitizationTerms: IBitcoinSecuritizationTerm[] = [
   {
-    utxoId: 101,
+    lockId: 101,
     termIndex: 0,
     origin: 'created',
     startTick: 0,
@@ -123,7 +123,7 @@ const securitizationTerms: IBitcoinSecuritizationTerm[] = [
     addedNetSecurityFee: 4_000_000n,
   },
   {
-    utxoId: 202,
+    lockId: 202,
     termIndex: 0,
     origin: 'created',
     startTick: 0,
@@ -134,7 +134,7 @@ const securitizationTerms: IBitcoinSecuritizationTerm[] = [
     addedNetSecurityFee: 2_750_000n,
   },
   {
-    utxoId: 101,
+    lockId: 101,
     termIndex: 1,
     origin: 'resecuritized',
     startTick: 0,
@@ -145,7 +145,7 @@ const securitizationTerms: IBitcoinSecuritizationTerm[] = [
     addedNetSecurityFee: 1_600_000n,
   },
   {
-    utxoId: 202,
+    lockId: 202,
     termIndex: 1,
     origin: 'resecuritized',
     startTick: 0,
@@ -287,9 +287,9 @@ function setupDetails(
   const pendingLiquidity = args.pendingLiquidity ?? 6_800_000_000n;
   if (pendingLiquidity) {
     scenarioFissions[0].pendingMints.push({
-      queueIndex: 1,
+      queueIndex: 1n,
       fissionId: scenarioFissions[0].fissionId,
-      utxoId: scenarioFissions[0].utxoId,
+      lockId: scenarioFissions[0].lockId,
       ownerAccount: scenarioFissions[0].ownerAccount,
       remainingAmount: pendingLiquidity,
       maxAmountPerFrame: args.pendingMintPerFrame ?? 680_000_000n,
@@ -306,13 +306,13 @@ function setupDetails(
     : financialLiquid;
   const lockSummaries = [
     {
-      utxoId: 101,
+      lockId: 101,
       satoshis: 30_000_000n,
       unlockAmount: 20_400_000_000n,
       record: { vaultId: 11 },
     },
     {
-      utxoId: 202,
+      lockId: 202,
       satoshis: 20_000_000n,
       unlockAmount: 13_600_000_000n,
       record: { vaultId: 22 },

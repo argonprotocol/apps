@@ -40,7 +40,7 @@ export interface BitcoinLockResecuritizeInput {
 
 export interface IBitcoinResecuritizationMetadata {
   bitcoin: {
-    utxoId: number;
+    lockId: number;
     vaultId: number;
     securitizedSatoshis: bigint;
     microgonsAtTargetPerBtc: bigint;
@@ -87,11 +87,11 @@ export class BitcoinLockResecuritize extends TransactionOperation<
       currentBitcoinHeight = this.bitcoinLocks.data.oracleBitcoinBlockHeight,
       maximumFeeCreditMicrogons,
     } = args;
-    if (lock.utxoId == null || !lock.scriptDetails) {
+    if (lock.lockId == null || !lock.scriptDetails) {
       throw new Error('This Bitcoin Lock is not available for resecuritization.');
     }
     if (lock.ownerAccount && lock.ownerAccount !== txSigner.address) {
-      throw new Error(`Bitcoin Lock #${lock.utxoId} belongs to a different account.`);
+      throw new Error(`Bitcoin Lock #${lock.lockId} belongs to a different account.`);
     }
 
     const client = providedClient ?? (await getMainchainClient(false));
@@ -109,7 +109,7 @@ export class BitcoinLockResecuritize extends TransactionOperation<
       currentBitcoinHeight,
     });
     const pendingUse = operatorCoupon?.uses?.find(
-      use => use.status === 'Prepared' && use.utxoId === lock.utxoId && use.feeCoupon,
+      use => use.status === 'Prepared' && use.utxoId === lock.lockId && use.feeCoupon,
     );
     const availableFeeCreditMicrogons =
       (operatorCoupon?.remainingFeeCreditMicrogons ?? 0n) + (pendingUse?.feeCreditMicrogons ?? 0n);
@@ -135,7 +135,7 @@ export class BitcoinLockResecuritize extends TransactionOperation<
       const response = await this.upstreamOperatorClient.initializeBitcoinLock(operatorCoupon.coupon.offerCode, {
         requestId: pendingUse?.requestId ?? BitcoinLocksTable.createUuid(),
         feeCouponNonce: pendingUse?.feeCoupon?.nonce,
-        utxoId: lock.utxoId,
+        utxoId: lock.lockId,
         requestedSatoshis: securitizedSatoshis,
         ownerAccountId: txSigner.address,
         ownerBitcoinPubkey: lock.scriptDetails.ownerPubkey,
@@ -152,7 +152,7 @@ export class BitcoinLockResecuritize extends TransactionOperation<
         : bigIntMax(totalSecurityFee - (feeCoupon?.feeDiscount ?? 0n), 0n);
     const tx = BitcoinLock.createResecuritizeTx({
       client,
-      utxoId: lock.utxoId,
+      lockId: lock.lockId,
       securitizedSatoshis,
       microgonsAtTargetPerBtc,
       feeCoupon,
@@ -171,7 +171,7 @@ export class BitcoinLockResecuritize extends TransactionOperation<
       securityFee,
       metadata: {
         bitcoin: {
-          utxoId: lock.utxoId,
+          lockId: lock.lockId,
           vaultId: vault.vaultId,
           securitizedSatoshis,
           microgonsAtTargetPerBtc,
@@ -185,7 +185,7 @@ export class BitcoinLockResecuritize extends TransactionOperation<
 
   protected getOperationKey(args: BitcoinLockResecuritizeInput): string {
     const { lock, txSigner } = args;
-    return `${txSigner.address}:${lock.utxoId}`;
+    return `${txSigner.address}:${lock.lockId}`;
   }
 
   protected matches(
@@ -196,16 +196,16 @@ export class BitcoinLockResecuritize extends TransactionOperation<
     const { bitcoin } = txInfo.tx.metadataJson;
     return (
       txInfo.tx.accountAddress === txSigner.address &&
-      bitcoin.utxoId === lock.utxoId &&
+      bitcoin.lockId === lock.lockId &&
       bitcoin.securitizedSatoshis === securitizedSatoshis &&
       bitcoin.microgonsAtTargetPerBtc === microgonsAtTargetPerBtc
     );
   }
 
   public getPendingResecuritizationTxInfo(
-    utxoId: number,
+    lockId: number,
   ): TransactionInfo<IBitcoinResecuritizationMetadata> | undefined {
-    return this.getPendingTransaction(txInfo => txInfo.tx.metadataJson.bitcoin.utxoId === utxoId);
+    return this.getPendingTransaction(txInfo => txInfo.tx.metadataJson.bitcoin.lockId === lockId);
   }
 
   protected async onFinalized(txInfo: TransactionInfo<IBitcoinResecuritizationMetadata>): Promise<void> {
@@ -218,13 +218,13 @@ export class BitcoinLockResecuritize extends TransactionOperation<
     metadata: IBitcoinResecuritizationMetadata,
     txInfo: TransactionInfo,
   ): Promise<void> {
-    const { utxoId, feeCouponRequestId } = metadata.bitcoin;
-    const lock = this.bitcoinLocks.getLockByUtxoId(utxoId);
+    const { lockId, feeCouponRequestId } = metadata.bitcoin;
+    const lock = this.bitcoinLocks.getLockById(lockId);
     if (lock) {
       const client = await getMainchainClient(true);
       const blockHash = await txInfo.txResult.waitForFinalizedBlock;
-      const current = await BitcoinLock.get(await client.at(blockHash), utxoId);
-      if (!current) throw new Error(`Bitcoin Lock #${utxoId} was not found after resecuritization.`);
+      const current = await BitcoinLock.get(await client.at(blockHash), lockId);
+      if (!current) throw new Error(`Bitcoin Lock #${lockId} was not found after resecuritization.`);
       await this.bitcoinLocks.updateCurrentLock(lock, current, txInfo);
     }
     if (feeCouponRequestId) {

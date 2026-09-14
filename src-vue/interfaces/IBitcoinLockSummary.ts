@@ -9,7 +9,7 @@ export interface IBitcoinLockProcessingDetails {
 
 export interface IBitcoinLockSummary {
   uuid: string;
-  utxoId: number | undefined;
+  lockId: number | undefined;
   status: BitcoinLockStatus;
   statusDetails: {
     hasObservedFundingSignal: boolean;

@@ -576,7 +576,7 @@ const miningAssets = useMiningAssetBreakdown();
 const vaultingAssets = useVaultingAssetBreakdown();
 const myVault = getMyVault();
 const crosschainHistory = getCrosschainHistory();
-const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm, micronotToMoneyNm, satToBtcNm, satToMoneyNm } =
+const { microgonToArgonNm, microgonToMoneyNm, micronotToArgonotNm, micronotToMoneyNm, satToMoneyNm } =
   createNumeralHelpers(currency);
 
 const showOperationsNavigationCallouts = Vue.ref(false);
@@ -610,9 +610,7 @@ const selectedWalletBalance = Vue.computed(() => {
 });
 
 const bitcoinDepositAttention = Vue.computed(() => {
-  return getBitcoinDepositAttention(wallets.bitcoinWallet, satoshis => {
-    return satToBtcNm(satoshis).format('0,0.[00000000]');
-  });
+  return getBitcoinDepositAttention(wallets.bitcoinWallet);
 });
 
 const hasCrosschainAction = Vue.computed(() => {

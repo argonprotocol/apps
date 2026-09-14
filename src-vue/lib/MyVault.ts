@@ -45,6 +45,7 @@ import { Vaults } from './Vaults.ts';
 import BitcoinLocks from './BitcoinLocks.ts';
 import { MyVaultRecovery } from './recovery/MyVaultRecovery.ts';
 import { type IBitcoinLockRecord } from './db/BitcoinLocksTable.ts';
+import { BitcoinReleaseStatus, type IBitcoinReleaseRecord } from '../interfaces/IBitcoinReleaseRecord.ts';
 import { TransactionTracker, TxAttemptState } from './TransactionTracker.ts';
 import { TransactionInfo } from './TransactionInfo.ts';
 import { ExtrinsicType } from './db/TransactionsTable.ts';
@@ -71,7 +72,7 @@ type IPendingCosignUtxo = {
 type RuntimeVaultFrameRevenues = NonNullable<HistoricalQueryRecord<'vaults', 'revenuePerFrameByVault'>>;
 
 export interface IExternalBitcoinLock {
-  utxoId: number;
+  lockId: number;
   satoshis: bigint;
   securitizationCoverageMicrogons: bigint;
   isPending: boolean;
@@ -155,17 +156,17 @@ export class MyVault {
       encumberedMicronots: bigint;
     };
     pendingCollectRevenue: bigint;
-    pendingCosignUtxosById: Map<number, IPendingCosignUtxo>;
+    pendingCosignLocksById: Map<number, IPendingCosignUtxo>;
     pendingOrphanCosignCount: number;
-    releasedExternalUtxoIds: Set<number>;
-    myPendingBitcoinCosignTxInfosByUtxoId: Map<number, TransactionInfo<{ utxoId: number }>>;
+    releasedExternalLockIds: Set<number>;
+    myPendingBitcoinCosignTxInfosByLockId: Map<number, TransactionInfo<{ lockId: number }>>;
     nextCollectDueDate: number;
     nextCosignDueDate: number;
     expiringCollectAmount: bigint;
-    finalizeMyBitcoinError?: { lockUtxoId: number; error: string };
+    finalizeMyBitcoinError?: { lockId: number; error: string };
     currentFrameId: number;
     pendingCollectTxInfo: TransactionInfo<IVaultCollectMetadata> | null;
-    externalLocks: { [utxoId: number]: IExternalBitcoinLock };
+    externalLocks: { [lockId: number]: IExternalBitcoinLock };
     pendingAllocateTxInfo: TransactionInfo<IVaultIncreaseAllocationMetadata> | null;
   };
 
@@ -225,15 +226,15 @@ export class MyVault {
       pendingCollectRevenue: 0n,
       pendingCollectTxInfo: null,
       pendingAllocateTxInfo: null,
-      pendingCosignUtxosById: new Map(),
+      pendingCosignLocksById: new Map(),
       pendingOrphanCosignCount: 0,
-      myPendingBitcoinCosignTxInfosByUtxoId: new Map(),
+      myPendingBitcoinCosignTxInfosByLockId: new Map(),
       nextCollectDueDate: 0,
       nextCosignDueDate: 0,
       expiringCollectAmount: 0n,
       currentFrameId: 0,
       externalLocks: {},
-      releasedExternalUtxoIds: new Set(),
+      releasedExternalLockIds: new Set(),
     };
     this.vaults = vaults;
     this.#transactionTracker = transactionTracker;
@@ -396,14 +397,18 @@ export class MyVault {
     });
   }
 
-  public getBitcoinReleaseRequestTxInfo(utxoId: number): TransactionInfo<any> | undefined {
+  public getBitcoinReleaseRequestTxInfo(lockId: number): TransactionInfo<any> | undefined {
     return this.#transactionTracker.findLatestTxInfo<{
+      lockId?: number;
       utxoId?: number;
-      releases?: { utxoId: number }[];
+      releases?: { lockId?: number; utxoId?: number }[];
     }>(txInfo => {
       if (txInfo.tx.extrinsicType !== ExtrinsicType.BitcoinRequestRelease) return false;
       const metadata = txInfo.tx.metadataJson;
-      return metadata.utxoId === utxoId || metadata.releases?.some(release => release.utxoId === utxoId) === true;
+      return (
+        (metadata.lockId ?? metadata.utxoId) === lockId ||
+        metadata.releases?.some(release => (release.lockId ?? release.utxoId) === lockId) === true
+      );
     });
   }
 
@@ -608,7 +613,7 @@ export class MyVault {
   }
 
   private updateCollectDeadlines() {
-    const cosignDueFrames = [...this.data.pendingCosignUtxosById.values()].map(x => x.dueFrame);
+    const cosignDueFrames = [...this.data.pendingCosignLocksById.values()].map(x => x.dueFrame);
     const { nextCollectFrame, nextCosignFrame, expiringCollectAmount } = computeCollectDeadline({
       collectFrames: this.#collectFrames,
       cosignDueFrames,
@@ -621,51 +626,45 @@ export class MyVault {
   }
 
   private async recordPendingCosignUtxos(rawUtxoIds: readonly number[], updateSeq: number, client: ArgonQueryClient) {
-    const previousPendingCosignsById = new Map(this.data.pendingCosignUtxosById);
-    const pendingCosignUtxosById = new Map<number, IPendingCosignUtxo>();
+    const previousPendingCosignsById = new Map(this.data.pendingCosignLocksById);
+    const pendingCosignLocksById = new Map<number, IPendingCosignUtxo>();
     for (const id of rawUtxoIds) {
       const lock = await BitcoinLock.get(client, id);
       const previousPending = previousPendingCosignsById.get(id);
-      const pendingReleaseRaw = await client.query.bitcoinLocks.lockReleaseRequestsByUtxoId(id);
+      const pendingReleaseRaw = await client.query.bitcoinLocks.lockReleaseRequestsById(id);
       const dueFrame = pendingReleaseRaw?.cosignDueFrame ?? previousPending?.dueFrame;
       const targetValue = lock?.securitizationCoverageMicrogons ?? previousPending?.targetValue ?? 0n;
-      pendingCosignUtxosById.set(id, { targetValue, dueFrame });
+      pendingCosignLocksById.set(id, { targetValue, dueFrame });
     }
     if (updateSeq !== this.#pendingCosignUpdateSeq) {
       return;
     }
 
-    const myPendingBitcoinCosignTxInfosByUtxoId = new Map<number, TransactionInfo<{ utxoId: number }>>();
-    for (const [utxoId, txInfo] of this.data.myPendingBitcoinCosignTxInfosByUtxoId) {
-      if (!pendingCosignUtxosById.has(utxoId)) continue;
-      myPendingBitcoinCosignTxInfosByUtxoId.set(utxoId, txInfo);
+    const myPendingBitcoinCosignTxInfosByLockId = new Map<number, TransactionInfo<{ lockId: number }>>();
+    for (const [lockId, txInfo] of this.data.myPendingBitcoinCosignTxInfosByLockId) {
+      if (!pendingCosignLocksById.has(lockId)) continue;
+      myPendingBitcoinCosignTxInfosByLockId.set(lockId, txInfo);
     }
 
-    this.data.pendingCosignUtxosById = pendingCosignUtxosById;
-    this.data.myPendingBitcoinCosignTxInfosByUtxoId = myPendingBitcoinCosignTxInfosByUtxoId;
+    this.data.pendingCosignLocksById = pendingCosignLocksById;
+    this.data.myPendingBitcoinCosignTxInfosByLockId = myPendingBitcoinCosignTxInfosByLockId;
     this.updateCollectDeadlines();
   }
 
   public async cosignMyLock(
     lock: IBitcoinLockRecord,
-  ): Promise<{ txInfo: TransactionInfo; vaultSignature: Uint8Array } | undefined> {
+  ): Promise<{ txInfo: TransactionInfo; vaultSignatures: Uint8Array[] } | undefined> {
     if (lock.vaultId !== this.createdVault?.vaultId) {
       // this api is only to unlock our own vault's bitcoin locks
       return;
     }
     try {
       this.data.finalizeMyBitcoinError = undefined;
-      const fundingUtxo = lock.fundingUtxo;
-      if (!lock.utxoId || !fundingUtxo?.releaseToDestinationAddress || fundingUtxo.releaseBitcoinNetworkFee == null) {
-        return;
-      }
-      const result = await this.cosignRelease({
-        utxoId: lock.utxoId,
-        releaseRequest: {
-          toScriptPubkey: fundingUtxo.releaseToDestinationAddress,
-          bitcoinNetworkFee: fundingUtxo.releaseBitcoinNetworkFee,
-        },
-      });
+      if (!lock.lockId) return;
+      const release = this.bitcoinLocks.releases.getActiveForLock(lock);
+      if (!release || release.status !== BitcoinReleaseStatus.WaitingForVaultCosign) return;
+
+      const result = await this.cosignRelease(release);
       if (!result) {
         // The release request can lag briefly on finalized views. Treat as retryable and
         // let the next lock-processing poll attempt cosign again.
@@ -673,8 +672,8 @@ export class MyVault {
       }
       return result;
     } catch (error) {
-      console.error(`Error releasing bitcoin lock ${lock.utxoId}`, error);
-      this.data.finalizeMyBitcoinError = { lockUtxoId: lock.utxoId!, error: String(error) };
+      console.error(`Error releasing bitcoin lock ${lock.lockId}`, error);
+      this.data.finalizeMyBitcoinError = { lockId: lock.lockId!, error: String(error) };
     }
   }
 
@@ -687,7 +686,7 @@ export class MyVault {
     bitcoinNetworkFee: bigint;
   }): Promise<Uint8Array | undefined> {
     const { lock } = args;
-    if (!lock.utxoId || lock.vaultId !== this.createdVault?.vaultId) {
+    if (!lock.lockId || lock.vaultId !== this.createdVault?.vaultId) {
       return;
     }
     try {
@@ -702,8 +701,8 @@ export class MyVault {
       });
       return result.vaultSignature;
     } catch (error) {
-      console.error(`Error creating orphan release signature for lock ${lock.utxoId}`, error);
-      this.data.finalizeMyBitcoinError = { lockUtxoId: lock.utxoId, error: String(error) };
+      console.error(`Error creating orphan release signature for lock ${lock.lockId}`, error);
+      this.data.finalizeMyBitcoinError = { lockId: lock.lockId, error: String(error) };
     }
   }
 
@@ -971,20 +970,27 @@ export class MyVault {
     }).promise;
   }
 
-  public async createVaultSignatureForRelease(args: {
-    utxoId: number;
+  public async createVaultSignaturesForRelease(args: {
+    lockId: number;
     releaseRequest: { toScriptPubkey: string; bitcoinNetworkFee: bigint };
-  }): Promise<{ vaultSignature: Uint8Array; vaultSignatureHex: string } | undefined> {
-    const { utxoId, releaseRequest } = args;
+  }): Promise<
+    | {
+        fundingUtxos: IBitcoinLock['fundingUtxos'];
+        vaultSignatures: Uint8Array[];
+        vaultSignatureHexes: string[];
+      }
+    | undefined
+  > {
+    const { lockId, releaseRequest } = args;
     const finalizedClient = await getFinalizedClient();
-    const lock = await BitcoinLock.get(finalizedClient, utxoId);
+    const lock = await BitcoinLock.get(finalizedClient, lockId);
     if (!lock) {
-      console.warn('No lock found for utxoId:', utxoId);
+      console.warn('No Bitcoin lock found:', lockId);
       return;
     }
-    const utxoRef = await BitcoinLock.getFundingUtxoRef(finalizedClient, utxoId);
-    if (!utxoRef) {
-      console.warn('No UTXO reference found for utxoId:', utxoId);
+    const fundingUtxos = lock.fundingUtxos;
+    if (!fundingUtxos.length) {
+      console.warn('No funding UTXOs found for Bitcoin lock:', lockId);
       return;
     }
 
@@ -994,44 +1000,67 @@ export class MyVault {
         bitcoinNetworkFee: releaseRequest.bitcoinNetworkFee,
         toScriptPubkey: releaseRequest.toScriptPubkey,
       },
-      utxoRef,
-      utxoSatoshis: lock.fundedSatoshis,
+      utxos: fundingUtxos,
     });
     const vaultXpriv = await this.getVaultXpriv();
     const signedPsbt = cosign.vaultCosignPsbt(psbt, lock, vaultXpriv);
-    const vaultSignature = signedPsbt.getInput(0).partialSig?.[0]?.[1];
-    if (!vaultSignature) {
-      throw new Error('Failed to get vault signature from PSBT for utxoId: ' + utxoId);
+    const vaultSignatures = fundingUtxos.map((fundingUtxo, index) => {
+      const vaultSignature = signedPsbt.getInput(index).partialSig?.[0]?.[1];
+      if (!vaultSignature) {
+        throw new Error(
+          `Failed to get vault signature for ${fundingUtxo.utxoRef.txid}:${fundingUtxo.utxoRef.vout} in lock ${lockId}`,
+        );
+      }
+      return vaultSignature;
+    });
+    if (vaultSignatures.length !== fundingUtxos.length) {
+      throw new Error(`Bitcoin lock ${lockId} vault signature count does not match its funding UTXO count`);
     }
     return {
-      vaultSignature,
-      vaultSignatureHex: u8aToHex(vaultSignature),
+      fundingUtxos,
+      vaultSignatures,
+      vaultSignatureHexes: vaultSignatures.map(signature => u8aToHex(signature)),
     };
   }
 
-  private async cosignRelease(args: {
-    utxoId: number;
-    releaseRequest: { toScriptPubkey: string; bitcoinNetworkFee: bigint };
-  }): Promise<{ txInfo: TransactionInfo; vaultSignature: Uint8Array } | undefined> {
+  private async cosignRelease(
+    release: IBitcoinReleaseRecord,
+  ): Promise<{ txInfo: TransactionInfo; vaultSignatures: Uint8Array[] } | undefined> {
     return await this.#cosignQueue.add(async () => {
-      const { utxoId } = args;
-      const signature = await this.createVaultSignatureForRelease(args);
-      if (!signature) return;
+      const signatures = await this.createVaultSignaturesForRelease({
+        lockId: release.lockId,
+        releaseRequest: {
+          toScriptPubkey: release.toScriptPubkey,
+          bitcoinNetworkFee: release.bitcoinNetworkFee,
+        },
+      });
+      if (!signatures) return;
+
+      const inputUtxos = this.bitcoinLocks.releases.getInputUtxos(release);
+      if (
+        signatures.fundingUtxos.length !== inputUtxos.length ||
+        signatures.fundingUtxos.some((fundingUtxo, index) => {
+          const inputUtxo = inputUtxos[index];
+          return fundingUtxo.utxoRef.txid !== inputUtxo.txid || fundingUtxo.utxoRef.vout !== inputUtxo.vout;
+        })
+      ) {
+        throw new Error(`Bitcoin release ${release.id} no longer matches the runtime funding inputs`);
+      }
 
       const client = await getMainchainClient(false);
       const txSigner = await this.walletKeys.getVaultingKeypair();
       const txInfo = await this.bitcoinLockCosign.submit({
         client,
         txSigner,
-        utxoId,
-        vaultSignatureHex: signature.vaultSignatureHex,
+        lockId: release.lockId,
+        vaultSignatureHexes: signatures.vaultSignatureHexes,
       });
-      return { txInfo, vaultSignature: signature.vaultSignature };
+      return { txInfo, vaultSignatures: signatures.vaultSignatures };
     }).promise;
   }
 
   private async onOrphanCosignResult(
-    txInfo: TransactionInfo<{ lockUtxoId: number; ownerAccount: string; txid: string; vout: number }>,
+    txInfo: TransactionInfo<{ lockId: number; ownerAccount: string; txid: string; vout: number }>,
   ): Promise<void> {
     const postProcessor = txInfo.createPostProcessor();
     try {
@@ -1098,8 +1127,8 @@ export class MyVault {
         useLatestNonce: true,
       });
 
-      for (const utxoId of submission.submittedCosignUtxoIds) {
-        this.data.releasedExternalUtxoIds.add(utxoId);
+      for (const lockId of submission.submittedCosignLockIds) {
+        this.data.releasedExternalLockIds.add(lockId);
       }
 
       void this.onVaultCollect(txInfo).catch(() => undefined);
@@ -1109,22 +1138,22 @@ export class MyVault {
   }
 
   public async findLatestReleaseCosignTxAttempt(
-    utxoId: number,
+    lockId: number,
   ): Promise<{ txInfo: TransactionInfo; txAttemptState: TxAttemptState } | undefined> {
     const latestTxInfo = this.#transactionTracker.findLatestTxInfo(txInfo => {
       const { extrinsicType, metadataJson } = txInfo.tx;
       const metadata = metadataJson as any;
 
       if (extrinsicType === ExtrinsicType.VaultCosignBitcoinRelease) {
-        return utxoId === metadata.utxoId;
+        return lockId === (metadata.lockId ?? metadata.utxoId);
       }
 
       if (extrinsicType !== ExtrinsicType.VaultCollect) {
         return false;
       }
 
-      const cosignedUtxoIds = metadata.cosignedUtxoIds;
-      return Array.isArray(cosignedUtxoIds) && cosignedUtxoIds.includes(utxoId);
+      const cosignedLockIds = metadata.cosignedLockIds ?? metadata.cosignedUtxoIds;
+      return Array.isArray(cosignedLockIds) && cosignedLockIds.includes(lockId);
     });
 
     if (!latestTxInfo) {
@@ -1206,7 +1235,8 @@ export class MyVault {
         const utxoRef = orphanKey.args[1];
         const txid = utxoRef.txid;
         const vout = utxoRef.outputIndex;
-        const lockUtxoId = orphan.utxoId;
+        const lockId = orphan.lockId;
+        if (lockId === undefined) continue;
         const key = `${ownerAccount}:${txid}:${vout}`;
         if (queued.has(key)) continue;
         const latestTxAttempt = await this.findLatestOrphanCosignTxAttempt({
@@ -1229,9 +1259,9 @@ export class MyVault {
         const blockHash = await apiNode.rpc.chain.getBlockHash(blockNumber);
         const apiClient = await apiNode.at(blockHash);
 
-        const lock = await BitcoinLock.get(apiClient, lockUtxoId);
+        const lock = await BitcoinLock.get(apiClient, lockId);
         if (!lock) {
-          console.warn('No lock found for orphaned cosign request:', { lockUtxoId, ownerAccount, txid, vout });
+          console.warn('No lock found for orphaned cosign request:', { lockId, ownerAccount, txid, vout });
           continue;
         }
 
@@ -1253,7 +1283,7 @@ export class MyVault {
         });
         txs.push({
           tx: result.tx,
-          metadata: { lockUtxoId, ownerAccount, txid, vout, vaultSignatureHex: result.vaultSignatureHex },
+          metadata: { lockId, ownerAccount, txid, vout, vaultSignatureHex: result.vaultSignatureHex },
         });
       }
     }
@@ -1279,8 +1309,7 @@ export class MyVault {
         bitcoinNetworkFee: args.bitcoinNetworkFee,
         toScriptPubkey: args.toScriptPubkey,
       },
-      utxoRef: { txid: args.txid, vout: args.vout },
-      utxoSatoshis: args.satoshis,
+      utxos: [{ utxoRef: { txid: args.txid, vout: args.vout }, satoshis: args.satoshis }],
     });
     const signedPsbt = cosign.vaultCosignPsbt(psbt, args.lock, vaultXpriv);
     const vaultSignature = signedPsbt.getInput(0).partialSig?.[0]?.[1];
@@ -1631,7 +1660,7 @@ export class MyVault {
       if (
         lock.fundedSatoshis === 0n ||
         lock.vaultId !== vault.vaultId ||
-        (await BitcoinLock.getReleaseRequest(client, lock.utxoId))
+        (await BitcoinLock.getReleaseRequest(client, lock.lockId))
       ) {
         throw new Error('This Bitcoin lock is no longer eligible to be flexible.');
       }
@@ -1652,7 +1681,7 @@ export class MyVault {
     const txs: SubmittableExtrinsic[] = [];
     for (const isFlexible of [true, false]) {
       for (const change of bitcoinChanges.filter(candidate => candidate.isFlexible === isFlexible)) {
-        txs.push(BitcoinLock.createSetFlexibleTx({ client, utxoId: change.lock.utxoId, isFlexible }));
+        txs.push(BitcoinLock.createSetFlexibleTx({ client, lockId: change.lock.lockId, isFlexible }));
       }
       for (const change of bondChanges.filter(candidate => candidate.isFlexible === isFlexible)) {
         txs.push(client.tx.treasury.setBondLotFlexible(change.lot.id, isFlexible));
@@ -1705,35 +1734,35 @@ export class MyVault {
 
     const client = clientArg ?? (await getMainchainClient(false));
 
-    const utxoIds = (await client.query.bitcoinLocks.utxoIdsByVaultId?.keys(vaultId))?.map(key => key.args[1]) ?? [];
+    const lockIds = ((await client.query.bitcoinLocks.lockIdsByVaultId.keys(vaultId)) ?? []).map(key => key.args[1]);
 
-    const next: { [utxoId: number]: IExternalBitcoinLock } = {};
-    for (const utxoId of utxoIds) {
-      if (this.data.releasedExternalUtxoIds.has(utxoId)) {
+    const next: { [lockId: number]: IExternalBitcoinLock } = {};
+    for (const lockId of lockIds) {
+      if (this.data.releasedExternalLockIds.has(lockId)) {
         continue;
       }
-      if (!!this.bitcoinLocks.data.locksByUtxoId[utxoId]) {
+      if (!!this.bitcoinLocks.data.locksByLockId[lockId]) {
         continue;
       }
-      const starting = this.data.externalLocks[utxoId];
+      const starting = this.data.externalLocks[lockId];
       if (starting && !starting.isPending) {
-        next[utxoId] = starting;
-        next[utxoId].isReleasing = this.data.pendingCosignUtxosById.has(utxoId);
+        next[lockId] = starting;
+        next[lockId].isReleasing = this.data.pendingCosignLocksById.has(lockId);
         continue;
       }
-      const lock = await BitcoinLock.get(client, utxoId);
+      const lock = await BitcoinLock.get(client, lockId);
       if (!lock) {
         continue;
       }
       if (lock.ownerAccount === this.walletKeys.vaultingAddress) {
         continue;
       }
-      next[utxoId] = {
-        utxoId,
+      next[lockId] = {
+        lockId,
         satoshis: lock.fundedSatoshis || lock.securitizedSatoshis,
         securitizationCoverageMicrogons: lock.securitizationCoverageMicrogons,
         isPending: lock.fundedSatoshis === 0n,
-        isReleasing: this.data.pendingCosignUtxosById.has(utxoId),
+        isReleasing: this.data.pendingCosignLocksById.has(lockId),
         lockDetails: lock,
       };
     }
@@ -2131,7 +2160,7 @@ export class MyVault {
 function serializeFlexibleAssetMetadata(changes: IVaultFlexibleAssetChanges): IVaultFlexibleAssetMetadata {
   return {
     bitcoinChanges: changes.bitcoinChanges.map(({ lock, isFlexible }) => ({
-      utxoId: lock.utxoId,
+      utxoId: lock.lockId,
       isBackfill: isFlexible,
     })),
     bondChanges: changes.bondChanges.map(({ lot, isFlexible }) => ({

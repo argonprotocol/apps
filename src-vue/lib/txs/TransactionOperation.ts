@@ -101,6 +101,8 @@ export abstract class TransactionOperation<Input, Metadata, Build extends Transa
 
   protected onSubmissionFailed?(prepared: PreparedTransactionOperation<Metadata, Build>, error: Error): Promise<void>;
 
+  protected beforeSubmit?(prepared: PreparedTransactionOperation<Metadata, Build>): Promise<void>;
+
   protected createInsufficientFundsError(_prepared: PreparedTransactionOperation<Metadata, Build>): Error {
     return new Error('There are not enough funds to submit this transaction.');
   }
@@ -114,13 +116,17 @@ export abstract class TransactionOperation<Input, Metadata, Build extends Transa
   protected getPendingTransactions(
     matches: (txInfo: TransactionInfo<Metadata>) => boolean,
   ): TransactionInfo<Metadata>[] {
-    const txInfos = this.transactionTracker.data.txInfos.filter(candidate => {
+    return this.getActiveTransactions(matches).filter(txInfo => !getTransactionFailureMessage(txInfo));
+  }
+
+  protected getActiveTransactions(
+    matches: (txInfo: TransactionInfo<Metadata>) => boolean,
+  ): TransactionInfo<Metadata>[] {
+    return this.transactionTracker.data.txInfos.filter(candidate => {
       if (candidate.tx.extrinsicType !== this.extrinsicType) return false;
-      if (getTransactionFailureMessage(candidate)) return false;
       if (candidate.tx.isFinalized && candidate.isPostProcessed && !candidate.hasFailedPostProcessing) return false;
       return matches(candidate as TransactionInfo<Metadata>);
     }) as TransactionInfo<Metadata>[];
-    return txInfos;
   }
 
   private async submitOperation(
@@ -151,6 +157,7 @@ export abstract class TransactionOperation<Input, Metadata, Build extends Transa
         : undefined;
     let txInfo: TransactionInfo<Metadata>;
     try {
+      await this.beforeSubmit?.(prepared);
       txInfo = await this.transactionTracker.submitAndWatch({
         client: prepared.client,
         tx: prepared.tx,

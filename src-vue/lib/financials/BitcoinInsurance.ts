@@ -24,26 +24,26 @@ export function allocateBitcoinInsuranceCosts(args: {
 }): IBitcoinInsuranceAllocation {
   const costByLiquidId = new Map<number, bigint>();
   const incompleteLiquidIds = new Set<number>();
-  const incompleteUtxoIds = new Set<number>();
+  const incompleteLockIds = new Set<number>();
   let unallocatedCost = 0n;
-  const fissionsByUtxoId = new Map<number, IBitcoinFission[]>();
+  const fissionsByLockId = new Map<number, IBitcoinFission[]>();
   for (const fission of args.fissions) {
-    const fissions = fissionsByUtxoId.get(fission.utxoId) ?? [];
+    const fissions = fissionsByLockId.get(fission.lockId) ?? [];
     fissions.push(fission);
-    fissionsByUtxoId.set(fission.utxoId, fissions);
+    fissionsByLockId.set(fission.lockId, fissions);
   }
-  const termsByUtxoId = new Map<number, IBitcoinSecuritizationTerm[]>();
+  const termsByLockId = new Map<number, IBitcoinSecuritizationTerm[]>();
   for (const term of args.terms) {
-    const terms = termsByUtxoId.get(term.utxoId) ?? [];
+    const terms = termsByLockId.get(term.lockId) ?? [];
     terms.push(term);
-    termsByUtxoId.set(term.utxoId, terms);
+    termsByLockId.set(term.lockId, terms);
   }
 
-  for (const [utxoId, fissions] of fissionsByUtxoId) {
-    const terms = termsByUtxoId.get(utxoId);
+  for (const [lockId, fissions] of fissionsByLockId) {
+    const terms = termsByLockId.get(lockId);
     if (!terms?.length) {
       for (const fission of fissions) incompleteLiquidIds.add(fission.liquidId);
-      incompleteUtxoIds.add(utxoId);
+      incompleteLockIds.add(lockId);
       continue;
     }
 
@@ -63,14 +63,14 @@ export function allocateBitcoinInsuranceCosts(args: {
       if (!hasOpeningTerm) hasMissingOpeningTerm = true;
     }
     if (hasMissingOpeningTerm) {
-      incompleteUtxoIds.add(utxoId);
+      incompleteLockIds.add(lockId);
       for (const fission of fissions) incompleteLiquidIds.add(fission.liquidId);
     }
   }
 
-  for (const [utxoId, terms] of termsByUtxoId) {
-    const fissions = fissionsByUtxoId.get(utxoId) ?? [];
-    if (incompleteUtxoIds.has(utxoId)) {
+  for (const [lockId, terms] of termsByLockId) {
+    const fissions = fissionsByLockId.get(lockId) ?? [];
+    if (incompleteLockIds.has(lockId)) {
       unallocatedCost += terms.reduce((total, term) => total + term.addedNetSecurityFee, 0n);
       continue;
     }

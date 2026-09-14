@@ -101,7 +101,7 @@ import BitcoinLocks from '../../lib/BitcoinLocks.ts';
 import BitcoinMempool from '../../lib/BitcoinMempool.ts';
 import { ESPLORA_HOST } from '../../lib/Env.ts';
 import { createNumeralHelpers } from '../../lib/numeral.ts';
-import type { IBitcoinLockRecord } from '../../interfaces/IBitcoinLockRecord.ts';
+import { BitcoinLockStatus, type IBitcoinLockRecord } from '../../interfaces/IBitcoinLockRecord.ts';
 import { getBitcoinLocks, getBitcoinTransactionOperations } from '../../stores/bitcoin.ts';
 import { getCurrency } from '../../stores/currency.ts';
 import { getWalletKeys, useWallets } from '../../stores/wallets.ts';
@@ -133,10 +133,12 @@ const argonFeeQuoteError = Vue.ref('');
 const isCheckingArgonFee = Vue.ref(false);
 
 const releaseState = Vue.computed(() => bitcoinLocks.getLockUnlockReleaseState(props.personalLock));
-const fundingRecord = Vue.computed(
-  () => bitcoinLocks.getAcceptedFundingRecord(props.personalLock) ?? props.personalLock.fundingUtxo,
+const release = Vue.computed(() =>
+  props.personalLock.status === BitcoinLockStatus.Released
+    ? bitcoinLocks.releases.getLatestForLock(props.personalLock)
+    : bitcoinLocks.releases.getActiveForLock(props.personalLock),
 );
-const fundedSatoshis = Vue.computed(() => fundingRecord.value?.satoshis ?? props.personalLock.fundedSatoshis);
+const fundedSatoshis = Vue.computed(() => props.personalLock.fundedSatoshis);
 const trimmedDestinationAddress = Vue.computed(() => destinationAddress.value.trim());
 const currentLockAddress = Vue.computed(() => {
   try {
@@ -153,7 +155,7 @@ const destinationAddressError = Vue.computed(() =>
 );
 const bitcoinNetworkName = Vue.computed(() => getBitcoinNetworkName(bitcoinLocks.bitcoinNetwork));
 const releaseDestinationAddress = Vue.computed(() => {
-  const destination = fundingRecord.value?.releaseToDestinationAddress;
+  const destination = release.value?.toScriptPubkey;
   if (!destination) return '';
   try {
     return BitcoinLocks.formatAddressBytes(destination, bitcoinLocks.bitcoinNetwork);
@@ -161,7 +163,7 @@ const releaseDestinationAddress = Vue.computed(() => {
     return destination;
   }
 });
-const releaseTxid = Vue.computed(() => fundingRecord.value?.releaseTxid);
+const releaseTxid = Vue.computed(() => release.value?.bitcoinTxid);
 const formError = Vue.computed(() => props.externalError || requestError.value);
 const argonFeeShortfall = Vue.computed(() => {
   if (!argonFeeQuote.value) return 0n;
@@ -169,7 +171,7 @@ const argonFeeShortfall = Vue.computed(() => {
 });
 const canSubmit = Vue.computed(
   () =>
-    !!props.personalLock.utxoId &&
+    !!props.personalLock.lockId &&
     trimmedDestinationAddress.value.length > 0 &&
     !destinationAddressError.value &&
     argonFeeQuote.value?.canAfford === true &&
@@ -198,14 +200,14 @@ Vue.watch(
 
 async function sendBitcoin(): Promise<void> {
   const quote = argonFeeQuote.value;
-  const utxoId = props.personalLock.utxoId;
-  if (!canSubmit.value || !quote || utxoId == null) return;
+  const lockId = props.personalLock.lockId;
+  if (!canSubmit.value || !quote || lockId == null) return;
 
   isSubmitting.value = true;
   requestError.value = '';
   try {
     await bitcoinLockRelease.submit({
-      utxoId,
+      lockId: lockId,
       bitcoinNetworkFee: quote.bitcoinFee,
       toScriptPubkey: trimmedDestinationAddress.value,
       txSigner: await getWalletKeys().getLiquidLockingKeypair(),
@@ -218,8 +220,8 @@ async function sendBitcoin(): Promise<void> {
 }
 
 async function refreshArgonFeeQuote(isCancelled: () => boolean): Promise<void> {
-  const utxoId = props.personalLock.utxoId;
-  if (utxoId == null) return;
+  const lockId = props.personalLock.lockId;
+  if (lockId == null) return;
 
   try {
     const bitcoinFee = await bitcoinLocks.calculateBitcoinNetworkFee(
@@ -228,7 +230,7 @@ async function refreshArgonFeeQuote(isCancelled: () => boolean): Promise<void> {
       trimmedDestinationAddress.value,
     );
     const prepared = await bitcoinLockRelease.prepare({
-      utxoId,
+      lockId: lockId,
       bitcoinNetworkFee: bitcoinFee,
       toScriptPubkey: trimmedDestinationAddress.value,
       txSigner: await getWalletKeys().getLiquidLockingKeypair(),

@@ -63,11 +63,11 @@ export async function readBitcoinLockState(flow: IE2EFlowRuntime, lockUuid?: str
         throw new Error(`Bitcoin channel ${args.lockUuid} is missing from the loaded store.`);
       }
       const releaseState = refs.bitcoinLocks.getLockUnlockReleaseState(lock);
-      const fundingRecord = lock ? refs.bitcoinLocks.getAcceptedFundingRecord(lock) : undefined;
+      const release = lock ? refs.bitcoinLocks.releases.getLatestForLock(lock) : undefined;
       return {
         ...releaseState,
         isSelectedLockActive: !!lock && !refs.bitcoinLocks.isTerminalLock(lock),
-        releaseTxid: fundingRecord?.releaseTxid,
+        releaseTxid: release?.bitcoinFirstSeenAt ? release.bitcoinTxid : undefined,
       };
     },
     { args: { lockUuid }, timeoutMs: 20_000 },
@@ -89,10 +89,11 @@ export async function readBitcoinOrphanReturnState(
         const record = refs.bitcoinLocks.utxoTracking
           .getAllOrphanLifecycleUtxos()
           .find(record => record.txid === args.argonTxid);
+        const release = record ? refs.bitcoinLocks.releases.getLatestForUtxo(record) : undefined;
         return {
           orphanExists: !!record,
-          returnTxid: record?.releaseTxid,
-          returnComplete: refs.bitcoinLocks.utxoTracking.isReleaseCompleteStatus(record?.status),
+          returnTxid: release?.bitcoinTxid,
+          returnComplete: String(release?.status ?? '') === 'Complete',
         };
       },
       { args: { argonTxid }, timeoutMs: 20_000 },

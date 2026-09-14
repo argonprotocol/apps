@@ -140,7 +140,7 @@ describe.skipIf(skipE2E).sequential('OperationalAccount integration tests', { ti
       await Promise.all([
         transferResultPromise.then(result => result.waitForInFirstBlock),
         waitFor(45_000, 'treasury bitcoin funded', async () => {
-          const currentLock = await BitcoinLock.get(runtimeClient, lock.utxoId);
+          const currentLock = await BitcoinLock.get(runtimeClient, lock.lockId);
           if (!currentLock?.fundedSatoshis) return;
           return currentLock;
         }),
@@ -153,7 +153,7 @@ describe.skipIf(skipE2E).sequential('OperationalAccount integration tests', { ti
         client: runtimeClient,
         fissionId,
         liquidId: fissionId,
-        utxoId: lock.utxoId,
+        lockId: lock.lockId,
         satoshis: lock.securitizedSatoshis,
         microgonsAtTargetPerBtc: lock.microgonsAtTargetPerBtc,
       });

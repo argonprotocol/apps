@@ -23,11 +23,11 @@
     </template>
 
     <template #subline>
-      <template v-if="notice.kind === 'fundingExpiring'">
-        Funding window expires in
-        <CountdownClock :time="fundingWindowExpirationTime" v-slot="{ days, hours, minutes }">
-          <template v-if="days > 0">{{ days }} day{{ days === 1 ? '' : 's' }}</template>
-          <template v-else>{{ hours }}h {{ minutes }}m</template>
+      <template v-if="notice.kind === 'securitizationHoldExpiring'">
+        Insurance is only reserved for
+        <CountdownClock :time="securitizationHoldExpirationTime" v-slot="{ days, hours, minutes }">
+          <template v-if="days > 0">{{ days }} more day{{ days === 1 ? '' : 's' }}</template>
+          <template v-else>another {{ hours }}h {{ minutes }}m</template>
         </CountdownClock>
       </template>
 
@@ -73,7 +73,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: 'open-lock', notice: Extract<IBitcoinAlert, { kind: 'fundingExpiring' }>): void;
+  (e: 'open-lock', notice: Extract<IBitcoinAlert, { kind: 'securitizationHoldExpiring' }>): void;
   (e: 'open-unlock', notice: Extract<IBitcoinAlert, { kind: 'unlockNeedsAttention' | 'unlockExpiring' }>): void;
 }>();
 
@@ -81,8 +81,8 @@ const bitcoinLocks = getBitcoinLocks();
 const currency = getCurrency();
 const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
-const fundingWindowExpirationTime = Vue.computed(() => {
-  return props.notice.kind === 'fundingExpiring' ? dayjs.utc(props.notice.expiresAt) : dayjs.utc();
+const securitizationHoldExpirationTime = Vue.computed(() => {
+  return props.notice.kind === 'securitizationHoldExpiring' ? dayjs.utc(props.notice.expiresAt) : dayjs.utc();
 });
 
 const expirationTime = Vue.computed(() => {
@@ -95,13 +95,15 @@ const lockExpirationTime = Vue.computed(() => {
 });
 
 const title = Vue.computed(() => {
-  if (props.notice.kind === 'fundingExpiring') return `${amountLabel.value} Bitcoin funding window expiring`;
+  if (props.notice.kind === 'securitizationHoldExpiring') {
+    return `${amountLabel.value} Bitcoin securitization hold expiring`;
+  }
   if (props.notice.kind === 'unlockNeedsAttention') return `${amountLabel.value} Bitcoin unlock needs attention`;
   return `${amountLabel.value} Bitcoin lock nearing expiration`;
 });
 
 const ctaLabel = Vue.computed(() => {
-  if (props.notice.kind === 'fundingExpiring') return 'Open Details';
+  if (props.notice.kind === 'securitizationHoldExpiring') return 'Open Details';
   if (props.notice.kind === 'unlockNeedsAttention') return 'Open Details';
   return 'Unlock Bitcoin';
 });
@@ -111,8 +113,8 @@ const amountLabel = Vue.computed(() => {
 });
 
 const tooltipContent = Vue.computed(() => {
-  if (props.notice.kind === 'fundingExpiring') {
-    return 'Complete this Bitcoin funding before the remaining window expires.';
+  if (props.notice.kind === 'securitizationHoldExpiring') {
+    return 'The reserved securitization for this Bitcoin Lock is about to expire.';
   }
 
   if (props.notice.kind === 'unlockNeedsAttention') {
@@ -126,7 +128,7 @@ const tooltipContent = Vue.computed(() => {
 const sublineClass = Vue.computed(() => {
   if (props.notice.kind === 'unlockNeedsAttention') return 'text-red-700';
 
-  if (props.notice.kind === 'unlockExpiring' || props.notice.kind === 'fundingExpiring') {
+  if (props.notice.kind === 'unlockExpiring' || props.notice.kind === 'securitizationHoldExpiring') {
     return 'text-amber-700';
   }
 
@@ -135,7 +137,7 @@ const sublineClass = Vue.computed(() => {
 
 function openNotice() {
   if (props.isPreview) return;
-  if (props.notice.kind === 'fundingExpiring') {
+  if (props.notice.kind === 'securitizationHoldExpiring') {
     emit('open-lock', props.notice);
     return;
   }

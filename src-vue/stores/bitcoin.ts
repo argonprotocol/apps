@@ -4,6 +4,7 @@ import { BitcoinPrices, BitcoinFees, type Vault } from '@argonprotocol/apps-core
 
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import { BitcoinFissions } from '../lib/BitcoinFissions.ts';
+import BitcoinReleases from '../lib/BitcoinReleases.ts';
 import { BitcoinLiquidClose } from '../lib/txs/BitcoinLiquid.close.ts';
 import { BitcoinLiquidCreate } from '../lib/txs/BitcoinLiquid.create.ts';
 import { BitcoinLiquidRatchet } from '../lib/txs/BitcoinLiquid.ratchet.ts';
@@ -48,6 +49,7 @@ export function getBitcoinLocks(): BitcoinLocks {
     const blockWatch = getBlockWatch();
     locks = new BitcoinLocks(dbPromise, keys, blockWatch, getCurrency(), transactionTracker);
     locks.data = Vue.reactive(locks.data) as any;
+    locks.releases.data = Vue.reactive(locks.releases.data) as BitcoinReleases['data'];
     locks.utxoTracking.data = Vue.reactive(locks.utxoTracking.data) as any;
   }
   void locks.load().catch(error => {
@@ -114,9 +116,9 @@ export function getBitcoinTransactionOperations(): TransactionOperations {
         bitcoinLockResecuritize,
         upstreamOperatorClient,
       ),
-      bitcoinOrphanRelease: new BitcoinOrphanRelease(bitcoinLocks, bitcoinLocks.orphanReleases, transactionTracker),
+      bitcoinOrphanRelease: new BitcoinOrphanRelease(bitcoinLocks, transactionTracker),
       bitcoinLockCreate: new BitcoinLockCreate(bitcoinLocks, transactionTracker, currency, upstreamOperatorClient),
-      bitcoinLockRelease: new BitcoinLockRelease(bitcoinLocks, transactionTracker, currency),
+      bitcoinLockRelease: new BitcoinLockRelease(bitcoinLocks, transactionTracker),
       bitcoinLockResecuritize,
     };
     Vue.watch(

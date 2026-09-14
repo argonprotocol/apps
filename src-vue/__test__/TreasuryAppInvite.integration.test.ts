@@ -341,7 +341,7 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
       });
       expect(firstLock.securitizedSatoshis).toBe(requestedSatoshis);
       expect(secondLock.securitizedSatoshis).toBe(secondRequestedSatoshis);
-      expect(secondLock.utxoId).not.toBe(firstLock.utxoId);
+      expect(secondLock.lockId).not.toBe(firstLock.lockId);
 
       const chainClient = await treasuryHarness.clients.get(false);
       const lastNonce = await chainClient.query.bitcoinLocks.lastFeeCouponNonceByVaultAndAccount(
@@ -362,9 +362,9 @@ describe.skipIf(skipE2E).sequential('Treasury app invite flow integration', { ti
 
 async function waitForCouponLock(harness: Awaited<ReturnType<typeof createBitcoinLocksClientHarness>>, uuid: string) {
   return await waitFor(120e3, 'fee coupon lock finalized', async () => {
-    const lock = Object.values(harness.bitcoinLocks.data.locksByUtxoId).find(record => record.uuid === uuid);
-    if (!lock?.utxoId || lock.status !== BitcoinLockStatus.LockPendingFunding) return;
-    if (!(await BitcoinLock.get(await harness.clients.get(false), lock.utxoId))) return;
+    const lock = Object.values(harness.bitcoinLocks.data.locksByLockId).find(record => record.uuid === uuid);
+    if (!lock?.lockId || lock.status !== BitcoinLockStatus.LockPendingFunding) return;
+    if (!(await BitcoinLock.get(await harness.clients.get(false), lock.lockId))) return;
     return lock;
   });
 }

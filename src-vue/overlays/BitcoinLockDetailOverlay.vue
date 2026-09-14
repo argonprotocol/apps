@@ -69,7 +69,7 @@ const isLocalLock = Vue.computed(() => 'uuid' in props.lock);
 const externalLock = Vue.computed<IExternalBitcoinLock | undefined>(() => {
   if ('uuid' in props.lock) return undefined;
 
-  const liveExternalLock = myVault.data.externalLocks[props.lock.utxoId];
+  const liveExternalLock = myVault.data.externalLocks[props.lock.lockId];
   if (liveExternalLock) {
     openedExternalLock.value = liveExternalLock;
   }
@@ -80,15 +80,15 @@ const externalLock = Vue.computed<IExternalBitcoinLock | undefined>(() => {
 const displayLock = Vue.computed(() => localLock.value ?? externalLock.value);
 
 const isExternalLockReleased = Vue.computed(() => {
-  const utxoId = externalLock.value?.utxoId;
-  if (utxoId == null) return false;
-  return myVault.data.releasedExternalUtxoIds.has(utxoId);
+  const lockId = externalLock.value?.lockId;
+  if (lockId == null) return false;
+  return myVault.data.releasedExternalLockIds.has(lockId);
 });
 
 const pendingCosign = Vue.computed(() => {
-  const utxoId = localLock.value?.utxoId ?? externalLock.value?.utxoId;
-  if (utxoId == null) return undefined;
-  const cosign = myVault.data.pendingCosignUtxosById.get(utxoId);
+  const lockId = localLock.value?.lockId ?? externalLock.value?.lockId;
+  if (lockId == null) return undefined;
+  const cosign = myVault.data.pendingCosignLocksById.get(lockId);
   if (!cosign) return undefined;
   return { dueFrame: cosign.dueFrame };
 });

@@ -10,6 +10,7 @@ import { toPlain } from '@argonprotocol/runtime-client';
 import { BitcoinFission, BondLot, BitcoinLock, type Vault } from '@argonprotocol/apps-core';
 import type { IBitcoinLockRecord } from '../interfaces/IBitcoinLockRecord.ts';
 import type { IBitcoinFissionRecord } from '../interfaces/IBitcoinFissionRecord.ts';
+import { BitcoinReleaseKind, BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
 import type { IBitcoinSecuritizationTerm } from '../interfaces/IBitcoinSecuritizationTerm.ts';
 import type {
   IFinancialGroupSnapshot,
@@ -70,15 +71,15 @@ function createBitcoinFinancialLock(overrides: Partial<IBitcoinLockRecord> = {})
   const now = new Date('2026-01-01T00:00:00Z');
   return {
     uuid: 'bitcoin-lock',
-    utxoId: 7,
+    lockId: 7,
     status: BitcoinLockStatus.LockFunded,
     securitizedSatoshis: 10_000n,
     ownerAccount: '5owner',
     securityFees: 0n,
     couponFeesPaid: 0n,
     fundHoldExtensionsByBitcoinExpirationHeight: {},
-    utxos: [],
     fundedSatoshis: 10_000n,
+    fundingUtxoIds: [],
     cosignVersion: 'v1',
     network: 'Bitcoin',
     hdPath: "m/84'/0'/0'",
@@ -96,7 +97,7 @@ function createBitcoinFissionFixture(overrides: Partial<IBitcoinFissionRecord> =
     ownerAccount: '5owner',
     fissionId: 7,
     liquidId: 7,
-    utxoId: 7,
+    lockId: 7,
     satoshis: 10_000n,
     microgonsAtTargetPerBtc: 100n,
     liquidityPromised: 100n,
@@ -1166,7 +1167,7 @@ describe('financial position accounting', () => {
       summary: bitcoinLocks.createLockSummary(lock),
       fissions: [fission],
       activeFissionIds: new Set(),
-      currentRedemptionAmount: undefined,
+      currentRedemptionAmount: 60n,
     });
     const positions = bitcoinFinancials.createFinancialPositions({ summaries: [summary], hasCurrentPrice: true });
     const aggregate = reduceFinancialPositions(readySnapshots(positions));
@@ -1212,7 +1213,7 @@ describe('financial position accounting', () => {
     });
     const summary = {
       uuid: lock.uuid,
-      utxoId: lock.utxoId,
+      lockId: lock.lockId,
       status: lock.status,
       satoshis: 10_000n,
       valueOfBtc: 90n,
@@ -1245,7 +1246,7 @@ describe('financial position accounting', () => {
       asOfBlock: 99,
       terms: [
         {
-          utxoId: 7,
+          lockId: 7,
           termIndex: 0,
           origin: 'created' as const,
           startTick: 0,
@@ -1309,7 +1310,7 @@ describe('financial position accounting', () => {
     });
     const summary = {
       uuid: lock.uuid,
-      utxoId: lock.utxoId,
+      lockId: lock.lockId,
       status: lock.status,
       satoshis: lock.fundedSatoshis,
       valueOfBtc: 100n,
@@ -1348,7 +1349,7 @@ describe('financial position accounting', () => {
 
     const terms: IBitcoinSecuritizationTerm[] = [
       {
-        utxoId: 7,
+        lockId: 7,
         termIndex: 0,
         origin: 'created',
         startTick: 10,
@@ -1516,7 +1517,7 @@ describe('financial position accounting', () => {
     });
     const summary = {
       uuid: lock.uuid,
-      utxoId: lock.utxoId,
+      lockId: lock.lockId,
       status: lock.status,
       satoshis: lock.fundedSatoshis,
       valueOfBtc: 150n,
@@ -1632,7 +1633,7 @@ describe('financial position accounting', () => {
     });
     const summary = {
       uuid: lock.uuid,
-      utxoId: lock.utxoId,
+      lockId: lock.lockId,
       status: lock.status,
       satoshis: lock.fundedSatoshis,
       valueOfBtc: 150n,
@@ -1644,7 +1645,7 @@ describe('financial position accounting', () => {
       ownerAccount: '5owner',
       fissionId: 21,
       liquidId: 12,
-      utxoId: 7,
+      lockId: 7,
       satoshis: 100_000_000n,
       microgonsAtTargetPerBtc: 100n,
       liquidityPromised: 100n,
@@ -1655,6 +1656,8 @@ describe('financial position accounting', () => {
     const recovered: IBitcoinFissionRecord = {
       ...current,
       origin: 'created',
+      createdAtArgonBlock: 159,
+      lastUpdatedArgonBlock: 159,
       createdAtTick: 10,
       createdBlockTime: new Date('2026-01-01T00:00:00Z'),
       feeHistoryCompleteThroughBlock: 159,
@@ -1701,7 +1704,7 @@ describe('financial position accounting', () => {
     });
     const summary = {
       uuid: lock.uuid,
-      utxoId: lock.utxoId,
+      lockId: lock.lockId,
       status: lock.status,
       satoshis: lock.fundedSatoshis,
       valueOfBtc: 150n,
@@ -1750,9 +1753,9 @@ describe('financial position accounting', () => {
     expect(project(new Set([21]))).toMatchObject({ transactionFees: 5n, insuranceCost: 10n, totalFees: 15n });
 
     fission.pendingMints.push({
-      queueIndex: 1,
+      queueIndex: 1n,
       fissionId: 21,
-      utxoId: 7,
+      lockId: 7,
       ownerAccount: '5owner',
       remainingAmount: 40n,
       maxAmountPerFrame: 10n,
@@ -1804,7 +1807,7 @@ describe('financial position accounting', () => {
     });
     const summary = {
       uuid: lock.uuid,
-      utxoId: lock.utxoId,
+      lockId: lock.lockId,
       status: lock.status,
       satoshis: lock.fundedSatoshis,
       valueOfBtc: 150n,
@@ -1911,7 +1914,7 @@ describe('financial position accounting', () => {
     });
     const summary = {
       uuid: lock.uuid,
-      utxoId: lock.utxoId,
+      lockId: lock.lockId,
       status: lock.status,
       satoshis: lock.fundedSatoshis,
       valueOfBtc: 150n,
@@ -1933,14 +1936,14 @@ describe('financial position accounting', () => {
 
   it('counts shared create and close fees once for a multi-Fission Liquid', () => {
     const locks = [
-      createBitcoinFinancialLock({ uuid: 'liquid-lock-1', utxoId: 7, fundedSatoshis: 50_000_000n }),
-      createBitcoinFinancialLock({ uuid: 'liquid-lock-2', utxoId: 8, fundedSatoshis: 50_000_000n }),
+      createBitcoinFinancialLock({ uuid: 'liquid-lock-1', lockId: 7, fundedSatoshis: 50_000_000n }),
+      createBitcoinFinancialLock({ uuid: 'liquid-lock-2', lockId: 8, fundedSatoshis: 50_000_000n }),
     ];
     const summaries = locks.map(
       lock =>
         ({
           uuid: lock.uuid,
-          utxoId: lock.utxoId,
+          lockId: lock.lockId,
           status: lock.status,
           satoshis: lock.fundedSatoshis,
           valueOfBtc: 60n,
@@ -1959,7 +1962,7 @@ describe('financial position accounting', () => {
         origin: 'created',
         fissionId: 21 + index,
         liquidId: 12,
-        utxoId: lock.utxoId!,
+        lockId: lock.lockId!,
         satoshis: 50_000_000n,
         liquidityPromised: 50n,
         createdAtTick: 10,
@@ -2008,9 +2011,7 @@ describe('financial position accounting', () => {
       securitizedSatoshis: 10_000_000n,
       securitizationCoverageMicrogons: 8_000n,
       securityFees: 10n,
-      releaseArgonTxFeeMicrogons: 3n,
       btcPriceAtRemovalMicrogons: 60_000n,
-      fundingUtxo: { releaseBitcoinNetworkFee: 100_000n } as never,
     });
     const fission = createBitcoinFissionFixture({
       satoshis: 10_000_000n,
@@ -2063,6 +2064,19 @@ describe('financial position accounting', () => {
     vi.spyOn(bitcoinLocks, 'getLockProcessingDetails').mockReturnValue({ confirmations: 3 } as never);
     vi.spyOn(bitcoinLocks, 'getLockProcessingError').mockReturnValue('');
     vi.spyOn(bitcoinLocks, 'hasObservedFundingSignal').mockReturnValue(true);
+    bitcoinLocks.releases.data.releasesById['release-1'] = {
+      id: 'release-1',
+      kind: BitcoinReleaseKind.Lock,
+      lockId: lock.lockId!,
+      status: BitcoinReleaseStatus.Complete,
+      inputUtxoIds: [],
+      toScriptPubkey: '0x0014abcd',
+      bitcoinNetworkFee: 100_000n,
+      argonTxFeeMicrogons: 3n,
+      vaultSignatures: [],
+      createdAt: new Date('2026-01-02T00:00:00Z'),
+      updatedAt: new Date('2026-01-02T00:00:00Z'),
+    };
     const applyValuation = () =>
       applyBitcoinFissionValuation({
         summary: bitcoinLocks.createLockSummary(lock),
@@ -2077,6 +2091,7 @@ describe('financial position accounting', () => {
       securityFees: 10n,
       transactionFees: 5n,
       totalFees: 15n,
+      unlockAmount: 7_000n,
       historicalTransactionFees: 68n,
       historicalTotalFees: 78n,
     });
@@ -2085,7 +2100,7 @@ describe('financial position accounting', () => {
       fissions: [fission],
       terms: [
         {
-          utxoId: 7,
+          lockId: 7,
           termIndex: 0,
           origin: 'created',
           startTick: 0,
@@ -2100,13 +2115,6 @@ describe('financial position accounting', () => {
       hasCurrentPrice: false,
     });
     expect(position).toMatchObject({ transactionFees: 68n, insuranceCost: 10n, totalFees: 78n });
-
-    lock.fundingUtxo = undefined;
-
-    expect(applyValuation()).toMatchObject({
-      historicalTransactionFees: 8n,
-      historicalTotalFees: 18n,
-    });
   });
 
   it('keeps retained down-ratchet liquidity in the Bitcoin asset without treating the lock as an investment', () => {
@@ -2164,7 +2172,7 @@ describe('financial position accounting', () => {
       summary: bitcoinLocks.createLockSummary(lock),
       fissions: [fission],
       activeFissionIds: new Set(),
-      currentRedemptionAmount: undefined,
+      currentRedemptionAmount: 100n,
     });
     const positions = bitcoinFinancials.createFinancialPositions({ summaries: [summary], hasCurrentPrice: true });
     const bitcoin = reduceFinancialPositions(readySnapshots(positions)).groupSummaries.bitcoin;
@@ -2226,12 +2234,9 @@ describe('financial position accounting', () => {
     const lock = createBitcoinFinancialLock({
       uuid: 'lock-released',
       status: BitcoinLockStatus.Released,
-      releaseRedemptionMicrogons: 40n,
-      releaseArgonTxFeeMicrogons: 3n,
       removalBlockTime: removedAt,
       removalReason: 'released',
       btcPriceAtRemovalMicrogons: 1_200_000n,
-      fundingUtxo: { releaseBitcoinNetworkFee: 1_000n } as never,
       updatedAt: new Date('2026-02-01T00:00:00Z'),
     });
     const summary = {
@@ -2272,12 +2277,9 @@ describe('financial position accounting', () => {
       status: BitcoinLockStatus.Released,
       fundedSatoshis: 13_146_391n,
       securitizedSatoshis: 13_146_391n,
-      releaseRedemptionMicrogons: 7_597_981_840n,
-      releaseArgonTxFeeMicrogons: 1_361n,
       removalBlockTime: new Date('2026-07-02T20:51:01Z'),
       removalReason: 'released',
       btcPriceAtRemovalMicrogons: 58_105_590_350n,
-      fundingUtxo: { releaseBitcoinNetworkFee: 847n } as never,
       createdAt: new Date('2026-06-11T00:00:00Z'),
     });
     const summary = {
@@ -2311,12 +2313,9 @@ describe('financial position accounting', () => {
     const lock = createBitcoinFinancialLock({
       uuid: 'lock-released-incomplete',
       status: BitcoinLockStatus.Released,
-      releaseRedemptionMicrogons: 40n,
-      releaseArgonTxFeeMicrogons: 3n,
       removalReason: 'released',
       removalBlockTime: new Date('2026-02-01T00:00:00Z'),
       btcPriceAtRemovalMicrogons: 1_200_000n,
-      fundingUtxo: { releaseBitcoinNetworkFee: 1_000n } as never,
     });
     const summary = {
       uuid: lock.uuid,
@@ -2469,7 +2468,7 @@ describe('financial position accounting', () => {
     });
     const summary = {
       uuid: lock.uuid,
-      utxoId: lock.utxoId,
+      lockId: lock.lockId,
       status: lock.status,
       satoshis: lock.fundedSatoshis,
       valueOfBtc: 1_500_000_000n,
