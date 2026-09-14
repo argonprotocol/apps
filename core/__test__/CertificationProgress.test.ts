@@ -106,10 +106,10 @@ describe('CertificationProgress', () => {
           },
         },
         bitcoinLocks: {
-          utxoIdsByOwnerAccount: {
+          lockIdsByOwnerAccount: {
             keys: vi.fn().mockResolvedValue([]),
           },
-          locksByUtxoId: {
+          locksById: {
             multi: vi.fn().mockResolvedValue([]),
           },
         },
