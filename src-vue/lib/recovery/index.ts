@@ -288,57 +288,61 @@ export async function publishBitcoinHistoryReplay({
   asOfBlock: number;
 }): Promise<readonly IHistoricalBitcoinLockRecord[]> {
   const preparedLocks = await bitcoinLockRecovery.prepareHistoryReplay();
-  const preparedFissions = await bitcoinFissionRecovery?.prepareHistoryReplay(preparedLocks.records);
+  const preparedFissions = await bitcoinFissionRecovery?.prepareHistoryReplay(
+    preparedLocks.records,
+    preparedLocks.lockIdByHistoricalUtxoId,
+    preparedLocks.historicalLiquidRedemptionByUtxoId,
+  );
   if (preparedLocks.hasUnscopedFailure) {
     await bitcoinLockRecovery.cancelHistoryReplay();
     bitcoinFissionRecovery?.cancelHistoryReplay();
     throw new Error('Bitcoin history replay failed outside a recoverable Lock unit');
   }
 
-  const fissionsByUtxoId = new Map<number, IBitcoinFissionRecord[]>();
+  const fissionsByLockId = new Map<number, IBitcoinFissionRecord[]>();
   for (const fission of preparedFissions?.records ?? []) {
-    const records = fissionsByUtxoId.get(fission.utxoId) ?? [];
+    const records = fissionsByLockId.get(fission.lockId) ?? [];
     records.push(fission);
-    fissionsByUtxoId.set(fission.utxoId, records);
+    fissionsByLockId.set(fission.lockId, records);
   }
 
-  const failedUtxoIds = new Set([
-    ...preparedLocks.failuresByUtxoId.keys(),
-    ...(preparedFissions?.failuresByUtxoId.keys() ?? []),
+  const failedLockIds = new Set([
+    ...preparedLocks.failuresByLockId.keys(),
+    ...(preparedFissions?.failuresByLockId.keys() ?? []),
   ]);
   const errors = [
-    ...[...preparedLocks.failuresByUtxoId].map(([utxoId, message]) => `Bitcoin lock ${utxoId}: ${message}`),
-    ...[...(preparedFissions?.failuresByUtxoId ?? [])].map(
-      ([utxoId, message]) => `Bitcoin Fission history for lock ${utxoId}: ${message}`,
+    ...[...preparedLocks.failuresByLockId].map(([lockId, message]) => `Bitcoin lock ${lockId}: ${message}`),
+    ...[...(preparedFissions?.failuresByLockId ?? [])].map(
+      ([lockId, message]) => `Bitcoin Fission history for lock ${lockId}: ${message}`,
     ),
   ];
-  const unitUtxoIds = new Set([...preparedLocks.unitUtxoIds, ...fissionsByUtxoId.keys(), ...failedUtxoIds]);
+  const unitLockIds = new Set([...preparedLocks.unitLockIds, ...fissionsByLockId.keys(), ...failedLockIds]);
 
-  for (const utxoId of unitUtxoIds) {
-    if (failedUtxoIds.has(utxoId)) continue;
+  for (const lockId of unitLockIds) {
+    if (failedLockIds.has(lockId)) continue;
 
-    const fissions = fissionsByUtxoId.get(utxoId) ?? [];
+    const fissions = fissionsByLockId.get(lockId) ?? [];
     try {
       let persistedLock: IBitcoinLockRecord | undefined;
       let persistedFissions = fissions;
       await db.transaction(async transaction => {
-        persistedLock = await bitcoinLockRecovery.persistHistoryReplayUnit(transaction, utxoId, asOfBlock);
+        persistedLock = await bitcoinLockRecovery.persistHistoryReplayUnit(transaction, lockId, asOfBlock);
         if (bitcoinFissionRecovery && fissions.length) {
           persistedFissions = await bitcoinFissionRecovery.persistHistoryReplayUnit(transaction, fissions);
         }
       });
-      if (persistedLock) bitcoinLockRecovery.publishHistoryReplayUnit(persistedLock);
+      await bitcoinLockRecovery.publishHistoryReplayUnit(persistedLock);
       await bitcoinFissionRecovery?.publishHistoryReplayUnit(persistedFissions);
     } catch (error) {
-      failedUtxoIds.add(utxoId);
+      failedLockIds.add(lockId);
       const message = error instanceof Error ? error.message : String(error);
-      errors.push(`Bitcoin history for lock ${utxoId}: ${message}`);
-      console.warn(`Unable to persist recovered Bitcoin history for lock ${utxoId}; leaving it retryable`, error);
+      errors.push(`Bitcoin history for lock ${lockId}: ${message}`);
+      console.warn(`Unable to persist recovered Bitcoin history for lock ${lockId}; leaving it retryable`, error);
     }
   }
 
   try {
-    await bitcoinLockRecovery.finishHistoryReplay(failedUtxoIds);
+    await bitcoinLockRecovery.finishHistoryReplay(failedLockIds);
   } catch (error) {
     errors.push(error instanceof Error ? error.message : String(error));
   }

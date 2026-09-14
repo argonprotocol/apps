@@ -55,20 +55,20 @@ export class BitcoinFinancials {
     );
     const fissions = this.fissions.getRecords();
     const activeFissionIds = new Set<number>();
-    const activeLiquidUtxoIds = new Set<number>();
-    const fissionsByUtxoId = new Map<IBitcoinLockRecord['utxoId'], BitcoinFission[]>();
+    const activeLiquidLockIds = new Set<number>();
+    const fissionsByLockId = new Map<IBitcoinLockRecord['lockId'], BitcoinFission[]>();
     for (const fission of fissions) {
       if (fission.closedAtArgonBlock === undefined) {
         activeFissionIds.add(fission.fissionId);
-        activeLiquidUtxoIds.add(fission.utxoId);
+        activeLiquidLockIds.add(fission.lockId);
       }
-      const lockFissions = fissionsByUtxoId.get(fission.utxoId) ?? [];
+      const lockFissions = fissionsByLockId.get(fission.lockId) ?? [];
       lockFissions.push(fission);
-      fissionsByUtxoId.set(fission.utxoId, lockFissions);
+      fissionsByLockId.set(fission.lockId, lockFissions);
     }
 
     const summaries = this.locks.getAllLocks({ includeHistoryRecoveryPending: true }).map(lock => {
-      const lockFissions = fissionsByUtxoId.get(lock.utxoId) ?? [];
+      const lockFissions = fissionsByLockId.get(lock.lockId) ?? [];
       const activeFissions = lockFissions.filter(fission => activeFissionIds.has(fission.fissionId));
       let currentRedemptionAmount: bigint | undefined;
       if (activeFissions.length && args.hasCurrentPrice && args.priceIndex) {
@@ -92,17 +92,17 @@ export class BitcoinFinancials {
     for (const summary of summaries) {
       const lock = summary.record;
 
-      if (this.locks.isLockFunded(lock) && lock.utxoId !== undefined && activeLiquidUtxoIds.has(lock.utxoId)) {
+      if (this.locks.isLockFunded(lock) && lock.lockId !== undefined && activeLiquidLockIds.has(lock.lockId)) {
         currentBitcoinDebt += summary.unlockAmount;
       }
       if (
         !lock.isHistoryRecoveryPending &&
         (this.locks.isLockFunded(lock) || this.locks.isReleaseStatus(lock)) &&
-        lock.utxoId !== undefined
+        lock.lockId !== undefined
       ) {
         let startingCapital = 0n;
 
-        for (const fission of fissionsByUtxoId.get(lock.utxoId) ?? []) {
+        for (const fission of fissionsByLockId.get(lock.lockId) ?? []) {
           const opening = fission.ratchets[0];
           if (opening) {
             startingCapital += getFissionTargetValue(fission, opening.microgonsAtTargetPerBtc, opening.source);
@@ -122,7 +122,7 @@ export class BitcoinFinancials {
     }
 
     const lockPositions = summaries.flatMap(summary =>
-      createBitcoinLockPositions(summary, args.hasCurrentPrice, activeLiquidUtxoIds),
+      createBitcoinLockPositions(summary, args.hasCurrentPrice, activeLiquidLockIds),
     );
     const liquidPositions = createBitcoinLiquidPositions({
       ...args,
@@ -161,9 +161,9 @@ export function createBitcoinLiquidPositions(
     terms: currentInsuranceTerms,
     fissions,
   });
-  const summariesByUtxoId = new Map<number, IBitcoinLockSummary>();
+  const summariesByLockId = new Map<number, IBitcoinLockSummary>();
   for (const summary of summaries) {
-    if (summary.utxoId !== undefined) summariesByUtxoId.set(summary.utxoId, summary);
+    if (summary.lockId !== undefined) summariesByLockId.set(summary.lockId, summary);
   }
   const positions: IBitcoinLiquidFinancialPosition[] = [];
 
@@ -174,14 +174,14 @@ export function createBitcoinLiquidPositions(
   })) {
     const { liquidId, fissions: liquidFissions } = liquid;
     const locks = liquidFissions.flatMap(fission => {
-      const lock = summariesByUtxoId.get(fission.utxoId)?.record;
+      const lock = summariesByLockId.get(fission.lockId)?.record;
       return lock ? [lock] : [];
     });
     const uniqueLocks = [...new Map(locks.map(lock => [lock.uuid, lock])).values()];
     const isActive = liquidFissions.some(fission => activeFissionIds.has(fission.fissionId));
     const hasCompleteInsurance = !insurance.incompleteLiquidIds.has(liquidId);
     let hasCompleteReturn =
-      hasCompleteInsurance && uniqueLocks.length === new Set(liquidFissions.map(fission => fission.utxoId)).size;
+      hasCompleteInsurance && uniqueLocks.length === new Set(liquidFissions.map(fission => fission.lockId)).size;
     let hasCompleteTransactionFees = liquid.historyTransactionFees !== undefined;
     let startingCapital = 0n;
     let performanceBitcoinValue = 0n;
@@ -192,7 +192,7 @@ export function createBitcoinLiquidPositions(
     let transactionFees = liquid.historyTransactionFees ?? 0n;
 
     for (const fission of liquidFissions) {
-      const summary = summariesByUtxoId.get(fission.utxoId);
+      const summary = summariesByLockId.get(fission.lockId);
       const ratchets = fission.ratchets;
       const opening = ratchets[0];
       const latest = ratchets.at(-1);
@@ -248,16 +248,12 @@ export function createBitcoinLiquidPositions(
       if (liquid.closeTransactionFees !== undefined) {
         transactionFees += liquid.closeTransactionFees;
       } else if (liquidFissions.length === 1 && liquidFissions[0].origin === 'lock-migration') {
-        const summary = summariesByUtxoId.get(liquidFissions[0].utxoId);
-        const releaseArgonTxFee = summary?.record.releaseArgonTxFeeMicrogons;
-        const releaseBitcoinNetworkFee = valueSatoshisAtRate(
-          summary?.record.fundingUtxo?.releaseBitcoinNetworkFee,
-          summary?.record.btcPriceAtRemovalMicrogons,
-        );
-        if (releaseArgonTxFee === undefined || releaseBitcoinNetworkFee === undefined) {
+        const summary = summariesByLockId.get(liquidFissions[0].lockId);
+        if (summary?.historicalTransactionFees === undefined) {
           hasCompleteTransactionFees = false;
         } else {
-          transactionFees += releaseArgonTxFee + releaseBitcoinNetworkFee;
+          // Liquid history already includes the Fission fees; add only the release fees from the lock summary.
+          transactionFees += summary.historicalTransactionFees - summary.transactionFees;
         }
       } else {
         hasCompleteTransactionFees = false;
@@ -339,25 +335,25 @@ function mergeCurrentInsuranceTerms(args: {
   fissions: readonly BitcoinFission[];
   terms: readonly IBitcoinSecuritizationTerm[];
 }): IBitcoinSecuritizationTerm[] {
-  const fissionUtxoIds = new Set(args.fissions.map(fission => fission.utxoId));
-  const fissionsByUtxoId = new Map<number, BitcoinFission[]>();
+  const fissionLockIds = new Set(args.fissions.map(fission => fission.lockId));
+  const fissionsByLockId = new Map<number, BitcoinFission[]>();
   for (const fission of args.fissions) {
-    const fissions = fissionsByUtxoId.get(fission.utxoId) ?? [];
+    const fissions = fissionsByLockId.get(fission.lockId) ?? [];
     fissions.push(fission);
-    fissionsByUtxoId.set(fission.utxoId, fissions);
+    fissionsByLockId.set(fission.lockId, fissions);
   }
-  const termsByUtxoId = new Map<number, IBitcoinSecuritizationTerm[]>();
+  const termsByLockId = new Map<number, IBitcoinSecuritizationTerm[]>();
   for (const term of args.terms) {
-    const terms = termsByUtxoId.get(term.utxoId) ?? [];
+    const terms = termsByLockId.get(term.lockId) ?? [];
     terms.push({ ...term });
-    termsByUtxoId.set(term.utxoId, terms);
+    termsByLockId.set(term.lockId, terms);
   }
 
   for (const summary of args.summaries) {
-    const { record, utxoId } = summary;
+    const { record, lockId } = summary;
     if (
-      utxoId === undefined ||
-      !fissionUtxoIds.has(utxoId) ||
+      lockId === undefined ||
+      !fissionLockIds.has(lockId) ||
       !activeBitcoinLockStatuses.includes(summary.status) ||
       record.securitizationTick === undefined ||
       record.securitizedSatoshis <= 0n
@@ -365,15 +361,17 @@ function mergeCurrentInsuranceTerms(args: {
       continue;
     }
 
-    const terms = termsByUtxoId.get(utxoId) ?? [];
+    const terms = termsByLockId.get(lockId) ?? [];
     if (terms.length) continue;
 
-    const fissions = fissionsByUtxoId.get(utxoId) ?? [];
+    const fissions = fissionsByLockId.get(lockId) ?? [];
     if (new Set(fissions.map(fission => fission.liquidId)).size !== 1) continue;
-    const opening = fissions.toSorted((left, right) => left.createdAtArgonBlock - right.createdAtArgonBlock)[0];
-    termsByUtxoId.set(utxoId, [
+    const opening = fissions.toSorted(
+      (left, right) => (left.createdAtArgonBlock ?? 0) - (right.createdAtArgonBlock ?? 0),
+    )[0];
+    termsByLockId.set(lockId, [
       {
-        utxoId,
+        lockId,
         termIndex: 0,
         origin: 'created',
         startTick: opening?.createdAtTick ?? record.securitizationTick,
@@ -386,7 +384,7 @@ function mergeCurrentInsuranceTerms(args: {
     ]);
   }
 
-  return [...termsByUtxoId.values()].flat();
+  return [...termsByLockId.values()].flat();
 }
 
 export function applyBitcoinFissionValuation(args: {
@@ -403,6 +401,8 @@ export function applyBitcoinFissionValuation(args: {
   let burnedLiquidity = 0n;
   let targetValue = 0n;
   let transactionFees = 0n;
+  let historicalRedemptionAmount: bigint | undefined = 0n;
+  let hasActiveFission = false;
 
   for (const fission of fissions) {
     const ratchets = fission.ratchets;
@@ -411,9 +411,17 @@ export function applyBitcoinFissionValuation(args: {
     burnedLiquidity += ratchets.reduce((total, ratchet) => total + ratchet.amountBurned, 0n);
     transactionFees += ratchets.reduce((total, ratchet) => total + (ratchet.txFee ?? 0n), 0n);
     if (activeFissionIds.has(fission.fissionId)) {
+      hasActiveFission = true;
       pendingLiquidity += fission.pendingMints.reduce((total, mint) => total + mint.remainingAmount, 0n);
       targetValue += getFissionTargetValue(fission, fission.microgonsAtTargetPerBtc, 'fission');
       continue;
+    }
+
+    if (fission.closeReason !== 'lock-spent') {
+      historicalRedemptionAmount =
+        historicalRedemptionAmount === undefined || fission.redemptionAmount === undefined
+          ? undefined
+          : historicalRedemptionAmount + fission.redemptionAmount;
     }
 
     pendingLiquidity += ratchets.reduce((total, ratchet) => total + ratchet.mintPending, 0n);
@@ -431,11 +439,12 @@ export function applyBitcoinFissionValuation(args: {
   const totalFees = summary.securityFees + transactionFees;
   const historicalTransactionFees =
     summary.historicalTransactionFees === undefined ? undefined : summary.historicalTransactionFees + transactionFees;
+  const redemptionAmount = currentRedemptionAmount ?? (hasActiveFission ? 0n : (historicalRedemptionAmount ?? 0n));
   const endingCapital = calculateBitcoinEndingCapital({
     bitcoinValue: startingCapital + valueBeyondLiquidity,
     receivedLiquidity,
     pendingLiquidity,
-    redemptionAmount: currentRedemptionAmount ?? summary.unlockAmount,
+    redemptionAmount,
     fees: totalFees,
   });
 
@@ -447,7 +456,7 @@ export function applyBitcoinFissionValuation(args: {
     valueBeyondLiquidity,
     startingCapital,
     endingCapital,
-    unlockAmount: currentRedemptionAmount ?? summary.unlockAmount,
+    unlockAmount: redemptionAmount,
     ratchetPercent: calculateBitcoinReturn(targetValue, summary.valueOfBtc),
     transactionFees,
     totalFees,
@@ -472,7 +481,7 @@ function getFissionTargetValue(
 function createBitcoinLockPositions(
   summary: IBitcoinLockSummary,
   hasCurrentPrice: boolean,
-  activeLiquidUtxoIds?: ReadonlySet<number>,
+  activeLiquidLockIds?: ReadonlySet<number>,
 ): BitcoinFinancialRecord[] {
   const { record } = summary;
 
@@ -520,8 +529,8 @@ function createBitcoinLockPositions(
       lock: summary.record,
     }),
   ];
-  const hasActiveLiquid = activeLiquidUtxoIds
-    ? record.utxoId !== undefined && activeLiquidUtxoIds.has(record.utxoId)
+  const hasActiveLiquid = activeLiquidLockIds
+    ? record.lockId !== undefined && activeLiquidLockIds.has(record.lockId)
     : record.fissionedSatoshis !== 0n;
   if (hasActiveLiquid) {
     positions.push(
@@ -535,57 +544,6 @@ function createBitcoinLockPositions(
     );
   }
   return positions;
-}
-
-export function calculateBitcoinLockValuation({ lock, currency }: { lock: IBitcoinLockRecord; currency: Currency }) {
-  const satoshis = lock.fundedSatoshis || lock.securitizedSatoshis;
-  const btc = currency.convertSatToBtc(satoshis);
-  const valueOfBtc = currency.convertBtcToMicrogon(btc);
-  const unlockAmount = lock.releaseRedemptionMicrogons ?? lock.securitizationCoverageMicrogons ?? 0n;
-  const securityFees = bigIntMax(lock.securityFees - lock.couponFeesPaid, 0n);
-  const transactionFees = 0n;
-  const totalFees = securityFees + transactionFees;
-  const releaseBitcoinNetworkFeeValue = valueSatoshisAtRate(
-    lock.fundingUtxo?.releaseBitcoinNetworkFee,
-    lock.btcPriceAtRemovalMicrogons,
-  );
-  const hasHistoricalTransactionFees =
-    lock.releaseArgonTxFeeMicrogons !== undefined || releaseBitcoinNetworkFeeValue !== undefined;
-  const historicalTransactionFees = hasHistoricalTransactionFees
-    ? transactionFees + (lock.releaseArgonTxFeeMicrogons ?? 0n) + (releaseBitcoinNetworkFeeValue ?? 0n)
-    : undefined;
-  const historicalTotalFees =
-    historicalTransactionFees === undefined ? undefined : securityFees + historicalTransactionFees;
-  const totalLiquidity = 0n;
-  const pendingLiquidity = 0n;
-  const receivedLiquidity = 0n;
-  const startingCapital = valueOfBtc;
-  const valueBeyondLiquidity = valueOfBtc;
-  const currentEndingCapital = calculateBitcoinEndingCapital({
-    bitcoinValue: startingCapital + valueBeyondLiquidity,
-    receivedLiquidity,
-    pendingLiquidity,
-    redemptionAmount: unlockAmount,
-    fees: totalFees,
-  });
-  const endingCapital = currentEndingCapital;
-
-  return {
-    valueOfBtc,
-    totalLiquidity,
-    pendingLiquidity,
-    receivedLiquidity,
-    valueBeyondLiquidity,
-    startingCapital,
-    endingCapital,
-    securityFees,
-    transactionFees,
-    totalFees,
-    historicalTransactionFees,
-    historicalTotalFees,
-    unlockAmount,
-    totalReturn: calculateBitcoinReturn(startingCapital, endingCapital),
-  };
 }
 
 export function calculateBitcoinEndingCapital({

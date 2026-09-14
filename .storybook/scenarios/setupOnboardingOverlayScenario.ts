@@ -82,9 +82,9 @@ export function setupFlexibleAssetsScenario(state: 'empty' | 'loading' | 'eligib
 
   const bonds = [createFlexibleBond(71, false), createFlexibleBond(72, true), createFlexibleBond(73, false)];
   const locks = [
-    { utxoId: 81, satoshis: 12_500_000n, liquidityPromised: 475_000_000n, isFlexible: false },
-    { utxoId: 82, satoshis: 25_000_000n, liquidityPromised: 950_000_000n, isFlexible: true },
-    { utxoId: 83, satoshis: 6_250_000n, liquidityPromised: 237_500_000n, isFlexible: false },
+    { lockId: 81, satoshis: 12_500_000n, liquidityPromised: 475_000_000n, isFlexible: false },
+    { lockId: 82, satoshis: 25_000_000n, liquidityPromised: 950_000_000n, isFlexible: true },
+    { lockId: 83, satoshis: 6_250_000n, liquidityPromised: 237_500_000n, isFlexible: false },
   ];
   mocked(getMainchainClient).mockResolvedValue({} as Awaited<ReturnType<typeof getMainchainClient>>);
   mocked(getBitcoinLocks).mockReturnValue({
@@ -105,7 +105,7 @@ export function setupFlexibleAssetsScenario(state: 'empty' | 'loading' | 'eligib
           extrinsicType: ExtrinsicType.VaultSetFlexibleAssets,
           status: TransactionStatus.Submitted,
           metadataJson: {
-            bitcoinChanges: [{ utxoId: 81, isBackfill: true }],
+            bitcoinChanges: [{ lockId: 81, isBackfill: true }],
             bondChanges: [{ bondLotId: 71, isBackfill: true }],
           },
         },

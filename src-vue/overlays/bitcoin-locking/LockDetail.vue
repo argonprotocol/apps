@@ -18,9 +18,9 @@
           <Tooltip :asChild="true" content="The Argons returned to unlock and release this bitcoin.">
             <span class="cursor-help">
               {{
-                localLock?.releaseRedemptionMicrogons === undefined
+                releasedRedemptionAmount === undefined
                   ? 'release cost unavailable'
-                  : `${currency.symbol}${microgonToMoneyNm(localLock.releaseRedemptionMicrogons).format('0,0.[00]')} release cost`
+                  : `${currency.symbol}${microgonToMoneyNm(releasedRedemptionAmount).format('0,0.[00]')} release cost`
               }}
             </span>
           </Tooltip>
@@ -289,7 +289,20 @@ const isReturnLoading = Vue.computed(() => {
 
 const localSummary = Vue.computed(() => {
   if (!localLock.value) return;
-  return bitcoinLocks.createLockSummary(localLock.value);
+  return (
+    financials.liquidAllRecords.find(summary => summary.uuid === localLock.value?.uuid) ??
+    bitcoinLocks.createLockSummary(localLock.value)
+  );
+});
+
+const localRelease = Vue.computed(() => {
+  if (!localLock.value) return;
+  return bitcoinLocks.releases.getLatestForLock(localLock.value);
+});
+
+const releasedRedemptionAmount = Vue.computed(() => {
+  if (!localLock.value) return;
+  return financials.liquidAllRecords.find(summary => summary.uuid === localLock.value?.uuid)?.unlockAmount;
 });
 
 const vaultLabel = Vue.computed(() => {
@@ -328,16 +341,15 @@ const statusMessage = Vue.computed(() => {
   return 'This bitcoin is locked and generating revenue on Argon.';
 });
 
-const fundingUtxoRecord = Vue.computed(() => {
+const fundingUtxos = Vue.computed(() => {
   if (!localLock.value) return undefined;
-  return bitcoinLocks.getAcceptedFundingRecord(localLock.value);
+  return bitcoinLocks.getFundingUtxos(localLock.value);
 });
 
 const mempool = new BitcoinMempool(ESPLORA_HOST);
-const releaseTxid = Vue.computed(() => fundingUtxoRecord.value?.releaseTxid);
+const releaseTxid = Vue.computed(() => localRelease.value?.bitcoinTxid);
 
 const fundingSatoshis = Vue.computed(() => {
-  if (fundingUtxoRecord.value) return fundingUtxoRecord.value.satoshis;
   return 'uuid' in props.lock ? props.lock.fundedSatoshis || props.lock.securitizedSatoshis : props.lock.satoshis;
 });
 
@@ -354,7 +366,7 @@ const lockTiming = Vue.computed(() => {
   if ('uuid' in props.lock) return props.lock;
   return {
     scriptDetails: props.lock.lockDetails,
-    fundingExpirationHeight: props.lock.lockDetails.fundingExpirationHeight,
+    securitizationHoldExpirationBitcoinHeight: props.lock.lockDetails.securitizationHoldExpirationBitcoinHeight,
   };
 });
 
@@ -368,17 +380,17 @@ const bitcoinUnlockCost = Vue.computed(() => {
   const lock = localLock.value;
   if (!lock) return;
 
-  return valueSatoshisAtRate(lock.fundingUtxo?.releaseBitcoinNetworkFee, lock.btcPriceAtRemovalMicrogons ?? undefined);
+  return valueSatoshisAtRate(localRelease.value?.bitcoinNetworkFee, lock.btcPriceAtRemovalMicrogons ?? undefined);
 });
 
 const argonTransactionCost = Vue.computed(() => {
-  const lock = localLock.value;
-  if (!lock || lock.releaseArgonTxFeeMicrogons === undefined) return;
-  return transactionFees.value + lock.releaseArgonTxFeeMicrogons;
+  const release = localRelease.value;
+  if (release?.argonTxFeeMicrogons === undefined) return;
+  return transactionFees.value + release.argonTxFeeMicrogons;
 });
 
 const timerLabel = Vue.computed(() => {
-  if (isPendingFunding.value) return 'Funding Window';
+  if (isPendingFunding.value) return 'Securitization Hold';
   if (isPendingCosign.value) return 'Cosign Deadline';
   return 'Term Progress';
 });
@@ -403,7 +415,7 @@ const timerColorClass = Vue.computed(() => {
 });
 
 const termProgress = Vue.computed(() => {
-  if (isPendingFunding.value) return bitcoinLocks.getFundingWindowProgress(lockTiming.value);
+  if (isPendingFunding.value) return bitcoinLocks.getSecuritizationHoldProgress(lockTiming.value);
 
   if (isPendingCosign.value) {
     if (localLock.value) {
@@ -425,7 +437,7 @@ const cosignDueTime = Vue.computed(() => {
 const lockExpirationTime = Vue.computed(() => {
   if (isPendingFunding.value) {
     try {
-      return dayjs.utc(bitcoinLocks.verifyExpirationTime(lockTiming.value));
+      return dayjs.utc(bitcoinLocks.getSecuritizationHoldExpirationTime(lockTiming.value));
     } catch {
       return dayjs.utc();
     }

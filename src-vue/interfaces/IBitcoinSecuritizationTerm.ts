@@ -1,5 +1,5 @@
 export interface IBitcoinSecuritizationTerm {
-  utxoId: number;
+  lockId: number;
   termIndex: number;
   origin: 'created' | 'resecuritized';
   startTick: number;

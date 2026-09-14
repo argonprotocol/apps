@@ -9,12 +9,12 @@ import { TransactionOperation, type TransactionOperationBuild } from './Transact
 export interface BitcoinLockCosignInput {
   client: ArgonClient;
   txSigner: TxSigningAccount;
-  utxoId: number;
-  vaultSignatureHex: string;
+  lockId: number;
+  vaultSignatureHexes: string[];
 }
 
 export interface IBitcoinLockCosignMetadata {
-  utxoId: number;
+  lockId: number;
 }
 
 type BitcoinLockCosignBuild = TransactionOperationBuild<IBitcoinLockCosignMetadata>;
@@ -34,7 +34,7 @@ export class BitcoinLockCosign extends TransactionOperation<
   }
 
   public override async submit(input: BitcoinLockCosignInput): Promise<TransactionInfo<IBitcoinLockCosignMetadata>> {
-    const existing = await this.myVault.findLatestReleaseCosignTxAttempt(input.utxoId);
+    const existing = await this.myVault.findLatestReleaseCosignTxAttempt(input.lockId);
     if (
       existing &&
       (existing.txAttemptState === TxAttemptState.Pending || existing.txAttemptState === TxAttemptState.Finalized)
@@ -50,44 +50,44 @@ export class BitcoinLockCosign extends TransactionOperation<
       txs: [
         BitcoinLock.createReleaseCosignTx({
           client: input.client,
-          utxoId: input.utxoId,
-          vaultSignatureHex: input.vaultSignatureHex,
+          lockId: input.lockId,
+          vaultSignatureHexes: input.vaultSignatureHexes,
         }),
       ],
       txSigner: input.txSigner,
-      metadata: { utxoId: input.utxoId },
+      metadata: { lockId: input.lockId },
     };
   }
 
   protected getOperationKey(input: BitcoinLockCosignInput): string {
-    return `${input.txSigner.address}:${input.utxoId}`;
+    return `${input.txSigner.address}:${input.lockId}`;
   }
 
   protected matches(input: BitcoinLockCosignInput, txInfo: TransactionInfo<IBitcoinLockCosignMetadata>): boolean {
-    return txInfo.tx.accountAddress === input.txSigner.address && txInfo.tx.metadataJson.utxoId === input.utxoId;
+    return txInfo.tx.accountAddress === input.txSigner.address && txInfo.tx.metadataJson.lockId === input.lockId;
   }
 
   protected async onSubmitted(txInfo: TransactionInfo<IBitcoinLockCosignMetadata>): Promise<void> {
-    const { utxoId } = txInfo.tx.metadataJson;
-    this.myVault.data.releasedExternalUtxoIds.add(utxoId);
-    this.myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.set(utxoId, txInfo);
+    const { lockId } = txInfo.tx.metadataJson;
+    this.myVault.data.releasedExternalLockIds.add(lockId);
+    this.myVault.data.myPendingBitcoinCosignTxInfosByLockId.set(lockId, txInfo);
   }
 
   protected async onFinalized(txInfo: TransactionInfo<IBitcoinLockCosignMetadata>): Promise<void> {
-    const { utxoId } = txInfo.tx.metadataJson;
+    const { lockId } = txInfo.tx.metadataJson;
     try {
       await this.myVault.trackTxResultFee(txInfo.txResult);
     } finally {
-      if (this.myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.get(utxoId)?.tx.id === txInfo.tx.id) {
-        this.myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.delete(utxoId);
+      if (this.myVault.data.myPendingBitcoinCosignTxInfosByLockId.get(lockId)?.tx.id === txInfo.tx.id) {
+        this.myVault.data.myPendingBitcoinCosignTxInfosByLockId.delete(lockId);
       }
     }
   }
 
   protected async onFailed(txInfo: TransactionInfo<IBitcoinLockCosignMetadata>): Promise<void> {
-    const { utxoId } = txInfo.tx.metadataJson;
-    if (this.myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.get(utxoId)?.tx.id === txInfo.tx.id) {
-      this.myVault.data.myPendingBitcoinCosignTxInfosByUtxoId.delete(utxoId);
+    const { lockId } = txInfo.tx.metadataJson;
+    if (this.myVault.data.myPendingBitcoinCosignTxInfosByLockId.get(lockId)?.tx.id === txInfo.tx.id) {
+      this.myVault.data.myPendingBitcoinCosignTxInfosByLockId.delete(lockId);
     }
   }
 }

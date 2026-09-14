@@ -108,7 +108,7 @@ describe('Bitcoin securitization history', () => {
 
 function createTerm(overrides: Partial<IBitcoinSecuritizationTerm> = {}): IBitcoinSecuritizationTerm {
   return {
-    utxoId: 7,
+    lockId: 7,
     termIndex: 0,
     origin: 'created',
     startTick: 500,

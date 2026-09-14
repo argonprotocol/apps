@@ -33,7 +33,7 @@ export class BitcoinFissions {
 
   public readonly recovery: BitcoinFissionRecovery;
   private waitForLoad?: IDeferred<void>;
-  private readonly pendingMintSubscriptions = new Map<number, VoidFunction>();
+  private readonly pendingMintSubscriptions = new Map<bigint, VoidFunction>();
   private readonly pendingMintPersistence = new Map<number, { needsAnotherWrite: boolean }>();
   private readonly currentStateQueue = new SingleFileQueue();
   private pendingRefreshClient?: ArgonQueryClient;
@@ -272,9 +272,9 @@ export class BitcoinFissions {
   }
 
   private async loadPendingMints(client: ArgonQueryClient, fissions: readonly BitcoinFission[]): Promise<void> {
-    const utxoIds = [...new Set(fissions.map(fission => fission.utxoId))];
+    const lockIds = [...new Set(fissions.map(fission => fission.lockId))];
     const pendingMints = (
-      await Promise.all(utxoIds.map(utxoId => BitcoinFission.pendingMintsForLock(client, utxoId)))
+      await Promise.all(lockIds.map(lockId => BitcoinFission.pendingMintsForLock(client, lockId)))
     ).flat();
     const pendingMintsByFissionId = new Map<number, IBitcoinPendingMint[]>();
     for (const mint of pendingMints) {
@@ -299,18 +299,39 @@ export class BitcoinFissions {
   }
 
   public getRecords(): BitcoinFission[] {
-    return Object.values(this.data.fissionsById);
+    return Object.values(this.data.fissionsById).filter(fission => fission.createdAtArgonBlock !== undefined);
+  }
+
+  public getPendingLiquids(): BitcoinLiquid[] {
+    return createBitcoinLiquids({
+      fissions: Object.values(this.data.fissionsById).filter(fission => fission.createdAtArgonBlock === undefined),
+    });
+  }
+
+  public publishPendingFissions(fissions: readonly BitcoinFission[]): void {
+    for (const fission of fissions) {
+      if (this.data.fissionsById[fission.fissionId]) continue;
+      this.data.fissionsById[fission.fissionId] = fission;
+    }
+  }
+
+  public discardPendingLiquid(liquidId: number): void {
+    for (const fission of Object.values(this.data.fissionsById)) {
+      if (fission.liquidId === liquidId && fission.createdAtArgonBlock === undefined) {
+        delete this.data.fissionsById[fission.fissionId];
+      }
+    }
   }
 
   public getLiquids(): BitcoinLiquid[] {
     return createBitcoinLiquids({ fissions: this.getRecords() });
   }
 
-  public getLiquidIdsForLock(utxoId: number): number[] {
+  public getLiquidIdsForLock(lockId: number): number[] {
     return [
       ...new Set(
         this.getAll()
-          .filter(fission => fission.utxoId === utxoId)
+          .filter(fission => fission.lockId === lockId)
           .map(fission => fission.liquidId),
       ),
     ];
@@ -357,7 +378,8 @@ export class BitcoinFissions {
   private updateCurrentState(current: readonly BitcoinFission[]): void {
     this.updateFissionsFromCurrent(current);
     for (const fission of current) {
-      if (this.data.fissionsById[fission.fissionId]?.closedAtArgonBlock === undefined) {
+      const stored = this.data.fissionsById[fission.fissionId];
+      if (stored?.closedAtArgonBlock === undefined) {
         this.data.activeFissionIds.add(fission.fissionId);
       }
     }
@@ -451,7 +473,7 @@ export class BitcoinFissions {
     this.pendingMintSubscriptions.set(queueIndex, stop);
 
     try {
-      unsubscribe = await client.query.mint.pendingMintUtxosByIndex(BigInt(queueIndex), pendingMint => {
+      unsubscribe = await client.query.mint.pendingBitcoinMintsByIndex(queueIndex, pendingMint => {
         const fission = this.data.fissionsById[fissionId];
         const currentMint = fission?.pendingMints.find(current => current.queueIndex === queueIndex);
         if (!pendingMint || !currentMint) {

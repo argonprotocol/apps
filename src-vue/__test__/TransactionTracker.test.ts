@@ -1373,7 +1373,7 @@ describe('TransactionTracker', () => {
     expect(txInfo.txResult.submissionError).toBeUndefined();
   });
 
-  it('submits a signed transaction before scanning pending transaction statuses', async () => {
+  it('returns a submitted transaction without waiting for pending status reconciliation', async () => {
     const { tracker } = await createTracker({
       txs: [],
       finalizedHeight: 125,
@@ -1406,8 +1406,10 @@ describe('TransactionTracker', () => {
     });
 
     await vi.waitFor(() => expect(signedTx.send).toHaveBeenCalledOnce());
+    await expect(submission).resolves.toMatchObject({
+      tx: { status: TransactionStatus.Submitted },
+    });
     finishStatusScan();
-    await submission;
   });
 });
 

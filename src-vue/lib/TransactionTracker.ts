@@ -234,7 +234,9 @@ export class TransactionTracker {
   ): Promise<TransactionInfo<T>> {
     await this.load();
     const txInfo = await this.submitAttempt(args);
-    await this.watchForUpdates();
+    void this.watchForUpdates().catch(error => {
+      console.error('[TransactionTracker] Error starting transaction status watch:', error);
+    });
 
     return txInfo;
   }
@@ -552,8 +554,6 @@ export class TransactionTracker {
 
   private async watchForUpdates() {
     this.#bestBlockNumber = this.blockWatch.bestBlockHeader.blockNumber;
-    await this.updatePendingStatuses(this.blockWatch.bestBlockHeader);
-
     this.#watchUnsubscribe ??= this.blockWatch.events.on('best-blocks', async best => {
       try {
         const bestBlockNumber = best.at(-1)!.blockNumber;
@@ -565,6 +565,7 @@ export class TransactionTracker {
         console.error('[TransactionTracker] Error watching for transaction updates:', error);
       }
     });
+    await this.updatePendingStatuses(this.blockWatch.bestBlockHeader);
   }
 
   private stopWatching() {

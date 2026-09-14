@@ -1,10 +1,9 @@
-// Source: @argonprotocol/mainchain 1.4.12, the last release that exported this model.
 import { PriceIndex } from '@argonprotocol/mainchain';
 import type {
-  BitcoinLocksLocksByUtxoIdResultSpec159Variant12,
+  BitcoinLocksLocksByIdResultSpec159,
   BitcoinUtxosBitcoinNetworkResultSpec100,
-  HistoricalQueryRecord,
 } from '@argonprotocol/runtime-client';
+import { toRuntimeEvent } from '@argonprotocol/runtime-client';
 import { hexToU8a, u8aToHex } from '@polkadot/util';
 import BigNumber from 'bignumber.js';
 import type { BitcoinLockFeeCoupon } from './interfaces/IBitcoinLockCoupon.js';
@@ -29,7 +28,7 @@ type BitcoinLockInitializationTerms =
     };
 
 export class BitcoinLock implements IBitcoinLock {
-  public utxoId: number;
+  public lockId: number;
   public p2wshScriptHashHex: string;
   public vaultId: number;
   public securitizedSatoshis: bigint;
@@ -37,6 +36,7 @@ export class BitcoinLock implements IBitcoinLock {
   public securitizationCoverageMicrogons: bigint;
   public securitizationTick: number;
   public fundedSatoshis: bigint;
+  public fundingUtxos: IBitcoinLockFundingUtxo[];
   public fissionedSatoshis: bigint;
   public ownerAccount: string;
   public securitizationRatio: number;
@@ -53,13 +53,13 @@ export class BitcoinLock implements IBitcoinLock {
   public vaultClaimHeight: number;
   public openClaimHeight: number;
   public createdAtHeight: number;
-  public fundingExpirationHeight: number;
+  public securitizationHoldExpirationBitcoinHeight: number;
   public isFlexible: boolean;
   public fundHoldExtensionsByBitcoinExpirationHeight: Record<number, bigint>;
   public createdAtArgonBlock: number;
 
   constructor(data: IBitcoinLock) {
-    this.utxoId = data.utxoId;
+    this.lockId = data.lockId;
     this.p2wshScriptHashHex = data.p2wshScriptHashHex;
     this.vaultId = data.vaultId;
     this.securitizedSatoshis = data.securitizedSatoshis;
@@ -67,6 +67,7 @@ export class BitcoinLock implements IBitcoinLock {
     this.securitizationCoverageMicrogons = data.securitizationCoverageMicrogons;
     this.securitizationTick = data.securitizationTick;
     this.fundedSatoshis = data.fundedSatoshis;
+    this.fundingUtxos = data.fundingUtxos;
     this.fissionedSatoshis = data.fissionedSatoshis;
     this.ownerAccount = data.ownerAccount;
     this.securitizationRatio = data.securitizationRatio;
@@ -79,7 +80,7 @@ export class BitcoinLock implements IBitcoinLock {
     this.vaultClaimHeight = data.vaultClaimHeight;
     this.openClaimHeight = data.openClaimHeight;
     this.createdAtHeight = data.createdAtHeight;
-    this.fundingExpirationHeight = data.fundingExpirationHeight;
+    this.securitizationHoldExpirationBitcoinHeight = data.securitizationHoldExpirationBitcoinHeight;
     this.isFlexible = data.isFlexible;
     this.fundHoldExtensionsByBitcoinExpirationHeight = data.fundHoldExtensionsByBitcoinExpirationHeight;
     this.createdAtArgonBlock = data.createdAtArgonBlock;
@@ -89,94 +90,85 @@ export class BitcoinLock implements IBitcoinLock {
     return this.fundedSatoshis > 0n;
   }
 
-  public static async get(client: IQueryableClient, utxoId: number): Promise<BitcoinLock | undefined> {
-    const lock = await client.query.bitcoinLocks.locksByUtxoId(utxoId);
+  public static async get(client: IQueryableClient, lockId: number): Promise<BitcoinLock | undefined> {
+    const lock = await client.query.bitcoinLocks.locksById(lockId);
     if (!lock) return;
-    if (!isCurrentBitcoinLock(lock)) {
-      throw new Error(`Bitcoin lock ${utxoId} is not in the current runtime shape`);
-    }
 
-    return BitcoinLock.fromRuntime(utxoId, lock);
+    return BitcoinLock.fromRuntime(lockId, lock);
   }
 
-  public static async getMany(client: IQueryableClient, utxoIds: number[]): Promise<(BitcoinLock | undefined)[]> {
-    const locks = await client.query.bitcoinLocks.locksByUtxoId.multi(utxoIds);
+  public static async getMany(client: IQueryableClient, lockIds: number[]): Promise<(BitcoinLock | undefined)[]> {
+    const locks = await client.query.bitcoinLocks.locksById.multi(lockIds);
     return (locks ?? []).map((lock, index) => {
       if (!lock) return;
-      if (!isCurrentBitcoinLock(lock)) {
-        throw new Error(`Bitcoin lock ${utxoIds[index]} is not in the current runtime shape`);
-      }
-      return BitcoinLock.fromRuntime(utxoIds[index], lock);
+      return BitcoinLock.fromRuntime(lockIds[index], lock);
     });
   }
 
   public static async idsByOwner(client: IQueryableClient, ownerAccount: string): Promise<number[]> {
-    const keys = await client.query.bitcoinLocks.utxoIdsByOwnerAccount.keys(ownerAccount);
+    const keys = await client.query.bitcoinLocks.lockIdsByOwnerAccount.keys(ownerAccount);
     return [...new Set((keys ?? []).map(key => key.args[1]))];
   }
 
-  public static async getFundingUtxoRef(
+  public static async getFundingUtxoRefs(
     client: IQueryableClient,
-    utxoId: number,
-  ): Promise<{ txid: string; vout: number } | undefined> {
-    const ref = await client.query.bitcoinLocks.utxoIdToFundingUtxoRef(BigInt(utxoId));
-    if (!ref) return;
-
-    return {
-      txid: ref.txid,
-      vout: ref.outputIndex,
-    };
+    lockId: number,
+  ): Promise<{ txid: string; vout: number }[]> {
+    const refs = await client.query.bitcoinUtxos.utxoRefsByLockId(lockId);
+    return (refs ?? []).map(ref => ({ txid: ref.txid, vout: ref.outputIndex }));
   }
 
   public static async getReleaseRequest(
     client: IQueryableClient,
-    utxoId: number,
+    lockId: number,
   ): Promise<IReleaseRequestDetails | undefined> {
-    const request = await client.query.bitcoinLocks.lockReleaseRequestsByUtxoId(utxoId);
+    const request = await client.query.bitcoinLocks.lockReleaseRequestsById(lockId);
     if (!request) return;
-    if (!('securitizationAtRisk' in request) || request.securitizationAtRisk === undefined) {
-      throw new Error(`Bitcoin lock ${utxoId} release request is not in the current runtime shape`);
-    }
 
     return {
       toScriptPubkey: u8aToHex(request.toScriptPubkey),
       bitcoinNetworkFee: request.bitcoinNetworkFee,
-      redemptionAmount: request.securitizationAtRisk,
+      insuredMicrogons: request.securitizationAtRisk,
     };
   }
 
-  public static async findVaultCosignSignature(
+  public static async findVaultCosignatures(
     client: ArgonClient,
-    utxoId: number,
-  ): Promise<{ blockHeight: number; signature: Uint8Array } | undefined> {
+    lockId: number,
+  ): Promise<{ blockHeight: number; signatures: Uint8Array[] } | undefined> {
     const finalizedHead = await client.rpc.chain.getFinalizedHead();
     const finalizedClient = await client.at(finalizedHead);
-    const releaseHeight = await finalizedClient.query.bitcoinLocks.lockReleaseCosignHeightById(utxoId);
+    const releaseHeight = await finalizedClient.query.bitcoinLocks.lockReleaseCosignHeightById(lockId);
     if (releaseHeight === null) return;
 
     const blockHeight = releaseHeight;
     const blockHash = await client.rpc.chain.getBlockHash(blockHeight);
     const blockEvents = await client.at(blockHash).then(api => api.query.system.events());
     for (const { event } of blockEvents) {
-      if (event.section !== 'bitcoinLocks' || event.method !== 'BitcoinUtxoCosigned') continue;
-      if (event.data.utxoId !== utxoId) continue;
+      const runtimeEvent = toRuntimeEvent(event);
+      if (runtimeEvent?.section !== 'bitcoinLocks' || runtimeEvent.method !== 'BitcoinUtxoCosigned') continue;
+
+      const eventLockId = runtimeEvent.data.lockId ?? runtimeEvent.data.utxoId;
+      const signatures =
+        runtimeEvent.data.signatures ?? (runtimeEvent.data.signature ? [runtimeEvent.data.signature] : undefined);
+      if (eventLockId !== lockId || !signatures?.length) continue;
 
       return {
         blockHeight,
-        signature: event.data.signature,
+        signatures: [...signatures],
       };
     }
   }
 
   public static createReleaseTx(args: {
     client: ArgonClient;
-    utxoId: number;
+    lockId: number;
     toScriptPubkey: string;
     bitcoinNetworkFee: bigint;
   }) {
-    const { client, utxoId, toScriptPubkey, bitcoinNetworkFee } = args;
+    const { client, lockId, toScriptPubkey, bitcoinNetworkFee } = args;
     assertHexScriptPubkey(toScriptPubkey);
-    return client.tx.bitcoinLocks.requestRelease(utxoId, toScriptPubkey, bitcoinNetworkFee);
+    return client.tx.bitcoinLocks.requestRelease(lockId, toScriptPubkey, bitcoinNetworkFee);
   }
 
   public static createOrphanedReleaseTx(args: {
@@ -190,9 +182,9 @@ export class BitcoinLock implements IBitcoinLock {
     return client.tx.bitcoinLocks.requestOrphanedUtxoRelease(utxoRef, toScriptPubkey, bitcoinNetworkFee);
   }
 
-  public static createReleaseCosignTx(args: { client: ArgonClient; utxoId: number; vaultSignatureHex: string }) {
-    const { client, utxoId, vaultSignatureHex } = args;
-    return client.tx.bitcoinLocks.cosignRelease(utxoId, vaultSignatureHex);
+  public static createReleaseCosignTx(args: { client: ArgonClient; lockId: number; vaultSignatureHexes: string[] }) {
+    const { client, lockId, vaultSignatureHexes } = args;
+    return client.tx.bitcoinLocks.cosignRelease(lockId, vaultSignatureHexes);
   }
 
   public static createOrphanedReleaseCosignTx(args: {
@@ -205,20 +197,20 @@ export class BitcoinLock implements IBitcoinLock {
     return client.tx.bitcoinLocks.cosignOrphanedUtxoRelease(ownerAccount, utxoRef, vaultSignatureHex);
   }
 
-  public static createSetFlexibleTx(args: { client: ArgonClient; utxoId: number; isFlexible: boolean }) {
-    const { client, utxoId, isFlexible } = args;
-    return client.tx.bitcoinLocks.setFlexible(utxoId, isFlexible);
+  public static createSetFlexibleTx(args: { client: ArgonClient; lockId: number; isFlexible: boolean }) {
+    const { client, lockId, isFlexible } = args;
+    return client.tx.bitcoinLocks.setFlexible(lockId, isFlexible);
   }
 
   public static createResecuritizeTx(args: {
     client: ArgonClient;
-    utxoId: number;
+    lockId: number;
     securitizedSatoshis: bigint;
     microgonsAtTargetPerBtc: bigint;
     feeCoupon?: BitcoinLockFeeCoupon;
   }) {
-    const { client, utxoId, securitizedSatoshis, microgonsAtTargetPerBtc, feeCoupon } = args;
-    return client.tx.bitcoinLocks.resecuritize(utxoId, securitizedSatoshis, {
+    const { client, lockId, securitizedSatoshis, microgonsAtTargetPerBtc, feeCoupon } = args;
+    return client.tx.bitcoinLocks.resecuritize(lockId, securitizedSatoshis, {
       microgonsAtTargetPerBtc,
       feeCoupon: feeCoupon ?? null,
     });
@@ -261,7 +253,7 @@ export class BitcoinLock implements IBitcoinLock {
     const bitcoinNetwork = await client.query.bitcoinUtxos.bitcoinNetwork();
     return {
       lockReleaseCosignDeadlineFrames: client.consts.bitcoinLocks.lockReleaseCosignDeadlineFrames.toNumber(),
-      pendingConfirmationExpirationBlocks: client.consts.bitcoinLocks.maxPendingConfirmationBlocks.toNumber(),
+      securitizationHoldBlocks: client.consts.bitcoinLocks.securitizationHoldBlocks.toNumber(),
       tickDurationMillis: await client.query.ticks.genesisTicker().then(x => x.tickDurationMillis),
       bitcoinNetwork,
     };
@@ -341,13 +333,13 @@ export class BitcoinLock implements IBitcoinLock {
   }> {
     await txResult.waitForFinalizedBlock;
     const blockHeight = txResult.blockNumber!;
-    const utxoId = (await this.getUtxoIdFromEvents(txResult.events)) ?? 0;
-    if (utxoId === 0) {
-      throw new Error('Bitcoin lock creation failed, no UTXO ID found in transaction events');
+    const lockId = (await this.getLockIdFromEvents(txResult.events)) ?? 0;
+    if (lockId === 0) {
+      throw new Error('Bitcoin lock creation failed, no lock ID found in transaction events');
     }
-    const lock = await this.get(client, utxoId);
+    const lock = await this.get(client, lockId);
     if (!lock) {
-      throw new Error(`Lock with ID ${utxoId} not found after initialization`);
+      throw new Error(`Lock with ID ${lockId} not found after initialization`);
     }
     return { lock, createdAtHeight: blockHeight };
   }
@@ -419,9 +411,9 @@ export class BitcoinLock implements IBitcoinLock {
     return satoshis;
   }
 
-  private static async getUtxoIdFromEvents(events: RuntimeEvent[]) {
+  private static async getLockIdFromEvents(events: RuntimeEvent[]) {
     for (const event of events) {
-      if (event.section === 'bitcoinLocks' && event.method === 'BitcoinLockCreated') return event.data.utxoId;
+      if (event.section === 'bitcoinLocks' && event.method === 'BitcoinLockCreated') return event.data.lockId;
     }
     return undefined;
   }
@@ -440,22 +432,23 @@ export class BitcoinLock implements IBitcoinLock {
     }
   }
 
-  private static fromRuntime(
-    utxoId: number,
-    lock: NonNullable<BitcoinLocksLocksByUtxoIdResultSpec159Variant12>,
-  ): BitcoinLock {
+  private static fromRuntime(lockId: number, lock: NonNullable<BitcoinLocksLocksByIdResultSpec159>): BitcoinLock {
     const wscriptHash = lock.utxoScriptPubkey.value.wscriptHash.replace('0x', '');
     const [fingerprint, cosignHdIndex, claimHdIndex] = lock.vaultXpubSources;
 
     return new BitcoinLock({
-      utxoId,
+      lockId,
       p2wshScriptHashHex: `0x0020${wscriptHash}`,
       vaultId: lock.vaultId,
-      securitizedSatoshis: lock.securitizedSatoshis,
-      microgonsAtTargetPerBtc: lock.microgonsAtTargetPerBtc,
+      securitizedSatoshis: lock.securitizationBasis.satoshis,
+      microgonsAtTargetPerBtc: lock.securitizationBasis.microgonsAtTargetPerBtc,
       securitizationCoverageMicrogons: lock.securitizationCoverageMicrogons,
-      securitizationTick: Number(lock.securitizationTick),
+      securitizationTick: lock.securitizationTick,
       fundedSatoshis: lock.fundedSatoshis,
+      fundingUtxos: lock.fundingUtxos.map(([utxoRef, satoshis]) => ({
+        utxoRef: { txid: utxoRef.txid, vout: utxoRef.outputIndex },
+        satoshis,
+      })),
       fissionedSatoshis: lock.fissionedSatoshis,
       ownerAccount: lock.ownerAccount,
       securitizationRatio: lock.securitizationRatio.toNumber(),
@@ -472,7 +465,7 @@ export class BitcoinLock implements IBitcoinLock {
       vaultClaimHeight: lock.vaultClaimHeight,
       openClaimHeight: lock.openClaimHeight,
       createdAtHeight: lock.createdAtHeight,
-      fundingExpirationHeight: Number(lock.fundingExpirationHeight),
+      securitizationHoldExpirationBitcoinHeight: lock.securitizationHoldExpirationBitcoinHeight,
       isFlexible: lock.isFlexible,
       fundHoldExtensionsByBitcoinExpirationHeight: Object.fromEntries(
         Object.entries(lock.fundHoldExtensions).map(([height, amount]) => [Number(height), amount]),
@@ -482,15 +475,9 @@ export class BitcoinLock implements IBitcoinLock {
   }
 }
 
-function isCurrentBitcoinLock(
-  lock: NonNullable<HistoricalQueryRecord<'bitcoinLocks', 'locksByUtxoId'>>,
-): lock is NonNullable<BitcoinLocksLocksByUtxoIdResultSpec159Variant12> {
-  return lock.securitizedSatoshis !== undefined;
-}
-
 export interface IBitcoinLockConfig {
   lockReleaseCosignDeadlineFrames: number;
-  pendingConfirmationExpirationBlocks: number;
+  securitizationHoldBlocks: number;
   tickDurationMillis: number;
   bitcoinNetwork: BitcoinUtxosBitcoinNetworkResultSpec100;
 }
@@ -501,11 +488,11 @@ export interface IReleaseRequest {
 }
 
 export interface IReleaseRequestDetails extends IReleaseRequest {
-  redemptionAmount: bigint;
+  insuredMicrogons: bigint;
 }
 
 export interface IBitcoinLock {
-  utxoId: number;
+  lockId: number;
   p2wshScriptHashHex: string;
   vaultId: number;
   securitizedSatoshis: bigint;
@@ -513,6 +500,7 @@ export interface IBitcoinLock {
   securitizationCoverageMicrogons: bigint;
   securitizationTick: number;
   fundedSatoshis: bigint;
+  fundingUtxos: IBitcoinLockFundingUtxo[];
   fissionedSatoshis: bigint;
   ownerAccount: string;
   securitizationRatio: number;
@@ -529,7 +517,7 @@ export interface IBitcoinLock {
   vaultClaimHeight: number;
   openClaimHeight: number;
   createdAtHeight: number;
-  fundingExpirationHeight: number;
+  securitizationHoldExpirationBitcoinHeight: number;
   isFlexible: boolean;
   fundHoldExtensionsByBitcoinExpirationHeight: Record<number, bigint>;
   createdAtArgonBlock: number;
@@ -537,11 +525,12 @@ export interface IBitcoinLock {
 
 export type IBitcoinLockDetails = Pick<
   IBitcoinLock,
-  | 'utxoId'
+  | 'lockId'
   | 'p2wshScriptHashHex'
   | 'vaultId'
   | 'securitizedSatoshis'
   | 'fundedSatoshis'
+  | 'fundingUtxos'
   | 'ownerAccount'
   | 'securitizationRatio'
   | 'securityFees'
@@ -553,11 +542,16 @@ export type IBitcoinLockDetails = Pick<
   | 'vaultClaimHeight'
   | 'openClaimHeight'
   | 'createdAtHeight'
-  | 'fundingExpirationHeight'
+  | 'securitizationHoldExpirationBitcoinHeight'
   | 'isFlexible'
   | 'fundHoldExtensionsByBitcoinExpirationHeight'
   | 'createdAtArgonBlock'
 >;
+
+export interface IBitcoinLockFundingUtxo {
+  utxoRef: { txid: string; vout: number };
+  satoshis: bigint;
+}
 
 function assertHexScriptPubkey(toScriptPubkey: string): void {
   if (!toScriptPubkey.startsWith('0x')) {

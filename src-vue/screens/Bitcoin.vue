@@ -34,7 +34,9 @@ const isLoaded = Vue.computed(
   () => currency.isLoaded && bitcoinLocks.data.readiness === 'ready' && bitcoinFissions.data.readiness === 'ready',
 );
 const loadError = Vue.computed(() => bitcoinLocks.data.loadError ?? bitcoinFissions.data.loadError);
-const hasLiquids = Vue.computed(() => bitcoinFissions.getLiquids().length > 0);
+const hasLiquids = Vue.computed(() => {
+  return bitcoinFissions.getLiquids().length > 0 || bitcoinFissions.getPendingLiquids().length > 0;
+});
 
 async function retryLoad(): Promise<void> {
   if (isRetrying.value) return;

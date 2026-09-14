@@ -101,7 +101,7 @@ const step2 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
 const step3 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
 const step4 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
 const step5 = Vue.ref<InstanceType<typeof DiagnosticStep>>();
-let bitcoinUtxoIdsAtScanStart = new Set<number>();
+let bitcoinLockIdsAtScanStart = new Set<number>();
 
 function scrollToBottom() {
   if (containerRef.value) {
@@ -146,7 +146,7 @@ async function checkVault() {
 async function checkBitcoins() {
   await bitcoinLocks.load();
   const bitcoins = await bitcoinLocks.recovery.recoverActiveLocks();
-  const newlyFound = bitcoins.filter(bitcoin => !bitcoinUtxoIdsAtScanStart.has(bitcoin.utxoId!));
+  const newlyFound = bitcoins.filter(bitcoin => !bitcoinLockIdsAtScanStart.has(bitcoin.lockId!));
 
   return {
     isUnchanged: newlyFound.length === 0,
@@ -192,8 +192,8 @@ async function checkFinancialHistory() {
 
 async function startScanning() {
   const bitcoinTable = await bitcoinLocks.getTable();
-  bitcoinUtxoIdsAtScanStart = new Set(
-    (await bitcoinTable.fetchAll()).flatMap(bitcoin => (bitcoin.utxoId === undefined ? [] : [bitcoin.utxoId])),
+  bitcoinLockIdsAtScanStart = new Set(
+    (await bitcoinTable.fetchAll()).flatMap(bitcoin => (bitcoin.lockId === undefined ? [] : [bitcoin.lockId])),
   );
   hasStarted.value = true;
   await myVault.load();

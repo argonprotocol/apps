@@ -91,7 +91,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         txSigner,
         client,
       });
-      expect(preview.maximumSatoshisByUtxoId).toEqual({ [lock.utxoId!]: lock.securitizedSatoshis });
+      expect(preview.maximumSatoshisByLockId).toEqual({ [lock.lockId!]: lock.securitizedSatoshis });
       expect(preview.liquidityMicrogons).toBeGreaterThan(0n);
 
       const txInfo = await createLiquid.submit({
@@ -108,17 +108,17 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         ownerAccount: txSigner.address,
         fissionId: 0,
         liquidId: 0,
-        utxoId: lock.utxoId,
+        lockId: lock.lockId,
         satoshis: lock.securitizedSatoshis,
       });
       expect(current[0].liquidityPromised).toBeGreaterThan(0n);
 
-      const currentLock = await BitcoinLock.get(client, lock.utxoId!);
+      const currentLock = await BitcoinLock.get(client, lock.lockId!);
       expect(currentLock?.fissionedSatoshis).toBe(lock.securitizedSatoshis);
       expect(fissions.getLiquids()).toEqual([
         expect.objectContaining({
           liquidId: 0,
-          fissions: [expect.objectContaining({ fissionId: 0, utxoId: lock.utxoId })],
+          fissions: [expect.objectContaining({ fissionId: 0, lockId: lock.lockId })],
         }),
       ]);
     } finally {
@@ -154,14 +154,14 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       expect(current).toHaveLength(2);
       expect(current.map(fission => fission.fissionId)).toEqual([0, 1]);
       expect(current.map(fission => fission.liquidId)).toEqual([0, 0]);
-      expect(current.map(fission => ({ utxoId: fission.utxoId, satoshis: fission.satoshis }))).toEqual([
-        { utxoId: firstLock.utxoId, satoshis: firstLock.securitizedSatoshis },
-        { utxoId: secondLock.utxoId, satoshis: secondLock.securitizedSatoshis },
+      expect(current.map(fission => ({ lockId: fission.lockId, satoshis: fission.satoshis }))).toEqual([
+        { lockId: firstLock.lockId, satoshis: firstLock.securitizedSatoshis },
+        { lockId: secondLock.lockId, satoshis: secondLock.securitizedSatoshis },
       ]);
 
       const [firstCurrentLock, secondCurrentLock] = await BitcoinLock.getMany(client, [
-        firstLock.utxoId!,
-        secondLock.utxoId!,
+        firstLock.lockId!,
+        secondLock.lockId!,
       ]);
       expect(firstCurrentLock?.fissionedSatoshis).toBe(firstLock.securitizedSatoshis);
       expect(secondCurrentLock?.fissionedSatoshis).toBe(secondLock.securitizedSatoshis);
@@ -169,8 +169,8 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         expect.objectContaining({
           liquidId: 0,
           fissions: [
-            expect.objectContaining({ fissionId: 0, utxoId: firstLock.utxoId }),
-            expect.objectContaining({ fissionId: 1, utxoId: secondLock.utxoId }),
+            expect.objectContaining({ fissionId: 0, lockId: firstLock.lockId }),
+            expect.objectContaining({ fissionId: 1, lockId: secondLock.lockId }),
           ],
         }),
       ]);
@@ -243,7 +243,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       if (!actor) throw new Error('Operator actor was not loaded before Bitcoin funding.');
 
       const beforeFinalization = await client.at(await client.rpc.chain.getFinalizedHead());
-      expect((await BitcoinLock.get(beforeFinalization, lock.utxoId!))?.fundedSatoshis ?? 0n).toBe(0n);
+      expect((await BitcoinLock.get(beforeFinalization, lock.lockId!))?.fundedSatoshis ?? 0n).toBe(0n);
 
       await submitBitcoinPrice(client, { btcUsdPrice: 121_000 });
       await actor.ensureOperationalLiquid({ client });
@@ -251,7 +251,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       const fissions = await BitcoinFission.getAllByOwner(finalizedClient, walletKeys.defaultArgonAddress);
       expect(fissions).toHaveLength(1);
       expect(fissions[0]).toMatchObject({
-        utxoId: lock.utxoId,
+        lockId: lock.lockId,
         satoshis: lock.securitizedSatoshis,
       });
 
@@ -333,7 +333,7 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
         canRatchet: true,
         lockChanges: [
           {
-            utxoId: lock.utxoId,
+            lockId: lock.lockId,
             phase: 'before-fissions',
             securitizedSatoshis: lock.securitizedSatoshis,
             microgonsAtTargetPerBtc: ratchetRate,
@@ -355,20 +355,20 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       expect(ratchetTxInfo.tx.metadataJson).toMatchObject({
         liquidId: initialFission.liquidId,
         fissionIds: [initialFission.fissionId],
-        resecuritizedUtxoIds: [lock.utxoId],
+        resecuritizedLockIds: [lock.lockId],
       });
       const ratchetedFission = await BitcoinFission.get(client, txSigner.address, initialFission.fissionId);
       expect(ratchetedFission).toMatchObject({
         liquidId: initialFission.liquidId,
         fissionId: initialFission.fissionId,
-        utxoId: lock.utxoId,
+        lockId: lock.lockId,
         satoshis: lock.securitizedSatoshis,
         microgonsAtTargetPerBtc: ratchetRate,
         liquidityPromised: preview.newLiquidity,
         ratchetNumber: 1,
       });
 
-      const currentLock = await BitcoinLock.get(client, lock.utxoId!);
+      const currentLock = await BitcoinLock.get(client, lock.lockId!);
       expect(currentLock).toMatchObject({
         securitizedSatoshis: lock.securitizedSatoshis,
         fissionedSatoshis: lock.securitizedSatoshis,
@@ -439,12 +439,22 @@ describe.skipIf(SKIP_E2E).sequential('Bitcoin Liquids integration', { timeout: 3
       ]);
       expect(fissions.getLiquids()[0].isClosed).toBe(true);
 
-      const currentLock = await BitcoinLock.get(client, lock.utxoId!);
+      const currentLock = await BitcoinLock.get(client, lock.lockId!);
       expect(currentLock).toMatchObject({
         fundedSatoshis: lock.securitizedSatoshis,
         fissionedSatoshis: 0n,
       });
-      expect(await BitcoinLock.getReleaseRequest(client, lock.utxoId!)).toBeUndefined();
+      expect(await BitcoinLock.getReleaseRequest(client, lock.lockId!)).toBeUndefined();
+
+      const wallet = new WalletForBitcoin(
+        () => harness.bitcoinLocks,
+        () => txSigner.address,
+        harness.bitcoinLockCreate,
+      );
+      await waitFor(30_000, 'closed Liquid Bitcoin to become sendable', async () => {
+        if (!wallet.getSendableChannels().includes(lock)) return;
+        return true;
+      });
     } finally {
       await cleanupBitcoinLocksHarness(harness);
     }
@@ -557,18 +567,18 @@ async function createFundedLock(
     await txInfo.waitForPostProcessing;
   }
 
-  const lock = Object.values(harness.bitcoinLocks.data.locksByUtxoId).find(record => record.uuid === pendingLockUuid);
-  if (!lock?.utxoId) throw new Error('Finalized Bitcoin Lock was not published.');
+  const lock = Object.values(harness.bitcoinLocks.data.locksByLockId).find(record => record.uuid === pendingLockUuid);
+  if (!lock?.lockId) throw new Error('Finalized Bitcoin Lock was not published.');
   await onCreated?.(lock);
 
   const fundingAddress = harness.bitcoinLocks.formatP2wshAddress(lock.scriptDetails!.p2wshScriptHashHex);
   sendBitcoinToAddress(fundingAddress, lock.securitizedSatoshis);
   generateBlocks(8, minerAddress);
 
-  await waitFor(90_000, `Bitcoin Lock #${lock.utxoId} funding`, async () => {
+  await waitFor(90_000, `Bitcoin Lock #${lock.lockId} funding`, async () => {
     const current = waitForFinalizedFunding
-      ? await BitcoinLock.get(await client.at(await client.rpc.chain.getFinalizedHead()), lock.utxoId!)
-      : await BitcoinLock.get(client, lock.utxoId!);
+      ? await BitcoinLock.get(await client.at(await client.rpc.chain.getFinalizedHead()), lock.lockId!)
+      : await BitcoinLock.get(client, lock.lockId!);
     if (current?.fundedSatoshis !== lock.securitizedSatoshis) return;
     return current;
   });

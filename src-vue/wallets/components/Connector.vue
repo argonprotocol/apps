@@ -70,7 +70,7 @@
       </ConnectorTokensMenu>
     </div>
     <Tooltip
-      v-else-if="openBitcoinChannel || bitcoinDepositAttention"
+      v-else-if="securitizationHoldChannel || bitcoinDepositAttention"
       :content="bitcoinDepositAttention"
       :open="bitcoinDepositAttention ? undefined : false"
       side="right"
@@ -104,12 +104,12 @@
       </div>
       <template v-if="walletType === WalletType.bitcoin">
         <CopyToClipboard
-          v-if="openBitcoinChannelAddress"
-          :content="openBitcoinChannelAddress"
+          v-if="securitizationHoldChannelAddress"
+          :content="securitizationHoldChannelAddress"
           data-testid="Connector.bitcoinChannelAddress"
           class="relative -top-0.5 flex cursor-pointer items-center justify-center gap-1 font-mono text-sm opacity-60 hover:opacity-80"
         >
-          <span>{{ abbreviateAddress(openBitcoinChannelAddress, 6) }}</span>
+          <span>{{ abbreviateAddress(securitizationHoldChannelAddress, 6) }}</span>
           <CopyIcon class="h-3.5 w-3.5 shrink-0" />
           <template #copying><CheckIcon class="h-3.5 w-3.5 shrink-0 text-green-500" /></template>
         </CopyToClipboard>
@@ -172,19 +172,17 @@ const ethereumWallet = Vue.computed(() => {
 const bitcoinWallet = Vue.computed(() => {
   return props.wallet?.type === WalletType.bitcoin ? props.wallet : undefined;
 });
-const openBitcoinChannel = Vue.computed(() => bitcoinWallet.value?.getOpenInboundChannel());
+const securitizationHoldChannel = Vue.computed(() => bitcoinWallet.value?.getChannelWithActiveSecuritizationHold());
 const remainingBitcoinInsuranceMicrogons = Vue.computed(() => {
   const wallet = bitcoinWallet.value;
-  const channel = openBitcoinChannel.value;
+  const channel = securitizationHoldChannel.value;
   return wallet && channel ? wallet.getRemainingChannelInsurance(channel) : 0n;
 });
 const bitcoinDepositAttention = Vue.computed(() => {
-  return getBitcoinDepositAttention(bitcoinWallet.value, satoshis => {
-    return satToBtcNm(satoshis).format('0,0.[00000000]');
-  });
+  return getBitcoinDepositAttention(bitcoinWallet.value);
 });
-const openBitcoinChannelAddress = Vue.computed(() => {
-  const channel = openBitcoinChannel.value;
+const securitizationHoldChannelAddress = Vue.computed(() => {
+  const channel = securitizationHoldChannel.value;
   if (!channel?.scriptDetails || !bitcoinWallet.value) return '';
   return bitcoinWallet.value.getChannelFundingAddress(channel);
 });
@@ -199,7 +197,7 @@ const transferPulseClass = Vue.computed(() => {
   return '';
 });
 
-const { microgonToMoneyNm, satToBtcNm } = createNumeralHelpers(currency);
+const { microgonToMoneyNm } = createNumeralHelpers(currency);
 
 function openTransferPopover(moveToken: MoveToken.ARGN | MoveToken.ARGNOT) {
   selectedTransferToken.value = moveToken;

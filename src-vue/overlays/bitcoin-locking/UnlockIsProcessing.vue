@@ -9,7 +9,7 @@
     <p class="mb-2 italic">NOTE: You can close this overlay without disrupting the process.</p>
 
     <div class="mt-10">
-      <div class="fade-progress text-center text-5xl font-bold">{{ numeral(progressPct).format('0.00') }}%</div>
+      <div class="fade-progress text-center text-5xl font-bold">{{ numeral(progressPct).format('0.0') }}%</div>
     </div>
 
     <ProgressBar :progress="progressPct" :showLabel="false" class="h-4" />

@@ -2,12 +2,14 @@ import * as Vue from 'vue';
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import { fn, userEvent, within } from 'storybook/test';
 import {
+  createBitcoinRelease,
   createBitcoinUtxo,
   setupBitcoinOverlayScenario,
   type BitcoinOverlayScenario,
 } from '../../scenarios/setupBitcoinOverlayScenario.ts';
 import { BitcoinLockStatus } from '../../../src-vue/interfaces/IBitcoinLockRecord.ts';
-import { BitcoinUtxoRole, BitcoinUtxoStatus } from '../../../src-vue/interfaces/IBitcoinUtxoRecord.ts';
+import { BitcoinReleaseStatus } from '../../../src-vue/interfaces/IBitcoinReleaseRecord.ts';
+import { BitcoinUtxoStatus } from '../../../src-vue/interfaces/IBitcoinUtxoRecord.ts';
 import type { WalletForBitcoin } from '../../../src-vue/lib/WalletForBitcoin.ts';
 import { useWallets } from '../../../src-vue/stores/wallets.ts';
 import AlertBars from '../../../src-vue/navigation/AlertBars.vue';
@@ -86,7 +88,7 @@ function useScenario(status?: BitcoinLockStatus, hasObservedFunding = false) {
   if (status) {
     scenario.lock.status = status;
     if (status === BitcoinLockStatus.LockFunded || status === BitcoinLockStatus.Releasing || hasObservedFunding) {
-      scenario.replaceUtxoRecords([scenario.fundingRecord]);
+      scenario.replaceUtxoRecords([scenario.fundingUtxo]);
     } else {
       scenario.replaceUtxoRecords([]);
     }
@@ -95,8 +97,8 @@ function useScenario(status?: BitcoinLockStatus, hasObservedFunding = false) {
       requestedChannelUuid = scenario.lock.uuid;
     }
   }
-  scenario.bitcoinLocks.hasObservedFundingSignal = fn(lock => !!lock.fundingUtxo);
-  scenario.bitcoinLocks.isFundingWindowExpired = fn(() => false);
+  scenario.bitcoinLocks.hasObservedFundingSignal = fn(lock => scenario.bitcoinLocks.getFundingUtxos(lock).length > 0);
+  scenario.bitcoinLocks.isSecuritizationHoldExpired = fn(() => false);
   scenario.bitcoinLocks.confirmAddress = fn();
   return () => scenario.cleanup();
 }
@@ -107,18 +109,13 @@ export const WalletOverview: Story = {
     isInteractive = true;
     scenario.lock.status = BitcoinLockStatus.Released;
     scenario.lock.removalBlockTime = new Date('2026-08-31T15:30:00.000Z');
-    Object.assign(scenario.fundingRecord, {
-      status: BitcoinUtxoStatus.ReleaseComplete,
-      releaseToDestinationAddress: `0014${'55'.repeat(20)}`,
-      releaseBitcoinNetworkFee: 18_000n,
-      releaseTxid: 'a'.repeat(64),
-    });
-    scenario.replaceUtxoRecords([scenario.fundingRecord]);
+    scenario.setRelease(createBitcoinRelease({ status: BitcoinReleaseStatus.Complete, bitcoinTxid: 'a'.repeat(64) }));
+    scenario.replaceUtxoRecords([scenario.fundingUtxo]);
     scenario.locks.push(
       {
         ...scenario.lock,
         uuid: 'synthetic-channel-81',
-        utxoId: 81,
+        lockId: 81,
         status: BitcoinLockStatus.LockFunded,
         fundedSatoshis: 90_000_000n,
         securitizedSatoshis: 90_000_000n,
@@ -127,13 +124,11 @@ export const WalletOverview: Story = {
           ...scenario.lock.scriptDetails!,
           p2wshScriptHashHex: `0020${'81'.repeat(32)}`,
         },
-        utxos: [],
-        fundingUtxo: undefined,
       },
       {
         ...scenario.lock,
         uuid: 'synthetic-channel-103',
-        utxoId: 103,
+        lockId: 103,
         status: BitcoinLockStatus.LockFunded,
         fundedSatoshis: 80_000_000n,
         securitizedSatoshis: 80_000_000n,
@@ -142,13 +137,11 @@ export const WalletOverview: Story = {
           ...scenario.lock.scriptDetails!,
           p2wshScriptHashHex: `0020${'82'.repeat(32)}`,
         },
-        utxos: [],
-        fundingUtxo: undefined,
       },
       {
         ...scenario.lock,
         uuid: 'synthetic-channel-122',
-        utxoId: 122,
+        lockId: 122,
         status: BitcoinLockStatus.LockFunded,
         fundedSatoshis: 40_000_000n,
         securitizedSatoshis: 30_000_000n,
@@ -157,12 +150,10 @@ export const WalletOverview: Story = {
           ...scenario.lock.scriptDetails!,
           p2wshScriptHashHex: `0020${'83'.repeat(32)}`,
         },
-        utxos: [],
-        fundingUtxo: undefined,
       },
       scenario.lock,
     );
-    scenario.bitcoinLocks.isFundingWindowExpired = fn(() => true);
+    scenario.bitcoinLocks.isSecuritizationHoldExpired = fn(() => true);
     return cleanup;
   },
 };
@@ -182,11 +173,10 @@ export const OrphanAfterLastChannelClosed: Story = {
     isInteractive = true;
     requestedChannelUuid = undefined;
     scenario.replaceUtxoRecords([
-      scenario.fundingRecord,
+      scenario.fundingUtxo,
       createBitcoinUtxo({
         id: 202,
-        lockUtxoId: scenario.lock.utxoId!,
-        role: BitcoinUtxoRole.Orphan,
+        lockId: scenario.lock.lockId!,
         status: BitcoinUtxoStatus.Orphaned,
       }),
     ]);
@@ -201,17 +191,13 @@ export const ArchivedChannel: Story = {
     isInteractive = true;
     requestedChannelUuid = undefined;
     scenario.lock.removalBlockTime = new Date('2026-08-31T15:30:00.000Z');
-    Object.assign(scenario.fundingRecord, {
-      status: BitcoinUtxoStatus.ReleaseComplete,
-      releaseToDestinationAddress: `0014${'55'.repeat(20)}`,
-      releaseBitcoinNetworkFee: 18_000n,
-      releaseTxid: 'a'.repeat(64),
-    });
-    scenario.replaceUtxoRecords([scenario.fundingRecord]);
+    scenario.bitcoinLocks.isSecuritizationHoldExpired = fn(() => true);
+    scenario.setRelease(createBitcoinRelease({ status: BitcoinReleaseStatus.Complete, bitcoinTxid: 'a'.repeat(64) }));
+    scenario.replaceUtxoRecords([scenario.fundingUtxo]);
     scenario.locks.unshift({
       ...scenario.lock,
       uuid: 'synthetic-older-archived-channel',
-      utxoId: 84,
+      lockId: 84,
       scriptDetails: {
         ...scenario.lock.scriptDetails!,
         p2wshScriptHashHex: `0020${'84'.repeat(32)}`,
@@ -267,7 +253,7 @@ export const FormWithCosignerChoice: Story = {
 export const ExpiredRequestedChannel: Story = {
   beforeEach: () => {
     const cleanup = useScenario(BitcoinLockStatus.LockFunded);
-    scenario.bitcoinLocks.isFundingWindowExpired = fn(() => true);
+    scenario.bitcoinLocks.isSecuritizationHoldExpired = fn(() => true);
     return cleanup;
   },
 };
@@ -298,8 +284,7 @@ export const CreatedChannelSurvivesFinalizationHandoff: Story = {
     const cleanup = useScenario();
     isInteractive = true;
     scenario.lock.fundedSatoshis = 0n;
-    scenario.lock.fundingUtxo = undefined;
-    scenario.lock.utxos = [];
+    scenario.replaceUtxoRecords([]);
     scenario.bitcoinLocks.getLockByUuid = fn(() => scenario.lock);
     const submit = scenario.bitcoinLockCreate.submit;
     scenario.bitcoinLockCreate.submit = fn(async input => {
@@ -375,7 +360,7 @@ export const FocusedPendingChannel: Story = {
     scenario.locks.unshift({
       ...scenario.lock,
       uuid: 'different-pending-channel',
-      utxoId: 202,
+      lockId: 202,
       scriptDetails: {
         ...scenario.lock.scriptDetails!,
         p2wshScriptHashHex: `0020${'55'.repeat(32)}`,
@@ -390,7 +375,7 @@ export const FundingObservedDuringCurrentVisit: Story = {
   beforeEach: () => {
     const cleanup = useScenario(BitcoinLockStatus.LockPendingFunding);
     observeFunding = () => {
-      scenario.locks[0].fundingUtxo = scenario.fundingRecord;
+      scenario.replaceUtxoRecords([scenario.fundingUtxo]);
     };
     return cleanup;
   },
@@ -403,9 +388,26 @@ export const FundingObservedDuringCurrentVisit: Story = {
 export const PendingChannelFunding: Story = {
   beforeEach: () => {
     const cleanup = useScenario(BitcoinLockStatus.LockPendingFunding, true);
-    scenario.fundingRecord.satoshis = 5_000_000n;
+    scenario.fundingUtxo.satoshis = 5_000_000n;
     scenario.lock.fundedSatoshis = 0n;
-    scenario.lockProcessing.receivedSatoshis = scenario.fundingRecord.satoshis;
+    scenario.lockProcessing.receivedSatoshis = scenario.fundingUtxo.satoshis;
+    return cleanup;
+  },
+};
+
+export const AdditionalFundingDetected: Story = {
+  beforeEach: () => {
+    const cleanup = useScenario(BitcoinLockStatus.LockFunded);
+    scenario.bitcoinLocks.isSecuritizationHoldExpired = fn(() => true);
+    scenario.replaceUtxoRecords([
+      scenario.fundingUtxo,
+      createBitcoinUtxo({
+        id: 202,
+        lockId: scenario.lock.lockId!,
+        status: BitcoinUtxoStatus.SeenOnMempool,
+        satoshis: 5_000_000n,
+      }),
+    ]);
     return cleanup;
   },
 };
@@ -478,6 +480,7 @@ export const __namedExportsOrder = [
   'RestoreError',
   'FundingObservedDuringCurrentVisit',
   'PendingChannelFunding',
+  'AdditionalFundingDetected',
   'FundingFinalizesDuringCurrentVisit',
   'PreviousFundedChannel',
   'FailedChannel',

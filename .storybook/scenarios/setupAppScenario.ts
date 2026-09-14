@@ -181,10 +181,10 @@ export function setupAppScenario({
       encumberedMicronots: 0n,
     },
     pendingCollectRevenue: 0n,
-    pendingCosignUtxosById: new Map(),
+    pendingCosignLocksById: new Map(),
     pendingOrphanCosignCount: 0,
-    releasedExternalUtxoIds: new Set(),
-    myPendingBitcoinCosignTxInfosByUtxoId: new Map(),
+    releasedExternalLockIds: new Set(),
+    myPendingBitcoinCosignTxInfosByLockId: new Map(),
     nextCollectDueDate: 0,
     nextCosignDueDate: 0,
     expiringCollectAmount: 0n,
@@ -200,13 +200,12 @@ export function setupAppScenario({
   mocked(getOperationalRewardConfig).mockReturnValue(new Promise(() => undefined));
   mocked(getBitcoinLocks, { partial: true }).mockReturnValue({
     getAllLocks: fn(() => []),
-    getLockByUtxoId: fn(() => undefined),
+    getLockById: fn(() => undefined),
     load: fn(async () => undefined),
     currentLoadPromise: Promise.resolve(),
     utxoTracking: {
       getAllOrphanLifecycleUtxos: fn(() => []),
       getUnresolvedOrphanRecords: fn(() => []),
-      isReleaseCompleteStatus: fn(() => false),
     } as never,
   });
   mocked(getBitcoinFissions, { partial: true }).mockReturnValue({

@@ -3,7 +3,7 @@ import { createFlowSession, type IFlowSession } from '../flows/session.ts';
 
 const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 
-type BitcoinFlowName = 'Bitcoin.flow.liquidCreate' | 'Bitcoin.flow.lockUnlock' | 'Bitcoin.flow.orphanClaim';
+type BitcoinFlowName = 'Bitcoin.flow.liquidCreate' | 'Bitcoin.flow.lockUnlock';
 
 async function runIsolatedFlow(flowName: BitcoinFlowName, input?: Record<string, unknown>): Promise<void> {
   const sessionName = `bitcoin-spec-${flowName}`;
@@ -34,14 +34,6 @@ describe.skipIf(skipE2E).sequential('Bitcoin Operation Flows', () => {
     'bitcoin lock/unlock',
     async () => {
       await runIsolatedFlow('Bitcoin.flow.lockUnlock');
-    },
-    45 * 60_000,
-  );
-
-  it(
-    'bitcoin orphan claim',
-    async () => {
-      await runIsolatedFlow('Bitcoin.flow.orphanClaim');
     },
     45 * 60_000,
   );

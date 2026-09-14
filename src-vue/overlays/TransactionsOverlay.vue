@@ -74,7 +74,6 @@ import type { IMintingAuthorityRegisterMetadata } from '../lib/MintingAuthoritie
 import type { ITransactionMoveMetadata } from '../lib/txs/Balance.transfer.ts';
 import type { IBitcoinLiquidCloseMetadata } from '../lib/txs/BitcoinLiquid.close.ts';
 import type { IBitcoinLiquidCreateMetadata } from '../lib/txs/BitcoinLiquid.create.ts';
-import type { IBitcoinLockReleaseMetadata } from '../lib/txs/BitcoinLock.release.ts';
 import type { IBitcoinResecuritizationMetadata } from '../lib/txs/BitcoinLock.resecuritize.ts';
 import type {
   IVaultCommittedArgonotsMetadata,
@@ -320,10 +319,8 @@ function amountLabel(activity: IWalletActivityRecord): string {
         ? '--'
         : formatTokenAmount(metadata.addedSecuritizationMicrogons, 'argon');
     }
-    case ExtrinsicType.BitcoinRequestRelease: {
-      const metadata = transaction.metadataJson as Partial<IBitcoinLockReleaseMetadata>;
-      return metadata.redemptionAmount === undefined ? '--' : formatTokenAmount(metadata.redemptionAmount, 'argon');
-    }
+    case ExtrinsicType.BitcoinRequestRelease:
+      return '--';
     case ExtrinsicType.BitcoinOrphanedUtxoUseAsFunding: {
       const metadata = transaction.metadataJson as { receivedSatoshis?: bigint };
       return metadata.receivedSatoshis === undefined ? '--' : formatBitcoinAmount(metadata.receivedSatoshis);

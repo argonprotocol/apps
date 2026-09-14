@@ -8,6 +8,7 @@ import {
   type IBitcoinFlowContext,
   type IBitcoinFlowLockState,
 } from '../contexts/bitcoinContext.ts';
+import { clickIfVisible } from '../helpers/utils.ts';
 import type { IE2EOperationInspectState } from '../types.ts';
 import { WalletType } from '../types/srcVue.ts';
 import appPrepareAccess from './App.op.prepareAccess.ts';
@@ -45,6 +46,7 @@ export default new Operation<IBitcoinFlowContext, IUnlockBitcoinState>(import.me
     await flow.waitFor('WalletOverlay', { timeoutMs: 10_000 });
     await flow.click('WalletViewMain.openSend()', { timeoutMs: 10_000 });
     await flow.waitFor('WalletViewSend.destination', { timeoutMs: 10_000 });
+    await clickIfVisible(flow, { selector: 'button[aria-label="Close tooltip"]' }, { timeoutMs: 5_000 });
     await flow.click('WalletViewSend.token');
     await flow.click('BTC');
     const releaseAddress = createBitcoinAddress();

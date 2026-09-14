@@ -54,10 +54,7 @@
         </div>
       </div>
 
-      <div
-        v-if="record.role === BitcoinUtxoRole.Orphan && !bitcoinLocks.utxoTracking.isReleaseStatus(record.status)"
-        class="space-y-5"
-      >
+      <div v-if="canRequestReturn" class="space-y-5">
         <p v-if="isAdditionalDeposit" class="text-sm text-slate-700">
           This lock was already funded before this Bitcoin arrived. Choose an address you control and return the
           additional payment.
@@ -129,22 +126,22 @@
         </template>
 
         <div v-else class="border-argon-100 bg-argon-50 space-y-2 rounded-lg border px-4 py-3">
-          <template
-            v-if="
-              record.status === BitcoinUtxoStatus.ReleaseComplete ||
-              record.status === BitcoinUtxoStatus.ReleaseCompleteAcknowledged
-            "
-          >
+          <template v-if="release?.status === BitcoinReleaseStatus.Complete">
             <div class="font-semibold text-slate-800">Bitcoin returned</div>
             <p class="text-sm text-slate-600">The Bitcoin was returned to the requested destination.</p>
           </template>
-          <template v-else-if="record.status === BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin">
+          <template
+            v-else-if="
+              release?.status === BitcoinReleaseStatus.ConfirmingOnBitcoin ||
+              release?.status === BitcoinReleaseStatus.WaitingForArgonRecognition
+            "
+          >
             <div class="font-semibold text-slate-800">Returning on Bitcoin</div>
             <p class="text-sm text-slate-600">
               The return transaction was broadcast and is waiting for Bitcoin confirmations.
             </p>
           </template>
-          <template v-else-if="record.releaseCosignVaultSignature">
+          <template v-else-if="release?.vaultSignatures.length">
             <div class="font-semibold text-slate-800">Preparing Bitcoin return</div>
             <p class="text-sm text-slate-600">The vault signed the return. Preparing the Bitcoin transaction.</p>
           </template>
@@ -155,7 +152,7 @@
             </p>
           </template>
           <ProgressBar
-            v-if="record.status === BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin"
+            v-if="release?.status === BitcoinReleaseStatus.ConfirmingOnBitcoin"
             :progress="releaseProgress.progressPct"
             :showLabel="false"
             class="h-4"
@@ -169,11 +166,11 @@
               <dt class="text-slate-500">Destination</dt>
               <dd class="mt-0.5 font-mono text-sm break-all text-slate-800">{{ releaseDestinationAddress }}</dd>
             </div>
-            <div v-if="record.releaseBitcoinNetworkFee != null">
+            <div v-if="release">
               <dt class="text-slate-500">Bitcoin network fee</dt>
               <dd class="mt-0.5 text-slate-800">
                 <span v-if="releaseFeeRate != null">{{ releaseFeeRate }} sats/vbyte ·</span>
-                {{ numeral(record.releaseBitcoinNetworkFee).format('0,0') }} sats total
+                {{ numeral(release.bitcoinNetworkFee).format('0,0') }} sats total
               </dd>
             </div>
             <div>
@@ -184,8 +181,8 @@
             </div>
           </dl>
           <a
-            v-if="record.releaseTxid"
-            :href="mempool.txUrl(record.releaseTxid)"
+            v-if="release?.bitcoinTxid"
+            :href="mempool.txUrl(release.bitcoinTxid)"
             target="_blank"
             rel="noopener noreferrer"
             class="text-argon-600 inline-flex items-center gap-1 text-sm hover:underline"
@@ -196,8 +193,8 @@
         </div>
       </div>
 
-      <p v-if="record.statusError || requestError" class="text-sm font-semibold text-red-700">
-        {{ requestError || record.statusError }}
+      <p v-if="release?.statusError || record.statusError || requestError" class="text-sm font-semibold text-red-700">
+        {{ requestError || release?.statusError || record.statusError }}
       </p>
     </div>
   </OverlayBase>
@@ -220,7 +217,8 @@ import { getCurrency } from '../stores/currency.ts';
 import { getMyVault, getVaults } from '../stores/vaults.ts';
 import { getWalletKeys, useWallets } from '../stores/wallets.ts';
 import type { IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
-import { BitcoinUtxoRole, BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
+import { BitcoinUtxoStatus, type IBitcoinUtxoRecord } from '../lib/db/BitcoinUtxosTable.ts';
+import { BitcoinReleaseStatus } from '../interfaces/IBitcoinReleaseRecord.ts';
 import { TransactionStatus } from '../lib/db/TransactionsTable.ts';
 import BitcoinLocks from '../lib/BitcoinLocks.ts';
 import BitcoinMempool from '../lib/BitcoinMempool.ts';
@@ -256,6 +254,16 @@ const argonRequestProgressPct = Vue.ref(0);
 const argonRequestConfirmations = Vue.ref(-1);
 const argonRequestExpectedConfirmations = Vue.ref(0);
 const isArgonRequestInProgress = Vue.ref(false);
+const release = Vue.computed(
+  () => bitcoinLocks.releases.getActiveForUtxo(props.record) ?? bitcoinLocks.releases.getLatestForUtxo(props.record),
+);
+const canRequestReturn = Vue.computed(
+  () =>
+    props.record.status === BitcoinUtxoStatus.Orphaned &&
+    (!release.value ||
+      release.value.status === BitcoinReleaseStatus.Cancelled ||
+      release.value.status === BitcoinReleaseStatus.Failed),
+);
 
 const bitcoinAmount = Vue.computed(() =>
   numeral(currency.convertSatToBtc(props.record.satoshis)).format('0,0.[00000000]'),
@@ -267,24 +275,20 @@ const vaultName = Vue.computed(() => {
     (config.upstreamOperator?.vaultId === props.lock.vaultId ? config.upstreamOperator.name : undefined);
   return operatorName ? `${operatorName} Vault` : 'Vault';
 });
-const acceptedFundingRecord = Vue.computed(() => bitcoinLocks.getAcceptedFundingRecord(props.lock));
+const acceptedFundingUtxos = Vue.computed(() => bitcoinLocks.getFundingUtxos(props.lock));
 const isAdditionalDeposit = Vue.computed(() => {
-  const fundingRecord = acceptedFundingRecord.value;
-  if (!fundingRecord || fundingRecord.id === props.record.id) return false;
-
-  const fundingHeight = fundingRecord.firstSeenBitcoinHeight;
   const receivedHeight = props.record.firstSeenBitcoinHeight;
-  if (fundingHeight > 0 && receivedHeight > 0 && fundingHeight !== receivedHeight) {
-    return fundingHeight < receivedHeight;
-  }
-
-  return fundingRecord.firstSeenAt.getTime() < props.record.firstSeenAt.getTime();
+  return acceptedFundingUtxos.value.some(fundingUtxo => {
+    if (fundingUtxo.id === props.record.id) return false;
+    const fundingHeight = fundingUtxo.firstSeenBitcoinHeight;
+    if (fundingHeight > 0 && receivedHeight > 0 && fundingHeight !== receivedHeight) {
+      return fundingHeight < receivedHeight;
+    }
+    return fundingUtxo.firstSeenAt.getTime() < props.record.firstSeenAt.getTime();
+  });
 });
 const comparisonBitcoinAmount = Vue.computed(() => {
-  const satoshis = isAdditionalDeposit.value
-    ? (acceptedFundingRecord.value?.satoshis ?? props.lock.fundedSatoshis)
-    : props.lock.fundedSatoshis;
-  return numeral(currency.convertSatToBtc(satoshis)).format('0,0.[00000000]');
+  return numeral(currency.convertSatToBtc(props.lock.fundedSatoshis)).format('0,0.[00000000]');
 });
 const receivedAt = Vue.computed(() => {
   const transactionBlockTime = props.record.mempoolObservation?.transactionBlockTime;
@@ -309,23 +313,22 @@ const destinationError = Vue.computed(() =>
 const bitcoinNetworkName = Vue.computed(() => getBitcoinNetworkName(bitcoinLocks.bitcoinNetwork));
 
 const releaseDestinationAddress = Vue.computed(() => {
-  if (!props.record.releaseToDestinationAddress) return '';
+  const destination = release.value?.toScriptPubkey;
+  if (!destination) return '';
   try {
-    return BitcoinLocks.formatAddressBytes(props.record.releaseToDestinationAddress, bitcoinLocks.bitcoinNetwork);
+    return BitcoinLocks.formatAddressBytes(destination, bitcoinLocks.bitcoinNetwork);
   } catch {
-    return props.record.releaseToDestinationAddress;
+    return destination;
   }
 });
 const releaseRequestedAt = Vue.computed(() => {
-  if (props.record.requestedReleaseAtTick == null) return '';
-  return dayjs
-    .utc(MiningFrames.getTickDate(props.record.requestedReleaseAtTick))
-    .local()
-    .format('MMM D, YYYY [at] h:mm A');
+  const requestedAtTick = release.value?.requestedReleaseAtTick;
+  if (requestedAtTick == null) return '';
+  return dayjs.utc(MiningFrames.getTickDate(requestedAtTick)).local().format('MMM D, YYYY [at] h:mm A');
 });
 const releaseFeeRate = Vue.computed(() => {
-  const networkFee = props.record.releaseBitcoinNetworkFee;
-  const destination = props.record.releaseToDestinationAddress;
+  const networkFee = release.value?.bitcoinNetworkFee;
+  const destination = release.value?.toScriptPubkey;
   if (networkFee == null || !destination) return;
 
   try {
@@ -333,9 +336,9 @@ const releaseFeeRate = Vue.computed(() => {
       lock: props.lock,
       fundedSatoshis: props.record.satoshis,
     });
-    const oneSatFee = cosignScript.calculateFee(1n, destination);
+    const oneSatFee = cosignScript.calculateFee(1n, 1, destination);
     const feeRate = (networkFee + oneSatFee / 2n) / oneSatFee;
-    if (cosignScript.calculateFee(feeRate, destination) === networkFee) return feeRate;
+    if (cosignScript.calculateFee(feeRate, 1, destination) === networkFee) return feeRate;
   } catch {
     return;
   }
@@ -353,7 +356,11 @@ const argonFeeShortfall = Vue.computed(() => {
   const shortfall = argonFeeQuote.value.txFee - argonFeeQuote.value.availableBalance;
   return shortfall > 0n ? shortfall : 0n;
 });
-const releaseProgress = Vue.computed(() => bitcoinLocks.utxoTracking.getReleaseLifecycleProgress(props.record));
+const releaseProgress = Vue.computed(() =>
+  release.value
+    ? bitcoinLocks.getReleaseProcessingDetails(release.value)
+    : { progressPct: 0, confirmations: -1, expectedConfirmations: 6 },
+);
 const argonRequestProgressLabel = Vue.computed(() => {
   return generateProgressLabel(argonRequestConfirmations.value, argonRequestExpectedConfirmations.value, {
     blockType: 'Argon',
@@ -428,7 +435,7 @@ async function requestReturn(): Promise<void> {
 }
 
 function trackArgonRequestProgress(
-  txInfo = bitcoinOrphanRelease.getPendingReleaseTxInfo(props.record.lockUtxoId, props.record),
+  txInfo = bitcoinOrphanRelease.getPendingReleaseTxInfo(props.record.lockId, props.record),
 ): void {
   // The request can resolve after this overlay instance is disposed; teardown cannot remove a later subscription.
   if (!txInfo || isDisposed) return;

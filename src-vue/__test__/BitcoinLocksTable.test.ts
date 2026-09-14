@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import { createTestDb, createTestDbAtMigration } from './helpers/db.ts';
 import { BitcoinLocksTable, BitcoinLockStatus, type IBitcoinLockRecord } from '../lib/db/BitcoinLocksTable.ts';
 import { createCurrentLock } from './helpers/bitcoin.ts';
-import { BitcoinUtxoRole } from '../interfaces/IBitcoinUtxoRecord.ts';
 
 async function createPendingLock(overrides: Partial<IBitcoinLockRecord> = {}) {
   const db = await createTestDb();
@@ -21,7 +20,7 @@ async function createPendingLock(overrides: Partial<IBitcoinLockRecord> = {}) {
 }
 
 describe('BitcoinLocksTable', () => {
-  it('hydrates one Lock with its exact funding and orphan outputs after migration', async () => {
+  it('migrates Lock funding and Orphan release state into independent records', async () => {
     const { db, migrateToLatest } = await createTestDbAtMigration(32);
     await db.execute(
       `INSERT INTO BitcoinLocks (
@@ -66,6 +65,58 @@ describe('BitcoinLocksTable', () => {
       ],
     );
     await db.execute(
+      `INSERT INTO BitcoinLocks (
+        uuid, status, utxoId, satoshis, lockedTargetPrice, liquidityPromised, ratchets, cosignVersion,
+        lockDetails, network, hdPath, vaultId, releaseRedemptionMicrogons
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        'released-liquid-lock',
+        'Released',
+        8,
+        900n,
+        2_000n,
+        700n,
+        [
+          {
+            mintAmount: 700n,
+            mintPending: 0n,
+            lockedTargetPrice: 2_000n,
+            securityFee: 5n,
+            burned: 0n,
+            blockHeight: 20,
+            oracleBitcoinBlockHeight: 100,
+          },
+        ],
+        'v1',
+        {
+          utxoId: 8,
+          ownerAccount: 'owner',
+          p2wshScriptHashHex: '0x0020efgh',
+          vaultId: 3,
+          securitizedSatoshis: 900n,
+          fundedSatoshis: 900n,
+          securitizationRatio: 1,
+          securityFees: 5n,
+          couponFeesPaid: 0n,
+          vaultPubkey: '0x12',
+          vaultClaimPubkey: '0x13',
+          ownerPubkey: '0x14',
+          vaultXpubSources: { parentFingerprint: new Uint8Array(4), cosignHdIndex: 1, claimHdIndex: 2 },
+          vaultClaimHeight: 500,
+          openClaimHeight: 600,
+          createdAtHeight: 100,
+          fundingExpirationHeight: 200,
+          isFlexible: false,
+          fundHoldExtensionsByBitcoinExpirationHeight: {},
+          createdAtArgonBlock: 20,
+        },
+        'regtest',
+        "m/84'/1'/0'/0/1",
+        3,
+        650n,
+      ],
+    );
+    await db.execute(
       `INSERT INTO BitcoinUtxos (
         id, lockUtxoId, txid, vout, satoshis, network, status, firstSeenAt, firstSeenBitcoinHeight
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -73,43 +124,154 @@ describe('BitcoinLocksTable', () => {
     );
     await db.execute(
       `INSERT INTO BitcoinUtxos (
-        id, lockUtxoId, txid, vout, satoshis, network, status, firstSeenAt, firstSeenBitcoinHeight
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [2, 7, 'orphan-tx', 1, 300n, 'regtest', 'ReleaseIsProcessingOnArgon', new Date('2026-01-02T00:00:00Z'), 101],
+        id, lockUtxoId, txid, vout, satoshis, network, status, firstSeenAt, firstSeenBitcoinHeight,
+        releaseToDestinationAddress, releaseBitcoinNetworkFee
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        2,
+        7,
+        'orphan-tx',
+        1,
+        300n,
+        'regtest',
+        'ReleaseIsProcessingOnArgon',
+        new Date('2026-01-02T00:00:00Z'),
+        101,
+        'bcrt1qdestination',
+        12n,
+      ],
     );
     await db.execute(`INSERT INTO BitcoinUtxoStatusHistory (utxoRecordId, newStatus) VALUES (?, ?)`, [2, 'Orphaned']);
     await db.execute(`UPDATE BitcoinLocks SET fundingUtxoRecordId = ? WHERE uuid = ?`, [1, 'migration-lock']);
+    await db.execute(
+      `INSERT INTO Transactions (
+         id, extrinsicHash, extrinsicMethodJson, extrinsicType, metadataJson,
+         accountAddress, submittedAtTime, submittedAtBlockHeight
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        1,
+        '0x1',
+        {},
+        'BitcoinRequestLock',
+        { bitcoin: { uuid: 'migration-lock', vaultId: 3 } },
+        'owner',
+        new Date('2026-01-01T00:00:00Z'),
+        150,
+        2,
+        '0x2',
+        {},
+        'BitcoinRequestRelease',
+        { utxoId: 7 },
+        'owner',
+        new Date('2026-01-01T00:01:00Z'),
+        151,
+        3,
+        '0x3',
+        {},
+        'BitcoinOrphanedUtxoRelease',
+        { utxoId: 7, utxoRecordId: 2 },
+        'owner',
+        new Date('2026-01-02T00:01:00Z'),
+        152,
+      ],
+    );
 
     await migrateToLatest();
 
     const utxoColumns = await db.select<{ name: string }[]>(`PRAGMA table_info('BitcoinUtxos')`);
-    expect(utxoColumns.map(column => column.name)).toContain('role');
-
-    const utxos = await db.select<{ txid: string; role: string; status: string }[]>(
-      `SELECT txid, role, status FROM BitcoinUtxos ORDER BY id`,
+    expect(utxoColumns.map(column => column.name)).toEqual(
+      expect.arrayContaining(['lockId', 'spendStatus', 'activeReleaseId', 'createdByReleaseId', 'spentByReleaseId']),
     );
-    expect(utxos).toEqual([
-      { txid: 'funding-tx', role: 'Funding', status: 'FundingUtxo' },
-      { txid: 'orphan-tx', role: 'Orphan', status: 'ReleaseIsProcessingOnArgon' },
+    expect(utxoColumns.map(column => column.name)).not.toEqual(
+      expect.arrayContaining(['lockUtxoId', 'role', 'requestedReleaseAtTick', 'releaseTxid']),
+    );
+
+    const releaseColumns = await db.select<{ name: string }[]>(`PRAGMA table_info('BitcoinReleases')`);
+    expect(releaseColumns.map(column => column.name)).toEqual(
+      expect.arrayContaining(['id', 'kind', 'lockId', 'status', 'inputUtxoIds', 'vaultSignatures']),
+    );
+
+    const utxos = await db.select<
+      Array<{
+        id: number;
+        txid: string;
+        status: string;
+        spendStatus: string;
+        activeReleaseId?: string;
+        spentByReleaseId?: string;
+      }>
+    >(`SELECT id, txid, status, spendStatus, activeReleaseId, spentByReleaseId FROM BitcoinUtxos ORDER BY id`);
+    expect(utxos.find(utxo => utxo.id === 1)).toMatchObject({
+      id: 1,
+      txid: 'funding-tx',
+      status: 'FundingUtxo',
+      spendStatus: 'Unspent',
+    });
+    expect(utxos.find(utxo => utxo.id === 2)).toMatchObject({
+      id: 2,
+      txid: 'orphan-tx',
+      status: 'Orphaned',
+      spendStatus: 'Unspent',
+      activeReleaseId: expect.any(String),
+    });
+    const releases = await db.select<
+      Array<{
+        id: string;
+        kind: string;
+        lockId: number;
+        status: string;
+        inputUtxoIds: string;
+        vaultSignatures: string;
+      }>
+    >(`SELECT id, kind, lockId, status, inputUtxoIds, vaultSignatures FROM BitcoinReleases`);
+    expect(releases).toEqual([
+      {
+        id: utxos.find(utxo => utxo.id === 2)?.activeReleaseId,
+        kind: 'Orphan',
+        lockId: 7,
+        status: 'SubmittingRequestOnArgon',
+        inputUtxoIds: '[2]',
+        vaultSignatures: '[]',
+      },
     ]);
 
     const lockColumns = await db.select<{ name: string }[]>(`PRAGMA table_info('BitcoinLocks')`);
     expect(lockColumns.map(column => column.name)).toEqual(
-      expect.arrayContaining(['securitizedSatoshis', 'ownerAccount', 'scriptDetails']),
+      expect.arrayContaining([
+        'securitizedSatoshis',
+        'ownerAccount',
+        'scriptDetails',
+        'fundingUtxoIds',
+        'fundedSatoshis',
+        'activeReleaseId',
+      ]),
     );
     expect(lockColumns.map(column => column.name)).not.toEqual(
-      expect.arrayContaining(['satoshis', 'liquidityPromised', 'ratchets', 'lockDetails', 'fundingUtxoRecordId']),
+      expect.arrayContaining([
+        'satoshis',
+        'liquidityPromised',
+        'ratchets',
+        'lockDetails',
+        'fundingUtxoRecordId',
+        'fundingUtxos',
+        'releaseRedemptionMicrogons',
+        'releaseArgonTxFeeMicrogons',
+        'releaseCompensationMicrogons',
+      ]),
     );
 
-    const [lock] = await new BitcoinLocksTable(db).fetchAll();
+    const table = new BitcoinLocksTable(db);
+    const [lock] = await table.fetchAll();
     expect(lock).not.toBeInstanceOf(BitcoinLock);
     expect(lock).toMatchObject({
       uuid: 'migration-lock',
       status: BitcoinLockStatus.LockFunded,
-      utxoId: 7,
+      lockId: 7,
       ownerAccount: 'owner',
       vaultId: 3,
       securitizedSatoshis: 1_000n,
+      fundedSatoshis: 1_200n,
+      fundingUtxoIds: [1],
       scriptDetails: {
         p2wshScriptHashHex: '0x0020abcd',
         vaultPubkey: '0x02',
@@ -121,12 +283,25 @@ describe('BitcoinLocksTable', () => {
     expect(lock.securitizationCoverageMicrogons).toBeUndefined();
     expect(lock.securitizationTick).toBeUndefined();
     expect(lock.fissionedSatoshis).toBeUndefined();
-    expect(lock.utxos).toHaveLength(2);
-    expect(lock.fundedSatoshis).toBe(1_200n);
-    expect(lock.fundingUtxo).toMatchObject({ txid: 'funding-tx', vout: 0, satoshis: 1_200n });
-    expect(lock.utxos.find(utxo => utxo.role === BitcoinUtxoRole.Orphan)).toMatchObject({
-      txid: 'orphan-tx',
-      status: 'ReleaseIsProcessingOnArgon',
+    expect(lock).not.toHaveProperty('utxos');
+    expect(lock).not.toHaveProperty('fundingUtxos');
+    await expect(table.getByLockId(7)).resolves.toMatchObject({
+      uuid: 'migration-lock',
+      lockId: 7,
+    });
+    await expect(table.getByLockId(7)).resolves.not.toHaveProperty('utxos');
+    const migratedFissions = await db.bitcoinFissionsTable.fetchAll('owner');
+    expect(migratedFissions.find(fission => fission.lockId === 7)).toBeTruthy();
+    expect(migratedFissions.find(fission => fission.lockId === 8)).toMatchObject({
+      redemptionAmount: 650n,
+    });
+    const transactions = await db.transactionsTable.fetchAll();
+    expect(transactions.find(transaction => transaction.id === 1)?.metadataJson.bitcoin.uuid).toBe('migration-lock');
+    expect(transactions.find(transaction => transaction.id === 2)?.metadataJson).toEqual({ lockId: 7 });
+    expect(transactions.find(transaction => transaction.id === 3)?.metadataJson).toEqual({
+      lockId: 7,
+      utxoRecordId: 2,
+      releaseId: 'migration-33-release-2',
     });
   });
 
@@ -152,10 +327,10 @@ describe('BitcoinLocksTable', () => {
     const { table, lock } = await createPendingLock({ uuid: 'finalize-idempotent' });
 
     const bitcoinLock = createCurrentLock({
-      utxoId: 7,
+      lockId: 7,
       securityFees: 1n,
       createdAtHeight: 9,
-      fundingExpirationHeight: 15,
+      securitizationHoldExpirationBitcoinHeight: 15,
     });
 
     const first = await table.finalizePending({
@@ -176,18 +351,18 @@ describe('BitcoinLocksTable', () => {
       vaultId: lock.vaultId,
     });
 
-    expect(first.utxoId).toBe(7);
-    expect(second.utxoId).toBe(7);
+    expect(first.lockId).toBe(7);
+    expect(second.lockId).toBe(7);
     expect(second.status).toBe(BitcoinLockStatus.LockPendingFunding);
     expect(second.securitizedSatoshis).toBe(bitcoinLock.securitizedSatoshis);
-    expect(second).toBeInstanceOf(BitcoinLock);
+    expect(second).not.toBeInstanceOf(BitcoinLock);
     expect(second.microgonsAtTargetPerBtc).toBe(bitcoinLock.microgonsAtTargetPerBtc);
     expect(second.securitizationCoverageMicrogons).toBe(bitcoinLock.securitizationCoverageMicrogons);
     expect(second.securitizationTick).toBe(bitcoinLock.securitizationTick);
     expect(second.fissionedSatoshis).toBe(bitcoinLock.fissionedSatoshis);
     const pending = await table.findPendingByHdPath(lock.hdPath);
     expect(pending).toMatchObject({ uuid: next.uuid });
-    expect(pending?.utxoId).toBeUndefined();
+    expect(pending?.lockId).toBeUndefined();
 
     await table.updateFromCurrentLock(second, bitcoinLock);
 
@@ -202,13 +377,13 @@ describe('BitcoinLocksTable', () => {
     const stale = await table.finalizePending({
       uuid: lock.uuid,
       lock: createCurrentLock({
-        utxoId: 7,
+        lockId: 7,
         securityFees: 3_000_000n,
         couponFeesPaid: 3_000_000n,
       }),
     });
     const current = createCurrentLock({
-      utxoId: 7,
+      lockId: 7,
       securityFees: 3_000_000n,
       couponFeesPaid: 1_000_000n,
     });
@@ -217,24 +392,16 @@ describe('BitcoinLocksTable', () => {
 
     expect(stale.securityFees).toBe(3_000_000n);
     expect(stale.couponFeesPaid).toBe(1_000_000n);
-    expect((await table.getByUtxoId(7))?.couponFeesPaid).toBe(1_000_000n);
+    expect((await table.getByLockId(7))?.couponFeesPaid).toBe(1_000_000n);
   });
 
-  it('persists release economics separately from the terminal removal mark', async () => {
+  it('persists active release ownership separately from terminal Lock removal', async () => {
     const { table, lock } = await createPendingLock({
       uuid: 'release-financials',
       status: BitcoinLockStatus.LockFunded,
     });
 
-    await table.recordReleaseRequest(lock, {
-      releaseRedemptionMicrogons: 500n,
-      releaseArgonTxFeeMicrogons: undefined,
-    });
-    await table.recordReleaseRequest(lock, {
-      releaseRedemptionMicrogons: 600n,
-      releaseArgonTxFeeMicrogons: 7n,
-    });
-    await table.recordReleaseCompensation(lock, 11n);
+    await table.setActiveRelease(lock, 'release-1');
     await table.recordReleaseCosign(lock, {
       removalBlockNumber: 120,
       removalBlockHash: undefined,
@@ -245,6 +412,7 @@ describe('BitcoinLocksTable', () => {
     const recoveredRelease = (await table.fetchAll()).find(record => record.uuid === lock.uuid)!;
     expect(recoveredRelease).toMatchObject({
       status: BitcoinLockStatus.Releasing,
+      activeReleaseId: 'release-1',
       removalBlockNumber: 120,
       removalBlockTime: new Date('2026-07-16T12:00:00Z'),
       removalExtrinsicIndex: 3,
@@ -252,54 +420,10 @@ describe('BitcoinLocksTable', () => {
     });
     expect(recoveredRelease.removalReason).toBeUndefined();
 
-    await table.setReleased(recoveredRelease);
+    await table.clearActiveRelease(recoveredRelease, BitcoinLockStatus.Released);
     expect(recoveredRelease).toMatchObject({
       status: BitcoinLockStatus.Released,
-      removalReason: 'released',
     });
-
-    await table.recordRemoval(lock, BitcoinLockStatus.Released, {
-      removalBlockNumber: 120,
-      removalBlockHash: undefined,
-      removalBlockTime: new Date('2026-07-16T12:00:00Z'),
-      removalExtrinsicIndex: 3,
-      removalReason: 'released',
-      btcPriceAtRemovalMicrogons: 4_000_000n,
-    });
-    await table.recordReleaseRequest(lock, {
-      releaseRedemptionMicrogons: 700n,
-      releaseArgonTxFeeMicrogons: 8n,
-    });
-    await table.recordReleaseCompensation(lock, 12n);
-    await table.recordRemoval(lock, BitcoinLockStatus.Released, {
-      removalBlockNumber: 121,
-      removalBlockHash: '0x120',
-      removalBlockTime: new Date('2026-07-16T12:01:00Z'),
-      removalExtrinsicIndex: 4,
-      removalReason: 'released',
-      btcPriceAtRemovalMicrogons: 5_000_000n,
-    });
-    await table.recordRemoval(lock, BitcoinLockStatus.Releasing, {
-      removalBlockNumber: 122,
-      removalBlockHash: '0x121',
-      removalBlockTime: new Date('2026-07-16T12:02:00Z'),
-      removalExtrinsicIndex: 5,
-      removalReason: 'expired',
-      btcPriceAtRemovalMicrogons: 5_000_000n,
-    });
-
-    const updated = (await table.fetchAll()).find(record => record.uuid === lock.uuid)!;
-    expect(updated).toMatchObject({
-      status: BitcoinLockStatus.Released,
-      releaseRedemptionMicrogons: 500n,
-      releaseArgonTxFeeMicrogons: 7n,
-      releaseCompensationMicrogons: 11n,
-      removalBlockNumber: 120,
-      removalBlockHash: '0x120',
-      removalBlockTime: new Date('2026-07-16T12:00:00Z'),
-      removalExtrinsicIndex: 3,
-      removalReason: 'released',
-      btcPriceAtRemovalMicrogons: 4_000_000n,
-    });
+    expect(recoveredRelease.activeReleaseId).toBeUndefined();
   });
 });

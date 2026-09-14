@@ -1,14 +1,11 @@
-import {
-  BitcoinLock,
-  SATOSHIS_PER_BITCOIN,
-  type ArgonClient,
-  type Currency,
-  type TxSigningAccount,
-} from '@argonprotocol/apps-core';
+import { BitcoinLock, type ArgonClient, type TxSigningAccount } from '@argonprotocol/apps-core';
 import { addressBytesHex } from '@argonprotocol/bitcoin';
 import { formatArgons } from '@argonprotocol/mainchain';
+import { nanoid } from 'nanoid';
 
 import BitcoinLocks from '../BitcoinLocks.ts';
+import { BitcoinReleaseKind, BitcoinReleaseStatus } from '../../interfaces/IBitcoinReleaseRecord.ts';
+import type { IBitcoinLockRecord } from '../../interfaces/IBitcoinLockRecord.ts';
 import { ExtrinsicType } from '../db/TransactionsTable.ts';
 import type { TransactionInfo } from '../TransactionInfo.ts';
 import type { TransactionTracker } from '../TransactionTracker.ts';
@@ -20,7 +17,7 @@ import {
 } from './TransactionOperation.ts';
 
 export interface BitcoinLockReleaseInput {
-  utxoId: number;
+  lockId: number;
   bitcoinNetworkFee: bigint;
   toScriptPubkey: string;
   txSigner: TxSigningAccount;
@@ -29,13 +26,15 @@ export interface BitcoinLockReleaseInput {
 }
 
 export interface IBitcoinLockReleaseMetadata {
-  utxoId: number;
+  releaseId: string;
+  lockId: number;
   toScriptPubkey: string;
   bitcoinNetworkFee: bigint;
-  redemptionAmount: bigint;
 }
 
-type BitcoinLockReleaseBuild = TransactionOperationBuild<IBitcoinLockReleaseMetadata>;
+type BitcoinLockReleaseBuild = TransactionOperationBuild<IBitcoinLockReleaseMetadata> & {
+  lock: IBitcoinLockRecord;
+};
 
 export class BitcoinLockRelease extends TransactionOperation<
   BitcoinLockReleaseInput,
@@ -47,87 +46,112 @@ export class BitcoinLockRelease extends TransactionOperation<
   constructor(
     private readonly bitcoinLocks: BitcoinLocks,
     transactionTracker: TransactionTracker,
-    private readonly currency: Currency,
   ) {
     super(transactionTracker);
   }
 
   protected async build(args: BitcoinLockReleaseInput): Promise<BitcoinLockReleaseBuild> {
-    const { utxoId, bitcoinNetworkFee, toScriptPubkey, txSigner, tip, client: providedClient } = args;
-    const lock = this.bitcoinLocks.getLockByUtxoId(utxoId);
-    if (!lock) throw new Error(`No lock found with UTXO ID ${utxoId}`);
-    if (!this.bitcoinLocks.isLockFunded(lock)) {
+    const { lockId, bitcoinNetworkFee, toScriptPubkey, txSigner, tip, client: providedClient } = args;
+    const lock = this.bitcoinLocks.getLockById(lockId);
+    if (!lock) throw new Error(`No Bitcoin lock found with ID ${lockId}`);
+    const activeRelease = this.bitcoinLocks.releases.getActiveForLock(lock);
+    if (
+      !this.bitcoinLocks.isLockFunded(lock) &&
+      activeRelease?.status !== BitcoinReleaseStatus.SubmittingRequestOnArgon
+    ) {
       throw new Error('This Bitcoin lock is not funded, so it cannot be released.');
     }
 
     const client = providedClient ?? (await getMainchainClient(false));
-    const bitcoinLock = await BitcoinLock.get(client, utxoId);
-    if (!bitcoinLock) throw new Error(`Lock with ID ${utxoId} is unavailable from current chain state.`);
+    const bitcoinLock = await BitcoinLock.get(client, lockId);
+    if (!bitcoinLock) throw new Error(`Lock with ID ${lockId} is unavailable from current chain state.`);
     if (bitcoinLock.fissionedSatoshis > 0n) {
       throw new Error('Close its Liquid before releasing this Bitcoin lock.');
     }
 
-    const currentTargetValue = this.currency.priceIndex.getSatoshiPriceInTargetMicrogons(bitcoinLock.fundedSatoshis);
-    const securitizedTargetValue =
-      (bitcoinLock.microgonsAtTargetPerBtc * bitcoinLock.securitizedSatoshis) / SATOSHIS_PER_BITCOIN;
-    const redemptionAmount = BitcoinLock.calculateRedemptionAmount(
-      this.currency.priceIndex,
-      currentTargetValue,
-      securitizedTargetValue,
-    );
+    const destinationScript = addressBytesHex(toScriptPubkey, this.bitcoinLocks.bitcoinNetwork);
+    if (
+      activeRelease &&
+      (activeRelease.toScriptPubkey !== destinationScript || activeRelease.bitcoinNetworkFee !== bitcoinNetworkFee)
+    ) {
+      throw new Error(`Bitcoin lock ${lockId} already has a different release request`);
+    }
 
     return {
       client,
+      lock,
       txs: [
         BitcoinLock.createReleaseTx({
           client,
-          utxoId,
-          toScriptPubkey: addressBytesHex(toScriptPubkey, this.bitcoinLocks.bitcoinNetwork),
+          lockId,
+          toScriptPubkey: destinationScript,
           bitcoinNetworkFee,
         }),
       ],
       txSigner,
       tip,
       metadata: {
-        utxoId,
+        releaseId: activeRelease?.id ?? nanoid(),
+        lockId,
         toScriptPubkey,
         bitcoinNetworkFee,
-        redemptionAmount,
       },
     };
   }
 
   protected getOperationKey(args: BitcoinLockReleaseInput): string {
-    return `${args.txSigner.address}:${args.utxoId}`;
+    return `${args.txSigner.address}:${args.lockId}`;
   }
 
   protected matches(args: BitcoinLockReleaseInput, txInfo: TransactionInfo<IBitcoinLockReleaseMetadata>): boolean {
-    return txInfo.tx.accountAddress === args.txSigner.address && txInfo.tx.metadataJson.utxoId === args.utxoId;
+    return txInfo.tx.accountAddress === args.txSigner.address && txInfo.tx.metadataJson.lockId === args.lockId;
   }
 
-  public getPendingReleaseTxInfo(utxoId: number): TransactionInfo<IBitcoinLockReleaseMetadata> | undefined {
-    return this.getPendingTransaction(txInfo => txInfo.tx.metadataJson.utxoId === utxoId);
+  public getPendingReleaseTxInfo(lockId: number): TransactionInfo<IBitcoinLockReleaseMetadata> | undefined {
+    return this.getPendingTransaction(txInfo => txInfo.tx.metadataJson.lockId === lockId);
   }
 
-  protected async onSubmitted(txInfo: TransactionInfo<IBitcoinLockReleaseMetadata>): Promise<void> {
-    const lock = this.bitcoinLocks.getLockByUtxoId(txInfo.tx.metadataJson.utxoId);
-    if (lock) await this.bitcoinLocks.publishReleaseSubmission(lock);
+  protected async beforeSubmit(
+    prepared: PreparedTransactionOperation<IBitcoinLockReleaseMetadata, BitcoinLockReleaseBuild>,
+  ) {
+    const { lock, metadata } = prepared;
+    if (!lock.fundingUtxoIds.length) throw new Error(`Bitcoin lock ${metadata.lockId} has no funding UTXOs`);
+
+    await this.bitcoinLocks.releases.createLockRelease(lock, {
+      id: metadata.releaseId,
+      kind: BitcoinReleaseKind.Lock,
+      lockId: metadata.lockId,
+      status: BitcoinReleaseStatus.SubmittingRequestOnArgon,
+      inputUtxoIds: [...lock.fundingUtxoIds],
+      toScriptPubkey: addressBytesHex(metadata.toScriptPubkey, this.bitcoinLocks.bitcoinNetwork),
+      bitcoinNetworkFee: metadata.bitcoinNetworkFee,
+      vaultSignatures: [],
+    });
   }
 
   protected async onFinalized(txInfo: TransactionInfo<IBitcoinLockReleaseMetadata>): Promise<void> {
-    const lock = this.bitcoinLocks.getLockByUtxoId(txInfo.tx.metadataJson.utxoId);
+    const lock = this.bitcoinLocks.getLockById(txInfo.tx.metadataJson.lockId);
     if (!lock) return;
     const blockHash = await txInfo.txResult.waitForFinalizedBlock;
-    await this.bitcoinLocks.finalizeReleaseRequest(
+    await this.bitcoinLocks.releases.finalizeLockRequest(
       lock,
+      txInfo.tx.metadataJson.releaseId,
       blockHash,
       txInfo.txResult.finalFee ?? txInfo.tx.txFeePlusTip ?? 0n,
     );
   }
 
   protected async onFailed(txInfo: TransactionInfo<IBitcoinLockReleaseMetadata>): Promise<void> {
-    const lock = this.bitcoinLocks.getLockByUtxoId(txInfo.tx.metadataJson.utxoId);
-    if (lock) await this.bitcoinLocks.failReleaseSubmission(lock);
+    const release = this.bitcoinLocks.releases.getById(txInfo.tx.metadataJson.releaseId);
+    if (release) await this.bitcoinLocks.releases.failRelease(release, 'Argon release request failed');
+  }
+
+  protected async onSubmissionFailed(
+    prepared: PreparedTransactionOperation<IBitcoinLockReleaseMetadata, BitcoinLockReleaseBuild>,
+    error: Error,
+  ): Promise<void> {
+    const release = this.bitcoinLocks.releases.getById(prepared.metadata.releaseId);
+    if (release) await this.bitcoinLocks.releases.recordRetryableError(release, error);
   }
 
   protected createInsufficientFundsError(

@@ -35,8 +35,9 @@ async function publishRecoveredFissions(
   db: Db,
   recovery: BitcoinFissionRecovery,
   migratedLocks: readonly IHistoricalBitcoinLockRecord[] = [],
+  lockIdByHistoricalUtxoId: ReadonlyMap<number, number> = new Map(),
 ): Promise<IBitcoinFissionRecord[]> {
-  const { records, failuresByUtxoId } = await recovery.prepareHistoryReplay(migratedLocks);
+  const { records, failuresByLockId } = await recovery.prepareHistoryReplay(migratedLocks, lockIdByHistoricalUtxoId);
   let persisted = records;
   await db.transaction(async transaction => {
     persisted = await recovery.persistHistoryReplayUnit(transaction, records);
@@ -44,10 +45,10 @@ async function publishRecoveredFissions(
   await recovery.publishHistoryReplayUnit(persisted);
   await recovery.finishHistoryReplay();
 
-  if (failuresByUtxoId.size) {
+  if (failuresByLockId.size) {
     throw new Error(
-      [...failuresByUtxoId]
-        .map(([utxoId, message]) => `Bitcoin Fission history for lock ${utxoId}: ${message}`)
+      [...failuresByLockId]
+        .map(([lockId, message]) => `Bitcoin Fission history for lock ${lockId}: ${message}`)
         .join(' '),
     );
   }
@@ -62,8 +63,8 @@ describe('Bitcoin Fission current state', () => {
       query: {
         bitcoinFissions: { fissionByOwnerAndId: { entries: async () => [] } },
         mint: {
-          pendingMintUtxoIdLookup: async () => [],
-          pendingMintUtxosByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
+          pendingMintIndicesByLockId: async () => [],
+          pendingBitcoinMintsByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
         },
       },
     } as unknown as ArgonClient;
@@ -133,8 +134,8 @@ describe('Bitcoin Fission current state', () => {
             },
           },
           mint: {
-            pendingMintUtxoIdLookup: async () => [],
-            pendingMintUtxosByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
+            pendingMintIndicesByLockId: async () => [],
+            pendingBitcoinMintsByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
           },
         },
       }) as unknown as ArgonClient;
@@ -173,8 +174,8 @@ describe('Bitcoin Fission current state', () => {
           query: {
             bitcoinFissions: { fissionByOwnerAndId: { entries } },
             mint: {
-              pendingMintUtxoIdLookup: async () => [],
-              pendingMintUtxosByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
+              pendingMintIndicesByLockId: async () => [],
+              pendingBitcoinMintsByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
             },
           },
         } as unknown as ArgonClient,
@@ -218,8 +219,8 @@ describe('Bitcoin Fission current state', () => {
           },
         },
         mint: {
-          pendingMintUtxoIdLookup: async () => [],
-          pendingMintUtxosByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
+          pendingMintIndicesByLockId: async () => [],
+          pendingBitcoinMintsByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
         },
       },
     } as unknown as ArgonClient;
@@ -253,8 +254,8 @@ describe('Bitcoin Fission current state', () => {
       query: {
         bitcoinFissions: { fissionByOwnerAndId: { entries: async () => [] } },
         mint: {
-          pendingMintUtxoIdLookup: async () => [],
-          pendingMintUtxosByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
+          pendingMintIndicesByLockId: async () => [],
+          pendingBitcoinMintsByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
         },
       },
     } as unknown as ArgonClient;
@@ -265,7 +266,7 @@ describe('Bitcoin Fission current state', () => {
         historyEvent(159, 'bitcoinFissions', 'FissionClosedByLock', {
           accountId: ownerAccount,
           fissionId: 11,
-          utxoId: 11,
+          lockId: 11,
         }),
         historyEvent(159, 'transactionPayment', 'TransactionFeePaid', {
           who: ownerAccount,
@@ -315,8 +316,8 @@ describe('Bitcoin Fission current state', () => {
       query: {
         bitcoinFissions: { fissionByOwnerAndId: { entries: async () => [] } },
         mint: {
-          pendingMintUtxoIdLookup: async () => [],
-          pendingMintUtxosByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
+          pendingMintIndicesByLockId: async () => [],
+          pendingBitcoinMintsByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
         },
       },
     } as unknown as ArgonClient;
@@ -354,8 +355,8 @@ describe('Bitcoin Fission current state', () => {
           },
         },
         mint: {
-          pendingMintUtxoIdLookup: async () => [],
-          pendingMintUtxosByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
+          pendingMintIndicesByLockId: async () => [],
+          pendingBitcoinMintsByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
         },
       },
     } as unknown as ArgonClient;
@@ -380,12 +381,12 @@ describe('Bitcoin Fission current state', () => {
     let isClosed = false;
     const record = createFissionRecord({ fissionId: current.fissionId, liquidityPromised: current.liquidityPromised });
     record.liquidId = current.liquidId;
-    record.utxoId = current.utxoId;
+    record.lockId = current.lockId;
     await db.bitcoinFissionsTable.replaceRecords([record]);
     const queueIndex = 3;
     let remainingAmount: bigint | undefined = 200n;
     const callbacks = new Map<number, (mint?: { remainingAmount: bigint; maxAmountPerFrame: bigint }) => void>();
-    const pendingMintUtxosByIndex = Object.assign(
+    const pendingBitcoinMintsByIndex = Object.assign(
       async (index: bigint, callback: (mint?: { remainingAmount: bigint; maxAmountPerFrame: bigint }) => void) => {
         callbacks.set(Number(index), callback);
         return () => callbacks.delete(Number(index));
@@ -397,7 +398,7 @@ describe('Bitcoin Fission current state', () => {
             return {
               accountId: ownerAccount,
               fissionId: current.fissionId,
-              utxoId: current.utxoId,
+              lockId: current.lockId,
               remainingAmount,
               maxAmountPerFrame: 50n,
             };
@@ -413,8 +414,8 @@ describe('Bitcoin Fission current state', () => {
           },
         },
         mint: {
-          pendingMintUtxoIdLookup: async () => (remainingAmount === undefined ? [] : [queueIndex]),
-          pendingMintUtxosByIndex,
+          pendingMintIndicesByLockId: async () => (remainingAmount === undefined ? [] : [queueIndex]),
+          pendingBitcoinMintsByIndex,
         },
       },
     } as unknown as ArgonClient;
@@ -429,7 +430,7 @@ describe('Bitcoin Fission current state', () => {
       {
         queueIndex,
         fissionId: current.fissionId,
-        utxoId: current.utxoId,
+        lockId: current.lockId,
         ownerAccount,
         remainingAmount: 200n,
         maxAmountPerFrame: 50n,
@@ -457,7 +458,7 @@ describe('Bitcoin Fission current state', () => {
         historyEvent(159, 'bitcoinFissions', 'FissionClosedByLock', {
           accountId: ownerAccount,
           fissionId: current.fissionId,
-          utxoId: current.utxoId,
+          lockId: current.lockId,
         }),
       ],
       client,
@@ -494,7 +495,7 @@ describe('Bitcoin Fission current state', () => {
     const queueIndex = 3;
     let remainingAmount: bigint | undefined = 125n;
     const callbacks = new Map<number, (mint?: { remainingAmount: bigint; maxAmountPerFrame: bigint }) => void>();
-    const pendingMintUtxosByIndex = Object.assign(
+    const pendingBitcoinMintsByIndex = Object.assign(
       async (index: bigint, callback: (mint?: { remainingAmount: bigint; maxAmountPerFrame: bigint }) => void) => {
         callbacks.set(Number(index), callback);
         return () => callbacks.delete(Number(index));
@@ -506,7 +507,7 @@ describe('Bitcoin Fission current state', () => {
             return {
               accountId: ownerAccount,
               fissionId: record.fissionId,
-              utxoId: record.utxoId,
+              lockId: record.lockId,
               remainingAmount,
               maxAmountPerFrame: 50n,
             };
@@ -518,8 +519,8 @@ describe('Bitcoin Fission current state', () => {
       query: {
         bitcoinFissions: { fissionByOwnerAndId: { entries: async () => [] } },
         mint: {
-          pendingMintUtxoIdLookup: async (utxoId: number) => (utxoId === record.utxoId ? [queueIndex] : []),
-          pendingMintUtxosByIndex,
+          pendingMintIndicesByLockId: async (lockId: number) => (lockId === record.lockId ? [queueIndex] : []),
+          pendingBitcoinMintsByIndex,
         },
       },
     } as unknown as ArgonClient;
@@ -545,7 +546,7 @@ describe('Bitcoin Fission current state', () => {
     const db = await createTestDb();
     const queueIndex = 3;
     const callbacks = new Map<number, (mint?: { remainingAmount: bigint; maxAmountPerFrame: bigint }) => void>();
-    const pendingMintUtxosByIndex = Object.assign(
+    const pendingBitcoinMintsByIndex = Object.assign(
       async (index: bigint, callback: (mint?: { remainingAmount: bigint; maxAmountPerFrame: bigint }) => void) => {
         callbacks.set(Number(index), callback);
         return () => callbacks.delete(Number(index));
@@ -557,7 +558,7 @@ describe('Bitcoin Fission current state', () => {
             return {
               accountId: ownerAccount,
               fissionId: 11,
-              utxoId: 7,
+              lockId: 7,
               remainingAmount: 125n,
               maxAmountPerFrame: 50n,
             };
@@ -569,8 +570,8 @@ describe('Bitcoin Fission current state', () => {
       query: {
         bitcoinFissions: { fissionByOwnerAndId: { entries: async () => [] } },
         mint: {
-          pendingMintUtxoIdLookup: async (utxoId: number) => (utxoId === 7 ? [queueIndex] : []),
-          pendingMintUtxosByIndex,
+          pendingMintIndicesByLockId: async (lockId: number) => (lockId === 7 ? [queueIndex] : []),
+          pendingBitcoinMintsByIndex,
         },
       },
     } as unknown as ArgonClient;
@@ -586,7 +587,7 @@ describe('Bitcoin Fission current state', () => {
         accountId: ownerAccount,
         fissionId: 11,
         liquidId: 12,
-        utxoId: 7,
+        lockId: 7,
         satoshis: 10_000n,
         microgonsAtTargetPerBtc: 1_000n,
         liquidityPromised: 1_500n,
@@ -618,8 +619,8 @@ describe('Bitcoin Fission current state', () => {
           },
         },
         mint: {
-          pendingMintUtxoIdLookup: async () => [3],
-          pendingMintUtxosByIndex: Object.assign(
+          pendingMintIndicesByLockId: async () => [3],
+          pendingBitcoinMintsByIndex: Object.assign(
             async () => {
               throw new Error('subscription unavailable');
             },
@@ -628,7 +629,7 @@ describe('Bitcoin Fission current state', () => {
                 {
                   accountId: ownerAccount,
                   fissionId: current.fissionId,
-                  utxoId: current.utxoId,
+                  lockId: current.lockId,
                   remainingAmount: 200n,
                   maxAmountPerFrame: 50n,
                 },
@@ -664,7 +665,7 @@ describe('Bitcoin Fission current state', () => {
       ownerAccount,
       fissionId: 21,
       liquidId: 12,
-      utxoId: 7,
+      lockId: 7,
       satoshis: 100_000_000n,
       microgonsAtTargetPerBtc: 100n,
       liquidityPromised: 100n,
@@ -682,8 +683,8 @@ describe('Bitcoin Fission current state', () => {
           },
         },
         mint: {
-          pendingMintUtxoIdLookup: async () => [],
-          pendingMintUtxosByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
+          pendingMintIndicesByLockId: async () => [],
+          pendingBitcoinMintsByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
         },
       },
     } as unknown as ArgonClient;
@@ -732,7 +733,7 @@ describe('Bitcoin Fission current state', () => {
           accountId: ownerAccount,
           fissionId: 21,
           liquidId: 12,
-          utxoId: 7,
+          lockId: 7,
           satoshis: 100_000_000n,
           microgonsAtTargetPerBtc: 100n,
           liquidityPromised: 100n,
@@ -852,7 +853,7 @@ describe('Bitcoin Fission current state', () => {
     const [position] = createBitcoinLiquidPositions({
       summaries: [
         {
-          utxoId: 7,
+          lockId: 7,
           status: BitcoinLockStatus.Released,
           satoshis: 100_000_000n,
           valueOfBtc: 200n,
@@ -861,7 +862,7 @@ describe('Bitcoin Fission current state', () => {
           record: {
             uuid: 'normal-finalized-liquid',
             status: BitcoinLockStatus.Released,
-            utxoId: 7,
+            lockId: 7,
             securitizedSatoshis: 100_000_000n,
             vaultId: 1,
             cosignVersion: 'v1',
@@ -876,7 +877,7 @@ describe('Bitcoin Fission current state', () => {
       fissions: restarted.getLiquids().flatMap(liquid => liquid.fissions),
       terms: [
         {
-          utxoId: 7,
+          lockId: 7,
           termIndex: 0,
           origin: 'created',
           startTick: 500,
@@ -917,8 +918,8 @@ describe('Bitcoin Fission current state', () => {
       query: {
         bitcoinFissions: { fissionByOwnerAndId: { entries: async () => [] } },
         mint: {
-          pendingMintUtxoIdLookup: async () => [],
-          pendingMintUtxosByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
+          pendingMintIndicesByLockId: async () => [],
+          pendingBitcoinMintsByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
         },
       },
     } as unknown as ArgonClient;
@@ -938,7 +939,7 @@ describe('Bitcoin Fission current state', () => {
         accountId: ownerAccount,
         fissionId: historical.fissionId,
         liquidId: historical.liquidId,
-        utxoId: historical.utxoId,
+        lockId: historical.lockId,
         satoshis: historical.satoshis,
         microgonsAtTargetPerBtc: historical.microgonsAtTargetPerBtc,
         liquidityPromised: historical.liquidityPromised,
@@ -988,8 +989,8 @@ describe('Bitcoin Fission recovery', () => {
     const archiveClient = {
       query: {
         mint: {
-          pendingMintUtxoIdLookup: async () => [0],
-          pendingMintUtxosByIndex: {
+          pendingMintIndicesByLockId: async () => [0],
+          pendingBitcoinMintsByIndex: {
             multi: async () => [{ remainingAmount: 450n }],
           },
         },
@@ -1004,7 +1005,7 @@ describe('Bitcoin Fission recovery', () => {
       db,
       walletKeys,
     });
-    locks.data.locksByUtxoId[7] = lock;
+    locks.data.locksByLockId[7] = lock;
     const fissions = new BitcoinFissionRecovery(Promise.resolve(db), ownerAccount);
 
     await locks.recovery.beginHistoryReplay({ lockScope: 'all' });
@@ -1016,7 +1017,7 @@ describe('Bitcoin Fission recovery', () => {
         accountId: ownerAccount,
         fissionId: 0,
         liquidId: 0,
-        utxoId: 7,
+        lockId: 7,
         satoshis: 10_000n,
         microgonsAtTargetPerBtc: 1_000n,
         liquidityPromised: 500n,
@@ -1030,7 +1031,7 @@ describe('Bitcoin Fission recovery', () => {
       historyEvent(159, 'mint', 'BitcoinMint', {
         accountId: ownerAccount,
         fissionId: 0,
-        utxoId: 7,
+        lockId: 7,
         amount: 50n,
       }),
     ];
@@ -1044,11 +1045,11 @@ describe('Bitcoin Fission recovery', () => {
       asOfBlock: mintBlock.blockNumber,
     });
 
-    expect(lock.ratchets).toEqual([]);
+    expect(lock).not.toHaveProperty('ratchets');
     expect(await db.bitcoinFissionsTable.fetchAll(ownerAccount)).toEqual([
       expect.objectContaining({
         fissionId: 0,
-        utxoId: 7,
+        lockId: 7,
         liquidityPromised: 500n,
         ratchets: [expect.objectContaining({ amountMinted: 500n, mintPending: 450n })],
       }),
@@ -1110,7 +1111,7 @@ describe('Bitcoin Fission recovery', () => {
       origin: 'lock-migration',
       fissionId: 7,
       liquidId: 7,
-      utxoId: 7,
+      lockId: 7,
       liquidityPromised: 1_400n,
     });
     expect(fission.ratchets).toEqual([
@@ -1194,14 +1195,14 @@ describe('Bitcoin Fission recovery', () => {
     });
     const currentLock = await db.bitcoinLocksTable.finalizePending({
       uuid: pending.uuid,
-      lock: createCurrentLock(toBitcoinLockDetails(historicalLock)),
+      lock: createCurrentLock({ ...toBitcoinLockDetails(historicalLock), lockId: 70 }),
     });
     const lock = createHistoricalBitcoinLockRecord(currentLock);
+    lock.utxoId = 7;
     lock.status = BitcoinLockStatus.LockFunded;
     lock.satoshis = historicalLock.fundedSatoshis;
     lock.lockedTargetPrice = 1_500n;
     lock.liquidityPromised = 1_400n;
-    lock.lockDetails = toBitcoinLockDetails(historicalLock);
     lock.ratchets = [
       {
         mintAmount: 1_000n,
@@ -1235,19 +1236,19 @@ describe('Bitcoin Fission recovery', () => {
       ownerAccount,
       fissionId: 7,
       liquidId: 7,
-      utxoId: 7,
+      lockId: 70,
       satoshis: historicalLock.fundedSatoshis,
       microgonsAtTargetPerBtc: 1_600n,
       liquidityPromised: 1_500n,
-      createdAtArgonBlock: lock.lockDetails.createdAtArgonBlock,
+      createdAtArgonBlock: historicalLock.createdAtArgonBlock,
       ratchetNumber: 3,
       lastUpdatedArgonBlock: 160,
     });
     current.pendingMints = [
       {
-        queueIndex: 3,
+        queueIndex: 3n,
         fissionId: 7,
-        utxoId: 7,
+        lockId: 70,
         ownerAccount,
         remainingAmount: 50n,
         maxAmountPerFrame: 10n,
@@ -1272,18 +1273,18 @@ describe('Bitcoin Fission recovery', () => {
       historyEvent(159, 'mint', 'BitcoinMint', {
         accountId: ownerAccount,
         fissionId: 7,
-        utxoId: 7,
+        lockId: 70,
         amount: 250n,
       }),
     ]);
-    const [fission] = await publishRecoveredFissions(db, recovery, [lock]);
+    const [fission] = await publishRecoveredFissions(db, recovery, [lock], new Map([[7, 70]]));
 
     expect(fission).toEqual(
       expect.objectContaining({
         origin: 'lock-migration',
         fissionId: 7,
         liquidId: 7,
-        utxoId: 7,
+        lockId: 70,
         ratchetNumber: 1,
         microgonsAtTargetPerBtc: 1_600n,
         liquidityPromised: 1_500n,
@@ -1299,13 +1300,13 @@ describe('Bitcoin Fission recovery', () => {
     expect(fissions.data.financialRevision).toBe(revisionBeforeBackfill + 1);
     expect(current).toMatchObject({
       liquidId: 7,
-      utxoId: 7,
+      lockId: 70,
       microgonsAtTargetPerBtc: 1_600n,
       liquidityPromised: 1_500n,
       ratchetNumber: 3,
       lastUpdatedArgonBlock: 160,
       ratchets: fission.ratchets,
-      pendingMints: [expect.objectContaining({ queueIndex: 3, remainingAmount: 50n })],
+      pendingMints: [expect.objectContaining({ queueIndex: 3n, remainingAmount: 50n })],
     });
     expect(fissions.getRecords()[0]).toMatchObject({
       origin: fission.origin,
@@ -1336,10 +1337,11 @@ describe('Bitcoin Fission recovery', () => {
     });
     const durable = await db.bitcoinLocksTable.finalizePending({
       uuid: pending.uuid,
-      lock: createCurrentLock(toBitcoinLockDetails(historicalLock)),
+      lock: createCurrentLock({ ...toBitcoinLockDetails(historicalLock), lockId: 70 }),
     });
     const lock = createHistoricalBitcoinLockRecord(durable);
     Object.assign(lock, {
+      utxoId: 7,
       status: BitcoinLockStatus.Released,
       satoshis: 10_000n,
       lockedTargetPrice: 1_000n,
@@ -1352,7 +1354,6 @@ describe('Bitcoin Fission recovery', () => {
       removalExtrinsicIndex: 3,
       removalReason: 'released',
       btcPriceAtRemovalMicrogons: 1_200n,
-      releaseRedemptionMicrogons: 900n,
       ratchets: [
         {
           mintAmount: 1_000n,
@@ -1371,11 +1372,14 @@ describe('Bitcoin Fission recovery', () => {
 
     const recovery = new BitcoinFissionRecovery(Promise.resolve(db), ownerAccount);
     await recovery.beginHistoryReplay({ replace: true });
-    const [fission] = await publishRecoveredFissions(db, recovery, [lock]);
+    const prepared = await recovery.prepareHistoryReplay([lock], new Map([[7, 70]]), new Map([[7, 900n]]));
+    await recovery.persistHistoryReplayUnit(db, prepared.records);
+    const [fission] = prepared.records;
 
     expect(fission).toMatchObject({
       origin: 'lock-migration',
       fissionId: 7,
+      lockId: 70,
       createdAtTick: 500,
       closedAtArgonBlock: 158,
       closedAtTick: 540,
@@ -1390,9 +1394,9 @@ describe('Bitcoin Fission recovery', () => {
     const fissions = new BitcoinFissions(Promise.resolve(db), ownerAccount);
     const current = createCurrentFission();
     const pendingMint = {
-      queueIndex: 3,
+      queueIndex: 3n,
       fissionId: current.fissionId,
-      utxoId: current.utxoId,
+      lockId: current.lockId,
       ownerAccount,
       remainingAmount: 200n,
       maxAmountPerFrame: 50n,
@@ -1408,7 +1412,7 @@ describe('Bitcoin Fission recovery', () => {
         accountId: ownerAccount,
         fissionId: current.fissionId,
         liquidId: current.liquidId,
-        utxoId: current.utxoId,
+        lockId: current.lockId,
         satoshis: current.satoshis,
         microgonsAtTargetPerBtc: current.microgonsAtTargetPerBtc,
         liquidityPromised: current.liquidityPromised - 1n,
@@ -1452,7 +1456,7 @@ describe('Bitcoin Fission recovery', () => {
         accountId: ownerAccount,
         fissionId: 21,
         liquidId: 12,
-        utxoId: 7,
+        lockId: 7,
         satoshis: 10_000n,
         microgonsAtTargetPerBtc: 1_000n,
         liquidityPromised: 1_000n,
@@ -1483,7 +1487,7 @@ describe('Bitcoin Fission recovery', () => {
       historyEvent(159, 'mint', 'BitcoinMint', {
         accountId: ownerAccount,
         fissionId: 21,
-        utxoId: 7,
+        lockId: 7,
         amount: 1_400n,
       }),
     ]);
@@ -1519,8 +1523,8 @@ describe('Bitcoin Fission recovery', () => {
       query: {
         bitcoinFissions: { fissionByOwnerAndId: { entries: async () => [] } },
         mint: {
-          pendingMintUtxoIdLookup: async () => [],
-          pendingMintUtxosByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
+          pendingMintIndicesByLockId: async () => [],
+          pendingBitcoinMintsByIndex: Object.assign(async () => () => undefined, { multi: async () => [] }),
         },
       },
     } as unknown as ArgonClient;
@@ -1544,7 +1548,7 @@ describe('Bitcoin Fission recovery', () => {
         accountId: ownerAccount,
         fissionId: 21,
         liquidId: 12,
-        utxoId: 7,
+        lockId: 7,
         satoshis: 5_000n,
         microgonsAtTargetPerBtc: 1_000n,
         liquidityPromised: 500n,
@@ -1560,7 +1564,7 @@ describe('Bitcoin Fission recovery', () => {
         accountId: ownerAccount,
         fissionId: 22,
         liquidId: 12,
-        utxoId: 8,
+        lockId: 8,
         satoshis: 5_000n,
         microgonsAtTargetPerBtc: 1_000n,
         liquidityPromised: 500n,
@@ -1571,7 +1575,7 @@ describe('Bitcoin Fission recovery', () => {
         accountId: ownerAccount,
         fissionId: 23,
         liquidId: 13,
-        utxoId: 9,
+        lockId: 9,
         satoshis: 5_000n,
         microgonsAtTargetPerBtc: 1_000n,
         liquidityPromised: 500n,
@@ -1604,7 +1608,7 @@ describe('Bitcoin Fission finalized events', () => {
       ...createCurrentFission(),
       fissionId: 21,
       liquidId: 12,
-      utxoId: 7,
+      lockId: 7,
       microgonsAtTargetPerBtc: 1_000n,
       liquidityPromised: 1_000n,
       ratchetNumber: 0,
@@ -1618,12 +1622,12 @@ describe('Bitcoin Fission finalized events', () => {
           fissionByOwnerAndId: { entries: async () => [[{ args: [ownerAccount, current.fissionId] }, current]] },
         },
         mint: {
-          pendingMintUtxoIdLookup: async () => [3],
-          pendingMintUtxosByIndex: {
+          pendingMintIndicesByLockId: async () => [3],
+          pendingBitcoinMintsByIndex: {
             multi: async () => [
               {
                 fissionId: current.fissionId,
-                utxoId: current.utxoId,
+                lockId: current.lockId,
                 accountId: ownerAccount,
                 remainingAmount: 1_000n,
                 maxAmountPerFrame: 100n,
@@ -1643,7 +1647,7 @@ describe('Bitcoin Fission finalized events', () => {
           accountId: ownerAccount,
           fissionId: 21,
           liquidId: 12,
-          utxoId: 7,
+          lockId: 7,
           satoshis: 10_000n,
           microgonsAtTargetPerBtc: 1_000n,
           liquidityPromised: 1_000n,
@@ -1686,8 +1690,8 @@ describe('Bitcoin Fission finalized events', () => {
           fissionByOwnerAndId: { entries: async () => [[{ args: [ownerAccount, current.fissionId] }, current]] },
         },
         mint: {
-          pendingMintUtxoIdLookup: async () => [],
-          pendingMintUtxosByIndex: { multi: async () => [] },
+          pendingMintIndicesByLockId: async () => [],
+          pendingBitcoinMintsByIndex: { multi: async () => [] },
         },
       },
     } as unknown as ArgonClient;
@@ -1698,7 +1702,7 @@ describe('Bitcoin Fission finalized events', () => {
         accountId: ownerAccount,
         fissionId: current.fissionId,
         liquidId: current.liquidId,
-        utxoId: current.utxoId,
+        lockId: current.lockId,
         satoshis: current.satoshis,
         microgonsAtTargetPerBtc: 1_000n,
         liquidityPromised: 1_000n,
@@ -1759,9 +1763,9 @@ describe('Bitcoin Fission finalized events', () => {
     );
     const published = fissions.getAll()[0];
     const pendingMint = {
-      queueIndex: 3,
+      queueIndex: 3n,
       fissionId: current.fissionId,
-      utxoId: current.utxoId,
+      lockId: current.lockId,
       ownerAccount,
       remainingAmount: 200n,
       maxAmountPerFrame: 50n,
@@ -1843,7 +1847,7 @@ function createFissionRecord({
     ownerAccount,
     fissionId,
     liquidId: fissionId,
-    utxoId: fissionId,
+    lockId: fissionId,
     satoshis: 10_000n,
     microgonsAtTargetPerBtc: 1_000n,
     liquidityPromised,
@@ -1876,7 +1880,7 @@ function createCurrentFission(): IBitcoinFission {
     ownerAccount,
     fissionId: 11,
     liquidId: 12,
-    utxoId: 7,
+    lockId: 7,
     satoshis: 10_000n,
     microgonsAtTargetPerBtc: 1_600n,
     liquidityPromised: 1_500n,

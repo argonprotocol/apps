@@ -40,7 +40,7 @@
               <div>
                 <div
                   v-for="lockedBitcoin in lockedBitcoinRows"
-                  :key="lockedBitcoin.utxoId"
+                  :key="lockedBitcoin.lockId"
                   class="flex items-center border-b border-slate-200 py-3 last:border-b-0"
                 >
                   <span class="grow">Vault: {{ lockedBitcoin.vaultName }}</span>
@@ -227,7 +227,7 @@
                         <p class="mt-2 text-red-700">{{ ratchetTransaction.error }}</p>
                         <button
                           :disabled="ratchetTransaction.retryAction !== 'resume' && !canSubmitRatchet"
-                          class="bg-argon-600 hover:bg-argon-700 mt-4 w-full cursor-pointer rounded-md px-5 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                          class="bg-argon-600 hover:bg-argon-700 mt-4 w-full cursor-pointer rounded-md px-5 py-2 font-semibold text-white disabled:cursor-default disabled:opacity-40"
                           @click="retryRatchet"
                         >
                           {{ ratchetTransaction.retryAction === 'resume' ? 'Finish Ratchet' : 'Try Again' }}
@@ -294,7 +294,7 @@
                         </p>
                         <button
                           :disabled="!canSubmitRatchet"
-                          class="bg-argon-600 hover:bg-argon-700 mt-4 w-full cursor-pointer rounded-md px-5 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                          class="bg-argon-600 hover:bg-argon-700 mt-4 w-full cursor-pointer rounded-md px-5 py-2 font-semibold text-white disabled:cursor-default disabled:opacity-40"
                           @click="confirmRatchet"
                         >
                           Confirm Ratchet
@@ -507,7 +507,7 @@
                   </p>
                   <button
                     :disabled="!canSubmitClose"
-                    class="bg-argon-600 hover:bg-argon-700 mt-4 w-full cursor-pointer rounded-md px-5 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                    class="bg-argon-600 hover:bg-argon-700 mt-4 w-full cursor-pointer rounded-md px-5 py-2 font-semibold text-white disabled:cursor-default disabled:opacity-40"
                     @click="confirmClose"
                   >
                     Repay &amp; Close Liquid
@@ -622,24 +622,24 @@ const estimatedMintCompletionDate = Vue.computed(() =>
 );
 
 const lockSummaries = Vue.computed(() => {
-  const utxoIds = new Set(liquid.value.fissions.map(fission => fission.utxoId));
+  const lockIds = new Set(liquid.value.fissions.map(fission => fission.lockId));
   return financials.bitcoinLockDisplayRecords.filter(
-    summary => summary.utxoId !== undefined && utxoIds.has(summary.utxoId),
+    summary => summary.lockId !== undefined && lockIds.has(summary.lockId),
   );
 });
 const lockedBitcoinRows = Vue.computed(() => {
-  const byUtxoId = new Map<number, { utxoId: number; satoshis: bigint; vaultName: string }>();
+  const byLockId = new Map<number, { lockId: number; satoshis: bigint; vaultName: string }>();
 
   for (const fission of liquid.value.fissions) {
-    const existing = byUtxoId.get(fission.utxoId);
+    const existing = byLockId.get(fission.lockId);
     if (existing) {
       existing.satoshis += fission.satoshis;
       continue;
     }
 
-    const vaultId = lockSummaries.value.find(summary => summary.utxoId === fission.utxoId)?.record.vaultId;
-    byUtxoId.set(fission.utxoId, {
-      utxoId: fission.utxoId,
+    const vaultId = lockSummaries.value.find(summary => summary.lockId === fission.lockId)?.record.vaultId;
+    byLockId.set(fission.lockId, {
+      lockId: fission.lockId,
       satoshis: fission.satoshis,
       vaultName:
         vaultId === undefined
@@ -650,7 +650,7 @@ const lockedBitcoinRows = Vue.computed(() => {
     });
   }
 
-  return [...byUtxoId.values()];
+  return [...byLockId.values()];
 });
 const lockedBitcoinSourceLabel = Vue.computed(() => {
   const vaultNames = [...new Set(lockedBitcoinRows.value.map(row => row.vaultName))];
@@ -755,13 +755,9 @@ Vue.watch(
 Vue.watch(
   () => [currency.priceIndex.btcUsdPrice?.toString(), currency.priceIndex.argonUsdTargetPrice?.toString()],
   () => {
-    if (
-      ratchetState.value.status === 'loading' ||
-      ratchetQuoteState.value.status === 'loading' ||
-      closeQuoteState.value.status === 'loading'
-    ) {
-      return;
-    }
+    const actionLoads = [ratchetState.value, ratchetQuoteState.value, closeQuoteState.value];
+    if (actionLoads.some(load => load.status === 'loading' || load.status === 'error')) return;
+
     initializeActions(true);
   },
 );

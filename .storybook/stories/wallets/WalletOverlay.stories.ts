@@ -2,16 +2,12 @@ import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import * as Vue from 'vue';
 import { fn, userEvent, within } from 'storybook/test';
 import { setupWalletScenario } from '../../scenarios/setupWalletScenario.ts';
-import { createBitcoinUtxo } from '../../scenarios/setupBitcoinOverlayScenario.ts';
 import basicEmitter, { type IWalletOverlayOptions } from '../../../src-vue/emitters/basicEmitter.ts';
 import { WalletType } from '../../../src-vue/lib/Wallet.ts';
 import WalletOverlay from '../../../src-vue/wallets/WalletOverlay.vue';
 import { useWallets } from '../../../src-vue/stores/wallets.ts';
 import { getBitcoinLocks, getBitcoinTransactionOperations } from '../../../src-vue/stores/bitcoin.ts';
 import { getEthereumMoveTracker } from '../../../src-vue/stores/moveFromEthereum.ts';
-import { BitcoinUtxoRole, BitcoinUtxoStatus } from '../../../src-vue/interfaces/IBitcoinUtxoRecord.ts';
-import AppScreen from '../../components/AppScreen.vue';
-import Home from '../../../src-vue/screens/Home.vue';
 
 let request: IWalletOverlayOptions;
 let isInteractive = false;
@@ -55,6 +51,7 @@ function useScenario(
     | 'defaultArgon'
     | 'pendingBitcoinFunding'
     | 'pendingBitcoinRelease'
+    | 'bitcoinWalletReleaseWaiting'
     | 'bitcoinSend'
     | 'bitcoinSendLocked'
     | 'bitcoinWalletDetails'
@@ -85,28 +82,6 @@ function useLockedBitcoinSendScenario() {
 
 function useBitcoinWalletDetailsScenario() {
   useScenario(WalletType.argon, undefined, 'bitcoinWalletDetails', true);
-}
-
-function usePendingBitcoinDepositScenario() {
-  useBitcoinWalletDetailsScenario();
-  const lock = getBitcoinLocks().getAllLocks()[0];
-  const fundingRecord = createBitcoinUtxo({
-    id: 301,
-    lockUtxoId: lock.utxoId!,
-    role: BitcoinUtxoRole.Funding,
-    status: BitcoinUtxoStatus.FundingUtxo,
-    satoshis: lock.fundedSatoshis,
-  });
-  lock.fundingUtxo = fundingRecord;
-  lock.utxos = [
-    fundingRecord,
-    createBitcoinUtxo({
-      id: 302,
-      lockUtxoId: lock.utxoId!,
-      status: BitcoinUtxoStatus.SeenOnMempool,
-      satoshis: 1_000_000n,
-    }),
-  ];
 }
 
 function useBitcoinWalletInsurancePendingScenario() {
@@ -168,6 +143,10 @@ function usePendingBitcoinReleaseScenario() {
   useScenario(WalletType.argon, undefined, 'pendingBitcoinRelease', true);
 }
 
+function useBitcoinReleaseWaitingScenario() {
+  useScenario(WalletType.argon, undefined, 'bitcoinWalletReleaseWaiting', true);
+}
+
 export const MainWallet: Story = {
   beforeEach: () => useScenario(WalletType.argon),
 };
@@ -187,27 +166,6 @@ export const FundedBitcoinConnector: Story = {
     if (!connector) throw new Error('Bitcoin connector was not rendered');
 
     await userEvent.click(within(connector).getByRole('button'));
-  },
-};
-
-export const PendingBitcoinDeposit: Story = {
-  render: () => ({
-    components: { AppScreen, Home },
-    template: '<AppScreen interactive><Home /></AppScreen>',
-  }),
-  beforeEach: usePendingBitcoinDepositScenario,
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await userEvent.hover(canvas.getByTestId('LeftBar.bitcoinDepositAttention'));
-    await within(canvasElement.ownerDocument.body).findByRole('tooltip');
-  },
-};
-
-export const PendingBitcoinDepositWalletOverlay: Story = {
-  beforeEach: usePendingBitcoinDepositScenario,
-  play: async () => {
-    const canvas = within(document.body);
-    await userEvent.click(await canvas.findByRole('button', { name: 'Review unattached Bitcoin deposits' }));
   },
 };
 
@@ -294,6 +252,25 @@ export const BitcoinChannelReleasePending: Story = {
   },
 };
 
+export const BitcoinPendingOutbound: Story = {
+  beforeEach: useBitcoinReleaseWaitingScenario,
+  play: async () => {
+    const canvas = within(document.body);
+
+    await userEvent.click(await canvas.findByRole('button', { name: 'Show Bitcoin details' }));
+  },
+};
+
+export const BitcoinPendingOutboundProgress: Story = {
+  beforeEach: useBitcoinReleaseWaitingScenario,
+  play: async () => {
+    const canvas = within(document.body);
+
+    await userEvent.click(await canvas.findByRole('button', { name: 'Show Bitcoin details' }));
+    await userEvent.click(canvas.getByRole('button', { name: 'Outbound transfers in progress Channel' }));
+  },
+};
+
 export const PendingTransferLoadFailureKeepsAvailableRows: Story = {
   beforeEach: usePendingTransferLoadErrorScenario,
   play: async () => {
@@ -356,7 +333,7 @@ export const SendBitcoinReactsToLiquidAllocation: Story = {
 
     const newlyAllocatedChannel = getBitcoinLocks()
       .getAllLocks()
-      .find(channel => channel.utxoId === 101)!;
+      .find(channel => channel.lockId === 101)!;
     newlyAllocatedChannel.fissionedSatoshis = newlyAllocatedChannel.fundedSatoshis;
     await Vue.nextTick();
   },

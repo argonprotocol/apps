@@ -16,8 +16,8 @@ afterEach(() => vi.mocked(findAddressActivity).mockReset());
 const withBackgroundArchiveRead = async <T>(read: () => Promise<T>): Promise<T> => await read();
 const emptyPreparedBitcoinHistory = () => ({
   records: [],
-  failuresByUtxoId: new Map(),
-  unitUtxoIds: new Set(),
+  failuresByLockId: new Map(),
+  unitLockIds: new Set(),
   hasUnscopedFailure: false,
 });
 

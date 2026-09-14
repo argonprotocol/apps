@@ -17,7 +17,7 @@ describe('native runtime query types', () => {
   it('erases real Bond and Bitcoin storage codecs into exact native values', () => {
     const queries = readRuntimeQueries(querySource, lookupSource, definitionSource);
     const bondLot = queries.treasury?.bondLotById?.result;
-    const bitcoinLock = queries.bitcoinLocks?.locksByUtxoId?.result;
+    const bitcoinLock = queries.bitcoinLocks?.locksById?.result;
 
     expect(bondLot).toContain('readonly bonds: number');
     expect(bondLot).toContain('readonly sharingPercent: BigNumber');
@@ -49,5 +49,16 @@ describe('native runtime query types', () => {
       result: 'readonly number[]',
     });
     expect(queries.bitcoinFissions?.nextFissionIdByOwner?.result).toBe('number');
+  });
+
+  it('exposes the current Bitcoin lock as structured funding entries and native numeric heights', () => {
+    const queries = readRuntimeQueries(querySource, lookupSource, definitionSource, typeOverrides);
+    const bitcoinLock = queries.bitcoinLocks?.locksById?.result;
+
+    expect(bitcoinLock).toContain(
+      'readonly fundingUtxos: readonly (readonly [{ readonly txid: string; readonly outputIndex: number }, bigint])[]',
+    );
+    expect(bitcoinLock).toContain('readonly securitizationTick: number');
+    expect(bitcoinLock).toContain('readonly securitizationHoldExpirationBitcoinHeight: number');
   });
 });

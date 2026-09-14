@@ -3,7 +3,7 @@ import { createTestDb } from './helpers/db.ts';
 import {
   type IBitcoinUtxoRecord,
   type IMempoolFundingObservation,
-  BitcoinUtxoRole,
+  BitcoinUtxoSpendStatus,
   BitcoinUtxoStatus,
 } from '../lib/db/BitcoinUtxosTable.ts';
 
@@ -11,13 +11,17 @@ async function createRecord(overrides: Partial<IBitcoinUtxoRecord> = {}) {
   const db = await createTestDb();
   const table = db.bitcoinUtxosTable;
   const record = await table.insert({
-    lockUtxoId: overrides.lockUtxoId ?? 1,
+    lockId: overrides.lockId ?? 1,
     txid: overrides.txid ?? 'txid'.padEnd(64, '0'),
     vout: overrides.vout ?? 0,
     satoshis: overrides.satoshis ?? 10_000n,
     network: overrides.network ?? 'testnet',
-    role: overrides.role,
     status: overrides.status ?? BitcoinUtxoStatus.SeenOnMempool,
+    spendStatus: overrides.spendStatus ?? BitcoinUtxoSpendStatus.Unspent,
+    activeReleaseId: overrides.activeReleaseId,
+    createdByReleaseId: overrides.createdByReleaseId,
+    spentByReleaseId: overrides.spentByReleaseId,
+    statusError: overrides.statusError,
     mempoolObservation: overrides.mempoolObservation,
     firstSeenAt: overrides.firstSeenAt ?? new Date(),
     firstSeenOnArgonAt: overrides.firstSeenOnArgonAt,
@@ -25,24 +29,52 @@ async function createRecord(overrides: Partial<IBitcoinUtxoRecord> = {}) {
     firstSeenOracleHeight: overrides.firstSeenOracleHeight,
     lastConfirmationCheckAt: overrides.lastConfirmationCheckAt,
     lastConfirmationCheckOracleHeight: overrides.lastConfirmationCheckOracleHeight,
-    requestedReleaseAtTick: overrides.requestedReleaseAtTick,
-    releaseBitcoinNetworkFee: overrides.releaseBitcoinNetworkFee,
-    releaseToDestinationAddress: overrides.releaseToDestinationAddress,
-    releaseCosignVaultSignature: overrides.releaseCosignVaultSignature,
-    releaseCosignHeight: overrides.releaseCosignHeight,
-    releaseTxid: overrides.releaseTxid,
-    releaseFirstSeenAt: overrides.releaseFirstSeenAt,
-    releaseFirstSeenBitcoinHeight: overrides.releaseFirstSeenBitcoinHeight,
-    releaseFirstSeenOracleHeight: overrides.releaseFirstSeenOracleHeight,
-    releaseLastConfirmationCheckAt: overrides.releaseLastConfirmationCheckAt,
-    releaseLastConfirmationCheckOracleHeight: overrides.releaseLastConfirmationCheckOracleHeight,
-    releasedAtBitcoinHeight: overrides.releasedAtBitcoinHeight,
   });
   return { db, table, record };
 }
 
 describe('BitcoinUtxosTable', () => {
-  it('updateMempoolObservation persists latest mempool payload and first seen heights', async () => {
+  it('fetches only UTXOs belonging to one lock', async () => {
+    const { table, record } = await createRecord({ lockId: 7 });
+    await table.insert({
+      lockId: 8,
+      txid: 'other'.padEnd(64, '0'),
+      vout: 1,
+      satoshis: 20_000n,
+      network: 'testnet',
+      status: BitcoinUtxoStatus.SeenOnMempool,
+      spendStatus: BitcoinUtxoSpendStatus.Unspent,
+      firstSeenAt: new Date(),
+      firstSeenBitcoinHeight: 0,
+    });
+
+    await expect(table.fetchByLockId(7)).resolves.toEqual([record]);
+  });
+
+  it('keeps inbound classification independent from release membership and spend state', async () => {
+    const { table, record } = await createRecord({ status: BitcoinUtxoStatus.SeenOnMempool });
+
+    await table.setFundingUtxo(record);
+    await table.setActiveRelease(record, 'release-1');
+
+    let updated = (await table.fetchAll()).find(utxo => utxo.id === record.id)!;
+    expect(updated).toMatchObject({
+      status: BitcoinUtxoStatus.FundingUtxo,
+      spendStatus: BitcoinUtxoSpendStatus.Unspent,
+      activeReleaseId: 'release-1',
+    });
+
+    await table.setSpent(record, 'release-1');
+    updated = (await table.fetchAll()).find(utxo => utxo.id === record.id)!;
+    expect(updated).toMatchObject({
+      status: BitcoinUtxoStatus.FundingUtxo,
+      spendStatus: BitcoinUtxoSpendStatus.Spent,
+      spentByReleaseId: 'release-1',
+    });
+    expect(updated.activeReleaseId).toBeUndefined();
+  });
+
+  it('persists latest mempool evidence without changing inbound classification', async () => {
     const { table, record } = await createRecord();
     const mempoolObservation: IMempoolFundingObservation = {
       isConfirmed: false,
@@ -54,187 +86,33 @@ describe('BitcoinUtxosTable', () => {
       transactionBlockTime: 1710000000,
       argonBitcoinHeight: 110,
     };
-    const laterObservation: IMempoolFundingObservation = {
-      ...mempoolObservation,
-      satoshis: 99_999n,
-      isConfirmed: true,
-      confirmations: 3,
-      transactionBlockHeight: 123,
-    };
 
     await table.updateMempoolObservation(record, mempoolObservation, 110);
-    await table.updateMempoolObservation(record, laterObservation, 111);
+    await table.updateMempoolObservation(
+      record,
+      { ...mempoolObservation, satoshis: 99_999n, isConfirmed: true, confirmations: 3, transactionBlockHeight: 123 },
+      111,
+    );
 
-    const updated = (await table.fetchAll()).find(x => x.id === record.id)!;
+    const updated = (await table.fetchAll()).find(utxo => utxo.id === record.id)!;
+    expect(updated.status).toBe(BitcoinUtxoStatus.SeenOnMempool);
     expect(updated.mempoolObservation?.satoshis).toBe(99_999n);
     expect(updated.firstSeenBitcoinHeight).toBe(123);
     expect(updated.firstSeenOracleHeight).toBe(111);
   });
 
-  it('setReleaseRequest stores release details on the funding record', async () => {
-    const { table, record } = await createRecord({
-      role: BitcoinUtxoRole.Funding,
-      status: BitcoinUtxoStatus.FundingUtxo,
-    });
-
-    await table.setReleaseRequest(record, {
-      requestedReleaseAtTick: 77,
-      releaseToDestinationAddress: '0014abcd',
-      releaseBitcoinNetworkFee: 333n,
-    });
-
-    const updated = (await table.fetchAll()).find(x => x.id === record.id)!;
-    expect(updated.status).toBe(BitcoinUtxoStatus.ReleaseIsProcessingOnArgon);
-    expect(updated.role).toBe(BitcoinUtxoRole.Funding);
-    expect(updated.requestedReleaseAtTick).toBe(77);
-    expect(updated.releaseBitcoinNetworkFee).toBe(333n);
-    expect(updated.releaseToDestinationAddress).toBe('0014abcd');
-  });
-
-  it('setReleaseIsProcessingOnArgon clears legacy unconfirmed cosign data', async () => {
-    const { table, record } = await createRecord({
-      status: BitcoinUtxoStatus.FundingUtxo,
-      releaseCosignVaultSignature: new Uint8Array([1, 2, 3]),
-      releaseCosignHeight: undefined,
-    });
-
-    await table.setReleaseIsProcessingOnArgon(record, {
-      requestedReleaseAtTick: 77,
-      releaseToDestinationAddress: '0014abcd',
-      releaseBitcoinNetworkFee: 333n,
-    });
-
-    const updated = (await table.fetchAll()).find(x => x.id === record.id)!;
-    expect(updated.releaseCosignVaultSignature).toBeUndefined();
-    expect(updated.releaseCosignHeight).toBeUndefined();
-  });
-
-  it('setReleaseSeenOnBitcoin records release tx metadata', async () => {
-    const { table, record } = await createRecord({ status: BitcoinUtxoStatus.ReleaseIsProcessingOnArgon });
-
-    await table.setReleaseSeenOnBitcoin(record, 'release'.padEnd(64, 'a'), 222, 200);
-
-    const updated = (await table.fetchAll()).find(x => x.id === record.id)!;
-    expect(updated.status).toBe(BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin);
-    expect(updated.releaseTxid).toBe('release'.padEnd(64, 'a'));
-    expect(updated.releaseFirstSeenBitcoinHeight).toBe(222);
-    expect(updated.releaseFirstSeenOracleHeight).toBe(200);
-  });
-
-  it('setReleaseSeenOnBitcoin does not downgrade completed release statuses during recovery', async () => {
-    const { table, record } = await createRecord({ status: BitcoinUtxoStatus.ReleaseCompleteAcknowledged });
-
-    await table.setReleaseSeenOnBitcoin(record, 'release'.padEnd(64, 'a'), 222, 200);
-
-    const updated = (await table.fetchAll()).find(x => x.id === record.id)!;
-    expect(updated.status).toBe(BitcoinUtxoStatus.ReleaseCompleteAcknowledged);
-    expect(updated.releaseTxid).toBe('release'.padEnd(64, 'a'));
-  });
-
-  it('setFundingUtxo records argon candidate seen timestamp when missing', async () => {
-    const { table, record } = await createRecord({ status: BitcoinUtxoStatus.SeenOnMempool });
-
-    await table.setFundingUtxo(record);
-
-    const updated = (await table.fetchAll()).find(x => x.id === record.id)!;
-    expect(updated.status).toBe(BitcoinUtxoStatus.FundingUtxo);
-    expect(updated.role).toBe(BitcoinUtxoRole.Funding);
-    expect(updated.firstSeenOnArgonAt).toBeInstanceOf(Date);
-  });
-
-  it('setOrphaned records the orphaned status transition', async () => {
-    const { table, record } = await createRecord({ status: BitcoinUtxoStatus.SeenOnMempool });
+  it('records only inbound status transitions', async () => {
+    const { table, record } = await createRecord();
 
     await table.setOrphaned(record);
-
-    const updated = (await table.fetchAll()).find(x => x.id === record.id)!;
-    expect(updated.status).toBe(BitcoinUtxoStatus.Orphaned);
-    expect(updated.role).toBe(BitcoinUtxoRole.Orphan);
-    expect(updated.firstSeenOnArgonAt).toBeInstanceOf(Date);
-  });
-
-  it('updates funding and release confirmation checkpoints', async () => {
-    const { table, record } = await createRecord({ status: BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin });
-
-    record.lastConfirmationCheckAt = new Date('2026-01-01T00:00:00Z');
-    record.lastConfirmationCheckOracleHeight = 321;
-    await table.updateLastConfirmationCheck(record);
-
-    record.releaseLastConfirmationCheckAt = new Date('2026-01-02T00:00:00Z');
-    record.releaseLastConfirmationCheckOracleHeight = 654;
-    await table.updateReleaseLastConfirmationCheck(record);
-
-    const updated = (await table.fetchAll()).find(x => x.id === record.id)!;
-    expect(updated.lastConfirmationCheckOracleHeight).toBe(321);
-    expect(updated.releaseLastConfirmationCheckOracleHeight).toBe(654);
-  });
-
-  it('records status history for each UTXO status transition', async () => {
-    const { table, record } = await createRecord({ status: BitcoinUtxoStatus.SeenOnMempool });
-
-    await table.setFundingUtxo(record);
-    await table.setReleaseRequest(record, {
-      requestedReleaseAtTick: 77,
-      releaseToDestinationAddress: '0014abcd',
-      releaseBitcoinNetworkFee: 333n,
-    });
-    await table.setReleaseSeenOnBitcoin(record, 'release'.padEnd(64, 'a'), 222, 200);
-    await table.setReleaseComplete(record, 225);
+    await table.setActiveRelease(record, 'release-1');
+    await table.setSpent(record, 'release-1');
 
     const history = await table.fetchStatusHistory(record.id);
     expect(history.map(entry => entry.newStatus)).toEqual([
       BitcoinUtxoStatus.SeenOnMempool,
-      BitcoinUtxoStatus.FundingUtxo,
-      BitcoinUtxoStatus.ReleaseIsProcessingOnArgon,
-      BitcoinUtxoStatus.ReleaseIsProcessingOnBitcoin,
-      BitcoinUtxoStatus.ReleaseComplete,
+      BitcoinUtxoStatus.Orphaned,
     ]);
     expect(history.every(entry => entry.createdAt instanceof Date)).toBe(true);
-  });
-
-  it('restores the last non-release status when release fails', async () => {
-    const { table, record } = await createRecord({ status: BitcoinUtxoStatus.SeenOnMempool });
-
-    await table.setOrphaned(record);
-    await table.setReleaseRequest(record, {
-      requestedReleaseAtTick: 77,
-      releaseToDestinationAddress: '0014abcd',
-      releaseBitcoinNetworkFee: 333n,
-    });
-    await table.setReleaseError(record, 'temporary failure');
-
-    const updated = (await table.fetchAll()).find(x => x.id === record.id)!;
-    const history = await table.fetchStatusHistory(record.id);
-
-    expect(updated.status).toBe(BitcoinUtxoStatus.Orphaned);
-    expect(updated.statusError).toBe('temporary failure');
-    expect(history.map(entry => entry.newStatus)).toEqual([
-      BitcoinUtxoStatus.SeenOnMempool,
-      BitcoinUtxoStatus.Orphaned,
-      BitcoinUtxoStatus.ReleaseIsProcessingOnArgon,
-      BitcoinUtxoStatus.Orphaned,
-    ]);
-  });
-
-  it('restores FundingUtxo when a funded release fails', async () => {
-    const { table, record } = await createRecord({ status: BitcoinUtxoStatus.FundingUtxo });
-
-    await table.setReleaseRequest(record, {
-      requestedReleaseAtTick: 77,
-      releaseToDestinationAddress: '0014abcd',
-      releaseBitcoinNetworkFee: 333n,
-    });
-    await table.setReleaseError(record, 'temporary failure');
-
-    const updated = (await table.fetchAll()).find(x => x.id === record.id)!;
-    const history = await table.fetchStatusHistory(record.id);
-
-    expect(updated.status).toBe(BitcoinUtxoStatus.FundingUtxo);
-    expect(updated.statusError).toBe('temporary failure');
-    expect(history.map(entry => entry.newStatus)).toEqual([
-      BitcoinUtxoStatus.FundingUtxo,
-      BitcoinUtxoStatus.ReleaseIsProcessingOnArgon,
-      BitcoinUtxoStatus.FundingUtxo,
-    ]);
   });
 });

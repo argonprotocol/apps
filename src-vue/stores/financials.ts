@@ -621,16 +621,15 @@ export const useFinancials = defineStore('financials', () => {
     const performanceByUuid: Record<string, { profit: bigint; percent: number }> = {};
     for (const summary of bitcoinLockSummaries.value) {
       const { record } = summary;
+      const release = bitcoinLocks.releases.getLatestForLock(record);
       if (
         record.removalReason !== 'released' ||
         record.isHistoryRecoveryPending ||
         record.removalBlockTime === undefined ||
-        record.releaseRedemptionMicrogons === undefined ||
-        record.releaseArgonTxFeeMicrogons === undefined ||
+        release?.argonTxFeeMicrogons === undefined ||
         summary.historicalTotalFees === undefined ||
         valueSatoshisAtRate(summary.satoshis, record.btcPriceAtRemovalMicrogons) === undefined ||
-        valueSatoshisAtRate(record.fundingUtxo?.releaseBitcoinNetworkFee, record.btcPriceAtRemovalMicrogons) ===
-          undefined
+        valueSatoshisAtRate(release.bitcoinNetworkFee, record.btcPriceAtRemovalMicrogons) === undefined
       ) {
         continue;
       }
@@ -639,9 +638,9 @@ export const useFinancials = defineStore('financials', () => {
         bitcoinValue: summary.startingCapital,
         receivedLiquidity: summary.receivedLiquidity,
         pendingLiquidity: summary.pendingLiquidity,
-        redemptionAmount: record.releaseRedemptionMicrogons,
+        redemptionAmount: summary.unlockAmount,
         fees: summary.historicalTotalFees,
-        compensation: record.releaseCompensationMicrogons ?? 0n,
+        compensation: release.compensationMicrogons ?? 0n,
       });
       performanceByUuid[summary.uuid] = {
         profit: endingCapital - summary.startingCapital,
