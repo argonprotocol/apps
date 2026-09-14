@@ -41,6 +41,9 @@ jobs:
           node-version: '24'
           package-manager-cache: false
 
+      - name: Restore runtime client cache
+        uses: ./.github/actions/runtime-client-cache
+
       - name: Enable Corepack
         run: corepack enable
 

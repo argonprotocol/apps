@@ -59,6 +59,9 @@ jobs:
           node-version: 24
           cache: yarn
 
+      - name: Restore runtime client cache
+        uses: ./.github/actions/runtime-client-cache
+
       - name: install Rust stable (macOS)
         uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537
         with:
