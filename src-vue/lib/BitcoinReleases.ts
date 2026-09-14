@@ -92,7 +92,7 @@ export default class BitcoinReleases {
 
   public getLatestForLock(lock: IBitcoinLockRecord): IBitcoinReleaseRecord | undefined {
     return Object.values(this.data.releasesById)
-      .filter(release => release.lockId === lock.lockId)
+      .filter(release => release.kind === BitcoinReleaseKind.Lock && release.lockId === lock.lockId)
       .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())[0];
   }
 

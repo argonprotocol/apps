@@ -289,7 +289,10 @@ export function resolveRecoveredUtxo(durable: IBitcoinUtxoRecord, recovered: IBi
   Object.assign(durable, {
     status,
     spendStatus,
-    activeReleaseId: spendStatus === BitcoinUtxoSpendStatus.Spent ? undefined : durable.activeReleaseId,
+    // A finalized request recovered after a local pre-finalization failure may be the first durable release link.
+    // Never replace a current link or restore one after the UTXO has been spent.
+    activeReleaseId:
+      spendStatus === BitcoinUtxoSpendStatus.Spent ? undefined : (durable.activeReleaseId ?? recovered.activeReleaseId),
     statusError: recovered.statusError ?? durable.statusError,
     firstSeenAt,
     firstSeenBitcoinHeight: Math.max(durable.firstSeenBitcoinHeight, recovered.firstSeenBitcoinHeight),

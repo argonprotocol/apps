@@ -1,6 +1,11 @@
 import type { BitcoinLocksLocksByIdResultSpec159, HistoricalQueryRecord } from '@argonprotocol/runtime-client';
 import { hexToU8a, u8aToHex } from '@polkadot/util';
-import { BitcoinFission, type ArgonApi, type IBitcoinLockDetails } from '@argonprotocol/apps-core';
+import {
+  BitcoinFission,
+  type ArgonApi,
+  type IBitcoinLockDetails,
+  type IBitcoinLockFundingUtxo,
+} from '@argonprotocol/apps-core';
 
 type HistoricalBitcoinLock = NonNullable<HistoricalQueryRecord<'bitcoinLocks', 'locksByUtxoId'>>;
 type CurrentBitcoinLock = NonNullable<BitcoinLocksLocksByIdResultSpec159>;
@@ -89,18 +94,24 @@ export async function getHistoricalBitcoinLock(client: ArgonApi, utxoId: number)
   };
 }
 
-export async function getHistoricalBitcoinFundingUtxoRef(
+export async function getHistoricalBitcoinFundingUtxos(
   client: ArgonApi,
-  utxoId: number,
-): Promise<{ txid: string; vout: number } | undefined> {
+  lockId: number,
+  historicalSatoshis: bigint,
+): Promise<IBitcoinLockFundingUtxo[]> {
+  const currentLock: CurrentBitcoinLock | null = await client.query.bitcoinLocks.locksById(lockId);
+  if (currentLock) {
+    return currentLock.fundingUtxos.map(([utxoRef, satoshis]) => ({
+      utxoRef: { txid: utxoRef.txid, vout: utxoRef.outputIndex },
+      satoshis,
+    }));
+  }
+
   const ref =
-    (await client.query.bitcoinUtxos.utxoIdToRef?.(utxoId)) ??
-    (await client.query.bitcoinUtxos.utxoIdToFundingUtxoRef?.(utxoId));
-  if (!ref) return;
-  return {
-    txid: ref.txid,
-    vout: ref.outputIndex,
-  };
+    (await client.query.bitcoinUtxos.utxoIdToRef?.(lockId)) ??
+    (await client.query.bitcoinUtxos.utxoIdToFundingUtxoRef?.(lockId));
+  if (!ref) return [];
+  return [{ utxoRef: { txid: ref.txid, vout: ref.outputIndex }, satoshis: historicalSatoshis }];
 }
 
 export async function getHistoricalBitcoinPendingMints(client: ArgonApi, utxoId: number): Promise<bigint[]> {
