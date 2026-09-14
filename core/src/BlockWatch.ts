@@ -7,7 +7,7 @@ import {
   type Header,
 } from '@argonprotocol/mainchain';
 import type { HistoricalQueryRecord } from '@argonprotocol/runtime-client';
-import { createDeferred } from './Deferred.js';
+import { createDeferred, type IDeferred } from './Deferred.js';
 import type { ArgonApi, ArgonClient, MainchainClients } from './MainchainClients.js';
 import { NetworkConfig } from './NetworkConfig.js';
 import { createTypedEventEmitter } from './utils.js';
@@ -76,6 +76,7 @@ export class BlockWatch {
   private restartTimer: ReturnType<typeof setTimeout> | undefined;
   private pendingRestart: { reason: string; source: ISubscriptionSource; delayMs?: number } | undefined;
   private isRestarting: boolean = false;
+  private recoveryReplayComplete?: IDeferred;
   private readonly failedRestartDelayMs = 2_500;
   private archiveFinalityClient?: ArgonClient;
   private archiveFinalizedBlockNumber = -1;
@@ -192,6 +193,10 @@ export class BlockWatch {
       });
 
       unsub1 = await client.rpc.chain.subscribeNewHeads(async header => {
+        const recoveryReplayComplete = this.recoveryReplayComplete;
+        if (recoveryReplayComplete) {
+          await recoveryReplayComplete.promise;
+        }
         if (generation !== this.subscriptionGeneration) {
           return;
         }
@@ -239,6 +244,10 @@ export class BlockWatch {
       unsub2 = await client.rpc.chain.subscribeFinalizedHeads(async header => {
         // slight delay to allow newHeads to process first
         await new Promise(resolve => setTimeout(resolve, 100));
+        const recoveryReplayComplete = this.recoveryReplayComplete;
+        if (recoveryReplayComplete) {
+          await recoveryReplayComplete.promise;
+        }
         if (generation !== this.subscriptionGeneration) {
           return;
         }
@@ -853,6 +862,9 @@ export class BlockWatch {
     const previousHeaders = [...this.latestHeaders];
     const previousFinalized = previousHeaders.at(0);
     const previousBest = previousHeaders.at(-1);
+    let recoveredSubscriptionsActive = false;
+    const recoveryReplayComplete = createDeferred(false);
+    this.recoveryReplayComplete = recoveryReplayComplete;
 
     try {
       console.warn('[BlockWatch]: Restarting subscriptions', {
@@ -861,6 +873,32 @@ export class BlockWatch {
       });
       this.stop();
       await this.startWithCatchup(source);
+      recoveredSubscriptionsActive = true;
+
+      if (previousFinalized) {
+        const recoveredFinalized = this.finalizedBlockHeader;
+        if (
+          recoveredFinalized.blockNumber > previousFinalized.blockNumber ||
+          recoveredFinalized.blockHash !== previousFinalized.blockHash
+        ) {
+          const generation = this.subscriptionGeneration;
+          const finalizedReplay = this.processingQueue.add(async () => {
+            const recoveredFinalizedBlocks =
+              recoveredFinalized.blockNumber > previousFinalized.blockNumber
+                ? await this.fillNewHeadGap(previousFinalized, recoveredFinalized)
+                : [recoveredFinalized];
+            if (generation !== this.subscriptionGeneration) {
+              return;
+            }
+            for (const block of recoveredFinalizedBlocks) {
+              block.isFinalized = true;
+              this.finalizedHashes[block.blockNumber] = block.blockHash;
+            }
+            this.events.emit('finalized', recoveredFinalizedBlocks as [...IBlockHeaderInfo[], IBlockHeaderInfo]);
+          });
+          await finalizedReplay.promise;
+        }
+      }
 
       if (previousBest) {
         const recoveredBest = this.bestBlockHeader;
@@ -872,17 +910,10 @@ export class BlockWatch {
           this.events.emit('best-blocks', recoveredBestBlocks as [...IBlockHeaderInfo[], IBlockHeaderInfo]);
         }
       }
-
-      if (previousFinalized) {
-        const recoveredFinalized = this.finalizedBlockHeader;
-        if (
-          recoveredFinalized.blockNumber > previousFinalized.blockNumber ||
-          recoveredFinalized.blockHash !== previousFinalized.blockHash
-        ) {
-          this.events.emit('finalized', [recoveredFinalized]);
-        }
-      }
     } catch (error) {
+      if (recoveredSubscriptionsActive) {
+        this.stop();
+      }
       if (previousHeaders.length) {
         this.latestHeaders = previousHeaders;
       }
@@ -893,6 +924,10 @@ export class BlockWatch {
         delayMs: this.failedRestartDelayMs,
       };
     } finally {
+      if (this.recoveryReplayComplete === recoveryReplayComplete) {
+        this.recoveryReplayComplete = undefined;
+        recoveryReplayComplete.resolve();
+      }
       this.isRestarting = false;
       const pendingRestart = this.pendingRestart;
       if (!pendingRestart) {

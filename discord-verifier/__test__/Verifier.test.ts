@@ -1,8 +1,10 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { Keyring } from '@argonprotocol/mainchain';
-import { afterEach, describe, expect, it } from 'vitest';
+import { encodeAddress } from '@polkadot/util-crypto';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { signDiscordRoleProof, signDiscordRoleUpdateProof } from '../../core/src/DiscordVerification.ts';
 import { createOperationalAccessProof } from '../../core/src/OperationalAccessProof.ts';
 import { Verifier, type IAccountEvidence } from '../src/Verifier.ts';
@@ -93,6 +95,25 @@ describe('role proofs', () => {
     await restarted.close();
   });
 
+  it('updates a permanent binding through any SS58 encoding of its operational account', async () => {
+    const upstream = account('//UpstreamOperator');
+    const candidate = account('//DiscordCandidate');
+    const verifier = createVerifier(':memory:');
+    complete(verifier, upstream, candidate, evidence({ upstream: true }));
+
+    const updated = verifier.completeUpdate(
+      roleUpdateProof(candidate, NOW + 2_000, encodeAddress(candidate.publicKey, 0)),
+      evidence({ candidateRegistered: true }, 123_457).candidate,
+      NOW + 3_000,
+    );
+
+    expect(updated).toEqual({
+      discordUserId: DISCORD_USER_ID,
+      roles: ['treasuryUser', 'treasuryCertified'],
+    });
+    await verifier.close();
+  });
+
   it('rejects a role update for an operational account without a Discord binding', async () => {
     const candidate = account('//DiscordCandidate');
     const verifier = createVerifier(':memory:');
@@ -169,6 +190,106 @@ describe('role proofs', () => {
     await verifier.close();
   });
 
+  it('does not let SS58 aliases bind one operational account to multiple Discord accounts', async () => {
+    const candidate = account('//DiscordCandidate');
+    const verifier = createVerifier(':memory:');
+    const firstCode = verifier.issueCode(DISCORD_USER_ID, NOW).code;
+    verifier.completeCode(
+      roleProof(firstCode, candidate),
+      undefined,
+      evidence({ candidateRegistered: true }),
+      NOW + 1_000,
+    );
+    const secondCode = verifier.issueCode(SECOND_DISCORD_USER_ID, NOW + 2_000).code;
+    const aliasedAddress = encodeAddress(candidate.publicKey, 0);
+
+    expect(() =>
+      verifier.completeCode(
+        roleProof(secondCode, candidate, aliasedAddress),
+        undefined,
+        evidence({ candidateRegistered: true }),
+        NOW + 3_000,
+      ),
+    ).toThrow('already bound');
+    await verifier.close();
+  });
+
+  it('canonicalizes existing bindings before enforcing account uniqueness', async () => {
+    const candidate = account('//DiscordCandidate');
+    const databasePath = temporaryDatabasePath();
+    const database = new DatabaseSync(databasePath);
+    database.exec(`
+      CREATE TABLE VerifiedUsers (
+        discordUserId TEXT PRIMARY KEY,
+        operationalAccountId TEXT NOT NULL UNIQUE,
+        roles TEXT NOT NULL CHECK (json_valid(roles) AND json_type(roles) = 'array'),
+        finalizedBlockNumber INTEGER NOT NULL
+      );
+    `);
+    database
+      .prepare(
+        `INSERT INTO VerifiedUsers (discordUserId, operationalAccountId, roles, finalizedBlockNumber)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(DISCORD_USER_ID, encodeAddress(candidate.publicKey, 0), '["treasuryCertified"]', 123_456);
+    database.close();
+
+    const verifier = createVerifier(databasePath);
+    const secondCode = verifier.issueCode(SECOND_DISCORD_USER_ID, NOW).code;
+
+    expect(() =>
+      verifier.completeCode(
+        roleProof(secondCode, candidate),
+        undefined,
+        evidence({ candidateRegistered: true }),
+        NOW + 1_000,
+      ),
+    ).toThrow('already bound');
+    await verifier.close();
+  });
+
+  it('fails closed before canonicalizing conflicting legacy SS58 bindings', () => {
+    const candidate = account('//DiscordCandidate');
+    const firstAlias = encodeAddress(candidate.publicKey, 0);
+    const secondAlias = encodeAddress(candidate.publicKey, 2);
+    const databasePath = temporaryDatabasePath();
+    const database = new DatabaseSync(databasePath);
+    database.exec(`
+      CREATE TABLE VerifiedUsers (
+        discordUserId TEXT PRIMARY KEY,
+        operationalAccountId TEXT NOT NULL UNIQUE,
+        roles TEXT NOT NULL CHECK (json_valid(roles) AND json_type(roles) = 'array'),
+        finalizedBlockNumber INTEGER NOT NULL
+      );
+    `);
+    const insert = database.prepare(
+      `INSERT INTO VerifiedUsers (discordUserId, operationalAccountId, roles, finalizedBlockNumber)
+       VALUES (?, ?, ?, ?)`,
+    );
+    insert.run(DISCORD_USER_ID, firstAlias, '["treasuryCertified"]', 123_456);
+    insert.run(SECOND_DISCORD_USER_ID, secondAlias, '["treasuryCertified"]', 123_456);
+    database.close();
+
+    const closeDatabase = vi.spyOn(DatabaseSync.prototype, 'close');
+    try {
+      expect(() => createVerifier(databasePath)).toThrow(
+        'VerifiedUsers contains conflicting Discord bindings for one operational account',
+      );
+      expect(closeDatabase).toHaveBeenCalledOnce();
+    } finally {
+      closeDatabase.mockRestore();
+    }
+
+    const unchanged = new DatabaseSync(databasePath);
+    expect(
+      unchanged.prepare(`SELECT discordUserId, operationalAccountId FROM VerifiedUsers ORDER BY discordUserId`).all(),
+    ).toEqual([
+      { discordUserId: DISCORD_USER_ID, operationalAccountId: firstAlias },
+      { discordUserId: SECOND_DISCORD_USER_ID, operationalAccountId: secondAlias },
+    ]);
+    unchanged.close();
+  });
+
   it('does not let a Discord account replace the operational account behind permanent grants', async () => {
     const upstream = account('//UpstreamOperator');
     const firstCandidate = account('//DiscordCandidate');
@@ -230,22 +351,26 @@ function account(uri: string) {
   return new Keyring({ type: 'sr25519' }).addFromUri(uri);
 }
 
-function roleProof(code: string, candidate: ReturnType<typeof account>) {
+function roleProof(code: string, candidate: ReturnType<typeof account>, operationalAccountId = candidate.address) {
   const proof = {
     version: 1 as const,
     discordApplicationId: APPLICATION_ID,
     verificationCode: code,
-    operationalAccountId: candidate.address,
+    operationalAccountId,
   };
   return { ...proof, signature: signDiscordRoleProof(candidate, proof) };
 }
 
-function roleUpdateProof(candidate: ReturnType<typeof account>, signedAt: number) {
+function roleUpdateProof(
+  candidate: ReturnType<typeof account>,
+  signedAt: number,
+  operationalAccountId = candidate.address,
+) {
   const proof = {
     version: 1 as const,
     discordApplicationId: APPLICATION_ID,
     signedAt,
-    operationalAccountId: candidate.address,
+    operationalAccountId,
   };
   return { ...proof, signature: signDiscordRoleUpdateProof(candidate, proof) };
 }
