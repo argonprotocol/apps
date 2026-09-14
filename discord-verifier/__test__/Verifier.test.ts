@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { Keyring } from '@argonprotocol/mainchain';
 import { encodeAddress } from '@polkadot/util-crypto';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { signDiscordRoleProof, signDiscordRoleUpdateProof } from '../../core/src/DiscordVerification.ts';
 import { createOperationalAccessProof } from '../../core/src/OperationalAccessProof.ts';
 import { Verifier, type IAccountEvidence } from '../src/Verifier.ts';
@@ -270,9 +270,15 @@ describe('role proofs', () => {
     insert.run(SECOND_DISCORD_USER_ID, secondAlias, '["treasuryCertified"]', 123_456);
     database.close();
 
-    expect(() => createVerifier(databasePath)).toThrow(
-      'VerifiedUsers contains conflicting Discord bindings for one operational account',
-    );
+    const closeDatabase = vi.spyOn(DatabaseSync.prototype, 'close');
+    try {
+      expect(() => createVerifier(databasePath)).toThrow(
+        'VerifiedUsers contains conflicting Discord bindings for one operational account',
+      );
+      expect(closeDatabase).toHaveBeenCalledOnce();
+    } finally {
+      closeDatabase.mockRestore();
+    }
 
     const unchanged = new DatabaseSync(databasePath);
     expect(

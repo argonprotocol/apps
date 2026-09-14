@@ -52,17 +52,22 @@ export class Verifier {
   ) {
     if (databasePath !== ':memory:') mkdirSync(dirname(databasePath), { recursive: true });
     this.db = new DatabaseSync(databasePath);
-    this.db.exec('PRAGMA busy_timeout = 5000');
-    if (databasePath !== ':memory:') this.db.exec('PRAGMA journal_mode = WAL');
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS VerifiedUsers (
-        discordUserId TEXT PRIMARY KEY,
-        operationalAccountId TEXT NOT NULL UNIQUE,
-        roles TEXT NOT NULL CHECK (json_valid(roles) AND json_type(roles) = 'array'),
-        finalizedBlockNumber INTEGER NOT NULL
-      );
-    `);
-    this.canonicalizeOperationalAccountIds();
+    try {
+      this.db.exec('PRAGMA busy_timeout = 5000');
+      if (databasePath !== ':memory:') this.db.exec('PRAGMA journal_mode = WAL');
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS VerifiedUsers (
+          discordUserId TEXT PRIMARY KEY,
+          operationalAccountId TEXT NOT NULL UNIQUE,
+          roles TEXT NOT NULL CHECK (json_valid(roles) AND json_type(roles) = 'array'),
+          finalizedBlockNumber INTEGER NOT NULL
+        );
+      `);
+      this.canonicalizeOperationalAccountIds();
+    } catch (error) {
+      this.db.close();
+      throw error;
+    }
   }
 
   public issueCode(discordUserId: string, now = Date.now()): { code: string; expiresAt: number } {
