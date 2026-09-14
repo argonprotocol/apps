@@ -28,7 +28,7 @@ describe('HistoricalEventSpecs', () => {
     expect(historicalEventSpecSources[152]).toBe('@argonprotocol/mainchain@1.4.6');
     expect(historicalEventSpecSources[157]).toBe('@argonprotocol/mainchain@1.4.11');
     expect(historicalEventSpecSources[158]).toBe('@argonprotocol/mainchain@1.4.12');
-    expect(historicalEventSpecSources[159]).toBe('@argonprotocol/mainchain@1.4.12-dev.9e9b31a9');
+    expect(historicalEventSpecSources[159]).toBe('@argonprotocol/mainchain@1.4.12-dev.a0735a19');
   });
 
   it('declares the spec 158 Bitcoin flexibility event', () => {
@@ -146,7 +146,7 @@ describe('HistoricalEventSpecs', () => {
   it('uses the newest declarations for future runtime specs', () => {
     expect(() => getHistoricalEventFields(99, 'vaults', 'VaultCreated')).toThrow('runtime spec 99');
     expect(getHistoricalEventFields(159, 'bitcoinLocks', 'BitcoinLockFlexibleChanged')).toEqual([
-      'utxoId',
+      'lockId',
       'vaultId',
       'isFlexible',
     ]);
