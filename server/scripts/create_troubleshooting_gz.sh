@@ -228,16 +228,16 @@ SINCE="$(date -u -d '48 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -v -4
 # Data folders
 echo "[*] Copying data folders"
 shopt -s nullglob
-bot_data_paths=("$ROOT_DIR"/data/argon/bot*)
+server_data_paths=("$ROOT_DIR"/data/argon/bot* "$ROOT_DIR"/data/argon/router.sqlite*)
 shopt -u nullglob
 
-if (( ${#bot_data_paths[@]} )); then
-  if ! rsync -a --delete "${bot_data_paths[@]}" "$OUT/data"; then
-    record_collection_error "Some bot data files could not be copied. Continuing with a partial bundle."
+if (( ${#server_data_paths[@]} )); then
+  if ! rsync -a --delete "${server_data_paths[@]}" "$OUT/data"; then
+    record_collection_error "Some server data files could not be copied. Continuing with a partial bundle."
   fi
 else
   record_collection_error \
-    "No bot data paths matched $ROOT_DIR/data/argon/bot*. Continuing without bot data."
+    "No server data paths matched $ROOT_DIR/data/argon/bot* or $ROOT_DIR/data/argon/router.sqlite*. Continuing without server data."
 fi
 
 exec 2>&3

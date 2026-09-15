@@ -74,11 +74,10 @@ app.post('/role-proofs', async (request, response, next) => {
     let evidence;
 
     try {
-      evidence = await Promise.all([
-        verifier.loadOperationalAccount(input.operationalAccountId),
-        upstreamAccountId ? verifier.loadOperationalAccount(upstreamAccountId) : undefined,
-        treasuryMemberSeal ? verifier.loadVaultDelegate(treasuryMemberSeal.vaultId) : undefined,
-      ]);
+      evidence = await verifier.loadRoleEvidence(input.operationalAccountId, {
+        upstreamAccountId,
+        vaultId: treasuryMemberSeal?.vaultId,
+      });
     } catch (error) {
       if (error instanceof VaultDelegateNotFoundError) {
         next(error);
@@ -90,10 +89,9 @@ app.post('/role-proofs', async (request, response, next) => {
       return;
     }
 
-    const [operationalAccount, upstreamAccount, vaultDelegate] = evidence;
-    const verification = verifier.completeCode(input, operationalAccount, Date.now(), {
-      upstreamAccount,
-      vaultDelegate,
+    const verification = verifier.completeCode(input, evidence.operationalAccount, Date.now(), {
+      upstreamAccount: evidence.upstreamAccount,
+      vaultDelegate: evidence.vaultDelegate,
     });
 
     try {

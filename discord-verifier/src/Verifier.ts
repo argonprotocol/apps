@@ -280,7 +280,14 @@ export class Verifier {
     }
   }
 
-  public async loadVaultDelegate(vaultId: number): Promise<IVaultDelegate> {
+  public async loadRoleEvidence(
+    operationalAccountId: string,
+    authority: { upstreamAccountId?: string; vaultId?: number },
+  ): Promise<{
+    operationalAccount: IOperationalAccountEvidence;
+    upstreamAccount?: IOperationalAccountEvidence;
+    vaultDelegate?: IVaultDelegate;
+  }> {
     this.clientPromise ??= getClient(this.rpcUrl, { throwOnConnect: true }).catch(error => {
       this.clientPromise = undefined;
       throw error;
@@ -291,17 +298,51 @@ export class Verifier {
 
     try {
       const finalizedBlockHash = await client.rpc.chain.getFinalizedHead();
-      const finalizedClient = await runtimeClient(client).at(finalizedBlockHash);
-      const vault = await finalizedClient.query.vaults.vaultsById(vaultId);
+      const [finalizedClient, header] = await Promise.all([
+        runtimeClient(client).at(finalizedBlockHash),
+        client.rpc.chain.getHeader(finalizedBlockHash),
+      ]);
+      const [operationalAccount, upstreamAccount, vault] = await Promise.all([
+        finalizedClient.query.operationalAccounts.operationalAccounts(operationalAccountId),
+        authority.upstreamAccountId
+          ? finalizedClient.query.operationalAccounts.operationalAccounts(authority.upstreamAccountId)
+          : undefined,
+        authority.vaultId === undefined ? undefined : finalizedClient.query.vaults.vaultsById(authority.vaultId),
+      ]);
 
-      if (!vault) throw new VaultDelegateNotFoundError('Treasury vault was not found.');
-      if (!vault.delegateAccountId) {
-        throw new VaultDelegateNotFoundError('Treasury vault delegate was not found.');
+      if (authority.vaultId !== undefined && !vault) {
+        throw new VaultDelegateNotFoundError('Treasury vault was not found.');
+      }
+
+      const finalizedBlockNumber = header.number.toNumber();
+      let vaultDelegate: IVaultDelegate | undefined;
+      if (vault) {
+        const { delegateAccountId } = vault;
+        if (!delegateAccountId) {
+          throw new VaultDelegateNotFoundError('Treasury vault delegate was not found.');
+        }
+        vaultDelegate = {
+          accountId: delegateAccountId,
+          genesisHash: client.genesisHash.toHex(),
+        };
       }
 
       return {
-        accountId: vault.delegateAccountId,
-        genesisHash: client.genesisHash.toHex(),
+        operationalAccount: {
+          isRegistered: operationalAccount !== null,
+          isOperationallyCertified:
+            operationalAccount?.isOperationallyCertified ?? operationalAccount?.isOperational ?? false,
+          finalizedBlockNumber,
+        },
+        upstreamAccount: authority.upstreamAccountId
+          ? {
+              isRegistered: upstreamAccount !== null,
+              isOperationallyCertified:
+                upstreamAccount?.isOperationallyCertified ?? upstreamAccount?.isOperational ?? false,
+              finalizedBlockNumber,
+            }
+          : undefined,
+        vaultDelegate,
       };
     } catch (error) {
       if (error instanceof VaultDelegateNotFoundError) throw error;

@@ -192,7 +192,7 @@ export class UpstreamOperatorClient {
         ),
       );
     } catch (error) {
-      if (error instanceof RequestStatusError && error.status === 404 && error.message === 'Not Found') return;
+      if (error instanceof RequestStatusError && error.status === 404) return;
       throw error;
     }
   }

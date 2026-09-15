@@ -54,7 +54,15 @@ export class BotUpstreamClient {
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
     const response = await fetch(`${this.botInternalUrl}${path}`, init);
     const rawBody = await response.text();
-    const body = rawBody ? JsonExt.parse<T | IRouterErrorResponse>(rawBody) : undefined;
+    let body: T | IRouterErrorResponse | undefined;
+
+    if (rawBody) {
+      try {
+        body = JsonExt.parse<T | IRouterErrorResponse>(rawBody);
+      } catch (error) {
+        if (response.ok) throw error;
+      }
+    }
 
     if (!response.ok) {
       const message = getObjectStringProperty(body, 'error') ?? 'Bot request failed.';

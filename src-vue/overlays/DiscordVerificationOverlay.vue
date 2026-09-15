@@ -177,7 +177,9 @@ async function submit(action: 'connect' | 'update'): Promise<void> {
         ...roleClaim,
       } as const;
 
-      const treasuryMemberSeal = await getUpstreamOperatorClient().getTreasuryMemberSeal(roleClaim);
+      const treasuryMemberSeal = await getUpstreamOperatorClient()
+        .getTreasuryMemberSeal(roleClaim)
+        .catch(() => undefined);
       if (currentRequest !== requestId) return;
 
       requestBody = {

@@ -18,10 +18,10 @@ The public Discord application identity, official guild, role IDs and display na
 service URL live in `core/src/DiscordVerification.ts`. Both the bot and Desktop use that committed configuration.
 
 The role-proof endpoint accepts private API inputs for two proof versions. Version 1 is retained for existing clients.
-Version 2 contains one operational-account challenge signed by both the user's operational key and the upstream vault
-delegate. The delegate seal is issued only through an authenticated Treasury-member Router session. The verifier checks
-the vault delegate and the operational account's finalized on-chain status. Only the operational-account binding and
-earned roles are written to SQLite. The bot receives only the Discord user ID and earned roles.
+Version 2 contains one challenge signed by the user's operational key and can include a vault-delegate seal issued
+through an authenticated Treasury-member Router session. The verifier checks any delegate seal and the operational
+account's finalized on-chain status. Only the operational-account binding and earned roles are written to SQLite. The
+bot receives only the Discord user ID and earned roles.
 
 ## Deployment
 
