@@ -21,7 +21,7 @@ import { startArgonTestNetwork } from '@argonprotocol/apps-core/__test__/startAr
 import { sudoFundWallet } from '@argonprotocol/apps-core/__test__/helpers/sudoFundWallet.ts';
 import { u8aToHex } from '@argonprotocol/mainchain';
 import { sudo, teardown } from '@argonprotocol/testing';
-import { type BotServer, Db as BotDb, startServer as startBotServer, type Bot } from '@argonprotocol/apps-bot';
+import { type BotServer, startServer as startBotServer, type Bot } from '@argonprotocol/apps-bot';
 import type { IInviteResponse, IRouterAuthSessionResponse } from '@argonprotocol/apps-router';
 import { Db as RouterDb } from '../../router/src/Db.ts';
 import { RouterServer } from '../../router/src/RouterServer.ts';
@@ -38,7 +38,6 @@ const skipE2E = Boolean(JSON.parse(process.env.SKIP_E2E ?? '0'));
 describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeout: 240_000 }, () => {
   const tempDirs: string[] = [];
   const botServers: BotServer[] = [];
-  const botDbs: BotDb[] = [];
   const routerServers: RouterServer[] = [];
   const routerDbs: RouterDb[] = [];
   let client: ArgonClient;
@@ -70,7 +69,6 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
     await Promise.all(routerServers.splice(0).map(server => server.close().catch(() => undefined)));
     await Promise.all(botServers.splice(0).map(server => server.close().catch(() => undefined)));
     routerDbs.splice(0).forEach(db => db.close());
-    botDbs.splice(0).forEach(db => db.close());
     await Promise.all(tempDirs.splice(0).map(dir => Fs.promises.rm(dir, { recursive: true, force: true })));
   });
 
@@ -304,8 +302,6 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
     routerDbs.splice(routerDbs.indexOf(source.routerDb), 1);
     await source.botServer.close();
     botServers.splice(botServers.indexOf(source.botServer), 1);
-    source.botDb.close();
-    botDbs.splice(botDbs.indexOf(source.botDb), 1);
 
     const recovered = await startUpstream(
       'recovered',
@@ -384,7 +380,6 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
     restoreKey: string,
     bootstrapEndpointSecret: string,
   ): Promise<{
-    botDb: BotDb;
     botServer: BotServer;
     routerDb: RouterDb;
     routerServer: RouterServer;
@@ -393,12 +388,8 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
     const tempDir = Fs.mkdtempSync(Path.join(os.tmpdir(), `restore-handshake-${name}-`));
     tempDirs.push(tempDir);
 
-    const botDb = new BotDb(Path.join(tempDir, 'bot'));
-    botDb.migrate();
-    botDbs.push(botDb);
     const botServer = startBotServer(
       {
-        db: botDb,
         ethereumGatewayProverService: {},
         state: async () => ({}),
         getHistoryForFrame: async () => ({}),
@@ -434,7 +425,6 @@ describe.skipIf(skipE2E).sequential('member auth handshake integration', { timeo
 
     const routerAddress = routerServer.getAddress();
     return {
-      botDb,
       botServer,
       routerDb,
       routerServer,

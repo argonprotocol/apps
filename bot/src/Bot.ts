@@ -5,7 +5,6 @@ import { Storage } from './Storage.ts';
 import { AutoBidder } from './AutoBidder.ts';
 import { BlockSync } from './BlockSync.ts';
 import { BitcoinLockFeeCouponService } from './BitcoinLockFeeCouponService.ts';
-import { Db } from './Db.ts';
 import { DockerStatus } from './DockerStatus.ts';
 import { setTimeout } from 'node:timers/promises';
 import { EthereumBeaconSyncService } from './EthereumBeaconSyncService.ts';
@@ -22,11 +21,15 @@ import {
   type IEthereumSyncStatus,
   type IHistoryFile,
   type IMiningFrameDetail,
+  type IDiscordRoleClaim,
+  type ITreasuryMemberSeal,
   JsonExt,
   MainchainClients,
   MiningFrames,
   NetworkConfig,
+  signTreasuryMemberSeal,
 } from '@argonprotocol/apps-core';
+import { HttpError } from './HttpError.ts';
 import { MiningFrameHistory } from './MiningFrameHistory.ts';
 import { History } from './History.ts';
 import { BlockWatch } from '@argonprotocol/apps-core/src/BlockWatch.ts';
@@ -35,7 +38,6 @@ import { DelegateSubmitLane } from './DelegateSubmitLane.ts';
 
 interface IBotOptions {
   datadir: string;
-  db: Db;
   fundingAccountId: string;
   bidderKeypair: KeyringPair;
   vaultOperatorAddress: string;
@@ -57,7 +59,6 @@ export default class Bot {
   public miningFrames!: MiningFrames;
   public blockWatch!: BlockWatch;
   public miningFrameHistory!: MiningFrameHistory;
-  public db: Db;
   public bitcoinLockFeeCouponService: BitcoinLockFeeCouponService;
   public ethereumGatewayProverService: EthereumGatewayProverService;
 
@@ -81,12 +82,12 @@ export default class Bot {
   private localClient!: ArgonClient;
   private readonly mainchainClients!: MainchainClients;
   private readonly delegateSubmitLane: DelegateSubmitLane;
+  private vaultIdPromise?: Promise<number>;
   private shutdownDeferred = createDeferred(false);
   private ethereumBeaconSyncService?: EthereumBeaconSyncService;
 
   constructor(options: IBotOptions) {
     this.options = options;
-    this.db = options.db;
     this.mainchainClients = new MainchainClients(this.options.archiveRpcUrl, () =>
       Boolean(JSON.parse(process.env.ARGON_LOG_APIS ?? '0')),
     );
@@ -100,6 +101,25 @@ export default class Bot {
     this.ethereumGatewayProverService = new EthereumGatewayProverService(this.delegateSubmitLane, {
       shouldApplySharedRelayStagger: NetworkConfig.networkName !== 'dev-docker',
       vaultOperatorAddress: this.options.vaultOperatorAddress,
+    });
+  }
+
+  public async signTreasuryMemberSeal(claim: IDiscordRoleClaim): Promise<ITreasuryMemberSeal> {
+    const client = await this.mainchainClients.get(false);
+    this.vaultIdPromise ??= client.query.vaults
+      .vaultIdByOperator(this.options.vaultOperatorAddress)
+      .then(vaultId => {
+        if (vaultId === null) throw new HttpError('No vault was found for this operator.', 404);
+        return vaultId;
+      })
+      .catch(error => {
+        this.vaultIdPromise = undefined;
+        throw error;
+      });
+
+    return signTreasuryMemberSeal(this.delegateSubmitLane.keypair, claim, {
+      genesisHash: client.genesisHash.toHex(),
+      vaultId: await this.vaultIdPromise,
     });
   }
 
@@ -362,7 +382,6 @@ export default class Bot {
     await this.blockSync?.stop?.();
     await this.history?.handleShutdown?.();
     await this.storage?.close?.();
-    this.db.close();
     await this.mainchainClients.disconnect();
     console.log('BOT SHUT DOWN');
     this.shutdownDeferred.resolve();

@@ -16,9 +16,8 @@ services:
     env_file:
       - ../config/.env.state
     volumes:
-      - $ROOT/server:/server
       - $ARGON_DATA_FOLDER:/data
-      - $ROOT/logs:/logs
+      - $ROOT/logs:/logs:ro
     environment:
       - PORT=8080
       - ARGON_CHAIN=${ARGON_CHAIN}

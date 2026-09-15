@@ -1,10 +1,12 @@
 import {
   getObjectStringProperty,
   JsonExt,
+  type IDiscordRoleClaim,
   type IEthereumGatewayCatchUpRequest,
   type IEthereumGatewayCatchUpResponse,
   type IEthereumGatewayRelayStatus,
   type ISignBitcoinLockFeeCouponRequest,
+  type ITreasuryMemberSeal,
   type IBotStateStarting,
   type BitcoinLockFeeCoupon,
 } from '@argonprotocol/apps-core';
@@ -20,6 +22,14 @@ export class BotUpstreamClient {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JsonExt.stringify(request),
+    });
+  }
+
+  public async signTreasuryMemberSeal(claim: IDiscordRoleClaim): Promise<ITreasuryMemberSeal> {
+    return await this.request('/treasury-member-proofs/sign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JsonExt.stringify(claim),
     });
   }
 

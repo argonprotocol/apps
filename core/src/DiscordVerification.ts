@@ -30,11 +30,20 @@ export const DISCORD_ROLE_ORDER = ['treasuryUser', 'treasuryCertified', 'operati
 export type DiscordEarnedRole = (typeof DISCORD_ROLE_ORDER)[number];
 export type DiscordRole = DiscordEarnedRole | 'coreDeveloper';
 
-export interface IDiscordRoleProof {
-  version: 1;
+export interface IDiscordRoleClaim {
   discordApplicationId: string;
   verificationCode: string;
   operationalAccountId: string;
+}
+
+export interface IDiscordRoleProof extends IDiscordRoleClaim {
+  version: 1;
+}
+
+export interface IDiscordRoleSubmission extends IDiscordRoleClaim {
+  version: 2;
+  signature: string;
+  treasuryMemberSeal?: ITreasuryMemberSeal;
 }
 
 export interface IDiscordRoleUpdateProof {
@@ -42,6 +51,12 @@ export interface IDiscordRoleUpdateProof {
   discordApplicationId: string;
   signedAt: number;
   operationalAccountId: string;
+}
+
+export interface ITreasuryMemberSeal {
+  genesisHash: string;
+  vaultId: number;
+  signature: string;
 }
 
 export function signDiscordRoleProof(account: KeyringPair, proof: IDiscordRoleProof): string {
@@ -58,6 +73,29 @@ export function signDiscordRoleUpdateProof(account: KeyringPair, proof: IDiscord
 
 export function verifyDiscordRoleUpdateProof(proof: IDiscordRoleUpdateProof, signature: string): boolean {
   return signatureVerify(getDiscordRoleUpdateProofHash(proof), hexToU8a(signature), proof.operationalAccountId).isValid;
+}
+
+export function signTreasuryMemberSeal(
+  account: KeyringPair,
+  claim: IDiscordRoleClaim,
+  seal: Pick<ITreasuryMemberSeal, 'genesisHash' | 'vaultId'>,
+): ITreasuryMemberSeal {
+  return {
+    ...seal,
+    signature: u8aToHex(account.sign(getTreasuryMemberSealHash(claim, seal), { withType: true })),
+  };
+}
+
+export function verifyTreasuryMemberSeal(
+  claim: IDiscordRoleClaim,
+  seal: ITreasuryMemberSeal,
+  signerAccountId: string,
+): boolean {
+  try {
+    return signatureVerify(getTreasuryMemberSealHash(claim, seal), hexToU8a(seal.signature), signerAccountId).isValid;
+  } catch {
+    return false;
+  }
 }
 
 function getDiscordRoleProofHash(proof: IDiscordRoleProof): Uint8Array {
@@ -84,6 +122,25 @@ function getDiscordRoleUpdateProofHash(proof: IDiscordRoleUpdateProof): Uint8Arr
         proof.discordApplicationId,
         proof.signedAt,
         proof.operationalAccountId,
+      ].join(':'),
+    ),
+    256,
+  );
+}
+
+function getTreasuryMemberSealHash(
+  claim: IDiscordRoleClaim,
+  seal: Pick<ITreasuryMemberSeal, 'genesisHash' | 'vaultId'>,
+): Uint8Array {
+  return blake2AsU8a(
+    stringToU8a(
+      [
+        'argon_treasury_member_seal_v1',
+        seal.genesisHash,
+        seal.vaultId,
+        claim.discordApplicationId,
+        claim.verificationCode,
+        claim.operationalAccountId,
       ].join(':'),
     ),
     256,

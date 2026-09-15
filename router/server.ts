@@ -4,7 +4,6 @@ import { RouterServer } from './src/RouterServer.ts';
 import {
   ARGON_CHAIN,
   BITCOIN_CHAIN,
-  BOT_DB_PATH,
   BOT_INTERNAL_URL,
   LOCAL_NODE_URL,
   MAIN_NODE_URL,
@@ -30,7 +29,6 @@ db.migrate();
 const server = new RouterServer({
   db,
   botInternalUrl: BOT_INTERNAL_URL,
-  botDbPath: BOT_DB_PATH,
   port: Number(PORT),
   localNodeUrl: LOCAL_NODE_URL,
   mainNodeUrl: MAIN_NODE_URL,

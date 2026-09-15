@@ -4,7 +4,10 @@ import {
   type ArgonClient,
   createArgonClient,
   type ICertificationProgress,
+  type IDiscordRoleClaim,
+  type ITreasuryMemberSeal,
   JsonExt,
+  isValidArgonAccountAddress,
   loadAccountLocks,
   loadCertificationProgress,
   NetworkConfig,
@@ -65,7 +68,6 @@ type IRouterServerAuthOptions = Omit<IRouterAuthServiceOptions, 'db' | 'memberRe
 interface IRouterServerOptions {
   db: Db;
   botInternalUrl: string;
-  botDbPath?: string;
   port?: number | string;
   localNodeUrl?: string;
   mainNodeUrl?: string;
@@ -120,7 +122,6 @@ export class RouterServer {
       db,
       botClient,
       getMainchainClient,
-      legacyBotDbPath: this.options.botDbPath,
     });
     void bitcoinLockCouponService
       .reconcile()
@@ -232,6 +233,28 @@ export class RouterServer {
         }
 
         return session;
+      }),
+    );
+
+    app.post(
+      '/auth/member-proof',
+      express.text({ type: '*/*' }),
+      safeJsonRoute<ITreasuryMemberSeal>(async req => {
+        if (!routerAuth.isEnabled) {
+          throw new RouterError('Router auth is not configured.', 503);
+        }
+        routerAuth.requireMemberSession(req);
+
+        const roleClaim = requireBody<IDiscordRoleClaim>(req);
+        if (
+          !/^\d{17,20}$/.test(roleClaim.discordApplicationId) ||
+          !/^ARGON-[0-9a-f]{32}$/.test(roleClaim.verificationCode) ||
+          !isValidArgonAccountAddress(roleClaim.operationalAccountId)
+        ) {
+          throw new RouterError('A valid Discord role claim is required.', 400);
+        }
+
+        return await botClient.signTreasuryMemberSeal(roleClaim);
       }),
     );
 

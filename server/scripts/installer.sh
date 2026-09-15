@@ -316,8 +316,7 @@ if ! (already_ran "DockerInstall"); then
     run_compose "sudo docker network inspect ${network_name} >/dev/null 2>&1 || sudo docker network create ${network_name}"
 
     router_db="$HOME_DIR/data/argon/router.sqlite"
-    bot_db="$HOME_DIR/data/argon/vault.sqlite"
-    if [[ ! -f "$router_db" && ! -f "$bot_db" ]]; then
+    if [[ ! -f "$router_db" ]]; then
       latest_database_backup=""
       for database_backup in "$HOME_DIR"/backups/argon-server-databases-*.tar.gz; do
         if [[ ! -f "$database_backup" ]]; then
@@ -329,8 +328,8 @@ if ! (already_ran "DockerInstall"); then
       done
 
       if [[ -n "$latest_database_backup" ]]; then
-        echo "Restoring server databases from $latest_database_backup"
-        run_command "tar -xzf \"$latest_database_backup\" -C \"$HOME_DIR\""
+        echo "Restoring router database from $latest_database_backup"
+        run_command "tar -xzf \"$latest_database_backup\" -C \"$HOME_DIR\" data/argon/router.sqlite"
       fi
     fi
 

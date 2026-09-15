@@ -11,7 +11,7 @@ cd "$HOME_DIR/server"
 docker compose --profile=all down --rmi all --volumes
 
 DATABASES=()
-for database in router.sqlite vault.sqlite; do
+for database in router.sqlite; do
   if [[ -f "$DATA_DIR/$database" ]]; then
     DATABASES+=("data/argon/$database")
   fi

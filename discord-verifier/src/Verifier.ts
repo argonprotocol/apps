@@ -9,13 +9,15 @@ import {
   DISCORD_ROLE_ORDER,
   verifyDiscordRoleProof,
   verifyDiscordRoleUpdateProof,
+  verifyTreasuryMemberSeal,
   type DiscordEarnedRole,
   type IDiscordRoleProof,
+  type IDiscordRoleSubmission,
   type IDiscordRoleUpdateProof,
 } from '../../core/src/DiscordVerification.ts';
 import { verifyOperationalAccessProof, type IOperationalAccessProof } from '../../core/src/OperationalAccessProof.ts';
 
-export interface IAccountEvidence {
+export interface IOperationalAccountEvidence {
   isRegistered: boolean;
   isOperationallyCertified: boolean;
   finalizedBlockNumber: number;
@@ -26,13 +28,16 @@ export interface IRoleVerification {
   roles: DiscordEarnedRole[];
 }
 
-export interface IRoleEvidence {
-  candidate: IAccountEvidence;
-  upstream?: IAccountEvidence;
+export interface IVaultDelegate {
+  accountId: string;
+  genesisHash: string;
 }
 
-interface ISubmittedRoleProof extends IDiscordRoleProof {
+export class VaultDelegateNotFoundError extends Error {}
+
+interface ILegacySubmittedRoleProof extends IDiscordRoleProof {
   signature: string;
+  accessProof?: IOperationalAccessProof;
 }
 
 interface ISubmittedRoleUpdateProof extends IDiscordRoleUpdateProof {
@@ -92,28 +97,59 @@ export class Verifier {
   }
 
   public completeCode(
-    proof: ISubmittedRoleProof,
-    accessProof: IOperationalAccessProof | undefined,
-    { candidate, upstream }: IRoleEvidence,
+    proof: ILegacySubmittedRoleProof | IDiscordRoleSubmission,
+    operationalAccount: IOperationalAccountEvidence,
     now = Date.now(),
+    authority: {
+      upstreamAccount?: IOperationalAccountEvidence;
+      vaultDelegate?: IVaultDelegate;
+    } = {},
   ): IRoleVerification {
     const { verificationCode, discordApplicationId, operationalAccountId, signature } = proof;
     const { discordUserId } = this.getCode(verificationCode, now);
+
     if (discordApplicationId !== this.discordApplicationId) {
       throw new Error('Discord role proof application is invalid.');
     }
-    if (!verifyDiscordRoleProof(proof, signature)) {
+
+    const operationalProof =
+      proof.version === 1
+        ? proof
+        : {
+            version: 1 as const,
+            discordApplicationId,
+            verificationCode,
+            operationalAccountId,
+          };
+    if (!verifyDiscordRoleProof(operationalProof, signature)) {
       throw new Error('Discord role proof signature is invalid.');
     }
-    const canonicalOperationalAccountId = canonicalizeAccountId(operationalAccountId);
 
     const roles: DiscordEarnedRole[] = [];
-    if (accessProof && verifyOperationalAccessProof(accessProof, operationalAccountId) && upstream?.isRegistered) {
+    if (
+      proof.version === 1 &&
+      proof.accessProof &&
+      verifyOperationalAccessProof(proof.accessProof, operationalAccountId) &&
+      authority.upstreamAccount?.isRegistered
+    ) {
       roles.push('treasuryUser');
     }
-    if (candidate.isRegistered) roles.push('treasuryCertified');
-    if (candidate.isOperationallyCertified) roles.push('operationallyCertified');
+    if (proof.version === 2 && proof.treasuryMemberSeal) {
+      const { treasuryMemberSeal } = proof;
+      const { vaultDelegate } = authority;
+      if (!vaultDelegate || treasuryMemberSeal.genesisHash.toLowerCase() !== vaultDelegate.genesisHash.toLowerCase()) {
+        throw new Error('Treasury membership proof genesis is invalid.');
+      }
+      if (!verifyTreasuryMemberSeal(proof, treasuryMemberSeal, vaultDelegate.accountId)) {
+        throw new Error('Treasury membership proof is invalid.');
+      }
+      roles.push('treasuryUser');
+    }
+    if (operationalAccount.isRegistered) roles.push('treasuryCertified');
+    if (operationalAccount.isOperationallyCertified) roles.push('operationallyCertified');
     if (!roles.length) throw new Error('No Argon role could be proven from finalized state.');
+
+    const canonicalOperationalAccountId = canonicalizeAccountId(operationalAccountId);
 
     this.db.exec('BEGIN IMMEDIATE');
     try {
@@ -121,18 +157,22 @@ export class Verifier {
         .prepare(`SELECT operationalAccountId, roles FROM VerifiedUsers WHERE discordUserId = ?`)
         .get(discordUserId) as { operationalAccountId: string; roles: string } | undefined;
       const { operationalAccountId: boundAccountId, roles: currentRoles = '[]' } = currentUser ?? {};
+
       if (boundAccountId && boundAccountId !== canonicalOperationalAccountId) {
         throw new Error('Discord account is already bound to another operational account.');
       }
+
       const existing = this.db
         .prepare(`SELECT discordUserId FROM VerifiedUsers WHERE operationalAccountId = ?`)
         .get(canonicalOperationalAccountId) as { discordUserId: string } | undefined;
-      const { discordUserId: boundDiscordUserId } = existing ?? {};
-      if (boundDiscordUserId && boundDiscordUserId !== discordUserId) {
+
+      if (existing && existing.discordUserId !== discordUserId) {
         throw new Error('Operational account is already bound to another Discord account.');
       }
+
       const granted = new Set<DiscordEarnedRole>(JSON.parse(currentRoles) as DiscordEarnedRole[]);
       for (const role of roles) granted.add(role);
+
       this.db
         .prepare(
           `INSERT INTO VerifiedUsers
@@ -146,8 +186,9 @@ export class Verifier {
           discordUserId,
           canonicalOperationalAccountId,
           JSON.stringify(DISCORD_ROLE_ORDER.filter(role => granted.has(role))),
-          candidate.finalizedBlockNumber,
+          operationalAccount.finalizedBlockNumber,
         );
+
       this.db.exec('COMMIT');
       this.codes.delete(verificationCode);
     } catch (error) {
@@ -170,7 +211,7 @@ export class Verifier {
 
   public completeUpdate(
     proof: ISubmittedRoleUpdateProof,
-    candidate: IAccountEvidence,
+    operationalAccount: IOperationalAccountEvidence,
     now = Date.now(),
   ): IRoleVerification {
     const { discordUserId } = this.getUpdateBinding(proof, now);
@@ -178,12 +219,15 @@ export class Verifier {
       roles: string;
     };
     const granted = new Set<DiscordEarnedRole>(JSON.parse(user.roles) as DiscordEarnedRole[]);
-    if (candidate.isRegistered) granted.add('treasuryCertified');
-    if (candidate.isOperationallyCertified) granted.add('operationallyCertified');
+
+    if (operationalAccount.isRegistered) granted.add('treasuryCertified');
+    if (operationalAccount.isOperationallyCertified) granted.add('operationallyCertified');
+
     const roles = DISCORD_ROLE_ORDER.filter(role => granted.has(role));
     this.db
       .prepare(`UPDATE VerifiedUsers SET roles = ?, finalizedBlockNumber = ? WHERE discordUserId = ?`)
-      .run(JSON.stringify(roles), candidate.finalizedBlockNumber, discordUserId);
+      .run(JSON.stringify(roles), operationalAccount.finalizedBlockNumber, discordUserId);
+
     return { discordUserId, roles };
   }
 
@@ -206,38 +250,61 @@ export class Verifier {
     return user;
   }
 
-  public async checkRoleEvidence(candidateAccountId: string, upstreamAccountId?: string): Promise<IRoleEvidence> {
+  public async loadOperationalAccount(operationalAccountId: string): Promise<IOperationalAccountEvidence> {
     this.clientPromise ??= getClient(this.rpcUrl, { throwOnConnect: true }).catch(error => {
       this.clientPromise = undefined;
       throw error;
     });
+
     const connection = this.clientPromise;
     const client = await connection;
+
     try {
       const finalizedBlockHash = await client.rpc.chain.getFinalizedHead();
       const [finalizedClient, header] = await Promise.all([
         runtimeClient(client).at(finalizedBlockHash),
         client.rpc.chain.getHeader(finalizedBlockHash),
       ]);
+
       const finalizedBlockNumber = header.number.toNumber();
-      const candidate = await finalizedClient.query.operationalAccounts.operationalAccounts(candidateAccountId);
-      const candidateEvidence = {
-        isRegistered: candidate !== null,
-        isOperationallyCertified: candidate?.isOperationallyCertified ?? candidate?.isOperational ?? false,
+      const account = await finalizedClient.query.operationalAccounts.operationalAccounts(operationalAccountId);
+      return {
+        isRegistered: account !== null,
+        isOperationallyCertified: account?.isOperationallyCertified ?? account?.isOperational ?? false,
         finalizedBlockNumber,
       };
-      if (!upstreamAccountId) return { candidate: candidateEvidence };
+    } catch (error) {
+      if (this.clientPromise === connection) this.clientPromise = undefined;
+      await client.disconnect().catch(() => undefined);
+      throw error;
+    }
+  }
 
-      const upstream = await finalizedClient.query.operationalAccounts.operationalAccounts(upstreamAccountId);
+  public async loadVaultDelegate(vaultId: number): Promise<IVaultDelegate> {
+    this.clientPromise ??= getClient(this.rpcUrl, { throwOnConnect: true }).catch(error => {
+      this.clientPromise = undefined;
+      throw error;
+    });
+
+    const connection = this.clientPromise;
+    const client = await connection;
+
+    try {
+      const finalizedBlockHash = await client.rpc.chain.getFinalizedHead();
+      const finalizedClient = await runtimeClient(client).at(finalizedBlockHash);
+      const vault = await finalizedClient.query.vaults.vaultsById(vaultId);
+
+      if (!vault) throw new VaultDelegateNotFoundError('Treasury vault was not found.');
+      if (!vault.delegateAccountId) {
+        throw new VaultDelegateNotFoundError('Treasury vault delegate was not found.');
+      }
+
       return {
-        candidate: candidateEvidence,
-        upstream: {
-          isRegistered: upstream !== null,
-          isOperationallyCertified: upstream?.isOperationallyCertified ?? upstream?.isOperational ?? false,
-          finalizedBlockNumber,
-        },
+        accountId: vault.delegateAccountId,
+        genesisHash: client.genesisHash.toHex(),
       };
     } catch (error) {
+      if (error instanceof VaultDelegateNotFoundError) throw error;
       if (this.clientPromise === connection) this.clientPromise = undefined;
       await client.disconnect().catch(() => undefined);
       throw error;

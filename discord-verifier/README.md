@@ -17,10 +17,11 @@ precedence. Never commit the bot token or live database.
 The public Discord application identity, official guild, role IDs and display names, recognized developer IDs, and
 service URL live in `core/src/DiscordVerification.ts`. Both the bot and Desktop use that committed configuration.
 
-The role-proof endpoint accepts only public cryptographic material: the one-time Discord code, operational account ID,
-operational account signature, and (when available) the upstream operator's existing access proof. It does not accept
-invite codes, router sessions, default or treasury account details, wallet derivation data, balances, or certification
-history. Codes and signatures are validated in memory and are not written to SQLite.
+The role-proof endpoint accepts private API inputs for two proof versions. Version 1 is retained for existing clients.
+Version 2 contains one operational-account challenge signed by both the user's operational key and the upstream vault
+delegate. The delegate seal is issued only through an authenticated Treasury-member Router session. The verifier checks
+the vault delegate and the operational account's finalized on-chain status. Only the operational-account binding and
+earned roles are written to SQLite. The bot receives only the Discord user ID and earned roles.
 
 ## Deployment
 

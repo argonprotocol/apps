@@ -1,10 +1,12 @@
 import {
   getObjectStringProperty,
   fetch,
+  type IDiscordRoleClaim,
   type IEthereumGatewayCatchUpRequest,
   type IEthereumGatewayCatchUpResponse,
   JsonExt,
   signRouterAuthAccountBinding,
+  type ITreasuryMemberSeal,
 } from '@argonprotocol/apps-core';
 import type { KeyringPair } from '@argonprotocol/mainchain';
 import type {
@@ -178,6 +180,21 @@ export class UpstreamOperatorClient {
     );
 
     return body.invite;
+  }
+
+  public async getTreasuryMemberSeal(claim: IDiscordRoleClaim): Promise<ITreasuryMemberSeal | undefined> {
+    if (!(await this.resolveOperatorHost())) return;
+
+    try {
+      return await this.requestWithOperatorHost(operatorHost =>
+        this.requestWithSessionRetry(this.getMemberSessionAuth(operatorHost), sessionId =>
+          UpstreamOperatorClient.postJson<ITreasuryMemberSeal>(operatorHost, '/auth/member-proof', claim, sessionId),
+        ),
+      );
+    } catch (error) {
+      if (error instanceof RequestStatusError && error.status === 404 && error.message === 'Not Found') return;
+      throw error;
+    }
   }
 
   public async requestOperationsUpgrade(args: {

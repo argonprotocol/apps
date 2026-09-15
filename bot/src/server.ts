@@ -4,6 +4,7 @@ import express from 'express';
 import cors from 'cors';
 import { DockerStatus } from './DockerStatus.ts';
 import type {
+  IDiscordRoleClaim,
   ISignBitcoinLockFeeCouponRequest,
   IBotApiMethod,
   IBotApiResponse,
@@ -76,6 +77,13 @@ export class BotServer {
     app.post('/bitcoin-lock-fee-coupons/sign', express.text({ type: '*/*' }), async (req, res) => {
       await safeJsonRoute(res, async () => {
         return await bitcoinLockFeeCouponService.sign(requireBody<ISignBitcoinLockFeeCouponRequest>(req.body));
+      });
+    });
+
+    app.post('/treasury-member-proofs/sign', express.text({ type: '*/*' }), async (req, res) => {
+      await safeJsonRoute(res, async () => {
+        const claim = requireBody<IDiscordRoleClaim>(req.body);
+        return await bot.signTreasuryMemberSeal(claim);
       });
     });
 
