@@ -152,25 +152,19 @@ function setupSecuritizationScenario(
     | 'maxReturnsAboveWalletMaximum' = 'ready',
 ) {
   const { wallets } = setupAppScenario({ selectedTab: TopTab.Vaulting });
-  const hasDelayedRelease =
-    state === 'scheduledDelayedRelease' ||
-    state === 'proposedDelayedRelease' ||
-    state === 'waitingForBitcoinLockRelease';
-  const createdVault = createScenarioVault(
-    state === 'proposedDelayedRelease'
-      ? {
-          securitization: 1_550_000_000n,
-          securitizationTarget: 1_550_000_000n,
-          securitizationLocked: 1_550_000_000n,
-        }
-      : hasDelayedRelease
-        ? {
-            securitizationTarget: 1_200_000_000n,
-            securitizationLocked: 1_550_000_000n,
-            securitizationReleaseSchedule: new Map([[860_720, 350_000_000n]]),
-          }
-        : {},
-  );
+  const createdVault = createScenarioVault();
+  if (state === 'proposedDelayedRelease') {
+    createdVault.securitization = 1_550_000_000n;
+    createdVault.securitizationTarget = 1_550_000_000n;
+    createdVault.securitizationLocked = 1_550_000_000n;
+  } else if (state === 'scheduledDelayedRelease') {
+    createdVault.securitizationTarget = 1_200_000_000n;
+    createdVault.securitizationLocked = 1_550_000_000n;
+    createdVault.securitizationReleaseSchedule = new Map([[860_720, 350_000_000n]]);
+  } else if (state === 'waitingForBitcoinLockRelease') {
+    createdVault.securitizationTarget = 1_200_000_000n;
+    createdVault.securitizationLocked = 1_550_000_000n;
+  }
   const currency = getCurrency();
   const currentMyVault = getMyVault();
   const currentBitcoinLocks = getBitcoinLocks();
@@ -229,7 +223,9 @@ function setupSecuritizationScenario(
     Object.assign(Object.create(currentBitcoinLocks), {
       data: Vue.reactive({ oracleBitcoinBlockHeight: 860_000 }),
       getAllLocks: fn(() =>
-        state === 'proposedDelayedRelease' ? [{ vaultId: createdVault.vaultId, fundedSatoshis: 0n }] : [],
+        state === 'proposedDelayedRelease' || state === 'waitingForBitcoinLockRelease'
+          ? [{ vaultId: createdVault.vaultId, fundedSatoshis: state === 'waitingForBitcoinLockRelease' ? 1n : 0n }]
+          : [],
       ),
       isInactiveForVaultDisplay: fn(() => false),
       isLockFunded: fn(() => true),

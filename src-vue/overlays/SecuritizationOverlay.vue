@@ -372,6 +372,8 @@ const bitcoinSecuritizationShortfall = Vue.computed(() => {
     bitcoinMarketValue += currency.convertSatToMicrogon(lock.fundedSatoshis);
   }
   for (const lock of Object.values(myVault.data.externalLocks)) {
+    if (lock.isPending) continue;
+
     bitcoinMarketValue += currency.convertSatToMicrogon(lock.satoshis);
   }
 

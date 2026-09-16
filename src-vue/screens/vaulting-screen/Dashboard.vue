@@ -470,9 +470,13 @@ const bitcoinLockedMarketValue = Vue.computed(() => {
   let value = 0n;
 
   for (const lock of localVaultLocks.value) {
+    if (lock.isHistoryRecoveryPending) continue;
+
     value += currency.convertSatToMicrogon(lock.fundedSatoshis);
   }
   for (const lock of Object.values(myVault.data.externalLocks)) {
+    if (lock.isPending) continue;
+
     value += currency.convertSatToMicrogon(lock.satoshis);
   }
 
